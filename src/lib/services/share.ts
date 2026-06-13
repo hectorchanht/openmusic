@@ -67,17 +67,24 @@ function isStub(v: unknown): v is Stub {
 }
 
 /**
- * Human-readable, URL-safe slug for `${title} ${artist}`. CJK-safe: CJK codepoints are
- * preserved as-is (encode/decodeURIComponent round-trips them); only ASCII letters/digits
- * survive verbatim, ASCII punctuation/whitespace collapses to a single '-'. Capped at ~60 chars.
- * Pure — no browser/DOM access. e.g. slugify('Hello World!!','A B') === 'hello-world-a-b'.
+ * Human-readable, URL-safe ASCII slug for `${title} ${artist}` (D-05). CJK / non-ASCII
+ * codepoints are STRIPPED to ASCII (NOT preserved): the string is NFKD-normalised, combining
+ * marks dropped, then every run of non-`[a-z0-9]` (which includes all CJK + punctuation +
+ * whitespace) collapses to a single '-'. The slug is COSMETIC and copy-paste-clean — the
+ * trailing `{source}{id}` key (see entityShareUrl/parseEntityParam) is the AUTHORITATIVE decode
+ * key, so an all-CJK title legitimately yields '' here. Capped at ~60 chars. Pure — no
+ * browser/DOM access. e.g. slugify('Hello World!!','A B') === 'hello-world-a-b';
+ * slugify('稻香','Jay Chou') === 'jay-chou'; slugify('情非得已','') === ''.
  */
 export function slugify(title: string, artist: string): string {
 	const raw = `${title ?? ''} ${artist ?? ''}`.trim().toLowerCase();
 	const slug = raw
-		// Replace any run of ASCII punctuation/whitespace with a single '-'. CJK / non-ASCII
-		// letters are NOT in this class, so they survive untouched (URL-encoded by the consumer).
-		.replace(/[\s!-/:-@[-`{-~]+/g, '-')
+		.normalize('NFKD')
+		// Strip combining marks (accents) left over from NFKD decomposition.
+		.replace(/[̀-ͯ]/g, '')
+		// Collapse every run of non-ASCII-alnum to a single '-'. CJK and all other non-ASCII
+		// letters are NOT [a-z0-9], so they are dropped here (ASCII-only output, D-05).
+		.replace(/[^a-z0-9]+/g, '-')
 		.replace(/-+/g, '-')
 		.replace(/^-+|-+$/g, '');
 	return slug.slice(0, 60).replace(/-+$/g, '');
@@ -148,6 +155,42 @@ export function shareUrl(current: Track, queue?: Track[]): string {
 	const payload = encodeShare(current, queue ?? []);
 	const slugSeg = slug ? `t=${encodeURIComponent(slug)}&` : '';
 	return `${base}/?${slugSeg}play=${payload}`;
+}
+
+/** The fixed source enum the readable share path encodes. Because source names are a closed
+ *  set, `{source}{id}` is unambiguously separable from the cosmetic slug (D-04 / A7). */
+const ENTITY_SOURCE_RE = /-(netease|qq|kuwo|joox|kugou|migu)([A-Za-z0-9]+)$/;
+const ENTITY_SOURCE_ONLY_RE = /^(netease|qq|kuwo|joox|kugou|migu)([A-Za-z0-9]+)$/;
+
+/**
+ * Build a readable per-entity share URL `${origin}/{type}/{slug}-{source}{id}` (D-04). The slug
+ * is cosmetic (ASCII, may be '' for an all-CJK title — see slugify); the trailing `{source}{id}`
+ * is the AUTHORITATIVE decode key. When the slug is empty the leading hyphen is dropped so the
+ * path is `/{type}/{source}{id}`. `origin` is guarded for SSR (reused verbatim from shareUrl).
+ * Pure apart from the optional `location` read — server-importable.
+ */
+export function entityShareUrl(
+	type: 'song' | 'album' | 'artist',
+	t: { title: string; artist: string; source: string; songid: string }
+): string {
+	const base = typeof location !== 'undefined' ? location.origin : '';
+	const slug = slugify(t.title, t.artist);
+	const id = `${t.source}${t.songid}`;
+	const path = slug ? `${slug}-${id}` : id;
+	return `${base}/${type}/${path}`;
+}
+
+/**
+ * Decode a readable entity path param back to its authoritative `{ source, id }` key (D-04). The
+ * cosmetic slug is ignored; only the trailing `{source}{id}` anchored on the fixed source enum is
+ * read. Handles both the slug-prefixed form (`qing-fei-de-yi-qq123`) and the empty-slug form
+ * (`qq123`). Returns `null` on no-match — mirrors isStub's pure-validator discipline, NEVER throws
+ * (T-24-03: this is the validation gate before the param is used downstream). Pure — SSR-safe.
+ */
+export function parseEntityParam(param: string): { source: string; id: string } | null {
+	if (typeof param !== 'string' || !param) return null;
+	const m = param.match(ENTITY_SOURCE_RE) ?? param.match(ENTITY_SOURCE_ONLY_RE);
+	return m ? { source: m[1], id: m[2] } : null;
 }
 
 /**
