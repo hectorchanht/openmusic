@@ -598,8 +598,8 @@ Plans:
 
 **Wave 1**
 
-- [ ] 24-01-PLAN.md — Offline testable cores: pure sw-cache.ts (shouldBypass/cacheNameFor) + reactive online store, with tests (OFFL-01, OFFL-03)
-- [ ] 24-02-PLAN.md — Share/SEO testable cores: reverse slugify to ASCII (D-05) + entityShareUrl/parseEntityParam, with tests (SHARE-02)
+- [x] 24-01-PLAN.md — Offline testable cores: pure sw-cache.ts (shouldBypass/cacheNameFor) + reactive online store, with tests (OFFL-01, OFFL-03)
+- [x] 24-02-PLAN.md — Share/SEO testable cores: reverse slugify to ASCII (D-05) + entityShareUrl/parseEntityParam, with tests (SHARE-02)
 
 **Wave 2** *(blocked on Wave 1)*
 
@@ -647,7 +647,7 @@ Last.fm write-side dependency chain (deferred → v1.3): 11 (auth) before 12 & 1
 | 21. Search & Cover Pipeline Polish | 5/5 | Complete   | 2026-06-13 |
 | 22. Lyrics Polish | 1/2 | In Progress|  |
 | 23. UX Audit & Homepage/Artist Polish | 8/8 | Complete    | 2026-06-12 |
-| 24. Offline App-Shell & Sharing/SEO | 0/5 | Planned | - |
+| 24. Offline App-Shell & Sharing/SEO | 2/5 | In Progress|  |
 
 ## Backlog
 
