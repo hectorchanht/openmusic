@@ -35,6 +35,9 @@ Fixed by ROADMAP. Discussion clarifies HOW within this boundary. Both halves are
 - **D-09:** **Per-surface inline offline states + promote Downloads.** A global offline indicator; each online-only screen (search, discovery/charts, artist/album) renders an inline offline empty-state; Library/Downloads stay fully usable and are surfaced. **No forced redirect** — the user is never yanked between tabs.
 - **D-10:** Explicitly avoid stuck loaders / dead screens offline (the failure OFFL-03 calls out): offline-aware surfaces short-circuit to their inline offline state instead of hanging on a fetch. Keep it simple — "don't bloat" per the requirement.
 
+### SEO scope (SHARE-03) — resolved post-research
+- **D-11:** "Every page carries SEO meta" = **per-entity SSR meta on the entity routes (song/album/artist) + a static site-default (title/description/canonical) baked into `app.html`** for the `ssr=false` shell pages. Does NOT mean dynamic SSR meta on every shell page (would break D-01). Crawlers get real per-entity meta where it matters; everything else carries the static default.
+
 ### Claude's Discretion (defer to research/planning)
 - SW precache manifest contents (app-shell-only vs shell + key static), version-keying / activate-eviction mechanism, runtime cache strategy boundaries (the `/api/*` + audio bypass is locked by OFFL-01; the rest is implementation).
 - iOS Safari PWA + SW + background-audio interaction specifics (known constraint — research flag).
