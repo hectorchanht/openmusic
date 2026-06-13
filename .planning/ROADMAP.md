@@ -358,7 +358,7 @@ Music never stops + offline downloads + a broad UX polish pass. This is a polish
 - [x] **Phase 21: Search & Cover Pipeline Polish** - Search scoring tune (short-title / artist-frequency boost, <60s 試聽 penalty), result cover fallback, empty-query autofocus, playing-track cover guarantee, scroll-into-view uid/name-keyed cache (completed 2026-06-13)
 - [ ] **Phase 22: Lyrics Polish** - Tap-line-to-seek, touch-suspended auto-scroll (verify live), end-spacer centering, CN translation-line ordering fix, robust bracket hiding
 - [x] **Phase 23: UX Audit & Homepage/Artist Polish** - Shape-matched skeletons everywhere, button toast + double-click guard, row swipe-actions, haptics, a11y pass, compact rows-of-4 homepage mode + section grid/library nav, hide trackless albums (completed 2026-06-12)
-- [ ] **Phase 24: Offline App-Shell & Sharing/SEO** - Service-worker app-shell (never caches /api or audio), downloaded-track offline playback, graceful offline degradation; per-entity SSR OG + readable slugs + per-page SEO
+- [x] **Phase 24: Offline App-Shell & Sharing/SEO** - Service-worker app-shell (never caches /api or audio), downloaded-track offline playback, graceful offline degradation; per-entity SSR OG + readable slugs + per-page SEO (completed 2026-06-13)
 
 ### Phase Details (v1.2)
 
@@ -608,7 +608,7 @@ Plans:
 
 **Wave 3** *(blocked on Waves 1-2)*
 
-- [ ] 24-05-PLAN.md — OFFL-03 global offline indicator + per-surface inline offline states (downloads promoted) + entityShareUrl wiring + OFFL-02 verify + [BLOCKING] pnpm build && pnpm build:native gate (OFFL-02/03, SHARE-02) (checkpoint)
+- [x] 24-05-PLAN.md — OFFL-03 global offline indicator + per-surface inline offline states (downloads promoted) + entityShareUrl wiring + OFFL-02 verify + [BLOCKING] pnpm build && pnpm build:native gate (OFFL-02/03, SHARE-02) (checkpoint)
 
 **UI hint**: yes
 **Research flag**: Research complete (`24-RESEARCH.md`, 2026-06-13) + pattern map (`24-PATTERNS.md`) + validation (`24-VALIDATION.md`). Native `src/service-worker.ts` (NOT vite-pwa); per-route SSR via universal `+page.ts` + `ssr=true` (NEVER `+page.server.ts`); dual-build guarded by `BUILD_TARGET=native`. iOS PWA offline + crawler-curl OG remain manual smokes (24-05 checkpoint).
@@ -647,7 +647,7 @@ Last.fm write-side dependency chain (deferred → v1.3): 11 (auth) before 12 & 1
 | 21. Search & Cover Pipeline Polish | 5/5 | Complete   | 2026-06-13 |
 | 22. Lyrics Polish | 1/2 | In Progress|  |
 | 23. UX Audit & Homepage/Artist Polish | 8/8 | Complete    | 2026-06-12 |
-| 24. Offline App-Shell & Sharing/SEO | 4/5 | In Progress|  |
+| 24. Offline App-Shell & Sharing/SEO | 5/5 | Complete   | 2026-06-13 |
 
 ## Backlog
 
