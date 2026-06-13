@@ -246,8 +246,10 @@
 		<!-- D-01: the action list ALWAYS renders (no `loading` gate around the buttons — `loading`
 		     now only drives the header-only skeleton above). Gated rows (Download / Detail / Remix)
 		     are tappable on a stub and resolve-then-act with an inline spinner (D-02/D-03). -->
-		<button class="mi" onclick={playNext}><ListStart size={18} /> {t('menu.playNext')}</button>
-		<button class="mi" onclick={addQueue}><ListEnd size={18} /> {t('menu.addToQueue')}</button>
+		{#if track && track.uid !== player.current?.uid}
+			<button class="mi" onclick={playNext}><ListStart size={18} /> {t('menu.playNext')}</button>
+			<button class="mi" onclick={addQueue}><ListEnd size={18} /> {t('menu.addToQueue')}</button>
+		{/if}
 		<!-- Remix: GATED (needs audioUrl to play the seed) — Sparkles + the inline spinner.
 		     Sits in the queue-actions cluster after Play next / Add to queue (D-07). -->
 		<button class="mi" aria-busy={inFlight.has('remix')} aria-label={inFlight.has('remix') ? t('menu.preparing') : undefined} onclick={() => gated('remix', doRemix)}>
@@ -304,7 +306,7 @@
 
 <style>
 	.scrim { position: fixed; inset: 0; z-index: 80; background: rgba(0,0,0,0.45); border: none; }
-	.menu, .modal { position: fixed; left: 12px; right: 12px; bottom: 16px; z-index: 81; background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: 16px; padding: 8px; max-width: 680px; margin: 0 auto; box-shadow: 0 -10px 40px rgba(0,0,0,0.5); max-height: 80vh; overflow-y: auto; }
+	.menu, .modal { position: fixed; left: 12px; right: 12px; bottom: 16px; z-index: 81; background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: 16px; padding: 8px; max-width: 680px; margin: 0 auto; box-shadow: 0 -10px 40px rgba(0,0,0,0.5); max-height: 90vh; overflow-y: auto; }
 	/* Legacy single-line head — STILL used by the playlist-picker + detail sub-sheets. */
 	.menu-head { font-size: calc(13px * var(--fs-title, 1)); color: var(--color-text-muted); padding: 8px 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 	.menu-head.row { display: flex; align-items: center; justify-content: space-between; }
