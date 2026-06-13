@@ -120,9 +120,30 @@
 			// re-streaming on next play.
 			await blobStore.put(r.uid, blob);
 			const ext = (r.audioUrl.split('?')[0].match(/\.(mp3|flac|m4a|aac|ogg|wav)$/i)?.[1] ?? 'mp3').toLowerCase();
+			const filename = `${r.artist} - ${r.title}.${ext}`.replace(/[/\\?%*:|"<>]/g, '_');
+			const mime = ({ mp3: 'audio/mpeg', flac: 'audio/flac', m4a: 'audio/mp4', aac: 'audio/aac', ogg: 'audio/ogg', wav: 'audio/wav' } as Record<string, string>)[ext] ?? 'audio/mpeg';
+			// Desktop (Chrome/Edge): real Save-As dialog via the File System Access API. Cancelling
+			// (AbortError) means cancel — return silently, NO toast, NO anchor fallback. Any other
+			// picker error falls through to the anchor download below.
+			if (typeof window !== 'undefined' && 'showSaveFilePicker' in window) {
+				try {
+					const handle = await (window as any).showSaveFilePicker({
+						suggestedName: filename,
+						types: [{ description: 'Audio', accept: { [mime]: ['.' + ext] } }]
+					});
+					const writable = await handle.createWritable();
+					await writable.write(blob);
+					await writable.close();
+					toast.show(t('toast.downloaded'));
+					return;
+				} catch (err: any) {
+					if (err?.name === 'AbortError') return; // user cancelled — cancel means cancel
+					// otherwise fall through to the anchor download
+				}
+			}
 			const a = document.createElement('a');
 			a.href = URL.createObjectURL(blob);
-			a.download = `${r.artist} - ${r.title}.${ext}`.replace(/[/\\?%*:|"<>]/g, '_');
+			a.download = filename;
 			a.click();
 			URL.revokeObjectURL(a.href);
 			toast.show(t('toast.downloaded'));
