@@ -158,9 +158,12 @@ export function shareUrl(current: Track, queue?: Track[]): string {
 }
 
 /** The fixed source enum the readable share path encodes. Because source names are a closed
- *  set, `{source}{id}` is unambiguously separable from the cosmetic slug (D-04 / A7). */
-const ENTITY_SOURCE_RE = /-(netease|qq|kuwo|joox|kugou|migu)([A-Za-z0-9]+)$/;
-const ENTITY_SOURCE_ONLY_RE = /^(netease|qq|kuwo|joox|kugou|migu)([A-Za-z0-9]+)$/;
+ *  set, `{source}{id}` is unambiguously separable from the cosmetic slug (D-04 / A7). This list
+ *  MUST stay aligned with the live `SourceId` union in $lib/sources/types (24-04 reconcile:
+ *  the previous `kugou|migu` anchor was stale — those sources don't exist; the real set is
+ *  netease|qq|kuwo|joox|fivesing|jamendo, so fivesing/jamendo entity links now decode). */
+const ENTITY_SOURCE_RE = /-(netease|qq|kuwo|joox|fivesing|jamendo)([A-Za-z0-9]+)$/;
+const ENTITY_SOURCE_ONLY_RE = /^(netease|qq|kuwo|joox|fivesing|jamendo)([A-Za-z0-9]+)$/;
 
 /**
  * Build a readable per-entity share URL `${origin}/{type}/{slug}-{source}{id}` (D-04). The slug

@@ -6,6 +6,15 @@
 import { buildOg } from '$lib/services/share';
 import type { PageLoad } from './$types';
 
+// Per-route SSR opt-in (D-01/D-02): the artist entity page renders server-side so its `og` data
+// reaches crawlers. The root +layout.ts stays ssr=false — a scoped subtree opt-in, NOT a
+// +page.server.ts (Pitfall 5). SSR-safety audit (24-04): the +page.svelte module top has NO direct
+// window/document/localStorage/navigator access — those live only inside event handlers
+// (shareArtist) which never run during SSR. Store imports/construction + use: actions are SSR-safe.
+// prerender stays off (the artist slug space is dynamic).
+export const ssr = true;
+export const prerender = false;
+
 export const load: PageLoad = ({ params }) => {
 	const name = decodeURIComponent(params.name ?? '');
 	const og = buildOg({ title: `${name} · openmusic`, cover: null });
