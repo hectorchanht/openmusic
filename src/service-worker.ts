@@ -53,7 +53,17 @@ sw.addEventListener('fetch', (event) => {
 			// otherwise network, caching successful (200) same-origin responses
 			try {
 				const res = await fetch(event.request);
-				if (res.status === 200) cache.put(event.request, res.clone());
+				// Only cache basic, non-redirected, same-origin 200 responses. `Cache.put()`
+				// THROWS a TypeError on a redirect-followed response (`res.redirected === true`)
+				// or a non-basic response — a 3xx trailing-slash/SSR/edge redirect resolves to a
+				// 200 with `redirected === true`, and putting it would reject `respondWith` and
+				// surface a network error on the primary app-shell path (CR-01). Guard the type +
+				// redirect flag, and `.catch()` the put so a cache-write failure can never reject
+				// the response we return.
+				if (res.status === 200 && res.type === 'basic' && !res.redirected) {
+					const copy = res.clone();
+					void cache.put(event.request, copy).catch(() => {});
+				}
 				return res;
 			} catch {
 				const hit = await cache.match(event.request);
