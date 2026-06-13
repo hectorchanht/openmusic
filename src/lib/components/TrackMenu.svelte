@@ -18,7 +18,7 @@
 	import { t } from '$lib/i18n';
 	import { ensureTrackDetails } from '$lib/services/catalog';
 	import { blobStore } from '$lib/services/blob-store';
-	import { entityShareUrl, encodeShare } from '$lib/services/share';
+	import { songShareUrl } from '$lib/services/share';
 	import type { Track } from '$lib/sources/types';
 
 	// `loading` = the menu opened on a discovery STUB and is still resolving the real Track
@@ -134,12 +134,11 @@
 	async function doShare() {
 		if (!track) return;
 		onclose();
-		// SHARE-02 / D-04: build the READABLE entity link `/song/{slug}-{source}{id}` (crawler-
-		// unfurlable, copy-paste-clean). D-06: layer the existing base64url `?play=` queue token on
-		// top as the OPTIONAL queue carrier so the link ALSO restores the up-next queue on open.
-		// encodeShare handles an empty queue (queue ?? []) — no behavior change when there is none.
-		// The slug now lives in the path, so the old cosmetic `?t=` segment is no longer needed.
-		const url = `${entityShareUrl('song', track)}?play=${encodeShare(track, player.queue)}`;
+		// SHARE-02 / DQ-1 / DQ-4 (quick-260614-1w3, supersedes D-04/D-06 for the SONG surface): build
+		// the SHORT readable link `/song/{slug}?n={title}&a={artist}` — no base64 `?play=` queue token
+		// and no `{source}{id}` suffix. The link carries only the current song; the song page resolves
+		// a playable track by name+artist at open time and always unfurls an OG card from n/a.
+		const url = songShareUrl(track);
 		try {
 			const nav = navigator as Navigator & { share?: (d: ShareData) => Promise<void> };
 			if (nav.share) await nav.share({ title: `${track.title} — ${track.artist}`, url });

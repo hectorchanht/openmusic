@@ -6,6 +6,7 @@ import {
 	decodeTrack,
 	encodeTrack,
 	shareUrl,
+	songShareUrl,
 	entityShareUrl,
 	parseEntityParam,
 	buildOg,
@@ -149,6 +150,42 @@ describe('shareUrl', () => {
 		const out = decodeShare(url.split('play=')[1]);
 		expect(out.current?.uid).toBe(current.uid);
 		expect(out.queue.map((t) => t.uid)).toEqual([current.uid]);
+	});
+});
+
+describe('songShareUrl', () => {
+	it('emits a short /song/{slug}?n={title}&a={artist} URL (DQ-1)', () => {
+		const url = songShareUrl({ title: 'Dao Xiang', artist: 'Jay Chou' });
+		expect(url.endsWith('/song/dao-xiang-jay-chou?n=Dao%20Xiang&a=Jay%20Chou')).toBe(true);
+	});
+
+	it('uses the `s` placeholder segment when slugify returns empty (all-CJK title)', () => {
+		const url = songShareUrl({ title: '情非得已', artist: '' });
+		// slug is empty → `s` placeholder satisfies the required [slug] route param.
+		expect(url).toContain('/song/s?');
+		expect(url).not.toContain('/song/?');
+	});
+
+	it('carries NO ?play= token and NO {source}{id} suffix in the path (DQ-1/DQ-4)', () => {
+		const url = songShareUrl({ title: 'Dao Xiang', artist: 'Jay Chou' });
+		expect(url).not.toContain('play=');
+		// The path segment is purely the cosmetic slug — no trailing {source}{id} key.
+		const path = url.split('?')[0];
+		expect(parseEntityParam(path.split('/').pop()!)).toBeNull();
+	});
+
+	it('n/a are encodeURIComponent of the RAW title/artist — a CJK title round-trips (OG carrier)', () => {
+		const url = songShareUrl({ title: '稻香', artist: '周杰倫' });
+		const q = new URLSearchParams(url.split('?')[1]);
+		expect(decodeURIComponent(q.get('n')!)).toBe('稻香');
+		expect(decodeURIComponent(q.get('a')!)).toBe('周杰倫');
+	});
+
+	it('encodes an empty artist as a=', () => {
+		const url = songShareUrl({ title: 'Solo', artist: '' });
+		const q = new URLSearchParams(url.split('?')[1]);
+		expect(q.get('a')).toBe('');
+		expect(q.get('n')).toBe('Solo');
 	});
 });
 

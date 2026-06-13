@@ -161,6 +161,31 @@ export function shareUrl(current: Track, queue?: Track[]): string {
 	return `${base}/?${slugSeg}play=${payload}`;
 }
 
+/**
+ * Build the SHORT, readable SONG share URL `${origin}/song/{slug}?n={title}&a={artist}` (DQ-1).
+ * This SUPERSEDES the old `entityShareUrl('song', t) + ?play=<token>` song link for the share
+ * button: there is NO base64 `?play=` token and NO trailing `{source}{id}` key in the path.
+ *
+ * The `n` / `a` query params are the AUTHORITATIVE human-readable carriers (standard
+ * URL-encoding of the RAW title/artist — CJK percent-encodes and round-trips via
+ * decodeURIComponent). The OG card is built server-side from n/a (DQ-2), and the page resolves a
+ * playable track by name+artist at open time via the existing aggregator (DQ-3) — so the link
+ * carries no source/id and no opaque token at all.
+ *
+ * The `{slug}` segment is COSMETIC (ASCII, slugify(title, artist)); when slugify returns '' (an
+ * all-CJK title with no ASCII artist) we use the stable placeholder segment `s` so the required
+ * [slug] route param is still satisfied. `origin` is SSR-guarded the same way shareUrl /
+ * entityShareUrl read it. Album/artist entityShareUrl + the queue-restore encode/decode path are
+ * UNTOUCHED — they still depend on the exports below.
+ */
+export function songShareUrl(t: { title: string; artist: string }): string {
+	const base = typeof location !== 'undefined' ? location.origin : '';
+	const slug = slugify(t.title, t.artist) || 's';
+	const nEnc = encodeURIComponent(t.title ?? '');
+	const aEnc = encodeURIComponent(t.artist ?? '');
+	return `${base}/song/${slug}?n=${nEnc}&a=${aEnc}`;
+}
+
 /** The fixed source enum the readable share path encodes. Because source names are a closed
  *  set, `{source}{id}` is unambiguously separable from the cosmetic slug (D-04 / A7). This list
  *  MUST stay aligned with the live `SourceId` union in $lib/sources/types (24-04 reconcile:

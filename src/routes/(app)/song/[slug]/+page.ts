@@ -1,18 +1,22 @@
-// NEW minimal SSR-safe song-share route (D-02). This is the per-song share surface: a crawler
-// hitting /song/{slug}-{source}{id} gets a per-song OG card baked into the SSR HTML (SHARE-01).
+// SSR-safe SONG share route (D-02, refined by quick-260614-1w3). A crawler hitting
+// /song/{slug}?n={title}&a={artist} gets a per-song OG card baked into the SSR HTML (SHARE-01),
+// ALWAYS populated from the readable n/a query carriers — there is no opaque token any more.
 //
 // D-01/D-03: this is a UNIVERSAL `+page.ts` with `ssr = true` — a per-route SSR opt-in. The root
 // +layout.ts stays ssr=false; NEVER a +page.server.ts (that would break the adapter-static native
 // build — Pitfall 5 / T-24-09).
 //
-// T-24-03: the attacker-controllable slug param is read ONLY through parseEntityParam (the pure
-// validation gate, returns null on no-match, never throws) — we never goto(rawParam) or render the
-// raw param as a URL. T-24-08: OG is built from the param + the decoded `?play=` token ONLY; no
-// arbitrary server-side fetch (no SSRF surface; buildOg's image is https-guarded).
+// DQ-1/DQ-2 (supersedes Phase-24 D-04/D-06 for the SONG surface ONLY): the link is short and
+// carries the song name + artist as the authoritative readable carriers `?n=&a=`. The OG title is
+// the song name and the description includes the artist, ALWAYS set server-side (independent of any
+// token — there is none). The cosmetic `{slug}` is a fallback display source for ASCII-only links.
+//
+// T-24-08 / SSRF: OG is built ONLY from the query params + the slug, never an arbitrary server-side
+// fetch. The cover is NOT carried, so buildOg's image is null → the /og.svg branded fallback (D-07).
 //
 // Plain strings (NOT t()) — load runs server-side where the reactive i18n lookup is unsafe (same
 // note as the album/artist loads).
-import { buildOg, parseEntityParam, decodeShare } from '$lib/services/share';
+import { buildOg } from '$lib/services/share';
 import type { PageLoad } from './$types';
 
 // Per-route SSR opt-in (D-01): the song-share surface renders server-side so crawlers see the OG
@@ -21,18 +25,14 @@ export const ssr = true;
 export const prerender = false;
 
 /**
- * Derive a human-readable display title from the cosmetic slug prefix. The route param is
- * `{slug}-{source}{id}`; the trailing `{source}{id}` is the authoritative key (parsed separately),
- * so for display we strip it and turn the remaining slug into Title Case words. An all-CJK title
- * has an empty slug → returns ''.
+ * Derive a human-readable display title from the cosmetic slug when the `n` carrier is absent
+ * (e.g. an ASCII-only link a user hand-trimmed). There is no longer a trailing `{source}{id}`
+ * suffix to strip — the whole slug is cosmetic — so we just split on '-' and Title-Case each word.
+ * The `s` placeholder slug (slugify returned '') yields '' here → the caller falls back to a brand
+ * default.
  */
-function titleFromSlug(param: string, key: { source: string; id: string } | null): string {
-	if (!key) return '';
-	// Drop the trailing {source}{id} (and the joining hyphen, if any) to leave just the slug.
-	const suffix = `${key.source}${key.id}`;
-	let slug = param.endsWith(suffix) ? param.slice(0, -suffix.length) : param;
-	slug = slug.replace(/-+$/g, '');
-	if (!slug) return '';
+function titleFromSlug(slug: string): string {
+	if (!slug || slug === 's') return '';
 	return slug
 		.split('-')
 		.filter(Boolean)
@@ -41,26 +41,15 @@ function titleFromSlug(param: string, key: { source: string; id: string } | null
 }
 
 export const load: PageLoad = ({ params, url }) => {
-	const param = params.slug ?? '';
-	// T-24-03: validation gate — null when the param carries no known {source}{id} key.
-	const parsed = parseEntityParam(param);
+	// DQ-1: n/a are the authoritative readable carriers (standard URL-decoding via searchParams).
+	const n = url.searchParams.get('n') ?? '';
+	const a = url.searchParams.get('a') ?? '';
 
-	// The path identifies the entity; an optional `?play=` token carries richer display data
-	// (title/artist/cover) + the queue (D-06). Decode it ONLY for OG enrichment here.
-	const playToken = url.searchParams.get('play');
-	const shared = playToken ? decodeShare(playToken) : { current: null, queue: [] };
-	const current = shared.current;
+	// DQ-2: OG title = song name; prefer `n`, fall back to the slug-derived title, then a brand
+	// default so the head is NEVER empty. Description includes the artist (via buildOg). Image is
+	// null (cover not carried) → /og.svg branded fallback (D-07).
+	const displayTitle = n || titleFromSlug(params.slug ?? '') || 'openmusic';
+	const og = buildOg({ title: displayTitle, artist: a || undefined, cover: null });
 
-	const displayTitle = current?.title || titleFromSlug(param, parsed) || 'openmusic';
-	const og = buildOg({
-		title: current ? displayTitle : `${displayTitle} · openmusic`,
-		artist: current?.artist || undefined,
-		album: current?.album || undefined,
-		cover: current?.cover ?? null
-	});
-	if (!current) {
-		og.description = `Listen on openmusic — fast mobile-first music streaming.`;
-	}
-
-	return { og, parsed, current };
+	return { og, name: n, artist: a };
 };
