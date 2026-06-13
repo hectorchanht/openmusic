@@ -131,10 +131,17 @@ class Player {
 	/** Loop-guard cap: after this many consecutive failures with zero successful plays, STOP and
 	 *  surface a sticky Retry notice instead of auto-advancing again (D-04). */
 	private static FAILURE_CAP = 5;
-	/** GAPLESS-PREFETCH: max queue candidates prefetchNext's forward-resolve loop will try per
-	 *  invocation before stopping — bounds the loop so a stretch of failing sources never spins
-	 *  forever and never blocks play(). */
-	private static PREFETCH_MAX_CANDIDATES = 4;
+	/** RELAX-PREFETCH: how long the current track must have ACTUALLY been playing before the
+	 *  single-song lookahead prefetch arms. Prefetch is no longer fired on play() entry — it is
+	 *  hung off the timeupdate listener and fires once the current src crosses this elapsed-playback
+	 *  threshold. This keeps proxy resolves low-rate so endless playback never reads as a bot burst:
+	 *  a user who skips before ~5s of playback never triggers a prefetch (the next track resolves
+	 *  on-demand inside the next play()). */
+	private static PREFETCH_PLAYBACK_DELAY_MS = 5000;
+	/** One-shot guard for the delayed prefetch trigger: set false the instant a NEW src is loaded
+	 *  (in play()), flipped true the first time the timeupdate gate fires prefetchNext for that src,
+	 *  so the prefetch arms AT MOST ONCE per loaded src. Plain field — internal, never reactive. */
+	private prefetchArmedForSrc = false;
 	/**
 	 * Audio-element error burst counter (CR-03). The dominant region-lock failure mode is "detail
 	 * fetch resolves a URL fine, the <audio> byte fetch 403s" — i.e. the `error` event fires while
@@ -805,6 +812,18 @@ class Player {
 				return;
 			}
 			this.currentTime = el.currentTime || 0;
+			// RELAX-PREFETCH: one-shot, per-src delayed prefetch trigger. Prefetch is NOT fired on
+			// play() entry (burst trigger) — it arms here once the CURRENT src has actually been
+			// playing for ~PREFETCH_PLAYBACK_DELAY_MS. prefetchArmedForSrc is reset to false the
+			// instant a new src loads (in play()), so this fires at most once per loaded src. A user
+			// who skips before the threshold never triggers a resolve. Best-effort, never blocks.
+			if (
+				!this.prefetchArmedForSrc &&
+				this.currentTime >= Player.PREFETCH_PLAYBACK_DELAY_MS / 1000
+			) {
+				this.prefetchArmedForSrc = true;
+				void this.prefetchNext();
+			}
 			this.syncPosition(el);
 			// D-13/D-14: the first timeupdate since src-set is the "we are actually playing" signal —
 			// flip the flag + disarm the stall watchdog. This is what makes a mid-track buffer-dry
@@ -1112,25 +1131,26 @@ class Player {
 	 * track back into queue[i], pre-resolving the next entry means the later play() hits a
 	 * no-op resolve = instant start.
 	 *
-	 * Best-effort, fired as `void this.prefetchNext()` from play() — mirrors ensureAhead()/
-	 * regenerate(): never blocks the current play(), never throws. After details resolve, it also
-	 * warms the next audio URL through a muted offscreen Audio element and preloads the cover image,
-	 * so the later main-audio src swap and cover repaint can reuse browser cache when supported.
+	 * Best-effort, fired as `void this.prefetchNext()` from the timeupdate playback-elapsed gate
+	 * (NOT on play() entry) — mirrors ensureAhead()/regenerate(): never blocks the current play(),
+	 * never throws. After details resolve, it also warms the next audio URL through a muted offscreen
+	 * Audio element and preloads the cover image, so the later main-audio src swap and cover repaint
+	 * can reuse browser cache when supported.
 	 *
-	 * GAPLESS-PREFETCH: this is a BOUNDED FORWARD-RESOLVE loop. The first candidate is
-	 * queue[indexOf(current)+1] — EXACTLY what next() selects (no play-mode branching) — but instead
-	 * of giving up when that one source hiccups, it advances through up to PREFETCH_MAX_CANDIDATES
-	 * queue entries until it lands one that is actually PLAYABLE (resolves with an audioUrl). A
-	 * candidate whose resolve REJECTS (transient proxy/rate-limit failure) or resolves WITHOUT an
-	 * audioUrl is skipped; cover is best-effort and never disqualifies a candidate.
+	 * RELAX-PREFETCH: this is a SINGLE-SONG lookahead. The ONLY candidate is queue[indexOf(current)+1]
+	 * — EXACTLY what next() selects (no play-mode branching). There is NO forward-resolve walk: if
+	 * that one immediate-next resolve REJECTS (transient proxy/rate-limit failure) or resolves WITHOUT
+	 * an audioUrl, it is simply abandoned for this invocation (the next play() resolves it on-demand)
+	 * — we do NOT advance to a later candidate. This keeps each prefetch to at most ONE source-specific
+	 * resolve so endless playback never fires a back-to-back resolve burst that reads as bot traffic.
 	 *
-	 * Guards (all preserved from the single-candidate version):
+	 * Guards:
 	 *  - silent no-op at end of queue / no current;
 	 *  - already-complete immediate-next short-circuit (warm assets, skip resolve);
-	 *  - in-flight dedupe keyed to the immediate-next uid (no duplicate concurrent loop);
-	 *  - single shared prefetchController — a superseding prefetch aborts the in-flight loop;
-	 *  - seedUid stale-guard checked AFTER every await — a `current` change mid-loop discards all
-	 *    remaining work and never clobbers the queue;
+	 *  - in-flight dedupe keyed to the immediate-next uid (no duplicate concurrent resolve);
+	 *  - single shared prefetchController — a superseding prefetch aborts the in-flight resolve;
+	 *  - seedUid stale-guard checked AFTER the await — a `current` change mid-resolve discards the
+	 *    work and never clobbers the queue;
 	 *  - write-back locates the slot FRESHLY by uid (never a closed-over index) and only writes a
 	 *    slot still AHEAD of the recomputed current.
 	 * It never throws, never bumps playGen, never calls next()/runFallback — a pure pre-resolve
@@ -1155,11 +1175,11 @@ class Player {
 			this.prewarmNextAssets(immediateNext);
 			return;
 		}
-		// In-flight dedupe: already prefetching from this exact immediate-next — no second loop.
+		// In-flight dedupe: already prefetching this exact immediate-next — no second resolve.
 		if (this.prefetchingUid === immediateNext.uid) return;
 
 		// Supersede any prior in-flight prefetch (different target) before claiming this one. The
-		// loop is keyed to the immediate-next uid (same as today) for dedupe + finally cleanup.
+		// resolve is keyed to the immediate-next uid for dedupe + finally cleanup.
 		this.prefetchController?.abort();
 		const claimedUid = immediateNext.uid;
 		this.prefetchingUid = claimedUid;
@@ -1168,40 +1188,27 @@ class Player {
 		const seedUid = this.current?.uid; // stale-guard: current must not change away
 
 		try {
-			// Bounded candidate window: indices firstIndex .. min(i+MAX, length-1), in queue order.
-			const lastIndex = Math.min(i + Player.PREFETCH_MAX_CANDIDATES, this.queue.length - 1);
-			for (let idx = firstIndex; idx <= lastIndex; idx++) {
-				if (sig.aborted) break; // superseded — discard remaining work
-				const target = this.queue[idx];
-				if (!target) continue;
+			// SINGLE-SONG lookahead: resolve ONLY the immediate-next. A reject or a no-audioUrl
+			// result is abandoned for this invocation — we never advance to a further candidate.
+			let resolved: Track;
+			try {
+				resolved = await ensureTrackDetails(immediateNext, sig);
+			} catch {
+				return; // transient reject — abandon; next play() resolves on-demand. Do NOT walk on.
+			}
 
-				// Already-complete candidate is itself the landing slot: warm + done (no write needed).
-				if (target.detailsLoaded && target.audioUrl && (target.lrc || !target.lrcUrl)) {
-					this.prewarmNextAssets(target);
-					break;
-				}
+			// Stale-guard AFTER the await: current changed away → discard the work.
+			if (sig.aborted || this.current?.uid !== seedUid) return;
+			// Resolved but unplayable (no audioUrl) → abandon this invocation (no forward walk).
+			if (!resolved.audioUrl) return;
 
-				let resolved: Track;
-				try {
-					resolved = await ensureTrackDetails(target, sig);
-				} catch {
-					continue; // transient reject — skip this candidate, try the next
-				}
-
-				// Stale-guard AFTER the await: current changed away → discard all remaining work.
-				if (this.current?.uid !== seedUid) break;
-				// Resolved but unplayable (no audioUrl) → try the next candidate.
-				if (!resolved.audioUrl) continue;
-
-				// LANDED. Locate the slot FRESHLY by uid (never a closed-over index, Pitfall 1) and
-				// write back only if it is still AHEAD of the recomputed current — same in-place sync
-				// play() does, so the later play() no-ops.
-				const writeIdx = this.queue.findIndex((t) => t.uid === target.uid);
-				if (writeIdx >= 0 && writeIdx > this.indexOf(this.current)) {
-					this.queue[writeIdx] = resolved;
-					this.prewarmNextAssets(resolved);
-				}
-				break;
+			// LANDED. Locate the slot FRESHLY by uid (never a closed-over index, Pitfall 1) and
+			// write back only if it is still AHEAD of the recomputed current — same in-place sync
+			// play() does, so the later play() no-ops.
+			const writeIdx = this.queue.findIndex((t) => t.uid === immediateNext.uid);
+			if (writeIdx >= 0 && writeIdx > this.indexOf(this.current)) {
+				this.queue[writeIdx] = resolved;
+				this.prewarmNextAssets(resolved);
 			}
 		} catch {
 			/* best-effort — abort or unexpected failure leaves the queue as-is */
@@ -1256,9 +1263,15 @@ class Player {
 		}
 	}
 
+	/**
+	 * Keep Up-Next topped up on play() entry. RELAX-PREFETCH: primeNext NO LONGER fires
+	 * prefetchNext — prefetch is driven solely by the timeupdate playback-elapsed gate (~5s into
+	 * actual playback), so a track that is set but skipped before then never triggers a resolve.
+	 * The four play() call sites (offline-blob / fresh+generated / fresh+same-list / auto-advance)
+	 * stay unchanged: they still ensureAhead() so next() always has somewhere to advance to.
+	 */
 	private async primeNext() {
 		await this.ensureAhead();
-		await this.prefetchNext();
 	}
 
 	/**
@@ -1398,6 +1411,9 @@ class Player {
 					// Initial-load arming point (D-13): a NEW src for this track. Reset the played
 					// flag + arm the stall watchdog so a silent no-audio start routes into failover.
 					this.hasPlayedSinceSrc = false;
+					// RELAX-PREFETCH: a NEW src — re-arm the one-shot delayed prefetch gate so the
+					// timeupdate listener fires prefetchNext ~5s into THIS track's playback.
+					this.prefetchArmedForSrc = false;
 					this.audio.src = this.cachedBlobUrl;
 					this.armStall();
 					// D-06: a rejected play() is intentionally surfaced to the stall/failure path,
@@ -1481,6 +1497,9 @@ class Player {
 				// arm the stall watchdog so a silent no-audio start (no `playing`/`timeupdate`
 				// within ~15s) routes into failover.
 				this.hasPlayedSinceSrc = false;
+				// RELAX-PREFETCH: a NEW src — re-arm the one-shot delayed prefetch gate so the
+				// timeupdate listener fires prefetchNext ~5s into THIS track's playback.
+				this.prefetchArmedForSrc = false;
 				this.audio.src = src;
 				this.armStall();
 				// D-06: a rejected play() is intentionally surfaced to the stall/failure path, not
