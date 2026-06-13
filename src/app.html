@@ -11,12 +11,15 @@
 		<meta name="color-scheme" content="dark" />
 		<meta name="apple-mobile-web-app-capable" content="yes" />
 		<meta name="apple-mobile-web-app-title" content="openmusic" />
-		<!-- D-11 / Pitfall 6: under the root ssr=false shell the +layout.svelte <svelte:head> is
+		<!-- D-11 / Pitfall 6: under the root ssr=false shell the +layout.svelte head block is
 		     client-only, so non-JS crawlers see no title/description on the shell pages (search,
 		     library, settings, charts). Bake the static site-default here so every shell page carries
 		     baseline SEO without flipping any of them to SSR (preserves D-01). These MUST match
-		     +layout.svelte's TITLE/DESC verbatim. Placed BEFORE %sveltekit.head% so SSR entity routes
-		     (song/album/artist) — whose <svelte:head> injects at %sveltekit.head% — still win. -->
+		     +layout.svelte's TITLE/DESC verbatim. Placed BEFORE the SvelteKit head-injection
+		     placeholder below so SSR entity routes (song/album/artist) still win.
+		     NOTE: do NOT write the literal sveltekit head token anywhere above the real one —
+		     SvelteKit replaces only the FIRST occurrence, so a token in this comment would steal
+		     the head payload and leak the real placeholder as visible text (regression fix). -->
 		<title>openmusic — music streaming for earth</title>
 		<meta
 			name="description"
