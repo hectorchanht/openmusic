@@ -181,7 +181,10 @@
 		// OFFL-03 / D-10: SHORT-CIRCUIT when offline — never fire searchAll (which would hang and
 		// strand the hit-songs skeleton). Clear `loading` so the inline offline state shows instead
 		// of a stuck spinner. No redirect (D-09). The fetch resumes on the next online visit.
-		if (n && !online.isOnline) {
+		// WR-01: do NOT gate this on `n` — an empty name AND offline (deep link `/artist/`) must
+		// still clear the loader, else the skeleton is stuck forever (the fetch branch below also
+		// never runs when `!n`).
+		if (!online.isOnline) {
 			loading = false;
 			return;
 		}
@@ -202,7 +205,8 @@
 		const n = name;
 		// OFFL-03: don't fire enrichment when offline; clear the bio skeleton flag so the hero
 		// doesn't sit on a stuck skeleton (the `loading || enrichLoading` gate). Resumes online.
-		if (n && !online.isOnline) {
+		// WR-01: ungated on `n` so an empty-name offline deep link clears this skeleton too.
+		if (!online.isOnline) {
 			enrichLoading = false;
 			return;
 		}
@@ -234,7 +238,8 @@
 	$effect(() => {
 		const n = name;
 		// OFFL-03: skip the albums fetch offline; clear the skeleton flag (no stuck loader).
-		if (n && !online.isOnline) {
+		// WR-01: ungated on `n` so an empty-name offline deep link clears this skeleton too.
+		if (!online.isOnline) {
 			albumsLoading = false;
 			return;
 		}
@@ -288,7 +293,8 @@
 	$effect(() => {
 		const n = name;
 		// OFFL-03: skip the more-like-this fetch offline; clear the skeleton flag (no stuck loader).
-		if (n && !online.isOnline) {
+		// WR-01: ungated on `n` so an empty-name offline deep link clears this skeleton too.
+		if (!online.isOnline) {
 			relatedLoading = false;
 			return;
 		}
@@ -323,7 +329,8 @@
 	$effect(() => {
 		const n = name;
 		// OFFL-03: skip the Deezer-info fetch offline; clear the skeleton flag (no stuck loader).
-		if (n && !online.isOnline) {
+		// WR-01: ungated on `n` so an empty-name offline deep link clears this skeleton too.
+		if (!online.isOnline) {
 			dzLoading = false;
 			return;
 		}

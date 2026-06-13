@@ -146,7 +146,10 @@
 		// OFFL-03 / D-10: SHORT-CIRCUIT when offline — never fire getAlbumTracklist (which would
 		// hang and strand the tracklist skeleton). Clear `loading` so the inline offline state shows
 		// instead of a stuck spinner. No redirect (D-09). Resumes on the next online visit.
-		if (n && !online.isOnline) {
+		// WR-01: do NOT gate on `n` — an empty name AND offline (deep link `/album/`) must still
+		// clear the loader, else the skeleton is stuck forever (the fetch branch below never runs
+		// when `!n`).
+		if (!online.isOnline) {
 			loading = false;
 			return;
 		}
