@@ -184,13 +184,40 @@ describe('entityShareUrl / parseEntityParam', () => {
 		expect(url.endsWith('/song/-qq123')).toBe(false);
 	});
 
-	it('parses a slug-prefixed param back to {source, id}', () => {
-		expect(parseEntityParam('qing-fei-de-yi-qq123')).toEqual({ source: 'qq', id: '123' });
+	it('parses a slug-prefixed param back to {source, id, uid}', () => {
+		expect(parseEntityParam('qing-fei-de-yi-qq123')).toEqual({
+			source: 'qq',
+			id: '123',
+			uid: 'qq:123'
+		});
 	});
 
-	it('parses an empty-slug param ({source}{id} only) back to {source, id}', () => {
-		expect(parseEntityParam('qq123')).toEqual({ source: 'qq', id: '123' });
-		expect(parseEntityParam('netease7')).toEqual({ source: 'netease', id: '7' });
+	it('parses an empty-slug param ({source}{id} only) back to {source, id, uid}', () => {
+		expect(parseEntityParam('qq123')).toEqual({ source: 'qq', id: '123', uid: 'qq:123' });
+		expect(parseEntityParam('netease7')).toEqual({
+			source: 'netease',
+			id: '7',
+			uid: 'netease:7'
+		});
+	});
+
+	it('WR-02: the returned uid is the canonical colon form matching makeUid', () => {
+		const t = mk('qq', '123', 'X', 'Y');
+		const parsed = parseEntityParam(entityShareUrl('song', t).split('/').pop()!);
+		expect(parsed?.uid).toBe(t.uid); // makeUid('qq','123') === 'qq:123'
+		expect(parsed?.uid).toBe(`${parsed?.source}:${parsed?.id}`);
+	});
+
+	it('WR-03: does not mis-split a slug whose text contains an earlier source-name word', () => {
+		// The cosmetic slug contains `kuwo` as a word, but the authoritative key is the LAST
+		// `-{source}{id}` boundary (`-qq42`). A greedy/leftmost match would have split on `kuwo`.
+		expect(parseEntityParam('kuwo-mix-qq42')).toEqual({ source: 'qq', id: '42', uid: 'qq:42' });
+		// Two source-name words in the slug — still anchors on the trailing one.
+		expect(parseEntityParam('netease-fan-club-qq42')).toEqual({
+			source: 'qq',
+			id: '42',
+			uid: 'qq:42'
+		});
 	});
 
 	it('returns null on no source-enum match, never throws (T-24-03)', () => {
@@ -200,11 +227,20 @@ describe('entityShareUrl / parseEntityParam', () => {
 	});
 
 	it('decodes the full live SourceId set, incl. fivesing/jamendo (24-04 enum reconcile)', () => {
-		expect(parseEntityParam('fivesing12345')).toEqual({ source: 'fivesing', id: '12345' });
-		expect(parseEntityParam('jamendo987')).toEqual({ source: 'jamendo', id: '987' });
+		expect(parseEntityParam('fivesing12345')).toEqual({
+			source: 'fivesing',
+			id: '12345',
+			uid: 'fivesing:12345'
+		});
+		expect(parseEntityParam('jamendo987')).toEqual({
+			source: 'jamendo',
+			id: '987',
+			uid: 'jamendo:987'
+		});
 		expect(parseEntityParam('some-song-fivesingAB99')).toEqual({
 			source: 'fivesing',
-			id: 'AB99'
+			id: 'AB99',
+			uid: 'fivesing:AB99'
 		});
 	});
 
@@ -220,7 +256,11 @@ describe('entityShareUrl / parseEntityParam', () => {
 			{ title: 'Mixed 标题', artist: 'X', source: 'kuwo', songid: 'AB99' }
 		] as const) {
 			const param = entityShareUrl('song', t).split('/').pop()!;
-			expect(parseEntityParam(param)).toEqual({ source: t.source, id: t.songid });
+			expect(parseEntityParam(param)).toEqual({
+				source: t.source,
+				id: t.songid,
+				uid: `${t.source}:${t.songid}`
+			});
 		}
 	});
 });

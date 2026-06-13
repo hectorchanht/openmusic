@@ -80,8 +80,12 @@ export function slugify(title: string, artist: string): string {
 	const raw = `${title ?? ''} ${artist ?? ''}`.trim().toLowerCase();
 	const slug = raw
 		.normalize('NFKD')
-		// Strip combining marks (accents) left over from NFKD decomposition.
-		.replace(/[̀-ͯ]/g, '')
+		// WR-05: strip ALL combining marks left over from NFKD decomposition via the Unicode
+		// mark property escape (\p{M}, requires the `u` flag) instead of a raw literal of the
+		// U+0300–U+036F block. `\p{M}` covers every mark category (incl. U+1AB0–U+1AFF,
+		// U+20D0–U+20FF), and avoids embedding raw combining characters in source (editor/VCS
+		// fragility). Cosmetically redundant with the `[^a-z0-9]+` collapse below, but explicit.
+		.replace(/\p{M}/gu, '')
 		// Collapse every run of non-ASCII-alnum to a single '-'. CJK and all other non-ASCII
 		// letters are NOT [a-z0-9], so they are dropped here (ASCII-only output, D-05).
 		.replace(/[^a-z0-9]+/g, '-')
@@ -162,7 +166,12 @@ export function shareUrl(current: Track, queue?: Track[]): string {
  *  MUST stay aligned with the live `SourceId` union in $lib/sources/types (24-04 reconcile:
  *  the previous `kugou|migu` anchor was stale — those sources don't exist; the real set is
  *  netease|qq|kuwo|joox|fivesing|jamendo, so fivesing/jamendo entity links now decode). */
-const ENTITY_SOURCE_RE = /-(netease|qq|kuwo|joox|fivesing|jamendo)([A-Za-z0-9]+)$/;
+// WR-03: anchor on the LAST `-{source}{id}` boundary. The leading `.*` is greedy, so the regex
+// consumes as much of the cosmetic slug as possible before backtracking to the final valid
+// `-{source}{id}` occurrence — a slug whose text contains an earlier source-name word (e.g.
+// `kuwo-mix-qq42`) no longer mis-splits on the earlier token. The `^` + `.*` keeps the match
+// rooted so partial mid-string matches can't sneak in.
+const ENTITY_SOURCE_RE = /^.*-(netease|qq|kuwo|joox|fivesing|jamendo)([A-Za-z0-9]+)$/;
 const ENTITY_SOURCE_ONLY_RE = /^(netease|qq|kuwo|joox|fivesing|jamendo)([A-Za-z0-9]+)$/;
 
 /**
@@ -184,16 +193,27 @@ export function entityShareUrl(
 }
 
 /**
- * Decode a readable entity path param back to its authoritative `{ source, id }` key (D-04). The
- * cosmetic slug is ignored; only the trailing `{source}{id}` anchored on the fixed source enum is
- * read. Handles both the slug-prefixed form (`qing-fei-de-yi-qq123`) and the empty-slug form
+ * Decode a readable entity path param back to its authoritative `{ source, id, uid }` key (D-04).
+ * The cosmetic slug is ignored; only the trailing `{source}{id}` anchored on the fixed source enum
+ * is read. Handles both the slug-prefixed form (`qing-fei-de-yi-qq123`) and the empty-slug form
  * (`qq123`). Returns `null` on no-match — mirrors isStub's pure-validator discipline, NEVER throws
  * (T-24-03: this is the validation gate before the param is used downstream). Pure — SSR-safe.
+ *
+ * WR-02: the visible path key stays the separator-less `{source}{id}` form (authoritative decode
+ * unchanged), but the canonical `Track.uid` is the COLON form `${source}:${songid}` (see makeUid in
+ * $lib/sources/types). To stop every consumer from hand-joining `source + id` (which would produce
+ * `netease7`, NOT the canonical `netease:7`), this returns a ready-made `uid` in the colon form so
+ * the decoded identity always agrees with the rest of the codebase's uid convention.
  */
-export function parseEntityParam(param: string): { source: string; id: string } | null {
+export function parseEntityParam(
+	param: string
+): { source: string; id: string; uid: string } | null {
 	if (typeof param !== 'string' || !param) return null;
 	const m = param.match(ENTITY_SOURCE_RE) ?? param.match(ENTITY_SOURCE_ONLY_RE);
-	return m ? { source: m[1], id: m[2] } : null;
+	if (!m) return null;
+	const source = m[1];
+	const id = m[2];
+	return { source, id, uid: `${source}:${id}` };
 }
 
 /**
