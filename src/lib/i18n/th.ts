@@ -6,6 +6,12 @@ const th: Dict = {
 	"nav.home": "บ้าน",
 	"nav.search": "ค้นหา",
 	"nav.library": "ห้องสมุด",
+
+	// --- offline (OFFL-03) ---
+	"offline.indicator": "ออฟไลน์",
+	"offline.title": "คุณออฟไลน์อยู่",
+	"offline.body": "สิ่งนี้ต้องใช้การเชื่อมต่อ เพลงที่ดาวน์โหลดไว้ยังเล่นได้",
+	"offline.goToLibrary": "ไปที่ห้องสมุด",
 	"common.back": "กลับ",
 	"common.done": "เสร็จ",
 	"common.loading": "กำลังโหลด...",

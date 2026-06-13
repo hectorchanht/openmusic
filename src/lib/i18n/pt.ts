@@ -6,6 +6,12 @@ const pt: Dict = {
 	"nav.home": "Página inicial",
 	"nav.search": "Pesquisar",
 	"nav.library": "Biblioteca",
+
+	// --- offline (OFFL-03) ---
+	"offline.indicator": "Sem conexão",
+	"offline.title": "Você está offline",
+	"offline.body": "Isto precisa de conexão. Suas músicas baixadas continuam tocando.",
+	"offline.goToLibrary": "Ir para a Biblioteca",
 	"common.back": "Voltar",
 	"common.done": "Concluir",
 	"common.loading": "carregando…",

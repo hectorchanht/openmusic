@@ -6,6 +6,12 @@ const ar: Dict = {
 	"nav.home": "الصفحة الرئيسية",
 	"nav.search": "بحث",
 	"nav.library": "مكتبة",
+
+	// --- offline (OFFL-03) ---
+	"offline.indicator": "غير متصل",
+	"offline.title": "أنت غير متصل",
+	"offline.body": "يتطلب هذا اتصالاً. لا تزال أغانيك المُنزّلة تعمل.",
+	"offline.goToLibrary": "الذهاب إلى المكتبة",
 	"common.back": "العودة",
 	"common.done": "تم",
 	"common.loading": "جاري التحميل…",

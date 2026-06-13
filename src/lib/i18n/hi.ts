@@ -6,6 +6,12 @@ const hi: Dict = {
 	"nav.home": "घर",
 	"nav.search": "खोजें",
 	"nav.library": "पुस्तकालय",
+
+	// --- offline (OFFL-03) ---
+	"offline.indicator": "ऑफ़लाइन",
+	"offline.title": "आप ऑफ़लाइन हैं",
+	"offline.body": "इसके लिए कनेक्शन चाहिए। आपके डाउनलोड किए गाने अब भी चलते हैं।",
+	"offline.goToLibrary": "पुस्तकालय पर जाएँ",
 	"common.back": "वापस",
 	"common.done": "पूर्ण",
 	"common.loading": "लोड हो रहा है...",

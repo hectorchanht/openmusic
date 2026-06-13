@@ -7,6 +7,7 @@
 	import { player } from '$lib/stores/player.svelte';
 	import { library } from '$lib/stores/library.svelte';
 	import { settings } from '$lib/stores/settings.svelte';
+	import { online } from '$lib/stores/online.svelte';
 	import { LANDING_PATHS } from '$lib/services/home-layout';
 	import { overlays } from '$lib/stores/overlays.svelte';
 	import { t, type TranslationKey } from '$lib/i18n';
@@ -117,7 +118,14 @@
 
 		// Single back-gesture popstate listener for the whole app (overlays back-to-close).
 		const teardownOverlays = overlays.init();
-		return teardownOverlays;
+		// OFFL-03: attach the online/offline listeners ONCE for the app shell so every surface
+		// (and the global indicator below) reads a live online.isOnline. init() is a no-op under
+		// SSR and returns a teardown that removes the window listeners on destroy.
+		const teardownOnline = online.init();
+		return () => {
+			teardownOverlays();
+			teardownOnline();
+		};
 	});
 
 	// Store a translation KEY per tab (not the literal) so the nav re-renders when appLang changes.
@@ -130,6 +138,13 @@
 </script>
 
 <div class="app">
+	<!-- OFFL-03 / D-09: global offline indicator — a thin unobtrusive banner shown whenever the
+	     app is offline (driven by the online store). Purely ADDITIVE to the shell; it never forces
+	     a navigation or redirect (D-09 — the user is never yanked between tabs). "Don't bloat" (D-10). -->
+	{#if !online.isOnline}
+		<div class="offline-bar" role="status" aria-live="polite">{t('offline.indicator')}</div>
+	{/if}
+
 	<main class="content">
 		{@render children()}
 	</main>
@@ -229,6 +244,19 @@
 	}
 	.tab .ic { display: grid; place-items: center; }
 	.tab.active { color: var(--color-text); }
+
+	/* OFFL-03 global offline indicator: a thin, unobtrusive top banner. Sits in normal flow
+	   above the page content (no fixed positioning — keeps it simple, never overlaps the nowbar
+	   or tabbar). Muted/dark so it reads as a status hint, not an error. */
+	.offline-bar {
+		text-align: center;
+		font-size: 12px;
+		font-weight: 600;
+		color: var(--color-text-muted);
+		background: var(--color-surface-2);
+		border-bottom: 1px solid var(--color-border);
+		padding: calc(env(safe-area-inset-top, 0px) + 6px) 12px 6px;
+	}
 
 	/* Never-stop feedback pill. Mirrors the +page.svelte .toast shape (fixed top, pill, dark
 	   backdrop) but layout-level + z above the nowbar (z:20) / tabbar (z:21). The sticky variant

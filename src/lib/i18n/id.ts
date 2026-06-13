@@ -6,6 +6,12 @@ const id: Dict = {
 	"nav.home": "Rumah",
 	"nav.search": "Cari",
 	"nav.library": "Perpustakaan",
+
+	// --- offline (OFFL-03) ---
+	"offline.indicator": "Offline",
+	"offline.title": "Anda offline",
+	"offline.body": "Ini memerlukan koneksi. Lagu yang sudah diunduh tetap dapat diputar.",
+	"offline.goToLibrary": "Buka Perpustakaan",
 	"common.back": "Kembali",
 	"common.done": "Selesai",
 	"common.loading": "memuat…",

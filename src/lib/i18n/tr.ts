@@ -6,6 +6,12 @@ const tr: Dict = {
 	"nav.home": "Ana sayfa",
 	"nav.search": "Ara",
 	"nav.library": "Kütüphane",
+
+	// --- offline (OFFL-03) ---
+	"offline.indicator": "Çevrimdışı",
+	"offline.title": "Çevrimdışısın",
+	"offline.body": "Bunun için bağlantı gerekir. İndirdiğin şarkılar yine de çalınır.",
+	"offline.goToLibrary": "Kütüphaneye git",
 	"common.back": "Geri",
 	"common.done": "Tamam",
 	"common.loading": "yükleniyor…",

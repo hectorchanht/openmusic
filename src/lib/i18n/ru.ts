@@ -6,6 +6,12 @@ const ru: Dict = {
 	"nav.home": "Главная",
 	"nav.search": "Поиск",
 	"nav.library": "Библиотека",
+
+	// --- offline (OFFL-03) ---
+	"offline.indicator": "Нет сети",
+	"offline.title": "Вы офлайн",
+	"offline.body": "Для этого нужна связь. Загруженные треки по-прежнему доступны.",
+	"offline.goToLibrary": "Перейти в библиотеку",
 	"common.back": "Назад",
 	"common.done": "Готово",
 	"common.loading": "загрузка…",

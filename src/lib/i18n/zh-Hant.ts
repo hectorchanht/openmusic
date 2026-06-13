@@ -8,6 +8,12 @@ const zhHant: Dict = {
 	'nav.search': '搜尋',
 	'nav.library': '音樂庫',
 
+	// --- offline (OFFL-03) ---
+	'offline.indicator': '目前離線',
+	'offline.title': '你目前離線',
+	'offline.body': '此功能需要連線。已下載的歌曲仍可播放。',
+	'offline.goToLibrary': '前往音樂庫',
+
 	// --- common ---
 	'common.back': '返回',
 	'common.done': '完成',

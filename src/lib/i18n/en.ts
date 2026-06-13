@@ -7,6 +7,12 @@ const en = {
 	'nav.search': 'Search',
 	'nav.library': 'Library',
 
+	// --- offline (OFFL-03: global indicator + per-surface inline states) ---
+	'offline.indicator': "You're offline",
+	'offline.title': "You're offline",
+	'offline.body': 'This needs a connection. Your downloaded songs still play.',
+	'offline.goToLibrary': 'Go to Library',
+
 	// --- common ---
 	'common.back': 'Back',
 	'common.done': 'Done',

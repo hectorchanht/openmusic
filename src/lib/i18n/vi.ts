@@ -6,6 +6,12 @@ const vi: Dict = {
 	"nav.home": "Trang chủ",
 	"nav.search": "Tìm kiếm",
 	"nav.library": "Thư viện",
+
+	// --- offline (OFFL-03) ---
+	"offline.indicator": "Ngoại tuyến",
+	"offline.title": "Bạn đang ngoại tuyến",
+	"offline.body": "Mục này cần kết nối. Các bài hát đã tải vẫn phát được.",
+	"offline.goToLibrary": "Đến Thư viện",
 	"common.back": "Quay lại",
 	"common.done": "Xong",
 	"common.loading": "đang tải…",
