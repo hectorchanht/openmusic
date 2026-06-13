@@ -593,9 +593,25 @@ Plans:
   4. Sharing a song/album/artist produces a link whose OG metadata (title, description, image) describes that entity, server-rendered so crawlers and chat apps unfurl it
   5. Share links are short and recognizable (readable slug + stable id) and every page carries proper SEO meta (title / description / canonical)
 
-**Plans**: TBD
+**Plans**: 5 plans (3 waves)
+Plans:
+
+**Wave 1**
+
+- [ ] 24-01-PLAN.md — Offline testable cores: pure sw-cache.ts (shouldBypass/cacheNameFor) + reactive online store, with tests (OFFL-01, OFFL-03)
+- [ ] 24-02-PLAN.md — Share/SEO testable cores: reverse slugify to ASCII (D-05) + entityShareUrl/parseEntityParam, with tests (SHARE-02)
+
+**Wave 2** *(blocked on Wave 1)*
+
+- [ ] 24-03-PLAN.md — Native service-worker.ts (version-keyed precache + activate eviction + bypass-delegating fetch) + native-build register guard (OFFL-01)
+- [ ] 24-04-PLAN.md — SSR entity routes: new minimal SSR-safe /song/[slug] + album/artist ssr=true opt-in + app.html static SEO default (D-11) (SHARE-01, SHARE-03)
+
+**Wave 3** *(blocked on Waves 1-2)*
+
+- [ ] 24-05-PLAN.md — OFFL-03 global offline indicator + per-surface inline offline states (downloads promoted) + entityShareUrl wiring + OFFL-02 verify + [BLOCKING] pnpm build && pnpm build:native gate (OFFL-02/03, SHARE-02) (checkpoint)
+
 **UI hint**: yes
-**Research flag**: **NEEDS deeper research** — both halves are net-new infra with Cloudflare-specific behavior. Offline: SW lifecycle on Cloudflare Pages, iOS Safari PWA+SW+background-audio, cache-versioning on deploy, verify under `wrangler pages dev` (native `src/service-worker.ts`, NOT vite-pwa). SEO: `+page.server.ts` at edge, `og:image` strategy (unstable CDN cover vs composed card vs static), CJK slug encode/decode, scraper testing. Run `/gsd:plan-phase --research-phase 24` (consider splitting offline vs SEO into separate research spikes).
+**Research flag**: Research complete (`24-RESEARCH.md`, 2026-06-13) + pattern map (`24-PATTERNS.md`) + validation (`24-VALIDATION.md`). Native `src/service-worker.ts` (NOT vite-pwa); per-route SSR via universal `+page.ts` + `ssr=true` (NEVER `+page.server.ts`); dual-build guarded by `BUILD_TARGET=native`. iOS PWA offline + crawler-curl OG remain manual smokes (24-05 checkpoint).
 
 ## Progress
 
@@ -631,7 +647,7 @@ Last.fm write-side dependency chain (deferred → v1.3): 11 (auth) before 12 & 1
 | 21. Search & Cover Pipeline Polish | 5/5 | Complete   | 2026-06-13 |
 | 22. Lyrics Polish | 1/2 | In Progress|  |
 | 23. UX Audit & Homepage/Artist Polish | 8/8 | Complete    | 2026-06-12 |
-| 24. Offline App-Shell & Sharing/SEO | 0/TBD | Not started | - |
+| 24. Offline App-Shell & Sharing/SEO | 0/5 | Planned | - |
 
 ## Backlog
 
