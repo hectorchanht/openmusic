@@ -6,6 +6,8 @@ import {
 	decodeTrack,
 	encodeTrack,
 	shareUrl,
+	entityShareUrl,
+	parseEntityParam,
 	buildOg,
 	isHttpsUrl
 } from './share';
@@ -147,6 +149,65 @@ describe('shareUrl', () => {
 		const out = decodeShare(url.split('play=')[1]);
 		expect(out.current?.uid).toBe(current.uid);
 		expect(out.queue.map((t) => t.uid)).toEqual([current.uid]);
+	});
+});
+
+describe('entityShareUrl / parseEntityParam', () => {
+	it('builds /{type}/{slug}-{source}{id} with the authoritative {source}{id} key (D-04)', () => {
+		const url = entityShareUrl('song', {
+			title: 'Qing Fei De Yi',
+			artist: 'A',
+			source: 'qq',
+			songid: '123'
+		});
+		expect(url.endsWith('/song/qing-fei-de-yi-a-qq123')).toBe(true);
+	});
+
+	it('uses the entity type in the path segment (album)', () => {
+		const url = entityShareUrl('album', {
+			title: 'Hello',
+			artist: '',
+			source: 'netease',
+			songid: '7'
+		});
+		expect(url.endsWith('/album/hello-netease7')).toBe(true);
+	});
+
+	it('drops the leading hyphen when the slug is empty (all-CJK title)', () => {
+		const url = entityShareUrl('song', {
+			title: '情非得已',
+			artist: '',
+			source: 'qq',
+			songid: '123'
+		});
+		expect(url.endsWith('/song/qq123')).toBe(true);
+		expect(url.endsWith('/song/-qq123')).toBe(false);
+	});
+
+	it('parses a slug-prefixed param back to {source, id}', () => {
+		expect(parseEntityParam('qing-fei-de-yi-qq123')).toEqual({ source: 'qq', id: '123' });
+	});
+
+	it('parses an empty-slug param ({source}{id} only) back to {source, id}', () => {
+		expect(parseEntityParam('qq123')).toEqual({ source: 'qq', id: '123' });
+		expect(parseEntityParam('netease7')).toEqual({ source: 'netease', id: '7' });
+	});
+
+	it('returns null on no source-enum match, never throws (T-24-03)', () => {
+		expect(parseEntityParam('no-source-here')).toBeNull();
+		expect(parseEntityParam('')).toBeNull();
+		expect(parseEntityParam('spotify123')).toBeNull();
+	});
+
+	it('round-trips the authoritative {source}{id} key through build → parse', () => {
+		for (const t of [
+			{ title: 'Dao Xiang', artist: 'Jay Chou', source: 'netease', songid: '1' },
+			{ title: '情非得已', artist: '', source: 'qq', songid: '123' },
+			{ title: 'Mixed 标题', artist: 'X', source: 'kuwo', songid: 'AB99' }
+		] as const) {
+			const param = entityShareUrl('song', t).split('/').pop()!;
+			expect(parseEntityParam(param)).toEqual({ source: t.source, id: t.songid });
+		}
 	});
 });
 
