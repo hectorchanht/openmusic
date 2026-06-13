@@ -1,15 +1,15 @@
 <script lang="ts">
-	import '../app.css';
-	import { page } from '$app/state';
-	import { player } from '$lib/stores/player.svelte';
+	import "../app.css";
+	import { page } from "$app/state";
+	import { player } from "$lib/stores/player.svelte";
 
 	let { children } = $props();
 	let audioEl: HTMLAudioElement;
 
-	const SITE = 'https://openmusic.pages.dev';
-	const TITLE = 'openmusic — music streaming for earth';
+	const SITE = "https://openmusic.lol";
+	const TITLE = "openmusic — music streaming for earth";
 	const DESC =
-		'Search and stream music for world. Synced lyrics, translation, playlists, library — a fast mobile-first web player.';
+		"Search and stream music for world. Synced lyrics, translation, playlists, library — a fast mobile-first web player.";
 	const canonical = $derived(`${SITE}${page.url.pathname}`);
 
 	// The single app-wide <audio> lives at the ROOT layout so it is mounted ONCE
@@ -28,8 +28,6 @@
 </script>
 
 <svelte:head>
-	<title>{TITLE}</title>
-	<meta name="description" content={DESC} />
 	<link rel="canonical" href={canonical} />
 	<!-- Open Graph -->
 	<meta property="og:site_name" content="openmusic" />
@@ -39,6 +37,8 @@
 	     site-default block below is the FALLBACK for routes without per-page OG. og:site_name stays
 	     site-wide; og:type is gated below so OG pages don't emit a duplicate. -->
 	{#if !page.data?.og}
+		<title>{TITLE}</title>
+		<meta name="description" content={DESC} />
 		<meta property="og:type" content="website" />
 		<meta property="og:title" content={TITLE} />
 		<meta property="og:description" content={DESC} />
