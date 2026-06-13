@@ -603,8 +603,8 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1)*
 
-- [ ] 24-03-PLAN.md — Native service-worker.ts (version-keyed precache + activate eviction + bypass-delegating fetch) + native-build register guard (OFFL-01)
-- [ ] 24-04-PLAN.md — SSR entity routes: new minimal SSR-safe /song/[slug] + album/artist ssr=true opt-in + app.html static SEO default (D-11) (SHARE-01, SHARE-03)
+- [x] 24-03-PLAN.md — Native service-worker.ts (version-keyed precache + activate eviction + bypass-delegating fetch) + native-build register guard (OFFL-01)
+- [x] 24-04-PLAN.md — SSR entity routes: new minimal SSR-safe /song/[slug] + album/artist ssr=true opt-in + app.html static SEO default (D-11) (SHARE-01, SHARE-03)
 
 **Wave 3** *(blocked on Waves 1-2)*
 
@@ -647,7 +647,7 @@ Last.fm write-side dependency chain (deferred → v1.3): 11 (auth) before 12 & 1
 | 21. Search & Cover Pipeline Polish | 5/5 | Complete   | 2026-06-13 |
 | 22. Lyrics Polish | 1/2 | In Progress|  |
 | 23. UX Audit & Homepage/Artist Polish | 8/8 | Complete    | 2026-06-12 |
-| 24. Offline App-Shell & Sharing/SEO | 2/5 | In Progress|  |
+| 24. Offline App-Shell & Sharing/SEO | 4/5 | In Progress|  |
 
 ## Backlog
 
