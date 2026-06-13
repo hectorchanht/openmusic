@@ -22,6 +22,7 @@
 	import { names } from '$lib/stores/names.svelte';
 	import { searchSession } from '$lib/stores/searchSession.svelte';
 	import { searchHistory } from '$lib/stores/searchHistory.svelte';
+	import { online } from '$lib/stores/online.svelte';
 	import { t } from '$lib/i18n';
 	import { LoaderCircle, ListEnd, Heart } from '@lucide/svelte';
 	import { longpress } from '$lib/actions/longpress';
@@ -238,6 +239,10 @@
 		e?.preventDefault();
 		const kw = q.trim();
 		if (!kw) return;
+		// OFFL-03 / D-10: SHORT-CIRCUIT when offline — never enter the loading state / fire
+		// searchAll (which would hang on a dead network and strand a spinner). The inline offline
+		// state renders instead (gated on !online.isOnline in the markup). No redirect (D-09).
+		if (!online.isOnline) return;
 		ac?.abort();
 		moreAc?.abort(); // cancel any in-flight load-more from a previous query
 		// ql0: committing a search closes the typeahead — cancel a pending debounced fetch,
@@ -501,6 +506,16 @@
 	<p class="warn">{t('search.someFailed')}</p>
 {/if}
 
+<!-- OFFL-03 inline offline state: short-circuits the fetch (run() bails when offline) and
+     promotes Downloads/Library. No redirect (D-09); reconnect lets the next search run. -->
+{#if !online.isOnline}
+	<div class="offline-state">
+		<p class="offline-title">{t('offline.title')}</p>
+		<p class="offline-body">{t('offline.body')}</p>
+		<button type="button" class="offline-cta" onclick={() => goto('/library')}>{t('offline.goToLibrary')}</button>
+	</div>
+{/if}
+
 <!-- ONE skeleton-row definition shared by the D-01 first-load gate and the existing
      load-more position (no second skeleton style). Reduce-motion handled by .skel CSS. -->
 {#snippet skeletonRows(count: number, label: string)}
@@ -613,6 +628,15 @@
 	.artist-avatar { width: 96px; height: 96px; border-radius: 50%; background-size: cover; background-position: center; }
 	.artist-name { font-size: 12px; font-weight: 600; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 96px; color: var(--color-text);}
 	.warn { color: #ffcf66; font-size: 12px; margin: 0 0 10px; }
+
+	/* OFFL-03 inline offline empty-state (shared idiom across online-only surfaces). */
+	.offline-state { text-align: center; padding: 32px 16px; color: var(--color-text-muted); }
+	.offline-title { font-size: 15px; font-weight: 600; color: var(--color-text); margin: 0 0 6px; }
+	.offline-body { font-size: 13px; margin: 0 0 16px; }
+	.offline-cta {
+		background: var(--color-primary); border: none; color: #fff; border-radius: 999px;
+		padding: 9px 18px; font-size: 13px; font-weight: 600; cursor: pointer;
+	}
 
 	/* --- D-05 past-search suggestions --- */
 	.suggest { margin-bottom: 14px; }

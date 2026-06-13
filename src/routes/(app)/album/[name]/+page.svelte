@@ -20,6 +20,7 @@
 	import { shouldRun } from '$lib/actions/inflightGuard';
 	import { lazyCover } from '$lib/actions/lazyCover';
 	import { toast as globalToast } from '$lib/stores/toast.svelte';
+	import { online } from '$lib/stores/online.svelte';
 	import { tick as hapticTick } from '$lib/util/haptics';
 	import { ListEnd } from '@lucide/svelte';
 	import { t } from '$lib/i18n';
@@ -142,6 +143,13 @@
 		const n = name;
 		const artist = albumArtist;
 		const key = `${n}|${artist}`;
+		// OFFL-03 / D-10: SHORT-CIRCUIT when offline — never fire getAlbumTracklist (which would
+		// hang and strand the tracklist skeleton). Clear `loading` so the inline offline state shows
+		// instead of a stuck spinner. No redirect (D-09). Resumes on the next online visit.
+		if (n && !online.isOnline) {
+			loading = false;
+			return;
+		}
 		if (n && loadedFor !== key) {
 			loadedFor = key;
 			tracks = [];
@@ -177,6 +185,8 @@
 		const n = name;
 		const artist = albumArtist;
 		const key = `${n} ${artist}`;
+		// OFFL-03: skip album enrichment offline (enrichLoading stays false → no stuck skeleton).
+		if (!online.isOnline) return;
 		if (n && artist && enrichedFor !== key) {
 			enrichedFor = key;
 			enrich = null;
@@ -198,6 +208,8 @@
 		const n = name;
 		const artist = albumArtist;
 		const key = `${n}|${artist}`;
+		// OFFL-03: skip the Deezer-info fetch offline (dzLoading stays false → no stuck skeleton).
+		if (!online.isOnline) return;
 		if (n && dzFor !== key) {
 			dzFor = key;
 			dz = null;
@@ -563,6 +575,15 @@
 			</li>
 		{/each}
 	</ul>
+{:else if !online.isOnline && !tracks.length}
+	<!-- OFFL-03 inline offline state: the tracklist fetch short-circuits when offline (no stuck
+	     skeleton). Promote Downloads/Library; no redirect (D-09). Takes precedence over the
+	     no-tracks / open-from-artist empties so there's no dead screen. -->
+	<div class="offline-state">
+		<p class="offline-title">{t('offline.title')}</p>
+		<p class="offline-body">{t('offline.body')}</p>
+		<button type="button" class="offline-cta" onclick={() => goto('/library')}>{t('offline.goToLibrary')}</button>
+	</div>
 {:else if tracks.length}
 	<!-- Album-level actions. ii6: PER-BUTTON disable (busyAction === id) so only the
 	     clicked button greys out while its action runs — other buttons stay live. Heart
@@ -629,6 +650,15 @@
 	.dzrow .lbl { display: inline-block; max-width: 150px; min-width: 0; overflow: hidden; white-space: nowrap; }
 	.dzinfo .sk-info.short { width: 90px; }
 	.muted { color: var(--color-text-muted); font-size: 14px; }
+
+	/* OFFL-03 inline offline empty-state (shared idiom across online-only surfaces). */
+	.offline-state { text-align: center; padding: 32px 16px; color: var(--color-text-muted); }
+	.offline-title { font-size: 15px; font-weight: 600; color: var(--color-text); margin: 0 0 6px; }
+	.offline-body { font-size: 13px; margin: 0 0 16px; }
+	.offline-cta {
+		background: var(--color-primary); border: none; color: #fff; border-radius: 999px;
+		padding: 9px 18px; font-size: 13px; font-weight: 600; cursor: pointer;
+	}
 	.list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 	/* UX-04: positioning context for the swipe reveal layers. The reveal spans sit BEHIND the row
 	   (the row carries an opaque background); the row translateX (use:swipeAction) slides to expose

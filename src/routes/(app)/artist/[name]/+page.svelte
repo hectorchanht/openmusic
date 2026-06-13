@@ -13,6 +13,7 @@
 	import { library } from '$lib/stores/library.svelte';
 	import { names } from '$lib/stores/names.svelte';
 	import { toast } from '$lib/stores/toast.svelte';
+	import { online } from '$lib/stores/online.svelte';
 	import { t } from '$lib/i18n';
 	import { longpress } from '$lib/actions/longpress';
 	import { lazyCover } from '$lib/actions/lazyCover';
@@ -170,6 +171,13 @@
 
 	$effect(() => {
 		const n = name;
+		// OFFL-03 / D-10: SHORT-CIRCUIT when offline — never fire searchAll (which would hang and
+		// strand the hit-songs skeleton). Clear `loading` so the inline offline state shows instead
+		// of a stuck spinner. No redirect (D-09). The fetch resumes on the next online visit.
+		if (n && !online.isOnline) {
+			loading = false;
+			return;
+		}
 		if (n && loadedFor !== n) {
 			loadedFor = n;
 			loading = true;
@@ -185,6 +193,12 @@
 	// load above). Keyed on `name` with its own `enrichedFor` guard.
 	$effect(() => {
 		const n = name;
+		// OFFL-03: don't fire enrichment when offline; clear the bio skeleton flag so the hero
+		// doesn't sit on a stuck skeleton (the `loading || enrichLoading` gate). Resumes online.
+		if (n && !online.isOnline) {
+			enrichLoading = false;
+			return;
+		}
 		if (n && enrichedFor !== n) {
 			enrichedFor = n;
 			enrich = null;
@@ -212,6 +226,11 @@
 	// section hides. Verify-before-render: skeleton stays up until track-counts are known.
 	$effect(() => {
 		const n = name;
+		// OFFL-03: skip the albums fetch offline; clear the skeleton flag (no stuck loader).
+		if (n && !online.isOnline) {
+			albumsLoading = false;
+			return;
+		}
 		if (n && albumsFor !== n) {
 			albumsFor = n;
 			albums = [];
@@ -261,6 +280,11 @@
 	// Deezer falls back ONLY when LF is empty. Capped at 4 in-flight, race-guarded.
 	$effect(() => {
 		const n = name;
+		// OFFL-03: skip the more-like-this fetch offline; clear the skeleton flag (no stuck loader).
+		if (n && !online.isOnline) {
+			relatedLoading = false;
+			return;
+		}
 		if (n && relatedFor !== n) {
 			relatedFor = n;
 			related = [];
@@ -291,6 +315,11 @@
 	// own `dzFor` key. Never blocks the searchAll load / enrich; a null settle → section absent.
 	$effect(() => {
 		const n = name;
+		// OFFL-03: skip the Deezer-info fetch offline; clear the skeleton flag (no stuck loader).
+		if (n && !online.isOnline) {
+			dzLoading = false;
+			return;
+		}
 		if (n && dzFor !== n) {
 			dzFor = n;
 			dz = null;
@@ -381,6 +410,17 @@
 	{/if}
 </header>
 
+{#if !online.isOnline && !songs.length}
+	<!-- OFFL-03 inline offline state: artist discovery needs the network — the effects above
+	     short-circuit when offline (no stuck skeletons). Promote Downloads/Library; no redirect
+	     (D-09). Shown only when there's nothing already loaded to interact with. -->
+	<div class="offline-state">
+		<p class="offline-title">{t('offline.title')}</p>
+		<p class="offline-body">{t('offline.body')}</p>
+		<button type="button" class="offline-cta" onclick={() => goto('/library')}>{t('offline.goToLibrary')}</button>
+	</div>
+{/if}
+
 {#if albumsLoading}
 	<section>
 		<h2>{t('artist.albums')}</h2>
@@ -424,7 +464,9 @@
 			{/each}
 		</ul>
 	</section>
-{:else}
+{:else if online.isOnline || songs.length}
+	<!-- Offline with nothing loaded: the inline offline state above covers it, so the empty
+	     hit-songs section is suppressed (no duplicate dead screen — D-10). -->
 	<section>
 		<h2>{t('artist.hitSongs')}</h2>
 		{#if songs.length}
@@ -532,6 +574,15 @@
 	.r-title { font-size: calc(14px * var(--fs-title, 1)); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--color-text-muted);}
 	.r-sub { font-size: calc(12px * var(--fs-artist, 1)); color: var(--color-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 	.muted { color: var(--color-text-muted); font-size: 14px; }
+
+	/* OFFL-03 inline offline empty-state (shared idiom across online-only surfaces). */
+	.offline-state { text-align: center; padding: 32px 16px; color: var(--color-text-muted); }
+	.offline-title { font-size: 15px; font-weight: 600; color: var(--color-text); margin: 0 0 6px; }
+	.offline-body { font-size: 13px; margin: 0 0 16px; }
+	.offline-cta {
+		background: var(--color-primary); border: none; color: #fff; border-radius: 999px;
+		padding: 9px 18px; font-size: 13px; font-weight: 600; cursor: pointer;
+	}
 
 	/* ---- loading skeletons (global .sk in app.css supplies the grey + shimmer; these size the
 	   blocks to match the real content they stand in for) ---- */
