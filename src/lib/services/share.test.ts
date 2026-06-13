@@ -40,12 +40,16 @@ describe('slugify', () => {
 		expect(slugify('  --Dao  Xiang--  ', '__Jay__')).toBe('dao-xiang-jay');
 	});
 
-	it('preserves CJK codepoints and stays URL-safe via encodeURIComponent', () => {
+	it('slugifies CJK titles to ASCII (strips non-ASCII), never preserving CJK codepoints', () => {
+		// D-05: CJK is stripped to ASCII; the slug is cosmetic, the trailing {source}{id} is authoritative.
 		const slug = slugify('稻香', 'Jay Chou');
-		expect(slug).not.toBe('');
-		expect(slug).toContain('稻香');
-		// URL-safe: encode → decode round-trips identically (no information lost).
-		expect(decodeURIComponent(encodeURIComponent(slug))).toBe(slug);
+		expect(slug).toMatch(/^[a-z0-9-]*$/); // ASCII-only — no CJK codepoints survive
+		expect(slug).not.toContain('稻');
+		expect(slug).not.toContain('香');
+		// The ASCII artist segment still slugifies.
+		expect(slug).toBe('jay-chou');
+		// All-CJK title with no ASCII artist → empty slug (id is authoritative downstream).
+		expect(slugify('情非得已', '')).toBe('');
 	});
 
 	it('caps length at ~60 chars', () => {
