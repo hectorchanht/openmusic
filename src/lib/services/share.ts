@@ -67,17 +67,24 @@ function isStub(v: unknown): v is Stub {
 }
 
 /**
- * Human-readable, URL-safe slug for `${title} ${artist}`. CJK-safe: CJK codepoints are
- * preserved as-is (encode/decodeURIComponent round-trips them); only ASCII letters/digits
- * survive verbatim, ASCII punctuation/whitespace collapses to a single '-'. Capped at ~60 chars.
- * Pure — no browser/DOM access. e.g. slugify('Hello World!!','A B') === 'hello-world-a-b'.
+ * Human-readable, URL-safe ASCII slug for `${title} ${artist}` (D-05). CJK / non-ASCII
+ * codepoints are STRIPPED to ASCII (NOT preserved): the string is NFKD-normalised, combining
+ * marks dropped, then every run of non-`[a-z0-9]` (which includes all CJK + punctuation +
+ * whitespace) collapses to a single '-'. The slug is COSMETIC and copy-paste-clean — the
+ * trailing `{source}{id}` key (see entityShareUrl/parseEntityParam) is the AUTHORITATIVE decode
+ * key, so an all-CJK title legitimately yields '' here. Capped at ~60 chars. Pure — no
+ * browser/DOM access. e.g. slugify('Hello World!!','A B') === 'hello-world-a-b';
+ * slugify('稻香','Jay Chou') === 'jay-chou'; slugify('情非得已','') === ''.
  */
 export function slugify(title: string, artist: string): string {
 	const raw = `${title ?? ''} ${artist ?? ''}`.trim().toLowerCase();
 	const slug = raw
-		// Replace any run of ASCII punctuation/whitespace with a single '-'. CJK / non-ASCII
-		// letters are NOT in this class, so they survive untouched (URL-encoded by the consumer).
-		.replace(/[\s!-/:-@[-`{-~]+/g, '-')
+		.normalize('NFKD')
+		// Strip combining marks (accents) left over from NFKD decomposition.
+		.replace(/[̀-ͯ]/g, '')
+		// Collapse every run of non-ASCII-alnum to a single '-'. CJK and all other non-ASCII
+		// letters are NOT [a-z0-9], so they are dropped here (ASCII-only output, D-05).
+		.replace(/[^a-z0-9]+/g, '-')
 		.replace(/-+/g, '-')
 		.replace(/^-+|-+$/g, '');
 	return slug.slice(0, 60).replace(/-+$/g, '');
