@@ -20,7 +20,7 @@ Fixed by ROADMAP. Discussion clarifies HOW within this boundary. Both halves are
 ### SSR strategy (SHARE-01 / SHARE-03)
 - **D-01:** Deliver server-rendered OG/SEO via a **per-route SSR subtree**, NOT a global SSR flip. Root `src/routes/+layout.ts` keeps `ssr = false` (full SPA); only the entity routes opt back into SSR.
 - **D-02:** The entity routes that get SSR: `(app)/album/[name]`, `(app)/artist/[name]`, and a song-share surface (today a song is shared via the base64url `?play=` token on the homepage — planner/research decides whether song sharing needs its own SSR entity route or an SSR share landing; album/artist already have `+page.ts` that builds `og`).
-- **D-03:** SSR must be **Cloudflare-only** and not break the `adapter-static` Capacitor SPA build (dual-adapter D-01 in svelte.config). Server routes (`+page.server.ts` / `ssr=true`) must be guarded/absent in the `BUILD_TARGET=static` build so adapter-static still emits a pure SPA fallback. This guard is a hard constraint — verify both builds.
+- **D-03:** SSR must be **Cloudflare-only** and not break the `adapter-static` Capacitor SPA build (dual-adapter D-01 in svelte.config). The static build is selected by **`BUILD_TARGET=native`** (NOT `static` — verified against svelte.config.js / package.json; research correction). NEVER use `+page.server.ts` (breaks the static build) — use universal `+page.ts` + `export const ssr = true` so the entity route SSRs on Cloudflare and stays SPA-compatible. This guard is a hard constraint — verify both `pnpm build` and `pnpm build:native`.
 
 ### Share-link shape (SHARE-02)
 - **D-04:** URL pattern: **readable ASCII slug + stable id**, e.g. `/song/qing-fei-de-yi-qq123` (`/{type}/{slug}-{source}{id}`). The stable `{source}{id}` (or uid) is the **authoritative** decode key; the slug is cosmetic and ignored on decode.
@@ -65,7 +65,7 @@ Fixed by ROADMAP. Discussion clarifies HOW within this boundary. Both halves are
 
 ### Build / SSR config (the central constraint)
 - `src/routes/+layout.ts` — `export const ssr = false; export const prerender = false;` (the CSR-only root that D-01 deliberately preserves).
-- `svelte.config.js` — dual-adapter switch (D-01): default `@sveltejs/adapter-cloudflare`, `BUILD_TARGET=static` → `@sveltejs/adapter-static` SPA for Capacitor. SSR routes must not break the static build (D-03).
+- `svelte.config.js` — dual-adapter switch (D-01): default `@sveltejs/adapter-cloudflare`, `BUILD_TARGET=native` → `@sveltejs/adapter-static` SPA for Capacitor. SSR routes must not break the static build (D-03).
 
 ### Existing offline/download code (reuse)
 - `src/lib/services/blob-store.ts`, `src/lib/services/downloads-queue.ts` — IndexedDB blob store + download queue; OFFL-02 plays from these offline.
@@ -89,7 +89,7 @@ Fixed by ROADMAP. Discussion clarifies HOW within this boundary. Both halves are
 
 ### Integration Points
 - `src/routes/+layout.ts` (ssr flag) + entity-route layouts/`+page.server.ts` — the SSR subtree boundary.
-- `svelte.config.js` BUILD_TARGET branch — SSR-route guard for the static build.
+- `svelte.config.js` `BUILD_TARGET=native` branch — SSR-route guard for the static build.
 - `src/service-worker.ts` (new) — SvelteKit auto-registers; `/api/*` + audio bypass; version-keyed activate.
 - Online/offline state surfaced app-wide (new) consumed by online-only surfaces for inline offline states (D-09).
 </code_context>
