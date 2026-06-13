@@ -199,6 +199,20 @@ describe('entityShareUrl / parseEntityParam', () => {
 		expect(parseEntityParam('spotify123')).toBeNull();
 	});
 
+	it('decodes the full live SourceId set, incl. fivesing/jamendo (24-04 enum reconcile)', () => {
+		expect(parseEntityParam('fivesing12345')).toEqual({ source: 'fivesing', id: '12345' });
+		expect(parseEntityParam('jamendo987')).toEqual({ source: 'jamendo', id: '987' });
+		expect(parseEntityParam('some-song-fivesingAB99')).toEqual({
+			source: 'fivesing',
+			id: 'AB99'
+		});
+	});
+
+	it('rejects the stale kugou/migu enum that does not exist in SourceId (24-04)', () => {
+		expect(parseEntityParam('kugou123')).toBeNull();
+		expect(parseEntityParam('migu456')).toBeNull();
+	});
+
 	it('round-trips the authoritative {source}{id} key through build → parse', () => {
 		for (const t of [
 			{ title: 'Dao Xiang', artist: 'Jay Chou', source: 'netease', songid: '1' },
