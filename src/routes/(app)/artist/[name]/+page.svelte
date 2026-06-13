@@ -152,6 +152,13 @@
 	}
 
 	async function shareArtist() {
+		// SHARE-02 / D-04: the artist entity link. The /artist/[name] route is the readable entity
+		// page (SSR-opted-in by 24-04 for the crawler OG head) and decodes params.name via
+		// decodeURIComponent — so the AUTHORITATIVE round-trip key is the literal artist name in the
+		// path, NOT an ASCII slug. entityShareUrl() is deliberately NOT used here: it slugifies CJK
+		// to '' (share.ts), which would yield a non-reopening link for the app's primary CJK catalog
+		// (deviation — see SUMMARY). No ?play= carrier — an artist page is an entity, not a now-
+		// playing restore (D-06). location guarded for SSR safety.
 		const url = typeof location !== 'undefined' ? `${location.origin}/artist/${encodeURIComponent(name)}` : `/artist/${encodeURIComponent(name)}`;
 		const title = name;
 		try {

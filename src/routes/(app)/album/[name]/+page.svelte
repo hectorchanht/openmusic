@@ -468,7 +468,16 @@
 		if (busyAction === 'share') return;
 		busyAction = 'share';
 		try {
-			const url = location.href;
+			// SHARE-02 / D-04: the album entity link. The /album/[name] route is the readable entity
+			// page (SSR-opted-in by 24-04 for the crawler OG head) and decodes params.name via
+			// decodeURIComponent + reads ?artist= to query the tracklist — so the AUTHORITATIVE round-
+			// trip key is the literal album name in the path (plus ?artist=), NOT an ASCII slug.
+			// entityShareUrl() is deliberately NOT used here: it slugifies CJK to '' (share.ts), which
+			// would yield a non-reopening link for the app's primary CJK catalog (deviation — see
+			// SUMMARY). No ?play= carrier — an album page is an entity, not a now-playing restore (D-06).
+			const base = typeof location !== 'undefined' ? location.origin : '';
+			const path = `/album/${encodeURIComponent(name)}`;
+			const url = albumArtist ? `${base}${path}?artist=${encodeURIComponent(albumArtist)}` : `${base}${path}`;
 			const nav = navigator as Navigator & { share?: (d: ShareData) => Promise<void> };
 			if (nav.share) await nav.share({ title: `${name} — ${albumArtist}`, url });
 			else {
