@@ -191,6 +191,7 @@ const tr: Dict = {
 	"nowplaying.translating": "tercüme ediliyor…",
 	"nowplaying.noLyrics": "Bu parça için şarkı sözü bulunamadı.",
 	"nowplaying.loadingRelated": "İlgili yükleniyor…",
+	"nowplaying.noRelated": "İlgili parça yok.",
 	"nowplaying.lastfmTags": "Last.fm etiketleri",
 	"nowbar.openNowPlaying": "Şu anda açık oynanıyor",
 	"nowbar.playPause": "Oynat/duraklat",

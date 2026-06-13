@@ -209,6 +209,7 @@ const zhHans: Dict = {
 	'nowplaying.translating': '翻译中…',
 	'nowplaying.noLyrics': '这首歌没有歌词。',
 	'nowplaying.loadingRelated': '加载相关歌曲中…',
+	'nowplaying.noRelated': '没有相关歌曲。',
 	'nowplaying.lastfmTags': 'Last.fm 标签',
 
 	// --- now bar ---

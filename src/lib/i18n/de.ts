@@ -191,6 +191,7 @@ const de: Dict = {
 	"nowplaying.translating": "übersetzen…",
 	"nowplaying.noLyrics": "Für diesen Titel gibt es keinen Liedtext.",
 	"nowplaying.loadingRelated": "Ähnliches wird geladen…",
+	"nowplaying.noRelated": "Keine ähnlichen Titel.",
 	"nowplaying.lastfmTags": "Last.fm-Tags",
 	"nowbar.openNowPlaying": "Jetzt geöffnet und abgespielt",
 	"nowbar.playPause": "Abspielen/Pause",

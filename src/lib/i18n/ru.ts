@@ -191,6 +191,7 @@ const ru: Dict = {
 	"nowplaying.translating": "перевод…",
 	"nowplaying.noLyrics": "Текста для этого трека нет.",
 	"nowplaying.loadingRelated": "Загрузка связанных…",
+	"nowplaying.noRelated": "Нет похожих треков.",
 	"nowplaying.lastfmTags": "Теги Last.fm",
 	"nowbar.openNowPlaying": "Открыто сейчас играет",
 	"nowbar.playPause": "Воспроизведение/пауза",

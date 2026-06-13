@@ -191,6 +191,7 @@ const ar: Dict = {
 	"nowplaying.translating": "ترجمة…",
 	"nowplaying.noLyrics": "لا توجد كلمات لهذا المسار.",
 	"nowplaying.loadingRelated": "جارٍ التحميل ذات الصلة…",
+	"nowplaying.noRelated": "لا توجد مقاطع ذات صلة.",
 	"nowplaying.lastfmTags": "العلامات Last.fm",
 	"nowbar.openNowPlaying": "فتح اللعب الآن",
 	"nowbar.playPause": "تشغيل/إيقاف مؤقت",

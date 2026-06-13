@@ -191,6 +191,7 @@ const vi: Dict = {
 	"nowplaying.translating": "dịch…",
 	"nowplaying.noLyrics": "Không có lời bài hát cho bài hát này.",
 	"nowplaying.loadingRelated": "Đang tải liên quan…",
+	"nowplaying.noRelated": "Không có bài hát liên quan.",
 	"nowplaying.lastfmTags": "Thẻ Last.fm",
 	"nowbar.openNowPlaying": "Đang mở đang phát",
 	"nowbar.playPause": "Phát/tạm dừng",

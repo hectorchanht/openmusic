@@ -191,6 +191,7 @@ const hi: Dict = {
 	"nowplaying.translating": "अनुवाद कर रहा हूँ...",
 	"nowplaying.noLyrics": "इस ट्रैक के लिए कोई गीत नहीं.",
 	"nowplaying.loadingRelated": "संबंधित लोड हो रहा है...",
+	"nowplaying.noRelated": "कोई संबंधित ट्रैक नहीं।",
 	"nowplaying.lastfmTags": "Last.fm टैग",
 	"nowbar.openNowPlaying": "अभी खेलें खोलें",
 	"nowbar.playPause": "चलाएं/रोकें",

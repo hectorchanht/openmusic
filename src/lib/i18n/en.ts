@@ -230,6 +230,7 @@ const en = {
 	'nowplaying.translating': 'translating…',
 	'nowplaying.noLyrics': 'No lyrics for this track.',
 	'nowplaying.loadingRelated': 'Loading related…',
+	'nowplaying.noRelated': 'No related tracks.',
 	'nowplaying.lastfmTags': 'Last.fm tags',
 
 	// --- now bar (layout) ---

@@ -191,6 +191,7 @@ const id: Dict = {
 	"nowplaying.translating": "menerjemahkan…",
 	"nowplaying.noLyrics": "Tidak ada lirik untuk lagu ini.",
 	"nowplaying.loadingRelated": "Memuat terkait…",
+	"nowplaying.noRelated": "Tidak ada lagu terkait.",
 	"nowplaying.lastfmTags": "Tag last.fm",
 	"nowbar.openNowPlaying": "Buka sekarang sedang diputar",
 	"nowbar.playPause": "Putar/jeda",

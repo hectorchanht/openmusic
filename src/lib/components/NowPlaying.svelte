@@ -272,15 +272,25 @@
 	const showTr = $derived(settings.lyricsLang !== 'off' && translated.length === lines.length);
 	// ---- related ----
 	let related = $state<Track[]>([]);
+	let relatedLoading = $state(false);
 	let relatedFor = '';
 	$effect(() => {
 		const t = player.current;
 		if (tab === 'related' && t && relatedFor !== t.uid) {
 			relatedFor = t.uid;
 			related = [];
+			relatedLoading = true;
 			searchAll(t.artist, 1)
-				.then((r) => (related = dedupeBest(r.interleaved, settings.preferredSource).filter((x) => x.uid !== t.uid).slice(0, 20)))
-				.catch(() => (related = []));
+				.then((r) => {
+					if (relatedFor !== t.uid) return; // race guard: a newer track took over
+					related = dedupeBest(r.interleaved, settings.preferredSource).filter((x) => x.uid !== t.uid).slice(0, 20);
+					relatedLoading = false;
+				})
+				.catch(() => {
+					if (relatedFor !== t.uid) return;
+					related = [];
+					relatedLoading = false;
+				});
 		}
 	});
 
@@ -1054,7 +1064,14 @@
 							<li><button class="row" use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openMenu(track); }} onclick={() => player.play(track, { fresh: true })}><span class="r-title">{names.dnTitle(track.title)}</span><span class="r-artist">{names.dnArtist(track.artist)}</span></button></li>
 						{/each}
 					</ul>
-				{:else}<p class="empty">{t('nowplaying.loadingRelated')}</p>{/if}
+				{:else if relatedLoading}
+					<ul class="list" aria-label={t('nowplaying.loadingRelated')}>
+						<span class="vh">{t('nowplaying.loadingRelated')}</span>
+						{#each Array(8) as _, i (i)}
+							<li><span class="row skel" aria-hidden="true"><span class="r-title sk"></span><span class="r-artist sk"></span></span></li>
+						{/each}
+					</ul>
+				{:else}<p class="empty">{t('nowplaying.noRelated')}</p>{/if}
 			{/if}
 		</div>
 	</div>
@@ -1254,6 +1271,15 @@
 	.list li.over .q-row { box-shadow: inset 0 2px 0 var(--color-primary); }
 	.r-title { font-size: calc(14px * var(--fs-title, 1)); font-weight: 600; color: var(--color-text);}
 	.r-artist { font-size: calc(12px * var(--fs-artist, 1)); color: var(--color-text-muted); }
+	/* Related-tab loading skeleton: placeholder rows mirror the real .row shape
+	   (stacked title + artist bars) so the list keeps its size/shape while fetching.
+	   Bars use the global `.sk` shimmer; reduce-motion handled there. */
+	.row.skel { pointer-events: none; gap: 6px; }
+	.row.skel .sk { display: block; }
+	.row.skel .r-title { width: 55%; height: 14px; }
+	.row.skel .r-artist { width: 38%; height: 12px; }
+	/* Visually-hidden screen-reader cue for the skeleton list. */
+	.vh { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 	/* Side padding gives the active line's transform: scale + bold weight room to grow
 	   without bumping the parent's `overflow: hidden` clip. word-break/overflow-wrap force
 	   even unbroken-character runs (CJK with no spaces, or long URLs) to wrap inside the

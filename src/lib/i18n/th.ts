@@ -191,6 +191,7 @@ const th: Dict = {
 	"nowplaying.translating": "กำลังแปล...",
 	"nowplaying.noLyrics": "ไม่มีเนื้อเพลงสำหรับเพลงนี้",
 	"nowplaying.loadingRelated": "กำลังโหลดที่เกี่ยวข้อง...",
+	"nowplaying.noRelated": "ไม่มีเพลงที่เกี่ยวข้อง",
 	"nowplaying.lastfmTags": "แท็ก Last.fm",
 	"nowbar.openNowPlaying": "เปิดเล่นแล้ว",
 	"nowbar.playPause": "เล่น/หยุดชั่วคราว",

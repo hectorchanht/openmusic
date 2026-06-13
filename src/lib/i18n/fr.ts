@@ -191,6 +191,7 @@ const fr: Dict = {
 	"nowplaying.translating": "traduire…",
 	"nowplaying.noLyrics": "Pas de paroles pour ce morceau.",
 	"nowplaying.loadingRelated": "Chargement lié…",
+	"nowplaying.noRelated": "Aucun titre similaire.",
 	"nowplaying.lastfmTags": "Balises Last.fm",
 	"nowbar.openNowPlaying": "Ouvert en train de jouer",
 	"nowbar.playPause": "Lecture/pause",
