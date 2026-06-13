@@ -24,7 +24,11 @@ const config = {
 					precompress: false,
 					strict: false
 			  })
-			: cloudflare()
+			: cloudflare(),
+		// D-03 / Pitfall 1: the Capacitor native (adapter-static) shell serves its own
+		// files, so SvelteKit must NOT auto-register the web service worker there.
+		// Web (Cloudflare) build keeps register: true.
+		serviceWorker: { register: !native }
 	}
 };
 
