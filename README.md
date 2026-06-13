@@ -6,7 +6,7 @@
 
 A mobile-first web music player that searches and streams tracks aggregated from **NetEase, QQ, Kuwo and JOOX** through a same-origin proxy, with **Last.fm-powered discovery**, **Deezer cover art**, a **customizable home**, and a **15-language UI**. Built with SvelteKit and deployed on Cloudflare Pages.
 
-👉 **Live:** <https://openmusic.pages.dev>
+👉 **Live:** <https://openmusic.lol>
 
 > Ground-up rebuild of the data layer from [`CharlesPikachu/musicsquare`](https://github.com/CharlesPikachu/musicsquare) into a SvelteKit mobile app. The original single-file desktop player lives in the `upstream` remote / git history (it was the porting reference for the source adapters).
 
@@ -102,7 +102,7 @@ pnpm build && npx wrangler pages deploy .svelte-kit/cloudflare --project-name op
 ## Deployment
 
 Pushes to **`main`** auto-deploy to **Cloudflare Pages** (project `openmusic`,
-<https://openmusic.pages.dev>) via Cloudflare's **native Git integration** — no
+<https://openmusic.lol>) via Cloudflare's **native Git integration** — no
 GitHub Actions, no GitHub secrets, no manual `wrangler deploy`. The `/api/*` proxy
 ships inside the same Pages build (`adapter-cloudflare` → `_worker.js`). Node 22 is
 pinned via `.nvmrc` + `package.json` `engines.node`.

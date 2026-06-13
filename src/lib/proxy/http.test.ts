@@ -3,8 +3,8 @@ import { corsHeaders } from './http';
 
 describe('corsHeaders (T-01-02 — never an open relay)', () => {
 	it('echoes an allowed own-origin, never `*`', () => {
-		const h = corsHeaders('https://openmusic.pages.dev');
-		expect(h['Access-Control-Allow-Origin']).toBe('https://openmusic.pages.dev');
+		const h = corsHeaders('https://openmusic.lol');
+		expect(h['Access-Control-Allow-Origin']).toBe('https://openmusic.lol');
 		// the scoped origin must NOT be the wildcard
 		expect(h['Access-Control-Allow-Origin']).not.toBe('*');
 	});
@@ -15,8 +15,8 @@ describe('corsHeaders (T-01-02 — never an open relay)', () => {
 		);
 	});
 
-	it('allows CF preview subdomains of openmusic.pages.dev', () => {
-		const o = 'https://abc123.openmusic.pages.dev';
+	it('allows CF preview subdomains of openmusic.lol', () => {
+		const o = 'https://abc123.openmusic.lol';
 		expect(corsHeaders(o)['Access-Control-Allow-Origin']).toBe(o);
 	});
 
@@ -34,6 +34,6 @@ describe('corsHeaders (T-01-02 — never an open relay)', () => {
 	});
 
 	it('always sets Vary: Origin so caches do not cross-pollinate', () => {
-		expect(corsHeaders('https://openmusic.pages.dev').Vary).toBe('Origin');
+		expect(corsHeaders('https://openmusic.lol').Vary).toBe('Origin');
 	});
 });

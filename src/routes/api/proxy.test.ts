@@ -65,13 +65,13 @@ describe('jooxProxy.buildUrl — token injection from platform.env (DATA-02 / cr
 
 describe('/api/joox proxy route — token injected upstream, ABSENT from the client response (no-leak)', () => {
 	function fakeEvent(source: string, path: string, search: Record<string, string>, env?: Env) {
-		const url = new URL(`https://openmusic.pages.dev/api/${source}/${path}`);
+		const url = new URL(`https://openmusic.lol/api/${source}/${path}`);
 		for (const [k, v] of Object.entries(search)) url.searchParams.set(k, v);
 		return {
 			params: { source, path },
 			url,
 			platform: env ? { env } : undefined,
-			request: new Request(url, { headers: { origin: 'https://openmusic.pages.dev' } })
+			request: new Request(url, { headers: { origin: 'https://openmusic.lol' } })
 		};
 	}
 
@@ -127,7 +127,7 @@ describe('hooks.server handle() — single CORS seam for all /api/* (D-02)', () 
 	// Synthetic RequestEvent + a resolve() stub returning a plain Response, exercising the
 	// hook in isolation (the real route logic is irrelevant to the CORS contract).
 	function hookEvent(method: string, pathname: string, origin: string | null) {
-		const url = new URL(`https://openmusic.pages.dev${pathname}`);
+		const url = new URL(`https://openmusic.lol${pathname}`);
 		const headers = new Headers();
 		if (origin) headers.set('origin', origin);
 		return {

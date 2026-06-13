@@ -24,13 +24,13 @@ afterEach(() => {
 });
 
 function fakeEvent(search: Record<string, string>, env?: Env) {
-	const url = new URL('https://openmusic.pages.dev/api/deezer/search');
+	const url = new URL('https://openmusic.lol/api/deezer/search');
 	for (const [k, v] of Object.entries(search)) url.searchParams.set(k, v);
 	return {
 		url,
 		// Most cases pass platform: undefined to PROVE the proxy works with NO key/secret.
 		platform: env ? { env } : undefined,
-		request: new Request(url, { headers: { origin: 'https://openmusic.pages.dev' } })
+		request: new Request(url, { headers: { origin: 'https://openmusic.lol' } })
 	};
 }
 
@@ -306,7 +306,7 @@ describe('/api/deezer/search — Cache-Control + Cache API (own-origin key)', ()
 		expect(fetchSpy).toHaveBeenCalledTimes(1); // no second upstream fetch
 		expect(cacheStub.match).toHaveBeenCalledTimes(2);
 		// cache hit re-applies CORS for THIS origin
-		expect(res2.headers.get('Access-Control-Allow-Origin')).toBe('https://openmusic.pages.dev');
+		expect(res2.headers.get('Access-Control-Allow-Origin')).toBe('https://openmusic.lol');
 	});
 
 	it('uses the own-origin Request as the cache key (NEVER the upstream api.deezer.com URL)', async () => {
@@ -325,7 +325,7 @@ describe('/api/deezer/search — Cache-Control + Cache API (own-origin key)', ()
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		await GET(event as any);
 		expect(cacheStub.put).toHaveBeenCalled();
-		expect(cacheKeyUrl).toContain('openmusic.pages.dev/api/deezer/search');
+		expect(cacheKeyUrl).toContain('openmusic.lol/api/deezer/search');
 		expect(cacheKeyUrl).not.toContain('api.deezer.com');
 	});
 
@@ -334,7 +334,7 @@ describe('/api/deezer/search — Cache-Control + Cache API (own-origin key)', ()
 			'fetch',
 			vi.fn(async () => new Response('bad json', { status: 200 }))
 		);
-		const putSpy = vi.fn(async () => {});
+		const putSpy = vi.fn(async () => { });
 		vi.stubGlobal('caches', {
 			default: { match: vi.fn(async () => undefined), put: putSpy }
 		});
@@ -351,19 +351,19 @@ describe('/api/deezer/search — CORS', () => {
 		const event = fakeEvent({ q: 'x' });
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		const res = await GET(event as any);
-		expect(res.headers.get('Access-Control-Allow-Origin')).toBe('https://openmusic.pages.dev');
+		expect(res.headers.get('Access-Control-Allow-Origin')).toBe('https://openmusic.lol');
 		expect(res.headers.get('Access-Control-Allow-Origin')).not.toBe('*');
 	});
 
 	it('OPTIONS returns 204 with scoped corsHeaders (never *)', async () => {
-		const req = new Request('https://openmusic.pages.dev/api/deezer/search', {
+		const req = new Request('https://openmusic.lol/api/deezer/search', {
 			method: 'OPTIONS',
-			headers: { origin: 'https://openmusic.pages.dev' }
+			headers: { origin: 'https://openmusic.lol' }
 		});
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		const res = await OPTIONS({ request: req } as any);
 		expect(res.status).toBe(204);
-		expect(res.headers.get('Access-Control-Allow-Origin')).toBe('https://openmusic.pages.dev');
+		expect(res.headers.get('Access-Control-Allow-Origin')).toBe('https://openmusic.lol');
 		expect(res.headers.get('Access-Control-Allow-Origin')).not.toBe('*');
 	});
 });

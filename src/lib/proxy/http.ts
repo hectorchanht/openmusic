@@ -8,8 +8,10 @@
 
 /** Origins this proxy will echo back in Access-Control-Allow-Origin. */
 const ALLOWED_ORIGIN_PATTERNS: RegExp[] = [
-	/^https:\/\/openmusic\.pages\.dev$/, // deployed app (D-06)
-	/^https:\/\/[a-z0-9-]+\.openmusic\.pages\.dev$/, // CF preview deploys
+	/^https:\/\/openmusic\.lol$/, // deployed app — primary custom domain
+	/^https:\/\/[a-z0-9-]+\.openmusic\.lol$/, // CF preview deploys on the custom domain
+	/^https:\/\/openmusic\.pages\.dev$/, // legacy CF Pages domain — kept during cutover (D-06)
+	/^https:\/\/[a-z0-9-]+\.openmusic\.pages\.dev$/, // legacy CF preview deploys — kept during cutover
 	/^http:\/\/localhost(:\d+)?$/, // local dev (also covers Capacitor http androidScheme)
 	/^http:\/\/127\.0\.0\.1(:\d+)?$/,
 	/^https:\/\/localhost$/, // Capacitor Android default (server.androidScheme 'https' → WebView origin https://localhost) (D-02)

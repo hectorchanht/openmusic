@@ -6,8 +6,8 @@
 //    /api/* request stays a same-origin RELATIVE URL, so the deployed Pages build behaves
 //    byte-identically to today (no behavior change, no new env var required for web).
 //  - On NATIVE, the build bakes VITE_API_BASE = the deployed Pages origin via Vite's
-//    import.meta.env at build time → BASE = 'https://openmusic.pages.dev' → apiUrl('/api/x')
-//    === 'https://openmusic.pages.dev/api/x'. The APK's WebView (origin https://localhost)
+//    import.meta.env at build time → BASE = 'https://openmusic.lol' → apiUrl('/api/x')
+//    === 'https://openmusic.lol/api/x'. The APK's WebView (origin https://localhost)
 //    has NO server of its own, so without this prefix every /api/* call (and the Netease
 //    <audio>.src / lrc URL — Pitfall 3) would resolve to https://localhost/api/... → 404.
 //  - BASE is read LAZILY inside apiUrl on every call (not captured at module load) so a

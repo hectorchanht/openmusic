@@ -15,12 +15,12 @@ afterEach(() => {
 });
 
 function fakeEvent(search: Record<string, string>, env?: Env) {
-	const url = new URL('https://openmusic.pages.dev/api/similar');
+	const url = new URL('https://openmusic.lol/api/similar');
 	for (const [k, v] of Object.entries(search)) url.searchParams.set(k, v);
 	return {
 		url,
 		platform: env ? { env } : undefined,
-		request: new Request(url, { headers: { origin: 'https://openmusic.pages.dev' } })
+		request: new Request(url, { headers: { origin: 'https://openmusic.lol' } })
 	};
 }
 

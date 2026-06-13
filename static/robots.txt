@@ -2,4 +2,4 @@
 User-agent: *
 Disallow:
 
-Sitemap: https://openmusic.pages.dev/sitemap.xml
+Sitemap: https://openmusic.lol/sitemap.xml

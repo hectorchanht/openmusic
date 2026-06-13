@@ -18,12 +18,12 @@ afterEach(() => {
 });
 
 function fakeEvent(search: Record<string, string>, env?: Env) {
-	const url = new URL('https://openmusic.pages.dev/api/lastfm/discovery');
+	const url = new URL('https://openmusic.lol/api/lastfm/discovery');
 	for (const [k, v] of Object.entries(search)) url.searchParams.set(k, v);
 	return {
 		url,
 		platform: env ? { env } : undefined,
-		request: new Request(url, { headers: { origin: 'https://openmusic.pages.dev' } })
+		request: new Request(url, { headers: { origin: 'https://openmusic.lol' } })
 	};
 }
 
@@ -447,14 +447,14 @@ describe('/api/lastfm/discovery — Cache-Control + Cache API', () => {
 
 describe('/api/lastfm/discovery — CORS preflight', () => {
 	it('OPTIONS returns 204 with scoped corsHeaders (never *)', async () => {
-		const req = new Request('https://openmusic.pages.dev/api/lastfm/discovery', {
+		const req = new Request('https://openmusic.lol/api/lastfm/discovery', {
 			method: 'OPTIONS',
-			headers: { origin: 'https://openmusic.pages.dev' }
+			headers: { origin: 'https://openmusic.lol' }
 		});
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		const res = await OPTIONS({ request: req } as any);
 		expect(res.status).toBe(204);
-		expect(res.headers.get('Access-Control-Allow-Origin')).toBe('https://openmusic.pages.dev');
+		expect(res.headers.get('Access-Control-Allow-Origin')).toBe('https://openmusic.lol');
 		expect(res.headers.get('Access-Control-Allow-Origin')).not.toBe('*');
 	});
 });

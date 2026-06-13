@@ -3,7 +3,7 @@
 This project auto-deploys to **Cloudflare Pages** using Cloudflare's **native Git
 integration** — *not* a GitHub Actions workflow. Once the one-time dashboard
 connection below is done, **every push to `main` triggers a production build +
-deploy** to <https://openmusic.pages.dev> with no manual step.
+deploy** to <https://openmusic.lol> with no manual step.
 
 There is **no** `.github/workflows/deploy.yml`, **no** GitHub-side
 `CLOUDFLARE_API_TOKEN` / account-ID secret, and **no** `wrangler deploy` to run by
@@ -17,7 +17,7 @@ credentials.
 - Cloudflare Pages watches the connected GitHub repo
   **`hectorchanht/musicsquare-mobile`**.
 - A push to **`main`** triggers a Pages build and a **production** deploy to
-  `openmusic.pages.dev`.
+  `openmusic.lol`.
 - The build runs `pnpm build` (= `vite build`) and serves the
   **`.svelte-kit/cloudflare`** output directory.
 - The `/api/*` proxy ships **inside the same Pages build**:
@@ -93,7 +93,7 @@ route files. Adding it as a dashboard variable does nothing.
 1. Push a trivial commit to `main`.
 2. In **Workers & Pages → `openmusic` → Deployments**, watch the new build run
    `pnpm build` and publish to production.
-3. Load <https://openmusic.pages.dev> and run a search.
+3. Load <https://openmusic.lol> and run a search.
    - If search returns JOOX results, the runtime received `JOOX_TOKEN` correctly.
    - If JOOX results are missing / `/api/*` 5xxs, re-check step 4 (the production
      `JOOX_TOKEN` secret).
