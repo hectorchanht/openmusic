@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
-	import { ChevronLeft, Music, Radio, Zap, Maximize2, Download, Sliders, ListMusic } from '@lucide/svelte';
+	import { ChevronLeft, Music, Radio, Zap, Maximize2, Download, Sliders, ListMusic, SquareActivity } from '@lucide/svelte';
 	import { settings, type DefaultQuality, type DefaultSource } from '$lib/stores/settings.svelte';
 	import type { UpnextMode, QueueContext } from '$lib/config/defaults';
 	import { SOURCES } from '$lib/sources/registry';
@@ -110,18 +110,26 @@
 </section>
 
 <section>
-	<h2><ListMusic size={15} /> {t('settings.upnextSourcing')}</h2>
+	<h2><SquareActivity size={15} /> {t('settings.upnextSourcing')}</h2>
+		<span class="muted">
+			<ListMusic size={12} />	
+			{t('settings.upnextSameList')}
+			/
+			<Radio size={14} />	
+			{t('settings.upnextGenerated')}
+		</span>
+
 	{#each upnextContexts as c (c.ctx)}
 		<div class="upnext-row">
 			<span class="ctx-label">{t(c.key)}</span>
 			<div class="seg">
 				<button
 					class:on={settings.effectiveUpnextMode(c.ctx) === 'same-list'}
-					onclick={() => setUpnext(c.ctx, 'same-list')}>{t('settings.upnextSameList')}</button
+					onclick={() => setUpnext(c.ctx, 'same-list')}><ListMusic size={12} /></button
 				>
 				<button
 					class:on={settings.effectiveUpnextMode(c.ctx) === 'generated'}
-					onclick={() => setUpnext(c.ctx, 'generated')}>{t('settings.upnextGenerated')}</button
+					onclick={() => setUpnext(c.ctx, 'generated')}><Radio size={12} /></button
 				>
 			</div>
 		</div>
@@ -149,7 +157,7 @@
 	.head h1 { font-size: 1.4rem; margin: 0; }
 	section { margin: 18px 0; }
 	section h2 { display: flex; align-items: center; gap: 6px; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--color-text-muted); margin: 0 0 10px; }
-	.muted { color: var(--color-text-muted); font-size: 12px; margin: 8px 0 0; }
+	.muted { color: var(--color-text-muted); font-size: 12px; margin: 8px 0 0; display: flex; align-items: center; gap: 4px;}
 	.chips { display: flex; flex-wrap: wrap; gap: 8px; }
 	.chip { background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); padding: 8px 14px; border-radius: 999px; font-size: 13px; cursor: pointer; }
 	.chip.on { background: var(--color-primary); color: #fff; border-color: transparent; }

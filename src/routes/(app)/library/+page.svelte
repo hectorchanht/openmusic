@@ -175,15 +175,15 @@
 		// Phase 17 (QUEUE-03): pass the active tab's queue context so per-context sourcing
 		// resolves. 'playlists' tab → the 'playlist' context (singular QueueContext token).
 		const ctx: QueueContext = tab === 'playlists' ? 'playlist' : tab === 'downloads' ? 'downloads' : 'liked';
-		// play() sets `current` synchronously; setListQueue re-anchors it into the deduped
-		// list so indexOf(current) stays valid and next() can advance (same fix as album).
-		player.play(t);
+		// Set queue+context FIRST, then fresh-play so the per-context up-next mode resolves
+		// (a 'generated' context regenerates up-next from the seed instead of using `list`).
 		player.setListQueue(list, ctx);
+		player.play(t, { fresh: true });
 	}
 	// Listen history: replay slice (audioUrl re-resolves on play), moved here from settings.
 	function playEntry(track: Track) {
-		player.play(track);
 		player.setListQueue(history.entries as Track[], 'history');
+		player.play(track, { fresh: true });
 	}
 </script>
 

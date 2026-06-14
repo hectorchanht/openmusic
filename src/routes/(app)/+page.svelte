@@ -673,7 +673,7 @@
 		<!-- D-06 fallback: the random buildDiversePicks grid (real Tracks → tap-to-play). -->
 		<div class="grid">
 			{#each fallbackSongs as track (track.uid)}
-				<button class="tile" use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); menuTrack = track; menuOpen = true; }} onclick={() => { player.setQueue(fallbackSongs, 'home-discovery'); player.play(track); }}>
+				<button class="tile" use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); menuTrack = track; menuOpen = true; }} onclick={() => { player.setQueue(fallbackSongs, 'home-discovery'); player.play(track, { fresh: true }); }}>
 					<div class="art" style:background-image={track.cover ? `url(${track.cover})` : fallbackCover(track.uid)}></div>
 					{#if track.qualityLabel || track.quality}<span class="q">{track.qualityLabel ?? track.quality}</span>{/if}
 					<div class="scrim"></div>

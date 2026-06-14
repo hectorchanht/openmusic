@@ -487,7 +487,7 @@
 			<ul class="list">
 				{#each songs.slice(0, 30) as track, i (track.uid)}
 					<li>
-						<button class="row" use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); menuTrack = track; menuOpen = true; }} use:swipeAction={{ onSwipeRight: () => queueTrack(track), onSwipeLeft: () => likeTrack(track) }} onclick={() => { player.play(track); player.setListQueue(songs, 'artist'); }}>
+						<button class="row" use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); menuTrack = track; menuOpen = true; }} use:swipeAction={{ onSwipeRight: () => queueTrack(track), onSwipeLeft: () => likeTrack(track) }} onclick={() => { player.setListQueue(songs, 'artist'); player.play(track, { fresh: true }); }}>
 							<span class="rank">{i + 1}</span>
 							<span class="art" use:lazyCover={{ track, onResolved: onCoverResolved }} style:background-image={(resolvedCovers[track.uid] ?? track.cover) ? `url(${resolvedCovers[track.uid] ?? track.cover})` : fallbackCover(track)}></span>
 							<span class="meta">

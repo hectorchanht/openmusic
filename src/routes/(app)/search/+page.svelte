@@ -568,7 +568,7 @@
 					class="row"
 					use:longpress
 					onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); menuTrack = t; menuOpen = true; }}
-					onclick={() => { player.play(t); player.setListQueue(results, 'search'); }}
+					onclick={() => { player.setListQueue(results, 'search'); player.play(t, { fresh: true }); }}
 					use:swipeAction={{ onSwipeRight: () => swipeQueue(t), onSwipeLeft: () => swipeLike(t) }}
 				>
 					<span
