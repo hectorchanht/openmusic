@@ -390,6 +390,10 @@ class Player {
 				if (i >= 0) this.queue[i] = resolved;
 			} else {
 				this.current = { ...target, detailsLoaded: true };
+				// Restored a downloaded track from its blob (no network resolve) — backfill lyrics
+				// off the critical path so the now-playing lyrics view isn't empty (the persisted
+				// shape strips lrc/lrcUrl).
+				this.fillLyricsOffline(this.current);
 			}
 			if (!this.audio) return;
 			if (this.cachedBlobUrl) {
@@ -436,8 +440,11 @@ class Player {
 		const desiredSeek = this.currentTime > 0 ? this.currentTime : null;
 		const myGen = this.playGen;
 		// Force a re-resolve by clearing detailsLoaded + audioUrl on a SHALLOW COPY (don't
-		// mutate the queue entry).
-		const stub: Track = { ...current, detailsLoaded: false, audioUrl: null, lrc: null };
+		// mutate the queue entry). PRESERVE lrc/lrcUrl: this is a stale-URL audio refresh of the
+		// SAME song, and lyrics are a stable per-song attribute — nulling them made the now-playing
+		// lyrics view (derived from player.current.lrc) wipe whenever a URL refresh fired (e.g. the
+		// download fetch saturating the shared CDN), and the best-effort re-fetch could fail.
+		const stub: Track = { ...current, detailsLoaded: false, audioUrl: null };
 		try {
 			const resolved = await ensureTrackDetails(stub);
 			if (myGen !== this.playGen) return; // newer play() superseded
@@ -475,6 +482,29 @@ class Player {
 		} catch {
 			/* re-resolve failed — leave audio in current state */
 		}
+	}
+
+	/** Best-effort lyric backfill for the OFFLINE-BLOB paths. A downloaded track plays from its
+	 *  IndexedDB blob with NO network resolve, and the persisted/queued track shape strips the
+	 *  volatile `lrc`/`lrcUrl` — so `current` lands without lyrics and the now-playing lyrics view
+	 *  (derived from player.current.lrc) shows empty. This re-resolves lyrics OFF the playback
+	 *  critical path (never awaited, never blocks audio): on success it patches `lrc`/`lrcUrl` onto
+	 *  the SAME current track, guarded by uid + playGen so a track change mid-fetch discards the
+	 *  result. Skips entirely when lyrics are already present or the track never had an lrcUrl. */
+	private fillLyricsOffline(track: Track) {
+		if (track.lrc) return; // already have lyrics — nothing to do
+		const uid = track.uid;
+		const myGen = this.playGen;
+		void ensureTrackDetails({ ...track, detailsLoaded: false })
+			.then((resolved) => {
+				if (myGen !== this.playGen) return; // track changed mid-fetch — discard
+				if (this.current?.uid !== uid) return; // current moved on — discard
+				if (!resolved.lrc) return; // resolve produced no lyrics — leave as-is
+				this.current = { ...this.current, lrc: resolved.lrc, lrcUrl: resolved.lrcUrl };
+			})
+			.catch(() => {
+				/* lyric backfill is best-effort — audio already plays from the blob */
+			});
 	}
 
 	/** Timestamp (Date.now()) of the most recent seekFraction() call. The audio.error handler
@@ -1398,6 +1428,10 @@ class Player {
 					this.cachedBlobUrl = URL.createObjectURL(offlineBlob);
 					this.current = { ...track, detailsLoaded: true };
 					this.persist();
+					// Offline-blob play skips the network resolve — backfill lyrics off the critical
+					// path so a downloaded track (whose queue/list entry may carry no lrc) still shows
+					// its lyrics in the now-playing view.
+					this.fillLyricsOffline(this.current);
 					const ms = this.ms;
 					if (ms) {
 						ms.metadata = makeMetadata({
