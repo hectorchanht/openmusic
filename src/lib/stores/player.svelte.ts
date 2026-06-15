@@ -599,6 +599,21 @@ class Player {
 	 */
 	private removedUids = new Set<string>();
 	/**
+	 * quick-260615-i9u (Feature B): cap on how many played entries are kept BEFORE the new current on
+	 * a fresh user play. The history prefix is sliced to the LAST HISTORY_CAP entries so endless
+	 * clicking never grows the queue unbounded (T-i9u-02). Private static for tunability.
+	 */
+	private static HISTORY_CAP = 50;
+	/**
+	 * quick-260615-i9u (Feature B): one-shot carrier of the captured pre-wipe history prefix
+	 * (everything up to AND including the prior current, capped to HISTORY_CAP). setQueue/setListQueue
+	 * capture it BEFORE they replace this.queue; the very next fresh play() consumes it ONCE via
+	 * weaveFreshHistory and nulls it. A non-fresh play() also nulls it so a capture left by a
+	 * setQueue/setListQueue that is NOT followed by a fresh play never leaks into a LATER fresh play.
+	 * NOT $state — an internal carrier, never read reactively.
+	 */
+	private pendingHistory: Track[] | null = null;
+	/**
 	 * PLAY-RESILIENCE: uids confirmed UNPLAYABLE this session by the prefetchNext probe walk — a track
 	 * that resolved without an audioUrl, or whose audio URL fired a hard `error` during the silent
 	 * probe. nextPlayableIndex() routes past these, so next()/track-end advance never lands on a
@@ -1039,10 +1054,30 @@ class Player {
 		});
 	}
 
+	/**
+	 * quick-260615-i9u (Feature B): snapshot the history prefix from the CURRENT queue BEFORE it is
+	 * wiped — everything up to AND INCLUDING the prior current — capped to the last HISTORY_CAP
+	 * entries. Returns [] when there is no current (cold start → fresh play degrades to today's
+	 * [seed, ...tail] shape, no regression). Must run before this.queue is reassigned.
+	 */
+	private captureHistory(): Track[] {
+		const cur = this.current;
+		if (!cur) return [];
+		let idx = this.queue.findIndex((t) => t.uid === cur.uid);
+		if (idx < 0) idx = this.queue.findIndex((t) => sameSongKey(t, cur));
+		let h = idx >= 0 ? this.queue.slice(0, idx + 1) : [cur];
+		if (h.length > Player.HISTORY_CAP) h = h.slice(h.length - Player.HISTORY_CAP);
+		return h;
+	}
+
 	/** Set the active list (home grid / search results) as the Up-Next source. The optional
 	 *  `context` records which surface started the queue (Phase 17, QUEUE-03) so the fresh-play
 	 *  path can resolve the effective sourcing mode. Defaults to null (unknown → global default). */
 	setQueue(tracks: Track[], context: QueueContext = null) {
+		// quick-260615-i9u (Feature B): capture the pre-wipe history prefix so the next fresh play()
+		// can re-weave it in front of the seed. `??=` so a setListQueue→setQueue delegate doesn't
+		// clobber a capture already taken this tick (whichever runs first wins).
+		this.pendingHistory ??= this.captureHistory();
 		this.queueGen++; // WR-06: an explicit queue supersedes any in-flight regenerate result
 		this.queue = dedupeBest(tracks, settings.preferredSource);
 		this.queueContext = context;
@@ -1080,6 +1115,10 @@ class Player {
 	 * No-op delegate to setQueue() when there is no current track (nothing to anchor).
 	 */
 	setListQueue(tracks: Track[], context: QueueContext = null) {
+		// quick-260615-i9u (Feature B): capture the pre-wipe history prefix BEFORE anything (incl. the
+		// no-current delegate to setQueue, which also captures with `??=`). `??=` so the delegate path
+		// doesn't double-capture/clobber — whichever runs first wins.
+		this.pendingHistory ??= this.captureHistory();
 		const current = this.current;
 		if (!current) {
 			this.setQueue(tracks, context);
@@ -1682,12 +1721,26 @@ class Player {
 				// D-10: a fresh user play starts a NEW listening session — clear the swipe-removed
 				// exclusion budget BEFORE regenerate so previously-removed songs are eligible again.
 				this.removedUids.clear();
+				// quick-260615-i9u (Feature B): install the captured history baseline FIRST so the
+				// clicked song sits right after the prior current and earlier tracks stay revisitable
+				// via prev(). weaveFreshHistory bumps queueGen so any stale in-flight regen/grow
+				// discards (WR-06). THEN build the tail per the effective up-next mode.
+				this.weaveFreshHistory(resolved);
 				if (settings.effectiveUpnextMode(this.queueContext) === 'generated') {
+					// generated: regenerate (now history-aware) replaces only the tail after the seed.
 					void this.regenerate(resolved).then(() => this.primeNext());
 				} else {
+					// same-list: setListQueue already installed [seed, ...list-remainder]; weave only
+					// PREPENDED history, so the remainder survives as the tail. On exhaust ensureAhead
+					// grows it (D-03).
 					void this.primeNext();
 				}
 			} else {
+				// quick-260615-i9u (Feature B): a non-fresh advance (next/prev/auto-advance/failover/
+				// retry) never weaves — history already lives in the queue array. Null any capture left
+				// by a setQueue/setListQueue that is NOT followed by a fresh play so it can't leak into
+				// a LATER fresh play.
+				this.pendingHistory = null;
 				void this.primeNext();
 			}
 		} catch (e) {
@@ -1735,9 +1788,38 @@ class Player {
 	}
 
 	/**
+	 * quick-260615-i9u (Feature B): install the captured history prefix in FRONT of the just-installed
+	 * seed+tail baseline, so a fresh user click preserves prior playback instead of wiping it. New
+	 * queue shape becomes [...history(capped, prior current last), clickedSong (new current), ...tail].
+	 * Called from play()'s fresh-branch AFTER setQueue/setListQueue already put the seed snapshot in
+	 * this.queue. Bumps queueGen BEFORE the generated-branch regenerate snapshots its guard (WR-06), so
+	 * any PRIOR play's in-flight regenerate/ensureAhead grow discards while THIS play's own tail build
+	 * passes its guard. Consumes pendingHistory once (nulls it).
+	 */
+	private weaveFreshHistory(seed: Track): void {
+		let prefix = this.pendingHistory ?? [];
+		// De-dupe the seed out of the prefix so a RE-CLICK of an already-played song MOVES it to the
+		// new-current position rather than duplicating it in history.
+		prefix = prefix.filter((t) => t.uid !== seed.uid && !sameSongKey(t, seed));
+		// Anchor the seed into the current post-snapshot queue (seed+tail), then prepend the prefix.
+		// Because prefix has the seed removed and the baseline starts at the seed, the seed lands
+		// immediately AFTER the prefix (i.e. right after the prior current) — the insert-after-current
+		// position. queueWithAnchor's dedupe preserves first-occurrence order + force-keeps the seed.
+		const baseline = this.queueWithAnchor(this.queue, seed);
+		this.queueGen++; // WR-06: explicit re-install supersedes any stale in-flight regen/grow
+		this.queue = this.queueWithAnchor([...prefix, ...baseline], seed);
+		this.pendingHistory = null; // consumed
+	}
+
+	/**
 	 * Rebuild the AUTO portion of Up-Next from songs similar to `seed`, preserving the
 	 * seed (current) + manual entries in their existing order. Best-effort: on any
 	 * failure the queue is left as-is. Only invoked on a fresh user-initiated play.
+	 *
+	 * quick-260615-i9u (Feature B): history-aware. Keeps EVERYTHING in this.queue up to AND INCLUDING
+	 * the seed (the woven history prefix + prior current + seed) and replaces only the tail AFTER the
+	 * seed with freshly generated similar picks. The head uids feed the buildSimilarQueue exclude set
+	 * so generated picks never duplicate history.
 	 */
 	private async regenerate(seed: Track) {
 		// WR-06: snapshot the queue generation. If an explicit setQueue() lands while
@@ -1745,19 +1827,24 @@ class Player {
 		// that explicit queue wins — this regenerate's result is stale and must be discarded.
 		const myQueueGen = this.queueGen;
 		try {
+			// quick-260615-i9u: the HEAD is everything up to+including the seed (woven history + seed);
+			// only the tail after the seed is regenerated.
+			const i = this.indexOf(seed);
+			const head = i >= 0 ? this.queue.slice(0, i + 1) : [seed];
+			const headUids = new Set(head.map((t) => t.uid));
 			const manualEntries = this.queue.filter(
-				(t) => this.manualUids.has(t.uid) && t.uid !== seed.uid
+				(t) => this.manualUids.has(t.uid) && !headUids.has(t.uid)
 			);
-			// Union removedUids (Phase 17, D-10): swiped-away songs stay excluded from the regenerated
-			// auto portion, so a removed track does not reappear via the similar-queue generator.
+			// Union removedUids (Phase 17, D-10) + the history head uids (quick-260615-i9u) so the
+			// regenerated auto portion never reintroduces a swiped-away song NOR duplicates history.
 			const exclude = new Set<string>([
-				seed.uid,
+				...headUids,
 				...manualEntries.map((t) => t.uid),
 				...this.removedUids
 			]);
 			const auto = await buildSimilarQueue(seed, exclude);
 			if (myQueueGen !== this.queueGen) return; // WR-06: superseded by an explicit setQueue()
-			this.queue = this.queueWithAnchor([seed, ...manualEntries, ...auto], seed);
+			this.queue = this.queueWithAnchor([...head, ...manualEntries, ...auto], seed);
 		} catch {
 			/* leave queue as-is */
 		}
@@ -1833,6 +1920,10 @@ class Player {
 			this.audio.currentTime = 0;
 			return;
 		}
+		// quick-260615-i9u (Feature B): history now lives in the queue array (a fresh click weaves the
+		// prior current + earlier tracks BEFORE the new current), so indexOf(current) > 0 after a click
+		// and this back-walk replays the prior current / earlier tracks. The play() is NON-fresh, so
+		// prev() never re-weaves/regenerates — it just steps backward through the preserved history.
 		const i = this.indexOf(this.current);
 		if (i > 0) this.play(this.queue[i - 1]);
 		else if (this.audio) this.audio.currentTime = 0;
@@ -1848,6 +1939,9 @@ class Player {
 		const next = !this.shuffle;
 		this.shuffle = next;
 		if (!next) { this.persist(); return; }
+		// quick-260615-i9u (Feature B): reads indexOf(current) LIVE, so with history now preserved in
+		// the queue the shuffle still pins the current track + ALL history before it and only the auto
+		// tail shuffles — correct after the model change. repeat-one never advances, so it is unaffected.
 		const i = this.indexOf(this.current);
 		const start = (i >= 0 ? i : -1) + 1; // shuffle everything strictly after current
 		if (start >= this.queue.length - 1) { this.persist(); return; }
