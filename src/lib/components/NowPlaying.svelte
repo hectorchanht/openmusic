@@ -1311,7 +1311,7 @@
     inset: 0;
     z-index: 5;
     background: var(--color-bg);
-    padding: 4px 18px env(safe-area-inset-bottom);
+    padding: 4px 0px env(safe-area-inset-bottom);
 		/* margin-top: 68px; */
 	}
 
@@ -1322,7 +1322,7 @@
 		inset: var(--sheet-half-top, 260px) 0 0 0;
 		z-index: 5;
 		background: var(--color-bg);
-		padding: 0px 18px env(safe-area-inset-bottom);
+		padding: 0px 0px env(safe-area-inset-bottom);
 		margin-top: 0px;
 		box-sizing: border-box;
 		overflow: hidden;
