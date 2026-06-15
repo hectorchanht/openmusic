@@ -14,7 +14,7 @@
 // SourceId from here, mirroring the existing defaults.ts ↔ settings type-cycle pattern).
 import type { DefaultQuality } from '$lib/stores/settings.svelte';
 
-export type SourceId = 'netease' | 'qq' | 'kuwo' | 'joox' | 'fivesing' | 'jamendo';
+export type SourceId = 'netease' | 'qq' | 'kuwo' | 'joox' | 'fivesing' | 'jamendo' | 'audius';
 
 export interface Track {
 	/** Canonical id = `${source}:${songid}` (D-10, COLON form). Stable across reorder/paginate. */

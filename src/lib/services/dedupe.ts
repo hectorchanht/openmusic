@@ -13,7 +13,11 @@ import type { SourceId, Track } from '$lib/sources/types';
 // a DIFFERENT recording (some indie artist) than a Netease "Stargazing" (the Myles Smith
 // track) — by design dedupe should NOT collapse them, but if normalization were to merge
 // them, the mainstream version should win. Rank -1 so it sits below even fivesing.
-const SOURCE_RANK: Record<SourceId, number> = { netease: 4, qq: 3, kuwo: 2, joox: 1, fivesing: 0, jamendo: -1 };
+//
+// Audius (0zn) is likewise non-mainstream — Western/indie/UGC. Same reasoning as Jamendo:
+// a DIFFERENT recording from the mainstream CN sources, so rank it at the bottom (-1) so a
+// mainstream version always wins a tie if normalization ever merges them.
+const SOURCE_RANK: Record<SourceId, number> = { netease: 4, qq: 3, kuwo: 2, joox: 1, fivesing: 0, jamendo: -1, audius: -1 };
 
 /** Higher = better. Reads qualityLabel/quality strings (often null pre-resolve). */
 function qualityRank(t: Track): number {

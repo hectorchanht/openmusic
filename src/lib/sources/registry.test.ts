@@ -2,13 +2,14 @@ import { describe, it, expect } from 'vitest';
 import { SOURCES, getEnabledAdapters } from './registry';
 import { makeUid, type SourceId } from './types';
 
-const EXPECTED_KEYS: SourceId[] = ['netease', 'qq', 'kuwo', 'joox', 'fivesing', 'jamendo'];
+const EXPECTED_KEYS: SourceId[] = ['netease', 'qq', 'kuwo', 'joox', 'fivesing', 'jamendo', 'audius'];
 
 describe('SOURCES registry (DATA-04 — single enumeration point)', () => {
-	// Test 4: exactly the 6 keys; each value's .id matches its key.
+	// Test 4: exactly the expected keys; each value's .id matches its key.
 	// hvu: 5sing (Kugou UGC) added behind enabledByDefault:false.
 	// ixw: jamendo (CC indie) added behind enabledByDefault:false.
-	it('enumerates exactly netease,qq,kuwo,joox,fivesing,jamendo', () => {
+	// 0zn: audius (Western/indie/UGC) added with enabledByDefault:true.
+	it('enumerates exactly netease,qq,kuwo,joox,fivesing,jamendo,audius', () => {
 		expect(Object.keys(SOURCES)).toEqual(EXPECTED_KEYS);
 	});
 
@@ -43,7 +44,17 @@ describe('getEnabledAdapters', () => {
 	});
 
 	it('prefs override enabledByDefault (explicit false disables, explicit true enables)', () => {
-		const onlyNetease = getEnabledAdapters({ netease: true, qq: false, kuwo: false, joox: false });
+		// Pass an explicit pref for EVERY source so none falls through to its enabledByDefault
+		// (jamendo + audius default to true, so an incomplete prefs map would let them through).
+		const onlyNetease = getEnabledAdapters({
+			netease: true,
+			qq: false,
+			kuwo: false,
+			joox: false,
+			fivesing: false,
+			jamendo: false,
+			audius: false
+		});
 		expect(onlyNetease.map((a) => a.id)).toEqual(['netease']);
 	});
 });
