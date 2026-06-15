@@ -29,6 +29,12 @@ import {
 } from '$lib/services/native-media-session';
 import { getCachedCoverByUid, getCachedCover } from '$lib/services/cover-cache';
 import { resolveCoverForTrack } from '$lib/services/cover-backfill';
+// quick-260615-hep: feed every displayed now-playing cover into the shared cache (both layers) +
+// bump the global reactive signal so other surfaces (homepage tiles) reuse the art and repaint live.
+import { writeCoverBoth, bumpCoverVersion } from '$lib/stores/cover-version.svelte';
+
+/** SOLID = a non-empty https URL (the only thing safe to cache/render; mirrors cover-backfill isSolidCover, T-0bb-01). */
+const httpsOnly = (u?: string | null): u is string => typeof u === 'string' && u.startsWith('https:');
 import { resolveStub } from '$lib/services/discovery';
 import { blobStore } from '$lib/services/blob-store';
 import { settings } from '$lib/stores/settings.svelte';
@@ -1497,6 +1503,11 @@ class Player {
 		// every entry also clears any stale cover from the prior track.
 		this.resolvedCover =
 			track.cover ?? getCachedCoverByUid(track.uid) ?? getCachedCover(track.artist, track.title) ?? null;
+		// quick-260615-hep Site A: write the displayed cover (incl. the track.cover path) into BOTH cache
+		// layers + bump so other surfaces reuse it and repaint live. https-only (T-0bb-01); writeCoverBoth
+		// no-ops on empty/non-https — harmless even before the myGen guards' discard points (real art only).
+		if (httpsOnly(this.resolvedCover))
+			writeCoverBoth(track.uid, track.artist, track.title, this.resolvedCover);
 		// Bump the play-generation so any older in-flight fallback bails (gte). Skipped on a
 		// fallback continuation — the fallback IS the continuation of the user's original intent
 		// and must not invalidate itself.
@@ -1588,6 +1599,10 @@ class Player {
 				// had none) — adopt it into the single field so the network-path MediaMetadata write
 				// below and both UI surfaces show real art without waiting on the async tier chain.
 				if (!this.resolvedCover) this.resolvedCover = resolved.cover;
+				// quick-260615-hep Site B: ensureTrackDetails fetched a real cover — write BOTH layers + bump
+				// so home/library tiles for this song reuse it and repaint live. https-only (T-0bb-01).
+				if (httpsOnly(resolved.cover))
+					writeCoverBoth(resolved.uid, resolved.artist, resolved.title, resolved.cover);
 			}
 			if (!resolved.audioUrl) {
 				// Cross-source fallback (gte): try other enabled sources before surfacing the
@@ -1699,6 +1714,9 @@ class Player {
 		if (myGen !== this.playGen) return; // a newer play() superseded — discard the stale art (T-21-06)
 		if (!url) return; // total miss — keep the seeded gradient + favicon (D-12)
 		this.resolvedCover = url;
+		// quick-260615-hep Site C: resolveCoverForTrack already wrote BOTH cache layers internally — do NOT
+		// double-write; only bump the global reactive signal so a late async cover land repaints other tiles.
+		bumpCoverVersion();
 		const ms = this.ms;
 		if (ms) {
 			// A FRESH MediaMetadata so the OS repaints the lock-screen art (never an in-place mutate).
