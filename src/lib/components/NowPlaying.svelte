@@ -469,15 +469,26 @@
 	// the vertical component dominates the horizontal one does the wrapper claim the gesture
 	// (setPointerCapture + dragging=true). Below that threshold the click reaches the button /
 	// progress-bar / artist link normally, so taps don't get hijacked.
-	let dragY = $state(0);
-	let dragging = $state(false);
+	let dragY = $state(0); // page-collapse translate (`.np` transform); only used on the closed-state down path
+	let dragging = $state(false); // page-collapse drag in flight (drives `.np` transition:none)
 	let dragArmed = false;
 	let startY = 0;
 	let startX = 0;
 	const DRAG_SLOP = 8;
+	// A cover vertical drag is a one-shot commit to one of two owners, chosen at the slop threshold:
+	//   • snap-machine — when the sheet is OPEN (half/full), OR when it is closed and the gesture goes
+	//     UP. Mirrors the grip 1:1: drives gripActive/sheetDragging/sheetDragY/gripMoved/gripVel so the
+	//     `.np-top` translateY(${gripMoved}px) follows the finger with ZERO new transform code, and the
+	//     same gripUp() FLICK/nearest-snap release logic commits sheetState.
+	//   • page-collapse — ONLY when the sheet is `closed` AND the gesture goes DOWN: today's
+	//     `dragY > 120 → player.collapse()` behaviour, unchanged.
+	// `npTopDeleg` is set at commit so npTopMove/npTopUp know which owner drives the rest of the gesture.
+	let npTopDeleg: 'none' | 'snap' | 'collapse' = 'none';
+	let npTopStartState: SheetState = 'closed'; // sheetState captured at the moment of vertical commit
 	function npTopDown(e: PointerEvent) {
 		dragArmed = true;
 		dragging = false;
+		npTopDeleg = 'none';
 		startY = e.clientY;
 		startX = e.clientX;
 	}
@@ -485,24 +496,78 @@
 		if (!dragArmed) return;
 		const dy = e.clientY - startY;
 		const dx = e.clientX - startX;
-		// Axis-dominance claim (D-05): vertical wins ONLY when `dy > DRAG_SLOP && Math.abs(dy) > Math.abs(dx)`
-		// — a horizontal-dominant drag falls through (no capture) so coverSwipe owns the carousel; never
-		// captures on pointerdown, so a sub-slop tap reaches the cover's onclick (Pitfall 7 invariant).
-		if (!dragging) {
-			if (dy > DRAG_SLOP && Math.abs(dy) > Math.abs(dx)) {
-				dragging = true;
+		// Axis-dominance claim (D-05): vertical wins ONLY after the slop threshold AND when the vertical
+		// component dominates — `Math.abs(dy) > DRAG_SLOP && Math.abs(dy) > Math.abs(dx)`. A
+		// horizontal-dominant drag falls through (no capture) so coverSwipe owns the carousel; nothing is
+		// captured on pointerdown, so a sub-slop tap reaches the cover's onclick (Pitfall 7 invariant).
+		// NOTE: the threshold is now on `Math.abs(dy)` (was `dy > DRAG_SLOP`, downward-only) so an UPWARD
+		// drag also commits — this is the fix that lets the cover expand the sheet.
+		if (npTopDeleg === 'none') {
+			if (Math.abs(dy) > DRAG_SLOP && Math.abs(dy) > Math.abs(dx)) {
 				(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+				npTopStartState = sheetState;
+				if (sheetState !== 'closed') {
+					// Sheet OPEN → the ENTIRE gesture (up OR down) is owned by the snap machine.
+					npTopDeleg = 'snap';
+					startGripFromCover(e);
+				} else {
+					// Sheet CLOSED → tentatively page-collapse, but a gesture that turns out to be UPWARD
+					// is handed to the snap machine instead (decided here, by initial direction). A
+					// downward commit from closed keeps today's page-collapse path.
+					if (dy < 0) {
+						npTopDeleg = 'snap';
+						startGripFromCover(e);
+					} else {
+						npTopDeleg = 'collapse';
+						dragging = true;
+					}
+				}
 			} else {
 				return;
 			}
 		}
-		dragY = Math.max(0, dy);
+		if (npTopDeleg === 'snap') {
+			// Feed the snap machine exactly as gripMove does (no parallel impl).
+			gripVel.sample(e.clientY, e.timeStamp);
+			gripMoved = e.clientY - gripStartY; // may be NEGATIVE (up) — the downward-only clamp is gone
+			sheetDragY = Math.max(0, Math.min(closedOffset, offsetFor(sheetState) + gripMoved));
+		} else if (npTopDeleg === 'collapse') {
+			dragY = Math.max(0, dy);
+		}
+	}
+	// Replicate gripDown's start sequence for a cover-initiated vertical drag. Does NOT
+	// stopPropagation / re-capture (npTopMove already captured on `.np-top`) and does NOT read a
+	// subnav tab (the cover is not a subnav button) — otherwise identical to gripDown so the cover
+	// drives the SAME machine state the grip does.
+	function startGripFromCover(e: PointerEvent) {
+		disarmGripClickSuppressor();
+		gripActive = true;
+		gripStartY = e.clientY;
+		gripMoved = e.clientY - startY; // continue from the slop already travelled (no jump on commit)
+		gripStartTab = null;
+		gripStartPlainButton = false;
+		if (snapTimer) clearTimeout(snapTimer);
+		gripVel.reset();
+		gripVel.sample(e.clientY, e.timeStamp);
+		measureOffsets();
+		sheetDragging = true;
+		sheetDragY = Math.max(0, Math.min(closedOffset, offsetFor(sheetState) + gripMoved));
 	}
 	function npTopUp() {
-		const wasDragging = dragging;
+		const deleg = npTopDeleg;
 		dragArmed = false;
+		npTopDeleg = 'none';
+		if (deleg === 'none') return; // tap path — let the cover's onclick do its thing
+		if (deleg === 'snap') {
+			// Hand the release to the grip snap machine: FLICK steps one state via gripVel/FLICK_V,
+			// else nearest-snap with the same directional bias; snapTimer commits sheetState and clears
+			// the transient drag state. An open-sheet DOWN gesture steps full→half→closed here — it does
+			// NOT collapse the page. Page-collapse only happens on a subsequent CLOSED+down gesture.
+			gripUp();
+			return;
+		}
+		// deleg === 'collapse' — closed-state downward drag: today's page-collapse behaviour.
 		dragging = false;
-		if (!wasDragging) return; // tap path — let the click handler do its thing
 		if (dragY > 120) player.collapse();
 		dragY = 0;
 	}
