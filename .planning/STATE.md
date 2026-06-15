@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Resilient Playback & UX Polish` below). The Last.fm write-side
-status: executing
+status: Awaiting next milestone
 stopped_at: Phase 24 context gathered
-last_updated: "2026-06-13T16:29:11.249Z"
-last_activity: 2026-06-13 -- Phase 24 execution started
+last_updated: "2026-06-15T18:02:50.009Z"
+last_activity: 2026-06-15 — Milestone v1.2 completed and archived
 progress:
   total_phases: 10
-  completed_phases: 9
+  completed_phases: 10
   total_plans: 43
-  completed_plans: 38
-  percent: 88
+  completed_plans: 43
+  percent: 100
 ---
 
 # Project State
@@ -25,11 +25,10 @@ See: .planning/PROJECT.md (updated 2026-06-10)
 
 ## Current Position
 
-Phase: 24 (offline-app-shell-sharing-seo) — EXECUTING
-Plan: 1 of 5
-Status: Executing Phase 24
-Last activity: 2026-06-15 -- Completed quick task 260616-0n6: default album queue context to 'same-list' up-next (UPNEXT_DEFAULTS.perContext); check 0/0, settings suite 20/20
-Next: /gsd:verify-work phase 19 (device-pass the two non-node-testable contracts — MENU-02 marquee re-measure + MENU-03 stuck-state — before sign-off)
+Phase: Milestone v1.2 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-06-15 — Milestone v1.2 completed and archived
 
 ## Performance Metrics
 
@@ -73,6 +72,11 @@ Next: /gsd:verify-work phase 19 (device-pass the two non-node-testable contracts
 | Phase 19 P03 | 5 min | 2 tasks | 7 files |
 
 ## Accumulated Context
+
+### Roadmap Evolution
+
+- Phase 14 added: Search & Data Responsiveness — first-load search skeleton, search query+results preserved across navigation, default audio quality 128–160kbps, TTL query cache for search/discovery (off-milestone UX/playback polish; not part of v1.1 Last.fm)
+- Phase 15 added: Now-Playing Shared-Element Expand/Collapse — swipe-up nowbar→full expand mirroring swipe-down collapse; cover/title/artist morph between positions driven by drag progress, with blur during drag (off-milestone UX polish; UI-spec recommended)
 
 ### Decisions
 
@@ -228,3 +232,23 @@ Items acknowledged and carried forward from previous milestone close:
 Last session: 2026-06-13T03:29:53.532Z
 Stopped at: Phase 24 context gathered
 Resume: plan Phase 16 (`/gsd:plan-phase 16`). Phase 16 is the resilience-core dependency root; everything else builds on its `queueContext` / 2-state repeat / skip-loop guard.
+
+## Deferred Items
+
+Items acknowledged and deferred at v1.2 milestone close on 2026-06-15 (81 total):
+
+| Category | Item | Status | Note |
+|----------|------|--------|------|
+| verification | 18-VERIFICATION.md | human_needed | iOS/device-only audio-fade + ended-handler checks; cannot run in CI/desktop |
+| uat_gap | 18-HUMAN-UAT.md | partial (5 open) | iOS instant-pause vs Android/desktop fade; gesture-abort mid-fade; repeat-one boundary; manual-pause-past-deadline |
+| uat_gap | 20-HUMAN-UAT.md | partial (13 open) | now-playing cover-swipe / sheet-scroll / nowbar-swipe gestures — real-device touch only |
+| uat_gap | 999.1-04-HUMAN-UAT.md | partial (6 open) | Capacitor background audio + media-session — Android device only (v2.0 backlog) |
+| uat_gap | 999.1-05-HUMAN-UAT.md | partial (4 open) | signed-APK release pipeline + sideload — needs keystore + device (v2.0 backlog) |
+| uat_gap | 999.1-06-HUMAN-UAT.md | partial (5 open) | native install/storage smokes — Android device only (v2.0 backlog) |
+| quick_task | 75 tasks (260605→260616) | missing | quick-task status markers unresolved by scanner; most shipped via `quick-*` commits, unconfirmed at close — triage with `/gsd:check-todos` / `/gsd:cleanup` |
+
+The 🔴 verification/UAT gaps are device-only human tests (iOS audio, Android APK) that cannot be reproduced in this environment. The 75 quick-tasks are predominantly false-positives (completed work whose completion marker the scanner could not match).
+
+## Operator Next Steps
+
+- Start the next milestone with /gsd-new-milestone

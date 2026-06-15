@@ -8,7 +8,16 @@ A mobile-first web music player that searches and streams tracks aggregated from
 
 A user on their phone can search a song, tap it, and have it play instantly with a smooth, native-app-like experience — and keep playing when the screen locks.
 
-## Current Milestone: v1.2 Resilient Playback & UX Polish
+## Current State
+
+**Shipped:** v1.2 Resilient Playback & UX Polish (2026-06-15) — 9 phases (16–24), 43 plans. Plus Phase 999.1 (v2.0 Native Capacitor, executed early). App is a live SvelteKit PWA on Cloudflare.
+
+**Next milestone:** v1.3 Last.fm Write-side (Phases 11–13) — auth, scrobble, loved-sync. Start with `/gsd:new-milestone`.
+
+**Known deferred:** device-only human UAT for iOS audio (Phase 18), now-playing gestures (Phase 20), and Capacitor APK (Phase 999.1); plus 75 unconfirmed quick-task status markers. See STATE.md → Deferred Items.
+
+<details>
+<summary>v1.2 milestone goal & scope (shipped)</summary>
 
 **Goal:** Music never stops — multi-source failover with skip-and-toast, gapless next-track prefetch, and auto-generated up-next — plus offline playback of downloaded tracks and a broad UX polish pass across lyrics, menu modal, covers, search, homepage, and sharing.
 
@@ -27,6 +36,8 @@ A user on their phone can search a song, tap it, and have it play instantly with
 - Polish: skeletons replace all loading text (shape-matched); button toast + double-click guard; text-size range 50–200% with contextual "example xxx" demo text; artist page hides trackless albums; accent setting verified wired; UX audit vs YT Music/Spotify feeds findings into requirements
 
 **Boundaries:** OS media-card stays standard controls only (web MediaSession has a fixed action set — no like/shuffle buttons possible for PWAs). Last.fm auth/scrobble/loved-sync deferred again → v1.3. Theme (light/dark) already shipped in v1.1 follow-ups.
+
+</details>
 
 ## Requirements
 
@@ -57,18 +68,18 @@ A user on their phone can search a song, tap it, and have it play instantly with
 - ✓ Track menu rework: always-visible action buttons with background resolve-then-act (pure gate helper, in-flight dedupe, graceful failure / no stuck spinner), 2-row marquee header with top-right like/close, Remix (seed → force-generated genre up-next preserving manual pins), and a long-press focus/tap-highlight fix (global tap-highlight reset + `@media (hover: hover)` guards + blur-on-longpress across all 6 trigger sites) — Validated in Phase 19: Track Menu Rework (device-only contracts — marquee re-measure, resolve-then-act visual flow, iOS/Android stuck-highlight — pending a `/gsd:verify-work 19` device pass)
 - ✓ Now-playing surface gestures: reusable `coverSwipe` horizontal action (0.28×width proportional commit, 0.5px/ms flick, prev-boundary rubber-band, Pitfall-7-safe capture-only-in-move), wired into a 3-cover NowPlaying carousel (tap-collapse + axis arbitration with the existing vertical collapse) and a lighter nowbar mini-player slide-and-snap (tap-to-expand preserved, loader rail pinned); plus an NP-04 notch-flush top loader and NP-02 sheet scroll containment — Validated in Phase 20: Now-Playing Surface & Gestures (gesture feel is device-only — 14 checks tracked in 20-HUMAN-UAT.md; two commit/transition reset blockers found in code review and fixed)
 
+- ✓ Search & cover pipeline: result scoring (short-title + artist-frequency boost, heavy <60s 試聽 penalty), result cover fallback, lazy scroll-into-view cover resolution with uid-first/name-keyed cache, empty-query autofocus (state-restore safe) — Validated in Phase 21: Search & Cover Pipeline Polish
+- ✓ Lyrics: tap-line-to-seek, touch/scroll auto-scroll suspend with idle-resume, end spacer to centre final lines, CN-LRC original-line highlight ordering, wider bracket-pair translation-hiding that never drops original lyrics — Validated in Phase 22: Lyrics Polish
+- ✓ UX audit & homepage/artist polish: shape-matched skeletons everywhere, toast + double-tap-guard buttons, list-row swipe actions, haptics, accessibility pass (aria-pressed / focus-traps / icon labels), homepage rows-of-4 compact mode + section-title navigation, trackless-album hiding on artist page — Validated in Phase 23: UX Audit & Homepage/Artist Polish
+- ✓ Offline app-shell + sharing/SEO: service-worker app-shell loads offline (never caches `/api/*` or audio; evicts stale shells on deploy), downloaded songs play offline end-to-end, online-only surfaces degrade gracefully, readable short share links with server-rendered per-entity OG metadata + SEO — Validated in Phase 24: Offline App-Shell & Sharing/SEO (manual crawler / iOS-offline smokes tracked as deferred device UAT)
+
 ### Active
 
-<!-- v1.2 scope. Hypotheses until shipped + validated. -->
+<!-- v1.3 scope. Hypotheses until shipped + validated. -->
 
-- [ ] Lyrics: touch-suspended auto-scroll, end spacer, CN highlight-ordering fix, robust bracket hiding
-- [ ] Now-playing: cover swipe prev/next, half-open scroll containment, tap-cover closes subnav, top running-line loader
-- [ ] Search scoring tune + result cover fallback + empty-query autofocus
-- [ ] Cover fallback resolver (playing track + scroll-into-view) with name-keyed cache
-- [ ] Homepage compact rows-of-4 mode (per-section setting) + section grid pages / library-tab redirects
-- [ ] Sharing/SEO: per-entity OG metadata, short slugs, per-page SEO
-- [ ] Offline app usability for downloaded tracks; simple offline display for online-only data
-- [ ] Polish: shape-matched skeletons everywhere, button toast + double-click guard, hide trackless albums, UX audit vs YT Music/Spotify
+- [ ] Last.fm auth — signed-call infrastructure + `sk` httpOnly cookie (Phase 11)
+- [ ] Scrobble now-playing + played tracks to Last.fm (Phase 12)
+- [ ] Loved-track sync / reconciliation with Last.fm (Phase 13)
 
 ### Out of Scope
 
@@ -130,4 +141,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-12 after Phase 999.1 complete (v2.0 Native Capacitor Migration — Android APK: dual-adapter build, background audio FGS, public Music/ MediaStore downloads, signed-release CI; 3 device UAT sets pending)*
+*Last updated: 2026-06-15 after v1.2 milestone (Resilient Playback & UX Polish) shipped and archived*
