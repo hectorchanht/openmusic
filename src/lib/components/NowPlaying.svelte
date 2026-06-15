@@ -761,18 +761,19 @@
 		}, 290);
 	}
 
-	// GWW-02 / GWW-03: a sub-slop TAP on the cover dispatches on sheetState:
+	// HB6 (restores the gcy half→closed tap, kept atop the gww closed→toggle): a sub-slop TAP on the
+	// cover dispatches on sheetState:
 	//   - `closed` → toggle play/pause via player.toggle() (the same API the transport `.play` button
 	//     uses); the closed cover doubles as a play/pause target.
-	//   - `half`   → NO-OP (the old 260615-gcy half→closed collapse-on-tap is removed; a half-open
-	//     tap intentionally does nothing).
+	//   - `half`   → collapse the sheet to `closed` (the gcy behavior, restored by user request).
 	//   - `full`   → NO-OP (unchanged).
 	// This onclick only ever fires on a genuine tap: coverSwipe never setPointerCaptures on pointerdown
 	// and arms a one-shot click suppressor on a committed swipe, so a committed carousel swipe does NOT
 	// replay this. No extra movement guard beyond the state check (sub-slop-tap-reaches-onclick invariant).
 	function tapCoverCollapse() {
 		if (sheetState === 'closed') player.toggle();
-		// `half` and `full` are no-ops.
+		else if (sheetState === 'half') sheetState = 'closed';
+		// `full` is a no-op.
 	}
 	// Keyboard parity for the cover's role="button" (Enter/Space) — mirrors the grip's gripKey idiom
 	// and satisfies the a11y click-needs-keydown rule. Inherits the closed→toggle / half→no-op behavior.
