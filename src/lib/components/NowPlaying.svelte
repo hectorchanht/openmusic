@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
-	import { fly } from 'svelte/transition';
+	import { fly, fade } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
 	import { goto } from '$app/navigation';
 	import { ChevronDown, MoreVertical, Heart, SkipBack, SkipForward, Play, Pause, Repeat, Repeat1, GripVertical, Moon } from '@lucide/svelte';
@@ -385,6 +385,19 @@
 	// neighbors use their own source cover (or the deterministic gradient fallback). null → 'none'.
 	const cellBg = (tk: Track | null) =>
 		tk ? (tk.cover ? `url(${tk.cover})` : fallbackCover(tk)) : 'none';
+
+	// ---- Meta crossfade (NP-TEXT-XFADE) ----
+	// On track change the {#key uid} block remounts title+artist, so an in:/out:fade crossfades the
+	// outgoing text out while the incoming fades in. This is a Svelte JS transition, so the global
+	// app.css `:root[data-reduce-motion] * { transition:none!important }` rule does NOT stop it —
+	// it must be guarded explicitly. settings.reduceMotion is the app flag (already wired to
+	// :root[data-reduce-motion]); we also OR the OS prefers-reduced-motion query so OS-only users
+	// get the instant swap too. Duration 0 → instant remount, no animated fade.
+	const osReduceMotion =
+		typeof window !== 'undefined' && window.matchMedia
+			? window.matchMedia('(prefers-reduced-motion: reduce)').matches
+			: false;
+	const xfadeMs = $derived(settings.reduceMotion || osReduceMotion ? 0 : 200);
 
 	function openArtist() {
 		if (player.current) {
@@ -919,12 +932,14 @@
 	<div class="meta">
 		<!-- {#key uid}: .title/.artist are single persistent nodes, so the marquee action would
 		     never re-measure on a track change (box width is unchanged). Re-keying remounts them
-		     per track → fresh measure. .marquee-inner wraps the text so the GLOBAL transform-based
-		     marquee in app.css drives them (gmy unified the artist + NowPlaying drift onto one
-		     system). Genre/tag chips intentionally hidden (quick-260607-f4y). -->
+		     per track → fresh measure AND drives the in:/out:fade crossfade (outgoing text fades
+		     out while incoming fades in; xfadeMs collapses to 0 under reduce-motion). .marquee-inner
+		     wraps the text so the GLOBAL transform-based marquee in app.css drives them (gmy unified
+		     the artist + NowPlaying drift onto one system). Genre/tag chips intentionally hidden
+		     (quick-260607-f4y). -->
 		{#key player.current?.uid}
-			<div class="title" use:marquee><span class="marquee-inner">{player.current ? names.dnTitle(player.current.title) : ''}</span></div>
-			<button class="artist" use:marquee onclick={openArtist}><span class="marquee-inner">{player.current ? names.dnArtist(player.current.artist) : ''}</span></button>
+			<div class="title" use:marquee in:fade={{ duration: xfadeMs }} out:fade={{ duration: xfadeMs }}><span class="marquee-inner">{player.current ? names.dnTitle(player.current.title) : ''}</span></div>
+			<button class="artist" use:marquee onclick={openArtist} in:fade={{ duration: xfadeMs }} out:fade={{ duration: xfadeMs }}><span class="marquee-inner">{player.current ? names.dnArtist(player.current.artist) : ''}</span></button>
 		{/key}
 	</div>
 
