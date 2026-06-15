@@ -55,7 +55,7 @@ export const APPEARANCE_DEFAULTS = {
 // never auto-translated unless the user opts in). bioLang defaults 'auto' (bio is the one
 // "wants the app language" surface, established in fnp).
 export const TRANSLATION_DEFAULTS = {
-	lyricsLang: 'off' as LyricsLang,
+	lyricsLang: 'auto' as LyricsLang,
 	artistLang: 'off' as LyricsLang,
 	titleLang: 'off' as LyricsLang,
 	lastfmLang: 'off' as LyricsLang,
@@ -64,7 +64,7 @@ export const TRANSLATION_DEFAULTS = {
 	titleSkip: [] as readonly SourceLang[],
 	lyricsSkip: [] as readonly SourceLang[],
 	lastfmSkip: [] as readonly SourceLang[],
-	translateMode: 'below' as TranslateMode,
+	translateMode: 'replace' as TranslateMode,
 	/** Hide translations for lyrics lines extracted from a `(...)` clause. Default OFF —
 	 *  parens-translations render alongside the parent line. */
 	lyricsHideParenTranslation: false,
@@ -107,8 +107,11 @@ export type QueueContext =
 export const UPNEXT_DEFAULTS = {
 	/** Global default sourcing mode — roadmap-locked to 'generated'. */
 	mode: 'generated' as UpnextMode,
-	/** Per-context overrides; empty = every context resolves to the global `mode`. */
-	perContext: {} as Partial<Record<Exclude<QueueContext, null>, UpnextMode>>
+	/**
+	 * Per-context overrides. `album` resolves to 'same-list' (curated, ordered collections —
+	 * users expect "play the rest of the album"); every other context resolves to the global `mode`.
+	 */
+	perContext: { album: 'same-list' } as Partial<Record<Exclude<QueueContext, null>, UpnextMode>>
 } as const;
 
 // ---- Home layout -----------------------------------------------------------------------

@@ -70,11 +70,12 @@ describe('settings.effectiveUpnextMode (Phase 17 QUEUE-03)', () => {
 		expect(settings.effectiveUpnextMode('remix')).toBe('generated');
 	});
 
-	it('resetPlayback() restores upnextPerContext to {} and upnextMode to generated', () => {
+	it("resetPlayback() restores upnextPerContext to the default perContext (album → 'same-list') and upnextMode to generated", () => {
 		settings.upnextMode = 'same-list';
 		settings.upnextPerContext = { liked: 'same-list', search: 'same-list' };
 		settings.resetPlayback();
-		expect(settings.upnextPerContext).toEqual({});
+		// resetPlayback spreads DEFAULTS.upnext.perContext, which now carries the album override.
+		expect(settings.upnextPerContext).toEqual({ album: 'same-list' });
 		expect(settings.upnextMode).toBe('generated');
 	});
 
