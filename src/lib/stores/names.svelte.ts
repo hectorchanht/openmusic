@@ -5,10 +5,32 @@
 // but the cache is keyed by TARGET lang (translation output depends only on the target, so
 // parts sharing a target share cached results). Standalone (settings + translate + detect);
 // SSR returns the input unchanged.
+//
+// CACHE-POISON (WR / debug:dashboard-liked-not-translated): while /api/translate was in
+// echo-mode it returned the ORIGINALS as a "successful" batch; this store cached those
+// originals as identity entries (orig → orig) and persisted them. The resolver then hit the
+// cache and returned the original forever — liked/library names viewed during the bug stayed
+// Simplified even after the API was fixed (freshly-searched names, never cached during the
+// bug, translated). Two-part hardening:
+//   (a) the persisted key carries a VERSION segment (STORE_VER); bumping it abandons every
+//       poisoned pre-version entry, and stale keys are purged on first hydration so they
+//       can't accumulate. No user action required.
+//   (b) we now consult /api/translate's per-line `flags` (via translateLinesEx) and cache
+//       ONLY genuinely-translated names. A name that fell back (echo / failure / genuinely
+//       identical) is rendered as the original but NOT cached, so it stays eligible for a
+//       later retry. To prevent a re-request storm for names that are genuinely unchanged in
+//       the target script, each (lang,name) is retried at most MAX_ATTEMPTS times per session.
 import { browser } from '$app/environment';
 import { settings, effectiveTarget } from '$lib/stores/settings.svelte';
-import { translateLines } from '$lib/services/translate';
+import { translateLinesEx } from '$lib/services/translate';
 import { shouldTranslate } from '$lib/i18n/detect';
+
+// Bump to abandon all previously-persisted (possibly poisoned) name translations.
+const STORE_VER = 'v2';
+const keyFor = (lang: string) => `openmusic:name-tr:${STORE_VER}:${lang}`;
+// Bounded per-session retries for a name that keeps coming back untranslated (genuinely
+// identical in the target script), so we don't loop forever re-requesting it.
+const MAX_ATTEMPTS = 2;
 
 class Names {
 	rev = $state(0); // bump → callers re-evaluate resolvers
@@ -16,6 +38,29 @@ class Names {
 	private pending = new Map<string, Set<string>>();
 	private timers = new Map<string, ReturnType<typeof setTimeout>>();
 	private hydrated = new Set<string>();
+	// lang → (name → attempt count). Caps re-requests for genuinely-unchanged names.
+	private attempts = new Map<string, Map<string, number>>();
+	private purged = false;
+
+	// Drop every persisted name translation from BEFORE the current store version, so poisoned
+	// echo-era identity entries can't keep serving Simplified originals. Once per session.
+	private purgeStale() {
+		if (!browser || this.purged) return;
+		this.purged = true;
+		try {
+			const keys: string[] = [];
+			for (let i = 0; i < localStorage.length; i++) {
+				const k = localStorage.key(i);
+				// current keys are `openmusic:name-tr:<VER>:<lang>`; anything else under the
+				// `openmusic:name-tr:` namespace is a pre-version (possibly poisoned) entry.
+				if (k && k.startsWith('openmusic:name-tr:') && !k.startsWith(`openmusic:name-tr:${STORE_VER}:`))
+					keys.push(k);
+			}
+			for (const k of keys) localStorage.removeItem(k);
+		} catch {
+			/* ignore */
+		}
+	}
 
 	private langCache(lang: string): Map<string, string> {
 		let m = this.cache.get(lang);
@@ -23,8 +68,9 @@ class Names {
 			m = new Map();
 			if (browser && !this.hydrated.has(lang)) {
 				this.hydrated.add(lang);
+				this.purgeStale();
 				try {
-					const raw = localStorage.getItem(`openmusic:name-tr:${lang}`);
+					const raw = localStorage.getItem(keyFor(lang));
 					if (raw) for (const [k, v] of Object.entries(JSON.parse(raw) as Record<string, string>)) m.set(k, v);
 				} catch {
 					/* ignore */
@@ -39,10 +85,19 @@ class Names {
 		if (!browser) return;
 		try {
 			const m = this.cache.get(lang);
-			if (m) localStorage.setItem(`openmusic:name-tr:${lang}`, JSON.stringify(Object.fromEntries(m)));
+			if (m) localStorage.setItem(keyFor(lang), JSON.stringify(Object.fromEntries(m)));
 		} catch {
 			/* quota */
 		}
+	}
+
+	private attemptCount(lang: string): Map<string, number> {
+		let a = this.attempts.get(lang);
+		if (!a) {
+			a = new Map();
+			this.attempts.set(lang, a);
+		}
+		return a;
 	}
 
 	private schedule(lang: string) {
@@ -55,15 +110,24 @@ class Names {
 				if (!set || !set.size) return;
 				const items = [...set];
 				this.pending.set(lang, new Set());
-				translateLines(items, lang)
-					.then((out) => {
+				translateLinesEx(items, lang)
+					.then(({ out, flags }) => {
 						const m = this.langCache(lang);
-						items.forEach((orig, i) => m.set(orig, out[i] ?? orig));
-						this.persist(lang);
-						this.rev++;
+						let changed = false;
+						items.forEach((orig, i) => {
+							// Persist ONLY genuinely-translated names. A fallback (echo / failure /
+							// genuinely-identical) is left uncached so a later view can retry — but the
+							// per-session attempt cap (below) stops an infinite loop for unchanged names.
+							if (flags[i] && out[i] !== undefined) {
+								m.set(orig, out[i]);
+								changed = true;
+							}
+						});
+						if (changed) this.persist(lang);
+						this.rev++; // re-render even if nothing changed (resolvers re-read; uncached names retry)
 					})
 					.catch(() => {
-						/* leave originals */
+						/* leave originals; eligible for retry */
 					});
 			}, 160)
 		);
@@ -73,7 +137,8 @@ class Names {
 	 * Core resolver: returns the translated text for `target` if available, else the
 	 * original immediately and queues a translation. Returns the original (no queue)
 	 * when shouldTranslate(text, target, whitelist) is false (off / whitelisted source /
-	 * already-in-target). Cache is keyed by target lang only.
+	 * already-in-target). Cache is keyed by target lang only. Uncached names are queued at
+	 * most MAX_ATTEMPTS times per session so a genuinely-unchanged name can't loop forever.
 	 */
 	private resolve(text: string, target: string, whitelist: readonly string[]): string {
 		void this.rev; // reactive dependency
@@ -82,6 +147,8 @@ class Names {
 		const m = this.langCache(target);
 		const hit = m.get(text);
 		if (hit !== undefined) return hit;
+		const attempts = this.attemptCount(target);
+		if ((attempts.get(text) ?? 0) >= MAX_ATTEMPTS) return text; // give up retrying; show original
 		let set = this.pending.get(target);
 		if (!set) {
 			set = new Set();
@@ -89,6 +156,7 @@ class Names {
 		}
 		if (!set.has(text)) {
 			set.add(text);
+			attempts.set(text, (attempts.get(text) ?? 0) + 1);
 			this.schedule(target);
 		}
 		return text;
@@ -122,6 +190,7 @@ class Names {
 	clearCache(): void {
 		this.cache.clear();
 		this.pending.clear();
+		this.attempts.clear();
 		this.hydrated.clear();
 		for (const timer of this.timers.values()) clearTimeout(timer);
 		this.timers.clear();
