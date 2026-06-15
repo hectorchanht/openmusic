@@ -76,24 +76,23 @@ export const DISCOVERY_COUNTRIES: string[] = [
 // Curated DEFAULT selections (a fresh user sees these as shelves — a manageable subset of the
 // broad pools above, balancing global + CJK). The full pools remain available as toggle chips.
 export const DEFAULT_HOME_TAGS: string[] = [
+	'cantopop',
+	'mandopop',
 	'pop',
 	'hip-hop',
 	'rock',
-	'electronic',
 	'k-pop',
-	'mandopop',
-	'cantopop',
+	'electronic',
 	'latin'
 ];
 export const DEFAULT_HOME_COUNTRIES: string[] = [
-	'China',
-	'Taiwan',
-	'Hong Kong',
 	'United States',
+	'Hong Kong',
 	'Japan',
+	'Taiwan',
+	'China',
 	'South Korea',
-	'United Kingdom',
-	'Brazil'
+	'United Kingdom'
 ];
 
 // ---- Section order + visibility --------------------------------------------------------
@@ -181,9 +180,9 @@ export function resolveSubset(saved: string[] | undefined, pool: string[]): stri
 
 // ---- Items per shelf -------------------------------------------------------------------
 
-export const SHELF_MIN = 6;
+export const SHELF_MIN = 8;
 export const SHELF_MAX = 24;
-export const SHELF_DEFAULT = 18;
+export const SHELF_DEFAULT = 16;
 
 /**
  * Coerce a persisted items-per-shelf value into a SAFE integer in [SHELF_MIN, SHELF_MAX]
