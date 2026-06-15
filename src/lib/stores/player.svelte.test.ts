@@ -230,7 +230,10 @@ beforeEach(() => {
 		preloadedCoverUrl: string | null;
 		growPromise: Promise<void> | null;
 		growing: boolean;
-		unplayableUids: Set<string>;
+		// quick-260615-i9u: unplayableUids is now a SvelteSet — structurally compatible for the
+		// .clear()/.add()/.has()/.delete() surface the tests touch.
+		unplayableUids: { clear(): void; add(u: string): void; has(u: string): boolean; delete(u: string): boolean };
+		pendingHistory: Track[] | null;
 	};
 	internals.prefetchingUid = null;
 	internals.prefetchController?.abort();
@@ -244,6 +247,7 @@ beforeEach(() => {
 	internals.preloadedCoverUrl = null;
 	internals.growPromise = null;
 	internals.growing = false;
+	internals.pendingHistory = null; // quick-260615-i9u: one-shot history carrier must not leak across tests
 });
 
 afterEach(() => {
@@ -1596,6 +1600,30 @@ describe('player.queueContext — context-threaded setQueue/playStub (Phase 17 Q
 		expect(player.queue.some((t) => t.uid === preferredVariant.uid)).toBe(false);
 		expect(player.queue.map((t) => t.uid)).toEqual([seed.uid, freshAuto.uid]);
 	});
+
+	it('quick-260615-i9u: history-aware regenerate preserves the head before+including the seed, replaces only the tail', async () => {
+		// A woven history prefix sits BEFORE the seed; regenerate must keep [h0, priorCurrent, seed]
+		// intact and only swap the stale generated tail for the fresh auto picks (history not dropped).
+		const h0 = mk('netease', 'H0', 'A', 'Played 0');
+		const priorCurrent = mk('netease', 'PC', 'A', 'Prior Current');
+		const seed = mk('qq', 'SEED', 'B', 'Clicked');
+		const staleAuto = mk('kuwo', 'OLD', 'C', 'OldGenerated'); // tail after seed → discarded
+		const freshAuto = mk('joox', 'NEW', 'D', 'FreshGenerated');
+		player.current = seed;
+		player.queue = [h0, priorCurrent, seed, staleAuto];
+		mockSimilar.mockReset().mockResolvedValue([freshAuto]);
+
+		await (player as unknown as { regenerate(t: Track): Promise<void> }).regenerate(seed);
+
+		// Head (history + seed) survives in order; only the tail after the seed is regenerated.
+		expect(player.queue.map((t) => t.uid)).toEqual([h0.uid, priorCurrent.uid, seed.uid, freshAuto.uid]);
+		expect(player.queue.some((t) => t.uid === staleAuto.uid)).toBe(false);
+		// The history head uids were handed to buildSimilarQueue's exclude set (no duplication).
+		const excludeArg = mockSimilar.mock.calls[0][1] as Set<string>;
+		expect(excludeArg.has(h0.uid)).toBe(true);
+		expect(excludeArg.has(priorCurrent.uid)).toBe(true);
+		expect(excludeArg.has(seed.uid)).toBe(true);
+	});
 });
 
 describe('player.setListQueue — current-anchored queue install (album-and-next-song-bug)', () => {
@@ -1654,6 +1682,25 @@ describe('player.setListQueue — current-anchored queue install (album-and-next
 		player.setListQueue([a], 'album');
 		expect(player.queue.map((t) => t.uid)).toEqual([a.uid]);
 		expect(player.queueContext).toBe('album');
+	});
+
+	it('quick-260615-i9u: captures a non-empty pre-current head so a later fresh play preserves it', () => {
+		// The synchronous setListQueue result is the anchored list (history is woven later by play()).
+		// Here we assert the CAPTURE: with a pre-current head [h0, current], setListQueue snapshots
+		// pendingHistory=[h0, current] (up to+including the prior current) before installing the list.
+		const h0 = mk('netease', 'H0', 'A', 'Played');
+		const current = mk('netease', 'C', 'A', 'Current');
+		const a = mk('qq', 'a', 'B', 'List A');
+		player.current = current;
+		player.queue = [h0, current]; // a real pre-current head exists
+		player.setListQueue([current, a], 'album');
+		// The installed queue is still the anchored list (weave happens in play(), not here).
+		expect(player.queue.map((t) => t.uid)).toEqual([current.uid, a.uid]);
+		// The pre-wipe head was captured for the next fresh play to re-weave.
+		const pending = (player as unknown as { pendingHistory: Track[] | null }).pendingHistory;
+		expect(pending?.map((t) => t.uid)).toEqual([h0.uid, current.uid]);
+		// cleanup so the carrier doesn't leak into the next test's fresh play.
+		(player as unknown as { pendingHistory: Track[] | null }).pendingHistory = null;
 	});
 
 	it('bumps queueGen so a racing ensureAhead grow is discarded (up-next stays the list, not generated)', async () => {
@@ -2354,5 +2401,180 @@ describe('player.flushPersist — immediate position flush on hide/freeze/pagehi
 		win.fire('pageshow', { persisted: false });
 
 		expect(player.currentTime).toBe(3); // untouched — full restore() handles a normal load
+	});
+});
+
+describe('player.play — history-preserving fresh-play queue model (quick-260615-i9u Feature B)', () => {
+	// Exercise the REAL play() (restore the global spy) with a fake <audio> + mocked resolve. The
+	// captured history is woven in front of the clicked song so prior playback stays in the queue
+	// and prev() can revisit it. effectiveUpnextMode→generated with mockSimilar→[] keeps the tail
+	// empty so the woven prefix + seed is the whole queue and the assertions are exact.
+	let el: ReturnType<typeof makeFakeAudio>;
+	const resolved = (s: SourceId, id: string): Track => ({
+		...mk(s, id, 'Artist', `Song ${id}`),
+		audioUrl: `https://cdn/${id}.mp3`
+	});
+	// pendingHistory is captured by setQueue/setListQueue. In these tests we set the prior queue +
+	// current directly, then capture explicitly via setQueue([seed]) right before the fresh play —
+	// mirroring the real call-site order (setQueue → play({fresh:true})).
+	const pendingHistoryRef = () =>
+		player as unknown as { pendingHistory: Track[] | null };
+
+	beforeEach(() => {
+		(player.play as unknown as { mockRestore(): void }).mockRestore?.();
+		mockEnsure.mockReset();
+		mockSimilar.mockReset().mockResolvedValue([]); // generated tail empty → exact queue assertions
+		player.current = null;
+		player.queue = [];
+		player.queueContext = null;
+		player.expanded = false;
+		player.error = null;
+		player.loading = false;
+		pendingHistoryRef().pendingHistory = null;
+		vi.stubGlobal('navigator', { onLine: true });
+		el = makeFakeAudio();
+		player.attach(el as unknown as HTMLAudioElement);
+		vi.spyOn(library, 'isDownloaded').mockReturnValue(false);
+		settings.autoExpandOnPlay = false;
+		settings.upnextMode = 'generated'; // null/search context → 'generated'
+		settings.upnextPerContext = {};
+	});
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
+		settings.upnextMode = 'generated';
+		settings.upnextPerContext = {};
+	});
+
+	/** Seed a prior queue + current, then capture history exactly as a real fresh-play call site does
+	 *  (setQueue installs the [clicked] snapshot AND captures the pre-wipe prefix). */
+	function seedPriorAndCapture(prior: Track[], current: Track, clicked: Track) {
+		player.queue = prior;
+		player.current = current;
+		// setQueue captures the pre-wipe history (up to+including current) into pendingHistory.
+		player.setQueue([clicked], 'search');
+	}
+
+	it('a fresh play preserves capped history + prior current, inserts clicked song after it', async () => {
+		const h0 = resolved('netease', 'H0');
+		const h1 = resolved('netease', 'H1');
+		const pc = resolved('netease', 'PC');
+		const oldA = resolved('netease', 'OLDA');
+		const X = resolved('qq', 'X');
+		seedPriorAndCapture([h0, h1, pc, oldA], pc, X);
+		mockEnsure.mockResolvedValue(X);
+
+		await player.play(X, { fresh: true });
+		await flush();
+
+		// History (h0,h1) + prior current (pc) kept; X inserted right after pc as the new current.
+		expect(player.queue.map((t) => t.uid)).toEqual([h0.uid, h1.uid, pc.uid, X.uid]);
+		expect(player.current?.uid).toBe(X.uid);
+		expect(player.queue.findIndex((t) => t.uid === X.uid)).toBe(3);
+	});
+
+	it('prev() after a fresh click revisits the prior current', async () => {
+		const h0 = resolved('netease', 'H0');
+		const pc = resolved('netease', 'PC');
+		const X = resolved('qq', 'X');
+		seedPriorAndCapture([h0, pc], pc, X);
+		mockEnsure.mockResolvedValue(X);
+		await player.play(X, { fresh: true });
+		await flush();
+		// queue == [h0, pc, X], current == X at index 2.
+		expect(player.queue.map((t) => t.uid)).toEqual([h0.uid, pc.uid, X.uid]);
+
+		// prev() back-walks into history → plays queue[1] === pc. Guard the >3s restart: currentTime=0.
+		el.currentTime = 0;
+		const playSpy = vi.spyOn(player, 'play');
+		player.prev();
+		expect(playSpy.mock.calls[0][0].uid).toBe(pc.uid);
+	});
+
+	it('history is capped to HISTORY_CAP (oldest dropped)', async () => {
+		const CAP = 50;
+		const head: Track[] = [];
+		for (let n = 0; n < 60; n++) head.push(resolved('netease', `E${n}`));
+		const pc = head[head.length - 1]; // last head entry is the prior current
+		const X = resolved('qq', 'X');
+		seedPriorAndCapture(head, pc, X);
+		mockEnsure.mockResolvedValue(X);
+
+		await player.play(X, { fresh: true });
+		await flush();
+
+		// 60 pre-current entries (incl. pc) capped to the LAST 50 → oldest 10 (E0..E9) dropped.
+		const kept = player.queue.slice(0, player.queue.findIndex((t) => t.uid === X.uid));
+		expect(kept.length).toBe(CAP);
+		expect(kept[0].uid).toBe(head[60 - CAP].uid); // queue[0] === E10
+		expect(player.queue[CAP].uid).toBe(X.uid); // seed at the cap boundary
+	});
+
+	it('re-click of an already-played song moves it to new-current (no duplicate)', async () => {
+		const h0 = resolved('netease', 'H0');
+		const pc = resolved('netease', 'PC');
+		const old = resolved('netease', 'OLD');
+		// Re-click h0 (already in history). It must MOVE to the new-current slot, not duplicate.
+		seedPriorAndCapture([h0, pc, old], pc, h0);
+		mockEnsure.mockResolvedValue(h0);
+
+		await player.play(h0, { fresh: true });
+		await flush();
+
+		// h0 appears exactly once, as the new current immediately after the prior current pc.
+		expect(player.queue.filter((t) => t.uid === h0.uid).length).toBe(1);
+		expect(player.current?.uid).toBe(h0.uid);
+		expect(player.queue.map((t) => t.uid)).toEqual([pc.uid, h0.uid]);
+	});
+
+	it('same-list fresh play keeps history and the list remainder as the tail', async () => {
+		// effectiveUpnextMode→same-list: setListQueue installs [X, a, b] + captures pendingHistory=[h0,pc];
+		// play({fresh}) weaves history → [h0, pc, X, a, b] (pc ahead of X; a,b the list remainder).
+		settings.upnextPerContext = { album: 'same-list' };
+		const h0 = resolved('netease', 'H0');
+		const pc = resolved('netease', 'PC');
+		const X = resolved('qq', 'X');
+		const a = resolved('kuwo', 'A');
+		const b = resolved('joox', 'B');
+		player.queue = [h0, pc];
+		player.current = pc;
+		player.queueContext = 'album';
+		mockEnsure.mockResolvedValue(X);
+		// Real call-site order for the album/same-list path: play(X,{fresh}) THEN setListQueue.
+		// setListQueue captures pendingHistory=[h0,pc] (pre-current slice incl. pc) and installs the list.
+		player.setListQueue([X, a, b], 'album');
+		await player.play(X, { fresh: true });
+		await flush();
+
+		expect(player.queue.map((t) => t.uid)).toEqual([h0.uid, pc.uid, X.uid, a.uid, b.uid]);
+		expect(player.current?.uid).toBe(X.uid);
+	});
+});
+
+describe('player reactive unplayableUids — isUnplayable + retryUnplayable (quick-260615-i9u Feature A)', () => {
+	// Store-level coverage (no DOM): the SvelteSet swap is the reactive mechanism; the component
+	// reads it via isUnplayable() per-row so the Up-Next list repaints on mark/unmark. The reactive
+	// REPAINT itself is a Svelte-template concern, not unit-testable here — we cover the public API.
+	const deadSet = () =>
+		(player as unknown as { unplayableUids: { add(u: string): void; delete(u: string): boolean } })
+			.unplayableUids;
+
+	it('isUnplayable reflects the reactive set', () => {
+		const t = mk('netease', 'D', 'A', 'Dead');
+		expect(player.isUnplayable(t.uid)).toBe(false);
+		deadSet().add(t.uid);
+		expect(player.isUnplayable(t.uid)).toBe(true);
+		deadSet().delete(t.uid);
+		expect(player.isUnplayable(t.uid)).toBe(false);
+	});
+
+	it('retryUnplayable clears the uid and replays that exact track (non-fresh)', () => {
+		const t = mk('netease', 'D', 'A', 'Dead');
+		deadSet().add(t.uid);
+		const playSpy = player.play as unknown as ReturnType<typeof vi.fn>;
+		playSpy.mockClear();
+		player.retryUnplayable(t);
+		expect(player.isUnplayable(t.uid)).toBe(false);
+		expect(playSpy).toHaveBeenCalledWith(t, { fresh: false });
 	});
 });
