@@ -42,7 +42,7 @@ export const jamendo: SourceAdapter = {
 	id: 'jamendo',
 	label: 'Jamendo',
 	// CC indie is opt-in. The Playback Advanced — Sources accordion (ii6) is the discovery path.
-	enabledByDefault: false,
+	enabledByDefault: true,
 
 	async search(keyword: string, page: number, signal: AbortSignal): Promise<Track[]> {
 		// Jamendo's v3 API paginates via `offset` not `page`. limit=20 matches our other adapters'

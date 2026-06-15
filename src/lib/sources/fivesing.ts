@@ -68,7 +68,7 @@ export const fivesing: SourceAdapter = {
 	label: '5sing',
 	// UGC supply is noisier than the 4 mainstream CN sources; ship gated so existing users
 	// don't suddenly see covers/karaoke at the top of search. Users opt in via prefs.
-	enabledByDefault: false,
+	enabledByDefault: true,
 
 	async search(keyword: string, page: number, signal: AbortSignal): Promise<Track[]> {
 		const pg = Math.max(1, page || 1);
