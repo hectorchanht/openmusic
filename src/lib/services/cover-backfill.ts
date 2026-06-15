@@ -155,8 +155,14 @@ async function resolveTrackChain(
  * the shared `tier()` never-throw wrapper + isSolidCover https guard — NOT a new fetch ladder).
  * Returns the first SOLID https URL or null on a total miss. NEVER throws.
  *
- * On a SOLID hit it writes BOTH cache layers so either lookup hits next time (D-13 two-layer):
+ * On a SOLID hit it writes the {artist,title} name layer always, and the uid layer ONLY when the
+ * track carries a real uid (D-13 two-layer):
  *   setCachedCoverByUid(track.uid, url)  AND  setCachedCover(track.artist, track.title, url).
+ * An EMPTY uid (synthetic discovery stub from charts/tags, charts/countries) MUST NOT write the uid
+ * layer: that layer is a shared flat record keyed by `'uid:' + uid`, so an empty uid would store
+ * every distinct row under the single `'uid:'` slot and the first row's cover would then read back
+ * for ALL rows (the charts-tags-same-cover bug). The name layer is keyed by {artist,title} and
+ * stays per-song, so an empty-uid stub still caches correctly under its own identity.
  * On a miss / non-https result nothing is cached (the caller keeps the gradient — T-0bb-01).
  */
 export async function resolveCoverForTrack(
@@ -165,7 +171,9 @@ export async function resolveCoverForTrack(
 ): Promise<string | null> {
 	const cover = await resolveTrackChain(track.artist ?? '', track.title ?? '', signal);
 	if (isSolidCover(cover)) {
-		setCachedCoverByUid(track.uid, cover);
+		// Only a real uid writes the shared uid layer — an empty stub uid would collapse every row
+		// onto one slot (charts-tags-same-cover fix). The name layer is always per-song-safe.
+		if (track.uid) setCachedCoverByUid(track.uid, cover);
 		setCachedCover(track.artist, track.title, cover);
 		return cover;
 	}

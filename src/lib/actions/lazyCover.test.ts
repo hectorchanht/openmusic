@@ -214,6 +214,54 @@ describe('lazyCover — IntersectionObserver + Image probe + cache-first resolve
 		expect(onResolved).toHaveBeenCalledWith(track.uid, 'https://cache.example/by-uid.jpg');
 	});
 
+	// charts-tags-same-cover regression: discovery stub rows (charts/tags, charts/countries) carry
+	// uid ''. The shared uid cache layer is keyed by `'uid:' + uid`, so an empty uid would collapse
+	// every distinct row onto the single `'uid:'` slot and the first resolved cover would read back
+	// for ALL rows. An empty uid must therefore NEVER read the uid layer — only the {artist,title}
+	// name layer — and must NOT de-dupe by the empty uid (which would let only the first stub resolve).
+	it('an empty-uid stub does NOT read the uid cache layer (charts-tags-same-cover)', async () => {
+		// A poisoned uid slot must be IGNORED for an empty uid: if the uid layer were consulted it
+		// would surface this wrong cover; instead the name-layer miss → the per-song chain runs.
+		getCachedCoverByUid.mockReturnValue('https://poison.example/first-row.jpg');
+		getCachedCover.mockReturnValue(null);
+		const onResolved = vi.fn();
+		const track = mkTrack({ uid: '', artist: 'Foo Fighters', title: 'Everlong' });
+		const { io } = await mount({ track, onResolved });
+
+		io.trigger(true);
+		await flush();
+		// The empty uid never queries the uid layer; the name layer is consulted instead.
+		expect(getCachedCoverByUid).not.toHaveBeenCalled();
+		expect(getCachedCover).toHaveBeenCalledWith('Foo Fighters', 'Everlong');
+		// Name-layer miss → the per-song chain resolves this row's OWN cover (not the poison slot).
+		expect(resolveCoverForTrack).toHaveBeenCalledTimes(1);
+		expect(onResolved).toHaveBeenCalledWith('', 'https://resolved.example/c.jpg');
+	});
+
+	it('empty-uid stub rows de-dupe per {artist,title}, not by the empty uid (distinct rows each resolve)', async () => {
+		const onResolved = vi.fn();
+		// A slow resolve so both rows fire while the first is still in flight.
+		const releases: Array<(v: string | null) => void> = [];
+		resolveCoverForTrack.mockImplementation(
+			() => new Promise<string | null>((res) => releases.push(res))
+		);
+
+		// Two DISTINCT songs, both with the empty stub uid. They must BOTH run the chain — keying the
+		// in-flight Set by the empty uid would skip the second (the original same-cover bug).
+		const songA = mkTrack({ uid: '', artist: 'Paramore', title: 'Still Into You' });
+		const songB = mkTrack({ uid: '', artist: 'Coldplay', title: 'Sparks' });
+		const a = await mount({ track: songA, onResolved });
+		const b = await mount({ track: songB, onResolved });
+
+		a.io.trigger(true);
+		b.io.trigger(true);
+		await flush();
+		// Distinct {artist,title} → distinct in-flight keys → both chains run.
+		expect(resolveCoverForTrack).toHaveBeenCalledTimes(2);
+		releases.forEach((r) => r('https://resolved.example/c.jpg'));
+		await flush();
+	});
+
 	it('SSR guard: with IntersectionObserver undefined the action does not throw', async () => {
 		(globalThis as { IntersectionObserver?: unknown }).IntersectionObserver = undefined;
 		const onResolved = vi.fn();

@@ -387,4 +387,25 @@ describe('resolveCoverForTrack — shared single-item resolve helper (Plan 21-02
 		expect(getCachedCoverByUid('netease:ins')).toBeNull();
 		expect(getCachedCover('A', 'B')).toBeNull();
 	});
+
+	// charts-tags-same-cover regression: a synthetic discovery stub (charts/tags, charts/countries)
+	// carries uid ''. The uid cache layer is a shared flat record keyed by `'uid:' + uid`, so writing
+	// an empty uid would store EVERY distinct row under the single `'uid:'` slot and the first row's
+	// cover would read back for ALL rows. An empty uid must write ONLY the per-song {artist,title}
+	// name layer, never the uid layer.
+	it('does NOT write the uid layer for an empty-uid stub (charts-tags-same-cover)', async () => {
+		vi.spyOn(deezer, 'deezerSongCover').mockResolvedValue('https://cdn-images.dzcdn.net/r.jpg');
+		const stub = mk('netease', 'ignored', {
+			uid: '',
+			artist: 'Foo Fighters',
+			title: 'Everlong'
+		});
+
+		const out = await resolveCoverForTrack(stub);
+		expect(out).toBe('https://cdn-images.dzcdn.net/r.jpg');
+		// The shared empty-uid slot ('uid:') is NEVER written — distinct rows can't collide on it.
+		expect(getCachedCoverByUid('')).toBeNull();
+		// The per-song name layer IS written, so this stub still caches under its own identity.
+		expect(getCachedCover('Foo Fighters', 'Everlong')).toBe('https://cdn-images.dzcdn.net/r.jpg');
+	});
 });
