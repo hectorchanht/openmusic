@@ -29,8 +29,17 @@
 	} from '$lib/services/home-layout';
 	import { settings } from '$lib/stores/settings.svelte';
 	import { deezerChart } from '$lib/services/deezer';
-	import { getCachedCover, getCachedArtistCover } from '$lib/services/cover-cache';
 	import { backfillCovers, backfillArtistCovers } from '$lib/services/cover-backfill';
+	import { lazyCover } from '$lib/actions/lazyCover';
+	// quick-260615-hep: read covers through the GLOBAL reactive signal so a cover landing anywhere
+	// (now-playing, lazyCover, backfill) repaints homepage tiles live; read uid-first for Track rows.
+	import {
+		coverVersion,
+		readCoverByUidOrName,
+		readCoverByName,
+		readArtistCover,
+		bumpCoverVersion
+	} from '$lib/stores/cover-version.svelte';
 	import { decodeShare } from '$lib/services/share';
 	import { player } from '$lib/stores/player.svelte';
 	import { library } from '$lib/stores/library.svelte';
@@ -146,7 +155,7 @@
 		// post-paint, capped + cached; same posture as the top-artists tier).
 		if (favArtistsShelf.length) {
 			void backfillArtistCovers(favArtistsShelf.map((a) => a.name), {
-				onResolved: () => coverVer++,
+				onResolved: () => bumpCoverVersion(),
 				max: favArtistsShelf.length
 			});
 		}
@@ -208,7 +217,7 @@
 			.map((n) => ({ name: n }));
 		if (favArtistsShelf.length) {
 			void backfillArtistCovers(favArtistsShelf.map((a) => a.name), {
-				onResolved: () => coverVer++,
+				onResolved: () => bumpCoverVersion(),
 				max: favArtistsShelf.length
 			});
 		}
@@ -236,8 +245,8 @@
 	//   4. null → gradient                                — never a broken/blocking image
 	// What changed in wv8 is the BACKFILL that fills tiers 3a/3b (Deezer-first → CN for tracks,
 	// Deezer for artists); the tileCover render order itself is UNCHANGED. The
-	// cached lookups read `coverVer` so Svelte 5 re-evaluates each tile's <img src> when a
-	// background resolve lands (coverVer is bumped in the backfill onResolved callback). Track
+	// cached lookups read the GLOBAL coverVersion() signal so Svelte 5 re-evaluates each tile's
+	// <img src> when a cover lands ANYWHERE (now-playing/lazyCover/backfill all bump it). Track
 	// rows pass {artist,title}; ARTIST tiles pass a dedicated `artistName` (NOT `artist`) so the
 	// artist-only cache key is read — never colliding with a {artist,title} track of the same
 	// name. Rendered as a lazy <img> over the gradient (NOT a CSS background) so a 404 degrades
@@ -249,14 +258,15 @@
 		title?: string;
 		artistName?: string;
 	}): string | null {
-		void coverVer; // reactive dependency: recompute when a backfilled cover lands
+		coverVersion(); // reactive dependency on the GLOBAL signal: recompute when a cover lands anywhere
 		if (item.image) return item.image;
 		// NOTE: the CAA-by-mbid tier was REMOVED here — coverartarchive.org image loads are
 		// blocked by the browser's Opaque Response Blocking (net::ERR_BLOCKED_BY_ORB), so a CAA
 		// URL always renders broken AND shadowed the working Deezer/CN backfilled cover for any
 		// item that carried an mbid (the runtime root cause of "most tiles are color blocks").
-		if (item.artist && item.title) return getCachedCover(item.artist, item.title);
-		if (item.artistName) return getCachedArtistCover(item.artistName);
+		// DiscoveryTrack carries NO uid → name-key only (the cross-surface bridge); reactive readers.
+		if (item.artist && item.title) return readCoverByName(item.artist, item.title);
+		if (item.artistName) return readArtistCover(item.artistName);
 		return null;
 	}
 	// Hide a cover <img> on load error so the gradient underneath shows (no broken-image icon).
@@ -264,9 +274,9 @@
 		(e.currentTarget as HTMLImageElement).style.display = 'none';
 	}
 
-	// FIX-A: bumped in backfillCovers' onResolved so tileCover() recomputes and resolved covers
-	// appear without a full refresh. A plain $state number is the cheapest reactive trigger.
-	let coverVer = $state(0);
+	// quick-260615-hep: the local coverVer was replaced by the GLOBAL coverVersion() signal (see the
+	// cover-version.svelte import) so a cover landing on ANY surface — now-playing, lazyCover, this
+	// page's backfill — repaints every mounted tile here, not just this page's own backfill resolves.
 
 	// quick-260607-0bb (supersedes wv8): gather every TRACK row across all shelves that still
 	// shows a gradient (no Last.fm image AND no mbid) — exactly the tiles nza's CAA path could
@@ -274,7 +284,7 @@
 	// always null). Then fire BOTH lazy, concurrency-capped backfills OFF the critical path (void,
 	// never awaited before paint): track covers (Deezer → iTunes → CN) and artist images
 	// (Deezer → iTunes). Both skip already-cached entries, so a warm visit issues ~0 requests. The
-	// same coverVer++ onResolved makes covers — track AND artist — appear progressively as resolves
+	// same bumpCoverVersion() onResolved makes covers — track AND artist — appear progressively as resolves
 	// land. Chain: tileCover render = Last.fm image → CAA(mbid) → cached(Deezer/iTunes/CN) →
 	// gradient; BACKFILL fill = Deezer → iTunes → CN (track) / Deezer → iTunes (artist).
 	//
@@ -296,7 +306,7 @@
 		for (const s of tagShelves) pushNeeding(s.tracks);
 		for (const s of countryShelves) pushNeeding(s.tracks);
 		if (rows.length) {
-			void backfillCovers(rows, { onResolved: () => coverVer++, max: rows.length });
+			void backfillCovers(rows, { onResolved: () => bumpCoverVersion(), max: rows.length });
 		}
 
 		// 0bb: artist tiles are structurally gradient (Last.fm artist art deprecated → null).
@@ -304,7 +314,7 @@
 		const artistNames = topArtists.filter((a) => !a.image).map((a) => a.name);
 		if (artistNames.length) {
 			void backfillArtistCovers(artistNames, {
-				onResolved: () => coverVer++,
+				onResolved: () => bumpCoverVersion(),
 				max: artistNames.length
 			});
 		}
@@ -579,7 +589,9 @@
 		menuOpen = true;
 	}
 	function libraryRowCover(track: Track): string | null {
-		return track.cover ?? getCachedCover(track.artist, track.title);
+		// quick-260615-hep: library rows carry a full Track (uid present) → read uid-first then name,
+		// through the global reactive signal so a cover resolved elsewhere repaints this row live.
+		return track.cover ?? readCoverByUidOrName(track.uid, track.artist, track.title);
 	}
 
 	onMount(() => {
@@ -788,6 +800,8 @@
 	{:else}
 		<div class="albumrow" use:dragScroll>
 			{#each items as item (item.artist + ' ' + item.title)}
+				<!-- DiscoveryTrack carries NO uid → resolve-on-view is via scheduleBackfill + the global
+				     reactive signal (NOT use:lazyCover, which needs a Track); no synthetic uid stub. -->
 				<button class="album" use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); tileMenu(item); }} onclick={() => playStub(item)}>
 					<span class="al-cover" style:background-image={fallbackCover(item.artist + item.title)}>
 						{#if tileCover(item)}<img class="al-cover-img" src={tileCover(item)} loading="lazy" alt="" onerror={hideOnError} />{/if}
@@ -815,9 +829,11 @@
 {/snippet}
 
 {#snippet librarySongRow(track: Track)}
-	{@const rowCover = track.cover ?? getCachedCover(track.artist, track.title)}
+	<!-- quick-260615-hep: uid-first reactive read; lazyCover resolves-on-view (writes both cache layers
+	     internally) and bumps the global signal so this reactive rowCover recomputes + the <img> paints. -->
+	{@const rowCover = track.cover ?? readCoverByUidOrName(track.uid, track.artist, track.title)}
 	<button class="album" use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); menuTrack = track; menuOpen = true; }} onclick={() => player.play(track, { fresh: true })}>
-		<span class="al-cover" style:background-image={rowCover ? `url(${rowCover})` : fallbackCover(track.uid)}>
+		<span class="al-cover" use:lazyCover={{ track, onResolved: () => bumpCoverVersion() }} style:background-image={rowCover ? `url(${rowCover})` : fallbackCover(track.uid)}>
 			{#if rowCover}<img class="al-cover-img" src={rowCover} loading="lazy" alt="" onerror={hideOnError} />{/if}
 		</span>
 		<span class="al-name" use:marquee><span class="marquee-inner">{names.dnTitle(track.title)}</span></span>
