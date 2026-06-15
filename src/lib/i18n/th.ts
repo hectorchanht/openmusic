@@ -194,6 +194,7 @@ const th: Dict = {
 	"nowplaying.related": "ที่เกี่ยวข้อง",
 	"nowplaying.reorderTrack": "เรียงลำดับแทร็กใหม่",
 	"nowplaying.noQueue": "ยังไม่มีคิว",
+	"nowplaying.skippedRetry": "ข้ามแล้ว — แตะเพื่อลองใหม่",
 	"nowplaying.translating": "กำลังแปล...",
 	"nowplaying.noLyrics": "ไม่มีเนื้อเพลงสำหรับเพลงนี้",
 	"nowplaying.loadingRelated": "กำลังโหลดที่เกี่ยวข้อง...",

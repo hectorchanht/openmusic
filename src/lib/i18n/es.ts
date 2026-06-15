@@ -194,6 +194,7 @@ const es: Dict = {
 	"nowplaying.related": "Relacionado",
 	"nowplaying.reorderTrack": "Reordenar pista",
 	"nowplaying.noQueue": "Aún no hay cola.",
+	"nowplaying.skippedRetry": "Omitida — toca para reintentar",
 	"nowplaying.translating": "traduciendo…",
 	"nowplaying.noLyrics": "No hay letras para esta pista.",
 	"nowplaying.loadingRelated": "Cargando relacionados...",

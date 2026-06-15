@@ -194,6 +194,7 @@ const ar: Dict = {
 	"nowplaying.related": "ذات صلة",
 	"nowplaying.reorderTrack": "إعادة ترتيب المسار",
 	"nowplaying.noQueue": "لا يوجد طابور بعد.",
+	"nowplaying.skippedRetry": "تم التخطي — اضغط لإعادة المحاولة",
 	"nowplaying.translating": "ترجمة…",
 	"nowplaying.noLyrics": "لا توجد كلمات لهذا المسار.",
 	"nowplaying.loadingRelated": "جارٍ التحميل ذات الصلة…",

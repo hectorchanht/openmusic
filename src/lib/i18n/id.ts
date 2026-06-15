@@ -194,6 +194,7 @@ const id: Dict = {
 	"nowplaying.related": "Terkait",
 	"nowplaying.reorderTrack": "Susun ulang trek",
 	"nowplaying.noQueue": "Belum ada antrian.",
+	"nowplaying.skippedRetry": "Dilewati — ketuk untuk coba lagi",
 	"nowplaying.translating": "menerjemahkan…",
 	"nowplaying.noLyrics": "Tidak ada lirik untuk lagu ini.",
 	"nowplaying.loadingRelated": "Memuat terkait…",

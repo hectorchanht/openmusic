@@ -194,6 +194,7 @@ const vi: Dict = {
 	"nowplaying.related": "Liên quan",
 	"nowplaying.reorderTrack": "Sắp xếp lại bản nhạc",
 	"nowplaying.noQueue": "Chưa có hàng đợi.",
+	"nowplaying.skippedRetry": "Đã bỏ qua — chạm để thử lại",
 	"nowplaying.translating": "dịch…",
 	"nowplaying.noLyrics": "Không có lời bài hát cho bài hát này.",
 	"nowplaying.loadingRelated": "Đang tải liên quan…",

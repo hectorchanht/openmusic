@@ -194,6 +194,7 @@ const de: Dict = {
 	"nowplaying.related": "Verwandte",
 	"nowplaying.reorderTrack": "Titel neu anordnen",
 	"nowplaying.noQueue": "Noch keine Warteschlange.",
+	"nowplaying.skippedRetry": "Übersprungen — zum Wiederholen tippen",
 	"nowplaying.translating": "übersetzen…",
 	"nowplaying.noLyrics": "Für diesen Titel gibt es keinen Liedtext.",
 	"nowplaying.loadingRelated": "Ähnliches wird geladen…",

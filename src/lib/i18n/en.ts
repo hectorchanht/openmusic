@@ -233,6 +233,7 @@ const en = {
 	'nowplaying.related': 'Related',
 	'nowplaying.reorderTrack': 'Reorder track',
 	'nowplaying.noQueue': 'No queue yet.',
+	'nowplaying.skippedRetry': 'Skipped — tap to retry',
 	'nowplaying.translating': 'translating…',
 	'nowplaying.noLyrics': 'No lyrics for this track.',
 	'nowplaying.loadingRelated': 'Loading related…',

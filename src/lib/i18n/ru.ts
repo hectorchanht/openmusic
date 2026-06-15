@@ -194,6 +194,7 @@ const ru: Dict = {
 	"nowplaying.related": "Похожие",
 	"nowplaying.reorderTrack": "Изменить порядок треков",
 	"nowplaying.noQueue": "Очереди пока нет.",
+	"nowplaying.skippedRetry": "Пропущено — нажмите, чтобы повторить",
 	"nowplaying.translating": "перевод…",
 	"nowplaying.noLyrics": "Текста для этого трека нет.",
 	"nowplaying.loadingRelated": "Загрузка связанных…",

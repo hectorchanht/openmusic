@@ -212,6 +212,7 @@ const zhHans: Dict = {
 	'nowplaying.related': '相关',
 	'nowplaying.reorderTrack': '重新排序歌曲',
 	'nowplaying.noQueue': '暂无待播歌曲。',
+	'nowplaying.skippedRetry': '已跳过 — 点击重试',
 	'nowplaying.translating': '翻译中…',
 	'nowplaying.noLyrics': '这首歌没有歌词。',
 	'nowplaying.loadingRelated': '加载相关歌曲中…',

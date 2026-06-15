@@ -194,6 +194,7 @@ const hi: Dict = {
 	"nowplaying.related": "संबंधित",
 	"nowplaying.reorderTrack": "ट्रैक पुनः व्यवस्थित करें",
 	"nowplaying.noQueue": "अभी तक कोई कतार नहीं है.",
+	"nowplaying.skippedRetry": "छोड़ा गया — पुनः प्रयास के लिए टैप करें",
 	"nowplaying.translating": "अनुवाद कर रहा हूँ...",
 	"nowplaying.noLyrics": "इस ट्रैक के लिए कोई गीत नहीं.",
 	"nowplaying.loadingRelated": "संबंधित लोड हो रहा है...",

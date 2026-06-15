@@ -10,6 +10,7 @@
 // when unsupported. The throw-prone artwork/position/state logic lives in the pure,
 // node-tested media-session.ts; this store is a thin caller of those helpers.
 import { browser } from '$app/environment';
+import { SvelteSet } from 'svelte/reactivity';
 import { Capacitor } from '@capacitor/core';
 import { ensureTrackDetails } from '$lib/services/catalog';
 import { tryFallback } from '$lib/services/fallback';
@@ -604,10 +605,13 @@ class Player {
 	 * known-dead up-next entry before it becomes current. Plain Set (NOT $state) mirroring the
 	 * removedUids discipline; session-scoped, never persisted, cleared on recoverFromStop/clearQueue.
 	 * A probe TIMEOUT does NOT add here (transient buffer stalls must not permanently sideline a
-	 * track) — only definitive no-url / error signals do. (A future phase can swap this to a reactive
-	 * set to render a ✗ "skipped" marker in the Up-Next list.)
+	 * track) — only definitive no-url / error signals do. quick-260615-i9u: this IS now a reactive
+	 * SvelteSet (drop-in for Set — same add/delete/has/clear/size surface) so the Up-Next list
+	 * repaints the instant a uid is marked/unmarked, rendering a dimmed ✗ "skipped" marker. The
+	 * field stays PRIVATE; the component reads it only through the reactive isUnplayable() accessor
+	 * and mutates it only via retryUnplayable() (no arbitrary external mutation).
 	 */
-	private unplayableUids = new Set<string>();
+	private unplayableUids = new SvelteSet<string>();
 
 	/**
 	 * Lazily-built native Media Session adapter (D-04/D-05). Created once on first native
@@ -1777,6 +1781,29 @@ class Player {
 			if (!this.unplayableUids.has(this.queue[k].uid)) return k;
 		}
 		return -1;
+	}
+
+	/**
+	 * quick-260615-i9u (Feature A): reactive read of the probe-confirmed-dead set. The Up-Next list
+	 * calls this per-row inside its template — because unplayableUids is a SvelteSet, the read is
+	 * tracked, so the row repaints (dims + shows ✗) the instant prefetchNext marks the uid dead and
+	 * un-dims when retry/recover clears it. PUBLIC, read-only accessor (the set itself stays private).
+	 */
+	isUnplayable(uid: string): boolean {
+		return this.unplayableUids.has(uid);
+	}
+
+	/**
+	 * quick-260615-i9u (Feature A): tap-to-retry a ✗ skipped Up-Next row. Clears the uid from the
+	 * dead set (un-dims the row reactively) and replays THAT EXACT track via the NON-fresh path
+	 * (no fresh regenerate — a retry of the same song, history/queue untouched). A transient failure
+	 * can recover this way; a definitively-dead track simply re-skips via the resilience chain
+	 * (prefetchNext re-marks it / next() routes past it) — acceptable per CONTEXT A (T-i9u-01: the
+	 * re-skip is bounded by the existing PREFETCH/FAILURE caps, not a new unbounded loop).
+	 */
+	retryUnplayable(track: Track): void {
+		this.unplayableUids.delete(track.uid);
+		void this.play(track, { fresh: false });
 	}
 
 	next() {

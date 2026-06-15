@@ -194,6 +194,7 @@ const tr: Dict = {
 	"nowplaying.related": "İlgili",
 	"nowplaying.reorderTrack": "Parçayı yeniden sırala",
 	"nowplaying.noQueue": "Henüz sıra yok.",
+	"nowplaying.skippedRetry": "Atlandı — yeniden denemek için dokunun",
 	"nowplaying.translating": "tercüme ediliyor…",
 	"nowplaying.noLyrics": "Bu parça için şarkı sözü bulunamadı.",
 	"nowplaying.loadingRelated": "İlgili yükleniyor…",

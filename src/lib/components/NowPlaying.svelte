@@ -1091,12 +1091,18 @@
 				{#if player.queue.length}
 					<ul class="list" bind:this={queueListEl}>
 						{#each player.queue as track, i (track.uid)}
+							{@const skipped = player.isUnplayable(track.uid)}
 							<li
 								class:lifted={i === dragFrom}
 								class:over={i === dragOver && i !== dragFrom}
 								style:transform={i === dragFrom && rowDragY ? `translateY(${rowDragY}px)` : undefined}
 							>
-								<button class="row q-row" class:playing={track.uid === player.current?.uid} use:swipeRemove={{ onremove: () => player.removeFromQueue(track.uid), enabled: track.uid !== player.current?.uid }} use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openMenu(track); }} onclick={() => player.play(track)}>
+								<!-- quick-260615-i9u (Feature A): a probe-confirmed-dead Up-Next entry stays IN the queue
+								     (nextPlayableIndex just routes past it) — render it dimmed with a leading ✗ and branch
+								     the row tap to retry-that-exact-track instead of a fresh play. swipeRemove/longpress/grip
+								     are deliberately untouched so reorder + swipe-remove keep working on a skipped row. -->
+								<button class="row q-row" class:playing={track.uid === player.current?.uid} class:skipped use:swipeRemove={{ onremove: () => player.removeFromQueue(track.uid), enabled: track.uid !== player.current?.uid }} use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openMenu(track); }} onclick={() => skipped ? player.retryUnplayable(track) : player.play(track)} title={skipped ? t('nowplaying.skippedRetry') : undefined}>
+									{#if skipped}<span class="r-skip" aria-hidden="true">✗</span>{/if}
 									<span class="r-title">{names.dnTitle(track.title)}</span>
 									<span class="r-artist">{names.dnArtist(track.artist)}</span>
 								</button>
@@ -1360,6 +1366,10 @@
 	.list li.over .q-row { box-shadow: inset 0 2px 0 var(--color-primary); }
 	.r-title { font-size: calc(14px * var(--fs-title, 1)); font-weight: 600; color: var(--color-text);}
 	.r-artist { font-size: calc(12px * var(--fs-artist, 1)); color: var(--color-text-muted); }
+	/* quick-260615-i9u (Feature A): a probe-confirmed-dead Up-Next row, dimmed + leading ✗. Tapping
+	   it retries that exact track. Reuses existing design tokens (no new hardcoded colors). */
+	.q-row.skipped { opacity: 0.45; }
+	.r-skip { font-size: calc(12px * var(--fs-artist, 1)); font-weight: 600; color: var(--color-text-muted); margin-right: 6px; }
 	/* Related-tab loading skeleton: placeholder rows mirror the real .row shape
 	   (stacked title + artist bars) so the list keeps its size/shape while fetching.
 	   Bars use the global `.sk` shimmer; reduce-motion handled there. */

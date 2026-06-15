@@ -212,6 +212,7 @@ const zhHant: Dict = {
 	'nowplaying.related': '相關',
 	'nowplaying.reorderTrack': '重新排序歌曲',
 	'nowplaying.noQueue': '尚無待播歌曲。',
+	'nowplaying.skippedRetry': '已略過 — 點擊重試',
 	'nowplaying.translating': '翻譯中…',
 	'nowplaying.noLyrics': '這首歌沒有歌詞。',
 	'nowplaying.loadingRelated': '載入相關歌曲中…',
