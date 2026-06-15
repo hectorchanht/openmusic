@@ -358,8 +358,10 @@
 	const effectiveCover = $derived(swappedCover ?? player.resolvedCover ?? null);
 
 	// ---- Cover carousel (NP-01 / D-01) ----
-	// A rigid 3-cell strip [prev | current | next] laid out edge-to-edge (no gutter): each cell is
-	// `position:absolute` at left -100% / 0 / +100% so the strip's RESTING transform is translateX(0)
+	// A rigid 3-cell strip [prev | current | next] with a `--cover-gap` gutter between covers: each
+	// cell is `position:absolute` at left calc(-100% - gap) / 0 / calc(100% + gap) so the strip's
+	// RESTING transform is translateX(0) (the current cell fills the cover; the gutter only shows
+	// mid-drag as the neighbor slides in, and never displaces the resting current cell)
 	// (the current cell fills the cover). use:coverSwipe is attached to the strip element itself, so
 	// the action's own live `translateX(dx)` IS the 1:1 lockstep follow (UI-SPEC §1) — no separate
 	// transform to drive and no `ondrag` needed here (the action writes node.style.transform itself).
@@ -889,8 +891,10 @@
 		bind:this={coverEl}
 		aria-label={t('nowplaying.albumArt')}
 	>
-		<!-- Rigid 3-cell carousel strip: prev | current | next, edge-to-edge (no gutter), 1:1 lockstep
-		     (no parallax/scale/fade — UI-SPEC §1). overflow:hidden clips the off-strip neighbor. The
+		<!-- Rigid 3-cell carousel strip: prev | current | next, with a --cover-gap gutter between
+		     covers, 1:1 lockstep (no parallax/scale/fade — UI-SPEC §1). The gutter is revealed as the
+		     neighbor slides in mid-drag; the committed neighbor still lands centered (gutter never
+		     displaces the resting current cell). overflow:hidden clips the off-strip neighbor. The
 		     strip's resting transform is translateX(0) (current cell at left:0); coverSwipe translates
 		     it live, then settles the committed neighbor to center over 0.32s before the store swap
 		     re-derives the cells. No accent/color/glow on arm (UI-SPEC §3 — positional feedback only). -->
@@ -1142,15 +1146,19 @@
 	   The commit-settle uses the cover-reflow personality (0.32s, same universal curve); coverSwipe
 	   overrides this to `none` while dragging (1:1 finger-follow), then restores it on release so the
 	   committed neighbor / spring-back animates. will-change keeps the slide smooth. */
-	.cover-strip { position: absolute; inset: 0; will-change: transform; transition: transform 0.32s cubic-bezier(.22,1,.36,1); }
-	/* Each cell is exactly one cover wide, laid edge-to-edge with NO gutter: prev at the left edge
-	   (-100%), current filling the box (0), next at the right edge (+100%). 1:1 lockstep — no
+	.cover-strip { position: absolute; inset: 0; --cover-gap: 14px; will-change: transform; transition: transform 0.32s cubic-bezier(.22,1,.36,1); }
+	/* Each cell is exactly one cover wide. A `--cover-gap` gutter sits BETWEEN covers: prev is pushed
+	   one cover width + one gutter to the left (calc(-100% - var(--cover-gap))), current fills the box
+	   (0), next is pushed one cover width + one gutter to the right (calc(100% + var(--cover-gap))).
+	   The gutter is purely positional — it is revealed as the strip slides under the 1:1 finger-follow
+	   (coverSwipe writes raw translateX(dx)); it never displaces the resting current cell at left:0, so
+	   a committed neighbor still lands perfectly centered after the store re-derives the cells. No
 	   parallax, no scale, no fade, no accent (UI-SPEC §1/§3). An absent neighbor → background-image
 	   'none' (a blank edge during the rubber-band, which never commits anyway). */
 	.cover-cell { position: absolute; top: 0; width: 100%; height: 100%; background-size: cover; background-position: center; }
-	.cover-cell.prev { left: -100%; }
+	.cover-cell.prev { left: calc(-100% - var(--cover-gap)); }
 	.cover-cell.cur { left: 0; }
-	.cover-cell.next { left: 100%; }
+	.cover-cell.next { left: calc(100% + var(--cover-gap)); }
 	/* Reduced motion (OS pref OR the app's :root[data-reduce-motion] setting, app.css): the carousel
 	   commit-settle / spring-back collapses to instant — the track still changes, only the slide
 	   animation is removed (UI-SPEC §1 reduced-motion row). The action restores `transition` inline on
