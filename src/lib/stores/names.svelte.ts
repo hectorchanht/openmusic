@@ -20,6 +20,22 @@
 //       identical) is rendered as the original but NOT cached, so it stays eligible for a
 //       later retry. To prevent a re-request storm for names that are genuinely unchanged in
 //       the target script, each (lang,name) is retried at most MAX_ATTEMPTS times per session.
+//
+// ATTEMPT-LATCH REGRESSION (WR / debug:translation-regression): the first version of (b)
+// incremented the attempt counter at QUEUE time and cleared the pending Set at flush START,
+// before the ~200-800ms API round-trip resolved. The artist page renders the name + a track
+// list, THEN async Last.fm enrichment lands the bio (a second render wave), THEN the
+// post-flush rev++ fires a third — so a re-render during the in-flight window re-queued the
+// name (cache miss) and burned a SECOND attempt before the first response arrived. attempts>=2
+// then latched the name to its ORIGINAL for the session even though the API would translate it
+// → artist names + bio "stopped translating". Fixed here by:
+//   - an in-flight guard (`inflight`) so a name awaiting a response is NOT re-queued and burns
+//     no further attempts during the round-trip;
+//   - counting an attempt ONLY in the flush handler and ONLY for a name that came back NOT
+//     genuinely translated AND still equal to its input (a genuine-identity / echo), never at
+//     queue time and never on a transport failure (which leaves the name retryable);
+//   - resetting a name's attempt count when it is genuinely translated, so an earlier
+//     accidental miss can't accumulate toward the cap across views.
 import { browser } from '$app/environment';
 import { settings, effectiveTarget } from '$lib/stores/settings.svelte';
 import { translateLinesEx } from '$lib/services/translate';
@@ -29,16 +45,21 @@ import { shouldTranslate } from '$lib/i18n/detect';
 const STORE_VER = 'v2';
 const keyFor = (lang: string) => `openmusic:name-tr:${STORE_VER}:${lang}`;
 // Bounded per-session retries for a name that keeps coming back untranslated (genuinely
-// identical in the target script), so we don't loop forever re-requesting it.
+// identical in the target script), so we don't loop forever re-requesting it. An attempt is
+// only counted on a genuine-identity result (see flush handler), never at queue time.
 const MAX_ATTEMPTS = 2;
 
 class Names {
 	rev = $state(0); // bump → callers re-evaluate resolvers
 	private cache = new Map<string, Map<string, string>>(); // lang → (original → translated)
 	private pending = new Map<string, Set<string>>();
+	// lang → names currently awaiting an API response (between flush start and resolution).
+	// resolve() skips re-queueing these so an in-flight re-render can't burn another attempt.
+	private inflight = new Map<string, Set<string>>();
 	private timers = new Map<string, ReturnType<typeof setTimeout>>();
 	private hydrated = new Set<string>();
-	// lang → (name → attempt count). Caps re-requests for genuinely-unchanged names.
+	// lang → (name → attempt count). Caps re-requests for genuinely-unchanged names. Only
+	// incremented in the flush handler for a name that came back genuinely-identical.
 	private attempts = new Map<string, Map<string, number>>();
 	private purged = false;
 
@@ -100,6 +121,15 @@ class Names {
 		return a;
 	}
 
+	private inflightSet(lang: string): Set<string> {
+		let s = this.inflight.get(lang);
+		if (!s) {
+			s = new Set();
+			this.inflight.set(lang, s);
+		}
+		return s;
+	}
+
 	private schedule(lang: string) {
 		if (this.timers.has(lang)) return;
 		this.timers.set(
@@ -110,24 +140,38 @@ class Names {
 				if (!set || !set.size) return;
 				const items = [...set];
 				this.pending.set(lang, new Set());
+				// Mark these as in flight so a re-render during the round-trip doesn't re-queue
+				// them (and doesn't burn an attempt). Cleared in finally.
+				const flying = this.inflightSet(lang);
+				for (const it of items) flying.add(it);
 				translateLinesEx(items, lang)
 					.then(({ out, flags }) => {
 						const m = this.langCache(lang);
+						const attempts = this.attemptCount(lang);
 						let changed = false;
 						items.forEach((orig, i) => {
-							// Persist ONLY genuinely-translated names. A fallback (echo / failure /
-							// genuinely-identical) is left uncached so a later view can retry — but the
-							// per-session attempt cap (below) stops an infinite loop for unchanged names.
 							if (flags[i] && out[i] !== undefined) {
+								// Genuinely translated → cache it and clear any accidental prior misses
+								// so an earlier in-flight blip can't accumulate toward the cap.
 								m.set(orig, out[i]);
+								attempts.delete(orig);
 								changed = true;
+							} else if ((out[i] ?? orig) === orig) {
+								// Came back NOT genuinely translated AND still equal to the input — a
+								// genuine identity (already in target) or an echo. Count ONE attempt;
+								// once at the cap, resolve() stops re-requesting (no storm). A transport
+								// failure goes through .catch and burns NO attempt (stays retryable).
+								attempts.set(orig, (attempts.get(orig) ?? 0) + 1);
 							}
 						});
 						if (changed) this.persist(lang);
 						this.rev++; // re-render even if nothing changed (resolvers re-read; uncached names retry)
 					})
 					.catch(() => {
-						/* leave originals; eligible for retry */
+						/* transport failure: leave originals, burn no attempt — eligible for retry */
+					})
+					.finally(() => {
+						for (const it of items) flying.delete(it);
 					});
 			}, 160)
 		);
@@ -137,8 +181,9 @@ class Names {
 	 * Core resolver: returns the translated text for `target` if available, else the
 	 * original immediately and queues a translation. Returns the original (no queue)
 	 * when shouldTranslate(text, target, whitelist) is false (off / whitelisted source /
-	 * already-in-target). Cache is keyed by target lang only. Uncached names are queued at
-	 * most MAX_ATTEMPTS times per session so a genuinely-unchanged name can't loop forever.
+	 * already-in-target). Cache is keyed by target lang only. A name already in flight is
+	 * NOT re-queued (so an in-flight re-render can't burn an attempt); a name that keeps
+	 * coming back genuinely-identical is queued at most MAX_ATTEMPTS times per session.
 	 */
 	private resolve(text: string, target: string, whitelist: readonly string[]): string {
 		void this.rev; // reactive dependency
@@ -147,6 +192,9 @@ class Names {
 		const m = this.langCache(target);
 		const hit = m.get(text);
 		if (hit !== undefined) return hit;
+		// Already awaiting a response — don't re-queue, don't touch attempts. The flush will
+		// bump rev and this resolver will re-run with a cache hit (or count the attempt then).
+		if (this.inflightSet(target).has(text)) return text;
 		const attempts = this.attemptCount(target);
 		if ((attempts.get(text) ?? 0) >= MAX_ATTEMPTS) return text; // give up retrying; show original
 		let set = this.pending.get(target);
@@ -156,7 +204,6 @@ class Names {
 		}
 		if (!set.has(text)) {
 			set.add(text);
-			attempts.set(text, (attempts.get(text) ?? 0) + 1);
 			this.schedule(target);
 		}
 		return text;
@@ -190,6 +237,7 @@ class Names {
 	clearCache(): void {
 		this.cache.clear();
 		this.pending.clear();
+		this.inflight.clear();
 		this.attempts.clear();
 		this.hydrated.clear();
 		for (const timer of this.timers.values()) clearTimeout(timer);
