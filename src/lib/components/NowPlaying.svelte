@@ -1101,7 +1101,7 @@
 								     (nextPlayableIndex just routes past it) — render it dimmed with a leading ✗ and branch
 								     the row tap to retry-that-exact-track instead of a fresh play. swipeRemove/longpress/grip
 								     are deliberately untouched so reorder + swipe-remove keep working on a skipped row. -->
-								<button class="row q-row" class:playing={track.uid === player.current?.uid} class:skipped use:swipeRemove={{ onremove: () => player.removeFromQueue(track.uid), enabled: track.uid !== player.current?.uid }} use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openMenu(track); }} onclick={() => skipped ? player.retryUnplayable(track) : player.play(track)} title={skipped ? t('nowplaying.skippedRetry') : undefined}>
+								<button class="row q-row" class:playing={track.uid === player.current?.uid} class:skipped use:swipeRemove={{ onremove: () => player.removeFromQueue(track.uid), enabled: track.uid !== player.current?.uid }} use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openMenu(track); }} onclick={(e) => { (e.currentTarget as HTMLElement)?.blur(); skipped ? player.retryUnplayable(track) : player.play(track); }} title={skipped ? t('nowplaying.skippedRetry') : undefined}>
 									{#if skipped}<span class="r-skip" aria-hidden="true">✗</span>{/if}
 									<span class="r-title">{names.dnTitle(track.title)}</span>
 									<span class="r-artist">{names.dnArtist(track.artist)}</span>
@@ -1349,7 +1349,15 @@
 	   the page behind the sheet. NO touch-action: none — the panel keeps its pan-y scroll (the
 	   browser owns vertical scrolling here). iOS <16 lacks overscroll-behavior support, so it is
 	   best-effort there; no JS scroll-lock workaround is added in this phase. */
-	.panel { flex: 1; overflow-y: auto; overscroll-behavior-y: contain; }
+	/* quick-260615-mnr: disable CSS scroll-anchoring. The Up-Next queue is a keyed {#each}
+	   on track.uid; every queue mutation (track advance moving the played song to history,
+	   removeFromQueue, retryUnplayable, reorder) adds/removes/reorders rows ABOVE the fold,
+	   changing height above the viewport. With the default `overflow-anchor: auto` the browser
+	   re-pinned scroll to an anchor node — the visually-distinct `.row.playing` row — yanking it
+	   back into view on every change so the user couldn't freely scroll the queue. The lyrics tab
+	   does its own explicit `container.scrollTo(...)` (it never relies on anchoring), and the
+	   related tab doesn't auto-scroll, so disabling anchoring here is safe for all three tabs. */
+	.panel { flex: 1; overflow-y: auto; overscroll-behavior-y: contain; overflow-anchor: none; }
 	.list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
 	.row { width: 100%; text-align: left; background: none; border: none; padding: 8px 6px; border-radius: 8px; cursor: pointer; display: flex; flex-direction: column; }
 	/* MENU-03 / D-12: hover-capable devices only — touch otherwise latches this :hover
