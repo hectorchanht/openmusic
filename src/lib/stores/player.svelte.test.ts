@@ -187,6 +187,7 @@ function makeFakeAudio() {
 		paused: true,
 		currentTime: 0,
 		duration: NaN,
+		readyState: 0,
 		src: '',
 		setAttribute() {},
 		addEventListener(type: string, cb: () => void) {
@@ -234,6 +235,10 @@ beforeEach(() => {
 		// .clear()/.add()/.has()/.delete() surface the tests touch.
 		unplayableUids: { clear(): void; add(u: string): void; has(u: string): boolean; delete(u: string): boolean };
 		pendingHistory: Track[] | null;
+		// debug-playback-skip-and-autoplay: the strike map (Bug 1) + the autoplay-retry arm (Bug 2)
+		// are session/per-src internal state that must not leak across tests.
+		unplayableStrikes: Map<string, number>;
+		autoplayRetryArmed: boolean;
 	};
 	internals.prefetchingUid = null;
 	internals.prefetchController?.abort();
@@ -248,6 +253,8 @@ beforeEach(() => {
 	internals.growPromise = null;
 	internals.growing = false;
 	internals.pendingHistory = null; // quick-260615-i9u: one-shot history carrier must not leak across tests
+	internals.unplayableStrikes.clear(); // Bug 1: strike budget is session-scoped — reset between tests
+	internals.autoplayRetryArmed = false; // Bug 2: autoplay-retry arm is per-src — reset between tests
 });
 
 afterEach(() => {
@@ -607,7 +614,11 @@ describe('player.prefetchNext — pre-resolve next track for gapless-ish play', 
 		expect(player.queue[2].detailsLoaded).toBe(true);
 	});
 
-	it('an immediate-next that resolves WITHOUT an audioUrl is marked unplayable and the walk advances', async () => {
+	it('an immediate-next that resolves WITHOUT an audioUrl is STRIKED (not yet dead on the first failure) and the walk advances', async () => {
+		// Over-aggressive-skip fix: a SINGLE definitive failure (no-url resolve) is now treated as
+		// transient — it records a strike but is NOT promoted into unplayableUids until STRIKE_CAP. The
+		// walk still advances past it this round (the "next song is always playable" guarantee holds),
+		// but a once-failing track is not falsely sidelined for the whole session.
 		const cur = mk('netease', '0', 'A', 'Now');
 		const bad = stub('qq', '1', 'B', 'NoUrl'); // immediate-next: resolves but unplayable
 		const good = stub('kuwo', '2', 'C', 'Good'); // later candidate — the walk MUST reach it
@@ -623,13 +634,13 @@ describe('player.prefetchNext — pre-resolve next track for gapless-ish play', 
 		await prefetch();
 		await flush();
 
-		// Both resolved: bad first (definitively dead → marked), then the walk advanced to good.
+		// Both resolved: bad first (struck, not yet dead), then the walk advanced to good.
 		expect(mockEnsure).toHaveBeenCalledWith(bad, expect.any(AbortSignal));
 		expect(mockEnsure).toHaveBeenCalledWith(good, expect.any(AbortSignal));
-		// bad is confirmed unplayable → recorded so next() routes past it; its slot is untouched.
+		// bad took ONE strike but is NOT yet in unplayableUids — retryable on demand (the fix).
 		expect(player.queue[1]).toBe(bad);
 		expect(player.queue[1].audioUrl).toBeNull();
-		expect(unplayable().has(bad.uid)).toBe(true);
+		expect(unplayable().has(bad.uid)).toBe(false);
 		// The later playable candidate landed.
 		expect(player.queue[2].audioUrl).toBe('https://cdn/good.mp3');
 		expect(player.queue[2].detailsLoaded).toBe(true);
@@ -2576,5 +2587,203 @@ describe('player reactive unplayableUids — isUnplayable + retryUnplayable (qui
 		player.retryUnplayable(t);
 		expect(player.isUnplayable(t.uid)).toBe(false);
 		expect(playSpy).toHaveBeenCalledWith(t, { fresh: false });
+	});
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// debug-playback-skip-and-autoplay (Bug 1): strike-counter before permanent mark.
+// prefetchNext no longer marks a uid PERMANENTLY dead on the FIRST definitive failure (no-url
+// resolve OR a hard probe `error`). Each definitive failure takes ONE strike; only at STRIKE_CAP
+// (=2) is the uid promoted into the reactive unplayableUids set. A first failure behaves like a
+// probe timeout (skip this walk, NOT marked dead, retry on demand) — killing the "skipped but plays
+// fine on re-click" false-permanent-skip. A real `playing` clears the strike.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('player.prefetchNext — strike counter before permanent unplayable mark (Bug 1)', () => {
+	const prefetch = () => (player as unknown as { prefetchNext(): Promise<void> })['prefetchNext']();
+	const strikes = () =>
+		(player as unknown as { unplayableStrikes: Map<string, number> }).unplayableStrikes;
+	const dead = () =>
+		(player as unknown as {
+			unplayableUids: { add(u: string): void; has(u: string): boolean; delete(u: string): boolean };
+		}).unplayableUids;
+
+	it('a SINGLE no-url resolve does NOT mark the track dead (strike 1 only)', async () => {
+		const cur = mk('netease', '0', 'A', 'Now');
+		const bad = stub('qq', '1', 'B', 'NoUrl');
+		player.queue = [cur, bad];
+		player.current = cur;
+		mockEnsure.mockImplementation(async (t: Track) =>
+			t.uid === bad.uid ? { ...bad, detailsLoaded: true, audioUrl: null } : t
+		);
+
+		await prefetch();
+		await flush();
+
+		// First definitive failure → struck once, NOT promoted to dead (retryable on demand).
+		expect(strikes().get(bad.uid)).toBe(1);
+		expect(dead().has(bad.uid)).toBe(false);
+	});
+
+	it('a SECOND no-url resolve promotes the track into unplayableUids (strike 2 → dead)', async () => {
+		const cur = mk('netease', '0', 'A', 'Now');
+		const bad = stub('qq', '1', 'B', 'NoUrl');
+		player.queue = [cur, bad];
+		player.current = cur;
+		mockEnsure.mockImplementation(async (t: Track) =>
+			t.uid === bad.uid ? { ...bad, detailsLoaded: true, audioUrl: null } : t
+		);
+
+		// First walk: one strike, still alive.
+		await prefetch();
+		await flush();
+		expect(dead().has(bad.uid)).toBe(false);
+
+		// Re-arm the in-flight guard so the second walk runs (mirror the per-src re-arm in play()).
+		(player as unknown as { prefetchingUid: string | null }).prefetchingUid = null;
+
+		// Second walk: second strike → promoted to dead AND recorded in the strike map (idempotent).
+		await prefetch();
+		await flush();
+		expect(strikes().get(bad.uid)).toBe(2);
+		expect(dead().has(bad.uid)).toBe(true);
+	});
+
+	it('a real `playing` event clears the current track strike (a recovered track resets clean)', () => {
+		const el = makeFakeAudio();
+		player.attach(el as unknown as HTMLAudioElement);
+		const t = mk('netease', '0', 'A', 'Now');
+		player.current = t;
+		// Seed a sub-cap strike (as a prior transient prefetch failure would).
+		strikes().set(t.uid, 1);
+		expect(strikes().get(t.uid)).toBe(1);
+
+		// The track actually produces audio — the success path drops its strike.
+		el.fire('playing');
+		expect(strikes().has(t.uid)).toBe(false);
+	});
+
+	it('clearQueue and retryUnplayable both clear the strike budget (lockstep with unplayableUids)', () => {
+		const t = mk('netease', '0', 'A', 'Now');
+		// clearQueue clears all strikes.
+		player.current = t;
+		strikes().set(t.uid, 1);
+		player.clearQueue();
+		expect(strikes().has(t.uid)).toBe(false);
+
+		// retryUnplayable clears the per-uid strike too.
+		strikes().set(t.uid, 1);
+		dead().add(t.uid);
+		player.retryUnplayable(t);
+		expect(strikes().has(t.uid)).toBe(false);
+		expect(dead().has(t.uid)).toBe(false);
+	});
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// debug-playback-skip-and-autoplay (Bug 2): auto-advance autoplay-rejection → single re-play, and
+// the stall watchdog must NOT cross-source-swap a loaded-but-autoplay-paused track. On a non-fresh
+// advance, the async ensureTrackDetails resolve discards user activation, so audio.play() rejects on
+// mobile and the next playable track sits current-but-paused. The fix arms a SINGLE event-driven
+// re-play (gen-guarded, only when readyState >= HAVE_CURRENT_DATA), and gates runFallback in the
+// watchdog behind a genuine no-bytes stall.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('player resilience — autoplay-rejection retry + readyState-gated watchdog (Bug 2)', () => {
+	const HAVE_CURRENT_DATA = 2;
+	const armStall = () => (player as unknown as { armStall(): void })['armStall']();
+	const setPlayed = (v: boolean) => {
+		(player as unknown as { hasPlayedSinceSrc: boolean })['hasPlayedSinceSrc'] = v;
+	};
+	const setArmed = (v: boolean) => {
+		(player as unknown as { autoplayRetryArmed: boolean })['autoplayRetryArmed'] = v;
+	};
+	let runFallbackSpy: ReturnType<typeof vi.spyOn>;
+
+	beforeEach(() => {
+		vi.useFakeTimers();
+		player.current = mk('netease', 's', 'A', 'AutoplayPaused');
+		player.queue = [player.current];
+		setPlayed(false);
+		setArmed(false);
+		runFallbackSpy = vi
+			.spyOn(player as unknown as { runFallback(f: Track): Promise<void> }, 'runFallback')
+			.mockResolvedValue(undefined);
+	});
+
+	afterEach(() => {
+		(player as unknown as { disarmStall(): void })['disarmStall']();
+		vi.useRealTimers();
+	});
+
+	it('watchdog: a loaded-but-paused element (readyState >= 2, autoplay-rejected) re-plays ONCE and does NOT runFallback', () => {
+		const el = makeFakeAudio();
+		el.paused = true;
+		(el as unknown as { readyState: number }).readyState = HAVE_CURRENT_DATA; // bytes present
+		el.src = 'https://cdn/loaded.mp3';
+		player.attach(el as unknown as HTMLAudioElement);
+		setArmed(true); // a non-fresh advance recorded the autoplay rejection
+
+		armStall();
+		vi.advanceTimersByTime(Player_STALL_TIMEOUT_MS);
+
+		// Loaded + paused = autoplay-policy pause → single re-play, NO cross-source swap.
+		expect(el.play).toHaveBeenCalledTimes(1);
+		expect(runFallbackSpy).not.toHaveBeenCalled();
+	});
+
+	it('watchdog: a genuine no-bytes stall (readyState < 2) STILL routes into runFallback', () => {
+		const el = makeFakeAudio();
+		el.paused = true;
+		(el as unknown as { readyState: number }).readyState = 0; // HAVE_NOTHING — no bytes
+		el.src = 'https://cdn/dead.mp3';
+		player.attach(el as unknown as HTMLAudioElement);
+		setArmed(true);
+
+		armStall();
+		vi.advanceTimersByTime(Player_STALL_TIMEOUT_MS);
+
+		// No bytes → a real load stall → cross-source failover (the original D-13 behavior).
+		expect(runFallbackSpy).toHaveBeenCalledTimes(1);
+		expect(el.play).not.toHaveBeenCalled();
+	});
+
+	it('canplay seam: an armed retry fires a single play() once bytes arrive (gen-guarded, one-shot)', () => {
+		const el = makeFakeAudio();
+		el.paused = true;
+		(el as unknown as { readyState: number }).readyState = 0; // not loaded at play()-time
+		el.src = 'https://cdn/loading.mp3';
+		player.attach(el as unknown as HTMLAudioElement);
+		setArmed(true);
+
+		// Bytes not present yet — canplay before readyState is a no-op (still waiting).
+		el.fire('canplay');
+		expect(el.play).not.toHaveBeenCalled();
+
+		// Bytes arrive: canplay re-attempts the single play() exactly once.
+		(el as unknown as { readyState: number }).readyState = HAVE_CURRENT_DATA;
+		el.fire('canplay');
+		expect(el.play).toHaveBeenCalledTimes(1);
+
+		// One-shot: a later canplay does NOT re-fire (arm was consumed).
+		el.fire('canplay');
+		expect(el.play).toHaveBeenCalledTimes(1);
+	});
+
+	it('a `pause` event clears the autoplay-retry arm so the watchdog never fights a genuine pause', () => {
+		const el = makeFakeAudio();
+		el.paused = true;
+		(el as unknown as { readyState: number }).readyState = HAVE_CURRENT_DATA;
+		el.src = 'https://cdn/loaded.mp3';
+		player.attach(el as unknown as HTMLAudioElement);
+		setArmed(true);
+
+		// User pauses (or the swallowed rejection surfaced a pause) → arm cleared.
+		el.fire('pause');
+
+		armStall();
+		vi.advanceTimersByTime(Player_STALL_TIMEOUT_MS);
+		// Arm gone → maybeRetryAutoplay no-ops; loaded+paused still blocks runFallback (right remedy:
+		// leave paused, user/Media-Session play resumes). No re-play, no swap.
+		expect(el.play).not.toHaveBeenCalled();
+		expect(runFallbackSpy).not.toHaveBeenCalled();
 	});
 });

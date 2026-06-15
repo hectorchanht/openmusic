@@ -552,6 +552,23 @@ class Player {
 	 *  mid-track buffer-dry (D-14). Plain field — internal watchdog state, not reactive. */
 	private hasPlayedSinceSrc = false;
 
+	/** HTMLMediaElement.HAVE_CURRENT_DATA (readyState >= 2) — bytes for the current position are
+	 *  present. Used to distinguish "loaded but paused (autoplay-policy rejected)" from a genuine
+	 *  no-bytes load stall (the autoplay-retry / watchdog-gating fix). Inlined as a private static so
+	 *  the store does not depend on the live element's enum at module scope. */
+	private static HAVE_CURRENT_DATA = 2;
+	/**
+	 * Autoplay-rejection retry guard (next-song-current-but-paused fix). On a NON-fresh advance
+	 * (auto-advance / next / failover) the user-activation from the long-ago tap is gone after the async
+	 * ensureTrackDetails resolve, so on mobile `audio.play()` REJECTS — the rejection is swallowed, no
+	 * `playing` fires, and the next (playable) track sits CURRENT-BUT-PAUSED. This records, per loaded
+	 * src, that play() did not start so a single event-driven re-`play()` may be attempted ONCE when
+	 * bytes are present (readyState >= HAVE_CURRENT_DATA → it's an autoplay-policy pause, not a load
+	 * stall). Generation-guarded by playGen and one-shot (cleared after the retry / on a new src / on a
+	 * real `playing`). Plain field — internal, never reactive.
+	 */
+	private autoplayRetryArmed = false;
+
 	/** Sleep-timer fade-out interval (TIMER-01, D-01). On platforms that honour volume writes
 	 *  expiry ramps the volume down over ~10s then pauses; cleared on finish/abort. Plain field —
 	 *  internal fade lifecycle, never reactive. Mirrors the stallTimer clearInterval idiom. */
@@ -629,6 +646,52 @@ class Player {
 	private unplayableUids = new SvelteSet<string>();
 
 	/**
+	 * PLAY-RESILIENCE strike counter (over-aggressive-skip fix). The prefetchNext probe walk no longer
+	 * marks a uid PERMANENTLY dead on the FIRST definitive failure (no-url resolve OR a hard probe
+	 * `error`) — because both the per-source URL probe and the offscreen probePlayable element are
+	 * SEPARATE fetches from the real <audio> byte fetch, a single transient timeout / edge 403 on a
+	 * signed URL / CORS blip was being misclassified as permanent death. Instead each definitive
+	 * failure records a strike here; only at STRIKE_CAP confirmed definitive failures is the uid
+	 * promoted into the reactive `unplayableUids` set (and the ✗ row drawn). A FIRST definitive failure
+	 * behaves like a probe TIMEOUT does — skip this advance walk, do NOT mark dead, retry on demand.
+	 *
+	 * Plain Map (NOT $state / SvelteSet) — it is internal loop-guard budget, never read reactively in
+	 * markup (only `unplayableUids` needs reactivity for the dimmed ✗ row), mirroring the
+	 * manualUids/removedUids side-state discipline. Cleared in lockstep with `unplayableUids`
+	 * (clearQueue / recoverFromStop / per-uid on retryUnplayable) plus dropped for the current track on
+	 * a real `playing` event so a recovered track resets cleanly. Session-scoped, never persisted.
+	 */
+	private unplayableStrikes = new Map<string, number>();
+	/** Confirmed-definitive-failure strikes required before a uid is promoted into unplayableUids
+	 *  (the over-aggressive-skip fix). Private static for tunability. */
+	private static STRIKE_CAP = 2;
+
+	/**
+	 * Record one CONFIRMED definitive failure (no-url resolve OR hard probe error) for a uid and report
+	 * whether it has now reached STRIKE_CAP — i.e. should be treated as dead this walk. Below the cap a
+	 * single failure is transient-equivalent (skipped this round, retryable on demand). At the cap it is
+	 * promoted into the reactive `unplayableUids` set (idempotent) so next()/the walk route past it and
+	 * the ✗ row draws. Returns true once the uid is dead (so the caller can mirror the no-mark/skip vs
+	 * mark-and-route-past branch).
+	 */
+	private strikeUnplayable(uid: string): boolean {
+		const n = (this.unplayableStrikes.get(uid) ?? 0) + 1;
+		this.unplayableStrikes.set(uid, n);
+		if (n >= Player.STRIKE_CAP) {
+			this.unplayableUids.add(uid); // promote — reactive ✗ row + nextPlayableIndex routes past it
+			return true;
+		}
+		return false;
+	}
+
+	/** Drop a uid's accumulated strikes (a recovery point: a real `playing`, an explicit retry, or a
+	 *  full session reset). Mirrors the unplayableUids clear discipline so a recovered track starts
+	 *  clean and a transient blip never accumulates toward a false permanent skip. */
+	private clearStrike(uid: string): void {
+		this.unplayableStrikes.delete(uid);
+	}
+
+	/**
 	 * Lazily-built native Media Session adapter (D-04/D-05). Created once on first native
 	 * `ms` access so the `@jofr/capacitor-media-session` import has no effect on the web
 	 * bundle's runtime path. Null on web (the accessor returns navigator.mediaSession there).
@@ -697,8 +760,49 @@ class Player {
 			if (this.playGen !== gen) return; // a newer play() superseded this arm
 			if (this.hasPlayedSinceSrc) return; // audio actually started — not a load stall (D-14)
 			if (!this.current) return;
+			// Next-song-current-but-paused fix: distinguish an autoplay-policy pause from a genuine
+			// no-bytes load stall. If the element has buffered to HAVE_CURRENT_DATA but is paused, the
+			// track is perfectly playable — it was just rejected by autoplay policy. A cross-source swap
+			// is the WRONG remedy (it re-resolves another source and re-rejects). Try the single
+			// autoplay re-play instead and do NOT runFallback. Only a TRUE no-bytes stall
+			// (readyState < HAVE_CURRENT_DATA) routes into the cross-source failover.
+			const el = this.audio;
+			if (el && el.paused && el.readyState >= Player.HAVE_CURRENT_DATA) {
+				this.maybeRetryAutoplay(gen);
+				return;
+			}
 			void this.runFallback(this.current);
 		}, Player.STALL_TIMEOUT_MS);
+	}
+
+	/**
+	 * Single event-driven retry of `audio.play()` for the autoplay-policy pause (next-song-current-
+	 * but-paused fix). Called from the deferred (canplay / readyState-ready) path AFTER a non-fresh
+	 * advance recorded that play() did not start (autoplayRetryArmed). Re-invokes play() ONLY when the
+	 * element is still paused with bytes present (readyState >= HAVE_CURRENT_DATA) — i.e. it is an
+	 * autoplay-policy pause, NOT a load stall and NOT a genuine user pause (a real user pause clears
+	 * the arm via the `pause` listener). Generation-guarded by the playGen snapshot so a newer play()
+	 * supersedes it, and one-shot (disarms itself) so it never fights a deliberate pause. Deliberately
+	 * NOT driven from the `pause` listener (per specialist) — only from the canplay/watchdog seam.
+	 */
+	private maybeRetryAutoplay(gen: number) {
+		if (!this.autoplayRetryArmed) return;
+		if (this.playGen !== gen) return; // a newer play() superseded this arm
+		const el = this.audio;
+		if (!el) return;
+		// Only retry an autoplay-policy pause: paused, bytes present, a src still set. A no-bytes
+		// stall (readyState < HAVE_CURRENT_DATA) is left to the stall watchdog; an already-playing
+		// element needs no retry.
+		if (!el.paused) {
+			this.autoplayRetryArmed = false; // it started on its own — nothing to retry
+			return;
+		}
+		if (el.readyState < Player.HAVE_CURRENT_DATA) return; // not loaded yet — wait for canplay
+		if (!el.src) return;
+		this.autoplayRetryArmed = false; // one-shot — never fight a subsequent deliberate pause
+		void el.play().catch(() => {
+			/* still rejected (no activation) — leave paused; user/Media-Session play resumes it */
+		});
 	}
 
 	/** Disarm the stall watchdog (a real playing/timeupdate, an error, or end-of-track). */
@@ -857,6 +961,8 @@ class Player {
 			// D-13/D-14: mark the src as having played + disarm the initial-load stall watchdog.
 			this.hasPlayedSinceSrc = true;
 			this.disarmStall();
+			// Next-song-current-but-paused fix: real audio started — the autoplay-retry arm is moot.
+			this.autoplayRetryArmed = false;
 			// D-06 success reset: a real `playing` event is the natural counter reset — the track
 			// is actually producing audio, so the never-stop chain has recovered. Clear the
 			// consecutive-failure budget + the audio-error burst, and drop any sticky 'stopped'
@@ -864,6 +970,10 @@ class Player {
 			// playback resumes.
 			this.consecutiveFailures = 0;
 			this.errorBurst = 0;
+			// Over-aggressive-skip fix: this track actually produced audio — drop any accumulated
+			// unplayable strikes for it so an earlier transient prefetch/probe failure can't push it
+			// toward a false permanent skip later in the session.
+			if (this.current) this.clearStrike(this.current.uid);
 			// CR-03: real playback succeeded — end the fallback episode so the next failure for ANY
 			// song (incl. this one later) starts with a fresh attempted set.
 			this.fallbackEpisodeKey = null;
@@ -878,6 +988,19 @@ class Player {
 			// audio against an explicit pause. Mirrors the `ended` disarm. (Masked before CR-01 by
 			// the early `play`-event disarm; reachable now that disarm only happens on real audio.)
 			this.disarmStall();
+			// Next-song-current-but-paused fix: an observed `pause` (user OR the swallowed autoplay
+			// rejection itself) clears the autoplay-retry arm so we NEVER re-play() from inside the
+			// pause listener (per specialist — that would fight a genuine user pause). The retry is
+			// driven solely from the canplay/immediate seam set up in play(), gen-guarded.
+			this.autoplayRetryArmed = false;
+		});
+		el.addEventListener('canplay', () => {
+			// Next-song-current-but-paused fix: the canplay event is the readyState-ready signal — if a
+			// non-fresh advance armed an autoplay retry but bytes were not yet present when play() ran,
+			// re-attempt the single play() now that the element has buffered. maybeRetryAutoplay is
+			// gen-guarded + one-shot + only acts on a paused, bytes-present element, so this is a no-op
+			// in every other case (fresh play, already playing, user pause, no arm).
+			this.maybeRetryAutoplay(this.playGen);
 		});
 		el.addEventListener('timeupdate', () => {
 			// Sleep-timer minutes backstop (TIMER-01, Pattern 1): `timeupdate` fires ~4×/sec while
@@ -1176,6 +1299,7 @@ class Player {
 		this.queue = this.current ? [this.current] : [];
 		this.manualUids.clear();
 		this.unplayableUids.clear(); // PLAY-RESILIENCE: a user queue reset clears the dead-track set too
+		this.unplayableStrikes.clear(); // …and the sub-cap strike budget in lockstep (over-aggressive-skip fix)
 		this.persist();
 	}
 
@@ -1307,7 +1431,10 @@ class Player {
 				}
 
 				if (!resolved.audioUrl) {
-					this.unplayableUids.add(cand.uid); // resolved but no url → confirmed unplayable
+					// Definitive failure (resolved but no url) — but a SINGLE one is treated as transient
+					// (the resolve is a separate fetch from the real <audio> fetch; signed-URL/edge blips
+					// recover on a fresh resolve at click-time). Strike it; only promote to dead at the cap.
+					this.strikeUnplayable(cand.uid);
 					continue;
 				}
 
@@ -1315,8 +1442,12 @@ class Player {
 				const probe = await this.probePlayable(resolved.audioUrl);
 				if (sig.aborted || this.current?.uid !== seedUid) return; // current changed — discard
 				if (!probe.ok) {
-					if (probe.errored) this.unplayableUids.add(cand.uid); // hard error → route past it
-					continue; // timeout (no mark) or error: walk to the next candidate
+					// A hard probe `error` is definitive — but the probe element is a SEPARATE fetch from
+					// the live <audio> byte fetch, so a single error can be a transient signed-URL refresh /
+					// codec quirk / network blip. Strike it (promoted to dead only at the cap); a probe
+					// TIMEOUT stays unmarked entirely. Either way the walk advances this round.
+					if (probe.errored) this.strikeUnplayable(cand.uid);
+					continue; // timeout (no mark) or sub-cap error: walk to the next candidate
 				}
 
 				// LANDED a probe-verified playable track. Locate the slot FRESHLY by uid (never a
@@ -1606,15 +1737,25 @@ class Player {
 					// RELAX-PREFETCH: a NEW src — re-arm the one-shot delayed prefetch gate so the
 					// timeupdate listener fires prefetchNext ~5s into THIS track's playback.
 					this.prefetchArmedForSrc = false;
+					// Next-song-current-but-paused fix: a NEW src clears any prior autoplay-retry arm.
+					this.autoplayRetryArmed = false;
 					this.audio.src = this.cachedBlobUrl;
 					this.armStall();
 					// D-06: a rejected play() is intentionally surfaced to the stall/failure path,
 					// not swallowed — if play() rejects (iOS gesture loss) and no `play` event
 					// follows, the armed watchdog above routes into runFallback. .catch only prevents
 					// an unhandled rejection.
+					let rejected = false;
 					await this.audio.play().catch(() => {
-						/* rejection owned by the stall watchdog — see comment above */
+						rejected = true; // capture the autoplay rejection — see arm below
 					});
+					// Next-song-current-but-paused fix (offline-blob path): same autoplay-rejection retry
+					// as the network path — a non-fresh advance into a downloaded next track can still be
+					// autoplay-blocked on mobile. Arm the single gen-guarded re-play when bytes are present.
+					if (rejected && !opts?.fresh && this.audio.paused) {
+						this.autoplayRetryArmed = true;
+						this.maybeRetryAutoplay(myGen);
+					}
 					this.loading = false;
 					// PLAY-09 / D-15: keep up-next topped up + pre-resolve the next track even on the
 					// offline-blob path so the ended→next auto-advance into a downloaded queue still
@@ -1696,15 +1837,27 @@ class Player {
 				// RELAX-PREFETCH: a NEW src — re-arm the one-shot delayed prefetch gate so the
 				// timeupdate listener fires prefetchNext ~5s into THIS track's playback.
 				this.prefetchArmedForSrc = false;
+				// Next-song-current-but-paused fix: a NEW src clears any prior autoplay-retry arm.
+				this.autoplayRetryArmed = false;
 				this.audio.src = src;
 				this.armStall();
 				// D-06: a rejected play() is intentionally surfaced to the stall/failure path, not
 				// swallowed — if play() rejects (iOS gesture loss after the async resolve) and no
 				// `play` event follows, the armed watchdog above routes into runFallback. The .catch
 				// only prevents an unhandled rejection; it is NOT a silent no-op.
+				let rejected = false;
 				await this.audio.play().catch(() => {
-					/* rejection owned by the stall watchdog — see comment above */
+					rejected = true; // capture the autoplay rejection — see arm below
 				});
+				// Next-song-current-but-paused fix: on a NON-fresh advance (auto-advance/next/failover —
+				// no fresh user gesture survives the async resolve), a rejected play() with bytes present
+				// is an autoplay-policy pause, not a load stall. Arm a single event-driven re-play
+				// (canplay seam / readyState gate, gen-guarded) so the next playable track does not sit
+				// paused. A FRESH play already has user activation, so it is never armed here.
+				if (rejected && !opts?.fresh && this.audio.paused) {
+					this.autoplayRetryArmed = true;
+					this.maybeRetryAutoplay(myGen); // bytes may already be present — try immediately
+				}
 			}
 			// COVER-01 / D-09: the playing track still has NO art (sync read missed AND the resolve
 			// did not carry a cover). Fire the Plan-02 single-item tier chain off the audio critical
@@ -1890,6 +2043,7 @@ class Player {
 	 */
 	retryUnplayable(track: Track): void {
 		this.unplayableUids.delete(track.uid);
+		this.clearStrike(track.uid); // over-aggressive-skip fix: a manual retry resets the strike budget too
 		void this.play(track, { fresh: false });
 	}
 
@@ -2114,6 +2268,7 @@ class Player {
 		// PLAY-RESILIENCE: a manual recovery re-arms everything — drop the probe-confirmed dead set so
 		// previously-sidelined tracks get a fresh chance on the way out of the stopped state.
 		this.unplayableUids.clear();
+		this.unplayableStrikes.clear(); // over-aggressive-skip fix: a full recovery resets the strike budget too
 		if (this.notice?.kind === 'stopped') this.notice = null;
 		this.next();
 	}
