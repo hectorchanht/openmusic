@@ -8,8 +8,10 @@
     //     in the fullshrink layout so the cover/title/artist/play row stays visible above the
     //     open subnav sheet.
     import { Play, Pause, Loader, Moon } from "@lucide/svelte";
+    import { fade } from "svelte/transition";
     import { player, fmtTime } from "$lib/stores/player.svelte";
     import { names } from "$lib/stores/names.svelte";
+    import { settings } from "$lib/stores/settings.svelte";
     import { sleepTimer } from "$lib/stores/sleepTimer.svelte";
     import { coverSwipe } from "$lib/actions/coverSwipe";
     import { t, tMaybeKey } from "$lib/i18n";
@@ -26,6 +28,28 @@
 
     const np = $derived(player.current ?? player.pendingTrack);
     const resolving = $derived(!player.current && !!player.pendingTrack);
+
+    // NOWBAR-XFADE: on track change the {#key np?.uid} block remounts the cover + title + artist so
+    // an in:/out:fade crossfades the outgoing content out while the incoming fades in (mirrors the
+    // NowPlaying meta crossfade). This is a Svelte JS transition, so the global app.css
+    // `:root[data-reduce-motion] * { transition:none!important }` rule does NOT stop it — it must be
+    // guarded explicitly. settings.reduceMotion is the app flag (wired to :root[data-reduce-motion]);
+    // OR the OS prefers-reduced-motion query so OS-only users also get the instant swap. Duration 0
+    // → instant remount, no animated fade. The existing @media .np-open { transition:none } rule
+    // stays as-is — it governs the coverSwipe slide, not this content fade.
+    const osReduceMotion =
+        typeof window !== "undefined" && window.matchMedia
+            ? window.matchMedia("(prefers-reduced-motion: reduce)").matches
+            : false;
+    const xfadeMs = $derived(
+        settings.reduceMotion || osReduceMotion ? 0 : 200,
+    );
+    // Track-identity key for the crossfade remount. player.current is a full Track (has uid);
+    // player.pendingTrack is a {artist,title,cover} stub with no uid — fall back to artist|title so
+    // an optimistic stub also keys distinctly and crossfades when the real track resolves.
+    const npKey = $derived(
+        player.current?.uid ?? `${np?.artist ?? ""}|${np?.title ?? ""}`,
+    );
 
     // NP-05 boundaries (D-02): rubber-band a prev swipe on the first track, but always allow a
     // next swipe while a current track exists. player.next() owns queue growth, so an end-of-queue
@@ -83,22 +107,36 @@
                  it is set synchronously on play() from track/cache and reactively updated when the
                  async tier chain lands, so a no-cover-source track shows resolved art here once the
                  chain settles. While still resolving an optimistic stub (current null, pendingTrack
-                 set), fall back to the tapped np.cover, then to the seeded gradient (D-12). -->
-            <span
-                class="np-art"
-                style:background-image={(player.resolvedCover ?? np?.cover)
-                    ? `url(${player.resolvedCover ?? np?.cover})`
-                    : fallbackCover()}
-            ></span>
-            <span class="np-meta">
-                <span class="np-title">{names.dnTitle(np?.title ?? "")}</span>
-                <span class="np-artist">
-                    {names.dnArtist(np?.artist ?? "")}
-                    {#if player.error}· <span class="err"
-                            >{tMaybeKey(player.error)}</span
-                        >{/if}
+                 set), fall back to the tapped np.cover, then to the seeded gradient (D-12).
+                 NOWBAR-XFADE: .np-art + .np-meta are wrapped in {#key npKey} so a track change
+                 remounts them and the in:/out:fade crossfades cover + text together. They stay
+                 DIRECT flex children of .np-open (no wrapper element) so the 10px gap + ellipsis
+                 layout is byte-unchanged. coverSwipe is on the un-keyed .np-open button, so the
+                 gesture surface is never remounted mid-drag (the slide is the button transform; the
+                 crossfade is the inner content swap on the post-commit store change). -->
+            {#key npKey}
+                <span
+                    class="np-art"
+                    in:fade={{ duration: xfadeMs }}
+                    out:fade={{ duration: xfadeMs }}
+                    style:background-image={(player.resolvedCover ?? np?.cover)
+                        ? `url(${player.resolvedCover ?? np?.cover})`
+                        : fallbackCover()}
+                ></span>
+                <span
+                    class="np-meta"
+                    in:fade={{ duration: xfadeMs }}
+                    out:fade={{ duration: xfadeMs }}
+                >
+                    <span class="np-title">{names.dnTitle(np?.title ?? "")}</span>
+                    <span class="np-artist">
+                        {names.dnArtist(np?.artist ?? "")}
+                        {#if player.error}· <span class="err"
+                                >{tMaybeKey(player.error)}</span
+                            >{/if}
+                    </span>
                 </span>
-            </span>
+            {/key}
         </button>
         {#if sleepTimer.active}
             <!-- Active sleep-timer indicator: tappable, opens the global sheet (D-08). On the
