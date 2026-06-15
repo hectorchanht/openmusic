@@ -600,7 +600,7 @@
 
 <style>
 	.head h1 { font-size: calc(1.4rem * var(--fs-title, 1)); margin: 16px 0 12px; }
-	.bar { display: flex; gap: 8px; margin-bottom: 14px; }
+	.bar { display: flex; gap: 8px; }
 	.bar input {
 		flex: 1; min-width: 0; background: var(--color-surface-2); border: 1px solid var(--color-border);
 		color: var(--color-text); border-radius: 999px; padding: 12px 14px; font-size: 15px; outline: none;
@@ -699,7 +699,7 @@
 	.skel .art { background: rgba(255, 255, 255, 0.11); }
 	.skel .meta { gap: 7px; }
 	.skel .bar { display: block; height: 11px; border-radius: 5px; background: rgba(255, 255, 255, 0.11); }
-	.skel .bar-title { width: 62%; }
+	.skel .bar-title { width: 62%; height: 9px;}
 	.skel .bar-artist { width: 40%; height: 9px; }
 	.skel .art, .skel .bar {
 		position: relative; overflow: hidden;
