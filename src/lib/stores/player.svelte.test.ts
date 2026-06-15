@@ -230,10 +230,12 @@ beforeEach(() => {
 		preloadedCoverUrl: string | null;
 		growPromise: Promise<void> | null;
 		growing: boolean;
+		unplayableUids: Set<string>;
 	};
 	internals.prefetchingUid = null;
 	internals.prefetchController?.abort();
 	internals.prefetchController = null;
+	internals.unplayableUids.clear(); // PLAY-RESILIENCE: session-scoped dead-track set leaks across tests
 	internals.preloadedAudio = null;
 	internals.preloadedAudioUid = null;
 	internals.preloadedAudioUrl = null;
@@ -565,14 +567,18 @@ describe('player.prefetchNext — pre-resolve next track for gapless-ish play', 
 		expect(assets.images[0].src).toBe('https://img/prime.jpg');
 	});
 
-	// RELAX-PREFETCH: SINGLE-SONG lookahead — prefetch resolves ONLY the immediate-next. A reject
-	// or a no-audioUrl immediate-next is abandoned for THIS invocation (the next play() resolves it
-	// on-demand); it NEVER advances to a later candidate. This keeps proxy resolves low-rate so
-	// endless playback never reads as a bot burst.
-	it('a REJECTING immediate-next is abandoned this invocation — does NOT advance to a later candidate', async () => {
+	// PLAY-RESILIENCE: bounded FORWARD-RESOLVE-AND-PROBE walk (restored from the pre-76b3e6f design).
+	// A reject on the immediate-next is TRANSIENT — the walk skips it (without marking it dead) and
+	// advances to the next candidate so a single-source hiccup never leaves the queue with a dead
+	// next-up. A no-audioUrl resolve is a DEFINITIVE failure — the candidate is marked unplayable so
+	// next() routes past it. Either way the walk lands the first probe-verified playable track.
+	const unplayable = () =>
+		(player as unknown as { unplayableUids: Set<string> }).unplayableUids;
+
+	it('a REJECTING immediate-next is skipped (not marked dead) and the walk advances to a later candidate', async () => {
 		const cur = mk('netease', '0', 'A', 'Now');
 		const bad = stub('qq', '1', 'B', 'Bad'); // immediate-next: resolve rejects (transient proxy failure)
-		const good = stub('kuwo', '2', 'C', 'Good'); // a LATER candidate — must NOT be reached
+		const good = stub('kuwo', '2', 'C', 'Good'); // later candidate — the walk MUST reach it
 		player.queue = [cur, bad, good];
 		player.current = cur;
 
@@ -585,21 +591,22 @@ describe('player.prefetchNext — pre-resolve next track for gapless-ish play', 
 		await prefetch();
 		await flush();
 
-		// ONLY the immediate-next was attempted; the later candidate was never resolved.
-		expect(mockEnsure).toHaveBeenCalledTimes(1);
+		// The walk advanced PAST the rejecting immediate-next to the next candidate.
 		expect(mockEnsure).toHaveBeenCalledWith(bad, expect.any(AbortSignal));
-		expect(mockEnsure).not.toHaveBeenCalledWith(good, expect.any(AbortSignal));
-		// Neither slot written back — bad rejected, good was never touched.
+		expect(mockEnsure).toHaveBeenCalledWith(good, expect.any(AbortSignal));
+		// A reject is transient — bad is NOT marked dead (retried on demand) and is left untouched.
 		expect(player.queue[1]).toBe(bad);
 		expect(player.queue[1].audioUrl).toBeNull();
-		expect(player.queue[2]).toBe(good);
-		expect(player.queue[2].audioUrl).toBeNull();
+		expect(unplayable().has(bad.uid)).toBe(false);
+		// The later playable candidate landed (pre-resolved + written back into its slot).
+		expect(player.queue[2].audioUrl).toBe('https://cdn/good.mp3');
+		expect(player.queue[2].detailsLoaded).toBe(true);
 	});
 
-	it('an immediate-next that resolves WITHOUT an audioUrl is abandoned — does NOT advance', async () => {
+	it('an immediate-next that resolves WITHOUT an audioUrl is marked unplayable and the walk advances', async () => {
 		const cur = mk('netease', '0', 'A', 'Now');
 		const bad = stub('qq', '1', 'B', 'NoUrl'); // immediate-next: resolves but unplayable
-		const good = stub('kuwo', '2', 'C', 'Good'); // later candidate — must NOT be reached
+		const good = stub('kuwo', '2', 'C', 'Good'); // later candidate — the walk MUST reach it
 		player.queue = [cur, bad, good];
 		player.current = cur;
 
@@ -612,15 +619,16 @@ describe('player.prefetchNext — pre-resolve next track for gapless-ish play', 
 		await prefetch();
 		await flush();
 
-		// Only the immediate-next resolved; good (index 2) was never reached.
-		expect(mockEnsure).toHaveBeenCalledTimes(1);
+		// Both resolved: bad first (definitively dead → marked), then the walk advanced to good.
 		expect(mockEnsure).toHaveBeenCalledWith(bad, expect.any(AbortSignal));
-		expect(mockEnsure).not.toHaveBeenCalledWith(good, expect.any(AbortSignal));
-		// Neither slot written back — bad unplayable (never persisted), good untouched.
+		expect(mockEnsure).toHaveBeenCalledWith(good, expect.any(AbortSignal));
+		// bad is confirmed unplayable → recorded so next() routes past it; its slot is untouched.
 		expect(player.queue[1]).toBe(bad);
 		expect(player.queue[1].audioUrl).toBeNull();
-		expect(player.queue[2]).toBe(good);
-		expect(player.queue[2].audioUrl).toBeNull();
+		expect(unplayable().has(bad.uid)).toBe(true);
+		// The later playable candidate landed.
+		expect(player.queue[2].audioUrl).toBe('https://cdn/good.mp3');
+		expect(player.queue[2].detailsLoaded).toBe(true);
 	});
 
 	it('writes nothing when current changes mid-resolve (single-candidate stale-guard)', async () => {
@@ -777,6 +785,119 @@ describe('player repeat — 2-state (PLAY-10)', () => {
 		// path is solely ensureAhead().then(...); with sources dry/empty it adds nothing and the
 		// post-grow advance finds no next track, so play() is never called with queue[0].
 		expect(playSpy).not.toHaveBeenCalledWith(a);
+	});
+});
+
+describe('player.next() — routes past probe-confirmed unplayable up-next (PLAY-RESILIENCE)', () => {
+	const markDead = (uid: string) =>
+		(player as unknown as { unplayableUids: Set<string> }).unplayableUids.add(uid);
+
+	it('skips a known-dead immediate-next and plays the next playable entry', async () => {
+		const cur = mk('netease', '0', 'A', 'Now');
+		const dead = mk('qq', '1', 'B', 'Dead'); // probe-confirmed unplayable
+		const good = mk('kuwo', '2', 'C', 'Good');
+		player.queue = [cur, dead, good];
+		player.current = cur;
+		markDead(dead.uid);
+
+		const playSpy = player.play as unknown as ReturnType<typeof vi.fn>;
+		playSpy.mockClear();
+
+		player.next();
+		await flush();
+
+		// next() routed PAST the dead immediate-next to the first playable entry — never stalled,
+		// never played the dead track.
+		expect(playSpy).toHaveBeenCalledWith(good);
+		expect(playSpy).not.toHaveBeenCalledWith(dead);
+	});
+
+	it('with the whole tail dead it grows via ensureAhead instead of silently no-oping', async () => {
+		const cur = mk('netease', '0', 'A', 'Now');
+		const dead = mk('qq', '1', 'B', 'Dead');
+		player.queue = [cur, dead];
+		player.current = cur;
+		markDead(dead.uid);
+
+		// buildDiversePicks is mocked to [] (sources dry) so the grow adds nothing; the point is that
+		// next() ATTEMPTS the grow rather than stalling on the dead tail. Spy on ensureAhead.
+		const ensureSpy = vi.spyOn(
+			player as unknown as { ensureAhead(): Promise<void> },
+			'ensureAhead'
+		);
+		const playSpy = player.play as unknown as ReturnType<typeof vi.fn>;
+		playSpy.mockClear();
+
+		player.next();
+		await flush();
+
+		expect(ensureSpy).toHaveBeenCalled(); // grew (or tried to) instead of no-oping on the dead tail
+		expect(playSpy).not.toHaveBeenCalledWith(dead); // never advanced onto the dead track
+	});
+});
+
+describe('player.probePlayable — silent ~1s muted test-play (PLAY-RESILIENCE)', () => {
+	const probe = (url: string) =>
+		(player as unknown as { probePlayable(u: string): Promise<{ ok: boolean; errored: boolean }> })[
+			'probePlayable'
+		](url);
+
+	// Event-capable Audio stub (the asset-warming mock has no addEventListener, so the probe degrades
+	// to ok there; here we drive canplay/error/timeout explicitly). addEventListener on the prototype
+	// satisfies probePlayable's capability gate.
+	class ProbeAudio {
+		muted = false;
+		preload = '';
+		src = '';
+		static last: ProbeAudio | null = null;
+		private listeners: Record<string, Array<() => void>> = {};
+		setAttribute() {}
+		removeAttribute() {}
+		load() {}
+		pause() {}
+		play() {
+			return Promise.resolve();
+		}
+		addEventListener(ev: string, cb: () => void) {
+			(this.listeners[ev] ||= []).push(cb);
+			ProbeAudio.last = this;
+		}
+		removeEventListener(ev: string, cb: () => void) {
+			this.listeners[ev] = (this.listeners[ev] ?? []).filter((f) => f !== cb);
+		}
+		fire(ev: string) {
+			(this.listeners[ev] ?? []).forEach((f) => f());
+		}
+	}
+
+	beforeEach(() => {
+		ProbeAudio.last = null;
+		vi.stubGlobal('Audio', ProbeAudio);
+	});
+
+	it('resolves {ok:true} on canplay', async () => {
+		const p = probe('https://cdn/ok.mp3');
+		ProbeAudio.last?.fire('canplay');
+		await expect(p).resolves.toEqual({ ok: true, errored: false });
+		expect(ProbeAudio.last?.muted).toBe(true); // muted test-play — never audible
+		expect(ProbeAudio.last?.src).toBe('https://cdn/ok.mp3');
+	});
+
+	it('resolves {ok:false, errored:true} on a hard error (caller marks the track dead)', async () => {
+		const p = probe('https://cdn/dead.mp3');
+		ProbeAudio.last?.fire('error');
+		await expect(p).resolves.toEqual({ ok: false, errored: true });
+	});
+
+	it('resolves {ok:false, errored:false} on timeout (transient — NOT marked dead)', async () => {
+		vi.useFakeTimers();
+		try {
+			const p = probe('https://cdn/slow.mp3');
+			vi.advanceTimersByTime(2000); // past PROBE_TIMEOUT_MS (1500)
+			await expect(p).resolves.toEqual({ ok: false, errored: false });
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 });
 

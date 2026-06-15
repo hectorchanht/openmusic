@@ -138,6 +138,17 @@ class Player {
 	 *  a user who skips before ~5s of playback never triggers a prefetch (the next track resolves
 	 *  on-demand inside the next play()). */
 	private static PREFETCH_PLAYBACK_DELAY_MS = 5000;
+	/** PLAY-RESILIENCE: how many queue entries the forward-resolve-and-probe walk in prefetchNext may
+	 *  advance through in a single invocation. The walk starts at the immediate-next and steps past
+	 *  any candidate that rejects, resolves without an audioUrl, or fails the silent probe, until it
+	 *  lands a probe-verified playable track. Bounded so endless playback never fires an unbounded
+	 *  resolve burst that reads as bot traffic. */
+	private static PREFETCH_MAX_CANDIDATES = 4;
+	/** PLAY-RESILIENCE: cap on the silent ~1s muted test-play probe. A candidate URL that has not
+	 *  signalled canplay within this window is treated as "not playable right now" (skipped this
+	 *  walk, but NOT marked permanently dead — a timeout can be a transient buffer stall). A hard
+	 *  `error` event marks it dead immediately regardless of the timer. */
+	private static PROBE_TIMEOUT_MS = 1500;
 	/** One-shot guard for the delayed prefetch trigger: set false the instant a NEW src is loaded
 	 *  (in play()), flipped true the first time the timeupdate gate fires prefetchNext for that src,
 	 *  so the prefetch arms AT MOST ONCE per loaded src. Plain field — internal, never reactive. */
@@ -580,6 +591,17 @@ class Player {
 	 * on a fresh user play and NEVER persisted (a reload starts a clean session).
 	 */
 	private removedUids = new Set<string>();
+	/**
+	 * PLAY-RESILIENCE: uids confirmed UNPLAYABLE this session by the prefetchNext probe walk — a track
+	 * that resolved without an audioUrl, or whose audio URL fired a hard `error` during the silent
+	 * probe. nextPlayableIndex() routes past these, so next()/track-end advance never lands on a
+	 * known-dead up-next entry before it becomes current. Plain Set (NOT $state) mirroring the
+	 * removedUids discipline; session-scoped, never persisted, cleared on recoverFromStop/clearQueue.
+	 * A probe TIMEOUT does NOT add here (transient buffer stalls must not permanently sideline a
+	 * track) — only definitive no-url / error signals do. (A future phase can swap this to a reactive
+	 * set to render a ✗ "skipped" marker in the Up-Next list.)
+	 */
+	private unplayableUids = new Set<string>();
 
 	/**
 	 * Lazily-built native Media Session adapter (D-04/D-05). Created once on first native
@@ -1104,6 +1126,7 @@ class Player {
 	clearQueue() {
 		this.queue = this.current ? [this.current] : [];
 		this.manualUids.clear();
+		this.unplayableUids.clear(); // PLAY-RESILIENCE: a user queue reset clears the dead-track set too
 		this.persist();
 	}
 
@@ -1167,19 +1190,23 @@ class Player {
 	 * Audio element and preloads the cover image, so the later main-audio src swap and cover repaint
 	 * can reuse browser cache when supported.
 	 *
-	 * RELAX-PREFETCH: this is a SINGLE-SONG lookahead. The ONLY candidate is queue[indexOf(current)+1]
-	 * — EXACTLY what next() selects (no play-mode branching). There is NO forward-resolve walk: if
-	 * that one immediate-next resolve REJECTS (transient proxy/rate-limit failure) or resolves WITHOUT
-	 * an audioUrl, it is simply abandoned for this invocation (the next play() resolves it on-demand)
-	 * — we do NOT advance to a later candidate. This keeps each prefetch to at most ONE source-specific
-	 * resolve so endless playback never fires a back-to-back resolve burst that reads as bot traffic.
+	 * PLAY-RESILIENCE: this is a bounded FORWARD-RESOLVE-AND-PROBE walk (restored from the pre-76b3e6f
+	 * design + a silent probe). Starting at queue[indexOf(current)+1], it advances through up to
+	 * PREFETCH_MAX_CANDIDATES entries, skipping any candidate that rejects, resolves WITHOUT an
+	 * audioUrl, or fails the silent ~1s muted test-play probe, until one PROBES playable. A candidate
+	 * that is definitively dead (no url / probe `error`) is recorded in unplayableUids so next()
+	 * routes past it instead of stalling on it; a transient reject / probe timeout is merely skipped
+	 * this round (retried on demand). This is what guarantees "the next song can always be played":
+	 * the entry next() will pick (nextPlayableIndex) is pre-resolved + probe-verified here, and known
+	 * -dead entries ahead of current are skipped. Still bounded so endless playback never fires an
+	 * unbounded resolve burst that reads as bot traffic.
 	 *
 	 * Guards:
 	 *  - silent no-op at end of queue / no current;
-	 *  - already-complete immediate-next short-circuit (warm assets, skip resolve);
-	 *  - in-flight dedupe keyed to the immediate-next uid (no duplicate concurrent resolve);
+	 *  - already-complete candidate short-circuit (warm assets, skip resolve — still probed);
+	 *  - in-flight dedupe keyed to the immediate-next uid (no duplicate concurrent walk);
 	 *  - single shared prefetchController — a superseding prefetch aborts the in-flight resolve;
-	 *  - seedUid stale-guard checked AFTER the await — a `current` change mid-resolve discards the
+	 *  - seedUid stale-guard re-checked after EVERY await — a `current` change mid-walk discards the
 	 *    work and never clobbers the queue;
 	 *  - write-back locates the slot FRESHLY by uid (never a closed-over index) and only writes a
 	 *    slot still AHEAD of the recomputed current.
@@ -1193,63 +1220,140 @@ class Player {
 		if (firstIndex >= this.queue.length) return; // at end of queue — silent no-op (growth is ensureAhead's job)
 
 		// Always warm the cover of the immediate-next (preserve today's cover-warm behavior).
-		const immediateNext = this.queue[firstIndex];
-		this.preloadNextCover(immediateNext);
+		this.preloadNextCover(this.queue[firstIndex]);
 
-		// Already complete? The readiness guard would no-op anyway — warm bytes/art and skip resolve.
-		if (
-			immediateNext.detailsLoaded &&
-			immediateNext.audioUrl &&
-			(immediateNext.lrc || !immediateNext.lrcUrl)
-		) {
-			this.prewarmNextAssets(immediateNext);
-			return;
-		}
-		// In-flight dedupe: already prefetching this exact immediate-next — no second resolve.
-		if (this.prefetchingUid === immediateNext.uid) return;
+		// In-flight dedupe: already walking from this exact immediate-next — no second walk.
+		const claimedUid = this.queue[firstIndex].uid;
+		if (this.prefetchingUid === claimedUid) return;
 
 		// Supersede any prior in-flight prefetch (different target) before claiming this one. The
-		// resolve is keyed to the immediate-next uid for dedupe + finally cleanup.
+		// walk is keyed to the immediate-next uid for dedupe + finally cleanup.
 		this.prefetchController?.abort();
-		const claimedUid = immediateNext.uid;
 		this.prefetchingUid = claimedUid;
 		this.prefetchController = new AbortController();
 		const sig = this.prefetchController.signal;
 		const seedUid = this.current?.uid; // stale-guard: current must not change away
 
 		try {
-			// SINGLE-SONG lookahead: resolve ONLY the immediate-next. A reject or a no-audioUrl
-			// result is abandoned for this invocation — we never advance to a further candidate.
-			let resolved: Track;
-			try {
-				resolved = await ensureTrackDetails(immediateNext, sig);
-			} catch {
-				return; // transient reject — abandon; next play() resolves on-demand. Do NOT walk on.
-			}
+			for (let step = 0; step < Player.PREFETCH_MAX_CANDIDATES; step++) {
+				const candIdx = firstIndex + step;
+				if (candIdx >= this.queue.length) break; // ran off the end — growth is ensureAhead's job
+				const cand = this.queue[candIdx];
+				if (this.unplayableUids.has(cand.uid)) continue; // already known-dead — walk past it
 
-			// Stale-guard AFTER the await: current changed away → discard the work.
-			if (sig.aborted || this.current?.uid !== seedUid) return;
-			// Resolved but unplayable (no audioUrl) → abandon this invocation (no forward walk).
-			if (!resolved.audioUrl) return;
+				// Resolve (or short-circuit an already-complete candidate) to obtain an audioUrl.
+				let resolved: Track;
+				if (cand.detailsLoaded && cand.audioUrl && (cand.lrc || !cand.lrcUrl)) {
+					resolved = cand;
+				} else {
+					try {
+						resolved = await ensureTrackDetails(cand, sig);
+					} catch {
+						// Transient reject (proxy/rate-limit) — do NOT mark dead; skip this candidate
+						// this round and walk on (next play() resolves it on demand if reached).
+						if (sig.aborted || this.current?.uid !== seedUid) return;
+						continue;
+					}
+					if (sig.aborted || this.current?.uid !== seedUid) return; // current changed — discard
+				}
 
-			// LANDED. Locate the slot FRESHLY by uid (never a closed-over index, Pitfall 1) and
-			// write back only if it is still AHEAD of the recomputed current — same in-place sync
-			// play() does, so the later play() no-ops.
-			const writeIdx = this.queue.findIndex((t) => t.uid === immediateNext.uid);
-			if (writeIdx >= 0 && writeIdx > this.indexOf(this.current)) {
-				this.queue[writeIdx] = resolved;
-				this.prewarmNextAssets(resolved);
+				if (!resolved.audioUrl) {
+					this.unplayableUids.add(cand.uid); // resolved but no url → confirmed unplayable
+					continue;
+				}
+
+				// Silent probe — the ~1s muted test-play that proactively detects un-playability.
+				const probe = await this.probePlayable(resolved.audioUrl);
+				if (sig.aborted || this.current?.uid !== seedUid) return; // current changed — discard
+				if (!probe.ok) {
+					if (probe.errored) this.unplayableUids.add(cand.uid); // hard error → route past it
+					continue; // timeout (no mark) or error: walk to the next candidate
+				}
+
+				// LANDED a probe-verified playable track. Locate the slot FRESHLY by uid (never a
+				// closed-over index, Pitfall 1) and write back only if still AHEAD of the recomputed
+				// current — same in-place sync play() does, so the later play() no-ops.
+				const writeIdx = this.queue.findIndex((t) => t.uid === cand.uid);
+				if (writeIdx >= 0 && writeIdx > this.indexOf(this.current)) {
+					this.queue[writeIdx] = resolved;
+					this.prewarmNextAssets(resolved);
+				}
+				return; // done — landed the next playable
 			}
 		} catch {
 			/* best-effort — abort or unexpected failure leaves the queue as-is */
 		} finally {
-			// Clear the in-flight guard only if it still points at the uid claimed in step 6 (a
-			// superseding prefetch may have already claimed a newer uid).
+			// Clear the in-flight guard only if it still points at the claimed uid (a superseding
+			// prefetch may have already claimed a newer uid).
 			if (this.prefetchingUid === claimedUid) {
 				this.prefetchingUid = null;
 				this.prefetchController = null;
 			}
 		}
+	}
+
+	/**
+	 * PLAY-RESILIENCE silent probe: verify a resolved audio URL is actually playable BEFORE the track
+	 * becomes current, by loading it into a muted offscreen Audio element and racing a canplay signal
+	 * against a hard `error` and a PROBE_TIMEOUT_MS deadline. This catches the dominant "URL resolves
+	 * fine but the byte fetch 403s / wrong codec" failure mode proactively instead of reactively
+	 * (after the live element errors mid-transition). Returns {ok} = true on canplay/loadeddata,
+	 * {ok:false, errored:true} on a hard error event (caller marks the track dead), {ok:false,
+	 * errored:false} on timeout (transient — caller skips this round but does NOT mark dead).
+	 * Degrades to {ok:true} in any environment without a real event-capable Audio (can't probe →
+	 * assume playable; the reactive never-stop chain still backstops). Best-effort, never throws.
+	 */
+	private probePlayable(url: string): Promise<{ ok: boolean; errored: boolean }> {
+		// Degrade gracefully where there is no event-capable Audio (SSR, or unit-test stubs whose
+		// prototype has no addEventListener): can't observe playability → assume playable rather than
+		// false-fail every prefetch, and construct NOTHING so we don't perturb asset-warming counts.
+		if (typeof Audio === 'undefined' || typeof Audio.prototype?.addEventListener !== 'function') {
+			return Promise.resolve({ ok: true, errored: false });
+		}
+		return new Promise((resolve) => {
+			let a: HTMLAudioElement;
+			try {
+				a = new Audio();
+			} catch {
+				resolve({ ok: true, errored: false });
+				return;
+			}
+			let done = false;
+			const onOk = () => settle({ ok: true, errored: false });
+			const onErr = () => settle({ ok: false, errored: true });
+			const timer = setTimeout(() => settle({ ok: false, errored: false }), Player.PROBE_TIMEOUT_MS);
+			function settle(result: { ok: boolean; errored: boolean }) {
+				if (done) return;
+				done = true;
+				clearTimeout(timer);
+				a.removeEventListener('canplay', onOk);
+				a.removeEventListener('loadeddata', onOk);
+				a.removeEventListener('error', onErr);
+				try {
+					a.pause();
+					a.removeAttribute('src');
+					a.load(); // release the byte fetch
+				} catch {
+					/* best-effort teardown */
+				}
+				resolve(result);
+			}
+			try {
+				a.muted = true;
+				a.preload = 'auto';
+				a.setAttribute('referrerpolicy', 'no-referrer');
+				a.addEventListener('canplay', onOk);
+				a.addEventListener('loadeddata', onOk);
+				a.addEventListener('error', onErr);
+				a.src = url;
+				a.load();
+				// play() nudges buffering on some engines; canplay/loadeddata is the real signal and
+				// the timeout backstops. A rejected play() (autoplay/codec) is ignored here.
+				void a.play?.()?.catch?.(() => {});
+			} catch {
+				settle({ ok: true, errored: false }); // can't even start a probe → don't penalize
+			}
+		});
 	}
 
 	private prewarmNextAssets(track: Track) {
@@ -1644,20 +1748,37 @@ class Player {
 		else this.audio.pause();
 	}
 
+	/**
+	 * PLAY-RESILIENCE: first queue index strictly after `from` whose track is NOT confirmed-unplayable
+	 * (prefetchNext's probe walk records dead uids in unplayableUids). Returns -1 if every entry ahead
+	 * is known-dead or there is nothing ahead. This is what next()/track-end advance use so playback
+	 * routes PAST a known-dead up-next entry instead of stalling on it.
+	 */
+	private nextPlayableIndex(from: number): number {
+		for (let k = from + 1; k < this.queue.length; k++) {
+			if (!this.unplayableUids.has(this.queue[k].uid)) return k;
+		}
+		return -1;
+	}
+
 	next() {
 		this.abortFade(); // D-05: a skip gesture during a fade aborts the sleep stop
 		const i = this.indexOf(this.current);
-		if (i >= 0 && i + 1 < this.queue.length) {
-			this.play(this.queue[i + 1]);
-		} else {
-			// End-of-queue (D-10/D-12): no repeat-all wrap any more — auto-generated up-next is the
-			// continuation. Grow the queue via ensureAhead, then advance to the freshly-added track.
-			// (16-02 adds the runtime break-to-off when a repeat-one track fails all sources.)
-			void this.ensureAhead().then(() => {
-				const j = this.indexOf(this.current);
-				if (j >= 0 && j + 1 < this.queue.length) this.play(this.queue[j + 1]);
-			});
+		const j = this.nextPlayableIndex(i);
+		if (j >= 0) {
+			this.play(this.queue[j]);
+			return;
 		}
+		// No playable track ahead in the current queue (end-of-queue, or the whole tail is known-dead).
+		// D-10/D-12: no repeat-all wrap — auto-generated up-next is the continuation. Grow via
+		// ensureAhead, then advance to the first PLAYABLE freshly-added track. Never silently no-op on
+		// a dead/exhausted tail (that was the stall): with sources truly dry ensureAhead adds nothing
+		// and there is genuinely nothing to play, so the reactive never-stop chain owns the stop.
+		void this.ensureAhead().then(() => {
+			const k = this.indexOf(this.current);
+			const n = this.nextPlayableIndex(k);
+			if (n >= 0) this.play(this.queue[n]);
+		});
 	}
 
 	prev() {
@@ -1851,6 +1972,9 @@ class Player {
 		// fresh set of sources to try.
 		this.fallbackEpisodeKey = null;
 		this.fallbackAttempted = new Set<SourceId>();
+		// PLAY-RESILIENCE: a manual recovery re-arms everything — drop the probe-confirmed dead set so
+		// previously-sidelined tracks get a fresh chance on the way out of the stopped state.
+		this.unplayableUids.clear();
 		if (this.notice?.kind === 'stopped') this.notice = null;
 		this.next();
 	}
