@@ -314,9 +314,9 @@
 	<div class="modal" transition:fly={{ y: 240, duration: 200 }} use:dragClose={{ onclose: () => (detailTrack = null) }} use:focusTrap>
 		<div class="menu-head row"><span>{t('menu.trackDetail')}</span><button class="x" aria-label={t('menu.close')} onclick={() => (detailTrack = null)}><X size={18} /></button></div>
 		<dl class="detail">
-			<dt>{t('menu.detailTitle')}</dt><dd>{detailTrack.title}</dd>
-			<dt>{t('menu.detailArtist')}</dt><dd>{detailTrack.artist}</dd>
-			<dt>{t('menu.detailAlbum')}</dt><dd>{detailTrack.album || '—'}</dd>
+			<dt>{t('menu.detailTitle')}</dt><dd>{names.dnTitle(detailTrack.title)}</dd>
+			<dt>{t('menu.detailArtist')}</dt><dd>{names.dnArtist(detailTrack.artist)}</dd>
+			<dt>{t('menu.detailAlbum')}</dt><dd>{detailTrack.album ? names.dnTitle(detailTrack.album) : '—'}</dd>
 			<dt>{t('menu.detailQuality')}</dt><dd>{detailTrack.qualityLabel || detailTrack.quality || t('menu.detailUnknown')}</dd>
 			<dt>{t('menu.detailSource')}</dt><dd>{detailTrack.source}</dd>
 			<dt>{t('menu.detailUid')}</dt><dd class="mono">{detailTrack.uid}</dd>
