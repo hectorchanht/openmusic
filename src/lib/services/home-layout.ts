@@ -189,7 +189,7 @@ export const SHELF_DEFAULT = 16;
  * (T-w87-01 — a poisoned `999` / `"x"` / negative can never produce a giant fan-out limit
  * or a NaN page size that breaks a discovery request):
  *   - non-number / NaN / undefined → SHELF_DEFAULT.
- *   - floors fractionals, then clamps to [6, 24].
+ *   - floors fractionals, then clamps to [SHELF_MIN, SHELF_MAX].
  */
 export function clampShelfSize(n: unknown): number {
 	if (typeof n !== 'number' || !Number.isFinite(n)) return SHELF_DEFAULT;

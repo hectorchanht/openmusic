@@ -174,12 +174,12 @@ describe('clampShelfSize', () => {
 
 	it('clamps a too-small value up to SHELF_MIN', () => {
 		expect(clampShelfSize(2)).toBe(SHELF_MIN);
-		expect(clampShelfSize(2)).toBe(6);
+		expect(clampShelfSize(2)).toBe(8);
 	});
 
 	it('passes a valid value through', () => {
 		expect(clampShelfSize(18)).toBe(18);
-		expect(clampShelfSize(SHELF_DEFAULT)).toBe(18);
+		expect(clampShelfSize(SHELF_DEFAULT)).toBe(16);
 	});
 
 	it('floors a fractional value', () => {
@@ -191,7 +191,7 @@ describe('clampShelfSize', () => {
 		expect(clampShelfSize('x')).toBe(SHELF_DEFAULT);
 		expect(clampShelfSize(undefined)).toBe(SHELF_DEFAULT);
 		expect(clampShelfSize(NaN)).toBe(SHELF_DEFAULT);
-		expect(clampShelfSize(SHELF_DEFAULT)).toBe(18);
+		expect(clampShelfSize(SHELF_DEFAULT)).toBe(16);
 	});
 
 	it('a negative value clamps up to SHELF_MIN (never a NaN / negative page size)', () => {

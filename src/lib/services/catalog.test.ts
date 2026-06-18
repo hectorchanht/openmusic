@@ -10,12 +10,18 @@ import { sleep } from '$lib/proxy/http';
 import { SOURCES } from '$lib/sources/registry';
 import { makeUid, type SourceId, type Track } from '$lib/sources/types';
 
-const ALL: Partial<Record<SourceId, boolean>> = {
-	netease: true,
-	qq: true,
-	kuwo: true,
-	joox: true
-};
+// These fan-out tests assert against exactly the original four sources
+// (netease/qq/kuwo/joox) — their settle set, interleave order, and stagger index
+// windows all assume that registry. `getEnabledAdapters` is OPT-OUT (a source absent
+// from prefs falls through to its enabledByDefault), so any later-added source would
+// silently join the fan-out and break these tests (extra settle entries; stagger
+// timers at indices the tests never advance → fake-timer hangs). Pin the fan-out to
+// the four by explicitly DISABLING every other registered source, derived from SOURCES
+// so future additions stay disabled here without another edit.
+const TESTED_SOURCES: SourceId[] = ['netease', 'qq', 'kuwo', 'joox'];
+const ALL: Partial<Record<SourceId, boolean>> = Object.fromEntries(
+	(Object.keys(SOURCES) as SourceId[]).map((id) => [id, TESTED_SOURCES.includes(id)])
+) as Partial<Record<SourceId, boolean>>;
 
 function mk(source: SourceId, songid: string, displayIndex = 1, extra: Partial<Track> = {}): Track {
 	return {
