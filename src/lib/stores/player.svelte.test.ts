@@ -2608,6 +2608,10 @@ describe('player.play — history-preserving fresh-play queue model (quick-26061
 		player.error = null;
 		player.loading = false;
 		pendingHistoryRef().pendingHistory = null;
+		// quick-260618-ink: clear manual provenance so a manual uid added by one test (view-slice
+		// manual case) does not leak into the exact-shape assertions of the others.
+		(player as unknown as { manualUids: Set<string> }).manualUids.clear();
+		(player as unknown as { pendingManual: Track[] | null }).pendingManual = null;
 		vi.stubGlobal('navigator', { onLine: true });
 		el = makeFakeAudio();
 		player.attach(el as unknown as HTMLAudioElement);
@@ -2648,6 +2652,50 @@ describe('player.play — history-preserving fresh-play queue model (quick-26061
 		expect(player.queue.map((t) => t.uid)).toEqual([h0.uid, h1.uid, pc.uid, X.uid]);
 		expect(player.current?.uid).toBe(X.uid);
 		expect(player.queue.findIndex((t) => t.uid === X.uid)).toBe(3);
+	});
+
+	// quick-260618-ink: the LIST is rendered as player.queue.slice(currentIndex); the store keeps
+	// history BEFORE current (for prev()/carousel) so this view-slice is what the user actually sees.
+	it('quick-260618-ink: store keeps history before current; view-slice from current yields [current, ...tail]', async () => {
+		const h0 = resolved('netease', 'H0');
+		const h1 = resolved('netease', 'H1');
+		const pc = resolved('netease', 'PC');
+		const X = resolved('qq', 'X');
+		seedPriorAndCapture([h0, h1, pc], pc, X);
+		mockEnsure.mockResolvedValue(X);
+
+		await player.play(X, { fresh: true });
+		await flush();
+
+		// STORE shape UNCHANGED: history (h0,h1) + prior current (pc) still BEFORE new current X —
+		// proves prev()/cover-carousel inputs survive (they read the unsliced queue).
+		expect(player.queue.map((t) => t.uid)).toEqual([h0.uid, h1.uid, pc.uid, X.uid]);
+
+		// VIEW-SLICE contract the component uses: slice from current index forward → [current, ...tail].
+		const ci = player.queue.findIndex((t) => t.uid === player.current?.uid);
+		expect(player.queue.slice(ci).map((t) => t.uid)).toEqual([X.uid]); // tail empty (mockSimilar→[])
+		expect(player.queue.slice(ci)[0].uid).toBe(player.current?.uid); // first visible row IS current
+	});
+
+	it('quick-260618-ink: a manual entry survives in the view-slice immediately after current', async () => {
+		const h0 = resolved('netease', 'H0');
+		const pc = resolved('netease', 'PC');
+		const M = resolved('kuwo', 'M'); // manually-queued track
+		const X = resolved('qq', 'X');
+		// Register M's manual provenance the way the 260618-fiz Fix 4 tests do, then seed it into the
+		// prior queue so setQueue's captureManual() carries it across the fresh-play wipe.
+		(player as unknown as { manualUids: Set<string> }).manualUids.add(M.uid);
+		seedPriorAndCapture([h0, pc, M], pc, X);
+		mockEnsure.mockResolvedValue(X);
+
+		await player.play(X, { fresh: true });
+		await flush();
+
+		// View-slice from current: M (manual) appears right after the new current X.
+		const ci = player.queue.findIndex((t) => t.uid === player.current?.uid);
+		expect(player.queue.slice(ci).map((t) => t.uid)).toEqual([X.uid, M.uid]);
+		// And the store still keeps history before current (shape unchanged).
+		expect(player.queue.map((t) => t.uid)).toEqual([h0.uid, pc.uid, X.uid, M.uid]);
 	});
 
 	it('prev() after a fresh click revisits the prior current', async () => {
