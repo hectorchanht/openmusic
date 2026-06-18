@@ -872,6 +872,9 @@
 	// (NOT native HTML5 DnD — poor on touch). On drop we call player.reorderQueue,
 	// which pins the moved track manual so it survives the next fresh-play regen.
 	let queueListEl = $state<HTMLElement | null>(null);
+	// quick-260618-ink (tweak 2): one-shot latch — plain let (NOT $state) so reading it does not make
+	// the scroll effect re-run; reset to false when the list closes so the next open re-fires.
+	let upNextScrollDone = false;
 	let dragFrom = $state(-1); // source row index while dragging (-1 = idle)
 	let dragOver = $state(-1); // current target row index
 	let rowDragY = $state(0); // px the lifted row follows the finger
@@ -910,6 +913,37 @@
 		dragOver = -1;
 		rowDragY = 0;
 	}
+
+	// quick-260618-ink (tweak 2): ONE-SHOT scroll-to-current on Up-Next OPEN only. Latched by
+	// upNextScrollDone, reset when the list closes. Deliberately NOT a mutation-driven scroll —
+	// 260615-mnr removed continuous auto-scroll (overflow-anchor:none) and that must not return.
+	$effect(() => {
+		// Only `tab` + `sheetState` are TRACKED reads — the open/visibility transitions. The row
+		// lookup happens inside the rAF callback (untracked DOM read), so a queue mutation alone
+		// never re-fires this scroll.
+		const isOpen = tab === 'queue' && sheetState !== 'closed';
+		if (!isOpen) {
+			upNextScrollDone = false; // re-arm for the next open
+			return;
+		}
+		if (upNextScrollDone) return;
+		upNextScrollDone = true; // latch immediately so a reactive re-tick cannot re-scroll
+		if (typeof window === 'undefined') return;
+		// The DOM may not be laid out the same tick the tab flips; wait one frame so layout flushed.
+		requestAnimationFrame(() => {
+			const container = queueListEl?.closest('.panel') as HTMLElement | null;
+			const playingRow = queueListEl?.querySelector('.q-row.playing') as HTMLElement | null;
+			const li = playingRow?.closest('li') as HTMLElement | null;
+			if (!container || !li) return;
+			// Pin the current row to the container TOP (block:'start' semantics) via rect deltas —
+			// NOT Element.scrollIntoView() ancestor-walking (it yanks the sheet to full).
+			const liRect = li.getBoundingClientRect();
+			const cRect = container.getBoundingClientRect();
+			const offsetWithin = liRect.top - cRect.top + container.scrollTop;
+			container.scrollTo({ top: offsetWithin, behavior: 'smooth' });
+		});
+	});
+
 	function applyHalfInset() {
 		return;
 		// if (!sheetEl || !transportEl) return;
