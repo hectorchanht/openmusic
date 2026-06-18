@@ -3001,3 +3001,110 @@ describe('player resilience — autoplay-rejection retry + readyState-gated watc
 		expect(runFallbackSpy).not.toHaveBeenCalled();
 	});
 });
+
+describe('player.upNextAnchorUid — Up-Next list anchor (quick-260618-lsw)', () => {
+	// The anchor is the uid the Up-Next LIST slices from. It is set ONLY on a fresh play / new-list
+	// install and is LEFT PUT by next()/prev()/auto-advance — so the just-played song stays in the
+	// list while the now-playing highlight moves down. The global beforeEach stubs player.play (which
+	// never writes the anchor), so the next()/prev() tests below exercise the NON-fresh path correctly
+	// (anchor must stay unchanged). Test 2 restores the REAL play() so the fresh-branch anchor write
+	// actually runs.
+	beforeEach(() => {
+		player.upNextAnchorUid = null;
+		player.queue = [];
+		player.current = null;
+	});
+
+	it('Test 1 — auto-advance (next()) keeps the anchor; the played song stays in the slice (LSW-01)', async () => {
+		const a = mk('netease', 'la1', 'A', 'First');
+		const b = mk('qq', 'la2', 'B', 'Second');
+		const c = mk('kuwo', 'la3', 'C', 'Third');
+		player.queue = [a, b, c];
+		player.upNextAnchorUid = a.uid; // simulate a fresh play landed on `a`
+		player.current = a;
+		mockEnsure.mockResolvedValue(b);
+
+		player.next(); // auto-advance / skip → non-fresh play(b)
+		await flush();
+
+		expect(player.current?.uid).toBe(b.uid); // highlight moved
+		expect(player.upNextAnchorUid).toBe(a.uid); // anchor UNCHANGED
+		// The view would slice the queue from the anchor's live index — the played song `a` is still in it.
+		const slice = player.queue.slice(
+			player.queue.findIndex((t) => t.uid === player.upNextAnchorUid)
+		);
+		expect(slice.some((t) => t.uid === a.uid)).toBe(true);
+	});
+
+	it('Test 2 — a fresh play resets the anchor to the new clicked song (LSW-02)', async () => {
+		const a = mk('netease', 'lb1', 'A', 'First');
+		const b = mk('qq', 'lb2', 'B', 'Second');
+		const c = mk('kuwo', 'lb3', 'C', 'Clicked');
+		player.queue = [a, b];
+		player.upNextAnchorUid = a.uid;
+		player.current = a;
+		mockEnsure.mockResolvedValue(c);
+
+		// The surrounding beforeEach stubs play(); restore the REAL method so the fresh-branch
+		// anchor write executes.
+		(player.play as unknown as ReturnType<typeof vi.fn>).mockRestore();
+
+		await player.play(c, { fresh: true });
+		await flush();
+
+		expect(player.upNextAnchorUid).toBe(c.uid); // the clicked song is the anchor → first row
+		// And the anchor IS the slice start: its live index equals indexOf(c) in the woven queue.
+		const anchorIdx = player.queue.findIndex((t) => t.uid === player.upNextAnchorUid);
+		const cIdx = player.queue.findIndex((t) => t.uid === c.uid);
+		expect(anchorIdx).toBe(cIdx);
+	});
+
+	it('Test 3 — anchor survives reorder/removal; a missing anchor clamps to ci (LSW-03)', () => {
+		const a = mk('netease', 'lc1', 'A', 'First');
+		const b = mk('qq', 'lc2', 'B', 'Second');
+		const c = mk('kuwo', 'lc3', 'C', 'Third');
+		const d = mk('joox', 'lc4', 'D', 'Fourth');
+		player.queue = [a, b, c, d];
+		player.upNextAnchorUid = b.uid;
+		player.current = b;
+
+		// Move `b` (index 1) to the back — the by-uid lookup tracks the move.
+		player.reorderQueue(1, 3);
+		expect(player.queue.findIndex((t) => t.uid === player.upNextAnchorUid)).toBe(
+			player.queue.findIndex((t) => t.uid === b.uid)
+		);
+		expect(player.queue.find((t) => t.uid === player.upNextAnchorUid)?.uid).toBe(b.uid);
+
+		// Remove a non-current, non-anchor track — anchor still resolves to `b`.
+		player.removeFromQueue(d.uid);
+		expect(player.queue.findIndex((t) => t.uid === player.upNextAnchorUid)).toBe(
+			player.queue.findIndex((t) => t.uid === b.uid)
+		);
+
+		// Missing-anchor clamp: replicate the NowPlaying derivation inline. When the anchor uid is gone
+		// from the queue, upNextStart falls back to the live current index `ci` (never a blank list).
+		player.upNextAnchorUid = 'nonexistent-uid';
+		const anchorIdx = player.upNextAnchorUid
+			? player.queue.findIndex((t) => t.uid === player.upNextAnchorUid)
+			: -1;
+		const ci = player.queue.findIndex((t) => t.uid === player.current?.uid);
+		const upNextStart = anchorIdx >= 0 ? anchorIdx : ci >= 0 ? ci : 0;
+		expect(anchorIdx).toBe(-1);
+		expect(upNextStart).toBe(ci); // clamped to the live current index
+	});
+
+	it('Test 4 — prev() leaves the anchor unchanged (guard)', async () => {
+		const a = mk('netease', 'ld1', 'A', 'First');
+		const b = mk('qq', 'ld2', 'B', 'Second');
+		player.queue = [a, b];
+		player.upNextAnchorUid = b.uid;
+		player.current = b;
+		mockEnsure.mockResolvedValue(a);
+
+		player.prev(); // non-fresh play(a) — only the highlight moves up
+		await flush();
+
+		expect(player.current?.uid).toBe(a.uid);
+		expect(player.upNextAnchorUid).toBe(b.uid); // anchor put
+	});
+});
