@@ -12,7 +12,8 @@
 		LayoutList,
 		ToggleRight,
 		TableOfContents,
-		DiscAlbum
+		DiscAlbum,
+		Grid3x3
 	} from '@lucide/svelte';
 	import { settings } from '$lib/stores/settings.svelte';
 	import {
@@ -63,13 +64,14 @@
 		settings.save();
 	}
 
-	// D-07: per-section density override. The home page resolves with 'compact' as the global
-	// default (compact-by-default), so the EFFECTIVE density of a section with no stored override
-	// is 'compact'. We surface that here by treating an absent key as 'compact'. Writing a value
+	// D-07: per-section density override. The home page resolves with 'list' as the global
+	// default (list-by-default), so the EFFECTIVE density of a section with no stored override is
+	// 'list'. We surface that here by treating an absent/garbage key as 'list'. Writing a value
 	// persists the override; the resolver clamps any garbage back to the default at render time.
+	// quick-260618-goe: values renamed to 'list' | 'pile' | 'grid'.
 	function sectionDensity(id: HomeSectionId): HomeDensity {
 		const v = settings.homeSectionDensity[id];
-		return v === 'comfortable' || v === 'compact' ? v : 'compact';
+		return v === 'list' || v === 'pile' || v === 'grid' ? v : 'list';
 	}
 	function setSectionDensity(id: HomeSectionId, v: HomeDensity) {
 		settings.homeSectionDensity = { ...settings.homeSectionDensity, [id]: v };
@@ -144,8 +146,9 @@
 		{ v: 'library', key: 'settings.landingLibrary' }
 	];
 	const densities: { v: HomeDensity; key: TranslationKey }[] = [
-		{ v: 'comfortable', key: 'settings.densityComfortable' },
-		{ v: 'compact', key: 'settings.densityCompact' }
+		{ v: 'list', key: 'settings.densityList' },
+		{ v: 'pile', key: 'settings.densityPile' },
+		{ v: 'grid', key: 'settings.densityGrid' }
 	];
 
 	// Empty (or all-invalid) selection → home shows the FULL pool; surface that hint.
@@ -169,8 +172,8 @@
 			<li class="rrow" data-reorder-index={i}>
 				<span class="grip" data-reorder-handle aria-label={t('settings.dragToReorder')}><GripVertical size={18} /></span>
 				<span class="rlabel">{t(sectionLabel[id])}</span>
-				<!-- D-07: per-section density (compact/comfortable). aria-pressed reflects the
-				     active mode; aria-label names the section + option for screen readers. -->
+				<!-- D-07: per-section density (list/pile/grid). aria-pressed reflects the active
+				     mode; aria-label names the section + option for screen readers. -->
 				<span class="density-seg" role="group" aria-label={t('settings.homeSectionDensity')}>
 					{#each densities as d (d.v)}
 						<button
@@ -180,13 +183,11 @@
 							aria-label={`${t(sectionLabel[id])} · ${t(d.key)}`}
 							onclick={() => setSectionDensity(id, d.v)}
 						>
-							<!-- {t(d.key)} -->
-							{#if d.v === 'comfortable'}
+							{#if d.v === 'pile'}
 								<DiscAlbum size={14} />
-							{:else if d.v === 'compact'}
-								<TableOfContents size={14} />
+							{:else if d.v === 'grid'}
+								<Grid3x3 size={14} />
 							{:else}
-								<!-- fallback, e.g. compact -->
 								<TableOfContents size={14} />
 							{/if}
 						</button>

@@ -25,7 +25,8 @@
 		resolveSubset,
 		clampShelfSize,
 		resolveSectionDensity,
-		type HomeSectionId
+		type HomeSectionId,
+		type HomeDensity
 	} from '$lib/services/home-layout';
 	import { settings } from '$lib/stores/settings.svelte';
 	import { deezerChart } from '$lib/services/deezer';
@@ -52,6 +53,7 @@
 	import TrackMenu from '$lib/components/TrackMenu.svelte';
 	import CompactRow from '$lib/components/CompactRow.svelte';
 	import CompactPager from '$lib/components/CompactPager.svelte';
+	import HomeGridPager from '$lib/components/HomeGridPager.svelte';
 	import PageOg from '$lib/components/PageOg.svelte';
 	import { toast } from '$lib/stores/toast.svelte';
 	import type { PageData } from './$types';
@@ -565,13 +567,13 @@
 		}
 	}
 
-	// --- Compact homepage mode (HOME-02/03, D-05/07/10) --------------------------------
-	// D-07: ALL sections compact BY DEFAULT — we pass 'compact' as resolveSectionDensity's
-	// globalDefault, so a section is comfortable only when the user explicitly overrides it
-	// in /settings/home (settings.homeSectionDensity[id] === 'comfortable'). A corrupt/garbage
-	// override falls back to 'compact' (resolveSectionDensity, T-23-09 — never blanks).
-	function densityOf(id: HomeSectionId): 'comfortable' | 'compact' {
-		return resolveSectionDensity(id, settings.homeSectionDensity, 'compact');
+	// --- Home density modes (HOME-02/03, D-05/07/10; quick-260618-goe renamed list/pile/grid) ---
+	// ALL sections 'list' BY DEFAULT — we pass 'list' as resolveSectionDensity's globalDefault
+	// (the migrated equivalent of the legacy compact-by-default), so a section is 'pile'/'grid'
+	// only when the user explicitly overrides it in /settings/home. A corrupt/garbage override
+	// falls back to 'list' (resolveSectionDensity, T-23-09 — never blanks).
+	function densityOf(id: HomeSectionId): HomeDensity {
+		return resolveSectionDensity(id, settings.homeSectionDensity, 'list');
 	}
 	// D-10: compact item count = homeShelfSize rounded UP to the nearest full column of 4, so a
 	// pager never shows a ragged trailing column shorter than the others would imply.
@@ -664,7 +666,7 @@
 	</button>
 {/if}
 
-<section class="section" class:compact={settings.homeDensity === 'compact'}>
+<section class="section" class:compact={settings.homeDensity === 'list'}>
 	<div class="head">
 		<h2>{t('home.topPicks')}</h2>
 		{#if settings.homeShowRandomize}
@@ -729,6 +731,18 @@
 	</button>
 {/snippet}
 
+<!-- quick-260618-goe: one ARTIST tile for the 3×3 grid mode — round cover + centered name,
+     tap opens the artist page (artists are name-only: no ⋮, no long-press, mirroring CompactRow's
+     artist variant). Reuses the .tile shell with .art.round + a name-only .label. -->
+{#snippet artistGridTile(name: string, cover: string | null)}
+	<button class="tile artist-tile" onclick={() => goto('/artist/' + encodeURIComponent(name))}>
+		<div class="art round" style:background-image={fallbackCover(name)}>
+			{#if cover}<img class="al-cover-img" src={cover} loading="lazy" alt="" onerror={hideOnError} />{/if}
+		</div>
+		<div class="artist-name" use:marquee><span class="marquee-inner">{names.dnArtist(name)}</span></div>
+	</button>
+{/snippet}
+
 <!-- Compact-row skeleton (UI-SPEC §2): 40px art + 2 bars (62%/40%), 4 per column. -->
 {#snippet compactSkeletonColumn()}
 	<div class="compact-skel-col" aria-hidden="true">
@@ -747,14 +761,14 @@
 {#snippet topHitsBlock()}
 	{#if topHits.length}
 		{@render titleNav(t('home.topHits'), '/charts/top')}
-		{@render discoveryShelf(topHits, densityOf('top-hits') === 'compact')}
+		{@render discoveryShelf(topHits, densityOf('top-hits'))}
 	{/if}
 {/snippet}
 
 {#snippet topArtistsBlock()}
 	{#if topArtists.length}
 		{@render titleNav(t('home.topArtists'), '/charts/top')}
-		{#if densityOf('top-artists') === 'compact'}
+		{#if densityOf('top-artists') === 'list'}
 			<CompactPager items={compactSlice(topArtists)} key={(a) => a.name}>
 				{#snippet row(a: DiscoveryArtist)}
 					<CompactRow
@@ -766,6 +780,15 @@
 					/>
 				{/snippet}
 			</CompactPager>
+		{:else if densityOf('top-artists') === 'grid'}
+			<!-- 3×3 artist grid (decision documented in SUMMARY): reuse the .tile shell with a
+			     ROUND .art cover + a centered name label (artists are name-only, no ⋮/long-press). -->
+			<HomeGridPager items={topArtists.slice(0, 27)} key={(a) => a.name}>
+				{#snippet row(a: DiscoveryArtist)}
+					{@const artistCover = tileCover({ image: a.image, mbid: a.mbid, artistName: a.name })}
+					{@render artistGridTile(a.name, artistCover)}
+				{/snippet}
+			</HomeGridPager>
 		{:else}
 			<div class="albumrow" use:dragScroll>
 				{#each topArtists as a (a.name)}
@@ -782,9 +805,10 @@
 	{/if}
 {/snippet}
 
-<!-- A reusable compact/comfortable discovery shelf (top-hits / tags / countries share it). -->
-{#snippet discoveryShelf(items: DiscoveryTrack[], compact: boolean)}
-	{#if compact}
+<!-- A reusable list/pile/grid discovery shelf (top-hits / tags / countries share it).
+     quick-260618-goe: param is now a HomeDensity ('list'|'pile'|'grid'), not a boolean. -->
+{#snippet discoveryShelf(items: DiscoveryTrack[], density: HomeDensity)}
+	{#if density === 'list'}
 		<CompactPager items={compactSlice(items)} key={(item) => item.artist + ' ' + item.title}>
 			{#snippet row(item: DiscoveryTrack)}
 				<CompactRow
@@ -797,6 +821,22 @@
 				/>
 			{/snippet}
 		</CompactPager>
+	{:else if density === 'grid'}
+		<!-- 3×3 paginated cover grid (decision #1). Reuses the .tile/.scrim/.label markup;
+		     capped at 27 by both the slice here and the component (belt-and-braces). -->
+		<HomeGridPager items={items.slice(0, 27)} key={(item) => item.artist + ' ' + item.title}>
+			{#snippet row(item: DiscoveryTrack)}
+				<button class="tile" use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); tileMenu(item); }} onclick={() => playStub(item)}>
+					<div class="art" style:background-image={fallbackCover(item.artist + item.title)}></div>
+					{#if tileCover(item)}<img class="al-cover-img" src={tileCover(item)} loading="lazy" alt="" onerror={hideOnError} />{/if}
+					<div class="scrim"></div>
+					<div class="label">
+						<div class="t-title">{names.dnTitle(item.title)}</div>
+						<div class="t-artist">{names.dnArtist(item.artist)}</div>
+					</div>
+				</button>
+			{/snippet}
+		</HomeGridPager>
 	{:else}
 		<div class="albumrow" use:dragScroll>
 			{#each items as item (item.artist + ' ' + item.title)}
@@ -817,14 +857,14 @@
 {#snippet tagsBlock()}
 	{#each tagShelves as shelf (shelf.label)}
 		{@render titleNav(t('home.tagShelf', { tag: shelf.label }), '/charts/tags/' + encodeURIComponent(shelf.label))}
-		{@render discoveryShelf(shelf.tracks, densityOf('tags') === 'compact')}
+		{@render discoveryShelf(shelf.tracks, densityOf('tags'))}
 	{/each}
 {/snippet}
 
 {#snippet countriesBlock()}
 	{#each countryShelves as shelf (shelf.label)}
 		{@render titleNav(t('home.countryShelf', { country: shelf.label }), '/charts/countries/' + encodeURIComponent(shelf.label))}
-		{@render discoveryShelf(shelf.tracks, densityOf('countries') === 'compact')}
+		{@render discoveryShelf(shelf.tracks, densityOf('countries'))}
 	{/each}
 {/snippet}
 
@@ -841,9 +881,10 @@
 	</button>
 {/snippet}
 
-<!-- A reusable compact/comfortable library track shelf (liked / downloads / history / playlists). -->
-{#snippet libraryShelf(tracks: Track[], compact: boolean)}
-	{#if compact}
+<!-- A reusable list/pile/grid library track shelf (liked / downloads / history / playlists).
+     quick-260618-goe: param is now a HomeDensity ('list'|'pile'|'grid'), not a boolean. -->
+{#snippet libraryShelf(tracks: Track[], density: HomeDensity)}
+	{#if density === 'list'}
 		<CompactPager items={compactSlice(tracks)} key={(track) => track.uid}>
 			{#snippet row(track: Track)}
 				<CompactRow
@@ -857,6 +898,22 @@
 				/>
 			{/snippet}
 		</CompactPager>
+	{:else if density === 'grid'}
+		<!-- 3×3 paginated cover grid (decision #1). Library tracks carry a uid → key by uid and
+		     resolve covers via use:lazyCover (like librarySongRow), reusing the .tile markup. -->
+		<HomeGridPager items={tracks.slice(0, 27)} key={(track) => track.uid}>
+			{#snippet row(track: Track)}
+				{@const rowCover = libraryRowCover(track)}
+				<button class="tile" use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openTrackMenu(track); }} onclick={() => playLibraryTrack(track)}>
+					<div class="art" use:lazyCover={{ track, onResolved: () => bumpCoverVersion() }} style:background-image={rowCover ? `url(${rowCover})` : fallbackCover(track.uid)}></div>
+					<div class="scrim"></div>
+					<div class="label">
+						<div class="t-title">{names.dnTitle(track.title)}</div>
+						<div class="t-artist">{names.dnArtist(track.artist)}</div>
+					</div>
+				</button>
+			{/snippet}
+		</HomeGridPager>
 	{:else}
 		<div class="albumrow" use:dragScroll>
 			{#each tracks as track (track.uid)}{@render librarySongRow(track)}{/each}
@@ -867,28 +924,28 @@
 {#snippet likedBlock()}
 	{#if likedShelf.length}
 		{@render titleNav(t('settings.homeSectionLiked'), '/library?tab=liked')}
-		{@render libraryShelf(likedShelf, densityOf('liked') === 'compact')}
+		{@render libraryShelf(likedShelf, densityOf('liked'))}
 	{/if}
 {/snippet}
 
 {#snippet downloadsBlock()}
 	{#if downloadsShelf.length}
 		{@render titleNav(t('settings.homeSectionDownloads'), '/library?tab=downloads')}
-		{@render libraryShelf(downloadsShelf, densityOf('downloads') === 'compact')}
+		{@render libraryShelf(downloadsShelf, densityOf('downloads'))}
 	{/if}
 {/snippet}
 
 {#snippet historyBlock()}
 	{#if historyShelf.length}
 		{@render titleNav(t('settings.homeSectionHistory'), '/library?tab=history')}
-		{@render libraryShelf(historyShelf, densityOf('history') === 'compact')}
+		{@render libraryShelf(historyShelf, densityOf('history'))}
 	{/if}
 {/snippet}
 
 {#snippet favArtistsBlock()}
 	{#if favArtistsShelf.length}
 		{@render titleNav(t('settings.homeSectionFavArtists'), '/library?tab=fav-artists')}
-		{#if densityOf('fav-artists') === 'compact'}
+		{#if densityOf('fav-artists') === 'list'}
 			<CompactPager items={compactSlice(favArtistsShelf)} key={(a) => a.name}>
 				{#snippet row(a: { name: string })}
 					<CompactRow
@@ -900,6 +957,12 @@
 					/>
 				{/snippet}
 			</CompactPager>
+		{:else if densityOf('fav-artists') === 'grid'}
+			<HomeGridPager items={favArtistsShelf.slice(0, 27)} key={(a) => a.name}>
+				{#snippet row(a: { name: string })}
+					{@render artistGridTile(a.name, tileCover({ image: null, mbid: null, artistName: a.name }))}
+				{/snippet}
+			</HomeGridPager>
 		{:else}
 			<div class="albumrow" use:dragScroll>
 				{#each favArtistsShelf as a (a.name)}
@@ -921,7 +984,7 @@
 		<!-- D-13: per-playlist shelf deep-links to THAT playlist's detail (tab=playlists +
 		     the playlist id), NOT the generic Playlists tab. id is encodeURIComponent-wrapped. -->
 		{@render titleNav(shelf.name, '/library?tab=playlists&playlist=' + encodeURIComponent(shelf.id))}
-		{@render libraryShelf(shelf.tracks, densityOf('playlists') === 'compact')}
+		{@render libraryShelf(shelf.tracks, densityOf('playlists'))}
 	{/each}
 {/snippet}
 
@@ -1020,5 +1083,10 @@
 	.t-title { font-size: calc(11px * var(--fs-title, 1)); font-weight: 700; line-height: 1.2; color: #fff; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 	.t-artist { font-size: calc(10px * var(--fs-artist, 1)); color: #d8d8de; margin-top: 2px; opacity: 0.85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 	.q { position: absolute; top: 6px; right: 6px; font-size: 8px; font-weight: 700; padding: 2px 5px; border-radius: 4px; background: rgba(0,0,0,0.55); color: #fff; }
+	/* quick-260618-goe: artist grid tile — round cover + centered name BELOW (no overlay/scrim),
+	   so it overrides the square aspect-ratio .tile shell with a flex-column layout. */
+	.artist-tile { position: static; aspect-ratio: auto; background: none; border-radius: 0; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+	.artist-tile .art { position: relative; inset: auto; width: 100%; aspect-ratio: 1 / 1; border-radius: 50%; overflow: hidden; background-size: cover; background-position: center; background-color: var(--color-surface-2); }
+	.artist-name { width: 100%; min-width: 0; overflow: hidden; white-space: nowrap; text-align: center; font-size: calc(11px * var(--fs-title, 1)); font-weight: 600; color: var(--color-text); }
 	.error { color: #ff7a90; font-size: 14px; }
 </style>

@@ -193,6 +193,11 @@ const en = {
 	'settings.tileDensity': 'Tile density',
 	'settings.densityComfortable': 'Comfortable',
 	'settings.densityCompact': 'Compact',
+	// quick-260618-goe: renamed density modes (list = stacked rows, pile = cover shelf,
+	// grid = 3×3 paginated cover grid). The legacy keys are kept until grep confirms no refs.
+	'settings.densityList': 'List',
+	'settings.densityPile': 'Pile',
+	'settings.densityGrid': 'Grid',
 	'settings.homeSectionDensity': 'Layout',
 	'settings.homeChrome': 'Home controls',
 	'settings.showSearchPill': 'Show search bar',
