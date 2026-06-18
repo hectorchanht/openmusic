@@ -26,8 +26,22 @@
         onOpen?: () => void;
     } = $props();
 
-    const np = $derived(player.current ?? player.pendingTrack);
+    // quick-260618-t7p: title/artist/cover render the DISPLAYED track — the song actually producing
+    // audio on the now-playing surfaces — so a new click leaves the OLD song shown until the new one
+    // fires a real `playing` event (the store's swap-commit point). Fall back to `current` (a cold
+    // start before the first `playing` is seeded into displayed in play() so this is normally moot)
+    // and then to the resolve-on-tap stub so an optimistic tap still shows something.
+    const np = $derived(player.displayed ?? player.current ?? player.pendingTrack);
     const resolving = $derived(!player.current && !!player.pendingTrack);
+    // quick-260618-t7p: a "load-over-old" swap is pending while a NEW song is loading on top of the
+    // currently-displayed one (current differs from displayed). The indeterminate running line below
+    // animates for the WHOLE load window (click → `playing`), not just while `player.loading` is true
+    // — `loading` is cleared the moment audio.play() settles (which can precede real output on
+    // mobile autoplay), so it alone would stop the loader too early during the deferred swap.
+    const swapPending = $derived(
+        !!player.current && !!player.displayed && player.current.uid !== player.displayed.uid,
+    );
+    const showLoader = $derived(player.loading || swapPending);
 
     // NOWBAR-XFADE: on track change the {#key np?.uid} block remounts the cover + title + artist so
     // an in:/out:fade crossfades the outgoing content out while the incoming fades in (mirrors the
@@ -44,11 +58,13 @@
     const xfadeMs = $derived(
         settings.reduceMotion || osReduceMotion ? 0 : 200,
     );
-    // Track-identity key for the crossfade remount. player.current is a full Track (has uid);
-    // player.pendingTrack is a {artist,title,cover} stub with no uid — fall back to artist|title so
-    // an optimistic stub also keys distinctly and crossfades when the real track resolves.
+    // Track-identity key for the crossfade remount. Keyed off the DISPLAYED track (the song actually
+    // shown) so the cover+text crossfade fires on the real takeover swap (displayed advancing on
+    // `playing`), NOT the instant a new song is clicked. `np` already resolves displayed → current →
+    // stub; the stub has no uid, so fall back to artist|title so an optimistic tap also keys distinctly
+    // and crossfades when the real track resolves. (quick-260618-t7p)
     const npKey = $derived(
-        player.current?.uid ?? `${np?.artist ?? ""}|${np?.title ?? ""}`,
+        player.displayed?.uid ?? player.current?.uid ?? `${np?.artist ?? ""}|${np?.title ?? ""}`,
     );
 
     // NP-05 boundaries (D-02): rubber-band a prev swipe on the first track, but always allow a
@@ -63,6 +79,19 @@
     function fallbackCover(): string {
         return "linear-gradient(145deg,#3a2d63,#1a1326)";
     }
+    // quick-260618-t7p: displayed-aware cover. `player.resolvedCover` is repointed SYNCHRONOUSLY to the
+    // new (loading) song in play(), so binding the cover to it directly would swap the art early. Prefer
+    // the DISPLAYED track's own cover; fall back to resolvedCover ONLY when there is no displayed track
+    // OR the displayed track IS the current one (so the async cover-land applies to the song actually
+    // shown), then the stub cover. Keeps the cover on the OLD song until the `playing` takeover.
+    const displayedCover = $derived(
+        player.displayed?.cover ??
+            (!player.displayed || player.displayed.uid === player.current?.uid
+                ? player.resolvedCover
+                : null) ??
+            np?.cover ??
+            null,
+    );
     function handleOpen() {
         if (onOpen) onOpen();
         else player.expand();
@@ -71,8 +100,8 @@
 
 {#if np}
     <div class="nowbar" class:embed={variant === "embed"}>
-        <div class="np-prog" class:indet={player.loading}>
-            {#if player.loading}
+        <div class="np-prog" class:indet={showLoader}>
+            {#if showLoader}
                 <i class="sliver"></i>
             {:else}
                 <i
@@ -103,11 +132,12 @@
                 enabled: !resolving,
             }}
         >
-            <!-- COVER-01 (D-09): the single player.resolvedCover field is the primary art source —
-                 it is set synchronously on play() from track/cache and reactively updated when the
-                 async tier chain lands, so a no-cover-source track shows resolved art here once the
-                 chain settles. While still resolving an optimistic stub (current null, pendingTrack
-                 set), fall back to the tapped np.cover, then to the seeded gradient (D-12).
+            <!-- quick-260618-t7p / COVER-01 (D-09): displayedCover keeps the art on the DISPLAYED song
+                 (prefer displayed.cover; resolvedCover only when displayed is null or IS the current
+                 track so its async cover-land applies; then the stub cover) so the cover does not jump
+                 to the loading song until the `playing` takeover. While still resolving an optimistic
+                 stub (current null, pendingTrack set), it falls back to the tapped np.cover, then the
+                 seeded gradient (D-12).
                  NOWBAR-XFADE: .np-art + .np-meta are wrapped in {#key npKey} so a track change
                  remounts them and the in:/out:fade crossfades cover + text together. They stay
                  DIRECT flex children of .np-open (no wrapper element) so the 10px gap + ellipsis
@@ -119,8 +149,8 @@
                     class="np-art"
                     in:fade={{ duration: xfadeMs }}
                     out:fade={{ duration: xfadeMs }}
-                    style:background-image={(player.resolvedCover ?? np?.cover)
-                        ? `url(${player.resolvedCover ?? np?.cover})`
+                    style:background-image={displayedCover
+                        ? `url(${displayedCover})`
                         : fallbackCover()}
                 ></span>
                 <span

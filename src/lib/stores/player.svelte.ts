@@ -116,6 +116,18 @@ export function fmtTime(s: number): string {
 
 class Player {
 	current = $state<Track | null>(null);
+	/**
+	 * quick-260618-t7p: the track shown on the now-playing SURFACES (Nowbar + NowPlaying
+	 * title/artist/cover/lyrics). Advances to `current` ONLY on a real `playing` event (the
+	 * takeover commit, CR-01) so a new click does NOT visually swap the now-bar while the old
+	 * audio is still producing output and the new one is still loading. `current` keeps its
+	 * synchronous timing for queue/MediaSession/playGen/prefetch/watchdog; `displayed` is purely a
+	 * display-layer field. Seeded on a COLD START only (play() entry `??=`, never overwriting an
+	 * existing displayed track) so the very first song is not blank until `playing`, and set
+	 * directly by restore() (a paused reload-resume must show the restored track immediately — it is
+	 * not a load-over-old-audio swap). Session-derived: NOT persisted (restore re-seeds it).
+	 */
+	displayed = $state<Track | null>(null);
 	playing = $state(false);
 	loading = $state(false);
 	error = $state<string | null>(null);
@@ -401,6 +413,11 @@ class Player {
 		// a prior tri-state session), missing, or tampered value collapses to the safe 'off' default.
 		this.repeatMode = payload.repeatMode === 'one' ? 'one' : 'off';
 		this.current = target;
+		// quick-260618-t7p: a reload resume must show the restored track on the now-playing surfaces
+		// IMMEDIATELY — it is a paused resume, not a load-over-old-audio swap, so there is no old song
+		// to keep displayed and no `playing` event will fire until the user taps play. Set displayed
+		// directly here (before the async re-resolve) so a reload shows the last track in the now-bar.
+		this.displayed = this.current;
 		this.loading = true;
 		try {
 			// Offline-first restore: if the track is in library.downloads AND its blob is in
@@ -980,6 +997,13 @@ class Player {
 		});
 		el.addEventListener('playing', () => {
 			// `playing` is the event that means audio is ACTUALLY producing output (CR-01).
+			// quick-260618-t7p: this is the ONE swap-commit point for the deferred now-playing/nowbar
+			// UI. Audio is genuinely producing output now, so the new song has TAKEN OVER — advance the
+			// displayed track to `current` so the Nowbar + NowPlaying title/artist/cover/lyrics swap from
+			// the old song to the new one exactly when the new one becomes audible (and never while it
+			// was merely loading-over-old). This is the only normal load-over-old advance; a cold-start
+			// seed in play() handles the very first song and restore() handles a reload resume.
+			this.displayed = this.current;
 			// D-13/D-14: mark the src as having played + disarm the initial-load stall watchdog.
 			this.hasPlayedSinceSrc = true;
 			this.disarmStall();
@@ -1726,6 +1750,13 @@ class Player {
 		this.error = null;
 		this.loading = true;
 		this.current = track;
+		// quick-260618-t7p: COLD-START seed ONLY. When nothing has ever been displayed (the very first
+		// play of the session, or after a clear), show the just-tapped song immediately so the
+		// now-bar/now-playing surface is not blank until the `playing` event lands. `??=` deliberately
+		// does NOT overwrite an existing displayed track — that is the whole point of the defer: while a
+		// song is displayed, a new click leaves the OLD song on the surfaces until the new one fires a
+		// real `playing` event (the swap-commit point in the `playing` listener).
+		this.displayed ??= track;
 		this.currentTime = 0;
 		this.duration = 0;
 		// COVER-01 / D-09: set the ONE cover field SYNCHRONOUSLY from the best-known source so the

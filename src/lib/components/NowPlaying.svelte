@@ -77,8 +77,14 @@
 	// own entry so each part (main text + parenthesised clause) flows through the per-line
 	// translate path independently. The split entries carry `fromParen:true` so the renderer
 	// can suppress their translations when settings.lyricsHideParenTranslation is on.
+	// quick-260618-t7p: the now-playing meta/cover/LYRICS render the DISPLAYED track (the song actually
+	// producing audio on the surfaces), so a new click keeps the OLD song's lyrics shown until the new
+	// one fires a real `playing` event (the store's swap-commit point). `current` is the fallback (a
+	// cold start before the first `playing` seeds displayed, so normally moot). Transport / like /
+	// related / enrich effects deliberately stay on `player.current` (they act on the playing song).
+	const shown = $derived(player.displayed ?? player.current);
 	const lines = $derived<LyricLine[]>(
-		player.current?.lrc ? splitParenLines(reorderPairs(parseLRC(player.current.lrc))) : []
+		shown?.lrc ? splitParenLines(reorderPairs(parseLRC(shown.lrc))) : []
 	);
 	// When multiple lyric lines share a timestamp (common in CN LRCs that ship the original
 	// + an inline translation as two consecutive entries at the same time, plus our own
@@ -233,7 +239,10 @@
 		const rawLang = settings.lyricsLang;
 		const lang = effectiveTarget(rawLang);
 		const skip = settings.lyricsSkip;
-		const t = player.current;
+		// quick-260618-t7p: translate the DISPLAYED song's lyrics (the trKey uid must match the `lines`
+		// source, which is now derived from `shown`) so the translation stays with the displayed lyrics
+		// until the takeover swap rather than racing ahead to the loading song.
+		const t = shown;
 		const n = lines.length;
 		if (tab !== 'lyrics' || rawLang === 'off' || !n || !t) {
 			// quick-260618-fiz Fix 1: flipping INTO a no-translate state (lyricsLang → 'off', leaving
@@ -371,12 +380,20 @@
 		src.src = forTrack.cover;
 	}
 
-	// Effective now-playing cover: the swapped hi-res Last.fm art when adopted (a strictly-larger
-	// upgrade, so it still wins), else the single player.resolvedCover field (COVER-01 / D-09) —
-	// which already encompasses track.cover, the uid/name cache, AND the async tier-chain resolve,
-	// so a no-cover-source track shows resolved art here once the chain lands. Null → the seeded
-	// gradient fallback below (D-12); never a placeholder.
-	const effectiveCover = $derived(swappedCover ?? player.resolvedCover ?? null);
+	// Effective now-playing cover. quick-260618-t7p: keep the cover on the DISPLAYED song until the
+	// `playing` takeover. When displayed IS the current track, use the full chain — the swapped hi-res
+	// Last.fm art when adopted (a strictly-larger upgrade, so it still wins), else the single
+	// player.resolvedCover field (COVER-01 / D-09; track.cover + uid/name cache + async tier-chain
+	// resolve). When a NEW song is loading over the old (displayed differs from current), neither
+	// swappedCover (it tracks `current`) nor resolvedCover (repointed synchronously to the new song in
+	// play()) belongs to the displayed song — fall back to the displayed track's OWN cover so the art
+	// does not jump early. Null → the seeded gradient fallback below (D-12); never a placeholder.
+	const displayedIsCurrent = $derived(!player.displayed || player.displayed.uid === player.current?.uid);
+	const effectiveCover = $derived(
+		displayedIsCurrent
+			? (swappedCover ?? player.resolvedCover ?? null)
+			: (player.displayed?.cover ?? null)
+	);
 
 	// ---- Cover carousel (NP-01 / D-01) ----
 	// A rigid 3-cell strip [prev | current | next] with neighbors flush against the current cell: each
@@ -436,9 +453,13 @@
 	const xfadeMs = $derived(settings.reduceMotion || osReduceMotion ? 0 : 200);
 
 	function openArtist() {
-		if (player.current) {
+		// quick-260618-t7p: navigate to the artist of the DISPLAYED song (the visible title/artist the
+		// user is tapping), falling back to current. This keeps the link consistent with the rendered
+		// meta during a deferred load-over-old swap.
+		const artistTrack = shown;
+		if (artistTrack) {
 			player.collapse();
-			goto(`/artist/${encodeURIComponent(player.current.artist)}`);
+			goto(`/artist/${encodeURIComponent(artistTrack.artist)}`);
 		}
 	}
 
@@ -1061,7 +1082,7 @@
 			<div class="cover-cell prev" style:background-image={cellBg(prevCover)}></div>
 			<div
 				class="cover-cell cur"
-				style:background-image={effectiveCover ? `url(${effectiveCover})` : fallbackCover(player.current)}
+				style:background-image={effectiveCover ? `url(${effectiveCover})` : fallbackCover(shown)}
 			></div>
 			<div class="cover-cell next" style:background-image={cellBg(nextCover)}></div>
 		</div>
@@ -1075,9 +1096,9 @@
 		     wraps the text so the GLOBAL transform-based marquee in app.css drives them (gmy unified
 		     the artist + NowPlaying drift onto one system). Genre/tag chips intentionally hidden
 		     (quick-260607-f4y). -->
-		{#key player.current?.uid}
-			<div class="title" use:marquee in:fade={{ duration: xfadeMs }} out:fade={{ duration: xfadeMs }}><span class="marquee-inner">{player.current ? names.dnTitle(player.current.title) : ''}</span></div>
-			<button class="artist" use:marquee onclick={openArtist} in:fade={{ duration: xfadeMs }} out:fade={{ duration: xfadeMs }}><span class="marquee-inner">{player.current ? names.dnArtist(player.current.artist) : ''}</span></button>
+		{#key shown?.uid}
+			<div class="title" use:marquee in:fade={{ duration: xfadeMs }} out:fade={{ duration: xfadeMs }}><span class="marquee-inner">{shown ? names.dnTitle(shown.title) : ''}</span></div>
+			<button class="artist" use:marquee onclick={openArtist} in:fade={{ duration: xfadeMs }} out:fade={{ duration: xfadeMs }}><span class="marquee-inner">{shown ? names.dnArtist(shown.artist) : ''}</span></button>
 		{/key}
 	</div>
 
