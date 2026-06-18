@@ -631,6 +631,17 @@ class Player {
 	 */
 	private pendingHistory: Track[] | null = null;
 	/**
+	 * quick-260618-fiz (Fix 4): one-shot carrier of the user's EXPLICIT queue entries (uid ∈
+	 * manualUids — added via playNext/addToQueue/reorder) captured from the prior queue BEFORE
+	 * setQueue/setListQueue wipes it. The next fresh play() re-weaves them right AFTER the seed
+	 * (preserveManual) so explicit picks survive a context switch while the prior AUTO/context tail
+	 * is dropped. manualUids stays the single provenance source — this is just the carrier of the
+	 * Track OBJECTS (the Set holds only uids). Consumed once per fresh play and nulled; a non-fresh
+	 * play also nulls it so a capture left by a setQueue NOT followed by a fresh play can't leak.
+	 * NOT $state — an internal carrier, never read reactively (mirrors pendingHistory).
+	 */
+	private pendingManual: Track[] | null = null;
+	/**
 	 * PLAY-RESILIENCE: uids confirmed UNPLAYABLE this session by the prefetchNext probe walk — a track
 	 * that resolved without an audioUrl, or whose audio URL fired a hard `error` during the silent
 	 * probe. nextPlayableIndex() routes past these, so next()/track-end advance never lands on a
@@ -1193,6 +1204,18 @@ class Player {
 		return h;
 	}
 
+	/**
+	 * quick-260618-fiz (Fix 4): snapshot the user's EXPLICIT queue entries (uid ∈ manualUids) from
+	 * the CURRENT queue BEFORE it is wiped by setQueue/setListQueue. These are songs the user pinned
+	 * via playNext/addToQueue/reorder and MUST survive a fresh-play context switch (unlike auto/
+	 * context picks, which are dropped). The current track is excluded — the seed/history path owns
+	 * it. Returns [] when nothing is pinned. Must run before this.queue is reassigned.
+	 */
+	private captureManual(): Track[] {
+		const curUid = this.current?.uid;
+		return this.queue.filter((t) => this.manualUids.has(t.uid) && t.uid !== curUid);
+	}
+
 	/** Set the active list (home grid / search results) as the Up-Next source. The optional
 	 *  `context` records which surface started the queue (Phase 17, QUEUE-03) so the fresh-play
 	 *  path can resolve the effective sourcing mode. Defaults to null (unknown → global default). */
@@ -1201,6 +1224,10 @@ class Player {
 		// can re-weave it in front of the seed. `??=` so a setListQueue→setQueue delegate doesn't
 		// clobber a capture already taken this tick (whichever runs first wins).
 		this.pendingHistory ??= this.captureHistory();
+		// quick-260618-fiz (Fix 4): capture explicit manual entries BEFORE the wipe so the next fresh
+		// play re-weaves them after the seed while this auto/context tail is dropped. `??=` mirrors
+		// pendingHistory — whichever of a setListQueue→setQueue delegate pair runs first wins.
+		this.pendingManual ??= this.captureManual();
 		this.queueGen++; // WR-06: an explicit queue supersedes any in-flight regenerate result
 		this.queue = dedupeBest(tracks, settings.preferredSource);
 		this.queueContext = context;
@@ -1242,6 +1269,8 @@ class Player {
 		// no-current delegate to setQueue, which also captures with `??=`). `??=` so the delegate path
 		// doesn't double-capture/clobber — whichever runs first wins.
 		this.pendingHistory ??= this.captureHistory();
+		// quick-260618-fiz (Fix 4): capture explicit manual entries BEFORE the wipe (same as setQueue).
+		this.pendingManual ??= this.captureManual();
 		const current = this.current;
 		if (!current) {
 			this.setQueue(tracks, context);
@@ -1298,6 +1327,7 @@ class Player {
 	clearQueue() {
 		this.queue = this.current ? [this.current] : [];
 		this.manualUids.clear();
+		this.pendingManual = null; // quick-260618-fiz (Fix 4): drop any uncommitted manual carry too
 		this.unplayableUids.clear(); // PLAY-RESILIENCE: a user queue reset clears the dead-track set too
 		this.unplayableStrikes.clear(); // …and the sub-cap strike budget in lockstep (over-aggressive-skip fix)
 		this.persist();
@@ -1894,6 +1924,7 @@ class Player {
 				// by a setQueue/setListQueue that is NOT followed by a fresh play so it can't leak into
 				// a LATER fresh play.
 				this.pendingHistory = null;
+				this.pendingManual = null; // quick-260618-fiz (Fix 4): same one-shot discipline
 				void this.primeNext();
 			}
 		} catch (e) {
@@ -1962,6 +1993,39 @@ class Player {
 		this.queueGen++; // WR-06: explicit re-install supersedes any stale in-flight regen/grow
 		this.queue = this.queueWithAnchor([...prefix, ...baseline], seed);
 		this.pendingHistory = null; // consumed
+		// quick-260618-fiz (Fix 4): re-insert the user's explicit manual entries (captured before the
+		// queue wipe) right AFTER the seed, so a fresh-play context switch preserves play-next/
+		// add-to-queue picks while the prior AUTO/context tail (the rest of `baseline`) is replaced by
+		// the per-mode tail build below. Runs in BOTH up-next modes (generated re-runs regenerate's
+		// own manual filter over this woven queue; same-list keeps these after the seed ahead of the
+		// list remainder). Re-reads this.queue at write time (Pitfall 1 — never a closed-over snapshot).
+		this.weaveManualAfterSeed(seed);
+	}
+
+	/**
+	 * quick-260618-fiz (Fix 4): splice the captured explicit-manual entries (pendingManual) into the
+	 * current queue immediately after `seed`, deduped against what is already present and against the
+	 * woven history head (everything up to+including the seed). manualUids stays the provenance
+	 * source; pendingManual just carries the Track objects across the queue wipe. Consumes
+	 * pendingManual. Bumps queueGen so any in-flight regen/grow that snapshotted an earlier gen
+	 * discards (WR-06).
+	 */
+	private weaveManualAfterSeed(seed: Track): void {
+		const carried = this.pendingManual ?? [];
+		this.pendingManual = null; // consumed
+		if (!carried.length) return;
+		const i = this.indexOf(seed);
+		const head = i >= 0 ? this.queue.slice(0, i + 1) : [seed];
+		const tail = i >= 0 ? this.queue.slice(i + 1) : this.queue.filter((t) => t.uid !== seed.uid);
+		const headUids = new Set(head.map((t) => t.uid));
+		// Keep only carried entries still flagged manual, not in the head, and not already in the tail.
+		const tailUids = new Set(tail.map((t) => t.uid));
+		const manual = carried.filter(
+			(t) => this.manualUids.has(t.uid) && !headUids.has(t.uid) && !tailUids.has(t.uid)
+		);
+		if (!manual.length) return;
+		this.queueGen++; // WR-06: explicit re-install supersedes any stale in-flight regen/grow
+		this.queue = this.queueWithAnchor([...head, ...manual, ...tail], seed);
 	}
 
 	/**

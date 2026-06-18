@@ -1637,6 +1637,132 @@ describe('player.queueContext — context-threaded setQueue/playStub (Phase 17 Q
 	});
 });
 
+describe('quick-260618-fiz Fix 4 — explicit queue entries survive a fresh play; auto/context cleared', () => {
+	// Exercise the REAL play() (restore the global spy) with a fake <audio>, mocked resolve. The
+	// manual-provenance carrier (pendingManual) is captured at setQueue/setListQueue time and
+	// re-woven after the seed by weaveFreshHistory; the prior AUTO/context tail is dropped.
+	let el: ReturnType<typeof makeFakeAudio>;
+	const resolved = (s: SourceId, id: string): Track => ({
+		...mk(s, id, 'Artist', 'Song'),
+		audioUrl: `https://cdn/${id}.mp3`
+	});
+
+	beforeEach(() => {
+		(player.play as unknown as { mockRestore(): void }).mockRestore?.();
+		mockEnsure.mockReset();
+		mockSimilar.mockReset().mockResolvedValue([]);
+		mockPicks.mockReset().mockResolvedValue([]);
+		player.current = null;
+		player.queue = [];
+		player.queueContext = null;
+		player.error = null;
+		player.loading = false;
+		(player as unknown as { manualUids: Set<string> }).manualUids.clear();
+		(player as unknown as { pendingManual: Track[] | null }).pendingManual = null;
+		(player as unknown as { pendingHistory: Track[] | null }).pendingHistory = null;
+		vi.stubGlobal('navigator', { onLine: true });
+		el = makeFakeAudio();
+		player.attach(el as unknown as HTMLAudioElement);
+		vi.spyOn(library, 'isDownloaded').mockReturnValue(false);
+		settings.autoExpandOnPlay = false;
+		settings.upnextMode = 'generated';
+		settings.upnextPerContext = {};
+	});
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
+		(player as unknown as { manualUids: Set<string> }).manualUids.clear();
+		(player as unknown as { pendingManual: Track[] | null }).pendingManual = null;
+		(player as unknown as { pendingHistory: Track[] | null }).pendingHistory = null;
+		settings.upnextMode = 'generated';
+		settings.upnextPerContext = {};
+	});
+
+	it("'generated' fresh play preserves a manual entry and drops the prior auto picks", async () => {
+		// Prior queue: [current, autoPickA, manualX, autoPickB]. The user explicitly pins manualX,
+		// then plays a NEW song from a generated list. manualX must survive; autoPickA/B must not.
+		const current = mk('netease', 'CUR', 'A', 'Current');
+		const autoPickA = mk('qq', 'A', 'B', 'AutoA');
+		const manualX = mk('kuwo', 'X', 'C', 'ManualX');
+		const autoPickB = mk('joox', 'B', 'D', 'AutoB');
+		player.current = current;
+		player.queue = [current, autoPickA, manualX, autoPickB];
+		player.addToQueue(manualX); // pin manualX into manualUids (already present → dedupe)
+
+		const newSong = resolved('netease', 'NEW');
+		mockEnsure.mockResolvedValue(newSong);
+		// A 'search' context → global 'generated' default; setListQueue installs the new list.
+		player.setListQueue([newSong], 'search');
+		await player.play(stub('netease', 'NEW', 'Artist', 'Song'), { fresh: true });
+		await flush();
+
+		const uids = player.queue.map((t) => t.uid);
+		expect(uids).toContain(manualX.uid); // explicit pin preserved across the fresh rebuild
+		expect(uids).toContain(newSong.uid); // the new current is in the queue
+		expect(uids).not.toContain(autoPickA.uid); // prior auto/context tail dropped
+		expect(uids).not.toContain(autoPickB.uid);
+		// manualX sits AFTER the new seed (insert-after-current provenance).
+		expect(uids.indexOf(manualX.uid)).toBeGreaterThan(uids.indexOf(newSong.uid));
+	});
+
+	it("'same-list' fresh play still drops stale auto/context entries while keeping the manual one", async () => {
+		const current = mk('netease', 'CUR', 'A', 'Current');
+		const autoPickA = mk('qq', 'A', 'B', 'AutoA');
+		const manualX = mk('kuwo', 'X', 'C', 'ManualX');
+		player.current = current;
+		player.queue = [current, autoPickA, manualX];
+		player.addToQueue(manualX);
+
+		settings.upnextPerContext = { liked: 'same-list' };
+		const newSong: Track = { ...mk('netease', 'NEW', 'NewArtist', 'NewSong'), audioUrl: 'https://cdn/NEW.mp3' };
+		const listMate: Track = { ...mk('qq', 'MATE', 'MateArtist', 'MateSong'), audioUrl: 'https://cdn/MATE.mp3' };
+		mockEnsure.mockResolvedValue(newSong);
+		// same-list install: [newSong, listMate] becomes the snapshot; manualX must re-weave after seed.
+		player.setListQueue([newSong, listMate], 'liked');
+		await player.play(stub('netease', 'NEW', 'NewArtist', 'NewSong'), { fresh: true });
+		await flush();
+
+		const uids = player.queue.map((t) => t.uid);
+		expect(uids).toContain(manualX.uid); // explicit pin survives even in same-list mode
+		expect(uids).toContain(newSong.uid);
+		expect(uids).toContain(listMate.uid); // the same-list snapshot remainder is kept
+		expect(uids).not.toContain(autoPickA.uid); // prior auto/context entry dropped
+		expect(uids.indexOf(manualX.uid)).toBeGreaterThan(uids.indexOf(newSong.uid));
+	});
+
+	it('a NON-fresh advance never rebuilds the queue (no manual re-weave / no auto drop)', async () => {
+		const current = mk('netease', 'CUR', 'A', 'Current');
+		const autoPickA = mk('qq', 'A', 'B', 'AutoA');
+		const next = resolved('kuwo', 'NXT');
+		player.current = current;
+		player.queue = [current, autoPickA, next];
+		const before = player.queue.map((t) => t.uid);
+		mockEnsure.mockResolvedValue(next);
+
+		// Non-fresh play (auto-advance/failover) — no opts.fresh → no weave, queue untouched.
+		await player.play(next);
+		await flush();
+		expect(player.queue.map((t) => t.uid)).toEqual(before);
+	});
+
+	it('weaveManualAfterSeed re-inserts a captured manual entry right after the seed (unit)', () => {
+		// Drive the carrier path directly: pendingManual holds the explicit entry captured pre-wipe.
+		const seed = mk('netease', 'SEED', 'A', 'Seed');
+		const manualX = mk('qq', 'X', 'B', 'ManualX');
+		const listMate = mk('kuwo', 'M', 'C', 'Mate');
+		(player as unknown as { manualUids: Set<string> }).manualUids.add(manualX.uid);
+		player.current = seed;
+		player.queue = [seed, listMate]; // freshly installed list snapshot (manualX wiped from it)
+		(player as unknown as { pendingManual: Track[] | null }).pendingManual = [manualX];
+
+		(player as unknown as { weaveManualAfterSeed(t: Track): void }).weaveManualAfterSeed(seed);
+
+		expect(player.queue.map((t) => t.uid)).toEqual([seed.uid, manualX.uid, listMate.uid]);
+		// carrier consumed
+		expect((player as unknown as { pendingManual: Track[] | null }).pendingManual).toBeNull();
+	});
+});
+
 describe('player.setListQueue — current-anchored queue install (album-and-next-song-bug)', () => {
 	// Regression coverage for the album queue/next-song bug: the album play paths must install the
 	// FULL list as the queue while keeping the now-playing track a MEMBER of it, so up-next is the
