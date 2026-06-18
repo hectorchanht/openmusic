@@ -19,7 +19,21 @@ import { apiFetch } from './api-base';
 // Bump to abandon all previously-cached (possibly poisoned) lyrics translations.
 const CACHE_VER = 'v2';
 
+// TRANSIENT-RESILIENCE (WR / debug:lyric-tr-not-shown-hide-paren): a flaky upstream
+// (Google timeout / rate-limit) makes /api/translate return the ORIGINALS as a fake
+// HTTP-200 success (every line flags=false). Callers can't tell that from a real result,
+// so the lyrics block silently renders untranslated originals ("translation shown
+// nowhere") and — because an incomplete batch is never cached — it recurs every render of
+// that session. We retry a request whose result is INCOMPLETE (some non-blank line fell
+// back) a bounded number of times with short backoff so a single transient blip self-heals
+// instead of becoming the final, silent answer. A genuinely-complete success, an off/empty
+// pass-through, or a cache hit never retries.
+const MAX_TRANSIENT_RETRIES = 2;
+const RETRY_BASE_MS = 350;
+
 const mem = new Map<string, string[]>();
+
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 function hash(s: string): string {
 	let h = 0;
@@ -57,10 +71,46 @@ function purgeStaleLyricsCache() {
 	}
 }
 
+// One round-trip to /api/translate. Returns the aligned output + per-line flags + completeness,
+// or `null` when the request itself threw (transport failure) so the caller can retry. A 200 that
+// echoes the originals (transient upstream soft-fail) is NOT null — it returns with `complete:false`,
+// which the retry loop also treats as transient.
+async function requestOnce(lines: string[], to: string): Promise<TranslateResult | null> {
+	try {
+		const res = await apiFetch('/api/translate', {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ lines, to })
+		});
+		const data = (await res.json()) as { translated?: unknown; flags?: unknown };
+		const aligned = Array.isArray(data.translated) && data.translated.length === lines.length;
+		const out = aligned ? (data.translated as unknown[]).map((x) => String(x)) : lines;
+		const flags = aligned
+			? lines.map((line, i) => {
+					// Prefer the server's per-line signal; otherwise infer (output differs from input).
+					if (Array.isArray(data.flags) && data.flags.length === lines.length) return Boolean(data.flags[i]);
+					return out[i] !== line;
+				})
+			: lines.map(() => false);
+		// A blank line is trivially "complete" (nothing to translate). Persist only when every
+		// non-blank line was genuinely translated — otherwise an echo would poison the cache.
+		const complete = aligned && lines.every((line, i) => !line || flags[i]);
+		return { out, flags, complete };
+	} catch {
+		return null;
+	}
+}
+
 /**
  * Translate `lines` to `to`, returning aligned output + per-line genuine-translation flags.
  * Caches (mem + localStorage) only fully-translated batches so an echo/fallback never poisons
  * the cache. `to === 'off'` or empty input is an identity pass-through (all flags false).
+ *
+ * TRANSIENT-RESILIENCE: a request that throws OR returns an INCOMPLETE batch (a non-blank line
+ * fell back — the signature of a flaky/rate-limited upstream) is retried up to MAX_TRANSIENT_RETRIES
+ * times with short backoff, so one transient blip no longer becomes the silent final answer. The
+ * BEST result across attempts (the most genuinely-translated lines) is returned, so a partial
+ * recovery still surfaces what it could translate.
  */
 export async function translateLinesEx(lines: string[], to: string): Promise<TranslateResult> {
 	if (to === 'off' || !lines.length) return { out: lines, flags: lines.map(() => false), complete: false };
@@ -82,39 +132,35 @@ export async function translateLinesEx(lines: string[], to: string): Promise<Tra
 			/* ignore */
 		}
 	}
-	try {
-		const res = await apiFetch('/api/translate', {
-			method: 'POST',
-			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify({ lines, to })
-		});
-		const data = (await res.json()) as { translated?: unknown; flags?: unknown };
-		const aligned = Array.isArray(data.translated) && data.translated.length === lines.length;
-		const out = aligned ? (data.translated as unknown[]).map((x) => String(x)) : lines;
-		const flags = aligned
-			? lines.map((line, i) => {
-					// Prefer the server's per-line signal; otherwise infer (output differs from input).
-					if (Array.isArray(data.flags) && data.flags.length === lines.length) return Boolean(data.flags[i]);
-					return out[i] !== line;
-				})
-			: lines.map(() => false);
-		// A blank line is trivially "complete" (nothing to translate). Persist only when every
-		// non-blank line was genuinely translated — otherwise an echo would poison the cache.
-		const complete = aligned && lines.every((line, i) => !line || flags[i]);
-		if (complete) {
-			mem.set(key, out);
-			if (browser) {
-				try {
-					localStorage.setItem(key, JSON.stringify(out));
-				} catch {
-					/* quota */
-				}
+
+	// Identity fallback used only if every attempt throws (transport failure on all tries).
+	let best: TranslateResult = { out: lines, flags: lines.map(() => false), complete: false };
+	const score = (r: TranslateResult) => r.flags.reduce((n, f) => n + (f ? 1 : 0), 0);
+	for (let attempt = 0; attempt <= MAX_TRANSIENT_RETRIES; attempt++) {
+		const r = await requestOnce(lines, to);
+		if (r) {
+			if (r.complete) {
+				best = r;
+				break; // fully translated — nothing better to wait for
+			}
+			// Keep whichever attempt translated the most lines (partial recovery still surfaces).
+			if (score(r) >= score(best)) best = r;
+		}
+		// Retry transient failures (threw → r===null) and incomplete soft-fails, with backoff.
+		if (attempt < MAX_TRANSIENT_RETRIES) await sleep(RETRY_BASE_MS * (attempt + 1));
+	}
+
+	if (best.complete) {
+		mem.set(key, best.out);
+		if (browser) {
+			try {
+				localStorage.setItem(key, JSON.stringify(best.out));
+			} catch {
+				/* quota */
 			}
 		}
-		return { out, flags, complete };
-	} catch {
-		return { out: lines, flags: lines.map(() => false), complete: false };
 	}
+	return best;
 }
 
 /**
