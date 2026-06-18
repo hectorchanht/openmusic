@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { settings, FONT_SCALE_MIN, FONT_SCALE_MAX } from './settings.svelte';
 import { UPNEXT_DEFAULTS } from '$lib/config/defaults';
 import { darken } from '$lib/services/color';
+import { migrateDensity } from '$lib/services/home-layout';
 
 /** clampInt is a module-private helper; re-state its exact contract here so the FONT_SCALE
  *  cases assert the load()-path clamp behaviour without exporting internals. Mirrors
@@ -107,14 +108,20 @@ describe('settings.homeSectionDensity (HOME-02 / D-07)', () => {
 		expect(settings.homeSectionDensity).toEqual({});
 	});
 
-	it('a valid stored map loads unchanged', () => {
-		// Mirror the load() guard outcome for a well-formed object value.
-		const stored = { tags: 'comfortable' } as unknown;
-		settings.homeSectionDensity =
-			stored && typeof stored === 'object' && !Array.isArray(stored)
-				? (stored as Record<string, never>)
-				: {};
-		expect(settings.homeSectionDensity).toEqual({ tags: 'comfortable' });
+	it('a valid stored map loads (migrated) — well-formed object value', () => {
+		// Mirror the load() guard + per-entry migration outcome for a well-formed object value.
+		const stored = { tags: 'pile' } as unknown;
+		const migrate = (raw: unknown): Record<string, string> => {
+			if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+			const out: Record<string, string> = {};
+			for (const [k, val] of Object.entries(raw as Record<string, unknown>)) {
+				const m = migrateDensity(val);
+				if (m) out[k] = m;
+			}
+			return out;
+		};
+		settings.homeSectionDensity = migrate(stored) as never;
+		expect(settings.homeSectionDensity).toEqual({ tags: 'pile' });
 	});
 
 	it('a malformed (array/non-object) stored value coerces to {} (object-not-array guard, T-23-06)', () => {
@@ -127,8 +134,28 @@ describe('settings.homeSectionDensity (HOME-02 / D-07)', () => {
 		}
 	});
 
+	// quick-260618-goe — non-destructive migration of the persisted density values. load() is a
+	// no-op under the node project, so we drive the PURE migrateDensity helper directly, mirroring
+	// the load-guard logic (the same helper the store calls).
+	it('migrates a stored homeDensity legacy value: compact → list, comfortable → pile', () => {
+		expect(migrateDensity('compact')).toBe('list');
+		expect(migrateDensity('comfortable')).toBe('pile');
+	});
+
+	it('migrates a stored homeSectionDensity map per-entry (legacy → renamed), dropping garbage', () => {
+		const stored = { tags: 'comfortable', countries: 'compact', bogus: 'nope' } as unknown;
+		const out: Record<string, string> = {};
+		if (stored && typeof stored === 'object' && !Array.isArray(stored)) {
+			for (const [k, val] of Object.entries(stored as Record<string, unknown>)) {
+				const m = migrateDensity(val);
+				if (m) out[k] = m;
+			}
+		}
+		expect(out).toEqual({ tags: 'pile', countries: 'list' });
+	});
+
 	it('resetHome() restores homeSectionDensity to {}', () => {
-		settings.homeSectionDensity = { tags: 'comfortable', countries: 'compact' };
+		settings.homeSectionDensity = { tags: 'pile', countries: 'list' };
 		settings.resetHome();
 		expect(settings.homeSectionDensity).toEqual({});
 	});

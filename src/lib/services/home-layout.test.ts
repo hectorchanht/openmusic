@@ -5,6 +5,7 @@ import {
 	resolveSectionOrder,
 	resolveSubset,
 	resolveSectionDensity,
+	migrateDensity,
 	clampShelfSize,
 	SHELF_MIN,
 	SHELF_MAX,
@@ -211,25 +212,56 @@ describe('LANDING_PATHS', () => {
 // resolveSubset "unknown/garbage → fallback, never blank" posture (threats T-23-06/07): an
 // attacker-influenceable persisted map must never throw and never blank the render — any
 // invalid per-section value (or a missing/undefined map) falls back to the globalDefault. The
-// compact-by-default requirement (D-07) ships by Plan 04 passing 'compact' as globalDefault.
+// list-by-default requirement ships by the home page passing 'list' as globalDefault.
+// quick-260618-goe: density values renamed to 'list' | 'pile' | 'grid'.
 describe('resolveSectionDensity (HOME-02 / D-07)', () => {
 	it('a valid per-section override wins over the global default', () => {
-		expect(resolveSectionDensity('tags', { tags: 'comfortable' }, 'compact')).toBe('comfortable');
+		expect(resolveSectionDensity('tags', { tags: 'pile' }, 'list')).toBe('pile');
+		expect(resolveSectionDensity('tags', { tags: 'grid' }, 'list')).toBe('grid');
 	});
 
 	it('an empty map falls back to the global default', () => {
-		expect(resolveSectionDensity('tags', {}, 'compact')).toBe('compact');
+		expect(resolveSectionDensity('tags', {}, 'list')).toBe('list');
 	});
 
 	it('a garbage per-section value falls back to the global default (never blanks)', () => {
-		expect(resolveSectionDensity('tags', { tags: 'garbage' as never }, 'compact')).toBe('compact');
+		expect(resolveSectionDensity('tags', { tags: 'garbage' as never }, 'list')).toBe('list');
+		// a now-LEGACY value is no longer accepted as a per-section override (migration is a load concern)
+		expect(resolveSectionDensity('tags', { tags: 'compact' as never }, 'list')).toBe('list');
 	});
 
 	it('an undefined map falls back to the global default (never blanks)', () => {
-		expect(resolveSectionDensity('tags', undefined, 'compact')).toBe('compact');
+		expect(resolveSectionDensity('tags', undefined, 'list')).toBe('list');
 	});
 
-	it('honours the global default value passed in (comfortable) when there is no override', () => {
-		expect(resolveSectionDensity('countries', {}, 'comfortable')).toBe('comfortable');
+	it('honours the global default value passed in (pile) when there is no override', () => {
+		expect(resolveSectionDensity('countries', {}, 'pile')).toBe('pile');
+	});
+});
+
+// migrateDensity (quick-260618-goe) — pure non-destructive migration of a persisted density
+// value after the HomeDensity union was renamed. A returning user's old value must resolve to
+// the same visual layout; garbage returns undefined so the caller picks the fallback.
+describe('migrateDensity (quick-260618-goe)', () => {
+	it('maps legacy compact → list', () => {
+		expect(migrateDensity('compact')).toBe('list');
+	});
+
+	it('maps legacy comfortable → pile', () => {
+		expect(migrateDensity('comfortable')).toBe('pile');
+	});
+
+	it('passes through already-new values (list / pile / grid)', () => {
+		expect(migrateDensity('list')).toBe('list');
+		expect(migrateDensity('pile')).toBe('pile');
+		expect(migrateDensity('grid')).toBe('grid');
+	});
+
+	it('returns undefined for garbage / missing / wrong-type (caller decides the fallback)', () => {
+		expect(migrateDensity('garbage')).toBeUndefined();
+		expect(migrateDensity(undefined)).toBeUndefined();
+		expect(migrateDensity(null)).toBeUndefined();
+		expect(migrateDensity(42)).toBeUndefined();
+		expect(migrateDensity({})).toBeUndefined();
 	});
 });

@@ -20,7 +20,7 @@ import {
 // Pure util (no DOM/browser/store imports) — settings stays a LEAF store. Used by
 // applyTheme() to derive --color-primary-hover from the chosen accent (UX-07 root-cause fix).
 import { darken } from '$lib/services/color';
-import { clampShelfSize, type HomeDensity, type HomeLandingTab, type HomeSectionId } from '$lib/services/home-layout';
+import { clampShelfSize, migrateDensity, type HomeDensity, type HomeLandingTab, type HomeSectionId } from '$lib/services/home-layout';
 
 export type LyricsLang =
 	| 'off'
@@ -184,8 +184,9 @@ class Settings {
 	/** Home tile density. */
 	homeDensity = $state<HomeDensity>(HOME_DEFAULTS.homeDensity);
 	/** Per-section density OVERRIDE map (HOME-02 / D-07). Empty/absent → each section uses the
-	 *  caller-supplied global default (Plan 04 passes 'compact'). A per-section entry flips just
-	 *  that section back to comfortable. Object-not-array load guard mirrors enabledSources. */
+	 *  caller-supplied global default (the home page passes 'list'). A per-section entry flips
+	 *  just that section to 'pile'/'grid'. Object-not-array load guard mirrors enabledSources;
+	 *  values are migrated per-entry on load (quick-260618-goe). */
 	homeSectionDensity = $state<Partial<Record<HomeSectionId, HomeDensity>>>({ ...HOME_DEFAULTS.homeSectionDensity });
 	/** Show the search pill on home (default TRUE = today). */
 	homeShowSearchPill = $state<boolean>(HOME_DEFAULTS.homeShowSearchPill);
@@ -294,14 +295,24 @@ class Settings {
 					v.homeLandingTab === 'home' || v.homeLandingTab === 'search' || v.homeLandingTab === 'library'
 						? v.homeLandingTab
 						: HOME_DEFAULTS.homeLandingTab;
-				this.homeDensity = (v.homeDensity as HomeDensity) ?? HOME_DEFAULTS.homeDensity;
+				// quick-260618-goe — non-destructive migration: a returning user's legacy
+				// 'compact'/'comfortable' value resolves to the renamed 'list'/'pile' so their
+				// layout is unchanged; garbage falls back to the default.
+				this.homeDensity = migrateDensity(v.homeDensity) ?? HOME_DEFAULTS.homeDensity;
 				// Per-section density map (HOME-02 / D-07): same object-not-array guard as
-				// enabledSources (T-23-06 — a malformed Array/non-object → safe {}). Per-section
-				// VALUE cleanup happens at render time in resolveSectionDensity.
-				this.homeSectionDensity =
-					v.homeSectionDensity && typeof v.homeSectionDensity === 'object' && !Array.isArray(v.homeSectionDensity)
-						? (v.homeSectionDensity as Partial<Record<HomeSectionId, HomeDensity>>)
-						: {};
+				// enabledSources (T-23-06 — a malformed Array/non-object → safe {}). Each entry is
+				// then migrated through migrateDensity (quick-260618-goe); entries whose value does
+				// not migrate (garbage) are DROPPED so the persisted map is cleaned on next save.
+				this.homeSectionDensity = (() => {
+					const raw = v.homeSectionDensity;
+					if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+					const out: Partial<Record<HomeSectionId, HomeDensity>> = {};
+					for (const [k, val] of Object.entries(raw as Record<string, unknown>)) {
+						const migrated = migrateDensity(val);
+						if (migrated) out[k as HomeSectionId] = migrated;
+					}
+					return out;
+				})();
 				// Booleans default TRUE via nullish-coalescing — NOT `!!v.x`, which would flip
 				// an ABSENT field to false and HIDE the chrome for a returning user (regression).
 				this.homeShowSearchPill = v.homeShowSearchPill ?? HOME_DEFAULTS.homeShowSearchPill;

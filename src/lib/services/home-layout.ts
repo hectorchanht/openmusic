@@ -201,20 +201,27 @@ export function clampShelfSize(n: unknown): number {
 
 // ---- Density + landing tab -------------------------------------------------------------
 
-/** Tile density for the home shelves/grid. */
-export type HomeDensity = 'comfortable' | 'compact';
+/**
+ * Tile density for the home shelves/grid (quick-260618-goe — renamed for developer clarity):
+ *   - 'list' — the stacked compact text rows (the CompactPager columns-of-4). (was 'compact')
+ *   - 'pile' — the larger horizontal cover shelf (the discoveryShelf albumrow). (was 'comfortable')
+ *   - 'grid' — the NEW 3×3 paginated cover grid (HomeGridPager, 9/page · max 3 pages · 27 tiles).
+ */
+export type HomeDensity = 'list' | 'pile' | 'grid';
+
+/** The three valid density values — single source of truth for the load/render guards. */
+export const DENSITY_VALUES = ['list', 'pile', 'grid'] as const;
 
 /**
  * Resolve the EFFECTIVE density for one home section (HOME-02 / D-07). A per-section override
- * wins ONLY when it is exactly 'comfortable' or 'compact'; any other input — a missing key, an
- * undefined map, or a garbage/non-enum value — falls back to `globalDefault`. This mirrors
- * resolveSubset's "unknown/garbage → fallback, never blank" posture so an attacker-influenceable
- * persisted `homeSectionDensity` map can never throw or blank the render (threats T-23-06/07).
+ * wins ONLY when it is exactly one of the three valid values ('list' | 'pile' | 'grid'); any
+ * other input — a missing key, an undefined map, or a garbage/non-enum value — falls back to
+ * `globalDefault`. This mirrors resolveSubset's "unknown/garbage → fallback, never blank" posture
+ * so an attacker-influenceable persisted `homeSectionDensity` map can never throw or blank the
+ * render (threats T-23-06/07).
  *
- * Compact-by-default (D-07 "all compact by default") is achieved by the CALLER passing 'compact'
- * as `globalDefault` (Plan 04 wires this); the persisted `homeDensity` field semantics are
- * unchanged — this resolver only layers a per-section override on top of whatever default the
- * caller chooses.
+ * The list-by-default behaviour is achieved by the CALLER passing 'list' as `globalDefault`;
+ * this resolver only layers a per-section override on top of whatever default the caller chooses.
  */
 export function resolveSectionDensity(
 	sectionId: HomeSectionId,
@@ -222,7 +229,24 @@ export function resolveSectionDensity(
 	globalDefault: HomeDensity
 ): HomeDensity {
 	const v = perSection?.[sectionId];
-	return v === 'comfortable' || v === 'compact' ? v : globalDefault;
+	return DENSITY_VALUES.includes(v as HomeDensity) ? (v as HomeDensity) : globalDefault;
+}
+
+/**
+ * Pure NON-DESTRUCTIVE migration for a persisted density value (quick-260618-goe). The
+ * HomeDensity union was renamed; a returning user's old localStorage values must resolve to
+ * the same visual layout:
+ *   - legacy 'compact'     → 'list'
+ *   - legacy 'comfortable' → 'pile'
+ *   - already-new 'list' / 'pile' / 'grid' → passthrough
+ *   - anything else (missing, garbage, wrong type) → undefined (the caller picks the fallback).
+ * Kept PURE (imports nothing) so the node Vitest project can drive it directly.
+ */
+export function migrateDensity(v: unknown): HomeDensity | undefined {
+	if (v === 'compact') return 'list';
+	if (v === 'comfortable') return 'pile';
+	if (v === 'list' || v === 'pile' || v === 'grid') return v;
+	return undefined;
 }
 /** Which bottom-nav tab the app opens on at `/`. */
 export type HomeLandingTab = 'home' | 'search' | 'library';
