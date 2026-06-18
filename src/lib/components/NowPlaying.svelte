@@ -1173,7 +1173,7 @@
 								     (nextPlayableIndex just routes past it) — render it dimmed with a leading ✗ and branch
 								     the row tap to retry-that-exact-track instead of a fresh play. swipeRemove/longpress/grip
 								     are deliberately untouched so reorder + swipe-remove keep working on a skipped row. -->
-								<button class="row q-row" class:playing={track.uid === player.current?.uid} class:skipped use:swipeRemove={{ onremove: () => player.removeFromQueue(track.uid), enabled: track.uid !== player.current?.uid }} use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openMenu(track); }} onclick={(e) => { (e.currentTarget as HTMLElement)?.blur(); skipped ? player.retryUnplayable(track) : player.play(track); }} title={skipped ? t('nowplaying.skippedRetry') : undefined}>
+								<button class="row q-row" class:playing={track.uid === player.current?.uid} class:skipped use:swipeRemove={{ onremove: () => player.removeFromQueue(track.uid), enabled: track.uid !== player.current?.uid }} use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openMenu(track); }} onclick={(e) => { (e.currentTarget as HTMLElement)?.blur(); skipped ? player.retryUnplayable(track) : player.play(track, {fresh: false}); }} title={skipped ? t('nowplaying.skippedRetry') : undefined}>
 									{#if skipped}<span class="r-skip" aria-hidden="true">✗</span>{/if}
 									<span class="r-title">{names.dnTitle(track.title)}</span>
 									<span class="r-artist">{names.dnArtist(track.artist)}</span>
