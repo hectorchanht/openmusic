@@ -152,8 +152,11 @@
 		}
 	}
 	.art {
-		width: 40px;
-		height: 40px;
+		/* quick-260618-goe (decision #3): scale the compact cover tile with the Cover Size
+		   setting, mirroring how .album/.al-cover in +page.svelte read --cover-scale (applyTheme
+		   sets it on <html>). The crow art previously ignored coverScale entirely. */
+		width: calc(40px * var(--cover-scale, 1));
+		height: calc(40px * var(--cover-scale, 1));
 		border-radius: 6px;
 		background-size: cover;
 		background-position: center;
