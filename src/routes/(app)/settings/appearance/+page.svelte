@@ -204,6 +204,19 @@
             value={settings.coverScale}
             oninput={(e) => setCover(num(e))}
         />
+        <!-- quick-260618-goe (decision #4): live cover-size demo — three mock cover tiles
+             sized off coverScale, the SAME relationship the crow fix now uses. aria-hidden. -->
+        <span class="demo-cap">{t("settings.preview")}</span>
+        <div class="cover-demo" aria-hidden="true">
+            {#each [0, 1, 2] as i (i)}
+                <span
+                    class="cover-demo-tile"
+                    style:width={`${(56 * settings.coverScale) / 100}px`}
+                    style:height={`${(56 * settings.coverScale) / 100}px`}
+                    style:background={`linear-gradient(145deg, hsl(${i * 90 + 200} 55% 38%), hsl(${i * 90 + 240} 55% 22%))`}
+                ></span>
+            {/each}
+        </div>
     </div>
 
     <div class="ctl">
@@ -220,6 +233,18 @@
             value={settings.homeGridCols}
             oninput={(e) => setCols(num(e))}
         />
+        <!-- quick-260618-goe (decision #4): live grid-columns demo — a mock grid whose
+             column count tracks homeGridCols (matches the home .grid var behavior). aria-hidden. -->
+        <span class="demo-cap">{t("settings.preview")}</span>
+        <div
+            class="grid-demo"
+            aria-hidden="true"
+            style:grid-template-columns={`repeat(${settings.homeGridCols}, 1fr)`}
+        >
+            {#each Array(6) as _, i (i)}
+                <span class="grid-demo-cell"></span>
+            {/each}
+        </div>
     </div>
 
     <p class="note">{t("settings.appearanceNote")}</p>
@@ -307,5 +332,43 @@
         color: var(--color-text-muted);
         font-size: 12px;
         margin: 4px 0 0;
+    }
+    /* quick-260618-goe: live preview demos under Cover Size + Home Grid Columns. */
+    .demo-cap {
+        display: block;
+        margin-top: 10px;
+        font-size: 11px;
+        color: var(--color-text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.4px;
+    }
+    .cover-demo {
+        display: flex;
+        align-items: flex-end;
+        gap: 8px;
+        margin-top: 6px;
+    }
+    .cover-demo-tile {
+        display: block;
+        border-radius: var(--radius-md);
+        background-color: var(--color-surface-2);
+        flex: none;
+        transition: width 0.12s ease, height 0.12s ease;
+    }
+    .grid-demo {
+        display: grid;
+        gap: 6px;
+        margin-top: 6px;
+        max-width: 220px;
+    }
+    .grid-demo-cell {
+        aspect-ratio: 1 / 1;
+        border-radius: var(--radius-sm, 6px);
+        background: var(--color-surface-2);
+    }
+    @media (prefers-reduced-motion: reduce) {
+        .cover-demo-tile {
+            transition: none;
+        }
     }
 </style>

@@ -140,6 +140,7 @@ const en = {
 	'settings.coverSize': 'Cover size',
 	'settings.gridColumns': 'Home grid columns',
 	'settings.appearanceNote': 'Sizes apply across the whole app. 100% is the default.',
+	'settings.preview': 'Preview',
 	'settings.clearNameCache': 'Clear name translation cache',
 	'settings.clearCoverCache': 'Clear cover cache',
 	'settings.clearSearchHistory': 'Clear search history',
