@@ -198,7 +198,24 @@
 		// changes mode (closed/half/full) while the same line stays active.
 		const mode = sheetState;
 		if (tab !== 'lyrics' || !autoScroll || idx < 0 || !lyricsEl) return;
-		const el = lyricsEl.querySelectorAll('p')[idx] as HTMLElement | undefined;
+		// quick-260618-t7p Task 2: `idx` (activeLine) is an index into the FULL `lines` array, but the
+		// rendered <p> list is FILTERED when settings.lyricsHideParenLines is ON, so a positional
+		// querySelectorAll('p')[idx] selected the wrong (or out-of-range) element → over-scroll /
+		// off-centre. Each rendered <p> now carries data-i={i} (its FULL-array index), so select the
+		// active line by that index space directly. FALLBACK: when the active line is itself a hidden
+		// paren line (no rendered <p> for that idx), anchor on the nearest rendered line with the
+		// largest data-i <= idx (the previous visible line) so the view still anchors sanely.
+		let el = lyricsEl.querySelector(`p[data-i="${idx}"]`) as HTMLElement | null;
+		if (!el) {
+			let best = -1;
+			for (const p of lyricsEl.querySelectorAll<HTMLElement>('p[data-i]')) {
+				const di = Number(p.dataset.i);
+				if (Number.isFinite(di) && di <= idx && di > best) {
+					best = di;
+					el = p;
+				}
+			}
+		}
 		// Scope the scroll to the bounded .panel container (the overflow-y:auto scroller) and
 		// move it manually — never the ancestor-walking scroll-into-view API, which yanks the
 		// sheet to full in half mode. Compute the line's offset RELATIVE TO the container via rect deltas
@@ -1229,7 +1246,7 @@
 								<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 								<!-- svelte-ignore a11y_no_noninteractive_element_to_interactive_role -->
 								<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-								<p class:active={l.time === activeTime && activeTime >= 0} class:paren={l.fromParen} onclick={() => seekToLine(l)} onkeydown={(e) => seekToLineKey(e, l)} role="button" tabindex="0">
+								<p data-i={i} class:active={l.time === activeTime && activeTime >= 0} class:paren={l.fromParen} onclick={() => seekToLine(l)} onkeydown={(e) => seekToLineKey(e, l)} role="button" tabindex="0">
 									{#if showTr && settings.translateMode === 'replace' && !hideTrForLine}
 										{translated[i]}
 									{:else}
