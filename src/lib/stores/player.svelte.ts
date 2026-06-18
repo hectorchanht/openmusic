@@ -218,6 +218,17 @@ class Player {
 	 *  a per-Track field. */
 	queueContext = $state<QueueContext>(null);
 
+	/** quick-260618-lsw: the uid the Up-Next LIST is anchored to. NowPlaying slices the queue from
+	 *  THIS uid's live index (resolved by findIndex each render), NOT from the live current index —
+	 *  so an auto-advance (which advances `current` but leaves this put) keeps the just-played song
+	 *  in the list; only the now-playing highlight moves down a row. Set ONLY on a fresh user play
+	 *  (`play({fresh})`) and on a new-list install (setQueue/setListQueue/clearQueue); deliberately
+	 *  NOT touched by next()/prev()/auto-advance/failover/manual inserts so the slice start stays put
+	 *  as the highlight moves. PUBLIC because NowPlaying reads it reactively. Session-scoped VIEW
+	 *  anchor — intentionally NOT persisted (a reload re-derives it on the first play; NowPlaying's
+	 *  clamp falls back to the live current index when it is null/absent). */
+	upNextAnchorUid = $state<string | null>(null);
+
 	/** Shuffle on: toggling true randomizes queue tail (current pinned). Off = no auto-shuffle on
 	 * next play, but the already-shuffled queue stays as is (gte: user-specified, no unshuffle). */
 	shuffle = $state(false);
@@ -1231,6 +1242,9 @@ class Player {
 		this.queueGen++; // WR-06: an explicit queue supersedes any in-flight regenerate result
 		this.queue = dedupeBest(tracks, settings.preferredSource);
 		this.queueContext = context;
+		// quick-260618-lsw (LSW-03): a brand-new list is a fresh start — re-anchor the Up-Next list to
+		// the new current (or null when cold) so old played songs do not bleed into the new Up-Next.
+		this.upNextAnchorUid = this.current?.uid ?? null;
 		this.persist();
 	}
 
@@ -1279,6 +1293,8 @@ class Player {
 		this.queueGen++; // WR-06: an explicit queue supersedes any in-flight regenerate result
 		this.queue = this.queueWithAnchor(tracks, current);
 		this.queueContext = context;
+		// quick-260618-lsw (LSW-03): installing a new list re-anchors the Up-Next list to current.
+		this.upNextAnchorUid = current.uid;
 		this.persist();
 	}
 
@@ -1326,6 +1342,9 @@ class Player {
 	 */
 	clearQueue() {
 		this.queue = this.current ? [this.current] : [];
+		// quick-260618-lsw (LSW-03): the list collapses to [current], so the anchor follows the
+		// surviving current (or null when there is none).
+		this.upNextAnchorUid = this.current?.uid ?? null;
 		this.manualUids.clear();
 		this.pendingManual = null; // quick-260618-fiz (Fix 4): drop any uncommitted manual carry too
 		this.unplayableUids.clear(); // PLAY-RESILIENCE: a user queue reset clears the dead-track set too
@@ -1918,6 +1937,11 @@ class Player {
 				// via prev(). weaveFreshHistory bumps queueGen so any stale in-flight regen/grow
 				// discards (WR-06). THEN build the tail per the effective up-next mode.
 				this.weaveFreshHistory(resolved);
+				// quick-260618-lsw (LSW-02 / LSW-01): a fresh click anchors the Up-Next list at the
+				// clicked song so it is the FIRST row. Set AFTER weaveFreshHistory installs the woven
+				// queue so the anchor uid is definitely present in this.queue. Auto-advance (the non-fresh
+				// else branch below) leaves this put so the just-played song stays in the list.
+				this.upNextAnchorUid = resolved.uid;
 				if (settings.effectiveUpnextMode(this.queueContext) === 'generated') {
 					// generated: regenerate (now history-aware) replaces only the tail after the seed.
 					void this.regenerate(resolved).then(() => this.primeNext());
