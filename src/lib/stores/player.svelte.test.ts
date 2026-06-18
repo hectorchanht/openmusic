@@ -555,6 +555,46 @@ describe('player.prefetchNext — pre-resolve next track for gapless-ish play', 
 		expect(player.queue[1].audioUrl).toBeNull(); // still an unresolved stub — resolved later
 	});
 
+	it('quick-260618-fiz Fix 3: ensureAhead seeds the continuation from the CURRENT track via buildSimilarQueue', async () => {
+		const cur = mk('netease', '0', 'Adele', 'Hello');
+		const similarPick = mk('qq', 'S', 'Someone', 'Like You');
+		player.queue = [cur]; // queue.length - i = 1 → within 2 of end → grows
+		player.current = cur;
+		mockSimilar.mockReset().mockResolvedValue([similarPick]);
+		mockPicks.mockReset().mockResolvedValue([mk('kuwo', 'D', 'Diverse', 'Random')]);
+
+		await ensureAhead();
+		await flush();
+
+		// buildSimilarQueue was seeded from the CURRENT (last-played) track, not random picks.
+		expect(mockSimilar).toHaveBeenCalledTimes(1);
+		expect(mockSimilar.mock.calls[0][0]).toBe(cur);
+		// the exclude/`have` set unions the queue uids (so the continuation never duplicates queued songs).
+		const haveArg = mockSimilar.mock.calls[0][1] as Set<string>;
+		expect(haveArg.has(cur.uid)).toBe(true);
+		// similar returned picks → buildDiversePicks (the random fallback) is NOT called.
+		expect(mockPicks).not.toHaveBeenCalled();
+		expect(player.queue.map((t) => t.uid)).toEqual([cur.uid, similarPick.uid]);
+	});
+
+	it('quick-260618-fiz Fix 3: ensureAhead falls back to buildDiversePicks only when buildSimilarQueue is dry', async () => {
+		const cur = mk('netease', '0', 'Obscure', 'Bootleg');
+		const diversePick = mk('kuwo', 'D', 'Diverse', 'Random');
+		player.queue = [cur];
+		player.current = cur;
+		mockSimilar.mockReset().mockResolvedValue([]); // Last.fm + same-artist search both dry
+		mockPicks.mockReset().mockResolvedValue([diversePick]);
+
+		await ensureAhead();
+		await flush();
+
+		// similar seeded first (and from current), then the diverse fallback fired (never-stop).
+		expect(mockSimilar).toHaveBeenCalledTimes(1);
+		expect(mockSimilar.mock.calls[0][0]).toBe(cur);
+		expect(mockPicks).toHaveBeenCalledTimes(1);
+		expect(player.queue.map((t) => t.uid)).toEqual([cur.uid, diversePick.uid]);
+	});
+
 	it('a direct prefetchNext pre-resolves the newly added next track + warms its assets', async () => {
 		const assets = installAssetPreloadMocks();
 		const cur = mk('netease', '0', 'A', 'Now');

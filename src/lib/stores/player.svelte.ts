@@ -1361,7 +1361,16 @@ class Player {
 				// Union removedUids (Phase 17, D-10/QUEUE-02): swiped-away songs stay excluded from the
 				// auto-grow picks, not just from the current queue snapshot.
 				const have = new Set([...this.queue.map((t) => t.uid), ...this.removedUids]);
-				const more = await buildDiversePicks(8, have);
+				// quick-260618-fiz Fix 3: the continuation is seeded from the CURRENT track (the song
+				// playing as the queue empties), per Fix 3 — buildSimilarQueue (artist.getSimilar →
+				// same-artist fallback) is the existing related mechanism; buildDiversePicks is now only
+				// the last-resort fallback. This replaces the old random buildDiversePicks-from-nothing
+				// continuation so an exhausted queue extends from what you were just listening to rather
+				// than from the liked/favorites list or unrelated random picks.
+				let more = await buildSimilarQueue(current, have);
+				// Never-stop invariant (STATE.md Phase 16): if Last.fm is dry AND the same-artist search
+				// yields nothing, fall back to diverse random picks so an obscure-artist queue still grows.
+				if (!more.length) more = await buildDiversePicks(8, have);
 				if (myQueueGen !== this.queueGen) return; // an explicit setQueue/setListQueue superseded
 				if (more.length) this.queue = this.queueWithAnchor([...this.queue, ...more], current);
 			} catch {
