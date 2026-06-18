@@ -124,16 +124,16 @@
 	}
 
 	// Swipe-action commit handlers (UX-04 D-03/D-04) — same semantics as TrackMenu addQueue()/
-	// like(): right = append to queue, left = toggle like. Commit-tier haptic tick + toast (D-17).
+	// playNext(): right = append to queue, left = play next. Commit-tier haptic tick + toast (D-17).
 	function queueTrack(track: Track) {
 		player.addToQueue(track);
 		hapticTick();
 		toast.show(t('toast.addedToQueue'));
 	}
-	function likeTrack(track: Track) {
-		library.toggleLike(track);
+	function nextTrack(track: Track) {
+		player.playNext(track);
 		hapticTick();
-		toast.show(library.isLiked(track.uid) ? t('toast.liked') : t('toast.unliked'));
+		toast.show(t('toast.playingNext'));
 	}
 
 	function playArtistRandom() {
@@ -487,7 +487,7 @@
 			<ul class="list">
 				{#each songs.slice(0, 30) as track, i (track.uid)}
 					<li>
-						<button class="row" use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); menuTrack = track; menuOpen = true; }} use:swipeAction={{ onSwipeRight: () => queueTrack(track), onSwipeLeft: () => likeTrack(track) }} onclick={() => { player.setListQueue(songs, 'artist'); player.play(track, { fresh: true }); }}>
+						<button class="row" use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); menuTrack = track; menuOpen = true; }} use:swipeAction={{ onSwipeRight: () => queueTrack(track), onSwipeLeft: () => nextTrack(track) }} onclick={() => { player.setListQueue(songs, 'artist'); player.play(track, { fresh: true }); }}>
 							<span class="rank">{i + 1}</span>
 							<span class="art" use:lazyCover={{ track, onResolved: onCoverResolved }} style:background-image={(resolvedCovers[track.uid] ?? track.cover) ? `url(${resolvedCovers[track.uid] ?? track.cover})` : fallbackCover(track)}></span>
 							<span class="meta">

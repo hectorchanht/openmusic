@@ -24,29 +24,28 @@
 	import { searchHistory } from '$lib/stores/searchHistory.svelte';
 	import { online } from '$lib/stores/online.svelte';
 	import { t } from '$lib/i18n';
-	import { LoaderCircle, ListEnd, Heart } from '@lucide/svelte';
+	import { LoaderCircle, ListEnd, ListStart } from '@lucide/svelte';
 	import { longpress } from '$lib/actions/longpress';
 	import { swipeAction } from '$lib/actions/swipeAction';
 	import { dragScroll } from '$lib/actions/dragScroll';
-	import { library } from '$lib/stores/library.svelte';
 	import { toast } from '$lib/stores/toast.svelte';
 	import { tick as hapticTick } from '$lib/util/haptics';
 	import TrackMenu from '$lib/components/TrackMenu.svelte';
 	import type { Track } from '$lib/sources/types';
 
 	// UX-04 / D-03/D-04: swipe-right = add to queue (TrackMenu addQueue semantics — append to
-	// end via player.addToQueue), swipe-left = toggle like (TrackMenu like() semantics). Both fire
-	// the global toast + a commit-tier haptic tick. The reveal layer renders BEHIND the row and the
-	// row's translateX (driven by swipeAction) slides to expose it; the row springs back on release.
+	// end via player.addToQueue), swipe-left = play next (TrackMenu playNext() semantics — splice
+	// after current via player.playNext). Both fire the global toast + a commit-tier haptic tick.
+	// The reveal layer renders BEHIND the row and the row's translateX (driven by swipeAction)
+	// slides to expose it; the row springs back on release.
 	function swipeQueue(track: Track) {
 		player.addToQueue(track);
 		toast.show(t('toast.addedToQueue'));
 		hapticTick();
 	}
-	function swipeLike(track: Track) {
-		const wasLiked = library.isLiked(track.uid);
-		library.toggleLike(track);
-		toast.show(wasLiked ? t('toast.unliked') : t('toast.liked'));
+	function swipeNext(track: Track) {
+		player.playNext(track);
+		toast.show(t('toast.playingNext'));
 		hapticTick();
 	}
 
@@ -563,13 +562,13 @@
 				     exposes the right-anchored like affordance. aria-hidden — the equivalent actions stay
 				     reachable via the long-press TrackMenu (swipe is an enhancement). -->
 				<span class="reveal reveal-queue" aria-hidden="true"><ListEnd size={20} /></span>
-				<span class="reveal reveal-like" aria-hidden="true"><Heart size={20} fill={library.isLiked(t.uid) ? 'currentColor' : 'none'} /></span>
+				<span class="reveal reveal-next" aria-hidden="true"><ListStart size={20} /></span>
 				<button
 					class="row"
 					use:longpress
 					onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); menuTrack = t; menuOpen = true; }}
 					onclick={() => { player.setListQueue(results, 'search'); player.play(t, { fresh: true }); }}
-					use:swipeAction={{ onSwipeRight: () => swipeQueue(t), onSwipeLeft: () => swipeLike(t) }}
+					use:swipeAction={{ onSwipeRight: () => swipeQueue(t), onSwipeLeft: () => swipeNext(t) }}
 				>
 					<span
 						class="art"
@@ -672,10 +671,10 @@
 		position: absolute; top: 0; bottom: 0; width: 96px; display: flex; align-items: center;
 		justify-content: center; color: #fff; pointer-events: none;
 	}
-	/* Right-drag (queue, --color-primary) reveals from the LEFT edge; left-drag (like,
-	   --src-netease unlike field) reveals from the RIGHT edge — matching the drag direction. */
+	/* Right-drag (queue, --color-primary) reveals from the LEFT edge; left-drag (play-next,
+	   --src-netease field) reveals from the RIGHT edge — matching the drag direction. */
 	.reveal-queue { left: 0; background: var(--color-primary); }
-	.reveal-like { right: 0; background: var(--src-netease); }
+	.reveal-next { right: 0; background: var(--src-netease); }
 	.row {
 		width: 100%; display: flex; align-items: center; gap: 12px; padding: 8px;
 		background: var(--color-bg); position: relative; z-index: 1;

@@ -3,7 +3,7 @@
 	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import { Heart, ListMusic, Download, Trash2, Play, Clock, Pencil, Check, Users, ListEnd } from '@lucide/svelte';
+	import { Heart, ListMusic, Download, Trash2, Play, Clock, Pencil, Check, Users, ListEnd, ListStart } from '@lucide/svelte';
 	import { library } from '$lib/stores/library.svelte';
 	import { history } from '$lib/stores/history.svelte';
 	import { player } from '$lib/stores/player.svelte';
@@ -22,18 +22,17 @@
 	import type { QueueContext } from '$lib/config/defaults';
 
 	// UX-04 / D-03/D-04: swipe-right = add to queue (player.addToQueue, append-to-end), swipe-left
-	// = toggle like (library.toggleLike) — same semantics as TrackMenu, plus the global toast + a
-	// commit-tier haptic tick. Wired on the TRACK rows only (liked/downloads/history/playlist-detail);
-	// fav-artist + playlist-folder rows are not tracks and get no swipe.
+	// = play next (player.playNext, splice-after-current) — same semantics as TrackMenu, plus the
+	// global toast + a commit-tier haptic tick. Wired on the TRACK rows only (liked/downloads/
+	// history/playlist-detail); fav-artist + playlist-folder rows are not tracks and get no swipe.
 	function swipeQueue(track: Track) {
 		player.addToQueue(track);
 		toast.show(t('toast.addedToQueue'));
 		hapticTick();
 	}
-	function swipeLike(track: Track) {
-		const wasLiked = library.isLiked(track.uid);
-		library.toggleLike(track);
-		toast.show(wasLiked ? t('toast.unliked') : t('toast.liked'));
+	function swipeNext(track: Track) {
+		player.playNext(track);
+		toast.show(t('toast.playingNext'));
 		hapticTick();
 	}
 
@@ -217,8 +216,8 @@
 			{#each library.liked as track (track.uid)}
 				<li class="swipe-wrap">
 					<span class="reveal reveal-queue" aria-hidden="true"><ListEnd size={20} /></span>
-					<span class="reveal reveal-like" aria-hidden="true"><Heart size={20} fill={library.isLiked(track.uid) ? 'currentColor' : 'none'} /></span>
-					<button class="row" class:edit-row={editMode} use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openMenu(track); }} onclick={() => rowAction(track, library.liked)} use:swipeAction={{ onSwipeRight: () => swipeQueue(track), onSwipeLeft: () => swipeLike(track) }}>
+					<span class="reveal reveal-next" aria-hidden="true"><ListStart size={20} /></span>
+					<button class="row" class:edit-row={editMode} use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openMenu(track); }} onclick={() => rowAction(track, library.liked)} use:swipeAction={{ onSwipeRight: () => swipeQueue(track), onSwipeLeft: () => swipeNext(track) }}>
 						<span class="art" use:lazyCover={{ track, onResolved: onCoverResolved }} style:background-image={(resolvedCovers[track.uid] ?? track.cover) ? `url(${resolvedCovers[track.uid] ?? track.cover})` : fallbackCover(track)}></span>
 						<span class="meta"><span class="r-title">{names.dnTitle(track.title)}</span><span class="r-sub">{names.dnArtist(track.artist)}</span></span>
 						{#if editMode}<Trash2 size={16} />{:else}<Play size={16} />{/if}
@@ -247,8 +246,8 @@
 						{#each pl.tracks as track (track.uid)}
 							<li class="swipe-wrap">
 								<span class="reveal reveal-queue" aria-hidden="true"><ListEnd size={20} /></span>
-								<span class="reveal reveal-like" aria-hidden="true"><Heart size={20} fill={library.isLiked(track.uid) ? 'currentColor' : 'none'} /></span>
-								<button class="row" class:edit-row={editMode} use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openMenu(track); }} onclick={() => rowAction(track, pl.tracks, pl.id)} use:swipeAction={{ onSwipeRight: () => swipeQueue(track), onSwipeLeft: () => swipeLike(track) }}>
+								<span class="reveal reveal-next" aria-hidden="true"><ListStart size={20} /></span>
+								<button class="row" class:edit-row={editMode} use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openMenu(track); }} onclick={() => rowAction(track, pl.tracks, pl.id)} use:swipeAction={{ onSwipeRight: () => swipeQueue(track), onSwipeLeft: () => swipeNext(track) }}>
 									<span class="art" use:lazyCover={{ track, onResolved: onCoverResolved }} style:background-image={(resolvedCovers[track.uid] ?? track.cover) ? `url(${resolvedCovers[track.uid] ?? track.cover})` : fallbackCover(track)}></span>
 									<span class="meta"><span class="r-title">{names.dnTitle(track.title)}</span><span class="r-sub">{names.dnArtist(track.artist)}</span></span>
 									{#if editMode}<Trash2 size={16} />{:else}<Play size={16} />{/if}
@@ -266,8 +265,8 @@
 			{#each library.downloads as track (track.uid)}
 				<li class="swipe-wrap">
 					<span class="reveal reveal-queue" aria-hidden="true"><ListEnd size={20} /></span>
-					<span class="reveal reveal-like" aria-hidden="true"><Heart size={20} fill={library.isLiked(track.uid) ? 'currentColor' : 'none'} /></span>
-					<button class="row" class:edit-row={editMode} use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openMenu(track); }} onclick={() => rowAction(track, library.downloads)} use:swipeAction={{ onSwipeRight: () => swipeQueue(track), onSwipeLeft: () => swipeLike(track) }}>
+					<span class="reveal reveal-next" aria-hidden="true"><ListStart size={20} /></span>
+					<button class="row" class:edit-row={editMode} use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openMenu(track); }} onclick={() => rowAction(track, library.downloads)} use:swipeAction={{ onSwipeRight: () => swipeQueue(track), onSwipeLeft: () => swipeNext(track) }}>
 						<span class="art" use:lazyCover={{ track, onResolved: onCoverResolved }} style:background-image={(resolvedCovers[track.uid] ?? track.cover) ? `url(${resolvedCovers[track.uid] ?? track.cover})` : fallbackCover(track)}></span>
 						<span class="meta"><span class="r-title">{names.dnTitle(track.title)}</span><span class="r-sub">{names.dnArtist(track.artist)}</span></span>
 						{#if editMode}<Trash2 size={16} />{:else}<Play size={16} />{/if}
@@ -299,8 +298,8 @@
 				{@const track = entry as Track}
 				<li class="swipe-wrap">
 					<span class="reveal reveal-queue" aria-hidden="true"><ListEnd size={20} /></span>
-					<span class="reveal reveal-like" aria-hidden="true"><Heart size={20} fill={library.isLiked(track.uid) ? 'currentColor' : 'none'} /></span>
-					<button class="row" use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openMenu(track); }} onclick={() => playEntry(track)} use:swipeAction={{ onSwipeRight: () => swipeQueue(track), onSwipeLeft: () => swipeLike(track) }}>
+					<span class="reveal reveal-next" aria-hidden="true"><ListStart size={20} /></span>
+					<button class="row" use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openMenu(track); }} onclick={() => playEntry(track)} use:swipeAction={{ onSwipeRight: () => swipeQueue(track), onSwipeLeft: () => swipeNext(track) }}>
 						<span class="art" use:lazyCover={{ track, onResolved: onCoverResolved }} style:background-image={(resolvedCovers[track.uid] ?? track.cover) ? `url(${resolvedCovers[track.uid] ?? track.cover})` : fallbackCover(track)}></span>
 						<span class="meta"><span class="r-title">{names.dnTitle(track.title)}</span><span class="r-sub">{names.dnArtist(track.artist)}</span></span>
 						<Play size={16} />
@@ -336,7 +335,7 @@
 		justify-content: center; color: #fff; pointer-events: none;
 	}
 	.reveal-queue { left: 0; background: var(--color-primary); }
-	.reveal-like { right: 0; background: var(--src-netease); }
+	.reveal-next { right: 0; background: var(--src-netease); }
 	.row { width: 100%; text-align: left; background: var(--color-bg); position: relative; z-index: 1; border: none; padding: 8px; border-radius: 10px; cursor: pointer; display: flex; align-items: center; gap: 12px; color: var(--color-text); }
 	/* MENU-03 / D-12: hover-capable devices only — touch otherwise latches this :hover
 	   background on a row under a held finger while the track menu opens. */
