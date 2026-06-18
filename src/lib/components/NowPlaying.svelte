@@ -235,7 +235,16 @@
 		const skip = settings.lyricsSkip;
 		const t = player.current;
 		const n = lines.length;
-		if (tab !== 'lyrics' || rawLang === 'off' || !n || !t) return;
+		if (tab !== 'lyrics' || rawLang === 'off' || !n || !t) {
+			// quick-260618-fiz Fix 1: flipping INTO a no-translate state (lyricsLang → 'off', leaving
+			// the lyrics tab, or losing the track/lines) must drop any stale translations immediately
+			// rather than leaving the previous song's output rendered until the next translate round.
+			// Reset trKey too so re-entering the active state re-runs the translation from scratch.
+			if (translated.length) translated = [];
+			if (translating) translating = false;
+			trKey = '';
+			return;
+		}
 		// Per-line whitelist: only the lines whose detected source is NOT whitelisted (and
 		// is not already in the target) get sent to /api/translate. Skipped lines keep
 		// their ORIGINAL text in the corresponding output slot so index alignment +
@@ -248,6 +257,10 @@
 		// length comparison (translated.length === lines.length) — when the new track happens to
 		// have the same line count, the old song's translations would otherwise render under the
 		// new lyrics for the whole translate round-trip (and fully REPLACE them in replace mode).
+		// quick-260618-fiz Fix 1: this synchronous clear ALSO makes a lyricsSkip/lyricsLang toggle
+		// re-derive the CURRENT song's lyrics immediately — the key includes skip+lang, so flipping
+		// either changes the key, drops the now-stale output here, and re-translates without a song
+		// change (the "only applies to the next song" symptom was render staleness, not a dead effect).
 		translated = [];
 		translating = true;
 		const sendIdx: number[] = [];
@@ -262,9 +275,17 @@
 			const pos = sendIdx.indexOf(i);
 			return pos === -1 ? l.text : (out[pos] ?? l.text);
 		});
-		// Nothing to translate (every line whitelisted/already-target): keep originals.
-		const work = sendText.length ? translateLines(sendText, lang) : Promise.resolve([] as string[]);
-		work
+		// quick-260618-fiz Fix 1: the all-whitelisted case (every line skipped / already target →
+		// sendText.length === 0) resolves to the aligned ORIGINALS. Set it SYNCHRONOUSLY (stitch([])
+		// maps each line to its own text) rather than waiting on a resolved-empty promise, so showTr
+		// (translated.length === lines.length) stays true the instant the user whitelists the last
+		// source — the originals render immediately instead of flashing untranslated for a microtask.
+		if (!sendText.length) {
+			translated = stitch([]);
+			translating = false;
+			return;
+		}
+		translateLines(sendText, lang)
 			.then((out) => { if (trKey === key) translated = stitch(out); })
 			.catch(() => { if (trKey === key) translated = []; })
 			.finally(() => { if (trKey === key) translating = false; });
