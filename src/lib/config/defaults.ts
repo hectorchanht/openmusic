@@ -111,7 +111,7 @@ export const UPNEXT_DEFAULTS = {
 	 * Per-context overrides. `album` resolves to 'same-list' (curated, ordered collections —
 	 * users expect "play the rest of the album"); every other context resolves to the global `mode`.
 	 */
-	perContext: { album: 'same-list' } as Partial<Record<Exclude<QueueContext, null>, UpnextMode>>
+	perContext: { album: 'same-list', artist: 'same-list' } as Partial<Record<Exclude<QueueContext, null>, UpnextMode>>
 } as const;
 
 // ---- Home layout -----------------------------------------------------------------------
@@ -124,7 +124,7 @@ export const HOME_DEFAULTS = {
 	homeCountries: [...DEFAULT_HOME_COUNTRIES] as string[],
 	homeShelfSize: SHELF_DEFAULT,
 	homeLandingTab: 'home' as HomeLandingTab,
-	homeDensity: 'pile' as HomeDensity,
+	homeDensity: 'grid' as HomeDensity,
 	/** Per-section density OVERRIDE map (HOME-02 / D-07). Empty = every section uses the
 	 *  caller-supplied global default (the home page passes 'list' for list-by-default). A
 	 *  per-section entry flips just that section; resolved via resolveSectionDensity. */
