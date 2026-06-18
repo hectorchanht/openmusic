@@ -394,12 +394,21 @@
 	// next() (D-03 — NO new advance fn); the store swap re-derives ci/prevCover/nextCover and the
 	// strip repaints the committed neighbor as the new current cell.
 	const ci = $derived(player.queue.findIndex((tk) => tk.uid === player.current?.uid));
-	// quick-260618-ink (tweak 1): the Up-Next LIST renders from the current track forward so the new
-	// current song is the first visible row. The STORE keeps woven history BEFORE current in
-	// player.queue (260615-i9u: for prev()/the cover carousel) — this slice is VIEW-ONLY. If current is
-	// not in the queue (cold/edge), start at 0 so the whole queue still renders (no regression).
-	const upNextStart = $derived(ci >= 0 ? ci : 0);
-	const upNextList = $derived(player.queue.slice(upNextStart)); // [current, ...manual, ...tail]
+	// quick-260618-lsw: the Up-Next LIST slices from the ANCHOR's live index, NOT from the live
+	// current index `ci`. The store sets upNextAnchorUid ONLY on a fresh play / new-list install, so
+	// an auto-advance (which advances `current`/`ci` but leaves the anchor put) keeps the just-played
+	// song in the list — only the `.q-row.playing` highlight (keyed off the live current) moves down.
+	// The findIndex-by-uid each render keeps the anchor correct across drag-reorder and removals (the
+	// row moves with its uid). CLAMP: if the anchor uid is gone from the queue (removed) or never set
+	// (cold/restore), fall back to the live current index `ci` (the 260618-ink behavior) so the list
+	// still renders with current first and never goes blank.
+	const anchorIdx = $derived(
+		player.upNextAnchorUid
+			? player.queue.findIndex((tk) => tk.uid === player.upNextAnchorUid)
+			: -1
+	);
+	const upNextStart = $derived(anchorIdx >= 0 ? anchorIdx : ci >= 0 ? ci : 0);
+	const upNextList = $derived(player.queue.slice(upNextStart)); // [anchor, ...current, ...tail]
 	const prevCover = $derived(ci > 0 ? player.queue[ci - 1] : null);
 	const nextCover = $derived(ci >= 0 && ci + 1 < player.queue.length ? player.queue[ci + 1] : null);
 	// hasPrev is false at the first queued track; player.prev() restarts the song when currentTime
