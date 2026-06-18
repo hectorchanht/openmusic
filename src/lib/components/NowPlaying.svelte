@@ -1251,7 +1251,7 @@
 										{translated[i]}
 									{:else}
 										{l.text}
-										{#if showTr && !hideTrForLine}<span class="tr">{translated[i]}</span>{/if}
+										{#if showTr && !hideTrForLine}<span class="tr" class:active={l.time === activeTime && activeTime >= 0}>{translated[i]}</span>{/if}
 									{/if}
 								</p>
 							{/if}
@@ -1508,6 +1508,12 @@
 	   reader can tell "this is the embedded-translation part" at a glance. */
 	.lyrics p.paren { font-size: calc(0.9rem * var(--fs-lyrics, 1)); opacity: 0.85; }
 	.lyrics .tr { display: block; font-size: 0.82em; font-weight: 400; color: var(--color-text-muted); margin-top: 2px; }
+	/* quick-260618-t7p Task 3: the per-line translation inside an active line is a CHILD .tr span, so
+	   .lyrics p.active (which only restyles the <p>'s own color/weight) does not reach it and the base
+	   .lyrics .tr pins a muted color/weight 400 — the translation stayed un-highlighted while its parent
+	   line was active. Mirror the active-line emphasis (same tokens as .lyrics p.active) so the active
+	   moment's translation reads as highlighted in lockstep with the original. */
+	.lyrics .tr.active { color: var(--color-text); font-weight: 700; }
 	/* D-11/LYR-03: end spacer — height is set inline from spacerH (≈ half the visible band) so the
 	   last lines can reach the vertical center. flex-shrink:0 keeps it from collapsing inside the
 	   flex column. */
