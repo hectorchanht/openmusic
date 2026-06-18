@@ -394,6 +394,12 @@
 	// next() (D-03 — NO new advance fn); the store swap re-derives ci/prevCover/nextCover and the
 	// strip repaints the committed neighbor as the new current cell.
 	const ci = $derived(player.queue.findIndex((tk) => tk.uid === player.current?.uid));
+	// quick-260618-ink (tweak 1): the Up-Next LIST renders from the current track forward so the new
+	// current song is the first visible row. The STORE keeps woven history BEFORE current in
+	// player.queue (260615-i9u: for prev()/the cover carousel) — this slice is VIEW-ONLY. If current is
+	// not in the queue (cold/edge), start at 0 so the whole queue still renders (no regression).
+	const upNextStart = $derived(ci >= 0 ? ci : 0);
+	const upNextList = $derived(player.queue.slice(upNextStart)); // [current, ...manual, ...tail]
 	const prevCover = $derived(ci > 0 ? player.queue[ci - 1] : null);
 	const nextCover = $derived(ci >= 0 && ci + 1 < player.queue.length ? player.queue[ci + 1] : null);
 	// hasPrev is false at the first queued track; player.prev() restarts the song when currentTime
@@ -897,7 +903,9 @@
 	}
 	function gripDragUp() {
 		if (dragFrom < 0) return;
-		if (dragOver >= 0 && dragOver !== dragFrom) player.reorderQueue(dragFrom, dragOver);
+		// list is sliced from current (upNextStart); reorderQueue needs queue-absolute indices.
+		if (dragOver >= 0 && dragOver !== dragFrom)
+			player.reorderQueue(dragFrom + upNextStart, dragOver + upNextStart);
 		dragFrom = -1;
 		dragOver = -1;
 		rowDragY = 0;
@@ -1109,9 +1117,9 @@
 
 		<div class="panel">
 			{#if tab === 'queue'}
-				{#if player.queue.length}
+				{#if upNextList.length}
 					<ul class="list" bind:this={queueListEl}>
-						{#each player.queue as track, i (track.uid)}
+						{#each upNextList as track, i (track.uid)}
 							{@const skipped = player.isUnplayable(track.uid)}
 							<li
 								class:lifted={i === dragFrom}
