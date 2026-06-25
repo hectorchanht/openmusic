@@ -3,7 +3,7 @@
 	import { fly, fade } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
 	import { goto } from '$app/navigation';
-	import { ChevronDown, MoreVertical, Heart, SkipBack, SkipForward, Play, Pause, Repeat, Repeat1, GripVertical, Moon } from '@lucide/svelte';
+	import { ChevronDown, MoreVertical, Heart, SkipBack, SkipForward, Play, Pause, Repeat, Repeat1, GripVertical, Moon, ListEnd, ListStart } from '@lucide/svelte';
 	import { player, fmtTime } from '$lib/stores/player.svelte';
 	import { sleepTimer } from '$lib/stores/sleepTimer.svelte';
 	import { settings, effectiveTarget } from '$lib/stores/settings.svelte';
@@ -19,6 +19,7 @@
 	import { longpress } from '$lib/actions/longpress';
 	import { marquee } from '$lib/actions/marquee';
 	import { swipeRemove } from '$lib/actions/swipeRemove';
+	import { swipeAction } from '$lib/actions/swipeAction';
 	import { coverSwipe } from '$lib/actions/coverSwipe';
 	import { focusTrap } from '$lib/actions/focusTrap';
 	import { toast } from '$lib/stores/toast.svelte';
@@ -462,6 +463,20 @@
 		if (!name) return;
 		player.collapse();
 		goto(`/artist/${encodeURIComponent(name)}`);
+	}
+
+	// quick-260625-pzs-02: swipe-to-queue on the Related list, mirroring search/+page.svelte:41-50.
+	// swipe-right = add to queue (D-03), swipe-left = play next (D-04). Reuses the shared swipeAction
+	// (tap-preserving + vertical-yielding) so tap-to-play and long-press menu keep working.
+	function relatedSwipeQueue(track: Track) {
+		player.addToQueue(track);
+		toast.show(t('toast.addedToQueue'));
+		hapticTick();
+	}
+	function relatedSwipeNext(track: Track) {
+		player.playNext(track);
+		toast.show(t('toast.playingNext'));
+		hapticTick();
 	}
 
 	// ---- back-gesture: NowPlaying only renders while player.expanded, so mount == overlay
@@ -1250,7 +1265,14 @@
 				{#if related.length}
 					<ul class="list">
 						{#each related as track (track.uid)}
-							<li><button class="row" use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openMenu(track); }} onclick={() => player.play(track, { fresh: true })}><span class="r-title">{names.dnTitle(track.title)}</span><span class="r-artist">{names.dnArtist(track.artist)}</span></button></li>
+							<!-- quick-260625-pzs-02: reveal layers sit BEHIND the row; the row translateX
+							     (use:swipeAction) slides to expose them. Right-drag → queue, left-drag → play
+							     next. aria-hidden (the same actions stay reachable via the long-press menu). -->
+							<li class="swipe-wrap related-swipe">
+								<span class="reveal reveal-queue" aria-hidden="true"><ListEnd size={20} /></span>
+								<span class="reveal reveal-next" aria-hidden="true"><ListStart size={20} /></span>
+								<button class="row" use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openMenu(track); }} onclick={() => player.play(track, { fresh: true })} use:swipeAction={{ onSwipeRight: () => relatedSwipeQueue(track), onSwipeLeft: () => relatedSwipeNext(track) }}><span class="r-title">{names.dnTitle(track.title)}</span><span class="r-artist">{names.dnArtist(track.artist)}</span></button>
+							</li>
 						{/each}
 					</ul>
 				{:else if relatedLoading}
@@ -1462,6 +1484,19 @@
 	.panel { flex: 1; overflow-y: auto; overscroll-behavior-y: contain; overflow-anchor: none; }
 	.list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
 	.row { width: 100%; text-align: left; background: none; border: none; padding: 8px 6px; border-radius: 8px; cursor: pointer; display: flex; flex-direction: column; }
+	/* quick-260625-pzs-02: swipe-to-queue on the RELATED list only (mirrors search/+page.svelte:669-677).
+	   The reveal spans sit BEHIND the row; the row's translateX (use:swipeAction) slides to expose the
+	   correct side. The related .row is normally transparent, so it gets an opaque bg + z-index here so
+	   the reveal stays masked at rest and clipped during travel. The Up-Next list (use:swipeRemove) is
+	   untouched. */
+	.related-swipe { position: relative; overflow: hidden; border-radius: 10px; }
+	.related-swipe .reveal {
+		position: absolute; top: 0; bottom: 0; width: 96px; display: flex; align-items: center;
+		justify-content: center; color: #fff; pointer-events: none;
+	}
+	.related-swipe .reveal-queue { left: 0; background: var(--color-primary); }
+	.related-swipe .reveal-next { right: 0; background: var(--src-netease); }
+	.related-swipe .row { position: relative; z-index: 1; background: var(--color-bg); }
 	/* MENU-03 / D-12: hover-capable devices only — touch otherwise latches this :hover
 	   background on a queue/related row under a held finger while the track menu opens. */
 	@media (hover: hover) { .row:hover { background: var(--color-surface); } }
