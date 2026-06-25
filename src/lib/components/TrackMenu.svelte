@@ -92,23 +92,62 @@
 		overlays.navigateAway(() => goto(dest));
 	}
 
+	// quick-260625-pzs-04: does the currently-playing track's already-resolved quality satisfy the
+	// requested DOWNLOAD tier? If so we can reuse its URL for the download instead of forcing a second
+	// concurrent resolve of the same song (T-pzs-02). Conservative: only reuse when we are confident
+	// the streamed quality already meets/exceeds the wanted tier.
+	//   - 'auto'     → any resolved URL is acceptable
+	//   - '320'/'128'→ any resolved stream (320k or lossless) meets/exceeds the tier
+	//   - 'lossless' → reuse ONLY when the current stream is already lossless; otherwise re-resolve
+	function currentQualityMeets(curQuality: string | null, want: typeof settings.downloadQuality): boolean {
+		if (want === 'auto' || want === '320' || want === '128') return true;
+		// want === 'lossless'
+		return (curQuality ?? '').toLowerCase() === 'lossless';
+	}
+
 	// Gated run callback (D-02): invoked by gated('download', …) with the resolved track. The gate
 	// guarantees `resolved.audioUrl` is present before we get here, but Download re-resolves at the
 	// user's DOWNLOAD quality (separate from the streaming default the gate resolved at).
 	async function doDownload(resolved: Track) {
 		onclose();
 		toast.show(t('toast.preparingDownload'));
-		// Re-resolve at the user's DOWNLOAD quality (separate from the streaming default).
-		// WR-07: the tier is threaded through ensureTrackDetails as an explicit per-call
-		// parameter — never the old temporary settings.defaultQuality swap, which raced
-		// concurrent playback resolves and could be persisted by a mid-window save().
-		// Force a fresh resolve (clear cached details on a COPY — the queue track is left
-		// untouched).
-		const r: Track = await ensureTrackDetails(
-			{ ...resolved, detailsLoaded: false, audioUrl: null, lrc: null },
-			undefined,
-			settings.downloadQuality
-		).catch(() => resolved);
+		// quick-260625-pzs-04 — DOWNLOAD ISOLATION CONTRACT: this function must NOT touch the player.
+		// It must never assign to player.current, never null/clear player.current.lrc, never call any
+		// player lyric-refill path, never bump player.playGen, and never reuse the shared <audio>
+		// element. It re-resolves/fetches on COPIES + its own fetch() only. The library.addDownload(r)
+		// below mutates the LIBRARY downloads list (the intended download effect — NOT player state).
+		//
+		// T-pzs-02: when the song being downloaded IS the currently-playing track AND its audio is
+		// already resolved at an acceptable quality, REUSE that resolved URL/details instead of forcing
+		// a second concurrent DOWNLOAD-quality resolve of the same song. A duplicate resolve + the blob
+		// fetch saturate the shared CDN and have caused a stale-URL audio error → lyrics wipe on the
+		// active track (player.svelte.ts:474-475). For a NON-current track the re-resolve is harmless
+		// (different song, separate copy) so it is kept.
+		let r: Track;
+		const cur = player.current;
+		const reuseCurrent =
+			cur != null &&
+			cur.uid === resolved.uid &&
+			!!cur.audioUrl &&
+			cur.detailsLoaded &&
+			currentQualityMeets(cur.quality, settings.downloadQuality);
+		if (reuseCurrent) {
+			// Reuse the already-resolved current track's URL/details (a fresh COPY — never the live
+			// player.current reference, so nothing downstream can mutate the playing track).
+			r = { ...(cur as Track) };
+		} else {
+			// Re-resolve at the user's DOWNLOAD quality (separate from the streaming default).
+			// WR-07: the tier is threaded through ensureTrackDetails as an explicit per-call
+			// parameter — never the old temporary settings.defaultQuality swap, which raced
+			// concurrent playback resolves and could be persisted by a mid-window save().
+			// Force a fresh resolve (clear cached details on a COPY — the queue track is left
+			// untouched).
+			r = await ensureTrackDetails(
+				{ ...resolved, detailsLoaded: false, audioUrl: null, lrc: null },
+				undefined,
+				settings.downloadQuality
+			).catch(() => resolved);
+		}
 		library.addDownload(r);
 		if (!r.audioUrl) return toast.show(t('toast.noAudio'));
 		try {
