@@ -1130,6 +1130,21 @@ class Player {
 				void this.reresolveCurrent();
 				return;
 			}
+			// quick-260625-pzs-05: a track that has ALREADY produced audio (hasPlayedSinceSrc) must
+			// never be auto-skipped by the error path. A byte-fetch error / stale-range 403 AFTER
+			// playback started is a recoverable MID-TRACK stall, not a load failure — so re-resolve the
+			// SAME song in place (reresolveCurrent preserves the seek via pendingSeek and does NOT bump
+			// the failure counters / is NOT an initial-load arm, per its D-14 contract) and resume near
+			// the current position, rather than cross-source-failing-over (which restarts at 0 / advances
+			// to the next track) — the "plays ~3s then auto-advances" bug. This mirrors the stall
+			// watchdog's existing hasPlayedSinceSrc gate (armStall); it reads the SAME internal flag and
+			// adds NO new `playing`-event dependency to any UI/render path. The cross-source fallback
+			// below then only fires for a track that errored BEFORE ever producing audio (genuine
+			// initial-load / region-lock failure) — preserving the never-stop loop-guard for those.
+			if (this.hasPlayedSinceSrc) {
+				void this.reresolveCurrent();
+				return;
+			}
 			// Cross-source fallback (gte / SRC-FB-01): rather than surface the error immediately,
 			// try the same {artist,title} on the remaining enabled sources. Only after every
 			// source is exhausted does the existing error surface. Generation-guarded so a
