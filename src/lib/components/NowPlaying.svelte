@@ -1,3 +1,13 @@
+<script module lang="ts">
+	// quick-260625-pzs-03: module-scoped (NOT per-instance) cache of COMPLETE lyric translations,
+	// keyed by the SAME `key` string the translate $effect computes (`${uid}:${lang}:${n}:${skip}`).
+	// Living at module scope means it survives a component remount / re-subscribe, so blurring and
+	// refocusing the tab (which resets the per-instance plain `trKey = ''`) re-hydrates the cached
+	// translation synchronously instead of re-issuing /api/translate. Only COMPLETE renders are
+	// stored (T-pzs-01) — a soft-fail echo (translateLinesEx complete:false) is never frozen.
+	const trCache = new Map<string, string[]>();
+</script>
+
 <script lang="ts">
 	import { untrack } from 'svelte';
 	import { fly, fade } from 'svelte/transition';
@@ -13,7 +23,7 @@
 	import { t, tMaybeKey } from '$lib/i18n';
 	import { searchAll } from '$lib/services/catalog';
 	import { dedupeBest } from '$lib/services/dedupe';
-	import { translateLines } from '$lib/services/translate';
+	import { translateLinesEx } from '$lib/services/translate';
 	import { shouldTranslate } from '$lib/i18n/detect';
 	import { enrichTrack } from '$lib/services/lastfm';
 	import { longpress } from '$lib/actions/longpress';
@@ -271,6 +281,19 @@
 		// toggling the whitelist re-runs the effect.
 		const key = `${t.uid}:${lang}:${n}:${skip.slice().sort().join(',')}`;
 		if (trKey === key) return;
+		// quick-260625-pzs-03: serve a previously-COMPLETED translation for this exact key from the
+		// module-scoped cache BEFORE any reset/fetch. On a tab blur→focus or component remount the
+		// per-instance `trKey` was reset to '' so this same track's effect re-runs; the cache hit
+		// re-renders the finished translation synchronously — no untranslated flash, no /api/translate
+		// round-trip. Only complete renders ever land in trCache (populated below), so a soft-fail
+		// echo is never served as final.
+		const cached = trCache.get(key);
+		if (cached) {
+			trKey = key;
+			translated = cached;
+			translating = false;
+			return;
+		}
 		trKey = key;
 		// WR-09: invalidate the PREVIOUS track's output immediately. The render gate is a pure
 		// length comparison (translated.length === lines.length) — when the new track happens to
@@ -300,12 +323,26 @@
 		// (translated.length === lines.length) stays true the instant the user whitelists the last
 		// source — the originals render immediately instead of flashing untranslated for a microtask.
 		if (!sendText.length) {
-			translated = stitch([]);
+			// All-whitelisted / already-target: the stitched output is the aligned originals — trivially
+			// COMPLETE (every line is its own text), so it is safe to cache (quick-260625-pzs-03 step 4).
+			const stitched = stitch([]);
+			if (stitched.length === lines.length) trCache.set(key, stitched);
+			translated = stitched;
 			translating = false;
 			return;
 		}
-		translateLines(sendText, lang)
-			.then((out) => { if (trKey === key) translated = stitch(out); })
+		// quick-260625-pzs-03: translateLinesEx exposes `complete` so we only FREEZE a fully-translated
+		// batch. A transient soft-fail echoes the originals with complete:false — it is rendered (so the
+		// user sees the originals meanwhile) but NOT cached, so switching language/back re-attempts it.
+		translateLinesEx(sendText, lang)
+			.then((res) => {
+				if (trKey !== key) return;
+				const stitched = stitch(res.out);
+				translated = stitched;
+				// Cache ONLY a complete render whose length matches (same gate the render uses). This is
+				// the T-pzs-01 mitigation: an incomplete/echoed result is never frozen as final.
+				if (res.complete && stitched.length === lines.length) trCache.set(key, stitched);
+			})
 			.catch(() => { if (trKey === key) translated = []; })
 			.finally(() => { if (trKey === key) translating = false; });
 	});
