@@ -23,6 +23,7 @@
 	import { focusTrap } from '$lib/actions/focusTrap';
 	import { toast } from '$lib/stores/toast.svelte';
 	import { tick as hapticTick } from '$lib/util/haptics';
+	import { splitArtists } from '$lib/util/artist-split';
 	import TrackMenu from '$lib/components/TrackMenu.svelte';
 	import Nowbar from '$lib/components/Nowbar.svelte';
 	import { parseLRC, reorderPairs, splitParenLines, lineSeekFraction, type LyricLine } from '$lib/services/lrc';
@@ -452,11 +453,15 @@
 			: false;
 	const xfadeMs = $derived(settings.reduceMotion || osReduceMotion ? 0 : 200);
 
-	function openArtist() {
-		if (player.current) {
-			player.collapse();
-			goto(`/artist/${encodeURIComponent(player.current.artist)}`);
-		}
+	// quick-260625-pzs-01: the now-playing artist string is split into individual names so each
+	// renders its own link to that SOLE artist. openArtistName generalises the old single-artist
+	// openArtist navigation, parameterised by the per-name string (T-pzs-04: encodeURIComponent the
+	// name exactly as before — the /artist/[name] route decodeURIComponent's the param).
+	const artistNames = $derived(splitArtists(player.current?.artist ?? ''));
+	function openArtistName(name: string) {
+		if (!name) return;
+		player.collapse();
+		goto(`/artist/${encodeURIComponent(name)}`);
 	}
 
 	// ---- back-gesture: NowPlaying only renders while player.expanded, so mount == overlay
@@ -1094,7 +1099,11 @@
 		     (quick-260607-f4y). -->
 		{#key player.current?.uid}
 			<div class="title" use:marquee in:fade={{ duration: xfadeMs }} out:fade={{ duration: xfadeMs }}><span class="marquee-inner">{player.current ? names.dnTitle(player.current.title) : ''}</span></div>
-			<button class="artist" use:marquee onclick={openArtist} in:fade={{ duration: xfadeMs }} out:fade={{ duration: xfadeMs }}><span class="marquee-inner">{player.current ? names.dnArtist(player.current.artist) : ''}</span></button>
+			<!-- quick-260625-pzs-01: one tappable link PER artist name (split on connectors). The row
+			     keeps use:marquee + the in:/out:fade crossfade; names are joined by an INERT ` · `
+			     separator span (not a link). When there is a single name (the common case) exactly one
+			     link renders with no separator — visually unchanged from before. -->
+			<div class="artist" use:marquee in:fade={{ duration: xfadeMs }} out:fade={{ duration: xfadeMs }}><span class="marquee-inner">{#each artistNames as name, i (name + i)}{#if i > 0}<span class="artist-sep" aria-hidden="true"> · </span>{/if}<button class="artist-link" onclick={() => openArtistName(name)}>{names.dnArtist(name)}</button>{/each}</span></div>
 		{/key}
 	</div>
 
@@ -1377,7 +1386,11 @@
 	   --fs-artist used by list pages). The base sizes diverge enough that one shared slider
 	   couldn't both raise the list rows AND keep NP balanced; two sliders solve it. */
 	.title { display: inline-block; max-width: 100%; vertical-align: bottom; background: var(--color-bg); color: var(--color-text); padding: 2px 6px; border-radius: 6px; font-size: calc(1.5rem * var(--fs-np-title, 1)); font-weight: 800; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-	.artist { display: inline-block; max-width: 100%; vertical-align: bottom; background: var(--color-bg); border: none; padding: 2px 6px; border-radius: 6px; color: var(--color-text); font-size: calc(1rem * var(--fs-np-artist, 1)); cursor: pointer; text-decoration: underline; text-underline-offset: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.artist { display: inline-block; max-width: 100%; vertical-align: bottom; background: var(--color-bg); border: none; padding: 2px 6px; border-radius: 6px; color: var(--color-text); font-size: calc(1rem * var(--fs-np-artist, 1)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	/* quick-260625-pzs-01: per-artist tappable link inside the .artist row. Carries the underline +
+	   pointer the old single .artist button had; the inert separator is non-interactive. */
+	.artist-link { background: none; border: none; padding: 0; color: inherit; font: inherit; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+	.artist-sep { color: var(--color-text-muted); text-decoration: none; cursor: default; }
 	/* Marquee lives globally in app.css (transform-based .marquee-inner). The .title/.artist
 	   clips above + the use:marquee action + inner .marquee-inner span in the markup are the
 	   only per-file pieces — the global rule animates them. (gmy unified the drift.) */
