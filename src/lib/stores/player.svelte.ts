@@ -689,6 +689,20 @@ class Player {
 	private static STRIKE_CAP = 2;
 
 	/**
+	 * quick-260627-huo (HUO-RETRY): max DELAYED fresh re-resolve attempts armed per uid before it is
+	 * finally allowed to be promoted into unplayableUids. The user hit a genuinely-playable Next-up
+	 * song getting permanently sidelined because two quick transient upstream blips reached STRIKE_CAP.
+	 * Instead of "strike → dead", we now do "strike → (a few seconds later) re-resolve from scratch →
+	 * only dead after these delayed attempts are exhausted". Bounded so endless playback never fires an
+	 * unbounded resolve burst that reads as bot traffic (T-huo-01). Private static for tunability.
+	 */
+	private static RETRY_RESOLVE_MAX = 2;
+	/** quick-260627-huo (HUO-RETRY): base delay before the first delayed re-resolve ("a few seconds
+	 *  later" per the user). Later attempts back off linearly (delay * (attempt+1)) so a stubbornly
+	 *  flaky upstream is probed at a decreasing rate, not hammered. */
+	private static RETRY_RESOLVE_DELAY_MS = 4000;
+
+	/**
 	 * Record one CONFIRMED definitive failure (no-url resolve OR hard probe error) for a uid and report
 	 * whether it has now reached STRIKE_CAP — i.e. should be treated as dead this walk. Below the cap a
 	 * single failure is transient-equivalent (skipped this round, retryable on demand). At the cap it is
@@ -711,6 +725,115 @@ class Player {
 	 *  clean and a transient blip never accumulates toward a false permanent skip. */
 	private clearStrike(uid: string): void {
 		this.unplayableStrikes.delete(uid);
+	}
+
+	/**
+	 * quick-260627-huo (HUO-RETRY): the prefetchNext walk's single decision point for a DEFINITIVE
+	 * failure (a no-url resolve OR a hard probe `error`) on a next-up candidate. Records the strike (so
+	 * strike accounting is unchanged), then chooses between two outcomes when the strike reaches
+	 * STRIKE_CAP:
+	 *  - if the uid still has delayed-retry BUDGET left, UNDO the premature promotion and instead arm a
+	 *    bounded, backed-off fresh re-resolve a few seconds later — a genuinely-playable song hit by a
+	 *    transient blip recovers automatically without the user tapping Retry (the original complaint);
+	 *  - if the budget is exhausted, leave it promoted into unplayableUids (genuinely dead — the ✗ row
+	 *    still draws and nextPlayableIndex still routes past it, so recovery never becomes an infinite
+	 *    skip-stall).
+	 * A sub-cap strike (first failure) behaves exactly as before: not dead, not scheduled — it is the
+	 * existing "transient-equivalent, retry on demand" round.
+	 */
+	private handleDefinitiveFailure(uid: string): void {
+		const reachedCap = this.strikeUnplayable(uid);
+		if (!reachedCap) return; // sub-cap: transient-equivalent this round, nothing further to do
+		const budgetLeft = (this.retryResolveAttempts.get(uid) ?? 0) < Player.RETRY_RESOLVE_MAX;
+		if (budgetLeft) {
+			// Undo the premature death and try a fresh re-resolve a few seconds later instead.
+			this.unplayableUids.delete(uid);
+			this.scheduleRetryResolve(uid);
+		}
+		// else: budget exhausted — leave it promoted (genuinely dead).
+	}
+
+	/**
+	 * quick-260627-huo (HUO-RETRY): pending DELAYED re-resolve timer per uid (for cancellation). A uid
+	 * appears here only while a scheduleRetryResolve() setTimeout is in flight; the callback deletes its
+	 * own entry the instant it fires. Plain Map — internal loop-guard state, never read reactively in
+	 * markup. Cleared in lockstep with unplayableStrikes (clearQueue / recoverFromStop) and per-uid on
+	 * retryUnplayable / real `playing` so no orphan timer survives a track change (T-huo-02).
+	 */
+	private retryResolveTimers = new Map<string, ReturnType<typeof setTimeout>>();
+	/**
+	 * quick-260627-huo (HUO-RETRY): delayed re-resolve budget consumed per uid. Bumped each time
+	 * scheduleRetryResolve arms a timer for the uid; once it reaches RETRY_RESOLVE_MAX the caller stops
+	 * scheduling and lets the uid be promoted into unplayableUids (a genuinely-dead track must still be
+	 * routed past — recovery is bounded, never an infinite skip-stall). Reset in lockstep with
+	 * unplayableStrikes (T-huo-01).
+	 */
+	private retryResolveAttempts = new Map<string, number>();
+
+	/**
+	 * quick-260627-huo (HUO-RETRY): arm a single DELAYED, backed-off fresh re-resolve for a next-up uid
+	 * that just hit a definitive failure, INSTEAD of marching it straight to permanent death. After the
+	 * delay it clears the uid's strike (so the fresh attempt starts clean) and re-runs the existing
+	 * prefetchNext() walk — reusing ALL of prefetch's abort/dedupe/probe machinery rather than
+	 * duplicating any resolve logic.
+	 *
+	 * Bounded + deduped + self-guarded:
+	 *  - returns early if a timer is already pending for this uid (one in-flight retry per uid), OR if
+	 *    the per-uid delayed-attempt budget is already exhausted (caller promotes to dead instead);
+	 *  - backs off linearly per attempt so a stubbornly flaky upstream is not hammered;
+	 *  - the timer callback re-reads this.current/queue AT FIRE TIME (never a closed-over index) and
+	 *    drops silently if the track was passed/removed or is already known-dead — no resolve burst,
+	 *    no stale write (T-huo-02).
+	 *
+	 * Best-effort: never throws, never bumps playGen, never calls next()/runFallback. It only re-arms
+	 * prefetchNext().
+	 */
+	private scheduleRetryResolve(uid: string): void {
+		// Dedupe: one in-flight delayed retry per uid.
+		if (this.retryResolveTimers.has(uid)) return;
+		const attempts = this.retryResolveAttempts.get(uid) ?? 0;
+		// Budget exhausted — the caller will leave the uid promoted to dead.
+		if (attempts >= Player.RETRY_RESOLVE_MAX) return;
+		this.retryResolveAttempts.set(uid, attempts + 1);
+		// Back off on later attempts so a flaky upstream is probed at a decreasing rate.
+		const delay = Player.RETRY_RESOLVE_DELAY_MS * (attempts + 1);
+		const timer = setTimeout(() => {
+			// One-shot — drop our own pending-timer entry first so a future failure can re-arm.
+			this.retryResolveTimers.delete(uid);
+			// Self-guard: re-read current/queue at fire time. Only re-resolve if the uid is still AHEAD
+			// of the current track and has not since been confirmed dead. If the track was passed,
+			// removed, or already promoted, drop silently — best-effort recovery, never a forced replay.
+			const curIdx = this.indexOf(this.current);
+			const aheadIdx = this.queue.findIndex((t) => t.uid === uid);
+			if (aheadIdx < 0 || aheadIdx <= curIdx) return; // not ahead anymore — nothing to recover
+			if (this.unplayableUids.has(uid)) return; // already confirmed dead elsewhere
+			// Re-run the prefetch walk for a FRESH upstream re-resolve + re-probe. We deliberately do NOT
+			// clearStrike() here: the uid is already at STRIKE_CAP, so a candidate that STILL fails
+			// definitively re-enters handleDefinitiveFailure at-cap and either re-schedules (budget left,
+			// with backoff) or is finally promoted to dead (budget exhausted) — that is what makes the
+			// delayed path CONVERGE and stay bounded. A candidate that RECOVERS lands in its slot and is
+			// never re-struck; its stale at-cap strike is cleared on the real `playing` event (and by
+			// clearQueue / recoverFromStop / retryUnplayable) so it does not leak into a later session.
+			void this.prefetchNext();
+		}, delay);
+		this.retryResolveTimers.set(uid, timer);
+	}
+
+	/** quick-260627-huo (HUO-RETRY): cancel + forget a single uid's pending delayed re-resolve timer
+	 *  (a superseding recovery point: manual retry, or a real `playing` for the now-current track). */
+	private cancelRetryResolve(uid: string): void {
+		const timer = this.retryResolveTimers.get(uid);
+		if (timer !== undefined) clearTimeout(timer);
+		this.retryResolveTimers.delete(uid);
+	}
+
+	/** quick-260627-huo (HUO-RETRY): cancel EVERY pending delayed re-resolve timer and empty both the
+	 *  timer + attempt-budget maps. Called wherever unplayableStrikes.clear() is (clearQueue /
+	 *  recoverFromStop) so a full session reset leaves no orphan timer and no carried budget. */
+	private cancelAllRetryResolves(): void {
+		for (const timer of this.retryResolveTimers.values()) clearTimeout(timer);
+		this.retryResolveTimers.clear();
+		this.retryResolveAttempts.clear();
 	}
 
 	/**
@@ -995,7 +1118,14 @@ class Player {
 			// Over-aggressive-skip fix: this track actually produced audio — drop any accumulated
 			// unplayable strikes for it so an earlier transient prefetch/probe failure can't push it
 			// toward a false permanent skip later in the session.
-			if (this.current) this.clearStrike(this.current.uid);
+			if (this.current) {
+				this.clearStrike(this.current.uid);
+				// quick-260627-huo: a track that actually started playing has recovered — cancel any stale
+				// pending delayed re-resolve for it and reset its delayed-attempt budget so a later
+				// transient blip on the same song starts from a clean slate.
+				this.cancelRetryResolve(this.current.uid);
+				this.retryResolveAttempts.delete(this.current.uid);
+			}
 			// CR-03: real playback succeeded — end the fallback episode so the next failure for ANY
 			// song (incl. this one later) starts with a fresh attempted set.
 			this.fallbackEpisodeKey = null;
@@ -1364,6 +1494,7 @@ class Player {
 		this.pendingManual = null; // quick-260618-fiz (Fix 4): drop any uncommitted manual carry too
 		this.unplayableUids.clear(); // PLAY-RESILIENCE: a user queue reset clears the dead-track set too
 		this.unplayableStrikes.clear(); // …and the sub-cap strike budget in lockstep (over-aggressive-skip fix)
+		this.cancelAllRetryResolves(); // quick-260627-huo: …and cancel any pending delayed re-resolve timers (no leak)
 		this.persist();
 	}
 
@@ -1507,7 +1638,7 @@ class Player {
 					// Definitive failure (resolved but no url) — but a SINGLE one is treated as transient
 					// (the resolve is a separate fetch from the real <audio> fetch; signed-URL/edge blips
 					// recover on a fresh resolve at click-time). Strike it; only promote to dead at the cap.
-					this.strikeUnplayable(cand.uid);
+					this.handleDefinitiveFailure(cand.uid);
 					continue;
 				}
 
@@ -1519,7 +1650,7 @@ class Player {
 					// the live <audio> byte fetch, so a single error can be a transient signed-URL refresh /
 					// codec quirk / network blip. Strike it (promoted to dead only at the cap); a probe
 					// TIMEOUT stays unmarked entirely. Either way the walk advances this round.
-					if (probe.errored) this.strikeUnplayable(cand.uid);
+					if (probe.errored) this.handleDefinitiveFailure(cand.uid);
 					continue; // timeout (no mark) or sub-cap error: walk to the next candidate
 				}
 
@@ -2156,6 +2287,7 @@ class Player {
 	retryUnplayable(track: Track): void {
 		this.unplayableUids.delete(track.uid);
 		this.clearStrike(track.uid); // over-aggressive-skip fix: a manual retry resets the strike budget too
+		this.cancelRetryResolve(track.uid); // quick-260627-huo: a manual retry supersedes any pending delayed retry
 		void this.play(track, { fresh: false });
 	}
 
@@ -2381,6 +2513,7 @@ class Player {
 		// previously-sidelined tracks get a fresh chance on the way out of the stopped state.
 		this.unplayableUids.clear();
 		this.unplayableStrikes.clear(); // over-aggressive-skip fix: a full recovery resets the strike budget too
+		this.cancelAllRetryResolves(); // quick-260627-huo: a full recovery cancels every pending delayed re-resolve
 		if (this.notice?.kind === 'stopped') this.notice = null;
 		this.next();
 	}

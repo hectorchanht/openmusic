@@ -239,6 +239,11 @@ beforeEach(() => {
 		// are session/per-src internal state that must not leak across tests.
 		unplayableStrikes: Map<string, number>;
 		autoplayRetryArmed: boolean;
+		// quick-260627-huo: the delayed re-resolve timers + per-uid attempt budget are session-scoped
+		// internal state that must not leak across tests (an orphan timer firing in a later test would
+		// re-run prefetchNext against a stale queue).
+		retryResolveTimers: Map<string, ReturnType<typeof setTimeout>>;
+		retryResolveAttempts: Map<string, number>;
 	};
 	internals.prefetchingUid = null;
 	internals.prefetchController?.abort();
@@ -255,6 +260,11 @@ beforeEach(() => {
 	internals.pendingHistory = null; // quick-260615-i9u: one-shot history carrier must not leak across tests
 	internals.unplayableStrikes.clear(); // Bug 1: strike budget is session-scoped — reset between tests
 	internals.autoplayRetryArmed = false; // Bug 2: autoplay-retry arm is per-src — reset between tests
+	// quick-260627-huo: clear every pending delayed re-resolve timer THEN both maps so no orphan timer
+	// (and no carried attempt budget) leaks into the next test.
+	for (const timer of internals.retryResolveTimers.values()) clearTimeout(timer);
+	internals.retryResolveTimers.clear();
+	internals.retryResolveAttempts.clear();
 });
 
 afterEach(() => {
@@ -742,6 +752,196 @@ describe('player.prefetchNext — pre-resolve next track for gapless-ish play', 
 		await flush();
 		expect(mockEnsure).toHaveBeenCalledTimes(1);
 	});
+});
+
+// quick-260627-huo (HUO-RETRY): the user reported a genuinely-playable Next-up song being marked
+// non-playable (a dimmed ✗ row) because TWO quick transient upstream blips reached STRIKE_CAP. The fix
+// replaces "strike → promote to dead" with "strike → schedule a delayed fresh re-resolve → only
+// promote to dead after the delayed re-resolves are exhausted". These fake-timer tests prove the
+// delayed-retry recovery, the bounded promote-after-exhaustion, and that every armed timer is
+// cancellable so nothing leaks across tracks/tests.
+describe('player delayed re-resolve — transient next-up failure recovers without permanent skip', () => {
+	const prefetch = () => (player as unknown as { prefetchNext(): Promise<void> })['prefetchNext']();
+	const unplayable = () => (player as unknown as { unplayableUids: Set<string> }).unplayableUids;
+	type RetryInternals = {
+		retryResolveTimers: Map<string, ReturnType<typeof setTimeout>>;
+		retryResolveAttempts: Map<string, number>;
+	};
+	const retry = () => player as unknown as RetryInternals;
+	// Mirror of Player.RETRY_RESOLVE_MAX / RETRY_RESOLVE_DELAY_MS for driving the fake-timer clock.
+	const Player_RETRY_RESOLVE_MAX = 2;
+	const Player_RETRY_RESOLVE_DELAY_MS = 4000;
+
+	beforeEach(() => {
+		// Drive prefetchNext directly (private; play() is mocked) — no real <audio>, so probePlayable
+		// degrades to {ok:true} (the asset Audio stub has no addEventListener). That means a NO-URL
+		// resolve is the definitive-failure lever these tests pull (a hard probe error needs an
+		// event-capable Audio, which the probePlayable suite already covers).
+		mockEnsure.mockReset();
+	});
+
+	it('a no-url definitive failure schedules a delayed re-resolve instead of immediately marking dead; after the delay a fresh resolve returns a url and the candidate is NOT in unplayableUids', async () => {
+		vi.useFakeTimers();
+		try {
+			const cur = mk('netease', '0', 'A', 'Now');
+			const bad = stub('qq', '1', 'B', 'WasFlaky'); // genuinely playable, just blipping upstream
+			const good = stub('kuwo', '2', 'C', 'Good');
+			player.queue = [cur, bad, good];
+			player.current = cur;
+
+			// FIRST two resolves of `bad` blip (no url) so it reaches STRIKE_CAP; AFTER that a fresh
+			// resolve returns a real url — the genuinely-playable song the user complained about.
+			let badCalls = 0;
+			mockEnsure.mockImplementation(async (t: Track) => {
+				if (t.uid === bad.uid) {
+					badCalls++;
+					return badCalls <= 2
+						? { ...bad, detailsLoaded: true, audioUrl: null } // transient blip
+						: { ...bad, detailsLoaded: true, audioUrl: 'https://cdn/bad-now.mp3' }; // recovered
+				}
+				if (t.uid === good.uid) return { ...good, detailsLoaded: true, audioUrl: 'https://cdn/good.mp3' };
+				return t;
+			});
+
+			// Drive the walk to STRIKE_CAP. Note: with fake timers, flush()'s own setTimeout(0) is a fake
+			// timer — advance by 0 to drain the microtask-flush macrotask between/after the awaits.
+			await prefetch();
+			await vi.advanceTimersByTimeAsync(0);
+			await prefetch();
+			await vi.advanceTimersByTimeAsync(0);
+
+			// Reached the cap → but NOT promoted to dead: a delayed re-resolve is armed instead (the fix).
+			expect(unplayable().has(bad.uid)).toBe(false);
+			expect(retry().retryResolveTimers.has(bad.uid)).toBe(true);
+			expect(retry().retryResolveAttempts.get(bad.uid)).toBe(1);
+
+			// A few seconds later the delayed re-resolve fires: clears the strike, re-runs the walk, the
+			// now-playable song resolves with a url and lands in its slot — NEVER marked dead.
+			await vi.advanceTimersByTimeAsync(Player_RETRY_RESOLVE_DELAY_MS);
+
+			expect(unplayable().has(bad.uid)).toBe(false);
+			// A fresh re-resolve for bad occurred (the 3rd+ call returns the recovered url).
+			expect(badCalls).toBeGreaterThanOrEqual(3);
+			expect(player.queue[1].audioUrl).toBe('https://cdn/bad-now.mp3');
+			// The timer cleaned up after firing (no orphan).
+			expect(retry().retryResolveTimers.has(bad.uid)).toBe(false);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('a candidate that stays dead across all RETRY_RESOLVE_MAX delayed attempts is eventually promoted into unplayableUids (bounded — no infinite skip-stall)', async () => {
+		vi.useFakeTimers();
+		try {
+			const cur = mk('netease', '0', 'A', 'Now');
+			const bad = stub('qq', '1', 'B', 'TrulyDead'); // never resolves a url, ever
+			player.queue = [cur, bad];
+			player.current = cur;
+			mockEnsure.mockImplementation(async (t: Track) => {
+				if (t.uid === bad.uid) return { ...bad, detailsLoaded: true, audioUrl: null };
+				return t;
+			});
+
+			// Round 0: drive to cap → schedules delayed attempt #1 (not yet dead).
+			await prefetch();
+			await vi.advanceTimersByTimeAsync(0);
+			await prefetch();
+			await vi.advanceTimersByTimeAsync(0);
+			expect(unplayable().has(bad.uid)).toBe(false);
+			expect(retry().retryResolveAttempts.get(bad.uid)).toBe(1);
+
+			// Drive every delayed round. Each fires a re-resolve that re-strikes to cap; while budget
+			// remains it re-schedules (with backoff), and on the final round it promotes to dead. Advance
+			// generously past the longest backed-off delay (DELAY * MAX) to drain them all.
+			await vi.advanceTimersByTimeAsync(Player_RETRY_RESOLVE_DELAY_MS * (Player_RETRY_RESOLVE_MAX + 2));
+
+			// Bounded: budget fully consumed and the genuinely-dead track is finally promoted so
+			// nextPlayableIndex routes past it and the ✗ row renders. No timer remains pending.
+			expect(retry().retryResolveAttempts.get(bad.uid)).toBe(Player_RETRY_RESOLVE_MAX);
+			expect(unplayable().has(bad.uid)).toBe(true);
+			expect(retry().retryResolveTimers.has(bad.uid)).toBe(false);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('clearQueue cancels pending delayed-retry timers and empties the attempt budget (no leak)', async () => {
+		vi.useFakeTimers();
+		try {
+			const cur = mk('netease', '0', 'A', 'Now');
+			const bad = stub('qq', '1', 'B', 'Flaky');
+			player.queue = [cur, bad];
+			player.current = cur;
+			mockEnsure.mockImplementation(async (t: Track) =>
+				t.uid === bad.uid ? { ...bad, detailsLoaded: true, audioUrl: null } : t
+			);
+
+			await driveToCapFake();
+			expect(retry().retryResolveTimers.has(bad.uid)).toBe(true);
+
+			player.clearQueue();
+
+			expect(retry().retryResolveTimers.size).toBe(0);
+			expect(retry().retryResolveAttempts.size).toBe(0);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('recoverFromStop cancels pending delayed-retry timers and empties the attempt budget (no leak)', async () => {
+		vi.useFakeTimers();
+		try {
+			const cur = mk('netease', '0', 'A', 'Now');
+			const bad = stub('qq', '1', 'B', 'Flaky');
+			player.queue = [cur, bad];
+			player.current = cur;
+			mockEnsure.mockImplementation(async (t: Track) =>
+				t.uid === bad.uid ? { ...bad, detailsLoaded: true, audioUrl: null } : t
+			);
+
+			await driveToCapFake();
+			expect(retry().retryResolveTimers.has(bad.uid)).toBe(true);
+
+			// recoverFromStop is private; drive it via the same bracket-access seam other suites use.
+			(player as unknown as { recoverFromStop(): void })['recoverFromStop']();
+
+			expect(retry().retryResolveTimers.size).toBe(0);
+			expect(retry().retryResolveAttempts.size).toBe(0);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('retryUnplayable cancels a pending delayed retry for that uid (manual retry supersedes)', async () => {
+		vi.useFakeTimers();
+		try {
+			const cur = mk('netease', '0', 'A', 'Now');
+			const bad = stub('qq', '1', 'B', 'Flaky');
+			player.queue = [cur, bad];
+			player.current = cur;
+			mockEnsure.mockImplementation(async (t: Track) =>
+				t.uid === bad.uid ? { ...bad, detailsLoaded: true, audioUrl: null } : t
+			);
+
+			await driveToCapFake();
+			expect(retry().retryResolveTimers.has(bad.uid)).toBe(true);
+
+			player.retryUnplayable(bad);
+
+			expect(retry().retryResolveTimers.has(bad.uid)).toBe(false);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	// Local driveToCap that drains microtasks under fake timers (the suite-level driveToCap uses the
+	// real-timer flush() which never settles while fake timers are installed).
+	async function driveToCapFake() {
+		await prefetch();
+		await vi.advanceTimersByTimeAsync(0);
+		await prefetch();
+		await vi.advanceTimersByTimeAsync(0);
+	}
 });
 
 describe('player repeat — 2-state (PLAY-10)', () => {
@@ -2838,28 +3038,46 @@ describe('player.prefetchNext — strike counter before permanent unplayable mar
 		expect(dead().has(bad.uid)).toBe(false);
 	});
 
-	it('a SECOND no-url resolve promotes the track into unplayableUids (strike 2 → dead)', async () => {
-		const cur = mk('netease', '0', 'A', 'Now');
-		const bad = stub('qq', '1', 'B', 'NoUrl');
-		player.queue = [cur, bad];
-		player.current = cur;
-		mockEnsure.mockImplementation(async (t: Track) =>
-			t.uid === bad.uid ? { ...bad, detailsLoaded: true, audioUrl: null } : t
-		);
+	it('a SECOND no-url resolve reaches STRIKE_CAP but is NOT yet dead — it ARMS a delayed re-resolve instead (quick-260627-huo)', async () => {
+		// REWORKED for quick-260627-huo: pre-huo this asserted "strike 2 → immediately dead". The user
+		// reported a genuinely-playable Next-up song being permanently sidelined because two quick
+		// transient blips reached STRIKE_CAP. The fix replaces "strike 2 → dead" with "strike 2 → undo
+		// the premature promotion + schedule a delayed fresh re-resolve" (death is deferred until the
+		// bounded delayed re-resolves are exhausted — proven in the delayed-re-resolve suite). So the
+		// CORRECT new behavior at strike 2 is: the strike IS recorded (accounting unchanged), the uid is
+		// NOT in unplayableUids yet, and a delayed-retry timer is now pending. Assertion strengthened,
+		// not weakened, to the new contract.
+		vi.useFakeTimers();
+		try {
+			const cur = mk('netease', '0', 'A', 'Now');
+			const bad = stub('qq', '1', 'B', 'NoUrl');
+			player.queue = [cur, bad];
+			player.current = cur;
+			mockEnsure.mockImplementation(async (t: Track) =>
+				t.uid === bad.uid ? { ...bad, detailsLoaded: true, audioUrl: null } : t
+			);
 
-		// First walk: one strike, still alive.
-		await prefetch();
-		await flush();
-		expect(dead().has(bad.uid)).toBe(false);
+			// First walk: one strike, still alive.
+			await prefetch();
+			await vi.advanceTimersByTimeAsync(0);
+			expect(dead().has(bad.uid)).toBe(false);
 
-		// Re-arm the in-flight guard so the second walk runs (mirror the per-src re-arm in play()).
-		(player as unknown as { prefetchingUid: string | null }).prefetchingUid = null;
+			// Re-arm the in-flight guard so the second walk runs (mirror the per-src re-arm in play()).
+			(player as unknown as { prefetchingUid: string | null }).prefetchingUid = null;
 
-		// Second walk: second strike → promoted to dead AND recorded in the strike map (idempotent).
-		await prefetch();
-		await flush();
-		expect(strikes().get(bad.uid)).toBe(2);
-		expect(dead().has(bad.uid)).toBe(true);
+			// Second walk: second strike → reaches STRIKE_CAP. The strike IS recorded, but the uid is NOT
+			// promoted to dead — a bounded delayed re-resolve is armed instead (the fix).
+			await prefetch();
+			await vi.advanceTimersByTimeAsync(0);
+			expect(strikes().get(bad.uid)).toBe(2);
+			expect(dead().has(bad.uid)).toBe(false);
+			const timers = (player as unknown as {
+				retryResolveTimers: Map<string, ReturnType<typeof setTimeout>>;
+			}).retryResolveTimers;
+			expect(timers.has(bad.uid)).toBe(true);
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it('a real `playing` event clears the current track strike (a recovered track resets clean)', () => {
