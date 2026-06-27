@@ -1945,6 +1945,16 @@ class Player {
 					this.autoplayRetryArmed = false;
 					this.audio.src = this.cachedBlobUrl;
 					this.armStall();
+					// quick-260627-huo (HUO-PREFETCH): EAGER one-shot prefetch of the immediate-next at
+					// src-set — independent of the ~5s timeupdate gate — so a SHORT track or a FAST skip
+					// still has its next song pre-resolved + probe-verified before it ends (gapless,
+					// non-stop advance). Fired AFTER the src is attached so prefetchNext's indexOf(current)
+					// sees the correct current track. Arming prefetchArmedForSrc=true makes the timeupdate
+					// gate (the long-track backstop) a no-op for this src — single walk per src (T-huo-03).
+					// Best-effort + fire-and-forget (gen-guarded by prefetch's own seedUid/abort); NOT
+					// gated on the `playing` event (memory: that froze iOS — reverted).
+					this.prefetchArmedForSrc = true;
+					void this.prefetchNext();
 					// D-06: a rejected play() is intentionally surfaced to the stall/failure path,
 					// not swallowed — if play() rejects (iOS gesture loss) and no `play` event
 					// follows, the armed watchdog above routes into runFallback. .catch only prevents
@@ -2045,6 +2055,16 @@ class Player {
 				this.autoplayRetryArmed = false;
 				this.audio.src = src;
 				this.armStall();
+				// quick-260627-huo (HUO-PREFETCH): EAGER one-shot prefetch of the immediate-next at
+				// src-set — independent of the ~5s timeupdate gate — so a SHORT track or a FAST skip
+				// still has its next song pre-resolved + probe-verified before it ends (gapless,
+				// non-stop advance). Fired AFTER the src is attached so prefetchNext's indexOf(current)
+				// sees the correct current track. Arming prefetchArmedForSrc=true makes the timeupdate
+				// gate (the long-track backstop) a no-op for this src — single walk per src (T-huo-03).
+				// Best-effort + fire-and-forget (gen-guarded by prefetch's own seedUid/abort); NOT gated
+				// on the `playing` event (memory: that froze iOS — reverted).
+				this.prefetchArmedForSrc = true;
+				void this.prefetchNext();
 				// D-06: a rejected play() is intentionally surfaced to the stall/failure path, not
 				// swallowed — if play() rejects (iOS gesture loss after the async resolve) and no
 				// `play` event follows, the armed watchdog above routes into runFallback. The .catch

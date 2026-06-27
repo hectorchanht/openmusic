@@ -944,6 +944,99 @@ describe('player delayed re-resolve — transient next-up failure recovers witho
 	}
 });
 
+// quick-260627-huo (HUO-PREFETCH / HUO-NONSTOP): the immediate-next song must be pre-resolved +
+// probe-verified BEFORE the current track ends — including for SHORT tracks / FAST skips that never
+// cross the ~5s timeupdate prefetch gate. The fix fires an EAGER one-shot prefetchNext at play()'s
+// src-set (not gated on 5s, NOT gated on the `playing` event — memory: that froze iOS). These tests
+// use the REAL play() (restored from the global mock) + a fake <audio> so the src-set path runs.
+describe('player eager prefetch — immediate-next ready before short tracks / fast skips end', () => {
+	let el: ReturnType<typeof makeFakeAudio>;
+	// Spy on the private prefetchNext so we can count walks regardless of what they resolve.
+	let prefetchSpy: ReturnType<typeof vi.spyOn>;
+
+	beforeEach(() => {
+		// Restore the REAL play() (the top-level beforeEach mocks it) so the eager src-set path executes.
+		(player.play as unknown as { mockRestore(): void }).mockRestore?.();
+		mockEnsure.mockReset();
+		player.current = null;
+		player.queue = [];
+		player.error = null;
+		player.loading = false;
+		// Online + a minimal Media Session surface (attach wires transport handlers) so play() runs
+		// headless without the offline gate or a null-deref.
+		vi.stubGlobal('navigator', {
+			onLine: true,
+			mediaSession: { metadata: null, playbackState: 'none', setPositionState() {}, setActionHandler() {} }
+		});
+		vi.stubGlobal('MediaMetadata', FakeMediaMetadata);
+		vi.spyOn(library, 'isDownloaded').mockReturnValue(false);
+		vi.spyOn(library, 'adoptCover').mockImplementation(() => {});
+		el = makeFakeAudio();
+		player.attach(el as unknown as HTMLAudioElement);
+		// Spy on prefetchNext AFTER attach so we count only play()-driven walks. Keep the real impl so
+		// prefetchArmedForSrc dedupe + the actual resolve still happen.
+		prefetchSpy = vi.spyOn(
+			player as unknown as { prefetchNext(): Promise<void> },
+			'prefetchNext'
+		);
+	});
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
+	const armedForSrc = () =>
+		(player as unknown as { prefetchArmedForSrc: boolean }).prefetchArmedForSrc;
+
+	it('play() eagerly prefetches the immediate-next WITHOUT waiting for the ~5s timeupdate gate', async () => {
+		const cur = mk('netease', '0', 'A', 'Now');
+		const next = stub('qq', '1', 'B', 'Next');
+		player.queue = [cur, next];
+		// A non-fresh play (no regenerate/weave) isolates the src-set eager prefetch from the fresh-play
+		// queue-rebuild path. play() resolves `cur` itself; the eager walk resolves `next`.
+		mockEnsure.mockImplementation(async (t: Track) => {
+			if (t.uid === next.uid) return { ...next, detailsLoaded: true, audioUrl: 'https://cdn/next.mp3' };
+			return { ...t, detailsLoaded: true };
+		});
+
+		// currentTime stays 0 — NO timeupdate is ever fired. The eager prefetch must still run.
+		await player.play(cur, { fresh: false });
+		await flush();
+
+		// The eager walk fired at src-set (currentTime still 0 — gate never reached) and armed the src.
+		expect(prefetchSpy).toHaveBeenCalled();
+		expect(armedForSrc()).toBe(true);
+		expect(el.currentTime).toBe(0); // proves it did NOT wait for the 5s playback gate
+		// The immediate-next was pre-resolved by the eager walk.
+		expect(mockEnsure).toHaveBeenCalledWith(next, expect.any(AbortSignal));
+		expect(player.queue[1].audioUrl).toBe('https://cdn/next.mp3');
+	});
+
+	it('the timeupdate gate does NOT fire a SECOND walk for the same src after the eager prefetch already armed it', async () => {
+		const cur = mk('netease', '0', 'A', 'Now');
+		const next = stub('qq', '1', 'B', 'Next');
+		player.queue = [cur, next];
+		mockEnsure.mockImplementation(async (t: Track) => {
+			if (t.uid === next.uid) return { ...next, detailsLoaded: true, audioUrl: 'https://cdn/next.mp3' };
+			return { ...t, detailsLoaded: true };
+		});
+
+		await player.play(cur, { fresh: false });
+		await flush();
+		const eagerCalls = prefetchSpy.mock.calls.length;
+		expect(eagerCalls).toBeGreaterThanOrEqual(1);
+		expect(armedForSrc()).toBe(true);
+
+		// Drive the current src PAST the 5s gate and fire timeupdate — the gate must be a no-op now
+		// (prefetchArmedForSrc is already true → the existing !armed condition dedupes). Single walk/src.
+		el.currentTime = Player_PREFETCH_PLAYBACK_DELAY_MS / 1000 + 1; // 6s
+		el.fire('timeupdate');
+		await flush();
+
+		expect(prefetchSpy.mock.calls.length).toBe(eagerCalls); // no second walk for the same src
+	});
+});
+
 describe('player repeat — 2-state (PLAY-10)', () => {
 	// Seed the persisted player-state blob the way persist() writes it: a serialized `current`
 	// with a real uid (restore early-returns without one), an empty queue, and the target
