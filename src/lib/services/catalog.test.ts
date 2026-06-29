@@ -357,7 +357,18 @@ describe('searchAllUncached inter-source stagger (GAPLESS-PREFETCH)', () => {
 });
 
 describe('ensureTrackDetails (registry dispatch + readiness guard)', () => {
+	// quick-260629-nyl Task 3: a netease (lyric-capable) track that resolves WITHOUT an lrc now arms
+	// the bounded cross-source lyric fallback (a searchAll). Stub every source's search to [] so the
+	// fallback finds no candidate and returns instantly (no real network) — these readiness/dispatch
+	// tests are about the PRIMARY resolve, not the fallback (which has its own describe block below).
+	function stubEmptySearches() {
+		for (const id of Object.keys(SOURCES) as SourceId[]) {
+			vi.spyOn(SOURCES[id], 'search').mockResolvedValue([]);
+		}
+	}
+
 	it('dispatches to SOURCES[track.source].resolve when not yet loaded', async () => {
+		stubEmptySearches();
 		const t = mk('netease', 'n1');
 		const resolved = { ...t, detailsLoaded: true, audioUrl: 'https://cdn/x.mp3' };
 		const spy = vi.spyOn(SOURCES.netease, 'resolve').mockResolvedValue(resolved);
@@ -398,6 +409,7 @@ describe('ensureTrackDetails (registry dispatch + readiness guard)', () => {
 	});
 
 	it('forwards an explicit per-call quality to the adapter resolve (WR-07 download path)', async () => {
+		stubEmptySearches();
 		const t = mk('qq', 'q1');
 		const resolved = { ...t, detailsLoaded: true, audioUrl: 'https://cdn/x.flac' };
 		const spy = vi.spyOn(SOURCES.qq, 'resolve').mockResolvedValue(resolved);
@@ -407,5 +419,87 @@ describe('ensureTrackDetails (registry dispatch + readiness guard)', () => {
 		// (track, signal, quality) — the download tier reaches the adapter WITHOUT touching
 		// the global settings.defaultQuality (the old temporary-swap shared-state race).
 		expect(spy.mock.calls[0][2]).toBe('lossless');
+	});
+});
+
+// quick-260629-nyl Task 3: bounded cross-source lyric fallback. When the primary source resolves a
+// playable track with NO lrc, ensureTrackDetails does ONE cross-source lookup (searchAll + matchKey/
+// scoreMatch) and copies a matched DIFFERENT source's lrc across — without touching the primary
+// audioUrl. It is bounded (one fallback resolve), never-throws, and never fires for lyric-less sources.
+describe('ensureTrackDetails — cross-source lyric fallback (quick-260629-nyl)', () => {
+	it('fills lrc from a DIFFERENT source when the primary resolves a playable track with no lrc', async () => {
+		// Primary qq track resolves playable but lyric-less. A matching netease candidate (same
+		// artist+title via matchKey) HAS the lyric. The returned track keeps qq's audioUrl + gains the lrc.
+		const primary = mk('qq', 'q1', 1, { artist: 'Jay', title: 'Sunny' });
+		const qqResolved = { ...primary, detailsLoaded: true, audioUrl: 'https://cdn/qq.flac', lrc: null };
+		const qqResolve = vi.spyOn(SOURCES.qq, 'resolve').mockResolvedValue(qqResolved);
+
+		// searchAll fan-out: netease yields a same-song candidate; the others are empty.
+		const neCand = mk('netease', 'n9', 1, { artist: 'Jay', title: 'Sunny' });
+		vi.spyOn(SOURCES.netease, 'search').mockResolvedValue([neCand]);
+		vi.spyOn(SOURCES.qq, 'search').mockResolvedValue([]);
+		vi.spyOn(SOURCES.kuwo, 'search').mockResolvedValue([]);
+		vi.spyOn(SOURCES.joox, 'search').mockResolvedValue([]);
+		// The netease candidate resolves WITH a lyric.
+		const neResolve = vi
+			.spyOn(SOURCES.netease, 'resolve')
+			.mockResolvedValue({ ...neCand, detailsLoaded: true, audioUrl: 'https://cdn/ne.mp3', lrc: '[00:01]cross' });
+
+		const out = await ensureTrackDetails(primary);
+
+		expect(qqResolve).toHaveBeenCalledOnce();
+		expect(out.audioUrl).toBe('https://cdn/qq.flac'); // primary audio preserved
+		expect(out.lrc).toBe('[00:01]cross'); // cross-source lyric copied across
+		// Bounded: at most ONE fallback candidate resolved.
+		expect(neResolve).toHaveBeenCalledOnce();
+	});
+
+	it('does NOT fire the fallback when the primary already produced lyrics', async () => {
+		const primary = mk('qq', 'q1', 1, { artist: 'Jay', title: 'Sunny' });
+		vi.spyOn(SOURCES.qq, 'resolve').mockResolvedValue({
+			...primary,
+			detailsLoaded: true,
+			audioUrl: 'https://cdn/qq.flac',
+			lrc: '[00:00]already'
+		});
+		const neSearch = vi.spyOn(SOURCES.netease, 'search').mockResolvedValue([]);
+		vi.spyOn(SOURCES.qq, 'search').mockResolvedValue([]);
+		vi.spyOn(SOURCES.kuwo, 'search').mockResolvedValue([]);
+		vi.spyOn(SOURCES.joox, 'search').mockResolvedValue([]);
+
+		const out = await ensureTrackDetails(primary);
+		expect(out.lrc).toBe('[00:00]already');
+		expect(neSearch).not.toHaveBeenCalled(); // no fallback searchAll
+	});
+
+	it('does NOT fire the fallback for a genuinely lyric-less source (jamendo)', async () => {
+		const primary = mk('jamendo', 'j1', 1, { artist: 'Free', title: 'Track' });
+		vi.spyOn(SOURCES.jamendo, 'resolve').mockResolvedValue({
+			...primary,
+			detailsLoaded: true,
+			audioUrl: 'https://cdn/jam.mp3',
+			lrc: null
+		});
+		const neSearch = vi.spyOn(SOURCES.netease, 'search').mockResolvedValue([]);
+
+		const out = await ensureTrackDetails(primary);
+		expect(out.lrc).toBeNull();
+		expect(neSearch).not.toHaveBeenCalled(); // lyric-less source never triggers the fallback
+	});
+
+	it('never throws and returns the primary track unchanged when the fallback search fails', async () => {
+		const primary = mk('kuwo', 'k1', 1, { artist: 'Jay', title: 'Sunny' });
+		const resolved = { ...primary, detailsLoaded: true, audioUrl: 'https://cdn/kw.mp3', lrc: null };
+		vi.spyOn(SOURCES.kuwo, 'resolve').mockResolvedValue(resolved);
+		// Every source search rejects → searchAll still resolves (allSettled) with no candidates;
+		// the fallback finds nothing and returns the primary track lyric-less, never throwing.
+		vi.spyOn(SOURCES.netease, 'search').mockRejectedValue(new Error('boom'));
+		vi.spyOn(SOURCES.qq, 'search').mockRejectedValue(new Error('boom'));
+		vi.spyOn(SOURCES.kuwo, 'search').mockRejectedValue(new Error('boom'));
+		vi.spyOn(SOURCES.joox, 'search').mockRejectedValue(new Error('boom'));
+
+		const out = await ensureTrackDetails(primary);
+		expect(out.audioUrl).toBe('https://cdn/kw.mp3');
+		expect(out.lrc).toBeNull();
 	});
 });

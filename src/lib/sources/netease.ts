@@ -101,17 +101,24 @@ export const netease: SourceAdapter = {
 			track.qualityLabel = q.label;
 		}
 
-		// Fetch + content-type-sniff the LRC (json-wrapped vs plain text) — legacy:2284-2304.
+		// Fetch the LRC. quick-260629-nyl Task 3 — the "No lyrics" regression fix.
+		//
+		// DIAGNOSIS (live qijieya Meting proxy, 2026-06-29): the upstream lyric body is now PLAIN LRC
+		// text, but its Content-Type is intermittent — sometimes `text/plain; charset=utf-8;` (note the
+		// trailing semicolon / lowercase) and sometimes ABSENT. Our /api proxy route defaults an absent
+		// upstream content-type to `application/json`, so the old header-sniff (`contentType.includes
+		// ('json')`) then tried `lr.json()` on plain LRC text → threw → the catch swallowed it → a true
+		// lyric HIT surfaced as "No lyrics for this track". The header is therefore unreliable.
+		//
+		// FIX: be CONTENT-TYPE-INDEPENDENT. Read the body as TEXT once, then opportunistically try to
+		// JSON-parse it: a JSON wrapper is funnelled through the (now widened, never-throw)
+		// extractLrcFromJson; anything that is not JSON is treated as the LRC text directly. Tolerant of
+		// BOTH the json-wrapped shape (old) and the plain-text shape (current), null only on a real miss.
 		if (!track.lrc && track.lrcUrl) {
 			try {
 				const lr = await fetch(track.lrcUrl, { signal });
-				const contentType = (lr.headers.get('content-type') || '').toLowerCase();
-				if (contentType.includes('json')) {
-					const lj: unknown = await lr.json();
-					track.lrc = extractLrcFromJson(lj) ?? track.lrc ?? null;
-				} else {
-					track.lrc = await lr.text();
-				}
+				const body = await lr.text();
+				track.lrc = extractLrcFromBody(body) ?? track.lrc ?? null;
 			} catch {
 				// Lyric fetch is best-effort; audio still plays without it (legacy logs + continues).
 			}
@@ -122,19 +129,106 @@ export const netease: SourceAdapter = {
 	}
 };
 
-/** Mirror the monolith's lenient LRC extraction from a JSON-wrapped lyric response. */
-function extractLrcFromJson(lj: unknown): string | null {
-	if (typeof lj === 'string') return lj;
+/**
+ * quick-260629-nyl Task 3: content-type-independent LRC extraction from a raw response body. Try a
+ * JSON parse first — a JSON-wrapped lyric (old shape, or whenever the proxy still returns json) is
+ * routed through extractLrcFromJson; a body that is NOT JSON (the current plain-LRC-text shape) is
+ * returned as-is when it carries lyric content. Never throws; returns null only on a true empty miss.
+ *
+ * Exported alongside extractLrcFromJson so unit tests can drive BOTH the old json shape and the new
+ * plain-text shape through the exact extraction path resolve() uses.
+ */
+export function extractLrcFromBody(body: string): string | null {
+	if (typeof body !== 'string') return null;
+	const trimmed = body.trim();
+	if (!trimmed) return null;
+	// A JSON wrapper starts with `{`, `[`, or a quoted string — try to parse and extract.
+	const first = trimmed[0];
+	if (first === '{' || first === '[' || first === '"') {
+		try {
+			const parsed: unknown = JSON.parse(trimmed);
+			const fromJson = extractLrcFromJson(parsed);
+			if (fromJson && fromJson.trim()) return fromJson;
+			// Parsed as JSON but no lyric inside (e.g. {} or {error:...}) → a true miss, not the text.
+			return null;
+		} catch {
+			// Not actually JSON (e.g. an LRC line that happens to begin oddly) — fall through to text.
+		}
+	}
+	// Plain-text LRC body (the current upstream shape) — it IS the lyric.
+	return trimmed;
+}
+
+/**
+ * Lenient LRC extraction from a JSON-wrapped lyric response. quick-260629-nyl Task 3 EXPORTS this
+ * (was private) for unit testing and WIDENS it — without dropping any existing key — to also cover
+ * the nested `data.lyric.lyric` / `lyric.lrc` shapes and a `lines[]`/`lrclist[]` array of timestamped
+ * objects joined back into LRC text. Never throws; returns null only on a true miss.
+ */
+export function extractLrcFromJson(lj: unknown): string | null {
+	if (typeof lj === 'string') return lj || null;
 	if (lj && typeof lj === 'object') {
 		const o = lj as Record<string, unknown>;
 		const data = o.data as Record<string, unknown> | string | undefined;
-		return (
-			(typeof o.lrc === 'string' ? o.lrc : null) ||
-			(typeof o.lyric === 'string' ? o.lyric : null) ||
+		// `lyric`/`lrc` may itself be an object wrapping the text (e.g. {lyric:{lyric:"..."}}).
+		const lyricField = o.lyric;
+		const lrcField = o.lrc;
+		const nestedLyric =
+			lyricField && typeof lyricField === 'object'
+				? (lyricField as Record<string, unknown>)
+				: null;
+		const nestedLrc =
+			lrcField && typeof lrcField === 'object' ? (lrcField as Record<string, unknown>) : null;
+		const direct =
+			(typeof lrcField === 'string' ? lrcField : null) ||
+			(typeof lyricField === 'string' ? lyricField : null) ||
+			(nestedLyric && typeof nestedLyric.lyric === 'string' ? nestedLyric.lyric : null) ||
+			(nestedLyric && typeof nestedLyric.lrc === 'string' ? nestedLyric.lrc : null) ||
+			(nestedLrc && typeof nestedLrc.lyric === 'string' ? nestedLrc.lyric : null) ||
+			(nestedLrc && typeof nestedLrc.lrc === 'string' ? nestedLrc.lrc : null) ||
 			(data && typeof data === 'object' && typeof data.lrc === 'string' ? data.lrc : null) ||
 			(data && typeof data === 'object' && typeof data.lyric === 'string' ? data.lyric : null) ||
-			(typeof data === 'string' ? data : null)
-		);
+			(typeof data === 'string' ? data : null);
+		if (direct && direct.trim()) return direct;
+		// A `lines`/`lrclist` array of {time,text}|{timestamp,lyric} objects → join back into LRC text.
+		const arr =
+			(Array.isArray(o.lines) ? o.lines : null) ||
+			(Array.isArray(o.lrclist) ? o.lrclist : null) ||
+			(data && typeof data === 'object' && Array.isArray((data as Record<string, unknown>).lines)
+				? ((data as Record<string, unknown>).lines as unknown[])
+				: null);
+		if (arr) {
+			const joined = joinLrcLines(arr);
+			if (joined && joined.trim()) return joined;
+		}
 	}
 	return null;
+}
+
+/** Join an array of {time,text} | {timestamp,lyric} | {t,c} lyric-line objects back into LRC text. */
+function joinLrcLines(arr: unknown[]): string | null {
+	const out: string[] = [];
+	for (const item of arr) {
+		if (!item || typeof item !== 'object') continue;
+		const o = item as Record<string, unknown>;
+		const text =
+			(typeof o.text === 'string' ? o.text : null) ??
+			(typeof o.lyric === 'string' ? o.lyric : null) ??
+			(typeof o.c === 'string' ? o.c : null);
+		if (text == null) continue;
+		const rawTime =
+			(typeof o.time === 'number' ? o.time : null) ??
+			(typeof o.timestamp === 'number' ? o.timestamp : null) ??
+			(typeof o.t === 'number' ? o.t : null);
+		if (typeof rawTime === 'number' && isFinite(rawTime) && rawTime >= 0) {
+			// time may be ms or seconds — values over 10000 are almost certainly ms (parseLRC reads MM:SS).
+			const secs = rawTime > 10000 ? rawTime / 1000 : rawTime;
+			const mm = Math.floor(secs / 60);
+			const ss = (secs % 60).toFixed(2).padStart(5, '0');
+			out.push(`[${String(mm).padStart(2, '0')}:${ss}]${text}`);
+		} else {
+			out.push(text);
+		}
+	}
+	return out.length ? out.join('\n') : null;
 }

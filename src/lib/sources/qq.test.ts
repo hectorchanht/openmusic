@@ -149,6 +149,29 @@ describe('qq.resolve', () => {
 		expect(calledUrl).toContain('mid=002Neh8l0RJHcS');
 	});
 
+	// quick-260629-nyl Task 3: the lyric read is widened to tolerate a NESTED lyric object
+	// (`song_lyric: { lyric: '...' }` / `lyric: { lrc: '...' }`) WITHOUT dropping the existing
+	// plain-string keys. A new-shape detail body must still yield out.lrc.
+	it('extracts lrc from a NESTED song_lyric object (new shape), keeping the old string path green', async () => {
+		settings.defaultQuality = 'lossless';
+		const nested = {
+			...detailFixture,
+			song_lyric: { lyric: '[00:00.00]nested-qq-lyric' }
+		};
+		vi.stubGlobal('fetch', mockFetchOnce(nested));
+		const out = await qq.resolve(stubTrack(), ac.signal);
+		expect(out.lrc).toBe('[00:00.00]nested-qq-lyric');
+		expect(out.detailsLoaded).toBe(true);
+	});
+
+	it('falls back to the `lyric` field when song_lyric is absent (old-shape tolerance preserved)', async () => {
+		settings.defaultQuality = 'lossless';
+		const onlyLyric = { ...detailFixture, song_lyric: undefined, lyric: '[00:00.00]plain-lyric' };
+		vi.stubGlobal('fetch', mockFetchOnce(onlyLyric));
+		const out = await qq.resolve(stubTrack(), ac.signal);
+		expect(out.lrc).toBe('[00:00.00]plain-lyric');
+	});
+
 	// SRCH-01: QQ detail carries the track length in SECONDS as `song_play_time`. Map it
 	// onto Track.duration so the 試聽 sub-60s penalty (Plan 04) is demonstrable end-to-end.
 	it('maps numeric song_play_time (seconds) onto Track.duration', async () => {

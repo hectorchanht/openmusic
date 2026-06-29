@@ -8,6 +8,15 @@ import type { SourceId, Track, SettledSourceResult } from '$lib/sources/types';
 import type { DefaultQuality } from '$lib/stores/settings.svelte';
 import { sleep } from '$lib/proxy/http';
 import { cached, __clearSearchCache } from './ttl-cache';
+import { matchKey } from './match-key';
+import { scoreMatch } from './score-match';
+
+/**
+ * quick-260629-nyl Task 3: sources that genuinely have NO upstream lyrics. A lyric MISS on one of
+ * these is expected (not the regression), so the cross-source lyric fallback must NOT fire for them
+ * (neither as the track to backfill nor as a fallback candidate). The CN/JOOX sources DO carry lyrics.
+ */
+const LYRICLESS_SOURCES = new Set<SourceId>(['jamendo', 'audius', 'fivesing']);
 
 // Re-exported so tests (and any future cache-busting caller) can reset the search
 // cache between cases — the 3 existing fan-out spy tests rely on this in afterEach.
@@ -210,5 +219,69 @@ export async function ensureTrackDetails(
 	const sig = signal ?? new AbortController().signal;
 	// WR-07: `quality` threads an explicit per-call tier to the adapter (download path passes
 	// settings.downloadQuality) so download resolves never mutate the global streaming default.
-	return SOURCES[track.source].resolve(track, sig, quality);
+	const resolved = await SOURCES[track.source].resolve(track, sig, quality);
+
+	// quick-260629-nyl Task 3: bounded cross-source lyric fallback. The readiness guard treats a
+	// track with no lrcUrl and no lrc as "complete with no lyrics" and never re-resolves it, so a
+	// single-source lyric miss surfaces "No lyrics" even when another source HAS the lyrics for the
+	// same song. When the primary resolved to a PLAYABLE track that STILL has no lrc — and it is a
+	// source that SHOULD have lyrics — do ONE cross-source lyric lookup and copy ONLY the lrc across.
+	//
+	// PLACEMENT (chosen over widening player.fillLyricsOffline): this is the ONE seam every caller
+	// (play/prefetch/related) funnels through, so the fix is universal and lives with the readiness
+	// guard it complements. The netease/qq extractor fix above makes a genuine miss RARE, so the added
+	// latency only ever applies to the uncommon no-lrc case; it is strictly bounded (a single fallback
+	// candidate resolve, AbortSignal-threaded, never-throw) and never overwrites the primary audioUrl.
+	if (
+		resolved.audioUrl &&
+		!resolved.lrc &&
+		!LYRICLESS_SOURCES.has(resolved.source) &&
+		!sig.aborted
+	) {
+		const lrc = await crossSourceLyric(resolved, sig);
+		if (lrc && !sig.aborted) {
+			resolved.lrc = lrc;
+		}
+	}
+	return resolved;
+}
+
+/**
+ * quick-260629-nyl Task 3: best-effort cross-source lyric lookup for a track that resolved with no
+ * lrc. Re-uses the EXISTING TTL-cached searchAll seam (cheap on a warm cache) + the existing
+ * matchKey/scoreMatch helpers (no hand-rolled matching) to find the best-matching candidate from a
+ * DIFFERENT, lyric-capable source, resolves AT MOST ONE such candidate, and returns its lrc (or null).
+ * Strictly bounded + AbortSignal-honoring + never-throws (returns null on any failure).
+ */
+async function crossSourceLyric(track: Track, signal: AbortSignal): Promise<string | null> {
+	try {
+		const query = { artist: track.artist || '', title: track.title || '' };
+		if (!query.artist && !query.title) return null;
+		const sr = await searchAll(`${query.artist} ${query.title}`.trim(), 1, {}, signal);
+		if (signal.aborted) return null;
+
+		const wantKey = matchKey(query.artist, query.title);
+		// Candidates from a DIFFERENT, lyric-capable source whose normalized identity matches the song.
+		const candidates = sr.interleaved
+			.filter(
+				(c) =>
+					c.source !== track.source &&
+					!LYRICLESS_SOURCES.has(c.source) &&
+					matchKey(c.artist || '', c.title || '') === wantKey
+			)
+			.sort((a, b) => scoreMatch(query, b) - scoreMatch(query, a));
+
+		const best = candidates[0];
+		if (!best) return null;
+
+		// Resolve AT MOST ONE fallback candidate (the bound). If it already carries an inline lrc
+		// (qq/kuwo return it in the detail body) use it without a second fetch.
+		if (best.lrc && best.lrc.trim()) return best.lrc;
+		const resolvedCand = await SOURCES[best.source].resolve(best, signal);
+		if (signal.aborted) return null;
+		return resolvedCand.lrc && resolvedCand.lrc.trim() ? resolvedCand.lrc : null;
+	} catch {
+		// Best-effort — any failure (abort, source throw, drift) leaves the primary track lyric-less.
+		return null;
+	}
 }

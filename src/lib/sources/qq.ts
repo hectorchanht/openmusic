@@ -64,6 +64,28 @@ interface BestPlayUrl {
 }
 
 /**
+ * quick-260629-nyl Task 3: tolerant QQ lyric read. Primary path is the verbatim
+ * `song_lyric || lyric` string read (legacy:2369 — confirmed live as the timestamped LRC for popular
+ * tracks). Widened defensively so a future nesting under those keys (`{lyric}`/`{lrc}` objects) is also
+ * picked up WITHOUT dropping the old keys. Never throws; returns null on a true miss.
+ */
+function pickQqLyric(d: QQDetailItem): string | null {
+	const view = d as unknown as Record<string, unknown>;
+	const fromKey = (raw: unknown): string | null => {
+		if (typeof raw === 'string') return raw.trim() ? raw : null;
+		if (raw && typeof raw === 'object') {
+			const o = raw as Record<string, unknown>;
+			const nested =
+				(typeof o.lyric === 'string' ? o.lyric : null) ||
+				(typeof o.lrc === 'string' ? o.lrc : null);
+			return nested && nested.trim() ? nested : null;
+		}
+		return null;
+	};
+	return fromKey(view.song_lyric) || fromKey(view.lyric) || null;
+}
+
+/**
  * Choose the best-quality play URL.
  *
  * The default order is the legacy priority ladder sq > pq > accom > hq > standard > fq
@@ -217,8 +239,12 @@ export const qq: SourceAdapter = {
 			const best = pickBestPlayUrl(d, quality);
 			track.audioUrl = best.url || track.audioUrl;
 
-			// 歌词 — inline from the detail body (legacy:2369).
-			track.lrc = d.song_lyric || d.lyric || track.lrc;
+			// 歌词 — inline from the detail body (legacy:2369). quick-260629-nyl Task 3: the live tang
+			// detail still carries `song_lyric` (timestamped LRC) + `lyric` (plain) for popular tracks,
+			// so the existing string reads remain the primary path. Widen DEFENSIVELY (never-throw,
+			// optional chaining) so a future nesting (`song_lyric.lyric` / `lyric.lyric` / `lyric.lrc`)
+			// is also tolerated WITHOUT dropping the old keys; null only on a true miss.
+			track.lrc = pickQqLyric(d) || track.lrc;
 
 			// SRCH-01: track length in seconds from `song_play_time`. T-21-01 tampering guard —
 			// coerce to a finite positive number or `undefined`; a non-numeric/negative/zero
