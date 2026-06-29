@@ -1573,7 +1573,18 @@ class Player {
 	 * audioUrl, or fails the silent ~1s muted test-play probe, until one PROBES playable. A candidate
 	 * that is definitively dead (no url / probe `error`) is recorded in unplayableUids so next()
 	 * routes past it instead of stalling on it; a transient reject / probe timeout is merely skipped
-	 * this round (retried on demand). This is what guarantees "the next song can always be played":
+	 * this round (retried on demand).
+	 *
+	 * quick-260629-nyl Task 2 — two LAYERED never-stop additions, both reusing existing machinery:
+	 *  (2a) timeout → delayed retry: a probe TIMEOUT (transient "playable later on click") now arms the
+	 *       existing bounded/backed-off scheduleRetryResolve so the candidate is re-resolved a few
+	 *       seconds later instead of being skipped-and-forgotten. It STILL is not marked dead (no ✗).
+	 *  (2b) walk-exhaustion → eager ensureAhead: if the forward walk lands NO playable candidate (every
+	 *       entry ahead is dead/timed-out/off the end), the queue is eagerly grown via the existing
+	 *       ensureAhead so next()/track-end always has somewhere to advance — fixing the "stops on 2-3
+	 *       consecutive unplayable" stall. ensureAhead is idempotent + queueGen-guarded + grows only on
+	 *       a short tail, so it is a safe no-op otherwise.
+	 * This is what guarantees "the next song can always be played":
 	 * the entry next() will pick (nextPlayableIndex) is pre-resolved + probe-verified here, and known
 	 * -dead entries ahead of current are skipped. Still bounded so endless playback never fires an
 	 * unbounded resolve burst that reads as bot traffic.
@@ -1611,6 +1622,11 @@ class Player {
 		const sig = this.prefetchController.signal;
 		const seedUid = this.current?.uid; // stale-guard: current must not change away
 
+		// quick-260629-nyl Task 2b: track whether the walk LANDED a probe-verified playable candidate.
+		// If it falls out of the loop having landed NOTHING (every entry ahead was dead/timed-out/off
+		// the end), eagerly grow the queue so next()/track-end always has somewhere to advance — the
+		// "stops on 2-3 consecutive unplayable" fix (see the post-loop ensureAhead below).
+		let landed = false;
 		try {
 			for (let step = 0; step < Player.PREFETCH_MAX_CANDIDATES; step++) {
 				const candIdx = firstIndex + step;
@@ -1650,8 +1666,20 @@ class Player {
 					// the live <audio> byte fetch, so a single error can be a transient signed-URL refresh /
 					// codec quirk / network blip. Strike it (promoted to dead only at the cap); a probe
 					// TIMEOUT stays unmarked entirely. Either way the walk advances this round.
-					if (probe.errored) this.handleDefinitiveFailure(cand.uid);
-					continue; // timeout (no mark) or sub-cap error: walk to the next candidate
+					if (probe.errored) {
+						this.handleDefinitiveFailure(cand.uid);
+					} else {
+						// quick-260629-nyl Task 2a: a probe TIMEOUT is the transient "playable later on click"
+						// class the user reports. Previously this branch did a bare `continue` — the candidate
+						// was skipped this round and NEVER re-armed for a delayed retry (only an at-cap
+						// definitive failure scheduled one). Arm the EXISTING bounded, backed-off, dedupe- +
+						// budget-guarded scheduleRetryResolve so it re-resolves a few seconds later instead of
+						// being silently skipped-and-forgotten. A timeout MUST still NOT add to unplayableUids
+						// (no ✗ row for a transient); scheduleRetryResolve self-converges (it no-ops once the
+						// per-uid RETRY_RESOLVE_MAX budget is spent, then next() simply routes past on demand).
+						this.scheduleRetryResolve(cand.uid);
+					}
+					continue; // timeout (retry armed) or sub-cap error: walk to the next candidate
 				}
 
 				// LANDED a probe-verified playable track. Locate the slot FRESHLY by uid (never a
@@ -1662,7 +1690,20 @@ class Player {
 					this.queue[writeIdx] = resolved;
 					this.prewarmNextAssets(resolved);
 				}
+				landed = true;
 				return; // done — landed the next playable
+			}
+			// quick-260629-nyl Task 2b: the walk fell out of the loop without landing a playable
+			// candidate (every entry ahead was dead / timed-out / off the end of the queue). Today
+			// nothing grows the queue here — growth is only reactive inside next() — so 2-3 consecutive
+			// unplayable up-next entries could leave next() with nothing to advance to (the reported
+			// stall). Proactively top up via the EXISTING ensureAhead so generated related songs are
+			// appended BEFORE the track ends. ensureAhead is idempotent (single in-flight growPromise),
+			// queueGen-guarded, only grows when the tail is within 2 of current, and never throws / never
+			// bumps playGen — so this is a safe no-op when the tail is already long. Re-check the
+			// seedUid/abort stale-guard first so a superseded walk does not grow a stale queue.
+			if (!landed && !sig.aborted && this.current?.uid === seedUid) {
+				void this.ensureAhead();
 			}
 		} catch {
 			/* best-effort — abort or unexpected failure leaves the queue as-is */

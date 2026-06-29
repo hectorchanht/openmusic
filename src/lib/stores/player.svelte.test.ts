@@ -944,6 +944,106 @@ describe('player delayed re-resolve — transient next-up failure recovers witho
 	}
 });
 
+// quick-260629-nyl Task 2: prefetchNext's two never-stop additions —
+//  (2a) a probe TIMEOUT (transient, NOT a hard error) arms a delayed re-resolve via scheduleRetryResolve
+//       instead of being skipped-and-forgotten, and the candidate is NOT marked dead (no ✗ row);
+//  (2b) when the forward walk lands NO playable candidate (all ahead resolve with no url), prefetchNext
+//       eagerly calls ensureAhead so the queue is extended (buildSimilarQueue → buildDiversePicks).
+// Driving prefetchNext directly (private; play() is the top-level mock) keeps these unit-isolated.
+describe('player.prefetchNext — never-stop (timeout retry + walk-exhaustion grow) [quick-260629-nyl]', () => {
+	const prefetch = () => (player as unknown as { prefetchNext(): Promise<void> })['prefetchNext']();
+	const unplayable = () => (player as unknown as { unplayableUids: Set<string> }).unplayableUids;
+	const probe = () =>
+		player as unknown as {
+			probePlayable(url: string): Promise<{ ok: boolean; errored: boolean }>;
+		};
+	type RetryInternals = {
+		retryResolveTimers: Map<string, ReturnType<typeof setTimeout>>;
+		retryResolveAttempts: Map<string, number>;
+	};
+	const retry = () => player as unknown as RetryInternals;
+	const Player_RETRY_RESOLVE_DELAY_MS = 4000;
+
+	beforeEach(() => {
+		mockEnsure.mockReset();
+		mockSimilar.mockReset();
+		mockPicks.mockReset();
+	});
+
+	it('(2a) a probe TIMEOUT on a Next-up candidate arms a delayed re-resolve and does NOT mark it dead', async () => {
+		vi.useFakeTimers();
+		// Stub probePlayable to a TIMEOUT verdict (ok:false, errored:false) — the transient class.
+		const probeSpy = vi
+			.spyOn(probe(), 'probePlayable')
+			.mockResolvedValue({ ok: false, errored: false });
+		try {
+			const cur = mk('netease', '0', 'A', 'Now');
+			const flaky = stub('qq', '1', 'B', 'TimesOutNowPlayableLater');
+			player.queue = [cur, flaky];
+			player.current = cur;
+
+			let flakyCalls = 0;
+			mockEnsure.mockImplementation(async (t: Track) => {
+				if (t.uid === flaky.uid) {
+					flakyCalls++;
+					// Always resolves a URL — the failure is the (stubbed) probe TIMEOUT, not a no-url miss.
+					return { ...flaky, detailsLoaded: true, audioUrl: 'https://cdn/flaky.mp3' };
+				}
+				return t;
+			});
+
+			await prefetch();
+			await vi.advanceTimersByTimeAsync(0);
+
+			// Transient timeout → NOT dead, but a delayed retry IS armed (the fix; previously a bare continue).
+			expect(unplayable().has(flaky.uid)).toBe(false);
+			expect(retry().retryResolveTimers.has(flaky.uid)).toBe(true);
+			expect(retry().retryResolveAttempts.get(flaky.uid)).toBe(1);
+			const callsBeforeDelay = flakyCalls;
+
+			// After the delay the armed retry re-runs prefetchNext → a fresh resolve for the same uid.
+			await vi.advanceTimersByTimeAsync(Player_RETRY_RESOLVE_DELAY_MS);
+			expect(flakyCalls).toBeGreaterThan(callsBeforeDelay);
+			// Still never promoted to dead across the transient-timeout path.
+			expect(unplayable().has(flaky.uid)).toBe(false);
+		} finally {
+			probeSpy.mockRestore();
+			vi.useRealTimers();
+		}
+	});
+
+	it('(2b) when the forward walk lands NO playable candidate, prefetchNext eagerly extends the queue via ensureAhead', async () => {
+		// No fake timers needed — the grow is awaited microtask work. The lone candidate ahead resolves
+		// with NO url (definitive-failure path, not a timeout) so the walk lands nothing and falls out.
+		// A SHORT tail (queue.length - indexOf(current) <= 2) is required for ensureAhead to actually
+		// grow (its own guard) — exactly the consecutive-unplayable-near-the-end stall scenario.
+		const cur = mk('netease', '0', 'A', 'Now');
+		const d1 = stub('qq', '1', 'B', 'Dead1');
+		player.queue = [cur, d1];
+		player.current = cur;
+
+		mockEnsure.mockImplementation(async (t: Track) => {
+			if (t.uid === d1.uid) return { ...t, detailsLoaded: true, audioUrl: null };
+			return t;
+		});
+		// ensureAhead seeds from buildSimilarQueue first; return a fresh related song so the grow appends.
+		const grown = mk('netease', '99', 'A', 'Grown');
+		mockSimilar.mockResolvedValue([grown]);
+		mockPicks.mockResolvedValue([]);
+
+		const startLen = player.queue.length;
+		await prefetch();
+		// Let ensureAhead's growPromise (a microtask chain) settle.
+		await flush();
+
+		// The exhausted walk eagerly grew the queue: ensureAhead → buildSimilarQueue was invoked and the
+		// related song was appended so next()/track-end always has somewhere to advance.
+		expect(mockSimilar).toHaveBeenCalled();
+		expect(player.queue.length).toBeGreaterThan(startLen);
+		expect(player.queue.some((t) => t.uid === grown.uid)).toBe(true);
+	});
+});
+
 // quick-260627-huo (HUO-PREFETCH / HUO-NONSTOP): the immediate-next song must be pre-resolved +
 // probe-verified BEFORE the current track ends — including for SHORT tracks / FAST skips that never
 // cross the ~5s timeupdate prefetch gate. The fix fires an EAGER one-shot prefetchNext at play()'s
