@@ -27,6 +27,7 @@
 	import { shouldTranslate } from '$lib/i18n/detect';
 	import { enrichTrack } from '$lib/services/lastfm';
 	import { longpress } from '$lib/actions/longpress';
+	import { lazyCover } from '$lib/actions/lazyCover';
 	import { marquee } from '$lib/actions/marquee';
 	import { swipeRemove } from '$lib/actions/swipeRemove';
 	import { swipeAction } from '$lib/actions/swipeAction';
@@ -56,6 +57,17 @@
 		toast.show(library.isLiked(player.current.uid) ? t('toast.liked') : t('toast.unliked'));
 	}
 
+
+	// quick-260629-nyl Task 1: lazily-resolved cover map for the Up-Next list rows AND the
+	// carousel prev/next neighbors. Mirrors the established search/library/artist/album row idiom
+	// (a reactive uid→url record repainted via onCoverResolved). Values are SOLID https URLs only
+	// (lazyCover's isHttps gate) — safe for the existing background-image render path, no widening
+	// of the injection surface (T-nyl-01 / inherits T-0bb-01). The carousel CURRENT cell is NOT
+	// driven by this map (it keeps player.resolvedCover + the Last.fm swap — see effectiveCover).
+	let resolvedCovers = $state<Record<string, string>>({});
+	function onCoverResolved(uid: string, url: string) {
+		resolvedCovers = { ...resolvedCovers, [uid]: url };
+	}
 
 	// shared context menu for current track + long-pressed queue/related rows
 	let menuTrack = $state<Track | null>(null);
@@ -474,9 +486,15 @@
 	const hasPrevNeighbor = $derived(prevCover !== null && ci !== 0);
 	const hasNextNeighbor = $derived(!!player.current);
 	// Cell background: current cell uses the effective (possibly Last.fm-swapped) cover; the prev/next
-	// neighbors use their own source cover (or the deterministic gradient fallback). null → 'none'.
+	// neighbors resolve through the SAME shared resolvedCovers map (lazyCover → Deezer→iTunes→CN) so a
+	// null-cover neighbor shows real art instead of a perpetual gradient (quick-260629-nyl Task 1).
+	// Resolved url wins over the raw track.cover; gradient fallback only on a true miss. null → 'none'.
 	const cellBg = (tk: Track | null) =>
-		tk ? (tk.cover ? `url(${tk.cover})` : fallbackCover(tk)) : 'none';
+		tk
+			? (resolvedCovers[tk.uid] ?? tk.cover)
+				? `url(${resolvedCovers[tk.uid] ?? tk.cover})`
+				: fallbackCover(tk)
+			: 'none';
 
 	// ---- Meta crossfade (NP-TEXT-XFADE) ----
 	// On track change the {#key uid} block remounts title+artist, so an in:/out:fade crossfades the
@@ -1132,12 +1150,24 @@
 				hasNext: hasNextNeighbor
 			}}
 		>
-			<div class="cover-cell prev" style:background-image={cellBg(prevCover)}></div>
+			<!-- quick-260629-nyl Task 1: the prev/next neighbor cells resolve their cover via the SAME
+			     use:lazyCover chain (Deezer→iTunes→CN) the Up-Next rows use, repainting through the shared
+			     resolvedCovers map (cellBg reads it first). Attach the action ONLY when the neighbor is
+			     non-null (an empty cell stays 'none'); the CURRENT cell is untouched (effectiveCover). -->
+			{#if prevCover}
+				<div class="cover-cell prev" use:lazyCover={{ track: prevCover, onResolved: onCoverResolved }} style:background-image={cellBg(prevCover)}></div>
+			{:else}
+				<div class="cover-cell prev" style:background-image="none"></div>
+			{/if}
 			<div
 				class="cover-cell cur"
 				style:background-image={effectiveCover ? `url(${effectiveCover})` : fallbackCover(player.current)}
 			></div>
-			<div class="cover-cell next" style:background-image={cellBg(nextCover)}></div>
+			{#if nextCover}
+				<div class="cover-cell next" use:lazyCover={{ track: nextCover, onResolved: onCoverResolved }} style:background-image={cellBg(nextCover)}></div>
+			{:else}
+				<div class="cover-cell next" style:background-image="none"></div>
+			{/if}
 		</div>
 	</div>
 
@@ -1252,9 +1282,16 @@
 								     the row tap to retry-that-exact-track instead of a fresh play. swipeRemove/longpress/grip
 								     are deliberately untouched so reorder + swipe-remove keep working on a skipped row. -->
 								<button class="row q-row" class:playing={track.uid === player.current?.uid} class:skipped use:swipeRemove={{ onremove: () => player.removeFromQueue(track.uid), enabled: track.uid !== player.current?.uid }} use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openMenu(track); }} onclick={(e) => { (e.currentTarget as HTMLElement)?.blur(); skipped ? player.retryUnplayable(track) : player.play(track, {fresh: false}); }} title={skipped ? t('nowplaying.skippedRetry') : undefined}>
-									{#if skipped}<span class="r-skip" aria-hidden="true">✗</span>{/if}
-									<span class="r-title">{names.dnTitle(track.title)}</span>
-									<span class="r-artist">{names.dnArtist(track.artist)}</span>
+									<!-- quick-260629-nyl Task 1: lazy album-art thumbnail, resolved on scroll-into-view via the
+									     shared use:lazyCover chain (Deezer→iTunes→CN), repainted through resolvedCovers. https-only
+									     background-image; never throws → gradient fallback (T-nyl-01). The text column below keeps
+									     the skip mark + title + artist stacked (min-width:0 preserves the existing ellipsis). -->
+									<span class="q-art" use:lazyCover={{ track, onResolved: onCoverResolved }} style:background-image={(resolvedCovers[track.uid] ?? track.cover) ? `url(${resolvedCovers[track.uid] ?? track.cover})` : fallbackCover(track)}></span>
+									<span class="q-text">
+										{#if skipped}<span class="r-skip" aria-hidden="true">✗</span>{/if}
+										<span class="r-title">{names.dnTitle(track.title)}</span>
+										<span class="r-artist">{names.dnArtist(track.artist)}</span>
+									</span>
 								</button>
 								<button
 									class="grip-handle"
@@ -1541,6 +1578,13 @@
 	/* Queue rows: play-button + far-right grip side by side. */
 	.list li { display: flex; align-items: center; gap: 2px; }
 	.q-row { flex: 1; min-width: 0; }
+	/* quick-260629-nyl Task 1: Up-Next rows lay the lazy album-art thumbnail to the LEFT of a
+	   min-width:0 text column so the title/artist still stack and ellipsis as before. Only the
+	   Up-Next `.q-row` is switched to row-direction; the generic `.row` (related skeleton/list)
+	   keeps its column layout untouched. The art dims with the row via `.q-row.skipped` (child). */
+	.q-row { flex-direction: row; align-items: center; gap: 0; }
+	.q-art { width: 36px; height: 36px; border-radius: 6px; background-size: cover; background-position: center; background-color: rgba(255,255,255,0.04); flex: none; margin-right: 8px; }
+	.q-text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
 	.grip-handle { flex: 0 0 auto; background: none; border: none; color: var(--color-text-muted); opacity: 0.55; cursor: grab; touch-action: none; display: grid; place-items: center; padding: 8px 6px; border-radius: 8px; }
 	.grip-handle:active { cursor: grabbing; opacity: 0.9; }
 	.list li.lifted { position: relative; z-index: 2; opacity: 0.92; }
