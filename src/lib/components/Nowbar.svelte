@@ -311,8 +311,8 @@
         display: flex;
         flex-direction: column;
         background: var(--color-bg);
-        padding: 2px 6px;
-        border-radius: 6px;
+        padding: 1px;
+        border-radius: none;
     }
     /* Nowbar surface is always the dark-translucent purple panel (in both themes), so the
 	   text colors are pinned to light tones rather than tracking --color-text — otherwise the
