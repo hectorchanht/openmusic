@@ -12,6 +12,8 @@ import { makeUid, type SourceId, type Track } from '$lib/sources/types';
 const getCachedCoverByUid = vi.fn<(uid: string) => string | null>();
 const getCachedCover = vi.fn<(artist: string, title: string) => string | null>();
 const resolveCoverForTrack = vi.fn<(track: Track) => Promise<string | null>>();
+// quick-260630-ey2: the self-heal evictor — a dead cache-HIT calls this before the re-resolve chain.
+const removeCoverBoth = vi.fn<(uid: string, artist: string, title: string) => void>();
 
 vi.mock('$lib/services/cover-cache', () => ({
 	getCachedCoverByUid: (uid: string) => getCachedCoverByUid(uid),
@@ -19,6 +21,10 @@ vi.mock('$lib/services/cover-cache', () => ({
 }));
 vi.mock('$lib/services/cover-backfill', () => ({
 	resolveCoverForTrack: (track: Track) => resolveCoverForTrack(track)
+}));
+vi.mock('$lib/stores/cover-version.svelte', () => ({
+	removeCoverBoth: (uid: string, artist: string, title: string) =>
+		removeCoverBoth(uid, artist, title)
 }));
 
 // --- controllable IntersectionObserver stub -----------------------------------------------------
@@ -212,6 +218,62 @@ describe('lazyCover — IntersectionObserver + Image probe + cache-first resolve
 		expect(getCachedCoverByUid).toHaveBeenCalledWith(track.uid);
 		expect(resolveCoverForTrack).not.toHaveBeenCalled(); // cache hit → no network
 		expect(onResolved).toHaveBeenCalledWith(track.uid, 'https://cache.example/by-uid.jpg');
+		expect(removeCoverBoth).not.toHaveBeenCalled(); // good probe → no eviction
+	});
+
+	// quick-260630-ey2: a SOLID cache HIT is now PROBED. A good probe keeps the zero-network fast
+	// path; a dead probe evicts BOTH layers (removeCoverBoth + bump) and falls through to the chain so
+	// the stale dead-CDN cover self-heals instead of being painted from localStorage forever.
+	it('cache-hit GOOD (probe loads): keeps the fast path — no evict, no chain', async () => {
+		imageBehavior = 'load';
+		getCachedCoverByUid.mockReturnValue('https://cache.example/by-uid.jpg');
+		const onResolved = vi.fn();
+		const track = mkTrack();
+		const { io } = await mount({ track, onResolved });
+
+		io.trigger(true);
+		await flush();
+		// Good probe → fast path preserved: the cached url is kept, nothing evicted, no re-resolve.
+		expect(onResolved).toHaveBeenCalledWith(track.uid, 'https://cache.example/by-uid.jpg');
+		expect(removeCoverBoth).not.toHaveBeenCalled();
+		expect(resolveCoverForTrack).not.toHaveBeenCalled();
+	});
+
+	it('cache-hit DEAD (probe errors): evicts via removeCoverBoth then re-resolves a fresh cover', async () => {
+		imageBehavior = 'error';
+		getCachedCoverByUid.mockReturnValue('https://cache.example/dead.jpg');
+		const onResolved = vi.fn();
+		const track = mkTrack();
+		const { io } = await mount({ track, onResolved });
+
+		io.trigger(true);
+		await flush();
+		// Dead cache → evict BOTH layers (with the real uid), then the chain re-resolves + onResolved
+		// fires with the FRESH url (not the dead cached one).
+		expect(removeCoverBoth).toHaveBeenCalledWith(track.uid, track.artist, track.title);
+		expect(resolveCoverForTrack).toHaveBeenCalledTimes(1);
+		expect(onResolved).toHaveBeenCalledWith(track.uid, 'https://resolved.example/c.jpg');
+	});
+
+	it('empty-uid cache-hit DEAD: removeCoverBoth called with the empty uid, then re-resolves', async () => {
+		imageBehavior = 'error';
+		// Empty uid → the name layer is the only one read; a SOLID-but-dead name-layer value.
+		getCachedCoverByUid.mockReturnValue('https://poison.example/uid-slot.jpg');
+		getCachedCover.mockReturnValue('https://cache.example/by-name-dead.jpg');
+		const onResolved = vi.fn();
+		const track = mkTrack({ uid: '', artist: 'Foo Fighters', title: 'Everlong' });
+		const { io } = await mount({ track, onResolved });
+
+		io.trigger(true);
+		await flush();
+		// Empty uid never reads the uid layer; the dead name-layer HIT triggers eviction. removeCoverBoth
+		// is called WITH the empty uid (the source guard makes the uid-slot eviction a no-op — we assert
+		// the call args carry '', NOT that it touches the shared uid slot).
+		expect(getCachedCoverByUid).not.toHaveBeenCalled();
+		expect(getCachedCover).toHaveBeenCalledWith('Foo Fighters', 'Everlong');
+		expect(removeCoverBoth).toHaveBeenCalledWith('', 'Foo Fighters', 'Everlong');
+		expect(resolveCoverForTrack).toHaveBeenCalledTimes(1);
+		expect(onResolved).toHaveBeenCalledWith('', 'https://resolved.example/c.jpg');
 	});
 
 	// charts-tags-same-cover regression: discovery stub rows (charts/tags, charts/countries) carry
