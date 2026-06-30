@@ -224,26 +224,52 @@ export const joox: SourceAdapter = {
 		}
 		const d = j.data;
 
-		// IDENTITY RE-VALIDATION (Pitfall 4 / criterion #4) — fail loudly on mismatch.
+		// IDENTITY RE-VALIDATION (Pitfall 4 / criterion #4) — keep music playing.
 		// The positional `n` may have returned a DIFFERENT song than the one the user
-		// selected (e.g. after a reorder/paginate). Compare the returned songmid / 歌曲ID
-		// against what we captured at search time; if neither matches, throw and leave
-		// detailsLoaded false rather than play the wrong song.
+		// selected (e.g. after a reorder/paginate). But upstream ALSO sometimes swaps
+		// which value lands in `songmid` vs `歌曲ID` between the search and detail
+		// endpoints, so a same-field comparison would reject a CORRECT song (e.g. 有人,
+		// whose expected 歌曲ID equals the returned songmid). Strategy:
+		//   - Build an EXPECTED token pool from every identity field we captured at
+		//     search time, and a RETURNED token pool from the detail body.
+		//   - CONFIRMED = any expected token equals any returned token (CROSS-FIELD
+		//     match allowed) → trust it, play as today.
+		//   - If NOT confirmed, only REFUSE (throw) in the narrow STRONG-DISJOINT case:
+		//     both sides are fully populated (expected has BOTH a mid and a songId,
+		//     returned has BOTH songmid and 歌曲ID) AND there is zero cross-field
+		//     overlap — i.e. a genuinely different song. Wrong-song protection stays
+		//     at full strength here.
+		//   - OTHERWISE (partial / unconfirmed but not strong-disjoint) → SOFT-ALLOW:
+		//     console.warn with the same diagnostic detail and play through, rather
+		//     than reject a song that is probably correct.
 		const expectedMid = track.songMid || track.jooxSongMid || '';
 		const expectedSongId = track.jooxSongId || track.songid || '';
 		const returnedMid = d.songmid || '';
 		const returnedSongId = d['歌曲ID'] || '';
 
-		const midMatches = !!expectedMid && !!returnedMid && expectedMid === returnedMid;
-		const songIdMatches = !!expectedSongId && !!returnedSongId && expectedSongId === returnedSongId;
-		// If we have any identity anchor at all, at least one of mid/歌曲ID must match.
-		const haveAnchor = !!expectedMid || !!expectedSongId;
-		if (haveAnchor && !midMatches && !songIdMatches) {
-			throw new Error(
-				`joox identity mismatch: expected songmid="${expectedMid}" (歌曲ID="${expectedSongId}") ` +
-					`but upstream n=${n} returned songmid="${returnedMid}" (歌曲ID="${returnedSongId}", ` +
-					`歌曲名称="${d['歌曲名称'] || ''}") — refusing to play the wrong song`
-			);
+		const expectedTokens = [
+			track.songMid,
+			track.jooxSongMid,
+			track.jooxSongId,
+			track.songid
+		].filter((v): v is string => !!v);
+		const returnedTokens = [d.songmid, d['歌曲ID']].filter((v): v is string => !!v);
+
+		const confirmed = expectedTokens.some((e) => returnedTokens.includes(e));
+		if (!confirmed) {
+			const expectedHasBoth = !!expectedMid && !!expectedSongId;
+			const returnedHasBoth = !!returnedMid && !!returnedSongId;
+			const strongDisjoint = expectedHasBoth && returnedHasBoth; // already unconfirmed = zero cross-field overlap
+			const diag =
+				`expected songmid="${expectedMid}" (歌曲ID="${expectedSongId}") ` +
+				`but upstream n=${n} returned songmid="${returnedMid}" (歌曲ID="${returnedSongId}", ` +
+				`歌曲名称="${d['歌曲名称'] || ''}")`;
+			if (strongDisjoint) {
+				// STRONG-DISJOINT: genuinely a different song — refuse to play the wrong song.
+				throw new Error(`joox identity mismatch: ${diag} — refusing to play the wrong song`);
+			}
+			// SOFT-ALLOW: partial / unconfirmed identity — keep playing, but warn.
+			console.warn(`joox identity unconfirmed (soft-allow): ${diag} — playing through`);
 		}
 
 		const playLinks = d['播放链接'] || {};
