@@ -100,6 +100,7 @@
             style:font-size={`${(1.05 * settings.fontScaleTitle) / 100}rem`}
             >{demoTitle}</span
         >
+        <p class="note">{t("settings.fontSizeTitleDesc")}</p>
     </div>
 
     <div class="ctl">
@@ -121,6 +122,7 @@
             style:font-size={`${(0.9 * settings.fontScaleArtist) / 100}rem`}
             >{demoArtist}</span
         >
+        <p class="note">{t("settings.fontSizeArtistDesc")}</p>
     </div>
 
     <div class="ctl">
@@ -142,6 +144,7 @@
             style:font-size={`${(1 * settings.fontScaleLyrics) / 100}rem`}
             >{demoTitle}</span
         >
+        <p class="note">{t("settings.fontSizeLyricsDesc")}</p>
     </div>
 
     <div class="ctl">
@@ -163,6 +166,7 @@
             style:font-size={`${(1.5 * settings.fontScaleNpTitle) / 100}rem`}
             >{demoTitle}</span
         >
+        <p class="note">{t("settings.fontSizeNpTitleDesc")}</p>
     </div>
 
     <div class="ctl">
@@ -184,6 +188,7 @@
             style:font-size={`${(1 * settings.fontScaleNpArtist) / 100}rem`}
             >{demoArtist}</span
         >
+        <p class="note">{t("settings.fontSizeNpArtistDesc")}</p>
     </div>
 </section>
 
@@ -217,6 +222,7 @@
                 ></span>
             {/each}
         </div>
+        <p class="note">{t("settings.coverScaleDesc")}</p>
     </div>
 
     <div class="ctl">
@@ -245,6 +251,7 @@
                 <span class="grid-demo-cell"></span>
             {/each}
         </div>
+        <p class="note">{t("settings.gridColumnsDesc")}</p>
     </div>
 
     <p class="note">{t("settings.appearanceNote")}</p>

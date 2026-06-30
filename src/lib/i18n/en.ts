@@ -371,6 +371,14 @@ const en = {
 	'settings.themeDesc': 'Switches the whole app between a dark and a light look; pick whichever is easier on your eyes in your usual surroundings.',
 	'settings.accentColorDesc': 'The highlight colour used for active controls, toggles and the track that\'s playing; choose one that matches your taste.',
 	'settings.reduceMotionDesc': 'Turns off non-essential animations and transitions across the app; enable it if motion bothers you or to help save battery.',
+	// appearance settings helper text (quick-260630-fce)
+	'settings.fontSizeTitleDesc': 'Scales the song-title text shown in lists and search results, where 100% is the default; raise it for readability or lower it to fit more on screen.',
+	'settings.fontSizeArtistDesc': 'Scales the artist-name text shown in lists and search results, where 100% is the default; raise it for readability or lower it to fit more on screen.',
+	'settings.fontSizeLyricsDesc': 'Scales the lyric lines shown on the now-playing screen, where 100% is the default; raise it for easier reading or lower it to see more lines at once.',
+	'settings.fontSizeNpTitleDesc': 'Scales the song title shown on the full-screen now-playing view, where 100% is the default; adjust it to taste without changing list text.',
+	'settings.fontSizeNpArtistDesc': 'Scales the artist name shown on the full-screen now-playing view, where 100% is the default; adjust it to taste without changing list text.',
+	'settings.coverScaleDesc': 'Scales album-cover artwork across grids and lists; bigger covers are easier to see but fit fewer per row, smaller covers fit more.',
+	'settings.gridColumnsDesc': 'Sets how many columns the Home grid uses; more columns mean smaller tiles and more per screen, fewer columns mean larger tiles.',
 } as const;
 
 export default en;

@@ -327,6 +327,14 @@ const tr: Dict = {
 	"settings.themeDesc": "Tüm uygulamayı koyu ve açık görünüm arasında değiştirir; her zamanki ortamınızda gözünüzü daha az yoran hangisiyse onu seçin.",
 	"settings.accentColorDesc": "Etkin denetimlerde, anahtarlarda ve çalan parçada kullanılan vurgu rengi; zevkinize uyanı seçin.",
 	"settings.reduceMotionDesc": "Uygulama genelinde gereksiz animasyonları ve geçişleri kapatır; hareket sizi rahatsız ediyorsa veya pil tasarrufu için açın.",
+	// appearance settings helper text (quick-260630-fce)
+	"settings.fontSizeTitleDesc": "Listelerde ve arama sonuçlarında görünen şarkı başlığı metnini ölçekler; 100% varsayılandır. Okunabilirlik için artırın, ekrana daha çok sığdırmak için azaltın.",
+	"settings.fontSizeArtistDesc": "Listelerde ve arama sonuçlarında görünen sanatçı adı metnini ölçekler; 100% varsayılandır. Okunabilirlik için artırın, ekrana daha çok sığdırmak için azaltın.",
+	"settings.fontSizeLyricsDesc": "Çalan ekranındaki şarkı sözü satırlarını ölçekler; 100% varsayılandır. Daha kolay okumak için artırın, aynı anda daha çok satır görmek için azaltın.",
+	"settings.fontSizeNpTitleDesc": "Tam ekran çalan görünümündeki şarkı başlığını ölçekler; 100% varsayılandır. Liste metnini değiştirmeden zevkinize göre ayarlayın.",
+	"settings.fontSizeNpArtistDesc": "Tam ekran çalan görünümündeki sanatçı adını ölçekler; 100% varsayılandır. Liste metnini değiştirmeden zevkinize göre ayarlayın.",
+	"settings.coverScaleDesc": "Albüm kapağı görsellerini ızgaralarda ve listelerde ölçekler; büyük kapaklar daha kolay görünür ama satıra daha az sığar, küçük kapaklar daha çok sığar.",
+	"settings.gridColumnsDesc": "Ana ekran ızgarasının kaç sütun kullanacağını belirler; daha çok sütun daha küçük döşemeler ve ekrana daha çok öğe, daha az sütun daha büyük döşemeler demektir.",
 };
 
 export default tr;

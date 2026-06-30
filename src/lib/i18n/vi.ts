@@ -327,6 +327,14 @@ const vi: Dict = {
 	"settings.themeDesc": "Chuyển toàn bộ ứng dụng giữa giao diện tối và sáng; chọn giao diện dễ nhìn hơn với mắt bạn trong môi trường thường ngày.",
 	"settings.accentColorDesc": "Màu nhấn dùng cho các điều khiển đang hoạt động, công tắc và bài hát đang phát; chọn màu hợp với sở thích của bạn.",
 	"settings.reduceMotionDesc": "Tắt các hoạt ảnh và chuyển cảnh không thiết yếu trên toàn ứng dụng; bật nếu chuyển động làm bạn khó chịu hoặc để tiết kiệm pin.",
+	// appearance settings helper text (quick-260630-fce)
+	"settings.fontSizeTitleDesc": "Chỉnh cỡ chữ tên bài hát trong danh sách và kết quả tìm kiếm, với 100% là mặc định; tăng để dễ đọc hoặc giảm để hiển thị được nhiều hơn trên màn hình.",
+	"settings.fontSizeArtistDesc": "Chỉnh cỡ chữ tên nghệ sĩ trong danh sách và kết quả tìm kiếm, với 100% là mặc định; tăng để dễ đọc hoặc giảm để hiển thị được nhiều hơn trên màn hình.",
+	"settings.fontSizeLyricsDesc": "Chỉnh cỡ chữ các dòng lời bài hát trên màn hình đang phát, với 100% là mặc định; tăng để dễ đọc hơn hoặc giảm để xem được nhiều dòng cùng lúc.",
+	"settings.fontSizeNpTitleDesc": "Chỉnh cỡ chữ tên bài hát trên màn hình đang phát toàn màn hình, với 100% là mặc định; điều chỉnh theo sở thích mà không ảnh hưởng chữ trong danh sách.",
+	"settings.fontSizeNpArtistDesc": "Chỉnh cỡ chữ tên nghệ sĩ trên màn hình đang phát toàn màn hình, với 100% là mặc định; điều chỉnh theo sở thích mà không ảnh hưởng chữ trong danh sách.",
+	"settings.coverScaleDesc": "Chỉnh cỡ ảnh bìa album trong lưới và danh sách; bìa lớn dễ nhìn hơn nhưng vừa ít trên mỗi hàng, bìa nhỏ vừa được nhiều hơn.",
+	"settings.gridColumnsDesc": "Đặt số cột mà lưới Trang chủ sử dụng; nhiều cột nghĩa là ô nhỏ hơn và nhiều hơn mỗi màn hình, ít cột nghĩa là ô lớn hơn.",
 };
 
 export default vi;

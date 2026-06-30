@@ -359,6 +359,14 @@ const zhHant: Dict = {
 	'settings.themeDesc': '讓整個應用程式在深色與淺色外觀之間切換；選擇在你日常環境中對眼睛較舒適的一種。',
 	'settings.accentColorDesc': '用於作用中的控制項、開關以及正在播放歌曲的強調色；挑一個你喜歡的顏色。',
 	'settings.reduceMotionDesc': '關閉應用程式中非必要的動畫與轉場效果；若動態效果讓你不適或想省電，請開啟此項。',
+	// appearance settings helper text (quick-260630-fce)
+	'settings.fontSizeTitleDesc': '縮放清單與搜尋結果中顯示的歌曲標題文字，100% 為預設值；放大以利閱讀，縮小則可在畫面上顯示更多內容。',
+	'settings.fontSizeArtistDesc': '縮放清單與搜尋結果中顯示的歌手名稱文字，100% 為預設值；放大以利閱讀，縮小則可在畫面上顯示更多內容。',
+	'settings.fontSizeLyricsDesc': '縮放正在播放畫面上顯示的歌詞行，100% 為預設值；放大以便閱讀，縮小則可一次顯示更多行。',
+	'settings.fontSizeNpTitleDesc': '縮放全螢幕正在播放畫面上顯示的歌曲標題，100% 為預設值；可依喜好調整，不會影響清單中的文字。',
+	'settings.fontSizeNpArtistDesc': '縮放全螢幕正在播放畫面上顯示的歌手名稱，100% 為預設值；可依喜好調整，不會影響清單中的文字。',
+	'settings.coverScaleDesc': '縮放各網格與清單中的專輯封面圖；封面越大越容易看清，但每列能放的越少，封面越小則能放越多。',
+	'settings.gridColumnsDesc': '設定首頁網格使用的欄數；欄數越多，圖塊越小、每螢幕顯示越多，欄數越少則圖塊越大。',
 };
 
 export default zhHant;

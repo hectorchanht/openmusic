@@ -327,6 +327,14 @@ const id: Dict = {
 	"settings.themeDesc": "Mengganti tampilan seluruh aplikasi antara mode gelap dan terang; pilih yang lebih nyaman di mata pada lingkungan biasa Anda.",
 	"settings.accentColorDesc": "Warna sorot yang dipakai untuk kontrol aktif, sakelar, dan lagu yang sedang diputar; pilih yang sesuai selera Anda.",
 	"settings.reduceMotionDesc": "Mematikan animasi dan transisi yang tidak penting di seluruh aplikasi; aktifkan jika gerakan mengganggu Anda atau untuk menghemat baterai.",
+	// appearance settings helper text (quick-260630-fce)
+	"settings.fontSizeTitleDesc": "Mengubah ukuran teks judul lagu di daftar dan hasil pencarian, dengan 100% sebagai bawaan; perbesar agar lebih terbaca atau perkecil agar muat lebih banyak di layar.",
+	"settings.fontSizeArtistDesc": "Mengubah ukuran teks nama artis di daftar dan hasil pencarian, dengan 100% sebagai bawaan; perbesar agar lebih terbaca atau perkecil agar muat lebih banyak di layar.",
+	"settings.fontSizeLyricsDesc": "Mengubah ukuran baris lirik di layar pemutaran, dengan 100% sebagai bawaan; perbesar agar lebih mudah dibaca atau perkecil agar lebih banyak baris terlihat sekaligus.",
+	"settings.fontSizeNpTitleDesc": "Mengubah ukuran judul lagu pada tampilan pemutaran layar penuh, dengan 100% sebagai bawaan; sesuaikan selera tanpa mengubah teks daftar.",
+	"settings.fontSizeNpArtistDesc": "Mengubah ukuran nama artis pada tampilan pemutaran layar penuh, dengan 100% sebagai bawaan; sesuaikan selera tanpa mengubah teks daftar.",
+	"settings.coverScaleDesc": "Mengubah ukuran sampul album di kisi dan daftar; sampul lebih besar lebih mudah dilihat tetapi muat lebih sedikit per baris, sampul lebih kecil muat lebih banyak.",
+	"settings.gridColumnsDesc": "Mengatur berapa kolom yang dipakai kisi Beranda; lebih banyak kolom berarti ubin lebih kecil dan lebih banyak per layar, lebih sedikit kolom berarti ubin lebih besar.",
 };
 
 export default id;

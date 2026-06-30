@@ -327,6 +327,14 @@ const it: Dict = {
 	"settings.themeDesc": "Alterna l'intera app tra un aspetto scuro e uno chiaro; scegli quello più riposante per i tuoi occhi nel tuo ambiente abituale.",
 	"settings.accentColorDesc": "Il colore di evidenziazione usato per i controlli attivi, gli interruttori e il brano in riproduzione; scegli quello che preferisci.",
 	"settings.reduceMotionDesc": "Disattiva animazioni e transizioni non essenziali in tutta l'app; attivalo se il movimento ti disturba o per risparmiare batteria.",
+	// appearance settings helper text (quick-260630-fce)
+	"settings.fontSizeTitleDesc": "Ridimensiona il testo del titolo del brano in elenchi e risultati di ricerca, dove 100% è il valore predefinito; aumentalo per la leggibilità o riducilo per mostrarne di più sullo schermo.",
+	"settings.fontSizeArtistDesc": "Ridimensiona il testo del nome dell'artista in elenchi e risultati di ricerca, dove 100% è il valore predefinito; aumentalo per la leggibilità o riducilo per mostrarne di più sullo schermo.",
+	"settings.fontSizeLyricsDesc": "Ridimensiona le righe del testo mostrate nella schermata di riproduzione, dove 100% è il valore predefinito; aumentalo per leggere più facilmente o riducilo per vedere più righe insieme.",
+	"settings.fontSizeNpTitleDesc": "Ridimensiona il titolo del brano nella vista di riproduzione a schermo intero, dove 100% è il valore predefinito; regolalo a piacere senza modificare il testo degli elenchi.",
+	"settings.fontSizeNpArtistDesc": "Ridimensiona il nome dell'artista nella vista di riproduzione a schermo intero, dove 100% è il valore predefinito; regolalo a piacere senza modificare il testo degli elenchi.",
+	"settings.coverScaleDesc": "Ridimensiona le copertine degli album in griglie ed elenchi; le copertine più grandi si vedono meglio ma ne entrano meno per riga, quelle più piccole ne entrano di più.",
+	"settings.gridColumnsDesc": "Imposta quante colonne usa la griglia della Home; più colonne significano riquadri più piccoli e più per schermata, meno colonne significano riquadri più grandi.",
 };
 
 export default it;

@@ -359,6 +359,14 @@ const zhHans: Dict = {
 	'settings.themeDesc': '让整个应用在深色与浅色外观之间切换；选择在你日常环境中更护眼的一种。',
 	'settings.accentColorDesc': '用于已激活的控件、开关以及正在播放歌曲的强调色；挑一个你喜欢的颜色。',
 	'settings.reduceMotionDesc': '关闭应用中非必要的动画与过渡效果；若动态效果让你不适或想省电，请开启此项。',
+	// appearance settings helper text (quick-260630-fce)
+	'settings.fontSizeTitleDesc': '缩放列表与搜索结果中显示的歌曲标题文字，100% 为默认值；放大便于阅读，缩小则可在屏幕上显示更多内容。',
+	'settings.fontSizeArtistDesc': '缩放列表与搜索结果中显示的歌手名称文字，100% 为默认值；放大便于阅读，缩小则可在屏幕上显示更多内容。',
+	'settings.fontSizeLyricsDesc': '缩放正在播放界面上显示的歌词行，100% 为默认值；放大便于阅读，缩小则可一次显示更多行。',
+	'settings.fontSizeNpTitleDesc': '缩放全屏正在播放界面上显示的歌曲标题，100% 为默认值；可按喜好调整，不会影响列表中的文字。',
+	'settings.fontSizeNpArtistDesc': '缩放全屏正在播放界面上显示的歌手名称，100% 为默认值；可按喜好调整，不会影响列表中的文字。',
+	'settings.coverScaleDesc': '缩放各网格与列表中的专辑封面图；封面越大越容易看清，但每行能放的越少，封面越小则能放越多。',
+	'settings.gridColumnsDesc': '设置首页网格使用的列数；列数越多，图块越小、每屏显示越多，列数越少则图块越大。',
 };
 
 export default zhHans;

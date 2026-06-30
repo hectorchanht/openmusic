@@ -327,6 +327,14 @@ const es: Dict = {
 	"settings.themeDesc": "Cambia toda la app entre un aspecto oscuro y uno claro; elige el que resulte más cómodo para tus ojos en tu entorno habitual.",
 	"settings.accentColorDesc": "El color de resalte usado en los controles activos, los interruptores y la canción en reproducción; elige el que más te guste.",
 	"settings.reduceMotionDesc": "Desactiva las animaciones y transiciones no esenciales en toda la app; actívalo si el movimiento te molesta o para ayudar a ahorrar batería.",
+	// appearance settings helper text (quick-260630-fce)
+	"settings.fontSizeTitleDesc": "Escala el texto del título de la canción en listas y resultados de búsqueda, donde 100% es el valor predeterminado; súbelo para leer mejor o bájalo para que quepa más en pantalla.",
+	"settings.fontSizeArtistDesc": "Escala el texto del nombre del artista en listas y resultados de búsqueda, donde 100% es el valor predeterminado; súbelo para leer mejor o bájalo para que quepa más en pantalla.",
+	"settings.fontSizeLyricsDesc": "Escala las líneas de letra mostradas en la pantalla de reproducción, donde 100% es el valor predeterminado; súbelo para leer más fácil o bájalo para ver más líneas a la vez.",
+	"settings.fontSizeNpTitleDesc": "Escala el título de la canción en la vista de reproducción a pantalla completa, donde 100% es el valor predeterminado; ajústalo a tu gusto sin cambiar el texto de las listas.",
+	"settings.fontSizeNpArtistDesc": "Escala el nombre del artista en la vista de reproducción a pantalla completa, donde 100% es el valor predeterminado; ajústalo a tu gusto sin cambiar el texto de las listas.",
+	"settings.coverScaleDesc": "Escala las portadas de álbum en cuadrículas y listas; las portadas más grandes se ven mejor pero caben menos por fila, las más pequeñas caben más.",
+	"settings.gridColumnsDesc": "Establece cuántas columnas usa la cuadrícula de Inicio; más columnas significan mosaicos más pequeños y más por pantalla, menos columnas significan mosaicos más grandes.",
 };
 
 export default es;

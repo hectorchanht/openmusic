@@ -327,6 +327,14 @@ const de: Dict = {
 	"settings.themeDesc": "Schaltet die gesamte App zwischen einem dunklen und einem hellen Erscheinungsbild um; wähle, was in deiner üblichen Umgebung angenehmer für die Augen ist.",
 	"settings.accentColorDesc": "Die Akzentfarbe für aktive Bedienelemente, Schalter und den gerade gespielten Titel; wähle die, die dir am besten gefällt.",
 	"settings.reduceMotionDesc": "Deaktiviert nicht wesentliche Animationen und Übergänge in der gesamten App; aktiviere es, wenn dich Bewegung stört oder um Akku zu sparen.",
+	// appearance settings helper text (quick-260630-fce)
+	"settings.fontSizeTitleDesc": "Skaliert den Songtitel-Text in Listen und Suchergebnissen, wobei 100% der Standard ist; erhöhe ihn für die Lesbarkeit oder verringere ihn, um mehr auf dem Bildschirm zu zeigen.",
+	"settings.fontSizeArtistDesc": "Skaliert den Künstlernamen-Text in Listen und Suchergebnissen, wobei 100% der Standard ist; erhöhe ihn für die Lesbarkeit oder verringere ihn, um mehr auf dem Bildschirm zu zeigen.",
+	"settings.fontSizeLyricsDesc": "Skaliert die Liedtextzeilen auf dem Wiedergabebildschirm, wobei 100% der Standard ist; erhöhe ihn für leichteres Lesen oder verringere ihn, um mehr Zeilen gleichzeitig zu sehen.",
+	"settings.fontSizeNpTitleDesc": "Skaliert den Songtitel in der Vollbild-Wiedergabeansicht, wobei 100% der Standard ist; passe ihn nach Geschmack an, ohne den Listentext zu ändern.",
+	"settings.fontSizeNpArtistDesc": "Skaliert den Künstlernamen in der Vollbild-Wiedergabeansicht, wobei 100% der Standard ist; passe ihn nach Geschmack an, ohne den Listentext zu ändern.",
+	"settings.coverScaleDesc": "Skaliert die Albumcover in Rastern und Listen; größere Cover sind besser sichtbar, passen aber weniger pro Reihe, kleinere Cover passen mehr.",
+	"settings.gridColumnsDesc": "Legt fest, wie viele Spalten das Startseiten-Raster verwendet; mehr Spalten bedeuten kleinere Kacheln und mehr pro Bildschirm, weniger Spalten bedeuten größere Kacheln.",
 };
 
 export default de;

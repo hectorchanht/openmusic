@@ -327,6 +327,14 @@ const fr: Dict = {
 	"settings.themeDesc": "Bascule toute l'application entre un aspect sombre et un aspect clair ; choisissez celui qui repose le plus vos yeux dans votre environnement habituel.",
 	"settings.accentColorDesc": "La couleur de surbrillance des commandes actives, des interrupteurs et du morceau en cours de lecture ; choisissez celle qui vous plaît.",
 	"settings.reduceMotionDesc": "Désactive les animations et transitions non essentielles dans toute l'application ; activez-le si le mouvement vous gêne ou pour aider à économiser la batterie.",
+	// appearance settings helper text (quick-260630-fce)
+	"settings.fontSizeTitleDesc": "Met à l'échelle le titre des chansons dans les listes et les résultats de recherche, 100% étant la valeur par défaut ; augmentez-le pour la lisibilité ou réduisez-le pour afficher plus à l'écran.",
+	"settings.fontSizeArtistDesc": "Met à l'échelle le nom de l'artiste dans les listes et les résultats de recherche, 100% étant la valeur par défaut ; augmentez-le pour la lisibilité ou réduisez-le pour afficher plus à l'écran.",
+	"settings.fontSizeLyricsDesc": "Met à l'échelle les lignes de paroles affichées sur l'écran de lecture, 100% étant la valeur par défaut ; augmentez-le pour lire plus facilement ou réduisez-le pour voir plus de lignes à la fois.",
+	"settings.fontSizeNpTitleDesc": "Met à l'échelle le titre de la chanson sur l'écran de lecture en plein écran, 100% étant la valeur par défaut ; ajustez-le à votre goût sans modifier le texte des listes.",
+	"settings.fontSizeNpArtistDesc": "Met à l'échelle le nom de l'artiste sur l'écran de lecture en plein écran, 100% étant la valeur par défaut ; ajustez-le à votre goût sans modifier le texte des listes.",
+	"settings.coverScaleDesc": "Met à l'échelle les pochettes d'album dans les grilles et les listes ; les grandes pochettes se voient mieux mais en tiennent moins par ligne, les petites en tiennent plus.",
+	"settings.gridColumnsDesc": "Définit le nombre de colonnes de la grille d'accueil ; plus de colonnes signifie des tuiles plus petites et plus par écran, moins de colonnes signifie des tuiles plus grandes.",
 };
 
 export default fr;

@@ -327,6 +327,14 @@ const pt: Dict = {
 	"settings.themeDesc": "Alterna todo o app entre uma aparência escura e uma clara; escolha a que for mais confortável para os seus olhos no seu ambiente habitual.",
 	"settings.accentColorDesc": "A cor de destaque usada em controles ativos, interruptores e na faixa em reprodução; escolha a que combinar com o seu gosto.",
 	"settings.reduceMotionDesc": "Desativa animações e transições não essenciais em todo o app; ative se o movimento te incomoda ou para ajudar a poupar bateria.",
+	// appearance settings helper text (quick-260630-fce)
+	"settings.fontSizeTitleDesc": "Ajusta o tamanho do título da música em listas e resultados de busca, sendo 100% o padrão; aumente para ler melhor ou diminua para caber mais na tela.",
+	"settings.fontSizeArtistDesc": "Ajusta o tamanho do nome do artista em listas e resultados de busca, sendo 100% o padrão; aumente para ler melhor ou diminua para caber mais na tela.",
+	"settings.fontSizeLyricsDesc": "Ajusta o tamanho das linhas de letra na tela de reprodução, sendo 100% o padrão; aumente para ler com mais facilidade ou diminua para ver mais linhas de uma vez.",
+	"settings.fontSizeNpTitleDesc": "Ajusta o tamanho do título da música na tela de reprodução em tela cheia, sendo 100% o padrão; ajuste a seu gosto sem alterar o texto das listas.",
+	"settings.fontSizeNpArtistDesc": "Ajusta o tamanho do nome do artista na tela de reprodução em tela cheia, sendo 100% o padrão; ajuste a seu gosto sem alterar o texto das listas.",
+	"settings.coverScaleDesc": "Ajusta o tamanho das capas de álbum em grades e listas; capas maiores são mais fáceis de ver mas cabem menos por linha, capas menores cabem mais.",
+	"settings.gridColumnsDesc": "Define quantas colunas a grade da Início usa; mais colunas significam blocos menores e mais por tela, menos colunas significam blocos maiores.",
 };
 
 export default pt;
