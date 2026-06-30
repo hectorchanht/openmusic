@@ -11,6 +11,7 @@
 	import { Moon } from '@lucide/svelte';
 	import { dragClose } from '$lib/actions/dragClose';
 	import { focusTrap } from '$lib/actions/focusTrap';
+	import { tapBounce } from '$lib/actions/tapBounce';
 	import { overlays } from '$lib/stores/overlays.svelte';
 	import { sleepTimer } from '$lib/stores/sleepTimer.svelte';
 	import { player, fmtTime } from '$lib/stores/player.svelte';
@@ -68,15 +69,16 @@
 				class="mi"
 				class:on={sleepTimer.mode === 'minutes' && sleepTimer.selectedMinutes === min}
 				onclick={() => pickMinutes(min)}
+				use:tapBounce
 			>
 				<Moon size={18} /> {t('timer.minutes', { n: min })}
 			</button>
 		{/each}
-		<button class="mi" class:on={sleepTimer.mode === 'end-of-track'} onclick={pickEndOfTrack}>
+		<button class="mi" class:on={sleepTimer.mode === 'end-of-track'} onclick={pickEndOfTrack} use:tapBounce>
 			<Moon size={18} /> {t('timer.endOfTrack')}
 		</button>
 		{#if sleepTimer.active}
-			<button class="mi cancel" onclick={cancelTimer}>
+			<button class="mi cancel" onclick={cancelTimer} use:tapBounce>
 				{t('timer.cancel')}
 			</button>
 		{/if}

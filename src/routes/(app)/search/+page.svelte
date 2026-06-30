@@ -436,7 +436,7 @@
 			setTimeout(() => (inputFocused = false), 150);
 		}}
 	/>
-	<button type="submit" disabled={loading} aria-busy={loading} aria-label={t('search.go')}>
+	<button type="submit" disabled={loading} aria-busy={loading} aria-label={t('search.go')} use:tapBounce>
 		{#if loading}<span class="spin" aria-hidden="true"><LoaderCircle size={18} /></span>{:else}{t('search.go')}{/if}
 	</button>
 </form>
@@ -446,7 +446,7 @@
 	<div class="suggest">
 		<div class="suggest-head">
 			<span class="suggest-title">{t('search.recent')}</span>
-			<button type="button" class="suggest-clear" onmousedown={(e) => e.preventDefault()} onclick={() => searchHistory.clear()}>
+			<button type="button" class="suggest-clear" onmousedown={(e) => e.preventDefault()} onclick={() => searchHistory.clear()} use:tapBounce>
 				{t('search.clear')}
 			</button>
 		</div>
@@ -462,6 +462,7 @@
 							inputFocused = false;
 							run();
 						}}
+						use:tapBounce
 					>
 						<span class="suggest-q">{entry.query}</span>
 					</button>
@@ -487,6 +488,7 @@
 						class="row suggest-row"
 						onmousedown={(e) => e.preventDefault()}
 						onclick={() => pickSuggestion(s)}
+						use:tapBounce
 					>
 						<span class="suggest-kind" aria-hidden="true">{s.kind === 'artist' ? '♪' : '♫'}</span>
 						<span class="suggest-meta">
@@ -512,7 +514,7 @@
 	<div class="offline-state">
 		<p class="offline-title">{t('offline.title')}</p>
 		<p class="offline-body">{t('offline.body')}</p>
-		<button type="button" class="offline-cta" onclick={() => goto('/library')}>{t('offline.goToLibrary')}</button>
+		<button type="button" class="offline-cta" onclick={() => goto('/library')} use:tapBounce>{t('offline.goToLibrary')}</button>
 	</div>
 {/if}
 

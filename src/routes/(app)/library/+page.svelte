@@ -192,11 +192,11 @@
 <header class="head">
 	<h1>{t('library.heading')} <span class="tab-sub">{tabLabel}</span></h1>
 	{#if editableTabHasContent}
-		<button class="edit-btn" aria-pressed={editMode} onclick={() => (editMode = !editMode)}>
+		<button class="edit-btn" aria-pressed={editMode} onclick={() => (editMode = !editMode)} use:tapBounce>
 			{#if editMode}<Check size={16} /> {t('common.done')}{:else}<Pencil size={16} /> {t('library.edit')}{/if}
 		</button>
 	{:else if tab === 'history' && history.entries.length}
-		<button class="edit-btn danger" onclick={() => history.clear()}><Trash2 size={16} /> {t('history.clear')}</button>
+		<button class="edit-btn danger" onclick={() => history.clear()} use:tapBounce><Trash2 size={16} /> {t('history.clear')}</button>
 	{/if}
 </header>
 
@@ -204,11 +204,11 @@
      fit in a single row at any reasonable viewport width. aria-label preserves the
      accessible name for screen readers + tooltips. -->
 <nav class="tabs">
-	<button class:active={tab === 'liked'} aria-pressed={tab === 'liked'} aria-current={tab === 'liked' ? 'page' : undefined} aria-label={t('library.liked')} title={t('library.liked')} onclick={() => setTab('liked')}><Heart size={16} /></button>
-	<button class:active={tab === 'playlists'} aria-pressed={tab === 'playlists'} aria-current={tab === 'playlists' ? 'page' : undefined} aria-label={t('library.playlists')} title={t('library.playlists')} onclick={() => setTab('playlists')}><ListMusic size={16} /></button>
-	<button class:active={tab === 'downloads'} aria-pressed={tab === 'downloads'} aria-current={tab === 'downloads' ? 'page' : undefined} aria-label={t('library.downloads')} title={t('library.downloads')} onclick={() => setTab('downloads')}><Download size={16} /></button>
-	<button class:active={tab === 'fav-artists'} aria-pressed={tab === 'fav-artists'} aria-current={tab === 'fav-artists' ? 'page' : undefined} aria-label={t('library.favArtists')} title={t('library.favArtists')} onclick={() => setTab('fav-artists')}><Users size={16} /></button>
-	<button class:active={tab === 'history'} aria-pressed={tab === 'history'} aria-current={tab === 'history' ? 'page' : undefined} aria-label={t('history.heading')} title={t('history.heading')} onclick={() => setTab('history')}><Clock size={16} /></button>
+	<button class:active={tab === 'liked'} aria-pressed={tab === 'liked'} aria-current={tab === 'liked' ? 'page' : undefined} aria-label={t('library.liked')} title={t('library.liked')} onclick={() => setTab('liked')} use:tapBounce><Heart size={16} /></button>
+	<button class:active={tab === 'playlists'} aria-pressed={tab === 'playlists'} aria-current={tab === 'playlists' ? 'page' : undefined} aria-label={t('library.playlists')} title={t('library.playlists')} onclick={() => setTab('playlists')} use:tapBounce><ListMusic size={16} /></button>
+	<button class:active={tab === 'downloads'} aria-pressed={tab === 'downloads'} aria-current={tab === 'downloads' ? 'page' : undefined} aria-label={t('library.downloads')} title={t('library.downloads')} onclick={() => setTab('downloads')} use:tapBounce><Download size={16} /></button>
+	<button class:active={tab === 'fav-artists'} aria-pressed={tab === 'fav-artists'} aria-current={tab === 'fav-artists' ? 'page' : undefined} aria-label={t('library.favArtists')} title={t('library.favArtists')} onclick={() => setTab('fav-artists')} use:tapBounce><Users size={16} /></button>
+	<button class:active={tab === 'history'} aria-pressed={tab === 'history'} aria-current={tab === 'history' ? 'page' : undefined} aria-label={t('history.heading')} title={t('history.heading')} onclick={() => setTab('history')} use:tapBounce><Clock size={16} /></button>
 </nav>
 
 {#if tab === 'liked'}
@@ -237,9 +237,9 @@
 				<div class="pl-head">
 					<h2>{pl.name} <span class="count">{pl.tracks.length}</span></h2>
 					{#if editMode}
-						<button class="del" aria-label={t('library.deletePlaylist')} onclick={() => library.deletePlaylist(pl.id)}><Trash2 size={16} /></button>
+						<button class="del" aria-label={t('library.deletePlaylist')} onclick={() => library.deletePlaylist(pl.id)} use:tapBounce><Trash2 size={16} /></button>
 					{:else if pl.tracks.length}
-						<button class="del" aria-label={t('library.playAll')} title={t('library.playAll')} onclick={() => playList(pl.tracks, pl.tracks[0])}><Play size={16} /></button>
+						<button class="del" aria-label={t('library.playAll')} title={t('library.playAll')} onclick={() => playList(pl.tracks, pl.tracks[0])} use:tapBounce><Play size={16} /></button>
 					{/if}
 				</div>
 				{#if pl.tracks.length}
@@ -281,7 +281,7 @@
 	{#if library.favArtists.length}
 		<div class="fav-grid">
 			{#each library.favArtists as name (name)}
-				<button class="fav-tile" class:edit-row={editMode} onclick={() => {
+				<button class="fav-tile" class:edit-row={editMode} use:tapBounce onclick={() => {
 					if (editMode) library.toggleFavArtist(name);
 					else goto('/artist/' + encodeURIComponent(name));
 				}}>

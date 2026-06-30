@@ -11,6 +11,7 @@
 	import { overlays } from '$lib/stores/overlays.svelte';
 	import { dragClose } from '$lib/actions/dragClose';
 	import { focusTrap } from '$lib/actions/focusTrap';
+	import { tapBounce } from '$lib/actions/tapBounce';
 	import { marquee } from '$lib/actions/marquee';
 	import { toast } from '$lib/stores/toast.svelte';
 	import { tick as hapticTick } from '$lib/util/haptics';
@@ -285,11 +286,11 @@
 			<div class="head-actions">
 				<!-- Like is the SOLE accent in the header (D-09); the mid-list Like row is removed.
 				     Reuses the existing like() + liked derived; the Heart import stays (Pitfall 7). -->
-				<button class="hd-btn" class:liked aria-pressed={liked} aria-label={liked ? t('menu.liked') : t('menu.like')} onclick={like}><Heart size={20} fill={liked ? 'currentColor' : 'none'} /></button>
+				<button class="hd-btn" class:liked aria-pressed={liked} aria-label={liked ? t('menu.liked') : t('menu.like')} onclick={like} use:tapBounce><Heart size={20} fill={liked ? 'currentColor' : 'none'} /></button>
 				<!-- NEW explicit Close affordance (today close is scrim/drag only). It ONLY flips
 				     state via close() → the $effect cleanup is the SOLE overlays.dismiss caller, so
 				     scrim/X/drag/back all converge on one dismiss path (overlay invariant; D-09). -->
-				<button class="hd-btn" aria-label={t('menu.closeMenu')} onclick={close}><X size={20} /></button>
+				<button class="hd-btn" aria-label={t('menu.closeMenu')} onclick={close} use:tapBounce><X size={20} /></button>
 			</div>
 		</div>
 		{#if loading && !track.title}
@@ -307,31 +308,31 @@
 		     now only drives the header-only skeleton above). Gated rows (Download / Detail / Remix)
 		     are tappable on a stub and resolve-then-act with an inline spinner (D-02/D-03). -->
 		{#if track && track.uid !== player.current?.uid}
-			<button class="mi" onclick={playNext}><ListStart size={18} /> {t('menu.playNext')}</button>
-			<button class="mi" onclick={addQueue}><ListEnd size={18} /> {t('menu.addToQueue')}</button>
+			<button class="mi" onclick={playNext} use:tapBounce><ListStart size={18} /> {t('menu.playNext')}</button>
+			<button class="mi" onclick={addQueue} use:tapBounce><ListEnd size={18} /> {t('menu.addToQueue')}</button>
 		{/if}
 		<!-- Remix: GATED (needs audioUrl to play the seed) — Sparkles + the inline spinner.
 		     Sits in the queue-actions cluster after Play next / Add to queue (D-07). -->
-		<button class="mi" aria-busy={inFlight.has('remix')} aria-label={inFlight.has('remix') ? t('menu.preparing') : undefined} onclick={() => gated('remix', doRemix)}>
+		<button class="mi" aria-busy={inFlight.has('remix')} aria-label={inFlight.has('remix') ? t('menu.preparing') : undefined} onclick={() => gated('remix', doRemix)} use:tapBounce>
 			{#if inFlight.has('remix')}<span class="row-spinner"></span>{:else}<Sparkles size={18} />{/if} {t('menu.remix')}
 		</button>
 		{#if player.queue.length > 1}
-			<button class="mi" class:on={player.shuffle} onclick={shuffleQueue}><Shuffle size={18} /> {t('menu.shuffleQueue')}</button>
-			<button class="mi" onclick={clearQueue}><Trash2 size={18} /> {t('menu.clearQueue')}</button>
+			<button class="mi" class:on={player.shuffle} onclick={shuffleQueue} use:tapBounce><Shuffle size={18} /> {t('menu.shuffleQueue')}</button>
+			<button class="mi" onclick={clearQueue} use:tapBounce><Trash2 size={18} /> {t('menu.clearQueue')}</button>
 		{/if}
 		<!-- Download: GATED — resolve-then-act at settings.downloadQuality inside the run callback. -->
-		<button class="mi" aria-busy={inFlight.has('download')} aria-label={inFlight.has('download') ? t('menu.preparing') : undefined} onclick={() => gated('download', doDownload)}>
+		<button class="mi" aria-busy={inFlight.has('download')} aria-label={inFlight.has('download') ? t('menu.preparing') : undefined} onclick={() => gated('download', doDownload)} use:tapBounce>
 			{#if inFlight.has('download')}<span class="row-spinner"></span>{:else}<Download size={18} />{/if} {t('menu.download')}
 		</button>
-		<button class="mi" onclick={() => { pickerOpen = true; }}><ListPlus size={18} /> {t('menu.addToPlaylist')}</button>
+		<button class="mi" onclick={() => { pickerOpen = true; }} use:tapBounce><ListPlus size={18} /> {t('menu.addToPlaylist')}</button>
 		<!-- Opens the GLOBAL SleepTimerSheet (mounted in the app layout) — not a local sub-sheet
 		     here, so the timer indicator is reachable from the nowbar + now-playing too (D-08). -->
-		<button class="mi" onclick={() => { close(); tick().then(() => (sleepTimer.sheetOpen = true)); }}><Moon size={18} /> {t('menu.sleepTimer')}</button>
+		<button class="mi" onclick={() => { close(); tick().then(() => (sleepTimer.sheetOpen = true)); }} use:tapBounce><Moon size={18} /> {t('menu.sleepTimer')}</button>
 		<!-- <button class="mi" onclick={gotoAlbum} disabled={!track.album}><Disc size={18} /> {t('menu.goToAlbum')}</button> -->
-		<button class="mi" onclick={gotoArtist}><User size={18} /> {t('menu.goToArtist')}</button>
-		<button class="mi" onclick={doShare}><Share2 size={18} /> {t('menu.share')}</button>
+		<button class="mi" onclick={gotoArtist} use:tapBounce><User size={18} /> {t('menu.goToArtist')}</button>
+		<button class="mi" onclick={doShare} use:tapBounce><Share2 size={18} /> {t('menu.share')}</button>
 		<!-- Detail: GATED — resolves details to populate the detail sheet's audioUrl/quality rows. -->
-		<button class="mi" aria-busy={inFlight.has('detail')} aria-label={inFlight.has('detail') ? t('menu.preparing') : undefined} onclick={() => gated('detail', doDetail)}>
+		<button class="mi" aria-busy={inFlight.has('detail')} aria-label={inFlight.has('detail') ? t('menu.preparing') : undefined} onclick={() => gated('detail', doDetail)} use:tapBounce>
 			{#if inFlight.has('detail')}<span class="row-spinner"></span>{:else}<Info size={18} />{/if} {t('menu.detail')}
 		</button>
 	</div>
@@ -342,16 +343,16 @@
 	<div class="menu" transition:fly={{ y: 240, duration: 200 }} use:dragClose={{ onclose: () => (pickerOpen = false) }} use:focusTrap>
 		<div class="menu-head">{t('menu.addToPlaylist')}</div>
 		{#each library.playlists as pl (pl.id)}
-			<button class="mi" onclick={() => addToPlaylist(pl.id)}><ListPlus size={18} /> {pl.name} <span class="count">{pl.tracks.length}</span></button>
+			<button class="mi" onclick={() => addToPlaylist(pl.id)} use:tapBounce><ListPlus size={18} /> {pl.name} <span class="count">{pl.tracks.length}</span></button>
 		{/each}
-		<button class="mi accent" onclick={newPlaylist}><Plus size={18} /> {t('menu.newPlaylist')}</button>
+		<button class="mi accent" onclick={newPlaylist} use:tapBounce><Plus size={18} /> {t('menu.newPlaylist')}</button>
 	</div>
 {/if}
 
 {#if detailTrack}
 	<button class="scrim" aria-label={t('menu.close')} onclick={() => (detailTrack = null)}></button>
 	<div class="modal" transition:fly={{ y: 240, duration: 200 }} use:dragClose={{ onclose: () => (detailTrack = null) }} use:focusTrap>
-		<div class="menu-head row"><span>{t('menu.trackDetail')}</span><button class="x" aria-label={t('menu.close')} onclick={() => (detailTrack = null)}><X size={18} /></button></div>
+		<div class="menu-head row"><span>{t('menu.trackDetail')}</span><button class="x" aria-label={t('menu.close')} onclick={() => (detailTrack = null)} use:tapBounce><X size={18} /></button></div>
 		<dl class="detail">
 			<dt>{t('menu.detailTitle')}</dt><dd>{names.dnTitle(detailTrack.title)}</dd>
 			<dt>{t('menu.detailArtist')}</dt><dd>{names.dnArtist(detailTrack.artist)}</dd>
