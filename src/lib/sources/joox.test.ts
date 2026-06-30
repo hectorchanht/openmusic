@@ -124,12 +124,92 @@ describe('joox.resolve — POSITION-INDEX IDENTITY FIX', () => {
 		expect(out.detailsLoaded).toBe(true);
 	});
 
-	// Test 3 (identity — mismatch fails loudly): the mocked detail returns a DIFFERENT
-	// songmid/title than expected → resolve THROWS, detailsLoaded stays false.
-	it('identity: a songmid mismatch THROWS and leaves detailsLoaded false', async () => {
+	// Test 3a (CROSS-FIELD match — 有人 case): upstream swaps which value lands in
+	// `songmid` vs `歌曲ID` between search and detail, so the target's expected 歌曲ID
+	// comes back as the returned `songmid`. The guard must confirm via cross-field token
+	// match and resolve the song (no throw).
+	it('identity: a cross-field swap (歌曲ID === returned songmid) resolves and plays', async () => {
+		const tracks = await searchTracks();
+		// target "晴天" (songMid=001Bnq3w0u8Pql, jooxSongId=songid-001Bnq3w0u8Pql)
+		const target = tracks.find((t) => t.songMid === '001Bnq3w0u8Pql')!;
+		expect(target).toBeDefined();
+
+		// Field-swap: detail returns the target's expected 歌曲ID as its `songmid`.
+		const crossFieldDetail = {
+			code: 200,
+			data: {
+				songmid: target.jooxSongId, // == expected 歌曲ID (cross-field overlap)
+				'歌曲ID': 'songid-some-other-value',
+				'歌曲名称': '有人',
+				'歌手': '周杰伦',
+				'专辑': '叶惠美',
+				'歌词内容': '[00:00.00]有人 - 周杰伦',
+				'播放链接': {
+					'无损FLAC': 'https://cdn.joox.example/audio/youren.flac'
+				}
+			}
+		};
+
+		vi.stubGlobal('fetch', mockResolveFetch(crossFieldDetail));
+		const out = await joox.resolve(target, ac.signal);
+
+		expect(out.detailsLoaded).toBe(true);
+		expect(out.audioUrl).toBeTruthy();
+	});
+
+	// Test 3b (SOFT-ALLOW — partial/unconfirmed identity): a track with only `songid`
+	// set (no songMid/jooxSongMid/jooxSongId) cannot reach the strong-disjoint case, so
+	// an unconfirmed detail must SOFT-ALLOW: warn and play through, never throw.
+	it('identity: partial/unconfirmed identity soft-allows (console.warn, no throw)', async () => {
+		const tracks = await searchTracks();
+		const base = tracks[0];
+		// Hand-build a partial-identity track: clear all mid/songId anchors, keep songid only.
+		const target: Track = {
+			...base,
+			songMid: undefined,
+			jooxSongMid: undefined,
+			jooxSongId: undefined,
+			songid: 'lonely-songid-no-match',
+			detailsLoaded: false,
+			audioUrl: null
+		};
+
+		// Detail body whose tokens do NOT match the target's songid.
+		const unrelatedDetail = {
+			code: 200,
+			data: {
+				songmid: 'zzz-unrelated-mid',
+				'歌曲ID': 'zzz-unrelated-songid',
+				'歌曲名称': '陌生的歌',
+				'歌手': '某人',
+				'专辑': '某专辑',
+				'歌词内容': '',
+				'播放链接': {
+					'无损FLAC': 'https://cdn.joox.example/audio/unrelated.flac'
+				}
+			}
+		};
+
+		const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+		vi.stubGlobal('fetch', mockResolveFetch(unrelatedDetail));
+
+		const out = await joox.resolve(target, ac.signal);
+
+		expect(out.detailsLoaded).toBe(true);
+		expect(out.audioUrl).toBeTruthy();
+		expect(warnSpy).toHaveBeenCalled();
+		warnSpy.mockRestore();
+	});
+
+	// Test 3c (STRONG-DISJOINT — fails loudly): both sides fully populated (mid + 歌曲ID)
+	// with ZERO cross-field overlap → genuinely a different song → resolve THROWS,
+	// detailsLoaded stays false. Wrong-song protection at full strength.
+	it('identity: a strong-disjoint mismatch THROWS and leaves detailsLoaded false', async () => {
 		const tracks = await searchTracks();
 		const reordered = [tracks[1], tracks[3], tracks[0], tracks[2]];
-		// target "晴天" (001Bnq3w0u8Pql) but the upstream detail returns "稻香" (002cZ5jq3Hk8Yz)
+		// target "晴天" (001Bnq3w0u8Pql / songid-001Bnq3w0u8Pql) — fully populated on both
+		// mid and 歌曲ID — but the upstream detail returns "稻香" (002cZ5jq3Hk8Yz /
+		// songid-002cZ5jq3Hk8Yz), also fully populated, with zero token overlap.
 		const target = reordered.find((t) => t.songMid === '001Bnq3w0u8Pql')!;
 		expect(target).toBeDefined();
 
