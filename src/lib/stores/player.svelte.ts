@@ -580,6 +580,47 @@ class Player {
 	 */
 	private autoplayRetryArmed = false;
 
+	/**
+	 * EXTERNAL-PAUSE SELF-HEAL (autoadvance-pauses-after-1s). On Android Chrome a genuinely-playable
+	 * track — typically right after an auto-advance src swap — plays ~1s then gets PAUSED by an
+	 * external event (audio-focus loss to a transient notification sound, background/lock-screen power
+	 * throttle, or a transient suspend during the swap). The element fires a `pause` event but NO
+	 * `error`, so none of the load-time recovery (armStall/maybeRetryAutoplay) and none of the
+	 * `error`-path re-resolve engages — the track sits frozen at ~0:01 until a manual tap or a
+	 * foreground return re-issues play. The fix re-issues `audio.play()` from the `pause` listener,
+	 * but ONLY for an UNEXPECTED pause: the track must have actually played (hasPlayedSinceSrc), there
+	 * must be time remaining (not at/near end), and the pause must NOT have been deliberate.
+	 *
+	 * `deliberatePause` is set true by the FOUR sanctioned pause sources (user toggle, MediaSession
+	 * pause action, sleep-timer finishExpiry, offline handleOffline) via `pauseAudio()` immediately
+	 * before they call `audio.pause()`, and consumed (read+reset) inside the `pause` listener. Any
+	 * pause that arrives WITHOUT this flag is treated as external and self-healed. Plain field —
+	 * internal, never reactive.
+	 */
+	private deliberatePause = false;
+	/** Pending external-pause resume timer (debounced re-play). Cleared on a new src, a real
+	 *  `playing`, a deliberate pause, or end-of-track so it never fights a later intentional stop. */
+	private resumeTimer: ReturnType<typeof setTimeout> | null = null;
+	/** Per-src budget for external-pause self-heal re-plays. Reset to 0 on every new src (in play())
+	 *  and on a real `playing`. Capped by EXTERNAL_RESUME_CAP so a genuinely-unrecoverable external
+	 *  stop (e.g. focus permanently lost / device asleep) is not fought forever — after the cap the
+	 *  track is left paused and the user/MediaSession can resume it. */
+	private externalResumeBudget = 0;
+	/** Max external-pause re-play attempts per loaded src before giving up (leaving it paused). */
+	private static EXTERNAL_RESUME_CAP = 3;
+	/** Debounce before re-issuing play() on an external pause — lets a truly-transient focus blip
+	 *  settle and avoids a tight pause/play fight with the OS. */
+	private static EXTERNAL_RESUME_DELAY_MS = 400;
+	/** Timestamp (ms, Date.now) of the last audio OUTPUT-device change — wired headset or Bluetooth
+	 *  (dis)connect, via navigator.mediaDevices 'devicechange'. A `pause` that fires within
+	 *  DEVICE_CHANGE_PAUSE_WINDOW_MS of this is attributed to that device change (headphones unplugged
+	 *  → "becoming noisy", earbuds dropped) and is treated like a DELIBERATE pause: never self-healed,
+	 *  because resuming would blast audio out of the phone speaker. 0 = no device change seen yet. */
+	private lastDeviceChangeAt = 0;
+	/** Window after a 'devicechange' within which a pause is attributed to it (headphone unplug) and
+	 *  left paused. Short enough not to swallow an unrelated external throttle-pause seconds later. */
+	private static DEVICE_CHANGE_PAUSE_WINDOW_MS = 2000;
+
 	/** Sleep-timer fade-out interval (TIMER-01, D-01). On platforms that honour volume writes
 	 *  expiry ramps the volume down over ~10s then pauses; cleared on finish/abort. Plain field —
 	 *  internal fade lifecycle, never reactive. Mirrors the stallTimer clearInterval idiom. */
@@ -959,6 +1000,77 @@ class Player {
 	}
 
 	/**
+	 * EXTERNAL-PAUSE SELF-HEAL: the ONE sanctioned way to pause the element. Sets `deliberatePause`
+	 * so the `pause` listener knows this stop was intentional (user / MediaSession / sleep-timer /
+	 * offline) and must NOT be self-healed. Every code path that pauses on purpose calls this instead
+	 * of `audio.pause()` directly. A pause that arrives WITHOUT this flag is treated as external
+	 * (Android audio-focus loss / background throttle) and re-played by the listener.
+	 */
+	private pauseAudio() {
+		this.deliberatePause = true;
+		this.disarmResume(); // an intentional pause cancels any pending external-pause resume
+		this.audio?.pause();
+	}
+
+	/** Cancel a pending external-pause resume (new src / real playing / deliberate pause / ended). */
+	private disarmResume() {
+		if (this.resumeTimer) {
+			clearTimeout(this.resumeTimer);
+			this.resumeTimer = null;
+		}
+	}
+
+	/**
+	 * EXTERNAL-PAUSE SELF-HEAL core. Called from the `pause` listener for a pause that was NOT
+	 * deliberate. Re-issues `audio.play()` after a short debounce — but ONLY when the track is
+	 * provably mid-playback and recoverable:
+	 *  - `hasPlayedSinceSrc` — the track actually produced audio (rules out the initial-load case,
+	 *    which armStall/maybeRetryAutoplay already own; this is strictly the "played ~1s then paused"
+	 *    signature).
+	 *  - not ended / time remaining — never fight a natural end-of-track (which also fires `pause`).
+	 *  - under the per-src budget — a genuinely-unrecoverable external stop is left paused after
+	 *    EXTERNAL_RESUME_CAP attempts so the user/MediaSession can resume it (never an infinite fight).
+	 * Generation-guarded by the playGen snapshot so a newer play()/skip supersedes a stale resume.
+	 */
+	private scheduleExternalResume() {
+		const el = this.audio;
+		if (!el) return;
+		if (!this.hasPlayedSinceSrc) return; // initial-load pause — owned by armStall/maybeRetryAutoplay
+		if (el.ended) return; // natural end-of-track also fires `pause`; `ended` handles advance
+		// Time remaining check: a pause at/just-before the very end is effectively an end-of-track on
+		// some Android builds (fires `pause` slightly before `ended`). Treat <0.25s-from-end as ended.
+		if (
+			Number.isFinite(el.duration) &&
+			el.duration > 0 &&
+			el.currentTime >= el.duration - 0.25
+		) {
+			return;
+		}
+		// Headphone-unplug exception (user choice): a pause within DEVICE_CHANGE_PAUSE_WINDOW_MS of an
+		// audio output-device change is a device-driven stop (unplugged headset / dropped Bluetooth) —
+		// treated like a deliberate pause and NEVER resumed, or audio would blast from the speaker.
+		if (Date.now() - this.lastDeviceChangeAt < Player.DEVICE_CHANGE_PAUSE_WINDOW_MS) return;
+		if (this.externalResumeBudget >= Player.EXTERNAL_RESUME_CAP) return; // give up — leave paused
+		this.externalResumeBudget++;
+		const gen = this.playGen;
+		this.disarmResume();
+		this.resumeTimer = setTimeout(() => {
+			this.resumeTimer = null;
+			if (this.playGen !== gen) return; // a newer play()/skip superseded this resume
+			const a = this.audio;
+			if (!a) return;
+			if (!a.paused) return; // it resumed on its own (foreground return / OS re-grant)
+			if (a.ended) return; // ended in the meantime
+			if (this.deliberatePause) return; // a deliberate pause landed during the debounce
+			// Re-issue play(). A rejection (still no audio focus / activation) leaves it paused; the
+			// next external `pause` (or the user/MediaSession) takes another bounded attempt.
+			void a.play().catch(() => {
+				/* still rejected — leave paused; budget already spent for this attempt */
+			});
+		}, Player.EXTERNAL_RESUME_DELAY_MS);
+	}
+
+	/**
 	 * The sleep-timer minutes expiry (TIMER-01). The ONE sanctioned way playback stops by itself
 	 * — an INTENTIONAL pause, not a failure. Phase-18 blocker (STATE.md): this path MUST be
 	 * invisible to the Phase-16 never-stop machinery — it never calls next(), never bumps playGen
@@ -1010,7 +1122,9 @@ class Player {
 	private finishExpiry() {
 		this.disarmFadeTimer();
 		this.disarmWakeTimer();
-		this.audio?.pause();
+		// EXTERNAL-PAUSE SELF-HEAL: the sleep-timer stop is INTENTIONAL — route through pauseAudio()
+		// so the `pause` listener does not treat it as an external pause and re-play the track.
+		this.pauseAudio();
 		if (this.audio) this.audio.volume = this.preFadeVolume; // D-02: restore for next play
 		sleepTimer.cancel();
 	}
@@ -1090,6 +1204,17 @@ class Player {
 				this.playing = !this.audio.paused;
 			});
 		}
+		// EXTERNAL-PAUSE SELF-HEAL — headphone-unplug exception (autoadvance-pauses-after-1s). An audio
+		// OUTPUT-device change (wired headset or Bluetooth (dis)connect) fires `devicechange`; on a
+		// disconnect the browser then pauses playback ("becoming noisy"). Record WHEN a device change
+		// happened so the `pause` self-heal can attribute a pause in its wake to the unplug and leave it
+		// paused — resuming would play out loud on the phone speaker. Guarded for SSR/jsdom where
+		// navigator.mediaDevices is absent (the self-heal then just never sees a device change).
+		if (typeof navigator !== 'undefined' && navigator.mediaDevices) {
+			navigator.mediaDevices.addEventListener('devicechange', () => {
+				this.lastDeviceChangeAt = Date.now();
+			});
+		}
 		el.addEventListener('play', () => {
 			// `play` fires the instant `paused` flips false (inside audio.play(), at
 			// readyState HAVE_NOTHING — before a single byte loads). It is a UI-STATE signal
@@ -1108,6 +1233,11 @@ class Player {
 			this.disarmStall();
 			// Next-song-current-but-paused fix: real audio started — the autoplay-retry arm is moot.
 			this.autoplayRetryArmed = false;
+			// EXTERNAL-PAUSE SELF-HEAL: audio is actually producing output — the self-heal succeeded (or
+			// was never needed). Cancel any pending resume and refund the per-src budget so a LATER
+			// external pause on this same src gets a full fresh set of attempts (D-06 parity).
+			this.disarmResume();
+			this.externalResumeBudget = 0;
 			// D-06 success reset: a real `playing` event is the natural counter reset — the track
 			// is actually producing audio, so the never-stop chain has recovered. Clear the
 			// consecutive-failure budget + the audio-error burst, and drop any sticky 'stopped'
@@ -1142,9 +1272,22 @@ class Player {
 			this.disarmStall();
 			// Next-song-current-but-paused fix: an observed `pause` (user OR the swallowed autoplay
 			// rejection itself) clears the autoplay-retry arm so we NEVER re-play() from inside the
-			// pause listener (per specialist — that would fight a genuine user pause). The retry is
-			// driven solely from the canplay/immediate seam set up in play(), gen-guarded.
+			// INITIAL-LOAD retry seam (per specialist — that would fight a genuine user pause). The
+			// initial-load retry is driven solely from the canplay/immediate seam set up in play().
 			this.autoplayRetryArmed = false;
+			// EXTERNAL-PAUSE SELF-HEAL (autoadvance-pauses-after-1s): consume the deliberate-pause flag.
+			// If THIS pause was intentional (user toggle / MediaSession / sleep-timer / offline — all
+			// route through pauseAudio()), honour it and do nothing. If it arrived WITHOUT the flag, it
+			// is an EXTERNAL pause (Android audio-focus loss / background throttle) on a track that was
+			// already playing — re-issue play() so a provably-playable song never sits frozen. The
+			// scheduler self-gates on hasPlayedSinceSrc + time-remaining + a per-src budget, so it never
+			// fights end-of-track, the initial-load case, or a genuinely-unrecoverable stop.
+			if (this.deliberatePause) {
+				this.deliberatePause = false;
+				this.disarmResume();
+				return;
+			}
+			this.scheduleExternalResume();
 		});
 		el.addEventListener('canplay', () => {
 			// Next-song-current-but-paused fix: the canplay event is the readyState-ready signal — if a
@@ -1210,6 +1353,10 @@ class Player {
 			this.playing = false;
 			this.syncPlaybackState();
 			this.disarmStall(); // track finished — no initial-load stall to watch for
+			// EXTERNAL-PAUSE SELF-HEAL: a natural end-of-track also fires `pause` (just before/with
+			// `ended`). Cancel any resume the `pause` listener may have scheduled so we never re-play a
+			// track that finished on its own — `ended` owns the advance into next().
+			this.disarmResume();
 			// Sleep end-of-track (TIMER-01, D-03): when an end-of-track timer is armed, the natural
 			// track boundary is the stop point — and it BEATS repeat-one. decideEndedAction makes the
 			// precedence explicit + unit-tested: 'sleep-stop' returns BEFORE the repeat-one rewind and
@@ -1320,7 +1467,9 @@ class Player {
 		const ms = this.ms;
 		if (!ms) return;
 		ms.setActionHandler('play', () => this.audio?.play().catch(() => {}));
-		ms.setActionHandler('pause', () => this.audio?.pause());
+		// EXTERNAL-PAUSE SELF-HEAL: an OS/lock-screen pause is INTENTIONAL — route through pauseAudio()
+		// so the `pause` listener honours it instead of re-playing the track.
+		ms.setActionHandler('pause', () => this.pauseAudio());
 		ms.setActionHandler('previoustrack', () => this.prev());
 		ms.setActionHandler('nexttrack', () => this.next());
 		ms.setActionHandler('seekbackward', (details) => {
@@ -1495,6 +1644,10 @@ class Player {
 		this.unplayableUids.clear(); // PLAY-RESILIENCE: a user queue reset clears the dead-track set too
 		this.unplayableStrikes.clear(); // …and the sub-cap strike budget in lockstep (over-aggressive-skip fix)
 		this.cancelAllRetryResolves(); // quick-260627-huo: …and cancel any pending delayed re-resolve timers (no leak)
+		// EXTERNAL-PAUSE SELF-HEAL: a queue reset cancels any pending external-pause resume and refunds
+		// the per-src budget so a fresh session starts clean.
+		this.disarmResume();
+		this.externalResumeBudget = 0;
 		this.persist();
 	}
 
@@ -1984,6 +2137,12 @@ class Player {
 					this.prefetchArmedForSrc = false;
 					// Next-song-current-but-paused fix: a NEW src clears any prior autoplay-retry arm.
 					this.autoplayRetryArmed = false;
+					// EXTERNAL-PAUSE SELF-HEAL: a NEW src resets the external-resume state — cancel any
+					// pending resume from the prior track, refund the per-src budget, and clear a stale
+					// deliberate-pause flag so the next pause is judged on this src's own merits.
+					this.disarmResume();
+					this.externalResumeBudget = 0;
+					this.deliberatePause = false;
 					this.audio.src = this.cachedBlobUrl;
 					this.armStall();
 					// quick-260627-huo (HUO-PREFETCH): EAGER one-shot prefetch of the immediate-next at
@@ -2094,6 +2253,12 @@ class Player {
 				this.prefetchArmedForSrc = false;
 				// Next-song-current-but-paused fix: a NEW src clears any prior autoplay-retry arm.
 				this.autoplayRetryArmed = false;
+				// EXTERNAL-PAUSE SELF-HEAL: a NEW src resets the external-resume state — cancel any
+				// pending resume from the prior track, refund the per-src budget, and clear a stale
+				// deliberate-pause flag so the next pause is judged on this src's own merits.
+				this.disarmResume();
+				this.externalResumeBudget = 0;
+				this.deliberatePause = false;
 				this.audio.src = src;
 				this.armStall();
 				// quick-260627-huo (HUO-PREFETCH): EAGER one-shot prefetch of the immediate-next at
@@ -2310,8 +2475,10 @@ class Player {
 	toggle() {
 		this.abortFade(); // D-05: a play/pause gesture during a fade aborts the sleep stop
 		if (!this.audio) return;
+		// EXTERNAL-PAUSE SELF-HEAL: a user tap is INTENTIONAL — pausing routes through pauseAudio()
+		// so the `pause` listener does not immediately re-play the track the user just paused.
 		if (this.audio.paused) this.audio.play().catch(() => {});
-		else this.audio.pause();
+		else this.pauseAudio();
 	}
 
 	/**
@@ -2637,7 +2804,9 @@ class Player {
 		}
 		// D-08: nothing downloaded to play — pause and show a sticky offline notice (no Retry action;
 		// playback resumes naturally when connectivity returns and the user taps play).
-		this.audio?.pause();
+		// EXTERNAL-PAUSE SELF-HEAL: this offline pause is INTENTIONAL — route through pauseAudio() so
+		// the `pause` listener does not fight it with a doomed re-play against the dead network.
+		this.pauseAudio();
 		// WR-07: i18n key (rendered via t()); WR-03: msg is the real toast key, not a phantom token.
 		this.error = 'toast.offlineNoDownloads';
 		this.notice = { kind: 'stopped', reason: 'offline', msg: 'toast.offlineNoDownloads' };
