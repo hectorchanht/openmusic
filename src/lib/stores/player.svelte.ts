@@ -45,6 +45,10 @@ import type { QueueContext } from '$lib/config/defaults';
 import { history } from '$lib/stores/history.svelte';
 import { library } from '$lib/stores/library.svelte';
 import { names } from '$lib/stores/names.svelte';
+// quick-260630-sgw: verbose action log. logAction is a tiny never-throw fn (the store imports the
+// player NOT vice-versa — no cycle). Calls below are ADDITIVE diagnostics: side-effect-free w.r.t.
+// playback, NEVER on the timeupdate firehose.
+import { logAction } from '$lib/stores/actionLog.svelte';
 import type { SourceId, Track } from '$lib/sources/types';
 // Type-only import (WR-03): lets `notice.msg` / `error` be a real TranslationKey so a host can
 // `t(n.msg)` and the token is guaranteed to exist in every dictionary. No runtime UI dependency —
@@ -767,6 +771,7 @@ class Player {
 		const n = (this.unplayableStrikes.get(uid) ?? 0) + 1;
 		this.unplayableStrikes.set(uid, n);
 		if (n >= Player.STRIKE_CAP) {
+			logAction('mark-dead', { uid });
 			this.unplayableUids.add(uid); // promote — reactive ✗ row + nextPlayableIndex routes past it
 			return true;
 		}
@@ -1064,6 +1069,7 @@ class Player {
 		if (Date.now() - this.lastDeviceChangeAt < Player.DEVICE_CHANGE_PAUSE_WINDOW_MS) return;
 		if (this.externalResumeBudget >= Player.EXTERNAL_RESUME_CAP) return; // give up — leave paused
 		this.externalResumeBudget++;
+		logAction('ext-resume.schedule', { uid: this.current?.uid, budget: this.externalResumeBudget });
 		const gen = this.playGen;
 		this.disarmResume();
 		this.resumeTimer = setTimeout(() => {
@@ -1074,6 +1080,7 @@ class Player {
 			if (!a.paused) return; // it resumed on its own (foreground return / OS re-grant)
 			if (a.ended) return; // ended in the meantime
 			if (this.deliberatePause) return; // a deliberate pause landed during the debounce
+			logAction('ext-resume.play', { uid: this.current?.uid });
 			// Re-issue play(). A rejection (still no audio focus / activation) leaves it paused; the
 			// next external `pause` (or the user/MediaSession) takes another bounded attempt.
 			void a.play().catch(() => {
@@ -1202,6 +1209,7 @@ class Player {
 		// re-sync currentTime/playing from the element — without autoplaying (browser policy).
 		if (typeof document !== 'undefined') {
 			document.addEventListener('visibilitychange', () => {
+				logAction('visibility', { hidden: document.hidden });
 				if (document.hidden) this.flushPersist();
 			});
 			// Page Lifecycle API (Chrome/Android); browsers without it simply never fire it.
@@ -1212,6 +1220,7 @@ class Player {
 			window.addEventListener('pagehide', () => this.flushPersist());
 			window.addEventListener('pageshow', (e: PageTransitionEvent) => {
 				if (!e.persisted || !this.audio) return; // only a bfcache restore needs the re-sync
+				logAction('bfcache.restore');
 				this.currentTime = this.audio.currentTime || 0;
 				this.playing = !this.audio.paused;
 			});
@@ -1239,6 +1248,7 @@ class Player {
 			this.syncPlaybackState();
 		});
 		el.addEventListener('playing', () => {
+			logAction('playing', { uid: this.current?.uid });
 			// `playing` is the event that means audio is ACTUALLY producing output (CR-01).
 			// D-13/D-14: mark the src as having played + disarm the initial-load stall watchdog.
 			this.hasPlayedSinceSrc = true;
@@ -1278,6 +1288,7 @@ class Player {
 			if (this.notice?.kind === 'stopped') this.notice = null;
 		});
 		el.addEventListener('pause', () => {
+			logAction('pause', { deliberate: this.deliberatePause });
 			this.playing = false;
 			this.syncPlaybackState();
 			// WR-05: a pause during the initial-load window means the user opted OUT of this load —
@@ -1365,6 +1376,7 @@ class Player {
 		el.addEventListener('loadedmetadata', syncDur);
 		el.addEventListener('durationchange', syncDur);
 		el.addEventListener('ended', () => {
+			logAction('ended', { uid: this.current?.uid });
 			this.playing = false;
 			this.syncPlaybackState();
 			this.disarmStall(); // track finished — no initial-load stall to watch for
@@ -1408,6 +1420,13 @@ class Player {
 			this.next();
 		});
 		el.addEventListener('error', () => {
+			const willReresolve =
+				Date.now() - this.lastSeekAt < Player.SEEK_ERROR_WINDOW_MS || this.hasPlayedSinceSrc;
+			logAction('audio.error', {
+				uid: this.current?.uid,
+				hasPlayed: this.hasPlayedSinceSrc,
+				reresolve: willReresolve
+			});
 			this.disarmStall(); // an error event is the failure signal — the watchdog is redundant now
 			// lw9-followup: if the error fires WITHIN the seek window, the user just clicked the
 			// progress bar — but the audio element may not be able to honor the seek because the
@@ -1707,6 +1726,7 @@ class Player {
 				if (!more.length) more = await buildDiversePicks(8, have);
 				if (myQueueGen !== this.queueGen) return; // an explicit setQueue/setListQueue superseded
 				if (more.length) this.queue = this.queueWithAnchor([...this.queue, ...more], current);
+				logAction('grow.added', { count: more.length });
 			} catch {
 				/* sources dry — leave the queue as-is */
 			} finally {
@@ -2075,6 +2095,7 @@ class Player {
 	 * path, so they never regenerate.
 	 */
 	async play(track: Track, opts?: { fresh?: boolean; fromFallback?: boolean }) {
+		logAction('play', { uid: track.uid, source: track.source, fresh: !!opts?.fresh });
 		// A direct play() (queue/auto-advance/share link) supersedes any optimistic overlay,
 		// so a stale pending bar never lingers once a real track takes over.
 		this.pendingTrack = null;
@@ -2197,6 +2218,11 @@ class Player {
 			}
 			const resolved = await ensureTrackDetails(track);
 			if (myGen !== this.playGen) return; // CR-02: superseded mid-resolve — discard
+			logAction(resolved.audioUrl ? 'resolve.ok' : 'resolve.fail', {
+				uid: resolved.uid,
+				source: resolved.source,
+				hasUrl: !!resolved.audioUrl
+			});
 			this.current = resolved;
 			// keep the queue entry in sync with the resolved track
 			const i = this.indexOf(track);
@@ -2561,7 +2587,9 @@ class Player {
 	 */
 	private advanceTo(index: number): void {
 		const t = this.queue[index];
+		logAction('advance', { toUid: t.uid });
 		if (this.unplayableUids.has(t.uid)) {
+			logAction('retry-dead', { uid: t.uid });
 			this.retriedDeadUids.add(t.uid);
 			this.unplayableUids.delete(t.uid);
 			this.clearStrike(t.uid);
@@ -2586,6 +2614,7 @@ class Player {
 		// so they are valid candidates). Never silently no-op on a dead/exhausted tail (that was the
 		// stall): only when sources are truly dry does ensureAhead add nothing and the reactive
 		// never-stop chain owns the genuine stop.
+		logAction('grow.request');
 		void this.ensureAhead().then(() => {
 			const k = this.indexOf(this.current);
 			const n = this.nextAdvanceIndex(k);
@@ -2701,6 +2730,7 @@ class Player {
 			);
 			if (this.playGen !== gen) return; // a newer play() supersedes — discard silently
 			if (swap) {
+				logAction('fallback', { fromSource: failed.source, toSource: swap.source });
 				// Sync the queue slot too so next()/prev() walk the resolved track.
 				const i = this.indexOf(failed);
 				if (i >= 0) this.queue[i] = swap;
