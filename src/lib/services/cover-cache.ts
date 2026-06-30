@@ -149,3 +149,50 @@ export function getCachedCoverByUid(uid: string): string | null {
 export function setCachedCoverByUid(uid: string, url: string): void {
 	writeKey(uidCoverCacheKey(uid), url);
 }
+
+/**
+ * Delete EXACTLY one entry from the stored record (mirrors writeKey's try/catch shape). Reads the
+ * whole record, deletes the single key, writes the record back. Skips the write when the key is
+ * absent so a remove-missing is a true no-op. Swallows corrupt-JSON / quota / unavailable-storage
+ * errors — NEVER throws. Pure: does NOT touch the reactive cover-version (that bump lives in the
+ * `.svelte.ts` wrapper, LOCKED decision #2). Does NOT remove the whole CACHE_KEY blob — that is
+ * clearCoverCache's job (the per-entry remover deletes ONE key, leaving every other entry intact).
+ */
+function removeKey(key: string): void {
+	try {
+		const rec = readRecord();
+		if (key in rec) {
+			delete rec[key];
+			localStorage.setItem(CACHE_KEY, JSON.stringify(rec));
+		}
+	} catch {
+		/* unavailable / quota / corrupt — non-fatal, no-op */
+	}
+}
+
+/**
+ * Evict the cover cached under a Track uid (D-13 uid layer). Keys by the RAW colon uid (Pitfall 7,
+ * no hyphen folding). Deletes exactly that one entry — the coexisting name + artist families are
+ * untouched. Pure, never throws, NO rune/bump (the reactive bump lives in cover-version.svelte.ts).
+ */
+export function removeCachedCoverByUid(uid: string): void {
+	removeKey(uidCoverCacheKey(uid));
+}
+
+/**
+ * Evict the cover cached for an {artist,title} name layer. Keys via the SAME coverCacheKey as the
+ * setter (matchKey folding parity — 'A','B (Live)' removes what 'a','b' set). Deletes exactly that
+ * one entry — coexisting uid + artist families untouched. Pure, never throws, NO rune/bump.
+ */
+export function removeCachedCover(artist: string, title: string): void {
+	removeKey(coverCacheKey(artist, title));
+}
+
+/**
+ * Evict the cover cached under the ARTIST-only key. Keys via the SAME artistCoverCacheKey as the
+ * setter (matchKey folding parity). Deletes exactly that one entry — coexisting track families
+ * untouched. Pure, never throws, NO rune/bump (the reactive bump lives in cover-version.svelte.ts).
+ */
+export function removeCachedArtistCover(artist: string): void {
+	removeKey(artistCoverCacheKey(artist));
+}

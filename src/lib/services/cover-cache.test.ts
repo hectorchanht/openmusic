@@ -8,7 +8,10 @@ import {
 	setCachedArtistCover,
 	uidCoverCacheKey,
 	getCachedCoverByUid,
-	setCachedCoverByUid
+	setCachedCoverByUid,
+	removeCachedCoverByUid,
+	removeCachedCover,
+	removeCachedArtistCover
 } from './cover-cache';
 import { matchKey } from './match-key';
 
@@ -270,5 +273,104 @@ describe('cover-cache — uid cover key (D-13 two-layer, Pitfall 7 colon form)',
 		});
 		expect(getCachedCoverByUid('netease:1')).toBeNull();
 		expect(() => setCachedCoverByUid('netease:1', 'https://x')).not.toThrow();
+	});
+});
+
+describe('cover-cache — per-entry removers (quick-260630-ey2)', () => {
+	let store: MemStorage;
+	const originalLocalStorage = (globalThis as { localStorage?: Storage }).localStorage;
+
+	beforeEach(() => {
+		store = new MemStorage();
+		Object.defineProperty(globalThis, 'localStorage', {
+			value: store,
+			configurable: true,
+			writable: true
+		});
+	});
+	afterEach(() => {
+		Object.defineProperty(globalThis, 'localStorage', {
+			value: originalLocalStorage,
+			configurable: true,
+			writable: true
+		});
+	});
+
+	it('removeCachedCoverByUid deletes ONLY the uid key — coexisting name + artist keys untouched', () => {
+		setCachedCoverByUid('netease:12345', 'https://cdn.example/uid.jpg');
+		setCachedCover('Jay Chou', 'Dao Xiang', 'https://cdn.example/name.jpg');
+		setCachedArtistCover('Jay Chou', 'https://cdn.example/artist.jpg');
+
+		removeCachedCoverByUid('netease:12345');
+
+		expect(getCachedCoverByUid('netease:12345')).toBeNull();
+		expect(getCachedCover('Jay Chou', 'Dao Xiang')).toBe('https://cdn.example/name.jpg');
+		expect(getCachedArtistCover('Jay Chou')).toBe('https://cdn.example/artist.jpg');
+	});
+
+	it('removeCachedCover deletes ONLY the name key — coexisting uid + artist keys untouched', () => {
+		setCachedCoverByUid('netease:12345', 'https://cdn.example/uid.jpg');
+		setCachedCover('Jay Chou', 'Dao Xiang', 'https://cdn.example/name.jpg');
+		setCachedArtistCover('Jay Chou', 'https://cdn.example/artist.jpg');
+
+		removeCachedCover('Jay Chou', 'Dao Xiang');
+
+		expect(getCachedCover('Jay Chou', 'Dao Xiang')).toBeNull();
+		expect(getCachedCoverByUid('netease:12345')).toBe('https://cdn.example/uid.jpg');
+		expect(getCachedArtistCover('Jay Chou')).toBe('https://cdn.example/artist.jpg');
+	});
+
+	it('removeCachedArtistCover deletes ONLY the artist key — coexisting track keys untouched', () => {
+		setCachedArtistCover('Drake', 'https://cdn.example/artist.jpg');
+		setCachedCover('Drake', 'Hotline Bling', 'https://cdn.example/track.jpg');
+
+		removeCachedArtistCover('Drake');
+
+		expect(getCachedArtistCover('Drake')).toBeNull();
+		expect(getCachedCover('Drake', 'Hotline Bling')).toBe('https://cdn.example/track.jpg');
+	});
+
+	it('removing a MISSING key is a no-op (no throw, other entries unchanged)', () => {
+		setCachedCover('Jay Chou', 'Dao Xiang', 'https://cdn.example/name.jpg');
+		expect(() => removeCachedCoverByUid('netease:never-set')).not.toThrow();
+		expect(() => removeCachedCover('Nobody', 'Nothing')).not.toThrow();
+		expect(() => removeCachedArtistCover('Nobody')).not.toThrow();
+		// The pre-existing entry is untouched.
+		expect(getCachedCover('Jay Chou', 'Dao Xiang')).toBe('https://cdn.example/name.jpg');
+	});
+
+	it('matchKey folding parity — removeCachedCover via folded key removes what a folded set wrote', () => {
+		// 'A','B (Live)' keys identically to 'a','b' (matchKey folding) — the remover keys the SAME way.
+		setCachedCover('A', 'B (Live)', 'https://cdn.example/b.jpg');
+		removeCachedCover('a', 'b');
+		expect(getCachedCover('A', 'B (Live)')).toBeNull();
+	});
+
+	it('removeCachedCoverByUid keys by the RAW colon uid (no hyphen folding — Pitfall 7)', () => {
+		setCachedCoverByUid('netease:12345', 'https://cdn.example/uid.jpg');
+		// The hyphen form is a DIFFERENT key — removing it must NOT evict the colon entry.
+		removeCachedCoverByUid('netease-12345');
+		expect(getCachedCoverByUid('netease:12345')).toBe('https://cdn.example/uid.jpg');
+		// The verbatim colon form evicts it.
+		removeCachedCoverByUid('netease:12345');
+		expect(getCachedCoverByUid('netease:12345')).toBeNull();
+	});
+
+	it('never throws when storage is unavailable (privacy mode)', () => {
+		Object.defineProperty(globalThis, 'localStorage', {
+			value: undefined,
+			configurable: true,
+			writable: true
+		});
+		expect(() => removeCachedCoverByUid('netease:1')).not.toThrow();
+		expect(() => removeCachedCover('A', 'B')).not.toThrow();
+		expect(() => removeCachedArtistCover('A')).not.toThrow();
+	});
+
+	it('never throws when stored JSON is corrupt', () => {
+		store.__raw(CACHE_KEY, '{not valid json');
+		expect(() => removeCachedCoverByUid('netease:1')).not.toThrow();
+		expect(() => removeCachedCover('A', 'B')).not.toThrow();
+		expect(() => removeCachedArtistCover('A')).not.toThrow();
 	});
 });
