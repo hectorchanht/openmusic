@@ -107,6 +107,7 @@
 		<span><Maximize2 size={16} /> {t('settings.autoExpand')}</span>
 		<span class="sw" class:on={settings.autoExpandOnPlay}></span>
 	</button>
+	<p class="muted">{t('settings.autoExpandDesc')}</p>
 </section>
 
 <section>

@@ -341,6 +341,8 @@ const pt: Dict = {
 	"settings.tileDensityDesc": "Controla o estilo de layout das prateleiras da Início — lista (linhas empilhadas), pilha (uma prateleira de capas) ou grade (uma grade de capas paginada); esta é a apresentação, diferente de Itens por prateleira, que é só uma contagem.",
 	"settings.showSearchPillDesc": "Ativa ou desativa a barra de busca no topo da tela de Início; desative para uma Início mais limpa se você costuma buscar pela aba Buscar.",
 	"settings.showRandomizeDesc": "Ativa ou desativa o botão Aleatório na Início que toca uma nova mistura aleatória de faixas; desative se você nunca o usa.",
+	// playback settings helper text (quick-260630-fce)
+	"settings.autoExpandDesc": "Quando ativado, a tela de reprodução se expande para tela cheia sempre que você inicia uma faixa; desative para manter o miniplayer embaixo e permanecer na tela atual.",
 };
 
 export default pt;

@@ -373,6 +373,8 @@ const zhHans: Dict = {
 	'settings.tileDensityDesc': '控制首页栏目的布局样式——列表（堆叠行）、堆叠（封面横排）或网格（分页封面网格）；这是呈现方式，与只决定数量的“每栏目项目数”不同。',
 	'settings.showSearchPillDesc': '切换首页顶部的搜索栏；若你通常改从“搜索”标签页搜索，可关闭此项让首页更简洁。',
 	'settings.showRandomizeDesc': '切换首页上的“随机”按钮，按下可播放一份全新的随机混合歌曲；若从不使用可关闭此项。',
+	// playback settings helper text (quick-260630-fce)
+	'settings.autoExpandDesc': '开启时，每次播放歌曲都会将正在播放界面展开为全屏；关闭则保留底部的迷你播放器，并停留在当前界面。',
 };
 
 export default zhHans;

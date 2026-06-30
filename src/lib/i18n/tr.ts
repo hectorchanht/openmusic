@@ -341,6 +341,8 @@ const tr: Dict = {
 	"settings.tileDensityDesc": "Ana ekran raflarının yerleşim stilini denetler — liste (üst üste satırlar), yığın (kapak rafı) veya ızgara (sayfalı kapak ızgarası); bu sunumdur, yalnızca bir sayı olan Raf başına öğe'den farklıdır.",
 	"settings.showSearchPillDesc": "Ana ekranın üstündeki arama çubuğunu açıp kapatır; genelde Arama sekmesinden arıyorsanız daha temiz bir Ana ekran için kapatın.",
 	"settings.showRandomizeDesc": "Ana ekranda parçaların yeni rastgele karışımını çalan Karıştır düğmesini açıp kapatır; hiç kullanmıyorsanız kapatın.",
+	// playback settings helper text (quick-260630-fce)
+	"settings.autoExpandDesc": "Açıkken, her parça başlattığınızda çalan ekranı tam ekrana genişler; mini oynatıcıyı altta tutmak ve mevcut ekranınızda kalmak için kapatın.",
 };
 
 export default tr;

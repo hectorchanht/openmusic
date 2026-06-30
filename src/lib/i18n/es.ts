@@ -341,6 +341,8 @@ const es: Dict = {
 	"settings.tileDensityDesc": "Controla el estilo de diseño de los estantes de Inicio: lista (filas apiladas), pila (un estante de portadas) o cuadrícula (una cuadrícula de portadas paginada); es la presentación, distinta de Elementos por estante, que solo es una cantidad.",
 	"settings.showSearchPillDesc": "Activa o desactiva la barra de búsqueda en la parte superior de la pantalla de Inicio; desactívala para un Inicio más limpio si sueles buscar desde la pestaña Buscar.",
 	"settings.showRandomizeDesc": "Activa o desactiva el botón Aleatorizar de Inicio que reproduce una mezcla aleatoria nueva de canciones; desactívalo si nunca lo usas.",
+	// playback settings helper text (quick-260630-fce)
+	"settings.autoExpandDesc": "Cuando está activado, la pantalla de reproducción se expande a pantalla completa cada vez que inicias una canción; desactívalo para mantener el reproductor mini abajo y permanecer en tu pantalla actual.",
 };
 
 export default es;

@@ -341,6 +341,8 @@ const vi: Dict = {
 	"settings.tileDensityDesc": "Điều khiển kiểu bố cục của các kệ Trang chủ — danh sách (các hàng xếp chồng), chồng (kệ ảnh bìa) hoặc lưới (lưới ảnh bìa phân trang); đây là cách trình bày, khác với Số mục mỗi kệ vốn chỉ là một con số.",
 	"settings.showSearchPillDesc": "Bật/tắt thanh tìm kiếm ở đầu màn hình Trang chủ; tắt để Trang chủ gọn hơn nếu bạn thường tìm từ tab Tìm kiếm.",
 	"settings.showRandomizeDesc": "Bật/tắt nút Ngẫu nhiên trên Trang chủ để phát một bản phối ngẫu nhiên mới các bài hát; tắt nếu bạn không bao giờ dùng.",
+	// playback settings helper text (quick-260630-fce)
+	"settings.autoExpandDesc": "Khi bật, màn hình đang phát sẽ mở toàn màn hình mỗi khi bạn bắt đầu một bài hát; tắt để giữ trình phát mini ở dưới và ở lại màn hình hiện tại.",
 };
 
 export default vi;

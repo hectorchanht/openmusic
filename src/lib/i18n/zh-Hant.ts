@@ -373,6 +373,8 @@ const zhHant: Dict = {
 	'settings.tileDensityDesc': '控制首頁區塊的版面樣式——清單（堆疊列）、堆疊（封面橫列）或網格（分頁封面網格）；這是呈現方式，與只決定數量的「每區塊項目數」不同。',
 	'settings.showSearchPillDesc': '切換首頁頂部的搜尋列；若你通常改從「搜尋」分頁搜尋，可關閉此項讓首頁更簡潔。',
 	'settings.showRandomizeDesc': '切換首頁上的「隨機」按鈕，按下可播放一份全新的隨機混合歌曲；若從不使用可關閉此項。',
+	// playback settings helper text (quick-260630-fce)
+	'settings.autoExpandDesc': '開啟時，每次播放歌曲都會將正在播放畫面展開為全螢幕；關閉則維持底部的迷你播放器，並停留在目前畫面。',
 };
 
 export default zhHant;

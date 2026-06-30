@@ -341,6 +341,8 @@ const fr: Dict = {
 	"settings.tileDensityDesc": "Contrôle le style de disposition des étagères de l'accueil — liste (lignes empilées), pile (une étagère de pochettes) ou grille (une grille de pochettes paginée) ; c'est la présentation, distincte d'Éléments par étagère qui n'est qu'un nombre.",
 	"settings.showSearchPillDesc": "Active ou désactive la barre de recherche en haut de l'écran d'accueil ; désactivez-la pour un accueil plus épuré si vous recherchez d'habitude depuis l'onglet Recherche.",
 	"settings.showRandomizeDesc": "Active ou désactive le bouton Aléatoire de l'accueil qui lit un nouveau mix aléatoire de morceaux ; désactivez-le si vous ne l'utilisez jamais.",
+	// playback settings helper text (quick-260630-fce)
+	"settings.autoExpandDesc": "Lorsqu'il est activé, l'écran de lecture passe en plein écran à chaque démarrage d'un morceau ; désactivez-le pour garder le mini-lecteur en bas et rester sur votre écran actuel.",
 };
 
 export default fr;

@@ -341,6 +341,8 @@ const it: Dict = {
 	"settings.tileDensityDesc": "Controlla lo stile di layout degli scaffali della Home — elenco (righe impilate), pila (uno scaffale di copertine) o griglia (una griglia di copertine paginata); è la presentazione, distinta da Elementi per scaffale, che è solo un conteggio.",
 	"settings.showSearchPillDesc": "Attiva o disattiva la barra di ricerca in cima alla schermata Home; disattivala per una Home più pulita se di solito cerchi dalla scheda Cerca.",
 	"settings.showRandomizeDesc": "Attiva o disattiva il pulsante Casuale sulla Home che riproduce un nuovo mix casuale di brani; disattivalo se non lo usi mai.",
+	// playback settings helper text (quick-260630-fce)
+	"settings.autoExpandDesc": "Quando è attivo, la schermata di riproduzione si espande a schermo intero a ogni avvio di un brano; disattivalo per tenere il mini player in basso e restare sulla schermata attuale.",
 };
 
 export default it;

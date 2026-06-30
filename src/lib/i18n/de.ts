@@ -341,6 +341,8 @@ const de: Dict = {
 	"settings.tileDensityDesc": "Steuert den Layout-Stil der Startseiten-Regale — Liste (gestapelte Zeilen), Stapel (ein Cover-Regal) oder Raster (ein paginiertes Cover-Raster); dies ist die Darstellung, getrennt von Elemente pro Regal, das nur eine Anzahl ist.",
 	"settings.showSearchPillDesc": "Schaltet die Suchleiste oben auf dem Startbildschirm um; deaktiviere sie für eine aufgeräumtere Startseite, wenn du normalerweise über den Such-Tab suchst.",
 	"settings.showRandomizeDesc": "Schaltet die Zufallswiedergabe-Schaltfläche auf der Startseite um, die einen frischen zufälligen Mix abspielt; deaktiviere sie, wenn du sie nie nutzt.",
+	// playback settings helper text (quick-260630-fce)
+	"settings.autoExpandDesc": "Wenn aktiviert, wird der Wiedergabebildschirm bei jedem Titelstart auf Vollbild erweitert; deaktiviere es, um den Mini-Player unten zu behalten und auf deinem aktuellen Bildschirm zu bleiben.",
 };
 
 export default de;

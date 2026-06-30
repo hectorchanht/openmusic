@@ -385,6 +385,8 @@ const en = {
 	'settings.tileDensityDesc': 'Controls the layout style of Home shelves — list (stacked rows), pile (a cover shelf) or grid (a paginated cover grid); this is the presentation, separate from Items per shelf which is just a count.',
 	'settings.showSearchPillDesc': 'Toggles the search bar at the top of the Home screen; turn it off for a cleaner Home when you usually search from the Search tab instead.',
 	'settings.showRandomizeDesc': 'Toggles the Randomize button on Home that plays a fresh random mix of tracks; turn it off if you never use it.',
+	// playback settings helper text (quick-260630-fce)
+	'settings.autoExpandDesc': 'When on, the now-playing screen expands to full screen each time you start a track; turn it off to keep the mini player at the bottom and stay on your current screen.',
 } as const;
 
 export default en;

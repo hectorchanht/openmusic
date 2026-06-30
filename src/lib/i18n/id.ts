@@ -341,6 +341,8 @@ const id: Dict = {
 	"settings.tileDensityDesc": "Mengontrol gaya tata letak rak Beranda — daftar (baris bertumpuk), tumpukan (rak sampul), atau kisi (kisi sampul berhalaman); ini adalah penyajiannya, berbeda dari Item per rak yang hanya berupa jumlah.",
 	"settings.showSearchPillDesc": "Mengaktifkan atau menonaktifkan bilah pencarian di bagian atas layar Beranda; matikan agar Beranda lebih bersih jika Anda biasanya mencari dari tab Cari.",
 	"settings.showRandomizeDesc": "Mengaktifkan atau menonaktifkan tombol Acak di Beranda yang memutar campuran lagu acak yang baru; matikan jika tidak pernah Anda gunakan.",
+	// playback settings helper text (quick-260630-fce)
+	"settings.autoExpandDesc": "Saat aktif, layar pemutaran membesar ke layar penuh setiap kali Anda memulai lagu; matikan agar pemutar mini tetap di bawah dan Anda tetap di layar saat ini.",
 };
 
 export default id;
