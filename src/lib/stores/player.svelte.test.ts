@@ -234,6 +234,7 @@ beforeEach(() => {
 		// quick-260615-i9u: unplayableUids is now a SvelteSet — structurally compatible for the
 		// .clear()/.add()/.has()/.delete() surface the tests touch.
 		unplayableUids: { clear(): void; add(u: string): void; has(u: string): boolean; delete(u: string): boolean };
+		retriedDeadUids: Set<string>;
 		pendingHistory: Track[] | null;
 		// debug-playback-skip-and-autoplay: the strike map (Bug 1) + the autoplay-retry arm (Bug 2)
 		// are session/per-src internal state that must not leak across tests.
@@ -249,6 +250,7 @@ beforeEach(() => {
 	internals.prefetchController?.abort();
 	internals.prefetchController = null;
 	internals.unplayableUids.clear(); // PLAY-RESILIENCE: session-scoped dead-track set leaks across tests
+	internals.retriedDeadUids.clear(); // NEVER-STOP (quick-260630-q03): one-retry record is session-scoped too
 	internals.preloadedAudio = null;
 	internals.preloadedAudioUid = null;
 	internals.preloadedAudioUrl = null;
@@ -1236,11 +1238,14 @@ describe('player repeat — 2-state (PLAY-10)', () => {
 	});
 });
 
-describe('player.next() — routes past probe-confirmed unplayable up-next (PLAY-RESILIENCE)', () => {
+// quick-260630-q03 changed the never-stop contract: a known-dead up-next is no longer skipped
+// outright — it is RETRIED ONCE on advance (a transient probe failure recovers), and only routed
+// past / grown once that one retry has been spent. These two tests assert the new behavior.
+describe('player.next() — never-stop: retries a dead up-next ONCE, then routes past / grows (PLAY-RESILIENCE)', () => {
 	const markDead = (uid: string) =>
 		(player as unknown as { unplayableUids: Set<string> }).unplayableUids.add(uid);
 
-	it('skips a known-dead immediate-next and plays the next playable entry', async () => {
+	it('retries a known-dead immediate-next ONCE, then routes past it to the next playable entry', async () => {
 		const cur = mk('netease', '0', 'A', 'Now');
 		const dead = mk('qq', '1', 'B', 'Dead'); // probe-confirmed unplayable
 		const good = mk('kuwo', '2', 'C', 'Good');
@@ -1251,24 +1256,24 @@ describe('player.next() — routes past probe-confirmed unplayable up-next (PLAY
 		const playSpy = player.play as unknown as ReturnType<typeof vi.fn>;
 		playSpy.mockClear();
 
+		player.next(); // never-stop: give the dead immediate-next its ONE retry first
+		await flush();
+		expect(playSpy).toHaveBeenCalledWith(dead, { fresh: false });
+
+		// The retry failed (re-marked dead) → the next advance now routes PAST it to the playable entry.
+		markDead(dead.uid);
 		player.next();
 		await flush();
-
-		// next() routed PAST the dead immediate-next to the first playable entry — never stalled,
-		// never played the dead track.
 		expect(playSpy).toHaveBeenCalledWith(good);
-		expect(playSpy).not.toHaveBeenCalledWith(dead);
 	});
 
-	it('with the whole tail dead it grows via ensureAhead instead of silently no-oping', async () => {
+	it('with the whole tail dead it RETRIES the dead track once, then grows via ensureAhead (never silently no-ops)', async () => {
 		const cur = mk('netease', '0', 'A', 'Now');
 		const dead = mk('qq', '1', 'B', 'Dead');
 		player.queue = [cur, dead];
 		player.current = cur;
 		markDead(dead.uid);
 
-		// buildDiversePicks is mocked to [] (sources dry) so the grow adds nothing; the point is that
-		// next() ATTEMPTS the grow rather than stalling on the dead tail. Spy on ensureAhead.
 		const ensureSpy = vi.spyOn(
 			player as unknown as { ensureAhead(): Promise<void> },
 			'ensureAhead'
@@ -1276,11 +1281,18 @@ describe('player.next() — routes past probe-confirmed unplayable up-next (PLAY
 		const playSpy = player.play as unknown as ReturnType<typeof vi.fn>;
 		playSpy.mockClear();
 
+		player.next(); // first: retry the dead track in place (NOT a grow yet)
+		await flush();
+		expect(playSpy).toHaveBeenCalledWith(dead, { fresh: false });
+		expect(ensureSpy).not.toHaveBeenCalled();
+
+		// Retry failed → dead re-marked AND now already-retried → no in-queue candidate remains, so the
+		// next advance grows instead of stalling on the dead tail.
+		markDead(dead.uid);
+		ensureSpy.mockClear();
 		player.next();
 		await flush();
-
-		expect(ensureSpy).toHaveBeenCalled(); // grew (or tried to) instead of no-oping on the dead tail
-		expect(playSpy).not.toHaveBeenCalledWith(dead); // never advanced onto the dead track
+		expect(ensureSpy).toHaveBeenCalled();
 	});
 });
 
@@ -3748,5 +3760,100 @@ describe('player resilience — external-pause self-heal (autoadvance-pauses-aft
 		} finally {
 			nextSpy.mockRestore();
 		}
+	});
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// quick-260630-q03: NEVER-STOP on a dead up-next tail. When the next up-next tracks are all in
+// unplayableUids, advancing must NOT stop. The advance retries each dead track ONCE (in queue order)
+// before skipping it; an all-dead-and-retried tail grows more up-next and continues. A dead track is
+// retried at most once per session (retriedDeadUids) so the retry can never become an infinite loop.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('player resilience — never-stop on a dead up-next tail (quick-260630-q03)', () => {
+	type Internals = {
+		unplayableUids: { add(u: string): void; has(u: string): boolean; delete(u: string): boolean; clear(): void };
+		retriedDeadUids: Set<string>;
+	};
+	const internals = () => player as unknown as Internals;
+	const playCalls = () => vi.mocked(player.play).mock.calls;
+
+	it('retries the next dead tracks ONE-BY-ONE in queue order, then lands the first playable one', () => {
+		const cur = mk('netease', 'q3a0', 'A', 'Cur');
+		const d1 = mk('qq', 'q3a1', 'B', 'Dead1');
+		const d2 = mk('kuwo', 'q3a2', 'C', 'Dead2');
+		const d3 = mk('joox', 'q3a3', 'D', 'Dead3');
+		const good = mk('netease', 'q3a4', 'E', 'Good');
+		player.queue = [cur, d1, d2, d3, good];
+		player.current = cur;
+		internals().unplayableUids.add(d1.uid);
+		internals().unplayableUids.add(d2.uid);
+		internals().unplayableUids.add(d3.uid);
+		vi.mocked(player.play).mockClear();
+
+		player.next(); // → retry d1 (the play stub sets current=d1)
+		player.next(); // current=d1 → retry d2
+		player.next(); // current=d2 → retry d3
+		player.next(); // current=d3 → advance to the playable `good`
+
+		const calls = playCalls();
+		expect(calls.map((c) => c[0])).toEqual([d1, d2, d3, good]);
+		// the three dead retries are NON-fresh re-plays; the playable one is a plain advance (no opts).
+		expect(calls[0][1]).toEqual({ fresh: false });
+		expect(calls[1][1]).toEqual({ fresh: false });
+		expect(calls[2][1]).toEqual({ fresh: false });
+		expect(calls[3][1]).toBeUndefined();
+	});
+
+	it('retries a dead track AT MOST once — a dead-and-already-retried track is skipped, never re-retried', () => {
+		const cur = mk('netease', 'q3b0', 'A', 'Cur');
+		const d1 = mk('qq', 'q3b1', 'B', 'DeadRetried');
+		const good = mk('kuwo', 'q3b2', 'C', 'Good');
+		player.queue = [cur, d1, good];
+		player.current = cur;
+		internals().unplayableUids.add(d1.uid);
+		internals().retriedDeadUids.add(d1.uid); // already had its one retry this session
+		vi.mocked(player.play).mockClear();
+
+		player.next();
+
+		// d1 is routed past (no second retry); the advance lands the playable `good` directly.
+		expect(playCalls().map((c) => c[0])).toEqual([good]);
+	});
+
+	it('an all-dead-and-retried tail GROWS more up-next and continues instead of stopping', async () => {
+		const cur = mk('netease', 'q3c0', 'A', 'Cur');
+		const d1 = mk('qq', 'q3c1', 'B', 'DeadRetried');
+		const grown = mk('kuwo', 'q3c2', 'C', 'Grown');
+		player.queue = [cur, d1];
+		player.current = cur;
+		internals().unplayableUids.add(d1.uid);
+		internals().retriedDeadUids.add(d1.uid); // tail dead AND already retried → nextAdvanceIndex == -1
+		mockSimilar.mockReset().mockResolvedValue([grown]); // ensureAhead appends a fresh related track
+		vi.mocked(player.play).mockClear();
+
+		player.next(); // -1 in-queue → ensureAhead grows → advance into `grown`
+		await flush();
+		await flush();
+
+		expect(mockSimilar).toHaveBeenCalled(); // it grew rather than silently stopping
+		expect(playCalls().map((c) => c[0])).toContainEqual(grown);
+	});
+
+	it('the retry runs on current-song-end (the `ended` listener advances via next())', () => {
+		const cur = mk('netease', 'q3d0', 'A', 'Cur');
+		const d1 = mk('qq', 'q3d1', 'B', 'Dead1');
+		const good = mk('kuwo', 'q3d2', 'C', 'Good');
+		player.queue = [cur, d1, good];
+		player.current = cur;
+		player.repeatMode = 'off';
+		internals().unplayableUids.add(d1.uid);
+		const el = makeFakeAudio();
+		player.attach(el as unknown as HTMLAudioElement);
+		vi.mocked(player.play).mockClear();
+
+		el.fire('ended'); // track ends → ended listener → next() → retry the dead next track
+
+		expect(playCalls()[0][0]).toBe(d1);
+		expect(playCalls()[0][1]).toEqual({ fresh: false });
 	});
 });

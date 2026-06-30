@@ -707,6 +707,18 @@ class Player {
 	 * and mutates it only via retryUnplayable() (no arbitrary external mutation).
 	 */
 	private unplayableUids = new SvelteSet<string>();
+	/**
+	 * NEVER-STOP (quick-260630-q03): uids of dead tracks that have already been given their ONE
+	 * second-chance retry on advance. When current ends and the next candidate is in `unplayableUids`,
+	 * the advance re-resolves + replays it ONCE (a transient probe failure recovers this way) and
+	 * records the uid here so it is never retried again this session — a genuinely-dead track is then
+	 * skipped, so the retry can never become an infinite loop. Plain Set (NOT $state — only the dimmed
+	 * ✗ row needs reactivity, and that lives on `unplayableUids`), mirroring the manualUids/removedUids
+	 * side-state discipline. Session-scoped, never persisted. Cleared in lockstep with `unplayableUids`
+	 * (clearQueue / recoverFromStop) and per-uid on a real `playing` recovery + manual retryUnplayable,
+	 * so a recovered track is eligible for a fresh retry after a later transient blip.
+	 */
+	private retriedDeadUids = new Set<string>();
 
 	/**
 	 * PLAY-RESILIENCE strike counter (over-aggressive-skip fix). The prefetchNext probe walk no longer
@@ -1250,6 +1262,9 @@ class Player {
 			// toward a false permanent skip later in the session.
 			if (this.current) {
 				this.clearStrike(this.current.uid);
+				// NEVER-STOP (quick-260630-q03): a recovered track is eligible for a fresh second-chance
+				// retry if it hits a later transient blip — drop its one-retry record.
+				this.retriedDeadUids.delete(this.current.uid);
 				// quick-260627-huo: a track that actually started playing has recovered — cancel any stale
 				// pending delayed re-resolve for it and reset its delayed-attempt budget so a later
 				// transient blip on the same song starts from a clean slate.
@@ -1643,6 +1658,7 @@ class Player {
 		this.pendingManual = null; // quick-260618-fiz (Fix 4): drop any uncommitted manual carry too
 		this.unplayableUids.clear(); // PLAY-RESILIENCE: a user queue reset clears the dead-track set too
 		this.unplayableStrikes.clear(); // …and the sub-cap strike budget in lockstep (over-aggressive-skip fix)
+		this.retriedDeadUids.clear(); // NEVER-STOP (quick-260630-q03): …and the one-retry record in lockstep
 		this.cancelAllRetryResolves(); // quick-260627-huo: …and cancel any pending delayed re-resolve timers (no leak)
 		// EXTERNAL-PAUSE SELF-HEAL: a queue reset cancels any pending external-pause resume and refunds
 		// the per-src budget so a fresh session starts clean.
@@ -2515,27 +2531,65 @@ class Player {
 	retryUnplayable(track: Track): void {
 		this.unplayableUids.delete(track.uid);
 		this.clearStrike(track.uid); // over-aggressive-skip fix: a manual retry resets the strike budget too
+		this.retriedDeadUids.delete(track.uid); // NEVER-STOP (quick-260630-q03): a manual retry resets the auto-retry budget
 		this.cancelRetryResolve(track.uid); // quick-260627-huo: a manual retry supersedes any pending delayed retry
 		void this.play(track, { fresh: false });
+	}
+
+	/**
+	 * NEVER-STOP advance walk (quick-260630-q03). Like nextPlayableIndex, but a dead track that has
+	 * NOT yet had its one second-chance retry is ALSO a valid advance target (advanceTo gives it that
+	 * retry). Returns the first index after `from` that is either playable or dead-but-not-yet-retried;
+	 * -1 only when every entry ahead is playable-exhausted AND already-retried. This is what stops the
+	 * "next 3 are dead → silent stop": those 3 are now retried in order instead of skipped to nothing.
+	 */
+	private nextAdvanceIndex(from: number): number {
+		for (let k = from + 1; k < this.queue.length; k++) {
+			const uid = this.queue[k].uid;
+			if (!this.unplayableUids.has(uid)) return k; // playable
+			if (!this.retriedDeadUids.has(uid)) return k; // dead, but owed its one retry
+		}
+		return -1;
+	}
+
+	/**
+	 * NEVER-STOP (quick-260630-q03): advance to queue[index]. If the track is still marked dead, give
+	 * it its single second-chance — record it in retriedDeadUids (so it is never retried twice this
+	 * session → no infinite loop), drop it from the dead set + reset its strike/delayed-retry budget,
+	 * and replay it NON-fresh (a transient probe failure recovers here; a genuinely-dead track simply
+	 * re-fails and the resilience chain advances past it). A playable track just plays.
+	 */
+	private advanceTo(index: number): void {
+		const t = this.queue[index];
+		if (this.unplayableUids.has(t.uid)) {
+			this.retriedDeadUids.add(t.uid);
+			this.unplayableUids.delete(t.uid);
+			this.clearStrike(t.uid);
+			this.cancelRetryResolve(t.uid);
+			this.play(t, { fresh: false });
+			return;
+		}
+		this.play(t);
 	}
 
 	next() {
 		this.abortFade(); // D-05: a skip gesture during a fade aborts the sleep stop
 		const i = this.indexOf(this.current);
-		const j = this.nextPlayableIndex(i);
+		const j = this.nextAdvanceIndex(i);
 		if (j >= 0) {
-			this.play(this.queue[j]);
+			this.advanceTo(j); // plays a playable track, or retries the next dead one ONCE (in order)
 			return;
 		}
-		// No playable track ahead in the current queue (end-of-queue, or the whole tail is known-dead).
+		// Every entry ahead is playable-exhausted AND already had its one retry (or end-of-queue).
 		// D-10/D-12: no repeat-all wrap — auto-generated up-next is the continuation. Grow via
-		// ensureAhead, then advance to the first PLAYABLE freshly-added track. Never silently no-op on
-		// a dead/exhausted tail (that was the stall): with sources truly dry ensureAhead adds nothing
-		// and there is genuinely nothing to play, so the reactive never-stop chain owns the stop.
+		// ensureAhead, then advance into the freshly-added tracks (fresh tracks are never dead/retried,
+		// so they are valid candidates). Never silently no-op on a dead/exhausted tail (that was the
+		// stall): only when sources are truly dry does ensureAhead add nothing and the reactive
+		// never-stop chain owns the genuine stop.
 		void this.ensureAhead().then(() => {
 			const k = this.indexOf(this.current);
-			const n = this.nextPlayableIndex(k);
-			if (n >= 0) this.play(this.queue[n]);
+			const n = this.nextAdvanceIndex(k);
+			if (n >= 0) this.advanceTo(n);
 		});
 	}
 
@@ -2741,6 +2795,7 @@ class Player {
 		// previously-sidelined tracks get a fresh chance on the way out of the stopped state.
 		this.unplayableUids.clear();
 		this.unplayableStrikes.clear(); // over-aggressive-skip fix: a full recovery resets the strike budget too
+		this.retriedDeadUids.clear(); // NEVER-STOP (quick-260630-q03): a full recovery clears the one-retry record too
 		this.cancelAllRetryResolves(); // quick-260627-huo: a full recovery cancels every pending delayed re-resolve
 		if (this.notice?.kind === 'stopped') this.notice = null;
 		this.next();
