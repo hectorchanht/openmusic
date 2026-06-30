@@ -18,7 +18,6 @@
 	import { longpress } from '$lib/actions/longpress';
 	import { swipeAction } from '$lib/actions/swipeAction';
 	import { shouldRun } from '$lib/actions/inflightGuard';
-	import { lazyCover } from '$lib/actions/lazyCover';
 	import { toast as globalToast } from '$lib/stores/toast.svelte';
 	import { online } from '$lib/stores/online.svelte';
 	import { tick as hapticTick } from '$lib/util/haptics';
@@ -73,39 +72,10 @@
 		return `linear-gradient(145deg, hsl(${h} 55% 32%), hsl(${(h + 40) % 360} 55% 18%))`;
 	}
 
-	// COVER-02 D-14: album tracklist rows are Last.fm STUBS ({artist,title} only — no source
-	// cover today, just the gradient). use:lazyCover resolves a real cover on scroll-into-view
-	// and we paint it OVER the gradient via this reactive uid→url map. The action needs a Track,
-	// so we build a synthetic one per stub: the name-layer cache key is (artist,title) — the SAME
-	// key the resolved Track uses on tap (resolveCoverForTrack writes both layers) — so the cover
-	// caches consistently across the stub here and the real track later (no refetch). The synthetic
-	// `uid` uses an `album:` prefix (disjoint from real source uids) for the uid-layer + de-dupe.
-	// Resolved values are SOLID https only (Plan 02 gate) — safe for background-image (T-0bb-01).
-	let resolvedCovers = $state<Record<string, string>>({});
-	function onCoverResolved(uid: string, url: string) {
-		resolvedCovers = { ...resolvedCovers, [uid]: url };
-	}
+	// Stable in-flight-guard key for a stub row (used by swipeQueue/swipeLike). The `album:`
+	// prefix is disjoint from real source uids so it never collides with a resolved Track uid.
 	function stubUid(stub: AlbumStub): string {
 		return `album:${stub.artist} ${stub.title}`;
-	}
-	function stubAsTrack(stub: AlbumStub): Track {
-		return {
-			uid: stubUid(stub),
-			source: 'netease',
-			songid: '',
-			title: stub.title,
-			artist: stub.artist,
-			album: name,
-			cover: null,
-			audioUrl: null,
-			lrc: null,
-			lrcUrl: null,
-			detailsLoaded: false,
-			quality: null,
-			qualityLabel: null,
-			keyword: '',
-			displayIndex: 0
-		};
 	}
 	// ---- Deezer album info (Phase 17, ENRICH-04 / D-14·D-16) ----
 	// PARALLEL race-guarded effect cloning the enrichedFor idiom with its own `dzFor` guard.
@@ -615,7 +585,7 @@
 				<span class="reveal reveal-like" aria-hidden="true"><Heart size={20} fill="none" /></span>
 				<button class="row" use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openMenu(track); }} onclick={() => playStub(track)} use:swipeAction={{ onSwipeRight: () => swipeQueue(track), onSwipeLeft: () => swipeLike(track) }}>
 					<span class="rank">{i + 1}</span>
-					<span class="art" use:lazyCover={{ track: stubAsTrack(track), onResolved: onCoverResolved }} style:background-image={resolvedCovers[stubUid(track)] ? `url(${resolvedCovers[stubUid(track)]})` : fallbackCover(track.artist + track.title)}></span>
+					<span class="art" style:background-image={heroImg ? `url(${heroImg})` : fallbackCover(track.artist + track.title)}></span>
 					<span class="meta"><span class="r-title">{names.dnTitle(track.title)}</span><span class="r-sub">{names.dnArtist(track.artist)}</span></span>
 					<Play size={16} />
 				</button>
