@@ -15,8 +15,10 @@
 	import { MoreVertical } from '@lucide/svelte';
 	import type { Track } from '$lib/sources/types';
 	import { longpress } from '$lib/actions/longpress';
+	import { tapBounce } from '$lib/actions/tapBounce';
 	import { lazyCover } from '$lib/actions/lazyCover';
 	import { marquee } from '$lib/actions/marquee';
+	import { player } from '$lib/stores/player.svelte';
 	import { tick as hapticTick } from '$lib/util/haptics';
 	import { t } from '$lib/i18n';
 
@@ -88,6 +90,8 @@
 	<div class="crow-wrap">
 		<button
 			class="crow"
+			class:is-active={track != null && player.current?.uid === track.uid}
+			use:tapBounce
 			use:longpress
 			onlongpress={(e) => {
 				(e.currentTarget as HTMLElement)?.blur();
@@ -150,6 +154,11 @@
 		.crow:hover {
 			background: var(--color-surface);
 		}
+	}
+	/* Active/selected row = the currently-playing track. NOT hover-gated, so the light-grey
+	   --color-surface highlight shows on touch too. Discovery stubs (track == null) never match. */
+	.crow.is-active {
+		background: var(--color-surface);
 	}
 	.art {
 		/* quick-260618-goe (decision #3): scale the compact cover tile with the Cover Size

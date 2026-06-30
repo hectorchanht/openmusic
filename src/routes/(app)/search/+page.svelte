@@ -27,6 +27,7 @@
 	import { LoaderCircle, ListEnd, ListStart } from '@lucide/svelte';
 	import { longpress } from '$lib/actions/longpress';
 	import { swipeAction } from '$lib/actions/swipeAction';
+	import { tapBounce } from '$lib/actions/tapBounce';
 	import { dragScroll } from '$lib/actions/dragScroll';
 	import { toast } from '$lib/stores/toast.svelte';
 	import { tick as hapticTick } from '$lib/util/haptics';
@@ -565,6 +566,8 @@
 				<span class="reveal reveal-next" aria-hidden="true"><ListStart size={20} /></span>
 				<button
 					class="row"
+					class:is-active={player.current?.uid === t.uid}
+					use:tapBounce
 					use:longpress
 					onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); menuTrack = t; menuOpen = true; }}
 					onclick={() => { player.setListQueue(results, 'search'); player.play(t, { fresh: true }); }}
@@ -683,6 +686,9 @@
 	/* MENU-03 / D-12: hover-capable devices only — touch otherwise latches this :hover
 	   background on a row under a held finger while the track menu opens. */
 	@media (hover: hover) { .row:hover { background: var(--color-surface); } }
+	/* Active/selected row = the currently-playing track. NOT gated behind hover, so the light-grey
+	   --color-surface highlight (same token as :hover) shows on touch too. */
+	.row.is-active { background: var(--color-surface); }
 	.art { width: 48px; height: 48px; border-radius: 8px; background-size: cover; background-position: center; flex: none; }
 	.meta { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 	.r-title { font-size: calc(14px * var(--fs-title, 1)); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--color-text);}

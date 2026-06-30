@@ -14,6 +14,7 @@
 	import { t } from '$lib/i18n';
 	import { longpress } from '$lib/actions/longpress';
 	import { swipeAction } from '$lib/actions/swipeAction';
+	import { tapBounce } from '$lib/actions/tapBounce';
 	import { lazyCover } from '$lib/actions/lazyCover';
 	import { toast } from '$lib/stores/toast.svelte';
 	import { tick as hapticTick } from '$lib/util/haptics';
@@ -217,7 +218,7 @@
 				<li class="swipe-wrap">
 					<span class="reveal reveal-queue" aria-hidden="true"><ListEnd size={20} /></span>
 					<span class="reveal reveal-next" aria-hidden="true"><ListStart size={20} /></span>
-					<button class="row" class:edit-row={editMode} use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openMenu(track); }} onclick={() => rowAction(track, library.liked)} use:swipeAction={{ onSwipeRight: () => swipeQueue(track), onSwipeLeft: () => swipeNext(track) }}>
+					<button class="row" class:is-active={player.current?.uid === track.uid} class:edit-row={editMode} use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openMenu(track); }} onclick={() => rowAction(track, library.liked)} use:swipeAction={{ onSwipeRight: () => swipeQueue(track), onSwipeLeft: () => swipeNext(track) }}>
 						<span class="art" use:lazyCover={{ track, onResolved: onCoverResolved }} style:background-image={(resolvedCovers[track.uid] ?? track.cover) ? `url(${resolvedCovers[track.uid] ?? track.cover})` : fallbackCover(track)}></span>
 						<span class="meta"><span class="r-title">{names.dnTitle(track.title)}</span><span class="r-sub">{names.dnArtist(track.artist)}</span></span>
 						{#if editMode}<Trash2 size={16} />{:else}<Play size={16} />{/if}
@@ -247,7 +248,7 @@
 							<li class="swipe-wrap">
 								<span class="reveal reveal-queue" aria-hidden="true"><ListEnd size={20} /></span>
 								<span class="reveal reveal-next" aria-hidden="true"><ListStart size={20} /></span>
-								<button class="row" class:edit-row={editMode} use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openMenu(track); }} onclick={() => rowAction(track, pl.tracks, pl.id)} use:swipeAction={{ onSwipeRight: () => swipeQueue(track), onSwipeLeft: () => swipeNext(track) }}>
+								<button class="row" class:is-active={player.current?.uid === track.uid} class:edit-row={editMode} use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openMenu(track); }} onclick={() => rowAction(track, pl.tracks, pl.id)} use:swipeAction={{ onSwipeRight: () => swipeQueue(track), onSwipeLeft: () => swipeNext(track) }}>
 									<span class="art" use:lazyCover={{ track, onResolved: onCoverResolved }} style:background-image={(resolvedCovers[track.uid] ?? track.cover) ? `url(${resolvedCovers[track.uid] ?? track.cover})` : fallbackCover(track)}></span>
 									<span class="meta"><span class="r-title">{names.dnTitle(track.title)}</span><span class="r-sub">{names.dnArtist(track.artist)}</span></span>
 									{#if editMode}<Trash2 size={16} />{:else}<Play size={16} />{/if}
@@ -266,7 +267,7 @@
 				<li class="swipe-wrap">
 					<span class="reveal reveal-queue" aria-hidden="true"><ListEnd size={20} /></span>
 					<span class="reveal reveal-next" aria-hidden="true"><ListStart size={20} /></span>
-					<button class="row" class:edit-row={editMode} use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openMenu(track); }} onclick={() => rowAction(track, library.downloads)} use:swipeAction={{ onSwipeRight: () => swipeQueue(track), onSwipeLeft: () => swipeNext(track) }}>
+					<button class="row" class:is-active={player.current?.uid === track.uid} class:edit-row={editMode} use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openMenu(track); }} onclick={() => rowAction(track, library.downloads)} use:swipeAction={{ onSwipeRight: () => swipeQueue(track), onSwipeLeft: () => swipeNext(track) }}>
 						<span class="art" use:lazyCover={{ track, onResolved: onCoverResolved }} style:background-image={(resolvedCovers[track.uid] ?? track.cover) ? `url(${resolvedCovers[track.uid] ?? track.cover})` : fallbackCover(track)}></span>
 						<span class="meta"><span class="r-title">{names.dnTitle(track.title)}</span><span class="r-sub">{names.dnArtist(track.artist)}</span></span>
 						{#if editMode}<Trash2 size={16} />{:else}<Play size={16} />{/if}
@@ -299,7 +300,7 @@
 				<li class="swipe-wrap">
 					<span class="reveal reveal-queue" aria-hidden="true"><ListEnd size={20} /></span>
 					<span class="reveal reveal-next" aria-hidden="true"><ListStart size={20} /></span>
-					<button class="row" use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openMenu(track); }} onclick={() => playEntry(track)} use:swipeAction={{ onSwipeRight: () => swipeQueue(track), onSwipeLeft: () => swipeNext(track) }}>
+					<button class="row" class:is-active={player.current?.uid === track.uid} use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openMenu(track); }} onclick={() => playEntry(track)} use:swipeAction={{ onSwipeRight: () => swipeQueue(track), onSwipeLeft: () => swipeNext(track) }}>
 						<span class="art" use:lazyCover={{ track, onResolved: onCoverResolved }} style:background-image={(resolvedCovers[track.uid] ?? track.cover) ? `url(${resolvedCovers[track.uid] ?? track.cover})` : fallbackCover(track)}></span>
 						<span class="meta"><span class="r-title">{names.dnTitle(track.title)}</span><span class="r-sub">{names.dnArtist(track.artist)}</span></span>
 						<Play size={16} />
@@ -340,6 +341,13 @@
 	/* MENU-03 / D-12: hover-capable devices only — touch otherwise latches this :hover
 	   background on a row under a held finger while the track menu opens. */
 	@media (hover: hover) { .row:hover { background: var(--color-surface); } }
+	/* Active/selected row = the currently-playing track. NOT hover-gated, so the light-grey
+	   --color-surface highlight shows on touch too. The edit-row modifier (red, remove-mode) must
+	   keep precedence over this neutral highlight: in edit mode a row click removes, not plays, so
+	   the grey active tint would be misleading — the more-specific .row.edit-row.is-active below
+	   suppresses it. */
+	.row.is-active { background: var(--color-surface); }
+	.row.edit-row.is-active { background: var(--color-bg); }
 	.art { width: 48px; height: 48px; border-radius: 8px; background-size: cover; background-position: center; flex: none; }
 	.meta { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 	.r-title { font-size: calc(14px * var(--fs-title, 1)); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
