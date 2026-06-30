@@ -32,6 +32,7 @@
 	import { swipeRemove } from '$lib/actions/swipeRemove';
 	import { swipeAction } from '$lib/actions/swipeAction';
 	import { coverSwipe } from '$lib/actions/coverSwipe';
+	import { tapBounce } from '$lib/actions/tapBounce';
 	import { focusTrap } from '$lib/actions/focusTrap';
 	import { toast } from '$lib/stores/toast.svelte';
 	import { tick as hapticTick } from '$lib/util/haptics';
@@ -1087,9 +1088,9 @@
 		<Nowbar variant="embed" onOpen={() => { sheetState = 'closed'; sheetDragY = offsetFor('closed'); }} />
 	{/if}
 	<header class="bar">
-		<button class="icon" aria-label={t('nowplaying.collapse')} onclick={() => player.collapse()}><ChevronDown /></button>
+		<button class="icon" aria-label={t('nowplaying.collapse')} onclick={() => player.collapse()} use:tapBounce><ChevronDown /></button>
 		<!-- <span class="ctx">{t('nowplaying.nowPlaying')}</span> -->
-		<button class="icon" aria-label={t('nowplaying.options')} onclick={() => openMenu(player.current)}><MoreVertical /></button>
+		<button class="icon" aria-label={t('nowplaying.options')} onclick={() => openMenu(player.current)} use:tapBounce><MoreVertical /></button>
 	</header>
 
 	<!-- Wrapping container so the whole top half of NP (cover + meta + prog + transport)
@@ -1209,7 +1210,7 @@
 		     label). Tappable → opens the SAME global sheet as the nowbar/track-menu (D-08). The .t /
 		     class:on idiom reads as active. -->
 		<div class="st-row">
-			<button class="t st-readout on" aria-label={t('menu.sleepTimer')} onclick={() => (sleepTimer.sheetOpen = true)}>
+			<button class="t st-readout on" aria-label={t('menu.sleepTimer')} onclick={() => (sleepTimer.sheetOpen = true)} use:tapBounce>
 				<Moon size={16} />
 				{#if sleepTimer.mode === 'minutes'}{fmtTime(sleepTimer.remaining / 1000)}{:else}{t('timer.endOfTrack')}{/if}
 			</button>
@@ -1217,13 +1218,13 @@
 	{/if}
 
 	<div class="transport" bind:this={transportEl}>
-		<button class="t" class:on={currentLiked} aria-pressed={currentLiked} aria-label={currentLiked ? t('menu.liked') : t('menu.like')} onclick={toggleCurrentLike}><Heart size={20} fill={currentLiked ? 'currentColor' : 'none'} /></button>
-		<button class="t" aria-label={t('nowplaying.previous')} onclick={() => player.prev()}><SkipBack size={26} /></button>
-		<button class="play" aria-label={t('nowplaying.playPause')} onclick={() => player.toggle()}>
+		<button class="t" class:on={currentLiked} aria-pressed={currentLiked} aria-label={currentLiked ? t('menu.liked') : t('menu.like')} onclick={toggleCurrentLike} use:tapBounce><Heart size={20} fill={currentLiked ? 'currentColor' : 'none'} /></button>
+		<button class="t" aria-label={t('nowplaying.previous')} onclick={() => player.prev()} use:tapBounce><SkipBack size={26} /></button>
+		<button class="play" aria-label={t('nowplaying.playPause')} onclick={() => player.toggle()} use:tapBounce>
 			{#if player.playing}<Pause size={26} />{:else}<Play size={26} />{/if}
 		</button>
-		<button class="t" aria-label={t('nowplaying.next')} onclick={() => player.next()}><SkipForward size={26} /></button>
-		<button class="t" class:on={player.repeatMode !== 'off'} aria-pressed={player.repeatMode !== 'off'} aria-label={player.repeatMode === 'one' ? t('nowplaying.repeatModeOne') : t('nowplaying.repeat')} onclick={() => player.cycleRepeat()}>
+		<button class="t" aria-label={t('nowplaying.next')} onclick={() => player.next()} use:tapBounce><SkipForward size={26} /></button>
+		<button class="t" class:on={player.repeatMode !== 'off'} aria-pressed={player.repeatMode !== 'off'} aria-label={player.repeatMode === 'one' ? t('nowplaying.repeatModeOne') : t('nowplaying.repeat')} onclick={() => player.cycleRepeat()} use:tapBounce>
 			{#if player.repeatMode === 'one'}<Repeat1 size={20} />{:else}<Repeat size={20} />{/if}
 		</button>
 	</div>
@@ -1261,9 +1262,9 @@
 
 		<nav class="subnav"
 			onpointerdown={gripDown} onpointermove={gripMove} onpointerup={gripUp} onpointercancel={gripUp}>
-			<button data-tab="queue" class:active={tab === 'queue'} onclick={() => selectTab('queue')}>{t('nowplaying.upNext')}</button>
-			<button data-tab="lyrics" class:active={tab === 'lyrics'} onclick={() => selectTab('lyrics')}>{t('nowplaying.lyrics')}</button>
-			<button data-tab="related" class:active={tab === 'related'} onclick={() => selectTab('related')}>{t('nowplaying.related')}</button>
+			<button data-tab="queue" class:active={tab === 'queue'} onclick={() => selectTab('queue')} use:tapBounce>{t('nowplaying.upNext')}</button>
+			<button data-tab="lyrics" class:active={tab === 'lyrics'} onclick={() => selectTab('lyrics')} use:tapBounce>{t('nowplaying.lyrics')}</button>
+			<button data-tab="related" class:active={tab === 'related'} onclick={() => selectTab('related')} use:tapBounce>{t('nowplaying.related')}</button>
 		</nav>
 
 		<div class="panel">

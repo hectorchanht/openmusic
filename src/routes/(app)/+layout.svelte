@@ -11,6 +11,7 @@
 	import { LANDING_PATHS } from '$lib/services/home-layout';
 	import { overlays } from '$lib/stores/overlays.svelte';
 	import { t, type TranslationKey } from '$lib/i18n';
+	import { tapBounce } from '$lib/actions/tapBounce';
 	import NowPlaying from '$lib/components/NowPlaying.svelte';
 	import Nowbar from '$lib/components/Nowbar.svelte';
 	import SleepTimerSheet from '$lib/components/SleepTimerSheet.svelte';
@@ -160,7 +161,7 @@
 		>
 			<span class="msg">{host.text}</span>
 			{#if host.kind === 'stopped' && host.action}
-				<button type="button" class="retry" onclick={onRetry}>{t('toast.retry')}</button>
+				<button type="button" class="retry" onclick={onRetry} use:tapBounce>{t('toast.retry')}</button>
 			{/if}
 		</div>
 	{/if}
@@ -188,7 +189,7 @@
 			<!-- quick-260611-fr9: active route's tab icon is FILLED, others OUTLINE. Lucide is
 			     outline-only, so we use the established `fill` prop idiom (cf. NowPlaying Heart).
 			     stroke-width is nudged down on the active (filled) glyph so it doesn't read heavy. -->
-			<a class="tab" class:active href={tab.href}>
+			<a class="tab" class:active href={tab.href} use:tapBounce>
 				<span class="ic"><Icon size={20} fill={active ? 'currentColor' : 'none'} strokeWidth={active ? 1.5 : 2} /></span>{t(tab.labelKey)}
 			</a>
 		{/each}

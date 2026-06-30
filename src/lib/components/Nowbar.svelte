@@ -14,6 +14,7 @@
     import { settings } from "$lib/stores/settings.svelte";
     import { sleepTimer } from "$lib/stores/sleepTimer.svelte";
     import { coverSwipe } from "$lib/actions/coverSwipe";
+    import { tapBounce } from "$lib/actions/tapBounce";
     import { t, tMaybeKey } from "$lib/i18n";
 
     type Variant = "docked" | "embed";
@@ -147,6 +148,7 @@
                 class="st-badge"
                 aria-label={t("menu.sleepTimer")}
                 onclick={() => (sleepTimer.sheetOpen = true)}
+                use:tapBounce
             >
                 <Moon size={16} />
                 {#if sleepTimer.mode === "minutes"}<span class="st-label"
@@ -165,6 +167,7 @@
                 class="np-btn"
                 aria-label={t("nowbar.playPause")}
                 onclick={() => player.toggle()}
+                use:tapBounce
             >
                 {#if player.playing}<Pause size={18} />{:else}<Play
                         size={18}
