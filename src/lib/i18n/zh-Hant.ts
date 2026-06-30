@@ -367,6 +367,12 @@ const zhHant: Dict = {
 	'settings.fontSizeNpArtistDesc': '縮放全螢幕正在播放畫面上顯示的歌手名稱，100% 為預設值；可依喜好調整，不會影響清單中的文字。',
 	'settings.coverScaleDesc': '縮放各網格與清單中的專輯封面圖；封面越大越容易看清，但每列能放的越少，封面越小則能放越多。',
 	'settings.gridColumnsDesc': '設定首頁網格使用的欄數；欄數越多，圖塊越小、每螢幕顯示越多，欄數越少則圖塊越大。',
+	// home settings helper text (quick-260630-fce)
+	'settings.itemsPerShelfDesc': '每個首頁區塊在你開啟查看更多之前所顯示的項目數量；調高可一眼瀏覽更多，調低則讓頁面更精簡。',
+	'settings.defaultLandingTabDesc': '開啟應用程式時預設進入的分頁——首頁、搜尋或音樂庫；設定為你通常最先使用的那一個。',
+	'settings.tileDensityDesc': '控制首頁區塊的版面樣式——清單（堆疊列）、堆疊（封面橫列）或網格（分頁封面網格）；這是呈現方式，與只決定數量的「每區塊項目數」不同。',
+	'settings.showSearchPillDesc': '切換首頁頂部的搜尋列；若你通常改從「搜尋」分頁搜尋，可關閉此項讓首頁更簡潔。',
+	'settings.showRandomizeDesc': '切換首頁上的「隨機」按鈕，按下可播放一份全新的隨機混合歌曲；若從不使用可關閉此項。',
 };
 
 export default zhHant;

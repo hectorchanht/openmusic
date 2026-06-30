@@ -335,6 +335,12 @@ const de: Dict = {
 	"settings.fontSizeNpArtistDesc": "Skaliert den Künstlernamen in der Vollbild-Wiedergabeansicht, wobei 100% der Standard ist; passe ihn nach Geschmack an, ohne den Listentext zu ändern.",
 	"settings.coverScaleDesc": "Skaliert die Albumcover in Rastern und Listen; größere Cover sind besser sichtbar, passen aber weniger pro Reihe, kleinere Cover passen mehr.",
 	"settings.gridColumnsDesc": "Legt fest, wie viele Spalten das Startseiten-Raster verwendet; mehr Spalten bedeuten kleinere Kacheln und mehr pro Bildschirm, weniger Spalten bedeuten größere Kacheln.",
+	// home settings helper text (quick-260630-fce)
+	"settings.itemsPerShelfDesc": "Wie viele Elemente jedes Startseiten-Regal anzeigt, bevor du es öffnen musst, um mehr zu sehen; erhöhe es, um mehr auf einen Blick zu sehen, oder verringere es für eine kürzere Seite.",
+	"settings.defaultLandingTabDesc": "Welcher Tab beim Start der App geöffnet wird — Start, Suche oder Bibliothek; stelle ihn auf den ein, den du normalerweise zuerst ansteuerst.",
+	"settings.tileDensityDesc": "Steuert den Layout-Stil der Startseiten-Regale — Liste (gestapelte Zeilen), Stapel (ein Cover-Regal) oder Raster (ein paginiertes Cover-Raster); dies ist die Darstellung, getrennt von Elemente pro Regal, das nur eine Anzahl ist.",
+	"settings.showSearchPillDesc": "Schaltet die Suchleiste oben auf dem Startbildschirm um; deaktiviere sie für eine aufgeräumtere Startseite, wenn du normalerweise über den Such-Tab suchst.",
+	"settings.showRandomizeDesc": "Schaltet die Zufallswiedergabe-Schaltfläche auf der Startseite um, die einen frischen zufälligen Mix abspielt; deaktiviere sie, wenn du sie nie nutzt.",
 };
 
 export default de;

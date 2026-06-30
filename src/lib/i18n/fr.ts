@@ -335,6 +335,12 @@ const fr: Dict = {
 	"settings.fontSizeNpArtistDesc": "Met à l'échelle le nom de l'artiste sur l'écran de lecture en plein écran, 100% étant la valeur par défaut ; ajustez-le à votre goût sans modifier le texte des listes.",
 	"settings.coverScaleDesc": "Met à l'échelle les pochettes d'album dans les grilles et les listes ; les grandes pochettes se voient mieux mais en tiennent moins par ligne, les petites en tiennent plus.",
 	"settings.gridColumnsDesc": "Définit le nombre de colonnes de la grille d'accueil ; plus de colonnes signifie des tuiles plus petites et plus par écran, moins de colonnes signifie des tuiles plus grandes.",
+	// home settings helper text (quick-260630-fce)
+	"settings.itemsPerShelfDesc": "Combien d'éléments chaque étagère de l'accueil affiche avant de devoir l'ouvrir pour en voir plus ; augmentez-le pour parcourir plus d'un coup d'œil ou réduisez-le pour une page plus courte.",
+	"settings.defaultLandingTabDesc": "Quel onglet s'ouvre au lancement de l'application — Accueil, Recherche ou Bibliothèque ; réglez-le sur celui que vous utilisez le plus souvent en premier.",
+	"settings.tileDensityDesc": "Contrôle le style de disposition des étagères de l'accueil — liste (lignes empilées), pile (une étagère de pochettes) ou grille (une grille de pochettes paginée) ; c'est la présentation, distincte d'Éléments par étagère qui n'est qu'un nombre.",
+	"settings.showSearchPillDesc": "Active ou désactive la barre de recherche en haut de l'écran d'accueil ; désactivez-la pour un accueil plus épuré si vous recherchez d'habitude depuis l'onglet Recherche.",
+	"settings.showRandomizeDesc": "Active ou désactive le bouton Aléatoire de l'accueil qui lit un nouveau mix aléatoire de morceaux ; désactivez-le si vous ne l'utilisez jamais.",
 };
 
 export default fr;

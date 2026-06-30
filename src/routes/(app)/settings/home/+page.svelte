@@ -232,6 +232,7 @@
 <section>
 	<h2><SlidersHorizontal size={15} /> {t('settings.itemsPerShelf', { n: settings.homeShelfSize })}</h2>
 	<input class="range" type="range" min={SHELF_MIN} max={SHELF_MAX} step="1" value={settings.homeShelfSize} oninput={setShelfSize} aria-label={t('settings.itemsPerShelf', { n: settings.homeShelfSize })} />
+	<p class="muted">{t('settings.itemsPerShelfDesc')}</p>
 </section>
 
 <!-- 5. DEFAULT LANDING TAB -->
@@ -242,6 +243,7 @@
 			<button class:on={settings.homeLandingTab === l.v} onclick={() => setLanding(l.v)}>{t(l.key)}</button>
 		{/each}
 	</div>
+	<p class="muted">{t('settings.defaultLandingTabDesc')}</p>
 </section>
 
 <!-- 6. TILE DENSITY -->
@@ -252,6 +254,7 @@
 			<button class:on={settings.homeDensity === d.v} onclick={() => setDensity(d.v)}>{t(d.key)}</button>
 		{/each}
 	</div>
+	<p class="muted">{t('settings.tileDensityDesc')}</p>
 </section>
 
 <!-- 7. HOME CHROME -->
@@ -261,10 +264,12 @@
 		<span>{t('settings.showSearchPill')}</span>
 		<span class="sw" class:on={settings.homeShowSearchPill}></span>
 	</button>
+	<p class="muted">{t('settings.showSearchPillDesc')}</p>
 	<button class="row-toggle" onclick={toggleRandomize}>
 		<span>{t('settings.showRandomize')}</span>
 		<span class="sw" class:on={settings.homeShowRandomize}></span>
 	</button>
+	<p class="muted">{t('settings.showRandomizeDesc')}</p>
 </section>
 
 <style>

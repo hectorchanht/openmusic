@@ -335,6 +335,12 @@ const it: Dict = {
 	"settings.fontSizeNpArtistDesc": "Ridimensiona il nome dell'artista nella vista di riproduzione a schermo intero, dove 100% è il valore predefinito; regolalo a piacere senza modificare il testo degli elenchi.",
 	"settings.coverScaleDesc": "Ridimensiona le copertine degli album in griglie ed elenchi; le copertine più grandi si vedono meglio ma ne entrano meno per riga, quelle più piccole ne entrano di più.",
 	"settings.gridColumnsDesc": "Imposta quante colonne usa la griglia della Home; più colonne significano riquadri più piccoli e più per schermata, meno colonne significano riquadri più grandi.",
+	// home settings helper text (quick-260630-fce)
+	"settings.itemsPerShelfDesc": "Quanti elementi mostra ogni scaffale della Home prima di doverlo aprire per vederne altri; aumentalo per scorrere di più a colpo d'occhio o riducilo per una pagina più breve.",
+	"settings.defaultLandingTabDesc": "Quale scheda si apre all'avvio dell'app — Home, Cerca o Libreria; impostala su quella che usi di solito per prima.",
+	"settings.tileDensityDesc": "Controlla lo stile di layout degli scaffali della Home — elenco (righe impilate), pila (uno scaffale di copertine) o griglia (una griglia di copertine paginata); è la presentazione, distinta da Elementi per scaffale, che è solo un conteggio.",
+	"settings.showSearchPillDesc": "Attiva o disattiva la barra di ricerca in cima alla schermata Home; disattivala per una Home più pulita se di solito cerchi dalla scheda Cerca.",
+	"settings.showRandomizeDesc": "Attiva o disattiva il pulsante Casuale sulla Home che riproduce un nuovo mix casuale di brani; disattivalo se non lo usi mai.",
 };
 
 export default it;

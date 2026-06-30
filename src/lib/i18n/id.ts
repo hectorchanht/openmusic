@@ -335,6 +335,12 @@ const id: Dict = {
 	"settings.fontSizeNpArtistDesc": "Mengubah ukuran nama artis pada tampilan pemutaran layar penuh, dengan 100% sebagai bawaan; sesuaikan selera tanpa mengubah teks daftar.",
 	"settings.coverScaleDesc": "Mengubah ukuran sampul album di kisi dan daftar; sampul lebih besar lebih mudah dilihat tetapi muat lebih sedikit per baris, sampul lebih kecil muat lebih banyak.",
 	"settings.gridColumnsDesc": "Mengatur berapa kolom yang dipakai kisi Beranda; lebih banyak kolom berarti ubin lebih kecil dan lebih banyak per layar, lebih sedikit kolom berarti ubin lebih besar.",
+	// home settings helper text (quick-260630-fce)
+	"settings.itemsPerShelfDesc": "Berapa item yang ditampilkan setiap rak Beranda sebelum Anda perlu membukanya untuk melihat lebih banyak; perbesar untuk menelusuri lebih banyak sekilas atau perkecil untuk halaman lebih pendek.",
+	"settings.defaultLandingTabDesc": "Tab mana yang terbuka saat Anda membuka aplikasi — Beranda, Cari, atau Pustaka; atur ke yang biasanya Anda buka lebih dulu.",
+	"settings.tileDensityDesc": "Mengontrol gaya tata letak rak Beranda — daftar (baris bertumpuk), tumpukan (rak sampul), atau kisi (kisi sampul berhalaman); ini adalah penyajiannya, berbeda dari Item per rak yang hanya berupa jumlah.",
+	"settings.showSearchPillDesc": "Mengaktifkan atau menonaktifkan bilah pencarian di bagian atas layar Beranda; matikan agar Beranda lebih bersih jika Anda biasanya mencari dari tab Cari.",
+	"settings.showRandomizeDesc": "Mengaktifkan atau menonaktifkan tombol Acak di Beranda yang memutar campuran lagu acak yang baru; matikan jika tidak pernah Anda gunakan.",
 };
 
 export default id;

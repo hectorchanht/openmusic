@@ -335,6 +335,12 @@ const es: Dict = {
 	"settings.fontSizeNpArtistDesc": "Escala el nombre del artista en la vista de reproducción a pantalla completa, donde 100% es el valor predeterminado; ajústalo a tu gusto sin cambiar el texto de las listas.",
 	"settings.coverScaleDesc": "Escala las portadas de álbum en cuadrículas y listas; las portadas más grandes se ven mejor pero caben menos por fila, las más pequeñas caben más.",
 	"settings.gridColumnsDesc": "Establece cuántas columnas usa la cuadrícula de Inicio; más columnas significan mosaicos más pequeños y más por pantalla, menos columnas significan mosaicos más grandes.",
+	// home settings helper text (quick-260630-fce)
+	"settings.itemsPerShelfDesc": "Cuántos elementos muestra cada estante de Inicio antes de tener que abrirlo para ver más; súbelo para ojear más de un vistazo o bájalo para una página más corta.",
+	"settings.defaultLandingTabDesc": "Qué pestaña se abre al iniciar la app: Inicio, Buscar o Biblioteca; configúrala según la que sueles usar primero.",
+	"settings.tileDensityDesc": "Controla el estilo de diseño de los estantes de Inicio: lista (filas apiladas), pila (un estante de portadas) o cuadrícula (una cuadrícula de portadas paginada); es la presentación, distinta de Elementos por estante, que solo es una cantidad.",
+	"settings.showSearchPillDesc": "Activa o desactiva la barra de búsqueda en la parte superior de la pantalla de Inicio; desactívala para un Inicio más limpio si sueles buscar desde la pestaña Buscar.",
+	"settings.showRandomizeDesc": "Activa o desactiva el botón Aleatorizar de Inicio que reproduce una mezcla aleatoria nueva de canciones; desactívalo si nunca lo usas.",
 };
 
 export default es;

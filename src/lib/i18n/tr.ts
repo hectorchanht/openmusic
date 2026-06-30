@@ -335,6 +335,12 @@ const tr: Dict = {
 	"settings.fontSizeNpArtistDesc": "Tam ekran çalan görünümündeki sanatçı adını ölçekler; 100% varsayılandır. Liste metnini değiştirmeden zevkinize göre ayarlayın.",
 	"settings.coverScaleDesc": "Albüm kapağı görsellerini ızgaralarda ve listelerde ölçekler; büyük kapaklar daha kolay görünür ama satıra daha az sığar, küçük kapaklar daha çok sığar.",
 	"settings.gridColumnsDesc": "Ana ekran ızgarasının kaç sütun kullanacağını belirler; daha çok sütun daha küçük döşemeler ve ekrana daha çok öğe, daha az sütun daha büyük döşemeler demektir.",
+	// home settings helper text (quick-260630-fce)
+	"settings.itemsPerShelfDesc": "Her Ana ekran rafının, daha fazlasını görmek için açmadan önce kaç öğe gösterdiğini belirler; bir bakışta daha çoğunu görmek için artırın, daha kısa sayfa için azaltın.",
+	"settings.defaultLandingTabDesc": "Uygulamayı açtığınızda hangi sekmenin açılacağı — Ana ekran, Arama veya Kitaplık; genelde ilk açtığınız hangisiyse onu seçin.",
+	"settings.tileDensityDesc": "Ana ekran raflarının yerleşim stilini denetler — liste (üst üste satırlar), yığın (kapak rafı) veya ızgara (sayfalı kapak ızgarası); bu sunumdur, yalnızca bir sayı olan Raf başına öğe'den farklıdır.",
+	"settings.showSearchPillDesc": "Ana ekranın üstündeki arama çubuğunu açıp kapatır; genelde Arama sekmesinden arıyorsanız daha temiz bir Ana ekran için kapatın.",
+	"settings.showRandomizeDesc": "Ana ekranda parçaların yeni rastgele karışımını çalan Karıştır düğmesini açıp kapatır; hiç kullanmıyorsanız kapatın.",
 };
 
 export default tr;

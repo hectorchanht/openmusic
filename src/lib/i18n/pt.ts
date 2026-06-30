@@ -335,6 +335,12 @@ const pt: Dict = {
 	"settings.fontSizeNpArtistDesc": "Ajusta o tamanho do nome do artista na tela de reprodução em tela cheia, sendo 100% o padrão; ajuste a seu gosto sem alterar o texto das listas.",
 	"settings.coverScaleDesc": "Ajusta o tamanho das capas de álbum em grades e listas; capas maiores são mais fáceis de ver mas cabem menos por linha, capas menores cabem mais.",
 	"settings.gridColumnsDesc": "Define quantas colunas a grade da Início usa; mais colunas significam blocos menores e mais por tela, menos colunas significam blocos maiores.",
+	// home settings helper text (quick-260630-fce)
+	"settings.itemsPerShelfDesc": "Quantos itens cada prateleira da Início mostra antes de você precisar abri-la para ver mais; aumente para folhear mais de relance ou diminua para uma página mais curta.",
+	"settings.defaultLandingTabDesc": "Qual aba abre ao iniciar o app — Início, Buscar ou Biblioteca; defina conforme a que você costuma usar primeiro.",
+	"settings.tileDensityDesc": "Controla o estilo de layout das prateleiras da Início — lista (linhas empilhadas), pilha (uma prateleira de capas) ou grade (uma grade de capas paginada); esta é a apresentação, diferente de Itens por prateleira, que é só uma contagem.",
+	"settings.showSearchPillDesc": "Ativa ou desativa a barra de busca no topo da tela de Início; desative para uma Início mais limpa se você costuma buscar pela aba Buscar.",
+	"settings.showRandomizeDesc": "Ativa ou desativa o botão Aleatório na Início que toca uma nova mistura aleatória de faixas; desative se você nunca o usa.",
 };
 
 export default pt;

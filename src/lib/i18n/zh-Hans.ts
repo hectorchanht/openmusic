@@ -367,6 +367,12 @@ const zhHans: Dict = {
 	'settings.fontSizeNpArtistDesc': '缩放全屏正在播放界面上显示的歌手名称，100% 为默认值；可按喜好调整，不会影响列表中的文字。',
 	'settings.coverScaleDesc': '缩放各网格与列表中的专辑封面图；封面越大越容易看清，但每行能放的越少，封面越小则能放越多。',
 	'settings.gridColumnsDesc': '设置首页网格使用的列数；列数越多，图块越小、每屏显示越多，列数越少则图块越大。',
+	// home settings helper text (quick-260630-fce)
+	'settings.itemsPerShelfDesc': '每个首页栏目在你打开查看更多之前显示的项目数量；调高可一眼浏览更多，调低则让页面更简短。',
+	'settings.defaultLandingTabDesc': '打开应用时默认进入的标签页——首页、搜索或音乐库；设置为你通常最先使用的那一个。',
+	'settings.tileDensityDesc': '控制首页栏目的布局样式——列表（堆叠行）、堆叠（封面横排）或网格（分页封面网格）；这是呈现方式，与只决定数量的“每栏目项目数”不同。',
+	'settings.showSearchPillDesc': '切换首页顶部的搜索栏；若你通常改从“搜索”标签页搜索，可关闭此项让首页更简洁。',
+	'settings.showRandomizeDesc': '切换首页上的“随机”按钮，按下可播放一份全新的随机混合歌曲；若从不使用可关闭此项。',
 };
 
 export default zhHans;

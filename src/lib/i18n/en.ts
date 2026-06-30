@@ -379,6 +379,12 @@ const en = {
 	'settings.fontSizeNpArtistDesc': 'Scales the artist name shown on the full-screen now-playing view, where 100% is the default; adjust it to taste without changing list text.',
 	'settings.coverScaleDesc': 'Scales album-cover artwork across grids and lists; bigger covers are easier to see but fit fewer per row, smaller covers fit more.',
 	'settings.gridColumnsDesc': 'Sets how many columns the Home grid uses; more columns mean smaller tiles and more per screen, fewer columns mean larger tiles.',
+	// home settings helper text (quick-260630-fce)
+	'settings.itemsPerShelfDesc': 'How many items each Home shelf shows before you need to open it to see more; raise it to browse more at a glance, lower it for a shorter page.',
+	'settings.defaultLandingTabDesc': 'Which tab opens when you launch the app — Home, Search or Library; set it to whatever you usually reach for first.',
+	'settings.tileDensityDesc': 'Controls the layout style of Home shelves — list (stacked rows), pile (a cover shelf) or grid (a paginated cover grid); this is the presentation, separate from Items per shelf which is just a count.',
+	'settings.showSearchPillDesc': 'Toggles the search bar at the top of the Home screen; turn it off for a cleaner Home when you usually search from the Search tab instead.',
+	'settings.showRandomizeDesc': 'Toggles the Randomize button on Home that plays a fresh random mix of tracks; turn it off if you never use it.',
 } as const;
 
 export default en;

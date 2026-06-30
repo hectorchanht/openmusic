@@ -335,6 +335,12 @@ const vi: Dict = {
 	"settings.fontSizeNpArtistDesc": "Chỉnh cỡ chữ tên nghệ sĩ trên màn hình đang phát toàn màn hình, với 100% là mặc định; điều chỉnh theo sở thích mà không ảnh hưởng chữ trong danh sách.",
 	"settings.coverScaleDesc": "Chỉnh cỡ ảnh bìa album trong lưới và danh sách; bìa lớn dễ nhìn hơn nhưng vừa ít trên mỗi hàng, bìa nhỏ vừa được nhiều hơn.",
 	"settings.gridColumnsDesc": "Đặt số cột mà lưới Trang chủ sử dụng; nhiều cột nghĩa là ô nhỏ hơn và nhiều hơn mỗi màn hình, ít cột nghĩa là ô lớn hơn.",
+	// home settings helper text (quick-260630-fce)
+	"settings.itemsPerShelfDesc": "Mỗi kệ Trang chủ hiển thị bao nhiêu mục trước khi bạn cần mở ra để xem thêm; tăng để xem nhiều hơn trong một cái nhìn, giảm để trang ngắn hơn.",
+	"settings.defaultLandingTabDesc": "Tab nào mở khi bạn khởi động ứng dụng — Trang chủ, Tìm kiếm hoặc Thư viện; đặt theo tab bạn thường mở đầu tiên.",
+	"settings.tileDensityDesc": "Điều khiển kiểu bố cục của các kệ Trang chủ — danh sách (các hàng xếp chồng), chồng (kệ ảnh bìa) hoặc lưới (lưới ảnh bìa phân trang); đây là cách trình bày, khác với Số mục mỗi kệ vốn chỉ là một con số.",
+	"settings.showSearchPillDesc": "Bật/tắt thanh tìm kiếm ở đầu màn hình Trang chủ; tắt để Trang chủ gọn hơn nếu bạn thường tìm từ tab Tìm kiếm.",
+	"settings.showRandomizeDesc": "Bật/tắt nút Ngẫu nhiên trên Trang chủ để phát một bản phối ngẫu nhiên mới các bài hát; tắt nếu bạn không bao giờ dùng.",
 };
 
 export default vi;
