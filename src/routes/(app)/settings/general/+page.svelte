@@ -47,6 +47,7 @@
 			<button class="chip" class:on={settings.appLang === l.v} onclick={() => setAppLang(l.v)}>{l.label}</button>
 		{/each}
 	</div>
+	<p class="muted">{t('settings.appLanguageDesc')}</p>
 </section>
 
 <section>
@@ -55,6 +56,7 @@
 		<button class:on={settings.theme === 'dark'} onclick={() => setTheme('dark')}><Moon size={15} /> {t('settings.themeDark')}</button>
 		<button class:on={settings.theme === 'light'} onclick={() => setTheme('light')}><Sun size={15} /> {t('settings.themeLight')}</button>
 	</div>
+	<p class="muted">{t('settings.themeDesc')}</p>
 </section>
 
 <section>
@@ -64,6 +66,7 @@
 			<button class="swatch" class:on={settings.accent === c} style:background={c} aria-label={c} onclick={() => setAccent(c)}></button>
 		{/each}
 	</div>
+	<p class="muted">{t('settings.accentColorDesc')}</p>
 </section>
 
 <section>
@@ -72,6 +75,7 @@
 		<span><Zap size={16} /> {t('settings.reduceMotion')}</span>
 		<span class="sw" class:on={settings.reduceMotion}></span>
 	</button>
+	<p class="muted">{t('settings.reduceMotionDesc')}</p>
 </section>
 
 <style>

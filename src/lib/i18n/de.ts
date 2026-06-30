@@ -322,7 +322,11 @@ const de: Dict = {
 	"charts.tagTitle": "{tag}",
 	"charts.countryTitle": "{country}",
 	"settings.homeSectionDensity": "Layout",
-
+	// general settings helper text (quick-260630-fce)
+	"settings.appLanguageDesc": "Legt die Sprache der Schaltflächen, Menüs und Beschriftungen der App fest; Lied- und Künstlernamen richten sich nach deinen Übersetzungseinstellungen, nicht hiernach.",
+	"settings.themeDesc": "Schaltet die gesamte App zwischen einem dunklen und einem hellen Erscheinungsbild um; wähle, was in deiner üblichen Umgebung angenehmer für die Augen ist.",
+	"settings.accentColorDesc": "Die Akzentfarbe für aktive Bedienelemente, Schalter und den gerade gespielten Titel; wähle die, die dir am besten gefällt.",
+	"settings.reduceMotionDesc": "Deaktiviert nicht wesentliche Animationen und Übergänge in der gesamten App; aktiviere es, wenn dich Bewegung stört oder um Akku zu sparen.",
 };
 
 export default de;

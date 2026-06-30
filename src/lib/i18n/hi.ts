@@ -322,7 +322,11 @@ const hi: Dict = {
 	"charts.tagTitle": "{tag}",
 	"charts.countryTitle": "{country}",
 	"settings.homeSectionDensity": "लेआउट",
-
+	// general settings helper text (quick-260630-fce)
+	"settings.appLanguageDesc": "ऐप के बटन, मेन्यू और लेबल की भाषा तय करता है; गाने और कलाकार के नाम इस विकल्प से नहीं, बल्कि आपकी अनुवाद सेटिंग से तय होते हैं।",
+	"settings.themeDesc": "पूरे ऐप को गहरे और हल्के रूप के बीच बदलता है; अपने सामान्य माहौल में जो आपकी आँखों को ज़्यादा आरामदेह लगे, उसे चुनें।",
+	"settings.accentColorDesc": "सक्रिय कंट्रोल, टॉगल और चल रहे ट्रैक के लिए उपयोग किया जाने वाला हाइलाइट रंग; अपनी पसंद के अनुसार कोई एक चुनें।",
+	"settings.reduceMotionDesc": "ऐप भर में गैर-ज़रूरी एनिमेशन और ट्रांज़िशन बंद कर देता है; अगर गति आपको परेशान करती है या बैटरी बचाने के लिए इसे चालू करें।",
 };
 
 export default hi;

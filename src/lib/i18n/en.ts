@@ -365,7 +365,12 @@ const en = {
 	'deezer.label': 'Label',
 	'deezer.genres': 'Genres',
 	'deezer.tracks': 'Tracks',
-	'deezer.duration': 'Duration'
+	'deezer.duration': 'Duration',
+	// general settings helper text (quick-260630-fce)
+	'settings.appLanguageDesc': 'Sets the language of the app\'s buttons, menus and labels; song and artist names follow your Translation settings, not this.',
+	'settings.themeDesc': 'Switches the whole app between a dark and a light look; pick whichever is easier on your eyes in your usual surroundings.',
+	'settings.accentColorDesc': 'The highlight colour used for active controls, toggles and the track that\'s playing; choose one that matches your taste.',
+	'settings.reduceMotionDesc': 'Turns off non-essential animations and transitions across the app; enable it if motion bothers you or to help save battery.',
 } as const;
 
 export default en;

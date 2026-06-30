@@ -322,7 +322,11 @@ const id: Dict = {
 	"charts.tagTitle": "{tag}",
 	"charts.countryTitle": "{country}",
 	"settings.homeSectionDensity": "Tata letak",
-
+	// general settings helper text (quick-260630-fce)
+	"settings.appLanguageDesc": "Mengatur bahasa tombol, menu, dan label aplikasi; nama lagu dan artis mengikuti pengaturan Terjemahan Anda, bukan opsi ini.",
+	"settings.themeDesc": "Mengganti tampilan seluruh aplikasi antara mode gelap dan terang; pilih yang lebih nyaman di mata pada lingkungan biasa Anda.",
+	"settings.accentColorDesc": "Warna sorot yang dipakai untuk kontrol aktif, sakelar, dan lagu yang sedang diputar; pilih yang sesuai selera Anda.",
+	"settings.reduceMotionDesc": "Mematikan animasi dan transisi yang tidak penting di seluruh aplikasi; aktifkan jika gerakan mengganggu Anda atau untuk menghemat baterai.",
 };
 
 export default id;

@@ -322,7 +322,11 @@ const tr: Dict = {
 	"charts.tagTitle": "{tag}",
 	"charts.countryTitle": "{country}",
 	"settings.homeSectionDensity": "Düzen",
-
+	// general settings helper text (quick-260630-fce)
+	"settings.appLanguageDesc": "Uygulamanın düğmelerinin, menülerinin ve etiketlerinin dilini belirler; şarkı ve sanatçı adları bunu değil, Çeviri ayarlarınızı izler.",
+	"settings.themeDesc": "Tüm uygulamayı koyu ve açık görünüm arasında değiştirir; her zamanki ortamınızda gözünüzü daha az yoran hangisiyse onu seçin.",
+	"settings.accentColorDesc": "Etkin denetimlerde, anahtarlarda ve çalan parçada kullanılan vurgu rengi; zevkinize uyanı seçin.",
+	"settings.reduceMotionDesc": "Uygulama genelinde gereksiz animasyonları ve geçişleri kapatır; hareket sizi rahatsız ediyorsa veya pil tasarrufu için açın.",
 };
 
 export default tr;

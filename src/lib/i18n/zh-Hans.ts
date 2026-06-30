@@ -354,7 +354,11 @@ const zhHans: Dict = {
 	"charts.tagTitle": "{tag}",
 	"charts.countryTitle": "{country}",
 	"settings.homeSectionDensity": "版面",
-
+	// general settings helper text (quick-260630-fce)
+	'settings.appLanguageDesc': '设置应用按钮、菜单和标签的显示语言；歌曲和歌手名称由“翻译”设置决定，而非此项。',
+	'settings.themeDesc': '让整个应用在深色与浅色外观之间切换；选择在你日常环境中更护眼的一种。',
+	'settings.accentColorDesc': '用于已激活的控件、开关以及正在播放歌曲的强调色；挑一个你喜欢的颜色。',
+	'settings.reduceMotionDesc': '关闭应用中非必要的动画与过渡效果；若动态效果让你不适或想省电，请开启此项。',
 };
 
 export default zhHans;

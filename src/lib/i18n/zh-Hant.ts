@@ -354,7 +354,11 @@ const zhHant: Dict = {
 	"charts.tagTitle": "{tag}",
 	"charts.countryTitle": "{country}",
 	"settings.homeSectionDensity": "版面",
-
+	// general settings helper text (quick-260630-fce)
+	'settings.appLanguageDesc': '設定應用程式按鈕、選單與標籤的顯示語言；歌曲與歌手名稱則依照「翻譯」設定，而非此項。',
+	'settings.themeDesc': '讓整個應用程式在深色與淺色外觀之間切換；選擇在你日常環境中對眼睛較舒適的一種。',
+	'settings.accentColorDesc': '用於作用中的控制項、開關以及正在播放歌曲的強調色；挑一個你喜歡的顏色。',
+	'settings.reduceMotionDesc': '關閉應用程式中非必要的動畫與轉場效果；若動態效果讓你不適或想省電，請開啟此項。',
 };
 
 export default zhHant;

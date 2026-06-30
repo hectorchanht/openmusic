@@ -322,7 +322,11 @@ const ar: Dict = {
 	"charts.tagTitle": "{tag}",
 	"charts.countryTitle": "{country}",
 	"settings.homeSectionDensity": "التخطيط",
-
+	// general settings helper text (quick-260630-fce)
+	"settings.appLanguageDesc": "يحدّد لغة أزرار التطبيق وقوائمه وتسمياته؛ أما أسماء الأغاني والفنانين فتتبع إعدادات الترجمة لديك وليس هذا الخيار.",
+	"settings.themeDesc": "يبدّل مظهر التطبيق بالكامل بين الوضع الداكن والفاتح؛ اختر الأنسب لعينيك في بيئتك المعتادة.",
+	"settings.accentColorDesc": "لون التمييز المستخدَم لعناصر التحكم النشطة والمفاتيح والمقطع قيد التشغيل؛ اختر ما يناسب ذوقك.",
+	"settings.reduceMotionDesc": "يوقف الرسوم المتحركة والانتقالات غير الضرورية في التطبيق كله؛ فعّله إذا كانت الحركة تزعجك أو للمساعدة في توفير البطارية.",
 };
 
 export default ar;

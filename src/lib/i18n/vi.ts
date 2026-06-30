@@ -322,7 +322,11 @@ const vi: Dict = {
 	"charts.tagTitle": "{tag}",
 	"charts.countryTitle": "{country}",
 	"settings.homeSectionDensity": "Bố cục",
-
+	// general settings helper text (quick-260630-fce)
+	"settings.appLanguageDesc": "Đặt ngôn ngữ cho nút, menu và nhãn của ứng dụng; tên bài hát và nghệ sĩ tuân theo cài đặt Dịch của bạn, không phải tùy chọn này.",
+	"settings.themeDesc": "Chuyển toàn bộ ứng dụng giữa giao diện tối và sáng; chọn giao diện dễ nhìn hơn với mắt bạn trong môi trường thường ngày.",
+	"settings.accentColorDesc": "Màu nhấn dùng cho các điều khiển đang hoạt động, công tắc và bài hát đang phát; chọn màu hợp với sở thích của bạn.",
+	"settings.reduceMotionDesc": "Tắt các hoạt ảnh và chuyển cảnh không thiết yếu trên toàn ứng dụng; bật nếu chuyển động làm bạn khó chịu hoặc để tiết kiệm pin.",
 };
 
 export default vi;
