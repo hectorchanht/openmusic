@@ -3857,3 +3857,84 @@ describe('player resilience — never-stop on a dead up-next tail (quick-260630-
 		expect(playCalls()[0][1]).toEqual({ fresh: false });
 	});
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// background-autoadvance-stall: FOREGROUND RESUME. On Android an auto-advance that happens while the
+// screen is locked / the tab is hidden leaves the next track stalled at 0:00 (play() rejected in a
+// hidden tab; canplay never fires). resumeIfStalled() re-issues play() on the next visibilitychange→
+// visible — but ONLY when playback was active at hide-time (resumeOnForeground) and the user did not
+// deliberately pause, so a freshly-restored paused session is never auto-started.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('player resilience — foreground resume of a background-stalled auto-advance (background-autoadvance-stall)', () => {
+	type Internals = {
+		resumeOnForeground: boolean;
+		deliberatePause: boolean;
+		hasPlayedSinceSrc: boolean;
+		resumeIfStalled(): void;
+	};
+	const internals = () => player as unknown as Internals;
+
+	function attachStalled() {
+		const el = makeFakeAudio();
+		el.paused = true; // stalled — never started in the background
+		el.src = 'https://cdn/stalled.mp3';
+		el.currentTime = 0; // 0:00
+		(el as unknown as { ended: boolean }).ended = false;
+		player.current = mk('netease', 'fg0', 'A', 'Stalled');
+		player.queue = [player.current];
+		player.attach(el as unknown as HTMLAudioElement);
+		return el;
+	}
+
+	it('re-issues play() on foreground when playback was active at hide-time (the locked auto-advance case)', () => {
+		const el = attachStalled();
+		internals().resumeOnForeground = true; // was playing when backgrounded
+		internals().deliberatePause = false;
+
+		internals().resumeIfStalled();
+
+		expect(el.play).toHaveBeenCalled();
+	});
+
+	it('does NOT resume if the user deliberately paused before/while hidden', () => {
+		const el = attachStalled();
+		internals().resumeOnForeground = true;
+		internals().deliberatePause = true; // user / MediaSession / sleep-timer / offline pause
+
+		internals().resumeIfStalled();
+
+		expect(el.play).not.toHaveBeenCalled();
+	});
+
+	it('does NOT resume a freshly-restored paused session (was not playing at hide-time)', () => {
+		const el = attachStalled();
+		internals().resumeOnForeground = false; // never playing this run
+		internals().deliberatePause = false;
+
+		internals().resumeIfStalled();
+
+		expect(el.play).not.toHaveBeenCalled();
+	});
+
+	it('does NOT resume an already-ended element (end-of-track owns the advance)', () => {
+		const el = attachStalled();
+		(el as unknown as { ended: boolean }).ended = true;
+		internals().resumeOnForeground = true;
+		internals().deliberatePause = false;
+
+		internals().resumeIfStalled();
+
+		expect(el.play).not.toHaveBeenCalled();
+	});
+
+	it('is one-shot — a second resumeIfStalled without a new hide does nothing', () => {
+		const el = attachStalled();
+		internals().resumeOnForeground = true;
+		internals().deliberatePause = false;
+
+		internals().resumeIfStalled(); // consumes the flag, re-plays
+		internals().resumeIfStalled(); // flag now false → no-op
+
+		expect(el.play).toHaveBeenCalledTimes(1);
+	});
+});
