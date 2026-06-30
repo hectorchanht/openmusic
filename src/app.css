@@ -126,3 +126,28 @@ button, a, [role="button"] { -webkit-tap-highlight-color: transparent; }
 		animation: none;
 	}
 }
+
+/* use:tapBounce one-shot press feedback (quick-260701-0aa). The action adds `.tap-bouncing` on
+   pointerdown and removes it on animationend, so this is a single down-then-spring that cannot
+   latch under a held finger (MENU-03 / D-12). Lives in global app.css — NOT a component <style> —
+   so the keyframe name is not mangled and the action's class matches across all call sites. */
+@keyframes tap-bounce {
+	0% {
+		transform: scale(1);
+	}
+	40% {
+		transform: scale(0.94);
+	}
+	100% {
+		transform: scale(1);
+	}
+}
+.tap-bouncing {
+	transform-origin: center;
+	animation: tap-bounce 0.22s ease;
+}
+@media (prefers-reduced-motion: reduce) {
+	.tap-bouncing {
+		animation: none;
+	}
+}
