@@ -3,6 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { ChevronLeft, Radio } from '@lucide/svelte';
 	import { settings } from '$lib/stores/settings.svelte';
+	import { tapBounce } from '$lib/actions/tapBounce';
 	import { t } from '$lib/i18n';
 
 	// DISABLED placeholder ONLY. Real Last.fm auth (LASTFM_SECRET, httpOnly `sk` cookie,
@@ -14,7 +15,7 @@
 <svelte:head><title>{t('lastfm.title')}</title></svelte:head>
 
 <header class="head">
-	<button class="back" aria-label={t('settings.backToSettings')} onclick={() => goto('/settings')}><ChevronLeft size={22} /></button>
+	<button class="back" aria-label={t('settings.backToSettings')} onclick={() => goto('/settings')} use:tapBounce><ChevronLeft size={22} /></button>
 	<h1>{t('lastfm.heading')}</h1>
 </header>
 

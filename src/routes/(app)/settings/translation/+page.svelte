@@ -3,6 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { ChevronLeft, Languages, Replace } from '@lucide/svelte';
 	import { settings, type LyricsLang, type SourceLang, type TranslateMode } from '$lib/stores/settings.svelte';
+	import { tapBounce } from '$lib/actions/tapBounce';
 	import { t, type TranslationKey } from '$lib/i18n';
 
 	onMount(() => settings.load());
@@ -105,9 +106,9 @@
 <svelte:head><title>{t('settings.title')}</title></svelte:head>
 
 <header class="head">
-	<button class="back" aria-label={t('settings.backToSettings')} onclick={() => goto('/settings')}><ChevronLeft size={22} /></button>
+	<button class="back" aria-label={t('settings.backToSettings')} onclick={() => goto('/settings')} use:tapBounce><ChevronLeft size={22} /></button>
 	<h1>{t('settings.groupTranslation')}</h1>
-	<button class="reset" onclick={() => { if (confirm(t('settings.resetConfirm'))) { settings.resetTranslation(); } }}>{t('settings.resetGroup')}</button>
+	<button class="reset" onclick={() => { if (confirm(t('settings.resetConfirm'))) { settings.resetTranslation(); } }} use:tapBounce>{t('settings.resetGroup')}</button>
 </header>
 
 <!-- 1. Lyrics translate mode — how translated lyrics display (replace vs show below). -->
@@ -115,7 +116,7 @@
 	<h2><Replace size={15} /> {t('settings.lyricsTranslateMode')}</h2>
 	<div class="seg" class:disabled={settings.lyricsLang === 'off'}>
 		{#each modes as m (m.v)}
-			<button class:on={settings.translateMode === m.v} disabled={settings.lyricsLang === 'off'} onclick={() => setMode(m.v)}>{t(m.key as TranslationKey)}</button>
+			<button class:on={settings.translateMode === m.v} disabled={settings.lyricsLang === 'off'} onclick={() => setMode(m.v)} use:tapBounce>{t(m.key as TranslationKey)}</button>
 		{/each}
 	</div>
 	<p class="muted">{settings.lyricsLang === 'off' ? t('settings.translateModeOffNote') : t('settings.translateModeOnNote')}</p>
@@ -141,7 +142,7 @@
 		<h2><Languages size={15} /> {t(part.headingKey)}</h2>
 		<div class="chips">
 			{#each langs as l (l.v)}
-				<button class="chip" class:on={TARGET[part.key]() === l.v} onclick={() => setTarget(part.key, l.v)}>{l.v === 'off' ? t('settings.optOff') : l.v === 'auto' ? t('settings.bioAuto') : l.label}</button>
+				<button class="chip" class:on={TARGET[part.key]() === l.v} onclick={() => setTarget(part.key, l.v)} use:tapBounce>{l.v === 'off' ? t('settings.optOff') : l.v === 'auto' ? t('settings.bioAuto') : l.label}</button>
 			{/each}
 		</div>
 		<p class="muted">{t(part.noteKey)}</p>
@@ -149,7 +150,7 @@
 			<p class="sublabel">{t('settings.skipLanguages')}</p>
 			<div class="chips">
 				{#each sources as s (s.v)}
-					<button class="chip skipchip" class:on={SKIP[part.key]().includes(s.v)} disabled={TARGET[part.key]() === 'off'} onclick={() => toggleSkip(part.key, s.v)}>{s.label}</button>
+					<button class="chip skipchip" class:on={SKIP[part.key]().includes(s.v)} disabled={TARGET[part.key]() === 'off'} onclick={() => toggleSkip(part.key, s.v)} use:tapBounce>{s.label}</button>
 				{/each}
 			</div>
 			<p class="muted">{t('settings.skipLanguagesNote')}</p>
@@ -163,7 +164,7 @@
 	<h2><Languages size={15} /> {t('settings.translateLastfm')}</h2>
 	<div class="chips">
 		{#each bioOptions as o (o.v)}
-			<button class="chip" class:on={settings.bioLang === o.v} onclick={() => setBio(o.v)}>{o.v === 'auto' ? t('settings.bioAuto') : o.v === 'off' ? t('settings.optOff') : o.label}</button>
+			<button class="chip" class:on={settings.bioLang === o.v} onclick={() => setBio(o.v)} use:tapBounce>{o.v === 'auto' ? t('settings.bioAuto') : o.v === 'off' ? t('settings.optOff') : o.label}</button>
 		{/each}
 	</div>
 	<p class="muted">{t('settings.translateLastfmNote')}</p>

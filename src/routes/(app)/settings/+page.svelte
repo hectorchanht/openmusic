@@ -3,6 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { ChevronLeft, ChevronRight, Globe, Type, LayoutGrid, Languages, Music, Radio, Database, ScrollText, Info } from '@lucide/svelte';
 	import { settings } from '$lib/stores/settings.svelte';
+	import { tapBounce } from '$lib/actions/tapBounce';
 	import { t, type TranslationKey } from '$lib/i18n';
 	import type { Component } from 'svelte';
 
@@ -26,14 +27,14 @@
 <svelte:head><title>{t('settings.title')}</title></svelte:head>
 
 <header class="head">
-	<button class="back" aria-label={t('common.back')} onclick={() => goto('/')}><ChevronLeft size={22} /></button>
+	<button class="back" aria-label={t('common.back')} onclick={() => goto('/')} use:tapBounce><ChevronLeft size={22} /></button>
 	<h1>{t('settings.heading')}</h1>
 </header>
 
 <ul class="groups">
 	{#each groups as g (g.href)}
 		<li>
-			<button class="item" onclick={() => goto(g.href)}>
+			<button class="item" onclick={() => goto(g.href)} use:tapBounce>
 				<g.icon size={20} />
 				<span class="txt">
 					<span class="g-title">{t(g.title)}</span>

@@ -3,6 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { ChevronLeft, Globe, Palette, Zap, Sun, Moon } from '@lucide/svelte';
 	import { settings, ACCENT_PRESETS, type Theme } from '$lib/stores/settings.svelte';
+	import { tapBounce } from '$lib/actions/tapBounce';
 	import { t, type AppLang } from '$lib/i18n';
 
 	onMount(() => settings.load());
@@ -35,16 +36,16 @@
 <svelte:head><title>{t('settings.title')}</title></svelte:head>
 
 <header class="head">
-	<button class="back" aria-label={t('settings.backToSettings')} onclick={() => goto('/settings')}><ChevronLeft size={22} /></button>
+	<button class="back" aria-label={t('settings.backToSettings')} onclick={() => goto('/settings')} use:tapBounce><ChevronLeft size={22} /></button>
 	<h1>{t('settings.groupGeneral')}</h1>
-	<button class="reset" onclick={() => { if (confirm(t('settings.resetConfirm'))) { settings.resetGeneral(); } }}>{t('settings.resetGroup')}</button>
+	<button class="reset" onclick={() => { if (confirm(t('settings.resetConfirm'))) { settings.resetGeneral(); } }} use:tapBounce>{t('settings.resetGroup')}</button>
 </header>
 
 <section>
 	<h2><Globe size={15} /> {t('settings.appLanguage')}</h2>
 	<div class="chips">
 		{#each appLangs as l (l.v)}
-			<button class="chip" class:on={settings.appLang === l.v} onclick={() => setAppLang(l.v)}>{l.label}</button>
+			<button class="chip" class:on={settings.appLang === l.v} onclick={() => setAppLang(l.v)} use:tapBounce>{l.label}</button>
 		{/each}
 	</div>
 	<p class="muted">{t('settings.appLanguageDesc')}</p>
@@ -53,8 +54,8 @@
 <section>
 	<h2><Sun size={15} /> {t('settings.theme')}</h2>
 	<div class="seg">
-		<button class:on={settings.theme === 'dark'} onclick={() => setTheme('dark')}><Moon size={15} /> {t('settings.themeDark')}</button>
-		<button class:on={settings.theme === 'light'} onclick={() => setTheme('light')}><Sun size={15} /> {t('settings.themeLight')}</button>
+		<button class:on={settings.theme === 'dark'} onclick={() => setTheme('dark')} use:tapBounce><Moon size={15} /> {t('settings.themeDark')}</button>
+		<button class:on={settings.theme === 'light'} onclick={() => setTheme('light')} use:tapBounce><Sun size={15} /> {t('settings.themeLight')}</button>
 	</div>
 	<p class="muted">{t('settings.themeDesc')}</p>
 </section>
@@ -63,7 +64,7 @@
 	<h2><Palette size={15} /> {t('settings.accentColor')}</h2>
 	<div class="swatches">
 		{#each ACCENT_PRESETS as c (c)}
-			<button class="swatch" class:on={settings.accent === c} style:background={c} aria-label={c} onclick={() => setAccent(c)}></button>
+			<button class="swatch" class:on={settings.accent === c} style:background={c} aria-label={c} onclick={() => setAccent(c)} use:tapBounce></button>
 		{/each}
 	</div>
 	<p class="muted">{t('settings.accentColorDesc')}</p>

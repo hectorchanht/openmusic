@@ -18,6 +18,7 @@
 	import { longpress } from '$lib/actions/longpress';
 	import { lazyCover } from '$lib/actions/lazyCover';
 	import { dragScroll } from '$lib/actions/dragScroll';
+	import { tapBounce } from '$lib/actions/tapBounce';
 	import { marquee } from '$lib/actions/marquee';
 	import { swipeAction } from '$lib/actions/swipeAction';
 	import { tick as hapticTick } from '$lib/util/haptics';
@@ -358,7 +359,7 @@
 {/if}
 
 <header class="hero">
-	<button type="button" class="back" aria-label={t('common.back')} onclick={() => history.back()}><ChevronLeft size={22} /></button>
+	<button type="button" class="back" aria-label={t('common.back')} onclick={() => history.back()} use:tapBounce><ChevronLeft size={22} /></button>
 	{#if heroImg}
 		<div class="herocover" style:background-image={`url(${heroImg})`}></div>
 	{:else if loading || enrichLoading}
@@ -372,15 +373,15 @@
 	<!-- kmn: action bar — Favourite / Play (random hit) / Share. Matches the album-page
 	     action-bar visual language (pill buttons, lucide icons). -->
 	<div class="actions">
-		<button class="act" class:on={favArtist} aria-label={favArtist ? t('artist.unfavorite') : t('artist.favorite')} onclick={toggleFavourite}>
+		<button class="act" class:on={favArtist} aria-label={favArtist ? t('artist.unfavorite') : t('artist.favorite')} onclick={toggleFavourite} use:tapBounce>
 			<Heart size={18} fill={favArtist ? 'currentColor' : 'none'} />
 			<span>{favArtist ? t('artist.unfavorite') : t('artist.favorite')}</span>
 		</button>
-		<button class="act primary" aria-label={t('artist.playArtist')} disabled={loading || !songs.length} onclick={playArtistRandom}>
+		<button class="act primary" aria-label={t('artist.playArtist')} disabled={loading || !songs.length} onclick={playArtistRandom} use:tapBounce>
 			<Play size={18} fill="currentColor" />
 			<span>{t('artist.playArtist')}</span>
 		</button>
-		<button class="act" aria-label={t('artist.share')} onclick={shareArtist}>
+		<button class="act" aria-label={t('artist.share')} onclick={shareArtist} use:tapBounce>
 			<Share2 size={18} />
 			<span>{t('artist.share')}</span>
 		</button>
@@ -431,7 +432,7 @@
 	<div class="offline-state">
 		<p class="offline-title">{t('offline.title')}</p>
 		<p class="offline-body">{t('offline.body')}</p>
-		<button type="button" class="offline-cta" onclick={() => goto('/library')}>{t('offline.goToLibrary')}</button>
+		<button type="button" class="offline-cta" onclick={() => goto('/library')} use:tapBounce>{t('offline.goToLibrary')}</button>
 	</div>
 {/if}
 
@@ -453,7 +454,7 @@
 		<h2>{t('artist.albums')}</h2>
 		<div class="albumrow" use:dragScroll>
 			{#each albums as al (al.name)}
-				<button class="album" onclick={() => goto('/album/' + encodeURIComponent(al.name) + '?artist=' + encodeURIComponent(name))}>
+				<button class="album" onclick={() => goto('/album/' + encodeURIComponent(al.name) + '?artist=' + encodeURIComponent(name))} use:tapBounce>
 					<span class="al-cover" style:background-image={al.image ? `url(${al.image})` : fallbackCoverSeed(al.name)}></span>
 					<span class="al-name" use:marquee><span class="marquee-inner">{names.dnTitle(al.name)}</span></span>
 					<span class="al-count" use:marquee><span class="marquee-inner">{t('artist.albumLabel')}</span></span>
@@ -487,7 +488,7 @@
 			<ul class="list">
 				{#each songs.slice(0, 30) as track, i (track.uid)}
 					<li>
-						<button class="row" use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); menuTrack = track; menuOpen = true; }} use:swipeAction={{ onSwipeRight: () => queueTrack(track), onSwipeLeft: () => nextTrack(track) }} onclick={() => { player.setListQueue(songs, 'artist'); player.play(track, { fresh: true }); }}>
+						<button class="row" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); menuTrack = track; menuOpen = true; }} use:swipeAction={{ onSwipeRight: () => queueTrack(track), onSwipeLeft: () => nextTrack(track) }} onclick={() => { player.setListQueue(songs, 'artist'); player.play(track, { fresh: true }); }}>
 							<span class="rank">{i + 1}</span>
 							<span class="art" use:lazyCover={{ track, onResolved: onCoverResolved }} style:background-image={(resolvedCovers[track.uid] ?? track.cover) ? `url(${resolvedCovers[track.uid] ?? track.cover})` : fallbackCover(track)}></span>
 							<span class="meta">
@@ -520,7 +521,7 @@
 		<h2>{t('artist.moreLikeThis')}</h2>
 		<div class="albumrow" use:dragScroll>
 			{#each related as a (a.name)}
-				<button class="album" onclick={() => goto('/artist/' + encodeURIComponent(a.name))}>
+				<button class="album" onclick={() => goto('/artist/' + encodeURIComponent(a.name))} use:tapBounce>
 					<span class="al-cover round" style:background-image={a.image ? `url(${a.image})` : fallbackCoverSeed(a.name)}></span>
 					<span class="al-name center" use:marquee><span class="marquee-inner">{names.dnArtist(a.name)}</span></span>
 				</button>

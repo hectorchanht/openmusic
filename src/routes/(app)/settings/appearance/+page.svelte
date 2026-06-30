@@ -15,6 +15,7 @@
     // player — settings stays a LEAF store because the player read happens HERE, not in the
     // settings store (Pitfall 6 / SSR-leak rule).
     import { player } from "$lib/stores/player.svelte";
+    import { tapBounce } from "$lib/actions/tapBounce";
     import { t } from "$lib/i18n";
 
     onMount(() => settings.load());
@@ -65,7 +66,8 @@
     <button
         class="back"
         aria-label={t("settings.backToSettings")}
-        onclick={() => goto("/settings")}><ChevronLeft size={22} /></button
+        onclick={() => goto("/settings")}
+        use:tapBounce><ChevronLeft size={22} /></button
     >
     <h1>{t("settings.groupAppearance")}</h1>
     <button
@@ -74,7 +76,8 @@
             if (confirm(t("settings.resetConfirm"))) {
                 settings.resetAppearance();
             }
-        }}>{t("settings.resetGroup")}</button
+        }}
+        use:tapBounce>{t("settings.resetGroup")}</button
     >
 </header>
 

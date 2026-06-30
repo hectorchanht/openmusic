@@ -7,6 +7,7 @@
 	import { names } from '$lib/stores/names.svelte';
 	import { clearCoverCache } from '$lib/services/cover-cache';
 	import { SEARCH_HISTORY_KEY } from '$lib/search/search-history-logic';
+	import { tapBounce } from '$lib/actions/tapBounce';
 	import { t } from '$lib/i18n';
 
 	const TOP_PICKS_KEY = 'openmusic:top-picks:v1';
@@ -43,23 +44,23 @@
 <svelte:head><title>{t('settings.title')}</title></svelte:head>
 
 <header class="head">
-	<button class="back" aria-label={t('settings.backToSettings')} onclick={() => goto('/settings')}><ChevronLeft size={22} /></button>
+	<button class="back" aria-label={t('settings.backToSettings')} onclick={() => goto('/settings')} use:tapBounce><ChevronLeft size={22} /></button>
 	<h1>{t('settings.data')}</h1>
 </header>
 
 <section>
 	<p class="muted">{t('settings.dataCounts', { liked: counts.liked, playlists: counts.playlists, downloads: counts.downloads })}</p>
-	<button class="item" onclick={clearPicks}><RefreshCw size={18} /> {t('settings.clearPicks')}</button>
+	<button class="item" onclick={clearPicks} use:tapBounce><RefreshCw size={18} /> {t('settings.clearPicks')}</button>
 	<p class="hint">{t('settings.clearPicksDesc')}</p>
-	<button class="item" onclick={clearNameCache}><Languages size={18} /> {t('settings.clearNameCache')}</button>
+	<button class="item" onclick={clearNameCache} use:tapBounce><Languages size={18} /> {t('settings.clearNameCache')}</button>
 	<p class="hint">{t('settings.clearNameCacheDesc')}</p>
-	<button class="item" onclick={clearCovers}><Image size={18} /> {t('settings.clearCoverCache')}</button>
+	<button class="item" onclick={clearCovers} use:tapBounce><Image size={18} /> {t('settings.clearCoverCache')}</button>
 	<p class="hint">{t('settings.clearCoverCacheHint')}</p>
-	<button class="item" onclick={clearSearchHistory}><Search size={18} /> {t('settings.clearSearchHistory')}</button>
+	<button class="item" onclick={clearSearchHistory} use:tapBounce><Search size={18} /> {t('settings.clearSearchHistory')}</button>
 	<p class="hint">{t('settings.clearSearchHistoryDesc')}</p>
-	<button class="item" onclick={resetAppearance}><SlidersHorizontal size={18} /> {t('settings.resetAppearance')}</button>
+	<button class="item" onclick={resetAppearance} use:tapBounce><SlidersHorizontal size={18} /> {t('settings.resetAppearance')}</button>
 	<p class="hint">{t('settings.resetAppearanceDesc')}</p>
-	<button class="item danger" onclick={clearLibrary}><Trash2 size={18} /> {t('settings.clearLibrary')}</button>
+	<button class="item danger" onclick={clearLibrary} use:tapBounce><Trash2 size={18} /> {t('settings.clearLibrary')}</button>
 	<p class="hint">{t('settings.clearLibraryDesc')}</p>
 </section>
 

@@ -7,6 +7,7 @@
 	import { longpress } from '$lib/actions/longpress';
 	import { marquee } from '$lib/actions/marquee';
 	import { swipeAction } from '$lib/actions/swipeAction';
+	import { tapBounce } from '$lib/actions/tapBounce';
 	import { shouldRun } from '$lib/actions/inflightGuard';
 	import { player } from '$lib/stores/player.svelte';
 	import { library } from '$lib/stores/library.svelte';
@@ -182,6 +183,7 @@
 				<span class="reveal reveal-left" class:on={liked} aria-hidden="true"><Heart size={20} /></span>
 				<button
 					class="row"
+					use:tapBounce
 					use:longpress
 					onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openMenu(it); }}
 					onclick={() => play(it)}

@@ -4,6 +4,7 @@
 	import { ChevronLeft, Copy, Trash2 } from '@lucide/svelte';
 	import { actionLog } from '$lib/stores/actionLog.svelte';
 	import { serializeActionLog } from '$lib/diagnostics/action-log-logic';
+	import { tapBounce } from '$lib/actions/tapBounce';
 	import { t } from '$lib/i18n';
 
 	let msg = $state('');
@@ -52,13 +53,13 @@
 <svelte:head><title>{t('settings.title')}</title></svelte:head>
 
 <header class="head">
-	<button class="back" aria-label={t('settings.backToSettings')} onclick={() => goto('/settings')}><ChevronLeft size={22} /></button>
+	<button class="back" aria-label={t('settings.backToSettings')} onclick={() => goto('/settings')} use:tapBounce><ChevronLeft size={22} /></button>
 	<h1>{t('settings.activityHeading')}</h1>
 </header>
 
 <div class="actions">
-	<button class="item" onclick={copyLog}><Copy size={18} /> {t('settings.activityCopy')}</button>
-	<button class="item danger" onclick={clearLog}><Trash2 size={18} /> {t('settings.activityClear')}</button>
+	<button class="item" onclick={copyLog} use:tapBounce><Copy size={18} /> {t('settings.activityCopy')}</button>
+	<button class="item danger" onclick={clearLog} use:tapBounce><Trash2 size={18} /> {t('settings.activityClear')}</button>
 </div>
 
 {#if rows.length === 0}

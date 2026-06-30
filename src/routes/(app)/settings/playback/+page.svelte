@@ -6,6 +6,7 @@
 	import type { UpnextMode, QueueContext } from '$lib/config/defaults';
 	import { SOURCES } from '$lib/sources/registry';
 	import type { SourceId } from '$lib/sources/types';
+	import { tapBounce } from '$lib/actions/tapBounce';
 	import { t, type TranslationKey } from '$lib/i18n';
 
 	onMount(() => settings.load());
@@ -66,16 +67,16 @@
 <svelte:head><title>{t('settings.title')}</title></svelte:head>
 
 <header class="head">
-	<button class="back" aria-label={t('settings.backToSettings')} onclick={() => goto('/settings')}><ChevronLeft size={22} /></button>
+	<button class="back" aria-label={t('settings.backToSettings')} onclick={() => goto('/settings')} use:tapBounce><ChevronLeft size={22} /></button>
 	<h1>{t('settings.groupPlayback')}</h1>
-	<button class="reset" onclick={() => { if (confirm(t('settings.resetConfirm'))) { settings.resetPlayback(); } }}>{t('settings.resetGroup')}</button>
+	<button class="reset" onclick={() => { if (confirm(t('settings.resetConfirm'))) { settings.resetPlayback(); } }} use:tapBounce>{t('settings.resetGroup')}</button>
 </header>
 
 <section>
 	<h2><Music size={15} /> {t('settings.defaultQuality')}</h2>
 	<div class="seg">
 		{#each qualities as q (q.v)}
-			<button class:on={settings.defaultQuality === q.v} onclick={() => setQuality(q.v)}>{q.key ? t(q.key as TranslationKey) : q.literal}</button>
+			<button class:on={settings.defaultQuality === q.v} onclick={() => setQuality(q.v)} use:tapBounce>{q.key ? t(q.key as TranslationKey) : q.literal}</button>
 		{/each}
 	</div>
 	<p class="muted">{t('settings.defaultQualityNote')}</p>
@@ -85,7 +86,7 @@
 	<h2><Download size={15} /> {t('settings.downloadQuality')}</h2>
 	<div class="seg">
 		{#each qualities as q (q.v)}
-			<button class:on={settings.downloadQuality === q.v} onclick={() => setDownloadQuality(q.v)}>{q.key ? t(q.key as TranslationKey) : q.literal}</button>
+			<button class:on={settings.downloadQuality === q.v} onclick={() => setDownloadQuality(q.v)} use:tapBounce>{q.key ? t(q.key as TranslationKey) : q.literal}</button>
 		{/each}
 	</div>
 	<p class="muted">{t('settings.downloadQualityNote')}</p>
@@ -95,7 +96,7 @@
 	<h2><Radio size={15} /> {t('settings.defaultSource')}</h2>
 	<div class="chips">
 		{#each sources as s (s.v)}
-			<button class="chip" class:on={settings.defaultSource === s.v} onclick={() => setSource(s.v)}>{s.key ? t(s.key as TranslationKey) : s.literal}</button>
+			<button class="chip" class:on={settings.defaultSource === s.v} onclick={() => setSource(s.v)} use:tapBounce>{s.key ? t(s.key as TranslationKey) : s.literal}</button>
 		{/each}
 	</div>
 	<p class="muted">{t('settings.defaultSourceNote')}</p>
@@ -126,11 +127,11 @@
 			<div class="seg">
 				<button
 					class:on={settings.effectiveUpnextMode(c.ctx) === 'same-list'}
-					onclick={() => setUpnext(c.ctx, 'same-list')}><ListMusic size={12} /></button
+					onclick={() => setUpnext(c.ctx, 'same-list')} use:tapBounce><ListMusic size={12} /></button
 				>
 				<button
 					class:on={settings.effectiveUpnextMode(c.ctx) === 'generated'}
-					onclick={() => setUpnext(c.ctx, 'generated')}><Radio size={12} /></button
+					onclick={() => setUpnext(c.ctx, 'generated')} use:tapBounce><Radio size={12} /></button
 				>
 			</div>
 		</div>
@@ -143,7 +144,7 @@
 	<summary><Sliders size={15} /> {t('settings.sourcesAdvanced')}</summary>
 	<div class="chips">
 		{#each Object.values(SOURCES) as adapter (adapter.id)}
-			<button class="chip" class:on={sourceEnabled(adapter.id)} onclick={() => toggleSource(adapter.id)}>{adapter.label}</button>
+			<button class="chip" class:on={sourceEnabled(adapter.id)} onclick={() => toggleSource(adapter.id)} use:tapBounce>{adapter.label}</button>
 		{/each}
 	</div>
 	<p class="muted">{t('settings.sourcesAdvancedNote')}</p>

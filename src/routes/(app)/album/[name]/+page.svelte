@@ -17,6 +17,7 @@
 	import { focusTrap } from '$lib/actions/focusTrap';
 	import { longpress } from '$lib/actions/longpress';
 	import { swipeAction } from '$lib/actions/swipeAction';
+	import { tapBounce } from '$lib/actions/tapBounce';
 	import { shouldRun } from '$lib/actions/inflightGuard';
 	import { toast as globalToast } from '$lib/stores/toast.svelte';
 	import { online } from '$lib/stores/online.svelte';
@@ -503,7 +504,7 @@
 {/if}
 
 <header class="hero">
-	<button class="back" aria-label={t('album.back')} onclick={() => goto(albumArtist ? '/artist/' + encodeURIComponent(albumArtist) : '/')}><ChevronLeft size={22} /></button>
+	<button class="back" aria-label={t('album.back')} onclick={() => goto(albumArtist ? '/artist/' + encodeURIComponent(albumArtist) : '/')} use:tapBounce><ChevronLeft size={22} /></button>
 	{#if heroImg}
 		<div class="cover" style:background-image={`url(${heroImg})`}></div>
 	{:else if loading || enrichLoading}
@@ -571,11 +572,11 @@
 	     clicked button greys out while its action runs — other buttons stay live. Heart
 	     fill state reflects albumLiked (derived from resolvedCache + library.liked). -->
 	<div class="album-actions">
-		<button class="act" aria-label={t('menu.download')} disabled={busyAction === 'download'} onclick={downloadAlbum}><Download size={20} /></button>
-		<button class="act" aria-label={t('menu.addToPlaylist')} disabled={busyAction === 'addToPlaylist'} onclick={() => (pickerOpen = true)}><ListPlus size={20} /></button>
-		<button class="act play" aria-label={t('nowplaying.playPause')} disabled={busyAction === 'play'} onclick={playAlbum}><Play size={20} /></button>
-		<button class="act" aria-label={albumLiked ? t('menu.liked') : t('menu.like')} disabled={busyAction === 'like'} onclick={likeAlbum}><Heart size={20} fill={albumLiked ? 'currentColor' : 'none'} /></button>
-		<button class="act" aria-label={t('menu.share')} disabled={busyAction === 'share'} onclick={shareAlbum}><Share2 size={20} /></button>
+		<button class="act" aria-label={t('menu.download')} disabled={busyAction === 'download'} onclick={downloadAlbum} use:tapBounce><Download size={20} /></button>
+		<button class="act" aria-label={t('menu.addToPlaylist')} disabled={busyAction === 'addToPlaylist'} onclick={() => (pickerOpen = true)} use:tapBounce><ListPlus size={20} /></button>
+		<button class="act play" aria-label={t('nowplaying.playPause')} disabled={busyAction === 'play'} onclick={playAlbum} use:tapBounce><Play size={20} /></button>
+		<button class="act" aria-label={albumLiked ? t('menu.liked') : t('menu.like')} disabled={busyAction === 'like'} onclick={likeAlbum} use:tapBounce><Heart size={20} fill={albumLiked ? 'currentColor' : 'none'} /></button>
+		<button class="act" aria-label={t('menu.share')} disabled={busyAction === 'share'} onclick={shareAlbum} use:tapBounce><Share2 size={20} /></button>
 	</div>
 	<ul class="list">
 		{#each tracks as track, i (i)}
@@ -583,7 +584,7 @@
 				<!-- UX-04 reveal layers behind the row; the row translateX (use:swipeAction) exposes them. -->
 				<span class="reveal reveal-queue" aria-hidden="true"><ListEnd size={20} /></span>
 				<span class="reveal reveal-like" aria-hidden="true"><Heart size={20} fill="none" /></span>
-				<button class="row" use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openMenu(track); }} onclick={() => playStub(track)} use:swipeAction={{ onSwipeRight: () => swipeQueue(track), onSwipeLeft: () => swipeLike(track) }}>
+				<button class="row" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openMenu(track); }} onclick={() => playStub(track)} use:swipeAction={{ onSwipeRight: () => swipeQueue(track), onSwipeLeft: () => swipeLike(track) }}>
 					<span class="rank">{i + 1}</span>
 					<span class="art" style:background-image={heroImg ? `url(${heroImg})` : fallbackCover(track.artist + track.title)}></span>
 					<span class="meta"><span class="r-title">{names.dnTitle(track.title)}</span><span class="r-sub">{names.dnArtist(track.artist)}</span></span>
@@ -608,11 +609,11 @@
 	<button class="scrim" aria-label={t('menu.close')} onclick={() => (pickerOpen = false)}></button>
 	<div class="picker" transition:fly={{ y: 240, duration: 200 }} use:dragClose={{ onclose: () => (pickerOpen = false) }} use:focusTrap>
 		<div class="picker-head">{t('menu.addToPlaylist')}</div>
-		<button class="mi" onclick={newPlaylistForAlbum}><Plus size={18} /> {t('menu.newPlaylist')}</button>
+		<button class="mi" onclick={newPlaylistForAlbum} use:tapBounce><Plus size={18} /> {t('menu.newPlaylist')}</button>
 		{#each library.playlists as pl (pl.id)}
-			<button class="mi" onclick={() => addAlbumToPlaylist(pl.id)}><ListPlus size={18} /> {pl.name}</button>
+			<button class="mi" onclick={() => addAlbumToPlaylist(pl.id)} use:tapBounce><ListPlus size={18} /> {pl.name}</button>
 		{/each}
-		<button class="mi close" onclick={() => (pickerOpen = false)}><X size={18} /> {t('menu.close')}</button>
+		<button class="mi close" onclick={() => (pickerOpen = false)} use:tapBounce><X size={18} /> {t('menu.close')}</button>
 	</div>
 {/if}
 
