@@ -20,7 +20,9 @@ import {
 	getCachedCoverByUid,
 	getCachedArtistCover,
 	setCachedCover,
-	setCachedCoverByUid
+	setCachedCoverByUid,
+	removeCachedCoverByUid,
+	removeCachedCover
 } from '$lib/services/cover-cache';
 
 // Module-scoped reactive counter. Held in a small object because top-level `$state` reassignment must be
@@ -67,5 +69,21 @@ export function readArtistCover(artist: string): string | null {
 export function writeCoverBoth(uid: string, artist: string, title: string, url: string): void {
 	setCachedCoverByUid(uid, url);
 	setCachedCover(artist, title, url);
+	bumpCoverVersion();
+}
+
+/**
+ * The canonical BOTH-layers EVICTOR (quick-260630-ey2) — mirrors writeCoverBoth: evict the uid layer
+ * AND the name layer, then bump so the affected tile repaints once a fresh cover lands. Keeps the bump
+ * in this reactive wrapper so cover-cache stays pure (LOCKED decision #2). Used by lazyCover when a
+ * cache-HIT url probes dead, so the stale cover is dropped before the re-resolve chain re-caches.
+ *
+ * The uid layer is evicted ONLY for a truthy uid — the same charts-tags-same-cover guard writeCoverBoth
+ * honors: an empty stub uid would otherwise touch the SHARED `'uid:'` slot (one slot for every distinct
+ * stub row), so an empty uid evicts ONLY the per-song {artist,title} name layer. Never throws.
+ */
+export function removeCoverBoth(uid: string, artist: string, title: string): void {
+	if (uid) removeCachedCoverByUid(uid);
+	removeCachedCover(artist, title);
 	bumpCoverVersion();
 }
