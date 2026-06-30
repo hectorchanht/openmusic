@@ -69,6 +69,7 @@
 			<li class="row">
 				<span class="ts">{fmtTime(e.t)}</span>
 				<span class="ev">{e.ev}</span>
+				{#if e.n && e.n > 1}<span class="n" title={fmtTime(e.tl ?? e.t)}>×{e.n}</span>{/if}
 				{#if e.d}<span class="d">{fmtPayload(e.d)}</span>{/if}
 			</li>
 		{/each}
@@ -91,5 +92,6 @@
 	.row:last-child { border-bottom: none; }
 	.ts { color: var(--color-text-muted); flex: none; }
 	.ev { color: var(--color-text); font-weight: 600; flex: none; }
+	.n { color: var(--color-accent, #ffb454); font-weight: 600; flex: none; }
 	.d { color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; }
 </style>
