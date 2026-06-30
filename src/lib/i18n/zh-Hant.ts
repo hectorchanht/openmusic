@@ -137,6 +137,7 @@ const zhHant: Dict = {
 	'settings.preview': '預覽',
 	'settings.clearNameCache': '清除名稱翻譯快取',
 	'settings.clearCoverCache': '清除封面快取',
+	'settings.clearCoverCacheHint': '刪除已儲存的封面，下次檢視時會重新擷取缺失或過時的封面。',
 	'settings.clearSearchHistory': '清除搜尋紀錄',
 	'settings.resetAppearance': '重設外觀大小',
 	'settings.resetGroup': '還原預設值',

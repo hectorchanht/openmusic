@@ -124,6 +124,7 @@ const th: Dict = {
 	"settings.preview": "ตัวอย่าง",
 	"settings.clearNameCache": "ล้างแคชการแปลชื่อ",
 	"settings.clearCoverCache": "ล้างแคชปก",
+	"settings.clearCoverCacheHint": "ลบปกที่บันทึกไว้ เพื่อให้ปกที่หายไปหรือล้าสมัยถูกดึงมาใหม่ในครั้งถัดไป",
 	"settings.clearSearchHistory": "ล้างประวัติการค้นหา",
 	"settings.resetAppearance": "รีเซ็ตขนาดลักษณะที่ปรากฏ",
 	"settings.resetGroup": "รีเซ็ตเป็นค่าเริ่มต้น",

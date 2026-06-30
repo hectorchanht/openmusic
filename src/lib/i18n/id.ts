@@ -124,6 +124,7 @@ const id: Dict = {
 	"settings.preview": "Pratinjau",
 	"settings.clearNameCache": "Hapus cache terjemahan nama",
 	"settings.clearCoverCache": "Hapus cache sampul",
+	"settings.clearCoverCacheHint": "Menghapus sampul tersimpan sehingga sampul yang hilang atau usang diambil lagi lain kali.",
 	"settings.clearSearchHistory": "Hapus riwayat pencarian",
 	"settings.resetAppearance": "Atur ulang ukuran tampilan",
 	"settings.resetGroup": "Setel ulang ke default",

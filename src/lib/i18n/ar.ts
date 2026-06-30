@@ -124,6 +124,7 @@ const ar: Dict = {
 	"settings.preview": "معاينة",
 	"settings.clearNameCache": "مسح ذاكرة ترجمة الأسماء",
 	"settings.clearCoverCache": "مسح ذاكرة الأغلفة",
+	"settings.clearCoverCacheHint": "يحذف الأغلفة المحفوظة بحيث يُعاد جلب الأغلفة المفقودة أو القديمة في المرة القادمة.",
 	"settings.clearSearchHistory": "مسح سجل البحث",
 	"settings.resetAppearance": "إعادة ضبط أحجام المظهر",
 	"settings.resetGroup": "إعادة الضبط للافتراضي",

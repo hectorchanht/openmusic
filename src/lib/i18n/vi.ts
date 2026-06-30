@@ -124,6 +124,7 @@ const vi: Dict = {
 	"settings.preview": "Xem trước",
 	"settings.clearNameCache": "Xóa bộ nhớ đệm dịch tên",
 	"settings.clearCoverCache": "Xóa bộ nhớ đệm ảnh bìa",
+	"settings.clearCoverCacheHint": "Xóa các ảnh bìa đã lưu để những ảnh bìa thiếu hoặc lỗi thời được tải lại trong lần xem tiếp theo.",
 	"settings.clearSearchHistory": "Xóa lịch sử tìm kiếm",
 	"settings.resetAppearance": "Đặt lại kích thước giao diện",
 	"settings.resetGroup": "Đặt lại mặc định",

@@ -124,6 +124,7 @@ const ru: Dict = {
 	"settings.preview": "Предпросмотр",
 	"settings.clearNameCache": "Очистить кэш перевода имён",
 	"settings.clearCoverCache": "Очистить кэш обложек",
+	"settings.clearCoverCacheHint": "Удаляет сохранённые обложки, чтобы отсутствующие или устаревшие обложки были загружены заново в следующий раз.",
 	"settings.clearSearchHistory": "Очистить историю поиска",
 	"settings.resetAppearance": "Сбросить размеры оформления",
 	"settings.resetGroup": "Сбросить по умолчанию",

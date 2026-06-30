@@ -124,6 +124,7 @@ const de: Dict = {
 	"settings.preview": "Vorschau",
 	"settings.clearNameCache": "Namensübersetzungs-Cache leeren",
 	"settings.clearCoverCache": "Cover-Cache leeren",
+	"settings.clearCoverCacheHint": "Entfernt gespeicherte Cover, sodass fehlende oder veraltete Cover beim nächsten Mal erneut geladen werden.",
 	"settings.clearSearchHistory": "Suchverlauf löschen",
 	"settings.resetAppearance": "Darstellungsgrößen zurücksetzen",
 	"settings.resetGroup": "Auf Standard zurücksetzen",

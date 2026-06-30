@@ -124,6 +124,7 @@ const fr: Dict = {
 	"settings.preview": "Aperçu",
 	"settings.clearNameCache": "Vider le cache de traduction des noms",
 	"settings.clearCoverCache": "Vider le cache des pochettes",
+	"settings.clearCoverCacheHint": "Supprime les pochettes enregistrées afin que les pochettes manquantes ou obsolètes soient récupérées à nouveau la prochaine fois.",
 	"settings.clearSearchHistory": "Effacer l'historique de recherche",
 	"settings.resetAppearance": "Réinitialiser les tailles d'apparence",
 	"settings.resetGroup": "Réinitialiser",

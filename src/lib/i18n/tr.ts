@@ -124,6 +124,7 @@ const tr: Dict = {
 	"settings.preview": "Önizleme",
 	"settings.clearNameCache": "Ad çeviri önbelleğini temizle",
 	"settings.clearCoverCache": "Kapak önbelleğini temizle",
+	"settings.clearCoverCacheHint": "Kaydedilmiş kapakları kaldırır, böylece eksik veya güncelliğini yitirmiş kapaklar bir sonraki sefer yeniden getirilir.",
 	"settings.clearSearchHistory": "Arama geçmişini temizle",
 	"settings.resetAppearance": "Görünüm boyutlarını sıfırla",
 	"settings.resetGroup": "Varsayılana sıfırla",

@@ -124,6 +124,7 @@ const it: Dict = {
 	"settings.preview": "Anteprima",
 	"settings.clearNameCache": "Svuota cache traduzione nomi",
 	"settings.clearCoverCache": "Svuota cache copertine",
+	"settings.clearCoverCacheHint": "Rimuove le copertine salvate così le copertine mancanti o obsolete vengono recuperate di nuovo la prossima volta.",
 	"settings.clearSearchHistory": "Cancella cronologia ricerche",
 	"settings.resetAppearance": "Reimposta dimensioni aspetto",
 	"settings.resetGroup": "Ripristina predefiniti",

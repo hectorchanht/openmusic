@@ -124,6 +124,7 @@ const pt: Dict = {
 	"settings.preview": "Pré-visualização",
 	"settings.clearNameCache": "Limpar cache de tradução de nomes",
 	"settings.clearCoverCache": "Limpar cache de capas",
+	"settings.clearCoverCacheHint": "Remove as capas salvas para que capas ausentes ou desatualizadas sejam buscadas novamente na próxima vez.",
 	"settings.clearSearchHistory": "Limpar histórico de busca",
 	"settings.resetAppearance": "Redefinir tamanhos de aparência",
 	"settings.resetGroup": "Restaurar padrões",

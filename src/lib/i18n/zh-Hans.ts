@@ -137,6 +137,7 @@ const zhHans: Dict = {
 	'settings.preview': '预览',
 	'settings.clearNameCache': '清除名称翻译缓存',
 	'settings.clearCoverCache': '清除封面缓存',
+	'settings.clearCoverCacheHint': '删除已保存的封面，下次查看时会重新获取缺失或过时的封面。',
 	'settings.clearSearchHistory': '清除搜索记录',
 	'settings.resetAppearance': '重置外观大小',
 	'settings.resetGroup': '恢复默认',

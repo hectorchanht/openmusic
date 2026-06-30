@@ -143,6 +143,7 @@ const en = {
 	'settings.preview': 'Preview',
 	'settings.clearNameCache': 'Clear name translation cache',
 	'settings.clearCoverCache': 'Clear cover cache',
+	'settings.clearCoverCacheHint': 'Removes saved cover art so missing or outdated covers are fetched again next time.',
 	'settings.clearSearchHistory': 'Clear search history',
 	'settings.resetAppearance': 'Reset appearance sizes',
 	'settings.resetGroup': 'Reset to default',

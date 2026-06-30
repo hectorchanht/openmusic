@@ -124,6 +124,7 @@ const hi: Dict = {
 	"settings.preview": "पूर्वावलोकन",
 	"settings.clearNameCache": "नाम अनुवाद कैश साफ़ करें",
 	"settings.clearCoverCache": "कवर कैश साफ़ करें",
+	"settings.clearCoverCacheHint": "सहेजे गए कवर हटा देता है ताकि गायब या पुराने कवर अगली बार फिर से प्राप्त किए जा सकें।",
 	"settings.clearSearchHistory": "खोज इतिहास साफ़ करें",
 	"settings.resetAppearance": "रूप आकार रीसेट करें",
 	"settings.resetGroup": "डिफ़ॉल्ट पर रीसेट करें",

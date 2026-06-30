@@ -124,6 +124,7 @@ const es: Dict = {
 	"settings.preview": "Vista previa",
 	"settings.clearNameCache": "Borrar caché de traducción de nombres",
 	"settings.clearCoverCache": "Borrar caché de portadas",
+	"settings.clearCoverCacheHint": "Elimina las portadas guardadas para que las portadas faltantes o desactualizadas se vuelvan a obtener la próxima vez.",
 	"settings.clearSearchHistory": "Borrar historial de búsqueda",
 	"settings.resetAppearance": "Restablecer tamaños de apariencia",
 	"settings.resetGroup": "Restablecer valores",
