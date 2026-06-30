@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
-	import { ChevronLeft, ChevronRight, Globe, Type, LayoutGrid, Languages, Music, Radio, Database, Info } from '@lucide/svelte';
+	import { ChevronLeft, ChevronRight, Globe, Type, LayoutGrid, Languages, Music, Radio, Database, ScrollText, Info } from '@lucide/svelte';
 	import { settings } from '$lib/stores/settings.svelte';
 	import { t, type TranslationKey } from '$lib/i18n';
 	import type { Component } from 'svelte';
@@ -18,6 +18,7 @@
 		{ href: '/settings/playback', icon: Music, title: 'settings.groupPlayback', desc: 'settings.groupPlaybackDesc' },
 		// { href: '/settings/lastfm', icon: Radio, title: 'settings.groupLastfm', desc: 'settings.groupLastfmDesc' },
 		{ href: '/settings/data', icon: Database, title: 'settings.groupData', desc: 'settings.groupDataDesc' },
+		{ href: '/settings/activity', icon: ScrollText, title: 'settings.groupActivity', desc: 'settings.groupActivityDesc' },
 		{ href: '/settings/about', icon: Info, title: 'settings.groupAbout', desc: 'settings.groupAboutDesc' }
 	];
 </script>

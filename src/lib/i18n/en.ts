@@ -127,6 +127,15 @@ const en = {
 	"settings.groupAboutDesc": "Build info",
 	"settings.backToSettings": "Settings",
 
+	// --- activity log (quick-260630-sgw) ---
+	"settings.groupActivity": "Activity log",
+	"settings.groupActivityDesc": "Verbose player action log",
+	"settings.activityHeading": "Activity log",
+	"settings.activityEmpty": "No activity recorded yet.",
+	"settings.activityClear": "Clear log",
+	"settings.activityCopy": "Copy log",
+	"settings.activityCopied": "Activity log copied.",
+
 	// --- appearance / sizing (quick-260607-fnp) ---
 	"settings.groupAppearance": "Appearance",
 	"settings.groupAppearanceDesc": "Text size, cover size & layout",

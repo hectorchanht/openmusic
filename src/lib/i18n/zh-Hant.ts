@@ -121,6 +121,15 @@ const zhHant: Dict = {
 	"settings.groupAboutDesc": "版本資訊",
 	"settings.backToSettings": "設定",
 
+	// --- activity log (quick-260630-sgw) ---
+	"settings.groupActivity": "活動記錄",
+	"settings.groupActivityDesc": "詳細的播放器操作記錄",
+	"settings.activityHeading": "活動記錄",
+	"settings.activityEmpty": "尚無記錄的活動。",
+	"settings.activityClear": "清除記錄",
+	"settings.activityCopy": "複製記錄",
+	"settings.activityCopied": "已複製活動記錄。",
+
 	// --- appearance / sizing (quick-260607-fnp) ---
 	"settings.groupAppearance": "外觀",
 	"settings.groupAppearanceDesc": "文字大小、封面大小與版面",

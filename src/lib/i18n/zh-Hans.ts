@@ -121,6 +121,15 @@ const zhHans: Dict = {
 	"settings.groupAboutDesc": "版本信息",
 	"settings.backToSettings": "设置",
 
+	// --- activity log (quick-260630-sgw) ---
+	"settings.groupActivity": "活动日志",
+	"settings.groupActivityDesc": "详细的播放器操作日志",
+	"settings.activityHeading": "活动日志",
+	"settings.activityEmpty": "暂无记录的活动。",
+	"settings.activityClear": "清除日志",
+	"settings.activityCopy": "复制日志",
+	"settings.activityCopied": "已复制活动日志。",
+
 	// --- appearance / sizing (quick-260607-fnp) ---
 	"settings.groupAppearance": "外观",
 	"settings.groupAppearanceDesc": "文字大小、封面大小与布局",

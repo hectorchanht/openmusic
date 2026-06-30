@@ -109,6 +109,15 @@ const ar: Dict = {
 	"settings.groupDataDesc": "تعداد المكتبة، مسح البيانات",
 	"settings.groupAboutDesc": "بناء المعلومات",
 	"settings.backToSettings": "الإعدادات",
+
+	// --- activity log (quick-260630-sgw) ---
+	"settings.groupActivity": "Activity log",
+	"settings.groupActivityDesc": "Verbose player action log",
+	"settings.activityHeading": "Activity log",
+	"settings.activityEmpty": "No activity recorded yet.",
+	"settings.activityClear": "Clear log",
+	"settings.activityCopy": "Copy log",
+	"settings.activityCopied": "Activity log copied.",
 	"settings.groupAppearance": "المظهر",
 	"settings.groupAppearanceDesc": "حجم النص والأغلفة والتخطيط",
 	"settings.appearanceText": "حجم النص",

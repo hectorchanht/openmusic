@@ -109,6 +109,15 @@ const fr: Dict = {
 	"settings.groupDataDesc": "Nombre de bibliothèques, effacement des données",
 	"settings.groupAboutDesc": "Informations sur la construction",
 	"settings.backToSettings": "Paramètres",
+
+	// --- activity log (quick-260630-sgw) ---
+	"settings.groupActivity": "Activity log",
+	"settings.groupActivityDesc": "Verbose player action log",
+	"settings.activityHeading": "Activity log",
+	"settings.activityEmpty": "No activity recorded yet.",
+	"settings.activityClear": "Clear log",
+	"settings.activityCopy": "Copy log",
+	"settings.activityCopied": "Activity log copied.",
 	"settings.groupAppearance": "Apparence",
 	"settings.groupAppearanceDesc": "Taille du texte, pochettes et mise en page",
 	"settings.appearanceText": "Taille du texte",
