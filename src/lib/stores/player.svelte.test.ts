@@ -3938,3 +3938,67 @@ describe('player resilience — foreground resume of a background-stalled auto-a
 		expect(el.play).toHaveBeenCalledTimes(1);
 	});
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// debug-reresolve-loop-stops-playback: the audio.error → hasPlayedSinceSrc → reresolveCurrent() path
+// (transient post-playback stall recovery) had NO cap. A PERSISTENTLY-dead URL (CDN link expired during
+// a long background gap) re-errored instantly and re-triggered the branch → an unbounded
+// audio.error→reresolve storm (~1500 errors/13s observed in the action log) that pinned the player and
+// never advanced. RERESOLVE_CAP bounds the same-src re-resolve, then falls through to cross-source.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('player resilience — bounded post-playback re-resolve (debug-reresolve-loop-stops-playback)', () => {
+	const RERESOLVE_CAP = 3;
+	type Internals = {
+		hasPlayedSinceSrc: boolean;
+		reresolveBurst: number;
+		lastSeekAt: number;
+		reresolveCurrent(): Promise<void>;
+		runFallback(t: Track): Promise<void>;
+	};
+	const internals = () => player as unknown as Internals;
+
+	function attachPlayedErroring() {
+		const el = makeFakeAudio();
+		el.src = 'https://cdn/dead.mp3';
+		el.currentTime = 5; // mid-track (not near end / not 0)
+		(el as unknown as { ended: boolean }).ended = false;
+		player.current = mk('netease', 'rr0', 'A', 'PostPlayErr');
+		player.queue = [player.current];
+		player.attach(el as unknown as HTMLAudioElement);
+		internals().hasPlayedSinceSrc = true; // already produced audio
+		internals().lastSeekAt = 0; // far in the past → NOT the seek-window reresolve path
+		internals().reresolveBurst = 0;
+		return el;
+	}
+
+	it('caps same-src re-resolve, then falls through to cross-source fallback (no infinite audio.error loop)', () => {
+		const el = attachPlayedErroring();
+		const reresolveSpy = vi
+			.spyOn(internals(), 'reresolveCurrent')
+			.mockResolvedValue(undefined);
+		const fallbackSpy = vi.spyOn(internals(), 'runFallback').mockResolvedValue(undefined);
+
+		// A persistently-dead URL: every error re-triggers the post-playback branch.
+		for (let i = 0; i < RERESOLVE_CAP + 3; i++) el.fire('error');
+
+		expect(reresolveSpy).toHaveBeenCalledTimes(RERESOLVE_CAP); // bounded — NOT once per error
+		expect(fallbackSpy).toHaveBeenCalled(); // fell through to advance instead of looping forever
+	});
+
+	it('a real `playing` between errors refunds the budget (a transient mid-track stall still recovers in place)', () => {
+		const el = attachPlayedErroring();
+		const reresolveSpy = vi
+			.spyOn(internals(), 'reresolveCurrent')
+			.mockResolvedValue(undefined);
+		const fallbackSpy = vi.spyOn(internals(), 'runFallback').mockResolvedValue(undefined);
+
+		// Each error recovers with a real `playing` → reresolveBurst resets, never reaching the cap.
+		for (let i = 0; i < RERESOLVE_CAP + 3; i++) {
+			el.fire('error');
+			el.fire('playing');
+		}
+
+		expect(fallbackSpy).not.toHaveBeenCalled(); // never fell through — each transient recovered
+		expect(reresolveSpy.mock.calls.length).toBeGreaterThan(RERESOLVE_CAP); // re-resolved every time
+	});
+});

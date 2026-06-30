@@ -174,6 +174,18 @@ class Player {
 	 * by the `playing` listener (D-06 success reset) and by recoverFromStop. Plain field — internal.
 	 */
 	private errorBurst = 0;
+	/**
+	 * RERESOLVE-LOOP GUARD (debug-reresolve-loop-stops-playback): consecutive post-playback
+	 * `reresolveCurrent()` attempts for the current src WITHOUT an intervening real `playing`. The
+	 * `error`→hasPlayedSinceSrc branch re-resolves the SAME song in place (transient mid-track stall
+	 * recovery). When the URL is PERSISTENTLY dead (e.g. the CDN link expired during a long background
+	 * gap) the re-resolved src errors instantly and re-triggers the branch — an unbounded
+	 * audio.error→reresolve storm (~10/sec) that pins the player and never advances. Capped at
+	 * RERESOLVE_CAP: past the cap the error path STOPS re-resolving and falls through to the
+	 * cross-source fallback + advance so playback continues. Reset to 0 on a real `playing`, a new src
+	 * (play()), and recoverFromStop. */
+	private reresolveBurst = 0;
+	private static RERESOLVE_CAP = 3;
 	/** Skip-burst batch counter (D-02): how many skips have collapsed into the current notice. Reset
 	 *  by the debounce window below. Plain field — not reactive. */
 	private skipBurst = 0;
@@ -1313,6 +1325,7 @@ class Player {
 			// playback resumes.
 			this.consecutiveFailures = 0;
 			this.errorBurst = 0;
+			this.reresolveBurst = 0; // RERESOLVE-LOOP GUARD: real audio = the same-src re-resolve recovered.
 			// Over-aggressive-skip fix: this track actually produced audio — drop any accumulated
 			// unplayable strikes for it so an earlier transient prefetch/probe failure can't push it
 			// toward a false permanent skip later in the session.
@@ -1499,8 +1512,19 @@ class Player {
 			// below then only fires for a track that errored BEFORE ever producing audio (genuine
 			// initial-load / region-lock failure) — preserving the never-stop loop-guard for those.
 			if (this.hasPlayedSinceSrc) {
-				void this.reresolveCurrent();
-				return;
+				// RERESOLVE-LOOP GUARD: re-resolve the same song in place for a TRANSIENT post-playback
+				// stall — but only up to RERESOLVE_CAP times. A PERSISTENTLY-dead URL (e.g. the CDN link
+				// expired during a long background gap) re-errors instantly and would otherwise loop
+				// forever (observed: ~1500 audio.error/13s, player pinned, never advances). Past the cap,
+				// stop re-resolving and fall through to the cross-source fallback + advance so playback
+				// continues. reresolveBurst resets on the next real `playing` / new src / recoverFromStop.
+				this.reresolveBurst++;
+				if (this.reresolveBurst <= Player.RERESOLVE_CAP) {
+					void this.reresolveCurrent();
+					return;
+				}
+				logAction('reresolve.cap', { uid: this.current?.uid, n: this.reresolveBurst });
+				// fall through — the same-src re-resolve is exhausted; advance via cross-source/loop-guard.
 			}
 			// Cross-source fallback (gte / SRC-FB-01): rather than surface the error immediately,
 			// try the same {artist,title} on the remaining enabled sources. Only after every
@@ -2142,6 +2166,7 @@ class Player {
 	 */
 	async play(track: Track, opts?: { fresh?: boolean; fromFallback?: boolean }) {
 		logAction('play', { uid: track.uid, source: track.source, fresh: !!opts?.fresh });
+		this.reresolveBurst = 0; // RERESOLVE-LOOP GUARD: a genuine new play() gives the track a fresh re-resolve budget.
 		// A direct play() (queue/auto-advance/share link) supersedes any optimistic overlay,
 		// so a stale pending bar never lingers once a real track takes over.
 		this.pendingTrack = null;
