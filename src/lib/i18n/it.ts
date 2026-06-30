@@ -343,6 +343,12 @@ const it: Dict = {
 	"settings.showRandomizeDesc": "Attiva o disattiva il pulsante Casuale sulla Home che riproduce un nuovo mix casuale di brani; disattivalo se non lo usi mai.",
 	// playback settings helper text (quick-260630-fce)
 	"settings.autoExpandDesc": "Quando è attivo, la schermata di riproduzione si espande a schermo intero a ogni avvio di un brano; disattivalo per tenere il mini player in basso e restare sulla schermata attuale.",
+	// data settings helper text (quick-260630-fce)
+	"settings.clearPicksDesc": "Rimuove le scelte migliori e gli scaffali della libreria della Home in cache così da rigenerarli al prossimo avvio; usalo se i consigli sembrano datati.",
+	"settings.clearNameCacheDesc": "Cancella le traduzioni memorizzate dei nomi di artisti e titoli così da recuperarle di nuovo; usalo dopo aver cambiato le impostazioni di traduzione o se un nome tradotto sembra sbagliato.",
+	"settings.clearSearchHistoryDesc": "Elimina le tue ricerche passate salvate su questo dispositivo così l'elenco delle ricerche recenti riparte vuoto; non influisce sulla tua libreria.",
+	"settings.resetAppearanceDesc": "Ripristina tutte le dimensioni del testo, la dimensione delle copertine e le colonne della griglia ai valori predefiniti del 100%; non tocca la tua libreria né le altre impostazioni.",
+	"settings.clearLibraryDesc": "Elimina definitivamente tutti i tuoi brani preferiti, le playlist e i download su questo dispositivo; non è reversibile, quindi esporta prima un backup se vuoi conservarli.",
 };
 
 export default it;

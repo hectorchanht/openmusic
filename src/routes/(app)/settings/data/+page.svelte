@@ -50,12 +50,17 @@
 <section>
 	<p class="muted">{t('settings.dataCounts', { liked: counts.liked, playlists: counts.playlists, downloads: counts.downloads })}</p>
 	<button class="item" onclick={clearPicks}><RefreshCw size={18} /> {t('settings.clearPicks')}</button>
+	<p class="hint">{t('settings.clearPicksDesc')}</p>
 	<button class="item" onclick={clearNameCache}><Languages size={18} /> {t('settings.clearNameCache')}</button>
+	<p class="hint">{t('settings.clearNameCacheDesc')}</p>
 	<button class="item" onclick={clearCovers}><Image size={18} /> {t('settings.clearCoverCache')}</button>
 	<p class="hint">{t('settings.clearCoverCacheHint')}</p>
 	<button class="item" onclick={clearSearchHistory}><Search size={18} /> {t('settings.clearSearchHistory')}</button>
+	<p class="hint">{t('settings.clearSearchHistoryDesc')}</p>
 	<button class="item" onclick={resetAppearance}><SlidersHorizontal size={18} /> {t('settings.resetAppearance')}</button>
+	<p class="hint">{t('settings.resetAppearanceDesc')}</p>
 	<button class="item danger" onclick={clearLibrary}><Trash2 size={18} /> {t('settings.clearLibrary')}</button>
+	<p class="hint">{t('settings.clearLibraryDesc')}</p>
 </section>
 
 {#if msg}<p class="flash">{msg}</p>{/if}

@@ -343,6 +343,12 @@ const de: Dict = {
 	"settings.showRandomizeDesc": "Schaltet die Zufallswiedergabe-Schaltfläche auf der Startseite um, die einen frischen zufälligen Mix abspielt; deaktiviere sie, wenn du sie nie nutzt.",
 	// playback settings helper text (quick-260630-fce)
 	"settings.autoExpandDesc": "Wenn aktiviert, wird der Wiedergabebildschirm bei jedem Titelstart auf Vollbild erweitert; deaktiviere es, um den Mini-Player unten zu behalten und auf deinem aktuellen Bildschirm zu bleiben.",
+	// data settings helper text (quick-260630-fce)
+	"settings.clearPicksDesc": "Entfernt die zwischengespeicherten Top-Auswahlen und Startseiten-Bibliotheksregale, damit sie beim nächsten Mal neu erstellt werden; nutze es, wenn deine Empfehlungen veraltet wirken.",
+	"settings.clearNameCacheDesc": "Löscht gespeicherte Übersetzungen von Künstler- und Titelnamen, damit sie erneut geladen werden; nutze es nach dem Ändern der Übersetzungseinstellungen oder wenn ein übersetzter Name falsch wirkt.",
+	"settings.clearSearchHistoryDesc": "Löscht deine gespeicherten früheren Suchen auf diesem Gerät, sodass die Liste der letzten Suchen leer beginnt; deine Bibliothek bleibt unberührt.",
+	"settings.resetAppearanceDesc": "Setzt alle Textgrößen, die Covergröße und die Rasterspalten auf ihre Standardwerte von 100% zurück; deine Bibliothek und andere Einstellungen bleiben unberührt.",
+	"settings.clearLibraryDesc": "Löscht dauerhaft alle deine gemochten Songs, Playlists und Downloads auf diesem Gerät; dies kann nicht rückgängig gemacht werden, exportiere also vorher ein Backup, wenn du sie behalten möchtest.",
 };
 
 export default de;

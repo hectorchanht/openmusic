@@ -343,6 +343,12 @@ const id: Dict = {
 	"settings.showRandomizeDesc": "Mengaktifkan atau menonaktifkan tombol Acak di Beranda yang memutar campuran lagu acak yang baru; matikan jika tidak pernah Anda gunakan.",
 	// playback settings helper text (quick-260630-fce)
 	"settings.autoExpandDesc": "Saat aktif, layar pemutaran membesar ke layar penuh setiap kali Anda memulai lagu; matikan agar pemutar mini tetap di bawah dan Anda tetap di layar saat ini.",
+	// data settings helper text (quick-260630-fce)
+	"settings.clearPicksDesc": "Menghapus pilihan teratas dan rak pustaka Beranda yang di-cache agar dibuat ulang berikutnya; gunakan jika rekomendasi Anda terasa basi.",
+	"settings.clearNameCacheDesc": "Menghapus terjemahan nama artis dan judul yang tersimpan agar diambil lagi; gunakan setelah mengubah pengaturan terjemahan atau jika nama terjemahan tampak salah.",
+	"settings.clearSearchHistoryDesc": "Menghapus pencarian lampau yang tersimpan di perangkat ini sehingga daftar pencarian terbaru dimulai kosong; ini tidak memengaruhi pustaka Anda.",
+	"settings.resetAppearanceDesc": "Mengembalikan semua ukuran teks, ukuran sampul, dan kolom kisi ke nilai bawaan 100%; ini tidak menyentuh pustaka atau pengaturan lainnya.",
+	"settings.clearLibraryDesc": "Menghapus permanen semua lagu yang Anda sukai, playlist, dan unduhan di perangkat ini; ini tidak dapat dibatalkan, jadi ekspor cadangan dulu jika ingin menyimpannya.",
 };
 
 export default id;

@@ -343,6 +343,12 @@ const vi: Dict = {
 	"settings.showRandomizeDesc": "Bật/tắt nút Ngẫu nhiên trên Trang chủ để phát một bản phối ngẫu nhiên mới các bài hát; tắt nếu bạn không bao giờ dùng.",
 	// playback settings helper text (quick-260630-fce)
 	"settings.autoExpandDesc": "Khi bật, màn hình đang phát sẽ mở toàn màn hình mỗi khi bạn bắt đầu một bài hát; tắt để giữ trình phát mini ở dưới và ở lại màn hình hiện tại.",
+	// data settings helper text (quick-260630-fce)
+	"settings.clearPicksDesc": "Xóa các lựa chọn hàng đầu và các kệ thư viện Trang chủ đã lưu đệm để chúng được tạo mới lần sau; dùng khi gợi ý của bạn có vẻ cũ.",
+	"settings.clearNameCacheDesc": "Xóa các bản dịch tên nghệ sĩ và tiêu đề đã lưu để tải lại; dùng sau khi đổi cài đặt dịch hoặc khi một tên đã dịch trông sai.",
+	"settings.clearSearchHistoryDesc": "Xóa các tìm kiếm trước đây đã lưu trên thiết bị này để danh sách tìm kiếm gần đây bắt đầu trống; việc này không ảnh hưởng đến thư viện của bạn.",
+	"settings.resetAppearanceDesc": "Khôi phục mọi cỡ chữ, cỡ ảnh bìa và số cột lưới về giá trị mặc định 100%; việc này không đụng đến thư viện hay các cài đặt khác của bạn.",
+	"settings.clearLibraryDesc": "Xóa vĩnh viễn tất cả bài hát yêu thích, danh sách phát và bản tải xuống trên thiết bị này; thao tác này không thể hoàn tác, vì vậy hãy xuất bản sao lưu trước nếu bạn muốn giữ lại.",
 };
 
 export default vi;

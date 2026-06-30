@@ -343,6 +343,12 @@ const fr: Dict = {
 	"settings.showRandomizeDesc": "Active ou désactive le bouton Aléatoire de l'accueil qui lit un nouveau mix aléatoire de morceaux ; désactivez-le si vous ne l'utilisez jamais.",
 	// playback settings helper text (quick-260630-fce)
 	"settings.autoExpandDesc": "Lorsqu'il est activé, l'écran de lecture passe en plein écran à chaque démarrage d'un morceau ; désactivez-le pour garder le mini-lecteur en bas et rester sur votre écran actuel.",
+	// data settings helper text (quick-260630-fce)
+	"settings.clearPicksDesc": "Supprime les meilleures sélections et les étagères de bibliothèque de l'accueil en cache afin qu'elles se régénèrent la prochaine fois ; utilisez-le si vos recommandations semblent dépassées.",
+	"settings.clearNameCacheDesc": "Efface les traductions de noms d'artistes et de titres enregistrées afin qu'elles soient récupérées à nouveau ; utilisez-le après avoir modifié les réglages de traduction ou si un nom traduit semble incorrect.",
+	"settings.clearSearchHistoryDesc": "Supprime vos recherches passées enregistrées sur cet appareil pour que la liste des recherches récentes recommence à vide ; cela n'affecte pas votre bibliothèque.",
+	"settings.resetAppearanceDesc": "Rétablit toutes les tailles de texte, la taille des pochettes et les colonnes de la grille à leurs valeurs par défaut de 100% ; cela ne touche ni votre bibliothèque ni vos autres réglages.",
+	"settings.clearLibraryDesc": "Supprime définitivement toutes vos chansons aimées, listes de lecture et téléchargements sur cet appareil ; cette action est irréversible, exportez donc une sauvegarde au préalable si vous voulez les conserver.",
 };
 
 export default fr;

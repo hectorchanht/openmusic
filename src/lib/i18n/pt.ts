@@ -343,6 +343,12 @@ const pt: Dict = {
 	"settings.showRandomizeDesc": "Ativa ou desativa o botão Aleatório na Início que toca uma nova mistura aleatória de faixas; desative se você nunca o usa.",
 	// playback settings helper text (quick-260630-fce)
 	"settings.autoExpandDesc": "Quando ativado, a tela de reprodução se expande para tela cheia sempre que você inicia uma faixa; desative para manter o miniplayer embaixo e permanecer na tela atual.",
+	// data settings helper text (quick-260630-fce)
+	"settings.clearPicksDesc": "Remove as principais escolhas e as prateleiras da biblioteca da Início em cache para que sejam recriadas na próxima vez; use se suas recomendações parecerem desatualizadas.",
+	"settings.clearNameCacheDesc": "Limpa as traduções de nomes de artistas e títulos armazenadas para que sejam buscadas de novo; use após alterar as configurações de tradução ou se um nome traduzido parecer errado.",
+	"settings.clearSearchHistoryDesc": "Exclui suas buscas anteriores salvas neste dispositivo para que a lista de buscas recentes comece vazia; isto não afeta a sua biblioteca.",
+	"settings.resetAppearanceDesc": "Restaura todos os tamanhos de texto, o tamanho das capas e as colunas da grade aos seus valores padrão de 100%; isto não afeta a sua biblioteca nem outras configurações.",
+	"settings.clearLibraryDesc": "Exclui permanentemente todas as suas músicas curtidas, playlists e downloads neste dispositivo; isto não pode ser desfeito, então exporte um backup antes se quiser mantê-los.",
 };
 
 export default pt;

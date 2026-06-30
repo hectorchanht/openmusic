@@ -387,6 +387,12 @@ const en = {
 	'settings.showRandomizeDesc': 'Toggles the Randomize button on Home that plays a fresh random mix of tracks; turn it off if you never use it.',
 	// playback settings helper text (quick-260630-fce)
 	'settings.autoExpandDesc': 'When on, the now-playing screen expands to full screen each time you start a track; turn it off to keep the mini player at the bottom and stay on your current screen.',
+	// data settings helper text (quick-260630-fce)
+	'settings.clearPicksDesc': 'Removes the cached top picks and Home library shelves so they regenerate fresh next time; use it if your recommendations feel stale.',
+	'settings.clearNameCacheDesc': 'Clears stored artist and title name translations so they are fetched again; use it after changing translation settings or if a translated name looks wrong.',
+	'settings.clearSearchHistoryDesc': 'Deletes your saved past searches from this device so the recent-searches list starts empty; this does not affect your library.',
+	'settings.resetAppearanceDesc': 'Restores all text sizes, cover size and grid columns back to their default 100% values; this does not touch your library or other settings.',
+	'settings.clearLibraryDesc': 'Permanently deletes all your liked songs, playlists and downloads on this device; this cannot be undone, so export a backup first if you want to keep them.',
 } as const;
 
 export default en;

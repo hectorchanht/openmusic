@@ -343,6 +343,12 @@ const tr: Dict = {
 	"settings.showRandomizeDesc": "Ana ekranda parçaların yeni rastgele karışımını çalan Karıştır düğmesini açıp kapatır; hiç kullanmıyorsanız kapatın.",
 	// playback settings helper text (quick-260630-fce)
 	"settings.autoExpandDesc": "Açıkken, her parça başlattığınızda çalan ekranı tam ekrana genişler; mini oynatıcıyı altta tutmak ve mevcut ekranınızda kalmak için kapatın.",
+	// data settings helper text (quick-260630-fce)
+	"settings.clearPicksDesc": "Önbelleğe alınmış en iyi seçimleri ve Ana ekran kitaplık raflarını kaldırır, böylece bir sonraki sefer yeniden oluşturulur; önerileriniz bayatladıysa kullanın.",
+	"settings.clearNameCacheDesc": "Saklanan sanatçı ve başlık adı çevirilerini temizler, böylece yeniden getirilirler; çeviri ayarlarını değiştirdikten sonra veya çevrilen bir ad yanlış görünüyorsa kullanın.",
+	"settings.clearSearchHistoryDesc": "Bu cihazda kayıtlı geçmiş aramalarınızı siler, böylece son aramalar listesi boş başlar; bu, kitaplığınızı etkilemez.",
+	"settings.resetAppearanceDesc": "Tüm metin boyutlarını, kapak boyutunu ve ızgara sütunlarını varsayılan 100% değerlerine geri döndürür; kitaplığınıza veya diğer ayarlara dokunmaz.",
+	"settings.clearLibraryDesc": "Bu cihazdaki tüm beğendiğiniz şarkıları, çalma listelerini ve indirmeleri kalıcı olarak siler; bu geri alınamaz, bu yüzden saklamak istiyorsanız önce bir yedek dışa aktarın.",
 };
 
 export default tr;

@@ -375,6 +375,12 @@ const zhHant: Dict = {
 	'settings.showRandomizeDesc': '切換首頁上的「隨機」按鈕，按下可播放一份全新的隨機混合歌曲；若從不使用可關閉此項。',
 	// playback settings helper text (quick-260630-fce)
 	'settings.autoExpandDesc': '開啟時，每次播放歌曲都會將正在播放畫面展開為全螢幕；關閉則維持底部的迷你播放器，並停留在目前畫面。',
+	// data settings helper text (quick-260630-fce)
+	'settings.clearPicksDesc': '清除快取的精選推薦與首頁音樂庫區塊，下次將重新產生；若覺得推薦內容過時可使用此項。',
+	'settings.clearNameCacheDesc': '清除已儲存的歌手與標題名稱翻譯，使其重新取得；變更翻譯設定後、或某個翻譯名稱有誤時可使用。',
+	'settings.clearSearchHistoryDesc': '從此裝置刪除你儲存的過往搜尋記錄，使最近搜尋清單重新清空；此操作不會影響你的音樂庫。',
+	'settings.resetAppearanceDesc': '將所有文字大小、封面大小與網格欄數還原為預設的 100% 值；此操作不會影響你的音樂庫或其他設定。',
+	'settings.clearLibraryDesc': '永久刪除此裝置上你所有的收藏歌曲、播放清單與下載；此操作無法復原，若想保留請先匯出備份。',
 };
 
 export default zhHant;
