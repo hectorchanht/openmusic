@@ -353,8 +353,12 @@
         place-items: center;
         transition: transform 0.12s ease;
     }
-    .np-btn:active {
-        transform: scale(0.92);
+    /* MENU-03 / D-12: hover-capable devices only — on touch a held finger latches the
+       :active scale; use:tapBounce supplies the one-shot touch press feedback instead. */
+    @media (hover: hover) {
+        .np-btn:active {
+            transform: scale(0.92);
+        }
     }
     /* Sleep-timer badge: a small subtle variant of .np-btn (NOT the primary play button) — pill,
 	   transparent, sits to the LEFT of the play button. min-0 label so the mm:ss never overflows. */
@@ -376,8 +380,10 @@
         cursor: pointer;
         transition: transform 0.12s ease;
     }
-    .st-badge:active {
-        transform: scale(0.92);
+    @media (hover: hover) {
+        .st-badge:active {
+            transform: scale(0.92);
+        }
     }
     .st-label {
         min-width: 0;

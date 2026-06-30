@@ -674,7 +674,9 @@
 	.album-actions { display: flex; align-items: center; justify-content: center; gap: 16px; margin: 2px 0 20px; }
 	.act { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 50%; background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); cursor: pointer; transition: background 0.15s, transform 0.1s; }
 	.act:hover { background: var(--color-surface); }
-	.act:active { transform: scale(0.92); }
+	/* MENU-03 / D-12: hover-capable devices only — avoids the held-finger latch on touch
+	   (use:tapBounce supplies the one-shot touch press feedback). */
+	@media (hover: hover) { .act:active { transform: scale(0.92); } }
 	.act:disabled { opacity: 0.4; cursor: default; }
 	.act.play { width: 56px; height: 56px; background: var(--color-primary); border-color: transparent; color: #fff; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4); }
 	/* ---- add-to-playlist picker (mirrors the track menu sheet) ---- */
