@@ -146,8 +146,8 @@ button, a, [role="button"] { -webkit-tap-highlight-color: transparent; }
 	transform-origin: center;
 	animation: tap-bounce 0.22s ease;
 }
-@media (prefers-reduced-motion: reduce) {
-	.tap-bouncing {
-		animation: none;
-	}
-}
+/* NOTE: intentionally NOT gated by @media (prefers-reduced-motion: reduce). This tap
+   press-feedback follows ONLY the app's Reduce Motion setting via the global
+   `:root[data-reduce-motion] * { animation: none !important }` rule above — many Android
+   devices report OS reduced-motion for non-accessibility reasons (dev-options animation
+   scale off, battery saver), which silently killed the bounce on-device. See tapBounce.ts. */
