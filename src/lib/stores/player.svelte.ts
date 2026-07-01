@@ -2174,6 +2174,16 @@ class Player {
 		this.error = null;
 		this.loading = true;
 		this.current = track;
+		// STALE-FLAG FIX (background-autoadvance-stall follow-up): reset hasPlayedSinceSrc the MOMENT we
+		// commit to the new current track — NOT later at src-set (which happens only after the async
+		// ensureTrackDetails resolve, up to several seconds). Otherwise, during that resolve gap `current`
+		// is the NEW track while `hasPlayedSinceSrc` still holds the OLD (played) track's `true`. A dead
+		// new track (e.g. netease 403) that errors in that window was then misrouted into the
+		// already-played recovery (reresolveCurrent + external-pause self-heal) instead of the
+		// cross-source fallback that advances PAST it — the observed "next track hangs at 0:00" in the
+		// background. reresolveCurrent (a mid-track re-attach) deliberately does NOT go through play(), so
+		// it keeps its own true — only a genuine track change resets here.
+		this.hasPlayedSinceSrc = false;
 		this.currentTime = 0;
 		this.duration = 0;
 		// COVER-01 / D-09: set the ONE cover field SYNCHRONOUSLY from the best-known source so the

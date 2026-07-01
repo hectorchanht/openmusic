@@ -4002,3 +4002,51 @@ describe('player resilience — bounded post-playback re-resolve (debug-reresolv
 		expect(reresolveSpy.mock.calls.length).toBeGreaterThan(RERESOLVE_CAP); // re-resolved every time
 	});
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// background-autoadvance-stall follow-up: play() must reset hasPlayedSinceSrc AT ENTRY, not later at
+// src-set (after the async resolve). Otherwise, during the resolve gap `current` is the new track while
+// the flag still holds the OLD track's `true`, so a dead new track that errors is misrouted into the
+// already-played recovery (reresolveCurrent) instead of the cross-source fallback that advances past it.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('player resilience — play() resets hasPlayedSinceSrc at entry (background-autoadvance-stall)', () => {
+	type Internals = {
+		hasPlayedSinceSrc: boolean;
+		lastSeekAt: number;
+		reresolveBurst: number;
+		reresolveCurrent(): Promise<void>;
+		runFallback(t: Track): Promise<void>;
+	};
+	const internals = () => player as unknown as Internals;
+
+	it('resets hasPlayedSinceSrc synchronously at entry, BEFORE the async resolve settles', () => {
+		(player.play as unknown as { mockRestore(): void }).mockRestore(); // exercise the REAL play()
+		internals().hasPlayedSinceSrc = true; // the previous track had produced audio
+		const d = deferred<Track>();
+		mockEnsure.mockReturnValue(d.promise); // resolve never settles — inspect the sync entry only
+
+		void player.play(mk('netease', 'entry0', 'A', 'NewTrack')); // do NOT await
+
+		expect(internals().hasPlayedSinceSrc).toBe(false); // reset at entry, not after the resolve gap
+	});
+
+	it('a NEVER-played new track that errors routes to cross-source fallback, NOT reresolve', () => {
+		const cur = mk('netease', 'np0', 'A', 'DeadOnLoad');
+		player.queue = [cur];
+		player.current = cur;
+		const el = makeFakeAudio();
+		el.src = 'https://cdn/dead.mp3';
+		el.currentTime = 0;
+		(el as unknown as { ended: boolean }).ended = false;
+		player.attach(el as unknown as HTMLAudioElement);
+		internals().hasPlayedSinceSrc = false; // fresh advance — never produced audio (post-fix invariant)
+		internals().lastSeekAt = 0; // not the seek-window path
+		const reresolveSpy = vi.spyOn(internals(), 'reresolveCurrent').mockResolvedValue(undefined);
+		const fallbackSpy = vi.spyOn(internals(), 'runFallback').mockResolvedValue(undefined);
+
+		el.fire('error');
+
+		expect(reresolveSpy).not.toHaveBeenCalled(); // not the already-played path
+		expect(fallbackSpy).toHaveBeenCalled(); // dead-on-load → try other sources → advance
+	});
+});
