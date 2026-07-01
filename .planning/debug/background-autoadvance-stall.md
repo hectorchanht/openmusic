@@ -65,3 +65,32 @@ continuity work, which requires real-device evidence (now capturable via the Act
 
 - Use the new Activity log (Settings → Activity log, quick-260630-sgw) on-device to capture the exact
   ordering — that is the evidence for any background-continuity (MediaSession) follow-up.
+
+## Update 2 — stale hasPlayedSinceSrc misroutes a dead new track (from the on-device log)
+
+A second action-log export (backgrounded + screen-locked) showed the deeper cause. While hidden, a
+track ended → `advance` → `play(netease:2003248545, fresh:false)` → `resolve.ok` (2.5s later) →
+`audio.error {hasPlayed:TRUE}` on a track that NEVER produced a `playing`. The `hasPlayed:true` was
+wrong and it misrouted the dead track into the already-played recovery (`reresolveCurrent` +
+`ext-resume.schedule`/`ext-resume.play`) — which spun in place instead of advancing. It sat dead for
+236s until `visibility.resume` (still `ct:0`).
+
+Root cause: `play()` set `this.current = track` at entry (line ~2176) but reset `hasPlayedSinceSrc =
+false` only at src-set (line ~2363), AFTER the async `ensureTrackDetails` resolve. During that
+multi-second gap `current` was the NEW track while the flag still held the OLD (played) track's `true`.
+A dead new track (netease 403) erroring in that window hit the `hasPlayedSinceSrc` branch →
+`reresolveCurrent` (re-resolve the SAME dead source) + the external-pause self-heal, instead of the
+cross-source fallback that would try qq/kuwo/joox and advance PAST it.
+
+Fix: reset `hasPlayedSinceSrc = false` at `play()` ENTRY (right after `this.current = track`). Now a
+resolve-gap error on the new track is correctly treated as never-played → cross-source fallback →
+advance to a playable track. `reresolveCurrent` is a mid-track re-attach that does NOT go through
+`play()`, so it keeps its own `true` (legit mid-track recovery unaffected). Regression tests: entry
+resets the flag synchronously before the resolve settles; a never-played error routes to `runFallback`,
+not `reresolveCurrent`. Player 163/163, full suite 1001/1001, svelte-check 0/0.
+
+Remaining platform limit (honest): starting a BRAND-NEW `src` in a hidden/locked Android tab is still
+constrained by the OS. This fix ensures the player correctly SKIPS dead tracks (via fallback/advance)
+rather than pinning on one, so by foreground-resume the current track is a playable one that then
+resumes — but truly gapless background advance across track changes would need MediaSession-continuity
+work (separate, needs device evidence).
