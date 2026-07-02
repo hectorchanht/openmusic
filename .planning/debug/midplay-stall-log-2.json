@@ -1,0 +1,406 @@
+[
+{
+"t": 1782955716864,
+"ev": "visibility",
+"d": {
+"hidden": true
+}
+},
+{
+"t": 1782955718982,
+"ev": "pause",
+"d": {
+"deliberate": false
+}
+},
+{
+"t": 1782955718989,
+"ev": "ended",
+"d": {
+"uid": "netease:66476"
+}
+},
+{
+"t": 1782955718990,
+"ev": "advance",
+"d": {
+"toUid": "netease:254835"
+}
+},
+{
+"t": 1782955718990,
+"ev": "play",
+"d": {
+"uid": "netease:254835",
+"source": "netease",
+"fresh": false
+}
+},
+{
+"t": 1782955719028,
+"ev": "resolve.ok",
+"d": {
+"uid": "netease:254835",
+"source": "netease",
+"hasUrl": true
+}
+},
+{
+"t": 1782955720259,
+"ev": "playing",
+"d": {
+"uid": "netease:254835"
+}
+},
+{
+"t": 1782955969142,
+"ev": "pause",
+"d": {
+"deliberate": false
+}
+},
+{
+"t": 1782955969146,
+"ev": "ended",
+"d": {
+"uid": "netease:254835"
+}
+},
+{
+"t": 1782955969147,
+"ev": "advance",
+"d": {
+"toUid": "netease:153784"
+}
+},
+{
+"t": 1782955969147,
+"ev": "play",
+"d": {
+"uid": "netease:153784",
+"source": "netease",
+"fresh": false
+}
+},
+{
+"t": 1782955969195,
+"ev": "resolve.ok",
+"d": {
+"uid": "netease:153784",
+"source": "netease",
+"hasUrl": true
+}
+},
+{
+"t": 1782955970481,
+"ev": "playing",
+"d": {
+"uid": "netease:153784"
+}
+},
+{
+"t": 1782955974368,
+"ev": "grow.added",
+"d": {
+"count": 5
+}
+},
+{
+"t": 1782956231998,
+"ev": "pause",
+"d": {
+"deliberate": false
+}
+},
+{
+"t": 1782956232003,
+"ev": "ended",
+"d": {
+"uid": "netease:153784"
+}
+},
+{
+"t": 1782956232003,
+"ev": "advance",
+"d": {
+"toUid": "netease:212376"
+}
+},
+{
+"t": 1782956232004,
+"ev": "play",
+"d": {
+"uid": "netease:212376",
+"source": "netease",
+"fresh": false
+}
+},
+{
+"t": 1782956232044,
+"ev": "resolve.ok",
+"d": {
+"uid": "netease:212376",
+"source": "netease",
+"hasUrl": true
+}
+},
+{
+"t": 1782956232128,
+"ev": "audio.error",
+"d": {
+"uid": "netease:212376",
+"hasPlayed": true,
+"reresolve": true
+}
+},
+{
+"t": 1782956281553,
+"ev": "visibility",
+"d": {
+"hidden": false
+}
+},
+{
+"t": 1782956292193,
+"ev": "advance",
+"d": {
+"toUid": "netease:115162"
+}
+},
+{
+"t": 1782956292193,
+"ev": "play",
+"d": {
+"uid": "netease:115162",
+"source": "netease",
+"fresh": false
+}
+},
+{
+"t": 1782956295028,
+"ev": "resolve.ok",
+"d": {
+"uid": "netease:115162",
+"source": "netease",
+"hasUrl": true
+}
+},
+{
+"t": 1782956296592,
+"ev": "playing",
+"d": {
+"uid": "netease:115162"
+}
+},
+{
+"t": 1782956301234,
+"ev": "visibility",
+"d": {
+"hidden": true
+}
+},
+{
+"t": 1782956376427,
+"ev": "visibility",
+"d": {
+"hidden": false
+}
+},
+{
+"t": 1782956378121,
+"ev": "visibility",
+"d": {
+"hidden": true
+}
+},
+{
+"t": 1782956587276,
+"ev": "pause",
+"d": {
+"deliberate": false
+}
+},
+{
+"t": 1782956587288,
+"ev": "ended",
+"d": {
+"uid": "netease:115162"
+}
+},
+{
+"t": 1782956587289,
+"ev": "advance",
+"d": {
+"toUid": "netease:116869"
+}
+},
+{
+"t": 1782956587289,
+"ev": "play",
+"d": {
+"uid": "netease:116869",
+"source": "netease",
+"fresh": false
+}
+},
+{
+"t": 1782956587498,
+"ev": "resolve.ok",
+"d": {
+"uid": "netease:116869",
+"source": "netease",
+"hasUrl": true
+}
+},
+{
+"t": 1782956589508,
+"ev": "playing",
+"d": {
+"uid": "netease:116869"
+}
+},
+{
+"t": 1782956754225,
+"ev": "audio.error",
+"d": {
+"uid": "netease:116869",
+"hasPlayed": true,
+"reresolve": true
+},
+"n": 4,
+"tl": 1782956754353
+},
+{
+"t": 1782956754353,
+"ev": "reresolve.cap",
+"d": {
+"uid": "netease:116869",
+"n": 4
+}
+},
+{
+"t": 1782956754361,
+"ev": "pause",
+"d": {
+"deliberate": false
+}
+},
+{
+"t": 1782956754361,
+"ev": "ext-resume.schedule",
+"d": {
+"uid": "netease:116869",
+"budget": 1
+}
+},
+{
+"t": 1782956754482,
+"ev": "advance",
+"d": {
+"toUid": "netease:110740"
+}
+},
+{
+"t": 1782956754482,
+"ev": "play",
+"d": {
+"uid": "netease:110740",
+"source": "netease",
+"fresh": false
+}
+},
+{
+"t": 1782956754596,
+"ev": "resolve.ok",
+"d": {
+"uid": "netease:110740",
+"source": "netease",
+"hasUrl": true
+}
+},
+{
+"t": 1782956877686,
+"ev": "visibility",
+"d": {
+"hidden": false
+}
+},
+{
+"t": 1782956920212,
+"ev": "advance",
+"d": {
+"toUid": "netease:32701152"
+}
+},
+{
+"t": 1782956920212,
+"ev": "play",
+"d": {
+"uid": "netease:32701152",
+"source": "netease",
+"fresh": false
+}
+},
+{
+"t": 1782956920229,
+"ev": "resolve.ok",
+"d": {
+"uid": "netease:32701152",
+"source": "netease",
+"hasUrl": true
+}
+},
+{
+"t": 1782956921001,
+"ev": "playing",
+"d": {
+"uid": "netease:32701152"
+}
+},
+{
+"t": 1782956922286,
+"ev": "play",
+"d": {
+"uid": "netease:110740",
+"source": "netease",
+"fresh": false
+}
+},
+{
+"t": 1782956922298,
+"ev": "resolve.ok",
+"d": {
+"uid": "netease:110740",
+"source": "netease",
+"hasUrl": true
+}
+},
+{
+"t": 1782956922772,
+"ev": "playing",
+"d": {
+"uid": "netease:110740"
+}
+},
+{
+"t": 1782956925176,
+"ev": "visibility",
+"d": {
+"hidden": true
+}
+},
+{
+"t": 1782956928223,
+"ev": "grow.added",
+"d": {
+"count": 8
+}
+},
+{
+"t": 1782957079261,
+"ev": "visibility",
+"d": {
+"hidden": false
+}
+}
+]
