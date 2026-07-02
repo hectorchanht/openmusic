@@ -175,17 +175,15 @@ class Player {
 	 */
 	private errorBurst = 0;
 	/**
-	 * RERESOLVE-LOOP GUARD (debug-reresolve-loop-stops-playback): consecutive post-playback
-	 * `reresolveCurrent()` attempts for the current src WITHOUT an intervening real `playing`. The
-	 * `error`→hasPlayedSinceSrc branch re-resolves the SAME song in place (transient mid-track stall
-	 * recovery). When the URL is PERSISTENTLY dead (e.g. the CDN link expired during a long background
-	 * gap) the re-resolved src errors instantly and re-triggers the branch — an unbounded
-	 * audio.error→reresolve storm (~10/sec) that pins the player and never advances. Capped at
-	 * RERESOLVE_CAP: past the cap the error path STOPS re-resolving and falls through to the
-	 * cross-source fallback + advance so playback continues. Reset to 0 on a real `playing`, a new src
-	 * (play()), and recoverFromStop. */
+	 * SINGLE-RETRY GUARD (debug-reresolve-loop-stops-playback → simplified in debug-midplay-stall-background):
+	 * count of consecutive post-playback in-place `reresolveCurrent()` attempts for the current src
+	 * WITHOUT an intervening real `playing`. A track that produced audio then errored gets exactly ONE
+	 * same-src re-resolve (recovers a genuinely transient mid-track buffer/CDN blip without restarting the
+	 * song); a second error before any `playing` means the URL is persistently dead (e.g. a netease
+	 * region-lock byte-stream 403), so the error path STOPS re-resolving and falls through to the
+	 * cross-source fallback + advance (SKIP), per the never-stop spec. Reset to 0 on a real `playing`, a
+	 * new src (play()), and recoverFromStop. */
 	private reresolveBurst = 0;
-	private static RERESOLVE_CAP = 3;
 	/** Skip-burst batch counter (D-02): how many skips have collapsed into the current notice. Reset
 	 *  by the debounce window below. Plain field — not reactive. */
 	private skipBurst = 0;
@@ -614,28 +612,12 @@ class Player {
 	 * internal, never reactive.
 	 */
 	private deliberatePause = false;
-	/** Pending external-pause resume timer (debounced re-play). Cleared on a new src, a real
-	 *  `playing`, a deliberate pause, or end-of-track so it never fights a later intentional stop. */
+	/** Pending resume timer slot (debounced re-play). SIMPLIFY (debug-midplay-stall-background): the
+	 *  external-pause self-heal that used to set this was removed (it fought external audio-focus loss
+	 *  ~2×/sec — the voice-note interference). The slot + disarmResume() are retained as harmless
+	 *  cancel points (nothing sets it now) so the many disarmResume() call sites stay valid; a future
+	 *  resume mechanism can reuse it. */
 	private resumeTimer: ReturnType<typeof setTimeout> | null = null;
-	/** Per-src budget for external-pause self-heal re-plays. Reset to 0 on every new src (in play())
-	 *  and on a real `playing`. Capped by EXTERNAL_RESUME_CAP so a genuinely-unrecoverable external
-	 *  stop (e.g. focus permanently lost / device asleep) is not fought forever — after the cap the
-	 *  track is left paused and the user/MediaSession can resume it. */
-	private externalResumeBudget = 0;
-	/** Max external-pause re-play attempts per loaded src before giving up (leaving it paused). */
-	private static EXTERNAL_RESUME_CAP = 3;
-	/** Debounce before re-issuing play() on an external pause — lets a truly-transient focus blip
-	 *  settle and avoids a tight pause/play fight with the OS. */
-	private static EXTERNAL_RESUME_DELAY_MS = 400;
-	/** Timestamp (ms, Date.now) of the last audio OUTPUT-device change — wired headset or Bluetooth
-	 *  (dis)connect, via navigator.mediaDevices 'devicechange'. A `pause` that fires within
-	 *  DEVICE_CHANGE_PAUSE_WINDOW_MS of this is attributed to that device change (headphones unplugged
-	 *  → "becoming noisy", earbuds dropped) and is treated like a DELIBERATE pause: never self-healed,
-	 *  because resuming would blast audio out of the phone speaker. 0 = no device change seen yet. */
-	private lastDeviceChangeAt = 0;
-	/** Window after a 'devicechange' within which a pause is attributed to it (headphone unplug) and
-	 *  left paused. Short enough not to swallow an unrelated external throttle-pause seconds later. */
-	private static DEVICE_CHANGE_PAUSE_WINDOW_MS = 2000;
 	/**
 	 * NEVER-STOP foreground resume (background-autoadvance-stall): true when playback was active the
 	 * moment the tab went hidden / the screen locked. On Android an auto-advance that happens WHILE
@@ -1057,57 +1039,6 @@ class Player {
 		}
 	}
 
-	/**
-	 * EXTERNAL-PAUSE SELF-HEAL core. Called from the `pause` listener for a pause that was NOT
-	 * deliberate. Re-issues `audio.play()` after a short debounce — but ONLY when the track is
-	 * provably mid-playback and recoverable:
-	 *  - `hasPlayedSinceSrc` — the track actually produced audio (rules out the initial-load case,
-	 *    which armStall/maybeRetryAutoplay already own; this is strictly the "played ~1s then paused"
-	 *    signature).
-	 *  - not ended / time remaining — never fight a natural end-of-track (which also fires `pause`).
-	 *  - under the per-src budget — a genuinely-unrecoverable external stop is left paused after
-	 *    EXTERNAL_RESUME_CAP attempts so the user/MediaSession can resume it (never an infinite fight).
-	 * Generation-guarded by the playGen snapshot so a newer play()/skip supersedes a stale resume.
-	 */
-	private scheduleExternalResume() {
-		const el = this.audio;
-		if (!el) return;
-		if (!this.hasPlayedSinceSrc) return; // initial-load pause — owned by armStall/maybeRetryAutoplay
-		if (el.ended) return; // natural end-of-track also fires `pause`; `ended` handles advance
-		// Time remaining check: a pause at/just-before the very end is effectively an end-of-track on
-		// some Android builds (fires `pause` slightly before `ended`). Treat <0.25s-from-end as ended.
-		if (
-			Number.isFinite(el.duration) &&
-			el.duration > 0 &&
-			el.currentTime >= el.duration - 0.25
-		) {
-			return;
-		}
-		// Headphone-unplug exception (user choice): a pause within DEVICE_CHANGE_PAUSE_WINDOW_MS of an
-		// audio output-device change is a device-driven stop (unplugged headset / dropped Bluetooth) —
-		// treated like a deliberate pause and NEVER resumed, or audio would blast from the speaker.
-		if (Date.now() - this.lastDeviceChangeAt < Player.DEVICE_CHANGE_PAUSE_WINDOW_MS) return;
-		if (this.externalResumeBudget >= Player.EXTERNAL_RESUME_CAP) return; // give up — leave paused
-		this.externalResumeBudget++;
-		logAction('ext-resume.schedule', { uid: this.current?.uid, budget: this.externalResumeBudget });
-		const gen = this.playGen;
-		this.disarmResume();
-		this.resumeTimer = setTimeout(() => {
-			this.resumeTimer = null;
-			if (this.playGen !== gen) return; // a newer play()/skip superseded this resume
-			const a = this.audio;
-			if (!a) return;
-			if (!a.paused) return; // it resumed on its own (foreground return / OS re-grant)
-			if (a.ended) return; // ended in the meantime
-			if (this.deliberatePause) return; // a deliberate pause landed during the debounce
-			logAction('ext-resume.play', { uid: this.current?.uid });
-			// Re-issue play(). A rejection (still no audio focus / activation) leaves it paused; the
-			// next external `pause` (or the user/MediaSession) takes another bounded attempt.
-			void a.play().catch(() => {
-				/* still rejected — leave paused; budget already spent for this attempt */
-			});
-		}, Player.EXTERNAL_RESUME_DELAY_MS);
-	}
 
 	/**
 	 * NEVER-STOP foreground resume (background-autoadvance-stall). On Android a track that auto-advanced
@@ -1283,17 +1214,10 @@ class Player {
 				this.playing = !this.audio.paused;
 			});
 		}
-		// EXTERNAL-PAUSE SELF-HEAL — headphone-unplug exception (autoadvance-pauses-after-1s). An audio
-		// OUTPUT-device change (wired headset or Bluetooth (dis)connect) fires `devicechange`; on a
-		// disconnect the browser then pauses playback ("becoming noisy"). Record WHEN a device change
-		// happened so the `pause` self-heal can attribute a pause in its wake to the unplug and leave it
-		// paused — resuming would play out loud on the phone speaker. Guarded for SSR/jsdom where
-		// navigator.mediaDevices is absent (the self-heal then just never sees a device change).
-		if (typeof navigator !== 'undefined' && navigator.mediaDevices) {
-			navigator.mediaDevices.addEventListener('devicechange', () => {
-				this.lastDeviceChangeAt = Date.now();
-			});
-		}
+		// SIMPLIFY (debug-midplay-stall-background): the headphone-unplug `devicechange` listener was
+		// removed along with the external-pause self-heal it fed. We no longer force-resume any pause, so
+		// there is nothing to suppress on an unplug — the browser's own "becoming noisy" pause is simply
+		// respected (which is the desired behavior anyway: audio stays paused when headphones are pulled).
 		el.addEventListener('play', () => {
 			// `play` fires the instant `paused` flips false (inside audio.play(), at
 			// readyState HAVE_NOTHING — before a single byte loads). It is a UI-STATE signal
@@ -1313,11 +1237,8 @@ class Player {
 			this.disarmStall();
 			// Next-song-current-but-paused fix: real audio started — the autoplay-retry arm is moot.
 			this.autoplayRetryArmed = false;
-			// EXTERNAL-PAUSE SELF-HEAL: audio is actually producing output — the self-heal succeeded (or
-			// was never needed). Cancel any pending resume and refund the per-src budget so a LATER
-			// external pause on this same src gets a full fresh set of attempts (D-06 parity).
+			// Audio is actually producing output — cancel any pending resume timer.
 			this.disarmResume();
-			this.externalResumeBudget = 0;
 			// D-06 success reset: a real `playing` event is the natural counter reset — the track
 			// is actually producing audio, so the never-stop chain has recovered. Clear the
 			// consecutive-failure budget + the audio-error burst, and drop any sticky 'stopped'
@@ -1360,19 +1281,18 @@ class Player {
 			// INITIAL-LOAD retry seam (per specialist — that would fight a genuine user pause). The
 			// initial-load retry is driven solely from the canplay/immediate seam set up in play().
 			this.autoplayRetryArmed = false;
-			// EXTERNAL-PAUSE SELF-HEAL (autoadvance-pauses-after-1s): consume the deliberate-pause flag.
-			// If THIS pause was intentional (user toggle / MediaSession / sleep-timer / offline — all
-			// route through pauseAudio()), honour it and do nothing. If it arrived WITHOUT the flag, it
-			// is an EXTERNAL pause (Android audio-focus loss / background throttle) on a track that was
-			// already playing — re-issue play() so a provably-playable song never sits frozen. The
-			// scheduler self-gates on hasPlayedSinceSrc + time-remaining + a per-src budget, so it never
-			// fights end-of-track, the initial-load case, or a genuinely-unrecoverable stop.
-			if (this.deliberatePause) {
-				this.deliberatePause = false;
-				this.disarmResume();
-				return;
-			}
-			this.scheduleExternalResume();
+			// SIMPLIFY (debug-midplay-stall-background): we do NOT force play() against a pause anymore.
+			// The old external-pause self-heal (scheduleExternalResume) re-issued play() on every
+			// non-deliberate pause — but because a successful re-play fires `playing`, which refunded the
+			// per-src budget (externalResumeBudget=0), the EXTERNAL_RESUME_CAP never engaged and the
+			// player fought an external audio-focus holder ~2×/sec indefinitely (log Pattern A). That is
+			// exactly the "interferes with other apps' voice notes" complaint: the OS pauses us to let
+			// another app speak, we immediately grab focus back. Per the user's target spec we now
+			// RESPECT any pause (whether a deliberate stop or an external audio-focus loss) and simply
+			// consume the deliberate flag. Recovery of a background-stalled track is handled ONLY on
+			// foreground return (resumeIfStalled), never by fighting the OS while backgrounded.
+			this.deliberatePause = false;
+			this.disarmResume();
 		});
 		el.addEventListener('canplay', () => {
 			// Next-song-current-but-paused fix: the canplay event is the readyState-ready signal — if a
@@ -1500,31 +1420,25 @@ class Player {
 				void this.reresolveCurrent();
 				return;
 			}
-			// quick-260625-pzs-05: a track that has ALREADY produced audio (hasPlayedSinceSrc) must
-			// never be auto-skipped by the error path. A byte-fetch error / stale-range 403 AFTER
-			// playback started is a recoverable MID-TRACK stall, not a load failure — so re-resolve the
-			// SAME song in place (reresolveCurrent preserves the seek via pendingSeek and does NOT bump
-			// the failure counters / is NOT an initial-load arm, per its D-14 contract) and resume near
-			// the current position, rather than cross-source-failing-over (which restarts at 0 / advances
-			// to the next track) — the "plays ~3s then auto-advances" bug. This mirrors the stall
-			// watchdog's existing hasPlayedSinceSrc gate (armStall); it reads the SAME internal flag and
-			// adds NO new `playing`-event dependency to any UI/render path. The cross-source fallback
-			// below then only fires for a track that errored BEFORE ever producing audio (genuine
-			// initial-load / region-lock failure) — preserving the never-stop loop-guard for those.
+			// SIMPLIFY (debug-midplay-stall-background): a track that has ALREADY produced audio
+			// (hasPlayedSinceSrc) but then errors gets ONE in-place same-src re-resolve — this recovers a
+			// genuinely transient mid-track buffer/CDN blip WITHOUT restarting the song, which is the good
+			// case the old RERESOLVE_CAP loop was built for. But the dominant real-world signature (log
+			// Pattern B: netease region-lock) is a URL that resolves fine, plays ~1s, then the byte-stream
+			// 403s and re-errors instantly — for which repeatedly re-resolving the SAME dead URL (up to
+			// the cap, then falling through) was a wasteful storm that pinned the player mid-song. So we
+			// cap the in-place recovery at ONE attempt: if a re-resolved src errors AGAIN before producing
+			// audio, we treat the track as failed and fall through to the cross-source fallback + advance
+			// (SKIP), per the user's "fails to resolve → skip it" spec. reresolveBurst resets on the next
+			// real `playing` / new src / recoverFromStop.
 			if (this.hasPlayedSinceSrc) {
-				// RERESOLVE-LOOP GUARD: re-resolve the same song in place for a TRANSIENT post-playback
-				// stall — but only up to RERESOLVE_CAP times. A PERSISTENTLY-dead URL (e.g. the CDN link
-				// expired during a long background gap) re-errors instantly and would otherwise loop
-				// forever (observed: ~1500 audio.error/13s, player pinned, never advances). Past the cap,
-				// stop re-resolving and fall through to the cross-source fallback + advance so playback
-				// continues. reresolveBurst resets on the next real `playing` / new src / recoverFromStop.
 				this.reresolveBurst++;
-				if (this.reresolveBurst <= Player.RERESOLVE_CAP) {
+				if (this.reresolveBurst <= 1) {
 					void this.reresolveCurrent();
 					return;
 				}
 				logAction('reresolve.cap', { uid: this.current?.uid, n: this.reresolveBurst });
-				// fall through — the same-src re-resolve is exhausted; advance via cross-source/loop-guard.
+				// fall through — the single in-place recovery failed; SKIP via cross-source/advance.
 			}
 			// Cross-source fallback (gte / SRC-FB-01): rather than surface the error immediately,
 			// try the same {artist,title} on the remaining enabled sources. Only after every
@@ -1749,10 +1663,8 @@ class Player {
 		this.unplayableStrikes.clear(); // …and the sub-cap strike budget in lockstep (over-aggressive-skip fix)
 		this.retriedDeadUids.clear(); // NEVER-STOP (quick-260630-q03): …and the one-retry record in lockstep
 		this.cancelAllRetryResolves(); // quick-260627-huo: …and cancel any pending delayed re-resolve timers (no leak)
-		// EXTERNAL-PAUSE SELF-HEAL: a queue reset cancels any pending external-pause resume and refunds
-		// the per-src budget so a fresh session starts clean.
+		// A queue reset cancels any pending resume timer so a fresh session starts clean.
 		this.disarmResume();
-		this.externalResumeBudget = 0;
 		this.persist();
 	}
 
@@ -2255,11 +2167,9 @@ class Player {
 					this.prefetchArmedForSrc = false;
 					// Next-song-current-but-paused fix: a NEW src clears any prior autoplay-retry arm.
 					this.autoplayRetryArmed = false;
-					// EXTERNAL-PAUSE SELF-HEAL: a NEW src resets the external-resume state — cancel any
-					// pending resume from the prior track, refund the per-src budget, and clear a stale
+					// A NEW src cancels any pending resume timer from the prior track and clears a stale
 					// deliberate-pause flag so the next pause is judged on this src's own merits.
 					this.disarmResume();
-					this.externalResumeBudget = 0;
 					this.deliberatePause = false;
 					this.audio.src = this.cachedBlobUrl;
 					this.armStall();
@@ -2376,11 +2286,9 @@ class Player {
 				this.prefetchArmedForSrc = false;
 				// Next-song-current-but-paused fix: a NEW src clears any prior autoplay-retry arm.
 				this.autoplayRetryArmed = false;
-				// EXTERNAL-PAUSE SELF-HEAL: a NEW src resets the external-resume state — cancel any
-				// pending resume from the prior track, refund the per-src budget, and clear a stale
+				// A NEW src cancels any pending resume timer from the prior track and clears a stale
 				// deliberate-pause flag so the next pause is judged on this src's own merits.
 				this.disarmResume();
-				this.externalResumeBudget = 0;
 				this.deliberatePause = false;
 				this.audio.src = src;
 				this.armStall();
@@ -2857,14 +2765,14 @@ class Player {
 			this.persist();
 		}
 		this.consecutiveFailures++;
-		// WR-07: store an i18n KEY (the now-bar/NowPlaying render it via t()) so the inline error
-		// matches the localized toast for the same event instead of raw English.
-		this.error = 'toast.playbackStopped';
-		// if (this.consecutiveFailures >= Player.FAILURE_CAP) {
-		// 	this.tripLoopGuard();
-		// 	return;
-		// }
-		// D-02 below the cap: emit a batched skip notice and auto-skip to the next track.
+		// SIMPLIFY (debug-midplay-stall-background): a track that failed ALL sources is SKIPPED, not
+		// stopped — so do NOT set this.error='toast.playbackStopped' here. Setting it made the sticky
+		// "playback stopped - couldn't load songs" toast appear on every skip; when a region-lock storm
+		// stalled the advance chain in the background (log Pattern B), no subsequent `playing` cleared
+		// it and the user saw a "stopped" message while the player was merely skipping. The batched
+		// skip notice below is the correct, self-dismissing signal for a skip. `this.error` is reserved
+		// for a genuine give-up (offline with no downloads / a resolve throw), not the never-stop skip.
+		// D-02: emit a batched skip notice and auto-skip to the next track.
 		this.emitSkipNotice(failed.title);
 		this.next();
 	}

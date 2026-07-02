@@ -3533,27 +3533,23 @@ describe('player.upNextAnchorUid — Up-Next list anchor (quick-260618-lsw)', ()
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// autoadvance-pauses-after-1s: EXTERNAL-PAUSE SELF-HEAL. On Android Chrome a genuinely-playable
-// track (typically right after an auto-advance src swap) plays ~1s then gets PAUSED by an external
-// event (audio-focus loss / background-lock throttle) — the element fires `pause` but NO `error`, so
-// neither the initial-load watchdog nor the error-path re-resolve engage. Before the fix the track
-// sat frozen at ~0:01. The fix re-issues audio.play() from the `pause` listener for an UNEXPECTED
-// pause: the track must have produced audio (hasPlayedSinceSrc), have time remaining, be under the
-// per-src budget, and the pause must NOT be deliberate (user / MediaSession / sleep-timer / offline
-// all route through pauseAudio(), which sets deliberatePause).
+// debug-midplay-stall-background: RESPECT EXTERNAL PAUSE (the external-pause self-heal was REMOVED).
+// The old design re-issued audio.play() from the `pause` listener for any non-deliberate pause. Because
+// a successful re-play fires `playing`, which reset the per-src budget, the cap never engaged and the
+// player fought an external audio-focus holder ~2×/sec forever (log Pattern A — the voice-note
+// interference). Per the user's target spec the player now RESPECTS any pause: a non-deliberate pause
+// (Android audio-focus loss / background throttle / headphone unplug) is left paused, and a
+// background-stalled track is recovered ONLY on foreground return (resumeIfStalled). These tests lock in
+// "never force-play against a pause".
 // ─────────────────────────────────────────────────────────────────────────────
-describe('player resilience — external-pause self-heal (autoadvance-pauses-after-1s)', () => {
-	const EXTERNAL_RESUME_CAP = 3;
-	const EXTERNAL_RESUME_DELAY_MS = 400;
-	const DEVICE_CHANGE_PAUSE_WINDOW_MS = 2000;
+describe('player — respects external pause (no self-heal fight, debug-midplay-stall-background)', () => {
+	const DEBOUNCE_MS = 400; // a generous window; nothing should ever schedule a re-play now
 	type Internals = {
 		hasPlayedSinceSrc: boolean;
 		deliberatePause: boolean;
-		externalResumeBudget: number;
 		resumeTimer: ReturnType<typeof setTimeout> | null;
 		audio: HTMLAudioElement | null;
 		playGen: number;
-		lastDeviceChangeAt: number;
 		disarmResume(): void;
 		pauseAudio(): void;
 	};
@@ -3566,8 +3562,6 @@ describe('player resilience — external-pause self-heal (autoadvance-pauses-aft
 		player.queue = [player.current];
 		setPlayed(false);
 		internals().deliberatePause = false;
-		internals().externalResumeBudget = 0;
-		internals().lastDeviceChangeAt = 0;
 		internals().disarmResume();
 	});
 
@@ -3589,177 +3583,108 @@ describe('player resilience — external-pause self-heal (autoadvance-pauses-aft
 		return el;
 	}
 
-	it('re-issues play() after the debounce when an EXTERNAL pause hits a played, mid-track element', () => {
+	it('does NOT re-play an EXTERNAL (non-deliberate) pause on a played, mid-track element — the pause is respected', () => {
 		const el = attachMidPlayback();
 
 		el.fire('pause'); // external — no deliberatePause flag set
-
-		// Debounced: nothing fires synchronously.
-		expect(el.play).not.toHaveBeenCalled();
-		vi.advanceTimersByTime(EXTERNAL_RESUME_DELAY_MS);
-		// Still paused after the debounce (the OS did not re-grant on its own) → self-heal re-plays.
-		expect(el.play).toHaveBeenCalledTimes(1);
+		// No scheduled resume, no re-play — not now, not after any debounce window.
+		expect(internals().resumeTimer).toBeNull();
+		vi.advanceTimersByTime(DEBOUNCE_MS * 5);
+		expect(el.play).not.toHaveBeenCalled(); // never fought the OS / external focus holder
 	});
 
-	it('does NOT re-play a DELIBERATE pause (user toggle routes through pauseAudio → deliberatePause set)', () => {
+	it('does NOT re-play repeated external pauses (no unbounded fight loop against audio focus)', () => {
+		const el = attachMidPlayback();
+		for (let i = 0; i < 5; i++) {
+			el.paused = true;
+			el.fire('pause');
+			vi.advanceTimersByTime(DEBOUNCE_MS);
+		}
+		expect(el.play).not.toHaveBeenCalled(); // Pattern A can no longer happen — zero forced resumes
+	});
+
+	it('consumes the deliberate-pause flag on a deliberate pause (user toggle) without re-playing', () => {
 		const el = attachMidPlayback();
 		el.paused = false; // currently playing — toggle() will pause it
 
 		player.toggle(); // user tap → pauseAudio() sets deliberatePause, then audio.pause()
-		// pauseAudio() calls audio.pause(); the fake records it but does not auto-fire `pause`.
 		expect(el.pause).toHaveBeenCalledTimes(1);
 		el.paused = true;
-		el.fire('pause'); // the resulting pause event — must be honoured, not healed
-
-		vi.advanceTimersByTime(EXTERNAL_RESUME_DELAY_MS * (EXTERNAL_RESUME_CAP + 1));
-		expect(el.play).not.toHaveBeenCalled(); // never fought the user's pause
-	});
-
-	it('does NOT self-heal an INITIAL-LOAD pause (hasPlayedSinceSrc false — owned by the watchdog)', () => {
-		const el = attachMidPlayback();
-		setPlayed(false); // never produced audio yet
-
-		el.fire('pause');
-		vi.advanceTimersByTime(EXTERNAL_RESUME_DELAY_MS);
+		el.fire('pause'); // the resulting pause event — deliberate flag consumed, no re-play
+		expect(internals().deliberatePause).toBe(false); // consumed
+		vi.advanceTimersByTime(DEBOUNCE_MS);
 		expect(el.play).not.toHaveBeenCalled();
 	});
 
-	it('does NOT self-heal an end-of-track pause (currentTime at/near duration)', () => {
-		const el = attachMidPlayback();
-		el.currentTime = 200; // at the very end
-		el.duration = 200;
-
-		el.fire('pause');
-		vi.advanceTimersByTime(EXTERNAL_RESUME_DELAY_MS);
-		expect(el.play).not.toHaveBeenCalled();
-	});
-
-	it('does NOT self-heal when the element reports ended (natural end also fires pause)', () => {
-		const el = attachMidPlayback();
-		(el as unknown as { ended: boolean }).ended = true;
-
-		el.fire('pause');
-		vi.advanceTimersByTime(EXTERNAL_RESUME_DELAY_MS);
-		expect(el.play).not.toHaveBeenCalled();
-	});
-
-	it('skips the resume if the element resumed on its own during the debounce (foreground re-grant)', () => {
-		const el = attachMidPlayback();
-
-		el.fire('pause');
-		el.paused = false; // OS re-granted focus / user returned to foreground before the timer
-		vi.advanceTimersByTime(EXTERNAL_RESUME_DELAY_MS);
-		expect(el.play).not.toHaveBeenCalled(); // already playing — no redundant re-play
-	});
-
-	it('gives up after EXTERNAL_RESUME_CAP attempts so a permanently-lost focus is not fought forever', () => {
-		const el = attachMidPlayback();
-
-		// Each external pause that stays paused through the debounce spends one budget unit.
-		for (let i = 0; i < EXTERNAL_RESUME_CAP; i++) {
-			el.paused = true;
-			el.fire('pause');
-			vi.advanceTimersByTime(EXTERNAL_RESUME_DELAY_MS);
-		}
-		expect(el.play).toHaveBeenCalledTimes(EXTERNAL_RESUME_CAP);
-
-		// One more external pause: budget exhausted → no further re-play (left paused for the user).
-		el.paused = true;
-		el.fire('pause');
-		vi.advanceTimersByTime(EXTERNAL_RESUME_DELAY_MS);
-		expect(el.play).toHaveBeenCalledTimes(EXTERNAL_RESUME_CAP);
-	});
-
-	it('a real `playing` event refunds the per-src budget so a LATER external pause gets fresh attempts', () => {
-		const el = attachMidPlayback();
-
-		// Burn the whole budget.
-		for (let i = 0; i < EXTERNAL_RESUME_CAP; i++) {
-			el.paused = true;
-			el.fire('pause');
-			vi.advanceTimersByTime(EXTERNAL_RESUME_DELAY_MS);
-		}
-		expect(el.play).toHaveBeenCalledTimes(EXTERNAL_RESUME_CAP);
-
-		// Audio actually resumes → `playing` refunds the budget.
-		el.paused = false;
-		el.fire('playing');
-		expect(internals().externalResumeBudget).toBe(0);
-
-		// A new external pause now gets a fresh attempt.
-		el.paused = true;
-		el.fire('pause');
-		vi.advanceTimersByTime(EXTERNAL_RESUME_DELAY_MS);
-		expect(el.play).toHaveBeenCalledTimes(EXTERNAL_RESUME_CAP + 1);
-	});
-
-	it('a deliberate pause landing DURING the debounce cancels the scheduled resume', () => {
-		const el = attachMidPlayback();
-
-		el.fire('pause'); // external — schedules a resume
-		// Before the timer elapses, a deliberate pause arrives (e.g. user taps pause / sleep timer).
-		internals().deliberatePause = true;
-		vi.advanceTimersByTime(EXTERNAL_RESUME_DELAY_MS);
-		expect(el.play).not.toHaveBeenCalled(); // honoured the deliberate pause
-	});
-
-	it('a newer play generation supersedes a stale scheduled resume (gen guard)', () => {
-		const el = attachMidPlayback();
-
-		el.fire('pause'); // schedules a resume against the current playGen
-		internals().playGen++; // a newer play()/skip lands during the debounce
-		vi.advanceTimersByTime(EXTERNAL_RESUME_DELAY_MS);
-		expect(el.play).not.toHaveBeenCalled(); // stale resume discarded
-	});
-
-	it('does NOT self-heal a pause right after a devicechange (headphone unplug → never blast the speaker)', () => {
-		const el = attachMidPlayback();
-		// An audio output-device change just happened (headphones unplugged / Bluetooth dropped).
-		internals().lastDeviceChangeAt = Date.now();
-
-		el.paused = true;
-		el.fire('pause'); // the "becoming noisy" pause — must be left paused, NOT resumed
-		vi.advanceTimersByTime(EXTERNAL_RESUME_DELAY_MS * (EXTERNAL_RESUME_CAP + 1));
-		expect(el.play).not.toHaveBeenCalled(); // never resumed to the phone speaker
-	});
-
-	it('DOES self-heal once the devicechange is older than the attribution window (unrelated later pause)', () => {
-		const el = attachMidPlayback();
-		// A device change happened, but well outside the window — a later external pause is NOT it.
-		internals().lastDeviceChangeAt = Date.now() - (DEVICE_CHANGE_PAUSE_WINDOW_MS + 1000);
-
-		el.paused = true;
-		el.fire('pause');
-		vi.advanceTimersByTime(EXTERNAL_RESUME_DELAY_MS);
-		expect(el.play).toHaveBeenCalledTimes(1); // stale device change → normal self-heal still applies
-	});
-
-	it('a MediaSession pause action is honoured — NOT self-healed (routes through pauseAudio)', () => {
+	it('a MediaSession pause action is respected — no re-play (routes through pauseAudio)', () => {
 		const el = attachMidPlayback();
 		el.paused = false; // currently playing
 		internals().pauseAudio(); // the MediaSession 'pause' handler routes through pauseAudio()
 		expect(el.pause).toHaveBeenCalledTimes(1);
 		el.paused = true;
-		el.fire('pause'); // the resulting pause event — deliberate, must not be healed
-		vi.advanceTimersByTime(EXTERNAL_RESUME_DELAY_MS);
+		el.fire('pause');
+		vi.advanceTimersByTime(DEBOUNCE_MS);
 		expect(el.play).not.toHaveBeenCalled();
 	});
 
-	it('a NATURAL `ended` disarms a PENDING external-pause resume (no re-play of a finished track)', () => {
-		// `ended` (repeatMode off) calls next() → real play(); spy it so this isolates the
-		// resume-cancellation: the pending resume timer must be disarmed by the `ended` listener.
-		const nextSpy = vi.spyOn(player, 'next').mockImplementation(() => {});
-		try {
-			const el = attachMidPlayback();
-			el.currentTime = 50; // mid-track so the near-end guard does not pre-empt the schedule
-			el.paused = true;
-			el.fire('pause'); // schedules a resume
-			expect(internals().resumeTimer).not.toBeNull(); // resume IS pending
-			el.fire('ended'); // …then the track ends — the ended listener must disarm the pending resume
-			expect(internals().resumeTimer).toBeNull(); // no re-play of a finished track
-		} finally {
-			nextSpy.mockRestore();
-		}
+	it('a headphone-unplug pause is respected — never resumed to the phone speaker', () => {
+		const el = attachMidPlayback();
+		el.paused = true;
+		el.fire('pause'); // the browser "becoming noisy" pause on unplug — must stay paused
+		vi.advanceTimersByTime(DEBOUNCE_MS);
+		expect(el.play).not.toHaveBeenCalled();
+	});
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// debug-midplay-stall-background: FOREGROUND-ONLY recovery. A track that was playing when the tab went
+// hidden and is left paused mid-track is re-played ONCE on the next visibilitychange→visible
+// (resumeIfStalled) — this is the ONLY sanctioned resume, replacing the removed background fight loop.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('player — foreground resume of a background-stalled track (debug-midplay-stall-background)', () => {
+	type Internals = {
+		hasPlayedSinceSrc: boolean;
+		deliberatePause: boolean;
+		resumeOnForeground: boolean;
+		audio: HTMLAudioElement | null;
+		resumeIfStalled(): void;
+	};
+	const internals = () => player as unknown as Internals;
+
+	function attachStalledMidTrack() {
+		const el = makeFakeAudio();
+		el.paused = true; // stalled paused while hidden
+		el.src = 'https://cdn/playing.mp3';
+		el.currentTime = 30;
+		el.duration = 200;
+		(el as unknown as { ended: boolean }).ended = false;
+		player.attach(el as unknown as HTMLAudioElement);
+		player.current = mk('netease', 'fg', 'A', 'Fg');
+		internals().hasPlayedSinceSrc = true;
+		return el;
+	}
+
+	it('re-plays the paused current track on foreground when it was playing at hide-time', () => {
+		const el = attachStalledMidTrack();
+		internals().resumeOnForeground = true; // playback was active when we went hidden
+		internals().deliberatePause = false;
+		internals().resumeIfStalled();
+		expect(el.play).toHaveBeenCalledTimes(1);
+	});
+
+	it('does NOT auto-resume on foreground if playback was NOT active at hide-time', () => {
+		const el = attachStalledMidTrack();
+		internals().resumeOnForeground = false; // a restored/paused session — never auto-start
+		internals().resumeIfStalled();
+		expect(el.play).not.toHaveBeenCalled();
+	});
+
+	it('honours a deliberate pause on foreground (does not resume something the user paused)', () => {
+		const el = attachStalledMidTrack();
+		internals().resumeOnForeground = true;
+		internals().deliberatePause = true; // user/MediaSession/sleep-timer paused it
+		internals().resumeIfStalled();
+		expect(el.play).not.toHaveBeenCalled();
 	});
 });
 
@@ -3940,14 +3865,16 @@ describe('player resilience — foreground resume of a background-stalled auto-a
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// debug-reresolve-loop-stops-playback: the audio.error → hasPlayedSinceSrc → reresolveCurrent() path
-// (transient post-playback stall recovery) had NO cap. A PERSISTENTLY-dead URL (CDN link expired during
-// a long background gap) re-errored instantly and re-triggered the branch → an unbounded
-// audio.error→reresolve storm (~1500 errors/13s observed in the action log) that pinned the player and
-// never advanced. RERESOLVE_CAP bounds the same-src re-resolve, then falls through to cross-source.
+// debug-reresolve-loop-stops-playback → simplified in debug-midplay-stall-background: the
+// audio.error → hasPlayedSinceSrc → reresolveCurrent() path (post-playback stall recovery) is now capped
+// at ONE in-place same-src re-resolve. A single re-resolve recovers a genuinely transient mid-track
+// buffer/CDN blip without restarting the song; a SECOND error before any `playing` means the URL is
+// persistently dead (e.g. a netease region-lock byte-stream 403 — log Pattern B), so the error path
+// STOPS re-resolving and falls through to the cross-source fallback + advance (SKIP). This replaces the
+// old cap of 3, which wasted re-resolves on a dead URL and helped drive the mid-play stall storm.
 // ─────────────────────────────────────────────────────────────────────────────
-describe('player resilience — bounded post-playback re-resolve (debug-reresolve-loop-stops-playback)', () => {
-	const RERESOLVE_CAP = 3;
+describe('player resilience — single post-playback re-resolve then skip (debug-midplay-stall-background)', () => {
+	const RERESOLVE_CAP = 1;
 	type Internals = {
 		hasPlayedSinceSrc: boolean;
 		reresolveBurst: number;
