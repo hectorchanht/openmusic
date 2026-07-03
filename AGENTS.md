@@ -3,7 +3,7 @@
 
 **MusicSquare Mobile**
 
-A mobile-first web music player that searches and streams tracks aggregated from multiple Chinese music platforms (Netease, QQ, Kuwo, JOOX, plus new sources). It is a ground-up reskin of an existing desktop single-page player ([index.html](index.html)): the proven data/fetch layer is reused, while the desktop three-panel UI is replaced with an app-like mobile interface inspired by YouTube Music and Spotify (bottom nav, expandable now-playing, background audio, installable PWA). Built with SvelteKit and deployed on Cloudflare.
+A mobile-first web music player that searches and streams tracks aggregated from multiple Chinese music platforms (Netease, QQ, Kuwo, JOOX, plus new sources). It began as a ground-up reskin of a former desktop single-page player (`index.html`, a vanilla-JS original that no longer lives in this repo): the proven data/fetch layer was reused, while the desktop three-panel UI was replaced with an app-like mobile interface inspired by YouTube Music and Spotify (bottom nav, expandable now-playing, background audio, installable PWA). Built with SvelteKit and deployed on Cloudflare.
 
 **Core Value:** A user on their phone can search a song, tap it, and have it play instantly with a smooth, native-app-like experience — and keep playing when the screen locks.
 
@@ -19,207 +19,186 @@ A mobile-first web music player that searches and streams tracks aggregated from
 <!-- GSD:stack-start source:codebase/STACK.md -->
 ## Technology Stack
 
+> Source of truth: `package.json`, `svelte.config.js`, `vite.config.ts`, `wrangler.jsonc`, `capacitor.config.ts`, `tsconfig.json`.
+
 ## Languages
-- HTML5 — entire application lives in `index.html` (3320 lines, ~113 KB)
-- CSS3 — inline `<style>` block inside `index.html` (lines 12–1490), no external stylesheet file
-- JavaScript (ES2020+) — inline `<script>` block inside `index.html` (lines 1493–3318)
-- Python 3.11 — GitHub Actions automation only; `scripts/g4f_issue_reply.py` (issue auto-reply bot, not part of the web app)
+- **TypeScript `~5.9`** — all app logic, sources, services, stores, API routes (`src/**/*.ts`). `tsconfig.json`: `strict`, `checkJs`, `moduleResolution: "bundler"`.
+- **Svelte 5 (`5.56.2`)** — all UI + routes (`src/**/*.svelte`, `src/routes/**`). Runes mode FORCED project-wide via `svelte.config.js`.
+- JavaScript (ESM) — config only (`svelte.config.js`, `vite.config.ts`); `"type": "module"`.
+- Kotlin — Android MediaStore bridge under `android/` (Capacitor native shell).
+
 ## Runtime
-- Browser-native: the app is a single static HTML file with zero server-side runtime
-- No Node.js, no Deno, no server process
-- Served directly via GitHub Pages (static file hosting)
-- None — no `package.json`, no `requirements.txt`, no lockfile exists for the web app
-- Python side (CI only): pip with `g4f[all]`, `requests`, `openai` installed at CI time (no pinned lockfile)
+- **Node.js `>=22`** for tooling (`.nvmrc`, CI, `engine-strict=true`).
+- **Cloudflare Workers (workerd)** for the deployed edge — server routes run at the edge (`wrangler.jsonc`: `compatibility_flags: ["nodejs_compat"]`).
+- Browser (iOS Safari + Android Chrome) for the client SPA/PWA; Android WebView (Capacitor) for the native APK.
+- **Package manager: pnpm `8.15.5`** (pinned via `packageManager` + corepack). Lockfile `pnpm-lock.yaml` present; CI uses `--frozen-lockfile`.
+
 ## Frameworks
-- None — vanilla JavaScript, no React, Vue, Angular, Svelte, or any UI framework
-- No module bundler (no Vite, Webpack, Rollup, Parcel, esbuild)
-- No TypeScript
-- No CSS framework (no Tailwind, Bootstrap, etc.)
-- Entirely custom CSS with CSS custom properties (`--bg-dark`, `--accent`, etc.) declared in `:root`
-- None — no test framework present
-- **No build step.** The file you edit is the file that ships. Opening `index.html` in a browser is all that is needed.
-- CI pipeline: GitHub Actions (`.github/workflows/g4f-issue-reply.yml`) runs only for issue auto-reply; not a build or deploy pipeline
+- **SvelteKit `2.63.0`** — app framework, routing, edge server endpoints.
+- **Svelte `5.56.2`** (runes) + **Vite `8.0.16`** dev server / bundler (`@sveltejs/vite-plugin-svelte`).
+- **Dual-adapter build switch** (`svelte.config.js`): `@sveltejs/adapter-cloudflare` (DEFAULT web → `.svelte-kit/cloudflare`, Cloudflare Pages) vs `@sveltejs/adapter-static` (`BUILD_TARGET=native` → `build/` SPA wrapped by the Capacitor Android shell).
+- **Capacitor `8.4.0`** (`@capacitor/core`/`cli`/`android`) native shell — `appId: com.openmusic.app`, `appName: OpenMusic`, `webDir: build`.
+- **Testing: Vitest `^4.1.3`** — single node/server test project (no jsdom); `src/**/*.{test,spec}.ts` + `*.svelte.test.ts`. ~67 test files, co-located with source.
+- Type checking: `svelte-check` + `typescript ~5.9` (`pnpm check`). No prettier/eslint/biome — `svelte-check` is the only quality gate.
+
 ## Key Dependencies
-- Google Fonts — `https://fonts.googleapis.com` — loads `Baloo 2` (wght 400, 600) and `Nunito` (wght 400, 600); referenced in `index.html` lines 9–11
-- No other CDN scripts — no jQuery, no hls.js, no lodash, no moment
-- All music API integrations are plain `fetch()` calls to third-party proxy APIs (see INTEGRATIONS.md)
-- **HTML5 `<audio>` element** — `<audio id="audio" preload="metadata">` at `index.html` line 1373
-- Audio `src` is set to a direct URL returned by the music proxy APIs (`dom.audio.src = track.audioUrl`)
-- Format support: MP3, AAC, OGG, FLAC (browser-native decode; no hls.js, no MSE/Media Source Extensions, no Web Audio API decode)
-- **No HLS/DASH streaming** — all audio URLs are direct file links
-- **Simulated audio level visualization:** `audioLevel` is a synthetic value derived from `Math.sin(currentTime)`, not from a real `AnalyserNode` (see `index.html` line 3190–3191). The Web Audio API is NOT used.
+- Runtime `dependencies` are Capacitor plugins + the icon lib only; the web app has NO third-party runtime npm deps (sources/proxy/services are hand-written over platform `fetch`/`URL`/`IndexedDB`/Cloudflare Cache).
+- `@lucide/svelte` — icon components (per-icon imports for tree-shaking).
+- `@capacitor/{app,filesystem,splash-screen,status-bar}`, `@jofr/capacitor-media-session` (lock-screen controls), `capacitor-blob-writer` (stream audio Blob to disk, no base64 bloat). Capacitor code is `browser`/`isNativePlatform()`-guarded — no-op on the web build.
+- **Audio: native HTML `<audio>`** with `src` set directly to a CDN URL or a `blob:` URL from IndexedDB. No HLS/DASH, no MediaSource, no Web Audio.
+
 ## Configuration
-- No environment variables for the web app — all API endpoints and tokens are **hardcoded** in `index.html`
-- JOOX token `f84ao9lMF_q7husBWRfgUw` is a hardcoded constant (`const JOOX_TOKEN`) at `index.html` line 2165
-- JOOX bitrate `const JOOX_BR = 4` hardcoded at `index.html` line 2166
-- Language preference stored in `localStorage` key `pikachu-music-lang`
-- User library (favorites + playlists) stored in `localStorage` key `pikachu-music-library-v1`
-- No build config files (no `tsconfig.json`, no `vite.config.*`, no `webpack.config.*`, no `.babelrc`, no `eslint.config.*`)
-## Platform Requirements
-- Any text editor + any modern browser
-- No Node.js, no Python, no build tools required to run the app locally
-- Open `index.html` directly in a browser (file:// protocol) or serve it with any static file server
-- GitHub Pages — the repo's `index.html` is served at `https://charlespikachu.github.io/musicsquare/`
-- No backend server, no database, no container, no CDN config needed
-- Any static hosting (Netlify, Vercel, S3+CloudFront, Cloudflare Pages) works as-is
-## Application Architecture Summary
+- Server secrets live in Cloudflare (`wrangler pages secret put …`), typed in `src/lib/proxy/proxy-types.ts` `Env`: `JOOX_TOKEN` (required for JOOX), `LASTFM_KEY`/`LASTFM_SECRET` (optional). Local dev values in `.dev.vars`. Secrets are injected edge-side only — never in the client bundle.
+- Public var baked into Pages config: `JAMENDO_CLIENT_ID` (`wrangler.jsonc` `vars`).
+- Build-time `VITE_API_BASE` — unset on web (same-origin `/api/*`); set to `https://openmusic.lol` for the native build so the APK WebView resolves `/api/*` to the deployed proxy (`src/lib/services/api-base.ts`).
+- localStorage keys namespaced `openmusic:<domain>:v<N>` (`openmusic:player:v1`, `openmusic:library:v1`, `openmusic:cover-cache:v1`).
+- Build config: `svelte.config.js`, `vite.config.ts`, `tsconfig.json`, `wrangler.jsonc`, `capacitor.config.ts`.
+
+## Build & Test Commands
+- `pnpm dev` — Vite dev server (strictPort 4321).
+- `pnpm build` — web build → `.svelte-kit/cloudflare` (adapter-cloudflare).
+- `pnpm build:native` — `BUILD_TARGET=native VITE_API_BASE=https://openmusic.lol` → `build/` SPA.
+- `pnpm check` — `svelte-kit sync` + `svelte-check` (typecheck).
+- `pnpm test` — `vitest --run`; `pnpm test:unit` — watch.
+- `pnpm apk` — `build:native` + `cap sync` + gradle `assembleDebug`.
+- `pnpm deploy` — build + `wrangler pages deploy … --project-name openmusic` (primary domain `openmusic.lol`).
+- Android CI: `.github/workflows/android-main.yml` (rolling prerelease on push to main) + `android-release.yml` (signed `assembleRelease`).
 <!-- GSD:stack-end -->
 
 <!-- GSD:conventions-start source:CONVENTIONS.md -->
 ## Conventions
 
-## Language and Runtime
-- ES2020+ features used throughout: `async/await`, optional chaining (`?.`), nullish coalescing (`??`), `const`/`let` (no `var`), arrow functions, destructuring, `Array.isArray`, `Map`, template literals, `Promise.all`.
-- The entire JS lives inside a single IIFE at the bottom of `index.html` (lines 1493–3318). There are no separate `.js` files in `scripts/` — that directory contains only the Python CI bot.
-- No jQuery, no lodash, no external JS libraries whatsoever.
-- Python (`scripts/g4f_issue_reply.py`) is used only for the GitHub issue-reply bot, not for the player itself.
-## Variable Declarations
-## Naming Conventions
-## State Management
-## DOM Manipulation
-## Event Handling
-## Async Patterns
+## Language & Runtime
+- **TypeScript, strict everywhere** (`tsconfig.json`: `strict`, `checkJs`, `allowJs`, `moduleResolution: "bundler"`). Node `>=22`.
+- **Svelte 5 runes mode is forced** for all first-party files. Use `$state`/`$derived`/`$effect`/`$props` — legacy `export let` / reactive `$:` are NOT used in app code.
+- No formatter/linter (no prettier/eslint/biome). The only quality gate is `svelte-check` (`pnpm check`). Style is convention + review.
+- Indentation is **tabs**. Single quotes for TS/JS literals EXCEPT `src/lib/i18n/*.ts` (double quotes — see below).
+
+## Runes Usage (Svelte 5)
+- **Stores are runes-singleton classes in `*.svelte.ts` files**, instantiated once and exported as a module-scope singleton (`export const player = new Player()`). Public reactive fields use `$state<T>(initial)` with an explicit generic.
+- **Internal, non-reactive counters/guards use PLAIN class fields, NOT `$state`** — a deliberate convention (loop-guard budgets, generation counters, debounce timers the UI never reads reactively). See `player.svelte.ts` `consecutiveFailures`, `playGen`, `pendingGen`.
+- **Imperative-vs-reactive boundary:** stores emit RAW structured data on `$state` fields; UI reads them one-way. Stores NEVER import UI and NEVER localize text — they emit a `TranslationKey`, and a layout host maps it via `t()`.
+- **Generation-guard idiom** (pervasive in `player.svelte.ts`): a monotonic counter (`playGen`, `pendingGen`, `queueGen`) is bumped at the top of an async entry point; after every `await`, re-read the counter and bail if a newer call superseded it. Use for any async resolve a newer user action can supersede.
+
+## Naming Patterns
+- Runes stores: `<name>.svelte.ts` (suffix REQUIRED so the Vite plugin transforms runes). Pure services/logic: kebab-case `<name>.ts`. Components: `PascalCase.svelte`. Actions (`use:`): `camelCase.ts`. Tests: co-located `<name>.test.ts` / `.svelte.test.ts`. Routes: `+server.ts` / `+layout.svelte` / `+page.ts`.
+- Functions/locals `camelCase`; module constants `SCREAMING_SNAKE_CASE`; class tunables `private static UPPER_SNAKE`. Types `PascalCase` (`Track`, `SourceId`, `QueueContext`); union string literals for enums (`repeatMode: 'off' | 'one'`).
+
+## Import Organization
+- **Always use path aliases, not deep relative paths** — `$lib/...`, `$app/...` (the `browser` flag is `$app/environment`). Relative `../` imports are rare.
+- **Type-only imports use `import type`** (compile-time key safety without a runtime dependency).
+- Named exports throughout; no default exports in `$lib`.
+
 ## Error Handling
+- **Never-throw services (return a sentinel).** Data/enrichment services (`deezer.ts`, `itunes-cover.ts`, `lastfm.ts`, `fallback.ts`) throw internally so a transient failure is never cached, then map any rejection to a null / empty-array / empty-object sentinel at the exported boundary. A null return means "no data — fall back," never a broken image or a thrown error into the render tree.
+- **Silent-catch with graceful degradation.** Search adapters swallow per-source failures (`Promise.allSettled` fan-out) so partial results still render. Exception: `netease.ts` intentionally THROWS on contract drift so `catalog`'s `allSettled` records a typed per-source error.
+- **Soft-fail flags (don't trust a 200).** `/api/translate` can echo originals back with a 200; `translate.ts` returns a `complete` boolean and only persists fully-translated batches, retrying incomplete.
+
+## Type Safety
+- **Zero `as any` in production source** (all `as any` are in tests). Only 6 `@ts-expect-error`, no `@ts-ignore`. Prefer `satisfies` and `as const` over casts; type guards are user-defined predicates.
+
+## SSR / Browser Guards
+- App SSRs on Cloudflare and also builds as a Capacitor SPA. Stores import `{ browser } from '$app/environment'` and early-return under `!browser`. Any new store touching `localStorage`/`window`/`document`/`Image`/`IntersectionObserver`/Media Session MUST gate on `browser` (or feature-detect).
+
+## i18n — DOUBLE QUOTES Convention
+- `src/lib/i18n/*.ts` locale dictionaries use **double quotes for every key AND value** — a manual, formatter-less convention (no tool enforces it). All locale files MUST expose an IDENTICAL key set (`en` is the reference/source locale; `i18n.test.ts` guards key-set parity). The store/service layer stays i18n-free (emits `TranslationKey`s; UI calls `t(key)`).
+
 ## Comments
-## Internationalization (i18n)
-## CSS / Design Tokens
-## Track Object Shape
-## Storage
+- **High comment density is the house style** — comments are load-bearing decision records. Two tagging systems: quick-task IDs (`quick-NNNNNN-xxx`) and decision refs (`D-09`, `PLAY-08`, `COVER-01`, `WR-03`, `MS-05`). When you fix a bug or make a non-obvious choice, ADD a comment with the quick-task ID or decision ref; do not remove existing decision-ref comments.
+
+## Function & Module Design
+- **Pure functions are extracted and exported for testability.** Queue math, ordering, parsing, scoring live in a `.ts` with pure exports (`fallbackOrder`, `decideEndedAction`, `parseLRC`, `score-match.ts`); runes stores are thin callers. Stores avoid circular deps by staying LEAF where possible (`settings` imports nothing from player/library). `AbortSignal` is threaded through async services for supersedence/timeout.
 <!-- GSD:conventions-end -->
 
 <!-- GSD:architecture-start source:ARCHITECTURE.md -->
 ## Architecture
 
-## REBUILD SEPARATION GUIDE
-- **[BACKEND — REUSE]** Data-fetching, API calls, track metadata, audio URL resolution, lyrics fetching, state management, persistence. These are the functions to extract and reuse in the new mobile app.
-- **[UI — REPLACE]** DOM manipulation, HTML rendering, CSS animations, event bindings, canvas particles, ripple effects. Everything that currently drives the desktop three-panel layout will be thrown away and rebuilt.
-## System Overview
+**Overall:** Store-driven reactive Svelte 5 runes singletons over a pure service/adapter core, fronted by a Cloudflare edge proxy. All source under `src/`.
+
+## System Overview (layers, top → bottom)
+
 ```text
+ROUTES  src/routes/(app)/   home / search / library / album / artist / charts / song / settings/*
+        Root layout mounts the ONE app-wide <audio>: src/routes/+layout.svelte (ssr=false SPA)
+   ▼ components read stores, call store methods
+COMPONENTS  src/lib/components/   NowPlaying (1652L) · Nowbar · TrackMenu · CompactRow · …
+            ACTIONS src/lib/actions/  lazyCover · tapBounce · longpress · coverSwipe · dragClose …
+   ▼ reactive $state reads + method calls (no prop drilling)
+STORES  src/lib/stores/*.svelte.ts   player (central, ~3017L) · library · settings (leaf) · history ·
+        names · overlays · cover-version · sleepTimer · online · searchSession · toast · actionLog
+   ▼ pure/async function calls
+SERVICES  src/lib/services/ (pure .ts, node-testable)  catalog (searchAll / ensureTrackDetails) ·
+          dedupe · discovery · picks · similar · cover-backfill · cover-cache · deezer · itunes-cover ·
+          lastfm · lrc · media-session · blob-store · score-match · fallback · …
+   ▼ SourceAdapter.search()/resolve() via registry
+SOURCES  src/lib/sources/   netease · qq · kuwo · joox · fivesing · jamendo · audius   (registry.ts)
+   ▼ fetch same-origin /api/*
+API PROXY (Cloudflare Workers, edge)  src/routes/api/   [source]/[...path] catch-all (netease/qq/kuwo/joox)
+          + deezer/* · lastfm/* · similar · translate · audius · jamendo · fivesing
+          CORS seam: src/hooks.server.ts ; JOOX_TOKEN injected edge-side only
+   ▼
+UPSTREAMS  CN music proxies, Deezer, iTunes, Last.fm, translate APIs + native <audio> + IndexedDB blob cache
 ```
-## Component Responsibilities
-| Component | Responsibility | Classification | Location |
-|-----------|----------------|----------------|----------|
-| `state` object | Central mutable store — all runtime state | BACKEND — REUSE | `index.html` line 1648 |
-| `trackMap` (Map) | Deduplication cache keyed by `uid` | BACKEND — REUSE | `index.html` line 1657 |
-| `searchNetease()` | Fetches search results from Netease via qijieya proxy | BACKEND — REUSE | `index.html` line 1986 |
-| `searchQQ()` | Fetches search results from QQ via tang API | BACKEND — REUSE | `index.html` line 2041 |
-| `searchKuwo()` | Fetches search results from Kuwo via cenguigui proxy | BACKEND — REUSE | `index.html` line 2123 |
-| `searchJoox()` | Fetches search results from JOOX via apicx proxy | BACKEND — REUSE | `index.html` line 2169 |
-| `searchAllSources()` | Fan-out aggregator: runs all enabled sources in parallel | BACKEND — REUSE | `index.html` line 2216 |
-| `fetchNeteaseDetails()` | Resolves audio URL + lyrics for a Netease track | BACKEND — REUSE | `index.html` line 2268 |
-| `fetchQQDetails()` | Resolves audio URL + lyrics for a QQ track | BACKEND — REUSE | `index.html` line 2311 |
-| `fetchKuwoDetails()` | Resolves audio URL + lyrics for a Kuwo track | BACKEND — REUSE | `index.html` line 2398 |
-| `fetchJooxDetails()` | Resolves audio URL + lyrics for a JOOX track, with URL probing | BACKEND — REUSE | `index.html` line 2424 |
-| `ensureTrackDetails()` | Lazy-loader: dispatches to the right per-source detail fetcher | BACKEND — REUSE | `index.html` line 2506 |
-| `inferQualityFromUrl()` | Determines quality tag (lossless/320k) from audio URL extension | BACKEND — REUSE | `index.html` line 1747 |
-| `parseLRC()` | Parses LRC timestamp format into `{time, text}` array | BACKEND — REUSE | `index.html` line 2517 |
-| `getInterleavedSearchList()` | Interleaves results from all sources for display ordering | BACKEND — REUSE | `index.html` line 1691 |
-| `playTrack()` | Orchestrates: ensureTrackDetails → set audio.src → play | BACKEND — REUSE (core logic); calls UI renders | `index.html` line 2599 |
-| `playFromList()` | Resolves list + index → calls `playTrack()` | BACKEND — REUSE | `index.html` line 2685 |
-| `playNext()` | Computes next index per playMode (list/single/shuffle) | BACKEND — REUSE | `index.html` line 2703 |
-| `getActiveList()` | Returns the currently active track list from state | BACKEND — REUSE | `index.html` line 2668 |
-| `isFavorite()` | Checks if track is in favorites | BACKEND — REUSE | `index.html` line 2589 |
-| `toggleFavoriteCurrent()` | Adds/removes currentTrack from favorites + persists | BACKEND — REUSE | `index.html` line 2733 |
-| `serializeTrack()` | Strips non-persistable fields before saving | BACKEND — REUSE | `index.html` line 1762 |
-| `deserializeTrack()` | Restores a track object from JSON | BACKEND — REUSE | `index.html` line 1780 |
-| `saveLibraryToStorage()` | Writes favorites + playlists to localStorage | BACKEND — REUSE | `index.html` line 1804 |
-| `loadLibraryFromStorage()` | Loads library from localStorage at startup | BACKEND — REUSE | `index.html` line 1820 |
-| `getLibrarySnapshot()` | Serializes full library to JSON-safe object | BACKEND — REUSE | `index.html` line 1791 |
-| `exportPlaylistData()` | Triggers browser download of JSON library export | BACKEND — REUSE (logic); uses DOM Blob/anchor | `index.html` line 1841 |
-| `importPlaylistData()` | Merges imported JSON into state, deduplicates | BACKEND — REUSE | `index.html` line 1879 |
-| `mergeImportedTracks()` | Deduplicates tracks during import | BACKEND — REUSE | `index.html` line 1859 |
-| `rebuildLibraryTrackMap()` | Re-registers all library tracks in trackMap | BACKEND — REUSE | `index.html` line 1812 |
-| `translations{}` | i18n strings for zh/en | BACKEND — REUSE | `index.html` line 1495 |
-| `t(key)` | Looks up translation string | BACKEND — REUSE | `index.html` line 1678 |
-| `formatTime()` | Formats seconds to `MM:SS` | BACKEND — REUSE | `index.html` line 1685 |
-| `renderMiniSearchList()` | Renders search result items as DOM nodes | UI — REPLACE | `index.html` line 2768 |
-| `renderPlaylistList()` | Renders playlist/favorites/search as DOM track-item nodes | UI — REPLACE | `index.html` line 2818 |
-| `renderLyrics()` | Wipes and rebuilds lyrics DOM from `state.lyricLines` | UI — REPLACE | `index.html` line 2535 |
-| `updateLyricsHighlight()` | Scrolls and applies `.active` CSS class to current lyric | UI — REPLACE | `index.html` line 2565 |
-| `renderPlaylistOptions()` | Rebuilds `<select>` dropdown for custom playlists | UI — REPLACE | `index.html` line 1957 |
-| `updatePlaylistInfoLabel()` | Updates the text label above the playlist | UI — REPLACE | `index.html` line 2807 |
-| `updateMainFavButton()` | Toggles fav button active CSS class | UI — REPLACE | `index.html` line 2593 |
-| `setPlaymodeUI()` | Toggles `.active` on playmode buttons | UI — REPLACE | `index.html` line 3107 |
-| `applyUI()` (inline inside playTrack) | Updates cover, title, artist, source pill, quality pill DOM | UI — REPLACE | `index.html` line 2604 |
-| `setupDOM()` | Caches all DOM element references into `dom{}` object | UI — REPLACE | `index.html` line 3054 |
-| `setupEvents()` | Attaches all event listeners to DOM elements | UI — REPLACE | `index.html` line 3113 |
-| `setupParticles()` | Canvas-based floating particle animation | UI — REPLACE | `index.html` line 2963 |
-| `setupRipple()` | Injects ripple animation spans on pointer events | UI — REPLACE | `index.html` line 3027 |
-| `setLanguage()` | Updates all `data-i18n` DOM elements for language switch | UI — REPLACE (DOM part); logic is REUSE | `index.html` line 1709 |
-| `showToast()` | Shows a floating toast notification via DOM | UI — REPLACE | `index.html` line 1679 |
-| `handleDownloadCurrent()` | Opens audio URL in new tab for download | UI — REPLACE (trivial) | `index.html` line 2743 |
-| All CSS styles | Layout, glassmorphism, animations, scrollbars, etc. | UI — REPLACE | `index.html` lines 12–1211 |
-| HTML structure | Three-panel layout, header, footer, modals | UI — REPLACE | `index.html` lines 1213–1491 |
-| `init()` | Entry point: calls setupDOM, loads storage, wires everything | BOTH — will split on rebuild | `index.html` line 3302 |
+
+## Key Files
+
+| Concern | File |
+|---------|------|
+| App boot / the single `<audio>` (mounted once, survives nav); `player.attach()` + `player.restore()` | `src/routes/+layout.svelte` |
+| App shell — tab nav, Nowbar/NowPlaying mount, toast host, offline banner; `library.load()`/`settings.load()`/`overlays.init()` | `src/routes/(app)/+layout.svelte` |
+| Central playback engine (transport/queue state, resolve→play, cross-source fallback, never-stop guard, prefetch, media session, persistence) | `src/lib/stores/player.svelte.ts` |
+| Search fan-out `searchAll()` + lazy `ensureTrackDetails()` | `src/lib/services/catalog.ts` |
+| The ONLY client source-adapter enumeration | `src/lib/sources/registry.ts` |
+| `Track` / `SourceAdapter` / `makeUid()` contracts | `src/lib/sources/types.ts` |
+| Edge proxy catch-all (validates source, injects JOOX token edge-side) | `src/routes/api/[source]/[...path]/+server.ts` |
+| Single CORS seam for every `/api/*` (allowlisted origin, never `*`) | `src/hooks.server.ts` |
+| Settings defaults + `QueueContext` type (single source of truth) | `src/lib/config/defaults.ts` |
+
 ## Pattern Overview
-- Global state via a single `state` object (not reactive — functions must imperatively call renderers after mutations)
-- All DOM references cached in `dom{}` object (populated at startup by `setupDOM()`)
-- Lazy track detail loading: search returns lightweight stubs; `ensureTrackDetails()` resolves full URL + lyrics on first play
-- Backend functions are pure or near-pure (fetch + state mutation with no direct DOM access) — this is the clean extraction seam for the rebuild
-- UI functions are tightly coupled: they read `state` directly and write to `dom` directly
-## Layers
-- Purpose: Fetch search results, resolve playable URLs, parse lyrics, manage persistent library
-- Location: JavaScript functions inside `index.html` lines ~1648–2513
-- Contains: `state{}`, `trackMap`, search functions, detail fetch functions, `parseLRC`, library persistence functions, `getInterleavedSearchList`, `playNext`, `getActiveList`, `isFavorite`, `toggleFavoriteCurrent`
-- Depends on: Third-party proxy APIs (see Integrations), `localStorage`, `fetch()`, native `Audio` element
-- Used by: Presentation layer (currently interleaved)
-- Purpose: Render track lists, update player controls, display lyrics, show animations
-- Location: JavaScript functions inside `index.html` lines ~2535–3317, plus all CSS (lines 12–1211), plus HTML (lines 1213–1491)
-- Contains: All `render*()` functions, `setupDOM()`, `setupEvents()`, `setupParticles()`, `setupRipple()`, CSS, HTML structure
-- Depends on: `state{}` (reads only), `dom{}` (writes only)
-- Used by: User interactions via event listeners
-## Data Flow
-### Primary Playback Path: Search → Fetch URL → Play
-### Track-End Auto-Advance
-### Library Persistence
+- **Svelte 5 runes everywhere.** Stores are plain classes with `$state`/`$derived` fields, instantiated ONCE and exported as a singleton. Components read `player.current` directly and re-render — no `writable`/subscribe, no prop drilling. This replaces the legacy imperative-renderer model entirely.
+- **`.svelte.ts` (runes) vs `.ts` (pure) split is deliberate and load-bearing** — pure logic stays node-testable under the single Vitest server project (no jsdom). The `cover-version.svelte.ts` / `cover-cache.ts` pair is the canonical "wrap, don't rewrite" example.
+- **Registry-driven sources.** Adding a source = one client adapter (`src/lib/sources/<id>.ts`) + one proxy (`src/lib/proxy/<id>.ts`) + one registry line. Aggregation code NEVER names a source.
+- **Lazy resolution.** Search returns lightweight `Track` stubs (`audioUrl:null, detailsLoaded:false`); `ensureTrackDetails()` resolves URL + lyrics on first play.
+- **Generation guards** protect every async path against supersedence.
+- **Client-rendered SPA** (`ssr=false`+`prerender=false`, required for the Capacitor static build); dual-adapter build switch swaps `adapter-cloudflare` → `adapter-static` on `BUILD_TARGET=native`.
+
 ## Key Abstractions
-- Purpose: Represents a single song. Two phases: stub (after search) and enriched (after detail fetch)
-- Key fields: `uid` (globally unique, e.g., `"netease-12345678"`), `source`, `title`, `artist`, `album`, `cover`, `audioUrl` (null until details loaded), `lrc` (null until fetched), `detailsLoaded: boolean`, `quality`, `qualityLabel`
-- Created by: search functions; enriched by detail fetchers
-- Serialization: `serializeTrack()` at line 1762 strips `audioUrl`, `lrc`, `lrcUrl` before saving (they are refetched on next play)
-- Location: `index.html` lines 1648–1669
-- Key fields:
-- Purpose: Tracks which list (results/favorites/playlist) and position the player is in, so `playNext()` knows where to advance
-- Structure: `{type: 'results'|'favorites'|'playlist', index: number, playlistId: string|null}`
-- Purpose: Global deduplication. Before adding any track to `state.searchResults`, functions check `state.trackMap.has(uid)`. Prevents duplicates across search rounds and "load more" calls.
-- Key format: `"<source>-<id>"` e.g. `"qq-00ABCD1234"`, `"kuwo-12345678"`, `"joox-ABCDEF"`
-## Entry Points
-- Location: `index.html` line 3316: `document.addEventListener('DOMContentLoaded', init)`
-- `init()` at line 3302: calls `setupDOM()` → `loadLibraryFromStorage()` → `setupParticles()` → `setupRipple()` → `setupEvents()` → `setLanguage()` → renders initial list
-- Location: `index.html` lines 3118–3128 (click and Enter handlers)
-- Triggers: `searchAllSources(true)`
-- Location: `playTrack()` at `index.html:2599`
-- Called by: `playFromList()`, auto-play after search (line 2256–2258)
-## Playback Lifecycle
-```
-```
-## Playlist / Queue Handling
-- There is no separate "queue" concept. The "queue" is whichever list is currently active in `state.playContext.type`:
-- `getActiveList()` at line 2668 returns the current list for `playNext()` to advance through
-- `getInterleavedSearchList()` at line 1691 round-robins results from netease/qq/kuwo/joox for display ordering (not insertion order)
-- Play modes (`state.playMode`):
-## UI — Current Coupling to Data Logic
-```javascript
-```
+- **`Track`** (`src/lib/sources/types.ts`): one song in two phases — stub (post-search) and enriched (post-resolve). Identity `uid = ${source}:${songid}` (COLON form) via `makeUid()`; `displayIndex` is ORDERING ONLY, never identity.
+- **Queue model:** `player.queue: Track[]` + `queueContext` (which surface started it) + `upNextAnchorUid`. Install via `setQueue()`/`setListQueue()`; manual inserts `playNext()`/`addToQueue()`; auto-grow `ensureAhead()`/regenerate.
+- **Cover cache** (`src/lib/services/cover-cache.ts`, localStorage `openmusic:cover-cache:v1`): three disjoint key families in one flat record — `uid:<colon-uid>` (exact song) · `<matchKey>` (name layer, cross-uid bridge) · `artist:<matchKey>`. Read order everywhere: uid → name → null. `cover-version.svelte.ts` adds the reactive `coverVersion()` signal.
+- **Cover resolution chain:** Deezer (`/api/deezer/search`) → iTunes (CORS-open) → CN (`searchAll → dedupeBest[0].cover`), first SOLID https wins; a resolve writes both cache layers + bumps version so tiles repaint live. **Self-heal:** a cover that errors while rendering triggers `healCover(uid)` (evict + re-resolve, one-shot per `${uid}|${url}`).
+- **Generation guards:** `playGen` (bumped per `play()`; every await re-checks + bails a stale resolve), `queueGen` (per `setQueue()`), `pendingGen` (`playStub` overlay), `fallbackGen` (one cross-source failover per generation).
+
+## The Audio Playback Lifecycle
+1. `play()` sets `current`/`loading`/`resolvedCover` synchronously, bumps `playGen`, records history.
+2. Offline-first: if `library.isDownloaded(uid)` and a blob exists, `audio.src = createObjectURL(blob)` and skip network.
+3. Else `await ensureTrackDetails(track)`; gen-check; adopt cover; persist.
+4. Set `audio.src`, `armStall()` (load watchdog), `audio.play()`; `prefetchNext()` arms the next track (gapless).
+5. `playing` event = real output → reset failure counters, clear notice.
+6. `error` → single same-src re-resolve, then cross-source `runFallback` (advance PAST a dead URL).
+7. `ended` → `next()` (repeat-one loops; else advance / auto-grow).
+
 ## Architectural Constraints
-- **Threading:** Single-threaded event loop. All fetch calls are `async/await`. No Web Workers.
-- **Audio engine:** Native HTML `<audio id="audio">` element at `index.html:1373`. The `src` attribute is set directly to the resolved CDN URL. No MediaSource API, no custom buffering.
-- **Global state:** One IIFE-scoped `state` object and `dom` object. No module imports. Everything shares the same closure.
-- **CORS:** All API calls are to third-party proxy servers. The proxies handle CORS headers. Direct calls to Netease/QQ/Kuwo/JOOX APIs would be blocked.
-- **No build system:** Vanilla JS ES2020+ (uses `async/await`, optional chaining `?.`, nullish coalescing `??`). Must remain browser-native or be transpiled for older targets.
-- **localStorage key:** `'pikachu-music-library-v1'` — must not change between old and new app if library continuity is required.
-- **`JOOX_TOKEN`:** Hardcoded constant at `index.html:2165` as `'f84ao9lMF_q7husBWRfgUw'`. The JOOX `br` (bitrate tier) defaults to `4` (line 2166), mapped to Atmos/lossless in `pickJooxPlayUrl` priority order.
-- **Circular imports:** Not applicable (no modules).
-## Anti-Patterns
-### Mixed concerns in `playTrack()`
-### All renderers called imperatively after every mutation
-### `audioLevel` approximation (line 3190–3191)
+- **Threading:** single-threaded event loop; all I/O is `async/await`. No Web Workers (`service-worker.ts` is PWA caching only).
+- **Circular imports:** avoided by discipline — `settings` is a LEAF; `player` imports settings/library/history/names/actionLog one-way.
+- **Runes files:** anything using `$state`/`$derived`/`$effect` MUST be `*.svelte.ts` or `*.svelte`; pure logic stays `.ts`.
+- **Secrets:** `JOOX_TOKEN`, `LASTFM_SECRET` live ONLY in Cloudflare `platform.env`, injected edge-side in proxy adapters — never in the client bundle.
+- **Audio engine:** native HTML `<audio>` (`referrerpolicy=no-referrer`); `src` set directly to a CDN or `blob:` URL. No MediaSource/HLS/Web Audio.
+- **CORS:** all `/api/*` get allowlisted CORS via `hooks.server.ts` — never `*`.
+- **SSR:** disabled app-wide; every store/service touching `localStorage`/`window`/`document` is `browser`-guarded.
+
+## Anti-Patterns (known debt)
+- **`player.svelte.ts` is a ~3017-line god object** — transport, queue, fallback, never-stop guard, prefetch, media session, cover self-heal, persistence in one class. Extract cohesive slices into pure services the store thin-calls (the media-session slice already models this).
+- **`NowPlaying.svelte` at 1652 lines** — a re-render hotspot; split lyrics pane / up-next / transport into children that each subscribe to only the `$state` they need.
+- **Cover-cache write duplication** — the https-only guard + write-both-layers + bump sequence is replicated across several call sites; route every writer through `cover-version.svelte.ts` `writeCoverBoth`.
+
 ## Error Handling
-- Search functions catch fetch errors silently (log to console, return 0 added tracks) — partial results from other sources still display
-- `fetchJooxDetails()` includes a URL probe step (`probeJooxAudioUrl()`) before committing to an audio URL — HEAD then GET range fallback
-- `fetchQQDetails()` does NOT set `detailsLoaded = true` on failure (line 2394), allowing retry on next play attempt
-- `playTrack()` catch block (line 2658) shows toast and resets player status to idle
+- **Strategy: isolate-and-degrade** — no error stops the app or the never-stop playback chain. Per-source search isolation (`Promise.allSettled`); cover chain per-tier never-throw (total miss leaves a gradient); playback never-stop routes a dead URL through single-retry → cross-source `runFallback` → skip, with a `FAILURE_CAP=5` loop-guard tripping a sticky Retry notice. localStorage access always try/catch. Store→UI errors surface via reactive fields (`player.error`, `player.notice`) read one-way by the layout toast host.
+
 ## Cross-Cutting Concerns
+- **Logging:** verbose player action log via `logAction()` (`src/lib/stores/actionLog.svelte.ts`), viewable at Settings → Activity log; never on the `timeupdate` firehose.
+- **i18n:** runes-based `t()` (`src/lib/i18n/index.ts`) reads `settings.appLang` reactively; 16 dictionaries; `en` defines `TranslationKey` (missing keys are compile errors).
+- **Media Session:** OS lock-screen integration via `services/media-session.ts` (web) + `native-media-session.ts` (Capacitor), driven from the player store.
 <!-- GSD:architecture-end -->
 
 <!-- GSD:skills-start source:skills/ -->
