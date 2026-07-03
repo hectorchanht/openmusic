@@ -43,6 +43,13 @@ vi.mock('$lib/services/cover-backfill', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('$lib/services/cover-backfill')>();
 	return { ...actual, resolveCoverForTrack: vi.fn(async () => null) };
 });
+// quick-260704-20e: spy on the BOTH-layers evictor so healCover's dead-probe eviction is observable.
+// importOriginal keeps writeCoverBoth/bumpCoverVersion (+ the reactive read helpers) real so the
+// player store's existing cover-write sites (Site A/Site C) still behave.
+vi.mock('$lib/stores/cover-version.svelte', async (importOriginal) => {
+	const actual = await importOriginal<typeof import('$lib/stores/cover-version.svelte')>();
+	return { ...actual, removeCoverBoth: vi.fn(actual.removeCoverBoth) };
+});
 
 const memStore = new Map<string, string>();
 const localStorageMock: Storage = {
@@ -69,6 +76,7 @@ import { buildSimilarQueue } from '$lib/services/similar';
 import { buildDiversePicks } from '$lib/services/picks';
 import { getCachedCoverByUid, getCachedCover } from '$lib/services/cover-cache';
 import { resolveCoverForTrack } from '$lib/services/cover-backfill';
+import { removeCoverBoth } from '$lib/stores/cover-version.svelte';
 
 const mockResolve = vi.mocked(resolveStub);
 const mockEnsure = vi.mocked(ensureTrackDetails);
@@ -79,6 +87,7 @@ const mockPicks = vi.mocked(buildDiversePicks);
 const mockUidCover = vi.mocked(getCachedCoverByUid);
 const mockNameCover = vi.mocked(getCachedCover);
 const mockResolveCover = vi.mocked(resolveCoverForTrack);
+const mockRemoveCoverBoth = vi.mocked(removeCoverBoth);
 
 function mk(source: SourceId, songid: string, artist: string, title: string): Track {
 	return {
@@ -1920,6 +1929,192 @@ describe('player.resolvedCover — single-field artwork guarantee (COVER-01 / D-
 		mockEnsure.mockResolvedValueOnce({ ...mk('qq', 'S2', 'Artist', 'Song 2'), cover: 'https://cdn/cover-2.jpg', audioUrl: 'https://cdn/2.mp3' });
 		await player.play(t2);
 		expect(rc()).toBe('https://cdn/cover-2.jpg'); // repointed — no stale cover-1
+	});
+});
+
+describe('player.healCover — dead current-cover self-heal (quick-260704-20e)', () => {
+	// healCover repairs a DEAD (non-null but unloadable) resolvedCover for the CURRENT track — the
+	// counterpart to resolveCoverAsync (which fires only when resolvedCover is null). It mirrors
+	// lazyCover's per-row heal: probe the displayed cover with new Image(); on error evict both cache
+	// layers (removeCoverBoth) + re-resolve via the shared tier chain (resolveCoverForTrack) under the
+	// playGen supersedence guard; on load it is a no-op. One-shot per uid+url; never throws.
+
+	// A controllable Image stub: each instance captures its src and exposes settable onload/onerror so
+	// a test can flip the probe outcome synchronously (the last-constructed instance is the probe's).
+	let images: Array<{ src: string; onload: (() => void) | null; onerror: (() => void) | null; decoding: string; referrerPolicy: string }>;
+
+	beforeEach(() => {
+		(player.play as unknown as { mockRestore(): void }).mockRestore?.();
+		mockEnsure.mockReset();
+		mockUidCover.mockReset().mockReturnValue(null);
+		mockNameCover.mockReset().mockReturnValue(null);
+		mockResolveCover.mockReset().mockResolvedValue(null);
+		mockRemoveCoverBoth.mockClear();
+		player.current = null;
+		player.queue = [];
+		player.error = null;
+		player.loading = false;
+		(player as unknown as { resolvedCover: string | null }).resolvedCover = null;
+		(player as unknown as { healProbed: Set<string> }).healProbed.clear();
+
+		images = [];
+		const ImageCtor = vi.fn(function (this: Record<string, unknown>) {
+			const img = { src: '', onload: null, onerror: null, decoding: '', referrerPolicy: '' };
+			images.push(img);
+			return img;
+		});
+		vi.stubGlobal('Image', ImageCtor);
+		vi.spyOn(library, 'isDownloaded').mockReturnValue(false);
+	});
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
+	const rc = () => (player as unknown as { resolvedCover: string | null }).resolvedCover;
+	const setCurrent = (t: Track, cover: string | null) => {
+		player.current = t;
+		(player as unknown as { resolvedCover: string | null }).resolvedCover = cover;
+	};
+	/** Fire the most-recently-constructed probe Image's onload/onerror. */
+	const fireProbe = (ok: boolean) => {
+		const img = images[images.length - 1];
+		if (ok) img.onload?.();
+		else img.onerror?.();
+	};
+
+	it('Test 1 — dead cover self-heals: onerror evicts both layers + re-resolves fresh art', async () => {
+		const t = mk('netease', 'H1', 'Artist', 'Song');
+		setCurrent(t, 'https://cdn/dead.jpg');
+		mockResolveCover.mockResolvedValue('https://cdn/fresh.jpg');
+
+		const p = player.healCover(t.uid);
+		await flush(); // probe Image constructed; its onerror is armed
+		fireProbe(false); // dead url
+		await p;
+		await flush();
+
+		expect(mockRemoveCoverBoth).toHaveBeenCalledWith(t.uid, 'Artist', 'Song');
+		expect(mockResolveCover).toHaveBeenCalled();
+		expect(rc()).toBe('https://cdn/fresh.jpg');
+	});
+
+	it('Test 2 — healthy cover kept: onload → zero re-resolve, resolvedCover unchanged', async () => {
+		const t = mk('netease', 'H2', 'Artist', 'Song');
+		setCurrent(t, 'https://cdn/alive.jpg');
+
+		const p = player.healCover(t.uid);
+		await flush();
+		fireProbe(true); // loads fine
+		await p;
+		await flush();
+
+		expect(mockRemoveCoverBoth).not.toHaveBeenCalled();
+		expect(mockResolveCover).not.toHaveBeenCalled();
+		expect(rc()).toBe('https://cdn/alive.jpg');
+	});
+
+	it('Test 3 — generation guard: a superseded heal does NOT clobber the current cover', async () => {
+		const tA = mk('netease', 'HA', 'Artist A', 'Song A');
+		setCurrent(tA, 'https://cdn/a-dead.jpg');
+		const dCoverA = deferred<string | null>();
+		mockResolveCover.mockReturnValue(dCoverA.promise);
+
+		const p = player.healCover(tA.uid);
+		await flush();
+		fireProbe(false); // A's cover is dead → evict + start re-resolve (pending)
+		await flush();
+		expect(mockResolveCover).toHaveBeenCalled();
+
+		// A newer play() bumps playGen + repoints current to B with its own cover.
+		const tB = { ...mk('qq', 'HB', 'Artist B', 'Song B'), cover: 'https://cdn/b.jpg' };
+		mockEnsure.mockReturnValue(new Promise(() => {})); // never settles
+		void player.play(tB);
+		expect(rc()).toBe('https://cdn/b.jpg'); // B's cover set synchronously
+
+		// A's slow re-resolve lands LAST — the gen guard must discard it.
+		dCoverA.resolve('https://cdn/a-stale.jpg');
+		await p;
+		await flush();
+		expect(rc()).toBe('https://cdn/b.jpg'); // still B — stale A heal discarded
+	});
+
+	it('Test 4 — miss keeps gradient: dead probe → null re-resolve → resolvedCover stays (no throw)', async () => {
+		const t = mk('netease', 'H4', 'Artist', 'Song');
+		setCurrent(t, 'https://cdn/dead4.jpg');
+		mockResolveCover.mockResolvedValue(null); // total miss
+
+		const p = player.healCover(t.uid);
+		await flush();
+		fireProbe(false);
+		await expect(p).resolves.toBeUndefined(); // never throws
+		await flush();
+
+		expect(mockResolveCover).toHaveBeenCalled();
+		// Never re-commit the dead url; the gradient stands (resolvedCover keeps the DEAD value — the
+		// component paints the gradient because effectiveCover's image fails, and no fresh art landed).
+		expect(rc()).toBe('https://cdn/dead4.jpg');
+	});
+
+	it('Test 5 — one-shot per uid/url: two calls for the same uid+url probe/re-resolve at most once', async () => {
+		const t = mk('netease', 'H5', 'Artist', 'Song');
+		setCurrent(t, 'https://cdn/dead5.jpg');
+		mockResolveCover.mockResolvedValue('https://cdn/fresh5.jpg');
+
+		const p1 = player.healCover(t.uid);
+		await flush();
+		fireProbe(false);
+		await p1;
+		await flush();
+
+		const probesAfterFirst = images.length;
+		const resolveCallsAfterFirst = mockResolveCover.mock.calls.length;
+
+		// Second call for the SAME uid — but resolvedCover is now the fresh url, a DIFFERENT key, so it
+		// probes the fresh url once. Fire that probe as healthy → no re-resolve.
+		const p2 = player.healCover(t.uid);
+		await flush();
+		if (images.length > probesAfterFirst) fireProbe(true);
+		await p2;
+		await flush();
+
+		// A THIRD call with the SAME (now-fresh) url must short-circuit — no new probe, no new resolve.
+		const probesBeforeThird = images.length;
+		const p3 = player.healCover(t.uid);
+		await p3;
+		await flush();
+		expect(images.length).toBe(probesBeforeThird); // no new probe for the already-probed uid+url
+		// The dead-url re-resolve fired exactly once (the fresh-url probe loaded → never re-resolved).
+		expect(mockResolveCover.mock.calls.length).toBe(resolveCallsAfterFirst);
+	});
+
+	it('bails when the passed uid no longer matches the current track (track already changed)', async () => {
+		const t = mk('netease', 'H6', 'Artist', 'Song');
+		setCurrent(t, 'https://cdn/dead6.jpg');
+		await player.healCover('netease-STALE-uid'); // mismatched uid → immediate bail
+		await flush();
+		expect(images.length).toBe(0); // never probed
+		expect(mockResolveCover).not.toHaveBeenCalled();
+		expect(rc()).toBe('https://cdn/dead6.jpg');
+	});
+
+	it('bails when resolvedCover is null (the resolveCoverAsync MISSING path, not a heal target)', async () => {
+		const t = mk('netease', 'H7', 'Artist', 'Song');
+		setCurrent(t, null);
+		await player.healCover(t.uid);
+		await flush();
+		expect(images.length).toBe(0);
+		expect(mockResolveCover).not.toHaveBeenCalled();
+		expect(rc()).toBeNull();
+	});
+
+	it('bails when resolvedCover is a non-https URL (not a probe target)', async () => {
+		const t = mk('netease', 'H8', 'Artist', 'Song');
+		setCurrent(t, 'http://cdn/insecure.jpg');
+		await player.healCover(t.uid);
+		await flush();
+		expect(images.length).toBe(0);
+		expect(mockResolveCover).not.toHaveBeenCalled();
 	});
 });
 

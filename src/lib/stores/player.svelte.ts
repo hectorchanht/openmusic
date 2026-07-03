@@ -32,7 +32,8 @@ import { getCachedCoverByUid, getCachedCover } from '$lib/services/cover-cache';
 import { resolveCoverForTrack } from '$lib/services/cover-backfill';
 // quick-260615-hep: feed every displayed now-playing cover into the shared cache (both layers) +
 // bump the global reactive signal so other surfaces (homepage tiles) reuse the art and repaint live.
-import { writeCoverBoth, bumpCoverVersion } from '$lib/stores/cover-version.svelte';
+// quick-260704-20e: removeCoverBoth evicts a DEAD current cover before healCover re-resolves it.
+import { writeCoverBoth, bumpCoverVersion, removeCoverBoth } from '$lib/stores/cover-version.svelte';
 
 /** SOLID = a non-empty https URL (the only thing safe to cache/render; mirrors cover-backfill isSolidCover, T-0bb-01). */
 const httpsOnly = (u?: string | null): u is string => typeof u === 'string' && u.startsWith('https:');
@@ -256,6 +257,13 @@ class Player {
 	 * fallback can detect a newer play() and abort its in-flight retries. Plain field — no $state
 	 * reactivity (it's an internal supersedence guard, like pendingGen). */
 	private playGen = 0;
+
+	/** quick-260704-20e: one-shot guard for healCover — keyed on `${uid}|${resolvedCover}`. An
+	 *  errored current-cell background paint re-fires the NowPlaying $effect, so without this a dead
+	 *  URL would re-probe forever (T-20e-02 DoS). Mirrors lazyCover's per-row `done` flag: the key is
+	 *  added BEFORE probing so the second call short-circuits. Cleared at play() entry — a genuine
+	 *  track change invalidates prior heals and keeps the set from growing unbounded. Plain field. */
+	private healProbed = new Set<string>();
 
 	/** Monotonic queue generation (WR-06): bumped by every explicit setQueue() so an in-flight
 	 * regenerate() (network-bound, seconds) can detect that the caller has since installed an
@@ -2064,6 +2072,7 @@ class Player {
 	async play(track: Track, opts?: { fresh?: boolean; fromFallback?: boolean }) {
 		logAction('play', { uid: track.uid, source: track.source, fresh: !!opts?.fresh });
 		this.reresolveBurst = 0; // RERESOLVE-LOOP GUARD: a genuine new play() gives the track a fresh re-resolve budget.
+		this.healProbed.clear(); // quick-260704-20e: a new track invalidates prior current-cover heals (also caps set growth).
 		// A direct play() (queue/auto-advance/share link) supersedes any optimistic overlay,
 		// so a stale pending bar never lingers once a real track takes over.
 		this.pendingTrack = null;
@@ -2389,6 +2398,81 @@ class Player {
 				artwork: buildArtwork(this.resolvedCover)
 			});
 			ms.playbackState = playbackStateFor(!!this.current, this.playing);
+		}
+	}
+
+	/**
+	 * Probe a cover URL with new Image() — resolve true if it LOADS (keep it), false on error (treat
+	 * as broken → repair). SSR guard: when Image is undefined resolve false. Never rejects. Private
+	 * 12-line twin of lazyCover's probeImage (quick-260704-20e) so the heal does NOT cross the action
+	 * boundary; mirrors the exact idiom preloadNextCover already uses (decoding/referrerPolicy).
+	 */
+	private probeCover(url: string): Promise<boolean> {
+		if (typeof Image === 'undefined') return Promise.resolve(false);
+		return new Promise<boolean>((resolve) => {
+			try {
+				const img = new Image();
+				img.decoding = 'async';
+				img.referrerPolicy = 'no-referrer';
+				img.onload = () => resolve(true);
+				img.onerror = () => resolve(false);
+				img.src = url;
+			} catch {
+				resolve(false);
+			}
+		});
+	}
+
+	/**
+	 * quick-260704-20e: SELF-HEAL a DEAD current cover — the missing counterpart to resolveCoverAsync
+	 * (which fires only when resolvedCover is NULL). resolvedCover is seeded FIRST from track.cover — a
+	 * source-CDN thumbnail that frequently expires / is served over http: — and resolveCoverAsync's
+	 * `if (!this.resolvedCover)` guard never re-resolves a non-null-but-DEAD URL, so the now-playing
+	 * current cell paints a broken url as a CSS background = the reported "black cover". This mirrors
+	 * lazyCover's per-row dead-URL self-heal (probe → removeCoverBoth → resolveCoverForTrack) but for
+	 * the ONE now-playing field. NowPlaying calls this ONLY when effectiveCover === player.resolvedCover
+	 * (swappedCover absent) — the Last.fm hi-res swap path is untouched (it wins via
+	 * effectiveCover = swappedCover ?? resolvedCover, and is already verified real by maybeSwapCover's
+	 * onload before it is set). NOT gated on the audio `playing` event (MEMORY: that froze iOS
+	 * background playback — reverted). Reuses existing helpers only — no new resolver/cache/dep/route.
+	 */
+	async healCover(uid: string) {
+		try {
+			// (1) The effect passes the uid it observed; a mismatch means the track already changed — bail.
+			if (!this.current || this.current.uid !== uid) return;
+			// (2) A null/gradient cover is the resolveCoverAsync MISSING path, not here; a non-https value
+			//     is not a probe target. Only a present https URL can be "dead but painted".
+			const url = this.resolvedCover;
+			if (!httpsOnly(url)) return;
+			// (3) One-shot per uid+url (mirror lazyCover's `done`): probe AT MOST once so an errored
+			//     background paint can never re-trigger an infinite re-probe loop (T-20e-02). Add BEFORE probing.
+			const key = `${uid}|${url}`;
+			if (this.healProbed.has(key)) return;
+			this.healProbed.add(key);
+			// (4) Snapshot the generation + identity off the current track (CR-02 supersedence guard).
+			const myGen = this.playGen;
+			const { artist, title } = this.current;
+			// (5) Probe the displayed cover. TRUE (loads fine) → do nothing, the zero-network fast path.
+			const alive = await this.probeCover(url);
+			if (alive) return;
+			// (6) Dead url. Bail if a newer play() superseded this heal mid-probe (T-20e-03).
+			if (myGen !== this.playGen) return;
+			// Evict BOTH cache layers (empty-uid safe — removeCoverBoth skips the shared 'uid:' slot for
+			// an empty uid) so the stale dead cover is dropped before the re-resolve re-caches.
+			removeCoverBoth(uid, artist, title);
+			// (7) Re-resolve via the SHARED tier chain (Deezer→iTunes→CN; never throws; writes both cache
+			//     layers internally on a SOLID hit). Re-check the gen AFTER the await → discard a stale heal.
+			const fresh = await resolveCoverForTrack(this.current);
+			if (myGen !== this.playGen) return;
+			// (8) Commit ONLY a SOLID https result (T-20e-01). A null/miss keeps the gradient — never
+			//     re-commit the dead url (D-12). resolveCoverForTrack already wrote both cache layers — do
+			//     NOT double-write (mirror resolveCoverAsync Site C); just bump so other tiles repaint.
+			if (httpsOnly(fresh)) {
+				this.resolvedCover = fresh;
+				bumpCoverVersion();
+			}
+		} catch {
+			// Best-effort — a failure leaves the gradient (never a broken image, never throws).
 		}
 	}
 
