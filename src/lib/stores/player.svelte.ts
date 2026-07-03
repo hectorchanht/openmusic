@@ -1402,6 +1402,28 @@ class Player {
 				}
 				logAction('reresolve.cap', { uid: this.current?.uid, n: this.reresolveBurst });
 				// fall through — the single in-place recovery failed; SKIP via cross-source/advance.
+
+				// BACKGROUND-ERROR SKIP (debug-bg-no-pill-split-play-stop, Option B). When the in-place
+				// re-resolve has failed for a track that ALREADY produced audio (hasPlayedSinceSrc) AND
+				// the tab is HIDDEN, do NOT hand off to runFallback: its cross-source play(swap) is a
+				// fire-and-forget audio.play() that, in a hidden WebView, never re-reaches `playing`, so
+				// the element sits paused (the observed "split-second then stop, resumes only on
+				// foreground"). i7e deliberately removed the only foreground resume, so nothing recovers
+				// it while backgrounded. The action log shows the NEXT track plays cleanly in the
+				// background — so we SKIP to it via the existing next() advance/skip path (which bumps
+				// playGen, superseding this errored src, and reuses the never-stop dead-track skip
+				// semantics). This is scoped to `document.hidden` + `hasPlayedSinceSrc` so a foreground
+				// error still gets the richer cross-source runFallback recovery, and an external
+				// audio-focus loss (voice note) never enters here — it fires `pause`, not `audio.error`
+				// — so i7e's "do not fight the OS" mandate stays intact (no resume, just a forward skip
+				// of a genuinely errored stream). The forward advance keeps playback (and thus the
+				// MediaSession 'playing' pill) alive.
+				if (typeof document !== 'undefined' && document.hidden) {
+					logAction('bg-error-skip', { uid: this.current?.uid });
+					this.playing = false;
+					this.next();
+					return;
+				}
 			}
 			// Cross-source fallback (gte / SRC-FB-01): rather than surface the error immediately,
 			// try the same {artist,title} on the remaining enabled sources. Only after every

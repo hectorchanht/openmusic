@@ -3798,6 +3798,128 @@ describe('player resilience — single post-playback re-resolve then skip (debug
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// debug-bg-no-pill-split-play-stop (Option B): when a track that ALREADY produced audio
+// (hasPlayedSinceSrc) errors while the tab is HIDDEN, the single in-place re-resolve fails again in
+// the background, and the OLD behavior handed off to runFallback → play(swap) — a fire-and-forget
+// audio.play() that never re-reaches `playing` in a hidden WebView, so the element sat paused
+// ("split-second then stop, resumes only on foreground"). i7e removed the only foreground resume, so
+// nothing recovered it. Option B instead SKIPS to the next track (via the existing next() advance/skip
+// path) when the re-resolve cap is hit while hidden — the action log shows subsequent tracks play
+// cleanly in the background. This is scoped to document.hidden + hasPlayedSinceSrc, so a FOREGROUND
+// error still gets the richer cross-source runFallback recovery, and an external audio-focus loss
+// (voice note) — which fires `pause`, not `audio.error` — never triggers a skip or a resume (i7e's
+// "do not fight the OS" mandate stays intact).
+// ─────────────────────────────────────────────────────────────────────────────
+describe('player resilience — background stream-error SKIPS to next (debug-bg-no-pill-split-play-stop)', () => {
+	type Internals = {
+		hasPlayedSinceSrc: boolean;
+		reresolveBurst: number;
+		lastSeekAt: number;
+		deliberatePause: boolean;
+		reresolveCurrent(): Promise<void>;
+		runFallback(t: Track): Promise<void>;
+	};
+	const internals = () => player as unknown as Internals;
+	const playCalls = () => vi.mocked(player.play).mock.calls;
+
+	/** Stub a global `document` with a settable `hidden` + a no-op addEventListener so attach()'s
+	 *  visibilitychange registration doesn't throw under the node test env. */
+	function stubDocument(hidden: boolean) {
+		vi.stubGlobal('document', { hidden, addEventListener() {} });
+	}
+
+	/** Attach a played-then-erroring element for a CURRENT track with a playable NEXT in the queue. */
+	function attachPlayedErroringWithNext() {
+		const cur = mk('kuwo', 'bgcur', 'A', 'BgCurrent'); // e.g. the logged kuwo:86595321
+		const next = mk('kuwo', 'bgnext', 'B', 'BgNext'); // subsequent track plays cleanly in bg
+		const el = makeFakeAudio();
+		el.src = 'https://cdn/dead-in-bg.mp3';
+		el.currentTime = 3; // mid-track — a brief play happened (the audible split-second)
+		(el as unknown as { ended: boolean }).ended = false;
+		player.queue = [cur, next];
+		player.current = cur;
+		player.attach(el as unknown as HTMLAudioElement);
+		internals().hasPlayedSinceSrc = true; // a real `playing` fired → this IS the post-playback path
+		internals().lastSeekAt = 0; // far past → NOT the seek-window reresolve path
+		internals().reresolveBurst = 0;
+		internals().deliberatePause = false;
+		return { el, cur, next };
+	}
+
+	it('after the single re-resolve fails while HIDDEN, ADVANCES to the next track (not paused-stuck, no runFallback)', () => {
+		stubDocument(true); // tab is backgrounded
+		const { el, next } = attachPlayedErroringWithNext();
+		const reresolveSpy = vi.spyOn(internals(), 'reresolveCurrent').mockResolvedValue(undefined);
+		const fallbackSpy = vi.spyOn(internals(), 'runFallback').mockResolvedValue(undefined);
+		vi.mocked(player.play).mockClear();
+
+		el.fire('error'); // 1st: hasPlayedSinceSrc → one in-place re-resolve
+		el.fire('error'); // 2nd: cap hit → HIDDEN → skip to next
+
+		expect(reresolveSpy).toHaveBeenCalledTimes(1); // the single in-place attempt still happened
+		expect(fallbackSpy).not.toHaveBeenCalled(); // did NOT hand off to the stalling runFallback
+		// next() advanced to the playable next track (via advanceTo → play). The errored src is left.
+		expect(playCalls().map((c) => c[0])).toContainEqual(next);
+	});
+
+	it('a FOREGROUND stream-error still uses cross-source runFallback (no premature skip when visible)', () => {
+		stubDocument(false); // tab is in the foreground
+		const { el } = attachPlayedErroringWithNext();
+		const reresolveSpy = vi.spyOn(internals(), 'reresolveCurrent').mockResolvedValue(undefined);
+		const fallbackSpy = vi.spyOn(internals(), 'runFallback').mockResolvedValue(undefined);
+		vi.mocked(player.play).mockClear();
+
+		el.fire('error'); // one in-place re-resolve
+		el.fire('error'); // cap hit → VISIBLE → cross-source fallback (unchanged behavior)
+
+		expect(reresolveSpy).toHaveBeenCalledTimes(1);
+		expect(fallbackSpy).toHaveBeenCalled(); // foreground path is preserved — richer recovery
+	});
+
+	it('an external (non-deliberate) PAUSE while hidden does NOT skip or resume — no audio.error, no advance', () => {
+		stubDocument(true);
+		const { el } = attachPlayedErroringWithNext();
+		const fallbackSpy = vi.spyOn(internals(), 'runFallback').mockResolvedValue(undefined);
+		vi.mocked(player.play).mockClear();
+
+		el.paused = true;
+		el.fire('pause'); // an OS audio-focus loss (voice note) — NOT an audio.error
+
+		// The background-error skip is keyed on `audio.error`, so a bare pause triggers neither a skip
+		// nor a resume — i7e's "respect external pauses, do not fight the OS" mandate is intact.
+		expect(fallbackSpy).not.toHaveBeenCalled();
+		expect(playCalls()).toHaveLength(0); // no advance to next, no re-play of current
+		expect(el.play).not.toHaveBeenCalled();
+	});
+
+	it('traces the logged kuwo:86595321 case: hidden error-after-play advances instead of stalling', () => {
+		stubDocument(true);
+		// Mirror the log: advance landed kuwo:86595321, resolve.ok, then audio.error hasPlayed:true.
+		const cur = mk('kuwo', '86595321', 'A', 'Logged'); // the exact failing uid
+		const next = mk('kuwo', '82700827', 'B', 'LoggedNext'); // the track that DID play after
+		const el = makeFakeAudio();
+		el.src = 'https://cdn/kuwo-86595321.mp3';
+		el.currentTime = 3;
+		(el as unknown as { ended: boolean }).ended = false;
+		player.queue = [cur, next];
+		player.current = cur;
+		player.attach(el as unknown as HTMLAudioElement);
+		internals().hasPlayedSinceSrc = true;
+		internals().lastSeekAt = 0;
+		internals().reresolveBurst = 0;
+		vi.spyOn(internals(), 'reresolveCurrent').mockResolvedValue(undefined);
+		const fallbackSpy = vi.spyOn(internals(), 'runFallback').mockResolvedValue(undefined);
+		vi.mocked(player.play).mockClear();
+
+		el.fire('error');
+		el.fire('error');
+
+		expect(fallbackSpy).not.toHaveBeenCalled();
+		expect(playCalls().map((c) => c[0])).toContainEqual(next); // advances, no bg stall
+	});
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // background-autoadvance-stall follow-up: play() must reset hasPlayedSinceSrc AT ENTRY, not later at
 // src-set (after the async resolve). Otherwise, during the resolve gap `current` is the new track while
 // the flag still holds the OLD track's `true`, so a dead new track that errors is misrouted into the
