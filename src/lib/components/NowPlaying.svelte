@@ -64,7 +64,9 @@
 	// (a reactive uid→url record repainted via onCoverResolved). Values are SOLID https URLs only
 	// (lazyCover's isHttps gate) — safe for the existing background-image render path, no widening
 	// of the injection surface (T-nyl-01 / inherits T-0bb-01). The carousel CURRENT cell is NOT
-	// driven by this map (it keeps player.resolvedCover + the Last.fm swap — see effectiveCover).
+	// driven by this map (it keeps player.resolvedCover + the Last.fm swap — see effectiveCover); it
+	// instead self-heals a DEAD player.resolvedCover via player.healCover in its own $effect near the
+	// effectiveCover derivation (quick-260704-20e) — the map stays neighbors-only.
 	let resolvedCovers = $state<Record<string, string>>({});
 	function onCoverResolved(uid: string, url: string) {
 		resolvedCovers = { ...resolvedCovers, [uid]: url };
@@ -446,6 +448,25 @@
 	// so a no-cover-source track shows resolved art here once the chain lands. Null → the seeded
 	// gradient fallback below (D-12); never a placeholder.
 	const effectiveCover = $derived(swappedCover ?? player.resolvedCover ?? null);
+
+	// quick-260704-20e: self-heal a DEAD current cover — the counterpart to the neighbor cells'
+	// use:lazyCover. resolvedCover is seeded FIRST from track.cover (a source-CDN thumbnail that
+	// frequently expires / is served over http:), so a non-null-but-dead URL paints the current cell
+	// black (the reported bug). This $effect takes reactive deps on the current uid + effectiveCover
+	// and fires player.healCover (probe → evict → re-resolve under the playGen guard) at most once per
+	// uid+url. It heals ONLY the player.resolvedCover path: it returns early when swappedCover is
+	// present (the Last.fm hi-res upgrade already won — maybeSwapCover verifies it via onload before
+	// setting it, so there is nothing to heal, and the swappedCover-wins invariant is preserved) and
+	// when effectiveCover is null (a true miss shows the gradient — nothing to probe). Fire-and-forget:
+	// healCover is never-throw, one-shot, and generation-guarded, so re-runs on re-render are safe.
+	$effect(() => {
+		const uid = player.current?.uid;
+		const cover = effectiveCover; // reactive dep — re-run when the displayed cover changes
+		if (!uid) return; // no current track
+		if (swappedCover) return; // Last.fm hi-res swap won — do not touch it (heal only resolvedCover)
+		if (!cover) return; // true miss → gradient; nothing to probe
+		void player.healCover(uid); // fire-and-forget; the one-shot guard lives in the store
+	});
 
 	// ---- Cover carousel (NP-01 / D-01) ----
 	// A rigid 3-cell strip [prev | current | next] with neighbors flush against the current cell: each
