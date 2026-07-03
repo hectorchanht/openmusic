@@ -183,4 +183,16 @@ Ranked by leverage (impact ÷ effort). Each is concrete and ready to feed `/gsd:
 
 ---
 
-*Concerns audit: 2026-07-03*
+## Backlog progress (updated 2026-07-04)
+
+- **#1 Edge-cache CN search proxy — DONE** (quick-260704-2os, commits 1bf4094/4e95c94). Search path only; url/detail/lrc stay uncached.
+- **#2 Cover-cache TTL + LRU — DONE** (quick-260704-2xq, commits 146d314/e31afa4). `{u,t}` shape, 14d TTL, 2000-entry cap, legacy grandfathered.
+- **#4 Rewrite stale CLAUDE.md/AGENTS.md — DONE** (quick-260704-3df, commit 4496315). Mechanical GSD-block resync from this map; index.html refs 74→1 each. NOTE: `/gsd:docs-update` does NOT touch these files (it targets README + docs/*.md) — the resync was a direct block-edit.
+- **#6 Delete orphan /spike — DONE** (quick-260704-3ac, commit 83e3de3).
+- **#7 Extract persistence slice — DONE** (quick-260704-3ov, commits d03db26/b8831fb, --validate/verified 6/6). Pure `player-persist.ts`; player.svelte.ts 3017→2972; 161-case suite green with zero edits.
+- **#3 Extract failover/never-stop slice — DEFERRED to `/gsd:plan-phase`** (decision 2026-07-04). Recon found NO clean pure core: `unplayableUids` is a reactive `SvelteSet` (UI ✗ row), `runFallback` cycles back into `play({fromFallback})`, the burst/strike counters are spread across `attach()` listeners + `play()`/`next()`/stall-watchdog, and it owns a playGen-bound AbortController. A quick extraction would need a `.svelte.ts` sub-store with a bidirectional Player back-reference (more coupled, not less) AND touches the un-CI-testable iOS/Android background-audio state machine (regressed twice: `player-displayed-defer-broke-mobile`, foreground-resume removed in 260703-i7e). Phase-sized + fragile → needs full plan-phase treatment (research + plan-check + wave + verifier + on-device UAT). Do NOT attempt as a bare quick task.
+- **#5 batch bumpCoverVersion**, **#8 skip warm lazyCover probe** (needs #2's TTL — now landed), **#9 jsdom test project**, **#10 session-cache probe verdicts** — still open.
+
+---
+
+*Concerns audit: 2026-07-03 (backlog progress appended 2026-07-04)*
