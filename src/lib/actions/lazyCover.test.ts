@@ -11,13 +11,19 @@ import { makeUid, type SourceId, type Track } from '$lib/sources/types';
 // --- mock the cache + the shared single-item resolve helper -------------------------------------
 const getCachedCoverByUid = vi.fn<(uid: string) => string | null>();
 const getCachedCover = vi.fn<(artist: string, title: string) => string | null>();
+// quick-260704-4fr: the freshness reader gating the warm-fresh probe skip. Defaulted to null in
+// beforeEach so every PRE-EXISTING test keeps the current probe path (null age -> probe self-heal).
+const coverAgeByUidOrName =
+	vi.fn<(uid: string, artist: string, title: string) => number | null>();
 const resolveCoverForTrack = vi.fn<(track: Track) => Promise<string | null>>();
 // quick-260630-ey2: the self-heal evictor — a dead cache-HIT calls this before the re-resolve chain.
 const removeCoverBoth = vi.fn<(uid: string, artist: string, title: string) => void>();
 
 vi.mock('$lib/services/cover-cache', () => ({
 	getCachedCoverByUid: (uid: string) => getCachedCoverByUid(uid),
-	getCachedCover: (artist: string, title: string) => getCachedCover(artist, title)
+	getCachedCover: (artist: string, title: string) => getCachedCover(artist, title),
+	coverAgeByUidOrName: (uid: string, artist: string, title: string) =>
+		coverAgeByUidOrName(uid, artist, title)
 }));
 vi.mock('$lib/services/cover-backfill', () => ({
 	resolveCoverForTrack: (track: Track) => resolveCoverForTrack(track)
@@ -113,6 +119,9 @@ beforeEach(() => {
 	imageBehavior = 'load';
 	getCachedCoverByUid.mockReturnValue(null);
 	getCachedCover.mockReturnValue(null);
+	// Default the freshness reader to null so the 13 pre-existing tests keep the current probe path
+	// (a null age is NOT confirmed-fresh → the existing self-heal probe runs unchanged).
+	coverAgeByUidOrName.mockReturnValue(null);
 	resolveCoverForTrack.mockResolvedValue('https://resolved.example/c.jpg');
 	(globalThis as { IntersectionObserver?: unknown }).IntersectionObserver =
 		MockIO as unknown as typeof IntersectionObserver;
@@ -253,6 +262,45 @@ describe('lazyCover — IntersectionObserver + Image probe + cache-first resolve
 		expect(removeCoverBoth).toHaveBeenCalledWith(track.uid, track.artist, track.title);
 		expect(resolveCoverForTrack).toHaveBeenCalledTimes(1);
 		expect(onResolved).toHaveBeenCalledWith(track.uid, 'https://resolved.example/c.jpg');
+	});
+
+	// quick-260704-4fr (backlog #8): a WARM+FRESH cache HIT (coverAgeByUidOrName < FRESH_MS) is painted
+	// IMMEDIATELY with ZERO new Image() probe — the self-heal probe is skipped only when the entry's
+	// write-time confirms it is fresh. A null / >= FRESH_MS age keeps the existing probe self-heal.
+	it('cache-hit FRESH (age < FRESH_MS): skips the probe entirely — no Image, no evict, no chain', async () => {
+		getCachedCoverByUid.mockReturnValue('https://cache.example/by-uid.jpg');
+		coverAgeByUidOrName.mockReturnValue(1000); // 1s old — well within the 24h FRESH_MS window
+		const onResolved = vi.fn();
+		const track = mkTrack();
+		const { io } = await mount({ track, onResolved });
+
+		io.trigger(true);
+		await flush();
+		// Confirmed-fresh fast path: the cached url is painted with NO probe (zero Image constructed),
+		// nothing evicted, and the re-resolve chain never runs.
+		expect(onResolved).toHaveBeenCalledWith(track.uid, 'https://cache.example/by-uid.jpg');
+		expect(imageInstances.length).toBe(0); // NO new Image() — the probe was skipped
+		expect(removeCoverBoth).not.toHaveBeenCalled();
+		expect(resolveCoverForTrack).not.toHaveBeenCalled();
+	});
+
+	it('cache-hit STALE-but-valid (age >= FRESH_MS): the probe self-heal STILL runs', async () => {
+		imageBehavior = 'load';
+		getCachedCoverByUid.mockReturnValue('https://cache.example/by-uid.jpg');
+		// 48h old — a valid-but-older entry (past the 24h FRESH_MS window but under the 14d cache TTL):
+		// NOT confirmed-fresh, so the existing probe self-heal must still run.
+		coverAgeByUidOrName.mockReturnValue(48 * 60 * 60 * 1000);
+		const onResolved = vi.fn();
+		const track = mkTrack();
+		const { io } = await mount({ track, onResolved });
+
+		io.trigger(true);
+		await flush();
+		// The probe RAN (at least one Image constructed) and — loading OK — kept the cached url.
+		expect(imageInstances.length).toBeGreaterThanOrEqual(1);
+		expect(onResolved).toHaveBeenCalledWith(track.uid, 'https://cache.example/by-uid.jpg');
+		expect(removeCoverBoth).not.toHaveBeenCalled(); // good probe → no eviction
+		expect(resolveCoverForTrack).not.toHaveBeenCalled();
 	});
 
 	it('empty-uid cache-hit DEAD: removeCoverBoth called with the empty uid, then re-resolves', async () => {
