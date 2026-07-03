@@ -195,7 +195,7 @@ Ranked by leverage (impact ÷ effort). Each is concrete and ready to feed `/gsd:
 - **#8 skip warm lazyCover probe — DONE** (quick-260704-4fr, commits d85f6d7/1d27986/fe405e6/5f8f76a). New pure `coverAgeByUidOrName` reader; lazyCover skips the `new Image()` probe when a cache hit's age < FRESH_MS=24h (null age ⇒ probe path, self-heal preserved).
 - **#9 jsdom/client test project**, **#10 session-cache probe verdicts** — still open.
 
-**Discovered during #8 (not yet fixed):** a pre-existing literal NUL byte (`\x00`) in `src/lib/actions/lazyCover.ts` `inFlightKey` (the `name:${artist}\x00${title}` de-dupe separator) makes git treat the file as binary (no line diffs). Cosmetic/robustness only — the key is never rendered or networked; tests + svelte-check pass. Worth a one-char fix (swap `\x00` for a printable separator + a fixture) in its own task.
+**Discovered during #8, FIXED in quick-260704-4st** (commit 32d3b9f): the literal NUL byte (`\x00`) in `src/lib/actions/lazyCover.ts` `inFlightKey` that made git treat the file as binary was replaced with `JSON.stringify([artist,title])` (collision-free + git-text-safe). Line diffs/blame/`git grep` restored.
 
 ---
 
