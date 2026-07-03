@@ -11,7 +11,8 @@ import {
 	setCachedCoverByUid,
 	removeCachedCoverByUid,
 	removeCachedCover,
-	removeCachedArtistCover
+	removeCachedArtistCover,
+	coverAgeByUidOrName
 } from './cover-cache';
 import { matchKey } from './match-key';
 
@@ -539,5 +540,124 @@ describe('cover-cache — TTL expiry, LRU cap, legacy grandfathering (quick-2607
 			writable: true
 		});
 		expect(() => setCachedCover('A', 'B', 'https://x')).not.toThrow();
+	});
+});
+
+// coverAgeByUidOrName — the pure freshness reader lazyCover uses to decide whether a WARM cache HIT
+// is fresh enough to paint WITHOUT the new Image() self-heal probe (quick-260704-4fr, backlog #8).
+// It mirrors the URL readers' uid-first → name read order + the SAME 14-day TTL guard, honors the
+// empty-uid guard (an empty uid never reads the shared 'uid:' slot), and returns the RAW age in ms
+// (Date.now() - t) for the first fresh {u,t} hit — null for miss / legacy-bare-string / expired. Like
+// the 2xq block, fake timers are scoped HERE only; TTL_MS is pinned locally with the "MUST mirror"
+// comment (the module constant is private).
+const TTL_MS_4FR = 14 * 24 * 60 * 60 * 1000; // 14 days — MUST mirror cover-cache.ts TTL_MS
+
+describe('cover-cache — coverAgeByUidOrName freshness reader (quick-260704-4fr)', () => {
+	let store: MemStorage;
+	const originalLocalStorage = (globalThis as { localStorage?: Storage }).localStorage;
+	const T0 = 1_700_000_000_000; // a fixed base time (ms)
+
+	beforeEach(() => {
+		store = new MemStorage();
+		Object.defineProperty(globalThis, 'localStorage', {
+			value: store,
+			configurable: true,
+			writable: true
+		});
+		vi.useFakeTimers();
+		vi.setSystemTime(T0);
+	});
+	afterEach(() => {
+		vi.useRealTimers();
+		Object.defineProperty(globalThis, 'localStorage', {
+			value: originalLocalStorage,
+			configurable: true,
+			writable: true
+		});
+	});
+
+	// (A) A fresh {u,t} write, read a small delta later, returns exactly that delta (raw age in ms).
+	it('returns the raw age (ms since write) for a fresh {u,t} uid hit', () => {
+		setCachedCoverByUid('netease:12345', 'https://cdn.example/fresh.jpg');
+		vi.setSystemTime(T0 + 60_000); // 60s later
+		expect(coverAgeByUidOrName('netease:12345', 'x', 'y')).toBe(60_000);
+	});
+
+	// (B) No entry anywhere (unknown uid + unknown name) → null.
+	it('returns null on a total miss (unknown uid + unknown name)', () => {
+		expect(coverAgeByUidOrName('netease:99999', 'Nobody', 'Nothing')).toBeNull();
+	});
+
+	// (C) Expired → null; boundary at exactly T0 + TTL_MS is still a HIT (mirrors the URL reader's `>`).
+	it('an entry strictly older than TTL_MS reads as null (expired)', () => {
+		setCachedCover('Jay Chou', 'Dao Xiang', 'https://cdn.example/old.jpg');
+		vi.setSystemTime(T0 + TTL_MS_4FR + 1); // strictly past TTL
+		expect(coverAgeByUidOrName('', 'Jay Chou', 'Dao Xiang')).toBeNull();
+	});
+
+	it('at exactly T0 + TTL_MS the age IS returned (strict `>` boundary, mirrors the URL reader)', () => {
+		setCachedCover('Jay Chou', 'Dao Xiang', 'https://cdn.example/edge.jpg');
+		vi.setSystemTime(T0 + TTL_MS_4FR); // exactly at the boundary — not yet strictly greater
+		expect(coverAgeByUidOrName('', 'Jay Chou', 'Dao Xiang')).toBe(TTL_MS_4FR);
+	});
+
+	// (D) Legacy bare-string entry → null (no timestamp, freshness unknowable) even though the URL
+	// reader would HIT it.
+	it('a legacy bare-string entry returns null (freshness unknowable) even though getCachedCover hits it', () => {
+		const key = coverCacheKey('A', 'B');
+		store.__raw(CACHE_KEY, JSON.stringify({ [key]: 'https://legacy/cover.jpg' }));
+		vi.setSystemTime(T0 + 5);
+		// The URL reader still HITS the legacy value (TTL-exempt grandfathered)...
+		expect(getCachedCover('A', 'B')).toBe('https://legacy/cover.jpg');
+		// ...but the freshness reader cannot know its age → null (so lazyCover keeps the probe path).
+		expect(coverAgeByUidOrName('', 'A', 'B')).toBeNull();
+	});
+
+	// (E-i) uid-first → name order: with BOTH a fresh uid entry and a fresh name entry at different
+	// write-times, the UID age wins.
+	it('uid-first order: the uid age wins when both a uid and a name entry are fresh', () => {
+		setCachedCoverByUid('netease:12345', 'https://cdn.example/by-uid.jpg'); // written at T0
+		vi.setSystemTime(T0 + 10_000);
+		setCachedCover('Jay Chou', 'Dao Xiang', 'https://cdn.example/by-name.jpg'); // written at T0+10s
+		vi.setSystemTime(T0 + 30_000);
+		// uid age = 30_000 (T0), name age = 20_000 (T0+10s) — the uid layer is consulted FIRST and wins.
+		expect(coverAgeByUidOrName('netease:12345', 'Jay Chou', 'Dao Xiang')).toBe(30_000);
+	});
+
+	// (E-ii) uid absent → the name age is returned (name-layer fallback).
+	it('falls back to the name age when the uid layer is absent', () => {
+		setCachedCover('Jay Chou', 'Dao Xiang', 'https://cdn.example/by-name.jpg');
+		vi.setSystemTime(T0 + 45_000);
+		expect(coverAgeByUidOrName('netease:00000', 'Jay Chou', 'Dao Xiang')).toBe(45_000);
+	});
+
+	// (E-iii) empty-uid guard: with uid '' the uid layer is NOT consulted — a poisoned 'uid:' slot is
+	// IGNORED and the NAME age is returned (proves the empty uid reads only the name layer).
+	it('empty-uid guard: a poisoned bare "uid:" slot is ignored; the name age is returned', () => {
+		const nameKey = coverCacheKey('Foo Fighters', 'Everlong');
+		// Plant a poisoned shared 'uid:' slot AND a fresh name entry (both {u,t} at T0).
+		store.__raw(
+			CACHE_KEY,
+			JSON.stringify({
+				'uid:': { u: 'https://poison.example/uid-slot.jpg', t: T0 },
+				[nameKey]: { u: 'https://cdn.example/by-name.jpg', t: T0 }
+			})
+		);
+		vi.setSystemTime(T0 + 5_000);
+		// Empty uid → the 'uid:' slot is NEVER read; the name layer is consulted → age 5_000.
+		expect(coverAgeByUidOrName('', 'Foo Fighters', 'Everlong')).toBe(5_000);
+	});
+
+	// Pure / never-throw: a corrupt / unavailable store returns null without throwing.
+	it('returns null on corrupt storage and never throws on unavailable storage', () => {
+		store.__raw(CACHE_KEY, '{not valid json');
+		expect(coverAgeByUidOrName('netease:1', 'A', 'B')).toBeNull();
+		Object.defineProperty(globalThis, 'localStorage', {
+			value: undefined,
+			configurable: true,
+			writable: true
+		});
+		expect(() => coverAgeByUidOrName('netease:1', 'A', 'B')).not.toThrow();
+		expect(coverAgeByUidOrName('netease:1', 'A', 'B')).toBeNull();
 	});
 });
