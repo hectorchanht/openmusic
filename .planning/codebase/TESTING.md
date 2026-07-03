@@ -1,149 +1,182 @@
 # Testing Patterns
 
-**Analysis Date:** 2026-06-05
+**Analysis Date:** 2026-07-03
+
+> NOTE: Root `CLAUDE.md` claims "no test framework present." That is STALE. The live app has a large **vitest** suite: **67 test files**, ~**999** `it()`/`test()` cases, ~**15,350** lines of test code.
 
 ## Test Framework
 
-**None.** There is no test framework, no test runner, no test files, and no test configuration in this repository.
+**Runner:**
+- **vitest** `^4.1.3` (`package.json`), config in `vite.config.ts` (root).
+- Uses the `vitest/config` `defineConfig` with the `@sveltejs/kit/vite` plugin so `.svelte.ts` runes files are transformed for tests.
 
-Confirmed absent:
-- No `jest.config.*`, `vitest.config.*`, `mocha.*`, or `karma.conf.*`
-- No `*.test.*` or `*.spec.*` files
-- No `__tests__/` directory
-- No `package.json` (no npm ecosystem at all)
-- No test scripts in `scripts/` (the only file there is `g4f_issue_reply.py`)
+**Assertion Library:**
+- vitest built-in `expect`. **`test.expect.requireAssertions: true`** is set in `vite.config.ts` — every test MUST make at least one assertion or it fails. Do not write assertion-less tests.
 
-## CI Pipeline
+**Environment:**
+- **Single `node` project** (`environment: 'node'`). There is NO jsdom / happy-dom client project. Include glob: `src/**/*.{test,spec}.{js,ts}` (covers `*.svelte.test.ts` too — the SvelteKit Vite plugin transforms `$state` runes for node, and the runes-backed logic is pure enough to unit-test headless).
 
-One GitHub Actions workflow exists: `.github/workflows/g4f-issue-reply.yml`.
-
-**What it does:** On every new GitHub issue opened by a non-bot user, it runs `scripts/g4f_issue_reply.py` to auto-post an AI-generated reply using g4f / OpenAI-compatible APIs.
-
-**What it does NOT do:**
-- No linting step
-- No build step
-- No tests of any kind
-- No deployment
-
-The `.github/ISSUE_TEMPLATE/` directory contains bilingual (Chinese / English) templates for bug reports, feature requests, questions, performance issues, documentation, and tasks. These are process aids only — not automated quality gates.
-
-## Current Manual Testing Approach
-
-Testing is entirely manual and browser-based:
-
-1. Open `index.html` directly in a browser (no server required for most functionality — some API calls may need CORS headers, but all APIs are third-party and allow cross-origin requests).
-2. Type a keyword into the search box and click Search.
-3. Click a result to play.
-4. Verify lyrics highlight, cover image, quality badge, playlist operations.
-
-There is no documented test checklist or regression guide in the repo.
-
-## What a Mobile Rebuild Must Add
-
-The mobile rebuild should introduce a testing baseline from the start. Recommended approach based on the codebase's structure:
-
-### Unit Tests for Pure Logic Functions
-
-The following functions are pure or nearly pure and can be tested without a DOM or network:
-
-| Function | File (line) | What to test |
-|----------|-------------|--------------|
-| `parseLRC(txt)` | `index.html` ~2517 | Parses LRC timestamps; handles malformed lines; returns sorted array |
-| `formatTime(sec)` | `index.html` ~1685 | Edge cases: negative, Infinity, 0, values > 60 min |
-| `inferQualityFromUrl(url)` | `index.html` ~1747 | `.flac`, `.wav`, `.mp3`, `.m4a`, query-string URLs |
-| `serializeTrack(track)` | `index.html` ~1762 | Strips ephemeral fields; returns null for invalid input |
-| `deserializeTrack(raw)` | `index.html` ~1780 | Strips migu source; round-trips with serializeTrack |
-| `getInterleavedSearchList()` | `index.html` ~1691 | Interleaves per-source results in correct order |
-| `neteaseQualityToTag(q)` | `index.html` ~1731 | Regex match on various quality strings |
-| `kuwoQualityToTag(...)` | `index.html` ~1736 | Multi-arg version of same |
-
-### Integration Tests for Fetch Layer
-
-The four search functions and four detail-fetch functions make real HTTP calls to third-party APIs. For testing:
-
-- **Mock `fetch` globally** (using `vitest`'s `vi.stubGlobal` or Jest's `jest.spyOn(global, 'fetch')`)
-- Test happy-path JSON responses using fixtures captured from the live APIs
-- Test error paths: non-200 status, malformed JSON, network timeout
-
-Functions to cover:
-
-| Function | File (line) | API base URL |
-|----------|-------------|--------------|
-| `searchNetease(kw, page, num)` | `index.html` ~1986 | `api.qijieya.cn/meting` |
-| `searchQQ(kw, limit)` | `index.html` ~2041 | `tang.api.s01s.cn/music_open_api.php` |
-| `searchKuwo(kw, limit)` | `index.html` ~2123 | `kw-api.cenguigui.cn` |
-| `searchJoox(kw, limit)` | `index.html` ~2169 | `apicx.asia/api/joox_music` |
-| `fetchNeteaseDetails(track)` | `index.html` ~2268 | `api.qijieya.cn/meting` |
-| `fetchQQDetails(track)` | `index.html` ~2311 | `tang.api.s01s.cn/music_open_api.php` |
-| `fetchKuwoDetails(track)` | `index.html` ~2398 | `kw-api.cenguigui.cn` |
-| `fetchJooxDetails(track)` | `index.html` ~2424 | `apicx.asia/api/joox_music` |
-
-Key edge cases: partial/missing fields in API response, fallback field logic in `fetchQQDetails`'s `pickBestPlayUrl`, JOOX `probeJooxAudioUrl` URL probe chain.
-
-### Recommended Framework for Mobile Rebuild
-
-When the project moves to a proper module structure:
-
+**Run Commands:**
 ```bash
-# Recommended stack (all zero-config for ESM)
-npm install -D vitest @vitest/coverage-v8
+pnpm test                       # vitest --run (whole suite, one-shot)
+pnpm test:unit                  # vitest (watch mode)
+pnpm exec vitest run <file>     # run ONE file, e.g.:
+pnpm exec vitest run src/lib/stores/player.svelte.test.ts
+pnpm check                      # svelte-kit sync && svelte-check (type gate — run this too)
+pnpm check:watch                # svelte-check --watch
+```
+`pnpm check` is a SEPARATE gate from tests: it runs `svelte-check` (type errors, unused, a11y). Both must pass. There is no eslint/prettier step.
 
-# Run tests
-npx vitest
+## Test File Organization
 
-# Coverage
-npx vitest --coverage
+**Location:** Colocated — the test sits next to the file under test (`src/lib/services/deezer.ts` → `src/lib/services/deezer.test.ts`). Route-handler tests live beside the `+server.ts` in the route dir (`src/routes/api/proxy.test.ts`, `src/routes/api/deezer/search/deezer-endpoint.test.ts`).
+
+**Naming:**
+- `<name>.test.ts` for plain modules.
+- `<name>.svelte.test.ts` for runes-backed store tests (7 of them): `player`, `library`, `settings`, `online`, `searchHistory`, `searchSession`, `sleepTimer` under `src/lib/stores/`. The `.svelte.test.ts` suffix ensures the runes transform runs.
+
+**Coverage map (where tests live):**
+```
+src/lib/stores/*.svelte.test.ts        # runes stores (player is the giant one)
+src/lib/services/*.test.ts             # ~25 service tests (deezer, lastfm, cover-*, catalog, lrc, translate, ...)
+src/lib/sources/*.test.ts              # per-source adapters (netease, qq, kuwo, joox, audius) + quality/registry
+src/lib/actions/*.test.ts              # use: directives (lazyCover, swipe*, longpress, dragReorder, marquee, ...)
+src/lib/search|history|gestures|diagnostics/*.test.ts   # pure logic modules
+src/lib/i18n/{detect,i18n}.test.ts     # locale detection + key-set parity
+src/routes/api/**/*.test.ts            # server route handlers + proxy token boundary
 ```
 
-**Why Vitest:** supports ESM natively, no transpile config needed, `vi.stubGlobal` for fetch mocking, fast with native parallelism.
+## Test Structure
 
-**Test file location:** co-locate with source files using the `.test.js` suffix convention:
+Standard vitest `describe`/`it`, with `beforeEach`/`afterEach` reset hooks:
 
-```
-src/
-  search/
-    netease.js
-    netease.test.js    # unit + fetch-mock integration
-  player/
-    parseLRC.js
-    parseLRC.test.js
-  storage/
-    library.js
-    library.test.js
-```
+```typescript
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-### Recommended CI Addition
-
-Add a test job to `.github/workflows/` alongside the existing `g4f-issue-reply.yml`:
-
-```yaml
-# .github/workflows/test.yml  (to be created)
-on: [push, pull_request]
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: '20' }
-      - run: npm ci
-      - run: npm test
+beforeEach(() => {
+  fetchMock.mockReset();
+  memStore.clear();
+  vi.resetModules();     // re-import the module fresh so module-scope state resets
+});
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.stubGlobal('localStorage', localStorageMock); // re-stub after restore
+});
 ```
 
-### Storage / State Testing
+- `describe` blocks are named after the behavior + its decision ref, e.g. `describe('player.playStub — optimistic resolve-on-tap (FIX-A)', ...)`, `describe('player resilience — loop-guard + skip-on-failure (PLAY-07/08)', ...)`. This ties tests directly to the design decisions in the phase plans.
+- **Small factory helpers** build fixtures, e.g. `mk(source, songid, artist, title): Track` in `player.svelte.test.ts` returns a fully-populated `Track`. Reuse/define such a helper rather than inlining object literals.
+- `vi.resetModules()` in `beforeEach` + late `await import('./module')` INSIDE each test is used when a module has module-scope state that must be re-initialized per test (see `translate.test.ts`).
 
-`saveLibraryToStorage` and `loadLibraryFromStorage` use `localStorage`. In a test environment:
+## Mocking
 
-- Use `vitest`'s `jsdom` environment (configure via `vitest.config.js`)
-- `localStorage` is available in jsdom — no additional mock needed
-- Test round-trip: save a known state → reload → verify equality
+**Framework:** vitest `vi.mock` / `vi.fn` / `vi.mocked` / `vi.stubGlobal`.
 
-### What NOT to Test (initially)
+**Mocking `fetch` / API layer** — mock the app's fetch wrapper, not global fetch, and hand back a minimal `Response`:
+```typescript
+// src/lib/services/translate.test.ts
+const fetchMock = vi.fn();
+vi.mock('./api-base', () => ({ apiFetch: (...a: unknown[]) => fetchMock(...a) }));
+function jsonRes(body: unknown) { return { json: async () => body } as Response; }
+fetchMock.mockResolvedValue(jsonRes({ translated: [...], flags: [...] }));
+```
 
-- Canvas particle animation (`setupParticles`) — visual, animation-frame dependent
-- Ripple DOM injection (`setupRipple`) — visual micro-interaction
-- Full playback via `HTMLAudioElement` — requires a real audio stack; mock the `audio` element with a spy object
+**In-memory `localStorage`** — a `Map`-backed `Storage` stub, installed via `vi.stubGlobal`, is the standard way to test persistence headless (identical pattern in `player.svelte.test.ts`, `translate.test.ts`, and the store tests):
+```typescript
+const memStore = new Map<string, string>();
+const localStorageMock: Storage = { get length(){...}, clear, getItem, key, removeItem, setItem };
+vi.stubGlobal('localStorage', localStorageMock);
+```
+
+**Partial mocks that keep the rest real** — use `importOriginal` and spread, so unrelated exports of the same module stay live (avoids collateral breakage in other suites):
+```typescript
+// src/lib/stores/player.svelte.test.ts
+vi.mock('$lib/services/cover-cache', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('$lib/services/cover-cache')>();
+  return { ...actual, getCachedCoverByUid: vi.fn(() => null), getCachedCover: vi.fn(() => null) };
+});
+```
+This is used to stub the sync cache readers (`getCachedCoverByUid`, `getCachedCover`), the async `resolveCoverForTrack` (from `cover-backfill`), and the `removeCoverBoth` evictor while leaving `setCachedCover`/`clearCoverCache`/`writeCoverBoth` real.
+
+**Deferred promises to control settle order** — the generation-guard / supersedence tests mock async resolvers (`resolveStub`, `ensureTrackDetails`, `tryFallback`, `blobStore.get`) with DEFERRED promises so the test drives exactly WHEN each awaits settle, making timing-dependent guards deterministic. This is the canonical way to test the player's resolve-on-tap and prefetch races.
+
+**Stubbing browser globals** (no jsdom) — controllable class stubs on `globalThis`:
+```typescript
+// src/lib/actions/lazyCover.test.ts
+class MockIO { /* observe/unobserve/disconnect + trigger(isIntersecting) helper */ }
+class MockImage { /* onload/onerror driven by an `imageBehavior` flag */ }
+```
+`IntersectionObserver`, `Image`, `MediaMetadata` (a `FakeMediaMetadata` hoisted to module scope to avoid the Svelte nested-class perf warning) are all hand-stubbed. Media Session artwork tests assert a FRESH metadata object was assigned on the async cover land.
+
+**SSR flag flip** — many store/service tests `vi.mock('$app/environment', () => ({ browser: true }))` so the `!browser` early-returns in `persist()`/`restore()`/`load()` actually execute in node. When testing a browser-gated code path, flip `browser` ON and back it with the `localStorage` stub.
+
+**What to mock:** the fetch/api-base wrapper, IDB blob store (`$lib/services/blob-store`), cover cache readers, resolve helpers (`resolveStub`, `ensureTrackDetails`), cross-source `tryFallback`, up-next generators (`buildSimilarQueue`, `buildDiversePicks`), and browser globals (`localStorage`, `Image`, `IntersectionObserver`, Media Session).
+
+**What NOT to mock:** pure helpers under test (queue math, `fallbackOrder`, `decideEndedAction`, scoring, parsing) — call them directly. Keep `importOriginal` real for everything you aren't specifically overriding.
+
+## Coverage Areas
+
+**Well-tested (high confidence):**
+- **Player store** — `src/lib/stores/player.svelte.test.ts` is 4163 lines / ~161 cases across 32 `describe` blocks: playStub optimism, prefetch/never-stop, delayed re-resolve, repeat, loop-guard + skip-on-failure, stall watchdog, offline gate, generation guards (CR-02/WR-02), `resolvedCover` single-field guarantee, self-heal (`healCover`), queue context, `setListQueue`, `removeFromQueue`/`clearQueue`, sleep-timer expiry, `flushPersist`, unplayable-uid strike counter, autoplay-rejection retry, background stream-error skip. Resilience machinery is the most exhaustively covered subsystem.
+- **Enrichment services** — `catalog` (505 lines), `deezer` (462), `cover-backfill` (411), `cover-cache` (376), `lastfm` (354), `lrc` (308), `blob-store` (269), `home-layout` (267), `score-match` (258), `discovery`, `translate` (poison-cache / soft-fail flag), `enrich-merge`, `fallback`, `sw-cache`, `ttl-cache`, `match-key`, `media-session`, `share`, `similar`, `sleep-timer`.
+- **Source adapters** — `joox` (330), `qq` (249), `netease`, `kuwo`, `audius`, plus `quality` and `registry`.
+- **Server routes** — proxy token boundary (`proxy.test.ts` asserts the real JOOX token NEVER leaks into a response), deezer/lastfm/similar endpoints.
+- **Actions** — `lazyCover`, `coverSwipe`, `swipeAction`, `longpress`, `dragReorder`, `dragScroll`, `marquee`, `swipeRemove`, `chipReorder`, `inflightGuard`.
+- **i18n** — locale key-set parity + detection.
+
+**Thin / untested (see optimization lens):**
+- `src/lib/services/dedupe.ts` and `dedupe-deezer.ts` — **NO colocated test**, yet `dedupeBest`/`sameSongKey` are core to search-result merging AND the player's fallback/queue de-dupe. High-value, currently unguarded pure logic.
+- `src/lib/services/picks.ts` — **NO test** (it IS mocked in `player.svelte.test.ts`, so its own build logic is unverified).
+- `src/lib/services/native-media-session.ts`, `media-store.ts` — **NO test** (Capacitor bridge; hard to test headless, but the pure slices could be extracted).
+- Stores with **NO test**: `names.svelte.ts` (translation-name cache — notable, drives displayed names), `actionLog.svelte.ts`, `toast.svelte.ts`, `overlays.svelte.ts`, `cover-version.svelte.ts` (partially exercised via player), `history.svelte.ts` (exercised indirectly via player).
+- **`.svelte` components are not unit-tested** — no jsdom/testing-library project. Component behavior is only covered where its logic was extracted to a pure `.ts` (e.g. `track-menu-gate.ts` has `track-menu-gate.test.ts`; `autocomplete-logic.ts`, `history-logic.ts`, `velocity.ts`). Rendering/interaction of `NowPlaying.svelte`, `Nowbar.svelte`, `TrackMenu.svelte`, etc. is untested by automation.
+
+## Test Types
+
+- **Unit tests:** the vast majority — pure functions and runes stores exercised headless in node.
+- **Integration tests:** server route handlers exercise the real `+server.ts` + `hooks.server.ts` (`src/routes/api/proxy.test.ts` imports the real `GET` and `handle`).
+- **E2E tests:** none. No Playwright/Cypress. No jsdom component tests.
+
+## Common Patterns
+
+**SSR guard in tests** — flip `browser` on, provide backing `localStorage`:
+```typescript
+vi.mock('$app/environment', () => ({ browser: true }));
+vi.stubGlobal('localStorage', localStorageMock);
+```
+
+**Soft-fail flag testing** (don't trust HTTP 200) — assert the `complete` gate and that a partially-failed batch is NOT persisted:
+```typescript
+// src/lib/services/translate.test.ts
+fetchMock.mockResolvedValue(jsonRes({ translated: ['杜国华','周杰倫'], flags: [false, true] }));
+const r = await translateLinesEx(['杜国华','周杰伦'], 'zh-Hant');
+expect(r.complete).toBe(false);
+expect(lsKeys().filter((k) => k.startsWith('openmusic:lyrics-tr:')).length).toBe(0);
+```
+
+**Never-throw / sentinel assertions** — assert `null`/`[]`/`{}` on failure, never a rejection:
+```typescript
+// deezer/lastfm-style
+fetchMock.mockRejectedValue(new Error('boom'));
+await expect(deezerChart()).resolves.toEqual({ tracks: [], artists: [] });
+```
+
+**Secret-leak boundary assertion** (`src/routes/api/proxy.test.ts`):
+```typescript
+expect(upstream).toContain(`token=${FAKE_TOKEN}`);
+expect(upstream).not.toContain(REAL_TOKEN); // real JOOX token must never reach client artifacts
+```
+
+## Optimization Opportunities (quality/testing)
+
+- **Untested core de-dupe** — add tests for `src/lib/services/dedupe.ts` (`dedupeBest`, `sameSongKey`) and `dedupe-deezer.ts`. They are mocked away in the player test, so their real logic is unverified despite being on every search/fallback/queue path.
+- **`picks.ts` unverified** — mocked in player tests, no direct test; the diverse-picks builder feeds the home page and up-next.
+- **`names.svelte.ts` store untested** — it drives displayed artist/title translation caching (a known past bug area per project memory: soft-fail echoes). Worth a persistence + soft-fail test mirroring `translate.test.ts`.
+- **No component-level tests** — consider a jsdom/`@testing-library/svelte` project for `NowPlaying`/`Nowbar` to catch UI-swap regressions (a documented past incident: gating the now-playing swap on the `playing` event froze iOS playback). Currently only pure-logic extractions catch such issues.
+- **Flaky-risk: timing-dependent player tests** rely on deferred-promise ordering + fake counters; they are deterministic today but fragile to refactors of the async guard order. Keep the deferred-promise discipline and avoid real timers (prefer `vi.useFakeTimers()` for watchdog/debounce windows).
+- **`requireAssertions` is on** — any new test without an assertion fails the run; good, keep leaning on it.
+- **No lint/format gate** — convention drift (quote style in i18n, tab indentation, import ordering) is only caught by review. A lightweight prettier + eslint-svelte config would close this gap; until then, match the nearest existing file exactly.
 
 ---
 
-*Testing analysis: 2026-06-05*
+*Testing analysis: 2026-07-03*

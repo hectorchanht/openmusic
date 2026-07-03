@@ -1,347 +1,141 @@
 # External Integrations
 
-**Analysis Date:** 2026-06-05
+**Analysis Date:** 2026-07-03
 
----
+> All external calls that carry a secret, or that are CORS-blocked for the browser, go
+> through same-origin SvelteKit server routes under `src/routes/api/`. The client never
+> talks to a CN/Deezer/Last.fm upstream directly except a few CORS-open hosts (iTunes,
+> Cover Art Archive). Client `/api/*` URLs are built via `apiUrl()`/`apiFetch()`
+> (`src/lib/services/api-base.ts`) so the same code runs same-origin on web and
+> cross-origin (`https://openmusic.lol`) inside the native APK.
 
-## Overview
+## APIs & External Services
 
-The app integrates **four music sources**: Netease (网易云), QQ Music (QQ音乐), Kuwo (酷我), and JOOX. None of the source APIs are called directly — all calls go through **third-party public proxy APIs** that handle CORS and authentication on behalf of the client. There is no backend server owned by this project.
+### Music metadata sources — CN (via catch-all proxy `src/routes/api/[source]/[...path]/+server.ts`)
 
-The `<meta name="referrer" content="no-referrer" />` tag at `index.html` line 6 suppresses the `Referer` header on all requests, which is a common technique to avoid referer-based blocking by CDN audio links.
+Registered in `src/lib/proxy/proxy-registry.ts`; per-source URL builders in `src/lib/proxy/`. The route validates the source against `PROXIES`, builds the upstream URL, fetches with `fetchWithRetry` (native `AbortSignal.timeout(8000)`, up to 3 attempts, 429/5xx backoff — `src/lib/proxy/http.ts`), and forwards the upstream body UNCHANGED with own-origin CORS.
 
----
+- **Netease** — `https://api.qijieya.cn/meting/` (Meting proxy). Types: `search`, `url`, `lrc`. No auth. `src/lib/proxy/netease.ts`. Client adapter: `src/lib/sources/netease.ts`.
+- **QQ** — `https://tang.api.s01s.cn/music_open_api.php` (tang API). `search`/`detail` share one endpoint (distinguished by `mid`). No auth. `src/lib/proxy/qq.ts` / `src/lib/sources/qq.ts`.
+- **Kuwo** — `https://kw-api.cenguigui.cn/` (cenguigui kw-api). `search` (`name=`) / `detail` (`id=&type=song&level=zp`). No auth. `src/lib/proxy/kuwo.ts` / `src/lib/sources/kuwo.ts`.
+- **JOOX** — `https://apicx.asia/api/joox_music` (apicx proxy). `search`/`detail`. **Auth: `JOOX_TOKEN` injected server-side from `platform.env`** (the ONLY proxy that reads `env`); non-secret `br=4` (Atmos/lossless tier) also injected. Missing token throws (refuses to emit `token=undefined`). Never logged. `src/lib/proxy/joox.ts` / `src/lib/sources/joox.ts`.
 
-## Music Source 1: Netease Cloud Music (网易云音乐)
+### Music metadata sources — dedicated routes (NOT the catch-all)
 
-**Proxy API:** `api.qijieya.cn` (Meting-based proxy)
+- **5sing (Kugou UGC)** — search `http://search.5sing.kugou.com/home/json` (`src/routes/api/fivesing/search/+server.ts`), url `http://mobileapi.5sing.kugou.com/song/getSongUrl` (`src/routes/api/fivesing/url/+server.ts`). Plain **http** upstream (TLS cert mismatch on https; CF Workers allow outbound http; client still uses own-origin https — no mixed content). No auth. Client adapter: `src/lib/sources/fivesing.ts`.
+- **Jamendo** — `https://api.jamendo.com/v3.0/tracks/` (`src/routes/api/jamendo/search/+server.ts`). Auth: **public `JAMENDO_CLIENT_ID`** from `platform.env` (baked in `wrangler.jsonc` `vars`). `audioformat=mp32` returns a direct progressive mp3 in `audio`. Absent client_id → empty `{ results: [] }`. Client adapter: `src/lib/sources/jamendo.ts`.
+- **Audius** — search `https://api.audius.co/v1/tracks/search?app_name=musicsquare` (`src/routes/api/audius/search/+server.ts`); **stream relay** `https://api.audius.co/v1/tracks/{id}/stream?app_name=musicsquare` (`src/routes/api/audius/stream/[id]/+server.ts`). `app_name` is a free-text id, NOT a secret, appended server-side. The stream route follows the upstream 302 → signed/expiring `storage.googleapis.com` mp3 and pipes bytes (must NEVER JSON-return the redirect target); forwards `Range`, propagates `Accept-Ranges`/`Content-Range`/`Content-Length` for 206 seeking; `AbortSignal.timeout(15000)`, retries=1. Client adapter: `src/lib/sources/audius.ts`.
 
-**What it provides:** Search results (title, artist, cover art, direct audio URL, LRC lyrics URL) — all returned in a single search call.
+### Cover art / artwork enrichment
 
-### Search
+- **Deezer** (PRIMARY cover source) — `https://api.deezer.com/*`, keyless. Routes: `search` (`src/routes/api/deezer/search/+server.ts`), `chart`, `album` (search + by-id), `artist` (search + by-id), `related`, `artist-albums`. Reshaped client-facing JSON; image host allow-list `*.dzcdn.net` / `cdn-images.dzcdn.net`; 30s preview host `*.dzcdn.net`. Client service: `src/lib/services/deezer.ts`.
+- **iTunes Search** (Western-catalog + artist fallback covers) — `https://itunes.apple.com/search`, keyless, `Access-Control-Allow-Origin: *` so it is called DIRECTLY from the client (no proxy). Song: `entity=song`; artist: `entity=album&attribute=artistTerm`. Artwork upgraded `100x100bb` → `1200x1200bb`. CDN host `is1-ssl.mzstatic.com`. `src/lib/services/itunes-cover.ts`, consumed by `src/lib/services/cover-backfill.ts`.
+- **Cover Art Archive (CAA)** — `https://coverartarchive.org/release-group/{mbid}/front-250`, keyless, called DIRECTLY from the client (307-redirects to image or 404s; no rate limit). `src/lib/services/cover-art.ts`.
+- **Last.fm images** — surfaced through the Last.fm routes below; host allow-list `last.fm` / `*.last.fm` / `*.fastly.net` (`lastfm.freetls.fastly.net`).
 
-```
-GET https://api.qijieya.cn/meting/?type=search&id={keyword}&limit={n}&server=netease
-```
+### Metadata enrichment / discovery — Last.fm (`https://ws.audioscrobbler.com/2.0/`)
 
-- Called from: `searchNetease()`, `index.html` line 1988
-- `id` = URL-encoded search keyword
-- `limit` = `page * perSourceLimit` (pagination handled by multiplying limit, not a real page param)
-- Returns: JSON array of objects with fields `name`, `artist`, `url` (audio), `pic` (cover), `lrc` (lyrics URL)
-- Netease audio URL is returned directly in search results (unlike QQ/Kuwo which need a detail call)
-- Song ID is extracted from the `url` query param `?id=` using `pickQueryParam()`
+- **`/api/similar`** — `artist.getSimilar` → `{ artists: string[] }` (`src/routes/api/similar/+server.ts`).
+- **`/api/lastfm/info`** — `track/artist/album.getInfo` (allow-listed) → tags/bio/image/listeners/playcount/album-tracklist; filters the grey-star placeholder hash; `safeImageUrl`/`safeLastfmUrl` guards (`src/routes/api/lastfm/info/+server.ts`).
+- **`/api/lastfm/discovery`** — chart/tag/top-albums discovery shelves for the home screen (`src/routes/api/lastfm/discovery/+server.ts`).
+- Auth: **optional `LASTFM_KEY`** injected server-side, never echoed. Absent key is a SUPPORTED state → 200 empty shape / `{ artists: [] }` (client degrades to same-artist fallback). `LASTFM_SECRET` typed for future signed calls (auth/scrobble) — not currently wired.
 
-### Audio URL (fallback / cached tracks)
+### Translation
 
-```
-GET https://api.qijieya.cn/meting/?server=netease&type=url&id={songid}
-```
-
-- Called from: `fetchNeteaseDetails()`, `index.html` line 2271
-- Used only when a cached track (from localStorage) has a `songid` but no `audioUrl`
-
-### Lyrics (LRC)
-
-```
-GET https://api.qijieya.cn/meting/?server=netease&type=lrc&id={songid}
-```
-
-- Called from: `fetchNeteaseDetails()`, `index.html` line 2274
-- Returns: plain LRC text or JSON wrapping LRC (both formats handled with content-type sniffing, lines 2288–2302)
-
-**State fields populated:**
-```
-track.songid       — Netease song ID (from URL ?id= param)
-track.audioUrl     — Direct audio stream URL
-track.lrcUrl       — LRC lyrics URL (fetched separately on play)
-track.lrc          — Resolved LRC text string
-track.cover        — Cover image URL (it.pic)
-track.title        — Song title (it.name)
-track.artist       — Artist name (it.artist)
-```
-
-**Pagination:** `perSourcePage.netease` incremented on "Load More"; limit multiplied by page number (`index.html` lines 1987, 2951–2952).
-
----
-
-## Music Source 2: QQ Music (QQ音乐)
-
-**Proxy API:** `tang.api.s01s.cn` ("Tang" QQ Music API)
-
-**What it provides:** Search (title, artist, song_mid, pay status) + detail (audio URLs at multiple quality tiers, cover, lyrics).
-
-### Search
-
-```
-GET https://tang.api.s01s.cn/music_open_api.php?msg={keyword}&type=json
-```
-
-- Called from: `searchQQ()`, `index.html` line 2043
-- Returns: JSON array (or `{data:[...]}` wrapper) of objects with `song_mid`, `song_title`, `singer_name`, `pay`
-- No audio URL returned at search time — detail call required before playback
-
-### Detail (audio URL + lyrics + cover)
-
-```
-GET https://tang.api.s01s.cn/music_open_api.php?msg={keyword}&type=json&mid={song_mid}
-```
-
-- Called from: `fetchQQDetails()`, `index.html` line 2323
-- `msg` = original search keyword, `mid` = `song_mid` from search result
-- Returns: single track object with multiple quality-tiered URLs
-
-**Audio quality selection (in priority order, `pickBestPlayUrl()`, lines 2330–2345):**
-
-| Field | Quality tag | Label |
-|---|---|---|
-| `song_play_url_sq` | `lossless` | `LOSSLESS` (SQ) |
-| `song_play_url_pq` | `lossless` | `LOSSLESS` (PQ) |
-| `song_play_url_accom` | `hq` | `HQ` (Accompaniment) |
-| `song_play_url_hq` | `hq` | `HQ` |
-| `song_play_url_standard` | `standard` | `STD` |
-| `song_play_url_fq` | `low` | `LOW` |
-| `song_play_url` | null | null (fallback) |
-
-Additional detail fields: `album_pic` (cover), `singer_pic`, `song_lyric` / `lyric` (LRC text inline), `song_h5_url`, `album_name`, `vip`, `kbps_sq/hq/standard/fq`.
-
-**State fields populated:**
-```
-track.qqId / track.songMid — QQ song_mid (primary key)
-track.qqIndex              — 1-based position in search results
-track.qqSearchKey          — Keyword used for search (needed for detail call)
-track.audioUrl             — Chosen quality tier URL
-track.lrc                  — LRC text (inline from detail response)
-track.cover                — Album or singer pic URL
-track.qqQualityText        — Human-readable quality label (e.g. "SQ 999")
-track.pay                  — Pay status string from search (e.g. "付费")
-```
-
----
-
-## Music Source 3: Kuwo Music (酷我音乐)
-
-**Proxy API:** `kw-api.cenguigui.cn`
-
-**What it provides:** Search (title, artist, album, cover, song rid) + detail (audio URL at `zp` lossless level + inline LRC lyrics).
-
-### Search
-
-```
-GET https://kw-api.cenguigui.cn/?name={keyword}&page=1&limit={n}
-```
-
-- Called from: `searchKuwo()`, `index.html` line 2124
-- Returns: `{code: 200, data: [{rid, name, artist, album, pic}, ...]}` 
-- No audio URL returned at search time
-
-### Detail (audio URL + lyrics)
-
-```
-GET https://kw-api.cenguigui.cn/?id={rid}&type=song&level=zp&format=json
-```
-
-- Called from: `fetchKuwoDetails()`, `index.html` line 2399
-- `level=zp` requests lossless quality ("臻品" tier)
-- Returns: `{code: 200, data: {name, artist, album, pic, url, lyric}}`
-- `url` is a direct audio file link (FLAC for lossless, MP3 otherwise)
-- `lyric` is an inline LRC text string
-
-**State fields populated:**
-```
-track.songid      — Kuwo rid (numeric song ID)
-track.audioUrl    — Direct audio stream URL (FLAC or MP3)
-track.lrc         — LRC lyrics text (inline)
-track.cover       — Cover image URL
-```
-
-**Quality detection:** `inferQualityFromUrl()` checks file extension (`.flac` → LOSSLESS, otherwise → 320K).
-
----
-
-## Music Source 4: JOOX
-
-**Proxy API:** `apicx.asia/api/joox_music`
-
-**What it provides:** Search + detail with multiple audio quality tiers and inline LRC lyrics. Requires a hardcoded bearer-style token.
-
-**Hardcoded credentials (in `index.html`):**
-```javascript
-const JOOX_TOKEN = 'f84ao9lMF_q7husBWRfgUw';  // line 2165
-const JOOX_BR = 4;                               // line 2166 (bitrate tier selector)
-```
-
-### Search
-
-```
-GET https://apicx.asia/api/joox_music?msg={keyword}&token={JOOX_TOKEN}&br={JOOX_BR}
-```
-
-- Called from: `searchJoox()`, `index.html` line 2170
-- Returns: `{code: 200, data: {songs: [{songmid, 歌曲ID, 歌曲名称, 歌手, 专辑, 歌词内容}, ...]}}`
-- Note: response uses Chinese-language field names (e.g. `歌曲名称`, `歌手`)
-- Lyrics (`歌词内容`) are returned inline at search time (unlike other sources)
-- No audio URL at search time
-
-### Detail (audio URLs by quality tier)
-
-```
-GET https://apicx.asia/api/joox_music?msg={keyword}&n={jooxIndex}&token={JOOX_TOKEN}&br={JOOX_BR}
-```
-
-- Called from: `fetchJooxDetails()`, `index.html` line 2426
-- `n` = 1-based index of the song in the original search result (`track.jooxIndex`)
-- Returns: `{code: 200, data: {播放链接: {质量名: url, ...}, 歌曲名称, 歌手, 专辑, 歌词内容, songmid, 歌曲ID}}`
-
-**Audio quality selection — `pickJooxPlayUrl()` (lines 2466–2479):**
-
-Priority order probed via HEAD/GET range requests:
-```
-'Atmos全景声' → lossless / LOSSLESS
-'无损FLAC'    → lossless / LOSSLESS
-'Hi-Res无损'  → lossless / LOSSLESS
-'母带无损'    → lossless / LOSSLESS
-'OGG 320'     → 320k / 320K
-'MP3 320'     → 320k / 320K
-'AAC 192'     → 192k / 192K
-'OGG 192'     → 192k / 192K
-'MP3 128'     → 128k / 128K
-'AAC 96'      → 96k / 96K
-'AAC 48'      → 48k / 48K
-```
-
-Each candidate URL is probed with HEAD (then GET range `bytes=0-0` as fallback) with a 3-second timeout via `probeJooxAudioUrl()` (lines 2434–2464). The first URL that responds successfully is used.
-
-**State fields populated:**
-```
-track.jooxIndex       — 1-based search position (used for detail re-fetch)
-track.songMid         — JOOX songmid
-track.songid          — 歌曲ID
-track.audioUrl        — Chosen quality tier URL (probed live)
-track.lrc             — LRC text (inline, from both search and detail responses)
-track.jooxQualityText — Human-readable quality name (e.g. "Atmos全景声")
-```
-
----
-
-## CORS Strategy
-
-All four music source integrations rely entirely on **third-party public proxy APIs** that serve responses with permissive CORS headers. The browser's `fetch()` API calls these proxies directly from the client side. There is no CORS proxy owned by this project.
-
-The `<meta name="referrer" content="no-referrer">` tag suppresses the browser's `Referer` header on all requests, preventing music CDN links from blocking playback based on referer checking.
-
-**No `mode: 'cors'` or `credentials` options are set** — all `fetch()` calls use default settings.
-
----
+- **`/api/translate`** (POST) — unofficial Google Translate `https://translate.googleapis.com/translate_a/single` (no key). Batches lyric/name lines with a sentinel-join, CHUNK_SIZE=20 to dodge echo-mode, per-line fallback (concurrency 6), returns `{ translated: string[], flags: boolean[] }` (1:1 aligned; `flags` marks GENUINELY-translated lines so clients don't cache fallbacks). `src/routes/api/translate/+server.ts`, client service `src/lib/services/translate.ts` + `src/lib/stores/names.svelte.ts`. See MEMORY: soft-fail echoes originals — gate on the flag.
 
 ## Data Storage
 
-**localStorage (browser):**
+**Databases / edge cache:**
+- Cloudflare **`caches.default`** (edge cache) on dedicated proxy routes, keyed by the OWN-ORIGIN Request (never the upstream URL / secret), CORS re-applied per hit:
+  | Route | TTL | File |
+  |-------|-----|------|
+  | `/api/deezer/search` | 86400 (24h) | `src/routes/api/deezer/search/+server.ts` |
+  | `/api/deezer/chart` | 3600 (1h) | `src/routes/api/deezer/chart/+server.ts` |
+  | `/api/deezer/related` | 86400 | `src/routes/api/deezer/related/+server.ts` |
+  | `/api/deezer/artist-albums` | 86400 | `src/routes/api/deezer/artist-albums/+server.ts` |
+  | `/api/jamendo/search` | 3600 | `src/routes/api/jamendo/search/+server.ts` |
+  | `/api/audius/search` | 600 (10m) | `src/routes/api/audius/search/+server.ts` |
+  | `/api/fivesing/search` | 3600 | `src/routes/api/fivesing/search/+server.ts` |
+  | `/api/lastfm/discovery` | 1h / 6h / 24h per method | `src/routes/api/lastfm/discovery/+server.ts` |
+  | `/api/translate` | `Cache-Control: max-age=86400` (browser, no edge put) | `src/routes/api/translate/+server.ts` |
+  - NO edge cache / no `Cache-Control`: `/api/[source]/[...path]` (all CN search/detail/lrc), `/api/lastfm/info`, `/api/similar`, `/api/deezer/album`, `/api/deezer/artist`, `/api/audius/stream/[id]`.
+- No SQL/D1/KV/R2 database. Cloudflare bindings used: `caches.default` only. `platform.env` used for secrets/vars, not durable storage.
 
-| Key | Contents | Where |
-|---|---|---|
-| `pikachu-music-library-v1` | JSON snapshot: `{version, savedAt, favorites[], playlists[]}`. Each track is serialized without `audioUrl`/`lrc` (these are re-fetched on play). | `saveLibraryToStorage()` / `loadLibraryFromStorage()`, `index.html` lines 1804–1838 |
-| `pikachu-music-lang` | Language setting: `'zh'` or `'en'` | `setLanguage()`, `index.html` line 1712 |
+**Client-side storage:**
+- `localStorage` keys (all prefixed `openmusic:`):
+  - `openmusic:player:v1` — player store (`src/lib/stores/player.svelte.ts`)
+  - `openmusic:library:v1` — favorites + playlists (`src/lib/stores/library.svelte.ts`)
+  - `openmusic:settings:v1` — user settings incl. enabled sources (`src/lib/stores/settings.svelte.ts`)
+  - `openmusic:history:v1` — play history (`src/lib/stores/history.svelte.ts`)
+  - `openmusic:search-history:v1` — recent searches (`src/lib/stores/searchHistory.svelte.ts`)
+  - `openmusic:cover-cache:v1` — resolved cover URLs (`src/lib/services/cover-cache.ts`)
+  - `openmusic:action-log:v1` — diagnostic action log (`src/lib/stores/actionLog.svelte.ts`)
+  - `openmusic-blob-uri:<uid>` — native blob URI pointers (`src/lib/services/blob-store.ts`)
+- **IndexedDB** — `openmusic-blobs` DB, `tracks` store (schema v1), keyed by track `uid`: offline audio Blob cache for downloaded tracks (`src/lib/services/blob-store.ts`). Downloaded songs play from the local blob before the CDN.
 
-**No IndexedDB, no cookies, no server-side session storage.**
+**File Storage (native only):**
+- App-private offline copy via `Directory.Data` (`@capacitor/filesystem` + `capacitor-blob-writer`, streamed — no base64 round-trip).
+- Public `Music/OpenMusic/` copy via the hand-written Kotlin MediaStore bridge (`src/lib/services/media-store.ts`). Web build = no-op.
 
-**Playlist import/export:** JSON file download/upload via `Blob`, `URL.createObjectURL()`, `FileReader`. Schema matches the `LIBRARY_STORAGE_KEY` format. Functions: `exportPlaylistData()` line 1841, `handleImportPlaylistFile()` line 1925.
+**Caching (offline shell):**
+- Service worker (`src/service-worker.ts`) precaches the app shell into a per-deploy version-keyed cache; pure bypass logic in `src/lib/services/sw-cache.ts` NEVER caches `/api/*` live metadata, cross-origin audio CDN bytes, 206 range streams, or non-GET. Registered on web (`register: true`); DISABLED on native (`register: false`, `svelte.config.js`).
 
----
+## Authentication & Identity
 
-## CDN Dependencies
+- No end-user auth / login. Anonymous, device-local (localStorage/IndexedDB) library + settings.
+- Upstream auth is server-injected: `JOOX_TOKEN` (required), `LASTFM_KEY` (optional), `JAMENDO_CLIENT_ID` (public), `LASTFM_SECRET` (reserved for future signed Last.fm scrobble/love — not wired). All read via `platform.env` in server routes; none reach the client bundle.
 
-| Resource | URL | Purpose |
-|---|---|---|
-| Google Fonts (preconnect) | `https://fonts.googleapis.com` | Font DNS warmup |
-| Google Fonts (preconnect) | `https://fonts.gstatic.com` | Font file DNS warmup |
-| Google Fonts (stylesheet) | `https://fonts.googleapis.com/css2?family=Baloo+2:wght@400;600&family=Nunito:wght@400;600` | Load Baloo 2 + Nunito fonts |
+## Monitoring & Observability
 
-No JavaScript libraries are loaded from CDN. All logic is inline.
+**Error Tracking:** None (no Sentry/analytics SDK). Proxy routes swallow upstream errors and return best-effort empty shapes (never block playback).
 
----
+**Logs:** In-app diagnostic action log at Settings → Activity log (`src/lib/stores/actionLog.svelte.ts`, `logAction`), persisted to `openmusic:action-log:v1` — used to debug playback (esp. Android background). Server routes deliberately NEVER log secrets or signed upstream URLs.
 
-## GitHub Actions / CI
+## CI/CD & Deployment
 
-**Workflow:** `.github/workflows/g4f-issue-reply.yml`
+**Hosting:**
+- Web: Cloudflare Pages (`openmusic.lol`; legacy `openmusic.pages.dev`). CF preview subdomains allow-listed in `src/lib/proxy/http.ts`.
+- Android: signed APK via GitHub Releases.
 
-**Purpose:** Auto-reply to newly opened GitHub issues using LLM (not related to the music player).
+**CI Pipeline (GitHub Actions):**
+- `.github/workflows/android-main.yml` — rolling prerelease APK on push to `main`.
+- `.github/workflows/android-release.yml` — signed `assembleRelease` (Node 22 + pnpm frozen lockfile → `pnpm build:native` → `npx cap sync android` → `./gradlew assembleRelease` → sign with release keystore → `softprops/action-gh-release`).
 
-**Script:** `scripts/g4f_issue_reply.py`
+## Environment Configuration
 
-**LLM provider chain (`MultiProviderIssueReplyBot`):**
-1. OpenAI-compatible API (configured via `OPENAI_COMPATIBLE_API_KEY`, `OPENAI_COMPATIBLE_BASE_URL`, `OPENAI_COMPATIBLE_MODEL` secrets/vars)
-2. Ecylt Free GPT API (`https://api.ecylt.top/v1/free_gpt/chat_json.php`, configurable via `ECYLT_FREE_GPT_URL`)
-3. g4f (gpt4free local library) with model list: `gpt-4.1-nano`, `deepseek-r1`, `llama-4-scout`, `mistral-small-3.1-24b`, etc.
+**Server (Cloudflare `platform.env`, typed in `src/lib/proxy/proxy-types.ts`):**
+- `JOOX_TOKEN` (required for JOOX playback) — secret via `wrangler pages secret put`.
+- `LASTFM_KEY` (optional) — secret; enables Last.fm info/similar/discovery.
+- `LASTFM_SECRET` (optional) — secret; reserved for signed Last.fm calls.
+- `JAMENDO_CLIENT_ID` (public) — `wrangler.jsonc` `vars`.
 
-**Required secrets:** `GITHUB_TOKEN` (auto-provided), `OPENAI_COMPATIBLE_API_KEY` (optional)
-**Required vars:** `G4F_MODELS`, `ECYLT_FREE_GPT_ENABLED`, `ECYLT_FREE_GPT_URL`, `OPENAI_COMPATIBLE_BASE_URL`, `OPENAI_COMPATIBLE_MODEL`
+**Build-time (Vite):**
+- `VITE_API_BASE` — empty on web; `https://openmusic.lol` on native (`src/lib/services/api-base.ts`).
+- `BUILD_TARGET=native` — selects `adapter-static` + disables service-worker registration.
 
----
+**Secrets location:**
+- Production: Cloudflare Pages secrets (`wrangler pages secret put …`).
+- Local dev: `.dev.vars` (present at repo root; keys `JOOX_TOKEN`, `LASTFM_KEY`, `LASTFM_SECRET` — contents NOT read).
+- Android signing: GitHub repo secrets (`RELEASE_KEYSTORE`, `KEY_ALIAS`, `KEYSTORE_PASSWORD`, `KEY_PASSWORD`); `release.jks` at repo root.
 
-## Integration Summary Table
+## Webhooks & Callbacks
 
-| Source | Search Proxy | Detail Proxy | Auth | Search returns audio? | Lyrics source |
-|---|---|---|---|---|---|
-| Netease | `api.qijieya.cn/meting` | Same | None | Yes (direct URL) | Separate LRC URL fetch |
-| QQ Music | `tang.api.s01s.cn` | Same (+ `mid` param) | None | No | Inline in detail response |
-| Kuwo | `kw-api.cenguigui.cn` | Same (+ `id` param) | None | No | Inline in detail response |
-| JOOX | `apicx.asia/api/joox_music` | Same (+ `n` param) | Hardcoded `token` | No | Inline in both responses |
+**Incoming:** None.
+**Outgoing:** None. All outbound is request/response fetch to the upstreams listed above.
 
----
+## CORS Posture
 
-## Key Functions for Mobile Rebuild (Reuse Reference)
+- Central CORS seam: `src/hooks.server.ts` adds allow-listed CORS to every `/api/*` response and answers OPTIONS 204 (covers `/api/translate`, which had none per-route). Origin allow-list (never `*`) in `src/lib/proxy/http.ts`: `openmusic.lol` (+ subdomains), `openmusic.pages.dev` (+ subdomains, cutover), `localhost`/`127.0.0.1` (dev), `https://localhost` + `capacitor://localhost` (Capacitor WebView). `Vary: Origin` set for edge-cache correctness. Never emits `Access-Control-Allow-Origin: *` (JOOX-token-bearing proxy must not be an open relay).
 
-All integration logic lives in `index.html` within the single `<script>` block:
+## Optimization Opportunities (integration level)
 
-| Function | Lines | Purpose |
-|---|---|---|
-| `searchNetease(kw, page, num)` | 1986–2038 | Netease search |
-| `searchQQ(kw, limit)` | 2040–2120 | QQ search |
-| `searchKuwo(kw, limit)` | 2122–2163 | Kuwo search |
-| `searchJoox(kw, limit)` | 2168–2212 | JOOX search |
-| `searchAllSources(reset)` | 2216–2263 | Aggregates all enabled sources via `Promise.all` |
-| `fetchNeteaseDetails(track)` | 2268–2308 | Resolves audio URL + LRC for Netease |
-| `fetchQQDetails(track)` | 2310–2396 | Resolves audio URL + LRC for QQ |
-| `fetchKuwoDetails(track)` | 2398–2422 | Resolves audio URL + LRC for Kuwo |
-| `fetchJooxDetails(track)` | 2424–2504 | Resolves audio URL (probed) + LRC for JOOX |
-| `ensureTrackDetails(track)` | 2506–2513 | Router: dispatches to correct `fetchXxxDetails` |
-| `inferQualityFromUrl(url)` | 1747–1758 | Derives quality tag from audio URL file extension |
-| `parseLRC(txt)` | 2517–2532 | Parses LRC format to `[{time, text}]` array |
-| `serializeTrack(track)` | 1762–1778 | Strips non-serializable fields for localStorage |
-| `deserializeTrack(raw)` | 1780–1789 | Restores track from localStorage (clears audioUrl/lrc) |
-
-**Track object shape** (canonical fields used across all sources):
-```javascript
-{
-  uid,             // "{source}-{id}" e.g. "netease-123456"
-  source,          // 'netease' | 'qq' | 'kuwo' | 'joox'
-  displayIndex,    // 1-based position in search results
-  keyword,         // Search keyword used to find this track
-  songid,          // Source-specific song ID
-  songMid,         // QQ/JOOX: song_mid
-  qqId,            // QQ: song_mid alias
-  qqSearchKey,     // QQ: original search keyword (needed for detail API)
-  qqIndex,         // QQ: 1-based position in QQ search (used for detail)
-  jooxIndex,       // JOOX: 1-based position (used for detail re-fetch by n=)
-  jooxSongId,      // JOOX: 歌曲ID
-  jooxSongMid,     // JOOX: songmid
-  title,           // Song title
-  artist,          // Artist name
-  album,           // Album name
-  cover,           // Cover image URL (null if unavailable)
-  audioUrl,        // Direct audio stream URL (null until detail loaded)
-  lrc,             // LRC text string (null until lyrics loaded)
-  lrcUrl,          // LRC fetch URL (Netease only)
-  detailsLoaded,   // boolean — true after fetchXxxDetails() completes
-  quality,         // 'lossless' | '320k' | 'hq' | 'standard' | 'low' | null
-  qualityLabel,    // Display string: 'LOSSLESS' | '320K' | 'HQ' | 'STD' etc.
-  qqQualityText,   // QQ quality description (e.g. "SQ 999")
-  jooxQualityText, // JOOX quality name (e.g. "Atmos全景声")
-  pay,             // Pay status (QQ only: "付费" etc.)
-  pageUrl          // QQ: song H5 page URL
-}
-```
+- **Missing edge caching on hot routes** — `/api/[source]/[...path]` (all four CN sources: every search + every track-detail + lrc fetch), `/api/lastfm/info`, and `/api/similar` do NOT use `caches.default` and set no `Cache-Control`. Repeat searches/plays re-hit upstream each time. Deezer/Jamendo/Audius/5sing/discovery already cache; the CN catch-all and Last.fm info/similar are the biggest un-cached surfaces. CN detail/lrc are effectively immutable per track — strong 24h candidates; Last.fm info/similar are near-static — 6-24h candidates. `/api/deezer/album` and `/api/deezer/artist` (by-id) are also uncached despite near-static data.
+- **Redundant cover network calls** — three independent client-side cover resolvers (Deezer via proxy, iTunes direct, CAA direct) plus the CN-source backfill can each fire per tile; `cover-cache.ts` mitigates but per-MEMORY (`cover-cache stale-URL root cause`) failures aren't cached and there's no per-entry eviction, so misses can re-fan-out. Consider caching negative results and deduping the resolver fan-out.
+- **`/api/translate` has no edge cache** — only a browser `Cache-Control: max-age=86400`; identical lyric/name batches from different clients re-hit Google. An edge `caches.default` keyed on `{to, lines-hash}` would cut upstream calls and echo-mode risk. (POST body caching needs a manual cache-key Request.)
+- **`/api/deezer/search` empty-`q` short-circuit** returns without `Cache-Control` (fine), but the by-id Deezer routes lacking any cache are the higher-value gap.
+- **Audius stream relay bandwidth** — `/api/audius/stream/[id]` pipes full audio bytes through the Worker (necessary — the GCS URL is signed/expiring), so every Audius play consumes Worker egress. This is unavoidable given the upstream design but is worth noting as the one route where bytes (not just metadata) transit the edge.
 
 ---
 
-*Integration audit: 2026-06-05*
+*Integration audit: 2026-07-03*

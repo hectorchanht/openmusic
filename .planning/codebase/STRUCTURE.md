@@ -1,195 +1,178 @@
 # Codebase Structure
 
-**Analysis Date:** 2026-06-05
+**Analysis Date:** 2026-07-03
 
----
+> NOTE: Root `CLAUDE.md` is STALE (describes a legacy `index.html`). The live app is a **SvelteKit + Vite** PWA under `src/`. This document maps the real layout.
 
 ## Directory Layout
 
 ```
-musicsquare-mobile/              # Repository root
-├── index.html                   # ENTIRE APPLICATION — 3320 lines
-│                                # Contains: all CSS, all HTML, all JavaScript
-│
-├── pikachu.gif                  # Mascot animation shown in header
-│
-├── docs/
-│   └── logo.png                 # README logo image only
-│
-├── scripts/
-│   └── g4f_issue_reply.py       # GitHub Actions bot — auto-replies to issues with AI
-│                                # NOT part of the music player
-│
-├── .planning/
-│   ├── HANDOFF.json             # GSD orchestrator state
-│   └── codebase/               # THIS directory — architecture docs
-│       ├── ARCHITECTURE.md
-│       └── STRUCTURE.md
-│
-├── .github/
-│   ├── FUNDING.yml              # GitHub Sponsors config
-│   ├── ISSUE_TEMPLATE/          # Issue templates (bug, feature, docs, etc.) in zh + en
-│   └── workflows/
-│       └── g4f-issue-reply.yml  # CI workflow that runs g4f_issue_reply.py
-│
-├── .gitignore
-├── LICENSE
-└── README.md                    # Project overview (English)
+openmusic/
+├── src/
+│   ├── routes/                     # SvelteKit routes (pages + API endpoints)
+│   │   ├── +layout.svelte          # Root layout — mounts the ONE <audio>, attach/restore player
+│   │   ├── +layout.ts              # ssr=false, prerender=false (SPA)
+│   │   ├── (app)/                  # Main app route-group (tab shell)
+│   │   │   ├── +layout.svelte      # Tab nav, Nowbar/NowPlaying, toast host, offline banner
+│   │   │   ├── +page.svelte        # Home (discovery shelves)
+│   │   │   ├── search/             # Search screen
+│   │   │   ├── library/            # Library (liked / playlists / downloads)
+│   │   │   ├── album/[name]/       # Album detail
+│   │   │   ├── artist/[name]/      # Artist detail
+│   │   │   ├── song/[slug]/        # Shareable song page (OG)
+│   │   │   ├── charts/             # top / tags/[tag] / countries/[country]
+│   │   │   └── settings/           # about, appearance, data, general, home, lastfm, playback, translation, activity
+│   │   ├── api/                    # Cloudflare Worker proxy endpoints (+server.ts)
+│   │   │   ├── [source]/[...path]/ # Catch-all proxy: netease/qq/kuwo/joox
+│   │   │   ├── deezer/             # album/artist/artist-albums/chart/related/search
+│   │   │   ├── lastfm/             # discovery/info
+│   │   │   ├── audius/             # search + stream/[id]
+│   │   │   ├── fivesing/           # search + url
+│   │   │   ├── jamendo/ similar/ translate/
+│   │   └── spike/                  # Throwaway experiment page
+│   ├── lib/
+│   │   ├── stores/                 # Svelte 5 runes singletons (*.svelte.ts) — reactive state
+│   │   ├── services/               # Pure/async logic (.ts) — node-testable
+│   │   ├── sources/                # Client source adapters (search/resolve → Track)
+│   │   ├── proxy/                  # Server-side proxy adapters + registry (edge URL builders)
+│   │   ├── components/             # Svelte UI components
+│   │   ├── actions/                # Svelte use: actions (gestures, lazy cover, tap feedback)
+│   │   ├── gestures/               # Pure gesture math (velocity tracker)
+│   │   ├── i18n/                   # 16 language dicts + reactive t()
+│   │   ├── search/                 # Autocomplete + search-history pure logic
+│   │   ├── history/                # Play-history pure logic
+│   │   ├── diagnostics/            # Action-log pure logic
+│   │   ├── util/                   # artist-split, haptics
+│   │   └── config/                 # defaults.ts (single source of truth for prefs)
+│   ├── app.html                    # HTML shell
+│   ├── app.css                     # Global styles + CSS custom properties (design tokens)
+│   ├── app.d.ts                    # App.Platform.env types (JOOX_TOKEN, LASTFM_KEY/SECRET)
+│   ├── hooks.server.ts             # Single CORS seam for /api/*
+│   └── service-worker.ts           # PWA offline caching
+├── static/                         # favicon.svg, og.svg, icons/, manifest.webmanifest, robots, sitemap
+├── android/                        # Capacitor Android native shell
+├── build/                          # adapter-static output (native build)
+├── svelte.config.js                # Dual-adapter switch (cloudflare | static), runes:true
+├── vite.config.ts                  # Vite + Vitest (single node "server" project)
+├── wrangler.jsonc                  # Cloudflare Pages config + public vars
+├── capacitor.config.ts             # Capacitor Android config
+└── tsconfig.json
 ```
-
----
 
 ## Directory Purposes
 
-**Root (`/`):**
-- Contains only `index.html`, `pikachu.gif`, `README.md`, `LICENSE`, `.gitignore`
-- `index.html` is the entire deployable app. GitHub Pages serves it directly — no build step.
+**`src/lib/stores/` (state — `*.svelte.ts`):**
+- Purpose: Svelte 5 runes singleton classes; the reactive seam between UI and logic.
+- Key files: `player.svelte.ts` (3017L — central playback engine), `library.svelte.ts`, `settings.svelte.ts` (leaf), `history.svelte.ts`, `names.svelte.ts` (display-name translation), `overlays.svelte.ts` (back-to-close stack), `cover-version.svelte.ts` (reactive cover-cache wrapper), `sleepTimer.svelte.ts`, `online.svelte.ts`, `searchSession.svelte.ts`, `searchHistory.svelte.ts`, `toast.svelte.ts`, `actionLog.svelte.ts`.
 
-**`docs/`:**
-- Purpose: Static assets for documentation and README display only
-- Contains: `logo.png` only
-- Not served as application assets
+**`src/lib/services/` (logic — `.ts`, no runes):**
+- Purpose: Pure/async business logic, node-testable under Vitest.
+- Key files: `catalog.ts` (searchAll/ensureTrackDetails fan-out), `dedupe.ts` + `dedupe-deezer.ts`, `discovery.ts` (resolveStub, mapWithConcurrency), `picks.ts`, `similar.ts`, `cover-backfill.ts` (Deezer→iTunes→CN chain), `cover-cache.ts` (localStorage cover store), `deezer.ts`, `itunes-cover.ts`, `lastfm.ts`, `lrc.ts` (lyrics parse + quality infer), `score-match.ts` + `score-context.ts`, `match-key.ts`, `media-session.ts` + `native-media-session.ts` + `media-store.ts`, `blob-store.ts` (IndexedDB), `downloads-queue.ts`, `sleep-timer.ts`, `translate.ts`, `share.ts`, `home-layout.ts`, `enrich-merge.ts`, `fallback.ts`, `color.ts`, `ttl-cache.ts`, `sw-cache.ts`, `api-base.ts`.
 
-**`scripts/`:**
-- Purpose: Repository tooling, not player code
-- Contains: `g4f_issue_reply.py` — a GitHub Actions helper that uses GPT (via g4f and OpenAI-compatible APIs) to auto-reply to GitHub issues
-- This file has zero relationship to the music player
+**`src/lib/sources/` (client adapters):**
+- Purpose: Per-platform `search()`/`resolve()`; normalize upstream JSON → canonical `Track`.
+- Key files: `types.ts` (`Track`, `SourceAdapter`, `makeUid`), `registry.ts` (the ONLY adapter enumeration), `netease.ts`, `qq.ts`, `kuwo.ts`, `joox.ts`, `fivesing.ts`, `jamendo.ts`, `audius.ts`, `quality.ts`, `__fixtures__/` (test JSON).
 
-**`.github/`:**
-- Purpose: GitHub platform configuration
-- `ISSUE_TEMPLATE/`: Bug/feature/question templates in both Chinese and English
-- `workflows/g4f-issue-reply.yml`: Triggers `scripts/g4f_issue_reply.py` when issues are opened
+**`src/lib/proxy/` (edge adapters):**
+- Purpose: Server-side upstream URL builders + secret injection, used by `/api/[source]/[...path]`.
+- Key files: `proxy-types.ts` (`ProxyAdapter`, `Env`), `proxy-registry.ts` (netease/qq/kuwo/joox), per-source `netease.ts`/`qq.ts`/`kuwo.ts`/`joox.ts`, `http.ts` (`fetchWithRetry`, `corsHeaders`, `sleep`).
 
-**`.planning/`:**
-- Purpose: GSD planning system state and codebase maps
-- `HANDOFF.json`: Auto-written by GSD between phases
-- `codebase/`: Written by `/gsd:map-codebase` — consumed by `/gsd:plan-phase` and `/gsd:execute-phase`
+**`src/lib/components/`:**
+- Purpose: Svelte UI.
+- Key files: `NowPlaying.svelte` (1652L — expanded player), `Nowbar.svelte` (mini-player, docked+embed), `TrackMenu.svelte`, `CompactRow.svelte` + `CompactPager.svelte`, `HomeGridPager.svelte`, `TagChips.svelte`, `SleepTimerSheet.svelte`, `ToastHost.svelte`, `PageOg.svelte`, `Logo.svelte`, `track-menu-gate.ts`.
 
----
+**`src/lib/actions/` (Svelte `use:` actions):**
+- Purpose: DOM behaviors attached via `use:`.
+- Key files: `lazyCover.ts` (scroll-triggered cover resolve), `tapBounce.ts` (tap feedback), `longpress.ts`, `dragClose.ts`, `dragReorder.ts` + `chipReorder.ts`, `dragScroll.ts`, `coverSwipe.ts`, `swipeAction.ts` + `swipeRemove.ts`, `marquee.ts`, `focusTrap.ts`, `inflightGuard.ts`.
 
 ## Key File Locations
 
-**The Entire Application:**
-- `index.html` (3320 lines) — everything is here
+**Entry Points:**
+- `src/routes/+layout.svelte`: mounts the single `<audio>`, calls `player.attach()` + `player.restore()`.
+- `src/routes/(app)/+layout.svelte`: tab shell; `library.load()`, `settings.load()`, overlay/online init.
 
-**Within `index.html` by region:**
+**Configuration:**
+- `svelte.config.js`: dual-adapter build switch, `runes:true` project-wide.
+- `vite.config.ts`: Vite + single node Vitest project.
+- `wrangler.jsonc` / `capacitor.config.ts`: deploy targets.
+- `src/lib/config/defaults.ts`: single source of truth for all settings defaults + `QueueContext` type.
+- `src/app.d.ts`: `App.Platform.env` secret types.
 
-| Region | Lines | Content |
-|--------|-------|---------|
-| `<head>` + CSS | 1–1211 | Google Fonts link, all CSS variables, component styles, animations, media queries |
-| HTML structure | 1212–1491 | Three-panel layout, header, footer, two modals, toast div |
-| IIFE open + i18n | 1493–1646 | `(function(){` wrapper, `translations{}` object |
-| `state` object | 1648–1669 | Central application state |
-| Utility helpers | 1672–1758 | `$()`, `t()`, `showToast()`, `formatTime()`, `getInterleavedSearchList()`, quality helpers |
-| Library persistence | 1760–1981 | `serializeTrack()`, `deserializeTrack()`, `saveLibraryToStorage()`, `loadLibraryFromStorage()`, export/import, `renderPlaylistOptions()` |
-| Search functions | 1983–2263 | `searchNetease()`, `searchQQ()`, `searchKuwo()`, `searchJoox()`, `searchAllSources()` |
-| Detail fetchers | 2265–2513 | `fetchNeteaseDetails()`, `fetchQQDetails()`, `fetchKuwoDetails()`, `fetchJooxDetails()`, `ensureTrackDetails()` |
-| Lyrics engine | 2515–2585 | `parseLRC()`, `renderLyrics()`, `updateLyricsHighlight()` |
-| Playback logic | 2587–2959 | `isFavorite()`, `playTrack()`, `getActiveList()`, `playFromList()`, `playNext()`, `togglePlayPause()`, `toggleFavoriteCurrent()`, `addCurrentToPlaylist()`, `requestMoreResults()` |
-| Render functions | 2766–2959 | `renderMiniSearchList()`, `renderPlaylistList()`, `updatePlaylistInfoLabel()`, modal open/close/create |
-| Visual effects | 2961–3050 | `setupParticles()` (canvas), `setupRipple()` |
-| DOM + event wiring | 3052–3298 | `setupDOM()`, `setupEvents()`, `setPlaymodeUI()` |
-| Init + bootstrap | 3300–3317 | `init()`, `DOMContentLoaded` listener |
+**Core Logic:**
+- `src/lib/stores/player.svelte.ts`: playback engine.
+- `src/lib/services/catalog.ts`: search fan-out + lazy resolve.
+- `src/lib/sources/registry.ts` + `types.ts`: source adapter contracts.
+- `src/routes/api/[source]/[...path]/+server.ts`: edge proxy.
+- `src/hooks.server.ts`: CORS seam.
 
----
+**Testing:**
+- Co-located `*.test.ts` / `*.svelte.test.ts` beside the code under test.
+- `src/lib/sources/__fixtures__/*.json`: upstream response fixtures.
 
 ## Naming Conventions
 
 **Files:**
-- Lowercase with hyphens: `index.html`, `pikachu.gif`, `g4f_issue_reply.py` (Python uses underscores)
-- No separate JS/CSS files — everything is inlined in `index.html`
+- Runes-using modules (stores, reactive wrappers): `*.svelte.ts` (e.g. `player.svelte.ts`, `cover-version.svelte.ts`).
+- Pure logic: `.ts` (e.g. `catalog.ts`, `dedupe.ts`). NEVER `.svelte.ts` unless it uses `$state`/`$derived`/`$effect`.
+- Components: PascalCase `.svelte` (e.g. `NowPlaying.svelte`).
+- Tests: co-located `<name>.test.ts` or `<name>.svelte.test.ts`.
+- SvelteKit routes: `+page.svelte` / `+page.ts` / `+layout.svelte` / `+server.ts`; dynamic segments `[param]` / `[...rest]`; route groups `(app)`.
+- Kebab-case for multi-word service files (`cover-backfill.ts`, `dedupe-deezer.ts`, `score-match.ts`).
 
-**CSS Classes:**
-- BEM-like lowercase-with-hyphens: `.search-mini-item`, `.track-meta-title`, `.playmode-btn`
-- State modifiers as bare class names: `.active`, `.playing`, `.show`, `.btn-fav-active`
-- Source color identifiers: `.source-dot.netease`, `.source-dot.qq`, `.source-dot.kuwo`, `.source-dot.joox`
+**Directories:**
+- Lowercase; grouped by ROLE not feature (`stores/`, `services/`, `sources/`, `components/`, `actions/`).
 
-**JavaScript:**
-- Functions: camelCase, verb-noun pattern — `playTrack()`, `renderLyrics()`, `fetchKuwoDetails()`, `searchAllSources()`, `ensureTrackDetails()`
-- State fields: camelCase — `searchResults`, `currentTrack`, `playContext`, `lyricLines`
-- Constants: UPPER_SNAKE_CASE — `LIBRARY_STORAGE_KEY`, `JOOX_TOKEN`, `JOOX_BR`
-- DOM cache object: `dom` — all DOM refs stored as `dom.playBtn`, `dom.audio`, etc.
-
-**i18n Keys:**
-- camelCase verb or noun: `toastAddedFavorite`, `searchStatusSearching`, `playerStatusIdle`, `tabResults`
-
-**Track UIDs:**
-- Format: `"<source>-<id>"` — `"netease-12345678"`, `"qq-00ABCD1234EF"`, `"kuwo-7890123"`, `"joox-SONGMIDABC"`
-
----
+**Identifiers:**
+- Stores exported as lowercase singletons: `export const player = new Player()`.
+- Track uid: colon form `${source}:${songid}` via `makeUid()`.
+- localStorage keys namespaced `openmusic:<domain>:v<N>` (`openmusic:player:v1`, `openmusic:library:v1`, `openmusic:cover-cache:v1`).
+- i18n dicts named by BCP-47-ish code (`en.ts`, `zh-Hans.ts`, `zh-Hant.ts`).
 
 ## Where to Add New Code
 
-The codebase is currently 100% monolithic. The planned rebuild will create a new repo/project structure. Below is guidance for changes within the current repo and for the rebuild extraction.
+**New music source:**
+- Client adapter: `src/lib/sources/<id>.ts` implementing `SourceAdapter` → add one line to `src/lib/sources/registry.ts`.
+- Edge proxy (if path-based): `src/lib/proxy/<id>.ts` → add to `src/lib/proxy/proxy-registry.ts`. (Sources with dedicated routes like `fivesing` skip the proxy registry and add `src/routes/api/<id>/**/+server.ts`.)
+- Add `<id>` to the `SourceId` union in `src/lib/sources/types.ts`.
 
-**Extracting backend logic (for rebuild):**
-- Copy all functions from the "BACKEND — REUSE" list in ARCHITECTURE.md out of `index.html` into separate `.js` modules
-- Extraction order: `state.js` → utility helpers → search functions → detail fetchers → playback orchestration → persistence
-- The `state` object should become the store module; search/detail functions become service modules
+**New page / screen:**
+- Route: `src/routes/(app)/<name>/+page.svelte` (+ `+page.ts` if a `load` is needed).
+- Reusable UI: `src/lib/components/<Name>.svelte`.
 
-**Adding a new music source (current codebase):**
-- Add source identifier to `state.enabledSources` object (line 1650)
-- Add `perSourceCurrentLimit` and `perSourcePage` entry
-- Add source chip checkbox to HTML at around line 1258
-- Add CSS dot color for new source (around line 388)
-- Add i18n key `sourceXxx` to both `zh` and `en` translation objects
-- Write `searchXxx(kw, limit)` function following the pattern of `searchKuwo()` at line 2123
-- Write `fetchXxxDetails(track)` function following the pattern of `fetchKuwoDetails()` at line 2398
-- Register in `searchAllSources()` task array at line 2235
-- Register in `ensureTrackDetails()` dispatch at line 2509
+**New store (reactive state):**
+- `src/lib/stores/<name>.svelte.ts` — a class with `$state` fields, exported as a singleton. Keep it a LEAF where possible (import only from services / pure modules to avoid cycles; do not import `player`/`library` into a low-level store).
 
-**Adding a new playlist feature:**
-- State: add fields to `state.playlists[n]` object structure
-- Persistence: update `serializeTrack()` keys list at line 1764 if new track fields need saving
-- Persistence: update `getLibrarySnapshot()` at line 1791 if new top-level state needs saving
-- UI: update `renderPlaylistList()` at line 2818
+**New pure logic:**
+- `src/lib/services/<name>.ts` (business logic) or `src/lib/util/<name>.ts` (small helpers). Keep `.ts` (no runes) so it stays node-testable. Co-locate `<name>.test.ts`.
 
-**Adding keyboard shortcuts:**
-- Register in the `keydown` handler at `index.html:3263`
-- Add shortcut card to the HTML modal at around line 1451
-- Add i18n keys for both zh and en
+**New API endpoint:**
+- `src/routes/api/<path>/+server.ts`. CORS is applied automatically by `src/hooks.server.ts` — do not re-add `*`. Read secrets from `platform.env`.
 
----
-
-## Monolith vs Modular
-
-**Fully monolithic (single file):**
-- `index.html` — CSS + HTML + JS in one file, no imports, no modules
-
-**Standalone / separate (not part of player):**
-- `scripts/g4f_issue_reply.py` — separate Python tool for GitHub automation
-- `.github/` — platform configuration
-
-**No build system exists.** There is no `package.json`, `node_modules`, Webpack, Vite, Rollup, Babel, or TypeScript. The app runs directly as a static file from GitHub Pages with zero compilation.
-
----
+**New gesture/DOM behavior:**
+- `src/lib/actions/<name>.ts` (a `use:` action). Pure math goes in `src/lib/gestures/`.
 
 ## Special Directories
 
-**`docs/`:**
-- Purpose: README image assets
-- Generated: No
-- Committed: Yes
+**`.svelte-kit/`:**
+- Purpose: SvelteKit generated types + build artifacts.
+- Generated: Yes. Committed: No.
 
-**`.planning/`:**
-- Purpose: GSD planning system — contains this file
-- Generated: Partially (HANDOFF.json is auto-written by GSD tooling; `codebase/` docs are written by `/gsd:map-codebase`)
-- Committed: Depends on team preference; safe to commit
+**`build/`:**
+- Purpose: `adapter-static` output for the Capacitor native build.
+- Generated: Yes.
 
-**`.github/`:**
-- Purpose: GitHub platform configuration (issue templates, CI workflows)
-- Generated: No
-- Committed: Yes
+**`android/`:**
+- Purpose: Capacitor Android native shell (wraps the SPA).
+- Generated: Partially (Gradle project); committed.
 
----
+**`static/`:**
+- Purpose: PWA assets served as-is (icons, manifest, og.svg, favicon, robots, sitemap).
+- Generated: No. Committed: Yes.
 
-## Deployment
-
-- Platform: GitHub Pages
-- Entry: `index.html` at repo root
-- No build step. Push to `main` branch → GitHub Pages serves `index.html` directly.
-- Live URL referenced in README: `https://charlespikachu.github.io/musicsquare/`
+**`src/lib/sources/__fixtures__/`:**
+- Purpose: Recorded upstream JSON responses for adapter tests.
+- Committed: Yes.
 
 ---
 
-*Structure analysis: 2026-06-05*
+*Structure analysis: 2026-07-03*

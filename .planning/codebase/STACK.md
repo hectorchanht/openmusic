@@ -1,109 +1,122 @@
 # Technology Stack
 
-**Analysis Date:** 2026-06-05
+**Analysis Date:** 2026-07-03
+
+> NOTE: The root `CLAUDE.md` (and `AGENTS.md`) describe a LEGACY vanilla-JS single-file
+> `index.html` desktop player. That file no longer exists at the repo root. The LIVE
+> application is a SvelteKit + Vite mobile PWA under `src/`, deployed to Cloudflare
+> Pages/Workers, and wrapped as an Android APK via Capacitor. This document maps what is
+> ACTUALLY present. Manifest source of truth: `package.json`, `svelte.config.js`,
+> `vite.config.ts`, `wrangler.jsonc`, `capacitor.config.ts`, `tsconfig.json`.
 
 ## Languages
 
 **Primary:**
-- HTML5 — entire application lives in `index.html` (3320 lines, ~113 KB)
-- CSS3 — inline `<style>` block inside `index.html` (lines 12–1490), no external stylesheet file
-- JavaScript (ES2020+) — inline `<script>` block inside `index.html` (lines 1493–3318)
+- TypeScript `~5.9` - all app logic, source adapters, services, stores, API routes (`src/**/*.ts`). `tsconfig.json` sets `strict: true`, `checkJs: true`, `moduleResolution: "bundler"`.
+- Svelte 5 (`5.56.2`) - all UI components + routes (`src/**/*.svelte`, `src/routes/**`). Runes mode is FORCED project-wide via `svelte.config.js` `compilerOptions.runes` (except `node_modules`).
 
 **Secondary:**
-- Python 3.11 — GitHub Actions automation only; `scripts/g4f_issue_reply.py` (issue auto-reply bot, not part of the web app)
+- JavaScript (ESM) - config only (`svelte.config.js`, `vite.config.ts`). `"type": "module"` in `package.json`.
+- Kotlin - hand-written Android MediaStore bridge (referenced from `src/lib/services/media-store.ts`; native shell under `android/`).
+- JSON/JSONC - config (`wrangler.jsonc`, `tsconfig.json`) and test fixtures (`src/lib/sources/__fixtures__/*.json`).
 
 ## Runtime
 
 **Environment:**
-- Browser-native: the app is a single static HTML file with zero server-side runtime
-- No Node.js, no Deno, no server process
-- Served directly via GitHub Pages (static file hosting)
+- Node.js `>=22` (`package.json` `engines.node: ">=22"`, `.nvmrc` = `22`, CI uses `node-version: 22`). `.npmrc` sets `engine-strict=true`.
+- Cloudflare Workers runtime (workerd) for the deployed edge — server routes run at the edge. `wrangler.jsonc` sets `compatibility_date: 2026-06-05` and `compatibility_flags: ["nodejs_compat"]`.
+- Browser (iOS Safari + Android Chrome) for the client SPA/PWA.
+- Android WebView (Capacitor) for the native APK — WebView origin `https://localhost` (androidScheme https, `capacitor.config.ts`).
 
 **Package Manager:**
-- None — no `package.json`, no `requirements.txt`, no lockfile exists for the web app
-- Python side (CI only): pip with `g4f[all]`, `requests`, `openai` installed at CI time (no pinned lockfile)
+- pnpm `8.15.5` (pinned via `package.json` `packageManager` field + corepack). CI installs with `pnpm install --frozen-lockfile`.
+- Lockfile: PRESENT — `pnpm-lock.yaml` (~83 KB).
+- `pnpm.onlyBuiltDependencies`: `esbuild`, `sharp`, `workerd` (native postinstall allow-list).
 
 ## Frameworks
 
 **Core:**
-- None — vanilla JavaScript, no React, Vue, Angular, Svelte, or any UI framework
-- No module bundler (no Vite, Webpack, Rollup, Parcel, esbuild)
-- No TypeScript
+- SvelteKit `2.63.0` (`@sveltejs/kit`) - app framework, routing, server endpoints.
+- Svelte `5.56.2` - UI framework (runes mode).
+- Vite `8.0.16` - dev server + bundler (`@sveltejs/vite-plugin-svelte` `7.1.2`).
 
-**CSS:**
-- No CSS framework (no Tailwind, Bootstrap, etc.)
-- Entirely custom CSS with CSS custom properties (`--bg-dark`, `--accent`, etc.) declared in `:root`
+**Cloudflare Adapters (dual-target build switch, `svelte.config.js`):**
+- `@sveltejs/adapter-cloudflare` `7.2.8` - DEFAULT web build → `.svelte-kit/cloudflare` (Cloudflare Pages). Service worker `register: true`.
+- `@sveltejs/adapter-static` `3.0.10` - `BUILD_TARGET=native` build → `build/` SPA (`fallback: 'index.html'`, `strict: false`) wrapped by the Capacitor Android shell. Service worker `register: false` (the native shell serves its own files).
+
+**Native (Capacitor) shell:**
+- `@capacitor/core` `8.4.0`, `@capacitor/cli` `8.4.0`, `@capacitor/android` `8.4.0` (devDep).
+- App identity LOCKED: `appId: com.openmusic.app`, `appName: OpenMusic`, `webDir: build`, `allowMixedContent: false` (`capacitor.config.ts`).
 
 **Testing:**
-- None — no test framework present
+- Vitest `^4.1.3` - test runner (`vite.config.ts` defines a single `server`/`node` project; no jsdom client project). `expect.requireAssertions: true`. Includes `src/**/*.{test,spec}.{js,ts}` and `*.svelte.test.ts` under node (the SvelteKit Vite plugin transforms `$state` runes for headless testing).
+- 67 test files (`src/**/*.test.ts`), co-located with source.
 
 **Build/Dev:**
-- **No build step.** The file you edit is the file that ships. Opening `index.html` in a browser is all that is needed.
-- CI pipeline: GitHub Actions (`.github/workflows/g4f-issue-reply.yml`) runs only for issue auto-reply; not a build or deploy pipeline
+- `svelte-check` `^4.4.6` + `typescript ~5.9` - type checking (`pnpm check`).
+- `wrangler` `4.98.0` - Cloudflare deploy/preview/types (`pnpm deploy`, `pnpm preview`, `pnpm gen`).
+- `@cloudflare/workers-types` `4.20260605.1` - edge runtime typings (`tsconfig.json` `types`).
 
 ## Key Dependencies
 
-**CDN-loaded (runtime, browser):**
-- Google Fonts — `https://fonts.googleapis.com` — loads `Baloo 2` (wght 400, 600) and `Nunito` (wght 400, 600); referenced in `index.html` lines 9–11
-- No other CDN scripts — no jQuery, no hls.js, no lodash, no moment
+**Runtime `dependencies` (`package.json`):**
+- `@lucide/svelte` `^1.17.0` - icon components (imported in ~23 `.svelte` files). OPTIMIZATION: verify per-icon imports (tree-shaken) rather than a barrel import to avoid pulling the full icon set into the bundle.
+- `@capacitor/app` `^8.1.0` - native app lifecycle (background/foreground events).
+- `@capacitor/filesystem` `8.1.2` - native file writes for offline downloads (`src/lib/services/blob-store.ts`).
+- `@capacitor/splash-screen` `^8.0.1`, `@capacitor/status-bar` `^8.0.2` - native UX chrome.
+- `@jofr/capacitor-media-session` `4.0.0` - native lock-screen media controls (`src/lib/services/native-media-session.ts`, `media-session.ts`).
+- `capacitor-blob-writer` `1.1.20` - streams audio Blob to disk WITHOUT base64 round-trip (avoids +33% bloat / memory spike for lossless files; `src/lib/services/blob-store.ts`).
 
-**Hardcoded in source (no npm install):**
-- All music API integrations are plain `fetch()` calls to third-party proxy APIs (see INTEGRATIONS.md)
-
-**Audio Playback Technology:**
-- **HTML5 `<audio>` element** — `<audio id="audio" preload="metadata">` at `index.html` line 1373
-- Audio `src` is set to a direct URL returned by the music proxy APIs (`dom.audio.src = track.audioUrl`)
-- Format support: MP3, AAC, OGG, FLAC (browser-native decode; no hls.js, no MSE/Media Source Extensions, no Web Audio API decode)
-- **No HLS/DASH streaming** — all audio URLs are direct file links
-- **Simulated audio level visualization:** `audioLevel` is a synthetic value derived from `Math.sin(currentTime)`, not from a real `AnalyserNode` (see `index.html` line 3190–3191). The Web Audio API is NOT used.
+**Note:** ALL runtime dependencies are Capacitor plugins or the icon lib. The web app itself has NO third-party runtime npm dependencies — source adapters, proxy, and services are hand-written over the platform `fetch`/`URL`/`IndexedDB`/Cloudflare Cache APIs. Capacitor code is SSR/web-guarded (`Capacitor.isNativePlatform()` / `browser`) so it is a no-op on the web build.
 
 ## Configuration
 
-**Environment:**
-- No environment variables for the web app — all API endpoints and tokens are **hardcoded** in `index.html`
-- JOOX token `f84ao9lMF_q7husBWRfgUw` is a hardcoded constant (`const JOOX_TOKEN`) at `index.html` line 2165
-- JOOX bitrate `const JOOX_BR = 4` hardcoded at `index.html` line 2166
-- Language preference stored in `localStorage` key `pikachu-music-lang`
-- User library (favorites + playlists) stored in `localStorage` key `pikachu-music-library-v1`
+**Environment / secrets:**
+- Server secrets live in Cloudflare (`wrangler pages secret put …`), typed in `src/lib/proxy/proxy-types.ts` `Env`: `JOOX_TOKEN` (required for JOOX), `LASTFM_KEY` (optional), `LASTFM_SECRET` (optional). Local dev values in `.dev.vars` (present; keys: `JOOX_TOKEN`, `LASTFM_KEY`, `LASTFM_SECRET`). See INTEGRATIONS.md.
+- Public var baked into Pages config: `JAMENDO_CLIENT_ID = "1df0a42f"` (`wrangler.jsonc` `vars`).
+- Build-time var: `VITE_API_BASE` — unset on web (same-origin relative `/api/*`); set to `https://openmusic.lol` for the native build so the APK WebView (origin `https://localhost`) resolves `/api/*` to the deployed proxy (`src/lib/services/api-base.ts`).
 
-**Build:**
-- No build config files (no `tsconfig.json`, no `vite.config.*`, no `webpack.config.*`, no `.babelrc`, no `eslint.config.*`)
+**Build config files:**
+- `svelte.config.js` - dual adapter switch + forced runes + conditional service worker.
+- `vite.config.ts` - Vite + Vitest config (single node test project).
+- `tsconfig.json` - extends `.svelte-kit/tsconfig.json`; strict, bundler resolution, CF workers types.
+- `wrangler.jsonc` - Pages output dir `.svelte-kit/cloudflare`, compat date/flags, public vars.
+- `capacitor.config.ts` - Android app identity + WebView security.
 
 ## Platform Requirements
 
 **Development:**
-- Any text editor + any modern browser
-- No Node.js, no Python, no build tools required to run the app locally
-- Open `index.html` directly in a browser (file:// protocol) or serve it with any static file server
+- Node `>=22`, corepack-managed pnpm `8.15.5`.
+- `pnpm dev` (Vite dev server; note MEMORY: strictPort 4321). `pnpm preview` runs `wrangler pages dev` on port 4173.
+- Android build needs JDK (CI: `setup-java@v4`) + Gradle wrapper (`android/gradlew`) + `npx cap sync android`.
 
 **Production:**
-- GitHub Pages — the repo's `index.html` is served at `https://charlespikachu.github.io/musicsquare/`
-- No backend server, no database, no container, no CDN config needed
-- Any static hosting (Netlify, Vercel, S3+CloudFront, Cloudflare Pages) works as-is
+- Web: Cloudflare Pages (`pnpm deploy` → `wrangler pages deploy .svelte-kit/cloudflare --project-name openmusic`). Primary domain `openmusic.lol`; legacy `openmusic.pages.dev` (allowed during cutover, `src/lib/proxy/http.ts`).
+- Android APK: two GitHub Actions workflows — `.github/workflows/android-main.yml` (rolling prerelease on push to main) and `.github/workflows/android-release.yml` (signed `assembleRelease`; keystore + passwords injected via repo secrets `RELEASE_KEYSTORE`/`KEY_ALIAS`/`KEYSTORE_PASSWORD`/`KEY_PASSWORD`; `release.jks` present at repo root). Build step: `BUILD_TARGET=native VITE_API_BASE=https://openmusic.lol pnpm build` → `npx cap sync android` → `./gradlew assembleRelease`.
 
-## Application Architecture Summary
+## Build & Test Commands
 
-The entire app is a single IIFE (Immediately Invoked Function Expression) wrapping all state and logic:
-
+```bash
+pnpm dev            # Vite dev server (strictPort 4321)
+pnpm build          # web build → .svelte-kit/cloudflare (adapter-cloudflare)
+pnpm build:native   # BUILD_TARGET=native VITE_API_BASE=https://openmusic.lol → build/ SPA
+pnpm preview        # wrangler pages dev .svelte-kit/cloudflare --port 4173
+pnpm check          # svelte-kit sync + svelte-check (typecheck)
+pnpm test           # vitest --run
+pnpm test:unit      # vitest (watch)
+pnpm gen            # wrangler types
+pnpm cap:sync       # npx cap sync android
+pnpm apk            # build:native + cap sync + gradle assembleDebug
+pnpm deploy         # build + wrangler pages deploy
 ```
-index.html
-├── <style> block        — All CSS (lines 12–1490)
-├── <body> HTML markup   — All DOM structure (lines 1192–1492)
-└── <script> IIFE block  — All JavaScript (lines 1493–3318)
-    ├── translations{}   — i18n strings (zh + en)
-    ├── state{}          — Central mutable state object (single source of truth)
-    ├── Storage layer    — localStorage read/write (LIBRARY_STORAGE_KEY)
-    ├── Search functions — searchNetease, searchQQ, searchKuwo, searchJoox
-    ├── Detail functions — fetchNeteaseDetails, fetchQQDetails, fetchKuwoDetails, fetchJooxDetails
-    ├── Player logic     — playTrack, playNext, togglePlayPause
-    ├── LRC parser       — parseLRC, updateLyricsHighlight
-    ├── Render functions — renderMiniSearchList, renderPlaylistList, renderLyrics
-    ├── Particle canvas  — setupParticles (Canvas 2D API, 90 particles)
-    ├── Ripple effects   — setupRipple (CSS animation via DOM injection)
-    ├── DOM bindings     — setupDOM, setupEvents
-    └── init()           — Entry point, called on DOMContentLoaded
-```
+
+## Optimization Opportunities (tech-stack level)
+
+- **No web runtime deps to prune** — the web bundle carries only `@lucide/svelte`; the other `dependencies` are Capacitor plugins guarded out of the web build. Confirm the Capacitor plugin code is actually tree-shaken from the Cloudflare bundle (they are imported in `src/lib/services/blob-store.ts`, `native-media-session.ts`; imports are behind `browser`/`isNativePlatform` runtime guards, not static conditions — dead-code elimination may NOT drop them from the web bundle).
+- **`@lucide/svelte` import shape** — 23 `.svelte` files import from it; ensure named per-icon imports so Vite tree-shakes unused icons (a barrel/default import would inflate the bundle).
+- **Edge caching coverage** — most dedicated proxy routes use `caches.default` (Deezer, Jamendo, Audius-search, 5sing, Last.fm discovery). The catch-all CN metadata route (`src/routes/api/[source]/[...path]/+server.ts`) and the `/api/lastfm/info` + `/api/similar` routes do NOT use `caches.default` and set no `Cache-Control`; repeated CN search/detail + Last.fm info calls hit upstream every time. See INTEGRATIONS.md for the per-route caching matrix.
+- **`sharp` in `onlyBuiltDependencies`** — `sharp` is allow-listed for build but no `sharp` import appears in `src/`; confirm whether it is still used (icon generation?) or removable from the allow-list.
 
 ---
 
-*Stack analysis: 2026-06-05*
+*Stack analysis: 2026-07-03*

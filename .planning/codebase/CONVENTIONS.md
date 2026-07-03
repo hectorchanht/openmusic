@@ -1,296 +1,136 @@
 # Coding Conventions
 
-**Analysis Date:** 2026-06-05
+**Analysis Date:** 2026-07-03
 
-## Language and Runtime
+> NOTE: The root `CLAUDE.md` is STALE (it describes an old vanilla `index.html` player and claims "no test framework"). The LIVE app is **SvelteKit 2 + Svelte 5 (runes) + Vite + TypeScript**, all under `src/`. Everything below reflects the real, current codebase.
 
-**Vanilla JavaScript only** — no framework, no build step, no npm.
-- ES2020+ features used throughout: `async/await`, optional chaining (`?.`), nullish coalescing (`??`), `const`/`let` (no `var`), arrow functions, destructuring, `Array.isArray`, `Map`, template literals, `Promise.all`.
-- The entire JS lives inside a single IIFE at the bottom of `index.html` (lines 1493–3318). There are no separate `.js` files in `scripts/` — that directory contains only the Python CI bot.
-- No jQuery, no lodash, no external JS libraries whatsoever.
-- Python (`scripts/g4f_issue_reply.py`) is used only for the GitHub issue-reply bot, not for the player itself.
+## Language & Runtime
 
-## Variable Declarations
+- **TypeScript, strict everywhere.** `tsconfig.json` sets `"strict": true`, plus `checkJs: true`, `allowJs: true`, `forceConsistentCasingInFileNames: true`, `moduleResolution: "bundler"`. Node `>=22` (`package.json` `engines`).
+- **Svelte 5 runes mode is forced** for all first-party files. `svelte.config.js` sets `compilerOptions.runes` true for everything outside `node_modules`. Legacy `export let` / reactive `$:` are NOT used in app code — use `$state`/`$derived`/`$effect`/`$props`.
+- No prettier config, no eslint config, no biome. **There is NO automated formatter or linter.** The only quality gate is `svelte-check` (type checking) via `pnpm check`. Style is enforced by convention + review, not tooling.
+- Indentation is **tabs** (see any `.ts` under `src/lib/`).
+- Single quotes for TS/JS string literals everywhere EXCEPT `src/lib/i18n/*.ts` (see i18n rule below).
 
-**`const` by default, `let` for mutation, never `var`.**
+## Runes Usage (Svelte 5)
 
-```js
-// index.html ~line 1674
-const dom = {};
-let audioLevel = 0;
+Counts across `src/`: `$state` ~254, `$derived` ~65, `$effect` ~54, `$props` ~14.
 
-const LIBRARY_STORAGE_KEY = 'pikachu-music-library-v1';
-const JOOX_TOKEN = 'f84ao9lMF_q7husBWRfgUw';
-const JOOX_BR = 4;
-```
+**Stores are runes-singleton classes in `*.svelte.ts` files.** Pattern (`src/lib/stores/settings.svelte.ts`, `src/lib/stores/player.svelte.ts`, `src/lib/stores/library.svelte.ts`):
 
-Module-level mutable state lives in a single `state` object (see State Management below).
-
-## Naming Conventions
-
-**Functions:** `camelCase`, verb-first descriptive names.
-
-```js
-// index.html
-function searchNetease(kw, page, num) { ... }
-function fetchKuwoDetails(track) { ... }
-function ensureTrackDetails(track) { ... }
-function renderMiniSearchList() { ... }
-function renderPlaylistList() { ... }
-function updateLyricsHighlight(time) { ... }
-function togglePlayPause() { ... }
-function saveLibraryToStorage() { ... }
-function loadLibraryFromStorage() { ... }
-```
-
-**Variables / parameters:** `camelCase`, short where obvious (`kw`, `idx`, `el`, `cb`, `res`, `j`, `d`), longer where needed (`activeTab`, `requestLimit`, `playlistId`).
-
-**Constants:** `SCREAMING_SNAKE_CASE` for module-level config.
-
-```js
-const LIBRARY_STORAGE_KEY = 'pikachu-music-library-v1';
-const JOOX_TOKEN = '...';
-const JOOX_BR = 4;
-```
-
-**HTML IDs:** `kebab-case` (e.g., `search-input`, `playlist-modal`, `track-quality-pill`).
-
-**CSS classes:** `kebab-case` (e.g., `.search-mini-item`, `.ripple-target`, `.btn-fav-active`).
-
-**Data attributes:** `data-kebab-case` (e.g., `data-source`, `data-tab`, `data-lang`, `data-i18n`, `data-mode`).
-
-**Track object fields:** `camelCase` with source-specific prefixes for ambiguous fields (`qqId`, `qqIndex`, `qqSearchKey`, `jooxIndex`, `jooxSongId`, `jooxSongMid`, `jooxQualityText`).
-
-## State Management
-
-All mutable application state lives in a single flat `state` object declared at the top of the IIFE (`index.html` line 1648). It is mutated directly — there is no immutability or reactive layer.
-
-```js
-const state = {
-  language: 'zh',
-  enabledSources: { netease: true, qq: true, kuwo: true, joox: false },
-  perSourceLimit: 10,
-  searchResults: [],
-  trackMap: new Map(),        // uid -> track object, deduplicate across sources
-  favorites: [],
-  playlists: [],
-  currentTrack: null,
-  playContext: { type: 'results', index: -1, playlistId: null },
-  playMode: 'list',
-  isPlaying: false,
-  lyricLines: [],
-  currentLyricIndex: -1,
-  searchInProgress: false,
-  noMoreResults: false,
-  lyricsAlt: false,
-  muted: false
-};
-```
-
-DOM element references are cached in a flat `dom` object at `setupDOM()` (`index.html` ~line 3054). Always use `dom.elementName` — never query the DOM inside hot-path functions.
-
-## DOM Manipulation
-
-**No innerHTML for dynamic lists** — `document.createElement` + `appendChild` is used for all list rendering.
-
-```js
-// index.html ~line 2772 — canonical pattern for building a list item
-const item = document.createElement('div');
-item.className = 'search-mini-item ripple-target';
-const tt = document.createElement('div');
-tt.className = 'mini-title';
-tt.textContent = track.title || 'Unknown';   // textContent, never innerHTML for user data
-item.appendChild(tt);
-wrap.appendChild(item);
-```
-
-**`innerHTML = ''`** is used only to clear a container before re-rendering (`wrap.innerHTML = ''`).
-
-**ID lookup helper:** a local `$` alias is defined for `document.getElementById`.
-
-```js
-function $(id) { return document.getElementById(id); }
-```
-
-**Class toggling:** `classList.toggle(name, bool)` and `classList.add` / `classList.remove` are preferred over manual `className` concatenation.
-
-**`data-i18n` pattern for static strings:** HTML elements that show translated text carry `data-i18n="keyName"`. `setLanguage()` loops over all `[data-i18n]` elements and sets their `textContent`. Dynamic strings (built at runtime) are passed through `t(key)` directly.
-
-## Event Handling
-
-**All event listeners are attached programmatically in `setupEvents()`** (`index.html` ~line 3113) — no inline `onclick` attributes on static HTML elements.
-
-```js
-// index.html ~line 3113 — canonical wiring pattern
-dom.searchBtn.addEventListener('click', () => {
-  state.searchKeyword = dom.searchInput.value.trim();
-  searchAllSources(true);
-});
-
-dom.audio.addEventListener('timeupdate', () => {
-  // ...updates progress bar and lyrics highlight...
-});
-```
-
-**Delegation via `.closest()`** is used for the global ripple effect and for lists where items are dynamically created:
-
-```js
-// index.html ~line 3028
-document.addEventListener('pointerdown', e => {
-  const target = e.target.closest('.ripple-target, .btn, .track-item, .search-mini-item');
-  if (!target) return;
+```typescript
+class Settings {
+  appLang = $state<AppLang>(GENERAL_DEFAULTS.appLang);
+  enabledSources = $state<Partial<Record<SourceId, boolean>>>({ ...PLAYBACK_DEFAULTS.enabledSources });
   // ...
-});
-```
-
-**`ev.stopPropagation()`** is called on per-item button clicks inside list items to prevent the row-level click from also firing.
-
-**Modal backdrop click-to-close pattern:**
-
-```js
-dom.playlistModal.addEventListener('click', e => {
-  if (e.target === dom.playlistModal) closePlaylistModal();
-});
-```
-
-## Async Patterns
-
-**`async/await` + `try/catch` for all fetch calls.** Errors are caught at the function level and surfaced via `console.error` and/or `showToast`.
-
-```js
-// index.html ~line 2001
-try {
-  const res = await fetch(url);
-  const json = await res.json();
-  // ... process ...
-} catch (e) {
-  console.error('netease(qijieya meting)', e);
 }
+export const settings = new Settings(); // module-scope singleton export
 ```
 
-**Parallel fetch with `Promise.all`** is used in `searchAllSources()`:
+- **Public reactive fields** use `$state<T>(initial)` with an explicit generic.
+- **Internal, non-reactive counters/guards use PLAIN class fields, NOT `$state`.** This is a deliberate, documented convention: state the UI never reads reactively (loop-guard budgets, generation counters, debounce timers) must be plain fields. See `player.svelte.ts` `consecutiveFailures`, `errorBurst`, `playGen`, `pendingGen`, `prefetchArmedForSrc` — each carries a comment explaining "Plain field — internal, never reactive."
+- Components use `$props()` for inputs, `$derived` for computed view state, `$effect` for DOM/side-effect wiring.
 
-```js
-// index.html ~line 2244
-const res = await Promise.all(tasks);
-added = res.reduce((a, b) => a + (b || 0), 0);
-```
+**Imperative-vs-reactive boundary:** Stores emit RAW structured data on `$state` fields; UI reads them one-way. Stores NEVER import UI and NEVER localize text — e.g. `player.notice` (`src/lib/stores/player.svelte.ts`) carries a `PlayerNotice` with a `TranslationKey`, and a layout-level toast host maps it to a localized string via `t()`. Keep this separation: store → reactive field → host renders.
 
-**Fetch-then-render pattern:** fetch → mutate `state` → call render functions. Render functions always read from `state`, never from local variables.
+**Generation-guard idiom** (pervasive, especially `player.svelte.ts`): a monotonic counter (`playGen`, `pendingGen`) is bumped at the top of an async entry point; after each `await`, the code re-reads the counter and bails if a newer call superseded it. Use this for any async resolve that can be superseded by a newer user action (tap a different song, new play). Tests drive it with DEFERRED promises to control settle order.
 
-**`ensureTrackDetails(track)`** is the lazy-load gateway: it is called before playback to hydrate a track object with `audioUrl` and `lrc` if not already present.
+## Naming Patterns
+
+**Files:**
+- Runes stores: `<name>.svelte.ts` (e.g. `player.svelte.ts`, `settings.svelte.ts`). The `.svelte.ts` suffix is REQUIRED so the SvelteKit Vite plugin transforms runes.
+- Pure services/logic: `<name>.ts` (e.g. `fallback.ts`, `deezer.ts`, `cover-backfill.ts`), kebab-case.
+- Components: `PascalCase.svelte` (e.g. `NowPlaying.svelte`, `TrackMenu.svelte`, `CompactRow.svelte`).
+- Actions (Svelte `use:` directives): `camelCase.ts` (e.g. `lazyCover.ts`, `tapBounce.ts`, `swipeAction.ts`).
+- Tests: `<name>.test.ts` colocated next to the file under test. `.svelte.test.ts` for runes-backed store tests.
+- Route handlers: `+server.ts`, `+layout.svelte`, `+layout.ts` (SvelteKit convention).
+
+**Functions:** `camelCase`. Pure exported helpers are common and are documented as "Pure — exported for testability" (e.g. `fallbackOrder` in `src/lib/services/fallback.ts`).
+
+**Variables/consts:** `camelCase` for locals; `SCREAMING_SNAKE_CASE` for module-level constants and tunables (e.g. `FETCH_TIMEOUT_MS`, `PENDING_KEY_SEP`). Class-level tunables use `private static UPPER_SNAKE` (e.g. `FAILURE_CAP`, `PREFETCH_MAX_CANDIDATES`, `PROBE_TIMEOUT_MS` in `player.svelte.ts`).
+
+**Types:** `PascalCase` interfaces/type aliases (`Track`, `SourceId`, `PlayerNotice`, `PendingTrack`, `QueueContext`, `SourceAdapter`). Union string literals used heavily for enums (`repeatMode: 'off' | 'one'`, `Theme = 'dark' | 'light'`).
+
+## Import Organization
+
+- **Always use path aliases, not deep relative paths.** `$lib/...` used ~458 times, `$app/...` ~40 times. Relative `../` imports are rare (~19, mostly within a single subdir like `src/lib/sources/`).
+  - `$lib/stores/...`, `$lib/services/...`, `$lib/sources/...`, `$lib/i18n`, `$app/environment` (the `browser` flag), `$app/...`.
+- **Type-only imports use `import type`** (e.g. `import type { SourceId, Track } from '$lib/sources/types'`, `import type { TranslationKey } from '$lib/i18n'`). Documented rationale: a type-only import gives compile-time key safety without a runtime dependency (see `player.svelte.ts` comment on the `TranslationKey` import, WR-03).
+- Order (observed, not tool-enforced): framework/`$app` first, then `$lib` services/stores/sources, then type-only imports, then local relative.
 
 ## Error Handling
 
-**Strategy:** log to console, show a brief toast to the user. Never throw to the top level.
+Two dominant patterns:
 
-```js
-// Typical pattern
-try {
-  // ...
-} catch (e) {
-  console.error('context label', e);
-  showToast(t('toastPlayError'));
-}
+**1. Never-throw services (return a sentinel).** All data/enrichment services (`src/lib/services/deezer.ts`, `itunes-cover.ts`, `lastfm.ts`, `fallback.ts`, `downloads-queue.ts`, `media-store.ts`) are documented "NEVER throws." The internal fetch helper THROWS on non-ok/abort/malformed, but the exported function maps any rejection to a null / empty-array / empty-object sentinel:
+
+```typescript
+// src/lib/services/deezer.ts
+return cached(key, TTL, async () => {
+  const res = await fetch(apiUrl(url), { signal: combinedSignal(signal) });
+  if (!res.ok) throw new Error(String(res.status)); // REJECT inside factory → not cached
+  return reshape(await res.json());
+}).catch(() => EMPTY_CHART);                          // map failure to sentinel OUTSIDE cache
 ```
 
-**Storage errors** are caught silently with `console.warn`:
+A null return means "no data — leave the seeded gradient / fall back to another source," NEVER a broken image or a thrown error into the render tree. When adding a new enrichment service, follow this: throw internally so a transient failure is never cached, map to a sentinel at the exported boundary. ~48 `catch` clauses live in `src/lib/services/`.
 
-```js
-try {
-  localStorage.setItem(LIBRARY_STORAGE_KEY, JSON.stringify(getLibrarySnapshot()));
-} catch (e) {
-  console.warn('save library failed', e);
-}
+**2. Silent-catch with graceful degradation.** Search adapters and background enrichers swallow per-source failures so partial results still render (`Promise.allSettled` fan-out). Exception: `src/lib/sources/netease.ts` intentionally THROWS on contract drift (non-array body) so `catalog`'s `Promise.allSettled` records a typed per-source error rather than silently returning zero results — a deliberate deviation from the legacy swallow-and-return-0.
+
+**3. Soft-fail flags (don't trust a 200).** The `/api/translate` upstream can echo originals back with a 200 (a silent "no-op" failure). The fix: the service returns a `complete` boolean and ONLY persists fully-translated batches. See `src/lib/services/translate.ts` + `translate.test.ts` (`translateLinesEx` returns `{ out, complete }`; caller gates persistence on `complete`, retries incomplete). When integrating a flaky upstream, add an explicit success flag rather than treating HTTP 200 as truth.
+
+## Type Safety
+
+- **Zero `as any` in production source** (`src/**/*.ts` excluding tests). All 61 `as any` occurrences are in `*.test.ts` files (stubbing globals/mocks).
+- Only **6** `@ts-expect-error` in the entire tree (no `@ts-ignore`).
+- Prefer `satisfies` (~17 uses) and `as const` (~14) over casts for narrowing.
+- Type guards are user-defined predicates, e.g. `const httpsOnly = (u?: string | null): u is string => ...` in `player.svelte.ts`.
+
+## SSR / Browser Guards
+
+Since the app SSRs (Cloudflare) and also builds as a Capacitor SPA, browser-only APIs must be guarded. Stores import `{ browser } from '$app/environment'` and early-return under `!browser`:
+
+```typescript
+// src/lib/stores/settings.svelte.ts — "Persisted to localStorage, SSR-guarded."
+if (!browser) return;   // top of load()/persist()
 ```
 
-**Failed fetch does not set `detailsLoaded = true`** (intentional — allows retry on next play attempt). Only `fetchQQDetails` documents this explicitly in a comment (`index.html` ~line 2394).
+Guarded stores: `settings`, `names`, `actionLog`, `searchHistory`, `searchSession`, `overlays`, `online`, `toast`, `player`. Any new store touching `localStorage`, `window`, `document`, `Image`, `IntersectionObserver`, or Media Session MUST gate on `browser` (or feature-detect, like `player.ms` accessor which enforces SSR + feature detection before every Media Session call, MS-05).
+
+## i18n — DOUBLE QUOTES Convention
+
+`src/lib/i18n/*.ts` locale dictionaries (`en.ts`, `zh-Hans.ts`, `zh-Hant.ts`, plus `ar/de/es/fr/hi/id/it/pt/ru/th/tr/vi.ts`) use **double quotes for every key AND value** — a manual, formatter-less convention (no tool enforces it; en/zh-Hans/zh-Hant were historically single-quoted and were normalized). Verified: 0 single-quoted string-literal lines across the three primary dictionaries.
+
+```typescript
+// src/lib/i18n/en.ts
+"nav.home": "Home",
+"offline.indicator": "You're offline",
+```
+
+Rules for locale files:
+- Double quotes only (keys and values).
+- **All locale files MUST expose an IDENTICAL key set** (documented in `en.ts` header; `en` is the reference/source locale and selecting it is a visual no-op). `src/lib/i18n/i18n.test.ts` guards key-set parity.
+- The store/service layer stays i18n-free: it emits `TranslationKey`s, the UI calls `t(key)`.
 
 ## Comments
 
-**Section headers** use `// ===== Section Name =====` separators (all in Chinese). These are the primary structural navigation markers inside the script:
+**High comment density is the house style.** Comments are load-bearing decision records, not noise. Two tagging systems:
 
-```
-// ===================== 各平台搜索 =====================
-// ===================== 聚合搜索 =====================
-// ===================== 各平台详情 =====================
-// ===================== 歌词处理 =====================
-// ===================== 收藏 / 播放 =====================
-// ===================== 搜索结果 / 播放列表渲染 =====================
-// ===================== 歌单弹窗 =====================
-// ===================== 搜索加载更多 =====================
-// ===================== 背景粒子 & 水波纹 =====================
-// ===================== DOM / 事件绑定 =====================
-// ===================== 初始化 =====================
-```
+- **Quick-task IDs:** `quick-NNNNNN-xxx` (e.g. `quick-260704-20e`, `quick-260630-sgw`) — ~337 references across `src/`. Each marks WHY a line exists, tied to a `.planning/quick/` task.
+- **Decision refs:** short uppercase tags like `D-09`, `PLAY-08`, `COVER-01`, `WR-03`, `CR-02`, `FIX-A`, `MS-05` (~65 distinct) — tie code to design decisions/pitfalls in the phase plans.
 
-**Inline comments** explaining non-obvious logic appear in Chinese. English comments appear occasionally, especially for logic ported from or matching external API docs.
+Conventions:
+- File-top block comment explains the file's purpose, its classification, and key constraints (see `player.svelte.ts` lines 1–11, `fallback.ts` lines 1–14).
+- Every non-obvious field/const/function has a JSDoc `/** ... */` or `//` comment stating intent AND the failure mode it prevents.
+- When you fix a bug or make a non-obvious choice, ADD a comment with the quick-task ID or decision ref. Do not remove existing decision-ref comments — they are the project's design memory.
 
-**UI strings** (labels, toasts, placeholders) are **bilingual** via the `translations` object — keys in English, values in Chinese (`zh`) and English (`en`). Default language is `zh`. The i18n function is `t(key)` (`index.html` line 1678).
+## Function & Module Design
 
-**JOOX API fields** use Chinese property names exactly as the API returns them (`it['歌曲名称']`, `it['歌手']`, `it['专辑']`, `d['播放链接']`, etc.) — do not rename these.
-
-## Internationalization (i18n)
-
-Translation keys use `camelCase` with a category prefix (`toast*`, `source*`, `modal*`, `player*`, `shortcut*`). When adding new user-visible strings:
-
-1. Add both `zh` and `en` values to the `translations` object (`index.html` line 1495).
-2. In static HTML, use `data-i18n="key"` on the element.
-3. In dynamic JS, call `t('key')` at the point of use.
-
-Never hardcode a Chinese string outside the `translations` object (except JOOX API property names which are external).
-
-## CSS / Design Tokens
-
-CSS custom properties are defined on `:root` in the `<style>` block (`index.html` lines 13–26):
-
-```css
---bg-dark, --panel-glass, --panel-glass-soft, --accent, --accent-strong,
---accent-pink, --accent-blue, --accent-green, --accent-red,
---text-main, --text-sub, --border-subtle
-```
-
-**Dark theme only.** No light mode. Background: `#02030a`. Accent: `#f5c84c` (gold/yellow).
-
-Responsive breakpoints defined: `max-width: 1280px` and `max-width: 900px` — both still desktop-oriented (3-column grid). No mobile-first breakpoints exist yet.
-
-The `.ripple-target` class (plus `.btn`, `.track-item`, `.search-mini-item`) opts elements into the touch ripple animation managed by `setupRipple()`.
-
-## Track Object Shape
-
-All track objects share this canonical shape (source of truth is `serializeTrack`, `index.html` ~line 1762):
-
-```js
-{
-  uid,            // "{source}-{id}" — global dedupe key (e.g., "netease-123", "qq-abc456")
-  source,         // 'netease' | 'qq' | 'kuwo' | 'joox'
-  displayIndex,   // 1-based position in search results from that source
-  keyword,        // search keyword used to fetch this track
-  songid,         // platform-native song ID (string)
-  title, artist, album,
-  cover,          // URL or null
-  audioUrl,       // URL or null (null until details fetched)
-  lrc,            // LRC string or null
-  lrcUrl,         // URL to fetch LRC from, or null
-  detailsLoaded,  // boolean — false until ensureTrackDetails() succeeds
-  quality,        // 'lossless' | '320k' | 'hq' | 'standard' | etc. | null
-  qualityLabel,   // display string: 'LOSSLESS' | '320K' | 'HQ' | null
-  pay             // QQ pay status string or null
-
-  // Source-specific extras:
-  // QQ: qqId, songMid, qqSearchKey, qqIndex, qqQualityText, pageUrl
-  // JOOX: jooxIndex, jooxSongId, jooxSongMid, jooxQualityText
-}
-```
-
-`state.trackMap` (a `Map`) is the single source of truth for track objects; `state.searchResults`, `state.favorites`, and `pl.tracks` hold references into this map.
-
-## Storage
-
-`localStorage` under the key `'pikachu-music-library-v1'` (JSON). `'pikachu-music-lang'` stores the language preference.
-
-`serializeTrack` / `deserializeTrack` strip ephemeral fields (`audioUrl`, `lrc`, `lrcUrl`, `detailsLoaded`) before writing. Always use these functions when persisting or loading tracks — do not access `localStorage` directly from feature code.
+- **Pure functions are extracted and exported for testability.** Logic that can be pure (queue math, ordering, parsing, scoring) lives in a `.ts` with pure exports (`fallbackOrder`, `decideEndedAction`, `buildDiversePicks`, `parseLRC`, matching/scoring in `score-match.ts`). Runes stores are thin callers of these pure helpers — e.g. "the throw-prone artwork/position/state logic lives in the pure, node-tested `media-session.ts`; this store is a thin caller."
+- Stores avoid circular deps by staying LEAF where possible (settings imports nothing from player/library; `actionLog` is imported BY player, never the reverse).
+- `AbortSignal` is threaded through async services for supersedence/timeout; combine caller signal with a per-call timeout (`combinedSignal` in `deezer.ts`).
+- Exports: named exports throughout (singletons like `export const player = new Player()`; helpers as named `export function`). No default exports in `$lib`.
 
 ---
 
-*Convention analysis: 2026-06-05*
+*Convention analysis: 2026-07-03*
