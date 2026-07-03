@@ -192,7 +192,10 @@ Ranked by leverage (impact ÷ effort). Each is concrete and ready to feed `/gsd:
 - **#7 Extract persistence slice — DONE** (quick-260704-3ov, commits d03db26/b8831fb, --validate/verified 6/6). Pure `player-persist.ts`; player.svelte.ts 3017→2972; 161-case suite green with zero edits.
 - **#3 Extract failover/never-stop slice — DEFERRED to `/gsd:plan-phase`** (decision 2026-07-04). Recon found NO clean pure core: `unplayableUids` is a reactive `SvelteSet` (UI ✗ row), `runFallback` cycles back into `play({fromFallback})`, the burst/strike counters are spread across `attach()` listeners + `play()`/`next()`/stall-watchdog, and it owns a playGen-bound AbortController. A quick extraction would need a `.svelte.ts` sub-store with a bidirectional Player back-reference (more coupled, not less) AND touches the un-CI-testable iOS/Android background-audio state machine (regressed twice: `player-displayed-defer-broke-mobile`, foreground-resume removed in 260703-i7e). Phase-sized + fragile → needs full plan-phase treatment (research + plan-check + wave + verifier + on-device UAT). Do NOT attempt as a bare quick task.
 - **#5 batch bumpCoverVersion — DONE** (quick-260704-45c, commits f673cfb/14b9dd2). rAF-coalesced to one increment per frame + node/SSR sync fallback.
-- **#8 skip warm lazyCover probe** (now UNBLOCKED — #2's cover-cache TTL landed; a warm+fresh entry could skip the `new Image()` probe), **#9 jsdom/client test project**, **#10 session-cache probe verdicts** — still open.
+- **#8 skip warm lazyCover probe — DONE** (quick-260704-4fr, commits d85f6d7/1d27986/fe405e6/5f8f76a). New pure `coverAgeByUidOrName` reader; lazyCover skips the `new Image()` probe when a cache hit's age < FRESH_MS=24h (null age ⇒ probe path, self-heal preserved).
+- **#9 jsdom/client test project**, **#10 session-cache probe verdicts** — still open.
+
+**Discovered during #8 (not yet fixed):** a pre-existing literal NUL byte (`\x00`) in `src/lib/actions/lazyCover.ts` `inFlightKey` (the `name:${artist}\x00${title}` de-dupe separator) makes git treat the file as binary (no line diffs). Cosmetic/robustness only — the key is never rendered or networked; tests + svelte-check pass. Worth a one-char fix (swap `\x00` for a printable separator + a fixture) in its own task.
 
 ---
 
