@@ -1,0 +1,123 @@
+# Push-to-main rolling prerelease.
+#
+# On every push to main: builds the native SvelteKit SPA, syncs Capacitor, builds
+# + signs a RELEASE APK with the consistent release keystore (same signing identity
+# as android-release.yml — Obtainium's update trust anchor), then republishes it to a
+# single rolling GitHub prerelease tagged `latest`. The old `latest` release+tag is
+# deleted and recreated at the current commit each run, so there is always exactly one
+# prerelease sitting at HEAD.
+#
+# Channel note: this is the bleeding-edge channel. android-release.yml (v* tags) is the
+# stable channel. Both sign with the SAME keystore, so both are Obtainium-updatable —
+# point Obtainium at ONE channel, not both.
+#
+# versionCode = GITHUB_RUN_NUMBER (monotonic per workflow file). Renaming/recreating
+# THIS file resets the counter and downgrade-blocks the rolling channel — do not rename it.
+# The stable channel encodes versionCode from the semver tag instead (rename-proof); these
+# two schemes are NOT comparable, which is why you must pick one channel per install.
+name: Android Main (rolling prerelease)
+
+on:
+  push:
+    branches:
+      - main
+
+# Needed to delete/create the rolling release + move its tag.
+permissions:
+  contents: write
+
+# A newer push to main supersedes an in-flight build.
+concurrency:
+  group: android-main
+  cancel-in-progress: true
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Install dependencies (pinned pnpm, frozen lockfile)
+        run: corepack enable && pnpm install --frozen-lockfile
+
+      - name: Build native SPA
+        run: BUILD_TARGET=native VITE_API_BASE=https://openmusic.lol pnpm build
+
+      - name: Sync Capacitor Android project
+        run: npx cap sync android
+
+      - name: Derive versionName/versionCode
+        run: |
+          set -euo pipefail
+          SHORT_SHA="${GITHUB_SHA::7}"
+          VERSION_CODE="$GITHUB_RUN_NUMBER"
+          VERSION_NAME="0.0.0-main.${GITHUB_RUN_NUMBER}+${SHORT_SHA}"
+          echo "VERSION_NAME=$VERSION_NAME" >> "$GITHUB_ENV"
+          echo "VERSION_CODE=$VERSION_CODE" >> "$GITHUB_ENV"
+          echo "SHORT_SHA=$SHORT_SHA" >> "$GITHUB_ENV"
+
+      - name: Assemble release APK
+        run: |
+          cd android
+          ./gradlew assembleRelease \
+            -PversionName="$VERSION_NAME" \
+            -PversionCode="$VERSION_CODE"
+
+      # Sign the unsigned assembleRelease APK with the consistent release keystore using
+      # apksigner DIRECTLY (WR-08). Secrets are passed via env (auto-masked); the keystore
+      # base64 is decoded to a RUNNER_TEMP file; passwords use the `env:` form so they never
+      # appear in argv. No `set -x` near the secret use.
+      - name: Sign release APK (apksigner)
+        env:
+          RELEASE_KEYSTORE: ${{ secrets.RELEASE_KEYSTORE }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          BUILD_TOOLS_VERSION="34.0.0"
+          BUILD_TOOLS="$ANDROID_HOME/build-tools/$BUILD_TOOLS_VERSION"
+          RELEASE_DIR="android/app/build/outputs/apk/release"
+          UNSIGNED=$(find "$RELEASE_DIR" -name '*-unsigned.apk' | head -n1)
+          if [ -z "$UNSIGNED" ]; then
+            echo "::error::no unsigned release APK found in $RELEASE_DIR" >&2
+            exit 1
+          fi
+          KEYSTORE="$RUNNER_TEMP/release.keystore"
+          printf '%s' "$RELEASE_KEYSTORE" | base64 --decode > "$KEYSTORE"
+          ALIGNED="$RELEASE_DIR/app-release-aligned.apk"
+          SIGNED="$RELEASE_DIR/openmusic-main.apk"
+          "$BUILD_TOOLS/zipalign" -f -p 4 "$UNSIGNED" "$ALIGNED"
+          "$BUILD_TOOLS/apksigner" sign \
+            --ks "$KEYSTORE" \
+            --ks-key-alias "$KEY_ALIAS" \
+            --ks-pass env:KEYSTORE_PASSWORD \
+            --key-pass env:KEY_PASSWORD \
+            --out "$SIGNED" \
+            "$ALIGNED"
+          "$BUILD_TOOLS/apksigner" verify "$SIGNED"
+          rm -f "$KEYSTORE"
+
+      # Rolling publish: nuke the previous `latest` release+tag, recreate at this commit.
+      # gh ships on the runner; GH_TOKEN scopes it to this repo.
+      - name: Publish rolling prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete latest --cleanup-tag --yes || true
+          gh release create latest \
+            android/app/build/outputs/apk/release/openmusic-main.apk \
+            --prerelease \
+            --target "$GITHUB_SHA" \
+            --title "OpenMusic (main $SHORT_SHA)" \
+            --notes "Rolling build from main @ $SHORT_SHA (versionCode $VERSION_CODE). Bleeding-edge — signed with the release keystore."
