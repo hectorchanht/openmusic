@@ -123,6 +123,155 @@ describe('/api/joox proxy route — token injected upstream, ABSENT from the cli
 	});
 });
 
+describe('/api/[source]/[...path] — search edge cache (CONCERNS perf #1)', () => {
+	const PRIME_ORIGIN = 'https://openmusic.lol';
+
+	// A minimal event with a configurable request origin (defaults to the prime origin).
+	function fakeEvent(
+		source: string,
+		path: string,
+		search: Record<string, string>,
+		origin: string = PRIME_ORIGIN,
+		env?: Env
+	) {
+		const url = new URL(`https://openmusic.lol/api/${source}/${path}`);
+		for (const [k, v] of Object.entries(search)) url.searchParams.set(k, v);
+		return {
+			params: { source, path },
+			url,
+			platform: env ? { env } : undefined,
+			request: new Request(url, { headers: { origin } })
+		};
+	}
+
+	// In-memory Map-backed fake Cache API. A Response body is single-use, so store the
+	// buffered text + content-type and reconstruct a fresh Response on each match().
+	function makeFakeCache() {
+		const store = new Map<string, { text: string; contentType: string }>();
+		const put = vi.fn(async (req: Request, res: Response) => {
+			store.set(req.url, {
+				text: await res.text(),
+				contentType: res.headers.get('content-type') ?? 'application/json'
+			});
+		});
+		const match = vi.fn(async (req: Request): Promise<Response | undefined> => {
+			const entry = store.get(req.url);
+			if (!entry) return undefined;
+			return new Response(entry.text, { headers: { 'content-type': entry.contentType } });
+		});
+		return { store, put, match, default: { match, put } };
+	}
+
+	function okFetch(payload: unknown = { data: [{ id: 1 }] }) {
+		return vi.fn(async () =>
+			new Response(JSON.stringify(payload), {
+				status: 200,
+				headers: { 'content-type': 'application/json' }
+			})
+		);
+	}
+
+	afterEach(() => {
+		// restoreAllMocks does NOT auto-reset vi.stubGlobal — unstub explicitly per test.
+		vi.unstubAllGlobals();
+	});
+
+	it('caches a 200 search result — a second identical call is served from cache (no re-fetch)', async () => {
+		const fetchSpy = okFetch();
+		const cache = makeFakeCache();
+		vi.stubGlobal('fetch', fetchSpy);
+		vi.stubGlobal('caches', cache);
+
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const res1 = await GET(fakeEvent('netease', 'search', { keywords: '周杰伦' }) as any);
+		const body1 = await res1.text();
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const res2 = await GET(fakeEvent('netease', 'search', { keywords: '周杰伦' }) as any);
+		const body2 = await res2.text();
+
+		expect(fetchSpy).toHaveBeenCalledTimes(1); // upstream hit only once
+		expect(cache.put).toHaveBeenCalledTimes(1); // written once
+		expect(body2).toBe(body1); // same body served from cache
+		expect(res2.status).toBe(200);
+		expect(res2.headers.get('cache-control')).toBe('public, max-age=300');
+	});
+
+	it('NEVER caches url/detail/lrc — each call streams from upstream (no cache put)', async () => {
+		const fetchSpy = okFetch();
+		const cache = makeFakeCache();
+		vi.stubGlobal('fetch', fetchSpy);
+		vi.stubGlobal('caches', cache);
+
+		// netease url twice
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		await GET(fakeEvent('netease', 'url', { id: '1' }) as any);
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		await GET(fakeEvent('netease', 'url', { id: '1' }) as any);
+		// joox detail once
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		await GET(fakeEvent('joox', 'detail', { msg: 'x' }, PRIME_ORIGIN, { JOOX_TOKEN: 'TESTTOKEN' }) as any);
+
+		expect(cache.put).not.toHaveBeenCalled(); // never cached
+		expect(cache.match).not.toHaveBeenCalled(); // never even read the cache for non-search
+		expect(fetchSpy).toHaveBeenCalledTimes(3); // every call hits upstream (no cache)
+		// non-search responses carry NO Cache-Control header (byte-identical to today)
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const res = await GET(fakeEvent('netease', 'url', { id: '2' }) as any);
+		expect(res.headers.get('cache-control')).toBeNull();
+	});
+
+	it('does NOT cache a non-200 search response — the next identical call re-fetches upstream', async () => {
+		const fetchSpy = vi.fn(async () =>
+			new Response('upstream boom', { status: 500, headers: { 'content-type': 'text/plain' } })
+		);
+		const cache = makeFakeCache();
+		vi.stubGlobal('fetch', fetchSpy);
+		vi.stubGlobal('caches', cache);
+
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const res1 = await GET(fakeEvent('kuwo', 'search', { key: 'x' }) as any);
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		await GET(fakeEvent('kuwo', 'search', { key: 'x' }) as any);
+
+		expect(res1.status).toBe(500);
+		expect(cache.put).not.toHaveBeenCalled(); // transient error never frozen
+		// fetchWithRetry retries 500 (retries=2 → up to 3 per call); assert re-fetch across calls.
+		expect(fetchSpy.mock.calls.length).toBeGreaterThanOrEqual(2);
+	});
+
+	it('re-applies CORS for the REQUESTING origin on a cache hit (never a prior requester, never *)', async () => {
+		const fetchSpy = okFetch();
+		const cache = makeFakeCache();
+		vi.stubGlobal('fetch', fetchSpy);
+		vi.stubGlobal('caches', cache);
+
+		// Prime from the prod origin.
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const primed = await GET(fakeEvent('qq', 'search', { w: 'x' }, PRIME_ORIGIN) as any);
+		expect(primed.headers.get('access-control-allow-origin')).toBe(PRIME_ORIGIN);
+
+		// HIT served to a DIFFERENT allowed origin.
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const hit = await GET(fakeEvent('qq', 'search', { w: 'x' }, 'https://localhost') as any);
+		expect(fetchSpy).toHaveBeenCalledTimes(1); // served from cache
+		expect(hit.headers.get('access-control-allow-origin')).toBe('https://localhost');
+		expect(hit.headers.get('access-control-allow-origin')).not.toBe(PRIME_ORIGIN);
+		expect(hit.headers.get('access-control-allow-origin')).not.toBe('*');
+	});
+
+	it('dev fallback: with caches undefined, a search call still returns the live upstream body (no crash)', async () => {
+		const fetchSpy = okFetch({ data: [{ id: 42 }] });
+		vi.stubGlobal('fetch', fetchSpy);
+		vi.stubGlobal('caches', undefined);
+
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const res = await GET(fakeEvent('netease', 'search', { keywords: 'x' }) as any);
+		expect(res.status).toBe(200);
+		const body = await res.text();
+		expect(body).toBe(JSON.stringify({ data: [{ id: 42 }] }));
+	});
+});
+
 describe('hooks.server handle() — single CORS seam for all /api/* (D-02)', () => {
 	// Synthetic RequestEvent + a resolve() stub returning a plain Response, exercising the
 	// hook in isolation (the real route logic is irrelevant to the CORS contract).
