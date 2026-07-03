@@ -191,7 +191,8 @@ Ranked by leverage (impact ÷ effort). Each is concrete and ready to feed `/gsd:
 - **#6 Delete orphan /spike — DONE** (quick-260704-3ac, commit 83e3de3).
 - **#7 Extract persistence slice — DONE** (quick-260704-3ov, commits d03db26/b8831fb, --validate/verified 6/6). Pure `player-persist.ts`; player.svelte.ts 3017→2972; 161-case suite green with zero edits.
 - **#3 Extract failover/never-stop slice — DEFERRED to `/gsd:plan-phase`** (decision 2026-07-04). Recon found NO clean pure core: `unplayableUids` is a reactive `SvelteSet` (UI ✗ row), `runFallback` cycles back into `play({fromFallback})`, the burst/strike counters are spread across `attach()` listeners + `play()`/`next()`/stall-watchdog, and it owns a playGen-bound AbortController. A quick extraction would need a `.svelte.ts` sub-store with a bidirectional Player back-reference (more coupled, not less) AND touches the un-CI-testable iOS/Android background-audio state machine (regressed twice: `player-displayed-defer-broke-mobile`, foreground-resume removed in 260703-i7e). Phase-sized + fragile → needs full plan-phase treatment (research + plan-check + wave + verifier + on-device UAT). Do NOT attempt as a bare quick task.
-- **#5 batch bumpCoverVersion**, **#8 skip warm lazyCover probe** (needs #2's TTL — now landed), **#9 jsdom test project**, **#10 session-cache probe verdicts** — still open.
+- **#5 batch bumpCoverVersion — DONE** (quick-260704-45c, commits f673cfb/14b9dd2). rAF-coalesced to one increment per frame + node/SSR sync fallback.
+- **#8 skip warm lazyCover probe** (now UNBLOCKED — #2's cover-cache TTL landed; a warm+fresh entry could skip the `new Image()` probe), **#9 jsdom/client test project**, **#10 session-cache probe verdicts** — still open.
 
 ---
 
