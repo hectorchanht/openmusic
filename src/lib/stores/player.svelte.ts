@@ -618,14 +618,6 @@ class Player {
 	 *  cancel points (nothing sets it now) so the many disarmResume() call sites stay valid; a future
 	 *  resume mechanism can reuse it. */
 	private resumeTimer: ReturnType<typeof setTimeout> | null = null;
-	/**
-	 * NEVER-STOP foreground resume (background-autoadvance-stall): true when playback was active the
-	 * moment the tab went hidden / the screen locked. On Android an auto-advance that happens WHILE
-	 * hidden often leaves the next track stalled at 0:00 (play() rejected in a hidden tab, `canplay`
-	 * never fires) until the app is reopened. On the next `visibilitychange`→visible we re-issue play()
-	 * — but ONLY when this flag is set, so a freshly-restored PAUSED session (which was never playing
-	 * this run) is never auto-started. One-shot: consumed on the resume attempt. */
-	private resumeOnForeground = false;
 
 	/** Sleep-timer fade-out interval (TIMER-01, D-01). On platforms that honour volume writes
 	 *  expiry ramps the volume down over ~10s then pauses; cleared on finish/abort. Plain field —
@@ -1041,37 +1033,6 @@ class Player {
 
 
 	/**
-	 * NEVER-STOP foreground resume (background-autoadvance-stall). On Android a track that auto-advanced
-	 * while the screen was LOCKED / the tab BACKGROUNDED frequently never starts: `play()` is rejected in
-	 * a hidden tab (no user activation) and the element never loads bytes — it sits at 0:00 with no
-	 * duration. The initial-load autoplay-retry waits on `canplay` (which does not fire while hidden) and
-	 * the external-pause self-heal is gated on `hasPlayedSinceSrc`, so neither recovers it until the user
-	 * reopens the app. This makes that foreground recovery DETERMINISTIC: when the tab becomes visible,
-	 * re-issue `play()` on the current track — but ONLY when (a) playback was active when we went hidden
-	 * (`resumeOnForeground`, so a freshly-restored paused session is never auto-started), (b) the user did
-	 * not deliberately pause (user/MediaSession/sleep-timer/offline set `deliberatePause`), and (c) the
-	 * element is paused mid-track with a src. Covers both the stalled initial-load AND a mid-track external
-	 * pause whose budget was spent. One-shot per background→foreground cycle; a still-rejected play() just
-	 * leaves it paused for a tap.
-	 */
-	private resumeIfStalled() {
-		if (!this.resumeOnForeground) return; // only resume something that was playing when backgrounded
-		this.resumeOnForeground = false; // one-shot per hide→show cycle
-		const el = this.audio;
-		if (!el || !this.current) return;
-		if (this.deliberatePause) return; // honor a user / MediaSession / sleep-timer / offline pause
-		if (el.ended || !el.paused || !el.src) return; // ended → `ended` owns advance; not paused → fine
-		logAction('visibility.resume', {
-			uid: this.current.uid,
-			hasPlayed: this.hasPlayedSinceSrc,
-			ct: Math.round(el.currentTime || 0)
-		});
-		void el.play().catch(() => {
-			/* still blocked (rare once foregrounded) — leave paused; the user can tap play */
-		});
-	}
-
-	/**
 	 * The sleep-timer minutes expiry (TIMER-01). The ONE sanctioned way playback stops by itself
 	 * — an INTENTIONAL pause, not a failure. Phase-18 blocker (STATE.md): this path MUST be
 	 * invisible to the Phase-16 never-stop machinery — it never calls next(), never bumps playGen
@@ -1192,13 +1153,13 @@ class Player {
 		if (typeof document !== 'undefined') {
 			document.addEventListener('visibilitychange', () => {
 				logAction('visibility', { hidden: document.hidden });
+				// On hide, flush the exact current position so a bg eviction can't persist a stale time.
+				// On foreground return we do NOTHING: the foreground auto-resume mechanism was removed
+				// (quick-260703-i7e) because it re-issued play() on the current track when the tab became
+				// visible, causing unwanted playback more often than it helped. Playback now starts/resumes
+				// only from explicit user action or normal track-end auto-advance.
 				if (document.hidden) {
-					// Capture the play intent at hide-time so foreground knows whether to auto-resume.
-					this.resumeOnForeground = this.playing || !!(this.audio && !this.audio.paused);
 					this.flushPersist();
-				} else {
-					// NEVER-STOP (background-autoadvance-stall): recover a track that stalled while hidden.
-					this.resumeIfStalled();
 				}
 			});
 			// Page Lifecycle API (Chrome/Android); browsers without it simply never fire it.
@@ -1289,8 +1250,10 @@ class Player {
 			// exactly the "interferes with other apps' voice notes" complaint: the OS pauses us to let
 			// another app speak, we immediately grab focus back. Per the user's target spec we now
 			// RESPECT any pause (whether a deliberate stop or an external audio-focus loss) and simply
-			// consume the deliberate flag. Recovery of a background-stalled track is handled ONLY on
-			// foreground return (resumeIfStalled), never by fighting the OS while backgrounded.
+			// consume the deliberate flag. Recovery of a background-stalled track is no longer attempted:
+			// the foreground auto-resume mechanism was removed (quick-260703-i7e), so playback resumes only
+			// on explicit user action or normal track-end auto-advance — never by fighting the OS while
+			// backgrounded, and never on foreground return.
 			this.deliberatePause = false;
 			this.disarmResume();
 		});
