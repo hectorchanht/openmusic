@@ -30,14 +30,50 @@ import {
 // (mirrors the old homepage `void coverVer` idiom, but GLOBAL).
 const _v = $state({ n: 0 });
 
+// Coalescing latch (quick-260704-45c, optimization backlog #5): true while a rAF-batched bump is
+// pending for the current frame, so any further bumps this frame are dropped (they'd land in the
+// same repaint anyway). Reset to false inside the rAF callback BEFORE the increment, so the flag
+// only stays set for the duration of one frame — a leaked latch (T-45c-01) is impossible.
+let bumpScheduled = false;
+
 /** Read the current cover cache-version. CALL this inside a $derived/template to depend on cover writes. */
 export function coverVersion(): number {
 	return _v.n;
 }
 
-/** Bump the global cover cache-version — called after EVERY cover write so all mounted tiles repaint. */
+/**
+ * Bump the global cover cache-version — called after EVERY cover write so all mounted tiles repaint.
+ *
+ * COALESCING (quick-260704-45c): a burst of N bumps within a single animation frame collapses to ONE
+ * `_v.n` increment via requestAnimationFrame. On a cold home visit, backfillCovers / backfillArtistCovers
+ * resolve up to N covers and each fires this synchronously → without batching that is N full grid
+ * re-evaluations; batched, it is one grid re-render per frame.
+ *
+ * RATIONALE (why deferring the bump is safe): the reactive READS (readCoverByUidOrName / readCoverByName /
+ * readArtistCover) pull the cover URL DIRECTLY from the cache via getCachedCover*, and only call
+ * coverVersion() to TAKE the dependency — so a one-frame-deferred bump merely defers the repaint
+ * (imperceptible), it never serves stale or missing data. rAF naturally pauses while the tab is hidden,
+ * so the single pending bump fires once on foreground (intended).
+ *
+ * SYNC FALLBACK: where requestAnimationFrame is undefined (node/vitest — no jsdom — and SSR) we increment
+ * synchronously, preserving the exact prior behavior so the real player suite + SSR keep working. This is
+ * non-negotiable: player.svelte.test.ts drives the real bumpCoverVersion through this fallback.
+ *
+ * DEFERRED ALTERNATIVE: a per-key SvelteMap version signal (repaint only the tiles whose cover actually
+ * changed) is a bigger/riskier rewrite — out of scope for this quick task.
+ */
 export function bumpCoverVersion(): void {
-	_v.n++;
+	if (typeof requestAnimationFrame === 'undefined') {
+		// node/vitest + SSR: no rAF — increment synchronously (preserves exact prior behavior).
+		_v.n++;
+		return;
+	}
+	if (bumpScheduled) return; // a bump is already pending this frame — coalesce into it.
+	bumpScheduled = true;
+	requestAnimationFrame(() => {
+		bumpScheduled = false;
+		_v.n++;
+	});
 }
 
 /**
