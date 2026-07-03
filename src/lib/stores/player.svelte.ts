@@ -34,6 +34,9 @@ import { resolveCoverForTrack } from '$lib/services/cover-backfill';
 // bump the global reactive signal so other surfaces (homepage tiles) reuse the art and repaint live.
 // quick-260704-20e: removeCoverBoth evicts a DEAD current cover before healCover re-resolves it.
 import { writeCoverBoth, bumpCoverVersion, removeCoverBoth } from '$lib/stores/cover-version.svelte';
+// quick-260704-3ov: the pure serialize/parse codec was extracted out of this god-object into
+// a colocated, node-tested module (the "runes store thinly wraps a pure helper" precedent).
+import { STATE_KEY, serializePlayerState, parsePlayerState } from '$lib/stores/player-persist';
 
 /** SOLID = a non-empty https URL (the only thing safe to cache/render; mirrors cover-backfill isSolidCover, T-0bb-01). */
 const httpsOnly = (u?: string | null): u is string => typeof u === 'string' && u.startsWith('https:');
@@ -292,8 +295,6 @@ class Player {
 	 * play prevents Object-URL leaks across long sessions. */
 	private cachedBlobUrl: string | null = null;
 
-	/** Persistent state key — localStorage shape `openmusic:player:v1`. */
-	private static STATE_KEY = 'openmusic:player:v1';
 	/** Throttle timer for currentTime persistence (timeupdate fires ~4×/sec). */
 	private persistTimer: ReturnType<typeof setTimeout> | null = null;
 	/** Seek-position that should be applied as soon as audio.duration becomes finite (i.e. on
@@ -306,41 +307,24 @@ class Player {
 	 *  (user intent supersedes restored progress). */
 	private pendingSeekFrac: number | null = null;
 
-	/** Strip volatile fields (audioUrl / lrc / lrcUrl / detailsLoaded) before persisting a
-	 *  Track to localStorage — they expire and must be re-resolved on the next load. Mirrors
-	 *  the legacy serializeTrack whitelist + the history-entry shape. */
-	private serializeTrack(t: Track): Partial<Track> {
-		return {
-			uid: t.uid,
-			source: t.source,
-			songid: t.songid,
-			title: t.title,
-			artist: t.artist,
-			album: t.album,
-			cover: t.cover,
-			quality: t.quality,
-			qualityLabel: t.qualityLabel,
-			keyword: t.keyword,
-			displayIndex: t.displayIndex
-		};
-	}
-
 	/** Write the persistable slice of player state to localStorage. Called immediately on
 	 *  imperative state changes (play/setQueue/toggleShuffle/cycleRepeat) and throttled to
-	 *  ~2s on the audio `timeupdate` firehose. SSR-safe + try/catch-guarded. */
+	 *  ~2s on the audio `timeupdate` firehose. SSR-safe + try/catch-guarded.
+	 *  quick-260704-3ov: the pure string build (whitelist strip + `v:1` envelope) now lives in
+	 *  serializePlayerState — this method keeps only the Player-owned shell (browser guard,
+	 *  no-current removeItem branch, try/catch). Persisted bytes are unchanged. */
 	private persist() {
 		if (!browser) return;
 		if (!this.current) {
-			try { localStorage.removeItem(Player.STATE_KEY); } catch { /* ignore */ }
+			try { localStorage.removeItem(STATE_KEY); } catch { /* ignore */ }
 			return;
 		}
 		try {
 			localStorage.setItem(
-				Player.STATE_KEY,
-				JSON.stringify({
-					v: 1,
-					current: this.serializeTrack(this.current),
-					queue: this.queue.map((t) => this.serializeTrack(t)),
+				STATE_KEY,
+				serializePlayerState({
+					current: this.current,
+					queue: this.queue,
 					currentTime: this.currentTime,
 					shuffle: this.shuffle,
 					repeatMode: this.repeatMode
@@ -382,46 +366,17 @@ class Player {
 	 *  ensureTrackDetails — same path play() takes. */
 	async restore() {
 		if (!browser) return;
-		let payload: {
-			v?: number;
-			current?: Partial<Track> | null;
-			queue?: Partial<Track>[];
-			currentTime?: number;
-			shuffle?: boolean;
-			repeatMode?: 'off' | 'one';
-		} | null = null;
-		try {
-			const raw = localStorage.getItem(Player.STATE_KEY);
-			if (!raw) return;
-			payload = JSON.parse(raw);
-		} catch {
-			return;
-		}
-		if (!payload?.current?.uid) return;
-		const reshape = (p: Partial<Track>): Track => ({
-			uid: p.uid ?? '',
-			source: p.source ?? ('netease' as Track['source']),
-			songid: p.songid ?? '',
-			title: p.title ?? '',
-			artist: p.artist ?? '',
-			album: p.album ?? '',
-			cover: p.cover ?? null,
-			audioUrl: null,
-			lrc: null,
-			lrcUrl: null,
-			detailsLoaded: false,
-			quality: p.quality ?? null,
-			qualityLabel: p.qualityLabel ?? null,
-			keyword: p.keyword ?? '',
-			displayIndex: p.displayIndex ?? 1
-		});
-		const target = reshape(payload.current as Partial<Track>);
-		const seek = Math.max(0, Number(payload.currentTime) || 0);
-		this.queue = (payload.queue ?? []).map(reshape);
-		this.shuffle = !!payload.shuffle;
-		// D-11: 2-state migration — only an explicit 'one' is kept; any persisted repeat-all (from
-		// a prior tri-state session), missing, or tampered value collapses to the safe 'off' default.
-		this.repeatMode = payload.repeatMode === 'one' ? 'one' : 'off';
+		// quick-260704-3ov: the pure parse (JSON.parse-in-try/catch, the `!raw` and `!current.uid`
+		// null gates, reshape defaults, seek clamp, and the D-11 repeatMode migration) now lives in
+		// parsePlayerState — which returns null for EVERY one of the old early-return cases, so the
+		// single `if (!parsed) return;` below is behavior-identical to the old three early-returns.
+		const parsed = parsePlayerState(localStorage.getItem(STATE_KEY));
+		if (!parsed) return;
+		const target = parsed.current;
+		const seek = parsed.seek;
+		this.queue = parsed.queue;
+		this.shuffle = parsed.shuffle;
+		this.repeatMode = parsed.repeatMode;
 		this.current = target;
 		this.loading = true;
 		try {

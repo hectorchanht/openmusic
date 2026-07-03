@@ -111,7 +111,7 @@ describe('serializePlayerState — byte shape', () => {
 			],
 			currentTime: 42.5,
 			shuffle: true,
-			repeatMode: 'off' === 'one' ? 'off' : 'one' // repeatMode passed through unchanged
+			repeatMode: 'one' // passed through unchanged (serializePlayerState does no migration)
 		});
 	});
 
