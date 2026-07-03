@@ -390,3 +390,35 @@ describe('lazyCover — IntersectionObserver + Image probe + cache-first resolve
 		expect(resolveCoverForTrack).toHaveBeenCalledTimes(1);
 	});
 });
+
+// inFlightKey — the empty-uid stub de-dupe key. Pins the anti-collision invariant the prior literal
+// NUL-byte separator provided, now via JSON.stringify([artist,title]) (which is ALSO git-text-safe:
+// the key must contain no control characters, or the source file registers as binary to git).
+describe('inFlightKey', () => {
+	it('a real uid keys by the uid itself (never the name form)', async () => {
+		const { inFlightKey } = await import('./lazyCover');
+		const t = mkTrack({ uid: 'netease:999', artist: 'Jay Chou', title: 'Dao Xiang' });
+		expect(inFlightKey(t)).toBe('netease:999');
+	});
+
+	it('two empty-uid stubs with the same artist but different titles get DISTINCT keys', async () => {
+		const { inFlightKey } = await import('./lazyCover');
+		const a = inFlightKey(mkTrack({ uid: '', artist: 'A', title: 'X' }));
+		const b = inFlightKey(mkTrack({ uid: '', artist: 'A', title: 'Y' }));
+		expect(a).not.toBe(b);
+	});
+
+	it('does not alias when a boundary shifts between artist and title (["a","bc"] vs ["ab","c"])', async () => {
+		const { inFlightKey } = await import('./lazyCover');
+		const a = inFlightKey(mkTrack({ uid: '', artist: 'a', title: 'bc' }));
+		const b = inFlightKey(mkTrack({ uid: '', artist: 'ab', title: 'c' }));
+		expect(a).not.toBe(b);
+	});
+
+	it('the key contains no NUL / control characters (git-text-safe regression guard)', async () => {
+		const { inFlightKey } = await import('./lazyCover');
+		const key = inFlightKey(mkTrack({ uid: '', artist: 'Jay Chou', title: 'Dao Xiang' }));
+		// eslint-disable-next-line no-control-regex
+		expect(/[\x00-\x1f]/.test(key)).toBe(false);
+	});
+});
