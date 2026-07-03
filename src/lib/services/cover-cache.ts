@@ -231,6 +231,51 @@ export function setCachedCoverByUid(uid: string, url: string): void {
 }
 
 /**
+ * The freshness age (ms since write) of a raw stored entry, applying the SAME shape + TTL guard as
+ * readUrlFromEntry — returns `Date.now() - t` for a live `{u,t}`, or null when: absent, a legacy
+ * bare-string (no `t`, freshness UNKNOWABLE), malformed, or expired (`age > TTL_MS`, strict `>`,
+ * mirroring the URL reader). Reuses `entryTime` + `TTL_MS` so the shape/TTL logic is NOT duplicated.
+ */
+function ageFromEntry(v: CoverEntry | string | undefined): number | null {
+	const t = entryTime(v); // -Infinity for legacy bare-string / malformed / absent
+	if (!Number.isFinite(t)) return null; // no numeric write-time → freshness unknowable
+	const age = Date.now() - t;
+	if (age > TTL_MS) return null; // expired MISS — strict `>`, mirrors readUrlFromEntry
+	return age;
+}
+
+/**
+ * Freshness reader (quick-260704-4fr, backlog #8): the raw AGE in ms (`Date.now() - t`) of the FIRST
+ * HITTING fresh `{u,t}` entry in the SAME uid-first → name read order the URL readers use, or null.
+ *
+ * Contract:
+ *   - uid layer is consulted FIRST, and ONLY when `uid` is truthy (the empty-uid guard — an empty uid
+ *     must NOT read the shared `'uid:'` slot; mirrors `track.uid ? getCachedCoverByUid(...) : null`);
+ *     then the {artist,title} name layer.
+ *   - a candidate contributes an age only when it is a live `{u,t}` (numeric `t`, `age <= TTL_MS`);
+ *     a legacy bare-string (no `t`), an absent key, or an expired entry contributes NO age → the next
+ *     layer is tried, then null.
+ *   - returns null on: total miss, legacy-only hit (freshness unknowable), or every hitting layer
+ *     expired.
+ *
+ * PURE / never-throws: reads the record ONCE via `readRecord()` (which swallows corrupt/unavailable
+ * storage → {}), indexes it by the SAME key builders as the URL readers, and reuses `ageFromEntry`
+ * (`entryTime` + `TTL_MS`) — no re-JSON.parse, no writes, no delete-on-read.
+ *
+ * A RAW AGE (not a boolean) is returned by design so the CONSUMER (lazyCover) owns the freshness
+ * threshold — this keeps the TTL constant private to this module while letting the consumer tune its
+ * own (tighter) "confirmed-fresh" window, and it is more directly testable.
+ */
+export function coverAgeByUidOrName(uid: string, artist: string, title: string): number | null {
+	const rec = readRecord(); // ONE read — never throws
+	if (uid) {
+		const byUid = ageFromEntry(rec[uidCoverCacheKey(uid)]); // uid-first (only for a real uid)
+		if (byUid !== null) return byUid;
+	}
+	return ageFromEntry(rec[coverCacheKey(artist, title)]); // name-layer fallback (or null)
+}
+
+/**
  * Delete EXACTLY one entry from the stored record (mirrors writeKey's try/catch shape). Reads the
  * whole record, deletes the single key, writes the record back. Skips the write when the key is
  * absent so a remove-missing is a true no-op. Swallows corrupt-JSON / quota / unavailable-storage
