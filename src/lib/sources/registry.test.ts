@@ -6,8 +6,8 @@ const EXPECTED_KEYS: SourceId[] = ['netease', 'qq', 'kuwo', 'joox', 'fivesing', 
 
 describe('SOURCES registry (DATA-04 — single enumeration point)', () => {
 	// Test 4: exactly the expected keys; each value's .id matches its key.
-	// hvu: 5sing (Kugou UGC) added behind enabledByDefault:false.
-	// ixw: jamendo (CC indie) added behind enabledByDefault:false.
+	// hvu: 5sing (Kugou UGC) added opt-in, flipped to enabledByDefault:true in 1bf113c.
+	// ixw: jamendo (CC indie) added opt-in, flipped to enabledByDefault:true in 1bf113c.
 	// 0zn: audius (Western/indie/UGC) added with enabledByDefault:true.
 	it('enumerates exactly netease,qq,kuwo,joox,fivesing,jamendo,audius', () => {
 		expect(Object.keys(SOURCES)).toEqual(EXPECTED_KEYS);

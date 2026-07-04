@@ -5,8 +5,9 @@
 // progressive mp3 from *.kugou.com — plays in HTML <audio> with no MSE. Reachable from a
 // non-CN edge (verified 2026-06-07 by the source researcher).
 //
-// Ships `enabledByDefault: false` (UGC supply is noisier than the 4 mainstream CN sources;
-// users opt in via the source-prefs plumbing in `getEnabledAdapters`).
+// Ships `enabledByDefault: true` — searched by default alongside the 4 mainstream CN sources
+// (flipped from the original opt-in default in 1bf113c). Users can still toggle it off via the
+// source-prefs plumbing in `getEnabledAdapters` (Settings → Playback → Advanced → Sources).
 //
 // Two identity-critical quirks (from RESEARCH.md):
 //  1. `songid` is NOT unique across songtypes (fc/bz/yc) — the SAME numeric id maps to
@@ -66,8 +67,9 @@ function toSongType(raw: string | undefined): 'fc' | 'bz' | 'yc' {
 export const fivesing: SourceAdapter = {
 	id: 'fivesing',
 	label: '5sing',
-	// UGC supply is noisier than the 4 mainstream CN sources; ship gated so existing users
-	// don't suddenly see covers/karaoke at the top of search. Users opt in via prefs.
+	// Ships enabled by default (1bf113c); toggleable off via prefs (Settings → Playback →
+	// Advanced → Sources) for users who want a cleaner search, since UGC supply (covers/karaoke)
+	// is noisier than the 4 mainstream CN sources.
 	enabledByDefault: true,
 
 	async search(keyword: string, page: number, signal: AbortSignal): Promise<Track[]> {

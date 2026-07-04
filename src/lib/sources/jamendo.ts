@@ -4,8 +4,9 @@
 // + Western non-mainstream. Net-new supply, zero overlap with the CN sources or 5sing UGC.
 // Direct progressive mp3 (`audioformat=mp32`) — plays in <audio> with no MSE / no DRM.
 //
-// Ships `enabledByDefault: false` (CC indie is a different intent than mainstream search;
-// users opt in via the /settings/playback Advanced — Sources accordion added in ii6).
+// Ships `enabledByDefault: true` — searched by default (flipped from the original opt-in in
+// 1bf113c). Toggleable off via the /settings/playback Advanced — Sources accordion (ii6) for
+// users who want mainstream-only search (CC indie is a different intent).
 //
 // Auth: a PUBLIC `client_id` is sent on every API request — exactly the same posture as
 // the Last.fm public API key. The client_secret Jamendo issues alongside is ONLY needed
@@ -41,7 +42,8 @@ interface JmResponse {
 export const jamendo: SourceAdapter = {
 	id: 'jamendo',
 	label: 'Jamendo',
-	// CC indie is opt-in. The Playback Advanced — Sources accordion (ii6) is the discovery path.
+	// Ships enabled by default (1bf113c); toggleable off via the Playback Advanced — Sources
+	// accordion (ii6). CC indie is a different intent than mainstream search.
 	enabledByDefault: true,
 
 	async search(keyword: string, page: number, signal: AbortSignal): Promise<Track[]> {
