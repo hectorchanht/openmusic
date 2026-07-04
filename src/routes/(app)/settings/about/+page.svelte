@@ -13,10 +13,10 @@
 
 	// What the app does today (literal — brand/credits text, not part of the translated UI chrome).
 	const features = [
-		'Search + stream across Netease, QQ, Kuwo & JOOX',
-		'Deezer-powered home discovery — top hits, top artists, genre & region shelves you can pick, reorder & hide',
-		'Tap-to-play that re-resolves the best match from the CN sources',
-		'Real album & artist art via Deezer, with iTunes fallback',
+		'Search + stream across Netease, QQ, Kuwo & JOOX, plus 5sing, Jamendo & Audius — all searched by default, each toggleable in Settings → Playback',
+		'Home discovery — the Deezer top-hits & top-artists chart plus Last.fm genre & region shelves you can pick, reorder & hide',
+		'Tap-to-play that re-resolves the best match across the enabled sources',
+		'Real album & artist art via Deezer → iTunes → CN fallback',
 		'Synced lyrics + per-part translation (artist / title / lyrics) across 15 UI languages',
 		'Favorites, playlists, listen history & downloads',
 		'Installable PWA with background audio & media-session controls'
