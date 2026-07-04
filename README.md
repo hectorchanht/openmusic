@@ -4,7 +4,7 @@
 
 # openmusic
 
-A mobile-first web music player that searches and streams tracks aggregated from **NetEase, QQ, Kuwo and JOOX** through a same-origin proxy, with **Last.fm-powered discovery**, **Deezer cover art**, a **customizable home**, and a **15-language UI**. Built with SvelteKit and deployed on Cloudflare Pages.
+A mobile-first web music player that searches and streams tracks aggregated across **seven sources** through a same-origin proxy — the four mainstream Chinese platforms (**NetEase, QQ, Kuwo, JOOX**) plus **5sing** (Kugou UGC covers / backing tracks), **Jamendo** (Western Creative-Commons indie), and **Audius** (decentralized Western/indie/electronic). All seven are searched by default and each is individually toggleable in Settings → Playback. Discovery blends **Last.fm genre/region shelves** with the **Deezer top-hits chart**, cover art comes from **Deezer**, and the app ships a **customizable home** and a **15-language UI**. Built with SvelteKit and deployed on Cloudflare Pages.
 
 👉 **Live:** <https://openmusic.lol>
 
@@ -22,7 +22,7 @@ A mobile-first web music player that searches and streams tracks aggregated from
 ## Architecture
 
 - **Metadata proxy** — a SvelteKit endpoint `src/routes/api/[source]/[...path]/+server.ts` fronts each source's **search / detail / lyrics** calls (CORS, bounded retry) and injects the JOOX token from `platform.env` so it never reaches the client bundle. **Audio streams browser → source CDN directly** (not through the proxy) to stay within Cloudflare's free-tier limits.
-- **Source-adapter registry** — client adapters in `src/lib/sources/` + matching proxy adapters in `src/lib/proxy/`, enumerated once in a registry. Adding a source = a new client file + a new proxy file + one import; aggregation/dispatch names no source.
+- **Source-adapter registry** — client adapters in `src/lib/sources/` + matching proxy adapters in `src/lib/proxy/`, enumerated once in a registry. Seven adapters ship today, spanning CN mainstream (NetEase, QQ, Kuwo, JOOX), CN UGC (5sing), and Western/global catalogs (Jamendo CC indie, Audius). Adding a source = a new client file + a new proxy file + one import; aggregation/dispatch names no source.
 - **Presentation-layer services** (`src/lib/services/`) — `catalog` (allSettled fan-out + interleave), `dedupe` (cross-source de-dupe + best-quality pick), `picks` (diverse top-picks builder), `lrc` (LRC parsing), `share`, `translate`, plus the discovery/cover stack: `lastfm` + `discovery` (charts / genre / region shelves + `resolveStub` re-search), `deezer` (chart source + cover/artist art via an edge proxy), `cover-cache` / `cover-backfill` / `itunes-cover` (the Deezer → iTunes → CN cover chain), `score-match` + `match-key` (best-match resolution), and `home-layout` (pure config resolution for the customizable home). Covered by **414 Vitest tests**.
 - **Stores** (`src/lib/stores/`, Svelte 5 runes) — `player` (single app-wide `<audio>` + queue + gapless prefetch), `library` (liked / playlists / downloads), `history` (listen history), `settings`, `names` (per-part display-name translation cache), `overlays`, `searchSession` / `searchHistory`. All persist to `localStorage`, SSR-guarded.
 - **Discovery proxies** — `api/lastfm/{info,discovery}` (charts/tags/geo, edge-cached, `LASTFM_KEY` edge-only) and `api/deezer/{search,chart}` (covers + the top-hits chart source; Deezer blocks browser CORS so it's proxied). All mirror the own-origin CORS + retry posture.
@@ -31,8 +31,8 @@ A mobile-first web music player that searches and streams tracks aggregated from
 
 ## Features
 
-- Search across all sources, tap to play — with a first-load skeleton + a Go-button spinner while searching, and a "no more results" end note
-- **Last.fm-powered home discovery** — top hits, top artists, and per-genre / per-region shelves; tap-to-play re-resolves each pick to the best playable match from the CN sources
+- Search across all seven sources (CN mainstream + 5sing UGC + Jamendo/Audius), tap to play — with a first-load skeleton + a Go-button spinner while searching, and a "no more results" end note
+- **Home discovery** — the Deezer top-hits/top-artists chart plus per-genre / per-region shelves from Last.fm; tap-to-play re-resolves each pick to the best playable match across the enabled sources
 - **Customizable home** (`/settings/home`) — drag-to-reorder & hide the shelves, pick which of ~22 genres / ~20 regions appear (drag the selected chips to reorder), items-per-shelf, default landing tab, tile density, and chrome toggles
 - **Real cover art** — top hits/artists source from the Deezer chart (covers embedded); everything else backfills covers lazily via **Deezer → iTunes → CN**, with a gradient as last resort
 - Full-screen now-playing: drag/expand, seekable progress, transport, draggable Up-Next / Lyrics / Related sub-nav
@@ -144,7 +144,7 @@ static/                 # favicon.svg, icon-maskable.svg, og.svg, manifest.webma
 
 ## Scope & honesty notes
 
-- Music is streamed from **unofficial third-party proxy APIs** (no SLA; they can change or rate-limit). This is a **demo / educational** project — copyrights belong to the original platforms.
+- Music is streamed from a mix of sources: **unofficial third-party proxy APIs** for the mainstream CN platforms and 5sing (no SLA; they can change or rate-limit), alongside legitimately-open catalogs (Jamendo Creative-Commons, the decentralized Audius network). This is a **demo / educational** project — copyrights belong to the original platforms.
 - Audio is browser-direct; "Download" saves the file and references it in the library, but a web app can't replay an arbitrary saved file offline (the Downloads tab re-streams).
 - Lyric/name translation uses an unofficial translation endpoint (best-effort, cached, falls back to originals).
 - The product is being built with [GSD](https://github.com/glamboyosa/gsd); the formal roadmap (data-layer foundation → audio engine → library → UI shell → PWA service worker → iOS background audio → new sources/queue) lives in [`.planning/`](.planning/). Much of the live demo was built ahead of that sequence as `/gsd:quick` tasks.
