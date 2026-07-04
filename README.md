@@ -23,7 +23,7 @@ A mobile-first web music player that searches and streams tracks aggregated acro
 
 - **Metadata proxy** — a SvelteKit endpoint `src/routes/api/[source]/[...path]/+server.ts` fronts each source's **search / detail / lyrics** calls (CORS, bounded retry) and injects the JOOX token from `platform.env` so it never reaches the client bundle. **Audio streams browser → source CDN directly** (not through the proxy) to stay within Cloudflare's free-tier limits.
 - **Source-adapter registry** — client adapters in `src/lib/sources/` + matching proxy adapters in `src/lib/proxy/`, enumerated once in a registry. Seven adapters ship today, spanning CN mainstream (NetEase, QQ, Kuwo, JOOX), CN UGC (5sing), and Western/global catalogs (Jamendo CC indie, Audius). Adding a source = a new client file + a new proxy file + one import; aggregation/dispatch names no source.
-- **Presentation-layer services** (`src/lib/services/`) — `catalog` (allSettled fan-out + interleave), `dedupe` (cross-source de-dupe + best-quality pick), `picks` (diverse top-picks builder), `lrc` (LRC parsing), `share`, `translate`, plus the discovery/cover stack: `lastfm` + `discovery` (charts / genre / region shelves + `resolveStub` re-search), `deezer` (chart source + cover/artist art via an edge proxy), `cover-cache` / `cover-backfill` / `itunes-cover` (the Deezer → iTunes → CN cover chain), `score-match` + `match-key` (best-match resolution), and `home-layout` (pure config resolution for the customizable home). Covered by **414 Vitest tests**.
+- **Presentation-layer services** (`src/lib/services/`) — `catalog` (allSettled fan-out + interleave), `dedupe` (cross-source de-dupe + best-quality pick), `picks` (diverse top-picks builder), `lrc` (LRC parsing), `share`, `translate`, plus the discovery/cover stack: `lastfm` + `discovery` (charts / genre / region shelves + `resolveStub` re-search), `deezer` (chart source + cover/artist art via an edge proxy), `cover-cache` / `cover-backfill` / `itunes-cover` (the Deezer → iTunes → CN cover chain), `score-match` + `match-key` (best-match resolution), and `home-layout` (pure config resolution for the customizable home). Covered by **1060 Vitest tests**.
 - **Stores** (`src/lib/stores/`, Svelte 5 runes) — `player` (single app-wide `<audio>` + queue + gapless prefetch), `library` (liked / playlists / downloads), `history` (listen history), `settings`, `names` (per-part display-name translation cache), `overlays`, `searchSession` / `searchHistory`. All persist to `localStorage`, SSR-guarded.
 - **Discovery proxies** — `api/lastfm/{info,discovery}` (charts/tags/geo, edge-cached, `LASTFM_KEY` edge-only) and `api/deezer/{search,chart}` (covers + the top-hits chart source; Deezer blocks browser CORS so it's proxied). All mirror the own-origin CORS + retry posture.
 - **Translation** — `src/routes/api/translate/+server.ts` (Google, `sl=auto`) powers per-part name/lyrics translation across a wide target-language set; the **UI chrome** itself ships in **15 locales** (`src/lib/i18n/`).
@@ -53,7 +53,7 @@ pnpm dev          # dev server (Vite)
 pnpm build        # production build (adapter-cloudflare → .svelte-kit/cloudflare)
 pnpm preview      # serve the build locally via wrangler pages dev
 pnpm check        # svelte-check (TypeScript, strict)
-pnpm test         # run the Vitest suite (414 tests)
+pnpm test         # run the Vitest suite (1060 tests)
 ```
 
 ## Android APK (build & install)
