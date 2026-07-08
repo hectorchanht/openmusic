@@ -28,6 +28,10 @@
 	import { enrichTrack } from '$lib/services/lastfm';
 	import { longpress } from '$lib/actions/longpress';
 	import { lazyCover } from '$lib/actions/lazyCover';
+	// cover-hero-mediacard-missing (Issue 1): the reactive cover-cache read helper the up-next rows /
+	// home tiles use — the hero current cell now falls back to it so a cover that lands anywhere for
+	// the current song repaints the hero live (one resolved cover reused EVERYWHERE, cached).
+	import { readCoverByUidOrName } from '$lib/stores/cover-version.svelte';
 	import { marquee } from '$lib/actions/marquee';
 	import { swipeRemove } from '$lib/actions/swipeRemove';
 	import { swipeAction } from '$lib/actions/swipeAction';
@@ -445,9 +449,24 @@
 	// Effective now-playing cover: the swapped hi-res Last.fm art when adopted (a strictly-larger
 	// upgrade, so it still wins), else the single player.resolvedCover field (COVER-01 / D-09) —
 	// which already encompasses track.cover, the uid/name cache, AND the async tier-chain resolve,
-	// so a no-cover-source track shows resolved art here once the chain lands. Null → the seeded
-	// gradient fallback below (D-12); never a placeholder.
-	const effectiveCover = $derived(swappedCover ?? player.resolvedCover ?? null);
+	// so a no-cover-source track shows resolved art here once the chain lands.
+	//
+	// cover-hero-mediacard-missing (Issue 1): FINAL fallback = the reactive cover cache (uid → name).
+	// Before this, the hero was the ONLY cover surface not bound to the cache: it read resolvedCover
+	// alone, while the up-next rows + carousel neighbors resolve via use:lazyCover and read the cache
+	// reactively. resolvedCover is refreshed only in play()'s narrow windows (resolveCoverAsync fires
+	// once, when it starts null + gen-guarded; healCover only repairs a non-null DEAD url), so a cover
+	// that lands in the cache via a SIBLING surface (the same song's up-next row, a backfill, another
+	// tile) after those windows showed on up-next but never on the hero — the reported "hero blank
+	// while up-next has it". readCoverByUidOrName depends on coverVersion(), so the hero now repaints
+	// the instant ANY cover lands for the current song. Null (all miss) → the seeded gradient (D-12).
+	const effectiveCover = $derived(
+		swappedCover ??
+			player.resolvedCover ??
+			(player.current
+				? readCoverByUidOrName(player.current.uid, player.current.artist, player.current.title)
+				: null)
+	);
 
 	// quick-260704-20e: self-heal a DEAD current cover — the counterpart to the neighbor cells'
 	// use:lazyCover. resolvedCover is seeded FIRST from track.cover (a source-CDN thumbnail that
