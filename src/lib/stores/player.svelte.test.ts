@@ -406,7 +406,7 @@ describe('player.prefetchNext — pre-resolve next track for gapless-ish play', 
 	const primeNext = () => (player as unknown as { primeNext(): Promise<void> })['primeNext']();
 	const ensureAhead = () => (player as unknown as { ensureAhead(): Promise<void> })['ensureAhead']();
 
-	it("pre-resolves the next track's details and warms resolved audio + cover", async () => {
+	it("pre-resolves the next track's details and warms its cover (audio is blob-prebuffered)", async () => {
 		const assets = installAssetPreloadMocks();
 		const cur = mk('netease', '0', 'A', 'Now');
 		const next = stub('qq', '1', 'B', 'Next'); // unresolved — readiness guard does NOT short-circuit
@@ -430,12 +430,11 @@ describe('player.prefetchNext — pre-resolve next track for gapless-ish play', 
 		// Resolved track written back into queue[1] (so a later play() no-ops).
 		expect(player.queue[1].detailsLoaded).toBe(true);
 		expect(player.queue[1].audioUrl).toBe('https://cdn/next.mp3');
-		expect(assets.AudioCtor).toHaveBeenCalledTimes(1);
-		expect(assets.audios[0].preload).toBe('auto');
-		expect(assets.audios[0].muted).toBe(true);
-		expect(assets.audios[0].src).toBe('https://cdn/next.mp3');
-		expect(assets.audios[0].setAttribute).toHaveBeenCalledWith('referrerpolicy', 'no-referrer');
-		expect(assets.audios[0].load).toHaveBeenCalledTimes(1);
+		// Byte-warm is now a blob PRE-BUFFER via fetch (bg-resolve-gap-stall / next-song-instant), NOT a
+		// throwaway <audio preload=auto> — so no HTMLAudioElement is constructed for warming. (fetch /
+		// createObjectURL are absent in the node test env → prebufferNext no-ops here; the dedicated
+		// prebuffer test below stubs them to exercise the real fetch → blob → play() consume path.)
+		expect(assets.AudioCtor).not.toHaveBeenCalled();
 		expect(assets.ImageCtor).toHaveBeenCalledTimes(1);
 		expect(assets.images[0].src).toBe('https://img/next.jpg');
 		expect(assets.images[0].decoding).toBe('async');
@@ -453,7 +452,7 @@ describe('player.prefetchNext — pre-resolve next track for gapless-ish play', 
 		expect(mockEnsure).not.toHaveBeenCalled();
 	});
 
-	it('warms audio + cover even when next track is already detailsLoaded', async () => {
+	it('warms the cover even when next track is already detailsLoaded (audio is blob-prebuffered, no throwaway <audio>)', async () => {
 		const assets = installAssetPreloadMocks();
 		const cur = mk('netease', '0', 'A', 'Now');
 		const next = { ...mk('qq', '1', 'B', 'Next'), cover: 'https://img/already.jpg' };
@@ -464,9 +463,7 @@ describe('player.prefetchNext — pre-resolve next track for gapless-ish play', 
 		await flush();
 
 		expect(mockEnsure).not.toHaveBeenCalled();
-		expect(assets.AudioCtor).toHaveBeenCalledTimes(1);
-		expect(assets.audios[0].src).toBe(next.audioUrl);
-		expect(assets.audios[0].load).toHaveBeenCalledTimes(1);
+		expect(assets.AudioCtor).not.toHaveBeenCalled(); // byte-warm is a fetch→blob prebuffer, not a throwaway audio
 		expect(assets.ImageCtor).toHaveBeenCalledTimes(1);
 		expect(assets.images[0].src).toBe('https://img/already.jpg');
 	});
@@ -680,8 +677,43 @@ describe('player.prefetchNext — pre-resolve next track for gapless-ish play', 
 
 		expect(mockEnsure).toHaveBeenCalledWith(next, expect.any(AbortSignal));
 		expect(player.queue[1].audioUrl).toBe('https://cdn/next.mp3');
-		expect(assets.audios[0].src).toBe('https://cdn/next.mp3');
-		expect(assets.images[0].src).toBe('https://img/prime.jpg');
+		expect(assets.images[0].src).toBe('https://img/prime.jpg'); // cover still warmed
+		expect(assets.AudioCtor).not.toHaveBeenCalled(); // audio byte-warm is a fetch→blob prebuffer now
+	});
+
+	it('ZERO-FETCH: prefetch blob-prebuffers the next track (fetch → blob → object URL) keyed by uid', async () => {
+		// bg-resolve-gap-stall / next-song-instant: the next track's full bytes are fetched to a blob
+		// during the CURRENT song (page awake) so play() can swap to the LOCAL blob: URL at advance —
+		// instant + nothing to hang on a frozen background page. Stub fetch + createObjectURL (absent in
+		// node) to exercise the real prebufferNext path. Auto-cleaned by the suite's afterEach unstub.
+		const fetchMock = vi.fn(async () => ({ ok: true, blob: async () => new Blob(['audio-bytes']) }));
+		vi.stubGlobal('fetch', fetchMock);
+		const createObjSpy = vi.fn(() => 'blob:prebuffered-next');
+		vi.stubGlobal('URL', {
+			createObjectURL: createObjSpy,
+			revokeObjectURL: vi.fn()
+		} as unknown as typeof URL);
+
+		const cur = mk('netease', '0', 'A', 'Now');
+		const next = stub('qq', '1', 'B', 'Next');
+		const resolvedNext: Track = { ...next, detailsLoaded: true, audioUrl: 'https://cdn/next.mp3' };
+		player.queue = [cur, next];
+		player.current = cur;
+		mockEnsure.mockResolvedValue(resolvedNext);
+
+		await prefetch(); // lands `next`, fires prebufferNext → fetch(url) → blob → createObjectURL
+		await flush();
+
+		expect(fetchMock).toHaveBeenCalledWith(
+			'https://cdn/next.mp3',
+			expect.objectContaining({ referrerPolicy: 'no-referrer' })
+		);
+		expect(createObjSpy).toHaveBeenCalledTimes(1); // a blob: URL was minted for the prebuffered bytes
+		// prebuffer slot now owns the local URL keyed by the next uid — play()'s network branch consumes
+		// it (src = prebufferedBlobUrl) instead of the CDN URL: zero network at the advance swap.
+		const state = player as unknown as { prebufferedUid: string | null; prebufferedBlobUrl: string | null };
+		expect(state.prebufferedUid).toBe(next.uid);
+		expect(state.prebufferedBlobUrl).toBe('blob:prebuffered-next');
 	});
 
 	// PLAY-RESILIENCE: bounded FORWARD-RESOLVE-AND-PROBE walk (restored from the pre-76b3e6f design).

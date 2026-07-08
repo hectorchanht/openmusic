@@ -112,9 +112,29 @@ keep-alive bridge that holds the page awake until the bg network completes (the 
 
 Tests: added a strike-on-bg-error-skip regression. `pnpm check` clean; `pnpm test` 1067 passed.
 
+## Round 3 — zero-fetch blob pre-buffer (next song plays from local bytes)
+User asked for true zero-fetch. Feasible: the Download feature already does `fetch(audioUrl).blob()`
+directly (TrackMenu), so CDN CORS + blob playback are proven. `src/lib/stores/player.svelte.ts`:
+- Replaced the throwaway `<audio preload=auto>` byte-warm (`preloadNextAudio`, which only warmed the
+  HTTP cache and still forced the real element to re-fetch at swap) with `prebufferNext()`: fetch the
+  RESOLVED next track's FULL bytes to a Blob during the CURRENT song (page awake) and hold a `blob:`
+  Object URL keyed by uid. `prewarmNextAssets` now = cover warm + prebuffer.
+- `play()` network branch consumes it: `else if (prebufferedUid === resolved.uid)` → `src =
+  prebufferedBlobUrl`, ownership transferred to `cachedBlobUrl` (existing revoke-on-next-play), slot
+  cleared. So a prebuffered advance sets a LOCAL blob src → zero network at the swap → instant + nothing
+  to hang on a frozen page. Guarded (fetch/createObjectURL feature-detect, downloaded-skip, dedupe,
+  abort-on-supersede, only 200-OK stored); a failure falls back to the CDN URL src (graceful).
+- Tests: updated 3 asset-warm tests (no more throwaway `<audio>`), added a prebuffer fetch→blob→objectURL
+  test. `pnpm check` clean; `pnpm test` 1068 passed.
+
+Coverage note: prebuffer covers the IMMEDIATE next (the common advance) → truly instant/freeze-proof
+there. It does NOT cover a long dead-run skip target or a fresh `grow.added` batch (not prebuffered yet)
+— those still rely on the keep-alive bridge + strikes from round 2. Bandwidth: one full next-song
+download held in memory (~neutral vs the old preload=auto, which also fetched the whole file).
+
 ## Current Focus
-- hypothesis: Keep-alive bridge closes the cold-resolve + cold-grow hangs (the residual dead-run freeze);
-  the strike mitigation shrinks the region-locked dead-runs that trigger it.
+- hypothesis: Prebuffered immediate-next advance is now zero-fetch (local blob) → instant + freeze-proof;
+  keep-alive bridge + strikes still cover the un-prebuffered holes (dead-run landings, fresh grows).
 - next_action: DEVICE VERIFY on Android (locked, netease-heavy queue). Confirm (a) no more `play` with no
   following `resolve.ok` dead-ends and no multi-minute stalls; (b) the same region-locked batch is not
   bg-error-skipped again on later passes (strikes → routed past); (c) NO audible artifact, and the media

@@ -629,9 +629,15 @@ class Player {
 	private prefetchingUid: string | null = null;
 	/** Aborts the in-flight prefetch when a newer one supersedes it (stale-resolve guard). */
 	private prefetchController: AbortController | null = null;
-	private preloadedAudio: HTMLAudioElement | null = null;
-	private preloadedAudioUid: string | null = null;
-	private preloadedAudioUrl: string | null = null;
+	/** ZERO-FETCH BLOB PRE-BUFFER (bg-resolve-gap-stall / next-song-instant). The next track's FULL
+	 *  bytes fetched to a Blob during the CURRENT song's playback, exposed as a `blob:` Object URL so
+	 *  the advance src-swap plays LOCAL bytes — no network at play time, nothing to hang on a frozen
+	 *  background page. Plain fields (never reactive). `prebufferController` aborts an in-flight fetch
+	 *  when a newer next-track supersedes it. Replaces the old throwaway `<audio preload=auto>` warm
+	 *  (which only warmed the HTTP cache and still forced the real element to re-fetch at swap). */
+	private prebufferedUid: string | null = null;
+	private prebufferedBlobUrl: string | null = null;
+	private prebufferController: AbortController | null = null;
 	private preloadedCover: HTMLImageElement | null = null;
 	private preloadedCoverUid: string | null = null;
 	private preloadedCoverUrl: string | null = null;
@@ -2072,25 +2078,52 @@ class Player {
 
 	private prewarmNextAssets(track: Track) {
 		this.preloadNextCover(track);
-		this.preloadNextAudio(track);
+		void this.prebufferNext(track);
 	}
 
-	private preloadNextAudio(track: Track) {
+	/**
+	 * ZERO-FETCH BLOB PRE-BUFFER (bg-resolve-gap-stall / next-song-instant). Fetch the RESOLVED next
+	 * track's FULL bytes into a Blob NOW — while the current song is still playing and the page is
+	 * reliably awake — and hold it as a `blob:` Object URL keyed by uid. play() consumes it at advance
+	 * so the src-swap plays LOCAL bytes: instant, and with NO network fetch that could hang on a frozen
+	 * background page (the residual dead-run/grow freeze). Reuses the exact `fetch(url).blob()` the
+	 * Download feature already relies on (TrackMenu) — same-CDN CORS support is proven there. Replaces
+	 * the old throwaway `<audio preload=auto>` warm, which only warmed the HTTP cache and still forced
+	 * the real element to re-fetch at swap.
+	 *
+	 * Best-effort + fully guarded: no-op where fetch/createObjectURL are absent (SSR / node tests);
+	 * skipped for a downloaded track (the offline-blob branch already plays it locally); deduped per
+	 * uid; a newer next-track aborts the in-flight fetch; only a 200-OK response is stored (a 403 error
+	 * body is never buffered). A failure (no CORS on some source, network blip) is swallowed → play()
+	 * falls back to the CDN URL src (still works, just not zero-fetch). NEVER throws, never bumps playGen.
+	 */
+	private async prebufferNext(track: Track) {
+		if (!browser) return;
 		const url = track.audioUrl;
-		if (!url || typeof Audio === 'undefined') return;
-		if (this.preloadedAudioUid === track.uid && this.preloadedAudioUrl === url) return;
+		if (!url) return;
+		if (typeof fetch === 'undefined' || typeof URL === 'undefined' || !URL.createObjectURL) return;
+		if (library.isDownloaded(track.uid)) return; // offline-blob branch already serves this locally
+		if (this.prebufferedUid === track.uid) return; // already buffered / buffering this exact track
+		// Supersede any prior in-flight prebuffer for a DIFFERENT next track.
+		this.prebufferController?.abort();
+		this.prebufferController = new AbortController();
+		const sig = this.prebufferController.signal;
+		const seedUid = this.current?.uid; // stale-guard: current must not change away mid-fetch
 		try {
-			const audio = this.preloadedAudio ?? new Audio();
-			this.preloadedAudio = audio;
-			audio.preload = 'auto';
-			audio.muted = true;
-			audio.setAttribute('referrerpolicy', 'no-referrer');
-			audio.src = url;
-			audio.load();
-			this.preloadedAudioUid = track.uid;
-			this.preloadedAudioUrl = url;
+			// Match the <audio> element's request (referrerpolicy=no-referrer) so a referrer-sensitive
+			// CDN serves the bytes; default mode 'cors' so the response Blob is readable.
+			const resp = await fetch(url, { signal: sig, referrerPolicy: 'no-referrer' });
+			if (sig.aborted || this.current?.uid !== seedUid) return;
+			if (!resp.ok) return; // never buffer a 403/redirect error body — only real 200 audio bytes
+			const blob = await resp.blob();
+			if (sig.aborted || this.current?.uid !== seedUid) return;
+			// Revoke a previously-buffered (now-superseded) blob URL before replacing it. The IN-USE
+			// playing URL is owned by cachedBlobUrl (ownership transferred at consume), never here.
+			if (this.prebufferedBlobUrl) URL.revokeObjectURL(this.prebufferedBlobUrl);
+			this.prebufferedBlobUrl = URL.createObjectURL(blob);
+			this.prebufferedUid = track.uid;
 		} catch {
-			/* best-effort cache warm only */
+			/* best-effort — abort / CORS / network failure leaves the track un-prebuffered (CDN fallback) */
 		}
 	}
 
@@ -2406,6 +2439,17 @@ class Player {
 						this.cachedBlobUrl = URL.createObjectURL(blob);
 						src = this.cachedBlobUrl;
 					}
+				} else if (this.prebufferedUid === resolved.uid && this.prebufferedBlobUrl) {
+					// ZERO-FETCH (bg-resolve-gap-stall / next-song-instant): the next track's full bytes were
+					// pre-fetched to a blob during the PREVIOUS song's playback (page awake). Play the LOCAL
+					// blob — no network at the swap, so nothing to hang on a frozen background page and the
+					// next song starts instantly. Transfer ownership to cachedBlobUrl (existing revoke-on-
+					// next-play lifecycle) and clear the prebuffer slot so a later prebufferNext() never
+					// revokes the now-playing URL.
+					src = this.prebufferedBlobUrl;
+					this.cachedBlobUrl = this.prebufferedBlobUrl;
+					this.prebufferedBlobUrl = null;
+					this.prebufferedUid = null;
 				}
 				// Initial-load arming point (D-13): a NEW src for this track. Reset the played flag +
 				// arm the stall watchdog so a silent no-audio start (no `playing`/`timeupdate`
