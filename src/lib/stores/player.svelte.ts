@@ -33,7 +33,17 @@ import { resolveCoverForTrack } from '$lib/services/cover-backfill';
 // quick-260615-hep: feed every displayed now-playing cover into the shared cache (both layers) +
 // bump the global reactive signal so other surfaces (homepage tiles) reuse the art and repaint live.
 // quick-260704-20e: removeCoverBoth evicts a DEAD current cover before healCover re-resolves it.
-import { writeCoverBoth, bumpCoverVersion, removeCoverBoth } from '$lib/stores/cover-version.svelte';
+// cover-hero-mediacard-missing (Issue 2, media-card fix): readCoverByUidOrName lets syncMetadata build
+// the OS media-card artwork from the SHARED cover cache (uid-first → name), so a cover that landed via
+// another surface after resolveCoverAsync's null+gen-guarded window still reaches the lock screen. No
+// new module edge / no cycle: this store already imports from cover-version.svelte, which imports only
+// the pure cover-cache (never the player).
+import {
+	writeCoverBoth,
+	bumpCoverVersion,
+	removeCoverBoth,
+	readCoverByUidOrName
+} from '$lib/stores/cover-version.svelte';
 // quick-260704-3ov: the pure serialize/parse codec was extracted out of this god-object into
 // a colocated, node-tested module (the "runes store thinly wraps a pure helper" precedent).
 import { STATE_KEY, serializePlayerState, parsePlayerState } from '$lib/stores/player-persist';
@@ -378,6 +388,17 @@ class Player {
 		this.shuffle = parsed.shuffle;
 		this.repeatMode = parsed.repeatMode;
 		this.current = target;
+		// cover-hero-mediacard-missing (Issue 2 + Issue 1): the restore path never calls play(), so
+		// without this the OS media card had no metadata on a PWA reopen → it fell back to the bare
+		// app name once the user resumed. Seed the ONE cover field (mirrors play()'s sync seed: track
+		// cover → uid cache → name cache) so the hero/nowbar paint any known cover, THEN write the
+		// media metadata from the restored track so title/artist are present the moment playback resumes.
+		this.resolvedCover =
+			target.cover ??
+			getCachedCoverByUid(target.uid) ??
+			getCachedCover(target.artist, target.title) ??
+			null;
+		this.syncMetadata();
 		this.loading = true;
 		try {
 			// Offline-first restore: if the track is in library.downloads AND its blob is in
@@ -896,8 +917,45 @@ class Player {
 		if (ms) ms.playbackState = playbackStateFor(!!this.current, this.playing);
 	}
 
+	/**
+	 * cover-hero-mediacard-missing (Issue 2): write the OS/browser media metadata (title + artist +
+	 * album + best-known artwork) from the CURRENT track. Title/artist come straight off the track
+	 * (always present post-search), so the media card ALWAYS shows the song identity regardless of
+	 * whether a cover has resolved yet. Artwork mirrors the HERO fix: resolvedCover wins when set, else
+	 * fall back to the SHARED cover cache (readCoverByUidOrName, uid-first → name), else buildArtwork's
+	 * /favicon.svg. WHY the cache fallback (media-card asymmetry): resolveCoverAsync fires ONLY when
+	 * resolvedCover starts null + is gen-guarded, so a cover that lands in the shared cache via another
+	 * surface (up-next lazyCover, backfill, sibling tile) AFTER that window never reaches resolvedCover
+	 * — reading resolvedCover alone would leave the lock-screen art on the favicon even though the cache
+	 * has the real cover. Assigns a BRAND-NEW MediaMetadata (Pitfall 4) so the lock screen repaints, and
+	 * mirrors the current playbackState.
+	 *
+	 * WHY it exists: before this, ms.metadata was written ONLY inside play()'s success branches, so
+	 * paths that never call play() — a PWA reopen (restore()) then a resume — left the OS card with no
+	 * metadata, and it fell back to the bare document/PWA name ("OpenMusic — music streaming…"). This
+	 * is the ONE reusable place restore() and play()-entry can guarantee the card is populated.
+	 * No-ops when there is no current track or no media session (SSR / feature-absent). Never throws.
+	 */
+	private syncMetadata() {
+		const ms = this.ms;
+		const cur = this.current;
+		if (!ms || !cur) return;
+		ms.metadata = makeMetadata({
+			title: names.dnTitle(cur.title),
+			artist: names.dnArtist(cur.artist),
+			album: cur.album,
+			// resolvedCover wins when set; else the shared cover cache (a cover that landed via another
+			// surface), else buildArtwork's favicon fallback — mirrors the NowPlaying hero fix.
+			artwork: buildArtwork(
+				this.resolvedCover ?? readCoverByUidOrName(cur.uid, cur.artist, cur.title)
+			)
+		});
+		ms.playbackState = playbackStateFor(!!this.current, this.playing);
+	}
+
 	/** Clear OS media metadata + set state 'none' when playback stops / track cleared (MS-05/MS-02). */
 	private clearMedia() {
+		this.keepAliveOff(); // playback stopped / track cleared — release the background keep-alive
 		const ms = this.ms;
 		if (!ms) return;
 		ms.metadata = null;
@@ -983,6 +1041,7 @@ class Player {
 	private pauseAudio() {
 		this.deliberatePause = true;
 		this.disarmResume(); // an intentional pause cancels any pending external-pause resume
+		this.keepAliveOff(); // a deliberate stop releases the background keep-alive (bg-resolve-gap-stall)
 		this.audio?.pause();
 	}
 
@@ -991,6 +1050,70 @@ class Player {
 		if (this.resumeTimer) {
 			clearTimeout(this.resumeTimer);
 			this.resumeTimer = null;
+		}
+	}
+
+	/** BACKGROUND KEEP-ALIVE (bg-resolve-gap-stall round 2) — Web Audio silent source + its context.
+	 *  Plain fields (never reactive): audio-graph handles, not UI state. */
+	private keepAliveCtx: AudioContext | null = null;
+	private keepAliveNode: OscillatorNode | null = null;
+
+	/**
+	 * BACKGROUND KEEP-ALIVE (bg-resolve-gap-stall round 2). Once the <audio> element stops decoding
+	 * (between tracks, during a cold ensureTrackDetails resolve, or an ensureAhead grow) nothing keeps
+	 * the page awake — Android freezes the WebView, so the in-flight network fetch never settles and
+	 * playback hangs (the residual dead-run freeze: a long region-locked skip run ends on a cold
+	 * resolve/grow that never returns until foreground). A near-silent Web Audio graph is active audio
+	 * output from the SAME page, so it holds the page awake across those gaps. Crucially it is NOT a
+	 * competing HTMLMediaElement — the second-<audio> focus-steal that broke autoadvance-pauses-after-1s
+	 * does not apply; Web Audio shares the page's own output and never claims the MediaSession pill.
+	 *
+	 * Unlocked lazily here (AudioContext needs a user gesture — play() supplies it on the first tap),
+	 * then kept RUNNING for the whole auto-advance session; only a DELIBERATE pause/stop tears it down.
+	 * Gain is inaudible-but-nonzero (so the graph is not optimised away) at a sub-audible frequency.
+	 * Fully feature-detected + try/catch: any absence/failure is a silent no-op and the player falls
+	 * back to prior behaviour. DEVICE-VERIFY PENDING — Web Audio background behaviour is not
+	 * reproducible off-device.
+	 */
+	private keepAliveOn() {
+		if (!browser) return;
+		try {
+			if (!this.keepAliveCtx) {
+				const Ctor: typeof AudioContext | undefined =
+					typeof AudioContext !== 'undefined'
+						? AudioContext
+						: (globalThis as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+				if (!Ctor) return; // no Web Audio — no-op
+				this.keepAliveCtx = new Ctor();
+			}
+			const ctx = this.keepAliveCtx;
+			void ctx.resume?.(); // needs the play() gesture on the first call's stack; idempotent after
+			if (!this.keepAliveNode) {
+				const osc = ctx.createOscillator();
+				const gain = ctx.createGain();
+				gain.gain.value = 0.0001; // inaudible, but non-zero so the node counts as active output
+				osc.frequency.value = 30; // sub-audible
+				osc.connect(gain).connect(ctx.destination);
+				osc.start();
+				this.keepAliveNode = osc;
+			}
+		} catch {
+			/* Web Audio unavailable / blocked — silent no-op, prior behaviour unchanged */
+		}
+	}
+
+	/** Tear down the background keep-alive graph (a DELIBERATE pause or a full stop). */
+	private keepAliveOff() {
+		try {
+			this.keepAliveNode?.stop();
+		} catch {
+			/* already stopped */
+		}
+		this.keepAliveNode = null;
+		try {
+			void this.keepAliveCtx?.suspend?.();
+		} catch {
+			/* ignore */
 		}
 	}
 
@@ -1375,6 +1498,13 @@ class Player {
 				// fight the OS" mandate stays intact (this is a forward skip of a genuinely errored stream).
 				if (typeof document !== 'undefined' && document.hidden) {
 					logAction('bg-error-skip', { uid: this.current?.uid });
+					// DEAD-RUN MITIGATION (bg-resolve-gap-stall round 2): strike the errored track so a
+					// whole region-locked batch (netease 403-after-resolve) is not re-churned on every queue
+					// pass. At STRIKE_CAP (2) the uid is promoted into unplayableUids, so nextAdvanceIndex /
+					// prefetchNext route past it instead of replaying it (the log showed the same 5-track
+					// batch bg-error-skipping again a minute later). Bounded + recoverable: advanceTo still
+					// grants one second-chance retry, and a real `playing` clears the strikes.
+					if (this.current) this.strikeUnplayable(this.current.uid);
 					this.playing = false;
 					this.next();
 					return;
@@ -2066,6 +2196,11 @@ class Player {
 	 */
 	async play(track: Track, opts?: { fresh?: boolean; fromFallback?: boolean }) {
 		logAction('play', { uid: track.uid, source: track.source, fresh: !!opts?.fresh });
+		// BACKGROUND KEEP-ALIVE (bg-resolve-gap-stall round 2): (re)assert the silent Web Audio source
+		// synchronously at the TOP of play() — BEFORE the ensureTrackDetails await — so the page stays
+		// awake across a cold background resolve. Idempotent (no-op once running); a fresh user tap
+		// supplies the AudioContext-unlock gesture, and every later auto-advance just keeps it running.
+		this.keepAliveOn();
 		this.reresolveBurst = 0; // RERESOLVE-LOOP GUARD: a genuine new play() gives the track a fresh re-resolve budget.
 		this.healProbed.clear(); // quick-260704-20e: a new track invalidates prior current-cover heals (also caps set growth).
 		// A direct play() (queue/auto-advance/share link) supersedes any optimistic overlay,
@@ -2099,6 +2234,12 @@ class Player {
 		// no-ops on empty/non-https — harmless even before the myGen guards' discard points (real art only).
 		if (httpsOnly(this.resolvedCover))
 			writeCoverBoth(track.uid, track.artist, track.title, this.resolvedCover);
+		// cover-hero-mediacard-missing (Issue 2): populate the OS media card title/artist IMMEDIATELY
+		// from the stub — BEFORE the async ensureTrackDetails resolve — so the card never shows the bare
+		// app name during the resolve gap or when a track goes through the runFallback early-return
+		// (which returns before the post-resolve metadata write below). The later writes only REFRESH
+		// the artwork once a cover resolves; title/artist are guaranteed here regardless of cover.
+		this.syncMetadata();
 		// Bump the play-generation so any older in-flight fallback bails (gte). Skipped on a
 		// fallback continuation — the fallback IS the continuation of the user's original intent
 		// and must not invalidate itself.

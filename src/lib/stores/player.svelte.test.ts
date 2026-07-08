@@ -1975,6 +1975,94 @@ describe('player.resolvedCover — single-field artwork guarantee (COVER-01 / D-
 		await player.play(t2);
 		expect(rc()).toBe('https://cdn/cover-2.jpg'); // repointed — no stale cover-1
 	});
+
+	it('cover-hero-mediacard-missing (Issue 2): play() writes media metadata title/artist SYNCHRONOUSLY from the stub (before resolve)', () => {
+		const t = { ...stub('netease', 'MC', '林家謙', '每當變幻時'), cover: null };
+		mockEnsure.mockReturnValue(new Promise(() => {})); // never settles — prove the metadata write is sync
+		void player.play(t);
+		// The OS media card must already carry the SONG identity during the resolve gap — not the bare
+		// app/PWA name (the reported Issue 2). Title/artist come off the stub, independent of any cover.
+		const md = fakeMediaSession.metadata as { title: string; artist: string } | null;
+		expect(md).not.toBeNull();
+		expect(md?.title).toBe('每當變幻時');
+		expect(md?.artist).toBe('林家謙');
+	});
+
+	it('cover-hero-mediacard-missing (Issue 2): restore() writes media metadata title/artist so a PWA reopen shows the song, not the app name', async () => {
+		const cur = mk('netease', 'RC', '林家謙', '每當變幻時');
+		localStorage.setItem(
+			'openmusic:player:v1',
+			JSON.stringify({
+				v: 1,
+				current: {
+					uid: cur.uid,
+					source: cur.source,
+					songid: cur.songid,
+					title: cur.title,
+					artist: cur.artist,
+					album: cur.album,
+					cover: cur.cover,
+					quality: cur.quality,
+					qualityLabel: cur.qualityLabel,
+					keyword: cur.keyword,
+					displayIndex: cur.displayIndex
+				},
+				queue: [],
+				currentTime: 0,
+				shuffle: false
+			})
+		);
+		mockEnsure.mockResolvedValue({ ...cur, audioUrl: 'https://cdn/rc.mp3', detailsLoaded: true });
+		await player.restore();
+		// restore() never calls play(), yet the media card must carry title/artist so the resume shows
+		// the song instead of falling back to the document/PWA name.
+		const md = fakeMediaSession.metadata as { title: string; artist: string } | null;
+		expect(md).not.toBeNull();
+		expect(md?.title).toBe('每當變幻時');
+		expect(md?.artist).toBe('林家謙');
+	});
+
+	it('cover-hero-mediacard-missing (Issue 2, media-card): syncMetadata() builds artwork from the SHARED cover cache when resolvedCover is null', () => {
+		// The SAME cache asymmetry the hero had: resolveCoverAsync fires ONLY when resolvedCover starts
+		// null + is gen-guarded, so a cover that lands in the shared cache via ANOTHER surface (up-next
+		// lazyCover, backfill, sibling tile) AFTER that window never reaches resolvedCover. The OS
+		// media-card artwork must still pick it up from the cache — reading resolvedCover alone would
+		// leave the lock screen on the favicon even though the cache has the real cover.
+		const cur = mk('netease', 'MCC', '林家謙', '每當變幻時');
+		player.current = cur;
+		// resolvedCover was NEVER set (the miss/late-land case), but the shared cover cache HAS the cover
+		// (readCoverByUidOrName reads getCachedCoverByUid ?? getCachedCover — both mocked here).
+		(player as unknown as { resolvedCover: string | null }).resolvedCover = null;
+		mockUidCover.mockReturnValue('https://cdn/cache-landed-art.jpg');
+		mockNameCover.mockReturnValue(null);
+
+		(player as unknown as { syncMetadata(): void }).syncMetadata();
+
+		const md = fakeMediaSession.metadata as
+			| { title: string; artist: string; artwork: Array<{ src: string }> }
+			| null;
+		expect(md).not.toBeNull();
+		// Title/artist behavior unchanged — always the song identity off the current track.
+		expect(md?.title).toBe('每當變幻時');
+		expect(md?.artist).toBe('林家謙');
+		// The media-card fix: artwork reflects the cached cover even though resolvedCover was null.
+		expect(md?.artwork.some((a) => a.src === 'https://cdn/cache-landed-art.jpg')).toBe(true);
+	});
+
+	it('cover-hero-mediacard-missing (Issue 2, media-card): resolvedCover still WINS over the cache when both are present', () => {
+		// Precedence guard for `this.resolvedCover ?? readCoverByUidOrName(...)`: when resolvedCover is
+		// set it must take priority over any cached value (the normal resolved path is unchanged).
+		const cur = mk('netease', 'MCP', '林家謙', '每當變幻時');
+		player.current = cur;
+		(player as unknown as { resolvedCover: string | null }).resolvedCover = 'https://cdn/resolved-wins.jpg';
+		mockUidCover.mockReturnValue('https://cdn/cache-should-lose.jpg');
+
+		(player as unknown as { syncMetadata(): void }).syncMetadata();
+
+		const md = fakeMediaSession.metadata as { artwork: Array<{ src: string }> } | null;
+		expect(md?.artwork.some((a) => a.src === 'https://cdn/resolved-wins.jpg')).toBe(true);
+		expect(md?.artwork.some((a) => a.src === 'https://cdn/cache-should-lose.jpg')).toBe(false);
+	});
 });
 
 describe('player.healCover — dead current-cover self-heal (quick-260704-20e)', () => {
@@ -4058,6 +4146,7 @@ describe('player resilience — background stream-error SKIPS to next (debug-bg-
 		deliberatePause: boolean;
 		reresolveCurrent(): Promise<void>;
 		runFallback(t: Track): Promise<void>;
+		strikeUnplayable(uid: string): boolean;
 	};
 	const internals = () => player as unknown as Internals;
 	const playCalls = () => vi.mocked(player.play).mock.calls;
@@ -4103,6 +4192,20 @@ describe('player resilience — background stream-error SKIPS to next (debug-bg-
 		expect(fallbackSpy).not.toHaveBeenCalled(); // did NOT hand off to the stalling cross-source fallback
 		// next() advanced to the playable next track (via advanceTo → play). The errored src is left.
 		expect(playCalls().map((c) => c[0])).toContainEqual(next);
+	});
+
+	it('while HIDDEN, a bg-error-skip STRIKES the errored track so a region-locked batch is not re-churned (bg-resolve-gap-stall round 2)', () => {
+		// The log showed the same 5-track region-locked batch bg-error-skipping AGAIN a minute later
+		// (bg-error-skip never marked them). Striking the errored track routes prefetch/next past it once
+		// it reaches STRIKE_CAP, so a whole dead batch stops being replayed every queue pass.
+		stubDocument(true);
+		const { el, cur } = attachPlayedErroringWithNext();
+		const strikeSpy = vi.spyOn(internals(), 'strikeUnplayable');
+		vi.mocked(player.play).mockClear();
+
+		el.fire('error'); // hidden + already-played → bg-error-skip, and now a strike toward routing past
+
+		expect(strikeSpy).toHaveBeenCalledWith(cur.uid);
 	});
 
 	it('a FOREGROUND stream-error still uses cross-source runFallback (no premature skip when visible)', () => {

@@ -78,10 +78,45 @@ Tests: updated the HIDDEN bg-error test to the new first-error-skip contract; ad
 - **Option 3 (bg-resolve timeout → skip):** a `setTimeout` is throttled in a frozen WebView so it can't beat
   a truly frozen page (only fires on foreground). Low value once Freeze 1/2 are closed; skipped.
 
+## Round 2 device result (2026-07-08) — fixes WORK, residual remains
+Second on-device log confirms Fixes 1+2 landed: many clean FIRST-error `bg-error-skip`, no reresolve hang, no
+normal-advance 0:00 freeze. BUT a song still sticks in one scenario — a long region-locked dead-run:
+
+- The whole generated netease batch is region-locked, so `bg-error-skip` correctly burns through 6-20
+  consecutive dead tracks. Because nothing LANDS during a skip-run, prefetchNext/warmAfter never arm, so the
+  queue ahead stays cold. The chain then issues cold network while the page is frozen and HANGS:
+  1. Terminal stuck: `netease:3398333323` (slow resolve → 403) → skip → `play joox:Z0D2B1734DBC96` → NO
+     `resolve.ok` → dead 8.7 min until foreground. Cold ensureTrackDetails hung on a frozen page.
+  2. Mid-log stuck (recovered): two skips → `grow.request` → stuck ~30s until `visibility hidden:false` →
+     `grow.added` → resumed. ensureAhead()'s network grow also hangs in background.
+
+Both are the same resolve-gap freeze, reached via a dead-run instead of a single advance. Depth-2 warm cannot
+help (only warms after a LANDED playable; a skip-run never lands). Foreground always unfreezes → page-freeze,
+not a dead track. The only mechanism that closes BOTH cold-resolve and cold-grow in a frozen WebView is a
+keep-alive bridge that holds the page awake until the bg network completes (the held Option 2).
+
+## Round 2 fix applied (mitigation + keep-alive bridge)
+`src/lib/stores/player.svelte.ts`:
+1. **Keep-alive bridge (the real fix).** A near-silent Web Audio graph (`keepAliveOn`/`keepAliveOff`: an
+   AudioContext + a 30 Hz oscillator at gain 1e-4) is asserted at the TOP of `play()` (before the
+   ensureTrackDetails await) and kept running for the whole auto-advance session; torn down only on a
+   deliberate pause (`pauseAudio`) or full stop (`clearMedia`). Active page audio keeps Android from
+   freezing the WebView across a cold resolve / ensureAhead grow, so the bg network completes instead of
+   hanging at 0:00. NOT a competing HTMLMediaElement (Web Audio shares the page output, so the
+   autoadvance-pauses-after-1s focus-steal does not apply). Fully feature-detected + try/catch → silent
+   no-op where Web Audio is absent (incl. the node test env).
+2. **Dead-run mitigation.** `bg-error-skip` now calls `strikeUnplayable(uid)` so a region-locked batch
+   (netease 403-after-resolve) is not re-churned every queue pass — at STRIKE_CAP (2) the uid is routed
+   past by nextAdvanceIndex/prefetchNext. Bounded + recoverable (advanceTo still grants one retry; a real
+   `playing` clears strikes).
+
+Tests: added a strike-on-bg-error-skip regression. `pnpm check` clean; `pnpm test` 1067 passed.
+
 ## Current Focus
-- hypothesis: Fixes 1+2 close both observed freeze signatures without touching audio-focus. Warm-track behavior
-  now extends to the post-skip cold track via depth-2 prefetch.
-- next_action: DEVICE VERIFY on Android (locked, let a netease-heavy queue auto-advance). Watch Settings →
-  Activity log: a `bg-error-skip` should now appear on the FIRST error while hidden, and advances should show
-  `resolve.ok` fire fast (short-circuit) with no `play`-without-`resolve.ok` dead ends. If it still freezes,
-  escalate to the held same-element silent bridge (Option 2).
+- hypothesis: Keep-alive bridge closes the cold-resolve + cold-grow hangs (the residual dead-run freeze);
+  the strike mitigation shrinks the region-locked dead-runs that trigger it.
+- next_action: DEVICE VERIFY on Android (locked, netease-heavy queue). Confirm (a) no more `play` with no
+  following `resolve.ok` dead-ends and no multi-minute stalls; (b) the same region-locked batch is not
+  bg-error-skipped again on later passes (strikes → routed past); (c) NO audible artifact, and the media
+  pill / lock-screen controls behave normally (the Web Audio keep-alive's one real risk). If the pill or
+  focus misbehaves, gate the bridge to hidden-only or revert `keepAliveOn`/`keepAliveOff`.
