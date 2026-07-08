@@ -471,6 +471,51 @@ describe('player.prefetchNext — pre-resolve next track for gapless-ish play', 
 		expect(assets.images[0].src).toBe('https://img/already.jpg');
 	});
 
+	it('DEPTH-2 WARM: after landing the immediate-next, also pre-resolves the FOLLOWING entry (bg-resolve-gap-stall)', async () => {
+		// Freeze 1 prevention: if the landed immediate-next 403s at play-time (region-lock), the never-stop
+		// chain SKIPS to the entry after it. warmAfter() pre-resolves that entry so its play() short-circuits
+		// ensureTrackDetails — no cold network resolve to hang in a frozen background WebView (the 0:00 freeze).
+		installAssetPreloadMocks();
+		const cur = mk('netease', '0', 'A', 'Now');
+		const next = stub('qq', '1', 'B', 'Next'); // immediate-next — landed by the probe walk
+		const after = stub('kuwo', '2', 'C', 'After'); // the skip-target if `next` dies at play-time
+		player.queue = [cur, next, after];
+		player.current = cur;
+
+		// Resolve each stub to a DISTINCT playable url so the two writebacks are distinguishable.
+		mockEnsure.mockImplementation(async (t: Track) => ({
+			...t,
+			detailsLoaded: true,
+			audioUrl: `https://cdn/${t.songid}.mp3`
+		}));
+
+		await prefetch();
+		await flush(); // warmAfter is fire-and-forget from inside the walk
+
+		// Landed immediate-next AND the following entry both resolved (the latter via warmAfter, no probe).
+		expect(mockEnsure).toHaveBeenCalledWith(next, expect.any(AbortSignal));
+		expect(mockEnsure).toHaveBeenCalledWith(after, expect.any(AbortSignal));
+		// Both written back so a later play()/skip short-circuits with NO cold background resolve.
+		expect(player.queue[1].detailsLoaded).toBe(true);
+		expect(player.queue[1].audioUrl).toBe('https://cdn/1.mp3');
+		expect(player.queue[2].detailsLoaded).toBe(true);
+		expect(player.queue[2].audioUrl).toBe('https://cdn/2.mp3');
+	});
+
+	it('DEPTH-2 WARM is a no-op when the landed track is the queue tail (nothing after it to warm)', async () => {
+		const cur = mk('netease', '0', 'A', 'Now');
+		const next = stub('qq', '1', 'B', 'Next'); // last entry — no following track
+		player.queue = [cur, next];
+		player.current = cur;
+		mockEnsure.mockResolvedValue({ ...next, detailsLoaded: true, audioUrl: 'https://cdn/1.mp3' });
+
+		await prefetch();
+		await flush();
+
+		// Only the landed immediate-next resolved — warmAfter found no following entry (growth = ensureAhead).
+		expect(mockEnsure).toHaveBeenCalledTimes(1);
+	});
+
 	it('dedupes in-flight: a second prefetchNext for the same next track does not start a second resolve', async () => {
 		const cur = mk('netease', '0', 'A', 'Now');
 		const next = stub('qq', '1', 'B', 'Next');
@@ -4041,18 +4086,21 @@ describe('player resilience — background stream-error SKIPS to next (debug-bg-
 		return { el, cur, next };
 	}
 
-	it('after the single re-resolve fails while HIDDEN, ADVANCES to the next track (not paused-stuck, no runFallback)', () => {
+	it('while HIDDEN, an already-played stream error SKIPS forward on the FIRST error (no hang-prone in-place reresolve, no runFallback)', () => {
+		// bg-resolve-gap-stall (Freeze 2): in a frozen background WebView the in-place reresolveCurrent()
+		// re-attaches src + awaits `playing`/`error` events that never fire → 0:00 hang until foreground.
+		// So a hidden + already-played error now skips straight forward on the FIRST error (subsumes the
+		// old post-cap bg-error-skip — one hang-prone in-place attempt is no longer given while hidden).
 		stubDocument(true); // tab is backgrounded
 		const { el, next } = attachPlayedErroringWithNext();
 		const reresolveSpy = vi.spyOn(internals(), 'reresolveCurrent').mockResolvedValue(undefined);
 		const fallbackSpy = vi.spyOn(internals(), 'runFallback').mockResolvedValue(undefined);
 		vi.mocked(player.play).mockClear();
 
-		el.fire('error'); // 1st: hasPlayedSinceSrc → one in-place re-resolve
-		el.fire('error'); // 2nd: cap hit → HIDDEN → skip to next
+		el.fire('error'); // hidden + hasPlayedSinceSrc → skip straight forward, no in-place recovery
 
-		expect(reresolveSpy).toHaveBeenCalledTimes(1); // the single in-place attempt still happened
-		expect(fallbackSpy).not.toHaveBeenCalled(); // did NOT hand off to the stalling runFallback
+		expect(reresolveSpy).not.toHaveBeenCalled(); // in-place reresolve would HANG in a frozen bg WebView
+		expect(fallbackSpy).not.toHaveBeenCalled(); // did NOT hand off to the stalling cross-source fallback
 		// next() advanced to the playable next track (via advanceTo → play). The errored src is left.
 		expect(playCalls().map((c) => c[0])).toContainEqual(next);
 	});

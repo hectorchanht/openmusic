@@ -1358,35 +1358,35 @@ class Player {
 			// (SKIP), per the user's "fails to resolve → skip it" spec. reresolveBurst resets on the next
 			// real `playing` / new src / recoverFromStop.
 			if (this.hasPlayedSinceSrc) {
-				this.reresolveBurst++;
-				if (this.reresolveBurst <= 1) {
-					void this.reresolveCurrent();
-					return;
-				}
-				logAction('reresolve.cap', { uid: this.current?.uid, n: this.reresolveBurst });
-				// fall through — the single in-place recovery failed; SKIP via cross-source/advance.
-
-				// BACKGROUND-ERROR SKIP (debug-bg-no-pill-split-play-stop, Option B). When the in-place
-				// re-resolve has failed for a track that ALREADY produced audio (hasPlayedSinceSrc) AND
-				// the tab is HIDDEN, do NOT hand off to runFallback: its cross-source play(swap) is a
-				// fire-and-forget audio.play() that, in a hidden WebView, never re-reaches `playing`, so
-				// the element sits paused (the observed "split-second then stop, resumes only on
-				// foreground"). i7e deliberately removed the only foreground resume, so nothing recovers
-				// it while backgrounded. The action log shows the NEXT track plays cleanly in the
-				// background — so we SKIP to it via the existing next() advance/skip path (which bumps
-				// playGen, superseding this errored src, and reuses the never-stop dead-track skip
-				// semantics). This is scoped to `document.hidden` + `hasPlayedSinceSrc` so a foreground
-				// error still gets the richer cross-source runFallback recovery, and an external
-				// audio-focus loss (voice note) never enters here — it fires `pause`, not `audio.error`
-				// — so i7e's "do not fight the OS" mandate stays intact (no resume, just a forward skip
-				// of a genuinely errored stream). The forward advance keeps playback (and thus the
-				// MediaSession 'playing' pill) alive.
+				// BG-SKIP-FIRST (bg-resolve-gap-stall, Freeze 2). In a HIDDEN / locked WebView the in-place
+				// reresolveCurrent() below re-attaches a fresh src and then awaits `playing`/`error` events
+				// that never fire — Android freezes the page the instant the errored track stops decoding, so
+				// reresolveCurrent's network re-resolve hangs and the element sits at 0:00 with no duration
+				// forever (observed: resolve.ok → a single audio.error → 44 min of nothing until foreground).
+				// reresolveCurrent deliberately arms no stall watchdog (see its D-14 note), so nothing escapes.
+				// So when hidden we SKIP the in-place recovery ENTIRELY and advance straight into the next
+				// track — depth-2 pre-warmed by prefetchNext()/warmAfter(), so its play() short-circuits with
+				// NO cold background resolve, completing the src-swap in one JS turn before the page freezes
+				// and thus keeping audio (and the MediaSession pill) alive. Foreground keeps the richer
+				// in-place reresolve + cross-source recovery below. This SUBSUMES the old post-cap
+				// bg-error-skip (debug-bg-no-pill-split-play-stop, Option B): skipping on the FIRST error is
+				// strictly safer than giving one hang-prone in-place attempt. An external audio-focus loss
+				// (voice note) fires `pause`, not `audio.error`, so it never enters here — i7e's "do not
+				// fight the OS" mandate stays intact (this is a forward skip of a genuinely errored stream).
 				if (typeof document !== 'undefined' && document.hidden) {
 					logAction('bg-error-skip', { uid: this.current?.uid });
 					this.playing = false;
 					this.next();
 					return;
 				}
+				this.reresolveBurst++;
+				if (this.reresolveBurst <= 1) {
+					void this.reresolveCurrent();
+					return;
+				}
+				logAction('reresolve.cap', { uid: this.current?.uid, n: this.reresolveBurst });
+				// fall through (foreground only) — the single in-place recovery failed; SKIP via the
+				// cross-source runFallback/advance below.
 			}
 			// Cross-source fallback (gte / SRC-FB-01): rather than surface the error immediately,
 			// try the same {artist,title} on the remaining enabled sources. Only after every
@@ -1810,7 +1810,17 @@ class Player {
 					this.prewarmNextAssets(resolved);
 				}
 				landed = true;
-				return; // done — landed the next playable
+				// DEPTH-2 WARM (bg-resolve-gap-stall, Freeze 1). The dominant region-lock signature is a
+				// URL that resolves + probes fine, plays ~1s, then the byte-stream 403s (audio.error) — so
+				// the immediate-next we just landed can still die at play-time and the never-stop chain SKIPS
+				// to the track AFTER it. If that track was never pre-resolved, its play() must run a cold
+				// network resolve; in a backgrounded/frozen WebView that resolve hangs and the player freezes
+				// at 0:00 (observed: bg-error-skip → play → no resolve.ok → dead until foreground). So
+				// best-effort pre-resolve the FOLLOWING entry too (no probe — we only need detailsLoaded so
+				// its play() short-circuits with no cold network round-trip). Fire-and-forget, reusing the
+				// walk's abort signal + seedUid stale-guard.
+				void this.warmAfter(cand.uid, sig, seedUid);
+				return; // done — landed the next playable (+ warmed the one after)
 			}
 			// quick-260629-nyl Task 2b: the walk fell out of the loop without landing a playable
 			// candidate (every entry ahead was dead / timed-out / off the end of the queue). Today
@@ -1833,6 +1843,36 @@ class Player {
 				this.prefetchingUid = null;
 				this.prefetchController = null;
 			}
+		}
+	}
+
+	/**
+	 * DEPTH-2 WARM (bg-resolve-gap-stall, Freeze 1). Best-effort pre-resolve of the queue entry that
+	 * FOLLOWS the one prefetchNext() just landed, so a region-lock 403 on the landed immediate-next
+	 * (URL resolves + probes fine, then the byte-stream 403s at play-time) skips forward into an
+	 * already-detailsLoaded track whose play() SHORT-CIRCUITS ensureTrackDetails — no cold network
+	 * resolve in the background src-swap gap where a frozen Android WebView would hang it at 0:00.
+	 *
+	 * Deliberately does NOT probe (probing costs a ~1s muted test-play per candidate and we only need
+	 * the audioUrl cached so play() no-ops its resolve) and NEVER marks anything dead (a resolve blip
+	 * just leaves the entry cold — play() resolves it on demand). Reuses prefetchNext's AbortSignal and
+	 * seedUid so a superseding walk / track change discards it. Never throws, never bumps playGen.
+	 */
+	private async warmAfter(landedUid: string, sig: AbortSignal, seedUid: string | undefined) {
+		const landedIdx = this.queue.findIndex((t) => t.uid === landedUid);
+		if (landedIdx < 0) return;
+		const after = this.queue[landedIdx + 1];
+		if (!after) return; // landed track is the tail — growth is ensureAhead's job
+		if (this.unplayableUids.has(after.uid)) return; // known-dead — next() routes past it anyway
+		if (after.detailsLoaded && after.audioUrl) return; // already warm — nothing to do
+		try {
+			const resolved = await ensureTrackDetails(after, sig);
+			if (sig.aborted || this.current?.uid !== seedUid) return; // superseded / current moved on
+			if (!resolved.audioUrl) return; // no url — leave cold, play() retries on demand
+			const w = this.queue.findIndex((t) => t.uid === after.uid);
+			if (w >= 0 && w > this.indexOf(this.current)) this.queue[w] = resolved;
+		} catch {
+			/* best-effort warm — a transient resolve failure leaves the entry cold */
 		}
 	}
 
