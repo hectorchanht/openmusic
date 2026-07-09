@@ -691,11 +691,20 @@ class Player {
 	private prefetchingUid: string | null = null;
 	/** Aborts the in-flight prefetch when a newer one supersedes it (stale-resolve guard). */
 	private prefetchController: AbortController | null = null;
-	// ZERO-FETCH BLOB PRE-BUFFER (f7c2580) REMOVED (debug-nowbar-frozen-audius-spam): pre-fetching the
-	// next track's full bytes to a blob turned every never-stop churn cycle into a multi-MB download and
-	// its 403 path never deduped (prebufferedUid was set only on 200-OK) → a varying-vkey FLAC flood that
-	// helped freeze the app. The advance src-swap now always uses the CDN URL (play()'s existing branch);
-	// the offline-download blob path (cachedBlobUrl) is untouched.
+	// BOUNDED NEXT-SONG BLOB PRE-BUFFER (reintroduced: bg-lockscreen-stall-noskip). The f7c2580 flood was
+	// the UNBOUNDED version — prebufferedUid was set ONLY on 200-OK, so a dead/varying-vkey URL re-fetched
+	// on every churn cycle (the FLAC flood that helped freeze the app). This version is BOUNDED so it
+	// gives the bg-stall protection WITHOUT the flood: prebufferedUid is claimed BEFORE the fetch and set
+	// on BOTH success AND failure → a URL is fetched AT MOST ONCE per uid, never re-fetched; single
+	// in-flight (a newer next aborts the prior); fired ONLY from the ≥5s timeupdate prefetch gate, never
+	// on churn. Purpose: a backgrounded/locked src-swap plays LOCAL bytes with NO network byte-load that
+	// could silently hang (the bg stall). The offline-download blob path (cachedBlobUrl) is separate.
+	private prebufferedUid: string | null = null;
+	private prebufferedBlobUrl: string | null = null;
+	private prebufferController: AbortController | null = null;
+	/** bg-lockscreen-stall-noskip: one-shot per-src flag — a load stall retries the SAME song ONCE, then
+	 *  the next stall skips. Reset on a new src (play()) and on a real `playing`. Plain field. */
+	private stallRetried = false;
 	private preloadedCover: HTMLImageElement | null = null;
 	private preloadedCoverUid: string | null = null;
 	private preloadedCoverUrl: string | null = null;
@@ -1040,21 +1049,47 @@ class Player {
 		this.stallTimer = setTimeout(() => {
 			this.stallTimer = null;
 			if (this.playGen !== gen) return; // a newer play() superseded this arm
-			if (this.hasPlayedSinceSrc) return; // audio actually started — not a load stall (D-14)
-			if (!this.current) return;
-			// Next-song-current-but-paused fix: distinguish an autoplay-policy pause from a genuine
-			// no-bytes load stall. If the element has buffered to HAVE_CURRENT_DATA but is paused, the
-			// track is perfectly playable — it was just rejected by autoplay policy. A cross-source swap
-			// is the WRONG remedy (it re-resolves another source and re-rejects). Try the single
-			// autoplay re-play instead and do NOT runFallback. Only a TRUE no-bytes stall
-			// (readyState < HAVE_CURRENT_DATA) routes into the cross-source failover.
-			const el = this.audio;
-			if (el && el.paused && el.readyState >= Player.HAVE_CURRENT_DATA) {
-				this.maybeRetryAutoplay(gen);
-				return;
-			}
-			void this.runFallback(this.current);
+			// bg-lockscreen-stall-noskip: the FOREGROUND backstop. The same recovery is ALSO driven by the
+			// media `stalled` event (which fires in a hidden tab, unlike this throttled setTimeout) so a
+			// backgrounded/locked stall is rescued in time. Both route through the one bounded handler.
+			this.recoverLoadStall();
 		}, Player.STALL_TIMEOUT_MS);
+	}
+
+	/**
+	 * Bg-tolerant load-stall recovery — the retry-once-then-skip the user asked for (bg-lockscreen-stall-
+	 * noskip). A backgrounded/locked src that never produces `playing` fires NO `audio.error` (so the
+	 * bg-error-skip path never runs) and armStall's setTimeout is throttled in a long-hidden tab — so this
+	 * is ALSO driven by the media `stalled` event, which DOES fire in a hidden tab. Bounded + guarded:
+	 *  - no-op once the src produced audio (hasPlayedSinceSrc), on a deliberate pause, or with no current;
+	 *  - an autoplay-policy pause (bytes present + paused) routes to the single autoplay retry, NEVER a skip;
+	 *  - FIRST stall on a src → re-resolve + re-attach the SAME song ONCE (a transient bg byte-load stall
+	 *    usually clears with a fresh URL); reresolveCurrent goes through the braked driveSrc so it cannot
+	 *    itself loop;
+	 *  - a SECOND stall with still no `playing` → the song is genuinely stuck → strike + advance (skip) so
+	 *    music never stops (mirrors bg-error-skip). next() bumps playGen, superseding this src's stale arms.
+	 * stallRetried resets on a new src (play()) and a real `playing`, so a later transient stall on another
+	 * track starts with a fresh single-retry budget — no cross-track accumulation.
+	 */
+	private recoverLoadStall() {
+		if (this.hasPlayedSinceSrc) return; // already producing audio — not a load stall
+		if (this.deliberatePause) return; // user paused — respect it (do not fight the OS)
+		if (!this.current || !this.audio) return;
+		const el = this.audio;
+		if (el.paused && el.readyState >= Player.HAVE_CURRENT_DATA) {
+			this.maybeRetryAutoplay(this.playGen); // autoplay-policy pause, not a no-bytes load stall
+			return;
+		}
+		if (!this.stallRetried) {
+			this.stallRetried = true;
+			logAction('stall.retry', { uid: this.current.uid });
+			void this.reresolveCurrent(); // retry the SAME song ONCE (fresh URL + re-attach)
+			return;
+		}
+		logAction('stall.skip', { uid: this.current.uid });
+		this.playing = false;
+		this.strikeUnplayable(this.current.uid);
+		this.next();
 	}
 
 	/**
@@ -1388,6 +1423,7 @@ class Player {
 			this.failoverSkips = 0; // SYSTEMIC-FAILURE CEILING (debug-nowbar-frozen-audius-spam): real audio = the storm is not systemic.
 			this.driveBurst = 0; // SINGLE AUTHORITY (debug-song-click-lrc-flood-noplay): real output = the src re-drive is not looping.
 			this.lastDriveUid = null;
+			this.stallRetried = false; // bg-lockscreen-stall-noskip: real output = the load did not stall; fresh retry budget.
 			this.errorBurst = 0;
 			this.reresolveBurst = 0; // RERESOLVE-LOOP GUARD: real audio = the same-src re-resolve recovered.
 			this.rapidErrorBurst = 0; // RAPID-FIRE BRAKE (debug-nowbar-freeze-reresolve-loop): output = the storm ended.
@@ -1448,6 +1484,14 @@ class Player {
 			// gen-guarded + one-shot + only acts on a paused, bytes-present element, so this is a no-op
 			// in every other case (fresh play, already playing, user pause, no arm).
 			this.maybeRetryAutoplay(this.playGen);
+		});
+		// bg-lockscreen-stall-noskip: the BACKGROUND-RELIABLE load-stall signal. `stalled` fires when the
+		// element is trying to fetch media data but none is forthcoming — and unlike setTimeout it FIRES
+		// in a hidden/locked tab, so it rescues the silent bg byte-load hang that produces no `audio.error`
+		// and that armStall's throttled timer misses. Only act on an INITIAL-load stall (before the src
+		// ever produced audio); a mid-track buffer dip after playback started is left to the browser.
+		el.addEventListener('stalled', () => {
+			if (!this.hasPlayedSinceSrc) this.recoverLoadStall();
 		});
 		el.addEventListener('timeupdate', () => {
 			// Sleep-timer minutes backstop (TIMER-01, Pattern 1): `timeupdate` fires ~4×/sec while
@@ -1886,6 +1930,12 @@ class Player {
 		this.unplayableStrikes.clear(); // …and the sub-cap strike budget in lockstep (over-aggressive-skip fix)
 		this.retriedDeadUids.clear(); // NEVER-STOP (quick-260630-q03): …and the one-retry record in lockstep
 		this.cancelAllRetryResolves(); // quick-260627-huo: …and cancel any pending delayed re-resolve timers (no leak)
+		// bg-lockscreen-stall-noskip: drop any pre-buffered next-song blob so a queue reset can't later
+		// serve stale local bytes for a since-removed track (and never leak the Object URL).
+		this.prebufferController?.abort();
+		if (this.prebufferedBlobUrl) URL.revokeObjectURL(this.prebufferedBlobUrl);
+		this.prebufferedBlobUrl = null;
+		this.prebufferedUid = null;
 		// A queue reset cancels any pending resume timer so a fresh session starts clean.
 		this.disarmResume();
 		this.persist();
@@ -2216,9 +2266,47 @@ class Player {
 	}
 
 	private prewarmNextAssets(track: Track) {
-		// Cover warm only. The zero-fetch blob pre-buffer (f7c2580) was removed here
-		// (debug-nowbar-frozen-audius-spam) — see the prebuffered-fields note above.
 		this.preloadNextCover(track);
+		void this.prebufferNext(track); // bg-lockscreen-stall-noskip: local bytes for the bg src-swap
+	}
+
+	/**
+	 * BOUNDED next-song blob pre-buffer (bg-lockscreen-stall-noskip). Fetch the RESOLVED immediate-next's
+	 * full bytes into a Blob NOW — while the current song plays and the page is reliably awake — and hold
+	 * it as a `blob:` URL keyed by uid, so play() at advance swaps to LOCAL bytes: a backgrounded/locked
+	 * src-swap then has NO network byte-load that could silently hang (the bg stall this fixes).
+	 *
+	 * BOUNDED (the f7c2580 flood fix): prebufferedUid is claimed BEFORE the await and left set on BOTH a
+	 * 200-OK AND a failure/abort, so a dead or slow URL is fetched AT MOST ONCE per uid and NEVER re-
+	 * fetched on churn; single in-flight (a newer next aborts the prior); fired only from the ≥5s
+	 * timeupdate prefetch gate (prewarmNextAssets), never on the never-stop churn. Skipped for a
+	 * downloaded track (offline blob serves it) and where fetch/URL are absent. Raw fetch of media bytes
+	 * (NOT apiFetch — media never routes through the /api governor). Never throws, never bumps playGen.
+	 */
+	private async prebufferNext(track: Track) {
+		if (!browser) return;
+		const url = track.audioUrl;
+		if (!url) return;
+		if (typeof fetch === 'undefined' || typeof URL === 'undefined' || !URL.createObjectURL) return;
+		if (library.isDownloaded(track.uid)) return; // offline-blob branch already serves this locally
+		if (this.prebufferedUid === track.uid) return; // already buffered OR already attempted (flood fix)
+		// Supersede any prior in-flight prebuffer for a DIFFERENT next track, then CLAIM this uid BEFORE
+		// the await — so a failed fetch below is never retried (the f7c2580 bug set this only on 200-OK).
+		this.prebufferController?.abort();
+		this.prebufferController = new AbortController();
+		const sig = this.prebufferController.signal;
+		this.prebufferedUid = track.uid;
+		try {
+			const resp = await fetch(url, { signal: sig, referrerPolicy: 'no-referrer' });
+			if (sig.aborted) return;
+			if (!resp.ok) return; // dead URL — leave the uid claimed so it is NOT re-fetched (play() uses the CDN URL)
+			const blob = await resp.blob();
+			if (sig.aborted) return;
+			if (this.prebufferedBlobUrl) URL.revokeObjectURL(this.prebufferedBlobUrl);
+			this.prebufferedBlobUrl = URL.createObjectURL(blob);
+		} catch {
+			/* abort / CORS / network — uid stays claimed (no re-fetch); play() falls back to the CDN URL */
+		}
 	}
 
 	private preloadNextCover(track: Track) {
@@ -2541,12 +2629,22 @@ class Player {
 						src = this.cachedBlobUrl;
 					}
 				}
-				// (The zero-fetch blob pre-buffer consume branch was removed here —
-				// debug-nowbar-frozen-audius-spam. Non-downloaded tracks now always swap to the CDN URL.)
+				// BOUNDED BLOB PRE-BUFFER consume (bg-lockscreen-stall-noskip): if the immediate-next was
+				// pre-buffered to LOCAL bytes, swap to the blob: URL so a backgrounded/locked src-set has
+				// NO network byte-load that could silently hang. Ownership transfers to cachedBlobUrl (its
+				// existing revoke discipline owns it from the next play()); clear the prebuffer slot so it
+				// is not double-revoked. `else if` — never override the offline-download blob above.
+				else if (this.prebufferedUid === resolved.uid && this.prebufferedBlobUrl) {
+					this.cachedBlobUrl = this.prebufferedBlobUrl;
+					src = this.cachedBlobUrl;
+					this.prebufferedBlobUrl = null;
+					this.prebufferedUid = null;
+				}
 				// Initial-load arming point (D-13): a NEW src for this track. Reset the played flag +
 				// arm the stall watchdog so a silent no-audio start (no `playing`/`timeupdate`
 				// within ~15s) routes into failover.
 				this.hasPlayedSinceSrc = false;
+				this.stallRetried = false; // bg-lockscreen-stall-noskip: fresh src → fresh single-retry budget
 				// RELAX-PREFETCH: a NEW src — re-arm the one-shot delayed prefetch gate so the
 				// timeupdate listener fires prefetchNext ~5s into THIS track's playback.
 				this.prefetchArmedForSrc = false;

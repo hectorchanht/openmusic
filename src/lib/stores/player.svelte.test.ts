@@ -292,6 +292,12 @@ beforeEach(() => {
 	// so a leaked count from a prior storm/ceiling test can't falsely trip the SYSTEMIC STOP.
 	burst.failoverSkips = 0;
 	burst.consecutiveFailures = 0;
+	// bg-lockscreen-stall-noskip: the bounded prebuffer + one-shot stall-retry flag are session-scoped
+	// on the singleton — reset so a prebuffered blob / retried flag from a prior test can't leak.
+	const bg = player as unknown as { prebufferedUid: string | null; prebufferedBlobUrl: string | null; stallRetried: boolean };
+	bg.prebufferedUid = null;
+	bg.prebufferedBlobUrl = null;
+	bg.stallRetried = false;
 });
 
 afterEach(() => {
@@ -696,17 +702,21 @@ describe('player.prefetchNext — pre-resolve next track for gapless-ish play', 
 		expect(assets.AudioCtor).not.toHaveBeenCalled(); // no audio byte-warm (blob pre-buffer removed)
 	});
 
-	it('does NOT blob-prebuffer the next track (feature removed — debug-nowbar-frozen-audius-spam)', async () => {
-		// The zero-fetch blob pre-buffer (f7c2580) was removed: prefetch pre-resolves + warms the cover
-		// but NEVER fetches the next track's bytes. Stub fetch/createObjectURL and assert neither is
-		// touched by a prefetch, so the advance swap always uses the CDN URL (no multi-MB churn download).
+	it('BOUNDED-prebuffers the immediate-next to local bytes, once, claiming prebufferedUid (bg-lockscreen-stall-noskip)', async () => {
+		// The blob pre-buffer is REINTRODUCED but BOUNDED: prefetch pre-resolves AND fetches the next
+		// track's bytes into a blob so a backgrounded src-swap plays LOCAL bytes (no network load that can
+		// hang). prebufferedUid is claimed so the same uid is fetched at most once (the f7c2580 flood fix).
 		const fetchMock = vi.fn(async () => ({ ok: true, blob: async () => new Blob(['audio-bytes']) }));
 		vi.stubGlobal('fetch', fetchMock);
-		const createObjSpy = vi.fn(() => 'blob:should-not-happen');
+		const createObjSpy = vi.fn(() => 'blob:next-bytes');
 		vi.stubGlobal('URL', {
 			createObjectURL: createObjSpy,
 			revokeObjectURL: vi.fn()
 		} as unknown as typeof URL);
+		vi.spyOn(library, 'isDownloaded').mockReturnValue(false);
+		const state = player as unknown as { prebufferedUid: string | null; prebufferedBlobUrl: string | null };
+		state.prebufferedUid = null;
+		state.prebufferedBlobUrl = null;
 
 		const cur = mk('netease', '0', 'A', 'Now');
 		const next = stub('qq', '1', 'B', 'Next');
@@ -718,13 +728,21 @@ describe('player.prefetchNext — pre-resolve next track for gapless-ish play', 
 		await prefetch();
 		await flush();
 
-		// The next track was still pre-resolved into the queue (gapless-ish resolve is preserved)…
+		// Pre-resolved into the queue…
 		expect(player.queue[1].audioUrl).toBe('https://cdn/next.mp3');
-		// …but NO byte fetch / blob URL was created for it.
+		// …AND its bytes pre-buffered to a local blob, keyed by uid.
+		expect(fetchMock).toHaveBeenCalledWith(
+			'https://cdn/next.mp3',
+			expect.objectContaining({ referrerPolicy: 'no-referrer' })
+		);
+		expect(createObjSpy).toHaveBeenCalled();
+		expect(state.prebufferedUid).toBe(next.uid);
+
+		// Bounded: a SECOND prewarm for the same uid does NOT re-fetch (dedupe).
+		fetchMock.mockClear();
+		await prefetch();
+		await flush();
 		expect(fetchMock).not.toHaveBeenCalled();
-		expect(createObjSpy).not.toHaveBeenCalled();
-		const state = player as unknown as { prebufferedUid?: string | null };
-		expect(state.prebufferedUid).toBeUndefined();
 	});
 
 	// PLAY-RESILIENCE: bounded FORWARD-RESOLVE-AND-PROBE walk (restored from the pre-76b3e6f design).
@@ -1740,15 +1758,29 @@ describe('player resilience — stall watchdog (PLAY-07 / D-13/D-14)', () => {
 		(player as unknown as { hasPlayedSinceSrc: boolean })['hasPlayedSinceSrc'] = v;
 	};
 	let runFallbackSpy: ReturnType<typeof vi.spyOn>;
+	let reresolveSpy: ReturnType<typeof vi.spyOn>;
+	let stallEl: ReturnType<typeof makeFakeAudio>;
 
 	beforeEach(() => {
 		vi.useFakeTimers();
 		player.current = mk('netease', 's', 'A', 'Stalling');
 		player.queue = [player.current];
 		setPlayed(false);
-		// Spy runFallback so the watchdog firing is observable without real network.
+		// bg-lockscreen-stall-noskip: the stall watchdog now routes through recoverLoadStall (retry the
+		// SAME song ONCE via reresolveCurrent, then SKIP on a second stall) instead of straight to
+		// runFallback. Attach a NO-BYTES fake audio (readyState 0, paused) so recoverLoadStall reaches
+		// the retry branch, and reset the one-shot per-src stall-retry flag so the first stall retries.
+		stallEl = makeFakeAudio();
+		stallEl.readyState = 0;
+		stallEl.paused = true;
+		player.attach(stallEl as unknown as HTMLAudioElement);
+		(player as unknown as { stallRetried: boolean })['stallRetried'] = false;
+		(player as unknown as { deliberatePause: boolean })['deliberatePause'] = false; // recoverLoadStall bails on a user pause
 		runFallbackSpy = vi
 			.spyOn(player as unknown as { runFallback(f: Track): Promise<void> }, 'runFallback')
+			.mockResolvedValue(undefined);
+		reresolveSpy = vi
+			.spyOn(player as unknown as { reresolveCurrent(): Promise<void> }, 'reresolveCurrent')
 			.mockResolvedValue(undefined);
 	});
 
@@ -1757,11 +1789,26 @@ describe('player resilience — stall watchdog (PLAY-07 / D-13/D-14)', () => {
 		vi.useRealTimers();
 	});
 
-	it('after src-set with no audio, advancing STALL_TIMEOUT_MS routes into runFallback (D-13)', () => {
+	it('after src-set with no audio, the stall watchdog RETRIES the same song ONCE (bg-lockscreen-stall-noskip)', () => {
 		armStall();
 		vi.advanceTimersByTime(Player_STALL_TIMEOUT_MS);
-		expect(runFallbackSpy).toHaveBeenCalledTimes(1);
-		expect(runFallbackSpy).toHaveBeenCalledWith(player.current);
+		// First stall on this src → retry the SAME song once (fresh URL + re-attach), NOT cross-source.
+		expect(reresolveSpy).toHaveBeenCalledTimes(1);
+		expect(runFallbackSpy).not.toHaveBeenCalled();
+	});
+
+	it('a SECOND stall after the one retry SKIPS to the next track — retry-once-then-skip (never stops)', () => {
+		const next = mk('qq', 's2', 'B', 'Next');
+		player.queue = [player.current as Track, next];
+		const playSpy = player.play as unknown as ReturnType<typeof vi.fn>;
+		playSpy.mockClear?.();
+		armStall();
+		vi.advanceTimersByTime(Player_STALL_TIMEOUT_MS); // 1st stall → retry the same song
+		armStall();
+		vi.advanceTimersByTime(Player_STALL_TIMEOUT_MS); // 2nd stall, still no `playing` → SKIP
+		expect(reresolveSpy).toHaveBeenCalledTimes(1); // retried exactly once, not again
+		expect(playSpy).toHaveBeenCalledWith(next); // advanced to the next track
+		expect(runFallbackSpy).not.toHaveBeenCalled();
 	});
 
 	it('a timeupdate before the timeout disarms the watchdog (no failover)', () => {
@@ -1784,14 +1831,12 @@ describe('player resilience — stall watchdog (PLAY-07 / D-13/D-14)', () => {
 	});
 
 	it('CR-01: a bare `play` event does NOT disarm the watchdog (it precedes real audio)', () => {
-		const el = makeFakeAudio();
-		player.attach(el as unknown as HTMLAudioElement);
 		armStall();
 		// `play` is transport intent, not real output — the watchdog must still fire if no audio
-		// (`playing`/`timeupdate`) follows within the timeout.
-		el.fire('play');
+		// (`playing`/`timeupdate`) follows within the timeout. It now retries the same song once.
+		stallEl.fire('play');
 		vi.advanceTimersByTime(Player_STALL_TIMEOUT_MS);
-		expect(runFallbackSpy).toHaveBeenCalledTimes(1);
+		expect(reresolveSpy).toHaveBeenCalledTimes(1);
 	});
 
 	it('does NOT fail over when hasPlayedSinceSrc is true at fire time (mid-track buffer-dry, D-14)', () => {
@@ -3777,6 +3822,7 @@ describe('player resilience — autoplay-rejection retry + readyState-gated watc
 		(player as unknown as { autoplayRetryArmed: boolean })['autoplayRetryArmed'] = v;
 	};
 	let runFallbackSpy: ReturnType<typeof vi.spyOn>;
+	let reresolveSpy: ReturnType<typeof vi.spyOn>;
 
 	beforeEach(() => {
 		vi.useFakeTimers();
@@ -3784,8 +3830,12 @@ describe('player resilience — autoplay-rejection retry + readyState-gated watc
 		player.queue = [player.current];
 		setPlayed(false);
 		setArmed(false);
+		(player as unknown as { stallRetried: boolean })['stallRetried'] = false;
 		runFallbackSpy = vi
 			.spyOn(player as unknown as { runFallback(f: Track): Promise<void> }, 'runFallback')
+			.mockResolvedValue(undefined);
+		reresolveSpy = vi
+			.spyOn(player as unknown as { reresolveCurrent(): Promise<void> }, 'reresolveCurrent')
 			.mockResolvedValue(undefined);
 	});
 
@@ -3810,7 +3860,7 @@ describe('player resilience — autoplay-rejection retry + readyState-gated watc
 		expect(runFallbackSpy).not.toHaveBeenCalled();
 	});
 
-	it('watchdog: a genuine no-bytes stall (readyState < 2) STILL routes into runFallback', () => {
+	it('watchdog: a genuine no-bytes stall (readyState < 2) RETRIES the same song once (bg-lockscreen-stall-noskip)', () => {
 		const el = makeFakeAudio();
 		el.paused = true;
 		(el as unknown as { readyState: number }).readyState = 0; // HAVE_NOTHING — no bytes
@@ -3821,8 +3871,10 @@ describe('player resilience — autoplay-rejection retry + readyState-gated watc
 		armStall();
 		vi.advanceTimersByTime(Player_STALL_TIMEOUT_MS);
 
-		// No bytes → a real load stall → cross-source failover (the original D-13 behavior).
-		expect(runFallbackSpy).toHaveBeenCalledTimes(1);
+		// No bytes → a real load stall → retry the SAME song once (a second stall then skips). This
+		// replaced the straight-to-runFallback behavior so the user's retry-once-then-skip spec holds.
+		expect(reresolveSpy).toHaveBeenCalledTimes(1);
+		expect(runFallbackSpy).not.toHaveBeenCalled();
 		expect(el.play).not.toHaveBeenCalled();
 	});
 
