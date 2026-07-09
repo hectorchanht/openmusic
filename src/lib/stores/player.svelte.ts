@@ -154,8 +154,22 @@ class Player {
 	 */
 	private consecutiveFailures = 0;
 	/** Loop-guard cap: after this many consecutive failures with zero successful plays, STOP and
-	 *  surface a sticky Retry notice instead of auto-advancing again (D-04). */
+	 *  surface a sticky Retry notice instead of auto-advancing again (D-04). Also reused as the
+	 *  ABSOLUTE raw-audio-error ceiling (debug-nowbar-freeze-reresolve-loop). */
 	private static FAILURE_CAP = 5;
+	/** RAPID-FIRE BRAKE window (debug-nowbar-freeze-reresolve-loop). Two consecutive audio `error`
+	 *  events closer together than this — with NO intervening real `playing` — cannot be two distinct
+	 *  network failures: a fresh detail re-resolve + a full `<audio>` load simply cannot complete this
+	 *  fast. Errors inside this window are therefore a SYNCHRONOUS re-attach storm (a revoked/instantly
+	 *  -403 blob: URL, a cache-instant re-resolve, or a same-tick re-drive), which is what pegs the
+	 *  main thread and freezes the whole app. 400ms is comfortably longer than any real resolve+load
+	 *  and far shorter than the gap between genuine transient failures. */
+	private static RAPID_ERROR_WINDOW_MS = 400;
+	/** How many CONSECUTIVE rapid (sub-RAPID_ERROR_WINDOW_MS) errors are tolerated before the handler
+	 *  stops re-driving recovery and force-skips. 3 lets a legitimate one-shot fast re-resolve recover
+	 *  (error → reresolve → playing) while cutting a true synchronous loop off after a couple of turns,
+	 *  long before it can burn measurable CPU. */
+	private static RAPID_ERROR_CAP = 3;
 	/** RELAX-PREFETCH: how long the current track must have ACTUALLY been playing before the
 	 *  single-song lookahead prefetch arms. Prefetch is no longer fired on play() entry — it is
 	 *  hung off the timeupdate listener and fires once the current src crosses this elapsed-playback
@@ -188,6 +202,13 @@ class Player {
 	 * by the `playing` listener (D-06 success reset) and by recoverFromStop. Plain field — internal.
 	 */
 	private errorBurst = 0;
+	/** RAPID-FIRE BRAKE state (debug-nowbar-freeze-reresolve-loop). `lastAudioErrorAt` is the wall-clock
+	 *  time of the previous audio `error`; `rapidErrorBurst` counts CONSECUTIVE errors that fired inside
+	 *  RAPID_ERROR_WINDOW_MS of the one before (a synchronous re-attach storm). A normally-spaced error
+	 *  resets `rapidErrorBurst` to 0; a real `playing` and a fresh play() reset both. Plain fields —
+	 *  internal loop-guard budget, never read reactively by the UI. */
+	private lastAudioErrorAt = 0;
+	private rapidErrorBurst = 0;
 	/**
 	 * SINGLE-RETRY GUARD (debug-reresolve-loop-stops-playback → simplified in debug-midplay-stall-background):
 	 * count of consecutive post-playback in-place `reresolveCurrent()` attempts for the current src
@@ -1300,6 +1321,8 @@ class Player {
 			this.consecutiveFailures = 0;
 			this.errorBurst = 0;
 			this.reresolveBurst = 0; // RERESOLVE-LOOP GUARD: real audio = the same-src re-resolve recovered.
+			this.rapidErrorBurst = 0; // RAPID-FIRE BRAKE (debug-nowbar-freeze-reresolve-loop): output = the storm ended.
+			this.lastAudioErrorAt = 0;
 			// Over-aggressive-skip fix: this track actually produced audio — drop any accumulated
 			// unplayable strikes for it so an earlier transient prefetch/probe failure can't push it
 			// toward a false permanent skip later in the session.
@@ -1462,6 +1485,57 @@ class Player {
 				reresolve: willReresolve
 			});
 			this.disarmStall(); // an error event is the failure signal — the watchdog is redundant now
+
+			// ─── RAPID-FIRE BRAKE + ABSOLUTE CEILING (debug-nowbar-freeze-reresolve-loop) ───────────────
+			// Every recovery action below (reresolveCurrent, runFallback→play) re-attaches audio.src; a
+			// re-attached src that errors AGAIN before producing audio re-enters this handler. Two paths
+			// could loop unbounded and PEG THE MAIN THREAD → the whole SvelteKit app freezes (nowbar stuck
+			// on the loading line, no tap registers): (1) the seek-error branch calls reresolveCurrent()
+			// with no cap/counter/guard (repro: 2000+ synchronous src-sets); (2) the fall-through counts
+			// errorBurst but its FAILURE_CAP guard is commented out (ef2c751) so it never trips. Both were
+			// unbounded. This block is the single explicit ceiling for ALL error paths and is checked
+			// FIRST. Both bounds SKIP (strike the track + advance), NEVER the ef2c751-disabled
+			// tripLoopGuard() STOP — that hard pause + sticky "playback stopped" Retry notice was the
+			// false-positive that stranded the player on a transient CDN blip / region-lock churn
+			// (debug-midplay-stall-background root cause C, debug-reresolve-loop-stops-playback). Skipping
+			// honours never-stop; a genuine give-up still surfaces only via the offline / no-url paths.
+			const now = Date.now();
+			// A rapid error = fired < RAPID_ERROR_WINDOW_MS after the previous one with no `playing`
+			// between. No real resolve + <audio> load completes that fast, so this is a synchronous
+			// re-attach storm, not a distinct network failure. A normally-spaced error resets the run.
+			this.rapidErrorBurst = now - this.lastAudioErrorAt < Player.RAPID_ERROR_WINDOW_MS ? this.rapidErrorBurst + 1 : 0;
+			this.lastAudioErrorAt = now;
+			this.errorBurst++;
+			// (a) source-level brake: cut a synchronous loop off at RAPID_ERROR_CAP consecutive rapid
+			//     errors — refusing to re-drive recovery is what stops the CPU peg (a cap alone would
+			//     still spin synchronously up to it). (b) absolute backstop: FAILURE_CAP raw errors since
+			//     the last real `playing` regardless of spacing (the slow resolve-but-unplayable ping-pong
+			//     across 3+ sources the per-episode `attempted` set cannot bound). Either bound → SKIP.
+			if (this.rapidErrorBurst >= Player.RAPID_ERROR_CAP || this.errorBurst >= Player.FAILURE_CAP) {
+				logAction('error.ceiling', {
+					uid: this.current?.uid,
+					rapid: this.rapidErrorBurst,
+					burst: this.errorBurst
+				});
+				this.errorBurst = 0;
+				this.rapidErrorBurst = 0;
+				this.reresolveBurst = 0;
+				// D-12: never-stop wins over explicit repeat — break a repeat-one loop on a failing track.
+				if (this.repeatMode === 'one') {
+					this.repeatMode = 'off';
+					this.persist();
+				}
+				this.playing = false;
+				// Strike the current track so nextAdvanceIndex / the prefetch walk route past it (bounded +
+				// recoverable: advanceTo still grants one second-chance retry and a real `playing` clears
+				// the strikes), then advance. next() bumps playGen via play(), superseding any in-flight
+				// fallback/reresolve for the now-abandoned dead track so it cannot re-enter this handler.
+				if (this.current) this.strikeUnplayable(this.current.uid);
+				this.next();
+				return;
+			}
+			// ────────────────────────────────────────────────────────────────────────────────────────────
+
 			// lw9-followup: if the error fires WITHIN the seek window, the user just clicked the
 			// progress bar — but the audio element may not be able to honor the seek because the
 			// audio.src is a stale CDN URL (typical after a page-reload restore: the resolved URL
@@ -1535,29 +1609,16 @@ class Player {
 				this.clearMedia();
 				return;
 			}
-			// CR-03 absolute cap: the dominant region-lock mode is "URL resolves, the <audio> 403s"
-			// — the `error` event fires while tryFallback keeps 'succeeding' (it resolves SOME url
-			// every cycle), so handleTotalFailure (and consecutiveFailures) never runs and the A↔B
-			// ping-pong is unbounded. Count raw audio errors since the last real `playing`; once
-			// they hit the cap, route into the existing loop-guard / skip policy directly so the
-			// never-stop chain engages even when no source ever yields total failure. Reset to 0 on
-			// a real `playing` event (D-06). This complements the per-episode `attempted` set in
-			// runFallback (which already collapses the 2-source loop); the burst cap is the
-			// generic backstop for 3+ resolve-but-unplayable sources.
-			this.errorBurst++;
-			// if (this.errorBurst >= Player.FAILURE_CAP) {
-			// 	// FAILURE_CAP raw audio errors on the current song without ever reaching `playing` —
-			// 	// the resolve-but-unplayable ping-pong. Break a failing repeat-one loop first (D-12),
-			// 	// then trip the loop-guard STOP directly so the never-stop chain engages even though
-			// 	// tryFallback kept 'succeeding' and handleTotalFailure never ran.
-			// 	this.errorBurst = 0;
-			// 	if (this.repeatMode === 'one') {
-			// 		this.repeatMode = 'off';
-			// 		this.persist();
-			// 	}
-			// 	this.tripLoopGuard();
-			// 	return;
-			// }
+			// CR-03 note: the dominant region-lock mode is "URL resolves, the <audio> 403s" — the `error`
+			// event fires while tryFallback keeps 'succeeding' (it resolves SOME url every cycle), so
+			// handleTotalFailure (and consecutiveFailures) never runs and the A↔B ping-pong would be
+			// unbounded. The raw-audio-error ceiling that backstops this now lives at the TOP of the
+			// handler (debug-nowbar-freeze-reresolve-loop): errorBurst is incremented + checked against
+			// FAILURE_CAP there for EVERY error path (this fall-through, the seek branch, and the in-place
+			// reresolve), and the rapid-fire brake cuts a synchronous storm off even sooner. So this
+			// per-episode fallback keeps only the cross-source retry — the absolute cap is no longer
+			// duplicated here (its old commented FAILURE_CAP/tripLoopGuard STOP block was removed; the
+			// ceiling now SKIPS, not STOPS).
 			void this.runFallback(failed);
 		});
 
@@ -2235,6 +2296,13 @@ class Player {
 		// supplies the AudioContext-unlock gesture, and every later auto-advance just keeps it running.
 		this.keepAliveOn();
 		this.reresolveBurst = 0; // RERESOLVE-LOOP GUARD: a genuine new play() gives the track a fresh re-resolve budget.
+		// RAPID-FIRE BRAKE (debug-nowbar-freeze-reresolve-loop): a genuine new play() starts a fresh
+		// synchronous-storm budget — the first error on a new src must never count as "rapid" (0 = no
+		// prior error this src). errorBurst is deliberately NOT reset here (CR-01: it must survive
+		// auto-skips so a RUN of dead tracks still trips the absolute ceiling; only a real `playing` or
+		// recoverFromStop clears it).
+		this.rapidErrorBurst = 0;
+		this.lastAudioErrorAt = 0;
 		this.healProbed.clear(); // quick-260704-20e: a new track invalidates prior current-cover heals (also caps set growth).
 		// A direct play() (queue/auto-advance/share link) supersedes any optimistic overlay,
 		// so a stale pending bar never lingers once a real track takes over.
@@ -3055,6 +3123,8 @@ class Player {
 	private recoverFromStop() {
 		this.consecutiveFailures = 0;
 		this.errorBurst = 0;
+		this.rapidErrorBurst = 0; // RAPID-FIRE BRAKE (debug-nowbar-freeze-reresolve-loop): a full recovery re-arms it too.
+		this.lastAudioErrorAt = 0;
 		// CR-03: re-arm — drop the per-episode attempted set so the skipped-ahead track gets a full
 		// fresh set of sources to try.
 		this.fallbackEpisodeKey = null;

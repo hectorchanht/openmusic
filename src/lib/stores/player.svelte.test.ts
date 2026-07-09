@@ -276,6 +276,14 @@ beforeEach(() => {
 	for (const timer of internals.retryResolveTimers.values()) clearTimeout(timer);
 	internals.retryResolveTimers.clear();
 	internals.retryResolveAttempts.clear();
+	// debug-nowbar-freeze-reresolve-loop: the raw-audio-error ceiling + rapid-fire brake counters are
+	// session-scoped (reset by a real `playing` / play() / recoverFromStop in production). They must not
+	// leak across tests now that a ceiling reads them — a stale burst could trip the skip early.
+	const burst = player as unknown as { errorBurst: number; reresolveBurst: number; rapidErrorBurst: number; lastAudioErrorAt: number };
+	burst.errorBurst = 0;
+	burst.reresolveBurst = 0;
+	burst.rapidErrorBurst = 0;
+	burst.lastAudioErrorAt = 0;
 });
 
 afterEach(() => {
@@ -4342,5 +4350,146 @@ describe('player resilience — play() resets hasPlayedSinceSrc at entry (backgr
 
 		expect(reresolveSpy).not.toHaveBeenCalled(); // not the already-played path
 		expect(fallbackSpy).toHaveBeenCalled(); // dead-on-load → try other sources → advance
+	});
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// debug-nowbar-freeze-reresolve-loop: a synchronous audio.error storm (a re-attached src that errors
+// again instantly) pegged the main thread and froze the whole app (nowbar stuck on the loading line,
+// no tap registered). The genuinely-uncapped path in HEAD was the seek-error branch: it called
+// reresolveCurrent() on EVERY error inside the 1.5s seek window with no cap/counter/guard (a repro hit
+// 2000+ synchronous src-sets). The fix adds, at the TOP of the error listener, a rapid-fire brake
+// (errors < RAPID_ERROR_WINDOW_MS apart with no `playing` cannot be distinct failures → stop re-driving
+// recovery) plus an absolute errorBurst >= FAILURE_CAP ceiling. BOTH bounds SKIP (strike + advance),
+// NEVER the ef2c751-disabled tripLoopGuard() STOP (the false-positive that stranded the player with a
+// sticky "playback stopped" notice on a transient blip).
+// ─────────────────────────────────────────────────────────────────────────────
+describe('player resilience — synchronous audio.error storm is bounded (debug-nowbar-freeze-reresolve-loop)', () => {
+	type Internals = {
+		hasPlayedSinceSrc: boolean;
+		reresolveBurst: number;
+		errorBurst: number;
+		rapidErrorBurst: number;
+		lastSeekAt: number;
+		lastAudioErrorAt: number;
+		reresolveCurrent(): Promise<void>;
+		runFallback(t: Track): Promise<void>;
+		strikeUnplayable(uid: string): boolean;
+	};
+	const internals = () => player as unknown as Internals;
+
+	/** A fake <audio> whose src-setter fires an `error` on the next microtask (up to `maxFires`), so a
+	 *  re-attach that errors instantly is modelled faithfully. Counts src assignments. */
+	function makeSelfErroringAudio(maxFires: number) {
+		const handlers = new Map<string, Array<() => void>>();
+		let srcSets = 0;
+		let _src = '';
+		const el = {
+			paused: true,
+			currentTime: 0,
+			duration: NaN,
+			readyState: 0,
+			get src() {
+				return _src;
+			},
+			set src(v: string) {
+				_src = v;
+				srcSets++;
+				if (srcSets <= maxFires) {
+					queueMicrotask(() => {
+						for (const cb of handlers.get('error') ?? []) cb();
+					});
+				}
+			},
+			setAttribute() {},
+			removeAttribute() {},
+			load() {},
+			addEventListener(type: string, cb: () => void) {
+				const arr = handlers.get(type) ?? [];
+				arr.push(cb);
+				handlers.set(type, arr);
+			},
+			play: vi.fn(() => Promise.resolve()),
+			pause: vi.fn(),
+			fire(type: string) {
+				for (const cb of handlers.get(type) ?? []) cb();
+			}
+		};
+		return { el, srcSets: () => srcSets };
+	}
+
+	it('the seek-error reresolveCurrent loop is bounded — no unbounded synchronous re-attach (main-thread peg)', async () => {
+		// REAL reresolveCurrent (not spied): ensureTrackDetails resolves instantly to a still-dead URL, so
+		// each re-attach fires another error inside the seek window. Before the fix this looped forever
+		// (repro: 2000+); the rapid-fire brake must cut it off after a handful of turns.
+		mockEnsure.mockImplementation(async (t: Track) => ({
+			...t,
+			detailsLoaded: true,
+			audioUrl: 'https://cdn.example.com/dead.mp3'
+		}));
+		mockTryFallback.mockResolvedValue(null);
+		const { el, srcSets } = makeSelfErroringAudio(1000);
+		const track = mk('netease', 'storm', 'A', 'Region Locked');
+		player.queue = [track];
+		player.current = track;
+		player.attach(el as unknown as HTMLAudioElement);
+		internals().lastSeekAt = Date.now(); // recent seek → the uncapped reresolveCurrent branch
+
+		el.src = track.audioUrl as string; // kick the loop
+		for (let i = 0; i < 200; i++) await new Promise((r) => setTimeout(r, 0));
+
+		// Bounded to a small handful (RAPID_ERROR_CAP-sized bursts), not the fake's 1000-fire ceiling.
+		expect(srcSets()).toBeLessThan(12);
+	});
+
+	it('the ceiling SKIPS (strike + advance), never the ef2c751 STOP (no sticky "playback stopped")', () => {
+		// Foreground, already-played, persistently dead. Spy recovery so nothing runs async; fire a burst
+		// of synchronous errors. The rapid-fire brake trips and the handler strikes the track + advances —
+		// it must NOT set this.error='toast.playbackStopped' or a 'stopped' notice (that was the disabled
+		// tripLoopGuard's false-positive).
+		vi.stubGlobal('document', { hidden: false, addEventListener() {} });
+		vi.stubGlobal('navigator', { onLine: true });
+		const el = makeFakeAudio();
+		const cur = mk('netease', 'ceil', 'A', 'Dead');
+		const next = mk('qq', 'ceilnext', 'B', 'Next');
+		player.queue = [cur, next];
+		player.current = cur;
+		player.error = null;
+		player.notice = null;
+		player.attach(el as unknown as HTMLAudioElement);
+		internals().hasPlayedSinceSrc = true;
+		internals().lastSeekAt = 0; // not the seek path — exercise the hasPlayed + ceiling path
+		const strikeSpy = vi.spyOn(internals(), 'strikeUnplayable');
+		vi.spyOn(internals(), 'reresolveCurrent').mockResolvedValue(undefined);
+		vi.spyOn(internals(), 'runFallback').mockResolvedValue(undefined);
+
+		for (let i = 0; i < Player_FAILURE_CAP + 2; i++) el.fire('error');
+
+		expect(strikeSpy).toHaveBeenCalledWith(cur.uid); // SKIP: struck the dead track…
+		expect(player.error).not.toBe('toast.playbackStopped'); // …and did NOT hard-STOP
+		// Cast: TS flow-narrows player.notice to null (it can't see fire() mutate it) — read past it.
+		expect((player.notice as { kind?: string } | null)?.kind).not.toBe('stopped'); // no sticky Retry notice
+	});
+
+	it('a real `playing` between errors refunds the brake — a genuine transient stall is never falsely skipped', () => {
+		vi.stubGlobal('document', { hidden: false, addEventListener() {} });
+		const el = makeFakeAudio();
+		const track = mk('netease', 'transient', 'A', 'Buffers');
+		player.queue = [track];
+		player.current = track;
+		player.attach(el as unknown as HTMLAudioElement);
+		internals().hasPlayedSinceSrc = true;
+		internals().lastSeekAt = 0;
+		const strikeSpy = vi.spyOn(internals(), 'strikeUnplayable');
+		const reresolveSpy = vi.spyOn(internals(), 'reresolveCurrent').mockResolvedValue(undefined);
+
+		// Each error recovers with real output → both the reresolve budget AND the rapid brake reset.
+		for (let i = 0; i < Player_FAILURE_CAP + 3; i++) {
+			el.fire('error');
+			el.fire('playing');
+		}
+
+		expect(strikeSpy).not.toHaveBeenCalled(); // never hit the ceiling — every stall recovered
+		expect(reresolveSpy.mock.calls.length).toBeGreaterThan(1); // re-resolved in place each time
 	});
 });
