@@ -1,5 +1,6 @@
 <script lang="ts">
 	import "../app.css";
+	import { untrack } from "svelte";
 	import { page } from "$app/state";
 	import { player } from "$lib/stores/player.svelte";
 
@@ -18,11 +19,21 @@
 	// live in (app)/+layout and read the same singleton.
 	$effect(() => {
 		if (audioEl) {
-			player.attach(audioEl);
-			// Restore the last played track + queue + progress + shuffle/repeat from
-			// localStorage so a reload resumes mid-session. Doesn't autoplay (browser
-			// autoplay policy); the user taps play to resume. Fire-and-forget.
-			void player.restore();
+			// ROOT CAUSE FIX (debug-song-click-lrc-flood-noplay): attach()/restore() WRITE player $state
+			// (queue, current, resolvedCover, loading — resolvedCover + syncMetadata were added to
+			// restore() in 26e413a). Running them tracked meant this effect READ that state and then
+			// MUTATED it → the effect SELF-INVALIDATED and re-ran restore() over and over → repeated
+			// audio.src re-set (the (canceled) media flood) + repeated lrc re-fetch + loading pinned true
+			// (nowbar stuck on the loading line, never expands). Those "updated at … set queue/current …
+			// restore … $effect" Svelte warnings were exactly this loop. untrack() runs the ONE-TIME
+			// setup WITHOUT tracking, so the effect fires once per <audio> mount (its only real dep,
+			// audioEl, is read OUTSIDE untrack) and never re-runs when player state changes.
+			untrack(() => {
+				player.attach(audioEl);
+				// Restore the last played track + queue + progress + shuffle/repeat from localStorage so a
+				// reload resumes mid-session. Doesn't autoplay (browser policy); user taps play. Fire-and-forget.
+				void player.restore();
+			});
 		}
 	});
 </script>

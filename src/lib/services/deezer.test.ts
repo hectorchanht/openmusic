@@ -27,10 +27,11 @@ afterEach(() => {
 
 /** A minimal `Response`-like ok JSON stub. */
 function jsonResponse(body: unknown, ok = true): Response {
-	return {
-		ok,
-		json: async () => body
-	} as unknown as Response;
+	// deezer.ts now fetches through the governed apiFetch, whose GET dedupe calls resp.clone() — so a
+	// mock Response MUST expose clone() (self-returning: the mock body is read-only in these tests).
+	const make = (): Response =>
+		({ ok, status: ok ? 200 : 500, json: async () => body, clone: make }) as unknown as Response;
+	return make();
 }
 
 const COVER = 'https://cdn-images.dzcdn.net/images/cover/abc/1000x1000-000000-80-0-0.jpg';
@@ -107,6 +108,9 @@ describe('deezerSongCover — resolve cover via the proxy', () => {
 						ok: true,
 						json: async () => {
 							throw new Error('bad json');
+						},
+						clone() {
+							return this;
 						}
 					}) as unknown as Response
 			)
@@ -253,6 +257,9 @@ describe('deezerArtist — resolve artist info via the own-origin proxy', () => 
 						ok: true,
 						json: async () => {
 							throw new Error('bad json');
+						},
+						clone() {
+							return this;
 						}
 					}) as unknown as Response
 			)
@@ -434,6 +441,9 @@ describe('deezerArtistAlbums — resolve an artist album list (with nb_tracks) v
 						ok: true,
 						json: async () => {
 							throw new Error('bad json');
+						},
+						clone() {
+							return this;
 						}
 					}) as unknown as Response
 			)

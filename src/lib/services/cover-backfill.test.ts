@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { backfillCovers, backfillArtistCovers, resolveCoverForTrack } from './cover-backfill';
+import {
+	backfillCovers,
+	backfillArtistCovers,
+	resolveCoverForTrack,
+	__resetCoverMissCache
+} from './cover-backfill';
 import * as catalog from './catalog';
 import * as deezer from './deezer';
 import * as itunes from './itunes-cover';
@@ -69,6 +74,9 @@ beforeEach(() => {
 		configurable: true,
 		writable: true
 	});
+	// The negative-miss cache is module-scoped + session-lived — reset it so a miss recorded in one
+	// test can't skip the re-search another test expects (many tests reuse the same X/Y key).
+	__resetCoverMissCache();
 });
 
 afterEach(() => {
@@ -153,6 +161,43 @@ describe('backfillCovers — Deezer → iTunes → CN track chain (quick-260607-
 		await backfillCovers([{ artist: 'X', title: 'Y' }], { onResolved: (k) => resolved.push(k) });
 		expect(getCachedCover('X', 'Y')).toBeNull();
 		expect(resolved).toHaveLength(0);
+	});
+
+	it('NEGATIVE-MISS CACHE: a repeat pass for a missing tile within the TTL does NOT re-search (kills the refresh re-fire flood)', async () => {
+		// debug-nowbar-frozen-audius-spam follow-up: a total miss is not cover-cached (so it retries
+		// eventually), but it MUST be remembered short-term so every Home refresh/randomize does not
+		// re-run the full Deezer→iTunes→CN fan-out for the same imageless tiles.
+		const deezerSpy = vi.spyOn(deezer, 'deezerSongCover').mockResolvedValue(null);
+		const itunesSpy = vi.spyOn(itunes, 'itunesSongCover').mockResolvedValue(null);
+		const searchSpy = vi.spyOn(catalog, 'searchAll').mockResolvedValue(result([]));
+
+		await backfillCovers([{ artist: 'Miss', title: 'Tile' }]); // pass 1: full chain, finds nothing
+		await backfillCovers([{ artist: 'Miss', title: 'Tile' }]); // pass 2: skipped by the negative cache
+
+		expect(deezerSpy).toHaveBeenCalledTimes(1); // NOT 2 — the second pass issued zero requests
+		expect(itunesSpy).toHaveBeenCalledTimes(1);
+		expect(searchSpy).toHaveBeenCalledTimes(1);
+
+		// After the TTL window (simulated by a reset) the tile is eligible to retry — nothing is pinned.
+		__resetCoverMissCache();
+		await backfillCovers([{ artist: 'Miss', title: 'Tile' }]);
+		expect(deezerSpy).toHaveBeenCalledTimes(2); // retried once the miss expired
+	});
+
+	it('NEGATIVE-MISS CACHE: a later SOLID hit clears the miss so a now-resolvable tile is not skipped', async () => {
+		const searchSpy = vi.spyOn(catalog, 'searchAll').mockResolvedValue(result([]));
+		vi.spyOn(itunes, 'itunesSongCover').mockResolvedValue(null);
+		const deezerSpy = vi.spyOn(deezer, 'deezerSongCover').mockResolvedValueOnce(null); // pass 1: miss
+
+		await backfillCovers([{ artist: 'Later', title: 'Cover' }]); // miss → remembered
+		expect(getCachedCover('Later', 'Cover')).toBeNull();
+
+		// Cover becomes available; a fresh pass (after the miss TTL) resolves + caches it.
+		deezerSpy.mockResolvedValue('https://cdn-images.dzcdn.net/later.jpg');
+		__resetCoverMissCache();
+		await backfillCovers([{ artist: 'Later', title: 'Cover' }]);
+		expect(getCachedCover('Later', 'Cover')).toBe('https://cdn-images.dzcdn.net/later.jpg');
+		expect(searchSpy).toHaveBeenCalledTimes(1); // only the first (missing) pass reached the CN tier
 	});
 
 	it('treats a NON-https cover as a miss and falls through to the next tier', async () => {

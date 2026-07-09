@@ -88,6 +88,37 @@ const CAP = 6; // ≤6 searches in flight (reuse mapWithConcurrency — do NOT P
 // cost regardless; a warm visit issues ~0 requests (every tile is already cached).
 const DEFAULT_MAX = 400;
 
+// ── NEGATIVE-MISS CACHE (debug-nowbar-frozen-audius-spam follow-up) ─────────────────────────────
+// A cover search that finds NOTHING is deliberately NOT written to the cover-cache, so it retries
+// (the cover-cache stale-URL design — failures must not pin "no result"). But because a miss was
+// never REMEMBERED at all, every Home refresh/randomize re-ran the full Deezer→iTunes→CN fan-out for
+// the SAME imageless tiles — the sustained /api/* flood (a cold, all-imageless Home = hundreds of
+// searches, re-fired on every refresh). So remember a miss in a SESSION-SCOPED, short-TTL set. This
+// is NOT the cover-cache: it stores NO url — only "we looked recently and found nothing" — so it can
+// never serve a broken image (the concern that keeps failures out of the cover-cache). A repeat pass
+// within MISS_TTL_MS skips the re-search; after the TTL — or a page reload, since this is in-memory
+// and never persisted — it retries, preserving the "failures eventually retry" contract. A later
+// SOLID hit clears the miss immediately so a now-resolvable tile is never skipped.
+const MISS_TTL_MS = 5 * 60 * 1000; // 5 min — kills rapid refresh/randomize re-fires; still retries later
+const missAt = new Map<string, number>();
+function recentlyMissed(key: string): boolean {
+	const t = missAt.get(key);
+	if (t === undefined) return false;
+	if (Date.now() - t < MISS_TTL_MS) return true;
+	missAt.delete(key); // expired — allow a fresh retry on the next pass
+	return false;
+}
+function markMiss(key: string): void {
+	missAt.set(key, Date.now());
+}
+function markHit(key: string): void {
+	missAt.delete(key); // recovered — never skip a now-resolvable tile
+}
+/** TEST-ONLY: clear the session-scoped negative-miss cache so it cannot leak across tests. */
+export function __resetCoverMissCache(): void {
+	missAt.clear();
+}
+
 /** SOLID = a non-empty https URL (the only thing safe to render as an <img src> + cache). */
 function isSolidCover(url: string | null | undefined): url is string {
 	return typeof url === 'string' && url.startsWith('https:');
@@ -202,6 +233,7 @@ export async function backfillCovers(items: CoverNeed[], opts: BackfillOpts = {}
 		if (seen.has(key)) continue; // de-dupe identical rows across shelves
 		seen.add(key);
 		if (getCachedCover(artist, title)) continue; // already cached
+		if (recentlyMissed(key)) continue; // searched recently, no cover found — don't re-fan the fan-out
 		remaining.push({ artist, title });
 	}
 
@@ -214,10 +246,14 @@ export async function backfillCovers(items: CoverNeed[], opts: BackfillOpts = {}
 	async function resolveOne(item: CoverNeed): Promise<void> {
 		if (signal?.aborted) return;
 		const cover = await resolveTrackChain(item.artist, item.title, signal);
-		if (signal?.aborted) return;
+		if (signal?.aborted) return; // abort ≠ miss — never poison the negative cache on a supersede
+		const key = coverCacheKey(item.artist, item.title);
 		if (isSolidCover(cover)) {
 			setCachedCover(item.artist, item.title, cover);
-			onResolved?.(coverCacheKey(item.artist, item.title), cover);
+			markHit(key);
+			onResolved?.(key, cover);
+		} else {
+			markMiss(key); // no cover this pass — skip re-searching it for MISS_TTL_MS (kills the re-fire flood)
 		}
 	}
 
@@ -251,6 +287,7 @@ export async function backfillArtistCovers(
 		if (seen.has(key)) continue;
 		seen.add(key);
 		if (getCachedArtistCover(name)) continue;
+		if (recentlyMissed(key)) continue; // searched recently, no artist image found — skip the re-fan
 		remaining.push(name);
 	}
 
@@ -273,9 +310,13 @@ export async function backfillArtistCovers(
 				if (signal?.aborted) return;
 			}
 
+			const key = artistCoverCacheKey(name);
 			if (isSolidCover(url)) {
 				setCachedArtistCover(name, url);
-				onResolved?.(artistCoverCacheKey(name), url);
+				markHit(key);
+				onResolved?.(key, url);
+			} else {
+				markMiss(key); // no artist image this pass — skip re-searching for MISS_TTL_MS
 			}
 		} catch {
 			// Backstop — a miss leaves the artist tile's gradient.

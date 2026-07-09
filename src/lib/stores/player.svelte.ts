@@ -157,6 +157,29 @@ class Player {
 	 *  surface a sticky Retry notice instead of auto-advancing again (D-04). Also reused as the
 	 *  ABSOLUTE raw-audio-error ceiling (debug-nowbar-freeze-reresolve-loop). */
 	private static FAILURE_CAP = 5;
+	/**
+	 * SYSTEMIC-FAILURE SKIP CEILING (debug-nowbar-frozen-audius-spam). Counts CONSECUTIVE
+	 * failure-driven auto-skips — the raw-audio-error ceiling AND handleTotalFailure — that reached NO
+	 * real `playing`. The existing per-track guards each bound ONE track (STRIKE_CAP → dead uid, the
+	 * errorBurst/rapid ceiling → skip THIS track, the per-episode fallback set → try each source once),
+	 * but NOTHING bounded the WHOLE-QUEUE case: under a systemic outage (region-lock, dead/rate-limited
+	 * source) every track 403s, so the never-stop chain skips → resolves (qq/detail) → auto-grows
+	 * (buildSimilarQueue = 8× searchAll) → prefetches, on and on. Each cycle fires a fresh burst of
+	 * /api/* requests; with no ceiling they pile up until the browser connection pool saturates and the
+	 * app freezes — the TRUE driver of this bug (the api-base governor only caps the blast radius). Once
+	 * this many DISTINCT tracks fail back-to-back with zero successful playback, the situation is
+	 * systemic and churning only spams, so haltRunawayRecovery() STOPS (pause + sticky Retry) instead of
+	 * advancing again.
+	 *
+	 * This is NOT the false-positive STOP that debug-nowbar-freeze-reresolve-loop disabled: THAT tripped
+	 * on a SYNCHRONOUS rapid-error storm on a SINGLE track (a transient CDN blip re-erroring in a tight
+	 * loop). THIS trips only after N SEPARATE tracks each fail with no audio in between — a genuine
+	 * systemic signal a transient blip cannot reach, because a single real `playing` resets the counter.
+	 * Recovery is the existing recoverFromStop (Retry): skip ahead, drop the dead sets, re-arm.
+	 * Plain field (not $state) — internal loop-guard budget, never read reactively by the UI.
+	 */
+	private failoverSkips = 0;
+	private static SYSTEMIC_SKIP_CAP = 5;
 	/** RAPID-FIRE BRAKE window (debug-nowbar-freeze-reresolve-loop). Two consecutive audio `error`
 	 *  events closer together than this — with NO intervening real `playing` — cannot be two distinct
 	 *  network failures: a fresh detail re-resolve + a full `<audio>` load simply cannot complete this
@@ -192,6 +215,22 @@ class Player {
 	 *  (in play()), flipped true the first time the timeupdate gate fires prefetchNext for that src,
 	 *  so the prefetch arms AT MOST ONCE per loaded src. Plain field — internal, never reactive. */
 	private prefetchArmedForSrc = false;
+	/**
+	 * SINGLE AUDIO.SRC AUTHORITY + RE-DRIVE BRAKE (debug-song-click-lrc-flood-noplay). All roads that
+	 * attach a new stream go through driveSrc(), which is the ONE place `audio.src` is set for playback
+	 * (the offline-blob / restore paths aside). The observed "api loop hell" was the SAME track's src
+	 * re-driven in a tight loop — `<audio>` requests `(canceled)` before firing `error`, so the
+	 * error-based ceiling (errorBurst / failoverSkips) NEVER engaged and the flood was unbounded. This
+	 * brake counts rapid re-sets of the SAME uid with NO real `playing` between: distinct uids (normal
+	 * fast-skipping) never trip it; a same-uid re-drive storm (a reactive re-entry or a recovery
+	 * ping-pong) trips it → STOP (haltRunawayRecovery) with a logged trigger, so a stream that cannot
+	 * start is surfaced as a Retry instead of pinning the app. Reset by a real `playing` (output = not
+	 * looping) and recoverFromStop. Plain fields — internal, never read reactively. */
+	private lastDriveUid: string | null = null;
+	private lastDriveAt = 0;
+	private driveBurst = 0;
+	private static SRC_REDRIVE_WINDOW_MS = 1500;
+	private static SRC_REDRIVE_CAP = 4;
 	/**
 	 * Audio-element error burst counter (CR-03). The dominant region-lock failure mode is "detail
 	 * fetch resolves a URL fine, the <audio> byte fetch 403s" — i.e. the `error` event fires while
@@ -517,7 +556,9 @@ class Player {
 			// NOT an initial-load arming point (D-14): reresolveCurrent is a seek-recovery re-attach
 			// of the SAME track after a stale-URL error, not a fresh play. Arming the stall watchdog
 			// here would double-count a seek recovery as a load failure, so we deliberately do not.
-			audio.src = src;
+			// SINGLE AUTHORITY (debug-song-click-lrc-flood-noplay): re-attach through the braked setter
+			// so a reresolve that keeps re-driving the same dead src is bounded → STOP, not a flood.
+			if (!this.driveSrc(resolved.uid, src)) return;
 			// Attempt synchronous seek if duration already loaded; else loadedmetadata listener
 			// will pick up pendingSeek when it lands.
 			if (Number.isFinite(audio.duration) && audio.duration > 0 && desiredSeek != null) {
@@ -650,15 +691,11 @@ class Player {
 	private prefetchingUid: string | null = null;
 	/** Aborts the in-flight prefetch when a newer one supersedes it (stale-resolve guard). */
 	private prefetchController: AbortController | null = null;
-	/** ZERO-FETCH BLOB PRE-BUFFER (bg-resolve-gap-stall / next-song-instant). The next track's FULL
-	 *  bytes fetched to a Blob during the CURRENT song's playback, exposed as a `blob:` Object URL so
-	 *  the advance src-swap plays LOCAL bytes — no network at play time, nothing to hang on a frozen
-	 *  background page. Plain fields (never reactive). `prebufferController` aborts an in-flight fetch
-	 *  when a newer next-track supersedes it. Replaces the old throwaway `<audio preload=auto>` warm
-	 *  (which only warmed the HTTP cache and still forced the real element to re-fetch at swap). */
-	private prebufferedUid: string | null = null;
-	private prebufferedBlobUrl: string | null = null;
-	private prebufferController: AbortController | null = null;
+	// ZERO-FETCH BLOB PRE-BUFFER (f7c2580) REMOVED (debug-nowbar-frozen-audius-spam): pre-fetching the
+	// next track's full bytes to a blob turned every never-stop churn cycle into a multi-MB download and
+	// its 403 path never deduped (prebufferedUid was set only on 200-OK) → a varying-vkey FLAC flood that
+	// helped freeze the app. The advance src-swap now always uses the CDN URL (play()'s existing branch);
+	// the offline-download blob path (cachedBlobUrl) is untouched.
 	private preloadedCover: HTMLImageElement | null = null;
 	private preloadedCoverUid: string | null = null;
 	private preloadedCoverUrl: string | null = null;
@@ -1059,6 +1096,35 @@ class Player {
 	}
 
 	/**
+	 * SINGLE AUDIO.SRC AUTHORITY + RE-DRIVE BRAKE (debug-song-click-lrc-flood-noplay). The one place a
+	 * playback stream is attached to `<audio>` for a network/CDN track. Returns true after setting the
+	 * src; returns FALSE (and STOPS via haltRunawayRecovery) when the SAME uid has been re-driven
+	 * SRC_REDRIVE_CAP times within SRC_REDRIVE_WINDOW_MS with no real `playing` between — the same-track
+	 * re-drive storm the error-based ceiling cannot catch (the element `(cancels)` the prior load before
+	 * it fires `error`, so errorBurst never climbs). A NEW uid (normal fast-skipping) resets the burst,
+	 * so this fires ONLY on a genuine loop. Logs `src.redrive-brake` with the culprit uid so the trigger
+	 * is captured in the Activity log. Callers MUST bail their own play/re-resolve when this returns false.
+	 */
+	private driveSrc(uid: string, url: string): boolean {
+		if (!this.audio) return false;
+		const now = Date.now();
+		this.driveBurst =
+			uid === this.lastDriveUid && now - this.lastDriveAt < Player.SRC_REDRIVE_WINDOW_MS
+				? this.driveBurst + 1
+				: 0;
+		this.lastDriveUid = uid;
+		this.lastDriveAt = now;
+		if (this.driveBurst >= Player.SRC_REDRIVE_CAP) {
+			logAction('src.redrive-brake', { uid, burst: this.driveBurst });
+			this.driveBurst = 0;
+			this.haltRunawayRecovery(); // pause + abort in-flight + sticky Retry — never a spinning flood
+			return false;
+		}
+		this.audio.src = url;
+		return true;
+	}
+
+	/**
 	 * EXTERNAL-PAUSE SELF-HEAL: the ONE sanctioned way to pause the element. Sets `deliberatePause`
 	 * so the `pause` listener knows this stop was intentional (user / MediaSession / sleep-timer /
 	 * offline) and must NOT be self-healed. Every code path that pauses on purpose calls this instead
@@ -1319,6 +1385,9 @@ class Player {
 			// (loop-guard / offline) notice so the UI stops showing "playback stopped" the instant
 			// playback resumes.
 			this.consecutiveFailures = 0;
+			this.failoverSkips = 0; // SYSTEMIC-FAILURE CEILING (debug-nowbar-frozen-audius-spam): real audio = the storm is not systemic.
+			this.driveBurst = 0; // SINGLE AUTHORITY (debug-song-click-lrc-flood-noplay): real output = the src re-drive is not looping.
+			this.lastDriveUid = null;
 			this.errorBurst = 0;
 			this.reresolveBurst = 0; // RERESOLVE-LOOP GUARD: real audio = the same-src re-resolve recovered.
 			this.rapidErrorBurst = 0; // RAPID-FIRE BRAKE (debug-nowbar-freeze-reresolve-loop): output = the storm ended.
@@ -1531,6 +1600,15 @@ class Player {
 				// the strikes), then advance. next() bumps playGen via play(), superseding any in-flight
 				// fallback/reresolve for the now-abandoned dead track so it cannot re-enter this handler.
 				if (this.current) this.strikeUnplayable(this.current.uid);
+				// SYSTEMIC-FAILURE CEILING (debug-nowbar-frozen-audius-spam): this ceiling just fired for
+				// yet another track with no real `playing` since the last one. Count it; once
+				// SYSTEMIC_SKIP_CAP distinct tracks fail back-to-back the outage is systemic, so STOP
+				// (pause + Retry) rather than skipping into another resolve/regenerate/prefetch burst that
+				// only spams /api/*. A real `playing` resets failoverSkips, so this can't trip on a blip.
+				if (++this.failoverSkips >= Player.SYSTEMIC_SKIP_CAP) {
+					this.haltRunawayRecovery();
+					return;
+				}
 				this.next();
 				return;
 			}
@@ -2138,54 +2216,9 @@ class Player {
 	}
 
 	private prewarmNextAssets(track: Track) {
+		// Cover warm only. The zero-fetch blob pre-buffer (f7c2580) was removed here
+		// (debug-nowbar-frozen-audius-spam) — see the prebuffered-fields note above.
 		this.preloadNextCover(track);
-		void this.prebufferNext(track);
-	}
-
-	/**
-	 * ZERO-FETCH BLOB PRE-BUFFER (bg-resolve-gap-stall / next-song-instant). Fetch the RESOLVED next
-	 * track's FULL bytes into a Blob NOW — while the current song is still playing and the page is
-	 * reliably awake — and hold it as a `blob:` Object URL keyed by uid. play() consumes it at advance
-	 * so the src-swap plays LOCAL bytes: instant, and with NO network fetch that could hang on a frozen
-	 * background page (the residual dead-run/grow freeze). Reuses the exact `fetch(url).blob()` the
-	 * Download feature already relies on (TrackMenu) — same-CDN CORS support is proven there. Replaces
-	 * the old throwaway `<audio preload=auto>` warm, which only warmed the HTTP cache and still forced
-	 * the real element to re-fetch at swap.
-	 *
-	 * Best-effort + fully guarded: no-op where fetch/createObjectURL are absent (SSR / node tests);
-	 * skipped for a downloaded track (the offline-blob branch already plays it locally); deduped per
-	 * uid; a newer next-track aborts the in-flight fetch; only a 200-OK response is stored (a 403 error
-	 * body is never buffered). A failure (no CORS on some source, network blip) is swallowed → play()
-	 * falls back to the CDN URL src (still works, just not zero-fetch). NEVER throws, never bumps playGen.
-	 */
-	private async prebufferNext(track: Track) {
-		if (!browser) return;
-		const url = track.audioUrl;
-		if (!url) return;
-		if (typeof fetch === 'undefined' || typeof URL === 'undefined' || !URL.createObjectURL) return;
-		if (library.isDownloaded(track.uid)) return; // offline-blob branch already serves this locally
-		if (this.prebufferedUid === track.uid) return; // already buffered / buffering this exact track
-		// Supersede any prior in-flight prebuffer for a DIFFERENT next track.
-		this.prebufferController?.abort();
-		this.prebufferController = new AbortController();
-		const sig = this.prebufferController.signal;
-		const seedUid = this.current?.uid; // stale-guard: current must not change away mid-fetch
-		try {
-			// Match the <audio> element's request (referrerpolicy=no-referrer) so a referrer-sensitive
-			// CDN serves the bytes; default mode 'cors' so the response Blob is readable.
-			const resp = await fetch(url, { signal: sig, referrerPolicy: 'no-referrer' });
-			if (sig.aborted || this.current?.uid !== seedUid) return;
-			if (!resp.ok) return; // never buffer a 403/redirect error body — only real 200 audio bytes
-			const blob = await resp.blob();
-			if (sig.aborted || this.current?.uid !== seedUid) return;
-			// Revoke a previously-buffered (now-superseded) blob URL before replacing it. The IN-USE
-			// playing URL is owned by cachedBlobUrl (ownership transferred at consume), never here.
-			if (this.prebufferedBlobUrl) URL.revokeObjectURL(this.prebufferedBlobUrl);
-			this.prebufferedBlobUrl = URL.createObjectURL(blob);
-			this.prebufferedUid = track.uid;
-		} catch {
-			/* best-effort — abort / CORS / network failure leaves the track un-prebuffered (CDN fallback) */
-		}
 	}
 
 	private preloadNextCover(track: Track) {
@@ -2507,18 +2540,9 @@ class Player {
 						this.cachedBlobUrl = URL.createObjectURL(blob);
 						src = this.cachedBlobUrl;
 					}
-				} else if (this.prebufferedUid === resolved.uid && this.prebufferedBlobUrl) {
-					// ZERO-FETCH (bg-resolve-gap-stall / next-song-instant): the next track's full bytes were
-					// pre-fetched to a blob during the PREVIOUS song's playback (page awake). Play the LOCAL
-					// blob — no network at the swap, so nothing to hang on a frozen background page and the
-					// next song starts instantly. Transfer ownership to cachedBlobUrl (existing revoke-on-
-					// next-play lifecycle) and clear the prebuffer slot so a later prebufferNext() never
-					// revokes the now-playing URL.
-					src = this.prebufferedBlobUrl;
-					this.cachedBlobUrl = this.prebufferedBlobUrl;
-					this.prebufferedBlobUrl = null;
-					this.prebufferedUid = null;
 				}
+				// (The zero-fetch blob pre-buffer consume branch was removed here —
+				// debug-nowbar-frozen-audius-spam. Non-downloaded tracks now always swap to the CDN URL.)
 				// Initial-load arming point (D-13): a NEW src for this track. Reset the played flag +
 				// arm the stall watchdog so a silent no-audio start (no `playing`/`timeupdate`
 				// within ~15s) routes into failover.
@@ -2532,18 +2556,19 @@ class Player {
 				// deliberate-pause flag so the next pause is judged on this src's own merits.
 				this.disarmResume();
 				this.deliberatePause = false;
-				this.audio.src = src;
+				// SINGLE AUTHORITY (debug-song-click-lrc-flood-noplay): attach the stream through the ONE
+				// braked setter. If this play() is the Nth rapid re-drive of the SAME track with no
+				// `playing` between (a reactive re-entry / recovery ping-pong — the "api loop hell"), the
+				// brake STOPS with a logged trigger and we bail this play() rather than re-driving again.
+				if (!this.driveSrc(resolved.uid, src)) return;
 				this.armStall();
-				// quick-260627-huo (HUO-PREFETCH): EAGER one-shot prefetch of the immediate-next at
-				// src-set — independent of the ~5s timeupdate gate — so a SHORT track or a FAST skip
-				// still has its next song pre-resolved + probe-verified before it ends (gapless,
-				// non-stop advance). Fired AFTER the src is attached so prefetchNext's indexOf(current)
-				// sees the correct current track. Arming prefetchArmedForSrc=true makes the timeupdate
-				// gate (the long-track backstop) a no-op for this src — single walk per src (T-huo-03).
-				// Best-effort + fire-and-forget (gen-guarded by prefetch's own seedUid/abort); NOT gated
-				// on the `playing` event (memory: that froze iOS — reverted).
-				this.prefetchArmedForSrc = true;
-				void this.prefetchNext();
+				// RELAX-PREFETCH (debug-song-click-lrc-flood-noplay): prefetch is driven ONLY by the
+				// timeupdate playback-elapsed gate (~5s into REAL playback) — the eager on-every-src fire
+				// + silent probe walk (quick-260627-huo) was REMOVED as part of the single-authority
+				// simplification. A track that never starts (the failure case) thus never triggers the
+				// speculative probe/resolve churn that fed the storm; a track that actually plays still
+				// pre-warms its next for a gapless advance. prefetchArmedForSrc stays false (set above) so
+				// the timeupdate gate arms the single walk once this src crosses the elapsed threshold.
 				// D-06: a rejected play() is intentionally surfaced to the stall/failure path, not
 				// swallowed — if play() rejects (iOS gesture loss after the async resolve) and no
 				// `play` event follows, the armed watchdog above routes into runFallback. The .catch
@@ -3089,30 +3114,57 @@ class Player {
 		// it and the user saw a "stopped" message while the player was merely skipping. The batched
 		// skip notice below is the correct, self-dismissing signal for a skip. `this.error` is reserved
 		// for a genuine give-up (offline with no downloads / a resolve throw), not the never-stop skip.
+		// SYSTEMIC-FAILURE CEILING (debug-nowbar-frozen-audius-spam): a total failover (EVERY source
+		// exhausted for this song) is another distinct failed track. Once SYSTEMIC_SKIP_CAP tracks fail
+		// back-to-back with no playback, STOP rather than skipping into yet another regenerate/resolve
+		// burst that spams /api/*. A real `playing` resets failoverSkips so this can't trip on a blip.
+		if (++this.failoverSkips >= Player.SYSTEMIC_SKIP_CAP) {
+			this.haltRunawayRecovery();
+			return;
+		}
 		// D-02: emit a batched skip notice and auto-skip to the next track.
 		this.emitSkipNotice(failed.title);
 		this.next();
 	}
 
 	/**
-	 * D-04 loop-guard STOP: stop auto-advancing, pause, clear the OS media UI, and surface ONE
-	 * sticky Retry notice (recoverFromStop skips ahead + resets + re-arms, D-05). Extracted so both
-	 * the consecutive-failure cap (handleTotalFailure) and the raw audio-error burst cap (CR-03, the
-	 * resolve-but-unplayable ping-pong backstop) can trip the guard directly. Always sets the inline
-	 * error key too (WR-07).
+	 * SYSTEMIC-FAILURE STOP (debug-nowbar-frozen-audius-spam; the re-enabled successor of the
+	 * ef2c751-disabled tripLoopGuard). Halt the never-stop recovery once it has become a RUNAWAY
+	 * (SYSTEMIC_SKIP_CAP distinct tracks failed back-to-back with no playback) — the state that
+	 * otherwise churns resolve/regenerate/prefetch bursts and spams /api/* until the app freezes.
+	 *
+	 * Crucially this ACTUALLY STOPS THE SPAM AT THE SOURCE: it does not just pause the <audio>, it
+	 * aborts the in-flight prefetch walk and cancels every pending delayed re-resolve, and — because it
+	 * does NOT call next()/advanceTo — nothing re-arms ensureAhead/regenerate/prefetch. It then surfaces
+	 * ONE sticky Retry notice; recoverFromStop (D-05) skips ahead, drops the dead sets, and re-arms.
+	 *
+	 * Why this can't false-positive the way the disabled rapid-error STOP did: see SYSTEMIC_SKIP_CAP.
+	 * Routes the pause through pauseAudio() (the intentional-pause path) so the `pause` listener treats
+	 * it as deliberate and never fights it with a re-play (mirrors handleOffline / the sleep-timer stop).
 	 */
-	// private tripLoopGuard() {
-	// 	this.consecutiveFailures = Player.FAILURE_CAP; // pin at the cap (idempotent across callers)
-	// 	this.error = 'toast.playbackStopped';
-	// 	this.audio?.pause();
-	// 	this.clearMedia();
-	// 	this.notice = {
-	// 		kind: 'stopped',
-	// 		reason: 'loop-guard',
-	// 		msg: 'toast.playbackStopped',
-	// 		action: () => this.recoverFromStop()
-	// 	};
-	// }
+	private haltRunawayRecovery() {
+		logAction('recovery.halt', { skips: this.failoverSkips });
+		this.failoverSkips = 0;
+		this.consecutiveFailures = Player.FAILURE_CAP; // pin at the cap (idempotent across callers)
+		this.errorBurst = 0;
+		this.rapidErrorBurst = 0;
+		this.reresolveBurst = 0;
+		this.loading = false;
+		this.playing = false;
+		// Cut every out-of-band /api/* fetch source dead so the STOP genuinely stops the spam.
+		this.prefetchController?.abort();
+		this.cancelAllRetryResolves();
+		this.disarmStall();
+		this.pauseAudio(); // intentional pause — the `pause` listener will not re-play it
+		this.clearMedia();
+		this.error = 'toast.playbackStopped';
+		this.notice = {
+			kind: 'stopped',
+			reason: 'loop-guard',
+			msg: 'toast.playbackStopped',
+			action: () => this.recoverFromStop()
+		};
+	}
 
 	/**
 	 * Recovery from the loop-guard stopped state (D-05). Bound to the sticky notice's Retry action
@@ -3122,6 +3174,9 @@ class Player {
 	 */
 	private recoverFromStop() {
 		this.consecutiveFailures = 0;
+		this.failoverSkips = 0; // SYSTEMIC-FAILURE CEILING (debug-nowbar-frozen-audius-spam): a manual retry re-arms it.
+		this.driveBurst = 0; // SINGLE AUTHORITY (debug-song-click-lrc-flood-noplay): a manual retry re-arms the src brake.
+		this.lastDriveUid = null;
 		this.errorBurst = 0;
 		this.rapidErrorBurst = 0; // RAPID-FIRE BRAKE (debug-nowbar-freeze-reresolve-loop): a full recovery re-arms it too.
 		this.lastAudioErrorAt = 0;

@@ -179,6 +179,9 @@ function installAssetPreloadMocks() {
 
 /** Mirror of Player.FAILURE_CAP (private static = 5) for the loop-guard tests. */
 const Player_FAILURE_CAP = 5;
+/** Mirror of Player.SYSTEMIC_SKIP_CAP (private static = 5) — the systemic-failure STOP ceiling
+ *  (debug-nowbar-frozen-audius-spam). */
+const Player_SYSTEMIC_SKIP_CAP = 5;
 /** Mirror of Player.STALL_TIMEOUT_MS (private static = 15000) for the stall-watchdog tests. */
 const Player_STALL_TIMEOUT_MS = 15000;
 /** Mirror of Player.PREFETCH_PLAYBACK_DELAY_MS (private static = 5000) for the delayed-trigger test. */
@@ -279,11 +282,16 @@ beforeEach(() => {
 	// debug-nowbar-freeze-reresolve-loop: the raw-audio-error ceiling + rapid-fire brake counters are
 	// session-scoped (reset by a real `playing` / play() / recoverFromStop in production). They must not
 	// leak across tests now that a ceiling reads them — a stale burst could trip the skip early.
-	const burst = player as unknown as { errorBurst: number; reresolveBurst: number; rapidErrorBurst: number; lastAudioErrorAt: number };
+	const burst = player as unknown as { errorBurst: number; reresolveBurst: number; rapidErrorBurst: number; lastAudioErrorAt: number; failoverSkips: number; consecutiveFailures: number };
 	burst.errorBurst = 0;
 	burst.reresolveBurst = 0;
 	burst.rapidErrorBurst = 0;
 	burst.lastAudioErrorAt = 0;
+	// debug-nowbar-frozen-audius-spam: the cross-track systemic-failure skip counter is session-scoped
+	// too (reset by a real `playing` / recoverFromStop). Reset it (and the legacy consecutiveFailures)
+	// so a leaked count from a prior storm/ceiling test can't falsely trip the SYSTEMIC STOP.
+	burst.failoverSkips = 0;
+	burst.consecutiveFailures = 0;
 });
 
 afterEach(() => {
@@ -414,7 +422,7 @@ describe('player.prefetchNext — pre-resolve next track for gapless-ish play', 
 	const primeNext = () => (player as unknown as { primeNext(): Promise<void> })['primeNext']();
 	const ensureAhead = () => (player as unknown as { ensureAhead(): Promise<void> })['ensureAhead']();
 
-	it("pre-resolves the next track's details and warms its cover (audio is blob-prebuffered)", async () => {
+	it("pre-resolves the next track's details and warms its cover (no audio byte-warm)", async () => {
 		const assets = installAssetPreloadMocks();
 		const cur = mk('netease', '0', 'A', 'Now');
 		const next = stub('qq', '1', 'B', 'Next'); // unresolved — readiness guard does NOT short-circuit
@@ -438,10 +446,9 @@ describe('player.prefetchNext — pre-resolve next track for gapless-ish play', 
 		// Resolved track written back into queue[1] (so a later play() no-ops).
 		expect(player.queue[1].detailsLoaded).toBe(true);
 		expect(player.queue[1].audioUrl).toBe('https://cdn/next.mp3');
-		// Byte-warm is now a blob PRE-BUFFER via fetch (bg-resolve-gap-stall / next-song-instant), NOT a
-		// throwaway <audio preload=auto> — so no HTMLAudioElement is constructed for warming. (fetch /
-		// createObjectURL are absent in the node test env → prebufferNext no-ops here; the dedicated
-		// prebuffer test below stubs them to exercise the real fetch → blob → play() consume path.)
+		// No audio byte-warm at all — the zero-fetch blob pre-buffer was removed
+		// (debug-nowbar-frozen-audius-spam) and there was never a throwaway <audio preload=auto> either,
+		// so no HTMLAudioElement is constructed for warming. Only the cover Image is warmed.
 		expect(assets.AudioCtor).not.toHaveBeenCalled();
 		expect(assets.ImageCtor).toHaveBeenCalledTimes(1);
 		expect(assets.images[0].src).toBe('https://img/next.jpg');
@@ -460,7 +467,7 @@ describe('player.prefetchNext — pre-resolve next track for gapless-ish play', 
 		expect(mockEnsure).not.toHaveBeenCalled();
 	});
 
-	it('warms the cover even when next track is already detailsLoaded (audio is blob-prebuffered, no throwaway <audio>)', async () => {
+	it('warms the cover even when next track is already detailsLoaded (no audio byte-warm)', async () => {
 		const assets = installAssetPreloadMocks();
 		const cur = mk('netease', '0', 'A', 'Now');
 		const next = { ...mk('qq', '1', 'B', 'Next'), cover: 'https://img/already.jpg' };
@@ -471,7 +478,7 @@ describe('player.prefetchNext — pre-resolve next track for gapless-ish play', 
 		await flush();
 
 		expect(mockEnsure).not.toHaveBeenCalled();
-		expect(assets.AudioCtor).not.toHaveBeenCalled(); // byte-warm is a fetch→blob prebuffer, not a throwaway audio
+		expect(assets.AudioCtor).not.toHaveBeenCalled(); // no audio byte-warm (blob pre-buffer removed)
 		expect(assets.ImageCtor).toHaveBeenCalledTimes(1);
 		expect(assets.images[0].src).toBe('https://img/already.jpg');
 	});
@@ -686,17 +693,16 @@ describe('player.prefetchNext — pre-resolve next track for gapless-ish play', 
 		expect(mockEnsure).toHaveBeenCalledWith(next, expect.any(AbortSignal));
 		expect(player.queue[1].audioUrl).toBe('https://cdn/next.mp3');
 		expect(assets.images[0].src).toBe('https://img/prime.jpg'); // cover still warmed
-		expect(assets.AudioCtor).not.toHaveBeenCalled(); // audio byte-warm is a fetch→blob prebuffer now
+		expect(assets.AudioCtor).not.toHaveBeenCalled(); // no audio byte-warm (blob pre-buffer removed)
 	});
 
-	it('ZERO-FETCH: prefetch blob-prebuffers the next track (fetch → blob → object URL) keyed by uid', async () => {
-		// bg-resolve-gap-stall / next-song-instant: the next track's full bytes are fetched to a blob
-		// during the CURRENT song (page awake) so play() can swap to the LOCAL blob: URL at advance —
-		// instant + nothing to hang on a frozen background page. Stub fetch + createObjectURL (absent in
-		// node) to exercise the real prebufferNext path. Auto-cleaned by the suite's afterEach unstub.
+	it('does NOT blob-prebuffer the next track (feature removed — debug-nowbar-frozen-audius-spam)', async () => {
+		// The zero-fetch blob pre-buffer (f7c2580) was removed: prefetch pre-resolves + warms the cover
+		// but NEVER fetches the next track's bytes. Stub fetch/createObjectURL and assert neither is
+		// touched by a prefetch, so the advance swap always uses the CDN URL (no multi-MB churn download).
 		const fetchMock = vi.fn(async () => ({ ok: true, blob: async () => new Blob(['audio-bytes']) }));
 		vi.stubGlobal('fetch', fetchMock);
-		const createObjSpy = vi.fn(() => 'blob:prebuffered-next');
+		const createObjSpy = vi.fn(() => 'blob:should-not-happen');
 		vi.stubGlobal('URL', {
 			createObjectURL: createObjSpy,
 			revokeObjectURL: vi.fn()
@@ -709,19 +715,16 @@ describe('player.prefetchNext — pre-resolve next track for gapless-ish play', 
 		player.current = cur;
 		mockEnsure.mockResolvedValue(resolvedNext);
 
-		await prefetch(); // lands `next`, fires prebufferNext → fetch(url) → blob → createObjectURL
+		await prefetch();
 		await flush();
 
-		expect(fetchMock).toHaveBeenCalledWith(
-			'https://cdn/next.mp3',
-			expect.objectContaining({ referrerPolicy: 'no-referrer' })
-		);
-		expect(createObjSpy).toHaveBeenCalledTimes(1); // a blob: URL was minted for the prebuffered bytes
-		// prebuffer slot now owns the local URL keyed by the next uid — play()'s network branch consumes
-		// it (src = prebufferedBlobUrl) instead of the CDN URL: zero network at the advance swap.
-		const state = player as unknown as { prebufferedUid: string | null; prebufferedBlobUrl: string | null };
-		expect(state.prebufferedUid).toBe(next.uid);
-		expect(state.prebufferedBlobUrl).toBe('blob:prebuffered-next');
+		// The next track was still pre-resolved into the queue (gapless-ish resolve is preserved)…
+		expect(player.queue[1].audioUrl).toBe('https://cdn/next.mp3');
+		// …but NO byte fetch / blob URL was created for it.
+		expect(fetchMock).not.toHaveBeenCalled();
+		expect(createObjSpy).not.toHaveBeenCalled();
+		const state = player as unknown as { prebufferedUid?: string | null };
+		expect(state.prebufferedUid).toBeUndefined();
 	});
 
 	// PLAY-RESILIENCE: bounded FORWARD-RESOLVE-AND-PROBE walk (restored from the pre-76b3e6f design).
@@ -1145,7 +1148,11 @@ describe('player.prefetchNext — never-stop (timeout retry + walk-exhaustion gr
 // cross the ~5s timeupdate prefetch gate. The fix fires an EAGER one-shot prefetchNext at play()'s
 // src-set (not gated on 5s, NOT gated on the `playing` event — memory: that froze iOS). These tests
 // use the REAL play() (restored from the global mock) + a fake <audio> so the src-set path runs.
-describe('player eager prefetch — immediate-next ready before short tracks / fast skips end', () => {
+// debug-song-click-lrc-flood-noplay (single-authority simplification): the EAGER prefetch-probe fire
+// on every src-set was REMOVED — prefetch now runs ONLY via the timeupdate playback-elapsed gate (~5s
+// into REAL playback). A track that never starts (the failure case) therefore never triggers the
+// speculative probe/resolve walk that fed the api storm.
+describe('player prefetch — timeupdate-gated single walk (eager on-every-src fire removed)', () => {
 	let el: ReturnType<typeof makeFakeAudio>;
 	// Spy on the private prefetchNext so we can count walks regardless of what they resolve.
 	let prefetchSpy: ReturnType<typeof vi.spyOn>;
@@ -1184,31 +1191,27 @@ describe('player eager prefetch — immediate-next ready before short tracks / f
 	const armedForSrc = () =>
 		(player as unknown as { prefetchArmedForSrc: boolean }).prefetchArmedForSrc;
 
-	it('play() eagerly prefetches the immediate-next WITHOUT waiting for the ~5s timeupdate gate', async () => {
+	it('play() does NOT prefetch at src-set — the eager on-every-src walk was removed (failure case never probes)', async () => {
 		const cur = mk('netease', '0', 'A', 'Now');
 		const next = stub('qq', '1', 'B', 'Next');
 		player.queue = [cur, next];
-		// A non-fresh play (no regenerate/weave) isolates the src-set eager prefetch from the fresh-play
-		// queue-rebuild path. play() resolves `cur` itself; the eager walk resolves `next`.
+		// A non-fresh play (no regenerate/weave) isolates the src-set path. play() resolves `cur` itself.
 		mockEnsure.mockImplementation(async (t: Track) => {
 			if (t.uid === next.uid) return { ...next, detailsLoaded: true, audioUrl: 'https://cdn/next.mp3' };
 			return { ...t, detailsLoaded: true };
 		});
 
-		// currentTime stays 0 — NO timeupdate is ever fired. The eager prefetch must still run.
+		// currentTime stays 0 — NO timeupdate fired. With the eager fire removed, prefetch must NOT run:
+		// a track that never crosses the ~5s playback gate (incl. one that fails to start) does no walk.
 		await player.play(cur, { fresh: false });
 		await flush();
 
-		// The eager walk fired at src-set (currentTime still 0 — gate never reached) and armed the src.
-		expect(prefetchSpy).toHaveBeenCalled();
-		expect(armedForSrc()).toBe(true);
-		expect(el.currentTime).toBe(0); // proves it did NOT wait for the 5s playback gate
-		// The immediate-next was pre-resolved by the eager walk.
-		expect(mockEnsure).toHaveBeenCalledWith(next, expect.any(AbortSignal));
-		expect(player.queue[1].audioUrl).toBe('https://cdn/next.mp3');
+		expect(prefetchSpy).not.toHaveBeenCalled();
+		expect(armedForSrc()).toBe(false); // still disarmed — the timeupdate gate has not fired
+		expect(el.currentTime).toBe(0);
 	});
 
-	it('the timeupdate gate does NOT fire a SECOND walk for the same src after the eager prefetch already armed it', async () => {
+	it('the timeupdate gate fires exactly ONE walk once the src crosses the ~5s elapsed threshold', async () => {
 		const cur = mk('netease', '0', 'A', 'Now');
 		const next = stub('qq', '1', 'B', 'Next');
 		player.queue = [cur, next];
@@ -1219,17 +1222,74 @@ describe('player eager prefetch — immediate-next ready before short tracks / f
 
 		await player.play(cur, { fresh: false });
 		await flush();
-		const eagerCalls = prefetchSpy.mock.calls.length;
-		expect(eagerCalls).toBeGreaterThanOrEqual(1);
-		expect(armedForSrc()).toBe(true);
+		expect(prefetchSpy).not.toHaveBeenCalled(); // nothing eager
 
-		// Drive the current src PAST the 5s gate and fire timeupdate — the gate must be a no-op now
-		// (prefetchArmedForSrc is already true → the existing !armed condition dedupes). Single walk/src.
+		// Cross the 5s gate and fire timeupdate → the single prefetch walk arms + runs.
 		el.currentTime = Player_PREFETCH_PLAYBACK_DELAY_MS / 1000 + 1; // 6s
 		el.fire('timeupdate');
 		await flush();
+		expect(prefetchSpy).toHaveBeenCalledTimes(1);
+		expect(armedForSrc()).toBe(true);
+		expect(player.queue[1].audioUrl).toBe('https://cdn/next.mp3'); // immediate-next pre-resolved
 
-		expect(prefetchSpy.mock.calls.length).toBe(eagerCalls); // no second walk for the same src
+		// A second timeupdate for the SAME src is a no-op (prefetchArmedForSrc dedupe) — one walk per src.
+		el.currentTime += 1;
+		el.fire('timeupdate');
+		await flush();
+		expect(prefetchSpy).toHaveBeenCalledTimes(1);
+	});
+});
+
+// debug-song-click-lrc-flood-noplay: the SINGLE audio.src AUTHORITY. The "api loop hell" was the SAME
+// track's src re-driven in a tight loop — `<audio>` `(cancels)` the prior load before firing `error`,
+// so the error-based ceiling never engaged and the flood was unbounded. driveSrc() brakes a rapid
+// same-uid re-drive → STOP (sticky Retry), while distinct uids (normal fast-skipping) never trip it.
+describe('player single audio.src authority — re-drive brake (debug-song-click-lrc-flood-noplay)', () => {
+	const CAP = 4; // mirror Player.SRC_REDRIVE_CAP
+	const drive = (uid: string, url: string) =>
+		(player as unknown as { driveSrc(u: string, x: string): boolean }).driveSrc(uid, url);
+
+	beforeEach(() => {
+		const el = makeFakeAudio();
+		player.attach(el as unknown as HTMLAudioElement);
+		player.notice = null;
+		player.error = null;
+		const p = player as unknown as { driveBurst: number; lastDriveUid: string | null };
+		p.driveBurst = 0;
+		p.lastDriveUid = null;
+	});
+
+	it('brakes a rapid SAME-uid re-drive storm → STOP (sticky Retry notice), and returns false', () => {
+		let braked = false;
+		for (let i = 0; i < CAP + 1; i++) {
+			if (!drive('netease:299942', 'https://cdn.example/299942.mp3')) braked = true;
+		}
+		expect(braked).toBe(true); // the storm was cut off, not left to flood
+		expect(player.notice?.kind).toBe('stopped');
+		expect(player.notice?.reason).toBe('loop-guard');
+	});
+
+	it('distinct uids (normal fast-skipping through songs) never trip the brake', () => {
+		let allSet = true;
+		for (let i = 0; i < CAP + 3; i++) {
+			if (!drive(`netease:${i}`, `https://cdn.example/${i}.mp3`)) allSet = false;
+		}
+		expect(allSet).toBe(true); // every distinct-track src was attached
+		expect(player.notice?.kind).not.toBe('stopped');
+	});
+
+	it('a real `playing` resets the brake so a later re-drive of the same track is not falsely stopped', () => {
+		const el = makeFakeAudio();
+		player.attach(el as unknown as HTMLAudioElement);
+		player.current = mk('netease', '299942', '王菲', '原谅自己');
+		// Drive up to just under the cap, then a real `playing` (output = not looping) resets the burst.
+		for (let i = 0; i < CAP - 1; i++) drive('netease:299942', 'https://cdn.example/299942.mp3');
+		el.fire('playing');
+		let braked = false;
+		for (let i = 0; i < CAP - 1; i++) {
+			if (!drive('netease:299942', 'https://cdn.example/299942.mp3')) braked = true;
+		}
+		expect(braked).toBe(false); // the reset prevented a false STOP after real playback
 	});
 });
 
@@ -1465,11 +1525,17 @@ describe('player resilience — loop-guard + skip-on-failure (PLAY-07/08)', () =
 	const setFailures = (n: number) => {
 		(player as unknown as { consecutiveFailures: number })['consecutiveFailures'] = n;
 	};
+	// SYSTEMIC-FAILURE STOP ceiling (debug-nowbar-frozen-audius-spam): the cross-track skip counter.
+	const setFailoverSkips = (n: number) => {
+		(player as unknown as { failoverSkips: number })['failoverSkips'] = n;
+	};
 
 	beforeEach(() => {
 		mockTryFallback.mockReset();
 		mockTryFallback.mockResolvedValue(null); // every source exhausted → total failure
 		setFailures(0);
+		setFailoverSkips(0); // persists on the singleton across tests — reset so a leak can't early-trip
+
 		// Reset the skip-burst batch state (private; persists on the singleton across tests).
 		const p = player as unknown as {
 			skipBurst: number;
@@ -1520,46 +1586,55 @@ describe('player resilience — loop-guard + skip-on-failure (PLAY-07/08)', () =
 		expect(player.notice?.count).toBe(2); // collapsed, not two separate notices
 	});
 
-	// it('at the cap: pauses, sets a sticky stopped notice with a Retry action, does NOT call next()', async () => {
-	// 	const a = mk('netease', 'a', 'A', 'Dead');
-	// 	const b = mk('qq', 'b', 'B', 'Next');
-	// 	player.queue = [a, b];
-	// 	player.current = a;
-	// 	setFailures(Player_FAILURE_CAP - 1); // one more failure trips the guard
-	// 	const playSpy = player.play as unknown as ReturnType<typeof vi.fn>;
-	// 	playSpy.mockClear();
+	it('SYSTEMIC STOP: at the skip cap it halts (pause + sticky Retry notice), does NOT advance, and aborts prefetch', async () => {
+		// debug-nowbar-frozen-audius-spam: N distinct tracks failing back-to-back is a systemic outage —
+		// keep skipping and the never-stop chain spams /api/* (resolve + 8× similar-search per cycle) until
+		// the pool saturates and the app freezes. The failoverSkips ceiling STOPS instead of advancing.
+		const a = mk('netease', 'a', 'A', 'Dead');
+		const b = mk('qq', 'b', 'B', 'Next');
+		player.queue = [a, b];
+		player.current = a;
+		setFailoverSkips(Player_SYSTEMIC_SKIP_CAP - 1); // one more failover trips the ceiling
+		const playSpy = player.play as unknown as ReturnType<typeof vi.fn>;
+		playSpy.mockClear();
+		// A live prefetch controller must be aborted by the halt so no further resolves fire.
+		const aborted = { value: false };
+		(player as unknown as { prefetchController: AbortController | null }).prefetchController = {
+			abort: () => {
+				aborted.value = true;
+			}
+		} as unknown as AbortController;
 
-	// 	await runFallback(a);
-	// 	await flush();
+		await runFallback(a);
+		await flush();
 
-	// 	expect(failures()).toBe(Player_FAILURE_CAP);
-	// 	expect(player.notice?.kind).toBe('stopped');
-	// 	expect(player.notice?.reason).toBe('loop-guard');
-	// 	expect(typeof player.notice?.action).toBe('function');
-	// 	expect(player.error).toBeTruthy(); // inline now-bar error still set
-	// 	// Loop-guard stops auto-advance.
-	// 	expect(playSpy).not.toHaveBeenCalled();
-	// });
+		expect(player.notice?.kind).toBe('stopped');
+		expect(player.notice?.reason).toBe('loop-guard');
+		expect(typeof player.notice?.action).toBe('function');
+		expect(player.error).toBeTruthy(); // inline now-bar error still set
+		expect(playSpy).not.toHaveBeenCalled(); // STOP — no advance into another resolve burst
+		expect(aborted.value).toBe(true); // in-flight prefetch cut off — no more /api/* fetches
+	});
 
-	// it('the Retry action resets the counter, clears the notice, and skips ahead (D-05)', async () => {
-	// 	const a = mk('netease', 'a', 'A', 'Dead');
-	// 	const b = mk('qq', 'b', 'B', 'Next');
-	// 	player.queue = [a, b];
-	// 	player.current = a;
-	// 	setFailures(Player_FAILURE_CAP - 1);
-	// 	await runFallback(a);
-	// 	await flush();
-	// 	expect(player.notice?.kind).toBe('stopped');
+	it('SYSTEMIC STOP Retry: resets the ceiling, clears the notice, and skips AHEAD (D-05)', async () => {
+		const a = mk('netease', 'a', 'A', 'Dead');
+		const b = mk('qq', 'b', 'B', 'Next');
+		player.queue = [a, b];
+		player.current = a;
+		setFailoverSkips(Player_SYSTEMIC_SKIP_CAP - 1);
+		await runFallback(a);
+		await flush();
+		expect(player.notice?.kind).toBe('stopped');
 
-	// 	const playSpy = player.play as unknown as ReturnType<typeof vi.fn>;
-	// 	playSpy.mockClear();
-	// 	player.notice?.action?.(); // user taps Retry
-	// 	await flush();
+		const playSpy = player.play as unknown as ReturnType<typeof vi.fn>;
+		playSpy.mockClear();
+		player.notice?.action?.(); // user taps Retry
+		await flush();
 
-	// 	expect(failures()).toBe(0); // counter reset
-	// 	expect(player.notice).toBeNull(); // sticky notice cleared
-	// 	expect(playSpy).toHaveBeenCalledWith(b); // skipped AHEAD to the next track, not retry-current
-	// });
+		expect(failures()).toBe(0); // consecutive-failure budget reset
+		expect(player.notice).toBeNull(); // sticky notice cleared
+		expect(playSpy).toHaveBeenCalledWith(b); // skipped AHEAD to the next track, not retry-current
+	});
 
 	it('a real `playing` event resets the counter and clears a stopped notice (D-06)', () => {
 		setFailures(3);
