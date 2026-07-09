@@ -86,6 +86,8 @@ async function probeJooxAudioUrl(
 		const timeout = AbortSignal.timeout(PROBE_TIMEOUT_MS);
 		const signal =
 			typeof AbortSignal.any === 'function' ? AbortSignal.any([timeout, outerSignal]) : timeout;
+		// RAW fetch (not apiFetch — fetch→apiFetch audit): `u` is an ABSOLUTE JOOX CDN audio URL probed
+		// for playability (media, HEAD/GET), not an /api JSON call. apiFetch would corrupt an absolute URL.
 		const res = await fetch(u, {
 			method,
 			cache: 'no-store',

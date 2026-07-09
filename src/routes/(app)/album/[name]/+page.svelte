@@ -382,6 +382,9 @@
 				// Access-Control-Allow-Origin, so the blob path silently fails without this).
 				let didSave = false;
 				try {
+					// RAW fetch (not apiFetch — fetch→apiFetch audit): MEDIA download-to-blob of the resolved
+					// audio stream. audioUrl is often an ABSOLUTE CDN URL — apiFetch would corrupt it — and a
+					// full-file body must not go through the JSON governor's dedup/concurrency cap.
 					const resp = await fetch(full.audioUrl);
 					const blob = await resp.blob();
 					const ext = (full.audioUrl.split('?')[0].match(/\.(mp3|flac|m4a|aac|ogg|wav)$/i)?.[1] ?? 'mp3').toLowerCase();

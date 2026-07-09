@@ -123,6 +123,7 @@ async function nativeGet(uid: string): Promise<Blob | null> {
 		// Resolve the file's URI and let the WebView stream it natively via convertFileSrc + fetch —
 		// no per-byte JS work, no giant intermediate string.
 		const { uri } = await Filesystem.getUri({ path: nativePath(uid), directory: NATIVE_DIR });
+		// RAW fetch (not apiFetch — fetch→apiFetch audit): a LOCAL Capacitor file URI, not /api.
 		const res = await fetch(Capacitor.convertFileSrc(uri));
 		if (!res.ok) return null;
 		return await res.blob();

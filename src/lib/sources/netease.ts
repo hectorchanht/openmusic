@@ -116,7 +116,13 @@ export const netease: SourceAdapter = {
 		// BOTH the json-wrapped shape (old) and the plain-text shape (current), null only on a real miss.
 		if (!track.lrc && track.lrcUrl) {
 			try {
-				const lr = await fetch(track.lrcUrl, { signal });
+				// GOVERNED (fetch→apiFetch audit): route OUR own-origin proxy lyric path through apiFetch
+				// (dedup + concurrency cap + circuit breaker) so a resolve loop can never flood
+				// /api/netease/lrc (debug-song-click-lrc-flood-noplay). A pre-existing UPSTREAM lrcUrl from
+				// search (it.lrc — an absolute URL) stays RAW: apiFetch would prepend the API base + corrupt it.
+				const lr = track.lrcUrl.includes('/api/netease/lrc')
+					? await apiFetch(`/api/netease/lrc?id=${encodeURIComponent(track.songid)}`, { signal })
+					: await fetch(track.lrcUrl, { signal });
 				const body = await lr.text();
 				track.lrc = extractLrcFromBody(body) ?? track.lrc ?? null;
 			} catch {

@@ -93,6 +93,8 @@ interface GResult {
 async function gtranslate(text: string, to: string): Promise<GResult | null> {
 	try {
 		const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${to}&dt=t&q=${encodeURIComponent(text)}`;
+		// RAW fetch (not apiFetch — fetch→apiFetch audit): SERVER-SIDE (edge) fetch of the ABSOLUTE upstream
+		// Google Translate URL. apiFetch is the client seam and would prepend the /api base — wrong here.
 		const res = await fetch(url, { signal: AbortSignal.timeout(TIMEOUT_MS) });
 		if (!res.ok) return null;
 		// shape: [ [ [translatedChunk, originalChunk, ...], ... ], ... ]

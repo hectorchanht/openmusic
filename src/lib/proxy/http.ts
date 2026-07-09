@@ -57,6 +57,8 @@ export async function fetchWithRetry(
 	let lastErr: unknown;
 	for (let attempt = 0; attempt <= retries; attempt++) {
 		try {
+			// RAW fetch (not apiFetch — fetch→apiFetch audit): SERVER-SIDE (Cloudflare edge) fetch of the
+			// UPSTREAM source. apiFetch is the CLIENT seam; it does not (and must not) run edge-side.
 			const res = await fetch(url, init);
 			if (RETRYABLE_STATUS.has(res.status) && attempt < retries) {
 				// Drain the body so the connection can be reused, then back off.

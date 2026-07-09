@@ -152,6 +152,9 @@
 		library.addDownload(r);
 		if (!r.audioUrl) return toast.show(t('toast.noAudio'));
 		try {
+			// RAW fetch (not apiFetch — fetch→apiFetch audit): this is a MEDIA download-to-blob of the
+			// resolved audio stream. audioUrl is often an ABSOLUTE CDN URL (qq/kuwo/joox) — apiFetch would
+			// corrupt it — and a full-file body must not be routed through the JSON governor's dedup/cap.
 			const resp = await fetch(r.audioUrl);
 			const blob = await resp.blob();
 			// kyf: persist the SAME blob into the offline cache (IndexedDB) so a later

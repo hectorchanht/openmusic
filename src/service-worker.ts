@@ -52,6 +52,8 @@ sw.addEventListener('fetch', (event) => {
 			}
 			// otherwise network, caching successful (200) same-origin responses
 			try {
+				// RAW fetch (not apiFetch — fetch→apiFetch audit): the SERVICE WORKER's own network pass for
+				// an intercepted Request. Runs in the SW scope (no apiFetch/governor there); not a client /api call.
 				const res = await fetch(event.request);
 				// Only cache basic, non-redirected, same-origin 200 responses. `Cache.put()`
 				// THROWS a TypeError on a redirect-followed response (`res.redirected === true`)

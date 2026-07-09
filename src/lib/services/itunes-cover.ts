@@ -88,6 +88,8 @@ function combinedSignal(caller?: AbortSignal): AbortSignal {
 async function fetchTopArtwork(url: string, signal?: AbortSignal): Promise<string | null> {
 	if (signal?.aborted) return null;
 	try {
+		// RAW fetch (not apiFetch — fetch→apiFetch audit): `url` is an ABSOLUTE cross-origin
+		// itunes.apple.com URL. apiFetch prepends the /api base (apiUrl) → would corrupt it. Not /api.
 		const res = await fetch(url, { signal: combinedSignal(signal) });
 		if (!res.ok) return null;
 		const data = (await res.json()) as ItunesResponse;
