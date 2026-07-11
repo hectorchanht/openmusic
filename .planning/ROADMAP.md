@@ -91,6 +91,7 @@ Full phase details archived in [`milestones/v1.2-ROADMAP.md`](milestones/v1.2-RO
 | 24. Offline App-Shell & Sharing/SEO | v1.2 | Complete | 2026-06-15 |
 | 11–13. Last.fm Write-side | v1.3 | Planned | — |
 | 25. zh-Hant Offline Conversion + Fallback Cascade | 3/3 | Complete   | 2026-07-11 |
+| 26. Minimal-API Click-to-Play Redesign | 11/11 | Complete   | 2026-07-11 |
 
 ## Backlog
 
