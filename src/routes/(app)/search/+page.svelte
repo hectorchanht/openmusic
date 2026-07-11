@@ -2,7 +2,7 @@
 	import { onDestroy, onMount, tick } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { searchAll } from '$lib/services/catalog';
-	import { dedupeBest } from '$lib/services/dedupe';
+	import { dedupeBest, groupVariants } from '$lib/services/dedupe';
 	import { dedupeBestWithDeezer } from '$lib/services/dedupe-deezer';
 	import { scoreMatch } from '$lib/services/score-match';
 	import { computeSetContext } from '$lib/services/score-context';
@@ -24,7 +24,7 @@
 	import { searchHistory } from '$lib/stores/searchHistory.svelte';
 	import { online } from '$lib/stores/online.svelte';
 	import { t } from '$lib/i18n';
-	import { LoaderCircle, ListEnd, ListStart } from '@lucide/svelte';
+	import { LoaderCircle, ListEnd, ListStart, Layers } from '@lucide/svelte';
 	import { longpress } from '$lib/actions/longpress';
 	import { swipeAction } from '$lib/actions/swipeAction';
 	import { tapBounce } from '$lib/actions/tapBounce';
@@ -32,6 +32,7 @@
 	import { toast } from '$lib/stores/toast.svelte';
 	import { tick as hapticTick } from '$lib/util/haptics';
 	import TrackMenu from '$lib/components/TrackMenu.svelte';
+	import VersionPicker from '$lib/components/VersionPicker.svelte';
 	import type { Track } from '$lib/sources/types';
 
 	// UX-04 / D-03/D-04: swipe-right = add to queue (TrackMenu addQueue semantics — append to
@@ -52,6 +53,27 @@
 
 	let menuTrack = $state<Track | null>(null);
 	let menuOpen = $state(false);
+
+	// VERSIONS-01: the version picker consumes the RETAINED pre-dedupe variants. `variantGroups`
+	// maps EVERY variant uid → its same-song cross-source group (built from the interleaved
+	// pre-dedupe set via groupVariants). A displayed (deduped) row's uid is a member of its own
+	// group, so `variantGroups[row.uid]` yields the full source list for that song — no private
+	// identity key needed here. Zero new API calls: the data is already in the search result set.
+	let variantGroups = $state<Record<string, Track[]>>({});
+	let pickerVersions = $state<Track[]>([]);
+	let pickerOpen = $state(false);
+	// aria-label for the trigger, resolved OUTSIDE the {#each results as t} block where `t` is the
+	// loop's Track (shadowing the i18n `t()`); $derived so it re-resolves on appLang change.
+	const verOpenLabel = $derived(t('versions.open'));
+
+	// Build the uid → variant-group lookup from the interleaved pre-dedupe set. Pure/local.
+	function buildVariantGroups(interleaved: Track[]): Record<string, Track[]> {
+		const byUid: Record<string, Track[]> = {};
+		for (const group of groupVariants(interleaved).values()) {
+			for (const v of group) byUid[v.uid] = group;
+		}
+		return byUid;
+	}
 
 	let q = $state('');
 	let queryInputEl = $state<HTMLInputElement | null>(null);
@@ -259,6 +281,7 @@
 		// D-02: a NEW query resets pagination AND clears the prior result set so the
 		// D-01 first-load skeleton shows immediately.
 		results = [];
+		variantGroups = {}; // VERSIONS-01: drop the prior query's variant groups too
 		inputFocused = false;
 		loading = true;
 		// BUGFIX: raise the dwell-floored skeleton flag and stamp the start so the finally
@@ -277,9 +300,12 @@
 				// SRCH-01/D-02: re-sort by score INSIDE the race guard (Pitfall 3 — a superseded
 				// partial returns above before ever reaching here).
 				results = rankList(dedupeBest(partial.interleaved, settings.preferredSource), kw);
+				// VERSIONS-01: retain the pre-dedupe variants alongside the displayed rows.
+				variantGroups = buildVariantGroups(partial.interleaved);
 			});
 			// Final value is authoritative — re-derive from the complete superset, then re-sort.
 			results = rankList(dedupeBest(interleaved, settings.preferredSource), kw);
+			variantGroups = buildVariantGroups(interleaved); // VERSIONS-01
 			someFailed = perSource.some((p) => p.status === 'error');
 			// kyf: derive artist tiles from the settled result set (race-guarded inside).
 			void refreshArtistTiles(kw, results);
@@ -341,6 +367,7 @@
 			} else {
 				// REPLACE with the cumulative superset (never concatenate — see pagination_mechanism).
 				results = merged;
+				variantGroups = buildVariantGroups(interleaved); // VERSIONS-01: grow the variant groups too
 				page = next;
 				persistSession(); // D-02: keep the session fresh so a mid-scroll nav restores the larger set
 			}
@@ -559,32 +586,49 @@
 	{/if}
 	<ul class="list">
 		{#each results as t (t.uid)}
-			<li class="swipe-wrap">
-				<!-- UX-04 reveal layers sit BEHIND the row; the row translateX (use:swipeAction) slides
-				     to expose them. Right-drag exposes the left-anchored queue affordance; left-drag
-				     exposes the right-anchored like affordance. aria-hidden — the equivalent actions stay
-				     reachable via the long-press TrackMenu (swipe is an enhancement). -->
-				<span class="reveal reveal-queue" aria-hidden="true"><ListEnd size={20} /></span>
-				<span class="reveal reveal-next" aria-hidden="true"><ListStart size={20} /></span>
-				<button
-					class="row"
-					class:is-active={player.current?.uid === t.uid}
-					use:tapBounce
-					use:longpress
-					onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); menuTrack = t; menuOpen = true; }}
-					onclick={() => { player.setListQueue(results, 'search'); player.play(t, { fresh: true }); }}
-					use:swipeAction={{ onSwipeRight: () => swipeQueue(t), onSwipeLeft: () => swipeNext(t) }}
-				>
-					<span
-						class="art"
-						use:lazyCover={{ track: t, onResolved: (uid, url) => { resolvedCovers = { ...resolvedCovers, [uid]: url }; } }}
-						style:background-image={(resolvedCovers[t.uid] ?? t.cover) ? `url(${resolvedCovers[t.uid] ?? t.cover})` : fallbackCover(t)}
-					></span>
-					<span class="meta">
-						<span class="r-title">{names.dnTitle(t.title)}</span>
-						<span class="r-artist">{names.dnArtist(t.artist)}</span>
-					</span>
-				</button>
+			<li class="row-line">
+				<!-- VERSIONS-01: version-picker trigger. A SIBLING tap target (its own ≥44px hit area,
+				     mirroring CompactRow's .opt layout) placed BEFORE the play/grip control, so it never
+				     nests inside the row play button. Rendered ONLY when this song has >1 source variant
+				     (a single-source song has nothing to pick). Opens the picker with the retained
+				     pre-dedupe variant group — zero new API calls. -->
+				{#if (variantGroups[t.uid]?.length ?? 0) > 1}
+					<button
+						class="ver"
+						aria-label={verOpenLabel}
+						onclick={() => { pickerVersions = variantGroups[t.uid] ?? []; pickerOpen = true; }}
+						use:tapBounce
+					>
+						<Layers size={18} />
+					</button>
+				{/if}
+				<div class="swipe-wrap">
+					<!-- UX-04 reveal layers sit BEHIND the row; the row translateX (use:swipeAction) slides
+					     to expose them. Right-drag exposes the left-anchored queue affordance; left-drag
+					     exposes the right-anchored like affordance. aria-hidden — the equivalent actions stay
+					     reachable via the long-press TrackMenu (swipe is an enhancement). -->
+					<span class="reveal reveal-queue" aria-hidden="true"><ListEnd size={20} /></span>
+					<span class="reveal reveal-next" aria-hidden="true"><ListStart size={20} /></span>
+					<button
+						class="row"
+						class:is-active={player.current?.uid === t.uid}
+						use:tapBounce
+						use:longpress
+						onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); menuTrack = t; menuOpen = true; }}
+						onclick={() => { player.setListQueue(results, 'search'); player.play(t, { fresh: true }); }}
+						use:swipeAction={{ onSwipeRight: () => swipeQueue(t), onSwipeLeft: () => swipeNext(t) }}
+					>
+						<span
+							class="art"
+							use:lazyCover={{ track: t, onResolved: (uid, url) => { resolvedCovers = { ...resolvedCovers, [uid]: url }; } }}
+							style:background-image={(resolvedCovers[t.uid] ?? t.cover) ? `url(${resolvedCovers[t.uid] ?? t.cover})` : fallbackCover(t)}
+						></span>
+						<span class="meta">
+							<span class="r-title">{names.dnTitle(t.title)}</span>
+							<span class="r-artist">{names.dnArtist(t.artist)}</span>
+						</span>
+					</button>
+				</div>
 			</li>
 		{/each}
 
@@ -601,6 +645,16 @@
 {/if}
 
 <TrackMenu track={menuTrack} open={menuOpen} onclose={() => (menuOpen = false)} />
+
+<!-- VERSIONS-01: ONE VersionPicker mount (mirrors the single TrackMenu mount), driven by
+     pickerVersions/pickerOpen. onpick plays the chosen source's EXACT variant; default row tap
+     is unchanged (still plays the deduped winner). -->
+<VersionPicker
+	versions={pickerVersions}
+	open={pickerOpen}
+	onclose={() => (pickerOpen = false)}
+	onpick={(v) => { player.setListQueue(results, 'search'); player.play(v, { fresh: true }); }}
+/>
 
 <style>
 	.head h1 { font-size: calc(1.4rem * var(--fs-title, 1)); margin: 16px 0 12px; }
@@ -667,11 +721,21 @@
 	}
 
 	.list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+	/* VERSIONS-01: a song row = the optional leading version trigger + the swipeable play row, laid
+	   out together so the trigger is a SIBLING tap target (its own ≥44px hit area) rather than nested
+	   inside the play button. The swipe-wrap flexes to fill the remaining width. */
+	.row-line { display: flex; align-items: center; gap: 8px; min-height: 44px; }
+	.ver {
+		flex: none; width: 44px; height: 44px; display: grid; place-items: center;
+		background: none; border: none; border-radius: var(--radius-full, 999px);
+		color: var(--color-text-muted); cursor: pointer;
+	}
+	@media (hover: hover) { .ver:hover { background: var(--color-surface); color: var(--color-text); } }
 	/* UX-04: positioning context for the swipe reveal layers. The reveal spans sit BEHIND the row
 	   (the row carries an opaque background); the row's translateX (use:swipeAction) slides to
 	   expose the correct side. overflow:hidden clips the row's off-screen travel + keeps the
 	   reveal masked at rest. */
-	.swipe-wrap { position: relative; overflow: hidden; border-radius: 10px; }
+	.swipe-wrap { position: relative; overflow: hidden; border-radius: 10px; flex: 1; min-width: 0; }
 	.reveal {
 		position: absolute; top: 0; bottom: 0; width: 96px; display: flex; align-items: center;
 		justify-content: center; color: #fff; pointer-events: none;
