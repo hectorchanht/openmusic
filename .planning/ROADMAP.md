@@ -59,6 +59,10 @@ Full phase details archived in [`milestones/v1.2-ROADMAP.md`](milestones/v1.2-RO
 - [ ] Phase 12: Scrobble
 - [ ] Phase 13: Loved-track Sync
 
+### 🌐 Translation Reliability (Phase 25, planned)
+
+- [ ] Phase 25: zh-Hant Offline Conversion + Translation Fallback Cascade — bundle `tongwen-core` + `tongwen-dict` s2t dicts (~72 KB gz, lazy client-side dynamic import); route Chinese source → offline Simplified→Traditional when target `zh-Hant` (no API, works offline/lockscreen); replace the single unofficial-Google call with a provider **cascade Azure → DeepL → Google** (advance on failure / rate-limit / echo via the existing `flags`/`complete` signal); CJK-source detection so JA kanji isn't mis-converted; existing test suite stays green. See [`notes/zh-hant-offline-conversion.md`](notes/zh-hant-offline-conversion.md).
+
 ## Progress
 
 | Phase | Milestone | Status | Completed |
@@ -78,6 +82,7 @@ Full phase details archived in [`milestones/v1.2-ROADMAP.md`](milestones/v1.2-RO
 | 23. UX Audit & Homepage/Artist Polish | v1.2 | Complete | 2026-06-15 |
 | 24. Offline App-Shell & Sharing/SEO | v1.2 | Complete | 2026-06-15 |
 | 11–13. Last.fm Write-side | v1.3 | Planned | — |
+| 25. zh-Hant Offline Conversion + Fallback Cascade | — | Planned | — |
 
 ## Backlog
 
