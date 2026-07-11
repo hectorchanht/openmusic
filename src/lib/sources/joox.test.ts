@@ -468,3 +468,81 @@ describe('joox.resolve — quality order (pickJooxPlayUrl)', () => {
 		expect(out.jooxQualityText).toBe('无损FLAC');
 	});
 });
+
+describe('joox.resolve — graceful failed-resolve sentinel + bounded self-heal (plan 26-11)', () => {
+	async function searchTracks(): Promise<Track[]> {
+		vi.stubGlobal('fetch', mockJsonFetch(searchFixture));
+		return joox.search('周杰伦', 1, ac.signal);
+	}
+
+	// A re-search that does NOT contain 晴天 (001Bnq3w0u8Pql) → the self-heal cannot re-locate.
+	const reSearchWithoutTarget = {
+		code: 200,
+		data: {
+			songs: [
+				{
+					songmid: '002cZ5jq3Hk8Yz',
+					'歌曲ID': 'songid-002cZ5jq3Hk8Yz',
+					'歌曲名称': '稻香',
+					'歌手': '周杰伦',
+					'专辑': '魔杰座'
+				}
+			]
+		}
+	};
+
+	// The graceful-fail return is the EXACT shape player.play's `!resolved.audioUrl` branch keys on.
+	it('unrecoverable mismatch returns the passed-in track with audioUrl=null + detailsLoaded=false and adopts no wrong-song field', async () => {
+		const tracks = await searchTracks();
+		const target = tracks.find((t) => t.songMid === '001Bnq3w0u8Pql')!; // 晴天, jooxIndex=2
+		const originalTitle = target.title;
+		const originalSongId = target.jooxSongId;
+
+		const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+		// n=2 returns 稻香 (WRONG, strong-disjoint); the re-search cannot locate 晴天.
+		vi.stubGlobal('fetch', mockSelfHealFetch(reSearchWithoutTarget, { 2: detailFixture }));
+
+		const out = await joox.resolve(target, ac.signal);
+
+		// The failed-resolve sentinel: SAME track object, no wrong-song substitution.
+		expect(out).toBe(target);
+		expect(out.audioUrl).toBeNull();
+		expect(out.detailsLoaded).toBe(false);
+		// Wrong-song fields (稻香 / 002cZ5.../songid-002cZ5...) were NEVER copied onto the track.
+		expect(out.title).toBe(originalTitle);
+		expect(out.title).not.toBe('稻香');
+		expect(out.jooxSongId).toBe(originalSongId);
+		expect(out.songMid).toBe('001Bnq3w0u8Pql');
+		warnSpy.mockRestore();
+	});
+
+	// BOUNDED: exactly one extra /api/joox/search on the disjoint path — no fan-out, no recursion.
+	it('the disjoint self-heal fires AT MOST one /api/joox/search', async () => {
+		const tracks = await searchTracks();
+		const target = tracks.find((t) => t.songMid === '001Bnq3w0u8Pql')!; // 晴天, jooxIndex=2
+
+		const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+		const spy = mockSelfHealFetch(reSearchWithoutTarget, { 2: detailFixture });
+		vi.stubGlobal('fetch', spy);
+
+		await joox.resolve(target, ac.signal);
+
+		const searchCalls = spy.mock.calls.filter((c) => String(c[0]).startsWith('/api/joox/search'));
+		expect(searchCalls.length).toBeLessThanOrEqual(1);
+		expect(searchCalls.length).toBe(1);
+		warnSpy.mockRestore();
+	});
+
+	// A CONFIRMED resolve makes ZERO self-heal search calls (the fast path never fans out).
+	it('a confirmed resolve makes ZERO /api/joox/search calls', async () => {
+		const tracks = await searchTracks();
+		const target = tracks.find((t) => t.songMid === detailFixture.data.songmid)!; // 稻香, confirmed
+		const spy = mockResolveFetch(detailFixture);
+		vi.stubGlobal('fetch', spy);
+
+		await joox.resolve(target, ac.signal);
+
+		const searchCalls = spy.mock.calls.filter((c) => String(c[0]).startsWith('/api/joox/search'));
+		expect(searchCalls.length).toBe(0);
+	});
+});
