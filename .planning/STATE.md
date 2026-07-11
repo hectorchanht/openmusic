@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Resilient Playback & UX Polish` below). The Last.fm write-side
 status: executing
-stopped_at: Phase 24 context gathered
-last_updated: "2026-07-11T08:52:10.577Z"
+stopped_at: Completed 25-02-PLAN.md
+last_updated: "2026-07-11T09:08:48.263Z"
 last_activity: 2026-07-11
 progress:
   total_phases: 18
   completed_phases: 14
-  total_plans: 62
-  completed_plans: 56
+  total_plans: 64
+  completed_plans: 57
   percent: 78
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-06-10)
 ## Current Position
 
 Phase: 25 (zh-hant-offline-conversion-fallback-cascade) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-07-11
 
@@ -71,6 +71,7 @@ Last activity: 2026-07-11
 | Phase 19 P02 | 10 min | 3 tasks | 1 files |
 | Phase 19 P03 | 5 min | 2 tasks | 7 files |
 | Phase 25 P01 | 9min | 3 tasks | 4 files |
+| Phase 25 P02 | 9min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -118,6 +119,8 @@ Recent decisions affecting current work:
 - [Phase ?]: 19-03: MENU-03/D-12 stuck-highlight fix lands ENTIRELY at the 6 long-press trigger sites + one global app.css tap-highlight reset; longpress.ts and all onclick handlers untouched (suppressNextClick trailing-click guard + pointercancel/pointerup :active release preserved). Each sticky :hover/:active wrapped in @media (hover: hover) byte-unchanged; every onlongpress calls (e.currentTarget as HTMLElement)?.blur(). pnpm check 0/0, 626 tests green; device-pass deferred.
 - [Phase 25]: 25-01: Import tongwen-core/esm/{converter,dictionary} submodules (not the index) — the index re-exports a DOM walker (NodeFilter, undefined in the node Vitest project); deep-import is walker-free and trims the browser chunk
 - [Phase 25]: 25-01: Offline s2t converter is lazy (dynamic import() only, memoized) + never-throw identity fallback; s2t char+phrase dicts only, t2s empty to keep the lazy chunk ~72 KB (D-01/D-03/D-04)
+- [Phase ?]: D-05: /api/translate runs an ordered Azure -> DeepL -> Google provider cascade, advancing on transport error / non-2xx / rate-limit / echo — single free-Google endpoint rate-limited + silently echoed originals; cascade keeps translation working when one provider is down (25-02)
+- [Phase ?]: D-06: Azure/DeepL provider keys are OPTIONAL + edge-only in Env (parity with JOOX_TOKEN/LASTFM_*) — absent key skips that tier and the cascade falls through to keyless Google; keys never appear in response body or client bundle (25-02)
 
 ### Pending Todos
 
@@ -263,8 +266,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-11T08:49:45.980Z
-Stopped at: Phase 24 context gathered
+Last session: 2026-07-11T09:08:37.155Z
+Stopped at: Completed 25-02-PLAN.md
 Resume: plan Phase 16 (`/gsd:plan-phase 16`). Phase 16 is the resilience-core dependency root; everything else builds on its `queueContext` / 2-state repeat / skip-loop guard.
 
 ## Deferred Items
