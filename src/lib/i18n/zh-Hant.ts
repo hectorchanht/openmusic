@@ -53,6 +53,10 @@ const zhHant: Dict = {
 	"search.recent": "最近搜尋",
 	"search.clear": "清除",
 	"search.suggestions": "建議",
+	"search.clearInput": "清除搜尋",
+	"search.removeRecent": "移除",
+	"search.confirmRemoveRecent": "從最近搜尋中移除「{q}」？",
+	"search.confirmClearAll": "清除所有最近搜尋？",
 
 	// --- settings ---
 	"settings.title": "設定 · openmusic",

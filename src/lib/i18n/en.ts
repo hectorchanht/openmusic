@@ -59,6 +59,10 @@ const en = {
 	"search.recent": "Recent searches",
 	"search.clear": "Clear",
 	"search.suggestions": "Suggestions",
+	"search.clearInput": "Clear search",
+	"search.removeRecent": "Remove",
+	"search.confirmRemoveRecent": "Remove \"{q}\" from recent searches?",
+	"search.confirmClearAll": "Clear all recent searches?",
 
 	// --- settings ---
 	"settings.title": "Settings · openmusic",

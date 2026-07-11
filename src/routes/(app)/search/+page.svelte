@@ -24,7 +24,7 @@
 	import { searchHistory } from '$lib/stores/searchHistory.svelte';
 	import { online } from '$lib/stores/online.svelte';
 	import { t } from '$lib/i18n';
-	import { LoaderCircle, ListEnd, ListStart, Layers } from '@lucide/svelte';
+	import { LoaderCircle, ListEnd, ListStart, Layers, X, Trash2 } from '@lucide/svelte';
 	import { longpress } from '$lib/actions/longpress';
 	import { swipeAction } from '$lib/actions/swipeAction';
 	import { tapBounce } from '$lib/actions/tapBounce';
@@ -146,6 +146,9 @@
 			fetchSuggestions.cancel();
 			suggestAc?.abort();
 			suggestions = [];
+			// quick-260711-sm7: typing the input back to empty collapses the content area to the
+			// recent-keywords idle state (clears any prior result set / "no results" message).
+			if (kw.length === 0) resetResults();
 			return;
 		}
 		fetchSuggestions(kw);
@@ -159,6 +162,47 @@
 		fetchSuggestions.cancel();
 		suggestAc?.abort();
 		run();
+	}
+
+	// quick-260711-sm7: reset the content area back to the idle (pre-search) state without
+	// touching the query string. Clears the result set + all its derived UI (variant groups,
+	// artist tiles, pagination, "some failed" flag) so an emptied input renders ONLY the
+	// recent-keywords list. Shared by clearSearch() (the X button) and onSuggestInput()
+	// (typing back to empty).
+	function resetResults() {
+		results = [];
+		variantGroups = {};
+		artistTiles = [];
+		artistTilesFor = '';
+		hasMore = false;
+		page = 1;
+		searched = false;
+		someFailed = false;
+	}
+
+	// quick-260711-sm7 (req 1+2): the clear (X) button empties the input and collapses content
+	// to the recent-keywords state. Cancels the typeahead + any in-flight search/load-more,
+	// resets the result set, and wipes the in-memory session (searchSession.reset) so a
+	// tab-return does NOT restore the prior results (D-02). Keeps focus so the user can retype.
+	function clearSearch() {
+		q = '';
+		fetchSuggestions.cancel();
+		suggestAc?.abort();
+		suggestions = [];
+		ac?.abort();
+		moreAc?.abort();
+		resetResults();
+		searchSession.reset();
+		inputFocused = true;
+		queryInputEl?.focus();
+	}
+
+	// quick-260711-sm7 (req 3): remove a single recent keyword, gated by a native confirm —
+	// the app-wide destructive-action idiom (mirrors settings/data clearLibraryConfirm).
+	function removeRecent(query: string) {
+		if (confirm(t('search.confirmRemoveRecent', { q: query }))) {
+			searchHistory.remove(query);
+		}
 	}
 
 	// kyf + ljl-followup: artist tiles row above the song list. Every UNIQUE artist that
@@ -448,38 +492,61 @@
 <header class="head"><h1>{t('search.title')}</h1></header>
 
 <form class="bar" onsubmit={run}>
-	<input
-		bind:this={queryInputEl}
-		bind:value={q}
-		placeholder={t('search.placeholder')}
-		autocomplete="off"
-		autocapitalize="off"
-		oninput={onSuggestInput}
-		onfocus={() => (inputFocused = true)}
-		onblur={() => {
-			// Delay closing so a suggestion tap (mousedown→click) registers before blur
-			// hides the list. The suggestion buttons also preventDefault on mousedown so
-			// focus never leaves the input on tap (belt-and-braces).
-			setTimeout(() => (inputFocused = false), 150);
-		}}
-	/>
+	<div class="input-wrap">
+		<input
+			bind:this={queryInputEl}
+			bind:value={q}
+			placeholder={t('search.placeholder')}
+			autocomplete="off"
+			autocapitalize="off"
+			oninput={onSuggestInput}
+			onfocus={() => (inputFocused = true)}
+			onblur={() => {
+				// Delay closing so a suggestion tap (mousedown→click) registers before blur
+				// hides the list. The suggestion buttons also preventDefault on mousedown so
+				// focus never leaves the input on tap (belt-and-braces).
+				setTimeout(() => (inputFocused = false), 150);
+			}}
+		/>
+		<!-- quick-260711-sm7 (req 1): clear (X) button — shown only when the input has text.
+		     mousedown preventDefault keeps focus on the input so the mobile keyboard doesn't
+		     drop, and clearSearch() refocuses anyway. -->
+		{#if q}
+			<button
+				type="button"
+				class="clear-input"
+				aria-label={t('search.clearInput')}
+				onmousedown={(e) => e.preventDefault()}
+				onclick={clearSearch}
+				use:tapBounce
+			>
+				<X size={18} />
+			</button>
+		{/if}
+	</div>
 	<button type="submit" disabled={loading} aria-busy={loading} aria-label={t('search.go')} use:tapBounce>
 		{#if loading}<span class="spin" aria-hidden="true"><LoaderCircle size={18} /></span>{:else}{t('search.go')}{/if}
 	</button>
 </form>
 
-<!-- D-05: tappable past-search suggestions in the idle pre-query state. -->
-{#if inputFocused && q.trim() === '' && !searched && searchHistory.entries.length > 0}
+<!-- D-05: tappable past-search suggestions in the idle pre-query state.
+     quick-260711-sm7 (req 2): gate on an EMPTY input only (dropped the inputFocused/!searched
+     conditions) so an emptied search bar always collapses to just this recent-keywords list. -->
+{#if q.trim() === '' && searchHistory.entries.length > 0}
 	<div class="suggest">
 		<div class="suggest-head">
 			<span class="suggest-title">{t('search.recent')}</span>
-			<button type="button" class="suggest-clear" onmousedown={(e) => e.preventDefault()} onclick={() => searchHistory.clear()} use:tapBounce>
+			<!-- quick-260711-sm7 (req 4): clear-all now behind a native confirm. -->
+			<button type="button" class="suggest-clear" onmousedown={(e) => e.preventDefault()} onclick={() => { if (confirm(t('search.confirmClearAll'))) searchHistory.clear(); }} use:tapBounce>
 				{t('search.clear')}
 			</button>
 		</div>
 		<ul class="list">
 			{#each searchHistory.entries as entry (entry.query)}
-				<li>
+				<!-- quick-260711-sm7 (req 3): keyword button + sibling bin (its own ≥44px hit area,
+				     mirroring the VERSIONS-01 .row-line/.ver layout) — the bin is never nested inside
+				     the keyword's tap target. -->
+				<li class="recent-line">
 					<button
 						type="button"
 						class="row suggest-row"
@@ -492,6 +559,16 @@
 						use:tapBounce
 					>
 						<span class="suggest-q">{entry.query}</span>
+					</button>
+					<button
+						type="button"
+						class="recent-del"
+						aria-label={t('search.removeRecent')}
+						onmousedown={(e) => e.preventDefault()}
+						onclick={() => removeRecent(entry.query)}
+						use:tapBounce
+					>
+						<Trash2 size={16} />
 					</button>
 				</li>
 			{/each}
@@ -531,10 +608,10 @@
 	</div>
 {/if}
 
-{#if someFailed}
+<!-- {#if someFailed}
 	<p class="warn">{t('search.someFailed')}</p>
-{/if}
-
+{/if} -->
+<br/>
 <!-- OFFL-03 inline offline state: short-circuits the fetch (run() bails when offline) and
      promotes Downloads/Library. No redirect (D-09); reconnect lets the next search run. -->
 {#if !online.isOnline}
@@ -659,11 +736,22 @@
 <style>
 	.head h1 { font-size: calc(1.4rem * var(--fs-title, 1)); margin: 16px 0 12px; }
 	.bar { display: flex; gap: 8px; }
+	/* quick-260711-sm7: relative container so the clear (X) can sit inside the input's right edge. */
+	.input-wrap { position: relative; flex: 1; min-width: 0; display: flex; }
 	.bar input {
 		flex: 1; min-width: 0; background: var(--color-surface-2); border: 1px solid var(--color-border);
-		color: var(--color-text); border-radius: 999px; padding: 12px 14px; font-size: 15px; outline: none;
+		color: var(--color-text); border-radius: 999px; padding: 12px 40px 12px 14px; font-size: 15px; outline: none;
 	}
 	.bar input:focus { border-color: var(--color-primary); }
+	/* quick-260711-sm7: clear (X) button — full input-height grid-centred (NO translateY, so the
+	   use:tapBounce scale keyframe can't displace it). Shown only when the input has text. */
+	.clear-input {
+		position: absolute; right: 0px; top: 0; bottom: 0; width: 34px;
+		display: grid; place-items: center; background: none; border: none; padding: 0;
+		color: var(--color-text-muted); cursor: pointer;
+		background: transparent !important;
+	}
+	@media (hover: hover) { .clear-input:hover { color: var(--color-text); } }
 	.bar button {
 		background: var(--color-primary); border: none; color: #fff; border-radius: 999px;
 		padding: 0 18px; font-weight: 700; cursor: pointer;
@@ -708,6 +796,16 @@
 	}
 	.suggest-clear:hover { background: var(--color-surface); }
 	.suggest-row { padding: 10px 8px; }
+	/* quick-260711-sm7 (req 3): recent keyword row = keyword button (flex:1) + sibling bin. The bin
+	   is its own ≥44px tap target (mirrors .row-line/.ver), never nested in the keyword button. */
+	.recent-line { display: flex; align-items: center; gap: 4px; }
+	.recent-line > .suggest-row { flex: 1; min-width: 0; width: auto; }
+	.recent-del {
+		flex: none; width: 44px; height: 44px; display: grid; place-items: center;
+		background: none; border: none; border-radius: var(--radius-full, 999px);
+		color: var(--color-text-muted); cursor: pointer;
+	}
+	@media (hover: hover) { .recent-del:hover { background: var(--color-surface); color: var(--color-text); } }
 	.suggest-q {
 		font-size: 14px; color: var(--color-text);
 		white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
