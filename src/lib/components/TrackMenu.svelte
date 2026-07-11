@@ -2,7 +2,7 @@
 	import { tick, untrack } from 'svelte';
 	import { fly } from 'svelte/transition';
 	import { goto } from '$app/navigation';
-	import { ListStart, ListEnd, Download, Heart, ListPlus, Disc, User, Share2, Info, X, Plus, Shuffle, Trash2, Moon, Sparkles, Layers } from '@lucide/svelte';
+	import { ListStart, ListEnd, Download, Heart, ListPlus, User, Share2, Info, X, Plus, Shuffle, Trash2, Moon, Sparkles, Layers } from '@lucide/svelte';
 	import { player } from '$lib/stores/player.svelte';
 	import { sleepTimer } from '$lib/stores/sleepTimer.svelte';
 	import { library } from '$lib/stores/library.svelte';
@@ -126,11 +126,6 @@
 	function gotoArtist() {
 		if (!track) return;
 		const dest = `/artist/${encodeURIComponent(track.artist)}`;
-		overlays.navigateAway(() => goto(dest));
-	}
-	function gotoAlbum() {
-		if (!track?.album) return;
-		const dest = `/album/${encodeURIComponent(track.album)}`;
 		overlays.navigateAway(() => goto(dest));
 	}
 
@@ -377,7 +372,6 @@
 		<!-- Opens the GLOBAL SleepTimerSheet (mounted in the app layout) — not a local sub-sheet
 		     here, so the timer indicator is reachable from the nowbar + now-playing too (D-08). -->
 		<button class="mi" onclick={() => { close(); tick().then(() => (sleepTimer.sheetOpen = true)); }} use:tapBounce><Moon size={18} /> {t('menu.sleepTimer')}</button>
-		<!-- <button class="mi" onclick={gotoAlbum} disabled={!track.album}><Disc size={18} /> {t('menu.goToAlbum')}</button> -->
 		<button class="mi" onclick={gotoArtist} use:tapBounce><User size={18} /> {t('menu.goToArtist')}</button>
 		<button class="mi" onclick={doShare} use:tapBounce><Share2 size={18} /> {t('menu.share')}</button>
 		<!-- Detail: GATED — resolves details to populate the detail sheet's audioUrl/quality rows. -->

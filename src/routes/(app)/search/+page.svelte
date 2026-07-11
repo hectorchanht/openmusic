@@ -85,7 +85,6 @@
 	let resolvedCovers = $state<Record<string, string>>({});
 	let loading = $state(false);
 	let searched = $state(false);
-	let someFailed = $state(false);
 	let ac: AbortController | null = null;
 
 	// BUGFIX (search-skeleton-not-showing): the D-01 first-load and load-more skeletons
@@ -177,7 +176,6 @@
 		hasMore = false;
 		page = 1;
 		searched = false;
-		someFailed = false;
 	}
 
 	// quick-260711-sm7 (req 1+2): the clear (X) button empties the input and collapses content
@@ -333,13 +331,12 @@
 		showFirstSkeleton = true;
 		const startedAt = Date.now();
 		searched = true;
-		someFailed = false;
 		try {
 			// D-06: stream partials so results render as each source settles. The first-load
 			// skeleton (showFirstSkeleton) yields to results once the dwell floor elapses.
 			// Two-layer abort guard (mirrors the loadMore race guard) drops a superseded
 			// query's partials.
-			const { interleaved, perSource } = await searchAll(kw, 1, {}, ac.signal, (partial) => {
+			const { interleaved } = await searchAll(kw, 1, {}, ac.signal, (partial) => {
 				if (myAc.signal.aborted || kw !== q.trim()) return;
 				// SRCH-01/D-02: re-sort by score INSIDE the race guard (Pitfall 3 — a superseded
 				// partial returns above before ever reaching here).
@@ -350,7 +347,6 @@
 			// Final value is authoritative — re-derive from the complete superset, then re-sort.
 			results = rankList(dedupeBest(interleaved, settings.preferredSource), kw);
 			variantGroups = buildVariantGroups(interleaved); // VERSIONS-01
-			someFailed = perSource.some((p) => p.status === 'error');
 			// kyf: derive artist tiles from the settled result set (race-guarded inside).
 			void refreshArtistTiles(kw, results);
 			// Reset pagination: assume more may exist whenever page 1 returned anything;
@@ -368,12 +364,11 @@
 				persistSession();
 			});
 		} catch (err) {
-			// WR-01: a superseded query (AbortError) must NOT clobber state or flag failure.
+			// WR-01: a superseded query (AbortError) must NOT clobber state.
 			if (err instanceof DOMException && err.name === 'AbortError') return;
-			// Genuine failure: surface it (someFailed) instead of a silent "no results found".
+			// Genuine failure: reset to the empty state (no results, no more pages).
 			results = [];
 			hasMore = false;
-			someFailed = true;
 		} finally {
 			loading = false;
 			// BUGFIX: hold the skeleton for the remainder of the dwell floor, then clear —
@@ -608,9 +603,6 @@
 	</div>
 {/if}
 
-<!-- {#if someFailed}
-	<p class="warn">{t('search.someFailed')}</p>
-{/if} -->
 <br/>
 <!-- OFFL-03 inline offline state: short-circuits the fetch (run() bails when offline) and
      promotes Downloads/Library. No redirect (D-09); reconnect lets the next search run. -->
@@ -774,7 +766,6 @@
 	.artist-tile { flex: 0 0 96px; background: none; border: none; padding: 0; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 6px; color: var(--color-text); }
 	.artist-avatar { width: 96px; height: 96px; border-radius: 50%; background-size: cover; background-position: center; }
 	.artist-name { font-size: 12px; font-weight: 600; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 96px; color: var(--color-text);}
-	.warn { color: #ffcf66; font-size: 12px; margin: 0 0 10px; }
 
 	/* OFFL-03 inline offline empty-state (shared idiom across online-only surfaces). */
 	.offline-state { text-align: center; padding: 32px 16px; color: var(--color-text-muted); }
