@@ -1987,13 +1987,21 @@ class Player {
 				// the last-resort fallback. This replaces the old random buildDiversePicks-from-nothing
 				// continuation so an exhausted queue extends from what you were just listening to rather
 				// than from the liked/favorites list or unrelated random picks.
-				let more = await buildSimilarQueue(current, have);
+				// 26-09 (Gap 2): thread the 26-07 report callback so the GROW path is verifiable in the
+				// Activity log too (parity with regenerate's fresh-play upnext.source). This does NOT change
+				// ensureAhead's control flow — it already has its own buildDiversePicks net below.
+				let via: 'similar' | 'artist' | 'lastresort' | 'empty' | 'diverse' = 'empty';
+				let more = await buildSimilarQueue(current, have, (v) => (via = v));
 				// Never-stop invariant (STATE.md Phase 16): if Last.fm is dry AND the same-artist search
 				// yields nothing, fall back to diverse random picks so an obscure-artist queue still grows.
-				if (!more.length) more = await buildDiversePicks(8, have);
+				if (!more.length) {
+					more = await buildDiversePicks(8, have);
+					via = 'diverse';
+				}
 				if (myQueueGen !== this.queueGen) return; // an explicit setQueue/setListQueue superseded
 				if (more.length) this.queue = this.queueWithAnchor([...this.queue, ...more], current);
 				logAction('grow.added', { count: more.length });
+				if (more.length) logAction('upnext.source', { via, count: more.length });
 			} catch {
 				/* sources dry — leave the queue as-is */
 			} finally {
@@ -3042,9 +3050,25 @@ class Player {
 				...manualEntries.map((t) => t.uid),
 				...this.removedUids
 			]);
-			const auto = await buildSimilarQueue(seed, exclude);
+			// 26-09 (Gap 2 / UPNEXT-01): capture WHICH formation path buildSimilarQueue took via the
+			// 26-07 report callback so the Up-Next source is verifiable in the Activity log. 'diverse' is
+			// added locally for the safety-net branch below (never reported by buildSimilarQueue itself).
+			let via: 'similar' | 'artist' | 'lastresort' | 'empty' | 'diverse' = 'empty';
+			let tail = await buildSimilarQueue(seed, exclude, (v) => (via = v));
 			if (myQueueGen !== this.queueGen) return; // WR-06: superseded by an explicit setQueue()
-			this.queue = this.queueWithAnchor([...head, ...manualEntries, ...auto], seed);
+			// 26-09 (Gap 2 / T-26-09-01): mirror ensureAhead's never-empty safety net. On EVERY fresh
+			// click-to-play regenerate ran with NO fallback — installing buildSimilarQueue's [] left a
+			// dead-end empty Up-Next. When every similar path is dry, fall back to diverse picks so a
+			// fresh play is never left with an empty Up-Next.
+			if (tail.length === 0) {
+				tail = await buildDiversePicks(8, exclude);
+				if (myQueueGen !== this.queueGen) return; // WR-06 re-checked after the SECOND await (T-26-09-02)
+				via = 'diverse';
+			}
+			this.queue = this.queueWithAnchor([...head, ...manualEntries, ...tail], seed);
+			// 26-09: log the formation source + count so the UAT "up-next is one track.getSimilar call,
+			// never empty" claim is verifiable on device (Settings → Activity log).
+			logAction('upnext.source', { via, count: tail.length });
 		} catch {
 			/* leave queue as-is */
 		}
