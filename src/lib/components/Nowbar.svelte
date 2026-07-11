@@ -16,6 +16,7 @@
     import { coverSwipe } from "$lib/actions/coverSwipe";
     import { tapBounce } from "$lib/actions/tapBounce";
     import { t, tMaybeKey } from "$lib/i18n";
+    import { marquee } from "$lib/actions/marquee";
 
     type Variant = "docked" | "embed";
 
@@ -129,12 +130,18 @@
                     in:fade={{ duration: xfadeMs }}
                     out:fade={{ duration: xfadeMs }}
                 >
-                    <span class="np-title">{names.dnTitle(np?.title ?? "")}</span>
-                    <span class="np-artist">
+                    <span class="np-title" use:marquee>
+                        <span class="marquee-inner">
+                        {names.dnTitle(np?.title ?? "")}
+                        </span>
+                    </span>
+                    <span class="np-artist" use:marquee>
+                        <span class="marquee-inner">
                         {names.dnArtist(np?.artist ?? "")}
                         {#if player.error}· <span class="err"
-                                >{tMaybeKey(player.error)}</span
-                            >{/if}
+                            >{tMaybeKey(player.error)}</span
+                        >{/if}
+                        </span>
                     </span>
                 </span>
             {/key}
