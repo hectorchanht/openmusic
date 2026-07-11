@@ -4,14 +4,14 @@ milestone: v1.2
 milestone_name: Resilient Playback & UX Polish` below). The Last.fm write-side
 status: executing
 stopped_at: Phase 24 context gathered
-last_updated: "2026-07-11T08:32:47.818Z"
-last_activity: 2026-07-11 -- Phase 25 planning complete
+last_updated: "2026-07-11T08:52:10.577Z"
+last_activity: 2026-07-11
 progress:
-  total_phases: 17
+  total_phases: 18
   completed_phases: 14
-  total_plans: 59
-  completed_plans: 55
-  percent: 82
+  total_plans: 62
+  completed_plans: 56
+  percent: 78
 ---
 
 # Project State
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-10)
 
 **Core value:** A user on their phone can search a song, tap it, and have it play instantly with a smooth, native-app-like experience — and keep playing when the screen locks.
-**Current focus:** Phase 24 — offline-app-shell-sharing-seo
+**Current focus:** Phase 25 — zh-hant-offline-conversion-fallback-cascade
 
 ## Current Position
 
-Phase: Milestone v1.2 complete
-Plan: —
+Phase: 25 (zh-hant-offline-conversion-fallback-cascade) — EXECUTING
+Plan: 2 of 3
 Status: Ready to execute
-Last activity: 2026-07-11 -- Phase 25 planning complete
+Last activity: 2026-07-11
 
 ## Performance Metrics
 
@@ -70,6 +70,7 @@ Last activity: 2026-07-11 -- Phase 25 planning complete
 | Phase 19 P01 | 7 min | 3 tasks | 22 files |
 | Phase 19 P02 | 10 min | 3 tasks | 1 files |
 | Phase 19 P03 | 5 min | 2 tasks | 7 files |
+| Phase 25 P01 | 9min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -115,6 +116,8 @@ Recent decisions affecting current work:
 - [Phase 19]: 19-01: MENU-01 gating extracted to PURE helper track-menu-gate.ts (isGatedReady = detailsLoaded && uid && audioUrl; shouldStartResolve = !inFlight.has(key)) so it is node-testable without a DOM; the new Set() reassign-for-reactivity stays in the component (19-02). i18n parity test widened from 3 to all 15 locales.
 - [Phase 19]: 19-02: TrackMenu rework landed as ONE atomic commit (the 3 contracts are mutually-dependent edits to one component file that won't compile in partial states); overlay $effect kept byte-unchanged (dep open-only, untrack, sole-dismiss cleanup, {#if open && track}); new Close (X) calls close() only. doDownload/doDetail refactored to gated run(resolved) callbacks; Download re-resolves at downloadQuality inside the callback (WR-07 preserved).
 - [Phase ?]: 19-03: MENU-03/D-12 stuck-highlight fix lands ENTIRELY at the 6 long-press trigger sites + one global app.css tap-highlight reset; longpress.ts and all onclick handlers untouched (suppressNextClick trailing-click guard + pointercancel/pointerup :active release preserved). Each sticky :hover/:active wrapped in @media (hover: hover) byte-unchanged; every onlongpress calls (e.currentTarget as HTMLElement)?.blur(). pnpm check 0/0, 626 tests green; device-pass deferred.
+- [Phase 25]: 25-01: Import tongwen-core/esm/{converter,dictionary} submodules (not the index) — the index re-exports a DOM walker (NodeFilter, undefined in the node Vitest project); deep-import is walker-free and trims the browser chunk
+- [Phase 25]: 25-01: Offline s2t converter is lazy (dynamic import() only, memoized) + never-throw identity fallback; s2t char+phrase dicts only, t2s empty to keep the lazy chunk ~72 KB (D-01/D-03/D-04)
 
 ### Pending Todos
 
@@ -260,7 +263,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-13T03:29:53.532Z
+Last session: 2026-07-11T08:49:45.980Z
 Stopped at: Phase 24 context gathered
 Resume: plan Phase 16 (`/gsd:plan-phase 16`). Phase 16 is the resilience-core dependency root; everything else builds on its `queueContext` / 2-state repeat / skip-loop guard.
 
