@@ -1,0 +1,39 @@
+{
+  "method": "window.fetch wrapped in the live app (dev :4321), counter reset at click time, categorized by URL + attributed by source-search query string",
+  "idle_ambient_calls_over_17s": 0,
+  "home_page_mount_deezer_cover_backfill_calls": "~80 (/api/deezer/search burst)",
+  "scenarios": {
+    "play_from_search_list_upnext_is_list_remainder": {
+      "total_calls": 15,
+      "breakdown": {
+        "resolve_fivesing_url": 3,
+        "cover_tier1_deezer_search": 1,
+        "cover_tier2_itunes": 1,
+        "cover_tier3_CN_searchAll_7_sources": 7,
+        "upnext_api_similar": 1,
+        "upnext_deezer_related": 1,
+        "media": 1
+      },
+      "note": "played track was a coverless fivesing UGC row → cover chain fired all 3 tiers incl. 7-source CN searchAll"
+    },
+    "play_single_song_upnext_generated": {
+      "played": "富士山下 — 陈奕迅 (resolved via kuwo, cover inline)",
+      "total_calls": 59,
+      "breakdown": {
+        "buildSimilarQueue_8_similarArtists_x_7_sources_searchAll": 56,
+        "upnext_api_similar_artist_getsimilar": 1,
+        "resolve_kuwo_detail": 1,
+        "resolve_qq_detail_prefetch": 1
+      },
+      "similar_artist_queries": ["張學友","古巨基","楊千嬅","周杰倫","林俊傑","孫燕姿","王力宏","李克勤"],
+      "note": "THE headline: 8 similar artists x 7 sources = 56 searchAll calls to build ONE up-next list — exactly the user's complaint"
+    }
+  },
+  "projected_redesign_single_song_play_total_calls": "~3 (1 track.getSimilar + 1 kuwo resolve + 1 lazy HQ cover)",
+  "projection_basis": {
+    "upnext_build": "56 -> 1 via Last.fm track.getSimilar (spike 002)",
+    "resolve": "1 kuwo-first (spike 001)",
+    "played_cover": "0 inline from kuwo + optional 1 lazy HQ (spike 001)",
+    "upnext_tile_covers": "0 (kuwo search stubs carry pic) (spike 001)"
+  }
+}

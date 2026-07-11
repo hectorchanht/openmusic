@@ -33,6 +33,10 @@ Design decisions that emerged; non-negotiable for the real build. Updated as spi
   each candidate's top track via the SINGLE primary source (kuwo), NOT an 8-source `searchAll` per artist.
 - **[002] Up-Next items carry exact name+artist** → tap = single-source resolve only (no re-search) + free/1 cover.
   Order the list by Last.fm `match` score.
+- **[003] MEASURED BASELINE: one single-song play = ~59 `/api/*` calls; 56 of them are `buildSimilarQueue`
+  (8 similar artists × 7 sources).** Idle app = 0 calls (no polling loop — all floods are per-event). Home
+  mount = ~80 Deezer cover-backfill calls (separate, same root cause). Redesign (001+002) projects **~59 → ~3**
+  for a single-song play. Rewriting `buildSimilarQueue` (56→1) is the single highest-impact change.
 
 ## Spikes
 
@@ -40,4 +44,4 @@ Design decisions that emerged; non-negotiable for the real build. Updated as spi
 |---|------|------|-----------|---------|------|
 | 001 | source-resolve-richness | standard | 20 songs × 7 sources: resolve success + payload richness (mp3 · inline cover+loads · lrc · duration · download) → rank primary + fallback | ✅ VALIDATED — kuwo primary; source-cover free; netease upstream intermittent | sources, resolve, cover, benchmark |
 | 002 | similar-songs-api | comparison | Last.fm `track.getSimilar` vs Deezer vs current artist-hop baseline → exact artist+title pairs, fewest API calls | ✅ WINNER: track.getSimilar (1 call, exact pairs, 5/5 resolvable) vs 8× searchAll baseline | similar, upnext, lastfm, deezer |
-| 003 | clickplay-query-audit | standard | Instrument real click-to-play → count + attribute `/api/*` calls (crossSourceLyric / cover / up-next) → baseline to beat | PENDING | audit, perf, baseline |
+| 003 | clickplay-query-audit | standard | Instrument real click-to-play → count + attribute `/api/*` calls (crossSourceLyric / cover / up-next) → baseline to beat | ✅ VALIDATED — single-song play = **59 calls**, 56 of them buildSimilarQueue's 8 artists × 7 sources; redesign → ~3 | audit, perf, baseline |
