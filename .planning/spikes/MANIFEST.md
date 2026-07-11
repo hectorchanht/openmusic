@@ -37,6 +37,11 @@ Design decisions that emerged; non-negotiable for the real build. Updated as spi
   (8 similar artists × 7 sources).** Idle app = 0 calls (no polling loop — all floods are per-event). Home
   mount = ~80 Deezer cover-backfill calls (separate, same root cause). Redesign (001+002) projects **~59 → ~3**
   for a single-song play. Rewriting `buildSimilarQueue` (56→1) is the single highest-impact change.
+- **[004] MINIMAL RESOLUTION POLICY (fewest calls, still fully functional): resolve every play through
+  `kuwo` ONLY (1 call → audio + cover), fallback `qq → netease → joox`, and query `fivesing/audius/jamendo`
+  only when all mainstream miss.** kuwo is empirically 100% playable+cover across all 14 language/region×genre
+  segments; jamendo/audius add zero mainstream coverage and stay OFF the hot path. NEVER fan out all sources
+  on click (that's a search-page concern). Full policy: [004 POLICY.md](004-source-coverage-by-segment/POLICY.md).
 
 ## Spikes
 
@@ -45,3 +50,4 @@ Design decisions that emerged; non-negotiable for the real build. Updated as spi
 | 001 | source-resolve-richness | standard | 20 songs × 7 sources: resolve success + payload richness (mp3 · inline cover+loads · lrc · duration · download) → rank primary + fallback | ✅ VALIDATED — kuwo primary; source-cover free; netease upstream intermittent | sources, resolve, cover, benchmark |
 | 002 | similar-songs-api | comparison | Last.fm `track.getSimilar` vs Deezer vs current artist-hop baseline → exact artist+title pairs, fewest API calls | ✅ WINNER: track.getSimilar (1 call, exact pairs, 5/5 resolvable) vs 8× searchAll baseline | similar, upnext, lastfm, deezer |
 | 003 | clickplay-query-audit | standard | Instrument real click-to-play → count + attribute `/api/*` calls (crossSourceLyric / cover / up-next) → baseline to beat | ✅ VALIDATED — single-song play = **59 calls**, 56 of them buildSimilarQueue's 8 artists × 7 sources; redesign → ~3 | audit, perf, baseline |
+| 004 | source-coverage-by-segment | standard | 38 songs × 14 language/region×genre segments → per-segment winner + minimal-API policy | ✅ VALIDATED — **kuwo 100% playable+cover in EVERY segment**; jamendo/audius earn no hot-path slot; policy = "kuwo first, done" ([POLICY.md](004-source-coverage-by-segment/POLICY.md)) | sources, coverage, segments, policy, minimal-api |
