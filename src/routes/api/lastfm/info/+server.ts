@@ -197,6 +197,14 @@ function pickBio(wiki?: LfmWiki): { bio: string | null; bioUrl: string | null } 
 	// Attribution link: the <a href> inside the summary (Last.fm appends "Read more on Last.fm").
 	const hrefMatch = raw.match(/<a\b[^>]*href=["']([^"']+)["']/i);
 	const bioUrl = safeLastfmUrl(hrefMatch ? hrefMatch[1] : null); // CR-01: reject javascript:/off-domain
+	// quick-260711-spt: Last.fm returns a BOILERPLATE-ONLY summary for artists with no wiki —
+	// just `<a href=...>Read more on Last.fm</a>.` with no prose. stripHtml would collapse that
+	// anchor text into a bogus one-line bio ("Read more on Last.fm."), which the artist page then
+	// renders as a <p> ABOVE the real attribution link (duplicate line). Detect it: drop the
+	// anchor element, and if no real letter/number text remains (unicode-aware for the CJK
+	// catalog), treat it as no-bio so the About section hides.
+	const withoutAnchor = stripHtml(raw.replace(/<a\b[^>]*>[\s\S]*?<\/a>/gi, ' '));
+	if (!/[\p{L}\p{N}]/u.test(withoutAnchor)) return { bio: null, bioUrl };
 	const stripped = stripHtml(raw);
 	const bio = stripped ? firstSentences(stripped) : null;
 	return { bio: bio || null, bioUrl };

@@ -242,6 +242,38 @@ describe('/api/lastfm/info — Last.fm key injected upstream, ABSENT from client
 		expect(parsed.listeners).toBe(999);
 	});
 
+	// quick-260711-spt: Last.fm returns a boilerplate-only summary (just the attribution
+	// <a>Read more on Last.fm</a> with no prose) for artists with no wiki. That must resolve
+	// to bio: null so the artist-page About section hides instead of rendering a bogus
+	// "Read more on Last.fm" <p> above the real attribution link.
+	it('artist.getinfo: boilerplate-only bio summary yields bio: null', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(
+				async () =>
+					new Response(
+						JSON.stringify({
+							artist: {
+								bio: {
+									summary:
+										'<a href="https://www.last.fm/music/Edan">Read more on Last.fm</a>.'
+								}
+							}
+						}),
+						{ status: 200 }
+					)
+			)
+		);
+		const event = fakeEvent(
+			{ method: 'artist.getinfo', artist: 'Edan' },
+			{ JOOX_TOKEN: 'x', LASTFM_KEY: FAKE_KEY }
+		);
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const res = await GET(event as any);
+		const parsed = JSON.parse(await res.text()) as Info;
+		expect(parsed.bio).toBeNull();
+	});
+
 	// CR-01 (security): bioUrl is rendered as href on the artist page; Svelte does NOT
 	// sanitize href bindings, so a javascript:/data:/off-domain href would be a clickable
 	// XSS vector. The edge must hand the client only an https:// last.fm URL.
