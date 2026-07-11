@@ -243,6 +243,12 @@ const hi: Dict = {
 	"menu.sleepTimer": "स्लीप टाइमर",
 	"menu.remix": "रीमिक्स",
 	"menu.preparing": "तैयार किया जा रहा है…",
+
+	// --- version picker (Phase 26-04, VERSIONS-01) ---
+	"versions.title": "स्रोत से चलाएँ",
+	"versions.empty": "कोई अन्य संस्करण नहीं",
+	"versions.unknownQuality": "अज्ञात गुणवत्ता",
+	"versions.open": "स्रोत चुनें",
 	"timer.minutes": "{n} मिनट",
 	"timer.endOfTrack": "ट्रैक के अंत में",
 	"timer.cancel": "टाइमर रद्द करें",

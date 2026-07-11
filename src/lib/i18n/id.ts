@@ -243,6 +243,12 @@ const id: Dict = {
 	"menu.sleepTimer": "Timer tidur",
 	"menu.remix": "Remix",
 	"menu.preparing": "Menyiapkan…",
+
+	// --- version picker (Phase 26-04, VERSIONS-01) ---
+	"versions.title": "Putar dari sumber",
+	"versions.empty": "Tidak ada versi lain",
+	"versions.unknownQuality": "kualitas tidak diketahui",
+	"versions.open": "Pilih sumber",
 	"timer.minutes": "{n} mnt",
 	"timer.endOfTrack": "Akhir lagu",
 	"timer.cancel": "Batalkan timer",

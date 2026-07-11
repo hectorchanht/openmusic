@@ -243,6 +243,12 @@ const it: Dict = {
 	"menu.sleepTimer": "Timer di spegnimento",
 	"menu.remix": "Remix",
 	"menu.preparing": "Preparazione…",
+
+	// --- version picker (Phase 26-04, VERSIONS-01) ---
+	"versions.title": "Riproduci dalla sorgente",
+	"versions.empty": "Nessun'altra versione",
+	"versions.unknownQuality": "qualità sconosciuta",
+	"versions.open": "Scegli sorgente",
 	"timer.minutes": "{n} min",
 	"timer.endOfTrack": "Fine del brano",
 	"timer.cancel": "Annulla timer",

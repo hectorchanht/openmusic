@@ -243,6 +243,12 @@ const ru: Dict = {
 	"menu.sleepTimer": "Таймер сна",
 	"menu.remix": "Ремикс",
 	"menu.preparing": "Подготовка…",
+
+	// --- version picker (Phase 26-04, VERSIONS-01) ---
+	"versions.title": "Воспроизвести из источника",
+	"versions.empty": "Других версий нет",
+	"versions.unknownQuality": "неизвестное качество",
+	"versions.open": "Выбрать источник",
 	"timer.minutes": "{n} мин",
 	"timer.endOfTrack": "Конец трека",
 	"timer.cancel": "Отменить таймер",

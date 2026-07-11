@@ -243,6 +243,12 @@ const es: Dict = {
 	"menu.sleepTimer": "Temporizador",
 	"menu.remix": "Remezcla",
 	"menu.preparing": "Preparando…",
+
+	// --- version picker (Phase 26-04, VERSIONS-01) ---
+	"versions.title": "Reproducir desde la fuente",
+	"versions.empty": "No hay otras versiones",
+	"versions.unknownQuality": "calidad desconocida",
+	"versions.open": "Elegir fuente",
 	"timer.minutes": "{n} min",
 	"timer.endOfTrack": "Fin de la pista",
 	"timer.cancel": "Cancelar temporizador",

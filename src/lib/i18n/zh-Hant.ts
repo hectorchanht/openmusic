@@ -266,6 +266,12 @@ const zhHant: Dict = {
 	"menu.remix": "重新混音",
 	"menu.preparing": "準備中…",
 
+	// --- version picker (Phase 26-04, VERSIONS-01) ---
+	"versions.title": "從音源播放",
+	"versions.empty": "沒有其他版本",
+	"versions.unknownQuality": "未知音質",
+	"versions.open": "選擇音源",
+
 	// --- sleep timer (Phase 18, TIMER-01) ---
 	"timer.minutes": "{n} 分鐘",
 	"timer.endOfTrack": "本曲結束",

@@ -289,6 +289,12 @@ const en = {
 	"menu.remix": "Remix",
 	"menu.preparing": "Preparing…",
 
+	// --- version picker (Phase 26-04, VERSIONS-01) — pick which source's variant plays ---
+	"versions.title": "Play from source",
+	"versions.empty": "No other versions",
+	"versions.unknownQuality": "unknown quality",
+	"versions.open": "Choose source",
+
 	// --- sleep timer (Phase 18, TIMER-01) ---
 	// The minutes label is a SINGLE interpolation key (mirrors skippedMany's count token)
 	// — never six hardcoded "5 min"/"10 min" strings.

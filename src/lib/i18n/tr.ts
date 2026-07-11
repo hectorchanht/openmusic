@@ -243,6 +243,12 @@ const tr: Dict = {
 	"menu.sleepTimer": "Uyku zamanlayıcısı",
 	"menu.remix": "Remix",
 	"menu.preparing": "Hazırlanıyor…",
+
+	// --- version picker (Phase 26-04, VERSIONS-01) ---
+	"versions.title": "Kaynaktan çal",
+	"versions.empty": "Başka sürüm yok",
+	"versions.unknownQuality": "bilinmeyen kalite",
+	"versions.open": "Kaynak seç",
 	"timer.minutes": "{n} dk",
 	"timer.endOfTrack": "Parça sonu",
 	"timer.cancel": "Zamanlayıcıyı iptal et",

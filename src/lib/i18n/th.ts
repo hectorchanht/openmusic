@@ -243,6 +243,12 @@ const th: Dict = {
 	"menu.sleepTimer": "ตั้งเวลาปิด",
 	"menu.remix": "รีมิกซ์",
 	"menu.preparing": "กำลังเตรียม…",
+
+	// --- version picker (Phase 26-04, VERSIONS-01) ---
+	"versions.title": "เล่นจากแหล่งที่มา",
+	"versions.empty": "ไม่มีเวอร์ชันอื่น",
+	"versions.unknownQuality": "ไม่ทราบคุณภาพ",
+	"versions.open": "เลือกแหล่งที่มา",
 	"timer.minutes": "{n} นาที",
 	"timer.endOfTrack": "จบเพลง",
 	"timer.cancel": "ยกเลิกตัวตั้งเวลา",

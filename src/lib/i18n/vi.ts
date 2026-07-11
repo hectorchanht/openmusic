@@ -243,6 +243,12 @@ const vi: Dict = {
 	"menu.sleepTimer": "Hẹn giờ tắt",
 	"menu.remix": "Phối lại",
 	"menu.preparing": "Đang chuẩn bị…",
+
+	// --- version picker (Phase 26-04, VERSIONS-01) ---
+	"versions.title": "Phát từ nguồn",
+	"versions.empty": "Không có phiên bản khác",
+	"versions.unknownQuality": "chất lượng không xác định",
+	"versions.open": "Chọn nguồn",
 	"timer.minutes": "{n} phút",
 	"timer.endOfTrack": "Hết bài",
 	"timer.cancel": "Hủy hẹn giờ",

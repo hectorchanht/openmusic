@@ -243,6 +243,12 @@ const de: Dict = {
 	"menu.sleepTimer": "Sleep-Timer",
 	"menu.remix": "Remix",
 	"menu.preparing": "Wird vorbereitet…",
+
+	// --- version picker (Phase 26-04, VERSIONS-01) ---
+	"versions.title": "Von Quelle abspielen",
+	"versions.empty": "Keine weiteren Versionen",
+	"versions.unknownQuality": "unbekannte Qualität",
+	"versions.open": "Quelle wählen",
 	"timer.minutes": "{n} Min.",
 	"timer.endOfTrack": "Ende des Titels",
 	"timer.cancel": "Timer abbrechen",

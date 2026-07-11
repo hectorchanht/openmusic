@@ -243,6 +243,12 @@ const ar: Dict = {
 	"menu.sleepTimer": "مؤقت النوم",
 	"menu.remix": "ريمكس",
 	"menu.preparing": "جارٍ التحضير…",
+
+	// --- version picker (Phase 26-04, VERSIONS-01) ---
+	"versions.title": "التشغيل من مصدر",
+	"versions.empty": "لا توجد نسخ أخرى",
+	"versions.unknownQuality": "جودة غير معروفة",
+	"versions.open": "اختر المصدر",
 	"timer.minutes": "{n} دقيقة",
 	"timer.endOfTrack": "نهاية المقطع",
 	"timer.cancel": "إلغاء المؤقت",
