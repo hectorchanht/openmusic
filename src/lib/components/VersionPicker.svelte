@@ -160,6 +160,7 @@
 	.ver-tag {
 		flex: 0 0 auto; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em;
 		color: var(--color-text-muted); background: var(--color-surface); padding: 1px 6px; border-radius: 6px;
+		width: fit-content;
 	}
 	.ver-sub { font-size: 12px; color: var(--color-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 </style>
