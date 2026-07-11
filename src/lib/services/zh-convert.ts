@@ -30,13 +30,22 @@ let convertLinePromise: Promise<ConvertLine> | null = null;
 // these import() calls — a static/top-level import would pull the dict into the initial chunk
 // and defeat D-03. t2s is intentionally left empty (Traditional→Simplified is out of scope —
 // Deferred — and skipping its tables keeps the lazy chunk near the measured ~72 KB).
+//
+// quick-250711-zh: import the `converter` + `dictionary` SUBMODULES, NOT the top-level
+// `tongwen-core` index. The index does `export * from './walker'`, and the walker eval-time
+// references `NodeFilter` (a DOM global) for DOM-tree conversion we never use. In the node
+// Vitest project (no jsdom) `NodeFilter` is undefined, so importing the index THROWS and the
+// never-throw fallback below silently returns identity (unconverted). Deep-importing the
+// walker-free submodules also trims the walker out of the browser chunk.
 async function buildConvertLine(): Promise<ConvertLine> {
-	const [core, charMod, phraseMod] = await Promise.all([
-		import('tongwen-core'),
+	const [converterMod, dictMod, charMod, phraseMod] = await Promise.all([
+		import('tongwen-core/esm/converter'),
+		import('tongwen-core/esm/dictionary'),
 		import('tongwen-dict/dist/s2t-char.min.json'),
 		import('tongwen-dict/dist/s2t-phrase.min.json')
 	]);
-	const { createConverterMap, LangType } = core;
+	const { createConverterMap } = converterMod;
+	const { LangType } = dictMod;
 	// createConverterMap merges the array into length-grouped single/multi maps, so char (len 1)
 	// and phrase (len ≥ 2) entries never collide — order is irrelevant.
 	const converter = createConverterMap({
