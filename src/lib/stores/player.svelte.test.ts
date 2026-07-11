@@ -4620,3 +4620,193 @@ describe('player resilience — synchronous audio.error storm is bounded (debug-
 		expect(reresolveSpy.mock.calls.length).toBeGreaterThan(1); // re-resolved in place each time
 	});
 });
+
+// 26-06 (gap-1 BLOCKER / RESOLVE-02): the click-to-play network resolve used to run with NO signal +
+// NO timeout — a stalled upstream (qijieya/qq flake) sat in `loading` up to apiFetch's ~25s timeout
+// with no cross-source fallback and no skip (the UAT hang: a fresh qq tap logged `play` then NOTHING
+// for 23s). The resolve-phase watchdog bounds that await: on RESOLVE_WATCHDOG_MS elapse the in-flight
+// resolve is aborted and the SAME song is routed into the existing kuwo-first cross-source walk
+// (runFallback → tryFallback → handleTotalFailure auto-skip). These use the REAL play() (restored from
+// the top-level mock) + a fake <audio> + fake timers so the watchdog fire path runs headless.
+describe('player resolve-phase watchdog — stalled/null initial resolve fails fast into fallback (26-06 gap-1)', () => {
+	// Mirror of Player.RESOLVE_WATCHDOG_MS (private static = 6000) for driving the fake-timer clock.
+	const Player_RESOLVE_WATCHDOG_MS = 6000;
+	let el: ReturnType<typeof makeFakeAudio>;
+	let playSpy: ReturnType<typeof vi.spyOn>;
+	let nextSpy: ReturnType<typeof vi.spyOn>;
+
+	beforeEach(() => {
+		// Restore the REAL play() (the top-level beforeEach mocks it) so the resolve-watchdog path runs.
+		(player.play as unknown as { mockRestore(): void }).mockRestore?.();
+		mockEnsure.mockReset();
+		mockTryFallback.mockReset();
+		player.current = null;
+		player.queue = [];
+		player.error = null;
+		player.loading = false;
+		// Online + a minimal Media Session surface (attach wires transport handlers) so play() runs
+		// headless without the offline gate or a null-deref (runFallback's offline gate needs onLine:true).
+		vi.stubGlobal('navigator', {
+			onLine: true,
+			mediaSession: { metadata: null, playbackState: 'none', setPositionState() {}, setActionHandler() {} }
+		});
+		vi.stubGlobal('MediaMetadata', FakeMediaMetadata);
+		vi.spyOn(library, 'isDownloaded').mockReturnValue(false);
+		vi.spyOn(library, 'adoptCover').mockImplementation(() => {});
+		el = makeFakeAudio();
+		player.attach(el as unknown as HTMLAudioElement);
+		// Call-through spies (vi.spyOn keeps the real impl) so we observe the fromFallback re-entry +
+		// the auto-skip next() while the REAL logic still executes.
+		playSpy = vi.spyOn(player, 'play');
+		nextSpy = vi.spyOn(player, 'next');
+	});
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
+	it('a stalled initial resolve (never settles) is aborted at the watchdog and routes the SAME song into the cross-source walk; a playable swap re-enters play(fromFallback)', async () => {
+		vi.useFakeTimers();
+		try {
+			const tapped = stub('qq', '003taMev', '有人', 'That Should Be Me'); // detailsLoaded:false, audioUrl:null
+			const swap = mk('kuwo', 'k9', '有人', 'That Should Be Me'); // playable equivalent from another source
+			player.queue = [tapped];
+			const never = deferred<Track>(); // the tapped source's resolve NEVER settles (the stall)
+			mockEnsure.mockImplementation((t: Track) =>
+				t.uid === tapped.uid
+					? never.promise
+					: Promise.resolve({ ...t, detailsLoaded: true, audioUrl: 'https://cdn/swap.mp3' })
+			);
+			mockTryFallback.mockResolvedValue({ ...swap, detailsLoaded: true, audioUrl: 'https://cdn/swap.mp3' });
+
+			const p = player.play(tapped);
+			p.catch(() => {}); // never rejects with the watchdog, but be defensive against the RED (no-watchdog) hang
+			await vi.advanceTimersByTimeAsync(0); // play() runs to the resolve await; the stall is in flight
+			expect(mockTryFallback).not.toHaveBeenCalled(); // still resolving — the watchdog has NOT fired yet
+
+			// Fire the resolve watchdog → abort the stall + route into runFallback → tryFallback → swap.
+			await vi.advanceTimersByTimeAsync(Player_RESOLVE_WATCHDOG_MS);
+			await vi.advanceTimersByTimeAsync(0);
+
+			expect(mockTryFallback).toHaveBeenCalledTimes(1);
+			// The cross-source walk was asked for the SAME song (name+artist), not a different track.
+			const failedArg = mockTryFallback.mock.calls[0][0] as Track;
+			expect(failedArg.artist).toBe('有人');
+			expect(failedArg.title).toBe('That Should Be Me');
+			// The playable swap re-entered play() as a fallback continuation.
+			expect(playSpy).toHaveBeenCalledWith(
+				expect.objectContaining({ uid: swap.uid }),
+				{ fromFallback: true }
+			);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('a stalled resolve whose cross-source walk exhausts every source auto-skips to the next queue item (never hangs); loading ends false', async () => {
+		vi.useFakeTimers();
+		try {
+			const tapped = stub('qq', '1', 'A', 'Dead Everywhere');
+			const nextTrack = mk('kuwo', '2', 'B', 'Plays Fine');
+			player.queue = [tapped, nextTrack];
+			const never = deferred<Track>();
+			mockEnsure.mockImplementation((t: Track) =>
+				t.uid === tapped.uid
+					? never.promise
+					: Promise.resolve({ ...t, detailsLoaded: true, audioUrl: 'https://cdn/next.mp3' })
+			);
+			mockTryFallback.mockResolvedValue(null); // every source exhausted for the tapped song
+
+			const p = player.play(tapped);
+			p.catch(() => {});
+			await vi.advanceTimersByTimeAsync(0);
+			await vi.advanceTimersByTimeAsync(Player_RESOLVE_WATCHDOG_MS);
+			await vi.advanceTimersByTimeAsync(0);
+
+			expect(mockTryFallback).toHaveBeenCalledTimes(1);
+			expect(nextSpy).toHaveBeenCalled(); // handleTotalFailure → next() auto-skip
+			expect(playSpy).toHaveBeenCalledWith(nextTrack); // advanced to the next playable queue item
+			expect(player.loading).toBe(false); // NEVER left permanently loading
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('a NULL initial resolve (audioUrl:null before the watchdog) routes into the SAME cross-source walk', async () => {
+		vi.useFakeTimers();
+		try {
+			const tapped = stub('qq', '9', 'C', 'No Url Here');
+			player.queue = [tapped];
+			mockEnsure.mockImplementation((t: Track) =>
+				Promise.resolve({ ...t, detailsLoaded: true, audioUrl: null })
+			);
+			mockTryFallback.mockResolvedValue(null);
+
+			const p = player.play(tapped);
+			p.catch(() => {});
+			await vi.advanceTimersByTimeAsync(0);
+			await vi.advanceTimersByTimeAsync(0);
+
+			// A null resolve fails fast BEFORE the watchdog and still fans out cross-source (unified path).
+			expect(mockTryFallback).toHaveBeenCalledTimes(1);
+			expect(player.loading).toBe(false);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('a newer play() during the watchdog window supersedes: the stale resolve is discarded (no double fallback)', async () => {
+		vi.useFakeTimers();
+		try {
+			const first = stub('qq', 'f1', 'A', 'First Tap');
+			const second = mk('kuwo', 's1', 'B', 'Second Tap'); // a fresh tap, resolves fine
+			player.queue = [first, second];
+			const never = deferred<Track>();
+			mockEnsure.mockImplementation((t: Track) =>
+				t.uid === first.uid
+					? never.promise
+					: Promise.resolve({ ...t, detailsLoaded: true, audioUrl: 'https://cdn/second.mp3' })
+			);
+			mockTryFallback.mockResolvedValue(null);
+
+			const p1 = player.play(first);
+			p1.catch(() => {});
+			await vi.advanceTimersByTimeAsync(0);
+			// User taps a DIFFERENT song before the first resolve's watchdog fires → bumps playGen.
+			const p2 = player.play(second);
+			p2.catch(() => {});
+			await vi.advanceTimersByTimeAsync(0);
+			// Now fire the FIRST tap's stale watchdog — the myGen gen-guard must discard it.
+			await vi.advanceTimersByTimeAsync(Player_RESOLVE_WATCHDOG_MS);
+			await vi.advanceTimersByTimeAsync(0);
+
+			// The stale first-tap resolve never fanned out (superseded), and `current` is the second song.
+			expect(mockTryFallback).not.toHaveBeenCalled();
+			expect(player.current?.uid).toBe(second.uid);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('the HAPPY path (fast truthy audioUrl before the watchdog) proceeds single-source with NO cross-source fan-out', async () => {
+		vi.useFakeTimers();
+		try {
+			const tapped = stub('kuwo', '7', 'D', 'Resolves Fast');
+			player.queue = [tapped];
+			mockEnsure.mockImplementation((t: Track) =>
+				Promise.resolve({ ...t, detailsLoaded: true, audioUrl: 'https://cdn/fast.mp3' })
+			);
+			mockTryFallback.mockResolvedValue(null);
+
+			const p = player.play(tapped);
+			await vi.advanceTimersByTimeAsync(0);
+			await p;
+
+			expect(mockTryFallback).not.toHaveBeenCalled(); // 0 cross-source calls on the happy path
+			expect(player.current?.audioUrl).toBe('https://cdn/fast.mp3');
+			expect(player.loading).toBe(false);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+});
