@@ -158,6 +158,135 @@ describe('/api/lastfm/similar-tracks — track.getSimilar proxy', () => {
 		expect((JSON.parse(await res.text()) as { tracks: unknown[] }).tracks).toEqual([]);
 	});
 
+	// --- Phase 26-07 Gap 3: Last.fm per-track image passthrough (largest https, placeholder filtered) ---
+
+	// Last.fm placeholder-star image hash — any URL containing it must be dropped (never a cover).
+	const PLACEHOLDER_HASH = '2a96cbd8b46e442fc41c2b86b821562f';
+
+	it('passes through the LARGEST https Last.fm image (extralarge > large > medium > small)', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () =>
+				new Response(
+					JSON.stringify({
+						similartracks: {
+							track: [
+								{
+									name: 'Someone Like You',
+									match: '1',
+									artist: { name: 'Adele' },
+									image: [
+										{ '#text': 'https://lastfm.freetls.fastly.net/i/u/34s/small.png', size: 'small' },
+										{ '#text': 'https://lastfm.freetls.fastly.net/i/u/64s/medium.png', size: 'medium' },
+										{ '#text': 'https://lastfm.freetls.fastly.net/i/u/174s/large.png', size: 'large' },
+										{ '#text': 'https://lastfm.freetls.fastly.net/i/u/300x300/extralarge.png', size: 'extralarge' }
+									]
+								}
+							]
+						}
+					}),
+					{ status: 200, headers: { 'content-type': 'application/json' } }
+				)
+			)
+		);
+		const event = fakeEvent({ artist: 'Adele', track: 'Hello' }, { JOOX_TOKEN: 'x', LASTFM_KEY: FAKE_KEY });
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const res = await GET(event as any);
+		const parsed = JSON.parse(await res.text()) as {
+			tracks: { artist: string; title: string; match: number; image?: string }[];
+		};
+		expect(parsed.tracks[0].image).toBe('https://lastfm.freetls.fastly.net/i/u/300x300/extralarge.png');
+	});
+
+	it('falls back to the next-largest https image when extralarge is absent', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () =>
+				new Response(
+					JSON.stringify({
+						similartracks: {
+							track: [
+								{
+									name: 'Chandelier',
+									match: '0.8',
+									artist: { name: 'Sia' },
+									image: [
+										{ '#text': 'https://lastfm.freetls.fastly.net/i/u/34s/small.png', size: 'small' },
+										{ '#text': 'https://lastfm.freetls.fastly.net/i/u/174s/large.png', size: 'large' }
+									]
+								}
+							]
+						}
+					}),
+					{ status: 200, headers: { 'content-type': 'application/json' } }
+				)
+			)
+		);
+		const event = fakeEvent({ artist: 'Sia', track: 'X' }, { JOOX_TOKEN: 'x', LASTFM_KEY: FAKE_KEY });
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const res = await GET(event as any);
+		const parsed = JSON.parse(await res.text()) as { tracks: { image?: string }[] };
+		expect(parsed.tracks[0].image).toBe('https://lastfm.freetls.fastly.net/i/u/174s/large.png');
+	});
+
+	it('drops the placeholder-star image and any non-https image → no image field', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () =>
+				new Response(
+					JSON.stringify({
+						similartracks: {
+							track: [
+								{
+									name: 'Placeholderish',
+									match: '0.9',
+									artist: { name: 'Nobody' },
+									image: [
+										// all placeholder-star + a non-https entry → nothing solid survives
+										{ '#text': `https://lastfm.freetls.fastly.net/i/u/174s/${PLACEHOLDER_HASH}.png`, size: 'large' },
+										{ '#text': `https://lastfm.freetls.fastly.net/i/u/300x300/${PLACEHOLDER_HASH}.png`, size: 'extralarge' },
+										{ '#text': 'http://insecure.example/cover.png', size: 'medium' },
+										{ '#text': '', size: 'small' }
+									]
+								}
+							]
+						}
+					}),
+					{ status: 200, headers: { 'content-type': 'application/json' } }
+				)
+			)
+		);
+		const event = fakeEvent({ artist: 'Nobody', track: 'Z' }, { JOOX_TOKEN: 'x', LASTFM_KEY: FAKE_KEY });
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const res = await GET(event as any);
+		const parsed = JSON.parse(await res.text()) as { tracks: { image?: string }[] };
+		expect(parsed.tracks[0].image).toBeUndefined();
+	});
+
+	it('a track with NO image array returns cleanly (no image field, shape intact)', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () =>
+				new Response(
+					JSON.stringify({
+						similartracks: {
+							track: [{ name: 'Bare', match: '0.5', artist: { name: 'Solo' } }]
+						}
+					}),
+					{ status: 200, headers: { 'content-type': 'application/json' } }
+				)
+			)
+		);
+		const event = fakeEvent({ artist: 'Solo', track: 'W' }, { JOOX_TOKEN: 'x', LASTFM_KEY: FAKE_KEY });
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const res = await GET(event as any);
+		const parsed = JSON.parse(await res.text()) as {
+			tracks: { artist: string; title: string; match: number; image?: string }[];
+		};
+		expect(parsed.tracks[0]).toEqual({ artist: 'Solo', title: 'Bare', match: 0.5 });
+		expect('image' in parsed.tracks[0]).toBe(false);
+	});
+
 	it('OPTIONS returns 204 with own-origin CORS headers (never *)', async () => {
 		const req = new Request('https://openmusic.lol/api/lastfm/similar-tracks', {
 			method: 'OPTIONS',

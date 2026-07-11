@@ -27,6 +27,40 @@ interface SimilarTrack {
 	artist: string;
 	title: string;
 	match: number;
+	// Phase 26-07 (Gap 3): the LARGEST solid https Last.fm cover for this track, so the Up-Next
+	// list can paint without a per-tile Deezer→iTunes→CN chain. Omitted (undefined) when Last.fm
+	// gives only the placeholder-star / non-https / empty images — NEVER a placeholder (T-26-07-01).
+	image?: string;
+}
+
+// Last.fm placeholder-star image hash (the generic "no art" star). Any image URL containing it
+// is NOT a real cover and must be dropped so we never seed a placeholder as a tile cover.
+const LFM_PLACEHOLDER_HASH = '2a96cbd8b46e442fc41c2b86b821562f';
+
+// Largest-first size preference for Last.fm's `image[]` array (D-parity with cover chain: bigger
+// is better for a tile). We scan in this order and take the FIRST solid https URL that survives.
+const IMAGE_SIZE_ORDER = ['extralarge', 'large', 'medium', 'small'] as const;
+
+/**
+ * Pick the largest SOLID https image from a Last.fm track `image[]` array. Prefers
+ * extralarge → large → medium → small; then falls back to ANY https entry (some payloads carry
+ * an unsized mega variant). Drops the placeholder-star hash and any non-https / empty value.
+ * Returns undefined when nothing solid survives (→ the `image` field is omitted entirely).
+ */
+function pickImage(images: LfmImage[] | undefined): string | undefined {
+	if (!Array.isArray(images) || images.length === 0) return undefined;
+	const solid = (url: string | undefined): url is string =>
+		typeof url === 'string' &&
+		url.startsWith('https:') &&
+		!url.includes(LFM_PLACEHOLDER_HASH);
+	// size-preferred pass
+	for (const size of IMAGE_SIZE_ORDER) {
+		const hit = images.find((im) => im.size === size && solid(im['#text']));
+		if (hit?.['#text']) return hit['#text'];
+	}
+	// fall back to any solid https entry (unsized / unexpected size label)
+	const any = images.find((im) => solid(im['#text']));
+	return any?.['#text'];
 }
 
 function jsonTracks(tracks: SimilarTrack[], origin: string | null): Response {
@@ -44,10 +78,15 @@ function clampLimit(raw: string | null): number {
 }
 
 // ---- Last.fm response sub-shapes (only the fields we read) ----
+interface LfmImage {
+	'#text'?: string;
+	size?: string; // 'small' | 'medium' | 'large' | 'extralarge' (+ occasional unsized/mega)
+}
 interface LfmSimilarTrack {
 	name?: string;
 	match?: string | number;
 	artist?: { name?: string } | string;
+	image?: LfmImage[];
 }
 interface LfmSimilarBlock {
 	track?: LfmSimilarTrack[] | LfmSimilarTrack;
@@ -74,7 +113,12 @@ function reshape(block: LfmSimilarBlock | undefined, limit: number): SimilarTrac
 		const artist = (typeof t.artist === 'string' ? t.artist : t.artist?.name ?? '').trim();
 		const title = (t.name ?? '').trim();
 		if (!artist || !title) continue; // drop incomplete pairs
-		out.push({ artist, title, match: toMatch(t.match) });
+		const pair: SimilarTrack = { artist, title, match: toMatch(t.match) };
+		// Phase 26-07 (Gap 3): attach the largest solid https cover when one survives the
+		// placeholder-star / non-https filter — omit the field entirely otherwise.
+		const image = pickImage(t.image);
+		if (image) pair.image = image;
+		out.push(pair);
 		if (out.length >= limit) break; // upstream is already match-descending
 	}
 	return out;
