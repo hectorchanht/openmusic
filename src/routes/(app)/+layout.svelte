@@ -232,6 +232,7 @@
 		border-top: 1px solid var(--color-border);
 		padding-bottom: env(safe-area-inset-bottom);
 		z-index: 21;
+		padding: 8px;
 	}
 	.tab {
 		flex: 1;
