@@ -1012,9 +1012,9 @@
 		align-items: center;
 		gap: 8px;
 		min-height: 44px;
-		margin: 14px 8px 14px 0;
+		margin: 14px 16px 14px 0;
 		padding: 0;
-		padding-right: 24px;
+		padding-right: 6px;
 		background: none;
 		border: none;
 		cursor: pointer;
@@ -1024,7 +1024,7 @@
 		font-weight: 700;
 	}
 	.subhead-label { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-	.subhead-nav :global(.subhead-chev) { margin-left: auto; flex: none; color: var(--color-text-muted); }
+	.subhead-nav :global(.subhead-chev) { margin-left: auto; flex: none; color: var(--color-text-muted); height: 18px; width: 18px;}
 	@media (hover: hover) { .subhead-nav:hover .subhead-label { color: var(--color-text-muted); } }
 	/* Compact-row cold-load skeleton (UI-SPEC §2): mirrors the compact pager column shape. */
 	.compact-skel-pager { display: flex; gap: 12px; overflow: hidden; }
