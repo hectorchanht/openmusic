@@ -17,7 +17,10 @@ import { browser } from '$app/environment';
 import { apiFetch } from './api-base';
 
 // Bump to abandon all previously-cached (possibly poisoned) lyrics translations.
-const CACHE_VER = 'v2';
+// v2→v3 (D-02/D-04): zh-Hant output is now produced deterministically OFFLINE (client-side s2t),
+// so any pre-version localStorage entry that was an API ECHO of Traditional must be abandoned.
+// purgeStaleLyricsCache() already drops every non-current-version key, so the bump auto-purges.
+const CACHE_VER = 'v3';
 
 // TRANSIENT-RESILIENCE (WR / debug:lyric-tr-not-shown-hide-paren): a flaky upstream
 // (Google timeout / rate-limit) makes /api/translate return the ORIGINALS as a fake
@@ -102,15 +105,104 @@ async function requestOnce(lines: string[], to: string): Promise<TranslateResult
 }
 
 /**
- * Translate `lines` to `to`, returning aligned output + per-line genuine-translation flags.
- * Caches (mem + localStorage) only fully-translated batches so an echo/fallback never poisons
- * the cache. `to === 'off'` or empty input is an identity pass-through (all flags false).
+ * The API path: send `lines` to /api/translate, returning the aligned output + per-line flags.
  *
  * TRANSIENT-RESILIENCE: a request that throws OR returns an INCOMPLETE batch (a non-blank line
  * fell back — the signature of a flaky/rate-limited upstream) is retried up to MAX_TRANSIENT_RETRIES
  * times with short backoff, so one transient blip no longer becomes the silent final answer. The
  * BEST result across attempts (the most genuinely-translated lines) is returned, so a partial
  * recovery still surfaces what it could translate.
+ */
+async function runApiLoop(lines: string[], to: string): Promise<TranslateResult> {
+	// Identity fallback used only if every attempt throws (transport failure on all tries).
+	let best: TranslateResult = { out: lines, flags: lines.map(() => false), complete: false };
+	const score = (r: TranslateResult) => r.flags.reduce((n, f) => n + (f ? 1 : 0), 0);
+	for (let attempt = 0; attempt <= MAX_TRANSIENT_RETRIES; attempt++) {
+		const r = await requestOnce(lines, to);
+		if (r) {
+			if (r.complete) {
+				best = r;
+				break; // fully translated — nothing better to wait for
+			}
+			// Keep whichever attempt translated the most lines (partial recovery still surfaces).
+			if (score(r) >= score(best)) best = r;
+		}
+		// Retry transient failures (threw → r===null) and incomplete soft-fails, with backoff.
+		if (attempt < MAX_TRANSIENT_RETRIES) await sleep(RETRY_BASE_MS * (attempt + 1));
+	}
+	return best;
+}
+
+// zh-Hant OFFLINE ROUTING (D-02 / D-04). zh-Hans→zh-Hant is a deterministic char/phrase
+// conversion, so Chinese-detected lines are converted CLIENT-SIDE (zero network, works offline /
+// on lockscreen) and ONLY the genuinely non-Chinese lines are sent to the API cascade. The dict
+// is pulled via a DYNAMIC import so the ~72 KB chunk stays out of the initial bundle AND out of
+// every non-zh-Hant path. Never-throw: s2tConvertLines degrades to identity on any fault, and a
+// failed dynamic import falls through to the full-API path so zh-Hant never hard-breaks
+// (T-25b-03). D-04: isChineseLine rides the kana/hangul-first classifier, so a JA-kana line is
+// NOT offline-converted — it lands in the API-bound subset like any other non-Chinese line.
+async function resolveZhHant(lines: string[]): Promise<TranslateResult> {
+	let mod: typeof import('./zh-convert');
+	try {
+		mod = await import('./zh-convert');
+	} catch {
+		// Offline converter unavailable (transient chunk-load failure) — degrade to the full-API
+		// path for the whole batch so zh-Hant still resolves.
+		return runApiLoop(lines, 'zh-Hant');
+	}
+	const { isChineseLine, s2tConvertLines } = mod;
+
+	// Partition by index so results scatter back to their ORIGINAL positions (T-25b-01 — strict
+	// positional alignment the callers depend on). Blank lines are trivially complete (nothing to
+	// translate) — they belong to NEITHER bucket, so Chinese lyrics with blank separator lines
+	// still make ZERO network calls.
+	const chineseIdx: number[] = [];
+	const apiIdx: number[] = [];
+	for (let i = 0; i < lines.length; i++) {
+		const line = lines[i];
+		if (!line) continue; // blank: leave out[i]='' / flag false (non-blocking), no request
+		if (isChineseLine(line)) chineseIdx.push(i);
+		else apiIdx.push(i);
+	}
+
+	const out = lines.slice();
+	const flags = lines.map(() => false);
+
+	// Chinese subset → offline s2t. A converted Chinese line is a genuine zh-Hant translation, so
+	// flag those positions true (already-Traditional input s2t-passes-through unchanged — still
+	// correct Traditional, still genuinely translated for this target; T-25b-04 accepted).
+	if (chineseIdx.length) {
+		const converted = await s2tConvertLines(chineseIdx.map((i) => lines[i]));
+		chineseIdx.forEach((orig, j) => {
+			out[orig] = converted[j];
+			flags[orig] = true;
+		});
+	}
+
+	// Non-Chinese subset → the EXISTING API retry/best-result loop, scattered back positionally.
+	if (apiIdx.length) {
+		const api = await runApiLoop(apiIdx.map((i) => lines[i]), 'zh-Hant');
+		apiIdx.forEach((orig, j) => {
+			out[orig] = api.out[j];
+			flags[orig] = api.flags[j];
+		});
+	}
+
+	// Same completeness rule as the API path: every NON-BLANK line must be flagged. An incomplete
+	// API remainder keeps complete=false (so it stays uncached/retryable) even though the offline
+	// lines are correct.
+	const complete = lines.every((line, i) => !line || flags[i]);
+	return { out, flags, complete };
+}
+
+/**
+ * Translate `lines` to `to`, returning aligned output + per-line genuine-translation flags.
+ * Caches (mem + localStorage) only fully-translated batches so an echo/fallback never poisons
+ * the cache. `to === 'off'` or empty input is an identity pass-through (all flags false).
+ *
+ * D-02: `to === 'zh-Hant'` routes through `resolveZhHant` — Chinese lines convert offline (zero
+ * network) and only the non-Chinese remainder hits the API. Every other target is byte-identical
+ * to before (full `lines[]` → the API retry loop, no offline branch, no zh-convert import).
  */
 export async function translateLinesEx(lines: string[], to: string): Promise<TranslateResult> {
 	if (to === 'off' || !lines.length) return { out: lines, flags: lines.map(() => false), complete: false };
@@ -133,22 +225,8 @@ export async function translateLinesEx(lines: string[], to: string): Promise<Tra
 		}
 	}
 
-	// Identity fallback used only if every attempt throws (transport failure on all tries).
-	let best: TranslateResult = { out: lines, flags: lines.map(() => false), complete: false };
-	const score = (r: TranslateResult) => r.flags.reduce((n, f) => n + (f ? 1 : 0), 0);
-	for (let attempt = 0; attempt <= MAX_TRANSIENT_RETRIES; attempt++) {
-		const r = await requestOnce(lines, to);
-		if (r) {
-			if (r.complete) {
-				best = r;
-				break; // fully translated — nothing better to wait for
-			}
-			// Keep whichever attempt translated the most lines (partial recovery still surfaces).
-			if (score(r) >= score(best)) best = r;
-		}
-		// Retry transient failures (threw → r===null) and incomplete soft-fails, with backoff.
-		if (attempt < MAX_TRANSIENT_RETRIES) await sleep(RETRY_BASE_MS * (attempt + 1));
-	}
+	// D-02 choke-point interception: offline-first for zh-Hant, unchanged API path otherwise.
+	const best = to === 'zh-Hant' ? await resolveZhHant(lines) : await runApiLoop(lines, to);
 
 	if (best.complete) {
 		mem.set(key, best.out);
