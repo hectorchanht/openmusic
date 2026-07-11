@@ -384,7 +384,10 @@ export const joox: SourceAdapter = {
 		const best = await pickJooxPlayUrl(playLinks, signal, quality); // WR-07: per-call quality wins
 
 		// Identity validated / self-healed — enrich the track in place (ports legacy:2483-2503).
-		track.title = d['歌曲名称'] || track.title;
+		// quick-260712-4xg: prefer the existing (picked/search) title so a VersionPicker selection
+		// keeps the version's name in now-playing; fall back to the detail name only for a
+		// title-less stub. Matches netease.resolve (no title overwrite).
+		track.title = track.title || d['歌曲名称'] || '';
 		track.artist = d['歌手'] || track.artist;
 		track.album = d['专辑'] || track.album;
 		if (d['歌曲ID']) {

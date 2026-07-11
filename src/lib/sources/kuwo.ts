@@ -114,7 +114,11 @@ export const kuwo: SourceAdapter = {
 
 		const d = j.data;
 		Object.assign(track, {
-			title: d.name || track.title,
+			// quick-260712-4xg: prefer the title the track already carries (the VersionPicker plays
+			// an EXACT chosen variant; overwriting with d.name showed the source's canonical name
+			// instead of the picked version). Fall back to d.name only for a title-less stub.
+			// Matches netease.resolve (no title overwrite).
+			title: track.title || d.name,
 			artist: d.artist || track.artist,
 			album: d.album || track.album,
 			cover: d.pic || track.cover,

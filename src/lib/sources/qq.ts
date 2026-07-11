@@ -229,7 +229,10 @@ export const qq: SourceAdapter = {
 			}
 
 			// 更新基础信息 (legacy:2357-2362).
-			track.title = d.song_title || d.song_name || track.title;
+			// quick-260712-4xg: prefer the existing (picked/search) title so a VersionPicker
+			// selection keeps the version's name in now-playing; fall back to detail names only for
+			// a title-less stub. Matches netease.resolve (no title overwrite).
+			track.title = track.title || d.song_title || d.song_name || '';
 			track.artist = d.singer_name || track.artist;
 			track.album = d.album_name || d.album_title || track.album || '';
 			track.cover = d.album_pic || d.singer_pic || track.cover;
