@@ -34,14 +34,32 @@ function prefersReducedMotion(): boolean {
 }
 
 // Marquee tuning. MIN_OVERFLOW_PX: below this much clipping, don't animate (static ellipsis —
-// a 2-3px crawl reads as a twitch). The CSS owns the scroll timing (a fixed 8s loop).
+// a 2-3px crawl reads as a twitch).
 export const MIN_OVERFLOW_PX = 8;
+
+// quick-260712-5ll: the scroll duration is now PROPORTIONAL to the overflow so every title
+// travels at a constant, READABLE speed (a fixed 8s loop made a long title fly past too fast to
+// read — the full text technically scrolled by but you couldn't take it in). The keyframe spends
+// half the cycle scrolling (25%→75%) and a quarter holding at each end, so a full cycle that
+// scrolls `overflow` px at SCROLL_SPEED_PX_PER_S is `2 * overflow / SPEED`. Clamped so short
+// overflows are not jittery-fast and very long ones do not crawl forever.
+const SCROLL_SPEED_PX_PER_S = 120;
+const MIN_DURATION_MS = 5000;
+const MAX_DURATION_MS = 20000;
+
+/** Full-cycle animation duration (ms) for a given overflow — constant scroll speed, clamped. */
+export function marqueeDurationMs(overflow: number): number {
+	const cycleMs = (2 * overflow) / SCROLL_SPEED_PX_PER_S * 1000;
+	return Math.round(Math.min(MAX_DURATION_MS, Math.max(MIN_DURATION_MS, cycleMs)));
+}
 
 export interface MarqueeState {
 	/** true → add `.marquee-on` and scroll; false → static ellipsis. */
 	on: boolean;
 	/** exact overflow distance the text must travel to reveal its tail (px). 0 when off. */
 	dx: number;
+	/** full-cycle animation duration in ms (constant scroll speed); 0 when off. */
+	durationMs: number;
 }
 
 /**
@@ -55,11 +73,13 @@ export interface MarqueeState {
  */
 export function marqueeState(scrollWidth: number, clientWidth: number, reducedMotion: boolean): MarqueeState {
 	// Reduced-motion users always get the static ellipsis.
-	if (reducedMotion) return { on: false, dx: 0 };
+	if (reducedMotion) return { on: false, dx: 0, durationMs: 0 };
 	const overflow = scrollWidth - clientWidth;
 	// Only animate a MEANINGFUL overflow. A few px of clipping is not worth a marquee and reads
 	// as a twitch; below the threshold keep the static ellipsis.
-	return overflow > MIN_OVERFLOW_PX ? { on: true, dx: overflow } : { on: false, dx: 0 };
+	return overflow > MIN_OVERFLOW_PX
+		? { on: true, dx: overflow, durationMs: marqueeDurationMs(overflow) }
+		: { on: false, dx: 0, durationMs: 0 };
 }
 
 export const marquee: Action<HTMLElement> = (node) => {
@@ -67,13 +87,15 @@ export const marquee: Action<HTMLElement> = (node) => {
 	let mutationObs: MutationObserver | null = null;
 
 	function measure() {
-		const { on, dx } = marqueeState(node.scrollWidth, node.clientWidth, prefersReducedMotion());
+		const { on, dx, durationMs } = marqueeState(node.scrollWidth, node.clientWidth, prefersReducedMotion());
 		if (on) {
 			node.style.setProperty('--marquee-dx', `${dx}px`);
+			node.style.setProperty('--marquee-dur', `${durationMs}ms`);
 			node.classList.add('marquee-on');
 		} else {
 			node.classList.remove('marquee-on');
 			node.style.removeProperty('--marquee-dx');
+			node.style.removeProperty('--marquee-dur');
 		}
 	}
 

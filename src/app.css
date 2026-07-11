@@ -78,7 +78,9 @@ button, a, [role="button"] { -webkit-tap-highlight-color: transparent; }
 .marquee-on .marquee-inner {
 	display: inline-block;
 	will-change: transform;
-	animation: marquee-scroll 8s linear infinite alternate;
+	/* quick-260712-5ll: duration is proportional to the overflow (set by use:marquee as
+	   --marquee-dur) so every title scrolls at a constant, readable speed; 8s is the fallback. */
+	animation: marquee-scroll var(--marquee-dur, 8s) linear infinite alternate;
 }
 @keyframes marquee-scroll {
 	0%, 25% { transform: translateX(0); } /* ~2s hold at the start */
