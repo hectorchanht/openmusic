@@ -617,6 +617,18 @@ class Player {
 	 * already fired) is buffering, not a load failure, and must NOT fail over.
 	 */
 	private static STALL_TIMEOUT_MS = 15000;
+	/**
+	 * RESOLVE-PHASE WATCHDOG (26-06 / gap-1 BLOCKER, RESOLVE-02). Distinct from STALL_TIMEOUT_MS: the
+	 * stall watchdog covers the audio LOAD phase (src set, no `playing`); THIS bounds the earlier
+	 * NETWORK RESOLVE phase — the `ensureTrackDetails(track)` await in play(), BEFORE any src is set. A
+	 * tapped song whose upstream resolve stalls (a qijieya/qq flake) used to sit in `loading` up to
+	 * apiFetch's ~25s REQUEST_TIMEOUT_MS with NO cross-source fallback and NO skip (the UAT hang: a
+	 * fresh qq tap logged `play` then nothing — no resolve.ok/fail/fallback/skip — for 23s). On elapse
+	 * the in-flight resolve is aborted and the SAME song is routed into the existing kuwo-first
+	 * cross-source walk (runFallback → tryFallback → handleTotalFailure auto-skip). Intended band ~5-8s:
+	 * comfortably UNDER the ~25s apiFetch timeout (so a stall fails fast) and comfortably OVER a healthy
+	 * sub-2s resolve (so the happy path never trips it and never fans out). Private static tunable. */
+	private static RESOLVE_WATCHDOG_MS = 6000;
 	private stallTimer: ReturnType<typeof setTimeout> | null = null;
 	/** True once the current src has produced audio (a `playing`/`timeupdate`); false from the
 	 *  moment a new initial-load src is set. Distinguishes initial-load stall (D-13) from a
@@ -2559,13 +2571,57 @@ class Player {
 					return;
 				}
 			}
-			const resolved = await ensureTrackDetails(track);
-			if (myGen !== this.playGen) return; // CR-02: superseded mid-resolve — discard
-			logAction(resolved.audioUrl ? 'resolve.ok' : 'resolve.fail', {
-				uid: resolved.uid,
-				source: resolved.source,
-				hasUrl: !!resolved.audioUrl
+			// RESOLVE-PHASE WATCHDOG (26-06 / gap-1 BLOCKER, RESOLVE-02). The click-to-play network resolve
+			// used to run with NO signal + NO timeout — a stalled upstream (qijieya/qq flake) sat in
+			// `loading` up to apiFetch's ~25s REQUEST_TIMEOUT_MS with no cross-source fallback and no skip
+			// (the UAT hang). Bound it: race the resolve against a short RESOLVE_WATCHDOG_MS deadline. On the
+			// deadline we (a) set `timedOut`, (b) `ac.abort()` the in-flight resolve so the stalled /api
+			// fetch is cancelled and the connection frees (apiFetch rejects a caller-abort — T-26-06-02), and
+			// (c) win the race with the (audioUrl-less) tapped stub so play() unblocks and routes into
+			// runFallback BELOW even if a downstream ignored the signal — the never-hang guarantee does NOT
+			// depend on adapter cooperation. The offline-blob early-return above never reaches here, so local
+			// bytes never arm this. A fast, healthy resolve wins the race first → `timedOut` stays false, the
+			// timer is cleared in `finally` (no dangling timer / spurious late abort), and the single-source
+			// happy path proceeds with NO cross-source fan-out (the ~3-call budget is preserved).
+			const ac = new AbortController();
+			let timedOut = false;
+			// Kick off the resolve WITH the abort signal (ensureTrackDetails threads it to the adapter →
+			// apiFetch). Attach a swallowing .catch up-front: after the watchdog aborts, the in-flight
+			// resolve rejects LATE (apiFetch caller-abort) and the race has already settled — this prevents
+			// that late rejection surfacing as an unhandled rejection. A PRE-timeout reject is caught by the
+			// try/catch below (routed as a failed resolve).
+			const resolveP = ensureTrackDetails(track, ac.signal);
+			resolveP.catch(() => {});
+			let resolveTimer: ReturnType<typeof setTimeout> | undefined;
+			const timeoutP = new Promise<Track>((resolve) => {
+				resolveTimer = setTimeout(() => {
+					timedOut = true;
+					ac.abort(); // cancel the stalled upstream fetch — free the connection (T-26-06-02)
+					resolve(track); // unblock with the unresolved (audioUrl-less) stub → runFallback below
+				}, Player.RESOLVE_WATCHDOG_MS);
 			});
+			let resolved: Track;
+			try {
+				resolved = await Promise.race([resolveP, timeoutP]);
+			} catch {
+				// A hard resolve throw (network error, or a non-timeout abort) is a failed resolve: fall back
+				// to the tapped track (audioUrl-less) so the shared resolve-failure branch below routes it
+				// into the cross-source walk (never-throw parity with the null-resolve path).
+				resolved = track;
+			} finally {
+				clearTimeout(resolveTimer); // fast resolve → no dangling timer / spurious late abort
+			}
+			if (myGen !== this.playGen) return; // CR-02: superseded mid-resolve — discard
+			if (timedOut) {
+				// Make the hang→fallback transition visible in the Activity log (Settings → Activity log).
+				logAction('resolve.timeout', { uid: track.uid, source: track.source });
+			} else {
+				logAction(resolved.audioUrl ? 'resolve.ok' : 'resolve.fail', {
+					uid: resolved.uid,
+					source: resolved.source,
+					hasUrl: !!resolved.audioUrl
+				});
+			}
 			this.current = resolved;
 			// keep the queue entry in sync with the resolved track
 			const i = this.indexOf(track);
@@ -2587,9 +2643,12 @@ class Player {
 				if (httpsOnly(resolved.cover))
 					writeCoverBoth(resolved.uid, resolved.artist, resolved.title, resolved.cover);
 			}
-			if (!resolved.audioUrl) {
-				// Cross-source fallback (gte): try other enabled sources before surfacing the
-				// error. On success, runFallback() calls play() again with fromFallback:true.
+			if (timedOut || !resolved.audioUrl) {
+				// Resolve FAILED — the watchdog fired (stalled upstream) OR the resolve returned no
+				// audioUrl. Both route into the cross-source fallback (gte / 26-06 gap-1): walk the
+				// remaining sources kuwo-first for the SAME song before surfacing an error. On a playable
+				// hit runFallback() calls play() again with fromFallback:true; on total exhaustion
+				// handleTotalFailure auto-skips via next() — the player never sits permanently in `loading`.
 				if (!opts?.fromFallback) {
 					this.loading = false;
 					void this.runFallback(resolved);

@@ -4737,8 +4737,13 @@ describe('player resolve-phase watchdog — stalled/null initial resolve fails f
 		try {
 			const tapped = stub('qq', '9', 'C', 'No Url Here');
 			player.queue = [tapped];
+			// Null ONLY the tapped uid (a benign URL for any other track) so a stray play() leaked from a
+			// prior suite's un-awaited async chain does not itself fan out and inflate the count — the
+			// isolation pattern tests 1 & 2 use. The intent here is "the TAPPED song's null resolve fans out".
 			mockEnsure.mockImplementation((t: Track) =>
-				Promise.resolve({ ...t, detailsLoaded: true, audioUrl: null })
+				t.uid === tapped.uid
+					? Promise.resolve({ ...t, detailsLoaded: true, audioUrl: null })
+					: Promise.resolve({ ...t, detailsLoaded: true, audioUrl: 'https://cdn/other.mp3' })
 			);
 			mockTryFallback.mockResolvedValue(null);
 
