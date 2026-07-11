@@ -29,7 +29,7 @@ import {
 	type PlayerMediaSession
 } from '$lib/services/native-media-session';
 import { getCachedCoverByUid, getCachedCover } from '$lib/services/cover-cache';
-import { resolveCoverForTrack } from '$lib/services/cover-backfill';
+import { resolveCoverForTrack, resolveDeezerHQ } from '$lib/services/cover-backfill';
 // quick-260615-hep: feed every displayed now-playing cover into the shared cache (both layers) +
 // bump the global reactive signal so other surfaces (homepage tiles) reuse the art and repaint live.
 // quick-260704-20e: removeCoverBoth evicts a DEAD current cover before healCover re-resolves it.
@@ -2691,6 +2691,14 @@ class Player {
 			// screen pick up a real cover when one exists, and keep the gradient/favicon when it does
 			// not (D-12). Non-blocking: playback never waits on it (T-21-07 accept).
 			if (!this.resolvedCover) void this.resolveCoverAsync(resolved, myGen);
+			// COVER-01 (Plan 26-02): the now-playing track ALREADY painted from a SOLID inline source
+			// cover (kuwo pic / qq album_pic / netease pic — the click-to-play hot path with NO cover
+			// network call). Fire a BOUNDED, LAZY, post-paint Deezer HQ UPGRADE off the audio critical
+			// path: at most ONE Deezer call for the CURRENT now-playing track only (never a per-tile
+			// fan-out — T-26-02-01), generation-guarded, never awaited. `else if` keeps it mutually
+			// exclusive with the full-chain miss path above — a track is EITHER coverless (full chain)
+			// OR has an inline cover (single Deezer upgrade), never both.
+			else if (httpsOnly(this.resolvedCover)) void this.upgradeCoverAsync(resolved, myGen);
 			// Fresh play -> per-context sourcing branch (Phase 17, D-03/D-04). 'generated'
 			// (global default) regenerates the auto portion from genre-similar songs; 'same-list'
 			// keeps the snapshot the caller passed via setQueue (search results / liked list /
@@ -2758,6 +2766,46 @@ class Player {
 		this.resolvedCover = url;
 		// quick-260615-hep Site C: resolveCoverForTrack already wrote BOTH cache layers internally — do NOT
 		// double-write; only bump the global reactive signal so a late async cover land repaints other tiles.
+		bumpCoverVersion();
+		const ms = this.ms;
+		if (ms) {
+			// A FRESH MediaMetadata so the OS repaints the lock-screen art (never an in-place mutate).
+			ms.metadata = makeMetadata({
+				title: names.dnTitle(resolved.title),
+				artist: names.dnArtist(resolved.artist),
+				album: resolved.album,
+				artwork: buildArtwork(this.resolvedCover)
+			});
+			ms.playbackState = playbackStateFor(!!this.current, this.playing);
+		}
+	}
+
+	/**
+	 * Bounded, lazy Deezer HQ cover UPGRADE for the now-playing track (Plan 26-02, COVER-01). The
+	 * counterpart to resolveCoverAsync (which fires ONLY when resolvedCover is NULL — a coverless miss):
+	 * this fires ONLY when the track ALREADY painted from a SOLID inline source cover (kuwo pic / qq
+	 * album_pic / netease pic), to lazily pick up Deezer's higher-quality album art post-paint. It is the
+	 * single OPTIONAL cover call in the click-to-play ~3-call budget:
+	 *   - issues ONLY the Deezer tier (resolveDeezerHQ — no iTunes, no CN searchAll → NO per-tile fan-out),
+	 *   - fires at most ONCE per play for the CURRENT now-playing track only (never inside a queue loop),
+	 *   - is generation-guarded by the captured myGen (bails the instant a newer play() supersedes),
+	 *   - is never awaited on the audio critical path (playback never waits on it — T-21-07 accept).
+	 * On a SOLID upgrade that DIFFERS from the current cover: set resolvedCover, bump the reactive signal
+	 * (resolveDeezerHQ already wrote BOTH cache layers — mirror resolveCoverAsync Site C, do NOT double-
+	 * write), and re-fire a FRESH MediaMetadata so the OS lock screen repaints. A miss / same-URL result /
+	 * a supersede leaves the inline cover standing (never a downgrade, never a broken image).
+	 */
+	private async upgradeCoverAsync(resolved: Track, myGen: number) {
+		let url: string | null = null;
+		try {
+			url = await resolveDeezerHQ(resolved);
+		} catch {
+			url = null; // resolveDeezerHQ never throws, but stay defensive — never reject.
+		}
+		if (myGen !== this.playGen) return; // a newer play() superseded — keep the current art (T-21-06)
+		if (!httpsOnly(url) || url === this.resolvedCover) return; // miss / no change → inline cover stands
+		this.resolvedCover = url;
+		// resolveDeezerHQ already wrote BOTH cache layers — only bump the reactive signal (mirror Site C).
 		bumpCoverVersion();
 		const ms = this.ms;
 		if (ms) {
