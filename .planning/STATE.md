@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Resilient Playback & UX Polish
 status: executing
-stopped_at: Completed 26-02-PLAN.md
-last_updated: "2026-07-11T11:05:00.000Z"
-last_activity: 2026-07-11 -- Completed 26-02 (covers off click-to-play hot path + lazy Deezer HQ upgrade)
+stopped_at: Completed 26-05-PLAN.md
+last_updated: "2026-07-11T11:16:50.331Z"
+last_activity: 2026-07-11
 progress:
   total_phases: 18
   completed_phases: 15
   total_plans: 64
-  completed_plans: 59
+  completed_plans: 61
   percent: 83
 ---
 
@@ -74,6 +74,7 @@ Last activity: 2026-07-11
 | Phase 25 P02 | 9min | 3 tasks | 3 files |
 | Phase 25 P03 | 5min | 2 tasks | 2 files |
 | Phase 26 P01 | 11min | 2 tasks | 7 files |
+| Phase 26 P05 | 7min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -127,6 +128,7 @@ Recent decisions affecting current work:
 - [Phase ?]: 25-03: blank lines are neither offline-converted nor API-sent (trivially complete) so all-Chinese lyrics with blank separators make ZERO network calls
 - [Phase ?]: 26-01: registry reorder is DATA-ONLY — kuwo-first SOURCES order propagates to getEnabledAdapters/fallbackOrder/interleave/resolveNameStub; contracts/enabledByDefault/SOURCE_RANK unchanged
 - [Phase ?]: 26-01: resolveNameStub + crossSourceLyric walk the kuwo-first order ONE source per searchAll (onlySource prefs) — never an all-source fan-out on a resolve path; onlySource duplicated in catalog.ts to avoid a catalog<->fallback cycle
+- [Phase 26]: 26-05: netease dry-spell health-gate — a pure in-memory neteaseHealth trips after DRY_THRESHOLD(3) consecutive [] responses, netease.search() short-circuits to [] (no apiFetch) for GATE_WINDOW_MS(~60s), auto-probes on expiry, recordOk() = instant recovery; contract-drift THROW preserved and never counted as dry
 
 ### Pending Todos
 
@@ -272,8 +274,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-11T10:09:16.812Z
-Stopped at: Completed 25-02-PLAN.md
+Last session: 2026-07-11T11:16:50.322Z
+Stopped at: Completed 26-05-PLAN.md
 Resume: plan Phase 16 (`/gsd:plan-phase 16`). Phase 16 is the resilience-core dependency root; everything else builds on its `queueContext` / 2-state repeat / skip-loop guard.
 
 ## Deferred Items
