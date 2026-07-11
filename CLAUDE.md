@@ -7,6 +7,8 @@ A mobile-first web music player that searches and streams tracks aggregated from
 
 **Core Value:** A user on their phone can search a song, tap it, and have it play instantly with a smooth, native-app-like experience — and keep playing when the screen locks.
 
+**Spike findings for openmusic** (kuwo-first resolution, `track.getSimilar` up-next, inline-cover / API-call-reduction patterns, constraints, gotchas) → `Skill("spike-findings-openmusic")`
+
 ### Constraints
 
 - **Tech stack**: SvelteKit + Vite — chosen for smooth animations / app-like UX and first-class Cloudflare deployment.

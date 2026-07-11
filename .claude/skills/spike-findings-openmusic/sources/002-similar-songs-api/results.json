@@ -1,0 +1,200 @@
+[
+  {
+    "seed": "周杰伦 — 稻香",
+    "trackSimilar_count": 20,
+    "trackSimilar_top5": [
+      "周杰倫 — 七里香",
+      "周杰倫 — 晴天",
+      "林俊傑 — 江南",
+      "林俊傑 — 修煉愛情",
+      "陳奕迅 — 淘汰"
+    ],
+    "trackSimilar_top5_resolvable": "5/5",
+    "artistSimilar_count": 20,
+    "artistSimilar_top5": [
+      "林俊傑",
+      "王力宏",
+      "陶喆",
+      "陳奕迅",
+      "孫燕姿"
+    ],
+    "deezerRelated_count": 20
+  },
+  {
+    "seed": "陈奕迅 — 十年",
+    "trackSimilar_count": 20,
+    "trackSimilar_top5": [
+      "陳奕迅 — 淘汰",
+      "陳奕迅 — 好久不見",
+      "周杰倫 — 七里香",
+      "林俊傑 — 江南",
+      "周杰倫 — 珊瑚海"
+    ],
+    "trackSimilar_top5_resolvable": "5/5",
+    "artistSimilar_count": 20,
+    "artistSimilar_top5": [
+      "張學友",
+      "古巨基",
+      "楊千嬅",
+      "周杰倫",
+      "林俊傑"
+    ],
+    "deezerRelated_count": 0
+  },
+  {
+    "seed": "邓紫棋 — 光年之外",
+    "trackSimilar_count": 0,
+    "trackSimilar_top5": [],
+    "trackSimilar_top5_resolvable": "0/0",
+    "artistSimilar_count": 20,
+    "artistSimilar_top5": [
+      "孫盛希",
+      "衛蘭",
+      "張敬軒",
+      "容祖兒",
+      "薛凱琪"
+    ],
+    "deezerRelated_count": 0
+  },
+  {
+    "seed": "林俊杰 — 江南",
+    "trackSimilar_count": 20,
+    "trackSimilar_top5": [
+      "林俊傑 — 背對背擁抱",
+      "林俊傑 — 愛笑的眼睛",
+      "周杰倫 — 七里香",
+      "周杰倫 — 珊瑚海",
+      "陳奕迅 — 十年"
+    ],
+    "trackSimilar_top5_resolvable": "5/5",
+    "artistSimilar_count": 20,
+    "artistSimilar_top5": [
+      "周杰倫",
+      "王力宏",
+      "薛之谦",
+      "张杰",
+      "汪苏泷"
+    ],
+    "deezerRelated_count": 0
+  },
+  {
+    "seed": "五月天 — 突然好想你",
+    "trackSimilar_count": 20,
+    "trackSimilar_top5": [
+      "五月天 — 我不願讓你一個人",
+      "五月天 — 知足",
+      "胡夏 — 那些年",
+      "周杰倫 — 不該",
+      "韋禮安 — 如果可以 - 電影\"月老\"主題曲"
+    ],
+    "trackSimilar_top5_resolvable": "5/5",
+    "artistSimilar_count": 20,
+    "artistSimilar_top5": [
+      "周杰倫",
+      "林俊傑",
+      "孫燕姿",
+      "王力宏",
+      "梁靜茹"
+    ],
+    "deezerRelated_count": 20
+  },
+  {
+    "seed": "毛不易 — 消愁",
+    "trackSimilar_count": 0,
+    "trackSimilar_top5": [],
+    "trackSimilar_top5_resolvable": "0/0",
+    "artistSimilar_count": 20,
+    "artistSimilar_top5": [
+      "薛之谦",
+      "李荣浩",
+      "赵雷",
+      "林俊傑",
+      "周深"
+    ],
+    "deezerRelated_count": 20
+  },
+  {
+    "seed": "Taylor Swift — Blank Space",
+    "trackSimilar_count": 20,
+    "trackSimilar_top5": [
+      "Taylor Swift — Style",
+      "Taylor Swift — Shake It Off",
+      "Ariana Grande — One Last Time",
+      "Ariana Grande — Into You",
+      "Katy Perry — Wide Awake"
+    ],
+    "trackSimilar_top5_resolvable": "5/5",
+    "artistSimilar_count": 20,
+    "artistSimilar_top5": [
+      "Sabrina Carpenter",
+      "Olivia Rodrigo",
+      "Gracie Abrams",
+      "Maisie Peters",
+      "Harry Styles"
+    ],
+    "deezerRelated_count": 20
+  },
+  {
+    "seed": "Ed Sheeran — Shape of You",
+    "trackSimilar_count": 20,
+    "trackSimilar_top5": [
+      "Shawn Mendes — There's Nothing Holdin' Me Back",
+      "Ed Sheeran — Castle on the Hill",
+      "Ed Sheeran — Bad Habits",
+      "Dua Lipa — New Rules",
+      "Clean Bandit — Rockabye (feat. Sean Paul & Anne-Marie)"
+    ],
+    "trackSimilar_top5_resolvable": "5/5",
+    "artistSimilar_count": 20,
+    "artistSimilar_top5": [
+      "Lewis Capaldi",
+      "James Arthur",
+      "Myles Smith",
+      "Shawn Mendes",
+      "James Blunt"
+    ],
+    "deezerRelated_count": 20
+  },
+  {
+    "seed": "Adele — Hello",
+    "trackSimilar_count": 20,
+    "trackSimilar_top5": [
+      "Adele — When We Were Young",
+      "Adele — Remedy",
+      "Sam Smith — Stay with Me",
+      "Sam Smith — I'm Not the Only One",
+      "Sia — Elastic Heart"
+    ],
+    "trackSimilar_top5_resolvable": "5/5",
+    "artistSimilar_count": 20,
+    "artistSimilar_top5": [
+      "Sam Smith",
+      "Beyoncé",
+      "Whitney Houston",
+      "Sia",
+      "Amy Winehouse"
+    ],
+    "deezerRelated_count": 20
+  },
+  {
+    "seed": "Coldplay — Yellow",
+    "trackSimilar_count": 20,
+    "trackSimilar_top5": [
+      "Coldplay — The Scientist",
+      "Coldplay — Sparks",
+      "Keane — Somewhere Only We Know",
+      "Snow Patrol — Chasing Cars",
+      "Goo Goo Dolls — Iris"
+    ],
+    "trackSimilar_top5_resolvable": "5/5",
+    "artistSimilar_count": 20,
+    "artistSimilar_top5": [
+      "Keane",
+      "OneRepublic",
+      "Imagine Dragons",
+      "Snow Patrol",
+      "U2"
+    ],
+    "deezerRelated_count": 20
+  }
+]

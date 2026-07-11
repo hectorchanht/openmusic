@@ -1,0 +1,3294 @@
+{
+  "songs": [
+    {
+      "artist": "周杰伦",
+      "title": "稻香",
+      "seg": "mando-pop"
+    },
+    {
+      "artist": "林俊杰",
+      "title": "江南",
+      "seg": "mando-pop"
+    },
+    {
+      "artist": "邓紫棋",
+      "title": "光年之外",
+      "seg": "mando-pop"
+    },
+    {
+      "artist": "李荣浩",
+      "title": "模特",
+      "seg": "mando-pop"
+    },
+    {
+      "artist": "陈奕迅",
+      "title": "富士山下",
+      "seg": "canto"
+    },
+    {
+      "artist": "张国荣",
+      "title": "风继续吹",
+      "seg": "canto"
+    },
+    {
+      "artist": "Beyond",
+      "title": "海阔天空",
+      "seg": "canto"
+    },
+    {
+      "artist": "谭咏麟",
+      "title": "朋友",
+      "seg": "canto"
+    },
+    {
+      "artist": "五月天",
+      "title": "突然好想你",
+      "seg": "cn-rock-indie"
+    },
+    {
+      "artist": "赵雷",
+      "title": "成都",
+      "seg": "cn-rock-indie"
+    },
+    {
+      "artist": "万能青年旅店",
+      "title": "杀死那个石家庄人",
+      "seg": "cn-rock-indie"
+    },
+    {
+      "artist": "热狗",
+      "title": "差不多先生",
+      "seg": "cn-hiphop"
+    },
+    {
+      "artist": "GAI",
+      "title": "天干物燥",
+      "seg": "cn-hiphop"
+    },
+    {
+      "artist": "邓丽君",
+      "title": "月亮代表我的心",
+      "seg": "cn-oldies"
+    },
+    {
+      "artist": "罗大佑",
+      "title": "光阴的故事",
+      "seg": "cn-oldies"
+    },
+    {
+      "artist": "周深",
+      "title": "大鱼",
+      "seg": "cn-ost"
+    },
+    {
+      "artist": "张碧晨",
+      "title": "年轮",
+      "seg": "cn-ost"
+    },
+    {
+      "artist": "米津玄師",
+      "title": "Lemon",
+      "seg": "japanese"
+    },
+    {
+      "artist": "YOASOBI",
+      "title": "夜に駆ける",
+      "seg": "japanese"
+    },
+    {
+      "artist": "LiSA",
+      "title": "紅蓮華",
+      "seg": "japanese"
+    },
+    {
+      "artist": "BTS",
+      "title": "Dynamite",
+      "seg": "korean"
+    },
+    {
+      "artist": "BLACKPINK",
+      "title": "How You Like That",
+      "seg": "korean"
+    },
+    {
+      "artist": "IU",
+      "title": "Through the Night",
+      "seg": "korean"
+    },
+    {
+      "artist": "Taylor Swift",
+      "title": "Blank Space",
+      "seg": "en-pop"
+    },
+    {
+      "artist": "Ed Sheeran",
+      "title": "Shape of You",
+      "seg": "en-pop"
+    },
+    {
+      "artist": "Adele",
+      "title": "Hello",
+      "seg": "en-pop"
+    },
+    {
+      "artist": "Coldplay",
+      "title": "Yellow",
+      "seg": "en-rock"
+    },
+    {
+      "artist": "Queen",
+      "title": "Bohemian Rhapsody",
+      "seg": "en-rock"
+    },
+    {
+      "artist": "Eminem",
+      "title": "Lose Yourself",
+      "seg": "en-hiphop"
+    },
+    {
+      "artist": "Kendrick Lamar",
+      "title": "HUMBLE.",
+      "seg": "en-hiphop"
+    },
+    {
+      "artist": "Avicii",
+      "title": "Wake Me Up",
+      "seg": "edm"
+    },
+    {
+      "artist": "Alan Walker",
+      "title": "Faded",
+      "seg": "edm"
+    },
+    {
+      "artist": "The Weeknd",
+      "title": "Blinding Lights",
+      "seg": "en-rnb"
+    },
+    {
+      "artist": "Bruno Mars",
+      "title": "That's What I Like",
+      "seg": "en-rnb"
+    },
+    {
+      "artist": "久石让",
+      "title": "Summer",
+      "seg": "instrumental"
+    },
+    {
+      "artist": "Yiruma",
+      "title": "River Flows in You",
+      "seg": "instrumental"
+    },
+    {
+      "artist": "Luis Fonsi",
+      "title": "Despacito",
+      "seg": "latin"
+    },
+    {
+      "artist": "Shakira",
+      "title": "Hips Don't Lie",
+      "seg": "latin"
+    }
+  ],
+  "results": {
+    "netease": [
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": false,
+        "matched": false,
+        "audioPlayable": false,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": false,
+        "matched": false,
+        "audioPlayable": false,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": false
+      }
+    ],
+    "qq": [
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": true
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": true
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": true
+      },
+      {
+        "searchHit": false,
+        "matched": false,
+        "audioPlayable": false,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": true
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": true
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": true
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": true
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": true
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": true
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": true
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": true
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": true
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": true
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": true
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": true
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": true
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": true
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": true
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": true
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": true
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": true
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": false,
+        "durationPresent": true
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": true
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": true
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": true
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": true
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": true
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": true
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": true
+      },
+      {
+        "searchHit": false,
+        "matched": false,
+        "audioPlayable": false,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": true
+      },
+      {
+        "searchHit": false,
+        "matched": false,
+        "audioPlayable": false,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": true
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": true
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": true
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": true
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": true
+      }
+    ],
+    "kuwo": [
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": true,
+        "durationPresent": false
+      }
+    ],
+    "joox": [
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": false,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": false,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": false,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": false,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": false,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": false,
+        "audioPlayable": true,
+        "coverLoads": false,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": false,
+        "audioPlayable": true,
+        "coverLoads": false,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": false,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": false,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": false,
+        "coverLoads": false,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": false,
+        "audioPlayable": true,
+        "coverLoads": false,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": false,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": false,
+        "audioPlayable": false,
+        "coverLoads": false,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": false,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": false,
+        "audioPlayable": true,
+        "coverLoads": false,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": false,
+        "audioPlayable": true,
+        "coverLoads": false,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": false,
+        "audioPlayable": true,
+        "coverLoads": false,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": false,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": false,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": false,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": false,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": false,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": false,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": false,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": false,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": false,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": false,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": false,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": false,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": false,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": false,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": false,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": false,
+        "coverLoads": false,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": false,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": false,
+        "coverLoads": false,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": false,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": false,
+        "lrcPresent": true,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": false,
+        "coverLoads": false,
+        "lrcPresent": true,
+        "durationPresent": false
+      }
+    ],
+    "fivesing": [
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": false,
+        "matched": false,
+        "audioPlayable": false,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": false,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": false,
+        "matched": false,
+        "audioPlayable": false,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": false,
+        "matched": false,
+        "audioPlayable": false,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": false,
+        "matched": false,
+        "audioPlayable": false,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": false,
+        "matched": false,
+        "audioPlayable": false,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": false,
+        "matched": false,
+        "audioPlayable": false,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": false,
+        "matched": false,
+        "audioPlayable": false,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": false,
+        "matched": false,
+        "audioPlayable": false,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": false,
+        "matched": false,
+        "audioPlayable": false,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": false,
+        "matched": false,
+        "audioPlayable": false,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": false,
+        "matched": false,
+        "audioPlayable": false,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      }
+    ],
+    "jamendo": [
+      {
+        "searchHit": false,
+        "matched": false,
+        "audioPlayable": false,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": false,
+        "matched": false,
+        "audioPlayable": false,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": false,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": false,
+        "matched": false,
+        "audioPlayable": false,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": false,
+        "matched": false,
+        "audioPlayable": false,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": false,
+        "matched": false,
+        "audioPlayable": false,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": false,
+        "matched": false,
+        "audioPlayable": false,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": false,
+        "matched": false,
+        "audioPlayable": false,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": false,
+        "matched": false,
+        "audioPlayable": false,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": false,
+        "matched": false,
+        "audioPlayable": false,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": false,
+        "matched": false,
+        "audioPlayable": false,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": false,
+        "matched": false,
+        "audioPlayable": false,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": false,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": false,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": false,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": false,
+        "matched": false,
+        "audioPlayable": false,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": false,
+        "matched": false,
+        "audioPlayable": false,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": false,
+        "matched": false,
+        "audioPlayable": false,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": false,
+        "matched": false,
+        "audioPlayable": false,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": false,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": false,
+        "matched": false,
+        "audioPlayable": false,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": false,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": false,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": false,
+        "matched": false,
+        "audioPlayable": false,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": false,
+        "matched": false,
+        "audioPlayable": false,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": false,
+        "durationPresent": false
+      }
+    ],
+    "audius": [
+      {
+        "searchHit": true,
+        "matched": false,
+        "audioPlayable": false,
+        "coverLoads": true,
+        "lrcPresent": false,
+        "durationPresent": true
+      },
+      {
+        "searchHit": true,
+        "matched": false,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": false,
+        "durationPresent": true
+      },
+      {
+        "searchHit": false,
+        "matched": false,
+        "audioPlayable": false,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": false,
+        "matched": false,
+        "audioPlayable": false,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": false,
+        "matched": false,
+        "audioPlayable": false,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": false,
+        "matched": false,
+        "audioPlayable": false,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": false,
+        "matched": false,
+        "audioPlayable": false,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": false,
+        "matched": false,
+        "audioPlayable": false,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": false,
+        "matched": false,
+        "audioPlayable": false,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": false,
+        "durationPresent": true
+      },
+      {
+        "searchHit": false,
+        "matched": false,
+        "audioPlayable": false,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": false,
+        "matched": false,
+        "audioPlayable": false,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": false,
+        "matched": false,
+        "audioPlayable": false,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": false,
+        "matched": false,
+        "audioPlayable": false,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": false,
+        "matched": false,
+        "audioPlayable": false,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": false,
+        "matched": false,
+        "audioPlayable": false,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": false,
+        "matched": false,
+        "audioPlayable": false,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": false,
+        "durationPresent": true
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": false,
+        "durationPresent": true
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": false,
+        "durationPresent": true
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": false,
+        "durationPresent": true
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": true
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": false,
+        "durationPresent": true
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": false,
+        "durationPresent": true
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": false,
+        "durationPresent": true
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": false,
+        "durationPresent": true
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": false,
+        "durationPresent": true
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": false,
+        "durationPresent": true
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": false,
+        "durationPresent": true
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": false,
+        "durationPresent": true
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": false,
+        "durationPresent": true
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": false,
+        "durationPresent": true
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": true
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": true
+      },
+      {
+        "searchHit": false,
+        "matched": false,
+        "audioPlayable": false,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": false
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": true
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": false,
+        "lrcPresent": false,
+        "durationPresent": true
+      },
+      {
+        "searchHit": true,
+        "matched": true,
+        "audioPlayable": true,
+        "coverLoads": true,
+        "lrcPresent": false,
+        "durationPresent": true
+      }
+    ]
+  },
+  "perSeg": {
+    "mando-pop": {
+      "n": 4,
+      "sources": {
+        "netease": {
+          "playable": 4,
+          "cover": 4,
+          "lrc": 4,
+          "avgRich": 5
+        },
+        "qq": {
+          "playable": 3,
+          "cover": 3,
+          "lrc": 3,
+          "avgRich": 3.8
+        },
+        "kuwo": {
+          "playable": 4,
+          "cover": 4,
+          "lrc": 3,
+          "avgRich": 4.8
+        },
+        "joox": {
+          "playable": 3,
+          "cover": 0,
+          "lrc": 3,
+          "avgRich": 3
+        },
+        "fivesing": {
+          "playable": 4,
+          "cover": 0,
+          "lrc": 0,
+          "avgRich": 3
+        },
+        "jamendo": {
+          "playable": 1,
+          "cover": 1,
+          "lrc": 0,
+          "avgRich": 1
+        },
+        "audius": {
+          "playable": 1,
+          "cover": 2,
+          "lrc": 0,
+          "avgRich": 1
+        }
+      }
+    },
+    "canto": {
+      "n": 4,
+      "sources": {
+        "netease": {
+          "playable": 4,
+          "cover": 4,
+          "lrc": 4,
+          "avgRich": 5
+        },
+        "qq": {
+          "playable": 4,
+          "cover": 4,
+          "lrc": 4,
+          "avgRich": 5
+        },
+        "kuwo": {
+          "playable": 4,
+          "cover": 4,
+          "lrc": 4,
+          "avgRich": 5
+        },
+        "joox": {
+          "playable": 4,
+          "cover": 0,
+          "lrc": 4,
+          "avgRich": 4
+        },
+        "fivesing": {
+          "playable": 4,
+          "cover": 0,
+          "lrc": 0,
+          "avgRich": 3
+        },
+        "jamendo": {
+          "playable": 0,
+          "cover": 0,
+          "lrc": 0,
+          "avgRich": 0
+        },
+        "audius": {
+          "playable": 0,
+          "cover": 0,
+          "lrc": 0,
+          "avgRich": 0
+        }
+      }
+    },
+    "cn-rock-indie": {
+      "n": 3,
+      "sources": {
+        "netease": {
+          "playable": 3,
+          "cover": 3,
+          "lrc": 3,
+          "avgRich": 5
+        },
+        "qq": {
+          "playable": 3,
+          "cover": 3,
+          "lrc": 3,
+          "avgRich": 5
+        },
+        "kuwo": {
+          "playable": 3,
+          "cover": 3,
+          "lrc": 3,
+          "avgRich": 5
+        },
+        "joox": {
+          "playable": 2,
+          "cover": 0,
+          "lrc": 3,
+          "avgRich": 2.7
+        },
+        "fivesing": {
+          "playable": 2,
+          "cover": 0,
+          "lrc": 0,
+          "avgRich": 2
+        },
+        "jamendo": {
+          "playable": 0,
+          "cover": 0,
+          "lrc": 0,
+          "avgRich": 0
+        },
+        "audius": {
+          "playable": 1,
+          "cover": 1,
+          "lrc": 0,
+          "avgRich": 1.3
+        }
+      }
+    },
+    "cn-hiphop": {
+      "n": 2,
+      "sources": {
+        "netease": {
+          "playable": 2,
+          "cover": 2,
+          "lrc": 2,
+          "avgRich": 5
+        },
+        "qq": {
+          "playable": 2,
+          "cover": 2,
+          "lrc": 2,
+          "avgRich": 5
+        },
+        "kuwo": {
+          "playable": 2,
+          "cover": 2,
+          "lrc": 2,
+          "avgRich": 5
+        },
+        "joox": {
+          "playable": 1,
+          "cover": 0,
+          "lrc": 2,
+          "avgRich": 2
+        },
+        "fivesing": {
+          "playable": 2,
+          "cover": 0,
+          "lrc": 0,
+          "avgRich": 3
+        },
+        "jamendo": {
+          "playable": 1,
+          "cover": 1,
+          "lrc": 0,
+          "avgRich": 2
+        },
+        "audius": {
+          "playable": 0,
+          "cover": 0,
+          "lrc": 0,
+          "avgRich": 0
+        }
+      }
+    },
+    "cn-oldies": {
+      "n": 2,
+      "sources": {
+        "netease": {
+          "playable": 2,
+          "cover": 2,
+          "lrc": 2,
+          "avgRich": 5
+        },
+        "qq": {
+          "playable": 2,
+          "cover": 2,
+          "lrc": 2,
+          "avgRich": 5
+        },
+        "kuwo": {
+          "playable": 2,
+          "cover": 2,
+          "lrc": 2,
+          "avgRich": 5
+        },
+        "joox": {
+          "playable": 2,
+          "cover": 0,
+          "lrc": 2,
+          "avgRich": 4
+        },
+        "fivesing": {
+          "playable": 1,
+          "cover": 0,
+          "lrc": 0,
+          "avgRich": 1.5
+        },
+        "jamendo": {
+          "playable": 2,
+          "cover": 2,
+          "lrc": 0,
+          "avgRich": 4
+        },
+        "audius": {
+          "playable": 0,
+          "cover": 0,
+          "lrc": 0,
+          "avgRich": 0
+        }
+      }
+    },
+    "cn-ost": {
+      "n": 2,
+      "sources": {
+        "netease": {
+          "playable": 2,
+          "cover": 2,
+          "lrc": 2,
+          "avgRich": 5
+        },
+        "qq": {
+          "playable": 2,
+          "cover": 2,
+          "lrc": 2,
+          "avgRich": 5
+        },
+        "kuwo": {
+          "playable": 2,
+          "cover": 2,
+          "lrc": 2,
+          "avgRich": 5
+        },
+        "joox": {
+          "playable": 2,
+          "cover": 0,
+          "lrc": 2,
+          "avgRich": 4
+        },
+        "fivesing": {
+          "playable": 2,
+          "cover": 0,
+          "lrc": 0,
+          "avgRich": 3
+        },
+        "jamendo": {
+          "playable": 0,
+          "cover": 0,
+          "lrc": 0,
+          "avgRich": 0
+        },
+        "audius": {
+          "playable": 0,
+          "cover": 0,
+          "lrc": 0,
+          "avgRich": 0
+        }
+      }
+    },
+    "japanese": {
+      "n": 3,
+      "sources": {
+        "netease": {
+          "playable": 3,
+          "cover": 3,
+          "lrc": 3,
+          "avgRich": 5
+        },
+        "qq": {
+          "playable": 3,
+          "cover": 3,
+          "lrc": 3,
+          "avgRich": 5
+        },
+        "kuwo": {
+          "playable": 3,
+          "cover": 3,
+          "lrc": 3,
+          "avgRich": 5
+        },
+        "joox": {
+          "playable": 3,
+          "cover": 0,
+          "lrc": 3,
+          "avgRich": 4
+        },
+        "fivesing": {
+          "playable": 3,
+          "cover": 0,
+          "lrc": 0,
+          "avgRich": 3
+        },
+        "jamendo": {
+          "playable": 1,
+          "cover": 1,
+          "lrc": 0,
+          "avgRich": 1.3
+        },
+        "audius": {
+          "playable": 3,
+          "cover": 3,
+          "lrc": 0,
+          "avgRich": 4
+        }
+      }
+    },
+    "korean": {
+      "n": 3,
+      "sources": {
+        "netease": {
+          "playable": 3,
+          "cover": 3,
+          "lrc": 3,
+          "avgRich": 5
+        },
+        "qq": {
+          "playable": 3,
+          "cover": 3,
+          "lrc": 2,
+          "avgRich": 4.7
+        },
+        "kuwo": {
+          "playable": 3,
+          "cover": 3,
+          "lrc": 2,
+          "avgRich": 4.7
+        },
+        "joox": {
+          "playable": 3,
+          "cover": 0,
+          "lrc": 3,
+          "avgRich": 4
+        },
+        "fivesing": {
+          "playable": 1,
+          "cover": 0,
+          "lrc": 0,
+          "avgRich": 1
+        },
+        "jamendo": {
+          "playable": 3,
+          "cover": 3,
+          "lrc": 0,
+          "avgRich": 4
+        },
+        "audius": {
+          "playable": 3,
+          "cover": 2,
+          "lrc": 0,
+          "avgRich": 3.7
+        }
+      }
+    },
+    "en-pop": {
+      "n": 3,
+      "sources": {
+        "netease": {
+          "playable": 1,
+          "cover": 1,
+          "lrc": 1,
+          "avgRich": 1.7
+        },
+        "qq": {
+          "playable": 3,
+          "cover": 3,
+          "lrc": 3,
+          "avgRich": 5
+        },
+        "kuwo": {
+          "playable": 3,
+          "cover": 3,
+          "lrc": 3,
+          "avgRich": 5
+        },
+        "joox": {
+          "playable": 2,
+          "cover": 0,
+          "lrc": 2,
+          "avgRich": 2.7
+        },
+        "fivesing": {
+          "playable": 1,
+          "cover": 0,
+          "lrc": 0,
+          "avgRich": 1
+        },
+        "jamendo": {
+          "playable": 2,
+          "cover": 2,
+          "lrc": 0,
+          "avgRich": 2.7
+        },
+        "audius": {
+          "playable": 3,
+          "cover": 3,
+          "lrc": 0,
+          "avgRich": 4
+        }
+      }
+    },
+    "en-rock": {
+      "n": 2,
+      "sources": {
+        "netease": {
+          "playable": 2,
+          "cover": 2,
+          "lrc": 2,
+          "avgRich": 5
+        },
+        "qq": {
+          "playable": 2,
+          "cover": 2,
+          "lrc": 2,
+          "avgRich": 5
+        },
+        "kuwo": {
+          "playable": 2,
+          "cover": 2,
+          "lrc": 2,
+          "avgRich": 5
+        },
+        "joox": {
+          "playable": 2,
+          "cover": 0,
+          "lrc": 2,
+          "avgRich": 4
+        },
+        "fivesing": {
+          "playable": 2,
+          "cover": 0,
+          "lrc": 0,
+          "avgRich": 3
+        },
+        "jamendo": {
+          "playable": 2,
+          "cover": 2,
+          "lrc": 0,
+          "avgRich": 4
+        },
+        "audius": {
+          "playable": 2,
+          "cover": 2,
+          "lrc": 0,
+          "avgRich": 4
+        }
+      }
+    },
+    "en-hiphop": {
+      "n": 2,
+      "sources": {
+        "netease": {
+          "playable": 2,
+          "cover": 2,
+          "lrc": 2,
+          "avgRich": 5
+        },
+        "qq": {
+          "playable": 2,
+          "cover": 2,
+          "lrc": 2,
+          "avgRich": 5
+        },
+        "kuwo": {
+          "playable": 2,
+          "cover": 2,
+          "lrc": 2,
+          "avgRich": 5
+        },
+        "joox": {
+          "playable": 2,
+          "cover": 0,
+          "lrc": 2,
+          "avgRich": 4
+        },
+        "fivesing": {
+          "playable": 1,
+          "cover": 0,
+          "lrc": 0,
+          "avgRich": 1.5
+        },
+        "jamendo": {
+          "playable": 2,
+          "cover": 2,
+          "lrc": 0,
+          "avgRich": 4
+        },
+        "audius": {
+          "playable": 2,
+          "cover": 2,
+          "lrc": 0,
+          "avgRich": 4
+        }
+      }
+    },
+    "edm": {
+      "n": 2,
+      "sources": {
+        "netease": {
+          "playable": 2,
+          "cover": 2,
+          "lrc": 2,
+          "avgRich": 5
+        },
+        "qq": {
+          "playable": 1,
+          "cover": 1,
+          "lrc": 1,
+          "avgRich": 2.5
+        },
+        "kuwo": {
+          "playable": 2,
+          "cover": 2,
+          "lrc": 1,
+          "avgRich": 4.5
+        },
+        "joox": {
+          "playable": 2,
+          "cover": 0,
+          "lrc": 2,
+          "avgRich": 4
+        },
+        "fivesing": {
+          "playable": 1,
+          "cover": 0,
+          "lrc": 0,
+          "avgRich": 1.5
+        },
+        "jamendo": {
+          "playable": 2,
+          "cover": 2,
+          "lrc": 0,
+          "avgRich": 4
+        },
+        "audius": {
+          "playable": 2,
+          "cover": 2,
+          "lrc": 0,
+          "avgRich": 4
+        }
+      }
+    },
+    "en-rnb": {
+      "n": 2,
+      "sources": {
+        "netease": {
+          "playable": 2,
+          "cover": 2,
+          "lrc": 2,
+          "avgRich": 5
+        },
+        "qq": {
+          "playable": 1,
+          "cover": 1,
+          "lrc": 1,
+          "avgRich": 2.5
+        },
+        "kuwo": {
+          "playable": 2,
+          "cover": 2,
+          "lrc": 2,
+          "avgRich": 5
+        },
+        "joox": {
+          "playable": 1,
+          "cover": 0,
+          "lrc": 2,
+          "avgRich": 2
+        },
+        "fivesing": {
+          "playable": 0,
+          "cover": 0,
+          "lrc": 0,
+          "avgRich": 0
+        },
+        "jamendo": {
+          "playable": 1,
+          "cover": 1,
+          "lrc": 0,
+          "avgRich": 2
+        },
+        "audius": {
+          "playable": 2,
+          "cover": 0,
+          "lrc": 0,
+          "avgRich": 3
+        }
+      }
+    },
+    "instrumental": {
+      "n": 2,
+      "sources": {
+        "netease": {
+          "playable": 2,
+          "cover": 2,
+          "lrc": 2,
+          "avgRich": 5
+        },
+        "qq": {
+          "playable": 2,
+          "cover": 2,
+          "lrc": 2,
+          "avgRich": 5
+        },
+        "kuwo": {
+          "playable": 2,
+          "cover": 2,
+          "lrc": 0,
+          "avgRich": 4
+        },
+        "joox": {
+          "playable": 1,
+          "cover": 0,
+          "lrc": 2,
+          "avgRich": 2
+        },
+        "fivesing": {
+          "playable": 1,
+          "cover": 0,
+          "lrc": 0,
+          "avgRich": 1.5
+        },
+        "jamendo": {
+          "playable": 2,
+          "cover": 2,
+          "lrc": 0,
+          "avgRich": 4
+        },
+        "audius": {
+          "playable": 1,
+          "cover": 0,
+          "lrc": 0,
+          "avgRich": 1.5
+        }
+      }
+    },
+    "latin": {
+      "n": 2,
+      "sources": {
+        "netease": {
+          "playable": 2,
+          "cover": 2,
+          "lrc": 2,
+          "avgRich": 5
+        },
+        "qq": {
+          "playable": 2,
+          "cover": 2,
+          "lrc": 2,
+          "avgRich": 5
+        },
+        "kuwo": {
+          "playable": 2,
+          "cover": 2,
+          "lrc": 2,
+          "avgRich": 5
+        },
+        "joox": {
+          "playable": 1,
+          "cover": 0,
+          "lrc": 2,
+          "avgRich": 2
+        },
+        "fivesing": {
+          "playable": 1,
+          "cover": 0,
+          "lrc": 0,
+          "avgRich": 1.5
+        },
+        "jamendo": {
+          "playable": 1,
+          "cover": 1,
+          "lrc": 0,
+          "avgRich": 2
+        },
+        "audius": {
+          "playable": 2,
+          "cover": 1,
+          "lrc": 0,
+          "avgRich": 3.5
+        }
+      }
+    }
+  },
+  "policy": {
+    "mando-pop": {
+      "primary": "netease",
+      "fallback": "kuwo",
+      "bestCN": "netease",
+      "ranked": [
+        "netease 4/undefined·r5",
+        "kuwo 4/undefined·r4.8",
+        "fivesing 4/undefined·r3",
+        "qq 3/undefined·r3.8",
+        "joox 3/undefined·r3",
+        "jamendo 1/undefined·r1",
+        "audius 1/undefined·r1"
+      ]
+    },
+    "canto": {
+      "primary": "netease",
+      "fallback": "qq",
+      "bestCN": "netease",
+      "ranked": [
+        "netease 4/undefined·r5",
+        "qq 4/undefined·r5",
+        "kuwo 4/undefined·r5",
+        "joox 4/undefined·r4",
+        "fivesing 4/undefined·r3",
+        "jamendo 0/undefined·r0",
+        "audius 0/undefined·r0"
+      ]
+    },
+    "cn-rock-indie": {
+      "primary": "netease",
+      "fallback": "qq",
+      "bestCN": "netease",
+      "ranked": [
+        "netease 3/undefined·r5",
+        "qq 3/undefined·r5",
+        "kuwo 3/undefined·r5",
+        "joox 2/undefined·r2.7",
+        "fivesing 2/undefined·r2",
+        "audius 1/undefined·r1.3",
+        "jamendo 0/undefined·r0"
+      ]
+    },
+    "cn-hiphop": {
+      "primary": "netease",
+      "fallback": "qq",
+      "bestCN": "netease",
+      "ranked": [
+        "netease 2/undefined·r5",
+        "qq 2/undefined·r5",
+        "kuwo 2/undefined·r5",
+        "fivesing 2/undefined·r3",
+        "joox 1/undefined·r2",
+        "jamendo 1/undefined·r2",
+        "audius 0/undefined·r0"
+      ]
+    },
+    "cn-oldies": {
+      "primary": "netease",
+      "fallback": "qq",
+      "bestCN": "netease",
+      "ranked": [
+        "netease 2/undefined·r5",
+        "qq 2/undefined·r5",
+        "kuwo 2/undefined·r5",
+        "joox 2/undefined·r4",
+        "jamendo 2/undefined·r4",
+        "fivesing 1/undefined·r1.5",
+        "audius 0/undefined·r0"
+      ]
+    },
+    "cn-ost": {
+      "primary": "netease",
+      "fallback": "qq",
+      "bestCN": "netease",
+      "ranked": [
+        "netease 2/undefined·r5",
+        "qq 2/undefined·r5",
+        "kuwo 2/undefined·r5",
+        "joox 2/undefined·r4",
+        "fivesing 2/undefined·r3",
+        "jamendo 0/undefined·r0",
+        "audius 0/undefined·r0"
+      ]
+    },
+    "japanese": {
+      "primary": "netease",
+      "fallback": "qq",
+      "bestCN": "netease",
+      "ranked": [
+        "netease 3/undefined·r5",
+        "qq 3/undefined·r5",
+        "kuwo 3/undefined·r5",
+        "joox 3/undefined·r4",
+        "audius 3/undefined·r4",
+        "fivesing 3/undefined·r3",
+        "jamendo 1/undefined·r1.3"
+      ]
+    },
+    "korean": {
+      "primary": "netease",
+      "fallback": "qq",
+      "bestCN": "netease",
+      "ranked": [
+        "netease 3/undefined·r5",
+        "qq 3/undefined·r4.7",
+        "kuwo 3/undefined·r4.7",
+        "joox 3/undefined·r4",
+        "jamendo 3/undefined·r4",
+        "audius 3/undefined·r3.7",
+        "fivesing 1/undefined·r1"
+      ]
+    },
+    "en-pop": {
+      "primary": "qq",
+      "fallback": "kuwo",
+      "bestCN": "qq",
+      "ranked": [
+        "qq 3/undefined·r5",
+        "kuwo 3/undefined·r5",
+        "audius 3/undefined·r4",
+        "joox 2/undefined·r2.7",
+        "jamendo 2/undefined·r2.7",
+        "netease 1/undefined·r1.7",
+        "fivesing 1/undefined·r1"
+      ]
+    },
+    "en-rock": {
+      "primary": "netease",
+      "fallback": "qq",
+      "bestCN": "netease",
+      "ranked": [
+        "netease 2/undefined·r5",
+        "qq 2/undefined·r5",
+        "kuwo 2/undefined·r5",
+        "joox 2/undefined·r4",
+        "jamendo 2/undefined·r4",
+        "audius 2/undefined·r4",
+        "fivesing 2/undefined·r3"
+      ]
+    },
+    "en-hiphop": {
+      "primary": "netease",
+      "fallback": "qq",
+      "bestCN": "netease",
+      "ranked": [
+        "netease 2/undefined·r5",
+        "qq 2/undefined·r5",
+        "kuwo 2/undefined·r5",
+        "joox 2/undefined·r4",
+        "jamendo 2/undefined·r4",
+        "audius 2/undefined·r4",
+        "fivesing 1/undefined·r1.5"
+      ]
+    },
+    "edm": {
+      "primary": "netease",
+      "fallback": "kuwo",
+      "bestCN": "netease",
+      "ranked": [
+        "netease 2/undefined·r5",
+        "kuwo 2/undefined·r4.5",
+        "joox 2/undefined·r4",
+        "jamendo 2/undefined·r4",
+        "audius 2/undefined·r4",
+        "qq 1/undefined·r2.5",
+        "fivesing 1/undefined·r1.5"
+      ]
+    },
+    "en-rnb": {
+      "primary": "netease",
+      "fallback": "kuwo",
+      "bestCN": "netease",
+      "ranked": [
+        "netease 2/undefined·r5",
+        "kuwo 2/undefined·r5",
+        "audius 2/undefined·r3",
+        "qq 1/undefined·r2.5",
+        "joox 1/undefined·r2",
+        "jamendo 1/undefined·r2",
+        "fivesing 0/undefined·r0"
+      ]
+    },
+    "instrumental": {
+      "primary": "netease",
+      "fallback": "qq",
+      "bestCN": "netease",
+      "ranked": [
+        "netease 2/undefined·r5",
+        "qq 2/undefined·r5",
+        "kuwo 2/undefined·r4",
+        "jamendo 2/undefined·r4",
+        "joox 1/undefined·r2",
+        "fivesing 1/undefined·r1.5",
+        "audius 1/undefined·r1.5"
+      ]
+    },
+    "latin": {
+      "primary": "netease",
+      "fallback": "qq",
+      "bestCN": "netease",
+      "ranked": [
+        "netease 2/undefined·r5",
+        "qq 2/undefined·r5",
+        "kuwo 2/undefined·r5",
+        "audius 2/undefined·r3.5",
+        "joox 1/undefined·r2",
+        "jamendo 1/undefined·r2",
+        "fivesing 1/undefined·r1.5"
+      ]
+    }
+  },
+  "global": {
+    "netease": {
+      "playable": 36,
+      "cover": 36,
+      "lrc": 36
+    },
+    "qq": {
+      "playable": 35,
+      "cover": 35,
+      "lrc": 34
+    },
+    "kuwo": {
+      "playable": 38,
+      "cover": 38,
+      "lrc": 33
+    },
+    "joox": {
+      "playable": 31,
+      "cover": 0,
+      "lrc": 36
+    },
+    "fivesing": {
+      "playable": 26,
+      "cover": 0,
+      "lrc": 0
+    },
+    "jamendo": {
+      "playable": 20,
+      "cover": 20,
+      "lrc": 0
+    },
+    "audius": {
+      "playable": 22,
+      "cover": 18,
+      "lrc": 0
+    }
+  }
+}
