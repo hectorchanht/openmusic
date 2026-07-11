@@ -275,6 +275,15 @@ const zhHant: Dict = {
 	"versions.empty": "沒有其他版本",
 	"versions.unknownQuality": "未知音質",
 	"versions.open": "選擇音源",
+	"versions.loading": "尋找版本…",
+	"menu.versions": "從音源播放",
+	"versions.tag.live": "現場",
+	"versions.tag.acoustic": "原音",
+	"versions.tag.demo": "試唱",
+	"versions.tag.cover": "翻唱",
+	"versions.tag.remix": "混音",
+	"versions.tag.instrumental": "純音樂",
+	"versions.tag.remaster": "重製版",
 
 	// --- sleep timer (Phase 18, TIMER-01) ---
 	"timer.minutes": "{n} 分鐘",

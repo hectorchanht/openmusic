@@ -298,6 +298,15 @@ const en = {
 	"versions.empty": "No other versions",
 	"versions.unknownQuality": "unknown quality",
 	"versions.open": "Choose source",
+	"versions.loading": "Finding versions…",
+	"menu.versions": "Play from source",
+	"versions.tag.live": "Live",
+	"versions.tag.acoustic": "Acoustic",
+	"versions.tag.demo": "Demo",
+	"versions.tag.cover": "Cover",
+	"versions.tag.remix": "Remix",
+	"versions.tag.instrumental": "Instrumental",
+	"versions.tag.remaster": "Remastered",
 
 	// --- sleep timer (Phase 18, TIMER-01) ---
 	// The minutes label is a SINGLE interpolation key (mirrors skippedMany's count token)
