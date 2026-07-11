@@ -34,6 +34,12 @@ dependencies:
   capacitor-blob-writer:
     specifier: 1.1.20
     version: 1.1.20(@capacitor/core@8.4.0)(@capacitor/filesystem@8.1.2)
+  tongwen-core:
+    specifier: 4.1.1
+    version: 4.1.1
+  tongwen-dict:
+    specifier: 1.0.2
+    version: 1.0.2
 
 devDependencies:
   '@capacitor/android':
@@ -2114,6 +2120,15 @@ packages:
     resolution: {integrity: sha512-Bf+ILmBgretUrdJxzXM0SgXLZ3XfiaUuOj/IKQHuTXip+05Xn+uyEYdVg0kYDipTBcLrCVyUzAPz7QmArb0mmw==}
     engines: {node: '>=14.0.0'}
     dev: true
+
+  /tongwen-core@4.1.1:
+    resolution: {integrity: sha512-Ce1BuzYtjEEp9AEgWxAZQVnJTTxjlyqqhGaYfyVglcz923Tm288ZNk9ImEmAn8s3B/gk/rM0S5x18b9Vwi9vSg==}
+    dev: false
+
+  /tongwen-dict@1.0.2:
+    resolution: {integrity: sha512-FV+I6vcsBxDe/luUMu81UQF8jva6oa1sszLrm7DcOawjsRmWXJgdFh30ru3qkY1nSr6FPoKvH8tk7wQcaK/jew==}
+    engines: {node: '>=16.0.0'}
+    dev: false
 
   /totalist@3.0.1:
     resolution: {integrity: sha512-sf4i37nQ2LBx4m3wB74y+ubopq6W/dIzXg0FDGjsYnZHVa1Da8FH853wlL2gtUhg+xJXjfk3kUZS3BRoQeoQBQ==}

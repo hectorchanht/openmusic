@@ -52,6 +52,8 @@
 		"@capacitor/status-bar": "^8.0.2",
 		"@jofr/capacitor-media-session": "4.0.0",
 		"@lucide/svelte": "^1.17.0",
-		"capacitor-blob-writer": "1.1.20"
+		"capacitor-blob-writer": "1.1.20",
+		"tongwen-core": "4.1.1",
+		"tongwen-dict": "1.0.2"
 	}
 }
