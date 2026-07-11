@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { dedupeBest, groupVariants } from './dedupe';
+import { dedupeBest, groupVariants, collapseVariants, variantTag } from './dedupe';
 import { makeUid, type SourceId, type Track } from '$lib/sources/types';
 
 // groupVariants (Phase 26-04, VERSIONS-01) is the version-picker's data source: it retains the
@@ -87,5 +87,91 @@ describe('groupVariants — retains pre-dedupe cross-source variants', () => {
 		const groups = groupVariants(tracks);
 		// two blank-key stubs must NOT collapse into one group; each stays distinct
 		expect(groups.size).toBe(3);
+	});
+});
+
+// Gap 5 (Phase 26-08): the version picker used to show N visually-identical rows because one
+// source returns many same-name hits and every row rendered as title·artist·"unknown quality".
+// collapseVariants de-dups INTRA-source (same source + album + version tag → one, best quality
+// kept) WITHOUT collapsing cross-source variants (a real choice). variantTag derives the
+// distinguishing label from the title parens. groupVariants is unchanged (above block still green).
+describe('collapseVariants — intra-source de-dup (Gap 5)', () => {
+	it('collapses 10 same-source same-title blank-album no-tag hits to ONE, keeping the best quality', () => {
+		const rows: Track[] = [];
+		for (let i = 0; i < 10; i++) {
+			// one of them is FLAC (best), the rest carry no quality (unknown pre-resolve).
+			const extra = i === 4 ? { qualityLabel: 'FLAC' } : {};
+			rows.push(mk('joox', `j${i}`, 'That Should Be Me', 'Justin Bieber', extra));
+		}
+		const out = collapseVariants(rows);
+		expect(out).toHaveLength(1);
+		// the surviving row is the best-quality (FLAC) one, not merely the first-seen.
+		expect(out[0].qualityLabel).toBe('FLAC');
+		expect(out[0].uid).toBe(makeUid('joox', 'j4'));
+	});
+
+	it("keeps a source's (Live) take and its studio take as TWO rows (distinct version tag)", () => {
+		const out = collapseVariants([
+			mk('joox', 'j1', 'That Should Be Me (Live)', 'Justin Bieber'),
+			mk('joox', 'j2', 'That Should Be Me', 'Justin Bieber')
+		]);
+		expect(out).toHaveLength(2);
+	});
+
+	it("keeps a source's two distinct albums as TWO rows", () => {
+		const out = collapseVariants([
+			mk('qq', 'q1', 'Yellow', 'Coldplay', { album: 'Parachutes' }),
+			mk('qq', 'q2', 'Yellow', 'Coldplay', { album: 'Live 2003' })
+		]);
+		expect(out).toHaveLength(2);
+	});
+
+	it('NEVER collapses cross-source variants — netease + qq + kuwo of one song stay as 3 rows', () => {
+		const out = collapseVariants([
+			mk('netease', 'n1', 'Hello', 'Adele'),
+			mk('qq', 'q1', 'Hello', 'Adele'),
+			mk('kuwo', 'k1', 'Hello', 'Adele')
+		]);
+		expect(out).toHaveLength(3);
+		expect(out.map((t) => t.source)).toEqual(['netease', 'qq', 'kuwo']);
+	});
+
+	it('preserves first-appearance order of the surviving buckets', () => {
+		const out = collapseVariants([
+			mk('kuwo', 'k1', 'Hello', 'Adele'),
+			mk('netease', 'n1', 'Hello', 'Adele'),
+			mk('kuwo', 'k2', 'Hello', 'Adele') // same bucket as k1 → collapses into it, order unchanged
+		]);
+		expect(out).toHaveLength(2);
+		expect(out.map((t) => t.source)).toEqual(['kuwo', 'netease']);
+	});
+});
+
+describe('variantTag — title-parens version-tag parser (Gap 5 label)', () => {
+	it('maps EN markers to the enum', () => {
+		expect(variantTag('That Should Be Me (Live)')?.key).toBe('live');
+		expect(variantTag('Song (Acoustic)')?.key).toBe('acoustic');
+		expect(variantTag('Song (Demo)')?.key).toBe('demo');
+		expect(variantTag('Song (Cover)')?.key).toBe('cover');
+		expect(variantTag('Song (Remix)')?.key).toBe('remix');
+		expect(variantTag('Song (Instrumental)')?.key).toBe('instrumental');
+		expect(variantTag('Song [Remastered]')?.key).toBe('remaster');
+	});
+
+	it('maps CN markers to the enum', () => {
+		expect(variantTag('告白氣球 (现场)')?.key).toBe('live');
+		expect(variantTag('告白氣球 (翻唱)')?.key).toBe('cover');
+		expect(variantTag('告白氣球 (伴奏)')?.key).toBe('instrumental');
+		expect(variantTag('告白氣球【重製】')?.key).toBe('remaster');
+	});
+
+	it('passes an unrecognized marker through as raw text with a null key', () => {
+		const vt = variantTag('Song (Radio Edit)');
+		expect(vt).toEqual({ key: null, text: 'Radio Edit' });
+	});
+
+	it('returns null when the title has no parenthetical marker', () => {
+		expect(variantTag('Plain Title')).toBeNull();
+		expect(variantTag('')).toBeNull();
 	});
 });
