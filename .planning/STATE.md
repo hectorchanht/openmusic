@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Resilient Playback & UX Polish
-status: ready_to_plan
-stopped_at: Phase 26 complete (5/5) — ready to discuss Phase 999.1
-last_updated: 2026-07-11T12:12:07.690Z
-last_activity: 2026-07-11
+status: planning
+stopped_at: Completed 26-06-PLAN.md (gap-closure — resolve-phase watchdog, UAT gap-1 BLOCKER)
+last_updated: "2026-07-12T16:52:00.000Z"
+last_activity: "2026-07-12 - Completed quick task 260712-0md: charts/top row swipe-left = play next (was like) — swipe-left consistent app-wide"
 progress:
   total_phases: 18
   completed_phases: 15
-  total_plans: 64
-  completed_plans: 63
+  total_plans: 70
+  completed_plans: 64
   percent: 83
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-06-10)
 Phase: 999.1
 Plan: Not started
 Status: Ready to plan
-Last activity: 2026-07-12 - Completed quick task 260712-0md: charts/top row swipe-left = play next (was like) — swipe-left consistent app-wide
+Last activity: 2026-07-12 - Completed 26-06 gap-closure: click-to-play resolve-phase watchdog (RESOLVE_WATCHDOG_MS ~6s) routes a stalled/null initial resolve into the kuwo-first cross-source walk + auto-skip; closes UAT gap-1 BLOCKER
 
 ## Performance Metrics
 
@@ -288,7 +288,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-11T11:37:26.450Z
+Last session: 2026-07-11T16:52:03.474Z
 Stopped at: Completed 26-05-PLAN.md
 Resume: plan Phase 16 (`/gsd:plan-phase 16`). Phase 16 is the resilience-core dependency root; everything else builds on its `queueContext` / 2-state repeat / skip-loop guard.
 

@@ -127,7 +127,7 @@ Plans:
 **Goal:** Cut a single-song play from ~59 `/api/*` calls to ~3 while staying fully functional across every language/region/genre. Grounded in spikes 001–004 (`Skill("spike-findings-openmusic")` + [`spikes/004-source-coverage-by-segment/POLICY.md`](spikes/004-source-coverage-by-segment/POLICY.md)): kuwo is empirically 100% playable+cover across all 14 language/region×genre segments; Last.fm `track.getSimilar` returns exact `{artist,title}` pairs in 1 call; measured baseline is ~59 calls/play (56 = `buildSimilarQueue`'s 8 similar-artists × 7 sources). **Hard rule: never fan out all 7 sources on click.**
 **Requirements**: RESOLVE-01, RESOLVE-02, COVER-01, UPNEXT-01, VERSIONS-01, NETEASE-01 (phase-local tags derived from the spike POLICY + spike-findings skill)
 **Depends on:** none — self-contained refactor of the resolve / up-next / cover paths (independent of Phase 25 translation work)
-**Plans:** 5/5 shipped + 6 gap-closure plans (26-06..26-11) from UAT (see 26-UAT.md)
+**Plans:** 6/11 plans executed
 
 - [x] 26-01-PLAN.md — Kuwo-first resolve/fallback order + single-source name-stub resolver + bounded crossSourceLyric (RESOLVE-01/02) [wave 1]
 - [x] 26-02-PLAN.md — Source-embedded cover on the hot path + bounded lazy Deezer HQ upgrade; no cover fan-out (COVER-01) [wave 1]
@@ -136,7 +136,7 @@ Plans:
 - [x] 26-03-PLAN.md — New /api/lastfm/similar-tracks (track.getSimilar) route + buildSimilarQueue rewrite 56→1, lazy kuwo-first stubs (UPNEXT-01) [wave 2, depends 26-01]
 
 Gap-closure plans (UAT 2026-07-11 — 6 diagnosed gaps; `/gsd:execute-phase 26 --gaps-only`):
-- [ ] 26-06-PLAN.md — [BLOCKER] click-to-play resolve watchdog: stalled/null initial resolve routes into the kuwo-first cross-source walk + auto-skip (RESOLVE-02) [wave 1]
+- [x] 26-06-PLAN.md — [BLOCKER] click-to-play resolve watchdog: stalled/null initial resolve routes into the kuwo-first cross-source walk + auto-skip (RESOLVE-02) [wave 1]
 - [ ] 26-07-PLAN.md — Up-Next service+edge: CR-01 post-filter fallback gate + report(via) callback; /api/lastfm/similar-tracks image passthrough; seed stub covers (UPNEXT-01/COVER-01) [wave 1]
 - [ ] 26-08-PLAN.md — Gap-4/5 foundation: lazy on-demand fetchVariants (single fan-out) + VersionPicker loading state + intra-source dedup & distinguishing version label (album/(Live)/(Demo)/(Cover)) so variants aren't N identical rows + i18n (VERSIONS-01) [wave 1]
 - [ ] 26-09-PLAN.md — Up-Next player wiring: regenerate() buildDiversePicks safety net + upnext.source activity-log event (UPNEXT-01) [wave 2, depends 26-06, 26-07]
