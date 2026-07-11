@@ -1,7 +1,11 @@
 // Lyrics / name translation proxy (NEW feature endpoint — not part of the music data layer).
 // POST { lines: string[], to: LyricsLang } -> { translated: string[], flags: boolean[] }.
-// Server-side calls an unofficial Google translate endpoint (no key), batches the
-// lines in chunked requests, and falls back to the originals on any failure. CORS is
+// Server-side runs an ordered provider cascade (D-05) — Azure Translator → DeepL Free →
+// keyless unofficial-Google — advancing on transport error / non-2xx / rate-limit / echo, so
+// a single flaky upstream no longer drops the batch. Provider keys are OPTIONAL and edge-only
+// (D-06): an absent key skips that tier and the cascade falls through, ending at keyless
+// Google. It batches the lines in chunked requests and falls back to the originals on total
+// failure. CORS is
 // handled CENTRALLY by src/hooks.server.ts (allowlisted Access-Control-Allow-Origin +
 // OPTIONS 204 for every /api/* route, incl. the native Capacitor origin) — this handler
 // needs no per-route CORS logic of its own.
@@ -84,14 +88,114 @@ function reply(translated: string[], flags: boolean[]): Response {
 
 interface GResult {
 	text: string; // concatenated translated segments
-	segments: number; // number of segments Google returned
+	// Number of translated segments: Google's own array length, or (Azure/DeepL) the
+	// sentinel-delimited part count of the reply. Drives the echo-mode guard — a multi-line
+	// batch that comes back as a SINGLE segment was NOT translated.
+	segments: number;
 }
 
-// One Google Translate request for an arbitrary text. Returns the concatenated translated
-// text plus the segment count, or null on transport / parse failure so the caller can fall
-// back. The segment count lets the batched path detect echo-mode (a multi-line payload that
-// comes back as a single segment was NOT translated).
-async function gtranslate(text: string, to: string): Promise<GResult | null> {
+// Unique, non-blank, translation-stable boundary marker. Guillemet brackets + index survive
+// every provider unchanged and (being non-blank content) are not stripped at batch edges the
+// way bare blank lines are. Defined BEFORE the providers so azure/deepl can derive `segments`
+// from the surviving sentinels.
+const sentinel = (i: number) => `\n‹${i}›\n`;
+// Matches a sentinel surrounded by any whitespace a provider may have added/reflowed around it.
+const SENTINEL_RE = /\s*‹\d+›\s*/;
+
+// --- Provider cascade (D-05): Azure Translator → DeepL Free → keyless Google. ---
+// Each provider maps the APP target code (e.g. 'zh-Hant') itself and returns the unchanged
+// GResult shape, or null to advance the cascade. RAW `fetch` of ABSOLUTE upstream URLs is
+// correct on the edge (apiFetch is the CLIENT seam and would prepend /api — wrong here); each
+// stays on AbortSignal.timeout(TIMEOUT_MS). Provider keys are read from `env` (platform.env)
+// and injected into upstream HEADERS ONLY — never echoed to the client (D-06 / T-25c-01).
+
+// A provider: (joined-or-single text, APP target code, edge env) → GResult | null.
+type Provider = (text: string, appTo: string, env: Env | undefined) => Promise<GResult | null>;
+
+// Azure BCP-47 target codes. zh-Hant/zh-Hans are Azure's exact codes; the rest pass through.
+const AZURE_MAP: Record<string, string> = {
+	'zh-Hant': 'zh-Hant',
+	'zh-Hans': 'zh-Hans',
+	en: 'en', ja: 'ja', ko: 'ko', es: 'es', fr: 'fr', de: 'de', pt: 'pt',
+	ru: 'ru', ar: 'ar', hi: 'hi', id: 'id', it: 'it', vi: 'vi', th: 'th', tr: 'tr'
+};
+
+// DeepL target_lang codes (uppercase). zh-Hant→ZH-HANT (Traditional, supported since Nov 2024).
+// ar/hi/vi/th are NOT DeepL-supported → absent from the map so the cascade advances to Google.
+const DEEPL_MAP: Record<string, string> = {
+	'zh-Hant': 'ZH-HANT',
+	'zh-Hans': 'ZH-HANS',
+	en: 'EN', ja: 'JA', ko: 'KO', es: 'ES', fr: 'FR', de: 'DE', pt: 'PT',
+	ru: 'RU', id: 'ID', it: 'IT', tr: 'TR'
+};
+
+// TIER 1 — Azure Translator (2M chars/mo free). Skipped (null) when no key is configured; the
+// region header is injected when present. `segments` = surviving sentinel-part count so the
+// existing batched echo-mode guard applies uniformly across providers.
+const azureTranslate: Provider = async (text, appTo, env) => {
+	const key = env?.AZURE_TRANSLATOR_KEY;
+	if (!key) return null; // absent key → skip this tier (supported state, cascade falls through)
+	const azTo = AZURE_MAP[appTo];
+	if (!azTo) return null; // target unsupported by Azure → advance
+	try {
+		const url = `https://api.cognitive.microsofttranslator.com/translate?api-version=3.0&to=${encodeURIComponent(azTo)}`;
+		const headers: Record<string, string> = {
+			'Ocp-Apim-Subscription-Key': key,
+			'content-type': 'application/json'
+		};
+		// Region is required for most Azure Translator resources; inject it edge-side when set.
+		if (env?.AZURE_TRANSLATOR_REGION)
+			headers['Ocp-Apim-Subscription-Region'] = env.AZURE_TRANSLATOR_REGION;
+		const res = await fetch(url, {
+			method: 'POST',
+			headers,
+			body: JSON.stringify([{ Text: text }]),
+			signal: AbortSignal.timeout(TIMEOUT_MS)
+		});
+		if (!res.ok) return null; // non-2xx (incl. 429 rate-limit) → advance
+		// shape: [ { translations: [ { text, to } ] } ]
+		const data = (await res.json()) as Array<{ translations?: Array<{ text?: string }> }>;
+		const out = data?.[0]?.translations?.[0]?.text;
+		if (typeof out !== 'string') return null;
+		return { text: out, segments: out.split(SENTINEL_RE).length };
+	} catch {
+		return null;
+	}
+};
+
+// TIER 2 — DeepL Free (500k chars/mo, api-free.deepl.com). Skipped (null) with no key.
+const deeplTranslate: Provider = async (text, appTo, env) => {
+	const key = env?.DEEPL_KEY;
+	if (!key) return null; // absent key → skip this tier (supported state)
+	const dlTo = DEEPL_MAP[appTo];
+	if (!dlTo) return null; // target unsupported by DeepL (ar/hi/vi/th) → advance to Google
+	try {
+		const res = await fetch('https://api-free.deepl.com/v2/translate', {
+			method: 'POST',
+			headers: {
+				authorization: `DeepL-Auth-Key ${key}`,
+				'content-type': 'application/json'
+			},
+			body: JSON.stringify({ text: [text], target_lang: dlTo }),
+			signal: AbortSignal.timeout(TIMEOUT_MS)
+		});
+		if (!res.ok) return null; // non-2xx (incl. 456 quota / 429) → advance
+		// shape: { translations: [ { detected_source_language, text } ] }
+		const data = (await res.json()) as { translations?: Array<{ text?: string }> };
+		const out = data?.translations?.[0]?.text;
+		if (typeof out !== 'string') return null;
+		return { text: out, segments: out.split(SENTINEL_RE).length };
+	} catch {
+		return null;
+	}
+};
+
+// TIER 3 — keyless unofficial Google (the ORIGINAL gtranslate body, verbatim). Always attempted
+// last; maps via LANG_MAP (zh-Hant→zh-TW). `segments` is Google's own array length — the value
+// the echo-mode guard was originally calibrated against.
+const googleTranslate: Provider = async (text, appTo) => {
+	const to = LANG_MAP[appTo];
+	if (!to) return null; // not Google-supported (unreachable — validated at the top level)
 	try {
 		const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${to}&dt=t&q=${encodeURIComponent(text)}`;
 		// RAW fetch (not apiFetch — fetch→apiFetch audit): SERVER-SIDE (edge) fetch of the ABSOLUTE upstream
@@ -105,19 +209,34 @@ async function gtranslate(text: string, to: string): Promise<GResult | null> {
 	} catch {
 		return null;
 	}
-}
+};
 
-// Unique, non-blank, translation-stable boundary marker. Guillemet brackets + index survive
-// Google Translate unchanged and (being non-blank content) are not stripped at batch edges
-// the way bare blank lines are.
-const sentinel = (i: number) => `\n‹${i}›\n`;
-// Matches a sentinel surrounded by any whitespace Google may have added/reflowed around it.
-const SENTINEL_RE = /\s*‹\d+›\s*/;
+// Ordered cascade: tries providers in [Azure, DeepL, Google] order and returns the FIRST
+// GENUINE translation. A provider is "failed" (advance to next) when it returns null (transport
+// error / non-2xx / rate-limit / absent key / unsupported lang), OR when a MULTI-SEGMENT source
+// (a sentinel-joined batch) comes back as a single segment (echo-mode — the existing segments<=1
+// heuristic), OR when the output equals the input verbatim (pure echo). If every provider fails,
+// returns null so the caller's per-line fallback still runs. Providers run SEQUENTIALLY per
+// chunk (advance-on-failure, NOT a parallel fan-out across providers — T-25c-03).
+const PROVIDERS: Provider[] = [azureTranslate, deeplTranslate, googleTranslate];
+async function cascade(text: string, appTo: string, env: Env | undefined): Promise<GResult | null> {
+	// The segment-count echo heuristic only applies to a joined batch (carries sentinels): a
+	// single short line legitimately translates to ONE segment and must not be rejected as echo.
+	const multiSegment = /‹\d+›/.test(text);
+	for (const provider of PROVIDERS) {
+		const r = await provider(text, appTo, env);
+		if (r == null) continue; // transport / non-2xx / absent key / unsupported → next provider
+		if (multiSegment && r.segments <= 1) continue; // echo-mode: multi-line collapsed to one segment
+		if (r.text === text) continue; // pure echo (output identical to input) → next provider
+		return r; // genuine translation
+	}
+	return null; // every provider failed → the per-line fallback runs
+}
 
 // Per-line fallback: translate each line independently so a single misaligning (or echoed)
 // line cannot collapse the rest of the chunk. Bounded concurrency; preserves order and
-// empty/failed slots. A line is `translated` only when gtranslate succeeded AND changed it.
-async function perLine(lines: string[], to: string): Promise<LineResult[]> {
+// empty/failed slots. A line is `translated` only when the cascade succeeded AND changed it.
+async function perLine(lines: string[], appTo: string, env: Env | undefined): Promise<LineResult[]> {
 	const out = new Array<LineResult>(lines.length);
 	let next = 0;
 	async function worker() {
@@ -128,7 +247,7 @@ async function perLine(lines: string[], to: string): Promise<LineResult[]> {
 				out[i] = { text: line, translated: false }; // blank line → nothing to translate
 				continue;
 			}
-			const t = await gtranslate(line, to);
+			const t = await cascade(line, appTo, env);
 			if (t == null) out[i] = { text: line, translated: false };
 			else out[i] = { text: t.text, translated: t.text !== line };
 		}
@@ -138,16 +257,16 @@ async function perLine(lines: string[], to: string): Promise<LineResult[]> {
 }
 
 // Translate one chunk (<= CHUNK_SIZE lines) and return positionally-aligned per-line results.
-async function translateChunk(lines: string[], to: string): Promise<LineResult[]> {
+async function translateChunk(lines: string[], appTo: string, env: Env | undefined): Promise<LineResult[]> {
 	if (lines.length === 1) {
-		const t = await gtranslate(lines[0], to);
+		const t = await cascade(lines[0], appTo, env);
 		if (t == null) return [{ text: lines[0], translated: false }];
 		return [{ text: t.text, translated: t.text !== lines[0] }];
 	}
 
 	// Batched path: join with unique sentinels, split the reply back on them.
 	const joined = lines.map((l, i) => (i === 0 ? l : sentinel(i) + l)).join('');
-	const res = await gtranslate(joined, to);
+	const res = await cascade(joined, appTo, env);
 	if (res != null) {
 		// ECHO-MODE GUARD: a multi-line payload returned as a single segment was NOT
 		// translated (Google echoed the input). The sentinel-split count would still match,
@@ -164,15 +283,14 @@ async function translateChunk(lines: string[], to: string): Promise<LineResult[]
 	}
 
 	// Residual mismatch / echo-mode / transport failure → per-line so we never collapse the chunk.
-	return perLine(lines, to);
+	return perLine(lines, appTo, env);
 }
 
 export const POST: RequestHandler = async ({ request, platform }) => {
 	// platform?.env is the verified Cloudflare-adapter binding path (parity with /api/similar).
-	// Provider keys are read edge-side only and NEVER echoed to the client (D-06 / T-25c-01).
-	// Consumed by the provider cascade (Task 2); absent keys simply skip their tier.
+	// Provider keys are read edge-side only and NEVER echoed to the client (D-06 / T-25c-01);
+	// they are threaded through the cascade and injected into upstream headers only.
 	const env = platform?.env as Env | undefined;
-	void env; // wired into the cascade in Task 2
 
 	let body: { lines?: unknown; to?: unknown };
 	try {
@@ -181,22 +299,25 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 		return reply([], []);
 	}
 	const lines = Array.isArray(body.lines) ? body.lines.map((x) => String(x)) : [];
-	const to = typeof body.to === 'string' ? LANG_MAP[body.to] : undefined;
-	if (!lines.length || !to) return reply(lines, lines.map(() => false));
+	// Keep the APP target code (e.g. 'zh-Hant') so each provider maps it itself. "Supported" =
+	// the union of providers, i.e. anything in LANG_MAP (at least Google-supported); an unknown
+	// `to` is rejected here and the originals are returned with all-false flags.
+	const appTo = typeof body.to === 'string' && body.to in LANG_MAP ? body.to : undefined;
+	if (!lines.length || !appTo) return reply(lines, lines.map(() => false));
 
 	// Single line: no batching needed, no alignment risk.
 	if (lines.length === 1) {
-		const t = await gtranslate(lines[0], to);
+		const t = await cascade(lines[0], appTo, env);
 		if (t == null) return reply([lines[0]], [false]);
 		return reply([t.text], [t.text !== lines[0]]);
 	}
 
-	// Chunk so each Google request stays under the echo-mode threshold. Chunks run in
+	// Chunk so each provider request stays under the echo-mode threshold. Chunks run in
 	// parallel; results are concatenated positionally → out.length === lines.length.
 	const chunks: string[][] = [];
 	for (let i = 0; i < lines.length; i += CHUNK_SIZE) chunks.push(lines.slice(i, i + CHUNK_SIZE));
 	try {
-		const results = (await Promise.all(chunks.map((c) => translateChunk(c, to)))).flat();
+		const results = (await Promise.all(chunks.map((c) => translateChunk(c, appTo, env)))).flat();
 		if (results.length !== lines.length) return reply(lines, lines.map(() => false));
 		return reply(
 			results.map((r) => r.text),
