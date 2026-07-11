@@ -13,7 +13,7 @@
 	import { fly, fade } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
 	import { goto } from '$app/navigation';
-	import { ChevronDown, MoreVertical, Heart, SkipBack, SkipForward, Play, Pause, Repeat, Repeat1, GripVertical, Moon, ListEnd, ListStart } from '@lucide/svelte';
+	import { ChevronDown, MoreVertical, Heart, SkipBack, SkipForward, Play, Pause, Repeat, Repeat1, GripVertical, Moon, ListEnd, ListStart, Layers } from '@lucide/svelte';
 	import { player, fmtTime } from '$lib/stores/player.svelte';
 	import { sleepTimer } from '$lib/stores/sleepTimer.svelte';
 	import { settings, effectiveTarget } from '$lib/stores/settings.svelte';
@@ -23,6 +23,9 @@
 	import { t, tMaybeKey } from '$lib/i18n';
 	import { searchAll } from '$lib/services/catalog';
 	import { dedupeBest } from '$lib/services/dedupe';
+	// Gap 4 (26-10): the LAZY on-demand cross-source variant fetch (26-08) fed to the per-row
+	// version picker — fired ONLY on a trigger tap, never on list render (T-26-10-02).
+	import { fetchVariants } from '$lib/services/variants';
 	import { translateLinesEx } from '$lib/services/translate';
 	import { shouldTranslate } from '$lib/i18n/detect';
 	import { enrichTrack } from '$lib/services/lastfm';
@@ -42,6 +45,7 @@
 	import { tick as hapticTick } from '$lib/util/haptics';
 	import { splitArtists } from '$lib/util/artist-split';
 	import TrackMenu from '$lib/components/TrackMenu.svelte';
+	import VersionPicker from '$lib/components/VersionPicker.svelte';
 	import Nowbar from '$lib/components/Nowbar.svelte';
 	import { parseLRC, reorderPairs, splitParenLines, lineSeekFraction, type LyricLine } from '$lib/services/lrc';
 	import { createVelocityTracker } from '$lib/gestures/velocity';
@@ -82,6 +86,41 @@
 	function openMenu(t: Track | null) {
 		menuTrack = t;
 		menuOpen = !!t;
+	}
+
+	// Gap 4 (26-10): a single lazily-fed VersionPicker reachable from EVERY Up-Next row. A played/
+	// queued song carries only its own source, so the variant list is discovered on demand — but
+	// ONLY when the user taps a row's version trigger (openVersionPicker), never on list render, so
+	// the Up-Next surface stays a zero-fan-out list (T-26-10-02). `versionGen`/`versionAc` are PLAIN
+	// (non-reactive) supersedence guards — the house idiom (see player.svelte.ts playGen): a second
+	// open bumps the token + aborts the prior fetch so a stale in-flight result can never land.
+	let pickerVersions = $state<Track[]>([]);
+	let pickerOpen = $state(false);
+	let pickerLoading = $state(false);
+	let versionGen = 0;
+	let versionAc: AbortController | null = null;
+	// aria-label resolved OUTSIDE the {#each upNextList as track} block (mirrors the search page's
+	// verOpenLabel) — $derived so it re-resolves on an appLang change.
+	const verOpenLabel = $derived(t('versions.open'));
+
+	async function openVersionPicker(track: Track) {
+		const gen = ++versionGen;
+		versionAc?.abort();
+		const ac = new AbortController();
+		versionAc = ac;
+		// Open immediately with the spinner; the single fetchVariants fan-out runs behind the sheet.
+		pickerVersions = [];
+		pickerLoading = true;
+		pickerOpen = true;
+		const list = await fetchVariants(track, ac.signal);
+		// Supersedence: a newer open (or a close/abort) invalidates this result.
+		if (gen !== versionGen || ac.signal.aborted) return;
+		pickerVersions = list;
+		pickerLoading = false;
+	}
+	function closeVersionPicker() {
+		pickerOpen = false;
+		versionAc?.abort(); // cancel any in-flight fetch when the sheet is dismissed.
 	}
 
 	function fallbackCover(t: Track | null): string {
@@ -1318,16 +1357,26 @@
 								class:over={i === dragOver && i !== dragFrom}
 								style:transform={i === dragFrom && rowDragY ? `translateY(${rowDragY}px)` : undefined}
 							>
+								<!-- Gap 4 (26-10): per-row version-picker trigger. A SIBLING tap target (its own ≥44px hit
+								     area) placed BEFORE the swipeable .q-row button — NEVER nested inside it (no button-in-button)
+								     so use:swipeRemove/longpress/grip stay intact. Shown on EVERY row (variants are discovered on
+								     demand — the picker's loading/empty states cover a ≤1-variant song); opening fires the single
+								     lazy fetchVariants fan-out (T-26-10-02). Mirrors search/+page.svelte's .row-line/.ver pattern. -->
+								<button class="ver" aria-label={verOpenLabel} onclick={() => openVersionPicker(track)} use:tapBounce><Layers size={18} /></button>
 								<!-- quick-260615-i9u (Feature A): a probe-confirmed-dead Up-Next entry stays IN the queue
 								     (nextPlayableIndex just routes past it) — render it dimmed with a leading ✗ and branch
 								     the row tap to retry-that-exact-track instead of a fresh play. swipeRemove/longpress/grip
 								     are deliberately untouched so reorder + swipe-remove keep working on a skipped row. -->
 								<button class="row q-row" class:playing={track.uid === player.current?.uid} class:skipped use:swipeRemove={{ onremove: () => player.removeFromQueue(track.uid), enabled: track.uid !== player.current?.uid }} use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openMenu(track); }} onclick={(e) => { (e.currentTarget as HTMLElement)?.blur(); skipped ? player.retryUnplayable(track) : player.play(track, {fresh: false}); }} title={skipped ? t('nowplaying.skippedRetry') : undefined}>
-									<!-- quick-260629-nyl Task 1: lazy album-art thumbnail, resolved on scroll-into-view via the
-									     shared use:lazyCover chain (Deezer→iTunes→CN), repainted through resolvedCovers. https-only
-									     background-image; never throws → gradient fallback (T-nyl-01). The text column below keeps
-									     the skip mark + title + artist stacked (min-width:0 preserves the existing ellipsis). -->
-									<span class="q-art" use:lazyCover={{ track, onResolved: onCoverResolved }} style:background-image={(resolvedCovers[track.uid] ?? track.cover) ? `url(${resolvedCovers[track.uid] ?? track.cover})` : fallbackCover(track)}></span>
+									<!-- Gap 3 (26-10): the Up-Next LIST tile paints from the SEEDED cover (26-07 seeds the
+									     name-stub's cover with the Last.fm image; search/resolved tracks carry their real cover),
+									     with a gradient on a true miss — NO per-tile use:lazyCover Deezer→iTunes→CN chain (that
+									     was the observed /api/deezer/search flood — T-26-10-01). The `resolvedCovers[track.uid] ??`
+									     read is KEPT (zero-cost): the map is still fed by the prev/next CAROUSEL neighbors below,
+									     so a row that WAS a neighbor keeps its resolved cover, but the list itself resolves nothing.
+									     Accepted trade-off: an Up-Next tile no longer self-heals a dead cover via the chain — only the
+									     now-playing track gets the optional HQ upgrade (per the UAT). https-only; never throws. -->
+									<span class="q-art" style:background-image={(resolvedCovers[track.uid] ?? track.cover) ? `url(${resolvedCovers[track.uid] ?? track.cover})` : fallbackCover(track)}></span>
 									<span class="q-text">
 										{#if skipped}<span class="r-skip" aria-hidden="true">✗</span>{/if}
 										<span class="r-title">{names.dnTitle(track.title)}</span>
@@ -1403,6 +1452,17 @@
 	</div>
 
 	<TrackMenu track={menuTrack} open={menuOpen} onclose={() => (menuOpen = false)} />
+
+	<!-- Gap 4 (26-10): ONE VersionPicker mount driven by the per-row trigger. `loading` is bound to the
+	     in-flight fetchVariants state so the sheet opens instantly with a spinner; onpick plays the chosen
+	     source's EXACT variant fresh (the user explicitly re-picked the source). -->
+	<VersionPicker
+		versions={pickerVersions}
+		open={pickerOpen}
+		loading={pickerLoading}
+		onclose={closeVersionPicker}
+		onpick={(v) => player.play(v, { fresh: true })}
+	/>
 </section>
 
 <style>
@@ -1624,6 +1684,14 @@
 	   Up-Next `.q-row` is switched to row-direction; the generic `.row` (related skeleton/list)
 	   keeps its column layout untouched. The art dims with the row via `.q-row.skipped` (child). */
 	.q-row { flex-direction: row; align-items: center; gap: 0; }
+	/* Gap 4 (26-10): per-row version-picker trigger — a SIBLING of the .q-row button (never nested,
+	   no button-in-button), its own ≥44px tap target mirroring search/+page.svelte's .ver. */
+	.ver {
+		flex: 0 0 auto; width: 44px; height: 44px; display: grid; place-items: center;
+		background: none; border: none; border-radius: var(--radius-full, 999px);
+		color: var(--color-text-muted); cursor: pointer;
+	}
+	@media (hover: hover) { .ver:hover { background: var(--color-surface); color: var(--color-text); } }
 	.q-art { width: 36px; height: 36px; border-radius: 6px; background-size: cover; background-position: center; background-color: rgba(255,255,255,0.04); flex: none; margin-right: 8px; }
 	.q-text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
 	.grip-handle { flex: 0 0 auto; background: none; border: none; color: var(--color-text-muted); opacity: 0.55; cursor: grab; touch-action: none; display: grid; place-items: center; padding: 8px 6px; border-radius: 8px; }
