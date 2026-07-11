@@ -147,7 +147,9 @@ describe('backfillCovers — Deezer → iTunes → CN track chain (quick-260607-
 
 		expect(deezerSpy).toHaveBeenCalled();
 		expect(itunesSpy).toHaveBeenCalled();
-		expect(searchSpy).toHaveBeenCalledWith('Jay Chou Simple Love', 1);
+		// WR-01: the CN tier now threads explicit {} prefs + the caller's signal
+		// (undefined here — no signal supplied) so the fan-out is abortable like tiers 1-2.
+		expect(searchSpy).toHaveBeenCalledWith('Jay Chou Simple Love', 1, {}, undefined);
 		expect(getCachedCover('Jay Chou', 'Simple Love')).toBe('https://cn.example/cn-cover.jpg');
 		expect(resolved).toHaveLength(1);
 		expect(resolved[0][1]).toBe('https://cn.example/cn-cover.jpg');
