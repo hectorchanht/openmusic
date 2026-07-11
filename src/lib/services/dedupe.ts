@@ -66,6 +66,30 @@ function better(a: Track, b: Track, preferred?: SourceId): Track {
 }
 
 /**
+ * Group same-song-different-source variants WITHOUT collapsing them — the inverse view of
+ * `dedupeBest`, used by the version picker (Phase 26-04, VERSIONS-01) to retain the pre-dedupe
+ * cross-source variants the UI otherwise discards. Reuses the EXACT `key()` normalization
+ * dedupeBest applies (one source of truth for identity), preserves first-appearance order within
+ * each group, and mirrors the blank-key guard: an untitled stub keys by its own `uid` so two
+ * blank stubs never merge into one group. Pure / never-throw / node-testable.
+ *
+ * For any deduped winner, `groupVariants(tracks).get(<winner key>)` contains that winner PLUS its
+ * same-song cross-source siblings, so the picker can list every source variant of one displayed row.
+ */
+export function groupVariants(tracks: Track[]): Map<string, Track[]> {
+	const groups = new Map<string, Track[]>();
+	for (const t of tracks) {
+		const k = key(t);
+		// untitled — key by uid so distinct blank stubs stay in their own group (mirrors dedupeBest).
+		const gk = !k || k === '|' ? t.uid : k;
+		const existing = groups.get(gk);
+		if (existing) existing.push(t);
+		else groups.set(gk, [t]);
+	}
+	return groups;
+}
+
+/**
  * Collapse same-song-different-source duplicates, keeping the best-quality variant.
  * Order is preserved by first appearance. A blank key (no title) is never merged.
  * `preferred` (optional) wins quality ties — used for the "default source" setting.
