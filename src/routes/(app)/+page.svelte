@@ -1012,8 +1012,9 @@
 		align-items: center;
 		gap: 8px;
 		min-height: 44px;
-		margin: 14px 0 8px;
+		margin: 14px 8px 14px 0;
 		padding: 0;
+		padding-right: 20px;
 		background: none;
 		border: none;
 		cursor: pointer;
