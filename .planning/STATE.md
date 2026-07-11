@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Resilient Playback & UX Polish
 status: planning
-stopped_at: Completed 26-06-PLAN.md (gap-closure — resolve-phase watchdog, UAT gap-1 BLOCKER)
-last_updated: "2026-07-12T16:52:00.000Z"
-last_activity: "2026-07-12 - Completed quick task 260712-0md: charts/top row swipe-left = play next (was like) — swipe-left consistent app-wide"
+stopped_at: Completed 26-07-PLAN.md (gap-closure — gaps 2,3 + CR-01: post-filter fallback gate, report(via) callback, similar-tracks image passthrough, seeded stub covers)
+last_updated: "2026-07-11T17:04:01.147Z"
+last_activity: "2026-07-11 - Completed 26-07 gap-closure: buildSimilarQueue CR-01 post-filter fallback gate (out.length not stubs.length) + additive report(via) callback; /api/lastfm/similar-tracks largest-https image passthrough (placeholder-star filtered); up-next name stubs seeded with the Last.fm cover"
 progress:
   total_phases: 18
   completed_phases: 15
   total_plans: 70
-  completed_plans: 64
+  completed_plans: 65
   percent: 83
 ---
 
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-06-10)
 
 ## Current Position
 
-Phase: 999.1
-Plan: Not started
-Status: Ready to plan
-Last activity: 2026-07-12 - Completed 26-06 gap-closure: click-to-play resolve-phase watchdog (RESOLVE_WATCHDOG_MS ~6s) routes a stalled/null initial resolve into the kuwo-first cross-source walk + auto-skip; closes UAT gap-1 BLOCKER
+Phase: 26 (gap-closure)
+Plan: 26-07 complete (7/11 executed); next 26-08
+Status: In progress
+Last activity: 2026-07-11 - Completed 26-07 gap-closure: buildSimilarQueue CR-01 post-filter fallback gate (out.length not stubs.length) + additive report(via) callback; /api/lastfm/similar-tracks largest-https image passthrough (placeholder-star filtered); up-next name stubs seeded with the Last.fm cover
 
 ## Performance Metrics
 
@@ -78,6 +78,8 @@ Last activity: 2026-07-12 - Completed 26-06 gap-closure: click-to-play resolve-p
 | Phase 26 P05 | 7min | 2 tasks | 4 files |
 | Phase 26 P04 | 9min | 4 tasks | 20 files |
 | Phase 26 P03 | 11min | 3 tasks | 4 files |
+| Phase 26 P06 | 8min | 2 tasks | 2 files |
+| Phase 26 P07 | 7min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -288,9 +290,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-11T16:52:03.474Z
-Stopped at: Completed 26-05-PLAN.md
-Resume: plan Phase 16 (`/gsd:plan-phase 16`). Phase 16 is the resilience-core dependency root; everything else builds on its `queueContext` / 2-state repeat / skip-loop guard.
+Last session: 2026-07-11T17:04:01.137Z
+Stopped at: Completed 26-07-PLAN.md (gap-closure — gaps 2,3 + CR-01)
+Resume: execute the remaining Phase-26 gap-closure plans (`/gsd:execute-phase 26 --gaps-only`): 26-08 (variant fetch + version-label dedup), 26-09 (up-next player wiring — depends 26-06/26-07), 26-10 (UI mounts — depends 26-07/26-08).
 
 ## Deferred Items
 
