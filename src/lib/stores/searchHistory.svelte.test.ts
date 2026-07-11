@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { searchHistory } from './searchHistory.svelte';
 
 // Headless runes (node project) — mirrors player.svelte.test.ts / history style.
@@ -40,11 +40,25 @@ describe('searchHistory store (D-05)', () => {
 	});
 
 	it('SSR guard: under !browser, save() writes nothing to localStorage and does not throw', () => {
-		// `globalThis.localStorage` is absent in the node project; if save() were not
-		// browser-guarded, add() would throw a ReferenceError. It does not.
-		expect(typeof globalThis.localStorage).toBe('undefined');
-		expect(() => searchHistory.add('jay')).not.toThrow();
-		// entries still updated in memory (the guard only skips persistence)
-		expect(searchHistory.entries.map((e) => e.query)).toEqual(['jay']);
+		// Under the node project `browser` is false, so save() early-returns and must NOT touch
+		// localStorage. We can no longer assert localStorage is absent — Node 22+ (and the current
+		// Vitest env) expose a native `globalThis.localStorage` — so instead stub one and assert
+		// save() never writes to it, which checks the SSR guard's no-write behavior directly
+		// (mirrors the localStorage-stub style in player.svelte.test.ts / cover-version).
+		const setItem = vi.fn();
+		vi.stubGlobal('localStorage', {
+			getItem: vi.fn(() => null),
+			setItem,
+			removeItem: vi.fn(),
+			clear: vi.fn()
+		});
+		try {
+			expect(() => searchHistory.add('jay')).not.toThrow();
+			expect(setItem).not.toHaveBeenCalled(); // guard skipped persistence under !browser
+			// entries still updated in memory (the guard only skips persistence)
+			expect(searchHistory.entries.map((e) => e.query)).toEqual(['jay']);
+		} finally {
+			vi.unstubAllGlobals();
+		}
 	});
 });
