@@ -77,6 +77,7 @@ Last activity: 2026-07-11 -- Phase 25 planning complete
 
 - Phase 14 added: Search & Data Responsiveness — first-load search skeleton, search query+results preserved across navigation, default audio quality 128–160kbps, TTL query cache for search/discovery (off-milestone UX/playback polish; not part of v1.1 Last.fm)
 - Phase 15 added: Now-Playing Shared-Element Expand/Collapse — swipe-up nowbar→full expand mirroring swipe-down collapse; cover/title/artist morph between positions driven by drag progress, with blur during drag (off-milestone UX polish; UI-spec recommended)
+- Phase 26 added: Minimal-API Click-to-Play Redesign — kuwo-first resolve, source-embedded covers, Last.fm `track.getSimilar` up-next (56 calls → 1), version-picker, netease health-gate; cut a single-song play from ~59 to ~3 `/api` calls. Grounded in spikes 001–004 (`Skill("spike-findings-openmusic")`).
 
 ### Decisions
 

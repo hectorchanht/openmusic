@@ -121,3 +121,17 @@ Plans:
 **Cross-cutting constraints:**
 
 - The existing ~626-test suite stays green and pnpm check passes (web must not regress)
+
+### Phase 26: Minimal-API Click-to-Play Redesign
+
+**Goal:** Cut a single-song play from ~59 `/api/*` calls to ~3 while staying fully functional across every language/region/genre. Grounded in spikes 001–004 (`Skill("spike-findings-openmusic")` + [`spikes/004-source-coverage-by-segment/POLICY.md`](spikes/004-source-coverage-by-segment/POLICY.md)): kuwo is empirically 100% playable+cover across all 14 language/region×genre segments; Last.fm `track.getSimilar` returns exact `{artist,title}` pairs in 1 call; measured baseline is ~59 calls/play (56 = `buildSimilarQueue`'s 8 similar-artists × 7 sources). **Hard rule: never fan out all 7 sources on click.**
+**Requirements**: TBD (derive at plan-phase from the spike POLICY + spike-findings skill)
+**Depends on:** none — self-contained refactor of the resolve / up-next / cover paths (independent of Phase 25 translation work)
+**Plans:** 0 plans
+
+Scope (candidate plans — plan-phase breaks these down):
+- [ ] **Kuwo-first resolve/fallback chain** — reorder `kuwo → qq → netease → joox → (fivesing/audius/jamendo)`; single-source resolve on click; cross-source failover walks the chain, no re-search (`registry.ts`, `catalog.ts`, `player.svelte.ts`)
+- [ ] **Source-embedded cover on the hot path** — use kuwo/qq/netease inline cover immediately; lazy Deezer HQ upgrade; run the Deezer→iTunes→CN chain only for coverless joox/fivesing (`cover-backfill.ts`, player cover seam)
+- [ ] **Up-Next via `track.getSimilar`** — new `/api/lastfm/similar-tracks` edge route; rewrite `buildSimilarQueue` (56 calls → 1); exact name+artist stubs, lazy single-source resolve, `match`-ordered; artist-hop fallback resolved single-source; bound `crossSourceLyric` to one fetch (`similar.ts`, `catalog.ts`)
+- [ ] **Version-picker modal** — control before the play/grip button opens a modal listing same-name+artist versions across sources (data already in search results)
+- [ ] **netease upstream health-gate** — detect/skip the intermittent qijieya Meting dry-return so a dead default-primary doesn't silently degrade live search (`proxy/netease.ts` or catalog-level guard)
