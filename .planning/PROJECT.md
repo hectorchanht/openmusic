@@ -12,6 +12,8 @@ A user on their phone can search a song, tap it, and have it play instantly with
 
 **Shipped:** v1.2 Resilient Playback & UX Polish (2026-06-15) — 9 phases (16–24), 43 plans. Plus Phase 999.1 (v2.0 Native Capacitor, executed early). App is a live SvelteKit PWA on Cloudflare.
 
+**Latest:** Phase 26 Minimal-API Click-to-Play Redesign (2026-07-11) — 5 plans. Cut a single-song play from ~59 to ~3 `/api/*` calls: kuwo-first resolve floor + single-source name-stub resolver, Last.fm `track.getSimilar` up-next (56→1), source-embedded covers off the hot path with a lazy Deezer HQ upgrade, a never-throw netease dry-spell health gate, and an opt-in per-source Version Picker.
+
 **Next milestone:** v1.3 Last.fm Write-side (Phases 11–13) — auth, scrobble, loved-sync. Start with `/gsd:new-milestone`.
 
 **Known deferred:** device-only human UAT for iOS audio (Phase 18), now-playing gestures (Phase 20), and Capacitor APK (Phase 999.1); plus 75 unconfirmed quick-task status markers. See STATE.md → Deferred Items.
@@ -141,4 +143,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-15 after v1.2 milestone (Resilient Playback & UX Polish) shipped and archived*
+*Last updated: 2026-07-11 after Phase 26 (Minimal-API Click-to-Play Redesign) completed. Prior: 2026-06-15 after v1.2 milestone (Resilient Playback & UX Polish) shipped and archived*
