@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Resilient Playback & UX Polish
 status: executing
-stopped_at: Completed 26-08-PLAN.md (gap-closure — gaps 4,5: lazy fetchVariants + collapseVariants/variantTag + VersionPicker loading/distinct rows + 15-locale keys)
-last_updated: "2026-07-11T17:19:30.000Z"
-last_activity: "2026-07-11 - Completed 26-08 gap-closure: fetchVariants (single on-demand cross-source searchAll, never-throw, AbortSignal); collapseVariants intra-source de-dup (source|album|tag bucket, cross-source preserved) + variantTag EN/CN title-parens parser; VersionPicker optional loading spinner + collapseVariants render with version-tag badge + album subtitle; versions.loading/menu.versions/versions.tag.* across all 15 locales at parity"
+stopped_at: Completed 26 gap-closure round (26-06..26-11 — all 6 UAT gaps closed)
+last_updated: "2026-07-11T17:45:00.000Z"
+last_activity: "2026-07-11 - Phase 26 gap-closure complete (26-06..26-11): resolve-phase watchdog→kuwo-first fallback→skip (blocker); CR-01 post-filter gate + up-next image passthrough/seeded covers; regenerate() never-empty safety net + upnext.source log; version picker lazy fetch + intra-source dedup/version label + mounted in Up-Next & TrackMenu; JOOX songmid self-heal + never-throw. Phase 26 = 11/11 plans."
 progress:
   total_phases: 18
   completed_phases: 15
   total_plans: 70
-  completed_plans: 67
+  completed_plans: 70
   percent: 83
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-10)
 
 **Core value:** A user on their phone can search a song, tap it, and have it play instantly with a smooth, native-app-like experience — and keep playing when the screen locks.
-**Current focus:** Phase 999.1 — v2 0 native capacitor migration
+**Current focus:** Phase 26 complete (gap-closure round closed); next milestone TBD (v1.3 Last.fm write-side candidate)
 
 ## Current Position
 
-Phase: 26 (gap-closure)
-Plan: 26-08 complete (8/11 executed); next 26-09
-Status: In progress
-Last activity: 2026-07-11 - Completed 26-08 gap-closure: fetchVariants (single on-demand cross-source searchAll, never-throw, AbortSignal); collapseVariants intra-source de-dup (source|album|tag bucket, cross-source preserved) + variantTag EN/CN title-parens parser; VersionPicker optional loading spinner + collapseVariants render with version-tag badge + album subtitle; versions.loading/menu.versions/versions.tag.* across all 15 locales at parity
+Phase: 26 (Minimal-API Click-to-Play Redesign) — COMPLETE
+Plan: 11/11 (5 shipped + 6 gap-closure); gap round 26-06..26-11 done
+Status: Phase complete — pending code review + human device UAT on real network (CN upstreams unreachable in sandbox)
+Last activity: 2026-07-11 - Phase 26 gap-closure complete (26-06..26-11)
 
 ## Performance Metrics
 
