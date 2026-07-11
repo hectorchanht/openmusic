@@ -1,24 +1,33 @@
-// Similar-vibe queue builder (quick-260606-5ug). The similar-seeded sibling of
-// buildDiversePicks (picks.ts): instead of random artists, it seeds from Last.fm
-// artist.getSimilar for the current track's artist, searches each similar artist's
-// top track, cross-source-dedupes, and excludes the seed + already-queued uids.
+// Similar-vibe queue builder (Phase 26, UPNEXT-01 — the single highest-impact API-call
+// reduction in the phase: 56 → 1).
 //
-// Graceful fallback (REQUIRED, T-5ug-03): when /api/similar returns no artists — no
-// LASTFM_KEY configured, or Last.fm dry/errored — fall back to same-artist search
-// (the Related-tab behavior). The feature works end-to-end with NO key, just with
-// less variety. The Last.fm key stays server-side; this client module only ever sees
-// the clean { artists: string[] } list (threat T-5ug-01).
+// PRIMARY path: Last.fm `track.getSimilar` (via /api/lastfm/similar-tracks) returns exact
+// {artist, title} pairs pre-ranked by `match` in ONE call. Each pair maps to a lazy
+// name-only stub Track (Plan 26-01's `resolveByName` marker) that resolves on play through
+// the kuwo-first single source — NO per-item searchAll at build time. This replaces the old
+// artist.getSimilar → 8× searchAll fan-out (8 artists × 7 sources = 56 /api/* calls, spike 003).
+//
+// FALLBACK path (REQUIRED, T-26-03-05): some newer CN songs have thin Last.fm scrobble data
+// and track.getSimilar returns 0 (spike 002: 2/10 CN seeds dry). Then fall through to
+// artist.getSimilar (getSimilarArtists) and resolve each candidate's top track SINGLE-source
+// (kuwo-first) — NOT an 8-source searchAll per artist. Best-effort, never-throws.
+//
+// The Last.fm key stays server-side; this client module only ever sees the clean
+// { tracks: [...] } / { artists: [...] } shapes (threat T-26-03-01).
 import { searchAll } from '$lib/services/catalog';
 import { dedupeBest } from '$lib/services/dedupe';
 import { deezerRelatedArtists } from '$lib/services/deezer';
+import { matchKey } from '$lib/services/match-key';
 import { settings } from '$lib/stores/settings.svelte';
 import { cached } from '$lib/services/ttl-cache';
 import { apiFetch } from '$lib/services/api-base';
-import type { Track } from '$lib/sources/types';
+import { SOURCES, getEnabledAdapters } from '$lib/sources/registry';
+import type { SourceId, Track } from '$lib/sources/types';
 
-const SIMILAR_ARTIST_COUNT = 8; // how many similar artists to search (top N)
+const SIMILAR_ARTIST_COUNT = 8; // fallback: how many similar artists to search (top N)
 const FALLBACK_LIMIT = 20; // same-artist fallback cap (matches the Related tab)
-const TTL_SIMILAR = 6 * 60 * 60 * 1000; // 6h (lry-followup: similar-artist sets are stable)
+const SIMILAR_TRACK_LIMIT = 20; // primary: how many similar TRACKS to build the Up-Next from
+const TTL_SIMILAR = 6 * 60 * 60 * 1000; // 6h (lry-followup: similar sets are stable)
 
 /**
  * Fetch artists similar to `artist`. Last.fm primary; on empty (no LASTFM_KEY, or Last.fm
@@ -45,27 +54,136 @@ export async function getSimilarArtists(artist: string): Promise<string[]> {
 }
 
 /**
+ * PRIMARY: one `track.getSimilar` call → the clean {artist,title,match}[] list, pre-ranked
+ * by `match` (descending). Wrapped in the existing `cached()` TTL idiom keyed on artist+title
+ * (excludeUids/seed filtering happens per-call OUTSIDE the cache, so the memoized value is
+ * excludeUids-independent). Never-throws (→ [] on absent key / dry / error).
+ */
+async function fetchSimilarTracks(artist: string, title: string): Promise<Track[]> {
+	const a = (artist ?? '').trim();
+	const t = (title ?? '').trim();
+	if (!a || !t) return [];
+	return cached(`lf:simtracks:${a}|${t}|${SIMILAR_TRACK_LIMIT}`, TTL_SIMILAR, async () => {
+		try {
+			const res = await apiFetch(
+				`/api/lastfm/similar-tracks?artist=${encodeURIComponent(a)}&track=${encodeURIComponent(t)}&limit=${SIMILAR_TRACK_LIMIT}`
+			);
+			const data = (await res.json()) as { tracks?: { artist?: string; title?: string; match?: number }[] };
+			return (data?.tracks ?? [])
+				.map((p) => nameStub((p.artist ?? '').trim(), (p.title ?? '').trim()))
+				.filter((s): s is Track => s !== null);
+		} catch {
+			return [];
+		}
+	});
+}
+
+/**
+ * The kuwo-FIRST primary source id, inherited from the registry order (RESOLVE-01) — no
+ * source is NAMED here. Used only as the never-dispatched placeholder `source` on a name
+ * stub (its songid carries the stable synthetic identity; resolveByName routes resolution
+ * through resolveNameStub, so SOURCES[source].resolve is never called on it).
+ */
+function primarySourceId(): SourceId {
+	return getEnabledAdapters({})[0]?.id ?? 'kuwo';
+}
+
+/**
+ * Per-source prefs that restrict a `searchAll` to a SINGLE source (the kuwo-first primary),
+ * mirroring catalog.ts `onlySource`. Every registered source is explicitly set false so none
+ * falls through `getEnabledAdapters` to "enabled"; only the primary is flipped true, so the
+ * FALLBACK resolves each candidate through exactly ONE source — never the 8-source fan-out.
+ */
+function onlyPrimarySource(): Partial<Record<SourceId, boolean>> {
+	const primary = primarySourceId();
+	const prefs: Partial<Record<SourceId, boolean>> = {};
+	for (const sid of Object.keys(SOURCES) as SourceId[]) prefs[sid] = false;
+	prefs[primary] = true;
+	return prefs;
+}
+
+/**
+ * Build a lazy name-only stub Track from an exact {artist, title} pair (Plan 26-01's shape).
+ * Carries the exact artist/title/keyword, `resolveByName: true` (so ensureTrackDetails resolves
+ * it kuwo-first via resolveNameStub — never a per-item searchAll at build time), no cover / audio
+ * / lrc yet, and a STABLE synthetic uid derived from the normalized artist+title (matchKey). The
+ * uid is COLON form (D-10) over a `similar-`-prefixed synthetic songid so it never collides with a
+ * real numeric source songid, and same-song pairs collapse to one identity (dedupe/exclude work).
+ * The `source` is a never-dispatched placeholder (see primarySourceId). Returns null for a
+ * blank/incomplete pair so it is dropped.
+ */
+function nameStub(artist: string, title: string): Track | null {
+	if (!artist || !title) return null;
+	const key = matchKey(artist, title); // `${norm(artist)}|${norm(title)}`, artist-first
+	if (!key || key === '|') return null;
+	const source = primarySourceId();
+	const songid = `similar-${key}`;
+	return {
+		uid: `${source}:${songid}`,
+		source, // placeholder — resolveByName short-circuits dispatch (never SOURCES[source].resolve)
+		songid,
+		title,
+		artist,
+		album: '',
+		cover: null,
+		audioUrl: null,
+		lrc: null,
+		lrcUrl: null,
+		detailsLoaded: false,
+		quality: null,
+		qualityLabel: null,
+		keyword: `${artist} ${title}`.trim(),
+		displayIndex: 1,
+		resolveByName: true // Plan 26-01: resolve kuwo-first through ONE source on play
+	};
+}
+
+/**
  * Build the auto portion of Up-Next from songs similar in vibe/genre to `track`.
  *
- * Last.fm path: get similar artists → search each artist's top track in parallel →
- * dedupeBest → drop the seed track + any excludeUids.
- * Fallback path: when no similar artists are returned, same-artist search of
- * `track.artist` → dedupeBest → drop seed + excludeUids → cap at FALLBACK_LIMIT.
+ * PRIMARY (56→1): `track.getSimilar` → lazy name-only stubs (resolveByName), match-descending,
+ * with the seed + excludeUids dropped and same-song dupes deduped. ZERO searchAll at build time.
+ * FALLBACK (route dry): `artist.getSimilar` → resolve each artist's top track SINGLE-source
+ * (kuwo-first) → dedupeBest → drop seed + excludeUids. Last resort: single-source same-artist
+ * search (Related-tab behavior). NEVER an all-enabled 8-source fan-out on any path.
  *
- * Best-effort, like buildDiversePicks: artists that error or return nothing are
- * silently skipped.
+ * Signature + never-throw/best-effort contract are unchanged so the player callers
+ * (regenerate, ensureAhead) are untouched — the play() queue-swap already adopts a resolved
+ * track's real uid via indexOf on resolve, so a synthetic→real uid change survives.
  */
 export async function buildSimilarQueue(
 	track: Track,
 	excludeUids: Set<string> = new Set()
 ): Promise<Track[]> {
+	// PRIMARY: the seed is a REAL track (real uid), while stubs carry SYNTHETIC uids — so the seed
+	// cannot be dropped by uid. Drop it by normalized song identity instead; drop stubs by synthetic
+	// uid (catches an already-queued unresolved stub / a swiped-away stub whose stable uid is in
+	// excludeUids); dedupe same-song stubs by synthetic uid. (A resolved real track already in the
+	// queue head carries a real uid, so it is not matched here — a bounded, documented dedup gap
+	// vs. the old real-uid path; the player is intentionally not edited, per plan.)
+	const stubs = await fetchSimilarTracks(track.artist, track.title);
+	if (stubs.length) {
+		const seedKey = matchKey(track.artist, track.title);
+		const seen = new Set<string>();
+		const out: Track[] = [];
+		for (const s of stubs) {
+			if (matchKey(s.artist, s.title) === seedKey) continue; // drop the seed song
+			if (excludeUids.has(s.uid)) continue; // drop excluded (stable synthetic uid)
+			if (seen.has(s.uid)) continue; // same-song dedupe
+			seen.add(s.uid);
+			out.push(s);
+		}
+		return out; // already match-descending from the route
+	}
+
+	// FALLBACK: same/similar-artist resolution, SINGLE-source (kuwo-first) — never the fan-out.
 	const keep = (t: Track) => t.uid !== track.uid && !excludeUids.has(t.uid);
+	const prefs = onlyPrimarySource();
 
 	const names = await getSimilarArtists(track.artist);
-
 	if (names.length) {
 		const results = await Promise.allSettled(
-			names.slice(0, SIMILAR_ARTIST_COUNT).map((n) => searchAll(n, 1))
+			names.slice(0, SIMILAR_ARTIST_COUNT).map((n) => searchAll(n, 1, prefs))
 		);
 		const tops: Track[] = [];
 		for (const r of results) {
@@ -76,9 +194,9 @@ export async function buildSimilarQueue(
 		return dedupeBest(tops, settings.preferredSource).filter(keep);
 	}
 
-	// Fallback: same-artist similarity (Related-tab behavior).
+	// Last resort: single-source same-artist search (Related-tab behavior).
 	try {
-		const r = await searchAll(track.artist, 1);
+		const r = await searchAll(track.artist, 1, prefs);
 		return dedupeBest(r.interleaved, settings.preferredSource).filter(keep).slice(0, FALLBACK_LIMIT);
 	} catch {
 		return [];
