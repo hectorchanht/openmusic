@@ -221,3 +221,43 @@ describe('buildSimilarQueue — dry fallback resolves SINGLE-source (never all-e
 		expect(out.map((t) => t.uid)).not.toContain(seed.uid);
 	});
 });
+
+// Call-cost proof (Phase 26, UPNEXT-01 — mirrors the spike-003 audit method against the
+// mocked seams). Proves the 56-call `8 artists × 7 sources` block is GONE: the up-next BUILD
+// path is a single /api/* call (the track.getSimilar call) with 0 all-enabled searchAll fan-outs.
+//
+// END-TO-END budget (spike-003, click-to-play-cost.md — the ~59 → ~3/≤~5 target): a single-song
+// play with a GENERATED up-next now costs, in /api/* calls:
+//   1  buildSimilarQueue (this test — track.getSimilar; the old 56-call block is removed)
+// + 1  seed resolve (kuwo-first single source, Plan 26-01 resolveNameStub; cover inline)
+// + ≤1 lazy Deezer HQ cover upgrade (Plan 26-02, off the hot path)
+// + ≤1 next-track prefetch resolve (kuwo-first)
+// = ≤ ~4-5 total, vs the ~59 baseline. The other terms are proven in their own plans
+// (26-01 resolve, 26-02 cover); this test owns the buildSimilarQueue = 1 assertion.
+describe('buildSimilarQueue — call cost (spike-003: the 56-call block is gone)', () => {
+	it('the up-next BUILD path is exactly 1 /api/* call with 0 all-enabled searchAll fan-outs', async () => {
+		const { spy } = stubRoutes({
+			tracks: [
+				{ artist: 'Adele', title: 'Someone Like You', match: 1 },
+				{ artist: 'Sia', title: 'Chandelier', match: 0.8 },
+				{ artist: 'Lorde', title: 'Royals', match: 0.6 },
+				{ artist: 'Halsey', title: 'Colors', match: 0.5 },
+				{ artist: 'Birdy', title: 'Skinny Love', match: 0.4 }
+			]
+		});
+		const searchSpy = vi.spyOn(catalog, 'searchAll');
+		const seed = mk('kuwo', 'seed', 'Adele', { title: 'Hello' });
+
+		const out = await buildSimilarQueue(seed);
+
+		// exactly ONE /api/* call total on the build path, and it IS the track.getSimilar call.
+		const apiCalls = spy.mock.calls.map((c) => String(c[0])).filter((u) => u.includes('/api/'));
+		expect(apiCalls).toHaveLength(1);
+		expect(apiCalls[0]).toContain('/api/lastfm/similar-tracks');
+		// ZERO searchAll — the 8×7 artist-hop fan-out (spike-003's 56 calls) does not occur.
+		expect(searchSpy).not.toHaveBeenCalled();
+		// and it actually produced a usable lazy up-next (5 resolveByName stubs).
+		expect(out).toHaveLength(5);
+		expect(out.every((t) => t.resolveByName === true)).toBe(true);
+	});
+});
