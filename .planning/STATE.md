@@ -1,7 +1,7 @@
 ---
 gsd_state_version: 1.0
 milestone: v1.2
-milestone_name: Resilient Playback & UX Polish` below). The Last.fm write-side
+milestone_name: Resilient Playback & UX Polish
 status: verifying
 stopped_at: Completed 25-03-PLAN.md
 last_updated: "2026-07-11T09:21:33.675Z"
