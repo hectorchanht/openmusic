@@ -25,6 +25,21 @@ export interface Env {
 	 * empty `{ results: [] }` so jamendo simply has no hits. The Jamendo `client_secret`
 	 * is NOT carried here: it is only needed for OAuth flows we don't implement. */
 	JAMENDO_CLIENT_ID?: string;
+	// OPTIONAL Azure Translator subscription key for the /api/translate provider cascade
+	// (D-05/D-06). Server-side only — injected into the upstream `Ocp-Apim-Subscription-Key`
+	// header on the edge, NEVER echoed to the client (threat parity with JOOX_TOKEN /
+	// LASTFM_KEY, T-25c-01). Absent key is a SUPPORTED state: the Azure tier is SKIPPED and
+	// the cascade falls through to DeepL, then keyless Google.
+	AZURE_TRANSLATOR_KEY?: string;
+	// OPTIONAL Azure Translator resource region (e.g. `eastasia`), paired with
+	// AZURE_TRANSLATOR_KEY and sent as the `Ocp-Apim-Subscription-Region` header. Edge-only,
+	// never echoed to the client. Absent → the Azure request omits the region header.
+	AZURE_TRANSLATOR_REGION?: string;
+	// OPTIONAL DeepL Free API auth key for the /api/translate cascade (2nd tier). Server-side
+	// only — injected into the `Authorization: DeepL-Auth-Key <key>` header for api-free.deepl.com,
+	// NEVER echoed to the client (same threat class as AZURE_TRANSLATOR_KEY, T-25c-01). Absent
+	// key is a SUPPORTED state: the DeepL tier is SKIPPED and the cascade falls through to Google.
+	DEEPL_KEY?: string;
 }
 
 export interface ProxyAdapter {

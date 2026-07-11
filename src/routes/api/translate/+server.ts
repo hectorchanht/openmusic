@@ -38,6 +38,7 @@
 // genuinely-translated lines (fallbacks stay eligible for a later retry instead of poisoning
 // the cache). `flags` is additive; the `translated`/length contract is unchanged.
 import type { RequestHandler } from './$types';
+import type { Env } from '$lib/proxy/proxy-types';
 
 const LANG_MAP: Record<string, string> = {
 	'zh-Hant': 'zh-TW',
@@ -166,7 +167,13 @@ async function translateChunk(lines: string[], to: string): Promise<LineResult[]
 	return perLine(lines, to);
 }
 
-export const POST: RequestHandler = async ({ request }) => {
+export const POST: RequestHandler = async ({ request, platform }) => {
+	// platform?.env is the verified Cloudflare-adapter binding path (parity with /api/similar).
+	// Provider keys are read edge-side only and NEVER echoed to the client (D-06 / T-25c-01).
+	// Consumed by the provider cascade (Task 2); absent keys simply skip their tier.
+	const env = platform?.env as Env | undefined;
+	void env; // wired into the cascade in Task 2
+
 	let body: { lines?: unknown; to?: unknown };
 	try {
 		body = await request.json();
