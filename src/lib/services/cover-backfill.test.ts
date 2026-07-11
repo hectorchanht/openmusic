@@ -3,6 +3,7 @@ import {
 	backfillCovers,
 	backfillArtistCovers,
 	resolveCoverForTrack,
+	resolveDeezerHQ,
 	__resetCoverMissCache
 } from './cover-backfill';
 import * as catalog from './catalog';
@@ -452,5 +453,74 @@ describe('resolveCoverForTrack — shared single-item resolve helper (Plan 21-02
 		expect(getCachedCoverByUid('')).toBeNull();
 		// The per-song name layer IS written, so this stub still caches under its own identity.
 		expect(getCachedCover('Foo Fighters', 'Everlong')).toBe('https://cdn-images.dzcdn.net/r.jpg');
+	});
+});
+
+describe('resolveDeezerHQ — Deezer-only HQ upgrade (Plan 26-02, COVER-01)', () => {
+	it('returns the SOLID Deezer cover and calls NEITHER iTunes NOR searchAll (single tier)', async () => {
+		const deezerSpy = vi
+			.spyOn(deezer, 'deezerSongCover')
+			.mockResolvedValue('https://cdn-images.dzcdn.net/hq.jpg');
+		const itunesSpy = vi.spyOn(itunes, 'itunesSongCover');
+		const searchSpy = vi.spyOn(catalog, 'searchAll');
+		const t = mk('kuwo', '999', { artist: 'Drake', title: 'Hotline Bling' });
+
+		const out = await resolveDeezerHQ(t);
+		expect(out).toBe('https://cdn-images.dzcdn.net/hq.jpg');
+		expect(deezerSpy).toHaveBeenCalledTimes(1);
+		expect(deezerSpy).toHaveBeenCalledWith('Drake', 'Hotline Bling', undefined);
+		expect(itunesSpy).not.toHaveBeenCalled(); // single tier — NEVER iTunes
+		expect(searchSpy).not.toHaveBeenCalled(); // single tier — NEVER the CN searchAll tier
+	});
+
+	it('writes BOTH cache layers on a SOLID hit (real uid → uid layer + name layer)', async () => {
+		vi.spyOn(deezer, 'deezerSongCover').mockResolvedValue('https://cdn-images.dzcdn.net/hq.jpg');
+		const t = mk('kuwo', '12345', { artist: 'Drake', title: 'Hotline Bling' });
+		await resolveDeezerHQ(t);
+		expect(getCachedCoverByUid('kuwo:12345')).toBe('https://cdn-images.dzcdn.net/hq.jpg');
+		expect(getCachedCover('Drake', 'Hotline Bling')).toBe('https://cdn-images.dzcdn.net/hq.jpg');
+	});
+
+	it('writes ONLY the name layer for an empty-uid stub (charts-tags-same-cover guard)', async () => {
+		vi.spyOn(deezer, 'deezerSongCover').mockResolvedValue('https://cdn-images.dzcdn.net/hq.jpg');
+		const stub = mk('netease', 'ignored', { uid: '', artist: 'Foo Fighters', title: 'Everlong' });
+		await resolveDeezerHQ(stub);
+		expect(getCachedCoverByUid('')).toBeNull(); // shared 'uid:' slot never written for an empty uid
+		expect(getCachedCover('Foo Fighters', 'Everlong')).toBe('https://cdn-images.dzcdn.net/hq.jpg');
+	});
+
+	it('returns null (no throw) and caches nothing on a Deezer miss — never touches iTunes/CN', async () => {
+		const deezerSpy = vi.spyOn(deezer, 'deezerSongCover').mockResolvedValue(null);
+		const itunesSpy = vi.spyOn(itunes, 'itunesSongCover');
+		const searchSpy = vi.spyOn(catalog, 'searchAll');
+		const t = mk('kuwo', 'miss', { artist: 'A', title: 'B' });
+
+		await expect(resolveDeezerHQ(t)).resolves.toBeNull();
+		expect(deezerSpy).toHaveBeenCalledTimes(1);
+		expect(itunesSpy).not.toHaveBeenCalled();
+		expect(searchSpy).not.toHaveBeenCalled();
+		expect(getCachedCover('A', 'B')).toBeNull();
+	});
+
+	it('treats a non-https Deezer result as a miss (isSolidCover) — returns null, caches nothing', async () => {
+		vi.spyOn(deezer, 'deezerSongCover').mockResolvedValue('http://insecure.example/x.jpg');
+		const t = mk('kuwo', 'ins', { artist: 'A', title: 'B' });
+		await expect(resolveDeezerHQ(t)).resolves.toBeNull();
+		expect(getCachedCover('A', 'B')).toBeNull();
+	});
+
+	it('never throws when Deezer throws (per-tier never-throw) — returns null', async () => {
+		vi.spyOn(deezer, 'deezerSongCover').mockRejectedValue(new Error('deezer down'));
+		const t = mk('kuwo', 'throw', { artist: 'A', title: 'B' });
+		await expect(resolveDeezerHQ(t)).resolves.toBeNull();
+	});
+
+	it('returns null immediately when the signal is already aborted (issues NO Deezer call)', async () => {
+		const deezerSpy = vi.spyOn(deezer, 'deezerSongCover');
+		const t = mk('kuwo', 'abort', { artist: 'A', title: 'B' });
+		const ac = new AbortController();
+		ac.abort();
+		await expect(resolveDeezerHQ(t, ac.signal)).resolves.toBeNull();
+		expect(deezerSpy).not.toHaveBeenCalled();
 	});
 });
