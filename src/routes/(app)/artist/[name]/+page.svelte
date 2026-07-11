@@ -532,14 +532,7 @@
 	.hero { padding: 14px 0 18px; text-align: center; }
 	.back { display: grid; place-items: center; width: 36px; height: 36px; background: none; border: none; color: var(--color-text); cursor: pointer; margin: 0 0 8px; padding: 0; }
 	.back:hover { background: var(--color-surface-2); border-radius: 50%; }
-	.herocover {
-	position: absolute;
-    top: 0;
-    width: 100%;
-    height: 30%;
-    background-size: cover;
-    background-position: center;
-}
+	.herocover { width: 150px; height: 150px; border-radius: 50%; margin: 8px auto 12px; background-size: cover; background-position: center; box-shadow: 0 12px 34px rgba(0,0,0,0.5); }
 	.hero h1 { font-size: calc(1.7rem * var(--fs-title, 1)); margin: 0; }
 	.note { color: var(--color-text-muted); font-size: 12px; margin-top: 4px; }
 	.herotags { display: flex; justify-content: center; margin-top: 8px; }
