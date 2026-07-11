@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Resilient Playback & UX Polish
-status: planning
-stopped_at: Completed 26-07-PLAN.md (gap-closure — gaps 2,3 + CR-01: post-filter fallback gate, report(via) callback, similar-tracks image passthrough, seeded stub covers)
-last_updated: "2026-07-11T17:04:01.147Z"
-last_activity: "2026-07-11 - Completed 26-07 gap-closure: buildSimilarQueue CR-01 post-filter fallback gate (out.length not stubs.length) + additive report(via) callback; /api/lastfm/similar-tracks largest-https image passthrough (placeholder-star filtered); up-next name stubs seeded with the Last.fm cover"
+status: executing
+stopped_at: Completed 26-08-PLAN.md (gap-closure — gaps 4,5: lazy fetchVariants + collapseVariants/variantTag + VersionPicker loading/distinct rows + 15-locale keys)
+last_updated: "2026-07-11T17:19:30.000Z"
+last_activity: "2026-07-11 - Completed 26-08 gap-closure: fetchVariants (single on-demand cross-source searchAll, never-throw, AbortSignal); collapseVariants intra-source de-dup (source|album|tag bucket, cross-source preserved) + variantTag EN/CN title-parens parser; VersionPicker optional loading spinner + collapseVariants render with version-tag badge + album subtitle; versions.loading/menu.versions/versions.tag.* across all 15 locales at parity"
 progress:
   total_phases: 18
   completed_phases: 15
   total_plans: 70
-  completed_plans: 65
+  completed_plans: 67
   percent: 83
 ---
 
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-06-10)
 ## Current Position
 
 Phase: 26 (gap-closure)
-Plan: 26-07 complete (7/11 executed); next 26-08
+Plan: 26-08 complete (8/11 executed); next 26-09
 Status: In progress
-Last activity: 2026-07-11 - Completed 26-07 gap-closure: buildSimilarQueue CR-01 post-filter fallback gate (out.length not stubs.length) + additive report(via) callback; /api/lastfm/similar-tracks largest-https image passthrough (placeholder-star filtered); up-next name stubs seeded with the Last.fm cover
+Last activity: 2026-07-11 - Completed 26-08 gap-closure: fetchVariants (single on-demand cross-source searchAll, never-throw, AbortSignal); collapseVariants intra-source de-dup (source|album|tag bucket, cross-source preserved) + variantTag EN/CN title-parens parser; VersionPicker optional loading spinner + collapseVariants render with version-tag badge + album subtitle; versions.loading/menu.versions/versions.tag.* across all 15 locales at parity
 
 ## Performance Metrics
 
@@ -80,6 +80,7 @@ Last activity: 2026-07-11 - Completed 26-07 gap-closure: buildSimilarQueue CR-01
 | Phase 26 P03 | 11min | 3 tasks | 4 files |
 | Phase 26 P06 | 8min | 2 tasks | 2 files |
 | Phase 26 P07 | 7min | 3 tasks | 4 files |
+| Phase 26 P08 | 9min | 3 tasks | 18 files |
 
 ## Accumulated Context
 
