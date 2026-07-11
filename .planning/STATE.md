@@ -4,13 +4,13 @@ milestone: v1.2
 milestone_name: Resilient Playback & UX Polish
 status: executing
 stopped_at: Completed 26-05-PLAN.md
-last_updated: "2026-07-11T11:16:50.331Z"
+last_updated: "2026-07-11T11:38:14.038Z"
 last_activity: 2026-07-11
 progress:
   total_phases: 18
   completed_phases: 15
   total_plans: 64
-  completed_plans: 61
+  completed_plans: 62
   percent: 83
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-06-10)
 ## Current Position
 
 Phase: 26 (minimal-api-click-to-play-redesign) — EXECUTING
-Plan: 3 of 5
+Plan: 4 of 5
 Status: Ready to execute
 Last activity: 2026-07-11
 
@@ -75,6 +75,7 @@ Last activity: 2026-07-11
 | Phase 25 P03 | 5min | 2 tasks | 2 files |
 | Phase 26 P01 | 11min | 2 tasks | 7 files |
 | Phase 26 P05 | 7min | 2 tasks | 4 files |
+| Phase 26 P04 | 9min | 4 tasks | 20 files |
 
 ## Accumulated Context
 
@@ -129,6 +130,8 @@ Recent decisions affecting current work:
 - [Phase ?]: 26-01: registry reorder is DATA-ONLY — kuwo-first SOURCES order propagates to getEnabledAdapters/fallbackOrder/interleave/resolveNameStub; contracts/enabledByDefault/SOURCE_RANK unchanged
 - [Phase ?]: 26-01: resolveNameStub + crossSourceLyric walk the kuwo-first order ONE source per searchAll (onlySource prefs) — never an all-source fan-out on a resolve path; onlySource duplicated in catalog.ts to avoid a catalog<->fallback cycle
 - [Phase 26]: 26-05: netease dry-spell health-gate — a pure in-memory neteaseHealth trips after DRY_THRESHOLD(3) consecutive [] responses, netease.search() short-circuits to [] (no apiFetch) for GATE_WINDOW_MS(~60s), auto-probes on expiry, recordOk() = instant recovery; contract-drift THROW preserved and never counted as dry
+- [Phase ?]: [Phase 26-04]: groupVariants reuses dedupe's private key() (identity single-source); the search page keys variant groups by uid so a deduped winner resolves its cross-source siblings without exporting key().
+- [Phase ?]: [Phase 26-04]: version picker consumes the retained pre-dedupe interleaved variants — ZERO new API calls (VERSIONS-01); trigger shown only on >1-source rows; default row tap stays kuwo-first fast.
 
 ### Pending Todos
 
@@ -274,7 +277,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-11T11:16:50.322Z
+Last session: 2026-07-11T11:37:26.450Z
 Stopped at: Completed 26-05-PLAN.md
 Resume: plan Phase 16 (`/gsd:plan-phase 16`). Phase 16 is the resilience-core dependency root; everything else builds on its `queueContext` / 2-state repeat / skip-loop guard.
 
