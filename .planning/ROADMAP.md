@@ -63,13 +63,13 @@ Full phase details archived in [`milestones/v1.2-ROADMAP.md`](milestones/v1.2-RO
 
 **Goal:** zh-Hans→zh-Hant becomes reliable + offline — a lazy client-side TongWenTang s2t converter handles Chinese content when the target is `zh-Hant` (no API, no rate limit, works offline / on lockscreen), non-Chinese lines fall through to `/api/translate`, and the server endpoint's single Google provider is replaced by an ordered cascade Azure → DeepL → Google that advances on failure / rate-limit / echo. The existing `translated`/`flags`/`complete` client contract stays intact.
 
-- [ ] Phase 25: zh-Hant Offline Conversion + Translation Fallback Cascade — bundle `tongwen-core` + `tongwen-dict` s2t dicts (~72 KB gz, lazy client-side dynamic import); route Chinese source → offline Simplified→Traditional when target `zh-Hant` (no API, works offline/lockscreen); replace the single unofficial-Google call with a provider **cascade Azure → DeepL → Google** (advance on failure / rate-limit / echo via the existing `flags`/`complete` signal); CJK-source detection so JA kanji isn't mis-converted; existing test suite stays green. See [`notes/zh-hant-offline-conversion.md`](notes/zh-hant-offline-conversion.md).
+- [x] Phase 25: zh-Hant Offline Conversion + Translation Fallback Cascade — bundle `tongwen-core` + `tongwen-dict` s2t dicts (~72 KB gz, lazy client-side dynamic import); route Chinese source → offline Simplified→Traditional when target `zh-Hant` (no API, works offline/lockscreen); replace the single unofficial-Google call with a provider **cascade Azure → DeepL → Google** (advance on failure / rate-limit / echo via the existing `flags`/`complete` signal); CJK-source detection so JA kanji isn't mis-converted; existing test suite stays green. See [`notes/zh-hant-offline-conversion.md`](notes/zh-hant-offline-conversion.md). (completed 2026-07-11)
 
 **Plans:** 3 plans (2 waves)
 
 - [x] 25-01-PLAN.md — Lazy TongWenTang s2t converter module + CJK/kana `isChineseLine` predicate + unit tests; pinned tongwen deps behind a legitimacy checkpoint (D-01/D-03/D-04) [wave 1]
 - [x] 25-02-PLAN.md — `/api/translate` Azure → DeepL → Google provider cascade; optional edge-only provider keys in `Env`; server-side tests (D-05/D-06) [wave 1]
-- [ ] 25-03-PLAN.md — Wire the offline converter into `translateLinesEx` so `zh-Hant` Chinese lines convert offline and only non-Chinese lines hit the API; `CACHE_VER` bump; contract preserved (D-02/D-04) [wave 2, depends 25-01]
+- [x] 25-03-PLAN.md — Wire the offline converter into `translateLinesEx` so `zh-Hant` Chinese lines convert offline and only non-Chinese lines hit the API; `CACHE_VER` bump; contract preserved (D-02/D-04) [wave 2, depends 25-01]
 
 ## Progress
 
@@ -90,7 +90,7 @@ Full phase details archived in [`milestones/v1.2-ROADMAP.md`](milestones/v1.2-RO
 | 23. UX Audit & Homepage/Artist Polish | v1.2 | Complete | 2026-06-15 |
 | 24. Offline App-Shell & Sharing/SEO | v1.2 | Complete | 2026-06-15 |
 | 11–13. Last.fm Write-side | v1.3 | Planned | — |
-| 25. zh-Hant Offline Conversion + Fallback Cascade | 2/3 | In Progress|  |
+| 25. zh-Hant Offline Conversion + Fallback Cascade | 3/3 | Complete   | 2026-07-11 |
 
 ## Backlog
 

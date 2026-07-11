@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Resilient Playback & UX Polish` below). The Last.fm write-side
-status: executing
-stopped_at: Completed 25-02-PLAN.md
-last_updated: "2026-07-11T09:08:48.263Z"
+status: verifying
+stopped_at: Completed 25-03-PLAN.md
+last_updated: "2026-07-11T09:21:33.675Z"
 last_activity: 2026-07-11
 progress:
   total_phases: 18
-  completed_phases: 14
+  completed_phases: 15
   total_plans: 64
-  completed_plans: 57
-  percent: 78
+  completed_plans: 58
+  percent: 83
 ---
 
 # Project State
@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-06-10)
 
 Phase: 25 (zh-hant-offline-conversion-fallback-cascade) — EXECUTING
 Plan: 3 of 3
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-07-11
 
 ## Performance Metrics
@@ -72,6 +72,7 @@ Last activity: 2026-07-11
 | Phase 19 P03 | 5 min | 2 tasks | 7 files |
 | Phase 25 P01 | 9min | 3 tasks | 4 files |
 | Phase 25 P02 | 9min | 3 tasks | 3 files |
+| Phase 25 P03 | 5min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -121,6 +122,8 @@ Recent decisions affecting current work:
 - [Phase 25]: 25-01: Offline s2t converter is lazy (dynamic import() only, memoized) + never-throw identity fallback; s2t char+phrase dicts only, t2s empty to keep the lazy chunk ~72 KB (D-01/D-03/D-04)
 - [Phase ?]: D-05: /api/translate runs an ordered Azure -> DeepL -> Google provider cascade, advancing on transport error / non-2xx / rate-limit / echo — single free-Google endpoint rate-limited + silently echoed originals; cascade keeps translation working when one provider is down (25-02)
 - [Phase ?]: D-06: Azure/DeepL provider keys are OPTIONAL + edge-only in Env (parity with JOOX_TOKEN/LASTFM_*) — absent key skips that tier and the cascade falls through to keyless Google; keys never appear in response body or client bundle (25-02)
+- [Phase ?]: 25-03: zh-Hant offline routing intercepted in translateLinesEx choke point (D-02) — Chinese lines convert client-side (zero network), only non-Chinese remainder hits /api/translate; CACHE_VER v2->v3; ZERO caller changes
+- [Phase ?]: 25-03: blank lines are neither offline-converted nor API-sent (trivially complete) so all-Chinese lyrics with blank separators make ZERO network calls
 
 ### Pending Todos
 
@@ -266,7 +269,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-11T09:08:37.155Z
+Last session: 2026-07-11T09:21:01.519Z
 Stopped at: Completed 25-02-PLAN.md
 Resume: plan Phase 16 (`/gsd:plan-phase 16`). Phase 16 is the resilience-core dependency root; everything else builds on its `queueContext` / 2-state repeat / skip-loop guard.
 
