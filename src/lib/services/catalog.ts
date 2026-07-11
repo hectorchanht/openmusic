@@ -200,6 +200,19 @@ function interleave(perSource: SettledSourceResult[]): Track[] {
 }
 
 /**
+ * RESOLVE-02 (RED scaffold — implemented in the GREEN step): resolve a sourceless name-only stub
+ * (`{artist,title}`, the shape Plan 26-03's Up-Next emits) to a playable Track by walking the
+ * kuwo-first source order ONE source at a time — never an all-enabled `searchAll` fan-out.
+ */
+export async function resolveNameStub(
+	_artist: string,
+	_title: string,
+	_signal?: AbortSignal
+): Promise<Track | null> {
+	return null;
+}
+
+/**
  * Lazily resolve a track's audioUrl + lyrics through its source adapter.
  *
  * Dispatches via `SOURCES[track.source]` (registry, no source named — DATA-04) and

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
 	searchAll,
 	ensureTrackDetails,
+	resolveNameStub,
 	__clearSearchCache,
 	SEARCH_STAGGER_MS,
 	type PartialSearchResult
@@ -504,5 +505,157 @@ describe('ensureTrackDetails — cross-source lyric fallback (quick-260629-nyl)'
 		const out = await ensureTrackDetails(primary);
 		expect(out.audioUrl).toBe('https://cdn/kw.mp3');
 		expect(out.lrc).toBeNull();
+	});
+});
+
+// Phase 26 (RESOLVE-02, POLICY.md / spikes 001+002+004): a sourceless name-only stub (Plan 26-03's
+// Last.fm track.getSimilar Up-Next shape) resolves kuwo-FIRST through a SINGLE source at a time —
+// never a 7-source searchAll fan-out. It stops at the first source yielding a playable name-matching
+// candidate, never-throws, and honors AbortSignal.
+describe('resolveNameStub — kuwo-first single-source name resolution (RESOLVE-02)', () => {
+	// Stub EVERY registered source's search so an unexpected walk step never hits the network.
+	function stubAllEmpty() {
+		for (const id of Object.keys(SOURCES) as SourceId[]) {
+			vi.spyOn(SOURCES[id], 'search').mockResolvedValue([]);
+		}
+	}
+
+	it('happy path: searches kuwo ONLY and returns a real playable Track', async () => {
+		stubAllEmpty();
+		const kuwoCand = mk('kuwo', 'k1', 1, { artist: 'Jay', title: 'Blue' });
+		const kuwoSearch = vi.spyOn(SOURCES.kuwo, 'search').mockResolvedValue([kuwoCand]);
+		// kuwo resolves playable WITH an lrc so the cross-source lyric fallback never fires (which
+		// would otherwise search other sources and defeat the "kuwo only" assertion).
+		vi.spyOn(SOURCES.kuwo, 'resolve').mockResolvedValue({
+			...kuwoCand,
+			detailsLoaded: true,
+			audioUrl: 'https://cdn/kw.mp3',
+			lrc: '[00:01]x'
+		});
+
+		const out = await resolveNameStub('Jay', 'Blue');
+
+		expect(out?.uid).toBe('kuwo:k1');
+		expect(out?.source).toBe('kuwo');
+		expect(out?.audioUrl).toBe('https://cdn/kw.mp3');
+		// SINGLE-SOURCE + stop-at-first-hit: kuwo searched exactly once; qq/netease never touched.
+		expect(kuwoSearch).toHaveBeenCalledOnce();
+		expect(SOURCES.qq.search).not.toHaveBeenCalled();
+		expect(SOURCES.netease.search).not.toHaveBeenCalled();
+	});
+
+	it('advances to qq (single-source) when kuwo misses', async () => {
+		stubAllEmpty();
+		vi.spyOn(SOURCES.kuwo, 'search').mockResolvedValue([]); // kuwo dry
+		const qqCand = mk('qq', 'q1', 1, { artist: 'Jay', title: 'Blue' });
+		const qqSearch = vi.spyOn(SOURCES.qq, 'search').mockResolvedValue([qqCand]);
+		vi.spyOn(SOURCES.qq, 'resolve').mockResolvedValue({
+			...qqCand,
+			detailsLoaded: true,
+			audioUrl: 'https://cdn/qq.flac',
+			lrc: '[00:01]x'
+		});
+
+		const out = await resolveNameStub('Jay', 'Blue');
+
+		expect(out?.uid).toBe('qq:q1');
+		expect(qqSearch).toHaveBeenCalledOnce();
+		// netease is AFTER qq in the kuwo-first order → never reached once qq hits.
+		expect(SOURCES.netease.search).not.toHaveBeenCalled();
+	});
+
+	it('returns null (never throws) when every source misses', async () => {
+		stubAllEmpty();
+		const out = await resolveNameStub('Nobody', 'Nothing');
+		expect(out).toBeNull();
+	});
+
+	it('returns null when the signal is already aborted (no search issued)', async () => {
+		stubAllEmpty();
+		const ac = new AbortController();
+		ac.abort();
+		const out = await resolveNameStub('Jay', 'Blue', ac.signal);
+		expect(out).toBeNull();
+		expect(SOURCES.kuwo.search).not.toHaveBeenCalled();
+	});
+
+	it('does NOT adopt an UNRELATED (different-song) candidate — sameSongKey gate (WR-06)', async () => {
+		stubAllEmpty();
+		// kuwo returns a totally different song → must be rejected, walk continues, ends null.
+		const wrong = mk('kuwo', 'w', 1, { artist: 'Other', title: 'Different', audioUrl: 'https://cdn/x.mp3' });
+		vi.spyOn(SOURCES.kuwo, 'search').mockResolvedValue([wrong]);
+		const kuwoResolve = vi.spyOn(SOURCES.kuwo, 'resolve');
+
+		const out = await resolveNameStub('Jay', 'Blue');
+		expect(out).toBeNull();
+		expect(kuwoResolve).not.toHaveBeenCalled(); // never even resolved the mismatch
+	});
+});
+
+// Phase 26 (RESOLVE-02): ensureTrackDetails routes a marked name-stub through resolveNameStub and
+// returns the resolved REAL Track (new source + uid); a normal source-bearing track path is unchanged.
+describe('ensureTrackDetails — name-stub routing (RESOLVE-02)', () => {
+	it('routes a resolveByName stub through the kuwo-first resolver', async () => {
+		for (const id of Object.keys(SOURCES) as SourceId[]) {
+			vi.spyOn(SOURCES[id], 'search').mockResolvedValue([]);
+		}
+		const kuwoCand = mk('kuwo', 'k1', 1, { artist: 'Jay', title: 'Blue' });
+		vi.spyOn(SOURCES.kuwo, 'search').mockResolvedValue([kuwoCand]);
+		vi.spyOn(SOURCES.kuwo, 'resolve').mockResolvedValue({
+			...kuwoCand,
+			detailsLoaded: true,
+			audioUrl: 'https://cdn/kw.mp3',
+			lrc: '[00:01]x'
+		});
+
+		// Sourceless name-only stub: placeholder source, no songid, resolveByName marker set.
+		const stub = mk('kuwo', '', 1, {
+			resolveByName: true,
+			detailsLoaded: false,
+			artist: 'Jay',
+			title: 'Blue'
+		});
+
+		const out = await ensureTrackDetails(stub);
+		expect(out.uid).toBe('kuwo:k1');
+		expect(out.source).toBe('kuwo');
+		expect(out.audioUrl).toBe('https://cdn/kw.mp3');
+		// Proves the name-resolver path (which SEARCHES) ran — not a direct SOURCES[source].resolve
+		// dispatch on the placeholder stub (which would issue no search).
+		expect(SOURCES.kuwo.search).toHaveBeenCalledOnce();
+	});
+});
+
+// Phase 26 (RESOLVE-02): crossSourceLyric is bounded to a SINGLE-source lyric lookup (kuwo-first
+// walk, skip own source + LYRICLESS_SOURCES), never the old all-enabled searchAll fan-out.
+describe('ensureTrackDetails — crossSourceLyric is single-source (RESOLVE-02)', () => {
+	it('fills lrc via a SINGLE-source lookup and never fans out to all sources', async () => {
+		// Primary joox resolves playable but lyric-less (joox IS lyric-capable → fallback fires).
+		const primary = mk('joox', 'j1', 1, { artist: 'Jay', title: 'Rain' });
+		vi.spyOn(SOURCES.joox, 'resolve').mockResolvedValue({
+			...primary,
+			detailsLoaded: true,
+			audioUrl: 'https://cdn/joox.mp3',
+			lrc: null
+		});
+		// kuwo is FIRST in the walk (joox is the own source → skipped) and yields a matching candidate.
+		const kuwoCand = mk('kuwo', 'k9', 1, { artist: 'Jay', title: 'Rain' });
+		const kuwoSearch = vi.spyOn(SOURCES.kuwo, 'search').mockResolvedValue([kuwoCand]);
+		const qqSearch = vi.spyOn(SOURCES.qq, 'search').mockResolvedValue([]);
+		const neSearch = vi.spyOn(SOURCES.netease, 'search').mockResolvedValue([]);
+		const kuwoResolve = vi
+			.spyOn(SOURCES.kuwo, 'resolve')
+			.mockResolvedValue({ ...kuwoCand, detailsLoaded: true, audioUrl: 'https://cdn/kw.mp3', lrc: '[00:02]cross' });
+
+		const out = await ensureTrackDetails(primary);
+
+		expect(out.audioUrl).toBe('https://cdn/joox.mp3'); // primary audio preserved
+		expect(out.lrc).toBe('[00:02]cross'); // lyric copied from the single-source candidate
+		// SINGLE-source, stop-at-first: kuwo searched once; qq/netease never searched (no fan-out).
+		expect(kuwoSearch).toHaveBeenCalledOnce();
+		expect(qqSearch).not.toHaveBeenCalled();
+		expect(neSearch).not.toHaveBeenCalled();
+		// bounded: at most ONE candidate resolved.
+		expect(kuwoResolve).toHaveBeenCalledOnce();
 	});
 });

@@ -66,6 +66,14 @@ export interface Track {
 	bio?: string; // English bio snippet, HTML-stripped (D-07)
 	bioUrl?: string; // Last.fm attribution link, REQUIRED when bio shown (D-08)
 	lastfmArt?: string; // hi-res cover candidate, placeholder-filtered (D-04)
+
+	// --- Phase 26 lazy name-stub marker (RESOLVE-02), additive/optional ---
+	/** A sourceless / songid-less name-only stub (the shape Plan 26-03's Last.fm `track.getSimilar`
+	 *  Up-Next emits). When true, `ensureTrackDetails` resolves it kuwo-first through ONE source at a
+	 *  time via `resolveNameStub` (never a fan-out) instead of dispatching to `SOURCES[source].resolve`.
+	 *  Additive/optional so no existing construction or serialize path changes (mirrors the Last.fm
+	 *  fields above). `source`/`songid` on such a stub are placeholders, never dispatched. */
+	resolveByName?: boolean;
 }
 
 export interface SourceAdapter {
