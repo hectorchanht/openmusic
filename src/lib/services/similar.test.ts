@@ -40,7 +40,7 @@ function jsonResponse(body: unknown) {
 	});
 }
 
-type Pair = { artist: string; title: string; match: number };
+type Pair = { artist: string; title: string; match: number; image?: string };
 
 /**
  * Route-aware fetch stub for the CLIENT apiFetch seam. Answers the two Last.fm routes
@@ -219,6 +219,42 @@ describe('buildSimilarQueue — dry fallback resolves SINGLE-source (never all-e
 		const out = await buildSimilarQueue(seed);
 		expect(out.map((t) => t.uid)).toContain(sameArtist.uid);
 		expect(out.map((t) => t.uid)).not.toContain(seed.uid);
+	});
+});
+
+// Gap 3 (Phase 26-07 gap-closure): the up-next name stub carries the Last.fm per-track image as its
+// `cover` so the Up-Next tile can paint WITHOUT a per-song Deezer→iTunes→CN cover chain. A pair with
+// no image (or a non-https value) keeps today's cover:null behavior (a coverless similar).
+describe('buildSimilarQueue — up-next stubs seeded with the Last.fm image cover (Gap 3)', () => {
+	it('seeds a stub cover from a SOLID https Last.fm image', async () => {
+		const seed = mk('kuwo', 'seed', 'Adele', { title: 'Hello' });
+		stubRoutes({
+			tracks: [
+				{ artist: 'Sia', title: 'Chandelier', match: 0.9, image: 'https://lastfm.example/extralarge.png' }
+			]
+		});
+		const out = await buildSimilarQueue(seed);
+		expect(out[0].cover).toBe('https://lastfm.example/extralarge.png');
+		// the stub is still a lazy resolveByName name stub — only the cover is pre-seeded.
+		expect(out[0].resolveByName).toBe(true);
+		expect(out[0].detailsLoaded).toBe(false);
+		expect(out[0].audioUrl).toBeNull();
+	});
+
+	it('leaves cover:null when the pair carries no image', async () => {
+		const seed = mk('kuwo', 'seed', 'Adele', { title: 'Hello' });
+		stubRoutes({ tracks: [{ artist: 'Sia', title: 'Chandelier', match: 0.9 }] });
+		const out = await buildSimilarQueue(seed);
+		expect(out[0].cover).toBeNull();
+	});
+
+	it('leaves cover:null for a non-https image value (client-side https guard)', async () => {
+		const seed = mk('kuwo', 'seed', 'Adele', { title: 'Hello' });
+		stubRoutes({
+			tracks: [{ artist: 'Sia', title: 'Chandelier', match: 0.9, image: 'http://insecure.example/x.png' }]
+		});
+		const out = await buildSimilarQueue(seed);
+		expect(out[0].cover).toBeNull();
 	});
 });
 

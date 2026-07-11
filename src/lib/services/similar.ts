@@ -68,9 +68,13 @@ async function fetchSimilarTracks(artist: string, title: string): Promise<Track[
 			const res = await apiFetch(
 				`/api/lastfm/similar-tracks?artist=${encodeURIComponent(a)}&track=${encodeURIComponent(t)}&limit=${SIMILAR_TRACK_LIMIT}`
 			);
-			const data = (await res.json()) as { tracks?: { artist?: string; title?: string; match?: number }[] };
+			const data = (await res.json()) as {
+				tracks?: { artist?: string; title?: string; match?: number; image?: string }[];
+			};
 			return (data?.tracks ?? [])
-				.map((p) => nameStub((p.artist ?? '').trim(), (p.title ?? '').trim()))
+				// Gap 3 (26-07): thread the endpoint's per-track https image into the stub cover so the
+				// Up-Next tile paints without a per-song Deezer→iTunes→CN chain (nameStub https-guards it).
+				.map((p) => nameStub((p.artist ?? '').trim(), (p.title ?? '').trim(), p.image))
 				.filter((s): s is Track => s !== null);
 		} catch {
 			return [];
@@ -102,17 +106,27 @@ function onlyPrimarySource(): Partial<Record<SourceId, boolean>> {
 	return prefs;
 }
 
+/** A SOLID cover is a non-empty https string (mirrors player.svelte.ts `httpsOnly` / share.ts
+ * `isHttpsUrl`; kept inline so similar.ts stays a PURE, node-testable .ts with no store import). */
+function isHttps(url: string | null | undefined): url is string {
+	return typeof url === 'string' && url.startsWith('https:');
+}
+
 /**
  * Build a lazy name-only stub Track from an exact {artist, title} pair (Plan 26-01's shape).
  * Carries the exact artist/title/keyword, `resolveByName: true` (so ensureTrackDetails resolves
- * it kuwo-first via resolveNameStub — never a per-item searchAll at build time), no cover / audio
- * / lrc yet, and a STABLE synthetic uid derived from the normalized artist+title (matchKey). The
- * uid is COLON form (D-10) over a `similar-`-prefixed synthetic songid so it never collides with a
- * real numeric source songid, and same-song pairs collapse to one identity (dedupe/exclude work).
+ * it kuwo-first via resolveNameStub — never a per-item searchAll at build time), no audio / lrc
+ * yet, and a STABLE synthetic uid derived from the normalized artist+title (matchKey). The uid is
+ * COLON form (D-10) over a `similar-`-prefixed synthetic songid so it never collides with a real
+ * numeric source songid, and same-song pairs collapse to one identity (dedupe/exclude work).
  * The `source` is a never-dispatched placeholder (see primarySourceId). Returns null for a
  * blank/incomplete pair so it is dropped.
+ *
+ * Gap 3 (26-07): `image` is the OPTIONAL Last.fm per-track cover from the endpoint. When it is a
+ * SOLID https URL it seeds `cover` so the Up-Next tile paints without a per-song cover chain; a
+ * missing / non-https value keeps cover:null (today's coverless-similar behavior, T-26-07-01).
  */
-function nameStub(artist: string, title: string): Track | null {
+function nameStub(artist: string, title: string, image?: string | null): Track | null {
 	if (!artist || !title) return null;
 	const key = matchKey(artist, title); // `${norm(artist)}|${norm(title)}`, artist-first
 	if (!key || key === '|') return null;
@@ -125,7 +139,7 @@ function nameStub(artist: string, title: string): Track | null {
 		title,
 		artist,
 		album: '',
-		cover: null,
+		cover: isHttps(image) ? image : null, // Gap 3: seed the Last.fm https cover, else coverless
 		audioUrl: null,
 		lrc: null,
 		lrcUrl: null,
