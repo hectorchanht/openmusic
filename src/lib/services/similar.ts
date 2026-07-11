@@ -147,13 +147,19 @@ function nameStub(artist: string, title: string): Track | null {
  * (kuwo-first) → dedupeBest → drop seed + excludeUids. Last resort: single-source same-artist
  * search (Related-tab behavior). NEVER an all-enabled 8-source fan-out on any path.
  *
- * Signature + never-throw/best-effort contract are unchanged so the player callers
+ * Signature + never-throw/best-effort contract are backward-compatible so the player callers
  * (regenerate, ensureAhead) are untouched — the play() queue-swap already adopts a resolved
- * track's real uid via indexOf on resolve, so a synthetic→real uid change survives.
+ * track's real uid via indexOf on resolve, so a synthetic→real uid change survives. The trailing
+ * `report` param is OPTIONAL and additive (plan 26-09 opts in to log the up-next source).
+ *
+ * `report(via)` fires once on the terminal path: 'similar' (primary track.getSimilar produced
+ * results), 'artist' (similar-artists fallback produced results), 'lastresort' (same-artist
+ * search produced results), 'empty' (every path dry → []).
  */
 export async function buildSimilarQueue(
 	track: Track,
-	excludeUids: Set<string> = new Set()
+	excludeUids: Set<string> = new Set(),
+	report?: (via: 'similar' | 'artist' | 'lastresort' | 'empty') => void
 ): Promise<Track[]> {
 	// PRIMARY: the seed is a REAL track (real uid), while stubs carry SYNTHETIC uids — so the seed
 	// cannot be dropped by uid. Drop it by normalized song identity instead; drop stubs by synthetic
@@ -173,7 +179,15 @@ export async function buildSimilarQueue(
 			seen.add(s.uid);
 			out.push(s);
 		}
-		return out; // already match-descending from the route
+		// CR-01 (26-REVIEW): gate on the POST-filter `out.length`, NOT the pre-filter `stubs.length`.
+		// A thin/collision-heavy response whose every pair is the seed or already in excludeUids used
+		// to `return out` (== []) here, leaving the working artist.getSimilar fallback below unused —
+		// a silent empty Up-Next. Only short-circuit when the primary ACTUALLY produced candidates.
+		if (out.length) {
+			report?.('similar');
+			return out; // already match-descending from the route
+		}
+		// else: primary was fully filtered → fall through to the artist.getSimilar fallback.
 	}
 
 	// FALLBACK: same/similar-artist resolution, SINGLE-source (kuwo-first) — never the fan-out.
@@ -191,14 +205,29 @@ export async function buildSimilarQueue(
 			const top = r.value.interleaved[0];
 			if (top) tops.push(top);
 		}
-		return dedupeBest(tops, settings.preferredSource).filter(keep);
+		// Mirror the CR-01 post-filter discipline: only short-circuit when similar-artists produced
+		// a USABLE result; an empty artist result falls through to the same-artist last resort so
+		// 'empty' genuinely means "every path dry" (never a premature empty return).
+		const artistOut = dedupeBest(tops, settings.preferredSource).filter(keep);
+		if (artistOut.length) {
+			report?.('artist');
+			return artistOut;
+		}
 	}
 
 	// Last resort: single-source same-artist search (Related-tab behavior).
 	try {
 		const r = await searchAll(track.artist, 1, prefs);
-		return dedupeBest(r.interleaved, settings.preferredSource).filter(keep).slice(0, FALLBACK_LIMIT);
+		const lastOut = dedupeBest(r.interleaved, settings.preferredSource)
+			.filter(keep)
+			.slice(0, FALLBACK_LIMIT);
+		if (lastOut.length) {
+			report?.('lastresort');
+			return lastOut;
+		}
 	} catch {
-		return [];
+		/* never-throw — fall through to the empty terminal below */
 	}
+	report?.('empty');
+	return [];
 }

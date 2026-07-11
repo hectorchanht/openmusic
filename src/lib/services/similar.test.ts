@@ -222,6 +222,65 @@ describe('buildSimilarQueue — dry fallback resolves SINGLE-source (never all-e
 	});
 });
 
+// CR-01 (Phase 26-07 gap-closure): the PRIMARY track.getSimilar gate must key on the POST-filter
+// `out.length`, not the pre-filter `stubs.length`. A thin response whose every pair is the seed or
+// already in excludeUids used to return a silent EMPTY Up-Next with a working fallback sitting
+// unused. Also: buildSimilarQueue now reports WHICH path formed the queue via an additive callback.
+describe('buildSimilarQueue — CR-01 post-filter fallback gate + report(via) callback', () => {
+	it('CR-01: a primary fully filtered to empty (only stub is in excludeUids) REACHES the artist fallback (not [])', async () => {
+		const seed = mk('kuwo', 'seed', 'Adele', { title: 'Hello' });
+		// exactly ONE similar pair — excluded below so the primary `out` filters to empty.
+		stubRoutes({ tracks: [{ artist: 'Sia', title: 'Chandelier', match: 0.9 }], artists: ['林俊杰'] });
+		const fresh = mk('kuwo', 'fresh', '林俊杰');
+
+		// learn the lone stub's stable synthetic uid, then exclude it.
+		const seeded = await buildSimilarQueue(seed);
+		const onlyUid = seeded[0].uid;
+
+		const searchSpy = vi
+			.spyOn(catalog, 'searchAll')
+			.mockImplementation(async (kw: string) => (kw === '林俊杰' ? result(fresh) : result(null)));
+
+		const out = await buildSimilarQueue(seed, new Set([onlyUid]));
+		// PRE-FIX (gate on stubs.length): returned [] and NEVER called searchAll.
+		// POST-FIX (gate on out.length): falls through to the artist.getSimilar fallback.
+		expect(searchSpy).toHaveBeenCalled();
+		expect(out.map((t) => t.uid)).toContain(fresh.uid);
+	});
+
+	it("report emits 'similar' on a healthy primary", async () => {
+		stubRoutes({ tracks: [{ artist: 'Sia', title: 'Chandelier', match: 0.9 }] });
+		const seed = mk('kuwo', 'seed', 'Adele', { title: 'Hello' });
+		const report = vi.fn();
+		const out = await buildSimilarQueue(seed, new Set(), report);
+		expect(out.length).toBeGreaterThan(0);
+		expect(report).toHaveBeenCalledWith('similar');
+	});
+
+	it("report emits 'artist' when the primary is dry and similar-artists resolve", async () => {
+		stubRoutes({ tracks: [], artists: ['林俊杰'] });
+		const seed = mk('kuwo', 'seed', '周杰伦', { title: '稻香' });
+		const fresh = mk('kuwo', 'fresh', '林俊杰');
+		vi.spyOn(catalog, 'searchAll').mockImplementation(async (kw: string) =>
+			kw === '林俊杰' ? result(fresh) : result(null)
+		);
+		const report = vi.fn();
+		const out = await buildSimilarQueue(seed, new Set(), report);
+		expect(out.map((t) => t.uid)).toContain(fresh.uid);
+		expect(report).toHaveBeenCalledWith('artist');
+	});
+
+	it("report emits 'empty' on a total miss (all paths dry → [])", async () => {
+		stubRoutes({ tracks: [], artists: [] });
+		const seed = mk('kuwo', 'seed', '周杰伦', { title: '稻香' });
+		vi.spyOn(catalog, 'searchAll').mockImplementation(async () => result(null));
+		const report = vi.fn();
+		const out = await buildSimilarQueue(seed, new Set(), report);
+		expect(out).toEqual([]);
+		expect(report).toHaveBeenCalledWith('empty');
+	});
+});
+
 // Call-cost proof (Phase 26, UPNEXT-01 — mirrors the spike-003 audit method against the
 // mocked seams). Proves the 56-call `8 artists × 7 sources` block is GONE: the up-next BUILD
 // path is a single /api/* call (the track.getSimilar call) with 0 all-enabled searchAll fan-outs.
