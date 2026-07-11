@@ -586,7 +586,7 @@
 			<li class="swipe-wrap">
 				<!-- UX-04 reveal layers behind the row; the row translateX (use:swipeAction) exposes them. -->
 				<span class="reveal reveal-queue" aria-hidden="true"><ListEnd size={20} /></span>
-				<span class="reveal reveal-like" aria-hidden="true"><Heart size={20} fill="none" /></span>
+				<span class="reveal reveal-next" aria-hidden="true"><ListStart size={20} /></span>
 				<button class="row" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openMenu(track); }} onclick={() => playStub(track)} use:swipeAction={{ onSwipeRight: () => swipeQueue(track), onSwipeLeft: () => swipeNext(track) }}>
 					<span class="rank">{i + 1}</span>
 					<span class="art" style:background-image={heroImg ? `url(${heroImg})` : fallbackCover(track.artist + track.title)}></span>
@@ -655,7 +655,7 @@
 		justify-content: center; color: #fff; pointer-events: none;
 	}
 	.reveal-queue { left: 0; color: var(--color-text-muted); }
-	.reveal-like { right: 0; color: var(--color-text-muted); }
+	.reveal-next { right: 0; color: var(--color-text-muted); }
 	.row { width: 100%; text-align: left; background: var(--color-bg); position: relative; z-index: 1; border: none; padding: 6px; border-radius: 8px; cursor: pointer; display: flex; align-items: center; gap: 12px; color: var(--color-text); }
 	/* MENU-03 / D-12: hover-capable devices only — touch otherwise latches this :hover
 	   background on a row under a held finger while the track menu opens. */
