@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
 	recordQuery,
+	removeQuery,
 	parseSearchHistory,
 	SEARCH_HISTORY_CAP,
 	SEARCH_HISTORY_KEY,
@@ -51,6 +52,37 @@ describe('recordQuery (D-05)', () => {
 	it('trims the stored query but preserves its display casing', () => {
 		const list = recordQuery([], '  Jay Chou  ');
 		expect(list[0].query).toBe('Jay Chou');
+	});
+});
+
+describe('removeQuery (quick-260711-sm7 — per-keyword bin)', () => {
+	it('removes the matching entry case-insensitively', () => {
+		const list: SearchHistoryEntry[] = [
+			{ query: 'Jay', ts: 2 },
+			{ query: 'eason', ts: 1 }
+		];
+		expect(removeQuery(list, 'JAY ').map((e) => e.query)).toEqual(['eason']);
+	});
+
+	it('returns the list unchanged for an empty / whitespace query', () => {
+		const start: SearchHistoryEntry[] = [{ query: 'jay', ts: 1 }];
+		expect(removeQuery(start, '')).toBe(start);
+		expect(removeQuery(start, '   ')).toBe(start);
+	});
+
+	it('is a no-op when nothing matches (new list, same contents)', () => {
+		const start: SearchHistoryEntry[] = [{ query: 'jay', ts: 1 }];
+		expect(removeQuery(start, 'nope')).toEqual(start);
+	});
+
+	it('never mutates the input list', () => {
+		const input: SearchHistoryEntry[] = [
+			{ query: 'jay', ts: 1 },
+			{ query: 'eason', ts: 2 }
+		];
+		const snapshot = JSON.parse(JSON.stringify(input));
+		removeQuery(input, 'jay');
+		expect(input).toEqual(snapshot);
 	});
 });
 

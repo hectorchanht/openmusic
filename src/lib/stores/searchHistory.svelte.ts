@@ -11,6 +11,7 @@ import {
 	SEARCH_HISTORY_KEY,
 	parseSearchHistory,
 	recordQuery,
+	removeQuery,
 	type SearchHistoryEntry
 } from '$lib/search/search-history-logic';
 
@@ -33,6 +34,12 @@ class SearchHistory {
 	/** Record a submitted query: prepend (case-insensitive de-dupe → top), cap, persist. */
 	add(query: string) {
 		this.entries = recordQuery(this.entries, query);
+		this.save();
+	}
+
+	/** Remove a single past query (case-insensitive) — the per-keyword bin action. */
+	remove(query: string) {
+		this.entries = removeQuery(this.entries, query);
 		this.save();
 	}
 

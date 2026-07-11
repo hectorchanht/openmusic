@@ -41,6 +41,17 @@ export function recordQuery(
 }
 
 /**
+ * Return a NEW list with any entry whose query matches `query` case-insensitively
+ * removed (per-entry delete for the recent-searches bin). A whitespace-only `query`
+ * returns `list` unchanged. Never mutates `list` — mirrors recordQuery's contract.
+ */
+export function removeQuery(list: SearchHistoryEntry[], query: string): SearchHistoryEntry[] {
+	const norm = query.trim().toLowerCase();
+	if (!norm) return list; // nothing to match
+	return list.filter((e) => e.query.toLowerCase() !== norm);
+}
+
+/**
  * Parse a persisted search-history blob. Returns [] on null / parse error / non-array
  * (T-14-03 tampering: a corrupt store must never crash the app — mirrors parseHistory).
  */

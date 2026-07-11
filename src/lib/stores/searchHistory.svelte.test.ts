@@ -31,6 +31,14 @@ describe('searchHistory store (D-05)', () => {
 		expect(searchHistory.entries).toEqual([]);
 	});
 
+	it('remove() drops a single entry case-insensitively (quick-260711-sm7)', () => {
+		searchHistory.add('jay');
+		searchHistory.add('eason');
+		searchHistory.add('leehom');
+		searchHistory.remove('EASON'); // case-insensitive match
+		expect(searchHistory.entries.map((e) => e.query)).toEqual(['leehom', 'jay']);
+	});
+
 	it('SSR guard: under !browser, save() writes nothing to localStorage and does not throw', () => {
 		// `globalThis.localStorage` is absent in the node project; if save() were not
 		// browser-guarded, add() would throw a ReferenceError. It does not.
