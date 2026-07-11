@@ -1,4 +1,7 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync, readdirSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 // Import ONLY the PURE exports — NOT `t` (it reads `$state` via settings, which the
 // node Vitest project can't compile). These helpers are fully deterministic.
 import { lookupKey, interpolate, detectAppLang, dicts } from './index';
@@ -67,6 +70,41 @@ describe('dictionaries', () => {
 			}
 		}
 	});
+});
+
+describe('quote-style convention (IN-01)', () => {
+	// CLAUDE.md mandates DOUBLE quotes for every key AND value in src/lib/i18n/*.ts (a
+	// manual, formatter-less convention — no tool enforces it). This test makes the
+	// convention self-enforcing: any object-entry line whose KEY or VALUE opens with a
+	// single quote fails CI. The regex only inspects entry lines (indent → quoted key →
+	// `:` → quoted value), so apostrophes INSIDE double-quoted values (e.g. "l'artiste")
+	// never false-positive, and comment / brace / blank lines are ignored.
+	const I18N_DIR = dirname(fileURLToPath(import.meta.url));
+	const localeFiles = readdirSync(I18N_DIR).filter(
+		(f) => f.endsWith('.ts') && f !== 'index.ts' && !f.endsWith('.test.ts')
+	);
+	// Capture the KEY delimiter (group 1) and the VALUE delimiter (group 2). Keys are
+	// dotted identifiers with no embedded quotes, so [^'"]* is a safe key body.
+	const ENTRY = /^\s*(['"])[^'"]*\1\s*:\s*(['"])/;
+
+	it('discovers every locale source file (>= 15 dicts)', () => {
+		expect(localeFiles.length).toBeGreaterThanOrEqual(15);
+	});
+
+	for (const file of localeFiles) {
+		it(`${file} uses double quotes for every key AND value`, () => {
+			const src = readFileSync(join(I18N_DIR, file), 'utf-8');
+			const offenders = src
+				.split('\n')
+				.map((line, i) => ({ line, n: i + 1 }))
+				.filter(({ line }) => {
+					const m = ENTRY.exec(line);
+					return m !== null && (m[1] === "'" || m[2] === "'");
+				})
+				.map(({ n }) => n);
+			expect(offenders, `${file} has single-quoted key/value line(s) at: ${offenders.join(', ')}`).toEqual([]);
+		});
+	}
 });
 
 describe('detectAppLang', () => {
