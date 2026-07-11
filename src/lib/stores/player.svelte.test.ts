@@ -50,6 +50,13 @@ vi.mock('$lib/stores/cover-version.svelte', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('$lib/stores/cover-version.svelte')>();
 	return { ...actual, removeCoverBoth: vi.fn(actual.removeCoverBoth) };
 });
+// 26-09 (Gap 2): spy on logAction so regenerate()'s `upnext.source` formation-source event is
+// observable. importOriginal keeps the real actionLog singleton + throttled persist for every OTHER
+// call site (play/ended/stall/…); we only WRAP logAction (call-through) so it still records calls.
+vi.mock('$lib/stores/actionLog.svelte', async (importOriginal) => {
+	const actual = await importOriginal<typeof import('$lib/stores/actionLog.svelte')>();
+	return { ...actual, logAction: vi.fn(actual.logAction) };
+});
 
 const memStore = new Map<string, string>();
 const localStorageMock: Storage = {
@@ -77,6 +84,7 @@ import { buildDiversePicks } from '$lib/services/picks';
 import { getCachedCoverByUid, getCachedCover } from '$lib/services/cover-cache';
 import { resolveCoverForTrack } from '$lib/services/cover-backfill';
 import { removeCoverBoth } from '$lib/stores/cover-version.svelte';
+import { logAction } from '$lib/stores/actionLog.svelte';
 
 const mockResolve = vi.mocked(resolveStub);
 const mockEnsure = vi.mocked(ensureTrackDetails);
@@ -88,6 +96,7 @@ const mockUidCover = vi.mocked(getCachedCoverByUid);
 const mockNameCover = vi.mocked(getCachedCover);
 const mockResolveCover = vi.mocked(resolveCoverForTrack);
 const mockRemoveCoverBoth = vi.mocked(removeCoverBoth);
+const mockLogAction = vi.mocked(logAction);
 
 function mk(source: SourceId, songid: string, artist: string, title: string): Track {
 	return {
@@ -868,6 +877,115 @@ describe('player.prefetchNext — pre-resolve next track for gapless-ish play', 
 		el.fire('timeupdate');
 		await flush();
 		expect(mockEnsure).toHaveBeenCalledTimes(1);
+	});
+});
+
+// 26-09 (Gap 2 — UPNEXT-01): regenerate() runs on EVERY fresh click-to-play in the default
+// 'generated' up-next mode. Before this plan it installed whatever buildSimilarQueue returned —
+// including [] — with no safety net (unlike ensureAhead, which falls back to buildDiversePicks).
+// These tests prove: (1) a non-empty similar result installs + logs its reported `via`, no diverse
+// call; (2) an empty similar result triggers the buildDiversePicks safety net + logs via:'diverse';
+// (3+4) the WR-06 queueGen guard discards a stale regenerate across BOTH awaits (buildSimilarQueue
+// AND the new buildDiversePicks) so a superseding setQueue() is never clobbered.
+describe('player.regenerate — never-empty safety net + upnext.source log (26-09, Gap 2)', () => {
+	const regenerate = (seed: Track) =>
+		(player as unknown as { regenerate(seed: Track): Promise<void> })['regenerate'](seed);
+
+	it('non-empty similar → installs the tail, logs upnext.source with the reported via, no buildDiversePicks', async () => {
+		const seed = mk('netease', '0', 'Adele', 'Hello');
+		const similarPick = mk('qq', 'S', 'Someone', 'Like You');
+		player.queue = [seed];
+		player.current = seed;
+		// buildSimilarQueue reports its terminal path (26-07 report callback) then returns a tail.
+		mockSimilar
+			.mockReset()
+			.mockImplementation(async (_t, _ex, report) => {
+				report?.('similar');
+				return [similarPick];
+			});
+		mockPicks.mockReset();
+		mockLogAction.mockClear();
+
+		await regenerate(seed);
+		await flush();
+
+		// Primary produced candidates → the diverse safety net is NOT reached.
+		expect(mockPicks).not.toHaveBeenCalled();
+		expect(player.queue.map((t) => t.uid)).toEqual([seed.uid, similarPick.uid]);
+		// The formation source is logged with the via buildSimilarQueue reported + the tail count.
+		expect(mockLogAction).toHaveBeenCalledWith('upnext.source', { via: 'similar', count: 1 });
+	});
+
+	it('empty similar → buildDiversePicks safety net installs a non-empty tail, logs upnext.source {via:diverse}', async () => {
+		const seed = mk('netease', '0', 'Obscure', 'Bootleg');
+		const diversePick = mk('kuwo', 'D', 'Diverse', 'Random');
+		player.queue = [seed];
+		player.current = seed;
+		mockSimilar
+			.mockReset()
+			.mockImplementation(async (_t, _ex, report) => {
+				report?.('empty');
+				return [];
+			});
+		mockPicks.mockReset().mockResolvedValue([diversePick]);
+		mockLogAction.mockClear();
+
+		await regenerate(seed);
+		await flush();
+
+		// The empty primary triggered the ensureAhead-style safety net — Up-Next is NOT left empty.
+		expect(mockPicks).toHaveBeenCalledTimes(1);
+		expect(mockPicks).toHaveBeenCalledWith(8, expect.any(Set));
+		expect(player.queue.map((t) => t.uid)).toEqual([seed.uid, diversePick.uid]);
+		expect(mockLogAction).toHaveBeenCalledWith('upnext.source', { via: 'diverse', count: 1 });
+	});
+
+	it('WR-06: a setQueue() during the buildSimilarQueue await discards the stale regenerate', async () => {
+		const seed = mk('netease', '0', 'A', 'Seed');
+		player.queue = [seed];
+		player.current = seed;
+		const d = deferred<Track[]>();
+		mockSimilar.mockReset().mockReturnValue(d.promise); // park on the FIRST await
+		mockPicks.mockReset();
+
+		const p = regenerate(seed);
+		// An explicit list lands while buildSimilarQueue is still in flight (bumps queueGen).
+		const explicit = [mk('qq', 'X', 'Exp', 'Explicit'), mk('kuwo', 'Y', 'Exp2', 'Explicit2')];
+		player.setQueue(explicit);
+		d.resolve([mk('kuwo', 'S', 'Sim', 'Pick')]); // a non-empty (but STALE) result resolves
+		await p;
+		await flush();
+
+		// The stale regenerate returned at the WR-06 guard — the explicit queue is preserved intact,
+		// and the diverse safety net was never reached (tail was non-empty before the guard).
+		expect(player.queue.map((t) => t.uid)).toEqual(explicit.map((t) => t.uid));
+		expect(mockPicks).not.toHaveBeenCalled();
+	});
+
+	it('WR-06: a setQueue() during the buildDiversePicks safety-net await discards the stale regenerate', async () => {
+		const seed = mk('netease', '0', 'A', 'Seed');
+		player.queue = [seed];
+		player.current = seed;
+		mockSimilar
+			.mockReset()
+			.mockImplementation(async (_t, _ex, report) => {
+				report?.('empty');
+				return []; // empty primary → falls into the buildDiversePicks safety net
+			});
+		const d = deferred<Track[]>();
+		mockPicks.mockReset().mockReturnValue(d.promise); // park on the SECOND await
+
+		const p = regenerate(seed);
+		await flush(); // let the empty primary settle and reach the buildDiversePicks await
+		const explicit = [mk('qq', 'X', 'Exp', 'Explicit')];
+		player.setQueue(explicit);
+		d.resolve([mk('kuwo', 'D', 'Div', 'Pick')]); // a stale diverse result resolves
+		await p;
+		await flush();
+
+		// The SECOND (safety-net) await re-checks the WR-06 guard, so the explicit queue wins.
+		expect(mockPicks).toHaveBeenCalledTimes(1);
+		expect(player.queue.map((t) => t.uid)).toEqual(explicit.map((t) => t.uid));
 	});
 });
 
