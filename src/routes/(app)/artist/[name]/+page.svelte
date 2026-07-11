@@ -24,7 +24,7 @@
 	import { tick as hapticTick } from '$lib/util/haptics';
 	import TrackMenu from '$lib/components/TrackMenu.svelte';
 	import TagChips from '$lib/components/TagChips.svelte';
-	import { enrichArtist, getArtistTopAlbums, getAlbumTracklist, type EnrichResult, type DiscoveryAlbum } from '$lib/services/lastfm';
+	import { enrichArtist, getArtistTopAlbums, type EnrichResult, type DiscoveryAlbum } from '$lib/services/lastfm';
 	import { getSimilarArtists } from '$lib/services/similar';
 	import { deezerArtistCover, deezerArtist, deezerArtistAlbums, type DeezerArtistInfo } from '$lib/services/deezer';
 	import { mergeEnrichArtist } from '$lib/services/enrich-merge';
@@ -59,13 +59,17 @@
 	// leave the skeleton up forever — so track the settle explicitly).
 	let enrichLoading = $state(true);
 
-	// ---- Artist albums — trackless-album gate (Phase 9 D-04 + Phase 23 ART-01 / D-18 / D-19) ----
-	// Verify-before-render (D-18): show album-card skeletons until track-counts are KNOWN, then
-	// render ONLY non-empty albums. Source priority (§8.2 AUGMENT): Deezer `deezerArtistAlbums`
-	// returns each album's nb_tracks natively (zero per-album fetches); if Deezer covers this
-	// artist we filter to nb_tracks > 0 for free. If Deezer returns [] (artist not covered), fall
-	// back to Last.fm getArtistTopAlbums + a CAPPED per-album track-count verification. Either path
-	// yields identical UX. The render block consumes a unified { name, image } shape so nav (which
+	// ---- Artist albums (Phase 9 D-04 + Phase 23 ART-01 / D-18 / D-19; pre-gate RELAXED quick-260711-te4) ----
+	// Show every album that EXISTS — no trackless pre-gate. Previously (D-18) we verified each
+	// album had resolvable tracks before rendering: the Deezer path filtered on `nb_tracks > 0`, the
+	// Last.fm path ran a CAPPED per-album `getAlbumTracklist` count and hid any album that resolved
+	// to 0 tracks. That gated the whole shelf on song-resolvability and spent N per-album fetches
+	// (Path B) purely to decide whether to draw a card. It's redundant: the album *detail* page
+	// already resolves the songs within lazily on tap (resolveStub, D-05). So the shelf now renders
+	// as soon as the album LIST is known and defers song resolution to the album page. Source
+	// priority (§8.2 AUGMENT): Deezer `deezerArtistAlbums` first (native list + covers), else
+	// Last.fm getArtistTopAlbums. Both paths drop only obvious stub names (isStubAlbumName) — a
+	// garbage-name filter, NOT a resolvability gate. Unified { name, image } shape so nav (which
 	// keys on the album name) is unchanged.
 	type RenderAlbum = { name: string; image: string | null };
 	let albums = $state<RenderAlbum[]>([]);
@@ -250,36 +254,27 @@
 			albumsLoading = true;
 			void (async () => {
 				try {
-					// Path A (preferred, D-19): Deezer carries nb_tracks natively → trackless
-					// filtering is free with zero per-album fetches.
+					// Path A (preferred, D-19): Deezer carries the album list + covers natively.
+					// quick-260711-te4: NO nb_tracks>0 pre-gate — render every album that exists;
+					// the album page resolves the songs within on tap.
 					const dzAlbums = await deezerArtistAlbums(n).catch(() => []);
 					if (albumsFor !== n) return; // race guard
 					if (dzAlbums.length) {
 						const kept = dzAlbums
-							.filter((a) => !isStubAlbumName(a.title) && a.nb_tracks > 0)
+							.filter((a) => !isStubAlbumName(a.title))
 							.map((a) => ({ name: a.title, image: a.cover }) satisfies RenderAlbum);
 						if (albumsFor === n) albums = kept;
 						return;
 					}
-					// Path B (fallback, §8.2): Deezer does not cover this artist → Last.fm album
-					// list + a CAPPED per-album track-count verification. Drop stubs up front, then
-					// hide any album that resolves to 0 tracks (or fails verification).
+					// Path B (fallback, §8.2): Deezer does not cover this artist → Last.fm album list.
+					// quick-260711-te4: the CAPPED per-album getAlbumTracklist verification is GONE —
+					// it gated the shelf on song-resolvability and cost N fetches. Drop only stub names.
 					const lfAlbums = await getArtistTopAlbums(n).catch((): DiscoveryAlbum[] => []);
 					if (albumsFor !== n) return; // race guard
-					const candidates = lfAlbums.filter((a) => !isStubAlbumName(a.name));
-					if (!candidates.length) {
-						if (albumsFor === n) albums = [];
-						return;
-					}
-					const verified = await mapWithConcurrency(candidates, 4, async (a: DiscoveryAlbum) => {
-						// deezerAlbum returns nb_tracks when Deezer has the album; otherwise verify
-						// via the Last.fm album.getInfo tracklist length. Either never throws.
-						const tracks = await getAlbumTracklist(a.name, n).catch(() => []);
-						return tracks.length > 0 ? ({ name: a.name, image: a.image }) : null;
-					});
-					if (albumsFor === n) {
-						albums = verified.filter((a): a is RenderAlbum => a !== null);
-					}
+					const kept = lfAlbums
+						.filter((a) => !isStubAlbumName(a.name))
+						.map((a) => ({ name: a.name, image: a.image }) satisfies RenderAlbum);
+					if (albumsFor === n) albums = kept;
 				} finally {
 					if (albumsFor === n) albumsLoading = false;
 				}
@@ -416,7 +411,7 @@
 			<span class="sk sk-line"></span>
 			<span class="sk sk-line short"></span>
 		</section>
-	{:else if enrich?.bio && enrich?.bioUrl}
+	{:else if enrich?.bio && enrich?.bioUrl && names.dnBio(enrich.bio) && names.dnBio(enrich.bio).length}
 		<section class="bio">
 			<h2>{t('lastfm.about')}</h2>
 			<p>{names.dnBio(enrich.bio)}</p>
@@ -537,7 +532,14 @@
 	.hero { padding: 14px 0 18px; text-align: center; }
 	.back { display: grid; place-items: center; width: 36px; height: 36px; background: none; border: none; color: var(--color-text); cursor: pointer; margin: 0 0 8px; padding: 0; }
 	.back:hover { background: var(--color-surface-2); border-radius: 50%; }
-	.herocover { width: 150px; height: 150px; border-radius: 50%; margin: 8px auto 12px; background-size: cover; background-position: center; box-shadow: 0 12px 34px rgba(0,0,0,0.5); }
+	.herocover {
+	position: absolute;
+    top: 0;
+    width: 100%;
+    height: 30%;
+    background-size: cover;
+    background-position: center;
+}
 	.hero h1 { font-size: calc(1.7rem * var(--fs-title, 1)); margin: 0; }
 	.note { color: var(--color-text-muted); font-size: 12px; margin-top: 4px; }
 	.herotags { display: flex; justify-content: center; margin-top: 8px; }
