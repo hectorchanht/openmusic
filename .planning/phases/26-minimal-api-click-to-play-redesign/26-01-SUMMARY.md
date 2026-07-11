@@ -117,3 +117,8 @@ None. `resolveNameStub` is a fully wired resolver (not a placeholder); the `Trac
 
 - The kuwo-first floor + `resolveNameStub` + `resolveByName` marker are the structural precondition for the phase's ~59→~3 API-call reduction. Plan 26-03 (Up-Next via `track.getSimilar`) should construct lightweight stubs with `resolveByName: true` (source/songid are placeholders, never dispatched) and rely on `ensureTrackDetails` to resolve them lazily kuwo-first on play.
 - Cover-on-the-hot-path (bind to the resolved `.cover` inline, lazy Deezer HQ upgrade) is a separate plan — not touched here.
+
+## Self-Check: PASSED
+
+- All 7 modified files present on disk.
+- All 4 commits (9aa5e22 refactor, 646ee52 test/RED, 37ff7a8 feat/GREEN, d9998bf docs) present in git history.

@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Resilient Playback & UX Polish
-status: verifying
-stopped_at: Completed 25-03-PLAN.md
-last_updated: "2026-07-11T09:21:33.675Z"
-last_activity: 2026-07-11
+status: executing
+stopped_at: Completed 26-01-PLAN.md
+last_updated: "2026-07-11T10:09:51.648Z"
+last_activity: 2026-07-11 -- Completed 26-01 (kuwo-first resolve floor + name-stub resolver)
 progress:
   total_phases: 18
   completed_phases: 15
   total_plans: 64
-  completed_plans: 58
+  completed_plans: 59
   percent: 83
 ---
 
@@ -21,13 +21,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-10)
 
 **Core value:** A user on their phone can search a song, tap it, and have it play instantly with a smooth, native-app-like experience — and keep playing when the screen locks.
-**Current focus:** Phase 25 — zh-hant-offline-conversion-fallback-cascade
+**Current focus:** Phase 26 — minimal-api-click-to-play-redesign
 
 ## Current Position
 
-Phase: 25 (zh-hant-offline-conversion-fallback-cascade) — EXECUTING
-Plan: 3 of 3
-Status: Phase complete — ready for verification
+Phase: 26 (minimal-api-click-to-play-redesign) — EXECUTING
+Plan: 2 of 5
+Status: Ready to execute
 Last activity: 2026-07-11
 
 ## Performance Metrics
@@ -73,6 +73,7 @@ Last activity: 2026-07-11
 | Phase 25 P01 | 9min | 3 tasks | 4 files |
 | Phase 25 P02 | 9min | 3 tasks | 3 files |
 | Phase 25 P03 | 5min | 2 tasks | 2 files |
+| Phase 26 P01 | 11min | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -124,6 +125,8 @@ Recent decisions affecting current work:
 - [Phase ?]: D-06: Azure/DeepL provider keys are OPTIONAL + edge-only in Env (parity with JOOX_TOKEN/LASTFM_*) — absent key skips that tier and the cascade falls through to keyless Google; keys never appear in response body or client bundle (25-02)
 - [Phase ?]: 25-03: zh-Hant offline routing intercepted in translateLinesEx choke point (D-02) — Chinese lines convert client-side (zero network), only non-Chinese remainder hits /api/translate; CACHE_VER v2->v3; ZERO caller changes
 - [Phase ?]: 25-03: blank lines are neither offline-converted nor API-sent (trivially complete) so all-Chinese lyrics with blank separators make ZERO network calls
+- [Phase ?]: 26-01: registry reorder is DATA-ONLY — kuwo-first SOURCES order propagates to getEnabledAdapters/fallbackOrder/interleave/resolveNameStub; contracts/enabledByDefault/SOURCE_RANK unchanged
+- [Phase ?]: 26-01: resolveNameStub + crossSourceLyric walk the kuwo-first order ONE source per searchAll (onlySource prefs) — never an all-source fan-out on a resolve path; onlySource duplicated in catalog.ts to avoid a catalog<->fallback cycle
 
 ### Pending Todos
 
@@ -269,7 +272,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-11T09:21:01.519Z
+Last session: 2026-07-11T10:09:16.812Z
 Stopped at: Completed 25-02-PLAN.md
 Resume: plan Phase 16 (`/gsd:plan-phase 16`). Phase 16 is the resilience-core dependency root; everything else builds on its `queueContext` / 2-state repeat / skip-loop guard.
 

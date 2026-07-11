@@ -127,9 +127,9 @@ Plans:
 **Goal:** Cut a single-song play from ~59 `/api/*` calls to ~3 while staying fully functional across every language/region/genre. Grounded in spikes 001–004 (`Skill("spike-findings-openmusic")` + [`spikes/004-source-coverage-by-segment/POLICY.md`](spikes/004-source-coverage-by-segment/POLICY.md)): kuwo is empirically 100% playable+cover across all 14 language/region×genre segments; Last.fm `track.getSimilar` returns exact `{artist,title}` pairs in 1 call; measured baseline is ~59 calls/play (56 = `buildSimilarQueue`'s 8 similar-artists × 7 sources). **Hard rule: never fan out all 7 sources on click.**
 **Requirements**: RESOLVE-01, RESOLVE-02, COVER-01, UPNEXT-01, VERSIONS-01, NETEASE-01 (phase-local tags derived from the spike POLICY + spike-findings skill)
 **Depends on:** none — self-contained refactor of the resolve / up-next / cover paths (independent of Phase 25 translation work)
-**Plans:** 5 plans (2 waves)
+**Plans:** 1/5 plans executed
 
-- [ ] 26-01-PLAN.md — Kuwo-first resolve/fallback order + single-source name-stub resolver + bounded crossSourceLyric (RESOLVE-01/02) [wave 1]
+- [x] 26-01-PLAN.md — Kuwo-first resolve/fallback order + single-source name-stub resolver + bounded crossSourceLyric (RESOLVE-01/02) [wave 1]
 - [ ] 26-02-PLAN.md — Source-embedded cover on the hot path + bounded lazy Deezer HQ upgrade; no cover fan-out (COVER-01) [wave 1]
 - [ ] 26-04-PLAN.md — Version-picker modal on multi-source search rows (retain pre-dedupe variants) + i18n (VERSIONS-01) [wave 1]
 - [ ] 26-05-PLAN.md — netease qijieya dry-spell health-gate (skip/deprioritize + self-recover) (NETEASE-01) [wave 1]
