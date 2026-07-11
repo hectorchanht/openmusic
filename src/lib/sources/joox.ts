@@ -11,9 +11,17 @@
 //   - THE IDENTITY FIX (Pitfall 4 / criterion #4): the upstream detail is keyed by the
 //     positional `n`, so after a reorder/paginate the wrong song can come back. We STILL
 //     send `n=jooxIndex` (the upstream requires it) but RE-VALIDATE the returned songmid /
-//     歌曲ID against the track we actually intended to resolve, and THROW on a mismatch
-//     (leaving detailsLoaded false) rather than silently play the wrong song. jooxIndex is
-//     ORDERING-only and is never treated as identity.
+//     歌曲ID against the track we actually intended to resolve. jooxIndex is ORDERING-only
+//     and is never treated as identity.
+//   - SELF-HEAL + NEVER-THROW (plan 26-11 / Phase-26 UAT Gap 6): when the fragile `n` maps to
+//     a DIFFERENT song, we PREFER the STABLE songmid: issue ONE fresh /api/joox/search, find
+//     the intended songmid's CURRENT position, re-fetch detail by that corrected `n`, and
+//     re-validate. If it now confirms we play the CORRECT song. If the song is gone from the
+//     re-search (or the corrected detail is still disjoint), resolve returns the track
+//     UNRESOLVED (audioUrl=null, detailsLoaded=false) WITHOUT adopting the wrong song — it
+//     NEVER throws. The graceful null routes into player.play's existing
+//     `!resolved.audioUrl → runFallback → skip` path instead of stranding the nowbar with a
+//     stuck error. Wrong-song protection is preserved (a genuine mismatch just fails soft).
 //   - probeJooxAudioUrl is ported verbatim but modernized to AbortSignal.timeout(3000)
 //     (RESEARCH "Don't Hand-Roll"). It runs BROWSER-SIDE here (NOT in the proxy) so it
 //     sees the same IP/region that will actually play the audio (PATTERNS spike caveat).
@@ -159,6 +167,77 @@ async function pickJooxPlayUrl(
 	return { url: null, tag: null, label: null, text: null };
 }
 
+// ── JOOX identity self-heal helpers (plan 26-11 / Gap 6) ─────────────────────────────
+// The upstream detail endpoint is keyed by a FRAGILE positional `n`; a picked variant's
+// stale n can map to a DIFFERENT song after a reorder/paginate. The STABLE identity is the
+// songmid (falling back to 歌曲ID). These helpers let resolve() re-locate the intended song
+// by its stable identity in ONE fresh search (deriving the correct n) and re-validate the
+// cross-field identity — the same joox-swaps-songmid/歌曲ID quirk the initial check handles.
+
+/** Expected identity tokens captured at search time (stable) — songmid preferred, cross-field allowed. */
+function jooxExpectedTokens(track: Track): string[] {
+	return [track.songMid, track.jooxSongMid, track.jooxSongId, track.songid].filter(
+		(v): v is string => !!v
+	);
+}
+
+/** Identity tokens the DETAIL body carries (songmid + 歌曲ID). */
+function jooxReturnedTokens(d: JooxDetailData): string[] {
+	return [d.songmid, d['歌曲ID']].filter((v): v is string => !!v);
+}
+
+/** Identity tokens a SEARCH row carries — used to locate the corrected n by stable songmid. */
+function jooxSearchItemTokens(it: JooxSearchItem): string[] {
+	return [it.songmid, it['歌曲ID']].filter((v): v is string => !!v);
+}
+
+/** CROSS-FIELD confirm: any expected token equals any returned token (joox-swaps-songmid/歌曲ID quirk). */
+function jooxIdentityConfirmed(expectedTokens: string[], returnedTokens: string[]): boolean {
+	return expectedTokens.some((e) => returnedTokens.includes(e));
+}
+
+/**
+ * Fetch + parse ONE /api/joox/search for the keyword, returning songs[] in their CURRENT order
+ * (the self-heal reads the current position of the stable songmid to derive the corrected n).
+ * NEVER-THROW (unlike the public search(), which throws on drift for the fan-out's typed error):
+ * a contract-drift / network / abort failure yields [] so the self-heal degrades to a graceful
+ * failed-resolve rather than a throw (return-a-sentinel convention, CLAUDE.md).
+ */
+async function fetchJooxSearchSongs(
+	keyword: string,
+	signal: AbortSignal
+): Promise<JooxSearchItem[]> {
+	try {
+		const path = `/api/joox/search?msg=${encodeURIComponent(keyword)}`;
+		const res = await apiFetch(path, { signal });
+		const json = (await res.json()) as JooxSearchResponse;
+		const songs =
+			json && json.code === 200 && Array.isArray(json.data?.songs) ? json.data!.songs! : null;
+		return songs ?? [];
+	} catch {
+		return [];
+	}
+}
+
+/**
+ * Fetch + parse /api/joox/detail?msg&n. Returns the detail data, or null on an invalid body
+ * (code!=200 / no data). Does NOT swallow apiFetch rejections — an abort/network error still
+ * propagates so AbortSignal supersedence is preserved. The initial call re-throws null as the
+ * legacy 'joox detail failed' error; the self-heal corrected call treats null as a graceful miss.
+ */
+async function fetchJooxDetailData(
+	keyword: string,
+	n: number,
+	signal: AbortSignal
+): Promise<JooxDetailData | null> {
+	const path =
+		`/api/joox/detail?msg=${encodeURIComponent(keyword)}` + `&n=${encodeURIComponent(String(n))}`;
+	const res = await apiFetch(path, { signal });
+	const j = (await res.json()) as JooxDetailResponse;
+	if (!j || j.code !== 200 || !j.data) return null;
+	return j.data;
+}
+
 export const joox: SourceAdapter = {
 	id: 'joox',
 	label: 'JOOX',
@@ -215,16 +294,11 @@ export const joox: SourceAdapter = {
 		// sending it because the upstream requires it, but we re-validate the response
 		// against the track's stable identity below before trusting it.
 		const n = track.jooxIndex || track.displayIndex || 1;
-		const path =
-			`/api/joox/detail?msg=${encodeURIComponent(track.keyword)}` +
-			`&n=${encodeURIComponent(String(n))}`;
 
-		const res = await apiFetch(path, { signal });
-		const j = (await res.json()) as JooxDetailResponse;
-		if (!j || j.code !== 200 || !j.data) {
+		const initial = await fetchJooxDetailData(track.keyword, n, signal);
+		if (!initial) {
 			throw new Error('joox detail failed (invalid response)');
 		}
-		const d = j.data;
 
 		// IDENTITY RE-VALIDATION (Pitfall 4 / criterion #4) — keep music playing.
 		// The positional `n` may have returned a DIFFERENT song than the one the user
@@ -235,49 +309,81 @@ export const joox: SourceAdapter = {
 		//   - Build an EXPECTED token pool from every identity field we captured at
 		//     search time, and a RETURNED token pool from the detail body.
 		//   - CONFIRMED = any expected token equals any returned token (CROSS-FIELD
-		//     match allowed) → trust it, play as today.
-		//   - If NOT confirmed, only REFUSE (throw) in the narrow STRONG-DISJOINT case:
-		//     both sides are fully populated (expected has BOTH a mid and a songId,
-		//     returned has BOTH songmid and 歌曲ID) AND there is zero cross-field
-		//     overlap — i.e. a genuinely different song. Wrong-song protection stays
-		//     at full strength here.
-		//   - OTHERWISE (partial / unconfirmed but not strong-disjoint) → SOFT-ALLOW:
-		//     console.warn with the same diagnostic detail and play through, rather
-		//     than reject a song that is probably correct.
-		const expectedMid = track.songMid || track.jooxSongMid || '';
-		const expectedSongId = track.jooxSongId || track.songid || '';
-		const returnedMid = d.songmid || '';
-		const returnedSongId = d['歌曲ID'] || '';
+		//     match allowed) → trust it, play as today (fast path, NO re-search).
+		//   - If NOT confirmed and NOT strong-disjoint (partial identity) → SOFT-ALLOW:
+		//     console.warn and play through, rather than reject a probably-correct song.
+		//   - If NOT confirmed and STRONG-DISJOINT (both sides fully populated, zero
+		//     cross-field overlap = genuinely a different song) → SELF-HEAL by the
+		//     stable songmid (plan 26-11), then GRACEFUL never-throw fail on an
+		//     unrecoverable mismatch. Wrong-song protection stays at full strength.
+		const expectedTokens = jooxExpectedTokens(track);
 
-		const expectedTokens = [
-			track.songMid,
-			track.jooxSongMid,
-			track.jooxSongId,
-			track.songid
-		].filter((v): v is string => !!v);
-		const returnedTokens = [d.songmid, d['歌曲ID']].filter((v): v is string => !!v);
+		// The detail body we ultimately trust + enrich from (initial / soft-allowed / self-healed).
+		let finalDetail: JooxDetailData | null = null;
 
-		const confirmed = expectedTokens.some((e) => returnedTokens.includes(e));
-		if (!confirmed) {
+		if (jooxIdentityConfirmed(expectedTokens, jooxReturnedTokens(initial))) {
+			// CONFIRMED fast path — the n mapped correctly (cross-field allowed). No re-search.
+			finalDetail = initial;
+		} else {
+			const expectedMid = track.songMid || track.jooxSongMid || '';
+			const expectedSongId = track.jooxSongId || track.songid || '';
+			const returnedMid = initial.songmid || '';
+			const returnedSongId = initial['歌曲ID'] || '';
 			const expectedHasBoth = !!expectedMid && !!expectedSongId;
 			const returnedHasBoth = !!returnedMid && !!returnedSongId;
-			const strongDisjoint = expectedHasBoth && returnedHasBoth; // already unconfirmed = zero cross-field overlap
+			const strongDisjoint = expectedHasBoth && returnedHasBoth; // unconfirmed + both populated = different song
 			const diag =
 				`expected songmid="${expectedMid}" (歌曲ID="${expectedSongId}") ` +
 				`but upstream n=${n} returned songmid="${returnedMid}" (歌曲ID="${returnedSongId}", ` +
-				`歌曲名称="${d['歌曲名称'] || ''}")`;
-			if (strongDisjoint) {
-				// STRONG-DISJOINT: genuinely a different song — refuse to play the wrong song.
-				throw new Error(`joox identity mismatch: ${diag} — refusing to play the wrong song`);
+				`歌曲名称="${initial['歌曲名称'] || ''}")`;
+
+			if (!strongDisjoint) {
+				// SOFT-ALLOW: partial / unconfirmed identity — keep playing, but warn (unchanged).
+				console.warn(`joox identity unconfirmed (soft-allow): ${diag} — playing through`);
+				finalDetail = initial;
+			} else {
+				// SELF-HEAL (plan 26-11 / Gap 6): the fragile n mapped to a genuinely DIFFERENT song.
+				// PREFER the stable songmid: re-locate the intended song in ONE fresh search, derive
+				// the corrected n, re-fetch detail, and re-validate. BOUNDED — at most one extra search
+				// + one extra detail, runs only on this disjoint branch, no recursion (T-26-11-03).
+				const songs = await fetchJooxSearchSongs(track.keyword, signal);
+				const idx = songs.findIndex((it) =>
+					jooxSearchItemTokens(it).some((tok) => expectedTokens.includes(tok))
+				);
+				const correctedN = idx >= 0 ? idx + 1 : null;
+
+				// Only re-fetch when we located the song at a DIFFERENT position (a same n carries no
+				// new information — it would return the same wrong song).
+				if (correctedN !== null && correctedN !== n) {
+					const corrected = await fetchJooxDetailData(track.keyword, correctedN, signal);
+					if (corrected && jooxIdentityConfirmed(expectedTokens, jooxReturnedTokens(corrected))) {
+						// Self-healed: the corrected n now maps to the intended song — play the CORRECT song.
+						finalDetail = corrected;
+					}
+				}
+
+				if (!finalDetail) {
+					// UNRECOVERABLE (song gone from the re-search, corrected detail still disjoint, or
+					// correctedN == n / no new info): return the track UNRESOLVED (audioUrl=null,
+					// detailsLoaded=false) WITHOUT adopting any wrong-song field — NEVER throw. This is
+					// the failed-resolve sentinel player.play's `!resolved.audioUrl → runFallback → skip`
+					// path consumes (T-26-11-02). Wrong-song protection preserved (never enriched).
+					console.warn(
+						`joox identity mismatch (self-heal failed): ${diag}; ` +
+							`re-search correctedN=${correctedN ?? 'not found'} — leaving track unresolved (fail soft)`
+					);
+					track.audioUrl = null;
+					track.detailsLoaded = false;
+					return track;
+				}
 			}
-			// SOFT-ALLOW: partial / unconfirmed identity — keep playing, but warn.
-			console.warn(`joox identity unconfirmed (soft-allow): ${diag} — playing through`);
 		}
 
+		const d = finalDetail;
 		const playLinks = d['播放链接'] || {};
 		const best = await pickJooxPlayUrl(playLinks, signal, quality); // WR-07: per-call quality wins
 
-		// Identity validated — enrich the track in place (ports legacy:2483-2503).
+		// Identity validated / self-healed — enrich the track in place (ports legacy:2483-2503).
 		track.title = d['歌曲名称'] || track.title;
 		track.artist = d['歌手'] || track.artist;
 		track.album = d['专辑'] || track.album;
