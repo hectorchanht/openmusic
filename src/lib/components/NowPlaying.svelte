@@ -1538,7 +1538,7 @@
 	.fill { position: absolute; left: 0; height: 4px; border-radius: 4px; background: var(--color-primary); }
 	.knob { position: absolute; width: 12px; height: 12px; border-radius: 50%; background: var(--color-text-muted); transform: translateX(-50%); }
 	.times { display: flex; justify-content: space-between; font-size: 11px; color: var(--color-text-muted); margin-top: 4px; }
-	.transport { display: flex; align-items: center; justify-content: space-between; margin: 10px 4px; }
+	.transport { display: flex; align-items: center; justify-content: space-between; margin: 10px 4px 22px; }
 	.t { background: none; border: none; color: var(--color-text); cursor: pointer; opacity: 0.85; display: grid; place-items: center; }
 	.t.on { color: var(--color-primary); opacity: 1; }
 	.st-row { display: flex; justify-content: center; margin: 2px 4px 0; }
@@ -1578,7 +1578,7 @@
 		overflow-y: auto;
 		overscroll-behavior-y: contain;
 	}
-	.grip { display: flex; justify-content: center; padding: 16px 0 0px; cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; }
+	.grip { display: flex; justify-content: center; padding: 0px; cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; }
 	.grip:active { cursor: grabbing; }
 	.handle { width: 44px; height: 5px; border-radius: 999px; background: var(--color-text-muted); opacity: 0.6; }
 	.subnav { display: flex; justify-content: space-around; padding-bottom: 6px; touch-action: none; user-select: none; -webkit-user-select: none; }
