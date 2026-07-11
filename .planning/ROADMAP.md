@@ -127,7 +127,7 @@ Plans:
 **Goal:** Cut a single-song play from ~59 `/api/*` calls to ~3 while staying fully functional across every language/region/genre. Grounded in spikes 001–004 (`Skill("spike-findings-openmusic")` + [`spikes/004-source-coverage-by-segment/POLICY.md`](spikes/004-source-coverage-by-segment/POLICY.md)): kuwo is empirically 100% playable+cover across all 14 language/region×genre segments; Last.fm `track.getSimilar` returns exact `{artist,title}` pairs in 1 call; measured baseline is ~59 calls/play (56 = `buildSimilarQueue`'s 8 similar-artists × 7 sources). **Hard rule: never fan out all 7 sources on click.**
 **Requirements**: RESOLVE-01, RESOLVE-02, COVER-01, UPNEXT-01, VERSIONS-01, NETEASE-01 (phase-local tags derived from the spike POLICY + spike-findings skill)
 **Depends on:** none — self-contained refactor of the resolve / up-next / cover paths (independent of Phase 25 translation work)
-**Plans:** 8/11 plans executed
+**Plans:** 9/11 plans executed
 
 - [x] 26-01-PLAN.md — Kuwo-first resolve/fallback order + single-source name-stub resolver + bounded crossSourceLyric (RESOLVE-01/02) [wave 1]
 - [x] 26-02-PLAN.md — Source-embedded cover on the hot path + bounded lazy Deezer HQ upgrade; no cover fan-out (COVER-01) [wave 1]
@@ -141,7 +141,7 @@ Gap-closure plans (UAT 2026-07-11 — 6 diagnosed gaps; `/gsd:execute-phase 26 -
 - [x] 26-08-PLAN.md — Gap-4/5 foundation: lazy on-demand fetchVariants (single fan-out) + VersionPicker loading state + intra-source dedup & distinguishing version label (album/(Live)/(Demo)/(Cover)) so variants aren't N identical rows + i18n (VERSIONS-01) [wave 1]
 - [ ] 26-09-PLAN.md — Up-Next player wiring: regenerate() buildDiversePicks safety net + upnext.source activity-log event (UPNEXT-01) [wave 2, depends 26-06, 26-07]
 - [ ] 26-10-PLAN.md — UI mounts: Up-Next tiles paint seeded covers (no per-tile chain) + version selector in Up-Next & TrackMenu, lazily; human-verify (COVER-01/VERSIONS-01) [wave 2, depends 26-07, 26-08]
-- [ ] 26-11-PLAN.md — [Gap-6] JOOX identity self-heal: on a stale n-index mismatch, re-locate the song by its stable songmid (one keyword re-search → corrected n → detail); unrecoverable mismatch returns UNRESOLVED (never throws) → routes into the null-resolve → runFallback → skip path, so a version pick never sticks a nowbar error (VERSIONS-01/RESOLVE-02) [wave 1]
+- [x] 26-11-PLAN.md — [Gap-6] JOOX identity self-heal: on a stale n-index mismatch, re-locate the song by its stable songmid (one keyword re-search → corrected n → detail); unrecoverable mismatch returns UNRESOLVED (never throws) → routes into the null-resolve → runFallback → skip path, so a version pick never sticks a nowbar error (VERSIONS-01/RESOLVE-02) [wave 1]
 
 Scope (candidate plans — plan-phase breaks these down):
 - [ ] **Kuwo-first resolve/fallback chain** — reorder `kuwo → qq → netease → joox → (fivesing/audius/jamendo)`; single-source resolve on click; cross-source failover walks the chain, no re-search (`registry.ts`, `catalog.ts`, `player.svelte.ts`)
