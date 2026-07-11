@@ -1609,9 +1609,9 @@
 		position: absolute; top: 0; bottom: 0; width: 96px; display: flex; align-items: center;
 		justify-content: center; color: #fff; pointer-events: none;
 	}
-	.related-swipe .reveal-queue { left: 0; background: var(--color-primary); }
-	.related-swipe .reveal-next { right: 0; background: var(--src-netease); }
-	.related-swipe .row { position: relative; z-index: 1; background: var(--color-bg); }
+	.related-swipe .reveal-queue { left: 0; color: var(--color-text-muted); }
+	.related-swipe .reveal-next { right: 0; color: var(--color-text-muted); }
+	.related-swipe .row { position: relative; z-index: 1; }
 	/* MENU-03 / D-12: hover-capable devices only — touch otherwise latches this :hover
 	   background on a queue/related row under a held finger while the track menu opens. */
 	@media (hover: hover) { .row:hover { background: var(--color-surface); } }

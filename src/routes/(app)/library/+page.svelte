@@ -335,8 +335,8 @@
 		position: absolute; top: 0; bottom: 0; width: 96px; display: flex; align-items: center;
 		justify-content: center; color: #fff; pointer-events: none;
 	}
-	.reveal-queue { left: 0; background: var(--color-primary); }
-	.reveal-next { right: 0; background: var(--src-netease); }
+	.reveal-queue { left: 0; color: var(--color-text-muted); }
+	.reveal-next { right: 0; color: var(--color-text-muted); }
 	.row { width: 100%; text-align: left; background: var(--color-bg); position: relative; z-index: 1; border: none; padding: 8px; border-radius: 10px; cursor: pointer; display: flex; align-items: center; gap: 12px; color: var(--color-text); }
 	/* MENU-03 / D-12: hover-capable devices only — touch otherwise latches this :hover
 	   background on a row under a held finger while the track menu opens. */

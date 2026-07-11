@@ -840,8 +840,8 @@
 	}
 	/* Right-drag (queue, --color-primary) reveals from the LEFT edge; left-drag (play-next,
 	   --src-netease field) reveals from the RIGHT edge — matching the drag direction. */
-	.reveal-queue { left: 0; background: var(--color-primary); }
-	.reveal-next { right: 0; background: var(--src-netease); }
+	.reveal-queue { left: 0; color: var(--color-text-muted); }
+	.reveal-next { right: 0; color: var(--color-text-muted); }
 	.row {
 		width: 100%; display: flex; align-items: center; gap: 12px; padding: 8px;
 		background: var(--color-bg); position: relative; z-index: 1;
