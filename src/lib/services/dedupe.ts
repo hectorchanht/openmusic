@@ -90,6 +90,77 @@ export function groupVariants(tracks: Track[]): Map<string, Track[]> {
 }
 
 /**
+ * A normalized version-tag enum (Phase 26-08, Gap 5). Parsed from a title's parenthetical
+ * marker so the version picker can show a DISTINGUISHING label instead of N identical rows.
+ */
+export type VersionTag = 'live' | 'acoustic' | 'demo' | 'cover' | 'remix' | 'instrumental' | 'remaster';
+
+// EN + CN marker → enum. Ordered array (first match wins); every pattern is case-insensitive.
+// Reuses the same intent as key()'s bracket-marker stripping, but here we KEEP the marker as a
+// label rather than dropping it. `inst` is a common shorthand for instrumental in CN releases.
+const TAG_PATTERNS: ReadonlyArray<readonly [VersionTag, RegExp]> = [
+	['live', /live|现场|現場|演唱会|演唱會/i],
+	['acoustic', /acoustic|不插电|不插電/i],
+	['demo', /demo/i],
+	['cover', /cover|翻唱/i],
+	['remix', /remix|混音/i],
+	['instrumental', /instrumental|\binst\b|纯音乐|純音樂|伴奏|karaoke/i],
+	['remaster', /remaster(ed)?|重制|重製|重录|重錄/i]
+];
+
+/**
+ * Parse the FIRST bracketed/parenthetical marker from a title and normalize it to a VersionTag.
+ * Returns `{ key, text }` when a non-empty marker is present (`text` = the raw matched marker,
+ * a faithful fallback when `key` is null), or `null` when the title has no marker. A marker that
+ * matches no known pattern (e.g. "(Radio Edit)") yields `{ key: null, text: "Radio Edit" }`.
+ * Uses the SAME bracket family key() strips (`（(【[ … )）]】`). Pure / never-throw.
+ */
+export function variantTag(title: string): { key: VersionTag | null; text: string } | null {
+	const m = (title || '').match(/[（(【\[](.*?)[)）\]】]/);
+	const text = (m?.[1] ?? '').trim();
+	if (!text) return null; // no marker (or an empty "()") → no distinguishing tag
+	for (const [tag, re] of TAG_PATTERNS) {
+		if (re.test(text)) return { key: tag, text };
+	}
+	return { key: null, text }; // an unrecognized marker — surface its raw text verbatim
+}
+
+/** Normalize an album for bucketing: lowercase, strip all punctuation/space (blank → ''). */
+function normAlbum(album: string | null | undefined): string {
+	return (album || '')
+		.toLowerCase()
+		.replace(/[^\p{L}\p{N}]+/gu, '')
+		.trim();
+}
+
+/**
+ * Collapse truly-indistinguishable variants WITHIN a source (Phase 26-08, Gap 5). Buckets by
+ * `source | normalized-album | version-tag` and keeps the BEST-quality member per bucket (reuses
+ * the private better()), in first-appearance order. Because the bucket key includes `source`,
+ * cross-source variants ALWAYS land in different buckets — they are a real choice and are NEVER
+ * collapsed. This is applied at RENDER time inside VersionPicker so every picker mount is fixed
+ * with NO edit to the search page and NO change to groupVariants' uid→group contract.
+ * Pure / never-throw / order-preserving.
+ */
+export function collapseVariants(tracks: Track[]): Track[] {
+	const order: string[] = [];
+	const winner = new Map<string, Track>();
+	for (const t of tracks) {
+		const tag = variantTag(t.title);
+		// tag component: the normalized enum key, else the raw marker text, else '' (no marker).
+		const tagPart = (tag?.key ?? tag?.text ?? '').toLowerCase();
+		const bucket = `${t.source}|${normAlbum(t.album)}|${tagPart}`;
+		if (!winner.has(bucket)) {
+			order.push(bucket);
+			winner.set(bucket, t);
+		} else {
+			winner.set(bucket, better(winner.get(bucket)!, t));
+		}
+	}
+	return order.map((k) => winner.get(k)!).filter(Boolean);
+}
+
+/**
  * Collapse same-song-different-source duplicates, keeping the best-quality variant.
  * Order is preserved by first appearance. A blank key (no title) is never merged.
  * `preferred` (optional) wins quality ties — used for the "default source" setting.
