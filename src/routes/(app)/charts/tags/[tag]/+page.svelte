@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/state';
-	import { ListEnd, ListStart } from '@lucide/svelte';
+	import { ListEnd, ListStart, ChevronLeft } from '@lucide/svelte';
 	import { getTagTopTracks, type DiscoveryTrack } from '$lib/services/lastfm';
 	import { resolveStub } from '$lib/services/discovery';
 	import { lazyCover } from '$lib/actions/lazyCover';
@@ -150,7 +150,10 @@
 	});
 </script>
 
-<header class="head"><h1>{t('charts.tagTitle', { tag })}</h1></header>
+<header class="head">
+	<button type="button" class="back" aria-label={t('common.back')} onclick={() => history.back()} use:tapBounce><ChevronLeft size={22} /></button>
+	<h1>{t('charts.tagTitle', { tag })}</h1>
+</header>
 
 {#snippet skeletonRows(count: number, label: string)}
 	<li class="skel-wrap" aria-label={label}>
@@ -206,7 +209,10 @@
 <TrackMenu track={menuTrack} open={menuOpen} loading={menuLoading} onclose={() => (menuOpen = false)} />
 
 <style>
-	.head h1 { font-size: calc(1.4rem * var(--fs-title, 1)); margin: 16px 0 12px; }
+	.head { display: flex; align-items: center; gap: 4px; margin: 16px 0 12px; }
+	.head h1 { font-size: calc(1.4rem * var(--fs-title, 1)); margin: 0; min-width: 0; }
+	.back { flex: none; display: grid; place-items: center; width: 36px; height: 36px; margin-left: -8px; padding: 0; background: none; border: none; color: var(--color-text); cursor: pointer; }
+	@media (hover: hover) { .back:hover { background: var(--color-surface-2); border-radius: 50%; } }
 	.list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 	.row-wrap { position: relative; overflow: hidden; border-radius: var(--radius-md); }
 	.reveal {
