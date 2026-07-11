@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Resilient Playback & UX Polish
 status: executing
-stopped_at: Completed 26-05-PLAN.md
-last_updated: "2026-07-11T11:38:14.038Z"
+stopped_at: Completed 26-03-PLAN.md
+last_updated: "2026-07-11T11:52:59.904Z"
 last_activity: 2026-07-11
 progress:
   total_phases: 18
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-06-10)
 ## Current Position
 
 Phase: 26 (minimal-api-click-to-play-redesign) — EXECUTING
-Plan: 4 of 5
+Plan: 5 of 5 (26-03 complete; all phase-26 plans have SUMMARYs)
 Status: Ready to execute
 Last activity: 2026-07-11
 
@@ -76,6 +76,7 @@ Last activity: 2026-07-11
 | Phase 26 P01 | 11min | 2 tasks | 7 files |
 | Phase 26 P05 | 7min | 2 tasks | 4 files |
 | Phase 26 P04 | 9min | 4 tasks | 20 files |
+| Phase 26 P03 | 11min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -102,6 +103,9 @@ Recent decisions affecting current work:
 - [Roadmap]: Bottom-up phase order — extract data layer + prove proxy boundary headless before any UI is built (avoids building on an audio engine whose iOS behavior is unproven).
 - [Roadmap]: Proxy metadata only through SvelteKit `+server.ts`; audio bytes stream browser → CDN directly (preserves geo/IP context, stays within Worker free-tier limits).
 - [Roadmap]: Single module-scoped `<audio>` element owned by an `AudioEngine` singleton; Svelte 5 runes in `.svelte.ts` for all shared state; source-adapter registry so adding a source touches only new files.
+- [Phase 26-03]: Up-Next PRIMARY = Last.fm track.getSimilar via a NEW dedicated /api/lastfm/similar-tracks edge route (mirrors /api/similar's key/CORS/absent-key posture; cannot reuse /api/similar [artist-only] or /api/lastfm/info [*.getinfo allow-list]). buildSimilarQueue: 56 calls → 1.
+- [Phase 26-03]: Up-Next items are lazy name-only stubs (Plan 26-01 resolveByName marker) with a STABLE synthetic uid = `${primary}:similar-${matchKey(artist,title)}` (colon-form, never collides with a real numeric songid). The seed (a real track) is dropped by normalized identity; excludeUids + same-song dedupe key on the synthetic uid. Player NOT edited — play()'s indexOf queue-swap already adopts the resolved real uid.
+- [Phase 26-03]: Dry-fallback (track.getSimilar returns 0 for thin-scrobble CN songs) stays SINGLE-source: artist.getSimilar → one kuwo-first single-source searchAll per artist (onlyPrimarySource prefs), never the 8-source fan-out. Last-resort same-artist search is single-source too.
 - [Phase ?]: 09-01: Endpoint fork B — dedicated /api/lastfm/discovery for LIST methods; /api/lastfm/info extended only for album tracklist
 - [Phase ?]: 09-01: Cache API cache key = own-origin discovery Request (secret never cached); per-method public TTLs charts 1h/tags 6h/topalbums 24h
 - [Phase ?]: 09-02: Home is the Last.fm discovery surface — FOUR shelves (top hits / top artists / per-tag / per-country); tag+country fan-out capped via mapWithConcurrency (≤4 in-flight, Pitfall 11); v2 localStorage shelf cache + background revalidate
