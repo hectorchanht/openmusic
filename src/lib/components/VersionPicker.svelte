@@ -33,7 +33,8 @@
 		open,
 		onclose,
 		onpick,
-		loading = false
+		loading = false,
+		overlayId = 'versionpicker'
 	}: {
 		versions: Track[];
 		open: boolean;
@@ -41,6 +42,12 @@
 		onpick: (t: Track) => void;
 		// OPTIONAL (Gap 4): render a spinner while a lazy on-demand variant fetch is in flight.
 		loading?: boolean;
+		// WR-02: the overlay-stack / history key for THIS instance. Defaults to 'versionpicker'
+		// for back-compat, but co-mounted hosts (a page's own picker + the one inside the
+		// TrackMenu it also mounts) MUST pass DISTINCT ids so a stray concurrent open pushes/pops
+		// its own balanced history entry instead of colliding on one shared key (which orphans a
+		// pushed history state → desyncs "history depth == overlay depth" → over-pops Back).
+		overlayId?: string;
 	} = $props();
 
 	// Gap 5: collapse intra-source duplicates at render (cross-source variants are preserved as a
@@ -92,8 +99,12 @@
 	// push/pop doesn't churn this effect (cleanup+reopen).
 	$effect(() => {
 		if (open) {
-			untrack(() => overlays.open('versionpicker', () => onclose()));
-			return () => untrack(() => overlays.dismiss('versionpicker'));
+			// WR-02: capture the (stable) per-instance overlay id once, untracked, so this
+			// effect's ONLY dependency stays `open` (mirrors TrackMenu) and the open/dismiss
+			// pair always references the SAME id — keeping history push/pop balanced.
+			const id = untrack(() => overlayId);
+			untrack(() => overlays.open(id, () => onclose()));
+			return () => untrack(() => overlays.dismiss(id));
 		}
 	});
 </script>

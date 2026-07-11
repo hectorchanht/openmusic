@@ -41,9 +41,10 @@
 	// NEVER on menu open (no background fan-out; T-26-10-02). versionGen/versionAc are PLAIN
 	// (non-reactive) supersedence guards (house idiom): a re-open bumps the token + aborts the prior
 	// fetch so a stale result can't land. The sheet's overlay lifecycle is owned ENTIRELY by
-	// VersionPicker (key 'versionpicker', self-registered) — mirroring the search page — so it
-	// converges on the SINGLE dismiss path; a SECOND trackmenu-scoped overlay entry would double-push
-	// one history state per open and over-pop the Back gesture (the invariant Task 3 verifies).
+	// VersionPicker (WR-02: keyed with the DISTINCT id 'versionpicker-menu' so it never collides with
+	// the host page's own co-mounted VersionPicker) — so it converges on the SINGLE dismiss path; a
+	// SECOND trackmenu-scoped overlay entry would double-push one history state per open and over-pop
+	// the Back gesture (the invariant Task 3 verifies).
 	let versionsOpen = $state(false);
 	let versionsLoading = $state(false);
 	let versionsList = $state<Track[]>([]);
@@ -415,14 +416,16 @@
 
 <!-- Gap 4 (26-10): the Play-from-source VersionPicker. Mounted OUTSIDE the {#if open && track} menu
      block (like the playlist-picker/detail sub-sheets) so it survives the menu closing on a pick.
-     VersionPicker SELF-REGISTERS its overlay ('versionpicker') — the same registration the search
-     page relies on — so the Back gesture converges on the single dismiss path (NO trackmenu-scoped
-     overlay entry here, which would double-push + over-pop). loading is bound to the in-flight
-     fetchVariants state; onpick plays the chosen source's EXACT variant fresh, then closes the menu. -->
+     WR-02: this TrackMenu-hosted picker uses the DISTINCT overlay id 'versionpicker-menu' so it never
+     collides with the host page's own VersionPicker (which is co-mounted on the same route); each
+     pushes/pops its own balanced history entry via the single dismiss path (Back gesture stays sane).
+     loading is bound to the in-flight fetchVariants state; onpick plays the chosen source's EXACT
+     variant fresh, then closes the menu. -->
 <VersionPicker
 	versions={versionsList}
 	open={versionsOpen}
 	loading={versionsLoading}
+	overlayId="versionpicker-menu"
 	onclose={closeVersions}
 	onpick={(v) => { player.play(v, { fresh: true }); close(); }}
 />

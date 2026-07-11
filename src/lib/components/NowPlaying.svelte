@@ -1460,6 +1460,7 @@
 		versions={pickerVersions}
 		open={pickerOpen}
 		loading={pickerLoading}
+		overlayId="versionpicker-page"
 		onclose={closeVersionPicker}
 		onpick={(v) => player.play(v, { fresh: true })}
 	/>

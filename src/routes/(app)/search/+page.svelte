@@ -729,6 +729,7 @@
 <VersionPicker
 	versions={pickerVersions}
 	open={pickerOpen}
+	overlayId="versionpicker-list"
 	onclose={() => (pickerOpen = false)}
 	onpick={(v) => { player.setListQueue(results, 'search'); player.play(v, { fresh: true }); }}
 />
