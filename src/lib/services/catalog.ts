@@ -10,6 +10,7 @@ import { sleep } from '$lib/proxy/http';
 import { cached, __clearSearchCache } from './ttl-cache';
 import { matchKey } from './match-key';
 import { scoreMatch } from './score-match';
+import { dedupeBest, sameSongKey } from './dedupe';
 
 /**
  * quick-260629-nyl Task 3: sources that genuinely have NO upstream lyrics. A lyric MISS on one of
@@ -200,15 +201,73 @@ function interleave(perSource: SettledSourceResult[]): Track[] {
 }
 
 /**
- * RESOLVE-02 (RED scaffold — implemented in the GREEN step): resolve a sourceless name-only stub
- * (`{artist,title}`, the shape Plan 26-03's Up-Next emits) to a playable Track by walking the
- * kuwo-first source order ONE source at a time — never an all-enabled `searchAll` fan-out.
+ * Per-source prefs that restrict a `searchAll` to a SINGLE source id (RESOLVE-02). Mirrors
+ * fallback.ts's `onlySource` — deliberately DUPLICATED here (not imported) to avoid a
+ * catalog↔fallback import cycle (fallback.ts imports searchAll/ensureTrackDetails FROM here). Every
+ * registered source is explicitly set false so none falls through `getEnabledAdapters` to "enabled";
+ * only `id` is flipped true, so the resolve/lyric walk fans out to exactly ONE source per step,
+ * never all 7 (D-08 isolation).
+ */
+function onlySource(id: SourceId): Partial<Record<SourceId, boolean>> {
+	const out: Partial<Record<SourceId, boolean>> = {};
+	for (const sourceId of Object.keys(SOURCES) as SourceId[]) out[sourceId] = false;
+	out[id] = true;
+	return out;
+}
+
+/**
+ * RESOLVE-02 (POLICY.md / spikes 001+002+004): resolve a sourceless name-only stub (`{artist,title}`
+ * — the shape Plan 26-03's Last.fm `track.getSimilar` Up-Next emits) to a playable Track by walking
+ * the kuwo-FIRST source order ONE source at a time. For each source: a SINGLE-source `searchAll`
+ * (`onlySource` prefs — never an all-enabled fan-out), `dedupeBest` the results, adopt only a
+ * candidate that is the SAME song via `sameSongKey` (WR-06 — a fuzzy upstream search can return a
+ * different track), `ensureTrackDetails` it, and return the FIRST that yields a truthy `audioUrl`.
+ * Never-throws (per-source failures are swallowed), AbortSignal-honoring (bails after every await),
+ * and stops at the first playable hit — so ~all plays resolve in ONE kuwo call (the ~59→~3 floor).
  */
 export async function resolveNameStub(
-	_artist: string,
-	_title: string,
-	_signal?: AbortSignal
+	artist: string,
+	title: string,
+	signal?: AbortSignal
 ): Promise<Track | null> {
+	const query = `${artist} ${title}`.trim();
+	if (!query) return null;
+	const sig = signal ?? new AbortController().signal;
+	// kuwo-first order inherited from the registry (RESOLVE-01 reorder) — no source named here.
+	const order = getEnabledAdapters({}).map((a) => a.id);
+	// A minimal comparison target for sameSongKey (reads title+artist only). Fully typed, no cast.
+	const want: Track = {
+		uid: '',
+		source: order[0] ?? 'kuwo',
+		songid: '',
+		title,
+		artist,
+		album: '',
+		cover: null,
+		audioUrl: null,
+		lrc: null,
+		lrcUrl: null,
+		detailsLoaded: false,
+		quality: null,
+		qualityLabel: null,
+		keyword: query,
+		displayIndex: 1
+	};
+	for (const src of order) {
+		if (sig.aborted) return null;
+		try {
+			const result = await searchAll(query, 1, onlySource(src), sig);
+			if (sig.aborted) return null;
+			const candidates = dedupeBest(result.interleaved, src);
+			const stub = candidates.find((c) => sameSongKey(c, want));
+			if (!stub) continue;
+			const resolved = await ensureTrackDetails(stub, sig);
+			if (sig.aborted) return null;
+			if (resolved.audioUrl) return resolved;
+		} catch {
+			/* this source dry / threw — walk on to the next (never-throw) */
+		}
+	}
 	return null;
 }
 
@@ -230,6 +289,18 @@ export async function ensureTrackDetails(
 		return track;
 	}
 	const sig = signal ?? new AbortController().signal;
+
+	// RESOLVE-02: a lazy name-only stub (Plan 26-03's Up-Next) carries the `resolveByName` marker and
+	// no real source/songid. Resolve it kuwo-first through ONE source at a time via resolveNameStub —
+	// NEVER dispatch SOURCES[placeholder].resolve on it. On a null return (every source missed or the
+	// signal aborted) fall through by returning the unresolved stub: the caller (player.play) treats
+	// an audioUrl-less result as a failed resolve and routes to its existing error/fallback path
+	// (never-throw). A normal source-bearing, detailsLoaded track skips this branch unchanged.
+	if (track.resolveByName && !track.detailsLoaded) {
+		const named = await resolveNameStub(track.artist, track.title, sig);
+		return named ?? track;
+	}
+
 	// WR-07: `quality` threads an explicit per-call tier to the adapter (download path passes
 	// settings.downloadQuality) so download resolves never mutate the global streaming default.
 	const resolved = await SOURCES[track.source].resolve(track, sig, quality);
@@ -260,39 +331,47 @@ export async function ensureTrackDetails(
 }
 
 /**
- * quick-260629-nyl Task 3: best-effort cross-source lyric lookup for a track that resolved with no
- * lrc. Re-uses the EXISTING TTL-cached searchAll seam (cheap on a warm cache) + the existing
- * matchKey/scoreMatch helpers (no hand-rolled matching) to find the best-matching candidate from a
- * DIFFERENT, lyric-capable source, resolves AT MOST ONE such candidate, and returns its lrc (or null).
- * Strictly bounded + AbortSignal-honoring + never-throws (returns null on any failure).
+ * quick-260629-nyl Task 3 + RESOLVE-02: best-effort cross-source lyric lookup for a track that
+ * resolved with no lrc. Reworked from a single all-enabled `searchAll` fan-out to a SINGLE-SOURCE
+ * kuwo-first WALK (POLICY.md): step through `getEnabledAdapters({})` order, SKIP the track's own
+ * source (already resolved lyric-less) and every `LYRICLESS_SOURCES` (no upstream lyrics), and for
+ * each remaining source issue ONE single-source `searchAll` (`onlySource` prefs — never all 7). Per
+ * step, pick the best name-matching candidate (`matchKey` identity + `scoreMatch` ranking, no
+ * hand-rolled matching), use its inline lrc or resolve AT MOST that ONE candidate, and STOP at the
+ * first source that yields an lrc. Strictly bounded (one resolved candidate per step), single-source
+ * (never a fan-out), AbortSignal-honoring, and never-throws (returns null on any failure).
  */
 async function crossSourceLyric(track: Track, signal: AbortSignal): Promise<string | null> {
 	try {
-		const query = { artist: track.artist || '', title: track.title || '' };
-		if (!query.artist && !query.title) return null;
-		const sr = await searchAll(`${query.artist} ${query.title}`.trim(), 1, {}, signal);
-		if (signal.aborted) return null;
-
-		const wantKey = matchKey(query.artist, query.title);
-		// Candidates from a DIFFERENT, lyric-capable source whose normalized identity matches the song.
-		const candidates = sr.interleaved
-			.filter(
-				(c) =>
-					c.source !== track.source &&
-					!LYRICLESS_SOURCES.has(c.source) &&
-					matchKey(c.artist || '', c.title || '') === wantKey
-			)
-			.sort((a, b) => scoreMatch(query, b) - scoreMatch(query, a));
-
-		const best = candidates[0];
-		if (!best) return null;
-
-		// Resolve AT MOST ONE fallback candidate (the bound). If it already carries an inline lrc
-		// (qq/kuwo return it in the detail body) use it without a second fetch.
-		if (best.lrc && best.lrc.trim()) return best.lrc;
-		const resolvedCand = await SOURCES[best.source].resolve(best, signal);
-		if (signal.aborted) return null;
-		return resolvedCand.lrc && resolvedCand.lrc.trim() ? resolvedCand.lrc : null;
+		const artist = track.artist || '';
+		const title = track.title || '';
+		if (!artist && !title) return null;
+		const query = `${artist} ${title}`.trim();
+		const wantKey = matchKey(artist, title);
+		const q = { artist, title };
+		// kuwo-first order inherited from the registry (RESOLVE-01) — one lyric-capable source per step.
+		const order = getEnabledAdapters({}).map((a) => a.id);
+		for (const src of order) {
+			if (signal.aborted) return null;
+			if (src === track.source || LYRICLESS_SOURCES.has(src)) continue;
+			try {
+				const sr = await searchAll(query, 1, onlySource(src), signal);
+				if (signal.aborted) return null;
+				const best = sr.interleaved
+					.filter((c) => matchKey(c.artist || '', c.title || '') === wantKey)
+					.sort((a, b) => scoreMatch(q, b) - scoreMatch(q, a))[0];
+				if (!best) continue;
+				// Use an inline lrc (qq/kuwo return it in the detail body) or resolve this ONE candidate.
+				if (best.lrc && best.lrc.trim()) return best.lrc;
+				const resolvedCand = await SOURCES[best.source].resolve(best, signal);
+				if (signal.aborted) return null;
+				if (resolvedCand.lrc && resolvedCand.lrc.trim()) return resolvedCand.lrc;
+				// resolved but still lyric-less — advance to the next lyric-capable source (bounded walk).
+			} catch {
+				/* this source dry / threw — try the next source's single search */
+			}
+		}
+		return null;
 	} catch {
 		// Best-effort — any failure (abort, source throw, drift) leaves the primary track lyric-less.
 		return null;
