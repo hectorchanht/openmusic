@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/state';
-	import { ListEnd, Heart } from '@lucide/svelte';
+	import { ListEnd, ListStart } from '@lucide/svelte';
 	import { getGeoTopTracks, type DiscoveryTrack } from '$lib/services/lastfm';
 	import { resolveStub } from '$lib/services/discovery';
 	import { lazyCover } from '$lib/actions/lazyCover';
@@ -10,7 +10,6 @@
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { shouldRun } from '$lib/actions/inflightGuard';
 	import { player } from '$lib/stores/player.svelte';
-	import { library } from '$lib/stores/library.svelte';
 	import { names } from '$lib/stores/names.svelte';
 	import { toast } from '$lib/stores/toast.svelte';
 	import * as haptics from '$lib/util/haptics';
@@ -87,12 +86,8 @@
 	}
 
 	// D-16 / WR-03: per-row-per-action in-flight guard — a second swipe on the same row while
-	// its resolve is in flight is a no-op (no duplicate addToQueue / racing toggleLike).
+	// its resolve is in flight is a no-op (no duplicate addToQueue / racing playNext).
 	let swipeInFlight = $state(new Set<string>());
-
-	// WR-04: liked state per row key, recorded AFTER a swipeLike resolves (the stub's uid is
-	// always '' so library.isLiked(stub.uid) could never light the reveal Heart).
-	let likedRows = $state<Record<string, boolean>>({});
 
 	async function swipeQueue(it: DiscoveryTrack) {
 		const key = `q:${rowKey(it)}`;
@@ -111,19 +106,19 @@
 		}
 	}
 
-	async function swipeLike(it: DiscoveryTrack) {
-		const key = `l:${rowKey(it)}`;
+	// quick-260711-t51: swipe-left = play next (player.playNext, splice-after-current) —
+	// matches search/library/artist/NowPlaying. Resolves the discovery stub first, since a
+	// DiscoveryTrack has no uid/audioUrl until resolved.
+	async function swipeNext(it: DiscoveryTrack) {
+		const key = `n:${rowKey(it)}`;
 		if (!shouldRun(swipeInFlight, key)) return;
 		swipeInFlight = new Set(swipeInFlight).add(key);
 		try {
 			const tr = await resolveStub(it.artist, it.title);
 			if (!tr) { toast.show(t('home.unplayable')); return; }
-			const wasLiked = library.isLiked(tr.uid);
-			library.toggleLike(tr);
-			// WR-04: record the post-toggle liked state by row key for the reveal Heart.
-			likedRows = { ...likedRows, [rowKey(it)]: !wasLiked };
+			player.playNext(tr);
 			haptics.tick();
-			toast.show(wasLiked ? t('toast.unliked') : t('toast.liked'));
+			toast.show(t('toast.playingNext'));
 		} finally {
 			const n = new Set(swipeInFlight);
 			n.delete(key);
@@ -176,17 +171,16 @@
 {:else if tracks.length > 0}
 	<ul class="list">
 		{#each tracks as it (rowKey(it))}
-			{@const liked = likedRows[rowKey(it)] ?? false}
 			<li class="row-wrap">
 				<span class="reveal reveal-right" aria-hidden="true"><ListEnd size={20} /></span>
-				<span class="reveal reveal-left" class:on={liked} aria-hidden="true"><Heart size={20} /></span>
+				<span class="reveal reveal-left" aria-hidden="true"><ListStart size={20} /></span>
 				<button
 					class="row"
 					use:tapBounce
 					use:longpress
 					onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openMenu(it); }}
 					onclick={() => play(it)}
-					use:swipeAction={{ onSwipeRight: () => swipeQueue(it), onSwipeLeft: () => swipeLike(it) }}
+					use:swipeAction={{ onSwipeRight: () => swipeQueue(it), onSwipeLeft: () => swipeNext(it) }}
 				>
 					<span
 						class="art"
@@ -218,9 +212,8 @@
 		position: absolute; top: 0; bottom: 0; width: 72px; display: flex; align-items: center;
 		justify-content: center; color: #fff; pointer-events: none;
 	}
-	.reveal-right { left: 0; background: var(--color-primary); }
-	.reveal-left { right: 0; background: var(--color-surface-2); color: var(--color-text-muted); }
-	.reveal-left.on { background: var(--src-netease); color: #fff; }
+	.reveal-right { left: 0; color: var(--color-text-muted); }
+	.reveal-left { right: 0; color: var(--color-text-muted); }
 	.row {
 		position: relative; z-index: 1; width: 100%; display: flex; align-items: center; gap: 12px;
 		padding: 8px; background: var(--color-bg); border: none; border-radius: var(--radius-md);
