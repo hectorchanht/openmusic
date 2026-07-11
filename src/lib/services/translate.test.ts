@@ -48,13 +48,15 @@ describe('translateLinesEx — fallback signal + poison-resistant cache', () => 
 		const r = await translateLinesEx(['杜国华', '周杰伦'], 'zh-Hant');
 		expect(r.out).toEqual(['杜國華', '周杰倫']);
 		expect(r.complete).toBe(true);
-		expect(lsKeys().filter((k) => k.startsWith('openmusic:lyrics-tr:v2:')).length).toBe(1);
+		expect(lsKeys().filter((k) => k.startsWith('openmusic:lyrics-tr:v3:')).length).toBe(1);
 	});
 
 	it('does NOT persist when any non-blank line fell back (echo / failure)', async () => {
 		const { translateLinesEx } = await import('./translate');
-		fetchMock.mockResolvedValue(jsonRes({ translated: ['杜国华', '周杰倫'], flags: [false, true] }));
-		const r = await translateLinesEx(['杜国华', '周杰伦'], 'zh-Hant');
+		// Kana lines are API-bound under zh-Hant (D-04 — offline branch skips them), so this still
+		// exercises the API echo/fallback cache gate (Chinese lines would now convert offline).
+		fetchMock.mockResolvedValue(jsonRes({ translated: ['さくら', '飛舞飄散'], flags: [false, true] }));
+		const r = await translateLinesEx(['さくら', '舞い散る'], 'zh-Hant');
 		expect(r.complete).toBe(false);
 		expect(lsKeys().filter((k) => k.startsWith('openmusic:lyrics-tr:')).length).toBe(0);
 	});
@@ -64,14 +66,15 @@ describe('translateLinesEx — fallback signal + poison-resistant cache', () => 
 		fetchMock.mockResolvedValue(jsonRes({ translated: ['', '歌詞', ''], flags: [false, true, false] }));
 		const r = await translateLinesEx(['', '歌词', ''], 'zh-Hant');
 		expect(r.complete).toBe(true);
-		expect(lsKeys().filter((k) => k.startsWith('openmusic:lyrics-tr:v2:')).length).toBe(1);
+		expect(lsKeys().filter((k) => k.startsWith('openmusic:lyrics-tr:v3:')).length).toBe(1);
 	});
 
 	it('infers per-line flags when the server omits them (output differs from input)', async () => {
 		const { translateLinesEx } = await import('./translate');
-		fetchMock.mockResolvedValue(jsonRes({ translated: ['杜國華', '邓紫棋'] })); // no flags
-		const r = await translateLinesEx(['杜国华', '邓紫棋'], 'zh-Hant');
-		expect(r.flags).toEqual([true, false]); // line 1 unchanged → fallback
+		// Kana lines are API-bound under zh-Hant; the server omits flags so translate.ts infers them.
+		fetchMock.mockResolvedValue(jsonRes({ translated: ['櫻花', 'まだ'] })); // no flags
+		const r = await translateLinesEx(['さくら', 'まだ'], 'zh-Hant');
+		expect(r.flags).toEqual([true, false]); // line 2 unchanged → fallback
 		expect(r.complete).toBe(false);
 	});
 
@@ -149,7 +152,7 @@ describe('translateLinesEx — transient-failure resilience (retry + best-result
 		expect(r.out).toEqual(['櫻花', '飛舞飄散']); // recovered translation surfaces
 		expect(r.complete).toBe(true);
 		// A recovered, complete batch is cached so the next session is instant.
-		expect(lsKeys().filter((k) => k.startsWith('openmusic:lyrics-tr:v2:')).length).toBe(1);
+		expect(lsKeys().filter((k) => k.startsWith('openmusic:lyrics-tr:v3:')).length).toBe(1);
 	});
 
 	it('retries a THROWN transport failure and recovers', async () => {
@@ -189,5 +192,54 @@ describe('translateLinesEx — transient-failure resilience (retry + best-result
 		expect(fetchMock.mock.calls.length).toBe(3);
 		expect(r.out.length).toBe(2);
 		expect(r.complete).toBe(false);
+	});
+});
+
+// OFFLINE zh-Hant ROUTING (Phase 25 / D-02 / D-04): when to === 'zh-Hant', Chinese-detected lines
+// are converted CLIENT-SIDE (zero network) by the s2t converter (Plan 01) and ONLY the non-Chinese
+// remainder is sent to /api/translate. zh-convert is PURE, so we let the REAL converter run (no
+// mock) and assert on fetchMock's call count + request body to prove the routing + the D-04 JA-kana
+// guard + the preserved positional-alignment contract (out.length === lines.length).
+describe('translateLinesEx — zh-Hant offline s2t routing (D-02 / D-04)', () => {
+	// Parse the JSON body the client POSTed to /api/translate on a given call.
+	const sentLines = (call: number): string[] =>
+		JSON.parse((fetchMock.mock.calls[call][1] as { body: string }).body).lines;
+
+	it('all-Chinese zh-Hant batch is converted offline with ZERO API calls + cached (v3)', async () => {
+		const { translateLinesEx } = await import('./translate');
+		const r = await translateLinesEx(['简体', '中文'], 'zh-Hant');
+		expect(fetchMock).not.toHaveBeenCalled(); // no line reached the API
+		expect(r.out).toEqual(['簡體', '中文']); // real s2t Traditional output
+		expect(r.complete).toBe(true);
+		expect(lsKeys().filter((k) => k.startsWith('openmusic:lyrics-tr:v3:')).length).toBe(1);
+	});
+
+	it('mixed batch sends ONLY the non-Chinese line to the API; out stays aligned', async () => {
+		const { translateLinesEx } = await import('./translate');
+		fetchMock.mockResolvedValue(jsonRes({ translated: ['HELLO'], flags: [true] }));
+		const r = await translateLinesEx(['简体', 'hello'], 'zh-Hant');
+		expect(fetchMock.mock.calls.length).toBe(1); // '简体' handled offline
+		expect(sentLines(0)).toEqual(['hello']); // only the non-Chinese line was sent
+		expect(r.out[0]).toBe('簡體'); // offline Traditional form
+		expect(r.out[1]).toBe('HELLO'); // API result
+		expect(r.out.length).toBe(2); // out.length === lines.length
+	});
+
+	it('a JA-kana line under zh-Hant IS sent to the API (offline branch skipped it — D-04)', async () => {
+		const { translateLinesEx } = await import('./translate');
+		fetchMock.mockResolvedValue(jsonRes({ translated: ['桜'], flags: [true] }));
+		const r = await translateLinesEx(['さくら'], 'zh-Hant');
+		expect(fetchMock.mock.calls.length).toBe(1);
+		expect(sentLines(0)).toEqual(['さくら']); // routed to the API, NOT offline-converted
+		expect(r.out.length).toBe(1);
+	});
+
+	it('a non-zh-Hant target is unchanged: the FULL batch (incl the Chinese line) goes to the API', async () => {
+		const { translateLinesEx } = await import('./translate');
+		fetchMock.mockResolvedValue(jsonRes({ translated: ['A', 'B'], flags: [true, true] }));
+		const r = await translateLinesEx(['简体', 'hello'], 'en');
+		expect(fetchMock.mock.calls.length).toBe(1);
+		expect(sentLines(0)).toEqual(['简体', 'hello']); // no offline branch — full lines sent
+		expect(r.out).toEqual(['A', 'B']);
 	});
 });
