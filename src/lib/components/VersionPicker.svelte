@@ -23,8 +23,8 @@
 	import { dragClose } from '$lib/actions/dragClose';
 	import { focusTrap } from '$lib/actions/focusTrap';
 	import { tapBounce } from '$lib/actions/tapBounce';
+	import { marquee } from '$lib/actions/marquee';
 	import { t } from '$lib/i18n';
-	import { SOURCES } from '$lib/sources/registry';
 	import { collapseVariants, variantTag, type VersionTag } from '$lib/services/dedupe';
 	import type { Track } from '$lib/sources/types';
 
@@ -54,11 +54,6 @@
 	// real choice). Applied here so the search-page mount AND the 26-10 menu/up-next mounts are fixed.
 	const shown = $derived(collapseVariants(versions));
 
-	// Registry-driven human label for a source id (never names a source inline). Falls back to the
-	// raw source id if the registry has no label for it.
-	function sourceLabel(v: Track): string {
-		return SOURCES[v.source]?.label ?? v.source;
-	}
 	// Quality label with a graceful fallback (many search stubs carry no quality pre-resolve).
 	function qualityLabel(v: Track): string {
 		return v.qualityLabel || v.quality || t('versions.unknownQuality');
@@ -121,12 +116,11 @@
 			{#each shown as v (v.uid)}
 				{@const vt = variantTag(v.title)}
 				<button class="mi" onclick={() => pick(v)} use:tapBounce>
-					<span class="src">{sourceLabel(v)}</span>
 					<span class="ver-meta">
 						<span class="ver-title">
-							<span class="ver-name">{names.dnTitle(v.title)}</span>
-							{#if vt}<span class="ver-tag">{tagLabel(vt)}</span>{/if}
+							<span class="ver-name" use:marquee><span class="marquee-inner">{names.dnTitle(v.title)}</span></span>
 						</span>
+						{#if vt}<span class="ver-tag">{tagLabel(vt)}</span>{/if}
 						<span class="ver-sub">{versionSub(v)}</span>
 					</span>
 				</button>
@@ -158,12 +152,6 @@
 		border-radius: 10px; cursor: pointer; text-align: left;
 	}
 	.mi:hover { background: var(--color-surface); }
-	/* Source chip — a fixed-width leading label so the rows align on the variant metadata. */
-	.src {
-		flex: 0 0 auto; min-width: 56px; text-align: center; font-size: 12px; font-weight: 700;
-		color: var(--color-primary); text-transform: uppercase; letter-spacing: 0.03em;
-		padding: 4px 8px; border-radius: 8px; background: var(--color-surface);
-	}
 	.ver-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 	/* Title row is a flex line so the (Live)/(Demo) tag pill stays visible while the name ellipsizes. */
 	.ver-title { font-size: 14px; font-weight: 600; color: var(--color-text); display: flex; align-items: center; gap: 6px; min-width: 0; }
