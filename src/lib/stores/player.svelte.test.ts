@@ -4815,3 +4815,81 @@ describe('player resolve-phase watchdog — stalled/null initial resolve fails f
 		}
 	});
 });
+
+// 26-06 Task 2 (regression proof): characterize the two budget/UX invariants the watchdog must hold —
+// the happy path issues ZERO cross-source fan-out (the ~3-call budget), and a stalled resolve never
+// leaves the player permanently loading. Reuses the same real-play + fake-audio + fake-timer harness.
+describe('player resolve-phase watchdog — regression: no happy-path fan-out; a stall never hangs (26-06)', () => {
+	const Player_RESOLVE_WATCHDOG_MS = 6000;
+	let el: ReturnType<typeof makeFakeAudio>;
+
+	beforeEach(() => {
+		(player.play as unknown as { mockRestore(): void }).mockRestore?.();
+		mockEnsure.mockReset();
+		mockTryFallback.mockReset();
+		player.current = null;
+		player.queue = [];
+		player.error = null;
+		player.loading = false;
+		vi.stubGlobal('navigator', {
+			onLine: true,
+			mediaSession: { metadata: null, playbackState: 'none', setPositionState() {}, setActionHandler() {} }
+		});
+		vi.stubGlobal('MediaMetadata', FakeMediaMetadata);
+		vi.spyOn(library, 'isDownloaded').mockReturnValue(false);
+		vi.spyOn(library, 'adoptCover').mockImplementation(() => {});
+		el = makeFakeAudio();
+		player.attach(el as unknown as HTMLAudioElement);
+	});
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
+	it('happy path: a healthy resolve performs ZERO tryFallback (cross-source) calls — single-source budget holds', async () => {
+		vi.useFakeTimers();
+		try {
+			const tapped = stub('kuwo', '100', 'A', 'Budget Song');
+			player.queue = [tapped];
+			mockEnsure.mockImplementation((t: Track) =>
+				Promise.resolve({ ...t, detailsLoaded: true, audioUrl: 'https://cdn/ok.mp3' })
+			);
+			mockTryFallback.mockResolvedValue(null);
+
+			const p = player.play(tapped);
+			await vi.advanceTimersByTimeAsync(0);
+			await p;
+
+			expect(mockTryFallback).toHaveBeenCalledTimes(0);
+			expect(el.src).toBe('https://cdn/ok.mp3'); // the single source's URL was attached, no fan-out
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('a stalled resolve does NOT leave player.loading true forever: after the watchdog + total failure settle, loading is false', async () => {
+		vi.useFakeTimers();
+		try {
+			const tapped = stub('qq', '200', 'B', 'Stalls');
+			player.queue = [tapped];
+			const never = deferred<Track>();
+			mockEnsure.mockImplementation((t: Track) =>
+				t.uid === tapped.uid
+					? never.promise
+					: Promise.resolve({ ...t, detailsLoaded: true, audioUrl: 'https://cdn/x.mp3' })
+			);
+			mockTryFallback.mockResolvedValue(null); // total failure
+
+			const p = player.play(tapped);
+			p.catch(() => {});
+			await vi.advanceTimersByTimeAsync(0);
+			expect(player.loading).toBe(true); // still resolving — loading held
+			await vi.advanceTimersByTimeAsync(Player_RESOLVE_WATCHDOG_MS);
+			await vi.advanceTimersByTimeAsync(0);
+
+			expect(player.loading).toBe(false); // watchdog → fallback → total failure → NOT stuck loading
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+});
