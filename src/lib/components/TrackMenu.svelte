@@ -2,7 +2,7 @@
 	import { tick, untrack } from 'svelte';
 	import { fly } from 'svelte/transition';
 	import { goto } from '$app/navigation';
-	import { ListStart, ListEnd, Download, Heart, ListPlus, Disc, User, Share2, Info, X, Plus, Shuffle, Trash2, Moon, Sparkles } from '@lucide/svelte';
+	import { ListStart, ListEnd, Download, Heart, ListPlus, Disc, User, Share2, Info, X, Plus, Shuffle, Trash2, Moon, Sparkles, Layers } from '@lucide/svelte';
 	import { player } from '$lib/stores/player.svelte';
 	import { sleepTimer } from '$lib/stores/sleepTimer.svelte';
 	import { library } from '$lib/stores/library.svelte';
@@ -18,6 +18,10 @@
 	import { isGatedReady, shouldStartResolve } from './track-menu-gate';
 	import { t } from '$lib/i18n';
 	import { ensureTrackDetails } from '$lib/services/catalog';
+	// Gap 4 (26-10): the LAZY on-demand cross-source variant fetch (26-08) fed to the Play-from-source
+	// picker — fired ONLY on the row tap, never on menu open (T-26-10-02).
+	import { fetchVariants } from '$lib/services/variants';
+	import VersionPicker from '$lib/components/VersionPicker.svelte';
 	import { blobStore } from '$lib/services/blob-store';
 	import { songShareUrl } from '$lib/services/share';
 	import type { Track } from '$lib/sources/types';
@@ -30,6 +34,21 @@
 	let pickerOpen = $state(false);
 	let detailTrack = $state<Track | null>(null);
 	const liked = $derived(track ? library.isLiked(track.uid) : false);
+
+	// Gap 4 (26-10): a lazily-fed VersionPicker reachable from the long-press menu — "Play from
+	// source". A queued/played song carries only its own source, so the cross-source variants are
+	// discovered on demand — but ONLY when the user taps the Play-from-source row (openVersions),
+	// NEVER on menu open (no background fan-out; T-26-10-02). versionGen/versionAc are PLAIN
+	// (non-reactive) supersedence guards (house idiom): a re-open bumps the token + aborts the prior
+	// fetch so a stale result can't land. The sheet's overlay lifecycle is owned ENTIRELY by
+	// VersionPicker (key 'versionpicker', self-registered) — mirroring the search page — so it
+	// converges on the SINGLE dismiss path; a SECOND trackmenu-scoped overlay entry would double-push
+	// one history state per open and over-pop the Back gesture (the invariant Task 3 verifies).
+	let versionsOpen = $state(false);
+	let versionsLoading = $state(false);
+	let versionsList = $state<Track[]>([]);
+	let versionGen = 0;
+	let versionAc: AbortController | null = null;
 
 	// MENU-01 (D-02/D-03): per-action in-flight set drives the inline row spinners. A gated
 	// action (Download / Detail / Remix) is tappable on a STUB — tapping kicks off the resolve,
@@ -56,6 +75,27 @@
 	function close() {
 		pickerOpen = false;
 		onclose();
+	}
+	// Gap 4 (26-10): open the Play-from-source picker + fire the SINGLE lazy variant fan-out. Called
+	// ONLY from the Play-from-source row tap — NEVER from a menu-open $effect (opt-in; T-26-10-02).
+	async function openVersions() {
+		if (!track) return;
+		const gen = ++versionGen;
+		versionAc?.abort();
+		const ac = new AbortController();
+		versionAc = ac;
+		// Open immediately with the spinner; the single fetchVariants fan-out runs behind the sheet.
+		versionsList = [];
+		versionsLoading = true;
+		versionsOpen = true;
+		const list = await fetchVariants(track, ac.signal);
+		if (gen !== versionGen || ac.signal.aborted) return; // superseded / cancelled
+		versionsList = list;
+		versionsLoading = false;
+	}
+	function closeVersions() {
+		versionsOpen = false;
+		versionAc?.abort(); // cancel any in-flight fetch when the sheet is dismissed.
 	}
 	function playNext() { if (track) { player.playNext(track); toast.show(t('toast.playingNext')); } close(); }
 	function addQueue() { if (track) { hapticTick(); player.addToQueue(track); toast.show(t('toast.addedToQueue')); } close(); }
@@ -319,6 +359,11 @@
 		<button class="mi" aria-busy={inFlight.has('remix')} aria-label={inFlight.has('remix') ? t('menu.preparing') : undefined} onclick={() => gated('remix', doRemix)} use:tapBounce>
 			{#if inFlight.has('remix')}<span class="row-spinner"></span>{:else}<Sparkles size={18} />{/if} {t('menu.remix')}
 		</button>
+		<!-- Gap 4 (26-10): Play from source — opens a lazily-fed VersionPicker. The variant fetch fires
+		     ONLY on THIS tap (openVersions), never on menu open (opt-in; T-26-10-02). Shown for every
+		     track (variants discovered on demand; the picker's loading/empty states cover a single-source
+		     song). Available for the current track too (switch the playing source). -->
+		<button class="mi" onclick={openVersions} use:tapBounce><Layers size={18} /> {t('menu.versions')}</button>
 		{#if player.queue.length > 1}
 			<button class="mi" class:on={player.shuffle} onclick={shuffleQueue} use:tapBounce><Shuffle size={18} /> {t('menu.shuffleQueue')}</button>
 			<button class="mi" onclick={clearQueue} use:tapBounce><Trash2 size={18} /> {t('menu.clearQueue')}</button>
@@ -367,6 +412,20 @@
 		</dl>
 	</div>
 {/if}
+
+<!-- Gap 4 (26-10): the Play-from-source VersionPicker. Mounted OUTSIDE the {#if open && track} menu
+     block (like the playlist-picker/detail sub-sheets) so it survives the menu closing on a pick.
+     VersionPicker SELF-REGISTERS its overlay ('versionpicker') — the same registration the search
+     page relies on — so the Back gesture converges on the single dismiss path (NO trackmenu-scoped
+     overlay entry here, which would double-push + over-pop). loading is bound to the in-flight
+     fetchVariants state; onpick plays the chosen source's EXACT variant fresh, then closes the menu. -->
+<VersionPicker
+	versions={versionsList}
+	open={versionsOpen}
+	loading={versionsLoading}
+	onclose={closeVersions}
+	onpick={(v) => { player.play(v, { fresh: true }); close(); }}
+/>
 
 <style>
 	.scrim { position: fixed; inset: 0; z-index: 80; background: rgba(0,0,0,0.45); border: none; }
