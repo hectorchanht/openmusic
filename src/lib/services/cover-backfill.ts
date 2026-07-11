@@ -212,6 +212,39 @@ export async function resolveCoverForTrack(
 }
 
 /**
+ * Deezer-only HQ cover UPGRADE (Plan 26-02, COVER-01) — the bounded, single-tier counterpart to
+ * resolveCoverForTrack. This is NOT a miss-recovery chain: it issues ONLY the Deezer tier and NEVER
+ * touches iTunes or the CN `searchAll` tier. Purpose: a track that already painted from its inline
+ * source cover (kuwo `pic` / qq `album_pic` / netease `pic`) can lazily, post-paint, pick up Deezer's
+ * higher-quality album art — the single OPTIONAL cover call in the click-to-play ~3-call budget
+ * (T-26-02-01: never a per-tile fan-out; the caller bounds it to the now-playing track, ≤1 Deezer call).
+ *
+ * Reuses the SAME never-throw `tier()` wrapper + `isSolidCover` https guard as resolveTrackChain, so the
+ * https-only render/cache guard (T-0bb-01 / T-26-02-02) lives in exactly one place. On a SOLID https hit
+ * it writes the cache with the SAME posture as resolveCoverForTrack — the uid layer ONLY for a real uid
+ * (an empty stub uid would collapse every row onto the shared `'uid:'` slot) plus the always-safe name
+ * layer. The reactive `coverVersion()` bump is the CALLER's job (mirrors resolveCoverForTrack, which the
+ * player's resolveCoverAsync/healCover follow with a separate bumpCoverVersion) so cover-backfill.ts
+ * stays a pure `.ts` (no runes wrapper imported here). Never throws; honors an AbortSignal.
+ */
+export async function resolveDeezerHQ(
+	track: Track,
+	signal?: AbortSignal
+): Promise<string | null> {
+	if (signal?.aborted) return null;
+	// SINGLE TIER — Deezer only. iTunes + CN are NEVER issued (this is an upgrade, not a chain).
+	const cover = await tier(() => deezerSongCover(track.artist ?? '', track.title ?? '', signal));
+	if (signal?.aborted) return null;
+	if (isSolidCover(cover)) {
+		// Mirror resolveCoverForTrack's write posture: real-uid uid layer + always-safe name layer.
+		if (track.uid) setCachedCoverByUid(track.uid, cover);
+		setCachedCover(track.artist, track.title, cover);
+		return cover;
+	}
+	return null;
+}
+
+/**
  * Lazily resolve + cache real covers (track chain Deezer → iTunes → CN) for the given
  * {artist,title} rows.
  *
