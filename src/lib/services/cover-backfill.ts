@@ -166,7 +166,10 @@ async function resolveTrackChain(
 		// Tier 3 — CN (existing resolver; fires only on a Deezer+iTunes miss).
 		if (!cover) {
 			cover = await tier(async () => {
-				const r = await searchAll(`${artist} ${title}`, 1);
+				// WR-01: thread `signal` (and explicit `{}` prefs) so the tier-3 CN
+				// fan-out is cancelled on supersede/unmount like tiers 1-2 above,
+				// rather than running to completion on the abort path.
+				const r = await searchAll(`${artist} ${title}`, 1, {}, signal);
 				return dedupeBest(r.interleaved, settings.preferredSource)[0]?.cover ?? null;
 			});
 			if (signal?.aborted) return null;
