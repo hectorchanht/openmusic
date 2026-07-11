@@ -91,17 +91,18 @@ describe('searchAll (DATA-03 fan-out)', () => {
 		expect(interleaved.map((t) => t.uid)).toEqual(['netease:dup', 'netease:other']);
 	});
 
-	it('interleaves round-robin in registry order (netease→qq→kuwo→joox)', async () => {
+	it('interleaves round-robin in registry order (kuwo→qq→netease→joox)', async () => {
 		vi.spyOn(SOURCES.netease, 'search').mockResolvedValue([mk('netease', 'n1'), mk('netease', 'n2')]);
 		vi.spyOn(SOURCES.qq, 'search').mockResolvedValue([mk('qq', 'q1')]);
 		vi.spyOn(SOURCES.kuwo, 'search').mockResolvedValue([mk('kuwo', 'k1')]);
 		vi.spyOn(SOURCES.joox, 'search').mockResolvedValue([mk('joox', 'j1')]);
 
+		// Phase 26 (RESOLVE-01): interleave inherits the kuwo-first registry order.
 		const { interleaved } = await searchAll('x', 1, ALL);
 		expect(interleaved.map((t) => t.uid)).toEqual([
-			'netease:n1',
-			'qq:q1',
 			'kuwo:k1',
+			'qq:q1',
+			'netease:n1',
 			'joox:j1',
 			'netease:n2'
 		]);
@@ -121,9 +122,9 @@ describe('searchAll (D-04 TTL cache)', () => {
 		// adapters fanned out exactly once — the second call is a cache HIT
 		expect(n).toHaveBeenCalledOnce();
 		expect(q).toHaveBeenCalledOnce();
-		// same resolved shape
+		// same resolved shape (kuwo-first registry order → qq before netease when kuwo is empty)
 		expect(second.interleaved.map((t) => t.uid)).toEqual(first.interleaved.map((t) => t.uid));
-		expect(second.interleaved.map((t) => t.uid)).toEqual(['netease:n1', 'qq:q1']);
+		expect(second.interleaved.map((t) => t.uid)).toEqual(['qq:q1', 'netease:n1']);
 	});
 
 	it('keys the cache by PAGE — page 1 and page 2 are distinct entries', async () => {
@@ -234,11 +235,11 @@ describe('searchAll (D-06 progressive onPartial)', () => {
 		const { perSource, interleaved } = await searchAll('noop', 1, ALL);
 
 		expect(perSource.map((p) => p.source).sort()).toEqual(['joox', 'kuwo', 'netease', 'qq']);
-		// interleave stays registry-ordered regardless of settle order
+		// interleave stays registry-ordered (kuwo-first) regardless of settle order
 		expect(interleaved.map((t) => t.uid)).toEqual([
-			'netease:n1',
-			'qq:q1',
 			'kuwo:k1',
+			'qq:q1',
+			'netease:n1',
 			'joox:j1'
 		]);
 	});
@@ -294,18 +295,19 @@ describe('searchAllUncached inter-source stagger (GAPLESS-PREFETCH)', () => {
 
 			const done = searchAll('staggerkw', 1, ALL);
 			// Let the synchronous fan-out launch + adapter[0]'s 0ms sleep flush.
+			// Phase 26 (RESOLVE-01): kuwo-first registry → adapter[0]=kuwo, [1]=qq, [2]=netease, [3]=joox.
 			await vi.advanceTimersByTimeAsync(0);
-			expect(n).toHaveBeenCalledTimes(1);
+			expect(k).toHaveBeenCalledTimes(1);
 			// adapter[1] (qq) must still be waiting on its SEARCH_STAGGER_MS sleep.
 			expect(q).not.toHaveBeenCalled();
 
 			await vi.advanceTimersByTimeAsync(SEARCH_STAGGER_MS);
 			expect(q).toHaveBeenCalledTimes(1);
-			// kuwo at 2x, joox at 3x — still pending until their windows pass.
-			expect(k).not.toHaveBeenCalled();
+			// netease at 2x, joox at 3x — still pending until their windows pass.
+			expect(n).not.toHaveBeenCalled();
 
 			await vi.advanceTimersByTimeAsync(SEARCH_STAGGER_MS * 2);
-			expect(k).toHaveBeenCalledTimes(1);
+			expect(n).toHaveBeenCalledTimes(1);
 			expect(j).toHaveBeenCalledTimes(1);
 
 			const { perSource, interleaved } = await done;
@@ -315,11 +317,11 @@ describe('searchAllUncached inter-source stagger (GAPLESS-PREFETCH)', () => {
 				'netease',
 				'qq'
 			]);
-			// final membership matches the un-staggered registry-ordered interleave
+			// final membership matches the un-staggered registry-ordered (kuwo-first) interleave
 			expect(interleaved.map((t) => t.uid)).toEqual([
-				'netease:n1',
-				'qq:q1',
 				'kuwo:k1',
+				'qq:q1',
+				'netease:n1',
 				'joox:j1'
 			]);
 		} finally {
@@ -337,9 +339,10 @@ describe('searchAllUncached inter-source stagger (GAPLESS-PREFETCH)', () => {
 
 			const ac = new AbortController();
 			const done = searchAll('abortstagger', 1, ALL, ac.signal);
-			// adapter[0] fires immediately; the rest are still in their sleep windows.
+			// adapter[0] (kuwo, kuwo-first registry) fires immediately; the rest are still in their
+			// sleep windows.
 			await vi.advanceTimersByTimeAsync(0);
-			expect(n).toHaveBeenCalledTimes(1);
+			expect(k).toHaveBeenCalledTimes(1);
 			expect(q).not.toHaveBeenCalled();
 
 			// Abort BEFORE the later windows elapse — they must be skipped.
@@ -348,7 +351,7 @@ describe('searchAllUncached inter-source stagger (GAPLESS-PREFETCH)', () => {
 			await done;
 
 			expect(q).not.toHaveBeenCalled();
-			expect(k).not.toHaveBeenCalled();
+			expect(n).not.toHaveBeenCalled();
 			expect(j).not.toHaveBeenCalled();
 		} finally {
 			vi.useRealTimers();

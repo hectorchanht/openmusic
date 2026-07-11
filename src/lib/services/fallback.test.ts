@@ -8,17 +8,19 @@ import { makeUid, type SourceId, type Track } from '$lib/sources/types';
 // first deduped result.
 
 // Control the enabled-source set + registry without touching real settings/network.
+// Phase 26 (RESOLVE-01): the mock mirrors the real registry's kuwo-FIRST order, so fallbackOrder's
+// inherited default walks kuwo → qq → netease → joox.
 vi.mock('$lib/sources/registry', () => ({
 	SOURCES: {
-		netease: { id: 'netease' },
-		qq: { id: 'qq' },
 		kuwo: { id: 'kuwo' },
+		qq: { id: 'qq' },
+		netease: { id: 'netease' },
 		joox: { id: 'joox' }
 	},
 	getEnabledAdapters: vi.fn(() => [
-		{ id: 'netease' },
-		{ id: 'qq' },
 		{ id: 'kuwo' },
+		{ id: 'qq' },
+		{ id: 'netease' },
 		{ id: 'joox' }
 	])
 }));
@@ -52,7 +54,8 @@ function mk(source: SourceId, songid: string, artist: string, title: string, aud
 
 describe('fallbackOrder — attempted-source exclusion (CR-03)', () => {
 	it('drops the failed source', () => {
-		expect(fallbackOrder('netease')).toEqual(['qq', 'kuwo', 'joox']);
+		// kuwo-first default order minus the failed source.
+		expect(fallbackOrder('netease')).toEqual(['kuwo', 'qq', 'joox']);
 	});
 
 	it('also drops every source in the attempted set', () => {
@@ -67,7 +70,23 @@ describe('fallbackOrder — attempted-source exclusion (CR-03)', () => {
 
 	it('surfaces preferred first among the remaining (non-attempted) sources', () => {
 		const attempted = new Set<SourceId>(['netease']);
-		expect(fallbackOrder('netease', 'joox', attempted)).toEqual(['joox', 'qq', 'kuwo']);
+		expect(fallbackOrder('netease', 'joox', attempted)).toEqual(['joox', 'kuwo', 'qq']);
+	});
+});
+
+describe('fallbackOrder — kuwo-first resolve floor (RESOLVE-01, POLICY.md)', () => {
+	it('defaults to kuwo FIRST when no preferred source is set', () => {
+		expect(fallbackOrder('netease', undefined, new Set())[0]).toBe('kuwo');
+	});
+
+	it('walks kuwo → qq → joox after a kuwo failure with no preferred source', () => {
+		// kuwo just failed → dropped; the rest keep the registry (kuwo-first) order.
+		expect(fallbackOrder('kuwo', undefined, new Set())).toEqual(['qq', 'netease', 'joox']);
+	});
+
+	it('an explicit user preferred source still wins over the kuwo default', () => {
+		// preferred=qq is hoisted first even though kuwo is the registry floor.
+		expect(fallbackOrder('kuwo', 'qq', new Set())[0]).toBe('qq');
 	});
 });
 

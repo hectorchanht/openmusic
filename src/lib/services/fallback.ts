@@ -18,6 +18,12 @@ import type { SourceId, Track } from '$lib/sources/types';
  * Drops the failed source AND every source in `attempted` (sources already tried for this logical
  * song — CR-03); surfaces `preferred` first when set. Pure — exported for testability.
  *
+ * ORDER INHERITANCE (POLICY.md / spikes 001+004): the base order is `getEnabledAdapters({})` order,
+ * which is the registry SOURCES literal order — now kuwo-first. So with no `preferred` set, failover
+ * walks kuwo → qq → netease → joox → (fivesing → jamendo → audius). An explicit user
+ * `settings.preferredSource`, threaded in as `preferred`, still wins (hoisted first) over the
+ * kuwo default. This function names NO source itself — reorder the registry to change the floor.
+ *
  * `attempted` prevents the unbounded A↔B ping-pong where a resolve-but-unplayable source (URL
  * resolves, the <audio> 403s) keeps being re-offered because fallbackOrder only excluded the
  * single source that just failed: once A-netease and A-qq have both been tried for one song, both

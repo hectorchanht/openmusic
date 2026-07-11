@@ -2,14 +2,17 @@ import { describe, it, expect } from 'vitest';
 import { SOURCES, getEnabledAdapters } from './registry';
 import { makeUid, type SourceId } from './types';
 
-const EXPECTED_KEYS: SourceId[] = ['netease', 'qq', 'kuwo', 'joox', 'fivesing', 'jamendo', 'audius'];
+// Phase 26 (RESOLVE-01, POLICY.md / spikes 001+004): the registry is now kuwo-FIRST. Order is
+// load-bearing — getEnabledAdapters / fallbackOrder / resolveNameStub / interleave all inherit it,
+// so the kuwo-first resolve floor is asserted here at the single enumeration point.
+const EXPECTED_KEYS: SourceId[] = ['kuwo', 'qq', 'netease', 'joox', 'fivesing', 'jamendo', 'audius'];
 
 describe('SOURCES registry (DATA-04 — single enumeration point)', () => {
-	// Test 4: exactly the expected keys; each value's .id matches its key.
+	// Test 4: exactly the expected keys IN kuwo-first order; each value's .id matches its key.
 	// hvu: 5sing (Kugou UGC) added opt-in, flipped to enabledByDefault:true in 1bf113c.
 	// ixw: jamendo (CC indie) added opt-in, flipped to enabledByDefault:true in 1bf113c.
 	// 0zn: audius (Western/indie/UGC) added with enabledByDefault:true.
-	it('enumerates exactly netease,qq,kuwo,joox,fivesing,jamendo,audius', () => {
+	it('enumerates exactly kuwo,qq,netease,joox,fivesing,jamendo,audius (kuwo-first resolve floor)', () => {
 		expect(Object.keys(SOURCES)).toEqual(EXPECTED_KEYS);
 	});
 
