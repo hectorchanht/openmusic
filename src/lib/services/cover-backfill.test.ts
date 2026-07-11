@@ -524,3 +524,50 @@ describe('resolveDeezerHQ — Deezer-only HQ upgrade (Plan 26-02, COVER-01)', ()
 		expect(deezerSpy).not.toHaveBeenCalled();
 	});
 });
+
+// Plan 26-02, Task 3 — the click-to-play cover fan-out PROOF (T-26-02-01 DoS mitigation). Spike 003
+// measured the Deezer+iTunes tiers + a 7-source CN searchAll per COVERLESS tile as a large share of a
+// play's /api calls; kuwo returns a usable cover inline on 38/38, so ~all plays need zero cover network
+// work. These tests pin the two paths at the SERVICE seam the player drives:
+//   - INLINE-COVER hot path → the bounded resolveDeezerHQ UPGRADE: 0 iTunes + 0 CN + ≤1 Deezer call.
+//   - COVERLESS miss path   → resolveCoverForTrack still fans the full Deezer → iTunes → CN chain.
+// They are regression guards for behavior already landed in Tasks 1–2 (so they are GREEN on first run
+// by design — the hot path never fans out, the miss path still recovers).
+describe('click-to-play cover fan-out proof (Plan 26-02, T-26-02-01)', () => {
+	it('INLINE-COVER hot path (resolveDeezerHQ): 0 iTunes + 0 CN searchAll + at most 1 Deezer call', async () => {
+		const deezerSpy = vi
+			.spyOn(deezer, 'deezerSongCover')
+			.mockResolvedValue('https://cdn-images.dzcdn.net/hq.jpg');
+		const itunesSpy = vi.spyOn(itunes, 'itunesSongCover');
+		const searchSpy = vi.spyOn(catalog, 'searchAll');
+		// A resolved track that ALREADY carries a SOLID inline source cover (kuwo pic) — the player
+		// painted it synchronously and fires ONLY the optional Deezer HQ upgrade for it.
+		const inline = mk('kuwo', 'inline', {
+			artist: 'Jay Chou',
+			title: 'Blue and White Porcelain',
+			cover: 'https://kuwo.example/inline.jpg'
+		});
+
+		await resolveDeezerHQ(inline);
+
+		expect(itunesSpy).not.toHaveBeenCalled(); // ZERO iTunes on the hot path
+		expect(searchSpy).not.toHaveBeenCalled(); // ZERO CN searchAll on the hot path
+		expect(deezerSpy.mock.calls.length).toBeLessThanOrEqual(1); // at most ONE Deezer upgrade call
+	});
+
+	it('COVERLESS miss path (resolveCoverForTrack): still fans through Deezer → iTunes → CN', async () => {
+		const deezerSpy = vi.spyOn(deezer, 'deezerSongCover').mockResolvedValue(null);
+		const itunesSpy = vi.spyOn(itunes, 'itunesSongCover').mockResolvedValue(null);
+		const cnHit = mk('netease', 'cn', { cover: 'https://cn.example/cn.jpg' });
+		const searchSpy = vi.spyOn(catalog, 'searchAll').mockResolvedValue(result([cnHit]));
+		// A genuinely coverless source (joox/fivesing) — no inline cover, so the full chain must run.
+		const coverless = mk('joox', 'coverless', { artist: 'Adele', title: 'Hello', cover: null });
+
+		const out = await resolveCoverForTrack(coverless);
+
+		expect(deezerSpy).toHaveBeenCalled(); // tier 1
+		expect(itunesSpy).toHaveBeenCalled(); // tier 2 (Deezer missed)
+		expect(searchSpy).toHaveBeenCalled(); // tier 3 (Deezer + iTunes missed)
+		expect(out).toBe('https://cn.example/cn.jpg');
+	});
+});
