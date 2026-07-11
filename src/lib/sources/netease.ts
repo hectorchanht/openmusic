@@ -13,6 +13,7 @@ import type { SourceAdapter, Track } from './types';
 import { makeUid } from './types';
 import { inferQualityFromUrl } from '../services/lrc';
 import { apiUrl, apiFetch } from '../services/api-base';
+import { neteaseHealth } from '../services/netease-health';
 
 // Netease search row shape from the Meting proxy (fields we read).
 interface NeteaseSearchItem {
@@ -42,6 +43,15 @@ export const netease: SourceAdapter = {
 	enabledByDefault: true,
 
 	async search(keyword: string, page: number, signal: AbortSignal): Promise<Track[]> {
+		// HEALTH-GATE short-circuit (Plan 26-05, NETEASE-01 / T-26-05-01). The qijieya Meting upstream
+		// intermittently returns [] for a RUN of queries then recovers (spikes 001/004). After a run of
+		// drys the gate trips and we SKIP the wasted /api/netease/search for a bounded window so a dead
+		// netease neither slows nor strands the search fan-out (the healthy sources still return; the
+		// kuwo-first resolve is unaffected). isGated() auto-opens after GATE_WINDOW_MS for a single probe
+		// whose outcome re-decides — so netease is never hidden permanently (T-26-05-02). Never-throw on
+		// this path: an empty return is the same benign "dry" result the caller already handles.
+		if (neteaseHealth.isGated()) return [];
+
 		// Pagination by limit-multiplication, not a real page param (preserve legacy:1987).
 		const requestLimit = Math.max(1, page || 1) * Math.max(1, 10);
 		const path = `/api/netease/search?id=${encodeURIComponent(keyword)}&limit=${encodeURIComponent(
@@ -51,7 +61,8 @@ export const netease: SourceAdapter = {
 		const res = await apiFetch(path, { signal });
 		const json: unknown = await res.json();
 		// Contract-drift guard: Netease must return an array. Throw (not return 0) so the
-		// fan-out records a typed per-source error.
+		// fan-out records a typed per-source error. NOTE (26-05): a non-array body is genuine DRIFT,
+		// NOT a dry spell — do NOT record it as dry; let it throw before any recordDry/recordOk.
 		if (!Array.isArray(json)) {
 			throw new Error('netease: contract-drift (expected array search body)');
 		}
@@ -77,6 +88,18 @@ export const netease: SourceAdapter = {
 				displayIndex: idx + 1
 			});
 		});
+
+		// Record the LIVE outcome so the gate can trip on a dry run / clear on a real hit (26-05,
+		// NETEASE-01). An EMPTY array is a valid "dry" response → recordDry(); a non-empty result →
+		// recordOk() (instant recovery — clears any accumulated dry streak). Only reached after a real
+		// upstream call (the gated short-circuit above returns before here), so a probe's outcome
+		// re-decides the gate after the window elapses.
+		if (tracks.length === 0) {
+			neteaseHealth.recordDry();
+		} else {
+			neteaseHealth.recordOk();
+		}
+
 		return tracks;
 	},
 

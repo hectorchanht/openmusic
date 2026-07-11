@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { netease, extractLrcFromJson, extractLrcFromBody } from './netease';
 import type { Track } from './types';
 import fixture from './__fixtures__/netease.search.json';
+import { neteaseHealth, DRY_THRESHOLD } from '../services/netease-health';
+import { __resetGovernor } from '../services/api-base';
 
 const ac = new AbortController();
 
@@ -16,9 +18,15 @@ function mockFetchOnce(body: unknown, contentType = 'application/json') {
 
 beforeEach(() => {
 	vi.restoreAllMocks();
+	// Reset the module-scope health gate + fetch governor so state never leaks across cases (a
+	// prior case that trips the gate would otherwise short-circuit a later search to []).
+	neteaseHealth.__reset();
+	__resetGovernor();
 });
 afterEach(() => {
 	vi.restoreAllMocks();
+	neteaseHealth.__reset();
+	__resetGovernor();
 });
 
 describe('netease.search (fixture-backed)', () => {
@@ -212,5 +220,59 @@ describe('netease extractLrcFromBody / extractLrcFromJson (shape-tolerant, never
 		expect(extractLrcFromJson({ data: {} })).toBeNull();
 		expect(extractLrcFromJson(null)).toBeNull();
 		expect(extractLrcFromJson(42)).toBeNull();
+	});
+});
+
+describe('netease.search health-gate (Plan 26-05, NETEASE-01)', () => {
+	it('short-circuits to [] WITHOUT calling apiFetch once a dry run trips the gate', async () => {
+		// A "dry" upstream: every call returns an empty array (spikes 001/004 behavior).
+		const spy = mockFetchOnce([]);
+		vi.stubGlobal('fetch', spy);
+
+		// DRY_THRESHOLD live dry searches hit the upstream, return [], and trip the gate.
+		for (let i = 0; i < DRY_THRESHOLD; i++) {
+			const out = await netease.search('anything', 1, ac.signal);
+			expect(out).toEqual([]);
+		}
+		expect(spy).toHaveBeenCalledTimes(DRY_THRESHOLD);
+		expect(neteaseHealth.isGated()).toBe(true);
+
+		// The NEXT search must SHORT-CIRCUIT: still [] but NO new upstream fetch.
+		spy.mockClear();
+		const gatedOut = await netease.search('anything', 1, ac.signal);
+		expect(gatedOut).toEqual([]);
+		expect(spy).not.toHaveBeenCalled();
+	});
+
+	it('records ok on a non-empty result so a subsequent search still hits the upstream (gate cleared)', async () => {
+		// Two drys — below the threshold of 3, so the gate is NOT yet tripped.
+		vi.stubGlobal('fetch', mockFetchOnce([]));
+		await netease.search('x', 1, ac.signal);
+		await netease.search('x', 1, ac.signal);
+		expect(neteaseHealth.isGated()).toBe(false);
+
+		// A non-empty result records ok → resets the accumulated dry streak.
+		const live = mockFetchOnce(fixture);
+		vi.stubGlobal('fetch', live);
+		const out = await netease.search('周杰伦', 1, ac.signal);
+		expect(live).toHaveBeenCalled();
+		expect(out.length).toBe(fixture.length);
+		expect(neteaseHealth.isGated()).toBe(false);
+
+		// One more dry after the ok must NOT trip (the streak was reset), so the upstream is still hit.
+		const after = mockFetchOnce([]);
+		vi.stubGlobal('fetch', after);
+		await netease.search('x', 1, ac.signal);
+		expect(after).toHaveBeenCalled();
+		expect(neteaseHealth.isGated()).toBe(false);
+	});
+
+	it('a non-array (contract-drift) body still THROWS and is NOT recorded as dry', async () => {
+		vi.stubGlobal('fetch', mockFetchOnce({ error: 'nope' }));
+		// Even repeated drift throws must never trip the DRY gate — drift ≠ dry spell.
+		for (let i = 0; i < DRY_THRESHOLD + 1; i++) {
+			await expect(netease.search('x', 1, ac.signal)).rejects.toThrow(/contract-drift/);
+		}
+		expect(neteaseHealth.isGated()).toBe(false);
 	});
 });
