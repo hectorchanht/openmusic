@@ -587,7 +587,7 @@
 				<!-- UX-04 reveal layers behind the row; the row translateX (use:swipeAction) exposes them. -->
 				<span class="reveal reveal-queue" aria-hidden="true"><ListEnd size={20} /></span>
 				<span class="reveal reveal-like" aria-hidden="true"><Heart size={20} fill="none" /></span>
-				<button class="row" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openMenu(track); }} onclick={() => playStub(track)} use:swipeAction={{ onSwipeRight: () => swipeQueue(track), onSwipeLeft: () => swipeLike(track) }}>
+				<button class="row" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openMenu(track); }} onclick={() => playStub(track)} use:swipeAction={{ onSwipeRight: () => swipeQueue(track), onSwipeLeft: () => swipeNext(track) }}>
 					<span class="rank">{i + 1}</span>
 					<span class="art" style:background-image={heroImg ? `url(${heroImg})` : fallbackCover(track.artist + track.title)}></span>
 					<span class="meta"><span class="r-title">{names.dnTitle(track.title)}</span><span class="r-sub">{names.dnArtist(track.artist)}</span></span>
