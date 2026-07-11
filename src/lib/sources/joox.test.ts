@@ -41,6 +41,41 @@ function mockResolveFetch(detailBody: unknown) {
 	});
 }
 
+/**
+ * A fetch mock for the plan-26-11 SELF-HEAL path. It distinguishes:
+ *   - `/api/joox/search`  → returns `searchBody` (the CURRENT search order the self-heal reads
+ *     to re-locate the stable songmid and derive the corrected `n`).
+ *   - `/api/joox/detail?…&n=<N>` → returns `detailByN[N]` (per-n detail body), so the INITIAL
+ *     n and the CORRECTED n can return DIFFERENT songs; a missing N yields an empty-data body.
+ *   - anything else → a reachable probe (HEAD 200 / ranged-GET 206).
+ * Search-call count is asserted off the returned spy's `.mock.calls`.
+ */
+function mockSelfHealFetch(searchBody: unknown, detailByN: Record<number, unknown>) {
+	return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+		const url = String(input);
+		const method = (init?.method || 'GET').toUpperCase();
+		if (url.startsWith('/api/joox/search')) {
+			return new Response(JSON.stringify(searchBody), {
+				status: 200,
+				headers: { 'content-type': 'application/json' }
+			});
+		}
+		if (url.startsWith('/api/joox/detail')) {
+			const m = url.match(/[?&]n=(\d+)/);
+			const n = m ? Number(m[1]) : 1;
+			const body = detailByN[n] ?? { code: 200, data: {} };
+			return new Response(JSON.stringify(body), {
+				status: 200,
+				headers: { 'content-type': 'application/json' }
+			});
+		}
+		return new Response(method === 'HEAD' ? null : 'audio-bytes', {
+			status: method === 'HEAD' ? 200 : 206,
+			headers: { 'content-type': 'audio/flac' }
+		});
+	});
+}
+
 beforeEach(() => {
 	vi.restoreAllMocks();
 });
@@ -201,23 +236,128 @@ describe('joox.resolve — POSITION-INDEX IDENTITY FIX', () => {
 		warnSpy.mockRestore();
 	});
 
-	// Test 3c (STRONG-DISJOINT — fails loudly): both sides fully populated (mid + 歌曲ID)
-	// with ZERO cross-field overlap → genuinely a different song → resolve THROWS,
-	// detailsLoaded stays false. Wrong-song protection at full strength.
-	it('identity: a strong-disjoint mismatch THROWS and leaves detailsLoaded false', async () => {
+	// Test 3c (SELF-HEAL — stale n re-located by stable songmid, plan 26-11 / Gap 6): a would-be
+	// strong-disjoint pick (both sides fully populated, zero cross-field overlap) SELF-HEALS: ONE
+	// /api/joox/search re-locates the intended songmid at a CORRECTED index, the corrected detail
+	// confirms → resolve returns the CORRECT song. NO throw. (Replaces the OLD throw-contract test.)
+	it('identity: a stale-n strong-disjoint pick self-heals via songmid re-search → correct song', async () => {
 		const tracks = await searchTracks();
-		const reordered = [tracks[1], tracks[3], tracks[0], tracks[2]];
-		// target "晴天" (001Bnq3w0u8Pql / songid-001Bnq3w0u8Pql) — fully populated on both
-		// mid and 歌曲ID — but the upstream detail returns "稻香" (002cZ5jq3Hk8Yz /
-		// songid-002cZ5jq3Hk8Yz), also fully populated, with zero token overlap.
-		const target = reordered.find((t) => t.songMid === '001Bnq3w0u8Pql')!;
+		// target "晴天" (001Bnq3w0u8Pql / songid-001Bnq3w0u8Pql), jooxIndex=2 (fully populated).
+		const target = tracks.find((t) => t.songMid === '001Bnq3w0u8Pql')!;
+		expect(target).toBeDefined();
+		const originalSongMid = target.songMid;
+
+		// The correct 晴天 detail, keyed at the CORRECTED n=1 after the re-search.
+		const qingtianDetail = {
+			code: 200,
+			data: {
+				songmid: '001Bnq3w0u8Pql',
+				'歌曲ID': 'songid-001Bnq3w0u8Pql',
+				'歌曲名称': '晴天',
+				'歌手': '周杰伦',
+				'专辑': '叶惠美',
+				'歌词内容': '[00:00.00]晴天 - 周杰伦',
+				'播放链接': { '无损FLAC': 'https://cdn.joox.example/audio/qingtian.flac' }
+			}
+		};
+		// A fresh search whose CURRENT order places 晴天 at index 0 → correctedN=1 (differs from n=2).
+		const reSearchBody = {
+			code: 200,
+			data: {
+				songs: [
+					{
+						songmid: '001Bnq3w0u8Pql',
+						'歌曲ID': 'songid-001Bnq3w0u8Pql',
+						'歌曲名称': '晴天',
+						'歌手': '周杰伦',
+						'专辑': '叶惠美'
+					},
+					{
+						songmid: '002cZ5jq3Hk8Yz',
+						'歌曲ID': 'songid-002cZ5jq3Hk8Yz',
+						'歌曲名称': '稻香',
+						'歌手': '周杰伦',
+						'专辑': '魔杰座'
+					}
+				]
+			}
+		};
+
+		// n=2 (the stale position) returns 稻香 (WRONG, strong-disjoint); n=1 (corrected) returns 晴天.
+		vi.stubGlobal('fetch', mockSelfHealFetch(reSearchBody, { 1: qingtianDetail, 2: detailFixture }));
+
+		const out = await joox.resolve(target, ac.signal);
+
+		// Self-healed to the CORRECT song — not the wrong song sitting at the stale n.
+		expect(out.songMid).toBe(originalSongMid);
+		expect(out.title).toBe('晴天');
+		expect(out.audioUrl).toBeTruthy();
+		expect(out.detailsLoaded).toBe(true);
+	});
+
+	// Test 3d (UNRECOVERABLE mismatch — graceful never-throw, plan 26-11 / Gap 6): a would-be
+	// strong-disjoint pick where the re-search does NOT contain the expected songmid (song gone)
+	// → resolve returns the track UNRESOLVED (audioUrl=null, detailsLoaded=false), adopts NO
+	// wrong-song field, and console.warns. NO throw. This is the failed-resolve sentinel that
+	// player.play's `!resolved.audioUrl → runFallback → skip` path consumes.
+	it('identity: an unrecoverable pick returns unresolved (audioUrl=null) and never throws', async () => {
+		const tracks = await searchTracks();
+		const target = tracks.find((t) => t.songMid === '001Bnq3w0u8Pql')!; // 晴天, jooxIndex=2
 		expect(target).toBeDefined();
 
-		vi.stubGlobal('fetch', mockResolveFetch(detailFixture)); // returns 002cZ5... — WRONG song
+		// Re-search does NOT include 晴天 (001Bnq3w0u8Pql) → cannot re-locate → graceful fail.
+		const reSearchWithoutTarget = {
+			code: 200,
+			data: {
+				songs: [
+					{
+						songmid: '002cZ5jq3Hk8Yz',
+						'歌曲ID': 'songid-002cZ5jq3Hk8Yz',
+						'歌曲名称': '稻香',
+						'歌手': '周杰伦',
+						'专辑': '魔杰座'
+					},
+					{
+						songmid: '0033yvWg2hT0Iz',
+						'歌曲ID': 'songid-0033yvWg2hT0Iz',
+						'歌曲名称': '七里香',
+						'歌手': '周杰伦',
+						'专辑': '七里香'
+					}
+				]
+			}
+		};
 
-		await expect(joox.resolve(target, ac.signal)).rejects.toThrow(/identity|mismatch|songmid/i);
-		expect(target.detailsLoaded).toBe(false);
-		expect(target.audioUrl).toBeNull();
+		const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+		// n=2 returns 稻香 (WRONG, strong-disjoint); the re-search cannot locate 晴天.
+		vi.stubGlobal('fetch', mockSelfHealFetch(reSearchWithoutTarget, { 2: detailFixture }));
+
+		const out = await joox.resolve(target, ac.signal);
+
+		// Graceful failed-resolve sentinel — routed to runFallback/skip by player.play.
+		expect(out).toBe(target); // same track object, no wrong-song substitution
+		expect(out.audioUrl).toBeNull();
+		expect(out.detailsLoaded).toBe(false);
+		// Wrong-song fields NOT adopted (title stays 晴天, not 稻香).
+		expect(out.title).toBe('晴天');
+		expect(out.songMid).toBe('001Bnq3w0u8Pql');
+		expect(warnSpy).toHaveBeenCalled();
+		warnSpy.mockRestore();
+	});
+
+	// Test 3e (CONFIRMED fast path is bounded): a first-try confirm must NOT fire a self-heal
+	// re-search (zero /api/joox/search calls — no fan-out).
+	it('identity: a first-try confirm issues ZERO /api/joox/search calls (no self-heal)', async () => {
+		const tracks = await searchTracks();
+		const target = tracks.find((t) => t.songMid === detailFixture.data.songmid)!; // 稻香, confirmed
+		const spy = mockResolveFetch(detailFixture);
+		vi.stubGlobal('fetch', spy);
+
+		const out = await joox.resolve(target, ac.signal);
+
+		expect(out.detailsLoaded).toBe(true);
+		const searchCalls = spy.mock.calls.filter((c) => String(c[0]).startsWith('/api/joox/search'));
+		expect(searchCalls.length).toBe(0);
 	});
 
 	// the upstream still requires n= — assert the client keeps sending it
