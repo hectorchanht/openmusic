@@ -26,14 +26,30 @@ sw.addEventListener('install', (event) => {
 
 // activate — OFFL-01 stale-shell eviction: delete every cache whose name is
 // not the current version cache, so a new deploy cannot serve a stale shell.
+// quick-260713-7pi: also clients.claim() so the freshly-activated SW controls the
+// open page immediately. This only runs AFTER a client explicitly sends SKIP_WAITING
+// (below) and is about to reload — so it never yanks control out from under a page
+// that is still running the old bundle mid-session.
 sw.addEventListener('activate', (event) => {
 	event.waitUntil(
 		(async () => {
 			for (const key of await caches.keys()) {
 				if (key !== CACHE) await caches.delete(key);
 			}
+			await sw.clients.claim();
 		})()
 	);
+});
+
+// quick-260713-7pi: message-driven skipWaiting. A newly-installed SW stays in `waiting`
+// (we deliberately do NOT skipWaiting() in `install`) so it can never reload the page —
+// and kill background audio, the app's core value — without user intent. The client
+// (swUpdate.svelte.ts) surfaces a "new version — Reload" prompt; only when the user taps
+// it does the client post { type: 'SKIP_WAITING' }, which activates this build now.
+sw.addEventListener('message', (event) => {
+	if ((event.data as { type?: string } | null)?.type === 'SKIP_WAITING') {
+		sw.skipWaiting();
+	}
 });
 
 // fetch — delegate the bypass decision to the pure, unit-tested `shouldBypass`.
