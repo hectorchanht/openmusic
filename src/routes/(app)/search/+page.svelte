@@ -571,10 +571,16 @@
 	</div>
 {/if}
 
-<!-- ql0: live typeahead suggestions while focused with ≥2 chars and ≥1 result. The gate is
-     mutually exclusive with the recent block above (recent requires q.trim()==='' ; this
-     requires length ≥ MIN_QUERY_LEN) so the two never co-render. -->
-{#if inputFocused && q.trim().length >= MIN_QUERY_LEN && suggestions.length > 0}
+<!-- ql0: live typeahead suggestions with ≥2 chars and ≥1 result. The gate is mutually
+     exclusive with the recent block above (recent requires q.trim()==='' ; this requires
+     length ≥ MIN_QUERY_LEN) so the two never co-render.
+     debug-search-typeahead-hidden-mobile: do NOT gate on `inputFocused`. On mobile Android
+     Chrome the soft-keyboard/touch focus lifecycle drops input focus mid-type; the onblur
+     150ms timeout then set inputFocused=false and nothing re-set it, so a POPULATED typeahead
+     was suppressed on mobile (worked on desktop, where focus is stable). `suggestions` is
+     already cleared on submit/pick/clear/below-2-chars, so this gate is self-limiting (no
+     lingering dropdown). Mirrors the same inputFocused-drop done for the recent block (sm7). -->
+{#if q.trim().length >= MIN_QUERY_LEN && suggestions.length > 0}
 	<div class="suggest">
 		<div class="suggest-head">
 			<span class="suggest-title">{t('search.suggestions')}</span>
