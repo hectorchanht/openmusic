@@ -605,7 +605,6 @@
 	</div>
 {/if}
 
-<br/>
 <!-- OFFL-03 inline offline state: short-circuits the fetch (run() bails when offline) and
      promotes Downloads/Library. No redirect (D-09); reconnect lets the next search run. -->
 {#if !online.isOnline}
@@ -730,7 +729,7 @@
 
 <style>
 	.head h1 { font-size: calc(1.4rem * var(--fs-title, 1)); margin: 16px 0 12px; }
-	.bar { display: flex; gap: 8px; }
+	.bar { display: flex; gap: 8px; margin-bottom: 8px;}
 	/* quick-260711-sm7: relative container so the clear (X) can sit inside the input's right edge. */
 	.input-wrap { position: relative; flex: 1; min-width: 0; display: flex; }
 	.bar input {
