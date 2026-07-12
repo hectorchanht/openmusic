@@ -9,6 +9,7 @@
 	import { settings } from '$lib/stores/settings.svelte';
 	import { names } from '$lib/stores/names.svelte';
 	import { online } from '$lib/stores/online.svelte';
+	import { swUpdate } from '$lib/stores/swUpdate.svelte';
 	import { LANDING_PATHS } from '$lib/services/home-layout';
 	import { overlays } from '$lib/stores/overlays.svelte';
 	import { t, type TranslationKey } from '$lib/i18n';
@@ -130,9 +131,13 @@
 		// (and the global indicator below) reads a live online.isOnline. init() is a no-op under
 		// SSR and returns a teardown that removes the window listeners on destroy.
 		const teardownOnline = online.init();
+		// quick-260713-7pi: watch for a new service-worker build and surface a Reload prompt
+		// (the .update-bar banner below). No-op on the native build / no-SW browsers.
+		const teardownSwUpdate = swUpdate.init();
 		return () => {
 			teardownOverlays();
 			teardownOnline();
+			teardownSwUpdate();
 		};
 	});
 
@@ -151,6 +156,18 @@
 	     a navigation or redirect (D-09 — the user is never yanked between tabs). "Don't bloat" (D-10). -->
 	{#if !online.isOnline}
 		<div class="offline-bar" role="status" aria-live="polite">{t('offline.indicator')}</div>
+	{/if}
+
+	<!-- quick-260713-7pi: PWA update prompt. Shown when a new service-worker build is waiting;
+	     tapping Reload activates it (SKIP_WAITING) and reloads once. In-flow top banner (mirrors
+	     .offline-bar) so it never overlaps the nowbar/tabbar. -->
+	{#if swUpdate.updateReady}
+		<div class="update-bar" role="status" aria-live="polite">
+			<span class="update-msg">{t('update.available')}</span>
+			<button type="button" class="update-btn" onclick={() => swUpdate.applyUpdate()} use:tapBounce>
+				{t('update.reload')}
+			</button>
+		</div>
 	{/if}
 
 	<main class="content">
@@ -265,6 +282,34 @@
 		background: var(--color-surface-2);
 		border-bottom: 1px solid var(--color-border);
 		padding: calc(env(safe-area-inset-top, 0px) + 6px) 12px 6px;
+	}
+
+	/* quick-260713-7pi: PWA update banner — same in-flow top-banner idiom as .offline-bar, but
+	   actionable (a Reload button). Accent-tinted so it reads as an offer, not an error. */
+	.update-bar {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 12px;
+		flex-wrap: wrap;
+		font-size: 12px;
+		font-weight: 600;
+		color: var(--color-text);
+		background: var(--color-surface-2);
+		border-bottom: 1px solid var(--color-border);
+		padding: calc(env(safe-area-inset-top, 0px) + 6px) 12px 6px;
+	}
+	.update-msg { min-width: 0; }
+	.update-btn {
+		flex: none;
+		background: var(--color-primary, #7c5cff);
+		color: #fff;
+		border: none;
+		border-radius: 999px;
+		padding: 4px 14px;
+		font-size: 12px;
+		font-weight: 700;
+		cursor: pointer;
 	}
 
 	/* Never-stop feedback pill. Mirrors the +page.svelte .toast shape (fixed top, pill, dark

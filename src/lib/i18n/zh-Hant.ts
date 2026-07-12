@@ -10,6 +10,8 @@ const zhHant: Dict = {
 
 	// --- offline (OFFL-03) ---
 	"offline.indicator": "目前離線",
+	"update.available": "有新版本可用",
+	"update.reload": "重新載入",
 	"offline.title": "你目前離線",
 	"offline.body": "此功能需要連線。已下載的歌曲仍可播放。",
 	"offline.goToLibrary": "前往音樂庫",

@@ -9,6 +9,8 @@ const tr: Dict = {
 
 	// --- offline (OFFL-03) ---
 	"offline.indicator": "Çevrimdışı",
+	"update.available": "Yeni bir sürüm mevcut",
+	"update.reload": "Yeniden yükle",
 	"offline.title": "Çevrimdışısın",
 	"offline.body": "Bunun için bağlantı gerekir. İndirdiğin şarkılar yine de çalınır.",
 	"offline.goToLibrary": "Kütüphaneye git",

@@ -9,6 +9,8 @@ const vi: Dict = {
 
 	// --- offline (OFFL-03) ---
 	"offline.indicator": "Ngoại tuyến",
+	"update.available": "Đã có phiên bản mới",
+	"update.reload": "Tải lại",
 	"offline.title": "Bạn đang ngoại tuyến",
 	"offline.body": "Mục này cần kết nối. Các bài hát đã tải vẫn phát được.",
 	"offline.goToLibrary": "Đến Thư viện",

@@ -9,6 +9,8 @@ const fr: Dict = {
 
 	// --- offline (OFFL-03) ---
 	"offline.indicator": "Hors ligne",
+	"update.available": "Une nouvelle version est disponible",
+	"update.reload": "Recharger",
 	"offline.title": "Vous êtes hors ligne",
 	"offline.body": "Ceci nécessite une connexion. Vos titres téléchargés restent lisibles.",
 	"offline.goToLibrary": "Aller à la Bibliothèque",

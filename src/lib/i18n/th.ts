@@ -9,6 +9,8 @@ const th: Dict = {
 
 	// --- offline (OFFL-03) ---
 	"offline.indicator": "ออฟไลน์",
+	"update.available": "มีเวอร์ชันใหม่พร้อมใช้งาน",
+	"update.reload": "โหลดใหม่",
 	"offline.title": "คุณออฟไลน์อยู่",
 	"offline.body": "สิ่งนี้ต้องใช้การเชื่อมต่อ เพลงที่ดาวน์โหลดไว้ยังเล่นได้",
 	"offline.goToLibrary": "ไปที่ห้องสมุด",

@@ -9,6 +9,8 @@ const es: Dict = {
 
 	// --- offline (OFFL-03) ---
 	"offline.indicator": "Sin conexión",
+	"update.available": "Hay una nueva versión disponible",
+	"update.reload": "Recargar",
 	"offline.title": "Estás sin conexión",
 	"offline.body": "Esto necesita conexión. Tus canciones descargadas siguen reproduciéndose.",
 	"offline.goToLibrary": "Ir a la Biblioteca",

@@ -10,6 +10,8 @@ const zhHans: Dict = {
 
 	// --- offline (OFFL-03) ---
 	"offline.indicator": "当前离线",
+	"update.available": "有新版本可用",
+	"update.reload": "重新加载",
 	"offline.title": "你当前离线",
 	"offline.body": "此功能需要联网。已下载的歌曲仍可播放。",
 	"offline.goToLibrary": "前往音乐库",

@@ -9,6 +9,8 @@ const ru: Dict = {
 
 	// --- offline (OFFL-03) ---
 	"offline.indicator": "Нет сети",
+	"update.available": "Доступна новая версия",
+	"update.reload": "Обновить",
 	"offline.title": "Вы офлайн",
 	"offline.body": "Для этого нужна связь. Загруженные треки по-прежнему доступны.",
 	"offline.goToLibrary": "Перейти в библиотеку",

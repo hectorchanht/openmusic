@@ -9,6 +9,8 @@ const en = {
 
 	// --- offline (OFFL-03: global indicator + per-surface inline states) ---
 	"offline.indicator": "You're offline",
+	"update.available": "A new version is available",
+	"update.reload": "Reload",
 	"offline.title": "You're offline",
 	"offline.body": "This needs a connection. Your downloaded songs still play.",
 	"offline.goToLibrary": "Go to Library",

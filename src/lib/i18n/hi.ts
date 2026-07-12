@@ -9,6 +9,8 @@ const hi: Dict = {
 
 	// --- offline (OFFL-03) ---
 	"offline.indicator": "ऑफ़लाइन",
+	"update.available": "नया संस्करण उपलब्ध है",
+	"update.reload": "पुनः लोड करें",
 	"offline.title": "आप ऑफ़लाइन हैं",
 	"offline.body": "इसके लिए कनेक्शन चाहिए। आपके डाउनलोड किए गाने अब भी चलते हैं।",
 	"offline.goToLibrary": "पुस्तकालय पर जाएँ",

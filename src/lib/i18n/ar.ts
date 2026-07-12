@@ -9,6 +9,8 @@ const ar: Dict = {
 
 	// --- offline (OFFL-03) ---
 	"offline.indicator": "غير متصل",
+	"update.available": "يتوفر إصدار جديد",
+	"update.reload": "إعادة التحميل",
 	"offline.title": "أنت غير متصل",
 	"offline.body": "يتطلب هذا اتصالاً. لا تزال أغانيك المُنزّلة تعمل.",
 	"offline.goToLibrary": "الذهاب إلى المكتبة",

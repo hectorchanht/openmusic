@@ -9,6 +9,8 @@ const id: Dict = {
 
 	// --- offline (OFFL-03) ---
 	"offline.indicator": "Offline",
+	"update.available": "Versi baru tersedia",
+	"update.reload": "Muat ulang",
 	"offline.title": "Anda offline",
 	"offline.body": "Ini memerlukan koneksi. Lagu yang sudah diunduh tetap dapat diputar.",
 	"offline.goToLibrary": "Buka Perpustakaan",
