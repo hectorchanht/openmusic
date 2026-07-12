@@ -589,10 +589,12 @@
 						onclick={() => pickSuggestion(s)}
 						use:tapBounce
 					>
-						<span class="suggest-kind" aria-hidden="true">{s.kind === 'artist' ? '♪' : '♫'}</span>
+						<!-- quick-260712-gm4: 3-way kind glyph — song ♫ / artist ♪ / album ◎. Album rows
+						     show the album artist as the muted sub-line, like a song row. -->
+						<span class="suggest-kind" aria-hidden="true">{s.kind === 'album' ? '◎' : s.kind === 'artist' ? '♪' : '♫'}</span>
 						<span class="suggest-meta">
 							<span class="suggest-q">{names.dnTitle(s.title)}</span>
-							{#if s.kind === 'song' && s.artist}
+							{#if (s.kind === 'song' || s.kind === 'album') && s.artist}
 								<span class="suggest-sub">{names.dnArtist(s.artist)}</span>
 							{/if}
 						</span>
