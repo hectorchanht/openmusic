@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { s2tConvertLines, isChineseLine } from './zh-convert';
+import { s2tConvertLines, isChineseLine, warmS2T, s2tConvertLineSync } from './zh-convert';
 
 // Pure/node tests (no jsdom, no $app/environment mock, no localStorage): zh-convert is a pure
 // service whose only side effect is a dynamic import() of the tongwen s2t dict, which Vitest
@@ -60,5 +60,26 @@ describe('isChineseLine — offline-eligibility predicate (D-04)', () => {
 
 	it('is false for an empty line', () => {
 		expect(isChineseLine('')).toBe(false);
+	});
+});
+
+describe('s2tConvertLineSync / warmS2T — synchronous no-flash path (quick-260712-et3)', () => {
+	// The display-name resolver calls s2tConvertLineSync on the FIRST render so a zh-Hant name
+	// paints Traditional immediately instead of Simplified-then-flip. It returns null until the
+	// lazy dict is warm; warmS2T() (fire-and-forget) kicks that load at app boot.
+	it('converts synchronously once the dict is warm (same D-01 quality as the async path)', async () => {
+		warmS2T(); // kick the lazy load
+		await s2tConvertLines(['简体']); // await the SAME memoized load so the dict is guaranteed built
+		expect(s2tConvertLineSync('简体中文')).toBe('簡體中文'); // per-char
+		expect(s2tConvertLineSync('头发')).toBe('頭髮'); // phrase-level (D-01) on the sync path too
+	});
+
+	it('passes already-Traditional input through unchanged (identity is a stable result)', async () => {
+		await s2tConvertLines(['x']); // ensure warm
+		expect(s2tConvertLineSync('台灣')).toBe('台灣');
+	});
+
+	it('returns null for an empty line (nothing to convert)', () => {
+		expect(s2tConvertLineSync('')).toBeNull();
 	});
 });

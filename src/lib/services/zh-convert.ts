@@ -25,6 +25,12 @@ type ConvertLine = (line: string) => string;
 // ~72 KB s2t dict (D-01/D-03) is fetched at most once for the app's lifetime.
 let convertLinePromise: Promise<ConvertLine> | null = null;
 
+// quick-260712-et3: a SYNCHRONOUS handle to the built converter, published once the lazy
+// build above resolves. Latency-sensitive callers (the display-name resolver) read this to
+// convert zh-Hans→zh-Hant on the FIRST render with zero flash — instead of returning
+// Simplified and flipping to Traditional after the async debounce+queue. Null until warm.
+let convertLineSync: ConvertLine | null = null;
+
 // Lazily import ONLY the s2t (Simplified→Traditional) char + phrase dictionaries plus the
 // tongwen engine, then build the phrase-level converter. The tongwen import lives ONLY inside
 // these import() calls — a static/top-level import would pull the dict into the initial chunk
@@ -59,14 +65,48 @@ async function buildConvertLine(): Promise<ConvertLine> {
 
 function loadConvertLine(): Promise<ConvertLine> {
 	if (!convertLinePromise) {
-		convertLinePromise = buildConvertLine().catch((err) => {
-			// Do NOT cache a rejected build — null it so a later call can retry the lazy import
-			// (a transient chunk-load failure should not permanently disable offline conversion).
-			convertLinePromise = null;
-			throw err;
-		});
+		convertLinePromise = buildConvertLine()
+			.then((fn) => {
+				// Publish the sync handle so s2tConvertLineSync can convert without awaiting.
+				convertLineSync = fn;
+				return fn;
+			})
+			.catch((err) => {
+				// Do NOT cache a rejected build — null it so a later call can retry the lazy import
+				// (a transient chunk-load failure should not permanently disable offline conversion).
+				convertLinePromise = null;
+				throw err;
+			});
 	}
 	return convertLinePromise;
+}
+
+/**
+ * quick-260712-et3: fire-and-forget trigger of the lazy s2t dict load. Call early (e.g. at
+ * app boot when the Chinese content target is Traditional) so the converter is WARM before
+ * names render — then s2tConvertLineSync succeeds on the first render and there is no flash.
+ * Never throws (a failed load leaves convertLineSync null; callers just fall back to async).
+ */
+export function warmS2T(): void {
+	void loadConvertLine().catch(() => {});
+}
+
+/**
+ * quick-260712-et3: SYNCHRONOUS Simplified→Traditional for ONE line. Returns the converted
+ * (Traditional) string if the s2t dict is already loaded, else `null` — signalling "not warm
+ * yet" so the caller can warmS2T() and fall back to the async path for this render. Never
+ * throws: an empty input or a converter fault returns null (treated as not-ready). Callers
+ * MUST gate on isChineseLine() first (this does not re-check language). Already-Traditional
+ * input passes through unchanged (s2t leaves 台灣 as 台灣), so the returned string may equal
+ * the input — that is a genuine, stable Traditional result.
+ */
+export function s2tConvertLineSync(text: string): string | null {
+	if (!convertLineSync || !text) return null;
+	try {
+		return convertLineSync(text);
+	} catch {
+		return null;
+	}
 }
 
 /**

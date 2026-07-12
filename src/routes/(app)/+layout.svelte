@@ -7,6 +7,7 @@
 	import { player } from '$lib/stores/player.svelte';
 	import { library } from '$lib/stores/library.svelte';
 	import { settings } from '$lib/stores/settings.svelte';
+	import { names } from '$lib/stores/names.svelte';
 	import { online } from '$lib/stores/online.svelte';
 	import { LANDING_PATHS } from '$lib/services/home-layout';
 	import { overlays } from '$lib/stores/overlays.svelte';
@@ -97,6 +98,12 @@
 	onMount(() => {
 		library.load();
 		settings.load();
+
+		// quick-260712-et3: warm the offline zh-Hans→zh-Hant s2t dict at boot when the user's
+		// content target is Traditional, so display names convert synchronously on their first
+		// render instead of painting Simplified and flipping to Traditional (the marquee flash).
+		// No-op for non-Traditional targets — keeps the ~72 KB dict out of non-Hant paths (D-03).
+		names.warm();
 
 		// w87: default landing-tab redirect. onMount is client-only (SSR-safe) and runs ONCE,
 		// so a later manual nav back to '/' never re-triggers. Guards (all must hold):

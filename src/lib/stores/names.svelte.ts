@@ -40,6 +40,7 @@ import { browser } from '$app/environment';
 import { settings, effectiveTarget } from '$lib/stores/settings.svelte';
 import { translateLinesEx } from '$lib/services/translate';
 import { shouldTranslate } from '$lib/i18n/detect';
+import { isChineseLine, s2tConvertLineSync, warmS2T } from '$lib/services/zh-convert';
 
 // Bump to abandon all previously-persisted (possibly poisoned) name translations.
 const STORE_VER = 'v2';
@@ -192,6 +193,27 @@ class Names {
 		const m = this.langCache(target);
 		const hit = m.get(text);
 		if (hit !== undefined) return hit;
+		// quick-260712-et3 — zh-Hant NO-FLASH fast path. Simplified→Traditional is a
+		// deterministic OFFLINE conversion (tongwen s2t), so when the dict is already warm we
+		// convert on THIS render and return Traditional immediately — never Simplified-then-flip
+		// (the now-playing marquee title flash). Only Chinese lines qualify (isChineseLine rides
+		// the kana/hangul-first classifier, so JA/KO fall through to the async API path unchanged).
+		// If the dict is not warm yet, kick the lazy load and fall through to the async queue for
+		// this one render (the single unavoidable cold-start conversion).
+		if (target === 'zh-Hant' && isChineseLine(text)) {
+			const conv = s2tConvertLineSync(text);
+			if (conv !== null) {
+				if (conv !== text) {
+					// Deterministic genuine translation — cache + persist so later renders and other
+					// surfaces hit instantly. Identity (already Traditional) is left uncached: it
+					// re-converts trivially next time and never flashes.
+					m.set(text, conv);
+					this.persist(target);
+				}
+				return conv;
+			}
+			warmS2T(); // not warm yet — start the lazy load; async queue below handles this render
+		}
 		// Already awaiting a response — don't re-queue, don't touch attempts. The flush will
 		// bump rev and this resolver will re-run with a cache hit (or count the attempt then).
 		if (this.inflightSet(target).has(text)) return text;
@@ -230,6 +252,21 @@ class Names {
 	 */
 	dnBio(text: string): string {
 		return this.resolve(text, effectiveTarget(settings.bioLang), []);
+	}
+
+	/** quick-260712-et3: warm the offline s2t dict at app boot when an active content target
+	 * resolves to zh-Hant, so the FIRST render can convert Simplified→Traditional synchronously
+	 * (no flash). No-op for every non-Traditional target — keeps the ~72 KB tongwen dict out of
+	 * non-Hant paths (D-03). Called once from the app shell's onMount after settings.load(). */
+	warm(): void {
+		if (!browser) return;
+		const wantsHant = [
+			settings.titleLang,
+			settings.artistLang,
+			settings.lastfmLang,
+			settings.bioLang
+		].some((t) => effectiveTarget(t) === 'zh-Hant');
+		if (wantsHant) warmS2T();
 	}
 
 	/** Drop ALL cached name/bio translations — in-memory maps + every `openmusic:name-tr:*` key.

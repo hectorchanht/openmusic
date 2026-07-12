@@ -24,14 +24,18 @@ vi.mock('$lib/services/translate', () => ({
 // the queue/flush/attempt machinery, not detection).
 vi.mock('$lib/i18n/detect', () => ({ shouldTranslate: () => true }));
 
-// Fixed per-part target so dnArtist/dnBio both resolve to the same lang (the real artist-page
-// shared-batch scenario). effectiveTarget echoes its argument; settings hands back 'zh-Hant'.
+// Fixed per-part target so dnArtist/dnBio both resolve to the same lang. quick-260712-et3: the
+// target is a NON-offline language ('ja', which goes through the API queue) on purpose — the
+// zh-Hant path now short-circuits to the synchronous offline s2t converter (no queue), so
+// routing these async queue/flush/attempt-machinery assertions through zh-Hant would either
+// skip the machinery entirely or race the lazy dict load. The zh-Hant no-flash sync path is
+// covered in services/zh-convert.test.ts. effectiveTarget echoes its argument.
 vi.mock('$lib/stores/settings.svelte', () => ({
 	settings: {
-		artistLang: 'zh-Hant',
-		titleLang: 'zh-Hant',
-		lastfmLang: 'zh-Hant',
-		bioLang: 'zh-Hant',
+		artistLang: 'ja',
+		titleLang: 'ja',
+		lastfmLang: 'ja',
+		bioLang: 'ja',
 		artistSkip: [],
 		titleSkip: [],
 		lastfmSkip: []
