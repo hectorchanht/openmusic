@@ -25,23 +25,30 @@ import type { Track } from '$lib/sources/types';
 export const STATE_KEY = 'openmusic:player:v1';
 
 /** The parsed, reshaped restore payload the runes store assigns from. `seek` is the clamped
- *  absolute currentTime (>= 0); the store applies it via its pendingSeek slot on loadedmetadata. */
+ *  absolute currentTime (>= 0); the store applies it via its pendingSeek slot on loadedmetadata.
+ *  quick-260712-hm9: `anchorUid` is the persisted Up-Next VIEW anchor (upNextAnchorUid). Absent
+ *  in legacy on-disk blobs → parses to null; the store then anchors at the restored current so a
+ *  resumed run keeps its played-song history (see player.svelte.ts restore()). */
 export interface RestoredState {
 	current: Track;
 	queue: Track[];
 	seek: number;
 	shuffle: boolean;
 	repeatMode: 'off' | 'one';
+	anchorUid: string | null;
 }
 
 /** The persistable snapshot the store hands to serializePlayerState. Kept structural (plain
- *  fields, no runes) so this module stays pure and node-testable with a fake object. */
+ *  fields, no runes) so this module stays pure and node-testable with a fake object.
+ *  quick-260712-hm9: `anchorUid` carries the store's upNextAnchorUid (a state-level VIEW field,
+ *  NOT a Track field — it is NOT part of the 11-field serializeTrack whitelist). */
 export interface PlayerSnapshot {
 	current: Track;
 	queue: Track[];
 	currentTime: number;
 	shuffle: boolean;
 	repeatMode: 'off' | 'one';
+	anchorUid: string | null;
 }
 
 /** Strip volatile fields (audioUrl / lrc / lrcUrl / detailsLoaded) before persisting a
@@ -78,7 +85,11 @@ export function serializePlayerState(snapshot: PlayerSnapshot): string {
 		queue: snapshot.queue.map(serializeTrack),
 		currentTime: snapshot.currentTime,
 		shuffle: snapshot.shuffle,
-		repeatMode: snapshot.repeatMode
+		repeatMode: snapshot.repeatMode,
+		// quick-260712-hm9: persist the Up-Next VIEW anchor so a reload/PWA reopen restores the
+		// EXACT played-song history view. Additive to the `v:1` envelope (placed after repeatMode);
+		// legacy blobs simply lack this key and parse back to null (back-compatible).
+		upNextAnchorUid: snapshot.anchorUid ?? null
 	});
 }
 
@@ -126,6 +137,7 @@ export function parsePlayerState(raw: string | null): RestoredState | null {
 		currentTime?: number;
 		shuffle?: boolean;
 		repeatMode?: 'off' | 'one';
+		upNextAnchorUid?: string | null;
 	} | null = null;
 	try {
 		payload = JSON.parse(raw);
@@ -140,6 +152,9 @@ export function parsePlayerState(raw: string | null): RestoredState | null {
 		shuffle: !!payload.shuffle,
 		// D-11: 2-state migration — only an explicit 'one' is kept; any persisted repeat-all
 		// (from a prior tri-state session), missing, or tampered value collapses to safe 'off'.
-		repeatMode: payload.repeatMode === 'one' ? 'one' : 'off'
+		repeatMode: payload.repeatMode === 'one' ? 'one' : 'off',
+		// quick-260712-hm9: only a real string uid survives; absent (legacy blob) or garbage → null.
+		// The store treats null as "no persisted anchor" and re-anchors at the restored current.
+		anchorUid: typeof payload.upNextAnchorUid === 'string' ? payload.upNextAnchorUid : null
 	};
 }

@@ -4145,6 +4145,92 @@ describe('player.upNextAnchorUid — Up-Next list anchor (quick-260618-lsw)', ()
 	});
 });
 
+describe('player.restore() — persists + re-anchors the Up-Next VIEW anchor (quick-260712-hm9)', () => {
+	// ROOT CAUSE this locks in: restore() never calls play(), so before the fix upNextAnchorUid
+	// stayed null on every reload/PWA reopen. A null anchor makes NowPlaying's clamp fall back to
+	// the CURRENT index — so each just-played song dropped out of the Up-Next list the instant
+	// `current` auto-advanced. The fix persists the anchor and, on restore, re-seeds it (persisted
+	// verbatim, or the restored current when absent) so played songs accumulate from the resume point.
+	const STATE_KEY = 'openmusic:player:v1';
+
+	// Serialize a Track to the on-disk whitelist shape persist() writes (mirrors serializeTrack).
+	function ser(t: Track) {
+		return {
+			uid: t.uid,
+			source: t.source,
+			songid: t.songid,
+			title: t.title,
+			artist: t.artist,
+			album: t.album,
+			cover: t.cover,
+			quality: t.quality,
+			qualityLabel: t.qualityLabel,
+			keyword: t.keyword,
+			displayIndex: t.displayIndex
+		};
+	}
+
+	// Seed the persisted blob EXACTLY as persist() writes it. When `anchor` is omitted the
+	// `upNextAnchorUid` key is absent — a legacy blob / a resumed run that never had a fresh tap.
+	function seed(current: Track, queue: Track[], anchor?: string) {
+		const payload: Record<string, unknown> = {
+			v: 1,
+			current: ser(current),
+			queue: queue.map(ser),
+			currentTime: 0,
+			shuffle: false,
+			repeatMode: 'off'
+		};
+		if (anchor !== undefined) payload.upNextAnchorUid = anchor;
+		localStorage.setItem(STATE_KEY, JSON.stringify(payload));
+		// ensureTrackDetails is awaited inside restore(); resolve the current so it settles (audio is
+		// null in node, so restore returns right after the anchor assignment we assert).
+		mockEnsure.mockResolvedValue(current);
+	}
+
+	beforeEach(() => {
+		player.upNextAnchorUid = null;
+		player.queue = [];
+		player.current = null;
+	});
+
+	it('restore() from a blob with NO anchor seeds upNextAnchorUid to the restored current uid', async () => {
+		const a = mk('netease', 'ra1', 'A', 'First'); // the restored/resumed current
+		const b = mk('qq', 'ra2', 'B', 'Second'); // an up-next entry
+		seed(a, [a, b]); // legacy blob — no upNextAnchorUid key
+
+		await player.restore();
+
+		// The anchor is now the restored current — NOT null (which pre-fix forced the ci-fallback).
+		expect(player.upNextAnchorUid).toBe(a.uid);
+
+		// Payoff: a subsequent auto-advance (current → b, anchor stays put) keeps the just-played `a`
+		// in the anchored slice, exactly like the LSW-01 auto-advance case — no discard on resume.
+		player.current = b; // simulate non-fresh auto-advance
+		const anchorIdx = player.queue.findIndex((t) => t.uid === player.upNextAnchorUid);
+		const slice = player.queue.slice(anchorIdx);
+		expect(anchorIdx).toBe(0);
+		expect(slice.some((t) => t.uid === a.uid)).toBe(true);
+	});
+
+	it('restore() from a blob WITH an anchor restores it verbatim', async () => {
+		const a = mk('netease', 'rb1', 'A', 'First');
+		const b = mk('qq', 'rb2', 'B', 'Second');
+		const c = mk('kuwo', 'rb3', 'C', 'Third');
+		// A fresh-click session that reloaded: current advanced to `b`, but the anchor is still `a`
+		// (the original fresh-play row) so the pre-current played history stays visible.
+		seed(b, [a, b, c], a.uid);
+
+		await player.restore();
+
+		expect(player.upNextAnchorUid).toBe(a.uid); // persisted anchor restored EXACTLY, not the current
+		// The slice still starts at the played `a`, above the restored current `b`.
+		const anchorIdx = player.queue.findIndex((t) => t.uid === player.upNextAnchorUid);
+		expect(anchorIdx).toBe(0);
+		expect(player.queue.slice(anchorIdx).some((t) => t.uid === a.uid)).toBe(true);
+	});
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // debug-midplay-stall-background: RESPECT EXTERNAL PAUSE (the external-pause self-heal was REMOVED).
 // The old design re-issued audio.play() from the `pause` listener for any non-deliberate pause. Because

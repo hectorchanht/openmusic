@@ -99,7 +99,8 @@ describe('serializePlayerState — byte shape', () => {
 			queue: [mk({ uid: 'qq-1', source: 'qq' }), mk({ uid: 'kuwo-2', source: 'kuwo' })],
 			currentTime: 42.5,
 			shuffle: true,
-			repeatMode: 'one'
+			repeatMode: 'one',
+			anchorUid: 'netease-123'
 		});
 		const obj = JSON.parse(s);
 		expect(obj).toEqual({
@@ -111,8 +112,26 @@ describe('serializePlayerState — byte shape', () => {
 			],
 			currentTime: 42.5,
 			shuffle: true,
-			repeatMode: 'one' // passed through unchanged (serializePlayerState does no migration)
+			repeatMode: 'one', // passed through unchanged (serializePlayerState does no migration)
+			// quick-260712-hm9: the persisted Up-Next VIEW anchor rides in the envelope after repeatMode.
+			upNextAnchorUid: 'netease-123'
 		});
+	});
+
+	it('emits upNextAnchorUid: null when the snapshot anchor is null (quick-260712-hm9)', () => {
+		const obj = JSON.parse(
+			serializePlayerState({
+				current: mk(),
+				queue: [],
+				currentTime: 0,
+				shuffle: false,
+				repeatMode: 'off',
+				anchorUid: null
+			})
+		);
+		// The key is present (so the envelope shape is stable) but the value is null.
+		expect('upNextAnchorUid' in obj).toBe(true);
+		expect(obj.upNextAnchorUid).toBeNull();
 	});
 
 	it('never emits volatile fields in the persisted string', () => {
@@ -121,7 +140,8 @@ describe('serializePlayerState — byte shape', () => {
 			queue: [mk({ uid: 'qq-1', source: 'qq' })],
 			currentTime: 0,
 			shuffle: false,
-			repeatMode: 'off'
+			repeatMode: 'off',
+			anchorUid: null
 		});
 		expect(s).not.toContain('audioUrl');
 		expect(s).not.toContain('detailsLoaded');
@@ -131,13 +151,14 @@ describe('serializePlayerState — byte shape', () => {
 });
 
 describe('parsePlayerState — round trip', () => {
-	it('round-trips a serialized snapshot: uid, queue length, seek, shuffle, repeatMode', () => {
+	it('round-trips a serialized snapshot: uid, queue length, seek, shuffle, repeatMode, anchorUid', () => {
 		const snapshot = {
 			current: mk(),
 			queue: [mk({ uid: 'qq-1', source: 'qq' as const }), mk({ uid: 'kuwo-2', source: 'kuwo' as const })],
 			currentTime: 42.5,
 			shuffle: true,
-			repeatMode: 'one' as const
+			repeatMode: 'one' as const,
+			anchorUid: 'kuwo-2'
 		};
 		const parsed = parsePlayerState(serializePlayerState(snapshot));
 		expect(parsed).not.toBeNull();
@@ -146,6 +167,9 @@ describe('parsePlayerState — round trip', () => {
 		expect(parsed!.seek).toBe(42.5);
 		expect(parsed!.shuffle).toBe(true);
 		expect(parsed!.repeatMode).toBe('one');
+		// quick-260712-hm9: the Up-Next VIEW anchor survives the serialize→parse round-trip verbatim
+		// (a reloaded fresh-click session restores its exact played-history slice start).
+		expect(parsed!.anchorUid).toBe('kuwo-2');
 	});
 
 	it('brings volatile fields back nulled / false (reshape defaults)', () => {
@@ -155,7 +179,8 @@ describe('parsePlayerState — round trip', () => {
 				queue: [mk({ uid: 'qq-1', source: 'qq' })],
 				currentTime: 10,
 				shuffle: false,
-				repeatMode: 'off'
+				repeatMode: 'off',
+				anchorUid: null
 			})
 		);
 		expect(parsed!.current.audioUrl).toBeNull();
@@ -173,7 +198,8 @@ describe('parsePlayerState — round trip', () => {
 				queue: [],
 				currentTime: 0,
 				shuffle: false,
-				repeatMode: 'off'
+				repeatMode: 'off',
+				anchorUid: null
 			})
 		);
 		expect(parsed!.current.title).toBe('Title');
@@ -214,6 +240,35 @@ describe('parsePlayerState — round trip', () => {
 		expect(parsed!.current.uid).toBe('netease-r1');
 		expect(parsed!.repeatMode).toBe('one');
 		expect(parsed!.seek).toBe(0);
+		// quick-260712-hm9: this legacy blob predates the anchor field, so it must parse to null
+		// (the store then re-anchors at the restored current — never throws, never undefined).
+		expect(parsed!.anchorUid).toBeNull();
+	});
+});
+
+describe('parsePlayerState — anchorUid back-compat (quick-260712-hm9)', () => {
+	it('a real string upNextAnchorUid survives verbatim', () => {
+		const parsed = parsePlayerState(
+			JSON.stringify({ v: 1, current: { uid: 'netease-1' }, upNextAnchorUid: 'kuwo-9' })
+		);
+		expect(parsed!.anchorUid).toBe('kuwo-9');
+	});
+
+	it('a legacy blob with NO upNextAnchorUid parses to anchorUid: null (never throws)', () => {
+		const raw = JSON.stringify({ v: 1, current: { uid: 'netease-1' } });
+		expect(() => parsePlayerState(raw)).not.toThrow();
+		expect(parsePlayerState(raw)!.anchorUid).toBeNull();
+	});
+
+	it('a garbage (non-string) upNextAnchorUid coerces to null', () => {
+		expect(
+			parsePlayerState(JSON.stringify({ v: 1, current: { uid: 'x-1' }, upNextAnchorUid: 42 }))!
+				.anchorUid
+		).toBeNull();
+		expect(
+			parsePlayerState(JSON.stringify({ v: 1, current: { uid: 'x-1' }, upNextAnchorUid: null }))!
+				.anchorUid
+		).toBeNull();
 	});
 });
 

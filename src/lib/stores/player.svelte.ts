@@ -312,9 +312,11 @@ class Player {
 	 *  in the list; only the now-playing highlight moves down a row. Set ONLY on a fresh user play
 	 *  (`play({fresh})`) and on a new-list install (setQueue/setListQueue/clearQueue); deliberately
 	 *  NOT touched by next()/prev()/auto-advance/failover/manual inserts so the slice start stays put
-	 *  as the highlight moves. PUBLIC because NowPlaying reads it reactively. Session-scoped VIEW
-	 *  anchor — intentionally NOT persisted (a reload re-derives it on the first play; NowPlaying's
-	 *  clamp falls back to the live current index when it is null/absent). */
+	 *  as the highlight moves. PUBLIC because NowPlaying reads it reactively. VIEW anchor.
+	 *  quick-260712-hm9: now PERSISTED (via serializePlayerState's `upNextAnchorUid` envelope field)
+	 *  and re-seeded on restore() — a null anchor made NowPlaying's clamp fall back to the live current
+	 *  index (LSW-03 ci-fallback), which silently discarded played songs on a resumed/restored session.
+	 *  NowPlaying's clamp still falls back to the live current index if this is EVER null/absent. */
 	upNextAnchorUid = $state<string | null>(null);
 
 	/** Shuffle on: toggling true randomizes queue tail (current pinned). Off = no auto-shuffle on
@@ -397,7 +399,10 @@ class Player {
 					queue: this.queue,
 					currentTime: this.currentTime,
 					shuffle: this.shuffle,
-					repeatMode: this.repeatMode
+					repeatMode: this.repeatMode,
+					// quick-260712-hm9: persist the Up-Next VIEW anchor so a reload restores the exact
+					// played-history view (see restore() for why a null anchor discarded played songs).
+					anchorUid: this.upNextAnchorUid
 				})
 			);
 		} catch {
@@ -448,6 +453,15 @@ class Player {
 		this.shuffle = parsed.shuffle;
 		this.repeatMode = parsed.repeatMode;
 		this.current = target;
+		// quick-260712-hm9: guarantee a NON-NULL Up-Next anchor for the restored run. restore() never
+		// calls play(), so before this the anchor stayed null on every reload/PWA reopen — and a null
+		// anchor makes NowPlaying's clamp fall back to the CURRENT index (ci-fallback), so each just-
+		// played song dropped out of the list the instant `current` auto-advanced. A persisted anchor
+		// (fresh-click session that reloaded) restores verbatim to keep its exact pre-current history;
+		// absent (a resumed run, or a legacy blob) anchors at the restored current so played songs
+		// accumulate from the resume point. (Genuinely-absent-anchor ci-fallback in NowPlaying — LSW-03
+		// — is untouched: it only fires when upNextAnchorUid is still null, which no longer happens here.)
+		this.upNextAnchorUid = parsed.anchorUid ?? target.uid;
 		// cover-hero-mediacard-missing (Issue 2 + Issue 1): the restore path never calls play(), so
 		// without this the OS media card had no metadata on a PWA reopen → it fell back to the bare
 		// app name once the user resumed. Seed the ONE cover field (mirrors play()'s sync seed: track
