@@ -67,3 +67,31 @@ recent block is preserved (recent requires `q.trim()===''`; typeahead requires �
 - In-sandbox: after the fix, a populated typeahead **stays visible** across a blur
   (`inputFocused` no longer gates it); `pnpm check` clean.
 - Device UAT: confirm on real Android Chrome that the typeahead now appears while typing.
+
+## Reopened 2026-07-13 — "still no suggestion in android mobile app"
+
+**Report:** user says the typeahead is still missing on the Android app after the fix.
+
+**Investigation:**
+- The fix commit `a0ef59a` is on `origin/main` (local == origin/main, nothing unpushed).
+- **Verified LIVE on the deployed https://openmusic.lol/search**: typed a query → 8
+  suggestions populate → a REAL `input.blur()` (activeElement ≠ input) → the typeahead
+  **stays visible** (8 rows). So the fix IS deployed to the web and works.
+- CORS allowlist (`src/lib/proxy/http.ts`) already includes the Capacitor WebView origins
+  (`http://localhost`, `https://localhost`, `capacitor://localhost`) → not a CORS block.
+- User surface = **home-screen PWA**, and they have **not** reloaded a fresh build.
+
+**True cause of the "still broken" report:** stale client bundle. The PWA's service
+worker (`src/service-worker.ts`) uses no `skipWaiting()`/`clientsClaim()`, so the OLD SW
+(installed before the fix) keeps controlling the app and serving the OLD precached JS
+bundle until every PWA window is fully closed (or site data cleared). The device is
+running pre-fix code even though the web is fixed. NOT a code defect in the fix.
+
+**Resolution (user action):** on the phone, fully close the PWA (swipe from recents) and
+reopen — or clear site data / reinstall the home-screen app — to pull the fixed bundle.
+Confirmed the code path is correct + live; no further code change needed for THIS bug.
+
+**Follow-up (optional, separate):** the SW update strategy makes PWA users wait for a full
+app-close before a deploy reaches them. Adding `skipWaiting()` + `clientsClaim()` + a
+"new version — reload" prompt would push future fixes to PWA users promptly. Does NOT
+retroactively fix an already-stale instance. Left as a proposed quick task, not done here.
