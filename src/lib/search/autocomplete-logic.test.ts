@@ -10,9 +10,10 @@ import {
 import type { DeezerHit } from '$lib/services/deezer';
 
 // Test fixture builder — only the fields deriveSuggestions reads matter, the rest are
-// filled with harmless placeholders so we exercise the real DeezerHit shape.
-function hit(title: string, artist: string, id = `${title}-${artist}`): DeezerHit {
-	return { id, title, artist, album: '', cover: null, preview: null };
+// filled with harmless placeholders so we exercise the real DeezerHit shape. `album` defaults
+// to '' so pre-gm4 tests (which never set it) keep producing zero album suggestions.
+function hit(title: string, artist: string, album = '', id = `${title}-${artist}`): DeezerHit {
+	return { id, title, artist, album, cover: null, preview: null };
 }
 
 describe('deriveSuggestions', () => {
@@ -92,6 +93,50 @@ describe('deriveSuggestions', () => {
 		// many songs by distinct artists so both kinds are available beyond the cap
 		for (let i = 0; i < 12; i++) hits.push(hit(`Song ${i}`, `Artist ${i}`));
 		const out = deriveSuggestions(hits, 'song');
+		expect(out.some((s) => s.kind === 'artist')).toBe(true);
+	});
+
+	// --- album suggestions (quick-260712-gm4) ---
+
+	it('emits distinct album suggestions carrying the album artist as the sub (gm4)', () => {
+		const hits = [
+			hit('Song A', 'Jay Chou', 'Jay'),
+			hit('Song B', 'Jay Chou', 'Fantasy'),
+			hit('Song C', 'Eason Chan', 'H3M')
+		];
+		const albums = deriveSuggestions(hits, 'jay').filter((s) => s.kind === 'album');
+		expect(albums.map((s) => s.title)).toEqual(['Jay', 'Fantasy', 'H3M']);
+		expect(albums[0]).toMatchObject({ kind: 'album', title: 'Jay', artist: 'Jay Chou' });
+	});
+
+	it('skips empty album names and de-dupes album|artist case-insensitively (gm4)', () => {
+		const hits = [
+			hit('T1', 'Adele', '21'),
+			hit('T2', 'adele', '21'), // same album|artist (case-insensitive) → one album row
+			hit('T3', 'Nobody', ''), // empty album → skipped
+			hit('T4', 'Someone', '   ') // whitespace album → skipped
+		];
+		const albums = deriveSuggestions(hits, 'adele').filter((s) => s.kind === 'album');
+		expect(albums.map((s) => `${s.title}|${s.artist}`)).toEqual(['21|Adele']);
+	});
+
+	it('keeps a same title distinct across kinds via the key prefix (gm4)', () => {
+		// A query where a song, an artist, and an album can share the string "Nirvana".
+		const hits = [hit('Nirvana', 'Nirvana', 'Nirvana')];
+		const out = deriveSuggestions(hits, 'nir');
+		const keys = out.map((s) => s.key);
+		expect(new Set(keys).size).toBe(keys.length); // no collisions
+		expect(out.some((s) => s.kind === 'album')).toBe(true);
+	});
+
+	it('surfaces album rows near the top when present, without exceeding the cap (gm4)', () => {
+		const hits: DeezerHit[] = [];
+		for (let i = 0; i < 12; i++) hits.push(hit(`Song ${i}`, `Artist ${i}`, `Album ${i}`));
+		const out = deriveSuggestions(hits, 'song');
+		expect(out.length).toBeLessThanOrEqual(SUGGEST_CAP);
+		expect(out.some((s) => s.kind === 'album')).toBe(true);
+		// all three kinds present
+		expect(out.some((s) => s.kind === 'song')).toBe(true);
 		expect(out.some((s) => s.kind === 'artist')).toBe(true);
 	});
 

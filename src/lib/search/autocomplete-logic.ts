@@ -26,21 +26,23 @@ export const SUGGEST_CAP = 8;
 
 /**
  * A single typeahead suggestion. `kind` distinguishes a song row (carries the performing
- * `artist` for muted secondary display) from an artist row (the artist name is the `title`).
- * `key` is stable + unique within a derived list, suitable for a Svelte `{#each (key)}`.
+ * `artist` for muted secondary display), an artist row (the artist name is the `title`), and
+ * an album row (quick-260712-gm4 — the album name is the `title`, carrying its `artist` for the
+ * muted sub-line like a song). `key` is stable + unique within a derived list, suitable for a
+ * Svelte `{#each (key)}`.
  */
 export interface Suggestion {
-	kind: 'song' | 'artist';
+	kind: 'song' | 'artist' | 'album';
 	/** The primary text + the text the component fills the input with on tap. */
 	title: string;
-	/** Present only for `kind:'song'` — the performing artist, shown as muted secondary text. */
+	/** Present for `kind:'song'` and `kind:'album'` — the performing/album artist, shown as muted secondary text. */
 	artist?: string;
 	/** Stable, unique-within-the-list key for keyed `{#each}` rendering. */
 	key: string;
 }
 
 /**
- * Derive a deduped, capped, song+artist suggestion list from Deezer hits for `query`.
+ * Derive a deduped, capped, song+artist+album suggestion list from Deezer hits for `query`.
  *
  * Rules:
  *  - An empty/whitespace `query` OR a trimmed length `< MIN_QUERY_LEN` → `[]` (never suggest
@@ -50,13 +52,18 @@ export interface Suggestion {
  *    duplicates are dropped case-insensitively on `${title}|${artist}` (first wins).
  *  - ARTIST suggestions: the DISTINCT artist names across the hits (case-insensitive dedupe,
  *    first-seen casing + order preserved); empty artist names are skipped.
- *  - The combined list is capped at `SUGGEST_CAP`, interleaved songs-first then filled with
- *    not-yet-shown artists then remaining songs, so at least a couple of artist rows surface
- *    near the top when present. `key` is `song:${title}|${artist}` / `artist:${name}`,
- *    guaranteed unique because the songs and artists are each deduped first.
+ *  - ALBUM suggestions (quick-260712-gm4): the DISTINCT album names across the hits
+ *    (kind:'album', title=hit.album, artist=hit.artist for the muted sub), case-insensitively
+ *    deduped on `${album}|${artist}` with first-seen casing + order; empty album names skipped.
+ *    Deezer already returns `hit.album` on every search hit, so albums cost ZERO extra network.
+ *  - The combined list is capped at `SUGGEST_CAP`, interleaved a few songs first, then a couple
+ *    artists, then a couple albums near the top, then round-robin the remainder across all three
+ *    kinds so none is starved below the cap. `key` is `song:${title}|${artist}` /
+ *    `artist:${name}` / `album:${title}|${artist}`, guaranteed unique because each kind is
+ *    deduped first AND the kind prefix keeps a same-named song/artist/album from colliding.
  *
- * Pure: tolerates missing/nullish `title`/`artist` fields (treats them as empty → skipped),
- * never throws, never touches the network/DOM/timers.
+ * Pure: tolerates missing/nullish `title`/`artist`/`album` fields (treats them as empty →
+ * skipped), never throws, never touches the network/DOM/timers.
  */
 export function deriveSuggestions(hits: DeezerHit[], query: string): Suggestion[] {
 	const q = (query ?? '').trim();
@@ -88,16 +95,32 @@ export function deriveSuggestions(hits: DeezerHit[], query: string): Suggestion[
 		artists.push({ kind: 'artist', title: name, key: `artist:${name}` });
 	}
 
-	// --- interleave: a few songs first, then surface artists near the top, then fill the rest.
-	// Take the leading songs, then the leading artists, then whatever space remains with the
-	// remaining songs — never exceeding the cap. This guarantees at least a couple of artist
-	// rows ride near the top when artists exist, without burying songs.
+	// --- albums (gm4): distinct album names, first-seen casing + order, skip empty. Carry the
+	// hit's artist for the muted sub-line; dedupe on album|artist so a common album title
+	// ("Greatest Hits") stays distinct across artists.
+	const albums: Suggestion[] = [];
+	const seenAlbum = new Set<string>();
+	for (const h of hits) {
+		const title = (h?.album ?? '').trim();
+		if (!title) continue;
+		const artist = (h?.artist ?? '').trim();
+		const dedupeKey = `${title.toLowerCase()}|${artist.toLowerCase()}`;
+		if (seenAlbum.has(dedupeKey)) continue;
+		seenAlbum.add(dedupeKey);
+		albums.push({ kind: 'album', title, artist, key: `album:${title}|${artist}` });
+	}
+
+	// --- interleave: a few songs first, then a couple artists, then a couple albums near the
+	// top, then round-robin the remainder across all three kinds so none is starved below the
+	// cap. Guarantees song/artist/album rows all surface near the top when present.
 	const out: Suggestion[] = [];
-	const SONGS_FIRST = 3; // show a few top songs before the artist block
-	const ARTISTS_NEAR_TOP = 2; // then a couple of artist rows near the top
+	const SONGS_FIRST = 3; // show a few top songs before the artist/album blocks
+	const ARTISTS_NEAR_TOP = 2; // then a couple of artist rows
+	const ALBUMS_NEAR_TOP = 2; // then a couple of album rows
 
 	let si = 0; // song cursor
 	let ai = 0; // artist cursor
+	let li = 0; // album cursor
 
 	for (; si < songs.length && out.length < SUGGEST_CAP && si < SONGS_FIRST; si++) {
 		out.push(songs[si]);
@@ -105,12 +128,15 @@ export function deriveSuggestions(hits: DeezerHit[], query: string): Suggestion[
 	for (; ai < artists.length && out.length < SUGGEST_CAP && ai < ARTISTS_NEAR_TOP; ai++) {
 		out.push(artists[ai]);
 	}
-	// Fill the remainder: alternate remaining songs and artists so both kinds keep appearing
-	// until the cap is reached.
-	while (out.length < SUGGEST_CAP && (si < songs.length || ai < artists.length)) {
-		if (si < songs.length) out.push(songs[si++]);
-		if (out.length >= SUGGEST_CAP) break;
-		if (ai < artists.length) out.push(artists[ai++]);
+	for (; li < albums.length && out.length < SUGGEST_CAP && li < ALBUMS_NEAR_TOP; li++) {
+		out.push(albums[li]);
+	}
+	// Fill the remainder: round-robin remaining songs → artists → albums so every kind keeps
+	// appearing until the cap is reached.
+	while (out.length < SUGGEST_CAP && (si < songs.length || ai < artists.length || li < albums.length)) {
+		if (si < songs.length && out.length < SUGGEST_CAP) out.push(songs[si++]);
+		if (ai < artists.length && out.length < SUGGEST_CAP) out.push(artists[ai++]);
+		if (li < albums.length && out.length < SUGGEST_CAP) out.push(albums[li++]);
 	}
 
 	return out;
