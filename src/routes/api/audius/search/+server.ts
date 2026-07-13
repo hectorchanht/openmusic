@@ -13,22 +13,13 @@
 // stable enough that a 10-minute window avoids hammering upstream on repeat searches.
 import type { RequestHandler } from './$types';
 import { fetchWithRetry, corsHeaders } from '$lib/proxy/http';
+import { edgeCache } from '$lib/proxy/edge-cache';
 
 const AUDIUS_SEARCH = 'https://api.audius.co/v1/tracks/search';
 const APP_NAME = 'musicsquare';
 const TTL = 600; // 10min
 
-interface EdgeCache {
-	match(request: Request): Promise<Response | undefined>;
-	put(request: Request, response: Response): Promise<void>;
-}
-interface EdgeCacheStorage {
-	default?: EdgeCache;
-}
-function edgeCache(): EdgeCache | null {
-	if (typeof caches === 'undefined') return null;
-	return (caches as unknown as EdgeCacheStorage).default ?? null;
-}
+// edgeCache() shared from $lib/proxy/edge-cache (quick-260713-mqv).
 
 function jsonPassthrough(body: unknown, origin: string | null, ttl?: number): Response {
 	const headers: Record<string, string> = {

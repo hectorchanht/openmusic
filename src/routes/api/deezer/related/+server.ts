@@ -11,6 +11,7 @@
 // existing /api/deezer/search route).
 import type { RequestHandler } from './$types';
 import { fetchWithRetry, corsHeaders } from '$lib/proxy/http';
+import { edgeCache } from '$lib/proxy/edge-cache';
 
 const DEEZER_ARTIST_SEARCH = 'https://api.deezer.com/search/artist';
 const DEEZER_ARTIST_RELATED = 'https://api.deezer.com/artist';
@@ -18,18 +19,7 @@ const DEEZER_ARTIST_RELATED = 'https://api.deezer.com/artist';
 // Related artists for a given name change rarely → cache 24h, same as the cover proxy.
 const TTL = 86400;
 
-// Local edge-cache narrow (mirrors search/+server.ts).
-interface EdgeCache {
-	match(request: Request): Promise<Response | undefined>;
-	put(request: Request, response: Response): Promise<void>;
-}
-interface EdgeCacheStorage {
-	default?: EdgeCache;
-}
-function edgeCache(): EdgeCache | null {
-	if (typeof caches === 'undefined') return null;
-	return (caches as unknown as EdgeCacheStorage).default ?? null;
-}
+// edgeCache() shared from $lib/proxy/edge-cache (quick-260713-mqv).
 
 interface RelatedResult {
 	artists: string[];

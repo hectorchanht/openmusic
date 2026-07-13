@@ -15,6 +15,7 @@
 //     artists: { data: [ { name, picture_xl, picture_big } ] } }
 import type { RequestHandler } from './$types';
 import { fetchWithRetry, corsHeaders } from '$lib/proxy/http';
+import { edgeCache } from '$lib/proxy/edge-cache';
 
 const DEEZER_CHART = 'https://api.deezer.com/chart';
 // Charts shift slowly; an hour keeps re-browsing well under Deezer's ~50 req/5s rate cap.
@@ -37,18 +38,7 @@ export interface DeezerChart {
 	artists: DeezerChartArtist[];
 }
 
-// Cloudflare Cache API narrowing (the search route documents this; absent in `vite dev`).
-interface EdgeCache {
-	match(request: Request): Promise<Response | undefined>;
-	put(request: Request, response: Response): Promise<void>;
-}
-interface EdgeCacheStorage {
-	default?: EdgeCache;
-}
-function edgeCache(): EdgeCache | null {
-	if (typeof caches === 'undefined') return null;
-	return (caches as unknown as EdgeCacheStorage).default ?? null;
-}
+// edgeCache() shared from $lib/proxy/edge-cache (quick-260713-mqv).
 
 /** https + *.dzcdn.net only, no CSS/attribute breakers — else null (tile keeps its gradient). */
 function safeImageUrl(raw: string | null | undefined): string | null {

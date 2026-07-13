@@ -15,6 +15,7 @@
 // miss returns the empty shape WITHOUT a long TTL. T-17-10: every upstream field optional + null-safe.
 import type { RequestHandler } from './$types';
 import { fetchWithRetry, corsHeaders } from '$lib/proxy/http';
+import { edgeCache } from '$lib/proxy/edge-cache';
 
 const DEEZER_ALBUM_SEARCH = 'https://api.deezer.com/search/album';
 const DEEZER_ALBUM_BYID = 'https://api.deezer.com/album';
@@ -22,18 +23,7 @@ const DEEZER_ALBUM_BYID = 'https://api.deezer.com/album';
 // Album data changes rarely → cache 24h on success (D-16: long TTL).
 const TTL = 86400;
 
-// Local edge-cache narrow (mirrors related/+server.ts).
-interface EdgeCache {
-	match(request: Request): Promise<Response | undefined>;
-	put(request: Request, response: Response): Promise<void>;
-}
-interface EdgeCacheStorage {
-	default?: EdgeCache;
-}
-function edgeCache(): EdgeCache | null {
-	if (typeof caches === 'undefined') return null;
-	return (caches as unknown as EdgeCacheStorage).default ?? null;
-}
+// edgeCache() shared from $lib/proxy/edge-cache (quick-260713-mqv).
 
 /** Client-facing reshape (mirrors DeezerAlbumInfo in deezer.ts). */
 interface AlbumResult {

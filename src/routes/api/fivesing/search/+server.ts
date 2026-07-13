@@ -11,6 +11,7 @@
 // hammering the upstream on every repeat search.
 import type { RequestHandler } from './$types';
 import { fetchWithRetry, corsHeaders } from '$lib/proxy/http';
+import { edgeCache } from '$lib/proxy/edge-cache';
 
 // Upstream host. `https://` returns a TLS cert mismatch (cert is for a different hostname,
 // verified 2026-06-07 via curl); the upstream serves the API over plain http only. Cloudflare
@@ -19,17 +20,7 @@ import { fetchWithRetry, corsHeaders } from '$lib/proxy/http';
 const FS_SEARCH = 'http://search.5sing.kugou.com/home/json';
 const TTL = 3600; // 1h
 
-interface EdgeCache {
-	match(request: Request): Promise<Response | undefined>;
-	put(request: Request, response: Response): Promise<void>;
-}
-interface EdgeCacheStorage {
-	default?: EdgeCache;
-}
-function edgeCache(): EdgeCache | null {
-	if (typeof caches === 'undefined') return null;
-	return (caches as unknown as EdgeCacheStorage).default ?? null;
-}
+// edgeCache() shared from $lib/proxy/edge-cache (quick-260713-mqv).
 
 function jsonPassthrough(body: unknown, origin: string | null, ttl?: number): Response {
 	const headers: Record<string, string> = {

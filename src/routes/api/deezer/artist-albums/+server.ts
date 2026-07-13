@@ -17,6 +17,7 @@
 // `api.deezer.com/artist/{id}/albums` path. The host is always the literal api.deezer.com.
 import type { RequestHandler } from './$types';
 import { fetchWithRetry, corsHeaders } from '$lib/proxy/http';
+import { edgeCache } from '$lib/proxy/edge-cache';
 
 const DEEZER_ARTIST_SEARCH = 'https://api.deezer.com/search/artist';
 const DEEZER_ARTIST_ALBUMS = 'https://api.deezer.com/artist'; // + /{id}/albums
@@ -37,20 +38,7 @@ export interface DeezerArtistAlbumsResult {
 	data: DeezerArtistAlbum[];
 }
 
-// The Cloudflare Cache API extends CacheStorage with a `default` cache; the DOM lib does not
-// declare it (and shadows @cloudflare/workers-types), so we narrow through a minimal local
-// interface. Absent in `vite dev` — guarded with `typeof caches`.
-interface EdgeCache {
-	match(request: Request): Promise<Response | undefined>;
-	put(request: Request, response: Response): Promise<void>;
-}
-interface EdgeCacheStorage {
-	default?: EdgeCache;
-}
-function edgeCache(): EdgeCache | null {
-	if (typeof caches === 'undefined') return null;
-	return (caches as unknown as EdgeCacheStorage).default ?? null;
-}
+// edgeCache() shared from $lib/proxy/edge-cache (quick-260713-mqv).
 
 function jsonResult(result: DeezerArtistAlbumsResult, origin: string | null, ttl?: number): Response {
 	const headers: Record<string, string> = {

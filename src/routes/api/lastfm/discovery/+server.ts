@@ -24,6 +24,7 @@
 // never re-hits Last.fm (Pitfall 11).
 import type { RequestHandler } from './$types';
 import { fetchWithRetry, corsHeaders } from '$lib/proxy/http';
+import { edgeCache } from '$lib/proxy/edge-cache';
 import type { Env } from '$lib/proxy/proxy-types';
 
 const LASTFM_ENDPOINT = 'https://ws.audioscrobbler.com/2.0/';
@@ -76,22 +77,8 @@ export interface LastfmList {
 	items: DiscoveryItem[];
 }
 
-// The Cloudflare Cache API extends the standard CacheStorage with a `default` cache
-// (caches.default). The DOM lib's CacheStorage (pulled in by SvelteKit's generated
-// tsconfig) does NOT declare `default` and shadows @cloudflare/workers-types' global,
-// so we narrow through a minimal local interface for the subset we use. Absent in the
-// dev runtime (`vite dev`) — guarded with `typeof caches` before use.
-interface EdgeCache {
-	match(request: Request): Promise<Response | undefined>;
-	put(request: Request, response: Response): Promise<void>;
-}
-interface EdgeCacheStorage {
-	default?: EdgeCache;
-}
-function edgeCache(): EdgeCache | null {
-	if (typeof caches === 'undefined') return null;
-	return (caches as unknown as EdgeCacheStorage).default ?? null;
-}
+// edgeCache() (caches.default narrowing + `typeof caches` dev guard) is shared from
+// $lib/proxy/edge-cache (quick-260713-mqv). Cache key stays the own-origin Request below.
 
 function jsonList(items: DiscoveryItem[], origin: string | null, ttl?: number): Response {
 	const headers: Record<string, string> = {

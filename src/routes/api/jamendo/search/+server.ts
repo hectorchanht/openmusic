@@ -16,21 +16,12 @@
 import type { RequestHandler } from './$types';
 import type { Env } from '$lib/proxy/proxy-types';
 import { fetchWithRetry, corsHeaders } from '$lib/proxy/http';
+import { edgeCache } from '$lib/proxy/edge-cache';
 
 const JM_BASE = 'https://api.jamendo.com/v3.0/tracks/';
 const TTL = 3600; // 1h — search metadata is stable enough
 
-interface EdgeCache {
-	match(request: Request): Promise<Response | undefined>;
-	put(request: Request, response: Response): Promise<void>;
-}
-interface EdgeCacheStorage {
-	default?: EdgeCache;
-}
-function edgeCache(): EdgeCache | null {
-	if (typeof caches === 'undefined') return null;
-	return (caches as unknown as EdgeCacheStorage).default ?? null;
-}
+// edgeCache() shared from $lib/proxy/edge-cache (quick-260713-mqv).
 
 function jsonPassthrough(body: unknown, origin: string | null, ttl?: number): Response {
 	const headers: Record<string, string> = {

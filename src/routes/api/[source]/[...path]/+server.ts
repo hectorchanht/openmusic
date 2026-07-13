@@ -15,6 +15,7 @@
 import type { RequestHandler } from './$types';
 import { PROXIES } from '$lib/proxy/proxy-registry';
 import { fetchWithRetry, corsHeaders } from '$lib/proxy/http';
+import { edgeCache } from '$lib/proxy/edge-cache';
 import type { Env } from '$lib/proxy/proxy-types';
 import type { SourceId } from '$lib/sources/types';
 
@@ -28,21 +29,8 @@ function isKnownSource(source: string): source is SourceId {
 	return Object.prototype.hasOwnProperty.call(PROXIES, source);
 }
 
-// The Cloudflare Cache API extends the standard CacheStorage with a `default` cache
-// (caches.default). The DOM lib's CacheStorage does NOT declare `default` and shadows
-// @cloudflare/workers-types' global, so we narrow through a minimal local interface for the
-// subset we use. Absent in the dev runtime (`vite dev`) — guarded with `typeof caches`.
-interface EdgeCache {
-	match(request: Request): Promise<Response | undefined>;
-	put(request: Request, response: Response): Promise<void>;
-}
-interface EdgeCacheStorage {
-	default?: EdgeCache;
-}
-function edgeCache(): EdgeCache | null {
-	if (typeof caches === 'undefined') return null;
-	return (caches as unknown as EdgeCacheStorage).default ?? null;
-}
+// edgeCache() (caches.default narrowing + `typeof caches` dev guard) is shared from
+// $lib/proxy/edge-cache (quick-260713-mqv). Cache key stays the own-origin Request below.
 
 export const GET: RequestHandler = async ({ params, url, platform, request }) => {
 	const origin = request.headers.get('origin');

@@ -23,6 +23,7 @@
 // 3b/3c) WITHOUT restructuring — but only the search → { cover, artistPicture } path ships now.
 import type { RequestHandler } from './$types';
 import { fetchWithRetry, corsHeaders } from '$lib/proxy/http';
+import { edgeCache } from '$lib/proxy/edge-cache';
 
 const DEEZER_SEARCH = 'https://api.deezer.com/search';
 
@@ -51,21 +52,8 @@ export interface DeezerHit {
 	preview: string | null;
 }
 
-// The Cloudflare Cache API extends the standard CacheStorage with a `default` cache
-// (caches.default). The DOM lib's CacheStorage does NOT declare `default` and shadows
-// @cloudflare/workers-types' global, so we narrow through a minimal local interface for the
-// subset we use. Absent in the dev runtime (`vite dev`) — guarded with `typeof caches`.
-interface EdgeCache {
-	match(request: Request): Promise<Response | undefined>;
-	put(request: Request, response: Response): Promise<void>;
-}
-interface EdgeCacheStorage {
-	default?: EdgeCache;
-}
-function edgeCache(): EdgeCache | null {
-	if (typeof caches === 'undefined') return null;
-	return (caches as unknown as EdgeCacheStorage).default ?? null;
-}
+// edgeCache() (caches.default narrowing + `typeof caches` dev guard) is shared from
+// $lib/proxy/edge-cache (quick-260713-mqv). Cache key stays the own-origin Request below.
 
 function jsonResult(result: DeezerCover, origin: string | null, ttl?: number): Response {
 	const headers: Record<string, string> = {
