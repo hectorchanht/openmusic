@@ -10,9 +10,11 @@ const ORIGIN = 'https://openmusic.lol';
 
 beforeEach(() => {
 	vi.restoreAllMocks();
+	vi.unstubAllGlobals(); // quick-260713-mqv: reset the caches.default stub between tests
 });
 afterEach(() => {
 	vi.restoreAllMocks();
+	vi.unstubAllGlobals();
 });
 
 function fakeEvent(search: Record<string, string>, env?: Env) {
@@ -297,5 +299,95 @@ describe('/api/lastfm/similar-tracks — track.getSimilar proxy', () => {
 		expect(res.status).toBe(204);
 		expect(res.headers.get('access-control-allow-origin')).toBe(ORIGIN);
 		expect(res.headers.get('access-control-allow-origin')).not.toBe('*');
+	});
+});
+
+// quick-260713-mqv: track.getSimilar success is now edge-cached in caches.default with an
+// OWN-ORIGIN key + 24h TTL. Mirrors the deezer/search cache-hit pattern; the Last.fm error / EMPTY
+// paths are never written.
+describe('/api/lastfm/similar-tracks — edge cache (own-origin key, success only)', () => {
+	function inMemoryCacheStub() {
+		const store = new Map<string, Response>();
+		return {
+			match: vi.fn(async (req: Request) => {
+				const hit = store.get(req.url);
+				return hit ? hit.clone() : undefined;
+			}),
+			put: vi.fn(async (req: Request, res: Response) => {
+				store.set(req.url, res.clone());
+			})
+		};
+	}
+
+	it('sets Cache-Control: public, max-age=86400 on a success', async () => {
+		vi.stubGlobal('fetch', vi.fn(async () => new Response(SIMILAR_PAYLOAD, { status: 200 })));
+		const event = fakeEvent({ artist: 'Adele', track: 'Hello' }, { JOOX_TOKEN: 'x', LASTFM_KEY: FAKE_KEY });
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const res = await GET(event as any);
+		const cc = res.headers.get('Cache-Control') ?? '';
+		expect(cc).toContain('public');
+		expect(cc).toContain('max-age=86400');
+	});
+
+	it('serves the second identical request from caches.default WITHOUT a second upstream fetch', async () => {
+		const fetchSpy = vi.fn(async () => new Response(SIMILAR_PAYLOAD, { status: 200 }));
+		vi.stubGlobal('fetch', fetchSpy);
+		const cacheStub = inMemoryCacheStub();
+		vi.stubGlobal('caches', { default: cacheStub });
+
+		const mk = () => fakeEvent({ artist: 'Adele', track: 'Hello' }, { JOOX_TOKEN: 'x', LASTFM_KEY: FAKE_KEY });
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const res1 = await GET(mk() as any);
+		const body1 = JSON.parse(await res1.text()) as { tracks: { title: string }[] };
+		expect(body1.tracks[0].title).toBe('Someone Like You');
+		expect(fetchSpy).toHaveBeenCalledTimes(1);
+		expect(cacheStub.put).toHaveBeenCalledTimes(1);
+
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const res2 = await GET(mk() as any);
+		const body2 = JSON.parse(await res2.text()) as { tracks: { title: string }[] };
+		expect(body2.tracks[0].title).toBe('Someone Like You');
+		expect(fetchSpy).toHaveBeenCalledTimes(1); // no second upstream fetch — served from cache
+		expect(cacheStub.match).toHaveBeenCalledTimes(2);
+		expect(res2.headers.get('Access-Control-Allow-Origin')).toBe(ORIGIN); // WR-01 re-applied
+	});
+
+	it('uses the own-origin Request as the cache key (NEVER the LASTFM_KEY-bearing upstream URL)', async () => {
+		vi.stubGlobal('fetch', vi.fn(async () => new Response(SIMILAR_PAYLOAD, { status: 200 })));
+		let cacheKeyUrl = '';
+		const cacheStub = {
+			match: vi.fn(async () => undefined),
+			put: vi.fn(async (req: Request) => {
+				cacheKeyUrl = req.url;
+			})
+		};
+		vi.stubGlobal('caches', { default: cacheStub });
+
+		const event = fakeEvent({ artist: 'Adele', track: 'Hello' }, { JOOX_TOKEN: 'x', LASTFM_KEY: FAKE_KEY });
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		await GET(event as any);
+		expect(cacheStub.put).toHaveBeenCalled();
+		expect(cacheKeyUrl).toContain('openmusic.lol/api/lastfm/similar-tracks');
+		expect(cacheKeyUrl).not.toContain('audioscrobbler.com');
+		expect(cacheKeyUrl).not.toContain(FAKE_KEY);
+	});
+
+	it('does NOT cache a Last.fm error body (error-6 → second request refetches upstream)', async () => {
+		const fetchSpy = vi.fn(async () =>
+			new Response(JSON.stringify({ error: 6, message: 'Track not found' }), { status: 200 })
+		);
+		vi.stubGlobal('fetch', fetchSpy);
+		const cacheStub = inMemoryCacheStub();
+		vi.stubGlobal('caches', { default: cacheStub });
+
+		const mk = () => fakeEvent({ artist: 'A', track: 'B' }, { JOOX_TOKEN: 'x', LASTFM_KEY: FAKE_KEY });
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const res1 = await GET(mk() as any);
+		expect((JSON.parse(await res1.text()) as { tracks: unknown[] }).tracks).toEqual([]);
+		expect(cacheStub.put).not.toHaveBeenCalled(); // error path never writes the cache
+
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		await GET(mk() as any);
+		expect(fetchSpy).toHaveBeenCalledTimes(2); // nothing cached → upstream hit again
 	});
 });
