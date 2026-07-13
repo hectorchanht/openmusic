@@ -13,9 +13,14 @@
 // CORS is scoped to the own origin via corsHeaders (never `*`, T-08-05).
 import type { RequestHandler } from './$types';
 import { fetchWithRetry, corsHeaders } from '$lib/proxy/http';
+import { edgeCache, ownOriginCacheKey } from '$lib/proxy/edge-cache';
 import type { Env } from '$lib/proxy/proxy-types';
 
 const LASTFM_ENDPOINT = 'https://ws.audioscrobbler.com/2.0/';
+
+// getInfo is bio/tags-static but listeners/playcount drift → cache the success path 6h (a
+// freshness vs re-hit balance; shorter than the 24h recommendation TTLs). quick-260713-mqv.
+const INFO_TTL = 21600;
 
 // Grey-star placeholder hash Last.fm returns when an entity has no real art. A real
 // cover must NEVER regress to this (ENRICH-02 / D-04 guardrail 2).
@@ -52,11 +57,16 @@ const EMPTY: LastfmInfo = {
 	playcount: null
 };
 
-function jsonInfo(info: LastfmInfo, origin: string | null): Response {
-	return new Response(JSON.stringify(info), {
-		status: 200,
-		headers: { ...corsHeaders(origin), 'content-type': 'application/json' }
-	});
+// ttl is added ONLY on a cacheable success (Cache-Control emitted only when ttl != null) — the
+// !key / bad-method / data.error / !entity / catch EMPTY returns pass no ttl so they carry no
+// Cache-Control and are never written to caches.default (quick-260713-mqv).
+function jsonInfo(info: LastfmInfo, origin: string | null, ttl?: number): Response {
+	const headers: Record<string, string> = {
+		...corsHeaders(origin),
+		'content-type': 'application/json'
+	};
+	if (ttl != null) headers['Cache-Control'] = `public, max-age=${ttl}`;
+	return new Response(JSON.stringify(info), { status: 200, headers });
 }
 
 // ---- Last.fm response sub-shapes (only the fields we read) ----
@@ -266,6 +276,22 @@ export const GET: RequestHandler = async ({ url, platform, request }) => {
 	const track = url.searchParams.get('track') ?? '';
 	const album = url.searchParams.get('album') ?? '';
 
+	// Cache key = the OWN-ORIGIN request (NEVER the LASTFM_KEY-bearing upstream URL — T-08-01
+	// parity; keep the key out of the cache key). Guarded for `vite dev` (no Cache API) so local
+	// dev still hits live upstream (quick-260713-mqv).
+	const cache = edgeCache();
+	const cacheReq = ownOriginCacheKey(url);
+
+	if (cache) {
+		const hit = await cache.match(cacheReq);
+		if (hit) {
+			// Re-apply CORS for THIS request's origin (WR-01): the stored body is CORS-FREE, so a
+			// cross-origin (preview vs prod) hit never receives a prior requester's ACAO header.
+			const cached = (await hit.json()) as LastfmInfo;
+			return jsonInfo(cached, origin, INFO_TTL);
+		}
+	}
+
 	// Build the upstream URL — all client params are encodeURIComponent'd passthrough
 	// only (T-08-03, no command construction). The key is injected on the edge.
 	let upstream =
@@ -280,13 +306,28 @@ export const GET: RequestHandler = async ({ url, platform, request }) => {
 		// Bounded retry + native timeout (T-08-04). NEVER log the key or upstream URL.
 		const res = await fetchWithRetry(upstream, { signal: AbortSignal.timeout(8000) }, 2);
 		const data = (await res.json()) as { error?: number; track?: LfmEntity; artist?: LfmEntity; album?: LfmEntity };
-		// Last.fm error-6 (not found) and friends → silent empty best-effort.
+		// Last.fm error-6 (not found) and friends → silent empty best-effort. NO cache write.
 		if (data?.error) return jsonInfo(EMPTY, origin);
 		const entity = data.track ?? data.artist ?? data.album;
-		if (!entity) return jsonInfo(EMPTY, origin);
-		return jsonInfo(reshape(entity), origin);
+		if (!entity) return jsonInfo(EMPTY, origin); // no entity → NO cache write
+		const info = reshape(entity);
+		if (cache) {
+			// Cache a CORS-FREE copy of the success (origin re-applied per request on a hit, WR-01).
+			// quick-260713-mqv.
+			await cache.put(
+				cacheReq,
+				new Response(JSON.stringify(info), {
+					status: 200,
+					headers: {
+						'content-type': 'application/json',
+						'Cache-Control': `public, max-age=${INFO_TTL}`
+					}
+				})
+			);
+		}
+		return jsonInfo(info, origin, INFO_TTL);
 	} catch {
-		// Upstream error / malformed JSON → best-effort empty.
+		// Upstream error / malformed JSON → best-effort empty. NO cache write.
 		return jsonInfo(EMPTY, origin);
 	}
 };

@@ -16,11 +16,16 @@
 // blocked. CORS is scoped to the own origin via corsHeaders (never `*`, T-26-03-04).
 import type { RequestHandler } from './$types';
 import { fetchWithRetry, corsHeaders } from '$lib/proxy/http';
+import { edgeCache, ownOriginCacheKey } from '$lib/proxy/edge-cache';
 import type { Env } from '$lib/proxy/proxy-types';
 
 const LASTFM_ENDPOINT = 'https://ws.audioscrobbler.com/2.0/';
 const DEFAULT_LIMIT = 8;
 const MAX_LIMIT = 50;
+
+// track.getSimilar's recommendation graph is near-static → cache the success path 24h (the same
+// stable graph as /api/similar's artist.getSimilar). quick-260713-mqv.
+const SIMILAR_TRACKS_TTL = 86400;
 
 /** Clean client-facing pair. Absent-key / error / miss all return { tracks: [] }. */
 interface SimilarTrack {
@@ -63,11 +68,16 @@ function pickImage(images: LfmImage[] | undefined): string | undefined {
 	return any?.['#text'];
 }
 
-function jsonTracks(tracks: SimilarTrack[], origin: string | null): Response {
-	return new Response(JSON.stringify({ tracks }), {
-		status: 200,
-		headers: { ...corsHeaders(origin), 'content-type': 'application/json' }
-	});
+// ttl is added ONLY on a cacheable success (Cache-Control emitted only when ttl != null) — the
+// !key / missing-param / data.error / catch EMPTY returns pass no ttl so they carry no
+// Cache-Control and are never written to caches.default (quick-260713-mqv).
+function jsonTracks(tracks: SimilarTrack[], origin: string | null, ttl?: number): Response {
+	const headers: Record<string, string> = {
+		...corsHeaders(origin),
+		'content-type': 'application/json'
+	};
+	if (ttl != null) headers['Cache-Control'] = `public, max-age=${ttl}`;
+	return new Response(JSON.stringify({ tracks }), { status: 200, headers });
 }
 
 /** Clamp the client-supplied limit to a small positive integer (T-26-03-03). */
@@ -141,6 +151,22 @@ export const GET: RequestHandler = async ({ url, platform, request }) => {
 	if (!artist || !track) return jsonTracks([], origin);
 	const limit = clampLimit(url.searchParams.get('limit'));
 
+	// Cache key = the OWN-ORIGIN request (NEVER the LASTFM_KEY-bearing upstream URL — T-26-03-01
+	// parity; keep the key out of the cache key). Guarded for `vite dev` (no Cache API) so local
+	// dev still hits live upstream (quick-260713-mqv).
+	const cache = edgeCache();
+	const cacheReq = ownOriginCacheKey(url);
+
+	if (cache) {
+		const hit = await cache.match(cacheReq);
+		if (hit) {
+			// Re-apply CORS for THIS request's origin (WR-01): the stored body is CORS-FREE, so a
+			// cross-origin (preview vs prod) hit never receives a prior requester's ACAO header.
+			const cached = (await hit.json()) as { tracks?: SimilarTrack[] };
+			return jsonTracks(cached.tracks ?? [], origin, SIMILAR_TRACKS_TTL);
+		}
+	}
+
 	// artist + track are URL-encoded passthrough only (T-26-03-02 — no command construction;
 	// method is fixed to track.getsimilar server-side). The key is injected on the edge.
 	const upstream =
@@ -155,11 +181,26 @@ export const GET: RequestHandler = async ({ url, platform, request }) => {
 		// Bounded retry + native timeout (T-26-03-03). NEVER log the key or upstream URL (T-26-03-01).
 		const res = await fetchWithRetry(upstream, { signal: AbortSignal.timeout(8000) }, 2);
 		const data = (await res.json()) as { error?: number; similartracks?: LfmSimilarBlock };
-		// Last.fm error-6 (not found) and friends → silent empty best-effort.
+		// Last.fm error-6 (not found) and friends → silent empty best-effort. NO cache write.
 		if (data?.error) return jsonTracks([], origin);
-		return jsonTracks(reshape(data.similartracks, limit), origin);
+		const tracks = reshape(data.similartracks, limit);
+		if (cache) {
+			// Cache a CORS-FREE copy of the success (origin re-applied per request on a hit, WR-01).
+			// quick-260713-mqv.
+			await cache.put(
+				cacheReq,
+				new Response(JSON.stringify({ tracks }), {
+					status: 200,
+					headers: {
+						'content-type': 'application/json',
+						'Cache-Control': `public, max-age=${SIMILAR_TRACKS_TTL}`
+					}
+				})
+			);
+		}
+		return jsonTracks(tracks, origin, SIMILAR_TRACKS_TTL);
 	} catch {
-		// Upstream error / malformed JSON → best-effort empty; client falls back.
+		// Upstream error / malformed JSON → best-effort empty; client falls back. NO cache write.
 		return jsonTracks([], origin);
 	}
 };

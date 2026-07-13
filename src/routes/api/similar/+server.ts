@@ -11,17 +11,27 @@
 // CORS is scoped to the own origin via corsHeaders (never `*`).
 import type { RequestHandler } from './$types';
 import { fetchWithRetry, corsHeaders } from '$lib/proxy/http';
+import { edgeCache, ownOriginCacheKey } from '$lib/proxy/edge-cache';
 import type { Env } from '$lib/proxy/proxy-types';
 
 const LASTFM_ENDPOINT = 'https://ws.audioscrobbler.com/2.0/';
 const DEFAULT_LIMIT = 8;
 const MAX_LIMIT = 50;
 
-function jsonArtists(artists: string[], origin: string | null): Response {
-	return new Response(JSON.stringify({ artists }), {
-		status: 200,
-		headers: { ...corsHeaders(origin), 'content-type': 'application/json' }
-	});
+// artist.getSimilar's recommendation graph is near-static → cache the success path 24h
+// (parity with lastfm/discovery artist.getTopAlbums 86400). quick-260713-mqv.
+const SIMILAR_TTL = 86400;
+
+// ttl is added ONLY on a cacheable success (Cache-Control emitted only when ttl != null) — the
+// !key / empty-artist / catch EMPTY returns pass no ttl so they carry no Cache-Control and are
+// never written to caches.default (quick-260713-mqv, copied from lastfm/discovery jsonList).
+function jsonArtists(artists: string[], origin: string | null, ttl?: number): Response {
+	const headers: Record<string, string> = {
+		...corsHeaders(origin),
+		'content-type': 'application/json'
+	};
+	if (ttl != null) headers['Cache-Control'] = `public, max-age=${ttl}`;
+	return new Response(JSON.stringify({ artists }), { status: 200, headers });
 }
 
 /** Clamp the client-supplied limit to a small positive integer (T-5ug-02). */
@@ -46,6 +56,22 @@ export const GET: RequestHandler = async ({ url, platform, request }) => {
 	if (!artist.trim()) return jsonArtists([], origin);
 	const limit = clampLimit(url.searchParams.get('limit'));
 
+	// Cache key = the OWN-ORIGIN request (NEVER the LASTFM_KEY-bearing upstream URL — T-5ug-01
+	// parity; keep the key out of the cache key). Guarded for `vite dev` (no Cache API) so local
+	// dev still hits live upstream (quick-260713-mqv).
+	const cache = edgeCache();
+	const cacheReq = ownOriginCacheKey(url);
+
+	if (cache) {
+		const hit = await cache.match(cacheReq);
+		if (hit) {
+			// Re-apply CORS for THIS request's origin (WR-01): the stored body is CORS-FREE, so a
+			// cross-origin (preview vs prod) hit never receives a prior requester's ACAO header.
+			const cached = (await hit.json()) as { artists?: string[] };
+			return jsonArtists(cached.artists ?? [], origin, SIMILAR_TTL);
+		}
+	}
+
 	// artist is URL-encoded (T-5ug-02 — thin passthrough, no command construction).
 	const upstream =
 		`${LASTFM_ENDPOINT}?method=artist.getsimilar` +
@@ -69,9 +95,23 @@ export const GET: RequestHandler = async ({ url, platform, request }) => {
 			artists.push(name);
 			if (artists.length >= limit) break;
 		}
-		return jsonArtists(artists, origin);
+		if (cache) {
+			// Cache a CORS-FREE copy of the success (origin re-applied per request on a hit, WR-01).
+			// quick-260713-mqv.
+			await cache.put(
+				cacheReq,
+				new Response(JSON.stringify({ artists }), {
+					status: 200,
+					headers: {
+						'content-type': 'application/json',
+						'Cache-Control': `public, max-age=${SIMILAR_TTL}`
+					}
+				})
+			);
+		}
+		return jsonArtists(artists, origin, SIMILAR_TTL);
 	} catch {
-		// Upstream error / malformed JSON → best-effort empty; client falls back.
+		// Upstream error / malformed JSON → best-effort empty; client falls back. NO cache write.
 		return jsonArtists([], origin);
 	}
 };
