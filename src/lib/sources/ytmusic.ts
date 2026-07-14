@@ -65,6 +65,14 @@ interface YtShelf {
 	contents?: Array<{ musicResponsiveListItemRenderer?: YtRow }>;
 }
 
+// --- InnerTube lyrics-route payload (Plan 27-02 `/api/ytmusic/lyrics` → `{ text, attribution }`).
+// Both optional: a lyric miss / no-lyrics track returns `{}` and resolve() leaves track.lrc null
+// (best-effort — see the two-tier lyric note in resolve()). Untrusted, so every field is optional. ---
+interface YtLyricsResponse {
+	text?: string;
+	attribution?: string;
+}
+
 // --- tiny deep-walk helpers (ported from spike 005 harness.mjs) ---
 function firstRun(col: YtFlexColumn | undefined): string {
 	return col?.musicResponsiveListItemFlexColumnRenderer?.text?.runs?.[0]?.text ?? '';
@@ -208,12 +216,10 @@ export const ytmusic: SourceAdapter = {
 	},
 
 	async resolve(track: Track, signal: AbortSignal): Promise<Track> {
-		// No JSON hop — the stream URL is deterministic from the videoId (the audius pattern), so there
-		// is nothing to abort. The plain-lyrics fetch + resilience wiring land in Plan 27-04, NOT here.
-		void signal;
 		if (!track.songid) throw new Error('ytmusic: missing videoId on resolve');
-		// Own-origin proxy path; apiUrl prefixes VITE_API_BASE on native, returns it unchanged on web
-		// (Capacitor/CORS-safe). The /api/ytmusic/stream/{videoId} byte-proxy lands in Plan 27-03.
+		// STREAM URL — deterministic from the videoId (the audius pattern), so there is no JSON hop for
+		// it. Own-origin proxy path; apiUrl prefixes VITE_API_BASE on native, returns it unchanged on web
+		// (Capacitor/CORS-safe). The /api/ytmusic/stream/{videoId} byte-proxy is Plan 27-03.
 		track.audioUrl = apiUrl('/api/ytmusic/stream/' + encodeURIComponent(track.songid));
 		// itag 140 = 128 kbps AAC/mp4 (spike 006 — the iOS-Safari-safe format, NOT Opus/webm itag 251).
 		// The proxy path carries no file extension, so inferQualityFromUrl would MISLABEL it 320K —
@@ -221,6 +227,31 @@ export const ytmusic: SourceAdapter = {
 		track.quality = '128k';
 		track.qualityLabel = '128k AAC';
 		track.detailsLoaded = true;
+
+		// TWO-TIER LYRICS (spike 007). Tier 1 = PLAIN lyrics from InnerTube next→browse, fetched here
+		// best-effort via the own-origin /api/ytmusic/lyrics route (Plan 27-02). Tier 2 = TIMED LRC via
+		// the app's EXISTING crossSourceLyric(name,artist) fallback, which ensureTrackDetails fires
+		// automatically for any playable track that still has no lrc (ytmusic is deliberately NOT in
+		// catalog's LYRICLESS_SOURCES — it HAS plain lyrics). This fetch is a NEVER-THROW boundary: any
+		// failure (network, abort, contract drift, empty text) is swallowed so track.lrc stays null and
+		// the timed fallback takes over — a lyrics miss must never fail or delay playback (the stream
+		// audioUrl is already stamped above). We do NOT fetch the stream here (no bytes in resolve), and
+		// never set lrcUrl (YTM exposes no separate timed-lyric URL — the netease lrcUrl re-resolve path
+		// must not arm). The AbortSignal is threaded so a superseded resolve bails without throwing.
+		try {
+			const res = await apiFetch(
+				'/api/ytmusic/lyrics?videoId=' + encodeURIComponent(track.songid),
+				{ signal }
+			);
+			// { text, attribution }. attribution (Musixmatch/LyricFind) is display-only; Track carries no
+			// attribution field yet, so we surface the plain text only — parseLRC degrades gracefully on
+			// timestamp-less lines (spike 007). Store only a non-empty text; empty/whitespace → tier 2.
+			const data = (await res.json()) as YtLyricsResponse | null;
+			const text = data?.text;
+			if (typeof text === 'string' && text.trim()) track.lrc = text;
+		} catch {
+			/* best-effort: leave track.lrc null → the existing crossSourceLyric timed fallback fills it */
+		}
 		return track;
 	}
 };
