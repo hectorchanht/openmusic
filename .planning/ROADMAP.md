@@ -71,6 +71,13 @@ Full phase details archived in [`milestones/v1.2-ROADMAP.md`](milestones/v1.2-RO
 - [x] 25-02-PLAN.md — `/api/translate` Azure → DeepL → Google provider cascade; optional edge-only provider keys in `Env`; server-side tests (D-05/D-06) [wave 1]
 - [x] 25-03-PLAN.md — Wire the offline converter into `translateLinesEx` so `zh-Hant` Chinese lines convert offline and only non-Chinese lines hit the API; `CACHE_VER` bump; contract preserved (D-02/D-04) [wave 2, depends 25-01]
 
+### Phase 27: YouTube Music Source (v1.4 — search · play · lyrics · download)
+
+**Goal:** Add YouTube Music as a first-class **anonymous** source — search · play · lyrics · download — that fits the existing adapter model (`src/lib/sources/ytmusic.ts` client adapter + `src/routes/api/ytmusic/` edge proxy + one `registry.ts`/`SourceId` line) and preserves the app's zero-user-credentials trust posture. De-risked by spikes 005–007 (`.planning/spikes/`): search = InnerTube `WEB_REMIX`; play = `ANDROID_VR` player + cached `visitorData` → direct AAC (itag 140), no cipher/throttle, **IP-locked so bytes must proxy edge-side (audius pattern)**; lyrics = plain via `next`→`browse`, timed via the existing `crossSourceLyric` fallback. YTMusic stays **OFF the kuwo-first resolve hot path** (search-page + explicit-pick only). **Account connection / library inheritance (liked songs · history · genre) is OUT** — spike 008 = a separate, later, legal-gated milestone.
+**Requirements:** YT-SRC-01 (SourceId + registry + adapter contract), YT-SEARCH-01 (InnerTube search → Track stubs), YT-PLAY-01 (ANDROID_VR+visitorData resolve → edge-proxied AAC stream), YT-LYRICS-01 (plain via InnerTube + timed via crossSourceLyric fallback), YT-DOWNLOAD-01 (download via the proxied stream URL), YT-RESILIENCE-01 (never-throw + graceful failure + adversarial-upstream maintenance posture)
+**Depends on:** none — additive source; independent of the Last.fm write-side (11–13). Honors the spike-findings-openmusic resolution policy (kuwo-first floor unchanged).
+**Plans:** _pending — populated by `/gsd:plan-phase 27`_
+
 ## Progress
 
 | Phase | Milestone | Status | Completed |
@@ -92,6 +99,7 @@ Full phase details archived in [`milestones/v1.2-ROADMAP.md`](milestones/v1.2-RO
 | 11–13. Last.fm Write-side | v1.3 | Planned | — |
 | 25. zh-Hant Offline Conversion + Fallback Cascade | 3/3 | Complete   | 2026-07-11 |
 | 26. Minimal-API Click-to-Play Redesign | 11/11 | Complete   | 2026-07-11 |
+| 27. YouTube Music Source (search·play·lyrics·download) | v1.4 | Planning | — |
 
 ## Backlog
 
