@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ytmusic } from './ytmusic';
+import { makeUid, type Track } from './types';
 import { __resetGovernor } from '../services/api-base';
 // A REAL captured InnerTube WEB_REMIX songs-filter envelope (query "周杰倫 稻香"), trimmed to the
 // shelf + first 4 rows with the parse-irrelevant menu/trackingParams stripped (spike 005 capture).
@@ -136,5 +137,88 @@ describe('ytmusic.search — parse over the captured InnerTube fixture (YT-SEARC
 	it('THROWS on a null / non-object body (contract-drift)', async () => {
 		vi.stubGlobal('fetch', mockFetch('null'));
 		await expect(ytmusic.search('x', 1, ac.signal)).rejects.toThrow(/ytmusic: contract-drift/);
+	});
+});
+
+// A resolve()-input stub, exactly the shape search() emits (Plan 27-01) — audioUrl/lrc null,
+// detailsLoaded false; resolve() stamps the deterministic stream URL + best-effort plain lyrics.
+function stubTrack(songid: string, extra: Partial<Track> = {}): Track {
+	return {
+		uid: makeUid('ytmusic', songid),
+		source: 'ytmusic',
+		songid,
+		title: 'Some Song',
+		artist: 'Some Artist',
+		album: '',
+		cover: null,
+		audioUrl: null,
+		lrc: null,
+		lrcUrl: null,
+		detailsLoaded: false,
+		quality: null,
+		qualityLabel: null,
+		keyword: 'x',
+		displayIndex: 1,
+		...extra
+	};
+}
+
+describe('ytmusic.resolve — deterministic stream stamp + best-effort plain lyrics (YT-LYRICS-01, 27-04)', () => {
+	it('stamps the /api/ytmusic/stream/<songid> audioUrl + itag-140 quality, detailsLoaded true', async () => {
+		// Lyrics fetch returns nothing meaningful — the stream stamp must still land.
+		vi.stubGlobal('fetch', mockFetch({}));
+		const out = await ytmusic.resolve(stubTrack('abc123'), new AbortController().signal);
+
+		expect(out.audioUrl).toBe('/api/ytmusic/stream/abc123');
+		expect(out.audioUrl?.endsWith('/api/ytmusic/stream/abc123')).toBe(true);
+		expect(out.detailsLoaded).toBe(true);
+		expect(out.quality).toBeTruthy();
+		expect(out.qualityLabel).toBeTruthy();
+		expect(out.lrcUrl).toBeNull(); // YTM has no separate timed-lyric URL — never set lrcUrl
+	});
+
+	it('populates track.lrc from a { text } lyrics payload (plain lyrics, spike 007 tier 1)', async () => {
+		const spy = mockFetch({ text: 'line one\nline two', attribution: 'Musixmatch' });
+		vi.stubGlobal('fetch', spy);
+
+		const out = await ytmusic.resolve(stubTrack('vid42'), new AbortController().signal);
+
+		expect(out.lrc).toBe('line one\nline two');
+		expect(out.audioUrl).toBe('/api/ytmusic/stream/vid42');
+		// The plain-lyrics fetch hit /api/ytmusic/lyrics with the encoded videoId.
+		const calledUrl = String(spy.mock.calls[0][0]);
+		expect(calledUrl).toBe('/api/ytmusic/lyrics?videoId=' + encodeURIComponent('vid42'));
+	});
+
+	it('leaves lrc null on an EMPTY-text lyrics payload (routes to the timed crossSourceLyric fallback)', async () => {
+		vi.stubGlobal('fetch', mockFetch({ text: '   ', attribution: 'Musixmatch' }));
+		const out = await ytmusic.resolve(stubTrack('vid43'), new AbortController().signal);
+
+		expect(out.lrc).toBeNull();
+		expect(out.audioUrl).toBe('/api/ytmusic/stream/vid43'); // still resolved
+	});
+
+	it('NEVER throws on a rejected lyrics fetch — lrc stays null, audioUrl still stamped', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () => {
+				throw new Error('lyrics upstream 500');
+			})
+		);
+		const out = await ytmusic.resolve(stubTrack('vid44'), new AbortController().signal);
+
+		expect(out.lrc).toBeNull();
+		expect(out.audioUrl).toBe('/api/ytmusic/stream/vid44');
+		expect(out.detailsLoaded).toBe(true);
+	});
+
+	it('honors an aborted signal without throwing (superseded resolve bails, lrc null, audioUrl set)', async () => {
+		const ac2 = new AbortController();
+		ac2.abort();
+		// apiFetch rejects immediately on an already-aborted signal; the best-effort catch swallows it.
+		const out = await ytmusic.resolve(stubTrack('vid45'), ac2.signal);
+
+		expect(out.lrc).toBeNull();
+		expect(out.audioUrl).toBe('/api/ytmusic/stream/vid45');
 	});
 });
