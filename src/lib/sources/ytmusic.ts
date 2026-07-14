@@ -11,14 +11,177 @@
 // exactly like the audius <audio>.src note).
 //
 // search() parses the proxied InnerTube WEB_REMIX envelope CLIENT-side (testable per conventions —
-// see ytmusic.test.ts + the captured __fixtures__/ytmusic-search.json). The thin edge proxy that
-// performs the InnerTube POST lands in Plan 27-02; the stream byte-proxy in Plan 27-03; resolve()'s
-// best-effort plain-lyrics fetch + the registry-flag failover exclusion in Plan 27-04. THIS file is
-// the adapter shape, the search() parse (Task 2), and the resolve() stream-URL stamp (Task 1).
+// see ytmusic.test.ts + the captured __fixtures__/ytmusic-search.json). The parse is a direct port of
+// spike 005's harness.mjs (extractRows / rowToStub / firstRun / allRuns / bestThumb), re-typed over
+// optional-chained interfaces (untrusted JSON, NO `as any`). The thin edge proxy that performs the
+// InnerTube POST lands in Plan 27-02; the stream byte-proxy in Plan 27-03; resolve()'s best-effort
+// plain-lyrics fetch + the registry-flag failover exclusion in Plan 27-04.
 
 import type { SourceAdapter, Track } from './types';
 import { makeUid } from './types';
-import { apiUrl } from '../services/api-base';
+import { apiFetch, apiUrl } from '../services/api-base';
+
+// --- InnerTube search-envelope shapes (untrusted, deeply/inconsistently nested; every field
+// optional and accessed via optional chaining — the drift guard in search() throws when the
+// expected shelf is absent so the fan-out's allSettled records a typed per-source error). ---
+interface YtRun {
+	text?: string;
+	navigationEndpoint?: {
+		watchEndpoint?: { videoId?: string };
+		browseEndpoint?: {
+			browseEndpointContextSupportedConfigs?: {
+				browseEndpointContextMusicConfig?: { pageType?: string };
+			};
+		};
+	};
+}
+interface YtFlexColumn {
+	musicResponsiveListItemFlexColumnRenderer?: { text?: { runs?: YtRun[] } };
+}
+interface YtThumbnail {
+	url?: string;
+	width?: number;
+	height?: number;
+}
+interface YtThumbnailWrap {
+	musicThumbnailRenderer?: { thumbnail?: { thumbnails?: YtThumbnail[] } };
+}
+interface YtRow {
+	overlay?: {
+		musicItemThumbnailOverlayRenderer?: {
+			content?: {
+				musicPlayButtonRenderer?: {
+					playNavigationEndpoint?: { watchEndpoint?: { videoId?: string } };
+				};
+			};
+		};
+	};
+	playlistItemData?: { videoId?: string };
+	thumbnail?: YtThumbnailWrap;
+	thumbnailRenderer?: YtThumbnailWrap;
+	flexColumns?: YtFlexColumn[];
+}
+interface YtShelf {
+	contents?: Array<{ musicResponsiveListItemRenderer?: YtRow }>;
+}
+
+// --- tiny deep-walk helpers (ported from spike 005 harness.mjs) ---
+function firstRun(col: YtFlexColumn | undefined): string {
+	return col?.musicResponsiveListItemFlexColumnRenderer?.text?.runs?.[0]?.text ?? '';
+}
+function allRuns(col: YtFlexColumn | undefined): YtRun[] {
+	return col?.musicResponsiveListItemFlexColumnRenderer?.text?.runs ?? [];
+}
+function bestThumb(row: YtRow): string | null {
+	// YTM cover URLs are resizable via =w{n}-h{n}; take the largest listed (we can upscale later).
+	const thumbs =
+		row.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails ??
+		row.thumbnailRenderer?.musicThumbnailRenderer?.thumbnail?.thumbnails ??
+		[];
+	if (!thumbs.length) return null;
+	return thumbs[thumbs.length - 1]?.url ?? null;
+}
+
+/** videoId lives in the play-button overlay (songs); fall back to the row's playlistItemData, then
+ *  the title column's watch navigationEndpoint. Null when no id is resolvable → the row is skipped. */
+function extractVideoId(row: YtRow): string | null {
+	return (
+		row.overlay?.musicItemThumbnailOverlayRenderer?.content?.musicPlayButtonRenderer
+			?.playNavigationEndpoint?.watchEndpoint?.videoId ??
+		row.playlistItemData?.videoId ??
+		row.flexColumns?.[0]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs?.[0]
+			?.navigationEndpoint?.watchEndpoint?.videoId ??
+		null
+	);
+}
+
+/** One row → a Track stub, or null when it carries no resolvable videoId (never emit a null-uid
+ *  Track). `emitIndex` is the position among EMITTED tracks so displayIndex stays gap-free even when
+ *  earlier rows were skipped. */
+function rowToTrack(row: YtRow, keyword: string, emitIndex: number): Track | null {
+	const videoId = extractVideoId(row);
+	if (!videoId) return null;
+
+	const cols = row.flexColumns ?? [];
+	const title = firstRun(cols[0]);
+	// Second column is a mixed run list: "Artist • Album • 3:45". Disambiguate each run by its
+	// browseEndpoint pageType (ARTIST vs ALBUM); an m:ss run is the duration; the first plain text
+	// run is the artist fallback (spike 005 heuristic).
+	let artist = '';
+	let album = '';
+	let durationText = '';
+	for (const r of allRuns(cols[1])) {
+		const t = (r?.text ?? '').trim();
+		if (!t || t === '•') continue;
+		const pageType =
+			r?.navigationEndpoint?.browseEndpoint?.browseEndpointContextSupportedConfigs
+				?.browseEndpointContextMusicConfig?.pageType ?? '';
+		if (/^\d+:\d{2}$/.test(t)) durationText = t;
+		else if (pageType === 'MUSIC_PAGE_TYPE_ALBUM') album = t;
+		else if (pageType === 'MUSIC_PAGE_TYPE_ARTIST' && !artist) artist = t;
+		else if (!artist && !/^\d/.test(t)) artist = t; // fallback: first non-numeric text run
+	}
+
+	const track: Track = {
+		uid: makeUid('ytmusic', videoId),
+		source: 'ytmusic',
+		songid: videoId, // songid = videoId (27-CONTEXT, D-10)
+		title,
+		artist,
+		album,
+		cover: bestThumb(row),
+		audioUrl: null, // stamped deterministically in resolve()
+		lrc: null,
+		lrcUrl: null,
+		detailsLoaded: false,
+		quality: null,
+		qualityLabel: null,
+		keyword,
+		displayIndex: emitIndex + 1
+	};
+	if (durationText) {
+		const [m, s] = durationText.split(':');
+		const secs = Number(m) * 60 + Number(s);
+		if (Number.isFinite(secs)) track.duration = secs;
+	}
+	return track;
+}
+
+/** Walk the (deeply/inconsistently nested) InnerTube envelope, collect every musicShelfRenderer's
+ *  rows, and map them to Track stubs. Throws a typed contract-drift error when the body is not an
+ *  object or contains NO search shelf (YTM fuzzy-matches, so a live search never returns an
+ *  empty/shelf-less body — a missing shelf is genuine drift, not "no results"). */
+function parseSearchEnvelope(json: unknown, keyword: string): Track[] {
+	if (!json || typeof json !== 'object') {
+		throw new Error('ytmusic: contract-drift (expected search shelf)');
+	}
+	const rows: YtRow[] = [];
+	let sawShelf = false;
+	const walk = (node: unknown): void => {
+		if (!node || typeof node !== 'object') return;
+		const obj = node as Record<string, unknown>;
+		if (obj.musicShelfRenderer && typeof obj.musicShelfRenderer === 'object') {
+			sawShelf = true;
+			const shelf = obj.musicShelfRenderer as YtShelf;
+			for (const c of shelf.contents ?? []) {
+				const row = c?.musicResponsiveListItemRenderer;
+				if (row) rows.push(row);
+			}
+		}
+		for (const k of Object.keys(obj)) walk(obj[k]);
+	};
+	walk(json);
+	if (!sawShelf) {
+		throw new Error('ytmusic: contract-drift (expected search shelf)');
+	}
+
+	const tracks: Track[] = [];
+	for (const row of rows) {
+		const track = rowToTrack(row, keyword, tracks.length);
+		if (track) tracks.push(track);
+	}
+	return tracks;
+}
 
 export const ytmusic: SourceAdapter = {
 	id: 'ytmusic',
@@ -35,12 +198,13 @@ export const ytmusic: SourceAdapter = {
 		// Single song shelf, no reliable pagination (the audius rule) — page>1 is a no-op with no
 		// upstream call.
 		if ((page || 1) > 1) return [];
-		// The InnerTube envelope parse is implemented in Plan 27-01 Task 2 (TDD, over the captured
-		// fixture). This skeleton keeps the adapter shape total for the registry
-		// Record<SourceId,SourceAdapter> typecheck until the parse lands.
-		void keyword;
-		void signal;
-		return [];
+		// JSON hop through the governor (apiFetch): the own-origin proxy does the InnerTube POST
+		// (WEB_REMIX ctx + songs params + public key, all edge-side — Plan 27-02) and returns the
+		// envelope; the parse/normalize stays client-side + unit-tested.
+		const path = '/api/ytmusic/search?q=' + encodeURIComponent(keyword);
+		const res = await apiFetch(path, { signal });
+		const json: unknown = await res.json();
+		return parseSearchEnvelope(json, keyword);
 	},
 
 	async resolve(track: Track, signal: AbortSignal): Promise<Track> {
