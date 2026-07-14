@@ -76,6 +76,43 @@ describe('searchAll (DATA-03 fan-out)', () => {
 		expect(uids).not.toContain('qq:'); // dead source contributes nothing
 	});
 
+	it('27-04 isolation — a THROWING ytmusic search leaves every other source intact (YT-RESILIENCE-01)', async () => {
+		// Enable the four mainstream sources + ytmusic; ytmusic throws contract-drift, the rest return
+		// tracks. Promise.allSettled must record ytmusic as a typed per-source error without poisoning
+		// the aggregate — a YTMusic failure NEVER breaks search.
+		const withYt: Partial<Record<SourceId, boolean>> = Object.fromEntries(
+			(Object.keys(SOURCES) as SourceId[]).map((id) => [
+				id,
+				['netease', 'qq', 'kuwo', 'joox', 'ytmusic'].includes(id)
+			])
+		) as Partial<Record<SourceId, boolean>>;
+
+		vi.spyOn(SOURCES.netease, 'search').mockResolvedValue([mk('netease', 'n1')]);
+		vi.spyOn(SOURCES.qq, 'search').mockResolvedValue([mk('qq', 'q1')]);
+		vi.spyOn(SOURCES.kuwo, 'search').mockResolvedValue([mk('kuwo', 'k1')]);
+		vi.spyOn(SOURCES.joox, 'search').mockResolvedValue([mk('joox', 'j1')]);
+		vi.spyOn(SOURCES.ytmusic, 'search').mockRejectedValue(
+			new Error('ytmusic: contract-drift (expected search shelf)')
+		);
+
+		const { perSource, interleaved } = await searchAll('ytiso', 1, withYt);
+
+		// ytmusic recorded as a typed per-source error (no exception escaped searchAll).
+		const yt = perSource.find((p) => p.source === 'ytmusic');
+		expect(yt?.status).toBe('error');
+		expect(yt?.error).toContain('contract-drift');
+		expect(yt?.tracks).toEqual([]);
+		// the four mainstream sources survived intact.
+		const okSources = perSource
+			.filter((p) => p.status === 'ok')
+			.map((p) => p.source)
+			.sort();
+		expect(okSources).toEqual(['joox', 'kuwo', 'netease', 'qq']);
+		const uids = interleaved.map((t) => t.uid);
+		expect(uids).toEqual(expect.arrayContaining(['kuwo:k1', 'qq:q1', 'netease:n1', 'joox:j1']));
+		expect(uids.some((u) => u.startsWith('ytmusic:'))).toBe(false); // dead source contributes nothing
+	});
+
 	it('dedupes by colon uid — duplicate uid yields one entry', async () => {
 		vi.spyOn(SOURCES.netease, 'search').mockResolvedValue([
 			mk('netease', 'dup'),

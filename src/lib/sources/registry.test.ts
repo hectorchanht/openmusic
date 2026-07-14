@@ -106,6 +106,34 @@ describe('ytmusic registry placement (27-01, YT-SRC-01)', () => {
 	});
 });
 
+// 27-04 (YT-RESILIENCE-01): the settings source-toggle (`{#each Object.values(SOURCES)}` +
+// adapter.label + toggleSource, settings/playback/+page.svelte) and every source-label surface are
+// REGISTRY-DRIVEN — ytmusic renders with ZERO per-source UI code. These assertions lock that contract
+// in at the enumeration point so no bespoke ytmusic UI branch is ever needed.
+describe('ytmusic registry-driven UI contract (27-04)', () => {
+	it("exposes label 'YouTube Music' for the registry-driven toggle + source label", () => {
+		expect(SOURCES.ytmusic.label).toBe('YouTube Music');
+	});
+
+	it('participates in the Object.values(SOURCES) toggle enumeration (no per-source branch)', () => {
+		const labels = Object.values(SOURCES).map((a) => a.label);
+		expect(labels).toContain('YouTube Music');
+		// Every adapter carries a non-empty string label → the {#each Object.values(SOURCES)} toggle
+		// renders each row uniformly; ytmusic needs no special-case markup.
+		for (const a of Object.values(SOURCES)) {
+			expect(typeof a.label).toBe('string');
+			expect(a.label.length).toBeGreaterThan(0);
+		}
+	});
+
+	it('a { ytmusic: false } enabledSources override is SourceId-keyed + well-typed (toggle persistence)', () => {
+		// Documents the settings.enabledSources persistence path: keyed by SourceId, so the registry-
+		// driven toggle can flip ytmusic without any per-source typing. `satisfies` proves it compiles.
+		const override = { ytmusic: false } satisfies Partial<Record<SourceId, boolean>>;
+		expect(override.ytmusic).toBe(false);
+	});
+});
+
 describe('makeUid', () => {
 	it('produces the colon form (D-10)', () => {
 		expect(makeUid('netease', '123')).toBe('netease:123');
