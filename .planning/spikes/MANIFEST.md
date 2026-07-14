@@ -11,6 +11,15 @@ name+artist into Up-Next so only a cover needs resolving (no re-search). Downstr
 design item (out of scope unless trivial to probe): same name+artist yields many
 versions → a version-picker modal before play.
 
+## Idea — Session 2 (2026-07-14): YouTube Music as a source
+Integrate YouTube Music into OpenMusic as a first-class source (search · play · lyrics · download)
+that fits the existing adapter model (client adapter + edge proxy + one registry line), running on
+the Cloudflare Workers edge (workerd, `nodejs_compat`, no yt-dlp/native binaries). Stretch goal:
+connect a Google/YT account to inherit the user's library (liked songs, recent history, taste/genre).
+Reference clients (Android/Kotlin, InnerTune lineage): Metrolist, OuterTune, ArchiveTune — studied
+for their InnerTube client + auth approach, NOT reused. Spikes 005–008 answer go/no-go per pillar;
+the make-or-break is 006 (a stream URL that plays in a plain `<audio>` from the edge).
+
 ## Requirements
 Design decisions that emerged; non-negotiable for the real build. Updated as spikes progress.
 
@@ -51,3 +60,7 @@ Design decisions that emerged; non-negotiable for the real build. Updated as spi
 | 002 | similar-songs-api | comparison | Last.fm `track.getSimilar` vs Deezer vs current artist-hop baseline → exact artist+title pairs, fewest API calls | ✅ WINNER: track.getSimilar (1 call, exact pairs, 5/5 resolvable) vs 8× searchAll baseline | similar, upnext, lastfm, deezer |
 | 003 | clickplay-query-audit | standard | Instrument real click-to-play → count + attribute `/api/*` calls (crossSourceLyric / cover / up-next) → baseline to beat | ✅ VALIDATED — single-song play = **59 calls**, 56 of them buildSimilarQueue's 8 artists × 7 sources; redesign → ~3 | audit, perf, baseline |
 | 004 | source-coverage-by-segment | standard | 38 songs × 14 language/region×genre segments → per-segment winner + minimal-API policy | ✅ VALIDATED — **kuwo 100% playable+cover in EVERY segment**; jamendo/audius earn no hot-path slot; policy = "kuwo first, done" ([POLICY.md](004-source-coverage-by-segment/POLICY.md)) | sources, coverage, segments, policy, minimal-api |
+| 005 | ytmusic-innertube-search | standard | Given InnerTube WEB_REMIX search from the edge, when a query is sent, then ≥1 playable track parses into an OpenMusic `Track` stub (videoId/title/artist/album/cover) | ✅ VALIDATED — 100% videoId/cover/artist/album across EN/JP/CJK/indie; richer than CN at search time; search is the easy pillar | ytmusic, innertube, search, source |
+| 006 | ytmusic-playable-stream | standard | Given a videoId, when the player endpoint is queried + the audio stream URL extracted (cipher / n-param / PoToken as needed), then the URL plays in a plain `<audio>` AND stays playable (no mid-stream 403) | PENDING | ytmusic, stream, cipher, potoken, the-wall |
+| 007 | ytmusic-lyrics | standard | Given a videoId, when timed/plain lyrics are requested (InnerTube next→browse, else external fallback), then lyrics are returned | PENDING | ytmusic, lyrics, innertube |
+| 008 | ytmusic-account-library | standard | Given a Google/YT auth (OAuth or cookie), when the user library is queried, then liked songs + recent history + a taste/genre signal are readable — ToS/legal risk flagged, not assumed | PENDING | ytmusic, auth, oauth, library, legal |

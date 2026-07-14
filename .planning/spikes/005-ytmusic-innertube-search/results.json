@@ -1,0 +1,296 @@
+{
+  "generatedAt": "2026-07-14T13:48:56.872Z",
+  "key": "WEB_REMIX(public)",
+  "queries": {
+    "hikaru utada first love": {
+      "status": 200,
+      "shelfTitles": [
+        "Songs"
+      ],
+      "rawRows": 20,
+      "parsed": 20,
+      "withVideoId": 20,
+      "withCover": 20,
+      "withArtist": 20,
+      "withAlbum": 20,
+      "sample": [
+        {
+          "uid": "ytmusic:t21dyImwINM",
+          "videoId": "t21dyImwINM",
+          "title": "First Love (2022 Mix)",
+          "artist": "Hikaru Utada",
+          "album": "SCIENCE FICTION",
+          "cover": "https://yt3.googleusercontent.com/Jch7dl2TXhwoYtjzUCgFYO6MZu53175utx1QQT76VHh8gTStgdpvJv8J6yNX2qjvJjPRTIgU1XJ2_ai6=w120-h120-l90-rj",
+          "duration": 263,
+          "keyword": "hikaru utada first love",
+          "displayIndex": 1
+        },
+        {
+          "uid": "ytmusic:RG-jBQXvscg",
+          "videoId": "RG-jBQXvscg",
+          "title": "First Love (Live 2023)",
+          "artist": "Hikaru Utada",
+          "album": "40代はいろいろ",
+          "cover": "https://yt3.googleusercontent.com/57MscszGk8vOwIl5mkeRdAGoTspFQG7gTSdDug_uzvlG6RE33lAnTVZZvfKUghsSsB19rCbINViTveo=w120-h120-l90-rj",
+          "duration": 238,
+          "keyword": "hikaru utada first love",
+          "displayIndex": 2
+        },
+        {
+          "uid": "ytmusic:ZMGQJ4St7-c",
+          "videoId": "ZMGQJ4St7-c",
+          "title": "Come Back To Me",
+          "artist": "Utada",
+          "album": "Come Back To Me",
+          "cover": "https://yt3.googleusercontent.com/yoWeZX49d_xJQjgKnHyDfxOI3kQ3H9wKjMEIkK50UbJbwG3xORuC4D007_kxLyGbNEEtH1MGSVC2HrNH=w120-h120-l90-rj",
+          "duration": 238,
+          "keyword": "hikaru utada first love",
+          "displayIndex": 3
+        },
+        {
+          "uid": "ytmusic:WZjblEigo1s",
+          "videoId": "WZjblEigo1s",
+          "title": "First Love",
+          "artist": "Yuuka Ueno",
+          "album": "First Love",
+          "cover": "https://yt3.googleusercontent.com/vwscPuRXifrwz7iXrujWflW-d1iAkgp-A90JxryXRcbY6qkMmvL9U5A4gRD2U4T3J75VtQ-I0-r6gs8=w120-h120-l90-rj",
+          "duration": 288,
+          "keyword": "hikaru utada first love",
+          "displayIndex": 4
+        }
+      ]
+    },
+    "taylor swift blank space": {
+      "status": 200,
+      "shelfTitles": [
+        "Songs"
+      ],
+      "rawRows": 20,
+      "parsed": 20,
+      "withVideoId": 20,
+      "withCover": 20,
+      "withArtist": 20,
+      "withAlbum": 20,
+      "sample": [
+        {
+          "uid": "ytmusic:-MtKC5wXqdQ",
+          "videoId": "-MtKC5wXqdQ",
+          "title": "Blank Space (Taylor's Version)",
+          "artist": "Taylor Swift",
+          "album": "1989 (Taylor's Version)",
+          "cover": "https://yt3.googleusercontent.com/gj8tAERbPzlAoLI6knG2Yv1JiB9kv_pFwckfFHWUS6RcnQonszeMyxTdDEdOxCRNFmMezvwEBeRPwNSy3Q=w120-h120-l90-rj",
+          "duration": 232,
+          "keyword": "taylor swift blank space",
+          "displayIndex": 1
+        },
+        {
+          "uid": "ytmusic:uakZpnmQGiE",
+          "videoId": "uakZpnmQGiE",
+          "title": "Blank Space",
+          "artist": "Taylor Swift",
+          "album": "1989 (Big Machine Radio Release Special)",
+          "cover": "https://yt3.googleusercontent.com/UuUpzrM6voF9aFqr9RLTbL7bmpmw46yMTyyYi0CUkjz5y5AqtQEkXw6yaKuUSV2mV4ukpLMBLV90PWND=w120-h120-l90-rj",
+          "duration": 232,
+          "keyword": "taylor swift blank space",
+          "displayIndex": 2
+        },
+        {
+          "uid": "ytmusic:JCcUifiu3UU",
+          "videoId": "JCcUifiu3UU",
+          "title": "Opalite",
+          "artist": "Taylor Swift",
+          "album": "The Life of a Showgirl",
+          "cover": "https://yt3.googleusercontent.com/ZpWD37EEQE_LVuQ_O03cRmz5mZA7jG0gKGLt-49uHNDX6DycysijGGSOX9woU-OfQR5jyahz3aEdmBmm3A=w120-h120-l90-rj",
+          "duration": 236,
+          "keyword": "taylor swift blank space",
+          "displayIndex": 3
+        },
+        {
+          "uid": "ytmusic:VmBoTeLsKfs",
+          "videoId": "VmBoTeLsKfs",
+          "title": "I Knew You Were Trouble.",
+          "artist": "Taylor Swift",
+          "album": "Red",
+          "cover": "https://yt3.googleusercontent.com/_HJASc9B_QXn2yoUBn4ZLkn6ka8o_CYX4hNT3HQSeIRcqStiJU15VVtOwlaoFV4KqhJK3d-0W0sw3yQ=w120-h120-l90-rj",
+          "duration": 220,
+          "keyword": "taylor swift blank space",
+          "displayIndex": 4
+        }
+      ]
+    },
+    "周杰倫 稻香": {
+      "status": 200,
+      "shelfTitles": [
+        "Songs"
+      ],
+      "rawRows": 20,
+      "parsed": 20,
+      "withVideoId": 20,
+      "withCover": 20,
+      "withArtist": 20,
+      "withAlbum": 20,
+      "sample": [
+        {
+          "uid": "ytmusic:l6a5D6yxqEU",
+          "videoId": "l6a5D6yxqEU",
+          "title": "稻香",
+          "artist": "周杰倫",
+          "album": "魔杰座",
+          "cover": "https://yt3.googleusercontent.com/a0fAqzNhSN_JY_9j1nvP51QaQEnguOlu29t1w3cJpWTA__PN-ZCrvWlrAGnX7-79RGwXFkRr8aRCvZTL3g=w120-h120-s-l90-rj",
+          "duration": 224,
+          "keyword": "周杰倫 稻香",
+          "displayIndex": 1
+        },
+        {
+          "uid": "ytmusic:cCIshRlD0UE",
+          "videoId": "cCIshRlD0UE",
+          "title": "稻香",
+          "artist": "周杰倫",
+          "album": "2010超時代演唱會",
+          "cover": "https://yt3.googleusercontent.com/piszHS_cKkoedFWPoYGvDVvxx04B6wUsc6r-ynRm03pDA4kOod_n4MATIQrGQtTgQM8SeTpywz7q700T=w120-h120-s-l90-rj",
+          "duration": 223,
+          "keyword": "周杰倫 稻香",
+          "displayIndex": 2
+        },
+        {
+          "uid": "ytmusic:hlIZWmuGzDI",
+          "videoId": "hlIZWmuGzDI",
+          "title": "稻香",
+          "artist": "周杰倫",
+          "album": "周杰倫地表最強世界巡迴演唱會",
+          "cover": "https://yt3.googleusercontent.com/L4ufp1jL5UOnaWtJWsO59Z2VcuuEH5GctkN1abj_57VKmZqqsQlGZUtRo3bvhOYX4QLl6KhaE6QI5Bo=w120-h120-l90-rj",
+          "duration": 214,
+          "keyword": "周杰倫 稻香",
+          "displayIndex": 3
+        },
+        {
+          "uid": "ytmusic:lKpQzi6w1AQ",
+          "videoId": "lKpQzi6w1AQ",
+          "title": "稻香 (Remix搖滾版)",
+          "artist": "周杰倫",
+          "album": "稻香 (Remix搖滾版)",
+          "cover": "https://yt3.googleusercontent.com/XulkKgcRXwLgvSGMTTPYTmm97C9PyvxK_UlvxUeoSDgw1xe2lBtj30XKdwZo2tQ1Fvwq_diF8L_T2fmodA=w120-h120-l90-rj",
+          "duration": 143,
+          "keyword": "周杰倫 稻香",
+          "displayIndex": 4
+        }
+      ]
+    },
+    "clairo bags": {
+      "status": 200,
+      "shelfTitles": [
+        "Songs"
+      ],
+      "rawRows": 20,
+      "parsed": 20,
+      "withVideoId": 20,
+      "withCover": 20,
+      "withArtist": 20,
+      "withAlbum": 20,
+      "sample": [
+        {
+          "uid": "ytmusic:l78stHRr2Ps",
+          "videoId": "l78stHRr2Ps",
+          "title": "Bags",
+          "artist": "Clairo",
+          "album": "Bags",
+          "cover": "https://yt3.googleusercontent.com/XqIQrHL7-1BSBlEovi2CTJJgkiRraW7_LCwcFC4I4i9OLr8jI4rP9_EHzkgOTs6koqkUixR1zH9UeIoN=w120-h120-l90-rj",
+          "duration": 261,
+          "keyword": "clairo bags",
+          "displayIndex": 1
+        },
+        {
+          "uid": "ytmusic:xF1Yu-amFfk",
+          "videoId": "xF1Yu-amFfk",
+          "title": "Sofia",
+          "artist": "Clairo",
+          "album": "Immunity",
+          "cover": "https://yt3.googleusercontent.com/O7tPf_tdS29Re6crTsMO-vCwJmX8_TkSXDwAfKpi17vFkJoVyQZUQRovFIkIlEqPKFsMSz7cb-a0UCM=w120-h120-l90-rj",
+          "duration": 189,
+          "keyword": "clairo bags",
+          "displayIndex": 2
+        },
+        {
+          "uid": "ytmusic:7WXXaIz3uds",
+          "videoId": "7WXXaIz3uds",
+          "title": "Amoeba",
+          "artist": "Clairo",
+          "album": "Sling",
+          "cover": "https://yt3.googleusercontent.com/RQA-Sy6DplqBlWnTQZ2wC4mLkM4MZIa6Uh4ExU9R3fvLWwvJ4_816360Ldj74t2ajgmybXsrNeZY9Gc=w120-h120-l90-rj",
+          "duration": 229,
+          "keyword": "clairo bags",
+          "displayIndex": 3
+        },
+        {
+          "uid": "ytmusic:4ptgVKcTYsE",
+          "videoId": "4ptgVKcTYsE",
+          "title": "Bubble Gum",
+          "artist": "Clairo",
+          "album": "Bubble Gum",
+          "cover": "https://yt3.googleusercontent.com/jExiTuZP_xIDQ9YTuDiaep3dM6TGRiuZIUpI3RC_7Na92e6x406v8MdZkLtOXk-y73jc3x5AXxeeFFRZ=w120-h120-l90-rj",
+          "duration": 176,
+          "keyword": "clairo bags",
+          "displayIndex": 4
+        }
+      ]
+    },
+    "aaaasdfghjklqwerty zzz": {
+      "status": 200,
+      "shelfTitles": [
+        "Songs"
+      ],
+      "rawRows": 20,
+      "parsed": 20,
+      "withVideoId": 20,
+      "withCover": 20,
+      "withArtist": 20,
+      "withAlbum": 20,
+      "sample": [
+        {
+          "uid": "ytmusic:I8TBFFCqd48",
+          "videoId": "I8TBFFCqd48",
+          "title": "zzz",
+          "artist": "ATARASHII GAKKO!",
+          "album": "maenarawanai",
+          "cover": "https://yt3.googleusercontent.com/mI5N0wb6OPUrTyB_Lhu29dH6nXgcD2xjq6UfIT5rluau1ovpH8X9aw4JPxOdpckYVuDGFIbqW0pYt-bV=w120-h120-l90-rj",
+          "duration": 254,
+          "keyword": "aaaasdfghjklqwerty zzz",
+          "displayIndex": 1
+        },
+        {
+          "uid": "ytmusic:aLnFIkibopQ",
+          "videoId": "aLnFIkibopQ",
+          "title": "…Zzz",
+          "artist": "菊谷知樹",
+          "album": "TVアニメ『ひだまりスケッチ×365』オリジナルサウンドトラック",
+          "cover": "https://yt3.googleusercontent.com/Ey7Gz8IPa4-2STkY5NOLW_ZBCi73TPdDwY2A1z8HxGfDiHBZXgTu2FneDAJnDKdfw5GrsdALZarSPR6A=w120-h120-l90-rj",
+          "duration": 7,
+          "keyword": "aaaasdfghjklqwerty zzz",
+          "displayIndex": 2
+        },
+        {
+          "uid": "ytmusic:ciozkM1MUfI",
+          "videoId": "ciozkM1MUfI",
+          "title": "O.F.G.",
+          "artist": "zZz",
+          "album": "Sound of ZZZ",
+          "cover": "https://yt3.googleusercontent.com/fh9a3agagjDcmtio-akm3MyMK5U0kd4-eQynMFSDKHRQO7EatRIwC48fzsqV3qCqDeTW1Pe7Gij8oO8=w120-h120-l90-rj",
+          "duration": 170,
+          "keyword": "aaaasdfghjklqwerty zzz",
+          "displayIndex": 3
+        },
+        {
+          "uid": "ytmusic:WBlfz_CrNPk",
+          "videoId": "WBlfz_CrNPk",
+          "title": "zzz zzz (feat. CHIYORI)",
+          "artist": "Germinaliminal",
+          "album": "BLUE",
+          "cover": "https://yt3.googleusercontent.com/FvrY1_RXD2mdOvNx5pI54mVtYI9jVAxGDiQZyYKl2qFKXsxAxFuhyENTrAF_Ck50NULOtrQTHl08xEre=w120-h120-l90-rj",
+          "duration": 331,
+          "keyword": "aaaasdfghjklqwerty zzz",
+          "displayIndex": 4
+        }
+      ]
+    }
+  }
+}
