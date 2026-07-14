@@ -249,3 +249,64 @@ export function extractLyrics(browseJson: unknown): {
 	walk(browseJson);
 	return { text, attribution };
 }
+
+// --- Player-response helpers (Plan 27-03 stream route). These live HERE, not in the +server.ts
+// route, because SvelteKit `+server.ts` only permits HTTP-verb (or `_`-prefixed) exports — a
+// top-level `export function selectAudioFormat` in the route throws `Invalid export` at request
+// time (caught by E2E, not by the fixture unit test which imports the module directly). Keeping
+// them in this shared module also matches the project convention of extracting pure, testable
+// logic out of the endpoint. ---
+
+/** Untrusted InnerTube player-response shapes — every field optional, accessed via optional
+ *  chaining (no `as any`, mirroring the search-adapter + lyrics-walker typing above). */
+export interface YtAdaptiveFormat {
+	itag?: number;
+	mimeType?: string;
+	bitrate?: number;
+	/** Direct googlevideo URL — present for itag 140 (spike 006: no signatureCipher, no n-throttle). */
+	url?: string;
+	/** A ciphered format has this INSTEAD of `url`; we ignore it (we solve no signature cipher). */
+	signatureCipher?: string;
+}
+export interface YtPlayerJson {
+	playabilityStatus?: { status?: string; reason?: string };
+	streamingData?: { adaptiveFormats?: YtAdaptiveFormat[] };
+}
+
+/**
+ * True only when `playabilityStatus.status === 'OK'`. LOGIN_REQUIRED / UNPLAYABLE / a bot challenge
+ * are all false — the stream route refreshes visitorData once then 502s. Pure (spike 006).
+ */
+export function isPlayable(playerJson: unknown): boolean {
+	return (playerJson as YtPlayerJson)?.playabilityStatus?.status === 'OK';
+}
+
+/**
+ * Pick the streamable audio URL from a player response's adaptiveFormats:
+ *   1. itag 140 (AAC-LC / mp4, 128 kbps) with a direct `url` — the codec iOS Safari `<audio>` plays
+ *      (Opus/webm itag 251 does NOT play in Safari, so it is NEVER chosen).
+ *   2. else the highest-bitrate `audio/mp4` format with a direct `url` (a safety fallback).
+ *   3. else null (no playable AAC — the route 502s so cross-source fallback engages).
+ * Ciphered formats (signatureCipher, no `url`) are ignored — we solve no signature cipher (spike 006).
+ */
+export function selectAudioFormat(playerJson: unknown): string | null {
+	const formats = (playerJson as YtPlayerJson)?.streamingData?.adaptiveFormats ?? [];
+
+	// 1. itag 140 = AAC-LC/mp4 128k — the primary pick (spike 006).
+	const itag140 = formats.find(
+		(f) => f?.itag === 140 && typeof f?.url === 'string' && f.url.length > 0
+	);
+	if (itag140?.url) return itag140.url;
+
+	// 2. Fallback: highest-bitrate audio/mp4 with a DIRECT url (never Opus/webm, never ciphered).
+	const mp4 = formats
+		.filter(
+			(f) =>
+				typeof f?.url === 'string' &&
+				f.url.length > 0 &&
+				(f?.mimeType ?? '').startsWith('audio/mp4')
+		)
+		.sort((a, b) => (b?.bitrate ?? 0) - (a?.bitrate ?? 0));
+
+	return mp4[0]?.url ?? null;
+}

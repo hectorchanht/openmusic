@@ -1,13 +1,10 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import {
-	selectAudioFormat,
-	isPlayable,
-	GET as streamGet,
-	OPTIONS as streamOptions
-} from './+server';
-import { PLAYER_URL, SEARCH_URL } from '$lib/proxy/ytmusic';
+import { GET as streamGet, OPTIONS as streamOptions } from './+server';
+// selectAudioFormat + isPlayable moved to the shared proxy module (SvelteKit +server.ts forbids
+// non-HTTP-verb exports — quick-270715).
+import { selectAudioFormat, isPlayable, PLAYER_URL, SEARCH_URL } from '$lib/proxy/ytmusic';
 import fixture from './__fixtures__/player-response.json';
 
 // The itag-140 (AAC-LC / mp4) direct url and the itag-251 (Opus/webm) url from the OK fixture.
