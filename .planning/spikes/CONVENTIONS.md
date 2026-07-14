@@ -27,6 +27,14 @@ the question requires otherwise.
   isn't exposed by a route; never print it, never write it to `results.json`.
 - **Pick the best-matching search row** by normalized title/artist token overlap (mirrors `match-key.ts`),
   fall back to row[0].
+- **YouTube/InnerTube spikes (005–008) hit upstream DIRECTLY from Node, not through the dev proxy.** Unlike
+  the CN Meting proxies (unreachable in this sandbox), `music.youtube.com` / `www.youtube.com` / Google
+  OAuth ARE reachable here → real E2E without the dev server. InnerTube POST shape: `{context:{client:{
+  clientName,clientVersion,hl,gl}}, ...}` + public WEB_REMIX key `AIzaSyC9XL3ZjWddXya6X74dJoCTL-WEYFDNX30`.
+  Metadata endpoints (`search`/`next`/`browse`) are anonymous; the `player`/stream endpoint is bot-gated —
+  unlock = `ANDROID_VR` client + a `visitorData` token grabbed from any prior search response.
+- **Never complete an auth/OAuth flow in a spike** — probe endpoint reachability + gating only (device-code
+  initiation yields a code but authenticates nobody; unauth browse proves the target + that data is gated).
 
 ## Tools & Libraries
 - Node 22 native `fetch`, `AbortSignal.timeout`, `URLSearchParams`, `node:fs` — nothing else.
