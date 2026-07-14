@@ -1,11 +1,11 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.2
-milestone_name: Resilient Playback & UX Polish
-status: executing
-stopped_at: Completed 26 gap-closure round (26-06..26-11 — all 6 UAT gaps closed)
-last_updated: "2026-07-11T17:45:00.000Z"
-last_activity: "2026-07-11 - Phase 26 gap-closure complete (26-06..26-11): resolve-phase watchdog→kuwo-first fallback→skip (blocker); CR-01 post-filter gate + up-next image passthrough/seeded covers; regenerate() never-empty safety net + upnext.source log; version picker lazy fetch + intra-source dedup/version label + mounted in Up-Next & TrackMenu; JOOX songmid self-heal + never-throw. Phase 26 = 11/11 plans."
+milestone: v1.4
+milestone_name: New Source — YouTube Music
+status: planned
+stopped_at: Phase 27 (YouTube Music Source) planned — 4 plans, 2 waves; ready to execute
+last_updated: "2026-07-15T00:00:00.000Z"
+last_activity: "2026-07-15 - Phase 27 (YouTube Music Source) PLANNED. Spiked feasibility first (005-008): search/play/lyrics = GO (InnerTube WEB_REMIX search; ANDROID_VR+visitorData → direct AAC itag 140, no cipher/throttle, IP-locked so bytes proxy edge-side via the audius pattern; plain lyrics via next→browse, timed via existing crossSourceLyric); account/library sync = split to a later legal-gated milestone (spike 008). Planner produced 4 plans (2 waves): 27-01 SourceId+registry+adapter search; 27-02 edge search/lyrics routes + shared proxy module; 27-03 stream byte-proxy (ANDROID_VR player + cached visitorData + itag-140 + Range passthrough); 27-04 resolve lyrics + resilience/isolation + off-hot-path exclusion. Anonymous only — zero user credentials."
 progress:
   total_phases: 18
   completed_phases: 15
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-06-10)
 
 ## Current Position
 
-Phase: 26 (Minimal-API Click-to-Play Redesign) — COMPLETE
-Plan: 11/11 (5 shipped + 6 gap-closure); gap round 26-06..26-11 done
-Status: Phase complete — pending code review + human device UAT on real network (CN upstreams unreachable in sandbox)
-Last activity: 2026-07-13 - Completed quick task 260713-mqv: edge-cache gaps filled (similar / lastfm similar-tracks / lastfm info) + edgeCache() helper deduped into $lib/proxy/edge-cache
+Phase: 27 (YouTube Music Source) — PLANNED (4 plans, 2 waves)
+Plan: 0/4 executed — next: /gsd:execute-phase 27
+Status: Planned — anonymous source (search·play·lyrics·download); account/library sync explicitly OUT (spike 008, later legal-gated milestone). Highest-risk plan = 27-03 stream byte-proxy; deployed-Worker same-IP egress + bot-challenge-under-load is UAT-gated, not unit-provable.
+Last activity: 2026-07-15 - Phase 27 planned from spikes 005-008 (YT reachable in-sandbox → search/stream E2E-proven; playback/download bytes remain device+deployed-Worker UAT)
 
 ## Performance Metrics
 

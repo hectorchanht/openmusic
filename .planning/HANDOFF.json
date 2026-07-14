@@ -1,21 +1,34 @@
 {
   "version": "1.0",
-  "timestamp": "2026-07-09T12:04:32.606Z",
-  "source": "auto-postool",
-  "partial": true,
-  "phase": null,
-  "phase_name": null,
-  "phase_dir": null,
+  "timestamp": "2026-07-15T00:00:00.000Z",
+  "source": "plan-phase",
+  "partial": false,
+  "phase": "27",
+  "phase_name": "YouTube Music Source (search · play · lyrics · download)",
+  "phase_dir": ".planning/phases/27-youtube-music-source",
   "plan": null,
   "task": null,
   "total_tasks": null,
-  "status": "auto-checkpoint",
+  "status": "planned",
   "completed_tasks": [],
-  "remaining_tasks": [],
+  "remaining_tasks": [
+    "27-01 (wave 1): SourceId + autoResolveEligible flag + registry line + adapter search() over InnerTube fixture [YT-SRC-01, YT-SEARCH-01]",
+    "27-02 (wave 1): shared src/lib/proxy/ytmusic.ts + /api/ytmusic/search + /api/ytmusic/lyrics [YT-SEARCH-01, YT-LYRICS-01]",
+    "27-03 (wave 2, depends 27-02): /api/ytmusic/stream/:videoId ANDROID_VR player + visitorData + itag-140 byte-proxy [YT-PLAY-01, YT-DOWNLOAD-01]",
+    "27-04 (wave 2, depends 27-01): resolve() lyrics + resilience/isolation + off-hot-path exclusion [YT-LYRICS-01, YT-RESILIENCE-01]"
+  ],
   "blockers": [],
-  "human_actions_pending": [],
-  "decisions": [],
+  "human_actions_pending": [
+    "UAT (device + deployed Cloudflare Worker): confirm itag-140 stream plays in <audio> + seeks; download yields a complete AAC file; player+googlevideo egress same IP; measure bot-challenge rate under load (spike 006 open risk — not unit-provable)",
+    "Product/legal decision required BEFORE any future account/library-sync milestone (spike 008) — out of scope for Phase 27"
+  ],
+  "decisions": [
+    "YTMusic is anonymous-only (zero user credentials); account/OAuth/library sync deferred to a separate legal-gated milestone (spike 008)",
+    "Stream is edge-proxied bytes (audius pattern), never a raw googlevideo URL — URLs are IP-locked + expire ~6h",
+    "ANDROID_VR player client + cached visitorData; itag 140 (AAC/mp4) for iOS Safari; no signature cipher / no PoToken",
+    "YTMusic stays OFF the kuwo-first resolve/fallback hot path via a new autoResolveEligible adapter flag (searchable-but-off-hot-path like audius)"
+  ],
   "uncommitted_files": [],
-  "next_action": null,
-  "context_notes": ""
+  "next_action": "/gsd:execute-phase 27",
+  "context_notes": "Feasibility de-risked by spikes 005-008 (.planning/spikes/). YT/Google endpoints ARE reachable from the sandbox (unlike CN Meting proxies), so search + stream are E2E-verifiable here; only real-device playback/download + deployed-Worker IP-egress remain UAT. Plans grounded in 27-CONTEXT.md + 27-RESEARCH.md."
 }
