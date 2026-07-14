@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: New Source — YouTube Music
 status: executing
-stopped_at: Completed 27-01-PLAN.md (ytmusic SourceId + adapter search()/resolve() + fixture test)
-last_updated: "2026-07-15T00:42:00.000Z"
-last_activity: 2026-07-15 -- Completed 27-01 (YouTube Music source wiring + search parse)
+stopped_at: Completed 27-02-PLAN.md (ytmusic edge routes /api/ytmusic/search + /api/ytmusic/lyrics + shared InnerTube proxy module)
+last_updated: "2026-07-14T17:03:27.857Z"
+last_activity: 2026-07-15 -- Completed 27-02 (ytmusic edge routes + shared InnerTube proxy module)
 progress:
   total_phases: 3
   completed_phases: 2
   total_plans: 21
-  completed_plans: 18
-  percent: 71
+  completed_plans: 19
+  percent: 67
 ---
 
 # Project State
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-06-10)
 ## Current Position
 
 Phase: 27 (YouTube Music Source) — EXECUTING
-Plan: 2 of 4
-Status: Executing Phase 27 (27-01 complete)
-Last activity: 2026-07-15 -- Completed 27-01 (YouTube Music source wiring + search parse)
+Plan: 3 of 4
+Status: Executing Phase 27 (27-02 complete)
+Last activity: 2026-07-15 -- Completed 27-02 (ytmusic /api/ytmusic/search + /api/ytmusic/lyrics + shared proxy module)
 
 ## Performance Metrics
 
@@ -82,6 +82,7 @@ Last activity: 2026-07-15 -- Completed 27-01 (YouTube Music source wiring + sear
 | Phase 26 P07 | 7min | 3 tasks | 4 files |
 | Phase 26 P08 | 9min | 3 tasks | 18 files |
 | Phase 27 P01 | 10min | 2 tasks | 7 files |
+| Phase 27 P02 | 7min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -141,6 +142,8 @@ Recent decisions affecting current work:
 - [Phase 26]: 26-05: netease dry-spell health-gate — a pure in-memory neteaseHealth trips after DRY_THRESHOLD(3) consecutive [] responses, netease.search() short-circuits to [] (no apiFetch) for GATE_WINDOW_MS(~60s), auto-probes on expiry, recordOk() = instant recovery; contract-drift THROW preserved and never counted as dry
 - [Phase ?]: [Phase 26-04]: groupVariants reuses dedupe's private key() (identity single-source); the search page keys variant groups by uid so a deduped winner resolves its cross-source siblings without exporting key().
 - [Phase ?]: [Phase 26-04]: version picker consumes the retained pre-dedupe interleaved variants — ZERO new API calls (VERSIONS-01); trigger shown only on >1-source rows; default row tap stays kuwo-first fast.
+- [Phase 27]: [27-02]: getVisitorData caches an anonymous visitorData token under a synthetic own-origin edgeCache key (never the key-bearing upstream URL), ~6h soft TTL; a refresh clears the cache so a known-bad token is never reused
+- [Phase 27]: [27-02]: /api/ytmusic/search returns an empty-but-valid shelf envelope (musicShelfRenderer, zero rows) on empty-q/upstream-error so the 27-01 client parse yields [] instead of throwing its shelf-absent contract-drift guard
 
 ### Pending Todos
 
@@ -299,8 +302,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-11T17:04:01.137Z
-Stopped at: Completed 26-07-PLAN.md (gap-closure — gaps 2,3 + CR-01)
+Last session: 2026-07-14T17:03:27.517Z
+Stopped at: Completed 27-02-PLAN.md (ytmusic edge routes /api/ytmusic/search + /api/ytmusic/lyrics + shared InnerTube proxy module)
 Resume: execute the remaining Phase-26 gap-closure plans (`/gsd:execute-phase 26 --gaps-only`): 26-08 (variant fetch + version-label dedup), 26-09 (up-next player wiring — depends 26-06/26-07), 26-10 (UI mounts — depends 26-07/26-08).
 
 ## Deferred Items

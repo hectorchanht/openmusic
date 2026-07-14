@@ -139,3 +139,8 @@ user-token / library-sync code was added anywhere.
   consts present edge-side; the key literal (`AIzaSy…`) appears exactly ONCE in the module.
 - Key/visitorData never appear in any client-facing response body (asserted for both routes); both
   routes answer OPTIONS 204 with allowlisted corsHeaders (never `*`).
+
+## Self-Check: PASSED
+
+- Files: all 5 created files present on disk (+ this SUMMARY).
+- Commits: `2b51c1d`, `687df28`, `c351cd6`, `9679e6f`, `05ed9b6` all present in git history.
