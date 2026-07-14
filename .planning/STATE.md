@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: New Source — YouTube Music
-status: executing
-stopped_at: Completed 27-03-PLAN.md (ytmusic stream byte-proxy /api/ytmusic/stream/:videoId — ANDROID_VR player + visitorData -> itag-140 AAC -> googlevideo byte-proxy with Range passthrough)
-last_updated: "2026-07-15T01:20:00.000Z"
-last_activity: 2026-07-15 -- Completed 27-03 (ytmusic stream byte-proxy route — the money route, spike-006 wall cleared)
+status: complete
+stopped_at: Completed 27-04-PLAN.md (ytmusic resolve() best-effort plain lyrics + off-the-hot-path resilience — autoResolveEligible exclusion from failover/name-stub, allSettled isolation, registry-driven settings/label). Phase 27 complete (4/4).
+last_updated: "2026-07-15T01:31:00.000Z"
+last_activity: 2026-07-15 -- Completed 27-04 (ytmusic lyrics + resilience wiring); Phase 27 (YouTube Music Source) complete
 progress:
   total_phases: 3
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 21
-  completed_plans: 20
-  percent: 71
+  completed_plans: 21
+  percent: 100
 ---
 
 # Project State
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-06-10)
 
 ## Current Position
 
-Phase: 27 (YouTube Music Source) — EXECUTING
-Plan: 4 of 4
-Status: Executing Phase 27 (27-03 complete)
-Last activity: 2026-07-15 -- Completed 27-03 (ytmusic /api/ytmusic/stream/:videoId byte-proxy — ANDROID_VR + itag-140 + Range passthrough)
+Phase: 27 (YouTube Music Source) — COMPLETE
+Plan: 4 of 4 (all complete)
+Status: Phase 27 complete (27-01..04 all landed)
+Last activity: 2026-07-15 -- Completed 27-04 (ytmusic resolve() plain lyrics + off-the-hot-path resilience wiring)
 
 ## Performance Metrics
 
@@ -84,6 +84,7 @@ Last activity: 2026-07-15 -- Completed 27-03 (ytmusic /api/ytmusic/stream/:video
 | Phase 27 P01 | 10min | 2 tasks | 7 files |
 | Phase 27 P02 | 7min | 3 tasks | 5 files |
 | Phase 27 P03 | 12min | 2 tasks | 3 files |
+| Phase 27 P04 | 9min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
