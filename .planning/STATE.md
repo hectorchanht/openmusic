@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: New Source — YouTube Music
 status: executing
-stopped_at: Completed 27-02-PLAN.md (ytmusic edge routes /api/ytmusic/search + /api/ytmusic/lyrics + shared InnerTube proxy module)
-last_updated: "2026-07-14T17:03:27.857Z"
-last_activity: 2026-07-15 -- Completed 27-02 (ytmusic edge routes + shared InnerTube proxy module)
+stopped_at: Completed 27-03-PLAN.md (ytmusic stream byte-proxy /api/ytmusic/stream/:videoId — ANDROID_VR player + visitorData -> itag-140 AAC -> googlevideo byte-proxy with Range passthrough)
+last_updated: "2026-07-15T01:20:00.000Z"
+last_activity: 2026-07-15 -- Completed 27-03 (ytmusic stream byte-proxy route — the money route, spike-006 wall cleared)
 progress:
   total_phases: 3
   completed_phases: 2
   total_plans: 21
-  completed_plans: 19
-  percent: 67
+  completed_plans: 20
+  percent: 71
 ---
 
 # Project State
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-06-10)
 ## Current Position
 
 Phase: 27 (YouTube Music Source) — EXECUTING
-Plan: 3 of 4
-Status: Executing Phase 27 (27-02 complete)
-Last activity: 2026-07-15 -- Completed 27-02 (ytmusic /api/ytmusic/search + /api/ytmusic/lyrics + shared proxy module)
+Plan: 4 of 4
+Status: Executing Phase 27 (27-03 complete)
+Last activity: 2026-07-15 -- Completed 27-03 (ytmusic /api/ytmusic/stream/:videoId byte-proxy — ANDROID_VR + itag-140 + Range passthrough)
 
 ## Performance Metrics
 
@@ -83,6 +83,7 @@ Last activity: 2026-07-15 -- Completed 27-02 (ytmusic /api/ytmusic/search + /api
 | Phase 26 P08 | 9min | 3 tasks | 18 files |
 | Phase 27 P01 | 10min | 2 tasks | 7 files |
 | Phase 27 P02 | 7min | 3 tasks | 5 files |
+| Phase 27 P03 | 12min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -139,6 +140,7 @@ Recent decisions affecting current work:
 - [Phase ?]: 25-03: blank lines are neither offline-converted nor API-sent (trivially complete) so all-Chinese lyrics with blank separators make ZERO network calls
 - [Phase ?]: 26-01: registry reorder is DATA-ONLY — kuwo-first SOURCES order propagates to getEnabledAdapters/fallbackOrder/interleave/resolveNameStub; contracts/enabledByDefault/SOURCE_RANK unchanged
 - [Phase ?]: 26-01: resolveNameStub + crossSourceLyric walk the kuwo-first order ONE source per searchAll (onlySource prefs) — never an all-source fan-out on a resolve path; onlySource duplicated in catalog.ts to avoid a catalog<->fallback cycle
+- [Phase 27]: 27-03: /api/ytmusic/stream/:videoId = ANDROID_VR player (clientVersion 1.60.19 + cached anonymous visitorData) -> select itag 140 (AAC/mp4, iOS-Safari-safe; never Opus itag 251) -> RAW edge byte-fetch (fetchWithRetry retries=1, NOT the api-base governor) of the IP-locked googlevideo url in the SAME invocation, streaming res.body back with Range passthrough (206 seek + 200 download). Bot gate -> getVisitorData(true) refresh ONCE + retry -> still-not-OK -> 502 (client cross-source fallback engages, never hang). Only ever fetches the adaptiveFormats url (no open relay). CARRIED RISK T-27-03-OP: same-IP egress within one invocation + bot-challenge rate under load are UAT-gated on a DEPLOYED Worker (not unit-provable); real 206 playback/seek + a real download also device-UAT-gated.
 - [Phase 26]: 26-05: netease dry-spell health-gate — a pure in-memory neteaseHealth trips after DRY_THRESHOLD(3) consecutive [] responses, netease.search() short-circuits to [] (no apiFetch) for GATE_WINDOW_MS(~60s), auto-probes on expiry, recordOk() = instant recovery; contract-drift THROW preserved and never counted as dry
 - [Phase ?]: [Phase 26-04]: groupVariants reuses dedupe's private key() (identity single-source); the search page keys variant groups by uid so a deduped winner resolves its cross-source siblings without exporting key().
 - [Phase ?]: [Phase 26-04]: version picker consumes the retained pre-dedupe interleaved variants — ZERO new API calls (VERSIONS-01); trigger shown only on >1-source rows; default row tap stays kuwo-first fast.

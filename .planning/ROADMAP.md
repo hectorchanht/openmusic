@@ -80,7 +80,7 @@ Full phase details archived in [`milestones/v1.2-ROADMAP.md`](milestones/v1.2-RO
 
 - [x] 27-01-PLAN.md — `SourceId`+`autoResolveEligible` flag, `registry.ts` line (ytmusic last, off the auto-resolve floor), client adapter `search()` parse over a captured InnerTube fixture (YT-SRC-01/YT-SEARCH-01) [wave 1]
 - [x] 27-02-PLAN.md — Edge routes `/api/ytmusic/search` + `/api/ytmusic/lyrics` + shared `src/lib/proxy/ytmusic.ts` (InnerTube consts, `innerTubePost`, `getVisitorData`, lyrics extractors) (YT-SEARCH-01/YT-LYRICS-01) [wave 1]
-- [ ] 27-03-PLAN.md — Stream route `/api/ytmusic/stream/:videoId`: ANDROID_VR player + cached visitorData → itag-140 AAC → googlevideo byte-proxy with Range passthrough (raw fetch); refresh-on-LOGIN_REQUIRED (YT-PLAY-01/YT-DOWNLOAD-01) [wave 2, depends 27-02]
+- [x] 27-03-PLAN.md — Stream route `/api/ytmusic/stream/:videoId`: ANDROID_VR player + cached visitorData → itag-140 AAC → googlevideo byte-proxy with Range passthrough (raw fetch); refresh-on-LOGIN_REQUIRED (YT-PLAY-01/YT-DOWNLOAD-01) [wave 2, depends 27-02]
 - [ ] 27-04-PLAN.md — Adapter `resolve()` best-effort plain lyrics + resilience wiring (registry-flag exclusion from failover/name-stub; allSettled isolation; registry-driven settings/label) (YT-LYRICS-01/YT-RESILIENCE-01) [wave 2, depends 27-01]
 
 ## Progress
@@ -104,7 +104,7 @@ Full phase details archived in [`milestones/v1.2-ROADMAP.md`](milestones/v1.2-RO
 | 11–13. Last.fm Write-side | v1.3 | Planned | — |
 | 25. zh-Hant Offline Conversion + Fallback Cascade | 3/3 | Complete   | 2026-07-11 |
 | 26. Minimal-API Click-to-Play Redesign | 11/11 | Complete   | 2026-07-11 |
-| 27. YouTube Music Source (search·play·lyrics·download) | 2/4 | In Progress|  |
+| 27. YouTube Music Source (search·play·lyrics·download) | 3/4 | In Progress|  |
 
 ## Backlog
 
