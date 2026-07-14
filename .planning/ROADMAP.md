@@ -76,7 +76,12 @@ Full phase details archived in [`milestones/v1.2-ROADMAP.md`](milestones/v1.2-RO
 **Goal:** Add YouTube Music as a first-class **anonymous** source — search · play · lyrics · download — that fits the existing adapter model (`src/lib/sources/ytmusic.ts` client adapter + `src/routes/api/ytmusic/` edge proxy + one `registry.ts`/`SourceId` line) and preserves the app's zero-user-credentials trust posture. De-risked by spikes 005–007 (`.planning/spikes/`): search = InnerTube `WEB_REMIX`; play = `ANDROID_VR` player + cached `visitorData` → direct AAC (itag 140), no cipher/throttle, **IP-locked so bytes must proxy edge-side (audius pattern)**; lyrics = plain via `next`→`browse`, timed via the existing `crossSourceLyric` fallback. YTMusic stays **OFF the kuwo-first resolve hot path** (search-page + explicit-pick only). **Account connection / library inheritance (liked songs · history · genre) is OUT** — spike 008 = a separate, later, legal-gated milestone.
 **Requirements:** YT-SRC-01 (SourceId + registry + adapter contract), YT-SEARCH-01 (InnerTube search → Track stubs), YT-PLAY-01 (ANDROID_VR+visitorData resolve → edge-proxied AAC stream), YT-LYRICS-01 (plain via InnerTube + timed via crossSourceLyric fallback), YT-DOWNLOAD-01 (download via the proxied stream URL), YT-RESILIENCE-01 (never-throw + graceful failure + adversarial-upstream maintenance posture)
 **Depends on:** none — additive source; independent of the Last.fm write-side (11–13). Honors the spike-findings-openmusic resolution policy (kuwo-first floor unchanged).
-**Plans:** _pending — populated by `/gsd:plan-phase 27`_
+**Plans:** 4 plans (2 waves)
+
+- [ ] 27-01-PLAN.md — `SourceId`+`autoResolveEligible` flag, `registry.ts` line (ytmusic last, off the auto-resolve floor), client adapter `search()` parse over a captured InnerTube fixture (YT-SRC-01/YT-SEARCH-01) [wave 1]
+- [ ] 27-02-PLAN.md — Edge routes `/api/ytmusic/search` + `/api/ytmusic/lyrics` + shared `src/lib/proxy/ytmusic.ts` (InnerTube consts, `innerTubePost`, `getVisitorData`, lyrics extractors) (YT-SEARCH-01/YT-LYRICS-01) [wave 1]
+- [ ] 27-03-PLAN.md — Stream route `/api/ytmusic/stream/:videoId`: ANDROID_VR player + cached visitorData → itag-140 AAC → googlevideo byte-proxy with Range passthrough (raw fetch); refresh-on-LOGIN_REQUIRED (YT-PLAY-01/YT-DOWNLOAD-01) [wave 2, depends 27-02]
+- [ ] 27-04-PLAN.md — Adapter `resolve()` best-effort plain lyrics + resilience wiring (registry-flag exclusion from failover/name-stub; allSettled isolation; registry-driven settings/label) (YT-LYRICS-01/YT-RESILIENCE-01) [wave 2, depends 27-01]
 
 ## Progress
 
@@ -99,7 +104,7 @@ Full phase details archived in [`milestones/v1.2-ROADMAP.md`](milestones/v1.2-RO
 | 11–13. Last.fm Write-side | v1.3 | Planned | — |
 | 25. zh-Hant Offline Conversion + Fallback Cascade | 3/3 | Complete   | 2026-07-11 |
 | 26. Minimal-API Click-to-Play Redesign | 11/11 | Complete   | 2026-07-11 |
-| 27. YouTube Music Source (search·play·lyrics·download) | v1.4 | Planning | — |
+| 27. YouTube Music Source (search·play·lyrics·download) | 0/4 | Planned | — |
 
 ## Backlog
 
