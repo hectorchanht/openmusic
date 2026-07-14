@@ -25,10 +25,11 @@ See: .planning/PROJECT.md (updated 2026-06-10)
 
 ## Current Position
 
-Phase: 27 (YouTube Music Source) — COMPLETE
+Phase: 27 (YouTube Music Source) — COMPLETE + E2E-VERIFIED
 Plan: 4 of 4 (all complete)
-Status: Phase 27 complete (27-01..04 all landed)
-Last activity: 2026-07-15 -- Completed 27-04 (ytmusic resolve() plain lyrics + off-the-hot-path resilience wiring)
+Status: Phase 27 complete (27-01..04). E2E-verified against LIVE YouTube via the dev-server routes: /api/ytmusic/search 200 (rows+videoId), /api/ytmusic/lyrics 200 (1513c + attribution), /api/ytmusic/stream 206 audio/mp4 + Range (playback) and 200 full-file (download). pnpm check clean, 1320 tests green. E2E caught + fixed a prod-breaking bug (quick-270715 / commit 29c1c7d): stream route exported non-HTTP-verb functions, illegal in SvelteKit +server.ts → 500; helpers moved to $lib/proxy/ytmusic.ts.
+Last activity: 2026-07-15 -- Phase 27 complete + E2E-verified (search/lyrics/stream all live-YT green); fixed +server.ts illegal-export bug found in E2E
+Remaining human UAT: real-device <audio> playback+seek + download-to-disk; deployed-Worker player+googlevideo same-IP egress + bot-challenge under load (T-27-03-OP). Account/library sync = separate legal-gated milestone (spike 008).
 
 ## Performance Metrics
 
