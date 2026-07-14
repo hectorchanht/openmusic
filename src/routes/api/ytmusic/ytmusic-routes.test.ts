@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { GET as searchGet, OPTIONS as searchOptions } from './search/+server';
-import { WEB_REMIX_KEY, SEARCH_URL } from '$lib/proxy/ytmusic';
+import { GET as lyricsGet, OPTIONS as lyricsOptions } from './lyrics/+server';
+import { WEB_REMIX_KEY, SEARCH_URL, NEXT_URL, BROWSE_URL } from '$lib/proxy/ytmusic';
 
 const ORIGIN = 'https://openmusic.lol';
 
@@ -97,6 +98,112 @@ describe('GET /api/ytmusic/search — edge InnerTube forwarder', () => {
 	it('OPTIONS → 204 with allowlisted corsHeaders', async () => {
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		const res = await searchOptions(ev('/api/ytmusic/search', {}) as any);
+		expect(res.status).toBe(204);
+		expect(res.headers.get('access-control-allow-origin')).toBe(ORIGIN);
+	});
+});
+
+describe('GET /api/ytmusic/lyrics — next -> browse two-hop', () => {
+	const NEXT_WITH_LYRICS = {
+		contents: {
+			singleColumnMusicWatchNextResultsRenderer: {
+				tabbedRenderer: {
+					watchNextTabbedResultsRenderer: {
+						tabs: [
+							{ tabRenderer: { title: 'Up next' } },
+							{
+								tabRenderer: {
+									title: 'Lyrics',
+									endpoint: { browseEndpoint: { browseId: 'MPLYtBROWSE' } }
+								}
+							}
+						]
+					}
+				}
+			}
+		}
+	};
+	const NEXT_NO_LYRICS = {
+		contents: {
+			singleColumnMusicWatchNextResultsRenderer: {
+				tabbedRenderer: {
+					watchNextTabbedResultsRenderer: { tabs: [{ tabRenderer: { title: 'Up next' } }] }
+				}
+			}
+		}
+	};
+	const BROWSE_LYRICS = {
+		contents: {
+			sectionListRenderer: {
+				contents: [
+					{
+						musicDescriptionShelfRenderer: {
+							description: { runs: [{ text: 'la la la' }] },
+							footer: { runs: [{ text: 'Source: LyricFind' }] }
+						}
+					}
+				]
+			}
+		}
+	};
+
+	// Route the mocked fetch by the fixed endpoint URL (next vs browse).
+	function routeFetch(nextBody: unknown) {
+		return vi.fn(async (u: unknown) => {
+			const s = String(u);
+			if (s === NEXT_URL) return jsonRes(nextBody);
+			if (s === BROWSE_URL) return jsonRes(BROWSE_LYRICS);
+			throw new Error('unexpected upstream url: ' + s);
+		});
+	}
+
+	it('a track WITH lyrics returns { text, attribution } via next -> browse', async () => {
+		const fetchSpy = routeFetch(NEXT_WITH_LYRICS);
+		vi.stubGlobal('fetch', fetchSpy);
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const res = await lyricsGet(ev('/api/ytmusic/lyrics', { videoId: 'abc' }) as any);
+		const body = (await res.json()) as { text?: string; attribution?: string };
+		expect(body.text).toBe('la la la');
+		expect(body.attribution).toBe('Source: LyricFind'); // licensor attribution carried
+		expect(fetchSpy).toHaveBeenCalledTimes(2); // both hops
+		expect(res.headers.get('access-control-allow-origin')).toBe(ORIGIN);
+		// key never leaks into the response body
+		const raw = JSON.stringify(body);
+		expect(raw).not.toContain(WEB_REMIX_KEY);
+	});
+
+	it('a track with NO lyrics tab returns {} and issues no browse fetch', async () => {
+		const fetchSpy = routeFetch(NEXT_NO_LYRICS);
+		vi.stubGlobal('fetch', fetchSpy);
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const res = await lyricsGet(ev('/api/ytmusic/lyrics', { videoId: 'abc' }) as any);
+		expect(await res.json()).toEqual({});
+		expect(fetchSpy).toHaveBeenCalledTimes(1); // next only — no browse hop
+	});
+
+	it('empty videoId → {} with no upstream fetch', async () => {
+		const fetchSpy = vi.fn(async () => jsonRes({}));
+		vi.stubGlobal('fetch', fetchSpy);
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const res = await lyricsGet(ev('/api/ytmusic/lyrics', { videoId: '' }) as any);
+		expect(await res.json()).toEqual({});
+		expect(fetchSpy).not.toHaveBeenCalled();
+	});
+
+	it('an upstream error yields {} (never a 500 to the client)', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () => new Response('boom', { status: 500 }))
+		);
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const res = await lyricsGet(ev('/api/ytmusic/lyrics', { videoId: 'abc' }) as any);
+		expect(res.status).toBe(200);
+		expect(await res.json()).toEqual({});
+	});
+
+	it('OPTIONS → 204 with allowlisted corsHeaders', async () => {
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const res = await lyricsOptions(ev('/api/ytmusic/lyrics', {}) as any);
 		expect(res.status).toBe(204);
 		expect(res.headers.get('access-control-allow-origin')).toBe(ORIGIN);
 	});
