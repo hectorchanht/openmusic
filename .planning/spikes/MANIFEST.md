@@ -52,6 +52,21 @@ Design decisions that emerged; non-negotiable for the real build. Updated as spi
   segments; jamendo/audius add zero mainstream coverage and stay OFF the hot path. NEVER fan out all sources
   on click (that's a search-page concern). Full policy: [004 POLICY.md](004-source-coverage-by-segment/POLICY.md).
 
+### YouTube Music source (Session 2, spikes 005–008)
+- **[005] YTMusic `search()` = InnerTube `WEB_REMIX` + songs-filter param, public key, no auth.** `songid =
+  videoId`, `uid = ytmusic:${videoId}`. Parse `musicResponsiveListItemRenderer` rows; disambiguate
+  artist/album via each run's `pageType`. Cover URL is resizable (`=w{n}-h{n}`) → free HQ, no backfill.
+- **[006] YTMusic playback = `ANDROID_VR` player client + a cached `visitorData` token → itag 140 (AAC/mp4).**
+  Formats are DIRECT urls (NO signature cipher, NO `n` throttle) → no base.js engine needed. iOS Safari needs
+  AAC (itag 140), not Opus (251).
+- **[006] Stream URLs are IP-locked + expire ~6 h → MUST proxy bytes through the edge**, never set
+  `<audio>.src` to a raw googlevideo URL. Reuse the `audius` proxy pattern: `/api/ytmusic/stream/{videoId}`
+  → Worker calls player + streams the body (own-origin src, CORS/Capacitor-safe). `resolve()` re-fetches per
+  play (no long URL caching).
+- **[006] OPEN (verify on a deployed Worker): player + googlevideo subrequests must egress the same
+  Cloudflare IP**, and bot-challenge rate under load must be acceptable. This path is adversarial and will
+  need ongoing maintenance (YouTube fights extractors). ToS/legal risk flagged for a human call.
+
 ## Spikes
 
 | # | Name | Type | Validates | Verdict | Tags |
@@ -61,6 +76,6 @@ Design decisions that emerged; non-negotiable for the real build. Updated as spi
 | 003 | clickplay-query-audit | standard | Instrument real click-to-play → count + attribute `/api/*` calls (crossSourceLyric / cover / up-next) → baseline to beat | ✅ VALIDATED — single-song play = **59 calls**, 56 of them buildSimilarQueue's 8 artists × 7 sources; redesign → ~3 | audit, perf, baseline |
 | 004 | source-coverage-by-segment | standard | 38 songs × 14 language/region×genre segments → per-segment winner + minimal-API policy | ✅ VALIDATED — **kuwo 100% playable+cover in EVERY segment**; jamendo/audius earn no hot-path slot; policy = "kuwo first, done" ([POLICY.md](004-source-coverage-by-segment/POLICY.md)) | sources, coverage, segments, policy, minimal-api |
 | 005 | ytmusic-innertube-search | standard | Given InnerTube WEB_REMIX search from the edge, when a query is sent, then ≥1 playable track parses into an OpenMusic `Track` stub (videoId/title/artist/album/cover) | ✅ VALIDATED — 100% videoId/cover/artist/album across EN/JP/CJK/indie; richer than CN at search time; search is the easy pillar | ytmusic, innertube, search, source |
-| 006 | ytmusic-playable-stream | standard | Given a videoId, when the player endpoint is queried + the audio stream URL extracted (cipher / n-param / PoToken as needed), then the URL plays in a plain `<audio>` AND stays playable (no mid-stream 403) | PENDING | ytmusic, stream, cipher, potoken, the-wall |
+| 006 | ytmusic-playable-stream | standard | Given a videoId, when the player endpoint is queried + the audio stream URL extracted (cipher / n-param / PoToken as needed), then the URL plays in a plain `<audio>` AND stays playable (no mid-stream 403) | ✅ VALIDATED (w/ caveat) — `ANDROID_VR`+`visitorData` → play=OK, **DIRECT url, no cipher, no throttle**, itag 140 AAC (iOS-safe), 206+ranges; **IP-locked → must proxy bytes edge-side (audius pattern)**; durability is a maintenance cost | ytmusic, stream, cipher, potoken, the-wall |
 | 007 | ytmusic-lyrics | standard | Given a videoId, when timed/plain lyrics are requested (InnerTube next→browse, else external fallback), then lyrics are returned | PENDING | ytmusic, lyrics, innertube |
 | 008 | ytmusic-account-library | standard | Given a Google/YT auth (OAuth or cookie), when the user library is queried, then liked songs + recent history + a taste/genre signal are readable — ToS/legal risk flagged, not assumed | PENDING | ytmusic, auth, oauth, library, legal |
