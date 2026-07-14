@@ -1,0 +1,743 @@
+{
+	"contents": {
+		"tabbedSearchResultsRenderer": {
+			"tabs": [
+				{
+					"tabRenderer": {
+						"content": {
+							"sectionListRenderer": {
+								"contents": [
+									{
+										"musicShelfRenderer": {
+											"title": {
+												"runs": [
+													{
+														"text": "Songs"
+													}
+												]
+											},
+											"contents": [
+												{
+													"musicResponsiveListItemRenderer": {
+														"thumbnail": {
+															"musicThumbnailRenderer": {
+																"thumbnail": {
+																	"thumbnails": [
+																		{
+																			"url": "https://yt3.googleusercontent.com/a0fAqzNhSN_JY_9j1nvP51QaQEnguOlu29t1w3cJpWTA__PN-ZCrvWlrAGnX7-79RGwXFkRr8aRCvZTL3g=w60-h60-s-l90-rj",
+																			"width": 60,
+																			"height": 60
+																		},
+																		{
+																			"url": "https://yt3.googleusercontent.com/a0fAqzNhSN_JY_9j1nvP51QaQEnguOlu29t1w3cJpWTA__PN-ZCrvWlrAGnX7-79RGwXFkRr8aRCvZTL3g=w120-h120-s-l90-rj",
+																			"width": 120,
+																			"height": 120
+																		}
+																	]
+																},
+																"thumbnailCrop": "MUSIC_THUMBNAIL_CROP_UNSPECIFIED",
+																"thumbnailScale": "MUSIC_THUMBNAIL_SCALE_ASPECT_FIT",
+																"trackingParams": "COACEIS_AiITCN_t893L0pUDFeGmVgEdbf4bQA=="
+															}
+														},
+														"overlay": {
+															"musicItemThumbnailOverlayRenderer": {
+																"background": {
+																	"verticalGradient": {
+																		"gradientLayerColors": [
+																			"3422552064",
+																			"3422552064"
+																		]
+																	}
+																},
+																"content": {
+																	"musicPlayButtonRenderer": {
+																		"playNavigationEndpoint": {
+																			"clickTrackingParams": "CN8CEMjeAiITCN_t893L0pUDFeGmVgEdbf4bQMoBBLQjUDI=",
+																			"watchEndpoint": {
+																				"videoId": "l6a5D6yxqEU",
+																				"watchEndpointMusicSupportedConfigs": {
+																					"watchEndpointMusicConfig": {
+																						"musicVideoType": "MUSIC_VIDEO_TYPE_ATV"
+																					}
+																				}
+																			}
+																		},
+																		"trackingParams": "CN8CEMjeAiITCN_t893L0pUDFeGmVgEdbf4bQA==",
+																		"playIcon": {
+																			"iconType": "PLAY_ARROW"
+																		},
+																		"pauseIcon": {
+																			"iconType": "PAUSE"
+																		},
+																		"iconColor": 4294967295,
+																		"backgroundColor": 0,
+																		"activeBackgroundColor": 0,
+																		"loadingIndicatorColor": 14745645,
+																		"playingIcon": {
+																			"iconType": "VOLUME_UP"
+																		},
+																		"iconLoadingColor": 0,
+																		"activeScaleFactor": 1,
+																		"buttonSize": "MUSIC_PLAY_BUTTON_SIZE_SMALL",
+																		"rippleTarget": "MUSIC_PLAY_BUTTON_RIPPLE_TARGET_SELF",
+																		"accessibilityPlayData": {
+																			"accessibilityData": {
+																				"label": "Play 稻香 - 周杰倫"
+																			}
+																		},
+																		"accessibilityPauseData": {
+																			"accessibilityData": {
+																				"label": "Pause 稻香 - 周杰倫"
+																			}
+																		}
+																	}
+																},
+																"contentPosition": "MUSIC_ITEM_THUMBNAIL_OVERLAY_CONTENT_POSITION_CENTERED",
+																"displayStyle": "MUSIC_ITEM_THUMBNAIL_OVERLAY_DISPLAY_STYLE_PERSISTENT"
+															}
+														},
+														"flexColumns": [
+															{
+																"musicResponsiveListItemFlexColumnRenderer": {
+																	"text": {
+																		"runs": [
+																			{
+																				"text": "稻香",
+																				"navigationEndpoint": {
+																					"clickTrackingParams": "CNACEOFnGAAiEwjf7fPdy9KVAxXhplYBHW3-G0CaAQMQ9CTKAQS0I1Ay",
+																					"watchEndpoint": {
+																						"videoId": "l6a5D6yxqEU",
+																						"watchEndpointMusicSupportedConfigs": {
+																							"watchEndpointMusicConfig": {
+																								"musicVideoType": "MUSIC_VIDEO_TYPE_ATV"
+																							}
+																						}
+																					}
+																				}
+																			}
+																		]
+																	},
+																	"displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_HIGH"
+																}
+															},
+															{
+																"musicResponsiveListItemFlexColumnRenderer": {
+																	"text": {
+																		"runs": [
+																			{
+																				"text": "周杰倫",
+																				"navigationEndpoint": {
+																					"clickTrackingParams": "CNACEOFnGAAiEwjf7fPdy9KVAxXhplYBHW3-G0DKAQS0I1Ay",
+																					"browseEndpoint": {
+																						"browseId": "UCL2MDNdwEtV6aYUgNjFQGZA",
+																						"browseEndpointContextSupportedConfigs": {
+																							"browseEndpointContextMusicConfig": {
+																								"pageType": "MUSIC_PAGE_TYPE_ARTIST"
+																							}
+																						}
+																					}
+																				}
+																			},
+																			{
+																				"text": " • "
+																			},
+																			{
+																				"text": "魔杰座",
+																				"navigationEndpoint": {
+																					"clickTrackingParams": "CNACEOFnGAAiEwjf7fPdy9KVAxXhplYBHW3-G0DKAQS0I1Ay",
+																					"browseEndpoint": {
+																						"browseId": "MPREb_uCGLYKfIZNj",
+																						"browseEndpointContextSupportedConfigs": {
+																							"browseEndpointContextMusicConfig": {
+																								"pageType": "MUSIC_PAGE_TYPE_ALBUM"
+																							}
+																						}
+																					}
+																				}
+																			},
+																			{
+																				"text": " • "
+																			},
+																			{
+																				"text": "3:44"
+																			}
+																		],
+																		"accessibility": {
+																			"accessibilityData": {
+																				"label": "周杰倫 • 魔杰座 • 3 minutes, 44 seconds"
+																			}
+																		}
+																	},
+																	"displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_HIGH"
+																}
+															},
+															{
+																"musicResponsiveListItemFlexColumnRenderer": {
+																	"text": {
+																		"runs": [
+																			{
+																				"text": "131M plays"
+																			}
+																		],
+																		"accessibility": {
+																			"accessibilityData": {
+																				"label": "131 million plays"
+																			}
+																		}
+																	},
+																	"displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_HIGH"
+																}
+															}
+														],
+														"playlistItemData": {
+															"videoId": "l6a5D6yxqEU"
+														}
+													}
+												},
+												{
+													"musicResponsiveListItemRenderer": {
+														"thumbnail": {
+															"musicThumbnailRenderer": {
+																"thumbnail": {
+																	"thumbnails": [
+																		{
+																			"url": "https://yt3.googleusercontent.com/piszHS_cKkoedFWPoYGvDVvxx04B6wUsc6r-ynRm03pDA4kOod_n4MATIQrGQtTgQM8SeTpywz7q700T=w60-h60-s-l90-rj",
+																			"width": 60,
+																			"height": 60
+																		},
+																		{
+																			"url": "https://yt3.googleusercontent.com/piszHS_cKkoedFWPoYGvDVvxx04B6wUsc6r-ynRm03pDA4kOod_n4MATIQrGQtTgQM8SeTpywz7q700T=w120-h120-s-l90-rj",
+																			"width": 120,
+																			"height": 120
+																		}
+																	]
+																},
+																"thumbnailCrop": "MUSIC_THUMBNAIL_CROP_UNSPECIFIED",
+																"thumbnailScale": "MUSIC_THUMBNAIL_SCALE_ASPECT_FIT",
+																"trackingParams": "CM8CEIS_AiITCN_t893L0pUDFeGmVgEdbf4bQA=="
+															}
+														},
+														"overlay": {
+															"musicItemThumbnailOverlayRenderer": {
+																"background": {
+																	"verticalGradient": {
+																		"gradientLayerColors": [
+																			"3422552064",
+																			"3422552064"
+																		]
+																	}
+																},
+																"content": {
+																	"musicPlayButtonRenderer": {
+																		"playNavigationEndpoint": {
+																			"clickTrackingParams": "CM4CEMjeAiITCN_t893L0pUDFeGmVgEdbf4bQMoBBLQjUDI=",
+																			"watchEndpoint": {
+																				"videoId": "cCIshRlD0UE",
+																				"watchEndpointMusicSupportedConfigs": {
+																					"watchEndpointMusicConfig": {
+																						"musicVideoType": "MUSIC_VIDEO_TYPE_ATV"
+																					}
+																				}
+																			}
+																		},
+																		"trackingParams": "CM4CEMjeAiITCN_t893L0pUDFeGmVgEdbf4bQA==",
+																		"playIcon": {
+																			"iconType": "PLAY_ARROW"
+																		},
+																		"pauseIcon": {
+																			"iconType": "PAUSE"
+																		},
+																		"iconColor": 4294967295,
+																		"backgroundColor": 0,
+																		"activeBackgroundColor": 0,
+																		"loadingIndicatorColor": 14745645,
+																		"playingIcon": {
+																			"iconType": "VOLUME_UP"
+																		},
+																		"iconLoadingColor": 0,
+																		"activeScaleFactor": 1,
+																		"buttonSize": "MUSIC_PLAY_BUTTON_SIZE_SMALL",
+																		"rippleTarget": "MUSIC_PLAY_BUTTON_RIPPLE_TARGET_SELF",
+																		"accessibilityPlayData": {
+																			"accessibilityData": {
+																				"label": "Play 稻香 - 周杰倫"
+																			}
+																		},
+																		"accessibilityPauseData": {
+																			"accessibilityData": {
+																				"label": "Pause 稻香 - 周杰倫"
+																			}
+																		}
+																	}
+																},
+																"contentPosition": "MUSIC_ITEM_THUMBNAIL_OVERLAY_CONTENT_POSITION_CENTERED",
+																"displayStyle": "MUSIC_ITEM_THUMBNAIL_OVERLAY_DISPLAY_STYLE_PERSISTENT"
+															}
+														},
+														"flexColumns": [
+															{
+																"musicResponsiveListItemFlexColumnRenderer": {
+																	"text": {
+																		"runs": [
+																			{
+																				"text": "稻香",
+																				"navigationEndpoint": {
+																					"clickTrackingParams": "CL8CEOFnGAEiEwjf7fPdy9KVAxXhplYBHW3-G0CaAQMQ9CTKAQS0I1Ay",
+																					"watchEndpoint": {
+																						"videoId": "cCIshRlD0UE",
+																						"watchEndpointMusicSupportedConfigs": {
+																							"watchEndpointMusicConfig": {
+																								"musicVideoType": "MUSIC_VIDEO_TYPE_ATV"
+																							}
+																						}
+																					}
+																				}
+																			}
+																		]
+																	},
+																	"displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_HIGH"
+																}
+															},
+															{
+																"musicResponsiveListItemFlexColumnRenderer": {
+																	"text": {
+																		"runs": [
+																			{
+																				"text": "周杰倫",
+																				"navigationEndpoint": {
+																					"clickTrackingParams": "CL8CEOFnGAEiEwjf7fPdy9KVAxXhplYBHW3-G0DKAQS0I1Ay",
+																					"browseEndpoint": {
+																						"browseId": "UCL2MDNdwEtV6aYUgNjFQGZA",
+																						"browseEndpointContextSupportedConfigs": {
+																							"browseEndpointContextMusicConfig": {
+																								"pageType": "MUSIC_PAGE_TYPE_ARTIST"
+																							}
+																						}
+																					}
+																				}
+																			},
+																			{
+																				"text": " • "
+																			},
+																			{
+																				"text": "2010超時代演唱會",
+																				"navigationEndpoint": {
+																					"clickTrackingParams": "CL8CEOFnGAEiEwjf7fPdy9KVAxXhplYBHW3-G0DKAQS0I1Ay",
+																					"browseEndpoint": {
+																						"browseId": "MPREb_xBbe1kbTwqw",
+																						"browseEndpointContextSupportedConfigs": {
+																							"browseEndpointContextMusicConfig": {
+																								"pageType": "MUSIC_PAGE_TYPE_ALBUM"
+																							}
+																						}
+																					}
+																				}
+																			},
+																			{
+																				"text": " • "
+																			},
+																			{
+																				"text": "3:43"
+																			}
+																		],
+																		"accessibility": {
+																			"accessibilityData": {
+																				"label": "周杰倫 • 2010超時代演唱會 • 3 minutes, 43 seconds"
+																			}
+																		}
+																	},
+																	"displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_HIGH"
+																}
+															},
+															{
+																"musicResponsiveListItemFlexColumnRenderer": {
+																	"text": {
+																		"runs": [
+																			{
+																				"text": "439K plays"
+																			}
+																		],
+																		"accessibility": {
+																			"accessibilityData": {
+																				"label": "439 thousand plays"
+																			}
+																		}
+																	},
+																	"displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_HIGH"
+																}
+															}
+														],
+														"playlistItemData": {
+															"videoId": "cCIshRlD0UE"
+														}
+													}
+												},
+												{
+													"musicResponsiveListItemRenderer": {
+														"thumbnail": {
+															"musicThumbnailRenderer": {
+																"thumbnail": {
+																	"thumbnails": [
+																		{
+																			"url": "https://yt3.googleusercontent.com/L4ufp1jL5UOnaWtJWsO59Z2VcuuEH5GctkN1abj_57VKmZqqsQlGZUtRo3bvhOYX4QLl6KhaE6QI5Bo=w60-h60-l90-rj",
+																			"width": 60,
+																			"height": 60
+																		},
+																		{
+																			"url": "https://yt3.googleusercontent.com/L4ufp1jL5UOnaWtJWsO59Z2VcuuEH5GctkN1abj_57VKmZqqsQlGZUtRo3bvhOYX4QLl6KhaE6QI5Bo=w120-h120-l90-rj",
+																			"width": 120,
+																			"height": 120
+																		}
+																	]
+																},
+																"thumbnailCrop": "MUSIC_THUMBNAIL_CROP_UNSPECIFIED",
+																"thumbnailScale": "MUSIC_THUMBNAIL_SCALE_ASPECT_FIT",
+																"trackingParams": "CL4CEIS_AiITCN_t893L0pUDFeGmVgEdbf4bQA=="
+															}
+														},
+														"overlay": {
+															"musicItemThumbnailOverlayRenderer": {
+																"background": {
+																	"verticalGradient": {
+																		"gradientLayerColors": [
+																			"3422552064",
+																			"3422552064"
+																		]
+																	}
+																},
+																"content": {
+																	"musicPlayButtonRenderer": {
+																		"playNavigationEndpoint": {
+																			"clickTrackingParams": "CL0CEMjeAiITCN_t893L0pUDFeGmVgEdbf4bQMoBBLQjUDI=",
+																			"watchEndpoint": {
+																				"videoId": "hlIZWmuGzDI",
+																				"watchEndpointMusicSupportedConfigs": {
+																					"watchEndpointMusicConfig": {
+																						"musicVideoType": "MUSIC_VIDEO_TYPE_ATV"
+																					}
+																				}
+																			}
+																		},
+																		"trackingParams": "CL0CEMjeAiITCN_t893L0pUDFeGmVgEdbf4bQA==",
+																		"playIcon": {
+																			"iconType": "PLAY_ARROW"
+																		},
+																		"pauseIcon": {
+																			"iconType": "PAUSE"
+																		},
+																		"iconColor": 4294967295,
+																		"backgroundColor": 0,
+																		"activeBackgroundColor": 0,
+																		"loadingIndicatorColor": 14745645,
+																		"playingIcon": {
+																			"iconType": "VOLUME_UP"
+																		},
+																		"iconLoadingColor": 0,
+																		"activeScaleFactor": 1,
+																		"buttonSize": "MUSIC_PLAY_BUTTON_SIZE_SMALL",
+																		"rippleTarget": "MUSIC_PLAY_BUTTON_RIPPLE_TARGET_SELF",
+																		"accessibilityPlayData": {
+																			"accessibilityData": {
+																				"label": "Play 稻香 - 周杰倫"
+																			}
+																		},
+																		"accessibilityPauseData": {
+																			"accessibilityData": {
+																				"label": "Pause 稻香 - 周杰倫"
+																			}
+																		}
+																	}
+																},
+																"contentPosition": "MUSIC_ITEM_THUMBNAIL_OVERLAY_CONTENT_POSITION_CENTERED",
+																"displayStyle": "MUSIC_ITEM_THUMBNAIL_OVERLAY_DISPLAY_STYLE_PERSISTENT"
+															}
+														},
+														"flexColumns": [
+															{
+																"musicResponsiveListItemFlexColumnRenderer": {
+																	"text": {
+																		"runs": [
+																			{
+																				"text": "稻香",
+																				"navigationEndpoint": {
+																					"clickTrackingParams": "CK4CEOFnGAIiEwjf7fPdy9KVAxXhplYBHW3-G0CaAQMQ9CTKAQS0I1Ay",
+																					"watchEndpoint": {
+																						"videoId": "hlIZWmuGzDI",
+																						"watchEndpointMusicSupportedConfigs": {
+																							"watchEndpointMusicConfig": {
+																								"musicVideoType": "MUSIC_VIDEO_TYPE_ATV"
+																							}
+																						}
+																					}
+																				}
+																			}
+																		]
+																	},
+																	"displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_HIGH"
+																}
+															},
+															{
+																"musicResponsiveListItemFlexColumnRenderer": {
+																	"text": {
+																		"runs": [
+																			{
+																				"text": "周杰倫",
+																				"navigationEndpoint": {
+																					"clickTrackingParams": "CK4CEOFnGAIiEwjf7fPdy9KVAxXhplYBHW3-G0DKAQS0I1Ay",
+																					"browseEndpoint": {
+																						"browseId": "UCL2MDNdwEtV6aYUgNjFQGZA",
+																						"browseEndpointContextSupportedConfigs": {
+																							"browseEndpointContextMusicConfig": {
+																								"pageType": "MUSIC_PAGE_TYPE_ARTIST"
+																							}
+																						}
+																					}
+																				}
+																			},
+																			{
+																				"text": " • "
+																			},
+																			{
+																				"text": "周杰倫地表最強世界巡迴演唱會",
+																				"navigationEndpoint": {
+																					"clickTrackingParams": "CK4CEOFnGAIiEwjf7fPdy9KVAxXhplYBHW3-G0DKAQS0I1Ay",
+																					"browseEndpoint": {
+																						"browseId": "MPREb_2e97wRCO355",
+																						"browseEndpointContextSupportedConfigs": {
+																							"browseEndpointContextMusicConfig": {
+																								"pageType": "MUSIC_PAGE_TYPE_ALBUM"
+																							}
+																						}
+																					}
+																				}
+																			},
+																			{
+																				"text": " • "
+																			},
+																			{
+																				"text": "3:34"
+																			}
+																		],
+																		"accessibility": {
+																			"accessibilityData": {
+																				"label": "周杰倫 • 周杰倫地表最強世界巡迴演唱會 • 3 minutes, 34 seconds"
+																			}
+																		}
+																	},
+																	"displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_HIGH"
+																}
+															},
+															{
+																"musicResponsiveListItemFlexColumnRenderer": {
+																	"text": {
+																		"runs": [
+																			{
+																				"text": "1.5M plays"
+																			}
+																		],
+																		"accessibility": {
+																			"accessibilityData": {
+																				"label": "1.5 million plays"
+																			}
+																		}
+																	},
+																	"displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_HIGH"
+																}
+															}
+														],
+														"playlistItemData": {
+															"videoId": "hlIZWmuGzDI"
+														}
+													}
+												},
+												{
+													"musicResponsiveListItemRenderer": {
+														"thumbnail": {
+															"musicThumbnailRenderer": {
+																"thumbnail": {
+																	"thumbnails": [
+																		{
+																			"url": "https://yt3.googleusercontent.com/g7x5XwXfNyt60KD8HWEdPc4mf4gPZ1SNJiZDyniSM1O6KT4AV1m9ZzydzHNfzZpFogmHhKLDuQmu7eh37A=w60-h60-s-l90-rj",
+																			"width": 60,
+																			"height": 60
+																		},
+																		{
+																			"url": "https://yt3.googleusercontent.com/g7x5XwXfNyt60KD8HWEdPc4mf4gPZ1SNJiZDyniSM1O6KT4AV1m9ZzydzHNfzZpFogmHhKLDuQmu7eh37A=w120-h120-s-l90-rj",
+																			"width": 120,
+																			"height": 120
+																		}
+																	]
+																},
+																"thumbnailCrop": "MUSIC_THUMBNAIL_CROP_UNSPECIFIED",
+																"thumbnailScale": "MUSIC_THUMBNAIL_SCALE_ASPECT_FIT",
+																"trackingParams": "CK0CEIS_AiITCN_t893L0pUDFeGmVgEdbf4bQA=="
+															}
+														},
+														"overlay": {
+															"musicItemThumbnailOverlayRenderer": {
+																"background": {
+																	"verticalGradient": {
+																		"gradientLayerColors": [
+																			"3422552064",
+																			"3422552064"
+																		]
+																	}
+																},
+																"content": {
+																	"musicPlayButtonRenderer": {
+																		"playNavigationEndpoint": {
+																			"clickTrackingParams": "CKwCEMjeAiITCN_t893L0pUDFeGmVgEdbf4bQMoBBLQjUDI=",
+																			"watchEndpoint": {
+																				"videoId": "DxpndDEAqGk",
+																				"watchEndpointMusicSupportedConfigs": {
+																					"watchEndpointMusicConfig": {
+																						"musicVideoType": "MUSIC_VIDEO_TYPE_ATV"
+																					}
+																				}
+																			}
+																		},
+																		"trackingParams": "CKwCEMjeAiITCN_t893L0pUDFeGmVgEdbf4bQA==",
+																		"playIcon": {
+																			"iconType": "PLAY_ARROW"
+																		},
+																		"pauseIcon": {
+																			"iconType": "PAUSE"
+																		},
+																		"iconColor": 4294967295,
+																		"backgroundColor": 0,
+																		"activeBackgroundColor": 0,
+																		"loadingIndicatorColor": 14745645,
+																		"playingIcon": {
+																			"iconType": "VOLUME_UP"
+																		},
+																		"iconLoadingColor": 0,
+																		"activeScaleFactor": 1,
+																		"buttonSize": "MUSIC_PLAY_BUTTON_SIZE_SMALL",
+																		"rippleTarget": "MUSIC_PLAY_BUTTON_RIPPLE_TARGET_SELF",
+																		"accessibilityPlayData": {
+																			"accessibilityData": {
+																				"label": "Play 青花瓷 - 周杰倫"
+																			}
+																		},
+																		"accessibilityPauseData": {
+																			"accessibilityData": {
+																				"label": "Pause 青花瓷 - 周杰倫"
+																			}
+																		}
+																	}
+																},
+																"contentPosition": "MUSIC_ITEM_THUMBNAIL_OVERLAY_CONTENT_POSITION_CENTERED",
+																"displayStyle": "MUSIC_ITEM_THUMBNAIL_OVERLAY_DISPLAY_STYLE_PERSISTENT"
+															}
+														},
+														"flexColumns": [
+															{
+																"musicResponsiveListItemFlexColumnRenderer": {
+																	"text": {
+																		"runs": [
+																			{
+																				"text": "青花瓷",
+																				"navigationEndpoint": {
+																					"clickTrackingParams": "CJ0CEOFnGAMiEwjf7fPdy9KVAxXhplYBHW3-G0CaAQMQ9CTKAQS0I1Ay",
+																					"watchEndpoint": {
+																						"videoId": "DxpndDEAqGk",
+																						"watchEndpointMusicSupportedConfigs": {
+																							"watchEndpointMusicConfig": {
+																								"musicVideoType": "MUSIC_VIDEO_TYPE_ATV"
+																							}
+																						}
+																					}
+																				}
+																			}
+																		]
+																	},
+																	"displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_HIGH"
+																}
+															},
+															{
+																"musicResponsiveListItemFlexColumnRenderer": {
+																	"text": {
+																		"runs": [
+																			{
+																				"text": "周杰倫",
+																				"navigationEndpoint": {
+																					"clickTrackingParams": "CJ0CEOFnGAMiEwjf7fPdy9KVAxXhplYBHW3-G0DKAQS0I1Ay",
+																					"browseEndpoint": {
+																						"browseId": "UCL2MDNdwEtV6aYUgNjFQGZA",
+																						"browseEndpointContextSupportedConfigs": {
+																							"browseEndpointContextMusicConfig": {
+																								"pageType": "MUSIC_PAGE_TYPE_ARTIST"
+																							}
+																						}
+																					}
+																				}
+																			},
+																			{
+																				"text": " • "
+																			},
+																			{
+																				"text": "我很忙",
+																				"navigationEndpoint": {
+																					"clickTrackingParams": "CJ0CEOFnGAMiEwjf7fPdy9KVAxXhplYBHW3-G0DKAQS0I1Ay",
+																					"browseEndpoint": {
+																						"browseId": "MPREb_BO0sjzsakJ6",
+																						"browseEndpointContextSupportedConfigs": {
+																							"browseEndpointContextMusicConfig": {
+																								"pageType": "MUSIC_PAGE_TYPE_ALBUM"
+																							}
+																						}
+																					}
+																				}
+																			},
+																			{
+																				"text": " • "
+																			},
+																			{
+																				"text": "4:00"
+																			}
+																		],
+																		"accessibility": {
+																			"accessibilityData": {
+																				"label": "周杰倫 • 我很忙 • 4 minutes"
+																			}
+																		}
+																	},
+																	"displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_HIGH"
+																}
+															},
+															{
+																"musicResponsiveListItemFlexColumnRenderer": {
+																	"text": {
+																		"runs": [
+																			{
+																				"text": "145M plays"
+																			}
+																		],
+																		"accessibility": {
+																			"accessibilityData": {
+																				"label": "145 million plays"
+																			}
+																		}
+																	},
+																	"displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_HIGH"
+																}
+															}
+														],
+														"playlistItemData": {
+															"videoId": "DxpndDEAqGk"
+														}
+													}
+												}
+											]
+										}
+									}
+								]
+							}
+						}
+					}
+				}
+			]
+		}
+	}
+}
