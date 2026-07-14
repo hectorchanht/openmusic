@@ -10,18 +10,24 @@ import { makeUid, type SourceId, type Track } from '$lib/sources/types';
 // Control the enabled-source set + registry without touching real settings/network.
 // Phase 26 (RESOLVE-01): the mock mirrors the real registry's kuwo-FIRST order, so fallbackOrder's
 // inherited default walks kuwo → qq → netease → joox.
+// 27-04 (YT-RESILIENCE-01): ytmusic is registered (enabledByDefault → appears in getEnabledAdapters)
+// but flagged autoResolveEligible:false, so fallbackOrder must EXCLUDE it as a failover target. Adding
+// it here proves the exclusion is what keeps the mainstream-floor assertions green (without the filter,
+// ytmusic would leak into every fallbackOrder result). The mainstream sources carry no flag (undefined).
 vi.mock('$lib/sources/registry', () => ({
 	SOURCES: {
 		kuwo: { id: 'kuwo' },
 		qq: { id: 'qq' },
 		netease: { id: 'netease' },
-		joox: { id: 'joox' }
+		joox: { id: 'joox' },
+		ytmusic: { id: 'ytmusic', autoResolveEligible: false }
 	},
 	getEnabledAdapters: vi.fn(() => [
 		{ id: 'kuwo' },
 		{ id: 'qq' },
 		{ id: 'netease' },
-		{ id: 'joox' }
+		{ id: 'joox' },
+		{ id: 'ytmusic' }
 	])
 }));
 vi.mock('$lib/services/catalog', () => ({ searchAll: vi.fn(), ensureTrackDetails: vi.fn() }));
@@ -90,6 +96,24 @@ describe('fallbackOrder — kuwo-first resolve floor (RESOLVE-01, POLICY.md)', (
 	});
 });
 
+describe('fallbackOrder — ytmusic off the hot path (27-04, YT-RESILIENCE-01)', () => {
+	it('NEVER offers ytmusic as a failover target for a non-ytmusic failed source', () => {
+		// ytmusic is enabled (in getEnabledAdapters) but autoResolveEligible:false → filtered out.
+		expect(fallbackOrder('kuwo')).not.toContain('ytmusic');
+		expect(fallbackOrder('netease')).not.toContain('ytmusic');
+		expect(fallbackOrder('qq')).not.toContain('ytmusic');
+	});
+
+	it('a FAILED ytmusic track still falls FORWARD to the unchanged mainstream floor', () => {
+		// ytmusic just failed → the kuwo→qq→netease→joox floor, with ytmusic itself absent.
+		expect(fallbackOrder('ytmusic')).toEqual(['kuwo', 'qq', 'netease', 'joox']);
+	});
+
+	it('excludes ytmusic even with a preferred source set (flag beats enablement)', () => {
+		expect(fallbackOrder('netease', 'qq')).not.toContain('ytmusic');
+	});
+});
+
 describe('tryFallback — attempted set + identity check', () => {
 	beforeEach(() => {
 		mockSearch.mockReset();
@@ -106,6 +130,18 @@ describe('tryFallback — attempted set + identity check', () => {
 
 		expect(out).toBeNull();
 		// netease was the seed; qq/kuwo/joox each got tried → all four now in the set.
+		expect([...attempted].sort()).toEqual(['joox', 'kuwo', 'netease', 'qq']);
+	});
+
+	it('27-04: never attempts ytmusic as a failover target (off the auto-resolve floor)', async () => {
+		mockSearch.mockResolvedValue({ interleaved: [], perSource: [] } as never);
+		const failed = mk('netease', '1', 'Artist', 'Song', null);
+		const attempted = new Set<SourceId>(['netease']);
+
+		await tryFallback(failed, undefined, undefined, attempted);
+
+		// kuwo/qq/joox were each tried; ytmusic (autoResolveEligible:false) was never searched/recorded.
+		expect(attempted.has('ytmusic')).toBe(false);
 		expect([...attempted].sort()).toEqual(['joox', 'kuwo', 'netease', 'qq']);
 	});
 

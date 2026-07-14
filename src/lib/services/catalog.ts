@@ -234,7 +234,12 @@ export async function resolveNameStub(
 	if (!query) return null;
 	const sig = signal ?? new AbortController().signal;
 	// kuwo-first order inherited from the registry (RESOLVE-01 reorder) — no source named here.
-	const order = getEnabledAdapters({}).map((a) => a.id);
+	// Plan 27-04 (YT-RESILIENCE-01): exclude sources flagged off the auto-resolve floor
+	// (autoResolveEligible === false → ytmusic) so an Up-Next name stub NEVER auto-resolves to a
+	// searchable-but-off-the-hot-path source. Registry-flag-driven — no source named here either.
+	const order = getEnabledAdapters({})
+		.map((a) => a.id)
+		.filter((id) => SOURCES[id].autoResolveEligible !== false);
 	// A minimal comparison target for sameSongKey (reads title+artist only). Fully typed, no cast.
 	const want: Track = {
 		uid: '',

@@ -24,6 +24,13 @@ import type { SourceId, Track } from '$lib/sources/types';
  * `settings.preferredSource`, threaded in as `preferred`, still wins (hoisted first) over the
  * kuwo default. This function names NO source itself — reorder the registry to change the floor.
  *
+ * OFF-THE-HOT-PATH EXCLUSION (Plan 27-04, YT-RESILIENCE-01): a source flagged
+ * `autoResolveEligible === false` (ytmusic — adversarial + IP-locked upstream, 27-CONTEXT) is NEVER
+ * offered as a failover TARGET for a track it did not originate. The filter reads the REGISTRY FLAG,
+ * not a literal id, so the "names NO source itself" invariant holds. Note this bars only the reverse
+ * direction: a FAILED ytmusic track still falls FORWARD to the unchanged kuwo→qq→netease→joox floor
+ * (ytmusic is the `failed` source there, dropped by the `s !== failed` clause regardless).
+ *
  * `attempted` prevents the unbounded A↔B ping-pong where a resolve-but-unplayable source (URL
  * resolves, the <audio> 403s) keeps being re-offered because fallbackOrder only excluded the
  * single source that just failed: once A-netease and A-qq have both been tried for one song, both
@@ -35,7 +42,12 @@ export function fallbackOrder(
 	attempted?: ReadonlySet<SourceId>
 ): SourceId[] {
 	const enabled = getEnabledAdapters({}).map((a) => a.id);
-	const remaining = enabled.filter((s) => s !== failed && !attempted?.has(s));
+	const remaining = enabled.filter(
+		// Plan 27-04: drop the failed source, every already-attempted source, AND every source flagged
+		// off the auto-resolve floor (autoResolveEligible === false → ytmusic) so it can never become a
+		// failover target. Registry-flag-driven — no source named here.
+		(s) => s !== failed && !attempted?.has(s) && SOURCES[s].autoResolveEligible !== false
+	);
 	if (preferred && remaining.includes(preferred)) {
 		return [preferred, ...remaining.filter((s) => s !== preferred)];
 	}

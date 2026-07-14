@@ -590,6 +590,20 @@ describe('resolveNameStub — kuwo-first single-source name resolution (RESOLVE-
 		expect(out).toBeNull();
 		expect(kuwoResolve).not.toHaveBeenCalled(); // never even resolved the mismatch
 	});
+
+	// 27-04 (YT-RESILIENCE-01): ytmusic is enabledByDefault (searchable) but autoResolveEligible:false,
+	// so the kuwo-first name-stub walk must SKIP it — an Up-Next name stub never auto-resolves to a
+	// searchable-but-off-the-hot-path source (search-page + explicit-pick only).
+	it('EXCLUDES ytmusic from the kuwo-first name-stub walk (off the auto-resolve floor)', async () => {
+		stubAllEmpty(); // every source dry → the walk covers all ELIGIBLE sources, then returns null
+		const out = await resolveNameStub('Nobody', 'Nothing');
+
+		expect(out).toBeNull();
+		// The walk DID run (kuwo, the floor, was searched)…
+		expect(SOURCES.kuwo.search).toHaveBeenCalled();
+		// …but ytmusic (autoResolveEligible:false) was NEVER searched — it is not an auto-resolve target.
+		expect(SOURCES.ytmusic.search).not.toHaveBeenCalled();
+	});
 });
 
 // Phase 26 (RESOLVE-02): ensureTrackDetails routes a marked name-stub through resolveNameStub and
