@@ -1,0 +1,26 @@
+{
+  "note": "SAFE probes only — no OAuth completed, no account authenticated, no user data fetched. Analysis + reachability only.",
+  "Q1_oauth_device_flow": {
+    "endpoint": "https://oauth2.googleapis.com/device/code",
+    "client_id": "YouTube-TV OAuth client (well-known, reused by InnerTune-lineage apps — grey area, NOT our own project)",
+    "http": 200,
+    "returns_user_code": true,
+    "verification_url": "https://www.google.com/device",
+    "poll_interval_s": 5,
+    "expires_in_s": 1800,
+    "conclusion": "device flow is reachable + web-viable from the edge; authentication itself deliberately NOT completed"
+  },
+  "Q2_library_browse_unauth": {
+    "FEmusic_liked_playlists": { "http": 200, "bytes": 1672, "gated_or_empty": true },
+    "FEmusic_history": { "http": 200, "bytes": 1675, "gated_or_empty": true },
+    "VLLM_liked_music": { "http": 200, "bytes": 1658, "gated_or_empty": true },
+    "conclusion": "endpoints exist and are the correct targets; all require auth (no data without a user token)"
+  },
+  "Q3_official_data_api": {
+    "endpoint": "youtube/v3/videos?myRating=like",
+    "http": 403,
+    "reason": "accessNotConfigured (WEB_REMIX key is not a Data API key)",
+    "doc_fact": "even with a proper Data API key + OAuth, watch history + search history were REMOVED from Data API v3; 'favourite genre' is not an API field",
+    "conclusion": "the official/legit API cannot deliver recent-history or genre regardless of auth"
+  }
+}
