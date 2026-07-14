@@ -70,9 +70,42 @@ const INNERTUBE_TIMEOUT_MS = 12000;
 // route maps a final failure to its own sentinel (empty envelope / {} / null visitorData).
 const INNERTUBE_RETRIES = 1;
 
+// --- visitorData cache (edge-managed, NEVER exposed to the client). Module-scope var + timestamp
+// survives across requests in one worker; edgeCache() (when present) shares it across invocations.
+// A `refresh` clears it (27-03 refreshes on LOGIN_REQUIRED / expiry). ---
+let cachedVisitorData: string | null = null;
+let cachedVisitorAt = 0;
+// Soft staleness ceiling; the primary refresh path is the explicit `refresh` flag.
+const VISITOR_TTL_MS = 6 * 60 * 60 * 1000; // ~6h
+// Synthetic own-origin key for the Cloudflare edge cache (never the key-bearing upstream URL).
+const VISITOR_CACHE_KEY = new Request('https://openmusic.lol/__ytmusic__/visitorData');
+
 export interface InnerTubePostOptions {
 	signal?: AbortSignal;
 	headers?: Record<string, string>;
+}
+
+// --- Untrusted InnerTube JSON shapes for the lyrics walkers (every field optional; accessed via
+// optional chaining — no `as any`, mirroring the search-adapter typing in src/lib/sources/ytmusic.ts). ---
+interface YtTabRenderer {
+	title?: string;
+	endpoint?: { browseEndpoint?: { browseId?: string } };
+}
+interface YtNextJson {
+	contents?: {
+		singleColumnMusicWatchNextResultsRenderer?: {
+			tabbedRenderer?: {
+				watchNextTabbedResultsRenderer?: { tabs?: Array<{ tabRenderer?: YtTabRenderer }> };
+			};
+		};
+	};
+}
+interface YtLyricRun {
+	text?: string;
+}
+interface YtDescriptionShelf {
+	description?: { runs?: YtLyricRun[] };
+	footer?: { runs?: YtLyricRun[] };
 }
 
 /**
@@ -82,12 +115,25 @@ export interface InnerTubePostOptions {
  * lands in a log (threat T-27-02-02).
  */
 export async function innerTubePost(
-	_url: string,
-	_body: unknown,
-	_opts: InnerTubePostOptions = {}
+	url: string,
+	body: unknown,
+	opts: InnerTubePostOptions = {}
 ): Promise<unknown> {
-	// RED stub — real POST lands in GREEN.
-	throw new Error('ytmusic: innerTubePost not implemented (RED)');
+	const headers = { ...INNERTUBE_HEADERS, ...(opts.headers ?? {}) };
+	// Native AbortSignal.timeout (RESEARCH "Don't Hand-Roll") — caller may pass its own.
+	const signal = opts.signal ?? AbortSignal.timeout(INNERTUBE_TIMEOUT_MS);
+	const res = await fetchWithRetry(
+		url,
+		{ method: 'POST', headers, body: JSON.stringify(body), signal },
+		INNERTUBE_RETRIES
+	);
+	if (!res.ok) {
+		// Drain so the connection can be reused, then surface. Strip the query-string from the
+		// message so the key in `?key=` never lands in a log (threat T-27-02-02).
+		await res.body?.cancel().catch(() => {});
+		throw new Error(`ytmusic: InnerTube POST ${url.split('?')[0]} -> HTTP ${res.status}`);
+	}
+	return res.json();
 }
 
 /**
@@ -96,17 +142,80 @@ export async function innerTubePost(
  * and reuses it thereafter. NEVER throws to the caller — returns null on a grab miss so the 27-03
  * stream route can 502. NOT a user credential (anonymous visitor token).
  */
-export async function getVisitorData(_refresh = false): Promise<string | null> {
-	// RED stub — real grab/cache lands in GREEN.
-	return null;
+export async function getVisitorData(refresh = false): Promise<string | null> {
+	const cache = edgeCache();
+	const fresh = cachedVisitorData !== null && Date.now() - cachedVisitorAt < VISITOR_TTL_MS;
+	if (!refresh && fresh) return cachedVisitorData;
+
+	// Cross-invocation edge cache (Cloudflare) — only when not forcing a refresh and no module token.
+	if (!refresh && cachedVisitorData === null && cache) {
+		try {
+			const hit = await cache.match(VISITOR_CACHE_KEY);
+			if (hit) {
+				const j = (await hit.json()) as { visitorData?: string };
+				if (j?.visitorData) {
+					cachedVisitorData = j.visitorData;
+					cachedVisitorAt = Date.now();
+					return cachedVisitorData;
+				}
+			}
+		} catch {
+			// edge-cache read miss — fall through to a live grab.
+		}
+	}
+
+	// Grab a fresh anonymous token from any WEB_REMIX response. NEVER throw to the caller.
+	try {
+		const json = await innerTubePost(SEARCH_URL, { context: WEB_REMIX_CONTEXT, query: 'music' });
+		const vd =
+			(json as { responseContext?: { visitorData?: string } })?.responseContext?.visitorData ??
+			null;
+		if (vd) {
+			cachedVisitorData = vd;
+			cachedVisitorAt = Date.now();
+			if (cache) {
+				try {
+					await cache.put(
+						VISITOR_CACHE_KEY,
+						new Response(JSON.stringify({ visitorData: vd }), {
+							status: 200,
+							headers: { 'content-type': 'application/json' }
+						})
+					);
+				} catch {
+					// edge-cache write miss — module-scope cache still serves this invocation.
+				}
+			}
+			return vd;
+		}
+		// Grab succeeded but no token present — clear any (now-suspect) cached token; return null.
+		cachedVisitorData = null;
+		return null;
+	} catch {
+		// Upstream failure — clear the cache (a refresh means the old token is bad) and 502-signal.
+		cachedVisitorData = null;
+		return null;
+	}
 }
 
 /**
  * Walk a `next` response for the "Lyrics" tab. Returns its browseId (null when there is no lyrics
  * tab, or the tab is present but unselectable → disabled). Pure — ported from spike 007.
  */
-export function findLyricsTab(_nextJson: unknown): { browseId: string | null; disabled: boolean } {
-	// RED stub — real walk lands in GREEN.
+export function findLyricsTab(nextJson: unknown): { browseId: string | null; disabled: boolean } {
+	const j = (nextJson ?? {}) as YtNextJson;
+	const tabs =
+		j.contents?.singleColumnMusicWatchNextResultsRenderer?.tabbedRenderer
+			?.watchNextTabbedResultsRenderer?.tabs ?? [];
+	for (const t of tabs) {
+		const tr = t?.tabRenderer;
+		if (!tr) continue;
+		if (/lyric/i.test(tr.title ?? '')) {
+			// A present-but-unselectable tab has no browseId → no lyrics for this track.
+			const browseId = tr.endpoint?.browseEndpoint?.browseId ?? null;
+			return { browseId, disabled: !browseId };
+		}
+	}
 	return { browseId: null, disabled: true };
 }
 
@@ -116,16 +225,27 @@ export function findLyricsTab(_nextJson: unknown): { browseId: string | null; di
  * from spike 007 (plain path only; YT has no reliable timed LRC, handled by the app's existing
  * crossSourceLyric fallback in Plan 27-04).
  */
-export function extractLyrics(
-	_browseJson: unknown
-): { text: string | null; attribution: string | null } {
-	// RED stub — real walk lands in GREEN.
-	return { text: null, attribution: null };
+export function extractLyrics(browseJson: unknown): {
+	text: string | null;
+	attribution: string | null;
+} {
+	let text: string | null = null;
+	let attribution: string | null = null;
+	// The shelf is nested inconsistently across responses — walk for the first
+	// musicDescriptionShelfRenderer (same recursive-walk idiom as the search parse in ytmusic.ts).
+	const walk = (node: unknown): void => {
+		if (!node || typeof node !== 'object') return;
+		const obj = node as Record<string, unknown>;
+		const shelfRaw = obj.musicDescriptionShelfRenderer;
+		if (shelfRaw && typeof shelfRaw === 'object') {
+			const shelf = shelfRaw as YtDescriptionShelf;
+			const runs = shelf.description?.runs ?? [];
+			if (runs.length) text = runs.map((r) => r.text ?? '').join('');
+			const foot = shelf.footer?.runs?.[0]?.text;
+			if (foot) attribution = foot;
+		}
+		for (const k of Object.keys(obj)) walk(obj[k]);
+	};
+	walk(browseJson);
+	return { text, attribution };
 }
-
-// Referenced in GREEN — declared here so the skeleton typechecks without unused-import noise.
-void fetchWithRetry;
-void edgeCache;
-void INNERTUBE_HEADERS;
-void INNERTUBE_TIMEOUT_MS;
-void INNERTUBE_RETRIES;
