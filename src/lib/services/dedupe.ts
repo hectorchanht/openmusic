@@ -17,7 +17,12 @@ import type { SourceId, Track } from '$lib/sources/types';
 // Audius (0zn) is likewise non-mainstream — Western/indie/UGC. Same reasoning as Jamendo:
 // a DIFFERENT recording from the mainstream CN sources, so rank it at the bottom (-1) so a
 // mainstream version always wins a tie if normalization ever merges them.
-const SOURCE_RANK: Record<SourceId, number> = { netease: 4, qq: 3, kuwo: 2, joox: 1, fivesing: 0, jamendo: -1, audius: -1 };
+//
+// YTMusic (Plan 27) is off the resolve floor (autoResolveEligible:false) and non-mainstream for
+// tie-break purposes — rank it at the bottom (-1) alongside jamendo/audius so a mainstream CN
+// version always wins a tie if normalization ever merges them. Required for this total
+// Record<SourceId,number> to stay exhaustive once 'ytmusic' joined the SourceId union (27-01).
+const SOURCE_RANK: Record<SourceId, number> = { netease: 4, qq: 3, kuwo: 2, joox: 1, fivesing: 0, jamendo: -1, audius: -1, ytmusic: -1 };
 
 /** Higher = better. Reads qualityLabel/quality strings (often null pre-resolve). */
 function qualityRank(t: Track): number {

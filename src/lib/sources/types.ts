@@ -14,7 +14,15 @@
 // SourceId from here, mirroring the existing defaults.ts ↔ settings type-cycle pattern).
 import type { DefaultQuality } from '$lib/stores/settings.svelte';
 
-export type SourceId = 'netease' | 'qq' | 'kuwo' | 'joox' | 'fivesing' | 'jamendo' | 'audius';
+export type SourceId =
+	| 'netease'
+	| 'qq'
+	| 'kuwo'
+	| 'joox'
+	| 'fivesing'
+	| 'jamendo'
+	| 'audius'
+	| 'ytmusic';
 
 export interface Track {
 	/** Canonical id = `${source}:${songid}` (D-10, COLON form). Stable across reorder/paginate. */
@@ -80,6 +88,15 @@ export interface SourceAdapter {
 	id: SourceId;
 	label: string;
 	enabledByDefault: boolean;
+	/** Whether this source may be AUTO-SELECTED to resolve a track it did NOT originate — i.e. become
+	 *  a cross-source-failover TARGET (fallback.ts) or the kuwo-first name-stub resolver
+	 *  (catalog.ts `resolveNameStub`). `undefined`/`true` = eligible (every mainstream source stays
+	 *  undefined). `false` = searchable + explicit-pick ONLY, NEVER an auto-resolve target — used by
+	 *  YTMusic, whose upstream is adversarial + IP-locked, so it is kept OFF the kuwo→qq→netease→joox
+	 *  resolve floor (27-CONTEXT). A FAILED ytmusic track still falls FORWARD to that floor like any
+	 *  other; only the reverse (a mainstream track failing over TO ytmusic) is barred. The flag is
+	 *  DECLARED here in Plan 27-01; the failover / name-stub code that HONORS it lands in Plan 27-04. */
+	autoResolveEligible?: boolean;
 	search(keyword: string, page: number, signal: AbortSignal): Promise<Track[]>;
 	/** Lazy resolution: audioUrl + lrc + quality + detailsLoaded.
 	 *  `quality` (WR-07): an explicit per-call quality tier — used by the download path to
