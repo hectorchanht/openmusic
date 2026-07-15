@@ -83,6 +83,19 @@ Full phase details archived in [`milestones/v1.2-ROADMAP.md`](milestones/v1.2-RO
 - [x] 27-03-PLAN.md — Stream route `/api/ytmusic/stream/:videoId`: ANDROID_VR player + cached visitorData → itag-140 AAC → googlevideo byte-proxy with Range passthrough (raw fetch); refresh-on-LOGIN_REQUIRED (YT-PLAY-01/YT-DOWNLOAD-01) [wave 2, depends 27-02]
 - [x] 27-04-PLAN.md — Adapter `resolve()` best-effort plain lyrics + resilience wiring (registry-flag exclusion from failover/name-stub; allSettled isolation; registry-driven settings/label) (YT-LYRICS-01/YT-RESILIENCE-01) [wave 2, depends 27-01]
 
+### Phase 28: YTMusic-Powered Up-Next Recommendations
+
+_v1.5 — source-aware similar + top-hits fallback_
+
+**Goal:** Make the "generate by similar songs" up-next builder **source-aware** so a YTMusic-only seed (repro: 摩四老年《港耆》) yields genuine related tracks from YouTube Music's watch-next/radio queue instead of silently falling back to unrelated picks — and replace the last-resort empty-similar fallback so it draws from real top/chart hits rather than a random hard-coded artist pool. Diagnosis: [`.planning/debug/upnext-similar-empty-fallback.md`](debug/upnext-similar-empty-fallback.md) — `buildSimilarQueue` ([`similar.ts:173`](../src/lib/services/similar.ts)) is structurally source-blind (all 3 tiers key on seed `artist`/`title` strings vs Last.fm/Deezer/CN; never reads `track.source`/`track.songid`), so a YT-only seed returns `[]` and both callers (`regenerate()` [`player.svelte.ts:3077`](../src/lib/stores/player.svelte.ts), `ensureAhead()` [`player.svelte.ts:2011`](../src/lib/stores/player.svelte.ts)) silently substitute `buildDiversePicks` random `ARTIST_POOL` ([`picks.ts:9`](../src/lib/services/picks.ts)). Transport already exists: `innerTubePost` → `NEXT_URL` (`youtubei/v1/next`, [`proxy/ytmusic.ts:59`](../src/lib/proxy/ytmusic.ts)), already called by the lyrics route which discards the watch-next rows it carries.
+**Requirements:**
+- **UPNEXT-YT-01** — YTMusic related/watch-next source: parse the `NEXT_URL` watch-next queue → `Track` stubs; expose via a source method (`ytmusic.related(videoId)`) + route (new `/api/ytmusic/related` or lyrics-route extension), reusing the existing `innerTubePost`/`NEXT_URL`/`getVisitorData` transport.
+- **UPNEXT-YT-02** — Source-aware branch in `buildSimilarQueue`/`regenerate`: when `seed.source === 'ytmusic'`, use `seed.songid` (videoId) against the YTMusic related path before/instead of the string-keyed Last.fm tiers; honor `autoResolveEligible: false` for resulting stubs.
+- **UPNEXT-FB-01** — Replace the `buildDiversePicks` random `ARTIST_POOL` last-resort fallback with a **top/chart-hits** fallback so the genuinely-empty case still offers broad, real-popular options (not random noise).
+- **UPNEXT-YT-03** — Never-throw + graceful degrade (empty → existing fallback chain); zero regression to CN-seed similar behavior; `pnpm test` green + `pnpm check` clean.
+**Depends on:** Phase 27 (YouTube Music Source) — reuses its edge proxy transport (`proxy/ytmusic.ts`) + adapter/registry wiring.
+**Plans:** not yet planned — run `/gsd:plan-phase 28`.
+
 ## Progress
 
 | Phase | Milestone | Status | Completed |
@@ -105,6 +118,7 @@ Full phase details archived in [`milestones/v1.2-ROADMAP.md`](milestones/v1.2-RO
 | 25. zh-Hant Offline Conversion + Fallback Cascade | 3/3 | Complete   | 2026-07-11 |
 | 26. Minimal-API Click-to-Play Redesign | 11/11 | Complete   | 2026-07-11 |
 | 27. YouTube Music Source (search·play·lyrics·download) | 4/4 | Complete|  |
+| 28. YTMusic-Powered Up-Next Recommendations | v1.5 | Planned | — |
 
 ## Backlog
 
