@@ -137,6 +137,44 @@ describe('ytmusic.search — parse over the captured InnerTube fixture (YT-SEARC
 		expect(tracks.find((t) => t.songid === 'SHAREDvid')?.title).toBe('From Songs');
 	});
 
+	it('re-ranks the merged list by query-fit — an EXACT-match Videos-shelf row floats above loose songs (quick-260715-l9p)', async () => {
+		vi.stubGlobal('fetch', mockFetch(fixture));
+
+		// Query is EXACTLY the Videos-shelf-only title (港耆, dUlAfTZkjpE). Its title component matches
+		// the query so it scores; every 稻香/青花瓷 songs-shelf row shares NO token with 港耆 and scores 0.
+		// dUlAfTZkjpE is EMITTED LAST (after all four songs) by parseSearchEnvelope, so only the re-rank
+		// can lift it — proving the sort, not the emit order, drives the result.
+		const tracks = await ytmusic.search('港耆', 1, ac.signal);
+
+		const video = tracks.find((t) => t.songid === 'dUlAfTZkjpE');
+		const looseSong = tracks.find((t) => t.songid === 'l6a5D6yxqEU'); // 稻香 — no overlap with 港耆
+		expect(video).toBeTruthy();
+		expect(looseSong).toBeTruthy();
+		// Exact-match video floats up ABOVE the loosely-matched song regardless of shelf.
+		expect(video!.displayIndex).toBeLessThan(looseSong!.displayIndex);
+		expect(video!.displayIndex).toBe(1); // it now leads the whole merged list
+		// displayIndex stays a gap-free 1..n after the re-rank.
+		expect(tracks.map((t) => t.displayIndex)).toEqual(tracks.map((_, i) => i + 1));
+	});
+
+	it('preserves the upstream songs-before-videos order on a broad/tied query (index tiebreak) (quick-260715-l9p)', async () => {
+		vi.stubGlobal('fetch', mockFetch(fixture));
+
+		// 'zzz' overlaps NO row title → every row ties at score 0, so the EXPLICIT original-index
+		// tiebreak must preserve parseSearchEnvelope's songs-first emit order untouched.
+		const tracks = await ytmusic.search('zzz', 1, ac.signal);
+
+		expect(tracks.map((t) => t.songid)).toEqual([
+			'l6a5D6yxqEU', // songs shelf, emitted first — keeps position 1 on a tie
+			'cCIshRlD0UE',
+			'hlIZWmuGzDI',
+			'DxpndDEAqGk',
+			'dUlAfTZkjpE' // Videos-shelf row stays LAST (songs before videos on equal fit)
+		]);
+		expect(tracks[0].displayIndex).toBe(1);
+		expect(tracks[tracks.length - 1].songid).toBe('dUlAfTZkjpE');
+	});
+
 	it('hits /api/ytmusic/search with the encoded query', async () => {
 		const spy = mockFetch({ contents: {} }); // empty (no shelf) — we only assert the URL here
 		vi.stubGlobal('fetch', spy);
