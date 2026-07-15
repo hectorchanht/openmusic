@@ -65,13 +65,10 @@ const SIM_EXACT = 10; // candidate matchKey === query matchKey
 const SIM_ARTIST = 3; // artist component matches
 const SIM_TITLE = 3; // title component matches
 const SIM_TOKEN = 2; // graded latin-token overlap (max contribution)
-// quick-260715-l9p: additive credit for a candidate whose normalized artist+title LITERALLY
-// contains the (normalized) query. It is the ONLY signal for a CJK query that is a SUBSTRING of a
-// longer title — matchKey strips spaces so such a query collapses to one token and earns no
-// token/component credit (see similarity()). == SIM_TOKEN and < SIM_TITLE, so an exact/component/
-// token match ALWAYS outranks a mere substring; applied ONLY when score===0 (purely additive).
-const SIM_SUBSTR = 2; // CJK-safe substring-containment credit (guarded additive-only)
 const VARIANT_WEIGHT = 4; // subtracted per un-asked-for variant keyword
+// SIM_SUBSTR (CJK-safe substring-containment credit, quick-260715-l9p) is DERIVED from the Phase 21
+// boost consts, so it is defined in the set-relative block below — after SHORT_TITLE_BOOST_MAX +
+// ARTIST_FREQ_BOOST (a forward reference here would hit the const temporal-dead-zone at load).
 
 // --- Phase 21 set-relative tuning (SRCH-01) ---------------------------------------------
 /** A track strictly SHORTER than this many seconds is a 試聽 preview clip (D-04). A length
@@ -81,6 +78,21 @@ export const SHORT_CLIP_SEC = 60;
 export const SHORT_TITLE_BOOST_MAX = 3;
 /** Flat reward when the candidate's artist appears under 2+ distinct sources (D-05). */
 export const ARTIST_FREQ_BOOST = 2;
+/** SIM_SUBSTR (quick-260715-l9p) — additive credit for a candidate whose normalized artist+title
+ *  LITERALLY contains the (normalized) query. It is the ONLY signal for a CJK query that is a
+ *  SUBSTRING of a longer title — matchKey strips spaces so such a query collapses to one token and
+ *  earns no token/component credit (see similarity()); applied ONLY when score===0 (purely additive).
+ *  DERIVED (like PREVIEW_PENALTY below), NOT independently chosen, to strictly dominate the
+ *  set-relative boost stack a NON-containing row can accumulate — shortTitleBoost (≤
+ *  SHORT_TITLE_BOOST_MAX) + artistFrequencyBoost (ARTIST_FREQ_BOOST), + 1 to break the tie. A
+ *  candidate that literally CONTAINS the typed query is a strong relevance signal that MUST outrank
+ *  any row lifted PURELY by those boosts: they are tie-breakers among already-relevant rows, not a
+ *  lever to float an unrelated short title above a containing one. (The exact live 港耆 failure: a
+ *  2-char non-containing title "港城"/"耆卿" scored shortTitle(3)+artistFreq(2)=5 and beat the
+ *  containing video at the old flat SIM_SUBSTR=2.) Still == a full component match (SIM_ARTIST +
+ *  SIM_TITLE = 6 — equal is acceptable: "contains the whole query" ≈ "matched a full component")
+ *  and far below SIM_EXACT(10). */
+const SIM_SUBSTR = SHORT_TITLE_BOOST_MAX + ARTIST_FREQ_BOOST + 1; // = 6
 /** 試聽 penalty — DERIVED to strictly dominate the full boost stack (Pitfall 2): a clip can
  *  carry SIM_EXACT + SHORT_TITLE_BOOST_MAX + ARTIST_FREQ_BOOST at most, so subtracting one
  *  more than that guarantees NO boost combination lifts a sub-60s clip above a clean full
