@@ -24,7 +24,7 @@
 	import { searchHistory } from '$lib/stores/searchHistory.svelte';
 	import { online } from '$lib/stores/online.svelte';
 	import { t } from '$lib/i18n';
-	import { LoaderCircle, ListEnd, ListStart, Layers, X, Trash2 } from '@lucide/svelte';
+	import { LoaderCircle, ListEnd, ListStart, Layers, X, Trash2, Search } from '@lucide/svelte';
 	import { longpress } from '$lib/actions/longpress';
 	import { swipeAction } from '$lib/actions/swipeAction';
 	import { tapBounce } from '$lib/actions/tapBounce';
@@ -520,7 +520,7 @@
 		{/if}
 	</div>
 	<button type="submit" disabled={loading} aria-busy={loading} aria-label={t('search.go')} use:tapBounce>
-		{#if loading}<span class="spin" aria-hidden="true"><LoaderCircle size={18} /></span>{:else}{t('search.go')}{/if}
+		{#if loading}<span class="spin" aria-hidden="true"><LoaderCircle size={18} /></span>{:else}<Search size={18} />{/if}
 	</button>
 </form>
 
@@ -740,7 +740,7 @@
 	.input-wrap { position: relative; flex: 1; min-width: 0; display: flex; }
 	.bar input {
 		flex: 1; min-width: 0; background: var(--color-surface-2); border: 1px solid var(--color-border);
-		color: var(--color-text); border-radius: 999px; padding: 12px 40px 12px 14px; font-size: 15px; outline: none;
+		color: var(--color-text); border-radius: 999px; padding: 12px; font-size: 15px; outline: none; height: 40px;
 	}
 	.bar input:focus { border-color: var(--color-primary); }
 	/* quick-260711-sm7: clear (X) button — full input-height grid-centred (NO translateY, so the
@@ -754,8 +754,8 @@
 	@media (hover: hover) { .clear-input:hover { color: var(--color-text); } }
 	.bar button {
 		background: var(--color-primary); border: none; color: #fff; border-radius: 999px;
-		padding: 0 18px; font-weight: 700; cursor: pointer;
-		display: inline-flex; align-items: center; justify-content: center; min-width: 64px;
+		width: 40px; height: 40px; font-weight: 700; cursor: pointer;
+		display: inline-flex; align-items: center; justify-content: center;
 	}
 	.bar button[disabled] { opacity: 0.8; cursor: default; }
 	.spin { display: inline-flex; animation: spin 0.7s linear infinite; }
