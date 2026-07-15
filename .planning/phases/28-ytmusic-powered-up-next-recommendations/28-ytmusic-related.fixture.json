@@ -1,0 +1,594 @@
+{
+	"contents": {
+		"singleColumnMusicWatchNextResultsRenderer": {
+			"tabbedRenderer": {
+				"watchNextTabbedResultsRenderer": {
+					"tabs": [
+						{
+							"tabRenderer": {
+								"title": "Up next",
+								"content": {
+									"musicQueueRenderer": {
+										"content": {
+											"playlistPanelRenderer": {
+												"contents": [
+													{
+														"playlistPanelVideoRenderer": {
+															"videoId": "dUlAfTZkjpE",
+															"title": {
+																"runs": [
+																	{
+																		"text": "摩四老年 《港耆》 [Official Music Video]"
+																	}
+																]
+															},
+															"longBylineText": {
+																"runs": [
+																	{
+																		"text": "摩四青年",
+																		"navigationEndpoint": {
+																			"clickTrackingParams": "CNoGEMggGAAiEwjQ_eyRrtSVAxWUClcBHYAnMU3KAQRm2k0M",
+																			"browseEndpoint": {
+																				"browseId": "UCNK1FhkeEOqjE0N-xfnrqsQ",
+																				"browseEndpointContextSupportedConfigs": {
+																					"browseEndpointContextMusicConfig": {
+																						"pageType": "MUSIC_PAGE_TYPE_USER_CHANNEL"
+																					}
+																				}
+																			}
+																		}
+																	},
+																	{
+																		"text": " • "
+																	},
+																	{
+																		"text": "190K views"
+																	},
+																	{
+																		"text": " • "
+																	},
+																	{
+																		"text": "3.2K likes"
+																	}
+																]
+															},
+															"shortBylineText": {
+																"runs": [
+																	{
+																		"text": "摩四青年"
+																	}
+																]
+															},
+															"lengthText": {
+																"runs": [
+																	{
+																		"text": "4:03"
+																	}
+																],
+																"accessibility": {
+																	"accessibilityData": {
+																		"label": "4 minutes, 3 seconds"
+																	}
+																}
+															},
+															"thumbnail": {
+																"thumbnails": [
+																	{
+																		"url": "https://i.ytimg.com/vi/dUlAfTZkjpE/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3kp7ynTJMMpnTP_f2SaceOyRLhQCw",
+																		"width": 400,
+																		"height": 225
+																	},
+																	{
+																		"url": "https://i.ytimg.com/vi/dUlAfTZkjpE/hq720.jpg?sqp=-oaymwEKCKAGEMIDIABIWg&rs=AMzJL3kus1rGkjnIMK1iU669ms7jaR5NWA",
+																		"width": 800,
+																		"height": 450
+																	},
+																	{
+																		"url": "https://i.ytimg.com/vi/dUlAfTZkjpE/hq720.jpg?sqp=-oaymwEKCNUGEN8DIABIWg&rs=AMzJL3lVFjeIL6ru7djAwtR-6WD7Y65EwQ",
+																		"width": 853,
+																		"height": 479
+																	}
+																]
+															},
+															"selected": true,
+															"navigationEndpoint": {
+																"watchEndpoint": {
+																	"videoId": "dUlAfTZkjpE"
+																}
+															}
+														}
+													},
+													{
+														"playlistPanelVideoRenderer": {
+															"videoId": "iM9rpYryn1o",
+															"title": {
+																"runs": [
+																	{
+																		"text": "PetPetShawn - 疫流 (Official Music Video)"
+																	}
+																]
+															},
+															"longBylineText": {
+																"runs": [
+																	{
+																		"text": "PetPetShawn",
+																		"navigationEndpoint": {
+																			"clickTrackingParams": "CMkGEMggGAEiEwjQ_eyRrtSVAxWUClcBHYAnMU3KAQRm2k0M",
+																			"browseEndpoint": {
+																				"browseId": "UCPPiyRkSlAp8pgM3nJopOWQ",
+																				"browseEndpointContextSupportedConfigs": {
+																					"browseEndpointContextMusicConfig": {
+																						"pageType": "MUSIC_PAGE_TYPE_ARTIST"
+																					}
+																				}
+																			}
+																		}
+																	},
+																	{
+																		"text": " • "
+																	},
+																	{
+																		"text": "60K views"
+																	},
+																	{
+																		"text": " • "
+																	},
+																	{
+																		"text": "1.1K likes"
+																	}
+																]
+															},
+															"shortBylineText": {
+																"runs": [
+																	{
+																		"text": "PetPetShawn"
+																	}
+																]
+															},
+															"lengthText": {
+																"runs": [
+																	{
+																		"text": "3:51"
+																	}
+																],
+																"accessibility": {
+																	"accessibilityData": {
+																		"label": "3 minutes, 51 seconds"
+																	}
+																}
+															},
+															"thumbnail": {
+																"thumbnails": [
+																	{
+																		"url": "https://i.ytimg.com/vi/iM9rpYryn1o/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3mAhCegFkeYavGlgdbXRLM6zVgmFQ",
+																		"width": 400,
+																		"height": 225
+																	},
+																	{
+																		"url": "https://i.ytimg.com/vi/iM9rpYryn1o/hq720.jpg?sqp=-oaymwEKCKAGEMIDIABIWg&rs=AMzJL3lMscyAc_misPk4ifQ4WCOgrRpx9A",
+																		"width": 800,
+																		"height": 450
+																	},
+																	{
+																		"url": "https://i.ytimg.com/vi/iM9rpYryn1o/hq720.jpg?sqp=-oaymwEKCNUGEN8DIABIWg&rs=AMzJL3lN0v7PIQ45KEMiYjV-PgC7dpoXOA",
+																		"width": 853,
+																		"height": 479
+																	}
+																]
+															},
+															"selected": false,
+															"navigationEndpoint": {
+																"watchEndpoint": {
+																	"videoId": "iM9rpYryn1o"
+																}
+															}
+														}
+													},
+													{
+														"playlistPanelVideoRenderer": {
+															"videoId": "6z72vCE8jzk",
+															"title": {
+																"runs": [
+																	{
+																		"text": "柴灣角街"
+																	}
+																]
+															},
+															"longBylineText": {
+																"runs": [
+																	{
+																		"text": "Billy Choi",
+																		"navigationEndpoint": {
+																			"clickTrackingParams": "CLgGEMggGAIiEwjQ_eyRrtSVAxWUClcBHYAnMU3KAQRm2k0M",
+																			"browseEndpoint": {
+																				"browseId": "UCVcyNKLv4lCojPT1LE6A88Q",
+																				"browseEndpointContextSupportedConfigs": {
+																					"browseEndpointContextMusicConfig": {
+																						"pageType": "MUSIC_PAGE_TYPE_ARTIST"
+																					}
+																				}
+																			}
+																		}
+																	},
+																	{
+																		"text": ", "
+																	},
+																	{
+																		"text": "East City",
+																		"navigationEndpoint": {
+																			"clickTrackingParams": "CLgGEMggGAIiEwjQ_eyRrtSVAxWUClcBHYAnMU3KAQRm2k0M",
+																			"browseEndpoint": {
+																				"browseId": "UCH7KWRTQjm-8_cqBi5yO1BA",
+																				"browseEndpointContextSupportedConfigs": {
+																					"browseEndpointContextMusicConfig": {
+																						"pageType": "MUSIC_PAGE_TYPE_ARTIST"
+																					}
+																				}
+																			}
+																		}
+																	},
+																	{
+																		"text": ", "
+																	},
+																	{
+																		"text": "TomFatKi",
+																		"navigationEndpoint": {
+																			"clickTrackingParams": "CLgGEMggGAIiEwjQ_eyRrtSVAxWUClcBHYAnMU3KAQRm2k0M",
+																			"browseEndpoint": {
+																				"browseId": "UCZ8f8buWRwEQMoLnKOx1c5Q",
+																				"browseEndpointContextSupportedConfigs": {
+																					"browseEndpointContextMusicConfig": {
+																						"pageType": "MUSIC_PAGE_TYPE_ARTIST"
+																					}
+																				}
+																			}
+																		}
+																	},
+																	{
+																		"text": " & "
+																	},
+																	{
+																		"text": "Akiko",
+																		"navigationEndpoint": {
+																			"clickTrackingParams": "CLgGEMggGAIiEwjQ_eyRrtSVAxWUClcBHYAnMU3KAQRm2k0M",
+																			"browseEndpoint": {
+																				"browseId": "UC-a-Y2snDew3Lu1Zk9JvpiA",
+																				"browseEndpointContextSupportedConfigs": {
+																					"browseEndpointContextMusicConfig": {
+																						"pageType": "MUSIC_PAGE_TYPE_ARTIST"
+																					}
+																				}
+																			}
+																		}
+																	},
+																	{
+																		"text": " • "
+																	},
+																	{
+																		"text": "2.3M views"
+																	},
+																	{
+																		"text": " • "
+																	},
+																	{
+																		"text": "21K likes"
+																	}
+																]
+															},
+															"shortBylineText": {
+																"runs": [
+																	{
+																		"text": "Billy Choi, East City, TomFatKi, and Akiko"
+																	}
+																]
+															},
+															"lengthText": {
+																"runs": [
+																	{
+																		"text": "4:06"
+																	}
+																],
+																"accessibility": {
+																	"accessibilityData": {
+																		"label": "4 minutes, 6 seconds"
+																	}
+																}
+															},
+															"thumbnail": {
+																"thumbnails": [
+																	{
+																		"url": "https://i.ytimg.com/vi/6z72vCE8jzk/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3nMkpGErODMe4_keOX8EfxwGKD_MA",
+																		"width": 400,
+																		"height": 225
+																	},
+																	{
+																		"url": "https://i.ytimg.com/vi/6z72vCE8jzk/hq720.jpg?sqp=-oaymwEKCKAGEMIDIABIWg&rs=AMzJL3lbtIqrCPNTgEAncyBR__sR4qaHwQ",
+																		"width": 800,
+																		"height": 450
+																	},
+																	{
+																		"url": "https://i.ytimg.com/vi/6z72vCE8jzk/hq720.jpg?sqp=-oaymwEKCNUGEN8DIABIWg&rs=AMzJL3mSL_PuWYhcVxLEx0B44KJ4w-bYqA",
+																		"width": 853,
+																		"height": 479
+																	}
+																]
+															},
+															"selected": false,
+															"navigationEndpoint": {
+																"watchEndpoint": {
+																	"videoId": "6z72vCE8jzk"
+																}
+															}
+														}
+													},
+													{
+														"playlistPanelVideoRenderer": {
+															"videoId": "09y17MZgONQ",
+															"title": {
+																"runs": [
+																	{
+																		"text": "胭脂扣"
+																	}
+																]
+															},
+															"longBylineText": {
+																"runs": [
+																	{
+																		"text": "Novel Fergus",
+																		"navigationEndpoint": {
+																			"clickTrackingParams": "CKcGEMggGAMiEwjQ_eyRrtSVAxWUClcBHYAnMU3KAQRm2k0M",
+																			"browseEndpoint": {
+																				"browseId": "UC1DRGF1r1k4Y7xqsfnm6HEw",
+																				"browseEndpointContextSupportedConfigs": {
+																					"browseEndpointContextMusicConfig": {
+																						"pageType": "MUSIC_PAGE_TYPE_ARTIST"
+																					}
+																				}
+																			}
+																		}
+																	},
+																	{
+																		"text": " • "
+																	},
+																	{
+																		"text": "1.8M views"
+																	},
+																	{
+																		"text": " • "
+																	},
+																	{
+																		"text": "11K likes"
+																	}
+																]
+															},
+															"shortBylineText": {
+																"runs": [
+																	{
+																		"text": "Novel Fergus"
+																	}
+																]
+															},
+															"lengthText": {
+																"runs": [
+																	{
+																		"text": "4:32"
+																	}
+																],
+																"accessibility": {
+																	"accessibilityData": {
+																		"label": "4 minutes, 32 seconds"
+																	}
+																}
+															},
+															"thumbnail": {
+																"thumbnails": [
+																	{
+																		"url": "https://i.ytimg.com/vi/09y17MZgONQ/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3ngck7v-S6AYcAfRD_Q8OCOX3zlgA",
+																		"width": 400,
+																		"height": 225
+																	},
+																	{
+																		"url": "https://i.ytimg.com/vi/09y17MZgONQ/hq720.jpg?sqp=-oaymwEKCKAGEMIDIABIWg&rs=AMzJL3k48NFCO_LjTeh6Y2NJ4vxPqlnekg",
+																		"width": 800,
+																		"height": 450
+																	},
+																	{
+																		"url": "https://i.ytimg.com/vi/09y17MZgONQ/hq720.jpg?sqp=-oaymwEKCNUGEN8DIABIWg&rs=AMzJL3lOwscFR-nlqac8RecLViyZOmtizw",
+																		"width": 853,
+																		"height": 479
+																	}
+																]
+															},
+															"selected": false,
+															"navigationEndpoint": {
+																"watchEndpoint": {
+																	"videoId": "09y17MZgONQ"
+																}
+															}
+														}
+													},
+													{
+														"playlistPanelVideoRenderer": {
+															"videoId": "MMkv48scQV4",
+															"title": {
+																"runs": [
+																	{
+																		"text": "薯叔 ft. ZODI《人生是死去活來》 [ Visualiser ]"
+																	}
+																]
+															},
+															"longBylineText": {
+																"runs": [
+																	{
+																		"text": "摩四青年",
+																		"navigationEndpoint": {
+																			"clickTrackingParams": "CJcGEMggGAQiEwjQ_eyRrtSVAxWUClcBHYAnMU3KAQRm2k0M",
+																			"browseEndpoint": {
+																				"browseId": "UCNK1FhkeEOqjE0N-xfnrqsQ",
+																				"browseEndpointContextSupportedConfigs": {
+																					"browseEndpointContextMusicConfig": {
+																						"pageType": "MUSIC_PAGE_TYPE_USER_CHANNEL"
+																					}
+																				}
+																			}
+																		}
+																	},
+																	{
+																		"text": " • "
+																	},
+																	{
+																		"text": "43K views"
+																	},
+																	{
+																		"text": " • "
+																	},
+																	{
+																		"text": "570 likes"
+																	}
+																]
+															},
+															"shortBylineText": {
+																"runs": [
+																	{
+																		"text": "摩四青年"
+																	}
+																]
+															},
+															"lengthText": {
+																"runs": [
+																	{
+																		"text": "3:13"
+																	}
+																],
+																"accessibility": {
+																	"accessibilityData": {
+																		"label": "3 minutes, 13 seconds"
+																	}
+																}
+															},
+															"thumbnail": {
+																"thumbnails": [
+																	{
+																		"url": "https://i.ytimg.com/vi/MMkv48scQV4/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3nl9YR3zvBGC_kKQUvdbKeAtaWgbw",
+																		"width": 400,
+																		"height": 225
+																	},
+																	{
+																		"url": "https://i.ytimg.com/vi/MMkv48scQV4/hq720.jpg?sqp=-oaymwEKCKAGEMIDIABIWg&rs=AMzJL3nOe1MoLzXQmROQQmquGgdpE2UK-A",
+																		"width": 800,
+																		"height": 450
+																	},
+																	{
+																		"url": "https://i.ytimg.com/vi/MMkv48scQV4/hq720.jpg?sqp=-oaymwEKCNUGEN8DIABIWg&rs=AMzJL3nl1lEiz5UgddLSPuc6_-MgUVM5gw",
+																		"width": 853,
+																		"height": 479
+																	}
+																]
+															},
+															"selected": false,
+															"navigationEndpoint": {
+																"watchEndpoint": {
+																	"videoId": "MMkv48scQV4"
+																}
+															}
+														}
+													},
+													{
+														"playlistPanelVideoRenderer": {
+															"videoId": "KjaXXUSqPwg",
+															"title": {
+																"runs": [
+																	{
+																		"text": "SoWhat - Bad Ass Carnival 敗壞嘉年華"
+																	}
+																]
+															},
+															"longBylineText": {
+																"runs": [
+																	{
+																		"text": "SoWhat",
+																		"navigationEndpoint": {
+																			"clickTrackingParams": "CIYGEMggGAUiEwjQ_eyRrtSVAxWUClcBHYAnMU3KAQRm2k0M",
+																			"browseEndpoint": {
+																				"browseId": "UCQlZtgJE9NBvQQmiDxGTTBQ",
+																				"browseEndpointContextSupportedConfigs": {
+																					"browseEndpointContextMusicConfig": {
+																						"pageType": "MUSIC_PAGE_TYPE_ARTIST"
+																					}
+																				}
+																			}
+																		}
+																	},
+																	{
+																		"text": " • "
+																	},
+																	{
+																		"text": "1.3M views"
+																	},
+																	{
+																		"text": " • "
+																	},
+																	{
+																		"text": "5.9K likes"
+																	}
+																]
+															},
+															"shortBylineText": {
+																"runs": [
+																	{
+																		"text": "SoWhat"
+																	}
+																]
+															},
+															"lengthText": {
+																"runs": [
+																	{
+																		"text": "2:40"
+																	}
+																],
+																"accessibility": {
+																	"accessibilityData": {
+																		"label": "2 minutes, 40 seconds"
+																	}
+																}
+															},
+															"thumbnail": {
+																"thumbnails": [
+																	{
+																		"url": "https://i.ytimg.com/vi/KjaXXUSqPwg/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3mdv716YU3pOh4vpPMu-nnLrhd2Gg",
+																		"width": 400,
+																		"height": 225
+																	},
+																	{
+																		"url": "https://i.ytimg.com/vi/KjaXXUSqPwg/hq720.jpg?sqp=-oaymwEKCKAGEMIDIABIWg&rs=AMzJL3kumHj1pwLH7Jbv8YabAeQO7Nx4aA",
+																		"width": 800,
+																		"height": 450
+																	},
+																	{
+																		"url": "https://i.ytimg.com/vi/KjaXXUSqPwg/hq720.jpg?sqp=-oaymwEKCNUGEN8DIABIWg&rs=AMzJL3lrr-w4R27FQai3p28sxZQPJBa0Rg",
+																		"width": 853,
+																		"height": 479
+																	}
+																]
+															},
+															"selected": false,
+															"navigationEndpoint": {
+																"watchEndpoint": {
+																	"videoId": "KjaXXUSqPwg"
+																}
+															}
+														}
+													}
+												]
+											}
+										}
+									}
+								}
+							}
+						}
+					]
+				}
+			}
+		}
+	}
+}
