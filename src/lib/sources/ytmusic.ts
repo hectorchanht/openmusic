@@ -20,6 +20,9 @@
 import type { SourceAdapter, Track } from './types';
 import { makeUid } from './types';
 import { apiFetch, apiUrl } from '../services/api-base';
+// quick-260715-l9p: runtime import (NOT `import type`) — search() calls scoreMatch to re-rank
+// the merged Songs+Videos list by query-fit before returning. See the re-rank note in search().
+import { scoreMatch } from '$lib/services/score-match';
 
 // --- InnerTube search-envelope shapes (untrusted, deeply/inconsistently nested; every field
 // optional and accessed via optional chaining — the drift guard in search() throws when the
@@ -221,7 +224,31 @@ export const ytmusic: SourceAdapter = {
 		const path = '/api/ytmusic/search?q=' + encodeURIComponent(keyword);
 		const res = await apiFetch(path, { signal });
 		const json: unknown = await res.json();
-		return parseSearchEnvelope(json, keyword);
+		const tracks = parseSearchEnvelope(json, keyword);
+
+		// quick-260715-l9p: ytmusic is the ONLY source that concatenates TWO shelves (Songs +
+		// Videos, merged in quick-260715-jdj), so parseSearchEnvelope's naive songs-then-videos
+		// emit order is NOT one relevance ranking — an exact-match Videos-shelf row (e.g. the 港耆
+		// video dUlAfTZkjpE) can sit ~20 rows behind loosely-matched songs. Re-rank the merged list
+		// by query-fit so the closest-matching row leads regardless of which shelf it came from.
+		// Every OTHER source returns a single upstream-relevance list and relies on the shared
+		// search-page interleave, so this merge-sort stays scoped to the ytmusic adapter.
+		//
+		// 2-arg scoreMatch (NO ctx): the search keyword is a raw string with no artist/title split,
+		// so it fills the title slot — matchKey normalizes it and CJK title-component equality +
+		// latin token overlap both score.
+		const q = { artist: '', title: keyword };
+		// Stable sort with an EXPLICIT original-index tiebreak (do NOT rely on Array.prototype.sort
+		// stability): a tie — e.g. a broad query where every row scores equally — preserves the
+		// upstream songs-before-videos order. Score is precomputed once per row (not recomputed per
+		// comparison). displayIndex is ORDERING ONLY (Pitfall 4), so reassigning it is identity-safe.
+		return tracks
+			.map((t, i) => ({ t, i, score: scoreMatch(q, t) }))
+			.sort((a, b) => b.score - a.score || a.i - b.i)
+			.map(({ t }, idx) => {
+				t.displayIndex = idx + 1;
+				return t;
+			});
 	},
 
 	async resolve(track: Track, signal: AbortSignal): Promise<Track> {
