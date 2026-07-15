@@ -63,6 +63,80 @@ describe('ytmusic.search — parse over the captured InnerTube fixture (YT-SEARC
 		expect(top.duration).toBe(224);
 	});
 
+	it('parses a VIDEO-ONLY row from the merged Videos shelf into a ytmusic Track (quick-260715-jdj)', async () => {
+		vi.stubGlobal('fetch', mockFetch(fixture));
+
+		const tracks = await ytmusic.search('周杰倫 稻香', 1, ac.signal);
+		// dUlAfTZkjpE (港耆) lives ONLY in the Videos shelf — the whole reason for the songs+videos merge.
+		const videoOnly = tracks.find((t) => t.songid === 'dUlAfTZkjpE');
+		expect(videoOnly).toBeTruthy();
+		expect(videoOnly?.uid).toBe('ytmusic:dUlAfTZkjpE');
+		expect(videoOnly?.title).toBe('港耆');
+		expect(videoOnly?.artist).toBe('摩四老年');
+	});
+
+	it('dedupes a videoId present in BOTH shelves — emitted once, songs variant wins (quick-260715-jdj)', async () => {
+		vi.stubGlobal('fetch', mockFetch(fixture));
+
+		const tracks = await ytmusic.search('周杰倫 稻香', 1, ac.signal);
+		// l6a5D6yxqEU is in the Songs shelf (top row) AND duplicated in the Videos shelf.
+		const dupes = tracks.filter((t) => t.songid === 'l6a5D6yxqEU');
+		expect(dupes.length).toBe(1); // emitted ONCE despite appearing in both shelves
+		// The SONGS variant (walked first) won the slot — it carries the album the video row lacks.
+		expect(dupes[0].album).toBe('魔杰座');
+		expect(dupes[0].title).toBe('稻香');
+	});
+
+	it('walks the merged { ytmusicMerged: [songsJson, videosJson] } route shape (quick-260715-jdj)', async () => {
+		// The route returns a wrapper array of two envelopes; the recursive walk collects every
+		// wrapped shelf, and dedupe keeps the songs variant (first) when a videoId repeats.
+		const shelfWith = (videoId: string, title: string) => ({
+			contents: {
+				sectionListRenderer: {
+					contents: [
+						{
+							musicShelfRenderer: {
+								contents: [
+									{
+										musicResponsiveListItemRenderer: {
+											thumbnail: {
+												musicThumbnailRenderer: {
+													thumbnail: { thumbnails: [{ url: 'https://x/1.jpg', width: 60, height: 60 }] }
+												}
+											},
+											playlistItemData: { videoId },
+											flexColumns: [
+												{ musicResponsiveListItemFlexColumnRenderer: { text: { runs: [{ text: title }] } } }
+											]
+										}
+									}
+								]
+							}
+						}
+					]
+				}
+			}
+		});
+		const songsJson = shelfWith('SHAREDvid', 'From Songs');
+		const videosJson = {
+			contents: {
+				sectionListRenderer: {
+					contents: [shelfWith('VIDEOvid', 'Video Only').contents.sectionListRenderer.contents[0]]
+				}
+			}
+		};
+		// videosJson also repeats SHAREDvid to prove cross-envelope dedupe.
+		videosJson.contents.sectionListRenderer.contents.push(
+			shelfWith('SHAREDvid', 'From Videos').contents.sectionListRenderer.contents[0]
+		);
+		vi.stubGlobal('fetch', mockFetch({ ytmusicMerged: [songsJson, videosJson] }));
+
+		const tracks = await ytmusic.search('x', 1, ac.signal);
+		expect(tracks.map((t) => t.songid).sort()).toEqual(['SHAREDvid', 'VIDEOvid']);
+		// SHAREDvid emitted once, from the SONGS envelope (walked first).
+		expect(tracks.find((t) => t.songid === 'SHAREDvid')?.title).toBe('From Songs');
+	});
+
 	it('hits /api/ytmusic/search with the encoded query', async () => {
 		const spy = mockFetch({ contents: {} }); // empty (no shelf) — we only assert the URL here
 		vi.stubGlobal('fetch', spy);

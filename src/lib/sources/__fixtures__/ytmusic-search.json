@@ -731,6 +731,133 @@
 												}
 											]
 										}
+									},
+									{
+										"musicShelfRenderer": {
+											"title": {
+												"runs": [
+													{
+														"text": "Videos"
+													}
+												]
+											},
+											"contents": [
+												{
+													"musicResponsiveListItemRenderer": {
+														"thumbnail": {
+															"musicThumbnailRenderer": {
+																"thumbnail": {
+																	"thumbnails": [
+																		{
+																			"url": "https://i.ytimg.com/vi/dUlAfTZkjpE/hqdefault.jpg",
+																			"width": 120,
+																			"height": 120
+																		}
+																	]
+																}
+															}
+														},
+														"overlay": {
+															"musicItemThumbnailOverlayRenderer": {
+																"content": {
+																	"musicPlayButtonRenderer": {
+																		"playNavigationEndpoint": {
+																			"watchEndpoint": {
+																				"videoId": "dUlAfTZkjpE"
+																			}
+																		}
+																	}
+																}
+															}
+														},
+														"flexColumns": [
+															{
+																"musicResponsiveListItemFlexColumnRenderer": {
+																	"text": {
+																		"runs": [
+																			{
+																				"text": "港耆"
+																			}
+																		]
+																	}
+																}
+															},
+															{
+																"musicResponsiveListItemFlexColumnRenderer": {
+																	"text": {
+																		"runs": [
+																			{
+																				"text": "摩四老年"
+																			}
+																		]
+																	}
+																}
+															}
+														],
+														"playlistItemData": {
+															"videoId": "dUlAfTZkjpE"
+														}
+													}
+												},
+												{
+													"musicResponsiveListItemRenderer": {
+														"thumbnail": {
+															"musicThumbnailRenderer": {
+																"thumbnail": {
+																	"thumbnails": [
+																		{
+																			"url": "https://i.ytimg.com/vi/l6a5D6yxqEU/hqdefault.jpg",
+																			"width": 120,
+																			"height": 120
+																		}
+																	]
+																}
+															}
+														},
+														"overlay": {
+															"musicItemThumbnailOverlayRenderer": {
+																"content": {
+																	"musicPlayButtonRenderer": {
+																		"playNavigationEndpoint": {
+																			"watchEndpoint": {
+																				"videoId": "l6a5D6yxqEU"
+																			}
+																		}
+																	}
+																}
+															}
+														},
+														"flexColumns": [
+															{
+																"musicResponsiveListItemFlexColumnRenderer": {
+																	"text": {
+																		"runs": [
+																			{
+																				"text": "稻香 (Official Video)"
+																			}
+																		]
+																	}
+																}
+															},
+															{
+																"musicResponsiveListItemFlexColumnRenderer": {
+																	"text": {
+																		"runs": [
+																			{
+																				"text": "周杰倫"
+																			}
+																		]
+																	}
+																}
+															}
+														],
+														"playlistItemData": {
+															"videoId": "l6a5D6yxqEU"
+														}
+													}
+												}
+											]
+										}
 									}
 								]
 							}

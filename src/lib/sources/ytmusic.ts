@@ -184,9 +184,17 @@ function parseSearchEnvelope(json: unknown, keyword: string): Track[] {
 	}
 
 	const tracks: Track[] = [];
+	// quick-260715-jdj: the search route now merges the Songs + Videos shelves
+	// (`{ ytmusicMerged: [songsJson, videosJson] }`) so video-only uploads surface too. A track can
+	// appear in BOTH shelves; dedupe by videoId (== songid) so it emits once. The songs shelf is
+	// walked FIRST (route puts songsJson before videosJson), so its catalog variant wins the slot.
+	const emitted = new Set<string>();
 	for (const row of rows) {
 		const track = rowToTrack(row, keyword, tracks.length);
-		if (track) tracks.push(track);
+		if (!track) continue;
+		if (emitted.has(track.songid)) continue;
+		emitted.add(track.songid);
+		tracks.push(track);
 	}
 	return tracks;
 }
@@ -206,9 +214,10 @@ export const ytmusic: SourceAdapter = {
 		// Single song shelf, no reliable pagination (the audius rule) — page>1 is a no-op with no
 		// upstream call.
 		if ((page || 1) > 1) return [];
-		// JSON hop through the governor (apiFetch): the own-origin proxy does the InnerTube POST
-		// (WEB_REMIX ctx + songs params + public key, all edge-side — Plan 27-02) and returns the
-		// envelope; the parse/normalize stays client-side + unit-tested.
+		// JSON hop through the governor (apiFetch): the own-origin proxy does the InnerTube POSTs
+		// (WEB_REMIX ctx + Songs & Videos params + public key, all edge-side — Plan 27-02) and returns
+		// a merged `{ ytmusicMerged: [...] }` envelope (quick-260715-jdj); the recursive parse +
+		// cross-shelf dedupe stays client-side + unit-tested.
 		const path = '/api/ytmusic/search?q=' + encodeURIComponent(keyword);
 		const res = await apiFetch(path, { signal });
 		const json: unknown = await res.json();
