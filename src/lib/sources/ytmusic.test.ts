@@ -138,49 +138,27 @@ describe('ytmusic.search — parse over the captured InnerTube fixture (YT-SEARC
 		expect(tracks.find((t) => t.songid === 'SHAREDvid')?.title).toBe('From Songs');
 	});
 
-	it('re-ranks by SUBSTRING-CONTAINMENT — a Videos-shelf row whose title CONTAINS the CJK query (not equal to it) floats above loose single-char songs (quick-260715-l9p)', async () => {
+	it('returns parsed rows in SHELF order (songs before videos) — ranking is the search page job, NOT the adapter (quick-260715-l9p revert)', async () => {
 		vi.stubGlobal('fetch', mockFetch(fixture));
 
-		// Realistic query: the typed CJK "港耆" is a SUBSTRING of the Videos-shelf title
-		// "摩四老年 《港耆》 [Official Music Video]" (dUlAfTZkjpE) — NOT equal to it. scoreMatch ALONE
-		// gives it ZERO credit (a whole CJK run is one token; only EXACT component equality scores), so
-		// it ties at 0 with the loose single-char 港/耆 songs and — emitted LAST (after every song) —
-		// stays buried by the index tiebreak. Only substring-containment as the PRIMARY signal lifts it.
-		// This assertion FAILS against the old scoreMatch-only ranking and PASSES with containment.
+		// The l9p adapter-level scoreMatch re-rank was DEAD CODE: the search page re-sorts every
+		// source's results by scoreMatch, discarding the adapter's returned order. So the adapter
+		// now returns parsed + videoId-deduped rows in parseSearchEnvelope emit order (songs shelf
+		// first, videos shelf after), regardless of query-fit — the real CJK-substring ranking fix
+		// lives in score-match.ts (covered by score-match.test.ts).
 		const tracks = await ytmusic.search('港耆', 1, ac.signal);
 
-		const video = tracks.find((t) => t.songid === 'dUlAfTZkjpE'); // title CONTAINS 港耆
-		const looseGang = tracks.find((t) => t.songid === 'kongCity001'); // 港城 — shares only 港
-		const looseQi = tracks.find((t) => t.songid === 'qiQingSong1'); // 耆卿 — shares only 耆
-		expect(video).toBeTruthy();
-		expect(looseGang).toBeTruthy();
-		expect(looseQi).toBeTruthy();
-		// The containing video floats ABOVE both loose single-char songs, regardless of shelf/emit order.
-		expect(video!.displayIndex).toBeLessThan(looseGang!.displayIndex);
-		expect(video!.displayIndex).toBeLessThan(looseQi!.displayIndex);
-		expect(video!.displayIndex).toBe(1); // it now leads the whole merged list
-		// displayIndex stays a gap-free 1..n after the re-rank.
-		expect(tracks.map((t) => t.displayIndex)).toEqual(tracks.map((_, i) => i + 1));
-	});
-
-	it('preserves the upstream songs-before-videos order on a broad/tied query (index tiebreak) (quick-260715-l9p)', async () => {
-		vi.stubGlobal('fetch', mockFetch(fixture));
-
-		// 'zzz' overlaps NO row title → every row ties at score 0, so the EXPLICIT original-index
-		// tiebreak must preserve parseSearchEnvelope's songs-first emit order untouched.
-		const tracks = await ytmusic.search('zzz', 1, ac.signal);
-
 		expect(tracks.map((t) => t.songid)).toEqual([
-			'l6a5D6yxqEU', // songs shelf, emitted first — keeps position 1 on a tie
+			'l6a5D6yxqEU', // songs shelf, emitted first
 			'cCIshRlD0UE',
 			'hlIZWmuGzDI',
 			'DxpndDEAqGk',
-			'kongCity001', // loose 港 song — still songs-shelf, stays before the videos shelf
-			'qiQingSong1', // loose 耆 song
-			'dUlAfTZkjpE' // Videos-shelf row stays LAST (songs before videos on equal fit)
+			'kongCity001', // loose 港 song — songs shelf
+			'qiQingSong1', // loose 耆 song — songs shelf
+			'dUlAfTZkjpE' // Videos-shelf row emitted LAST (songs before videos), NO adapter re-rank
 		]);
-		expect(tracks[0].displayIndex).toBe(1);
-		expect(tracks[tracks.length - 1].songid).toBe('dUlAfTZkjpE');
+		// displayIndex stays a gap-free 1..n in emit order.
+		expect(tracks.map((t) => t.displayIndex)).toEqual(tracks.map((_, i) => i + 1));
 	});
 
 	it('hits /api/ytmusic/search with the encoded query', async () => {

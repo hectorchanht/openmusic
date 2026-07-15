@@ -20,9 +20,6 @@
 import type { SourceAdapter, Track } from './types';
 import { makeUid } from './types';
 import { apiFetch, apiUrl } from '../services/api-base';
-// quick-260715-l9p: runtime import (NOT `import type`) — search() calls scoreMatch to re-rank
-// the merged Songs+Videos list by query-fit before returning. See the re-rank note in search().
-import { scoreMatch } from '$lib/services/score-match';
 
 // --- InnerTube search-envelope shapes (untrusted, deeply/inconsistently nested; every field
 // optional and accessed via optional chaining — the drift guard in search() throws when the
@@ -224,51 +221,15 @@ export const ytmusic: SourceAdapter = {
 		const path = '/api/ytmusic/search?q=' + encodeURIComponent(keyword);
 		const res = await apiFetch(path, { signal });
 		const json: unknown = await res.json();
-		const tracks = parseSearchEnvelope(json, keyword);
-
-		// quick-260715-l9p: ytmusic is the ONLY source that concatenates TWO shelves (Songs +
-		// Videos, merged in quick-260715-jdj), so parseSearchEnvelope's naive songs-then-videos
-		// emit order is NOT one relevance ranking — an exact-match Videos-shelf row (e.g. the 港耆
-		// video dUlAfTZkjpE) can sit ~40 rows behind loosely-matched songs. Re-rank the merged list
-		// by query-fit so the closest-matching row leads regardless of which shelf it came from.
-		// Every OTHER source returns a single upstream-relevance list and relies on the shared
-		// search-page interleave, so this merge-sort stays scoped to the ytmusic adapter.
-		//
-		// CORRECTION (quick-260715-l9p): scoreMatch ALONE cannot credit a CJK / substring partial
-		// match — score-match.ts tokens() splits on [^\p{L}\p{N}]+, but CJK has no separators so a
-		// whole CJK run is ONE token, and per-component similarity only scores on EXACT title/artist
-		// equality. So a real query like "港耆" never token-matches inside "摩四老年 《港耆》 [Official
-		// Music Video]" — the exact video scores 0, same as unrelated rows, and the index tiebreak
-		// buries it. FIX: a literal substring-CONTAINMENT of the typed query inside the normalized
-		// title+artist is the PRIMARY fit signal (this is what fixes CJK); scoreMatch stays the
-		// SECONDARY signal (it already handles latin token overlap + component equality well); the
-		// original index is the final tiebreak. A result literally CONTAINING the query therefore
-		// outranks any loose fuzzy match, regardless of shelf. score-match.ts is shared + load-bearing
-		// across resolution, so it is deliberately NOT touched here.
-		//
-		// norm: lowercase + strip whitespace/punctuation while KEEPING CJK/latin letters + digits
-		// (\p{L} covers CJK ideographs), so "港耆" is found inside "…《港耆》…". 2-arg scoreMatch (NO
-		// ctx): the keyword is a raw string with no artist/title split, so it fills the title slot.
-		const norm = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
-		const nq = norm(keyword);
-		const q = { artist: '', title: keyword };
-		// Precompute containment + score ONCE per row (never recomputed inside the O(n log n)
-		// comparator). Sort key (primary → tertiary): containment DESC, scoreMatch DESC, original
-		// index ASC. The EXPLICIT index tiebreak (do NOT rely on Array.prototype.sort stability) keeps
-		// a fully-tied broad query in the upstream songs-before-videos order. displayIndex is ORDERING
-		// ONLY (Pitfall 4), so reassigning it after the sort is identity-safe.
-		return tracks
-			.map((t, i) => ({
-				t,
-				i,
-				contains: nq.length > 0 && norm(t.title + ' ' + t.artist).includes(nq),
-				score: scoreMatch(q, t)
-			}))
-			.sort((a, b) => Number(b.contains) - Number(a.contains) || b.score - a.score || a.i - b.i)
-			.map(({ t }, idx) => {
-				t.displayIndex = idx + 1;
-				return t;
-			});
+		// quick-260715-l9p (revert): ranking is owned by scoreMatch at the SEARCH PAGE (rankList in
+		// search/+page.svelte), NOT the adapter. The l9p adapter-level scoreMatch re-rank was DEAD
+		// CODE — the search page re-sorts EVERY source's results by scoreMatch, discarding each
+		// adapter's returned array order — so an adapter-level sort here changed nothing on screen.
+		// The real CJK-substring ranking fix lives in score-match.ts similarity() (the shared, load-
+		// bearing authority every source's search list flows through). The adapter returns the parsed
+		// + videoId-deduped rows in shelf order (songs before videos); displayIndex stays the emit
+		// order — Pitfall 4: displayIndex is ORDERING only, the search page re-ranks for display.
+		return parseSearchEnvelope(json, keyword);
 	},
 
 	async resolve(track: Track, signal: AbortSignal): Promise<Track> {
