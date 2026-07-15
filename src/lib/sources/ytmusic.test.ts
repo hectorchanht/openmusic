@@ -67,11 +67,12 @@ describe('ytmusic.search — parse over the captured InnerTube fixture (YT-SEARC
 		vi.stubGlobal('fetch', mockFetch(fixture));
 
 		const tracks = await ytmusic.search('周杰倫 稻香', 1, ac.signal);
-		// dUlAfTZkjpE (港耆) lives ONLY in the Videos shelf — the whole reason for the songs+videos merge.
+		// dUlAfTZkjpE lives ONLY in the Videos shelf — the whole reason for the songs+videos merge.
+		// Title is a REALISTIC video upload name (the query is a SUBSTRING, not the whole title).
 		const videoOnly = tracks.find((t) => t.songid === 'dUlAfTZkjpE');
 		expect(videoOnly).toBeTruthy();
 		expect(videoOnly?.uid).toBe('ytmusic:dUlAfTZkjpE');
-		expect(videoOnly?.title).toBe('港耆');
+		expect(videoOnly?.title).toBe('摩四老年 《港耆》 [Official Music Video]');
 		expect(videoOnly?.artist).toBe('摩四老年');
 	});
 
@@ -137,21 +138,26 @@ describe('ytmusic.search — parse over the captured InnerTube fixture (YT-SEARC
 		expect(tracks.find((t) => t.songid === 'SHAREDvid')?.title).toBe('From Songs');
 	});
 
-	it('re-ranks the merged list by query-fit — an EXACT-match Videos-shelf row floats above loose songs (quick-260715-l9p)', async () => {
+	it('re-ranks by SUBSTRING-CONTAINMENT — a Videos-shelf row whose title CONTAINS the CJK query (not equal to it) floats above loose single-char songs (quick-260715-l9p)', async () => {
 		vi.stubGlobal('fetch', mockFetch(fixture));
 
-		// Query is EXACTLY the Videos-shelf-only title (港耆, dUlAfTZkjpE). Its title component matches
-		// the query so it scores; every 稻香/青花瓷 songs-shelf row shares NO token with 港耆 and scores 0.
-		// dUlAfTZkjpE is EMITTED LAST (after all four songs) by parseSearchEnvelope, so only the re-rank
-		// can lift it — proving the sort, not the emit order, drives the result.
+		// Realistic query: the typed CJK "港耆" is a SUBSTRING of the Videos-shelf title
+		// "摩四老年 《港耆》 [Official Music Video]" (dUlAfTZkjpE) — NOT equal to it. scoreMatch ALONE
+		// gives it ZERO credit (a whole CJK run is one token; only EXACT component equality scores), so
+		// it ties at 0 with the loose single-char 港/耆 songs and — emitted LAST (after every song) —
+		// stays buried by the index tiebreak. Only substring-containment as the PRIMARY signal lifts it.
+		// This assertion FAILS against the old scoreMatch-only ranking and PASSES with containment.
 		const tracks = await ytmusic.search('港耆', 1, ac.signal);
 
-		const video = tracks.find((t) => t.songid === 'dUlAfTZkjpE');
-		const looseSong = tracks.find((t) => t.songid === 'l6a5D6yxqEU'); // 稻香 — no overlap with 港耆
+		const video = tracks.find((t) => t.songid === 'dUlAfTZkjpE'); // title CONTAINS 港耆
+		const looseGang = tracks.find((t) => t.songid === 'kongCity001'); // 港城 — shares only 港
+		const looseQi = tracks.find((t) => t.songid === 'qiQingSong1'); // 耆卿 — shares only 耆
 		expect(video).toBeTruthy();
-		expect(looseSong).toBeTruthy();
-		// Exact-match video floats up ABOVE the loosely-matched song regardless of shelf.
-		expect(video!.displayIndex).toBeLessThan(looseSong!.displayIndex);
+		expect(looseGang).toBeTruthy();
+		expect(looseQi).toBeTruthy();
+		// The containing video floats ABOVE both loose single-char songs, regardless of shelf/emit order.
+		expect(video!.displayIndex).toBeLessThan(looseGang!.displayIndex);
+		expect(video!.displayIndex).toBeLessThan(looseQi!.displayIndex);
 		expect(video!.displayIndex).toBe(1); // it now leads the whole merged list
 		// displayIndex stays a gap-free 1..n after the re-rank.
 		expect(tracks.map((t) => t.displayIndex)).toEqual(tracks.map((_, i) => i + 1));
@@ -169,6 +175,8 @@ describe('ytmusic.search — parse over the captured InnerTube fixture (YT-SEARC
 			'cCIshRlD0UE',
 			'hlIZWmuGzDI',
 			'DxpndDEAqGk',
+			'kongCity001', // loose 港 song — still songs-shelf, stays before the videos shelf
+			'qiQingSong1', // loose 耆 song
 			'dUlAfTZkjpE' // Videos-shelf row stays LAST (songs before videos on equal fit)
 		]);
 		expect(tracks[0].displayIndex).toBe(1);
