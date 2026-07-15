@@ -125,8 +125,32 @@ describe('scoreMatch — CJK-safe substring-containment credit (quick-260715-l9p
 		});
 		const looseGang = mk('netease', 'gang', '陳百強', { title: '港城' }); // shares only 港
 		const looseQi = mk('qq', 'qi', '柳永', { title: '耆卿' }); // shares only 耆
+		// The containing row scores exactly the derived SIM_SUBSTR (no ctx, no other component/token
+		// credit): SHORT_TITLE_BOOST_MAX(3) + ARTIST_FREQ_BOOST(2) + 1 = 6. Pinned so the derived
+		// magnitude is guarded (a stray edit back to a flat literal would trip this).
+		expect(scoreMatch(query, containing)).toBe(6 /* SIM_SUBSTR = 3 + 2 + 1 */);
 		expect(scoreMatch(query, containing)).toBeGreaterThan(scoreMatch(query, looseGang));
 		expect(scoreMatch(query, containing)).toBeGreaterThan(scoreMatch(query, looseQi));
+	});
+
+	it('LIVE FAILURE (l9p tuning): a CONTAINING long title beats a NON-containing SAME-LENGTH title carrying the FULL shortTitle+artistFreq boost stack', () => {
+		// The exact search-page failure: query {artist:q, title:q}. A 2-char non-containing title
+		// (== queryLen → FULL shortTitleBoost) whose artist appears under 2+ sources (→ ARTIST_FREQ_BOOST)
+		// accumulates 3 + 2 = 5 purely from set-relative boosts, and at the OLD flat SIM_SUBSTR=2 it beat
+		// the containing video (which sits at SIM_SUBSTR + ~0 short-title boost). With SIM_SUBSTR derived
+		// to 6 (= 3 + 2 + 1) the containing row must now dominate the fully-boosted non-containing one.
+		const query = { artist: '港耆', title: '港耆' };
+		const containing = mk('ytmusic', 'vid', '摩四青年', {
+			title: '摩四老年 《港耆》 [Official Music Video]'
+		});
+		// NON-containing, title length == queryLen(2) → full shortTitleBoost; artist under 2 sources → freq boost
+		const looseA = mk('netease', 'gang', '陳百強', { title: '港城' });
+		const looseB = mk('qq', 'gang2', '陳百強', { title: '港城' });
+		const ctx = computeSetContext([containing, looseA, looseB], '港耆');
+		// Sanity: the non-containing row really is carrying the full boost stack (3 + 2 = 5).
+		expect(scoreMatch(query, looseA, ctx)).toBe(5 /* SHORT_TITLE_BOOST_MAX(3) + ARTIST_FREQ_BOOST(2) */);
+		// The fix: the containing row (SIM_SUBSTR 6, ~0 short-title boost, single-source artist) wins.
+		expect(scoreMatch(query, containing, ctx)).toBeGreaterThan(scoreMatch(query, looseA, ctx));
 	});
 
 	it('the search-page {artist:q, title:q} shape still credits containment (halves de-duped, no 港耆港耆 doubling)', () => {
