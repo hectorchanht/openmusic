@@ -65,6 +65,12 @@ const SIM_EXACT = 10; // candidate matchKey === query matchKey
 const SIM_ARTIST = 3; // artist component matches
 const SIM_TITLE = 3; // title component matches
 const SIM_TOKEN = 2; // graded latin-token overlap (max contribution)
+// quick-260715-l9p: additive credit for a candidate whose normalized artist+title LITERALLY
+// contains the (normalized) query. It is the ONLY signal for a CJK query that is a SUBSTRING of a
+// longer title — matchKey strips spaces so such a query collapses to one token and earns no
+// token/component credit (see similarity()). == SIM_TOKEN and < SIM_TITLE, so an exact/component/
+// token match ALWAYS outranks a mere substring; applied ONLY when score===0 (purely additive).
+const SIM_SUBSTR = 2; // CJK-safe substring-containment credit (guarded additive-only)
 const VARIANT_WEIGHT = 4; // subtracted per un-asked-for variant keyword
 
 // --- Phase 21 set-relative tuning (SRCH-01) ---------------------------------------------
@@ -112,6 +118,24 @@ function similarity(query: { artist: string; title: string }, candidate: Track):
 		let hit = 0;
 		for (const tk of qToks) if (cToks.has(tk)) hit++;
 		score += SIM_TOKEN * (hit / qToks.size);
+	}
+
+	// CJK-safe substring-containment credit (quick-260715-l9p). matchKey strips spaces, so a CJK
+	// query that is a substring of a longer title (港耆 ⊂ 摩四老年港耆…) earns NO token/component
+	// credit — it collapses into one token that never token-matches inside the title, so it scores
+	// 0, tying with unrelated fuzzy rows. This substring term lets a candidate that LITERALLY
+	// contains the typed query outrank those unrelated matches. GUARDED by `score === 0` so it is
+	// additive-only: it can never demote a real match, and it keeps every already-matching
+	// candidate byte-identical — resolution scoring (Pitfall 7) is unchanged for any candidate
+	// that already earned exact/component/token credit. `length >= 2` avoids single-CJK-char noise.
+	if (score === 0) {
+		const cJoin = cArtist + cTitle;
+		// The search page (rankList) passes {artist:q, title:q}, so the two matchKey halves are
+		// IDENTICAL — join them once, else a CJK query would double (港耆港耆) and fail to match
+		// inside a title that contains it only once. resolveStub/crossSourceLyric pass a distinct
+		// artist/title, so their join is the real artist+title concatenation.
+		const qJoin = qArtist === qTitle ? qTitle : qArtist + qTitle;
+		if (qJoin.length >= 2 && cJoin.includes(qJoin)) score += SIM_SUBSTR;
 	}
 	return score;
 }

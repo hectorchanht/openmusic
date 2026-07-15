@@ -110,6 +110,60 @@ describe('scoreMatch — artist+title similarity reward (D-02b)', () => {
 	});
 });
 
+describe('scoreMatch — CJK-safe substring-containment credit (quick-260715-l9p)', () => {
+	// matchKey strips ALL spaces/punctuation, so a CJK query that is a SUBSTRING of a longer title
+	// (港耆 ⊂ 摩四老年港耆…) collapses into one token and earns NO token/component credit — it scores 0,
+	// tying with unrelated fuzzy rows. The substring term gives a candidate that LITERALLY contains
+	// the typed query an edge over those zero-similarity rows. This is the RIGHT-layer fix: the search
+	// page ranks EVERY source's results through scoreMatch, so crediting containment here fixes the
+	// live search ordering (the l9p ytmusic-adapter re-rank was dead code — the page re-sorts anyway).
+	it('a candidate whose title CONTAINS the CJK query outranks ones that do NOT', () => {
+		const query = { artist: '', title: '港耆' };
+		// title CONTAINS 港耆 (not equal to it); artist deliberately ≠ any query artist.
+		const containing = mk('ytmusic', 'vid', '摩四青年', {
+			title: '摩四老年 《港耆》 [Official Music Video]'
+		});
+		const looseGang = mk('netease', 'gang', '陳百強', { title: '港城' }); // shares only 港
+		const looseQi = mk('qq', 'qi', '柳永', { title: '耆卿' }); // shares only 耆
+		expect(scoreMatch(query, containing)).toBeGreaterThan(scoreMatch(query, looseGang));
+		expect(scoreMatch(query, containing)).toBeGreaterThan(scoreMatch(query, looseQi));
+	});
+
+	it('the search-page {artist:q, title:q} shape still credits containment (halves de-duped, no 港耆港耆 doubling)', () => {
+		// rankList passes the raw keyword into BOTH slots; the credit must still fire for a title that
+		// contains the query ONCE (the joined query must not double to 港耆港耆 and miss).
+		const query = { artist: '港耆', title: '港耆' };
+		const containing = mk('ytmusic', 'vid', '摩四青年', {
+			title: '摩四老年 《港耆》 [Official Music Video]'
+		});
+		const unrelated = mk('netease', 'gang', '陳百強', { title: '港城' });
+		expect(scoreMatch(query, containing)).toBeGreaterThan(scoreMatch(query, unrelated));
+	});
+
+	it('does NOT perturb an EXACT match (early return still scores SIM_EXACT)', () => {
+		const query = { artist: '', title: '港耆' };
+		const exact = mk('ytmusic', 'e', '', { title: '港耆' }); // matchKey === query → early SIM_EXACT
+		expect(scoreMatch(query, exact)).toBe(10 /* SIM_EXACT */);
+	});
+
+	it('does NOT double-credit a candidate with a prior non-zero token/component score (score===0 guard)', () => {
+		// Candidate title === query title (→ SIM_TITLE + full token overlap) AND its artist+title
+		// join literally contains 港耆. The score===0 guard must block the substring bump so the value
+		// is SIM_TITLE(3) + SIM_TOKEN(2) = 5, NOT 7.
+		const query = { artist: '', title: '港耆' };
+		const titleMatch = mk('netease', 't', '周杰倫', { title: '港耆' });
+		expect(scoreMatch(query, titleMatch)).toBe(5 /* SIM_TITLE(3) + SIM_TOKEN(2), no substring add */);
+	});
+
+	it('does NOT fire for a single-CJK-char query (length >= 2 guard) — 港 alone earns no containment credit', () => {
+		const single = { artist: '', title: '港' };
+		const containing = mk('ytmusic', 'c', '陳百強', { title: '港城' }); // contains 港 but query too short
+		const other = mk('qq', 'o', '柳永', { title: '耆卿' });
+		// both score 0 (no component/token match, single-char query blocked) → equal, no lift
+		expect(scoreMatch(single, containing)).toBe(scoreMatch(single, other));
+	});
+});
+
 describe('VARIANT_KEYWORDS — exported editable list', () => {
 	it('is a non-empty array containing both an English and a CJK term', () => {
 		expect(Array.isArray(VARIANT_KEYWORDS)).toBe(true);
