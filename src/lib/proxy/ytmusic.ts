@@ -24,6 +24,13 @@ export const WEB_REMIX_KEY = 'AIzaSyC9XL3ZjWddXya6X74dJoCTL-WEYFDNX30';
  *  noise. Verbatim from spike 005 (sent as-is in the POST body; the upstream accepts it, status 200). */
 export const SONGS_FILTER = 'EgWKAQIIAWoKEAkQBRAKEAMQBA%3D%3D';
 
+/** InnerTube `params` for the search "Videos" chip — surfaces community/video uploads that never
+ *  appear in the Songs catalog (the whole point of this source for niche, CN-unavailable tracks;
+ *  e.g. `dUlAfTZkjpE` 港耆 shows up ONLY under Videos). Verified against live InnerTube — the
+ *  upstream returns the same `musicShelfRenderer → musicResponsiveListItemRenderer` shape the Songs
+ *  parser already handles, so the search route merges both shelves (quick-260715-jdj). */
+export const VIDEOS_FILTER = 'EgWKAQIQAWoKEAkQChAFEAMQBBAV';
+
 /** InnerTube client context interface — WEB_REMIX for metadata; the optional fields (visitorData /
  *  androidSdkVersion / deviceModel) let Plan 27-03 build the ANDROID_VR player context of the same
  *  shape. */
@@ -134,6 +141,21 @@ export async function innerTubePost(
 		throw new Error(`ytmusic: InnerTube POST ${url.split('?')[0]} -> HTTP ${res.status}`);
 	}
 	return res.json();
+}
+
+/**
+ * POST a WEB_REMIX search for one filter chip (`params`) and return the raw InnerTube envelope.
+ * Shared by the search route so the Songs + Videos filters run through one edge helper instead of
+ * duplicating the fixed-URL POST (quick-260715-jdj). Metadata endpoint — anonymous, NO visitorData.
+ * Throws on a non-OK upstream (via innerTubePost) so the route's Promise.allSettled records the
+ * per-filter failure and can still return the other shelf.
+ */
+export async function searchInnerTube(
+	query: string,
+	params: string,
+	signal?: AbortSignal
+): Promise<unknown> {
+	return innerTubePost(SEARCH_URL, { context: WEB_REMIX_CONTEXT, query, params }, { signal });
 }
 
 /**
