@@ -94,7 +94,10 @@ _v1.5 — source-aware similar + top-hits fallback_
 - **UPNEXT-FB-01** — Replace the `buildDiversePicks` random `ARTIST_POOL` last-resort fallback with a **top/chart-hits** fallback so the genuinely-empty case still offers broad, real-popular options (not random noise).
 - **UPNEXT-YT-03** — Never-throw + graceful degrade (empty → existing fallback chain); zero regression to CN-seed similar behavior; `pnpm test` green + `pnpm check` clean.
 **Depends on:** Phase 27 (YouTube Music Source) — reuses its edge proxy transport (`proxy/ytmusic.ts`) + adapter/registry wiring.
-**Plans:** not yet planned — run `/gsd:plan-phase 28`.
+**Plans:** 3 plans
+- [ ] 28-01-PLAN.md — YTMusic related/watch-next edge parser (`parseWatchNextQueue`) + `/api/ytmusic/related` route [wave 1]
+- [ ] 28-02-PLAN.md — source-aware `buildSimilarQueue` YT-seed branch + `ytmusicRelated` client service [wave 2]
+- [ ] 28-03-PLAN.md — `buildTopHitsQueue` fallback + swap both `buildDiversePicks` player call sites [wave 3]
 
 ## Progress
 

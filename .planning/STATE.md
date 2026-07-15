@@ -1,11 +1,11 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.4
-milestone_name: New Source — YouTube Music
-status: complete
-stopped_at: Completed 27-04-PLAN.md (ytmusic resolve() best-effort plain lyrics + off-the-hot-path resilience — autoResolveEligible exclusion from failover/name-stub, allSettled isolation, registry-driven settings/label). Phase 27 complete (4/4).
-last_updated: "2026-07-15T01:31:00.000Z"
-last_activity: 2026-07-15 -- Completed 27-04 (ytmusic lyrics + resilience wiring); Phase 27 (YouTube Music Source) complete
+milestone: v1.5
+milestone_name: YTMusic-Powered Up-Next
+status: planned
+stopped_at: Planned Phase 28 (YTMusic-Powered Up-Next Recommendations) — 3 plans / 6 tasks / 3 sequential waves. Diagnosis (upnext-similar-empty-fallback) → CONTEXT → RESEARCH (live InnerTube radio-queue fixture) → VALIDATION → PLANs. Not yet executed.
+last_updated: "2026-07-15T02:30:00.000Z"
+last_activity: 2026-07-15 -- Planned Phase 28 (source-aware YTMusic similar + top-hits fallback); ready for /gsd:execute-phase 28
 progress:
   total_phases: 3
   completed_phases: 3
@@ -21,13 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-10)
 
 **Core value:** A user on their phone can search a song, tap it, and have it play instantly with a smooth, native-app-like experience — and keep playing when the screen locks.
-**Current focus:** Phase 27 — YouTube Music Source
+**Current focus:** Phase 28 — YTMusic-Powered Up-Next Recommendations (v1.5)
 
 ## Current Position
 
-Phase: 27 (YouTube Music Source) — COMPLETE + E2E-VERIFIED
-Plan: 4 of 4 (all complete)
-Status: Phase 27 complete (27-01..04). E2E-verified against LIVE YouTube via the dev-server routes: /api/ytmusic/search 200 (rows+videoId), /api/ytmusic/lyrics 200 (1513c + attribution), /api/ytmusic/stream 206 audio/mp4 + Range (playback) and 200 full-file (download). pnpm check clean, 1320 tests green. E2E caught + fixed a prod-breaking bug (quick-270715 / commit 29c1c7d): stream route exported non-HTTP-verb functions, illegal in SvelteKit +server.ts → 500; helpers moved to $lib/proxy/ytmusic.ts.
+Phase: 28 (YTMusic-Powered Up-Next Recommendations) — PLANNED, not executed
+Plan: 0 of 3 (28-01, 28-02, 28-03 written)
+Status: Planned via /gsd:do → debug → plan-phase. Root cause (`.planning/debug/upnext-similar-empty-fallback.md`): `buildSimilarQueue` (similar.ts:173) is source-blind (keys only on artist/title strings vs Last.fm/Deezer/CN), so a YT-only seed (港耆) returns [] and both callers silently swap in `buildDiversePicks` random ARTIST_POOL. Research live-captured the fix: InnerTube RADIO body `{videoId, playlistId:'RDAMVM'+videoId}` → 50 related rows (fixture saved). Plans: 28-01 edge parser+`/api/ytmusic/related` route (UPNEXT-YT-01); 28-02 `ytmusicRelated()` service + source-aware `buildSimilarQueue` branch (UPNEXT-YT-02); 28-03 `buildTopHitsQueue` (reuse getChartTopTracks) replacing both `buildDiversePicks` calls + `via:'top-hits'` (UPNEXT-FB-01). Sequential waves (28-02/28-03 share player.svelte.ts). UPNEXT-YT-03 (never-throw + suite-green) woven through all. NEXT: /gsd:execute-phase 28.
+
+### Prior phase (Phase 27 — YouTube Music Source, v1.4) — COMPLETE + E2E-VERIFIED
+Phase 27 complete (27-01..04). E2E-verified against LIVE YouTube via the dev-server routes: /api/ytmusic/search 200 (rows+videoId), /api/ytmusic/lyrics 200 (1513c + attribution), /api/ytmusic/stream 206 audio/mp4 + Range (playback) and 200 full-file (download). pnpm check clean, 1320 tests green. E2E caught + fixed a prod-breaking bug (quick-270715 / commit 29c1c7d): stream route exported non-HTTP-verb functions, illegal in SvelteKit +server.ts → 500; helpers moved to $lib/proxy/ytmusic.ts.
 Last activity: 2026-07-15 -- Quick 260715-l9p: search ranking now credits CJK substring containment (scoreMatch SIM_SUBSTR) — YT-only 港耆 track ranks #1 (was ~40); E2E-verified on the live search page
 Remaining human UAT: real-device <audio> playback+seek + download-to-disk; deployed-Worker player+googlevideo same-IP egress + bot-challenge under load (T-27-03-OP). Account/library sync = separate legal-gated milestone (spike 008).
 
