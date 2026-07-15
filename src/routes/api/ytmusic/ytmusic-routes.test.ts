@@ -1,7 +1,14 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { GET as searchGet, OPTIONS as searchOptions } from './search/+server';
 import { GET as lyricsGet, OPTIONS as lyricsOptions } from './lyrics/+server';
-import { WEB_REMIX_KEY, SEARCH_URL, NEXT_URL, BROWSE_URL } from '$lib/proxy/ytmusic';
+import {
+	WEB_REMIX_KEY,
+	SEARCH_URL,
+	NEXT_URL,
+	BROWSE_URL,
+	SONGS_FILTER,
+	VIDEOS_FILTER
+} from '$lib/proxy/ytmusic';
 
 const ORIGIN = 'https://openmusic.lol';
 
@@ -25,45 +32,108 @@ afterEach(() => {
 	vi.restoreAllMocks();
 });
 
-describe('GET /api/ytmusic/search — edge InnerTube forwarder', () => {
-	// A minimal-but-valid InnerTube song shelf.
-	const SHELF = {
+describe('GET /api/ytmusic/search — edge InnerTube songs+videos merge (quick-260715-jdj)', () => {
+	// Two minimal-but-valid InnerTube shelves with marker videoIds so we can prove the merge order
+	// (songs first) and that a videos-only row survives into the merged envelope.
+	const SONGS_SHELF = {
 		contents: {
 			sectionListRenderer: {
 				contents: [
-					{ musicShelfRenderer: { contents: [{ musicResponsiveListItemRenderer: { flexColumns: [] } }] } }
+					{
+						musicShelfRenderer: {
+							contents: [{ musicResponsiveListItemRenderer: { playlistItemData: { videoId: 'SONGvid' } } }]
+						}
+					}
+				]
+			}
+		}
+	};
+	const VIDEOS_SHELF = {
+		contents: {
+			sectionListRenderer: {
+				contents: [
+					{
+						musicShelfRenderer: {
+							contents: [{ musicResponsiveListItemRenderer: { playlistItemData: { videoId: 'VIDvid' } } }]
+						}
+					}
 				]
 			}
 		}
 	};
 
-	it('POSTs InnerTube edge-side and returns the envelope with allowlisted CORS', async () => {
-		let capturedUrl = '';
-		let capturedBody = '';
+	// Route the mocked fetch by which filter chip is in the POST body. A numeric value simulates that
+	// filter's upstream returning an HTTP error status; an object is a 200 JSON body.
+	function routeByFilter(songs: unknown, videos: unknown) {
+		return vi.fn(async (_u: unknown, init?: RequestInit) => {
+			const pick = String(init?.body).includes(VIDEOS_FILTER) ? videos : songs;
+			if (typeof pick === 'number') return new Response('boom', { status: pick });
+			return jsonRes(pick);
+		});
+	}
+
+	it('POSTs BOTH filters edge-side and merges (songs first); a videos-only id survives, CORS allowlisted', async () => {
+		const urls: string[] = [];
+		const bodies: string[] = [];
 		vi.stubGlobal(
 			'fetch',
 			vi.fn(async (u: unknown, init?: RequestInit) => {
-				capturedUrl = String(u);
-				capturedBody = String(init?.body);
-				return jsonRes(SHELF);
+				urls.push(String(u));
+				const body = String(init?.body);
+				bodies.push(body);
+				return jsonRes(body.includes(VIDEOS_FILTER) ? VIDEOS_SHELF : SONGS_SHELF);
 			})
 		);
 
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		const res = await searchGet(ev('/api/ytmusic/search', { q: '周杰倫' }) as any);
 		expect(res.status).toBe(200);
-		expect(await res.json()).toEqual(SHELF);
 
-		// server -> upstream: fixed SEARCH_URL, songs filter + query in the BODY only.
-		expect(capturedUrl).toBe(SEARCH_URL);
-		expect(capturedBody).toContain('EgWKAQIIAWoKEAkQBRAKEAMQBA%3D%3D');
-		expect(capturedBody).toContain('周杰倫');
+		const merged = (await res.json()) as { ytmusicMerged: unknown[] };
+		// SONGS FIRST, then videos — the merge order the client dedupe relies on.
+		expect(merged.ytmusicMerged).toEqual([SONGS_SHELF, VIDEOS_SHELF]);
+		// The videos-only row is carried through into the merged envelope.
+		expect(JSON.stringify(merged)).toContain('VIDvid');
+
+		// Two fixed-URL POSTs to SEARCH_URL; BOTH filters present, query in the body only.
+		expect(urls).toEqual([SEARCH_URL, SEARCH_URL]);
+		expect(bodies.some((b) => b.includes(SONGS_FILTER))).toBe(true);
+		expect(bodies.some((b) => b.includes(VIDEOS_FILTER))).toBe(true);
+		expect(bodies.every((b) => b.includes('周杰倫'))).toBe(true);
 		// CORS allowlisted for the requesting origin (never '*').
 		expect(res.headers.get('access-control-allow-origin')).toBe(ORIGIN);
 	});
 
+	it('one filter failing still returns the OTHER shelf (songs 500 → videos only)', async () => {
+		vi.stubGlobal('fetch', routeByFilter(500, VIDEOS_SHELF));
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const res = await searchGet(ev('/api/ytmusic/search', { q: 'x' }) as any);
+		expect(res.status).toBe(200);
+		const merged = (await res.json()) as { ytmusicMerged: unknown[] };
+		expect(merged.ytmusicMerged).toEqual([VIDEOS_SHELF]); // only the successful shelf
+	});
+
+	it('one filter failing still returns the OTHER shelf (videos 500 → songs only)', async () => {
+		vi.stubGlobal('fetch', routeByFilter(SONGS_SHELF, 500));
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const res = await searchGet(ev('/api/ytmusic/search', { q: 'x' }) as any);
+		const merged = (await res.json()) as { ytmusicMerged: unknown[] };
+		expect(merged.ytmusicMerged).toEqual([SONGS_SHELF]);
+	});
+
+	it('BOTH filters failing → empty (shelf-shaped) sentinel, HTTP 200, no throw', async () => {
+		vi.stubGlobal('fetch', routeByFilter(500, 503));
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const res = await searchGet(ev('/api/ytmusic/search', { q: 'x' }) as any);
+		expect(res.status).toBe(200);
+		const body = await res.json();
+		// The shelf-shaped sentinel (so the client parse yields [] instead of contract-drift), NOT a merge.
+		expect(JSON.stringify(body)).toContain('musicShelfRenderer');
+		expect((body as { ytmusicMerged?: unknown }).ytmusicMerged).toBeUndefined();
+	});
+
 	it('empty / whitespace q issues ZERO upstream fetches', async () => {
-		const fetchSpy = vi.fn(async () => jsonRes(SHELF));
+		const fetchSpy = vi.fn(async () => jsonRes(SONGS_SHELF));
 		vi.stubGlobal('fetch', fetchSpy);
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		const res = await searchGet(ev('/api/ytmusic/search', { q: '   ' }) as any);
@@ -74,7 +144,7 @@ describe('GET /api/ytmusic/search — edge InnerTube forwarder', () => {
 	it('never leaks the WEB_REMIX key into the client-facing response body', async () => {
 		vi.stubGlobal(
 			'fetch',
-			vi.fn(async () => jsonRes(SHELF))
+			vi.fn(async () => jsonRes(SONGS_SHELF))
 		);
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		const res = await searchGet(ev('/api/ytmusic/search', { q: 'x' }) as any);
@@ -82,17 +152,6 @@ describe('GET /api/ytmusic/search — edge InnerTube forwarder', () => {
 		expect(body).not.toContain(WEB_REMIX_KEY);
 		const headerBlob = JSON.stringify([...res.headers.entries()]);
 		expect(headerBlob).not.toContain(WEB_REMIX_KEY);
-	});
-
-	it('upstream error → empty (shelf-shaped) body, no throw', async () => {
-		vi.stubGlobal(
-			'fetch',
-			vi.fn(async () => new Response('boom', { status: 500 }))
-		);
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		const res = await searchGet(ev('/api/ytmusic/search', { q: 'x' }) as any);
-		expect(res.status).toBe(200);
-		expect(JSON.stringify(await res.json())).toContain('musicShelfRenderer');
 	});
 
 	it('OPTIONS → 204 with allowlisted corsHeaders', async () => {
