@@ -176,9 +176,14 @@
                 onclick={() => player.toggle()}
                 use:tapBounce
             >
-                {#if player.playing}<Pause size={18} />{:else}<Play
-                        size={18}
-                    />{/if}
+                <span
+                    class="play-glyph"
+                    class:is-playing={player.playing}
+                    aria-hidden="true"
+                >
+                    <span class="pg pg-play"><Play size={18} /></span>
+                    <span class="pg pg-pause"><Pause size={18} /></span>
+                </span>
             </button>
         {/if}
     </div>

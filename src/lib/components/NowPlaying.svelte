@@ -10,6 +10,7 @@
 
 <script lang="ts">
 	import { untrack } from 'svelte';
+	import { Spring } from 'svelte/motion';
 	import { fly, fade } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
 	import { goto } from '$app/navigation';
@@ -39,6 +40,7 @@
 	import { swipeRemove } from '$lib/actions/swipeRemove';
 	import { swipeAction } from '$lib/actions/swipeAction';
 	import { coverSwipe } from '$lib/actions/coverSwipe';
+	import { scrub } from '$lib/actions/scrub';
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { focusTrap } from '$lib/actions/focusTrap';
 	import { toast } from '$lib/stores/toast.svelte';
@@ -129,13 +131,28 @@
 		return `linear-gradient(145deg, hsl(${h} 55% 32%), hsl(${(h + 40) % 360} 55% 18%))`;
 	}
 
-	// ---- progress ----
+	// ---- progress / scrubber (plan 002) ----
 	const frac = $derived(player.duration > 0 ? player.currentTime / player.duration : 0);
-	function seek(e: MouseEvent) {
-		const el = e.currentTarget as HTMLElement;
-		const r = el.getBoundingClientRect();
-		player.seekFraction((e.clientX - r.left) / r.width);
+	// While a live scrub is in flight, the UI shows the PREVIEW fraction (finger position) and the
+	// audio is NOT seeked until release — so playback never stutters mid-drag. displayFrac is what
+	// the rail + time readout render; it falls back to the real playback frac when not scrubbing.
+	let scrubbing = $state(false);
+	let scrubFrac = $state(0);
+	const displayFrac = $derived(scrubbing ? scrubFrac : frac);
+	const displayTime = $derived(
+		scrubbing && player.duration > 0 ? scrubFrac * player.duration : player.currentTime
+	);
+	function onScrubPreview(f: number) {
+		scrubFrac = f;
+		scrubbing = true;
 	}
+	function onScrubCommit(f: number) {
+		player.seekFraction(f); // clamps [0,1] internally; auto-plays if paused (same as tap-to-seek)
+	}
+	function onScrubEnd() {
+		scrubbing = false;
+	}
+	// Keyboard parity retained: arrows nudge ±5s via the store (unchanged behaviour).
 	function seekKey(e: KeyboardEvent) {
 		if (player.duration <= 0) return;
 		if (e.key === 'ArrowRight') player.seekFraction((player.currentTime + 5) / player.duration);
@@ -565,6 +582,21 @@
 	// and let the store top up instead of resisting at the visual boundary.
 	const hasPrevNeighbor = $derived(prevCover !== null && ci !== 0);
 	const hasNextNeighbor = $derived(!!player.current);
+
+	// ---- Contextual cover scale (plan 003, Domain 4) ----
+	// Native players shrink the art when paused, expand when playing. A physics Spring drives the
+	// scale so rapid play/pause toggles retarget smoothly mid-flight (interruptible — Emil). Only
+	// applied while the sheet is CLOSED (the square hero); in half/full the cover is a full-bleed
+	// banner where a scale would look wrong, so the target is pinned to 1 there. Reduce-motion (app
+	// flag OR OS) snaps instantly via `{ instant: true }`. osReduceMotion is derived below (line ~600).
+	const coverScale = new Spring(1, { stiffness: 0.16, damping: 0.62 });
+	$effect(() => {
+		const playing = player.playing;
+		const closed = sheetState === 'closed';
+		const reduce = settings.reduceMotion || osReduceMotion;
+		const target = !playing && closed ? 0.93 : 1;
+		coverScale.set(target, reduce ? { instant: true } : undefined);
+	});
 	// Cell background: current cell uses the effective (possibly Last.fm-swapped) cover; the prev/next
 	// neighbors resolve through the SAME shared resolvedCovers map (lazyCover → Deezer→iTunes→CN) so a
 	// null-cover neighbor shows real art instead of a perpetual gradient (quick-260629-nyl Task 1).
@@ -683,6 +715,11 @@
 	let startY = 0;
 	let startX = 0;
 	const DRAG_SLOP = 8;
+	// plan 005: flick-to-collapse. The page-collapse path was distance-only (dragY > 120); add a
+	// velocity tracker so a fast downward flick dismisses too, matching the sheet snap machine and
+	// the coverSwipe/dragClose gestures. Reuses the shared pure tracker (no Date.now — WR-safe).
+	const collapseVel = createVelocityTracker();
+	const COLLAPSE_FLICK_V = 0.5; // px/ms — same flick threshold as gripVel / coverSwipe FLICK_V
 	// A cover vertical drag is a one-shot commit to one of two owners, chosen at the slop threshold:
 	//   • snap-machine — when the sheet is OPEN (half/full), OR when it is closed and the gesture goes
 	//     UP. Mirrors the grip 1:1: drives gripActive/sheetDragging/sheetDragY/gripMoved/gripVel so the
@@ -699,6 +736,8 @@
 		npTopDeleg = 'none';
 		startY = e.clientY;
 		startX = e.clientX;
+		collapseVel.reset();
+		collapseVel.sample(e.clientY, e.timeStamp);
 	}
 	function npTopMove(e: PointerEvent) {
 		if (!dragArmed) return;
@@ -740,6 +779,7 @@
 			gripMoved = e.clientY - gripStartY; // may be NEGATIVE (up) — the downward-only clamp is gone
 			sheetDragY = Math.max(0, Math.min(closedOffset, offsetFor(sheetState) + gripMoved));
 		} else if (npTopDeleg === 'collapse') {
+			collapseVel.sample(e.clientY, e.timeStamp);
 			dragY = Math.max(0, dy);
 		}
 	}
@@ -774,9 +814,10 @@
 			gripUp();
 			return;
 		}
-		// deleg === 'collapse' — closed-state downward drag: today's page-collapse behaviour.
+		// deleg === 'collapse' — closed-state downward drag: distance OR a fast downward flick.
 		dragging = false;
-		if (dragY > 120) player.collapse();
+		const v = collapseVel.velocity(); // px/ms; > 0 = moving DOWN
+		if (dragY > 120 || (v > COLLAPSE_FLICK_V && dragY > 8)) player.collapse();
 		dragY = 0;
 	}
 
@@ -1213,6 +1254,7 @@
 		tabindex="0"
 		bind:this={coverEl}
 		aria-label={t('nowplaying.albumArt')}
+		style:transform={`scale(${coverScale.current})`}
 	>
 		<!-- Rigid 3-cell carousel strip: prev | current | next, neighbors flush against the current
 		     cell, 1:1 lockstep (no parallax/scale/fade — UI-SPEC §1). Neighbors sit flush off-screen
@@ -1239,10 +1281,20 @@
 			{:else}
 				<div class="cover-cell prev" style:background-image="none"></div>
 			{/if}
-			<div
-				class="cover-cell cur"
-				style:background-image={effectiveCover ? `url(${effectiveCover})` : fallbackCover(player.current)}
-			></div>
+			<div class="cover-cell cur">
+				<!-- plan 003: the current cell crossfades its art on a non-swipe track change / late
+				     resolve. Two keyed layers stack at inset:0 and dissolve; the strip transform
+				     (coverSwipe) is on the parent .cover-strip and is unaffected. xfadeMs → 0 under
+				     reduce-motion, so it becomes an instant swap. -->
+				{#key effectiveCover}
+					<div
+						class="cover-img"
+						in:fade={{ duration: xfadeMs }}
+						out:fade={{ duration: xfadeMs }}
+						style:background-image={effectiveCover ? `url(${effectiveCover})` : fallbackCover(player.current)}
+					></div>
+				{/key}
+			</div>
 			{#if nextCover}
 				<div class="cover-cell next" use:lazyCover={{ track: nextCover, onResolved: onCoverResolved }} style:background-image={cellBg(nextCover)}></div>
 			{:else}
@@ -1274,12 +1326,24 @@
 	{/if}
 
 	<div class="prog">
-		<div class="track" onclick={seek} onkeydown={seekKey} role="slider" tabindex="0" aria-label={t('nowplaying.seek')} aria-valuenow={Math.round(frac * 100)}>
-			<div class="fill" style:width={`${frac * 100}%`}></div>
-			<div class="knob" style:left={`${frac * 100}%`}></div>
+		<div
+			class="scrubber"
+			class:scrubbing
+			style:--scrub-frac={displayFrac}
+			role="slider"
+			tabindex="0"
+			aria-label={t('nowplaying.seek')}
+			aria-valuemin="0"
+			aria-valuemax="100"
+			aria-valuenow={Math.round(displayFrac * 100)}
+			onkeydown={seekKey}
+			use:scrub={{ onSeek: onScrubCommit, onPreview: onScrubPreview, onScrubEnd }}
+		>
+			<div class="scrub-fill"></div>
+			<div class="scrub-knob"></div>
 		</div>
 		<div class="times">
-			<span>{fmtTime(player.currentTime)}</span>
+			<span>{fmtTime(displayTime)}</span>
 			<span>{player.duration > 0 ? fmtTime(player.duration) : '--:--'}</span>
 		</div>
 	</div>
@@ -1300,7 +1364,10 @@
 		<button class="t" class:on={currentLiked} aria-pressed={currentLiked} aria-label={currentLiked ? t('menu.liked') : t('menu.like')} onclick={toggleCurrentLike} use:tapBounce><Heart size={20} fill={currentLiked ? 'currentColor' : 'none'} /></button>
 		<button class="t" aria-label={t('nowplaying.previous')} onclick={() => player.prev()} use:tapBounce><SkipBack size={26} /></button>
 		<button class="play" aria-label={t('nowplaying.playPause')} onclick={() => player.toggle()} use:tapBounce>
-			{#if player.playing}<Pause size={26} />{:else}<Play size={26} />{/if}
+			<span class="play-glyph" class:is-playing={player.playing} aria-hidden="true">
+				<span class="pg pg-play"><Play size={26} /></span>
+				<span class="pg pg-pause"><Pause size={26} /></span>
+			</span>
 		</button>
 		<button class="t" aria-label={t('nowplaying.next')} onclick={() => player.next()} use:tapBounce><SkipForward size={26} /></button>
 		<button class="t" class:on={player.repeatMode !== 'off'} aria-pressed={player.repeatMode !== 'off'} aria-label={player.repeatMode === 'one' ? t('nowplaying.repeatModeOne') : t('nowplaying.repeat')} onclick={() => player.cycleRepeat()} use:tapBounce>
@@ -1542,6 +1609,11 @@
 	.cover-cell.prev { left: -100%; }
 	.cover-cell.cur { left: 0; }
 	.cover-cell.next { left: 100%; }
+	/* plan 003: the current cell crossfades its art on a non-swipe track change / late resolve.
+	   Two keyed .cover-img layers stack at inset:0 and dissolve; overflow:hidden clips them to
+	   the cell so a mid-fade layer never bleeds over a neighbor. */
+	.cover-cell.cur { overflow: hidden; }
+	.cover-img { position: absolute; inset: 0; background-size: cover; background-position: center; }
 	/* Reduced motion (OS pref OR the app's :root[data-reduce-motion] setting, app.css): the carousel
 	   commit-settle / spring-back collapses to instant — the track still changes, only the slide
 	   animation is removed (UI-SPEC §1 reduced-motion row). The action restores `transition` inline on
@@ -1594,11 +1666,10 @@
 	   only per-file pieces — the global rule animates them. (gmy unified the drift.) */
 	.np-error { color: #ff6b6b; font-size: 13px; text-align: center; margin: 2px 2px 10px; }
 	.prog { margin: 4px 0; }
-	.track { position: relative; height: 14px; display: flex; align-items: center; cursor: pointer; }
-	.track::before { content: ''; position: absolute; left: 0; right: 0; height: 4px; border-radius: 4px; background: var(--color-text-muted); opacity: 0.3; }
-	.fill { position: absolute; left: 0; height: 4px; border-radius: 4px; background: var(--color-primary); }
-	.knob { position: absolute; width: 12px; height: 12px; border-radius: 50%; background: var(--color-text-muted); transform: translateX(-50%); }
-	.times { display: flex; justify-content: space-between; font-size: 11px; color: var(--color-text-muted); margin-top: 4px; }
+	/* plan 002: the seek rail is now the shared global `.scrubber` (app.css) driven by
+	   use:scrub — the old local `.track`/`.fill`/`.knob` rules were removed. */
+	/* plan 006: tabular-nums so the ticking current-time readout never jitters horizontally. */
+	.times { display: flex; justify-content: space-between; font-size: 11px; color: var(--color-text-muted); margin-top: 4px; font-variant-numeric: tabular-nums; }
 	.transport { display: flex; align-items: center; justify-content: space-between; margin: 10px 4px 22px; }
 	.t { background: none; border: none; color: var(--color-text); cursor: pointer; opacity: 0.85; display: grid; place-items: center; }
 	.t.on { color: var(--color-primary); opacity: 1; }
