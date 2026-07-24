@@ -90,7 +90,7 @@ function clearStoredUri(uid: string): void {
 	}
 }
 
-async function nativePut(uid: string, blob: Blob): Promise<boolean> {
+async function nativePut(uid: string, blob: Blob, filename?: string): Promise<boolean> {
 	// Step 1 — app-private offline copy (the get() read source) via capacitor-blob-writer, which
 	// streams the Blob straight to disk (NO base64 round-trip). This copy is what get() serves
 	// playback from, so its success/failure IS the put() result.
@@ -107,7 +107,11 @@ async function nativePut(uid: string, blob: Blob): Promise<boolean> {
 	// eliminating the whole-blob base64 OOM/ANR risk for large lossless files.
 	try {
 		const { uri: sourcePath } = await Filesystem.getUri({ path: nativePath(uid), directory: NATIVE_DIR });
-		const { uri } = await MediaStoreSaver.saveToMusic({ fileName: nativeFileName(uid), sourcePath });
+		// DL-FILE-01 (D-06): the PUBLIC MediaStore filename becomes the human `{artist} - {song}.{ext}`
+		// name when the caller threads one through put() (TrackMenu supplies it via the new 3rd arg).
+		// When absent (album / legacy callers) fall back to nativeFileName(uid) = `<uid>.mp3` so those
+		// paths are byte-for-byte unchanged. The app-private copy above stays uid-keyed regardless (D-04).
+		const { uri } = await MediaStoreSaver.saveToMusic({ fileName: filename ?? nativeFileName(uid), sourcePath });
 		if (uri) setStoredUri(uid, uri);
 	} catch {
 		// public copy is visibility-only — best-effort; the offline copy already landed (WR-01).
@@ -183,10 +187,15 @@ function txStore(db: IDBDatabase, mode: IDBTransactionMode): IDBObjectStore {
 /**
  * Persist a Blob under `uid`. Resolves silently on success or any failure (never throws).
  * Returns true if the write landed, false otherwise.
+ *
+ * DL-FILE-01 (D-06): the optional `filename` is the human `{artist} - {song}.{ext}` name for the
+ * PUBLIC native (MediaStore) write only — it is threaded to the Kotlin bridge when supplied and
+ * falls back to `<uid>.mp3` when absent (album/legacy callers). The web (IndexedDB) branch ignores
+ * it entirely: the browser download anchor names the saved file, and the IDB record is uid-keyed.
  */
-export async function put(uid: string, blob: Blob): Promise<boolean> {
+export async function put(uid: string, blob: Blob, filename?: string): Promise<boolean> {
 	if (!uid) return false;
-	if (Capacitor.isNativePlatform()) return nativePut(uid, blob);
+	if (Capacitor.isNativePlatform()) return nativePut(uid, blob, filename);
 	const db = await openDb();
 	if (!db) return false;
 	return new Promise<boolean>((resolve) => {
