@@ -10,9 +10,11 @@
 	import { ChevronLeft, Play, Download, ListPlus, Heart, Share2, Plus, X } from '@lucide/svelte';
 	import { player } from '$lib/stores/player.svelte';
 	import { library } from '$lib/stores/library.svelte';
-	import { settings } from '$lib/stores/settings.svelte';
+	import { settings, effectiveTarget } from '$lib/stores/settings.svelte';
 	import { names } from '$lib/stores/names.svelte';
 	import { overlays } from '$lib/stores/overlays.svelte';
+	import { entityCardUrl } from '$lib/services/share';
+	import { s2tConvertLines, isChineseLine } from '$lib/services/zh-convert';
 	import { dragClose } from '$lib/actions/dragClose';
 	import { focusTrap } from '$lib/actions/focusTrap';
 	import { longpress } from '$lib/actions/longpress';
@@ -452,11 +454,28 @@
 			// entityShareUrl() is deliberately NOT used here: it slugifies CJK to '' (share.ts), which
 			// would yield a non-reopening link for the app's primary CJK catalog (deviation — see
 			// SUMMARY). No ?play= carrier — an album page is an entity, not a now-playing restore (D-06).
-			const base = typeof location !== 'undefined' ? location.origin : '';
-			const path = `/album/${encodeURIComponent(name)}`;
-			const url = albumArtist ? `${base}${path}?artist=${encodeURIComponent(albumArtist)}` : `${base}${path}`;
+			//
+			// quick-260723-ry1 (match the song card): build via entityCardUrl so the link carries the
+			// resolved cover (og:image) + zhs→zht DISPLAY overrides. The literal `name`/`albumArtist` stay
+			// the path/?artist resolution key; when the sharer's title/artist target is Traditional the
+			// converted names ride dn/da (display-only) so the card shows Traditional without changing what
+			// the recipient's tracklist resolves against. Offline s2t is never-throw → original fallback.
+			let dName = name;
+			let dArtist = albumArtist;
+			if (effectiveTarget(settings.titleLang) === 'zh-Hant' && isChineseLine(name))
+				dName = (await s2tConvertLines([name]))[0] ?? name;
+			if (albumArtist && effectiveTarget(settings.artistLang) === 'zh-Hant' && isChineseLine(albumArtist))
+				dArtist = (await s2tConvertLines([albumArtist]))[0] ?? albumArtist;
+			const url = entityCardUrl({
+				type: 'album',
+				name,
+				artist: albumArtist,
+				cover: heroImg,
+				displayName: dName,
+				displayArtist: dArtist
+			});
 			const nav = navigator as Navigator & { share?: (d: ShareData) => Promise<void> };
-			if (nav.share) await nav.share({ title: `${name} — ${albumArtist}`, url });
+			if (nav.share) await nav.share({ title: dArtist ? `${dName} • ${dArtist}` : dName, url });
 			else {
 				await navigator.clipboard.writeText(url);
 				globalToast.show(t('toast.shareCopied'));

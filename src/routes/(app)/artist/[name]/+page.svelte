@@ -8,7 +8,9 @@
 	import { ChevronLeft, Heart, Play, Share2 } from '@lucide/svelte';
 	import { searchAll } from '$lib/services/catalog';
 	import { dedupeBest } from '$lib/services/dedupe';
-	import { settings } from '$lib/stores/settings.svelte';
+	import { settings, effectiveTarget } from '$lib/stores/settings.svelte';
+	import { entityCardUrl } from '$lib/services/share';
+	import { s2tConvertLines, isChineseLine } from '$lib/services/zh-convert';
 	import { player } from '$lib/stores/player.svelte';
 	import { library } from '$lib/stores/library.svelte';
 	import { names } from '$lib/stores/names.svelte';
@@ -164,8 +166,17 @@
 		// to '' (share.ts), which would yield a non-reopening link for the app's primary CJK catalog
 		// (deviation — see SUMMARY). No ?play= carrier — an artist page is an entity, not a now-
 		// playing restore (D-06). location guarded for SSR safety.
-		const url = typeof location !== 'undefined' ? `${location.origin}/artist/${encodeURIComponent(name)}` : `/artist/${encodeURIComponent(name)}`;
-		const title = name;
+		//
+		// quick-260723-ry1 (match the song card): build via entityCardUrl so the link carries the
+		// resolved hero cover (og:image) + a zhs→zht DISPLAY override. The literal `name` stays the path
+		// resolution key; when the sharer's artist target is Traditional the converted name rides `dn`
+		// (display-only) so the card shows Traditional without changing what the recipient resolves
+		// against. Offline s2t is never-throw → original fallback.
+		let dName = name;
+		if (effectiveTarget(settings.artistLang) === 'zh-Hant' && isChineseLine(name))
+			dName = (await s2tConvertLines([name]))[0] ?? name;
+		const url = entityCardUrl({ type: 'artist', name, cover: heroImg, displayName: dName });
+		const title = dName;
 		try {
 			const nav = navigator as Navigator & { share?: (d: ShareData) => Promise<void> };
 			if (nav.share) await nav.share({ title, text: title, url });

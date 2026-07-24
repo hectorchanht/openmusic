@@ -192,6 +192,41 @@ export function songShareUrl(t: { title: string; artist: string; cover?: string 
 	return `${base}/song/${slug}?n=${nEnc}&a=${aEnc}${cEnc}`;
 }
 
+/**
+ * quick-260723-ry1: build a readable ALBUM/ARTIST share URL that mirrors the song card (cover +
+ * zhs→zht + YouTube-Music-style OG) while STAYING resolution-safe.
+ *
+ * Unlike entityShareUrl (ASCII slug, drops CJK) and unlike the song card (whose n/a double as the
+ * resolution query), the album/artist page's AUTHORITATIVE round-trip key is the LITERAL name in the
+ * path — `/album/{name}?artist=` / `/artist/{name}` are resolved by `params.name`/`?artist=` via
+ * getAlbumTracklist/enrichAlbum/searchAll. So the path key is kept in its ORIGINAL script here; the
+ * zhs→zht-converted name/artist ride SEPARATE display carriers (`dn`/`da`) the loader prefers for the
+ * OG card ONLY — the tracklist still resolves against the original CJK name. The resolved cover rides
+ * `c`, https-gated (isHttpsUrl) exactly like songShareUrl (og:image is emitted into a meta tag, never
+ * fetched server-side → no SSRF). `da` is album-only (an artist page has no secondary name).
+ */
+export function entityCardUrl(opts: {
+	type: 'album' | 'artist';
+	name: string;
+	artist?: string;
+	cover?: string | null;
+	displayName?: string;
+	displayArtist?: string;
+}): string {
+	const base = typeof location !== 'undefined' ? location.origin : '';
+	const params = new URLSearchParams();
+	// Album tracklist resolution key (functional, literal — NOT a display carrier).
+	if (opts.type === 'album' && opts.artist) params.set('artist', opts.artist);
+	if (isHttpsUrl(opts.cover)) params.set('c', opts.cover as string);
+	// Display overrides carried ONLY when they actually differ from the literal path/artist key, so a
+	// non-converting (English / already-Traditional) share stays byte-clean with no redundant carriers.
+	if (opts.displayName && opts.displayName !== opts.name) params.set('dn', opts.displayName);
+	if (opts.type === 'album' && opts.displayArtist && opts.displayArtist !== (opts.artist ?? ''))
+		params.set('da', opts.displayArtist);
+	const qs = params.toString();
+	return `${base}/${opts.type}/${encodeURIComponent(opts.name)}${qs ? `?${qs}` : ''}`;
+}
+
 /** The fixed source enum the readable share path encodes. Because source names are a closed
  *  set, `{source}{id}` is unambiguously separable from the cosmetic slug (D-04 / A7). This list
  *  MUST stay aligned with the live `SourceId` union in $lib/sources/types (24-04 reconcile:

@@ -1,8 +1,11 @@
 // Universal load (SSR + client nav). Derives crawler-facing album OG data from the route param +
-// `?artist=` query so it lands in the SSR-rendered <svelte:head> (GLN-4 / item 4). The album cover
-// is resolved client-side (enrichAlbum/deezerAlbum), so the SSR cover is null and the page/layout
-// falls back to the static /og.svg — crawlers still get a page-specific title + description. Plain
-// strings (NOT t()) since load runs server-side where the reactive i18n lookup is unsafe.
+// query carriers so it lands in the SSR-rendered <svelte:head> (GLN-4 / item 4). quick-260723-ry1
+// (match the song card): the share link now carries the resolved cover via `?c=` (buildOg https-gates
+// it → og:image; else /og.svg) and OPTIONAL zhs→zht display overrides `dn`/`da` (the Traditional
+// album/artist name shown on the card when the sharer's lang setting is Traditional). The path
+// `params.name` + `?artist=` stay the ORIGINAL literal RESOLUTION key — dn/da are display-only, so the
+// tracklist still resolves against the original CJK name. Plain strings (NOT t()) — load runs
+// server-side where the reactive i18n lookup is unsafe.
 import { buildOg } from '$lib/services/share';
 import type { PageLoad } from './$types';
 
@@ -18,9 +21,13 @@ export const prerender = false;
 export const load: PageLoad = ({ params, url }) => {
 	const name = decodeURIComponent(params.name ?? '');
 	const artist = url.searchParams.get('artist') ?? '';
-	const og = buildOg({ title: `${name} · openmusic`, cover: null });
-	og.description = artist
-		? `${name} by ${artist} on openmusic — full tracklist. Fast mobile-first music streaming.`
-		: `${name} on openmusic — full tracklist. Fast mobile-first music streaming.`;
+	// quick-260723-ry1: cover carrier (https-gated by buildOg) + zhs→zht display overrides. dn/da are
+	// display-only — resolution below still keys off the literal `name`/`artist`.
+	const c = url.searchParams.get('c') ?? '';
+	const displayName = url.searchParams.get('dn') || name;
+	const displayArtist = url.searchParams.get('da') || artist;
+	// YouTube-Music-style card (match the song card): title `Album • Artist`, short `Listen on
+	// openmusic` tagline (buildOg's default — no bespoke description override).
+	const og = buildOg({ title: displayName, artist: displayArtist || undefined, cover: c || null });
 	return { og };
 };
