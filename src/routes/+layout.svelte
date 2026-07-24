@@ -1,8 +1,10 @@
 <script lang="ts">
 	import "../app.css";
 	import { untrack } from "svelte";
+	import { browser } from "$app/environment";
 	import { page } from "$app/state";
 	import { player } from "$lib/stores/player.svelte";
+	import { names } from "$lib/stores/names.svelte";
 
 	let { children } = $props();
 	let audioEl: HTMLAudioElement;
@@ -35,6 +37,24 @@
 				void player.restore();
 			});
 		}
+	});
+
+	// quick-260723-spk: Spotify / YouTube-Music-style browser-tab title. While a track is current, the
+	// tab reads "Song • Artist" using the TRANSLATED display names (names.dnTitle/dnArtist) so it
+	// matches the on-screen text + honors the zhs→zht setting (• matches the share-card style). It
+	// takes priority over each route's own <svelte:head><title>: reading page.url.pathname re-asserts
+	// the title after a client navigation overwrites document.title, and dnTitle/dnArtist read
+	// names.rev so it also re-runs when a lazy translation resolves. When nothing is current, the
+	// route/app <title> stands. This effect WRITES a DOM property (document.title), never $state, so —
+	// unlike the attach()/restore() effect above — it cannot self-invalidate (no untrack needed).
+	// $effect never runs under SSR, so crawlers still get each route's SSR <title>; browser-guarded too.
+	$effect(() => {
+		const cur = player.current;
+		void page.url.pathname; // re-apply after a route <title> overwrites document.title on nav
+		if (!browser || !cur) return;
+		const title = names.dnTitle(cur.title);
+		const artist = names.dnArtist(cur.artist);
+		document.title = artist ? `${title} • ${artist}` : title;
 	});
 </script>
 
