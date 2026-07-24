@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: YTMusic-Powered Up-Next
-status: planned
-stopped_at: Planned Phase 28 (YTMusic-Powered Up-Next Recommendations) — 3 plans / 6 tasks / 3 sequential waves. Diagnosis (upnext-similar-empty-fallback) → CONTEXT → RESEARCH (live InnerTube radio-queue fixture) → VALIDATION → PLANs. Not yet executed.
-last_updated: "2026-07-15T02:30:00.000Z"
-last_activity: 2026-07-15 -- Planned Phase 28 (source-aware YTMusic similar + top-hits fallback); ready for /gsd:execute-phase 28
+status: planning
+stopped_at: Phase 29 (Download UX & Folder Control) PLANNED — 6 plans / 4 waves; waves 3-4 gated on device UAT
+last_updated: "2026-07-24T03:35:41.752Z"
+last_activity: "2026-07-24 -- Quick 260723-ry1: extended the YouTube-Music-style share card to ALBUM + ARTIST (new resolution-safe entityCardUrl) — carries the resolved cover (og:image), zhs→zht via display-only dn/da carriers (path key stays literal so CJK tracklists still resolve), and simplified 'Album • Artist'/'Artist' title + 'Listen on openmusic' tagline; SSR OG head E2E-verified, 1341/1341 tests"
 progress:
-  total_phases: 3
+  total_phases: 5
   completed_phases: 3
-  total_plans: 21
+  total_plans: 30
   completed_plans: 21
-  percent: 100
+  percent: 60
 ---
 
 # Project State
@@ -30,6 +30,7 @@ Plan: 0 of 3 (28-01, 28-02, 28-03 written)
 Status: Planned via /gsd:do → debug → plan-phase. Root cause (`.planning/debug/upnext-similar-empty-fallback.md`): `buildSimilarQueue` (similar.ts:173) is source-blind (keys only on artist/title strings vs Last.fm/Deezer/CN), so a YT-only seed (港耆) returns [] and both callers silently swap in `buildDiversePicks` random ARTIST_POOL. Research live-captured the fix: InnerTube RADIO body `{videoId, playlistId:'RDAMVM'+videoId}` → 50 related rows (fixture saved). Plans: 28-01 edge parser+`/api/ytmusic/related` route (UPNEXT-YT-01); 28-02 `ytmusicRelated()` service + source-aware `buildSimilarQueue` branch (UPNEXT-YT-02); 28-03 `buildTopHitsQueue` (reuse getChartTopTracks) replacing both `buildDiversePicks` calls + `via:'top-hits'` (UPNEXT-FB-01). Sequential waves (28-02/28-03 share player.svelte.ts). UPNEXT-YT-03 (never-throw + suite-green) woven through all. NEXT: /gsd:execute-phase 28.
 
 ### Prior phase (Phase 27 — YouTube Music Source, v1.4) — COMPLETE + E2E-VERIFIED
+
 Phase 27 complete (27-01..04). E2E-verified against LIVE YouTube via the dev-server routes: /api/ytmusic/search 200 (rows+videoId), /api/ytmusic/lyrics 200 (1513c + attribution), /api/ytmusic/stream 206 audio/mp4 + Range (playback) and 200 full-file (download). pnpm check clean, 1320 tests green. E2E caught + fixed a prod-breaking bug (quick-270715 / commit 29c1c7d): stream route exported non-HTTP-verb functions, illegal in SvelteKit +server.ts → 500; helpers moved to $lib/proxy/ytmusic.ts.
 Last activity: 2026-07-24 -- Quick 260723-ry1: extended the YouTube-Music-style share card to ALBUM + ARTIST (new resolution-safe entityCardUrl) — carries the resolved cover (og:image), zhs→zht via display-only dn/da carriers (path key stays literal so CJK tracklists still resolve), and simplified 'Album • Artist'/'Artist' title + 'Listen on openmusic' tagline; SSR OG head E2E-verified, 1341/1341 tests
 Remaining human UAT: real-device <audio> playback+seek + download-to-disk; deployed-Worker player+googlevideo same-IP egress + bot-challenge under load (T-27-03-OP). Account/library sync = separate legal-gated milestone (spike 008).
@@ -313,8 +314,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-14T17:03:27.517Z
-Stopped at: Completed 27-02-PLAN.md (ytmusic edge routes /api/ytmusic/search + /api/ytmusic/lyrics + shared InnerTube proxy module)
+Last session: 2026-07-24T03:35:41.740Z
+Stopped at: Phase 29 (Download UX & Folder Control) PLANNED — 6 plans / 4 waves; waves 3-4 gated on device UAT
 Resume: execute the remaining Phase-26 gap-closure plans (`/gsd:execute-phase 26 --gaps-only`): 26-08 (variant fetch + version-label dedup), 26-09 (up-next player wiring — depends 26-06/26-07), 26-10 (UI mounts — depends 26-07/26-08).
 
 ## Deferred Items
