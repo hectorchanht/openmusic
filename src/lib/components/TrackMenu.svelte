@@ -2,7 +2,7 @@
 	import { tick, untrack } from 'svelte';
 	import { fly } from 'svelte/transition';
 	import { goto } from '$app/navigation';
-	import { ListStart, ListEnd, Download, Heart, ListPlus, User, Share2, Info, X, Plus, Shuffle, Trash2, Moon, Sparkles, Layers } from '@lucide/svelte';
+	import { ListStart, ListEnd, Download, Check, Heart, ListPlus, User, Share2, Info, X, Plus, Shuffle, Trash2, Moon, Sparkles, Layers } from '@lucide/svelte';
 	import { player } from '$lib/stores/player.svelte';
 	import { sleepTimer } from '$lib/stores/sleepTimer.svelte';
 	import { library } from '$lib/stores/library.svelte';
@@ -24,7 +24,7 @@
 	// picker — fired ONLY on the row tap, never on menu open (T-26-10-02).
 	import { fetchVariants } from '$lib/services/variants';
 	import VersionPicker from '$lib/components/VersionPicker.svelte';
-	import { blobStore } from '$lib/services/blob-store';
+	import { downloadTrack } from '$lib/services/download-track';
 	import { songShareUrl } from '$lib/services/share';
 	import type { Track } from '$lib/sources/types';
 
@@ -131,107 +131,31 @@
 		overlays.navigateAway(() => goto(dest));
 	}
 
-	// quick-260625-pzs-04: does the currently-playing track's already-resolved quality satisfy the
-	// requested DOWNLOAD tier? If so we can reuse its URL for the download instead of forcing a second
-	// concurrent resolve of the same song (T-pzs-02). Conservative: only reuse when we are confident
-	// the streamed quality already meets/exceeds the wanted tier.
-	//   - 'auto'     → any resolved URL is acceptable
-	//   - '320'/'128'→ any resolved stream (320k or lossless) meets/exceeds the tier
-	//   - 'lossless' → reuse ONLY when the current stream is already lossless; otherwise re-resolve
-	function currentQualityMeets(curQuality: string | null, want: typeof settings.downloadQuality): boolean {
-		if (want === 'auto' || want === '320' || want === '128') return true;
-		// want === 'lossless'
-		return (curQuality ?? '').toLowerCase() === 'lossless';
-	}
-
-	// Gated run callback (D-02): invoked by gated('download', …) with the resolved track. The gate
-	// guarantees `resolved.audioUrl` is present before we get here, but Download re-resolves at the
-	// user's DOWNLOAD quality (separate from the streaming default the gate resolved at).
+	// Gated run callback (D-02): invoked by gated('download', …) with the resolved track. Thin delegate
+	// to the SHARED downloadTrack (29-03) — the ONE isolation-safe, never-throws, never-navigates save
+	// path. The bespoke fetch → offline-blob → save-picker → anchor → new-tab-stream fallback that used
+	// to live here is DELETED (DL-BUG-01: a failed save can no longer open a media page); its logic
+	// (filename build, quality-reuse, offline blob, anchor save) now lives in download-track.ts +
+	// download-save.ts + download-filename.ts.
+	//
+	// DOWNLOAD ISOLATION CONTRACT (D-18, quick-260625-pzs-04): download work must NOT touch the player —
+	// no assign to player.current, no clearing its lrc, no player.playGen bump, no reuse of the shared
+	// <audio>. downloadTrack upholds this (reads player.current READ-ONLY to reuse an already-resolved
+	// URL) so the guarantee is preserved by delegation.
+	//
+	// D-12: we deliberately do NOT onclose() first — the Download row reflects its per-uid state
+	// (library.downloading / isDownloaded) inline whether or not the menu stays open. The result
+	// sentinel is localized to a toast here (the service is i18n-free by contract).
 	async function doDownload(resolved: Track) {
-		onclose();
 		toast.show(t('toast.preparingDownload'));
-		// quick-260625-pzs-04 — DOWNLOAD ISOLATION CONTRACT: this function must NOT touch the player.
-		// It must never assign to player.current, never null/clear player.current.lrc, never call any
-		// player lyric-refill path, never bump player.playGen, and never reuse the shared <audio>
-		// element. It re-resolves/fetches on COPIES + its own fetch() only. The library.addDownload(r)
-		// below mutates the LIBRARY downloads list (the intended download effect — NOT player state).
-		//
-		// T-pzs-02: when the song being downloaded IS the currently-playing track AND its audio is
-		// already resolved at an acceptable quality, REUSE that resolved URL/details instead of forcing
-		// a second concurrent DOWNLOAD-quality resolve of the same song. A duplicate resolve + the blob
-		// fetch saturate the shared CDN and have caused a stale-URL audio error → lyrics wipe on the
-		// active track (player.svelte.ts:474-475). For a NON-current track the re-resolve is harmless
-		// (different song, separate copy) so it is kept.
-		let r: Track;
-		const cur = player.current;
-		const reuseCurrent =
-			cur != null &&
-			cur.uid === resolved.uid &&
-			!!cur.audioUrl &&
-			cur.detailsLoaded &&
-			currentQualityMeets(cur.quality, settings.downloadQuality);
-		if (reuseCurrent) {
-			// Reuse the already-resolved current track's URL/details (a fresh COPY — never the live
-			// player.current reference, so nothing downstream can mutate the playing track).
-			r = { ...(cur as Track) };
-		} else {
-			// Re-resolve at the user's DOWNLOAD quality (separate from the streaming default).
-			// WR-07: the tier is threaded through ensureTrackDetails as an explicit per-call
-			// parameter — never the old temporary settings.defaultQuality swap, which raced
-			// concurrent playback resolves and could be persisted by a mid-window save().
-			// Force a fresh resolve (clear cached details on a COPY — the queue track is left
-			// untouched).
-			r = await ensureTrackDetails(
-				{ ...resolved, detailsLoaded: false, audioUrl: null, lrc: null },
-				undefined,
-				settings.downloadQuality
-			).catch(() => resolved);
-		}
-		library.addDownload(r);
-		if (!r.audioUrl) return toast.show(t('toast.noAudio'));
-		try {
-			// RAW fetch (not apiFetch — fetch→apiFetch audit): this is a MEDIA download-to-blob of the
-			// resolved audio stream. audioUrl is often an ABSOLUTE CDN URL (qq/kuwo/joox) — apiFetch would
-			// corrupt it — and a full-file body must not be routed through the JSON governor's dedup/cap.
-			const resp = await fetch(r.audioUrl);
-			const blob = await resp.blob();
-			// kyf: persist the SAME blob into the offline cache (IndexedDB) so a later
-			// player.play() of this uid streams from the local blob instead of the CDN. Never
-			// throws — a write failure leaves the file-on-disk path intact + degrades to
-			// re-streaming on next play.
-			await blobStore.put(r.uid, blob);
-			const ext = (r.audioUrl.split('?')[0].match(/\.(mp3|flac|m4a|aac|ogg|wav)$/i)?.[1] ?? 'mp3').toLowerCase();
-			const filename = `${r.artist} - ${r.title}.${ext}`.replace(/[/\\?%*:|"<>]/g, '_');
-			const mime = ({ mp3: 'audio/mpeg', flac: 'audio/flac', m4a: 'audio/mp4', aac: 'audio/aac', ogg: 'audio/ogg', wav: 'audio/wav' } as Record<string, string>)[ext] ?? 'audio/mpeg';
-			// Desktop (Chrome/Edge): real Save-As dialog via the File System Access API. Cancelling
-			// (AbortError) means cancel — return silently, NO toast, NO anchor fallback. Any other
-			// picker error falls through to the anchor download below.
-			if (typeof window !== 'undefined' && 'showSaveFilePicker' in window) {
-				try {
-					const handle = await (window as any).showSaveFilePicker({
-						suggestedName: filename,
-						types: [{ description: 'Audio', accept: { [mime]: ['.' + ext] } }]
-					});
-					const writable = await handle.createWritable();
-					await writable.write(blob);
-					await writable.close();
-					toast.show(t('toast.downloaded'));
-					return;
-				} catch (err: any) {
-					if (err?.name === 'AbortError') return; // user cancelled — cancel means cancel
-					// otherwise fall through to the anchor download
-				}
-			}
-			const a = document.createElement('a');
-			a.href = URL.createObjectURL(blob);
-			a.download = filename;
-			a.click();
-			URL.revokeObjectURL(a.href);
-			toast.show(t('toast.downloaded'));
-		} catch {
-			window.open(r.audioUrl, '_blank');
-			toast.show(t('toast.openedAudio'));
-		}
+		const res = await downloadTrack(resolved);
+		toast.show(
+			res === 'saved'
+				? t('toast.downloaded')
+				: res === 'no-audio'
+					? t('toast.noAudio')
+					: t('toast.downloadFailedKeptInLibrary')
+		);
 	}
 	async function doShare() {
 		if (!track) return;
@@ -381,10 +305,18 @@
 			<button class="mi" class:on={player.shuffle} onclick={shuffleQueue} use:tapBounce><Shuffle size={18} /> {t('menu.shuffleQueue')}</button>
 			<button class="mi" onclick={clearQueue} use:tapBounce><Trash2 size={18} /> {t('menu.clearQueue')}</button>
 		{/if}
-		<!-- Download: GATED — resolve-then-act at settings.downloadQuality inside the run callback. -->
-		<button class="mi" aria-busy={inFlight.has('download')} aria-label={inFlight.has('download') ? t('menu.preparing') : undefined} onclick={() => gated('download', doDownload)} use:tapBounce>
-			{#if inFlight.has('download')}<span class="row-spinner"></span>{:else}<Download size={18} />{/if} {t('menu.download')}
-		</button>
+		<!-- Download: tri-state (D-11/D-12). Already downloaded → Check + greyed disabled ("Downloaded").
+		     Otherwise GATED — resolve-then-act at settings.downloadQuality via downloadTrack. The busy
+		     state reads BOTH the gated stub-resolve (inFlight) AND the shared per-uid library.downloading
+		     set, so the row shows its spinner whether or not this menu stays open (D-12). -->
+		{#if library.isDownloaded(track.uid)}
+			<button class="mi" disabled aria-disabled="true"><Check size={18} /> {t('menu.downloaded')}</button>
+		{:else}
+			{@const dlBusy = inFlight.has('download') || library.downloading.has(track.uid)}
+			<button class="mi" aria-busy={dlBusy} disabled={dlBusy} aria-label={dlBusy ? t('menu.preparing') : undefined} onclick={() => gated('download', doDownload)} use:tapBounce>
+				{#if dlBusy}<span class="row-spinner"></span>{:else}<Download size={18} />{/if} {t('menu.download')}
+			</button>
+		{/if}
 		<button class="mi" onclick={() => { pickerOpen = true; }} use:tapBounce><ListPlus size={18} /> {t('menu.addToPlaylist')}</button>
 		<!-- Opens the GLOBAL SleepTimerSheet (mounted in the app layout) — not a local sub-sheet
 		     here, so the timer indicator is reachable from the nowbar + now-playing too (D-08). -->
