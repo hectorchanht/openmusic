@@ -26,9 +26,9 @@ Overhaul the download experience across the app:
 - **D-02:** No location prompt on any platform. On web desktop this means **stop using `showSaveFilePicker`** (it prompts every time) — go straight to the anchor auto-save into Downloads. On native the folder is fixed to `Download/openmusic/`.
 
 ### Native download folder (#1)
-- **D-03:** Public download target moves from `Music/OpenMusic/` → `Download/openmusic/`. Change `MediaStoreSaverPlugin.kt`:
-  - API 29+: `relativePath = "${Environment.DIRECTORY_DOWNLOADS}/openmusic/"` (line 51).
-  - Legacy API ≤28: `Environment.getExternalStoragePublicDirectory(DIRECTORY_DOWNLOADS)` + `File(dir, "openmusic")` (lines 178–179).
+- **D-03:** Public download target moves from `Music/OpenMusic/` → `Download/openmusic/`.
+  - **⚠ RESEARCH CORRECTION (29-RESEARCH.md, HIGH confidence):** `Download/` is NOT a legal top-level dir for the `MediaStore.Audio` collection — writing `RELATIVE_PATH="Download/openmusic/"` into `MediaStore.Audio.Media` throws `IllegalArgumentException` at runtime. The fix is a **collection change, not a path-string change**: insert into the **`MediaStore.Downloads`** collection (`MediaStore.Downloads.getContentUri(VOLUME_EXTERNAL_PRIMARY)`) with `RELATIVE_PATH="Download/openmusic/"`. targetSdk 36 / minSdk 24 → full scoped storage, no legacy escape hatch, so the API ≤28 branch is effectively dead but harmless to leave.
+  - Change `MediaStoreSaverPlugin.kt`: swap the insert collection to Downloads + set `RELATIVE_PATH` to `${Environment.DIRECTORY_DOWNLOADS}/openmusic/`. Deletes/queries must target the Downloads collection URI form.
 - **D-04:** The **app-private** offline copy (`Directory.Data/downloads/<sanitized-uid>`, the `get()` read source in `blob-store.ts`) stays uid-keyed and stays where it is — it must remain uid-addressable for offline playback. Only the **public** MediaStore copy gets the new folder + the human filename.
 
 ### Controlled filename (#2)
@@ -48,7 +48,7 @@ Overhaul the download experience across the app:
 
 ### Migration button (#5, native)
 - **D-14:** New button in **Settings → Data** (`settings/data/+page.svelte`) — that page already owns library/downloads bulk actions (clear-library lives there). Native-only: hide/disable on web (`Capacitor.isNativePlatform()` guard).
-- **D-15:** Behavior = **move existing + switch**: relocate every already-downloaded public file from `Music/OpenMusic/` → `Download/openmusic/`, rewrite each `openmusic-blob-uri:<uid>` localStorage entry to the new content URI ("remap"), and (from D-03) all future downloads already write to the new folder. Needs a NEW Kotlin method on `MediaStoreSaverPlugin` (e.g. `relocateToDownloads` — MediaStore `update` of `RELATIVE_PATH`, or copy-to-new + delete-old), mirroring the never-throws contract (partial failure degrades gracefully, per-uid).
+- **D-15:** Behavior = **move existing + switch**: relocate every already-downloaded public file from `Music/OpenMusic/` → `Download/openmusic/`, rewrite each `openmusic-blob-uri:<uid>` localStorage entry to the new content URI ("remap"), and (from D-03) all future downloads already write to the new folder. Needs a NEW Kotlin method on `MediaStoreSaverPlugin` (`relocateToDownloads`). **⚠ RESEARCH CORRECTION:** a cross-collection move (Audio→Downloads) CANNOT be done by updating `RELATIVE_PATH` in place (in-place moves are intra-collection only) — the migration MUST be **copy+delete**: re-insert into the Downloads collection using the untouched app-private copy as the byte source (D-04), then delete the old `MediaStore.Audio` entry, then rewrite `openmusic-blob-uri:<uid>`. OpenMusic owns its own entries → no `RecoverableSecurityException`/consent dialog. Idempotent by URI inspection (`…/audio/media/…` = needs move; `…/downloads/…` = already done). Mirrors the never-throws contract (partial failure degrades gracefully, per-uid).
 - **D-16:** Progress + result surfaced via toast/inline count (e.g. "Moved N of M"). One-shot, idempotent (already-moved entries are skipped). App-private copies are untouched (D-04).
 
 ### Never-throw / isolation contracts (carry-forward, MUST hold)
