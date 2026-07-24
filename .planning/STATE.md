@@ -4,13 +4,13 @@ milestone: v1.5
 milestone_name: YTMusic-Powered Up-Next
 status: executing
 stopped_at: Phase 29 (Download UX & Folder Control) PLANNED — 6 plans / 4 waves; waves 3-4 gated on device UAT
-last_updated: "2026-07-24T03:49:54.733Z"
+last_updated: "2026-07-24T04:01:26.691Z"
 last_activity: 2026-07-24
 progress:
   total_phases: 5
   completed_phases: 3
   total_plans: 30
-  completed_plans: 22
+  completed_plans: 23
   percent: 60
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-06-10)
 ## Current Position
 
 Phase: 29 (download-ux-folder-control) — EXECUTING
-Plan: 2 of 6
+Plan: 3 of 6
 Status: Ready to execute
 
 ### Prior phase (Phase 27 — YouTube Music Source, v1.4) — COMPLETE + E2E-VERIFIED
@@ -91,6 +91,7 @@ Remaining human UAT: real-device <audio> playback+seek + download-to-disk; deplo
 | Phase 27 P03 | 12min | 2 tasks | 3 files |
 | Phase 27 P04 | 9min | 3 tasks | 7 files |
 | Phase 29 P01 | 5min | 2 tasks | 4 files |
+| Phase 29 P02 | 10min | 2 tasks | 17 files |
 
 ## Accumulated Context
 
@@ -154,6 +155,8 @@ Recent decisions affecting current work:
 - [Phase 27]: [27-02]: getVisitorData caches an anonymous visitorData token under a synthetic own-origin edgeCache key (never the key-bearing upstream URL), ~6h soft TTL; a refresh clears the cache so a known-bad token is never reused
 - [Phase 27]: [27-02]: /api/ytmusic/search returns an empty-but-valid shelf envelope (musicShelfRenderer, zero rows) on empty-q/upstream-error so the 27-01 client parse yields [] instead of throwing its shelf-absent contract-drift guard
 - [Phase ?]: 29-01: consolidated {artist} - {title}.{ext} into one pure download-filename helper (D-08); saveBlobToDisk anchor seam returns false instead of navigating on save failure (DL-BUG-01)
+- [Phase ?]: 29-02: library.downloading transient reactive per-uid Set (never persisted, D-10/T-29-02-01); off the player (D-18)
+- [Phase ?]: 29-02: 5 download/migration i18n keys added to all 15 locales, double-quoted, {moved}/{total} verbatim
 
 ### Pending Todos
 
@@ -317,7 +320,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-24T03:49:46.902Z
+Last session: 2026-07-24T04:01:16.543Z
 Stopped at: Phase 29 (Download UX & Folder Control) PLANNED — 6 plans / 4 waves; waves 3-4 gated on device UAT
 Resume: execute the remaining Phase-26 gap-closure plans (`/gsd:execute-phase 26 --gaps-only`): 26-08 (variant fetch + version-label dedup), 26-09 (up-next player wiring — depends 26-06/26-07), 26-10 (UI mounts — depends 26-07/26-08).
 
