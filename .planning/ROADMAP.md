@@ -99,6 +99,21 @@ _v1.5 — source-aware similar + top-hits fallback_
 - [ ] 28-02-PLAN.md — source-aware `buildSimilarQueue` YT-seed branch + `ytmusicRelated` client service [wave 2]
 - [ ] 28-03-PLAN.md — `buildTopHitsQueue` fallback + swap both `buildDiversePicks` player call sites [wave 3]
 
+### Phase 29: Download UX & Folder Control
+
+_v1.5 — controlled filename · media-page bug fix · per-song state · native `/download/openmusic` + migration_
+
+**Goal:** Overhaul the download experience. Control the saved filename ourselves — `{artist} - {song}.{ext}` run through the display-name translation (`names.dnArtist`/`names.dnTitle`, so a zh-Hant user gets a zh-Hant filename), never the provider's name. Fix the "clicking download opens a media playing page" bug (a failed save currently does `window.open(audioUrl)` at [`TrackMenu.svelte:230`](../src/lib/components/TrackMenu.svelte) + the album twin). Give each song its own download state via a reactive `library.downloading` `Set<uid>` — a per-song spinner then a greyed, disabled "Downloaded" — on every track row (`CompactRow`, library, album, ⋮ menu), so downloading song A never spins song B. On **native** (Capacitor Android), land public downloads in `Download/openmusic/` instead of today's `Music/OpenMusic/` (folder hardcoded in [`MediaStoreSaverPlugin.kt:51`](../android/app/src/main/java/com/openmusic/app/MediaStoreSaverPlugin.kt) + legacy 178–179) with no per-download location prompt, and add a Settings → Data migration button that moves already-downloaded files into the new folder, rewrites the `openmusic-blob-uri:<uid>` index ("remap"), and switches all future read/write there. **Platform split (locked in [`29-CONTEXT.md`](phases/29-download-ux-folder-control/29-CONTEXT.md)):** native owns the folder + migration (a browser cannot pick a save folder or read/move files); the web PWA gets filename + bug-fix + per-song state, best-effort into the browser Downloads root. Existing never-throws + download-isolation contracts (quick-260625-pzs-04) preserved.
+**Requirements:**
+- **DL-FILE-01** — Controlled, translated filename: one shared pure helper (`download-filename.ts`) builds `{artist} - {song}.{ext}` from `names.dnArtist`/`names.dnTitle` (raw fallback when a translation isn't cached), extension from the resolved audio; called by TrackMenu, album download, and the native public-filename path (`blob-store.nativeFileName`, today `<uid>.mp3`). App-private offline copy stays uid-keyed.
+- **DL-BUG-01** — Remove the `window.open(audioUrl)` fallback in `TrackMenu.doDownload` + `album.downloadAlbum`; drop `showSaveFilePicker` (prompts every time). On save failure: toast + keep the song in the Library Downloads reference list — never navigate to the stream.
+- **DL-STATE-01** — Reactive per-uid downloading state (`library.downloading: Set<string>` with begin/end helpers); every track-row download affordance renders idle → spinner (`downloading.has(uid)`, disabled) → greyed "Downloaded" (`library.isDownloaded(uid)`, disabled). Rollout: `CompactRow`, library-page rows, album-page rows, ⋮ menu Download row. New i18n key `menu.downloaded` across all 16 locales.
+- **DL-FOLDER-01** — Native public download target moves to `Download/openmusic/` (Kotlin `DIRECTORY_DOWNLOADS/openmusic/` API 29+ + legacy path), no location prompt. Web degrades to the browser Downloads root.
+- **DL-MIGRATE-01** — Settings → Data native-only migration button: new `MediaStoreSaver.relocateToDownloads` Kotlin method moves existing public files `Music/OpenMusic/` → `Download/openmusic/`, rewrites each `openmusic-blob-uri:<uid>` entry, switches future writes; idempotent, per-uid graceful failure, app-private copies untouched.
+- **DL-RESILIENCE-01** — All new native filesystem/MediaStore paths keep the never-throws contract (degrade to CDN re-stream, never crash the player); download work never mutates player state (isolation contract); `pnpm test` green + `pnpm check` clean.
+**Depends on:** Phase 999.1 (native Capacitor migration) — reuses its `blob-store.ts` native branch + hand-written `MediaStoreSaverPlugin.kt` MediaStore bridge, both extended here.
+**Plans:** TBD (run /gsd:plan-phase 29)
+
 ## Progress
 
 | Phase | Milestone | Status | Completed |
@@ -122,6 +137,7 @@ _v1.5 — source-aware similar + top-hits fallback_
 | 26. Minimal-API Click-to-Play Redesign | 11/11 | Complete   | 2026-07-11 |
 | 27. YouTube Music Source (search·play·lyrics·download) | 4/4 | Complete|  |
 | 28. YTMusic-Powered Up-Next Recommendations | v1.5 | Planned | — |
+| 29. Download UX & Folder Control | v1.5 | Planned | — |
 
 ## Backlog
 
