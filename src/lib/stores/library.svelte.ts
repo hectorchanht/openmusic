@@ -30,6 +30,13 @@ class Library {
 	/** kmn: favourite artists by canonical name (case-preserving). Used by the home
 	 *  fav-artists shelf and the artist-page favourite button. */
 	favArtists = $state<string[]>([]);
+	/** D-10 (DL-STATE-01): uids with a download IN FLIGHT — the single reactive source of
+	 *  truth every download affordance (CompactRow / library / album / TrackMenu) reads for
+	 *  its per-song spinner. Deliberately kept OFF the player (D-18 DOWNLOAD ISOLATION) and
+	 *  TRANSIENT — never in the persisted payload / LibShape (a corrupt store can't wedge a
+	 *  stuck spinner). begin/endDownload reassign a NEW Set (like TrackMenu `inFlight`) so the
+	 *  runes graph re-renders; one uid's transition never touches another's. */
+	downloading = $state<Set<string>>(new Set());
 	private loaded = false;
 
 	/** Hydrate from localStorage once, in the browser. Call from a layout onMount. */
@@ -150,6 +157,20 @@ class Library {
 			? this.favArtists.filter((n) => this.favKey(n) !== k)
 			: [clean, ...this.favArtists];
 		this.save();
+	}
+
+	// ---- downloading (D-10, transient per-uid in-flight state) -----------------------------
+	/** Mark a uid as mid-download. Reassign a NEW Set so runes re-render (parity with
+	 *  TrackMenu `inFlight`); NOT persisted (transient runtime state). */
+	beginDownload(uid: string) {
+		this.downloading = new Set(this.downloading).add(uid);
+	}
+	/** Clear a uid's in-flight flag. Copy → delete → reassign; absent uid is a no-op. Never
+	 *  touches another uid's state (isolation) and never persists. */
+	endDownload(uid: string) {
+		const next = new Set(this.downloading);
+		next.delete(uid);
+		this.downloading = next;
 	}
 
 	isDownloaded(uid: string): boolean {
