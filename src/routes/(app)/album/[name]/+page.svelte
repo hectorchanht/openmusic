@@ -28,12 +28,13 @@
 	import { t } from '$lib/i18n';
 	import { goto } from '$app/navigation';
 	import { resolveStub } from '$lib/services/discovery';
-	import { ensureTrackDetails } from '$lib/services/catalog';
+	import { downloadTrack } from '$lib/services/download-track';
 	import { enrichAlbum, getAlbumTracklist, type EnrichResult } from '$lib/services/lastfm';
 	import { deezerAlbum, type DeezerAlbumInfo } from '$lib/services/deezer';
 	import { mergeEnrichAlbum } from '$lib/services/enrich-merge';
 	import { marquee } from '$lib/actions/marquee';
 	import TrackMenu from '$lib/components/TrackMenu.svelte';
+	import DownloadControl from '$lib/components/DownloadControl.svelte';
 	import PageOg from '$lib/components/PageOg.svelte';
 	import type { PageData } from './$types';
 	import type { Track } from '$lib/sources/types';
@@ -354,11 +355,16 @@
 		}
 	}
 
-	// Download the album → resolve all + re-resolve each at the DOWNLOAD quality + trigger a
-	// real browser file save for EACH track (matches the per-track TrackMenu doDownload path)
-	// AND add each to the library Downloads tab so they re-stream from the library. hvu: the
-	// previous implementation only added to library; user wanted actual on-device files. We
-	// stagger the saves slightly so the browser doesn't dedupe simultaneous anchor.click()s.
+	// Download the album → resolve all + route EACH track through the SHARED downloadTrack (29-03)
+	// with persist:false, staggered so the browser doesn't dedupe simultaneous anchor saves.
+	// DL-BUG-01: the old inline fetch → anchor → new-tab-stream fallback is DELETED — downloadTrack
+	// owns save now and NEVER navigates to a media page on failure (a failed track just stays in the
+	// library Downloads list, re-streams on tap). DL-FILE-01: the translated `{artist} - {title}.ext`
+	// filename path applies. LIMITATION (persist:false, RESEARCH Open Q2 / 29-CONTEXT): album downloads
+	// intentionally do NOT create an offline blob / native public-folder copy this phase — only the
+	// human filename + the bug fix apply; the native Download/openmusic placement is out of scope for
+	// the album bulk path. hvu: the pre-29 implementation only added to library; the real file save
+	// (via download-save.ts anchor seam) is what downloadTrack now performs per track.
 	async function downloadAlbum() {
 		if (!tracks.length || busyAction === 'download') return;
 		busyAction = 'download';
@@ -367,44 +373,8 @@
 			const resolved = await resolveAllCached();
 			let saved = 0;
 			for (const tr of resolved) {
-				// WR-07: pass the DOWNLOAD tier explicitly through ensureTrackDetails instead of
-				// temporarily mutating settings.defaultQuality — the old swap raced concurrent
-				// playback resolves (they resolved at the download tier for the whole loop) and
-				// any mid-window settings.save() persisted the wrong streaming default.
-				const full = await ensureTrackDetails(
-					{ ...tr, detailsLoaded: false, audioUrl: null, lrc: null },
-					undefined,
-					settings.downloadQuality
-				).catch(() => tr);
-				library.addDownload(full);
-				if (!full.audioUrl) continue;
-				// Try fetch+blob+anchor.click first; on CORS / network failure fall back to
-				// window.open which lets the BROWSER handle the download (ii6 #1 — the user
-				// reported no files were saving; the CN-source audio CDNs don't always send
-				// Access-Control-Allow-Origin, so the blob path silently fails without this).
-				let didSave = false;
-				try {
-					// RAW fetch (not apiFetch — fetch→apiFetch audit): MEDIA download-to-blob of the resolved
-					// audio stream. audioUrl is often an ABSOLUTE CDN URL — apiFetch would corrupt it — and a
-					// full-file body must not go through the JSON governor's dedup/concurrency cap.
-					const resp = await fetch(full.audioUrl);
-					const blob = await resp.blob();
-					const ext = (full.audioUrl.split('?')[0].match(/\.(mp3|flac|m4a|aac|ogg|wav)$/i)?.[1] ?? 'mp3').toLowerCase();
-					const a = document.createElement('a');
-					a.href = URL.createObjectURL(blob);
-					a.download = `${full.artist} - ${full.title}.${ext}`.replace(/[/\\?%*:|"<>]/g, '_');
-					a.click();
-					URL.revokeObjectURL(a.href);
-					didSave = true;
-				} catch {
-					try {
-						window.open(full.audioUrl, '_blank');
-						didSave = true; // delegated to the browser — count as "initiated"
-					} catch {
-						/* both paths failed — track stays in library Downloads list */
-					}
-				}
-				if (didSave) saved++;
+				const res = await downloadTrack(tr, { persist: false });
+				if (res === 'saved') saved++;
 				// Stagger so browser doesn't squash concurrent downloads / hit per-origin caps.
 				await new Promise((r) => setTimeout(r, 250));
 			}
@@ -602,16 +572,22 @@
 	</div>
 	<ul class="list">
 		{#each tracks as track, i (i)}
-			<li class="swipe-wrap">
-				<!-- UX-04 reveal layers behind the row; the row translateX (use:swipeAction) exposes them. -->
-				<span class="reveal reveal-queue" aria-hidden="true"><ListEnd size={20} /></span>
-				<span class="reveal reveal-next" aria-hidden="true"><ListStart size={20} /></span>
-				<button class="row" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openMenu(track); }} onclick={() => playStub(track)} use:swipeAction={{ onSwipeRight: () => swipeQueue(track), onSwipeLeft: () => swipeNext(track) }}>
-					<span class="rank">{i + 1}</span>
-					<span class="art" style:background-image={heroImg ? `url(${heroImg})` : fallbackCover(track.artist + track.title)}></span>
-					<span class="meta"><span class="r-title">{names.dnTitle(track.title)}</span><span class="r-sub">{names.dnArtist(track.artist)}</span></span>
-					<Play size={16} />
-				</button>
+			<li class="row-line">
+				<div class="swipe-wrap">
+					<!-- UX-04 reveal layers behind the row; the row translateX (use:swipeAction) exposes them. -->
+					<span class="reveal reveal-queue" aria-hidden="true"><ListEnd size={20} /></span>
+					<span class="reveal reveal-next" aria-hidden="true"><ListStart size={20} /></span>
+					<button class="row" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openMenu(track); }} onclick={() => playStub(track)} use:swipeAction={{ onSwipeRight: () => swipeQueue(track), onSwipeLeft: () => swipeNext(track) }}>
+						<span class="rank">{i + 1}</span>
+						<span class="art" style:background-image={heroImg ? `url(${heroImg})` : fallbackCover(track.artist + track.title)}></span>
+						<span class="meta"><span class="r-title">{names.dnTitle(track.title)}</span><span class="r-sub">{names.dnArtist(track.artist)}</span></span>
+						<Play size={16} />
+					</button>
+				</div>
+				<!-- D-11 album-row control. Album rows are {artist,title} STUBS → resolve on tap
+				     (persist:false, see downloadAlbum LIMITATION note). Per-uid state only surfaces
+				     after a resolve, so a stub reads idle until first tapped — acceptable for stubs. -->
+				<DownloadControl track={null} persist={false} resolve={() => resolveStub(track.artist, track.title).catch(() => null)} />
 			</li>
 		{/each}
 	</ul>
@@ -665,6 +641,10 @@
 		padding: 9px 18px; font-size: 13px; font-weight: 600; cursor: pointer;
 	}
 	.list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+	/* D-11: each row = the swipe-wrap (flex 1) + a trailing DownloadControl (its own tap target,
+	   OUTSIDE the overflow:hidden swipe-wrap so the swipe reveal never clips it). */
+	.row-line { display: flex; align-items: center; gap: 6px; }
+	.row-line .swipe-wrap { flex: 1; min-width: 0; }
 	/* UX-04: positioning context for the swipe reveal layers. The reveal spans sit BEHIND the row
 	   (the row carries an opaque background); the row translateX (use:swipeAction) slides to expose
 	   the correct side. overflow:hidden masks the reveal at rest + clips the row travel. */
