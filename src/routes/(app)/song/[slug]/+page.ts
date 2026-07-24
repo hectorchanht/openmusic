@@ -12,7 +12,10 @@
 // token — there is none). The cosmetic `{slug}` is a fallback display source for ASCII-only links.
 //
 // T-24-08 / SSRF: OG is built ONLY from the query params + the slug, never an arbitrary server-side
-// fetch. The cover is NOT carried, so buildOg's image is null → the /og.svg branded fallback (D-07).
+// fetch. quick-260723-r4p: the cover IS now carried via the readable `?c=` carrier so the card shows
+// the album art (og:image). buildOg/isHttpsUrl gate it to an absolute https URL, and og:image is
+// EMITTED into a meta tag (never fetched server-side), so carrying `c` adds no SSRF; a missing / non-
+// https `c` falls back to the /og.svg branded image (D-07).
 //
 // Plain strings (NOT t()) — load runs server-side where the reactive i18n lookup is unsafe (same
 // note as the album/artist loads).
@@ -44,12 +47,13 @@ export const load: PageLoad = ({ params, url }) => {
 	// DQ-1: n/a are the authoritative readable carriers (standard URL-decoding via searchParams).
 	const n = url.searchParams.get('n') ?? '';
 	const a = url.searchParams.get('a') ?? '';
+	// quick-260723-r4p: optional resolved cover carrier. buildOg gates it to https (else null → /og.svg).
+	const c = url.searchParams.get('c') ?? '';
 
-	// DQ-2: OG title = song name; prefer `n`, fall back to the slug-derived title, then a brand
-	// default so the head is NEVER empty. Description includes the artist (via buildOg). Image is
-	// null (cover not carried) → /og.svg branded fallback (D-07).
+	// DQ-2: OG title = `Song • Artist`; prefer `n`, fall back to the slug-derived title, then a brand
+	// default so the head is NEVER empty. Image = the carried `c` cover when https, else /og.svg (D-07).
 	const displayTitle = n || titleFromSlug(params.slug ?? '') || 'openmusic';
-	const og = buildOg({ title: displayTitle, artist: a || undefined, cover: null });
+	const og = buildOg({ title: displayTitle, artist: a || undefined, cover: c || null });
 
 	return { og, name: n, artist: a };
 };

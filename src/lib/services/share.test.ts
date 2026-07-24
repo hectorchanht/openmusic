@@ -187,6 +187,18 @@ describe('songShareUrl', () => {
 		expect(q.get('a')).toBe('');
 		expect(q.get('n')).toBe('Solo');
 	});
+
+	it('carries an https cover as &c= (quick-260723-r4p, OG image carrier)', () => {
+		const url = songShareUrl({ title: 'Dao Xiang', artist: 'Jay Chou', cover: 'https://cdn/x.jpg' });
+		const q = new URLSearchParams(url.split('?')[1]);
+		expect(q.get('c')).toBe('https://cdn/x.jpg');
+	});
+
+	it('omits `c` for a non-https / null / missing cover (falls to /og.svg downstream)', () => {
+		expect(songShareUrl({ title: 'A', artist: 'B', cover: 'http://cdn/x.jpg' })).not.toContain('c=');
+		expect(songShareUrl({ title: 'A', artist: 'B', cover: null })).not.toContain('&c=');
+		expect(songShareUrl({ title: 'A', artist: 'B' })).not.toContain('&c=');
+	});
 });
 
 describe('entityShareUrl / parseEntityParam', () => {
@@ -303,9 +315,10 @@ describe('entityShareUrl / parseEntityParam', () => {
 });
 
 describe('buildOg / isHttpsUrl (item 4 helper)', () => {
-	it('builds an artist-qualified title + listen description', () => {
+	it('builds a bullet-separated Song • Artist title + short listen tagline (quick-260723-r4p)', () => {
 		const og = buildOg({ title: 'Dao Xiang', artist: 'Jay Chou', cover: 'https://cdn/c.jpg' });
-		expect(og.title).toBe('Dao Xiang — Jay Chou');
+		expect(og.title).toBe('Dao Xiang • Jay Chou');
+		expect(og.description).toBe('Listen on openmusic');
 		expect(og.description).toMatch(/openmusic/i);
 		expect(og.description).toMatch(/listen/i);
 		expect(og.image).toBe('https://cdn/c.jpg');

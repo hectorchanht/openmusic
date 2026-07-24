@@ -178,12 +178,18 @@ export function shareUrl(current: Track, queue?: Track[]): string {
  * entityShareUrl read it. Album/artist entityShareUrl + the queue-restore encode/decode path are
  * UNTOUCHED — they still depend on the exports below.
  */
-export function songShareUrl(t: { title: string; artist: string }): string {
+export function songShareUrl(t: { title: string; artist: string; cover?: string | null }): string {
 	const base = typeof location !== 'undefined' ? location.origin : '';
 	const slug = slugify(t.title, t.artist) || 's';
 	const nEnc = encodeURIComponent(t.title ?? '');
 	const aEnc = encodeURIComponent(t.artist ?? '');
-	return `${base}/song/${slug}?n=${nEnc}&a=${aEnc}`;
+	// quick-260723-r4p: carry the resolved song cover so the SSR OG card shows the album art
+	// (og:image) instead of the /og.svg fallback (YouTube-Music-style card). Only a solid absolute
+	// https URL is carried — isHttpsUrl gates it, matching buildOg's crawler-facing constraint. The
+	// param is EMITTED into a meta tag (never fetched server-side), so it introduces no SSRF; a null /
+	// http / missing cover simply omits `c` and the loader falls back to /og.svg (D-07).
+	const cEnc = isHttpsUrl(t.cover) ? `&c=${encodeURIComponent(t.cover as string)}` : '';
+	return `${base}/song/${slug}?n=${nEnc}&a=${aEnc}${cEnc}`;
 }
 
 /** The fixed source enum the readable share path encodes. Because source names are a closed
@@ -253,8 +259,11 @@ export function buildOg(input: {
 	album?: string;
 	cover?: string | null;
 }): { title: string; description: string; image: string | null } {
-	const title = input.artist ? `${input.title} — ${input.artist}` : input.title;
-	const description = `Listen to ${title} on openmusic — fast mobile-first music streaming.`;
+	// quick-260723-r4p: YouTube-Music-style simplified card. Title is `Song • Artist` (bullet, drops
+	// the artist when absent so album/artist entity loaders — which pass no artist and override the
+	// description — are unaffected). Description is a short tagline, NOT the old marketing sentence.
+	const title = input.artist ? `${input.title} • ${input.artist}` : input.title;
+	const description = 'Listen on openmusic';
 	const image = isHttpsUrl(input.cover) ? (input.cover as string) : null;
 	return { title, description, image };
 }
