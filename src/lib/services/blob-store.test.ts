@@ -162,6 +162,30 @@ describe('blob-store — native branch put (isNativePlatform true)', () => {
 		);
 	});
 
+	// --- DL-FILE-01 (D-06): the PUBLIC MediaStore filename becomes the human `{artist} - {song}.{ext}`
+	// name when the caller threads one through put()'s optional 3rd arg (only TrackMenu does today). ---
+	it('put threads a human filename to saveToMusic (native public write) when supplied — DL-FILE-01', async () => {
+		const ok = await put('netease-123', new Blob(['audio-bytes']), 'Artist - Song.mp3');
+		expect(ok).toBe(true);
+		expect(saveToMusic).toHaveBeenCalledTimes(1);
+		const opts = saveToMusic.mock.calls[0][0] as { fileName: string; sourcePath: string };
+		// the PUBLIC file is named with the human filename, NOT the `<uid>.mp3` fallback
+		expect(opts.fileName).toBe('Artist - Song.mp3');
+		expect(opts.fileName).not.toContain('netease-123');
+		// the app-private copy is still uid-keyed (D-04 — filename only affects the public write)
+		const wopts = writeBlob.mock.calls[0][0] as { path: string };
+		expect(wopts.path).toContain('netease-123');
+	});
+
+	it('put falls back to nativeFileName(uid) = `<uid>.mp3` when NO filename is supplied (album/legacy path)', async () => {
+		const ok = await put('netease-123', new Blob(['audio-bytes']));
+		expect(ok).toBe(true);
+		expect(saveToMusic).toHaveBeenCalledTimes(1);
+		const opts = saveToMusic.mock.calls[0][0] as { fileName: string };
+		// legacy path unchanged: the public filename is the sanitized uid with a .mp3 extension
+		expect(opts.fileName).toBe('netease-123.mp3');
+	});
+
 	// WR-01: a public-Music copy failure must NOT fail put() — the app-private offline copy landed.
 	it('put STILL resolves true when saveToMusic rejects (public copy is best-effort — WR-01)', async () => {
 		saveToMusic.mockRejectedValue(new Error('MediaStore insert returned null'));
