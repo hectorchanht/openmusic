@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: YTMusic-Powered Up-Next
 status: executing
-stopped_at: Phase 29 (Download UX & Folder Control) PLANNED — 6 plans / 4 waves; waves 3-4 gated on device UAT
-last_updated: "2026-07-24T05:06:24.814Z"
+stopped_at: Phase 29 WEB SCOPE COMPLETE — 29-01..04 shipped+verified (filename+translation, media-page bug fix, per-song loading/Downloaded). Native plans 29-05/29-06 DEFERRED per user (web-only). Suite 1373 green, check clean.
+last_updated: "2026-07-24T05:16:53.622Z"
 last_activity: 2026-07-24
 progress:
   total_phases: 5
   completed_phases: 3
   total_plans: 30
-  completed_plans: 24
+  completed_plans: 25
   percent: 60
 ---
 
@@ -323,8 +323,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-24T05:05:46.782Z
-Stopped at: Phase 29 (Download UX & Folder Control) PLANNED — 6 plans / 4 waves; waves 3-4 gated on device UAT
+Last session: 2026-07-24T05:16:53.611Z
+Stopped at: Phase 29 WEB SCOPE COMPLETE — 29-01..04 shipped+verified (filename+translation, media-page bug fix, per-song loading/Downloaded). Native plans 29-05/29-06 DEFERRED per user (web-only). Suite 1373 green, check clean.
 Resume: execute the remaining Phase-26 gap-closure plans (`/gsd:execute-phase 26 --gaps-only`): 26-08 (variant fetch + version-label dedup), 26-09 (up-next player wiring — depends 26-06/26-07), 26-10 (UI mounts — depends 26-07/26-08).
 
 ## Deferred Items
