@@ -112,11 +112,11 @@ _v1.5 — controlled filename · media-page bug fix · per-song state · native 
 - **DL-MIGRATE-01** — Settings → Data native-only migration button: new `MediaStoreSaver.relocateToDownloads` Kotlin method moves existing public files `Music/OpenMusic/` → `Download/openmusic/`, rewrites each `openmusic-blob-uri:<uid>` entry, switches future writes; idempotent, per-uid graceful failure, app-private copies untouched.
 - **DL-RESILIENCE-01** — All new native filesystem/MediaStore paths keep the never-throws contract (degrade to CDN re-stream, never crash the player); download work never mutates player state (isolation contract); `pnpm test` green + `pnpm check` clean.
 **Depends on:** Phase 999.1 (native Capacitor migration) — reuses its `blob-store.ts` native branch + hand-written `MediaStoreSaverPlugin.kt` MediaStore bridge, both extended here.
-**Plans:** 3/6 plans executed
+**Plans:** 4/6 plans executed
 - [x] 29-01-PLAN.md — Pure download helpers: `download-filename.ts` (translated `{artist} - {song}.{ext}` + `extFromAudioUrl`) + `download-save.ts` (anchor save, no `window.open`/`showSaveFilePicker`) + tests (DL-FILE-01/DL-BUG-01) [wave 1]
 - [x] 29-02-PLAN.md — `library.downloading` reactive per-uid Set + begin/end helpers + `menu.downloaded`/migration i18n keys across all 16 locales (DL-STATE-01/DL-MIGRATE-01) [wave 1]
 - [x] 29-03-PLAN.md — Shared `downloadTrack` service (isolation-safe, never-throws, no navigation) + `blobStore.put(uid, blob, filename?)` param (DL-FILE-01/DL-BUG-01/DL-STATE-01) [wave 2]
-- [ ] 29-04-PLAN.md — Wire `downloadTrack` into TrackMenu + album (delete `window.open`/`showSaveFilePicker`); `DownloadControl` tri-state rollout on library/album/⋮ rows + CompactRow passive badge (DL-FILE-01/DL-BUG-01/DL-STATE-01) [wave 3]
+- [x] 29-04-PLAN.md — Wire `downloadTrack` into TrackMenu + album (delete `window.open`/`showSaveFilePicker`); `DownloadControl` tri-state rollout on library/album/⋮ rows + CompactRow passive badge (DL-FILE-01/DL-BUG-01/DL-STATE-01) [wave 3]
 - [ ] 29-05-PLAN.md — Native folder: Kotlin `MediaStore.Downloads` collection swap → `Download/openmusic/` + `saveToDownloads` rename; blob-store/media-store native branch; device UAT (DL-FOLDER-01/DL-RESILIENCE-01) [wave 3, autonomous:false]
 - [ ] 29-06-PLAN.md — Migration: `blobStore.migrateDownloads` copy+delete+remap (idempotent, per-uid never-throw) + native-only Settings→Data button "Moved N of M"; device UAT (DL-MIGRATE-01/DL-RESILIENCE-01) [wave 4, autonomous:false]
 
@@ -143,7 +143,7 @@ _v1.5 — controlled filename · media-page bug fix · per-song state · native 
 | 26. Minimal-API Click-to-Play Redesign | 11/11 | Complete   | 2026-07-11 |
 | 27. YouTube Music Source (search·play·lyrics·download) | 4/4 | Complete|  |
 | 28. YTMusic-Powered Up-Next Recommendations | v1.5 | Planned | — |
-| 29. Download UX & Folder Control | 3/6 | In Progress|  |
+| 29. Download UX & Folder Control | 4/6 | In Progress|  |
 
 ## Backlog
 
