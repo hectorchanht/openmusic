@@ -12,14 +12,14 @@
 	// pure presentation + interaction wiring, mirroring the search-row idiom (search/+page.svelte
 	// 511-525): use:longpress onlongpress (blur guard MENU-03 + haptics.tick() + emit), onclick (emit),
 	// use:lazyCover for the art, use:marquee + .marquee-inner for long labels (project memory rule).
-	import { MoreVertical, Check } from '@lucide/svelte';
+	import { MoreVertical } from '@lucide/svelte';
 	import type { Track } from '$lib/sources/types';
 	import { longpress } from '$lib/actions/longpress';
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { lazyCover } from '$lib/actions/lazyCover';
 	import { marquee } from '$lib/actions/marquee';
 	import { player } from '$lib/stores/player.svelte';
-	import { library } from '$lib/stores/library.svelte';
+	import RowBadges from '$lib/components/RowBadges.svelte';
 	import { tick as hapticTick } from '$lib/util/haptics';
 	import { t } from '$lib/i18n';
 
@@ -118,12 +118,9 @@
 				{#if subtitle}<span class="r-sub" use:marquee><span class="marquee-inner">{subtitle}</span></span>{/if}
 			</span>
 		</button>
-		<!-- D-11 / RESEARCH Open Q1: PASSIVE downloaded indicator on home/search rows — a greyed glyph,
-		     NOT a tap target (no onclick). Download INITIATION stays in the ⋮ menu here; this only
-		     signals already-downloaded state, gated on library.isDownloaded(uid). -->
-		{#if track && library.isDownloaded(track.uid)}
-			<span class="dl-badge" aria-label={t('menu.downloaded')} title={t('menu.downloaded')}><Check size={14} /></span>
-		{/if}
+		<!-- DL-STATE-01: passive liked ♥ + downloaded ✓ indicators via the shared RowBadges (quick-260723
+		     rollout to all song rows). Non-interactive; like/download INITIATION stays in the ⋮ menu here. -->
+		{#if track}<RowBadges uid={track.uid} />{/if}
 		<button class="opt" aria-label={t('menu.options')} onclick={() => onrequestmenu?.()}>
 			<MoreVertical size={18} />
 		</button>
@@ -207,15 +204,6 @@
 		font-weight: 400;
 		line-height: 1.3;
 		color: var(--color-text-muted);
-	}
-	/* D-11: passive downloaded badge — non-interactive, greyed, sits before the ⋮ button. */
-	.dl-badge {
-		flex: none;
-		display: grid;
-		place-items: center;
-		width: 22px;
-		color: var(--color-text-muted);
-		opacity: 0.6;
 	}
 	.opt {
 		flex: none;

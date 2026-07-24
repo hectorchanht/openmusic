@@ -16,6 +16,7 @@
 	import { names } from '$lib/stores/names.svelte';
 	import { toast } from '$lib/stores/toast.svelte';
 	import { online } from '$lib/stores/online.svelte';
+	import RowBadges from '$lib/components/RowBadges.svelte';
 	import { t } from '$lib/i18n';
 	import { longpress } from '$lib/actions/longpress';
 	import { lazyCover } from '$lib/actions/lazyCover';
@@ -501,6 +502,8 @@
 								<span class="r-title">{names.dnTitle(track.title)}</span>
 								<span class="r-sub">{names.dnArtist(track.album || track.artist)}</span>
 							</span>
+							<!-- quick-260723: passive liked ♥ + downloaded ✓ indicators on artist hit-song rows. -->
+							<RowBadges uid={track.uid} />
 						</button>
 					</li>
 				{/each}

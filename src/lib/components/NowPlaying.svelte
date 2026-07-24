@@ -48,6 +48,7 @@
 	import { splitArtists } from '$lib/util/artist-split';
 	import TrackMenu from '$lib/components/TrackMenu.svelte';
 	import VersionPicker from '$lib/components/VersionPicker.svelte';
+	import RowBadges from '$lib/components/RowBadges.svelte';
 	import Nowbar from '$lib/components/Nowbar.svelte';
 	import { parseLRC, reorderPairs, splitParenLines, lineSeekFraction, type LyricLine } from '$lib/services/lrc';
 	import { createVelocityTracker } from '$lib/gestures/velocity';
@@ -1449,6 +1450,8 @@
 										<span class="r-title">{names.dnTitle(track.title)}</span>
 										<span class="r-artist">{names.dnArtist(track.artist)}</span>
 									</span>
+									<!-- quick-260723: passive liked/downloaded indicators on up-next rows. -->
+									<RowBadges uid={track.uid} />
 								</button>
 								<button
 									class="grip-handle"
@@ -1502,7 +1505,7 @@
 							<li class="swipe-wrap related-swipe">
 								<span class="reveal reveal-queue" aria-hidden="true"><ListEnd size={20} /></span>
 								<span class="reveal reveal-next" aria-hidden="true"><ListStart size={20} /></span>
-								<button class="row" use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openMenu(track); }} onclick={() => player.play(track, { fresh: true })} use:swipeAction={{ onSwipeRight: () => relatedSwipeQueue(track), onSwipeLeft: () => relatedSwipeNext(track) }}><span class="r-title">{names.dnTitle(track.title)}</span><span class="r-artist">{names.dnArtist(track.artist)}</span></button>
+								<button class="row rel-row" use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openMenu(track); }} onclick={() => player.play(track, { fresh: true })} use:swipeAction={{ onSwipeRight: () => relatedSwipeQueue(track), onSwipeLeft: () => relatedSwipeNext(track) }}><span class="r-meta"><span class="r-title">{names.dnTitle(track.title)}</span><span class="r-artist">{names.dnArtist(track.artist)}</span></span><RowBadges uid={track.uid} /></button>
 							</li>
 						{/each}
 					</ul>
@@ -1773,6 +1776,10 @@
 	.list li.over .q-row { box-shadow: inset 0 2px 0 var(--color-primary); }
 	.r-title { font-size: calc(14px * var(--fs-title, 1)); font-weight: 600; color: var(--color-text);}
 	.r-artist { font-size: calc(12px * var(--fs-artist, 1)); color: var(--color-text-muted); }
+	/* quick-260723: Related list rows go row-direction so RowBadges sit at the trailing edge; the
+	   text stacks inside .r-meta. The shared `.row` (column) + its skeleton variant stay untouched. */
+	.row.rel-row { flex-direction: row; align-items: center; gap: 8px; }
+	.rel-row .r-meta { display: flex; flex-direction: column; min-width: 0; flex: 1; }
 	/* quick-260615-i9u (Feature A): a probe-confirmed-dead Up-Next row, dimmed + leading ✗. Tapping
 	   it retries that exact track. Reuses existing design tokens (no new hardcoded colors). */
 	.q-row.skipped { opacity: 0.45; }
