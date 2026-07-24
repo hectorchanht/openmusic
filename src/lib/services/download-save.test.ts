@@ -82,10 +82,13 @@ describe('download-save — saveBlobToDisk failure paths (DL-BUG-01: never navig
 	});
 
 	it('returns false when the object-URL API is absent (no createObjectURL)', () => {
-		// URL left unstubbed → node global URL has no createObjectURL → guard returns false.
-		const { doc } = makeFakeDoc();
+		// NOTE: Node 22's global `URL` DOES ship createObjectURL, so we must stub an object WITHOUT
+		// it to exercise the guard (an SSR/native context lacking the object-URL API).
+		vi.stubGlobal('URL', {});
+		const { doc, createElement } = makeFakeDoc();
 		const ok = saveBlobToDisk(new Blob(['a']), 'a - b.mp3', doc);
 		expect(ok).toBe(false);
+		expect(createElement).not.toHaveBeenCalled();
 	});
 });
 
