@@ -4,13 +4,13 @@ milestone: v1.5
 milestone_name: YTMusic-Powered Up-Next
 status: executing
 stopped_at: Phase 29 (Download UX & Folder Control) PLANNED — 6 plans / 4 waves; waves 3-4 gated on device UAT
-last_updated: "2026-07-24T03:42:03.501Z"
+last_updated: "2026-07-24T03:49:54.733Z"
 last_activity: 2026-07-24
 progress:
   total_phases: 5
   completed_phases: 3
   total_plans: 30
-  completed_plans: 21
+  completed_plans: 22
   percent: 60
 ---
 
@@ -26,13 +26,13 @@ See: .planning/PROJECT.md (updated 2026-06-10)
 ## Current Position
 
 Phase: 29 (download-ux-folder-control) — EXECUTING
-Plan: 1 of 6
-Status: Executing Phase 29
+Plan: 2 of 6
+Status: Ready to execute
 
 ### Prior phase (Phase 27 — YouTube Music Source, v1.4) — COMPLETE + E2E-VERIFIED
 
 Phase 27 complete (27-01..04). E2E-verified against LIVE YouTube via the dev-server routes: /api/ytmusic/search 200 (rows+videoId), /api/ytmusic/lyrics 200 (1513c + attribution), /api/ytmusic/stream 206 audio/mp4 + Range (playback) and 200 full-file (download). pnpm check clean, 1320 tests green. E2E caught + fixed a prod-breaking bug (quick-270715 / commit 29c1c7d): stream route exported non-HTTP-verb functions, illegal in SvelteKit +server.ts → 500; helpers moved to $lib/proxy/ytmusic.ts.
-Last activity: 2026-07-24 -- Quick 260723-spk: browser tab now shows the current track as 'Song • Artist' (Spotify/YT-Music style) via a global root-layout $effect on document.title — translated display names (matches UI + zhs→zht setting), re-asserts over route titles on nav, DOM-write only (no self-invalidation loop); E2E-verified default '稻香 • 周杰伦' + zh-Hant '稻香 • 周杰倫', 1354/1354 tests
+Last activity: 2026-07-24
 Remaining human UAT: real-device <audio> playback+seek + download-to-disk; deployed-Worker player+googlevideo same-IP egress + bot-challenge under load (T-27-03-OP). Account/library sync = separate legal-gated milestone (spike 008).
 
 ## Performance Metrics
@@ -90,6 +90,7 @@ Remaining human UAT: real-device <audio> playback+seek + download-to-disk; deplo
 | Phase 27 P02 | 7min | 3 tasks | 5 files |
 | Phase 27 P03 | 12min | 2 tasks | 3 files |
 | Phase 27 P04 | 9min | 3 tasks | 7 files |
+| Phase 29 P01 | 5min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -152,6 +153,7 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 26-04]: version picker consumes the retained pre-dedupe interleaved variants — ZERO new API calls (VERSIONS-01); trigger shown only on >1-source rows; default row tap stays kuwo-first fast.
 - [Phase 27]: [27-02]: getVisitorData caches an anonymous visitorData token under a synthetic own-origin edgeCache key (never the key-bearing upstream URL), ~6h soft TTL; a refresh clears the cache so a known-bad token is never reused
 - [Phase 27]: [27-02]: /api/ytmusic/search returns an empty-but-valid shelf envelope (musicShelfRenderer, zero rows) on empty-q/upstream-error so the 27-01 client parse yields [] instead of throwing its shelf-absent contract-drift guard
+- [Phase ?]: 29-01: consolidated {artist} - {title}.{ext} into one pure download-filename helper (D-08); saveBlobToDisk anchor seam returns false instead of navigating on save failure (DL-BUG-01)
 
 ### Pending Todos
 
@@ -315,7 +317,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-24T03:35:41.740Z
+Last session: 2026-07-24T03:49:46.902Z
 Stopped at: Phase 29 (Download UX & Folder Control) PLANNED — 6 plans / 4 waves; waves 3-4 gated on device UAT
 Resume: execute the remaining Phase-26 gap-closure plans (`/gsd:execute-phase 26 --gaps-only`): 26-08 (variant fetch + version-label dedup), 26-09 (up-next player wiring — depends 26-06/26-07), 26-10 (UI mounts — depends 26-07/26-08).
 
