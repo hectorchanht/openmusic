@@ -19,6 +19,7 @@
 	import { toast } from '$lib/stores/toast.svelte';
 	import { tick as hapticTick } from '$lib/util/haptics';
 	import TrackMenu from '$lib/components/TrackMenu.svelte';
+	import DownloadControl from '$lib/components/DownloadControl.svelte';
 	import type { Track } from '$lib/sources/types';
 	import type { QueueContext } from '$lib/config/defaults';
 
@@ -215,14 +216,18 @@
 	{#if library.liked.length}
 		<ul class="list" class:editing={editMode}>
 			{#each library.liked as track (track.uid)}
-				<li class="swipe-wrap">
-					<span class="reveal reveal-queue" aria-hidden="true"><ListEnd size={20} /></span>
-					<span class="reveal reveal-next" aria-hidden="true"><ListStart size={20} /></span>
-					<button class="row" class:is-active={player.current?.uid === track.uid} class:edit-row={editMode} use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openMenu(track); }} onclick={() => rowAction(track, library.liked)} use:swipeAction={{ onSwipeRight: () => swipeQueue(track), onSwipeLeft: () => swipeNext(track) }}>
-						<span class="art" use:lazyCover={{ track, onResolved: onCoverResolved }} style:background-image={(resolvedCovers[track.uid] ?? track.cover) ? `url(${resolvedCovers[track.uid] ?? track.cover})` : fallbackCover(track)}></span>
-						<span class="meta"><span class="r-title">{names.dnTitle(track.title)}</span><span class="r-sub">{names.dnArtist(track.artist)}</span></span>
-						{#if editMode}<Trash2 size={16} />{:else}<Play size={16} />{/if}
-					</button>
+				<li class="row-line">
+					<div class="swipe-wrap">
+						<span class="reveal reveal-queue" aria-hidden="true"><ListEnd size={20} /></span>
+						<span class="reveal reveal-next" aria-hidden="true"><ListStart size={20} /></span>
+						<button class="row" class:is-active={player.current?.uid === track.uid} class:edit-row={editMode} use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openMenu(track); }} onclick={() => rowAction(track, library.liked)} use:swipeAction={{ onSwipeRight: () => swipeQueue(track), onSwipeLeft: () => swipeNext(track) }}>
+							<span class="art" use:lazyCover={{ track, onResolved: onCoverResolved }} style:background-image={(resolvedCovers[track.uid] ?? track.cover) ? `url(${resolvedCovers[track.uid] ?? track.cover})` : fallbackCover(track)}></span>
+							<span class="meta"><span class="r-title">{names.dnTitle(track.title)}</span><span class="r-sub">{names.dnArtist(track.artist)}</span></span>
+							{#if editMode}<Trash2 size={16} />{:else}<Play size={16} />{/if}
+						</button>
+					</div>
+					<!-- D-11: per-row download control (tri-state, own tap target beside the row). -->
+					<DownloadControl track={track} />
 				</li>
 			{/each}
 		</ul>
@@ -245,14 +250,18 @@
 				{#if pl.tracks.length}
 					<ul class="list">
 						{#each pl.tracks as track (track.uid)}
-							<li class="swipe-wrap">
-								<span class="reveal reveal-queue" aria-hidden="true"><ListEnd size={20} /></span>
-								<span class="reveal reveal-next" aria-hidden="true"><ListStart size={20} /></span>
-								<button class="row" class:is-active={player.current?.uid === track.uid} class:edit-row={editMode} use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openMenu(track); }} onclick={() => rowAction(track, pl.tracks, pl.id)} use:swipeAction={{ onSwipeRight: () => swipeQueue(track), onSwipeLeft: () => swipeNext(track) }}>
-									<span class="art" use:lazyCover={{ track, onResolved: onCoverResolved }} style:background-image={(resolvedCovers[track.uid] ?? track.cover) ? `url(${resolvedCovers[track.uid] ?? track.cover})` : fallbackCover(track)}></span>
-									<span class="meta"><span class="r-title">{names.dnTitle(track.title)}</span><span class="r-sub">{names.dnArtist(track.artist)}</span></span>
-									{#if editMode}<Trash2 size={16} />{:else}<Play size={16} />{/if}
-								</button>
+							<li class="row-line">
+								<div class="swipe-wrap">
+									<span class="reveal reveal-queue" aria-hidden="true"><ListEnd size={20} /></span>
+									<span class="reveal reveal-next" aria-hidden="true"><ListStart size={20} /></span>
+									<button class="row" class:is-active={player.current?.uid === track.uid} class:edit-row={editMode} use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openMenu(track); }} onclick={() => rowAction(track, pl.tracks, pl.id)} use:swipeAction={{ onSwipeRight: () => swipeQueue(track), onSwipeLeft: () => swipeNext(track) }}>
+										<span class="art" use:lazyCover={{ track, onResolved: onCoverResolved }} style:background-image={(resolvedCovers[track.uid] ?? track.cover) ? `url(${resolvedCovers[track.uid] ?? track.cover})` : fallbackCover(track)}></span>
+										<span class="meta"><span class="r-title">{names.dnTitle(track.title)}</span><span class="r-sub">{names.dnArtist(track.artist)}</span></span>
+										{#if editMode}<Trash2 size={16} />{:else}<Play size={16} />{/if}
+									</button>
+								</div>
+								<!-- D-11: per-row download control (own tap target beside the row). -->
+								<DownloadControl track={track} />
 							</li>
 						{/each}
 					</ul>
@@ -264,14 +273,18 @@
 	{#if library.downloads.length}
 		<ul class="list">
 			{#each library.downloads as track (track.uid)}
-				<li class="swipe-wrap">
-					<span class="reveal reveal-queue" aria-hidden="true"><ListEnd size={20} /></span>
-					<span class="reveal reveal-next" aria-hidden="true"><ListStart size={20} /></span>
-					<button class="row" class:is-active={player.current?.uid === track.uid} class:edit-row={editMode} use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openMenu(track); }} onclick={() => rowAction(track, library.downloads)} use:swipeAction={{ onSwipeRight: () => swipeQueue(track), onSwipeLeft: () => swipeNext(track) }}>
-						<span class="art" use:lazyCover={{ track, onResolved: onCoverResolved }} style:background-image={(resolvedCovers[track.uid] ?? track.cover) ? `url(${resolvedCovers[track.uid] ?? track.cover})` : fallbackCover(track)}></span>
-						<span class="meta"><span class="r-title">{names.dnTitle(track.title)}</span><span class="r-sub">{names.dnArtist(track.artist)}</span></span>
-						{#if editMode}<Trash2 size={16} />{:else}<Play size={16} />{/if}
-					</button>
+				<li class="row-line">
+					<div class="swipe-wrap">
+						<span class="reveal reveal-queue" aria-hidden="true"><ListEnd size={20} /></span>
+						<span class="reveal reveal-next" aria-hidden="true"><ListStart size={20} /></span>
+						<button class="row" class:is-active={player.current?.uid === track.uid} class:edit-row={editMode} use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openMenu(track); }} onclick={() => rowAction(track, library.downloads)} use:swipeAction={{ onSwipeRight: () => swipeQueue(track), onSwipeLeft: () => swipeNext(track) }}>
+							<span class="art" use:lazyCover={{ track, onResolved: onCoverResolved }} style:background-image={(resolvedCovers[track.uid] ?? track.cover) ? `url(${resolvedCovers[track.uid] ?? track.cover})` : fallbackCover(track)}></span>
+							<span class="meta"><span class="r-title">{names.dnTitle(track.title)}</span><span class="r-sub">{names.dnArtist(track.artist)}</span></span>
+							{#if editMode}<Trash2 size={16} />{:else}<Play size={16} />{/if}
+						</button>
+					</div>
+					<!-- D-11: per-row download control. On this tab it renders the greyed "Downloaded" state. -->
+					<DownloadControl track={track} />
 				</li>
 			{/each}
 		</ul>
@@ -297,14 +310,18 @@
 		<ul class="list">
 			{#each history.entries as entry (entry.uid)}
 				{@const track = entry as Track}
-				<li class="swipe-wrap">
-					<span class="reveal reveal-queue" aria-hidden="true"><ListEnd size={20} /></span>
-					<span class="reveal reveal-next" aria-hidden="true"><ListStart size={20} /></span>
-					<button class="row" class:is-active={player.current?.uid === track.uid} use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openMenu(track); }} onclick={() => playEntry(track)} use:swipeAction={{ onSwipeRight: () => swipeQueue(track), onSwipeLeft: () => swipeNext(track) }}>
-						<span class="art" use:lazyCover={{ track, onResolved: onCoverResolved }} style:background-image={(resolvedCovers[track.uid] ?? track.cover) ? `url(${resolvedCovers[track.uid] ?? track.cover})` : fallbackCover(track)}></span>
-						<span class="meta"><span class="r-title">{names.dnTitle(track.title)}</span><span class="r-sub">{names.dnArtist(track.artist)}</span></span>
-						<Play size={16} />
-					</button>
+				<li class="row-line">
+					<div class="swipe-wrap">
+						<span class="reveal reveal-queue" aria-hidden="true"><ListEnd size={20} /></span>
+						<span class="reveal reveal-next" aria-hidden="true"><ListStart size={20} /></span>
+						<button class="row" class:is-active={player.current?.uid === track.uid} use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openMenu(track); }} onclick={() => playEntry(track)} use:swipeAction={{ onSwipeRight: () => swipeQueue(track), onSwipeLeft: () => swipeNext(track) }}>
+							<span class="art" use:lazyCover={{ track, onResolved: onCoverResolved }} style:background-image={(resolvedCovers[track.uid] ?? track.cover) ? `url(${resolvedCovers[track.uid] ?? track.cover})` : fallbackCover(track)}></span>
+							<span class="meta"><span class="r-title">{names.dnTitle(track.title)}</span><span class="r-sub">{names.dnArtist(track.artist)}</span></span>
+							<Play size={16} />
+						</button>
+					</div>
+					<!-- D-11: per-row download control (initiation + state affordance on history rows). -->
+					<DownloadControl track={track} />
 				</li>
 			{/each}
 		</ul>
@@ -327,6 +344,10 @@
 	.tabs button { flex: 1; display: inline-flex; align-items: center; justify-content: center; background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text-muted); padding: 10px 0; border-radius: 999px; cursor: pointer; min-width: 0; }
 	.tabs button.active { background: var(--color-primary); color: #fff; border-color: transparent; }
 	.list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+	/* D-11: each row = the swipe-wrap (flex 1) + a trailing DownloadControl (its own tap target,
+	   OUTSIDE the overflow:hidden swipe-wrap so the swipe reveal never clips it). */
+	.row-line { display: flex; align-items: center; gap: 6px; }
+	.row-line .swipe-wrap { flex: 1; min-width: 0; }
 	/* UX-04: positioning context for the swipe reveal layers. The reveal spans sit BEHIND the row
 	   (the row carries an opaque background); the row's translateX (use:swipeAction) slides to
 	   expose the correct side. overflow:hidden masks the reveal at rest + clips the row travel. */
