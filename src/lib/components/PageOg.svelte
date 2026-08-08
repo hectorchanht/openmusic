@@ -8,16 +8,25 @@
 	// {@html}. The image is constrained to an https URL by buildOg; a null cover falls back to the
 	// static /og.svg so the card always has an image.
 	import { page } from "$app/state";
+	import type { OgType } from '$lib/services/share';
 
 	let {
 		og,
-	}: { og: { title: string; description: string; image: string | null } } =
-		$props();
+	}: {
+		og: { title: string; description: string; image: string | null; type?: OgType };
+	} = $props();
 
-	const SITE = "https://openmusic.lol";
-	const FALLBACK_IMG = `${SITE}/og.svg`;
-	const url = $derived(`${SITE}${page.url.pathname}`);
-	const image = $derived(og.image ?? FALLBACK_IMG);
+	// OG-PAGE-01: derive the origin from the REQUEST so a link shared from openmusic.pages.dev (or a
+	// preview deploy) emits a same-origin og:url / og:image instead of always pointing at the primary
+	// domain (folds the `pageog-hardcoded-site-origin` todo). og:image MUST stay an ABSOLUTE URL —
+	// crawlers reject a relative one — which is why the fallback is built from `origin` here rather
+	// than emitted as a bare path. SITE_FALLBACK covers an empty origin only.
+	// `page.url` is server-provided and fully populated during the Cloudflare SSR render (the root
+	// layout already reads it in its own <svelte:head>); NEVER derive this from `location`.
+	const SITE_FALLBACK = 'https://openmusic.lol';
+	const origin = $derived(page.url.origin || SITE_FALLBACK);
+	const url = $derived(`${origin}${page.url.pathname}`);
+	const image = $derived(og.image ?? `${origin}/og.svg`);
 </script>
 
 <svelte:head>
@@ -28,7 +37,12 @@
 	     these are the only ones emitted on an entity route. -->
 	<title>{og.title}</title>
 	<meta name="description" content={og.description} />
-	<meta property="og:type" content="music.song" />
+	<!-- OG-PAGE-01: og:type is per-surface (music.song / music.album / profile), supplied by the
+	     route's loader via buildOg. Optional with a 'music.song' default so a caller that has not
+	     been converted yet emits exactly the card it emitted before. Still bound via content={} and
+	     drawn from the closed OgType union (T-gln-02). The root layout's fallback og:type=website is
+	     gated on `{#if !page.data?.og}`, so exactly ONE og:type renders per page. -->
+	<meta property="og:type" content={og.type ?? 'music.song'} />
 	<meta property="og:title" content={og.title} />
 	<meta property="og:description" content={og.description} />
 	<meta property="og:url" content={url} />
