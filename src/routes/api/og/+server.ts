@@ -41,14 +41,9 @@ import type { RequestHandler } from './$types';
 import { corsHeaders, fetchWithRetry } from '$lib/proxy/http';
 import { edgeCache, ownOriginCacheKey } from '$lib/proxy/edge-cache';
 import type { EdgeCache } from '$lib/proxy/edge-cache';
-import {
-	OG_FALLBACK_SVG,
-	OG_FALLBACK_TYPE,
-	OG_RESOLVE_MS,
-	isOgType,
-	resolveCoverTiered
-} from '$lib/proxy/og-cover';
+import { OG_RESOLVE_MS, isOgType, resolveCoverTiered } from '$lib/proxy/og-cover';
 import type { OgType } from '$lib/proxy/og-cover';
+import { OG_FALLBACK_BYTES, OG_FALLBACK_TYPE } from '$lib/proxy/og-fallback';
 import { matchKey } from '$lib/services/match-key';
 
 /** 24 h, `immutable` (a client hint, RFC 8246) — a cover for a given song does not change. */
@@ -67,13 +62,20 @@ const MAX_TERM_CHARS = 200;
 /** Content types we will relay as a card image. Anything else → the branded fallback. */
 const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 
-/** The branded 1200×630 card: 200, zero network, zero subrequests. Every fault lands here. */
+/**
+ * The branded 1200×630 card: 200, zero network, zero subrequests. Every fault lands here.
+ *
+ * quick-260807-vl1: a RASTER (og-fallback.ts), no longer an inlined SVG — no major platform renders
+ * an SVG og:image, so the previous fallback was invisible in exactly the messengers this endpoint
+ * exists for. The bytes are already decoded at module scope, so this is allocation-only.
+ */
 function ogFallback(origin: string | null): Response {
-	return new Response(OG_FALLBACK_SVG, {
+	return new Response(OG_FALLBACK_BYTES, {
 		status: 200,
 		headers: {
 			...corsHeaders(origin),
 			'content-type': OG_FALLBACK_TYPE,
+			'Content-Length': String(OG_FALLBACK_BYTES.length),
 			'Cache-Control': CACHE_CONTROL
 		}
 	});

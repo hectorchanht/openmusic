@@ -1,13 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
-	OG_FALLBACK_SVG,
-	OG_FALLBACK_TYPE,
 	OG_RESOLVE_MS,
 	isOgType,
 	resolveCoverTiered,
 	safeItunesImageUrl,
 	safeKuwoImageUrl
 } from '$lib/proxy/og-cover';
+import { OG_FALLBACK_BYTES, OG_FALLBACK_TYPE } from '$lib/proxy/og-fallback';
 import { upgradeArtwork } from '$lib/services/itunes-cover';
 import { t2sConvertLines } from '$lib/services/zh-convert';
 import { GET, OPTIONS } from './+server';
@@ -82,6 +81,18 @@ function stubTiers(replies: { dz?: TierReply; it?: TierReply; kw?: TierReply }) 
 }
 
 const fresh = () => AbortSignal.timeout(5000);
+
+/**
+ * Read a raster's format from its MAGIC BYTES — the only assertion that proves the fallback body
+ * really is the image its content-type claims (a stale/mis-decoded base64 constant would slip past
+ * a header-only check). `89 50 4E 47` = PNG, `FF D8` = JPEG.
+ */
+function magicOf(bytes: Uint8Array): string | null {
+	if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47)
+		return 'image/png';
+	if (bytes[0] === 0xff && bytes[1] === 0xd8) return 'image/jpeg';
+	return null;
+}
 
 describe('og-cover — tier order (Deezer → iTunes → kuwo, sequential)', () => {
 	it('a Deezer hit costs exactly ONE subrequest and never reaches iTunes/kuwo', async () => {
@@ -294,7 +305,7 @@ describe('og-cover — CONVERT-FIRST t2s primary query + two Deezer fallbacks (q
 		const { calls } = stubRoute({ dz: DZ_MISS, it: IT_MISS, kw: KW_MISS });
 		const res = await callGET(fakeEvent(SONG));
 		expect(res.status).toBe(200);
-		expect(res.headers.get('content-type')).toBe('image/svg+xml');
+		expect(res.headers.get('content-type')).toBe(OG_FALLBACK_TYPE);
 		// Non-Chinese input: 3 tiers + Fallback B, 0 image. The Traditional worst case is 5 + 1.
 		expect(calls).toHaveLength(4);
 	});
@@ -439,13 +450,13 @@ describe('og-cover — closed type set + branded fallback constant', () => {
 		expect(isOgType('')).toBe(false);
 	});
 
-	it('OG_FALLBACK_SVG is the real 1200x630 og.svg asset, served as image/svg+xml', () => {
-		expect(OG_FALLBACK_TYPE).toBe('image/svg+xml');
-		expect(OG_FALLBACK_SVG).toContain('<svg');
-		expect(OG_FALLBACK_SVG).toContain('1200');
-		expect(OG_FALLBACK_SVG).toContain('630');
-		expect(OG_FALLBACK_SVG).toContain('openmusic');
-		expect(OG_FALLBACK_SVG.length).toBeGreaterThan(1000);
+	it('the branded fallback is a RASTER, never an SVG (quick-260807-vl1)', () => {
+		// The hard gate: no major platform renders an SVG og:image (30-RESEARCH §C.11/§D.15), which
+		// is what made the user's WhatsApp card come through blank.
+		expect(OG_FALLBACK_TYPE).toMatch(/^image\/(png|jpeg)$/);
+		expect(OG_FALLBACK_TYPE).not.toBe('image/svg+xml');
+		expect(OG_FALLBACK_BYTES.length).toBeGreaterThan(1000);
+		expect(magicOf(OG_FALLBACK_BYTES)).toBe(OG_FALLBACK_TYPE);
 	});
 });
 
@@ -532,13 +543,15 @@ const callGET = (event: ReturnType<typeof fakeEvent>) => GET(event as any);
 const SONG = { type: 'song', artist: 'Nirvana', title: 'Come As You Are' };
 
 describe('/api/og — zero-work short-circuit + input coercion', () => {
-	it('no artist and no title → 200 branded SVG with ZERO subrequests (T-og-01)', async () => {
+	it('no artist and no title → 200 branded raster with ZERO subrequests (T-og-01)', async () => {
 		const { calls } = stubRoute({});
 		const res = await callGET(fakeEvent({ type: 'song' }));
 		expect(res.status).toBe(200);
-		expect(res.headers.get('content-type')).toBe('image/svg+xml');
+		expect(res.headers.get('content-type')).toBe(OG_FALLBACK_TYPE);
+		expect(res.headers.get('Content-Length')).toBe(String(OG_FALLBACK_BYTES.length));
 		expect(calls).toHaveLength(0);
-		expect(await res.text()).toContain('<svg');
+		// The body is the real raster: magic bytes must match the declared type.
+		expect(magicOf(new Uint8Array(await res.arrayBuffer()))).toBe(OG_FALLBACK_TYPE);
 	});
 
 	it('a type outside the closed set is COERCED to song (never a 404/500)', async () => {
@@ -576,28 +589,28 @@ describe('/api/og — streams image bytes (never a 30x, never a 500)', () => {
 		stubRoute({ dz: DZ_HIT, image: 'html' });
 		const res = await callGET(fakeEvent(SONG));
 		expect(res.status).toBe(200);
-		expect(res.headers.get('content-type')).toBe('image/svg+xml');
-		expect(await res.text()).not.toContain('<html>');
+		expect(res.headers.get('content-type')).toBe(OG_FALLBACK_TYPE);
+		expect(magicOf(new Uint8Array(await res.arrayBuffer()))).toBe(OG_FALLBACK_TYPE);
 	});
 
 	it('a failed / non-ok image fetch falls back branded rather than 500ing', async () => {
 		stubRoute({ dz: DZ_HIT, image: 'THROW' });
 		const thrown = await callGET(fakeEvent(SONG));
 		expect(thrown.status).toBe(200);
-		expect(thrown.headers.get('content-type')).toBe('image/svg+xml');
+		expect(thrown.headers.get('content-type')).toBe(OG_FALLBACK_TYPE);
 
 		vi.unstubAllGlobals();
 		stubRoute({ dz: DZ_HIT, image: 'NOTOK' });
 		const notOk = await callGET(fakeEvent(SONG));
 		expect(notOk.status).toBe(200);
-		expect(notOk.headers.get('content-type')).toBe('image/svg+xml');
+		expect(notOk.headers.get('content-type')).toBe(OG_FALLBACK_TYPE);
 	});
 
 	it('every tier faulting still returns 200 + the branded card', async () => {
 		stubRoute({ dz: 'THROW', it: 'THROW', kw: 'THROW' });
 		const res = await callGET(fakeEvent(SONG));
 		expect(res.status).toBe(200);
-		expect(res.headers.get('content-type')).toBe('image/svg+xml');
+		expect(res.headers.get('content-type')).toBe(OG_FALLBACK_TYPE);
 	});
 
 	it('a throwing Cache API cannot 500 the route', async () => {
@@ -683,14 +696,14 @@ describe('/api/og — two caches.default layers, both keyed own-origin', () => {
 		const { calls } = stubRoute({ dz: DZ_MISS, it: IT_MISS, kw: KW_MISS });
 		const { putKeys } = stubCache();
 		const res1 = await callGET(fakeEvent(SONG));
-		expect(res1.headers.get('content-type')).toBe('image/svg+xml');
+		expect(res1.headers.get('content-type')).toBe(OG_FALLBACK_TYPE);
 		// 3 tiers + Fallback B (title-only). Fallback A is skipped — 'Nirvana' is not substituted.
 		expect(calls).toHaveLength(4);
 		expect(putKeys).toHaveLength(1); // resolve layer only — there are no bytes to store
 
 		const res2 = await callGET(fakeEvent(SONG));
 		expect(calls).toHaveLength(4); // known-none served from the resolve layer
-		expect(res2.headers.get('content-type')).toBe('image/svg+xml');
+		expect(res2.headers.get('content-type')).toBe(OG_FALLBACK_TYPE);
 	});
 
 	it("resolveCoverTiered 'ERROR' writes NOTHING to either layer", async () => {

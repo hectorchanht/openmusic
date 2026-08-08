@@ -6,7 +6,8 @@
 	//
 	// T-gln-02: all values are bound via `content={...}` (Svelte escapes attribute bindings), never
 	// {@html}. The image is constrained to an https URL by buildOg; a null cover falls back to the
-	// static /og.svg so the card always has an image.
+	// static branded RASTER so the card always has an image (quick-260807-vl1: /og.jpg, not /og.svg
+	// — no major platform renders an SVG og:image, 30-RESEARCH §C.11/§D.15).
 	import { page } from "$app/state";
 	import type { OgType } from '$lib/services/share';
 
@@ -26,7 +27,7 @@
 	const SITE_FALLBACK = 'https://openmusic.lol';
 	const origin = $derived(page.url.origin || SITE_FALLBACK);
 	const url = $derived(`${origin}${page.url.pathname}`);
-	const image = $derived(og.image ?? `${origin}/og.svg`);
+	const image = $derived(og.image ?? `${origin}/og.jpg`);
 </script>
 
 <svelte:head>
