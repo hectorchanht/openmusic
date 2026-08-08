@@ -4,13 +4,13 @@ milestone: v1.5
 milestone_name: YTMusic-Powered Up-Next
 status: executing
 stopped_at: Phase 29 WEB SCOPE COMPLETE — 29-01..04 shipped+verified (filename+translation, media-page bug fix, per-song loading/Downloaded). Native plans 29-05/29-06 DEFERRED per user (web-only). Suite 1373 green, check clean.
-last_updated: "2026-08-08T03:00:28.922Z"
+last_updated: "2026-08-08T03:18:43.011Z"
 last_activity: 2026-08-08
 progress:
   total_phases: 6
   completed_phases: 3
   total_plans: 36
-  completed_plans: 25
+  completed_plans: 26
   percent: 50
 ---
 
@@ -21,13 +21,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-10)
 
 **Core value:** A user on their phone can search a song, tap it, and have it play instantly with a smooth, native-app-like experience — and keep playing when the screen locks.
-**Current focus:** Phase 29 — download-ux-folder-control
+**Current focus:** Phase 30 — Carrier-Free Share Links
 
 ## Current Position
 
-Phase: 29 (download-ux-folder-control) — EXECUTING
-Plan: 5 of 6
-Status: Ready to execute
+Phase: 30 (Carrier-Free Share Links) — EXECUTING
+Plan: 2 of 6
+Status: Executing Phase 30
 
 ### Prior phase (Phase 27 — YouTube Music Source, v1.4) — COMPLETE + E2E-VERIFIED
 
@@ -94,6 +94,7 @@ Remaining human UAT: real-device <audio> playback+seek + download-to-disk; deplo
 | Phase 29 P02 | 10min | 2 tasks | 17 files |
 | Phase 29 P03 | 27min | 2 tasks | 4 files |
 | Phase 29 P04 | 8min | 3 tasks | 5 files |
+| Phase 30 P01 | 7min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -160,6 +161,7 @@ Recent decisions affecting current work:
 - [Phase ?]: 29-02: library.downloading transient reactive per-uid Set (never persisted, D-10/T-29-02-01); off the player (D-18)
 - [Phase ?]: 29-02: 5 download/migration i18n keys added to all 15 locales, double-quoted, {moved}/{total} verbatim
 - [Phase ?]: 29-04: shared DownloadControl.svelte is the single tri-state download affordance; album stubs resolve on tap (persist:false); CompactRow shows a passive downloaded badge only (initiation stays in the menu)
+- [Phase ?]: 30-01: share URLs are carrier-free — identity rides two path segments (artist first), cover rides own-origin /api/og; no share-time zhs→zht conversion (OG-ZH-01 resolved as removal)
 
 ### Pending Todos
 
@@ -323,7 +325,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-24T05:16:53.611Z
+Last session: 2026-08-08T03:18:33.226Z
 Stopped at: Phase 29 WEB SCOPE COMPLETE — 29-01..04 shipped+verified (filename+translation, media-page bug fix, per-song loading/Downloaded). Native plans 29-05/29-06 DEFERRED per user (web-only). Suite 1373 green, check clean.
 Resume: execute the remaining Phase-26 gap-closure plans (`/gsd:execute-phase 26 --gaps-only`): 26-08 (variant fetch + version-label dedup), 26-09 (up-next player wiring — depends 26-06/26-07), 26-10 (UI mounts — depends 26-07/26-08).
 
