@@ -16,9 +16,21 @@
 	let { data }: { data: PageData } = $props();
 
 	// Display fields from the SSR load: data.name/data.artist are the authoritative readable carriers
-	// (DQ-1). The cover is never carried, so the card always shows the placeholder block (no <img>).
+	// (DQ-1). quick-260723-r4p: the cover IS carried, via the readable `?c=` carrier — the comment
+	// that used to claim otherwise here was stale from the moment that carrier landed. OG-PAGE-01 now
+	// also RENDERS it, so the crawler card and this landing page show the same album art; the
+	// gradient placeholder is the null/error fallback rather than the only state.
 	const title = $derived(data.name || data.og.title);
 	const artist = $derived(data.artist);
+
+	// data.og.image is the legacy `c` carrier AFTER buildOg's isHttpsUrl gate — already an ABSOLUTE
+	// external https CDN URL, so (unlike the carrier-free /song/{artist}/{title} page) there is no
+	// own-origin path to resolve and apiUrl() deliberately does NOT apply here: routing an absolute
+	// cross-origin URL through it would corrupt it on the native build. A missing / non-https carrier
+	// arrives as null → gradient, exactly as before.
+	// A broken <img> is worse than a gradient (the healCover precedent treats a cover error as a
+	// first-class event), so an error falls back to the existing .cover--placeholder block.
+	let coverFailed = $state(false);
 
 	// DQ-3 resolve-and-play status. Drives the inline UI: 'resolving' shows a spinner, 'playing'
 	// means the player took over, 'notfound' shows a clear message + retry. NEVER stays 'resolving'
@@ -63,7 +75,19 @@
 <PageOg og={data.og} />
 
 <section class="song-share">
-	<div class="cover cover--placeholder" aria-hidden="true"></div>
+	{#if data.og.image && !coverFailed}
+		<!-- Decorative: the title + artist are rendered as text immediately below. no-referrer matches
+		     the app's <audio> posture for third-party CDN media. -->
+		<img
+			class="cover"
+			src={data.og.image}
+			alt=""
+			referrerpolicy="no-referrer"
+			onerror={() => (coverFailed = true)}
+		/>
+	{:else}
+		<div class="cover cover--placeholder" aria-hidden="true"></div>
+	{/if}
 	<h1 class="title">{title}</h1>
 	{#if artist}
 		<p class="artist">{artist}</p>
