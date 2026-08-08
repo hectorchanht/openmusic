@@ -120,6 +120,36 @@ _v1.5 — controlled filename · media-page bug fix · per-song state · native 
 - [ ] 29-05-PLAN.md — ⏸ DEFERRED (native) — Native folder: Kotlin `MediaStore.Downloads` collection swap → `Download/openmusic/` + `saveToDownloads` rename; blob-store/media-store native branch; device UAT (DL-FOLDER-01/DL-RESILIENCE-01) [wave 3, autonomous:false]
 - [ ] 29-06-PLAN.md — ⏸ DEFERRED (native) — Migration: `blobStore.migrateDownloads` copy+delete+remap (idempotent, per-uid never-throw) + native-only Settings→Data button "Moved N of M"; device UAT (DL-MIGRATE-01/DL-RESILIENCE-01) [wave 4, autonomous:false]
 
+### Phase 30: Carrier-Free Share Links (`/{type}/{artist}/{title}` + `/api/og`)
+
+_v1.5 — every query carrier removed from every share surface_
+
+**Goal:** Make a shared link short, readable and meaningful while the OG card still shows real album art. Today a song link is `~172` chars and **64% of it is the cover carrier** — `?n=Come%20As%20You%20Are&a=Nirvana&c=https%3A%2F%2Fcdn-images.dzcdn.net%2F…1000x1000-000000-80-0-0.jpg` — because [`buildOg`](../src/lib/services/share.ts) may only emit `og:image` from query params (threat T-24-08 forbids an arbitrary server-side fetch from a share link). Fix both halves at once: move the identity into **two path segments** and move the cover into a **new own-origin `/api/og` image endpoint**. Result:
+
+```
+/song/Nirvana/Come-As-You-Are      ← was /song/come-as-you-are-nirvana?n=&a=&c=
+/album/Nirvana/Nevermind           ← was /album/{name}?artist=&c=&dn=&da=
+/artist/Nirvana                    ← was /artist/{name}?c=&dn=
+```
+
+**Zero query carriers remain.** `og:image` becomes `${SITE}/api/og?type=song&artist=…&title=…` — long, but it lives inside a meta tag where length is invisible. Direction, tradeoffs and the rejected alternatives (md5-only carrier, KV short links) are recorded in [`notes/share-link-cover-carrier-tradeoff.md`](notes/share-link-cover-carrier-tradeoff.md).
+
+**Three findings de-risk this.** (1) Path segments are **not** ASCII-limited — `slugify` ASCII-strips, but a raw-UTF-8 path segment (`/song/周杰倫/稻香`) is valid, percent-encoded on the wire and shown decoded by browsers and messenger previews, so the path can carry the *authoritative* title+artist rather than a lossy cosmetic slug. (2) Two segments make `/` the separator, so the single-segment separator-ambiguity problem simply ceases to exist. (3) The song share page **never renders the carried cover** (it draws `cover--placeholder`, a gradient), so dropping `c` regresses zero in-app behavior. SSRF posture also gets **tighter**: input becomes path text instead of an arbitrary https URL from the sharer's client, and output still passes the `safeImageUrl` host allowlist.
+
+**Requirements:**
+- **OG-PATH-01** — New two-segment routes `/song/[artist]/[title]` and `/album/[artist]/[name]` (artist stays `/artist/[name]`), each a per-route `ssr = true` / `prerender = false` opt-in exactly like the current entity routes — **never** a `+page.server.ts` (that breaks the `adapter-static` native build, Pitfall 5 / T-24-09). Segments carry raw text with **original case preserved** and spaces as `-`. Case-preserving is deliberate: the OG card title is read straight from the path, so lowercasing would force a title-case reconstruction that renders `DNA` as `Dna`. Known lossy edge: a literal hyphen in a title decodes as a space (`Spider-Man` → `Spider Man`), absorbed by `playStub`'s fuzzy `scoreMatch`.
+- **OG-PATH-02** — `songShareUrl` and `entityCardUrl` emit the new shapes and set **no query params at all** (`c`, `n`, `a`, `artist`, and — pending OG-ZH-01 — `dn`/`da` all gone). Resolution still runs through the existing `playStub` / `getAlbumTracklist` path, now keyed off the decoded segments.
+- **OG-EP-01** — New `src/routes/api/og/+server.ts` (`GET ?type=song|album|artist&artist=&title=`) resolving the cover through a **tiered, bounded** chain: Deezer → iTunes → **kuwo only** → stream `/og.svg`. kuwo, not `searchAll` fan-out (per `spike-findings-openmusic` kuwo-first) — that caps the route at ≤3 subrequests so a cold crawl stays inside every crawler's fetch budget. Per-tier `AbortSignal.timeout` under one overall ~2.5s deadline; a miss or timeout falls through to the branded `/og.svg` — the route **never** 500s and never exceeds the crawl budget.
+- **OG-EP-02** — Response streams `new Response(upstream.body, { headers })` (≈0 CPU on Workers — the body is not buffered) with `Content-Type` from upstream and `Cache-Control: public, max-age=86400, immutable`. **No 302 redirect** — streaming sidesteps per-crawler redirect-follow variance (WhatsApp / iMessage are the fussy ones). Two `caches.default` layers via `edgeCache()`/`ownOriginCacheKey()`: the `artist+title → coverUrl` resolve and the image bytes.
+- **OG-EP-03** — Extract the Deezer cover upstream call from [`api/deezer/search/+server.ts`](../src/routes/api/deezer/search/+server.ts) into `$lib/proxy/deezer-cover.ts` so `/api/og` and `/api/deezer/search` share one implementation. Required, not cosmetic: a `+server.ts` cannot export non-verb helpers (it 500s at request time and unit tests miss it). Extend `safeImageUrl` to `*.mzstatic.com` + the kuwo cover host, applied per tier.
+- **OG-ZH-01** — **Decide explicitly during planning, don't default to yes.** `dn`/`da` exist only because the zhs→zht-converted display name had no server-side equivalent — but [`zh-convert.ts`](../src/lib/services/zh-convert.ts) is pure `.ts` (no browser globals, node-testable) and `tongwen-core`/`tongwen-dict` are real runtime `dependencies`, so the SSR loader *can* convert Simplified→Traditional server-side and retire both carriers. Cost: the ~72KB s2t dict dynamic-imports into the edge SSR path — fine against the 3MB compressed Worker limit, but real per-request weight on a cold isolate. This is the only part of the phase that adds edge cost.
+- **OG-COMPAT-01** — The old routes stay as **legacy handlers**: `/song/[slug]?n=&a=&c=` plus the query-carrier album/artist forms keep resolving *and* keep their card (legacy `c` still https-gated exactly as today). Path depth differs, so the routes coexist with no matching conflict. Tests assert both the new carrier-free path and every legacy query shape.
+- **OG-VERIFY-01** — `share.test.ts` updated for the new shapes (incl. CJK segments and case preservation); new tests for the `/api/og` tier fallthrough, the deadline path, and `safeImageUrl` rejection per tier. Real-crawler check against WhatsApp / Twitter / iMessage / Slack / Discord. **Caveat:** the Deezer + iTunes tiers are E2E-verifiable in-sandbox; the **kuwo tier is not** (no CN upstream network here — see the `sandbox-no-cn-upstream-network` finding), so it needs unit tests plus a device/prod check. `pnpm test` green + `pnpm check` clean.
+- **OG-PAGE-01** — Side-win: swap the song share page's `cover--placeholder` gradient for `<img src={data.og.image}>` so the crawler card and the landing page show the same art, and correct the stale "the cover is never carried" comment (see [`todos/pending/song-share-stale-cover-comment.md`](todos/pending/song-share-stale-cover-comment.md)). Fix `og:type` per surface while in `PageOg` (today every route emits `music.song`).
+
+**Depends on:** Phase 24 (Offline App-Shell & Sharing/SEO) — owns the SSR opt-in + `buildOg`/`PageOg` seam this modifies; and the Deezer cover proxy from the Phase 9/26 cover pipeline, whose upstream call OG-EP-03 extracts.
+**Plans:** not yet planned — run `/gsd:plan-phase 30`.
+
 ## Progress
 
 | Phase | Milestone | Status | Completed |
@@ -144,6 +174,7 @@ _v1.5 — controlled filename · media-page bug fix · per-song state · native 
 | 27. YouTube Music Source (search·play·lyrics·download) | 4/4 | Complete|  |
 | 28. YTMusic-Powered Up-Next Recommendations | v1.5 | Planned | — |
 | 29. Download UX & Folder Control | 4/6 (web ✓, native deferred) | Web Complete | 2026-07-23 |
+| 30. Carrier-Free Share Links + `/api/og` | v1.5 | Planned | — |
 
 ## Backlog
 
