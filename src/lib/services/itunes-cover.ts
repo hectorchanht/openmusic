@@ -59,11 +59,18 @@ export function buildItunesSearchUrl(term: string, entity: string, attribute?: s
  * Upgrade an iTunes `artworkUrl100` (…/100x100bb.jpg) to a sharp tile (…/1200x1200bb.jpg, D-11).
  * The replacement is DEFENSIVE: it only swaps when the `100x100bb` token is present; otherwise
  * the URL is returned unchanged. Empty / whitespace-only / null / undefined → null.
+ *
+ * `size` exists for /api/og (OG-EP-01), which needs the 600x600bb variant: measured 101,186 B vs
+ * 332,091 B for 1200x1200bb, and a social crawler's fetch budget is what that endpoint is built
+ * to stay inside (Pitfall 6). The default keeps every client tile byte-identical.
  */
-export function upgradeArtwork(url: string | null | undefined): string | null {
+export function upgradeArtwork(
+	url: string | null | undefined,
+	size = '1200x1200bb'
+): string | null {
 	const clean = (url ?? '').trim();
 	if (!clean) return null;
-	return clean.includes('100x100bb') ? clean.replace('100x100bb', '1200x1200bb') : clean;
+	return clean.includes('100x100bb') ? clean.replace('100x100bb', size) : clean;
 }
 
 /**
