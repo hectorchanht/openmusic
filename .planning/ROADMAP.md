@@ -148,13 +148,13 @@ _v1.5 — every query carrier removed from every share surface_
 - **OG-PAGE-01** — Side-win: swap the song share page's `cover--placeholder` gradient for `<img src={data.og.image}>` so the crawler card and the landing page show the same art, and correct the stale "the cover is never carried" comment (see [`todos/pending/song-share-stale-cover-comment.md`](todos/pending/song-share-stale-cover-comment.md)). Fix `og:type` per surface while in `PageOg` (today every route emits `music.song`).
 
 **Depends on:** Phase 24 (Offline App-Shell & Sharing/SEO) — owns the SSR opt-in + `buildOg`/`PageOg` seam this modifies; and the Deezer cover proxy from the Phase 9/26 cover pipeline, whose upstream call OG-EP-03 extracts.
-**Plans:** 4/6 plans executed
+**Plans:** 5/6 plans executed
 
 - [x] 30-01-PLAN.md — Carrier-free songShareUrl/entityCardUrl + path-segment codec + ogImageUrl; drop share-time s2t; §F.20 share.test.ts rewrite (OG-PATH-02/OG-ZH-01) [wave 1]
 - [x] 30-02-PLAN.md — Extract `$lib/proxy/deezer-cover.ts` + rewire /api/deezer/search; deezer-endpoint.test.ts passes UNMODIFIED as the proof (OG-EP-03) [wave 1]
 - [x] 30-03-PLAN.md — `$lib/proxy/og-cover.ts` tier chain (Deezer→iTunes→kuwo, 2.5s deadline) + streaming `/api/og` route with two own-origin cache layers + endpoint tests (OG-EP-01/02/03) [wave 2, depends 30-02]
 - [x] 30-04-PLAN.md — New `/song/[artist]/[title]` + `/album/[artist]/[name]` routes + first loader tests + PageOg origin/og:type fix + APK-safe `<img>` (OG-PATH-01/OG-PAGE-01) [wave 2, depends 30-01]
-- [ ] 30-05-PLAN.md — Legacy compat: fix the live `%` double-decode 500 (fail-first tests), og.type per legacy loader, dual-shape artist handler, legacy song-page `<img>` swap (OG-COMPAT-01/OG-PAGE-01) [wave 3, depends 30-01+30-04]
+- [x] 30-05-PLAN.md — Legacy compat: fix the live `%` double-decode 500 (fail-first tests), og.type per legacy loader, dual-shape artist handler, legacy song-page `<img>` swap (OG-COMPAT-01/OG-PAGE-01) [wave 3, depends 30-01+30-04]
 - [ ] 30-06-PLAN.md — Phase gate: full suites/builds + curl matrix, then deploy + real-messenger card check and APK cover check (OG-VERIFY-01/OG-PAGE-01) [wave 4, autonomous:false]
 
 ## Progress
@@ -181,7 +181,7 @@ _v1.5 — every query carrier removed from every share surface_
 | 27. YouTube Music Source (search·play·lyrics·download) | 4/4 | Complete|  |
 | 28. YTMusic-Powered Up-Next Recommendations | v1.5 | Planned | — |
 | 29. Download UX & Folder Control | 4/6 (web ✓, native deferred) | Web Complete | 2026-07-23 |
-| 30. Carrier-Free Share Links + `/api/og` | 4/6 | In Progress|  |
+| 30. Carrier-Free Share Links + `/api/og` | 5/6 | In Progress|  |
 
 ## Backlog
 

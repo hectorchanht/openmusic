@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: YTMusic-Powered Up-Next
 status: executing
-stopped_at: Phase 30 plan 04 complete — /song/{artist}/{title} + /album/{artist}/{name} SSR routes live with request-origin OG heads and the /api/og cover img (apiUrl-routed); PageOg origin + per-surface og:type fixed; repo's first two loader tests. Suite 86 files / 1465 tests green, check clean, both builds exit 0. Next: 30-05 (legacy loader double-decode fix + og:type).
-last_updated: "2026-08-08T03:57:56.110Z"
+stopped_at: Phase 29 WEB SCOPE COMPLETE — 29-01..04 shipped+verified (filename+translation, media-page bug fix, per-song loading/Downloaded). Native plans 29-05/29-06 DEFERRED per user (web-only). Suite 1373 green, check clean.
+last_updated: "2026-08-08T04:11:01.963Z"
 last_activity: 2026-08-08
 progress:
   total_phases: 6
   completed_phases: 3
   total_plans: 36
-  completed_plans: 29
+  completed_plans: 30
   percent: 50
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-06-10)
 ## Current Position
 
 Phase: 30 (Carrier-Free Share Links) — EXECUTING
-Plan: 5 of 6
+Plan: 6 of 6
 Status: Executing Phase 30
 
 ### Prior phase (Phase 27 — YouTube Music Source, v1.4) — COMPLETE + E2E-VERIFIED
@@ -98,6 +98,7 @@ Remaining human UAT: real-device <audio> playback+seek + download-to-disk; deplo
 | Phase 30 P02 | 4min | 2 tasks | 3 files |
 | Phase 30 P03 | 11min | 2 tasks | 4 files |
 | Phase 30 P04 | 7min | 3 tasks | 7 files |
+| Phase 30 P05 | 12min | 2 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -171,6 +172,7 @@ Recent decisions affecting current work:
 - [Phase ?]: 30-04: new album route is an SSR OG landing that replaceState-forwards to the single existing album page; the in-app album nav deliberately stays on the legacy ?artist= shape to avoid a double hop
 - [Phase ?]: 30-04: og:image is spliced OVER buildOg's result (never passed as cover) so the own-origin /api/og URL survives the isHttpsUrl carrier gate on an http dev origin
 - [Phase ?]: 30-04: a +page.ts is unit-testable only if synchronous, fetch-free and importing ./$types type-only — treat those as loader design constraints
+- [Phase ?]: 30-05: four decodeURIComponent(params) sites existed, not three — artist/[name]/+page.svelte was missed by RESEARCH; audit both 'params' and 'page.params' forms
 
 ### Pending Todos
 
@@ -334,7 +336,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-08T03:57:47.107Z
+Last session: 2026-08-08T04:10:55.106Z
 Stopped at: Phase 29 WEB SCOPE COMPLETE — 29-01..04 shipped+verified (filename+translation, media-page bug fix, per-song loading/Downloaded). Native plans 29-05/29-06 DEFERRED per user (web-only). Suite 1373 green, check clean.
 Resume: execute the remaining Phase-26 gap-closure plans (`/gsd:execute-phase 26 --gaps-only`): 26-08 (variant fetch + version-label dedup), 26-09 (up-next player wiring — depends 26-06/26-07), 26-10 (UI mounts — depends 26-07/26-08).
 
