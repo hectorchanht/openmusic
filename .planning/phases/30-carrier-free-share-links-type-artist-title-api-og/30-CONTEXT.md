@@ -87,15 +87,35 @@ from a share link — so the cover had nowhere to live except the URL itself.
   route-matching conflict.
 - Tests must assert both the new carrier-free path and every legacy query shape.
 
-### OPEN — decide during planning, do NOT default to yes
+### OG-ZH-01 — RESOLVED by research (2026-08-07)
 
-- **OG-ZH-01: retire `dn`/`da` by converting zhs→zht server-side?** `dn`/`da` exist only because the
-  Traditional display name had no server-side equivalent. But `$lib/services/zh-convert.ts` is pure
-  `.ts` (no browser globals, node-testable) and `tongwen-core` / `tongwen-dict` are real runtime
-  `dependencies`, so the SSR loader *can* convert. **Cost:** the ~72KB s2t dict dynamic-imports into
-  the edge SSR path — fine against the 3MB compressed Worker limit, but real per-request weight on a
-  cold isolate. This is the only part of the phase that adds edge cost. Weigh it explicitly; if the
-  answer is no, `dn`/`da` survive as the sole remaining carriers and that is an acceptable outcome.
+Originally left OPEN for planning to weigh. `30-RESEARCH.md` §E settled it with measurements:
+
+- **The ~72KB figure below was ~5× understated.** Real cost: **~357 KB raw / ~153 KB gzip** (the
+  original number counted only the char dict, not the phrase dict). `createConverterMap()` measured at
+  **8.90 ms pure CPU**.
+- **Recommendation (taken): drop `dn`/`da` AND do not convert zhs→zht at share time at all** — no
+  server-side s2t. Four of the five supporting reasons are plan-independent, including that removing
+  share-time conversion *eliminates* a pre-existing resolution risk: today the song share resolves
+  against **Traditional** text even though the catalog key is Simplified.
+- **Cloudflare plan is PAID** (confirmed by the user, 2026-08-07), so the CPU ceiling is 30 s (30 ms
+  default billed), not the free tier's 10 ms. The 8.90 ms measurement is therefore *not* a hard
+  blocker — but the recommendation stands on its other four reasons, so this is a
+  design-cleanliness call, not a budget-forced one.
+- **Net effect:** `dn`/`da` are removed with the other carriers. No `zh-convert` call enters the share
+  path. Read `30-RESEARCH.md` §E before implementing — do not re-derive.
+
+Original framing, kept for the record: *`dn`/`da` exist only because the Traditional display name had
+no server-side equivalent, and `$lib/services/zh-convert.ts` is pure `.ts` with `tongwen-core` /
+`tongwen-dict` as real runtime `dependencies`, so the SSR loader could convert.*
+
+### Pre-existing bug to fix while in these files (found by research)
+
+**`GET /album/50%25%20Off` returns 500 in production today.** SvelteKit already
+`decodeURIComponent`s route params (`utils/routing.js:304`), but three loaders decode a **second**
+time — `album/[name]/+page.ts:22`, `artist/[name]/+page.ts:22`, `album/[name]/+page.svelte:50`. Any
+entity name containing a literal `%` throws. The new loaders must **not** decode; the legacy ones get
+fixed under OG-COMPAT-01 since this phase edits those exact lines anyway.
 
 ### Claude's Discretion
 
@@ -185,8 +205,26 @@ from a share link — so the cover had nowhere to live except the URL itself.
   cover** (`cover--placeholder`), so dropping `c` regresses zero in-app behavior.
 - SSRF posture gets **tighter**, not looser: input becomes path text instead of an arbitrary https
   URL supplied by the sharer's client, and output still passes the `safeImageUrl` host allowlist.
-- Cloudflare free-tier budget: 50 subrequests + 10ms CPU per request. This design uses ≤3
-  subrequests and one small JSON parse. Cold crawl ~400–900ms against crawler budgets of 3–10s.
+- Cloudflare budget — **account is on a PAID plan** (user-confirmed 2026-08-07): CPU ceiling 30 s
+  (30 ms default billed), not the free tier's 10 ms. Subrequest budget is ample. Research measured the
+  real shape: kuwo is **1 subrequest, not 2** (the search response already carries `pic`,
+  `sources/kuwo.ts:82`), so worst case is 3 resolve + 1 image = **4 subrequests**.
+- **Both `sandbox-no-cn-upstream-network` and the dev-port assumption were wrong** (research
+  §Environment Availability): kuwo IS reachable here (`kw-api.cenguigui.cn`, `img4.kuwo.cn`) — that
+  finding only covers the netease/qq **Meting** hosts, so all three `/api/og` tiers are E2E-verifiable
+  locally. And the dev server is on **:5173** (no `server.port` in `vite.config.ts`), not 4321.
+- **The hyphen↔space loss is EXACTLY absorbed, not fuzzily.** `matchKey`'s `norm()` strips all
+  punctuation *and* whitespace (`match-key.ts:29`), so `Spider-Man` and `Spider Man` produce
+  byte-identical keys and both score `SIM_EXACT`. Residual risk lives only in the upstream keyword,
+  probed live: Deezer is fully insensitive; kuwo shifted ordering once, and the intruder was a
+  `slowed` variant that `VARIANT_KEYWORDS` already penalizes.
+- **Image size flips a tier default:** iTunes `1200x1200bb` = 332 KB vs `600x600bb` = 101 KB; Deezer
+  `cover_xl` = 208 KB vs `cover_big` = 73 KB. Do **not** reuse `upgradeArtwork` for `/api/og` — pick
+  the smaller variants and cap `Content-Length`.
+- **`response.clone()` buffers the entire body** per Cloudflare's docs, which fights the streaming
+  posture. Safe at these sizes (26–332 KB) but needs an explicit `Content-Length` cap.
+- **OG-PAGE-01's `<img>` breaks the APK** unless routed through `apiUrl()` — a bare `/api/og`
+  resolves to `https://localhost/api/og` inside the Capacitor WebView.
 
 </specifics>
 
