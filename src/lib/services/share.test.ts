@@ -111,12 +111,39 @@ describe('encodePathSegment / decodePathSegment (OG-PATH-01 codec)', () => {
 		expect(roundTrip('...')).toBe('...');
 	});
 
-	it('percent-encodes CJK / emoji / `/` / `%` (a path segment is NOT ASCII-limited)', () => {
-		expect(encodePathSegment('稻香')).toBe(encodeURIComponent('稻香'));
-		expect(encodePathSegment('周杰倫')).toBe('%E5%91%A8%E6%9D%B0%E5%80%AB');
+	it('quick-260807-vl1: leaves CJK / emoji / Arabic RAW (a path segment is NOT ASCII-limited)', () => {
+		// Live-verified against production BEFORE this change: `/song/周傑倫/止戰之殤` (raw,
+		// unencoded) answers 200 with og:title `止戰之殤 • 周傑倫`. Escaping it was legal but
+		// unreadable in the message a recipient actually sees.
+		expect(encodePathSegment('稻香')).toBe('稻香');
+		expect(encodePathSegment('周杰倫')).toBe('周杰倫');
+		expect(encodePathSegment('周傑倫')).toBe('周傑倫');
+		expect(encodePathSegment('🎵Song')).toBe('🎵Song');
+		expect(encodePathSegment('أغنية')).toBe('أغنية');
+		// …and NOT a single percent-escape anywhere in a raw-UTF-8 segment.
+		expect(encodePathSegment('止戰之殤')).not.toContain('%');
+	});
+
+	it('still percent-escapes the genuinely path-unsafe set: % / \\ ? # and control chars', () => {
 		expect(encodePathSegment('A/B')).toBe('A%2FB');
 		expect(encodePathSegment('50% Off')).toBe('50%25-Off');
-		expect(encodePathSegment('🎵Song')).toBe('%F0%9F%8E%B5Song');
+		expect(encodePathSegment('A?B')).toBe('A%3FB');
+		expect(encodePathSegment('#1 Hit')).toBe('%231-Hit');
+		// A raw backslash is NORMALIZED to '/' by WHATWG URL parsers in a special-scheme path,
+		// so it splits the segment exactly like '/' — same failure class, same escape.
+		expect(encodePathSegment('AC\\DC')).toBe('AC%5CDC');
+		expect(encodePathSegment('A\u0000B')).toBe('A%00B');
+		expect(encodePathSegment('A\u001FB')).toBe('A%1FB');
+		expect(encodePathSegment('A\u007FB')).toBe('A%7FB');
+		// ONE pass: the '%25' emitted for '%' is never re-scanned, so it cannot double-escape.
+		expect(encodePathSegment('100%')).toBe('100%25');
+		expect(encodePathSegment('%2F')).toBe('%252F');
+	});
+
+	it('leaves legal path sub-delims literal (& + : ; =) — they round-trip untouched', () => {
+		expect(encodePathSegment('R&B')).toBe('R&B');
+		expect(encodePathSegment('C+D')).toBe('C+D');
+		expect(encodePathSegment('A:B;C=D')).toBe('A:B;C=D');
 	});
 
 	it('decodePathSegment NEVER decodes percent-escapes — a literal `%` must survive (Pitfall 1)', () => {
@@ -303,10 +330,19 @@ describe('songShareUrl (OG-PATH-02 — carrier-free /song/{artist}/{title})', ()
 
 	it('keeps the LITERAL CJK title/artist in the path and round-trips them (no ASCII slug)', () => {
 		const url = songShareUrl({ title: '稻香', artist: '周杰倫' });
-		expect(url.endsWith(`/song/${encodeURIComponent('周杰倫')}/${encodeURIComponent('稻香')}`)).toBe(true);
+		// quick-260807-vl1: RAW CJK, not the percent-escaped form the old encoder emitted.
+		expect(url.endsWith('/song/周杰倫/稻香')).toBe(true);
 		const [artistSeg, titleSeg] = url.split('/song/')[1].split('/');
 		expect(decodeSeg(artistSeg)).toBe('周杰倫');
 		expect(decodeSeg(titleSeg)).toBe('稻香');
+	});
+
+	it('quick-260807-vl1: the production repro shares as raw CJK, zero percent-escapes', () => {
+		// The exact defect Phase 30's crawler checkpoint found: this link read
+		// `/song/%E5%91%A8%E5%82%91%E5%80%AB/%E6%AD%A2%E6%88%B0%E4%B9%8B%E6%AE%A4`.
+		const url = songShareUrl({ title: '止戰之殤', artist: '周傑倫' });
+		expect(url.endsWith('/song/周傑倫/止戰之殤')).toBe(true);
+		expect(url).not.toContain('%');
 	});
 
 	it('an empty artist yields the `-` guard segment (never an empty segment, which 404s)', () => {
@@ -324,7 +360,9 @@ describe('songShareUrl (OG-PATH-02 — carrier-free /song/{artist}/{title})', ()
 describe('entityCardUrl (quick-260723-ry1 — carrier-free album/artist card)', () => {
 	it('album emits /album/{artist}/{name} — the artist is now segment 1, not ?artist=', () => {
 		const url = entityCardUrl({ type: 'album', name: '范特西', artist: '周杰倫' });
-		expect(url.endsWith(`/album/${encodeURIComponent('周杰倫')}/${encodeURIComponent('范特西')}`)).toBe(true);
+		// quick-260807-vl1: raw CJK segments, same encoder change as the song card.
+		expect(url.endsWith('/album/周杰倫/范特西')).toBe(true);
+		expect(url).not.toContain('%');
 		// Both halves of the authoritative tracklist key round-trip out of the path.
 		const [artistSeg, nameSeg] = url.split('/album/')[1].split('/');
 		expect(decodeSeg(artistSeg)).toBe('周杰倫');
@@ -338,7 +376,7 @@ describe('entityCardUrl (quick-260723-ry1 — carrier-free album/artist card)', 
 
 	it('artist stays ONE segment (no secondary name)', () => {
 		expect(entityCardUrl({ type: 'artist', name: 'Jay' }).endsWith('/artist/Jay')).toBe(true);
-		expect(entityCardUrl({ type: 'artist', name: '周杰倫' }).endsWith(`/artist/${encodeURIComponent('周杰倫')}`)).toBe(true);
+		expect(entityCardUrl({ type: 'artist', name: '周杰倫' }).endsWith('/artist/周杰倫')).toBe(true);
 	});
 
 	it('carries ZERO query params on BOTH surfaces (OG-PATH-02 + OG-ZH-01)', () => {

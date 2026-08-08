@@ -98,22 +98,44 @@ export function slugify(title: string, artist: string): string {
  * OG-PATH-01: encode ONE raw title/artist into a URL path segment. Original CASE is
  * PRESERVED (the OG card title is read straight back out of the path, so lowercasing
  * would force a title-case reconstruction that renders `DNA` as `Dna`). Whitespace runs
- * collapse to a single '-'; everything else goes through encodeURIComponent, which leaves
- * `- . _ ~ ! * ' ( )` literal and percent-encodes `/ ? # % & + : ;` and all non-ASCII
- * (so a CJK segment is valid on the wire and renders decoded in browsers + link previews).
+ * collapse to a single '-'.
  *
- * TWO guards, both load-bearing:
+ * quick-260807-vl1: raw UTF-8 is LEFT RAW — CJK, emoji, Arabic and every other non-ASCII
+ * codepoint go into the path unescaped, so a shared Chinese song reads `/song/周傑倫/止戰之殤`
+ * instead of `/song/%E5%91%A8%E5%82%91%E5%80%AB/…`. This was live-verified against production
+ * before the change: `curl "https://openmusic.lol/song/周傑倫/止戰之殤"` (raw, unencoded) →
+ * 200 with `og:title` = `止戰之殤 • 周傑倫`. A path segment is NOT ASCII-limited, and every
+ * browser/messenger renders the raw form as-is. The previous `encodeURIComponent(collapsed)`
+ * escaped ALL non-ASCII, which is legal but unreadable in a shared link.
+ *
+ * Only genuinely path-unsafe characters are percent-escaped now, in ONE pass:
+ *  - `%`  — would otherwise be read as the start of an escape (this is also why a single pass
+ *           is required: the replacement text is never re-scanned, so the `%25` it emits
+ *           cannot be double-escaped).
+ *  - `/`  — splits the segment.
+ *  - `\`  — WHATWG URL parsers NORMALIZE a backslash to `/` in a special-scheme path, so a raw
+ *           one splits the segment exactly like `/` does (same failure class).
+ *  - `?` / `#` — terminate the path (query / fragment).
+ *  - control chars U+0000–U+001F and U+007F — not transmittable in a request line.
+ * `&`, `+`, `:`, `;`, `=` are legal path sub-delims and stay literal; `decodeURIComponent`
+ * leaves them untouched, so the round-trip is unaffected.
+ *
+ * THREE guards, all load-bearing:
  *  - EMPTY: an empty segment would make the path `/song/Artist/` → the required `([^/]+?)`
  *    group cannot match → 404. Emit '-' (which decodes back to '').
+ *  - WHITESPACE: every `\s+` run collapses to a single '-' (the decoder's inverse).
  *  - DOT-ONLY: the WHATWG URL parser treats `.` / `..` AND their percent-encoded forms
  *    (`%2e`, `%2E%2E`) as dot path segments and normalizes them AWAY before the request
  *    reaches us (verified: both 404). Appending one '-' makes the segment non-dot-only and
- *    the decoder's hyphen→space+trim recovers the original exactly.
+ *    the decoder's hyphen→space+trim recovers the original exactly. `.` is deliberately NOT
+ *    in the escape set above, so this test still sees literal dots.
  */
 export function encodePathSegment(raw: string): string {
 	const collapsed = (raw ?? '').trim().replace(/\s+/g, '-');
 	if (!collapsed) return '-';
-	const seg = encodeURIComponent(collapsed);
+	// quick-260807-vl1: SINGLE pass — see the `%` note above. Control ranges are written as
+	// \u escapes rather than raw literals (editor/VCS fragility, the WR-05 discipline).
+	const seg = collapsed.replace(/[%\/?#\\\u0000-\u001F\u007F]/gu, (c) => encodeURIComponent(c));
 	return /^\.+$/.test(seg) ? `${seg}-` : seg;
 }
 
@@ -205,9 +227,11 @@ export function shareUrl(current: Track, queue?: Track[]): string {
  * ZERO query carriers. The two PATH SEGMENTS are the AUTHORITATIVE human-readable key
  * (OG-PATH-01/02) — they replace the former `?n=`/`?a=` pair. ARTIST FIRST (CONTEXT lock, mirroring
  * Last.fm's `/music/{artist}/_/{track}`). A path segment is NOT ASCII-limited, so CJK needs no
- * special handling: it percent-encodes on the wire and renders decoded in browsers and link
- * previews. The OG card is built server-side from the decoded segments (DQ-2) and the page resolves
- * a playable track by name+artist at open time via the existing aggregator (DQ-3).
+ * special handling: quick-260807-vl1 it now travels RAW on the wire (`/song/周傑倫/止戰之殤`,
+ * production-verified 200), instead of the percent-escaped form the old encoder emitted — so the
+ * link is readable in the message the recipient actually sees. The OG card is built server-side
+ * from the decoded segments (DQ-2) and the page resolves a playable track by name+artist at open
+ * time via the existing aggregator (DQ-3).
  *
  * quick-260723-r4p (prose corrected, OG-EP-01): the cover no longer rides a `?c=` carrier — the
  * card image is the own-origin `/api/og` endpoint (see ogImageUrl), which re-resolves the cover
@@ -236,7 +260,9 @@ export function songShareUrl(t: { title: string; artist: string }): string {
  * Unlike entityShareUrl (ASCII slug, drops CJK), the album/artist page's AUTHORITATIVE round-trip
  * key is the LITERAL name — it is what getAlbumTracklist/enrichAlbum/searchAll resolve against. It
  * now lives in the path segments in its ORIGINAL script (OG-PATH-01), which is why the former
- * `?artist=` functional carrier is gone: the artist IS segment 1.
+ * `?artist=` functional carrier is gone: the artist IS segment 1. quick-260807-vl1: those segments
+ * are RAW UTF-8 now (`/album/周傑倫/范特西`), not percent-escaped — same encoder change as the song
+ * card, same readability reason.
  *
  * quick-260723-ry1 (prose corrected): the `c` cover carrier is retired in favour of the own-origin
  * `/api/og` card image (OG-EP-01, see ogImageUrl). The `dn`/`da` DISPLAY carriers are retired with
