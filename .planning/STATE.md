@@ -4,14 +4,14 @@ milestone: v1.5
 milestone_name: YTMusic-Powered Up-Next
 status: executing
 stopped_at: Phase 29 WEB SCOPE COMPLETE — 29-01..04 shipped+verified (filename+translation, media-page bug fix, per-song loading/Downloaded). Native plans 29-05/29-06 DEFERRED per user (web-only). Suite 1373 green, check clean.
-last_updated: "2026-07-24T05:16:53.622Z"
-last_activity: 2026-07-24
+last_updated: "2026-08-08T03:00:28.922Z"
+last_activity: 2026-08-08
 progress:
-  total_phases: 5
+  total_phases: 6
   completed_phases: 3
-  total_plans: 30
+  total_plans: 36
   completed_plans: 25
-  percent: 60
+  percent: 50
 ---
 
 # Project State
@@ -32,7 +32,7 @@ Status: Ready to execute
 ### Prior phase (Phase 27 — YouTube Music Source, v1.4) — COMPLETE + E2E-VERIFIED
 
 Phase 27 complete (27-01..04). E2E-verified against LIVE YouTube via the dev-server routes: /api/ytmusic/search 200 (rows+videoId), /api/ytmusic/lyrics 200 (1513c + attribution), /api/ytmusic/stream 206 audio/mp4 + Range (playback) and 200 full-file (download). pnpm check clean, 1320 tests green. E2E caught + fixed a prod-breaking bug (quick-270715 / commit 29c1c7d): stream route exported non-HTTP-verb functions, illegal in SvelteKit +server.ts → 500; helpers moved to $lib/proxy/ytmusic.ts.
-Last activity: 2026-07-24
+Last activity: 2026-08-08
 Remaining human UAT: real-device <audio> playback+seek + download-to-disk; deployed-Worker player+googlevideo same-IP egress + bot-challenge under load (T-27-03-OP). Account/library sync = separate legal-gated milestone (spike 008).
 
 ## Performance Metrics
