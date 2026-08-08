@@ -42,7 +42,13 @@
 	let menuTrack = $state<Track | null>(null);
 	let menuOpen = $state(false);
 
-	const name = $derived(decodeURIComponent(page.params.name ?? ''));
+	// OG-COMPAT-01 / Pitfall 1: read the param DIRECTLY — SvelteKit decoded it already
+	// (decode_params, utils/routing.js:304). Decoding a second time threw URIError on any artist name
+	// containing a literal '%', which crashed the SSR render (`GET /artist/50%25%20Cent` → 500). This
+	// is the FOURTH double-decode site; RESEARCH §A.3 listed only three, but the loader fix alone left
+	// the route 500ing here. The literal param stays the RESOLUTION key (CONTEXT: `dn`/the card are
+	// display-only), so no lookup behavior changes — only the crash goes away.
+	const name = $derived(page.params.name ?? '');
 
 	let songs = $state<Track[]>([]);
 	let loading = $state(true);

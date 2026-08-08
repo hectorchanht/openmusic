@@ -41,7 +41,9 @@ describe('artist/[name] loader — Pitfall 1 (the live 500)', () => {
 	});
 
 	it('does not re-decode a percent-encoded-looking name (single decode only)', () => {
-		expect(run('A%20B').og.title).toBe('A B');
+		// The router already decoded once; '%20' arriving here is LITERAL text. decodePathSegment only
+		// reverses the '-'-for-space transform — it must NOT turn this back into a space.
+		expect(run('A%20B').og.title).toBe('A%20B');
 	});
 });
 

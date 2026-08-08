@@ -19,7 +19,11 @@ export const ssr = true;
 export const prerender = false;
 
 export const load: PageLoad = ({ params, url }) => {
-	const name = decodeURIComponent(params.name ?? '');
+	// OG-COMPAT-01 / Pitfall 1: read `params.name` DIRECTLY. SvelteKit already ran
+	// decodeURIComponent on every route param (decode_params, utils/routing.js:304) before `load` is
+	// called, so the second decode that used to live here threw URIError on any name containing a
+	// literal '%' — a live 500 (`GET /album/50%25%20Off`). Never decode a param again.
+	const name = params.name ?? '';
 	const artist = url.searchParams.get('artist') ?? '';
 	// quick-260723-ry1: cover carrier (https-gated by buildOg) + zhs→zht display overrides. dn/da are
 	// display-only — resolution below still keys off the literal `name`/`artist`.
@@ -27,7 +31,14 @@ export const load: PageLoad = ({ params, url }) => {
 	const displayName = url.searchParams.get('dn') || name;
 	const displayArtist = url.searchParams.get('da') || artist;
 	// YouTube-Music-style card (match the song card): title `Album • Artist`, short `Listen on
-	// openmusic` tagline (buildOg's default — no bespoke description override).
-	const og = buildOg({ title: displayName, artist: displayArtist || undefined, cover: c || null });
+	// openmusic` tagline (buildOg's default — no bespoke description override). OG-PAGE-01: the
+	// per-surface og:type — this is the album surface, so `music.album` (PageOg used to hardcode
+	// `music.song` for every route).
+	const og = buildOg({
+		title: displayName,
+		artist: displayArtist || undefined,
+		cover: c || null,
+		type: 'music.album'
+	});
 	return { og };
 };

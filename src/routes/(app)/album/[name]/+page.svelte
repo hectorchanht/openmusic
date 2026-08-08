@@ -44,7 +44,10 @@
 	// A Last.fm tracklist entry — NOT a Track (no uid/source/audioUrl). Resolved on tap.
 	type AlbumStub = { artist: string; title: string };
 
-	const name = $derived(decodeURIComponent(page.params.name ?? ''));
+	// OG-COMPAT-01 / Pitfall 1: read the param DIRECTLY — SvelteKit decoded it already
+	// (decode_params, utils/routing.js:304). Decoding a second time threw URIError on any album name
+	// containing a literal '%', which crashed the SSR render (`GET /album/50%25%20Off` → 500).
+	const name = $derived(page.params.name ?? '');
 	// The album artist is carried in the URL by the artist-page link (?artist=…). It is
 	// NOT derived from tracks[0] (the stubs have no resolved artist until tap, and the
 	// album.getInfo query NEEDS the artist up front). Absent param (deep link) → '' → the
