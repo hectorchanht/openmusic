@@ -34,8 +34,8 @@ let convertLineSync: ConvertLine | null = null;
 // Lazily import ONLY the s2t (Simplified→Traditional) char + phrase dictionaries plus the
 // tongwen engine, then build the phrase-level converter. The tongwen import lives ONLY inside
 // these import() calls — a static/top-level import would pull the dict into the initial chunk
-// and defeat D-03. t2s is intentionally left empty (Traditional→Simplified is out of scope —
-// Deferred — and skipping its tables keeps the lazy chunk near the measured ~72 KB).
+// and defeat D-03. The `t2s: []` below is NOT a stub — it keeps this map s2t-ONLY so an s2t
+// caller never pays for the t2s tables (see buildT2sConvertLine for the mirror-image build).
 //
 // quick-250711-zh: import the `converter` + `dictionary` SUBMODULES, NOT the top-level
 // `tongwen-core` index. The index does `export * from './walker'`, and the walker eval-time
@@ -139,6 +139,91 @@ export async function s2tConvertLines(lines: string[]): Promise<string[]> {
 	if (lines.length === 0) return [];
 	try {
 		const convert = await loadConvertLine();
+		return lines.map((line) => (line ? convert(line) : line));
+	} catch {
+		return lines.slice();
+	}
+}
+
+// ---------------------------------------------------------------------------------------------
+// quick-260807-vl1 — the OPPOSITE direction: t2s (Traditional→Simplified), for the /api/og
+// cover search ONLY.
+//
+// WHY: a Traditional-script query poisons every cover upstream, because the CN catalogs index
+// the SIMPLIFIED name. Production-probed: `artist=周傑倫&title=止戰之殤` misses every tier 3/3
+// attempts, while the t2s output `周杰伦 / 止战之殇` hits 4/4. og-cover.ts converts FIRST and
+// searches with the Simplified terms, so the corrected query costs zero extra latency.
+//
+// THIS DOES NOT REVERSE OG-ZH-01. That decision removed Simplified→Traditional at SHARE time
+// because converting the shared link's path corrupted its own resolution key. This is the other
+// direction (t2s), server-side only, and never touches a URL the user sees — the /api/og cache
+// key still hashes the INPUT artist/title.
+//
+// COST (measured on the installed tongwen-dict, `wc -c` + `gzip -9`):
+//   t2s-char.min.json    34,273 raw / 14,728 gzip
+//   t2s-phrase.min.json  16,394 raw /  7,560 gzip   → ~50 KB raw / ~22 KB gzip total
+// t2s is largely MANY-TO-ONE, so its phrase table is ~9× smaller than s2t-phrase (148,406 raw).
+// 30-RESEARCH.md §E's "~357 KB raw / 8.90 ms createConverterMap" cost objection was measured for
+// BOTH directions merged and does NOT transfer to a t2s-only map.
+//
+// SEPARATE memoized build, deliberately NOT merged into buildConvertLine's one
+// createConverterMap call: a merged map would drag s2t's 148 KB phrase dict into the edge bundle
+// for a t2s-only caller (and vice versa).
+let t2sPromise: Promise<ConvertLine> | null = null;
+
+// quick-250711-zh idiom, verbatim: deep-import the walker-free `converter` + `dictionary`
+// SUBMODULES. The top-level `tongwen-core` index does `export * from './walker'`, whose eval
+// references the DOM global `NodeFilter`; in the node Vitest project that THROWS. Do not change
+// this to a top-level import.
+async function buildT2sConvertLine(): Promise<ConvertLine> {
+	const [converterMod, dictMod, charMod, phraseMod] = await Promise.all([
+		import('tongwen-core/esm/converter'),
+		import('tongwen-core/esm/dictionary'),
+		import('tongwen-dict/dist/t2s-char.min.json'),
+		import('tongwen-dict/dist/t2s-phrase.min.json')
+	]);
+	const { createConverterMap } = converterMod;
+	const { LangType } = dictMod;
+	const converter = createConverterMap({
+		s2t: [],
+		t2s: [charMod.default, phraseMod.default]
+	});
+	return (line: string) => converter.phrase(LangType.t2s, line);
+}
+
+function loadT2sConvertLine(): Promise<ConvertLine> {
+	if (!t2sPromise) {
+		t2sPromise = buildT2sConvertLine().catch((err) => {
+			// Never cache a rejected build (the s2t discipline) — a transient chunk/import failure
+			// must not permanently disable conversion for the Worker's lifetime.
+			t2sPromise = null;
+			throw err;
+		});
+	}
+	return t2sPromise;
+}
+
+/**
+ * quick-260807-vl1: positionally-aligned batch Traditional→Simplified convert
+ * (out.length === lines.length), mirroring s2tConvertLines exactly.
+ *
+ * On the first call the t2s char + phrase dicts are dynamically imported + built once, then
+ * memoized (~22 KB gzip, ms-scale build). Blank lines pass through untouched so alignment and
+ * empty slots survive (['', '中國'] → ['', '中国']). Already-Simplified input is a NO-OP, which
+ * is what lets the caller detect "nothing changed" and skip its extra query entirely.
+ *
+ * Never-throw boundary: any import/build/convert failure degrades to IDENTITY (the input lines
+ * returned unchanged) rather than throwing into the caller — at the edge that means the cover
+ * search simply runs on the original terms, never a 500.
+ *
+ * No sync/warm variant (no `warmT2S`, no `t2sConvertLineSync`): the only caller is async edge
+ * code, so a synchronous handle would be dead weight. Add them when a latency-sensitive UI
+ * caller exists.
+ */
+export async function t2sConvertLines(lines: string[]): Promise<string[]> {
+	if (lines.length === 0) return [];
+	try {
+		const convert = await loadT2sConvertLine();
 		return lines.map((line) => (line ? convert(line) : line));
 	} catch {
 		return lines.slice();

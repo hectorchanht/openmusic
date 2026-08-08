@@ -10,8 +10,8 @@
 // so `og:image` points at our own `/api/og?type=&artist=&title=` and the cover is re-resolved
 // server-side from TEXT. A crawler is waiting on that request, so the chain is bounded hard:
 // tiers run SEQUENTIALLY under ONE overall deadline, every tier is never-throw, and the worst
-// case is 4 resolve subrequests + 1 image fetch = 5 (3 tiers + the title-only Deezer retry,
-// quick-260807-vl1).
+// case is 5 resolve subrequests + 1 image fetch = 6 (3 tiers + Fallback A original-terms +
+// Fallback B title-only, quick-260807-vl1) — comfortably inside the 50-subrequest limit.
 //
 // TIERS: Deezer → iTunes → kuwo. The CN tier is kuwo ONLY — never the catalog's multi-source
 // search fan-out (`spike-findings-openmusic`, kuwo-first resolution): a fan-out at the edge would
@@ -42,12 +42,13 @@
 // a strictly TIGHTER posture than the old `?c=` carrier), encodeURIComponent'd into fixed
 // upstream templates by the existing builders (T-wv8-01). Each tier validates its own result
 // against its OWN host allow-list, so one upstream's JSON can never smuggle another's host
-// (T-wv8-05). retries=0 + per-tier timeouts under one 2.5 s deadline bound the self/upstream DoS
-// surface (T-wv8-04).
+// (T-wv8-05). retries=0 + per-tier timeouts under one OG_RESOLVE_MS deadline bound the
+// self/upstream DoS surface (T-wv8-04).
 import { fetchDeezerCover, safeDeezerImageUrl } from '$lib/proxy/deezer-cover';
 import { fetchWithRetry } from '$lib/proxy/http';
 import { kuwoProxy } from '$lib/proxy/kuwo';
 import { buildItunesSearchUrl, upgradeArtwork } from '$lib/services/itunes-cover';
+import { isChineseLine, t2sConvertLines } from '$lib/services/zh-convert';
 
 /** The closed set of card kinds /api/og understands. */
 export const OG_TYPES = ['song', 'album', 'artist'] as const;
@@ -62,8 +63,18 @@ export function isOgType(value: string): value is OgType {
 	return (OG_TYPES as readonly string[]).includes(value);
 }
 
-/** ONE deadline for the whole resolve. A crawler is waiting; 2.5 s is the hard ceiling. */
-export const OG_RESOLVE_MS = 2500;
+/**
+ * ONE deadline for the whole resolve. A crawler is waiting, so this is a hard ceiling.
+ *
+ * quick-260807-vl1: raised 2500 → 5000. The value is DERIVED, not arbitrary — measured cold
+ * resolves are 0.66 s (Aimer/Kataomoi) and 0.84 s (Vaundy/Odoriko) for Latin queries but 4.12 s
+ * for CJK (蔡妮/小幸運), so the old 2.5 s ceiling cut off the exact query class this pass fixes.
+ * 5000 covers that measured worst case with headroom and stays inside the 3–10 s crawler fetch
+ * budget recorded in 30-RESEARCH.md §D. (The route's separate IMAGE_MS image-fetch budget, which
+ * coincidentally also reads 2500, is deliberately UNCHANGED — the measurement justifies only the
+ * overall resolve ceiling.)
+ */
+export const OG_RESOLVE_MS = 5000;
 
 /**
  * Per-tier budgets. These deliberately SUM TO MORE than OG_RESOLVE_MS: the overall deadline is
@@ -137,7 +148,7 @@ function tierTerm(type: OgType, artist: string, title: string): string {
 }
 
 /** Tier 1 — Deezer. `prefer: 'big'` = the 500 px cover (72 KB, not 208 KB). retries=0: the
- *  2.5 s deadline cannot afford fetchWithRetry's 150–300 ms backoff. */
+ *  OG_RESOLVE_MS deadline cannot afford fetchWithRetry's 150–300 ms backoff. */
 const deezerTier: Tier = async (type, artist, title, deadline) => {
 	const term = tierTerm(type, artist, title);
 	if (!term) return { kind: 'miss' };
@@ -211,6 +222,12 @@ const kuwoTier: Tier = async (type, artist, title, deadline) => {
  * point, and a Deezer hit must cost exactly ONE subrequest. `deadline.aborted` is re-checked
  * before every tier so an expired budget stops the chain instead of piling on subrequests.
  *
+ * quick-260807-vl1 — the search TERMS are chosen before the chain runs (CONVERT-FIRST: a Chinese
+ * query is t2s-normalized to Simplified, which is what the catalogs index), and two Deezer-only
+ * fallbacks sit after it — A: the original unconverted terms (only if a substitution happened),
+ * B: the original title alone. Worst case 5 resolve subrequests. See the body for the full
+ * justification of the ordering and the zero-cost guarantees.
+ *
  * THREE-VALUED RETURN — the contract /api/og's negative caching depends on:
  *  - a URL string → a hit, already through that tier's own host allow-list (safe to fetch).
  *  - `null`       → every tier cleanly missed (or there was nothing to search for). A genuine
@@ -227,27 +244,72 @@ export async function resolveCoverTiered(
 	deadline: AbortSignal
 ): Promise<string | null | 'ERROR'> {
 	// T-og-01: nothing to search for → zero subrequests (the route also short-circuits earlier).
+	// FIRST, before any dictionary work — an empty card must still cost nothing.
 	if (!`${artist}${title}`.trim()) return null;
+
+	// quick-260807-vl1 — CONVERT-FIRST. A Traditional-script query poisons every upstream keyword
+	// search because the catalogs index the SIMPLIFIED name: production-probed,
+	// `artist=周傑倫&title=止戰之殤` missed every tier on 3/3 attempts, while the t2s output
+	// `周杰伦 / 止战之殇` hit on 4/4. So the Simplified form is the PRIMARY query, not a retry.
+	//
+	// WHY THE ORDERING MATTERS (this is the whole design, do not flip it back to retry-after):
+	// measured cold resolves run 0.66 s (Aimer/Kataomoi) and 0.84 s (Vaundy/Odoriko) for Latin but
+	// 4.12 s for CJK (蔡妮/小幸運) — CJK is ~5× slower. A retry-after design would stack a SECOND
+	// round trip onto the slowest query class and, under the old 2.5 s budget, would usually have
+	// been skipped for lack of remaining time — i.e. it would never have fired on the exact case it
+	// exists for. Converting first costs ZERO added latency: for the Traditional input this fix
+	// targets, the corrected query is simply the first thing tried.
+	//
+	// ZERO-COST for everything else: `isChineseLine` gates the call, so a non-Chinese query never
+	// loads the dict at all, and an already-Simplified query converts to itself → `substituted`
+	// stays false → not one extra subrequest (behaviour byte-identical to before this change).
+	// The dict load is a one-time memoized dynamic import (~22 KB gzip, ms-scale build) and is NOT
+	// signal-abortable — accepted, it happens once per isolate.
+	//
+	// This is NOT a reversal of OG-ZH-01: that removed Simplified→Traditional at SHARE time because
+	// it corrupted the shared link's own resolution key. This is the OPPOSITE direction (t2s),
+	// server-side only, confined to the cover search — the URL and the resolve-cache key still
+	// carry the INPUT script.
+	let qArtist = artist;
+	let qTitle = title;
+	let substituted = false;
+	if (isChineseLine(artist) || isChineseLine(title)) {
+		const [nArtist, nTitle] = await t2sConvertLines([artist, title]);
+		if (nArtist !== artist || nTitle !== title) {
+			qArtist = nArtist;
+			qTitle = nTitle;
+			substituted = true;
+		}
+	}
+
 	let sawError = false;
 	for (const tier of [deezerTier, itunesTier, kuwoTier]) {
 		if (deadline.aborted) break;
-		const out = await tier(type, artist, title, deadline);
+		const out = await tier(type, qArtist, qTitle, deadline);
 		if (out.kind === 'hit') return out.url;
 		if (out.kind === 'error') sawError = true;
 	}
 
-	// quick-260807-vl1 — TITLE-ONLY RESCUE. Production probe: `artist=周傑倫&title=止戰之殤` misses
-	// ALL THREE tiers, while `title=止戰之殤` alone hits Deezer with the right cover — ONE Traditional
-	// character (傑 vs Simplified 杰) poisons every upstream's keyword search, because the catalogs
-	// index the Simplified name. Dropping the artist from the term recovers the cover.
-	// Deezer ONLY (probe: it is the tier that rescued it), so the worst case stays 4 resolves. It
-	// rides whatever is LEFT of the unchanged 2.5 s deadline via the existing tierSignal.
-	// Skipped when it would re-issue a byte-identical query: type=artist has no title, and an empty
-	// artist means the chain above already searched the bare title.
+	// quick-260807-vl1 — FALLBACK A: the ORIGINAL (unconverted) terms, Deezer ONLY, one subrequest.
+	// Runs ONLY when a substitution actually happened — otherwise it would re-issue a byte-identical
+	// copy of the primary query above. Covers the case where the catalog indexes the Traditional
+	// name after all (or the t2s output over-converts a proper noun).
+	if (substituted && !deadline.aborted) {
+		const orig = await deezerTier(type, artist, title, deadline);
+		if (orig.kind === 'hit') return orig.url;
+		if (orig.kind === 'error') sawError = true;
+	}
+
+	// quick-260807-vl1 — FALLBACK B: TITLE-ONLY, Deezer ONLY, one subrequest, on the ORIGINAL title
+	// (the probe-verified form — `title=止戰之殤` alone hit Deezer). Kept even with convert-first,
+	// because conversion cannot rescue a NON-Chinese miss: a typo, an obscure release or a romanized
+	// title still poisons the `artist title` term while the bare title resolves. This is the general
+	// net, not the CJK fix. Skipped when it would repeat a query already run: type=artist has no
+	// title, and an empty artist means the chain above already searched the bare title.
 	if (!deadline.aborted && type !== 'artist' && artist.trim() && title.trim()) {
-		const retry = await deezerTier(type, '', title, deadline);
-		if (retry.kind === 'hit') return retry.url;
-		if (retry.kind === 'error') sawError = true;
+		const titleOnly = await deezerTier(type, '', title, deadline);
+		if (titleOnly.kind === 'hit') return titleOnly.url;
+		if (titleOnly.kind === 'error') sawError = true;
 	}
 
 	return sawError ? 'ERROR' : null;

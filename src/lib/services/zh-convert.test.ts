@@ -1,5 +1,11 @@
-import { describe, it, expect } from 'vitest';
-import { s2tConvertLines, isChineseLine, warmS2T, s2tConvertLineSync } from './zh-convert';
+import { describe, it, expect, vi } from 'vitest';
+import {
+	s2tConvertLines,
+	t2sConvertLines,
+	isChineseLine,
+	warmS2T,
+	s2tConvertLineSync
+} from './zh-convert';
 
 // Pure/node tests (no jsdom, no $app/environment mock, no localStorage): zh-convert is a pure
 // service whose only side effect is a dynamic import() of the tongwen s2t dict, which Vitest
@@ -32,6 +38,53 @@ describe('s2tConvertLines — offline Simplified→Traditional (D-01)', () => {
 		const out = await s2tConvertLines(['头发', '', '简体中文', '台灣']);
 		expect(out).toEqual(['頭髮', '', '簡體中文', '台灣']);
 		expect(out.length).toBe(4);
+	});
+});
+
+describe('t2sConvertLines — Traditional→Simplified for the /api/og cover search (quick-260807-vl1)', () => {
+	// The production repro: the Traditional pair misses every cover tier, the Simplified pair hits
+	// 4/4. og-cover.ts converts FIRST and searches with these outputs.
+	it('converts the probed repro title 止戰之殤 → 止战之殇', async () => {
+		expect(await t2sConvertLines(['止戰之殤'])).toEqual(['止战之殇']);
+	});
+
+	it('converts the probed repro artist 周傑倫 (傑→杰, 倫→伦)', async () => {
+		const [out] = await t2sConvertLines(['周傑倫']);
+		expect(out).toContain('杰');
+		expect(out).toContain('伦');
+		expect(out).not.toContain('傑');
+		expect(out).not.toContain('倫');
+	});
+
+	it('is a NO-OP on already-Simplified input (this is what makes the fix zero-cost)', async () => {
+		expect(await t2sConvertLines(['周杰伦', '止战之殇'])).toEqual(['周杰伦', '止战之殇']);
+	});
+
+	it('leaves a non-Chinese string unchanged', async () => {
+		expect(await t2sConvertLines(['Come As You Are'])).toEqual(['Come As You Are']);
+	});
+
+	it('preserves length and blank slots positionally (out.length === in.length)', async () => {
+		const out = await t2sConvertLines(['止戰之殤', '', 'Nirvana', '中國']);
+		expect(out).toEqual(['止战之殇', '', 'Nirvana', '中国']);
+		expect(out.length).toBe(4);
+	});
+
+	it('returns [] for empty input (no dict load needed)', async () => {
+		expect(await t2sConvertLines([])).toEqual([]);
+	});
+
+	it('never throws — a broken dict import degrades to IDENTITY', async () => {
+		// Force the lazy import to fail (the never-throw boundary the edge caller depends on: a
+		// converter fault must mean "searched the original terms", never a 500).
+		vi.doMock('tongwen-dict/dist/t2s-char.min.json', () => {
+			throw new Error('chunk load failed');
+		});
+		vi.resetModules();
+		const { t2sConvertLines: broken } = await import('./zh-convert');
+		expect(await broken(['止戰之殤'])).toEqual(['止戰之殤']);
+		vi.doUnmock('tongwen-dict/dist/t2s-char.min.json');
+		vi.resetModules();
 	});
 });
 

@@ -2,12 +2,14 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
 	OG_FALLBACK_SVG,
 	OG_FALLBACK_TYPE,
+	OG_RESOLVE_MS,
 	isOgType,
 	resolveCoverTiered,
 	safeItunesImageUrl,
 	safeKuwoImageUrl
 } from '$lib/proxy/og-cover';
 import { upgradeArtwork } from '$lib/services/itunes-cover';
+import { t2sConvertLines } from '$lib/services/zh-convert';
 import { GET, OPTIONS } from './+server';
 
 // /api/og (OG-EP-01/OG-EP-02) is the carrier-free share card's cover endpoint: it resolves
@@ -111,11 +113,12 @@ describe('og-cover — tier order (Deezer → iTunes → kuwo, sequential)', () 
 		expect(calls.filter((c) => c.includes('type=song'))).toHaveLength(0);
 	});
 
-	it('never fans out via searchAll — the CN tier is kuwo ONLY (≤4 resolve subrequests)', async () => {
+	it('never fans out via searchAll — the CN tier is kuwo ONLY (≤5 resolve subrequests)', async () => {
 		const { calls } = stubTiers({ dz: DZ_MISS, it: IT_MISS, kw: KW_MISS });
 		const out = await resolveCoverTiered('song', 'Nobody', 'Nothing', fresh());
 		expect(out).toBeNull();
-		// 3 tiers + the quick-260807-vl1 title-only Deezer retry — still no fan-out.
+		// 3 tiers + Fallback B (title-only). Fallback A is SKIPPED — a non-Chinese query is never
+		// substituted, so the original terms are byte-identical to the primary query.
 		expect(calls).toHaveLength(4);
 		expect(calls[3]).toContain('https://api.deezer.com/search');
 		expect(calls[3]).toContain(encodeURIComponent('Nothing'));
@@ -143,81 +146,157 @@ describe('og-cover — tier order (Deezer → iTunes → kuwo, sequential)', () 
 	});
 });
 
-describe('og-cover — title-only Deezer retry rescues an artist-poisoned miss (quick-260807-vl1)', () => {
+describe('og-cover — CONVERT-FIRST t2s primary query + two Deezer fallbacks (quick-260807-vl1)', () => {
+	// The production repro: `artist=周傑倫&title=止戰之殤` (Traditional) missed every tier 3/3, while
+	// the t2s output hit 4/4 — the catalogs index the SIMPLIFIED name. So the Simplified terms are
+	// the PRIMARY query, not a retry: converting first costs zero added latency on the slowest
+	// (CJK, measured 4.12 s cold) query class, where a retry-after design would have doubled it.
+	const TRAD_ARTIST = '周傑倫';
+	const TRAD_TITLE = '止戰之殤';
+
+	/** The expected Simplified forms are computed BY THE CONVERTER — never a hardcoded guess. */
+	async function simplified(): Promise<[string, string]> {
+		const [a, t] = await t2sConvertLines([TRAD_ARTIST, TRAD_TITLE]);
+		return [a, t];
+	}
+
+	const missByHost = (u: string): TierReply =>
+		u.includes('api.deezer.com') ? DZ_MISS : u.includes('itunes.apple.com') ? IT_MISS : KW_MISS;
+
 	/**
-	 * The production repro: ONE Traditional character (傑 vs Simplified 杰) makes every upstream
-	 * keyword search miss on `artist title`, while the bare title hits. stubTiers keys on HOST only,
-	 * so this stub keys on whether the encoded ARTIST is in the query — miss when it is, hit when
-	 * it is not — which is exactly the upstream behaviour the probe observed.
+	 * stubTiers keys on HOST only, so a form-discriminating case needs its own stub: `decide`
+	 * inspects the outgoing URL's query (Simplified-form vs original-form vs title-only), which is
+	 * exactly the upstream behaviour the probe observed.
 	 */
-	function stubArtistPoisoned(dzTitleOnly: TierReply = DZ_HIT) {
+	function stubBy(decide: (url: string) => TierReply) {
 		const calls: string[] = [];
 		const spy = vi.fn(async (input: RequestInfo | URL) => {
 			const u = String(input);
 			calls.push(u);
-			const poisoned = u.includes(encodeURIComponent('周傑倫'));
-			if (u.includes('api.deezer.com') && !poisoned) {
-				if (dzTitleOnly === 'THROW') throw new Error('network down');
-				if (dzTitleOnly === 'NOTOK') return new Response('upstream error', { status: 500 });
-				return new Response(dzTitleOnly, {
-					status: 200,
-					headers: { 'content-type': 'application/json' }
-				});
-			}
-			const body = u.includes('api.deezer.com')
-				? DZ_MISS
-				: u.includes('itunes.apple.com')
-					? IT_MISS
-					: KW_MISS;
-			return new Response(body, { status: 200, headers: { 'content-type': 'application/json' } });
+			const reply = decide(u);
+			if (reply === 'THROW') throw new Error('network down');
+			if (reply === 'NOTOK') return new Response('upstream error', { status: 500 });
+			return new Response(reply, { status: 200, headers: { 'content-type': 'application/json' } });
 		});
 		vi.stubGlobal('fetch', spy);
 		return { calls, spy };
 	}
 
-	it('artist+title misses every tier but the title-only Deezer retry hits', async () => {
-		const { calls } = stubArtistPoisoned();
-		const out = await resolveCoverTiered('song', '周傑倫', '止戰之殤', fresh());
+	it('(a) the FIRST outgoing query already carries the SIMPLIFIED terms, and a hit costs 1 call', async () => {
+		const [sArtist, sTitle] = await simplified();
+		// Sanity-check the converter itself before asserting on it.
+		expect(sArtist).toContain('杰');
+		expect(sArtist).toContain('伦');
+		expect(sArtist).not.toContain('傑');
+		expect(sArtist).not.toContain('倫');
+
+		const { calls } = stubBy((u) =>
+			u.includes('api.deezer.com') && u.includes(encodeURIComponent(sArtist))
+				? DZ_HIT
+				: missByHost(u)
+		);
+		const out = await resolveCoverTiered('song', TRAD_ARTIST, TRAD_TITLE, fresh());
+		expect(out).toBe(DZ_COVER);
+		// The headline structural assertion: the corrected query is the FIRST thing tried.
+		expect(calls).toHaveLength(1);
+		expect(calls[0]).toContain('https://api.deezer.com/search');
+		expect(calls[0]).toContain(encodeURIComponent(sArtist));
+		expect(calls[0]).toContain(encodeURIComponent(sTitle));
+		expect(calls[0]).not.toContain(encodeURIComponent(TRAD_ARTIST));
+		expect(calls[0]).not.toContain(encodeURIComponent(TRAD_TITLE));
+	});
+
+	it('(b) ZERO-COST: a non-Chinese query is never converted and never gets Fallback A', async () => {
+		const { calls } = stubBy(missByHost);
+		expect(await resolveCoverTiered('song', 'Nobody', 'Nothing', fresh())).toBeNull();
+		// 3 tiers + Fallback B only — Fallback A would be a byte-identical duplicate, so it is skipped.
+		expect(calls).toHaveLength(4);
+		expect(calls[0]).toContain(encodeURIComponent('Nobody Nothing'));
+	});
+
+	it('(b) ZERO-COST: an already-Simplified query gets no substitution and no extra subrequest', async () => {
+		const { calls } = stubBy(missByHost);
+		expect(await resolveCoverTiered('song', '周杰伦', '止战之殇', fresh())).toBeNull();
+		expect(calls).toHaveLength(4); // same 4 as the non-Chinese case — no Fallback A
+		// Every outgoing URL carries the INPUT form; nothing was rewritten.
+		for (const c of calls.slice(0, 3)) {
+			expect(c).toContain(encodeURIComponent('周杰伦'));
+			expect(c).toContain(encodeURIComponent('止战之殇'));
+		}
+		expect(calls[3]).toContain(encodeURIComponent('止战之殇'));
+		expect(calls[3]).not.toContain(encodeURIComponent('周杰伦'));
+	});
+
+	it('(c) the Simplified chain missing all 3 tiers → Fallback A retries the ORIGINAL terms', async () => {
+		const [sArtist] = await simplified();
+		const { calls } = stubBy((u) =>
+			u.includes('api.deezer.com') && u.includes(encodeURIComponent(TRAD_ARTIST))
+				? DZ_HIT
+				: missByHost(u)
+		);
+		const out = await resolveCoverTiered('song', TRAD_ARTIST, TRAD_TITLE, fresh());
 		expect(out).toBe(DZ_COVER);
 		expect(calls).toHaveLength(4);
+		// Call order: 3 tiers on the Simplified form, THEN Deezer on the original form.
+		for (const c of calls.slice(0, 3)) {
+			expect(c).toContain(encodeURIComponent(sArtist));
+			expect(c).not.toContain(encodeURIComponent(TRAD_ARTIST));
+		}
 		expect(calls[3]).toContain('https://api.deezer.com/search');
-		expect(calls[3]).toContain(encodeURIComponent('止戰之殤'));
-		expect(calls[3]).not.toContain(encodeURIComponent('周傑倫'));
+		expect(calls[3]).toContain(encodeURIComponent(TRAD_ARTIST));
+		expect(calls[3]).toContain(encodeURIComponent(TRAD_TITLE));
 	});
 
-	it('a retry MISS stays a cacheable negative (null), never ERROR', async () => {
-		const out = await (async () => {
-			const { calls } = stubArtistPoisoned(DZ_MISS);
-			const r = await resolveCoverTiered('song', '周傑倫', '止戰之殤', fresh());
-			expect(calls).toHaveLength(4);
-			return r;
-		})();
-		expect(out).toBeNull();
+	it('(d) Fallback A missing too → Fallback B (title-only, ORIGINAL title) hits', async () => {
+		const { calls } = stubBy((u) =>
+			u.includes('api.deezer.com') &&
+			u.includes(encodeURIComponent(TRAD_TITLE)) &&
+			!u.includes(encodeURIComponent(TRAD_ARTIST))
+				? DZ_HIT
+				: missByHost(u)
+		);
+		const out = await resolveCoverTiered('song', TRAD_ARTIST, TRAD_TITLE, fresh());
+		expect(out).toBe(DZ_COVER);
+		expect(calls).toHaveLength(5); // 3 tiers + A + B — the documented worst case
+		expect(calls[4]).toContain('https://api.deezer.com/search');
+		expect(calls[4]).toContain(encodeURIComponent(TRAD_TITLE));
+		expect(calls[4]).not.toContain(encodeURIComponent(TRAD_ARTIST));
 	});
 
-	it('a retry that FAULTS yields ERROR (never negative-cached)', async () => {
-		stubArtistPoisoned('THROW');
-		expect(await resolveCoverTiered('song', '周傑倫', '止戰之殤', fresh())).toBe('ERROR');
+	it('(e) everything missing stays a cacheable negative (null) at exactly 5 resolve calls', async () => {
+		const { calls } = stubBy(missByHost);
+		expect(await resolveCoverTiered('song', TRAD_ARTIST, TRAD_TITLE, fresh())).toBeNull();
+		expect(calls).toHaveLength(5);
 	});
 
-	it('type=artist never issues the retry (an artist card has no title)', async () => {
+	it('a fallback that FAULTS yields ERROR (never negative-cached)', async () => {
+		stubBy((u) =>
+			u.includes('api.deezer.com') && !u.includes(encodeURIComponent(TRAD_ARTIST))
+				? 'THROW'
+				: missByHost(u)
+		);
+		expect(await resolveCoverTiered('song', TRAD_ARTIST, TRAD_TITLE, fresh())).toBe('ERROR');
+	});
+
+	it('type=artist never issues Fallback B (an artist card has no title)', async () => {
 		const { calls } = stubTiers({ dz: DZ_MISS, it: IT_MISS, kw: KW_MISS });
 		expect(await resolveCoverTiered('artist', 'Nobody', '', fresh())).toBeNull();
 		expect(calls).toHaveLength(3);
 	});
 
-	it('an empty artist never issues the retry (it would repeat the query just run)', async () => {
+	it('an empty artist never issues Fallback B (it would repeat the query just run)', async () => {
 		const { calls } = stubTiers({ dz: DZ_MISS, it: IT_MISS, kw: KW_MISS });
 		expect(await resolveCoverTiered('song', '', 'Nothing', fresh())).toBeNull();
 		expect(calls).toHaveLength(3);
 	});
 
-	it('the route still answers 200 + branded fallback when the retry misses too', async () => {
+	it('the route still answers 200 + the branded card when every fallback misses', async () => {
 		const { calls } = stubRoute({ dz: DZ_MISS, it: IT_MISS, kw: KW_MISS });
 		const res = await callGET(fakeEvent(SONG));
 		expect(res.status).toBe(200);
 		expect(res.headers.get('content-type')).toBe('image/svg+xml');
-		expect(calls).toHaveLength(4); // 4 resolves, 0 image — worst case is 4 + 1
+		// Non-Chinese input: 3 tiers + Fallback B, 0 image. The Traditional worst case is 5 + 1.
+		expect(calls).toHaveLength(4);
 	});
 });
 
@@ -275,13 +354,20 @@ describe('og-cover — the overall deadline is the hard ceiling', () => {
 			'fetch',
 			vi.fn(async (input: RequestInfo | URL) => {
 				calls.push(String(input));
-				ctl.abort(); // the 2.5 s deadline expires while tier 1 is in flight
+				ctl.abort(); // the OG_RESOLVE_MS deadline expires while tier 1 is in flight
 				return new Response(DZ_MISS, { status: 200 });
 			})
 		);
 		const out = await resolveCoverTiered('song', 'Nirvana', 'Come As You Are', ctl.signal);
+		// An expired budget skips the remaining tiers AND BOTH quick-260807-vl1 fallbacks.
 		expect(calls).toHaveLength(1);
 		expect(out).toBeNull();
+	});
+
+	it('OG_RESOLVE_MS is 5000 — the measured 4.12s CJK cold resolve + headroom (quick-260807-vl1)', () => {
+		// Derived, not arbitrary: Latin cold resolves measured 0.66–0.84s but CJK 4.12s, and
+		// 30-RESEARCH.md §D puts crawler fetch budgets at 3–10s, so 5000 stays in tolerance.
+		expect(OG_RESOLVE_MS).toBe(5000);
 	});
 
 	it('an empty artist AND title resolves with ZERO fetch calls (T-og-01)', async () => {
@@ -598,7 +684,8 @@ describe('/api/og — two caches.default layers, both keyed own-origin', () => {
 		const { putKeys } = stubCache();
 		const res1 = await callGET(fakeEvent(SONG));
 		expect(res1.headers.get('content-type')).toBe('image/svg+xml');
-		expect(calls).toHaveLength(4); // 3 tiers + the title-only retry (quick-260807-vl1)
+		// 3 tiers + Fallback B (title-only). Fallback A is skipped — 'Nirvana' is not substituted.
+		expect(calls).toHaveLength(4);
 		expect(putKeys).toHaveLength(1); // resolve layer only — there are no bytes to store
 
 		const res2 = await callGET(fakeEvent(SONG));
