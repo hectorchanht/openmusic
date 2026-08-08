@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: YTMusic-Powered Up-Next
 status: executing
-stopped_at: Phase 29 WEB SCOPE COMPLETE — 29-01..04 shipped+verified (filename+translation, media-page bug fix, per-song loading/Downloaded). Native plans 29-05/29-06 DEFERRED per user (web-only). Suite 1373 green, check clean.
-last_updated: "2026-08-08T04:11:01.963Z"
+stopped_at: "Phase 30 plan 30-06 PAUSED AT CHECKPOINT (not complete). Task 1 (autonomous phase gate) done + committed: pnpm test 89 files/1494 tests green, pnpm check 4365 files 0 errors, pnpm build + pnpm build:native both exit 0, full curl matrix observed against :5173, real-workerd /api/og cache hit (1698ms cold -> 2ms warm). Tasks 2+3 PENDING — both blocking human checkpoints: (A) pnpm deploy then real messenger cards in >=3 messengers (OG-VERIFY-01); (B) pnpm apk then on-device cover render (OG-PAGE-01). A must precede B. NOTHING deployed, no APK, nothing pushed."
+last_updated: "2026-08-08T04:19:48Z"
 last_activity: 2026-08-08
 progress:
   total_phases: 6
@@ -27,7 +27,18 @@ See: .planning/PROJECT.md (updated 2026-06-10)
 
 Phase: 30 (Carrier-Free Share Links) — EXECUTING
 Plan: 6 of 6
-Status: Executing Phase 30
+Status: **30-06 PAUSED AT CHECKPOINT — plan NOT complete.** Plans 30-01..30-05 shipped. 30-06 Task 1 (the autonomous phase gate) is complete and committed (`126da01`); Tasks 2 and 3 are blocking `checkpoint:human-verify` tasks that cannot be executed in a sandbox.
+
+### 30-06 blockers (both human-only)
+
+| # | Blocker | Requirement | Unblock with |
+|---|---------|-------------|--------------|
+| A | Real messenger link cards need a public origin — crawlers cannot reach localhost | OG-VERIFY-01 | `pnpm deploy`, then Facebook Sharing Debugger + Twitter Card Validator + paste into ≥3 messengers (WhatsApp/iMessage/Slack), plus a CJK link and one legacy `?n=&a=&c=` link. Also grab `cf-cache-status` on a 2nd `/api/og` request (the only real-TTL evidence, T-wv8-04) |
+| B | APK `<img>` needs a physical Android device — a bare `/api/og` would resolve to `https://localhost` in the Capacitor WebView (Pitfall 7) | OG-PAGE-01 | `pnpm apk`, install the debug APK, confirm the cover renders on a `/song/{artist}/{title}` page (and the gradient appears offline) |
+
+**A must precede B** — the APK loads its cover from `VITE_API_BASE=https://openmusic.lol`, so B is meaningless until A's deploy has shipped `/api/og` to that origin.
+
+Everything automatable is already verified — see `.planning/phases/30-carrier-free-share-links-type-artist-title-api-og/30-06-SUMMARY.md` for the full observed curl matrix.
 
 ### Prior phase (Phase 27 — YouTube Music Source, v1.4) — COMPLETE + E2E-VERIFIED
 
@@ -336,9 +347,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-08T04:10:55.106Z
-Stopped at: Phase 29 WEB SCOPE COMPLETE — 29-01..04 shipped+verified (filename+translation, media-page bug fix, per-song loading/Downloaded). Native plans 29-05/29-06 DEFERRED per user (web-only). Suite 1373 green, check clean.
-Resume: execute the remaining Phase-26 gap-closure plans (`/gsd:execute-phase 26 --gaps-only`): 26-08 (variant fetch + version-label dedup), 26-09 (up-next player wiring — depends 26-06/26-07), 26-10 (UI mounts — depends 26-07/26-08).
+Last session: 2026-08-08T04:19:48Z
+Stopped at: Phase 30 plan 30-06 PAUSED AT CHECKPOINT. Task 1 (autonomous phase gate) complete + committed `126da01`; partial SUMMARY committed `fa83e97`. All four gates observed green (89 files/1494 tests; 4365 files 0 errors 0 warnings; both builds exit 0) and the full curl matrix recorded verbatim against the resolved port `:5173`, plus a real-workerd `/api/og` cache hit (1698ms cold → 2ms warm on identical bytes). Tasks 2 and 3 remain PENDING blocking human checkpoints. Nothing deployed, no APK built, nothing pushed.
+Resume: discharge the two 30-06 human checkpoints in order — (A) `pnpm deploy`, then verify real messenger cards in ≥3 messengers and capture `cf-cache-status` on a repeat `/api/og` request; (B) `pnpm apk`, install, confirm the on-device cover render. Exact commands and check-lists are in `.planning/phases/30-carrier-free-share-links-type-artist-title-api-og/30-06-SUMMARY.md` § Remaining Human Checkpoints. Do NOT run `/gsd:verify-work` for Phase 30 until both are approved — OG-VERIFY-01 and OG-PAGE-01 both terminate in these checkpoints.
 
 ## Deferred Items
 
