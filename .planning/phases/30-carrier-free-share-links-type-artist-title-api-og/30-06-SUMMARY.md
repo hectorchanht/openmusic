@@ -20,8 +20,12 @@ provides:
   - "Observed-output phase gate for Phase 30: pnpm test / check / build / build:native all green"
   - "The full curl matrix recorded verbatim against a resolved dev port (route coexistence, the % 500 fix, /api/og tiers, per-surface og heads, legacy carrier precedence)"
   - "Real-workerd corroboration of the /api/og caches.default layer (1698ms cold -> 2ms warm on identical bytes)"
+  - "OG-VERIFY-01 DISCHARGED: deployed to openmusic.lol, production heads verified, a real WhatsApp card with real album art confirmed by user screenshot (scope limit: WhatsApp only, not the >=3 messengers the plan named)"
+  - "The % 500 fix confirmed IN PRODUCTION (/album/50%25%20Off and /artist/50%25%20Cent both 200, both 500 before this phase)"
+  - "A corrected instrument for T-wv8-04: cf-cache-status is DYNAMIC on every /api/og request by construction; warm-vs-cold response timing on byte-identical responses is the real evidence"
+  - "A debug APK at android/app/build/outputs/apk/debug/app-debug.apk (5.2 MB) awaiting device UAT"
   - "Three Phase 30 deferred follow-ups promoted from prose into .planning/todos/pending/"
-affects: [phase-30-verify-work, og-png-raster-followup, artist-page-lookup-key]
+affects: [phase-30-verify-work, og-png-raster-followup, artist-page-lookup-key, native-build-jdk21-toolchain]
 
 tech-stack:
   added: []
@@ -39,32 +43,41 @@ key-files:
 key-decisions:
   - "Ran pnpm preview (real workerd) even though the plan marked it optional — it is the only sandbox-observable proof that the caches.default write path actually executes; real TTL/eviction still needs the deploy"
   - "Promoted 30-03's and 30-05's deferred items out of deferred-items.md into real pending todo files — a phase-local file is not a durable backlog"
-  - "Did NOT deploy and did NOT build the APK: both remaining tasks are checkpoint:human-verify with gate=blocking, and deploying is an outward-facing action only the user may authorize"
+  - "cf-cache-status is the WRONG instrument for T-wv8-04 and the plan/VALIDATION both named it wrongly: it reports DYNAMIC on every /api/og request by construction (it describes the zone CDN's decision for a Pages Function response, and a Worker-level caches.default hit never surfaces there). Warm-vs-cold timing on byte-identical responses is the correct evidence"
+  - "Checkpoint A closed on WhatsApp evidence alone (user's explicit call), not the >=3 messengers the plan named — recorded as a scope limit, not as full coverage"
 
 patterns-established:
   - "A phase gate records observed output, never a paraphrase of the verify line — every status/byte-count below was read off a real response"
+  - "When an acceptance criterion names an instrument that cannot observe the thing (cf-cache-status for a Worker-level cache hit), correct the criterion and record the substitute measurement — do not log it as a failure and do not claim the header showed a hit"
 
-requirements-completed: []
+requirements-completed: []  # OG-VERIFY-01 is DISCHARGED but stays unlisted until the plan closes; OG-PAGE-01 still needs its device run
 
-duration: 7min
+duration: 7min (Task 1) + deploy/APK cycle
 completed: 2026-08-08
 ---
 
-# Phase 30 Plan 06: Phase Gate Summary — PAUSED AT CHECKPOINT
+# Phase 30 Plan 06: Phase Gate Summary — CHECKPOINT A PASSED, B AWAITING DEVICE UAT
 
-**All four automated gates green (1494 tests / 4365 files / both builds) and the entire curl matrix verified against real responses — including a real-workerd `/api/og` edge-cache hit at 1698ms cold vs 2ms warm — with the two deploy-and-device human checkpoints still pending.**
+**All four automated gates green (1494 tests / 4365 files / both builds), the entire curl matrix verified against real responses locally AND in production, a real WhatsApp card rendering real album art from the deployed `/api/og` — with only the on-device APK cover check outstanding.**
 
-> **STATUS: PAUSED.** Task 1 (the autonomous phase gate) is complete and committed. Tasks 2 and 3 are
-> `checkpoint:human-verify` / `gate="blocking"` and are **NOT done** — see
-> [Remaining Human Checkpoints](#remaining-human-checkpoints). Nothing was deployed, no APK was built,
-> nothing was pushed.
+> **STATUS: PAUSED — the plan is NOT complete.**
+> - Task 1 (autonomous phase gate) — **COMPLETE**, committed `126da01`.
+> - Task 2 / Checkpoint A (OG-VERIFY-01, deployed messenger cards) — **PASSED**, with a stated scope
+>   limit (WhatsApp only). See [Checkpoint A](#checkpoint-a--task-2-og-verify-01--passed).
+> - Task 3 / Checkpoint B (OG-PAGE-01, APK cover on-device) — **APK BUILT, DEVICE TEST PENDING.** The
+>   artifact exists; nobody has run it on a phone. See
+>   [Checkpoint B](#checkpoint-b--task-3-og-page-01--apk-built-device-test-pending).
+>
+> This executor performed no deploy, built no APK, and pushed nothing. The deploy and the APK build
+> were authorized and run by the user/orchestrator; their results are recorded here as reported
+> observations.
 
 ## Performance
 
-- **Duration:** 7 min
+- **Duration:** 7 min (Task 1, this executor) + the user-run deploy and APK build
 - **Started:** 2026-08-08T04:13:00Z
-- **Completed (Task 1 only):** 2026-08-08T04:19:48Z
-- **Tasks:** 1 of 3 complete (2 blocking human checkpoints pending)
+- **Task 1 completed:** 2026-08-08T04:19:48Z
+- **Tasks:** 2 of 3 complete (1 blocking human checkpoint pending: the device run)
 - **Files modified:** 3 created (all `.planning/todos/pending/`), 0 source files
 
 ## Accomplishments
@@ -73,14 +86,26 @@ completed: 2026-08-08
 - **The full curl matrix passes**, recorded verbatim below with the resolved port stated.
 - **Real-workerd corroboration** of the `/api/og` cache layer, which `vite dev` structurally cannot
   show (`edgeCache()` is null there — RESEARCH Pitfall 8).
+- **Shipped and verified in production.** `openmusic.lol` serves this phase; every head assertion holds
+  against the live origin, and **the `%` 500 fix is confirmed in production** (both URLs that returned
+  500 before this phase now return 200).
+- **A real crawler card with real album art**, screenshot-confirmed in WhatsApp — the end-to-end proof
+  OG-VERIFY-01 exists for, and the only thing no sandbox can produce.
+- **Corrected a wrong acceptance criterion.** `cf-cache-status` cannot observe a Worker-level
+  `caches.default` hit; the substitute measurement (warm-vs-cold timing on byte-identical responses) is
+  recorded instead.
 - **Three deferred follow-ups promoted to durable todos**, including the `og.png` raster the plan
   names as its artifact.
 
 ## Task Commits
 
 1. **Task 1: Full automated phase gate + curl matrix + deferred-item todos** — `126da01` (docs)
-2. **Task 2: Real messenger cards against the deployed URL** — **PENDING** (blocking human checkpoint)
-3. **Task 3: APK song-page cover image** — **PENDING** (blocking human checkpoint)
+2. **Task 2 / Checkpoint A: Real messenger cards against the deployed URL** — **PASSED** (no commit; a
+   deploy + human verification, not a code change). Scope limit recorded below.
+3. **Task 3 / Checkpoint B: APK song-page cover image** — **APK BUILT, DEVICE TEST PENDING** (no
+   commit; the APK is a build artifact under `android/app/build/`, which is gitignored)
+
+**Plan metadata:** `fa83e97` (partial summary), `8acc415` (STATE + ROADMAP paused), plus this update.
 
 ---
 
@@ -299,7 +324,7 @@ afterwards to restore the web output — housekeeping, not an issue.
 
 | Threat ID | Disposition | Status after this plan |
 |---|---|---|
-| T-wv8-04 (DoS on deployed `/api/og`) | mitigate (verify) | **Partially verified.** A repeat request is a real cache hit under workerd (1698ms → 2ms). `cf-cache-status` and real edge TTL/eviction still need Task 2's deploy. |
+| T-wv8-04 (DoS on deployed `/api/og`) | mitigate (verify) | **Verified in production, by the corrected instrument.** Repeat requests warm at 0.304/0.348/0.403s on byte-identical 30,840B responses; a previously-unrequested song went cold 0.979s → warm 0.396s on identical 111,258B — a ~2.5× drop with no byte change, i.e. the cache path working. `cf-cache-status` was the **wrong** instrument (see the correction below). Real TTL/eviction over 24h remains unobserved. |
 | T-og-01 (crawler storms on junk queries) | mitigate (verify) | **Verified for the no-term case** — zero subrequests, ~2–4ms, inlined SVG. Note the drift above: a *fuzzy-matchable* junk query does cost subrequests. |
 | T-30-06 (repudiation / auditable gate) | mitigate | **Discharged.** Every curl status, header, and byte count above was read off a real response and recorded verbatim. |
 | T-{30}-SC (package installs) | accept | **Held.** Zero packages installed this phase; `package.json` untouched. |
@@ -315,82 +340,165 @@ planning documents were added.
 
 ---
 
-## Remaining Human Checkpoints
+## Human Checkpoints
 
-**Two `checkpoint:human-verify` tasks with `gate="blocking"` remain. Neither was performed, and
-neither was simulated.** Both require actions outside this executor's authority: a public deploy and a
-physical Android device.
+### Checkpoint A — Task 2: OG-VERIFY-01 — **PASSED**
 
-### Checkpoint A — Task 2: Real messenger cards against the deployed URL (OG-VERIFY-01)
+**Deployed.** `https://openmusic.lol` serves this phase's code. The user authorized and ran
+`pnpm deploy`; this executor did not deploy.
 
-**Status: PENDING.** Nothing has been deployed. `https://openmusic.lol` currently serves the
-**pre-Phase-30** build.
+#### A.1 The real messenger card (the actual gate) — CONFIRMED
 
-**Step 1 — deploy (only the user may authorize this):**
+**WhatsApp, confirmed by user screenshot.** A link typed as
+`https://openmusic.lol/song/Olivia-Dean/Man-I-Need` unfurled as a **large-image card** showing:
 
-```bash
-pnpm deploy      # = pnpm build && wrangler pages deploy .svelte-kit/cloudflare --project-name openmusic
+- the **full album art** (not the branded `og.svg`),
+- title `Man I Need • Olivia Dean`,
+- description `Listen on openmusic`,
+- attribution `openmusic.lol`.
+
+A second card in the same thread, from `openmusic.pages.dev`, showed `Come As You Are • Nirvana` with
+its cover — so **both origins produce correct cards**, which is the `PageOg` origin fix (30-04) paying
+off in the wild rather than only in a curl.
+
+This is the one thing no sandbox can produce: a third-party crawler fetching our own-origin `/api/og`
+and rendering the bytes. **OG-VERIFY-01's end-to-end proof exists.**
+
+#### A.2 Scope limit — state this honestly
+
+**Only WhatsApp was tested.** The plan specified **≥3 messengers** plus the Facebook Sharing Debugger
+and the Twitter/X Card Validator. None of those were run:
+
+| Check the plan named | Status |
+|---|---|
+| WhatsApp | ✅ **confirmed** (screenshot) |
+| iMessage | ❌ not tested |
+| Slack | ❌ not tested |
+| Discord / Telegram (bonus) | ❌ not tested |
+| Facebook Sharing Debugger | ❌ not run |
+| Twitter/X Card Validator | ❌ not run |
+
+**The user explicitly chose to close A on the WhatsApp evidence.** Recorded as a deliberate scope
+reduction, not as coverage.
+
+Mitigating context, not a substitute for the missing checks: **WhatsApp is the strictest platform in
+the set** on `og:image` byte size and on redirect-following (RESEARCH §D.15 — it is the crawler the
+"stream, do not 302" decision was made *for*). So it is the highest-value single data point available.
+But **no claim is made about iMessage or Slack**, and those two are precisely the platforms that will
+not render the SVG fallback if a share ever misses every tier — see
+`.planning/todos/pending/og-png-raster-fallback.md`.
+
+#### A.3 Production head verification (orchestrator-observed, all on `https://openmusic.lol`)
+
+| Check | Observed |
+|---|---|
+| `/song/Olivia-Dean/Man-I-Need` | **200**; `og:type` count exactly **1**, value `music.song` |
+| ↳ `og:title` | `Man I Need • Olivia Dean` |
+| ↳ `og:url` | `https://openmusic.lol/song/Olivia-Dean/Man-I-Need` — the **requested** origin, proving the `PageOg` hardcode fix in production |
+| ↳ `og:image` | `https://openmusic.lol/api/og?type=song&artist=Olivia%20Dean&title=Man%20I%20Need` — absolute |
+| ↳ `twitter:card` | `summary_large_image` |
+| `/album/Nirvana/Nevermind` | `og:type` = `music.album` |
+| `/artist/Nirvana` | `og:type` = `profile` |
+| `/song/%E5%91%A8%E6%9D%B0%E5%80%AB/%E7%A8%BB%E9%A6%99` (CJK) | **200**, `og:title` = `稻香 • 周杰倫` |
+| `/song/come-as-you-are-nirvana?n=Come%20As%20You%20Are&a=Nirvana` (legacy) | **200**, card intact — OG-COMPAT-01 in the wild |
+| `/song/A/B/C` | **404** |
+| **`/album/50%25%20Off`** | **200** — **was 500 before this phase** |
+| **`/artist/50%25%20Cent`** | **200** — **was 500 before this phase** |
+| `/api/og?type=song&artist=Olivia+Dean&title=Man+I+Need` | **200** `image/jpeg`, `content-length: 30840`, `cache-control: public, max-age=86400, immutable` |
+
+The `%`-name 500 fix is therefore confirmed **in production**, not merely in dev — the strongest single
+line in this gate, because it is a live bug that existed before the phase and is now gone.
+
+#### A.4 Correction to the plan's own acceptance criterion — `cf-cache-status` is the wrong instrument
+
+Both `30-06-PLAN.md` and `30-VALIDATION.md` name `cf-cache-status` as *"the only place real edge TTL
+behavior is observable"* for **T-wv8-04**. **That criterion is wrong and cannot be satisfied.**
+
+`cf-cache-status` reports **`DYNAMIC` on every `/api/og` request, and always will**, because it
+describes the *zone CDN's* decision about a Pages Function response. A **Worker-level
+`caches.default` hit does not surface in that header at all.** No amount of correct caching would make
+it say `HIT`.
+
+This is recorded as a **defective criterion, not a failed one.** No claim is made that the header
+showed a hit.
+
+**The correct instrument is response timing on byte-identical responses.** Measured on production:
+
+| Measurement | Observed |
+|---|---|
+| Repeat requests, warm (`Olivia Dean / Man I Need`) | **0.304s / 0.348s / 0.403s**, all **30,840 B** |
+| A previously-unrequested song (`Radiohead / Weird Fishes`) | cold **0.979s** → warm **0.396s**, **111,258 B** both times |
+
+A ~2.5× drop with **zero byte change** is the cache path working. Combined with the local workerd
+result (1698ms → 2ms), the `caches.default` layer is verified at both levels.
+
+**Still unobserved:** real **TTL** over the 24h `max-age` window, and **eviction**. Those need
+elapsed wall-clock time, not another request, and remain open.
+
+### Checkpoint B — Task 3: OG-PAGE-01 — **APK BUILT, DEVICE TEST PENDING**
+
+**Status: the artifact exists; nobody has run it on a phone.** This is the one genuinely unfinished
+item in the plan, and it is why the plan stays open.
+
+#### B.1 Build — succeeded
+
+| Step | Result |
+|---|---|
+| `pnpm run build:native` | **exit 0** |
+| `npx cap sync android` | **exit 0** |
+| `./gradlew assembleDebug` | **BUILD SUCCESSFUL** |
+
+**Artifact:** `android/app/build/outputs/apk/debug/app-debug.apk` — **5.2 MB**. (Gitignored build
+output, so there is no commit for this step.)
+
+#### B.2 Build-environment gotcha — JDK 21 is installed but invisible to Gradle
+
+`pnpm run apk` **initially failed**:
+
+```
+Cannot find a Java installation … matching {languageVersion=21}
 ```
 
-**Step 2 — re-run the head checks against production:**
+`/usr/libexec/java_home -V` lists only **JDK 20, 17 and 11** — but `openjdk@21` **is** installed via
+Homebrew at:
 
-```bash
-# Crawler user-agent — expect 200 with the og tags
-curl -A 'facebookexternalhit/1.1' https://openmusic.lol/song/Nirvana/Come-As-You-Are | grep 'og:'
-
-# The endpoint — expect 200, image/*, cache-control: public, max-age=86400, immutable
-curl -sI 'https://openmusic.lol/api/og?type=song&artist=Nirvana&title=Come+As+You+Are'
-
-# Run the SAME request a SECOND time and look for cf-cache-status: HIT
-# (this is the ONLY place real edge TTL behavior is observable — T-wv8-04)
-curl -sI 'https://openmusic.lol/api/og?type=song&artist=Nirvana&title=Come+As+You+Are' | grep -i cf-cache-status
+```
+/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home
 ```
 
-**Step 3 — the human card checks (the actual gate):**
+It is simply **not registered with `java_home`**, so Gradle's toolchain auto-detection cannot see it.
+Building with `JAVA_HOME` set to that path succeeded. **No system or repo config was changed** — the
+fix was a per-invocation env var, not a committed change.
 
-1. **Facebook Sharing Debugger** — <https://developers.facebook.com/tools/debug>, enter
-   `https://openmusic.lol/song/Nirvana/Come-As-You-Are`. The card must show the **real Nirvana album
-   art**, not the branded `og.svg`. If a bad first crawl got cached, press **Scrape Again**.
-2. **Twitter/X Card Validator** (or a tweet draft) — the card renders with the art. A square cover
-   center-cropped to 1.91:1 is **expected**, same as today.
-3. **Paste the link into at least 3 real messengers** — WhatsApp, iMessage, Slack (Discord/Telegram
-   bonus). Each must unfurl with the album art. Note that **Slack and iMessage are exactly the
-   platforms that will not render the SVG fallback** — if a card is blank there, check whether
-   `/api/og` returned `image/svg+xml` for that query before treating it as a Phase 30 bug (see
-   `.planning/todos/pending/og-png-raster-fallback.md`).
-4. **One CJK link** — `https://openmusic.lol/song/周杰倫/稻香` — the preview must show the decoded CJK
-   title and a real cover (the kuwo tier; verified locally at 49,589 bytes).
-5. **One legacy link from before this phase** (any old `?n=&a=&c=` URL) — its card must still render
-   (OG-COMPAT-01 in the wild).
+Worth knowing for the next native pass: `pnpm apk` is not self-sufficient on this machine. Either
+export `JAVA_HOME` for the invocation, or `sudo ln -s` the Homebrew JDK into
+`/Library/Java/JavaVirtualMachines/` to register it properly. Deliberately **not** committed — a
+developer-machine concern, not a repo one.
 
-**Resume signal:** type `approved` naming which messengers rendered the art, or describe which
-platform showed `og.svg`/blank so a gap plan can target it.
+#### B.3 Construction-level evidence (NOT a device run)
 
-### Checkpoint B — Task 3: APK song-page cover image (OG-PAGE-01 native trap)
+Static inspection of the built SPA confirms the APK will hit the right host:
 
-**Status: PENDING.** No APK was built (no device is available to this executor).
+- `https://openmusic.lol` is baked into the built chunks (`VITE_API_BASE`),
+- `api/og?type=song` is present in the bundle.
 
-**Step 1 — build the debug APK:**
+So the `<img>` resolves against the **deployed origin** rather than `https://localhost` — which is
+exactly the trap OG-PAGE-01 exists to catch (RESEARCH Pitfall 7). **This is construction-level
+evidence only.** It proves the URL was built correctly; it does **not** prove the image renders on a
+real WebView. Do not read B.3 as satisfying B.
 
-```bash
-pnpm apk         # = pnpm build:native && npx cap sync android && cd android && ./gradlew assembleDebug
-```
+#### B.4 Remaining device steps (the actual gate)
 
-Confirm gradle exits 0. Note the web-side prerequisite is already proven: `pnpm build:native` exited
-0 in this gate.
-
-**Step 2 — on-device checks:**
-
-1. Install the debug APK on an Android device.
-2. Open a shared song link in the app, or navigate the WebView to a `/song/{artist}/{title}` URL.
-3. **Confirm the album cover renders on the song landing page — not a broken-image icon.** This is the
-   whole point: the `<img>` src goes through `apiUrl()` so it resolves to
-   `https://openmusic.lol/api/og?…`. A bare `/api/og` would resolve to `https://localhost/api/og`
-   inside the Capacitor WebView and show a broken image (RESEARCH Pitfall 7). **This check depends on
-   Checkpoint A's deploy having happened first** — `VITE_API_BASE` points the APK at
-   `https://openmusic.lol`, so if that origin has no `/api/og` yet, the image cannot load.
+1. Install `android/app/build/outputs/apk/debug/app-debug.apk` on an Android device.
+2. Open a shared song link in the app, or navigate the WebView to a `/song/{artist}/{title}` URL —
+   e.g. `/song/Olivia-Dean/Man-I-Need`, which is already proven to return a real 30,840 B JPEG from
+   production.
+3. **Confirm the album cover renders on the song landing page — not a broken-image icon.**
 4. Kill the network and reopen — the **gradient fallback** must appear (the `onerror` path), never a
    broken image.
+
+Checkpoint A's deploy is done, so B's prerequisite is satisfied: `/api/og` is live on
+`https://openmusic.lol`, the origin the APK targets.
 
 **Resume signal:** type `approved`, or describe the broken state (a screenshot of the landing page
 helps).
@@ -399,30 +507,40 @@ helps).
 
 ## Next Phase Readiness
 
-- **Not ready for `/gsd:verify-work`.** OG-VERIFY-01 and OG-PAGE-01 are the two requirements this plan
-  carries and **both** end in a blocking human checkpoint; neither is satisfiable in a sandbox.
-- **Everything automatable is done.** All four gates green, the whole curl matrix observed, the cache
-  layer corroborated under real workerd. The only unverified surface is what needs a public origin
-  (crawler cards, `cf-cache-status`, real TTL) and a physical device (the APK `<img>`).
-- **Dependency between the two checkpoints:** A must precede B. The APK loads its cover from
-  `VITE_API_BASE=https://openmusic.lol`, so Checkpoint B is meaningless until Checkpoint A's deploy
-  has shipped `/api/og` to that origin.
-- **Three follow-ups are queued** in `.planning/todos/pending/`; none blocks the phase. The
-  `og.png` raster is the one most likely to be *revealed* by Checkpoint A (Slack/iMessage on a
-  cover-less share).
+- **OG-VERIFY-01 is discharged** — deployed, production heads verified, a real WhatsApp card with real
+  album art. Carries the stated scope limit (WhatsApp only, no validators).
+- **OG-PAGE-01 is not** — the APK is built but unrun on hardware. **This single item is what keeps the
+  plan and the phase open.**
+- **Everything else is done.** All four gates green, the curl matrix observed locally *and* in
+  production, the `/api/og` cache layer verified at both the workerd and the production level, the `%`
+  500 fix confirmed live.
+- **Do not run `/gsd:verify-work` for Phase 30 yet.** One of the plan's two requirements still has an
+  unrun blocking checkpoint.
+- **Two items stay genuinely unobserved and should not be quietly dropped:** real edge cache **TTL /
+  eviction** over the 24h window (needs elapsed time), and **iMessage / Slack** card rendering (the two
+  platforms most sensitive to the SVG fallback).
+- **Three follow-ups are queued** in `.planning/todos/pending/`; none blocks the phase. The `og.png`
+  raster is the one most likely to surface once iMessage/Slack are eventually checked on a cover-less
+  share.
+- **Not committed by design:** the `JAVA_HOME` workaround for the invisible Homebrew JDK 21 (B.2) — a
+  developer-machine concern, not a repo one.
 
 ## Self-Check
 
 - `.planning/todos/pending/og-png-raster-fallback.md` — FOUND
 - `.planning/todos/pending/og-artist-tier-picture-xl-oversize.md` — FOUND
 - `.planning/todos/pending/artist-page-hyphenated-lookup-key.md` — FOUND
-- commit `126da01` — FOUND in git log
-- No deploy performed — CONFIRMED (`wrangler pages deploy` never invoked)
-- No APK built — CONFIRMED (`pnpm apk` / gradle never invoked)
+- commits `126da01`, `fa83e97`, `8acc415` — FOUND in git log
+- No deploy performed **by this executor** — CONFIRMED (the deploy was user-authorized and user-run;
+  its results are recorded above as reported observations, and marked as such)
+- No APK built **by this executor** — CONFIRMED (same: user-authorized and user-run)
 - No git push performed — CONFIRMED
+- Plan **not** marked complete; plan counter **not** advanced; ROADMAP checkbox for 30-06 **still
+  unchecked** — CONFIRMED (Checkpoint B is genuinely unfinished)
 
 ## Self-Check: PASSED
 
 ---
 *Phase: 30-carrier-free-share-links-type-artist-title-api-og*
-*Task 1 completed: 2026-08-08 — Tasks 2 and 3 PAUSED awaiting human verification*
+*Task 1 completed 2026-08-08. Checkpoint A (OG-VERIFY-01) PASSED — deployed, WhatsApp card confirmed.*
+*Checkpoint B (OG-PAGE-01) APK built, device UAT PENDING — the plan remains OPEN.*

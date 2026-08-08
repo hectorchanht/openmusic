@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: YTMusic-Powered Up-Next
 status: executing
-stopped_at: "Phase 30 plan 30-06 PAUSED AT CHECKPOINT (not complete). Task 1 (autonomous phase gate) done + committed: pnpm test 89 files/1494 tests green, pnpm check 4365 files 0 errors, pnpm build + pnpm build:native both exit 0, full curl matrix observed against :5173, real-workerd /api/og cache hit (1698ms cold -> 2ms warm). Tasks 2+3 PENDING — both blocking human checkpoints: (A) pnpm deploy then real messenger cards in >=3 messengers (OG-VERIFY-01); (B) pnpm apk then on-device cover render (OG-PAGE-01). A must precede B. NOTHING deployed, no APK, nothing pushed."
-last_updated: "2026-08-08T04:19:48Z"
+stopped_at: "Phase 30 plan 30-06 still OPEN — ONE item left: the APK device UAT. Task 1 gate green (89 files/1494 tests, check 4365 files 0 errors, both builds exit 0, full curl matrix, workerd /api/og cache hit 1698ms->2ms). Checkpoint A / OG-VERIFY-01 PASSED: DEPLOYED to openmusic.lol, production heads verified, real WhatsApp card with real album art (user screenshot) — scope limit: WhatsApp only, no iMessage/Slack/validators. The % 500 fix confirmed IN PROD (/album/50%25%20Off + /artist/50%25%20Cent both 200, both 500 before). cf-cache-status was a DEFECTIVE criterion (always DYNAMIC for a Worker-level caches.default hit); substitute evidence = warm-vs-cold timing on byte-identical responses (cold 0.979s -> warm 0.396s, 111258B both). Checkpoint B / OG-PAGE-01: APK BUILT (android/app/build/outputs/apk/debug/app-debug.apk, 5.2 MB) but DEVICE TEST PENDING — install, open /song/{artist}/{title}, confirm the cover renders and the gradient appears offline."
+last_updated: "2026-08-08T04:34:00Z"
 last_activity: 2026-08-08
 progress:
   total_phases: 6
@@ -27,18 +27,24 @@ See: .planning/PROJECT.md (updated 2026-06-10)
 
 Phase: 30 (Carrier-Free Share Links) — EXECUTING
 Plan: 6 of 6
-Status: **30-06 PAUSED AT CHECKPOINT — plan NOT complete.** Plans 30-01..30-05 shipped. 30-06 Task 1 (the autonomous phase gate) is complete and committed (`126da01`); Tasks 2 and 3 are blocking `checkpoint:human-verify` tasks that cannot be executed in a sandbox.
+Status: **30-06 still OPEN — plan NOT complete. Exactly ONE item remains: the APK device UAT.** Plans 30-01..30-05 shipped. 30-06 Task 1 (the autonomous phase gate) is complete and committed (`126da01`). **Phase 30 IS DEPLOYED** — `openmusic.lol` serves it.
 
-### 30-06 blockers (both human-only)
+### 30-06 checkpoint status
 
-| # | Blocker | Requirement | Unblock with |
-|---|---------|-------------|--------------|
-| A | Real messenger link cards need a public origin — crawlers cannot reach localhost | OG-VERIFY-01 | `pnpm deploy`, then Facebook Sharing Debugger + Twitter Card Validator + paste into ≥3 messengers (WhatsApp/iMessage/Slack), plus a CJK link and one legacy `?n=&a=&c=` link. Also grab `cf-cache-status` on a 2nd `/api/og` request (the only real-TTL evidence, T-wv8-04) |
-| B | APK `<img>` needs a physical Android device — a bare `/api/og` would resolve to `https://localhost` in the Capacitor WebView (Pitfall 7) | OG-PAGE-01 | `pnpm apk`, install the debug APK, confirm the cover renders on a `/song/{artist}/{title}` page (and the gradient appears offline) |
+| # | Checkpoint | Requirement | Status |
+|---|-----------|-------------|--------|
+| A | Real messenger cards against the deployed URL | OG-VERIFY-01 | ✅ **PASSED** — deployed; production heads verified; a real **WhatsApp** card rendered full album art, `Man I Need • Olivia Dean`, from `openmusic.lol/api/og` (user screenshot). `openmusic.pages.dev` also produced a correct card, so the `PageOg` origin fix works on both origins. **Scope limit: WhatsApp only** — iMessage, Slack, the Facebook Sharing Debugger and the Twitter Card Validator were **not** tested (user's explicit call to close on WhatsApp, the strictest platform in the set) |
+| B | APK song-page cover image on-device | OG-PAGE-01 | ⏳ **APK BUILT, DEVICE TEST PENDING** — `android/app/build/outputs/apk/debug/app-debug.apk` (5.2 MB), gradle BUILD SUCCESSFUL. Install it, open a `/song/{artist}/{title}` page (e.g. `/song/Olivia-Dean/Man-I-Need`), confirm the cover renders (not a broken image), then kill the network and confirm the gradient fallback appears. Construction-level evidence only so far: `https://openmusic.lol` + `api/og?type=song` are baked into the built bundle, so the `<img>` targets the deployed origin rather than `https://localhost` (Pitfall 7) |
 
-**A must precede B** — the APK loads its cover from `VITE_API_BASE=https://openmusic.lol`, so B is meaningless until A's deploy has shipped `/api/og` to that origin.
+**Confirmed in production:** the pre-existing `%`-name 500 is fixed live — `/album/50%25%20Off` and `/artist/50%25%20Cent` both return **200** (both were 500 before this phase).
 
-Everything automatable is already verified — see `.planning/phases/30-carrier-free-share-links-type-artist-title-api-og/30-06-SUMMARY.md` for the full observed curl matrix.
+**Corrected criterion — do not re-chase it:** the plan and 30-VALIDATION both name `cf-cache-status` as the T-wv8-04 evidence. It is **defective, not failing** — that header reports `DYNAMIC` on every `/api/og` request by construction, because it describes the zone CDN's decision for a Pages Function response and a Worker-level `caches.default` hit never surfaces there. The real evidence is warm-vs-cold timing on byte-identical responses: cold **0.979s → warm 0.396s** on an identical 111,258 B body in production (plus 1698ms → 2ms under local workerd).
+
+**Still genuinely unobserved:** real edge cache **TTL / eviction** over the 24h window (needs elapsed time, not another request), and **iMessage / Slack** cards — the two platforms most sensitive to the SVG fallback.
+
+**Build-environment gotcha:** `pnpm apk` fails on this machine with `Cannot find a Java installation … matching {languageVersion=21}`. `openjdk@21` IS installed via Homebrew at `/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home` but is not registered with `java_home`, so Gradle's toolchain detection misses it. Setting `JAVA_HOME` to that path for the invocation works. Deliberately not committed — developer-machine concern.
+
+Full observed evidence: `.planning/phases/30-carrier-free-share-links-type-artist-title-api-og/30-06-SUMMARY.md`.
 
 ### Prior phase (Phase 27 — YouTube Music Source, v1.4) — COMPLETE + E2E-VERIFIED
 
@@ -347,9 +353,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-08T04:19:48Z
-Stopped at: Phase 30 plan 30-06 PAUSED AT CHECKPOINT. Task 1 (autonomous phase gate) complete + committed `126da01`; partial SUMMARY committed `fa83e97`. All four gates observed green (89 files/1494 tests; 4365 files 0 errors 0 warnings; both builds exit 0) and the full curl matrix recorded verbatim against the resolved port `:5173`, plus a real-workerd `/api/og` cache hit (1698ms cold → 2ms warm on identical bytes). Tasks 2 and 3 remain PENDING blocking human checkpoints. Nothing deployed, no APK built, nothing pushed.
-Resume: discharge the two 30-06 human checkpoints in order — (A) `pnpm deploy`, then verify real messenger cards in ≥3 messengers and capture `cf-cache-status` on a repeat `/api/og` request; (B) `pnpm apk`, install, confirm the on-device cover render. Exact commands and check-lists are in `.planning/phases/30-carrier-free-share-links-type-artist-title-api-og/30-06-SUMMARY.md` § Remaining Human Checkpoints. Do NOT run `/gsd:verify-work` for Phase 30 until both are approved — OG-VERIFY-01 and OG-PAGE-01 both terminate in these checkpoints.
+Last session: 2026-08-08T04:34:00Z
+Stopped at: Phase 30 plan 30-06 still OPEN with ONE item left — the APK device UAT. Task 1 committed `126da01`; summaries `fa83e97` / this update. All four gates observed green (89 files/1494 tests; 4365 files 0 errors 0 warnings; both builds exit 0), full curl matrix recorded verbatim against `:5173`, real-workerd `/api/og` cache hit (1698ms → 2ms). **Phase 30 IS DEPLOYED to openmusic.lol.** Checkpoint A / OG-VERIFY-01 **PASSED** — production heads verified and a real WhatsApp card rendered real album art (scope limit: WhatsApp only). Checkpoint B / OG-PAGE-01 — APK built (5.2 MB) but **not yet run on a device**.
+Resume: install `android/app/build/outputs/apk/debug/app-debug.apk` on an Android device, open `/song/Olivia-Dean/Man-I-Need` (proven to return a real 30,840 B JPEG from production), confirm the cover renders rather than a broken image, then kill the network and confirm the gradient fallback appears. That single check closes 30-06 and Phase 30. Do NOT run `/gsd:verify-work` for Phase 30 until it is approved — OG-PAGE-01 terminates in it. Optional, non-blocking leftovers: iMessage/Slack cards, and real 24h cache TTL/eviction.
 
 ## Deferred Items
 
