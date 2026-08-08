@@ -1098,7 +1098,7 @@ Rename/migration-shaped concerns for the share-URL surface:
 | pnpm | install/scripts | ✓ | 8.15.5 pinned | — |
 | Vitest | all unit tests | ✓ | ^4.1.3, node project only | — |
 | `svelte-check` | `pnpm check` | ✓ | ^4.4.6 | — |
-| Vite dev server | live route/SSR probes | ✓ | **serves on :5173, not 4321** — `vite.config.ts` sets no `strictPort`/`port`, so the memory note "strictPort 4321" is stale | — |
+| Vite dev server | live route/SSR probes | ✓ | **BOTH ports are real — resolve, don't assume.** A bare `pnpm dev` serves **:5173** (`vite.config.ts` sets no `port`/`strictPort`), but `.claude/launch.json` — what `preview_start` and the user's own running server use — passes `--port 4321 --strictPort`, so that path serves **:4321**. The "strictPort 4321" note is correct for the launch.json path, NOT stale. Every curl criterion in the plans is written against `:5173`; resolve the live port and substitute. | — |
 | `wrangler pages dev` (`pnpm preview`) | workerd cache/stream mechanics | ✓ | wrangler 4.98.0 | Unit tests with an in-memory `caches.default` |
 | Deezer API + CDN | tier 1 live probe | ✓ | — | stubbed unit test |
 | iTunes Search + mzstatic | tier 2 live probe | ✓ | — | stubbed unit test |
