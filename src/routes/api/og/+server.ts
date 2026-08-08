@@ -11,7 +11,7 @@
 //    (the body is never buffered) and sidesteps per-crawler redirect-follow variance — WhatsApp
 //    and iMessage are the fussy ones and do not reliably follow an og:image redirect.
 //  - BOUNDED: one OG_RESOLVE_MS deadline over the whole tier chain (og-cover.ts), retries=0,
-//    worst case 3 resolve subrequests + 1 image = 4.
+//    worst case 4 resolve subrequests + 1 image = 5 (quick-260807-vl1 added a title-only retry).
 //
 // This route is the deezer/search SHELL (own-origin CORS, OPTIONS 204, caches.default keyed
 // own-origin, cache-write on SUCCESS only) wrapped around the ytmusic/stream BODY (a FRESH header

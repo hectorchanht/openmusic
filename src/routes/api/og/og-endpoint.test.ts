@@ -111,11 +111,15 @@ describe('og-cover — tier order (Deezer → iTunes → kuwo, sequential)', () 
 		expect(calls.filter((c) => c.includes('type=song'))).toHaveLength(0);
 	});
 
-	it('never fans out via searchAll — the CN tier is kuwo ONLY (≤3 resolve subrequests)', async () => {
+	it('never fans out via searchAll — the CN tier is kuwo ONLY (≤4 resolve subrequests)', async () => {
 		const { calls } = stubTiers({ dz: DZ_MISS, it: IT_MISS, kw: KW_MISS });
 		const out = await resolveCoverTiered('song', 'Nobody', 'Nothing', fresh());
 		expect(out).toBeNull();
-		expect(calls).toHaveLength(3);
+		// 3 tiers + the quick-260807-vl1 title-only Deezer retry — still no fan-out.
+		expect(calls).toHaveLength(4);
+		expect(calls[3]).toContain('https://api.deezer.com/search');
+		expect(calls[3]).toContain(encodeURIComponent('Nothing'));
+		expect(calls[3]).not.toContain(encodeURIComponent('Nobody'));
 	});
 
 	it('uses the ALBUM entity for type=album and the artistTerm album proxy for type=artist', async () => {
@@ -136,6 +140,84 @@ describe('og-cover — tier order (Deezer → iTunes → kuwo, sequential)', () 
 		stubTiers({ dz: DZ_HIT });
 		const out = await resolveCoverTiered('artist', 'Nirvana', '', fresh());
 		expect(out).toBe(DZ_PICTURE);
+	});
+});
+
+describe('og-cover — title-only Deezer retry rescues an artist-poisoned miss (quick-260807-vl1)', () => {
+	/**
+	 * The production repro: ONE Traditional character (傑 vs Simplified 杰) makes every upstream
+	 * keyword search miss on `artist title`, while the bare title hits. stubTiers keys on HOST only,
+	 * so this stub keys on whether the encoded ARTIST is in the query — miss when it is, hit when
+	 * it is not — which is exactly the upstream behaviour the probe observed.
+	 */
+	function stubArtistPoisoned(dzTitleOnly: TierReply = DZ_HIT) {
+		const calls: string[] = [];
+		const spy = vi.fn(async (input: RequestInfo | URL) => {
+			const u = String(input);
+			calls.push(u);
+			const poisoned = u.includes(encodeURIComponent('周傑倫'));
+			if (u.includes('api.deezer.com') && !poisoned) {
+				if (dzTitleOnly === 'THROW') throw new Error('network down');
+				if (dzTitleOnly === 'NOTOK') return new Response('upstream error', { status: 500 });
+				return new Response(dzTitleOnly, {
+					status: 200,
+					headers: { 'content-type': 'application/json' }
+				});
+			}
+			const body = u.includes('api.deezer.com')
+				? DZ_MISS
+				: u.includes('itunes.apple.com')
+					? IT_MISS
+					: KW_MISS;
+			return new Response(body, { status: 200, headers: { 'content-type': 'application/json' } });
+		});
+		vi.stubGlobal('fetch', spy);
+		return { calls, spy };
+	}
+
+	it('artist+title misses every tier but the title-only Deezer retry hits', async () => {
+		const { calls } = stubArtistPoisoned();
+		const out = await resolveCoverTiered('song', '周傑倫', '止戰之殤', fresh());
+		expect(out).toBe(DZ_COVER);
+		expect(calls).toHaveLength(4);
+		expect(calls[3]).toContain('https://api.deezer.com/search');
+		expect(calls[3]).toContain(encodeURIComponent('止戰之殤'));
+		expect(calls[3]).not.toContain(encodeURIComponent('周傑倫'));
+	});
+
+	it('a retry MISS stays a cacheable negative (null), never ERROR', async () => {
+		const out = await (async () => {
+			const { calls } = stubArtistPoisoned(DZ_MISS);
+			const r = await resolveCoverTiered('song', '周傑倫', '止戰之殤', fresh());
+			expect(calls).toHaveLength(4);
+			return r;
+		})();
+		expect(out).toBeNull();
+	});
+
+	it('a retry that FAULTS yields ERROR (never negative-cached)', async () => {
+		stubArtistPoisoned('THROW');
+		expect(await resolveCoverTiered('song', '周傑倫', '止戰之殤', fresh())).toBe('ERROR');
+	});
+
+	it('type=artist never issues the retry (an artist card has no title)', async () => {
+		const { calls } = stubTiers({ dz: DZ_MISS, it: IT_MISS, kw: KW_MISS });
+		expect(await resolveCoverTiered('artist', 'Nobody', '', fresh())).toBeNull();
+		expect(calls).toHaveLength(3);
+	});
+
+	it('an empty artist never issues the retry (it would repeat the query just run)', async () => {
+		const { calls } = stubTiers({ dz: DZ_MISS, it: IT_MISS, kw: KW_MISS });
+		expect(await resolveCoverTiered('song', '', 'Nothing', fresh())).toBeNull();
+		expect(calls).toHaveLength(3);
+	});
+
+	it('the route still answers 200 + branded fallback when the retry misses too', async () => {
+		const { calls } = stubRoute({ dz: DZ_MISS, it: IT_MISS, kw: KW_MISS });
+		const res = await callGET(fakeEvent(SONG));
+		expect(res.status).toBe(200);
+		expect(res.headers.get('content-type')).toBe('image/svg+xml');
+		expect(calls).toHaveLength(4); // 4 resolves, 0 image — worst case is 4 + 1
 	});
 });
 
@@ -516,11 +598,11 @@ describe('/api/og — two caches.default layers, both keyed own-origin', () => {
 		const { putKeys } = stubCache();
 		const res1 = await callGET(fakeEvent(SONG));
 		expect(res1.headers.get('content-type')).toBe('image/svg+xml');
-		expect(calls).toHaveLength(3);
+		expect(calls).toHaveLength(4); // 3 tiers + the title-only retry (quick-260807-vl1)
 		expect(putKeys).toHaveLength(1); // resolve layer only — there are no bytes to store
 
 		const res2 = await callGET(fakeEvent(SONG));
-		expect(calls).toHaveLength(3); // known-none served from the resolve layer
+		expect(calls).toHaveLength(4); // known-none served from the resolve layer
 		expect(res2.headers.get('content-type')).toBe('image/svg+xml');
 	});
 

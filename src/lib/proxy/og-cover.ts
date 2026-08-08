@@ -10,7 +10,8 @@
 // so `og:image` points at our own `/api/og?type=&artist=&title=` and the cover is re-resolved
 // server-side from TEXT. A crawler is waiting on that request, so the chain is bounded hard:
 // tiers run SEQUENTIALLY under ONE overall deadline, every tier is never-throw, and the worst
-// case is 3 resolve subrequests + 1 image fetch = 4.
+// case is 4 resolve subrequests + 1 image fetch = 5 (3 tiers + the title-only Deezer retry,
+// quick-260807-vl1).
 //
 // TIERS: Deezer → iTunes → kuwo. The CN tier is kuwo ONLY — never the catalog's multi-source
 // search fan-out (`spike-findings-openmusic`, kuwo-first resolution): a fan-out at the edge would
@@ -234,6 +235,21 @@ export async function resolveCoverTiered(
 		if (out.kind === 'hit') return out.url;
 		if (out.kind === 'error') sawError = true;
 	}
+
+	// quick-260807-vl1 — TITLE-ONLY RESCUE. Production probe: `artist=周傑倫&title=止戰之殤` misses
+	// ALL THREE tiers, while `title=止戰之殤` alone hits Deezer with the right cover — ONE Traditional
+	// character (傑 vs Simplified 杰) poisons every upstream's keyword search, because the catalogs
+	// index the Simplified name. Dropping the artist from the term recovers the cover.
+	// Deezer ONLY (probe: it is the tier that rescued it), so the worst case stays 4 resolves. It
+	// rides whatever is LEFT of the unchanged 2.5 s deadline via the existing tierSignal.
+	// Skipped when it would re-issue a byte-identical query: type=artist has no title, and an empty
+	// artist means the chain above already searched the bare title.
+	if (!deadline.aborted && type !== 'artist' && artist.trim() && title.trim()) {
+		const retry = await deezerTier(type, '', title, deadline);
+		if (retry.kind === 'hit') return retry.url;
+		if (retry.kind === 'error') sawError = true;
+	}
+
 	return sawError ? 'ERROR' : null;
 }
 
