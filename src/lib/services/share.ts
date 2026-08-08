@@ -95,6 +95,42 @@ export function slugify(title: string, artist: string): string {
 }
 
 /**
+ * OG-PATH-01: encode ONE raw title/artist into a URL path segment. Original CASE is
+ * PRESERVED (the OG card title is read straight back out of the path, so lowercasing
+ * would force a title-case reconstruction that renders `DNA` as `Dna`). Whitespace runs
+ * collapse to a single '-'; everything else goes through encodeURIComponent, which leaves
+ * `- . _ ~ ! * ' ( )` literal and percent-encodes `/ ? # % & + : ;` and all non-ASCII
+ * (so a CJK segment is valid on the wire and renders decoded in browsers + link previews).
+ *
+ * TWO guards, both load-bearing:
+ *  - EMPTY: an empty segment would make the path `/song/Artist/` → the required `([^/]+?)`
+ *    group cannot match → 404. Emit '-' (which decodes back to '').
+ *  - DOT-ONLY: the WHATWG URL parser treats `.` / `..` AND their percent-encoded forms
+ *    (`%2e`, `%2E%2E`) as dot path segments and normalizes them AWAY before the request
+ *    reaches us (verified: both 404). Appending one '-' makes the segment non-dot-only and
+ *    the decoder's hyphen→space+trim recovers the original exactly.
+ */
+export function encodePathSegment(raw: string): string {
+	const collapsed = (raw ?? '').trim().replace(/\s+/g, '-');
+	if (!collapsed) return '-';
+	const seg = encodeURIComponent(collapsed);
+	return /^\.+$/.test(seg) ? `${seg}-` : seg;
+}
+
+/**
+ * OG-PATH-01 inverse. `seg` is ALREADY decodeURIComponent'd by SvelteKit
+ * (decode_params, utils/routing.js) — decoding again throws URIError on a literal '%'
+ * (live-verified 500 on the legacy /album/{name} route). Do NOT decode here.
+ *
+ * KNOWN LOSSY EDGE (accepted, CONTEXT LOCKED): every '-' becomes a space, so a title with
+ * a literal hyphen decodes with a space (`Spider-Man` → `Spider Man`). matchKey strips all
+ * punctuation AND whitespace, so scoreMatch is EXACTLY insensitive to this (see RESEARCH B.8).
+ */
+export function decodePathSegment(seg: string): string {
+	return (seg ?? '').replace(/-+/g, ' ').trim();
+}
+
+/**
  * Encode the current track + a capped queue into a base64url v2 share token.
  * The queue is capped at QUEUE_CAP stubs to bound URL length.
  */
@@ -283,6 +319,35 @@ export function parseEntityParam(
 }
 
 /**
+ * The closed set of `og:type` values this app emits — one per share surface (OG-PAGE-01):
+ * song → `music.song`, album → `music.album`, artist → `profile`. A closed union (never free
+ * text) is what keeps the value safe to bind straight into a `<meta content>` (T-gln-02).
+ */
+export type OgType = 'music.song' | 'music.album' | 'profile';
+
+/**
+ * OG-EP-01: build the own-origin card-image URL `${origin}/api/og?type=&artist=&title=`.
+ * `title` is the secondary name (song title / album name) and is OMITTED when empty — an
+ * artist card has no secondary name.
+ *
+ * This is a CONSTRUCTED OWN-ORIGIN URL, not a sharer-supplied cover, so it is emitted into the
+ * `og:image` meta tag DIRECTLY and is deliberately NOT put through the `isHttpsUrl` carrier gate
+ * (that gate exists for the legacy `?c=` carrier, where the URL came from the sharer's client).
+ * The T-24-08 posture is preserved one layer down: the crawler fetches `/api/og`, which resolves
+ * the cover server-side through the per-tier host allowlist. Pure — no `location` read, so an SSR
+ * loader can call it with the request's own origin.
+ */
+export function ogImageUrl(
+	origin: string,
+	type: 'song' | 'album' | 'artist',
+	artist: string,
+	title = ''
+): string {
+	const t = title ? `&title=${encodeURIComponent(title)}` : '';
+	return `${origin}/api/og?type=${type}&artist=${encodeURIComponent(artist)}${t}`;
+}
+
+/**
  * Pure OG-card derivation (item 4 / GLN-4). Builds crawler-facing title/description/image from a
  * track-or-entity's display fields. Node-testable; imported by the universal `+page.ts` loads so
  * the values land in the SSR-rendered `<svelte:head>`. The image is only used when it is a usable
@@ -293,14 +358,17 @@ export function buildOg(input: {
 	artist?: string;
 	album?: string;
 	cover?: string | null;
-}): { title: string; description: string; image: string | null } {
+	type?: OgType;
+}): { title: string; description: string; image: string | null; type: OgType } {
 	// quick-260723-r4p: YouTube-Music-style simplified card. Title is `Song • Artist` (bullet, drops
 	// the artist when absent so album/artist entity loaders — which pass no artist and override the
 	// description — are unaffected). Description is a short tagline, NOT the old marketing sentence.
 	const title = input.artist ? `${input.title} • ${input.artist}` : input.title;
 	const description = 'Listen on openmusic';
 	const image = isHttpsUrl(input.cover) ? (input.cover as string) : null;
-	return { title, description, image };
+	// OG-PAGE-01: per-surface og:type replaces PageOg's hardcoded `music.song`. Optional with a
+	// 'music.song' default so every existing caller keeps compiling while the loaders are converted.
+	return { title, description, image, type: input.type ?? 'music.song' };
 }
 
 /** True only for an absolute https:// URL (the only cover shape we surface to crawlers). */

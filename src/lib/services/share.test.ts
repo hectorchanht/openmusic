@@ -84,7 +84,10 @@ describe('encodePathSegment / decodePathSegment (OG-PATH-01 codec)', () => {
 		expect(encodePathSegment('Come As You Are')).toBe('Come-As-You-Are');
 		// Case is PRESERVED on purpose — the OG card title is read straight back out of the path.
 		expect(encodePathSegment('DNA')).toBe('DNA');
-		expect(encodePathSegment('A  B')).toBe('A--B');
+		// A whitespace RUN collapses to ONE '-' (`\s+` → '-'), so a double space does not emit
+		// 'A--B'. (RESEARCH §B.7's `A--B` cell contradicts §B.6's drafted code; the code is
+		// authoritative and the round-trip result is 'A B' either way.)
+		expect(encodePathSegment('A  B')).toBe('A-B');
 		expect(encodePathSegment('  padded  ')).toBe('padded');
 	});
 
