@@ -89,8 +89,17 @@ Task IDs are filled in by the planner; every task must map to one of these rows.
   `/api/og` tiers are therefore E2E-verifiable locally — OG-VERIFY-01's caveat is narrower than
   originally assumed.
 - **Deezer is reachable** (confirms the existing `deezer-reachable-in-sandbox` finding).
-- **Dev server runs on `:5173`**, not 4321 — `vite.config.ts` sets no `server.port`, so Vite's default
-  applies. CLAUDE.md's "strictPort 4321" is stale.
+- **Dev-server port depends on HOW it is started — BOTH are real. Resolve it, never assume:**
+  - `.claude/launch.json` (what `preview_start` and the user's own running server use) passes
+    `--port 4321 --strictPort` → **`:4321`**.
+  - A bare `pnpm dev` (`"dev": "vite dev"`, no `server.port` in `vite.config.ts`) → Vite's default
+    **`:5173`**.
+
+  Every `curl` criterion in the plans is written against `:5173` because it assumes the executor
+  starts its own `pnpm dev`. **Before running any curl, resolve the live port** — e.g.
+  `DEV=http://localhost:4321; curl -sf -o /dev/null "$DEV" || DEV=http://localhost:5173` — and
+  substitute it. A failed curl against the wrong port is not a failed acceptance criterion.
+  CLAUDE.md's "strictPort 4321" is correct for the launch.json path, not stale.
 - **Cloudflare plan: PAID.** CPU ceiling is 30 s (30 ms default billed), not the free tier's 10 ms.
 
 ---

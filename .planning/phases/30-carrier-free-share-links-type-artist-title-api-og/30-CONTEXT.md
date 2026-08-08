@@ -212,7 +212,10 @@ fixed under OG-COMPAT-01 since this phase edits those exact lines anyway.
 - **Both `sandbox-no-cn-upstream-network` and the dev-port assumption were wrong** (research
   §Environment Availability): kuwo IS reachable here (`kw-api.cenguigui.cn`, `img4.kuwo.cn`) — that
   finding only covers the netease/qq **Meting** hosts, so all three `/api/og` tiers are E2E-verifiable
-  locally. And the dev server is on **:5173** (no `server.port` in `vite.config.ts`), not 4321.
+  locally. And the dev-server port depends on how it is started — **both are real**: `.claude/launch.json`
+  (used by `preview_start` and by the user's own running server) forces `--port 4321 --strictPort`, while a
+  bare `pnpm dev` takes Vite's default `:5173`. Resolve the live port before any `curl`; do not assume
+  either. See `30-VALIDATION.md` § Environment Notes.
 - **The hyphen↔space loss is EXACTLY absorbed, not fuzzily.** `matchKey`'s `norm()` strips all
   punctuation *and* whitespace (`match-key.ts:29`), so `Spider-Man` and `Spider Man` produce
   byte-identical keys and both score `SIM_EXACT`. Residual risk lives only in the upstream keyword,

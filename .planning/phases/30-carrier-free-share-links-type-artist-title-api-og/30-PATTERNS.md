@@ -838,8 +838,9 @@ not reachable.
    This is the lazy answer and it needs no new test file.
 2. **The `curl` head check** (VALIDATION.md:56) as the executable gate:
    `curl -s $DEV/song/A/B | grep -c 'og:type'` → `1`, plus `grep 'og:url'` showing the dev origin.
-   Proves what no unit test can (the tags are in the **server** HTML). Runs against `pnpm dev` on
-   **:5173** — not 4321.
+   Proves what no unit test can (the tags are in the **server** HTML). `$DEV` must be RESOLVED, not
+   assumed: `.claude/launch.json` / `preview_start` serves **:4321** (`--strictPort`), a bare
+   `pnpm dev` serves **:5173**. Both are real.
 
 Recommendation: (1) + (2). Do not stand up a jsdom project for one component.
 
