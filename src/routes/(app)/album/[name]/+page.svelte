@@ -10,11 +10,9 @@
 	import { ChevronLeft, Play, Download, ListPlus, Heart, Share2, Plus, X } from '@lucide/svelte';
 	import { player } from '$lib/stores/player.svelte';
 	import { library } from '$lib/stores/library.svelte';
-	import { settings, effectiveTarget } from '$lib/stores/settings.svelte';
 	import { names } from '$lib/stores/names.svelte';
 	import { overlays } from '$lib/stores/overlays.svelte';
 	import { entityCardUrl } from '$lib/services/share';
-	import { s2tConvertLines, isChineseLine } from '$lib/services/zh-convert';
 	import { dragClose } from '$lib/actions/dragClose';
 	import { focusTrap } from '$lib/actions/focusTrap';
 	import { longpress } from '$lib/actions/longpress';
@@ -411,41 +409,29 @@
 		}
 	}
 
-	// Share the album = the current album page URL (carries ?artist= so the link reopens the
-	// tracklist). Native share sheet when available, else copy to clipboard.
+	// Share the album = the two-segment album page URL `/album/{artist}/{name}` (both halves of the
+	// tracklist key ride the path). Native share sheet when available, else copy to clipboard.
 	async function shareAlbum() {
 		if (busyAction === 'share') return;
 		busyAction = 'share';
 		try {
-			// SHARE-02 / D-04: the album entity link. The /album/[name] route is the readable entity
-			// page (SSR-opted-in by 24-04 for the crawler OG head) and decodes params.name via
-			// decodeURIComponent + reads ?artist= to query the tracklist — so the AUTHORITATIVE round-
-			// trip key is the literal album name in the path (plus ?artist=), NOT an ASCII slug.
-			// entityShareUrl() is deliberately NOT used here: it slugifies CJK to '' (share.ts), which
-			// would yield a non-reopening link for the app's primary CJK catalog (deviation — see
-			// SUMMARY). No ?play= carrier — an album page is an entity, not a now-playing restore (D-06).
+			// SHARE-02 / D-04 / OG-PATH-02: the album entity link. The album route is the readable
+			// entity page (SSR-opted-in by 24-04 for the crawler OG head) and the AUTHORITATIVE
+			// round-trip key is the LITERAL album name + artist — which now both ride PATH SEGMENTS
+			// (`/album/{artist}/{name}`), so the former `?artist=` carrier is gone. Never an ASCII slug:
+			// entityShareUrl() slugifies CJK to '' (share.ts), which would yield a non-reopening link
+			// for the app's primary CJK catalog. No ?play= carrier either — an album page is an entity,
+			// not a now-playing restore (D-06).
 			//
-			// quick-260723-ry1 (match the song card): build via entityCardUrl so the link carries the
-			// resolved cover (og:image) + zhs→zht DISPLAY overrides. The literal `name`/`albumArtist` stay
-			// the path/?artist resolution key; when the sharer's title/artist target is Traditional the
-			// converted names ride dn/da (display-only) so the card shows Traditional without changing what
-			// the recipient's tracklist resolves against. Offline s2t is never-throw → original fallback.
-			let dName = name;
-			let dArtist = albumArtist;
-			if (effectiveTarget(settings.titleLang) === 'zh-Hant' && isChineseLine(name))
-				dName = (await s2tConvertLines([name]))[0] ?? name;
-			if (albumArtist && effectiveTarget(settings.artistLang) === 'zh-Hant' && isChineseLine(albumArtist))
-				dArtist = (await s2tConvertLines([albumArtist]))[0] ?? albumArtist;
-			const url = entityCardUrl({
-				type: 'album',
-				name,
-				artist: albumArtist,
-				cover: heroImg,
-				displayName: dName,
-				displayArtist: dArtist
-			});
+			// quick-260723-ry1 (match the song card) — the link is now CARRIER-FREE (no `?` at all):
+			//  - OG-EP-01: no `c` cover carrier; the card image is the own-origin /api/og endpoint,
+			//    which re-resolves the art server-side.
+			//  - OG-ZH-01 / RESEARCH §E.17: no zhs→zht at share time, so the `dn`/`da` display
+			//    carriers are retired with it. The in-app page still converts per the VIEWER's own
+			//    setting via the `names` store — the sharer's language never decided the card anyway.
+			const url = entityCardUrl({ type: 'album', name, artist: albumArtist });
 			const nav = navigator as Navigator & { share?: (d: ShareData) => Promise<void> };
-			if (nav.share) await nav.share({ title: dArtist ? `${dName} • ${dArtist}` : dName, url });
+			if (nav.share) await nav.share({ title: albumArtist ? `${name} • ${albumArtist}` : name, url });
 			else {
 				await navigator.clipboard.writeText(url);
 				globalToast.show(t('toast.shareCopied'));

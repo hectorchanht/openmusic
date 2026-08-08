@@ -75,8 +75,11 @@ describe('slugify', () => {
 // encodePathSegment → (SvelteKit's single decode) → decodePathSegment. This helper mirrors that
 // exactly; asserting encode→decode directly would silently skip the percent-decode step and pass
 // for the wrong reason (RESEARCH §B.6 / Pitfall 1).
+function decodeSeg(seg: string): string {
+	return decodePathSegment(decodeURIComponent(seg));
+}
 function roundTrip(raw: string): string {
-	return decodePathSegment(decodeURIComponent(encodePathSegment(raw)));
+	return decodeSeg(encodePathSegment(raw));
 }
 
 describe('encodePathSegment / decodePathSegment (OG-PATH-01 codec)', () => {
@@ -275,99 +278,82 @@ describe('shareUrl', () => {
 	});
 });
 
-describe('songShareUrl', () => {
-	it('emits a short /song/{slug}?n={title}&a={artist} URL (DQ-1)', () => {
-		const url = songShareUrl({ title: 'Dao Xiang', artist: 'Jay Chou' });
-		expect(url.endsWith('/song/dao-xiang-jay-chou?n=Dao%20Xiang&a=Jay%20Chou')).toBe(true);
+describe('songShareUrl (OG-PATH-02 — carrier-free /song/{artist}/{title})', () => {
+	it('emits two path segments, ARTIST FIRST, with original case preserved (DQ-1)', () => {
+		expect(songShareUrl({ title: 'Dao Xiang', artist: 'Jay Chou' }).endsWith('/song/Jay-Chou/Dao-Xiang')).toBe(true);
+		expect(songShareUrl({ title: 'Come As You Are', artist: 'Nirvana' }).endsWith('/song/Nirvana/Come-As-You-Are')).toBe(true);
 	});
 
-	it('uses the `s` placeholder segment when slugify returns empty (all-CJK title)', () => {
-		const url = songShareUrl({ title: '情非得已', artist: '' });
-		// slug is empty → `s` placeholder satisfies the required [slug] route param.
-		expect(url).toContain('/song/s?');
-		expect(url).not.toContain('/song/?');
+	it('carries ZERO query params — no `?` at all (the headline OG-PATH-02 assertion)', () => {
+		for (const t of [
+			{ title: 'Dao Xiang', artist: 'Jay Chou' },
+			{ title: '稻香', artist: '周杰倫' },
+			{ title: 'Solo', artist: '' }
+		]) {
+			const url = songShareUrl(t);
+			expect(url).not.toContain('?');
+			expect(url).not.toContain('play=');
+			expect(url).not.toContain('n=');
+			expect(url).not.toContain('a=');
+			expect(url).not.toContain('c=');
+			expect(url).not.toContain('dn='); // OG-ZH-01: no display carriers anywhere
+			expect(url).not.toContain('da=');
+		}
 	});
 
-	it('carries NO ?play= token and NO {source}{id} suffix in the path (DQ-1/DQ-4)', () => {
-		const url = songShareUrl({ title: 'Dao Xiang', artist: 'Jay Chou' });
-		expect(url).not.toContain('play=');
-		// The path segment is purely the cosmetic slug — no trailing {source}{id} key.
-		const path = url.split('?')[0];
-		expect(parseEntityParam(path.split('/').pop()!)).toBeNull();
-	});
-
-	it('n/a are encodeURIComponent of the RAW title/artist — a CJK title round-trips (OG carrier)', () => {
+	it('keeps the LITERAL CJK title/artist in the path and round-trips them (no ASCII slug)', () => {
 		const url = songShareUrl({ title: '稻香', artist: '周杰倫' });
-		const q = new URLSearchParams(url.split('?')[1]);
-		expect(decodeURIComponent(q.get('n')!)).toBe('稻香');
-		expect(decodeURIComponent(q.get('a')!)).toBe('周杰倫');
+		expect(url.endsWith(`/song/${encodeURIComponent('周杰倫')}/${encodeURIComponent('稻香')}`)).toBe(true);
+		const [artistSeg, titleSeg] = url.split('/song/')[1].split('/');
+		expect(decodeSeg(artistSeg)).toBe('周杰倫');
+		expect(decodeSeg(titleSeg)).toBe('稻香');
 	});
 
-	it('encodes an empty artist as a=', () => {
+	it('an empty artist yields the `-` guard segment (never an empty segment, which 404s)', () => {
 		const url = songShareUrl({ title: 'Solo', artist: '' });
-		const q = new URLSearchParams(url.split('?')[1]);
-		expect(q.get('a')).toBe('');
-		expect(q.get('n')).toBe('Solo');
+		expect(url.endsWith('/song/-/Solo')).toBe(true);
+		expect(url).not.toContain('/song//');
 	});
 
-	it('carries an https cover as &c= (quick-260723-r4p, OG image carrier)', () => {
-		const url = songShareUrl({ title: 'Dao Xiang', artist: 'Jay Chou', cover: 'https://cdn/x.jpg' });
-		const q = new URLSearchParams(url.split('?')[1]);
-		expect(q.get('c')).toBe('https://cdn/x.jpg');
-	});
-
-	it('omits `c` for a non-https / null / missing cover (falls to /og.svg downstream)', () => {
-		expect(songShareUrl({ title: 'A', artist: 'B', cover: 'http://cdn/x.jpg' })).not.toContain('c=');
-		expect(songShareUrl({ title: 'A', artist: 'B', cover: null })).not.toContain('&c=');
-		expect(songShareUrl({ title: 'A', artist: 'B' })).not.toContain('&c=');
+	it('the trailing segment is the encoded TITLE, never a {source}{id} key (DQ-4)', () => {
+		const url = songShareUrl({ title: 'Dao Xiang', artist: 'Jay Chou' });
+		expect(parseEntityParam(url.split('/').pop()!)).toBeNull();
 	});
 });
 
-describe('entityCardUrl (quick-260723-ry1 — album/artist card, resolution-safe)', () => {
-	it('keeps the LITERAL CJK name in the path (round-trip key), not an ASCII slug', () => {
+describe('entityCardUrl (quick-260723-ry1 — carrier-free album/artist card)', () => {
+	it('album emits /album/{artist}/{name} — the artist is now segment 1, not ?artist=', () => {
 		const url = entityCardUrl({ type: 'album', name: '范特西', artist: '周杰倫' });
-		const path = url.split('?')[0];
-		expect(path.endsWith(`/album/${encodeURIComponent('范特西')}`)).toBe(true);
-		// decodes back to the original literal name (authoritative resolution key preserved)
-		expect(decodeURIComponent(path.split('/album/')[1])).toBe('范特西');
+		expect(url.endsWith(`/album/${encodeURIComponent('周杰倫')}/${encodeURIComponent('范特西')}`)).toBe(true);
+		// Both halves of the authoritative tracklist key round-trip out of the path.
+		const [artistSeg, nameSeg] = url.split('/album/')[1].split('/');
+		expect(decodeSeg(artistSeg)).toBe('周杰倫');
+		expect(decodeSeg(nameSeg)).toBe('范特西');
+		expect(entityCardUrl({ type: 'album', name: 'Nevermind', artist: 'Nirvana' }).endsWith('/album/Nirvana/Nevermind')).toBe(true);
 	});
 
-	it('album carries ?artist= as the functional tracklist key', () => {
-		const q = new URLSearchParams(entityCardUrl({ type: 'album', name: 'A', artist: 'B' }).split('?')[1]);
-		expect(q.get('artist')).toBe('B');
+	it('an album with no artist still emits two segments via the `-` guard', () => {
+		expect(entityCardUrl({ type: 'album', name: 'Nevermind' }).endsWith('/album/-/Nevermind')).toBe(true);
 	});
 
-	it('artist type carries no ?artist= (no secondary name)', () => {
-		const url = entityCardUrl({ type: 'artist', name: 'Jay' });
-		expect(url.endsWith('/artist/Jay')).toBe(true);
-		expect(url).not.toContain('artist=');
-	});
-
-	it('carries an https cover as c, omits non-https / null', () => {
-		expect(new URLSearchParams(entityCardUrl({ type: 'artist', name: 'A', cover: 'https://cdn/x.jpg' }).split('?')[1]).get('c')).toBe('https://cdn/x.jpg');
-		expect(entityCardUrl({ type: 'artist', name: 'A', cover: 'http://cdn/x.jpg' })).not.toContain('c=');
-		expect(entityCardUrl({ type: 'artist', name: 'A', cover: null })).not.toContain('c=');
-	});
-
-	it('carries dn/da display overrides ONLY when they differ from the literal keys', () => {
-		const q = new URLSearchParams(
-			entityCardUrl({ type: 'album', name: '范特西', artist: '周杰伦', displayName: '范特西', displayArtist: '周杰倫' }).split('?')[1]
-		);
-		// displayName equals name → no dn; displayArtist differs → da present (converted artist)
-		expect(q.get('dn')).toBeNull();
-		expect(q.get('da')).toBe('周杰倫');
-	});
-
-	it('da is album-only (an artist card never carries da)', () => {
-		const url = entityCardUrl({ type: 'artist', name: '周杰伦', displayName: '周杰倫', displayArtist: 'x' });
-		const q = new URLSearchParams(url.split('?')[1]);
-		expect(q.get('dn')).toBe('周杰倫'); // converted artist name rides dn (the artist card's title)
-		expect(q.get('da')).toBeNull();
-	});
-
-	it('emits a bare literal path with no query when nothing extra applies', () => {
+	it('artist stays ONE segment (no secondary name)', () => {
 		expect(entityCardUrl({ type: 'artist', name: 'Jay' }).endsWith('/artist/Jay')).toBe(true);
-		expect(entityCardUrl({ type: 'artist', name: 'Jay' })).not.toContain('?');
+		expect(entityCardUrl({ type: 'artist', name: '周杰倫' }).endsWith(`/artist/${encodeURIComponent('周杰倫')}`)).toBe(true);
+	});
+
+	it('carries ZERO query params on BOTH surfaces (OG-PATH-02 + OG-ZH-01)', () => {
+		for (const url of [
+			entityCardUrl({ type: 'album', name: '范特西', artist: '周杰伦' }),
+			entityCardUrl({ type: 'album', name: 'A', artist: 'B' }),
+			entityCardUrl({ type: 'artist', name: 'Jay' }),
+			entityCardUrl({ type: 'artist', name: '周杰伦' })
+		]) {
+			expect(url).not.toContain('?');
+			expect(url).not.toContain('artist=');
+			expect(url).not.toContain('c=');
+			expect(url).not.toContain('dn=');
+			expect(url).not.toContain('da=');
+		}
 	});
 });
 

@@ -198,69 +198,58 @@ export function shareUrl(current: Track, queue?: Track[]): string {
 }
 
 /**
- * Build the SHORT, readable SONG share URL `${origin}/song/{slug}?n={title}&a={artist}` (DQ-1).
+ * Build the SHORT, readable SONG share URL `${origin}/song/{artist}/{title}` (DQ-1, OG-PATH-02).
  * This SUPERSEDES the old `entityShareUrl('song', t) + ?play=<token>` song link for the share
  * button: there is NO base64 `?play=` token and NO trailing `{source}{id}` key in the path.
  *
- * The `n` / `a` query params are the AUTHORITATIVE human-readable carriers (standard
- * URL-encoding of the RAW title/artist — CJK percent-encodes and round-trips via
- * decodeURIComponent). The OG card is built server-side from n/a (DQ-2), and the page resolves a
- * playable track by name+artist at open time via the existing aggregator (DQ-3) — so the link
- * carries no source/id and no opaque token at all.
+ * ZERO query carriers. The two PATH SEGMENTS are the AUTHORITATIVE human-readable key
+ * (OG-PATH-01/02) — they replace the former `?n=`/`?a=` pair. ARTIST FIRST (CONTEXT lock, mirroring
+ * Last.fm's `/music/{artist}/_/{track}`). A path segment is NOT ASCII-limited, so CJK needs no
+ * special handling: it percent-encodes on the wire and renders decoded in browsers and link
+ * previews. The OG card is built server-side from the decoded segments (DQ-2) and the page resolves
+ * a playable track by name+artist at open time via the existing aggregator (DQ-3).
  *
- * The `{slug}` segment is COSMETIC (ASCII, slugify(title, artist)); when slugify returns '' (an
- * all-CJK title with no ASCII artist) we use the stable placeholder segment `s` so the required
- * [slug] route param is still satisfied. `origin` is SSR-guarded the same way shareUrl /
- * entityShareUrl read it. Album/artist entityShareUrl + the queue-restore encode/decode path are
- * UNTOUCHED — they still depend on the exports below.
+ * quick-260723-r4p (prose corrected, OG-EP-01): the cover no longer rides a `?c=` carrier — the
+ * card image is the own-origin `/api/og` endpoint (see ogImageUrl), which re-resolves the cover
+ * server-side. So `cover` has left this signature entirely; a caller has nothing to pass.
+ *
+ * OG-ZH-01 (RESEARCH §E.17): there is NO zhs→zht conversion at share time on any surface. The
+ * LITERAL (original-script) title/artist go in the path, which also removes a pre-existing
+ * resolution risk — the recipient's `searchAll` query used to be Traditional while the CN catalog
+ * indexes mostly Simplified.
+ *
+ * The empty-input guard is `encodePathSegment`'s `'-'` (it decodes back to ''), replacing the old
+ * `slugify(...) || 's'` placeholder — `'s'` would have decoded to a bogus literal OG title.
+ * `origin` is SSR-guarded the same way shareUrl / entityShareUrl read it. `slugify` and the
+ * queue-restore encode/decode path are UNTOUCHED — they still depend on the exports below.
  */
-export function songShareUrl(t: { title: string; artist: string; cover?: string | null }): string {
+export function songShareUrl(t: { title: string; artist: string }): string {
 	const base = typeof location !== 'undefined' ? location.origin : '';
-	const slug = slugify(t.title, t.artist) || 's';
-	const nEnc = encodeURIComponent(t.title ?? '');
-	const aEnc = encodeURIComponent(t.artist ?? '');
-	// quick-260723-r4p: carry the resolved song cover so the SSR OG card shows the album art
-	// (og:image) instead of the /og.svg fallback (YouTube-Music-style card). Only a solid absolute
-	// https URL is carried — isHttpsUrl gates it, matching buildOg's crawler-facing constraint. The
-	// param is EMITTED into a meta tag (never fetched server-side), so it introduces no SSRF; a null /
-	// http / missing cover simply omits `c` and the loader falls back to /og.svg (D-07).
-	const cEnc = isHttpsUrl(t.cover) ? `&c=${encodeURIComponent(t.cover as string)}` : '';
-	return `${base}/song/${slug}?n=${nEnc}&a=${aEnc}${cEnc}`;
+	return `${base}/song/${encodePathSegment(t.artist)}/${encodePathSegment(t.title)}`;
 }
 
 /**
- * quick-260723-ry1: build a readable ALBUM/ARTIST share URL that mirrors the song card (cover +
- * zhs→zht + YouTube-Music-style OG) while STAYING resolution-safe.
+ * quick-260723-ry1: build a readable ALBUM/ARTIST share URL that mirrors the song card, now
+ * carrier-free (OG-PATH-02): `${origin}/album/{artist}/{name}` and `${origin}/artist/{name}`
+ * (an artist page has no secondary name, so it stays ONE segment).
  *
- * Unlike entityShareUrl (ASCII slug, drops CJK) and unlike the song card (whose n/a double as the
- * resolution query), the album/artist page's AUTHORITATIVE round-trip key is the LITERAL name in the
- * path — `/album/{name}?artist=` / `/artist/{name}` are resolved by `params.name`/`?artist=` via
- * getAlbumTracklist/enrichAlbum/searchAll. So the path key is kept in its ORIGINAL script here; the
- * zhs→zht-converted name/artist ride SEPARATE display carriers (`dn`/`da`) the loader prefers for the
- * OG card ONLY — the tracklist still resolves against the original CJK name. The resolved cover rides
- * `c`, https-gated (isHttpsUrl) exactly like songShareUrl (og:image is emitted into a meta tag, never
- * fetched server-side → no SSRF). `da` is album-only (an artist page has no secondary name).
+ * Unlike entityShareUrl (ASCII slug, drops CJK), the album/artist page's AUTHORITATIVE round-trip
+ * key is the LITERAL name — it is what getAlbumTracklist/enrichAlbum/searchAll resolve against. It
+ * now lives in the path segments in its ORIGINAL script (OG-PATH-01), which is why the former
+ * `?artist=` functional carrier is gone: the artist IS segment 1.
+ *
+ * quick-260723-ry1 (prose corrected): the `c` cover carrier is retired in favour of the own-origin
+ * `/api/og` card image (OG-EP-01, see ogImageUrl). The `dn`/`da` DISPLAY carriers are retired with
+ * it — per OG-ZH-01 / RESEARCH §E.17 nothing converts zhs→zht at share time, so there is no
+ * converted display name to carry. Accepted regression: a Traditional-preferring sharer's crawler
+ * card shows the catalog's original script. The in-app page is unaffected — it converts per the
+ * VIEWER's own setting on hydration via the `names` store, which was always the correct owner of
+ * that preference (baking the sharer's language into a public URL decided the card for everyone).
  */
-export function entityCardUrl(opts: {
-	type: 'album' | 'artist';
-	name: string;
-	artist?: string;
-	cover?: string | null;
-	displayName?: string;
-	displayArtist?: string;
-}): string {
+export function entityCardUrl(opts: { type: 'album' | 'artist'; name: string; artist?: string }): string {
 	const base = typeof location !== 'undefined' ? location.origin : '';
-	const params = new URLSearchParams();
-	// Album tracklist resolution key (functional, literal — NOT a display carrier).
-	if (opts.type === 'album' && opts.artist) params.set('artist', opts.artist);
-	if (isHttpsUrl(opts.cover)) params.set('c', opts.cover as string);
-	// Display overrides carried ONLY when they actually differ from the literal path/artist key, so a
-	// non-converting (English / already-Traditional) share stays byte-clean with no redundant carriers.
-	if (opts.displayName && opts.displayName !== opts.name) params.set('dn', opts.displayName);
-	if (opts.type === 'album' && opts.displayArtist && opts.displayArtist !== (opts.artist ?? ''))
-		params.set('da', opts.displayArtist);
-	const qs = params.toString();
-	return `${base}/${opts.type}/${encodeURIComponent(opts.name)}${qs ? `?${qs}` : ''}`;
+	if (opts.type === 'artist') return `${base}/artist/${encodePathSegment(opts.name)}`;
+	return `${base}/album/${encodePathSegment(opts.artist ?? '')}/${encodePathSegment(opts.name)}`;
 }
 
 /** The fixed source enum the readable share path encodes. Because source names are a closed

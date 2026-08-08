@@ -6,10 +6,7 @@
 	import { player } from '$lib/stores/player.svelte';
 	import { sleepTimer } from '$lib/stores/sleepTimer.svelte';
 	import { library } from '$lib/stores/library.svelte';
-	import { settings, effectiveTarget } from '$lib/stores/settings.svelte';
 	import { names } from '$lib/stores/names.svelte';
-	import { readCoverByUidOrName } from '$lib/stores/cover-version.svelte';
-	import { s2tConvertLines, isChineseLine } from '$lib/services/zh-convert';
 	import { overlays } from '$lib/stores/overlays.svelte';
 	import { dragClose } from '$lib/actions/dragClose';
 	import { focusTrap } from '$lib/actions/focusTrap';
@@ -160,29 +157,24 @@
 	async function doShare() {
 		if (!track) return;
 		onclose();
-		// SHARE-02 / DQ-1 / DQ-4 (quick-260614-1w3, supersedes D-04/D-06 for the SONG surface): build
-		// the SHORT readable link `/song/{slug}?n={title}&a={artist}` — no base64 `?play=` queue token
-		// and no `{source}{id}` suffix. The link carries only the current song; the song page resolves
-		// a playable track by name+artist at open time and always unfurls an OG card from n/a.
+		// SHARE-02 / DQ-1 / DQ-4 / OG-PATH-02 (quick-260614-1w3, supersedes D-04/D-06 for the SONG
+		// surface): build the SHORT readable link `/song/{artist}/{title}` — CARRIER-FREE (no `?` at
+		// all: no base64 `?play=` queue token, no `{source}{id}` suffix, no `n`/`a`/`c` params). The
+		// two path segments ARE the authoritative title+artist; the song page resolves a playable
+		// track from them at open time and unfurls its OG card from them server-side.
 		//
-		// quick-260723-r4p (YouTube-Music-style card):
-		//  (a) zhs→zht at share time — if the sharer's title/artist target resolves to Traditional
-		//      (effectiveTarget: 'auto' → appLang), convert the Chinese title/artist to Traditional so
-		//      the shared card matches what the sharer SEES via names.dnTitle/dnArtist. Deterministic
-		//      offline s2t (never-throw; falls back to the original). isChineseLine gates JA/KO out.
-		//  (b) carry the best resolved cover (Deezer→iTunes→CN shared cache, same as every tile) →
-		//      track.cover fallback, so the OG card image is the album art (songShareUrl https-gates it).
-		let shareTitle = track.title;
-		let shareArtist = track.artist;
-		if (effectiveTarget(settings.titleLang) === 'zh-Hant' && isChineseLine(shareTitle))
-			shareTitle = (await s2tConvertLines([shareTitle]))[0] ?? shareTitle;
-		if (effectiveTarget(settings.artistLang) === 'zh-Hant' && isChineseLine(shareArtist))
-			shareArtist = (await s2tConvertLines([shareArtist]))[0] ?? shareArtist;
-		const cover = readCoverByUidOrName(track.uid, track.artist, track.title) ?? track.cover ?? null;
-		const url = songShareUrl({ title: shareTitle, artist: shareArtist, cover });
+		// quick-260723-r4p (YouTube-Music-style card) — both former carriers are now retired:
+		//  (a) OG-ZH-01 / RESEARCH §E.17: NO zhs→zht at share time. The LITERAL title/artist go in
+		//      the path. This also fixes a resolution bug — the converted (Traditional) text used to
+		//      become the recipient's searchAll query while the CN catalog indexes mostly Simplified.
+		//      The in-app page still renders per the VIEWER's own setting via the `names` store.
+		//  (b) OG-EP-01: no cover read here — the card image is the own-origin /api/og endpoint, which
+		//      re-resolves the album art server-side (so a shared card no longer depends on whatever
+		//      happened to be in this device's cover cache).
+		const url = songShareUrl({ title: track.title, artist: track.artist });
 		try {
 			const nav = navigator as Navigator & { share?: (d: ShareData) => Promise<void> };
-			if (nav.share) await nav.share({ title: `${shareTitle} • ${shareArtist}`, url });
+			if (nav.share) await nav.share({ title: `${track.title} • ${track.artist}`, url });
 			else { await navigator.clipboard.writeText(url); toast.show(t('toast.shareCopied')); }
 		} catch { /* cancelled */ }
 	}

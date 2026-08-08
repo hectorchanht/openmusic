@@ -8,9 +8,8 @@
 	import { ChevronLeft, Heart, Play, Share2 } from '@lucide/svelte';
 	import { searchAll } from '$lib/services/catalog';
 	import { dedupeBest } from '$lib/services/dedupe';
-	import { settings, effectiveTarget } from '$lib/stores/settings.svelte';
+	import { settings } from '$lib/stores/settings.svelte';
 	import { entityCardUrl } from '$lib/services/share';
-	import { s2tConvertLines, isChineseLine } from '$lib/services/zh-convert';
 	import { player } from '$lib/stores/player.svelte';
 	import { library } from '$lib/stores/library.svelte';
 	import { names } from '$lib/stores/names.svelte';
@@ -160,24 +159,21 @@
 	}
 
 	async function shareArtist() {
-		// SHARE-02 / D-04: the artist entity link. The /artist/[name] route is the readable entity
-		// page (SSR-opted-in by 24-04 for the crawler OG head) and decodes params.name via
-		// decodeURIComponent — so the AUTHORITATIVE round-trip key is the literal artist name in the
-		// path, NOT an ASCII slug. entityShareUrl() is deliberately NOT used here: it slugifies CJK
-		// to '' (share.ts), which would yield a non-reopening link for the app's primary CJK catalog
-		// (deviation — see SUMMARY). No ?play= carrier — an artist page is an entity, not a now-
-		// playing restore (D-06). location guarded for SSR safety.
+		// SHARE-02 / D-04 / OG-PATH-02: the artist entity link. The /artist/[name] route is the
+		// readable entity page (SSR-opted-in by 24-04 for the crawler OG head) and the AUTHORITATIVE
+		// round-trip key is the literal artist name in the path — ONE segment, since an artist has no
+		// secondary name. Never an ASCII slug: entityShareUrl() slugifies CJK to '' (share.ts), which
+		// would yield a non-reopening link for the app's primary CJK catalog. No ?play= carrier — an
+		// artist page is an entity, not a now-playing restore (D-06). location guarded for SSR safety.
 		//
-		// quick-260723-ry1 (match the song card): build via entityCardUrl so the link carries the
-		// resolved hero cover (og:image) + a zhs→zht DISPLAY override. The literal `name` stays the path
-		// resolution key; when the sharer's artist target is Traditional the converted name rides `dn`
-		// (display-only) so the card shows Traditional without changing what the recipient resolves
-		// against. Offline s2t is never-throw → original fallback.
-		let dName = name;
-		if (effectiveTarget(settings.artistLang) === 'zh-Hant' && isChineseLine(name))
-			dName = (await s2tConvertLines([name]))[0] ?? name;
-		const url = entityCardUrl({ type: 'artist', name, cover: heroImg, displayName: dName });
-		const title = dName;
+		// quick-260723-ry1 (match the song card) — the link is now CARRIER-FREE (no `?` at all):
+		//  - OG-EP-01: no `c` cover carrier; the card image is the own-origin /api/og endpoint, which
+		//    re-resolves the hero art server-side.
+		//  - OG-ZH-01 / RESEARCH §E.17: no zhs→zht at share time, so the `dn` display carrier is
+		//    retired with it. The in-app page still converts per the VIEWER's own setting via the
+		//    `names` store — the sharer's language preference never belonged in a public URL.
+		const url = entityCardUrl({ type: 'artist', name });
+		const title = name;
 		try {
 			const nav = navigator as Navigator & { share?: (d: ShareData) => Promise<void> };
 			if (nav.share) await nav.share({ title, text: title, url });
