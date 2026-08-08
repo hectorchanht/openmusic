@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
 	slugify,
+	encodePathSegment,
+	decodePathSegment,
+	ogImageUrl,
 	encodeShare,
 	decodeShare,
 	decodeTrack,
@@ -13,6 +16,7 @@ import {
 	buildOg,
 	isHttpsUrl
 } from './share';
+import { matchKey } from '$lib/services/match-key';
 import { makeUid, type SourceId, type Track } from '$lib/sources/types';
 
 function mk(source: SourceId, songid: string, title: string, artist: string): Track {
@@ -63,6 +67,120 @@ describe('slugify', () => {
 
 	it('handles empty inputs without throwing', () => {
 		expect(slugify('', '')).toBe('');
+	});
+});
+
+// SvelteKit decodeURIComponent's every route param before a loader sees it (decode_params,
+// utils/routing.js) — so the REAL round-trip a share link takes is
+// encodePathSegment → (SvelteKit's single decode) → decodePathSegment. This helper mirrors that
+// exactly; asserting encode→decode directly would silently skip the percent-decode step and pass
+// for the wrong reason (RESEARCH §B.6 / Pitfall 1).
+function roundTrip(raw: string): string {
+	return decodePathSegment(decodeURIComponent(encodePathSegment(raw)));
+}
+
+describe('encodePathSegment / decodePathSegment (OG-PATH-01 codec)', () => {
+	it('preserves original case and collapses whitespace runs to a single hyphen', () => {
+		expect(encodePathSegment('Come As You Are')).toBe('Come-As-You-Are');
+		// Case is PRESERVED on purpose — the OG card title is read straight back out of the path.
+		expect(encodePathSegment('DNA')).toBe('DNA');
+		expect(encodePathSegment('A  B')).toBe('A--B');
+		expect(encodePathSegment('  padded  ')).toBe('padded');
+	});
+
+	it('EMPTY guard: an empty/whitespace input becomes the `-` segment (an empty segment 404s)', () => {
+		expect(encodePathSegment('')).toBe('-');
+		expect(encodePathSegment('   ')).toBe('-');
+		// The guard's whole point: `-` decodes back to '' so a loader's "no name" fallback still fires.
+		expect(decodePathSegment('-')).toBe('');
+	});
+
+	it('DOT-ONLY guard: a dot-only segment gets a trailing `-` (WHATWG normalizes `.`/`..` away)', () => {
+		expect(encodePathSegment('.')).toBe('.-');
+		expect(encodePathSegment('..')).toBe('..-');
+		expect(encodePathSegment('...')).toBe('...-');
+		// Lossless — the decoder's hyphen→space + trim recovers the original exactly.
+		expect(roundTrip('.')).toBe('.');
+		expect(roundTrip('..')).toBe('..');
+		expect(roundTrip('...')).toBe('...');
+	});
+
+	it('percent-encodes CJK / emoji / `/` / `%` (a path segment is NOT ASCII-limited)', () => {
+		expect(encodePathSegment('稻香')).toBe(encodeURIComponent('稻香'));
+		expect(encodePathSegment('周杰倫')).toBe('%E5%91%A8%E6%9D%B0%E5%80%AB');
+		expect(encodePathSegment('A/B')).toBe('A%2FB');
+		expect(encodePathSegment('50% Off')).toBe('50%25-Off');
+		expect(encodePathSegment('🎵Song')).toBe('%F0%9F%8E%B5Song');
+	});
+
+	it('decodePathSegment NEVER decodes percent-escapes — a literal `%` must survive (Pitfall 1)', () => {
+		// SvelteKit already decoded; a second decodeURIComponent throws URIError on a bare '%'.
+		expect(decodePathSegment('50% Off')).toBe('50% Off');
+		expect(() => decodePathSegment('100%')).not.toThrow();
+		expect(decodePathSegment('100%')).toBe('100%');
+		expect(decodePathSegment('A-B')).toBe('A B');
+		expect(decodePathSegment('A--B')).toBe('A B'); // hyphen RUNS collapse to one space
+		expect(decodePathSegment('-Hello-')).toBe('Hello'); // leading/trailing trimmed
+	});
+
+	it('round-trips every §B.7 stress case exactly', () => {
+		for (const raw of [
+			'Nirvana',
+			'Come As You Are',
+			'周杰倫',
+			'稻香',
+			'A/B',
+			'50% Off',
+			'🎵Song',
+			'أغنية',
+			'#1 Hit',
+			'A?B',
+			'C+D',
+			"Don't Stop (Live)"
+		]) {
+			expect(roundTrip(raw)).toBe(raw);
+		}
+	});
+
+	it('documents the ACCEPTED lossy edges (literal hyphen, double space, edge hyphens)', () => {
+		expect(roundTrip('Spider-Man')).toBe('Spider Man'); // CONTEXT-locked loss
+		expect(roundTrip('A  B')).toBe('A B');
+		expect(roundTrip('-Hello-')).toBe('Hello');
+		expect(roundTrip('')).toBe('');
+	});
+
+	it('§B.8: matchKey is EXACTLY invariant under the hyphen→space loss', () => {
+		// The invariance the whole path scheme rests on — matchKey's norm() strips all punctuation
+		// AND whitespace, so `Spider-Man` and `Spider Man` produce byte-identical keys.
+		expect(matchKey('Post Malone', roundTrip('Spider-Man'))).toBe(
+			matchKey('Post Malone', 'Spider-Man')
+		);
+		expect(matchKey(roundTrip('Jay-Z'), roundTrip('Empire State of Mind'))).toBe(
+			matchKey('Jay-Z', 'Empire State of Mind')
+		);
+		expect(matchKey('周杰倫', roundTrip('稻香'))).toBe(matchKey('周杰倫', '稻香'));
+	});
+});
+
+describe('ogImageUrl (OG-EP-01 own-origin card image)', () => {
+	it('builds ${origin}/api/og?type=&artist=&title= with encoded values', () => {
+		expect(ogImageUrl('https://openmusic.lol', 'song', 'Nirvana', 'Come As You Are')).toBe(
+			'https://openmusic.lol/api/og?type=song&artist=Nirvana&title=Come%20As%20You%20Are'
+		);
+		expect(ogImageUrl('https://openmusic.lol', 'album', '周杰倫', '范特西')).toBe(
+			`https://openmusic.lol/api/og?type=album&artist=${encodeURIComponent('周杰倫')}&title=${encodeURIComponent('范特西')}`
+		);
+	});
+
+	it('omits &title= entirely when there is no secondary name (artist card)', () => {
+		const url = ogImageUrl('https://openmusic.lol', 'artist', 'Nirvana');
+		expect(url).toBe('https://openmusic.lol/api/og?type=artist&artist=Nirvana');
+		expect(url).not.toContain('title=');
+		expect(ogImageUrl('https://openmusic.lol', 'artist', 'Nirvana', '')).not.toContain('title=');
+	});
+
+	it('is pure — no location read, so an SSR loader can call it with any origin', () => {
+		expect(ogImageUrl('', 'song', 'A', 'B')).toBe('/api/og?type=song&artist=A&title=B');
 	});
 });
 
@@ -381,6 +499,12 @@ describe('buildOg / isHttpsUrl (item 4 helper)', () => {
 
 	it('title without an artist is just the title', () => {
 		expect(buildOg({ title: 'Just Title' }).title).toBe('Just Title');
+	});
+
+	it('OG-PAGE-01: type defaults to music.song and is overridable per surface', () => {
+		expect(buildOg({ title: 'X' }).type).toBe('music.song');
+		expect(buildOg({ title: 'X', type: 'music.album' }).type).toBe('music.album');
+		expect(buildOg({ title: 'X', type: 'profile' }).type).toBe('profile');
 	});
 
 	it('isHttpsUrl accepts https only', () => {
