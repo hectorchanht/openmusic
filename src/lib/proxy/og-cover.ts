@@ -9,6 +9,16 @@
 // WHAT IT IS FOR: a share link now carries NO cover (`?c=` is gone — the whole point of phase 30),
 // so `og:image` points at our own `/api/og?type=&artist=&title=` and the cover is re-resolved
 // server-side from TEXT. A crawler is waiting on that request, so the chain is bounded hard:
+//
+// quick-260809-3uo — AMENDMENT to the paragraph above (it is no longer the whole story; the OG-EP-01
+// decision ref stays, it records why the URL carrier left). A share link MAY now carry ONE optional
+// `ci` param, and `ci` is NOT a cover URL: it is a short COVER ID from a CLOSED tag set, rebuilt into
+// an image URL by coverUrlFromToken below, from a template whose scheme, host and every path
+// character outside the variable part are LITERALS in this file. It came back because re-resolving
+// from TEXT is structurally blind to the cover the CLIENT already resolved: 你瞞我瞞 / 陳柏宇 showed
+// Quinquennium art on the hero and an empty card in WhatsApp. Adding more tiers is whack-a-mole; the
+// client already knows the answer at share time. See coverUrlFromToken for the full posture — it is
+// TIGHTER than both the retired `?c=` and a validated-URL carrier, not looser.
 // tiers run SEQUENTIALLY under ONE overall deadline, every tier is never-throw, and the worst
 // case is 5 resolve subrequests + 1 image fetch = 6 (3 tiers + Fallback A original-terms +
 // Fallback B title-only, quick-260807-vl1) — comfortably inside the 50-subrequest limit.
@@ -187,6 +197,165 @@ export function safeLastfmImageUrl(raw: string | null | undefined): string | nul
 		const host = u.hostname.toLowerCase();
 		const ok = host === 'last.fm' || host.endsWith('.last.fm') || host.endsWith('.fastly.net');
 		return ok ? u.href : null;
+	} catch {
+		return null;
+	}
+}
+
+// =============================================================================================
+// quick-260809-3uo — the `ci` COVER-ID TOKEN: closed tag set → fixed template → own allow-list
+// =============================================================================================
+//
+// SECURITY POSTURE (read this before touching the table below).
+//
+// This is STRICTLY TIGHTER than BOTH the retired `?c=` URL carrier AND a would-be "validated URL"
+// carrier. No attacker-supplied scheme, host or path segment reaches the fetcher. The host is a
+// LITERAL in this file, so the allow-list stops being a check an attacker can probe for parser
+// bypasses (`@`, `\`, unicode host confusables, userinfo tricks, double-encoding) and becomes
+// STRUCTURAL: there is no host string in the request to smuggle anything into. What crosses the
+// boundary is an ID matched against an ANCHORED per-tier pattern. `/` and `.` cannot appear where a
+// path segment could be forged, so traversal is UNGRAMMATICAL rather than filtered (T-3uo-01).
+//
+// The carrier may change WHICH allow-listed host is picked, NEVER the SET (T-3uo-02): every tag maps
+// to a host an existing tier already fetches. netease / qq / joox cover hosts are not expressible.
+//
+// The last step of every tag re-asserts the rebuilt URL through THAT TIER'S OWN existing
+// safe*ImageUrl. That is redundant by construction and is kept ON PURPOSE: it is the assertion that
+// the token path and the tier path can never drift apart, and it inherits the Last.fm grey-star
+// reject for free.
+//
+// SIZE IS NORMALIZED, NOT CARRIED: the client tokenizer accepts any size variant and this rebuilds
+// at the CARD size. Carrying a size would put another attacker-influenced field in the token for no
+// benefit. The live probes behind each size choice are recorded per row.
+
+/**
+ * Total token cap. The LONGEST legal token is 38 chars (`l:<32hex>.png`), so 64 is headroom, never a
+ * truncation point — an over-cap token is REJECTED whole (T-3uo-04). MAX_TERM_CHARS in
+ * routes/api/og/+server.ts is the sibling precedent for capping request text at the boundary.
+ */
+const TOKEN_MAX_CHARS = 64;
+
+/** The `i` tag's ONE lookup subrequest, budgeted like a tier and well inside OG_RESOLVE_MS. */
+const TOKEN_LOOKUP_MS = 900;
+
+/**
+ * `d` — Deezer album cover. PROBED 2026-08-09: the rebuilt
+ * `.../images/cover/fe1082c5ef54876802146897e76b592e/500x500-000000-80-0-0.jpg` → 200 image/jpeg,
+ * 72,650 B. 500x500 is `cover_big`, the same size the deezerTier already asks for (208 KB at
+ * cover_xl is past the crawler budget). ARTIST pictures (`/images/artist/`) are deliberately NOT
+ * expressible — a song share never needs one, and a closed grammar beats a kind flag.
+ */
+const DEEZER_HASH_RE = /^[0-9a-f]{32}$/;
+
+/**
+ * `l` — Last.fm art. PROBED 2026-08-09: `/i/u/300x300/<hash>.png` → 200 image/png, 112,810 B.
+ * 300x300 IS the card size on purpose: the same hash at 500x500 is 274 KB and at 600x600 is 342 KB,
+ * both past the WhatsApp budget Pitfall 6 records. The extension is a CLOSED two-value set chosen by
+ * us — Last.fm serves both and the wrong one transcodes to a different asset (the `.jpg` render of
+ * that hash is 16,716 B, a visibly worse image), so guessing would silently degrade the parity tier
+ * quick-260809-38i just added.
+ */
+const LASTFM_HASH_RE = /^([0-9a-f]{32})\.(jpg|png)$/;
+
+/**
+ * `k` — kuwo album cover. PROBED 2026-08-09: `/star/albumcover/600/s4s27/11/1502064321.jpg` → 200
+ * image/jpeg, 97,759 B — already the right size class, the same `/600/` the kuwoTier reads off
+ * `pic`. The variable part is the two shard directories + the numeric id, HYPHEN-joined: no `/` ever
+ * enters a token. `img1.kuwo.cn` was probed serving the identical bytes for that path, so pinning
+ * `img4` as a literal loses nothing. `/star/starheads/` (artist heads) is not expressible.
+ */
+const KUWO_SHARD_RE = /^([a-z0-9]{1,8})-([0-9]{1,4})-([0-9]{4,12})$/;
+
+/**
+ * `i` — iTunes, by NUMERIC ID. This is the tag the reported bug actually needed: 你瞞我瞞 / 陳柏宇's
+ * in-app cover is `is1-ssl.mzstatic.com/...` (the client's iTunes tier), and an mzstatic path is a
+ * ~90-char irregular fragment — carrying THAT would be neither short nor structural and would
+ * reintroduce the attacker-supplied-path property this whole design removes. So the path is not
+ * carried at all. `i` is the SHORTEST token of the four and its structural property is the STRONGEST:
+ * every character of host and path is a literal here and the variable part is digits only.
+ *
+ * It is the one tag that costs a LOOKUP rather than a pure template — `itunes.apple.com/lookup?id=`
+ * → `artworkUrl100` → the existing upgradeArtwork transform → safeItunesImageUrl. PROBED 2026-08-09:
+ * lookup?id=446760418 → the Quinquennium artwork, 600x600bb = 200 image/jpeg, 54,671 B.
+ * 12 digits is well past Apple's current 9–10 digit ids and still bounded.
+ */
+const ITUNES_ID_RE = /^[0-9]{1,12}$/;
+
+/**
+ * Rebuild a cover URL from a `<tag>:<variable-part>` cover-id token (quick-260809-3uo).
+ *
+ * Order, and it matters: reject falsy → reject over TOKEN_MAX_CHARS → split ONCE on the FIRST `:`
+ * (so a `:` inside the variable part stays part of it and simply fails its anchored pattern, rather
+ * than re-splitting into a different tag) → look the tag up in the CLOSED set (unknown → null) →
+ * test the variable part against that tag's ANCHORED pattern (fail → null) → build from the fixed
+ * template → return it through that tier's OWN existing safe*ImageUrl.
+ *
+ * Async only because of the `i` tag's single lookup; `d`/`l`/`k` never touch the network.
+ * NEVER THROWS for any input — null is the only failure mode, and /api/og treats null as "no
+ * carrier" and falls through to the ordinary tier chain.
+ *
+ * ANTI-DRIFT: `coverToken` in $lib/services/share is the INVERSE of this function and the two MUST
+ * agree. They are deliberately NOT imported into each other (client/edge split — this module pulls
+ * in proxy code). What pins them is the both-directions round-trip test in
+ * src/lib/services/share.test.ts ('coverToken ⇄ coverUrlFromToken'). Edit one, run that.
+ */
+export async function coverUrlFromToken(token: string | null | undefined): Promise<string | null> {
+	if (!token || typeof token !== 'string') return null;
+	if (token.length > TOKEN_MAX_CHARS) return null; // rejected whole, never truncated (T-3uo-04)
+	const sep = token.indexOf(':');
+	if (sep <= 0) return null; // no tag, or an empty tag (`:<hash>`)
+	const tag = token.slice(0, sep);
+	const v = token.slice(sep + 1);
+
+	if (tag === 'd') {
+		if (!DEEZER_HASH_RE.test(v)) return null;
+		return safeDeezerImageUrl(
+			`https://cdn-images.dzcdn.net/images/cover/${v}/500x500-000000-80-0-0.jpg`
+		);
+	}
+	if (tag === 'l') {
+		const m = LASTFM_HASH_RE.exec(v);
+		if (!m) return null;
+		return safeLastfmImageUrl(`https://lastfm.freetls.fastly.net/i/u/300x300/${m[1]}.${m[2]}`);
+	}
+	if (tag === 'k') {
+		const m = KUWO_SHARD_RE.exec(v);
+		if (!m) return null;
+		return safeKuwoImageUrl(
+			`https://img4.kuwo.cn/star/albumcover/600/${m[1]}/${m[2]}/${m[3]}.jpg`
+		);
+	}
+	if (tag === 'i') {
+		if (!ITUNES_ID_RE.test(v)) return null;
+		return itunesArtworkById(v);
+	}
+	return null; // closed tag set — anything else is not a token
+}
+
+/**
+ * The `i` tag's ONE lookup. `id` has ALREADY passed ITUNES_ID_RE (digits only), so the upstream URL
+ * is a fixed template with a numeric hole — there is nothing to escape. retries=0 and a
+ * TOKEN_LOOKUP_MS budget, the same posture every tier uses; a crawler is waiting.
+ *
+ * The reconstructed artwork URL is re-asserted through safeItunesImageUrl before it can be fetched,
+ * exactly like a tier result — Apple's own JSON is still untrusted third-party input here, so this
+ * is the step that stops a compromised/odd `artworkUrl100` from widening the fetched host set.
+ * Never throws: any fault → null → /api/og's branded card.
+ */
+async function itunesArtworkById(id: string): Promise<string | null> {
+	try {
+		// RAW fetch (not apiFetch — fetch→apiFetch audit): edge-side fetch of an absolute
+		// itunes.apple.com URL. apiFetch is the CLIENT seam and must never run edge-side.
+		const res = await fetchWithRetry(
+			`https://itunes.apple.com/lookup?id=${id}`,
+			{ signal: AbortSignal.timeout(TOKEN_LOOKUP_MS) },
+			0
+		);
+		if (!res.ok) return null;
+		const body = (await res.json()) as { results?: { artworkUrl100?: string }[] } | null;
+		const art = Array.isArray(body?.results) ? body.results[0]?.artworkUrl100 : null;
+		if (!art) return null;
+		return safeItunesImageUrl(upgradeArtwork(art, OG_ARTWORK_SIZE));
 	} catch {
 		return null;
 	}

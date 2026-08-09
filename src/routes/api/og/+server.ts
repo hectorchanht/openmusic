@@ -38,12 +38,27 @@
 // templates (T-wv8-01). The cover URL is fetched only after passing its own tier's host allow-list
 // (T-wv8-05), its Content-Type is VALIDATED (T-30-04) and the cache-buffering clone is size-capped
 // (T-og-02).
+//
+// quick-260809-3uo — AMENDMENT to the paragraph above (the T-24-08 / OG-EP-01 refs STAY: they record
+// why the URL carrier left, and it has not come back). ONE optional parameter `ci` is now accepted,
+// and it is NOT a URL. It is a short cover ID from a CLOSED tag set (`d`/`l`/`k`/`i`), reconstructed
+// into an image URL by coverUrlFromToken in $lib/proxy/og-cover from a template whose scheme, host
+// and path shape are LITERALS in that file. So the sentence "no URL parameter is accepted at all"
+// is still true — there is still no URL to smuggle a host into, which is the property T-24-08 was
+// protecting; the allow-list is now STRUCTURAL rather than a check to probe (T-3uo-01/02).
+//
+// WHY IT EXISTS: server-side re-resolution from TEXT is structurally blind to the cover the CLIENT
+// already resolved. 你瞞我瞞 / 陳柏宇 showed Quinquennium art (the client's iTunes tier) on the hero,
+// the Nowbar and the Downloads rows, and an EMPTY card in WhatsApp. Adding more server tiers is
+// whack-a-mole; the client knows the answer at the moment the user taps share, so it carries it.
+// The carrier is OPTIONAL and ADVISORY: absent, unrecognised or rejected → the tier chain runs
+// byte-identically to before this change (T-3uo-07).
 import type { RequestHandler } from './$types';
 import type { Env } from '$lib/proxy/proxy-types';
 import { corsHeaders, fetchWithRetry } from '$lib/proxy/http';
 import { edgeCache, ownOriginCacheKey } from '$lib/proxy/edge-cache';
 import type { EdgeCache } from '$lib/proxy/edge-cache';
-import { OG_RESOLVE_MS, isOgType, resolveCoverTiered } from '$lib/proxy/og-cover';
+import { OG_RESOLVE_MS, coverUrlFromToken, isOgType, resolveCoverTiered } from '$lib/proxy/og-cover';
 import type { OgType } from '$lib/proxy/og-cover';
 import { OG_FALLBACK_BYTES, OG_FALLBACK_TYPE } from '$lib/proxy/og-fallback';
 import { matchKey } from '$lib/services/match-key';
@@ -236,8 +251,15 @@ export const GET: RequestHandler = async ({ url, request, platform }) => {
 		const type: OgType = isOgType(requested) ? requested : 'song';
 		const artist = (url.searchParams.get('artist') ?? '').trim().slice(0, MAX_TERM_CHARS);
 		const title = (url.searchParams.get('title') ?? '').trim().slice(0, MAX_TERM_CHARS);
+		// quick-260809-3uo: the optional cover-id carrier, read as an OPAQUE string. Deliberately NOT
+		// capped or sanitised here — the cap and the closed-tag grammar both live inside
+		// coverUrlFromToken, so there is exactly ONE place that decides what a token is (MAX_TERM_CHARS
+		// above is the sibling precedent for capping request text, but a SECOND cap here would just be
+		// a place for the two to disagree).
+		const ci = url.searchParams.get('ci') ?? '';
 
-		// T-og-01: nothing to search for → branded card with ZERO subrequests.
+		// T-og-01: nothing to search for → branded card with ZERO subrequests. AHEAD of any token work
+		// (quick-260809-3uo) — an empty card must still cost nothing, carrier or not.
 		if (!artist && !title) return ogFallback(origin);
 
 		const cache = edgeCache();
@@ -252,6 +274,24 @@ export const GET: RequestHandler = async ({ url, request, platform }) => {
 				// A broken Cache API degrades to a cold resolve, never to an error.
 			}
 		}
+
+		// quick-260809-3uo — THE CARRIER PATH. Sits AFTER the bytes layer (a cached card must still cost
+		// zero subrequests) and BEFORE the resolve key is even built.
+		//
+		// D2 / T-3uo-03 — the resolve layer is NEVER read or written here, and that is the whole
+		// anti-poisoning property: the resolve entry is keyed on normalized TEXT and is SHARED by every
+		// requester, so letting request-supplied input write it would let one crafted link change what
+		// everyone else's carrier-free crawl resolves. The BYTES key is ownOriginCacheKey(url), which
+		// already includes `ci`, so each distinct token gets its own entry and shares nothing.
+		// ownOriginCacheKey stays the ONLY key builder on both paths.
+		//
+		// D1 — a token that rebuilt and passed its allow-list but whose IMAGE fetch then fails lands on
+		// the branded card (streamImage's own failure path), it does NOT fall through to the tier chain.
+		// The arithmetic: falling through would cost IMAGE_MS (2500) + OG_RESOLVE_MS (5000) + a second
+		// image fetch (2500) ≈ 10 s, past the 3–10 s crawler budget 30-RESEARCH §D records — trading a
+		// rare better card for a routinely-timed-out one.
+		const carried = await coverUrlFromToken(ci);
+		if (carried) return await streamImage(carried, cache, bytesKey, origin);
 
 		// LAYER 1 (resolve) — NORMALIZED synthetic own-origin key: matchKey() strips case, spaces and
 		// punctuation, so query-order variants AND the hyphen-for-space share loss share one entry.

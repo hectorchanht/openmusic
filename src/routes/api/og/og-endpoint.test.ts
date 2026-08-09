@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
 	OG_RESOLVE_MS,
+	coverUrlFromToken,
 	isOgType,
 	resolveCoverTiered,
 	safeItunesImageUrl,
@@ -980,5 +981,275 @@ describe('itunes-cover — upgradeArtwork keeps its client default and takes an 
 		);
 		expect(upgradeArtwork('  ', '600x600bb')).toBeNull();
 		expect(upgradeArtwork(null, '600x600bb')).toBeNull();
+	});
+});
+
+// =============================================================================================
+// quick-260809-3uo — the `ci` COVER-ID CARRIER
+// =============================================================================================
+// A carrier is back on /api/og, in a strictly narrower form than the retired `?c=`: what crosses
+// the boundary is a SHORT ID from a closed tag set, never a URL. /api/og rebuilds the image URL
+// from a template whose scheme, host and every path character outside the variable part are
+// LITERALS in og-cover.ts.
+//
+// HARNESS PROPERTY these negative tests lean on (do not "simplify" it away): stubTiers/stubRoute
+// THROW for any tier whose reply is undeclared. So both failure directions fail LOUDLY —
+// "the tier chain ran when the token should have short-circuited it" throws on an undeclared tier,
+// and "the token was not used" shows up as a missing/extra captured call. A silently-passing
+// negative test is impossible here.
+//
+// LIVE PROBES 2026-08-09 (the templates are only real because these returned 200 + image/*):
+//   d → https://cdn-images.dzcdn.net/images/cover/fe1082c5ef54876802146897e76b592e/500x500-000000-80-0-0.jpg
+//       200 image/jpeg 72,650 B
+//   l → https://lastfm.freetls.fastly.net/i/u/300x300/95f31bcdc1e942d3c24daa08dbf0e654.png
+//       200 image/png 112,810 B  (500x500 = 274 KB and 600x600 = 342 KB are past the crawler
+//       budget Pitfall 6 records, so 300x300 IS the card size)
+//   k → https://img4.kuwo.cn/star/albumcover/600/s4s27/11/1502064321.jpg  200 image/jpeg 97,759 B
+//       (img1.kuwo.cn serves the SAME asset byte-for-byte, so pinning img4 as a literal is safe)
+//   i → itunes.apple.com/lookup?id=446760418 → artworkUrl100 → 600x600bb
+//       200 image/jpeg 54,671 B — the 陳柏宇 "Quinquennium" art the bug report names.
+
+const TOK_D = 'd:fe1082c5ef54876802146897e76b592e';
+const TOK_D_URL =
+	'https://cdn-images.dzcdn.net/images/cover/fe1082c5ef54876802146897e76b592e/500x500-000000-80-0-0.jpg';
+const TOK_L = 'l:95f31bcdc1e942d3c24daa08dbf0e654.png';
+const TOK_L_URL = 'https://lastfm.freetls.fastly.net/i/u/300x300/95f31bcdc1e942d3c24daa08dbf0e654.png';
+const TOK_K = 'k:s4s27-11-1502064321';
+const TOK_K_URL = 'https://img4.kuwo.cn/star/albumcover/600/s4s27/11/1502064321.jpg';
+const TOK_I = 'i:446760418';
+const TOK_I_ART_100 =
+	'https://is1-ssl.mzstatic.com/image/thumb/Music221/v4/44/ab/f4/44abf48c-3f51-31b9-469a-6d99548070e1/886443102378.jpg/100x100bb.jpg';
+const TOK_I_URL =
+	'https://is1-ssl.mzstatic.com/image/thumb/Music221/v4/44/ab/f4/44abf48c-3f51-31b9-469a-6d99548070e1/886443102378.jpg/600x600bb.jpg';
+const IT_LOOKUP_HIT = JSON.stringify({
+	resultCount: 1,
+	results: [{ wrapperType: 'collection', artworkUrl100: TOK_I_ART_100 }]
+});
+
+/** Stub ONLY the iTunes lookup endpoint (the single subrequest the `i` tag costs). */
+function stubItunesLookup(reply: TierReply = IT_LOOKUP_HIT) {
+	const calls: string[] = [];
+	vi.stubGlobal(
+		'fetch',
+		vi.fn(async (input: RequestInfo | URL) => {
+			const u = String(input);
+			calls.push(u);
+			if (!u.includes('itunes.apple.com/lookup')) throw new Error(`unexpected fetch: ${u}`);
+			if (reply === 'THROW') throw new Error('network down');
+			if (reply === 'NOTOK') return new Response('nope', { status: 500 });
+			return new Response(reply, { status: 200, headers: { 'content-type': 'application/json' } });
+		})
+	);
+	return calls;
+}
+
+describe('coverUrlFromToken — the closed tag set rebuilds a FIXED template', () => {
+	it('d:<32hex> → the canonical Deezer 500x500 cover URL (probed 200 image/jpeg)', async () => {
+		expect(await coverUrlFromToken(TOK_D)).toBe(TOK_D_URL);
+	});
+
+	it('l:<32hex>.<ext> → the canonical Last.fm 300x300 URL, extension preserved', async () => {
+		expect(await coverUrlFromToken(TOK_L)).toBe(TOK_L_URL);
+		expect(await coverUrlFromToken('l:95f31bcdc1e942d3c24daa08dbf0e654.jpg')).toBe(
+			'https://lastfm.freetls.fastly.net/i/u/300x300/95f31bcdc1e942d3c24daa08dbf0e654.jpg'
+		);
+	});
+
+	it('k:<d1>-<d2>-<id> → the canonical kuwo /600/ albumcover URL (probed 200 image/jpeg)', async () => {
+		expect(await coverUrlFromToken(TOK_K)).toBe(TOK_K_URL);
+	});
+
+	it('i:<digits> → ONE itunes lookup, upgraded to the 600x600bb card size', async () => {
+		const calls = stubItunesLookup();
+		expect(await coverUrlFromToken(TOK_I)).toBe(TOK_I_URL);
+		expect(calls).toHaveLength(1);
+		expect(calls[0]).toBe('https://itunes.apple.com/lookup?id=446760418');
+	});
+
+	it('the i lookup NEVER interpolates anything but digits, and a fault → null (never throws)', async () => {
+		for (const reply of ['THROW', 'NOTOK', 'not json', JSON.stringify({ results: [] })] as const) {
+			vi.unstubAllGlobals();
+			stubItunesLookup(reply as TierReply);
+			expect(await coverUrlFromToken(TOK_I)).toBeNull();
+		}
+	});
+
+	it('an i lookup whose artwork is NOT an mzstatic host is rejected by safeItunesImageUrl', async () => {
+		stubItunesLookup(
+			JSON.stringify({ results: [{ artworkUrl100: 'https://evil.example/100x100bb.jpg' }] })
+		);
+		expect(await coverUrlFromToken(TOK_I)).toBeNull();
+	});
+
+	it('an UNKNOWN or absent tag is null — the tag set is closed, not a prefix filter', async () => {
+		for (const bad of [
+			'x:fe1082c5ef54876802146897e76b592e',
+			':fe1082c5ef54876802146897e76b592e',
+			'fe1082c5ef54876802146897e76b592e',
+			'D:fe1082c5ef54876802146897e76b592e', // tags are lower-case literals
+			'dd:fe1082c5ef54876802146897e76b592e'
+		]) {
+			expect(await coverUrlFromToken(bad)).toBeNull();
+		}
+	});
+
+	it('a variable part failing its ANCHORED pattern is null (length, case, partial match)', async () => {
+		for (const bad of [
+			'd:fe1082c5ef54876802146897e76b592', // 31
+			'd:fe1082c5ef54876802146897e76b592ee', // 33
+			'd:FE1082C5EF54876802146897E76B592E', // upper-case hex
+			'd:zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz',
+			'd:fe1082c5ef54876802146897e76b592eextra', // merely CONTAINS a valid hash
+			'd:xfe1082c5ef54876802146897e76b592e',
+			'l:95f31bcdc1e942d3c24daa08dbf0e654.gif', // ext is a CLOSED two-value set
+			'l:95f31bcdc1e942d3c24daa08dbf0e654', // no ext
+			'k:s4s27-11', // no id
+			'k:s4s27-11-123', // id under 4 digits
+			'k:S4S27-11-1502064321', // upper-case shard
+			'i:4467604180000', // 13 digits, over the cap
+			'i:44676041a', // not digits
+			'i:' // empty variable part
+		]) {
+			expect(await coverUrlFromToken(bad)).toBeNull();
+		}
+	});
+
+	it('separators / traversal / smuggling inside the variable part are UNGRAMMATICAL, not filtered', async () => {
+		for (const bad of [
+			'd:../../etc/passwd',
+			'd:ab/cd',
+			'd:%2e%2e%2ffe1082c5ef54876802146897e76b592e',
+			'k:a-1-1/../x',
+			'k:s4s27-11-1502064321/../../x',
+			'd:fe1082c5ef54876802146897e76b592e?x=1',
+			'd:fe1082c5ef54876802146897e76b592e#f',
+			'd:fe1082c5ef54876802146897e76b592e@evil.example',
+			'd:fe1082c5ef54876802146897e76b592e\\evil',
+			'i:446760418/../9',
+			'i:44676041 8'
+		]) {
+			expect(await coverUrlFromToken(bad)).toBeNull();
+		}
+	});
+
+	it('empty / whitespace / null / undefined / over-cap input is null and never throws', async () => {
+		expect(await coverUrlFromToken('')).toBeNull();
+		expect(await coverUrlFromToken('   ')).toBeNull();
+		expect(await coverUrlFromToken(null)).toBeNull();
+		expect(await coverUrlFromToken(undefined)).toBeNull();
+		// Over the 64-char cap — REJECTED, never truncated (T-3uo-04).
+		expect(await coverUrlFromToken('d:' + 'a'.repeat(80))).toBeNull();
+		expect(await coverUrlFromToken('d:'.repeat(60) + 'fe1082c5ef54876802146897e76b592e')).toBeNull();
+	});
+
+	it('the longest legal token still fits the cap (the cap can never reject a real token)', async () => {
+		for (const tok of [TOK_D, TOK_L, TOK_K, TOK_I]) expect(tok.length).toBeLessThanOrEqual(64);
+	});
+});
+
+describe('/api/og — the `ci` carrier short-circuits the resolve chain (quick-260809-3uo)', () => {
+	it('a valid token serves that exact cover with ZERO resolve subrequests', async () => {
+		// EVERY tier reply is left undeclared: reaching one THROWS, so "the chain did not run" is
+		// asserted structurally, not just by a call count.
+		const { calls } = stubRoute({});
+		const res = await callGET(fakeEvent({ ...SONG, ci: TOK_D }));
+		expect(res.status).toBe(200);
+		expect(res.headers.get('content-type')).toBe('image/jpeg');
+		expect(await res.text()).toBe(JPEG_BODY);
+		// EXACTLY one fetch, and it is the reconstructed template in full — a host or path-shape
+		// edit fails here.
+		expect(calls).toEqual([TOK_D_URL]);
+	});
+
+	it('each covered tag reconstructs its own canonical URL end-to-end', async () => {
+		for (const [tok, want] of [
+			[TOK_L, TOK_L_URL],
+			[TOK_K, TOK_K_URL]
+		] as const) {
+			vi.unstubAllGlobals();
+			const { calls } = stubRoute({});
+			await callGET(fakeEvent({ ...SONG, ci: tok }));
+			expect(calls).toEqual([want]);
+		}
+	});
+
+	it('the i tag costs ONE lookup + ONE image fetch, and still no resolve chain', async () => {
+		const { calls } = stubRoute({ it: IT_LOOKUP_HIT });
+		const res = await callGET(fakeEvent({ ...SONG, ci: TOK_I }));
+		expect(await res.text()).toBe(JPEG_BODY);
+		expect(calls).toEqual(['https://itunes.apple.com/lookup?id=446760418', TOK_I_URL]);
+	});
+
+	it('the token path never reads or writes the RESOLVE layer (T-3uo-03 anti-poisoning)', async () => {
+		stubRoute({});
+		const { putKeys, cacheStub } = stubCache();
+		await callGET(fakeEvent({ ...SONG, ci: TOK_D }));
+		for (const k of putKeys) expect(k).not.toContain('_resolve');
+		for (const call of cacheStub.match.mock.calls)
+			expect((call[0] as Request).url).not.toContain('_resolve');
+		expect(putKeys).toHaveLength(1); // bytes layer only
+	});
+
+	it('two requests differing ONLY in ci get DISTINCT bytes-cache keys', async () => {
+		stubRoute({});
+		const { putKeys } = stubCache();
+		await callGET(fakeEvent({ ...SONG, ci: TOK_D }));
+		await callGET(fakeEvent({ ...SONG, ci: TOK_K }));
+		expect(putKeys).toHaveLength(2);
+		expect(putKeys[0]).not.toBe(putKeys[1]);
+		for (const k of putKeys) expect(k).toContain('openmusic.lol/api/og');
+	});
+
+	it('a bytes-layer hit still costs ZERO subrequests with a carrier present', async () => {
+		const { calls } = stubRoute({});
+		stubCache();
+		await callGET(fakeEvent({ ...SONG, ci: TOK_D }));
+		await callGET(fakeEvent({ ...SONG, ci: TOK_D }));
+		expect(calls).toHaveLength(1);
+	});
+
+	it('a token whose image fetch fails lands on the BRANDED card, NOT a second chain (D1)', async () => {
+		for (const image of ['html', 'NOTOK', 'THROW'] as const) {
+			vi.unstubAllGlobals();
+			// Tiers undeclared: a fall-through to the chain would THROW instead of quietly costing
+			// IMAGE_MS + OG_RESOLVE_MS + a second image fetch (~10 s, past the crawler budget).
+			const { calls } = stubRoute({ image });
+			const res = await callGET(fakeEvent({ ...SONG, ci: TOK_D }));
+			expect(res.status).toBe(200);
+			expect(res.headers.get('content-type')).toBe(OG_FALLBACK_TYPE);
+			expect(calls).toEqual([TOK_D_URL]);
+		}
+	});
+
+	it('an INVALID token runs the FULL tier chain, byte-identically to no carrier at all', async () => {
+		const { calls: noCarrier } = stubRoute({ dz: DZ_MISS, it: IT_MISS, kw: KW_MISS });
+		await callGET(fakeEvent(SONG));
+		const baseline = [...noCarrier];
+		expect(baseline).toHaveLength(4);
+
+		for (const bad of [
+			'x:fe1082c5ef54876802146897e76b592e',
+			'd:../../etc/passwd',
+			'd:fe1082c5ef54876802146897e76b592eextra',
+			'i:44676041a',
+			'd:' + 'a'.repeat(80),
+			''
+		]) {
+			vi.unstubAllGlobals();
+			const { calls } = stubRoute({ dz: DZ_MISS, it: IT_MISS, kw: KW_MISS });
+			const res = await callGET(fakeEvent({ ...SONG, ci: bad }));
+			expect(res.status).toBe(200);
+			expect(calls).toEqual(baseline); // identical tier sequence
+			// No fragment of the rejected token reaches ANY outbound URL.
+			const needle = bad.replace(/^[a-z]*:/, '').slice(0, 12);
+			if (needle) for (const c of calls) expect(c).not.toContain(needle);
+		}
+	});
+
+	it('the empty-card short-circuit still wins over a carrier (ZERO subrequests, T-og-01)', async () => {
+		const { calls } = stubRoute({});
+		const res = await callGET(fakeEvent({ type: 'song', ci: TOK_D }));
+		expect(res.headers.get('content-type')).toBe(OG_FALLBACK_TYPE);
+		expect(calls).toHaveLength(0);
 	});
 });
