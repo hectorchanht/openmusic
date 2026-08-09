@@ -8,9 +8,12 @@ import type { Action } from 'svelte/action';
 // adds + the `--marquee-dx` custom property it sets to the exact overflow distance). When the
 // text fits, the class is removed → the default static ellipsis stays.
 //
-// SSR-SAFE: all DOM/observer/matchMedia access is guarded behind `typeof` checks so the action
-// is a no-op on the server. REDUCED-MOTION: when the user prefers reduced motion we never add
-// the class (static ellipsis), as defense-in-depth alongside the component's @media gate.
+// SSR-SAFE: all DOM/observer access is guarded behind `typeof` checks so the action is a no-op on
+// the server. REDUCED-MOTION: the marquee is deliberately EXEMPT (quick-260809-mvz). It used to
+// bail on `prefers-reduced-motion: reduce`, which froze every clipped title on Android — the OS
+// reports `reduce` for battery saver and for Developer Options → animation scale off, neither of
+// which is an accessibility request. A static clipped title is unreadable, so the scroll is
+// functional, not decoration. app.css keeps it running under the app's own reduce-motion setting too.
 //
 // RE-MEASURE TRIGGERS: a ResizeObserver re-measures on box-WIDTH changes (container resize,
 // orientation, font-size setting) and a MutationObserver re-measures on TEXT changes — see the
@@ -22,15 +25,6 @@ import type { Action } from 'svelte/action';
  */
 export function isOverflowing(scrollWidth: number, clientWidth: number): boolean {
 	return scrollWidth > clientWidth;
-}
-
-function prefersReducedMotion(): boolean {
-	if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
-	try {
-		return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-	} catch {
-		return false;
-	}
 }
 
 // Marquee tuning. MIN_OVERFLOW_PX: below this much clipping, don't animate (static ellipsis —
@@ -65,15 +59,14 @@ export interface MarqueeState {
 /**
  * Pure core of the measure step. Given the clip element's content width (`scrollWidth`) and
  * visible box width (`clientWidth`), decide whether to marquee and by how far. A MEANINGFUL
- * overflow (> MIN_OVERFLOW_PX) turns the marquee on with `dx` = the exact overflow distance; a
- * fit, a sub-threshold clip, or reduced-motion keeps it off (static ellipsis). Exported so the
+ * overflow (> MIN_OVERFLOW_PX) turns the marquee on with `dx` = the exact overflow distance; a fit
+ * or a sub-threshold clip keeps it off (static ellipsis). Overflow is now the ONLY input — the
+ * reduced-motion argument was dropped in quick-260809-mvz (see the header note). Exported so the
  * decision is unit-testable without a DOM — in particular the quick-260712-mkq regression where
  * a late content change widens the text past a FIXED box (box width never changes, only the
  * text) must still flip `on` true.
  */
-export function marqueeState(scrollWidth: number, clientWidth: number, reducedMotion: boolean): MarqueeState {
-	// Reduced-motion users always get the static ellipsis.
-	if (reducedMotion) return { on: false, dx: 0, durationMs: 0 };
+export function marqueeState(scrollWidth: number, clientWidth: number): MarqueeState {
 	const overflow = scrollWidth - clientWidth;
 	// Only animate a MEANINGFUL overflow. A few px of clipping is not worth a marquee and reads
 	// as a twitch; below the threshold keep the static ellipsis.
@@ -87,7 +80,7 @@ export const marquee: Action<HTMLElement> = (node) => {
 	let mutationObs: MutationObserver | null = null;
 
 	function measure() {
-		const { on, dx, durationMs } = marqueeState(node.scrollWidth, node.clientWidth, prefersReducedMotion());
+		const { on, dx, durationMs } = marqueeState(node.scrollWidth, node.clientWidth);
 		if (on) {
 			node.style.setProperty('--marquee-dx', `${dx}px`);
 			node.style.setProperty('--marquee-dur', `${durationMs}ms`);

@@ -352,7 +352,7 @@
 		<!-- Remix: GATED (needs audioUrl to play the seed) — Sparkles + the inline spinner.
 		     Sits in the queue-actions cluster after Play next / Add to queue (D-07). -->
 		<button class="mi" aria-busy={inFlight.has('remix')} aria-label={inFlight.has('remix') ? t('menu.preparing') : undefined} onclick={() => gated('remix', doRemix)} use:tapBounce>
-			{#if inFlight.has('remix')}<span class="row-spinner"></span>{:else}<Sparkles size={18} />{/if} {t('menu.remix')}
+			{#if inFlight.has('remix')}<span class="row-spinner motion-always"></span>{:else}<Sparkles size={18} />{/if} {t('menu.remix')}
 		</button>
 		<!-- Gap 4 (26-10): Play from source — opens a lazily-fed VersionPicker. The variant fetch fires
 		     ONLY on THIS tap (openVersions), never on menu open (opt-in; T-26-10-02). Shown for every
@@ -372,7 +372,7 @@
 		{:else}
 			{@const dlBusy = inFlight.has('download') || library.downloading.has(track.uid)}
 			<button class="mi" aria-busy={dlBusy} disabled={dlBusy} aria-label={dlBusy ? t('menu.preparing') : undefined} onclick={() => gated('download', doDownload)} use:tapBounce>
-				{#if dlBusy}<span class="row-spinner"></span>{:else}<Download size={18} />{/if} {t('menu.download')}
+				{#if dlBusy}<span class="row-spinner motion-always"></span>{:else}<Download size={18} />{/if} {t('menu.download')}
 			</button>
 		{/if}
 		<button class="mi" onclick={() => { pickerOpen = true; }} use:tapBounce><ListPlus size={18} /> {t('menu.addToPlaylist')}</button>
@@ -383,7 +383,7 @@
 		<button class="mi" onclick={doShare} use:tapBounce><Share2 size={18} /> {t('menu.share')}</button>
 		<!-- Detail: GATED — resolves details to populate the detail sheet's audioUrl/quality rows. -->
 		<button class="mi" aria-busy={inFlight.has('detail')} aria-label={inFlight.has('detail') ? t('menu.preparing') : undefined} onclick={() => gated('detail', doDetail)} use:tapBounce>
-			{#if inFlight.has('detail')}<span class="row-spinner"></span>{:else}<Info size={18} />{/if} {t('menu.detail')}
+			{#if inFlight.has('detail')}<span class="row-spinner motion-always"></span>{:else}<Info size={18} />{/if} {t('menu.detail')}
 		</button>
 	</div>
 {/if}
@@ -454,12 +454,11 @@
 	.mi.accent { color: var(--color-primary); }
 	.mi .count { margin-left: auto; font-size: 12px; color: var(--color-text-muted); }
 	/* MENU-01 inline resolve spinner — neutral (NOT accent), sits in the leading 18px icon box so
-	   the row width does not shift. Reduced-motion (OS pref + the app's [data-reduce-motion] rule)
-	   drops the rotation; the row stays announced busy via aria-busy + the menu.preparing label. */
+	   the row width does not shift. quick-260809-mvz: keeps rotating under BOTH reduce-motion gates
+	   (markup carries `.motion-always`, app.css's escape hatch) — a frozen spinner reads as a hung
+	   app. aria-busy + the menu.preparing label still carry the state for non-visual users. */
 	.row-spinner { width: 16px; height: 16px; flex: none; border: 2px solid var(--color-text-muted); border-top-color: transparent; border-radius: 50%; animation: spin 0.7s linear infinite; }
 	@keyframes spin { to { transform: rotate(360deg); } }
-	@media (prefers-reduced-motion: reduce) { .row-spinner { animation: none; } }
-	:global(:root[data-reduce-motion]) .row-spinner { animation: none; }
 	.detail { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; padding: 6px 12px 14px; margin: 0; }
 	.detail dt { color: var(--color-text-muted); font-size: 12px; }
 	.detail dd { margin: 0; font-size: 13px; }

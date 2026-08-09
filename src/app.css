@@ -102,17 +102,27 @@ button, a, [role="button"] { -webkit-tap-highlight-color: transparent; }
 	0%, 25% { transform: translateX(0); } /* ~2s hold at the start */
 	75%, 100% { transform: translateX(calc(-1 * var(--marquee-dx, 0px))); } /* reveal + hold end */
 }
-@media (prefers-reduced-motion: reduce) {
-	.marquee-on .marquee-inner { animation: none; }
-}
+/* quick-260809-mvz: the marquee is deliberately NOT gated by @media (prefers-reduced-motion:
+   reduce) any more. A clipped title is UNREADABLE while static, so the scroll carries information
+   rather than polish — same call as .tap-bouncing below. It also survives the app's own
+   reduce-motion setting; see the re-assert under the blanket rule. */
 
-/* Reduce-motion setting: kill nonessential transitions/animations app-wide. */
-:root[data-reduce-motion] *,
-:root[data-reduce-motion] *::before,
-:root[data-reduce-motion] *::after {
+/* Reduce-motion setting: kill nonessential transitions/animations app-wide. `.motion-always` is
+   the opt-out for motion that MEANS something rather than decorates: loading spinners (nothing
+   else tells you the app is still working) opt in by carrying that class. Everything unmarked
+   still stops. quick-260809-mvz. */
+:root[data-reduce-motion] *:not(.motion-always),
+:root[data-reduce-motion] *:not(.motion-always)::before,
+:root[data-reduce-motion] *:not(.motion-always)::after {
 	transition: none !important;
 	animation: none !important;
 	scroll-behavior: auto !important;
+}
+/* .marquee-inner is written by ~20 call sites, so rather than tag every one with .motion-always we
+   re-assert the keyframe here — (0,4,0) beats the blanket rule's (0,3,0), so this wins even though
+   both are !important. quick-260809-mvz. */
+:root[data-reduce-motion] .marquee-on .marquee-inner {
+	animation: marquee-scroll var(--marquee-dur, 8s) linear infinite alternate !important;
 }
 
 /* Global loading-skeleton placeholder. Add `.sk` to any element (sized to match the real

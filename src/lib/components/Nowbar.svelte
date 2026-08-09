@@ -75,7 +75,11 @@
     <div class="nowbar" class:embed={variant === "embed"}>
         <div class="np-prog" class:indet={player.loading}>
             {#if player.loading}
-                <i class="sliver"></i>
+                <!-- quick-260809-mvz: `.motion-always` — the indeterminate loader rail is the same
+                     kind of "still working" signal as the spinner, so the app's reduce-motion
+                     setting must not freeze it into a static bar. The OS-pref slowdown below still
+                     applies; it keeps moving, just calmer. -->
+                <i class="sliver motion-always"></i>
             {:else}
                 <i
                     style:width={`${player.duration > 0 ? (player.currentTime / player.duration) * 100 : 0}%`}
@@ -165,7 +169,7 @@
         {/if}
         {#if resolving}
             <span
-                class="np-btn np-spin"
+                class="np-btn np-spin motion-always"
                 aria-label={t("common.loading")}
                 aria-busy="true"><Loader size={18} /></span
             >
@@ -274,22 +278,20 @@
     .np-open[disabled] {
         cursor: default;
     }
+    /* quick-260809-mvz: the rotation moved OFF the inner <svg> onto .np-spin itself. app.css's
+       reduce-motion escape hatch is a `.motion-always` CLASS, and we cannot put a class on the
+       Lucide-rendered svg — but .np-btn is a solid 40px circle, so spinning the button box instead
+       of the glyph is pixel-identical. The resolve spinner now turns under both reduce-motion
+       gates; a frozen one reads as a hung app. */
     .np-spin {
         display: grid;
         place-items: center;
         opacity: 0.85;
-    }
-    .np-spin :global(svg) {
         animation: np-spin 0.9s linear infinite;
     }
     @keyframes np-spin {
         to {
             transform: rotate(360deg);
-        }
-    }
-    @media (prefers-reduced-motion: reduce) {
-        .np-spin :global(svg) {
-            animation: none;
         }
     }
     .np-open {

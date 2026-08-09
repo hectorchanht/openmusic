@@ -86,7 +86,7 @@
 	</span>
 {:else if isDownloading}
 	<span class="dc busy" aria-busy="true" aria-label={t('toast.preparingDownload')}>
-		<span class="row-spinner"></span>
+		<span class="row-spinner motion-always"></span>
 	</span>
 {:else}
 	<button class="dc" aria-label={t('menu.download')} title={t('menu.download')} onclick={run} use:tapBounce>
@@ -119,8 +119,9 @@
 	.dc.busy {
 		cursor: default;
 	}
-	/* Neutral inline resolve spinner (copied from TrackMenu .row-spinner) — NOT accent. Reduced-motion
-	   (OS pref + the app's [data-reduce-motion] rule) drops the rotation; the control stays aria-busy. */
+	/* Neutral inline resolve spinner (copied from TrackMenu .row-spinner) — NOT accent. quick-260809-mvz:
+	   it keeps rotating under BOTH reduce-motion gates (the markup carries `.motion-always`, app.css's
+	   escape hatch) — a frozen spinner reads as a hung app, so the rotation is the message, not polish. */
 	.row-spinner {
 		width: 16px;
 		height: 16px;
@@ -134,13 +135,5 @@
 		to {
 			transform: rotate(360deg);
 		}
-	}
-	@media (prefers-reduced-motion: reduce) {
-		.row-spinner {
-			animation: none;
-		}
-	}
-	:global(:root[data-reduce-motion]) .row-spinner {
-		animation: none;
 	}
 </style>

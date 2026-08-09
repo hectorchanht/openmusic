@@ -520,7 +520,7 @@
 		{/if}
 	</div>
 	<button type="submit" disabled={loading} aria-busy={loading} aria-label={t('search.go')} use:tapBounce>
-		{#if loading}<span class="spin" aria-hidden="true"><LoaderCircle size={18} /></span>{:else}<Search size={18} />{/if}
+		{#if loading}<span class="spin motion-always" aria-hidden="true"><LoaderCircle size={18} /></span>{:else}<Search size={18} />{/if}
 	</button>
 </form>
 
@@ -759,7 +759,6 @@
 	}
 	.bar button[disabled] { opacity: 0.8; cursor: default; }
 	.spin { display: inline-flex; animation: spin 0.7s linear infinite; }
-	@media (prefers-reduced-motion: reduce) { .spin { animation: none; } }
 	@keyframes spin { to { transform: rotate(360deg); } }
 	.muted { color: var(--color-text-muted); font-size: 14px; }
 	.end-note { list-style: none; text-align: center; color: var(--color-text-muted); font-size: 12px; padding: 16px 0 4px; }

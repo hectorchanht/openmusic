@@ -99,7 +99,7 @@
 	{/if}
 
 	{#if status === 'resolving'}
-		<p class="status" aria-live="polite"><span class="spinner" aria-hidden="true"></span> Finding a playable version…</p>
+		<p class="status" aria-live="polite"><span class="spinner motion-always" aria-hidden="true"></span> Finding a playable version…</p>
 	{:else if status === 'playing'}
 		<p class="status" aria-live="polite">Now playing on openmusic.</p>
 	{:else if status === 'notfound'}
@@ -169,11 +169,6 @@
 	@keyframes spin {
 		to {
 			transform: rotate(360deg);
-		}
-	}
-	@media (prefers-reduced-motion: reduce) {
-		.spinner {
-			animation: none;
 		}
 	}
 	.play-cta {

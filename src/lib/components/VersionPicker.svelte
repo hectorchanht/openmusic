@@ -109,7 +109,7 @@
 	<div class="menu" transition:fly={{ y: 240, duration: 200 }} use:dragClose={{ onclose }} use:focusTrap>
 		<div class="menu-head">{t('versions.title')}</div>
 		{#if loading}
-			<p class="loading" aria-busy="true"><span class="row-spinner"></span>{t('versions.loading')}</p>
+			<p class="loading" aria-busy="true"><span class="row-spinner motion-always"></span>{t('versions.loading')}</p>
 		{:else if shown.length === 0}
 			<p class="empty">{t('versions.empty')}</p>
 		{:else}
@@ -140,12 +140,11 @@
 	}
 	.menu-head { font-size: calc(13px * var(--fs-title, 1)); color: var(--color-text-muted); padding: 8px 10px; }
 	.empty { color: var(--color-text-muted); font-size: 14px; padding: 8px 12px 12px; margin: 0; }
-	/* Gap 4 loading affordance — mirrors TrackMenu's .row-spinner idiom + the reduced-motion rule. */
+	/* Gap 4 loading affordance — mirrors TrackMenu's .row-spinner idiom, including the
+	   quick-260809-mvz `.motion-always` exemption that keeps it turning under reduce-motion. */
 	.loading { display: flex; align-items: center; gap: 10px; color: var(--color-text-muted); font-size: 14px; padding: 12px; margin: 0; }
 	.row-spinner { width: 16px; height: 16px; flex: none; border: 2px solid var(--color-text-muted); border-top-color: transparent; border-radius: 50%; animation: spin 0.7s linear infinite; }
 	@keyframes spin { to { transform: rotate(360deg); } }
-	@media (prefers-reduced-motion: reduce) { .row-spinner { animation: none; } }
-	:global(:root[data-reduce-motion]) .row-spinner { animation: none; }
 	.mi {
 		width: 100%; display: flex; align-items: center; gap: 12px; min-height: 44px;
 		background: none; border: none; color: var(--color-text); font-size: 15px; padding: 12px;
