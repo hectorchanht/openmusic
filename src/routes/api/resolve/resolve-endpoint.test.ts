@@ -157,7 +157,6 @@ describe('/api/resolve GET — miss returns immediately, fills out of band (D-06
 		const res = await callGET(two.event);
 
 		expect(await res.json()).toEqual({ hit: true, entry: OK_ENTRY });
-		expect(res.headers.get('Cache-Control')).toBe(`public, max-age=${RESOLVE_TTL_S}`);
 		expect(second.calls).toHaveLength(0);
 		expect(two.event.platform.ctx.waitUntil).not.toHaveBeenCalled();
 	});
@@ -226,6 +225,60 @@ describe('/api/resolve — the cached copy is CORS-free (T-31-03-04)', () => {
 
 		const stranger = await callGET(fakeGet({ a: ARTIST, t: TITLE }, 'https://evil.example').event);
 		expect(stranger.headers.get('Access-Control-Allow-Origin')).toBeNull();
+	});
+});
+
+describe('/api/resolve — the client-facing response is NEVER storable (31-D-09 regression)', () => {
+	// SHIPPED DEFECT this guards: the hit response carried `public, max-age=900`, so
+	// Cloudflare/workerd stored the whole `{hit:true, entry}` JSON in the AUTOMATIC response cache
+	// keyed on the request URL. Observed on `pnpm preview` (wrangler 4.98.0/Miniflare): POST bust →
+	// `{busted:true}` (the entry WAS deleted — a `?cb=<random>` GET and a `Cache-Control: no-cache`
+	// GET both returned `{hit:false}`), yet the plain GET kept answering `{hit:true}` with
+	// `Cache-Control: public, max-age=900` + `CF-Cache-Status: HIT` for 10s+ after the bust. The
+	// D-08/D-09 self-healing property did not exist. A resolve response is a VIEW of a mutable
+	// entry, so no intermediary may store it — unlike /api/og and /api/deezer/search, whose
+	// response IS the artifact.
+	const storable = (res: Response) => {
+		const cc = res.headers.get('Cache-Control') ?? '';
+		return /\bpublic\b/i.test(cc) || /\bmax-age\s*=\s*[1-9]/i.test(cc);
+	};
+
+	it('a HIT response is not publicly cacheable and carries no positive max-age', async () => {
+		stubCache();
+		stubUpstream([SEARCH_HIT, DETAIL_HIT]);
+		const one = fakeGet({ a: ARTIST, t: TITLE });
+		await callGET(one.event);
+		await Promise.all(one.waited);
+
+		stubUpstream([]);
+		const res = await callGET(fakeGet({ a: ARTIST, t: TITLE }).event);
+		expect(await res.json()).toEqual({ hit: true, entry: OK_ENTRY });
+		expect(res.headers.get('Cache-Control')).toBe('no-store');
+		expect(storable(res)).toBe(false);
+	});
+
+	it('the MISS, the blank short-circuit and the POST replies are not storable either', async () => {
+		stubCache();
+		stubUpstream([SEARCH_HIT, DETAIL_HIT]);
+		const miss = await callGET(fakeGet({ a: ARTIST, t: TITLE }).event);
+		const blank = await callGET(fakeGet({ a: ' ', t: '' }).event);
+		const bust = await callPOST(fakePost(JSON.stringify({ a: ARTIST, t: TITLE })));
+		const bad = await callPOST(fakePost('not-json-at-all'));
+
+		for (const res of [miss, blank, bust, bad]) {
+			expect(res.headers.get('Cache-Control')).toBe('no-store');
+			expect(storable(res)).toBe(false);
+		}
+	});
+
+	it('the TTL still lives on the STORED entry — that is the only place it belongs', async () => {
+		const { store } = stubCache();
+		stubUpstream([SEARCH_HIT, DETAIL_HIT]);
+		const one = fakeGet({ a: ARTIST, t: TITLE });
+		await callGET(one.event);
+		await Promise.all(one.waited);
+
+		expect(store.get(KEY)?.headers.get('Cache-Control')).toBe(`public, max-age=${RESOLVE_TTL_S}`);
 	});
 });
 

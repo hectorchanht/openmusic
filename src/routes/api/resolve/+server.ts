@@ -24,21 +24,39 @@ import {
 	resolveCacheKey,
 	readResolveEntry,
 	writeResolveEntry,
-	bustResolveEntry,
-	RESOLVE_TTL_S
+	bustResolveEntry
 } from '$lib/proxy/resolve-cache';
 import { resolveOnEdge } from '$lib/proxy/resolve-edge';
 
 /** Ceiling on the whole background fill (search + detail). Bounded — nobody is waiting on it. */
 const FILL_TIMEOUT_MS = 8000;
 
-function jsonResult(body: unknown, origin: string | null, ttl?: number, status = 200): Response {
-	const headers: Record<string, string> = {
-		...corsHeaders(origin),
-		'content-type': 'application/json'
-	};
-	if (ttl != null) headers['Cache-Control'] = `public, max-age=${ttl}`;
-	return new Response(JSON.stringify(body), { status, headers });
+/**
+ * EVERY response from this route is `no-store`, deliberately — 31-D-09.
+ *
+ * This is where /api/resolve DIFFERS from its siblings. /api/og and /api/deezer/search set
+ * `public, max-age=<ttl>` because their response IS the artifact and is immutable for its key.
+ * A /api/resolve response is only a VIEW of a mutable entry that the D-09 bust can invalidate at
+ * any moment, so it must never be stored by an intermediary.
+ *
+ * Shipping `public, max-age=RESOLVE_TTL_S` here silently defeated the whole bust path: Cloudflare/
+ * workerd stored the `{hit:true, entry}` JSON in the AUTOMATIC response cache keyed on the request
+ * URL, so after a successful POST bust (`{busted:true}`, entry genuinely deleted) the next GET
+ * still came back `{hit:true}` with `CF-Cache-Status: HIT` for up to 900s — handing the client back
+ * the exact dead URL it had just reported. D-11 makes that path load-bearing, not an edge case.
+ *
+ * The entry's OWN TTL is unaffected: `writeResolveEntry` puts `public, max-age=RESOLVE_TTL_S` on
+ * the STORED response, which is the correct and only place for it.
+ */
+function jsonResult(body: unknown, origin: string | null, status = 200): Response {
+	return new Response(JSON.stringify(body), {
+		status,
+		headers: {
+			...corsHeaders(origin),
+			'content-type': 'application/json',
+			'Cache-Control': 'no-store'
+		}
+	});
 }
 
 export const GET: RequestHandler = async ({ url, request, platform }) => {
@@ -59,7 +77,7 @@ export const GET: RequestHandler = async ({ url, request, platform }) => {
 	// THREE-VALUED: a defined value (including a stored known-none) is a HIT. The stored copy is
 	// CORS-free; CORS for THIS requester's origin is re-applied here (WR-01).
 	const entry = await readResolveEntry(cache, key);
-	if (entry !== undefined) return jsonResult({ hit: true, entry }, origin, RESOLVE_TTL_S);
+	if (entry !== undefined) return jsonResult({ hit: true, entry }, origin);
 
 	// MISS — answer IMMEDIATELY and fill OUT OF BAND. Awaiting the fill on the hot path is the
 	// anti-pattern this whole design exists to avoid (31-D-08): a miss must cost the client one
@@ -106,7 +124,7 @@ export const POST: RequestHandler = async ({ url, request }) => {
 	try {
 		body = await request.json();
 	} catch {
-		return jsonResult({ busted: false }, origin, undefined, 400);
+		return jsonResult({ busted: false }, origin, 400);
 	}
 
 	const fields = (body ?? {}) as { a?: unknown; t?: unknown };
