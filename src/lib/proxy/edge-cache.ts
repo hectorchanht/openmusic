@@ -13,6 +13,14 @@
 export interface EdgeCache {
 	match(request: Request): Promise<Response | undefined>;
 	put(request: Request, response: Response): Promise<void>;
+	/**
+	 * 31-D-09: drop one entry. The bust is PoP-LOCAL — `cache.delete` purges only the data center
+	 * this Worker instance ran in, so this is repair-on-encounter, never a global purge. A proper
+	 * interface member (never a cast at the call site); do NOT reach for @cloudflare/workers-types'
+	 * CacheStorage instead — the DOM lib shadows it, which is the whole reason this narrowing
+	 * interface exists.
+	 */
+	delete(request: Request): Promise<boolean>;
 }
 interface EdgeCacheStorage {
 	default?: EdgeCache;

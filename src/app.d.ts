@@ -18,7 +18,13 @@ declare global {
 				// md5 api_sig on the edge, never on the client bundle.
 				LASTFM_SECRET?: string;
 			};
-			// ctx?: ExecutionContext;  // add if waitUntil() is needed for caching later
+			// 31-D-06: the Cloudflare ExecutionContext. `waitUntil()` keeps the Worker alive for a
+			// background job AFTER the response has already been sent — the /api/resolve edge-cache
+			// fill uses it so a cache MISS never delays the client (awaiting the fill on the hot
+			// path is the anti-pattern that design exists to avoid). OPTIONAL: absent under
+			// `vite dev` and in unit tests, so every call site must be `platform?.ctx?.waitUntil`.
+			// `ctx` is the live field name — adapter-cloudflare's `context` alias is @deprecated.
+			ctx?: ExecutionContext;
 		}
 
 		// interface Error {}
