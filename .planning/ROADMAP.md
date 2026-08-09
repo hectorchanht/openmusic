@@ -246,7 +246,7 @@ Scope (candidate plans — plan-phase breaks these down):
 **Goal:** Playback feels streaming-instant and never dead-ends: tap→audio start is fast, the next track never silently fails, and a broken download falls back to the normal resolver chain instead of being skipped.
 **Requirements**: D-01..D-19 (locked decisions in 31-CONTEXT.md — `phase_req_ids` is null, so the D-numbers are the traceability keys)
 **Depends on:** Phase 30
-**Plans:** 5/6 plans executed
+**Plans:** 6/6 plans complete
 
 Scope (raw, pre-planning):
 - **Click-to-play latency** — cut time from tap to first audio. Resolve path, prefetch, warming the next track's URL before it's needed.
@@ -266,4 +266,4 @@ Plans:
 - [x] 31-03-PLAN.md — `/api/resolve` edge cache: versioned `caches.default` entry, edge-side fill, delete-only bust (D-06/07/09/10) [wave 1]
 - [x] 31-04-PLAN.md — client cache-first read + dead-URL bust report, advisory and never-throwing (D-08/09/11) [wave 3]
 - [x] 31-05-PLAN.md — pre-warm on top search result and menu open, via one testable seam (D-03) [wave 1]
-- [ ] 31-06-PLAN.md — phase gate + human verification of the real cache cycle and measured latency [wave 4]
+- [x] 31-06-PLAN.md — phase gate + human verification of the real cache cycle and measured latency [wave 4]
