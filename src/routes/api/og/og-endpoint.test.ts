@@ -4,7 +4,8 @@ import {
 	isOgType,
 	resolveCoverTiered,
 	safeItunesImageUrl,
-	safeKuwoImageUrl
+	safeKuwoImageUrl,
+	safeLastfmImageUrl
 } from '$lib/proxy/og-cover';
 import { OG_FALLBACK_BYTES, OG_FALLBACK_TYPE } from '$lib/proxy/og-fallback';
 import { upgradeArtwork } from '$lib/services/itunes-cover';
@@ -62,16 +63,21 @@ type TierReply = string | 'THROW' | 'NOTOK';
  * deezer-endpoint.test.ts:57-63). An unspecified tier throws, so a test that expects a tier
  * NOT to be reached fails loudly rather than silently passing.
  */
-function stubTiers(replies: { dz?: TierReply; it?: TierReply; kw?: TierReply }) {
+function stubTiers(replies: { lf?: TierReply; dz?: TierReply; it?: TierReply; kw?: TierReply }) {
 	const calls: string[] = [];
 	const spy = vi.fn(async (input: RequestInfo | URL) => {
 		const u = String(input);
 		calls.push(u);
-		const reply = u.includes('api.deezer.com')
-			? replies.dz
-			: u.includes('itunes.apple.com')
-				? replies.it
-				: replies.kw;
+		// quick-260809-38i: ws.audioscrobbler.com is matched FIRST so a Last.fm call is never
+		// mis-attributed to the kuwo bucket (the catch-all). A test that does not declare `lf` and
+		// nonetheless triggers a Last.fm call throws — a silently-added tier fails loudly.
+		const reply = u.includes('ws.audioscrobbler.com')
+			? replies.lf
+			: u.includes('api.deezer.com')
+				? replies.dz
+				: u.includes('itunes.apple.com')
+					? replies.it
+					: replies.kw;
 		if (reply === undefined || reply === 'THROW') throw new Error('network down');
 		if (reply === 'NOTOK') return new Response('upstream error', { status: 500 });
 		return new Response(reply, { status: 200, headers: { 'content-type': 'application/json' } });
@@ -441,6 +447,195 @@ describe('og-cover — per-tier host allow-lists (T-wv8-05, one per tier)', () =
 	});
 });
 
+describe('og-cover — Last.fm tier (key-gated, song only) — quick-260809-38i', () => {
+	// WHY THIS TIER EXISTS: the CLIENT hero adopts Last.fm album art (services/lastfm.ts album.getInfo,
+	// promoted via player.adoptCover), but /api/og re-resolved through Deezer → iTunes → kuwo, which has
+	// no Last.fm tier — so the WhatsApp card landed on a DIFFERENT album than the app was showing.
+	// A share URL carries only artist+title (no album), so the reachable server equivalent is
+	// track.getInfo, whose reshape prefers `track.image[]` then `track.album.image[]`.
+	// PROBE (2026-08-09, production): track.getinfo for 方大同/紅豆 returned image hash
+	// 95f31bcdc1e942d3c24daa08dbf0e654 — byte-identical to what the client's album.getInfo returns for
+	// the same song, in ONE subrequest. That parity is the whole justification for running it FIRST.
+	const KEY = 'test-lastfm-key';
+	const LF_IMG = 'https://lastfm-img.freetls.fastly.net/i/u/300x300/95f31bcdc1e942d3c24daa08dbf0e654.png';
+	const LF_GREY = 'https://lastfm-img.freetls.fastly.net/i/u/300x300/2a96cbd8b46e442fc41c2b86b821562f.png';
+
+	/** track.getinfo with the art on the embedded ALBUM (the real-world shape). */
+	const lfHit = (url = LF_IMG) =>
+		JSON.stringify({
+			track: {
+				name: '紅豆',
+				artist: { name: '方大同' },
+				album: {
+					title: 'The Soulboy Collection',
+					image: [
+						{ '#text': url.replace('300x300', '64s'), size: 'small' },
+						{ '#text': url, size: 'extralarge' }
+					]
+				}
+			}
+		});
+	/** A track with NO art at all — a clean miss (cacheable, falls through). */
+	const LF_MISS = JSON.stringify({ track: { name: 'X', artist: { name: 'Y' } } });
+
+	it('NO key → the chain is byte-identical to today (Deezer first, never a Last.fm call)', async () => {
+		const { calls } = stubTiers({ dz: DZ_MISS, it: IT_MISS, kw: KW_MISS });
+		// No 5th argument at all — the pre-existing call shape.
+		const out = await resolveCoverTiered('song', 'Nobody', 'Nothing', fresh());
+		expect(out).toBeNull();
+		expect(calls.some((c) => c.includes('audioscrobbler'))).toBe(false);
+		expect(calls[0]).toContain('https://api.deezer.com/search');
+		expect(calls).toHaveLength(4); // 3 tiers + Fallback B, exactly as before
+	});
+
+	it('an EMPTY-STRING key is treated as absent (T-08-02 parity — no api_key=undefined upstream)', async () => {
+		const { calls } = stubTiers({ dz: DZ_HIT });
+		const out = await resolveCoverTiered('song', 'Nirvana', 'Come As You Are', fresh(), '');
+		expect(out).toBe(DZ_COVER);
+		expect(calls.some((c) => c.includes('audioscrobbler'))).toBe(false);
+	});
+
+	it('key + type=song → Last.fm runs FIRST; a hit costs ONE subrequest and never reaches Deezer', async () => {
+		const { calls } = stubTiers({ lf: lfHit() });
+		const out = await resolveCoverTiered('song', '方大同', '紅豆', fresh(), KEY);
+		expect(out).toBe(LF_IMG);
+		expect(calls).toHaveLength(1);
+		expect(calls[0]).toContain('https://ws.audioscrobbler.com/2.0/');
+		expect(calls[0]).toContain('method=track.getinfo');
+		expect(calls[0]).toContain('format=json');
+		// Every interpolated value is encodeURIComponent'd into the fixed template (T-wv8-01).
+		expect(calls[0]).toContain(encodeURIComponent('方大同'));
+		expect(calls[0]).toContain(encodeURIComponent('紅豆'));
+		expect(calls[0]).toContain(`api_key=${encodeURIComponent(KEY)}`);
+		// The key stays edge-side: it is in the upstream URL only, never in the returned value.
+		expect(out).not.toContain(KEY);
+	});
+
+	it('picks the LARGEST image by Last.fm size rank, not array order', async () => {
+		stubTiers({ lf: lfHit() });
+		const out = await resolveCoverTiered('song', 'A', 'B', fresh(), KEY);
+		expect(out).toBe(LF_IMG); // extralarge, even though `small` came first in the array
+	});
+
+	it('reads the top-level track.image[] in preference to the album image (api/lastfm/info parity)', async () => {
+		const TOP = 'https://lastfm-img.freetls.fastly.net/i/u/300x300/toplevel.png';
+		stubTiers({
+			lf: JSON.stringify({
+				track: {
+					image: [{ '#text': TOP, size: 'extralarge' }],
+					album: { image: [{ '#text': LF_IMG, size: 'mega' }] }
+				}
+			})
+		});
+		const out = await resolveCoverTiered('song', 'A', 'B', fresh(), KEY);
+		expect(out).toBe(TOP);
+	});
+
+	it('type=album and type=artist never call Last.fm (track.getInfo has no analogue we want)', async () => {
+		const album = stubTiers({ dz: DZ_HIT }).calls;
+		expect(await resolveCoverTiered('album', 'Nirvana', 'Nevermind', fresh(), KEY)).toBe(DZ_COVER);
+		expect(album.some((c) => c.includes('audioscrobbler'))).toBe(false);
+
+		vi.unstubAllGlobals();
+		const artist = stubTiers({ dz: DZ_HIT }).calls;
+		expect(await resolveCoverTiered('artist', 'Nirvana', '', fresh(), KEY)).toBe(DZ_PICTURE);
+		expect(artist.some((c) => c.includes('audioscrobbler'))).toBe(false);
+	});
+
+	it('a clean MISS (no image) falls through to the unchanged Deezer → iTunes → kuwo chain', async () => {
+		const { calls } = stubTiers({ lf: LF_MISS, dz: DZ_MISS, it: IT_MISS, kw: KW_HIT });
+		const out = await resolveCoverTiered('song', 'A', 'B', fresh(), KEY);
+		expect(out).toBe(KW_PIC);
+		expect(calls[0]).toContain('audioscrobbler');
+		expect(calls[1]).toContain('api.deezer.com');
+		expect(calls[2]).toContain('itunes.apple.com');
+		expect(calls[3]).toContain('kw-api.cenguigui.cn');
+	});
+
+	it('a GREY-STAR placeholder is a MISS, never a hit (ENRICH-02 / D-04 guardrail 2)', async () => {
+		const { calls } = stubTiers({ lf: lfHit(LF_GREY), dz: DZ_HIT });
+		const out = await resolveCoverTiered('song', 'A', 'B', fresh(), KEY);
+		expect(out).toBe(DZ_COVER); // a real cover must never regress to the placeholder
+		expect(calls).toHaveLength(2);
+	});
+
+	it('a non-ok / malformed / throwing Last.fm is an ERROR (never negative-cached), and a later tier still wins', async () => {
+		// non-ok → all other tiers cleanly miss → 'ERROR', so /api/og will NOT cache the fault.
+		const notOk = stubTiers({ lf: 'NOTOK', dz: DZ_MISS, it: IT_MISS, kw: KW_MISS });
+		expect(await resolveCoverTiered('song', 'A', 'B', fresh(), KEY)).toBe('ERROR');
+		expect(notOk.calls[0]).toContain('audioscrobbler');
+
+		// malformed JSON body → same posture.
+		vi.unstubAllGlobals();
+		stubTiers({ lf: 'not json at all', dz: DZ_MISS, it: IT_MISS, kw: KW_MISS });
+		expect(await resolveCoverTiered('song', 'A', 'B', fresh(), KEY)).toBe('ERROR');
+
+		// network throw, but Deezer answers → the HIT wins over the fault.
+		vi.unstubAllGlobals();
+		stubTiers({ lf: 'THROW', dz: DZ_HIT });
+		expect(await resolveCoverTiered('song', 'A', 'B', fresh(), KEY)).toBe(DZ_COVER);
+
+		// Last.fm's own error envelope (a 200 with { error, message }) is drift → ERROR, not a hit.
+		vi.unstubAllGlobals();
+		stubTiers({ lf: JSON.stringify({ error: 6, message: 'Track not found' }), dz: DZ_MISS, it: IT_MISS, kw: KW_MISS });
+		expect(await resolveCoverTiered('song', 'A', 'B', fresh(), KEY)).toBe('ERROR');
+	});
+
+	it('safeLastfmImageUrl allows only https last.fm / *.last.fm / *.fastly.net', () => {
+		expect(safeLastfmImageUrl(LF_IMG)).toBe(LF_IMG);
+		expect(safeLastfmImageUrl('https://last.fm/i/u/300x300/a.png')).toBe('https://last.fm/i/u/300x300/a.png');
+		expect(safeLastfmImageUrl('https://img.last.fm/x.png')).toBe('https://img.last.fm/x.png');
+		expect(safeLastfmImageUrl(LF_IMG.replace('https:', 'http:'))).toBeNull();
+		// Another tier's host must NOT pass the Last.fm allow-list (T-wv8-05, T-38i-02).
+		expect(safeLastfmImageUrl(DZ_COVER)).toBeNull();
+		expect(safeLastfmImageUrl(IT_ART_600)).toBeNull();
+		expect(safeLastfmImageUrl(KW_PIC)).toBeNull();
+		// Suffix-confusion hosts.
+		expect(safeLastfmImageUrl('https://evil-last.fm.example/x.png')).toBeNull();
+		expect(safeLastfmImageUrl('https://notlast.fm/x.png')).toBeNull();
+		expect(safeLastfmImageUrl('https://evilfastly.net/x.png')).toBeNull();
+		// The grey-star placeholder is rejected AT THE ALLOW-LIST, not just at the picker.
+		expect(safeLastfmImageUrl(LF_GREY)).toBeNull();
+		// CSS/attribute breakers + never-throw on junk.
+		for (const bad of ['(', ')', ' ', '"', "'", '\\']) {
+			expect(safeLastfmImageUrl(`https://lastfm-img.freetls.fastly.net/a${bad}b.png`)).toBeNull();
+		}
+		expect(safeLastfmImageUrl(null)).toBeNull();
+		expect(safeLastfmImageUrl(undefined)).toBeNull();
+		expect(safeLastfmImageUrl('')).toBeNull();
+		expect(safeLastfmImageUrl('not-a-url')).toBeNull();
+	});
+
+	it('a Last.fm body smuggling an mzstatic/kuwo host is rejected and falls through', async () => {
+		const { calls } = stubTiers({
+			lf: JSON.stringify({ track: { image: [{ '#text': IT_ART_600, size: 'extralarge' }] } }),
+			dz: DZ_HIT
+		});
+		const out = await resolveCoverTiered('song', 'A', 'B', fresh(), KEY);
+		expect(out).toBe(DZ_COVER);
+		expect(calls).toHaveLength(2);
+	});
+
+	it('/api/og threads platform.env.LASTFM_KEY into the tier (edge-side only)', async () => {
+		const { calls } = stubRoute({ lf: lfHit() });
+		const res = await callGET(fakeEvent(SONG, 'https://openmusic.lol', { LASTFM_KEY: KEY }));
+		expect(res.status).toBe(200);
+		expect(res.headers.get('content-type')).toBe('image/jpeg');
+		expect(calls[0]).toContain('ws.audioscrobbler.com');
+		expect(calls[0]).toContain(`api_key=${encodeURIComponent(KEY)}`);
+		// 1 resolve + 1 image. The key never leaves the edge: it is absent from every response header.
+		expect(calls).toHaveLength(2);
+		for (const [, v] of res.headers) expect(v).not.toContain(KEY);
+	});
+
+	it('/api/og with NO platform env keeps the keyless chain (regression guard for the absent-key state)', async () => {
+		const { calls } = stubRoute({ dz: DZ_HIT });
+		const res = await callGET(fakeEvent(SONG));
+		expect(res.status).toBe(200);
+		expect(calls.some((c) => c.includes('audioscrobbler'))).toBe(false);
+	});
+});
+
 describe('og-cover — closed type set + branded fallback constant', () => {
 	it('isOgType accepts exactly song/album/artist', () => {
 		expect(isOgType('song')).toBe(true);
@@ -473,17 +668,32 @@ type ImageReply = 'jpeg' | 'png' | 'html' | 'nolength' | 'THROW' | 'NOTOK';
  * host — the cover URL always lives on a tier's own allow-listed CDN). Returns the call log so
  * "no second upstream fetch" and "≤4 subrequests" are assertable.
  */
-function stubRoute(replies: { dz?: TierReply; it?: TierReply; kw?: TierReply; image?: ImageReply }) {
+function stubRoute(replies: {
+	lf?: TierReply;
+	dz?: TierReply;
+	it?: TierReply;
+	kw?: TierReply;
+	image?: ImageReply;
+}) {
 	const calls: string[] = [];
 	const spy = vi.fn(async (input: RequestInfo | URL) => {
 		const u = String(input);
 		calls.push(u);
-		if (u.includes('api.deezer.com') || u.includes('itunes.apple.com') || u.includes('kw-api')) {
-			const reply = u.includes('api.deezer.com')
-				? replies.dz
-				: u.includes('itunes.apple.com')
-					? replies.it
-					: replies.kw;
+		// quick-260809-38i: audioscrobbler joins the tier hosts so a Last.fm call is never mistaken for
+		// the image-bytes fetch (the catch-all branch below).
+		if (
+			u.includes('ws.audioscrobbler.com') ||
+			u.includes('api.deezer.com') ||
+			u.includes('itunes.apple.com') ||
+			u.includes('kw-api')
+		) {
+			const reply = u.includes('ws.audioscrobbler.com')
+				? replies.lf
+				: u.includes('api.deezer.com')
+					? replies.dz
+					: u.includes('itunes.apple.com')
+						? replies.it
+						: replies.kw;
 			if (reply === undefined || reply === 'THROW') throw new Error('network down');
 			if (reply === 'NOTOK') return new Response('upstream error', { status: 500 });
 			return new Response(reply, { status: 200, headers: { 'content-type': 'application/json' } });
@@ -526,13 +736,19 @@ function stubCache() {
 	return { store, putKeys, cacheStub };
 }
 
-function fakeEvent(search: Record<string, string>, origin = 'https://openmusic.lol') {
+function fakeEvent(
+	search: Record<string, string>,
+	origin = 'https://openmusic.lol',
+	env?: Record<string, string>
+) {
 	const url = new URL('https://openmusic.lol/api/og');
 	for (const [k, v] of Object.entries(search)) url.searchParams.set(k, v);
 	return {
 		url,
-		// platform: undefined PROVES the endpoint needs no key/secret — all three tiers are keyless.
-		platform: undefined,
+		// quick-260809-38i: platform stays undefined by DEFAULT, and that is still a real assertion —
+		// the keyless Deezer/iTunes/kuwo chain must remain the complete behaviour with no Env at all.
+		// An explicit `env` is passed only by the Last.fm-tier cases.
+		platform: env ? { env } : undefined,
 		request: new Request(url, { headers: { origin } })
 	};
 }
