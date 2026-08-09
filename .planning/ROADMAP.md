@@ -244,9 +244,9 @@ Scope (candidate plans — plan-phase breaks these down):
 ### Phase 31: Faster, smoother playback — cut click-to-play latency and stop failed/skipped tracks
 
 **Goal:** Playback feels streaming-instant and never dead-ends: tap→audio start is fast, the next track never silently fails, and a broken download falls back to the normal resolver chain instead of being skipped.
-**Requirements**: TBD
+**Requirements**: D-01..D-19 (locked decisions in 31-CONTEXT.md — `phase_req_ids` is null, so the D-numbers are the traceability keys)
 **Depends on:** Phase 30
-**Plans:** 0 plans
+**Plans:** 6 plans (4 waves)
 
 Scope (raw, pre-planning):
 - **Click-to-play latency** — cut time from tap to first audio. Resolve path, prefetch, warming the next track's URL before it's needed.
@@ -261,4 +261,9 @@ Scope (raw, pre-planning):
 - So: "do we need a CF DB" is really "do we wire up the D1/R2 that were already provisioned and abandoned, or is Cache API (already used by `/api/og`) enough." Cache API is the cheapest rung; D1/R2 only if a cross-user, cross-PoP durable store is genuinely required.
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 31 to break down)
+- [ ] 31-01-PLAN.md — corrupt-download self-repair: blob size gate, provenance flag, eviction + background re-download (D-12/13/14) [wave 1]
+- [ ] 31-02-PLAN.md — reliability policy: cross-source retry before skip, forgiving strikes, skip toasts (D-15/16/17/18) [wave 2]
+- [ ] 31-03-PLAN.md — `/api/resolve` edge cache: versioned `caches.default` entry, edge-side fill, delete-only bust (D-06/07/09/10) [wave 1]
+- [ ] 31-04-PLAN.md — client cache-first read + dead-URL bust report, advisory and never-throwing (D-08/09/11) [wave 3]
+- [ ] 31-05-PLAN.md — pre-warm on top search result and menu open, via one testable seam (D-03) [wave 1]
+- [ ] 31-06-PLAN.md — phase gate + human verification of the real cache cycle and measured latency [wave 4]
