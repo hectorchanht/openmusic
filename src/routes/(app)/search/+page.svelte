@@ -2,6 +2,7 @@
 	import { onDestroy, onMount, tick } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { searchAll } from '$lib/services/catalog';
+	import { prewarmTrack } from '$lib/services/prewarm';
 	import { dedupeBest, groupVariants } from '$lib/services/dedupe';
 	import { dedupeBestWithDeezer } from '$lib/services/dedupe-deezer';
 	import { scoreMatch } from '$lib/services/score-match';
@@ -170,6 +171,7 @@
 	// (typing back to empty).
 	function resetResults() {
 		results = [];
+		lastPrewarmedUid = ''; // 31-D-03: a fresh query may pre-warm its own top row
 		variantGroups = {};
 		artistTiles = [];
 		artistTilesFor = '';
@@ -323,6 +325,7 @@
 		// D-02: a NEW query resets pagination AND clears the prior result set so the
 		// D-01 first-load skeleton shows immediately.
 		results = [];
+		lastPrewarmedUid = ''; // 31-D-03: the new query's top row is a new pre-warm candidate
 		variantGroups = {}; // VERSIONS-01: drop the prior query's variant groups too
 		inputFocused = false;
 		loading = true;
@@ -469,6 +472,31 @@
 	// Create / tear down the IntersectionObserver whenever the sentinel mounts or
 	// changes. root:null = the viewport because the WINDOW scrolls (see reuse_note);
 	// rootMargin prefetches the next batch slightly before the true bottom.
+	// 31-D-03 PRE-WARM (trigger 1 of the phase's two; trigger 2 is TrackMenu open). Speculatively
+	// resolve the TOP result the moment a result set renders, so the most-likely tap plays without a
+	// cold resolve — the click-to-play win comes from resolving BEFORE the tap, not from failing over
+	// sooner (31-D-01 leaves every timeout alone).
+	//
+	// Pitfall 5 guard: `results` is reassigned 4+ times per query — once per source partial inside
+	// onPartial (:343), once on the final settle (:348), and again when the Deezer-boosted re-rank
+	// lands (:363) — and the IDENTITY of results[0] changes across them, so this effect fires 4-8×
+	// per search. `lastPrewarmedUid` is PLAIN, not $state (the UI never reads it; the house idiom is
+	// TrackMenu's versionGen), and it is the first of three composed-free bounds: prewarmTrack's own
+	// uid Set is the second and apiFetch's in-flight GET dedupe is the third. NO timer here — the uid
+	// compare is stateless and sufficient, and composing a fresh local bound with the governor is the
+	// documented root cause of the api-fetch-flood-freeze class of bug.
+	//
+	// Deliberately gesture-only: nothing pre-warms on scroll. A viewport-observer trigger over the
+	// visible rows is the exact traffic shape behind that freeze and is a deferred idea, not a
+	// stretch goal — the two triggers above are the whole feature.
+	let lastPrewarmedUid = '';
+	$effect(() => {
+		const top = results[0];
+		if (!top || top.uid === lastPrewarmedUid) return;
+		lastPrewarmedUid = top.uid;
+		prewarmTrack(top);
+	});
+
 	$effect(() => {
 		const el = sentinelEl;
 		if (!el) return;

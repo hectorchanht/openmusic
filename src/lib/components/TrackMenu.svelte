@@ -18,6 +18,7 @@
 	import { isGatedReady, shouldStartResolve } from './track-menu-gate';
 	import { t } from '$lib/i18n';
 	import { ensureTrackDetails } from '$lib/services/catalog';
+	import { prewarmTrack } from '$lib/services/prewarm';
 	// Gap 4 (26-10): the LAZY on-demand cross-source variant fetch (26-08) fed to the Play-from-source
 	// picker — fired ONLY on the row tap, never on menu open (T-26-10-02).
 	import { fetchVariants } from '$lib/services/variants';
@@ -76,6 +77,24 @@
 			const next = new Set(inFlight); next.delete(key); inFlight = next;
 		}
 	}
+
+	// 31-D-03 PRE-WARM (trigger 2 of the phase's two; trigger 1 is the top search result). Opening
+	// this menu is a strong intent signal, so speculatively resolve THIS ONE track now — the tap that
+	// follows then short-circuits on ensureTrackDetails' readiness guard instead of paying a cold
+	// resolve. TrackMenu is mounted from seven route pages, so this single effect also covers every
+	// page's long-press for free (a long-press only sets `open`). This is `gated()` minus the spinner
+	// and minus the toast: pre-warm is speculative, so it must stay completely invisible on failure.
+	//
+	// NOT a T-26-10-02 VIOLATION — read this together with the header comment at :42-51. T-26-10-02
+	// bans a cross-source FAN-OUT on menu open: `openVersions` → `fetchVariants` searches EVERY
+	// enabled source, which is why it stays opt-in behind the Play-from-source row tap. 31-D-03
+	// authorises exactly ONE single-track `ensureTrackDetails` — one resolve on the track's own
+	// source, not a search across sources. Different traffic shape, different rule; both stand.
+	// Dedupe (per uid, and against an in-flight resolve) lives in prewarmTrack, so re-opening the
+	// same menu issues nothing.
+	$effect(() => {
+		if (open && track) prewarmTrack(track);
+	});
 
 	function close() {
 		pickerOpen = false;
