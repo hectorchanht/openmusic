@@ -340,6 +340,13 @@ class Player {
 	 *  track change invalidates prior heals and keeps the set from growing unbounded. Plain field. */
 	private healProbed = new Set<string>();
 
+	/** quick-260809-38i: the uid whose cover a SURFACE verified and handed to adoptCover. Read only by
+	 *  upgradeCoverAsync, so a slow Deezer HQ upgrade fired at play() time cannot land AFTER an adopted
+	 *  (onload-verified, strictly-larger) cover and silently downgrade it. Cleared at play() entry — a
+	 *  genuine track change invalidates the prior adoption. Plain field: an internal supersedence flag
+	 *  the UI never reads reactively (same posture as healProbed/playGen). */
+	private adoptedCoverUid: string | null = null;
+
 	/** Monotonic queue generation (WR-06): bumped by every explicit setQueue() so an in-flight
 	 * regenerate() (network-bound, seconds) can detect that the caller has since installed an
 	 * EXPLICIT queue (e.g. playAlbum: playStub's [first] → regenerate races resolveAllCached →
@@ -2459,6 +2466,7 @@ class Player {
 		this.rapidErrorBurst = 0;
 		this.lastAudioErrorAt = 0;
 		this.healProbed.clear(); // quick-260704-20e: a new track invalidates prior current-cover heals (also caps set growth).
+		this.adoptedCoverUid = null; // quick-260809-38i: a new track invalidates the prior track's adopted-cover flag.
 		// A direct play() (queue/auto-advance/share link) supersedes any optimistic overlay,
 		// so a stale pending bar never lingers once a real track takes over.
 		this.pendingTrack = null;
@@ -2884,6 +2892,10 @@ class Player {
 			url = null; // resolveDeezerHQ never throws, but stay defensive — never reject.
 		}
 		if (myGen !== this.playGen) return; // a newer play() superseded — keep the current art (T-21-06)
+		// quick-260809-38i: a surface already adopted an onload-VERIFIED cover for this exact track, so a
+		// late Deezer HQ result must not overwrite it (a bigger byte count is not a better match). Fires
+		// at play() time and adoption is almost always later, so this only closes the reverse race.
+		if (this.adoptedCoverUid === resolved.uid) return;
 		if (!httpsOnly(url) || url === this.resolvedCover) return; // miss / no change → inline cover stands
 		this.resolvedCover = url;
 		// resolveDeezerHQ already wrote BOTH cache layers — only bump the reactive signal (mirror Site C).
@@ -2924,16 +2936,64 @@ class Player {
 	}
 
 	/**
+	 * quick-260809-38i: the ONE seam through which a surface that has VERIFIED a better cover hands it
+	 * to the shared authority (COVER-01 / D-09). NowPlaying's Last.fm hi-res swap used to assign a
+	 * COMPONENT-LOCAL `$state`, so it won on the hero ONLY: Nowbar reads `resolvedCover ?? np.cover`
+	 * and the OS media card reads `resolvedCover ?? readCoverByUidOrName(...)`, so both were
+	 * structurally blind to it and the shared cache never learned the better art — one song, three
+	 * covers (the reported mismatch). Promoting here fixes every reader at once instead of teaching
+	 * each surface about the swap.
+	 *
+	 * The CALLER owns the contest (maybeSwapCover still measures the candidate against the raw SOURCE
+	 * cover via onload, D-04 g3 strictly-larger); this only commits the winner, under the same guards
+	 * every other cover writer uses:
+	 *   1. uid identity — a stale enrichment that lands after a track change is discarded (mirrors
+	 *      healCover step 1: the caller's uid IS the identity, not a captured generation).
+	 *   2. httpsOnly — never cache/paint a non-https or empty value (T-0bb-01).
+	 *   3. same-url — idempotent: no re-write, no version bump, no metadata churn.
+	 * Then: set the one field, flag the uid so a late upgradeCoverAsync cannot downgrade it, write BOTH
+	 * cache layers via writeCoverBoth (which bumps the reactive signal ITSELF — do NOT also call
+	 * bumpCoverVersion, that is the Site C double-write), and re-fire a FRESH MediaMetadata (never an
+	 * in-place artwork mutate, A2/Pitfall 4). Never throws — it is called from an <img> onload handler.
+	 */
+	adoptCover(uid: string, url: string): void {
+		try {
+			const cur = this.current;
+			if (!cur || cur.uid !== uid) return; // (1) no track / superseded — discard
+			if (!httpsOnly(url)) return; // (2) not a cacheable, renderable URL
+			if (url === this.resolvedCover) return; // (3) already showing it — nothing to do
+			this.resolvedCover = url;
+			this.adoptedCoverUid = uid;
+			// Writes uid + name layers AND bumps the reactive signal, so every sibling surface for this
+			// song (up-next rows, search tiles, backfill) repaints with the same art.
+			writeCoverBoth(uid, cur.artist, cur.title, url);
+			const ms = this.ms;
+			if (ms) {
+				ms.metadata = makeMetadata({
+					title: names.dnTitle(cur.title),
+					artist: names.dnArtist(cur.artist),
+					album: cur.album,
+					artwork: buildArtwork(this.resolvedCover)
+				});
+				ms.playbackState = playbackStateFor(!!this.current, this.playing);
+			}
+		} catch {
+			// Best-effort — a failure leaves the previous cover standing (never throws into a DOM handler).
+		}
+	}
+
+	/**
 	 * quick-260704-20e: SELF-HEAL a DEAD current cover — the missing counterpart to resolveCoverAsync
 	 * (which fires only when resolvedCover is NULL). resolvedCover is seeded FIRST from track.cover — a
 	 * source-CDN thumbnail that frequently expires / is served over http: — and resolveCoverAsync's
 	 * `if (!this.resolvedCover)` guard never re-resolves a non-null-but-DEAD URL, so the now-playing
 	 * current cell paints a broken url as a CSS background = the reported "black cover". This mirrors
 	 * lazyCover's per-row dead-URL self-heal (probe → removeCoverBoth → resolveCoverForTrack) but for
-	 * the ONE now-playing field. NowPlaying calls this ONLY when effectiveCover === player.resolvedCover
-	 * (swappedCover absent) — the Last.fm hi-res swap path is untouched (it wins via
-	 * effectiveCover = swappedCover ?? resolvedCover, and is already verified real by maybeSwapCover's
-	 * onload before it is set). NOT gated on the audio `playing` event (MEMORY: that froze iOS
+	 * the ONE now-playing field. quick-260809-38i: NowPlaying now calls this for ANY non-null displayed
+	 * cover — the Last.fm hi-res swap is no longer a separate component-local field to opt out of, it
+	 * lands in resolvedCover via adoptCover. That is safe because adoptCover only ever commits an
+	 * onload-VERIFIED url, so step (5)'s probe loads and returns on the zero-network fast path.
+	 * NOT gated on the audio `playing` event (MEMORY: that froze iOS
 	 * background playback — reverted). Reuses existing helpers only — no new resolver/cache/dep/route.
 	 */
 	async healCover(uid: string) {

@@ -75,7 +75,8 @@
 	// (a reactive uid→url record repainted via onCoverResolved). Values are SOLID https URLs only
 	// (lazyCover's isHttps gate) — safe for the existing background-image render path, no widening
 	// of the injection surface (T-nyl-01 / inherits T-0bb-01). The carousel CURRENT cell is NOT
-	// driven by this map (it keeps player.resolvedCover + the Last.fm swap — see effectiveCover); it
+	// driven by this map (it keeps player.resolvedCover, which since quick-260809-38i also carries the
+	// adopted Last.fm swap — see effectiveCover); it
 	// instead self-heals a DEAD player.resolvedCover via player.healCover in its own $effect near the
 	// effectiveCover derivation (quick-260704-20e) — the map stays neighbors-only.
 	let resolvedCovers = $state<Record<string, string>>({});
@@ -454,13 +455,13 @@
 	// idiom). A non-Last.fm track / absent key resolves to the all-empty shape, so
 	// nothing renders and the source cover is never disturbed.
 	let enrichedFor = '';
-	let swappedCover = $state<string | null>(null);
 	$effect(() => {
 		const cur = player.current;
 		const uid = cur?.uid ?? '';
 		if (!cur || enrichedFor === uid) return;
 		enrichedFor = uid;
-		swappedCover = null; // reset — never carry the previous track's swapped art
+		// quick-260809-38i: no local per-uid reset is needed any more — the adopted cover lives in
+		// player.resolvedCover, which play() already repoints on every track change.
 		void enrichTrack(cur).then((r) => {
 			if (player.current?.uid !== uid) return; // track changed mid-flight — discard
 			// Tags/genre chips are hidden now (quick-260607-f4y) — enrichment is kept ONLY for
@@ -475,6 +476,14 @@
 	// regresses to a placeholder/broken image — the endpoint already filtered the
 	// grey-star/empty art, and we keep the source cover when lastfmArt is null
 	// (ENRICH-02 overrides D-03). Best-effort + async — never blocks first paint.
+	//
+	// quick-260809-38i — INVARIANT CHANGE: the winner is PROMOTED, not held locally. The adopted art
+	// used to land in a component-local $state field, so it won on the hero ONLY while the
+	// Nowbar (player.resolvedCover ?? np.cover) and the OS media card kept the old album — one song,
+	// three covers. `player.adoptCover` now commits it to the single shared field + BOTH cache layers,
+	// so every reader follows. What is measured is UNCHANGED: the candidate is still weighed against
+	// `forTrack.cover` (the raw SOURCE cover), never against resolvedCover — that comparison is what
+	// produces the correct cover, so only the destination moved.
 	function maybeSwapCover(art: string, forTrack: Track) {
 		if (typeof Image === 'undefined') return; // SSR guard
 		// Adopt the Last.fm art only when its real width exceeds the source cover's
@@ -484,7 +493,9 @@
 			const img = new Image();
 			img.onload = () => {
 				if (player.current?.uid !== forTrack.uid) return; // track changed — abort
-				if (img.naturalWidth > srcWidth) swappedCover = art;
+				// quick-260809-38i: hand the verified winner to the ONE shared authority (the store
+				// re-checks the uid, the https gate and same-url idempotence itself).
+				if (img.naturalWidth > srcWidth) player.adoptCover(forTrack.uid, art);
 			};
 			img.onerror = () => {}; // broken candidate → keep the source cover
 			img.src = art;
@@ -503,10 +514,11 @@
 		src.src = forTrack.cover;
 	}
 
-	// Effective now-playing cover: the swapped hi-res Last.fm art when adopted (a strictly-larger
-	// upgrade, so it still wins), else the single player.resolvedCover field (COVER-01 / D-09) —
-	// which already encompasses track.cover, the uid/name cache, AND the async tier-chain resolve,
-	// so a no-cover-source track shows resolved art here once the chain lands.
+	// Effective now-playing cover: the single player.resolvedCover field (COVER-01 / D-09) — which
+	// already encompasses track.cover, the uid/name cache, the async tier-chain resolve AND (since
+	// quick-260809-38i) the adopted hi-res Last.fm swap, so a no-cover-source track shows resolved art
+	// here once the chain lands. The swap no longer needs a head position in this chain: it IS
+	// resolvedCover the moment maybeSwapCover adopts it.
 	//
 	// cover-hero-mediacard-missing (Issue 1): FINAL fallback = the reactive cover cache (uid → name).
 	// Before this, the hero was the ONLY cover surface not bound to the cache: it read resolvedCover
@@ -518,8 +530,7 @@
 	// while up-next has it". readCoverByUidOrName depends on coverVersion(), so the hero now repaints
 	// the instant ANY cover lands for the current song. Null (all miss) → the seeded gradient (D-12).
 	const effectiveCover = $derived(
-		swappedCover ??
-			player.resolvedCover ??
+		player.resolvedCover ??
 			(player.current
 				? readCoverByUidOrName(player.current.uid, player.current.artist, player.current.title)
 				: null)
@@ -530,16 +541,18 @@
 	// frequently expires / is served over http:), so a non-null-but-dead URL paints the current cell
 	// black (the reported bug). This $effect takes reactive deps on the current uid + effectiveCover
 	// and fires player.healCover (probe → evict → re-resolve under the playGen guard) at most once per
-	// uid+url. It heals ONLY the player.resolvedCover path: it returns early when swappedCover is
-	// present (the Last.fm hi-res upgrade already won — maybeSwapCover verifies it via onload before
-	// setting it, so there is nothing to heal, and the swappedCover-wins invariant is preserved) and
-	// when effectiveCover is null (a true miss shows the gradient — nothing to probe). Fire-and-forget:
-	// healCover is never-throw, one-shot, and generation-guarded, so re-runs on re-render are safe.
+	// uid+url. It returns early when effectiveCover is null (a true miss shows the gradient — nothing
+	// to probe). Fire-and-forget: healCover is never-throw, one-shot, and generation-guarded, so
+	// re-runs on re-render are safe.
+	//
+	// quick-260809-38i: the old "a local swap is showing → skip the heal" opt-out is GONE rather than
+	// moved. An adopted cover is onload-VERIFIED before adoptCover commits it, so healCover's probe
+	// simply loads and takes its zero-network fast path (step 5, `alive → return`) — the opt-out was
+	// protecting against work that cannot happen. A live adopted cover can never be evicted here.
 	$effect(() => {
 		const uid = player.current?.uid;
 		const cover = effectiveCover; // reactive dep — re-run when the displayed cover changes
 		if (!uid) return; // no current track
-		if (swappedCover) return; // Last.fm hi-res swap won — do not touch it (heal only resolvedCover)
 		if (!cover) return; // true miss → gradient; nothing to probe
 		void player.healCover(uid); // fire-and-forget; the one-shot guard lives in the store
 	});
