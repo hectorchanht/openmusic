@@ -69,7 +69,8 @@ describe('resolveOnEdge — happy path', () => {
 		expect(calls).toHaveLength(2);
 		// Upstream host + param shape come from kuwoProxy.buildUrl, never hand-written here.
 		expect(calls[0].startsWith(SEARCH_HOST)).toBe(true);
-		expect(calls[0]).toContain(`name=${encodeURIComponent(`${ARTIST} ${TITLE}`)}`);
+		// URLSearchParams serialization: a space is `+`, not %20.
+		expect(calls[0]).toContain(`name=${`${ARTIST} ${TITLE}`.replace(/ /g, '+')}`);
 		expect(calls[0]).toContain('limit=10');
 		expect(calls[1]).toContain('id=4212');
 		expect(calls[1]).toContain('type=song');
