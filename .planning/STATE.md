@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: YTMusic-Powered Up-Next
 status: executing
-stopped_at: Phase 31 context gathered
-last_updated: "2026-08-09T11:45:36.513Z"
+stopped_at: Completed 31-04-PLAN.md
+last_updated: "2026-08-09T12:01:51.521Z"
 last_activity: 2026-08-09
 progress:
   total_phases: 7
   completed_phases: 4
   total_plans: 42
-  completed_plans: 35
+  completed_plans: 36
   percent: 57
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-06-10)
 ## Current Position
 
 Phase: 31 (faster-smoother-playback-cut-click-to-play-latency-and-stop) — EXECUTING
-Plan: 5 of 6
+Plan: 6 of 6
 Status: Executing Phase 31
 
 ### 30-06 checkpoint status
@@ -120,6 +120,7 @@ Remaining human UAT: real-device <audio> playback+seek + download-to-disk; deplo
 | Phase 31 P03 | ~20 min | 3 tasks | 8 files |
 | Phase 31 P05 | ~10 min | 2 tasks | 4 files |
 | Phase 31 P02 | 20 min | 3 tasks | 2 files |
+| Phase 31 P04 | ~25 min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -204,6 +205,8 @@ Recent decisions affecting current work:
 - [Phase ?]: 31-D-15: the cross-source retry lives at handleDefinitiveFailure and reuses the existing per-episode fallbackAttempted set; it never increments failoverSkips because it repairs a track rather than skipping one
 - [Phase ?]: 31-D-18: needed zero new i18n keys — routing the two visible silent skip paths into the existing batched emitSkipNotice channel was the whole job
 - [Phase ?]: 31-D-17: bg-error-skip keeps BOTH omissions (no notice, no failoverSkips increment) and now documents why — counting it would let an unattended locked device reach SYSTEMIC_SKIP_CAP and pause itself
+- [Phase ?]: 31-04: the resolve-cache bust self-gates in the service via a served-url registry — the player gains one unconditional line and no new provenance flag
+- [Phase ?]: 31-04: a source-bearing track adopts a cached url only on source+songid equality; a dry-source filter that would empty the walk degrades to the full order
 
 ### Pending Todos
 
@@ -373,8 +376,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-09T11:44:51.664Z
-Stopped at: Phase 31 context gathered
+Last session: 2026-08-09T12:01:45.640Z
+Stopped at: Completed 31-04-PLAN.md
 Resume: install `android/app/build/outputs/apk/debug/app-debug.apk` on an Android device, open `/song/Olivia-Dean/Man-I-Need` (proven to return a real 30,840 B JPEG from production), confirm the cover renders rather than a broken image, then kill the network and confirm the gradient fallback appears. That single check closes 30-06 and Phase 30. Do NOT run `/gsd:verify-work` for Phase 30 until it is approved — OG-PAGE-01 terminates in it. Optional, non-blocking leftovers: iMessage/Slack cards, and real 24h cache TTL/eviction.
 
 ## Deferred Items
