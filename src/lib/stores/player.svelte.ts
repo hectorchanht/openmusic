@@ -859,9 +859,22 @@ class Player {
 	 * a real `playing` event so a recovered track resets cleanly. Session-scoped, never persisted.
 	 */
 	private unplayableStrikes = new Map<string, number>();
-	/** Confirmed-definitive-failure strikes required before a uid is promoted into unplayableUids
-	 *  (the over-aggressive-skip fix). Private static for tunability. */
-	private static STRIKE_CAP = 2;
+	/**
+	 * Confirmed-definitive-failure strikes required before a uid is promoted into unplayableUids
+	 * (the over-aggressive-skip fix). Private static for tunability.
+	 *
+	 * 31-D-16: raised 2 → 3, and deliberately NOT further. The complaint this addresses is "a tunnel /
+	 * Wi-Fi blip blacklists half the queue for the session", and the cheap half of that fix is the
+	 * EAGER CLEARING below (clearAllStrikes on network recovery + foreground return) — refunding the
+	 * budget costs nothing. Raising the cap is the EXPENSIVE half: every extra strike is another
+	 * resolve + probe in the prefetch walk, multiplied again by RETRY_RESOLVE_MAX = 2 delayed re-runs
+	 * layered on top, which already gives a uid roughly 9 chances before it dies. Under a systemic
+	 * outage every track is a failing track, so per-track work multiplies across the whole queue —
+	 * exactly the "individually-bounded loops compose into an unbounded flood" shape that caused
+	 * api-fetch-flood-freeze. 3 is the smallest raise that survives two consecutive blips.
+	 * SYSTEMIC_SKIP_CAP (the only CROSS-track bound) is what actually backstops this — do not touch it.
+	 */
+	private static STRIKE_CAP = 3;
 
 	/**
 	 * quick-260627-huo (HUO-RETRY): max DELAYED fresh re-resolve attempts armed per uid before it is
@@ -901,6 +914,28 @@ class Player {
 	 *  clean and a transient blip never accumulates toward a false permanent skip. */
 	private clearStrike(uid: string): void {
 		this.unplayableStrikes.delete(uid);
+	}
+
+	/**
+	 * 31-D-16: refund the ENTIRE accumulated strike budget. Called from the two signals that mean "the
+	 * condition that produced those strikes is probably over": the network came back, and the user came
+	 * back to the app. A tunnel strikes every candidate the prefetch walk touches while it lasts, and
+	 * without this those strikes persist for the whole session, so the queue stays half-blacklisted
+	 * long after the connection recovered.
+	 *
+	 * Deliberately narrow — it refunds BUDGET and nothing else:
+	 *  - it does NOT call play(). A recovery signal is not an instruction to start audio;
+	 *    quick-260703-i7e removed foreground auto-resume because it caused unwanted playback.
+	 *  - it does NOT touch `unplayableUids`. A uid already promoted to dead survived the full strike +
+	 *    delayed-retry ladder; clearing the ✗ row stays with the explicit recovery points
+	 *    (retryUnplayable / advanceTo / recoverFromStop / clearQueue).
+	 *  - it does NOT cancel pending retryResolveTimers. Those are in-flight recovery work already
+	 *    bounded by RETRY_RESOLVE_MAX; cancelling them would throw away the retry, not grant one.
+	 */
+	private clearAllStrikes(reason: string): void {
+		if (this.unplayableStrikes.size === 0) return; // nothing to refund — don't log noise
+		logAction('strike.clear-all', { reason, n: this.unplayableStrikes.size });
+		this.unplayableStrikes.clear();
 	}
 
 	/**
@@ -1446,12 +1481,26 @@ class Player {
 				// only from explicit user action or normal track-end auto-advance.
 				if (document.hidden) {
 					this.flushPersist();
+				} else {
+					// 31-D-16: the ONE thing foreground return may do is refund the strike budget. A stint in
+					// a tunnel/background strikes every candidate the prefetch walk touched; coming back is
+					// good evidence those strikes were circumstantial, and refunding them is free.
+					// This branch must NEVER grow a play()/resume call — that is exactly what
+					// quick-260703-i7e removed, because it re-issued play() on the current track whenever the
+					// tab became visible and caused unwanted playback more often than it helped.
+					// clearAllStrikes is deliberately incapable of starting audio; keep it that way.
+					this.clearAllStrikes('foreground');
 				}
 			});
 			// Page Lifecycle API (Chrome/Android); browsers without it simply never fire it.
 			document.addEventListener('freeze', () => this.flushPersist());
 		}
 		if (typeof window !== 'undefined') {
+			// 31-D-16: network recovery refunds the strike budget (see clearAllStrikes). A PLAIN listener,
+			// not an $effect on online.isOnline: the layout mount effect untrack()s attach()+restore()
+			// precisely because tracked player state written during attach self-invalidates that effect
+			// (the restore-effect-self-invalidation-loop freeze class). A raw listener adds no tracked read.
+			window.addEventListener('online', () => this.clearAllStrikes('online'));
 			// Covers bfcache eviction / navigation away on mobile Safari + Chrome.
 			window.addEventListener('pagehide', () => this.flushPersist());
 			window.addEventListener('pageshow', (e: PageTransitionEvent) => {

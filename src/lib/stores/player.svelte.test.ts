@@ -209,6 +209,14 @@ const Player_SYSTEMIC_SKIP_CAP = 5;
 const Player_STALL_TIMEOUT_MS = 15000;
 /** Mirror of Player.PREFETCH_PLAYBACK_DELAY_MS (private static = 5000) for the delayed-trigger test. */
 const Player_PREFETCH_PLAYBACK_DELAY_MS = 5000;
+/**
+ * Mirror of Player.STRIKE_CAP (private static = 3 after 31-D-16 raised it from 2). NOTHING in the
+ * compiler checks that this mirror agrees with the source — before 31-02 every strike suite hardcoded
+ * the number inline, so a cap change silently rewrote what those suites meant. Drive strike walks off
+ * THIS constant so a future re-tune fails loudly (a walk that no longer reaches the cap) instead of
+ * quietly asserting the wrong contract.
+ */
+const Player_STRIKE_CAP = 3;
 
 /**
  * Minimal fake <audio> for attach(): records addEventListener handlers so a test can `.fire()`
@@ -1038,13 +1046,15 @@ describe('player delayed re-resolve — transient next-up failure recovers witho
 			player.queue = [cur, bad, good];
 			player.current = cur;
 
-			// FIRST two resolves of `bad` blip (no url) so it reaches STRIKE_CAP; AFTER that a fresh
-			// resolve returns a real url — the genuinely-playable song the user complained about.
+			// The FIRST Player_STRIKE_CAP resolves of `bad` blip (no url) so it reaches the cap; AFTER
+			// that a fresh resolve returns a real url — the genuinely-playable song the user complained
+			// about. Driven off the mirrored constant, not a literal, so a cap re-tune cannot silently
+			// leave this walk short of the cap (31-D-16).
 			let badCalls = 0;
 			mockEnsure.mockImplementation(async (t: Track) => {
 				if (t.uid === bad.uid) {
 					badCalls++;
-					return badCalls <= 2
+					return badCalls <= Player_STRIKE_CAP
 						? { ...bad, detailsLoaded: true, audioUrl: null } // transient blip
 						: { ...bad, detailsLoaded: true, audioUrl: 'https://cdn/bad-now.mp3' }; // recovered
 				}
@@ -1054,10 +1064,7 @@ describe('player delayed re-resolve — transient next-up failure recovers witho
 
 			// Drive the walk to STRIKE_CAP. Note: with fake timers, flush()'s own setTimeout(0) is a fake
 			// timer — advance by 0 to drain the microtask-flush macrotask between/after the awaits.
-			await prefetch();
-			await vi.advanceTimersByTimeAsync(0);
-			await prefetch();
-			await vi.advanceTimersByTimeAsync(0);
+			await driveToCapFake();
 
 			// Reached the cap → but NOT promoted to dead: a delayed re-resolve is armed instead (the fix).
 			expect(unplayable().has(bad.uid)).toBe(false);
@@ -1069,8 +1076,8 @@ describe('player delayed re-resolve — transient next-up failure recovers witho
 			await vi.advanceTimersByTimeAsync(Player_RETRY_RESOLVE_DELAY_MS);
 
 			expect(unplayable().has(bad.uid)).toBe(false);
-			// A fresh re-resolve for bad occurred (the 3rd+ call returns the recovered url).
-			expect(badCalls).toBeGreaterThanOrEqual(3);
+			// A fresh re-resolve for bad occurred (the post-cap call returns the recovered url).
+			expect(badCalls).toBeGreaterThanOrEqual(Player_STRIKE_CAP + 1);
 			expect(player.queue[1].audioUrl).toBe('https://cdn/bad-now.mp3');
 			// The timer cleaned up after firing (no orphan).
 			expect(retry().retryResolveTimers.has(bad.uid)).toBe(false);
@@ -1092,10 +1099,7 @@ describe('player delayed re-resolve — transient next-up failure recovers witho
 			});
 
 			// Round 0: drive to cap → schedules delayed attempt #1 (not yet dead).
-			await prefetch();
-			await vi.advanceTimersByTimeAsync(0);
-			await prefetch();
-			await vi.advanceTimersByTimeAsync(0);
+			await driveToCapFake();
 			expect(unplayable().has(bad.uid)).toBe(false);
 			expect(retry().retryResolveAttempts.get(bad.uid)).toBe(1);
 
@@ -1184,12 +1188,13 @@ describe('player delayed re-resolve — transient next-up failure recovers witho
 	});
 
 	// Local driveToCap that drains microtasks under fake timers (the suite-level driveToCap uses the
-	// real-timer flush() which never settles while fake timers are installed).
+	// real-timer flush() which never settles while fake timers are installed). Walks exactly
+	// Player_STRIKE_CAP rounds — the mirrored constant, never a literal (31-D-16).
 	async function driveToCapFake() {
-		await prefetch();
-		await vi.advanceTimersByTimeAsync(0);
-		await prefetch();
-		await vi.advanceTimersByTimeAsync(0);
+		for (let round = 0; round < Player_STRIKE_CAP; round++) {
+			await prefetch();
+			await vi.advanceTimersByTimeAsync(0);
+		}
 	}
 });
 
@@ -3955,7 +3960,7 @@ describe('player.prefetchNext — strike counter before permanent unplayable mar
 		expect(dead().has(bad.uid)).toBe(false);
 	});
 
-	it('a SECOND no-url resolve reaches STRIKE_CAP but is NOT yet dead — it ARMS a delayed re-resolve instead (quick-260627-huo)', async () => {
+	it('the STRIKE_CAP-th no-url resolve reaches the cap but is NOT yet dead — it ARMS a delayed re-resolve instead (quick-260627-huo)', async () => {
 		// REWORKED for quick-260627-huo: pre-huo this asserted "strike 2 → immediately dead". The user
 		// reported a genuinely-playable Next-up song being permanently sidelined because two quick
 		// transient blips reached STRIKE_CAP. The fix replaces "strike 2 → dead" with "strike 2 → undo
@@ -3979,14 +3984,16 @@ describe('player.prefetchNext — strike counter before permanent unplayable mar
 			await vi.advanceTimersByTimeAsync(0);
 			expect(dead().has(bad.uid)).toBe(false);
 
-			// Re-arm the in-flight guard so the second walk runs (mirror the per-src re-arm in play()).
-			(player as unknown as { prefetchingUid: string | null }).prefetchingUid = null;
-
-			// Second walk: second strike → reaches STRIKE_CAP. The strike IS recorded, but the uid is NOT
-			// promoted to dead — a bounded delayed re-resolve is armed instead (the fix).
-			await prefetch();
-			await vi.advanceTimersByTimeAsync(0);
-			expect(strikes().get(bad.uid)).toBe(2);
+			// Remaining walks: the LAST one reaches STRIKE_CAP. The strike IS recorded, but the uid is NOT
+			// promoted to dead — a bounded delayed re-resolve is armed instead (the fix). Loop bound is the
+			// mirrored constant so a cap re-tune cannot leave this walk short of the cap (31-D-16).
+			for (let round = 1; round < Player_STRIKE_CAP; round++) {
+				// Re-arm the in-flight guard so the next walk runs (mirror the per-src re-arm in play()).
+				(player as unknown as { prefetchingUid: string | null }).prefetchingUid = null;
+				await prefetch();
+				await vi.advanceTimersByTimeAsync(0);
+			}
+			expect(strikes().get(bad.uid)).toBe(Player_STRIKE_CAP);
 			expect(dead().has(bad.uid)).toBe(false);
 			const timers = (player as unknown as {
 				retryResolveTimers: Map<string, ReturnType<typeof setTimeout>>;
@@ -4025,6 +4032,123 @@ describe('player.prefetchNext — strike counter before permanent unplayable mar
 		player.retryUnplayable(t);
 		expect(strikes().has(t.uid)).toBe(false);
 		expect(dead().has(t.uid)).toBe(false);
+	});
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 31-D-16: strikes are forgiving on BOTH axes. (a) the cap is 3, not 2, so a uid survives two
+// definitive failures; (b) the two RECOVERY signals a tunnel/Wi-Fi blip produces — the network coming
+// back and the user returning to the app — refund the whole strike budget, so a blip can no longer
+// blacklist half the queue for the session. The load-bearing negative here is that neither recovery
+// signal may issue play(): quick-260703-i7e removed foreground auto-resume precisely because it caused
+// unwanted playback, and clearing strikes must not smuggle it back in.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('player strike clearing — forgiving on recovery, without resuming playback (31-D-16)', () => {
+	const strikes = () =>
+		(player as unknown as { unplayableStrikes: Map<string, number> }).unplayableStrikes;
+	const dead = () =>
+		(player as unknown as {
+			unplayableUids: { add(u: string): void; has(u: string): boolean; delete(u: string): boolean };
+		}).unplayableUids;
+	const strike = (uid: string) =>
+		(player as unknown as { strikeUnplayable(u: string): boolean }).strikeUnplayable(uid);
+	const timers = () =>
+		(player as unknown as {
+			retryResolveTimers: Map<string, ReturnType<typeof setTimeout>>;
+		}).retryResolveTimers;
+
+	/** Stub window+document with handler-capturing addEventListener, then attach(). Returns the fire()s. */
+	function attachWithLifecycleCapture() {
+		const win = new Map<string, Array<() => void>>();
+		const doc = new Map<string, Array<() => void>>();
+		vi.stubGlobal('window', {
+			addEventListener(type: string, cb: () => void) {
+				win.set(type, [...(win.get(type) ?? []), cb]);
+			}
+		});
+		const documentStub = {
+			hidden: true,
+			addEventListener(type: string, cb: () => void) {
+				doc.set(type, [...(doc.get(type) ?? []), cb]);
+			}
+		};
+		vi.stubGlobal('document', documentStub);
+		player.attach(makeFakeAudio() as unknown as HTMLAudioElement);
+		return {
+			documentStub,
+			fireOnline: () => (win.get('online') ?? []).forEach((cb) => cb()),
+			fireVisibility: () => (doc.get('visibilitychange') ?? []).forEach((cb) => cb())
+		};
+	}
+
+	it(`a uid survives STRIKE_CAP-1 definitive failures; only the STRIKE_CAP-th promotes it to dead`, () => {
+		const t = mk('qq', 'blip', 'A', 'Flaky');
+		for (let i = 1; i < Player_STRIKE_CAP; i++) {
+			expect(strike(t.uid)).toBe(false); // sub-cap — transient-equivalent, still alive
+		}
+		expect(dead().has(t.uid)).toBe(false);
+		expect(strike(t.uid)).toBe(true); // the cap-th failure promotes
+		expect(dead().has(t.uid)).toBe(true);
+	});
+
+	it('an `online` transition refunds EVERY accumulated strike and does NOT start playback', () => {
+		const a = mk('qq', '1', 'A', 'One');
+		const b = mk('kuwo', '2', 'B', 'Two');
+		strikes().set(a.uid, 1);
+		strikes().set(b.uid, Player_STRIKE_CAP - 1);
+		const { fireOnline } = attachWithLifecycleCapture();
+		const playSpy = player.play as unknown as ReturnType<typeof vi.fn>;
+		playSpy.mockClear();
+
+		fireOnline();
+
+		expect(strikes().size).toBe(0); // the tunnel's whole strike budget is refunded
+		expect(playSpy).not.toHaveBeenCalled(); // never a resume — recovery ≠ an instruction to play
+	});
+
+	it('returning to the FOREGROUND refunds every strike and does NOT start playback (the i7e boundary)', () => {
+		const a = mk('qq', '1', 'A', 'One');
+		strikes().set(a.uid, Player_STRIKE_CAP - 1);
+		const { documentStub, fireVisibility } = attachWithLifecycleCapture();
+		const playSpy = player.play as unknown as ReturnType<typeof vi.fn>;
+		playSpy.mockClear();
+
+		documentStub.hidden = false; // the tab came back
+		fireVisibility();
+
+		expect(strikes().size).toBe(0);
+		expect(playSpy).not.toHaveBeenCalled(); // quick-260703-i7e: foreground must NEVER re-issue play()
+	});
+
+	it('going to the BACKGROUND does not refund strikes (only the recovery direction forgives)', () => {
+		const a = mk('qq', '1', 'A', 'One');
+		strikes().set(a.uid, 1);
+		const { documentStub, fireVisibility } = attachWithLifecycleCapture();
+
+		documentStub.hidden = true;
+		fireVisibility();
+
+		expect(strikes().get(a.uid)).toBe(1);
+	});
+
+	it('a refund clears ONLY the strike budget — unplayableUids membership and a pending delayed retry both survive', () => {
+		const a = mk('qq', '1', 'A', 'AlreadyDead');
+		strikes().set(a.uid, Player_STRIKE_CAP);
+		dead().add(a.uid);
+		const timer = setTimeout(() => {}, 60_000);
+		timers().set(a.uid, timer);
+		const { fireOnline } = attachWithLifecycleCapture();
+
+		fireOnline();
+
+		expect(strikes().size).toBe(0);
+		// A confirmed-dead uid keeps its ✗ row (only the explicit recovery points clear that set), and
+		// the in-flight backed-off re-resolve keeps its timer — refunding budget must not cancel work.
+		expect(dead().has(a.uid)).toBe(true);
+		expect(timers().has(a.uid)).toBe(true);
+		clearTimeout(timer);
+		timers().delete(a.uid);
+		dead().delete(a.uid);
 	});
 });
 
