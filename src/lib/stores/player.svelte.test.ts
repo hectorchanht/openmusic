@@ -81,7 +81,15 @@ import { tryFallback } from '$lib/services/fallback';
 import { blobStore } from '$lib/services/blob-store';
 import { buildSimilarQueue } from '$lib/services/similar';
 import { buildDiversePicks } from '$lib/services/picks';
-import { getCachedCoverByUid, getCachedCover } from '$lib/services/cover-cache';
+// quick-260809-38i: the two READ helpers are vi.fn()s in this file, so adoptCover's cache write is
+// asserted against the RAW localStorage record instead — uidCoverCacheKey/coverCacheKey are the real
+// (spread-from-actual) key builders, so they give the exact stored key shape for both layers.
+import {
+	getCachedCoverByUid,
+	getCachedCover,
+	uidCoverCacheKey,
+	coverCacheKey
+} from '$lib/services/cover-cache';
 import { resolveCoverForTrack } from '$lib/services/cover-backfill';
 import { removeCoverBoth } from '$lib/stores/cover-version.svelte';
 import { logAction } from '$lib/stores/actionLog.svelte';
@@ -2340,6 +2348,98 @@ describe('player.resolvedCover — single-field artwork guarantee (COVER-01 / D-
 		const md = fakeMediaSession.metadata as { artwork: Array<{ src: string }> } | null;
 		expect(md?.artwork.some((a) => a.src === 'https://cdn/resolved-wins.jpg')).toBe(true);
 		expect(md?.artwork.some((a) => a.src === 'https://cdn/cache-should-lose.jpg')).toBe(false);
+	});
+
+	// ---- player.adoptCover — the ONE promotion seam (quick-260809-38i) ----
+	// The Last.fm hi-res swap used to live in NowPlaying-local $state, so it won on the hero ONLY:
+	// Nowbar (player.resolvedCover ?? np.cover) and the OS media card (resolvedCover ?? cache) could
+	// not see it, and the shared cache never learned it — three surfaces, three covers. adoptCover is
+	// the seam a surface calls once it has VERIFIED a better cover (onload): it promotes into the one
+	// shared field + BOTH cache layers, under the same guards as every other cover writer.
+	// The cache assertions read the raw localStorage record because the two getCached* readers are
+	// mocked module-wide in this file.
+	const rawCover = (key: string): string | null => {
+		const rec = JSON.parse(localStorage.getItem('openmusic:cover-cache:v1') ?? '{}');
+		const v = rec[key];
+		if (typeof v === 'string') return v;
+		return v && typeof v.u === 'string' ? v.u : null;
+	};
+
+	it('adoptCover(uid, url) for the CURRENT track sets resolvedCover AND writes both cache layers', () => {
+		const cur = mk('netease', 'AD1', '方大同', '紅豆');
+		player.current = cur;
+		(player as unknown as { resolvedCover: string | null }).resolvedCover = 'https://cdn/source-small.jpg';
+
+		player.adoptCover(cur.uid, 'https://lastfm.freetls.fastly.net/i/u/300x300/big.jpg');
+
+		expect(rc()).toBe('https://lastfm.freetls.fastly.net/i/u/300x300/big.jpg');
+		// BOTH layers — the uid layer (exact song) and the name layer (the cross-uid bridge every
+		// sibling surface reads), so up-next rows / search tiles / backfill reuse the adopted art.
+		expect(rawCover(uidCoverCacheKey(cur.uid))).toBe('https://lastfm.freetls.fastly.net/i/u/300x300/big.jpg');
+		expect(rawCover(coverCacheKey(cur.artist, cur.title))).toBe(
+			'https://lastfm.freetls.fastly.net/i/u/300x300/big.jpg'
+		);
+	});
+
+	it('adoptCover re-fires a FRESH MediaMetadata so the OS lock screen repaints (never an in-place mutate)', () => {
+		const cur = mk('netease', 'AD2', '方大同', '紅豆');
+		player.current = cur;
+		(player as unknown as { resolvedCover: string | null }).resolvedCover = 'https://cdn/source-small.jpg';
+		(player as unknown as { syncMetadata(): void }).syncMetadata(); // metadata #0 — the source cover
+		const before = metadataLog.length;
+
+		player.adoptCover(cur.uid, 'https://lastfm.freetls.fastly.net/i/u/300x300/big.jpg');
+
+		expect(metadataLog.length).toBe(before + 1);
+		const landed = metadataLog[metadataLog.length - 1] as { artwork: Array<{ src: string }> };
+		expect(fakeMediaSession.metadata).toBe(landed); // a genuinely fresh object, assigned
+		expect(landed.artwork.some((a) => a.src === 'https://lastfm.freetls.fastly.net/i/u/300x300/big.jpg')).toBe(true);
+	});
+
+	it('adoptCover for a STALE uid (track already changed) is a no-op — supersedence guard', () => {
+		const cur = mk('qq', 'AD-NEW', 'Artist B', 'Song B');
+		player.current = cur;
+		(player as unknown as { resolvedCover: string | null }).resolvedCover = 'https://cdn/new-track.jpg';
+
+		player.adoptCover('netease:AD-OLD', 'https://lastfm.freetls.fastly.net/i/u/300x300/stale.jpg');
+
+		expect(rc()).toBe('https://cdn/new-track.jpg'); // untouched — the old track's enrichment landed late
+		expect(rawCover(uidCoverCacheKey('netease:AD-OLD'))).toBeNull(); // nothing written anywhere
+		expect(rawCover(coverCacheKey(cur.artist, cur.title))).toBeNull();
+	});
+
+	it('adoptCover rejects a non-https / empty url (httpsOnly gate, T-0bb-01 parity)', () => {
+		const cur = mk('netease', 'AD3', 'Artist AD3', 'Song AD3');
+		player.current = cur;
+		(player as unknown as { resolvedCover: string | null }).resolvedCover = 'https://cdn/keep-me.jpg';
+
+		player.adoptCover(cur.uid, '');
+		expect(rc()).toBe('https://cdn/keep-me.jpg');
+		player.adoptCover(cur.uid, 'http://insecure/art.jpg');
+		expect(rc()).toBe('https://cdn/keep-me.jpg');
+		player.adoptCover(cur.uid, 'data:image/png;base64,AAAA');
+		expect(rc()).toBe('https://cdn/keep-me.jpg');
+		expect(rawCover(coverCacheKey(cur.artist, cur.title))).toBeNull();
+	});
+
+	it('adoptCover with the url already === resolvedCover is idempotent (no re-write, no extra metadata)', () => {
+		const cur = mk('netease', 'AD4', 'Artist AD4', 'Song AD4');
+		player.current = cur;
+		(player as unknown as { resolvedCover: string | null }).resolvedCover = 'https://cdn/same.jpg';
+		(player as unknown as { syncMetadata(): void }).syncMetadata();
+		const before = metadataLog.length;
+
+		player.adoptCover(cur.uid, 'https://cdn/same.jpg');
+
+		expect(rc()).toBe('https://cdn/same.jpg');
+		expect(metadataLog.length).toBe(before); // no repaint churn for a no-change adopt
+	});
+
+	it('adoptCover with NO current track is a no-op and never throws (component onload handler)', () => {
+		player.current = null;
+		(player as unknown as { resolvedCover: string | null }).resolvedCover = null;
+		expect(() => player.adoptCover('netease:ORPHAN', 'https://cdn/art.jpg')).not.toThrow();
+		expect(rc()).toBeNull();
 	});
 });
 
