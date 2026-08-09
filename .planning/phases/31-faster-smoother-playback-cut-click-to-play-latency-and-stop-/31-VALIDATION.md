@@ -58,11 +58,11 @@ created: 2026-08-09
 | D-15 | A next-track definitive failure calls `tryFallback` BEFORE `strikeUnplayable` promotes to dead | unit | `-t "cross-source"` | ❌ W0 | ⬜ pending |
 | D-16 | Raised `STRIKE_CAP`: a uid survives N-1 strikes without entering `unplayableUids` | unit | `-t "strike"` | ⚠️ exists | ⬜ pending |
 | D-16 | An `online` / foreground return clears strikes WITHOUT issuing `play()` | unit | `-t "strike"` | ❌ W0 | ⬜ pending |
-| **D-17** | **REGRESSION:** `SYSTEMIC_SKIP_CAP` still trips `haltRunawayRecovery` at 5 consecutive no-`playing` skips | unit | `-t "systemic"` | ⚠️ exists — **must pass UNMODIFIED** | ⬜ pending |
+| **D-17** | **REGRESSION:** `SYSTEMIC_SKIP_CAP` still trips `haltRunawayRecovery` at 5 consecutive no-`playing` skips | unit | `-t "SYSTEMIC"` | ⚠️ exists — **must pass UNMODIFIED** | ⬜ pending |
 | **D-17** | **REGRESSION:** rapid-error storm suite + redrive-brake suite pass unmodified | unit | `npx vitest --run src/lib/stores/player.svelte.test.ts` | ✅ exists | ⬜ pending |
 | **D-17** | **REGRESSION:** `api-base` governor + circuit-breaker suite passes; new callers do not bypass it | unit | `npx vitest --run src/lib/services/api-base.test.ts` | ✅ exists | ⬜ pending |
 | D-18 | Every skip path emits a batched notice; N skips in 2500ms = ONE notice with `count: N` | unit | `-t "skip"` | ⚠️ partial | ⬜ pending |
-| C-05 | All 16 i18n dictionaries expose the new toast keys | unit | `npx vitest --run src/lib/i18n/i18n.test.ts` | ✅ parity guard | ⬜ pending |
+| C-05 | All 15 i18n dictionaries expose the new toast keys | unit | `npx vitest --run src/lib/i18n/i18n.test.ts` | ✅ parity guard | ⬜ pending |
 | — | Type gate | typecheck | `pnpm check` | ✅ | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
