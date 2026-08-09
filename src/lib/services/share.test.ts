@@ -550,18 +550,30 @@ describe('nav.share carries the link in text, not url (quick-260808-vkd)', () =>
 	// names.test.ts:206-233 (quick-260808-urx): the three handlers live in .svelte components, are
 	// not exported, and there is no jsdom project — so assert the call shape at the source. This is
 	// the one check that fails if someone "fixes" `text` back to `url`.
+	//
+	// quick-260808-vzu — the `title` line is now GATED on `settings.shareIncludeTitle` (default
+	// OFF). Concatenating targets (WhatsApp) render `title` and `text` as two separate lines, so an
+	// unconditional title duplicated the OG card, which already shows `Song • Artist` beneath the
+	// link. Test 2 below pins that: no ungated object-literal `nav.share({…})` call may come back.
 	it.each([
 		'src/lib/components/TrackMenu.svelte',
 		'src/routes/(app)/album/[name]/+page.svelte',
 		'src/routes/(app)/artist/[name]/+page.svelte'
-	])('%s hands the link to nav.share as `text`, with no `url` member', async (file) => {
+	])('%s gates the nav.share title on the setting and keeps the link in `text`', async (file) => {
 		const { readFileSync } = await import('node:fs');
 		const src = readFileSync(file, 'utf8');
-		// The link rides `text`…
-		expect(src).toMatch(/nav\.share\(\{[^)]*text: url/);
-		// …and there is NO bare `url` ShareData member. Not merely moved — REMOVED: many share
-		// targets concatenate `text` and `url`, which would put the link in the message twice,
-		// once readable and once percent-encoded, which is worse than the original bug.
-		expect(src).not.toMatch(/nav\.share\(\{[^)]*[,{]\s*url\s*[})]/);
+		// `title` exists ONLY in the true branch of a ternary gated on the setting; the false branch
+		// is exactly `{ text: url }` — link only, no placeholder title (the Web Share spec's
+		// at-least-one-member rule is satisfied by `text` alone).
+		expect(src).toMatch(
+			/nav\.share\(settings\.shareIncludeTitle\s*\?\s*\{\s*title[\s\S]*?text: url\s*\}\s*:\s*\{\s*text: url\s*\}\)/
+		);
+		// No direct object-literal call survives — every payload must route through the gate.
+		expect(src).not.toMatch(/nav\.share\(\{/);
+		// vkd's invariant, re-anchored from `nav.share({` to `nav.share(` so it still binds after
+		// the ternary lands: there is NO bare `url` ShareData member. Not merely moved — REMOVED:
+		// many share targets concatenate `text` and `url`, which would put the link in the message
+		// twice, once readable and once percent-encoded, worse than the original bug.
+		expect(src).not.toMatch(/nav\.share\([^)]*[,{]\s*url\s*[,})]/);
 	});
 });
