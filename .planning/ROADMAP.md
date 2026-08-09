@@ -240,3 +240,25 @@ Scope (candidate plans — plan-phase breaks these down):
 - [ ] **Up-Next via `track.getSimilar`** — new `/api/lastfm/similar-tracks` edge route; rewrite `buildSimilarQueue` (56 calls → 1); exact name+artist stubs, lazy single-source resolve, `match`-ordered; artist-hop fallback resolved single-source; bound `crossSourceLyric` to one fetch (`similar.ts`, `catalog.ts`)
 - [ ] **Version-picker modal** — control before the play/grip button opens a modal listing same-name+artist versions across sources (data already in search results)
 - [ ] **netease upstream health-gate** — detect/skip the intermittent qijieya Meting dry-return so a dead default-primary doesn't silently degrade live search (`proxy/netease.ts` or catalog-level guard)
+
+### Phase 31: Faster, smoother playback — cut click-to-play latency and stop failed/skipped tracks
+
+**Goal:** Playback feels streaming-instant and never dead-ends: tap→audio start is fast, the next track never silently fails, and a broken download falls back to the normal resolver chain instead of being skipped.
+**Requirements**: TBD
+**Depends on:** Phase 30
+**Plans:** 0 plans
+
+Scope (raw, pre-planning):
+- **Click-to-play latency** — cut time from tap to first audio. Resolve path, prefetch, warming the next track's URL before it's needed.
+- **Next-song failures** — harden auto-advance/prefetch so a stale or dead resolved URL doesn't produce a silent failure or a skip.
+- **Downloaded-song fallback** — when a downloaded blob is missing/corrupt, treat the track like any un-downloaded track and run the full multi-resolver chain instead of skipping it (`player.svelte.ts` offline-first branch).
+- **Open architecture question (settle in discuss):** does an edge-side store make playback faster — caching resolved audio URLs, cover/match data, or source-availability hints — and if so which store, what TTL, what invalidation, given CN source URLs expire.
+
+**CF infra recon (2026-08-09, via Cloudflare API):**
+- `open-music-db` D1 (`a14554d5-7190-440a-b4f4-23ec93dfb4b4`, created 2026-05-09) exists with **0 tables** and is **not bound** to the Pages project.
+- `open-music-audio` R2 bucket (created 2026-05-09) exists and is **not bound** either.
+- **No KV namespace** for openmusic. Pages production config carries only `JAMENDO_CLIENT_ID` + the three secrets — no `d1_databases`/`r2_buckets`/`kv_namespaces` bindings.
+- So: "do we need a CF DB" is really "do we wire up the D1/R2 that were already provisioned and abandoned, or is Cache API (already used by `/api/og`) enough." Cache API is the cheapest rung; D1/R2 only if a cross-user, cross-PoP durable store is genuinely required.
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 31 to break down)

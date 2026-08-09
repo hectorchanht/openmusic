@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: YTMusic-Powered Up-Next
-status: executing
-stopped_at: "Phase 30 plan 30-06 still OPEN — ONE item left: the APK device UAT. Task 1 gate green (89 files/1494 tests, check 4365 files 0 errors, both builds exit 0, full curl matrix, workerd /api/og cache hit 1698ms->2ms). Checkpoint A / OG-VERIFY-01 PASSED: DEPLOYED to openmusic.lol, production heads verified, real WhatsApp card with real album art (user screenshot) — scope limit: WhatsApp only, no iMessage/Slack/validators. The % 500 fix confirmed IN PROD (/album/50%25%20Off + /artist/50%25%20Cent both 200, both 500 before). cf-cache-status was a DEFECTIVE criterion (always DYNAMIC for a Worker-level caches.default hit); substitute evidence = warm-vs-cold timing on byte-identical responses (cold 0.979s -> warm 0.396s, 111258B both). Checkpoint B / OG-PAGE-01: APK BUILT (android/app/build/outputs/apk/debug/app-debug.apk, 5.2 MB) but DEVICE TEST PENDING — install, open /song/{artist}/{title}, confirm the cover renders and the gradient appears offline."
-last_updated: "2026-08-08T04:34:00Z"
-last_activity: 2026-08-08
+status: completed
+stopped_at: Phase 31 context gathered
+last_updated: "2026-08-09T10:17:50.804Z"
+last_activity: "2026-08-09 - Completed quick task 260809-3uo: share links carry a short cover-id token (`ci=<tag>:<id>`, all 4 tiers) that /api/og rebuilds from a fixed template — the card shows the cover the client already resolved. Prior: 260809-38i: one cover per song (adoptCover promotion seam + key-gated Last.fm tier in /api/og) + share links no longer autoplay"
 progress:
-  total_phases: 6
-  completed_phases: 3
+  total_phases: 7
+  completed_phases: 4
   total_plans: 36
-  completed_plans: 30
-  percent: 50
+  completed_plans: 31
+  percent: 57
 ---
 
 # Project State
@@ -123,6 +123,7 @@ Remaining human UAT: real-device <audio> playback+seek + download-to-disk; deplo
 
 - Phase 14 added: Search & Data Responsiveness — first-load search skeleton, search query+results preserved across navigation, default audio quality 128–160kbps, TTL query cache for search/discovery (off-milestone UX/playback polish; not part of v1.1 Last.fm)
 - Phase 15 added: Now-Playing Shared-Element Expand/Collapse — swipe-up nowbar→full expand mirroring swipe-down collapse; cover/title/artist morph between positions driven by drag progress, with blur during drag (off-milestone UX polish; UI-spec recommended)
+- Phase 31 added: Faster, smoother playback — cut click-to-play latency, stop next-song silent failures, make a broken downloaded blob fall back to the normal resolver chain instead of skipping. Open question for discuss: whether an edge-side store helps (recon 2026-08-09: `open-music-db` D1 and `open-music-audio` R2 already exist but are EMPTY and UNBOUND; no KV; Cache API is already in use by `/api/og`).
 - Phase 26 added: Minimal-API Click-to-Play Redesign — kuwo-first resolve, source-embedded covers, Last.fm `track.getSimilar` up-next (56 calls → 1), version-picker, netease health-gate; cut a single-song play from ~59 to ~3 `/api` calls. Grounded in spikes 001–004 (`Skill("spike-findings-openmusic")`).
 
 ### Decisions
@@ -359,8 +360,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-08T04:34:00Z
-Stopped at: Phase 30 plan 30-06 still OPEN with ONE item left — the APK device UAT. Task 1 committed `126da01`; summaries `fa83e97` / this update. All four gates observed green (89 files/1494 tests; 4365 files 0 errors 0 warnings; both builds exit 0), full curl matrix recorded verbatim against `:5173`, real-workerd `/api/og` cache hit (1698ms → 2ms). **Phase 30 IS DEPLOYED to openmusic.lol.** Checkpoint A / OG-VERIFY-01 **PASSED** — production heads verified and a real WhatsApp card rendered real album art (scope limit: WhatsApp only). Checkpoint B / OG-PAGE-01 — APK built (5.2 MB) but **not yet run on a device**.
+Last session: 2026-08-09T10:17:50.791Z
+Stopped at: Phase 31 context gathered
 Resume: install `android/app/build/outputs/apk/debug/app-debug.apk` on an Android device, open `/song/Olivia-Dean/Man-I-Need` (proven to return a real 30,840 B JPEG from production), confirm the cover renders rather than a broken image, then kill the network and confirm the gradient fallback appears. That single check closes 30-06 and Phase 30. Do NOT run `/gsd:verify-work` for Phase 30 until it is approved — OG-PAGE-01 terminates in it. Optional, non-blocking leftovers: iMessage/Slack cards, and real 24h cache TTL/eviction.
 
 ## Deferred Items
