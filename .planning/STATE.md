@@ -4,13 +4,13 @@ milestone: v1.5
 milestone_name: YTMusic-Powered Up-Next
 status: executing
 stopped_at: Phase 31 context gathered
-last_updated: "2026-08-09T11:30:29.980Z"
+last_updated: "2026-08-09T11:45:36.513Z"
 last_activity: 2026-08-09
 progress:
   total_phases: 7
   completed_phases: 4
   total_plans: 42
-  completed_plans: 34
+  completed_plans: 35
   percent: 57
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-06-10)
 ## Current Position
 
 Phase: 31 (faster-smoother-playback-cut-click-to-play-latency-and-stop) — EXECUTING
-Plan: 4 of 6
+Plan: 5 of 6
 Status: Executing Phase 31
 
 ### 30-06 checkpoint status
@@ -119,6 +119,7 @@ Remaining human UAT: real-device <audio> playback+seek + download-to-disk; deplo
 | Phase 31 P01 | 35m | 3 tasks | 6 files |
 | Phase 31 P03 | ~20 min | 3 tasks | 8 files |
 | Phase 31 P05 | ~10 min | 2 tasks | 4 files |
+| Phase 31 P02 | 20 min | 3 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -198,6 +199,11 @@ Recent decisions affecting current work:
 - [Phase ?]: 31-D-12 blob provenance is a recorded lastSrcKind flag threaded through driveSrc, not a blob: prefix sniff
 - [Phase ?]: 31-D-06/D-09: ONE versioned caches.default entry (lookup+url+avail); a MISS returns immediately and fills out of band via platform.ctx.waitUntil; the bust POST is structurally delete-only
 - [Phase ?]: 31-D-03 pre-warm lives in $lib/services/prewarm.ts — one uid-Set-deduped ensureTrackDetails, fired only by the top search result and TrackMenu open, never on scroll
+- [Phase ?]: 31-D-16: STRIKE_CAP raised 2 to 3 only; eager strike clearing on 'online' + foreground return is the cheap half of the fix, the cap raise is the expensive half
+- [Phase ?]: 31-D-16: strike clearing is wired as a plain window listener, not a runes effect — attach() must add no tracked read (restore-effect-self-invalidation-loop)
+- [Phase ?]: 31-D-15: the cross-source retry lives at handleDefinitiveFailure and reuses the existing per-episode fallbackAttempted set; it never increments failoverSkips because it repairs a track rather than skipping one
+- [Phase ?]: 31-D-18: needed zero new i18n keys — routing the two visible silent skip paths into the existing batched emitSkipNotice channel was the whole job
+- [Phase ?]: 31-D-17: bg-error-skip keeps BOTH omissions (no notice, no failoverSkips increment) and now documents why — counting it would let an unattended locked device reach SYSTEMIC_SKIP_CAP and pause itself
 
 ### Pending Todos
 
@@ -367,7 +373,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-09T11:30:23.872Z
+Last session: 2026-08-09T11:44:51.664Z
 Stopped at: Phase 31 context gathered
 Resume: install `android/app/build/outputs/apk/debug/app-debug.apk` on an Android device, open `/song/Olivia-Dean/Man-I-Need` (proven to return a real 30,840 B JPEG from production), confirm the cover renders rather than a broken image, then kill the network and confirm the gradient fallback appears. That single check closes 30-06 and Phase 30. Do NOT run `/gsd:verify-work` for Phase 30 until it is approved — OG-PAGE-01 terminates in it. Optional, non-blocking leftovers: iMessage/Slack cards, and real 24h cache TTL/eviction.
 
