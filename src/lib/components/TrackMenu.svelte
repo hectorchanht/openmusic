@@ -164,17 +164,35 @@
 		// track from them at open time and unfurls its OG card from them server-side.
 		//
 		// quick-260723-r4p (YouTube-Music-style card) — both former carriers are now retired:
-		//  (a) OG-ZH-01 / RESEARCH §E.17: NO zhs→zht at share time. The LITERAL title/artist go in
-		//      the path. This also fixes a resolution bug — the converted (Traditional) text used to
-		//      become the recipient's searchAll query while the CN catalog indexes mostly Simplified.
-		//      The in-app page still renders per the VIEWER's own setting via the `names` store.
+		//  (a) OG-ZH-01 / RESEARCH §E.17: no `dn`/`da` QUERY carriers. The title/artist go in the PATH.
 		//  (b) OG-EP-01: no cover read here — the card image is the own-origin /api/og endpoint, which
 		//      re-resolves the album art server-side (so a shared card no longer depends on whatever
 		//      happened to be in this device's cover cache).
-		const url = songShareUrl({ title: track.title, artist: track.artist });
+		//
+		// quick-260808-urx: the path now carries the DISPLAY-language names — the exact text this
+		// user sees on screen — not the raw catalog metadata. A zh-Hant user looking at 夢伴 / 李悅君
+		// shares `/song/李悅君/夢伴`, never the Simplified 梦伴 / 李悦君 ("if the user is zht … it
+		// should not show in zhs while sharing"). Simplified is an internal RESOLUTION concern.
+		//
+		// This is NOT a reversal of OG-ZH-01: the `dn`/`da` QUERY CARRIERS stay dead. Display text
+		// rides the PATH, which is the SINGLE value used for both display and resolution — the
+		// failure mode OG-ZH-01 killed was a converted display carrier diverging from the
+		// resolution key, not Traditional text per se.
+		//
+		// Reliability (verified — do not re-check): names.resolve() returns the cached display
+		// string and falls back to the RAW text on a miss, so share time returns exactly what the
+		// UI rendered; for zh-Hant the s2t dict is boot-warmed (quick-260712-et3), so it is
+		// synchronous. Both strings are computed ONCE here so the URL and the OS share-sheet title
+		// (also user-visible text) cannot disagree.
+		//
+		// The recipient-side resolution risk this reintroduces — a Traditional query against the
+		// mostly-Simplified CN index — is closed by resolveStub's t2s rescue-on-miss (quick-260808-urx).
+		const dTitle = names.dnTitle(track.title);
+		const dArtist = names.dnArtist(track.artist);
+		const url = songShareUrl({ title: dTitle, artist: dArtist });
 		try {
 			const nav = navigator as Navigator & { share?: (d: ShareData) => Promise<void> };
-			if (nav.share) await nav.share({ title: `${track.title} • ${track.artist}`, url });
+			if (nav.share) await nav.share({ title: `${dTitle} • ${dArtist}`, url });
 			else { await navigator.clipboard.writeText(url); toast.show(t('toast.shareCopied')); }
 		} catch { /* cancelled */ }
 	}

@@ -22,7 +22,15 @@ vi.mock('$lib/services/translate', () => ({
 
 // Decision layer: always request translation (the store's resolve() gates on this; we exercise
 // the queue/flush/attempt machinery, not detection).
-vi.mock('$lib/i18n/detect', () => ({ shouldTranslate: () => true }));
+//
+// quick-260808-urx: keep the REST of the module real (spread importOriginal) instead of replacing
+// it wholesale. `detectLang` is the kana/hangul-first classifier behind zh-convert's
+// isChineseLine, which names.svelte.ts calls on the zh-Hant sync path — a bare
+// `{ shouldTranslate }` factory left it undefined and that path threw.
+vi.mock('$lib/i18n/detect', async (importOriginal) => ({
+	...(await importOriginal<typeof import('$lib/i18n/detect')>()),
+	shouldTranslate: () => true
+}));
 
 // Fixed per-part target so dnArtist/dnBio both resolve to the same lang. quick-260712-et3: the
 // target is a NON-offline language ('ja', which goes through the API queue) on purpose — the
@@ -30,16 +38,21 @@ vi.mock('$lib/i18n/detect', () => ({ shouldTranslate: () => true }));
 // routing these async queue/flush/attempt-machinery assertions through zh-Hant would either
 // skip the machinery entirely or race the lazy dict load. The zh-Hant no-flash sync path is
 // covered in services/zh-convert.test.ts. effectiveTarget echoes its argument.
+//
+// quick-260808-urx: the object is now MUTABLE and hoisted, so the share-link composition block
+// below can flip the target to 'zh-Hant' for its own tests. beforeEach restores 'ja', so every
+// pre-existing assertion in this file keeps running against exactly the old fixture.
+const settingsMock = vi.hoisted(() => ({
+	artistLang: 'ja',
+	titleLang: 'ja',
+	lastfmLang: 'ja',
+	bioLang: 'ja',
+	artistSkip: [] as string[],
+	titleSkip: [] as string[],
+	lastfmSkip: [] as string[]
+}));
 vi.mock('$lib/stores/settings.svelte', () => ({
-	settings: {
-		artistLang: 'ja',
-		titleLang: 'ja',
-		lastfmLang: 'ja',
-		bioLang: 'ja',
-		artistSkip: [],
-		titleSkip: [],
-		lastfmSkip: []
-	},
+	settings: settingsMock,
 	effectiveTarget: (t: string) => t
 }));
 
@@ -68,6 +81,12 @@ beforeEach(() => {
 	memStore.clear();
 	vi.resetModules();
 	vi.useFakeTimers();
+	// quick-260808-urx: restore the shared mutable settings fixture to the original 'ja' target
+	// so the zh-Hant share-link block can flip it without leaking into the machinery tests.
+	settingsMock.artistLang = 'ja';
+	settingsMock.titleLang = 'ja';
+	settingsMock.lastfmLang = 'ja';
+	settingsMock.bioLang = 'ja';
 });
 afterEach(() => {
 	vi.useRealTimers();
@@ -141,5 +160,86 @@ describe('names store — no-latch / no-storm / no-poison', () => {
 		names.dnArtist('周杰伦'); // attempts==1 < MAX, so it re-queues
 		await flush();
 		expect(names.dnArtist('周杰伦')).toBe('周杰倫'); // success sticks
+	});
+});
+
+// quick-260808-urx — the share link must carry the DISPLAY-language names.
+//
+// The user's ask: "if the user is zht for artist name and song name, it should not show in zhs
+// while sharing." Simplified is an internal RESOLUTION concern; the recipient reads the link.
+// share.ts stays PURE (it never imports this store — CLAUDE.md: stores never flow into a pure
+// service), so the language lives in the COMPOSITION at the call site: `names.dn*` in,
+// `songShareUrl` out. These tests pin exactly that composition, which is what TrackMenu /
+// album / artist now do.
+describe('names + songShareUrl — share links carry display-language names (quick-260808-urx)', () => {
+	/** Warm the s2t dict on the SAME module instance the freshly-reset names store imported. */
+	async function warmSyncS2T(): Promise<void> {
+		const zh = await import('$lib/services/zh-convert');
+		zh.warmS2T(); // kick the lazy load…
+		await zh.s2tConvertLines(['简体']); // …then await the SAME memoized build (zh-convert.test.ts idiom)
+	}
+
+	it('resolves zh-Hant display names synchronously (no API queue, no flash)', async () => {
+		settingsMock.artistLang = 'zh-Hant';
+		settingsMock.titleLang = 'zh-Hant';
+		const { names } = await import('./names.svelte');
+		await warmSyncS2T();
+		expect(names.dnTitle('梦伴')).toBe('夢伴');
+		expect(names.dnArtist('李悦君')).toBe('李悅君');
+		expect(translateMock).not.toHaveBeenCalled(); // offline s2t — never the API path
+	});
+
+	it('composes a Traditional /song/{artist}/{title} path from Simplified catalog metadata', async () => {
+		settingsMock.artistLang = 'zh-Hant';
+		settingsMock.titleLang = 'zh-Hant';
+		const { names } = await import('./names.svelte');
+		const { songShareUrl } = await import('$lib/services/share');
+		await warmSyncS2T();
+		// The exact call shape of the three share call sites. `location` is undefined under node,
+		// so the origin is '' and the assertion is the PATH — which is the whole point.
+		const url = songShareUrl({ title: names.dnTitle('梦伴'), artist: names.dnArtist('李悦君') });
+		expect(url).toBe('/song/李悅君/夢伴');
+		expect(url).not.toContain('梦'); // never the Simplified source metadata
+		expect(url).not.toContain('?'); // OG-ZH-01: the dn/da QUERY carriers stay dead
+	});
+
+	// The composition test above proves `dn* → songShareUrl` yields a display-language path, but it
+	// cannot prove the three SHARE CALL SITES actually compose that way — they are .svelte
+	// components whose doShare()/shareAlbum()/shareArtist() are not exported and cannot be
+	// imported into the node project. So assert the composition structurally, at the source. This
+	// is the one check that fails if a call site regresses back to raw `track.title`.
+	it.each([
+		[
+			'src/lib/components/TrackMenu.svelte',
+			[/names\.dnTitle\(track\.title\)/, /names\.dnArtist\(track\.artist\)/],
+			[/songShareUrl\(\{ title: track\.title/]
+		],
+		[
+			'src/routes/(app)/album/[name]/+page.svelte',
+			[/names\.dnTitle\(name\)/, /names\.dnArtist\(albumArtist\)/],
+			[/entityCardUrl\(\{ type: 'album', name, artist: albumArtist \}\)/]
+		],
+		[
+			'src/routes/(app)/artist/[name]/+page.svelte',
+			[/names\.dnArtist\(name\)/],
+			[/entityCardUrl\(\{ type: 'artist', name \}\)/]
+		]
+	])('%s builds its share URL from names.dn* display strings', async (file, present, absent) => {
+		const { readFileSync } = await import('node:fs');
+		const src = readFileSync(file, 'utf8');
+		for (const re of present) expect(src).toMatch(re);
+		// …and the raw-catalog-metadata form is GONE (this is the half that catches a revert).
+		for (const re of absent) expect(src).not.toMatch(re);
+	});
+
+	it('leaves a non-Chinese name untouched (Latin share links are unaffected)', async () => {
+		settingsMock.artistLang = 'zh-Hant';
+		settingsMock.titleLang = 'zh-Hant';
+		const { names } = await import('./names.svelte');
+		const { songShareUrl } = await import('$lib/services/share');
+		await warmSyncS2T();
+		expect(songShareUrl({ title: names.dnTitle('Hello'), artist: names.dnArtist('Adele') })).toBe(
+			'/song/Adele/Hello'
+		);
 	});
 });

@@ -237,10 +237,17 @@ export function shareUrl(current: Track, queue?: Track[]): string {
  * card image is the own-origin `/api/og` endpoint (see ogImageUrl), which re-resolves the cover
  * server-side. So `cover` has left this signature entirely; a caller has nothing to pass.
  *
- * OG-ZH-01 (RESEARCH §E.17): there is NO zhs→zht conversion at share time on any surface. The
- * LITERAL (original-script) title/artist go in the path, which also removes a pre-existing
- * resolution risk — the recipient's `searchAll` query used to be Traditional while the CN catalog
- * indexes mostly Simplified.
+ * OG-ZH-01 (RESEARCH §E.17): the `dn`/`da` DISPLAY QUERY CARRIERS are retired and stay retired —
+ * this function emits ZERO query params. What it puts in the path is whatever the CALLER passed.
+ *
+ * quick-260808-urx (prose corrected): callers now pass DISPLAY-language strings (`names.dnTitle` /
+ * `names.dnArtist` output), so a zh-Hant user shares `/song/李悅君/夢伴` — the text they see —
+ * rather than the Simplified catalog metadata. This function is UNCHANGED and stays PURE: it never
+ * imports the `names` store (CLAUDE.md — stores never flow into a pure service) and its signature is
+ * not widened; the language decision lives entirely at the call site. The stale claim that "the
+ * LITERAL original-script title/artist go in the path" no longer describes the callers. The
+ * recipient-side resolution risk that wording worried about (a Traditional query against the
+ * mostly-Simplified CN index) is closed one layer down, by resolveStub's t2s rescue-on-miss.
  *
  * The empty-input guard is `encodePathSegment`'s `'-'` (it decodes back to ''), replacing the old
  * `slugify(...) || 's'` placeholder — `'s'` would have decoded to a bogus literal OG title.
@@ -265,12 +272,17 @@ export function songShareUrl(t: { title: string; artist: string }): string {
  * card, same readability reason.
  *
  * quick-260723-ry1 (prose corrected): the `c` cover carrier is retired in favour of the own-origin
- * `/api/og` card image (OG-EP-01, see ogImageUrl). The `dn`/`da` DISPLAY carriers are retired with
- * it — per OG-ZH-01 / RESEARCH §E.17 nothing converts zhs→zht at share time, so there is no
- * converted display name to carry. Accepted regression: a Traditional-preferring sharer's crawler
- * card shows the catalog's original script. The in-app page is unaffected — it converts per the
- * VIEWER's own setting on hydration via the `names` store, which was always the correct owner of
- * that preference (baking the sharer's language into a public URL decided the card for everyone).
+ * `/api/og` card image (OG-EP-01, see ogImageUrl). The `dn`/`da` DISPLAY QUERY CARRIERS are retired
+ * with it (OG-ZH-01 / RESEARCH §E.17) and stay retired — this function emits ZERO query params.
+ *
+ * quick-260808-urx (prose corrected): the album/artist call sites now pass DISPLAY-language strings
+ * (`names.dnTitle` / `names.dnArtist` output), matching the song card, so the former "accepted
+ * regression — a Traditional-preferring sharer's card shows the catalog's original script" no longer
+ * applies to the SHARER'S OWN link. This is not a carrier: the display text IS the path segment,
+ * i.e. the single value used for both display and resolution, so nothing can diverge from the
+ * round-trip key. This function is unchanged and stays PURE — no `names` import (CLAUDE.md: stores
+ * never flow into a pure service), signature unwidened; the language decision lives at the caller.
+ * The in-app page still re-converts per the VIEWER's own setting on hydration via the `names` store.
  */
 export function entityCardUrl(opts: { type: 'album' | 'artist'; name: string; artist?: string }): string {
 	const base = typeof location !== 'undefined' ? location.origin : '';

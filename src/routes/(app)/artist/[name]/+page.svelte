@@ -175,11 +175,20 @@
 		// quick-260723-ry1 (match the song card) — the link is now CARRIER-FREE (no `?` at all):
 		//  - OG-EP-01: no `c` cover carrier; the card image is the own-origin /api/og endpoint, which
 		//    re-resolves the hero art server-side.
-		//  - OG-ZH-01 / RESEARCH §E.17: no zhs→zht at share time, so the `dn` display carrier is
-		//    retired with it. The in-app page still converts per the VIEWER's own setting via the
-		//    `names` store — the sharer's language preference never belonged in a public URL.
-		const url = entityCardUrl({ type: 'artist', name });
-		const title = name;
+		//  - OG-ZH-01 / RESEARCH §E.17: the `dn` DISPLAY QUERY CARRIER is retired.
+		//
+		// quick-260808-urx: the single path segment now carries the DISPLAY-language artist name —
+		// what this user actually sees — not the raw catalog metadata, per the user's ask ("zht user
+		// must not share zhs"). NOT a reversal of OG-ZH-01: the dn carrier stays dead; display text
+		// rides the PATH, the single value used for BOTH display and resolution.
+		//
+		// Reliability (verified — do not re-check): names.resolve() returns the cached display string
+		// and falls back to the raw text on a miss, so this is exactly what the page rendered; the
+		// zh-Hant s2t dict is boot-warmed (quick-260712-et3) → synchronous. The recipient-side
+		// Traditional-vs-Simplified resolution risk is closed by resolveStub's t2s rescue-on-miss.
+		const dName = names.dnArtist(name);
+		const url = entityCardUrl({ type: 'artist', name: dName });
+		const title = dName;
 		try {
 			const nav = navigator as Navigator & { share?: (d: ShareData) => Promise<void> };
 			if (nav.share) await nav.share({ title, text: title, url });

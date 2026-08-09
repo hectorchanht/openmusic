@@ -429,12 +429,27 @@
 			// quick-260723-ry1 (match the song card) — the link is now CARRIER-FREE (no `?` at all):
 			//  - OG-EP-01: no `c` cover carrier; the card image is the own-origin /api/og endpoint,
 			//    which re-resolves the art server-side.
-			//  - OG-ZH-01 / RESEARCH §E.17: no zhs→zht at share time, so the `dn`/`da` display
-			//    carriers are retired with it. The in-app page still converts per the VIEWER's own
-			//    setting via the `names` store — the sharer's language never decided the card anyway.
-			const url = entityCardUrl({ type: 'album', name, artist: albumArtist });
+			//  - OG-ZH-01 / RESEARCH §E.17: the `dn`/`da` DISPLAY QUERY CARRIERS are retired.
+			//
+			// quick-260808-urx: the PATH SEGMENTS now carry the DISPLAY-language names — the exact
+			// text on this user's screen — instead of the raw catalog metadata, per the user's ask
+			// ("zht user must not share zhs"). NOT a reversal of OG-ZH-01: the dn/da carriers stay
+			// dead; display text rides the PATH, the single value used for BOTH display and
+			// resolution, so there is no carrier left to diverge from the key.
+			//
+			// Reliability (verified — do not re-check): names.resolve() returns the cached display
+			// string and falls back to the raw text on a miss, so this is exactly what the page
+			// rendered; the zh-Hant s2t dict is boot-warmed (quick-260712-et3) → synchronous.
+			// The recipient-side Traditional-vs-Simplified resolution risk is closed by resolveStub's
+			// t2s rescue-on-miss (quick-260808-urx).
+			//
+			// albumArtist may be '' (unknown artist) — dnArtist('') returns '' unchanged, so the
+			// existing falsy branch of the share-sheet title below is untouched.
+			const dName = names.dnTitle(name);
+			const dArtist = names.dnArtist(albumArtist);
+			const url = entityCardUrl({ type: 'album', name: dName, artist: dArtist });
 			const nav = navigator as Navigator & { share?: (d: ShareData) => Promise<void> };
-			if (nav.share) await nav.share({ title: albumArtist ? `${name} • ${albumArtist}` : name, url });
+			if (nav.share) await nav.share({ title: dArtist ? `${dName} • ${dArtist}` : dName, url });
 			else {
 				await navigator.clipboard.writeText(url);
 				globalToast.show(t('toast.shareCopied'));
