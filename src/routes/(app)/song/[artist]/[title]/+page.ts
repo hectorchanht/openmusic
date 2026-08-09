@@ -16,6 +16,14 @@
 // gate exists for sharer-supplied covers, and would drop the image on an http dev origin), so the
 // image is spliced over buildOg's result rather than passed in as `cover`.
 //
+// quick-260809-3uo — AMENDMENT to the T-24-08 paragraph above (the ref STAYS; it records why the URL
+// carrier left). This loader now ECHOES one optional short `ci` cover-id token into the own-origin
+// /api/og URL. It still performs NO fetch and stays SYNCHRONOUS, so no SSRF is added here — and `ci`
+// is NOT a URL at all, so there is nothing to gate beyond the length cap that lives inside
+// ogImageUrl. The real gate is `coverUrlFromToken` inside /api/og, which rebuilds the image URL from
+// a template whose scheme, host and path shape are literals in our own source. No `ci` (or one the
+// edge rejects) → exactly today's carrier-free behaviour.
+//
 // params.artist/params.title are ALREADY decodeURIComponent'd by SvelteKit (decode_params,
 // utils/routing.js) — decoding again throws URIError on a literal '%' (a live 500 on the legacy
 // /album/{name} route today, Pitfall 1). decodePathSegment only reverses the '-'-for-space
@@ -40,7 +48,8 @@ export const load: PageLoad = ({ params, url }) => {
 	// it stays crawler-valid from ANY deploy origin.
 	const og = {
 		...buildOg({ title: title || 'openmusic', artist: artist || undefined, type: 'music.song' }),
-		image: ogImageUrl(url.origin, 'song', artist, title)
+		// quick-260809-3uo: `ci` is OPAQUE here — no parsing, no validation beyond ogImageUrl's cap.
+		image: ogImageUrl(url.origin, 'song', artist, title, url.searchParams.get('ci') ?? '')
 	};
 
 	// Same page-data contract as song/[slug] so the page component is a near-copy.

@@ -1,9 +1,11 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
 	buildItunesSearchUrl,
 	upgradeArtwork,
 	itunesSongCover,
-	itunesArtistCover
+	itunesArtistCover,
+	itunesArtworkKey,
+	recallItunesId
 } from './itunes-cover';
 
 // itunes-cover (quick-260606-v7k) is the no-auth, CORS-open Western-catalog + artist
@@ -194,5 +196,115 @@ describe('itunesArtistCover — artist image via album-by-artistTerm', () => {
 		ac.abort();
 		await expect(itunesArtistCover('X', ac.signal)).resolves.toBeNull();
 		expect(fetchMock).not.toHaveBeenCalled();
+	});
+});
+
+// =============================================================================================
+// quick-260809-3uo — retaining the NUMERIC id alongside the artwork URL
+// =============================================================================================
+// The share carrier tokenizes an iTunes cover by its numeric id (`i:<digits>`), never by its
+// ~90-char mzstatic path. The id is NOT derivable from the artwork URL, so it has to be retained at
+// the one moment it is known: the search response that also produced the URL.
+
+/** In-memory localStorage (no jsdom project — the cover-cache.test.ts stub, verbatim in shape). */
+class MemStorage {
+	private m = new Map<string, string>();
+	getItem(k: string): string | null {
+		return this.m.has(k) ? (this.m.get(k) as string) : null;
+	}
+	setItem(k: string, v: string): void {
+		this.m.set(k, String(v));
+	}
+	removeItem(k: string): void {
+		this.m.delete(k);
+	}
+}
+
+// The REAL response shape, live-probed 2026-08-09 for 你瞞我瞞 / 陳柏宇 (the reported song).
+const QUIN_100 =
+	'https://is1-ssl.mzstatic.com/image/thumb/Music221/v4/44/ab/f4/44abf48c-3f51-31b9-469a-6d99548070e1/886443102378.jpg/100x100bb.jpg';
+const QUIN_1200 = QUIN_100.replace('100x100bb', '1200x1200bb');
+const QUIN_600 = QUIN_100.replace('100x100bb', '600x600bb');
+
+describe('itunes id retention (quick-260809-3uo)', () => {
+	const original = (globalThis as { localStorage?: Storage }).localStorage;
+	let store: MemStorage;
+	beforeEach(() => {
+		store = new MemStorage();
+		Object.defineProperty(globalThis, 'localStorage', { value: store, configurable: true });
+	});
+	afterEach(() => {
+		if (original) Object.defineProperty(globalThis, 'localStorage', { value: original, configurable: true });
+		else delete (globalThis as { localStorage?: Storage }).localStorage;
+	});
+
+	it('itunesArtworkKey is SIZE-INDEPENDENT, so any variant recalls the same id', () => {
+		const k = itunesArtworkKey(QUIN_100);
+		expect(k).not.toBeNull();
+		expect(itunesArtworkKey(QUIN_600)).toBe(k);
+		expect(itunesArtworkKey(QUIN_1200)).toBe(k);
+	});
+
+	it('itunesArtworkKey returns null for a non-mzstatic / malformed / empty URL', () => {
+		for (const bad of [
+			'https://cdn-images.dzcdn.net/images/cover/aa/500x500-000000-80-0-0.jpg',
+			'https://is1-ssl.mzstatic.com.evil.example/image/thumb/a/b/600x600bb.jpg',
+			'http://is1-ssl.mzstatic.com/image/thumb/a/b/600x600bb.jpg',
+			'not a url',
+			'',
+			null,
+			undefined
+		])
+			expect(itunesArtworkKey(bad)).toBeNull();
+	});
+
+	it('a song resolve REMEMBERS the id, and recallItunesId reads it back at any size', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () =>
+				jsonResponse({
+					results: [{ trackId: 446760995, collectionId: 446760418, artworkUrl100: QUIN_100 }]
+				})
+			)
+		);
+		expect(await itunesSongCover('陳柏宇', '你瞞我瞞')).toBe(QUIN_1200);
+		// The COLLECTION (album) id is preferred — /lookup?id= on it returns the same artwork and it
+		// is the album-art identity, live-probed identical for both ids.
+		expect(recallItunesId(QUIN_1200)).toBe('446760418');
+		expect(recallItunesId(QUIN_600)).toBe('446760418');
+	});
+
+	it('falls back to trackId when the response carries no collectionId', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () => jsonResponse({ results: [{ trackId: 446760995, artworkUrl100: QUIN_100 }] }))
+		);
+		await itunesSongCover('陳柏宇', '你瞞我瞞');
+		expect(recallItunesId(QUIN_1200)).toBe('446760995');
+	});
+
+	it('remembers NOTHING when the response carries no usable numeric id (never junk)', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () => jsonResponse({ results: [{ collectionId: 'abc', artworkUrl100: QUIN_100 }] }))
+		);
+		await itunesSongCover('陳柏宇', '你瞞我瞞');
+		expect(recallItunesId(QUIN_1200)).toBeNull();
+	});
+
+	it('recallItunesId is null for an unseen cover (a cover cached BEFORE this change)', () => {
+		expect(recallItunesId(QUIN_1200)).toBeNull();
+		expect(recallItunesId('https://cdn-images.dzcdn.net/images/cover/aa/500x500-000000-80-0-0.jpg')).toBeNull();
+		expect(recallItunesId(null)).toBeNull();
+	});
+
+	it('never throws when storage is unavailable (SSR / privacy mode)', async () => {
+		delete (globalThis as { localStorage?: Storage }).localStorage;
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () => jsonResponse({ results: [{ collectionId: 446760418, artworkUrl100: QUIN_100 }] }))
+		);
+		expect(await itunesSongCover('陳柏宇', '你瞞我瞞')).toBe(QUIN_1200);
+		expect(recallItunesId(QUIN_1200)).toBeNull();
 	});
 });

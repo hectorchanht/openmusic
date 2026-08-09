@@ -13,10 +13,13 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { load, ssr, prerender } from './+page';
 
-function ev(artist: string, title: string, origin = 'https://openmusic.lol') {
+function ev(artist: string, title: string, origin = 'https://openmusic.lol', ci?: string) {
 	// The URL carries the ENCODED segments (that is what a real request line looks like); the
 	// `params` beside it are the decoded values the router hands to `load`.
+	// quick-260809-3uo: `ci` is a QUERY param, so it goes on the URL only — NOT into `params`, and
+	// the already-decoded-params discipline in the header above is unaffected by it.
 	const url = new URL(`${origin}/song/${encodeURIComponent(artist)}/${encodeURIComponent(title)}`);
+	if (ci !== undefined) url.searchParams.set('ci', ci);
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	return { params: { artist, title }, url } as any;
 }
@@ -106,5 +109,36 @@ describe('song share page — no autoplay on mount (quick-260809-38i)', () => {
 		// Paired with the assertion above on purpose: deleting the CONTROL instead of the autoplay
 		// would satisfy the first test and leave the page unplayable.
 		expect(src).toContain('retry = () => void resolveAndPlay();');
+	});
+});
+
+// ---------------------------------------------------------------------------------------------
+// quick-260809-3uo — the `ci` cover-id carrier is ECHOED into the own-origin card URL
+// ---------------------------------------------------------------------------------------------
+// The loader does not parse the token; it is opaque here and /api/og's coverUrlFromToken is the
+// real gate. What must hold is that the loader stays SYNCHRONOUS and FETCH-FREE (T-3uo-06) and that
+// a link with no usable `ci` produces exactly today's carrier-free URL.
+describe('song/[artist]/[title] loader — the ci cover-id carrier', () => {
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	const runCi = (ci?: string): any => load(ev('陳柏宇', '你瞞我瞞', 'https://openmusic.lol', ci));
+	const BARE = 'https://openmusic.lol/api/og?type=song&artist=%E9%99%B3%E6%9F%8F%E5%AE%87&title=%E4%BD%A0%E7%9E%9E%E6%88%91%E7%9E%9E';
+
+	it('echoes a token verbatim into &ci= on the own-origin /api/og URL', () => {
+		expect(runCi('i:446760418').og.image).toBe(`${BARE}&ci=i%3A446760418`);
+		expect(runCi('d:fe1082c5ef54876802146897e76b592e').og.image).toBe(
+			`${BARE}&ci=d%3Afe1082c5ef54876802146897e76b592e`
+		);
+	});
+
+	it('no ci, an empty ci, or an over-cap ci → exactly today\'s carrier-free URL', () => {
+		expect(runCi().og.image).toBe(BARE);
+		expect(runCi('').og.image).toBe(BARE);
+		expect(runCi('d:' + 'a'.repeat(200)).og.image).toBe(BARE);
+	});
+
+	it('stays synchronous and fetch-free (the load result is not a Promise)', () => {
+		const out = runCi('i:446760418');
+		expect(typeof out.then).not.toBe('function');
+		expect(out.name).toBe('你瞞我瞞');
 	});
 });

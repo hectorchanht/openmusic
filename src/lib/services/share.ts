@@ -219,6 +219,103 @@ export function shareUrl(current: Track, queue?: Track[]): string {
 	return `${base}/?${slugSeg}play=${payload}`;
 }
 
+// =============================================================================================
+// quick-260809-3uo — coverToken: the CLIENT half of the `ci` cover-id carrier
+// =============================================================================================
+//
+// WHY A CARRIER IS BACK AT ALL: /api/og re-resolves the cover server-side from artist+title TEXT
+// through a chain that is completely independent of the client's cover authority, so a song the app
+// is visibly showing art for could still unfurl a blank card (reported: 你瞞我瞞 / 陳柏宇 —
+// Quinquennium art on the hero, nothing in WhatsApp). Adding more server tiers is whack-a-mole; the
+// client already knows the right cover at the moment the user taps share.
+//
+// WHAT IS CARRIED IS NOT A URL. It is a SHORT COVER ID from a closed tag set; /api/og rebuilds the
+// image URL from its own fixed template. No sharer-supplied host or path ever reaches the fetcher —
+// which is why this is a tighter posture than the retired `?c=`, not a reopening of it.
+//
+// ADVISORY, NEVER REQUIRED: omitted, unrecognised, or rejected edge-side → the card falls through
+// to the server tier chain and behaves exactly as it did before this change.
+//
+// 🔴 THIS IS THE INVERSE of `coverUrlFromToken` in $lib/proxy/og-cover, and the two MUST agree.
+// They are deliberately NOT imported into each other (client/edge split — og-cover pulls in proxy
+// code). What pins them is the both-directions round-trip test in share.test.ts,
+// 'coverToken ⇄ coverUrlFromToken'. Edit one grammar, run that test.
+
+/** Mirrors TOKEN_MAX_CHARS in og-cover.ts. The longest token we can emit is 38 chars. */
+const TOKEN_MAX_CHARS = 64;
+
+/** A token is usable only when non-empty and within the cap — used by BOTH carriers below. */
+function usableToken(token: string | null | undefined): token is string {
+	return typeof token === 'string' && token.length > 0 && token.length <= TOKEN_MAX_CHARS;
+}
+
+/** Deezer ALBUM covers only — `/images/artist/` is out of grammar (a song share never needs it). */
+const DZ_COVER_PATH = /^\/images\/cover\/([0-9a-f]{32})\/[^/]+$/;
+/** Last.fm art: an optional size segment, then `<32hex>.<jpg|png>`. The size is discarded. */
+const LF_IMG_PATH = /^\/i\/u\/(?:[^/]+\/)?([0-9a-f]{32})\.(jpg|png)$/;
+/** kuwo ALBUM covers only — `/star/starheads/` (artist heads) is a different family. */
+const KW_COVER_PATH = /^\/star\/albumcover\/[0-9]+\/([a-z0-9]{1,8})\/([0-9]{1,4})\/([0-9]{4,12})\.jpg$/;
+/** iTunes: the numeric id the CALLER retained, never anything off the URL. */
+const IT_ID = /^[0-9]{1,12}$/;
+/** The Last.fm grey-star placeholder (the same constant og-cover.ts rejects at its allow-list). */
+const LASTFM_GREY_STAR = '2a96cbd8b46e442fc41c2b86b821562f';
+
+/**
+ * Derive a `<tag>:<id>` cover token from a resolved cover URL, or null for anything unrecognised.
+ *
+ * PURE and node-testable: it parses with `new URL()` inside a try/catch and reads no store and no
+ * storage. `itunesId` is passed IN by the caller for the same reason the cover URL is — a store
+ * never flows into a pure service (CLAUDE.md); the component does the lookup.
+ *
+ * Size is ACCEPTED AND DISCARDED for every tier: the server rebuilds at the card size, so carrying
+ * a size would only add another sharer-influenced field. Never throws.
+ *
+ * TIER COVERAGE. Covered: Deezer, Last.fm, kuwo, iTunes — every host an /api/og tier already
+ * fetches. NOT covered by construction: netease / qq / joox cover hosts, which are on NO tier
+ * allow-list — carrying one would WIDEN the set of hosts /api/og fetches, and the carrier is only
+ * ever allowed to change WHICH allow-listed host is picked (T-3uo-02).
+ *
+ * iTunes is carried by NUMERIC ID, not by path: an mzstatic URL is a ~90-char irregular path
+ * fragment, so a path token would be neither short nor structural. The id is not derivable from the
+ * URL, so the caller must have retained it (see `recallItunesId` in $lib/services/itunes-cover); a
+ * cover cached BEFORE that retention existed simply yields null here → no carrier → today's chain.
+ */
+export function coverToken(
+	url: string | null | undefined,
+	itunesId?: string | null
+): string | null {
+	if (!url || typeof url !== 'string') return null;
+	try {
+		const u = new URL(url);
+		if (u.protocol !== 'https:') return null;
+		const host = u.hostname.toLowerCase();
+		const path = u.pathname;
+
+		if (host === 'cdn-images.dzcdn.net' || host.endsWith('.dzcdn.net')) {
+			const m = DZ_COVER_PATH.exec(path);
+			return m ? `d:${m[1]}` : null;
+		}
+		if (host === 'last.fm' || host.endsWith('.last.fm') || host.endsWith('.fastly.net')) {
+			const m = LF_IMG_PATH.exec(path);
+			// ENRICH-02 / D-04 g2: the grey star is a REAL 200 image, so without this a placeholder
+			// would be carried as if it were art.
+			if (!m || m[1] === LASTFM_GREY_STAR) return null;
+			return `l:${m[1]}.${m[2]}`;
+		}
+		if (host.endsWith('.kuwo.cn')) {
+			const m = KW_COVER_PATH.exec(path);
+			// No `/` ever enters a token — the two shard dirs + the id are hyphen-joined.
+			return m ? `k:${m[1]}-${m[2]}-${m[3]}` : null;
+		}
+		if (host.endsWith('.mzstatic.com')) {
+			return itunesId && IT_ID.test(itunesId) ? `i:${itunesId}` : null;
+		}
+		return null;
+	} catch {
+		return null;
+	}
+}
+
 /**
  * Build the SHORT, readable SONG share URL `${origin}/song/{artist}/{title}` (DQ-1, OG-PATH-02).
  * This SUPERSEDES the old `entityShareUrl('song', t) + ?play=<token>` song link for the share
@@ -237,6 +334,21 @@ export function shareUrl(current: Track, queue?: Track[]): string {
  * card image is the own-origin `/api/og` endpoint (see ogImageUrl), which re-resolves the cover
  * server-side. So `cover` has left this signature entirely; a caller has nothing to pass.
  *
+ * quick-260809-3uo — AMENDMENT to the paragraph above (the OG-EP-01 ref STAYS; it records why the
+ * URL carrier left). A carrier is back for the song surface, but it is a SHORT COVER ID, not a URL:
+ * the caller passes the resolved cover URL it is DISPLAYING, this function derives a closed-grammar
+ * token from it via `coverToken`, and /api/og rebuilds the image URL from its own fixed template.
+ * It exists because server-side text re-resolution is structurally blind to the client's chain — a
+ * song the app was visibly showing art for still unfurled a blank card. It is safe because no
+ * sharer-supplied host or path ever reaches the fetcher.
+ *
+ * The carrier is OPTIONAL and ADVISORY: pass nothing, pass a cover from an uncovered host, or have
+ * the edge reject the token, and the card falls through to the server tier chain — i.e. exactly
+ * today's behaviour. With no cover argument this function is byte-identical to before, still ZERO
+ * query params (names.test.ts pins that and must not need editing). `dn`/`da` DISPLAY carriers stay
+ * dead — this is NOT a reopening of OG-ZH-01, which was about display text diverging from the
+ * resolution key; a cover id is neither.
+ *
  * OG-ZH-01 (RESEARCH §E.17): the `dn`/`da` DISPLAY QUERY CARRIERS are retired and stay retired —
  * this function emits ZERO query params. What it puts in the path is whatever the CALLER passed.
  *
@@ -254,9 +366,17 @@ export function shareUrl(current: Track, queue?: Track[]): string {
  * `origin` is SSR-guarded the same way shareUrl / entityShareUrl read it. `slugify` and the
  * queue-restore encode/decode path are UNTOUCHED — they still depend on the exports below.
  */
-export function songShareUrl(t: { title: string; artist: string }): string {
+export function songShareUrl(
+	t: { title: string; artist: string },
+	coverUrl?: string | null,
+	itunesId?: string | null
+): string {
 	const base = typeof location !== 'undefined' ? location.origin : '';
-	return `${base}/song/${encodePathSegment(t.artist)}/${encodePathSegment(t.title)}`;
+	const path = `${base}/song/${encodePathSegment(t.artist)}/${encodePathSegment(t.title)}`;
+	// quick-260809-3uo: a cover that does not tokenize adds NO param at all — never `?ci=` empty,
+	// never a junk value. The path segments are untouched, so raw CJK survives (quick-260807-vl1).
+	const token = coverToken(coverUrl, itunesId);
+	return usableToken(token) ? `${path}?ci=${encodeURIComponent(token)}` : path;
 }
 
 /**
@@ -363,15 +483,23 @@ export type OgType = 'music.song' | 'music.album' | 'profile';
  * The T-24-08 posture is preserved one layer down: the crawler fetches `/api/og`, which resolves
  * the cover server-side through the per-tier host allowlist. Pure — no `location` read, so an SSR
  * loader can call it with the request's own origin.
+ *
+ * quick-260809-3uo — the optional trailing `cardCoverToken` is an ALREADY-DERIVED TOKEN, not a cover
+ * URL (the loader that calls this is ECHOING a query param, not parsing a cover — hence the name).
+ * It is appended as `&ci=` only when non-empty and within the cap, so a pathological value never
+ * reaches the emitted meta tag. Omitted → byte-identical to before. The real gate is
+ * `coverUrlFromToken` inside /api/og; this layer only bounds the length.
  */
 export function ogImageUrl(
 	origin: string,
 	type: 'song' | 'album' | 'artist',
 	artist: string,
-	title = ''
+	title = '',
+	cardCoverToken = ''
 ): string {
 	const t = title ? `&title=${encodeURIComponent(title)}` : '';
-	return `${origin}/api/og?type=${type}&artist=${encodeURIComponent(artist)}${t}`;
+	const ci = usableToken(cardCoverToken) ? `&ci=${encodeURIComponent(cardCoverToken)}` : '';
+	return `${origin}/api/og?type=${type}&artist=${encodeURIComponent(artist)}${t}${ci}`;
 }
 
 /**
