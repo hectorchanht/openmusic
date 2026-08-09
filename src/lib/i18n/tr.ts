@@ -85,6 +85,7 @@ const tr: Dict = {
 	"settings.playbackMotion": "Oynatma ve hareket",
 	"settings.autoExpand": "Otomatik genişletme şimdi oynatılıyor",
 	"settings.reduceMotion": "Hareketi azalt",
+	"settings.shareIncludeTitle": "Paylaşırken başlığı ekle",
 	"settings.data": "Veri",
 	"settings.dataCounts": "{liked} liked · {playlists} playlists · {downloads} downloads",
 	"settings.clearPicks": "Önbelleğe alınmış en iyi seçimleri temizle",
@@ -362,6 +363,7 @@ const tr: Dict = {
 	"settings.themeDesc": "Tüm uygulamayı koyu ve açık görünüm arasında değiştirir; her zamanki ortamınızda gözünüzü daha az yoran hangisiyse onu seçin.",
 	"settings.accentColorDesc": "Etkin denetimlerde, anahtarlarda ve çalan parçada kullanılan vurgu rengi; zevkinize uyanı seçin.",
 	"settings.reduceMotionDesc": "Uygulama genelinde gereksiz animasyonları ve geçişleri kapatır; hareket sizi rahatsız ediyorsa veya pil tasarrufu için açın.",
+	"settings.shareIncludeTitleDesc": "Paylaşırken bağlantının üstüne bir başlık satırı (şarkı • sanatçı) ekler. Kapalıyken yalnızca bağlantı gönderilir — bağlantı önizlemesi başlığı zaten gösterir.",
 	// appearance settings helper text (quick-260630-fce)
 	"settings.fontSizeTitleDesc": "Listelerde ve arama sonuçlarında görünen şarkı başlığı metnini ölçekler; 100% varsayılandır. Okunabilirlik için artırın, ekrana daha çok sığdırmak için azaltın.",
 	"settings.fontSizeArtistDesc": "Listelerde ve arama sonuçlarında görünen sanatçı adı metnini ölçekler; 100% varsayılandır. Okunabilirlik için artırın, ekrana daha çok sığdırmak için azaltın.",

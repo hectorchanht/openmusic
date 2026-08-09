@@ -85,6 +85,7 @@ const de: Dict = {
 	"settings.playbackMotion": "Wiedergabe und Bewegung",
 	"settings.autoExpand": "Jetzt automatisch erweitern – Wiedergabe bei Wiedergabe",
 	"settings.reduceMotion": "Bewegung reduzieren",
+	"settings.shareIncludeTitle": "Titel beim Teilen einfügen",
 	"settings.data": "Daten",
 	"settings.dataCounts": "{liked} mochte · {playlists} Playlists · {downloads} Downloads",
 	"settings.clearPicks": "Zwischengespeicherte Top-Picks löschen",
@@ -362,6 +363,7 @@ const de: Dict = {
 	"settings.themeDesc": "Schaltet die gesamte App zwischen einem dunklen und einem hellen Erscheinungsbild um; wähle, was in deiner üblichen Umgebung angenehmer für die Augen ist.",
 	"settings.accentColorDesc": "Die Akzentfarbe für aktive Bedienelemente, Schalter und den gerade gespielten Titel; wähle die, die dir am besten gefällt.",
 	"settings.reduceMotionDesc": "Deaktiviert nicht wesentliche Animationen und Übergänge in der gesamten App; aktiviere es, wenn dich Bewegung stört oder um Akku zu sparen.",
+	"settings.shareIncludeTitleDesc": "Fügt beim Teilen eine Titelzeile (Song • Künstler) über dem Link hinzu. Deaktiviert wird nur der Link gesendet — die Linkvorschau zeigt den Titel bereits.",
 	// appearance settings helper text (quick-260630-fce)
 	"settings.fontSizeTitleDesc": "Skaliert den Songtitel-Text in Listen und Suchergebnissen, wobei 100% der Standard ist; erhöhe ihn für die Lesbarkeit oder verringere ihn, um mehr auf dem Bildschirm zu zeigen.",
 	"settings.fontSizeArtistDesc": "Skaliert den Künstlernamen-Text in Listen und Suchergebnissen, wobei 100% der Standard ist; erhöhe ihn für die Lesbarkeit oder verringere ihn, um mehr auf dem Bildschirm zu zeigen.",

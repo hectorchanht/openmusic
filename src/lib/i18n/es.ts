@@ -85,6 +85,7 @@ const es: Dict = {
 	"settings.playbackMotion": "Reproducción y movimiento",
 	"settings.autoExpand": "Expandir automáticamente ahora-reproduciendo en juego",
 	"settings.reduceMotion": "Reducir el movimiento",
+	"settings.shareIncludeTitle": "Incluir el título al compartir",
 	"settings.data": "Datos",
 	"settings.dataCounts": "{liked} liked · {playlists} playlists · {downloads} downloads",
 	"settings.clearPicks": "Borrar las mejores selecciones en caché",
@@ -362,6 +363,7 @@ const es: Dict = {
 	"settings.themeDesc": "Cambia toda la app entre un aspecto oscuro y uno claro; elige el que resulte más cómodo para tus ojos en tu entorno habitual.",
 	"settings.accentColorDesc": "El color de resalte usado en los controles activos, los interruptores y la canción en reproducción; elige el que más te guste.",
 	"settings.reduceMotionDesc": "Desactiva las animaciones y transiciones no esenciales en toda la app; actívalo si el movimiento te molesta o para ayudar a ahorrar batería.",
+	"settings.shareIncludeTitleDesc": "Añade una línea de título (canción • artista) encima del enlace al compartir. Desactivado envía solo el enlace: la vista previa ya muestra el título.",
 	// appearance settings helper text (quick-260630-fce)
 	"settings.fontSizeTitleDesc": "Escala el texto del título de la canción en listas y resultados de búsqueda, donde 100% es el valor predeterminado; súbelo para leer mejor o bájalo para que quepa más en pantalla.",
 	"settings.fontSizeArtistDesc": "Escala el texto del nombre del artista en listas y resultados de búsqueda, donde 100% es el valor predeterminado; súbelo para leer mejor o bájalo para que quepa más en pantalla.",

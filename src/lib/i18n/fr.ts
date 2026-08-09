@@ -85,6 +85,7 @@ const fr: Dict = {
 	"settings.playbackMotion": "Lecture et mouvement",
 	"settings.autoExpand": "Développer automatiquement - Lecture en cours",
 	"settings.reduceMotion": "Réduire les mouvements",
+	"settings.shareIncludeTitle": "Inclure le titre lors du partage",
 	"settings.data": "Données",
 	"settings.dataCounts": "{liked} liked · {playlists} playlists · {downloads} downloads",
 	"settings.clearPicks": "Effacer les meilleurs choix mis en cache",
@@ -362,6 +363,7 @@ const fr: Dict = {
 	"settings.themeDesc": "Bascule toute l'application entre un aspect sombre et un aspect clair ; choisissez celui qui repose le plus vos yeux dans votre environnement habituel.",
 	"settings.accentColorDesc": "La couleur de surbrillance des commandes actives, des interrupteurs et du morceau en cours de lecture ; choisissez celle qui vous plaît.",
 	"settings.reduceMotionDesc": "Désactive les animations et transitions non essentielles dans toute l'application ; activez-le si le mouvement vous gêne ou pour aider à économiser la batterie.",
+	"settings.shareIncludeTitleDesc": "Ajoute une ligne de titre (chanson • artiste) au-dessus du lien lors du partage. Désactivé, seul le lien est envoyé — l'aperçu du lien affiche déjà le titre.",
 	// appearance settings helper text (quick-260630-fce)
 	"settings.fontSizeTitleDesc": "Met à l'échelle le titre des chansons dans les listes et les résultats de recherche, 100% étant la valeur par défaut ; augmentez-le pour la lisibilité ou réduisez-le pour afficher plus à l'écran.",
 	"settings.fontSizeArtistDesc": "Met à l'échelle le nom de l'artiste dans les listes et les résultats de recherche, 100% étant la valeur par défaut ; augmentez-le pour la lisibilité ou réduisez-le pour afficher plus à l'écran.",

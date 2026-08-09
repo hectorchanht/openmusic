@@ -85,6 +85,7 @@ const ar: Dict = {
 	"settings.playbackMotion": "التشغيل والحركة",
 	"settings.autoExpand": "التوسيع التلقائي للتشغيل الآن أثناء اللعب",
 	"settings.reduceMotion": "تقليل الحركة",
+	"settings.shareIncludeTitle": "تضمين العنوان عند المشاركة",
 	"settings.data": "البيانات",
 	"settings.dataCounts": "{liked} liked · {playlists} playlists · {downloads} downloads",
 	"settings.clearPicks": "مسح أفضل الاختيارات المخزنة مؤقتًا",
@@ -362,6 +363,7 @@ const ar: Dict = {
 	"settings.themeDesc": "يبدّل مظهر التطبيق بالكامل بين الوضع الداكن والفاتح؛ اختر الأنسب لعينيك في بيئتك المعتادة.",
 	"settings.accentColorDesc": "لون التمييز المستخدَم لعناصر التحكم النشطة والمفاتيح والمقطع قيد التشغيل؛ اختر ما يناسب ذوقك.",
 	"settings.reduceMotionDesc": "يوقف الرسوم المتحركة والانتقالات غير الضرورية في التطبيق كله؛ فعّله إذا كانت الحركة تزعجك أو للمساعدة في توفير البطارية.",
+	"settings.shareIncludeTitleDesc": "يضيف سطر عنوان (الأغنية • الفنان) فوق الرابط عند المشاركة. عند الإيقاف يُرسل الرابط فقط — فمعاينة الرابط تعرض العنوان بالفعل.",
 	// appearance settings helper text (quick-260630-fce)
 	"settings.fontSizeTitleDesc": "يضبط حجم نص عنوان الأغنية في القوائم ونتائج البحث، حيث 100% هي القيمة الافتراضية؛ زِدها لتحسين الوضوح أو أنقصها لإظهار المزيد على الشاشة.",
 	"settings.fontSizeArtistDesc": "يضبط حجم نص اسم الفنان في القوائم ونتائج البحث، حيث 100% هي القيمة الافتراضية؛ زِدها لتحسين الوضوح أو أنقصها لإظهار المزيد على الشاشة.",

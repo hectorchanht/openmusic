@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
-	import { ChevronLeft, Globe, Palette, Zap, Sun, Moon } from '@lucide/svelte';
+	import { ChevronLeft, Globe, Palette, Zap, Sun, Moon, Share2 } from '@lucide/svelte';
 	import { settings, ACCENT_PRESETS, type Theme } from '$lib/stores/settings.svelte';
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { t, type AppLang } from '$lib/i18n';
@@ -30,6 +30,7 @@
 	function setAppLang(v: AppLang) { settings.appLang = v; settings.save(); }
 	function setAccent(hex: string) { settings.accent = hex; settings.save(); }
 	function toggleMotion() { settings.reduceMotion = !settings.reduceMotion; settings.save(); }
+	function toggleShareTitle() { settings.shareIncludeTitle = !settings.shareIncludeTitle; settings.save(); }
 	function setTheme(v: Theme) { settings.theme = v; settings.save(); }
 </script>
 
@@ -77,6 +78,16 @@
 		<span class="sw" class:on={settings.reduceMotion}></span>
 	</button>
 	<p class="muted">{t('settings.reduceMotionDesc')}</p>
+</section>
+
+<!-- quick-260808-vzu — no <h2> heading here on purpose: the row label already says what it does,
+     and a heading would cost a third i18n key across all 15 locales for no extra information. -->
+<section>
+	<button class="row-toggle" onclick={toggleShareTitle}>
+		<span><Share2 size={16} /> {t('settings.shareIncludeTitle')}</span>
+		<span class="sw" class:on={settings.shareIncludeTitle}></span>
+	</button>
+	<p class="muted">{t('settings.shareIncludeTitleDesc')}</p>
 </section>
 
 <style>

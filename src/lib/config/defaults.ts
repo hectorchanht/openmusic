@@ -31,6 +31,11 @@ export const GENERAL_DEFAULTS = {
 	appLang: 'en' as AppLang,
 	accent: DEFAULT_ACCENT,
 	reduceMotion: false,
+	/** Include the `Song • Artist` title line in the Web Share payload. OFF by default:
+	 *  concatenating share targets (WhatsApp) render `title` and `text` as two separate lines,
+	 *  duplicating the OG card, which already shows `Song • Artist` under the link
+	 *  (quick-260808-vzu). Opt in to get the context inline. */
+	shareIncludeTitle: false,
 	/** Light/dark theme — default 'dark' (today's design). 'light' flips data-theme on <html>
 	 *  to surface the `[data-theme='light']` token overrides in app.css. */
 	theme: 'dark' as Theme

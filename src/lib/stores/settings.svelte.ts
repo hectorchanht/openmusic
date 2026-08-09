@@ -161,6 +161,8 @@ class Settings {
 	defaultSource = $state<DefaultSource>(PLAYBACK_DEFAULTS.defaultSource);
 	accent = $state<string>(GENERAL_DEFAULTS.accent);
 	reduceMotion = $state<boolean>(GENERAL_DEFAULTS.reduceMotion);
+	/** Include the `Song • Artist` title line in the Web Share payload (quick-260808-vzu). */
+	shareIncludeTitle = $state<boolean>(GENERAL_DEFAULTS.shareIncludeTitle);
 	/** Light/dark theme. Default 'dark' (today's design). applyTheme() flips
 	 *  the `data-theme` attribute on <html>. */
 	theme = $state<Theme>(GENERAL_DEFAULTS.theme);
@@ -264,6 +266,10 @@ class Settings {
 				this.accent = (v.accent as string) ?? GENERAL_DEFAULTS.accent;
 				this.reduceMotion =
 					typeof v.reduceMotion === 'boolean' ? v.reduceMotion : GENERAL_DEFAULTS.reduceMotion;
+				// T-vzu-01: localStorage is tamperable, so only an explicit boolean wins — a truthy
+				// string like 'yes' must NOT flip the share payload shape (quick-260808-vzu).
+				this.shareIncludeTitle =
+					typeof v.shareIncludeTitle === 'boolean' ? v.shareIncludeTitle : GENERAL_DEFAULTS.shareIncludeTitle;
 				// Theme is validated against the 2-value union; anything else → the default.
 				this.theme = v.theme === 'light' || v.theme === 'dark' ? v.theme : GENERAL_DEFAULTS.theme;
 				this.autoExpandOnPlay =
@@ -363,6 +369,7 @@ class Settings {
 					defaultSource: this.defaultSource,
 					accent: this.accent,
 					reduceMotion: this.reduceMotion,
+					shareIncludeTitle: this.shareIncludeTitle,
 					theme: this.theme,
 					autoExpandOnPlay: this.autoExpandOnPlay,
 					// --- home layout (w87) ---
@@ -423,12 +430,15 @@ class Settings {
 		this.save();
 	}
 
-	/** Reset the General settings group (app language, accent, reduce-motion, theme). k3y. */
+	/** Reset the General settings group (app language, accent, reduce-motion, share title, theme).
+	 *  k3y; shareIncludeTitle added quick-260808-vzu — miss this touchpoint and "reset" silently
+	 *  leaves the setting stuck at the user's old value. */
 	resetGeneral() {
 		const d = DEFAULTS.general;
 		this.appLang = d.appLang;
 		this.accent = d.accent;
 		this.reduceMotion = d.reduceMotion;
+		this.shareIncludeTitle = d.shareIncludeTitle;
 		this.theme = d.theme;
 		this.save();
 	}

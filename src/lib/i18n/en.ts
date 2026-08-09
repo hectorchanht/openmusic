@@ -100,6 +100,7 @@ const en = {
 	"settings.playbackMotion": "Playback & motion",
 	"settings.autoExpand": "Auto-expand now-playing on play",
 	"settings.reduceMotion": "Reduce motion",
+	"settings.shareIncludeTitle": "Include title when sharing",
 	"settings.data": "Data",
 	"settings.dataCounts": "{liked} liked · {playlists} playlists · {downloads} downloads",
 	"settings.clearPicks": "Clear cached top picks",
@@ -406,6 +407,7 @@ const en = {
 	"settings.themeDesc": "Switches the whole app between a dark and a light look; pick whichever is easier on your eyes in your usual surroundings.",
 	"settings.accentColorDesc": "The highlight colour used for active controls, toggles and the track that's playing; choose one that matches your taste.",
 	"settings.reduceMotionDesc": "Turns off non-essential animations and transitions across the app; enable it if motion bothers you or to help save battery.",
+	"settings.shareIncludeTitleDesc": "Adds a title line (song • artist) above the link when you share. Off sends the link only — the link preview already shows the title.",
 	// appearance settings helper text (quick-260630-fce)
 	"settings.fontSizeTitleDesc": "Scales the song-title text shown in lists and search results, where 100% is the default; raise it for readability or lower it to fit more on screen.",
 	"settings.fontSizeArtistDesc": "Scales the artist-name text shown in lists and search results, where 100% is the default; raise it for readability or lower it to fit more on screen.",
