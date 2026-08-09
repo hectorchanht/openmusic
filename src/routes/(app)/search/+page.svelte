@@ -301,6 +301,33 @@
 		return [...rows].sort((a, b) => scoreMatch(qObj, b, ctx) - scoreMatch(qObj, a, ctx));
 	}
 
+	// 31-D-03 PRE-WARM (trigger 1 of the phase's two; trigger 2 is TrackMenu open). Speculatively
+	// resolve the TOP result of a SETTLED search, so the most-likely tap plays without a cold
+	// resolve — the click-to-play win comes from resolving BEFORE the tap, not from failing over
+	// sooner (31-D-01 leaves every timeout alone).
+	//
+	// FIRED IMPERATIVELY AT THE TERMINAL RANKING EVENT, NOT REACTIVELY (quick-260809-cyk). This was
+	// an `$effect` reading `results[0]`; `results` is reassigned 4-8× per query — once per source
+	// partial inside onPartial (:373), once on the authoritative settle (:378), and again when the
+	// Deezer-boosted re-rank lands — and the IDENTITY of results[0] changes across them, so a uid
+	// compare could not collapse them. MEASURED on the workerd preview build: 5 `/api/resolve`
+	// calls for one search, 2 for another. Firing from the tail of the boost chain instead makes it
+	// 1 — that chain is the last thing that can reassign `results` for a query, so the top row is
+	// only known there. Gating on `!loading` does NOT work: the boost is fire-and-forget and lands
+	// AFTER the `finally` clears `loading`.
+	//
+	// `lastPrewarmedUid` is PLAIN, not $state (the UI never reads it; the house idiom is TrackMenu's
+	// versionGen). It is the per-query bound — reset in resetResults() and at the top of run() so a
+	// genuinely new query gets its own single pre-warm — and the first of three composed-free bounds:
+	// prewarmTrack's own uid Set is the second and apiFetch's in-flight GET dedupe is the third. NO
+	// timer here — composing a fresh local bound with the governor is the documented root cause of
+	// the api-fetch-flood-freeze class of bug.
+	//
+	// Deliberately gesture-only: nothing pre-warms on scroll. A viewport-observer trigger over the
+	// visible rows is the exact traffic shape behind that freeze and is a deferred idea, not a
+	// stretch goal — the two triggers above are the whole feature.
+	let lastPrewarmedUid = '';
+
 	async function run(e?: Event) {
 		e?.preventDefault();
 		const kw = q.trim();
@@ -360,12 +387,29 @@
 			// jip: Deezer-boosted re-rank AFTER first paint. Runs in background; the sync
 			// `dedupeBest` result is already on-screen, this just swaps in better picks for
 			// groups where >1 CN source returned the same song. Aborts on supersede.
-			void dedupeBestWithDeezer(interleaved, settings.preferredSource, ac.signal).then((boosted) => {
-				if (myAc.signal.aborted || kw !== q.trim()) return;
-				// SRCH-01/D-02: re-rank the Deezer-boosted set inside the supersede guard.
-				results = rankList(boosted, kw);
-				persistSession();
-			});
+			void dedupeBestWithDeezer(interleaved, settings.preferredSource, ac.signal)
+				.then((boosted) => {
+					if (myAc.signal.aborted || kw !== q.trim()) return;
+					// SRCH-01/D-02: re-rank the Deezer-boosted set inside the supersede guard.
+					results = rankList(boosted, kw);
+					persistSession();
+				})
+				// The boost NEVER throws (dedupe-deezer.ts:87 — it returns the baseline on Deezer
+				// miss / abort / no key), so this only fires on a defect in the handler above.
+				// Swallowing it keeps the pre-warm below alive on the pre-boost ranking instead of
+				// losing it: an abort/reject/miss must still leave the search pre-warmed exactly once.
+				.catch(() => {})
+				// TERMINAL RANKING EVENT (31-D-03, quick-260809-cyk): nothing can reassign `results`
+				// for this query after this point, so this is the single place the settled top row is
+				// known. Same supersede guard as above — a query the user has already replaced must
+				// never pre-warm its stale top result.
+				.then(() => {
+					if (myAc.signal.aborted || kw !== q.trim()) return;
+					const top = results[0];
+					if (!top || top.uid === lastPrewarmedUid) return;
+					lastPrewarmedUid = top.uid;
+					prewarmTrack(top);
+				});
 		} catch (err) {
 			// WR-01: a superseded query (AbortError) must NOT clobber state.
 			if (err instanceof DOMException && err.name === 'AbortError') return;
@@ -472,31 +516,6 @@
 	// Create / tear down the IntersectionObserver whenever the sentinel mounts or
 	// changes. root:null = the viewport because the WINDOW scrolls (see reuse_note);
 	// rootMargin prefetches the next batch slightly before the true bottom.
-	// 31-D-03 PRE-WARM (trigger 1 of the phase's two; trigger 2 is TrackMenu open). Speculatively
-	// resolve the TOP result the moment a result set renders, so the most-likely tap plays without a
-	// cold resolve — the click-to-play win comes from resolving BEFORE the tap, not from failing over
-	// sooner (31-D-01 leaves every timeout alone).
-	//
-	// Pitfall 5 guard: `results` is reassigned 4+ times per query — once per source partial inside
-	// onPartial (:343), once on the final settle (:348), and again when the Deezer-boosted re-rank
-	// lands (:363) — and the IDENTITY of results[0] changes across them, so this effect fires 4-8×
-	// per search. `lastPrewarmedUid` is PLAIN, not $state (the UI never reads it; the house idiom is
-	// TrackMenu's versionGen), and it is the first of three composed-free bounds: prewarmTrack's own
-	// uid Set is the second and apiFetch's in-flight GET dedupe is the third. NO timer here — the uid
-	// compare is stateless and sufficient, and composing a fresh local bound with the governor is the
-	// documented root cause of the api-fetch-flood-freeze class of bug.
-	//
-	// Deliberately gesture-only: nothing pre-warms on scroll. A viewport-observer trigger over the
-	// visible rows is the exact traffic shape behind that freeze and is a deferred idea, not a
-	// stretch goal — the two triggers above are the whole feature.
-	let lastPrewarmedUid = '';
-	$effect(() => {
-		const top = results[0];
-		if (!top || top.uid === lastPrewarmedUid) return;
-		lastPrewarmedUid = top.uid;
-		prewarmTrack(top);
-	});
-
 	$effect(() => {
 		const el = sentinelEl;
 		if (!el) return;
