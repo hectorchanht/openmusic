@@ -191,7 +191,16 @@
 		const title = dName;
 		try {
 			const nav = navigator as Navigator & { share?: (d: ShareData) => Promise<void> };
-			if (nav.share) await nav.share({ title, text: title, url });
+			// quick-260808-vkd — the link rides `text`, NOT `url`. DO NOT "fix" this back.
+			// The Web Share API spec URL-PARSES `ShareData.url` and re-serializes it, and the WHATWG
+			// URL serializer percent-encodes every path code point above U+007E — so a `url` member
+			// silently undoes encodePathSegment's raw-CJK output (quick-260807-vl1) at the very last
+			// step. `ShareData.text` is NOT parsed; it is passed through verbatim. WhatsApp /
+			// iMessage / Slack auto-linkify a bare URL inside shared text and still fetch its OG
+			// card, so no preview is lost. Sending BOTH would duplicate the link in the message
+			// (once readable, once encoded) on every target that concatenates the two members.
+			// The former `text: title` was redundant with `title` — the link takes that slot.
+			if (nav.share) await nav.share({ title, text: url });
 			else { await navigator.clipboard.writeText(url); toast.show(t('toast.shareCopied')); }
 		} catch {
 			/* user dismissed / clipboard blocked — no toast on cancel */

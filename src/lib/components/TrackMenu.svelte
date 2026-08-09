@@ -192,7 +192,16 @@
 		const url = songShareUrl({ title: dTitle, artist: dArtist });
 		try {
 			const nav = navigator as Navigator & { share?: (d: ShareData) => Promise<void> };
-			if (nav.share) await nav.share({ title: `${dTitle} • ${dArtist}`, url });
+			// quick-260808-vkd — the link rides `text`, NOT `url`. DO NOT "fix" this back.
+			// The Web Share API spec URL-PARSES `ShareData.url` and re-serializes it, and the WHATWG
+			// URL serializer percent-encodes every path code point above U+007E — so a `url` member
+			// silently undoes encodePathSegment's raw-CJK output (quick-260807-vl1) at the very last
+			// step, and `喺呢到大` reaches the recipient as `%E5%96%BA…`. `ShareData.text` is NOT
+			// parsed; it is passed through verbatim. Nothing is lost by the swap: WhatsApp / iMessage
+			// / Slack auto-linkify a bare URL inside shared text and still fetch its OG card.
+			// Sending BOTH is not an option — many targets concatenate `text` and `url`, which would
+			// put the link in the message twice (once readable, once encoded), worse than the bug.
+			if (nav.share) await nav.share({ title: `${dTitle} • ${dArtist}`, text: url });
 			else { await navigator.clipboard.writeText(url); toast.show(t('toast.shareCopied')); }
 		} catch { /* cancelled */ }
 	}

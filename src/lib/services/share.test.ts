@@ -541,3 +541,27 @@ describe('buildOg / isHttpsUrl (item 4 helper)', () => {
 		expect(isHttpsUrl(undefined)).toBe(false);
 	});
 });
+
+describe('nav.share carries the link in text, not url (quick-260808-vkd)', () => {
+	// The Web Share API URL-PARSES and re-serializes `ShareData.url`, and the WHATWG URL serializer
+	// percent-encodes every path code point above U+007E — so a `url` member silently undoes
+	// encodePathSegment's raw-CJK output (quick-260807-vl1) at the very last step. `ShareData.text`
+	// is passed through verbatim. This is the same structural-assertion technique as
+	// names.test.ts:206-233 (quick-260808-urx): the three handlers live in .svelte components, are
+	// not exported, and there is no jsdom project — so assert the call shape at the source. This is
+	// the one check that fails if someone "fixes" `text` back to `url`.
+	it.each([
+		'src/lib/components/TrackMenu.svelte',
+		'src/routes/(app)/album/[name]/+page.svelte',
+		'src/routes/(app)/artist/[name]/+page.svelte'
+	])('%s hands the link to nav.share as `text`, with no `url` member', async (file) => {
+		const { readFileSync } = await import('node:fs');
+		const src = readFileSync(file, 'utf8');
+		// The link rides `text`…
+		expect(src).toMatch(/nav\.share\(\{[^)]*text: url/);
+		// …and there is NO bare `url` ShareData member. Not merely moved — REMOVED: many share
+		// targets concatenate `text` and `url`, which would put the link in the message twice,
+		// once readable and once percent-encoded, which is worse than the original bug.
+		expect(src).not.toMatch(/nav\.share\(\{[^)]*[,{]\s*url\s*[})]/);
+	});
+});
