@@ -1886,6 +1886,101 @@ describe('player resilience — loop-guard + skip-on-failure (PLAY-07/08)', () =
 		expect(player.repeatMode).toBe('off'); // never-stop wins over explicit repeat
 		expect(player.notice?.kind).toBe('skip');
 	});
+
+	// ── 31-D-18: no more silent skips ───────────────────────────────────────────────────────────────
+	// handleTotalFailure was the ONLY skip path that told the user. Three others advanced in silence,
+	// and "I don't know a skip happened" is half the original complaint. Two of them are user-visible
+	// and now feed the SAME batched emitSkipNotice channel (never a second toast channel — three
+	// feeders must not be able to stack three toasts). The third, bg-error-skip, stays silent on
+	// purpose: it only runs while document.hidden, so nobody sees the toast and the burst window would
+	// replay it as a stale burst on foreground return.
+
+	/** Attach a fake <audio> with document/navigator stubbed to a visible, online foreground. */
+	function attachForeground(current: Track, rest: Track[]) {
+		vi.stubGlobal('document', { hidden: false, addEventListener() {} });
+		vi.stubGlobal('navigator', { onLine: true });
+		const el = makeFakeAudio();
+		player.queue = [current, ...rest];
+		player.current = current;
+		player.attach(el as unknown as HTMLAudioElement);
+		return el;
+	}
+	type SkipInternals = {
+		errorBurst: number;
+		failoverSkips: number;
+		hasPlayedSinceSrc: boolean;
+		deliberatePause: boolean;
+		stallRetried: boolean;
+		lastSeekAt: number;
+		lastSrcKind: string;
+		recoverLoadStall(): void;
+	};
+	const skipInternals = () => player as unknown as SkipInternals;
+
+	it('the error-ceiling skip now emits a skip notice (it advanced silently before, 31-D-18)', () => {
+		const cur = mk('netease', 'ceil', 'A', 'Dead One');
+		const el = attachForeground(cur, [mk('qq', 'ceil2', 'B', 'Next')]);
+		skipInternals().errorBurst = Player_FAILURE_CAP - 1; // the next raw error trips the ceiling
+
+		el.fire('error');
+
+		expect(player.notice?.kind).toBe('skip');
+		expect(player.notice?.title).toBe('Dead One');
+		expect(player.notice?.count).toBe(1);
+		// failoverSkips accounting is byte-identical to before — this path always counted.
+		expect(skipInternals().failoverSkips).toBe(1);
+	});
+
+	it('the second-stall skip now emits a skip notice, without touching failoverSkips', () => {
+		const cur = mk('netease', 'stall', 'A', 'Stalled Out');
+		attachForeground(cur, [mk('qq', 'stall2', 'B', 'Next')]);
+		skipInternals().hasPlayedSinceSrc = false;
+		skipInternals().deliberatePause = false;
+		skipInternals().stallRetried = true; // the single re-resolve retry is already spent → this SKIPS
+
+		skipInternals().recoverLoadStall();
+
+		expect(player.notice?.kind).toBe('skip');
+		expect(player.notice?.title).toBe('Stalled Out');
+		// This path never counted toward the systemic ceiling and still must not (31-D-17).
+		expect(skipInternals().failoverSkips).toBe(0);
+	});
+
+	it('a BACKGROUND (bg-error-skip) advance stays silent AND un-counted (31-D-17/31-D-18)', () => {
+		const cur = mk('netease', 'bg', 'A', 'Hidden');
+		const el = attachForeground(cur, [mk('qq', 'bg2', 'B', 'Next')]);
+		vi.stubGlobal('document', { hidden: true, addEventListener() {} }); // …now backgrounded
+		skipInternals().hasPlayedSinceSrc = true; // already produced audio → the bg-skip branch
+		skipInternals().lastSeekAt = 0; // not the seek window
+		skipInternals().lastSrcKind = 'url'; // not the corrupt-blob branch
+		player.notice = null;
+
+		el.fire('error');
+
+		expect(player.notice).toBeNull(); // nobody is looking — a queued toast would burst on return
+		// The load-bearing omission: counting this would let an unattended locked device reach
+		// SYSTEMIC_SKIP_CAP and PAUSE playback — a never-stop violation in exactly the scenario that
+		// must not break. Do NOT "fix" this into an increment.
+		expect(skipInternals().failoverSkips).toBe(0);
+	});
+
+	it('three skips inside one burst window collapse into ONE notice carrying count 3', () => {
+		const a = mk('netease', 'b1', 'A', 'One');
+		const el = attachForeground(a, [
+			mk('qq', 'b2', 'B', 'Two'),
+			mk('kuwo', 'b3', 'C', 'Three'),
+			mk('joox', 'b4', 'D', 'Four')
+		]);
+
+		for (let i = 0; i < 3; i++) {
+			skipInternals().errorBurst = Player_FAILURE_CAP - 1; // re-arm: each trip zeroes the burst
+			el.fire('error');
+		}
+
+		expect(player.notice?.kind).toBe('skip');
+		expect(player.notice?.count).toBe(3); // one notice, not three stacked toasts
+		expect(skipInternals().failoverSkips).toBe(3); // still under SYSTEMIC_SKIP_CAP — no STOP
+	});
 });
 
 describe('player resilience — stall watchdog (PLAY-07 / D-13/D-14)', () => {

@@ -1247,6 +1247,10 @@ class Player {
 		logAction('stall.skip', { uid: this.current.uid });
 		this.playing = false;
 		this.strikeUnplayable(this.current.uid);
+		// 31-D-18: the user is looking at a song stuck on the loading line — say that it was dropped.
+		// Same batched channel as every other visible skip. Deliberately does NOT touch failoverSkips:
+		// this path never counted toward the systemic ceiling and 31-D-17 keeps that accounting frozen.
+		this.emitSkipNotice(this.current.title);
 		this.next();
 	}
 
@@ -1834,6 +1838,13 @@ class Player {
 					this.haltRunawayRecovery();
 					return;
 				}
+				// 31-D-18: this is a skip the user is watching happen, and until now it happened in total
+				// silence — half the original complaint was not knowing a song had been dropped. Route it
+				// through the EXISTING batched channel (never a second toast channel): emitSkipNotice
+				// already collapses N skips inside SKIP_BURST_WINDOW_MS into ONE notice with a count, so a
+				// storm cannot become a toast storm. Emitted inside the else path, so the STOP branch above
+				// keeps its sticky Retry notice untouched.
+				if (this.current) this.emitSkipNotice(this.current.title);
 				this.next();
 				return;
 			}
@@ -1946,6 +1957,18 @@ class Player {
 					// grants one second-chance retry, and a real `playing` clears the strikes.
 					if (this.current) this.strikeUnplayable(this.current.uid);
 					this.playing = false;
+					// 31-D-17/31-D-18: this path DELIBERATELY differs from its sibling ceiling path in two
+					// ways, and both omissions are load-bearing — do not "fix" either of them.
+					//  (a) NO emitSkipNotice: it only runs while document.hidden, so nobody sees the toast,
+					//      and emitSkipNotice's burst window would replay it as a stale burst the moment the
+					//      user returns to the app.
+					//  (b) NO `++this.failoverSkips`, unlike the ceiling path above. failoverSkips is the
+					//      only CROSS-track bound in the system and reaching SYSTEMIC_SKIP_CAP calls
+					//      haltRunawayRecovery() — a hard pause + sticky Retry. Counting background skips
+					//      would let an unattended, locked device with a run of region-locked tracks PAUSE
+					//      itself and sit dead until the user picked up the phone: a never-stop violation in
+					//      exactly the scenario this must not break. The bounding here is the per-track
+					//      strike (routing past the dead batch), not a cross-track ceiling.
 					this.next();
 					return;
 				}
