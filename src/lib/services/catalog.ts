@@ -4,13 +4,14 @@
 // NO source is ever named here. All DOM/render calls (dom.searchStatus,
 // renderMiniSearchList, playFromList) are dropped — those are Phase 4.
 import { SOURCES, getEnabledAdapters } from '$lib/sources/registry';
-import type { SourceId, Track, SettledSourceResult } from '$lib/sources/types';
+import { makeUid, type SourceId, type Track, type SettledSourceResult } from '$lib/sources/types';
 import type { DefaultQuality } from '$lib/stores/settings.svelte';
 import { sleep } from '$lib/proxy/http';
 import { cached, __clearSearchCache } from './ttl-cache';
 import { matchKey } from './match-key';
 import { scoreMatch } from './score-match';
 import { dedupeBest, sameSongKey } from './dedupe';
+import { readResolveCache } from './resolve-cache-client';
 
 /**
  * quick-260629-nyl Task 3: sources that genuinely have NO upstream lyrics. A lyric MISS on one of
@@ -228,7 +229,8 @@ function onlySource(id: SourceId): Partial<Record<SourceId, boolean>> {
 export async function resolveNameStub(
 	artist: string,
 	title: string,
-	signal?: AbortSignal
+	signal?: AbortSignal,
+	avail?: Record<string, 'ok' | 'dry'>
 ): Promise<Track | null> {
 	const query = `${artist} ${title}`.trim();
 	if (!query) return null;
@@ -237,9 +239,15 @@ export async function resolveNameStub(
 	// Plan 27-04 (YT-RESILIENCE-01): exclude sources flagged off the auto-resolve floor
 	// (autoResolveEligible === false → ytmusic) so an Up-Next name stub NEVER auto-resolves to a
 	// searchable-but-off-the-hot-path source. Registry-flag-driven — no source named here either.
-	const order = getEnabledAdapters({})
+	const eligible = getEnabledAdapters({})
 		.map((a) => a.id)
 		.filter((id) => SOURCES[id].autoResolveEligible !== false);
+	// 31-D-06(c): the edge entry remembers which sources came up DRY for this song. Searching a
+	// known-dry source is a wasted call, and skipping it is the entire point of caching the
+	// availability hint. Applied ONLY when at least one source survives — an all-dry (or stale)
+	// hint must degrade to the full walk, never to an empty one that resolves nothing.
+	const kept = avail ? eligible.filter((id) => avail[id] !== 'dry') : eligible;
+	const order = kept.length ? kept : eligible;
 	// A minimal comparison target for sameSongKey (reads title+artist only). Fully typed, no cast.
 	const want: Track = {
 		uid: '',
@@ -295,6 +303,52 @@ export async function ensureTrackDetails(
 	}
 	const sig = signal ?? new AbortController().signal;
 
+	// ─── 31-D-08 CACHE-FIRST READ ────────────────────────────────────────────────────────────────
+	// This is the ONE seam every resolve caller (play, prefetch, warmAfter, download, fallback)
+	// funnels through, so one read here makes every one of them cache-aware. It costs each COLD
+	// resolve one governed own-origin GET — 31-D-05 explicitly accepts spending an extra call to
+	// make a play feel instant — bounded at 400ms inside the client, deduped + concurrency-capped by
+	// the apiFetch governor, and skipped entirely by the readiness guard above for a resolved track.
+	// NO second throttle is added here: composing local bounds is the named `api-fetch-flood-freeze`
+	// root cause.
+	//
+	// The cache is ADVISORY (31-D-08): readResolveCache maps a miss, a 404, a 500, malformed JSON,
+	// an abort, its own timeout and an open circuit breaker ALL to null, so every one of those
+	// leaves the pre-existing path below byte-identical and the user sees nothing.
+	const cachedEntry = await readResolveCache(track.artist, track.title, sig);
+	if (sig.aborted) return track; // C-09: re-check after EVERY await — a newer play superseded us
+	if (cachedEntry?.url) {
+		if (track.resolveByName && !track.detailsLoaded) {
+			// The big win: a name-only stub skips the whole search+resolve walk for ONE round-trip.
+			// Lyrics are deliberately not cached — a stub resolved this way plays instantly and the
+			// lyric pane fills from the player's own offline/lyric path.
+			const source = (cachedEntry.source ?? '') as SourceId;
+			const songid = cachedEntry.songid ?? '';
+			if (songid && SOURCES[source]) {
+				return {
+					...track,
+					source,
+					songid,
+					uid: makeUid(source, songid),
+					audioUrl: cachedEntry.url,
+					detailsLoaded: true
+				};
+			}
+		} else if (cachedEntry.source === track.source && cachedEntry.songid === track.songid) {
+			// The source+songid equality check is LOAD-BEARING (T-31-04-01): the entry is keyed on
+			// normalized artist+title, so a cached hit can legitimately belong to a DIFFERENT version
+			// of the same song. Adopting it for a mismatched songid would silently play something
+			// other than the version the user picked in the VersionPicker.
+			return { ...track, audioUrl: cachedEntry.url, detailsLoaded: true };
+		}
+	}
+	// Any other outcome (null, no url, a stored known-none, a mismatched identity) falls straight
+	// through with no side effect — the `named ?? track` fall-through shape already in this function.
+	// There is deliberately NO client-side cache WRITE: the edge fills its own entry out of band
+	// (31-03), because a client-supplied URL write would let one crafted request change what every
+	// other user in the PoP plays.
+	// ─────────────────────────────────────────────────────────────────────────────────────────────
+
 	// RESOLVE-02: a lazy name-only stub (Plan 26-03's Up-Next) carries the `resolveByName` marker and
 	// no real source/songid. Resolve it kuwo-first through ONE source at a time via resolveNameStub —
 	// NEVER dispatch SOURCES[placeholder].resolve on it. On a null return (every source missed or the
@@ -302,7 +356,8 @@ export async function ensureTrackDetails(
 	// an audioUrl-less result as a failed resolve and routes to its existing error/fallback path
 	// (never-throw). A normal source-bearing, detailsLoaded track skips this branch unchanged.
 	if (track.resolveByName && !track.detailsLoaded) {
-		const named = await resolveNameStub(track.artist, track.title, sig);
+		// 31-D-06(c): thread the cached availability hints so the walk can skip a known-dry source.
+		const named = await resolveNameStub(track.artist, track.title, sig, cachedEntry?.avail);
 		return named ?? track;
 	}
 
