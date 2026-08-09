@@ -10,6 +10,14 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 // the node test env → openDb null → put false) is reached when isNativePlatform() is false —
 // all node-runnable via vi.mock (NO real browser / IDB / device).
 
+// 31-D-13 adds a size/type gate at the single read boundary (get/nativeGet): a value that is not a
+// Blob, or is smaller than MIN_BLOB_BYTES (8192), resolves null — indistinguishable from a miss, so
+// every player read site falls through to a network re-stream instead of attaching bytes that can
+// only fire `audio.error`. `browser` is mocked TRUE below so the IDB branch is reachable in node
+// (openDb still short-circuits to null wherever `indexedDB` is absent, which is every describe
+// except the fake-IDB one at the bottom of this file).
+vi.mock('$app/environment', () => ({ browser: true }));
+
 // --- platform switch: controlled per-test via the isNativePlatform mock ---
 const isNativePlatform = vi.fn(() => false);
 vi.mock('@capacitor/core', () => ({
@@ -104,10 +112,10 @@ describe('blob-store — namespace export shape (consumers must keep compiling)'
 });
 
 describe('blob-store — web branch (isNativePlatform false)', () => {
-	it('put falls through to the IDB path (browser false in node → openDb null → false), NEVER the native backend', async () => {
+	it('put falls through to the IDB path (no indexedDB in node → openDb null → false), NEVER the native backend', async () => {
 		isNativePlatform.mockReturnValue(false);
 		const ok = await put('netease-1', new Blob(['a']));
-		// In the node test env `browser` is false so openDb resolves null and put returns false.
+		// In the node test env `indexedDB` is undefined so openDb resolves null and put returns false.
 		expect(ok).toBe(false);
 		// Critically, the native write backend was NOT touched on the web branch.
 		expect(writeBlob).not.toHaveBeenCalled();
@@ -216,8 +224,10 @@ describe('blob-store — native branch get (isNativePlatform true)', () => {
 	// WR-03: native get() resolves the file URI then streams it via convertFileSrc + fetch (no
 	// whole-file base64 decode on every offline play).
 	it('get streams the file via convertFileSrc + fetch and returns a Blob on a hit', async () => {
+		// 31-D-13: the payload must clear MIN_BLOB_BYTES — a plausibly-sized file is the hit case.
+		const audioBytes = 'a'.repeat(9000);
 		const fetchMock = vi.fn(
-			async (_url: RequestInfo | URL) => new Response('audio-bytes', { status: 200 })
+			async (_url: RequestInfo | URL) => new Response(audioBytes, { status: 200 })
 		);
 		vi.stubGlobal('fetch', fetchMock);
 		const v = await get('netease-123');
@@ -226,7 +236,15 @@ describe('blob-store — native branch get (isNativePlatform true)', () => {
 		// the fetched URL is the convertFileSrc-wrapped file URI (no base64 anywhere)
 		expect(String(fetchMock.mock.calls[0][0])).toContain('_capacitor_file_');
 		expect(v).toBeInstanceOf(Blob);
-		expect(await (v as Blob).text()).toBe('audio-bytes');
+		expect(await (v as Blob).text()).toBe(audioBytes);
+	});
+
+	// --- 31-D-13: the native read path applies the SAME size floor as the IDB path ---
+	it('get resolves null for a truncated/empty on-disk copy (31-D-13 size floor)', async () => {
+		vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 200 })));
+		await expect(get('netease-empty')).resolves.toBeNull();
+		vi.stubGlobal('fetch', vi.fn(async () => new Response('a'.repeat(8191), { status: 200 })));
+		await expect(get('netease-truncated')).resolves.toBeNull();
 	});
 
 	it('get returns null on empty uid without touching the backend', async () => {
@@ -289,5 +307,78 @@ describe('blob-store — native branch del (isNativePlatform true)', () => {
 	it('del resolves void (never rejects) when the file is absent / delete throws', async () => {
 		deleteFile.mockRejectedValue(new Error('File does not exist'));
 		await expect(del('netease-absent')).resolves.toBeUndefined();
+	});
+});
+
+// --- 31-D-13: the WEB (IndexedDB) read path, the primary platform ------------------------------
+// Kept LAST in the file: openDb() memoizes its open promise for the module lifetime, so the fake db
+// installed here would otherwise leak backwards into the "no indexedDB → null/false" expectations
+// above. A minimal in-memory indexedDB shim is enough — get() only needs
+// `open → transaction → objectStore → get`.
+describe('blob-store — web IDB read gate (31-D-13)', () => {
+	const records = new Map<string, unknown>();
+
+	function installFakeIdb() {
+		const store = {
+			get(uid: string) {
+				const req: { result?: unknown; onsuccess?: () => void; onerror?: () => void } = {};
+				queueMicrotask(() => {
+					req.result = records.get(uid);
+					req.onsuccess?.();
+				});
+				return req;
+			}
+		};
+		const db = {
+			objectStoreNames: { contains: () => true },
+			transaction: () => ({ objectStore: () => store })
+		};
+		vi.stubGlobal('indexedDB', {
+			open() {
+				const req: { result?: unknown; onsuccess?: () => void } = {};
+				queueMicrotask(() => {
+					req.result = db;
+					req.onsuccess?.();
+				});
+				return req;
+			}
+		});
+	}
+
+	beforeEach(() => {
+		isNativePlatform.mockReturnValue(false);
+		records.clear();
+		installFakeIdb();
+	});
+
+	/** A Blob of exactly `n` bytes. */
+	const bytes = (n: number) => new Blob([new Uint8Array(n)]);
+
+	it('resolves null for a 0-byte blob (the corrupt-download signature)', async () => {
+		records.set('netease-zero', bytes(0));
+		await expect(get('netease-zero')).resolves.toBeNull();
+	});
+
+	it('resolves null for a blob under MIN_BLOB_BYTES (8192)', async () => {
+		records.set('netease-tiny', bytes(8191));
+		await expect(get('netease-tiny')).resolves.toBeNull();
+	});
+
+	it('resolves the blob unchanged at or above MIN_BLOB_BYTES', async () => {
+		const good = bytes(8192);
+		records.set('netease-ok', good);
+		await expect(get('netease-ok')).resolves.toBe(good);
+		const big = bytes(200000);
+		records.set('netease-big', big);
+		await expect(get('netease-big')).resolves.toBe(big);
+	});
+
+	it('resolves null for a non-Blob stored value (pre-existing behavior, must not regress)', async () => {
+		records.set('netease-junk', 'not-a-blob');
+		await expect(get('netease-junk')).resolves.toBeNull();
+	});
+
+	it('resolves null for a miss (undefined record)', async () => {
+		await expect(get('netease-absent')).resolves.toBeNull();
 	});
 });

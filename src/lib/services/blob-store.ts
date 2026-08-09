@@ -25,6 +25,19 @@ const DB_NAME = 'openmusic-blobs';
 const STORE = 'tracks';
 const VERSION = 1;
 
+// 31-D-13: minimum plausible size for a stored audio Blob. 8192 bytes is well BELOW any real audio
+// file (~0.5s of 128kbps) and well ABOVE a truncated/empty write, so the floor can only ever reject
+// bytes that were never going to decode. A rejected Blob is returned as `null` — i.e. it behaves
+// EXACTLY like a cache miss, and every reader (restore / reresolveCurrent / play) already falls
+// through to ensureTrackDetails on a null. That is why the gate lives at this single read boundary
+// instead of at the three call sites: one guard, zero call-site cost, no reader can forget it.
+const MIN_BLOB_BYTES = 8192;
+
+/** 31-D-13: a stored value is usable only if it is a Blob AND carries plausible audio bytes. */
+function isUsableBlob(v: unknown): v is Blob {
+	return v instanceof Blob && v.size >= MIN_BLOB_BYTES;
+}
+
 // --- Native (Capacitor) filesystem + public-Music backend (999.1-03 D-10, 999.1-06 D-11) -----
 //
 // On native (Capacitor.isNativePlatform()) a downloaded audio Blob is persisted TWO ways:
@@ -130,7 +143,10 @@ async function nativeGet(uid: string): Promise<Blob | null> {
 		// RAW fetch (not apiFetch — fetch→apiFetch audit): a LOCAL Capacitor file URI, not /api.
 		const res = await fetch(Capacitor.convertFileSrc(uri));
 		if (!res.ok) return null;
-		return await res.blob();
+		// 31-D-13: same size floor as the IDB path — a truncated/empty on-disk copy must read as a
+		// miss, never be handed to <audio> as a blob: src that can only fire `error`.
+		const blob = await res.blob();
+		return isUsableBlob(blob) ? blob : null;
 	} catch {
 		return null;
 	}
@@ -212,6 +228,11 @@ export async function put(uid: string, blob: Blob, filename?: string): Promise<b
 /**
  * Read the Blob for `uid`. Resolves to the Blob (cache hit), null (miss), or null on any
  * error. Never throws.
+ *
+ * 31-D-13: a stored value that is not a Blob, or is smaller than MIN_BLOB_BYTES, resolves null —
+ * indistinguishable from a miss. Deliberately a READ-ONLY gate: it does NOT delete the entry
+ * (eviction is the player's audio.error branch, 31-D-12), because restore() reads this on boot
+ * before the user has tapped anything and a mutating read there would destroy library state.
  */
 export async function get(uid: string): Promise<Blob | null> {
 	if (!uid) return null;
@@ -223,7 +244,7 @@ export async function get(uid: string): Promise<Blob | null> {
 			const req = txStore(db, 'readonly').get(uid);
 			req.onsuccess = () => {
 				const v = req.result as Blob | undefined;
-				resolve(v instanceof Blob ? v : null);
+				resolve(isUsableBlob(v) ? v : null); // 31-D-13
 			};
 			req.onerror = () => resolve(null);
 		} catch {
