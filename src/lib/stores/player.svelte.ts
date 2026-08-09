@@ -14,6 +14,7 @@ import { SvelteSet } from 'svelte/reactivity';
 import { Capacitor } from '@capacitor/core';
 import { ensureTrackDetails } from '$lib/services/catalog';
 import { tryFallback } from '$lib/services/fallback';
+import { reportDeadUrl } from '$lib/services/resolve-cache-client';
 import { buildDiversePicks } from '$lib/services/picks';
 import { buildSimilarQueue } from '$lib/services/similar';
 import { buildOfflineQueue } from '$lib/services/downloads-queue';
@@ -1906,6 +1907,18 @@ class Player {
 				}
 			}
 			// ────────────────────────────────────────────────────────────────────────────────────────────
+
+			// 31-D-09 / 31-D-11: repair the edge resolve cache. 31-D-11 accepts as a DESIGNED risk that
+			// a globally-shared audio URL can be IP- or region-bound and will 403 for another user, so
+			// this failure path is the load-bearing half of the feature, not an exception. The call is
+			// deliberately UNCONDITIONAL and SELF-GATING in the service: it consults its own
+			// served-url registry and no-ops (zero requests) for a URL the cache never served, so a
+			// normally-resolved URL that fails is never reported. Keeping the gate there rather than
+			// here is what avoids adding a fourth provenance flag to this already-huge store, and it
+			// means the error handler gains exactly one line. Pure side effect: no branch, no return,
+			// no strike, no skip, no await — recovery continues into the seek / hasPlayedSinceSrc /
+			// cross-source chain below EXACTLY as before, which is what makes "keep playing" true.
+			reportDeadUrl(this.audio?.src ?? '');
 
 			// lw9-followup: if the error fires WITHIN the seek window, the user just clicked the
 			// progress bar — but the audio element may not be able to honor the seek because the

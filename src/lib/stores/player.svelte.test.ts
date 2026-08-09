@@ -38,7 +38,9 @@ vi.mock('$lib/services/download-track', () => ({ downloadTrack: vi.fn(async () =
 // importOriginal keeps every other api-base export real; the default resolve keeps any incidental
 // caller harmless.
 const { mockApiFetch } = vi.hoisted(() => ({
-	mockApiFetch: vi.fn(async () => new Response('{}', { status: 200 }))
+	mockApiFetch: vi.fn<(path: string, init?: RequestInit) => Promise<Response>>(
+		async () => new Response('{}', { status: 200 })
+	)
 }));
 vi.mock('$lib/services/api-base', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('$lib/services/api-base')>();
@@ -5804,7 +5806,7 @@ describe('player resilience — cache bust (31-D-09/31-D-11)', () => {
 		expect(posts()).toHaveLength(1);
 		const [path, init] = posts()[0];
 		expect(path).toBe('/api/resolve');
-		expect(JSON.parse(init.body as string)).toEqual({ a: 'Jay', t: 'Blue' });
+		expect(JSON.parse(String(init?.body))).toEqual({ a: 'Jay', t: 'Blue' });
 		// the recovery chain is untouched — the report changed no branch
 		expect(fallbackSpy).toHaveBeenCalledTimes(1);
 	});
