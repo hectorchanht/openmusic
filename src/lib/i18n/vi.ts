@@ -284,6 +284,7 @@ const vi: Dict = {
 	"toast.downloaded": "Đã tải xuống · đã thêm vào Thư viện",
 	"toast.openedAudio": "Đã mở âm thanh · đã thêm vào Thư viện",
 	"toast.downloadFailedKeptInLibrary": "Không thể lưu · vẫn giữ trong Thư viện",
+	"toast.downloadCorrupted": "Tệp đã tải bị hỏng · phát trực tuyến thay thế",
 	"toast.shareCopied": "Đã sao chép liên kết chia sẻ",
 	"toast.liked": "Đã thích",
 	"toast.unliked": "Đã bỏ thích",

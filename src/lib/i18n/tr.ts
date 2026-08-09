@@ -284,6 +284,7 @@ const tr: Dict = {
 	"toast.downloaded": "İndirildi · Kitaplığa eklendi",
 	"toast.openedAudio": "Açılan ses · Kitaplığa eklendi",
 	"toast.downloadFailedKeptInLibrary": "Kaydedilemedi · Kitaplıkta tutuldu",
+	"toast.downloadCorrupted": "İndirilen dosya bozuk · bunun yerine akış",
 	"toast.shareCopied": "Paylaşım bağlantısı kopyalandı",
 	"toast.liked": "Beğenildi",
 	"toast.unliked": "Beğenilenlerden kaldırıldı",

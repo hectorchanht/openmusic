@@ -284,6 +284,7 @@ const it: Dict = {
 	"toast.downloaded": "Scaricato · aggiunto alla Libreria",
 	"toast.openedAudio": "Audio aperto · aggiunto alla Libreria",
 	"toast.downloadFailedKeptInLibrary": "Impossibile salvare · mantenuto nella Libreria",
+	"toast.downloadCorrupted": "Download danneggiato · riproduzione in streaming",
 	"toast.shareCopied": "Link di condivisione copiato",
 	"toast.liked": "Aggiunto ai preferiti",
 	"toast.unliked": "Rimosso dai preferiti",

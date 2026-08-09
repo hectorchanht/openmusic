@@ -108,7 +108,11 @@ const PENDING_KEY_SEP = '␟';
  * `toast.playbackStopped` for the loop-guard, `toast.offlineNoDownloads` for the offline pause).
  */
 export interface PlayerNotice {
-	kind: 'skip' | 'stopped';
+	/** 31-D-14 adds 'corrupt-download': the downloaded blob for the CURRENT track failed to decode,
+	 *  so it was evicted and playback continued over the network. Informational + auto-dismissing
+	 *  (never sticky, never a Retry) — nothing failed from the user's point of view, the song is
+	 *  still playing; it is surfaced only so a silently-vanished download is not a mystery. */
+	kind: 'skip' | 'stopped' | 'corrupt-download';
 	/** A REAL TranslationKey the UI may render directly via t() (WR-03) — the structured fields
 	 *  below remain the preferred mapping input for hosts that want richer wording. Previously a
 	 *  free `string` carrying phantom `player.notice.*` tokens that existed in no dictionary. */

@@ -66,7 +66,17 @@
 		// hidden dependency — the store now also clears 'skip' notices when its window closes, so the
 		// two together close the resurrection bug at the source and in the host.
 		untrack(() => {
-			if (n.kind === 'skip') {
+			if (n.kind === 'corrupt-download') {
+				// 31-D-14: the downloaded copy was corrupt — it has been evicted and the song is now
+				// streaming. Rendered with the auto-dismissing 'skip' host shape (informational, no
+				// Retry): playback did NOT stop, so a sticky pill would overstate it.
+				host = { kind: 'skip', text: t('toast.downloadCorrupted') };
+				clearSkipTimer();
+				skipTimer = setTimeout(() => {
+					host = null;
+					skipTimer = null;
+				}, SKIP_DISMISS_MS);
+			} else if (n.kind === 'skip') {
 				// D-02: count is always ≥ 1; >1 collapses into the batched "{n} songs skipped" wording.
 				const text =
 					(n.count ?? 1) > 1

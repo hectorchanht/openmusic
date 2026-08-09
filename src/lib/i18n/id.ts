@@ -284,6 +284,7 @@ const id: Dict = {
 	"toast.downloaded": "Diunduh · ditambahkan ke Perpustakaan",
 	"toast.openedAudio": "Audio yang dibuka · ditambahkan ke Perpustakaan",
 	"toast.downloadFailedKeptInLibrary": "Tidak dapat menyimpan · tetap di Perpustakaan",
+	"toast.downloadCorrupted": "Unduhan rusak · streaming sebagai gantinya",
 	"toast.shareCopied": "Bagikan tautan disalin",
 	"toast.liked": "Disukai",
 	"toast.unliked": "Dihapus dari disukai",

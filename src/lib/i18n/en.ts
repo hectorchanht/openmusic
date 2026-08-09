@@ -335,6 +335,7 @@ const en = {
 	"toast.downloaded": "Downloaded · added to Library",
 	"toast.openedAudio": "Opened audio · added to Library",
 	"toast.downloadFailedKeptInLibrary": "Couldn't save · kept in Library",
+	"toast.downloadCorrupted": "Download was corrupted · streaming instead",
 	"toast.shareCopied": "Share link copied",
 	"toast.liked": "Liked",
 	"toast.unliked": "Removed from liked",

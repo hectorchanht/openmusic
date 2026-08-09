@@ -310,6 +310,7 @@ const zhHans: Dict = {
 	"toast.downloaded": "已下载 · 已加入音乐库",
 	"toast.openedAudio": "已打开音频 · 已加入音乐库",
 	"toast.downloadFailedKeptInLibrary": "无法保存 · 已保留在音乐库",
+	"toast.downloadCorrupted": "下载文件已损坏 · 改为在线播放",
 	"toast.shareCopied": "已复制分享链接",
 	"toast.liked": "已收藏",
 	"toast.unliked": "已取消收藏",

@@ -284,6 +284,7 @@ const th: Dict = {
 	"toast.downloaded": "ดาวน์โหลดแล้ว · เพิ่มลงในห้องสมุดแล้ว",
 	"toast.openedAudio": "เปิดเสียง · เพิ่มลงในห้องสมุดแล้ว",
 	"toast.downloadFailedKeptInLibrary": "บันทึกไม่สำเร็จ · เก็บไว้ในไลบรารี",
+	"toast.downloadCorrupted": "ไฟล์ที่ดาวน์โหลดเสียหาย · เล่นแบบสตรีมแทน",
 	"toast.shareCopied": "คัดลอกลิงก์แชร์แล้ว",
 	"toast.liked": "ถูกใจแล้ว",
 	"toast.unliked": "เลิกถูกใจแล้ว",

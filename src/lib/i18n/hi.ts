@@ -284,6 +284,7 @@ const hi: Dict = {
 	"toast.downloaded": "डाउनलोड किया गया · लाइब्रेरी में जोड़ा गया",
 	"toast.openedAudio": "ऑडियो खोला गया · लाइब्रेरी में जोड़ा गया",
 	"toast.downloadFailedKeptInLibrary": "सहेजा नहीं जा सका · लाइब्रेरी में रखा गया",
+	"toast.downloadCorrupted": "डाउनलोड ख़राब था · इसके बजाय स्ट्रीमिंग",
 	"toast.shareCopied": "शेयर लिंक कॉपी किया गया",
 	"toast.liked": "पसंद किया",
 	"toast.unliked": "पसंद से हटाया",

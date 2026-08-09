@@ -284,6 +284,7 @@ const ar: Dict = {
 	"toast.downloaded": "تم التنزيل · تمت الإضافة إلى المكتبة",
 	"toast.openedAudio": "تم فتح الصوت · تمت إضافته إلى المكتبة",
 	"toast.downloadFailedKeptInLibrary": "تعذّر الحفظ · تم الاحتفاظ به في المكتبة",
+	"toast.downloadCorrupted": "الملف الذي تم تنزيله تالف · يتم البث بدلاً من ذلك",
 	"toast.shareCopied": "تم نسخ رابط المشاركة",
 	"toast.liked": "تمت الإضافة للمفضلة",
 	"toast.unliked": "تمت الإزالة من المفضلة",

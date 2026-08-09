@@ -54,8 +54,16 @@ function currentQualityMeets(curQuality: string | null, want: DefaultQuality): b
  * never-navigates. `opts.persist` defaults TRUE; `persist:false` (the album bulk path) skips
  * `blobStore.put` — matching album's current behavior (no offline blob / no native public copy) —
  * while addDownload + saveBlobToDisk + begin/end still run.
+ *
+ * 31-D-12: `opts.save` also defaults TRUE; `save:false` is the SILENT background repair mode — the
+ * offline blob is re-persisted and the library record refreshed, but no `<a download>` click fires.
+ * The repair is triggered by a playback error the user never asked about, so popping a file-save
+ * dialog mid-song would itself be the bug.
  */
-export async function downloadTrack(track: Track, opts?: { persist?: boolean }): Promise<DownloadResult> {
+export async function downloadTrack(
+	track: Track,
+	opts?: { persist?: boolean; save?: boolean }
+): Promise<DownloadResult> {
 	// DL-STATE-01: bracket the per-uid spinner. beginDownload BEFORE the first await; endDownload in
 	// the `finally` so EVERY exit (saved / no-audio / failed / any throw) clears the spinner exactly once.
 	library.beginDownload(track.uid);
@@ -109,6 +117,11 @@ export async function downloadTrack(track: Track, opts?: { persist?: boolean }):
 		if (opts?.persist !== false) {
 			await blobStore.put(r.uid, blob, filename);
 		}
+
+		// 31-D-12: silent background repair — the offline blob (and the library record) are refreshed
+		// above, which is the whole point of the re-download; the disk save is skipped so no picker /
+		// download-shelf appears for an action the user never initiated.
+		if (opts?.save === false) return 'saved';
 
 		// Web save via the anchor seam (DL-BUG-01/D-02/D-09): a same-origin blob: <a download> click,
 		// NO save-picker prompt, NO new-tab navigation. Returns false (not a throw) on any DOM failure.
