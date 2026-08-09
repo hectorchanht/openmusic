@@ -11,8 +11,9 @@
 //    (the body is never buffered) and sidesteps per-crawler redirect-follow variance — WhatsApp
 //    and iMessage are the fussy ones and do not reliably follow an og:image redirect.
 //  - BOUNDED: one OG_RESOLVE_MS deadline over the whole tier chain (og-cover.ts), retries=0,
-//    worst case 5 resolve subrequests + 1 image = 6 (quick-260807-vl1: 3 tiers + the
-//    original-terms Deezer fallback + the title-only Deezer fallback).
+//    worst case 6 resolve subrequests + 1 image = 7 (quick-260807-vl1: 3 tiers + the
+//    original-terms Deezer fallback + the title-only Deezer fallback; quick-260809-38i adds the
+//    key-gated Last.fm song tier in front).
 //
 // This route is the deezer/search SHELL (own-origin CORS, OPTIONS 204, caches.default keyed
 // own-origin, cache-write on SUCCESS only) wrapped around the ytmusic/stream BODY (a FRESH header
@@ -38,6 +39,7 @@
 // (T-wv8-05), its Content-Type is VALIDATED (T-30-04) and the cache-buffering clone is size-capped
 // (T-og-02).
 import type { RequestHandler } from './$types';
+import type { Env } from '$lib/proxy/proxy-types';
 import { corsHeaders, fetchWithRetry } from '$lib/proxy/http';
 import { edgeCache, ownOriginCacheKey } from '$lib/proxy/edge-cache';
 import type { EdgeCache } from '$lib/proxy/edge-cache';
@@ -217,11 +219,19 @@ async function streamImage(
 	}
 }
 
-export const GET: RequestHandler = async ({ url, request }) => {
+export const GET: RequestHandler = async ({ url, request, platform }) => {
 	const origin = request.headers.get('origin');
 	try {
 		// Closed-set `type`, COERCED rather than rejected — this route never fails (a 404 here means
-		// no card at all). No secret/env read: all three tiers are keyless.
+		// no card at all).
+		//
+		// quick-260809-38i: ONE secret is read — LASTFM_KEY, for the song-card parity tier that makes
+		// the card match the in-app hero. platform?.env is the verified Cloudflare-adapter accessor
+		// (api/lastfm/info/+server.ts:265). The key is injected EDGE-SIDE ONLY: it is interpolated into
+		// the upstream URL inside og-cover.ts and never reaches the client, a response header, or the
+		// cached body (the cache stores only the resolved image URL / the image bytes — T-38i-01).
+		// ABSENT KEY IS SUPPORTED (T-08-02 parity): the remaining tiers are keyless and the chain then
+		// behaves exactly as it did before this change.
 		const requested = url.searchParams.get('type') ?? 'song';
 		const type: OgType = isOgType(requested) ? requested : 'song';
 		const artist = (url.searchParams.get('artist') ?? '').trim().slice(0, MAX_TERM_CHARS);
@@ -254,7 +264,8 @@ export const GET: RequestHandler = async ({ url, request }) => {
 				type,
 				artist,
 				title,
-				AbortSignal.timeout(OG_RESOLVE_MS)
+				AbortSignal.timeout(OG_RESOLVE_MS),
+				(platform?.env as Env | undefined)?.LASTFM_KEY
 			);
 			if (resolved === 'ERROR') {
 				cover = null; // fall back now, but write NOTHING — the next request retries.

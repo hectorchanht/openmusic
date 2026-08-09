@@ -13,10 +13,29 @@
 // case is 5 resolve subrequests + 1 image fetch = 6 (3 tiers + Fallback A original-terms +
 // Fallback B title-only, quick-260807-vl1) — comfortably inside the 50-subrequest limit.
 //
-// TIERS: Deezer → iTunes → kuwo. The CN tier is kuwo ONLY — never the catalog's multi-source
-// search fan-out (`spike-findings-openmusic`, kuwo-first resolution): a fan-out at the edge would
-// risk the exact crawl timeout this endpoint exists to avoid. A Deezer hit therefore costs exactly
-// ONE subrequest.
+// TIERS: Last.fm (song only, key-gated) → Deezer → iTunes → kuwo. The CN tier is kuwo ONLY — never
+// the catalog's multi-source search fan-out (`spike-findings-openmusic`, kuwo-first resolution): a
+// fan-out at the edge would risk the exact crawl timeout this endpoint exists to avoid. A Deezer hit
+// therefore costs exactly ONE subrequest, and so does a Last.fm hit.
+//
+// quick-260809-38i — WHY LAST.FM, AND WHY FIRST: the in-app hero adopts Last.fm album art (the
+// client's album.getInfo candidate, promoted through player.adoptCover), but this chain had no
+// Last.fm tier, so the messenger card resolved a DIFFERENT album than the app was showing — one
+// song, two covers. This tier exists purely for PARITY with what the user sees, which is also why it
+// runs ahead of Deezer: whichever tier the client ends up displaying must be the tier the card asks
+// first. A share URL carries only artist+title (no album), so the reachable equivalent of the
+// client's album.getInfo is track.getInfo, whose art preference is `track.image[]` then
+// `track.album.image[]` — the same preference api/lastfm/info/+server.ts:249 uses.
+// PROBED 2026-08-09 in production: track.getinfo for 方大同/紅豆 returned image hash
+// 95f31bcdc1e942d3c24daa08dbf0e654, the SAME asset the client's album.getInfo returns, in ONE
+// subrequest. Without that parity the tier would be pure subrequest cost.
+//
+// AN ABSENT KEY IS A SUPPORTED STATE (T-08-02 parity, and the only state local dev has): with no
+// LASTFM_KEY the tier is not constructed at all and the chain is byte-identical to before this
+// change — never an `api_key=undefined` upstream call.
+//
+// WORST CASE with the key present: 6 resolve subrequests + 1 image = 7 (4 tiers + Fallback A
+// original-terms + Fallback B title-only), still far inside the 50-subrequest limit.
 //
 // MISS vs ERROR is distinguished even though both fall through, because only a MISS is cacheable
 // (the same discipline deezer/search/+server.ts documents: never cache a fault, or one transient
@@ -80,7 +99,7 @@ export const OG_RESOLVE_MS = 5000;
  * Per-tier budgets. These deliberately SUM TO MORE than OG_RESOLVE_MS: the overall deadline is
  * the ceiling and each tier only ever gets whatever is left of it (AbortSignal.any below).
  */
-const TIER_MS = { deezer: 1200, itunes: 900, kuwo: 1200 } as const;
+const TIER_MS = { lastfm: 900, deezer: 1200, itunes: 900, kuwo: 1200 } as const;
 
 /** The iTunes artwork token /api/og asks for — 101 KB, vs 332 KB for the client's 1200 (Pitfall 6). */
 const OG_ARTWORK_SIZE = '600x600bb';
@@ -142,7 +161,101 @@ export function safeKuwoImageUrl(raw: string | null | undefined): string | null 
 	}
 }
 
-/** The keyword all three upstreams take: `artist title`, or just the artist for an artist card. */
+/**
+ * quick-260809-38i: the Last.fm grey-star placeholder hash. Last.fm serves this for "no art", and it
+ * is a REAL 200 image — so without this reject a genuine cover would regress to a grey star
+ * (ENRICH-02 / D-04 guardrail 2, the same constant api/lastfm/info/+server.ts filters on).
+ */
+const LASTFM_GREY_STAR = '2a96cbd8b46e442fc41c2b86b821562f';
+
+/**
+ * Validate a Last.fm image URL — the FOURTH per-tier allow-list (T-wv8-05 / T-38i-02). Deliberately
+ * a SEPARATE function from the Deezer/iTunes/kuwo siblings rather than one widened list: a Last.fm
+ * body must never be able to smuggle an mzstatic or kuwo host past its own check. Same guard shape
+ * as safeKuwoImageUrl (https only + no CSS/attribute breakers), hosts `last.fm` / `*.last.fm` /
+ * `*.fastly.net` — art is served from lastfm-img.freetls.fastly.net (probed 2026-08-09), the
+ * `last.fm` forms are Last.fm's own CDN aliases. The grey star is rejected HERE, not only at the
+ * picker, so no future caller can route around the placeholder guard. Never throws.
+ */
+export function safeLastfmImageUrl(raw: string | null | undefined): string | null {
+	if (!raw) return null;
+	if (/[)\s"'\\(]/.test(raw)) return null; // CSS url() + attribute breakers
+	if (raw.includes(LASTFM_GREY_STAR)) return null; // ENRICH-02: never the placeholder
+	try {
+		const u = new URL(raw);
+		if (u.protocol !== 'https:') return null;
+		const host = u.hostname.toLowerCase();
+		const ok = host === 'last.fm' || host.endsWith('.last.fm') || host.endsWith('.fastly.net');
+		return ok ? u.href : null;
+	} catch {
+		return null;
+	}
+}
+
+/** Last.fm's image-size vocabulary, smallest → largest. An unknown size sorts lowest. */
+const LASTFM_SIZE_RANK: Record<string, number> = {
+	small: 1,
+	medium: 2,
+	large: 3,
+	extralarge: 4,
+	mega: 5
+};
+
+/** Largest valid image in a Last.fm `image[]` block, by size rank (never array order). */
+function pickLastfmImage(images: unknown): string | null {
+	if (!Array.isArray(images)) return null;
+	let best: { url: string; rank: number } | null = null;
+	for (const img of images as { '#text'?: string; size?: string }[]) {
+		const url = safeLastfmImageUrl(img?.['#text']?.trim());
+		if (!url) continue;
+		const rank = LASTFM_SIZE_RANK[(img?.size ?? '').toLowerCase()] ?? 0;
+		if (!best || rank >= best.rank) best = { url, rank };
+	}
+	return best ? best.url : null;
+}
+
+/**
+ * Tier 0 — Last.fm track.getInfo, built ONLY when a key is present (see the module header). ONE
+ * subrequest, retries=0 like every other tier. The key is interpolated into the fixed upstream
+ * template and NEVER logged, never echoed into the response — only the validated image URL leaves
+ * this function (T-38i-01).
+ */
+function lastfmTier(key: string): Tier {
+	return async (type, artist, title, deadline) => {
+		// track.getInfo needs both halves and has no album/artist analogue worth a subrequest here.
+		if (type !== 'song' || !artist.trim() || !title.trim()) return { kind: 'miss' };
+		try {
+			const upstream =
+				'https://ws.audioscrobbler.com/2.0/?method=track.getinfo' +
+				`&api_key=${encodeURIComponent(key)}` +
+				`&artist=${encodeURIComponent(artist)}` +
+				`&track=${encodeURIComponent(title)}` +
+				'&autocorrect=1&format=json';
+			// RAW fetch (not apiFetch — fetch→apiFetch audit): edge-side fetch of an absolute upstream.
+			const res = await fetchWithRetry(
+				upstream,
+				{ signal: tierSignal(TIER_MS.lastfm, deadline) },
+				0
+			);
+			if (!res.ok) return { kind: 'error' };
+			const body = (await res.json()) as {
+				track?: { image?: unknown; album?: { image?: unknown } };
+				error?: number;
+			} | null;
+			// Last.fm answers its own faults with a 200 + { error, message } — drift, never a clean miss.
+			if (!body || body.error != null) return { kind: 'error' };
+			if (!body.track) return { kind: 'error' }; // contract drift (kuwoTier's posture)
+			// The SAME preference api/lastfm/info/+server.ts:249 uses, so the card matches the client.
+			const url = pickLastfmImage(body.track.image) ?? pickLastfmImage(body.track.album?.image);
+			return url ? { kind: 'hit', url } : { kind: 'miss' }; // no art / placeholder-only → cacheable
+		} catch {
+			// Non-ok / abort / timeout / malformed JSON / network failure → fault, not a miss.
+			return { kind: 'error' };
+		}
+	};
+}
+
+/** The keyword all three keyless upstreams take: `artist title`, or just the artist for an artist card. */
 function tierTerm(type: OgType, artist: string, title: string): string {
 	return type === 'artist' ? artist.trim() : `${artist} ${title}`.trim();
 }
@@ -218,9 +331,14 @@ const kuwoTier: Tier = async (type, artist, title, deadline) => {
 /**
  * Resolve a cover URL for a share card from TEXT (OG-EP-01).
  *
- * Tiers run SEQUENTIALLY, not in parallel: the preference order Deezer → iTunes → kuwo is the
- * point, and a Deezer hit must cost exactly ONE subrequest. `deadline.aborted` is re-checked
- * before every tier so an expired budget stops the chain instead of piling on subrequests.
+ * Tiers run SEQUENTIALLY, not in parallel: the preference order Last.fm → Deezer → iTunes → kuwo is
+ * the point, and a hit must cost exactly ONE subrequest. `deadline.aborted` is re-checked before
+ * every tier so an expired budget stops the chain instead of piling on subrequests.
+ *
+ * quick-260809-38i — `lastfmKey` is OPTIONAL and only prepends a tier for `type === 'song'`, on the
+ * ORIGINAL (unconverted) terms — see the body for the probe that forced that placement. Absent (or
+ * empty) key → not one extra subrequest and the chain is byte-identical to before. Fallbacks A and B
+ * stay Deezer-only and unchanged.
  *
  * quick-260807-vl1 — the search TERMS are chosen before the chain runs (CONVERT-FIRST: a Chinese
  * query is t2s-normalized to Simplified, which is what the catalogs index), and two Deezer-only
@@ -241,11 +359,30 @@ export async function resolveCoverTiered(
 	type: OgType,
 	artist: string,
 	title: string,
-	deadline: AbortSignal
+	deadline: AbortSignal,
+	lastfmKey?: string
 ): Promise<string | null | 'ERROR'> {
 	// T-og-01: nothing to search for → zero subrequests (the route also short-circuits earlier).
 	// FIRST, before any dictionary work — an empty card must still cost nothing.
 	if (!`${artist}${title}`.trim()) return null;
+
+	let sawError = false;
+
+	// quick-260809-38i — the key-gated PARITY tier, ahead of everything else and on the ORIGINAL,
+	// UNCONVERTED terms.
+	//
+	// WHY IT SITS ABOVE THE CONVERT-FIRST BLOCK (probed, not assumed): the t2s pass below exists
+	// because the CN catalogs index the SIMPLIFIED name — but Last.fm indexes what its scrobbles say,
+	// which for this catalog is usually the TRADITIONAL name. Probed 2026-08-09 against production:
+	// artist=方大同 with track=紅豆 returns the album art, while the t2s output 红豆 returns NOTHING.
+	// Running this tier on the converted terms would therefore have broken it on the exact song the
+	// mismatch was reported for. The client hero queries Last.fm with the raw track fields too, so the
+	// unconverted form is also what parity requires. A hit additionally skips the dict load entirely.
+	if (type === 'song' && lastfmKey && !deadline.aborted) {
+		const lf = await lastfmTier(lastfmKey)(type, artist, title, deadline);
+		if (lf.kind === 'hit') return lf.url;
+		if (lf.kind === 'error') sawError = true;
+	}
 
 	// quick-260807-vl1 — CONVERT-FIRST. A Traditional-script query poisons every upstream keyword
 	// search because the catalogs index the SIMPLIFIED name: production-probed,
@@ -282,7 +419,6 @@ export async function resolveCoverTiered(
 		}
 	}
 
-	let sawError = false;
 	for (const tier of [deezerTier, itunesTier, kuwoTier]) {
 		if (deadline.aborted) break;
 		const out = await tier(type, qArtist, qTitle, deadline);

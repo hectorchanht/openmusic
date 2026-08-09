@@ -511,6 +511,30 @@ describe('og-cover — Last.fm tier (key-gated, song only) — quick-260809-38i'
 		expect(out).not.toContain(KEY);
 	});
 
+	it('queries the ORIGINAL Traditional terms — the convert-first t2s pass must NOT reach this tier', async () => {
+		// PROBED 2026-08-09 in production: artist=方大同 track=紅豆 returns the album art, while the t2s
+		// output 红豆 returns NOTHING. The convert-first pass exists because the CN catalogs index the
+		// SIMPLIFIED name; Last.fm indexes what its scrobbles say, which here is the Traditional name.
+		// So this tier runs ABOVE the conversion — running it on the converted terms would break it on
+		// the exact song the cover mismatch was reported for.
+		const { calls } = stubTiers({ lf: lfHit(), dz: DZ_MISS, it: IT_MISS, kw: KW_MISS });
+		const out = await resolveCoverTiered('song', '方大同', '紅豆', fresh(), KEY);
+		expect(out).toBe(LF_IMG);
+		expect(calls).toHaveLength(1);
+		expect(calls[0]).toContain(encodeURIComponent('紅豆')); // Traditional — the input form
+		expect(calls[0]).not.toContain(encodeURIComponent('红豆')); // never the t2s output
+	});
+
+	it('a Last.fm miss still lets convert-first run for the keyless tiers below it', async () => {
+		// The tier sits ABOVE the conversion but must not disable it: on a miss the CN chain still gets
+		// the Simplified query it needs (quick-260807-vl1 stays intact).
+		const { calls } = stubTiers({ lf: LF_MISS, dz: DZ_MISS, it: IT_MISS, kw: KW_HIT });
+		const out = await resolveCoverTiered('song', '周傑倫', '止戰之殤', fresh(), KEY);
+		expect(out).toBe(KW_PIC);
+		expect(calls[0]).toContain(encodeURIComponent('止戰之殤')); // Last.fm: original
+		expect(calls[1]).toContain(encodeURIComponent('止战之殇')); // Deezer onward: converted
+	});
+
 	it('picks the LARGEST image by Last.fm size rank, not array order', async () => {
 		stubTiers({ lf: lfHit() });
 		const out = await resolveCoverTiered('song', 'A', 'B', fresh(), KEY);
