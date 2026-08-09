@@ -4,7 +4,7 @@ milestone: v1.5
 milestone_name: YTMusic-Powered Up-Next
 status: executing
 stopped_at: Phase 31 context gathered
-last_updated: "2026-08-09T11:13:09.273Z"
+last_updated: "2026-08-09T11:22:26.295Z"
 last_activity: 2026-08-09
 progress:
   total_phases: 7
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-06-10)
 ## Current Position
 
 Phase: 31 (faster-smoother-playback-cut-click-to-play-latency-and-stop) — EXECUTING
-Plan: 2 of 6
+Plan: 3 of 6
 Status: Executing Phase 31
 
 ### 30-06 checkpoint status
@@ -117,6 +117,7 @@ Remaining human UAT: real-device <audio> playback+seek + download-to-disk; deplo
 | Phase 30 P04 | 7min | 3 tasks | 7 files |
 | Phase 30 P05 | 12min | 2 tasks | 9 files |
 | Phase 31 P01 | 35m | 3 tasks | 6 files |
+| Phase 31 P03 | ~20 min | 3 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -194,6 +195,7 @@ Recent decisions affecting current work:
 - [Phase ?]: 30-05: four decodeURIComponent(params) sites existed, not three — artist/[name]/+page.svelte was missed by RESEARCH; audit both 'params' and 'page.params' forms
 - [Phase ?]: 31-D-13 blob size gate lives inside blobStore.get + nativeGet (read-only, never mutates)
 - [Phase ?]: 31-D-12 blob provenance is a recorded lastSrcKind flag threaded through driveSrc, not a blob: prefix sniff
+- [Phase ?]: 31-D-06/D-09: ONE versioned caches.default entry (lookup+url+avail); a MISS returns immediately and fills out of band via platform.ctx.waitUntil; the bust POST is structurally delete-only
 
 ### Pending Todos
 
@@ -363,7 +365,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-09T11:13:03.717Z
+Last session: 2026-08-09T11:22:20.050Z
 Stopped at: Phase 31 context gathered
 Resume: install `android/app/build/outputs/apk/debug/app-debug.apk` on an Android device, open `/song/Olivia-Dean/Man-I-Need` (proven to return a real 30,840 B JPEG from production), confirm the cover renders rather than a broken image, then kill the network and confirm the gradient fallback appears. That single check closes 30-06 and Phase 30. Do NOT run `/gsd:verify-work` for Phase 30 until it is approved — OG-PAGE-01 terminates in it. Optional, non-blocking leftovers: iMessage/Slack cards, and real 24h cache TTL/eviction.
 
