@@ -13,41 +13,90 @@
 import { searchAll } from '$lib/services/catalog';
 import { dedupeBest } from '$lib/services/dedupe';
 import { scoreMatch } from '$lib/services/score-match';
+import { isChineseLine, t2sConvertLines } from '$lib/services/zh-convert';
 import { settings } from '$lib/stores/settings.svelte';
 import type { Track } from '$lib/sources/types';
 
 /**
- * Resolve a Last.fm {artist, title} stub to a playable Track via searchAll + dedupeBest,
+ * ONE search+score pass: searchAll → dedupeBest → scoreMatch stable-max. Extracted
+ * (quick-260808-urx) so the t2s retry below reuses it VERBATIM instead of duplicating the
+ * loop — and so the retry scores against the CONVERTED query, matching what it searched.
+ *
  * SCORED (LFSRC-03 / D-02): instead of blindly taking dedupeBest[0] — which can be a
- * karaoke/cover/live/instrumental variant of the song the user tapped — re-rank the
- * deduped candidates by scoreMatch and return the top-scored one. dedupeBest still
- * collapses same-song dupes and orders by quality + preferredSource, so a STABLE max
- * (keeping the earlier dedupeBest position on equal scores) makes that ordering the FINAL
- * tie-break among similarly-scored candidates (D-02 tie-break).
+ * karaoke/cover/live/instrumental variant of the song the user tapped — re-rank the deduped
+ * candidates by scoreMatch and return the top-scored one. dedupeBest still collapses same-song
+ * dupes and orders by quality + preferredSource, so a STABLE max (keeping the earlier
+ * dedupeBest position on equal scores) makes that ordering the FINAL tie-break among
+ * similarly-scored candidates (D-02 tie-break). Throws only what searchAll throws — the
+ * never-throw boundary is resolveStub's single try/catch.
+ */
+async function attempt(artist: string, title: string): Promise<Track | null> {
+	const r = await searchAll(`${artist} ${title}`, 1);
+	// dedupeBest = the deduped, quality/preferredSource-ordered candidate list (FINAL
+	// tie-break). Re-rank IT by scoreMatch with a stable max: only replace the current
+	// best on a STRICTLY higher score, so equal scores keep the earlier dedupeBest slot.
+	const candidates = dedupeBest(r.interleaved, settings.preferredSource);
+	if (candidates.length === 0) return null;
+	const query = { artist, title };
+	let best = candidates[0];
+	let bestScore = scoreMatch(query, best);
+	for (let i = 1; i < candidates.length; i++) {
+		const s = scoreMatch(query, candidates[i]);
+		if (s > bestScore) {
+			best = candidates[i];
+			bestScore = s;
+		}
+	}
+	return best;
+}
+
+/**
+ * Resolve a Last.fm {artist, title} stub to a playable Track via searchAll + dedupeBest, scored
+ * (see attempt above).
  *
  * Returns the best cross-source match, or null ONLY when searchAll yields zero results /
  * on any failure (D-03 — no score threshold ever nulls a found result). Never throws
  * (best-effort, like buildDiversePicks / buildSimilarQueue).
+ *
+ * quick-260808-urx — T2S RESCUE-ON-MISS. A Chinese-script miss gets EXACTLY ONE retry with the
+ * Traditional→Simplified-normalized terms, because the CN catalogs index the SIMPLIFIED name
+ * (production-probed in quick-260807-vl1: 周傑倫/止戰之殤 missed 3/3, 周杰伦/止战之殇 hit 4/4).
+ *
+ * WHY HERE, not in player.playStub: this is the SHARED resolver every resolve path routes
+ * through — playStub taps, song-share page opens, long-press menus, the album batch resolve,
+ * DownloadControl (~15 call sites). One rescue here fixes all of them; a playStub-only patch
+ * would leave every sibling caller Traditional-blind. And the supersedence contract is satisfied
+ * BY CONSTRUCTION, so player.svelte.ts needs ZERO changes (which also avoids growing the known
+ * ~3000-line god object): playStub awaits resolveStub ONCE and re-checks
+ * `gen !== this.pendingGen` immediately after that await (player.svelte.ts:2421) — which
+ * necessarily runs after the retry's await too. A superseded resolve is discarded regardless of
+ * how many internal searches ran. Do NOT add a second generation guard in here.
+ *
+ * DELIBERATE ASYMMETRY vs covers: og-cover.ts converts FIRST (Traditional missed every tier
+ * deterministically on production, so converting first cost nothing and fixed it); playback
+ * converts ON MISS only, because Traditional playback currently WORKS — CN sources happen to
+ * index enough Traditional — and converting first would change a working path for no reason.
+ * Rescue-on-miss is the conservative shape. What made that incidental behaviour load-bearing is
+ * Half A putting Traditional in share URLs BY DESIGN; this retry removes the dependency.
+ *
+ * COST: zero for the common hit path and for every non-Chinese user. The t2s dict is lazy +
+ * memoized (~22 KB gzip, quick-260807-vl1) and loads only on the first Chinese-script MISS. The
+ * two gates below are what make that a guarantee rather than a hope, and each is pinned by an
+ * exact searchAll call-count assertion in discovery.test.ts.
  */
 export async function resolveStub(artist: string, title: string): Promise<Track | null> {
 	try {
-		const r = await searchAll(`${artist} ${title}`, 1);
-		// dedupeBest = the deduped, quality/preferredSource-ordered candidate list (FINAL
-		// tie-break). Re-rank IT by scoreMatch with a stable max: only replace the current
-		// best on a STRICTLY higher score, so equal scores keep the earlier dedupeBest slot.
-		const candidates = dedupeBest(r.interleaved, settings.preferredSource);
-		if (candidates.length === 0) return null;
-		const query = { artist, title };
-		let best = candidates[0];
-		let bestScore = scoreMatch(query, best);
-		for (let i = 1; i < candidates.length; i++) {
-			const s = scoreMatch(query, candidates[i]);
-			if (s > bestScore) {
-				best = candidates[i];
-				bestScore = s;
-			}
-		}
-		return best;
+		const hit = await attempt(artist, title);
+		if (hit) return hit;
+		// GATE 1 — script. Per-field, so a mixed Latin-artist / Chinese-title stub still qualifies.
+		// isChineseLine rides the kana/hangul-FIRST classifier, so JA/KO lines return false and a
+		// Japanese title is never wrongly Simplified-ified (D-04).
+		if (!isChineseLine(artist) && !isChineseLine(title)) return null;
+		const [a2, t2] = await t2sConvertLines([artist, title]);
+		// GATE 2 — identity. The input was already Simplified (or the converter degraded to its
+		// never-throw identity fallback): there is nothing new to search, so do not spend a call.
+		if (a2 === artist && t2 === title) return null;
+		return await attempt(a2, t2);
 	} catch {
 		return null;
 	}

@@ -123,6 +123,82 @@ describe('resolveStub — scored best-match pick (LFSRC-03 / D-02)', () => {
 	});
 });
 
+// quick-260808-urx — t2s rescue-on-miss.
+//
+// Share links now carry the SHARER'S DISPLAY-language names (Half A), so a Traditional query
+// against the mostly-Simplified CN index stopped being an accident and became a designed input.
+// resolveStub rescues a Chinese-script miss with EXACTLY ONE t2s-normalized retry.
+//
+// The real t2sConvertLines runs here (deterministic offline dict; Vitest resolves its dynamic
+// JSON imports natively — see the zh-convert.ts header), so the conversions asserted below are
+// the production ones. Every branch is pinned by an EXACT call count: "no extra search" is a
+// hard guarantee for non-Chinese and already-Simplified input, not a claim.
+describe('resolveStub — t2s rescue-on-miss (quick-260808-urx)', () => {
+	it('retries ONCE with the Simplified form when a Traditional query misses', async () => {
+		const hit = mk('kuwo', 'hit', '周杰伦', { title: '止战之殇' });
+		const spy = vi
+			.spyOn(catalog, 'searchAll')
+			.mockResolvedValueOnce(result([])) // Traditional query → miss (the production failure)
+			.mockResolvedValueOnce(result([hit])); // Simplified retry → hit
+
+		const out = await resolveStub('周傑倫', '止戰之殤');
+		expect(out?.uid).toBe(hit.uid);
+		expect(spy).toHaveBeenCalledTimes(2);
+		expect(spy.mock.calls[0][0]).toBe('周傑倫 止戰之殤');
+		// The production-verified pair from quick-260807-vl1's /api/og probe.
+		expect(spy.mock.calls[1][0]).toBe('周杰伦 止战之殇');
+	});
+
+	it('does NOT retry when the first Chinese query already hits', async () => {
+		const hit = mk('kuwo', 'hit', '周傑倫', { title: '止戰之殤' });
+		const spy = vi.spyOn(catalog, 'searchAll').mockResolvedValue(result([hit]));
+
+		expect((await resolveStub('周傑倫', '止戰之殤'))?.uid).toBe(hit.uid);
+		expect(spy).toHaveBeenCalledTimes(1);
+	});
+
+	it('does NOT retry a non-Chinese miss (isChineseLine gate — zero extra cost)', async () => {
+		const spy = vi.spyOn(catalog, 'searchAll').mockResolvedValue(result([]));
+
+		await expect(resolveStub('Adele', 'Hello')).resolves.toBeNull();
+		expect(spy).toHaveBeenCalledTimes(1);
+	});
+
+	it('does NOT retry an already-Simplified miss (identity conversion → nothing to re-search)', async () => {
+		const spy = vi.spyOn(catalog, 'searchAll').mockResolvedValue(result([]));
+
+		await expect(resolveStub('周杰伦', '止战之殇')).resolves.toBeNull();
+		expect(spy).toHaveBeenCalledTimes(1);
+	});
+
+	it('retries at most ONCE — a miss on the retry returns null, never loops', async () => {
+		const spy = vi.spyOn(catalog, 'searchAll').mockResolvedValue(result([]));
+
+		await expect(resolveStub('周傑倫', '止戰之殤')).resolves.toBeNull();
+		expect(spy).toHaveBeenCalledTimes(2);
+	});
+
+	it('scores the retry against the CONVERTED query (the terms actually searched)', async () => {
+		// Both survive dedupeBest (different normalized keys). The clean Simplified cut must win
+		// over the 翻唱 variant — which only happens if scoreMatch is given the converted query.
+		const variant = mk('netease', 'variant', '周杰伦', { title: '止战之殇 翻唱' });
+		const clean = mk('qq', 'clean', '周杰伦', { title: '止战之殇' });
+		vi.spyOn(catalog, 'searchAll')
+			.mockResolvedValueOnce(result([]))
+			.mockResolvedValueOnce(result([variant, clean]));
+
+		expect((await resolveStub('周傑倫', '止戰之殤'))?.uid).toBe(clean.uid);
+	});
+
+	it('never throws when the retry search throws (never-throw contract holds)', async () => {
+		vi.spyOn(catalog, 'searchAll')
+			.mockResolvedValueOnce(result([]))
+			.mockRejectedValueOnce(new Error('search down'));
+
+		await expect(resolveStub('周傑倫', '止戰之殤')).resolves.toBeNull();
+	});
+});
+
 describe('mapWithConcurrency — order-preserving capped async pool (Pitfall 11)', () => {
 	it('runs at most `limit` calls in flight and preserves input order', async () => {
 		const items = [0, 1, 2, 3, 4, 5];
