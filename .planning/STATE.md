@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: YTMusic-Powered Up-Next
-status: completed
+status: executing
 stopped_at: Phase 31 context gathered
-last_updated: "2026-08-09T10:17:50.804Z"
-last_activity: "2026-08-09 - Completed quick task 260809-3uo: share links carry a short cover-id token (`ci=<tag>:<id>`, all 4 tiers) that /api/og rebuilds from a fixed template — the card shows the cover the client already resolved. Prior: 260809-38i: one cover per song (adoptCover promotion seam + key-gated Last.fm tier in /api/og) + share links no longer autoplay"
+last_updated: "2026-08-09T11:13:09.273Z"
+last_activity: 2026-08-09
 progress:
   total_phases: 7
   completed_phases: 4
-  total_plans: 36
-  completed_plans: 31
+  total_plans: 42
+  completed_plans: 32
   percent: 57
 ---
 
@@ -21,13 +21,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-10)
 
 **Core value:** A user on their phone can search a song, tap it, and have it play instantly with a smooth, native-app-like experience — and keep playing when the screen locks.
-**Current focus:** Phase 30 — Carrier-Free Share Links
+**Current focus:** Phase 31 — faster-smoother-playback-cut-click-to-play-latency-and-stop
 
 ## Current Position
 
-Phase: 30 (Carrier-Free Share Links) — EXECUTING
-Plan: 6 of 6
-Status: **30-06 still OPEN — plan NOT complete. Exactly ONE item remains: the APK device UAT.** Plans 30-01..30-05 shipped. 30-06 Task 1 (the autonomous phase gate) is complete and committed (`126da01`). **Phase 30 IS DEPLOYED** — `openmusic.lol` serves it.
+Phase: 31 (faster-smoother-playback-cut-click-to-play-latency-and-stop) — EXECUTING
+Plan: 2 of 6
+Status: Executing Phase 31
 
 ### 30-06 checkpoint status
 
@@ -49,7 +49,7 @@ Full observed evidence: `.planning/phases/30-carrier-free-share-links-type-artis
 ### Prior phase (Phase 27 — YouTube Music Source, v1.4) — COMPLETE + E2E-VERIFIED
 
 Phase 27 complete (27-01..04). E2E-verified against LIVE YouTube via the dev-server routes: /api/ytmusic/search 200 (rows+videoId), /api/ytmusic/lyrics 200 (1513c + attribution), /api/ytmusic/stream 206 audio/mp4 + Range (playback) and 200 full-file (download). pnpm check clean, 1320 tests green. E2E caught + fixed a prod-breaking bug (quick-270715 / commit 29c1c7d): stream route exported non-HTTP-verb functions, illegal in SvelteKit +server.ts → 500; helpers moved to $lib/proxy/ytmusic.ts.
-Last activity: 2026-08-09 - Completed quick task 260809-3uo: share links carry a short cover-id token (`ci=<tag>:<id>`, all 4 tiers) that /api/og rebuilds from a fixed template — the card shows the cover the client already resolved. Prior: 260809-38i: one cover per song (adoptCover promotion seam + key-gated Last.fm tier in /api/og) + share links no longer autoplay
+Last activity: 2026-08-09
 Remaining human UAT: real-device <audio> playback+seek + download-to-disk; deployed-Worker player+googlevideo same-IP egress + bot-challenge under load (T-27-03-OP). Account/library sync = separate legal-gated milestone (spike 008).
 
 ## Performance Metrics
@@ -116,6 +116,7 @@ Remaining human UAT: real-device <audio> playback+seek + download-to-disk; deplo
 | Phase 30 P03 | 11min | 2 tasks | 4 files |
 | Phase 30 P04 | 7min | 3 tasks | 7 files |
 | Phase 30 P05 | 12min | 2 tasks | 9 files |
+| Phase 31 P01 | 35m | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -191,6 +192,8 @@ Recent decisions affecting current work:
 - [Phase ?]: 30-04: og:image is spliced OVER buildOg's result (never passed as cover) so the own-origin /api/og URL survives the isHttpsUrl carrier gate on an http dev origin
 - [Phase ?]: 30-04: a +page.ts is unit-testable only if synchronous, fetch-free and importing ./$types type-only — treat those as loader design constraints
 - [Phase ?]: 30-05: four decodeURIComponent(params) sites existed, not three — artist/[name]/+page.svelte was missed by RESEARCH; audit both 'params' and 'page.params' forms
+- [Phase ?]: 31-D-13 blob size gate lives inside blobStore.get + nativeGet (read-only, never mutates)
+- [Phase ?]: 31-D-12 blob provenance is a recorded lastSrcKind flag threaded through driveSrc, not a blob: prefix sniff
 
 ### Pending Todos
 
@@ -360,7 +363,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-09T10:17:50.791Z
+Last session: 2026-08-09T11:13:03.717Z
 Stopped at: Phase 31 context gathered
 Resume: install `android/app/build/outputs/apk/debug/app-debug.apk` on an Android device, open `/song/Olivia-Dean/Man-I-Need` (proven to return a real 30,840 B JPEG from production), confirm the cover renders rather than a broken image, then kill the network and confirm the gradient fallback appears. That single check closes 30-06 and Phase 30. Do NOT run `/gsd:verify-work` for Phase 30 until it is approved — OG-PAGE-01 terminates in it. Optional, non-blocking leftovers: iMessage/Slack cards, and real 24h cache TTL/eviction.
 
