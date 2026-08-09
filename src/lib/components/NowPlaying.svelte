@@ -1211,7 +1211,7 @@
 	     embedded Nowbar's own `.np-prog` is expected (the Nowbar's bar sits at its own top edge
 	     inside the flow, while this loader is absolutely pinned to the notch-safe top of `.np`). -->
 	{#if player.loading}
-		<div class="np-top-loader np-prog indet"><i class="sliver"></i></div>
+		<div class="np-top-loader np-prog indet"><i class="sliver motion-always"></i></div>
 	{/if}
 	{#if sheetState === 'full'}
 		<!-- mtv-followup: reuse the existing docked Nowbar as the sticky top bar when the
@@ -1594,11 +1594,9 @@
 			transform: translateX(310%);
 		}
 	}
-	@media (prefers-reduced-motion: reduce) {
-		.np-prog.indet > i.sliver {
-			animation-duration: 2.2s;
-		}
-	}
+	/* quick-260809-mvz: no reduced-motion gate on this rail — same call as the Nowbar copy it mirrors.
+	   The markup carries `.motion-always` (app.css's escape hatch) so the app's reduce-motion setting
+	   cannot freeze it, and the OS-pref 2.2s slowdown is gone so it runs at one speed everywhere. */
 	.bar { display: flex; align-items: center; justify-content: space-between; }
 	.icon { background: none; border: none; color: var(--color-text); cursor: pointer; width: 38px; height: 38px; display: grid; place-items: center; border-radius: 50%; }
 	.icon:hover { background: var(--color-surface-2); }

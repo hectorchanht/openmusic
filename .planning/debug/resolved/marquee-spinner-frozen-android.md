@@ -72,6 +72,23 @@ updated: 2026-08-09
   - Console errors are pre-existing sandbox network noise (cloudflareinsights CORS, iTunes CORS, CN
     upstream 502/500) — none from this change.
 
+## Follow-up (same session): loader rails at full speed
+
+User asked for the indeterminate loader rail to run at full speed too, not just to stop being frozen.
+
+- Deleted the `@media (prefers-reduced-motion: reduce) { .sliver { animation-duration: 2.2s } }` slowdown.
+- **Found a second, missed copy.** `NowPlaying.svelte` has its own top loader rail that reuses the
+  Nowbar's `np-prog indet` / `.sliver` class names verbatim, with its own duplicate rule set and its own
+  reduced-motion slowdown. It had NOT been given `.motion-always` in the first pass, so the app's
+  reduce-motion setting still froze it completely. Both copies now carry the hatch and run at 1.1s.
+- Verified with the setting ON: Nowbar rail (`svelte-1sudk8r-np-indet`) and NowPlaying rail
+  (`svelte-gs8b8u-np-indet`) both `1.1s`, `running`; control probes without `.motion-always` → `none`.
+  A CSSOM sweep of every stylesheet found zero surviving `prefers-reduced-motion` rules matching
+  `.sliver`. `pnpm check` clean, 95 files / 1734 tests passing.
+- Deliberately left alone: the skeleton shimmers (`.sk::after`, `.skel .art::after`) still stop under
+  reduce-motion. The grey placeholder block already carries the "loading" meaning there; the sweep on top
+  is decoration, unlike a spinner where the motion IS the signal.
+
 - note: an early sample showed 0 `.marquee-on` even on overflowing titles. That was the Browser pane being
   hidden (`document.hidden`), which pauses rAF and ResizeObserver delivery so the action's `remeasure()`
   never ran. It resolved as soon as the pane was visible; not an app bug and not caused by this change.

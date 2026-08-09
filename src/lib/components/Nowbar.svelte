@@ -76,9 +76,8 @@
         <div class="np-prog" class:indet={player.loading}>
             {#if player.loading}
                 <!-- quick-260809-mvz: `.motion-always` — the indeterminate loader rail is the same
-                     kind of "still working" signal as the spinner, so the app's reduce-motion
-                     setting must not freeze it into a static bar. The OS-pref slowdown below still
-                     applies; it keeps moving, just calmer. -->
+                     kind of "still working" signal as the spinner, so neither reduce-motion gate
+                     may touch it. Full speed everywhere; see the .sliver rule below. -->
                 <i class="sliver motion-always"></i>
             {:else}
                 <i
@@ -270,11 +269,9 @@
             transform: translateX(310%);
         }
     }
-    @media (prefers-reduced-motion: reduce) {
-        .np-prog.indet > i.sliver {
-            animation-duration: 2.2s;
-        }
-    }
+    /* quick-260809-mvz: no reduced-motion slowdown. The rail ran at 2.2s instead of 1.1s under the
+       OS pref, which is the same "still working" signal moving at half speed for no benefit — it
+       runs at one speed everywhere now, like the spinner it sits next to. */
     .np-open[disabled] {
         cursor: default;
     }
