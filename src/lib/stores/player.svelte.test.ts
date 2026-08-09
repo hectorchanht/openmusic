@@ -33,6 +33,17 @@ vi.mock('$lib/services/blob-store', () => ({
 // it through a dynamic import (download-track imports the player singleton — a static import there
 // would close a module cycle); vi.mock intercepts the dynamic import all the same.
 vi.mock('$lib/services/download-track', () => ({ downloadTrack: vi.fn(async () => 'saved') }));
+// 31-D-09/31-D-11: the cache-bust suite drives the REAL resolve-cache-client (its served-url
+// registry is the self-gate the player relies on), so the ONE seam to control is apiFetch.
+// importOriginal keeps every other api-base export real; the default resolve keeps any incidental
+// caller harmless.
+const { mockApiFetch } = vi.hoisted(() => ({
+	mockApiFetch: vi.fn(async () => new Response('{}', { status: 200 }))
+}));
+vi.mock('$lib/services/api-base', async (importOriginal) => {
+	const actual = await importOriginal<typeof import('$lib/services/api-base')>();
+	return { ...actual, apiFetch: mockApiFetch };
+});
 vi.mock('$lib/services/similar', () => ({ buildSimilarQueue: vi.fn(async () => []) }));
 vi.mock('$lib/services/picks', () => ({ buildDiversePicks: vi.fn(async () => []) }));
 // COVER-01 (21-03): mock the two cover-cache sync reads (uid layer then name layer) so the
@@ -98,6 +109,10 @@ import {
 import { resolveCoverForTrack } from '$lib/services/cover-backfill';
 import { removeCoverBoth } from '$lib/stores/cover-version.svelte';
 import { logAction } from '$lib/stores/actionLog.svelte';
+import {
+	readResolveCache,
+	__resetResolveCacheClient
+} from '$lib/services/resolve-cache-client';
 
 const mockResolve = vi.mocked(resolveStub);
 const mockEnsure = vi.mocked(ensureTrackDetails);
@@ -5713,5 +5728,145 @@ describe('player resilience — corrupt blob self-repair (31-D-12/D-14)', () => 
 		expect(removeSpy).not.toHaveBeenCalled(); // …and the corrupt branch never ran
 		expect(mockDownloadTrack).not.toHaveBeenCalled();
 		expect(mockLogAction.mock.calls.filter(([evt]) => evt === 'blob.corrupt')).toHaveLength(0);
+	});
+});
+
+// Phase 31 (31-D-09 / 31-D-11): a globally-shared cached audio URL can be IP- or region-bound and
+// WILL 403 for some other user, so the failure path is the load-bearing part of the edge cache, not
+// an edge case. The player's error handler gains exactly ONE unconditional line; the gate lives in
+// the service (its served-url registry), which is why these cases drive the REAL client and assert
+// at the network boundary rather than at a player-side condition that does not exist.
+describe('player resilience — cache bust (31-D-09/31-D-11)', () => {
+	type Internals = {
+		lastSrcKind: 'url' | 'download-blob' | 'prebuffer-blob';
+		hasPlayedSinceSrc: boolean;
+		lastSeekAt: number;
+		errorBurst: number;
+		rapidErrorBurst: number;
+		reresolveBurst: number;
+		reresolveCurrent(): Promise<void>;
+		runFallback(t: Track): Promise<void>;
+		strikeUnplayable(uid: string): boolean;
+	};
+	const internals = () => player as unknown as Internals;
+	const CACHED_URL = 'https://cdn.example/shared-123.mp3';
+
+	const posts = () => mockApiFetch.mock.calls.filter(([, init]) => init?.method === 'POST');
+
+	/** Prime the client's served-url registry exactly the way a real cache hit does. */
+	async function serveFromCache(url: string) {
+		mockApiFetch.mockResolvedValueOnce(
+			new Response(
+				JSON.stringify({
+					hit: true,
+					entry: { source: 'kuwo', songid: 'k1', url, avail: { kuwo: 'ok' } }
+				}),
+				{ status: 200 }
+			)
+		);
+		await readResolveCache('Jay', 'Blue');
+	}
+
+	function armErroredTrack(src: string) {
+		vi.stubGlobal('document', { hidden: false, addEventListener() {} });
+		vi.stubGlobal('navigator', { onLine: true });
+		const el = makeFakeAudio();
+		const cur = mk('kuwo', 'k1', 'Jay', 'Blue');
+		player.queue = [cur, mk('qq', 'after', 'B', 'Next')];
+		player.current = cur;
+		player.notice = null;
+		player.attach(el as unknown as HTMLAudioElement);
+		el.src = src;
+		internals().hasPlayedSinceSrc = false;
+		internals().lastSeekAt = 0;
+		internals().lastSrcKind = 'url';
+		internals().errorBurst = 0;
+		internals().rapidErrorBurst = 0;
+		internals().reresolveBurst = 0;
+		return { el, cur };
+	}
+
+	beforeEach(() => {
+		__resetResolveCacheClient();
+		mockApiFetch.mockReset();
+		mockApiFetch.mockResolvedValue(new Response('{}', { status: 200 }));
+		mockLogAction.mockClear();
+	});
+
+	it('reports a cache-served URL exactly once and still runs the recovery chain', async () => {
+		await serveFromCache(CACHED_URL);
+		const fallbackSpy = vi.spyOn(internals(), 'runFallback').mockResolvedValue(undefined);
+		const { el } = armErroredTrack(CACHED_URL);
+
+		el.fire('error');
+		await flush();
+
+		expect(posts()).toHaveLength(1);
+		const [path, init] = posts()[0];
+		expect(path).toBe('/api/resolve');
+		expect(JSON.parse(init.body as string)).toEqual({ a: 'Jay', t: 'Blue' });
+		// the recovery chain is untouched — the report changed no branch
+		expect(fallbackSpy).toHaveBeenCalledTimes(1);
+	});
+
+	it('a NORMALLY-resolved URL that fails is never reported (the service self-gates)', async () => {
+		vi.spyOn(internals(), 'runFallback').mockResolvedValue(undefined);
+		const { el } = armErroredTrack('https://cdn.example/normal-resolve.mp3');
+
+		el.fire('error');
+		await flush();
+
+		// the player called reportDeadUrl unconditionally; the registry had never seen this URL,
+		// so ZERO requests left the client.
+		expect(posts()).toHaveLength(0);
+		expect(mockApiFetch).not.toHaveBeenCalled();
+	});
+
+	it('31-D-11 primary path: a cache-served URL that 403s keeps playing via the client resolver', async () => {
+		await serveFromCache(CACHED_URL);
+		const reresolveSpy = vi.spyOn(internals(), 'reresolveCurrent').mockResolvedValue(undefined);
+		const { el, cur } = armErroredTrack(CACHED_URL);
+		internals().hasPlayedSinceSrc = true; // it played, then the shared byte-stream 403'd
+
+		el.fire('error');
+		await flush();
+
+		expect(posts()).toHaveLength(1); // the PoP entry is dropped
+		expect(reresolveSpy).toHaveBeenCalledTimes(1); // …and the song re-resolves normally
+		expect(player.current).toBe(cur); // still the same song — no skip, no STOP
+		expect(player.error).not.toBe('toast.playbackStopped');
+	});
+
+	it('the report changes NO branch — identical downstream calls with and without a served URL', async () => {
+		const withReport = vi.spyOn(internals(), 'runFallback').mockResolvedValue(undefined);
+		await serveFromCache(CACHED_URL);
+		const armed = armErroredTrack(CACHED_URL);
+		armed.el.fire('error');
+		await flush();
+		const reportedCalls = withReport.mock.calls.length;
+
+		vi.restoreAllMocks();
+		__resetResolveCacheClient();
+		const without = vi.spyOn(internals(), 'runFallback').mockResolvedValue(undefined);
+		const plain = armErroredTrack('https://cdn.example/normal-resolve.mp3');
+		plain.el.fire('error');
+		await flush();
+
+		expect(without.mock.calls.length).toBe(reportedCalls);
+		expect(reportedCalls).toBe(1);
+	});
+
+	it('the freeze ceiling still fires FIRST and unchanged', async () => {
+		await serveFromCache(CACHED_URL);
+		const strikeSpy = vi.spyOn(internals(), 'strikeUnplayable');
+		vi.spyOn(player, 'next').mockImplementation(() => {});
+		const { el, cur } = armErroredTrack(CACHED_URL);
+		internals().errorBurst = Player_FAILURE_CAP - 1; // the next error trips the absolute ceiling
+
+		el.fire('error');
+		await flush();
+
+		expect(strikeSpy).toHaveBeenCalledWith(cur.uid); // ceiling won: strike + advance
+		expect(posts()).toHaveLength(0); // …and returned before the report line
 	});
 });
