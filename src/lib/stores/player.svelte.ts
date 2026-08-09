@@ -525,12 +525,15 @@ class Player {
 				this.current = resolved;
 				const i = this.indexOf(target);
 				if (i >= 0) this.queue[i] = resolved;
+				// 31-D-08: an edge-cache hit resolved a url with no lyrics — fill the pane out of band
+				// so a warm restore is never worse than a cold one.
+				if (resolved.lrcUnresolved && !resolved.lrc) this.backfillLyrics(resolved);
 			} else {
 				this.current = { ...target, detailsLoaded: true };
 				// Restored a downloaded track from its blob (no network resolve) — backfill lyrics
 				// off the critical path so the now-playing lyrics view isn't empty (the persisted
 				// shape strips lrc/lrcUrl).
-				this.fillLyricsOffline(this.current);
+				this.backfillLyrics(this.current);
 			}
 			if (!this.audio) return;
 			if (this.cachedBlobUrl) {
@@ -629,18 +632,25 @@ class Player {
 		}
 	}
 
-	/** Best-effort lyric backfill for the OFFLINE-BLOB paths. A downloaded track plays from its
-	 *  IndexedDB blob with NO network resolve, and the persisted/queued track shape strips the
-	 *  volatile `lrc`/`lrcUrl` — so `current` lands without lyrics and the now-playing lyrics view
-	 *  (derived from player.current.lrc) shows empty. This re-resolves lyrics OFF the playback
-	 *  critical path (never awaited, never blocks audio): on success it patches `lrc`/`lrcUrl` onto
-	 *  the SAME current track, guarded by uid + playGen so a track change mid-fetch discards the
-	 *  result. Skips entirely when lyrics are already present or the track never had an lrcUrl. */
-	private fillLyricsOffline(track: Track) {
+	/** Best-effort lyric backfill for every path that lands a PLAYABLE track with NO lyric resolve:
+	 *  the OFFLINE-BLOB paths (a downloaded track plays from its IndexedDB blob with no network
+	 *  resolve, and the persisted/queued shape strips the volatile `lrc`/`lrcUrl`) and, since 31-D-08,
+	 *  an EDGE-CACHE HIT (the cached entry stores a url only, so the resolve short-circuits the source
+	 *  walk that produces `lrc` — see the `lrcUnresolved` marker). In both cases `current` lands
+	 *  without lyrics and the now-playing lyrics view (derived from player.current.lrc) shows empty,
+	 *  which would make a warm play visibly worse than a cold one.
+	 *
+	 *  This re-resolves lyrics OFF the playback critical path (never awaited, never blocks audio,
+	 *  never throws, never bumps a generation): on success it patches `lrc`/`lrcUrl` onto the SAME
+	 *  current track, guarded by uid + playGen so a track change mid-fetch discards the result. Skips
+	 *  entirely when lyrics are already present. The re-resolve shape carries `lrcUnresolved` so
+	 *  ensureTrackDetails BYPASSES the edge cache — a second cache read would just return the same
+	 *  lyric-less url and the backfill would be a no-op. */
+	private backfillLyrics(track: Track) {
 		if (track.lrc) return; // already have lyrics — nothing to do
 		const uid = track.uid;
 		const myGen = this.playGen;
-		void ensureTrackDetails({ ...track, detailsLoaded: false })
+		void ensureTrackDetails({ ...track, detailsLoaded: false, lrcUnresolved: true })
 			.then((resolved) => {
 				if (myGen !== this.playGen) return; // track changed mid-fetch — discard
 				if (this.current?.uid !== uid) return; // current moved on — discard
@@ -2788,7 +2798,7 @@ class Player {
 					// Offline-blob play skips the network resolve — backfill lyrics off the critical
 					// path so a downloaded track (whose queue/list entry may carry no lrc) still shows
 					// its lyrics in the now-playing view.
-					this.fillLyricsOffline(this.current);
+					this.backfillLyrics(this.current);
 					const ms = this.ms;
 					if (ms) {
 						ms.metadata = makeMetadata({
@@ -2935,6 +2945,13 @@ class Player {
 				this.clearMedia(); // nothing playable — clear the OS media UI (MS-05)
 				return;
 			}
+			// 31-D-08: the resolve came back PLAYABLE but lyric-less because it was served by the edge
+			// resolve cache (the entry stores a url only, so the source walk that produces `lrc` was
+			// short-circuited). A cache HIT must never render worse than a MISS, so fill the lyrics pane
+			// out of band through the same best-effort mechanism the offline-blob path uses — never
+			// awaited, never throws, never bumps a generation. Fires ONLY on the marker, so a cold
+			// resolve that genuinely found no lyrics (crossSourceLyric already walked) never re-walks.
+			if (resolved.lrcUnresolved && !resolved.lrc) this.backfillLyrics(resolved);
 			// Populate the OS/browser media UI from the RESOLVED track so album/cover
 			// are present (MS-01). Titles/artists go through the per-part name resolvers
 			// for the active display language (returns the original under SSR/off). Guarded via `ms`.

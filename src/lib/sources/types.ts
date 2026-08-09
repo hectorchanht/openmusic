@@ -82,6 +82,18 @@ export interface Track {
 	 *  Additive/optional so no existing construction or serialize path changes (mirrors the Last.fm
 	 *  fields above). `source`/`songid` on such a stub are placeholders, never dispatched. */
 	resolveByName?: boolean;
+
+	// --- Phase 31 edge-resolve-cache marker (31-D-08), additive/optional ---
+	/** True when this track carries a PLAYABLE audioUrl whose LYRIC layer was never resolved — the
+	 *  edge resolve cache stores a url only, so a cache hit short-circuits the source walk that would
+	 *  normally produce `lrc` (the offline-blob / persisted shapes have the same hole). The readiness
+	 *  guard judges such a track complete (`detailsLoaded && audioUrl && !lrcUrl`), so WITHOUT this
+	 *  marker a warm play renders an EMPTY lyrics pane where a cold play shows lyrics — and 31-D-08
+	 *  says a cache hit must never be worse than a miss. Two consumers: `player.backfillLyrics` fires
+	 *  a best-effort off-critical-path re-resolve when it sees it, and `ensureTrackDetails` SKIPS the
+	 *  cache read for such a re-resolve (the cache cannot supply what is being asked for). Inert once
+	 *  `lrc` lands. Additive/optional — no existing construction or serialize path changes. */
+	lrcUnresolved?: boolean;
 }
 
 export interface SourceAdapter {

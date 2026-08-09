@@ -945,4 +945,54 @@ describe('ensureTrackDetails — edge resolve cache (31-D-08 / 31-D-06)', () => 
 		expect(readResolveCache).toHaveBeenCalledTimes(1);
 		expect(readResolveCache).toHaveBeenCalledWith('Jay', 'Blue', ac.signal);
 	});
+
+	// 31-D-08 REGRESSION (31-04 advisory drift): the cached entry stores a URL and NO lrc, and the
+	// readiness guard (`detailsLoaded && audioUrl && !lrcUrl`) calls such a track complete — so a
+	// cache-hit play used to render an EMPTY lyrics pane where a cold play showed lyrics. A cache HIT
+	// must never be worse than a MISS, so both hit branches now mark the track `lrcUnresolved` and a
+	// marked re-resolve BYPASSES the cache (player.backfillLyrics fires it off the critical path).
+	it('marks BOTH cache-hit branches lrcUnresolved so the player can back-fill the pane', async () => {
+		spyAllSources();
+		readResolveCache.mockResolvedValue(HIT);
+
+		const fromNameStub = await ensureTrackDetails(nameStub());
+		const fromSourceTrack = await ensureTrackDetails(mk('kuwo', 'k1'));
+
+		expect(fromNameStub.lrc).toBeNull(); // the entry carries no lyrics …
+		expect(fromNameStub.lrcUnresolved).toBe(true); // … and says so
+		expect(fromSourceTrack.lrc).toBeNull();
+		expect(fromSourceTrack.lrcUnresolved).toBe(true);
+	});
+
+	it('a marked re-resolve SKIPS the cache and resolves lyrics through the source', async () => {
+		const spies = spyAllSources();
+		spies.resolve.kuwo?.mockImplementation(async (t: Track) => ({
+			...t,
+			detailsLoaded: true,
+			audioUrl: 'https://cdn/cached.mp3',
+			lrc: '[00:01]hi'
+		}));
+		readResolveCache.mockResolvedValue(HIT);
+
+		// What player.backfillLyrics hands back in: the cache-hit track, detailsLoaded cleared.
+		const hit = await ensureTrackDetails(mk('kuwo', 'k1'));
+		readResolveCache.mockClear();
+		const filled = await ensureTrackDetails({ ...hit, detailsLoaded: false });
+
+		expect(readResolveCache).not.toHaveBeenCalled(); // a second read would return the same lrc-less url
+		expect(spies.resolve.kuwo).toHaveBeenCalledOnce();
+		expect(filled.lrc).toBe('[00:01]hi'); // warm play ends up with the lyrics a cold play shows
+	});
+
+	it('still reads the cache for a marked track that ALREADY has lyrics (marker is inert)', async () => {
+		spyAllSources();
+		readResolveCache.mockResolvedValue(HIT);
+
+		const out = await ensureTrackDetails(
+			mk('kuwo', 'k1', 1, { lrcUnresolved: true, lrc: '[00:01]hi' })
+		);
+
+		expect(readResolveCache).toHaveBeenCalledTimes(1); // the bypass is scoped to a LYRIC re-resolve
+		expect(out.audioUrl).toBe('https://cdn/cached.mp3');
+	});
 });

@@ -5872,3 +5872,88 @@ describe('player resilience — cache bust (31-D-09/31-D-11)', () => {
 		expect(posts()).toHaveLength(0); // …and returned before the report line
 	});
 });
+
+// 31-D-08 REGRESSION (31-04 advisory drift): the edge resolve cache stores a URL and NO lyrics, and
+// catalog's readiness guard calls such a track complete — so a WARM (cache-hit) play started with an
+// empty lyrics pane while the same COLD play showed lyrics. catalog now marks a cache-hit track
+// `lrcUnresolved` and play() fires the same best-effort backfill the offline-blob path uses, OFF the
+// critical path. The contract under test: a cache hit is never worse than a miss.
+describe('lyric backfill for a cache-hit play (31-D-08)', () => {
+	let el: ReturnType<typeof makeFakeAudio>;
+	const LRC = '[00:01]hello';
+
+	beforeEach(() => {
+		(player.play as unknown as { mockRestore(): void }).mockRestore?.();
+		mockEnsure.mockReset();
+		player.current = null;
+		player.queue = [];
+		player.error = null;
+		player.loading = false;
+		vi.stubGlobal('navigator', { onLine: true });
+		el = makeFakeAudio();
+		player.attach(el as unknown as HTMLAudioElement);
+		vi.spyOn(library, 'isDownloaded').mockReturnValue(false);
+		settings.autoExpandOnPlay = false;
+	});
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
+	/** Cache-hit shape: playable url, no lrc, marked. The BACKFILL re-resolve (detailsLoaded cleared)
+	 *  is the only call that gets lyrics back — exactly how the real catalog behaves once the marker
+	 *  makes it bypass the cache. */
+	function arrangeCacheHit() {
+		mockEnsure.mockImplementation(async (t: Track) =>
+			t.detailsLoaded === false && t.lrcUnresolved
+				? { ...t, detailsLoaded: true, audioUrl: 'https://cdn/cached.mp3', lrc: LRC }
+				: { ...t, detailsLoaded: true, audioUrl: 'https://cdn/cached.mp3', lrc: null, lrcUnresolved: true }
+		);
+	}
+
+	it('a cache-hit play ends up with lyrics — the warm play matches the cold one', async () => {
+		arrangeCacheHit();
+
+		await player.play(stub('kuwo', 'K1', 'Artist', 'Song'), { fresh: true });
+		// The src is attached from the FIRST (lyric-less) resolve — playback never waits on lyrics.
+		expect(el.src).toBe('https://cdn/cached.mp3');
+		await flush(); // the backfill settles OFF the critical path
+
+		expect(player.current?.lrc).toBe(LRC);
+		// Exactly two resolves: the cache-hit play + the one bypassing backfill. No re-walk.
+		expect(mockEnsure).toHaveBeenCalledTimes(2);
+	});
+
+	it('a cold lyric-less resolve does NOT re-walk — the backfill fires only on the marker', async () => {
+		// catalog already ran crossSourceLyric for a cold resolve; repeating it would double the
+		// network for every genuinely lyric-less track.
+		mockEnsure.mockResolvedValue({
+			...mk('kuwo', 'K2', 'Artist', 'Song'),
+			audioUrl: 'https://cdn/cold.mp3',
+			lrc: null
+		});
+
+		await player.play(stub('kuwo', 'K2', 'Artist', 'Song'), { fresh: true });
+		await flush();
+
+		expect(mockEnsure).toHaveBeenCalledTimes(1);
+		expect(player.current?.lrc).toBeNull();
+	});
+
+	it('a superseded backfill never patches the newer track (playGen guard)', async () => {
+		arrangeCacheHit();
+		await player.play(stub('kuwo', 'K1', 'Artist', 'Song'), { fresh: true });
+		// A newer play lands before the backfill settles — its result must be discarded, not written
+		// onto whatever `current` has become.
+		mockEnsure.mockResolvedValue({
+			...mk('qq', 'K3', 'Other', 'Newer'),
+			audioUrl: 'https://cdn/newer.mp3',
+			lrc: null
+		});
+		await player.play(stub('qq', 'K3', 'Other', 'Newer'), { fresh: true });
+		await flush();
+
+		expect(player.current?.uid).toBe(makeUid('qq', 'K3'));
+		expect(player.current?.lrc).toBeNull(); // the K1 backfill did not leak across
+	});
+});

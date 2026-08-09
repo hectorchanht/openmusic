@@ -315,7 +315,15 @@ export async function ensureTrackDetails(
 	// The cache is ADVISORY (31-D-08): readResolveCache maps a miss, a 404, a 500, malformed JSON,
 	// an abort, its own timeout and an open circuit breaker ALL to null, so every one of those
 	// leaves the pre-existing path below byte-identical and the user sees nothing.
-	const cachedEntry = await readResolveCache(track.artist, track.title, sig);
+	//
+	// LYRIC RE-RESOLVE BYPASS (31-D-08): a track marked `lrcUnresolved` already HAS a url this cache
+	// (or an offline blob) supplied and is being re-resolved for the one thing the entry does not
+	// store — lyrics. Reading the cache again would hand back the same lrc-less url and the pane would
+	// stay empty, so skip straight to the source walk (+ crossSourceLyric) below.
+	const cachedEntry =
+		track.lrcUnresolved && !track.lrc
+			? null
+			: await readResolveCache(track.artist, track.title, sig);
 	if (sig.aborted) return track; // C-09: re-check after EVERY await — a newer play superseded us
 	if (cachedEntry?.url) {
 		if (track.resolveByName && !track.detailsLoaded) {
@@ -331,7 +339,10 @@ export async function ensureTrackDetails(
 					songid,
 					uid: makeUid(source, songid),
 					audioUrl: cachedEntry.url,
-					detailsLoaded: true
+					detailsLoaded: true,
+					// 31-D-08: url only, no lyrics — mark it so the player back-fills the pane off the
+					// critical path. A cache HIT must never render worse than a MISS.
+					lrcUnresolved: true
 				};
 			}
 		} else if (cachedEntry.source === track.source && cachedEntry.songid === track.songid) {
@@ -339,7 +350,9 @@ export async function ensureTrackDetails(
 			// normalized artist+title, so a cached hit can legitimately belong to a DIFFERENT version
 			// of the same song. Adopting it for a mismatched songid would silently play something
 			// other than the version the user picked in the VersionPicker.
-			return { ...track, audioUrl: cachedEntry.url, detailsLoaded: true };
+			// `lrcUnresolved` for the same reason as the name-stub branch above (31-D-08): the entry
+			// carries a url and no lrc, and the readiness guard would otherwise call this track complete.
+			return { ...track, audioUrl: cachedEntry.url, detailsLoaded: true, lrcUnresolved: true };
 		}
 	}
 	// Any other outcome (null, no url, a stored known-none, a mismatched identity) falls straight
@@ -371,7 +384,7 @@ export async function ensureTrackDetails(
 	// same song. When the primary resolved to a PLAYABLE track that STILL has no lrc — and it is a
 	// source that SHOULD have lyrics — do ONE cross-source lyric lookup and copy ONLY the lrc across.
 	//
-	// PLACEMENT (chosen over widening player.fillLyricsOffline): this is the ONE seam every caller
+	// PLACEMENT (chosen over widening player.backfillLyrics): this is the ONE seam every caller
 	// (play/prefetch/related) funnels through, so the fix is universal and lives with the readiness
 	// guard it complements. The netease/qq extractor fix above makes a genuine miss RARE, so the added
 	// latency only ever applies to the uncommon no-lrc case; it is strictly bounded (a single fallback
