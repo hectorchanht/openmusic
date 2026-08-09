@@ -951,8 +951,64 @@ class Player {
 	 *    skip-stall).
 	 * A sub-cap strike (first failure) behaves exactly as before: not dead, not scheduled — it is the
 	 * existing "transient-equivalent, retry on demand" round.
+	 *
+	 * 31-D-15 prepends ONE step: before any strike is recorded, try the same song on another source.
+	 * A track that fails on kuwo often plays fine on qq, and silently dropping it is the actual user
+	 * complaint. This is the walk's single decision point, so the retry lives here rather than at
+	 * prefetchNext's two call sites.
 	 */
-	private handleDefinitiveFailure(uid: string): void {
+	private async handleDefinitiveFailure(uid: string): Promise<void> {
+		// ─── 31-D-15 CROSS-SOURCE RETRY (before death, not after) ────────────────────────────────────
+		// Reuses tryFallback wholesale: it is already kuwo-first via registry order, already
+		// sameSongKey-gated (WR-06 — a fuzzy upstream search can return a DIFFERENT song), already
+		// bounded by the per-episode `attempted` set, and already never-throws. No new source walk.
+		const failedIdx = this.queue.findIndex((t) => t.uid === uid);
+		// Skip the retry when the uid is not in the queue (nothing to repair) and, crucially, when it is
+		// the CURRENTLY-PLAYING track: the live error path is runFallback's job and it owns the
+		// playGen/fallbackGen re-entrancy guards. Two concurrent cross-source walks for one song is
+		// exactly the churn 31-D-17 warns about.
+		if (failedIdx >= 0 && uid !== this.current?.uid) {
+			const failed = this.queue[failedIdx];
+			// 31-D-15/31-D-17: bound by the EXISTING per-episode attempted set (the same machinery
+			// runFallback uses), NOT a fresh one. That is what guarantees each source is tried at most
+			// once per logical song, and is why this retry does not multiply into an unbounded fan-out.
+			const key = this.episodeKey(failed);
+			if (this.fallbackEpisodeKey !== key) {
+				this.fallbackEpisodeKey = key;
+				this.fallbackAttempted = new Set<SourceId>();
+			}
+			this.fallbackAttempted.add(failed.source);
+			// Generation guard (the walk's own discipline): snapshot before the await, re-check after. A
+			// retry for a track the user has already moved past must discard silently — re-entering the
+			// strike logic on a superseded walk would strike a track nobody is waiting on.
+			const seedUid = this.current?.uid;
+			const sig = this.prefetchController?.signal;
+			const swap = await tryFallback(
+				failed,
+				settings.preferredSource,
+				sig,
+				this.fallbackAttempted
+			);
+			if (sig?.aborted || this.current?.uid !== seedUid) return; // superseded — discard, do not strike
+			if (swap) {
+				// Repaired. Locate the slot FRESHLY by uid (never a closed-over index) and write back only
+				// while it is still ahead of the recomputed current — the same shape prefetchNext's own
+				// land-write uses.
+				const writeIdx = this.queue.findIndex((t) => t.uid === uid);
+				if (writeIdx >= 0 && writeIdx > this.indexOf(this.current)) this.queue[writeIdx] = swap;
+				logAction('prefetch.cross-source-swap', { from: uid, to: swap.uid });
+				this.clearStrike(uid);
+				// 31-D-15/31-D-17: deliberately NOT `this.failoverSkips++`. failoverSkips counts consecutive
+				// failure-driven auto-SKIPS with no real `playing` between, and SYSTEMIC_SKIP_CAP is the only
+				// cross-track bound in the whole system. This path skipped nothing — it repaired a track —
+				// so counting it would trip the systemic STOP early and pause playback on a queue that is
+				// actually healing. That is a never-stop violation.
+				return;
+			}
+			// Every other source dry — fall through to the pre-existing strike/retry-budget logic below,
+			// completely unchanged.
+		}
+		// ─────────────────────────────────────────────────────────────────────────────────────────────
 		const reachedCap = this.strikeUnplayable(uid);
 		if (!reachedCap) return; // sub-cap: transient-equivalent this round, nothing further to do
 		const budgetLeft = (this.retryResolveAttempts.get(uid) ?? 0) < Player.RETRY_RESOLVE_MAX;
@@ -2287,8 +2343,11 @@ class Player {
 				if (!resolved.audioUrl) {
 					// Definitive failure (resolved but no url) — but a SINGLE one is treated as transient
 					// (the resolve is a separate fetch from the real <audio> fetch; signed-URL/edge blips
-					// recover on a fresh resolve at click-time). Strike it; only promote to dead at the cap.
-					this.handleDefinitiveFailure(cand.uid);
+					// recover on a fresh resolve at click-time). 31-D-15: this now awaits a cross-source
+					// retry before any strike is recorded, so re-check the stale-guard after it (the walk
+					// re-checks after EVERY await — a superseded walk must discard, never write back).
+					await this.handleDefinitiveFailure(cand.uid);
+					if (sig.aborted || this.current?.uid !== seedUid) return; // current changed — discard
 					continue;
 				}
 
@@ -2301,7 +2360,9 @@ class Player {
 					// codec quirk / network blip. Strike it (promoted to dead only at the cap); a probe
 					// TIMEOUT stays unmarked entirely. Either way the walk advances this round.
 					if (probe.errored) {
-						this.handleDefinitiveFailure(cand.uid);
+						// 31-D-15: awaits a cross-source retry before striking — re-check the stale-guard after.
+						await this.handleDefinitiveFailure(cand.uid);
+						if (sig.aborted || this.current?.uid !== seedUid) return; // current changed — discard
 					} else {
 						// quick-260629-nyl Task 2a: a probe TIMEOUT is the transient "playable later on click"
 						// class the user reports. Previously this branch did a bare `continue` — the candidate

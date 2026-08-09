@@ -4153,6 +4153,128 @@ describe('player strike clearing — forgiving on recovery, without resuming pla
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 31-D-15: a next-up track that fails definitively in the prefetch walk gets tried on ANOTHER source
+// before it is ever struck. A track that fails on kuwo often plays on qq, and silently dropping it is
+// the actual user complaint. The retry lives at handleDefinitiveFailure — the walk's SINGLE decision
+// point — and reuses tryFallback (kuwo-first, sameSongKey-gated, never-throws) plus the EXISTING
+// per-episode `fallbackAttempted` set, so each source is tried at most once per logical song. It must
+// never touch failoverSkips: this path repairs a track, it does not skip one, and inflating that
+// counter would trip SYSTEMIC_SKIP_CAP early — a never-stop violation (31-D-17).
+// ─────────────────────────────────────────────────────────────────────────────
+describe('player.prefetchNext — cross-source retry before a track is marked dead (31-D-15)', () => {
+	const prefetch = () => (player as unknown as { prefetchNext(): Promise<void> })['prefetchNext']();
+	type Internals = {
+		strikeUnplayable(uid: string): boolean;
+		handleDefinitiveFailure(uid: string): Promise<void>;
+		unplayableStrikes: Map<string, number>;
+		fallbackAttempted: Set<SourceId>;
+		fallbackEpisodeKey: string | null;
+		failoverSkips: number;
+	};
+	const internals = () => player as unknown as Internals;
+	const strikes = () => internals().unplayableStrikes;
+
+	beforeEach(() => {
+		mockTryFallback.mockReset();
+		internals().fallbackEpisodeKey = null;
+		internals().fallbackAttempted = new Set<SourceId>();
+		internals().failoverSkips = 0;
+	});
+
+	/** A queue of [current, bad] where `bad` always resolves without an audioUrl (definitive failure). */
+	function seedFailingNext() {
+		const cur = mk('netease', '0', 'A', 'Now');
+		const bad = stub('qq', '1', 'B', 'FailsOnQq');
+		player.queue = [cur, bad];
+		player.current = cur;
+		mockEnsure.mockImplementation(async (t: Track) =>
+			t.uid === bad.uid ? { ...bad, detailsLoaded: true, audioUrl: null } : t
+		);
+		return { cur, bad };
+	}
+
+	it('tries another source BEFORE strikeUnplayable can promote the uid to dead', async () => {
+		const { bad } = seedFailingNext();
+		mockTryFallback.mockResolvedValue(null);
+		const strikeSpy = vi.spyOn(internals(), 'strikeUnplayable');
+
+		await prefetch();
+		await flush();
+
+		expect(mockTryFallback).toHaveBeenCalledTimes(1);
+		expect((mockTryFallback.mock.calls[0][0] as Track).uid).toBe(bad.uid);
+		// Ordering is the whole point: the repair attempt must precede the strike, not follow it.
+		expect(mockTryFallback.mock.invocationCallOrder[0]).toBeLessThan(
+			strikeSpy.mock.invocationCallOrder[0]
+		);
+	});
+
+	it('a playable swap replaces the queue entry and records NO strike for that uid', async () => {
+		const { bad } = seedFailingNext();
+		const swap = { ...mk('kuwo', '9', 'B', 'FailsOnQq'), audioUrl: 'https://cdn/swap.mp3' };
+		mockTryFallback.mockResolvedValue(swap);
+
+		await prefetch();
+		await flush();
+
+		expect(player.queue[1].uid).toBe(swap.uid); // repaired in place — the song stays in the queue
+		expect(player.queue[1].audioUrl).toBe('https://cdn/swap.mp3');
+		expect(strikes().has(bad.uid)).toBe(false); // a repair is not a failure
+	});
+
+	it('when every other source is dry the pre-existing strike path runs exactly as before', async () => {
+		const { bad } = seedFailingNext();
+		mockTryFallback.mockResolvedValue(null);
+		const deadSet = (player as unknown as { unplayableUids: { has(u: string): boolean } })
+			.unplayableUids;
+
+		await prefetch();
+		await flush();
+
+		expect(strikes().get(bad.uid)).toBe(1); // one strike, exactly as pre-31-D-15
+		expect(deadSet.has(bad.uid)).toBe(false); // sub-cap — still not dead
+	});
+
+	it('carries the per-episode attempted set so each source is tried at most once per logical song', async () => {
+		const { bad } = seedFailingNext();
+		// Model the real tryFallback: it MUTATES `attempted` in place so the caller sees what was tried.
+		mockTryFallback.mockImplementation(async (_failed, _pref, _sig, attempted) => {
+			attempted?.add('kuwo');
+			return null;
+		});
+
+		await prefetch();
+		await flush();
+		(player as unknown as { prefetchingUid: string | null }).prefetchingUid = null;
+		await prefetch();
+		await flush();
+
+		expect(mockTryFallback).toHaveBeenCalledTimes(2);
+		const first = mockTryFallback.mock.calls[0][3] as Set<SourceId>;
+		const second = mockTryFallback.mock.calls[1][3] as Set<SourceId>;
+		expect(second).toBe(first); // SAME set instance — one episode, not two fresh walks
+		// The second attempt already knows qq (the failed source) and kuwo were tried, so fallbackOrder
+		// excludes both and the A↔B ping-pong cannot re-walk them.
+		expect(second.has(bad.source)).toBe(true);
+		expect(second.has('kuwo')).toBe(true);
+		// It never inflates the cross-track systemic ceiling — this path repairs, it does not skip.
+		expect(internals().failoverSkips).toBe(0);
+	});
+
+	it('never runs for the CURRENTLY-PLAYING track (that is runFallback’s job, not the walk’s)', async () => {
+		const cur = mk('netease', '0', 'A', 'Now');
+		player.queue = [cur];
+		player.current = cur;
+		mockTryFallback.mockResolvedValue(null);
+
+		await internals().handleDefinitiveFailure(cur.uid);
+
+		expect(mockTryFallback).not.toHaveBeenCalled();
+		expect(strikes().get(cur.uid)).toBe(1); // the ordinary strike accounting still applies
+	});
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // debug-playback-skip-and-autoplay (Bug 2): auto-advance autoplay-rejection → single re-play, and
 // the stall watchdog must NOT cross-source-swap a loaded-but-autoplay-paused track. On a non-fresh
 // advance, the async ensureTrackDetails resolve discards user activation, so audio.play() rejects on
