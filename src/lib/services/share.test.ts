@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
 import {
 	slugify,
 	encodePathSegment,
@@ -797,5 +798,44 @@ describe('songShareUrl + ogImageUrl carry the token (quick-260809-3uo)', () => {
 		expect(
 			ogImageUrl('https://openmusic.lol', 'song', 'Nirvana', 'Come As You Are', 'd:' + 'a'.repeat(200))
 		).toBe(base);
+	});
+});
+
+// ---------------------------------------------------------------------------------------------
+// SOURCE GUARD — the TrackMenu share call site (quick-260809-3uo)
+// ---------------------------------------------------------------------------------------------
+// doShare() is a component handler, not an export, and there is no jsdom project (vite.config.ts
+// declares a single node project), so the SOURCE is the honest thing to guard. Each assertion below
+// names the exact RED mutation it pins, and each was PROVEN to fail under that mutation before this
+// was committed — a structural assertion that cannot fail is worse than none.
+describe('TrackMenu share call site — source guard (quick-260809-3uo)', () => {
+	const src = readFileSync(
+		new URL('../components/TrackMenu.svelte', import.meta.url),
+		'utf8'
+	);
+
+	it('looks the cover up with the RAW catalog names, never the display-converted ones', () => {
+		// RED under: readCoverByUidOrName(track.uid, dArtist, dTitle) — the silent zh-Hant cache miss.
+		// The name layer is matchKey'd on catalog metadata, so display strings would miss it for
+		// exactly the users quick-260808-urx's conversion exists for.
+		expect(src).toMatch(/readCoverByUidOrName\(track\.uid, track\.artist, track\.title\)/);
+	});
+
+	it('never passes the display strings into the cache lookup (the negative half)', () => {
+		expect(src).not.toMatch(/readCoverByUidOrName\(track\.uid, dArtist/);
+		expect(src).not.toMatch(/readCoverByUidOrName\(track\.uid, dTitle/);
+	});
+
+	it('still passes a cover argument to songShareUrl', () => {
+		// RED under: dropping the 2nd argument — the exact regression that restores the blank card.
+		// Anchored on the call HEAD with its TRAILING COMMA, single-line: a regex spanning the
+		// multi-line body would be unfalsifiable (nested braces match almost anything).
+		expect(src).toMatch(/songShareUrl\(\{ title: dTitle, artist: dArtist \}, /);
+	});
+
+	it('prefers the hero cover only when the menu is on the PLAYING song', () => {
+		// RED under: dropping the uid identity check, which would stamp the now-playing art onto a
+		// share of some OTHER row.
+		expect(src).toMatch(/player\.current\?\.uid === track\.uid \? player\.resolvedCover : null/);
 	});
 });

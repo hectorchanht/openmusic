@@ -24,6 +24,10 @@
 	import VersionPicker from '$lib/components/VersionPicker.svelte';
 	import { downloadTrack } from '$lib/services/download-track';
 	import { songShareUrl } from '$lib/services/share';
+	// quick-260809-3uo: the share card now carries the cover the user is looking at — read from the
+	// SAME shared reactive cache every other surface reads, plus the retained iTunes id.
+	import { readCoverByUidOrName } from '$lib/stores/cover-version.svelte';
+	import { recallItunesId } from '$lib/services/itunes-cover';
 	import type { Track } from '$lib/sources/types';
 
 	// `loading` = the menu opened on a discovery STUB and is still resolving the real Track
@@ -190,7 +194,33 @@
 		// mostly-Simplified CN index — is closed by resolveStub's t2s rescue-on-miss (quick-260808-urx).
 		const dTitle = names.dnTitle(track.title);
 		const dArtist = names.dnArtist(track.artist);
-		const url = songShareUrl({ title: dTitle, artist: dArtist });
+		// quick-260809-3uo — CARRY THE COVER THE USER IS ACTUALLY LOOKING AT.
+		//
+		// WHY at all: /api/og re-resolves the card cover server-side from artist+title TEXT, through a
+		// chain that is independent of the client's. So a song the app is visibly showing art for could
+		// still unfurl a BLANK card — reported for 你瞞我瞞 / 陳柏宇, whose in-app cover comes from the
+		// client's iTunes tier (Quinquennium). Adding more server tiers is whack-a-mole; the client
+		// already knows the answer right here. What travels is a SHORT COVER ID, never a URL (see
+		// coverToken), so no sharer-supplied host or path can reach /api/og's fetcher.
+		//
+		// Precedence, widest-authority first: the hero's own cover when this IS the playing song, then
+		// the SAME shared cache every list row reads (so sharing from a row matches the row), then the
+		// stub's art.
+		//
+		// 🔴 The cache lookup MUST use the RAW track.artist / track.title, NOT dArtist / dTitle. The
+		// name layer is matchKey'd on the raw CATALOG metadata; passing the display-language strings
+		// (quick-260808-urx converts them — zh-Hant 夢伴 for catalog 梦伴) would miss the cache for
+		// exactly the users the display conversion exists for.
+		const shareCover =
+			(player.current?.uid === track.uid ? player.resolvedCover : null) ??
+			readCoverByUidOrName(track.uid, track.artist, track.title) ??
+			track.cover ??
+			null;
+		// An uncovered-tier cover (netease / qq / joox) simply yields no token and no regression — the
+		// carrier is advisory, and the card falls back to the server tier chain exactly as today. The
+		// iTunes id is recalled HERE because coverToken is pure: a store/storage never flows into a
+		// pure service (CLAUDE.md), so the component does the lookup and passes the value in.
+		const url = songShareUrl({ title: dTitle, artist: dArtist }, shareCover, recallItunesId(shareCover));
 		try {
 			const nav = navigator as Navigator & { share?: (d: ShareData) => Promise<void> };
 			// quick-260808-vkd — the link rides `text`, NOT `url`. DO NOT "fix" this back.
