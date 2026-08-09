@@ -34,12 +34,16 @@
 
 	// DQ-3 resolve-and-play status. Drives the inline UI: 'resolving' shows a spinner, 'playing'
 	// means the player took over, 'notfound' shows a clear message + retry. NEVER stays 'resolving'
-	// forever — onMount always settles it to 'playing' or 'notfound' (no stuck loader).
+	// forever — every resolveAndPlay() settles it to 'playing' or 'notfound' (no stuck loader).
+	// quick-260809-38i: it now starts at 'idle' and STAYS there until the user taps play, so opening a
+	// shared link renders no status line and, more importantly, starts no audio.
 	let status = $state<'idle' | 'resolving' | 'playing' | 'notfound'>('idle');
 	// Lazily-imported i18n getter for the not-found message; null until the client import resolves,
 	// in which case we render a plain English fallback (keeps the page SSR-safe + never blank).
 	let notFoundMsg = $state('No playable version could be found for this song.');
-	// Lazily-bound retry handler (re-runs the same playStub call for the autoplay-blocked case).
+	// Lazily-bound play handler — the PRIMARY path since quick-260809-38i (it was the fallback for the
+	// autoplay-blocked case; removing the autoplay removes that whole class of failure). Still named
+	// `retry` because it is also what re-runs the resolve after a 'notfound'.
 	let retry = $state<(() => void) | null>(null);
 
 	async function resolveAndPlay() {
@@ -66,9 +70,10 @@
 	}
 
 	onMount(() => {
-		// Bind the retry handler client-side and kick off the initial resolve.
+		// quick-260809-38i: bind the handler ONLY — no resolve, no playback. Opening a share link must
+		// start NO audio; the "Play on openmusic" control below runs the exact same resolve on a real
+		// user gesture, which is also the gesture mobile browsers require for playback anyway.
 		retry = () => void resolveAndPlay();
-		void resolveAndPlay();
 	});
 </script>
 
@@ -101,7 +106,8 @@
 		<p class="status status--error" aria-live="polite">{notFoundMsg}</p>
 	{/if}
 
-	<!-- Manual retry for the autoplay-blocked case: re-runs the same name+artist resolve. Disabled
+	<!-- quick-260809-38i: the PRIMARY play path — the page no longer resolves or plays on mount, so
+	     this tap is what starts everything (and it re-runs the resolve after a 'notfound'). Disabled
 	     while a resolve is in flight; available client-side only (retry is bound in onMount). -->
 	<button class="play-cta" onclick={() => retry?.()} disabled={status === 'resolving' || retry === null}>
 		Play on openmusic

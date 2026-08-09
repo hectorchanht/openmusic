@@ -10,6 +10,7 @@
 // BEFORE `load` sees them, so passing '%2550%25' here would bake in Pitfall 1 — the second decode
 // that 500s the legacy /album/{name} route today on any name containing a literal '%'.
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { load, ssr, prerender } from './+page';
 
 function ev(artist: string, title: string, origin = 'https://openmusic.lol') {
@@ -77,5 +78,33 @@ describe('song/[artist]/[title] loader — OG head', () => {
 	it('keeps og:image on an http dev origin (own-origin URL, NOT isHttpsUrl-gated)', () => {
 		const out = run('Nirvana', 'Come-As-You-Are', 'http://localhost:5173');
 		expect(out.og.image.startsWith('http://localhost:5173/api/og?type=song')).toBe(true);
+	});
+});
+
+// ---------------------------------------------------------------------------------------------
+// SOURCE GUARD — the sibling +page.svelte (quick-260809-38i)
+// ---------------------------------------------------------------------------------------------
+// Opening a share link must start NO audio; playback begins only on the user's tap. That is
+// COMPONENT behaviour, and there is no jsdom project here (vite.config.ts declares a single node
+// project), so the component cannot be mounted in a test. Guarding the SOURCE is the honest option:
+// it is a regression tripwire on the exact two lines that matter, not a proof of runtime behaviour.
+describe('song share page — no autoplay on mount (quick-260809-38i)', () => {
+	const src = readFileSync(new URL('./+page.svelte', import.meta.url), 'utf8');
+
+	/** The onMount body, so the assertion is about what runs on mount and nothing else. */
+	const onMountBody = src.match(/onMount\(\(\) => \{([\s\S]*?)\n\t\}\);/)?.[1] ?? '';
+
+	it('onMount BINDS resolveAndPlay but never CALLS it', () => {
+		expect(onMountBody).not.toBe(''); // the extraction itself must not silently pass
+		// Naming it once is the binding; a second mention is the autoplay call coming back. (A regex
+		// for `onMount(...resolveAndPlay` cannot express this — the binding is inside onMount too.)
+		expect(onMountBody.match(/resolveAndPlay/g) ?? []).toHaveLength(1);
+		expect(onMountBody).toContain('retry = () => void resolveAndPlay();');
+	});
+
+	it('still binds the retry handler, so the play CTA keeps working', () => {
+		// Paired with the assertion above on purpose: deleting the CONTROL instead of the autoplay
+		// would satisfy the first test and leave the page unplayable.
+		expect(src).toContain('retry = () => void resolveAndPlay();');
 	});
 });
