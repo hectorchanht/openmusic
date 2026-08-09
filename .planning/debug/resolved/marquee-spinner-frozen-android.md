@@ -85,9 +85,22 @@ User asked for the indeterminate loader rail to run at full speed too, not just 
   (`svelte-gs8b8u-np-indet`) both `1.1s`, `running`; control probes without `.motion-always` → `none`.
   A CSSOM sweep of every stylesheet found zero surviving `prefers-reduced-motion` rules matching
   `.sliver`. `pnpm check` clean, 95 files / 1734 tests passing.
-- Deliberately left alone: the skeleton shimmers (`.sk::after`, `.skel .art::after`) still stop under
-  reduce-motion. The grey placeholder block already carries the "loading" meaning there; the sweep on top
-  is decoration, unlike a spinner where the motion IS the signal.
+## Follow-up 2: skeleton shimmers
+
+User then asked for the skeleton shimmers too, overriding the "leave them, the grey block already means
+loading" call above. Both shimmer families are now exempt, so NO reduce-motion rule kills an animation
+anywhere in `src/` — every surviving gate is a `transition: none` / `scroll-behavior` easing suppression,
+which is the decorative kind and correct to keep.
+
+- Global `.sk::after` (20+ call sites) — exempted in `app.css` by the same re-assert trick as the marquee.
+  Written as `.sk.sk::after` on purpose: the doubled class makes it (0,4,1) against the blanket rule's
+  (0,3,1), so it wins on specificity rather than resting on source order to break a tie.
+- Scoped `.skel .art::after` / `.skel .bar::after` in `search` and both `charts/*` pages — `.motion-always`
+  added to the 9 skeleton elements (3 per page), `@media` gates deleted.
+- Verified with the setting ON: `.sk::after` → `sk-shimmer` 1.1s running; a REAL search skeleton captured
+  live via MutationObserver read `art motion-always svelte-ogmlmo` / `svelte-ogmlmo-skel-shimmer` 1.1s
+  running; control probe without the hatch → `none`. CSSOM sweep found zero surviving reduced-motion rules
+  matching `.sk` or `skel`. `pnpm check` clean, 1734 tests passing.
 
 - note: an early sample showed 0 `.marquee-on` even on overflowing titles. That was the Browser pane being
   hidden (`document.hidden`), which pauses rAF and ResizeObserver delivery so the action's `remeasure()`

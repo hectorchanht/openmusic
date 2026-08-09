@@ -160,10 +160,10 @@
 		<span class="vh">{label}</span>
 		{#each Array(count) as _, i (i)}
 			<span class="row skel" aria-hidden="true">
-				<span class="art"></span>
+				<span class="art motion-always"></span>
 				<span class="meta">
-					<span class="bar bar-title"></span>
-					<span class="bar bar-artist"></span>
+					<span class="bar bar-title motion-always"></span>
+					<span class="bar bar-artist motion-always"></span>
 				</span>
 			</span>
 		{/each}
@@ -245,7 +245,6 @@
 		transform: translateX(-100%); animation: skel-shimmer 1.1s ease-in-out infinite;
 	}
 	@keyframes skel-shimmer { 100% { transform: translateX(100%); } }
-	@media (prefers-reduced-motion: reduce) { .skel .art::after, .skel .bar::after { animation: none; } }
 	.vh {
 		position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
 		overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;

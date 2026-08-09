@@ -675,10 +675,10 @@
 		<span class="vh">{label}</span>
 		{#each Array(count) as _, i (i)}
 			<span class="row skel" aria-hidden="true">
-				<span class="art"></span>
+				<span class="art motion-always"></span>
 				<span class="meta">
-					<span class="bar bar-title"></span>
-					<span class="bar bar-artist"></span>
+					<span class="bar bar-title motion-always"></span>
+					<span class="bar bar-artist motion-always"></span>
 				</span>
 			</span>
 		{/each}
@@ -933,9 +933,6 @@
 		100% { transform: translateX(100%); }
 	}
 	/* Disable shimmer for users who prefer reduced motion. */
-	@media (prefers-reduced-motion: reduce) {
-		.skel .art::after, .skel .bar::after { animation: none; }
-	}
 	/* Visually-hidden screen-reader cue for the skeleton container. */
 	.vh {
 		position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;

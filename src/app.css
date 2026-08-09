@@ -128,8 +128,9 @@ button, a, [role="button"] { -webkit-tap-highlight-color: transparent; }
 /* Global loading-skeleton placeholder. Add `.sk` to any element (sized to match the real
    content it stands in for) to render a greyish block with a left-to-right shimmer sweep.
    Greys (0.11 base / 0.22 sweep) match the search-page skeleton — visible on the dark page
-   bg. Reduce-motion (OS pref + the app setting rule above) drops the shimmer; the grey
-   block remains. */
+   bg. quick-260809-mvz: the shimmer keeps sweeping under BOTH reduce-motion gates — it is the
+   "still loading" signal, and a frozen grey block is indistinguishable from content that simply
+   failed to arrive. See the re-assert below the keyframe. */
 .sk {
 	position: relative;
 	overflow: hidden;
@@ -149,10 +150,12 @@ button, a, [role="button"] { -webkit-tap-highlight-color: transparent; }
 		transform: translateX(100%);
 	}
 }
-@media (prefers-reduced-motion: reduce) {
-	.sk::after {
-		animation: none;
-	}
+/* Same idea as the marquee re-assert: `.sk` is written at 20+ call sites, so exempt it here rather
+   than tagging each one with `.motion-always`. The doubled `.sk.sk` is deliberate — it makes this
+   (0,4,1) against the blanket rule's (0,3,1), so the exemption holds no matter where in the file
+   either rule ends up, instead of resting on source order to break a tie. quick-260809-mvz. */
+:root[data-reduce-motion] .sk.sk::after {
+	animation: sk-shimmer 1.1s ease-in-out infinite !important;
 }
 
 /* use:tapBounce one-shot press feedback (quick-260701-0aa). The action adds `.tap-bouncing` on
