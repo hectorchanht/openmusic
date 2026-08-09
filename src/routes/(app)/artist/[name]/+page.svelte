@@ -200,7 +200,15 @@
 			// card, so no preview is lost. Sending BOTH would duplicate the link in the message
 			// (once readable, once encoded) on every target that concatenates the two members.
 			// The former `text: title` was redundant with `title` — the link takes that slot.
-			if (nav.share) await nav.share({ title, text: url });
+			// quick-260808-vzu — the title line is now OPT-IN (settings.shareIncludeTitle, default
+			// OFF). Concatenating targets (WhatsApp) render `title` and `text` as two separate lines,
+			// so an unconditional title showed the artist name above the link and then AGAIN inside
+			// the OG card the link unfurls into. It is a SETTING, not a deletion — some users want the
+			// context inline, so the old behavior is one toggle away in Settings → General. Tradeoff
+			// when OFF: targets that use `title` as a subject line (email, some Slack surfaces) get a
+			// barer share. No placeholder title in the OFF branch — the Web Share spec needs at least
+			// one of title/text/url, and `{ text: url }` satisfies it.
+			if (nav.share) await nav.share(settings.shareIncludeTitle ? { title, text: url } : { text: url });
 			else { await navigator.clipboard.writeText(url); toast.show(t('toast.shareCopied')); }
 		} catch {
 			/* user dismissed / clipboard blocked — no toast on cancel */

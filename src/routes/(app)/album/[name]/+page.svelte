@@ -12,6 +12,7 @@
 	import { library } from '$lib/stores/library.svelte';
 	import { names } from '$lib/stores/names.svelte';
 	import { overlays } from '$lib/stores/overlays.svelte';
+	import { settings } from '$lib/stores/settings.svelte';
 	import { entityCardUrl } from '$lib/services/share';
 	import { dragClose } from '$lib/actions/dragClose';
 	import { focusTrap } from '$lib/actions/focusTrap';
@@ -457,7 +458,15 @@
 			// iMessage / Slack auto-linkify a bare URL inside shared text and still fetch its OG
 			// card, so no preview is lost. Sending BOTH would duplicate the link in the message
 			// (once readable, once encoded) on every target that concatenates the two members.
-			if (nav.share) await nav.share({ title: dArtist ? `${dName} • ${dArtist}` : dName, text: url });
+			// quick-260808-vzu — the title line is now OPT-IN (settings.shareIncludeTitle, default
+			// OFF). Concatenating targets (WhatsApp) render `title` and `text` as two separate lines,
+			// so an unconditional title showed the name above the link and then AGAIN inside the OG
+			// card the link unfurls into. It is a SETTING, not a deletion — some users want the
+			// context inline, so the old behavior is one toggle away in Settings → General. Tradeoff
+			// when OFF: targets that use `title` as a subject line (email, some Slack surfaces) get a
+			// barer share. No placeholder title in the OFF branch — the Web Share spec needs at least
+			// one of title/text/url, and `{ text: url }` satisfies it.
+			if (nav.share) await nav.share(settings.shareIncludeTitle ? { title: dArtist ? `${dName} • ${dArtist}` : dName, text: url } : { text: url });
 			else {
 				await navigator.clipboard.writeText(url);
 				globalToast.show(t('toast.shareCopied'));
