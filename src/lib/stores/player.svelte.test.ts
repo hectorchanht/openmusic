@@ -29,6 +29,10 @@ vi.mock('$lib/services/blob-store', () => ({
 // passed to them (the removedUids-exclusion assertions) without real network. Both default to []
 // — the same "sources dry → adds nothing" outcome the real fns hit headless, so the existing
 // end-of-queue / ensureAhead tests keep their behaviour (they already assert "adds nothing").
+// 31-D-12: the corrupt-blob branch queues a SILENT background re-download. player.svelte.ts reaches
+// it through a dynamic import (download-track imports the player singleton — a static import there
+// would close a module cycle); vi.mock intercepts the dynamic import all the same.
+vi.mock('$lib/services/download-track', () => ({ downloadTrack: vi.fn(async () => 'saved') }));
 vi.mock('$lib/services/similar', () => ({ buildSimilarQueue: vi.fn(async () => []) }));
 vi.mock('$lib/services/picks', () => ({ buildDiversePicks: vi.fn(async () => []) }));
 // COVER-01 (21-03): mock the two cover-cache sync reads (uid layer then name layer) so the
@@ -79,6 +83,7 @@ import { resolveStub } from '$lib/services/discovery';
 import { ensureTrackDetails } from '$lib/services/catalog';
 import { tryFallback } from '$lib/services/fallback';
 import { blobStore } from '$lib/services/blob-store';
+import { downloadTrack } from '$lib/services/download-track';
 import { buildSimilarQueue } from '$lib/services/similar';
 import { buildDiversePicks } from '$lib/services/picks';
 // quick-260809-38i: the two READ helpers are vi.fn()s in this file, so adoptCover's cache write is
@@ -98,6 +103,7 @@ const mockResolve = vi.mocked(resolveStub);
 const mockEnsure = vi.mocked(ensureTrackDetails);
 const mockTryFallback = vi.mocked(tryFallback);
 const mockBlobGet = vi.mocked(blobStore.get);
+const mockDownloadTrack = vi.mocked(downloadTrack);
 const mockSimilar = vi.mocked(buildSimilarQueue);
 const mockPicks = vi.mocked(buildDiversePicks);
 const mockUidCover = vi.mocked(getCachedCoverByUid);
@@ -5195,5 +5201,176 @@ describe('player resolve-phase watchdog — regression: no happy-path fan-out; a
 		} finally {
 			vi.useRealTimers();
 		}
+	});
+});
+
+// 31-D-12/D-13/D-14: a downloaded blob that EXISTS but is BAD used to dead-end a track forever —
+// audio.error → reresolveCurrent re-read the SAME corrupt bytes → error ceiling → strike → skip, on
+// every future play, because nothing distinguished "these bytes are bad" from "this URL is bad". The
+// lastSrcKind provenance flag closes that: a download-blob error evicts the blob + the library
+// record, toasts once, keeps playing over the network and silently re-downloads. A PREBUFFER blob
+// (never a download) is only discarded — evicting for it would put a song the user never downloaded
+// into their Downloads. The freeze ceiling above it must keep winning.
+describe('player resilience — corrupt blob self-repair (31-D-12/D-14)', () => {
+	type Internals = {
+		lastSrcKind: 'url' | 'download-blob' | 'prebuffer-blob';
+		corruptNotified: Set<string>;
+		redownloadQueued: Set<string>;
+		prebufferedUid: string | null;
+		prebufferedBlobUrl: string | null;
+		hasPlayedSinceSrc: boolean;
+		lastSeekAt: number;
+		errorBurst: number;
+		rapidErrorBurst: number;
+		reresolveCurrent(): Promise<void>;
+		runFallback(t: Track): Promise<void>;
+		strikeUnplayable(uid: string): boolean;
+	};
+	const internals = () => player as unknown as Internals;
+	/** Mirror of Player.FAILURE_CAP (private static = 5) — the absolute error ceiling. */
+	const Player_ERROR_CEILING = Player_FAILURE_CAP;
+
+	function armErroredTrack(kind: Internals['lastSrcKind']) {
+		vi.stubGlobal('document', { hidden: false, addEventListener() {} });
+		vi.stubGlobal('navigator', { onLine: true });
+		const el = makeFakeAudio();
+		const cur = mk('netease', 'corrupt', 'A', 'Bad Bytes');
+		const next = mk('qq', 'after', 'B', 'Next');
+		player.queue = [cur, next];
+		player.current = cur;
+		player.notice = null;
+		player.attach(el as unknown as HTMLAudioElement);
+		internals().hasPlayedSinceSrc = false;
+		internals().lastSeekAt = 0;
+		internals().lastSrcKind = kind;
+		return { el, cur };
+	}
+
+	beforeEach(() => {
+		mockLogAction.mockClear();
+		mockDownloadTrack.mockClear().mockResolvedValue('saved');
+		vi.mocked(blobStore.del).mockClear();
+		internals().corruptNotified.clear();
+		internals().redownloadQueued.clear();
+		internals().lastSrcKind = 'url';
+	});
+
+	it('a download-blob error evicts the blob AND the library download record exactly once', () => {
+		const removeSpy = vi.spyOn(library, 'removeDownload').mockImplementation(() => {});
+		vi.spyOn(internals(), 'reresolveCurrent').mockResolvedValue(undefined);
+		const { el, cur } = armErroredTrack('download-blob');
+
+		el.fire('error');
+
+		expect(vi.mocked(blobStore.del)).toHaveBeenCalledExactlyOnceWith(cur.uid);
+		expect(removeSpy).toHaveBeenCalledExactlyOnceWith(cur.uid);
+	});
+
+	it('emits exactly ONE corrupt-download notice and ONE blob.corrupt log entry per uid', () => {
+		vi.spyOn(library, 'removeDownload').mockImplementation(() => {});
+		vi.spyOn(internals(), 'reresolveCurrent').mockResolvedValue(undefined);
+		const { el, cur } = armErroredTrack('download-blob');
+
+		el.fire('error');
+		expect(player.notice).toEqual({
+			kind: 'corrupt-download',
+			msg: 'toast.downloadCorrupted',
+			title: cur.title
+		});
+		const first = player.notice;
+		// The re-attached blob errors again (the flag is re-set by the attach site in production).
+		internals().lastSrcKind = 'download-blob';
+		el.fire('error');
+
+		// The toast is emitted ONCE per uid — the second error must not replace the notice object
+		// (a re-emit would restart the dismiss timer and stack a second toast for one repair).
+		expect(player.notice).toBe(first);
+		expect(mockLogAction.mock.calls.filter(([evt]) => evt === 'blob.corrupt')).toHaveLength(2);
+	});
+
+	it('queues exactly ONE silent background re-download per uid, even when the error repeats', async () => {
+		vi.spyOn(library, 'removeDownload').mockImplementation(() => {});
+		vi.spyOn(internals(), 'reresolveCurrent').mockResolvedValue(undefined);
+		const { el, cur } = armErroredTrack('download-blob');
+
+		el.fire('error');
+		internals().lastSrcKind = 'download-blob';
+		el.fire('error');
+		internals().lastSrcKind = 'download-blob';
+		el.fire('error');
+		await flush(); // the repair is reached through a dynamic import — let it settle
+
+		expect(mockDownloadTrack).toHaveBeenCalledTimes(1);
+		const [track, opts] = mockDownloadTrack.mock.calls[0];
+		expect(track.uid).toBe(cur.uid);
+		// save:false — the repair must not pop a save dialog mid-playback.
+		expect(opts).toEqual({ save: false });
+	});
+
+	it('recovers over the NETWORK after eviction — no strike, no skip from this branch', () => {
+		vi.spyOn(library, 'removeDownload').mockImplementation(() => {});
+		const reresolveSpy = vi.spyOn(internals(), 'reresolveCurrent').mockResolvedValue(undefined);
+		const strikeSpy = vi.spyOn(internals(), 'strikeUnplayable');
+		const nextSpy = vi.spyOn(player, 'next').mockImplementation(() => {});
+		const { el } = armErroredTrack('download-blob');
+
+		el.fire('error');
+
+		expect(reresolveSpy).toHaveBeenCalledTimes(1);
+		expect(strikeSpy).not.toHaveBeenCalled();
+		expect(nextSpy).not.toHaveBeenCalled();
+		expect(player.error).not.toBe('toast.playbackStopped');
+	});
+
+	it('a PREBUFFER blob error never touches library state and never toasts', async () => {
+		const removeSpy = vi.spyOn(library, 'removeDownload').mockImplementation(() => {});
+		vi.spyOn(internals(), 'runFallback').mockResolvedValue(undefined);
+		vi.stubGlobal('URL', { createObjectURL: () => 'blob:x', revokeObjectURL: vi.fn() });
+		const { el } = armErroredTrack('prebuffer-blob');
+		internals().prebufferedUid = 'netease:corrupt';
+		internals().prebufferedBlobUrl = 'blob:stale';
+
+		el.fire('error');
+		await flush();
+
+		expect(removeSpy).not.toHaveBeenCalled();
+		expect(vi.mocked(blobStore.del)).not.toHaveBeenCalled();
+		expect(mockDownloadTrack).not.toHaveBeenCalled();
+		expect((player.notice as { kind?: string } | null)?.kind).not.toBe('corrupt-download');
+		// the stale prebuffer slot is discarded so it cannot be re-consumed
+		expect(internals().prebufferedUid).toBeNull();
+		expect(internals().prebufferedBlobUrl).toBeNull();
+	});
+
+	it('a plain url error takes exactly the pre-existing path (the branch is never entered)', async () => {
+		const removeSpy = vi.spyOn(library, 'removeDownload').mockImplementation(() => {});
+		const fallbackSpy = vi.spyOn(internals(), 'runFallback').mockResolvedValue(undefined);
+		const { el } = armErroredTrack('url');
+
+		el.fire('error');
+		await flush();
+
+		expect(removeSpy).not.toHaveBeenCalled();
+		expect(vi.mocked(blobStore.del)).not.toHaveBeenCalled();
+		expect(mockLogAction.mock.calls.filter(([evt]) => evt === 'blob.corrupt')).toHaveLength(0);
+		expect(mockDownloadTrack).not.toHaveBeenCalled();
+		expect(fallbackSpy).toHaveBeenCalledTimes(1); // the unchanged cross-source path
+	});
+
+	it('the freeze ceiling still WINS — at the error cap the corrupt branch is never reached', async () => {
+		const removeSpy = vi.spyOn(library, 'removeDownload').mockImplementation(() => {});
+		const strikeSpy = vi.spyOn(internals(), 'strikeUnplayable');
+		vi.spyOn(internals(), 'reresolveCurrent').mockResolvedValue(undefined);
+		vi.spyOn(player, 'next').mockImplementation(() => {});
+		const { el, cur } = armErroredTrack('download-blob');
+		internals().errorBurst = Player_ERROR_CEILING - 1; // the next error trips the absolute ceiling
+
+		el.fire('error');
+		await flush();
+
+		expect(strikeSpy).toHaveBeenCalledWith(cur.uid); // ceiling fired (strike + advance)
+		expect(removeSpy).not.toHaveBeenCalled(); // …and the corrupt branch never ran
+		expect(mockDownloadTrack).not.toHaveBeenCalled();
+		expect(mockLogAction.mock.calls.filter(([evt]) => evt === 'blob.corrupt')).toHaveLength(0);
 	});
 });

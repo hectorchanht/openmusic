@@ -128,6 +128,14 @@ export interface PlayerNotice {
 	action?: () => void;
 }
 
+/**
+ * 31-D-12: where the bytes behind the current `audio.src` came from.
+ *  - 'url'            — a network/CDN stream (the pre-existing failure handling applies verbatim)
+ *  - 'download-blob'  — a LIBRARY download read back from blobStore (evictable + re-downloadable)
+ *  - 'prebuffer-blob' — a transient prebufferNext() blob (NOT a download — never touch library state)
+ */
+type SrcKind = 'url' | 'download-blob' | 'prebuffer-blob';
+
 /** mm:ss, NaN/Infinity-safe (avoids the "NaN:NaN" bug before metadata loads). */
 export function fmtTime(s: number): string {
 	if (!Number.isFinite(s) || s < 0) return '0:00';
@@ -235,6 +243,22 @@ class Player {
 	private driveBurst = 0;
 	private static SRC_REDRIVE_WINDOW_MS = 1500;
 	private static SRC_REDRIVE_CAP = 4;
+	/**
+	 * 31-D-12 BLOB PROVENANCE. What the CURRENT `audio.src` was attached from. The audio.error
+	 * handler needs to tell "these local bytes are bad" (evict + re-stream + re-download) apart from
+	 * "this URL is bad" (the pre-existing cross-source path) — nothing did before, so a corrupt
+	 * download re-read the SAME corrupt bytes on every recovery attempt and the track stayed dead
+	 * forever. Recorded at the attach sites rather than sniffed from a `blob:` prefix at error time,
+	 * because a sniff CANNOT distinguish a library download from a prebufferNext() blob — and
+	 * evicting a download record for a prebuffer blob would silently delete a song the user never
+	 * downloaded. Plain field — internal, never read reactively (mirrors driveBurst above). */
+	private lastSrcKind: SrcKind = 'url';
+	/** 31-D-12 one-shot dedupes, keyed by uid: at most ONE toast and ONE background re-download per
+	 *  corrupt track. Deliberately NOT playGen-guarded (the repair outlives the play that triggered
+	 *  it — by the time the bytes land the user has moved on, and that is fine); these Sets are the
+	 *  bound instead. Cleared wherever the other per-session guards reset. Plain fields. */
+	private corruptNotified = new Set<string>();
+	private redownloadQueued = new Set<string>();
 	/**
 	 * Audio-element error burst counter (CR-03). The dominant region-lock failure mode is "detail
 	 * fetch resolves a URL fine, the <audio> byte fetch 403s" — i.e. the `error` event fires while
@@ -526,6 +550,10 @@ class Player {
 			// in attach()) applies it once metadata loads. seekFraction() owns the same pending
 			// slot — if the user manually seeks before metadata lands, their target wins.
 			this.pendingSeek = seek > 0 ? seek : null;
+			// 31-D-12: record provenance for the audio.error handler. restore() deliberately keeps its
+			// DIRECT assign (it is not routed through driveSrc) — routing it would newly subject a boot
+			// restore to the re-drive brake, a behaviour change in the freeze-sensitive core.
+			this.lastSrcKind = offlineBlob ? 'download-blob' : 'url';
 			audio.src = src;
 			// If duration is already finite (cached load, identical src reset), apply
 			// immediately and clear so the listener doesn't double-fire.
@@ -569,12 +597,14 @@ class Player {
 				this.cachedBlobUrl = null;
 			}
 			let src: string = resolved.audioUrl;
+			let kind: SrcKind = 'url'; // 31-D-12 provenance, threaded into driveSrc below
 			if (library.isDownloaded(resolved.uid)) {
 				const blob = await blobStore.get(resolved.uid).catch(() => null);
 				if (myGen !== this.playGen) return; // WR-02: a newer play() landed mid-IDB-read
 				if (blob) {
 					this.cachedBlobUrl = URL.createObjectURL(blob);
 					src = this.cachedBlobUrl;
+					kind = 'download-blob';
 				}
 			}
 			this.pendingSeek = desiredSeek;
@@ -583,7 +613,7 @@ class Player {
 			// here would double-count a seek recovery as a load failure, so we deliberately do not.
 			// SINGLE AUTHORITY (debug-song-click-lrc-flood-noplay): re-attach through the braked setter
 			// so a reresolve that keeps re-driving the same dead src is bounded → STOP, not a flood.
-			if (!this.driveSrc(resolved.uid, src)) return;
+			if (!this.driveSrc(resolved.uid, src, kind)) return;
 			// Attempt synchronous seek if duration already loaded; else loadedmetadata listener
 			// will pick up pendingSeek when it lands.
 			if (Number.isFinite(audio.duration) && audio.duration > 0 && desiredSeek != null) {
@@ -1176,8 +1206,12 @@ class Player {
 	 * it fires `error`, so errorBurst never climbs). A NEW uid (normal fast-skipping) resets the burst,
 	 * so this fires ONLY on a genuine loop. Logs `src.redrive-brake` with the culprit uid so the trigger
 	 * is captured in the Activity log. Callers MUST bail their own play/re-resolve when this returns false.
+	 *
+	 * 31-D-12: `kind` travels WITH the url so provenance is recorded by the same authority that owns
+	 * the attach — a caller cannot set the src here and forget the flag, and a braked bail (which
+	 * never touches audio.src) correctly leaves the previous src's provenance intact.
 	 */
-	private driveSrc(uid: string, url: string): boolean {
+	private driveSrc(uid: string, url: string, kind: SrcKind = 'url'): boolean {
 		if (!this.audio) return false;
 		const now = Date.now();
 		this.driveBurst =
@@ -1192,6 +1226,7 @@ class Player {
 			this.haltRunawayRecovery(); // pause + abort in-flight + sticky Retry — never a spinning flood
 			return false;
 		}
+		this.lastSrcKind = kind; // 31-D-12
 		this.audio.src = url;
 		return true;
 	}
@@ -1460,6 +1495,10 @@ class Player {
 			this.failoverSkips = 0; // SYSTEMIC-FAILURE CEILING (debug-nowbar-frozen-audius-spam): real audio = the storm is not systemic.
 			this.driveBurst = 0; // SINGLE AUTHORITY (debug-song-click-lrc-flood-noplay): real output = the src re-drive is not looping.
 			this.lastDriveUid = null;
+			// 31-D-12: real output = the corrupt-blob episode is over. Drop the one-shot dedupes so a
+			// track whose re-download later goes bad again can report + repair itself once more.
+			this.corruptNotified.clear();
+			this.redownloadQueued.clear();
 			this.stallRetried = false; // bg-lockscreen-stall-noskip: real output = the load did not stall; fresh retry budget.
 			this.errorBurst = 0;
 			this.reresolveBurst = 0; // RERESOLVE-LOOP GUARD: real audio = the same-src re-resolve recovered.
@@ -1692,6 +1731,63 @@ class Player {
 				}
 				this.next();
 				return;
+			}
+			// ────────────────────────────────────────────────────────────────────────────────────────────
+
+			// ─── 31-D-12 CORRUPT-BLOB SELF-REPAIR ────────────────────────────────────────────────────────
+			// Placed AFTER the ceiling block (the freeze guards must keep winning — a corrupt-blob path
+			// must never outrank them) and BEFORE the seek / hasPlayedSinceSrc branches (local bytes that
+			// fail to decode are a DEFINITIVE "these bytes are bad" signal, so they should not burn the
+			// seek-recovery or one-shot in-place-reresolve budgets those branches meter).
+			const badBytes = this.lastSrcKind;
+			if (badBytes !== 'url') {
+				// Whatever happens below, the next attach decides its own provenance; clear it now so a
+				// repeat error on the network re-stream takes the ordinary path.
+				this.lastSrcKind = 'url';
+				if (badBytes === 'prebuffer-blob') {
+					// A prebuffer blob is NOT a download. Discard it (and any still-claimed slot) and FALL
+					// THROUGH to the pre-existing handling — no eviction, no toast, no library write. A
+					// naive `blob:` sniff here would have deleted a download record for a song the user
+					// never downloaded.
+					if (this.prebufferedBlobUrl) URL.revokeObjectURL(this.prebufferedBlobUrl);
+					this.prebufferedBlobUrl = null;
+					this.prebufferedUid = null;
+				} else if (this.current) {
+					// A LIBRARY download that will not decode. Evict it, tell the user once, keep playing
+					// over the network, and quietly re-download so offline works next time. No strike, no
+					// next(), no STOP — this is a repair, not a failure.
+					const track = this.current;
+					const uid = track.uid;
+					logAction('blob.corrupt', { uid });
+					void blobStore.del(uid); // never-throws
+					library.removeDownload(uid); // makes reresolveCurrent's isDownloaded gate false
+					if (!this.corruptNotified.has(uid)) {
+						this.corruptNotified.add(uid);
+						this.notice = {
+							kind: 'corrupt-download',
+							msg: 'toast.downloadCorrupted',
+							title: track.title
+						};
+						// WR-04 window-close discipline (mirrors emitSkipNotice): clear the channel once the
+						// window elapses so a stale notice cannot re-toast on a later language switch.
+						setTimeout(() => {
+							if (this.notice?.kind === 'corrupt-download') this.notice = null;
+						}, Player.SKIP_BURST_WINDOW_MS);
+					}
+					if (!this.redownloadQueued.has(uid)) {
+						this.redownloadQueued.add(uid);
+						// Dynamic import: download-track imports the player singleton, so a static import
+						// here would close a module cycle. Fire-and-forget + never-throw; `save:false` keeps
+						// the repair silent (no save dialog mid-playback).
+						void import('$lib/services/download-track')
+							.then((m) => m.downloadTrack({ ...track }, { save: false }))
+							.catch(() => {});
+					}
+					// The download record is gone, so this re-resolves over the NETWORK — that is the whole
+					// self-repair; no new resolve path is needed.
+					void this.reresolveCurrent();
+					return;
+				}
 			}
 			// ────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -2569,6 +2665,7 @@ class Player {
 					// deliberate-pause flag so the next pause is judged on this src's own merits.
 					this.disarmResume();
 					this.deliberatePause = false;
+					this.lastSrcKind = 'download-blob'; // 31-D-12 (direct assign — see restore()'s note)
 					this.audio.src = this.cachedBlobUrl;
 					this.armStall();
 					// quick-260627-huo (HUO-PREFETCH): EAGER one-shot prefetch of the immediate-next at
@@ -2714,12 +2811,14 @@ class Player {
 					this.cachedBlobUrl = null;
 				}
 				let src: string = resolved.audioUrl;
+				let kind: SrcKind = 'url'; // 31-D-12 provenance, threaded into driveSrc below
 				if (library.isDownloaded(resolved.uid)) {
 					const blob = await blobStore.get(resolved.uid).catch(() => null);
 					if (myGen !== this.playGen) return; // CR-02: superseded mid-IDB-read — discard
 					if (blob) {
 						this.cachedBlobUrl = URL.createObjectURL(blob);
 						src = this.cachedBlobUrl;
+						kind = 'download-blob';
 					}
 				}
 				// BOUNDED BLOB PRE-BUFFER consume (bg-lockscreen-stall-noskip): if the immediate-next was
@@ -2732,6 +2831,9 @@ class Player {
 					src = this.cachedBlobUrl;
 					this.prebufferedBlobUrl = null;
 					this.prebufferedUid = null;
+					// 31-D-12: a prebuffer blob is NOT a library download — this kind exists so the
+					// audio.error handler can discard it WITHOUT evicting a download record.
+					kind = 'prebuffer-blob';
 				}
 				// Initial-load arming point (D-13): a NEW src for this track. Reset the played flag +
 				// arm the stall watchdog so a silent no-audio start (no `playing`/`timeupdate`
@@ -2751,7 +2853,7 @@ class Player {
 				// braked setter. If this play() is the Nth rapid re-drive of the SAME track with no
 				// `playing` between (a reactive re-entry / recovery ping-pong — the "api loop hell"), the
 				// brake STOPS with a logged trigger and we bail this play() rather than re-driving again.
-				if (!this.driveSrc(resolved.uid, src)) return;
+				if (!this.driveSrc(resolved.uid, src, kind)) return;
 				this.armStall();
 				// RELAX-PREFETCH (debug-song-click-lrc-flood-noplay): prefetch is driven ONLY by the
 				// timeupdate playback-elapsed gate (~5s into REAL playback) — the eager on-every-src fire
@@ -3484,6 +3586,8 @@ class Player {
 		this.failoverSkips = 0; // SYSTEMIC-FAILURE CEILING (debug-nowbar-frozen-audius-spam): a manual retry re-arms it.
 		this.driveBurst = 0; // SINGLE AUTHORITY (debug-song-click-lrc-flood-noplay): a manual retry re-arms the src brake.
 		this.lastDriveUid = null;
+		this.corruptNotified.clear(); // 31-D-12: a full recovery re-arms the corrupt-blob one-shots too
+		this.redownloadQueued.clear();
 		this.errorBurst = 0;
 		this.rapidErrorBurst = 0; // RAPID-FIRE BRAKE (debug-nowbar-freeze-reresolve-loop): a full recovery re-arms it too.
 		this.lastAudioErrorAt = 0;
