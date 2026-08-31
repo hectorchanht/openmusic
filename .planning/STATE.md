@@ -219,7 +219,15 @@ Recent decisions affecting current work:
 
 [From .planning/todos/pending/ — ideas captured during sessions]
 
-None yet.
+7 pending (`.planning/todos/pending/`):
+
+- Setting: show the music-quality tag on the Now Playing page
+- Similar songs in Up Next consistently — generated sourcing everywhere except album
+- Carrier-free /artist/{name} looks up the HYPHENATED name upstream
+- /api/resolve returned {"hit":false} for a mainstream song — confirm Phase-31 edge cache fills
+- /api/og artist tier streams Deezer picture_xl (~200 KB) — `prefer` never reaches artist branch
+- PageOg hardcodes openmusic.lol — og:url cross-origin on pages.dev shares
+- Song share page — stale "cover is never carried" comment + unused placeholder
 
 ### Blockers/Concerns
 
