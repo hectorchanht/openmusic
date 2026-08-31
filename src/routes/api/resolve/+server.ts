@@ -4,9 +4,11 @@
 // POST /api/resolve  { "a": string, "t": string } → { busted: boolean }   (DELETE-ONLY)
 //
 // Turns a repeat play of a song someone in this PoP already played into ONE own-origin
-// round-trip instead of a CN search + detail pair. Skeleton copied from
-// api/deezer/search/+server.ts (the JSON + caches.default template): a CORS-FREE stored copy
-// with CORS re-applied per hit, and a per-route OPTIONS 204 for sibling parity.
+// round-trip instead of a CN search + detail pair. 32-D-10: the entry now stores a PERMANENT qq
+// song_mid rather than an expiring audio URL, so it saves the qq SEARCH call — the client still
+// spends the qq detail call (32-D-10b: this is the call-count win, not the latency win).
+// Skeleton copied from api/deezer/search/+server.ts (the JSON + caches.default template): a
+// CORS-FREE stored copy with CORS re-applied per hit, and a per-route OPTIONS 204 for sibling parity.
 //
 // THIS FILE EXPORTS ONLY HTTP VERBS. A top-level non-verb `export function` in a `+server.ts`
 // 500s at REQUEST time ("Invalid export") and unit tests do NOT catch it, because they import
@@ -28,7 +30,7 @@ import {
 } from '$lib/proxy/resolve-cache';
 import { resolveOnEdge } from '$lib/proxy/resolve-edge';
 
-/** Ceiling on the whole background fill (search + detail). Bounded — nobody is waiting on it. */
+/** Ceiling on the whole background fill (32-D-10: ONE qq search). Bounded — nobody is waiting. */
 const FILL_TIMEOUT_MS = 8000;
 
 /**
@@ -47,6 +49,10 @@ const FILL_TIMEOUT_MS = 8000;
  *
  * The entry's OWN TTL is unaffected: `writeResolveEntry` puts `public, max-age=RESOLVE_TTL_S` on
  * the STORED response, which is the correct and only place for it.
+ *
+ * 32-D-10a leaves this `no-store` EXACTLY as it is, and the reasoning above gets stronger, not
+ * weaker: a positive entry is now stored for a YEAR, so an intermediary that cached this response
+ * would defeat the bust for far longer than the 900s observed above. Do not add a max-age here.
  */
 function jsonResult(body: unknown, origin: string | null, status = 200): Response {
 	return new Response(JSON.stringify(body), {
@@ -83,20 +89,23 @@ export const GET: RequestHandler = async ({ url, request, platform }) => {
 	// anti-pattern this whole design exists to avoid (31-D-08): a miss must cost the client one
 	// own-origin round-trip and nothing more, because the client resolves normally anyway.
 	//
-	// 31-D-06 / T-31-03-03: the fill is server-side, so every cached URL is derived from the kuwo
-	// upstream. There is deliberately NO client write path — the entry is keyed on normalized TEXT
-	// and shared by every requester in the PoP, so a client-supplied URL would let one crafted
-	// request change what everyone else plays.
+	// 31-D-06 / T-31-03-03: the fill is server-side, so every cached mid is derived from the qq
+	// upstream (32-D-01 retargeted it from kuwo). There is deliberately NO client write path — the
+	// entry is keyed on normalized TEXT and shared by every requester in the PoP, so a
+	// client-supplied mid would let one crafted request change what everyone else plays.
 	//
 	// ponytail: there is no in-flight marker, so N concurrent misses for the same song in one PoP
-	// can each schedule a fill. At this app's traffic that is a handful of bounded 2-subrequest
-	// jobs. Add a short-TTL placeholder entry only if PoP traffic ever makes it matter.
+	// can each schedule a fill. At this app's traffic that is a handful of bounded 1-subrequest
+	// jobs (32-D-10 halved the cost of the duplicate). Add a short-TTL placeholder entry only if
+	// PoP traffic ever makes it matter.
 	platform?.ctx?.waitUntil(
 		(async () => {
 			const result = await resolveOnEdge(a, t, AbortSignal.timeout(FILL_TIMEOUT_MS));
 			// null = FAULT → write NOTHING, so the next request retries instead of pinning the fault
-			// for the whole TTL. A clean "kuwo is dry" negative is a non-null entry and IS written
-			// (D-06(c)) — that is what makes the repeat crawl cost zero subrequests.
+			// for the whole TTL. A clean "qq is dry" negative is a non-null entry and IS written
+			// (D-06(c)) — that is what makes the repeat crawl cost zero subrequests. 32-D-10a picks
+			// the max-age off the PAYLOAD inside writeResolveEntry: permanent for a mid, 900s for a
+			// negative, so a flaky 0-row qq search can never pin this song lossy for the PoP.
 			if (result) await writeResolveEntry(cache, key, result);
 		})().catch(() => {})
 	);
