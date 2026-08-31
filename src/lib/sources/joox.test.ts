@@ -384,6 +384,47 @@ describe('joox.resolve — quality order (pickJooxPlayUrl)', () => {
 	});
 	afterEach(() => {
 		settings.defaultQuality = prevQuality;
+		// 32-D-02: the 'auto' cases stub `navigator`; drop it so later cases see the real one.
+		vi.unstubAllGlobals();
+	});
+
+	// 32-D-02 / VALIDATION gate #2 — the cellular regression this seam exists to prevent.
+	// Under the shipped 'auto' default with NO connection signal (the node project, and in
+	// production iOS Safari + desktop Chrome), effectiveQuality resolves '320', so the probe
+	// ladder must lead with the 320 band, NOT the Atmos/FLAC head of JOOX_QUALITY_ORDER.
+	it("'auto' with no connection signal probes the 320 band FIRST, not lossless", async () => {
+		settings.defaultQuality = 'auto';
+		vi.stubGlobal('fetch', mockJsonFetch(searchFixture));
+		const tracks = await joox.search('周杰伦', 1, ac.signal);
+		const target = tracks.find((t) => t.songMid === detailFixture.data.songmid)!;
+
+		const spy = mockResolveFetch(detailFixture);
+		vi.stubGlobal('fetch', spy);
+		const out = await joox.resolve(target, ac.signal);
+
+		expect(out.audioUrl).toBe(detailFixture.data['播放链接']['OGG 320']);
+		expect(out.jooxQualityText).toBe('OGG 320');
+		expect(out.quality).toBe('320k');
+		// the FIRST probed url (first non-/api call) is the 320 tier — the ladder was reordered
+		// before any probe ran, so Atmos/FLAC were never even reached.
+		const firstProbe = spy.mock.calls.map((c) => String(c[0])).find((u) => !u.startsWith('/api'))!;
+		expect(firstProbe).toBe(detailFixture.data['播放链接']['OGG 320']);
+	});
+
+	// 32-D-02: a positively-identified unmetered connection keeps the verbatim lossless-first order.
+	it("'auto' on a wifi connection keeps the verbatim lossless-first order", async () => {
+		settings.defaultQuality = 'auto';
+		vi.stubGlobal('navigator', { connection: { type: 'wifi' } });
+		vi.stubGlobal('fetch', mockJsonFetch(searchFixture));
+		const tracks = await joox.search('周杰伦', 1, ac.signal);
+		const target = tracks.find((t) => t.songMid === detailFixture.data.songmid)!;
+
+		vi.stubGlobal('fetch', mockResolveFetch(detailFixture));
+		const out = await joox.resolve(target, ac.signal);
+
+		expect(out.audioUrl).toBe(detailFixture.data['播放链接']['Atmos全景声']);
+		expect(out.quality).toBe('lossless');
+		expect(out.jooxQualityText).toBe('Atmos全景声');
 	});
 
 	// Test 4: with multiple 播放链接 tiers, the highest-priority reachable tier wins.

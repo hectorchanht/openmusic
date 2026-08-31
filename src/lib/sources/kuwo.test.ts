@@ -123,6 +123,24 @@ describe('kuwo.resolve', () => {
 		expect(calledUrl).toContain('level=zp');
 	});
 
+	// 32-D-02 NEW: under the shipped 'auto' default with NO connection signal (node here;
+	// iOS Safari + desktop Chrome in production) effectiveQuality resolves '320' — and kuwo
+	// has NO distinct 320 rung, so it stays on level=zp. That honesty gap is PRE-EXISTING and
+	// is what `settings.defaultQualityNote` already discloses; it is deliberately NOT "fixed"
+	// here. What matters for gate #2 is that the literal 'auto' never reaches the level pick.
+	it("requests level=zp when defaultQuality is 'auto' with no connection signal", async () => {
+		settings.defaultQuality = 'auto';
+		const spy = mockFetchOnce(detailFixture);
+		vi.stubGlobal('fetch', spy);
+
+		await kuwo.resolve(stubTrack(), ac.signal);
+
+		const calledUrl = String(spy.mock.calls[0][0]);
+		expect(calledUrl).toContain('level=zp');
+		expect(calledUrl).not.toContain('level=128k');
+		expect(calledUrl).not.toContain('auto');
+	});
+
 	// D-03 NEW: the '128' default requests level=128k (best-effort A1 token) not zp.
 	it("requests level=128k when defaultQuality is '128'", async () => {
 		settings.defaultQuality = '128';
