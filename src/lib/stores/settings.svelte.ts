@@ -118,8 +118,13 @@ class Settings {
 	 *  AND as the fallback for an unknown (`null`) context. Roadmap-locked default 'generated'. */
 	upnextMode = $state<UpnextMode>(UPNEXT_DEFAULTS.mode);
 	/** Per-context up-next sourcing overrides (D-01). Absent key → falls back to `upnextMode`.
-	 *  Persisted (load/save) with a defensive parse mirroring `enabledSources`. */
-	upnextPerContext = $state<Partial<Record<Exclude<QueueContext, null>, UpnextMode>>>({});
+	 *  Persisted (load/save) with a defensive parse mirroring `enabledSources`.
+	 *  quick-260831-jtw: seeded from UPNEXT_DEFAULTS.perContext (album → 'same-list') instead of
+	 *  the old bare `{}`, so a fresh install and a post-`resetPlayback()` install agree. WR-10:
+	 *  the literal still lives only in defaults.ts. */
+	upnextPerContext = $state<Partial<Record<Exclude<QueueContext, null>, UpnextMode>>>({
+		...UPNEXT_DEFAULTS.perContext
+	});
 	/** Bio (Last.fm artist bio) target language. `'auto'` = follow appLang (default); `'off'` =
 	 * untranslated; otherwise an explicit language (quick-260607-fnp; supersedes the f4y note). */
 	bioLang = $state<'auto' | LyricsLang>(TRANSLATION_DEFAULTS.bioLang);
@@ -234,12 +239,24 @@ class Settings {
 						? (v.enabledSources as Partial<Record<SourceId, boolean>>)
 						: {};
 				// Up-next sourcing (Phase 17). perContext: same object-not-array guard as
-				// enabledSources (T-17-01 — malformed → safe {}); mode validated against the
-				// 2-value union, else the global default. Absent → defaults, no migration.
-				this.upnextPerContext =
-					v.upnextPerContext && typeof v.upnextPerContext === 'object' && !Array.isArray(v.upnextPerContext)
+				// enabledSources (T-17-01 — malformed → safe defaults); mode validated against the
+				// 2-value union, else the global default.
+				// quick-260831-jtw: MERGE over UPNEXT_DEFAULTS.perContext rather than replacing it,
+				// so an absent key (or a malformed blob) picks up the album → 'same-list' default
+				// instead of silently falling through to the global 'generated'.
+				// DECISION (quick-260831-jtw) — a persisted per-context value WINS; there is NO
+				// migration. A key can only be in here because the user tapped that segment in
+				// Settings → Playback (or hit reset), i.e. it is an explicit choice, and silently
+				// overwriting it is worse than a rare stale preference the user can change in one
+				// tap. A one-shot migration would also need its own persisted version marker —
+				// without one it re-applies on every load and makes artist='same-list' impossible
+				// to select. So a user who deliberately pinned artist to 'same-list' keeps it.
+				this.upnextPerContext = {
+					...UPNEXT_DEFAULTS.perContext,
+					...(v.upnextPerContext && typeof v.upnextPerContext === 'object' && !Array.isArray(v.upnextPerContext)
 						? (v.upnextPerContext as Partial<Record<Exclude<QueueContext, null>, UpnextMode>>)
-						: {};
+						: {})
+				};
 				this.upnextMode =
 					v.upnextMode === 'same-list' || v.upnextMode === 'generated'
 						? v.upnextMode

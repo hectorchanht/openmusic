@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { settings, FONT_SCALE_MIN, FONT_SCALE_MAX } from './settings.svelte';
 import { UPNEXT_DEFAULTS } from '$lib/config/defaults';
+import type { QueueContext, UpnextMode } from '$lib/config/defaults';
 import { darken } from '$lib/services/color';
 import { migrateDensity } from '$lib/services/home-layout';
 
@@ -75,12 +76,13 @@ describe('settings.effectiveUpnextMode (Phase 17 QUEUE-03)', () => {
 		expect(settings.effectiveUpnextMode('remix')).toBe('generated');
 	});
 
-	it("resetPlayback() restores upnextPerContext to the default perContext (album → 'same-list', artist: 'same-list') and upnextMode to generated", () => {
+	it("resetPlayback() restores upnextPerContext to the default perContext (album → 'same-list', ALBUM ONLY) and upnextMode to generated", () => {
 		settings.upnextMode = 'same-list';
 		settings.upnextPerContext = { liked: 'same-list', search: 'same-list' };
 		settings.resetPlayback();
-		// resetPlayback spreads DEFAULTS.upnext.perContext, which now carries the album override.
-		expect(settings.upnextPerContext).toEqual({ album: 'same-list', artist: 'same-list' });
+		// resetPlayback spreads DEFAULTS.upnext.perContext. quick-260831-jtw: `artist` was dropped
+		// from that default, so a reset no longer pins artist taps to the visible list.
+		expect(settings.upnextPerContext).toEqual({ album: 'same-list' });
 		expect(settings.upnextMode).toBe('generated');
 	});
 
@@ -99,6 +101,64 @@ describe('settings.effectiveUpnextMode (Phase 17 QUEUE-03)', () => {
 		// Absent on a fresh load → the $state initializer keeps {}.
 		expect(settings.upnextPerContext).toEqual({});
 		expect(settings.effectiveUpnextMode('downloads')).toBe('generated');
+	});
+});
+
+// quick-260831-jtw — "similar songs in Up-Next consistently". UPNEXT_DEFAULTS.perContext is now
+// the ACTUAL seed for upnextPerContext (init + load merge), not just what resetPlayback() spreads,
+// so a fresh install and a post-reset install agree. Album is the ONLY same-list context.
+describe('settings.upnextPerContext seeded default (quick-260831-jtw)', () => {
+	beforeEach(() => {
+		settings.upnextMode = UPNEXT_DEFAULTS.mode;
+		settings.upnextPerContext = { ...UPNEXT_DEFAULTS.perContext };
+	});
+
+	it('the default perContext pins album ONLY — artist is not in it', () => {
+		expect(UPNEXT_DEFAULTS.perContext).toEqual({ album: 'same-list' });
+	});
+
+	it("album keeps its own order ('same-list') under the seeded default", () => {
+		expect(settings.effectiveUpnextMode('album')).toBe('same-list');
+	});
+
+	it.each(['artist', 'search', 'liked', 'downloads', 'playlist', 'home-discovery', 'history'] as const)(
+		"'%s' generates similar songs under the seeded default",
+		(ctx) => {
+			expect(settings.effectiveUpnextMode(ctx)).toBe('generated');
+		}
+	);
+
+	// load() is browser-guarded (no-op under the node project), so mirror its merge shape here —
+	// the same technique the Phase-17 cases above use for the defensive parse.
+	const mergeLikeLoad = (persisted: unknown) => ({
+		...UPNEXT_DEFAULTS.perContext,
+		...(persisted && typeof persisted === 'object' && !Array.isArray(persisted)
+			? (persisted as Partial<Record<Exclude<QueueContext, null>, UpnextMode>>)
+			: {})
+	});
+
+	it('an absent persisted map still yields the album default (merge, not replace)', () => {
+		settings.upnextPerContext = mergeLikeLoad(undefined);
+		expect(settings.upnextPerContext).toEqual({ album: 'same-list' });
+		expect(settings.effectiveUpnextMode('album')).toBe('same-list');
+	});
+
+	it('a malformed (array) persisted map still yields the album default', () => {
+		settings.upnextPerContext = mergeLikeLoad([]);
+		expect(settings.upnextPerContext).toEqual({ album: 'same-list' });
+	});
+
+	it('a persisted key WINS over the default — no migration (T2 decision)', () => {
+		// A user who deliberately pinned artist to 'same-list' in Settings keeps that choice…
+		settings.upnextPerContext = mergeLikeLoad({ artist: 'same-list' });
+		expect(settings.effectiveUpnextMode('artist')).toBe('same-list');
+		// …and the album default is still merged in alongside it.
+		expect(settings.effectiveUpnextMode('album')).toBe('same-list');
+	});
+
+	it('a persisted album override can defeat the default (the toggle still works both ways)', () => {
+		settings.upnextPerContext = mergeLikeLoad({ album: 'generated' });
+		expect(settings.effectiveUpnextMode('album')).toBe('generated');
 	});
 });
 

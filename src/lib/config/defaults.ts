@@ -119,10 +119,25 @@ export const UPNEXT_DEFAULTS = {
 	/** Global default sourcing mode — roadmap-locked to 'generated'. */
 	mode: 'generated' as UpnextMode,
 	/**
-	 * Per-context overrides. `album` resolves to 'same-list' (curated, ordered collections —
-	 * users expect "play the rest of the album"); every other context resolves to the global `mode`.
+	 * Per-context overrides — ALBUM ONLY. `album` resolves to 'same-list' (a curated, ordered
+	 * collection — users expect "play the rest of the album"); EVERY other context, artist
+	 * included, resolves to the global `mode` ('generated') so a tap anywhere else fills Up-Next
+	 * with similar songs.
+	 *
+	 * quick-260831-jtw: `artist` used to be pinned to 'same-list' here on the theory that an
+	 * artist page is a curated collection too. It is not — tapping a song on an artist page is
+	 * an ordinary "play this song" tap and should seed genre-similar sourcing like search/home/
+	 * charts/library do. Dropped.
+	 *
+	 * Also quick-260831-jtw: this object is now the ACTUAL seed for `settings.upnextPerContext`
+	 * (init + load fallback), not just what `resetPlayback()` spreads. Before, a fresh install
+	 * started at `{}` (album generated) while a post-reset install got album+artist same-list —
+	 * the same app behaving two ways depending on whether the reset button had ever been pressed.
+	 * Wiring it as the seed also stops the album hot path from firing a full regenerate
+	 * (track.getSimilar + a 20-track tail) that `setListQueue(all, 'album')` immediately discards
+	 * via the queueGen guard.
 	 */
-	perContext: { album: 'same-list', artist: 'same-list' } as Partial<Record<Exclude<QueueContext, null>, UpnextMode>>
+	perContext: { album: 'same-list' } as Partial<Record<Exclude<QueueContext, null>, UpnextMode>>
 } as const;
 
 // ---- Home layout -----------------------------------------------------------------------
