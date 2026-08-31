@@ -15,10 +15,22 @@ import type { ResolveEntry } from '$lib/proxy/resolve-cache';
 // 31-D-08: ensureTrackDetails now reads the edge resolve cache before resolving. Mocked here for
 // the WHOLE file and defaulted to a MISS (null), so every pre-existing suite keeps asserting the
 // unchanged resolve path — the cache is advisory, so a miss must be byte-identical to before.
-const { readResolveCache } = vi.hoisted(() => ({
-	readResolveCache: vi.fn(async (): Promise<ResolveEntry | null> => null)
+// 32-D-10a: registerServedResolve is mocked too — the hit branch must register the qq-RESOLVED url
+// so reportDeadUrl -> POST bust stays the repair path for a wrong/permanent mid.
+const { readResolveCache, registerServedResolve } = vi.hoisted(() => ({
+	readResolveCache: vi.fn(async (): Promise<ResolveEntry | null> => null),
+	registerServedResolve: vi.fn()
 }));
-vi.mock('$lib/services/resolve-cache-client', () => ({ readResolveCache, reportDeadUrl: vi.fn() }));
+vi.mock('$lib/services/resolve-cache-client', () => ({
+	readResolveCache,
+	registerServedResolve,
+	reportDeadUrl: vi.fn()
+}));
+
+// 32-D-10 / research Open Question #2: the mid-less branch logs ONCE so its real frequency becomes
+// Activity-log data instead of a guess. Mocked to keep this pure-service test store-free.
+const { logAction } = vi.hoisted(() => ({ logAction: vi.fn() }));
+vi.mock('$lib/stores/actionLog.svelte', () => ({ logAction }));
 
 // These fan-out tests assert against exactly the original four sources
 // (netease/qq/kuwo/joox) — their settle set, interleave order, and stagger index
@@ -62,6 +74,8 @@ afterEach(() => {
 	// 31-D-08: back to a cache MISS for the next case (restoreAllMocks does not reset a vi.fn).
 	readResolveCache.mockReset();
 	readResolveCache.mockResolvedValue(null);
+	registerServedResolve.mockReset();
+	logAction.mockReset();
 });
 
 describe('searchAll (DATA-03 fan-out)', () => {
@@ -723,18 +737,16 @@ describe('ensureTrackDetails — crossSourceLyric is single-source (RESOLVE-02)'
 	});
 });
 
-// Phase 31 (31-D-08 / 31-D-06): ensureTrackDetails reads the edge resolve cache ONCE, serially,
-// before the resolveByName branch and before the adapter dispatch. The cache is ADVISORY: a hit
-// short-circuits the whole source walk, and a miss / fault / identity mismatch leaves the
+// Phase 31 (31-D-08 / 31-D-06) + phase 32 (32-D-10 / 32-D-10b / 32-D-11): ensureTrackDetails reads
+// the edge resolve cache at most ONCE, serially, before the resolveByName branch and before the
+// adapter dispatch. The cache is ADVISORY: a hit is a SHORTCUT PAST THE QQ SEARCH (the entry stores
+// a permanent song_mid, never a playable url), and a miss / fault / failed qq resolve leaves the
 // pre-existing path byte-identical. There is deliberately no client WRITE path (the edge fills its
-// own entry out of band — a client-supplied URL would change what every other user in the PoP plays).
-describe('ensureTrackDetails — edge resolve cache (31-D-08 / 31-D-06)', () => {
-	const HIT: ResolveEntry = {
-		source: 'kuwo',
-		songid: 'k1',
-		url: 'https://cdn/cached.mp3',
-		avail: { kuwo: 'ok' }
-	};
+// own entry out of band — a client-supplied mid would change what every other user in the PoP plays).
+describe('ensureTrackDetails — edge resolve cache (32-D-10 / 32-D-10b)', () => {
+	const MID = '003OUlho2gk0Ny';
+	/** 32-D-10: the entry payload is a qq song_mid + the avail hints. No url. */
+	const HIT: ResolveEntry = { source: 'qq', songid: MID, avail: { qq: 'ok' } };
 
 	/** Spy every source's search AND resolve so "zero source calls" is provable, not inferred. */
 	function spyAllSources() {
@@ -747,252 +759,382 @@ describe('ensureTrackDetails — edge resolve cache (31-D-08 / 31-D-06)', () => 
 		return { search, resolve };
 	}
 
+	/** What a qq detail resolve returns off a mid: url + lyrics + duration in ONE call (32-D-09). */
+	const qqComplete = (t: Track): Track => ({
+		...t,
+		detailsLoaded: true,
+		audioUrl: 'https://cdn.qq/flac.flac',
+		lrc: '[00:01]hi',
+		duration: 231
+	});
+
 	const nameStub = () =>
 		mk('kuwo', '', 1, { resolveByName: true, detailsLoaded: false, artist: 'Jay', title: 'Blue' });
 
-	it('a name-stub cache hit resolves with ZERO source calls', async () => {
-		const spies = spyAllSources();
-		readResolveCache.mockResolvedValue(HIT);
+	// 32-D-10b — the single largest remaining latency win post-32-D-08: the entry stores a MID, so a
+	// caller that already holds one can never gain from the 0-400ms serial lookup.
+	describe('32-D-10b: a track that already holds a qq mid never reads the cache', () => {
+		it('a qq-sourced track skips the lookup entirely', async () => {
+			const spies = spyAllSources();
+			spies.resolve.qq?.mockImplementation(async (t: Track) => qqComplete(t));
 
-		const out = await ensureTrackDetails(nameStub());
+			const out = await ensureTrackDetails(mk('qq', MID));
 
-		expect(out.audioUrl).toBe('https://cdn/cached.mp3');
-		expect(out.uid).toBe('kuwo:k1');
-		expect(out.source).toBe('kuwo');
-		expect(out.songid).toBe('k1');
-		expect(out.detailsLoaded).toBe(true);
-		// searchAll fans out through SOURCES[].search — zero calls proves the whole walk was skipped.
-		for (const id of Object.keys(SOURCES) as SourceId[]) {
-			expect(spies.search[id]).not.toHaveBeenCalled();
-			expect(spies.resolve[id]).not.toHaveBeenCalled();
-		}
-	});
-
-	it('a source-bearing track adopts the cached url when source AND songid match', async () => {
-		const spies = spyAllSources();
-		readResolveCache.mockResolvedValue(HIT);
-
-		const out = await ensureTrackDetails(mk('kuwo', 'k1'));
-
-		expect(out.audioUrl).toBe('https://cdn/cached.mp3');
-		expect(out.detailsLoaded).toBe(true);
-		expect(spies.resolve.kuwo).not.toHaveBeenCalled();
-	});
-
-	it('IGNORES a cached entry for a DIFFERENT songid and resolves normally', async () => {
-		// T-31-04-01: adopting another songid would play a different version than the one the user
-		// picked in the VersionPicker.
-		const spies = spyAllSources();
-		spies.resolve.kuwo?.mockResolvedValue({
-			...mk('kuwo', 'k2'),
-			detailsLoaded: true,
-			audioUrl: 'https://cdn/real-k2.mp3'
-		});
-		readResolveCache.mockResolvedValue(HIT); // entry is for k1
-
-		const out = await ensureTrackDetails(mk('kuwo', 'k2'));
-
-		expect(spies.resolve.kuwo).toHaveBeenCalledOnce();
-		expect(out.audioUrl).toBe('https://cdn/real-k2.mp3');
-	});
-
-	it('IGNORES a cached entry for a DIFFERENT source and resolves normally', async () => {
-		const spies = spyAllSources();
-		spies.resolve.qq?.mockResolvedValue({
-			...mk('qq', 'k1'),
-			detailsLoaded: true,
-			audioUrl: 'https://cdn/real-qq.mp3'
-		});
-		readResolveCache.mockResolvedValue(HIT); // entry is for kuwo
-
-		const out = await ensureTrackDetails(mk('qq', 'k1'));
-
-		expect(spies.resolve.qq).toHaveBeenCalledOnce();
-		expect(out.audioUrl).toBe('https://cdn/real-qq.mp3');
-	});
-
-	it('a MISS leaves the source-bearing path byte-identical', async () => {
-		const spies = spyAllSources();
-		spies.resolve.netease?.mockResolvedValue({
-			...mk('netease', 'n1'),
-			detailsLoaded: true,
-			audioUrl: 'https://cdn/x.mp3'
-		});
-		readResolveCache.mockResolvedValue(null);
-
-		const out = await ensureTrackDetails(mk('netease', 'n1'));
-
-		expect(spies.resolve.netease).toHaveBeenCalledOnce();
-		expect(out.audioUrl).toBe('https://cdn/x.mp3');
-	});
-
-	it('a MISS leaves the name-stub path byte-identical (the full kuwo-first walk still runs)', async () => {
-		const spies = spyAllSources();
-		const cand = mk('kuwo', 'k1', 1, { artist: 'Jay', title: 'Blue' });
-		spies.search.kuwo?.mockResolvedValue([cand]);
-		spies.resolve.kuwo?.mockResolvedValue({
-			...cand,
-			detailsLoaded: true,
-			audioUrl: 'https://cdn/kw.mp3',
-			lrc: '[00:01]x'
-		});
-		readResolveCache.mockResolvedValue(null);
-
-		const out = await ensureTrackDetails(nameStub());
-
-		expect(out.audioUrl).toBe('https://cdn/kw.mp3');
-		expect(spies.search.kuwo).toHaveBeenCalledOnce();
-	});
-
-	it('a 404/500/malformed read (null sentinel) is indistinguishable from a miss', async () => {
-		// The client maps EVERY fault to null, so catalog only ever sees "no cached data".
-		const spies = spyAllSources();
-		spies.resolve.kuwo?.mockResolvedValue({
-			...mk('kuwo', 'k7'),
-			detailsLoaded: true,
-			audioUrl: 'https://cdn/k7.mp3'
-		});
-		readResolveCache.mockResolvedValue(null);
-
-		const out = await ensureTrackDetails(mk('kuwo', 'k7'));
-
-		expect(out.audioUrl).toBe('https://cdn/k7.mp3');
-		expect(spies.resolve.kuwo).toHaveBeenCalledOnce();
-	});
-
-	it('31-D-06(c): a source marked dry is SKIPPED in the name-stub walk', async () => {
-		const spies = spyAllSources();
-		const cand = mk('qq', 'q1', 1, { artist: 'Jay', title: 'Blue' });
-		spies.search.qq?.mockResolvedValue([cand]);
-		spies.resolve.qq?.mockResolvedValue({
-			...cand,
-			detailsLoaded: true,
-			audioUrl: 'https://cdn/qq.mp3',
-			lrc: '[00:01]x'
-		});
-		readResolveCache.mockResolvedValue({
-			source: null,
-			songid: null,
-			url: null,
-			avail: { kuwo: 'dry' }
+			expect(readResolveCache).not.toHaveBeenCalled();
+			expect(out.audioUrl).toBe('https://cdn.qq/flac.flac');
+			expect(spies.resolve.qq).toHaveBeenCalledOnce();
 		});
 
-		const out = await ensureTrackDetails(nameStub());
+		it('a non-qq track carrying songMid/qqId also skips the lookup', async () => {
+			const spies = spyAllSources();
+			spies.resolve.netease?.mockImplementation(async (t: Track) => ({
+				...t,
+				detailsLoaded: true,
+				audioUrl: 'https://cdn/n.mp3',
+				lrc: '[00:01]x'
+			}));
 
-		expect(out.audioUrl).toBe('https://cdn/qq.mp3');
-		expect(spies.search.kuwo).not.toHaveBeenCalled(); // the wasted call the hint exists to skip
-		expect(spies.search.qq).toHaveBeenCalledOnce();
-	});
+			await ensureTrackDetails(mk('netease', 'n1', 1, { songMid: MID }));
+			await ensureTrackDetails(mk('netease', 'n2', 1, { qqId: MID }));
 
-	it('31-D-06(c): an all-dry hint never EMPTIES the walk order', async () => {
-		const spies = spyAllSources();
-		const cand = mk('kuwo', 'k1', 1, { artist: 'Jay', title: 'Blue' });
-		spies.search.kuwo?.mockResolvedValue([cand]);
-		spies.resolve.kuwo?.mockResolvedValue({
-			...cand,
-			detailsLoaded: true,
-			audioUrl: 'https://cdn/kw.mp3',
-			lrc: '[00:01]x'
-		});
-		const avail = Object.fromEntries(
-			(Object.keys(SOURCES) as SourceId[]).map((id) => [id, 'dry' as const])
-		);
-		readResolveCache.mockResolvedValue({ source: null, songid: null, url: null, avail });
-
-		const out = await ensureTrackDetails(nameStub());
-
-		// Every source is "dry" — the filter must degrade to the FULL order, not to nothing.
-		expect(out.audioUrl).toBe('https://cdn/kw.mp3');
-		expect(spies.search.kuwo).toHaveBeenCalledOnce();
-	});
-
-	it('the readiness guard short-circuits BEFORE any cache read', async () => {
-		const t = mk('netease', 'n1', 1, {
-			detailsLoaded: true,
-			audioUrl: 'https://cdn/x.mp3',
-			lrc: '[00:01]hi',
-			lrcUrl: 'https://cdn/x.lrc'
+			expect(readResolveCache).not.toHaveBeenCalled();
+			expect(spies.resolve.netease).toHaveBeenCalledTimes(2);
 		});
 
-		const out = await ensureTrackDetails(t);
+		it('a mid-LESS track still reads the cache, and logs the mid-less branch exactly once', async () => {
+			spyAllSources();
+			readResolveCache.mockResolvedValue(null);
 
-		expect(out).toBe(t);
-		expect(readResolveCache).not.toHaveBeenCalled();
-	});
+			await ensureTrackDetails(mk('netease', 'n1', 1, { artist: 'Jay', title: 'Blue' }));
 
-	it('an abort DURING the cache read returns the unresolved stub with no further work', async () => {
-		const spies = spyAllSources();
-		const ac = new AbortController();
-		readResolveCache.mockImplementation(async () => {
-			ac.abort(); // superseded mid-lookup (a newer play bumped the generation)
-			return null;
+			expect(readResolveCache).toHaveBeenCalledTimes(1);
+			expect(logAction).toHaveBeenCalledTimes(1);
+			expect(logAction.mock.calls[0][0]).toBe('resolve.midless');
+			expect(logAction.mock.calls[0][1]).toMatchObject({ source: 'netease', uid: 'netease:n1' });
 		});
-		const t = mk('kuwo', 'k1');
 
-		const out = await ensureTrackDetails(t, ac.signal);
+		it('never logs resolve.midless for a track that holds a mid', async () => {
+			const spies = spyAllSources();
+			spies.resolve.qq?.mockImplementation(async (t: Track) => qqComplete(t));
 
-		expect(out).toBe(t);
-		expect(spies.resolve.kuwo).not.toHaveBeenCalled();
+			await ensureTrackDetails(mk('qq', MID));
+
+			expect(logAction).not.toHaveBeenCalled();
+		});
 	});
 
-	it('threads the caller signal and the raw artist/title into the read', async () => {
-		spyAllSources();
-		const ac = new AbortController();
-		readResolveCache.mockResolvedValue(null);
+	// 32-D-10: the hit branch REPLACES 31's T-31-04-01 source+songid equality gate. In 31 the entry
+	// carried a URL, so adopting it for a different identity would have played another VERSION of the
+	// song than the one the user picked. A MID entry is different in kind: switching a mid-less track
+	// onto qq IS the phase's purpose, and a matchKey collision is repaired by the retained POST bust.
+	describe('32-D-10: a mid hit is a shortcut PAST the qq search, not a finished resolve', () => {
+		it('rewrites a name-stub onto qq and completes it in ONE qq resolve, with NO lrcUnresolved', async () => {
+			const spies = spyAllSources();
+			spies.resolve.qq?.mockImplementation(async (t: Track) => qqComplete(t));
+			readResolveCache.mockResolvedValue(HIT);
 
-		await ensureTrackDetails(mk('kuwo', 'k1', 1, { artist: 'Jay', title: 'Blue' }), ac.signal);
+			const out = await ensureTrackDetails(nameStub());
 
-		expect(readResolveCache).toHaveBeenCalledTimes(1);
-		expect(readResolveCache).toHaveBeenCalledWith('Jay', 'Blue', ac.signal);
+			expect(out.source).toBe('qq');
+			expect(out.songid).toBe(MID);
+			expect(out.uid).toBe(`qq:${MID}`);
+			expect(out.qqId).toBe(MID);
+			expect(out.songMid).toBe(MID);
+			expect(out.audioUrl).toBe('https://cdn.qq/flac.flac');
+			// A mid hit is a COMPLETE resolve — url AND lyrics AND duration in one call — so the
+			// 31-D-08 lyric re-resolve flag is not needed on this path and must NOT be set.
+			expect(out.lrc).toBe('[00:01]hi');
+			expect(out.duration).toBe(231);
+			expect(out.lrcUnresolved).toBeUndefined();
+			// The whole search walk is skipped — that is the saved call 32-D-10 exists for.
+			for (const id of Object.keys(SOURCES) as SourceId[]) {
+				expect(spies.search[id]).not.toHaveBeenCalled();
+			}
+			expect(spies.resolve.qq).toHaveBeenCalledOnce();
+		});
+
+		it('rewrites a source-bearing MID-LESS track onto qq (the 31 equality gate is superseded)', async () => {
+			const spies = spyAllSources();
+			spies.resolve.qq?.mockImplementation(async (t: Track) => qqComplete(t));
+			readResolveCache.mockResolvedValue(HIT);
+
+			const out = await ensureTrackDetails(mk('netease', 'n1'));
+
+			expect(out.source).toBe('qq');
+			expect(out.uid).toBe(`qq:${MID}`);
+			expect(out.audioUrl).toBe('https://cdn.qq/flac.flac');
+			expect(spies.resolve.netease).not.toHaveBeenCalled();
+		});
+
+		it('the derived track handed to qq.resolve is mid-bearing and NOT already loaded', async () => {
+			const spies = spyAllSources();
+			spies.resolve.qq?.mockImplementation(async (t: Track) => qqComplete(t));
+			readResolveCache.mockResolvedValue(HIT);
+
+			await ensureTrackDetails(mk('netease', 'n1'));
+
+			const derived = spies.resolve.qq?.mock.calls[0][0] as Track;
+			expect(derived.songid).toBe(MID);
+			expect(derived.detailsLoaded).toBe(false);
+			expect(derived.audioUrl).toBeNull();
+		});
+
+		it('registers the qq-RESOLVED url so reportDeadUrl can still bust a wrong mid (32-D-10a)', async () => {
+			const spies = spyAllSources();
+			spies.resolve.qq?.mockImplementation(async (t: Track) => qqComplete(t));
+			readResolveCache.mockResolvedValue(HIT);
+
+			await ensureTrackDetails(mk('netease', 'n1', 1, { artist: 'Jay', title: 'Blue' }));
+
+			expect(registerServedResolve).toHaveBeenCalledWith(
+				'https://cdn.qq/flac.flac',
+				'Jay',
+				'Blue'
+			);
+		});
+
+		it('a THROWING qq resolve off a cached mid falls through — a hit is never worse than a miss', async () => {
+			// 31-D-11 advisory contract, carried forward: the failure path is load-bearing.
+			const spies = spyAllSources();
+			spies.resolve.qq?.mockRejectedValue(new Error('tang down'));
+			spies.resolve.netease?.mockImplementation(async (t: Track) => ({
+				...t,
+				detailsLoaded: true,
+				audioUrl: 'https://cdn/n1.mp3',
+				lrc: '[00:01]x'
+			}));
+			readResolveCache.mockResolvedValue(HIT);
+
+			const out = await ensureTrackDetails(mk('netease', 'n1'));
+
+			expect(out.audioUrl).toBe('https://cdn/n1.mp3'); // the ORIGINAL path ran
+			expect(spies.resolve.netease).toHaveBeenCalledOnce();
+			expect(registerServedResolve).not.toHaveBeenCalled();
+		});
+
+		it('a qq resolve that yields no audioUrl falls through to the original path', async () => {
+			const spies = spyAllSources();
+			spies.resolve.qq?.mockImplementation(async (t: Track) => ({ ...t, detailsLoaded: true }));
+			spies.resolve.netease?.mockImplementation(async (t: Track) => ({
+				...t,
+				detailsLoaded: true,
+				audioUrl: 'https://cdn/n1.mp3',
+				lrc: '[00:01]x'
+			}));
+			readResolveCache.mockResolvedValue(HIT);
+
+			const out = await ensureTrackDetails(mk('netease', 'n1'));
+
+			expect(out.audioUrl).toBe('https://cdn/n1.mp3');
+			expect(spies.resolve.netease).toHaveBeenCalledOnce();
+		});
+
+		it('a failed mid resolve on a NAME STUB still runs the full kuwo-first walk', async () => {
+			const spies = spyAllSources();
+			spies.resolve.qq?.mockRejectedValue(new Error('tang down'));
+			const cand = mk('kuwo', 'k1', 1, { artist: 'Jay', title: 'Blue' });
+			spies.search.kuwo?.mockResolvedValue([cand]);
+			spies.resolve.kuwo?.mockResolvedValue({
+				...cand,
+				detailsLoaded: true,
+				audioUrl: 'https://cdn/kw.mp3',
+				lrc: '[00:01]x'
+			});
+			readResolveCache.mockResolvedValue(HIT);
+
+			const out = await ensureTrackDetails(nameStub());
+
+			expect(out.audioUrl).toBe('https://cdn/kw.mp3');
+			expect(spies.search.kuwo).toHaveBeenCalledOnce();
+		});
+
+		it('a hit with a null songid (a cached KNOWN-NONE) is not adopted', async () => {
+			const spies = spyAllSources();
+			spies.resolve.netease?.mockImplementation(async (t: Track) => ({
+				...t,
+				detailsLoaded: true,
+				audioUrl: 'https://cdn/n1.mp3',
+				lrc: '[00:01]x'
+			}));
+			readResolveCache.mockResolvedValue({ source: null, songid: null, avail: { qq: 'dry' } });
+
+			const out = await ensureTrackDetails(mk('netease', 'n1'));
+
+			expect(out.audioUrl).toBe('https://cdn/n1.mp3');
+			expect(spies.resolve.qq).not.toHaveBeenCalled();
+		});
 	});
 
-	// 31-D-08 REGRESSION (31-04 advisory drift): the cached entry stores a URL and NO lrc, and the
-	// readiness guard (`detailsLoaded && audioUrl && !lrcUrl`) calls such a track complete — so a
-	// cache-hit play used to render an EMPTY lyrics pane where a cold play showed lyrics. A cache HIT
-	// must never be worse than a MISS, so both hit branches now mark the track `lrcUnresolved` and a
-	// marked re-resolve BYPASSES the cache (player.backfillLyrics fires it off the critical path).
-	it('marks BOTH cache-hit branches lrcUnresolved so the player can back-fill the pane', async () => {
-		spyAllSources();
-		readResolveCache.mockResolvedValue(HIT);
+	describe('a MISS / fault leaves the pre-existing path byte-identical (31-D-08 advisory)', () => {
+		it('a MISS leaves the source-bearing path byte-identical', async () => {
+			const spies = spyAllSources();
+			spies.resolve.netease?.mockResolvedValue({
+				...mk('netease', 'n1'),
+				detailsLoaded: true,
+				audioUrl: 'https://cdn/x.mp3'
+			});
+			readResolveCache.mockResolvedValue(null);
 
-		const fromNameStub = await ensureTrackDetails(nameStub());
-		const fromSourceTrack = await ensureTrackDetails(mk('kuwo', 'k1'));
+			const out = await ensureTrackDetails(mk('netease', 'n1'));
 
-		expect(fromNameStub.lrc).toBeNull(); // the entry carries no lyrics …
-		expect(fromNameStub.lrcUnresolved).toBe(true); // … and says so
-		expect(fromSourceTrack.lrc).toBeNull();
-		expect(fromSourceTrack.lrcUnresolved).toBe(true);
+			expect(spies.resolve.netease).toHaveBeenCalledOnce();
+			expect(out.audioUrl).toBe('https://cdn/x.mp3');
+		});
+
+		it('a MISS leaves the name-stub path byte-identical (the full kuwo-first walk still runs)', async () => {
+			const spies = spyAllSources();
+			const cand = mk('kuwo', 'k1', 1, { artist: 'Jay', title: 'Blue' });
+			spies.search.kuwo?.mockResolvedValue([cand]);
+			spies.resolve.kuwo?.mockResolvedValue({
+				...cand,
+				detailsLoaded: true,
+				audioUrl: 'https://cdn/kw.mp3',
+				lrc: '[00:01]x'
+			});
+			readResolveCache.mockResolvedValue(null);
+
+			const out = await ensureTrackDetails(nameStub());
+
+			expect(out.audioUrl).toBe('https://cdn/kw.mp3');
+			expect(spies.search.kuwo).toHaveBeenCalledOnce();
+		});
+
+		it('a 404/500/malformed read (null sentinel) is indistinguishable from a miss', async () => {
+			// The client maps EVERY fault to null, so catalog only ever sees "no cached data".
+			const spies = spyAllSources();
+			spies.resolve.kuwo?.mockResolvedValue({
+				...mk('kuwo', 'k7'),
+				detailsLoaded: true,
+				audioUrl: 'https://cdn/k7.mp3'
+			});
+			readResolveCache.mockResolvedValue(null);
+
+			const out = await ensureTrackDetails(mk('kuwo', 'k7'));
+
+			expect(out.audioUrl).toBe('https://cdn/k7.mp3');
+			expect(spies.resolve.kuwo).toHaveBeenCalledOnce();
+		});
 	});
 
-	it('a marked re-resolve SKIPS the cache and resolves lyrics through the source', async () => {
-		const spies = spyAllSources();
-		spies.resolve.kuwo?.mockImplementation(async (t: Track) => ({
-			...t,
-			detailsLoaded: true,
-			audioUrl: 'https://cdn/cached.mp3',
-			lrc: '[00:01]hi'
-		}));
-		readResolveCache.mockResolvedValue(HIT);
+	describe('31-D-06(c): the avail hints still thread into the name-stub walk', () => {
+		it('a source marked dry is SKIPPED in the name-stub walk', async () => {
+			const spies = spyAllSources();
+			const cand = mk('joox', 'j1', 1, { artist: 'Jay', title: 'Blue' });
+			spies.search.joox?.mockResolvedValue([cand]);
+			spies.resolve.joox?.mockResolvedValue({
+				...cand,
+				detailsLoaded: true,
+				audioUrl: 'https://cdn/joox.mp3',
+				lrc: '[00:01]x'
+			});
+			readResolveCache.mockResolvedValue({
+				source: null,
+				songid: null,
+				avail: { kuwo: 'dry' }
+			});
 
-		// What player.backfillLyrics hands back in: the cache-hit track, detailsLoaded cleared.
-		const hit = await ensureTrackDetails(mk('kuwo', 'k1'));
-		readResolveCache.mockClear();
-		const filled = await ensureTrackDetails({ ...hit, detailsLoaded: false });
+			const out = await ensureTrackDetails(nameStub());
 
-		expect(readResolveCache).not.toHaveBeenCalled(); // a second read would return the same lrc-less url
-		expect(spies.resolve.kuwo).toHaveBeenCalledOnce();
-		expect(filled.lrc).toBe('[00:01]hi'); // warm play ends up with the lyrics a cold play shows
+			expect(out.audioUrl).toBe('https://cdn/joox.mp3');
+			expect(spies.search.kuwo).not.toHaveBeenCalled(); // the wasted call the hint exists to skip
+		});
+
+		it('an all-dry hint never EMPTIES the walk order', async () => {
+			const spies = spyAllSources();
+			const cand = mk('kuwo', 'k1', 1, { artist: 'Jay', title: 'Blue' });
+			spies.search.kuwo?.mockResolvedValue([cand]);
+			spies.resolve.kuwo?.mockResolvedValue({
+				...cand,
+				detailsLoaded: true,
+				audioUrl: 'https://cdn/kw.mp3',
+				lrc: '[00:01]x'
+			});
+			const avail = Object.fromEntries(
+				(Object.keys(SOURCES) as SourceId[]).map((id) => [id, 'dry' as const])
+			);
+			readResolveCache.mockResolvedValue({ source: null, songid: null, avail });
+
+			const out = await ensureTrackDetails(nameStub());
+
+			// Every source is "dry" — the filter must degrade to the FULL order, not to nothing.
+			expect(out.audioUrl).toBe('https://cdn/kw.mp3');
+			expect(spies.search.kuwo).toHaveBeenCalledOnce();
+		});
 	});
 
-	it('still reads the cache for a marked track that ALREADY has lyrics (marker is inert)', async () => {
-		spyAllSources();
-		readResolveCache.mockResolvedValue(HIT);
+	describe('read placement, bounds and supersedence', () => {
+		it('the readiness guard short-circuits BEFORE any cache read', async () => {
+			const t = mk('netease', 'n1', 1, {
+				detailsLoaded: true,
+				audioUrl: 'https://cdn/x.mp3',
+				lrc: '[00:01]hi',
+				lrcUrl: 'https://cdn/x.lrc'
+			});
 
-		const out = await ensureTrackDetails(
-			mk('kuwo', 'k1', 1, { lrcUnresolved: true, lrc: '[00:01]hi' })
-		);
+			const out = await ensureTrackDetails(t);
 
-		expect(readResolveCache).toHaveBeenCalledTimes(1); // the bypass is scoped to a LYRIC re-resolve
-		expect(out.audioUrl).toBe('https://cdn/cached.mp3');
+			expect(out).toBe(t);
+			expect(readResolveCache).not.toHaveBeenCalled();
+		});
+
+		it('an abort DURING the cache read returns the unresolved stub with no further work', async () => {
+			const spies = spyAllSources();
+			const ac = new AbortController();
+			readResolveCache.mockImplementation(async () => {
+				ac.abort(); // superseded mid-lookup (a newer play bumped the generation)
+				return null;
+			});
+			const t = mk('kuwo', 'k1');
+
+			const out = await ensureTrackDetails(t, ac.signal);
+
+			expect(out).toBe(t);
+			expect(spies.resolve.kuwo).not.toHaveBeenCalled();
+		});
+
+		it('threads the caller signal and the raw artist/title into the read', async () => {
+			spyAllSources();
+			const ac = new AbortController();
+			readResolveCache.mockResolvedValue(null);
+
+			await ensureTrackDetails(mk('kuwo', 'k1', 1, { artist: 'Jay', title: 'Blue' }), ac.signal);
+
+			expect(readResolveCache).toHaveBeenCalledTimes(1);
+			expect(readResolveCache).toHaveBeenCalledWith('Jay', 'Blue', ac.signal);
+		});
+
+		// The 31-D-08 LYRIC RE-RESOLVE BYPASS survives 32-D-10 for the paths that still produce a
+		// url-only track (the offline blob path, and player.backfillLyrics handing one back): reading
+		// the cache again would just re-run the mid shortcut for a track that already has its url.
+		it('a marked lyric re-resolve SKIPS the cache and resolves lyrics through the source', async () => {
+			const spies = spyAllSources();
+			spies.resolve.kuwo?.mockImplementation(async (t: Track) => ({
+				...t,
+				detailsLoaded: true,
+				audioUrl: 'https://cdn/cached.mp3',
+				lrc: '[00:01]hi'
+			}));
+
+			const filled = await ensureTrackDetails(
+				mk('kuwo', 'k1', 1, { lrcUnresolved: true, audioUrl: 'https://cdn/cached.mp3' })
+			);
+
+			expect(readResolveCache).not.toHaveBeenCalled();
+			expect(spies.resolve.kuwo).toHaveBeenCalledOnce();
+			expect(filled.lrc).toBe('[00:01]hi');
+		});
+
+		it('still reads the cache for a marked track that ALREADY has lyrics (marker is inert)', async () => {
+			const spies = spyAllSources();
+			spies.resolve.qq?.mockImplementation(async (t: Track) => qqComplete(t));
+			readResolveCache.mockResolvedValue(HIT);
+
+			const out = await ensureTrackDetails(
+				mk('kuwo', 'k1', 1, { lrcUnresolved: true, lrc: '[00:01]hi' })
+			);
+
+			expect(readResolveCache).toHaveBeenCalledTimes(1); // the bypass is scoped to a LYRIC re-resolve
+			expect(out.audioUrl).toBe('https://cdn.qq/flac.flac');
+		});
 	});
 });

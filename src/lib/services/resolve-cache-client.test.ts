@@ -10,16 +10,19 @@ vi.mock('$lib/services/api-base', () => ({ apiFetch }));
 
 import {
 	readResolveCache,
+	registerServedResolve,
 	reportDeadUrl,
 	__resetResolveCacheClient
 } from './resolve-cache-client';
 
+// 32-D-10: the entry payload is a permanent qq song_mid — no url. The served-url registry is now
+// fed by the CALLER (catalog, after it resolves that mid into a real url), not by the read.
 const ENTRY: ResolveEntry = {
-	source: 'kuwo',
-	songid: '123',
-	url: 'https://cdn.example/song-123.mp3',
-	avail: { kuwo: 'ok' }
+	source: 'qq',
+	songid: '003OUlho2gk0Ny',
+	avail: { qq: 'ok' }
 };
+const SERVED_URL = 'https://cdn.qq/flac.flac';
 
 const jsonRes = (body: unknown, status = 200) =>
 	new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -44,10 +47,10 @@ describe('readResolveCache (31-D-08 — advisory, never authoritative)', () => {
 		expect(init.signal).toBeInstanceOf(AbortSignal);
 	});
 
-	it('returns the entry even when it is a cached known-none (url null, avail dry)', async () => {
-		// D-06(c): a clean "kuwo is dry" negative is the POINT of the avail layer — it must reach the
+	it('returns the entry even when it is a cached known-none (songid null, avail dry)', async () => {
+		// D-06(c): a clean "qq is dry" negative is the POINT of the avail layer — it must reach the
 		// caller so the source walk can skip that source, NOT be flattened to a miss.
-		const dry: ResolveEntry = { source: null, songid: null, url: null, avail: { kuwo: 'dry' } };
+		const dry: ResolveEntry = { source: null, songid: null, avail: { qq: 'dry' } };
 		apiFetch.mockResolvedValue(jsonRes({ hit: true, entry: dry }));
 
 		await expect(readResolveCache('a', 't')).resolves.toEqual(dry);
@@ -105,6 +108,34 @@ describe('readResolveCache (31-D-08 — advisory, never authoritative)', () => {
 	});
 });
 
+// 32-D-10a: the bust is KEPT and is now the ONLY repair for a PERMANENT but wrong entry (a matchKey
+// collision serving another song's mid). The registry is fed by registerServedResolve, so the
+// self-gating property survives the entry losing its `url` field.
+describe('registerServedResolve (32-D-10a — the caller feeds the registry)', () => {
+	it('a registered url becomes reportable with the terms it was registered under', async () => {
+		registerServedResolve(SERVED_URL, 'Nirvana', 'Come As You Are');
+		apiFetch.mockResolvedValue(jsonRes({ busted: true }));
+
+		reportDeadUrl(SERVED_URL);
+
+		expect(apiFetch).toHaveBeenCalledTimes(1);
+		expect(JSON.parse(apiFetch.mock.calls[0][1].body)).toEqual({
+			a: 'Nirvana',
+			t: 'Come As You Are'
+		});
+	});
+
+	it('a READ alone registers nothing — the entry carries no url to register (32-D-10)', async () => {
+		apiFetch.mockResolvedValue(jsonRes({ hit: true, entry: ENTRY }));
+		await readResolveCache('Nirvana', 'Come As You Are');
+		apiFetch.mockReset();
+
+		reportDeadUrl(SERVED_URL);
+
+		expect(apiFetch).not.toHaveBeenCalled();
+	});
+});
+
 describe('reportDeadUrl (31-D-09 / 31-D-11 — self-gating bust)', () => {
 	it('is a silent no-op for a URL the cache never served', () => {
 		reportDeadUrl('https://never-served.example/x.mp3');
@@ -113,14 +144,12 @@ describe('reportDeadUrl (31-D-09 / 31-D-11 — self-gating bust)', () => {
 	});
 
 	it('POSTs the served terms exactly once, however many times it is called', async () => {
-		apiFetch.mockResolvedValue(jsonRes({ hit: true, entry: ENTRY }));
-		await readResolveCache('Nirvana', 'Come As You Are');
-		apiFetch.mockReset();
+		registerServedResolve(SERVED_URL, 'Nirvana', 'Come As You Are');
 		apiFetch.mockResolvedValue(jsonRes({ busted: true }));
 
-		reportDeadUrl(ENTRY.url as string);
-		reportDeadUrl(ENTRY.url as string);
-		reportDeadUrl(ENTRY.url as string);
+		reportDeadUrl(SERVED_URL);
+		reportDeadUrl(SERVED_URL);
+		reportDeadUrl(SERVED_URL);
 
 		expect(apiFetch).toHaveBeenCalledTimes(1);
 		const [path, init] = apiFetch.mock.calls[0];
@@ -131,12 +160,10 @@ describe('reportDeadUrl (31-D-09 / 31-D-11 — self-gating bust)', () => {
 	});
 
 	it('never throws and returns void when the POST rejects', async () => {
-		apiFetch.mockResolvedValue(jsonRes({ hit: true, entry: ENTRY }));
-		await readResolveCache('Nirvana', 'Come As You Are');
-		apiFetch.mockReset();
+		registerServedResolve(SERVED_URL, 'Nirvana', 'Come As You Are');
 		apiFetch.mockRejectedValue(new Error('network down'));
 
-		expect(reportDeadUrl(ENTRY.url as string)).toBeUndefined();
+		expect(reportDeadUrl(SERVED_URL)).toBeUndefined();
 		expect(apiFetch).toHaveBeenCalledTimes(1);
 		// let the rejected fire-and-forget settle — an unhandled rejection would fail the run
 		await Promise.resolve();
@@ -147,7 +174,16 @@ describe('reportDeadUrl (31-D-09 / 31-D-11 — self-gating bust)', () => {
 		await readResolveCache('Nirvana', 'Come As You Are');
 		apiFetch.mockReset();
 
-		reportDeadUrl(ENTRY.url as string);
+		reportDeadUrl(SERVED_URL);
+
+		expect(apiFetch).not.toHaveBeenCalled();
+	});
+
+	it('__resetResolveCacheClient drops the registry (TEST-ONLY reset still covers it)', () => {
+		registerServedResolve(SERVED_URL, 'Nirvana', 'Come As You Are');
+		__resetResolveCacheClient();
+
+		reportDeadUrl(SERVED_URL);
 
 		expect(apiFetch).not.toHaveBeenCalled();
 	});
