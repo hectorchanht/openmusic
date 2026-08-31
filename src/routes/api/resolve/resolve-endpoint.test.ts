@@ -1,4 +1,5 @@
-// Endpoint tests for /api/resolve (phase 31, D-06/D-07/D-09/D-10).
+// Endpoint tests for /api/resolve (phase 31 D-06/D-07/D-09/D-10, entry shape rebuilt around the
+// permanent qq song_mid by 32-D-10 / 32-D-10a).
 //
 // The harness is og-endpoint.test.ts:746-782's `stubCache()` + `fakeEvent()`, extended with a
 // `delete` spy (D-09) and a `ctx.waitUntil` spy (the out-of-band fill — the test awaits the
@@ -10,7 +11,7 @@
 // a HIT with zero upstream calls" is demonstrated.
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { GET, POST, OPTIONS } from './+server';
-import { resolveCacheKey, RESOLVE_TTL_S } from '$lib/proxy/resolve-cache';
+import { resolveCacheKey, RESOLVE_TTL_S, RESOLVE_MID_TTL_S } from '$lib/proxy/resolve-cache';
 
 const ORIGIN = 'https://openmusic.lol';
 const ARTIST = 'Nirvana';
@@ -37,7 +38,7 @@ function stubCache() {
 
 type Reply = Response | 'THROW';
 
-/** Stub the kuwo upstream. Every subrequest URL is recorded so counts can be asserted. */
+/** Stub the qq (tang) upstream. Every subrequest URL is recorded so counts can be asserted. */
 function stubUpstream(replies: Reply[]) {
 	const calls: string[] = [];
 	let i = 0;
@@ -59,17 +60,18 @@ const json = (body: unknown) =>
 		headers: { 'content-type': 'application/json' }
 	});
 
-const SEARCH_HIT = json({ code: 200, data: [{ rid: 4212, name: TITLE, artist: ARTIST }] });
-const SEARCH_DRY = json({ code: 200, data: [] });
-const DETAIL_HIT = json({ code: 200, data: { url: 'https://cdn.kuwo/a.mp3' } });
+const MID = '003OUlho2gk0Ny';
+// 32-D-01: the fill is ONE qq search subrequest; `song_mid` is on the row, so there is no detail
+// call left to stub. Every `stubUpstream([SEARCH_HIT])` below used to be `[SEARCH_HIT, DETAIL_HIT]`.
+const SEARCH_HIT = json([{ song_mid: MID, song_title: TITLE, singer_name: ARTIST }]);
+const SEARCH_DRY = json([]);
 
 const OK_ENTRY = {
-	source: 'kuwo',
-	songid: '4212',
-	url: 'https://cdn.kuwo/a.mp3',
-	avail: { kuwo: 'ok' }
+	source: 'qq',
+	songid: MID,
+	avail: { qq: 'ok' }
 };
-const DRY_ENTRY = { source: null, songid: null, url: null, avail: { kuwo: 'dry' } };
+const DRY_ENTRY = { source: null, songid: null, avail: { qq: 'dry' } };
 
 /** GET event. `waited` collects everything handed to ctx.waitUntil so the fill can be awaited. */
 function fakeGet(search: Record<string, string>, origin: string | null = ORIGIN) {
@@ -130,7 +132,7 @@ describe('/api/resolve GET — zero-work short-circuit', () => {
 describe('/api/resolve GET — miss returns immediately, fills out of band (D-06/D-08)', () => {
 	it('a MISS answers { hit: false } and schedules the fill via ctx.waitUntil', async () => {
 		stubCache();
-		stubUpstream([SEARCH_HIT, DETAIL_HIT]);
+		stubUpstream([SEARCH_HIT]);
 		const { event, waited } = fakeGet({ a: ARTIST, t: TITLE });
 
 		const res = await callGET(event);
@@ -142,13 +144,13 @@ describe('/api/resolve GET — miss returns immediately, fills out of band (D-06
 
 	it('the scheduled fill writes the ok entry, and a SECOND identical GET is a HIT with ZERO subrequests', async () => {
 		const { putKeys } = stubCache();
-		const first = stubUpstream([SEARCH_HIT, DETAIL_HIT]);
+		const first = stubUpstream([SEARCH_HIT]);
 		const one = fakeGet({ a: ARTIST, t: TITLE });
 		await callGET(one.event);
 		await Promise.all(one.waited);
 
 		expect(putKeys).toEqual([KEY]);
-		expect(first.calls).toHaveLength(2);
+		expect(first.calls).toHaveLength(1); // 32-D-10: ONE subrequest, not two
 
 		// Only fetch is re-stubbed — the in-memory cache store must survive, or the second GET
 		// would trivially miss for the wrong reason.
@@ -163,7 +165,7 @@ describe('/api/resolve GET — miss returns immediately, fills out of band (D-06
 
 	it('a query-variant GET (different casing/punctuation) hits the SAME entry', async () => {
 		stubCache();
-		stubUpstream([SEARCH_HIT, DETAIL_HIT]);
+		stubUpstream([SEARCH_HIT]);
 		const one = fakeGet({ a: ARTIST, t: TITLE });
 		await callGET(one.event);
 		await Promise.all(one.waited);
@@ -204,7 +206,7 @@ describe('/api/resolve GET — miss returns immediately, fills out of band (D-06
 describe('/api/resolve — the cached copy is CORS-free (T-31-03-04)', () => {
 	it('the stored Response carries only content-type + Cache-Control', async () => {
 		const { store } = stubCache();
-		stubUpstream([SEARCH_HIT, DETAIL_HIT]);
+		stubUpstream([SEARCH_HIT]);
 		const one = fakeGet({ a: ARTIST, t: TITLE });
 		await callGET(one.event);
 		await Promise.all(one.waited);
@@ -245,7 +247,7 @@ describe('/api/resolve — the client-facing response is NEVER storable (31-D-09
 
 	it('a HIT response is not publicly cacheable and carries no positive max-age', async () => {
 		stubCache();
-		stubUpstream([SEARCH_HIT, DETAIL_HIT]);
+		stubUpstream([SEARCH_HIT]);
 		const one = fakeGet({ a: ARTIST, t: TITLE });
 		await callGET(one.event);
 		await Promise.all(one.waited);
@@ -259,7 +261,7 @@ describe('/api/resolve — the client-facing response is NEVER storable (31-D-09
 
 	it('the MISS, the blank short-circuit and the POST replies are not storable either', async () => {
 		stubCache();
-		stubUpstream([SEARCH_HIT, DETAIL_HIT]);
+		stubUpstream([SEARCH_HIT]);
 		const miss = await callGET(fakeGet({ a: ARTIST, t: TITLE }).event);
 		const blank = await callGET(fakeGet({ a: ' ', t: '' }).event);
 		const bust = await callPOST(fakePost(JSON.stringify({ a: ARTIST, t: TITLE })));
@@ -273,7 +275,22 @@ describe('/api/resolve — the client-facing response is NEVER storable (31-D-09
 
 	it('the TTL still lives on the STORED entry — that is the only place it belongs', async () => {
 		const { store } = stubCache();
-		stubUpstream([SEARCH_HIT, DETAIL_HIT]);
+		stubUpstream([SEARCH_HIT]);
+		const one = fakeGet({ a: ARTIST, t: TITLE });
+		await callGET(one.event);
+		await Promise.all(one.waited);
+
+		// 32-D-10a: a POSITIVE fill (a song_mid) is stored permanent + immutable …
+		expect(store.get(KEY)?.headers.get('Cache-Control')).toBe(
+			`public, max-age=${RESOLVE_MID_TTL_S}, immutable`
+		);
+	});
+
+	it('a NEGATIVE fill is stored at the SHORT TTL — end to end through the route (32-D-10a)', async () => {
+		// The route-level half of VALIDATION gate #5: a flaky 0-row qq search must not be able to
+		// pin this song lossy for the whole PoP. 15 minutes and it re-fills.
+		const { store } = stubCache();
+		stubUpstream([SEARCH_DRY]);
 		const one = fakeGet({ a: ARTIST, t: TITLE });
 		await callGET(one.event);
 		await Promise.all(one.waited);
@@ -285,7 +302,7 @@ describe('/api/resolve — the client-facing response is NEVER storable (31-D-09
 describe('/api/resolve POST — DELETE-ONLY bust (31-D-09, T-31-03-01)', () => {
 	it('deletes the SAME key the GET wrote and reports busted: true', async () => {
 		const { putKeys, cacheStub } = stubCache();
-		stubUpstream([SEARCH_HIT, DETAIL_HIT]);
+		stubUpstream([SEARCH_HIT]);
 		const one = fakeGet({ a: ARTIST, t: TITLE });
 		await callGET(one.event);
 		await Promise.all(one.waited);
@@ -333,14 +350,14 @@ describe('/api/resolve POST — DELETE-ONLY bust (31-D-09, T-31-03-01)', () => {
 describe('/api/resolve — degraded runtimes never throw', () => {
 	it('no Cache API (the `vite dev` runtime): GET and POST still answer', async () => {
 		vi.stubGlobal('caches', undefined);
-		const { calls } = stubUpstream([SEARCH_HIT, DETAIL_HIT]);
+		const { calls } = stubUpstream([SEARCH_HIT]);
 		const one = fakeGet({ a: ARTIST, t: TITLE });
 
 		const get = await callGET(one.event);
 		expect(get.status).toBe(200);
 		expect(await get.json()).toEqual({ hit: false });
 		await Promise.all(one.waited); // the fill runs and simply writes nowhere
-		expect(calls).toHaveLength(2);
+		expect(calls).toHaveLength(1);
 
 		const post = await callPOST(fakePost(JSON.stringify({ a: ARTIST, t: TITLE })));
 		expect(await post.json()).toEqual({ busted: false });
@@ -348,7 +365,7 @@ describe('/api/resolve — degraded runtimes never throw', () => {
 
 	it('no platform.ctx (no waitUntil available): the GET still answers, just without a fill', async () => {
 		stubCache();
-		const { calls } = stubUpstream([SEARCH_HIT, DETAIL_HIT]);
+		const { calls } = stubUpstream([SEARCH_HIT]);
 		const url = new URL(`${ORIGIN}/api/resolve?a=${ARTIST}&t=${TITLE}`);
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		const res = await GET({
