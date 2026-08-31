@@ -4,13 +4,13 @@ milestone: v1.5
 milestone_name: YTMusic-Powered Up-Next
 status: executing
 stopped_at: Phase 32 planned — 8 plans, 4 waves
-last_updated: "2026-08-31T19:46:36.029Z"
+last_updated: "2026-08-31T20:04:16.842Z"
 last_activity: 2026-08-31
 progress:
   total_phases: 8
   completed_phases: 5
   total_plans: 50
-  completed_plans: 39
+  completed_plans: 40
   percent: 63
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-06-10)
 ## Current Position
 
 Phase: 32 (QQ-lossless-first resolve) — EXECUTING
-Plan: 3 of 8
+Plan: 4 of 8
 Status: Executing Phase 32
 
 ### 30-06 checkpoint status
@@ -123,6 +123,7 @@ Remaining human UAT: real-device <audio> playback+seek + download-to-disk; deplo
 | Phase 31 P04 | ~25 min | 3 tasks | 6 files |
 | Phase 32 P01 | 13m | 3 tasks | 9 files |
 | Phase 32 P02 | ~7 min | 2 tasks | 6 files |
+| Phase 32 P04 | ~22 min | 3 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -214,6 +215,10 @@ Recent decisions affecting current work:
 - [Phase 32]: 32-D-04: the '128' rung selects QQ song_play_url_standard at a measured 98 kbps, not the '128-160k band' the old D-03 comment claimed
 - [Phase 32]: 32-D-08: qq and netease SWAPPED in SOURCE_RANK (3/4) — the deduped survivor carries song_mid, the latency lever per 32-D-10b
 - [Phase 32]: 32-D-13: absolute-url guard lives in apiUrl (root-cause placement) so every absolute caller stays inside the apiFetch governor
+- [Phase 32]: 32-D-10a: cache permanence is a property of the PAYLOAD — positive mid entries are 1-year immutable, negative/DRY entries keep the 900s TTL, and the POST bust is retained as the only repair for a wrong mid
+- [Phase 32]: 32-D-10: RESOLVE_CACHE_VERSION '1' -> '2' — an entry-shape change is a KEY change, because cache.delete is PoP-local
+- [Phase 32]: 32-D-01: the edge resolve fill is qq-native and ONE subrequest (song_mid is on every search row); the kuwo/netease/joox ladder stays as the FAILURE path
+- [Phase 32]: 32-D-10b: catalog skips the /api/resolve lookup entirely when the track already holds a qq mid
 
 ### Pending Todos
 
@@ -392,7 +397,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-31T19:46:28.909Z
+Last session: 2026-08-31T20:03:44.404Z
 Stopped at: Phase 32 planned — 8 plans, 4 waves
 Resume: install `android/app/build/outputs/apk/debug/app-debug.apk` on an Android device, open `/song/Olivia-Dean/Man-I-Need` (proven to return a real 30,840 B JPEG from production), confirm the cover renders rather than a broken image, then kill the network and confirm the gradient fallback appears. That single check closes 30-06 and Phase 30. Do NOT run `/gsd:verify-work` for Phase 30 until it is approved — OG-PAGE-01 terminates in it. Optional, non-blocking leftovers: iMessage/Slack cards, and real 24h cache TTL/eviction.
 
