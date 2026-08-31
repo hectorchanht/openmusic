@@ -58,13 +58,24 @@ describe('resolveStub — Last.fm {artist,title} stub → playable Track', () =>
 		expect(out?.uid).toBe(hit.uid);
 	});
 
-	it('returns the FIRST track (best cross-source hit) when several are returned', async () => {
-		const first = mk('netease', 'first', '周杰伦', { title: '稻香' });
-		const second = mk('qq', 'second', '周杰伦', { title: '稻香' });
-		vi.spyOn(catalog, 'searchAll').mockResolvedValue(result([first, second]));
+	// 32-D-08 DECISION CHANGE: this case's two fixtures are the SAME song (周杰伦 / 稻香) from two
+	// sources, so dedupeBest collapses them to ONE candidate and the surviving row is decided purely
+	// by SOURCE_RANK — scoreMatch never gets a choice to make. Pre-32 the expectation was the netease
+	// row and the case was named "returns the FIRST track", but those two readings only coincided
+	// because netease was BOTH first in the interleaved list AND the rank winner; the case could not
+	// tell them apart. 32-D-08 promoted qq above netease, which separates them, and the contract
+	// resolveStub actually offers for same-song rows is "the dedupe winner", not "index 0". So the
+	// assertion is retargeted to the rank winner (still an exact uid, not a loosened check) and the
+	// name now states what is really being pinned.
+	it('returns the SOURCE_RANK winner when several same-song rows are returned (32-D-08)', async () => {
+		const neteaseRow = mk('netease', 'first', '周杰伦', { title: '稻香' });
+		const qqRow = mk('qq', 'second', '周杰伦', { title: '稻香' });
+		vi.spyOn(catalog, 'searchAll').mockResolvedValue(result([neteaseRow, qqRow]));
 
 		const out = await resolveStub('周杰伦', '稻香');
-		expect(out?.uid).toBe(first.uid);
+		// qq outranks netease (32-D-08) so it survives the collapse even though it is second in the
+		// interleaved list — the win is rank-driven, not position-driven.
+		expect(out?.uid).toBe(qqRow.uid);
 	});
 
 	it('returns null when searchAll returns no hits', async () => {
