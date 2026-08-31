@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { pickByQualityPref } from './quality';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { pickByQualityPref, effectiveQuality } from './quality';
 
 // The verbatim JOOX ladder (top-tier-first) — the realistic input.
 const JOOX_ORDER = [
@@ -69,5 +69,58 @@ describe('pickByQualityPref (D-03)', () => {
 	it("returns a fresh array even for the unchanged 'auto'/'lossless' path", () => {
 		const out = pickByQualityPref(JOOX_ORDER, 'auto');
 		expect(out).not.toBe(JOOX_ORDER);
+	});
+});
+
+// ── effectiveQuality: the ONE 'auto' → concrete-tier seam (32-D-02 / 32-D-03) ──────────
+// `navigator` is stubbed per-case: the node test project HAS a global `navigator`
+// (Node 22) but no `navigator.connection`, so the un-stubbed baseline is already the
+// "no signal" branch — which is what iOS Safari and desktop Chrome see in production.
+describe('effectiveQuality (32-D-02/32-D-03)', () => {
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
+	it("'auto' on wifi → 'lossless'", () => {
+		vi.stubGlobal('navigator', { connection: { type: 'wifi' } });
+		expect(effectiveQuality('auto')).toBe('lossless');
+	});
+
+	it("'auto' on ethernet → 'lossless'", () => {
+		vi.stubGlobal('navigator', { connection: { type: 'ethernet' } });
+		expect(effectiveQuality('auto')).toBe('lossless');
+	});
+
+	it("'auto' on cellular → '320' (32-D-02: never hand FLAC to a metered connection)", () => {
+		vi.stubGlobal('navigator', { connection: { type: 'cellular' } });
+		expect(effectiveQuality('auto')).toBe('320');
+	});
+
+	it("'auto' with a type outside the whitelist → '320' (fails closed)", () => {
+		for (const type of ['unknown', 'other', 'none', 'bluetooth', 'wimax'] as const) {
+			vi.stubGlobal('navigator', { connection: { type } });
+			expect(effectiveQuality('auto')).toBe('320');
+		}
+	});
+
+	it("'auto' with navigator.connection undefined → '320' (32-D-03: iOS Safari / desktop Chrome)", () => {
+		vi.stubGlobal('navigator', {});
+		expect(effectiveQuality('auto')).toBe('320');
+	});
+
+	it("'auto' with saveData:true on wifi → '320' (explicit user opt-in wins)", () => {
+		vi.stubGlobal('navigator', { connection: { type: 'wifi', saveData: true } });
+		expect(effectiveQuality('auto')).toBe('320');
+	});
+
+	it('a concrete pref passes through unchanged regardless of the connection', () => {
+		vi.stubGlobal('navigator', { connection: { type: 'wifi' } });
+		expect(effectiveQuality('lossless')).toBe('lossless');
+		expect(effectiveQuality('320')).toBe('320');
+		expect(effectiveQuality('128')).toBe('128');
+		vi.stubGlobal('navigator', { connection: { type: 'cellular' } });
+		expect(effectiveQuality('lossless')).toBe('lossless');
+		expect(effectiveQuality('320')).toBe('320');
+		expect(effectiveQuality('128')).toBe('128');
 	});
 });
