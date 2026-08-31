@@ -56,9 +56,33 @@ post-resolve tail (measured and cleared — see D-16).
   the right `mid` still returns the correct song. QQ resolve is exactly ONE call given a mid.
 
 ### Cache shape
-- **D-10:** Cache **`matchKey → song_mid`**, permanently. `song_mid` never expires (unlike the signed
-  audio URL Phase 31 cached), so this entry needs **no TTL and no bust machinery**. It stays edge-side
-  so it is shared across all users, per Phase 31 D-10.
+- **D-10:** Cache **`matchKey → song_mid`** edge-side, shared across all users per Phase 31 D-10.
+- **D-10a (AMENDED 2026-08-31, post-research — supersedes D-10's "no TTL, no bust"):** permanence is a
+  property of the **payload**, not the entry.
+  - **Positive** entry (`songid` present) → `Cache-Control: public, max-age=31536000` — permanent, which
+    is what D-10 was reaching for.
+  - **Negative / `DRY`** entry → **keep the existing `RESOLVE_TTL_S = 900`.**
+  - **KEEP the POST bust handler.** Do NOT delete it.
+
+  **Why D-10 as originally written was unsafe:** it was decided on the premise that `song_mid` never
+  expires. True for a positive entry, false for a negative one — and Phase 31 writes negatives
+  deliberately (`resolve-cache.ts:89-100`). `Skill("spike-findings-openmusic")` records from a 38-song
+  spike that **qq search returns 0 rows intermittently under load, with no throw** — a flaky empty body
+  is byte-indistinguishable from "this song genuinely has no QQ version", which `resolve-edge.ts`
+  classifies as `DRY` and caches. Under 900s a false negative self-heals in 15 minutes; under "no TTL,
+  no bust" it pins that song to a lossy source **for every user in the PoP, permanently and
+  unrepairably** — the precise inverse of the phase goal, silently. The bust handler is also the only
+  repair path for a `matchKey` collision, and D-11 explicitly requires that repairs be possible
+  (there is deliberately no client write path — `resolve-edge.ts:9`).
+- **D-10b (research finding, 2026-08-31):** **D-10 saves a CALL, not the round trip — D-08 is the
+  latency lever.** A mid is not playable; resolving it still costs a tang RTT. Measured: a Phase-31 url
+  cache HIT was 0.44s to a playable URL, whereas a mid HIT is 0.4s **plus 2.0–3.8s serially**. The
+  ROADMAP's "tap→audio in under a second" is therefore NOT reachable via D-10; it is reachable via D-08,
+  because a QQ-sourced deduped row already carries `song_mid` in the search body and needs no lookup at
+  all. Plan and verify accordingly: D-08 owns the latency goal, D-10/D-10a own the call-count goal.
+  Corollary flagged by research: `catalog.ts:323-326` reads the cache unconditionally at up to 400ms,
+  which post-D-08 is pure waste on the common path — one guard clause there is the single largest
+  remaining win.
 - **D-11:** Phase 31 D-08 / D-09 / D-11 carry forward unchanged: the cache is **advisory, never
   authoritative**. A miss or a stale hit falls through to the client resolver silently and repairs the
   entry. The failure path remains load-bearing, not an edge case.
@@ -79,7 +103,7 @@ post-resolve tail (measured and cleared — see D-16).
 
 ### Next-track cost
 - **D-15:** `prebufferNext` keeps running and **inherits whatever tier `'auto'` picked** — so cellular
-  is already ~10MB rather than ~28MB. Add ONE guard: check `Content-Length` and skip the blob (stream
+  is already ~10MB rather than ~50MB. Add ONE guard: check `Content-Length` and skip the blob (stream
   instead) above a ceiling, so a low-end phone never holds a huge Blob per advance. This preserves the
   `bg-lockscreen-stall-noskip` fix wherever it is affordable. That prebuffer is a STABILITY mechanism,
   not a gapless nicety — dropping it for FLAC would trade the "next song plays" goal for the "plays
@@ -90,6 +114,23 @@ post-resolve tail (measured and cleared — see D-16).
   all run AFTER playback starts. "Play the instant it resolves, parallelize the rest" is already the
   implemented behavior. The spinner is `ensureTrackDetails` and nothing else.
 - **D-17:** Phase 31 D-19 carries forward: lookahead stays **next-1 only**. Do not deepen the walk.
+
+### Folded pre-existing bugs (added 2026-08-31 after research; user approved the scope)
+
+Both live inside functions this phase already edits, both inherited verbatim from
+`upstream/main:index.html`, and both actively corrupt what this phase promises.
+
+- **D-18:** **Demote the `accom` rung below `hq` in the QQ ladder.** `pickBestPlayUrl` currently ranks
+  `song_play_url_accom` ABOVE `song_play_url_hq` (`qq.ts`, inherited from `index.html:2373`). `accom` is
+  **伴奏 — the accompaniment / instrumental track**, so a lossless-first resolve can hand back a karaoke
+  version instead of the song. It also serves `.ogg`, which **iOS Safari does not decode** — that half is
+  confirmed and is sufficient justification on its own; the 伴奏 reading is a strong inference flagged
+  `checkpoint:human-verify`. One-line change.
+- **D-19:** **Stop `inferQualityFromUrl` overwriting the QQ tier.** It relabels every non-FLAC QQ URL as
+  `320K`, including the measured **97 kbps** standard tier and the **48 kbps** fq tier, so the quality
+  pill reports a tier the user is not receiving. Measured: `'320'` selects `song_play_url_hq` at **193
+  kbps on 3/3 tracks**, not 320. The adapter already knows the true tier from which ladder rung it
+  picked — that value must win over the URL sniff.
 
 ### Folded Todos
 - `.planning/todos/pending/edge-resolve-cache-returns-miss.md` — `/api/resolve` returned
