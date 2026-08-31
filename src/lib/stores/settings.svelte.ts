@@ -152,9 +152,13 @@ class Settings {
 	coverScale = $state<number>(APPEARANCE_DEFAULTS.coverScale);
 	/** Home fallback-grid COLUMN count (clamped 2–5; default 3 = today). */
 	homeGridCols = $state<number>(APPEARANCE_DEFAULTS.homeGridCols);
-	// D-03: default to the 128–160k band so audio URLs resolve/stream faster. The
-	// source ladders (QQ/JOOX/Kuwo) read this via pickByQualityPref; higher tiers
-	// remain user-selectable.
+	// 32-D-02 (SUPERSEDES D-03's "default to the 128–160k band" rationale): the default is
+	// now 'auto' — lossless on a positively-identified unmetered connection, '320' otherwise.
+	// Every source ladder (QQ/JOOX/Kuwo) resolves this pref through ONE seam,
+	// `sources/quality.ts` effectiveQuality, before any ladder reordering runs; higher and
+	// lower tiers remain user-selectable by hand.
+	// 32-D-04: the superseded comment's "128–160k" was simply wrong — the '128' rung selects
+	// QQ's `song_play_url_standard`, MEASURED at 98 kbps.
 	defaultQuality = $state<DefaultQuality>(PLAYBACK_DEFAULTS.defaultQuality);
 	/** Quality used when DOWNLOADING (re-resolved at this tier); favours quality over speed. */
 	downloadQuality = $state<DefaultQuality>(PLAYBACK_DEFAULTS.downloadQuality);

@@ -79,7 +79,13 @@ export const TRANSLATION_DEFAULTS = {
 
 // ---- Playback --------------------------------------------------------------------------
 export const PLAYBACK_DEFAULTS = {
-	defaultQuality: '128' as DefaultQuality, // D-03 — 128–160k band for fast resolve
+	// 32-D-02 (SUPERSEDES the old D-03 '128' default): 'auto' now has a real meaning —
+	// lossless on a connection positively identified as unmetered, '320' everywhere else.
+	// See `sources/quality.ts` effectiveQuality for the whitelist and its fail-closed rule.
+	// 32-D-04 (corrects the superseded D-03 comment, which claimed a "128–160k band"): the
+	// '128' rung actually selects QQ's `song_play_url_standard`, MEASURED at 98 kbps — below
+	// the band that comment asserted. The wrong number is why the default moved.
+	defaultQuality: 'auto' as DefaultQuality,
 	downloadQuality: 'lossless' as DefaultQuality, // favours quality over speed
 	defaultSource: 'auto' as DefaultSource,
 	autoExpandOnPlay: false,

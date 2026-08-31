@@ -15,10 +15,14 @@ const clampInt = (n: unknown, min: number, max: number, def: number): number => 
 
 // Headless runes (node project) — mirrors player.svelte.test.ts style. Under the node
 // project `browser` is false, so settings.load() is a no-op and the $state initializers
-// hold. We assert the D-03 default WITHOUT mutating it first.
-describe('settings (D-03 defaultQuality default)', () => {
-	it("defaults defaultQuality to '128' (D-03)", () => {
-		expect(settings.defaultQuality).toBe('128');
+// hold. We assert the 32-D-02 default WITHOUT mutating it first.
+describe('settings (32-D-02 defaultQuality default)', () => {
+	// DECISION CHANGE, not a bug fix: 32-D-02 supersedes D-03. The pinned default moved
+	// '128' → 'auto' because D-03's "128–160k band" premise was measured wrong (32-D-04:
+	// the '128' rung is 98 kbps). 'auto' is resolved to a concrete tier by
+	// `sources/quality.ts` effectiveQuality at every adapter call site.
+	it("defaults defaultQuality to 'auto' (32-D-02, was '128' under D-03)", () => {
+		expect(settings.defaultQuality).toBe('auto');
 	});
 
 	it('exposes a preferredSource getter that is undefined when defaultSource is auto', () => {
