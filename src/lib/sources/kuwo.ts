@@ -14,6 +14,7 @@ import { makeUid } from './types';
 import { inferQualityFromUrl } from '../services/lrc';
 import { apiFetch } from '../services/api-base';
 import { settings, type DefaultQuality } from '$lib/stores/settings.svelte';
+import { effectiveQuality } from './quality';
 
 // Kuwo search row shape from the kw-api endpoint (fields we read).
 interface KuwoSearchItem {
@@ -101,7 +102,9 @@ export const kuwo: SourceAdapter = {
 		// if the upstream ignores/rejects `128k`, Kuwo stays at whatever tier it returns
 		// (acceptable per the honest defaultQualityNote).
 		// WR-07: an explicit per-call quality (download path) wins over the streaming pref.
-		const level = (quality ?? settings.defaultQuality) === '128' ? '128k' : 'zp';
+		// 32-D-02: resolve the pref through the ONE 'auto' seam FIRST — the literal 'auto'
+		// must never reach a tier pick, or a metered connection silently gets the top rung.
+		const level = effectiveQuality(quality ?? settings.defaultQuality) === '128' ? '128k' : 'zp';
 		const path = `/api/kuwo/detail?id=${encodeURIComponent(track.songid)}&type=song&level=${encodeURIComponent(level)}&format=json`;
 
 		const res = await apiFetch(path, { signal });

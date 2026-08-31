@@ -32,7 +32,7 @@ import { makeUid } from './types';
 import { inferQualityFromUrl } from '../services/lrc';
 import { apiFetch } from '../services/api-base';
 import { settings, type DefaultQuality } from '$lib/stores/settings.svelte';
-import { pickByQualityPref } from './quality';
+import { pickByQualityPref, effectiveQuality } from './quality';
 
 // JOOX search row shape from the apicx proxy (Chinese field names we read).
 interface JooxSearchItem {
@@ -141,8 +141,12 @@ const JOOX_QUALITY_ORDER = [
  *
  * D-03: the verbatim order (Atmos > FLAC > Hi-Res > 母带 > OGG320 > MP3320 > AAC192 >
  * OGG192 > MP3128 > ...) is reordered via `pickByQualityPref` so the band matching
- * `settings.defaultQuality` is probed FIRST. Under the '128' default the 128–160k band
- * (AAC 192 / OGG 192 / MP3 128) is preferred; 'lossless'/'auto' keep the verbatim order.
+ * `settings.defaultQuality` is probed FIRST.
+ * 32-D-02 (supersedes this doc-block's old "'lossless'/'auto' keep the verbatim order"
+ * claim): the pref now goes through `effectiveQuality` first, so under the shipped 'auto'
+ * default the verbatim lossless-first order survives ONLY on a positively-identified
+ * unmetered connection; everywhere else 'auto' becomes '320' and the 320 band leads.
+ * Only an explicit 'lossless' still keeps the verbatim order unconditionally.
  * The proxy `JOOX_BR=4` tier-SET selector is left untouched (it just makes all tiers
  * available; keeps proxy.test.ts `br=4` green — A3 / client-ladder approach).
  */
@@ -152,7 +156,10 @@ async function pickJooxPlayUrl(
 	quality?: DefaultQuality
 ): Promise<PickedPlayUrl> {
 	// WR-07: an explicit per-call quality (download path) wins over the streaming pref.
-	const order = pickByQualityPref(JOOX_QUALITY_ORDER, quality ?? settings.defaultQuality);
+	// 32-D-02: `effectiveQuality` resolves 'auto' to a CONCRETE tier before the ladder is
+	// reordered. Without it a metered connection under the 'auto' default probes Atmos/FLAC
+	// first (the pickByQualityPref 'auto' branch is a no-op) — the exact cellular regression.
+	const order = pickByQualityPref(JOOX_QUALITY_ORDER, effectiveQuality(quality ?? settings.defaultQuality));
 	for (const name of order) {
 		const u = links[name];
 		if (!u) continue;
