@@ -28,7 +28,10 @@ const BAND_LOSSLESS = /flac|lossless|atmos|hi-?res|母带|无损/i;
  */
 export function pickByQualityPref(tiers: string[], pref: DefaultQuality): string[] {
 	const band = pref === '128' ? BAND_128 : pref === '320' ? BAND_320 : null;
-	// 'lossless' / 'auto' → leave the ladder as-is (top tier first).
+	// 'lossless' → leave the ladder as-is (top tier first). 32-D-02: 'auto' also lands here,
+	// but it is now a TOLERATED LEGACY INPUT rather than the live path — every adapter
+	// pre-resolves the pref through `effectiveQuality` below, so a real 'auto' never reaches
+	// this function anymore. Behavior is deliberately unchanged (the 'auto' no-op tests stay).
 	if (!band) return [...tiers];
 
 	const inBand: string[] = [];
@@ -37,4 +40,43 @@ export function pickByQualityPref(tiers: string[], pref: DefaultQuality): string
 		(band.test(tier) ? inBand : rest).push(tier);
 	}
 	return [...inBand, ...rest];
+}
+
+/** The Network Information API subset we read. NOT in `lib.dom.d.ts`, so narrow it
+ *  LOCALLY — the same discipline `proxy/edge-cache.ts` uses for the Cloudflare
+ *  `caches.default` gap. No `any` cast — this repo has zero of those in production source. */
+interface NetInfo {
+	type?: 'bluetooth' | 'cellular' | 'ethernet' | 'none' | 'wifi' | 'wimax' | 'other' | 'unknown';
+	saveData?: boolean;
+}
+
+/**
+ * Resolve the `'auto'` rung to a CONCRETE tier — the ONE seam every pref-reading adapter
+ * calls (32-D-02 / 32-D-03). Non-`'auto'` prefs pass through untouched.
+ *
+ * WHITELIST that FAILS CLOSED to `'320'`: lossless only on a connection we can POSITIVELY
+ * identify as unmetered. Per MDN browser-compat-data, `NetworkInformation.type` is the
+ * accurate metering value but ships on Chrome Android 38+ and WebView Android 50+ only —
+ * it is FALSE on Safari/iOS entirely and ChromeOS-only on Chrome desktop. So iOS AND desktop
+ * web get `'320'` under the new `'auto'` default: a DELIBERATE, user-approved tradeoff
+ * (32-D-03), NOT a bug to fix. Android Chrome and the Capacitor APK do get wifi-lossless,
+ * and picking `'lossless'` by hand always works everywhere.
+ *
+ * `effectiveType` is deliberately NOT consulted: it estimates SPEED, not metering, so fast
+ * cellular reports `'4g'` and would be handed FLAC — the exact case 32-D-02 exists to avoid.
+ * `saveData` is honoured because it is the one signal a user explicitly opts into.
+ *
+ * The `typeof navigator` probe is the SSR/edge guard. This file's contract is "NO runes, NO
+ * `$app`, NO store import" (see the header), so it feature-detects instead of importing
+ * `browser` — CLAUDE.md's browser-guard rule explicitly allows the feature-detect form, and
+ * `player.svelte.ts`'s mediaSession probe is the in-repo precedent.
+ *
+ * Return type EXCLUDES `'auto'` so the compiler proves no adapter ladder can still see it.
+ */
+export function effectiveQuality(pref: DefaultQuality): Exclude<DefaultQuality, 'auto'> {
+	if (pref !== 'auto') return pref;
+	if (typeof navigator === 'undefined') return '320';
+	const c = (navigator as Navigator & { connection?: NetInfo }).connection;
+	if (!c || c.saveData === true) return '320';
+	return c.type === 'wifi' || c.type === 'ethernet' ? 'lossless' : '320';
 }
