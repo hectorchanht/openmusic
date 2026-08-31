@@ -783,6 +783,15 @@ class Player {
 	/** bg-lockscreen-stall-noskip: one-shot per-src flag — a load stall retries the SAME song ONCE, then
 	 *  the next stall skips. Reset on a new src (play()) and on a real `playing`. Plain field. */
 	private stallRetried = false;
+	/** bg-lockscreen-stall-noskip (round 2, bg-stall-burndown-log-1): has audio been AUDIBLE during the
+	 *  current hidden stint? Set at hide-time from this.playing, set true by a real `playing` event, and
+	 *  cleared by a stall.skip (one bg skip per audible streak). While hidden WITHOUT audible playback,
+	 *  Android Chrome DEFERS media byte-loads entirely — `stalled` there is the platform's normal state,
+	 *  not a track fault, so recoverLoadStall must park instead of retry/skip. Plain field. */
+	private audibleThisHide = false;
+	/** bg-lockscreen-stall-noskip (round 2): a load-stall rescue was parked while hidden-and-silent;
+	 *  the visibilitychange(visible) handler re-runs it with a fresh retry budget. Plain field. */
+	private stallRecheckOnVisible = false;
 	private preloadedCover: HTMLImageElement | null = null;
 	private preloadedCoverUid: string | null = null;
 	private preloadedCoverUrl: string | null = null;
@@ -1249,6 +1258,20 @@ class Player {
 			this.maybeRetryAutoplay(this.playGen); // autoplay-policy pause, not a no-bytes load stall
 			return;
 		}
+		// bg-lockscreen-stall-noskip (round 2, bg-stall-burndown-log-1): a hidden tab with NO audible
+		// playback this hide-stint does not load media bytes AT ALL on Android Chrome — `stalled` there
+		// is the platform's NORMAL deferred state, not a track fault. Retrying re-attaches a src that
+		// equally cannot load, and skipping burns the queue (device capture: 2 healthy tracks struck in
+		// 11s; qq resolved hasUrl:true and was skipped anyway) without ever restoring audio — the next
+		// track faces the identical deferral. PARK instead: recheck the moment the tab is visible again
+		// (foreground un-defers loading; the manual next/prev recovery played the same song in ~600ms).
+		// audibleThisHide=true (music WAS flowing while hidden — the July capture played 8.6min locked)
+		// means the platform demonstrably loads bytes in bg, so a stall there IS track-specific and the
+		// retry-once-then-skip below stays live for exactly the case it was built for.
+		if (typeof document !== 'undefined' && document.hidden && !this.audibleThisHide) {
+			this.stallRecheckOnVisible = true;
+			return;
+		}
 		if (!this.stallRetried) {
 			this.stallRetried = true;
 			logAction('stall.retry', { uid: this.current.uid });
@@ -1262,6 +1285,10 @@ class Player {
 		// Same batched channel as every other visible skip. Deliberately does NOT touch failoverSkips:
 		// this path never counted toward the systemic ceiling and 31-D-17 keeps that accounting frozen.
 		this.emitSkipNotice(this.current.title);
+		// bg-lockscreen-stall-noskip (round 2): ONE bg skip per audible streak — the skipped-to track
+		// must itself produce audio (`playing` re-arms the flag) before another hidden-tab skip is
+		// allowed, so even the audible-bg path can never burn more than one hop down the queue.
+		this.audibleThisHide = false;
 		this.next();
 	}
 
@@ -1551,6 +1578,10 @@ class Player {
 				// visible, causing unwanted playback more often than it helped. Playback now starts/resumes
 				// only from explicit user action or normal track-end auto-advance.
 				if (document.hidden) {
+					// bg-lockscreen-stall-noskip (round 2): snapshot whether audio is audibly flowing at
+					// hide-time — the discriminator between "bg loads work" (keep retry/skip live) and
+					// "platform defers media loads" (park the stall rescue until foreground).
+					this.audibleThisHide = this.playing;
 					this.flushPersist();
 				} else {
 					// 31-D-16: the ONE thing foreground return may do is refund the strike budget. A stint in
@@ -1561,6 +1592,22 @@ class Player {
 					// tab became visible and caused unwanted playback more often than it helped.
 					// clearAllStrikes is deliberately incapable of starting audio; keep it that way.
 					this.clearAllStrikes('foreground');
+					// bg-lockscreen-stall-noskip (round 2): resume a PARKED load-stall rescue. While hidden
+					// with no audible playback, recoverLoadStall parks instead of retry/skip (media byte-
+					// loads are platform-deferred there); the moment the tab is visible loading un-defers,
+					// so the rescue can actually work — fresh retry budget because the hidden-stint stall
+					// was the platform's doing, not the track's. This is NOT the quick-260703-i7e foreground
+					// auto-resume (that re-issued play() on a track that had ALREADY played and was paused):
+					// here the src NEVER produced audio, the user's last intent was "play", and
+					// recoverLoadStall itself refuses deliberate pauses / already-playing srcs.
+					if (this.stallRecheckOnVisible) {
+						this.stallRecheckOnVisible = false;
+						if (!this.hasPlayedSinceSrc && this.current) {
+							this.stallRetried = false;
+							logAction('stall.fg-recheck', { uid: this.current.uid });
+							this.recoverLoadStall();
+						}
+					}
 				}
 			});
 			// Page Lifecycle API (Chrome/Android); browsers without it simply never fire it.
@@ -1620,6 +1667,10 @@ class Player {
 			this.corruptNotified.clear();
 			this.redownloadQueued.clear();
 			this.stallRetried = false; // bg-lockscreen-stall-noskip: real output = the load did not stall; fresh retry budget.
+			// bg-lockscreen-stall-noskip (round 2): real output while hidden = the platform IS loading
+			// media bytes in bg → the stall rescue may act; and any parked recheck is moot.
+			this.audibleThisHide = true;
+			this.stallRecheckOnVisible = false;
 			this.errorBurst = 0;
 			this.reresolveBurst = 0; // RERESOLVE-LOOP GUARD: real audio = the same-src re-resolve recovered.
 			this.rapidErrorBurst = 0; // RAPID-FIRE BRAKE (debug-nowbar-freeze-reresolve-loop): output = the storm ended.

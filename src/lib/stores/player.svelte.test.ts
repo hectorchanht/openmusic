@@ -342,10 +342,14 @@ beforeEach(() => {
 	burst.consecutiveFailures = 0;
 	// bg-lockscreen-stall-noskip: the bounded prebuffer + one-shot stall-retry flag are session-scoped
 	// on the singleton — reset so a prebuffered blob / retried flag from a prior test can't leak.
-	const bg = player as unknown as { prebufferedUid: string | null; prebufferedBlobUrl: string | null; stallRetried: boolean };
+	const bg = player as unknown as { prebufferedUid: string | null; prebufferedBlobUrl: string | null; stallRetried: boolean; audibleThisHide: boolean; stallRecheckOnVisible: boolean };
 	bg.prebufferedUid = null;
 	bg.prebufferedBlobUrl = null;
 	bg.stallRetried = false;
+	// bg-lockscreen-stall-noskip (round 2): the hidden-stint discriminator + parked-recheck flag are
+	// session-scoped on the singleton too — reset so a hidden test can't leak a park into the next.
+	bg.audibleThisHide = false;
+	bg.stallRecheckOnVisible = false;
 });
 
 afterEach(() => {
@@ -2104,6 +2108,71 @@ describe('player resilience — stall watchdog (PLAY-07 / D-13/D-14)', () => {
 		el.fire('pause');
 		vi.advanceTimersByTime(Player_STALL_TIMEOUT_MS);
 		expect(runFallbackSpy).not.toHaveBeenCalled();
+	});
+
+	// ── bg-lockscreen-stall-noskip (round 2, bg-stall-burndown-log-1): hidden-tab burn-down guard ──
+	// A hidden Android tab with no audible playback DEFERS media byte-loads, so `stalled` is the
+	// platform's NORMAL state there — the rescue must PARK (no retry, no strike, no skip) and resume
+	// on foreground, where a re-drive actually works. While hidden WITH audible playback (July capture
+	// played 8.6min locked) loads work, so retry-then-skip stays live — but a bg skip clears the
+	// audible flag, bounding any cascade to ONE hop until real audio re-arms it.
+	const bgInternals = () =>
+		player as unknown as { audibleThisHide: boolean; stallRecheckOnVisible: boolean; stallRetried: boolean };
+
+	it('HIDDEN + not audible this stint: the stall PARKS — no retry, no skip, recheck armed', () => {
+		vi.stubGlobal('document', { hidden: true, addEventListener() {} });
+		bgInternals().audibleThisHide = false;
+		stallEl.fire('stalled'); // first stalled event — would have retried before the fix
+		stallEl.fire('stalled'); // second — would have struck + skipped (the burn-down)
+		expect(reresolveSpy).not.toHaveBeenCalled();
+		expect(runFallbackSpy).not.toHaveBeenCalled();
+		expect(player.play).not.toHaveBeenCalled(); // no advance — the queue is not burned down
+		expect(bgInternals().stallRecheckOnVisible).toBe(true); // parked for foreground
+	});
+
+	it('HIDDEN + audible this stint: retry-then-skip stays live, and the skip clears the audible flag (one bg hop max)', () => {
+		vi.stubGlobal('document', { hidden: true, addEventListener() {} });
+		const next = mk('qq', 's2', 'B', 'Next');
+		player.queue = [player.current as Track, next];
+		bgInternals().audibleThisHide = true; // music was flowing while hidden — loads work in bg
+		stallEl.fire('stalled'); // 1st → retry the same song once
+		expect(reresolveSpy).toHaveBeenCalledTimes(1);
+		stallEl.fire('stalled'); // 2nd → genuine track-specific stall → skip
+		expect(player.play).toHaveBeenCalledWith(next);
+		expect(bgInternals().audibleThisHide).toBe(false); // skip spends the audible streak…
+		bgInternals().stallRetried = false; // simulate the new src's fresh budget (play() is mocked)
+		stallEl.fire('stalled'); // …so the NEXT hidden stall PARKS instead of burning another track
+		expect(reresolveSpy).toHaveBeenCalledTimes(1); // no second retry
+		expect(bgInternals().stallRecheckOnVisible).toBe(true);
+	});
+
+	it('foreground return resumes a PARKED rescue with a fresh retry budget (stall.fg-recheck)', () => {
+		// Capture the visibilitychange listener attach() registers so the test can flip visibility.
+		let visHandler: (() => void) | null = null;
+		const doc = {
+			hidden: false,
+			addEventListener(ev: string, fn: () => void) {
+				if (ev === 'visibilitychange') visHandler = fn;
+			}
+		};
+		vi.stubGlobal('document', doc);
+		const el = makeFakeAudio();
+		el.readyState = 0;
+		el.paused = true;
+		player.attach(el as unknown as HTMLAudioElement);
+		player.playing = false; // nothing audible when the screen locks…
+		doc.hidden = true;
+		visHandler!(); // …so the hide snapshot records audibleThisHide=false
+		expect(bgInternals().audibleThisHide).toBe(false);
+		bgInternals().stallRetried = true; // even a spent budget must not block the fg recheck
+		el.fire('stalled'); // hidden + silent → parks
+		expect(bgInternals().stallRecheckOnVisible).toBe(true);
+		expect(reresolveSpy).not.toHaveBeenCalled();
+		doc.hidden = false;
+		visHandler!(); // foreground: loading un-defers — the rescue re-runs with a fresh budget
+		expect(bgInternals().stallRecheckOnVisible).toBe(false);
+		expect(reresolveSpy).toHaveBeenCalledTimes(1); // fg retry of the SAME song, not a skip
+		expect(player.play).not.toHaveBeenCalled();
 	});
 });
 
