@@ -41,7 +41,8 @@ const RESOLVE_CACHE_TIMEOUT_MS = 400;
 const SERVED_CAP = 32;
 
 /**
- * The served-url registry: every audio URL THIS cache handed out, mapped back to the terms that
+ * The served-url registry: every audio URL THIS cache is responsible for (32-D-10: the url a
+ * cached `song_mid` was resolved into, registered by the caller), mapped back to the terms that
  * would bust its entry. This is what makes reportDeadUrl self-gating — the player calls it
  * unconditionally on every audio.error and a URL that came from the normal resolver simply is not
  * in here, so it issues no request at all. Keeping the gate HERE rather than in the store is what
@@ -59,6 +60,20 @@ const reported = new Set<string>();
 export function __resetResolveCacheClient(): void {
 	servedUrls.clear();
 	reported.clear();
+}
+
+/**
+ * 32-D-10a: register a url THIS cache is responsible for, so `reportDeadUrl` can repair its entry.
+ *
+ * In 31 the entry carried the url itself, so `readOrThrow` could register it on the way past. Under
+ * 32-D-10 the entry carries only a permanent `song_mid`, which is not playable — the caller
+ * (catalog's mid-hit branch) turns it into a url via one qq resolve and registers THAT. Same
+ * registry, same self-gating `reportDeadUrl`, one hop later; and it keeps the bust wired as the
+ * only repair for a permanent-but-wrong mid (a matchKey collision), which 32-D-11 requires.
+ */
+export function registerServedResolve(url: string, artist: string, title: string): void {
+	if (!url) return;
+	remember(url, (artist ?? '').trim(), (title ?? '').trim());
 }
 
 /** Insert with oldest-out eviction, re-inserting to refresh recency. */
@@ -98,10 +113,9 @@ async function readOrThrow(
 	const res = await apiFetch(path, { signal: combinedSignal(signal) }); // governed; abort/timeout REJECT
 	if (!res.ok) throw new Error(String(res.status));
 	const body = (await res.json()) as { hit?: boolean; entry?: ResolveEntry | null } | null;
-	const entry = body?.hit ? (body.entry ?? null) : null;
-	// Only a real URL is registered — a dry/known-none entry has nothing to bust on failure.
-	if (entry?.url) remember(entry.url, a, t);
-	return entry;
+	// 32-D-10: nothing is registered here any more — the entry carries a song_mid, not a url. The
+	// caller registers the url it resolves OUT of that mid via registerServedResolve above.
+	return body?.hit ? (body.entry ?? null) : null;
 }
 
 /**

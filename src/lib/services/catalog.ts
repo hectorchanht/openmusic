@@ -11,7 +11,8 @@ import { cached, __clearSearchCache } from './ttl-cache';
 import { matchKey } from './match-key';
 import { scoreMatch } from './score-match';
 import { dedupeBest, sameSongKey } from './dedupe';
-import { readResolveCache } from './resolve-cache-client';
+import { readResolveCache, registerServedResolve } from './resolve-cache-client';
+import { logAction } from '$lib/stores/actionLog.svelte';
 
 /**
  * quick-260629-nyl Task 3: sources that genuinely have NO upstream lyrics. A lyric MISS on one of
@@ -225,6 +226,11 @@ function onlySource(id: SourceId): Partial<Record<SourceId, boolean>> {
  * different track), `ensureTrackDetails` it, and return the FIRST that yields a truthy `audioUrl`.
  * Never-throws (per-source failures are swallowed), AbortSignal-honoring (bails after every await),
  * and stops at the first playable hit — so ~all plays resolve in ONE kuwo call (the ~59→~3 floor).
+ *
+ * 32-D-01: this walk stays KUWO-FIRST on purpose. It is the FAILURE path, and qq SEARCH is the
+ * flaky half of qq (0 rows intermittently under load, no throw), so leading with it here would make
+ * the fallback less reliable. qq-first arrives on the paths that matter — dedupe rank (32-D-08) and
+ * the edge mid cache (32-D-10) — never by reordering this walk.
  */
 export async function resolveNameStub(
 	artist: string,
@@ -285,6 +291,49 @@ export async function resolveNameStub(
 }
 
 /**
+ * 32-D-10: turn a CACHED qq `song_mid` into a playable track with ONE qq detail call.
+ *
+ * Rewrites identity onto qq (source/songid/uid + the qqId/songMid extras qq's resolve reads) and
+ * clears the resolved-state fields so the adapter refills them; `lrcUrl` is dropped because a
+ * netease lrcUrl is meaningless once the identity is qq.
+ *
+ * NEVER-THROWS: returns null on a rejection, an abort, or a resolve that produced no audioUrl, and
+ * the caller then runs its pre-existing path untouched. That is 32-D-11 / 31-D-11 in code — the
+ * cache is ADVISORY, so a hit must never be WORSE than a miss.
+ *
+ * On success the resolved url is registered with the resolve-cache client so a later playback error
+ * routes `reportDeadUrl` → POST bust → the entry is dropped. That is the ONLY repair path for a
+ * permanent-but-wrong mid (32-D-10a), since there is deliberately no client write path.
+ */
+async function resolveFromCachedMid(
+	track: Track,
+	mid: string,
+	sig: AbortSignal,
+	quality?: DefaultQuality
+): Promise<Track | null> {
+	const derived: Track = {
+		...track,
+		source: 'qq',
+		songid: mid,
+		uid: makeUid('qq', mid),
+		qqId: mid,
+		songMid: mid,
+		audioUrl: null,
+		lrcUrl: null,
+		detailsLoaded: false
+	};
+	try {
+		const resolved = await SOURCES['qq'].resolve(derived, sig, quality);
+		if (sig.aborted || !resolved.audioUrl) return null;
+		registerServedResolve(resolved.audioUrl, track.artist, track.title);
+		return resolved;
+	} catch {
+		/* tang down / contract drift / abort — fall through to the caller's normal path */
+		return null;
+	}
+}
+
+/**
  * Lazily resolve a track's audioUrl + lyrics through its source adapter.
  *
  * Dispatches via `SOURCES[track.source]` (registry, no source named — DATA-04) and
@@ -320,46 +369,53 @@ export async function ensureTrackDetails(
 	// (or an offline blob) supplied and is being re-resolved for the one thing the entry does not
 	// store — lyrics. Reading the cache again would hand back the same lrc-less url and the pane would
 	// stay empty, so skip straight to the source walk (+ crossSourceLyric) below.
-	const cachedEntry =
-		track.lrcUnresolved && !track.lrc
-			? null
-			: await readResolveCache(track.artist, track.title, sig);
-	if (sig.aborted) return track; // C-09: re-check after EVERY await — a newer play superseded us
-	if (cachedEntry?.url) {
-		if (track.resolveByName && !track.detailsLoaded) {
-			// The big win: a name-only stub skips the whole search+resolve walk for ONE round-trip.
-			// Lyrics are deliberately not cached — a stub resolved this way plays instantly and the
-			// lyric pane fills from the player's own offline/lyric path.
-			const source = (cachedEntry.source ?? '') as SourceId;
-			const songid = cachedEntry.songid ?? '';
-			if (songid && SOURCES[source]) {
-				return {
-					...track,
-					source,
-					songid,
-					uid: makeUid(source, songid),
-					audioUrl: cachedEntry.url,
-					detailsLoaded: true,
-					// 31-D-08: url only, no lyrics — mark it so the player back-fills the pane off the
-					// critical path. A cache HIT must never render worse than a MISS.
-					lrcUnresolved: true
-				};
-			}
-		} else if (cachedEntry.source === track.source && cachedEntry.songid === track.songid) {
-			// The source+songid equality check is LOAD-BEARING (T-31-04-01): the entry is keyed on
-			// normalized artist+title, so a cached hit can legitimately belong to a DIFFERENT version
-			// of the same song. Adopting it for a mismatched songid would silently play something
-			// other than the version the user picked in the VersionPicker.
-			// `lrcUnresolved` for the same reason as the name-stub branch above (31-D-08): the entry
-			// carries a url and no lrc, and the readiness guard would otherwise call this track complete.
-			return { ...track, audioUrl: cachedEntry.url, detailsLoaded: true, lrcUnresolved: true };
-		}
+	//
+	// SKIP-WHEN-MID-HELD (32-D-10b): the entry stores a qq `song_mid`, so a caller that ALREADY holds
+	// one can never gain anything from this read — it would pay 0-400ms serially for an identifier it
+	// has. Post-32-D-08 a deduped search survivor is usually the qq row, so this guard is the single
+	// largest remaining latency win in the resolve path (32-D-10 itself saves a CALL, not the RTT:
+	// a mid still costs one qq detail call to become playable).
+	const hasQqMid = Boolean(track.qqId || track.songMid || (track.source === 'qq' && track.songid));
+	const needsMidLookup = !hasQqMid && !(track.lrcUnresolved && !track.lrc);
+	if (needsMidLookup) {
+		// Research Open Question #2: nobody knows how often a qq mid is actually absent now that
+		// 32-D-08 promoted qq in dedupe. ONE log line per cold mid-less resolve turns that guess into
+		// data, readable at Settings → Activity log. Never on a churn/timeupdate path — this sits
+		// behind the readiness guard and fires at most once per cold resolve.
+		logAction('resolve.midless', { source: track.source, uid: track.uid });
 	}
-	// Any other outcome (null, no url, a stored known-none, a mismatched identity) falls straight
-	// through with no side effect — the `named ?? track` fall-through shape already in this function.
-	// There is deliberately NO client-side cache WRITE: the edge fills its own entry out of band
-	// (31-03), because a client-supplied URL write would let one crafted request change what every
-	// other user in the PoP plays.
+	const cachedEntry = needsMidLookup
+		? await readResolveCache(track.artist, track.title, sig)
+		: null;
+	if (sig.aborted) return track; // C-09: re-check after EVERY await — a newer play superseded us
+
+	// MID-HIT ADOPTION (32-D-10). 31's T-31-04-01 source+songid equality gate is SUPERSEDED here, on
+	// purpose: in 31 the entry held a URL, so adopting it for a different identity would have played
+	// another VERSION of the song than the one the user picked in the VersionPicker. A MID entry is
+	// different in kind — switching a mid-less track onto qq IS this phase's purpose (the roadmap's
+	// "collapses that back to 1 on the second listener"), and the residual risk (a matchKey collision
+	// folding two songs onto one key, so the mid plays a wrong-but-playable song) is repaired by the
+	// RETAINED POST bust (32-D-10a) exactly as a dead url was in 31 — which is why the resolved url is
+	// registered below.
+	//
+	// The adopted mid is a SHORTCUT PAST THE QQ SEARCH, never a finished resolve: qq's detail call
+	// returns url + lyrics + duration + cover together (32-D-09), so this path needs no `lrcUnresolved`
+	// re-resolve — the 31 flag existed only because a cached URL carried no lyrics.
+	//
+	// 32-D-06 / 32-D-07 — DELIBERATE generation-guard NON-USE, recorded so nobody "fixes" it: the
+	// background mid fill is EDGE-side (`waitUntil` in /api/resolve) and writes to cache only. It
+	// never writes back to `player.current` and never re-drives `audio.src`, so there is nothing for a
+	// `myGen` snapshot to protect and it would be dead code (`prewarm.ts` is the fire-and-forget
+	// precedent). The one guard that IS load-bearing here is the `sig.aborted` re-check after each
+	// await, which is already threaded.
+	const cachedMid = cachedEntry?.source === 'qq' ? cachedEntry.songid : null;
+	const fromMid = cachedMid ? await resolveFromCachedMid(track, cachedMid, sig, quality) : null;
+	if (sig.aborted) return track;
+	// Any other outcome (null, a stored known-none, a failed qq resolve) falls straight through with
+	// no side effect — the `named ?? track` fall-through shape already in this function. There is
+	// deliberately NO client-side cache WRITE: the edge fills its own entry out of band (31-03),
+	// because a client-supplied write would let one crafted request change what every other user in
+	// the PoP plays.
 	// ─────────────────────────────────────────────────────────────────────────────────────────────
 
 	// RESOLVE-02: a lazy name-only stub (Plan 26-03's Up-Next) carries the `resolveByName` marker and
@@ -368,7 +424,8 @@ export async function ensureTrackDetails(
 	// signal aborted) fall through by returning the unresolved stub: the caller (player.play) treats
 	// an audioUrl-less result as a failed resolve and routes to its existing error/fallback path
 	// (never-throw). A normal source-bearing, detailsLoaded track skips this branch unchanged.
-	if (track.resolveByName && !track.detailsLoaded) {
+	// 32-D-10: skipped when the mid shortcut already produced a playable track.
+	if (!fromMid && track.resolveByName && !track.detailsLoaded) {
 		// 31-D-06(c): thread the cached availability hints so the walk can skip a known-dry source.
 		const named = await resolveNameStub(track.artist, track.title, sig, cachedEntry?.avail);
 		return named ?? track;
@@ -376,7 +433,9 @@ export async function ensureTrackDetails(
 
 	// WR-07: `quality` threads an explicit per-call tier to the adapter (download path passes
 	// settings.downloadQuality) so download resolves never mutate the global streaming default.
-	const resolved = await SOURCES[track.source].resolve(track, sig, quality);
+	// 32-D-10: `fromMid` short-circuits the dispatch but deliberately keeps the crossSourceLyric tail
+	// below, so a mid hit gets the SAME lyric completeness a cold resolve does.
+	const resolved = fromMid ?? (await SOURCES[track.source].resolve(track, sig, quality));
 
 	// quick-260629-nyl Task 3: bounded cross-source lyric fallback. The readiness guard treats a
 	// track with no lrcUrl and no lrc as "complete with no lyrics" and never re-resolves it, so a

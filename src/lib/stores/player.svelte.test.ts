@@ -112,7 +112,7 @@ import { resolveCoverForTrack } from '$lib/services/cover-backfill';
 import { removeCoverBoth } from '$lib/stores/cover-version.svelte';
 import { logAction } from '$lib/stores/actionLog.svelte';
 import {
-	readResolveCache,
+	registerServedResolve,
 	__resetResolveCacheClient
 } from '$lib/services/resolve-cache-client';
 
@@ -5833,18 +5833,15 @@ describe('player resilience — cache bust (31-D-09/31-D-11)', () => {
 
 	const posts = () => mockApiFetch.mock.calls.filter(([, init]) => init?.method === 'POST');
 
-	/** Prime the client's served-url registry exactly the way a real cache hit does. */
+	/**
+	 * Prime the client's served-url registry exactly the way a real cache hit does.
+	 *
+	 * 32-D-10: a READ no longer registers anything — the entry carries a permanent song_mid, not a
+	 * url, so catalog registers the url it resolves OUT of that mid via registerServedResolve. This
+	 * helper now calls that same seam, which is precisely what the production hit path does.
+	 */
 	async function serveFromCache(url: string) {
-		mockApiFetch.mockResolvedValueOnce(
-			new Response(
-				JSON.stringify({
-					hit: true,
-					entry: { source: 'kuwo', songid: 'k1', url, avail: { kuwo: 'ok' } }
-				}),
-				{ status: 200 }
-			)
-		);
-		await readResolveCache('Jay', 'Blue');
+		registerServedResolve(url, 'Jay', 'Blue');
 	}
 
 	function armErroredTrack(src: string) {
