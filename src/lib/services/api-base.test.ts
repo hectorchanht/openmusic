@@ -37,6 +37,23 @@ describe('apiUrl — VITE_API_BASE branch', () => {
 		vi.stubEnv('VITE_API_BASE', 'https://base.example');
 		expect(apiUrl('/api/x')).toBe('https://base.example/api/x');
 	});
+
+	// 32-D-13: the third branch. A direct upstream call (32-D-12 routes the hot qq DETAIL call
+	// straight at tang, skipping the proxy hop) passes an ALREADY-ABSOLUTE url. On web this was
+	// harmless — BASE is '' so the concat was a no-op — but on the NATIVE build BASE is set, and
+	// 'https://base.example' + 'https://tang…' yields 'https://base.examplehttps://tang…', where the
+	// authority parses as `base.examplehttps:` with `//tang…` as its port: not a parseable URL, so
+	// fetch throws a hard TypeError. The guard lives in apiUrl rather than at the qq call site so
+	// EVERY present and future absolute-URL caller is covered by one check (root-cause placement).
+	it('returns an ABSOLUTE url untouched even when VITE_API_BASE is set (32-D-13, the native break)', () => {
+		vi.stubEnv('VITE_API_BASE', 'https://base.example');
+		const direct = 'https://tang.api.s01s.cn/music_open_api.php?type=json&mid=003aAYrm3GE0Ac';
+		expect(apiUrl(direct)).toBe(direct);
+		// http:// and a capitalized scheme are the same case — the guard must not be https-only or
+		// case-sensitive, or a caller hits the concat path and the same TypeError comes back.
+		expect(apiUrl('http://tang.api.s01s.cn/x')).toBe('http://tang.api.s01s.cn/x');
+		expect(apiUrl('HTTPS://tang.api.s01s.cn/x')).toBe('HTTPS://tang.api.s01s.cn/x');
+	});
 });
 
 describe('apiFetch — single fetch funnel through apiUrl', () => {

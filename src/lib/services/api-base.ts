@@ -10,6 +10,16 @@
 //    === 'https://openmusic.lol/api/x'. The APK's WebView (origin https://localhost)
 //    has NO server of its own, so without this prefix every /api/* call (and the Netease
 //    <audio>.src / lrc URL — Pitfall 3) would resolve to https://localhost/api/... → 404.
+//  - An ALREADY-ABSOLUTE url (http:// or https://) is returned UNTOUCHED on both builds (32-D-13).
+//    32-D-12 sends the hot qq DETAIL call direct to the upstream instead of through our proxy, and
+//    it is the first caller to hand apiUrl a full url. On web that was already harmless (BASE = ''
+//    makes the concat a no-op), but on NATIVE, BASE + 'https://tang…' produces
+//    'https://openmusic.lolhttps://tang…' — the authority parses as `openmusic.lolhttps:` with
+//    `//tang…` as its port, which is not a parseable URL, so fetch throws a hard TypeError. The
+//    guard sits HERE and not at the call site so every present and future absolute-URL caller is
+//    covered by one check. Such callers still go through apiFetch, so the governor below (dedupe,
+//    MAX_CONCURRENT_REQUESTS, timeout, circuit breaker) applies to a direct call exactly as it does
+//    to an /api/* one — going direct loses none of the api-fetch-flood-freeze protections (32-D-13).
 //  - BASE is read LAZILY inside apiUrl on every call (not captured at module load) so a
 //    test's vi.stubEnv('VITE_API_BASE', ...) flips behavior across both branches without a
 //    rebuild. import.meta.env.VITE_API_BASE is a build-time-inlined string on the real
@@ -22,8 +32,14 @@
  *
  * Returns `path` unchanged when `VITE_API_BASE` is unset/empty (web: same-origin relative),
  * and `BASE + path` when it is set (native: absolute cross-origin to the deployed proxy).
+ * An already-absolute `http(s)://` url is returned unchanged on BOTH builds (32-D-13).
  */
 export function apiUrl(path: string): string {
+	// 32-D-13: an absolute url is already fully resolved — never prefix it. Without this the NATIVE
+	// build (VITE_API_BASE set) concatenates into 'https://openmusic.lolhttps://tang…', which is not
+	// a parseable URL and throws a TypeError at fetch. The direct qq detail call (32-D-12) is the
+	// first caller to pass one; every /api/* caller still takes the BASE + path branch below.
+	if (/^https?:\/\//i.test(path)) return path;
 	const BASE = import.meta.env.VITE_API_BASE ?? '';
 	return BASE + path;
 }
