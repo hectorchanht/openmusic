@@ -267,3 +267,19 @@ Plans:
 - [x] 31-04-PLAN.md — client cache-first read + dead-URL bust report, advisory and never-throwing (D-08/09/11) [wave 3]
 - [x] 31-05-PLAN.md — pre-warm on top search result and menu open, via one testable seam (D-03) [wave 1]
 - [x] 31-06-PLAN.md — phase gate + human verification of the real cache cycle and measured latency [wave 4]
+
+### Phase 32: QQ-lossless-first resolve — rebuild the fast path around the permanent `song_mid`
+
+**Goal:** Tap→audio in under a second AND lossless by default, with the next track advancing seamlessly. The resolve stops being a proxied, keyword-threaded, URL-caching round trip and becomes one direct CORS fetch keyed on a permanent id.
+**Requirements**: derived from `.planning/notes/qq-lossless-first-resolve.md` (measurements + Findings 1-5)
+**Depends on:** Phase 31
+
+Scope (raw, pre-planning):
+- **Lossless by default.** `defaults.ts:82` `defaultQuality: '128'` selects `song_play_url_standard` = a measured **98kbps** — below the 128–160k band D-03 claims. Make the streaming default reach the `song_play_url_sq` (933kbps FLAC) rung that `downloadQuality: 'lossless'` already proves works. Requires an `http:`→`https:` upgrade on the returned URL (host serves https fine: `206`, `audio/x-flac`, 0.31s to first bytes; raw `http:` is mixed-content-blocked on our origin).
+- **Drop the proxy hop for the CORS-open sources.** `tang.api.s01s.cn` and `oiapi.net/api/Kuwo` both answer `access-control-allow-origin: *` and need no edge-injected secret. Measured cost of the hop: `/api/qq/detail` 3.9–4.7s vs 2.0–3.8s direct. `sources/qq.ts:6` documents the same-origin proxy as a deliberate divergence from the monolith — revisit that decision for these two sources only (JOOX keeps its proxy; `JOOX_TOKEN` must stay edge-side).
+- **Resolve on `mid` alone.** Measured: `msg` is IGNORED by the detail endpoint — `mid` alone returns the full ladder (verified with a deliberately wrong `msg`). Strip the `qqSearchKey`/`keyword` threading from `sources/qq.ts` and the detail URL. QQ resolve becomes exactly one call.
+- **Cache the permanent id, not the expiring URL.** `song_mid` never expires; the signed audio URL does. Replace/augment the Phase-31 `matchKey → url` entry (`proxy/resolve-cache.ts` + `resolve-edge.ts`, kuwo-only by construction) with a `matchKey → song_mid` entry that can be cached indefinitely and needs no TTL or bust machinery. Note `song_mid` already arrives on every QQ **search** row — for QQ-sourced results the mid is in hand before the user clicks, so click→play is one fetch with zero lookup.
+- **Cross-source stubs.** A kuwo/netease/JOOX search hit carries no QQ mid, so lossless for it costs a QQ search first (2 calls). The `matchKey → song_mid` cache above is what collapses that back to 1 on the second listener. Decide what the FIRST listener gets: wait for the pair, or start on the fast lossy URL and hot-swap.
+- **Seamless next song under FLAC weight.** 933kbps ≈ 7MB/min. The existing prefetch/prebuffer (`prefetchNext`, the bounded blob pre-buffer, `prebufferedUid`) was tuned against ~98kbps m4a. Re-tune, or gate the prebuffer by tier/connection, so lossless does not starve the ~6-connection pool and re-trigger the fetch-flood class of freeze the `apiFetch` governor was built for.
+- **Keep the ladder.** tang is one unmaintained free API (upstream's own latest commit is them fixing a peer provider that died). The existing kuwo/netease cross-source fallback must still catch a tang outage, degrading quality rather than failing playback. A second lossless provider is tracked separately as Q1 in `.planning/research/questions.md`.
+- **Do NOT re-architect the post-resolve tail.** Measured and cleared: `player.svelte.ts:2892-3033` already sets `audio.src` + `play()` immediately after the resolve, with only synchronous localStorage/MediaSession work in between; covers, lyrics, prefetch and `ensureAhead` all run after playback starts. The spinner is the resolve, nothing else.
