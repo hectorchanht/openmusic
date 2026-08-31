@@ -200,3 +200,10 @@ untouched and still asserted.
 ## Known Stubs
 
 None.
+
+## Self-Check: PASSED
+
+All five claimed files exist on disk; all seven claimed commits (ce5ac1b, 73280fb, 8b5ccdc, 6f89a3e,
+f1d2e9c, d824446, 202685d) resolve in `git log`. Spot greps confirmed `registerServedResolve` is
+exported, `RESOLVE_MID_TTL_S = 31_536_000` is present, and `jsonResult`'s `'Cache-Control': 'no-store'`
+is still there exactly once.
