@@ -84,6 +84,7 @@ const id: Dict = {
 	"settings.themeLight": "Terang",
 	"settings.playbackMotion": "Pemutaran & gerakan",
 	"settings.autoExpand": "Perluas otomatis yang sedang diputar saat diputar",
+	"settings.showQualityTag": "Tampilkan tag kualitas di sedang diputar",
 	"settings.reduceMotion": "Kurangi gerakan",
 	"settings.shareIncludeTitle": "Sertakan judul saat berbagi",
 	"settings.data": "Data",
@@ -381,6 +382,7 @@ const id: Dict = {
 	"settings.showRandomizeDesc": "Mengaktifkan atau menonaktifkan tombol Acak di Beranda yang memutar campuran lagu acak yang baru; matikan jika tidak pernah Anda gunakan.",
 	// playback settings helper text (quick-260630-fce)
 	"settings.autoExpandDesc": "Saat aktif, layar pemutaran membesar ke layar penuh setiap kali Anda memulai lagu; matikan agar pemutar mini tetap di bawah dan Anda tetap di layar saat ini.",
+	"settings.showQualityTagDesc": "Saat aktif, layar sedang diputar menampilkan kualitas audio trek saat ini (misalnya FLAC atau 320); disembunyikan bila sumber tidak melaporkannya.",
 	// data settings helper text (quick-260630-fce)
 	"settings.clearPicksDesc": "Menghapus pilihan teratas dan rak pustaka Beranda yang di-cache agar dibuat ulang berikutnya; gunakan jika rekomendasi Anda terasa basi.",
 	"settings.clearNameCacheDesc": "Menghapus terjemahan nama artis dan judul yang tersimpan agar diambil lagi; gunakan setelah mengubah pengaturan terjemahan atau jika nama terjemahan tampak salah.",

@@ -84,6 +84,7 @@ const pt: Dict = {
 	"settings.themeLight": "Claro",
 	"settings.playbackMotion": "Reprodução e movimento",
 	"settings.autoExpand": "Expandir automaticamente reproduzindo agora em jogo",
+	"settings.showQualityTag": "Mostrar etiqueta de qualidade em reprodução",
 	"settings.reduceMotion": "Reduzir o movimento",
 	"settings.shareIncludeTitle": "Incluir o título ao compartilhar",
 	"settings.data": "Dados",
@@ -381,6 +382,7 @@ const pt: Dict = {
 	"settings.showRandomizeDesc": "Ativa ou desativa o botão Aleatório na Início que toca uma nova mistura aleatória de faixas; desative se você nunca o usa.",
 	// playback settings helper text (quick-260630-fce)
 	"settings.autoExpandDesc": "Quando ativado, a tela de reprodução se expande para tela cheia sempre que você inicia uma faixa; desative para manter o miniplayer embaixo e permanecer na tela atual.",
+	"settings.showQualityTagDesc": "Quando ativado, o ecrã de reprodução mostra a qualidade de áudio da faixa atual (por exemplo FLAC ou 320); fica oculta se a fonte não a indicar.",
 	// data settings helper text (quick-260630-fce)
 	"settings.clearPicksDesc": "Remove as principais escolhas e as prateleiras da biblioteca da Início em cache para que sejam recriadas na próxima vez; use se suas recomendações parecerem desatualizadas.",
 	"settings.clearNameCacheDesc": "Limpa as traduções de nomes de artistas e títulos armazenadas para que sejam buscadas de novo; use após alterar as configurações de tradução ou se um nome traduzido parecer errado.",

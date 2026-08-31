@@ -640,6 +640,12 @@
 	// openArtist navigation, parameterised by the per-name string (T-pzs-04: encodeURIComponent the
 	// name exactly as before — the /artist/[name] route decodeURIComponent's the param).
 	const artistNames = $derived(splitArtists(player.current?.artist ?? ''));
+	// quick-260831-k5y: the resolved track's quality tag (FLAC / 320 / …), shown under the
+	// title/artist when settings.showQualityTag is on. `qualityLabel` is the source's own
+	// wording and wins; `quality` is the raw tier. Null for a stub that has not resolved yet
+	// AND for a source that reports no tier — both render nothing (never an empty pill).
+	// Same read order as TrackMenu.svelte:429 / VersionPicker.svelte:58.
+	const qualityTag = $derived(player.current?.qualityLabel || player.current?.quality || null);
 	function openArtistName(name: string) {
 		if (!name) return;
 		player.collapse();
@@ -1333,6 +1339,13 @@
 			     link renders with no separator — visually unchanged from before. -->
 			<div class="artist" use:marquee in:fade={{ duration: xfadeMs }} out:fade={{ duration: xfadeMs }}><span class="marquee-inner">{#each artistNames as name, i (name + i)}{#if i > 0}<span class="artist-sep" aria-hidden="true"> · </span>{/if}<button class="artist-link" onclick={() => openArtistName(name)}>{names.dnArtist(name)}</button>{/each}</span></div>
 		{/key}
+		<!-- quick-260831-k5y: opt-in quality tag. OUTSIDE the {#key} block on purpose — the value
+		     lands asynchronously after ensureTrackDetails, so it repaints in place rather than
+		     remounting with the title/artist crossfade. Renders nothing at all when the track has
+		     no tag, so an unresolved stub leaves no empty box. -->
+		{#if settings.showQualityTag && qualityTag}
+			<div class="quality-tag">{qualityTag}</div>
+		{/if}
 	</div>
 
 	{#if player.error}
@@ -1675,6 +1688,9 @@
 	   pointer the old single .artist button had; the inert separator is non-interactive. */
 	.artist-link { background: none; border: none; padding: 0; color: inherit; font: inherit; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
 	.artist-sep { color: var(--color-text-muted); text-decoration: none; cursor: default; }
+	/* quick-260831-k5y: small muted pill under the artist row. Sized off the NP artist scale so
+	   it tracks the appearance settings, and always smaller than the artist line it sits below. */
+	.quality-tag { display: inline-block; margin-top: 4px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--color-border); color: var(--color-text-muted); font-size: calc(0.7rem * var(--fs-np-artist, 1)); font-weight: 600; letter-spacing: 0.02em; line-height: 1.5; white-space: nowrap; }
 	/* Marquee lives globally in app.css (transform-based .marquee-inner). The .title/.artist
 	   clips above + the use:marquee action + inner .marquee-inner span in the markup are the
 	   only per-file pieces — the global rule animates them. (gmy unified the drift.) */

@@ -176,6 +176,9 @@ class Settings {
 	 *  the `data-theme` attribute on <html>. */
 	theme = $state<Theme>(GENERAL_DEFAULTS.theme);
 	autoExpandOnPlay = $state<boolean>(PLAYBACK_DEFAULTS.autoExpandOnPlay);
+	/** quick-260831-k5y: render the resolved track's quality tag on the Now-Playing page.
+	 *  Off by default (PLAYBACK_DEFAULTS.showQualityTag). */
+	showQualityTag = $state<boolean>(PLAYBACK_DEFAULTS.showQualityTag);
 
 	// --- home layout (quick-260606-w87) ---------------------------------------------
 	// Every default here reproduces TODAY's home exactly, so a returning user with a v1
@@ -295,6 +298,8 @@ class Settings {
 				this.theme = v.theme === 'light' || v.theme === 'dark' ? v.theme : GENERAL_DEFAULTS.theme;
 				this.autoExpandOnPlay =
 					typeof v.autoExpandOnPlay === 'boolean' ? v.autoExpandOnPlay : PLAYBACK_DEFAULTS.autoExpandOnPlay;
+				this.showQualityTag =
+					typeof v.showQualityTag === 'boolean' ? v.showQualityTag : PLAYBACK_DEFAULTS.showQualityTag;
 				// --- home layout (w87) — every default reproduces today's home -----------
 				// Arrays use an Array.isArray guard → fall back to the today-equivalent
 				// default (full order / nothing hidden / full tag+country pool). The pure
@@ -393,6 +398,7 @@ class Settings {
 					shareIncludeTitle: this.shareIncludeTitle,
 					theme: this.theme,
 					autoExpandOnPlay: this.autoExpandOnPlay,
+					showQualityTag: this.showQualityTag,
 					// --- home layout (w87) ---
 					homeSectionOrder: this.homeSectionOrder,
 					homeHidden: this.homeHidden,
@@ -489,6 +495,7 @@ class Settings {
 		this.downloadQuality = d.downloadQuality;
 		this.defaultSource = d.defaultSource;
 		this.autoExpandOnPlay = d.autoExpandOnPlay;
+		this.showQualityTag = d.showQualityTag;
 		this.enabledSources = { ...d.enabledSources };
 		this.upnextPerContext = { ...DEFAULTS.upnext.perContext };
 		this.upnextMode = DEFAULTS.upnext.mode;

@@ -84,6 +84,7 @@ const vi: Dict = {
 	"settings.themeLight": "Sáng",
 	"settings.playbackMotion": "Phát lại và chuyển động",
 	"settings.autoExpand": "Tự động mở rộng khi đang phát khi đang chơi",
+	"settings.showQualityTag": "Hiển thị thẻ chất lượng ở màn hình đang phát",
 	"settings.reduceMotion": "Giảm chuyển động",
 	"settings.shareIncludeTitle": "Kèm tiêu đề khi chia sẻ",
 	"settings.data": "dữ liệu",
@@ -381,6 +382,7 @@ const vi: Dict = {
 	"settings.showRandomizeDesc": "Bật/tắt nút Ngẫu nhiên trên Trang chủ để phát một bản phối ngẫu nhiên mới các bài hát; tắt nếu bạn không bao giờ dùng.",
 	// playback settings helper text (quick-260630-fce)
 	"settings.autoExpandDesc": "Khi bật, màn hình đang phát sẽ mở toàn màn hình mỗi khi bạn bắt đầu một bài hát; tắt để giữ trình phát mini ở dưới và ở lại màn hình hiện tại.",
+	"settings.showQualityTagDesc": "Khi bật, màn hình đang phát sẽ hiển thị chất lượng âm thanh của bản nhạc hiện tại (ví dụ FLAC hoặc 320); sẽ ẩn nếu nguồn không cung cấp.",
 	// data settings helper text (quick-260630-fce)
 	"settings.clearPicksDesc": "Xóa các lựa chọn hàng đầu và các kệ thư viện Trang chủ đã lưu đệm để chúng được tạo mới lần sau; dùng khi gợi ý của bạn có vẻ cũ.",
 	"settings.clearNameCacheDesc": "Xóa các bản dịch tên nghệ sĩ và tiêu đề đã lưu để tải lại; dùng sau khi đổi cài đặt dịch hoặc khi một tên đã dịch trông sai.",

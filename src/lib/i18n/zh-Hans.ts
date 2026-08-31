@@ -93,6 +93,7 @@ const zhHans: Dict = {
 	"settings.themeLight": "浅色",
 	"settings.playbackMotion": "播放与动效",
 	"settings.autoExpand": "播放时自动展开正在播放",
+	"settings.showQualityTag": "在正在播放页显示音质标签",
 	"settings.reduceMotion": "减少动效",
 	"settings.shareIncludeTitle": "分享时附上标题",
 	"settings.data": "数据",
@@ -413,6 +414,7 @@ const zhHans: Dict = {
 	"settings.showRandomizeDesc": "切换首页上的“随机”按钮，按下可播放一份全新的随机混合歌曲；若从不使用可关闭此项。",
 	// playback settings helper text (quick-260630-fce)
 	"settings.autoExpandDesc": "开启时，每次播放歌曲都会将正在播放界面展开为全屏；关闭则保留底部的迷你播放器，并停留在当前界面。",
+	"settings.showQualityTagDesc": "开启后，正在播放页会显示当前歌曲的音质（例如 FLAC 或 320）；音源未提供时则不显示。",
 	// data settings helper text (quick-260630-fce)
 	"settings.clearPicksDesc": "清除缓存的精选推荐与首页音乐库栏目，下次将重新生成；若觉得推荐内容过时可使用此项。",
 	"settings.clearNameCacheDesc": "清除已存储的歌手与标题名称翻译，使其重新获取；更改翻译设置后、或某个翻译名称有误时可使用。",

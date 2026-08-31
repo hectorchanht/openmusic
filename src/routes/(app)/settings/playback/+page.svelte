@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
-	import { ChevronLeft, Music, Radio, Zap, Maximize2, Download, Sliders, ListMusic, SquareActivity } from '@lucide/svelte';
+	import { ChevronLeft, Music, Radio, Zap, Maximize2, BadgeCheck, Download, Sliders, ListMusic, SquareActivity } from '@lucide/svelte';
 	import { settings, type DefaultQuality, type DefaultSource } from '$lib/stores/settings.svelte';
 	import type { UpnextMode, QueueContext } from '$lib/config/defaults';
 	import { SOURCES } from '$lib/sources/registry';
@@ -31,6 +31,8 @@
 	function setDownloadQuality(v: DefaultQuality) { settings.downloadQuality = v; settings.save(); }
 	function setSource(v: DefaultSource) { settings.defaultSource = v; settings.save(); }
 	function toggleExpand() { settings.autoExpandOnPlay = !settings.autoExpandOnPlay; settings.save(); }
+	// quick-260831-k5y: opt-in quality tag on the Now-Playing page.
+	function toggleQualityTag() { settings.showQualityTag = !settings.showQualityTag; settings.save(); }
 	// ii6: per-source enable/disable. Precedence in getEnabledAdapters: explicit prefs >
 	// settings.enabledSources > adapter.enabledByDefault. Helper resolves the effective state.
 	function sourceEnabled(id: SourceId): boolean {
@@ -109,6 +111,11 @@
 		<span class="sw" class:on={settings.autoExpandOnPlay}></span>
 	</button>
 	<p class="muted">{t('settings.autoExpandDesc')}</p>
+	<button class="row-toggle" onclick={toggleQualityTag}>
+		<span><BadgeCheck size={16} /> {t('settings.showQualityTag')}</span>
+		<span class="sw" class:on={settings.showQualityTag}></span>
+	</button>
+	<p class="muted">{t('settings.showQualityTagDesc')}</p>
 </section>
 
 <section>

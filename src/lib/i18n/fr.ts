@@ -84,6 +84,7 @@ const fr: Dict = {
 	"settings.themeLight": "Clair",
 	"settings.playbackMotion": "Lecture et mouvement",
 	"settings.autoExpand": "Développer automatiquement - Lecture en cours",
+	"settings.showQualityTag": "Afficher l'étiquette de qualité sur la lecture en cours",
 	"settings.reduceMotion": "Réduire les mouvements",
 	"settings.shareIncludeTitle": "Inclure le titre lors du partage",
 	"settings.data": "Données",
@@ -381,6 +382,7 @@ const fr: Dict = {
 	"settings.showRandomizeDesc": "Active ou désactive le bouton Aléatoire de l'accueil qui lit un nouveau mix aléatoire de morceaux ; désactivez-le si vous ne l'utilisez jamais.",
 	// playback settings helper text (quick-260630-fce)
 	"settings.autoExpandDesc": "Lorsqu'il est activé, l'écran de lecture passe en plein écran à chaque démarrage d'un morceau ; désactivez-le pour garder le mini-lecteur en bas et rester sur votre écran actuel.",
+	"settings.showQualityTagDesc": "Lorsque cette option est activée, l'écran de lecture affiche la qualité audio du morceau en cours (par exemple FLAC ou 320) ; elle est masquée si la source n'en indique aucune.",
 	// data settings helper text (quick-260630-fce)
 	"settings.clearPicksDesc": "Supprime les meilleures sélections et les étagères de bibliothèque de l'accueil en cache afin qu'elles se régénèrent la prochaine fois ; utilisez-le si vos recommandations semblent dépassées.",
 	"settings.clearNameCacheDesc": "Efface les traductions de noms d'artistes et de titres enregistrées afin qu'elles soient récupérées à nouveau ; utilisez-le après avoir modifié les réglages de traduction ou si un nom traduit semble incorrect.",

@@ -84,6 +84,7 @@ const ar: Dict = {
 	"settings.themeLight": "فاتح",
 	"settings.playbackMotion": "التشغيل والحركة",
 	"settings.autoExpand": "التوسيع التلقائي للتشغيل الآن أثناء اللعب",
+	"settings.showQualityTag": "إظهار وسم الجودة في شاشة التشغيل",
 	"settings.reduceMotion": "تقليل الحركة",
 	"settings.shareIncludeTitle": "تضمين العنوان عند المشاركة",
 	"settings.data": "البيانات",
@@ -381,6 +382,7 @@ const ar: Dict = {
 	"settings.showRandomizeDesc": "يبدّل زر التشغيل العشوائي في الصفحة الرئيسية الذي يشغّل مزيجًا عشوائيًا جديدًا من المقاطع؛ أوقفه إذا كنت لا تستخدمه أبدًا.",
 	// playback settings helper text (quick-260630-fce)
 	"settings.autoExpandDesc": "عند التفعيل، تتوسّع شاشة التشغيل لملء الشاشة في كل مرة تبدأ فيها مقطعًا؛ أوقفه لإبقاء المشغّل المصغّر في الأسفل والبقاء على شاشتك الحالية.",
+	"settings.showQualityTagDesc": "عند التفعيل، تعرض شاشة التشغيل جودة الصوت للمقطع الحالي (مثل FLAC أو 320)؛ وتختفي إذا لم يوفّرها المصدر.",
 	// data settings helper text (quick-260630-fce)
 	"settings.clearPicksDesc": "يحذف أفضل الاختيارات وأرفف مكتبة الصفحة الرئيسية المخزّنة مؤقتًا لتُعاد توليدها في المرة القادمة؛ استخدمه إذا بدت توصياتك قديمة.",
 	"settings.clearNameCacheDesc": "يمسح ترجمات أسماء الفنانين والعناوين المخزّنة لإعادة جلبها؛ استخدمه بعد تغيير إعدادات الترجمة أو إذا بدا اسم مترجم خاطئًا.",

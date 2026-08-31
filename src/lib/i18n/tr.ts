@@ -84,6 +84,7 @@ const tr: Dict = {
 	"settings.themeLight": "Açık",
 	"settings.playbackMotion": "Oynatma ve hareket",
 	"settings.autoExpand": "Otomatik genişletme şimdi oynatılıyor",
+	"settings.showQualityTag": "Çalınanlar ekranında kalite etiketini göster",
 	"settings.reduceMotion": "Hareketi azalt",
 	"settings.shareIncludeTitle": "Paylaşırken başlığı ekle",
 	"settings.data": "Veri",
@@ -381,6 +382,7 @@ const tr: Dict = {
 	"settings.showRandomizeDesc": "Ana ekranda parçaların yeni rastgele karışımını çalan Karıştır düğmesini açıp kapatır; hiç kullanmıyorsanız kapatın.",
 	// playback settings helper text (quick-260630-fce)
 	"settings.autoExpandDesc": "Açıkken, her parça başlattığınızda çalan ekranı tam ekrana genişler; mini oynatıcıyı altta tutmak ve mevcut ekranınızda kalmak için kapatın.",
+	"settings.showQualityTagDesc": "Açıkken, çalınanlar ekranı geçerli parçanın ses kalitesini gösterir (örneğin FLAC veya 320); kaynak bildirmiyorsa gizlenir.",
 	// data settings helper text (quick-260630-fce)
 	"settings.clearPicksDesc": "Önbelleğe alınmış en iyi seçimleri ve Ana ekran kitaplık raflarını kaldırır, böylece bir sonraki sefer yeniden oluşturulur; önerileriniz bayatladıysa kullanın.",
 	"settings.clearNameCacheDesc": "Saklanan sanatçı ve başlık adı çevirilerini temizler, böylece yeniden getirilirler; çeviri ayarlarını değiştirdikten sonra veya çevrilen bir ad yanlış görünüyorsa kullanın.",

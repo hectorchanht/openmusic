@@ -84,6 +84,7 @@ const it: Dict = {
 	"settings.themeLight": "Chiaro",
 	"settings.playbackMotion": "Riproduzione e movimento",
 	"settings.autoExpand": "Espansione automatica ora in riproduzione durante il gioco",
+	"settings.showQualityTag": "Mostra l'etichetta di qualità in riproduzione",
 	"settings.reduceMotion": "Ridurre il movimento",
 	"settings.shareIncludeTitle": "Includi il titolo quando condividi",
 	"settings.data": "Dati",
@@ -381,6 +382,7 @@ const it: Dict = {
 	"settings.showRandomizeDesc": "Attiva o disattiva il pulsante Casuale sulla Home che riproduce un nuovo mix casuale di brani; disattivalo se non lo usi mai.",
 	// playback settings helper text (quick-260630-fce)
 	"settings.autoExpandDesc": "Quando è attivo, la schermata di riproduzione si espande a schermo intero a ogni avvio di un brano; disattivalo per tenere il mini player in basso e restare sulla schermata attuale.",
+	"settings.showQualityTagDesc": "Se attivo, la schermata di riproduzione mostra la qualità audio del brano corrente (per esempio FLAC o 320); viene nascosta se la fonte non la indica.",
 	// data settings helper text (quick-260630-fce)
 	"settings.clearPicksDesc": "Rimuove le scelte migliori e gli scaffali della libreria della Home in cache così da rigenerarli al prossimo avvio; usalo se i consigli sembrano datati.",
 	"settings.clearNameCacheDesc": "Cancella le traduzioni memorizzate dei nomi di artisti e titoli così da recuperarle di nuovo; usalo dopo aver cambiato le impostazioni di traduzione o se un nome tradotto sembra sbagliato.",

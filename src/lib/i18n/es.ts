@@ -84,6 +84,7 @@ const es: Dict = {
 	"settings.themeLight": "Claro",
 	"settings.playbackMotion": "Reproducción y movimiento",
 	"settings.autoExpand": "Expandir automáticamente ahora-reproduciendo en juego",
+	"settings.showQualityTag": "Mostrar la etiqueta de calidad en reproducción",
 	"settings.reduceMotion": "Reducir el movimiento",
 	"settings.shareIncludeTitle": "Incluir el título al compartir",
 	"settings.data": "Datos",
@@ -381,6 +382,7 @@ const es: Dict = {
 	"settings.showRandomizeDesc": "Activa o desactiva el botón Aleatorizar de Inicio que reproduce una mezcla aleatoria nueva de canciones; desactívalo si nunca lo usas.",
 	// playback settings helper text (quick-260630-fce)
 	"settings.autoExpandDesc": "Cuando está activado, la pantalla de reproducción se expande a pantalla completa cada vez que inicias una canción; desactívalo para mantener el reproductor mini abajo y permanecer en tu pantalla actual.",
+	"settings.showQualityTagDesc": "Cuando está activado, la pantalla de reproducción muestra la calidad de audio de la pista actual (por ejemplo FLAC o 320); se oculta si la fuente no la indica.",
 	// data settings helper text (quick-260630-fce)
 	"settings.clearPicksDesc": "Elimina las mejores selecciones y los estantes de biblioteca de Inicio en caché para que se regeneren la próxima vez; úsalo si tus recomendaciones parecen anticuadas.",
 	"settings.clearNameCacheDesc": "Borra las traducciones de nombres de artistas y títulos almacenadas para que se vuelvan a obtener; úsalo tras cambiar los ajustes de traducción o si un nombre traducido parece incorrecto.",

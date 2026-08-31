@@ -89,6 +89,10 @@ export const PLAYBACK_DEFAULTS = {
 	downloadQuality: 'lossless' as DefaultQuality, // favours quality over speed
 	defaultSource: 'auto' as DefaultSource,
 	autoExpandOnPlay: false,
+	/** quick-260831-k5y: show the resolved track's quality tag (FLAC / 320 / …) on the
+	 *  Now-Playing page. OFF by default — it is extra chrome, and the same value is already
+	 *  reachable from the song detail sheet (TrackMenu) for anyone who wants it occasionally. */
+	showQualityTag: false,
 	/** Per-source enable map. Empty = each adapter's own enabledByDefault wins. */
 	enabledSources: {} as Partial<Record<SourceId, boolean>>
 } as const;
