@@ -271,8 +271,19 @@ Plans:
 ### Phase 32: QQ-lossless-first resolve — rebuild the fast path around the permanent `song_mid`
 
 **Goal:** Tap→audio in under a second AND lossless by default, with the next track advancing seamlessly. The resolve stops being a proxied, keyword-threaded, URL-caching round trip and becomes one direct CORS fetch keyed on a permanent id.
-**Requirements**: derived from `.planning/notes/qq-lossless-first-resolve.md` (measurements + Findings 1-5)
+**Requirements**: D-01..D-19 incl. D-10a/D-10b (locked decisions in 32-CONTEXT.md — `phase_req_ids` is null, so the D-numbers are the traceability keys; derived from `.planning/notes/qq-lossless-first-resolve.md`)
 **Depends on:** Phase 31
+**Plans:** 8 plans
+
+Plans:
+- [ ] 32-01-PLAN.md — effectiveQuality() seam: 'auto' = lossless-on-wifi / 320 otherwise; default flip '128'→'auto'; kuwo/joox routed (D-02/D-03/D-04)
+- [ ] 32-02-PLAN.md — SOURCE_RANK qq↔netease swap (the latency lever, D-08) + apiUrl absolute-URL guard (D-13)
+- [ ] 32-03-PLAN.md — CHECKPOINT: real-device tang RTT measurement, wave 1 (D-10b — can restate the headline goal)
+- [ ] 32-04-PLAN.md — permanent-mid edge cache: url-less entry, VERSION '2', positive/negative TTL split, qq one-subrequest fill, catalog mid-hit adoption + skip-lookup (D-01/D-06/D-07/D-10/D-10a/D-11)
+- [ ] 32-05-PLAN.md — qq adapter rebuild: http fixture, https upgrade, accom demotion, honest tiers, mid-only DIRECT tang call with proxy fallback (D-05/D-09/D-12/D-13/D-14/D-18/D-19)
+- [ ] 32-06-PLAN.md — 24 MB prebuffer ceiling via exported pure predicate (D-15/D-17)
+- [ ] 32-07-PLAN.md — phase gate: full suite, D-16 diff audit, D-10 verified on workerd (never pnpm dev), APK rebuild
+- [ ] 32-08-PLAN.md — CHECKPOINT: Android device sweep + iOS FLAC / accom listening checks + freeze-class regression sweep
 
 Scope (raw, pre-planning):
 - **Lossless by default.** `defaults.ts:82` `defaultQuality: '128'` selects `song_play_url_standard` = a measured **98kbps** — below the 128–160k band D-03 claims. Make the streaming default reach the `song_play_url_sq` (933kbps FLAC) rung that `downloadQuality: 'lossless'` already proves works. Requires an `http:`→`https:` upgrade on the returned URL (host serves https fine: `206`, `audio/x-flac`, 0.31s to first bytes; raw `http:` is mixed-content-blocked on our origin).
