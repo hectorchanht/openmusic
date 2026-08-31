@@ -273,10 +273,10 @@ Plans:
 **Goal:** Tap→audio in under a second AND lossless by default, with the next track advancing seamlessly. The resolve stops being a proxied, keyword-threaded, URL-caching round trip and becomes one direct CORS fetch keyed on a permanent id.
 **Requirements**: D-01..D-19 incl. D-10a/D-10b (locked decisions in 32-CONTEXT.md — `phase_req_ids` is null, so the D-numbers are the traceability keys; derived from `.planning/notes/qq-lossless-first-resolve.md`)
 **Depends on:** Phase 31
-**Plans:** 8 plans
+**Plans:** 1/8 plans executed
 
 Plans:
-- [ ] 32-01-PLAN.md — effectiveQuality() seam: 'auto' = lossless-on-wifi / 320 otherwise; default flip '128'→'auto'; kuwo/joox routed (D-02/D-03/D-04)
+- [x] 32-01-PLAN.md — effectiveQuality() seam: 'auto' = lossless-on-wifi / 320 otherwise; default flip '128'→'auto'; kuwo/joox routed (D-02/D-03/D-04)
 - [ ] 32-02-PLAN.md — SOURCE_RANK qq↔netease swap (the latency lever, D-08) + apiUrl absolute-URL guard (D-13)
 - [ ] 32-03-PLAN.md — CHECKPOINT: real-device tang RTT measurement, wave 1 (D-10b — can restate the headline goal)
 - [ ] 32-04-PLAN.md — permanent-mid edge cache: url-less entry, VERSION '2', positive/negative TTL split, qq one-subrequest fill, catalog mid-hit adoption + skip-lookup (D-01/D-06/D-07/D-10/D-10a/D-11)

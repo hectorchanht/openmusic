@@ -4,13 +4,13 @@ milestone: v1.5
 milestone_name: YTMusic-Powered Up-Next
 status: executing
 stopped_at: Phase 32 planned — 8 plans, 4 waves
-last_updated: "2026-08-31T19:22:52.568Z"
-last_activity: 2026-08-09
+last_updated: "2026-08-31T19:38:33.358Z"
+last_activity: 2026-08-31
 progress:
   total_phases: 8
   completed_phases: 5
   total_plans: 50
-  completed_plans: 37
+  completed_plans: 38
   percent: 63
 ---
 
@@ -21,13 +21,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-10)
 
 **Core value:** A user on their phone can search a song, tap it, and have it play instantly with a smooth, native-app-like experience — and keep playing when the screen locks.
-**Current focus:** Phase 31 — faster-smoother-playback-cut-click-to-play-latency-and-stop
+**Current focus:** Phase 32 — QQ-lossless-first resolve
 
 ## Current Position
 
-Phase: 31 (faster-smoother-playback-cut-click-to-play-latency-and-stop) — EXECUTING
-Plan: 6 of 6
-Status: Executing Phase 31
+Phase: 32 (QQ-lossless-first resolve) — EXECUTING
+Plan: 2 of 8
+Status: Executing Phase 32
 
 ### 30-06 checkpoint status
 
@@ -49,7 +49,7 @@ Full observed evidence: `.planning/phases/30-carrier-free-share-links-type-artis
 ### Prior phase (Phase 27 — YouTube Music Source, v1.4) — COMPLETE + E2E-VERIFIED
 
 Phase 27 complete (27-01..04). E2E-verified against LIVE YouTube via the dev-server routes: /api/ytmusic/search 200 (rows+videoId), /api/ytmusic/lyrics 200 (1513c + attribution), /api/ytmusic/stream 206 audio/mp4 + Range (playback) and 200 full-file (download). pnpm check clean, 1320 tests green. E2E caught + fixed a prod-breaking bug (quick-270715 / commit 29c1c7d): stream route exported non-HTTP-verb functions, illegal in SvelteKit +server.ts → 500; helpers moved to $lib/proxy/ytmusic.ts.
-Last activity: 2026-08-09
+Last activity: 2026-08-31
 Remaining human UAT: real-device <audio> playback+seek + download-to-disk; deployed-Worker player+googlevideo same-IP egress + bot-challenge under load (T-27-03-OP). Account/library sync = separate legal-gated milestone (spike 008).
 
 ## Performance Metrics
@@ -121,6 +121,7 @@ Remaining human UAT: real-device <audio> playback+seek + download-to-disk; deplo
 | Phase 31 P05 | ~10 min | 2 tasks | 4 files |
 | Phase 31 P02 | 20 min | 3 tasks | 2 files |
 | Phase 31 P04 | ~25 min | 3 tasks | 6 files |
+| Phase 32 P01 | 13m | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -207,6 +208,9 @@ Recent decisions affecting current work:
 - [Phase ?]: 31-D-17: bg-error-skip keeps BOTH omissions (no notice, no failoverSkips increment) and now documents why — counting it would let an unattended locked device reach SYSTEMIC_SKIP_CAP and pause itself
 - [Phase ?]: 31-04: the resolve-cache bust self-gates in the service via a served-url registry — the player gains one unconditional line and no new provenance flag
 - [Phase ?]: 31-04: a source-bearing track adopts a cached url only on source+songid equality; a dry-source filter that would empty the walk degrades to the full order
+- [Phase 32]: 32-D-02: 'auto' quality resolves in ONE seam (effectiveQuality in sources/quality.ts); defaultQuality now ships as 'auto'
+- [Phase 32]: 32-D-03: no connection signal or a non-whitelisted navigator.connection.type resolves to '320' (fail closed); iOS Safari + desktop Chrome get '320' by design
+- [Phase 32]: 32-D-04: the '128' rung selects QQ song_play_url_standard at a measured 98 kbps, not the '128-160k band' the old D-03 comment claimed
 
 ### Pending Todos
 
@@ -377,7 +381,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-31T19:22:52.558Z
+Last session: 2026-08-31T19:38:25.801Z
 Stopped at: Phase 32 planned — 8 plans, 4 waves
 Resume: install `android/app/build/outputs/apk/debug/app-debug.apk` on an Android device, open `/song/Olivia-Dean/Man-I-Need` (proven to return a real 30,840 B JPEG from production), confirm the cover renders rather than a broken image, then kill the network and confirm the gradient fallback appears. That single check closes 30-06 and Phase 30. Do NOT run `/gsd:verify-work` for Phase 30 until it is approved — OG-PAGE-01 terminates in it. Optional, non-blocking leftovers: iMessage/Slack cards, and real 24h cache TTL/eviction.
 
