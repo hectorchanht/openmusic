@@ -2941,8 +2941,13 @@ describe('player.queueContext — context-threaded setQueue/playStub (Phase 17 Q
 	});
 
 	it('regenerate keeps the exact current seed anchored when dedupeBest prefers another source', async () => {
-		const seed = mk('qq', 'SEED-Q', 'Adele', 'Hello');
-		const preferredVariant = mk('netease', 'SEED-N', 'Adele', 'Hello');
+		// 32-D-08 DECISION CHANGE: the two fixture sources are SWAPPED (was seed=qq, variant=netease).
+		// The rank swap made qq the tie winner, so the old fixture had the seed BE the dedupe winner —
+		// the case would still have passed, but vacuously, proving nothing about anchoring. Keeping the
+		// test's actual intent ("the seed survives even when dedupeBest prefers the OTHER source")
+		// requires the seed to be the LOSING source under the new rank, which is now netease.
+		const seed = mk('netease', 'SEED-N', 'Adele', 'Hello');
+		const preferredVariant = mk('qq', 'SEED-Q', 'Adele', 'Hello');
 		const freshAuto = mk('joox', 'NEW', 'D', 'FreshGenerated');
 		player.current = seed;
 		player.queue = [seed];
@@ -3221,13 +3226,17 @@ describe('player.setListQueue — current-anchored queue install (album-and-next
 		// drop the tapped variant in favor of a higher-ranked same-song source, orphaning `current`
 		// (indexOf === -1) so next()/ensureAhead went silently dead at track end. The call sites now
 		// use `play(t); setListQueue(list, ctx)`, which must keep the EXACT tapped object a member.
-		const tappedQQ = mk('qq', 'Q1', 'Adele', 'Hello');
-		const variantNetease = mk('netease', 'N1', 'Adele', 'Hello'); // outranks qq → dedupe winner slot
+		// 32-D-08 DECISION CHANGE: the tapped/variant sources are SWAPPED (was tapped=qq,
+		// variant=netease). Which source is "lower-ranked" INVERTED with the rank swap — qq now
+		// outranks netease. The regression this case guards is about the TAPPED row being the dedupe
+		// LOSER, so the tapped fixture has to move to whichever source now loses, i.e. netease.
+		const tappedNetease = mk('netease', 'N1', 'Adele', 'Hello');
+		const variantQQ = mk('qq', 'Q1', 'Adele', 'Hello'); // outranks netease (32-D-08) → dedupe winner slot
 		const after = mk('kuwo', 'K1', 'Adele', 'Skyfall');
-		player.current = tappedQQ; // play(t) sets current synchronously before setListQueue runs
-		player.setListQueue([variantNetease, tappedQQ, after], 'search');
-		expect(player.queue.includes(tappedQQ)).toBe(true);
-		const i = player.queue.findIndex((t) => t.uid === tappedQQ.uid);
+		player.current = tappedNetease; // play(t) sets current synchronously before setListQueue runs
+		player.setListQueue([variantQQ, tappedNetease, after], 'search');
+		expect(player.queue.includes(tappedNetease)).toBe(true);
+		const i = player.queue.findIndex((t) => t.uid === tappedNetease.uid);
 		expect(i).toBeGreaterThanOrEqual(0);
 		expect(player.queue[i + 1]?.uid).toBe(after.uid); // next() can advance
 		expect(player.queueContext).toBe('search');

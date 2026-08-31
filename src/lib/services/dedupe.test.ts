@@ -175,3 +175,41 @@ describe('variantTag — title-parens version-tag parser (Gap 5 label)', () => {
 		expect(variantTag('')).toBeNull();
 	});
 });
+
+// 32-D-08: the FIRST winner-SOURCE assertions this file has ever carried. Until Phase 32 the
+// tie-break rank was justified only in prose (dedupe.ts:8-25) and pinned by nothing, so the
+// netease-wins-every-search-row behavior was invisible to the suite. These cases pin the swap AND
+// the reason for it: at search time every stub is quality:null → qualityRank 0 → SOURCE_RANK is the
+// SOLE tie-break, and a qq survivor is the row that already carries `song_mid` in the search body,
+// which is what makes most FIRST plays lossless with no extra lookup (32-D-10b: this rank, not the
+// edge mid cache, is the latency lever).
+describe('dedupeBest — SOURCE_RANK tie-break (32-D-08)', () => {
+	it('qq beats netease on an equal-quality (both null) tie, in EITHER input order', () => {
+		const nStub = mk('netease', 'n1', 'Hello', 'Adele');
+		const qStub = mk('qq', 'q1', 'Hello', 'Adele', { songMid: '003aAYrm3GE0Ac' });
+
+		const forward = dedupeBest([nStub, qStub]);
+		expect(forward).toHaveLength(1);
+		expect(forward[0].source).toBe('qq');
+
+		// Reverse order — the win is rank-driven, not first-appearance-driven.
+		const reverse = dedupeBest([qStub, nStub]);
+		expect(reverse).toHaveLength(1);
+		expect(reverse[0].source).toBe('qq');
+	});
+
+	it('the surviving row carries the qq song_mid (the 32-D-10b premise, pinned)', () => {
+		const nStub = mk('netease', 'n1', 'Hello', 'Adele');
+		const qStub = mk('qq', 'q1', 'Hello', 'Adele', { songMid: '003aAYrm3GE0Ac' });
+		const winner = dedupeBest([nStub, qStub])[0];
+		expect(winner.songMid).toBe('003aAYrm3GE0Ac');
+		expect(winner.songid).toBe('q1');
+	});
+
+	it('an explicit preferred source still outranks the static rank (existing contract unchanged)', () => {
+		const nStub = mk('netease', 'n1', 'Hello', 'Adele');
+		const qStub = mk('qq', 'q1', 'Hello', 'Adele', { songMid: '003aAYrm3GE0Ac' });
+		expect(dedupeBest([nStub, qStub], 'netease')[0].source).toBe('netease');
+		expect(dedupeBest([qStub, nStub], 'netease')[0].source).toBe('netease');
+	});
+});

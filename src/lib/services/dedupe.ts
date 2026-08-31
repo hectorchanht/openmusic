@@ -22,7 +22,19 @@ import type { SourceId, Track } from '$lib/sources/types';
 // tie-break purposes — rank it at the bottom (-1) alongside jamendo/audius so a mainstream CN
 // version always wins a tie if normalization ever merges them. Required for this total
 // Record<SourceId,number> to stay exhaustive once 'ytmusic' joined the SourceId union (27-01).
-const SOURCE_RANK: Record<SourceId, number> = { netease: 4, qq: 3, kuwo: 2, joox: 1, fivesing: 0, jamendo: -1, audius: -1, ytmusic: -1 };
+//
+// 32-D-08: qq and netease SWAPPED (was `netease: 4, qq: 3`). A swap rather than a bump to 5, so the
+// range and every other rank's relative meaning above stay exactly as justified. netease winning
+// this tie is WHY a mid-less stub was the COMMON case rather than the rare one: at search time every
+// stub is `quality: null` → qualityRank 0, so this rank is the SOLE tie-break and it decided every
+// cross-source search row. A qq survivor already carries `song_mid` in the search body, so most
+// FIRST plays resolve lossless with no extra lookup at all — per 32-D-10b that, not the edge mid
+// cache, is the latency lever (a cached mid still costs a full upstream round trip; a mid already in
+// hand costs nothing). Accepted side effect, weighed and taken: where the two sources disagree, qq's
+// title/album metadata is what the user sees. Identity is unaffected — it stays uid-based
+// (`makeUid`), and this rank never decides identity, only which of two same-song rows survives.
+// Cross-ref: the roadmap's pending "netease upstream health-gate" item already suspected this rank-4.
+const SOURCE_RANK: Record<SourceId, number> = { netease: 3, qq: 4, kuwo: 2, joox: 1, fivesing: 0, jamendo: -1, audius: -1, ytmusic: -1 };
 
 /** Higher = better. Reads qualityLabel/quality strings (often null pre-resolve). */
 function qualityRank(t: Track): number {
