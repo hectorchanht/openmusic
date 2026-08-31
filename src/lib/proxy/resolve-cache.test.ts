@@ -1,13 +1,16 @@
-// Unit tests for the /api/resolve edge-cache primitives (phase 31, D-06/D-07/D-09).
+// Unit tests for the /api/resolve edge-cache primitives (phase 31 D-06/D-07/D-09, rebuilt around
+// the permanent qq `song_mid` in 32-D-10 / 32-D-10a).
 //
 // NOTE: `edgeCache()` returns null under vitest/`vite dev` by design, so REAL Cache API
-// semantics (PoP scoping, put throwing on Vary:*) are NOT provable here — they are deferred to
-// the manual verification in 31-VALIDATION.md. What IS provable, and what this file proves, is
-// the LOGIC against an in-memory shim.
+// semantics (PoP scoping, put throwing on Vary:*, whether workerd HONOURS a 1-year max-age) are
+// NOT provable here — they are deferred to the manual verification in 32-VALIDATION.md (gate #3).
+// What IS provable, and what this file proves, is the LOGIC against an in-memory shim: which
+// Cache-Control string each payload shape gets written with.
 import { describe, it, expect, vi } from 'vitest';
 import {
 	RESOLVE_CACHE_VERSION,
 	RESOLVE_TTL_S,
+	RESOLVE_MID_TTL_S,
 	MAX_TERM_CHARS,
 	resolveCacheKey,
 	capTerm,
@@ -36,13 +39,13 @@ function stubCache() {
 	return { store, putKeys, cacheStub: cacheStub satisfies EdgeCache };
 }
 
+/** 32-D-10: the payload is a PERMANENT qq song_mid, never an expiring signed audio URL. */
 const HIT: ResolveEntry = {
-	source: 'kuwo',
-	songid: '123',
-	url: 'https://cdn.example/a.mp3',
-	avail: { kuwo: 'ok' }
+	source: 'qq',
+	songid: '003OUlho2gk0Ny',
+	avail: { qq: 'ok' }
 };
-const DRY: ResolveEntry = { source: null, songid: null, url: null, avail: { kuwo: 'dry' } };
+const DRY: ResolveEntry = { source: null, songid: null, avail: { qq: 'dry' } };
 
 const ORIGIN = 'https://openmusic.lol';
 
@@ -59,10 +62,15 @@ describe('resolveCacheKey — normalized, versioned, own-origin', () => {
 		expect(b.url).not.toBe(a.url);
 	});
 
+	// 32-D-10 / VALIDATION gate #4: the entry SHAPE changed (url dropped, songid re-meaning), and
+	// `cache.delete` is PoP-local, so a stored old-shape entry can NEVER be purged globally. The
+	// version in the key is the entire migration — if this assertion is loosened, real users get
+	// served v1 url-less-reading garbage with no remediation path.
 	it('carries the entry-shape version and stays on the own origin', () => {
 		const key = resolveCacheKey(ORIGIN, 'Nirvana', 'Lithium');
 		expect(key.url).toContain(`v=${RESOLVE_CACHE_VERSION}`);
-		expect(RESOLVE_CACHE_VERSION).toBe('1');
+		expect(RESOLVE_CACHE_VERSION).toBe('2');
+		expect(key.url).toContain('v=2');
 		expect(key.url.startsWith(`${ORIGIN}/api/resolve/_k?`)).toBe(true);
 	});
 });
@@ -124,6 +132,47 @@ describe('readResolveEntry — three-valued read', () => {
 	});
 });
 
+// 32-D-10a — THE highest-value assertions in this phase. Permanence is a property of the PAYLOAD,
+// not of the entry. A positive entry holds a song_mid, which genuinely never expires, so it gets a
+// 1-year immutable max-age. A NEGATIVE entry holds "qq has no version of this song", which qq
+// search reports FALSELY under load (Skill spike-findings-openmusic: 0 rows intermittently, no
+// throw) — byte-indistinguishable from a genuine miss. Making that permanent would pin the song to
+// a lossy source for every user in the PoP forever, the exact inverse of the phase goal. If a
+// future edit unifies these two TTLs, these tests are the thing that must stop it.
+describe('writeResolveEntry — 32-D-10a positive/negative TTL split (VALIDATION gate #5)', () => {
+	it('a POSITIVE entry (a song_mid) is written PERMANENT + immutable', async () => {
+		const { store, cacheStub } = stubCache();
+		const key = resolveCacheKey(ORIGIN, 'Nirvana', 'Lithium');
+		await writeResolveEntry(cacheStub, key, HIT);
+
+		expect(store.get(key.url)?.headers.get('cache-control')).toBe(
+			'public, max-age=31536000, immutable'
+		);
+		expect(RESOLVE_MID_TTL_S).toBe(31_536_000);
+	});
+
+	it('a NEGATIVE/DRY entry keeps the SHORT 900s TTL and is NOT immutable', async () => {
+		const { store, cacheStub } = stubCache();
+		const key = resolveCacheKey(ORIGIN, 'Nobody', 'Nothing');
+		await writeResolveEntry(cacheStub, key, DRY);
+
+		const cc = store.get(key.url)?.headers.get('cache-control');
+		expect(cc).toBe('public, max-age=900');
+		expect(RESOLVE_TTL_S).toBe(900);
+		expect(cc).not.toContain('immutable');
+	});
+
+	it('an entry with a source but NO songid is still treated as negative (the payload decides)', async () => {
+		// Defensive: the split reads `entry.songid`, not `entry.source` — a half-filled entry can
+		// never sneak into the permanent namespace.
+		const { store, cacheStub } = stubCache();
+		const key = resolveCacheKey(ORIGIN, 'Half', 'Filled');
+		await writeResolveEntry(cacheStub, key, { source: 'qq', songid: null, avail: { qq: 'dry' } });
+
+		expect(store.get(key.url)?.headers.get('cache-control')).toBe('public, max-age=900');
+	});
+});
+
 describe('writeResolveEntry — CORS-free, explicit header allow-list (T-31-03-04)', () => {
 	it('stores exactly content-type + Cache-Control — no Vary, no ACAO', async () => {
 		const { store, cacheStub } = stubCache();
@@ -135,7 +184,6 @@ describe('writeResolveEntry — CORS-free, explicit header allow-list (T-31-03-0
 		expect(stored?.headers.get('Vary')).toBeNull();
 		expect(stored?.headers.get('Access-Control-Allow-Origin')).toBeNull();
 		expect(stored?.headers.get('content-type')).toBe('application/json');
-		expect(stored?.headers.get('Cache-Control')).toBe(`public, max-age=${RESOLVE_TTL_S}`);
 		expect([...(stored?.headers.keys() ?? [])].sort()).toEqual(['cache-control', 'content-type']);
 	});
 
@@ -153,7 +201,10 @@ describe('writeResolveEntry — CORS-free, explicit header allow-list (T-31-03-0
 	});
 });
 
-describe('bustResolveEntry — delete-only (31-D-09)', () => {
+// KEPT by 32-D-10a, deliberately: a permanent POSITIVE entry can still be WRONG (a matchKey
+// collision serving another song's mid), and there is no client write path, so the bust is the
+// only repair mechanism the whole design has. D-11 requires repair to be possible.
+describe('bustResolveEntry — delete-only, KEPT under 32-D-10a (31-D-09)', () => {
 	it('deletes the entry a write created, and the next read is a MISS again', async () => {
 		const { cacheStub } = stubCache();
 		const key = resolveCacheKey(ORIGIN, 'Nirvana', 'Lithium');
