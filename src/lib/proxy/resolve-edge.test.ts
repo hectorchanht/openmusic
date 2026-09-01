@@ -6,10 +6,12 @@
 // and under 32-D-10 the count itself is a deliverable: the fill dropped from TWO subrequests to
 // ONE, because `song_mid` arrives on every qq SEARCH row and needs no detail call).
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { resolveOnEdge } from './resolve-edge';
+import { resolveOnEdge, resolveUrlOnEdge } from './resolve-edge';
 
 /** The tang host `qqProxy.buildUrl` owns. Asserted, never constructed, here. */
 const SEARCH_HOST = 'https://tang.api.s01s.cn/music_open_api.php';
+/** Search and detail share ONE tang endpoint — only the params differ (mid = detail). */
+const DETAIL_HOST = SEARCH_HOST;
 
 const ARTIST = 'Nirvana';
 const TITLE = 'Come As You Are';
@@ -62,7 +64,16 @@ describe('resolveOnEdge — happy path (32-D-10: ONE subrequest)', () => {
 		const { calls, spy } = stubFetch([SEARCH_HIT]);
 		const entry = await resolveOnEdge(ARTIST, TITLE, live());
 
-		expect(entry).toEqual({ source: 'qq', songid: MID, avail: { qq: 'ok' } });
+		// 32-D-20: the SEARCH fill still returns a url-less positive — the url producer is
+		// resolveUrlOnEdge, triggered by the route's refresh-on-read, so this stays ONE subrequest.
+		expect(entry).toEqual({
+			source: 'qq',
+			songid: MID,
+			avail: { qq: 'ok' },
+			url: null,
+			urlExp: null,
+			urlQuality: null
+		});
 		// 32-D-10: the kuwo detail call is GONE. `song_mid` is on the search row, so the whole fill
 		// is one subrequest — this count is the acceptance criterion, not a side observation.
 		expect(spy.mock.calls).toHaveLength(1);
@@ -95,7 +106,14 @@ describe('resolveOnEdge — clean negative (D-06(c), the caller caches it at the
 	it('rows but none matching → dry entry in exactly ONE subrequest', async () => {
 		const { calls } = stubFetch([SEARCH_NO_MATCH]);
 		const entry = await resolveOnEdge(ARTIST, TITLE, live());
-		expect(entry).toEqual({ source: null, songid: null, avail: { qq: 'dry' } });
+		expect(entry).toEqual({
+			source: null,
+			songid: null,
+			avail: { qq: 'dry' },
+			url: null,
+			urlExp: null,
+			urlQuality: null
+		});
 		expect(calls).toHaveLength(1);
 	});
 
@@ -113,7 +131,14 @@ describe('resolveOnEdge — clean negative (D-06(c), the caller caches it at the
 	it('a matching row with NO song_mid is a clean negative (nothing to cache but the miss)', async () => {
 		const { calls } = stubFetch([json([{ song_title: TITLE, singer_name: ARTIST }])]);
 		const entry = await resolveOnEdge(ARTIST, TITLE, live());
-		expect(entry).toEqual({ source: null, songid: null, avail: { qq: 'dry' } });
+		expect(entry).toEqual({
+			source: null,
+			songid: null,
+			avail: { qq: 'dry' },
+			url: null,
+			urlExp: null,
+			urlQuality: null
+		});
 		expect(calls).toHaveLength(1);
 	});
 });
@@ -173,5 +198,87 @@ describe('resolveOnEdge — bounds and abort', () => {
 		const { calls } = stubFetch([SEARCH_HIT]);
 		expect(await resolveOnEdge('  ', '  ', live())).toBeNull();
 		expect(calls).toHaveLength(0);
+	});
+});
+
+
+// 32-D-20 — the ONE server-side url producer. It exists because the entry's `url` must stay
+// server-derived (T-31-03-03: the entry is shared, text-keyed PoP data, so a client-supplied url
+// would change what everyone else plays). The rung walk is a deliberate SMALL MIRROR of
+// sources/qq.ts `pickBestPlayUrl`'s lossless slice — see the comment there for why importing it is
+// impossible — so these tests also pin the two exclusions that mirror costs us: `accom` (32-D-18,
+// 伴奏 / .ogg, which iOS Safari cannot decode) and the untyped bare `song_play_url` fallback.
+describe('resolveUrlOnEdge — the url refill (32-D-20)', () => {
+	const detail = (extra: Record<string, unknown>) => json({ song_mid: MID, ...extra });
+
+	it('fetches the tang DETAIL url exactly once — mid only, no msg (32-D-09)', async () => {
+		const { calls } = stubFetch([detail({ song_play_url_sq: 'https://cdn/sq.flac' })]);
+		await resolveUrlOnEdge(MID, live());
+
+		expect(calls).toHaveLength(1);
+		expect(calls[0].startsWith(DETAIL_HOST)).toBe(true);
+		expect(calls[0]).toContain(`mid=${MID}`);
+		expect(calls[0]).toContain('type=json');
+		expect(calls[0]).not.toContain('msg=');
+	});
+
+	it('picks sq, https-upgrades it, tags it lossless and stamps a ~900s urlExp', async () => {
+		stubFetch([
+			detail({
+				song_play_url_sq: 'http://isure6.stream.qqmusic.qq.com/sq.flac',
+				song_play_url_hq: 'http://isure6.stream.qqmusic.qq.com/hq.m4a'
+			})
+		]);
+		const before = Date.now();
+		const got = await resolveUrlOnEdge(MID, live());
+
+		// 32-D-05: an http url is mixed-content-BLOCKED on our https origin; the same host serves https.
+		expect(got?.url).toBe('https://isure6.stream.qqmusic.qq.com/sq.flac');
+		expect(got?.urlQuality).toBe('lossless');
+		expect(got?.urlExp).toBeGreaterThanOrEqual(before + 900_000);
+		expect(got?.urlExp).toBeLessThanOrEqual(Date.now() + 900_000);
+	});
+
+	it('falls to hq when sq and pq are absent', async () => {
+		stubFetch([detail({ song_play_url_hq: 'https://cdn/hq.m4a' })]);
+		expect((await resolveUrlOnEdge(MID, live()))?.url).toBe('https://cdn/hq.m4a');
+	});
+
+	it('NEVER picks accom or the bare song_play_url fallback (32-D-18)', async () => {
+		stubFetch([
+			detail({
+				song_play_url_accom: 'https://cdn/accom.ogg',
+				song_play_url: 'https://cdn/bare.mp3'
+			})
+		]);
+		// accom is a different MIX in a container iOS Safari cannot decode; the bare fallback has an
+		// UNKNOWN tier and this url is tier-TAGGED, so neither may be served as a 'lossless' url.
+		expect(await resolveUrlOnEdge(MID, live())).toBeNull();
+	});
+
+	it('an all-null 200 "bad mid" body is null — the liveness guard is song_mid, never res.ok', async () => {
+		stubFetch([json({ song_mid: null, song_play_url_sq: null })]);
+		expect(await resolveUrlOnEdge(MID, live())).toBeNull();
+	});
+
+	it('a network throw, a non-ok response and malformed JSON all RESOLVE null (never-throw)', async () => {
+		stubFetch(['THROW']);
+		await expect(resolveUrlOnEdge(MID, live())).resolves.toBeNull();
+		stubFetch(['NOTOK']);
+		await expect(resolveUrlOnEdge(MID, live())).resolves.toBeNull();
+		stubFetch([new Response('<html>', { status: 200 })]);
+		await expect(resolveUrlOnEdge(MID, live())).resolves.toBeNull();
+	});
+
+	it('an already-aborted signal and a blank mid both cost ZERO subrequests', async () => {
+		const ac = new AbortController();
+		ac.abort();
+		const aborted = stubFetch([detail({ song_play_url_sq: 'https://cdn/sq.flac' })]);
+		expect(await resolveUrlOnEdge(MID, ac.signal)).toBeNull();
+		expect(aborted.calls).toHaveLength(0);
+
+		const blank = stubFetch([detail({ song_play_url_sq: 'https://cdn/sq.flac' })]);
+		expect(await resolveUrlOnEdge('  ', live())).toBeNull();
+		expect(blank.calls).toHaveLength(0);
 	});
 });

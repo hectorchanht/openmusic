@@ -11,7 +11,13 @@
 // a HIT with zero upstream calls" is demonstrated.
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { GET, POST, OPTIONS } from './+server';
-import { resolveCacheKey, RESOLVE_TTL_S, RESOLVE_MID_TTL_S } from '$lib/proxy/resolve-cache';
+import {
+	resolveCacheKey,
+	writeResolveEntry,
+	RESOLVE_TTL_S,
+	RESOLVE_MID_TTL_S,
+	type ResolveEntry
+} from '$lib/proxy/resolve-cache';
 
 const ORIGIN = 'https://openmusic.lol';
 const ARTIST = 'Nirvana';
@@ -65,13 +71,36 @@ const MID = '003OUlho2gk0Ny';
 // call left to stub. Every `stubUpstream([SEARCH_HIT])` below used to be `[SEARCH_HIT, DETAIL_HIT]`.
 const SEARCH_HIT = json([{ song_mid: MID, song_title: TITLE, singer_name: ARTIST }]);
 const SEARCH_DRY = json([]);
+/** 32-D-20: the tang DETAIL body the refresh-on-read turns into a fresh `url`. */
+const SQ_URL = 'https://isure6.stream.qqmusic.qq.com/sq.flac';
+const DETAIL_HIT = json({ song_mid: MID, song_play_url_sq: 'http://isure6.stream.qqmusic.qq.com/sq.flac' });
 
 const OK_ENTRY = {
 	source: 'qq',
 	songid: MID,
-	avail: { qq: 'ok' }
+	avail: { qq: 'ok' },
+	url: null,
+	urlExp: null,
+	urlQuality: null
 };
-const DRY_ENTRY = { source: null, songid: null, avail: { qq: 'dry' } };
+const DRY_ENTRY = {
+	source: null,
+	songid: null,
+	avail: { qq: 'dry' },
+	url: null,
+	urlExp: null,
+	urlQuality: null
+};
+
+/** Seed the shimmed cache with an entry directly, so a url's freshness can be dialed per case. */
+async function seed(entry: ResolveEntry) {
+	await writeResolveEntry(
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		(globalThis as any).caches.default,
+		resolveCacheKey(ORIGIN, ARTIST, TITLE),
+		entry
+	);
+}
 
 /** GET event. `waited` collects everything handed to ctx.waitUntil so the fill can be awaited. */
 function fakeGet(search: Record<string, string>, origin: string | null = ORIGIN) {
@@ -142,7 +171,7 @@ describe('/api/resolve GET — miss returns immediately, fills out of band (D-06
 		expect(waited).toHaveLength(1);
 	});
 
-	it('the scheduled fill writes the ok entry, and a SECOND identical GET is a HIT with ZERO subrequests', async () => {
+	it('the scheduled fill writes the ok entry, and a SECOND identical GET is a HIT', async () => {
 		const { putKeys } = stubCache();
 		const first = stubUpstream([SEARCH_HIT]);
 		const one = fakeGet({ a: ARTIST, t: TITLE });
@@ -158,9 +187,15 @@ describe('/api/resolve GET — miss returns immediately, fills out of band (D-06
 		const two = fakeGet({ a: ARTIST, t: TITLE });
 		const res = await callGET(two.event);
 
+		// 32-D-20 — INTENDED CHANGE from 32-04's "ZERO subrequests" pin: the search fill writes a
+		// url-LESS positive, so this read is exactly the refresh-on-read trigger and spends ONE
+		// bounded background detail call. The zero-subrequest property moves to the url-WARM read
+		// asserted in the next case, which is the one a user's repeat play actually hits.
 		expect(await res.json()).toEqual({ hit: true, entry: OK_ENTRY });
-		expect(second.calls).toHaveLength(0);
-		expect(two.event.platform.ctx.waitUntil).not.toHaveBeenCalled();
+		expect(two.event.platform.ctx.waitUntil).toHaveBeenCalledTimes(1);
+		expect(second.calls).toHaveLength(1);
+		expect(second.calls[0]).toContain(`mid=${MID}`);
+		expect(second.calls[0]).not.toContain('msg=');
 	});
 
 	it('a query-variant GET (different casing/punctuation) hits the SAME entry', async () => {
@@ -388,5 +423,98 @@ describe('/api/resolve OPTIONS', () => {
 		} as any);
 		expect(res.status).toBe(204);
 		expect(res.headers.get('Access-Control-Allow-Origin')).toBe(ORIGIN);
+	});
+});
+
+
+// 32-D-20 — the url layer. The entry now carries a short-lived `url` beside the permanent mid, and
+// the EDGE owns its freshness: a stale url is nulled out of the VIEW the client sees (one clock,
+// one authority) and refilled out of band. THE PROPERTY THAT MATTERS is not that a warm hit is
+// fast, it is that a not-fresh url is, from the client's seat, byte-indistinguishable from a url
+// the entry never had — the same "advisory, never authoritative" contract as 31-D-08/31-D-11.
+describe('/api/resolve GET — url refresh-on-read (32-D-20)', () => {
+	const fresh = (): ResolveEntry => ({
+		...OK_ENTRY,
+		url: SQ_URL,
+		urlExp: Date.now() + 900_000,
+		urlQuality: 'lossless'
+	});
+	const stale = (): ResolveEntry => ({
+		...OK_ENTRY,
+		url: 'https://isure6.stream.qqmusic.qq.com/expired.flac',
+		urlExp: Date.now() - 1,
+		urlQuality: 'lossless'
+	});
+
+	it('a FRESH url is served intact, with ZERO subrequests and no refresh scheduled', async () => {
+		stubCache();
+		await seed(fresh());
+		const { calls } = stubUpstream([]);
+		const one = fakeGet({ a: ARTIST, t: TITLE });
+
+		const body = (await (await callGET(one.event)).json()) as { hit: boolean; entry: ResolveEntry };
+		expect(body.entry.url).toBe(SQ_URL);
+		expect(calls).toHaveLength(0);
+		expect(one.event.platform.ctx.waitUntil).not.toHaveBeenCalled();
+	});
+
+	it('a STALE url is NULLED in the view (songid intact) and refilled out of band', async () => {
+		const { store, putKeys } = stubCache();
+		await seed(stale());
+		putKeys.length = 0;
+		stubUpstream([DETAIL_HIT]);
+		const one = fakeGet({ a: ARTIST, t: TITLE });
+
+		const body = (await (await callGET(one.event)).json()) as { hit: boolean; entry: ResolveEntry };
+		// The client contract is "url present ⇒ fresh". It never reads urlExp.
+		expect(body.entry.url).toBeNull();
+		expect(body.entry.urlExp).toBeNull();
+		expect(body.entry.urlQuality).toBeNull();
+		expect(body.entry.songid).toBe(MID);
+
+		await Promise.all(one.waited);
+		expect(putKeys).toEqual([KEY]);
+		// The rewritten entry keeps the PERMANENT header — the url rides inside the payload and
+		// must never shorten the mid's lifetime (32-D-10a's split is untouched) — and the stored
+		// copy stays CORS-free (T-31-03-04).
+		expect(store.get(KEY)?.headers.get('Cache-Control')).toBe(
+			`public, max-age=${RESOLVE_MID_TTL_S}, immutable`
+		);
+		expect([...(store.get(KEY)?.headers.keys() ?? [])].sort()).toEqual([
+			'cache-control',
+			'content-type'
+		]);
+
+		// … and a SECOND read now serves the refreshed url with ZERO subrequests: the 0.44s path.
+		const second = stubUpstream([]);
+		const two = fakeGet({ a: ARTIST, t: TITLE });
+		const after = (await (await callGET(two.event)).json()) as { entry: ResolveEntry };
+		expect(after.entry.url).toBe(SQ_URL);
+		expect(after.entry.urlQuality).toBe('lossless');
+		expect(second.calls).toHaveLength(0);
+		expect(two.event.platform.ctx.waitUntil).not.toHaveBeenCalled();
+	});
+
+	it('a DRY negative NEVER triggers a refill — there is no mid to refill from', async () => {
+		stubCache();
+		await seed(DRY_ENTRY);
+		const { calls } = stubUpstream([DETAIL_HIT]);
+		const one = fakeGet({ a: ARTIST, t: TITLE });
+
+		expect(await (await callGET(one.event)).json()).toEqual({ hit: true, entry: DRY_ENTRY });
+		expect(one.event.platform.ctx.waitUntil).not.toHaveBeenCalled();
+		expect(calls).toHaveLength(0);
+	});
+
+	it('a refresh that yields no url writes NOTHING — a tang fault is retried, never pinned', async () => {
+		const { putKeys } = stubCache();
+		await seed(stale());
+		putKeys.length = 0;
+		stubUpstream(['THROW']);
+		const one = fakeGet({ a: ARTIST, t: TITLE });
+
+		await callGET(one.event);
+		await Promise.all(one.waited);
+		expect(putKeys).toHaveLength(0);
 	});
 });
