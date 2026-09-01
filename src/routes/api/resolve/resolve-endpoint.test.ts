@@ -82,7 +82,7 @@ const OK_ENTRY = {
 	url: null,
 	urlExp: null,
 	urlQuality: null
-};
+} satisfies ResolveEntry;
 const DRY_ENTRY = {
 	source: null,
 	songid: null,
@@ -90,7 +90,7 @@ const DRY_ENTRY = {
 	url: null,
 	urlExp: null,
 	urlQuality: null
-};
+} satisfies ResolveEntry;
 
 /** Seed the shimmed cache with an entry directly, so a url's freshness can be dialed per case. */
 async function seed(entry: ResolveEntry) {

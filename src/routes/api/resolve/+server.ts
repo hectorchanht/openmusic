@@ -26,9 +26,10 @@ import {
 	resolveCacheKey,
 	readResolveEntry,
 	writeResolveEntry,
-	bustResolveEntry
+	bustResolveEntry,
+	urlIsFresh
 } from '$lib/proxy/resolve-cache';
-import { resolveOnEdge } from '$lib/proxy/resolve-edge';
+import { resolveOnEdge, resolveUrlOnEdge } from '$lib/proxy/resolve-edge';
 
 /** Ceiling on the whole background fill (32-D-10: ONE qq search). Bounded — nobody is waiting. */
 const FILL_TIMEOUT_MS = 8000;
@@ -83,7 +84,40 @@ export const GET: RequestHandler = async ({ url, request, platform }) => {
 	// THREE-VALUED: a defined value (including a stored known-none) is a HIT. The stored copy is
 	// CORS-free; CORS for THIS requester's origin is re-applied here (WR-01).
 	const entry = await readResolveEntry(cache, key);
-	if (entry !== undefined) return jsonResult({ hit: true, entry }, origin);
+	if (entry !== undefined) {
+		// 32-D-20 REFRESH-ON-READ — the ONE url producer. A hit that HAS a mid but whose url is
+		// absent or past its `urlExp` schedules a single bounded detail call and rewrites the entry
+		// with a fresh url, while THIS request is answered immediately with the url nulled out.
+		//
+		// One mechanism, three cases: initial absence (the search fill deliberately writes no url,
+		// so the fill stays one subrequest), 900s expiry, and post-bust refill (bust → miss → search
+		// fill → the next read warms the url). A DRY negative has no mid and never refreshes.
+		//
+		// Server-derived ONLY: the no-client-write invariant (T-31-03-03) is untouched — a client
+		// still cannot put a url into shared, text-keyed PoP data.
+		//
+		// A null refresh writes NOTHING, mirroring the fill's FAULT rule: a tang fault is retried on
+		// the next read instead of being pinned. The fill's ponytail note applies here too — there is
+		// no in-flight marker, so N concurrent reads in one PoP can each schedule a refresh; each is
+		// bounded (waitUntil, FILL_TIMEOUT_MS, one subrequest, PoP-local).
+		if (entry?.songid && !urlIsFresh(entry, Date.now())) {
+			const stale = entry;
+			const mid = entry.songid;
+			platform?.ctx?.waitUntil(
+				(async () => {
+					const fresh = await resolveUrlOnEdge(mid, AbortSignal.timeout(FILL_TIMEOUT_MS));
+					if (fresh) await writeResolveEntry(cache, key, { ...stale, ...fresh });
+				})().catch(() => {})
+			);
+			// The client contract is "url present ⇒ fresh", so freshness has exactly ONE authority:
+			// the edge, using the same clock that wrote `urlExp`. The client never reads that field.
+			return jsonResult(
+				{ hit: true, entry: { ...stale, url: null, urlExp: null, urlQuality: null } },
+				origin
+			);
+		}
+		return jsonResult({ hit: true, entry }, origin);
+	}
 
 	// MISS — answer IMMEDIATELY and fill OUT OF BAND. Awaiting the fill on the hot path is the
 	// anti-pattern this whole design exists to avoid (31-D-08): a miss must cost the client one

@@ -22,8 +22,14 @@ import { matchKey } from '$lib/services/match-key';
  * 32-D-10 bumped '1' → '2' for exactly the reason above: the payload dropped `url` and `songid`
  * changed MEANING (a kuwo rid became a qq song_mid). A v1 entry read as a v2 entry would hand a
  * kuwo rid to the qq resolver, and there is no global purge — so the version IS the migration.
+ *
+ * 32-D-20 bumps '2' → '3': the payload GAINED `url`/`urlExp`/`urlQuality`. A v2 entry read as v3
+ * would present as "this song never has a url", which is survivable — but the rule above is
+ * CATEGORICAL on purpose. There is no remediation after deploy (`cache.delete` is PoP-local), so
+ * "survivable" is not a licence to skip the bump; the next shape change might not be survivable and
+ * the discipline is what makes that safe.
  */
-export const RESOLVE_CACHE_VERSION = '2';
+export const RESOLVE_CACHE_VERSION = '3';
 
 /**
  * 15 minutes — NEGATIVE entries ONLY (narrowed by 32-D-10a; positives use RESOLVE_MID_TTL_S).
@@ -53,6 +59,23 @@ export const RESOLVE_TTL_S = 900;
  */
 export const RESOLVE_MID_TTL_S = 31_536_000;
 
+/**
+ * 15 minutes — how long a cached PLAYABLE URL is trusted (32-D-20).
+ *
+ * Same NUMBER as RESOLVE_TTL_S, deliberately a different NAME: `RESOLVE_TTL_S` now means "how long
+ * a NEGATIVE is pinned" and this means "how long a signed CN audio url is trusted". The two
+ * concepts must stay independently tunable, so never collapse them back into one constant.
+ *
+ * 900s is the value Phase 31 shipped and MEASURED working (0.44s to playable on a hit). A url that
+ * dies INSIDE the window is not the TTL's job — that is the 31-D-09 bust plus the client's
+ * reported-dead strip, because a signed url can be IP/region-bound and 403 for one user while
+ * serving another perfectly (31-D-11).
+ *
+ * `urlExp` is BAKED AT WRITE (`Date.now() + RESOLVE_URL_TTL_S * 1000`), so a read is one integer
+ * comparison and a re-tune applies to new writes only — fine for a 15-minute window.
+ */
+export const RESOLVE_URL_TTL_S = 900;
+
 /** Ingress cap on `a`/`t` — the /api/og MAX_TERM_CHARS precedent (T-31-03-07). */
 export const MAX_TERM_CHARS = 200;
 
@@ -67,12 +90,46 @@ export const MAX_TERM_CHARS = 200;
  * playable on its own: the client still spends one qq detail call to turn it into a url + lyrics +
  * duration + cover, which is why 32-D-10b records this as the CALL-count win, not a latency win.
  *
+ * 32-D-20 PUTS `url` BACK, beside the permanent mid — a deliberate partial reversal of the line
+ * above, not a drift. That reasoning ("it was the only reason this entry had to expire") was true
+ * when the entry had ONE lifetime; 32-D-10a then made permanence a property of the PAYLOAD, which
+ * turns a mixed-lifetime entry into a solved problem. So the mid keeps its year and the url keeps
+ * its own 15 minutes, expressed as an in-payload `urlExp` the EDGE checks at read time. Motive:
+ * a mid still costs a 2.0-3.8s tang detail RTT to become playable, whereas a cached url is the
+ * Phase-31-measured 0.44s-to-playable path.
+ *
+ * ACCEPTED RISK, re-accepted with eyes open (31-D-11): a globally shared signed CN url can be IP-
+ * or region-bound and WILL 403 for some other user in this PoP. Three mitigations carry it, and
+ * all three must stay: the entry is ADVISORY and never authoritative (31-D-08 — a url that does
+ * not work falls through to the mid path and plays); a dead url is repaired by the POST bust
+ * (31-D-09); and the client strips a url it has already reported dead at its ONE read seam
+ * (resolve-cache-client.ts), which closes the async-bust race. From the user's seat a 403 hit must
+ * be indistinguishable from a url MISS.
+ *
  * A clean negative is the all-null form with `avail: { qq: 'dry' }`, and it keeps RESOLVE_TTL_S.
  */
 export interface ResolveEntry {
 	source: string | null;
 	songid: string | null;
 	avail: Record<string, 'ok' | 'dry'>;
+	/** The playable audio url, or null when the entry has never been (or is no longer) url-warm. */
+	url: string | null;
+	/** Epoch ms this url stops being trusted. EDGE-clock bookkeeping: the route nulls a stale url
+	 *  out of the view it serves, so the CLIENT never reads this field and never judges freshness —
+	 *  one clock, one authority. */
+	urlExp: number | null;
+	/** The effective tier the url serves ('lossless' by construction today). A shared single url
+	 *  cannot serve two tiers, so the client adopts it only for a tier-MATCHING caller — a cellular
+	 *  'auto' user must never be handed a 50MB FLAC url. */
+	urlQuality: string | null;
+}
+
+/**
+ * Is this entry's url still trusted? 32-D-20 — the whole freshness rule, in one pure predicate so
+ * the route has no clock logic of its own. A url with no `urlExp` is never fresh (fail closed).
+ */
+export function urlIsFresh(entry: ResolveEntry, now: number): boolean {
+	return Boolean(entry.url && entry.urlExp !== null && entry.urlExp > now);
 }
 
 /**
@@ -130,6 +187,12 @@ export async function readResolveEntry(
  * immutable; a negative one keeps 900s, because a flaky 0-row qq search writes a negative that is
  * byte-identical to a genuine one, and a permanent false negative would pin that song to a lossy
  * source for the whole PoP forever with no repair. Never unify these two branches.
+ *
+ * 32-D-20 leaves this branch BYTE-IDENTICAL: the `songid` alone still decides the stored
+ * Cache-Control. The url deliberately does NOT influence it — its lifetime is `urlExp` INSIDE the
+ * payload, because the Cache API stores one Response per key with one max-age and a mixed-lifetime
+ * entry is only expressible that way. Shortening this max-age "because the entry now holds a url"
+ * would silently throw away 32-D-10's permanent-mid win.
  *
  * The stored Response is a FRESH one with an explicit two-header allow-list (T-31-03-04).
  * Never cache the response object that passed through `src/hooks.server.ts` — it carries

@@ -37,7 +37,7 @@
 import { qqProxy } from './qq';
 import { fetchWithRetry } from './http';
 import { matchKey } from '$lib/services/match-key';
-import type { ResolveEntry } from './resolve-cache';
+import { RESOLVE_URL_TTL_S, type ResolveEntry } from './resolve-cache';
 
 /** Extra attempts after the first. A background fill does not deserve a long backoff. */
 const RETRIES = 1;
@@ -47,7 +47,16 @@ const RETRIES = 1;
  * at the SHORT TTL (32-D-10a): a flaky 0-row qq search is byte-indistinguishable from a genuine
  * miss here, so the protection lives in the write's max-age, never in a reclassification.
  */
-const DRY: ResolveEntry = { source: null, songid: null, avail: { qq: 'dry' } };
+const DRY: ResolveEntry = {
+	source: null,
+	songid: null,
+	avail: { qq: 'dry' },
+	// 32-D-20: the SEARCH fill never produces a url — resolveUrlOnEdge does, on the route's
+	// refresh-on-read. That is what keeps this fill at exactly ONE subrequest.
+	url: null,
+	urlExp: null,
+	urlQuality: null
+};
 
 /** The three qq search-row fields this file reads (mirrors src/lib/sources/qq.ts's QQSearchItem). */
 interface QQSearchRow {
@@ -107,15 +116,113 @@ export async function resolveOnEdge(
 		// itself cannot play such a row (sources/qq.ts skips mid-less rows outright).
 		if (!mid) return DRY;
 
-		// 32-D-10: the mid IS the payload. No detail call — the entry deliberately stores no url,
-		// which is the only reason it can be written permanent.
+		// 32-D-10: the mid IS the payload of THIS call. No detail call here — that is what keeps the
+		// fill at one subrequest, and the mid is what lets the entry be written permanent.
+		// 32-D-20: the url fields are filled LATER and SEPARATELY by resolveUrlOnEdge, scheduled by
+		// the route when it serves a hit whose url is absent or stale. Adding a detail call here
+		// instead would double the cost of every miss to warm a url nobody has asked for yet.
 		return {
 			source: 'qq',
 			songid: String(mid),
-			avail: { qq: 'ok' }
+			avail: { qq: 'ok' },
+			url: null,
+			urlExp: null,
+			urlQuality: null
 		};
 	} catch {
 		// Any throw (network, abort, malformed JSON, an unsupported buildUrl path) is a FAULT.
+		return null;
+	}
+}
+
+
+/**
+ * The tang detail fields this file reads. A SUBSET of sources/qq.ts's QQDetailItem — deliberately
+ * only the rungs the lossless walk below may pick, so an added upstream field cannot silently
+ * become a served url.
+ */
+interface QQDetailRungs {
+	song_mid?: string | null;
+	song_play_url_sq?: string | null;
+	song_play_url_pq?: string | null;
+	song_play_url_hq?: string | null;
+	song_play_url_standard?: string | null;
+	song_play_url_fq?: string | null;
+}
+
+/**
+ * The LOSSLESS ladder, edge-side. A DELIBERATE SMALL MIRROR of `sources/qq.ts` `pickBestPlayUrl`'s
+ * lossless slice, which stays the CLIENT authority — if that ladder changes, change this too.
+ *
+ * Why mirror instead of import (design decision 6, and the same accepted cost this file's header
+ * already records for the qq SEARCH contract): `sources/qq.ts` imports the settings runes store and
+ * the client `apiFetch` governor, both browser-side. This file's standing rule is that it contains
+ * ZERO references to the client fetch seam, because that governor must never run edge-side.
+ *
+ * TWO DELIBERATE EXCLUSIONS vs the client ladder:
+ *  - `song_play_url_accom` (32-D-18) — 伴奏, the accompaniment/instrumental MIX, served as `.ogg`
+ *    which iOS Safari's `<audio>` cannot decode. A shared cached url must never be a karaoke take.
+ *  - the bare `song_play_url` fallback — its tier is UNKNOWN, and this url is tier-TAGGED
+ *    (`urlQuality`), so it cannot honestly be published as the lossless tier.
+ * Both exclusions only cost a cache MISS on that song: the client's own ladder still reaches them
+ * through the ordinary mid path.
+ */
+const LOSSLESS_RUNGS: (keyof QQDetailRungs)[] = [
+	'song_play_url_sq',
+	'song_play_url_pq',
+	'song_play_url_hq',
+	'song_play_url_standard',
+	'song_play_url_fq'
+];
+
+/**
+ * 32-D-20 — the ONE server-side producer of the entry's `url`. Given a mid already in hand, ONE
+ * tang detail subrequest (32-D-09: `mid` alone, no `msg`) becomes a playable, https-only url plus
+ * the epoch it stops being trusted.
+ *
+ * This lives edge-side for the same anti-poisoning reason as `resolveOnEdge` (T-31-03-03): the
+ * entry is shared, text-keyed PoP data, so a client-supplied url would change what everyone else
+ * plays. There is still deliberately NO client write path anywhere in the route.
+ *
+ * NEVER-THROWS: a network error, a non-ok response, malformed JSON, an abort, the all-null-200
+ * "bad mid" body, or a body with no populated rung all return null, and the caller then writes
+ * NOTHING — a fault is retried on the next read rather than pinned (the fill's FAULT rule).
+ */
+export async function resolveUrlOnEdge(
+	mid: string,
+	signal: AbortSignal
+): Promise<Pick<ResolveEntry, 'url' | 'urlExp' | 'urlQuality'> | null> {
+	try {
+		const id = (mid ?? '').trim();
+		if (!id || signal.aborted) return null;
+
+		// buildUrl already pins `type=json` and the tang host; `mid` is what switches the upstream
+		// from a search list to a single-song detail object. No `msg` — 32-D-09 verified the
+		// endpoint ignores it.
+		const url = qqProxy.buildUrl('detail', new URLSearchParams({ mid: id }), undefined);
+		const res = await fetchWithRetry(url, { signal }, RETRIES);
+		if (signal.aborted) return null; // supersedence re-check after every await
+		if (!res.ok) return null;
+
+		const d = (await res.json()) as QQDetailRungs | null;
+		if (signal.aborted) return null;
+		// LIVENESS GUARD, never `res.ok`: tang answers an unknown mid with a 200 whose every field
+		// is null. `song_mid` is the field that proves the body describes a real song.
+		if (!d?.song_mid) return null;
+
+		const raw = LOSSLESS_RUNGS.map((k) => d[k]).find((v) => typeof v === 'string' && v);
+		if (!raw) return null;
+
+		return {
+			// 32-D-05: tang returns `http://isure6.stream.qqmusic.qq.com/...`, mixed-content-BLOCKED
+			// on our https origin; the same host serves https correctly.
+			url: raw.replace(/^http:\/\//i, 'https://'),
+			urlExp: Date.now() + RESOLVE_URL_TTL_S * 1000,
+			// Tier-TAGGED so the client can refuse a url its caller did not ask for. 'lossless' is
+			// what this ladder resolves the lossless preference to, exactly as the client's does.
+			urlQuality: 'lossless'
+		};
+	} catch {
 		return null;
 	}
 }
