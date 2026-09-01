@@ -49,7 +49,7 @@ Full observed evidence: `.planning/phases/30-carrier-free-share-links-type-artis
 ### Prior phase (Phase 27 — YouTube Music Source, v1.4) — COMPLETE + E2E-VERIFIED
 
 Phase 27 complete (27-01..04). E2E-verified against LIVE YouTube via the dev-server routes: /api/ytmusic/search 200 (rows+videoId), /api/ytmusic/lyrics 200 (1513c + attribution), /api/ytmusic/stream 206 audio/mp4 + Range (playback) and 200 full-file (download). pnpm check clean, 1320 tests green. E2E caught + fixed a prod-breaking bug (quick-270715 / commit 29c1c7d): stream route exported non-HTTP-verb functions, illegal in SvelteKit +server.ts → 500; helpers moved to $lib/proxy/ytmusic.ts.
-Last activity: 2026-09-01 - Completed quick task 260831-qkx: real artist discography (shelf + discography page + real tracklists)
+Last activity: 2026-09-01 - Completed quick task 260831-re9: MusicBrainz CJK artist identity + original-script albums
 Remaining human UAT: real-device <audio> playback+seek + download-to-disk; deployed-Worker player+googlevideo same-IP egress + bot-challenge under load (T-27-03-OP). Account/library sync = separate legal-gated milestone (spike 008).
 
 ## Performance Metrics
@@ -380,6 +380,7 @@ Recent decisions affecting current work:
 | 260831-jtw | Similar songs in Up Next consistently — generated sourcing everywhere except album | 2026-08-31 | 648882b | [260831-jtw-similar-songs-in-up-next-consistently-ge](./quick/260831-jtw-similar-songs-in-up-next-consistently-ge/) |
 | 260831-k5y | Setting to show the music-quality tag on the Now Playing page | 2026-08-31 | d434e6a | [260831-k5y-setting-to-show-the-music-quality-tag-on](./quick/260831-k5y-setting-to-show-the-music-quality-tag-on/) |
 | 260831-qkx | Real artist discography — newest-first typed album shelf, full discography page, real tracklists by Deezer album id | 2026-09-01 | e70ea20 | [260831-qkx-artist-albums-from-the-real-deezer-disco](./quick/260831-qkx-artist-albums-from-the-real-deezer-disco/) |
+| 260831-re9 | MusicBrainz as the CJK artist identity + original-script album source — 陳奕迅 5→58 albums, 周杰倫 titles in Chinese, 周傑倫/Jay Chou/周杰倫 to one identity | 2026-09-01 | a292e74 | [260831-re9-musicbrainz-as-the-cjk-artist-identity-o](./quick/260831-re9-musicbrainz-as-the-cjk-artist-identity-o/) |
 
 > Note: off planned phase order (Phase-4-shaped UI pulled forward as a demo). Basic playback only; full audio engine = Phase 6, formal Mobile UI Shell = Phase 4. NOTE (2026-06-10): many of the quick-tasks above already exercise the v1.2 surfaces (failover/prefetch in gte/t5r/hvu, offline blob in kyf, Deezer enrichment plumbing in jau/jip, cover backfill in rvy/0bb/wv8, gesture machines in ggj/h4s/nqf) — v1.2 phases formalize, harden, and complete these rather than build from scratch.
 
