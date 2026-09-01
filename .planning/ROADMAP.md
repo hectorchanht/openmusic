@@ -273,7 +273,7 @@ Plans:
 **Goal:** Tap→audio in under a second AND lossless by default, with the next track advancing seamlessly. The resolve stops being a proxied, keyword-threaded, URL-caching round trip and becomes one direct CORS fetch keyed on a permanent id.
 **Requirements**: D-01..D-20 incl. D-10a/D-10b (locked decisions in 32-CONTEXT.md — `phase_req_ids` is null, so the D-numbers are the traceability keys; derived from `.planning/notes/qq-lossless-first-resolve.md`)
 **Depends on:** Phase 31
-**Plans:** 7/9 plans executed
+**Plans:** 8/9 plans executed
 
 Plans:
 - [x] 32-01-PLAN.md — effectiveQuality() seam: 'auto' = lossless-on-wifi / 320 otherwise; default flip '128'→'auto'; kuwo/joox routed (D-02/D-03/D-04)
@@ -282,7 +282,7 @@ Plans:
 - [x] 32-04-PLAN.md — permanent-mid edge cache: url-less entry, VERSION '2', positive/negative TTL split, qq one-subrequest fill, catalog mid-hit adoption + skip-lookup (D-01/D-06/D-07/D-10/D-10a/D-11)
 - [x] 32-05-PLAN.md — qq adapter rebuild: http fixture, https upgrade, accom demotion, honest tiers, mid-only DIRECT tang call with proxy fallback (D-05/D-09/D-12/D-13/D-14/D-18/D-19)
 - [x] 32-06-PLAN.md — 24 MB prebuffer ceiling via exported pure predicate (D-15/D-17)
-- [ ] 32-07-PLAN.md — phase gate: full suite, D-16 diff audit, D-10 verified on workerd (never pnpm dev), APK rebuild
+- [x] 32-07-PLAN.md — phase gate: full suite, D-16 diff audit, D-10 verified on workerd (never pnpm dev), APK rebuild
 - [ ] 32-08-PLAN.md — CHECKPOINT: Android device sweep + iOS FLAC / accom listening checks + freeze-class regression sweep
 - [x] 32-09-PLAN.md — D-20 two-layer entry: short-TTL url beside the permanent mid (VERSION '3'), edge refresh-on-read refill, client url→songid→cold-walk order, poisoned-hit fall-through pinned; runs AFTER 32-05, BEFORE 32-07 (32-07 conceptually moves to wave 4)
 
