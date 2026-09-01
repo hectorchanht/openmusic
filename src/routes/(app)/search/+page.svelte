@@ -154,13 +154,36 @@
 		fetchSuggestions(kw);
 	}
 
-	// Commit a suggestion: fill the input with its query text and run the full search.
+	// quick-260831-rjo: a suggestion tap is now KIND-BRANCHED instead of always committing a search.
+	//  - artist (♪) → navigate to /artist/{name}; that page derives its own hit-song list, so a
+	//    search commit here would just be a slower detour to the same information.
+	//  - song  (♫) → PLAY it. A Suggestion is Deezer-derived and carries no uid/source/Track, so
+	//    the optimistic resolve-on-tap primitive playStub() is the right entry: it locks the stub
+	//    into the now-bar synchronously and owns pendingGen supersedence + same-key dedupe. `q` is
+	//    deliberately left alone — the tap is a play action, not a query commit, and rewriting the
+	//    input would show committed-looking text over a content area that never searched for it.
+	//  - album (◎) → unchanged: fill the input and run the full search.
 	function pickSuggestion(s: Suggestion) {
-		q = s.title; // both kinds fill the input with their `title` (song title / artist name)
 		inputFocused = false;
 		suggestions = [];
 		fetchSuggestions.cancel();
 		suggestAc?.abort();
+		if (s.kind === 'artist') {
+			// Same nav idiom as the artist TILE handler below (encodeURIComponent once —
+			// SvelteKit decodes the param itself, OG-COMPAT-01).
+			goto('/artist/' + encodeURIComponent(s.title));
+			return;
+		}
+		if (s.kind === 'song') {
+			// Don't block the click handler on the resolve. playStub returns null for BOTH a miss
+			// AND a supersede, so gate the toast on pendingTrack (a supersede leaves it non-null).
+			void (async () => {
+				const tr = await player.playStub(s.artist ?? '', s.title, undefined, 'search');
+				if (tr === null && player.pendingTrack == null) toast.show(t('home.unplayable'));
+			})();
+			return;
+		}
+		q = s.title;
 		run();
 	}
 
