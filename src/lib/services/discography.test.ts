@@ -160,3 +160,39 @@ describe('fallbackCoverSeed', () => {
 		expect(fallbackCoverSeed('X&Y')).toMatch(/^linear-gradient\(145deg, hsl\(\d+ 55% 32%\), hsl\(\d+ 55% 18%\)\)$/);
 	});
 });
+
+// quick-260831-re9: MusicBrainz entries carry `mbid` instead of Deezer's numeric `id`, and the
+// album page uses whichever is present to fetch the ORIGINAL-SCRIPT tracklist.
+describe('albumHref — MusicBrainz entries (quick-260831-re9)', () => {
+	it('carries mbid when the entry came from MusicBrainz', () => {
+		const href = albumHref(
+			{
+				id: null,
+				mbid: '8770e36c-464b-47ea-9a62-862025d27bf8',
+				name: '最偉大的作品',
+				image: null,
+				releaseDate: '2022-07-08',
+				type: 'album'
+			},
+			'周杰倫'
+		);
+		expect(href).toContain('mbid=8770e36c-464b-47ea-9a62-862025d27bf8');
+		expect(href).not.toContain('dzid=');
+		expect(href).toContain(encodeURIComponent('最偉大的作品'));
+	});
+
+	it('prefers mbid over dzid if both were somehow set', () => {
+		const href = albumHref(
+			{ id: 301663, mbid: '8770e36c-464b-47ea-9a62-862025d27bf8', name: 'X', image: null, releaseDate: null, type: null },
+			'A'
+		);
+		expect(href).toContain('mbid=');
+		expect(href).not.toContain('dzid=');
+	});
+
+	it('still emits dzid for a Deezer entry with no mbid', () => {
+		expect(albumHref(e({ id: 301663, mbid: null, name: 'Parachutes' }), 'Coldplay')).toBe(
+			'/album/Parachutes?artist=Coldplay&dzid=301663'
+		);
+	});
+});

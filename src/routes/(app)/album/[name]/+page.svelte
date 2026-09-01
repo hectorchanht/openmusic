@@ -30,6 +30,7 @@
 	import { downloadTrack } from '$lib/services/download-track';
 	import { enrichAlbum, getAlbumTracklist, type EnrichResult } from '$lib/services/lastfm';
 	import { deezerAlbum, deezerAlbumTracks, type DeezerAlbumInfo } from '$lib/services/deezer';
+	import { mbTracks } from '$lib/services/musicbrainz';
 	import { mergeEnrichAlbum } from '$lib/services/enrich-merge';
 	import { marquee } from '$lib/actions/marquee';
 	import TrackMenu from '$lib/components/TrackMenu.svelte';
@@ -58,6 +59,10 @@
 	// present it is the AUTHORITATIVE tracklist source — `album/{id}/tracks` returns the real
 	// ordered list. Absent (deep link, Last.fm-sourced album) → the old name-keyed Last.fm path.
 	const albumDzId = $derived(Number(page.url.searchParams.get('dzid')) || 0);
+	// quick-260831-re9: MusicBrainz release-group id, carried for CJK artists. Takes precedence
+	// over dzid — it is the source with the ORIGINAL-SCRIPT tracklist (最伟大的作品 / 说好不哭 /
+	// 不爱我就拉倒 …, where the Deezer path returns English titles).
+	const albumMbid = $derived(page.url.searchParams.get('mbid') ?? '');
 
 	let tracks = $state<AlbumStub[]>([]);
 	let loading = $state(true);
@@ -123,7 +128,8 @@
 		const n = name;
 		const artist = albumArtist;
 		const dzid = albumDzId;
-		const key = `${n}|${artist}|${dzid}`;
+		const mbid = albumMbid;
+		const key = `${n}|${artist}|${dzid}|${mbid}`;
 		// OFFL-03 / D-10: SHORT-CIRCUIT when offline — never fire getAlbumTracklist (which would
 		// hang and strand the tracklist skeleton). Clear `loading` so the inline offline state shows
 		// instead of a stuck spinner. No redirect (D-09). Resumes on the next online visit.
@@ -143,7 +149,7 @@
 			// would act on the wrong album and albumLiked would render the stale heart state.
 			resolvedCache = null;
 			busyAction = null;
-			if (!artist && !dzid) {
+			if (!artist && !dzid && !mbid) {
 				// Deep link with neither ?artist= nor ?dzid= — nothing to query. Render the
 				// graceful "open from an artist" empty state, not a spinner.
 				loading = false;
@@ -160,6 +166,16 @@
 			// no id, and for the case where the id lookup comes back empty.
 			void (async () => {
 				try {
+					// MusicBrainz FIRST when present: it is only ever carried for CJK artists, and it is
+					// the one source with the original-script tracklist.
+					if (mbid) {
+						const rows = await mbTracks(mbid, artist);
+						if (loadedFor !== key) return; // race guard
+						if (rows.length) {
+							tracks = rows.map((tr) => ({ artist: tr.artist, title: tr.title }));
+							return;
+						}
+					}
 					if (dzid) {
 						const dzTracks = await deezerAlbumTracks(dzid);
 						if (loadedFor !== key) return; // race guard
@@ -170,7 +186,7 @@
 							return;
 						}
 					}
-					if (!artist) return; // id path empty and no name to fall back on
+					if (!artist) return; // both id paths empty and no name to fall back on
 					const lf = await getAlbumTracklist(n, artist).catch(() => []);
 					if (loadedFor === key) tracks = lf;
 				} finally {

@@ -26,10 +26,12 @@
 	import { tick as hapticTick } from '$lib/util/haptics';
 	import TrackMenu from '$lib/components/TrackMenu.svelte';
 	import TagChips from '$lib/components/TagChips.svelte';
-	import { enrichArtist, getArtistTopAlbums, type EnrichResult, type DiscoveryAlbum } from '$lib/services/lastfm';
+	import { enrichArtist, type EnrichResult } from '$lib/services/lastfm';
 	import { getSimilarArtists } from '$lib/services/similar';
-	import { deezerArtistCover, deezerArtist, deezerArtistAlbums, type DeezerArtistInfo } from '$lib/services/deezer';
-	import { sortByReleaseDesc, filterByType, typeLabelKey, releaseYear, albumHref, fallbackCoverSeed, type DiscographyEntry } from '$lib/services/discography';
+	import { deezerArtistCover, deezerArtist, type DeezerArtistInfo } from '$lib/services/deezer';
+	import { filterByType, typeLabelKey, releaseYear, albumHref, fallbackCoverSeed, type DiscographyEntry } from '$lib/services/discography';
+	import { loadDiscography } from '$lib/services/discography-source';
+	import { pickLocaleName } from '$lib/services/musicbrainz';
 	import { mergeEnrichArtist } from '$lib/services/enrich-merge';
 	import { mapWithConcurrency } from '$lib/services/discovery';
 	import PageOg from '$lib/components/PageOg.svelte';
@@ -89,8 +91,8 @@
 	// (Path B) purely to decide whether to draw a card. It's redundant: the album *detail* page
 	// already resolves the songs within lazily on tap (resolveStub, D-05). So the shelf now renders
 	// as soon as the album LIST is known and defers song resolution to the album page. Source
-	// priority (§8.2 AUGMENT): Deezer `deezerArtistAlbums` first (native list + covers), else
-	// Last.fm getArtistTopAlbums. Both paths drop only obvious stub names (isStubAlbumName) — a
+	// priority (quick-260831-re9, see discography-source.ts): MusicBrainz for a CJK artist, else
+	// Deezer, else Last.fm. Every path drops only obvious stub names (isStubAlbumName) — a
 	// garbage-name filter, NOT a resolvability gate. Unified { name, image } shape so nav (which
 	// keys on the album name) is unchanged.
 	// quick-260831-qkx: RenderAlbum is now the shared DiscographyEntry — it carries the Deezer
@@ -108,6 +110,19 @@
 	// 123 releases — 17 albums, 5 EPs, 101 singles — so an unfiltered shelf is the reported noise.
 	// The full list stays available on the discography page.
 	const shelfAlbums = $derived(filterByType(albums, 'main'));
+	// quick-260831-re9: MusicBrainz identity for a CJK artist. One artist carries every script +
+	// the romanized form ({en:"Eason Chan", zh-Hant:"陳奕迅", zh-Hans:"陈奕迅"}), so the hero can
+	// render the name for the user's artist-language setting instead of whichever spelling the
+	// route happened to be opened with.
+	let mbNames = $state<Record<string, string>>({});
+	let mbCanonical = $state<string | null>(null);
+	/** The artist name to DISPLAY. Falls back to the route name whenever MusicBrainz was not the
+	 *  source (non-CJK artists keep today's behaviour exactly). */
+	const displayArtist = $derived(
+		mbCanonical || Object.keys(mbNames).length
+			? pickLocaleName(mbNames, mbCanonical, settings.artistLang, name)
+			: name
+	);
 
 	// "More like this" shelf (quick-260607-jip). getSimilarArtists() chains Last.fm → Deezer
 	// (jau-added fallback) → same-artist. Each related artist gets its avatar via Deezer's
@@ -332,12 +347,6 @@
 
 	// Drop obvious stubs UP FRONT before any verification (D-18): an empty / whitespace-only name,
 	// or a known placeholder string. Applied to BOTH the Deezer and the Last.fm list paths.
-	function isStubAlbumName(raw: string | null | undefined): boolean {
-		const s = (raw ?? '').trim().toLowerCase();
-		if (!s) return true;
-		return s === '(null)' || s === 'null' || s === 'undefined' || s === 'unknown album' || s === 'unknown';
-	}
-
 	// SEPARATE albums effect (D-04 + ART-01 D-18/D-19). Mirrors the enrichedFor race guard with
 	// its own `albumsFor` key. Never blocks the Hit-songs / bio load; an empty settle → the
 	// section hides. Verify-before-render: skeleton stays up until track-counts are known.
@@ -355,47 +364,15 @@
 			albumsLoading = true;
 			void (async () => {
 				try {
-					// Path A (preferred, D-19): Deezer carries the album list + covers natively.
-					// quick-260711-te4: NO nb_tracks>0 pre-gate — render every album that exists;
-					// the album page resolves the songs within on tap.
-					const dzAlbums = await deezerArtistAlbums(n).catch(() => []);
+					// quick-260831-re9: source selection moved into loadDiscography — MusicBrainz for a
+					// CJK artist (original-script titles; 陳奕迅 is 102 release-groups there vs the 5
+					// Deezer was showing), Deezer for everyone else, Last.fm last. Non-CJK artists take
+					// exactly the path they took before.
+					const load = await loadDiscography(n);
 					if (albumsFor !== n) return; // race guard
-					if (dzAlbums.length) {
-						// quick-260831-qkx: carry id/date/type through, then order newest-first. The
-						// proxy already returns the artist's WHOLE discography (paged), so this is the
-						// exhaustive list; the shelf filters it and the discography page does not.
-						const kept = sortByReleaseDesc(
-							dzAlbums
-								.filter((a) => !isStubAlbumName(a.title))
-								.map(
-									(a) =>
-										({
-											id: a.id,
-											name: a.title,
-											image: a.cover,
-											releaseDate: a.release_date,
-											type: a.record_type
-										}) satisfies RenderAlbum
-								)
-						);
-						if (albumsFor === n) albums = kept;
-						return;
-					}
-					// Path B (fallback, §8.2): Deezer does not cover this artist → Last.fm album list.
-					// quick-260711-te4: the CAPPED per-album getAlbumTracklist verification is GONE —
-					// it gated the shelf on song-resolvability and cost N fetches. Drop only stub names.
-					const lfAlbums = await getArtistTopAlbums(n).catch((): DiscoveryAlbum[] => []);
-					if (albumsFor !== n) return; // race guard
-					// Path B carries no id/date/type — those stay null, so these entries keep their
-					// incoming order (sortByReleaseDesc puts undated last, stable) and render without
-					// a type label, exactly as before this change.
-					const kept = lfAlbums
-						.filter((a) => !isStubAlbumName(a.name))
-						.map(
-							(a) =>
-								({ id: null, name: a.name, image: a.image, releaseDate: null, type: null }) satisfies RenderAlbum
-						);
-					if (albumsFor === n) albums = kept;
+					albums = load.entries;
+					mbNames = load.names;
+					mbCanonical = load.canonicalName;
 				} finally {
 					if (albumsFor === n) albumsLoading = false;
 				}
@@ -483,7 +460,11 @@
 	{:else}
 		<div class="herocover" style:background-image="linear-gradient(145deg,#3a2d63,#1a1326)"></div>
 	{/if}
-	<h1>{names.dnArtist(name)}</h1>
+	<!-- quick-260831-re9: displayArtist is the MusicBrainz locale-resolved name when MB identified
+	     this artist (so 周傑倫 / Jay Chou / 周杰倫 all render per the artist-language setting), else
+	     the route name. names.dnArtist still runs so the existing translation layer is unchanged
+	     for every non-MB artist. -->
+	<h1>{names.dnArtist(displayArtist)}</h1>
 	<p class="note">{t('artist.derived', { count: songs.length })}</p>
 
 	<!-- kmn: action bar — Favourite / Play (random hit) / Share. Matches the album-page
@@ -574,9 +555,9 @@
 			<a class="see-all" href={'/artist/' + encodeURIComponent(name) + '/albums'}>{t('artist.seeAllAlbums')}</a>
 		</h2>
 		<div class="albumrow" use:dragScroll>
-			{#each shelfAlbums as al (al.id ?? al.name)}
+			{#each shelfAlbums as al (al.mbid ?? al.id ?? al.name)}
 				<button class="album" onclick={() => goto(albumHref(al, name))} use:tapBounce>
-					<span class="al-cover" style:background-image={al.image ? `url(${al.image})` : fallbackCoverSeed(al.name)}></span>
+					<span class="al-cover" style:background-image={al.image ? `url(${al.image}), ${fallbackCoverSeed(al.name)}` : fallbackCoverSeed(al.name)}></span>
 					<span class="al-name" use:marquee><span class="marquee-inner">{names.dnTitle(al.name)}</span></span>
 					<span class="al-count" use:marquee><span class="marquee-inner">
 						{#if typeLabelKey(al.type)}{t(typeLabelKey(al.type) as TranslationKey)}{:else}{t('artist.albumLabel')}{/if}{#if releaseYear(al.releaseDate)}{' · ' + releaseYear(al.releaseDate)}{/if}
@@ -694,6 +675,10 @@
 	.readmore { display: inline-block; margin-top: 8px; color: var(--color-primary); font-size: 13px; }
 	section { margin: 18px 0; }
 	section h2 { font-size: calc(1.1rem * var(--fs-title, 1)); margin: 0 0 12px; }
+	/* quick-260831-re9: album covers are painted as TWO layers — the cover URL over the deterministic
+	   gradient. MusicBrainz albums get their art from Cover Art Archive, which can 404 (8/8 hit on a
+	   sample, but not guaranteed); a failed image layer simply does not paint, so the gradient shows
+	   through instead of a blank tile. No probe request needed to know whether art exists. */
 	/* quick-260831-qkx: the Albums heading now carries a "See all" link to the full discography. */
 	.albums-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 	.see-all { font-size: 0.8rem; font-weight: 600; color: var(--color-primary); text-decoration: none; white-space: nowrap; }

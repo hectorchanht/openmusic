@@ -17,10 +17,8 @@
 	import { t, type TranslationKey } from '$lib/i18n';
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { marquee } from '$lib/actions/marquee';
-	import { deezerArtistAlbums } from '$lib/services/deezer';
-	import { getArtistTopAlbums, type DiscoveryAlbum } from '$lib/services/lastfm';
+	import { loadDiscography } from '$lib/services/discography-source';
 	import {
-		sortByReleaseDesc,
 		filterByType,
 		typeLabelKey,
 		releaseYear,
@@ -46,15 +44,8 @@
 		{ id: 'all', key: 'artist.filterAll' }
 	];
 
-	/** Drop obvious upstream stub names (mirrors the artist page's isStubAlbumName). */
-	function isStubAlbumName(raw: string | null | undefined): boolean {
-		const s = (raw ?? '').trim().toLowerCase();
-		if (!s) return true;
-		return s === '(null)' || s === 'null' || s === 'undefined' || s === 'unknown album' || s === 'unknown';
-	}
-
-	// Same two-path source + race-guard idiom as the artist page's albums effect: Deezer first
-	// (native list, covers, dates, types), Last.fm only when Deezer does not cover the artist.
+	// quick-260831-re9: source selection now lives in loadDiscography — MusicBrainz for CJK
+	// artists (original-script titles, far deeper coverage), Deezer otherwise, Last.fm last.
 	$effect(() => {
 		const n = name;
 		if (!online.isOnline) {
@@ -67,35 +58,9 @@
 			loading = true;
 			void (async () => {
 				try {
-					const dzAlbums = await deezerArtistAlbums(n).catch(() => []);
+					const load = await loadDiscography(n);
 					if (albumsFor !== n) return; // race guard
-					if (dzAlbums.length) {
-						const kept = sortByReleaseDesc(
-							dzAlbums
-								.filter((a) => !isStubAlbumName(a.title))
-								.map(
-									(a) =>
-										({
-											id: a.id,
-											name: a.title,
-											image: a.cover,
-											releaseDate: a.release_date,
-											type: a.record_type
-										}) satisfies DiscographyEntry
-								)
-						);
-						if (albumsFor === n) albums = kept;
-						return;
-					}
-					const lfAlbums = await getArtistTopAlbums(n).catch((): DiscoveryAlbum[] => []);
-					if (albumsFor !== n) return; // race guard
-					const kept = lfAlbums
-						.filter((a) => !isStubAlbumName(a.name))
-						.map(
-							(a) =>
-								({ id: null, name: a.name, image: a.image, releaseDate: null, type: null }) satisfies DiscographyEntry
-						);
-					if (albumsFor === n) albums = kept;
+					albums = load.entries;
 				} finally {
 					if (albumsFor === n) loading = false;
 				}
@@ -139,10 +104,10 @@
 	<p class="empty">{t('artist.discographyEmpty')}</p>
 {:else}
 	<ul class="list">
-		{#each shown as al (al.id ?? al.name)}
+		{#each shown as al (al.mbid ?? al.id ?? al.name)}
 			<li>
 				<button class="row" onclick={() => goto(albumHref(al, name))} use:tapBounce>
-					<span class="cover" style:background-image={al.image ? `url(${al.image})` : fallbackCoverSeed(al.name)}></span>
+					<span class="cover" style:background-image={al.image ? `url(${al.image}), ${fallbackCoverSeed(al.name)}` : fallbackCoverSeed(al.name)}></span>
 					<span class="meta">
 						<span class="al-name" use:marquee><span class="marquee-inner">{names.dnTitle(al.name)}</span></span>
 						<span class="al-sub">

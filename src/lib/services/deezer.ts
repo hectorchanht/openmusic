@@ -118,8 +118,11 @@ export function buildDeezerSearchUrl(term: string): string {
  * Combine the caller's AbortSignal (if any) with a per-call timeout so a hung request always
  * settles. Uses AbortSignal.any when available, else falls back to the timeout signal alone
  * (still bounded — the caller's pre-fetch `aborted` check short-circuits the common case).
+ *
+ * quick-260831-re9: EXPORTED so musicbrainz.ts reuses the identical bounding rule rather than
+ * carrying a second copy of it. Same timeout, same fallback.
  */
-function combinedSignal(caller?: AbortSignal): AbortSignal {
+export function combinedSignal(caller?: AbortSignal): AbortSignal {
 	const timeout = AbortSignal.timeout(FETCH_TIMEOUT_MS);
 	if (!caller) return timeout;
 	const anyFn = (AbortSignal as { any?: (signals: AbortSignal[]) => AbortSignal }).any;

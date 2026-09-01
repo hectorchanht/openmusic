@@ -11,7 +11,16 @@
 /** A release as the UI renders it. `releaseDate`/`type` are absent on Last.fm-sourced fallback
  *  entries, which is why every rule below has to tolerate null. */
 export interface DiscographyEntry {
+	/** Deezer album id, when the entry came from Deezer. */
 	id: number | null;
+	/** MusicBrainz release-group id, when the entry came from MusicBrainz (quick-260831-re9).
+	 *  NOTE for renderers: MusicBrainz entries have `id: null`, and a discography legitimately
+	 *  contains repeated TITLES (reissues, a single and an album of the same name). So an
+	 *  `{#each}` key must be `mbid ?? id ?? name` — keying on name alone silently collapsed
+	 *  陳奕迅's 102 releases to 58 during this task.
+	 *  Carried so the album page can fetch the ORIGINAL-SCRIPT tracklist by id — the same trick
+	 *  `id` plays for Deezer. Exactly one of the two is set in practice. */
+	mbid?: string | null;
 	name: string;
 	image: string | null;
 	releaseDate: string | null;
@@ -101,6 +110,10 @@ export function releaseYear(releaseDate: string | null): string | null {
  */
 export function albumHref(entry: DiscographyEntry, artistName: string): string {
 	const base = '/album/' + encodeURIComponent(entry.name) + '?artist=' + encodeURIComponent(artistName);
+	// quick-260831-re9: an mbid wins when present — MusicBrainz is only ever chosen for CJK
+	// artists, where it is the source with the original-script tracklist. Deezer's dzid is the
+	// path for everyone else; neither → the album page falls back to its Last.fm name lookup.
+	if (entry.mbid) return base + '&mbid=' + encodeURIComponent(entry.mbid);
 	return entry.id ? base + '&dzid=' + encodeURIComponent(String(entry.id)) : base;
 }
 
