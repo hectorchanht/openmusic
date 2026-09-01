@@ -332,6 +332,7 @@ const pt: Dict = {
 	"artist.filterSingle": "Singles",
 	"artist.discographyEmpty": "Nenhum lançamento encontrado para este artista.",
 	"artist.hitSongs": "Músicas de sucesso",
+	"artist.showMore": "Mostrar mais",
 	"artist.moreLikeThis": "Similares",
 	"artist.noSongs": "Nenhuma música encontrada para {name}.",
 	"artist.favorite": "Favorito",

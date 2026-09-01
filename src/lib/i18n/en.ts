@@ -388,6 +388,7 @@ const en = {
 	"artist.filterSingle": "Singles",
 	"artist.discographyEmpty": "No releases found for this artist.",
 	"artist.hitSongs": "Hit songs",
+	"artist.showMore": "Show more",
 	"artist.moreLikeThis": "More like this",
 	"artist.noSongs": "No songs found for {name}.",
 	"artist.favorite": "Favourite",

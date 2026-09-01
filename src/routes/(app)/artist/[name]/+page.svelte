@@ -55,6 +55,19 @@
 	let loading = $state(true);
 	let loadedFor = '';
 
+	// quick-260831-rjo: the hit-songs list used to be hard-capped at a 30-row render slice, so a
+	// prolific artist's deeper songs were unreachable. Pagination here is TWO layers: a render
+	// window (`shown`) over the already-deduped `songs`, and a deeper searchAll page fetch once
+	// that window exhausts the loaded set. searchAll(kw, page) returns a CUMULATIVE SUPERSET, so
+	// a deeper page REPLACES `songs` — never concatenate (duplicate uids would break the keyed
+	// {#each}). Playback semantics are unchanged: the row tap still calls
+	// player.setListQueue(songs, 'artist'), which queues the FULL loaded set, not the render window.
+	const SONGS_PAGE_SIZE = 30;
+	let shown = $state(SONGS_PAGE_SIZE);
+	let songsPage = $state(1);
+	let hasMoreSongs = $state(true);
+	let loadingMoreSongs = $state(false);
+
 	// ---- Last.fm enrichment (Phase 8, ENRICH-01/02 · D-07/D-08) ----
 	// Best-effort, AUGMENTS the derived track-list — it never blocks or replaces the
 	// searchAll load below (D-02). A SEPARATE $effect keyed on `name` with its own
@@ -244,12 +257,53 @@
 			loadedFor = n;
 			loading = true;
 			songs = [];
+			// quick-260831-rjo: reset the pagination state too, so an artist→artist nav doesn't
+			// leak the previous artist's render window / page depth / exhausted flag.
+			shown = SONGS_PAGE_SIZE;
+			songsPage = 1;
+			hasMoreSongs = true;
+			loadingMoreSongs = false; // a stale in-flight page won't clear this (loadedFor guard)
 			searchAll(n, 1)
 				.then((r) => (songs = dedupeBest(r.interleaved, settings.preferredSource)))
 				.catch(() => (songs = []))
 				.finally(() => (loading = false));
 		}
 	});
+
+	// quick-260831-rjo: "Show more" for hit songs. Reveals already-loaded rows first (zero
+	// network), and only fetches a deeper page once the render window has caught up with the
+	// loaded set. Tap-gated (no auto-loop) + a re-entry flag, so it can't storm the proxy.
+	function loadMoreSongs() {
+		if (loadingMoreSongs) return;
+		// Cheap path: more loaded rows than we're rendering → just widen the window.
+		if (songs.length > shown) {
+			shown += SONGS_PAGE_SIZE;
+			return;
+		}
+		// OFFL-03: never fire searchAll while offline (it would hang behind a dead network).
+		if (!hasMoreSongs || !online.isOnline) return;
+		const n = name; // capture BEFORE awaiting (race guard, same idiom as the enrich effect)
+		loadingMoreSongs = true;
+		const next = songsPage + 1;
+		searchAll(n, next)
+			.then((r) => {
+				if (loadedFor !== n) return; // superseded by an artist nav — discard
+				const merged = dedupeBest(r.interleaved, settings.preferredSource);
+				if (merged.length <= songs.length) {
+					hasMoreSongs = false; // sources exhausted: the deeper page added nothing new
+				} else {
+					songs = merged; // cumulative superset REPLACES the list
+					songsPage = next;
+					shown += SONGS_PAGE_SIZE;
+				}
+			})
+			.catch(() => {
+				if (loadedFor === n) hasMoreSongs = false; // stop hammering a failing source
+			})
+			.finally(() => {
+				if (loadedFor === n) loadingMoreSongs = false;
+			});
+	}
 
 	// SEPARATE enrichment effect (D-02: augment, never block/replace the searchAll
 	// load above). Keyed on `name` with its own `enrichedFor` guard.
@@ -555,7 +609,7 @@
 		<h2>{t('artist.hitSongs')}</h2>
 		{#if songs.length}
 			<ul class="list">
-				{#each songs.slice(0, 30) as track, i (track.uid)}
+				{#each songs.slice(0, shown) as track, i (track.uid)}
 					<li>
 						<button class="row" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); menuTrack = track; menuOpen = true; }} use:swipeAction={{ onSwipeRight: () => queueTrack(track), onSwipeLeft: () => nextTrack(track) }} onclick={() => { player.setListQueue(songs, 'artist'); player.play(track, { fresh: true }); }}>
 							<span class="rank">{i + 1}</span>
@@ -570,6 +624,14 @@
 					</li>
 				{/each}
 			</ul>
+			<!-- quick-260831-rjo: reveal the next 30 loaded rows, fetching a deeper searchAll page
+			     when the render window has caught up with the loaded set. Hidden once the sources
+			     are exhausted AND everything loaded is on screen. -->
+			{#if loadingMoreSongs}
+				<div class="more"><p class="muted">{t('search.loadingMore')}</p></div>
+			{:else if songs.length > shown || hasMoreSongs}
+				<div class="more"><button class="act" use:tapBounce onclick={loadMoreSongs}>{t('artist.showMore')}</button></div>
+			{/if}
 		{:else}<p class="muted">{t('artist.noSongs', { name: names.dnArtist(name) })}</p>{/if}
 	</section>
 {/if}
@@ -664,6 +726,10 @@
 	.r-title { font-size: calc(14px * var(--fs-title, 1)); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--color-text-muted);}
 	.r-sub { font-size: calc(12px * var(--fs-artist, 1)); color: var(--color-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 	.muted { color: var(--color-text-muted); font-size: 14px; }
+	/* quick-260831-rjo: centered "Show more" / "Loading more…" slot under the hit-songs list.
+	   The button reuses the existing .act pill so it matches the hero action bar. */
+	.more { display: flex; justify-content: center; margin-top: 12px; }
+	.more .muted { margin: 0; font-size: 13px; }
 
 	/* OFFL-03 inline offline empty-state (shared idiom across online-only surfaces). */
 	.offline-state { text-align: center; padding: 32px 16px; color: var(--color-text-muted); }

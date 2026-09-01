@@ -332,6 +332,7 @@ const id: Dict = {
 	"artist.filterSingle": "Single",
 	"artist.discographyEmpty": "Tidak ada rilisan untuk artis ini.",
 	"artist.hitSongs": "Lagu-lagu hit",
+	"artist.showMore": "Tampilkan lainnya",
 	"artist.moreLikeThis": "Mirip ini",
 	"artist.noSongs": "Tidak ditemukan lagu untuk {name}.",
 	"artist.favorite": "Favorit",

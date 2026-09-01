@@ -332,6 +332,7 @@ const vi: Dict = {
 	"artist.filterSingle": "Đĩa đơn",
 	"artist.discographyEmpty": "Không tìm thấy bản phát hành nào của nghệ sĩ này.",
 	"artist.hitSongs": "Bài hát hay",
+	"artist.showMore": "Xem thêm",
 	"artist.moreLikeThis": "Tương tự",
 	"artist.noSongs": "Không tìm thấy bài hát nào cho {name}.",
 	"artist.favorite": "Yêu thích",

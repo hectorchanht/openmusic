@@ -332,6 +332,7 @@ const th: Dict = {
 	"artist.filterSingle": "ซิงเกิล",
 	"artist.discographyEmpty": "ไม่พบผลงานของศิลปินคนนี้",
 	"artist.hitSongs": "เพลงฮิต",
+	"artist.showMore": "แสดงเพิ่มเติม",
 	"artist.moreLikeThis": "ศิลปินที่คล้ายกัน",
 	"artist.noSongs": "ไม่พบเพลงสำหรับ {name}",
 	"artist.favorite": "ชื่นชอบ",

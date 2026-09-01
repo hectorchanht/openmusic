@@ -332,6 +332,7 @@ const ar: Dict = {
 	"artist.filterSingle": "الأغاني المنفردة",
 	"artist.discographyEmpty": "لا توجد إصدارات لهذا الفنان.",
 	"artist.hitSongs": "ضرب الأغاني",
+	"artist.showMore": "عرض المزيد",
 	"artist.moreLikeThis": "فنانون مشابهون",
 	"artist.noSongs": "لم يتم العثور على أغاني لـ {name}.",
 	"artist.favorite": "إضافة إلى المفضلة",

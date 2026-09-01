@@ -332,6 +332,7 @@ const tr: Dict = {
 	"artist.filterSingle": "Tekliler",
 	"artist.discographyEmpty": "Bu sanatçı için yayın bulunamadı.",
 	"artist.hitSongs": "Popüler şarkılar",
+	"artist.showMore": "Daha fazla göster",
 	"artist.moreLikeThis": "Benzer sanatçılar",
 	"artist.noSongs": "{name} için şarkı bulunamadı.",
 	"artist.favorite": "Favori",

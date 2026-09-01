@@ -332,6 +332,7 @@ const ru: Dict = {
 	"artist.filterSingle": "Синглы",
 	"artist.discographyEmpty": "Релизы этого исполнителя не найдены.",
 	"artist.hitSongs": "Хиты",
+	"artist.showMore": "Показать ещё",
 	"artist.moreLikeThis": "Похожие",
 	"artist.noSongs": "Песни для {name} не найдены.",
 	"artist.favorite": "В избранное",

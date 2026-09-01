@@ -362,6 +362,7 @@ const zhHans: Dict = {
 	"artist.filterSingle": "单曲",
 	"artist.discographyEmpty": "未找到该艺人的作品。",
 	"artist.hitSongs": "热门歌曲",
+	"artist.showMore": "显示更多",
 	"artist.moreLikeThis": "相似歌手",
 	"artist.noSongs": "找不到 {name} 的歌曲。",
 	"artist.favorite": "收藏",

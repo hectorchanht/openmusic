@@ -332,6 +332,7 @@ const hi: Dict = {
 	"artist.filterSingle": "सिंगल",
 	"artist.discographyEmpty": "इस कलाकार का कोई रिलीज़ नहीं मिला।",
 	"artist.hitSongs": "हिट गाने",
+	"artist.showMore": "और दिखाएँ",
 	"artist.moreLikeThis": "समान कलाकार",
 	"artist.noSongs": "No songs found for {name}.",
 	"artist.favorite": "पसंदीदा",
