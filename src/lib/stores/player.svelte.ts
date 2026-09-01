@@ -19,6 +19,7 @@ import { buildDiversePicks } from '$lib/services/picks';
 import { buildSimilarQueue } from '$lib/services/similar';
 import { buildOfflineQueue } from '$lib/services/downloads-queue';
 import { dedupeBest, sameSongKey } from '$lib/services/dedupe';
+import { overPrebufferCeiling } from '$lib/services/prebuffer-ceiling';
 import {
 	buildArtwork,
 	makeMetadata,
@@ -2643,6 +2644,11 @@ class Player {
 	 * timeupdate prefetch gate (prewarmNextAssets), never on the never-stop churn. Skipped for a
 	 * downloaded track (offline blob serves it) and where fetch/URL are absent. Raw fetch of media bytes
 	 * (NOT apiFetch — media never routes through the /api governor). Never throws, never bumps playGen.
+	 *
+	 * 32-D-15: ALSO bounded by SIZE — an advance whose Content-Length exceeds PREBUFFER_MAX_BYTES (24MB,
+	 * i.e. lossless only) skips the blob and streams from the CDN instead, so a low-end phone never holds
+	 * a ~50MB Blob per advance. Every lossy tier still prebuffers, so the bg-stall protection above is
+	 * intact exactly where it matters most (the cellular/'320' path).
 	 */
 	private async prebufferNext(track: Track) {
 		if (!browser) return;
@@ -2661,6 +2667,25 @@ class Player {
 			const resp = await fetch(url, { signal: sig, referrerPolicy: 'no-referrer' });
 			if (sig.aborted) return;
 			if (!resp.ok) return; // dead URL — leave the uid claimed so it is NOT re-fetched (play() uses the CDN URL)
+			// 32-D-15: decide from the response HEAD, before a single body byte is read. Content-Length is
+			// readable cross-origin here ONLY because the QQ CDN sends `access-control-expose-headers:
+			// Content-Length,Content-Range` (verified live on both 200 and 206) — it is not CORS-safelisted,
+			// so another provider may return null, which falls THROUGH to the blob (unknown size behaves
+			// exactly as it did before this guard — no regression on a header-less CDN). Stays a RAW fetch:
+			// media bytes never route through the /api governor (api-fetch-flood-freeze).
+			if (overPrebufferCeiling(resp.headers?.get('content-length') ?? null)) {
+				// Release the stream without downloading it, then bail with the uid still CLAIMED — the
+				// same f7c2580 contract as the !resp.ok branch above, so churn never re-fetches. play()
+				// simply finds no blob and uses the CDN URL, i.e. it STREAMS. Nothing changes for the
+				// 'prebuffer-blob' consumer at the src-swap site: that branch just does not fire (31-D-12
+				// provenance tagging untouched).
+				try {
+					await resp.body?.cancel();
+				} catch {
+					/* best-effort stream release */
+				}
+				return;
+			}
 			const blob = await resp.blob();
 			if (sig.aborted) return;
 			if (this.prebufferedBlobUrl) URL.revokeObjectURL(this.prebufferedBlobUrl);

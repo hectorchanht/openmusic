@@ -927,6 +927,78 @@ describe('player.prefetchNext — pre-resolve next track for gapless-ish play', 
 		expect(fetchMock).not.toHaveBeenCalled();
 	});
 
+	it('SKIPS the prebuffer blob above the 32-D-15 size ceiling, keeping the uid claimed', async () => {
+		// A FLAC-weight advance (measured sq = 55397039 bytes) must NOT become a ~53MB Blob on a low-end
+		// phone. The head is read, the stream is cancelled, and prebufferedUid stays CLAIMED — the same
+		// f7c2580 at-most-once contract as the !resp.ok branch — so churn never re-fetches and play()
+		// falls back to streaming the CDN URL.
+		const cancelSpy = vi.fn(async () => {});
+		const blobSpy = vi.fn(async () => new Blob(['audio-bytes']));
+		const fetchMock = vi.fn(async () => ({
+			ok: true,
+			headers: { get: (h: string) => (h === 'content-length' ? '55397039' : null) },
+			body: { cancel: cancelSpy },
+			blob: blobSpy
+		}));
+		vi.stubGlobal('fetch', fetchMock);
+		const createObjSpy = vi.fn(() => 'blob:next-bytes');
+		vi.stubGlobal('URL', {
+			createObjectURL: createObjSpy,
+			revokeObjectURL: vi.fn()
+		} as unknown as typeof URL);
+		vi.spyOn(library, 'isDownloaded').mockReturnValue(false);
+		const state = player as unknown as { prebufferedUid: string | null; prebufferedBlobUrl: string | null };
+		state.prebufferedUid = null;
+		state.prebufferedBlobUrl = null;
+
+		const cur = mk('netease', '0', 'A', 'Now');
+		const next = stub('qq', '1', 'B', 'Next');
+		player.queue = [cur, next];
+		player.current = cur;
+		mockEnsure.mockResolvedValue({ ...next, detailsLoaded: true, audioUrl: 'https://cdn/next.flac' });
+
+		await prefetch();
+		await flush();
+
+		expect(blobSpy).not.toHaveBeenCalled(); // no bytes downloaded
+		expect(createObjSpy).not.toHaveBeenCalled(); // no blob: URL held
+		expect(cancelSpy).toHaveBeenCalled(); // stream released
+		expect(state.prebufferedUid).toBe(next.uid); // still claimed — no re-fetch on churn
+		expect(state.prebufferedBlobUrl).toBeNull();
+	});
+
+	it('prebuffers when the CDN exposes no Content-Length (unknown size falls through — 32-D-15)', async () => {
+		// Content-Length is not CORS-safelisted; a provider without access-control-expose-headers returns
+		// null. That MUST behave exactly as before the ceiling existed, or a header-less CDN silently
+		// loses the bg-lockscreen-stall-noskip protection.
+		const fetchMock = vi.fn(async () => ({
+			ok: true,
+			headers: { get: () => null },
+			blob: async () => new Blob(['audio-bytes'])
+		}));
+		vi.stubGlobal('fetch', fetchMock);
+		const createObjSpy = vi.fn(() => 'blob:next-bytes');
+		vi.stubGlobal('URL', {
+			createObjectURL: createObjSpy,
+			revokeObjectURL: vi.fn()
+		} as unknown as typeof URL);
+		vi.spyOn(library, 'isDownloaded').mockReturnValue(false);
+		const state = player as unknown as { prebufferedUid: string | null; prebufferedBlobUrl: string | null };
+		state.prebufferedUid = null;
+		state.prebufferedBlobUrl = null;
+
+		const cur = mk('netease', '0', 'A', 'Now');
+		const next = stub('qq', '1', 'B', 'Next');
+		player.queue = [cur, next];
+		player.current = cur;
+		mockEnsure.mockResolvedValue({ ...next, detailsLoaded: true, audioUrl: 'https://cdn/next.mp3' });
+
+		await prefetch();
+		await flush();
+
+		expect(createObjSpy).toHaveBeenCalled();
+	});
+
 	// PLAY-RESILIENCE: bounded FORWARD-RESOLVE-AND-PROBE walk (restored from the pre-76b3e6f design).
 	// A reject on the immediate-next is TRANSIENT — the walk skips it (without marking it dead) and
 	// advances to the next candidate so a single-source hiccup never leaves the queue with a dead
