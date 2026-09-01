@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: YTMusic-Powered Up-Next
 status: executing
-stopped_at: "Completed 32-06-PLAN.md (prebuffer 24MB size ceiling: FLAC streams, lossy tiers still prebuffer)"
-last_updated: "2026-09-01T04:18:30.179Z"
-last_activity: "2026-08-31 - Completed 32-06: Content-Length ceiling in prebufferNext (24MB) via a pure tested predicate; uid-claim + next-1 contracts intact"
+stopped_at: "Completed 32-09-PLAN.md (D-20 two-layer resolve entry: short-TTL url beside the permanent mid, VERSION '3', edge refresh-on-read refill, poisoned-hit fall-through pinned)"
+last_updated: "2026-09-01T04:34:16.623Z"
+last_activity: "2026-08-31 - Completed 32-09: v3 url layer restored (the 0.44s path); 101 files / 1916 tests green, pnpm check 0/0. NEXT: 32-07 (phase gate, now conceptually wave 4), then 32-08"
 progress:
   total_phases: 8
   completed_phases: 5
   total_plans: 51
-  completed_plans: 43
+  completed_plans: 44
   percent: 63
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-06-10)
 ## Current Position
 
 Phase: 32 (QQ-lossless-first resolve) — EXECUTING
-Plan: 7 of 8
+Plan: 7 of 9 (32-09 executed out of order per D-20; 32-07 and 32-08 remain)
 Status: Executing Phase 32
 
 ### 30-06 checkpoint status
@@ -127,6 +127,7 @@ Remaining human UAT: real-device <audio> playback+seek + download-to-disk; deplo
 | Phase 32 P03 | 4 min | 2 tasks | 1 files |
 | Phase 32 P05 | 11 min | 3 tasks | 3 files |
 | Phase 32 P06 | ~9 min | 2 tasks | 4 files |
+| Phase 32 P09 | 28 min | 3 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -226,6 +227,8 @@ Recent decisions affecting current work:
 - [Phase 32]: 32-D-12/13: qq detail resolves DIRECT to tang via apiFetch with a one-shot /api/qq/detail fallback — msg dropped (mid alone returns the full ladder, verified live 200 in 2.0s)
 - [Phase 32]: 32-D-18/19: accom (伴奏, .ogg) demoted below every real-song rung and labelled ACCOM; inferQualityFromUrl is now a fallback, never an overwrite of the tier the ladder picked
 - [Phase ?]: 32-D-15: 24 MB prebuffer ceiling read from Content-Length (all sources, no Track plumbing) rather than the qq-only song_size_*_str — FLAC streams, every lossy tier still prebuffers
+- [Phase 32]: 32-D-20: the edge resolve entry carries BOTH a permanent qq song_mid and a short-TTL playable url; the url's 900s lifetime lives as an in-payload urlExp the edge checks at read time, so writeResolveEntry's payload-driven Cache-Control split (32-D-10a) is byte-unchanged
+- [Phase 32]: 32-09: catalog's own-mid equality guard covers BOTH the url adoption and the mid adoption — with lossless mid-holders now reading the cache, guarding only the url branch would leave the sibling branch able to rewrite a known track's identity on a matchKey collision
 
 ### Pending Todos
 
@@ -411,9 +414,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-01T04:18:07.503Z
-Stopped at: Completed 32-05-PLAN.md (qq resolve hot path: direct tang call, https-only ladder, accom demoted)
-Resume: install `android/app/build/outputs/apk/debug/app-debug.apk` on an Android device, open `/song/Olivia-Dean/Man-I-Need` (proven to return a real 30,840 B JPEG from production), confirm the cover renders rather than a broken image, then kill the network and confirm the gradient fallback appears. That single check closes 30-06 and Phase 30. Do NOT run `/gsd:verify-work` for Phase 30 until it is approved — OG-PAGE-01 terminates in it. Optional, non-blocking leftovers: iMessage/Slack cards, and real 24h cache TTL/eviction.
+Last session: 2026-09-01T04:34:09.709Z
+Stopped at: Completed 32-09-PLAN.md (D-20 two-layer resolve entry: short-TTL url beside the permanent mid, VERSION '3', edge refresh-on-read refill, poisoned-hit fall-through pinned)
+Resume: run 32-07-PLAN.md next (the phase gate — it must ASSEMBLE 32-09's output, so treat it as wave 4), then 32-08. 32-09-SUMMARY.md hands 32-07 two NEW live-workerd walks against `pnpm preview` / the deployed URL: (1) stale-url → refresh — GET twice, the second GET should return a populated https `entry.url` with `urlQuality: "lossless"`; (2) bust → miss → mid-only → url-warm — POST the bust then GET three times. Neither is provable under `pnpm dev` (`edgeCache()` returns null, every cache path silently no-ops). Still outstanding from Phase 30, unchanged: install `android/app/build/outputs/apk/debug/app-debug.apk` on an Android device, open `/song/Olivia-Dean/Man-I-Need` (proven to return a real 30,840 B JPEG from production), confirm the cover renders rather than a broken image, then kill the network and confirm the gradient fallback appears. That single check closes 30-06 and Phase 30. Do NOT run `/gsd:verify-work` for Phase 30 until it is approved — OG-PAGE-01 terminates in it. Optional, non-blocking leftovers: iMessage/Slack cards, and real 24h cache TTL/eviction.
 
 ## Deferred Items
 
