@@ -46,6 +46,8 @@ export interface LastfmInfo {
 	 * deep-equal are unaffected.
 	 */
 	tracks?: { artist: string; title: string }[];
+	/** Last.fm's canonical entity name (quick-260831-s0c) — the artist-tile merge key. */
+	name?: string;
 }
 
 const EMPTY: LastfmInfo = {
@@ -92,6 +94,8 @@ interface LfmTrackBlock {
 	track?: LfmAlbumTrack[] | LfmAlbumTrack;
 }
 interface LfmEntity {
+	/** The canonical entity name Last.fm resolved the query to (quick-260831-s0c). */
+	name?: string;
 	listeners?: string | number;
 	playcount?: string | number;
 	stats?: { listeners?: string | number; playcount?: string | number };
@@ -243,7 +247,7 @@ function pickTracks(block?: LfmTrackBlock): { artist: string; title: string }[] 
 }
 
 /** Reshape one getInfo entity (track/artist/album) into the clean LastfmInfo shape. */
-function reshape(entity: LfmEntity): LastfmInfo {
+function reshape(entity: LfmEntity, isArtist = false): LastfmInfo {
 	const { bio, bioUrl } = pickBio(entity.bio ?? entity.wiki);
 	// Art: prefer the entity's own image[], else the embedded album image (track.getInfo).
 	const image = pickImage(entity.image) ?? pickImage(entity.album?.image);
@@ -251,6 +255,19 @@ function reshape(entity: LfmEntity): LastfmInfo {
 	const listeners = toNumber(entity.listeners ?? entity.stats?.listeners);
 	const playcount = toNumber(entity.playcount ?? entity.stats?.playcount);
 	const info: LastfmInfo = { tags, bio, bioUrl, image, listeners, playcount };
+	// quick-260831-s0c: surface Last.fm's CANONICAL entity name — for artist.getinfo ONLY.
+	// Last.fm already resolves every spelling of an artist to one entity: 周傑倫 / 周杰倫 / 周杰伦 /
+	// "Jay Chou" all return the same record (identical listener counts, 122,572 measured
+	// 2026-09-01), as do 陳奕迅 / "Eason Chan" (69,834). The search page derives its artist tiles
+	// from raw per-source `track.artist` strings, so those spellings became THREE tiles for one
+	// artist; exposing the name the avatar call ALREADY fetches gives a free merge key.
+	// Deliberately NOT surfaced for track/album: their entities also carry a `name` (the track or
+	// album title), which nothing consumes and which would change their long-standing response
+	// shape — the album EMPTY deep-equal test caught exactly that.
+	if (isArtist) {
+		const canonical = (entity.name ?? '').trim();
+		if (canonical) info.name = canonical;
+	}
 	// album.getinfo only: surface the ordered tracklist (D-05). Undefined otherwise so
 	// the single-entity getInfo contract + EMPTY deep-equal are unchanged.
 	const tracks = pickTracks(entity.tracks);
@@ -310,7 +327,7 @@ export const GET: RequestHandler = async ({ url, platform, request }) => {
 		if (data?.error) return jsonInfo(EMPTY, origin);
 		const entity = data.track ?? data.artist ?? data.album;
 		if (!entity) return jsonInfo(EMPTY, origin); // no entity → NO cache write
-		const info = reshape(entity);
+		const info = reshape(entity, entity === data.artist);
 		if (cache) {
 			// Cache a CORS-FREE copy of the success (origin re-applied per request on a hit, WR-01).
 			// quick-260713-mqv.

@@ -35,6 +35,10 @@ export interface EnrichResult {
 	/** Album consumers (Plan 03) surface these; undefined for track/artist. */
 	listeners?: number | null;
 	playcount?: number | null;
+	/** Last.fm's CANONICAL entity name (quick-260831-s0c). Last.fm resolves every spelling of an
+	 *  artist to one entity, so this is a free merge key for the search page's artist tiles —
+	 *  the enrichment call that fetches it already runs for every tile's avatar. */
+	name?: string | null;
 }
 
 /** The endpoint's clean response shape (mirrors LastfmInfo in +server.ts). */
@@ -43,6 +47,7 @@ interface LastfmInfo {
 	bio?: string | null;
 	bioUrl?: string | null;
 	image?: string | null;
+	name?: string | null;
 	listeners?: number | null;
 	playcount?: number | null;
 	/** Ordered album tracklist — present ONLY for album.getinfo (Phase 9, D-05). */
@@ -128,6 +133,7 @@ function toResult(info: LastfmInfo): EnrichResult {
 	};
 	if (info.listeners != null) out.listeners = info.listeners;
 	if (info.playcount != null) out.playcount = info.playcount;
+	if (info.name) out.name = info.name;
 	return out;
 }
 

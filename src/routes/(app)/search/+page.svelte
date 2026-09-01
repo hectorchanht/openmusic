@@ -19,6 +19,7 @@
 	} from '$lib/search/autocomplete-logic';
 	import { mapWithConcurrency } from '$lib/services/discovery';
 	import { settings } from '$lib/stores/settings.svelte';
+	import { mergeArtistTiles, type ArtistTile } from '$lib/services/artist-tiles';
 	import { player } from '$lib/stores/player.svelte';
 	import { names } from '$lib/stores/names.svelte';
 	import { searchSession } from '$lib/stores/searchSession.svelte';
@@ -233,7 +234,8 @@
 	// limit — the row is horizontally scrollable so all of them ride together). Sorted by how
 	// often the artist appears in the results so the most-represented are first / above the
 	// fold. Avatars resolve via LF-primary → Deezer-fallback (race-guarded on the active query).
-	type ArtistTile = { name: string; image: string | null; trackCount: number };
+	// quick-260831-s0c: ArtistTile now carries Last.fm's canonical name so duplicate spellings of
+	// one artist can be merged (see mergeArtistTiles).
 	let artistTiles = $state<ArtistTile[]>([]);
 	let artistTilesFor = '';
 
@@ -255,7 +257,7 @@
 		const sorted = [...groups.values()].sort((a, b) =>
 			b.count - a.count || a.firstIdx - b.firstIdx
 		);
-		return sorted.map((g) => ({ name: g.name, image: null, trackCount: g.count }));
+		return sorted.map((g) => ({ name: g.name, image: null, trackCount: g.count, canonical: null }));
 	}
 
 	async function refreshArtistTiles(query: string, rows: Track[]) {
@@ -270,10 +272,15 @@
 		const withCovers = await mapWithConcurrency(tiles, 6, async (tile) => {
 			const lf = await enrichArtist(tile.name).catch(() => null);
 			const img = lf?.lastfmArt ?? (await deezerArtistCover(tile.name).catch(() => null));
-			return { ...tile, image: img };
+			// quick-260831-s0c: keep Last.fm's CANONICAL name from the call we were already making
+			// for the avatar. It is the merge key — Last.fm resolves 周傑倫 / 周杰倫 / 周杰伦 /
+			// "Jay Chou" to one entity, which is why that search produced three tiles for one artist.
+			return { ...tile, image: img, canonical: lf?.name ?? null };
 		});
 		if (artistTilesFor !== tag) return; // race guard — newer query took over
-		artistTiles = withCovers;
+		// Merge only AFTER enrichment: before it every tile has canonical:null and would group by
+		// its own name, i.e. exactly the unmerged row we paint immediately for zero-latency.
+		artistTiles = mergeArtistTiles(withCovers, settings.artistLang);
 	}
 
 	function fallbackArtistCover(name: string): string {
