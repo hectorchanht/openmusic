@@ -752,8 +752,23 @@ describe('ensureTrackDetails — crossSourceLyric is single-source (RESOLVE-02)'
 // own entry out of band — a client-supplied mid would change what every other user in the PoP plays).
 describe('ensureTrackDetails — edge resolve cache (32-D-10 / 32-D-10b)', () => {
 	const MID = '003OUlho2gk0Ny';
-	/** 32-D-10: the entry payload is a qq song_mid + the avail hints. No url. */
-	const HIT: ResolveEntry = { source: 'qq', songid: MID, avail: { qq: 'ok' } };
+	/** 32-D-10: the mid + the avail hints. url-LESS — the shape the edge SEARCH fill writes. */
+	const HIT: ResolveEntry = {
+		source: 'qq',
+		songid: MID,
+		avail: { qq: 'ok' },
+		url: null,
+		urlExp: null,
+		urlQuality: null
+	};
+	/** 32-D-20: the same entry once the edge's refresh-on-read warmed its lossless url. */
+	const CACHED_URL = 'https://isure6.stream.qqmusic.qq.com/sq.flac';
+	const URL_HIT: ResolveEntry = {
+		...HIT,
+		url: CACHED_URL,
+		urlExp: Date.now() + 900_000,
+		urlQuality: 'lossless'
+	};
 
 	/** Spy every source's search AND resolve so "zero source calls" is provable, not inferred. */
 	function spyAllSources() {
@@ -780,19 +795,24 @@ describe('ensureTrackDetails — edge resolve cache (32-D-10 / 32-D-10b)', () =>
 
 	// 32-D-10b — the single largest remaining latency win post-32-D-08: the entry stores a MID, so a
 	// caller that already holds one can never gain from the 0-400ms serial lookup.
-	describe('32-D-10b: a track that already holds a qq mid never reads the cache', () => {
-		it('a qq-sourced track skips the lookup entirely', async () => {
+	// 32-D-20 NARROWS this, and the re-scoping below is an INTENDED assertion change, not a
+	// weakening: with a url back in the entry a mid-holder CAN gain something (a zero-RTT playable
+	// url), but only at the tier the url actually serves. So the skip now applies exactly to the
+	// callers the url cannot serve — '320'/'128' — and those cases pin their tier explicitly
+	// instead of relying on the ambient default. The lossless counterpart is asserted right after.
+	describe('32-D-10b: a mid-holder the cached url cannot serve never reads the cache', () => {
+		it('a qq-sourced track at the 320 tier skips the lookup entirely', async () => {
 			const spies = spyAllSources();
 			spies.resolve.qq?.mockImplementation(async (t: Track) => qqComplete(t));
 
-			const out = await ensureTrackDetails(mk('qq', MID));
+			const out = await ensureTrackDetails(mk('qq', MID), undefined, '320');
 
 			expect(readResolveCache).not.toHaveBeenCalled();
 			expect(out.audioUrl).toBe('https://cdn.qq/flac.flac');
 			expect(spies.resolve.qq).toHaveBeenCalledOnce();
 		});
 
-		it('a non-qq track carrying songMid/qqId also skips the lookup', async () => {
+		it('a non-qq 320-tier track carrying songMid/qqId also skips the lookup', async () => {
 			const spies = spyAllSources();
 			spies.resolve.netease?.mockImplementation(async (t: Track) => ({
 				...t,
@@ -801,11 +821,24 @@ describe('ensureTrackDetails — edge resolve cache (32-D-10 / 32-D-10b)', () =>
 				lrc: '[00:01]x'
 			}));
 
-			await ensureTrackDetails(mk('netease', 'n1', 1, { songMid: MID }));
-			await ensureTrackDetails(mk('netease', 'n2', 1, { qqId: MID }));
+			await ensureTrackDetails(mk('netease', 'n1', 1, { songMid: MID }), undefined, '320');
+			await ensureTrackDetails(mk('netease', 'n2', 1, { qqId: MID }), undefined, '128');
 
 			expect(readResolveCache).not.toHaveBeenCalled();
 			expect(spies.resolve.netease).toHaveBeenCalledTimes(2);
+		});
+
+		it('a LOSSLESS-tier mid-holder DOES read — it can gain a zero-RTT url (32-D-20)', async () => {
+			// ≤400ms bounded, against the 2.0-3.8s tang detail RTT a url hit saves. This is the
+			// phase's primary persona, so the 32-04 skip must not apply to it.
+			const spies = spyAllSources();
+			spies.resolve.qq?.mockImplementation(async (t: Track) => qqComplete(t));
+			readResolveCache.mockResolvedValue(null);
+
+			await ensureTrackDetails(mk('qq', MID), undefined, 'lossless');
+
+			expect(readResolveCache).toHaveBeenCalledTimes(1);
+			expect(spies.resolve.qq).toHaveBeenCalledOnce();
 		});
 
 		it('a mid-LESS track still reads the cache, and logs the mid-less branch exactly once', async () => {
@@ -820,11 +853,15 @@ describe('ensureTrackDetails — edge resolve cache (32-D-10 / 32-D-10b)', () =>
 			expect(logAction.mock.calls[0][1]).toMatchObject({ source: 'netease', uid: 'netease:n1' });
 		});
 
-		it('never logs resolve.midless for a track that holds a mid', async () => {
+		it('never logs resolve.midless for a track that holds a mid — at EITHER tier', async () => {
+			// 32-D-20 moved the READ gate but deliberately left the LOG condition alone, so the
+			// Activity-log signal keeps meaning exactly "a cold resolve with no qq mid in hand".
 			const spies = spyAllSources();
 			spies.resolve.qq?.mockImplementation(async (t: Track) => qqComplete(t));
+			readResolveCache.mockResolvedValue(null);
 
-			await ensureTrackDetails(mk('qq', MID));
+			await ensureTrackDetails(mk('qq', MID), undefined, '320');
+			await ensureTrackDetails(mk('qq', MID), undefined, 'lossless');
 
 			expect(logAction).not.toHaveBeenCalled();
 		});
@@ -963,9 +1000,138 @@ describe('ensureTrackDetails — edge resolve cache (32-D-10 / 32-D-10b)', () =>
 				audioUrl: 'https://cdn/n1.mp3',
 				lrc: '[00:01]x'
 			}));
-			readResolveCache.mockResolvedValue({ source: null, songid: null, avail: { qq: 'dry' } });
+			readResolveCache.mockResolvedValue({
+				source: null,
+				songid: null,
+				avail: { qq: 'dry' },
+				url: null,
+				urlExp: null,
+				urlQuality: null
+			});
 
 			const out = await ensureTrackDetails(mk('netease', 'n1'));
+
+			expect(out.audioUrl).toBe('https://cdn/n1.mp3');
+			expect(spies.resolve.qq).not.toHaveBeenCalled();
+		});
+	});
+
+	// 32-D-20 — the url layer. Read order is url → songid → cold walk. THE PROPERTY THAT MATTERS
+	// here is not the fast hit, it is the POISONED one: a 403/dead/expired url must be, from the
+	// caller's seat, byte-indistinguishable from a url-less hit. 31-D-11's accepted risk (a
+	// globally shared signed CN url is IP/region-bound and WILL 403 for someone else in the PoP)
+	// is re-accepted for the 0.44s ONLY because this fall-through is proven.
+	describe('32-D-20: a url hit plays with zero tang RTT — and a poisoned one still plays', () => {
+		it('URL HIT — adopts the cached url with ZERO source resolves', async () => {
+			const spies = spyAllSources();
+			readResolveCache.mockResolvedValue(URL_HIT);
+
+			const out = await ensureTrackDetails(
+				mk('netease', 'n1', 1, { artist: 'Jay', title: 'Blue' }),
+				undefined,
+				'lossless'
+			);
+
+			expect(out.audioUrl).toBe(CACHED_URL);
+			// Identity is rewritten onto qq exactly as the mid path does.
+			expect(out.source).toBe('qq');
+			expect(out.songid).toBe(MID);
+			expect(out.uid).toBe(`qq:${MID}`);
+			expect(out.qqId).toBe(MID);
+			expect(out.songMid).toBe(MID);
+			expect(out.detailsLoaded).toBe(true);
+			// A cached url carries NO lyrics, so the 31-D-08 flag comes back on this ONE path and the
+			// player back-fills the pane off the critical path. A hit must never render worse than a miss.
+			expect(out.lrcUnresolved).toBe(true);
+			// The whole point: not one upstream call. This is the Phase-31-measured 0.44s path.
+			for (const id of Object.keys(SOURCES) as SourceId[]) {
+				expect(spies.resolve[id]).not.toHaveBeenCalled();
+				expect(spies.search[id]).not.toHaveBeenCalled();
+			}
+			// Registered, so a later audio.error routes reportDeadUrl → POST bust → entry repaired.
+			expect(registerServedResolve).toHaveBeenCalledWith(CACHED_URL, 'Jay', 'Blue');
+		});
+
+		it('POISONED HIT — a reported-dead url falls through to the mid path and PLAYS', async () => {
+			// This is the plan's primary acceptance criterion. The client's readOrThrow nulls a url it
+			// has already reported dead (asserted in resolve-cache-client.test.ts), so what catalog
+			// sees is exactly this: the same entry, mid intact, url gone. From here the poisoned hit
+			// must be byte-indistinguishable from a url-less hit — no throw, no error, a playable track.
+			const spies = spyAllSources();
+			spies.resolve.qq?.mockImplementation(async (t: Track) => qqComplete(t));
+			readResolveCache.mockResolvedValue({ ...URL_HIT, url: null, urlExp: null, urlQuality: null });
+
+			const out = await ensureTrackDetails(mk('netease', 'n1'), undefined, 'lossless');
+
+			expect(out.audioUrl).toBe('https://cdn.qq/flac.flac');
+			expect(spies.resolve.qq).toHaveBeenCalledOnce();
+			expect(out.uid).toBe(`qq:${MID}`);
+		});
+
+		it('TIER MISMATCH — a 320 caller ignores the lossless url and takes the mid path', async () => {
+			// A shared single url cannot serve two tiers, and a cellular 'auto' user must never be
+			// handed a 50MB FLAC. urlQuality is what makes that refusal possible.
+			const spies = spyAllSources();
+			spies.resolve.qq?.mockImplementation(async (t: Track) => qqComplete(t));
+			readResolveCache.mockResolvedValue(URL_HIT);
+
+			const out = await ensureTrackDetails(mk('netease', 'n1'), undefined, '320');
+
+			expect(out.audioUrl).toBe('https://cdn.qq/flac.flac');
+			expect(spies.resolve.qq).toHaveBeenCalledOnce();
+			expect(registerServedResolve).not.toHaveBeenCalledWith(CACHED_URL, 'a', 'a');
+		});
+
+		it('MID GUARD — a track that already knows its OWN, different mid ignores the entry', async () => {
+			// A matchKey collision folds two songs onto one key. A track that already carries its own
+			// identity must never be re-pointed at somebody else's — neither by the url nor by the mid.
+			const spies = spyAllSources();
+			spies.resolve.netease?.mockImplementation(async (t: Track) => ({
+				...t,
+				detailsLoaded: true,
+				audioUrl: 'https://cdn/n1.mp3',
+				lrc: '[00:01]x'
+			}));
+			readResolveCache.mockResolvedValue(URL_HIT);
+
+			const out = await ensureTrackDetails(
+				mk('netease', 'n1', 1, { songMid: 'A_DIFFERENT_MID' }),
+				undefined,
+				'lossless'
+			);
+
+			expect(out.audioUrl).toBe('https://cdn/n1.mp3');
+			expect(out.uid).toBe('netease:n1');
+			expect(spies.resolve.qq).not.toHaveBeenCalled();
+		});
+
+		it('MID GUARD — a track whose own mid MATCHES the entry does adopt the url', async () => {
+			const spies = spyAllSources();
+			readResolveCache.mockResolvedValue(URL_HIT);
+
+			const out = await ensureTrackDetails(
+				mk('netease', 'n1', 1, { songMid: MID }),
+				undefined,
+				'lossless'
+			);
+
+			expect(out.audioUrl).toBe(CACHED_URL);
+			expect(spies.resolve.qq).not.toHaveBeenCalled();
+		});
+
+		it('FALL-THROUGH — a url with a NULL songid is ignored (shared PoP data is untrusted)', async () => {
+			// Cannot happen by construction, which is exactly why it is asserted: the entry is shared,
+			// text-keyed data and the client must not depend on the edge always being well-formed.
+			const spies = spyAllSources();
+			spies.resolve.netease?.mockImplementation(async (t: Track) => ({
+				...t,
+				detailsLoaded: true,
+				audioUrl: 'https://cdn/n1.mp3',
+				lrc: '[00:01]x'
+			}));
+			readResolveCache.mockResolvedValue({ ...URL_HIT, songid: null });
+
+			const out = await ensureTrackDetails(mk('netease', 'n1'), undefined, 'lossless');
 
 			expect(out.audioUrl).toBe('https://cdn/n1.mp3');
 			expect(spies.resolve.qq).not.toHaveBeenCalled();
@@ -1037,7 +1203,10 @@ describe('ensureTrackDetails — edge resolve cache (32-D-10 / 32-D-10b)', () =>
 			readResolveCache.mockResolvedValue({
 				source: null,
 				songid: null,
-				avail: { kuwo: 'dry' }
+				avail: { kuwo: 'dry' },
+				url: null,
+				urlExp: null,
+				urlQuality: null
 			});
 
 			const out = await ensureTrackDetails(nameStub());
@@ -1059,7 +1228,14 @@ describe('ensureTrackDetails — edge resolve cache (32-D-10 / 32-D-10b)', () =>
 			const avail = Object.fromEntries(
 				(Object.keys(SOURCES) as SourceId[]).map((id) => [id, 'dry' as const])
 			);
-			readResolveCache.mockResolvedValue({ source: null, songid: null, avail });
+			readResolveCache.mockResolvedValue({
+				source: null,
+				songid: null,
+				avail,
+				url: null,
+				urlExp: null,
+				urlQuality: null
+			});
 
 			const out = await ensureTrackDetails(nameStub());
 

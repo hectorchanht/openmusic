@@ -20,9 +20,21 @@ import {
 const ENTRY: ResolveEntry = {
 	source: 'qq',
 	songid: '003OUlho2gk0Ny',
-	avail: { qq: 'ok' }
+	avail: { qq: 'ok' },
+	// 32-D-20 put a SHORT-LIVED url back beside the permanent mid. A url-less positive is still the
+	// shape the edge search fill writes, so this stays the default entry for the cases below.
+	url: null,
+	urlExp: null,
+	urlQuality: null
 };
 const SERVED_URL = 'https://cdn.qq/flac.flac';
+/** The same entry AFTER the edge's refresh-on-read warmed its url (32-D-20). */
+const URL_ENTRY: ResolveEntry = {
+	...ENTRY,
+	url: SERVED_URL,
+	urlExp: Date.now() + 900_000,
+	urlQuality: 'lossless'
+};
 
 const jsonRes = (body: unknown, status = 200) =>
 	new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -50,7 +62,14 @@ describe('readResolveCache (31-D-08 — advisory, never authoritative)', () => {
 	it('returns the entry even when it is a cached known-none (songid null, avail dry)', async () => {
 		// D-06(c): a clean "qq is dry" negative is the POINT of the avail layer — it must reach the
 		// caller so the source walk can skip that source, NOT be flattened to a miss.
-		const dry: ResolveEntry = { source: null, songid: null, avail: { qq: 'dry' } };
+		const dry: ResolveEntry = {
+			source: null,
+			songid: null,
+			avail: { qq: 'dry' },
+			url: null,
+			urlExp: null,
+			urlQuality: null
+		};
 		apiFetch.mockResolvedValue(jsonRes({ hit: true, entry: dry }));
 
 		await expect(readResolveCache('a', 't')).resolves.toEqual(dry);
@@ -186,5 +205,47 @@ describe('reportDeadUrl (31-D-09 / 31-D-11 — self-gating bust)', () => {
 		reportDeadUrl(SERVED_URL);
 
 		expect(apiFetch).not.toHaveBeenCalled();
+	});
+});
+
+
+// 32-D-20 — THE line that makes "a poisoned url hit is indistinguishable from a url MISS" true
+// DETERMINISTICALLY rather than eventually. `reportDeadUrl` fires the POST bust, but that bust is
+// async AND PoP-local, so a re-resolve inside the race window can read the not-yet-busted entry and
+// re-adopt the exact url it just reported. Stripping at this ONE read seam closes it, completing
+// 31-D-09/31-D-11's repair contract on the client side.
+describe('readResolveCache — reported-dead strip (32-D-20)', () => {
+	it('nulls a url this session already reported dead, keeping the mid for the fall-through', async () => {
+		registerServedResolve(SERVED_URL, 'Nirvana', 'Come As You Are');
+		apiFetch.mockResolvedValue(jsonRes({ busted: true }));
+		reportDeadUrl(SERVED_URL);
+
+		// The bust has NOT landed yet (or landed in another PoP) — the entry still carries the url.
+		apiFetch.mockResolvedValue(jsonRes({ hit: true, entry: URL_ENTRY }));
+		const got = await readResolveCache('Nirvana', 'Come As You Are');
+
+		expect(got?.url).toBeNull();
+		expect(got?.urlExp).toBeNull();
+		expect(got?.urlQuality).toBeNull();
+		// The permanent mid survives untouched: the caller falls through to the mid path and PLAYS.
+		expect(got?.songid).toBe(ENTRY.songid);
+	});
+
+	it('passes a url that was never reported through untouched', async () => {
+		apiFetch.mockResolvedValue(jsonRes({ hit: true, entry: URL_ENTRY }));
+
+		await expect(readResolveCache('Nirvana', 'Come As You Are')).resolves.toEqual(URL_ENTRY);
+	});
+
+	it('the strip survives the registry eviction that reportDeadUrl performs', async () => {
+		// reportDeadUrl DELETES the url from servedUrls (it is one-shot), so the strip must read the
+		// `reported` set, not the registry — otherwise the very first re-read would sail through.
+		registerServedResolve(SERVED_URL, 'Nirvana', 'Come As You Are');
+		apiFetch.mockResolvedValue(jsonRes({ busted: true }));
+		reportDeadUrl(SERVED_URL);
+		reportDeadUrl(SERVED_URL);
+
+		apiFetch.mockResolvedValue(jsonRes({ hit: true, entry: URL_ENTRY }));
+		expect((await readResolveCache('Nirvana', 'Come As You Are'))?.url).toBeNull();
 	});
 });
