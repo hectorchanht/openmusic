@@ -13,6 +13,10 @@ import { scoreMatch } from './score-match';
 import { dedupeBest, sameSongKey } from './dedupe';
 import { readResolveCache, registerServedResolve } from './resolve-cache-client';
 import { logAction } from '$lib/stores/actionLog.svelte';
+// 32-D-20: the cached url is filled at ONE tier (lossless), so the read gate and the adoption gate
+// both need the caller's EFFECTIVE tier. Same leaf-store + pure-helper pair sources/qq.ts uses.
+import { effectiveQuality } from '$lib/sources/quality';
+import { settings } from '$lib/stores/settings.svelte';
 
 /**
  * quick-260629-nyl Task 3: sources that genuinely have NO upstream lyrics. A lyric MISS on one of
@@ -375,8 +379,21 @@ export async function ensureTrackDetails(
 	// has. Post-32-D-08 a deduped search survivor is usually the qq row, so this guard is the single
 	// largest remaining latency win in the resolve path (32-D-10 itself saves a CALL, not the RTT:
 	// a mid still costs one qq detail call to become playable).
+	//
+	// 32-D-20 NARROWS the skip above. Under 32-D-10 the entry could only hand back an identifier the
+	// caller already had, so holding a mid meant the read could gain nothing. The entry now also
+	// carries a short-lived PLAYABLE url, and a mid-holder CAN gain that: a url hit is zero tang RTT
+	// (the Phase-31-measured 0.44s path) against the 2.0-3.8s a mid still costs to resolve. So the
+	// skip narrows to exactly the callers the url cannot serve: the url is filled lossless-only by
+	// construction (resolve-edge.ts), so a '320'/'128' caller can still gain nothing and keeps
+	// 32-04's zero-read fast path untouched. A lossless caller pays ≤400ms bounded for the chance.
+	const tier = effectiveQuality(quality ?? settings.defaultQuality);
 	const hasQqMid = Boolean(track.qqId || track.songMid || (track.source === 'qq' && track.songid));
-	const needsMidLookup = !hasQqMid && !(track.lrcUnresolved && !track.lrc);
+	// The LOG condition stays EXACTLY 32-04's (mid-less, not the lyric bypass) even though the READ
+	// condition moved — otherwise the Activity-log signal would silently change meaning.
+	const lyricBypass = Boolean(track.lrcUnresolved && !track.lrc);
+	const needsMidLookup = !hasQqMid && !lyricBypass;
+	const shouldReadCache = !lyricBypass && (!hasQqMid || tier === 'lossless');
 	if (needsMidLookup) {
 		// Research Open Question #2: nobody knows how often a qq mid is actually absent now that
 		// 32-D-08 promoted qq in dedupe. ONE log line per cold mid-less resolve turns that guess into
@@ -384,10 +401,60 @@ export async function ensureTrackDetails(
 		// behind the readiness guard and fires at most once per cold resolve.
 		logAction('resolve.midless', { source: track.source, uid: track.uid });
 	}
-	const cachedEntry = needsMidLookup
+	const cachedEntry = shouldReadCache
 		? await readResolveCache(track.artist, track.title, sig)
 		: null;
 	if (sig.aborted) return track; // C-09: re-check after EVERY await — a newer play superseded us
+
+	// The track's OWN qq identity, if it already knows one. Used by BOTH gates below: a track that
+	// already knows which song it is must never be re-pointed at a different mid by a matchKey
+	// collision (two songs folding onto one shared, text-keyed PoP entry).
+	const ownMid = track.qqId || track.songMid || (track.source === 'qq' ? track.songid : null) || null;
+	const entryMatchesOwn = !ownMid || ownMid === cachedEntry?.songid;
+
+	// ─── 32-D-20 URL HIT — the zero-RTT path, and the one that carries the phase's accepted risk ──
+	// Read order is url → songid → cold walk. A fresh, tier-matching url is playable AS IS, so this
+	// returns immediately and spends no upstream call at all.
+	//
+	// ACCEPTED RISK (31-D-11, re-accepted by 32-D-20 for the 0.44s): this url is globally shared and
+	// signed, so it can be IP- or region-bound and WILL 403 for some other user in the PoP. Three
+	// mitigations make that survivable, and all three are load-bearing: the entry is ADVISORY
+	// (31-D-08) so a failure falls through to the mid path below and PLAYS; registerServedResolve
+	// keeps reportDeadUrl → POST bust wired as the repair (31-D-09); and a url already reported dead
+	// never even reaches here, because readOrThrow strips it one seam earlier. From the user's seat a
+	// poisoned hit must be indistinguishable from a url MISS.
+	//
+	// TIER GATE: one shared url cannot serve two tiers, so it is adopted only by the tier it was
+	// filled at — a cellular 'auto' user must never be handed a 50MB FLAC url.
+	// OWN-MID GATE: see entryMatchesOwn above.
+	//
+	// lrcUnresolved: true — a DELIBERATE reinstatement of the writer 32-04's SUMMARY recorded as
+	// gone from this file. A cached url carries no lyrics (that was the 31 flag's whole reason), and
+	// the early return must bypass the crossSourceLyric tail below or a serial lyric search would
+	// eat the 0.44s this branch exists for. The player's existing back-fill pass fills the pane off
+	// the critical path, so a hit is still never rendered worse than a miss.
+	if (
+		cachedEntry?.source === 'qq' &&
+		cachedEntry.songid &&
+		cachedEntry.url &&
+		cachedEntry.urlQuality === tier &&
+		entryMatchesOwn
+	) {
+		const mid = cachedEntry.songid;
+		registerServedResolve(cachedEntry.url, track.artist, track.title);
+		return {
+			...track,
+			source: 'qq',
+			songid: mid,
+			uid: makeUid('qq', mid),
+			qqId: mid,
+			songMid: mid,
+			audioUrl: cachedEntry.url,
+			lrcUrl: null,
+			detailsLoaded: true,
+			lrcUnresolved: true
+		};
+	}
 
 	// MID-HIT ADOPTION (32-D-10). 31's T-31-04-01 source+songid equality gate is SUPERSEDED here, on
 	// purpose: in 31 the entry held a URL, so adopting it for a different identity would have played
@@ -408,7 +475,11 @@ export async function ensureTrackDetails(
 	// `myGen` snapshot to protect and it would be dead code (`prewarm.ts` is the fire-and-forget
 	// precedent). The one guard that IS load-bearing here is the `sig.aborted` re-check after each
 	// await, which is already threaded.
-	const cachedMid = cachedEntry?.source === 'qq' ? cachedEntry.songid : null;
+	// 32-D-20: the own-mid guard applies to the MID adoption too, not just the url. Now that a
+	// mid-holder reads the cache at the lossless tier, a colliding entry could otherwise rewrite the
+	// identity of a track that already knows exactly which song it is — the precise failure the url
+	// gate above exists to prevent, one line lower down.
+	const cachedMid = cachedEntry?.source === 'qq' && entryMatchesOwn ? cachedEntry.songid : null;
 	const fromMid = cachedMid ? await resolveFromCachedMid(track, cachedMid, sig, quality) : null;
 	if (sig.aborted) return track;
 	// Any other outcome (null, a stored known-none, a failed qq resolve) falls straight through with

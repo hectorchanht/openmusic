@@ -115,7 +115,20 @@ async function readOrThrow(
 	const body = (await res.json()) as { hit?: boolean; entry?: ResolveEntry | null } | null;
 	// 32-D-10: nothing is registered here any more — the entry carries a song_mid, not a url. The
 	// caller registers the url it resolves OUT of that mid via registerServedResolve above.
-	return body?.hit ? (body.entry ?? null) : null;
+	// 32-D-20: a url served straight off the entry is registered by the CALLER too (catalog's
+	// url-hit branch), exactly like a mid-resolved one, so reportDeadUrl covers both provenances
+	// with zero new API.
+	const entry = body?.hit ? (body.entry ?? null) : null;
+	// 32-D-20 REPORTED-DEAD STRIP — the client half of "a poisoned hit is indistinguishable from a
+	// miss". reportDeadUrl fires the POST bust, but that bust is async AND PoP-local, so a
+	// re-resolve inside the race window would read the not-yet-busted entry and re-adopt the exact
+	// url it just reported dead. Stripping here, at the ONE read seam, makes the fall-through
+	// DETERMINISTIC rather than eventual and completes 31-D-09/31-D-11's repair contract. Reads the
+	// `reported` set, never `servedUrls`, because reportDeadUrl evicts from the latter on the way past.
+	if (entry?.url && reported.has(entry.url)) {
+		return { ...entry, url: null, urlExp: null, urlQuality: null };
+	}
+	return entry;
 }
 
 /**
