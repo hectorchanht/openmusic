@@ -5,6 +5,7 @@ import { __clearSearchCache } from './ttl-cache';
 import { __resetGovernor } from './api-base';
 import { matchKey } from './match-key';
 import { makeUid, type SourceId, type Track } from '$lib/sources/types';
+import { getEnabledAdapters } from '$lib/sources/registry';
 
 // Mirrors catalog.test.ts mk() factory — a minimal valid Track for fixtures.
 function mk(source: SourceId, songid: string, artist = 'a', extra: Partial<Track> = {}): Track {
@@ -41,17 +42,22 @@ function jsonResponse(body: unknown) {
 }
 
 type Pair = { artist: string; title: string; match: number; image?: string };
+/** /api/deezer/radio reshape — same {artist,title,image} shape, no `match` (already ordered). */
+type RadioPair = { artist: string; title: string; image?: string };
 
 /**
- * Route-aware fetch stub for the CLIENT apiFetch seam. Answers the two Last.fm routes
- * buildSimilarQueue can hit — /api/lastfm/similar-tracks (PRIMARY) and /api/similar
- * (artist.getSimilar FALLBACK) — plus a `{}` default for the Deezer related fallback so
- * getSimilarArtists degrades to []. Records every URL for call-count assertions.
+ * Route-aware fetch stub for the CLIENT apiFetch seam. Answers the routes buildSimilarQueue can
+ * hit — /api/lastfm/similar-tracks (PRIMARY), /api/deezer/radio (SECOND path,
+ * debug/upnext-diverse-fallback-kuwo-dead) and /api/similar (artist.getSimilar FALLBACK) — plus a
+ * `{}` default for the Deezer related fallback so getSimilarArtists degrades to []. Records every
+ * URL for call-count assertions. Omitting `radio` leaves that path dry, so every pre-existing case
+ * keeps exercising the artist/last-resort fallbacks exactly as before.
  */
-function stubRoutes(opts: { tracks?: Pair[]; artists?: string[] }) {
+function stubRoutes(opts: { tracks?: Pair[]; artists?: string[]; radio?: RadioPair[] }) {
 	const spy = vi.fn(async (input: RequestInfo | URL) => {
 		const u = String(input);
 		if (u.includes('/api/lastfm/similar-tracks')) return jsonResponse({ tracks: opts.tracks ?? [] });
+		if (u.includes('/api/deezer/radio')) return jsonResponse({ tracks: opts.radio ?? [] });
 		if (u.includes('/api/similar')) return jsonResponse({ artists: opts.artists ?? [] });
 		return jsonResponse({}); // deezer related etc. → empty
 	});
@@ -354,5 +360,98 @@ describe('buildSimilarQueue — call cost (spike-003: the 56-call block is gone)
 		// and it actually produced a usable lazy up-next (5 resolveByName stubs).
 		expect(out).toHaveLength(5);
 		expect(out.every((t) => t.resolveByName === true)).toBe(true);
+	});
+});
+
+
+// debug/upnext-diverse-fallback-kuwo-dead (2026-08-31). The reported symptom was Up-Next collapsing
+// to the buildDiversePicks grab-bag for a mainstream seed. Root cause: kuwo's upstream TLS cert
+// expired, and BOTH fallback paths were pinned to `getEnabledAdapters({})[0]` — which was kuwo — so
+// they returned empty for every track whenever Last.fm track.getSimilar was dry. Two guards here:
+// the Deezer-radio path that now answers that case in ONE call, and the ladder that stops a single
+// dead source from taking the whole feature down.
+describe('buildSimilarQueue — Deezer artist radio path (dry primary, one call)', () => {
+	it('uses radio when track.getSimilar is dry, WITHOUT touching the per-artist search fallback', async () => {
+		const { spy } = stubRoutes({
+			tracks: [], // Last.fm primary dry — the reported "Janice STFU (Explicit)" case
+			artists: ['PARTYNEXTDOOR', 'Future'], // available, but must NOT be needed
+			radio: [
+				{ artist: 'Future', title: 'Cinderella' },
+				{ artist: 'Kanye West', title: 'Father Stretch My Hands Pt. 1' }
+			]
+		});
+		const searchSpy = vi.spyOn(catalog, 'searchAll').mockResolvedValue(result(null));
+		const seed = mk('qq', 'seed', 'Drake', { title: 'Janice STFU (Explicit)' });
+
+		const via: string[] = [];
+		const out = await buildSimilarQueue(seed, new Set(), (v) => via.push(v));
+
+		expect(via).toEqual(['radio']);
+		expect(out.map((t) => t.title)).toEqual(['Cinderella', 'Father Stretch My Hands Pt. 1']);
+		// entries stay LAZY name stubs — no per-song resolution at build time
+		expect(out.every((t) => t.resolveByName === true)).toBe(true);
+		expect(out.every((t) => t.detailsLoaded === false)).toBe(true);
+		// the expensive path never ran: no searchAll at all, and exactly ONE radio call
+		expect(searchSpy).not.toHaveBeenCalled();
+		const radioCalls = spy.mock.calls.filter((c) => String(c[0]).includes('/api/deezer/radio'));
+		expect(radioCalls).toHaveLength(1);
+	});
+
+	it('drops the seed song and excluded uids from the radio list, then falls through when nothing survives', async () => {
+		const seed = mk('qq', 'seed', 'Drake', { title: 'Janice STFU (Explicit)' });
+		stubRoutes({
+			tracks: [],
+			artists: [],
+			// the ONLY radio pair IS the seed song → post-filter empties it → must not report 'radio'
+			radio: [{ artist: 'Drake', title: 'Janice STFU (Explicit)' }]
+		});
+		vi.spyOn(catalog, 'searchAll').mockResolvedValue(result(null));
+
+		const via: string[] = [];
+		const out = await buildSimilarQueue(seed, new Set(), (v) => via.push(v));
+
+		expect(out).toEqual([]);
+		expect(via).toEqual(['empty']); // fell through, never claimed a premature 'radio'
+	});
+
+	it('seeds the stub cover from a SOLID https radio image', async () => {
+		stubRoutes({
+			tracks: [],
+			radio: [{ artist: 'Future', title: 'Cinderella', image: 'https://dz.example/cover.jpg' }]
+		});
+		vi.spyOn(catalog, 'searchAll').mockResolvedValue(result(null));
+		const seed = mk('qq', 'seed', 'Drake', { title: 'Janice STFU (Explicit)' });
+
+		const out = await buildSimilarQueue(seed);
+		expect(out[0].cover).toBe('https://dz.example/cover.jpg');
+	});
+});
+
+describe('buildSimilarQueue — fallback walks the source ladder (no single point of failure)', () => {
+	it('advances past a DEAD first source instead of returning empty', async () => {
+		stubRoutes({ tracks: [], artists: ['林俊杰'], radio: [] });
+		const seed = mk('qq', 'seed', '周杰伦', { title: '稻香' });
+		const fresh = mk('netease', 'fresh', '林俊杰');
+
+		// Model the outage: the FIRST enabled source answers nothing for every query (kuwo's 526
+		// behaviour); a later source answers normally. Each call is still single-source.
+		const first = getEnabledAdapters({})[0].id;
+		const searchSpy = vi
+			.spyOn(catalog, 'searchAll')
+			.mockImplementation(async (kw: string, _page?: number, prefs?: Partial<Record<SourceId, boolean>>) => {
+				const vals = Object.values(prefs ?? {});
+				expect(vals.filter((v) => v === true)).toHaveLength(1); // never a fan-out
+				if (prefs?.[first] === true) return result(null); // dead rung
+				if (kw === '林俊杰') return result(fresh);
+				return result(null);
+			});
+
+		const via: string[] = [];
+		const out = await buildSimilarQueue(seed, new Set(), (v) => via.push(v));
+
+		expect(via).toEqual(['artist']);
+		expect(out.map((t) => t.uid)).toContain(fresh.uid);
+		// it genuinely tried the dead rung first, then advanced
+		expect(searchSpy.mock.calls.some((c) => c[2]?.[first] === true)).toBe(true);
 	});
 });

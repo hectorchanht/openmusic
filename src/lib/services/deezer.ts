@@ -29,6 +29,7 @@ import { apiFetch } from './api-base';
 const PROXY_PATH = '/api/deezer/search';
 const CHART_PATH = '/api/deezer/chart';
 const RELATED_PATH = '/api/deezer/related';
+const RADIO_PATH = '/api/deezer/radio';
 // Phase 17, ENRICH-04 — artist/album info enrichment proxy paths.
 const ARTIST_PATH = '/api/deezer/artist';
 const ALBUM_PATH = '/api/deezer/album';
@@ -223,6 +224,41 @@ export async function deezerRelatedArtists(
 		const data = (await res.json()) as { artists?: string[] };
 		return Array.isArray(data?.artists) ? data!.artists! : [];
 	}).catch(() => [] as string[]);
+}
+
+/** One {artist,title,image} pair from Deezer's artist radio (the /api/deezer/radio reshape). */
+export interface DeezerRadioPair {
+	artist: string;
+	title: string;
+	image?: string;
+}
+
+/**
+ * Deezer artist RADIO — a ready-made taste-based track list in ONE call
+ * (debug/upnext-diverse-fallback-kuwo-dead, 2026-08-31).
+ *
+ * Used by similar.ts as the path between Last.fm `track.getSimilar` (dry for any track without
+ * scrobble history) and the expensive per-similar-artist search fallback. The pairs map straight
+ * onto similar.ts's `nameStub`, so the Up-Next entries stay lazy name stubs — no per-song search
+ * at build time. Never-throws: any failure returns [] and the caller falls through unchanged
+ * (same WR-03 discipline as deezerRelatedArtists — failure rejects INSIDE cached() so it is never
+ * pinned, and maps to [] outside).
+ */
+export async function deezerArtistRadio(
+	artist: string,
+	limit = 20,
+	signal?: AbortSignal
+): Promise<DeezerRadioPair[]> {
+	if (signal?.aborted) return [];
+	const clean = (artist ?? '').trim();
+	if (!clean) return [];
+	return cached(`dz:radio:${clean}|${limit}`, TTL_RELATED, async () => {
+		const url = `${RADIO_PATH}?${new URLSearchParams({ artist: clean, limit: String(limit) }).toString()}`;
+		const res = await apiFetch(url, { signal: combinedSignal(signal) }); // governed; abort/timeout REJECT
+		if (!res.ok) throw new Error(String(res.status));
+		const data = (await res.json()) as { tracks?: DeezerRadioPair[] };
+		return Array.isArray(data?.tracks) ? data!.tracks! : [];
+	}).catch(() => [] as DeezerRadioPair[]);
 }
 
 // ---- Phase 17, ENRICH-04 — Deezer artist/album info enrichment client fns -----------------

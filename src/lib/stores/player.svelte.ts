@@ -2313,7 +2313,7 @@ class Player {
 				// 26-09 (Gap 2): thread the 26-07 report callback so the GROW path is verifiable in the
 				// Activity log too (parity with regenerate's fresh-play upnext.source). This does NOT change
 				// ensureAhead's control flow — it already has its own buildDiversePicks net below.
-				let via: 'similar' | 'artist' | 'lastresort' | 'empty' | 'diverse' = 'empty';
+				let via: 'similar' | 'radio' | 'artist' | 'lastresort' | 'empty' | 'diverse' = 'empty';
 				let more = await buildSimilarQueue(current, have, (v) => (via = v));
 				// Never-stop invariant (STATE.md Phase 16): if Last.fm is dry AND the same-artist search
 				// yields nothing, fall back to diverse random picks so an obscure-artist queue still grows.
@@ -3447,7 +3447,7 @@ class Player {
 			// 26-09 (Gap 2 / UPNEXT-01): capture WHICH formation path buildSimilarQueue took via the
 			// 26-07 report callback so the Up-Next source is verifiable in the Activity log. 'diverse' is
 			// added locally for the safety-net branch below (never reported by buildSimilarQueue itself).
-			let via: 'similar' | 'artist' | 'lastresort' | 'empty' | 'diverse' = 'empty';
+			let via: 'similar' | 'radio' | 'artist' | 'lastresort' | 'empty' | 'diverse' = 'empty';
 			let tail = await buildSimilarQueue(seed, exclude, (v) => (via = v));
 			if (myQueueGen !== this.queueGen) return; // WR-06: superseded by an explicit setQueue()
 			// 26-09 (Gap 2 / T-26-09-01): mirror ensureAhead's never-empty safety net. On EVERY fresh

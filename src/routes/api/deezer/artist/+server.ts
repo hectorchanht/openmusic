@@ -3,7 +3,7 @@
 // edge Cache API, corsHeaders + OPTIONS, never-throws (empty shape on miss).
 //
 // Two upstream calls:
-//   1. search/artist?q=<name>&limit=1 → first hit's artist.id
+//   1. search/artist?q=<name>&limit=N → BEST hit's artist.id (pickBestArtistId, not data[0])
 //   2. artist/{id}                    → { picture_xl, nb_fan, nb_album } (live-verified shapes)
 //
 // Output is a null-safe reshape to { picture, fans, albums }. NO secret, NO env read (Deezer
@@ -17,6 +17,7 @@
 import type { RequestHandler } from './$types';
 import { fetchWithRetry, corsHeaders } from '$lib/proxy/http';
 import { edgeCache } from '$lib/proxy/edge-cache';
+import { pickBestArtistId, DEEZER_ARTIST_SEARCH_LIMIT } from '$lib/proxy/deezer-pick';
 
 const DEEZER_ARTIST_SEARCH = 'https://api.deezer.com/search/artist';
 const DEEZER_ARTIST_BYID = 'https://api.deezer.com/artist';
@@ -48,6 +49,8 @@ function jsonResult(body: ArtistResult, origin: string | null, ttl?: number): Re
 interface DzArtistHit {
 	id?: number;
 	name?: string;
+	/** Popularity, read by pickBestArtistId to skip namesake shell profiles. */
+	nb_fan?: number;
 }
 interface DzSearchResp {
 	data?: DzArtistHit[];
@@ -87,11 +90,15 @@ export const GET: RequestHandler = async ({ url, request }) => {
 
 	try {
 		// 1. Resolve artist NAME → artist.id via search/artist (V5: encodeURIComponent guards SSRF).
-		const searchUrl = `${DEEZER_ARTIST_SEARCH}?q=${encodeURIComponent(name)}&limit=1`;
+		// debug/upnext-diverse-fallback-kuwo-dead: ask for SEVERAL hits and pick by exact-name +
+		// fan count. Deezer's artist search does not rank by popularity, so `limit=1` picked an
+		// empty namesake shell — q=Coldplay returned id 316813311 (91 fans, blank picture hash)
+		// instead of id 892 (18,367,520), which is exactly what the artist page was rendering.
+		const searchUrl = `${DEEZER_ARTIST_SEARCH}?q=${encodeURIComponent(name)}&limit=${DEEZER_ARTIST_SEARCH_LIMIT}`;
 		const searchRes = await fetchWithRetry(searchUrl, { signal: AbortSignal.timeout(8000) }, 2);
-		const id = ((await searchRes.json()) as DzSearchResp)?.data?.[0]?.id;
+		const id = pickBestArtistId(((await searchRes.json()) as DzSearchResp)?.data ?? [], name);
 		// Miss → empty shape, do NOT long-cache (T-17-13: negative TTL is worse UX).
-		if (id === undefined || id === null) return jsonResult(EMPTY, origin);
+		if (id === null) return jsonResult(EMPTY, origin);
 
 		// 2. Fetch artist by id and reshape (T-17-10: every field optional + null-safe).
 		const byIdUrl = `${DEEZER_ARTIST_BYID}/${encodeURIComponent(String(id))}`;

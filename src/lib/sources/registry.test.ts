@@ -2,13 +2,19 @@ import { describe, it, expect } from 'vitest';
 import { SOURCES, getEnabledAdapters } from './registry';
 import { makeUid, type SourceId } from './types';
 
-// Phase 26 (RESOLVE-01, POLICY.md / spikes 001+004): the registry is now kuwo-FIRST. Order is
-// load-bearing — getEnabledAdapters / fallbackOrder / resolveNameStub / interleave all inherit it,
-// so the kuwo-first resolve floor is asserted here at the single enumeration point.
+// Order is load-bearing — getEnabledAdapters / fallbackOrder / resolveNameStub / interleave all
+// inherit it, so the resolve floor is asserted here at the single enumeration point.
+//
+// Phase 26 (RESOLVE-01, POLICY.md / spikes 001+004) made the registry kuwo-FIRST.
+// debug/upnext-diverse-fallback-kuwo-dead (2026-08-31) DEMOTED kuwo: its upstream
+// (kw-api.cenguigui.cn) serves a TLS certificate that expired 2026-04-14, so every /api/kuwo/*
+// request 526s. Holding the primary seat, it made similar.ts's single-source fallbacks return
+// empty for every track. qq takes the floor (proven working), netease is #2, kuwo stays in the
+// registry at #3 so restoring it is a one-literal move if the cert is renewed.
 const EXPECTED_KEYS: SourceId[] = [
-	'kuwo',
 	'qq',
 	'netease',
+	'kuwo',
 	'joox',
 	'fivesing',
 	'jamendo',
@@ -17,13 +23,13 @@ const EXPECTED_KEYS: SourceId[] = [
 ];
 
 describe('SOURCES registry (DATA-04 — single enumeration point)', () => {
-	// Test 4: exactly the expected keys IN kuwo-first order; each value's .id matches its key.
+	// Test 4: exactly the expected keys IN registry order; each value's .id matches its key.
 	// hvu: 5sing (Kugou UGC) added opt-in, flipped to enabledByDefault:true in 1bf113c.
 	// ixw: jamendo (CC indie) added opt-in, flipped to enabledByDefault:true in 1bf113c.
 	// 0zn: audius (Western/indie/UGC) added with enabledByDefault:true.
 	// 27-01: ytmusic (YouTube Music) appended LAST, enabledByDefault:true but autoResolveEligible:false
-	// (searchable, off the kuwo-first resolve floor).
-	it('enumerates exactly kuwo,qq,netease,joox,fivesing,jamendo,audius,ytmusic (kuwo-first floor; ytmusic last)', () => {
+	// (searchable, off the resolve floor).
+	it('enumerates exactly qq,netease,kuwo,joox,fivesing,jamendo,audius,ytmusic (qq-first floor; ytmusic last)', () => {
 		expect(Object.keys(SOURCES)).toEqual(EXPECTED_KEYS);
 	});
 

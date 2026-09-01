@@ -155,18 +155,20 @@ describe('searchAll (DATA-03 fan-out)', () => {
 		expect(interleaved.map((t) => t.uid)).toEqual(['netease:dup', 'netease:other']);
 	});
 
-	it('interleaves round-robin in registry order (kuwo→qq→netease→joox)', async () => {
+	it('interleaves round-robin in registry order (qq→netease→kuwo→joox)', async () => {
 		vi.spyOn(SOURCES.netease, 'search').mockResolvedValue([mk('netease', 'n1'), mk('netease', 'n2')]);
 		vi.spyOn(SOURCES.qq, 'search').mockResolvedValue([mk('qq', 'q1')]);
 		vi.spyOn(SOURCES.kuwo, 'search').mockResolvedValue([mk('kuwo', 'k1')]);
 		vi.spyOn(SOURCES.joox, 'search').mockResolvedValue([mk('joox', 'j1')]);
 
-		// Phase 26 (RESOLVE-01): interleave inherits the kuwo-first registry order.
+		// interleave inherits the registry order. debug/upnext-diverse-fallback-kuwo-dead
+		// (2026-08-31) demoted kuwo from the Phase-26 first seat to #3 (dead upstream: expired
+		// TLS cert → 526 on every call), so the floor is now qq→netease→kuwo→joox.
 		const { interleaved } = await searchAll('x', 1, ALL);
 		expect(interleaved.map((t) => t.uid)).toEqual([
-			'kuwo:k1',
 			'qq:q1',
 			'netease:n1',
+			'kuwo:k1',
 			'joox:j1',
 			'netease:n2'
 		]);
@@ -186,7 +188,7 @@ describe('searchAll (D-04 TTL cache)', () => {
 		// adapters fanned out exactly once — the second call is a cache HIT
 		expect(n).toHaveBeenCalledOnce();
 		expect(q).toHaveBeenCalledOnce();
-		// same resolved shape (kuwo-first registry order → qq before netease when kuwo is empty)
+		// same resolved shape (registry order → qq before netease)
 		expect(second.interleaved.map((t) => t.uid)).toEqual(first.interleaved.map((t) => t.uid));
 		expect(second.interleaved.map((t) => t.uid)).toEqual(['qq:q1', 'netease:n1']);
 	});
@@ -299,11 +301,12 @@ describe('searchAll (D-06 progressive onPartial)', () => {
 		const { perSource, interleaved } = await searchAll('noop', 1, ALL);
 
 		expect(perSource.map((p) => p.source).sort()).toEqual(['joox', 'kuwo', 'netease', 'qq']);
-		// interleave stays registry-ordered (kuwo-first) regardless of settle order
+		// interleave stays registry-ordered (qq-first since the 2026-08-31 kuwo demotion)
+		// regardless of settle order
 		expect(interleaved.map((t) => t.uid)).toEqual([
-			'kuwo:k1',
 			'qq:q1',
 			'netease:n1',
+			'kuwo:k1',
 			'joox:j1'
 		]);
 	});
@@ -359,19 +362,20 @@ describe('searchAllUncached inter-source stagger (GAPLESS-PREFETCH)', () => {
 
 			const done = searchAll('staggerkw', 1, ALL);
 			// Let the synchronous fan-out launch + adapter[0]'s 0ms sleep flush.
-			// Phase 26 (RESOLVE-01): kuwo-first registry → adapter[0]=kuwo, [1]=qq, [2]=netease, [3]=joox.
+			// debug/upnext-diverse-fallback-kuwo-dead (2026-08-31) demoted kuwo to #3, so the
+			// registry is qq-first → adapter[0]=qq, [1]=netease, [2]=kuwo, [3]=joox.
 			await vi.advanceTimersByTimeAsync(0);
-			expect(k).toHaveBeenCalledTimes(1);
-			// adapter[1] (qq) must still be waiting on its SEARCH_STAGGER_MS sleep.
-			expect(q).not.toHaveBeenCalled();
-
-			await vi.advanceTimersByTimeAsync(SEARCH_STAGGER_MS);
 			expect(q).toHaveBeenCalledTimes(1);
-			// netease at 2x, joox at 3x — still pending until their windows pass.
+			// adapter[1] (netease) must still be waiting on its SEARCH_STAGGER_MS sleep.
 			expect(n).not.toHaveBeenCalled();
 
-			await vi.advanceTimersByTimeAsync(SEARCH_STAGGER_MS * 2);
+			await vi.advanceTimersByTimeAsync(SEARCH_STAGGER_MS);
 			expect(n).toHaveBeenCalledTimes(1);
+			// kuwo at 2x, joox at 3x — still pending until their windows pass.
+			expect(k).not.toHaveBeenCalled();
+
+			await vi.advanceTimersByTimeAsync(SEARCH_STAGGER_MS * 2);
+			expect(k).toHaveBeenCalledTimes(1);
 			expect(j).toHaveBeenCalledTimes(1);
 
 			const { perSource, interleaved } = await done;
@@ -381,11 +385,11 @@ describe('searchAllUncached inter-source stagger (GAPLESS-PREFETCH)', () => {
 				'netease',
 				'qq'
 			]);
-			// final membership matches the un-staggered registry-ordered (kuwo-first) interleave
+			// final membership matches the un-staggered registry-ordered (qq-first) interleave
 			expect(interleaved.map((t) => t.uid)).toEqual([
-				'kuwo:k1',
 				'qq:q1',
 				'netease:n1',
+				'kuwo:k1',
 				'joox:j1'
 			]);
 		} finally {
@@ -403,19 +407,19 @@ describe('searchAllUncached inter-source stagger (GAPLESS-PREFETCH)', () => {
 
 			const ac = new AbortController();
 			const done = searchAll('abortstagger', 1, ALL, ac.signal);
-			// adapter[0] (kuwo, kuwo-first registry) fires immediately; the rest are still in their
-			// sleep windows.
+			// adapter[0] (qq since the 2026-08-31 kuwo demotion) fires immediately; the rest are
+			// still in their sleep windows.
 			await vi.advanceTimersByTimeAsync(0);
-			expect(k).toHaveBeenCalledTimes(1);
-			expect(q).not.toHaveBeenCalled();
+			expect(q).toHaveBeenCalledTimes(1);
+			expect(n).not.toHaveBeenCalled();
 
 			// Abort BEFORE the later windows elapse — they must be skipped.
 			ac.abort();
 			await vi.advanceTimersByTimeAsync(SEARCH_STAGGER_MS * 4);
 			await done;
 
-			expect(q).not.toHaveBeenCalled();
 			expect(n).not.toHaveBeenCalled();
+			expect(k).not.toHaveBeenCalled();
 			expect(j).not.toHaveBeenCalled();
 		} finally {
 			vi.useRealTimers();
@@ -575,7 +579,7 @@ describe('ensureTrackDetails — cross-source lyric fallback (quick-260629-nyl)'
 // Last.fm track.getSimilar Up-Next shape) resolves kuwo-FIRST through a SINGLE source at a time —
 // never a 7-source searchAll fan-out. It stops at the first source yielding a playable name-matching
 // candidate, never-throws, and honors AbortSignal.
-describe('resolveNameStub — kuwo-first single-source name resolution (RESOLVE-02)', () => {
+describe('resolveNameStub — registry-first single-source name resolution (RESOLVE-02)', () => {
 	// Stub EVERY registered source's search so an unexpected walk step never hits the network.
 	function stubAllEmpty() {
 		for (const id of Object.keys(SOURCES) as SourceId[]) {
@@ -583,35 +587,15 @@ describe('resolveNameStub — kuwo-first single-source name resolution (RESOLVE-
 		}
 	}
 
-	it('happy path: searches kuwo ONLY and returns a real playable Track', async () => {
+	// debug/upnext-diverse-fallback-kuwo-dead (2026-08-31): the floor head moved kuwo → qq
+	// (kuwo's upstream cert expired, every /api/kuwo/* 526s). The CONTRACT under test is unchanged:
+	// search the FIRST enabled source only, stop at the first hit, never fan out.
+	it('happy path: searches the FIRST source (qq) ONLY and returns a real playable Track', async () => {
 		stubAllEmpty();
-		const kuwoCand = mk('kuwo', 'k1', 1, { artist: 'Jay', title: 'Blue' });
-		const kuwoSearch = vi.spyOn(SOURCES.kuwo, 'search').mockResolvedValue([kuwoCand]);
-		// kuwo resolves playable WITH an lrc so the cross-source lyric fallback never fires (which
-		// would otherwise search other sources and defeat the "kuwo only" assertion).
-		vi.spyOn(SOURCES.kuwo, 'resolve').mockResolvedValue({
-			...kuwoCand,
-			detailsLoaded: true,
-			audioUrl: 'https://cdn/kw.mp3',
-			lrc: '[00:01]x'
-		});
-
-		const out = await resolveNameStub('Jay', 'Blue');
-
-		expect(out?.uid).toBe('kuwo:k1');
-		expect(out?.source).toBe('kuwo');
-		expect(out?.audioUrl).toBe('https://cdn/kw.mp3');
-		// SINGLE-SOURCE + stop-at-first-hit: kuwo searched exactly once; qq/netease never touched.
-		expect(kuwoSearch).toHaveBeenCalledOnce();
-		expect(SOURCES.qq.search).not.toHaveBeenCalled();
-		expect(SOURCES.netease.search).not.toHaveBeenCalled();
-	});
-
-	it('advances to qq (single-source) when kuwo misses', async () => {
-		stubAllEmpty();
-		vi.spyOn(SOURCES.kuwo, 'search').mockResolvedValue([]); // kuwo dry
 		const qqCand = mk('qq', 'q1', 1, { artist: 'Jay', title: 'Blue' });
 		const qqSearch = vi.spyOn(SOURCES.qq, 'search').mockResolvedValue([qqCand]);
+		// qq resolves playable WITH an lrc so the cross-source lyric fallback never fires (which
+		// would otherwise search other sources and defeat the "first source only" assertion).
 		vi.spyOn(SOURCES.qq, 'resolve').mockResolvedValue({
 			...qqCand,
 			detailsLoaded: true,
@@ -622,9 +606,32 @@ describe('resolveNameStub — kuwo-first single-source name resolution (RESOLVE-
 		const out = await resolveNameStub('Jay', 'Blue');
 
 		expect(out?.uid).toBe('qq:q1');
+		expect(out?.source).toBe('qq');
+		expect(out?.audioUrl).toBe('https://cdn/qq.flac');
+		// SINGLE-SOURCE + stop-at-first-hit: qq searched exactly once; netease/kuwo never touched.
 		expect(qqSearch).toHaveBeenCalledOnce();
-		// netease is AFTER qq in the kuwo-first order → never reached once qq hits.
 		expect(SOURCES.netease.search).not.toHaveBeenCalled();
+		expect(SOURCES.kuwo.search).not.toHaveBeenCalled();
+	});
+
+	it('advances to netease (single-source) when qq misses', async () => {
+		stubAllEmpty();
+		vi.spyOn(SOURCES.qq, 'search').mockResolvedValue([]); // floor head dry
+		const neCand = mk('netease', 'n1', 1, { artist: 'Jay', title: 'Blue' });
+		const neSearch = vi.spyOn(SOURCES.netease, 'search').mockResolvedValue([neCand]);
+		vi.spyOn(SOURCES.netease, 'resolve').mockResolvedValue({
+			...neCand,
+			detailsLoaded: true,
+			audioUrl: 'https://cdn/ne.mp3',
+			lrc: '[00:01]x'
+		});
+
+		const out = await resolveNameStub('Jay', 'Blue');
+
+		expect(out?.uid).toBe('netease:n1');
+		expect(neSearch).toHaveBeenCalledOnce();
+		// kuwo is AFTER netease in the registry order → never reached once netease hits.
+		expect(SOURCES.kuwo.search).not.toHaveBeenCalled();
 	});
 
 	it('returns null (never throws) when every source misses', async () => {
@@ -639,19 +646,19 @@ describe('resolveNameStub — kuwo-first single-source name resolution (RESOLVE-
 		ac.abort();
 		const out = await resolveNameStub('Jay', 'Blue', ac.signal);
 		expect(out).toBeNull();
-		expect(SOURCES.kuwo.search).not.toHaveBeenCalled();
+		expect(SOURCES.qq.search).not.toHaveBeenCalled();
 	});
 
 	it('does NOT adopt an UNRELATED (different-song) candidate — sameSongKey gate (WR-06)', async () => {
 		stubAllEmpty();
-		// kuwo returns a totally different song → must be rejected, walk continues, ends null.
-		const wrong = mk('kuwo', 'w', 1, { artist: 'Other', title: 'Different', audioUrl: 'https://cdn/x.mp3' });
-		vi.spyOn(SOURCES.kuwo, 'search').mockResolvedValue([wrong]);
-		const kuwoResolve = vi.spyOn(SOURCES.kuwo, 'resolve');
+		// the floor head returns a totally different song → must be rejected, walk continues, ends null.
+		const wrong = mk('qq', 'w', 1, { artist: 'Other', title: 'Different', audioUrl: 'https://cdn/x.mp3' });
+		vi.spyOn(SOURCES.qq, 'search').mockResolvedValue([wrong]);
+		const qqResolve = vi.spyOn(SOURCES.qq, 'resolve');
 
 		const out = await resolveNameStub('Jay', 'Blue');
 		expect(out).toBeNull();
-		expect(kuwoResolve).not.toHaveBeenCalled(); // never even resolved the mismatch
+		expect(qqResolve).not.toHaveBeenCalled(); // never even resolved the mismatch
 	});
 
 	// 27-04 (YT-RESILIENCE-01): ytmusic is enabledByDefault (searchable) but autoResolveEligible:false,
@@ -703,7 +710,7 @@ describe('ensureTrackDetails — name-stub routing (RESOLVE-02)', () => {
 	});
 });
 
-// Phase 26 (RESOLVE-02): crossSourceLyric is bounded to a SINGLE-source lyric lookup (kuwo-first
+// Phase 26 (RESOLVE-02): crossSourceLyric is bounded to a SINGLE-source lyric lookup (registry-order
 // walk, skip own source + LYRICLESS_SOURCES), never the old all-enabled searchAll fan-out.
 describe('ensureTrackDetails — crossSourceLyric is single-source (RESOLVE-02)', () => {
 	it('fills lrc via a SINGLE-source lookup and never fans out to all sources', async () => {
@@ -715,25 +722,25 @@ describe('ensureTrackDetails — crossSourceLyric is single-source (RESOLVE-02)'
 			audioUrl: 'https://cdn/joox.mp3',
 			lrc: null
 		});
-		// kuwo is FIRST in the walk (joox is the own source → skipped) and yields a matching candidate.
-		const kuwoCand = mk('kuwo', 'k9', 1, { artist: 'Jay', title: 'Rain' });
-		const kuwoSearch = vi.spyOn(SOURCES.kuwo, 'search').mockResolvedValue([kuwoCand]);
-		const qqSearch = vi.spyOn(SOURCES.qq, 'search').mockResolvedValue([]);
+		// qq is FIRST in the walk (joox is the own source → skipped) and yields a matching candidate.
+		const qqCand = mk('qq', 'q9', 1, { artist: 'Jay', title: 'Rain' });
+		const qqSearch = vi.spyOn(SOURCES.qq, 'search').mockResolvedValue([qqCand]);
 		const neSearch = vi.spyOn(SOURCES.netease, 'search').mockResolvedValue([]);
-		const kuwoResolve = vi
-			.spyOn(SOURCES.kuwo, 'resolve')
-			.mockResolvedValue({ ...kuwoCand, detailsLoaded: true, audioUrl: 'https://cdn/kw.mp3', lrc: '[00:02]cross' });
+		const kuwoSearch = vi.spyOn(SOURCES.kuwo, 'search').mockResolvedValue([]);
+		const qqResolve = vi
+			.spyOn(SOURCES.qq, 'resolve')
+			.mockResolvedValue({ ...qqCand, detailsLoaded: true, audioUrl: 'https://cdn/qq.flac', lrc: '[00:02]cross' });
 
 		const out = await ensureTrackDetails(primary);
 
 		expect(out.audioUrl).toBe('https://cdn/joox.mp3'); // primary audio preserved
 		expect(out.lrc).toBe('[00:02]cross'); // lyric copied from the single-source candidate
-		// SINGLE-source, stop-at-first: kuwo searched once; qq/netease never searched (no fan-out).
-		expect(kuwoSearch).toHaveBeenCalledOnce();
-		expect(qqSearch).not.toHaveBeenCalled();
+		// SINGLE-source, stop-at-first: qq searched once; netease/kuwo never searched (no fan-out).
+		expect(qqSearch).toHaveBeenCalledOnce();
 		expect(neSearch).not.toHaveBeenCalled();
+		expect(kuwoSearch).not.toHaveBeenCalled();
 		// bounded: at most ONE candidate resolved.
-		expect(kuwoResolve).toHaveBeenCalledOnce();
+		expect(qqResolve).toHaveBeenCalledOnce();
 	});
 });
 

@@ -12,6 +12,7 @@
 import type { RequestHandler } from './$types';
 import { fetchWithRetry, corsHeaders } from '$lib/proxy/http';
 import { edgeCache } from '$lib/proxy/edge-cache';
+import { pickBestArtistId, DEEZER_ARTIST_SEARCH_LIMIT } from '$lib/proxy/deezer-pick';
 
 const DEEZER_ARTIST_SEARCH = 'https://api.deezer.com/search/artist';
 const DEEZER_ARTIST_RELATED = 'https://api.deezer.com/artist';
@@ -38,6 +39,8 @@ function jsonResult(body: RelatedResult, origin: string | null, ttl?: number): R
 interface DzArtistHit {
 	id?: number;
 	name?: string;
+	/** Popularity, read by pickBestArtistId to skip namesake shell profiles. */
+	nb_fan?: number;
 }
 interface DzSearchResp {
 	data?: DzArtistHit[];
@@ -66,11 +69,15 @@ export const GET: RequestHandler = async ({ url, request }) => {
 
 	try {
 		// 1. Resolve artist NAME → artist.id via search/artist.
-		const searchUrl = `${DEEZER_ARTIST_SEARCH}?q=${encodeURIComponent(artist)}&limit=1`;
+		// debug/upnext-diverse-fallback-kuwo-dead: ask for SEVERAL hits and pick, instead of
+		// trusting data[0]. Deezer's artist search does not rank by popularity, so `limit=1`
+		// returned empty namesake shells (q=Drake → 111 fans, real Drake is 24M; those shells
+		// have zero related artists, which is what made this fallback permanently dry).
+		const searchUrl = `${DEEZER_ARTIST_SEARCH}?q=${encodeURIComponent(artist)}&limit=${DEEZER_ARTIST_SEARCH_LIMIT}`;
 		const searchRes = await fetchWithRetry(searchUrl, { signal: AbortSignal.timeout(8000) }, 2);
 		const searchData = (await searchRes.json()) as DzSearchResp;
-		const id = searchData?.data?.[0]?.id;
-		if (id === undefined || id === null) {
+		const id = pickBestArtistId(searchData?.data ?? [], artist);
+		if (id === null) {
 			return jsonResult({ artists: [] }, origin);
 		}
 		// 2. Fetch related artists by id.
