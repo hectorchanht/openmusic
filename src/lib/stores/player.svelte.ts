@@ -31,6 +31,7 @@ import {
 } from '$lib/services/native-media-session';
 import { getCachedCoverByUid, getCachedCover } from '$lib/services/cover-cache';
 import { resolveCoverForTrack, resolveDeezerHQ } from '$lib/services/cover-backfill';
+import { matchKey } from '$lib/services/match-key';
 // quick-260615-hep: feed every displayed now-playing cover into the shared cache (both layers) +
 // bump the global reactive signal so other surfaces (homepage tiles) reuse the art and repaint live.
 // quick-260704-20e: removeCoverBoth evicts a DEAD current cover before healCover re-resolves it.
@@ -322,6 +323,18 @@ class Player {
 	 * keeps /favicon.svg via buildArtwork (D-12). It IS `$state` so the two component surfaces
 	 * reactively repaint when the async land assigns it. */
 	resolvedCover = $state<string | null>(null);
+	/** quick-260831-t2g: a cover the CALLER supplied (an album's art, a discovery tile's image),
+	 *  keyed by SONG identity — `matchKey(artist, title)` — not by uid.
+	 *
+	 *  Song-keyed on purpose: a tap resolves to one source, and cross-source fallback then replays
+	 *  the SAME song under a DIFFERENT uid. A uid-keyed marker was lost at that hop, which is
+	 *  exactly how an album row still ended up showing qq's own thumbnail instead of the album
+	 *  cover. The art belongs to the song, so the key must too.
+	 *
+	 *  Such a cover is authoritative — the caller knows the right art — so the post-paint Deezer HQ
+	 *  upgrade is skipped for it. Without that, every album track would still spend one Deezer call
+	 *  AND could upgrade to a different image than its siblings. */
+	private attachedCover: { key: string; url: string } | null = null;
 
 	/** Full-screen now-playing overlay open? */
 	expanded = $state(false);
@@ -2738,6 +2751,18 @@ class Player {
 			// Hand off to the real player. Clear the optimistic overlay; play() sets `current`
 			// (and owns loading from here) so there is no flicker of a stale pending bar.
 			this.pendingTrack = null;
+			// quick-260831-t2g: carry the caller's cover onto the RESOLVED track. Previously this
+			// argument only painted the optimistic pending bar and was then thrown away, so a track
+			// played from a surface that ALREADY KNOWS its art (every album row shares the album
+			// cover) still went through per-song cover resolution — N wasted fetches per album, and
+			// sibling tracks could land on different images. play() reads `track.cover` first, so
+			// attaching it here is what makes the resolution skip happen.
+			// It WINS over the source's own inline cover on purpose: the point is that all songs on
+			// an album show the album's art, not whatever thumbnail each source happens to return.
+			if (httpsOnly(cover)) {
+				tr = { ...tr, cover };
+				this.attachedCover = { key: matchKey(tr.artist, tr.title), url: cover };
+			}
 			this.setQueue([tr], context);
 			void this.play(tr, { fresh: true });
 			return tr;
@@ -2813,8 +2838,15 @@ class Player {
 		// flicker. Read order is uid-cache BEFORE name-cache (D-13 two-layer) and BEFORE null; a total
 		// miss leaves null and the async tier chain (further down) takes over. Repointing this on
 		// every entry also clears any stale cover from the prior track.
+		// quick-260831-t2g: an attached cover outranks everything, INCLUDING the source's own inline
+		// art. That is the point — every song on an album must show the album's cover, not whatever
+		// thumbnail each source happens to return for it.
 		this.resolvedCover =
-			track.cover ?? getCachedCoverByUid(track.uid) ?? getCachedCover(track.artist, track.title) ?? null;
+			this.attachedCoverFor(track) ??
+			track.cover ??
+			getCachedCoverByUid(track.uid) ??
+			getCachedCover(track.artist, track.title) ??
+			null;
 		// quick-260615-hep Site A: write the displayed cover (incl. the track.cover path) into BOTH cache
 		// layers + bump so other surfaces reuse it and repaint live. https-only (T-0bb-01); writeCoverBoth
 		// no-ops on empty/non-https — harmless even before the myGen guards' discard points (real art only).
@@ -2975,6 +3007,16 @@ class Player {
 					hasUrl: !!resolved.audioUrl
 				});
 			}
+			// quick-260831-t2g: re-apply an ATTACHED cover across the resolve.
+			//
+			// `resolved` comes from ensureTrackDetails and carries the SOURCE's own art, so assigning
+			// it to `current` below silently discarded the cover the caller attached in playStub —
+			// which is why every album row still ended up on its source's per-track thumbnail (an
+			// http y.gtimg.cn image for qq) instead of the album cover, and why siblings disagreed.
+			// resolvedCover survived (its adoption is `if (!this.resolvedCover)`-guarded), but
+			// `current.cover` is what the nowbar and persistence read, so it has to survive too.
+			const attached = this.attachedCoverFor(resolved);
+			if (attached && resolved.cover !== attached) resolved = { ...resolved, cover: attached };
 			this.current = resolved;
 			// keep the queue entry in sync with the resolved track
 			const i = this.indexOf(track);
@@ -3122,7 +3164,12 @@ class Player {
 			// fan-out — T-26-02-01), generation-guarded, never awaited. `else if` keeps it mutually
 			// exclusive with the full-chain miss path above — a track is EITHER coverless (full chain)
 			// OR has an inline cover (single Deezer upgrade), never both.
-			else if (httpsOnly(this.resolvedCover)) void this.upgradeCoverAsync(resolved, myGen);
+			// quick-260831-t2g: an ATTACHED cover (album art, discovery tile art) is already the
+			// right image, so skip the Deezer HQ upgrade for it — that call is the remaining
+			// per-play cover fetch, and on an album it would also let siblings drift apart. Tracks
+			// whose cover came from the SOURCE inline (a kuwo/qq thumbnail) still get upgraded.
+			else if (httpsOnly(this.resolvedCover) && !this.attachedCoverFor(resolved))
+				void this.upgradeCoverAsync(resolved, myGen);
 			// Fresh play -> per-context sourcing branch (Phase 17, D-03/D-04). 'generated'
 			// (global default) regenerates the auto portion from genre-similar songs; 'same-list'
 			// keeps the snapshot the caller passed via setQueue (search results / liked list /
@@ -3219,6 +3266,14 @@ class Player {
 	 * write), and re-fire a FRESH MediaMetadata so the OS lock screen repaints. A miss / same-URL result /
 	 * a supersede leaves the inline cover standing (never a downgrade, never a broken image).
 	 */
+	/** The caller-attached cover for THIS song, or null. Song-keyed so it survives a cross-source
+	 *  fallback that replays the same song under a different uid (quick-260831-t2g). */
+	private attachedCoverFor(track: Track): string | null {
+		const a = this.attachedCover;
+		if (!a) return null;
+		return matchKey(track.artist, track.title) === a.key ? a.url : null;
+	}
+
 	private async upgradeCoverAsync(resolved: Track, myGen: number) {
 		let url: string | null = null;
 		try {

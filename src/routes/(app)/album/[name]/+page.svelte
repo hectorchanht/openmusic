@@ -247,7 +247,11 @@
 	// playStub returns null for BOTH a miss AND a supersede; toast only on a genuine miss
 	// (pendingTrack cleared) — a supersede leaves pendingTrack on the newer song (no toast).
 	async function playStub(stub: AlbumStub) {
-		const tr = await player.playStub(stub.artist, stub.title, null, 'album');
+		// quick-260831-t2g: hand the ALBUM cover to the player. Every track on an album shares the
+		// album's art, so resolving a cover per song was both wasted fetches and a source of
+		// inconsistency (siblings landing on different images). player.playStub attaches this to the
+		// resolved track, which makes play() skip cover resolution entirely.
+		const tr = await player.playStub(stub.artist, stub.title, heroImg, 'album');
 		if (tr === null) {
 			if (player.pendingTrack == null) globalToast.show(t('album.unplayable'));
 			return;
@@ -377,7 +381,7 @@
 		if (!tracks.length || busyAction === 'play') return;
 		busyAction = 'play';
 		try {
-			const first = await player.playStub(tracks[0].artist, tracks[0].title, null, 'album');
+			const first = await player.playStub(tracks[0].artist, tracks[0].title, heroImg, 'album');
 			if (!first) {
 				if (player.pendingTrack == null) globalToast.show(t('album.unplayable'));
 				return;

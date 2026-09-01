@@ -58,7 +58,13 @@ vi.mock('$lib/services/cover-cache', async (importOriginal) => {
 });
 vi.mock('$lib/services/cover-backfill', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('$lib/services/cover-backfill')>();
-	return { ...actual, resolveCoverForTrack: vi.fn(async () => null) };
+	// quick-260831-t2g: resolveDeezerHQ is the post-paint upgrade call — the remaining per-play
+	// cover fetch. Mocked so the tests can assert it is NOT made for an attached cover.
+	return {
+		...actual,
+		resolveCoverForTrack: vi.fn(async () => null),
+		resolveDeezerHQ: vi.fn(async () => null)
+	};
 });
 // quick-260704-20e: spy on the BOTH-layers evictor so healCover's dead-probe eviction is observable.
 // importOriginal keeps writeCoverBoth/bumpCoverVersion (+ the reactive read helpers) real so the
@@ -108,7 +114,7 @@ import {
 	uidCoverCacheKey,
 	coverCacheKey
 } from '$lib/services/cover-cache';
-import { resolveCoverForTrack } from '$lib/services/cover-backfill';
+import { resolveCoverForTrack, resolveDeezerHQ } from '$lib/services/cover-backfill';
 import { removeCoverBoth } from '$lib/stores/cover-version.svelte';
 import { logAction } from '$lib/stores/actionLog.svelte';
 import {
@@ -124,6 +130,9 @@ const mockDownloadTrack = vi.mocked(downloadTrack);
 const mockSimilar = vi.mocked(buildSimilarQueue);
 const mockPicks = vi.mocked(buildDiversePicks);
 const mockUidCover = vi.mocked(getCachedCoverByUid);
+// quick-260831-t2g: the two cover-fetch paths — the full tier chain and the HQ upgrade.
+const mockCoverResolve = vi.mocked(resolveCoverForTrack);
+const mockDeezerHQ = vi.mocked(resolveDeezerHQ);
 const mockNameCover = vi.mocked(getCachedCover);
 const mockResolveCover = vi.mocked(resolveCoverForTrack);
 const mockRemoveCoverBoth = vi.mocked(removeCoverBoth);
@@ -362,6 +371,127 @@ afterEach(() => {
 	// …then re-establish the module-level localStorage stub that unstubAllGlobals also tears down
 	// (it is set once at import, not per-test; restore()/persist() tests depend on it).
 	vi.stubGlobal('localStorage', localStorageMock);
+});
+
+// quick-260831-t2g. A surface that already knows a track's art (every row of an album shares the
+// album cover) used to hand that art to playStub for the optimistic bar only — it was dropped
+// before play(), so each song still resolved its OWN cover. That is N wasted fetches per album
+// AND a source of visible inconsistency, since sibling tracks could land on different images.
+describe('player.playStub — attached cover skips cover fetching (quick-260831-t2g)', () => {
+	// The suite-wide beforeEach stubs play() so playStub's handoff is observable without a DOM.
+	// These cases need the REAL play(), because resolvedCover and the two cover-fetch branches all
+	// live inside it — the same restore idiom the regenerate describes use.
+	beforeEach(() => {
+		(player.play as unknown as { mockRestore(): void }).mockRestore?.();
+		mockEnsure.mockReset();
+		mockCoverResolve.mockReset().mockResolvedValue(null);
+		mockDeezerHQ.mockReset().mockResolvedValue(null);
+		mockUidCover.mockReset().mockReturnValue(null);
+		player.current = null;
+		player.queue = [];
+		player.resolvedCover = null;
+		(player as unknown as { attachedCover: unknown }).attachedCover = null;
+		player.attach(makeFakeAudio() as unknown as HTMLAudioElement);
+	});
+
+	it('carries the caller cover onto the RESOLVED track, so play() paints it with no fetch', async () => {
+		const bare = { ...mk('kuwo', 'K1', 'Coldplay', 'Shiver'), cover: null, audioUrl: 'https://cdn/k1.mp3' };
+		mockResolve.mockResolvedValue(bare);
+		// The cover branches live AFTER the ensureTrackDetails await — resolve it, or play() never
+		// reaches them and the assertions below pass vacuously.
+		mockEnsure.mockImplementation(async (t: Track) => t);
+
+		await player.playStub('Coldplay', 'Shiver', 'https://img/album.jpg', 'album');
+		await flush();
+
+		expect(player.current?.cover).toBe('https://img/album.jpg');
+		expect(player.resolvedCover).toBe('https://img/album.jpg');
+		// The full tier chain is for coverless tracks only — it must not run here.
+		expect(mockCoverResolve).not.toHaveBeenCalled();
+	});
+
+	it('does NOT spend the Deezer HQ upgrade call on an attached cover', async () => {
+		const bare = { ...mk('kuwo', 'K2', 'Coldplay', 'Spies'), cover: null, audioUrl: 'https://cdn/k2.mp3' };
+		mockResolve.mockResolvedValue(bare);
+		mockEnsure.mockImplementation(async (t: Track) => t);
+
+		await player.playStub('Coldplay', 'Spies', 'https://img/album.jpg', 'album');
+		await flush();
+
+		expect(mockDeezerHQ).not.toHaveBeenCalled();
+	});
+
+	it('STILL upgrades a track whose cover came from the source inline (quality preserved)', async () => {
+		// No caller cover — the source supplied its own thumbnail, which may well be low quality.
+		const withInline = {
+			...mk('kuwo', 'K3', 'Coldplay', 'Sparks'),
+			cover: 'https://kuwo/thumb.jpg',
+			audioUrl: 'https://cdn/k3.mp3'
+		};
+		mockResolve.mockResolvedValue(withInline);
+		mockEnsure.mockImplementation(async (t: Track) => t);
+
+		await player.playStub('Coldplay', 'Sparks', null, 'album');
+		await flush();
+
+		expect(mockDeezerHQ).toHaveBeenCalled();
+	});
+
+	it('album siblings all end up on the SAME cover — the reported inconsistency', async () => {
+		// Two tracks whose sources return DIFFERENT art; the album cover must win for both.
+		mockEnsure.mockImplementation(async (t: Track) => t);
+		mockResolve.mockResolvedValue({
+			...mk('kuwo', 'S1', 'Coldplay', 'Yellow'),
+			cover: 'https://kuwo/a.jpg',
+			audioUrl: 'https://cdn/s1.mp3'
+		});
+		await player.playStub('Coldplay', 'Yellow', 'https://img/album.jpg', 'album');
+		await flush();
+		const first = player.resolvedCover;
+
+		mockResolve.mockResolvedValue({
+			...mk('qq', 'S2', 'Coldplay', 'Trouble'),
+			cover: 'https://qq/b.jpg',
+			audioUrl: 'https://cdn/s2.mp3'
+		});
+		await player.playStub('Coldplay', 'Trouble', 'https://img/album.jpg', 'album');
+		await flush();
+
+		expect(first).toBe('https://img/album.jpg');
+		expect(player.resolvedCover).toBe('https://img/album.jpg');
+	});
+
+	it('KEEPS the attached cover when the resolve returns the source\'s own art', async () => {
+		// The regression that made this fix incomplete: ensureTrackDetails returns a track carrying
+		// the SOURCE's cover, and assigning it to `current` discarded the attached album art — which
+		// is what the nowbar and persistence read. Observed live as an http y.gtimg.cn qq thumbnail
+		// replacing the album cover on every album row.
+		const stub = { ...mk('kuwo', 'R1', 'Coldplay', 'Clocks'), cover: null, audioUrl: null };
+		const resolvedWithSourceArt = {
+			...mk('qq', 'R1Q', 'Coldplay', 'Clocks'),
+			cover: 'http://y.gtimg.cn/thumb.jpg',
+			audioUrl: 'https://cdn/r1.mp3'
+		};
+		mockResolve.mockResolvedValue(stub);
+		mockEnsure.mockResolvedValue(resolvedWithSourceArt);
+
+		await player.playStub('Coldplay', 'Clocks', 'https://img/album.jpg', 'album');
+		await flush();
+
+		expect(player.current?.cover).toBe('https://img/album.jpg');
+		expect(player.resolvedCover).toBe('https://img/album.jpg');
+	});
+
+	it('ignores a non-https caller cover rather than attaching something unrenderable', async () => {
+		const bare = { ...mk('kuwo', 'K4', 'Coldplay', 'Trouble'), cover: null, audioUrl: 'https://cdn/k4.mp3' };
+		mockResolve.mockResolvedValue(bare);
+		mockEnsure.mockImplementation(async (t: Track) => t);
+
+		await player.playStub('Coldplay', 'Trouble', 'http://insecure/x.jpg', 'album');
+		await flush();
+
+		expect(player.current?.cover).toBeNull();
+	});
 });
 
 describe('player.playStub — optimistic resolve-on-tap (FIX-A)', () => {
