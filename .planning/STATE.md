@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: YTMusic-Powered Up-Next
 status: executing
-stopped_at: Completed 32-03-PLAN.md (RTT measurement DEFERRED — headline UNVERIFIED)
-last_updated: "2026-09-01T03:46:49.677Z"
-last_activity: "2026-08-31 - Completed 32-03: real-device RTT checkpoint DEFERRED, verification criterion restated"
+stopped_at: Completed 32-05-PLAN.md (qq resolve hot path: direct tang call, https-only ladder, accom demoted)
+last_updated: "2026-09-01T04:11:30.389Z"
+last_activity: "2026-08-31 - Completed 32-05: qq detail goes direct to tang with mid alone; https-only ladder, accom demoted, honest tier labels"
 progress:
   total_phases: 8
   completed_phases: 5
-  total_plans: 50
-  completed_plans: 41
+  total_plans: 51
+  completed_plans: 42
   percent: 63
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-06-10)
 ## Current Position
 
 Phase: 32 (QQ-lossless-first resolve) — EXECUTING
-Plan: 5 of 8
+Plan: 6 of 8
 Status: Executing Phase 32
 
 ### 30-06 checkpoint status
@@ -125,6 +125,7 @@ Remaining human UAT: real-device <audio> playback+seek + download-to-disk; deplo
 | Phase 32 P02 | ~7 min | 2 tasks | 6 files |
 | Phase 32 P04 | ~22 min | 3 tasks | 11 files |
 | Phase 32 P03 | 4 min | 2 tasks | 1 files |
+| Phase 32 P05 | 11 min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -221,6 +222,8 @@ Recent decisions affecting current work:
 - [Phase 32]: 32-D-01: the edge resolve fill is qq-native and ONE subrequest (song_mid is on every search row); the kuwo/netease/joox ladder stays as the FAILURE path
 - [Phase 32]: 32-D-10b: catalog skips the /api/resolve lookup entirely when the track already holds a qq mid
 - [Phase 32]: 32-03: real-device tang RTT DEFERRED at user request (2026-08-31) — Phase 32 verification MUST use 'lossless by default with NO ADDED latency vs Phase 31', not the ROADMAP's absolute 'tap→audio under a second' (unfalsifiable without the measurement)
+- [Phase 32]: 32-D-12/13: qq detail resolves DIRECT to tang via apiFetch with a one-shot /api/qq/detail fallback — msg dropped (mid alone returns the full ladder, verified live 200 in 2.0s)
+- [Phase 32]: 32-D-18/19: accom (伴奏, .ogg) demoted below every real-song rung and labelled ACCOM; inferQualityFromUrl is now a fallback, never an overwrite of the tier the ladder picked
 
 ### Pending Todos
 
@@ -406,8 +409,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-01T03:46:43.838Z
-Stopped at: Completed 32-03-PLAN.md (RTT measurement DEFERRED — headline UNVERIFIED)
+Last session: 2026-09-01T04:11:24.664Z
+Stopped at: Completed 32-05-PLAN.md (qq resolve hot path: direct tang call, https-only ladder, accom demoted)
 Resume: install `android/app/build/outputs/apk/debug/app-debug.apk` on an Android device, open `/song/Olivia-Dean/Man-I-Need` (proven to return a real 30,840 B JPEG from production), confirm the cover renders rather than a broken image, then kill the network and confirm the gradient fallback appears. That single check closes 30-06 and Phase 30. Do NOT run `/gsd:verify-work` for Phase 30 until it is approved — OG-PAGE-01 terminates in it. Optional, non-blocking leftovers: iMessage/Slack cards, and real 24h cache TTL/eviction.
 
 ## Deferred Items
