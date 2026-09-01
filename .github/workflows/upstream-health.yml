@@ -1,0 +1,74 @@
+# Daily upstream health check.
+#
+# WHY: on 2026-08-31 we discovered that kuwo's upstream (kw-api.cenguigui.cn) had been serving an
+# EXPIRED TLS certificate since 2026-04-14. Cloudflare had been answering 526 for every
+# /api/kuwo/* request for four and a half months, and because kuwo was the registry's primary
+# source that silently emptied the similar-song fallbacks — Up-Next collapsed to a random grab-bag
+# for any track Last.fm had no data for. Nothing surfaced it; a user had to notice and report it.
+#
+# This job is the missing signal. It checks certificate expiry for every upstream host AND asserts
+# a real response body from each one, because a 200 is not proof of health (see the
+# /api/translate soft-fail documented in CLAUDE.md).
+#
+# It fails ONLY on `critical` findings — upstreams with no fallback. Degraded findings (kuwo today,
+# MusicBrainz if it ever lapses) are printed and left visible without keeping the badge
+# permanently red, which is how people learn to ignore a check.
+#
+# The check logic and its severity table live in scripts/upstream-health.mjs; its pure parts are
+# unit-tested in src/lib/health/upstream-health.test.ts.
+name: Upstream health
+
+on:
+  schedule:
+    # 06:15 UTC daily. Off the hour to avoid the top-of-hour rush on shared runners.
+    - cron: '15 6 * * *'
+  workflow_dispatch:
+    inputs:
+      origin:
+        description: 'Origin for the key-injected probes (Last.fm, JOOX)'
+        required: false
+        default: 'https://openmusic.lol'
+      warn_days:
+        description: 'Warn when a certificate has fewer than this many days left'
+        required: false
+        default: '30'
+
+# Read-only: this job never touches the repo.
+permissions:
+  contents: read
+
+jobs:
+  health:
+    runs-on: ubuntu-latest
+    # Generous vs the ~30s the script takes, but bounded — the probes have their own timeouts and
+    # a hung upstream must not burn a runner.
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # No install step: the script is dependency-free (node:tls + global fetch), which keeps this
+      # job fast and immune to a broken lockfile in an unrelated PR.
+      - name: Probe upstreams
+        id: probe
+        run: |
+          node scripts/upstream-health.mjs \
+            --origin "${{ github.event.inputs.origin || 'https://openmusic.lol' }}" \
+            --warn-days "${{ github.event.inputs.warn_days || '30' }}" \
+            | tee health.txt
+
+      # Always publish the table to the run summary so a green run is still readable at a glance —
+      # the degraded findings are the early warning, and they do not fail the job.
+      - name: Publish report
+        if: always()
+        run: |
+          {
+            echo '## Upstream health'
+            echo
+            echo '```'
+            cat health.txt || echo '(the probe step produced no output)'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

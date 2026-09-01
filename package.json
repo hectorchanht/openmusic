@@ -17,6 +17,7 @@
 		"test:unit": "vitest",
 		"test": "vitest --run",
 		"gen": "wrangler types",
+		"health": "node scripts/upstream-health.mjs",
 		"cap:sync": "npx cap sync android",
 		"apk": "pnpm build:native && npx cap sync android && cd android && ./gradlew assembleDebug",
 		"deploy": "pnpm build && wrangler pages deploy .svelte-kit/cloudflare --project-name openmusic"
