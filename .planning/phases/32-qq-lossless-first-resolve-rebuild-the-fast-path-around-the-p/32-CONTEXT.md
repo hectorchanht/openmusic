@@ -115,6 +115,34 @@ post-resolve tail (measured and cleared — see D-16).
   implemented behavior. The spinner is `ensureTrackDetails` and nothing else.
 - **D-17:** Phase 31 D-19 carries forward: lookahead stays **next-1 only**. Do not deepen the walk.
 
+### Two-layer resolve cache (added 2026-08-31 mid-execution, user approved)
+
+- **D-20:** The edge entry carries **BOTH** payloads, each with its own TTL:
+  - `songid` (the qq `song_mid`) → **permanent**, `max-age=31536000` — D-10/D-10a unchanged.
+  - `url` (the resolved playable audio URL) → **short TTL**, because a signed CN URL genuinely expires.
+
+  **Client read order: `url` → `songid` → cold walk.** A `url` hit plays with ZERO tang RTT
+  (Phase 31 measured this path at **0.44s to playable**). A `url` miss, expiry, or playback failure
+  falls through to the `songid` path (one tang detail call), which then REFILLS the `url`.
+
+  **Why this reverses part of 32-04.** 32-04 removed `url` on the reasoning recorded at
+  `resolve-cache.ts:64` — *"it was the only reason this entry had to expire."* That reasoning was
+  true when the entry had ONE TTL. D-10a then built the per-payload TTL split, which makes a
+  mixed-lifetime entry a solved problem. The two decisions were made minutes apart and the second
+  obsoleted the first's premise; this decision reconciles them.
+
+  **Accepted risk (re-accepting Phase 31 D-11):** a globally-shared signed URL can be IP- or
+  region-bound and will 403 for some other user in the same PoP. That was the honest argument for
+  dropping `url`, and it is knowingly re-accepted here for the 0.44s. The mitigation is the
+  mechanism Phase 31 already specified and 32-04 deliberately KEPT: the entry is advisory
+  (31-D-08), a dead URL is busted via the POST handler (31-D-09), and the failure path is
+  load-bearing rather than exceptional (31-D-11). **A `url` 403 must be indistinguishable, from the
+  user's seat, from a `url` miss.**
+
+  **Verification note:** the `url` layer must never be the reason a track fails to play. The test
+  that matters is not "a hit is fast" but "a POISONED hit still plays" — assert that a 403/dead
+  cached URL falls through to the mid path, refills, and plays, with no user-visible error.
+
 ### Folded pre-existing bugs (added 2026-08-31 after research; user approved the scope)
 
 Both live inside functions this phase already edits, both inherited verbatim from
