@@ -18,6 +18,7 @@
 import type { RequestHandler } from './$types';
 import { fetchWithRetry, corsHeaders } from '$lib/proxy/http';
 import { edgeCache } from '$lib/proxy/edge-cache';
+import { pickBestArtistId, DEEZER_ARTIST_SEARCH_LIMIT } from '$lib/proxy/deezer-pick';
 
 const DEEZER_ARTIST_SEARCH = 'https://api.deezer.com/search/artist';
 const DEEZER_ARTIST_ALBUMS = 'https://api.deezer.com/artist'; // + /{id}/albums
@@ -26,11 +27,27 @@ const DEEZER_ARTIST_ALBUMS = 'https://api.deezer.com/artist'; // + /{id}/albums
 // (mirrors the search route's TTL).
 const TTL = 86400;
 
-/** Client-facing reshape of one Deezer album (narrow shape — no upstream fields leak). */
+/** Deezer caps `limit` at 50 per page and exposes `index` for paging. quick-260831-qkx pages up
+ *  to PAGES × 50 so a deep discography is genuinely exhaustive (Coldplay has 123 releases, so the
+ *  old single limit=50 call truncated it) while staying bounded — 3 sequential calls, worst case. */
+const ALBUMS_PAGE_SIZE = 50;
+const ALBUMS_MAX_PAGES = 3;
+
+/** A Deezer release type. 'album' | 'ep' | 'single' | 'compilation' upstream; kept as a loose
+ *  string because Deezer has added types before and an unknown one must not drop the release. */
+export type DeezerRecordType = string;
+
+/** Client-facing reshape of one Deezer album (narrow shape — no upstream fields leak).
+ *  quick-260831-qkx widened this: `id` lets the album page fetch the REAL tracklist instead of
+ *  re-matching by name through Last.fm, and `release_date`/`record_type` are what the shelf sorts
+ *  and filters on. */
 export interface DeezerArtistAlbum {
+	id: number | null;
 	title: string;
 	nb_tracks: number;
 	cover: string | null;
+	release_date: string | null;
+	record_type: DeezerRecordType | null;
 }
 
 /** The proxy's response envelope. */
@@ -80,30 +97,55 @@ function clampCount(raw: unknown): number {
 // ---- Deezer response sub-shapes (only the fields we read; all optional — untrusted JSON). ----
 interface DzArtistSearchItem {
 	id?: number;
+	/** Read by pickBestArtistId to skip namesake shell profiles (quick-260831-qkx). */
+	name?: string;
+	nb_fan?: number;
 }
 interface DzArtistSearchResponse {
 	data?: DzArtistSearchItem[];
 }
 interface DzAlbumItem {
+	id?: number;
 	title?: string;
 	nb_tracks?: number;
 	cover_xl?: string;
 	cover_big?: string;
 	cover_medium?: string;
 	cover?: string;
+	release_date?: string;
+	record_type?: string;
 }
 interface DzAlbumsResponse {
 	data?: DzAlbumItem[];
+	total?: number;
+}
+
+/** ISO date guard: only `YYYY-MM-DD` passes through, so the client sort key can never be a
+ *  surprise string. Anything else → null (those entries sort last). */
+function safeReleaseDate(raw: string | null | undefined): string | null {
+	return typeof raw === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : null;
+}
+
+/** Record type guard: a short lowercase a–z word or null. Keeps an unknown-but-plausible type
+ *  (Deezer has added types before) while refusing anything that could reach the DOM as markup. */
+function safeRecordType(raw: string | null | undefined): DeezerRecordType | null {
+	return typeof raw === 'string' && /^[a-z]{1,20}$/.test(raw) ? raw : null;
 }
 
 /** Reshape one Deezer album to the narrow client shape; covers pass through safeImageUrl. */
 function reshapeAlbum(it: DzAlbumItem | undefined): DeezerArtistAlbum | null {
 	if (!it) return null;
 	const rawCover = it.cover_xl ?? it.cover_big ?? it.cover_medium ?? it.cover ?? null;
+	// The id is interpolated into a FIXED upstream path by /api/deezer/album-tracks, so validate
+	// it as a positive integer here rather than trusting the upstream field (T-23-16 parity).
+	const rawId = Math.floor(Number(it.id));
 	return {
+		id: Number.isFinite(rawId) && rawId > 0 ? rawId : null,
 		title: it.title ?? '',
 		nb_tracks: clampCount(it.nb_tracks),
-		cover: safeImageUrl(rawCover)
+		cover: safeImageUrl(rawCover),
+		release_date: safeReleaseDate(it.release_date),
+		record_type: safeRecordType(it.record_type)
 	};
 }
 
@@ -133,7 +175,12 @@ export const GET: RequestHandler = async ({ url, request }) => {
 		// 1) Resolve the artist id. q is sent ONLY as an encoded VALUE to the fixed search host
 		//    (T-23-16 — never as a host/path). The browser fetch to Deezer is CORS-blocked, so
 		//    this MUST be proxied at the edge.
-		const searchUrl = `${DEEZER_ARTIST_SEARCH}?q=${encodeURIComponent(q)}&limit=1`;
+		// quick-260831-qkx: ask for SEVERAL hits and pick, instead of trusting data[0]. This route
+		// was the FOURTH caller of the namesake-shell bug fixed in
+		// debug/upnext-diverse-fallback-kuwo-dead — `limit=1` for "Coldplay" returns id 316813311
+		// (91 fans, ZERO albums), so the shelf silently fell through to Last.fm's popularity-ranked
+		// top-albums sample. The real Coldplay (id 892) has 123 releases.
+		const searchUrl = `${DEEZER_ARTIST_SEARCH}?q=${encodeURIComponent(q)}&limit=${DEEZER_ARTIST_SEARCH_LIMIT}`;
 		const searchRes = await fetchWithRetry(searchUrl, { signal: AbortSignal.timeout(8000) }, 2);
 		// WR-05: fetchWithRetry RETURNS (does not throw) a 429/5xx once the retry budget is
 		// exhausted, and Deezer signals quota errors as 200 + {"error":{…}}. Both are TRANSIENT
@@ -142,7 +189,7 @@ export const GET: RequestHandler = async ({ url, request }) => {
 		if (!searchRes.ok) return jsonResult(EMPTY, origin);
 		const searchData = (await searchRes.json()) as DzArtistSearchResponse & { error?: unknown };
 		if (searchData.error) return jsonResult(EMPTY, origin);
-		const rawId = searchData?.data?.[0]?.id;
+		const rawId = pickBestArtistId(searchData?.data ?? [], q);
 		// Validate the id as a positive integer BEFORE it enters the albums URL path (T-23-16).
 		const artistId = Math.floor(Number(rawId));
 		if (!Number.isFinite(artistId) || artistId <= 0) {
@@ -161,14 +208,31 @@ export const GET: RequestHandler = async ({ url, request }) => {
 
 		// 2) Fetch the artist's albums (the numeric id is interpolated into the FIXED path —
 		//    never raw user input). nb_tracks comes back natively per album (D-19).
-		const albumsUrl = `${DEEZER_ARTIST_ALBUMS}/${artistId}/albums?limit=50`;
-		const albumsRes = await fetchWithRetry(albumsUrl, { signal: AbortSignal.timeout(8000) }, 2);
-		// WR-05: same transient-failure guards as the search call — never negative-cache a
-		// rate-limited/erroring albums response as a genuine "artist has no albums".
-		if (!albumsRes.ok) return jsonResult(EMPTY, origin);
-		const albumsData = (await albumsRes.json()) as DzAlbumsResponse & { error?: unknown };
-		if (albumsData.error) return jsonResult(EMPTY, origin);
-		const list = Array.isArray(albumsData?.data) ? albumsData.data : [];
+		// quick-260831-qkx: PAGE the discography. Deezer caps a page at 50, so the old single
+		// limit=50 call truncated any artist with a deeper catalogue — part of the reported
+		// "not exhaustive". Bounded to ALBUMS_MAX_PAGES sequential calls, stopping early on a
+		// short page. A page that fails mid-way keeps what was already collected rather than
+		// discarding the whole discography.
+		const list: DzAlbumItem[] = [];
+		for (let pageIdx = 0; pageIdx < ALBUMS_MAX_PAGES; pageIdx++) {
+			const albumsUrl = `${DEEZER_ARTIST_ALBUMS}/${artistId}/albums?limit=${ALBUMS_PAGE_SIZE}&index=${pageIdx * ALBUMS_PAGE_SIZE}`;
+			const albumsRes = await fetchWithRetry(albumsUrl, { signal: AbortSignal.timeout(8000) }, 2);
+			// WR-05: same transient-failure guards as the search call — never negative-cache a
+			// rate-limited/erroring albums response as a genuine "artist has no albums". On the
+			// FIRST page a failure is fatal (nothing collected); on a later page keep what we have.
+			if (!albumsRes.ok) {
+				if (pageIdx === 0) return jsonResult(EMPTY, origin);
+				break;
+			}
+			const albumsData = (await albumsRes.json()) as DzAlbumsResponse & { error?: unknown };
+			if (albumsData.error) {
+				if (pageIdx === 0) return jsonResult(EMPTY, origin);
+				break;
+			}
+			const page = Array.isArray(albumsData?.data) ? albumsData.data : [];
+			list.push(...page);
+			if (page.length < ALBUMS_PAGE_SIZE) break; // short page → discography exhausted
+		}
 		const result: DeezerArtistAlbumsResult = {
 			data: list.map(reshapeAlbum).filter((a): a is DeezerArtistAlbum => a !== null)
 		};

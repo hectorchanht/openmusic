@@ -16,7 +16,7 @@
 	import { toast } from '$lib/stores/toast.svelte';
 	import { online } from '$lib/stores/online.svelte';
 	import RowBadges from '$lib/components/RowBadges.svelte';
-	import { t } from '$lib/i18n';
+	import { t, type TranslationKey } from '$lib/i18n';
 	import { longpress } from '$lib/actions/longpress';
 	import { lazyCover } from '$lib/actions/lazyCover';
 	import { dragScroll } from '$lib/actions/dragScroll';
@@ -29,6 +29,7 @@
 	import { enrichArtist, getArtistTopAlbums, type EnrichResult, type DiscoveryAlbum } from '$lib/services/lastfm';
 	import { getSimilarArtists } from '$lib/services/similar';
 	import { deezerArtistCover, deezerArtist, deezerArtistAlbums, type DeezerArtistInfo } from '$lib/services/deezer';
+	import { sortByReleaseDesc, filterByType, typeLabelKey, releaseYear, albumHref, fallbackCoverSeed, type DiscographyEntry } from '$lib/services/discography';
 	import { mergeEnrichArtist } from '$lib/services/enrich-merge';
 	import { mapWithConcurrency } from '$lib/services/discovery';
 	import PageOg from '$lib/components/PageOg.svelte';
@@ -79,12 +80,21 @@
 	// Last.fm getArtistTopAlbums. Both paths drop only obvious stub names (isStubAlbumName) — a
 	// garbage-name filter, NOT a resolvability gate. Unified { name, image } shape so nav (which
 	// keys on the album name) is unchanged.
-	type RenderAlbum = { name: string; image: string | null };
+	// quick-260831-qkx: RenderAlbum is now the shared DiscographyEntry — it carries the Deezer
+	// album `id` (so the album page can fetch the REAL tracklist instead of re-matching by name),
+	// plus `releaseDate`/`type` for the newest-first sort and the albums+EPs filter. The Last.fm
+	// fallback path supplies null for all three, which every rule tolerates.
+	type RenderAlbum = DiscographyEntry;
+	// FULL discography (every record type), newest-first. The shelf renders a filtered view.
 	let albums = $state<RenderAlbum[]>([]);
 	let albumsFor = '';
 	// In-flight flag for the Albums skeleton (an empty result and "still loading" are both
 	// `albums.length === 0`, so the settle is tracked explicitly).
 	let albumsLoading = $state(true);
+	// The shelf shows albums + EPs only (user decision, 2026-09-01): Coldplay's real discography is
+	// 123 releases — 17 albums, 5 EPs, 101 singles — so an unfiltered shelf is the reported noise.
+	// The full list stays available on the discography page.
+	const shelfAlbums = $derived(filterByType(albums, 'main'));
 
 	// "More like this" shelf (quick-260607-jip). getSimilarArtists() chains Last.fm → Deezer
 	// (jau-added fallback) → same-artist. Each related artist gets its avatar via Deezer's
@@ -118,11 +128,8 @@
 	function onCoverResolved(uid: string, url: string) {
 		resolvedCovers = { ...resolvedCovers, [uid]: url };
 	}
-	// String-seed variant for the Last.fm album row (DiscoveryAlbum has no uid/cover).
-	function fallbackCoverSeed(seed: string): string {
-		const h = (seed.split('').reduce((a, c) => a + c.charCodeAt(0), 0) * 47) % 360;
-		return `linear-gradient(145deg, hsl(${h} 55% 32%), hsl(${(h + 40) % 360} 55% 18%))`;
-	}
+	// String-seed placeholder for a coverless row. quick-260831-qkx hoisted it to
+	// $lib/services/discography so the discography page renders the identical gradient.
 
 	// kmn: action-bar state. Heart fills when artist is in library.favArtists; play picks a
 	// random hit + queues all songs from this artist; share uses Web Share API.
@@ -300,9 +307,23 @@
 					const dzAlbums = await deezerArtistAlbums(n).catch(() => []);
 					if (albumsFor !== n) return; // race guard
 					if (dzAlbums.length) {
-						const kept = dzAlbums
-							.filter((a) => !isStubAlbumName(a.title))
-							.map((a) => ({ name: a.title, image: a.cover }) satisfies RenderAlbum);
+						// quick-260831-qkx: carry id/date/type through, then order newest-first. The
+						// proxy already returns the artist's WHOLE discography (paged), so this is the
+						// exhaustive list; the shelf filters it and the discography page does not.
+						const kept = sortByReleaseDesc(
+							dzAlbums
+								.filter((a) => !isStubAlbumName(a.title))
+								.map(
+									(a) =>
+										({
+											id: a.id,
+											name: a.title,
+											image: a.cover,
+											releaseDate: a.release_date,
+											type: a.record_type
+										}) satisfies RenderAlbum
+								)
+						);
 						if (albumsFor === n) albums = kept;
 						return;
 					}
@@ -311,9 +332,15 @@
 					// it gated the shelf on song-resolvability and cost N fetches. Drop only stub names.
 					const lfAlbums = await getArtistTopAlbums(n).catch((): DiscoveryAlbum[] => []);
 					if (albumsFor !== n) return; // race guard
+					// Path B carries no id/date/type — those stay null, so these entries keep their
+					// incoming order (sortByReleaseDesc puts undated last, stable) and render without
+					// a type label, exactly as before this change.
 					const kept = lfAlbums
 						.filter((a) => !isStubAlbumName(a.name))
-						.map((a) => ({ name: a.name, image: a.image }) satisfies RenderAlbum);
+						.map(
+							(a) =>
+								({ id: null, name: a.name, image: a.image, releaseDate: null, type: null }) satisfies RenderAlbum
+						);
 					if (albumsFor === n) albums = kept;
 				} finally {
 					if (albumsFor === n) albumsLoading = false;
@@ -484,15 +511,22 @@
 			{/each}
 		</div>
 	</section>
-{:else if albums.length}
+{:else if shelfAlbums.length}
 	<section>
-		<h2>{t('artist.albums')}</h2>
+		<h2 class="albums-head">
+			{t('artist.albums')}
+			<!-- quick-260831-qkx: the shelf is albums+EPs only; the full discography (every record
+			     type, filterable) lives on its own page so nothing is hidden, just de-noised. -->
+			<a class="see-all" href={'/artist/' + encodeURIComponent(name) + '/albums'}>{t('artist.seeAllAlbums')}</a>
+		</h2>
 		<div class="albumrow" use:dragScroll>
-			{#each albums as al (al.name)}
-				<button class="album" onclick={() => goto('/album/' + encodeURIComponent(al.name) + '?artist=' + encodeURIComponent(name))} use:tapBounce>
+			{#each shelfAlbums as al (al.id ?? al.name)}
+				<button class="album" onclick={() => goto(albumHref(al, name))} use:tapBounce>
 					<span class="al-cover" style:background-image={al.image ? `url(${al.image})` : fallbackCoverSeed(al.name)}></span>
 					<span class="al-name" use:marquee><span class="marquee-inner">{names.dnTitle(al.name)}</span></span>
-					<span class="al-count" use:marquee><span class="marquee-inner">{t('artist.albumLabel')}</span></span>
+					<span class="al-count" use:marquee><span class="marquee-inner">
+						{#if typeLabelKey(al.type)}{t(typeLabelKey(al.type) as TranslationKey)}{:else}{t('artist.albumLabel')}{/if}{#if releaseYear(al.releaseDate)}{' · ' + releaseYear(al.releaseDate)}{/if}
+					</span></span>
 				</button>
 			{/each}
 		</div>
@@ -598,6 +632,10 @@
 	.readmore { display: inline-block; margin-top: 8px; color: var(--color-primary); font-size: 13px; }
 	section { margin: 18px 0; }
 	section h2 { font-size: calc(1.1rem * var(--fs-title, 1)); margin: 0 0 12px; }
+	/* quick-260831-qkx: the Albums heading now carries a "See all" link to the full discography. */
+	.albums-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+	.see-all { font-size: 0.8rem; font-weight: 600; color: var(--color-primary); text-decoration: none; white-space: nowrap; }
+	.see-all:active { opacity: 0.6; }
 	.albumrow { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 4px; }
 	/* min-width:0 + max-width:130px lock the tile width even when a long artist/album name's
 	   intrinsic content-width would otherwise stretch it. flex-basis alone is a hint — the

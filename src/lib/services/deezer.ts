@@ -30,6 +30,7 @@ const PROXY_PATH = '/api/deezer/search';
 const CHART_PATH = '/api/deezer/chart';
 const RELATED_PATH = '/api/deezer/related';
 const RADIO_PATH = '/api/deezer/radio';
+const ALBUM_TRACKS_PATH = '/api/deezer/album-tracks';
 // Phase 17, ENRICH-04 — artist/album info enrichment proxy paths.
 const ARTIST_PATH = '/api/deezer/artist';
 const ALBUM_PATH = '/api/deezer/album';
@@ -340,11 +341,17 @@ export async function deezerAlbum(
 // artist/{id}/albums endpoint returns nb_tracks per album natively (UI-SPEC §8.2 AUGMENT path).
 // Last.fm getArtistTopAlbums stays the graceful fallback for artists Deezer does not cover.
 
-/** Client-facing artist-album reshape (mirrors the /api/deezer/artist-albums DeezerArtistAlbum). */
+/** Client-facing artist-album reshape (mirrors the /api/deezer/artist-albums DeezerArtistAlbum).
+ *  quick-260831-qkx widened it: `id` lets the album page pull the REAL tracklist by id instead of
+ *  re-matching by name, and `release_date`/`record_type` drive the newest-first sort + type
+ *  filter. All three are nullable — the Last.fm fallback path supplies none of them. */
 export interface DeezerArtistAlbum {
+	id: number | null;
 	title: string;
 	nb_tracks: number;
 	cover: string | null;
+	release_date: string | null;
+	record_type: string | null;
 }
 
 /**
@@ -369,4 +376,39 @@ export async function deezerArtistAlbums(
 		const data = (await res.json()) as { data?: DeezerArtistAlbum[] };
 		return Array.isArray(data?.data) ? data!.data! : [];
 	}).catch(() => [] as DeezerArtistAlbum[]); // never throws → caller falls back to Last.fm (§8.2)
+}
+
+/** One ordered track from a Deezer album (the /api/deezer/album-tracks reshape). */
+export interface DeezerAlbumTrack {
+	artist: string;
+	title: string;
+	position: number | null;
+}
+
+/**
+ * The REAL ordered tracklist for a Deezer album id (quick-260831-qkx).
+ *
+ * Replaces the album page's name-keyed Last.fm `album.getInfo` lookup, which returned nothing
+ * whenever the name did not match — the reported "many of the time are empty inside". The id must
+ * come from the artist's own discography (deezerArtistAlbums); an album NAME search matches the
+ * wrong record often enough to be useless, so there is deliberately no name fallback here.
+ *
+ * Never throws: [] on a bad/missing id, non-ok, abort or malformed JSON, and the album page then
+ * falls back to its existing Last.fm path. Same WR-03 cache posture as the neighbours — a
+ * transient failure rejects INSIDE cached() so it is never pinned, and maps to [] outside.
+ */
+export async function deezerAlbumTracks(
+	albumId: number,
+	signal?: AbortSignal
+): Promise<DeezerAlbumTrack[]> {
+	if (signal?.aborted) return [];
+	if (!Number.isFinite(albumId) || albumId <= 0) return [];
+	const id = Math.floor(albumId);
+	return cached(`dz:albumtracks:${id}`, TTL_ARTIST, async () => {
+		const url = `${ALBUM_TRACKS_PATH}?${new URLSearchParams({ id: String(id) }).toString()}`;
+		const res = await apiFetch(url, { signal: combinedSignal(signal) }); // governed; abort/timeout REJECT
+		if (!res.ok) throw new Error(String(res.status));
+		const data = (await res.json()) as { tracks?: DeezerAlbumTrack[] };
+		return Array.isArray(data?.tracks) ? data!.tracks! : [];
+	}).catch(() => [] as DeezerAlbumTrack[]);
 }

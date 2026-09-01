@@ -29,7 +29,7 @@
 	import { resolveStub } from '$lib/services/discovery';
 	import { downloadTrack } from '$lib/services/download-track';
 	import { enrichAlbum, getAlbumTracklist, type EnrichResult } from '$lib/services/lastfm';
-	import { deezerAlbum, type DeezerAlbumInfo } from '$lib/services/deezer';
+	import { deezerAlbum, deezerAlbumTracks, type DeezerAlbumInfo } from '$lib/services/deezer';
 	import { mergeEnrichAlbum } from '$lib/services/enrich-merge';
 	import { marquee } from '$lib/actions/marquee';
 	import TrackMenu from '$lib/components/TrackMenu.svelte';
@@ -54,6 +54,10 @@
 	// album.getInfo query NEEDS the artist up front). Absent param (deep link) → '' → the
 	// page still renders the hero + a graceful empty state instead of crashing.
 	const albumArtist = $derived(page.url.searchParams.get('artist') ?? '');
+	// quick-260831-qkx: the Deezer album id, carried by the artist page / discography page. When
+	// present it is the AUTHORITATIVE tracklist source — `album/{id}/tracks` returns the real
+	// ordered list. Absent (deep link, Last.fm-sourced album) → the old name-keyed Last.fm path.
+	const albumDzId = $derived(Number(page.url.searchParams.get('dzid')) || 0);
 
 	let tracks = $state<AlbumStub[]>([]);
 	let loading = $state(true);
@@ -118,7 +122,8 @@
 	$effect(() => {
 		const n = name;
 		const artist = albumArtist;
-		const key = `${n}|${artist}`;
+		const dzid = albumDzId;
+		const key = `${n}|${artist}|${dzid}`;
 		// OFFL-03 / D-10: SHORT-CIRCUIT when offline — never fire getAlbumTracklist (which would
 		// hang and strand the tracklist skeleton). Clear `loading` so the inline offline state shows
 		// instead of a stuck spinner. No redirect (D-09). Resumes on the next online visit.
@@ -138,23 +143,40 @@
 			// would act on the wrong album and albumLiked would render the stale heart state.
 			resolvedCache = null;
 			busyAction = null;
-			if (!artist) {
-				// Deep link with no ?artist= — cannot query album.getInfo. Render the
+			if (!artist && !dzid) {
+				// Deep link with neither ?artist= nor ?dzid= — nothing to query. Render the
 				// graceful "open from an artist" empty state, not a spinner.
 				loading = false;
 				return;
 			}
 			loading = true;
-			getAlbumTracklist(n, artist)
-				.then((r) => {
-					if (loadedFor === key) tracks = r; // race guard — discard if key changed
-				})
-				.catch(() => {
-					if (loadedFor === key) tracks = [];
-				})
-				.finally(() => {
+			// quick-260831-qkx: PREFER the Deezer id. Matching an album by NAME is genuinely
+			// unreliable, not merely slower — a Deezer album search for
+			// artist:"Coldplay" album:"Parachutes" returns a single by a different act entirely,
+			// and Last.fm album.getInfo simply returns nothing when the name does not match, which
+			// is the reported "many of the time are empty inside". Fetching by the id taken from
+			// the artist's OWN discography returns the real thing (album/301663/tracks → all 10
+			// Parachutes tracks, in order). The Last.fm path stays as the fallback for entries with
+			// no id, and for the case where the id lookup comes back empty.
+			void (async () => {
+				try {
+					if (dzid) {
+						const dzTracks = await deezerAlbumTracks(dzid);
+						if (loadedFor !== key) return; // race guard
+						if (dzTracks.length) {
+							// Same {artist,title} STUB contract the Last.fm path produces — resolve-on-tap
+							// via resolveStub is unchanged; only the source of the ordered list moved.
+							tracks = dzTracks.map((tr) => ({ artist: tr.artist, title: tr.title }));
+							return;
+						}
+					}
+					if (!artist) return; // id path empty and no name to fall back on
+					const lf = await getAlbumTracklist(n, artist).catch(() => []);
+					if (loadedFor === key) tracks = lf;
+				} finally {
 					if (loadedFor === key) loading = false;
-				});
+				}
+			})();
 		}
 	});
 
