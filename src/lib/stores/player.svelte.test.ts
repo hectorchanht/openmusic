@@ -3053,6 +3053,72 @@ describe('quick-260618-fiz Fix 4 — explicit queue entries survive a fresh play
 		expect(uids.indexOf(manualX.uid)).toBeGreaterThan(uids.indexOf(newSong.uid));
 	});
 
+	// quick-260831-sp9. The home shelves (liked / downloads / history / playlists) call
+	// play({fresh:true}) WITHOUT installing a queue — a simple tap is meant to generate a new
+	// Up-Next, not snapshot the shelf. But queueContext decides generated-vs-same-list, and with no
+	// context the player kept the PREVIOUS play's one: tap an album, go Home, tap a liked song, and
+	// the context was still 'album' → 'same-list' → regenerate never ran and Up-Next still showed
+	// the album's remaining tracks.
+	it('a shelf play with opts.context ADOPTS that context (the reported stale-context bug)', async () => {
+		player.queueContext = 'album'; // left over from a previous album play
+		const newSong = resolved('netease', 'NEW');
+		mockEnsure.mockResolvedValue(newSong);
+
+		await player.play(stub('netease', 'NEW', 'Artist', 'Song'), { fresh: true, context: 'liked' });
+		await flush();
+
+		expect(player.queueContext).toBe('liked');
+	});
+
+	it('regenerates on a shelf tap that would previously have inherited a same-list context', async () => {
+		// album → same-list; liked → the global 'generated' default.
+		settings.upnextPerContext = { album: 'same-list' };
+		player.queueContext = 'album';
+		const stale = mk('qq', 'STALE', 'Album', 'AlbumTrack');
+		const current = mk('netease', 'CUR', 'A', 'Current');
+		player.current = current;
+		player.queue = [current, stale];
+
+		const newSong = resolved('netease', 'NEW');
+		mockEnsure.mockResolvedValue(newSong);
+		await player.play(stub('netease', 'NEW', 'Artist', 'Song'), { fresh: true, context: 'liked' });
+		await flush();
+
+		// The album leftover is gone — proof the generated rebuild actually ran.
+		expect(player.queue.map((t) => t.uid)).not.toContain(stale.uid);
+		expect(player.queue.map((t) => t.uid)).toContain(newSong.uid);
+	});
+
+	it('a shelf tap does NOT discard Play-next / Add-to-queue entries', async () => {
+		// The explicit exception in the request: a simple tap regenerates Up-Next, but songs the
+		// user queued by hand must survive. This is why the fix sets queueContext directly instead
+		// of calling setQueue, which would replace the whole queue.
+		const current = mk('netease', 'CUR', 'A', 'Current');
+		const autoPick = mk('qq', 'AUTO', 'B', 'AutoPick');
+		const manualX = mk('kuwo', 'X', 'C', 'ManualX');
+		player.current = current;
+		player.queue = [current, autoPick, manualX];
+		player.addToQueue(manualX); // pin it
+
+		const newSong = resolved('netease', 'NEW');
+		mockEnsure.mockResolvedValue(newSong);
+		await player.play(stub('netease', 'NEW', 'Artist', 'Song'), { fresh: true, context: 'downloads' });
+		await flush();
+
+		const uids = player.queue.map((t) => t.uid);
+		expect(uids).toContain(manualX.uid); // hand-queued entry survives the regenerate
+		expect(uids).not.toContain(autoPick.uid); // an auto pick does not
+	});
+
+	it('omitting opts.context leaves the existing context untouched (no behaviour change elsewhere)', async () => {
+		player.queueContext = 'search';
+		const newSong = resolved('netease', 'NEW');
+		mockEnsure.mockResolvedValue(newSong);
+		await player.play(stub('netease', 'NEW', 'Artist', 'Song'), { fresh: true });
+		await flush();
+		expect(player.queueContext).toBe('search');
+	});
+
 	it("'same-list' fresh play still drops stale auto/context entries while keeping the manual one", async () => {
 		const current = mk('netease', 'CUR', 'A', 'Current');
 		const autoPickA = mk('qq', 'A', 'B', 'AutoA');

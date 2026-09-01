@@ -2757,8 +2757,23 @@ class Player {
 	 * manual entries. `next()`, `prev()`, and auto-advance (ended) call the NON-fresh
 	 * path, so they never regenerate.
 	 */
-	async play(track: Track, opts?: { fresh?: boolean; fromFallback?: boolean }) {
+	async play(track: Track, opts?: { fresh?: boolean; fromFallback?: boolean; context?: QueueContext }) {
 		logAction('play', { uid: track.uid, source: track.source, fresh: !!opts?.fresh });
+		// quick-260831-sp9: adopt the surface that started this play, WITHOUT touching the queue.
+		//
+		// The home shelves (liked / downloads / history / playlists) call play({fresh:true}) directly
+		// — they never install a queue, because a simple tap is meant to GENERATE a new Up-Next, not
+		// snapshot the shelf. But queueContext is what decides generated-vs-same-list, and with no
+		// context set it kept whatever the PREVIOUS play left behind. Tap an album, go Home, tap a
+		// liked song: context was still 'album' → 'same-list' → the fresh-play branch below skipped
+		// regenerate entirely and Up-Next still showed the album's remaining tracks.
+		//
+		// Deliberately a bare field assignment rather than setQueue(): setQueue REPLACES the queue,
+		// which would discard the user's `Play next` / `Add to queue` entries. regenerate() already
+		// preserves those (it re-emits manualEntries around the new tail), so the ONLY thing missing
+		// was an accurate context. queueGen is likewise left alone — a fresh play's regenerate is
+		// supposed to run, not be invalidated.
+		if (opts?.context !== undefined) this.queueContext = opts.context;
 		// BACKGROUND KEEP-ALIVE (bg-resolve-gap-stall round 2): (re)assert the silent Web Audio source
 		// synchronously at the TOP of play() — BEFORE the ensureTrackDetails await — so the page stays
 		// awake across a cold background resolve. Idempotent (no-op once running); a fresh user tap

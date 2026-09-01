@@ -4,6 +4,7 @@
 	import { Search, Settings, RotateCw, ChevronRight } from '@lucide/svelte';
 	import Logo from '$lib/components/Logo.svelte';
 	import { buildDiversePicks } from '$lib/services/picks';
+	import type { QueueContext } from '$lib/config/defaults';
 	import {
 		getChartTopTracks,
 		getChartTopArtists,
@@ -584,8 +585,13 @@
 	}
 
 	// Library-track row play (matches librarySongRow's comfortable behavior) + its menu open.
-	function playLibraryTrack(track: Track) {
-		player.play(track, { fresh: true });
+	// quick-260831-sp9: pass the SHELF's queue context. These shelves deliberately do not install a
+	// queue — a simple tap should generate a fresh Up-Next — but without a context the player kept
+	// the previous play's one, so tapping a liked song after an album inherited 'album' →
+	// 'same-list' → no regenerate, and Up-Next still showed the album. Manual `Play next` /
+	// `Add to queue` entries survive because regenerate preserves them.
+	function playLibraryTrack(track: Track, ctx: QueueContext) {
+		player.play(track, { fresh: true, context: ctx });
 	}
 	function openTrackMenu(track: Track) {
 		menuTrack = track;
@@ -869,11 +875,11 @@
 	{/each}
 {/snippet}
 
-{#snippet librarySongRow(track: Track)}
+{#snippet librarySongRow(track: Track, ctx: QueueContext)}
 	<!-- quick-260615-hep: uid-first reactive read; lazyCover resolves-on-view (writes both cache layers
 	     internally) and bumps the global signal so this reactive rowCover recomputes + the <img> paints. -->
 	{@const rowCover = track.cover ?? readCoverByUidOrName(track.uid, track.artist, track.title)}
-	<button class="album" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); menuTrack = track; menuOpen = true; }} onclick={() => player.play(track, { fresh: true })}>
+	<button class="album" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); menuTrack = track; menuOpen = true; }} onclick={() => playLibraryTrack(track, ctx)}>
 		<span class="al-cover" use:lazyCover={{ track, onResolved: () => bumpCoverVersion() }} style:background-image={rowCover ? `url(${rowCover})` : fallbackCover(track.uid)}>
 			{#if rowCover}<img class="al-cover-img" src={rowCover} loading="lazy" alt="" onerror={hideOnError} />{/if}
 		</span>
@@ -884,7 +890,7 @@
 
 <!-- A reusable list/pile/grid library track shelf (liked / downloads / history / playlists).
      quick-260618-goe: param is now a HomeDensity ('list'|'pile'|'grid'), not a boolean. -->
-{#snippet libraryShelf(tracks: Track[], density: HomeDensity)}
+{#snippet libraryShelf(tracks: Track[], density: HomeDensity, ctx: QueueContext)}
 	{#if density === 'list'}
 		<CompactPager items={compactSlice(tracks)} key={(track) => track.uid}>
 			{#snippet row(track: Track)}
@@ -894,7 +900,7 @@
 					cover={libraryRowCover(track)}
 					seed={track.uid}
 					track={track}
-					onplay={() => playLibraryTrack(track)}
+					onplay={() => playLibraryTrack(track, ctx)}
 					onrequestmenu={() => openTrackMenu(track)}
 				/>
 			{/snippet}
@@ -905,7 +911,7 @@
 		<HomeGridPager items={tracks.slice(0, 27)} key={(track) => track.uid}>
 			{#snippet row(track: Track)}
 				{@const rowCover = libraryRowCover(track)}
-				<button class="tile" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openTrackMenu(track); }} onclick={() => playLibraryTrack(track)}>
+				<button class="tile" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openTrackMenu(track); }} onclick={() => playLibraryTrack(track, ctx)}>
 					<div class="art" use:lazyCover={{ track, onResolved: () => bumpCoverVersion() }} style:background-image={rowCover ? `url(${rowCover})` : fallbackCover(track.uid)}></div>
 					<div class="scrim"></div>
 					<div class="label">
@@ -917,7 +923,7 @@
 		</HomeGridPager>
 	{:else}
 		<div class="albumrow" use:dragScroll>
-			{#each tracks as track (track.uid)}{@render librarySongRow(track)}{/each}
+			{#each tracks as track (track.uid)}{@render librarySongRow(track, ctx)}{/each}
 		</div>
 	{/if}
 {/snippet}
@@ -925,21 +931,21 @@
 {#snippet likedBlock()}
 	{#if likedShelf.length}
 		{@render titleNav(t('settings.homeSectionLiked'), '/library?tab=liked')}
-		{@render libraryShelf(likedShelf, densityOf('liked'))}
+		{@render libraryShelf(likedShelf, densityOf('liked'), 'liked')}
 	{/if}
 {/snippet}
 
 {#snippet downloadsBlock()}
 	{#if downloadsShelf.length}
 		{@render titleNav(t('settings.homeSectionDownloads'), '/library?tab=downloads')}
-		{@render libraryShelf(downloadsShelf, densityOf('downloads'))}
+		{@render libraryShelf(downloadsShelf, densityOf('downloads'), 'downloads')}
 	{/if}
 {/snippet}
 
 {#snippet historyBlock()}
 	{#if historyShelf.length}
 		{@render titleNav(t('settings.homeSectionHistory'), '/library?tab=history')}
-		{@render libraryShelf(historyShelf, densityOf('history'))}
+		{@render libraryShelf(historyShelf, densityOf('history'), 'history')}
 	{/if}
 {/snippet}
 
@@ -985,7 +991,7 @@
 		<!-- D-13: per-playlist shelf deep-links to THAT playlist's detail (tab=playlists +
 		     the playlist id), NOT the generic Playlists tab. id is encodeURIComponent-wrapped. -->
 		{@render titleNav(shelf.name, '/library?tab=playlists&playlist=' + encodeURIComponent(shelf.id))}
-		{@render libraryShelf(shelf.tracks, densityOf('playlists'))}
+		{@render libraryShelf(shelf.tracks, densityOf('playlists'), 'playlist')}
 	{/each}
 {/snippet}
 
