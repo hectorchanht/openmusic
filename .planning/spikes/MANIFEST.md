@@ -26,6 +26,13 @@ Design decisions that emerged; non-negotiable for the real build. Updated as spi
 - **[001] Reorder the resolve/fallback chain to `kuwo → qq → netease → joox → (fivesing/audius/jamendo)`.**
   Today netease is the registry-default primary but is empirically the least reliable of the CN-4
   (intermittent upstream). kuwo is the only source both reliable (20/20) and rich (audio+cover+lyrics ~19–20/20).
+- **[010] MusicBrainz is the canonical ARTIST IDENTITY layer for CJK.** A name in any script
+  (Traditional / Simplified / romanized) resolves to ONE mbid at score 100, so 周傑倫 · Jay Chou ·
+  周杰倫 collapse to a single artist page with no heuristic merge. Display name = canonical `name`
+  + locale-tagged aliases, switched on the existing artist-locale setting.
+- **[010] Deezer is NOT replaced.** It keeps artwork, non-CJK artists, and the fallback slot; MB
+  supplies CJK albums/tracklists in the original script. MB is curated, so it can miss very new
+  releases Deezer has.
 - **[001] Use the source-embedded cover on the hot path; upgrade to Deezer HQ lazily.** kuwo/qq/netease
   return a usable cover WITH the resolve — removes the Deezer→iTunes→CN cover chain from ~19/20 plays.
   Only joox + fivesing need cover backfill. (User hypothesis (a) validated.)
@@ -79,3 +86,4 @@ Design decisions that emerged; non-negotiable for the real build. Updated as spi
 | 006 | ytmusic-playable-stream | standard | Given a videoId, when the player endpoint is queried + the audio stream URL extracted (cipher / n-param / PoToken as needed), then the URL plays in a plain `<audio>` AND stays playable (no mid-stream 403) | ✅ VALIDATED (w/ caveat) — `ANDROID_VR`+`visitorData` → play=OK, **DIRECT url, no cipher, no throttle**, itag 140 AAC (iOS-safe), 206+ranges; **IP-locked → must proxy bytes edge-side (audius pattern)**; durability is a maintenance cost | ytmusic, stream, cipher, potoken, the-wall |
 | 007 | ytmusic-lyrics | standard | Given a videoId, when timed/plain lyrics are requested (InnerTube next→browse, else external fallback), then lyrics are returned | ⚠ PARTIAL — **plain lyrics broad + multilingual** (next→browse, no auth); **timed/synced NOT via YT** → reuse existing `crossSourceLyric` by name+artist for LRC. Net: GO | ytmusic, lyrics, innertube |
 | 008 | ytmusic-account-library | standard | Given a Google/YT auth (OAuth or cookie), when the user library is queried, then liked songs + recent history + a taste/genre signal are readable — ToS/legal risk flagged, not assumed | ⚠ PARTIAL — liked+history readable via InnerTube-as-user; **cookie auth native-only (web can't)**, only OAuth device-flow works (grey-area TV client); **genre not a field → infer**; adds per-user token storage (new threat model). **SPLIT to a later, legal-gated milestone** | ytmusic, auth, oauth, library, legal |
+| 010 | cn-album-upstream | standard | Given a CJK artist name in ANY script, when resolved against a keyless upstream, then ONE canonical artist identity + exhaustive original-script albums + ordered tracklists | ✅ VALIDATED — **MusicBrainz**. 陳奕迅 **72 albums vs Deezer's 5**; 周杰倫 titles in Chinese (最偉大的作品, not "Greatest Works Of Art"). Surprise: 陳奕迅/陈奕迅/Eason Chan AND 周傑倫/周杰伦 each collapse to ONE mbid at score 100 → the "3 artist pages" merge needs NO heuristic. Constraint: ~1 req/s → 503 (detectable, retryable); edge-cache 24h. Cover Art Archive fills MB's artwork gap | musicbrainz, cjk, albums, artist-identity, deezer, upstream |
