@@ -99,3 +99,55 @@ mutually exclusive as currently built — which is the fork in the road this exp
    mode. Tracked separately as a spike (see `.planning/research/questions.md`).
 3. **FLAC weight** — 933kbps ≈ 7MB/min. Prefetch/prebuffer of the next track gets much heavier on
    mobile than 98kbps m4a. Directly threatens the "seamless next song" half of the goal.
+
+## Real-device RTT (Phase 32 checkpoint, 2026-08-31)
+
+**Status: UNVERIFIED — deferred at the user's request on 2026-08-31.** The Phase 32 wave-1
+checkpoint (32-03, plan Task 1) asked for a phone-side timing of the tang detail call; the reply was
+"cannot measure now". **No real-device numbers exist.** The table below is the record of what is
+still missing, not of a measurement.
+
+| Path | Real-device time | Status |
+|---|---|---|
+| direct `tang.api.s01s.cn` detail, cold | — | NOT MEASURED |
+| direct `tang.api.s01s.cn` detail, warm | — | NOT MEASURED |
+| our `/api/qq/detail`, cold | — | NOT MEASURED |
+| our `/api/qq/detail`, warm | — | NOT MEASURED |
+| network type (wifi / cellular) | — | NOT REPORTED |
+
+**Every latency figure in the "Measured" table above is US-sandbox → CN hosts.** A user sitting near
+the upstream may see radically different numbers in either direction — faster or slower. Nothing in
+Phase 32 has been validated against a real client network.
+
+### Verdict — the criterion verification must use
+
+`/gsd:verify-work` must judge Phase 32 on:
+
+> **lossless by default with NO ADDED latency versus Phase 31**
+
+and **not** on the ROADMAP's absolute *"tap→audio in under a second"*. The absolute number is
+**unfalsifiable without this measurement**, so verification MUST NOT pass or fail the phase on it.
+
+### Discharging this later
+
+Open both URLs on a real phone, cold and warm, and note the network type:
+
+```
+https://tang.api.s01s.cn/music_open_api.php?type=json&mid=0039MnYb0qxYhV
+https://openmusic.lol/api/qq/detail?type=json&mid=0039MnYb0qxYhV
+```
+
+Order of magnitude is sufficient — `<1s` / `1–2s` / `2s+`. This is dischargeable at any time without
+re-running the phase; it gates a claim, not any code.
+
+### What the answer would change
+
+Per **32-D-10b**, sub-second is reachable only on the **D-08** path (mid already in hand) and only if
+the real tang RTT is itself sub-second. If the real floor turns out to be ≥1s, the headline is
+restated **permanently** rather than provisionally, and the absolute number leaves the ROADMAP.
+
+**Forward pointer — the one route that survives a bad measurement:** **32-D-20** (added mid-execution)
+restores a short-TTL `url` layer beside the permanent mid. Its cache-hit path was measured by Phase 31
+at **0.44s to playable** and makes **zero tang calls** — so that path does not depend on tang RTT at
+all. Whatever the phone eventually reports, D-20's warm path is the only one that can still be
+sub-second.
