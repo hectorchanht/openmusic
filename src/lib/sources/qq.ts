@@ -14,6 +14,7 @@ import type { SourceAdapter, Track } from './types';
 import { makeUid } from './types';
 import { inferQualityFromUrl } from '../services/lrc';
 import { apiFetch } from '../services/api-base';
+import { effectiveQuality } from './quality';
 import { settings, type DefaultQuality } from '$lib/stores/settings.svelte';
 
 // QQ search row shape from the tang endpoint (fields we read).
@@ -85,21 +86,55 @@ function pickQqLyric(d: QQDetailItem): string | null {
 	return fromKey(view.song_lyric) || fromKey(view.lyric) || null;
 }
 
+/** 32-D-05: tang returns `http://isure6.stream.qqmusic.qq.com/...`, which is mixed-content-BLOCKED
+ *  on our https origin. The SAME host serves https correctly (verified live: 200 + 206,
+ *  accept-ranges: bytes, first bytes in 0.31s). The upgrade lives here in the client adapter and
+ *  NOT in proxy/qq.ts, because 32-D-12 sends the hot detail call DIRECT to tang — a proxy-side
+ *  upgrade would never fire on the path that actually matters. Idempotent: an already-https url
+ *  passes through byte-identical. */
+function https(url: string | null): string | null {
+	return url ? url.replace(/^http:\/\//i, 'https://') : url;
+}
+
 /**
  * Choose the best-quality play URL.
  *
- * The default order is the legacy priority ladder sq > pq > accom > hq > standard > fq
- * > fallback (legacy:2330-2345, VERBATIM). D-03: when `settings.defaultQuality === '128'`
- * the STANDARD tier (song_play_url_standard, ~128kbps) is promoted ahead of the
- * sq/pq/accom/hq tiers so the 128–160k band is preferred when present; otherwise the
- * verbatim lossless-first order is kept. QQ has no request-side bitrate param (the tang
- * endpoint returns all tiers in one detail body), so the ladder order IS the lever.
+ * Order: sq > pq > hq > standard > fq > accom > bare fallback. 32-D-18 moved `accom` from its
+ * inherited position ABOVE `hq` (legacy:2330-2345 / upstream index.html:2373 — a copy-forward,
+ * never a considered choice) down to last among the named tiers. `accom` is 伴奏 — the
+ * accompaniment/instrumental mix — so a lossless-first fallthrough could hand the user a karaoke
+ * version of the song; and it serves `.ogg`, which iOS Safari's `<audio>` does not decode, which
+ * is a guaranteed load failure on the platform CLAUDE.md names first. The `.ogg` half is confirmed
+ * and sufficient on its own; the 伴奏 reading is a strong inference, flagged for a listening check
+ * in plan 32-08. It keeps an honest `ACCOM` text rather than being presented as an `HQ` tier.
+ *
+ * Pref promotions (QQ has no request-side bitrate param — the tang endpoint returns every tier in
+ * one detail body, so the ladder ORDER is the only lever):
+ *   - `'128'` promotes `song_play_url_standard`. 32-D-04: that tier is MEASURED at 97-98 kbps m4a,
+ *     not the "~128kbps / 128–160k band" the superseded D-03 comment claimed.
+ *   - `'320'` promotes `song_play_url_hq`. 32-D-04: MEASURED at 193 kbps m4a (AAC) on 3/3 probed
+ *     tracks, not "~320k". The rung name is upstream's, the bitrate claim was ours and was wrong.
+ *   - `'auto'` never reaches this function: 32-D-02 resolves it to a concrete tier first (below).
  */
 function pickBestPlayUrl(d: QQDetailItem, quality?: DefaultQuality): BestPlayUrl {
+	// 32-D-05: ONE return boundary, so every rung is https-upgraded and no future rung can be
+	// added past the guard (same "one guard where every branch routes through" placement as
+	// blob-store's MIN_BLOB_BYTES floor).
+	const best = pickTier(d, quality);
+	return { ...best, url: https(best.url) };
+}
+
+/** The tier ladder itself — returns the RAW upstream url; `pickBestPlayUrl` https-upgrades it. */
+function pickTier(d: QQDetailItem, quality?: DefaultQuality): BestPlayUrl {
 	// D-03: absent an explicit per-call tier, read the user's streaming pref. WR-07: the
 	// download path now passes settings.downloadQuality explicitly instead of temporarily
 	// mutating settings.defaultQuality (which raced concurrent playback resolves).
-	const pref = quality ?? settings.defaultQuality;
+	// 32-D-02: resolve `'auto'` to a concrete tier BEFORE any branch runs — the shipped default is
+	// now `'auto'`, and without this qq would fall straight through to the lossless-first ladder on
+	// a metered connection. `effectiveQuality` returns `Exclude<DefaultQuality,'auto'>`, so the
+	// compiler proves the branches below never see `'auto'`. The cellular case then reuses the
+	// EXISTING WR-03 `'320'`→hq promotion verbatim — zero new branches in this function.
+	const pref = effectiveQuality(quality ?? settings.defaultQuality);
 	if (pref === '128' && d.song_play_url_standard) {
 		return {
 			url: d.song_play_url_standard,
@@ -108,8 +143,9 @@ function pickBestPlayUrl(d: QQDetailItem, quality?: DefaultQuality): BestPlayUrl
 			text: `STD ${d.kbps_standard || ''}`.trim()
 		};
 	}
-	// WR-03: '320' pref → promote HQ (~320k) ahead of the lossless-first ladder, mirroring
-	// the '128'→STD promotion above and JOOX's pickByQualityPref 320 handling.
+	// WR-03: '320' pref → promote HQ ahead of the lossless-first ladder, mirroring the '128'→STD
+	// promotion above and JOOX's pickByQualityPref 320 handling. 32-D-04: the tier is measured at
+	// 193 kbps m4a (AAC), NOT the "~320k" this comment used to claim.
 	if (pref === '320' && d.song_play_url_hq) {
 		return {
 			url: d.song_play_url_hq,
@@ -126,8 +162,6 @@ function pickBestPlayUrl(d: QQDetailItem, quality?: DefaultQuality): BestPlayUrl
 		return { url: d.song_play_url_pq, tag: 'lossless', label: 'LOSSLESS', text: `PQ ${d.kbps_pq || ''}`.trim() };
 
 	// other variants
-	if (d.song_play_url_accom)
-		return { url: d.song_play_url_accom, tag: 'hq', label: 'HQ', text: `ACCOM ${d.kbps_accom || ''}`.trim() };
 	if (d.song_play_url_hq)
 		return { url: d.song_play_url_hq, tag: 'hq', label: 'HQ', text: `HQ ${d.kbps_hq || ''}`.trim() };
 
@@ -135,6 +169,12 @@ function pickBestPlayUrl(d: QQDetailItem, quality?: DefaultQuality): BestPlayUrl
 		return { url: d.song_play_url_standard, tag: 'standard', label: 'STD', text: `STD ${d.kbps_standard || ''}`.trim() };
 	if (d.song_play_url_fq)
 		return { url: d.song_play_url_fq, tag: 'low', label: 'LOW', text: `FQ ${d.kbps_fq || ''}`.trim() };
+
+	// 32-D-18: accom LAST among the named tiers (was above hq, legacy:2330-2345 verbatim). It is a
+	// different MIX (伴奏) in a container iOS Safari cannot decode — a last resort ahead of the bare
+	// url, never a quality tier. Label reads LOW/ACCOM so the pill never claims HQ for an instrumental.
+	if (d.song_play_url_accom)
+		return { url: d.song_play_url_accom, tag: 'low', label: 'ACCOM', text: `ACCOM ${d.kbps_accom || ''}`.trim() };
 
 	// fallback
 	if (d.song_play_url) return { url: d.song_play_url, tag: null, label: null, text: null };
@@ -261,11 +301,16 @@ export const qq: SourceAdapter = {
 			track.qqQualityText = best.text || (d.vip ? `VIP:${d.vip}` : null) || track.qqQualityText;
 
 			// quality / label：先用我们自己的选择，再用 inferQualityFromUrl 兜底 (legacy:2377-2389).
+			// 32-D-19: the url sniff is now a FALLBACK ONLY (`else`), no longer an overwrite. It
+			// classifies purely on file extension and labels every non-FLAC url `320K`, so it was
+			// relabelling the measured 97 kbps standard tier and the 48 kbps fq tier as 320K — the
+			// quality pill reported a tier the user was not receiving. The ladder knows the TRUE tier
+			// from which rung it picked, so that value wins. The shared helper itself is deliberately
+			// untouched (other sources depend on its guess) — only the CALL is gated.
 			if (best.tag && best.label) {
 				track.quality = best.tag;
 				track.qualityLabel = best.label;
-			}
-			if (track.audioUrl) {
+			} else if (track.audioUrl) {
 				const q = inferQualityFromUrl(track.audioUrl);
 				if (q && q.label) {
 					track.quality = q.tag;
