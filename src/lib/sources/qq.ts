@@ -3,7 +3,10 @@
 // enumerates this entry, so 01-02 touches NO shared code (DATA-04).
 //
 // Differences from the monolith (intentional, mirroring netease.ts):
-//   - calls the SAME-ORIGIN proxy /api/qq/... instead of tang.api.s01s.cn directly
+//   - SEARCH calls the SAME-ORIGIN proxy /api/qq/search instead of tang.api.s01s.cn directly.
+//     32-D-12 SUPERSEDES this for DETAIL only: the hot audio-URL call now goes direct to tang
+//     (saving the measured ~1s proxy hop on the click-to-play path), with /api/qq/detail retained
+//     as a one-shot fallback — see fetchQqDetail below.
 //   - emits the canonical COLON-form uid `qq:<song_mid>` (D-10), not the hyphen form
 //   - on contract drift (body that is neither a bare array nor {data:[]}) it THROWS so
 //     catalog's Promise.allSettled records a typed per-source error, instead of the
@@ -14,6 +17,7 @@ import type { SourceAdapter, Track } from './types';
 import { makeUid } from './types';
 import { inferQualityFromUrl } from '../services/lrc';
 import { apiFetch } from '../services/api-base';
+import { qqProxy } from '$lib/proxy/qq';
 import { effectiveQuality } from './quality';
 import { settings, type DefaultQuality } from '$lib/stores/settings.svelte';
 
@@ -182,6 +186,67 @@ function pickTier(d: QQDetailItem, quality?: DefaultQuality): BestPlayUrl {
 	return { url: null, tag: null, label: null, text: null };
 }
 
+/**
+ * One detail attempt against `url`. NEVER throws — a rejection, a non-JSON body, or an upstream
+ * "unknown mid" body (200 + every field null) all map to `null` so the caller can decide whether to
+ * fall through. The PUBLIC `resolve` keeps its throw contract; this is the internal sentinel layer.
+ */
+async function tryQqDetail(url: string, signal: AbortSignal): Promise<QQDetailItem | null> {
+	try {
+		// 32-D-12 / research Q4 — this init must stay `{ signal }` and nothing else. Adding a header
+		// turns the direct GET into a preflighted request (measured 1.016s, which would hand back
+		// most of what going direct saves) AND tang's Access-Control-Allow-Headers is `Content-Type`
+		// only, so the preflight would fail outright. Never set `credentials: 'include'` either:
+		// tang sends `access-control-allow-origin: *` with NO Allow-Credentials, so a credentialed
+		// request hard-fails CORS — and it does send Set-Cookie, which is exactly the thing that
+		// invites someone to "fix" it that way.
+		const res = await apiFetch(url, { signal });
+		const d = (await res.json()) as QQDetailItem | null;
+		return d && typeof d === 'object' && d.song_mid ? d : null;
+	} catch {
+		// Network error, timeout, open circuit, caller-abort, or a non-JSON 200 (`mid=` empty
+		// returns the plain text 参数错误) — all "no usable body from this hop".
+		return null;
+	}
+}
+
+/**
+ * Fetch the QQ detail body for `mid`: DIRECT to tang first, the same-origin proxy once as fallback.
+ *
+ * 32-D-12: the hot audio-URL call goes straight to the upstream, saving the measured ~1s our proxy
+ * hop costs — this is the click-to-play path for most plays now that qq wins the dedupe tie
+ * (32-D-08). The `/api/qq/detail` route is RETAINED, not deleted, as a one-shot fallback for the
+ * day tang drops its `access-control-allow-origin: *`.
+ *
+ * 32-D-13: both hops go through `apiFetch`, never raw `fetch`, so the outbound governor's GET
+ * dedupe, MAX_CONCURRENT_REQUESTS cap, 25s timeout and circuit breaker cover the new host exactly
+ * as they cover /api/* (`apiUrl` returns an absolute url untouched). CONSEQUENCE, accepted on
+ * purpose: tang failures now count toward the ONE SHARED breaker, so a tang outage can open it for
+ * covers/lyrics/translate too. That is correct stop-hammering behaviour and every one of those
+ * callers degrades to its own sentinel. Do NOT "fix" it with a second per-host breaker — composing
+ * locally-bounded mechanisms is the documented root cause of the api-fetch-flood-freeze class. If
+ * you are debugging "covers stopped loading during a tang outage", this comment is your answer.
+ *
+ * 32-D-14: the direct call exposes the listener's IP to Tencent on a metadata request. Weighed and
+ * accepted — `<audio src>` already points straight at isure6.stream.qqmusic.qq.com on every play,
+ * so this adds a hostname, not a new category of exposure.
+ */
+async function fetchQqDetail(mid: string, signal: AbortSignal): Promise<QQDetailItem | null> {
+	// The upstream URL is built by the PROXY adapter so the tang host lives in exactly one place
+	// (proxy/qq.ts) — a pure buildUrl call, the same client→proxy direction resolve-edge.ts uses.
+	// `mid` is encoded by URLSearchParams/URL here (T-32-15) rather than by hand, which is the
+	// same guarantee without the double-encoding risk of doing both.
+	const direct = qqProxy.buildUrl('detail', new URLSearchParams({ mid }), undefined);
+	const fromDirect = await tryQqDetail(direct, signal);
+	if (fromDirect) return fromDirect;
+
+	// Superseded mid-flight → do not spend a second hop on a result nobody wants.
+	if (signal.aborted) return null;
+
+	// ONE fallback hop, same params through our own proxy (encodeURIComponent — V5 ingress).
+	return tryQqDetail(`/api/qq/detail?type=json&mid=${encodeURIComponent(mid)}`, signal);
+}
+
 export const qq: SourceAdapter = {
 	id: 'qq',
 	label: 'QQ 音乐',
@@ -245,10 +310,13 @@ export const qq: SourceAdapter = {
 	},
 
 	async resolve(track: Track, signal: AbortSignal, quality?: DefaultQuality): Promise<Track> {
-		// 优先用搜索时用过的关键词，保证和原始排序一致 (legacy:2312-2315).
-		const msg =
-			(track.qqSearchKey || track.keyword || '').trim() ||
-			((track.title || '') + ' ' + (track.artist || '')).trim();
+		// 32-D-09: the `msg` keyword is NO LONGER computed or sent on the detail call. It reverses
+		// the legacy:2312-2315 port ("优先用搜索时用过的关键词，保证和原始排序一致"), which is
+		// recorded here rather than silently dropped. VERIFIED live: `mid` alone returns the full
+		// ladder plus every metadata field, and a deliberately WRONG `msg` with the right `mid`
+		// still returns the correct song — the endpoint ignores it. The SEARCH path above still
+		// sends `msg` (there it IS the query), and `track.qqSearchKey` is still written at search
+		// time; only this usage is gone.
 
 		// 新接口用 mid：优先 qqId/songMid/songid (legacy:2317-2319).
 		const mid = (track.qqId || track.songMid || track.songid || '').toString().trim();
@@ -258,12 +326,16 @@ export const qq: SourceAdapter = {
 				throw new Error('qq detail error (missing mid)');
 			}
 
-			const path = `/api/qq/detail?msg=${encodeURIComponent(msg)}&type=json&mid=${encodeURIComponent(mid)}`;
-			const res = await apiFetch(path, { signal });
-			const d = (await res.json()) as QQDetailItem | null;
+			const d = await fetchQqDetail(mid, signal);
+
+			// A superseded resolve must keep rejecting as an ABORT, not as a dead source — otherwise
+			// the never-stop ladder would burn a cross-source fallback cycle on a healthy cancel.
+			if (!d && signal.aborted) throw new DOMException('Aborted', 'AbortError');
 
 			// 基本校验：必须是对象且有 song_mid (legacy:2352-2355). On a poisoned/empty body we
-			// throw — and crucially we do NOT reach the detailsLoaded=true line below.
+			// throw — and crucially we do NOT reach the detailsLoaded=true line below. The upstream
+			// answers 200 with an ALL-NULL body for an unknown mid (and `vip` is populated even
+			// then), so `song_mid` is the only reliable liveness discriminator — never res.ok.
 			if (!d || typeof d !== 'object' || !d.song_mid) {
 				throw new Error('qq detail error (invalid response)');
 			}

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { qq } from './qq';
 import type { Track } from './types';
 import { settings } from '$lib/stores/settings.svelte';
+import { __resetGovernor } from '$lib/services/api-base';
 import searchFixture from './__fixtures__/qq.search.json';
 import detailFixture from './__fixtures__/qq.detail.json';
 
@@ -16,11 +17,29 @@ function mockFetchOnce(body: unknown, contentType = 'application/json') {
 	});
 }
 
+/** Multi-call stub: hands out `steps` in order (an Error step REJECTS, mirroring a network
+ *  failure), repeating the last step once exhausted. Needed for the 32-D-12 direct→proxy fallback,
+ *  where the two hops must return different things. */
+function mockFetchQueue(steps: unknown[]) {
+	let i = 0;
+	return vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => {
+		const step = steps[Math.min(i++, steps.length - 1)];
+		if (step instanceof Error) throw step;
+		return new Response(JSON.stringify(step), {
+			status: 200,
+			headers: { 'content-type': 'application/json' }
+		});
+	});
+}
+
 beforeEach(() => {
 	vi.restoreAllMocks();
 });
 afterEach(() => {
 	vi.restoreAllMocks();
+	// apiFetch is REAL in these tests (it wraps the stubbed fetch), so a case that makes the fetch
+	// stub reject leaves failure counts in the shared circuit breaker. Reset so nothing leaks.
+	__resetGovernor();
 });
 
 describe('qq.search (fixture-backed)', () => {
@@ -151,10 +170,64 @@ describe('qq.resolve', () => {
 		expect(out.qualityLabel).toBe('LOSSLESS');
 		expect(out.detailsLoaded).toBe(true);
 
-		// hits the same-origin proxy /api/qq/detail with msg + mid
+		// 32-D-12: the detail call goes DIRECT to tang (the ~1s proxy hop is the whole point), and
+		// 32-D-09: with `mid` alone — `msg` is ignored by the endpoint and is no longer sent.
+		expect(spy).toHaveBeenCalledTimes(1);
 		const calledUrl = String(spy.mock.calls[0][0]);
-		expect(calledUrl).toMatch(/^\/api\/qq\/detail\?/);
+		expect(calledUrl).toMatch(/^https:\/\/tang\.api\.s01s\.cn\/music_open_api\.php\?/);
+		expect(calledUrl).toContain('type=json');
 		expect(calledUrl).toContain('mid=002Neh8l0RJHcS');
+		expect(calledUrl).not.toMatch(/[?&]msg=/);
+	});
+
+	// 32-D-12 / research Q4: the direct GET must stay a SIMPLE request. Any author-set header
+	// triggers a CORS preflight (measured 1.016s — it would hand back most of what going direct
+	// saves) and tang's Access-Control-Allow-Headers is `Content-Type` only, so it would also FAIL.
+	// `credentials` must never be set either: tang sends ACAO:* with no Allow-Credentials, so a
+	// credentialed request is a hard CORS failure — and it sends Set-Cookie, which invites the "fix".
+	it('sends the direct call as a SIMPLE request — no headers, no credentials (32-D-12)', async () => {
+		settings.defaultQuality = 'lossless';
+		const spy = mockFetchOnce(detailFixture);
+		vi.stubGlobal('fetch', spy);
+
+		await qq.resolve(stubTrack(), ac.signal);
+
+		const init = spy.mock.calls[0][1] as RequestInit;
+		expect(init).not.toHaveProperty('headers');
+		expect(init).not.toHaveProperty('credentials');
+		// only the abort signal reaches fetch (the governor adds its own timeout signal, nothing else)
+		expect(Object.keys(init)).toEqual(['signal']);
+	});
+
+	// 32-D-12: the /api/qq/detail proxy route is RETAINED as a one-shot fallback for the day tang
+	// drops its `access-control-allow-origin: *`. A direct-call rejection must be invisible to the user.
+	it('falls back ONCE to the /api/qq/detail proxy when the direct call fails (32-D-12)', async () => {
+		settings.defaultQuality = 'lossless';
+		const spy = mockFetchQueue([new TypeError('Failed to fetch'), detailFixture]);
+		vi.stubGlobal('fetch', spy);
+
+		const out = await qq.resolve(stubTrack(), ac.signal);
+
+		expect(out.audioUrl).toBe(upgraded(detailFixture.song_play_url_sq));
+		expect(spy).toHaveBeenCalledTimes(2);
+		expect(String(spy.mock.calls[0][0])).toMatch(/^https:\/\/tang\.api\.s01s\.cn\//);
+		expect(String(spy.mock.calls[1][0])).toMatch(/^\/api\/qq\/detail\?/);
+		expect(String(spy.mock.calls[1][0])).toContain('mid=002Neh8l0RJHcS');
+	});
+
+	// 32-D-01: when BOTH hops fail the PUBLIC throw contract is unchanged — catalog's allSettled and
+	// the cross-source never-stop ladder depend on it, and detailsLoaded must stay false so a later
+	// play retries. The fallback adds a hop, it never swallows a failure.
+	it('re-throws and leaves detailsLoaded=false when direct AND proxy both fail', async () => {
+		settings.defaultQuality = 'lossless';
+		vi.stubGlobal(
+			'fetch',
+			mockFetchQueue([new TypeError('Failed to fetch'), new TypeError('Failed to fetch')])
+		);
+
+		const track = stubTrack();
+		await expect(qq.resolve(track, ac.signal)).rejects.toThrow();
+		expect(track.detailsLoaded).toBe(false);
 	});
 
 	// quick-260629-nyl Task 3: the lyric read is widened to tolerate a NESTED lyric object
