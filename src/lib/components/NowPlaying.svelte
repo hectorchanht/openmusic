@@ -14,7 +14,7 @@
 	import { fly, fade } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
 	import { goto } from '$app/navigation';
-	import { ChevronDown, MoreVertical, Heart, SkipBack, SkipForward, Play, Pause, Repeat, Repeat1, GripVertical, Moon, ListEnd, ListStart, Layers } from '@lucide/svelte';
+	import { ChevronDown, MoreVertical, Heart, SkipBack, SkipForward, Play, Pause, Repeat, Repeat1, GripVertical, Moon, ListEnd, ListStart, Layers, Trash2 } from '@lucide/svelte';
 	import { player, fmtTime } from '$lib/stores/player.svelte';
 	import { sleepTimer } from '$lib/stores/sleepTimer.svelte';
 	import { settings, effectiveTarget } from '$lib/stores/settings.svelte';
@@ -37,7 +37,6 @@
 	// the current song repaints the hero live (one resolved cover reused EVERYWHERE, cached).
 	import { readCoverByUidOrName } from '$lib/stores/cover-version.svelte';
 	import { marquee } from '$lib/actions/marquee';
-	import { swipeRemove } from '$lib/actions/swipeRemove';
 	import { swipeAction } from '$lib/actions/swipeAction';
 	import { coverSwipe } from '$lib/actions/coverSwipe';
 	import { scrub } from '$lib/actions/scrub';
@@ -103,9 +102,6 @@
 	let pickerLoading = $state(false);
 	let versionGen = 0;
 	let versionAc: AbortController | null = null;
-	// aria-label resolved OUTSIDE the {#each upNextList as track} block (mirrors the search page's
-	// verOpenLabel) — $derived so it re-resolves on an appLang change.
-	const verOpenLabel = $derived(t('versions.open'));
 
 	async function openVersionPicker(track: Track) {
 		const gen = ++versionGen;
@@ -663,6 +659,20 @@
 	function relatedSwipeNext(track: Track) {
 		player.playNext(track);
 		toast.show(t('toast.playingNext'));
+		hapticTick();
+	}
+
+	// quick-260910-nx6: the same split-by-direction swipe on the UP-NEXT list, replacing the
+	// always-visible per-row Layers button (right = open the version picker) and the old
+	// swipe-to-remove action (left = remove). swipeAction is a PURE DOM gesture — the host fires haptics on commit
+	// (PATTERNS.md §3.3), exactly like the related helpers above. No toast on remove: the row
+	// vanishing IS the feedback and no i18n key exists (adding one touches 16 locale files).
+	function queueSwipeVersions(track: Track) {
+		openVersionPicker(track);
+		hapticTick();
+	}
+	function queueSwipeRemove(track: Track) {
+		player.removeFromQueue(track.uid);
 		hapticTick();
 	}
 
@@ -1451,17 +1461,29 @@
 								class:over={i === dragOver && i !== dragFrom}
 								style:transform={i === dragFrom && rowDragY ? `translateY(${rowDragY}px)` : undefined}
 							>
-								<!-- Gap 4 (26-10): per-row version-picker trigger. A SIBLING tap target (its own ≥44px hit
-								     area) placed BEFORE the swipeable .q-row button — NEVER nested inside it (no button-in-button)
-								     so use:swipeRemove/longpress/grip stay intact. Shown on EVERY row (variants are discovered on
-								     demand — the picker's loading/empty states cover a ≤1-variant song); opening fires the single
-								     lazy fetchVariants fan-out (T-26-10-02). Mirrors search/+page.svelte's .row-line/.ver pattern. -->
-								<button class="ver" aria-label={verOpenLabel} onclick={() => openVersionPicker(track)} use:tapBounce><Layers size={18} /></button>
+								<!-- Gap 4 (26-10): per-row version-picker trigger, still the single lazy fetchVariants
+								     fan-out fired ONLY on a deliberate gesture, never on list render (T-26-10-02).
+								     quick-260910-nx6: it is no longer an always-visible per-row button — the trigger is now the
+								     swipe-RIGHT reveal below (hidden at rest, per the user decision, one fewer 44px control per
+								     row). Keyboard/AT reach is unchanged: the long-press / contextmenu TrackMenu still lists
+								     "Play from source" (TrackMenu.svelte → openVersions). The wrapper is a <span>, so the
+								     Gap 4 no-button-in-button constraint still holds. -->
 								<!-- quick-260615-i9u (Feature A): a probe-confirmed-dead Up-Next entry stays IN the queue
 								     (nextPlayableIndex just routes past it) — render it dimmed with a leading ✗ and branch
-								     the row tap to retry-that-exact-track instead of a fresh play. swipeRemove/longpress/grip
-								     are deliberately untouched so reorder + swipe-remove keep working on a skipped row. -->
-								<button class="row q-row" class:playing={track.uid === player.current?.uid} class:skipped use:swipeRemove={{ onremove: () => player.removeFromQueue(track.uid), enabled: track.uid !== player.current?.uid }} use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openMenu(track); }} onclick={(e) => { (e.currentTarget as HTMLElement)?.blur(); skipped ? player.retryUnplayable(track) : player.play(track, {fresh: false}); }} title={skipped ? t('nowplaying.skippedRetry') : undefined}>
+								     the row tap to retry-that-exact-track instead of a fresh play. swipeAction/longpress/grip
+								     are deliberately untouched so reorder + swipe actions keep working on a skipped row. -->
+								<span class="swipe-wrap q-swipe" class:is-current={track.uid === player.current?.uid}>
+								<!-- quick-260910-nx6: reveal layers sit BEHIND the row; the row's translateX exposes one
+								     side. Left edge = versions (a RIGHT drag), right edge = remove (a LEFT drag). aria-hidden
+								     — decorative only. -->
+								<span class="reveal reveal-versions" aria-hidden="true"><Layers size={20} /></span>
+								<span class="reveal reveal-remove" aria-hidden="true"><Trash2 size={20} /></span>
+								<!-- quick-260910-nx6: swipeAction's `enabled` is GLOBAL (it would also kill swipe-right, which
+								     stays available on the current row) — so the current-row remove gate is expressed by leaving
+								     onSwipeLeft UNDEFINED instead: swipeAction calls `onSwipeLeft?.()`, i.e. a silent no-op that
+								     still springs the row back. Preserves the old swipe-to-remove `enabled: uid !== current` contract
+								     (T-nx6-01: the playing track can never be removed by gesture). -->
+								<button class="row q-row" class:playing={track.uid === player.current?.uid} class:skipped use:swipeAction={{ onSwipeRight: () => queueSwipeVersions(track), onSwipeLeft: track.uid === player.current?.uid ? undefined : () => queueSwipeRemove(track) }} use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openMenu(track); }} onclick={(e) => { (e.currentTarget as HTMLElement)?.blur(); skipped ? player.retryUnplayable(track) : player.play(track, {fresh: false}); }} title={skipped ? t('nowplaying.skippedRetry') : undefined}>
 									<!-- Gap 3 (26-10): the Up-Next LIST tile paints from the SEEDED cover (26-07 seeds the
 									     name-stub's cover with the Last.fm image; search/resolved tracks carry their real cover),
 									     with a gradient on a true miss — NO per-tile use:lazyCover Deezer→iTunes→CN chain (that
@@ -1479,6 +1501,7 @@
 									<!-- quick-260723: passive liked/downloaded indicators on up-next rows. -->
 									<RowBadges uid={track.uid} />
 								</button>
+								</span>
 								<button
 									class="grip-handle"
 									aria-label={t('nowplaying.reorderTrack')}
@@ -1764,8 +1787,8 @@
 	/* quick-260625-pzs-02: swipe-to-queue on the RELATED list only (mirrors search/+page.svelte:669-677).
 	   The reveal spans sit BEHIND the row; the row's translateX (use:swipeAction) slides to expose the
 	   correct side. The related .row is normally transparent, so it gets an opaque bg + z-index here so
-	   the reveal stays masked at rest and clipped during travel. The Up-Next list (use:swipeRemove) is
-	   untouched.
+	   the reveal stays masked at rest and clipped during travel. The Up-Next list gets its own
+	   `.q-swipe` variant (quick-260910-nx6).
 	   quick-260910-k45: the opaque background this comment described was never actually written —
 	   the rule only had `z-index: 1`, which orders layers but does not occlude, so the reveal icons
 	   showed through the transparent row at rest. `background: var(--color-bg)` matches `.np`, so the
@@ -1778,10 +1801,32 @@
 	.related-swipe .reveal-queue { left: 0; color: var(--color-text-muted); }
 	.related-swipe .reveal-next { right: 0; color: var(--color-text-muted); }
 	.related-swipe .row { background: var(--color-bg); position: relative; z-index: 1; }
+	/* quick-260910-nx6: the same reveal pattern on the UP-NEXT list. The wrapper is a <span> (not the
+	   <li>, which also holds the always-visible grip) so the grip never slides with the row;
+	   flex:1/min-width:0 make it fill the li beside that sibling button, and the old
+	   `.q-row { flex: 1; min-width: 0 }` now applies INSIDE the wrapper where `.row { width: 100% }`
+	   sizes it. The opaque background is the quick-260910-k45 root-cause fix carried over: z-index
+	   only ORDERS layers, only an opaque background OCCLUDES — without it the grip/reveal icons
+	   render through the row's title text mid-swipe (confirmed live before this task). */
+	.q-swipe { position: relative; overflow: hidden; border-radius: 10px; flex: 1; min-width: 0; }
+	.q-swipe .reveal {
+		position: absolute; top: 0; bottom: 0; width: 96px; display: flex; align-items: center;
+		justify-content: center; color: var(--color-text-muted); pointer-events: none;
+	}
+	.q-swipe .reveal-versions { left: 0; }
+	.q-swipe .reveal-remove { right: 0; }
+	/* The current row's swipe-LEFT is a deliberate no-op (T-nx6-01), so never flash a trash icon
+	   that cannot do anything. */
+	.q-swipe.is-current .reveal-remove { display: none; }
+	.q-swipe .q-row { background: var(--color-bg); position: relative; z-index: 1; }
 	/* MENU-03 / D-12: hover-capable devices only — touch otherwise latches this :hover
 	   background on a queue/related row under a held finger while the track menu opens. */
 	@media (hover: hover) { .row:hover { background: var(--color-surface); } }
 	.row.playing { background: rgba(124,92,255,0.15); }
+	/* quick-260910-nx6: `.row.playing` is TRANSLUCENT and, later at equal specificity, would beat
+	   the opaque `.q-swipe .q-row` on the playing row and re-open the bleed. Same tint, composited
+	   over the opaque bg. `.row.playing` itself stays untouched (it is the generic rule). */
+	.q-swipe .q-row.playing { background: linear-gradient(rgba(124,92,255,0.15), rgba(124,92,255,0.15)) var(--color-bg); }
 	/* Queue rows: play-button + far-right grip side by side. */
 	.list li { display: flex; align-items: center; gap: 2px; }
 	.q-row { flex: 1; min-width: 0; }
@@ -1790,20 +1835,15 @@
 	   Up-Next `.q-row` is switched to row-direction; the generic `.row` (related skeleton/list)
 	   keeps its column layout untouched. The art dims with the row via `.q-row.skipped` (child). */
 	.q-row { flex-direction: row; align-items: center; gap: 0; }
-	/* Gap 4 (26-10): per-row version-picker trigger — a SIBLING of the .q-row button (never nested,
-	   no button-in-button), its own ≥44px tap target mirroring search/+page.svelte's .ver. */
-	.ver {
-		flex: 0 0 auto; width: 44px; height: 44px; display: grid; place-items: center;
-		background: none; border: none; border-radius: var(--radius-full, 999px);
-		color: var(--color-text-muted); cursor: pointer;
-	}
-	@media (hover: hover) { .ver:hover { background: var(--color-surface); color: var(--color-text); } }
 	.q-art { width: 36px; height: 36px; border-radius: 6px; background-size: cover; background-position: center; background-color: rgba(255,255,255,0.04); flex: none; margin-right: 8px; }
 	.q-text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
 	.grip-handle { flex: 0 0 auto; background: none; border: none; color: var(--color-text-muted); opacity: 0.55; cursor: grab; touch-action: none; display: grid; place-items: center; padding: 8px 6px; border-radius: 8px; }
 	.grip-handle:active { cursor: grabbing; opacity: 0.9; }
 	.list li.lifted { position: relative; z-index: 2; opacity: 0.92; }
-	.list li.lifted .q-row { background: var(--color-surface); box-shadow: 0 6px 18px rgba(0,0,0,0.4); }
+	.list li.lifted .q-row { background: var(--color-surface); }
+	/* quick-260910-nx6: the drop shadow moves to the wrapper — `.q-swipe { overflow: hidden }` would
+	   clip it off the row during a grip drag. `.list li.over .q-row` is INSET, so it is unaffected. */
+	.list li.lifted .q-swipe { box-shadow: 0 6px 18px rgba(0,0,0,0.4); }
 	.list li.over .q-row { box-shadow: inset 0 2px 0 var(--color-primary); }
 	.r-title { font-size: calc(14px * var(--fs-title, 1)); font-weight: 600; color: var(--color-text);}
 	.r-artist { font-size: calc(12px * var(--fs-artist, 1)); color: var(--color-text-muted); }
@@ -1813,7 +1853,10 @@
 	.rel-row .r-meta { display: flex; flex-direction: column; min-width: 0; flex: 1; }
 	/* quick-260615-i9u (Feature A): a probe-confirmed-dead Up-Next row, dimmed + leading ✗. Tapping
 	   it retries that exact track. Reuses existing design tokens (no new hardcoded colors). */
-	.q-row.skipped { opacity: 0.45; }
+	/* quick-260910-nx6: scoped to the CHILDREN — dimming the button itself made the whole row
+	   translucent, letting the reveal layers behind it show through. Art/text/badges dim, the
+	   row's own background stays opaque. */
+	.q-row.skipped > * { opacity: 0.45; }
 	.r-skip { font-size: calc(12px * var(--fs-artist, 1)); font-weight: 600; color: var(--color-text-muted); margin-right: 6px; }
 	/* Related-tab loading skeleton: placeholder rows mirror the real .row shape
 	   (stacked title + artist bars) so the list keeps its size/shape while fetching.
