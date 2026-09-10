@@ -1765,7 +1765,11 @@
 	   The reveal spans sit BEHIND the row; the row's translateX (use:swipeAction) slides to expose the
 	   correct side. The related .row is normally transparent, so it gets an opaque bg + z-index here so
 	   the reveal stays masked at rest and clipped during travel. The Up-Next list (use:swipeRemove) is
-	   untouched. */
+	   untouched.
+	   quick-260910-k45: the opaque background this comment described was never actually written —
+	   the rule only had `z-index: 1`, which orders layers but does not occlude, so the reveal icons
+	   showed through the transparent row at rest. `background: var(--color-bg)` matches `.np`, so the
+	   now-opaque row looks unchanged over the sheet. */
 	.related-swipe { position: relative; overflow: hidden; border-radius: 10px; }
 	.related-swipe .reveal {
 		position: absolute; top: 0; bottom: 0; width: 96px; display: flex; align-items: center;
@@ -1773,7 +1777,7 @@
 	}
 	.related-swipe .reveal-queue { left: 0; color: var(--color-text-muted); }
 	.related-swipe .reveal-next { right: 0; color: var(--color-text-muted); }
-	.related-swipe .row { position: relative; z-index: 1; }
+	.related-swipe .row { background: var(--color-bg); position: relative; z-index: 1; }
 	/* MENU-03 / D-12: hover-capable devices only — touch otherwise latches this :hover
 	   background on a queue/related row under a held finger while the track menu opens. */
 	@media (hover: hover) { .row:hover { background: var(--color-surface); } }
