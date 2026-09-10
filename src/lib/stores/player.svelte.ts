@@ -139,6 +139,18 @@ export interface PlayerNotice {
  */
 type SrcKind = 'url' | 'download-blob' | 'prebuffer-blob';
 
+/**
+ * quick-260910-omt: the receipt `removeFromQueue` hands back so a caller (the Up-Next swipe-left
+ * undo toast) can reverse the removal via `restoreToQueue`. `wasManual`/`wasExcluded` record the
+ * PRIOR side-state so the undo restores it exactly instead of guessing.
+ */
+export type QueueRemoval = {
+	track: Track;
+	index: number;
+	wasManual: boolean;
+	wasExcluded: boolean;
+};
+
 /** mm:ss, NaN/Infinity-safe (avoids the "NaN:NaN" bug before metadata loads). */
 export function fmtTime(s: number): string {
 	if (!Number.isFinite(s) || s < 0) return '0:00';
@@ -2250,15 +2262,43 @@ class Player {
 	 * session-excluded from auto-generation (removedUids) so it does not regenerate back in, and
 	 * dropped from manualUids so a previously-pinned track can still be swiped away. Re-reads
 	 * `this.queue` at write-time and filters it (Pitfall 1 — never a closed-over snapshot).
+	 *
+	 * quick-260910-omt: returns a `QueueRemoval` receipt (or null when nothing was removed) that
+	 * `restoreToQueue` consumes to reverse the removal — the Up-Next swipe-left undo toast.
 	 */
-	removeFromQueue(uid: string) {
+	removeFromQueue(uid: string): QueueRemoval | null {
 		// CR-01: never-stop — the CURRENT track survives (mirrors clearQueue's invariant).
 		// Removing it would orphan indexOf(current) → next()/ensureAhead/prefetchNext all go
 		// permanently dead AND persist() would write the broken state across reloads.
-		if (uid === this.current?.uid) return;
+		if (uid === this.current?.uid) return null;
+		const index = this.queue.findIndex((t) => t.uid === uid);
+		if (index === -1) return null; // nothing removed → nothing to undo
+		const track = this.queue[index];
+		// Captured BEFORE the mutations so the receipt records the PRIOR side-state.
+		const wasManual = this.manualUids.has(uid);
+		const wasExcluded = this.removedUids.has(uid);
 		this.removedUids.add(uid); // D-10: session-excluded from regen/grow
 		this.manualUids.delete(uid);
 		this.queue = this.queue.filter((t) => t.uid !== uid);
+		this.persist();
+		return { track, index, wasManual, wasExcluded };
+	}
+
+	/**
+	 * quick-260910-omt: the exact inverse of `removeFromQueue` — reverses the queue slot, the
+	 * manual pin and the D-10 exclusion so an undone swipe leaves no trace. Idempotent (a stale
+	 * double-tap finds the uid already present and bails) and index-clamped (the queue may have
+	 * shrunk during the ~5s undo window). Re-reads `this.queue` at write-time (Pitfall 1).
+	 */
+	restoreToQueue(r: QueueRemoval): void {
+		if (this.queue.some((t) => t.uid === r.track.uid)) return;
+		const q = [...this.queue];
+		q.splice(Math.min(r.index, q.length), 0, r.track);
+		this.queue = q;
+		// Lift the session exclusion only if THIS removal introduced it — a uid excluded by an
+		// earlier swipe keeps that prior state.
+		if (!r.wasExcluded) this.removedUids.delete(r.track.uid);
+		if (r.wasManual) this.manualUids.add(r.track.uid);
 		this.persist();
 	}
 

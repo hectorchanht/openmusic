@@ -3640,6 +3640,87 @@ describe('player.removeFromQueue / clearQueue / removedUids (Phase 17 QUEUE-05 /
 		expect(player.queue.map((t) => t.uid)).toEqual([cur.uid, b.uid]);
 		// And the uid is NOT session-excluded (the removal never happened).
 		expect((player as unknown as { removedUids: Set<string> }).removedUids.has(cur.uid)).toBe(false);
+		// quick-260910-omt: null receipt — there is nothing to undo, so the caller shows no toast.
+		expect(player.removeFromQueue(cur.uid)).toBeNull();
+	});
+
+	// quick-260910-omt: removeFromQueue now hands back a receipt so the Up-Next swipe can offer
+	// Undo. restoreToQueue(receipt) is its exact inverse (index + manual pin + D-10 exclusion).
+	it('removeFromQueue returns a receipt describing the removal', () => {
+		const a = mk('netease', 'OMT-A', 'A', 'S1');
+		const b = mk('qq', 'OMT-B', 'B', 'S2');
+		const c = mk('kuwo', 'OMT-C', 'C', 'S3');
+		player.queue = [a, b, c];
+		expect(player.removeFromQueue(b.uid)).toEqual({
+			track: b,
+			index: 1,
+			wasManual: false,
+			wasExcluded: false
+		});
+	});
+
+	it('removeFromQueue(uid) of a track not in the queue returns null', () => {
+		player.queue = [mk('netease', 'OMT-N1', 'A', 'S1')];
+		expect(player.removeFromQueue(makeUid('qq', 'OMT-NOT-THERE'))).toBeNull();
+	});
+
+	it('restoreToQueue puts the track back at its ORIGINAL index (not appended)', () => {
+		const a = mk('netease', 'OMT-R1', 'A', 'S1');
+		const b = mk('qq', 'OMT-R2', 'B', 'S2');
+		const c = mk('kuwo', 'OMT-R3', 'C', 'S3');
+		player.queue = [a, b, c];
+		const r = player.removeFromQueue(b.uid)!;
+		expect(player.queue.map((t) => t.uid)).toEqual([a.uid, c.uid]);
+		player.restoreToQueue(r);
+		expect(player.queue.map((t) => t.uid)).toEqual([a.uid, b.uid, c.uid]);
+	});
+
+	it('restoreToQueue restores the manual pin iff the removed track had one', () => {
+		const manual = (player as unknown as { manualUids: Set<string> }).manualUids;
+		const cur = mk('netease', 'OMT-M0', 'A', 'Cur');
+		const pinned = mk('qq', 'OMT-M1', 'B', 'S2');
+		const plain = mk('kuwo', 'OMT-M2', 'C', 'S3');
+		player.current = cur;
+		player.queue = [cur, pinned, plain];
+		player.addToQueue(pinned); // pins it
+		const rp = player.removeFromQueue(pinned.uid)!;
+		player.restoreToQueue(rp);
+		expect(manual.has(pinned.uid)).toBe(true);
+		const rn = player.removeFromQueue(plain.uid)!;
+		player.restoreToQueue(rn);
+		expect(manual.has(plain.uid)).toBe(false);
+	});
+
+	it('restoreToQueue lifts the D-10 session exclusion — regenerate no longer excludes the uid', async () => {
+		const seed = mk('netease', 'OMT-SEED', 'A', 'Seed');
+		const back = mk('qq', 'OMT-BACK', 'B', 'Back');
+		player.queue = [seed, back];
+		const r = player.removeFromQueue(back.uid)!;
+		player.restoreToQueue(r);
+		await (player as unknown as { regenerate(t: Track): Promise<void> }).regenerate(seed);
+		const excludeArg = mockSimilar.mock.calls[0][1] as Set<string>;
+		expect(excludeArg.has(back.uid)).toBe(false);
+	});
+
+	it('restoreToQueue is idempotent — a double tap never duplicates the entry', () => {
+		const a = mk('netease', 'OMT-I1', 'A', 'S1');
+		const b = mk('qq', 'OMT-I2', 'B', 'S2');
+		player.queue = [a, b];
+		const r = player.removeFromQueue(b.uid)!;
+		player.restoreToQueue(r);
+		player.restoreToQueue(r);
+		expect(player.queue.map((t) => t.uid)).toEqual([a.uid, b.uid]);
+	});
+
+	it('restoreToQueue clamps a stale index to the end when the queue shrank meanwhile', () => {
+		const a = mk('netease', 'OMT-C1', 'A', 'S1');
+		const b = mk('qq', 'OMT-C2', 'B', 'S2');
+		const c = mk('kuwo', 'OMT-C3', 'C', 'S3');
+		player.queue = [a, b, c];
+		const r = player.removeFromQueue(c.uid)!; // index 2
+		player.queue = [a]; // queue shrank inside the ~5s undo window
+		player.restoreToQueue(r);
+		expect(player.queue.map((t) => t.uid)).toEqual([a.uid, c.uid]); // appended, no hole
 	});
 
 	it('clearQueue() leaves queue = [current] when a current track exists and clears pins', () => {
@@ -3709,8 +3790,9 @@ describe('player.removeFromQueue / clearQueue / removedUids (Phase 17 QUEUE-05 /
 		const cur = mk('netease', 'C', 'A', 'Cur');
 		const gone = mk('qq', 'GONE', 'B', 'Gone');
 		player.current = cur;
-		player.queue = [cur]; // within 2 of the end → ensureAhead runs
-		player.removeFromQueue(gone.uid); // gone is no longer in queue, but must stay excluded
+		player.queue = [cur, gone];
+		player.removeFromQueue(gone.uid); // gone leaves the queue, but must stay excluded
+		// queue is now [cur] — within 2 of the end → ensureAhead runs
 		await (player as unknown as { ensureAhead(): Promise<void> }).ensureAhead();
 		expect(mockPicks).toHaveBeenCalledTimes(1);
 		const haveArg = mockPicks.mock.calls[0][1] as Set<string>;
@@ -3742,8 +3824,11 @@ describe('player.removeFromQueue / clearQueue / removedUids (Phase 17 QUEUE-05 /
 	});
 
 	it('removedUids is NOT written to the persisted player snapshot (session-scoped, not serialized)', () => {
-		player.current = mk('netease', 'C', 'A', 'Cur');
-		player.removeFromQueue('qq:GONE');
+		const cur = mk('netease', 'C', 'A', 'Cur');
+		const gone = mk('qq', 'GONE', 'B', 'Gone');
+		player.current = cur;
+		player.queue = [cur, gone]; // removeFromQueue only persists when it really removed a row
+		player.removeFromQueue(gone.uid);
 		const raw = localStorage.getItem('openmusic:player:v1');
 		expect(raw).toBeTruthy();
 		expect(raw as string).not.toContain('removedUids');
