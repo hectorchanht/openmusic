@@ -275,6 +275,8 @@ const ru: Dict = {
 	"timer.cancel": "Отменить таймер",
 	"toast.playingNext": "Играем следующим",
 	"toast.addedToQueue": "Добавлено в очередь",
+	"toast.removedFromQueue": "Удалено из очереди",
+	"toast.undo": "Отменить",
 	"toast.preparingDownload": "Подготовка загрузки…",
 	"toast.noAudio": "Звук недоступен",
 	"toast.skipped": "Не удалось воспроизвести · {title} — пропущено",

@@ -275,6 +275,8 @@ const tr: Dict = {
 	"timer.cancel": "Zamanlayıcıyı iptal et",
 	"toast.playingNext": "Sonraki oynatılıyor",
 	"toast.addedToQueue": "Sıraya eklendi",
+	"toast.removedFromQueue": "Sıradan kaldırıldı",
+	"toast.undo": "Geri al",
 	"toast.preparingDownload": "İndirmeye hazırlanıyor…",
 	"toast.noAudio": "Ses mevcut değil",
 	"toast.skipped": "Çalınamadı · {title} — atlandı",

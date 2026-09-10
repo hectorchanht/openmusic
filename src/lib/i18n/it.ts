@@ -275,6 +275,8 @@ const it: Dict = {
 	"timer.cancel": "Annulla timer",
 	"toast.playingNext": "Giocare dopo",
 	"toast.addedToQueue": "Aggiunto alla coda",
+	"toast.removedFromQueue": "Rimosso dalla coda",
+	"toast.undo": "Annulla",
 	"toast.preparingDownload": "Preparazione download…",
 	"toast.noAudio": "Nessun audio disponibile",
 	"toast.skipped": "Impossibile riprodurre · {title} — saltata",

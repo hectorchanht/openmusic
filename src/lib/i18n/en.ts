@@ -326,6 +326,8 @@ const en = {
 	// --- toasts ---
 	"toast.playingNext": "Playing next",
 	"toast.addedToQueue": "Added to queue",
+	"toast.removedFromQueue": "Removed from queue",
+	"toast.undo": "Undo",
 	"toast.preparingDownload": "Preparing download…",
 	"toast.noAudio": "No audio available",
 	"toast.skipped": "Couldn't play · {title} — skipped",

@@ -665,14 +665,23 @@
 	// quick-260910-nx6: the same split-by-direction swipe on the UP-NEXT list, replacing the
 	// always-visible per-row Layers button (right = open the version picker) and the old
 	// swipe-to-remove action (left = remove). swipeAction is a PURE DOM gesture — the host fires haptics on commit
-	// (PATTERNS.md §3.3), exactly like the related helpers above. No toast on remove: the row
-	// vanishing IS the feedback and no i18n key exists (adding one touches 16 locale files).
+	// (PATTERNS.md §3.3), exactly like the related helpers above.
+	// quick-260910-omt: the removal used to be silent AND irreversible — a mis-swipe permanently
+	// session-excluded the song (D-10 removedUids) with no feedback. It now raises an undo toast:
+	// removeFromQueue hands back a receipt, restoreToQueue reverses the queue index, the manual
+	// pin and the exclusion. The callback lives HERE because stores stay i18n-free and never
+	// import UI; it closes over the receipt only, never over private player state. Per the toast
+	// contract a superseding toast DISCARDS a pending undo (it can never fire late).
 	function queueSwipeVersions(track: Track) {
 		openVersionPicker(track);
 		hapticTick();
 	}
 	function queueSwipeRemove(track: Track) {
-		player.removeFromQueue(track.uid);
+		const r = player.removeFromQueue(track.uid);
+		if (!r) return; // nothing removed (current row / not in queue) → no toast, nothing to undo
+		toast.show(t('toast.removedFromQueue'), {
+			action: { label: t('toast.undo'), run: () => player.restoreToQueue(r) }
+		});
 		hapticTick();
 	}
 

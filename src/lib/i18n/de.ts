@@ -275,6 +275,8 @@ const de: Dict = {
 	"timer.cancel": "Timer abbrechen",
 	"toast.playingNext": "Als nächstes wird gespielt",
 	"toast.addedToQueue": "Zur Warteschlange hinzugefügt",
+	"toast.removedFromQueue": "Aus der Warteschlange entfernt",
+	"toast.undo": "Rückgängig",
 	"toast.preparingDownload": "Download wird vorbereitet…",
 	"toast.noAudio": "Kein Ton verfügbar",
 	"toast.skipped": "Konnte nicht abgespielt werden · {title} — übersprungen",

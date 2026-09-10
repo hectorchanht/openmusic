@@ -275,6 +275,8 @@ const id: Dict = {
 	"timer.cancel": "Batalkan timer",
 	"toast.playingNext": "Bermain berikutnya",
 	"toast.addedToQueue": "Ditambahkan ke antrean",
+	"toast.removedFromQueue": "Dihapus dari antrean",
+	"toast.undo": "Urungkan",
 	"toast.preparingDownload": "Mempersiapkan pengunduhan…",
 	"toast.noAudio": "Tidak ada audio yang tersedia",
 	"toast.skipped": "Tidak dapat memutar · {title} — dilewati",

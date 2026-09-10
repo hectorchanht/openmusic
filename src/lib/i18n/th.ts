@@ -275,6 +275,8 @@ const th: Dict = {
 	"timer.cancel": "ยกเลิกตัวตั้งเวลา",
 	"toast.playingNext": "กำลังเล่นต่อไป",
 	"toast.addedToQueue": "เพิ่มเข้าคิวแล้ว",
+	"toast.removedFromQueue": "ลบออกจากคิวแล้ว",
+	"toast.undo": "เลิกทำ",
 	"toast.preparingDownload": "กำลังเตรียมการดาวน์โหลด...",
 	"toast.noAudio": "ไม่มีเสียง",
 	"toast.skipped": "เล่นไม่ได้ · {title} — ข้ามแล้ว",

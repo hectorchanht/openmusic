@@ -275,6 +275,8 @@ const fr: Dict = {
 	"timer.cancel": "Annuler le minuteur",
 	"toast.playingNext": "Jouer ensuite",
 	"toast.addedToQueue": "Ajouté à la file d'attente",
+	"toast.removedFromQueue": "Retiré de la file d'attente",
+	"toast.undo": "Annuler",
 	"toast.preparingDownload": "Préparation du téléchargement…",
 	"toast.noAudio": "Aucun son disponible",
 	"toast.skipped": "Lecture impossible · {title} — ignorée",

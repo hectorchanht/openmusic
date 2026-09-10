@@ -301,6 +301,8 @@ const zhHant: Dict = {
 	// --- toasts ---
 	"toast.playingNext": "下一首播放",
 	"toast.addedToQueue": "已加入待播清單",
+	"toast.removedFromQueue": "已從待播清單移除",
+	"toast.undo": "復原",
 	"toast.preparingDownload": "正在準備下載…",
 	"toast.noAudio": "沒有可用的音訊",
 	"toast.skipped": "無法播放 · {title} — 已略過",

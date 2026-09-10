@@ -275,6 +275,8 @@ const hi: Dict = {
 	"timer.cancel": "टाइमर रद्द करें",
 	"toast.playingNext": "अगला खेल रहा हूँ",
 	"toast.addedToQueue": "कतार में जोड़ा गया",
+	"toast.removedFromQueue": "कतार से हटाया गया",
+	"toast.undo": "पूर्ववत करें",
 	"toast.preparingDownload": "डाउनलोड की तैयारी की जा रही है...",
 	"toast.noAudio": "कोई ऑडियो उपलब्ध नहीं है",
 	"toast.skipped": "नहीं चला सके · {title} — छोड़ा गया",
