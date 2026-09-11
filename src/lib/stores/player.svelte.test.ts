@@ -638,6 +638,95 @@ describe('album-scoped attached cover — every track, every advance (quick-2609
 	});
 });
 
+// quick-260910-qjv: a Related-row TAP used to run play({ fresh: true }) — the fresh branch weaves
+// history, re-anchors upNextAnchorUid, clears removedUids and regenerates the tail, i.e. it threw
+// the user's Up Next away. The component now composes two EXISTING store methods instead:
+// playNext(track) (the swipe-left affordance on this very list) + play(track, { fresh: false })
+// (the path next()/auto-advance use). These tests pin the store-side invariants that composition
+// relies on: queue order, anchor, context, no regenerate, de-dupe, and the cold-start guard.
+describe('Related tap — playNext + non-fresh play preserves Up Next (quick-260910-qjv)', () => {
+	const q1 = () => mk('kuwo', 'Q1', 'Coldplay', 'Yellow');
+	const q2 = () => mk('kuwo', 'Q2', 'Coldplay', 'Trouble');
+	const q3 = () => mk('kuwo', 'Q3', 'Coldplay', 'Spies');
+	const q4 = () => mk('kuwo', 'Q4', 'Coldplay', 'Shiver');
+	const rel = () => mk('kuwo', 'R9', 'Oasis', 'Wonderwall');
+	const uids = (ts: Track[]) => ts.map((t) => t.uid);
+
+	// Same restore idiom as the piz suite: these need the REAL play(), because the fresh-vs-non-fresh
+	// branch under test lives inside it.
+	beforeEach(() => {
+		(player.play as unknown as { mockRestore(): void }).mockRestore?.();
+		mockEnsure.mockReset().mockImplementation(async (t: Track) => t);
+		mockSimilar.mockReset().mockResolvedValue([]);
+		mockPicks.mockReset().mockResolvedValue([]);
+		player.current = null;
+		player.queue = [];
+		player.attach(makeFakeAudio() as unknown as HTMLAudioElement);
+	});
+
+	/** Queue of four with q2 playing, anchored one row ABOVE current (a played row still in view). */
+	async function startQueue() {
+		const tracks = [q1(), q2(), q3(), q4()];
+		player.setQueue(tracks, 'search');
+		await player.play(tracks[1]); // non-fresh — nothing regenerates
+		await flush();
+		player.upNextAnchorUid = tracks[0].uid;
+		player.queueContext = 'search';
+		mockSimilar.mockClear();
+		return tracks;
+	}
+
+	it('a NEW track lands right after current and every other row survives in order', async () => {
+		const [t1, t2, t3, t4] = await startQueue();
+		const R = rel();
+
+		player.playNext(R);
+		await player.play(R, { fresh: false });
+		await flush();
+
+		expect(uids(player.queue)).toEqual([t1.uid, t2.uid, R.uid, t3.uid, t4.uid]);
+		expect(player.current?.uid).toBe(R.uid);
+		expect(player.upNextAnchorUid).toBe(t1.uid); // NOT re-anchored to the tapped song
+		expect(player.queueContext).toBe('search');
+		expect(mockSimilar).not.toHaveBeenCalled(); // no regenerate — the tail is untouched
+	});
+
+	it('an ALREADY-QUEUED track moves to right-after-current, never duplicated', async () => {
+		const [t1, t2, t3, t4] = await startQueue();
+
+		player.playNext(t4);
+		await player.play(t4, { fresh: false });
+		await flush();
+
+		expect(uids(player.queue)).toEqual([t1.uid, t2.uid, t4.uid, t3.uid]);
+		expect(uids(player.queue).filter((u) => u === t4.uid)).toHaveLength(1);
+		expect(player.current?.uid).toBe(t4.uid);
+		expect(player.upNextAnchorUid).toBe(t1.uid);
+	});
+
+	it('cold start: playNext plays it itself — the guard stops a SECOND play()', async () => {
+		player.current = null;
+		player.queue = [];
+		const R = rel();
+		const spy = vi.spyOn(player, 'play').mockImplementation(async (t: Track) => {
+			player.current = t;
+			player.loading = false;
+		});
+
+		// The exact three statements of NowPlaying's relatedTapPlay.
+		if (player.current?.uid !== R.uid) {
+			player.playNext(R); // no current → playNext calls play() itself, synchronously
+			if (player.current?.uid !== R.uid) void player.play(R, { fresh: false });
+		}
+		await flush();
+
+		expect(player.current?.uid).toBe(R.uid);
+		expect(uids(player.queue)).toEqual([R.uid]);
+		expect(spy).toHaveBeenCalledTimes(1); // exactly once — no double start
+		spy.mockRestore();
+	});
+});
+
 describe('player.playStub — optimistic resolve-on-tap (FIX-A)', () => {
 	it('locks the tapped stub into pendingTrack + loading SYNCHRONOUSLY, before resolve', () => {
 		const d = deferred<Track | null>();

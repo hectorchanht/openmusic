@@ -709,6 +709,28 @@
 		hapticTick();
 	}
 
+	// quick-260910-qjv: a Related TAP is "queue at the top and play", not "nuke my queue". It used
+	// to be play({ fresh: true }) — the fresh branch weaves history, re-anchors upNextAnchorUid to
+	// the tapped song, clears removedUids and REGENERATES the tail, so every row the user had lined
+	// up vanished. Composed from two existing store methods instead, zero store diff:
+	//   playNext  — the exact surgery swipe-left above already performs (de-dupe by uid, splice
+	//               after current, pin in manualUids, persist), and
+	//   play(…, { fresh: false }) — the path next()/prev()/auto-advance take: it never weaves
+	//               history, never re-anchors, never clears removedUids and never regenerates.
+	// So upNextList (the anchored queue.slice) keeps every row; only the .playing highlight moves.
+	function relatedTapPlay(track: Track) {
+		// Tapping the now-playing song is a NO-OP, not a restart: the related list excludes current
+		// and reloads on a current change, so this only covers the async reload window. It also
+		// keeps playNext from mis-splicing — playNext filters the uid out FIRST, then looks for
+		// current, which would be gone, landing the track at index 0.
+		if (player.current?.uid === track.uid) return;
+		player.playNext(track);
+		// Cold start: with no current, playNext plays the track itself (setting current
+		// synchronously), so this guard is what prevents a double play().
+		// No toast/haptic — the row becoming the playing track IS the feedback.
+		if (player.current?.uid !== track.uid) void player.play(track, { fresh: false });
+	}
+
 	// quick-260910-nx6: the same split-by-direction swipe on the UP-NEXT list, replacing the
 	// always-visible per-row Layers button (right = open the version picker) and the old
 	// swipe-to-remove action (left = remove). swipeAction is a PURE DOM gesture — the host fires haptics on commit
@@ -1621,7 +1643,7 @@
 							<li class="swipe-wrap related-swipe">
 								<span class="reveal reveal-queue" aria-hidden="true"><ListEnd size={20} /></span>
 								<span class="reveal reveal-next" aria-hidden="true"><ListStart size={20} /></span>
-								<button class="row rel-row" use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openMenu(track); }} onclick={() => player.play(track, { fresh: true })} use:swipeAction={{ onSwipeRight: () => relatedSwipeQueue(track), onSwipeLeft: () => relatedSwipeNext(track) }}><span class="r-meta"><span class="r-title">{names.dnTitle(track.title)}</span><span class="r-artist">{names.dnArtist(track.artist)}</span></span><RowBadges uid={track.uid} /></button>
+								<button class="row rel-row" use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openMenu(track); }} onclick={() => relatedTapPlay(track)} use:swipeAction={{ onSwipeRight: () => relatedSwipeQueue(track), onSwipeLeft: () => relatedSwipeNext(track) }}><span class="r-meta"><span class="r-title">{names.dnTitle(track.title)}</span><span class="r-artist">{names.dnArtist(track.artist)}</span></span><RowBadges uid={track.uid} /></button>
 							</li>
 						{/each}
 					</ul>
