@@ -8,6 +8,9 @@
 	import { scoreMatch } from '$lib/services/score-match';
 	import { computeSetContext } from '$lib/services/score-context';
 	import { lazyCover } from '$lib/actions/lazyCover';
+	// quick-260910-qwt: the shared row cover read (resolved → track.cover → the shared cache).
+	import { pickRowCover } from '$lib/services/row-cover';
+	import { readCoverByUidOrName } from '$lib/stores/cover-version.svelte';
 	import { enrichArtist } from '$lib/services/lastfm';
 	import { deezerArtistCover, deezerSearchTopN, type DeezerHit } from '$lib/services/deezer';
 	import {
@@ -84,6 +87,12 @@
 	// with a SOLID https URL (Plan 02 isSolidCover gate) when a row scrolls into view and its
 	// cover is empty/broken; reassigning the object triggers a reactive repaint of that row's
 	// .art background-image. The resolve helper never refetches (cache-first + in-flight dedupe).
+	//
+	// quick-260910-qwt: this map is still rung 1, but it is no longer the row's ONLY source — the row
+	// now paints through the shared `pickRowCover` read (resolved → t.cover → the shared reactive
+	// cover cache). So a cover resolved on ANY other surface (home, library, Up Next, Related, the
+	// now-playing track) paints here on FIRST render with no intersection and no network, and repaints
+	// live via coverVersion(). A reactive READ, not a fetch: no new request path is added.
 	let resolvedCovers = $state<Record<string, string>>({});
 	let loading = $state(false);
 	let searched = $state(false);
@@ -740,6 +749,9 @@
 	{/if}
 	<ul class="list">
 		{#each results as t (t.uid)}
+			<!-- quick-260910-qwt: the shared three-rung row cover read. It must sit directly under the
+			     {#each} — Svelte only allows {@const} as an immediate block child. -->
+			{@const art = pickRowCover(resolvedCovers[t.uid], t.cover, readCoverByUidOrName(t.uid, t.artist, t.title))}
 			<li class="row-line">
 				<!-- VERSIONS-01: version-picker trigger. A SIBLING tap target (its own ≥44px hit area,
 				     mirroring CompactRow's .opt layout) placed BEFORE the play/grip control, so it never
@@ -775,7 +787,7 @@
 						<span
 							class="art"
 							use:lazyCover={{ track: t, onResolved: (uid, url) => { resolvedCovers = { ...resolvedCovers, [uid]: url }; } }}
-							style:background-image={(resolvedCovers[t.uid] ?? t.cover) ? `url(${resolvedCovers[t.uid] ?? t.cover})` : fallbackCover(t)}
+							style:background-image={art ? `url(${art})` : fallbackCover(t)}
 						></span>
 						<span class="meta">
 							<span class="r-title">{names.dnTitle(t.title)}</span>

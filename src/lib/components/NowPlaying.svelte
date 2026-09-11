@@ -611,17 +611,29 @@
 	// capped pool from ONE site, aborted on re-run, behind the apiFetch governor. The
 	// no-`use:lazyCover`-on-Up-Next rule still holds — do not re-introduce it.
 	//
+	// quick-260910-qwt: the RELATED tab reuses this SAME single pool — the tab now selects the row
+	// list (`queue` → upNextList, `related` → related, `lyrics` → nothing), everything else about the
+	// effect is unchanged. Cost: `related` is at most 20 rows and `upNextCoverNeeds` skips every row
+	// already carrying an https source cover (most CN search hits carry an inline pic), so a Related
+	// fill is ≤20 tier-1 /api/deezer/search, typically far fewer, ≤6 in flight, ~0 on re-open
+	// (skip-cached + the 5-min miss memo). Switching tab aborts the other pool, so still at most ONE
+	// live fill. This is emphatically NOT a per-row `use:lazyCover` on Related — T-26-10-01 holds.
+	//
 	// SELF-INVALIDATION GUARD (cf. restore-effect-self-invalidation-loop): this effect NEVER reads
 	// `coverVersion()` — `upNextCoverNeeds` is cache-free, and the `readCoverByUidOrName` read lives
 	// in the template, not here — and `backfillCovers` is called under `untrack`. So `onResolved →
 	// bumpCoverVersion` repaints the tiles but cannot re-trigger the effect that started the fill.
+	// `related` is reassigned ONLY by its own fetch effect (once per track change), so adding it as a
+	// dependency cannot loop either.
 	//
 	// PIZ GUARD (quick-260910-piz): `upNextCoverNeeds` skips any row with an https `track.cover`, so
 	// an album-installed queue is never even submitted; `backfillCovers` writes the NAME cache layer
 	// only and never touches `track.cover` / `attachedCover`.
 	$effect(() => {
-		if (sheetState === 'closed' || tab !== 'queue') return;
-		const needs = upNextCoverNeeds(upNextList);
+		if (sheetState === 'closed') return;
+		const rows = tab === 'queue' ? upNextList : tab === 'related' ? related : null;
+		if (!rows) return;
+		const needs = upNextCoverNeeds(rows);
 		if (!needs.length) return;
 		const ac = new AbortController();
 		untrack(() => {
@@ -1643,13 +1655,20 @@
 				{#if related.length}
 					<ul class="list">
 						{#each related as track (track.uid)}
+							<!-- quick-260910-qwt: Related rows had NO art at all. This is the same shared
+							     three-rung read the Up-Next tile uses (resolved → track.cover → shared cache) —
+							     a reactive READ, never a fetch. NO `use:lazyCover` on these rows: per-row chains
+							     here were the observed /api/deezer/search flood (T-26-10-01) and that rule still
+							     holds. The coverless rows are filled by the ONE capped, tab-gated backfillCovers
+							     effect above. Must sit directly under the {#each} ({@const} is block-child only). -->
+							{@const rArt = pickRowCover(resolvedCovers[track.uid], track.cover, readCoverByUidOrName(track.uid, track.artist, track.title))}
 							<!-- quick-260625-pzs-02: reveal layers sit BEHIND the row; the row translateX
 							     (use:swipeAction) slides to expose them. Right-drag → queue, left-drag → play
 							     next. aria-hidden (the same actions stay reachable via the long-press menu). -->
 							<li class="swipe-wrap related-swipe">
 								<span class="reveal reveal-queue" aria-hidden="true"><ListEnd size={20} /></span>
 								<span class="reveal reveal-next" aria-hidden="true"><ListStart size={20} /></span>
-								<button class="row rel-row" use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openMenu(track); }} onclick={() => relatedTapPlay(track)} use:swipeAction={{ onSwipeRight: () => relatedSwipeQueue(track), onSwipeLeft: () => relatedSwipeNext(track) }}><span class="r-meta"><span class="r-title">{names.dnTitle(track.title)}</span><span class="r-artist">{names.dnArtist(track.artist)}</span></span><RowBadges uid={track.uid} /></button>
+								<button class="row rel-row" use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openMenu(track); }} onclick={() => relatedTapPlay(track)} use:swipeAction={{ onSwipeRight: () => relatedSwipeQueue(track), onSwipeLeft: () => relatedSwipeNext(track) }}><span class="q-art" style:background-image={rArt ? `url(${rArt})` : fallbackCover(track)}></span><span class="r-meta"><span class="r-title">{names.dnTitle(track.title)}</span><span class="r-artist">{names.dnArtist(track.artist)}</span></span><RowBadges uid={track.uid} /></button>
 							</li>
 						{/each}
 					</ul>
@@ -1945,6 +1964,9 @@
 	/* quick-260723: Related list rows go row-direction so RowBadges sit at the trailing edge; the
 	   text stacks inside .r-meta. The shared `.row` (column) + its skeleton variant stay untouched. */
 	.row.rel-row { flex-direction: row; align-items: center; gap: 8px; }
+	/* quick-260910-qwt: Related reuses the 36px .q-art tile — the row already has gap: 8px, so drop
+	   the tile's own right margin instead of adding a second art rule. */
+	.rel-row .q-art { margin-right: 0; }
 	.rel-row .r-meta { display: flex; flex-direction: column; min-width: 0; flex: 1; }
 	/* quick-260615-i9u (Feature A): a probe-confirmed-dead Up-Next row, dimmed + leading ✗. Tapping
 	   it retries that exact track. Reuses existing design tokens (no new hardcoded colors). */

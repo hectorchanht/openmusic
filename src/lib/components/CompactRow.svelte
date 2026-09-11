@@ -17,6 +17,9 @@
 	import { longpress } from '$lib/actions/longpress';
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { lazyCover } from '$lib/actions/lazyCover';
+	// quick-260910-qwt: the shared row cover read (resolved → cover → the shared cache).
+	import { pickRowCover } from '$lib/services/row-cover';
+	import { readCoverByUidOrName } from '$lib/stores/cover-version.svelte';
 	import { marquee } from '$lib/actions/marquee';
 	import { player } from '$lib/stores/player.svelte';
 	import RowBadges from '$lib/components/RowBadges.svelte';
@@ -60,8 +63,22 @@
 	}: Props = $props();
 
 	// Locally-resolved cover (track variant, via use:lazyCover). Falls back to the passed `cover`.
+	//
+	// quick-260910-qwt: the read is now the shared three-rung `pickRowCover` — resolvedCover (rung 1,
+	// this row's own lazyCover result, kept FIRST so a D-15 repaired URL still beats a broken seed) →
+	// the host-provided `cover` (rung 2) → the shared reactive cover cache (rung 3), so a cover
+	// resolved on ANY other surface paints here on first render and repaints live via coverVersion().
+	// Rung 3 needs an identity: a DISCOVERY STUB (`track == null`, e.g. a quick-picks tile the host
+	// backfills itself) has none, so it keeps exactly the old host-provided `cover` behaviour.
+	// A reactive READ, not a fetch — use:lazyCover below is unchanged.
 	let resolvedCover = $state<string | null>(null);
-	const effectiveCover = $derived(resolvedCover ?? cover);
+	const effectiveCover = $derived(
+		pickRowCover(
+			resolvedCover ?? undefined,
+			cover,
+			track ? readCoverByUidOrName(track.uid, track.artist, track.title) : null
+		)
+	);
 
 	// WR-01 defense-in-depth: if this instance is ever reused for a DIFFERENT item (identity
 	// change = new seed), drop the previous item's resolved art so it can't paint over the new

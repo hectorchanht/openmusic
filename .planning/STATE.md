@@ -49,7 +49,7 @@ Full observed evidence: `.planning/phases/30-carrier-free-share-links-type-artis
 ### Prior phase (Phase 27 — YouTube Music Source, v1.4) — COMPLETE + E2E-VERIFIED
 
 Phase 27 complete (27-01..04). E2E-verified against LIVE YouTube via the dev-server routes: /api/ytmusic/search 200 (rows+videoId), /api/ytmusic/lyrics 200 (1513c + attribution), /api/ytmusic/stream 206 audio/mp4 + Range (playback) and 200 full-file (download). pnpm check clean, 1320 tests green. E2E caught + fixed a prod-breaking bug (quick-270715 / commit 29c1c7d): stream route exported non-HTTP-verb functions, illegal in SvelteKit +server.ts → 500; helpers moved to $lib/proxy/ytmusic.ts.
-Last activity: 2026-09-11 - Completed quick task 260910-qjv: Related tap preserves Up Next; artist tap-bounce
+Last activity: 2026-09-11 - Completed quick task 260910-qwt: unified cover reads across every surface + Related list art
 Remaining human UAT: real-device <audio> playback+seek + download-to-disk; deployed-Worker player+googlevideo same-IP egress + bot-challenge under load (T-27-03-OP). Account/library sync = separate legal-gated milestone (spike 008).
 
 ## Performance Metrics
@@ -403,6 +403,7 @@ Recent decisions affecting current work:
 | 260910-piz | Album cover attachment scoped to the whole installed list — Up Next tiles paint album art and the hero keeps it across track advance (was: single-song attachedCover, source thumbnail clobbered track 2+) | 2026-09-11 | 2c13d14 | [260910-piz-seed-the-album-cover-onto-every-resolved](./quick/260910-piz-seed-the-album-cover-onto-every-resolved/) |
 | 260910-q5a | Covers for similarity-generated Up Next rows — tile reads the shared reactive cache, bounded backfillCovers (max 20, cap 6) gated on the Up Next tab | 2026-09-11 | cc2584f | [260910-q5a-covers-for-similarity-generated-up-next-](./quick/260910-q5a-covers-for-similarity-generated-up-next-/) |
 | 260910-qjv | Related tap queues-and-plays (playNext + fresh:false) so Up Next survives; shrink-on-tap for all 6 artist tap targets | 2026-09-11 | 33a7189 | [260910-qjv-related-tap-queues-and-plays-preserving-](./quick/260910-qjv-related-tap-queues-and-plays-preserving-/) |
+| 260910-qwt | Unified cover reads — shared pickRowCover read order on every row surface, the missing lazyCover bump, empty-uid read guard, Related list art | 2026-09-11 | f00bab4 | [260910-qwt-unify-cover-resolution-app-wide-via-the-](./quick/260910-qwt-unify-cover-resolution-app-wide-via-the-/) |
 
 > Note: off planned phase order (Phase-4-shaped UI pulled forward as a demo). Basic playback only; full audio engine = Phase 6, formal Mobile UI Shell = Phase 4. NOTE (2026-06-10): many of the quick-tasks above already exercise the v1.2 surfaces (failover/prefetch in gte/t5r/hvu, offline blob in kyf, Deezer enrichment plumbing in jau/jip, cover backfill in rvy/0bb/wv8, gesture machines in ggj/h4s/nqf) — v1.2 phases formalize, harden, and complete these rather than build from scratch.
 

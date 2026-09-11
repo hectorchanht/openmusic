@@ -19,6 +19,9 @@
 	import { t, type TranslationKey } from '$lib/i18n';
 	import { longpress } from '$lib/actions/longpress';
 	import { lazyCover } from '$lib/actions/lazyCover';
+	// quick-260910-qwt: the shared row cover read (resolved → track.cover → the shared cache).
+	import { pickRowCover } from '$lib/services/row-cover';
+	import { readCoverByUidOrName } from '$lib/stores/cover-version.svelte';
 	import { dragScroll } from '$lib/actions/dragScroll';
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { marquee } from '$lib/actions/marquee';
@@ -152,6 +155,11 @@
 	// COVER-02 D-14: hit-song rows resolve empty/broken covers lazily on scroll via use:lazyCover,
 	// repainting through this reactive uid→url map. SOLID https only (Plan 02 gate) — safe for the
 	// existing background-image render (T-0bb-01). The al-cover album/related rows are NOT touched.
+	//
+	// quick-260910-qwt: the map stays rung 1, but the hit-song row now paints through the shared
+	// `pickRowCover` read (resolved → track.cover → the shared reactive cover cache), so a cover
+	// resolved on ANY other surface paints here on FIRST render — no intersection, no network — and
+	// repaints live via coverVersion(). A reactive READ; no new request path. (al-cover still not touched.)
 	let resolvedCovers = $state<Record<string, string>>({});
 	function onCoverResolved(uid: string, url: string) {
 		resolvedCovers = { ...resolvedCovers, [uid]: url };
@@ -591,10 +599,13 @@
 		{#if songs.length}
 			<ul class="list">
 				{#each songs.slice(0, shown) as track, i (track.uid)}
+					<!-- quick-260910-qwt: the shared three-rung row cover read. Must sit directly under the
+					     {#each} — Svelte only allows {@const} as an immediate block child. -->
+					{@const art = pickRowCover(resolvedCovers[track.uid], track.cover, readCoverByUidOrName(track.uid, track.artist, track.title))}
 					<li>
 						<button class="row" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); menuTrack = track; menuOpen = true; }} use:swipeAction={{ onSwipeRight: () => queueTrack(track), onSwipeLeft: () => nextTrack(track) }} onclick={() => { player.setListQueue(songs, 'artist'); player.play(track, { fresh: true }); }}>
 							<span class="rank">{i + 1}</span>
-							<span class="art" use:lazyCover={{ track, onResolved: onCoverResolved }} style:background-image={(resolvedCovers[track.uid] ?? track.cover) ? `url(${resolvedCovers[track.uid] ?? track.cover})` : fallbackCover(track)}></span>
+							<span class="art" use:lazyCover={{ track, onResolved: onCoverResolved }} style:background-image={art ? `url(${art})` : fallbackCover(track)}></span>
 							<span class="meta">
 								<span class="r-title">{names.dnTitle(track.title)}</span>
 								<span class="r-sub">{names.dnArtist(track.album || track.artist)}</span>

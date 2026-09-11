@@ -16,6 +16,9 @@
 	import { swipeAction } from '$lib/actions/swipeAction';
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { lazyCover } from '$lib/actions/lazyCover';
+	// quick-260910-qwt: the shared row cover read (resolved → track.cover → the shared cache).
+	import { pickRowCover } from '$lib/services/row-cover';
+	import { readCoverByUidOrName } from '$lib/stores/cover-version.svelte';
 	import { toast } from '$lib/stores/toast.svelte';
 	import { tick as hapticTick } from '$lib/util/haptics';
 	import TrackMenu from '$lib/components/TrackMenu.svelte';
@@ -128,6 +131,11 @@
 	// repainting through this reactive uid→url map (mirrors the favCovers reactive-map idiom).
 	// Values are SOLID https URLs only (Plan 02 gate) — safe for the existing background-image
 	// render path, no widening of the injection surface (T-0bb-01).
+	//
+	// quick-260910-qwt: the map stays rung 1, but all four track lists now paint through the shared
+	// `pickRowCover` read (resolved → track.cover → the shared reactive cover cache). A song whose
+	// cover was resolved on ANY other surface paints here on FIRST render — no intersection, no
+	// network — and repaints live via coverVersion(). A reactive READ; no new request path.
 	let resolvedCovers = $state<Record<string, string>>({});
 	function onCoverResolved(uid: string, url: string) {
 		resolvedCovers = { ...resolvedCovers, [uid]: url };
@@ -216,12 +224,15 @@
 	{#if library.liked.length}
 		<ul class="list" class:editing={editMode}>
 			{#each library.liked as track (track.uid)}
+				<!-- quick-260910-qwt: the shared three-rung row cover read. Must sit directly under the
+				     {#each} — Svelte only allows {@const} as an immediate block child. -->
+				{@const art = pickRowCover(resolvedCovers[track.uid], track.cover, readCoverByUidOrName(track.uid, track.artist, track.title))}
 				<li class="row-line">
 					<div class="swipe-wrap">
 						<span class="reveal reveal-queue" aria-hidden="true"><ListEnd size={20} /></span>
 						<span class="reveal reveal-next" aria-hidden="true"><ListStart size={20} /></span>
 						<button class="row" class:is-active={player.current?.uid === track.uid} class:edit-row={editMode} use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openMenu(track); }} onclick={() => rowAction(track, library.liked)} use:swipeAction={{ onSwipeRight: () => swipeQueue(track), onSwipeLeft: () => swipeNext(track) }}>
-							<span class="art" use:lazyCover={{ track, onResolved: onCoverResolved }} style:background-image={(resolvedCovers[track.uid] ?? track.cover) ? `url(${resolvedCovers[track.uid] ?? track.cover})` : fallbackCover(track)}></span>
+							<span class="art" use:lazyCover={{ track, onResolved: onCoverResolved }} style:background-image={art ? `url(${art})` : fallbackCover(track)}></span>
 							<span class="meta"><span class="r-title">{names.dnTitle(track.title)}</span><span class="r-sub">{names.dnArtist(track.artist)}</span></span>
 							{#if editMode}<Trash2 size={16} />{:else}<Play size={16} />{/if}
 						</button>
@@ -250,12 +261,14 @@
 				{#if pl.tracks.length}
 					<ul class="list">
 						{#each pl.tracks as track (track.uid)}
+							<!-- quick-260910-qwt: shared three-rung row cover read (see the liked list above). -->
+							{@const art = pickRowCover(resolvedCovers[track.uid], track.cover, readCoverByUidOrName(track.uid, track.artist, track.title))}
 							<li class="row-line">
 								<div class="swipe-wrap">
 									<span class="reveal reveal-queue" aria-hidden="true"><ListEnd size={20} /></span>
 									<span class="reveal reveal-next" aria-hidden="true"><ListStart size={20} /></span>
 									<button class="row" class:is-active={player.current?.uid === track.uid} class:edit-row={editMode} use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openMenu(track); }} onclick={() => rowAction(track, pl.tracks, pl.id)} use:swipeAction={{ onSwipeRight: () => swipeQueue(track), onSwipeLeft: () => swipeNext(track) }}>
-										<span class="art" use:lazyCover={{ track, onResolved: onCoverResolved }} style:background-image={(resolvedCovers[track.uid] ?? track.cover) ? `url(${resolvedCovers[track.uid] ?? track.cover})` : fallbackCover(track)}></span>
+										<span class="art" use:lazyCover={{ track, onResolved: onCoverResolved }} style:background-image={art ? `url(${art})` : fallbackCover(track)}></span>
 										<span class="meta"><span class="r-title">{names.dnTitle(track.title)}</span><span class="r-sub">{names.dnArtist(track.artist)}</span></span>
 										{#if editMode}<Trash2 size={16} />{:else}<Play size={16} />{/if}
 									</button>
@@ -273,12 +286,14 @@
 	{#if library.downloads.length}
 		<ul class="list">
 			{#each library.downloads as track (track.uid)}
+				<!-- quick-260910-qwt: shared three-rung row cover read (see the liked list above). -->
+				{@const art = pickRowCover(resolvedCovers[track.uid], track.cover, readCoverByUidOrName(track.uid, track.artist, track.title))}
 				<li class="row-line">
 					<div class="swipe-wrap">
 						<span class="reveal reveal-queue" aria-hidden="true"><ListEnd size={20} /></span>
 						<span class="reveal reveal-next" aria-hidden="true"><ListStart size={20} /></span>
 						<button class="row" class:is-active={player.current?.uid === track.uid} class:edit-row={editMode} use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openMenu(track); }} onclick={() => rowAction(track, library.downloads)} use:swipeAction={{ onSwipeRight: () => swipeQueue(track), onSwipeLeft: () => swipeNext(track) }}>
-							<span class="art" use:lazyCover={{ track, onResolved: onCoverResolved }} style:background-image={(resolvedCovers[track.uid] ?? track.cover) ? `url(${resolvedCovers[track.uid] ?? track.cover})` : fallbackCover(track)}></span>
+							<span class="art" use:lazyCover={{ track, onResolved: onCoverResolved }} style:background-image={art ? `url(${art})` : fallbackCover(track)}></span>
 							<span class="meta"><span class="r-title">{names.dnTitle(track.title)}</span><span class="r-sub">{names.dnArtist(track.artist)}</span></span>
 							{#if editMode}<Trash2 size={16} />{:else}<Play size={16} />{/if}
 						</button>
@@ -310,12 +325,14 @@
 		<ul class="list">
 			{#each history.entries as entry (entry.uid)}
 				{@const track = entry as Track}
+				<!-- quick-260910-qwt: shared three-rung row cover read (see the liked list above). -->
+				{@const art = pickRowCover(resolvedCovers[track.uid], track.cover, readCoverByUidOrName(track.uid, track.artist, track.title))}
 				<li class="row-line">
 					<div class="swipe-wrap">
 						<span class="reveal reveal-queue" aria-hidden="true"><ListEnd size={20} /></span>
 						<span class="reveal reveal-next" aria-hidden="true"><ListStart size={20} /></span>
 						<button class="row" class:is-active={player.current?.uid === track.uid} use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openMenu(track); }} onclick={() => playEntry(track)} use:swipeAction={{ onSwipeRight: () => swipeQueue(track), onSwipeLeft: () => swipeNext(track) }}>
-							<span class="art" use:lazyCover={{ track, onResolved: onCoverResolved }} style:background-image={(resolvedCovers[track.uid] ?? track.cover) ? `url(${resolvedCovers[track.uid] ?? track.cover})` : fallbackCover(track)}></span>
+							<span class="art" use:lazyCover={{ track, onResolved: onCoverResolved }} style:background-image={art ? `url(${art})` : fallbackCover(track)}></span>
 							<span class="meta"><span class="r-title">{names.dnTitle(track.title)}</span><span class="r-sub">{names.dnArtist(track.artist)}</span></span>
 							<Play size={16} />
 						</button>
