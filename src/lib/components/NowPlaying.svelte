@@ -1134,7 +1134,6 @@
 			sheetState = target;
 			sheetDragging = false;
 			sheetDragY = 0;
-			if (target === 'half') applyHalfInset();
 		}, 290);
 	}
 
@@ -1176,9 +1175,6 @@
 		tab = next;
 		if (sheetState === 'closed') {
 			sheetState = 'half';
-			// small delay so layout is ready before we measure inset
-			// (2 frames + short timeout is safer than immediate)
-			setTimeout(() => applyHalfInset(), 30);
 		}
 	}
 
@@ -1305,17 +1301,6 @@
 			container.scrollTo({ top: offsetWithin, behavior: 'smooth' });
 		});
 	});
-
-	function applyHalfInset() {
-		return;
-		// if (!sheetEl || !transportEl) return;
-		// const np = sheetEl.closest('.np') as HTMLElement | null;
-		// if (!np) return;
-		// const npRect = np.getBoundingClientRect();
-		// const tRect = transportEl.getBoundingClientRect();
-		// const top = Math.round(tRect.bottom - npRect.top);
-		// sheetEl.style.setProperty('--sheet-half-top', top + 'px');
-	}
 </script>
 
 <section
@@ -1539,13 +1524,7 @@
 				? 'none'
 				: 'transform 0.28s cubic-bezier(.22,1,.36,1), inset 0.28s cubic-bezier(.22,1,.36,1)'
 		}
-		style:inset={
-			sheetState === 'half'
-				? `var(--sheet-half-top, 260px) 0 0 0`
-				: sheetState !== 'closed'
-					? '0'
-					: undefined
-		}
+		style:inset={sheetState === 'full' ? '0' : undefined}
 	>
 		<div class="grip" role="button" tabindex="0" aria-label={sheetState === 'closed' ? t('nowplaying.expandPanel') : t('nowplaying.collapsePanel')}
 			onpointerdown={gripDown} onpointermove={gripMove} onpointerup={gripUp} onpointercancel={gripUp}
@@ -1808,6 +1787,19 @@
 	.np.reflow .cover::before { content: ''; position: absolute; inset: 0; border-radius: inherit; background: linear-gradient(180deg, rgba(0,0,0,0.45) 0%, rgba(0,0,0,0) 28%, rgba(0,0,0,0) 60%, rgba(0,0,0,0.35) 100%); }
 	.np.reflow .bar { position: absolute; top: 0; left: 18px; right: 18px; z-index: 2; }
 	.np.reflow .meta { position: relative; z-index: 2; margin-top: -42px; padding: 0 2px; }
+	/* quick-260910-tqw FLUSH HALF REST: in half the sheet is a STATIC flex item that simply
+	   follows .np-top in normal flow — `position: absolute` was removed in f251ed0 ("way better
+	   dragging ux") — so the ONLY thing between transport.bottom and sheet.top is .transport's
+	   margin-bottom. 76ade46 ("remove grip padding") moved the grip's 16px padding-top into that
+	   margin (10px -> 22px) so the CLOSED peek kept its spacing; that also pushed the half-open
+	   sheet 22px below the transport. Collapsing the margin here in .reflow makes half rest flush,
+	   leaves CLOSED at its 22px peek, and is moot in full (.np.fullshrink hides .transport).
+	   Inset-based designs — the inline style:inset, a CSS-var sheet top, a halfOffset-driven inset —
+	   are NO-OPS on a static element: that is why df3221d's inset-writing stub never changed
+	   anything, and why that whole path is deleted now. halfOffset / measureOffsets / the half-rest
+	   effect are untouched — they feed the grip snap-decision geometry (offsetFor -> sheetDragY),
+	   never the resting position; with the margin gone halfOffset now equals the real half top. */
+	.np.reflow .transport { margin-bottom: 0; }
 	/* lw9-followup: .title is now a solid theme-coloured pill, no need for the legibility
 	   text-shadow anymore. */
 
@@ -1853,7 +1845,9 @@
 	   use:scrub — the old local `.track`/`.fill`/`.knob` rules were removed. */
 	/* plan 006: tabular-nums so the ticking current-time readout never jitters horizontally. */
 	.times { display: flex; justify-content: space-between; font-size: 11px; color: var(--color-text-muted); margin-top: 4px; font-variant-numeric: tabular-nums; }
-	.transport { display: flex; align-items: center; justify-content: space-between; margin: 10px 4px 22px; }
+	/* quick-260910-tqw: the bottom margin glides with the .cover/.meta reflow (byte-identical
+	   0.32s curve) instead of hitching at t=0; see .np.reflow .transport above. */
+	.transport { display: flex; align-items: center; justify-content: space-between; margin: 10px 4px 22px; transition: margin 0.32s cubic-bezier(.22,1,.36,1); }
 	.t { background: none; border: none; color: var(--color-text); cursor: pointer; opacity: 0.85; display: grid; place-items: center; }
 	.t.on { color: var(--color-primary); opacity: 1; }
 	.st-row { display: flex; justify-content: center; margin: 2px 4px 0; }
@@ -1869,11 +1863,13 @@
 		/* margin-top: 68px; */
 	}
 
-	/* Half-open: sheet occupies the real area below the transport row, no transform hack. */
+	/* Half-open: sheet occupies the real area below the transport row, no transform hack.
+	   quick-260910-tqw: static since f251ed0 (the commented-out `position: absolute` below is that
+	   decision's record, kept on purpose), so `inset` cannot move this element — the CSS-var sheet-top
+	   fallback and the JS that wrote it were inert and are gone. The flush rest now comes from
+	   `.np.reflow .transport { margin-bottom: 0 }`. */
 	.sheet.half {
 		/* position: absolute; */
-		/* inset-top will be set via inline style using halfSheetTop() */
-		inset: var(--sheet-half-top, 260px) 0 0 0;
 		z-index: 5;
 		background: var(--color-bg);
 		padding: 0px 0px env(safe-area-inset-bottom);
