@@ -50,6 +50,9 @@ import {
 // quick-260704-3ov: the pure serialize/parse codec was extracted out of this god-object into
 // a colocated, node-tested module (the "runes store thinly wraps a pure helper" precedent).
 import { STATE_KEY, serializePlayerState, parsePlayerState } from '$lib/stores/player-persist';
+// quick-260910-piz: the same "runes store thinly wraps a pure helper" precedent — the album-scoped
+// cover seeding + attachment build live in a pure, node-tested sibling module.
+import { seedCover, buildAttachment, type AttachedCover } from '$lib/stores/attached-cover';
 
 /** SOLID = a non-empty https URL (the only thing safe to cache/render; mirrors cover-backfill isSolidCover, T-0bb-01). */
 const httpsOnly = (u?: string | null): u is string => typeof u === 'string' && u.startsWith('https:');
@@ -346,8 +349,28 @@ class Player {
 	 *
 	 *  Such a cover is authoritative — the caller knows the right art — so the post-paint Deezer HQ
 	 *  upgrade is skipped for it. Without that, every album track would still spend one Deezer call
-	 *  AND could upgrade to a different image than its siblings. */
-	private attachedCover: { key: string; url: string } | null = null;
+	 *  AND could upgrade to a different image than its siblings.
+	 *
+	 *  quick-260910-piz — LIST-SCOPED. This was a single `{ key, url }`, written only by playStub for
+	 *  the ONE tapped song, so the very next advance had no match: `attachedCoverFor` returned null,
+	 *  `this.current = resolved` committed the SOURCE's own thumbnail and the hero FLIPPED off the
+	 *  album art on track 2+. Meanwhile nothing seeded `track.cover`, so the Up Next tiles (Gap 3 /
+	 *  26-10: `resolvedCovers[uid] ?? track.cover`, no per-tile resolve) stayed on the gradient. It is
+	 *  now `{ url, keys }` — one url for every song of the INSTALLED LIST.
+	 *
+	 *  LIFECYCLE:
+	 *   - INSTALLED by setQueue/setListQueue when the caller passes an https `cover` (the album page
+	 *     passes `heroImg`; playStub passes its own `cover` for the optimistic one-track queue).
+	 *   - CLEARED by (a) any setQueue/setListQueue WITHOUT a cover — every other surface (search /
+	 *     artist / library / home-discovery / remix) installs a list, so starting anything else drops
+	 *     it for free; (b) clearQueue(); (c) a FRESH play() of a track whose song key is not in the
+	 *     set — the home shelves call play({fresh}) with no queue install (quick-260831-sp9), so that
+	 *     seam is needed too.
+	 *   - NOT persisted (same as t2g). After a reload the seeded `track.cover` still paints the tiles,
+	 *     but the hero re-apply is gone until the next install — accepted residual; upgrade path is
+	 *     one `attachedCover` envelope field in player-persist.ts.
+	 */
+	private attachedCover: AttachedCover | null = null;
 
 	/** Full-screen now-playing overlay open? */
 	expanded = $state(false);
@@ -2169,8 +2192,9 @@ class Player {
 
 	/** Set the active list (home grid / search results) as the Up-Next source. The optional
 	 *  `context` records which surface started the queue (Phase 17, QUEUE-03) so the fresh-play
-	 *  path can resolve the effective sourcing mode. Defaults to null (unknown → global default). */
-	setQueue(tracks: Track[], context: QueueContext = null) {
+	 *  path can resolve the effective sourcing mode. Defaults to null (unknown → global default).
+	 *  The optional `cover` is the LIST's own art (an album's hero image) — quick-260910-piz. */
+	setQueue(tracks: Track[], context: QueueContext = null, cover: string | null = null) {
 		// quick-260615-i9u (Feature B): capture the pre-wipe history prefix so the next fresh play()
 		// can re-weave it in front of the seed. `??=` so a setListQueue→setQueue delegate doesn't
 		// clobber a capture already taken this tick (whichever runs first wins).
@@ -2180,7 +2204,13 @@ class Player {
 		// pendingHistory — whichever of a setListQueue→setQueue delegate pair runs first wins.
 		this.pendingManual ??= this.captureManual();
 		this.queueGen++; // WR-06: an explicit queue supersedes any in-flight regenerate result
-		this.queue = dedupeBest(tracks, settings.preferredSource);
+		// quick-260910-piz: seed + attach HERE, not in the album page — this is the single chokepoint
+		// every list surface installs through, so the tiles (which read `track.cover`) and the hero
+		// (which reads the attachment) can never disagree. A missing/non-https cover means "this list
+		// has no album art": seedCover is a pass-through (never blanks an existing cover) and the
+		// attachment is cleared, which is exactly what every non-album surface wants.
+		this.queue = dedupeBest(seedCover(tracks, cover), settings.preferredSource);
+		this.attachedCover = buildAttachment(this.queue, cover);
 		this.queueContext = context;
 		// quick-260618-lsw (LSW-03): a brand-new list is a fresh start — re-anchor the Up-Next list to
 		// the new current (or null when cold) so old played songs do not bleed into the new Up-Next.
@@ -2218,7 +2248,7 @@ class Player {
 	 *
 	 * No-op delegate to setQueue() when there is no current track (nothing to anchor).
 	 */
-	setListQueue(tracks: Track[], context: QueueContext = null) {
+	setListQueue(tracks: Track[], context: QueueContext = null, cover: string | null = null) {
 		// quick-260615-i9u (Feature B): capture the pre-wipe history prefix BEFORE anything (incl. the
 		// no-current delegate to setQueue, which also captures with `??=`). `??=` so the delegate path
 		// doesn't double-capture/clobber — whichever runs first wins.
@@ -2227,11 +2257,16 @@ class Player {
 		this.pendingManual ??= this.captureManual();
 		const current = this.current;
 		if (!current) {
-			this.setQueue(tracks, context);
+			this.setQueue(tracks, context, cover);
 			return;
 		}
 		this.queueGen++; // WR-06: an explicit queue supersedes any in-flight regenerate result
-		this.queue = this.queueWithAnchor(tracks, current);
+		// quick-260910-piz: the keys come from the ANCHORED queue, so the current track (possibly a
+		// different-source variant) is a member by song key. The anchored `current` object itself is
+		// NOT re-covered here — it already carries playStub's attached cover and `resolvedCover` was
+		// set at play time; retro-patching the live hero is out of scope.
+		this.queue = this.queueWithAnchor(seedCover(tracks, cover), current);
+		this.attachedCover = buildAttachment(this.queue, cover);
 		this.queueContext = context;
 		// quick-260618-lsw (LSW-03): installing a new list re-anchors the Up-Next list to current.
 		this.upNextAnchorUid = current.uid;
@@ -2313,6 +2348,7 @@ class Player {
 		// quick-260618-lsw (LSW-03): the list collapses to [current], so the anchor follows the
 		// surviving current (or null when there is none).
 		this.upNextAnchorUid = this.current?.uid ?? null;
+		this.attachedCover = null; // quick-260910-piz: the list is gone, nothing left to scope the album art to
 		this.manualUids.clear();
 		this.pendingManual = null; // quick-260618-fiz (Fix 4): drop any uncommitted manual carry too
 		this.unplayableUids.clear(); // PLAY-RESILIENCE: a user queue reset clears the dead-track set too
@@ -2824,11 +2860,10 @@ class Player {
 			// attaching it here is what makes the resolution skip happen.
 			// It WINS over the source's own inline cover on purpose: the point is that all songs on
 			// an album show the album's art, not whatever thumbnail each source happens to return.
-			if (httpsOnly(cover)) {
-				tr = { ...tr, cover };
-				this.attachedCover = { key: matchKey(tr.artist, tr.title), url: cover };
-			}
-			this.setQueue([tr], context);
+			// quick-260910-piz: the attachment is installed by setQueue now (list-scoped) — the album
+			// page's follow-up setListQueue(all, 'album', heroImg) then widens it to the whole album.
+			if (httpsOnly(cover)) tr = { ...tr, cover };
+			this.setQueue([tr], context, cover);
 			void this.play(tr, { fresh: true });
 			return tr;
 		}
@@ -2898,6 +2933,12 @@ class Player {
 		this.hasPlayedSinceSrc = false;
 		this.currentTime = 0;
 		this.duration = 0;
+		// quick-260910-piz: a FRESH user play of a song OUTSIDE the attached list is a context switch,
+		// so the album art stops applying. Needed in addition to setQueue's clear because the home
+		// shelves call play({fresh}) directly with no queue install (quick-260831-sp9). A fresh play of
+		// a MEMBER (playStub → play, or tapping another album row) keeps it, and auto-advance / next() /
+		// fallback are non-fresh so they never clear.
+		if (opts?.fresh && !this.attachedCoverFor(track)) this.attachedCover = null;
 		// COVER-01 / D-09: set the ONE cover field SYNCHRONOUSLY from the best-known source so the
 		// nowbar/now-playing surfaces AND the first MediaMetadata write below paint real art with no
 		// flicker. Read order is uid-cache BEFORE name-cache (D-13 two-layer) and BEFORE null; a total
@@ -3080,6 +3121,9 @@ class Player {
 			// http y.gtimg.cn image for qq) instead of the album cover, and why siblings disagreed.
 			// resolvedCover survived (its adoption is `if (!this.resolvedCover)`-guarded), but
 			// `current.cover` is what the nowbar and persistence read, so it has to survive too.
+			// quick-260910-piz: attachedCoverFor now matches every song of the installed list, so this
+			// re-apply fires on every album ADVANCE — the fix for the hero flipping to the source
+			// thumbnail on track 2+.
 			const attached = this.attachedCoverFor(resolved);
 			if (attached && resolved.cover !== attached) resolved = { ...resolved, cover: attached };
 			this.current = resolved;
@@ -3332,11 +3376,12 @@ class Player {
 	 * a supersede leaves the inline cover standing (never a downgrade, never a broken image).
 	 */
 	/** The caller-attached cover for THIS song, or null. Song-keyed so it survives a cross-source
-	 *  fallback that replays the same song under a different uid (quick-260831-t2g). */
+	 *  fallback that replays the same song under a different uid (quick-260831-t2g).
+	 *  quick-260910-piz: set MEMBERSHIP, not a single key — every song of the installed list matches. */
 	private attachedCoverFor(track: Track): string | null {
 		const a = this.attachedCover;
 		if (!a) return null;
-		return matchKey(track.artist, track.title) === a.key ? a.url : null;
+		return a.keys.has(matchKey(track.artist, track.title)) ? a.url : null;
 	}
 
 	private async upgradeCoverAsync(resolved: Track, myGen: number) {

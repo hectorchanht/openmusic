@@ -263,7 +263,7 @@
 		// "same-list" sourcing setting). setListQueue keeps `tr` (already current) as the member, so
 		// playback is not interrupted. Guard a stale tap: only install while `tr` is still current.
 		const all = await resolveAllCached();
-		if (player.current?.uid === tr.uid && all.length) player.setListQueue(all, 'album');
+		if (player.current?.uid === tr.uid && all.length) player.setListQueue(all, 'album', heroImg);
 	}
 
 	// UX-04 / D-03/D-04: row swipe-actions. Album rows are {artist,title} STUBS, so — exactly like
@@ -392,8 +392,15 @@
 			// (resolveStub is non-deterministic + dedupeBest collapses variants). A plain setQueue(all)
 			// would leave indexOf(current) === -1 → next() dead. setListQueue re-anchors current into
 			// the album list (by uid, then by same-song key) so the whole album plays straight through.
-			if (all.length) player.setListQueue(all, 'album');
-			else player.setQueue([first], 'album');
+			// quick-260910-piz: hand the album cover to the QUEUE install too, not just to playStub. The
+			// player seeds every queued entry's `track.cover` (so each Up Next tile paints the album art
+			// — Gap 3 removed the per-tile resolve) AND scopes the album-art attachment to the whole
+			// list (so the hero keeps it across every advance instead of flipping to the source's own
+			// thumbnail). `heroImg` is read HERE, at install time — after the ~10s resolveAll — so an
+			// enrich that landed meanwhile is applied; if it is still null at that instant the queue
+			// simply carries no album art (accepted, no retro-patch).
+			if (all.length) player.setListQueue(all, 'album', heroImg);
+			else player.setQueue([first], 'album', heroImg);
 		} finally {
 			busyAction = null;
 		}

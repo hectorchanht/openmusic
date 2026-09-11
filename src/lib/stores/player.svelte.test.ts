@@ -494,6 +494,150 @@ describe('player.playStub — attached cover skips cover fetching (quick-260831-
 	});
 });
 
+// quick-260910-piz: t2g attached the album cover for the ONE tapped song only, so the very next
+// advance had no match — `this.current = resolved` then committed the SOURCE's thumbnail and the
+// hero flipped — while the Up Next tiles (Gap 3: `resolvedCovers[uid] ?? track.cover`, no per-tile
+// resolve) painted a gradient because nothing seeded `track.cover`. The attachment is now scoped to
+// the whole INSTALLED LIST and the queue entries are seeded at the same install seam.
+describe('album-scoped attached cover — every track, every advance (quick-260910-piz)', () => {
+	const A = 'https://img/albumA.jpg';
+	const B = 'https://img/albumB.jpg';
+	const albumA = () => [
+		{ ...mk('kuwo', 'A1', 'Coldplay', 'Yellow'), cover: null },
+		{ ...mk('kuwo', 'A2', 'Coldplay', 'Trouble'), cover: null },
+		{ ...mk('kuwo', 'A3', 'Coldplay', 'Spies'), cover: null }
+	];
+
+	// Same restore idiom as the t2g describe: these need the REAL play(), because both consumption
+	// sites (the sync resolvedCover read and the pre-`current = resolved` re-apply) live inside it.
+	beforeEach(() => {
+		(player.play as unknown as { mockRestore(): void }).mockRestore?.();
+		mockEnsure.mockReset();
+		mockCoverResolve.mockReset().mockResolvedValue(null);
+		mockDeezerHQ.mockReset().mockResolvedValue(null);
+		mockUidCover.mockReset().mockReturnValue(null);
+		player.current = null;
+		player.queue = [];
+		player.resolvedCover = null;
+		(player as unknown as { attachedCover: unknown }).attachedCover = null;
+		player.attach(makeFakeAudio() as unknown as HTMLAudioElement);
+	});
+
+	/** Start album A the way the album page does: tap → playStub, then back-fill the full list. */
+	async function startAlbumA(tracks = albumA()) {
+		mockResolve.mockResolvedValue({ ...tracks[0] });
+		mockEnsure.mockImplementation(async (t: Track) => t);
+		await player.playStub('Coldplay', 'Yellow', A, 'album');
+		await flush();
+		player.setListQueue(tracks, 'album', A);
+		return tracks;
+	}
+
+	it('SYMPTOM 1: every queued entry carries the album cover, identity untouched', async () => {
+		const tracks = await startAlbumA();
+
+		expect(player.queue.every((t) => t.cover === A)).toBe(true);
+		expect(player.queue.map((t) => t.uid)).toEqual(tracks.map((t) => t.uid));
+	});
+
+	it('SYMPTOM 2: advancing keeps the album art even when the resolve carries source art', async () => {
+		const tracks = await startAlbumA();
+		// The exact live shape: ensureTrackDetails returns the SOURCE's own http thumbnail.
+		mockEnsure.mockImplementation(async (t: Track) => ({
+			...t,
+			cover: 'http://y.gtimg.cn/thumb.jpg',
+			audioUrl: 'https://cdn/' + t.songid + '.mp3'
+		}));
+
+		player.next();
+		await flush();
+		await flush();
+
+		expect(player.current?.uid).toBe(tracks[1].uid);
+		expect(player.current?.cover).toBe(A);
+		expect(player.resolvedCover).toBe(A);
+		expect(player.queue[1].cover).toBe(A);
+
+		player.next();
+		await flush();
+		await flush();
+
+		expect(player.current?.uid).toBe(tracks[2].uid);
+		expect(player.current?.cover).toBe(A);
+		expect(player.resolvedCover).toBe(A);
+		// Zero cover network: neither the full tier chain nor the Deezer HQ upgrade runs.
+		expect(mockCoverResolve).not.toHaveBeenCalled();
+		expect(mockDeezerHQ).not.toHaveBeenCalled();
+	});
+
+	it('a DIFFERENT album replaces the attachment — never the previous album art', async () => {
+		await startAlbumA();
+		const albumB = [mk('kuwo', 'B1', 'Radiohead', 'Creep'), mk('kuwo', 'B2', 'Radiohead', 'Karma Police')].map(
+			(t) => ({ ...t, cover: null })
+		);
+		mockEnsure.mockImplementation(async (t: Track) => ({ ...t, cover: 'http://y.gtimg.cn/thumb.jpg' }));
+
+		player.setListQueue(albumB, 'album', B);
+		void player.play(albumB[0], { fresh: true });
+		await flush();
+		await flush();
+
+		expect(player.resolvedCover).toBe(B);
+		expect(player.current?.cover).toBe(B);
+
+		player.next();
+		await flush();
+		await flush();
+
+		expect(player.resolvedCover).toBe(B);
+		expect(player.current?.cover).toBe(B);
+	});
+
+	it('a fresh play from SEARCH does not inherit the album art (same song key on purpose)', async () => {
+		await startAlbumA();
+		// Same song as A1 — only the cleared attachment can keep the album cover off it.
+		const s1 = { ...mk('kuwo', 'S1', 'Coldplay', 'Yellow'), cover: 'https://kuwo/s1.jpg' };
+		mockEnsure.mockImplementation(async (t: Track) => ({ ...t, cover: 'https://kuwo/s1.jpg' }));
+
+		player.setListQueue([s1], 'search');
+		void player.play(s1, { fresh: true });
+		await flush();
+		await flush();
+
+		expect(player.current?.cover).toBe('https://kuwo/s1.jpg');
+		expect(player.resolvedCover).toBe('https://kuwo/s1.jpg');
+		expect((player as unknown as { attachedCover: unknown }).attachedCover).toBeNull();
+	});
+
+	it('a fresh play with NO queue install (home shelf path) clears the attachment', async () => {
+		await startAlbumA();
+		const liked = { ...mk('kuwo', 'L1', 'Oasis', 'Wonderwall'), cover: null };
+		mockEnsure.mockImplementation(async (t: Track) => t);
+
+		// quick-260831-sp9: the home shelves call play({fresh}) DIRECTLY — setQueue never runs.
+		void player.play(liked, { fresh: true, context: 'liked' });
+		await flush();
+		await flush();
+
+		expect((player as unknown as { attachedCover: unknown }).attachedCover).toBeNull();
+		expect(player.resolvedCover).not.toBe(A);
+	});
+
+	it('a null album cover is a pure no-op, and clearQueue drops the attachment', async () => {
+		const tracks = albumA();
+
+		player.setListQueue(tracks, 'album', null);
+
+		expect(player.queue.every((t) => t.cover === null)).toBe(true);
+		expect((player as unknown as { attachedCover: unknown }).attachedCover).toBeNull();
+
+		player.setListQueue(tracks, 'album', A);
+		expect((player as unknown as { attachedCover: unknown }).attachedCover).not.toBeNull();
+		player.clearQueue();
+		expect((player as unknown as { attachedCover: unknown }).attachedCover).toBeNull();
+	});
+});
+
 describe('player.playStub — optimistic resolve-on-tap (FIX-A)', () => {
 	it('locks the tapped stub into pendingTrack + loading SYNCHRONOUSLY, before resolve', () => {
 		const d = deferred<Track | null>();
