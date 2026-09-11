@@ -82,7 +82,14 @@ export function bumpCoverVersion(): void {
  */
 export function readCoverByUidOrName(uid: string, artist: string, title: string): string | null {
 	coverVersion(); // reactive dependency — recompute when any cover lands
-	return getCachedCoverByUid(uid) ?? getCachedCover(artist, title);
+	// EMPTY-UID GUARD (quick-260910-qwt): an empty stub uid must NOT read the SHARED `'uid:'` slot —
+	// the uid layer is a flat record keyed by `'uid:' + uid`, so every distinct discovery stub row
+	// (charts/tags, charts/countries) collapses onto that one slot and the first row's cover reads
+	// back for ALL of them (the "same cover for every song" bug). writeCoverBoth / removeCoverBoth /
+	// lazyCover / resolveCoverForTrack all already apply this guard on their side; now that this read
+	// is the rung-3 authority on EVERY row surface (row-cover.ts `pickRowCover`), it must hold on the
+	// read side too. An empty uid reads only the per-song {artist,title} name layer.
+	return (uid ? getCachedCoverByUid(uid) : null) ?? getCachedCover(artist, title);
 }
 
 /** Reactive read of a {artist,title} name-key cover (discovery tiles carry no uid). Depends on coverVersion(). */

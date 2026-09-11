@@ -39,7 +39,11 @@
 	// mounted tile through the same one global signal as the home backfill.
 	import { readCoverByUidOrName, bumpCoverVersion } from '$lib/stores/cover-version.svelte';
 	import { backfillCovers } from '$lib/services/cover-backfill';
-	import { upNextCoverNeeds, upNextTileCover, UPNEXT_COVER_MAX } from '$lib/services/upnext-covers';
+	import { upNextCoverNeeds, UPNEXT_COVER_MAX } from '$lib/services/upnext-covers';
+	// quick-260910-qwt: the tile read order generalised out of upnext-covers into the ONE shared
+	// row-cover helper every row surface now paints through (search / library / artist / CompactRow /
+	// Up Next / Related). Same three rungs, same precedence — just no longer Up-Next-specific.
+	import { pickRowCover } from '$lib/services/row-cover';
 	import { marquee } from '$lib/actions/marquee';
 	import { swipeAction } from '$lib/actions/swipeAction';
 	import { coverSwipe } from '$lib/actions/coverSwipe';
@@ -1534,8 +1538,10 @@
 					<ul class="list" bind:this={queueListEl}>
 						{#each upNextList as track, i (track.uid)}
 							{@const skipped = player.isUnplayable(track.uid)}
-							<!-- quick-260910-q5a: the tile's three-rung cover read (see the Gap 3 block below). -->
-							{@const qArt = upNextTileCover(resolvedCovers[track.uid], track.cover, readCoverByUidOrName(track.uid, track.artist, track.title))}
+							<!-- quick-260910-q5a: the tile's three-rung cover read (see the Gap 3 block below).
+							     quick-260910-qwt: now the SHARED pickRowCover — the identical read every other row
+							     surface uses (resolved → track.cover → shared cache). Behaviour is unchanged here. -->
+							{@const qArt = pickRowCover(resolvedCovers[track.uid], track.cover, readCoverByUidOrName(track.uid, track.artist, track.title))}
 							<li
 								class:lifted={i === dragFrom}
 								class:over={i === dragOver && i !== dragFrom}

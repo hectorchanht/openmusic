@@ -18,6 +18,12 @@ const coverAgeByUidOrName =
 const resolveCoverForTrack = vi.fn<(track: Track) => Promise<string | null>>();
 // quick-260630-ey2: the self-heal evictor — a dead cache-HIT calls this before the re-resolve chain.
 const removeCoverBoth = vi.fn<(uid: string, artist: string, title: string) => void>();
+// quick-260910-qwt: the shared reactive cover-version signal. resolveCoverForTrack writes both cache
+// layers but by LOCKED design never bumps (it stays a pure `.ts`), so the bump is the CALLER's job —
+// and lazyCover is that caller for search / library / artist / CompactRow / charts. Spied to pin that
+// a SOLID chain resolve signals exactly once, a null result signals not at all, and a cache HIT (its
+// url is already in the cache — nothing new landed) signals not at all either.
+const bumpCoverVersion = vi.fn<() => void>();
 
 vi.mock('$lib/services/cover-cache', () => ({
 	getCachedCoverByUid: (uid: string) => getCachedCoverByUid(uid),
@@ -30,7 +36,8 @@ vi.mock('$lib/services/cover-backfill', () => ({
 }));
 vi.mock('$lib/stores/cover-version.svelte', () => ({
 	removeCoverBoth: (uid: string, artist: string, title: string) =>
-		removeCoverBoth(uid, artist, title)
+		removeCoverBoth(uid, artist, title),
+	bumpCoverVersion: () => bumpCoverVersion()
 }));
 
 // --- controllable IntersectionObserver stub -----------------------------------------------------
@@ -228,6 +235,39 @@ describe('lazyCover — IntersectionObserver + Image probe + cache-first resolve
 		expect(resolveCoverForTrack).not.toHaveBeenCalled(); // cache hit → no network
 		expect(onResolved).toHaveBeenCalledWith(track.uid, 'https://cache.example/by-uid.jpg');
 		expect(removeCoverBoth).not.toHaveBeenCalled(); // good probe → no eviction
+		// quick-260910-qwt: a HIT is already in the shared cache — nothing new landed, so no signal.
+		expect(bumpCoverVersion).not.toHaveBeenCalled();
+	});
+
+	// quick-260910-qwt: the missing WRITE-SIDE SIGNAL. resolveCoverForTrack caches both layers but
+	// never bumps (pure `.ts`, LOCKED), so before this a cover resolved by one row was cached
+	// SILENTLY — no other mounted surface (home, Up Next, Related, the now-playing hero) repainted
+	// until its next fresh render. lazyCover is the caller for every row surface, so it bumps.
+	it('chain resolve of a SOLID cover calls bumpCoverVersion once (and fires onResolved)', async () => {
+		getCachedCoverByUid.mockReturnValue(null); // cache miss
+		getCachedCover.mockReturnValue(null);
+		const onResolved = vi.fn();
+		const track = mkTrack({ cover: '' }); // no existing cover → straight to the chain
+		const { io } = await mount({ track, onResolved });
+
+		io.trigger(true);
+		await flush();
+		expect(resolveCoverForTrack).toHaveBeenCalledTimes(1);
+		expect(onResolved).toHaveBeenCalledWith(track.uid, 'https://resolved.example/c.jpg');
+		expect(bumpCoverVersion).toHaveBeenCalledTimes(1);
+	});
+
+	it('chain resolve returning null does NOT bump (nothing landed — gradient stays)', async () => {
+		resolveCoverForTrack.mockResolvedValue(null);
+		const onResolved = vi.fn();
+		const track = mkTrack({ cover: '' });
+		const { io } = await mount({ track, onResolved });
+
+		io.trigger(true);
+		await flush();
+		expect(resolveCoverForTrack).toHaveBeenCalledTimes(1);
+		expect(onResolved).not.toHaveBeenCalled();
+		expect(bumpCoverVersion).not.toHaveBeenCalled();
 	});
 
 	// quick-260630-ey2: a SOLID cache HIT is now PROBED. A good probe keeps the zero-network fast

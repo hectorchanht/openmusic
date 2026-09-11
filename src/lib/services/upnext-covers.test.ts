@@ -1,7 +1,8 @@
-// upnext-covers.test.ts (quick-260910-q5a) — node tests for the two PURE Up-Next cover decisions.
+// upnext-covers.test.ts (quick-260910-q5a) — node tests for the PURE Up-Next cover decision.
 // No localStorage stub is needed: the module is deliberately cache-free (see upnext-covers.ts).
+// The tile read-order cases moved to row-cover.test.ts with the helper (quick-260910-qwt).
 import { describe, it, expect } from 'vitest';
-import { upNextCoverNeeds, upNextTileCover, UPNEXT_COVER_MAX } from '$lib/services/upnext-covers';
+import { upNextCoverNeeds, UPNEXT_COVER_MAX } from '$lib/services/upnext-covers';
 
 type Row = { artist: string; title: string; cover: string | null };
 const row = (artist: string, title: string, cover: string | null = null): Row => ({ artist, title, cover });
@@ -43,24 +44,5 @@ describe('upNextCoverNeeds', () => {
 	it('drops a row with a blank artist AND title; max: 0 returns []', () => {
 		expect(upNextCoverNeeds([row('', ''), row('A', 'One')])).toEqual([{ artist: 'A', title: 'One' }]);
 		expect(upNextCoverNeeds([row('A', 'One')], 0)).toEqual([]);
-	});
-});
-
-describe('upNextTileCover', () => {
-	it('reads resolved -> seeded -> cached -> null', () => {
-		expect(upNextTileCover('https://resolved', 'https://seeded', 'https://cached')).toBe('https://resolved');
-		expect(upNextTileCover(undefined, 'https://seeded', 'https://cached')).toBe('https://seeded');
-		expect(upNextTileCover(undefined, null, 'https://cached')).toBe('https://cached');
-		expect(upNextTileCover(undefined, null, null)).toBeNull();
-	});
-
-	it('treats an empty string as a miss at every rung', () => {
-		expect(upNextTileCover('', 'https://a', null)).toBe('https://a');
-		expect(upNextTileCover('', '', 'https://c')).toBe('https://c');
-		expect(upNextTileCover('', '', '')).toBeNull();
-	});
-
-	it('keeps the seeded album cover ahead of the cache (quick-260910-piz)', () => {
-		expect(upNextTileCover(undefined, 'https://album', 'https://deezer')).toBe('https://album');
 	});
 });

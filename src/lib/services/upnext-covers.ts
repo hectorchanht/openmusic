@@ -13,7 +13,9 @@
 // NowPlaying.svelte. This module owns the two pure decisions that effect needs, so the component
 // stays a thin caller and both decisions are node-testable:
 //   - upNextCoverNeeds() — which rows are worth submitting (and how many).
-//   - upNextTileCover()  — the tile's cover read order.
+//   - the tile's cover read order now lives in row-cover.ts `pickRowCover` (quick-260910-qwt): it was
+//     generalised out of here once EVERY row surface (search, library, artist, CompactRow, Related)
+//     adopted the same three-rung read, so it is no longer Up-Next-specific.
 // Pure `.ts`: no runes, no store import, no cache read — node-Vitest-testable like match-key.ts.
 import { matchKey } from '$lib/services/match-key';
 import type { CoverNeed } from '$lib/services/cover-backfill';
@@ -67,23 +69,4 @@ export function upNextCoverNeeds(
 		needs.push({ artist, title });
 	}
 	return needs.slice(0, Math.max(0, max));
-}
-
-/**
- * The Up-Next tile's cover read order — `resolved` → `seeded` → `cached` → null (gradient).
- *
- *  - `resolved`: the 26-10 carousel-fed `resolvedCovers[uid]` map, kept FIRST exactly as before.
- *  - `seeded`:   `track.cover` (a real source cover or a quick-260910-piz attached album cover) —
- *                MUST stay ahead of the cache so an album's art is never displaced by a per-track image.
- *  - `cached`:   the shared reactive cover cache (its name layer bridges a synthetic stub uid to the
- *                real uid), which is what lets a cover landing from ANY surface repaint the tile live.
- *
- * `''` is a MISS at every rung (an empty string would otherwise render `url()`).
- */
-export function upNextTileCover(
-	resolved: string | undefined,
-	seeded: string | null | undefined,
-	cached: string | null
-): string | null {
-	return resolved || seeded || cached || null;
 }

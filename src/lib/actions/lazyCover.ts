@@ -6,7 +6,7 @@ import {
 	coverAgeByUidOrName
 } from '$lib/services/cover-cache';
 import { resolveCoverForTrack } from '$lib/services/cover-backfill';
-import { removeCoverBoth } from '$lib/stores/cover-version.svelte';
+import { removeCoverBoth, bumpCoverVersion } from '$lib/stores/cover-version.svelte';
 
 // use:lazyCover — resolve a track-row cover ONLY when the row scrolls into view (COVER-02).
 //
@@ -137,7 +137,20 @@ async function resolveCoverForRow(track: Track, onResolved: (uid: string, url: s
 		inFlight.add(key);
 		try {
 			const url = await resolveCoverForTrack(track);
-			if (isHttps(url)) onResolved(track.uid, url);
+			// quick-260910-qwt — the missing WRITE-SIDE SIGNAL. resolveCoverForTrack wrote BOTH cache
+			// layers already, but by LOCKED design it never bumps (it is a pure `.ts`, kept runes-free so
+			// cover-backfill stays node-testable — see its doc comment): the bump is the CALLER's job, and
+			// lazyCover is that caller for search / library / artist / CompactRow / charts. Without it a
+			// cover resolved by one row was cached SILENTLY — no other mounted surface (home, Up Next,
+			// Related, the now-playing hero) repainted until its next fresh render. The home page passes
+			// its own `onResolved: () => bumpCoverVersion()`, so it now double-bumps: harmless, the two
+			// collapse into ONE increment via the rAF latch (quick-260704-45c) — do NOT edit the home page.
+			// Only this branch bumps: a cache HIT / a kept probe adds nothing new to the cache, and a null
+			// result cached nothing at all.
+			if (isHttps(url)) {
+				bumpCoverVersion();
+				onResolved(track.uid, url);
+			}
 		} finally {
 			inFlight.delete(key);
 		}
