@@ -158,7 +158,11 @@ async function resolveAllCached(): Promise<Track[]> {
     6. Go back, tap a SINGLE row instead. EXPECTED: same — the re-anchored album queue's Up Next rows all carry the album cover, and next() advances through the album (re-anchor intact).
     7. Regression: open an album whose hero is still a gradient/skeleton (no Deezer match) and play it. EXPECTED: no crash; rows that had a source thumbnail keep it, the rest stay gradient (null heroImg is a pass-through).
   </how-to-verify>
-  <resume-signal>Type "approved" or describe which rows/covers were wrong</resume-signal>
+  <files>none — verification only</files>
+  <action>Start the dev server (probe 4321 then 5173), attempt steps 1-7 yourself with a browser tool if one is available, then walk the user through the numbered steps in how-to-verify. Do not edit code in this task; report any failing step for a follow-up.</action>
+  <verify><human-check>Steps 1-7 in how-to-verify observed on the live app</human-check></verify>
+  <done>User types "approved" (all 7 steps behave as expected)</done>
+  <resume-signal>Type "approved" or describe which rows/covers were wrong (step number + observed vs expected)</resume-signal>
 </task>
 
 </tasks>
