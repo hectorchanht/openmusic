@@ -49,7 +49,7 @@ Full observed evidence: `.planning/phases/30-carrier-free-share-links-type-artis
 ### Prior phase (Phase 27 — YouTube Music Source, v1.4) — COMPLETE + E2E-VERIFIED
 
 Phase 27 complete (27-01..04). E2E-verified against LIVE YouTube via the dev-server routes: /api/ytmusic/search 200 (rows+videoId), /api/ytmusic/lyrics 200 (1513c + attribution), /api/ytmusic/stream 206 audio/mp4 + Range (playback) and 200 full-file (download). pnpm check clean, 1320 tests green. E2E caught + fixed a prod-breaking bug (quick-270715 / commit 29c1c7d): stream route exported non-HTTP-verb functions, illegal in SvelteKit +server.ts → 500; helpers moved to $lib/proxy/ytmusic.ts.
-Last activity: 2026-09-11 - Completed quick task 260910-piz: album-scoped cover attachment (Up Next tiles + hero across advance)
+Last activity: 2026-09-11 - Completed quick task 260910-q5a: covers for similarity-generated Up Next rows
 Remaining human UAT: real-device <audio> playback+seek + download-to-disk; deployed-Worker player+googlevideo same-IP egress + bot-challenge under load (T-27-03-OP). Account/library sync = separate legal-gated milestone (spike 008).
 
 ## Performance Metrics
@@ -401,6 +401,7 @@ Recent decisions affecting current work:
 | 260910-nx6 | Up Next rows: version-picker hidden behind a directional swipe reveal (right=picker, left=remove, no-op on the playing row); grip kept visible; opaque row | 2026-09-10 | fcebf1c | [260910-nx6-up-next-rows-hide-version-picker-behind-](./quick/260910-nx6-up-next-rows-hide-version-picker-behind-/) |
 | 260910-omt | Undo-able remove toast for Up Next swipe-left — removeFromQueue receipt + restoreToQueue inverse, toast action button + per-call duration, 15 locales | 2026-09-10 | 2f74a14 | [260910-omt-undo-able-remove-toast-for-up-next-swipe](./quick/260910-omt-undo-able-remove-toast-for-up-next-swipe/) |
 | 260910-piz | Album cover attachment scoped to the whole installed list — Up Next tiles paint album art and the hero keeps it across track advance (was: single-song attachedCover, source thumbnail clobbered track 2+) | 2026-09-11 | 2c13d14 | [260910-piz-seed-the-album-cover-onto-every-resolved](./quick/260910-piz-seed-the-album-cover-onto-every-resolved/) |
+| 260910-q5a | Covers for similarity-generated Up Next rows — tile reads the shared reactive cache, bounded backfillCovers (max 20, cap 6) gated on the Up Next tab | 2026-09-11 | cc2584f | [260910-q5a-covers-for-similarity-generated-up-next-](./quick/260910-q5a-covers-for-similarity-generated-up-next-/) |
 
 > Note: off planned phase order (Phase-4-shaped UI pulled forward as a demo). Basic playback only; full audio engine = Phase 6, formal Mobile UI Shell = Phase 4. NOTE (2026-06-10): many of the quick-tasks above already exercise the v1.2 surfaces (failover/prefetch in gte/t5r/hvu, offline blob in kyf, Deezer enrichment plumbing in jau/jip, cover backfill in rvy/0bb/wv8, gesture machines in ggj/h4s/nqf) — v1.2 phases formalize, harden, and complete these rather than build from scratch.
 

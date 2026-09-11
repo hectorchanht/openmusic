@@ -35,7 +35,11 @@
 	// cover-hero-mediacard-missing (Issue 1): the reactive cover-cache read helper the up-next rows /
 	// home tiles use — the hero current cell now falls back to it so a cover that lands anywhere for
 	// the current song repaints the hero live (one resolved cover reused EVERYWHERE, cached).
-	import { readCoverByUidOrName } from '$lib/stores/cover-version.svelte';
+	// quick-260910-q5a: `bumpCoverVersion` joins this import — the Up-Next fill below repaints every
+	// mounted tile through the same one global signal as the home backfill.
+	import { readCoverByUidOrName, bumpCoverVersion } from '$lib/stores/cover-version.svelte';
+	import { backfillCovers } from '$lib/services/cover-backfill';
+	import { upNextCoverNeeds, upNextTileCover, UPNEXT_COVER_MAX } from '$lib/services/upnext-covers';
 	import { marquee } from '$lib/actions/marquee';
 	import { swipeAction } from '$lib/actions/swipeAction';
 	import { coverSwipe } from '$lib/actions/coverSwipe';
@@ -584,6 +588,49 @@
 	);
 	const upNextStart = $derived(anchorIdx >= 0 ? anchorIdx : ci >= 0 ? ci : 0);
 	const upNextList = $derived(player.queue.slice(upNextStart)); // [anchor, ...current, ...tail]
+
+	// quick-260910-q5a — POST-PAINT Up-Next cover fill.
+	//
+	// WHY HERE: one component effect on `upNextList` covers EVERY queue install path (regenerate,
+	// ensureAhead, the diverse safety-net, restore, a manual add) from a single site, without adding
+	// another $effect to the ~3000-line player god object. Nothing about resolve/playback moves.
+	//
+	// WHY GATED: nothing is fetched until the user actually OPENS Up Next (sheet open + queue tab),
+	// so the click-to-play critical path pays zero — a tap with the sheet closed issues no cover call.
+	//
+	// THE COST NUMBER: ≤20 tier-1 /api/deezer/search per fill (UPNEXT_COVER_MAX), ≤6 in flight
+	// (backfillCovers' CAP=6 pool); the iTunes + CN tiers fire ONLY on a per-row Deezer miss; a
+	// re-open issues ~0 (backfillCovers skips cached rows and remembers misses for 5 min).
+	//
+	// WHY THIS IS *NOT* THE T-26-10-01 FLOOD: that was N uncoordinated per-tile `use:lazyCover`
+	// chains, one per rendered row, re-firing on every list render with no shared cap. This is ONE
+	// capped pool from ONE site, aborted on re-run, behind the apiFetch governor. The
+	// no-`use:lazyCover`-on-Up-Next rule still holds — do not re-introduce it.
+	//
+	// SELF-INVALIDATION GUARD (cf. restore-effect-self-invalidation-loop): this effect NEVER reads
+	// `coverVersion()` — `upNextCoverNeeds` is cache-free, and the `readCoverByUidOrName` read lives
+	// in the template, not here — and `backfillCovers` is called under `untrack`. So `onResolved →
+	// bumpCoverVersion` repaints the tiles but cannot re-trigger the effect that started the fill.
+	//
+	// PIZ GUARD (quick-260910-piz): `upNextCoverNeeds` skips any row with an https `track.cover`, so
+	// an album-installed queue is never even submitted; `backfillCovers` writes the NAME cache layer
+	// only and never touches `track.cover` / `attachedCover`.
+	$effect(() => {
+		if (sheetState === 'closed' || tab !== 'queue') return;
+		const needs = upNextCoverNeeds(upNextList);
+		if (!needs.length) return;
+		const ac = new AbortController();
+		untrack(() => {
+			void backfillCovers(needs, {
+				signal: ac.signal,
+				onResolved: () => bumpCoverVersion(),
+				max: UPNEXT_COVER_MAX
+			});
+		});
+		// A re-run (queue change / tab switch / sheet close) aborts the in-flight fill, so at most ONE
+		// pool is ever live. backfillCovers treats abort ≠ miss, so nothing is poisoned in the memo.
+		return () => ac.abort();
+	});
 	const prevCover = $derived(ci > 0 ? player.queue[ci - 1] : null);
 	const nextCover = $derived(ci >= 0 && ci + 1 < player.queue.length ? player.queue[ci + 1] : null);
 	// hasPrev is false at the first queued track; player.prev() restarts the song when currentTime
@@ -1465,6 +1512,8 @@
 					<ul class="list" bind:this={queueListEl}>
 						{#each upNextList as track, i (track.uid)}
 							{@const skipped = player.isUnplayable(track.uid)}
+							<!-- quick-260910-q5a: the tile's three-rung cover read (see the Gap 3 block below). -->
+							{@const qArt = upNextTileCover(resolvedCovers[track.uid], track.cover, readCoverByUidOrName(track.uid, track.artist, track.title))}
 							<li
 								class:lifted={i === dragFrom}
 								class:over={i === dragOver && i !== dragFrom}
@@ -1500,8 +1549,17 @@
 									     read is KEPT (zero-cost): the map is still fed by the prev/next CAROUSEL neighbors below,
 									     so a row that WAS a neighbor keeps its resolved cover, but the list itself resolves nothing.
 									     Accepted trade-off: an Up-Next tile no longer self-heals a dead cover via the chain — only the
-									     now-playing track gets the optional HQ upgrade (per the UAT). https-only; never throws. -->
-									<span class="q-art" style:background-image={(resolvedCovers[track.uid] ?? track.cover) ? `url(${resolvedCovers[track.uid] ?? track.cover})` : fallbackCover(track)}></span>
+									     now-playing track gets the optional HQ upgrade (per the UAT). https-only; never throws.
+
+									     quick-260910-q5a: that 26-07 SEED is dead in practice — a live probe of 20 `track.getSimilar`
+									     pairs returned withImage: 0, so a similarity-generated list has no seeded cover at all. The tile
+									     therefore now reads a THIRD rung, the shared reactive cover cache, via `readCoverByUidOrName`
+									     (uid → name layer). That is a reactive READ depending on coverVersion(), NOT a per-tile fetch —
+									     T-26-10-01's no-`use:lazyCover`-here rule still holds; the single capped backfillCovers pass in
+									     the gated $effect above is the ONLY network path. Same asymmetry class the hero fixed in
+									     cover-hero-mediacard-missing. `track.cover` stays AHEAD of the cache so a quick-260910-piz
+									     attached album cover always wins over a per-track image. -->
+									<span class="q-art" style:background-image={qArt ? `url(${qArt})` : fallbackCover(track)}></span>
 									<span class="q-text">
 										{#if skipped}<span class="r-skip" aria-hidden="true">✗</span>{/if}
 										<span class="r-title">{names.dnTitle(track.title)}</span>
