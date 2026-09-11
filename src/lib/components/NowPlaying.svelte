@@ -991,11 +991,15 @@
 		}
 		// Flush half-open: the panel top sits exactly at the bottom edge of the transport
 		// row (no dead gap). Fall back to the old fraction only when the ref isn't mounted.
-		halfOffset = transportEl
+		const rawHalf = transportEl
 			? Math.round(transportEl.getBoundingClientRect().bottom - npRect.top)
 			: Math.round(npRect.height * 0.5);
 		// Keep ordering sane: half must sit between full(0) and closed.
-		halfOffset = Math.max(20, Math.min(closedOffset - 20, halfOffset));
+		// quick-260910-soj: measureOffsets must never READ the $state it writes. Computing into a
+		// local and assigning ONCE means no reactive caller can become self-invalidating through
+		// this function, and a converging re-measure hits Svelte's equality short-circuit on a
+		// single write (see the half-rest $effect below).
+		halfOffset = Math.max(20, Math.min(closedOffset - 20, rawHalf));
 	}
 
 	// NP-xx grip ghost-click fix: a TAP on the grip synchronously moves the sheet, and the browser's
@@ -1191,10 +1195,22 @@
 	// ~340ms timeout fallback for the cases where no transition fires (already-reflowed tap
 	// into half, or prefers-reduced-motion). All listeners/timers are torn down on cleanup so
 	// nothing leaks or fires after the sheet leaves half.
+	//
+	// quick-260910-soj SELF-INVALIDATION GUARD (cf. restore-effect-self-invalidation-loop):
+	// measureOffsets() WRITES halfOffset ($state). Called bare here, that write re-scheduled this
+	// effect (Svelte 5 self-invalidation), and during the .cover 0.32s reflow every re-run measured
+	// a different transportEl.bottom — so the write never settled and the flush hit
+	// effect_update_depth_exceeded, after which the component stopped processing effects entirely
+	// (user-visible: the Related tab stuck on "Loading related…" although its data had arrived).
+	// untrack() drops halfOffset/sheetEl/transportEl from this effect's deps; sheetState,
+	// sheetDragging and coverEl stay tracked via the direct reads above/below, and those refs are
+	// bound unconditionally at mount (before the sheet can be half), so no re-run is lost.
+	// The deferred onSettled calls run from transitionend/rAF/setTimeout tasks OUTSIDE any reaction,
+	// register no dependencies, and are deliberately NOT wrapped.
 	$effect(() => {
 		if (sheetState !== 'half' || sheetDragging) return;
 		// Measure immediately (best-effort) then again once the reflow settles for the flush value.
-		measureOffsets();
+		untrack(() => measureOffsets());
 		let raf1 = 0;
 		let raf2 = 0;
 		const onSettled = () => measureOffsets();
