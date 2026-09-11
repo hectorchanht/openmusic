@@ -1425,7 +1425,7 @@
 			     keeps use:marquee + the in:/out:fade crossfade; names are joined by an INERT ` · `
 			     separator span (not a link). When there is a single name (the common case) exactly one
 			     link renders with no separator — visually unchanged from before. -->
-			<div class="artist" use:marquee in:fade={{ duration: xfadeMs }} out:fade={{ duration: xfadeMs }}><span class="marquee-inner">{#each artistNames as name, i (name + i)}{#if i > 0}<span class="artist-sep" aria-hidden="true"> · </span>{/if}<button class="artist-link" onclick={() => openArtistName(name)}>{names.dnArtist(name)}</button>{/each}</span></div>
+			<div class="artist" use:marquee in:fade={{ duration: xfadeMs }} out:fade={{ duration: xfadeMs }}><span class="marquee-inner">{#each artistNames as name, i (name + i)}{#if i > 0}<span class="artist-sep" aria-hidden="true"> · </span>{/if}<button class="artist-link" use:tapBounce onclick={() => openArtistName(name)}>{names.dnArtist(name)}</button>{/each}</span></div>
 		{/key}
 		<!-- quick-260831-k5y: opt-in quality tag. OUTSIDE the {#key} block on purpose — the value
 		     lands asynchronously after ensureTrackDetails, so it repaints in place rather than

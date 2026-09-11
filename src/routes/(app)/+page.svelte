@@ -742,7 +742,8 @@
      tap opens the artist page (artists are name-only: no ⋮, no long-press, mirroring CompactRow's
      artist variant). Reuses the .tile shell with .art.round + a name-only .label. -->
 {#snippet artistGridTile(name: string, cover: string | null)}
-	<button class="tile artist-tile" onclick={() => goto('/artist/' + encodeURIComponent(name))}>
+	<!-- quick-260910-qjv: artist tap feedback, parity with song rows -->
+	<button class="tile artist-tile" use:tapBounce onclick={() => goto('/artist/' + encodeURIComponent(name))}>
 		<div class="art round" style:background-image={fallbackCover(name)}>
 			{#if cover}<img class="al-cover-img" src={cover} loading="lazy" alt="" onerror={hideOnError} />{/if}
 		</div>
@@ -800,7 +801,7 @@
 			<div class="albumrow" use:dragScroll>
 				{#each topArtists as a (a.name)}
 					{@const artistCover = tileCover({ image: a.image, mbid: a.mbid, artistName: a.name })}
-					<button class="album" onclick={() => goto('/artist/' + encodeURIComponent(a.name))}>
+					<button class="album" use:tapBounce onclick={() => goto('/artist/' + encodeURIComponent(a.name))}>
 						<span class="al-cover round" style:background-image={fallbackCover(a.name)}>
 							{#if artistCover}<img class="al-cover-img" src={artistCover} loading="lazy" alt="" onerror={hideOnError} />{/if}
 						</span>
@@ -974,7 +975,7 @@
 			<div class="albumrow" use:dragScroll>
 				{#each favArtistsShelf as a (a.name)}
 					{@const artistCover = tileCover({ image: null, mbid: null, artistName: a.name })}
-					<button class="album" onclick={() => goto('/artist/' + encodeURIComponent(a.name))}>
+					<button class="album" use:tapBounce onclick={() => goto('/artist/' + encodeURIComponent(a.name))}>
 						<span class="al-cover round" style:background-image={fallbackCover(a.name)}>
 							{#if artistCover}<img class="al-cover-img" src={artistCover} loading="lazy" alt="" onerror={hideOnError} />{/if}
 						</span>

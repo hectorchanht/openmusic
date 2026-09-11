@@ -78,7 +78,8 @@
 </script>
 
 {#if variant === 'artist'}
-	<button class="crow" onclick={() => onopen?.()}>
+	<!-- quick-260910-qjv: artist tap feedback, parity with song rows -->
+	<button class="crow" use:tapBounce onclick={() => onopen?.()}>
 		<span
 			class="art round"
 			style:background-image={effectiveCover ? `url(${effectiveCover})` : fallbackGradient(seed)}

@@ -713,14 +713,17 @@ describe('Related tap — playNext + non-fresh play preserves Up Next (quick-260
 			player.loading = false;
 		});
 
-		// The exact three statements of NowPlaying's relatedTapPlay.
-		if (player.current?.uid !== R.uid) {
+		// The exact three statements of NowPlaying's relatedTapPlay. Read `current` through a
+		// getter so TS control-flow does not narrow it to the `null` assigned above — playNext
+		// mutates it synchronously, which is the whole point of the guard.
+		const cur = () => player.current;
+		if (cur()?.uid !== R.uid) {
 			player.playNext(R); // no current → playNext calls play() itself, synchronously
-			if (player.current?.uid !== R.uid) void player.play(R, { fresh: false });
+			if (cur()?.uid !== R.uid) void player.play(R, { fresh: false });
 		}
 		await flush();
 
-		expect(player.current?.uid).toBe(R.uid);
+		expect(cur()?.uid).toBe(R.uid);
 		expect(uids(player.queue)).toEqual([R.uid]);
 		expect(spy).toHaveBeenCalledTimes(1); // exactly once — no double start
 		spy.mockRestore();
