@@ -1668,7 +1668,7 @@
 							<li class="swipe-wrap related-swipe">
 								<span class="reveal reveal-queue" aria-hidden="true"><ListEnd size={20} /></span>
 								<span class="reveal reveal-next" aria-hidden="true"><ListStart size={20} /></span>
-								<button class="row rel-row" use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openMenu(track); }} onclick={() => relatedTapPlay(track)} use:swipeAction={{ onSwipeRight: () => relatedSwipeQueue(track), onSwipeLeft: () => relatedSwipeNext(track) }}><span class="q-art" style:background-image={rArt ? `url(${rArt})` : fallbackCover(track)}></span><span class="r-meta"><span class="r-title">{names.dnTitle(track.title)}</span><span class="r-artist">{names.dnArtist(track.artist)}</span></span><RowBadges uid={track.uid} /></button>
+								<button class="row rel-row" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openMenu(track); }} onclick={() => relatedTapPlay(track)} use:swipeAction={{ onSwipeRight: () => relatedSwipeQueue(track), onSwipeLeft: () => relatedSwipeNext(track) }}><span class="q-art" style:background-image={rArt ? `url(${rArt})` : fallbackCover(track)}></span><span class="r-meta"><span class="r-title">{names.dnTitle(track.title)}</span><span class="r-artist">{names.dnArtist(track.artist)}</span></span><RowBadges uid={track.uid} /></button>
 							</li>
 						{/each}
 					</ul>
