@@ -4,7 +4,7 @@ slug: slow-cold-start-first-playing
 status: investigating
 trigger: "撳落去要等幾秒先開聲 — slow time from tap to first audible sound. Goal: cut tap → first `playing` event latency. Platform: Android Chrome / PWA. Companion symptom (mid-song stop, background/locked only) deferred to a separate session by user decision."
 created: 2026-09-12
-updated: 2026-09-12T12:10
+updated: 2026-09-12T13:05
 ---
 
 # Debug: slow tap → first `playing` (cold path 34.7s, warm path bimodal 220ms vs 3.4s)
@@ -152,6 +152,47 @@ capture. That failure shape is gone. The remaining slowness is a different, larg
   sources with no elapsed-time deadline; `RESOLVE_WATCHDOG_MS` guards only `play()`'s first resolve,
   so a failed track costs 6 s + an unbounded 19–29 s walk. Backgrounded, that gap is heard as a stop.
 - next_action: bound the failure episode end-to-end, then re-capture on device.
+
+## Fixes applied + DEPLOYED (2026-09-12, commits acf96c0 + 0971a00, live on openmusic.lol)
+
+1. **`FALLBACK_BUDGET_MS = 8000`** — runFallback's existing supersedence interval now also enforces
+   an elapsed-time ceiling and aborts the walk. A budget expiry is deliberately NOT routed into
+   `handleTotalFailure`: the walk was cut short, so remaining sources are UNKNOWN, not exhausted, and
+   miscounting it would march toward the FAILURE_CAP loop-guard STOP. It strikes the uid and skips
+   forward, leaving the track IN the queue. Never STOP, always SKIP.
+   New log event: **`fallback.budget`**.
+
+2. **Readiness guard extracted to `src/lib/services/track-ready.ts`** — was FIVE inline copies of
+   `detailsLoaded && audioUrl && …`, four of them stale-blind. Two predicates now:
+   `hasFreshAudioUrl` (pre-warm/reuse) and `isTrackReady` (resolve paths, adds the lyric clause).
+   Two additional stale-blind sites found during the extraction: `download-track`'s reuse-current
+   shortcut (could write a dead url to disk) and `track-menu-gate.isGatedReady` (ran gated actions on
+   a dead url instead of resolving first).
+
+**Expected effect:** worst case per dead track drops from ~35–56s to ~14s (6s watchdog + ≤8s walk).
+Backgrounded, the silent gap drops from 26s+foreground-wait to ~14s. And `prefetchNext` should now
+genuinely pre-validate the next track instead of rubber-stamping a stale url — which is the part
+that actually delivers "keep playing", and the part that CANNOT be verified without a device.
+
+**Known side effect (intended):** prefetch/prewarm will issue MORE re-resolves now that a stale url
+no longer short-circuits them. Each costs ~100ms against ~8.4s per strike for a dead url.
+
+**Still open:** the ~2.5s first-byte delay (H3) — an order of magnitude smaller than the walk, so
+deliberately not chased yet. And the up-next stability question below.
+
+## Up-next stability — investigated, NOT rebuilt
+
+User spec: the list must not reshuffle unless a song is tapped from OUTSIDE up-next / related /
+auto-generated up-next; an outside tap regenerates from that song using the up-next sourcing setting.
+
+Grep of every install site says this is ALREADY the implemented behavior:
+- up-next row tap (`NowPlaying.svelte:1579`) → `play(track, {fresh:false})`, no queue install
+- search / artist / album / library / home → `setListQueue(...)` then `play(t, {fresh:true})`
+
+Memory note `upnext-anchor-history-model` also warns the played-songs-stay-in-list model is already
+built and must not be rebuilt. So the reported symptom is likely a specific defect elsewhere, not a
+missing feature. AWAITING a precise observation from the user before touching it — deliberately not
+guessing, because rebuilding this would break behavior that is currently correct.
 
 ## Candidate fixes — NOT applied (each needs the capture to justify)
 
