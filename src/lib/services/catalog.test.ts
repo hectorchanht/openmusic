@@ -10,7 +10,7 @@ import {
 import { sleep } from '$lib/proxy/http';
 import { SOURCES } from '$lib/sources/registry';
 import { makeUid, type SourceId, type Track } from '$lib/sources/types';
-import type { ResolveEntry } from '$lib/proxy/resolve-cache';
+import { RESOLVE_URL_TTL_S, type ResolveEntry } from '$lib/proxy/resolve-cache';
 
 // 31-D-08: ensureTrackDetails now reads the edge resolve cache before resolving. Mocked here for
 // the WHOLE file and defaulted to a MISS (null), so every pre-existing suite keeps asserting the
@@ -465,18 +465,74 @@ describe('ensureTrackDetails (registry dispatch + readiness guard)', () => {
 		expect(out.lrc).toBe('[00:01]hi');
 	});
 
-	it('returns early (no resolve) when fully loaded', async () => {
+	it('returns early (no resolve) when fully loaded AND the url is fresh', async () => {
 		const t = mk('netease', 'n1', 1, {
 			detailsLoaded: true,
 			audioUrl: 'https://cdn/x.mp3',
 			lrc: '[00:01]hi',
-			lrcUrl: 'https://cdn/x.lrc'
+			lrcUrl: 'https://cdn/x.lrc',
+			resolvedAt: Date.now()
 		});
 		const spy = vi.spyOn(SOURCES.netease, 'resolve');
 
 		const out = await ensureTrackDetails(t);
 		expect(spy).not.toHaveBeenCalled();
 		expect(out).toBe(t);
+	});
+
+	// debug slow-cold-start-first-playing: the guard used to trust `detailsLoaded && audioUrl` with
+	// no age check, so a url `prefetchNext` filled minutes earlier was handed back as-is. CN audio
+	// urls are signed and short-lived, so that "38ms resolve" served an already-dead url and the
+	// player then burned ~8.4s per strike discovering it. Re-resolving costs ~100ms — always cheaper.
+	it('RE-RESOLVES a fully-loaded track whose url has aged past the trust window', async () => {
+		stubEmptySearches();
+		const stale = Date.now() - (RESOLVE_URL_TTL_S * 1000 + 1);
+		const t = mk('netease', 'n1', 1, {
+			detailsLoaded: true,
+			audioUrl: 'https://cdn/stale.mp3',
+			lrc: '[00:01]hi',
+			lrcUrl: 'https://cdn/x.lrc',
+			resolvedAt: stale
+		});
+		const spy = vi
+			.spyOn(SOURCES.netease, 'resolve')
+			.mockResolvedValue({ ...t, audioUrl: 'https://cdn/fresh.mp3', resolvedAt: undefined });
+
+		const out = await ensureTrackDetails(t);
+
+		expect(spy).toHaveBeenCalledOnce();
+		expect(out.audioUrl).toBe('https://cdn/fresh.mp3');
+		// …and the fresh result is stamped, so the NEXT call short-circuits instead of looping.
+		expect(out.resolvedAt).toBeGreaterThan(stale);
+	});
+
+	// An UNSTAMPED track is stale by construction — the safe default. Anything that acquired a url
+	// outside this seam has never been age-validated, so it must re-resolve rather than be trusted.
+	it('treats a missing resolvedAt as STALE and re-resolves', async () => {
+		stubEmptySearches();
+		const t = mk('netease', 'n1', 1, {
+			detailsLoaded: true,
+			audioUrl: 'https://cdn/x.mp3',
+			lrc: '[00:01]hi',
+			lrcUrl: 'https://cdn/x.lrc'
+		});
+		const spy = vi
+			.spyOn(SOURCES.netease, 'resolve')
+			.mockResolvedValue({ ...t, audioUrl: 'https://cdn/fresh.mp3' });
+
+		await ensureTrackDetails(t);
+		expect(spy).toHaveBeenCalledOnce();
+	});
+
+	// A fall-through (every source missed / aborted) returns the INPUT track untouched. Stamping it
+	// would mark a url this call never validated as freshly-verified — the exact bug, re-introduced.
+	it('does NOT stamp resolvedAt when the resolve falls through unresolved', async () => {
+		stubEmptySearches();
+		const t = mk('netease', 'n1', 1, { detailsLoaded: false, audioUrl: null });
+		vi.spyOn(SOURCES.netease, 'resolve').mockResolvedValue({ ...t, audioUrl: null });
+
+		const out = await ensureTrackDetails(t);
+		expect(out.resolvedAt).toBeUndefined();
 	});
 
 	it('forwards an explicit per-call quality to the adapter resolve (WR-07 download path)', async () => {
@@ -1251,7 +1307,8 @@ describe('ensureTrackDetails — edge resolve cache (32-D-10 / 32-D-10b)', () =>
 				detailsLoaded: true,
 				audioUrl: 'https://cdn/x.mp3',
 				lrc: '[00:01]hi',
-				lrcUrl: 'https://cdn/x.lrc'
+				lrcUrl: 'https://cdn/x.lrc',
+				resolvedAt: Date.now() // guard now requires FRESH, not merely present
 			});
 
 			const out = await ensureTrackDetails(t);

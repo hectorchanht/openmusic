@@ -40,6 +40,14 @@ export interface Track {
 	/** Netease only — separate URL fetched in resolve(). */
 	lrcUrl: string | null;
 	detailsLoaded: boolean;
+	/** `Date.now()` when `audioUrl` was last filled by a resolve (stamped at the ONE
+	 *  `ensureTrackDetails` seam). Drives the readiness guard's freshness check: CN audio urls are
+	 *  SIGNED and short-lived, so a track prefetched minutes ago holds a url that is already dead.
+	 *  `undefined` = never stamped = treat as STALE (the safe default — a re-resolve costs ~100ms,
+	 *  a dead url costs ~8.4s of strike/stall before the player routes past it).
+	 *  NOT in the serializeTrack whitelist: persist already nulls `audioUrl` + resets
+	 *  `detailsLoaded`, so a restored track re-resolves regardless. */
+	resolvedAt?: number;
 	quality: string | null;
 	qualityLabel: string | null;
 	/** Search keyword — QQ/JOOX detail calls need it. */

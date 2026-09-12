@@ -12,6 +12,7 @@ import { matchKey } from './match-key';
 import { scoreMatch } from './score-match';
 import { dedupeBest, sameSongKey } from './dedupe';
 import { readResolveCache, registerServedResolve } from './resolve-cache-client';
+import { RESOLVE_URL_TTL_S } from '$lib/proxy/resolve-cache';
 import { logAction } from '$lib/stores/actionLog.svelte';
 // 32-D-20: the cached url is filled at ONE tier (lossless), so the read gate and the adoption gate
 // both need the caller's EFFECTIVE tier. Same leaf-store + pure-helper pair sources/qq.ts uses.
@@ -338,22 +339,69 @@ async function resolveFromCachedMid(
 }
 
 /**
+ * How long an in-memory resolved `audioUrl` is trusted by the readiness guard.
+ *
+ * REUSES `RESOLVE_URL_TTL_S` (15 min) rather than inventing a second number: that constant already
+ * means exactly "how long a signed CN audio url is trusted", and the edge bakes the same window into
+ * `urlExp`. The client-side guard and the edge entry must not drift apart — one knob, both seams.
+ */
+const RESOLVED_URL_MAX_AGE_MS = RESOLVE_URL_TTL_S * 1000;
+
+/**
+ * Freshness half of the readiness guard (debug `slow-cold-start-first-playing`).
+ *
+ * MEASURED ROOT CAUSE: the legacy guard trusted `detailsLoaded && audioUrl` with NO age check, so a
+ * url filled by `prefetchNext` minutes earlier was handed straight back to `play()`. An on-device
+ * action log showed that path "resolving" in 38ms with `hasUrl:true` and then burning ~20s in
+ * stall → audio.error → strike → advance, because the signed url had long since expired upstream.
+ *
+ * `undefined` is STALE by construction: the field is only ever stamped by `ensureTrackDetails`, so
+ * anything that reached a url another way re-resolves. Re-resolving costs ~100ms (measured); serving
+ * a dead url costs ~8.4s per strike. The asymmetry is the whole argument for defaulting to stale.
+ */
+function hasFreshUrl(track: Track): boolean {
+	return (
+		typeof track.resolvedAt === 'number' && Date.now() - track.resolvedAt < RESOLVED_URL_MAX_AGE_MS
+	);
+}
+
+/**
  * Lazily resolve a track's audioUrl + lyrics through its source adapter.
  *
  * Dispatches via `SOURCES[track.source]` (registry, no source named — DATA-04) and
- * preserves the monolith readiness guard VERBATIM (legacy 2507): a track that is
- * loaded, has an audioUrl, and either has lyrics or never had an `lrcUrl` is
- * already complete. Netease resolves `lrc` from a separate `lrcUrl`, so a track
+ * preserves the monolith readiness guard (legacy 2507) — a track that is loaded, has an audioUrl,
+ * and either has lyrics or never had an `lrcUrl` is already complete — with ONE addition: the url
+ * must also be FRESH (`hasFreshUrl`). Netease resolves `lrc` from a separate `lrcUrl`, so a track
  * with an unresolved `lrcUrl` still re-resolves.
+ *
+ * This wrapper owns the guard and the `resolvedAt` stamp so both live at exactly ONE seam, the same
+ * discipline the cache read and the cross-source lyric tail already follow. `resolveTrackDetails`
+ * below is the unchanged body and has several return paths; stamping here covers all of them
+ * (cache url hit, mid shortcut, name stub, cold adapter walk) without touching any of them.
  */
 export async function ensureTrackDetails(
 	track: Track,
 	signal?: AbortSignal,
 	quality?: DefaultQuality
 ): Promise<Track> {
-	if (track.detailsLoaded && track.audioUrl && (track.lrc || !track.lrcUrl)) {
+	if (track.detailsLoaded && track.audioUrl && (track.lrc || !track.lrcUrl) && hasFreshUrl(track)) {
 		return track;
 	}
+	const resolved = await resolveTrackDetails(track, signal, quality);
+	// Stamp ONLY when this call actually produced a url. A fall-through (abort, every source missed,
+	// an unresolved name stub) returns the input track untouched and must stay unstamped, or the next
+	// caller would trust a url this call never validated.
+	if (resolved.audioUrl && resolved !== track) {
+		resolved.resolvedAt = Date.now();
+	}
+	return resolved;
+}
+
+async function resolveTrackDetails(
+	track: Track,
+	signal?: AbortSignal,
+	quality?: DefaultQuality
+): Promise<Track> {
 	const sig = signal ?? new AbortController().signal;
 
 	// ─── 31-D-08 CACHE-FIRST READ ────────────────────────────────────────────────────────────────
