@@ -4,7 +4,7 @@ slug: slow-cold-start-first-playing
 status: investigating
 trigger: "撳落去要等幾秒先開聲 — slow time from tap to first audible sound. Goal: cut tap → first `playing` event latency. Platform: Android Chrome / PWA. Companion symptom (mid-song stop, background/locked only) deferred to a separate session by user decision."
 created: 2026-09-12
-updated: 2026-09-12T00:50
+updated: 2026-09-12T11:00
 ---
 
 # Debug: slow tap → first `playing` (cold path 34.7s, warm path bimodal 220ms vs 3.4s)
@@ -84,6 +84,32 @@ Repo-known loop classes, check for regression rather than rediscovery: audio.err
 - expecting: H1 → `stall.retry` line present in the 3 s cases; H2 → first `progress` quick but `canplay` late (bytes trickling); H3 → `loadstart` immediate but first `progress` ~2.5–3 s late while the CDN TTFB is ~0.35 s.
 - next_action: DONE — instrumentation committed locally (player.svelte.ts driveSrc `src.set` + attach() `media.*` one-shot lines + `playing.ms`; vitest green, `pnpm check` clean). NOT pushed (auto-deploy). CHECKPOINT (human-action): user pushes/deploys, reproduces one fast + one slow start on device, exports the Activity log. On resume: read the `src.set` → `media.*` → `playing` lines for the slow cases and pick H1/H2/H3 per `expecting` above.
 - known_pattern_candidate: none in knowledge-base (file absent).
+
+## Fix applied — stale-url readiness guard (2026-09-12, commit 3382300)
+
+CONFIRMED secondary cause, fixed independently of H1/H2/H3 (which still need the device capture).
+
+**Root cause:** `ensureTrackDetails` (catalog.ts) trusted `detailsLoaded && audioUrl` with NO age
+check. `prefetchNext` fills `audioUrl` ahead of time; CN audio urls are signed and short-lived, so a
+track played minutes after its prefetch got a dead url back in 38 ms and the player then spent
+~8.4 s per strike discovering it. This is the mechanism behind the cold case's first ~20 s.
+
+**Fix:** added `Track.resolvedAt`, stamped at the ONE `ensureTrackDetails` seam via a thin wrapper
+(covers all four resolve return paths — cache url hit, mid shortcut, name stub, cold adapter walk —
+without editing any of them). Guard now also requires `hasFreshUrl`. Reuses `RESOLVE_URL_TTL_S`
+(900 s) rather than a second constant: that name already means "how long a signed CN audio url is
+trusted" and the edge bakes the same window into `urlExp`, so the two seams cannot drift.
+
+Unstamped = STALE by construction (re-resolve ~100 ms vs ~8.4 s per strike — the asymmetry is the
+whole argument). NOT added to the `serializeTrack` whitelist: persist already nulls `audioUrl` and
+resets `detailsLoaded`, so a restored track re-resolves regardless.
+
+**Gates:** `pnpm check` 4413 files 0 errors · `pnpm test` 1960/1960 (3 new) · `pnpm build` clean.
+**Scope:** does not touch the external-pause/resume path, `recoverLoadStall`, the `driveSrc` brake,
+or prefetch/prebuffer — no overlap with the seven open mid-song-stop sessions' live fixes.
+**Unverified on device.** Expected effect: removes the stale-prefetch penalty from the cold path.
+It does NOT address the bimodal ~120 ms vs ~3 s warm gap — that is still H1/H2/H3, still needs the
+capture.
 
 ## Candidate fixes — NOT applied (each needs the capture to justify)
 
