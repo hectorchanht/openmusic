@@ -133,6 +133,7 @@ Remaining human UAT: real-device <audio> playback+seek + download-to-disk; deplo
 ## Accumulated Context
 
 ### Roadmap Evolution
+- Phase 33 added: Activity-log upload for automated diagnosis — removes the manual capture/paste loop that has gated every device-verified fix
 
 - Phase 14 added: Search & Data Responsiveness — first-load search skeleton, search query+results preserved across navigation, default audio quality 128–160kbps, TTL query cache for search/discovery (off-milestone UX/playback polish; not part of v1.1 Last.fm)
 - Phase 15 added: Now-Playing Shared-Element Expand/Collapse — swipe-up nowbar→full expand mirroring swipe-down collapse; cover/title/artist morph between positions driven by drag progress, with blur during drag (off-milestone UX polish; UI-spec recommended)

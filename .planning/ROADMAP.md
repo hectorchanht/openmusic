@@ -295,3 +295,13 @@ Scope (raw, pre-planning):
 - **Seamless next song under FLAC weight.** 933kbps ≈ 7MB/min. The existing prefetch/prebuffer (`prefetchNext`, the bounded blob pre-buffer, `prebufferedUid`) was tuned against ~98kbps m4a. Re-tune, or gate the prebuffer by tier/connection, so lossless does not starve the ~6-connection pool and re-trigger the fetch-flood class of freeze the `apiFetch` governor was built for.
 - **Keep the ladder.** tang is one unmaintained free API (upstream's own latest commit is them fixing a peer provider that died). The existing kuwo/netease cross-source fallback must still catch a tang outage, degrading quality rather than failing playback. A second lossless provider is tracked separately as Q1 in `.planning/research/questions.md`.
 - **Do NOT re-architect the post-resolve tail.** Measured and cleared: `player.svelte.ts:2892-3033` already sets `audio.src` + `play()` immediately after the resolve, with only synchronous localStorage/MediaSession work in between; covers, lyrics, prefetch and `ensureAhead` all run after playback starts. The spinner is the resolve, nothing else.
+
+### Phase 33: Activity-log upload for automated diagnosis
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 32
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 33 to break down)
