@@ -89,12 +89,15 @@ _v1.5 — source-aware similar + top-hits fallback_
 
 **Goal:** Make the "generate by similar songs" up-next builder **source-aware** so a YTMusic-only seed (repro: 摩四老年《港耆》) yields genuine related tracks from YouTube Music's watch-next/radio queue instead of silently falling back to unrelated picks — and replace the last-resort empty-similar fallback so it draws from real top/chart hits rather than a random hard-coded artist pool. Diagnosis: [`.planning/debug/upnext-similar-empty-fallback.md`](debug/upnext-similar-empty-fallback.md) — `buildSimilarQueue` ([`similar.ts:173`](../src/lib/services/similar.ts)) is structurally source-blind (all 3 tiers key on seed `artist`/`title` strings vs Last.fm/Deezer/CN; never reads `track.source`/`track.songid`), so a YT-only seed returns `[]` and both callers (`regenerate()` [`player.svelte.ts:3077`](../src/lib/stores/player.svelte.ts), `ensureAhead()` [`player.svelte.ts:2011`](../src/lib/stores/player.svelte.ts)) silently substitute `buildDiversePicks` random `ARTIST_POOL` ([`picks.ts:9`](../src/lib/services/picks.ts)). Transport already exists: `innerTubePost` → `NEXT_URL` (`youtubei/v1/next`, [`proxy/ytmusic.ts:59`](../src/lib/proxy/ytmusic.ts)), already called by the lyrics route which discards the watch-next rows it carries.
 **Requirements:**
+
 - **UPNEXT-YT-01** — YTMusic related/watch-next source: parse the `NEXT_URL` watch-next queue → `Track` stubs; expose via a source method (`ytmusic.related(videoId)`) + route (new `/api/ytmusic/related` or lyrics-route extension), reusing the existing `innerTubePost`/`NEXT_URL`/`getVisitorData` transport.
 - **UPNEXT-YT-02** — Source-aware branch in `buildSimilarQueue`/`regenerate`: when `seed.source === 'ytmusic'`, use `seed.songid` (videoId) against the YTMusic related path before/instead of the string-keyed Last.fm tiers; honor `autoResolveEligible: false` for resulting stubs.
 - **UPNEXT-FB-01** — Replace the `buildDiversePicks` random `ARTIST_POOL` last-resort fallback with a **top/chart-hits** fallback so the genuinely-empty case still offers broad, real-popular options (not random noise).
 - **UPNEXT-YT-03** — Never-throw + graceful degrade (empty → existing fallback chain); zero regression to CN-seed similar behavior; `pnpm test` green + `pnpm check` clean.
+
 **Depends on:** Phase 27 (YouTube Music Source) — reuses its edge proxy transport (`proxy/ytmusic.ts`) + adapter/registry wiring.
 **Plans:** 3 plans
+
 - [ ] 28-01-PLAN.md — YTMusic related/watch-next edge parser (`parseWatchNextQueue`) + `/api/ytmusic/related` route [wave 1]
 - [ ] 28-02-PLAN.md — source-aware `buildSimilarQueue` YT-seed branch + `ytmusicRelated` client service [wave 2]
 - [ ] 28-03-PLAN.md — `buildTopHitsQueue` fallback + swap both `buildDiversePicks` player call sites [wave 3]
@@ -105,14 +108,17 @@ _v1.5 — controlled filename · media-page bug fix · per-song state · native 
 
 **Goal:** Overhaul the download experience. Control the saved filename ourselves — `{artist} - {song}.{ext}` run through the display-name translation (`names.dnArtist`/`names.dnTitle`, so a zh-Hant user gets a zh-Hant filename), never the provider's name. Fix the "clicking download opens a media playing page" bug (a failed save currently does `window.open(audioUrl)` at [`TrackMenu.svelte:230`](../src/lib/components/TrackMenu.svelte) + the album twin). Give each song its own download state via a reactive `library.downloading` `Set<uid>` — a per-song spinner then a greyed, disabled "Downloaded" — on every track row (`CompactRow`, library, album, ⋮ menu), so downloading song A never spins song B. On **native** (Capacitor Android), land public downloads in `Download/openmusic/` instead of today's `Music/OpenMusic/` (folder hardcoded in [`MediaStoreSaverPlugin.kt:51`](../android/app/src/main/java/com/openmusic/app/MediaStoreSaverPlugin.kt) + legacy 178–179) with no per-download location prompt, and add a Settings → Data migration button that moves already-downloaded files into the new folder, rewrites the `openmusic-blob-uri:<uid>` index ("remap"), and switches all future read/write there. **Platform split (locked in [`29-CONTEXT.md`](phases/29-download-ux-folder-control/29-CONTEXT.md)):** native owns the folder + migration (a browser cannot pick a save folder or read/move files); the web PWA gets filename + bug-fix + per-song state, best-effort into the browser Downloads root. Existing never-throws + download-isolation contracts (quick-260625-pzs-04) preserved.
 **Requirements:**
+
 - **DL-FILE-01** — Controlled, translated filename: one shared pure helper (`download-filename.ts`) builds `{artist} - {song}.{ext}` from `names.dnArtist`/`names.dnTitle` (raw fallback when a translation isn't cached), extension from the resolved audio; called by TrackMenu, album download, and the native public-filename path (`blob-store.nativeFileName`, today `<uid>.mp3`). App-private offline copy stays uid-keyed.
 - **DL-BUG-01** — Remove the `window.open(audioUrl)` fallback in `TrackMenu.doDownload` + `album.downloadAlbum`; drop `showSaveFilePicker` (prompts every time). On save failure: toast + keep the song in the Library Downloads reference list — never navigate to the stream.
 - **DL-STATE-01** — Reactive per-uid downloading state (`library.downloading: Set<string>` with begin/end helpers); every track-row download affordance renders idle → spinner (`downloading.has(uid)`, disabled) → greyed "Downloaded" (`library.isDownloaded(uid)`, disabled). Rollout: `CompactRow`, library-page rows, album-page rows, ⋮ menu Download row. New i18n key `menu.downloaded` across all 16 locales.
 - **DL-FOLDER-01** — Native public download target moves to `Download/openmusic/` (Kotlin `DIRECTORY_DOWNLOADS/openmusic/` API 29+ + legacy path), no location prompt. Web degrades to the browser Downloads root.
 - **DL-MIGRATE-01** — Settings → Data native-only migration button: new `MediaStoreSaver.relocateToDownloads` Kotlin method moves existing public files `Music/OpenMusic/` → `Download/openmusic/`, rewrites each `openmusic-blob-uri:<uid>` entry, switches future writes; idempotent, per-uid graceful failure, app-private copies untouched.
 - **DL-RESILIENCE-01** — All new native filesystem/MediaStore paths keep the never-throws contract (degrade to CDN re-stream, never crash the player); download work never mutates player state (isolation contract); `pnpm test` green + `pnpm check` clean.
+
 **Depends on:** Phase 999.1 (native Capacitor migration) — reuses its `blob-store.ts` native branch + hand-written `MediaStoreSaverPlugin.kt` MediaStore bridge, both extended here.
 **Plans:** 4/6 executed — **web scope COMPLETE** (29-01…04); native plans 29-05/29-06 **DEFERRED** (user: web-only for now, 2026-07-23). The web app fully delivers filename control + translation (DL-FILE-01), the media-page bug fix (DL-BUG-01), and per-song loading + greyed "Downloaded" (DL-STATE-01). The Android `Download/openmusic/` folder (DL-FOLDER-01) + migration button (DL-MIGRATE-01) remain for a future native pass — plans are written + de-risked, resume via `/gsd:execute-phase 29`.
+
 - [x] 29-01-PLAN.md — Pure download helpers: `download-filename.ts` (translated `{artist} - {song}.{ext}` + `extFromAudioUrl`) + `download-save.ts` (anchor save, no `window.open`/`showSaveFilePicker`) + tests (DL-FILE-01/DL-BUG-01) [wave 1]
 - [x] 29-02-PLAN.md — `library.downloading` reactive per-uid Set + begin/end helpers + `menu.downloaded`/migration i18n keys across all 16 locales (DL-STATE-01/DL-MIGRATE-01) [wave 1]
 - [x] 29-03-PLAN.md — Shared `downloadTrack` service (isolation-safe, never-throws, no navigation) + `blobStore.put(uid, blob, filename?)` param (DL-FILE-01/DL-BUG-01/DL-STATE-01) [wave 2]
@@ -137,6 +143,7 @@ _v1.5 — every query carrier removed from every share surface_
 **Three findings de-risk this.** (1) Path segments are **not** ASCII-limited — `slugify` ASCII-strips, but a raw-UTF-8 path segment (`/song/周杰倫/稻香`) is valid, percent-encoded on the wire and shown decoded by browsers and messenger previews, so the path can carry the *authoritative* title+artist rather than a lossy cosmetic slug. (2) Two segments make `/` the separator, so the single-segment separator-ambiguity problem simply ceases to exist. (3) The song share page **never renders the carried cover** (it draws `cover--placeholder`, a gradient), so dropping `c` regresses zero in-app behavior. SSRF posture also gets **tighter**: input becomes path text instead of an arbitrary https URL from the sharer's client, and output still passes the `safeImageUrl` host allowlist.
 
 **Requirements:**
+
 - **OG-PATH-01** — New two-segment routes `/song/[artist]/[title]` and `/album/[artist]/[name]` (artist stays `/artist/[name]`), each a per-route `ssr = true` / `prerender = false` opt-in exactly like the current entity routes — **never** a `+page.server.ts` (that breaks the `adapter-static` native build, Pitfall 5 / T-24-09). Segments carry raw text with **original case preserved** and spaces as `-`. Case-preserving is deliberate: the OG card title is read straight from the path, so lowercasing would force a title-case reconstruction that renders `DNA` as `Dna`. Known lossy edge: a literal hyphen in a title decodes as a space (`Spider-Man` → `Spider Man`), absorbed by `playStub`'s fuzzy `scoreMatch`.
 - **OG-PATH-02** — `songShareUrl` and `entityCardUrl` emit the new shapes and set **no query params at all** (`c`, `n`, `a`, `artist`, and — pending OG-ZH-01 — `dn`/`da` all gone). Resolution still runs through the existing `playStub` / `getAlbumTracklist` path, now keyed off the decoded segments.
 - **OG-EP-01** — New `src/routes/api/og/+server.ts` (`GET ?type=song|album|artist&artist=&title=`) resolving the cover through a **tiered, bounded** chain: Deezer → iTunes → **kuwo only** → stream `/og.svg`. kuwo, not `searchAll` fan-out (per `spike-findings-openmusic` kuwo-first) — that caps the route at ≤3 subrequests so a cold crawl stays inside every crawler's fetch budget. Per-tier `AbortSignal.timeout` under one overall ~2.5s deadline; a miss or timeout falls through to the branded `/og.svg` — the route **never** 500s and never exceeds the crawl budget.
@@ -227,6 +234,7 @@ Plans:
 - [x] 26-03-PLAN.md — New /api/lastfm/similar-tracks (track.getSimilar) route + buildSimilarQueue rewrite 56→1, lazy kuwo-first stubs (UPNEXT-01) [wave 2, depends 26-01]
 
 Gap-closure plans (UAT 2026-07-11 — 6 diagnosed gaps; `/gsd:execute-phase 26 --gaps-only`):
+
 - [x] 26-06-PLAN.md — [BLOCKER] click-to-play resolve watchdog: stalled/null initial resolve routes into the kuwo-first cross-source walk + auto-skip (RESOLVE-02) [wave 1]
 - [x] 26-07-PLAN.md — Up-Next service+edge: CR-01 post-filter fallback gate + report(via) callback; /api/lastfm/similar-tracks image passthrough; seed stub covers (UPNEXT-01/COVER-01) [wave 1]
 - [x] 26-08-PLAN.md — Gap-4/5 foundation: lazy on-demand fetchVariants (single fan-out) + VersionPicker loading state + intra-source dedup & distinguishing version label (album/(Live)/(Demo)/(Cover)) so variants aren't N identical rows + i18n (VERSIONS-01) [wave 1]
@@ -235,6 +243,7 @@ Gap-closure plans (UAT 2026-07-11 — 6 diagnosed gaps; `/gsd:execute-phase 26 -
 - [x] 26-11-PLAN.md — [Gap-6] JOOX identity self-heal: on a stale n-index mismatch, re-locate the song by its stable songmid (one keyword re-search → corrected n → detail); unrecoverable mismatch returns UNRESOLVED (never throws) → routes into the null-resolve → runFallback → skip path, so a version pick never sticks a nowbar error (VERSIONS-01/RESOLVE-02) [wave 1]
 
 Scope (candidate plans — plan-phase breaks these down):
+
 - [ ] **Kuwo-first resolve/fallback chain** — reorder `kuwo → qq → netease → joox → (fivesing/audius/jamendo)`; single-source resolve on click; cross-source failover walks the chain, no re-search (`registry.ts`, `catalog.ts`, `player.svelte.ts`)
 - [ ] **Source-embedded cover on the hot path** — use kuwo/qq/netease inline cover immediately; lazy Deezer HQ upgrade; run the Deezer→iTunes→CN chain only for coverless joox/fivesing (`cover-backfill.ts`, player cover seam)
 - [ ] **Up-Next via `track.getSimilar`** — new `/api/lastfm/similar-tracks` edge route; rewrite `buildSimilarQueue` (56 calls → 1); exact name+artist stubs, lazy single-source resolve, `match`-ordered; artist-hop fallback resolved single-source; bound `crossSourceLyric` to one fetch (`similar.ts`, `catalog.ts`)
@@ -249,18 +258,21 @@ Scope (candidate plans — plan-phase breaks these down):
 **Plans:** 6/6 plans complete
 
 Scope (raw, pre-planning):
+
 - **Click-to-play latency** — cut time from tap to first audio. Resolve path, prefetch, warming the next track's URL before it's needed.
 - **Next-song failures** — harden auto-advance/prefetch so a stale or dead resolved URL doesn't produce a silent failure or a skip.
 - **Downloaded-song fallback** — when a downloaded blob is missing/corrupt, treat the track like any un-downloaded track and run the full multi-resolver chain instead of skipping it (`player.svelte.ts` offline-first branch).
 - **Open architecture question (settle in discuss):** does an edge-side store make playback faster — caching resolved audio URLs, cover/match data, or source-availability hints — and if so which store, what TTL, what invalidation, given CN source URLs expire.
 
 **CF infra recon (2026-08-09, via Cloudflare API):**
+
 - `open-music-db` D1 (`a14554d5-7190-440a-b4f4-23ec93dfb4b4`, created 2026-05-09) exists with **0 tables** and is **not bound** to the Pages project.
 - `open-music-audio` R2 bucket (created 2026-05-09) exists and is **not bound** either.
 - **No KV namespace** for openmusic. Pages production config carries only `JAMENDO_CLIENT_ID` + the three secrets — no `d1_databases`/`r2_buckets`/`kv_namespaces` bindings.
 - So: "do we need a CF DB" is really "do we wire up the D1/R2 that were already provisioned and abandoned, or is Cache API (already used by `/api/og`) enough." Cache API is the cheapest rung; D1/R2 only if a cross-user, cross-PoP durable store is genuinely required.
 
 Plans:
+
 - [x] 31-01-PLAN.md — corrupt-download self-repair: blob size gate, provenance flag, eviction + background re-download (D-12/13/14) [wave 1]
 - [x] 31-02-PLAN.md — reliability policy: cross-source retry before skip, forgiving strikes, skip toasts (D-15/16/17/18) [wave 2]
 - [x] 31-03-PLAN.md — `/api/resolve` edge cache: versioned `caches.default` entry, edge-side fill, delete-only bust (D-06/07/09/10) [wave 1]
@@ -276,6 +288,7 @@ Plans:
 **Plans:** 8/9 plans executed
 
 Plans:
+
 - [x] 32-01-PLAN.md — effectiveQuality() seam: 'auto' = lossless-on-wifi / 320 otherwise; default flip '128'→'auto'; kuwo/joox routed (D-02/D-03/D-04)
 - [x] 32-02-PLAN.md — SOURCE_RANK qq↔netease swap (the latency lever, D-08) + apiUrl absolute-URL guard (D-13)
 - [x] 32-03-PLAN.md — CHECKPOINT: real-device tang RTT measurement, wave 1 (D-10b) — **measurement DEFERRED at user request; headline UNVERIFIED.** Verify Phase 32 on "lossless by default with NO ADDED latency vs Phase 31", NOT on the absolute "tap→audio under a second" (see 32-03-SUMMARY.md)
@@ -287,6 +300,7 @@ Plans:
 - [x] 32-09-PLAN.md — D-20 two-layer entry: short-TTL url beside the permanent mid (VERSION '3'), edge refresh-on-read refill, client url→songid→cold-walk order, poisoned-hit fall-through pinned; runs AFTER 32-05, BEFORE 32-07 (32-07 conceptually moves to wave 4)
 
 Scope (raw, pre-planning):
+
 - **Lossless by default.** `defaults.ts:82` `defaultQuality: '128'` selects `song_play_url_standard` = a measured **98kbps** — below the 128–160k band D-03 claims. Make the streaming default reach the `song_play_url_sq` (933kbps FLAC) rung that `downloadQuality: 'lossless'` already proves works. Requires an `http:`→`https:` upgrade on the returned URL (host serves https fine: `206`, `audio/x-flac`, 0.31s to first bytes; raw `http:` is mixed-content-blocked on our origin).
 - **Drop the proxy hop for the CORS-open sources.** `tang.api.s01s.cn` and `oiapi.net/api/Kuwo` both answer `access-control-allow-origin: *` and need no edge-injected secret. Measured cost of the hop: `/api/qq/detail` 3.9–4.7s vs 2.0–3.8s direct. `sources/qq.ts:6` documents the same-origin proxy as a deliberate divergence from the monolith — revisit that decision for these two sources only (JOOX keeps its proxy; `JOOX_TOKEN` must stay edge-side).
 - **Resolve on `mid` alone.** Measured: `msg` is IGNORED by the detail endpoint — `mid` alone returns the full ladder (verified with a deliberately wrong `msg`). Strip the `qqSearchKey`/`keyword` threading from `sources/qq.ts` and the detail URL. QQ resolve becomes exactly one call.
@@ -304,10 +318,21 @@ Scope (raw, pre-planning):
 **Plans:** 7 plans
 
 Plans:
+**Wave 1**
+
 - [ ] 33-01-PLAN.md — pure helpers: `bearerMatches` (fail-closed digest compare) + `screenLogPayload`/`diagKey`/`isDiagKey` (D-05 screen reusing parseActionLog), with tests (D-01/D-03/D-05)
 - [ ] 33-02-PLAN.md — shared seams: `Authorization` in CORS Allow-Headers + test; `Env`/`App.Platform.env` typing of `DIAG`/`DIAG_UPLOAD_TOKEN`/`DIAG_READ_TOKEN`; `wrangler.jsonc` R2 binding `DIAG` → `openmusic-diag` (D-03/D-07)
 - [ ] 33-03-PLAN.md — 5 i18n keys × 15 locales, double-quoted (D-06)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 33-04-PLAN.md — `src/routes/api/diag/+server.ts`: POST upload / GET list / GET ?key= fetch-one, endpoint test matrix, dev-server 401-not-500 smoke (D-01/D-02/D-03/D-05/D-07)
 - [ ] 33-05-PLAN.md — "Upload log" button + `uploadLog()` on Settings → Activity log via apiFetch, prompt-once token (D-03/D-04/D-06)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 33-06-PLAN.md — CHECKPOINT: wrangler re-auth on the openmusic account, enable R2, create bucket, set both Pages secrets (D-03/D-07)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 33-07-PLAN.md — CHECKPOINT: approve push → deploy → Tier-2 curl matrix on openmusic.lol → Tier-3 phone upload / laptop fetch
