@@ -93,3 +93,42 @@ Do not assume the full multi-user build. Ask.
 - Gates: `pnpm check` + `pnpm test` (no linter). Baseline **2023** tests green.
 - **Pushing to main AUTO-DEPLOYS to production** (openmusic.lol) — never push without asking.
 - Secrets live only in Cloudflare `platform.env`, injected edge-side — never in the client bundle.
+
+<decisions>
+## Implementation Decisions (locked 2026-09-12, planning gate)
+
+These answer the two questions this document flagged as "put this to the user in planning".
+
+- **D-01 — v1 is SINGLE-USER.** Only the maintainer can upload. Upload is gated by a secret
+  the maintainer holds; there is no public unauthenticated write path. Explicitly OUT of scope
+  for this phase: multi-user consent UX, a retention policy, a user-facing delete path,
+  pseudonymous per-user identity, and per-user rate limiting. Rationale: single-user unblocks
+  the debugging loop immediately — the actual goal — and defers the entire privacy and abuse
+  surface to a later milestone without losing anything the stated need requires.
+
+- **D-02 — Retrieval is TOKEN-GATED list + fetch endpoints.** A list endpoint and a
+  fetch-one endpoint under `/api/`, both requiring a bearer token. Copy-paste is removed:
+  the log is fetched directly. No unguessable-share-URL scheme, no wrangler-CLI-only path.
+
+- **D-03 — The upload token and any read token live ONLY in Cloudflare `platform.env`,**
+  injected edge-side, never in the client bundle. Same rule as `JOOX_TOKEN` / `LASTFM_SECRET`.
+
+- **D-04 — Upload is an EXPLICIT user action.** Never automatic, never on a timer, never on
+  app start, never retried in the background. Guards against the three recorded fetch-flood
+  freeze incidents (`api-fetch-flood-freeze`).
+
+- **D-05 — Size cap and input validation are server-side,** following the
+  `proxy/safe-image-url.ts` precedent (screen → parse → validate, with tests). A malformed or
+  oversized body is rejected at the edge before storage. Applies even under D-01 — an
+  authenticated endpoint is still a validated one.
+
+- **D-06 — No UI-SPEC.** The client surface is a single control on the existing Settings →
+  Activity log screen, reusing established Settings component and `use:tapBounce` patterns.
+  Every new user-facing string MUST be added to all 16 `src/lib/i18n/*.ts` dictionaries with
+  DOUBLE quotes — a missing key is a compile error.
+
+- **D-07 — Storage backend is Claude's discretion,** to be chosen in RESEARCH.md from
+  R2 / KV / D1 / Durable Objects against Cloudflare **free-tier** limits for payloads of
+  ~1,500 entries / several hundred KB. Free-tier fit decides it, not elegance.
+
+</decisions>
