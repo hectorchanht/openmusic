@@ -1374,10 +1374,22 @@ class Player {
 			this.stallRetried = true;
 			logAction('stall.retry', { uid: this.current.uid });
 			void this.reresolveCurrent(); // retry the SAME song ONCE (fresh URL + re-attach)
+			// stall-kills-healthy-tracks: reresolveCurrent deliberately arms no watchdog (D-14, it is a
+			// seek-recovery re-attach), and the foreground `stalled` listener no longer acts — so re-arm
+			// here or a foreground silent hang on the RETRIED src would have no second signal and never
+			// reach the skip below. Same playGen: a real `playing` / `error` / newer play() disarms it.
+			this.armStall();
 			return;
 		}
 		logAction('stall.skip', { uid: this.current.uid });
 		this.playing = false;
+		// stall-kills-healthy-tracks (B): ONE strike + the skip toast, deliberately NOT a promotion to
+		// unplayableUids (the ✗ row). The user read "skipped but no ✗" as a contract breach; it is not:
+		// ✗ = STRIKE_CAP confirmed-definitive failures (31-D-16 — a 15s+15s silent hang is a probable
+		// failure, not a confirmed one; forcing ✗ would sideline a track for the session on one network
+		// blip, the exact regression 31-D-16 / HUO-RETRY were written against). The VISIBLE half of a
+		// live skip is emitSkipNotice (31-D-18), identical to the error-ceiling path. The real defect was
+		// that this skip fired on healthy tracks at all — fixed at the `stalled` listener.
 		this.strikeUnplayable(this.current.uid);
 		// 31-D-18: the user is looking at a song stuck on the loading line — say that it was dropped.
 		// Same batched channel as every other visible skip. Deliberately does NOT touch failoverSkips:
@@ -1875,7 +1887,17 @@ class Player {
 		// in a hidden/locked tab, so it rescues the silent bg byte-load hang that produces no `audio.error`
 		// and that armStall's throttled timer misses. Only act on an INITIAL-load stall (before the src
 		// ever produced audio); a mid-track buffer dip after playback started is left to the browser.
+		//
+		// stall-kills-healthy-tracks (device capture 2026-09-12): BACKGROUND ONLY. Chrome fires `stalled`
+		// ONCE per load, ~3s after the last progress — with no bytes yet that is ~3.2s after src.set,
+		// while this device's normal first-byte is 1.8–2.9s. Acting on it in the FOREGROUND executed
+		// healthy tracks: ten stalls in a 24ms band across five sources, all rs:0, each retried (the
+		// re-attach destroys the in-flight load) then skipped, no ✗ drawn. The foreground already has the
+		// un-throttled STALL_TIMEOUT_MS watchdog armed at every src-set, and a dead URL fires `error` —
+		// so here `stalled` is observability only (logMedia above). It stays the trigger while hidden,
+		// where recoverLoadStall's PARK / audibleThisHide guards discriminate.
 		el.addEventListener('stalled', () => {
+			if (typeof document === 'undefined' || !document.hidden) return;
 			if (!this.hasPlayedSinceSrc) this.recoverLoadStall();
 		});
 		el.addEventListener('timeupdate', () => {

@@ -2690,6 +2690,51 @@ describe('player resilience — stall watchdog (PLAY-07 / D-13/D-14)', () => {
 		expect(reresolveSpy).toHaveBeenCalledTimes(1); // fg retry of the SAME song, not a skip
 		expect(player.play).not.toHaveBeenCalled();
 	});
+
+	// ── stall-kills-healthy-tracks (device capture 2026-09-12, FOREGROUND) ─────────────────────────
+	// Chrome fires `stalled` ONCE per load, ~3s after the last progress — with no bytes yet that is
+	// ~3.2s after src.set. Device first-byte is 1.8–2.9s, so the event overlaps the HEALTHY
+	// distribution: ten stalls landed in a 24ms band across five sources, every one rs:0, and each
+	// healthy track was retried (re-attach destroys the in-flight load) then skipped. In the
+	// foreground the un-throttled 15s watchdog already covers "never gets bytes", so `stalled` must
+	// be observability only there — it is the BACKGROUND trigger, and nothing else.
+	const strikesOf = (uid: string) =>
+		(player as unknown as { unplayableStrikes: Map<string, number> }).unplayableStrikes.get(uid) ?? 0;
+
+	it('FOREGROUND: a pre-first-byte `stalled` (rs:0) is NOT a fault — no retry, no strike, no skip; the track goes on to play', () => {
+		vi.stubGlobal('document', { hidden: false, addEventListener() {} });
+		const next = mk('qq', 's2', 'B', 'Next');
+		player.queue = [player.current as Track, next];
+		const uid = (player.current as Track).uid;
+		armStall(); // what play() does at src-set
+		vi.advanceTimersByTime(3240); // the device's stall band
+		stallEl.fire('stalled'); // readyState 0, no bytes yet — the healthy-but-slow shape
+		expect(reresolveSpy).not.toHaveBeenCalled(); // no stall.retry (a re-attach would kill the load)
+		expect(player.play).not.toHaveBeenCalled(); // no stall.skip
+		expect(strikesOf(uid)).toBe(0);
+		// …and the bytes arrive a moment later, exactly as the surviving track did at 2,781ms.
+		stallEl.fire('progress');
+		stallEl.fire('playing');
+		vi.advanceTimersByTime(Player_STALL_TIMEOUT_MS); // watchdog was disarmed by `playing`
+		expect(reresolveSpy).not.toHaveBeenCalled();
+		expect(player.play).not.toHaveBeenCalled();
+	});
+
+	it('FOREGROUND: a genuinely dead src (no bytes, no error, no playing) still goes retry → skip on the 15s watchdog alone — never-stop intact', () => {
+		vi.stubGlobal('document', { hidden: false, addEventListener() {} });
+		const next = mk('qq', 's2', 'B', 'Next');
+		player.queue = [player.current as Track, next];
+		armStall(); // ONE arm, as play() does — the retry must re-arm by itself
+		vi.advanceTimersByTime(Player_STALL_TIMEOUT_MS); // 1st expiry → retry the SAME song once
+		expect(reresolveSpy).toHaveBeenCalledTimes(1);
+		expect(player.play).not.toHaveBeenCalled();
+		stallEl.fire('stalled'); // fg `stalled` on the re-attached src must not short-circuit the budget
+		expect(player.play).not.toHaveBeenCalled();
+		vi.advanceTimersByTime(Player_STALL_TIMEOUT_MS); // 2nd expiry, still silent → SKIP
+		expect(reresolveSpy).toHaveBeenCalledTimes(1);
+		expect(player.play).toHaveBeenCalledWith(next);
+		expect(runFallbackSpy).not.toHaveBeenCalled();
+	});
 });
 
 describe('player resilience — offline gate + downloads switch (PLAY-09 / D-07/D-08)', () => {
