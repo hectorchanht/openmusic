@@ -13,6 +13,7 @@ import type { SourceAdapter, Track } from './types';
 import { makeUid } from './types';
 import { inferQualityFromUrl } from '../services/lrc';
 import { apiFetch } from '../services/api-base';
+import { kuwoHealth } from '../services/kuwo-health';
 import { settings, type DefaultQuality } from '$lib/stores/settings.svelte';
 import { effectiveQuality } from './quality';
 
@@ -59,14 +60,29 @@ export const kuwo: SourceAdapter = {
 			requestLimit
 		)}`;
 
-		const res = await apiFetch(path, { signal });
+		// Health gate (kuwo-health): while the upstream is down — it currently serves a broken TLS
+		// cert, so Cloudflare 526s every call at ~1s — short-circuit instead of paying that second on
+		// every search. The gate re-probes itself once per window, so recovery is automatic.
+		if (kuwoHealth.isGated()) return [];
+
+		let res: Response;
+		try {
+			res = await apiFetch(path, { signal });
+		} catch (err) {
+			// A 526/5xx/network failure is a real outage signal — count it, then rethrow so the
+			// fan-out records a typed per-source error exactly as before (DATA-03).
+			if (!signal.aborted) kuwoHealth.recordFail();
+			throw err;
+		}
 		const json = (await res.json()) as KuwoSearchResponse | null;
 
 		// Contract-drift guard (legacy:2129 returned 0; we THROW so the fan-out records a
 		// typed per-source error rather than silently dropping the source).
 		if (!json || json.code !== 200 || !Array.isArray(json.data)) {
+			kuwoHealth.recordFail();
 			throw new Error('kuwo: contract-drift (expected {code:200,data:[]} search body)');
 		}
+		kuwoHealth.recordOk(); // a well-formed body is a live upstream — instant recovery
 
 		const tracks: Track[] = [];
 		json.data.forEach((it, idx) => {
@@ -107,13 +123,25 @@ export const kuwo: SourceAdapter = {
 		const level = effectiveQuality(quality ?? settings.defaultQuality) === '128' ? '128k' : 'zp';
 		const path = `/api/kuwo/detail?id=${encodeURIComponent(track.songid)}&type=song&level=${encodeURIComponent(level)}&format=json`;
 
-		const res = await apiFetch(path, { signal });
+		// Deliberately NOT gated: `resolve` is only reached for a track the user (or the queue) has
+		// already chosen, so short-circuiting it would turn a gated window into an unplayable track.
+		// The gate exists to stop SPECULATIVE calls (search / the fallback walk), not to refuse a
+		// direct request. Failures are still recorded so the search gate learns from them.
+		let res: Response;
+		try {
+			res = await apiFetch(path, { signal });
+		} catch (err) {
+			if (!signal.aborted) kuwoHealth.recordFail();
+			throw err;
+		}
 		const j = (await res.json()) as KuwoDetailResponse | null;
 		// Preserve the legacy throw on code!==200 / missing data (legacy:2402) — the one
 		// detail fetcher that already threw, kept verbatim.
 		if (!j || j.code !== 200 || !j.data) {
+			kuwoHealth.recordFail();
 			throw new Error('kuwo kw-api detail failed');
 		}
+		kuwoHealth.recordOk();
 
 		const d = j.data;
 		Object.assign(track, {

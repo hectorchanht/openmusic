@@ -14,6 +14,7 @@ import { SvelteSet } from 'svelte/reactivity';
 import { Capacitor } from '@capacitor/core';
 import { ensureTrackDetails } from '$lib/services/catalog';
 import { hasFreshAudioUrl, isTrackReady } from '$lib/services/track-ready';
+import { preconnectForSource, noteAudioOrigin } from '$lib/services/preconnect';
 import { tryFallback } from '$lib/services/fallback';
 import { reportDeadUrl } from '$lib/services/resolve-cache-client';
 import { buildDiversePicks } from '$lib/services/picks';
@@ -3160,6 +3161,13 @@ class Player {
 			// bytes never arm this. A fast, healthy resolve wins the race first → `timedOut` stays false, the
 			// timer is cleared in `finally` (no dangling timer / spurious late abort), and the single-source
 			// happy path proceeds with NO cross-source fan-out (the ~3-call budget is preserved).
+			// PRECONNECT (measured: handshake is ~83% of time-to-first-byte — cold TTFB 0.526s vs 0.090s
+			// on a reused connection). We know the SOURCE now but will not have a url for ~2.7s, so
+			// open the socket into that dead window: by the time the url lands the TLS handshake is
+			// already done. Costs one socket and ZERO requests, and needs no prediction — the user has
+			// already tapped. Fire-and-forget, never throws.
+			preconnectForSource(track.source);
+
 			const ac = new AbortController();
 			let timedOut = false;
 			// Kick off the resolve WITH the abort signal (ensureTrackDetails threads it to the adapter →
@@ -3210,6 +3218,9 @@ class Player {
 			// quick-260910-piz: attachedCoverFor now matches every song of the installed list, so this
 			// re-apply fires on every album ADVANCE — the fix for the hero flipping to the source
 			// thumbnail on track 2+.
+			// Teach the preconnect map which origin this source actually serves audio from, so the next
+			// cold play preconnects the RIGHT host even if the CDN shard is renamed.
+			noteAudioOrigin(resolved.source, resolved.audioUrl);
 			const attached = this.attachedCoverFor(resolved);
 			if (attached && resolved.cover !== attached) resolved = { ...resolved, cover: attached };
 			this.current = resolved;

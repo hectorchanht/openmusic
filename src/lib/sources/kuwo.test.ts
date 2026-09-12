@@ -4,6 +4,7 @@ import type { Track } from './types';
 import { settings } from '$lib/stores/settings.svelte';
 import searchFixture from './__fixtures__/kuwo.search.json';
 import detailFixture from './__fixtures__/kuwo.detail.json';
+import { kuwoHealth } from '$lib/services/kuwo-health';
 
 const ac = new AbortController();
 
@@ -18,9 +19,11 @@ function mockFetchOnce(body: unknown, contentType = 'application/json') {
 
 beforeEach(() => {
 	vi.restoreAllMocks();
+	kuwoHealth.__reset(); // the gate is module-scope — never let a trip leak between tests
 });
 afterEach(() => {
 	vi.restoreAllMocks();
+	kuwoHealth.__reset();
 });
 
 describe('kuwo.search (fixture-backed)', () => {
@@ -168,5 +171,70 @@ describe('kuwo.resolve', () => {
 	it('THROWS on code!==200 detail body (legacy throw model)', async () => {
 		vi.stubGlobal('fetch', mockFetchOnce({ code: 404, data: null }));
 		await expect(kuwo.resolve(stubTrack(), ac.signal)).rejects.toThrow(/detail failed/);
+	});
+});
+
+// kuwo-health. MEASURED 2026-09-12: kw-api.cenguigui.cn serves an invalid TLS certificate, so
+// Cloudflare returns 526 for every request, persistently, at ~1.0s each. kuwo is FIRST in the
+// resolve floor (kuwo-first, RESOLVE-01), so while it is down every cold resolve and every
+// cross-source fallback walk spends its first second on a source that cannot succeed. The gate
+// removes those calls — it adds none.
+describe('kuwo health gate', () => {
+	function failingFetch() {
+		return vi.fn(async () => {
+			throw new Error('526');
+		});
+	}
+
+	it('short-circuits search once the upstream has failed enough times', async () => {
+		vi.stubGlobal('fetch', failingFetch());
+
+		// Three real attempts, each rejecting the way a 526 does.
+		for (let i = 0; i < 3; i++) {
+			await expect(kuwo.search('x', 1, ac.signal)).rejects.toThrow();
+		}
+
+		// Gated now: the next search must return [] WITHOUT touching the network.
+		const spy = vi.fn(async () => {
+			throw new Error('should not be called');
+		});
+		vi.stubGlobal('fetch', spy);
+
+		await expect(kuwo.search('x', 1, ac.signal)).resolves.toEqual([]);
+		expect(spy).not.toHaveBeenCalled();
+	});
+
+	it('a healthy search clears the gate immediately', async () => {
+		vi.stubGlobal('fetch', failingFetch());
+		for (let i = 0; i < 3; i++) {
+			await expect(kuwo.search('x', 1, ac.signal)).rejects.toThrow();
+		}
+
+		kuwoHealth.recordOk(); // what a well-formed body does
+
+		const spy = mockFetchOnce(searchFixture);
+		vi.stubGlobal('fetch', spy);
+		const out = await kuwo.search('x', 1, ac.signal);
+
+		expect(spy).toHaveBeenCalled(); // no longer short-circuited
+		expect(out.length).toBeGreaterThan(0);
+	});
+
+	// resolve is deliberately NOT gated: it is only reached for a track already chosen, so
+	// short-circuiting it would turn a gated window into an unplayable track. The gate exists to
+	// stop SPECULATIVE calls (search / the fallback walk), not to refuse a direct request.
+	it('does NOT gate resolve, even while the gate is tripped', async () => {
+		for (let i = 0; i < 5; i++) kuwoHealth.recordFail();
+		expect(kuwoHealth.isGated()).toBe(true);
+
+		const spy = mockFetchOnce(detailFixture);
+		vi.stubGlobal('fetch', spy);
+
+		await kuwo.resolve(
+			{ songid: '123', source: 'kuwo' } as unknown as Track,
+			ac.signal
+		);
+
+		expect(spy).toHaveBeenCalled();
 	});
 });
