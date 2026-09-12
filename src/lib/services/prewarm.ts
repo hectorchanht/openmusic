@@ -17,7 +17,8 @@
 //    keeps the prefetch walk at next-1), no cross-source fan-out (the never-fan-out-on-click rule).
 //  - all state is PLAIN — this is a pure `.ts`, not a runes store; the UI never reads any of it.
 
-import { ensureTrackDetails, hasFreshAudioUrl } from '$lib/services/catalog';
+import { ensureTrackDetails } from '$lib/services/catalog';
+import { hasFreshAudioUrl } from '$lib/services/track-ready';
 import type { Track } from '$lib/sources/types';
 
 /** Cap on the remembered-uid set so a long browsing session cannot grow it without bound. A
@@ -41,12 +42,12 @@ const warmed = new Set<string>();
  */
 export function prewarmTrack(track: Track | null | undefined): void {
 	if (!track?.uid) return;
-	// Already complete AND still fresh — the readiness guard would make this a no-op anyway;
-	// short-circuiting makes the intent explicit and keeps the uid out of the Set.
-	// hasFreshAudioUrl (debug slow-cold-start-first-playing): this short-circuit MIRRORS the guard in
-	// ensureTrackDetails, so it has to mirror the age check too. Without it this returned early on a
-	// stale url and the prewarm silently did nothing — exactly the case prewarm exists to cover.
-	if (track.detailsLoaded && track.audioUrl && hasFreshAudioUrl(track)) return;
+	// Already playable and still fresh — ensureTrackDetails would make this a no-op anyway;
+	// short-circuiting makes the intent explicit and keeps the uid out of the Set. This used to be an
+	// inline copy of the guard WITHOUT the age check, so it returned early on a url that was already
+	// dead and the prewarm silently did nothing — exactly the case prewarm exists to cover. Shared
+	// guard now, so it cannot drift from ensureTrackDetails again.
+	if (hasFreshAudioUrl(track)) return;
 	if (warmed.has(track.uid)) return;
 	if (warmed.size >= MAX_TRACKED_UIDS) warmed.clear();
 	warmed.add(track.uid);

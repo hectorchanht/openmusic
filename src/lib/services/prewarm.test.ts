@@ -4,13 +4,9 @@ import { RESOLVE_URL_TTL_S } from '$lib/proxy/resolve-cache';
 
 // The ONE dependency: the shared resolve seam. Mocked so every assertion is a CALL COUNT —
 // "did the pre-warm issue a resolve, and exactly how many" is the whole contract (31-D-03).
-// hasFreshAudioUrl is mocked with the REAL predicate (not a stub) — prewarm's short-circuit now
-// depends on it, so a stub returning undefined would make every case look stale and pass vacuously.
-vi.mock('$lib/services/catalog', () => ({
-	ensureTrackDetails: vi.fn(async (t: Track) => t),
-	hasFreshAudioUrl: (t: Track) =>
-		typeof t.resolvedAt === 'number' && Date.now() - t.resolvedAt < RESOLVE_URL_TTL_S * 1000
-}));
+// hasFreshAudioUrl lives in the dependency-free track-ready module and is deliberately NOT mocked —
+// prewarm's short-circuit delegates to it, so the real predicate is what we want under test here.
+vi.mock('$lib/services/catalog', () => ({ ensureTrackDetails: vi.fn(async (t: Track) => t) }));
 
 import { ensureTrackDetails } from '$lib/services/catalog';
 import { prewarmTrack, __resetPrewarm } from './prewarm';

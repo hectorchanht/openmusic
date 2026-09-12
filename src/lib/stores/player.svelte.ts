@@ -12,7 +12,8 @@
 import { browser } from '$app/environment';
 import { SvelteSet } from 'svelte/reactivity';
 import { Capacitor } from '@capacitor/core';
-import { ensureTrackDetails, hasFreshAudioUrl } from '$lib/services/catalog';
+import { ensureTrackDetails } from '$lib/services/catalog';
+import { hasFreshAudioUrl, isTrackReady } from '$lib/services/track-ready';
 import { tryFallback } from '$lib/services/fallback';
 import { reportDeadUrl } from '$lib/services/resolve-cache-client';
 import { buildDiversePicks } from '$lib/services/picks';
@@ -2579,12 +2580,11 @@ class Player {
 
 				// Resolve (or short-circuit an already-complete candidate) to obtain an audioUrl.
 				let resolved: Track;
-				// hasFreshAudioUrl (debug slow-cold-start-first-playing): this inline copy of the
-				// readiness guard used to short-circuit on ANY present url, so the walk happily marked a
-				// candidate "pre-warmed" off a url resolved long enough ago to be dead upstream. The
-				// track then cost a 6s resolve watchdog + a fallback walk at the exact moment the gap
-				// had to be seamless — i.e. the prefetch that exists to PREVENT the gap was causing it.
-				if (cand.detailsLoaded && cand.audioUrl && (cand.lrc || !cand.lrcUrl) && hasFreshAudioUrl(cand)) {
+				// isTrackReady (debug slow-cold-start-first-playing): this was an inline copy of the
+				// readiness guard with no age check, so the walk happily marked a candidate "pre-warmed"
+				// off a url resolved long enough ago to be dead upstream — the prefetch that exists to
+				// PREVENT a gap was causing one. Now the SHARED guard, so it can never drift again.
+				if (isTrackReady(cand)) {
 					resolved = cand;
 				} else {
 					try {
@@ -2698,8 +2698,8 @@ class Player {
 		const after = this.queue[landedIdx + 1];
 		if (!after) return; // landed track is the tail — growth is ensureAhead's job
 		if (this.unplayableUids.has(after.uid)) return; // known-dead — next() routes past it anyway
-		// hasFreshAudioUrl: "warm" must mean a url still worth trusting, not merely a url present.
-		if (after.detailsLoaded && after.audioUrl && hasFreshAudioUrl(after)) return; // already warm
+		// Shared guard: "warm" must mean a url still worth trusting, not merely a url present.
+		if (hasFreshAudioUrl(after)) return; // already warm — nothing to do
 		try {
 			const resolved = await ensureTrackDetails(after, sig);
 			if (sig.aborted || this.current?.uid !== seedUid) return; // superseded / current moved on

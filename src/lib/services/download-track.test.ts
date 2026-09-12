@@ -58,6 +58,9 @@ const mk = (over: Partial<Track> = {}): Track =>
 		lrc: null,
 		lrcUrl: null,
 		detailsLoaded: true,
+		// Shared readiness guard now requires a FRESH url, so the factory's "already resolved" track
+		// carries a resolve stamp — that is what `detailsLoaded: true` alone used to mean.
+		resolvedAt: Date.now(),
 		quality: 'lossless',
 		qualityLabel: null,
 		keyword: '',

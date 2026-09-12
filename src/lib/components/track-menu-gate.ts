@@ -1,4 +1,5 @@
 import type { Track } from '$lib/sources/types';
+import { hasFreshAudioUrl } from '$lib/services/track-ready';
 
 // track-menu-gate — the two PURE decisions behind TrackMenu's gated resolve-then-act
 // (Phase 19, MENU-01 / D-01..D-03). Lifted out of the component so they are unit-testable
@@ -9,14 +10,16 @@ import type { Track } from '$lib/sources/types';
 
 /**
  * Pure helper: is a gated action (Download / Detail / Remix) ready to run on `track` right now?
- * The literal `detailsLoaded && uid && audioUrl` readiness test — mirrors the `ensureTrackDetails`
- * short-circuit at catalog.ts:186 (`track.detailsLoaded && track.audioUrl && …`). true → run
+ * Delegates to the SHARED readiness guard (`hasFreshAudioUrl`) rather than re-spelling it. It used
+ * to be an inline copy that "mirrors the ensureTrackDetails short-circuit" — and duplicated guards
+ * drift: when the freshness check was added, this copy kept reporting a track with a long-expired
+ * signed url as ready, so a gated action ran immediately on a dead url instead of resolving. true → run
  * immediately (the action needs a resolved `audioUrl`/details and the track already has them);
  * false → resolve first (resolve-then-act). A `null` track (no menu open) is never ready.
  * Exported for unit testing in isolation.
  */
 export function isGatedReady(track: Track | null): boolean {
-	return !!(track && track.detailsLoaded && track.uid && track.audioUrl);
+	return !!track?.uid && hasFreshAudioUrl(track);
 }
 
 /**

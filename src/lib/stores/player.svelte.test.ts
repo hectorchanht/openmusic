@@ -151,6 +151,9 @@ function mk(source: SourceId, songid: string, artist: string, title: string): Tr
 		lrc: null,
 		lrcUrl: null,
 		detailsLoaded: true,
+		// Shared readiness guard now requires a FRESH url, so the factory's "already resolved" track
+		// carries a resolve stamp — that is what `detailsLoaded: true` alone used to mean.
+		resolvedAt: Date.now(),
 		quality: null,
 		qualityLabel: null,
 		keyword: 'x',

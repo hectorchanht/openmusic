@@ -12,8 +12,8 @@ import { matchKey } from './match-key';
 import { scoreMatch } from './score-match';
 import { dedupeBest, sameSongKey } from './dedupe';
 import { readResolveCache, registerServedResolve } from './resolve-cache-client';
-import { RESOLVE_URL_TTL_S } from '$lib/proxy/resolve-cache';
 import { logAction } from '$lib/stores/actionLog.svelte';
+import { isTrackReady } from './track-ready';
 // 32-D-20: the cached url is filled at ONE tier (lossless), so the read gate and the adoption gate
 // both need the caller's EFFECTIVE tier. Same leaf-store + pure-helper pair sources/qq.ts uses.
 import { effectiveQuality } from '$lib/sources/quality';
@@ -338,48 +338,13 @@ async function resolveFromCachedMid(
 	}
 }
 
-/**
- * How long an in-memory resolved `audioUrl` is trusted by the readiness guard.
- *
- * REUSES `RESOLVE_URL_TTL_S` (15 min) rather than inventing a second number: that constant already
- * means exactly "how long a signed CN audio url is trusted", and the edge bakes the same window into
- * `urlExp`. The client-side guard and the edge entry must not drift apart — one knob, both seams.
- */
-const RESOLVED_URL_MAX_AGE_MS = RESOLVE_URL_TTL_S * 1000;
-
-/**
- * Freshness half of the readiness guard (debug `slow-cold-start-first-playing`).
- *
- * MEASURED ROOT CAUSE: the legacy guard trusted `detailsLoaded && audioUrl` with NO age check, so a
- * url filled by `prefetchNext` minutes earlier was handed straight back to `play()`. An on-device
- * action log showed that path "resolving" in 38ms with `hasUrl:true` and then burning ~20s in
- * stall → audio.error → strike → advance, because the signed url had long since expired upstream.
- *
- * `undefined` is STALE by construction: the field is only ever stamped by `ensureTrackDetails`, so
- * anything that reached a url another way re-resolves. Re-resolving costs ~100ms (measured); serving
- * a dead url costs ~8.4s per strike. The asymmetry is the whole argument for defaulting to stale.
- *
- * EXPORTED because the readiness guard is DUPLICATED INLINE at several playback-path call sites that
- * short-circuit BEFORE calling ensureTrackDetails (player.prefetchNext / player.warmAfter /
- * prewarm.ts) — so gating only the copy inside this module left every one of them still trusting a
- * stale url. That is precisely how the prefetch walk kept "successfully" pre-warming a next track
- * whose url was already dead, which then cost a 6s resolve watchdog plus an unbounded fallback walk
- * at the exact moment the gap had to be seamless. One predicate, every playback trust decision.
- */
-export function hasFreshAudioUrl(track: Track): boolean {
-	return (
-		typeof track.resolvedAt === 'number' && Date.now() - track.resolvedAt < RESOLVED_URL_MAX_AGE_MS
-	);
-}
 
 /**
  * Lazily resolve a track's audioUrl + lyrics through its source adapter.
  *
- * Dispatches via `SOURCES[track.source]` (registry, no source named — DATA-04) and
- * preserves the monolith readiness guard (legacy 2507) — a track that is loaded, has an audioUrl,
- * and either has lyrics or never had an `lrcUrl` is already complete — with ONE addition: the url
- * must also be FRESH (`hasFreshUrl`). Netease resolves `lrc` from a separate `lrcUrl`, so a track
- * with an unresolved `lrcUrl` still re-resolves.
+ * Dispatches via `SOURCES[track.source]` (registry, no source named — DATA-04) and applies the
+ * shared readiness guard (`isTrackReady`) — the monolith guard of legacy 2507 plus the freshness
+ * check it always lacked.
  *
  * This wrapper owns the guard and the `resolvedAt` stamp so both live at exactly ONE seam, the same
  * discipline the cache read and the cross-source lyric tail already follow. `resolveTrackDetails`
@@ -391,9 +356,7 @@ export async function ensureTrackDetails(
 	signal?: AbortSignal,
 	quality?: DefaultQuality
 ): Promise<Track> {
-	if (track.detailsLoaded && track.audioUrl && (track.lrc || !track.lrcUrl) && hasFreshAudioUrl(track)) {
-		return track;
-	}
+	if (isTrackReady(track)) return track;
 	const resolved = await resolveTrackDetails(track, signal, quality);
 	// Stamp ONLY when this call actually produced a url. A fall-through (abort, every source missed,
 	// an unresolved name stub) returns the input track untouched and must stay unstamped, or the next

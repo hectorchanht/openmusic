@@ -29,6 +29,9 @@ function resolved(overrides: Partial<Track> = {}): Track {
 		lrc: null,
 		lrcUrl: null,
 		detailsLoaded: true,
+		// The gate now delegates to the shared readiness guard, which requires a FRESH url —
+		// so the "resolved" fixture has to carry a resolve stamp to be resolved at all.
+		resolvedAt: Date.now(),
 		quality: null,
 		qualityLabel: null,
 		keyword: 'x',
@@ -40,6 +43,17 @@ function resolved(overrides: Partial<Track> = {}): Track {
 describe('isGatedReady — gated-action readiness predicate (MENU-01 / D-02)', () => {
 	it('a resolved track (detailsLoaded && uid && audioUrl) is ready → action may run immediately', () => {
 		expect(isGatedReady(resolved())).toBe(true);
+	});
+
+	// debug slow-cold-start-first-playing: the gate used to be an inline copy of the readiness guard
+	// and drifted when freshness was added — it kept calling a track with a long-expired signed url
+	// "ready", so a gated action ran immediately on a dead url instead of resolving first.
+	it('a STALE url → not ready (must re-resolve before the action runs)', () => {
+		expect(isGatedReady(resolved({ resolvedAt: Date.now() - 16 * 60 * 1000 }))).toBe(false);
+	});
+
+	it('an unstamped url → not ready (never age-validated)', () => {
+		expect(isGatedReady(resolved({ resolvedAt: undefined }))).toBe(false);
 	});
 
 	it('detailsLoaded:false → not ready (must resolve first)', () => {

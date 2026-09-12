@@ -29,6 +29,7 @@ import { player } from '$lib/stores/player.svelte';
 import { settings, type DefaultQuality } from '$lib/stores/settings.svelte';
 import { names } from '$lib/stores/names.svelte';
 import { ensureTrackDetails } from '$lib/services/catalog';
+import { hasFreshAudioUrl } from '$lib/services/track-ready';
 import { blobStore } from '$lib/services/blob-store';
 import { saveBlobToDisk } from '$lib/services/download-save';
 import { buildDownloadFilename, extFromAudioUrl } from '$lib/services/download-filename';
@@ -71,11 +72,13 @@ export async function downloadTrack(
 		let r: Track;
 		// D-18: READ-ONLY snapshot of the playing track. We never write back to player.current.
 		const cur = player.current;
+		// hasFreshAudioUrl (debug slow-cold-start-first-playing): this was an inline copy of the
+		// readiness guard with no age check, so a download could reuse an expired signed url off the
+		// playing track and write a dead file. Shared guard now — one definition, every trust decision.
 		const reuseCurrent =
 			cur != null &&
 			cur.uid === track.uid &&
-			!!cur.audioUrl &&
-			cur.detailsLoaded &&
+			hasFreshAudioUrl(cur) &&
 			currentQualityMeets(cur.quality, settings.downloadQuality);
 		if (reuseCurrent) {
 			// Reuse the already-resolved current track's URL/details (a fresh COPY — never the live
