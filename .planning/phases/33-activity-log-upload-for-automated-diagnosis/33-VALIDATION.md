@@ -62,7 +62,7 @@ created: 2026-09-12
 
 - [ ] `src/lib/proxy/diag-auth.test.ts` — including the **fail-closed on undefined secret** case
 - [ ] `src/lib/proxy/diag-payload.test.ts` — size cap, shape screen, key generation
-- [ ] `src/lib/proxy/diag-endpoint.test.ts` — harness pattern copied from `og-endpoint.test.ts:764-782`
+- [ ] `src/routes/api/diag/diag-endpoint.test.ts` — co-located with the route (matches `og-endpoint.test.ts`); harness pattern copied from `og-endpoint.test.ts:764-782`
 - [ ] Extend `src/lib/proxy/http.test.ts` with the `Authorization` Allow-Headers assertion
 
 No framework install needed — existing Vitest infrastructure covers everything automatable.
