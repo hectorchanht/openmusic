@@ -180,3 +180,46 @@ describe('tryFallback — attempted set + identity check', () => {
 		expect(out?.uid).toBe(match.uid);
 	});
 });
+
+// debug slow-cold-start-first-playing. tryFallback has NO deadline of its own — it is a serial walk
+// over up to 7 sources, each bounded only by apiFetch's ~25s timeout (measured on-device: one walk
+// took 29,278ms, and a backgrounded one left 26s of silence the user experienced as playback
+// stopping). The fix puts the ceiling in the CALLER (player.runFallback's FALLBACK_BUDGET_MS
+// watchdog, which aborts this signal), so the whole guarantee rests on the walk unwinding PROMPTLY
+// when the signal aborts. That contract had no coverage at all — these two lock it down.
+describe('tryFallback — abort unwinds the walk (FALLBACK_BUDGET_MS contract)', () => {
+	// The reset above is scoped to the other describe block; these assert CALL COUNTS, so they need
+	// their own clean slate or they inherit the previous block's calls.
+	beforeEach(() => {
+		mockSearch.mockReset();
+		mockEnsure.mockReset();
+	});
+
+	it('returns null and stops walking when the signal aborts mid-search', async () => {
+		const ac = new AbortController();
+		// First source: abort while its search is in flight, then reject the way an aborted fetch does.
+		mockSearch.mockImplementation(async () => {
+			ac.abort();
+			throw new Error('aborted');
+		});
+		mockEnsure.mockImplementation(async (t) => t);
+
+		const failed = mk('netease', '1', 'A', 'B', null);
+		const out = await tryFallback(failed, undefined, ac.signal);
+
+		expect(out).toBeNull();
+		// The walk must NOT continue through the remaining sources after the abort — one attempt only.
+		expect(mockSearch).toHaveBeenCalledOnce();
+	});
+
+	it('does not even start when handed an already-aborted signal', async () => {
+		const ac = new AbortController();
+		ac.abort();
+		mockSearch.mockResolvedValue({ interleaved: [], perSource: [] } as never);
+
+		const out = await tryFallback(mk('netease', '1', 'A', 'B', null), undefined, ac.signal);
+
+		expect(out).toBeNull();
+		expect(mockSearch).not.toHaveBeenCalled();
+	});
+});

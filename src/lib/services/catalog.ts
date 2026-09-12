@@ -358,8 +358,15 @@ const RESOLVED_URL_MAX_AGE_MS = RESOLVE_URL_TTL_S * 1000;
  * `undefined` is STALE by construction: the field is only ever stamped by `ensureTrackDetails`, so
  * anything that reached a url another way re-resolves. Re-resolving costs ~100ms (measured); serving
  * a dead url costs ~8.4s per strike. The asymmetry is the whole argument for defaulting to stale.
+ *
+ * EXPORTED because the readiness guard is DUPLICATED INLINE at several playback-path call sites that
+ * short-circuit BEFORE calling ensureTrackDetails (player.prefetchNext / player.warmAfter /
+ * prewarm.ts) — so gating only the copy inside this module left every one of them still trusting a
+ * stale url. That is precisely how the prefetch walk kept "successfully" pre-warming a next track
+ * whose url was already dead, which then cost a 6s resolve watchdog plus an unbounded fallback walk
+ * at the exact moment the gap had to be seamless. One predicate, every playback trust decision.
  */
-function hasFreshUrl(track: Track): boolean {
+export function hasFreshAudioUrl(track: Track): boolean {
 	return (
 		typeof track.resolvedAt === 'number' && Date.now() - track.resolvedAt < RESOLVED_URL_MAX_AGE_MS
 	);
@@ -384,7 +391,7 @@ export async function ensureTrackDetails(
 	signal?: AbortSignal,
 	quality?: DefaultQuality
 ): Promise<Track> {
-	if (track.detailsLoaded && track.audioUrl && (track.lrc || !track.lrcUrl) && hasFreshUrl(track)) {
+	if (track.detailsLoaded && track.audioUrl && (track.lrc || !track.lrcUrl) && hasFreshAudioUrl(track)) {
 		return track;
 	}
 	const resolved = await resolveTrackDetails(track, signal, quality);

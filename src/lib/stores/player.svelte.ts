@@ -12,7 +12,7 @@
 import { browser } from '$app/environment';
 import { SvelteSet } from 'svelte/reactivity';
 import { Capacitor } from '@capacitor/core';
-import { ensureTrackDetails } from '$lib/services/catalog';
+import { ensureTrackDetails, hasFreshAudioUrl } from '$lib/services/catalog';
 import { tryFallback } from '$lib/services/fallback';
 import { reportDeadUrl } from '$lib/services/resolve-cache-client';
 import { buildDiversePicks } from '$lib/services/picks';
@@ -754,6 +754,24 @@ class Player {
 	 * comfortably UNDER the ~25s apiFetch timeout (so a stall fails fast) and comfortably OVER a healthy
 	 * sub-2s resolve (so the happy path never trips it and never fans out). Private static tunable. */
 	private static RESOLVE_WATCHDOG_MS = 6000;
+	/**
+	 * FAILURE-EPISODE BUDGET (debug `slow-cold-start-first-playing`). RESOLVE_WATCHDOG_MS bounds only
+	 * play()'s FIRST resolve; it then hands the failure to runFallback → tryFallback, which had NO
+	 * deadline of any kind — a SERIAL walk over up to 7 sources, each doing searchAll +
+	 * ensureTrackDetails bounded only by apiFetch's ~25s REQUEST_TIMEOUT_MS (theoretical worst case
+	 * 7 x 50s). It aborted only on a playGen change, never on elapsed time. So the "fail fast" guard
+	 * handed off to something five times slower than the hang it was protecting against.
+	 *
+	 * MEASURED on-device (2026-09-12): one walk took 29,278ms (cold tap → first sound 56,369ms), and
+	 * a backgrounded walk left 26,016ms of TOTAL SILENCE after a track ended — which is exactly what
+	 * the user reports as "播播下會停". The player never stopped; it was blocked in here.
+	 *
+	 * 8s sits just above the observed healthy two-source walk and far below the unbounded tail. On
+	 * elapse the walk is aborted and the song is SKIPPED — deliberately WITHOUT burning the
+	 * consecutive-failure budget, because "we ran out of time" is NOT "this song failed everywhere",
+	 * and miscounting it would march toward the FAILURE_CAP loop-guard STOP. Never STOP, always SKIP
+	 * (the standing policy — see `nowbar-freeze-reresolve-loop`). */
+	private static FALLBACK_BUDGET_MS = 8000;
 	private stallTimer: ReturnType<typeof setTimeout> | null = null;
 	/** True once the current src has produced audio (a `playing`/`timeupdate`); false from the
 	 *  moment a new initial-load src is set. Distinguishes initial-load stall (D-13) from a
@@ -2561,7 +2579,12 @@ class Player {
 
 				// Resolve (or short-circuit an already-complete candidate) to obtain an audioUrl.
 				let resolved: Track;
-				if (cand.detailsLoaded && cand.audioUrl && (cand.lrc || !cand.lrcUrl)) {
+				// hasFreshAudioUrl (debug slow-cold-start-first-playing): this inline copy of the
+				// readiness guard used to short-circuit on ANY present url, so the walk happily marked a
+				// candidate "pre-warmed" off a url resolved long enough ago to be dead upstream. The
+				// track then cost a 6s resolve watchdog + a fallback walk at the exact moment the gap
+				// had to be seamless — i.e. the prefetch that exists to PREVENT the gap was causing it.
+				if (cand.detailsLoaded && cand.audioUrl && (cand.lrc || !cand.lrcUrl) && hasFreshAudioUrl(cand)) {
 					resolved = cand;
 				} else {
 					try {
@@ -2675,7 +2698,8 @@ class Player {
 		const after = this.queue[landedIdx + 1];
 		if (!after) return; // landed track is the tail — growth is ensureAhead's job
 		if (this.unplayableUids.has(after.uid)) return; // known-dead — next() routes past it anyway
-		if (after.detailsLoaded && after.audioUrl) return; // already warm — nothing to do
+		// hasFreshAudioUrl: "warm" must mean a url still worth trusting, not merely a url present.
+		if (after.detailsLoaded && after.audioUrl && hasFreshAudioUrl(after)) return; // already warm
 		try {
 			const resolved = await ensureTrackDetails(after, sig);
 			if (sig.aborted || this.current?.uid !== seedUid) return; // superseded / current moved on
@@ -3900,8 +3924,22 @@ class Player {
 		// If a newer play() bumps the gen mid-search, abort the in-flight searchAll +
 		// ensureTrackDetails so we don't burn the network on a stale attempt. The next
 		// gen-check below stops us from clobbering the newer track.
+		// FAILURE-EPISODE BUDGET (debug slow-cold-start-first-playing): the same interval that watches
+		// for supersedence now also enforces an elapsed-time ceiling. tryFallback threads `ac.signal`
+		// into searchAll + ensureTrackDetails and re-checks `signal?.aborted` at every loop step, so an
+		// abort unwinds the walk promptly and returns null.
+		const startedAt = Date.now();
+		let budgetExpired = false;
 		const watchdog = setInterval(() => {
-			if (this.playGen !== gen) ac.abort();
+			if (this.playGen !== gen) {
+				ac.abort();
+				return;
+			}
+			if (Date.now() - startedAt >= Player.FALLBACK_BUDGET_MS) {
+				budgetExpired = true;
+				logAction('fallback.budget', { uid: failed.uid, ms: Date.now() - startedAt });
+				ac.abort();
+			}
 		}, 200);
 		try {
 			const swap = await tryFallback(
@@ -3911,6 +3949,16 @@ class Player {
 				this.fallbackAttempted
 			);
 			if (this.playGen !== gen) return; // a newer play() supersedes — discard silently
+			// BUDGET EXPIRY ≠ TOTAL FAILURE. The walk was cut short, so the remaining sources are
+			// UNKNOWN, not exhausted — routing this into handleTotalFailure would both lie about the
+			// song and march the consecutive-failure counter toward the FAILURE_CAP loop-guard STOP.
+			// Strike the uid (so the queue walk routes past it and the ✗ row renders) and skip forward,
+			// leaving the track IN the queue so a later retry can still play it.
+			if (budgetExpired && !swap) {
+				this.strikeUnplayable(failed.uid);
+				void this.next();
+				return;
+			}
 			if (swap) {
 				logAction('fallback', { fromSource: failed.source, toSource: swap.source });
 				// Sync the queue slot too so next()/prev() walk the resolved track.
