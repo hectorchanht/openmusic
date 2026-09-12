@@ -6621,3 +6621,29 @@ describe('lyric backfill for a cache-hit play (31-D-08)', () => {
 		expect(player.current?.lrc).toBeNull(); // the K1 backfill did not leak across
 	});
 });
+
+describe('slow-cold-start-first-playing — media-load instrumentation', () => {
+	it('logs src.set on driveSrc and each media event ONCE per src with Δms from the attach', () => {
+		const fake = makeFakeAudio();
+		player.attach(fake as unknown as HTMLAudioElement);
+		mockLogAction.mockClear();
+		const drive = (player as unknown as { driveSrc: (u: string, url: string) => boolean }).driveSrc.bind(player);
+		expect(drive('qq:A', 'https://cdn.example/F000.flac?vkey=1')).toBe(true);
+		expect(mockLogAction).toHaveBeenCalledWith('src.set', { uid: 'qq:A', kind: 'url', ext: 'flac' });
+		fake.fire('loadstart');
+		fake.fire('progress');
+		fake.fire('progress'); // second progress is swallowed (one-shot per src)
+		fake.fire('canplay');
+		fake.fire('playing');
+		const media = mockLogAction.mock.calls.filter(([ev]) => String(ev).startsWith('media.'));
+		expect(media.map(([ev]) => ev)).toEqual(['media.loadstart', 'media.progress', 'media.canplay']);
+		for (const [, d] of media) expect((d as { ms: number }).ms).toBeGreaterThanOrEqual(0);
+		const playing = mockLogAction.mock.calls.find(([ev]) => ev === 'playing');
+		expect((playing?.[1] as { ms: number }).ms).toBeGreaterThanOrEqual(0);
+		// a NEW src re-arms the one-shot set
+		expect(drive('qq:B', 'blob:https://app/xyz')).toBe(true);
+		expect(mockLogAction).toHaveBeenCalledWith('src.set', { uid: 'qq:B', kind: 'url', ext: 'blob' });
+		fake.fire('progress');
+		expect(mockLogAction.mock.calls.filter(([ev]) => ev === 'media.progress')).toHaveLength(2);
+	});
+});

@@ -56,6 +56,16 @@ import { seedCover, buildAttachment, type AttachedCover } from '$lib/stores/atta
 
 /** SOLID = a non-empty https URL (the only thing safe to cache/render; mirrors cover-backfill isSolidCover, T-0bb-01). */
 const httpsOnly = (u?: string | null): u is string => typeof u === 'string' && u.startsWith('https:');
+/** slow-cold-start-first-playing: container tag for the `src.set` log line — `blob` for object URLs,
+ *  else the pathname extension (flac / m4a / mp3 / ogg), `?` when unparseable. Never throws. */
+export function srcExt(url: string): string {
+	if (url.startsWith('blob:')) return 'blob';
+	try {
+		return new URL(url).pathname.split('.').pop()?.toLowerCase() || '?';
+	} catch {
+		return '?';
+	}
+}
 import { resolveStub } from '$lib/services/discovery';
 import { blobStore } from '$lib/services/blob-store';
 import { settings } from '$lib/stores/settings.svelte';
@@ -1410,7 +1420,40 @@ class Player {
 		}
 		this.lastSrcKind = kind; // 31-D-12
 		this.audio.src = url;
+		// slow-cold-start-first-playing: stamp the src-set so the media-event log lines in attach() carry
+		// Δms from the attach (resolve.ok → playing was unexplained on device; this splits it into
+		// src-set → first byte → decodable → playing). `ext` names the container (flac/m4a/blob) because
+		// the lossless tier is a suspect. Bounded: one line here + one per event type per src.
+		this.srcSetAt = now;
+		this.mediaLogged.clear();
+		logAction('src.set', { uid, kind, ext: srcExt(url) });
 		return true;
+	}
+
+	/** slow-cold-start-first-playing: Date.now() of the last driveSrc attach (0 = none). Plain field. */
+	private srcSetAt = 0;
+	/** slow-cold-start-first-playing: media event types already logged for the current src (one-shot
+	 *  per src so `progress`/`suspend`/`waiting` never flood the log). Plain field. */
+	private mediaLogged = new Set<string>();
+	/** slow-cold-start-first-playing: log ONE media element event with Δms since driveSrc + element
+	 *  state. Never throws (a fake/partial element in tests has no `buffered`/`networkState`). */
+	private logMedia(ev: string) {
+		if (this.mediaLogged.has(ev)) return;
+		this.mediaLogged.add(ev);
+		const el = this.audio;
+		let buf = 0;
+		try {
+			const b = el?.buffered;
+			if (b && b.length > 0) buf = Math.round(b.end(b.length - 1) * 10) / 10;
+		} catch {
+			/* buffered.end() throws on a detached element — log 0 */
+		}
+		logAction(`media.${ev}`, {
+			ms: this.srcSetAt ? Date.now() - this.srcSetAt : -1,
+			rs: el?.readyState ?? -1,
+			ns: el?.networkState ?? -1,
+			buf
+		});
 	}
 
 	/**
@@ -1692,8 +1735,13 @@ class Player {
 			this.playing = true;
 			this.syncPlaybackState();
 		});
+		// slow-cold-start-first-playing: pure observability, one line per event type per src (logMedia is
+		// one-shot). Splits the src-set → playing window: loadstart (request issued) → first progress
+		// (first bytes) → loadedmetadata/canplay (decodable) → stalled/suspend/waiting (why not).
+		for (const ev of ['loadstart', 'progress', 'loadedmetadata', 'canplay', 'stalled', 'suspend', 'waiting'])
+			el.addEventListener(ev, () => this.logMedia(ev));
 		el.addEventListener('playing', () => {
-			logAction('playing', { uid: this.current?.uid });
+			logAction('playing', { uid: this.current?.uid, ms: this.srcSetAt ? Date.now() - this.srcSetAt : -1 });
 			// `playing` is the event that means audio is ACTUALLY producing output (CR-01).
 			// D-13/D-14: mark the src as having played + disarm the initial-load stall watchdog.
 			this.hasPlayedSinceSrc = true;
