@@ -10,6 +10,7 @@
 
 import { searchAll, ensureTrackDetails } from '$lib/services/catalog';
 import { dedupeBest, sameSongKey } from '$lib/services/dedupe';
+import { isAcceptableSubstitute } from '$lib/services/song-variant';
 import { getEnabledAdapters, SOURCES } from '$lib/sources/registry';
 import type { SourceId, Track } from '$lib/sources/types';
 
@@ -109,7 +110,14 @@ export async function tryFallback(
 			// unconditionally would silently auto-play the wrong track under the original's
 			// identity (successful failover is silent by design). Gate adoption on a normalized
 			// title+artist match before resolving, reusing dedupe's own key normalization.
-			const stub = candidates.find((c) => sameSongKey(c, failed));
+			// TWO gates, and both are load-bearing. sameSongKey answers "same song?" — but it is built
+			// on dedupe's key(), which deliberately STRIPS bracketed suffixes, so it also answers "yes"
+			// for `告白氣球（純音樂版）` vs `告白氣球`. isAcceptableSubstitute answers the second
+			// question, "same KIND of recording?", and keeps a failover from silently swapping in an
+			// instrumental / karaoke / cover under the original's name. Live takes still pass.
+			const stub = candidates.find(
+				(c) => sameSongKey(c, failed) && isAcceptableSubstitute(failed.title, c.title)
+			);
 			if (!stub) continue;
 			const resolved = await ensureTrackDetails(stub, signal);
 			if (signal?.aborted) return null;

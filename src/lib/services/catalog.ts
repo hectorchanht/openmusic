@@ -11,6 +11,7 @@ import { cached, __clearSearchCache } from './ttl-cache';
 import { matchKey } from './match-key';
 import { scoreMatch } from './score-match';
 import { dedupeBest, sameSongKey } from './dedupe';
+import { isAcceptableSubstitute } from './song-variant';
 import { readResolveCache, registerServedResolve } from './resolve-cache-client';
 import { logAction } from '$lib/stores/actionLog.svelte';
 import { isTrackReady } from './track-ready';
@@ -283,7 +284,12 @@ export async function resolveNameStub(
 			const result = await searchAll(query, 1, onlySource(src), sig);
 			if (sig.aborted) return null;
 			const candidates = dedupeBest(result.interleaved, src);
-			const stub = candidates.find((c) => sameSongKey(c, want));
+			// Same two gates as the cross-source failover (see fallback.ts): sameSongKey cannot tell a
+			// rendition apart because dedupe's key() strips bracketed suffixes, so an Up-Next name stub
+			// would otherwise resolve to the instrumental or a cover of the song it asked for.
+			const stub = candidates.find(
+				(c) => sameSongKey(c, want) && isAcceptableSubstitute(title, c.title)
+			);
 			if (!stub) continue;
 			const resolved = await ensureTrackDetails(stub, sig);
 			if (sig.aborted) return null;
