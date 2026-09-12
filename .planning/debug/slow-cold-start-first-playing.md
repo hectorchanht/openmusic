@@ -4,7 +4,7 @@ slug: slow-cold-start-first-playing
 status: investigating
 trigger: "撳落去要等幾秒先開聲 — slow time from tap to first audible sound. Goal: cut tap → first `playing` event latency. Platform: Android Chrome / PWA. Companion symptom (mid-song stop, background/locked only) deferred to a separate session by user decision."
 created: 2026-09-12
-updated: 2026-09-12T14:20
+updated: 2026-09-12T15:10
 ---
 
 # Debug: slow tap → first `playing` (cold path 34.7s, warm path bimodal 220ms vs 3.4s)
@@ -247,6 +247,54 @@ cache (`__clearSearchCache` is not called in that suite's `beforeEach`) leaking 
 across tests. Test-harness only, not production. The committed tests were narrowed to the pin
 decision itself; the surrounding quick-260618-fiz tests already cover what a pin does across a fresh
 play and still pass.
+
+## ROUND 4 — cold-start budget MEASURED against the real CDN (2026-09-12)
+
+Direct probes of the production proxy and the QQ CDN, to split the 5,481 ms cold tap into causes
+instead of hypotheses.
+
+### The byte half — H2 DEAD, CDN exonerated
+
+Resolved a real qq track, took both tiers, issued the same `Range: 0-65535` request `<audio>` makes:
+
+| tier | TTFB | dns | conn | tls | code |
+|---|---|---|---|---|---|
+| `song_play_url_sq` (FLAC) | **0.375 / 0.287 s** | 0.083 / 0.006 | 0.176 / 0.096 | 0.279 / 0.196 | 206 |
+| `song_play_url_standard` (m4a) | **0.288 / 0.457 s** | 0.005 / 0.006 | 0.095 / 0.113 | 0.196 / 0.364 | 206 |
+
+- **H2 (FLAC too big) is ELIMINATED outright.** Lossless and m4a have the SAME TTFB. File size does
+  not affect time-to-first-byte; a Range request is a Range request.
+- **The CDN is fast**: ~0.3 s including DNS + TCP + TLS from this sandbox.
+
+On device the same step takes **1,791–2,904 ms**, and it clusters there regardless of source (joox
+`ms:1814`, qq `ms:1791`, qq `ms:2642`, qq `ms:2888`). ~0.3 s server-side vs ~2 s device-side is a 9x
+gap that file size and CDN latency cannot explain. Remaining attribution: the phone's own network
+path to these CDNs. NOT our code, and not something a code change can remove.
+
+CAVEAT, stated plainly: sandbox network ≠ the user's phone. This proves the CDN and the file size are
+not at fault; it does not independently prove the phone's link is the residue, it infers it.
+
+### The resolve half — genuinely upstream
+
+`/api/qq/detail?mid=…` measured from the sandbox across three runs: **4.83 s / 2.75 s / 6.09 s**
+(one earlier run returned `{"message":"Internal Error"}` — the upstream flakes). The device saw
+2,736 ms. So the resolve cost is real upstream latency, not client overhead.
+
+### Answer to "can a cold tap be instant?"
+
+**No.** A song never touched needs two sequential round trips — resolve, then first byte — and both
+are dominated by third-party latency we do not control (~2.7 s upstream detail, ~2 s device-to-CDN).
+
+The ONLY mechanism that produces an instant start is having the work already done before the tap,
+which the codebase already proves works: prebuffered tracks start at **ms:36 / 53 / 86 / 148 / 187**.
+
+So the lever is COVERAGE of pre-resolution and pre-buffering, not per-request optimization:
+- resolve half → `prewarmTrack` exists but is wired to only TrackMenu-open and the search page's
+  single top result. Home, artist, album, library, charts, related and up-next taps prewarm nothing.
+- byte half → prebuffer already delivers sub-200 ms starts where it runs.
+
+Deliberately NOT acted on yet: widening prewarm coverage is a real API-volume decision in a repo with
+three recorded fetch-flood freezes, so it needs an explicit call on scope and caps.
 
 ## Candidate fixes — NOT applied (each needs the capture to justify)
 
