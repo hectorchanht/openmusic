@@ -44,9 +44,19 @@ describe('netease.search (fixture-backed)', () => {
 		// canonical COLON-form uid (D-10)
 		expect(first.uid).toBe(`netease:${expectedId}`);
 		expect(first.source).toBe('netease');
-		// Netease returns audioUrl + lrcUrl at SEARCH time
-		expect(first.audioUrl).toBe(fixture[0].url);
-		expect(first.lrcUrl).toBe(fixture[0].lrc);
+		// Netease supplies audioUrl + lrcUrl at SEARCH time, but Meting hands back UPSTREAM urls
+		// (https://api.qijieya.cn/meting/?...). Those used to be adopted verbatim and fed straight to
+		// <audio>.src, which bypasses our proxy — on device it failed in ~23ms and then cost a resolve
+		// watchdog plus a cross-source fallback walk for every netease track. They are rewritten to
+		// the same /api/* paths resolve() builds, so search keeps its head start and every byte still
+		// goes through the proxy (DATA-02).
+		const lrcId = new URL(fixture[0].lrc).searchParams.get('id')!;
+		expect(first.audioUrl).toBe(`/api/netease/url?id=${expectedId}`);
+		expect(first.lrcUrl).toBe(`/api/netease/lrc?id=${lrcId}`);
+		expect(first.audioUrl).not.toContain('/meting/'); // never hand <audio> the upstream host
+		// `cover` is DELIBERATELY still the upstream url: the proxy has no `pic` type, and a relative
+		// /api/... path would fail the httpsOnly gate the cover cache uses. A failing cover self-heals
+		// through the Deezer/iTunes chain, so it is left alone.
 		expect(first.cover).toBe(fixture[0].pic);
 		expect(first.title).toBe(fixture[0].name);
 		expect(first.keyword).toBe('周杰伦');
@@ -95,6 +105,42 @@ describe('netease.resolve', () => {
 			displayIndex: 1
 		};
 	}
+
+	// A track minted BEFORE the search-time rewrite — from the 60-minute searchAll TTL cache, or a
+	// queue entry carried across a session — still holds the raw upstream meting url. resolve()'s
+	// `if (!track.audioUrl)` guard alone would treat it as already-resolved and keep it FOREVER, so
+	// the bad url has to be actively dropped first.
+	it('replaces a stale UPSTREAM meting url with the proxy path', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () => new Response('[00:01.00]x', { status: 200, headers: { 'content-type': 'text/plain' } }))
+		);
+
+		const track = stubTrack();
+		track.audioUrl = 'https://api.qijieya.cn/meting/?server=netease&type=url&id=509781655';
+		track.lrcUrl = 'https://api.qijieya.cn/meting/?server=netease&type=lrc&id=509781655';
+
+		const out = await netease.resolve(track, ac.signal);
+
+		expect(out.audioUrl).toBe('/api/netease/url?id=509781655');
+		expect(out.lrcUrl).toBe('/api/netease/lrc?id=509781655');
+		expect(out.audioUrl).not.toContain('/meting/');
+	});
+
+	// …but a url that is ALREADY a proxy path must be left exactly as it is (no churn, no re-build).
+	it('leaves an existing proxy-path audioUrl untouched', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () => new Response('[00:01.00]x', { status: 200, headers: { 'content-type': 'text/plain' } }))
+		);
+
+		const track = stubTrack();
+		track.audioUrl = '/api/netease/url?id=509781655';
+
+		const out = await netease.resolve(track, ac.signal);
+
+		expect(out.audioUrl).toBe('/api/netease/url?id=509781655');
+	});
 
 	// Test 2: resolve sets audioUrl + lrc (sniffed) + quality + detailsLoaded.
 	it('sets audioUrl/lrcUrl, fetches a plain-text LRC, infers quality, marks loaded', async () => {

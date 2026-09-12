@@ -25,6 +25,17 @@ interface NeteaseSearchItem {
 }
 
 /** Extract a query param from a (possibly relative) URL string without `window`. */
+/**
+ * Does this url point straight at the upstream Meting host instead of our own /api/* proxy?
+ *
+ * Meting returns absolute upstream urls in its search payload. Feeding one to <audio>.src bypasses
+ * the proxy and fails on device (~23ms to audio.error), then burns a resolve watchdog plus a
+ * cross-source fallback walk. Cheap substring test — no URL parse, never throws on a null.
+ */
+function isUpstreamMeting(u: string | null | undefined): boolean {
+	return typeof u === 'string' && u.includes('/meting/');
+}
+
 function pickQueryParam(rawUrl: string | undefined | null, key: string): string {
 	if (!rawUrl) return '';
 	try {
@@ -70,6 +81,12 @@ export const netease: SourceAdapter = {
 		const tracks: Track[] = [];
 		(json as NeteaseSearchItem[]).forEach((it, idx) => {
 			const songId = pickQueryParam(it.url, 'id') || `${keyword}-${idx + 1}`;
+			// The lyric url carries its OWN id upstream; fall back to the song id when absent.
+			const lrcId = pickQueryParam(it.lrc, 'id') || songId;
+			// NOTE: `it.pic` is left as the upstream url on purpose. The proxy has no `pic` type, and
+			// a relative /api/... path would fail the httpsOnly gate the cover cache uses — silently
+			// dropping netease art out of the shared cache. A failing cover already self-heals via the
+			// Deezer/iTunes chain, so this is the smaller evil. Separate fix if it ever matters.
 			tracks.push({
 				uid: makeUid('netease', songId),
 				source: 'netease',
@@ -78,9 +95,16 @@ export const netease: SourceAdapter = {
 				artist: it.artist || '',
 				album: '',
 				cover: it.pic || null,
-				audioUrl: it.url || null, // Netease returns the audio URL at search time
+				// Meting hands back UPSTREAM urls (https://api.qijieya.cn/meting/?server=netease&...).
+				// Those were adopted verbatim and fed straight to <audio>.src, which bypasses our
+				// proxy entirely — and on device it failed in ~23ms (src.set ext:"/meting/" →
+				// audio.error), then cost a resolve watchdog + fallback walk per netease track.
+				// resolve()'s `if (!track.audioUrl)` guard meant the bad url was never replaced.
+				// Rewrite to the same proxy paths resolve() builds, so search keeps its head start
+				// (no extra resolve) while every byte still goes through /api/* (DATA-02).
+				audioUrl: it.url ? apiUrl(`/api/netease/url?id=${encodeURIComponent(songId)}`) : null,
 				lrc: null,
-				lrcUrl: it.lrc || null, // and the lyric URL
+				lrcUrl: it.lrc ? apiUrl(`/api/netease/lrc?id=${encodeURIComponent(lrcId)}`) : null,
 				detailsLoaded: false,
 				quality: null,
 				qualityLabel: null,
@@ -107,6 +131,12 @@ export const netease: SourceAdapter = {
 		// Build type=url / type=lrc proxy URLs only when the cached track lacks them
 		// (ports legacy:2269-2276).
 		if (track.songid) {
+			// Defensive: a track minted BEFORE the search-time rewrite (the 60-minute searchAll TTL
+			// cache, or a queue entry restored mid-session) can still carry the raw upstream meting
+			// url. `if (!track.audioUrl)` alone would keep it forever, so drop it here and let the
+			// proxy-path build below run. Same for the lyric url.
+			if (isUpstreamMeting(track.audioUrl)) track.audioUrl = null;
+			if (isUpstreamMeting(track.lrcUrl)) track.lrcUrl = null;
 			if (!track.audioUrl) {
 				// Pitfall 3: this URL is consumed directly by <audio>.src, so it MUST be
 				// absolute in the native APK (apiUrl() prepends the base; no-op on web).
