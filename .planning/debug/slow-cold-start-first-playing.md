@@ -4,7 +4,7 @@ slug: slow-cold-start-first-playing
 status: investigating
 trigger: "撳落去要等幾秒先開聲 — slow time from tap to first audible sound. Goal: cut tap → first `playing` event latency. Platform: Android Chrome / PWA. Companion symptom (mid-song stop, background/locked only) deferred to a separate session by user decision."
 created: 2026-09-12
-updated: 2026-09-12T13:05
+updated: 2026-09-12T14:20
 ---
 
 # Debug: slow tap → first `playing` (cold path 34.7s, warm path bimodal 220ms vs 3.4s)
@@ -193,6 +193,60 @@ Memory note `upnext-anchor-history-model` also warns the played-songs-stay-in-li
 built and must not be rebuilt. So the reported symptom is likely a specific defect elsewhere, not a
 missing feature. AWAITING a precise observation from the user before touching it — deliberately not
 guessing, because rebuilding this would break behavior that is currently correct.
+
+## ROUND 3 — device capture CONFIRMS the background stop is fixed (2026-09-12)
+
+First device-verified result in this session. Everything before was construction-level evidence.
+
+**Background auto-advance now works while hidden:**
+
+| t | event |
+|---|---|
+| 235710427 | `visibility hidden:true` |
+| 235881160 | `ended` qq:004RhnIu2tnFV4 |
+| 235881162 | `advance` |
+| 235881287 | **`playing ms:53`** |
+| 235921554 | `visibility hidden:false` — 40s LATER |
+
+Three more consecutive hidden advances at **ms:86 / 148 / 187**. Compare the round-2 capture at the
+same point: 26,016 ms of silence and no progress until the user foregrounded.
+
+Corroborating signals in the same capture:
+- `src.set kind:"prebuffer-blob"` now appears — prefetch IS running (round 2 had ZERO prefetch
+  events across 224 s of playback). This is the `hasFreshAudioUrl` fix landing.
+- `resolve.timeout`: **0 occurrences** (round 2 had 5).
+- `fallback.budget`: absent — the walk was never needed, so the ceiling never had to fire.
+
+**Still slow — cold foreground tap.** `qq:000mZmtn49cLt5`: `play` → `resolve.ok` 2,736 ms →
+`playing ms:2733`, ≈5.5 s total. Half resolve, half H3 first-byte (`media.progress` at ms:2640).
+H3 is now the LARGEST remaining cost and the next thing worth attacking.
+
+**New, unrelated:** the netease proxy is serving broken URLs — `src.set ext:"/meting/"` then an
+immediate `audio.error`; `netease:3409100018` was attempted four times. Separate from this session's
+root cause; worth its own issue.
+
+## Up-next stability — ROOT CAUSE FOUND + FIXED (commit 1a5dc14)
+
+Reported: a1 playing (up next a2,a3,a4) → tap b1 in RELATED → play c1 from the main page → got
+`c1, b1, c2` instead of `c1, c2, c3`.
+
+`relatedTapPlay` (NowPlaying.svelte) called `player.playNext(track)` purely for its
+splice-after-current positioning, and inherited its side effect: `playNext`'s first line is
+`manualUids.add(t.uid)`, and pinned entries are DESIGNED to survive a context switch
+(quick-260618-fiz Fix 4 re-weaves them AFTER the new seed — which is exactly the observed position).
+So a plain TAP was recorded as an explicit user PIN.
+
+Fix: `playNext(t, { pin })`, default true so all 11 existing callers are byte-identical; the related
+TAP passes `{ pin: false }`. Explicit Play-next paths (swipe-left, track menu, per-page swipes — all
+of which raise a toast) still pin and still survive, as designed.
+
+**Test-harness fragility found, NOT chased:** a fuller version of the regression test
+(tap → setListQueue → fresh play) corrupted an unrelated neighbouring test. State at test start
+probed clean and async was fully settled, so the likely cause is catalog's module-level TTL search
+cache (`__clearSearchCache` is not called in that suite's `beforeEach`) leaking memoized results
+across tests. Test-harness only, not production. The committed tests were narrowed to the pin
+decision itself; the surrounding quick-260618-fiz tests already cover what a pin does across a fresh
+play and still pass.
 
 ## Candidate fixes — NOT applied (each needs the capture to justify)
 
