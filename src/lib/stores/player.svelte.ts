@@ -135,8 +135,9 @@ export interface PlayerNotice {
 	 *  below remain the preferred mapping input for hosts that want richer wording. Previously a
 	 *  free `string` carrying phantom `player.notice.*` tokens that existed in no dictionary. */
 	msg: TranslationKey;
-	/** Why a 'stopped' notice fired — distinguishes the loop-guard from the offline pause. */
-	reason?: 'loop-guard' | 'offline';
+	/** Why a 'stopped' notice fired — distinguishes the loop-guard from the offline pause and from
+	 *  an up-next that genuinely ran dry (every generator returned nothing, repeatedly). */
+	reason?: 'loop-guard' | 'offline' | 'up-next-dry';
 	/** 'skip' only: number of consecutive skips collapsed into this one message (D-02). */
 	count?: number;
 	/** 'skip' only: the title of the most recently skipped track. */
@@ -774,6 +775,25 @@ class Player {
 	 * and miscounting it would march toward the FAILURE_CAP loop-guard STOP. Never STOP, always SKIP
 	 * (the standing policy — see `nowbar-freeze-reresolve-loop`). */
 	private static FALLBACK_BUDGET_MS = 8000;
+	/**
+	 * DRY-GROW RECOVERY (user report 2026-09-12). When the queue empties, next() grows it and advances
+	 * into the new tracks. If the grow returned NOTHING the old code simply fell out of the `.then`
+	 * and playback ended in total silence — no advance, no notice, no state change. The action log
+	 * showed `ended → grow.request → grow.added count:0` and then five minutes of nothing. The comment
+	 * there claimed "the reactive never-stop chain owns the genuine stop", but no such handling
+	 * existed; a dry grow was an unguarded dead end, which is a never-stop violation.
+	 *
+	 * An empty grow is usually TRANSIENT (an upstream flake, or — as in that capture — kuwo 526ing on
+	 * a broken TLS cert while it is first in the resolve floor), so retry a bounded number of times
+	 * before giving up. Only after those fail is this a GENUINE stop, and then it must be VISIBLE:
+	 * the same sticky Retry notice the loop-guard uses, never silence.
+	 */
+	private static DRY_GROW_RETRY_MS = 5000;
+	private static DRY_GROW_MAX_RETRIES = 2;
+	/** Consecutive dry grows this episode. Reset by a real `playing` and by recoverFromStop. Plain
+	 *  field — internal budget, never read reactively. */
+	private dryGrowRetries = 0;
+	private dryGrowTimer: ReturnType<typeof setTimeout> | null = null;
 	private stallTimer: ReturnType<typeof setTimeout> | null = null;
 	/** True once the current src has produced audio (a `playing`/`timeupdate`); false from the
 	 *  moment a new initial-load src is set. Distinguishes initial-load stall (D-13) from a
@@ -1777,6 +1797,8 @@ class Player {
 			// playback resumes.
 			this.consecutiveFailures = 0;
 			this.failoverSkips = 0; // SYSTEMIC-FAILURE CEILING (debug-nowbar-frozen-audius-spam): real audio = the storm is not systemic.
+			this.dryGrowRetries = 0; // DRY-GROW: real audio ends the episode…
+			this.clearDryGrowTimer(); // …and a queued retry from it is now stale.
 			this.driveBurst = 0; // SINGLE AUTHORITY (debug-song-click-lrc-flood-noplay): real output = the src re-drive is not looping.
 			this.lastDriveUid = null;
 			// 31-D-12: real output = the corrupt-blob episode is over. Drop the one-shot dedupes so a
@@ -3849,8 +3871,57 @@ class Player {
 		void this.ensureAhead().then(() => {
 			const k = this.indexOf(this.current);
 			const n = this.nextAdvanceIndex(k);
-			if (n >= 0) this.advanceTo(n);
+			if (n >= 0) {
+				this.dryGrowRetries = 0; // the queue grew — the episode is over
+				this.advanceTo(n);
+				return;
+			}
+			// The grow added nothing. NEVER fall out silently here (that was the reported stop).
+			this.handleDryGrow();
 		});
+	}
+
+	/**
+	 * A grow produced no tracks. Retry a bounded number of times (a dry generator is usually a
+	 * transient upstream flake), then STOP VISIBLY rather than in silence.
+	 *
+	 * The stop reuses the loop-guard's sticky Retry notice + recoverFromStop, so there is exactly ONE
+	 * "we genuinely gave up" contract in this store rather than a second parallel one. It deliberately
+	 * does NOT call next()/advanceTo — nothing must re-arm ensureAhead from here, or a dry upstream
+	 * becomes a regenerate loop (the api-fetch-flood failure mode).
+	 */
+	private handleDryGrow() {
+		if (this.dryGrowRetries < Player.DRY_GROW_MAX_RETRIES) {
+			this.dryGrowRetries++;
+			logAction('grow.dry-retry', { attempt: this.dryGrowRetries });
+			this.clearDryGrowTimer();
+			this.dryGrowTimer = setTimeout(() => {
+				this.dryGrowTimer = null;
+				this.next(); // re-enters the grow path; a success resets the counter above
+			}, Player.DRY_GROW_RETRY_MS);
+			return;
+		}
+		logAction('grow.dry-stop', { attempts: this.dryGrowRetries });
+		this.dryGrowRetries = 0;
+		this.loading = false;
+		this.playing = false;
+		this.disarmStall();
+		this.pauseAudio(); // intentional pause — the `pause` listener must not fight it
+		this.error = 'toast.playbackStopped';
+		this.notice = {
+			kind: 'stopped',
+			reason: 'up-next-dry',
+			msg: 'toast.playbackStopped',
+			action: () => this.recoverFromStop()
+		};
+	}
+
+	/** Cancel a pending dry-grow retry (a user action or a real stop supersedes it). */
+	private clearDryGrowTimer() {
+		if (this.dryGrowTimer !== null) {
+			clearTimeout(this.dryGrowTimer);
+			this.dryGrowTimer = null;
+		}
 	}
 
 	prev() {
@@ -4078,6 +4149,7 @@ class Player {
 		// Cut every out-of-band /api/* fetch source dead so the STOP genuinely stops the spam.
 		this.prefetchController?.abort();
 		this.cancelAllRetryResolves();
+		this.clearDryGrowTimer(); // a queued dry-grow retry would re-arm the churn this STOP just cut
 		this.disarmStall();
 		this.pauseAudio(); // intentional pause — the `pause` listener will not re-play it
 		this.clearMedia();
@@ -4099,6 +4171,8 @@ class Player {
 	private recoverFromStop() {
 		this.consecutiveFailures = 0;
 		this.failoverSkips = 0; // SYSTEMIC-FAILURE CEILING (debug-nowbar-frozen-audius-spam): a manual retry re-arms it.
+		this.dryGrowRetries = 0; // DRY-GROW: a manual retry re-arms the grow budget too.
+		this.clearDryGrowTimer();
 		this.driveBurst = 0; // SINGLE AUTHORITY (debug-song-click-lrc-flood-noplay): a manual retry re-arms the src brake.
 		this.lastDriveUid = null;
 		this.corruptNotified.clear(); // 31-D-12: a full recovery re-arms the corrupt-blob one-shots too

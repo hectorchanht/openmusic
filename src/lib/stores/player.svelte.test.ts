@@ -647,6 +647,81 @@ describe('album-scoped attached cover — every track, every advance (quick-2609
 // playNext(track) (the swipe-left affordance on this very list) + play(track, { fresh: false })
 // (the path next()/auto-advance use). These tests pin the store-side invariants that composition
 // relies on: queue order, anchor, context, no regenerate, de-dupe, and the cold-start guard.
+// DRY-GROW NEVER-STOP (user report 2026-09-12). The action log showed the whole failure in three
+// lines: `ended` → `grow.request` → `grow.added count:0`, then five minutes of silence. next() grew
+// the queue, got nothing back, fell out of the `.then` and left the player dead — no advance, no
+// notice, no state change. A dry grow was an unguarded dead end.
+describe('player.next — a dry grow must never dead-end silently', () => {
+	beforeEach(() => {
+		(player.play as unknown as { mockRestore(): void }).mockRestore?.();
+		mockEnsure.mockReset().mockImplementation(async (t: Track) => t);
+		mockSimilar.mockReset().mockResolvedValue([]); // every generator dry
+		mockPicks.mockReset().mockResolvedValue([]);
+		player.current = null;
+		player.queue = [];
+		player.error = null;
+		player.notice = null;
+		player.attach(makeFakeAudio() as unknown as HTMLAudioElement);
+		(player as unknown as { dryGrowRetries: number }).dryGrowRetries = 0;
+	});
+
+	afterEach(() => {
+		(player as unknown as { clearDryGrowTimer(): void }).clearDryGrowTimer();
+		vi.useRealTimers();
+	});
+
+	/** Last track of the queue is current, so next() has nowhere to advance and must grow. */
+	function atEndOfQueue() {
+		const only = mk('kuwo', 'LAST', 'A', 'Last');
+		player.queue = [only];
+		player.current = only;
+	}
+
+	it('retries a dry grow instead of stopping on the first one', async () => {
+		vi.useFakeTimers();
+		atEndOfQueue();
+
+		player.next();
+		await vi.advanceTimersByTimeAsync(0);
+
+		// Still trying — a single dry grow is usually a transient upstream flake, not the end.
+		expect(player.notice).toBeNull();
+		expect((player as unknown as { dryGrowRetries: number }).dryGrowRetries).toBe(1);
+	});
+
+	it('after the retry budget it STOPS VISIBLY with a sticky Retry notice', async () => {
+		vi.useFakeTimers();
+		atEndOfQueue();
+
+        // First grow + both retries, each separated by the retry delay.
+		player.next();
+		await vi.advanceTimersByTimeAsync(0);
+		await vi.advanceTimersByTimeAsync(6000);
+		await vi.advanceTimersByTimeAsync(6000);
+
+		expect(player.notice).not.toBeNull();
+		expect(player.notice?.kind).toBe('stopped');
+		expect(player.notice?.reason).toBe('up-next-dry');
+		// The whole point: the user gets a way out, not silence.
+		expect(typeof player.notice?.action).toBe('function');
+		expect(player.playing).toBe(false);
+	});
+
+	it('a successful grow clears the retry budget and advances', async () => {
+		atEndOfQueue();
+		const grown = mk('kuwo', 'NEW', 'B', 'Grown');
+		mockSimilar.mockResolvedValue([grown]);
+
+		player.next();
+		await flush();
+		await flush();
+
+		expect(player.queue.map((t) => t.uid)).toContain(grown.uid);
+		expect((player as unknown as { dryGrowRetries: number }).dryGrowRetries).toBe(0);
+		expect(player.notice).toBeNull();
+	});
+});
+
 describe('Related tap — playNext + non-fresh play preserves Up Next (quick-260910-qjv)', () => {
 	const q1 = () => mk('kuwo', 'Q1', 'Coldplay', 'Yellow');
 	const q2 = () => mk('kuwo', 'Q2', 'Coldplay', 'Trouble');
