@@ -18,7 +18,7 @@
 // reshapeDeezerSearch() so the proxy can be EXTENDED later for charts/album/artist-info (tasks
 // 3b/3c) WITHOUT restructuring — but only the search → { cover, artistPicture } path ships now.
 import type { RequestHandler } from './$types';
-import { corsHeaders } from '$lib/proxy/http';
+import { corsHeaders, jsonResponse } from '$lib/proxy/http';
 import { edgeCache } from '$lib/proxy/edge-cache';
 import { fetchDeezerCover, DEEZER_COVER_TTL } from '$lib/proxy/deezer-cover';
 import type { DeezerCover } from '$lib/proxy/deezer-cover';
@@ -26,14 +26,9 @@ import type { DeezerCover } from '$lib/proxy/deezer-cover';
 // edgeCache() (caches.default narrowing + `typeof caches` dev guard) is shared from
 // $lib/proxy/edge-cache (quick-260713-mqv). Cache key stays the own-origin Request below.
 
-function jsonResult(result: DeezerCover, origin: string | null, ttl?: number): Response {
-	const headers: Record<string, string> = {
-		...corsHeaders(origin),
-		'content-type': 'application/json'
-	};
-	if (ttl != null) headers['Cache-Control'] = `public, max-age=${ttl}`;
-	return new Response(JSON.stringify(result satisfies DeezerCover), { status: 200, headers });
-}
+// Shared JSON responder (src/lib/proxy/http.ts).
+const jsonResult = (body: unknown, origin: string | null, ttl?: number): Response =>
+	jsonResponse(body, origin, { ttl });
 
 export const GET: RequestHandler = async ({ url, request }) => {
 	const origin = request.headers.get('origin');

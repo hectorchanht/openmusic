@@ -16,9 +16,10 @@
 // validated integer, not raw input) is then interpolated into the fixed
 // `api.deezer.com/artist/{id}/albums` path. The host is always the literal api.deezer.com.
 import type { RequestHandler } from './$types';
-import { fetchWithRetry, corsHeaders } from '$lib/proxy/http';
+import { fetchWithRetry, corsHeaders, jsonResponse } from '$lib/proxy/http';
 import { edgeCache } from '$lib/proxy/edge-cache';
 import { pickBestArtistId, DEEZER_ARTIST_SEARCH_LIMIT } from '$lib/proxy/deezer-pick';
+import { safeImageUrl as checkImageUrl, DEEZER_IMAGE_HOSTS } from '$lib/proxy/safe-image-url';
 
 const DEEZER_ARTIST_SEARCH = 'https://api.deezer.com/search/artist';
 const DEEZER_ARTIST_ALBUMS = 'https://api.deezer.com/artist'; // + /{id}/albums
@@ -57,36 +58,14 @@ export interface DeezerArtistAlbumsResult {
 
 // edgeCache() shared from $lib/proxy/edge-cache (quick-260713-mqv).
 
-function jsonResult(result: DeezerArtistAlbumsResult, origin: string | null, ttl?: number): Response {
-	const headers: Record<string, string> = {
-		...corsHeaders(origin),
-		'content-type': 'application/json'
-	};
-	if (ttl != null) headers['Cache-Control'] = `public, max-age=${ttl}`;
-	return new Response(JSON.stringify(result satisfies DeezerArtistAlbumsResult), { status: 200, headers });
-}
+// Shared JSON responder (src/lib/proxy/http.ts).
+const jsonResult = (body: unknown, origin: string | null, ttl?: number): Response =>
+	jsonResponse(body, origin, { ttl });
 
 const EMPTY: DeezerArtistAlbumsResult = { data: [] };
 
-/**
- * Validate an image URL before it leaves the edge (parity with the search route's safeImageUrl,
- * threat T-23-17). The client renders it as an `<img src>`/`background-image` attribute; reject
- * anything that could break out of an attribute / inject a CSS url() layer. Allowed: https:// on
- * a *.dzcdn.net host, with NO CSS/attribute-breaking characters. Anything else → null.
- */
-function safeImageUrl(raw: string | null | undefined): string | null {
-	if (!raw) return null;
-	if (/[)\s"'\\(]/.test(raw)) return null; // CSS url() + attribute breakers
-	try {
-		const u = new URL(raw);
-		if (u.protocol !== 'https:') return null;
-		const host = u.hostname.toLowerCase();
-		const ok = host === 'cdn-images.dzcdn.net' || host.endsWith('.dzcdn.net');
-		return ok ? u.href : null;
-	} catch {
-		return null;
-	}
-}
+/** Bind this route's allowlist once; the guard itself is shared (src/lib/proxy/safe-image-url.ts). */
+const safeImageUrl = (raw: string | null | undefined) => checkImageUrl(raw, DEEZER_IMAGE_HOSTS);
 
 /** Clamp an untrusted nb_tracks to a non-negative integer (0 if absent/garbage/negative). */
 function clampCount(raw: unknown): number {

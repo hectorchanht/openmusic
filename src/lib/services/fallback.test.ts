@@ -28,7 +28,16 @@ vi.mock('$lib/sources/registry', () => ({
 		{ id: 'netease' },
 		{ id: 'joox' },
 		{ id: 'ytmusic' }
-	])
+	]),
+	// onlySource moved to the registry (it derives from SOURCES and is the counterpart to
+	// getEnabledAdapters). Mocked with the REAL behaviour, not a stub: tryFallback passes its result
+	// to searchAll, and the per-source assertions below read that prefs object.
+	onlySource: (id: string) => {
+		const prefs: Record<string, boolean> = {};
+		for (const sourceId of ['kuwo', 'qq', 'netease', 'joox', 'ytmusic']) prefs[sourceId] = false;
+		prefs[id] = true;
+		return prefs;
+	}
 }));
 vi.mock('$lib/services/catalog', () => ({ searchAll: vi.fn(), ensureTrackDetails: vi.fn() }));
 

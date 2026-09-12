@@ -13,7 +13,7 @@
 // request bodies (POST-to-fixed-URL, no open relay). The WEB_REMIX key lives only in those URLs
 // (server -> upstream) and is never echoed to a response body. CORS allowlisted (never '*').
 import type { RequestHandler } from './$types';
-import { corsHeaders } from '$lib/proxy/http';
+import { corsHeaders, jsonResponse } from '$lib/proxy/http';
 import { edgeCache, ownOriginCacheKey } from '$lib/proxy/edge-cache';
 import {
 	innerTubePost,
@@ -26,14 +26,9 @@ import {
 
 const TTL = 86400; // 1 day — lyrics are stable (also caches a genuine no-lyrics {}).
 
-function jsonPassthrough(body: unknown, origin: string | null, ttl?: number): Response {
-	const headers: Record<string, string> = {
-		...corsHeaders(origin),
-		'content-type': 'application/json'
-	};
-	if (ttl != null) headers['Cache-Control'] = `public, max-age=${ttl}`;
-	return new Response(JSON.stringify(body), { status: 200, headers });
-}
+// Shared JSON responder (src/lib/proxy/http.ts).
+const jsonPassthrough = (body: unknown, origin: string | null, ttl?: number): Response =>
+	jsonResponse(body, origin, { ttl });
 
 function cacheEntry(body: unknown): Response {
 	return new Response(JSON.stringify(body), {

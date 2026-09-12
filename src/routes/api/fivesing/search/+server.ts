@@ -10,7 +10,7 @@
 // faster than catalogue covers, so an hour is the right tradeoff between freshness and
 // hammering the upstream on every repeat search.
 import type { RequestHandler } from './$types';
-import { fetchWithRetry, corsHeaders } from '$lib/proxy/http';
+import { fetchWithRetry, corsHeaders, jsonResponse } from '$lib/proxy/http';
 import { edgeCache } from '$lib/proxy/edge-cache';
 
 // Upstream host. `https://` returns a TLS cert mismatch (cert is for a different hostname,
@@ -22,14 +22,9 @@ const TTL = 3600; // 1h
 
 // edgeCache() shared from $lib/proxy/edge-cache (quick-260713-mqv).
 
-function jsonPassthrough(body: unknown, origin: string | null, ttl?: number): Response {
-	const headers: Record<string, string> = {
-		...corsHeaders(origin),
-		'content-type': 'application/json'
-	};
-	if (ttl != null) headers['Cache-Control'] = `public, max-age=${ttl}`;
-	return new Response(JSON.stringify(body), { status: 200, headers });
-}
+// Shared JSON responder (src/lib/proxy/http.ts).
+const jsonPassthrough = (body: unknown, origin: string | null, ttl?: number): Response =>
+	jsonResponse(body, origin, { ttl });
 
 export const GET: RequestHandler = async ({ url, request }) => {
 	const origin = request.headers.get('origin');

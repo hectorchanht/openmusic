@@ -20,6 +20,7 @@
 import { matchKey } from '$lib/services/match-key';
 import type { CoverNeed } from '$lib/services/cover-backfill';
 import type { Track } from '$lib/sources/types';
+import { hasHttpsScheme } from './url-safety';
 
 /**
  * Hard bound on rows submitted per fill. Equals SIMILAR_TRACK_LIMIT — one attempt per generated row.
@@ -34,11 +35,6 @@ import type { Track } from '$lib/sources/types';
  */
 export const UPNEXT_COVER_MAX = 20;
 
-/** SOLID = a non-empty https URL — the only thing worth keeping (mirrors cover-backfill's isSolidCover
- *  and similar.ts / share.ts `isHttpsUrl`; kept INLINE so this module stays store- and cache-free). */
-function isHttps(url: string | null | undefined): url is string {
-	return typeof url === 'string' && url.startsWith('https:');
-}
 
 /**
  * Pick the Up-Next rows that still need a cover, de-duped and capped.
@@ -59,7 +55,7 @@ export function upNextCoverNeeds(
 	const seen = new Set<string>();
 	const needs: CoverNeed[] = [];
 	for (const t of list) {
-		if (isHttps(t.cover)) continue; // already has art (source cover / piz album seed)
+		if (hasHttpsScheme(t.cover)) continue; // already has art (source cover / piz album seed)
 		const artist = t.artist ?? '';
 		const title = t.title ?? '';
 		if (!artist && !title) continue;

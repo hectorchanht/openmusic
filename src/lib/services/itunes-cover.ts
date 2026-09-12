@@ -31,9 +31,14 @@
 // `results[0].artworkUrl100`. itunesArtistCover uses that album-art path.
 
 import { getCachedItunesId, setCachedItunesId } from '$lib/services/cover-cache';
+import { combinedSignal as combineWithTimeout } from './abort-signal';
 
 const ITUNES_SEARCH = 'https://itunes.apple.com/search';
 const FETCH_TIMEOUT_MS = 6000;
+
+/** This module's calls all share one deadline — bind it once so every call site stays
+ *  `combinedSignal(signal)` and the timeout is named in exactly one place. */
+const combinedSignal = (caller?: AbortSignal) => combineWithTimeout(FETCH_TIMEOUT_MS, caller);
 
 /** Shape we read off an iTunes Search result (everything optional — untrusted external JSON). */
 interface ItunesResult {
@@ -153,12 +158,6 @@ export function recallItunesId(coverUrl: string | null | undefined): string | nu
  * (still bounded — the caller's pre-fetch `aborted` check already short-circuits the common
  * case).
  */
-function combinedSignal(caller?: AbortSignal): AbortSignal {
-	const timeout = AbortSignal.timeout(FETCH_TIMEOUT_MS);
-	if (!caller) return timeout;
-	const anyFn = (AbortSignal as { any?: (signals: AbortSignal[]) => AbortSignal }).any;
-	return typeof anyFn === 'function' ? anyFn([caller, timeout]) : timeout;
-}
 
 /**
  * Bounded, never-throws GET → parsed top result's artworkUrl100, upgraded to 600x600.

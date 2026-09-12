@@ -11,7 +11,7 @@
 import { searchAll, ensureTrackDetails } from '$lib/services/catalog';
 import { dedupeBest, sameSongKey } from '$lib/services/dedupe';
 import { isAcceptableSubstitute } from '$lib/services/song-variant';
-import { getEnabledAdapters, SOURCES } from '$lib/sources/registry';
+import { getEnabledAdapters, SOURCES, onlySource } from '$lib/sources/registry';
 import type { SourceId, Track } from '$lib/sources/types';
 
 /**
@@ -53,23 +53,6 @@ export function fallbackOrder(
 		return [preferred, ...remaining.filter((s) => s !== preferred)];
 	}
 	return remaining;
-}
-
-/**
- * Per-source prefs object that limits searchAll to a single source id. Derived from the registry
- * (SOURCES) so it covers EVERY registered source — explicitly defaulting each to false and then
- * flipping only `id` to true. getEnabledAdapters honors an explicit `prefs[id]` over user/default
- * enablement, so any source NOT present in this object would otherwise fall through to "enabled"
- * and leak into a supposedly single-source fallback. Building from SOURCES keeps this correct as
- * sources are added (e.g. fivesing/jamendo) without re-listing ids by hand (D-08 isolation).
- */
-function onlySource(id: SourceId): Partial<Record<SourceId, boolean>> {
-	const out: Partial<Record<SourceId, boolean>> = {};
-	for (const sourceId of Object.keys(SOURCES) as SourceId[]) {
-		out[sourceId] = false;
-	}
-	out[id] = true;
-	return out;
 }
 
 /**

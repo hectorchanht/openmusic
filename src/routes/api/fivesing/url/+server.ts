@@ -10,19 +10,16 @@
 // namespaces for the same numeric songid, and our compound uid encodes this. We pin the
 // allowed values here so a malformed query never reaches upstream.
 import type { RequestHandler } from './$types';
-import { fetchWithRetry, corsHeaders } from '$lib/proxy/http';
+import { fetchWithRetry, corsHeaders, jsonResponse } from '$lib/proxy/http';
 
 // Upstream is http-only (TLS cert mismatch on https, mirrors the search proxy). The CLIENT
 // still talks to this route over its own-origin https; the worker→upstream hop is http.
 const FS_URL = 'http://mobileapi.5sing.kugou.com/song/getSongUrl';
 const ALLOWED_TYPES = new Set(['fc', 'bz', 'yc']);
 
-function jsonPassthrough(body: unknown, origin: string | null): Response {
-	return new Response(JSON.stringify(body), {
-		status: 200,
-		headers: { ...corsHeaders(origin), 'content-type': 'application/json' }
-	});
-}
+// Shared JSON responder (src/lib/proxy/http.ts).
+const jsonPassthrough = (body: unknown, origin: string | null, ttl?: number): Response =>
+	jsonResponse(body, origin, { ttl });
 
 export const GET: RequestHandler = async ({ url, request }) => {
 	const origin = request.headers.get('origin');

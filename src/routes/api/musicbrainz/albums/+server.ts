@@ -9,7 +9,7 @@
 // (Cover Art Archive), never fetched here. CAA was 8/8 on a Jay Chou sample, and the client
 // renders covers as a layered background so a miss reveals the gradient rather than a blank tile.
 import type { RequestHandler } from './$types';
-import { corsHeaders } from '$lib/proxy/http';
+import { corsHeaders, jsonResponse } from '$lib/proxy/http';
 import { edgeCache } from '$lib/proxy/edge-cache';
 import { MB_WS, mbFetch, isMbid, coverArtUrl } from '$lib/proxy/musicbrainz-shared';
 
@@ -72,14 +72,9 @@ function mapType(rg: MbReleaseGroup): string | null {
 	return null;
 }
 
-function jsonResult(body: MbAlbumsResult, origin: string | null, ttl?: number): Response {
-	const headers: Record<string, string> = {
-		...corsHeaders(origin),
-		'content-type': 'application/json'
-	};
-	if (ttl != null) headers['Cache-Control'] = `public, max-age=${ttl}`;
-	return new Response(JSON.stringify(body), { status: 200, headers });
-}
+// Shared JSON responder (src/lib/proxy/http.ts).
+const jsonResult = (body: unknown, origin: string | null, ttl?: number): Response =>
+	jsonResponse(body, origin, { ttl });
 
 export const OPTIONS: RequestHandler = ({ request }) =>
 	new Response(null, { status: 204, headers: corsHeaders(request.headers.get('origin')) });

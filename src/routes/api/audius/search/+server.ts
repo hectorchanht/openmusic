@@ -12,7 +12,7 @@
 // Edge cache via Cloudflare's caches.default at TTL 10min: best-match search ranking is
 // stable enough that a 10-minute window avoids hammering upstream on repeat searches.
 import type { RequestHandler } from './$types';
-import { fetchWithRetry, corsHeaders } from '$lib/proxy/http';
+import { fetchWithRetry, corsHeaders, jsonResponse } from '$lib/proxy/http';
 import { edgeCache } from '$lib/proxy/edge-cache';
 
 const AUDIUS_SEARCH = 'https://api.audius.co/v1/tracks/search';
@@ -21,14 +21,9 @@ const TTL = 600; // 10min
 
 // edgeCache() shared from $lib/proxy/edge-cache (quick-260713-mqv).
 
-function jsonPassthrough(body: unknown, origin: string | null, ttl?: number): Response {
-	const headers: Record<string, string> = {
-		...corsHeaders(origin),
-		'content-type': 'application/json'
-	};
-	if (ttl != null) headers['Cache-Control'] = `public, max-age=${ttl}`;
-	return new Response(JSON.stringify(body), { status: 200, headers });
-}
+// Shared JSON responder (src/lib/proxy/http.ts).
+const jsonPassthrough = (body: unknown, origin: string | null, ttl?: number): Response =>
+	jsonResponse(body, origin, { ttl });
 
 export const GET: RequestHandler = async ({ url, request }) => {
 	const origin = request.headers.get('origin');

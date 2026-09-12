@@ -1,7 +1,7 @@
 <!-- GSD:project-start source:PROJECT.md -->
 ## Project
 
-**MusicSquare Mobile**
+**Open Music Mobile**
 
 A mobile-first web music player that searches and streams tracks aggregated from multiple Chinese music platforms (Netease, QQ, Kuwo, JOOX, plus new sources). It began as a ground-up reskin of a former desktop single-page player (`index.html`, a vanilla-JS original that no longer lives in this repo): the proven data/fetch layer was reused, while the desktop three-panel UI was replaced with an app-like mobile interface inspired by YouTube Music and Spotify (bottom nav, expandable now-playing, background audio, installable PWA). Built with SvelteKit and deployed on Cloudflare.
 
@@ -190,9 +190,38 @@ UPSTREAMS  CN music proxies, Deezer, iTunes, Last.fm, translate APIs + native <a
 - **SSR:** disabled app-wide; every store/service touching `localStorage`/`window`/`document` is `browser`-guarded.
 
 ## Anti-Patterns (known debt)
-- **`player.svelte.ts` is a ~3017-line god object** — transport, queue, fallback, never-stop guard, prefetch, media session, cover self-heal, persistence in one class. Extract cohesive slices into pure services the store thin-calls (the media-session slice already models this).
-- **`NowPlaying.svelte` at 1652 lines** — a re-render hotspot; split lyrics pane / up-next / transport into children that each subscribe to only the `$state` they need.
-- **Cover-cache write duplication** — the https-only guard + write-both-layers + bump sequence is replicated across several call sites; route every writer through `cover-version.svelte.ts` `writeCoverBoth`.
+- **`player.svelte.ts` is a ~4300-line god object** — transport, queue, fallback, never-stop guard, prefetch, media session, cover self-heal, persistence in one class. Extract cohesive slices into pure services the store thin-calls (the media-session slice already models this).
+- **`NowPlaying.svelte` at ~2000 lines** — a re-render hotspot; split lyrics pane / up-next / transport into children that each subscribe to only the `$state` they need.
+- **Per-page row boilerplate** — `swipeQueue` / `swipeNext` / `openMenu` / `minDwell` / `rowKey` are re-declared across 5-6 list pages in three variants. The differences are real (different item types), so this needs a shared row COMPONENT, not another helper. The only duplication left after the 2026-09-12 dedup sweep.
+- ~~Cover-cache write duplication~~ — RESOLVED: every writer now routes through `cover-version.svelte.ts` `writeCoverBoth`; no raw `writeCover(` call sites remain outside the cache module.
+
+## Shared Primitives — import these, never re-inline them
+
+A 2026-09-12 audit found the same logic copied across many files, each copy carrying a comment
+explaining why it was inline ("kept PURE / store-free"). The dependency they were avoiding was a
+RUNES STORE, not a shared helper — so each of these now lives in one dependency-free module. The
+failure mode is real, not theoretical: four of five copies of the readiness guard silently lacked a
+freshness check, and one of three `pickImage` copies silently lacked its host-allowlist check.
+
+| Concern | Import from | Replaced |
+|---|---|---|
+| "resolved and still fresh?" | `services/track-ready.ts` (`isTrackReady`, `hasFreshAudioUrl`) | 5 inline guards |
+| https/"solid cover" test | `services/url-safety.ts` (`hasHttpsScheme`) | 6 copies under 4 names |
+| placeholder cover gradient | `services/cover-gradient.ts` (`coverGradient`) | 9 copies |
+| single-source `prefs` object | `sources/registry.ts` (`onlySource`) | 3 copies |
+| caller signal + timeout | `services/abort-signal.ts` (`combinedSignal`) | 3 copies + 1 cross-import |
+| flaky-upstream gate | `services/source-health.ts` (`createHealthGate`) | netease-only, now netease + kuwo |
+| remote image allowlist | `proxy/safe-image-url.ts` | 4 copies of a SECURITY control |
+| Last.fm artwork pick | `proxy/lastfm-image.ts` (`pickLastfmImage`) | 2 copies |
+| JSON route response | `proxy/http.ts` (`jsonResponse`) | 18 copies (`jsonResult`/`jsonPassthrough`) |
+
+**Deliberately NOT merged** — same-looking is not same:
+- `share.ts` `isHttpsUrl` tests `/^https:\/\/\S+$/` (a complete URL), stricter than `hasHttpsScheme`.
+- `/api/lastfm/similar-tracks` `pickImage` validates WITHOUT `safeImageUrl`, so it emits URLs with no
+  host allowlist. Left as-is because tightening it is a behaviour change, not a refactor — **open
+  question, worth a decision.**
+- Gesture-local `up`/`move`/`down`/`resetTransform` in `lib/actions/*` are per-action handlers with
+  genuinely different bodies.
 
 ## Error Handling
 - **Strategy: isolate-and-degrade** — no error stops the app or the never-stop playback chain. Per-source search isolation (`Promise.allSettled`); cover chain per-tier never-throw (total miss leaves a gradient); playback never-stop routes a dead URL through single-retry → cross-source `runFallback` → skip, with a `FAILURE_CAP=5` loop-guard tripping a sticky Retry notice. localStorage access always try/catch. Store→UI errors surface via reactive fields (`player.error`, `player.notice`) read one-way by the layout toast host.
@@ -230,3 +259,17 @@ Do not make direct repo edits outside a GSD workflow unless the user explicitly 
 > Profile not yet configured. Run `/gsd-profile-user` to generate your developer profile.
 > This section is managed by `generate-claude-profile` -- do not edit manually.
 <!-- GSD:profile-end -->
+
+## Agent skills
+
+### Issue tracker
+
+Local markdown under `.scratch/<feature>/` — GitHub Issues are disabled on this repo, and `.planning/` belongs to GSD, not to skills. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five canonical roles, unchanged, written as a `Status:` line in each issue file. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context — root `CONTEXT.md` + `docs/adr/`. See `docs/agents/domain.md`.

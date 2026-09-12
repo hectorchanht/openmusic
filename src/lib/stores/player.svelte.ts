@@ -56,8 +56,6 @@ import { STATE_KEY, serializePlayerState, parsePlayerState } from '$lib/stores/p
 // cover seeding + attachment build live in a pure, node-tested sibling module.
 import { seedCover, buildAttachment, type AttachedCover } from '$lib/stores/attached-cover';
 
-/** SOLID = a non-empty https URL (the only thing safe to cache/render; mirrors cover-backfill isSolidCover, T-0bb-01). */
-const httpsOnly = (u?: string | null): u is string => typeof u === 'string' && u.startsWith('https:');
 /** slow-cold-start-first-playing: container tag for the `src.set` log line — `blob` for object URLs,
  *  else the pathname extension (flac / m4a / mp3 / ogg), `?` when unparseable. Never throws. */
 export function srcExt(url: string): string {
@@ -86,6 +84,7 @@ import type { SourceId, Track } from '$lib/sources/types';
 // `t(n.msg)` and the token is guaranteed to exist in every dictionary. No runtime UI dependency —
 // the store still emits raw, host-rendered data (D-03); this just type-checks the token keys.
 import type { TranslationKey } from '$lib/i18n';
+import { hasHttpsScheme } from '$lib/services/url-safety';
 
 /**
  * The minimal display shape the now-bar renders the INSTANT a discovery stub is tapped,
@@ -2971,7 +2970,7 @@ class Player {
 			// an album show the album's art, not whatever thumbnail each source happens to return.
 			// quick-260910-piz: the attachment is installed by setQueue now (list-scoped) — the album
 			// page's follow-up setListQueue(all, 'album', heroImg) then widens it to the whole album.
-			if (httpsOnly(cover)) tr = { ...tr, cover };
+			if (hasHttpsScheme(cover)) tr = { ...tr, cover };
 			this.setQueue([tr], context, cover);
 			void this.play(tr, { fresh: true });
 			return tr;
@@ -3065,7 +3064,7 @@ class Player {
 		// quick-260615-hep Site A: write the displayed cover (incl. the track.cover path) into BOTH cache
 		// layers + bump so other surfaces reuse it and repaint live. https-only (T-0bb-01); writeCoverBoth
 		// no-ops on empty/non-https — harmless even before the myGen guards' discard points (real art only).
-		if (httpsOnly(this.resolvedCover))
+		if (hasHttpsScheme(this.resolvedCover))
 			writeCoverBoth(track.uid, track.artist, track.title, this.resolvedCover);
 		// cover-hero-mediacard-missing (Issue 2): populate the OS media card title/artist IMMEDIATELY
 		// from the stub — BEFORE the async ensureTrackDetails resolve — so the card never shows the bare
@@ -3263,7 +3262,7 @@ class Player {
 				if (!this.resolvedCover) this.resolvedCover = resolved.cover;
 				// quick-260615-hep Site B: ensureTrackDetails fetched a real cover — write BOTH layers + bump
 				// so home/library tiles for this song reuse it and repaint live. https-only (T-0bb-01).
-				if (httpsOnly(resolved.cover))
+				if (hasHttpsScheme(resolved.cover))
 					writeCoverBoth(resolved.uid, resolved.artist, resolved.title, resolved.cover);
 			}
 			if (timedOut || !resolved.audioUrl) {
@@ -3396,7 +3395,7 @@ class Player {
 			// right image, so skip the Deezer HQ upgrade for it — that call is the remaining
 			// per-play cover fetch, and on an album it would also let siblings drift apart. Tracks
 			// whose cover came from the SOURCE inline (a kuwo/qq thumbnail) still get upgraded.
-			else if (httpsOnly(this.resolvedCover) && !this.attachedCoverFor(resolved))
+			else if (hasHttpsScheme(this.resolvedCover) && !this.attachedCoverFor(resolved))
 				void this.upgradeCoverAsync(resolved, myGen);
 			// Fresh play -> per-context sourcing branch (Phase 17, D-03/D-04). 'generated'
 			// (global default) regenerates the auto portion from genre-similar songs; 'same-list'
@@ -3515,7 +3514,7 @@ class Player {
 		// late Deezer HQ result must not overwrite it (a bigger byte count is not a better match). Fires
 		// at play() time and adoption is almost always later, so this only closes the reverse race.
 		if (this.adoptedCoverUid === resolved.uid) return;
-		if (!httpsOnly(url) || url === this.resolvedCover) return; // miss / no change → inline cover stands
+		if (!hasHttpsScheme(url) || url === this.resolvedCover) return; // miss / no change → inline cover stands
 		this.resolvedCover = url;
 		// resolveDeezerHQ already wrote BOTH cache layers — only bump the reactive signal (mirror Site C).
 		bumpCoverVersion();
@@ -3579,7 +3578,7 @@ class Player {
 		try {
 			const cur = this.current;
 			if (!cur || cur.uid !== uid) return; // (1) no track / superseded — discard
-			if (!httpsOnly(url)) return; // (2) not a cacheable, renderable URL
+			if (!hasHttpsScheme(url)) return; // (2) not a cacheable, renderable URL
 			if (url === this.resolvedCover) return; // (3) already showing it — nothing to do
 			this.resolvedCover = url;
 			this.adoptedCoverUid = uid;
@@ -3622,7 +3621,7 @@ class Player {
 			// (2) A null/gradient cover is the resolveCoverAsync MISSING path, not here; a non-https value
 			//     is not a probe target. Only a present https URL can be "dead but painted".
 			const url = this.resolvedCover;
-			if (!httpsOnly(url)) return;
+			if (!hasHttpsScheme(url)) return;
 			// (3) One-shot per uid+url (mirror lazyCover's `done`): probe AT MOST once so an errored
 			//     background paint can never re-trigger an infinite re-probe loop (T-20e-02). Add BEFORE probing.
 			const key = `${uid}|${url}`;
@@ -3646,7 +3645,7 @@ class Player {
 			// (8) Commit ONLY a SOLID https result (T-20e-01). A null/miss keeps the gradient — never
 			//     re-commit the dead url (D-12). resolveCoverForTrack already wrote both cache layers — do
 			//     NOT double-write (mirror resolveCoverAsync Site C); just bump so other tiles repaint.
-			if (httpsOnly(fresh)) {
+			if (hasHttpsScheme(fresh)) {
 				this.resolvedCover = fresh;
 				bumpCoverVersion();
 			}

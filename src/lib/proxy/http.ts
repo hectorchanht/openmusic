@@ -93,3 +93,32 @@ function backoff(attempt: number): Promise<void> {
 	const ms = Math.min(150 * 2 ** attempt, 1000);
 	return sleep(ms);
 }
+
+/**
+ * A JSON `Response` with this route's CORS headers applied.
+ *
+ * Replaces EIGHTEEN local copies — `jsonResult` in 12 route files and the byte-identical
+ * `jsonPassthrough` in 6 more. They were not all the same, which is exactly why they needed reading
+ * rather than a blind collapse: most were the standard shape below, `/api/resolve` needed a status
+ * code and `no-store`, and `/api/deezer/radio` spelled its content-type and cache-control
+ * differently. Those become OPTIONS here instead of three private forks.
+ *
+ * `Cache-Control` precedence: an explicit `cacheControl` wins; otherwise a non-null `ttl` becomes
+ * `public, max-age=<ttl>`; otherwise the header is omitted entirely (no implicit caching policy).
+ *
+ * Callers keep their own `satisfies` assertions at the call site — that is a compile-time check of
+ * the route's payload type and has no business being a runtime parameter.
+ */
+export function jsonResponse(
+	body: unknown,
+	origin: string | null,
+	opts: { ttl?: number; status?: number; cacheControl?: string } = {}
+): Response {
+	const headers: Record<string, string> = {
+		...corsHeaders(origin),
+		'content-type': 'application/json'
+	};
+	if (opts.cacheControl) headers['Cache-Control'] = opts.cacheControl;
+	else if (opts.ttl != null) headers['Cache-Control'] = `public, max-age=${opts.ttl}`;
+	return new Response(JSON.stringify(body), { status: opts.status ?? 200, headers });
+}

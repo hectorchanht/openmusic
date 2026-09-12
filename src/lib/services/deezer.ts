@@ -25,6 +25,7 @@
 
 import { cached } from './ttl-cache';
 import { apiFetch } from './api-base';
+import { combinedSignal as combineWithTimeout } from './abort-signal';
 
 const PROXY_PATH = '/api/deezer/search';
 const CHART_PATH = '/api/deezer/chart';
@@ -37,6 +38,10 @@ const ALBUM_PATH = '/api/deezer/album';
 // Phase 23, ART-01 / D-19 — artist-albums LIST proxy (each album carries nb_tracks natively).
 const ARTIST_ALBUMS_PATH = '/api/deezer/artist-albums';
 const FETCH_TIMEOUT_MS = 6000;
+
+/** This module's calls all share one deadline — bind it once so every call site stays
+ *  `combinedSignal(signal)` and the timeout is named in exactly one place. */
+const combinedSignal = (caller?: AbortSignal) => combineWithTimeout(FETCH_TIMEOUT_MS, caller);
 // k3y client-side TTLs (longer per lry-followup: a music app's catalogue + cover data is
 // stable for days, and the same-session repeat hit pattern dominates the network surface).
 // Covers basically never change for an existing track; search rankings drift slowly; related
@@ -122,12 +127,6 @@ export function buildDeezerSearchUrl(term: string): string {
  * quick-260831-re9: EXPORTED so musicbrainz.ts reuses the identical bounding rule rather than
  * carrying a second copy of it. Same timeout, same fallback.
  */
-export function combinedSignal(caller?: AbortSignal): AbortSignal {
-	const timeout = AbortSignal.timeout(FETCH_TIMEOUT_MS);
-	if (!caller) return timeout;
-	const anyFn = (AbortSignal as { any?: (signals: AbortSignal[]) => AbortSignal }).any;
-	return typeof anyFn === 'function' ? anyFn([caller, timeout]) : timeout;
-}
 
 /**
  * Bounded GET of the proxy → the parsed { cover, artistPicture } reshape. THROWS on a non-ok

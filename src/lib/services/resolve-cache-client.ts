@@ -22,6 +22,7 @@
 // rule at the EDGE layer only, where the TTL and the bust live together.
 import type { ResolveEntry } from '$lib/proxy/resolve-cache';
 import { apiFetch } from './api-base';
+import { combinedSignal as combineWithTimeout } from './abort-signal';
 
 const RESOLVE_PATH = '/api/resolve';
 
@@ -32,6 +33,10 @@ const RESOLVE_PATH = '/api/resolve';
  * multi-source race, and 31-D-01's RESOLVE_WATCHDOG_MS (6000) is untouched.
  */
 const RESOLVE_CACHE_TIMEOUT_MS = 400;
+
+/** This module's calls all share one deadline — bind it once so every call site stays
+ *  `combinedSignal(signal)` and the timeout is named in exactly one place. */
+const combinedSignal = (caller?: AbortSignal) => combineWithTimeout(RESOLVE_CACHE_TIMEOUT_MS, caller);
 
 /**
  * How many served URLs stay reportable. A handful of plays are ever in flight; the cap only
@@ -92,12 +97,6 @@ function remember(url: string, a: string, t: string): void {
  * timeout-only fallback (still bounded; the caller's pre-fetch `aborted` check covers the common
  * supersede case).
  */
-function combinedSignal(caller?: AbortSignal): AbortSignal {
-	const timeout = AbortSignal.timeout(RESOLVE_CACHE_TIMEOUT_MS);
-	if (!caller) return timeout;
-	const anyFn = (AbortSignal as { any?: (signals: AbortSignal[]) => AbortSignal }).any;
-	return typeof anyFn === 'function' ? anyFn([caller, timeout]) : timeout;
-}
 
 /**
  * Bounded GET of the edge cache → the entry, or null for a genuine miss. THROWS on a non-ok

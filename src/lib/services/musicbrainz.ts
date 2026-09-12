@@ -9,7 +9,14 @@
 // artist id, which is also what lets 周傑倫 / Jay Chou / 周杰倫 be ONE artist rather than three.
 import { cached } from '$lib/services/ttl-cache';
 import { apiFetch } from '$lib/services/api-base';
-import { combinedSignal } from '$lib/services/deezer';
+import { combinedSignal as combineWithTimeout } from '$lib/services/abort-signal';
+
+/** Was borrowed from deezer.ts along with its combinedSignal (6000ms) — named here now that the
+ *  helper is shared, so this module's deadline is its own rather than an accident of that import. */
+const FETCH_TIMEOUT_MS = 6000;
+
+/** Bind the deadline once so every call site stays `combinedSignal(signal)`. */
+const combinedSignal = (caller?: AbortSignal) => combineWithTimeout(FETCH_TIMEOUT_MS, caller);
 
 const ARTIST_PATH = '/api/musicbrainz/artist';
 const ALBUMS_PATH = '/api/musicbrainz/albums';

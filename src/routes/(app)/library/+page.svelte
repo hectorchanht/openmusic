@@ -25,6 +25,7 @@
 	import DownloadControl from '$lib/components/DownloadControl.svelte';
 	import type { Track } from '$lib/sources/types';
 	import type { QueueContext } from '$lib/config/defaults';
+	import { coverGradient } from '$lib/services/cover-gradient';
 
 	// UX-04 / D-03/D-04: swipe-right = add to queue (player.addToQueue, append-to-end), swipe-left
 	// = play next (player.playNext, splice-after-current) — same semantics as TrackMenu, plus the
@@ -176,9 +177,9 @@
 		history.load();
 	});
 
+	// Shared placeholder gradient (cover-gradient.ts) — was inlined in eight files.
 	function fallbackCover(t: Track): string {
-		const h = (t.uid.split('').reduce((a, c) => a + c.charCodeAt(0), 0) * 47) % 360;
-		return `linear-gradient(145deg, hsl(${h} 55% 32%), hsl(${(h + 40) % 360} 55% 18%))`;
+		return coverGradient(t.uid);
 	}
 	function playList(list: Track[], t: Track) {
 		// Phase 17 (QUEUE-03): pass the active tab's queue context so per-context sourcing

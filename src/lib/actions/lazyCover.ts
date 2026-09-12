@@ -7,6 +7,7 @@ import {
 } from '$lib/services/cover-cache';
 import { resolveCoverForTrack } from '$lib/services/cover-backfill';
 import { removeCoverBoth, bumpCoverVersion } from '$lib/stores/cover-version.svelte';
+import { hasHttpsScheme } from '$lib/services/url-safety';
 
 // use:lazyCover — resolve a track-row cover ONLY when the row scrolls into view (COVER-02).
 //
@@ -52,10 +53,6 @@ const inFlight = new Set<string>();
 // ages out) stays small and bounded.
 const FRESH_MS = 24 * 60 * 60 * 1000; // 24h
 
-/** SOLID = a non-empty https URL (the only thing we render / cache). */
-function isHttps(url: string | null | undefined): url is string {
-	return typeof url === 'string' && url.startsWith('https:');
-}
 
 /**
  * The in-flight de-dupe key for a row. A real song uses its stable uid; a synthetic stub row (uid
@@ -105,7 +102,7 @@ async function resolveCoverForRow(track: Track, onResolved: (uid: string, url: s
 		// and later visits still catch it. This is the intended cost of skipping the warm-row probe.
 		const byUid = track.uid ? getCachedCoverByUid(track.uid) : null;
 		const cached = byUid ?? getCachedCover(track.artist, track.title);
-		if (isHttps(cached)) {
+		if (hasHttpsScheme(cached)) {
 			const age = coverAgeByUidOrName(track.uid, track.artist, track.title);
 			if (age !== null && age < FRESH_MS) {
 				onResolved(track.uid, cached); // confirmed-fresh → paint now, SKIP the probe (zero image)
@@ -121,7 +118,7 @@ async function resolveCoverForRow(track: Track, onResolved: (uid: string, url: s
 		}
 
 		// (2) An existing non-empty https cover → probe it; keep on load, repair on error (D-15).
-		if (isHttps(track.cover)) {
+		if (hasHttpsScheme(track.cover)) {
 			const keep = await probeImage(track.cover);
 			if (keep) {
 				onResolved(track.uid, track.cover);
@@ -147,7 +144,7 @@ async function resolveCoverForRow(track: Track, onResolved: (uid: string, url: s
 			// collapse into ONE increment via the rAF latch (quick-260704-45c) — do NOT edit the home page.
 			// Only this branch bumps: a cache HIT / a kept probe adds nothing new to the cache, and a null
 			// result cached nothing at all.
-			if (isHttps(url)) {
+			if (hasHttpsScheme(url)) {
 				bumpCoverVersion();
 				onResolved(track.uid, url);
 			}

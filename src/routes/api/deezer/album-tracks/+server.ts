@@ -19,7 +19,7 @@
 // artist-albums). NO secret, NO env read (Deezer's public API is keyless). Never forwards an
 // upstream status or body.
 import type { RequestHandler } from './$types';
-import { fetchWithRetry, corsHeaders } from '$lib/proxy/http';
+import { fetchWithRetry, corsHeaders, jsonResponse } from '$lib/proxy/http';
 import { edgeCache } from '$lib/proxy/edge-cache';
 
 const DEEZER_ALBUM_BYID = 'https://api.deezer.com/album';
@@ -54,18 +54,9 @@ export interface DeezerAlbumTracksResult {
 
 const EMPTY: DeezerAlbumTracksResult = { tracks: [] };
 
-function jsonResult(
-	result: DeezerAlbumTracksResult,
-	origin: string | null,
-	ttl?: number
-): Response {
-	const headers: Record<string, string> = {
-		...corsHeaders(origin),
-		'content-type': 'application/json'
-	};
-	if (ttl != null) headers['Cache-Control'] = `public, max-age=${ttl}`;
-	return new Response(JSON.stringify(result), { status: 200, headers });
-}
+// Shared JSON responder (src/lib/proxy/http.ts).
+const jsonResult = (body: unknown, origin: string | null, ttl?: number): Response =>
+	jsonResponse(body, origin, { ttl });
 
 function reshape(it: DzTrackItem | undefined): DeezerAlbumTrack | null {
 	if (!it) return null;

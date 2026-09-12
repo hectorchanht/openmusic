@@ -14,8 +14,9 @@
 //   { tracks: { data: [ { title, artist: { name, picture_* }, album: { cover_* } } ] },
 //     artists: { data: [ { name, picture_xl, picture_big } ] } }
 import type { RequestHandler } from './$types';
-import { fetchWithRetry, corsHeaders } from '$lib/proxy/http';
+import { fetchWithRetry, corsHeaders, jsonResponse } from '$lib/proxy/http';
 import { edgeCache } from '$lib/proxy/edge-cache';
+import { safeImageUrl as checkImageUrl, DEEZER_IMAGE_HOSTS } from '$lib/proxy/safe-image-url';
 
 const DEEZER_CHART = 'https://api.deezer.com/chart';
 // Charts shift slowly; an hour keeps re-browsing well under Deezer's ~50 req/5s rate cap.
@@ -40,19 +41,8 @@ export interface DeezerChart {
 
 // edgeCache() shared from $lib/proxy/edge-cache (quick-260713-mqv).
 
-/** https + *.dzcdn.net only, no CSS/attribute breakers — else null (tile keeps its gradient). */
-function safeImageUrl(raw: string | null | undefined): string | null {
-	if (!raw) return null;
-	if (/[)\s"'\\(]/.test(raw)) return null;
-	try {
-		const u = new URL(raw);
-		if (u.protocol !== 'https:') return null;
-		const host = u.hostname.toLowerCase();
-		return host === 'cdn-images.dzcdn.net' || host.endsWith('.dzcdn.net') ? u.href : null;
-	} catch {
-		return null;
-	}
-}
+/** Bind this route's allowlist once; the guard itself is shared (src/lib/proxy/safe-image-url.ts). */
+const safeImageUrl = (raw: string | null | undefined) => checkImageUrl(raw, DEEZER_IMAGE_HOSTS);
 
 interface DzAlbum {
 	cover_xl?: string;
@@ -96,14 +86,9 @@ function reshapeChart(data: DeezerChartResponse, limit: number): DeezerChart {
 	return { tracks, artists };
 }
 
-function jsonResult(result: DeezerChart, origin: string | null, ttl?: number): Response {
-	const headers: Record<string, string> = {
-		...corsHeaders(origin),
-		'content-type': 'application/json'
-	};
-	if (ttl != null) headers['Cache-Control'] = `public, max-age=${ttl}`;
-	return new Response(JSON.stringify(result satisfies DeezerChart), { status: 200, headers });
-}
+// Shared JSON responder (src/lib/proxy/http.ts).
+const jsonResult = (body: unknown, origin: string | null, ttl?: number): Response =>
+	jsonResponse(body, origin, { ttl });
 
 const EMPTY: DeezerChart = { tracks: [], artists: [] };
 

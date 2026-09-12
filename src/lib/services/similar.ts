@@ -21,8 +21,9 @@ import { matchKey } from '$lib/services/match-key';
 import { settings } from '$lib/stores/settings.svelte';
 import { cached } from '$lib/services/ttl-cache';
 import { apiFetch } from '$lib/services/api-base';
-import { SOURCES, getEnabledAdapters } from '$lib/sources/registry';
+import { SOURCES, getEnabledAdapters, onlySource } from '$lib/sources/registry';
 import type { SourceId, Track } from '$lib/sources/types';
+import { hasHttpsScheme } from './url-safety';
 
 const SIMILAR_ARTIST_COUNT = 8; // fallback: how many similar artists to search (top N)
 const FALLBACK_LIMIT = 20; // same-artist fallback cap (matches the Related tab)
@@ -93,19 +94,6 @@ function primarySourceId(): SourceId {
 }
 
 /**
- * Per-source prefs that restrict a `searchAll` to exactly ONE source, mirroring catalog.ts
- * `onlySource`. Every registered source is explicitly set false so none falls through
- * `getEnabledAdapters` to "enabled"; only `id` is flipped true, so a FALLBACK search resolves
- * through exactly ONE source — never the 8-source fan-out this phase deleted (spike 003).
- */
-function onlySource(id: SourceId): Partial<Record<SourceId, boolean>> {
-	const prefs: Partial<Record<SourceId, boolean>> = {};
-	for (const sid of Object.keys(SOURCES) as SourceId[]) prefs[sid] = false;
-	prefs[id] = true;
-	return prefs;
-}
-
-/**
  * The source ladder for the fallback paths: EVERY enabled adapter, in registry order. Each RUNG is
  * still a strictly single-source search (onlySource); the ladder walks to the next rung ONLY when
  * the one above produced NOTHING, and returns on the first rung that yields. So the healthy path
@@ -126,11 +114,6 @@ function sourceLadder(): SourceId[] {
 	return ids.length ? ids : [primarySourceId()];
 }
 
-/** A SOLID cover is a non-empty https string (mirrors player.svelte.ts `httpsOnly` / share.ts
- * `isHttpsUrl`; kept inline so similar.ts stays a PURE, node-testable .ts with no store import). */
-function isHttps(url: string | null | undefined): url is string {
-	return typeof url === 'string' && url.startsWith('https:');
-}
 
 /**
  * Build a lazy name-only stub Track from an exact {artist, title} pair (Plan 26-01's shape).
@@ -159,7 +142,7 @@ function nameStub(artist: string, title: string, image?: string | null): Track |
 		title,
 		artist,
 		album: '',
-		cover: isHttps(image) ? image : null, // Gap 3: seed the Last.fm https cover, else coverless
+		cover: hasHttpsScheme(image) ? image : null, // Gap 3: seed the Last.fm https cover, else coverless
 		audioUrl: null,
 		lrc: null,
 		lrcUrl: null,

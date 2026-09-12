@@ -61,3 +61,22 @@ export const getEnabledAdapters = (
 		return a.enabledByDefault;
 	});
 };
+
+/**
+ * A `prefs` object that enables EXACTLY one source and explicitly disables every other.
+ *
+ * Lives here because it is derived from SOURCES and is the counterpart to `getEnabledAdapters` —
+ * the single-source fan-out every walk uses (the cross-source fallback, the name-stub resolve, the
+ * cross-source lyric lookup). It was three byte-equivalent copies in catalog.ts / fallback.ts /
+ * similar.ts, differing only in whitespace and a local variable name.
+ *
+ * Every id is set explicitly rather than relying on omission: `getEnabledAdapters` honours an
+ * explicit `prefs[id]` over the user/default setting, so a MISSING key would let a user-enabled
+ * source leak into a walk that is supposed to touch exactly one.
+ */
+export function onlySource(id: SourceId): Partial<Record<SourceId, boolean>> {
+	const prefs: Partial<Record<SourceId, boolean>> = {};
+	for (const sourceId of Object.keys(SOURCES) as SourceId[]) prefs[sourceId] = false;
+	prefs[id] = true;
+	return prefs;
+}

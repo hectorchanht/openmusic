@@ -15,6 +15,8 @@ import type { RequestHandler } from './$types';
 import { fetchWithRetry, corsHeaders } from '$lib/proxy/http';
 import { edgeCache, ownOriginCacheKey } from '$lib/proxy/edge-cache';
 import type { Env } from '$lib/proxy/proxy-types';
+import { safeImageUrl as checkImageUrl, LASTFM_IMAGE_HOSTS } from '$lib/proxy/safe-image-url';
+import { pickLastfmImage, type LfmImage } from '$lib/proxy/lastfm-image';
 
 const LASTFM_ENDPOINT = 'https://ws.audioscrobbler.com/2.0/';
 
@@ -22,9 +24,6 @@ const LASTFM_ENDPOINT = 'https://ws.audioscrobbler.com/2.0/';
 // freshness vs re-hit balance; shorter than the 24h recommendation TTLs). quick-260713-mqv.
 const INFO_TTL = 21600;
 
-// Grey-star placeholder hash Last.fm returns when an entity has no real art. A real
-// cover must NEVER regress to this (ENRICH-02 / D-04 guardrail 2).
-const GREY_STAR_HASH = '2a96cbd8b46e442fc41c2b86b821562f';
 
 // Allow-list of read methods this proxy supports (T-08-03). Anything else → empty.
 const ALLOWED_METHODS = new Set(['track.getinfo', 'artist.getinfo', 'album.getinfo']);
@@ -72,10 +71,6 @@ function jsonInfo(info: LastfmInfo, origin: string | null, ttl?: number): Respon
 }
 
 // ---- Last.fm response sub-shapes (only the fields we read) ----
-interface LfmImage {
-	'#text'?: string;
-	size?: string;
-}
 interface LfmTag {
 	name?: string;
 }
@@ -109,49 +104,12 @@ interface LfmEntity {
 	tracks?: LfmTrackBlock;
 }
 
-const SIZE_RANK: Record<string, number> = {
-	small: 1,
-	medium: 2,
-	large: 3,
-	extralarge: 4,
-	mega: 5
-};
 
-/**
- * Validate an image URL before it leaves the edge (CR-01, Phase-9 parity). The client
- * interpolates it into a CSS `background-image: url(${image})`; an embedded `)` / quote /
- * whitespace could inject a second `url()` layer. https:// only, last.fm / fastly host,
- * no CSS-breaking chars. (safeLastfmUrl above is bio-only and rejects the fastly art host.)
- */
-function safeImageUrl(raw: string | null | undefined): string | null {
-	if (!raw) return null;
-	if (/[)\s"'\\(]/.test(raw)) return null;
-	try {
-		const u = new URL(raw);
-		if (u.protocol !== 'https:') return null;
-		const host = u.hostname.toLowerCase();
-		const ok = host === 'last.fm' || host.endsWith('.last.fm') || host.endsWith('.fastly.net');
-		return ok ? u.href : null;
-	} catch {
-		return null;
-	}
-}
+/** Bind this route's allowlist once; the guard itself is shared (src/lib/proxy/safe-image-url.ts). */
+const safeImageUrl = (raw: string | null | undefined) => checkImageUrl(raw, LASTFM_IMAGE_HOSTS);
 
-/** Pick the largest non-placeholder, non-empty, SAFE image URL, or null. */
-function pickImage(images?: LfmImage[]): string | null {
-	if (!Array.isArray(images)) return null;
-	let best: { url: string; rank: number } | null = null;
-	for (const img of images) {
-		const raw = img?.['#text']?.trim();
-		if (!raw) continue;
-		if (raw.includes(GREY_STAR_HASH)) continue; // ENRICH-02: never the placeholder
-		const url = safeImageUrl(raw); // CR-01: reject CSS-injection / off-domain URLs
-		if (!url) continue;
-		const rank = SIZE_RANK[(img.size ?? '').toLowerCase()] ?? 0;
-		if (!best || rank >= best.rank) best = { url, rank };
-	}
-	return best ? best.url : null;
-}
+// Shared Last.fm artwork picker (src/lib/proxy/lastfm-image.ts).
+const pickImage = pickLastfmImage;
 
 /** Top-N tag names from a tag block (handles array or single-object Last.fm shapes). */
 function pickTags(block?: LfmTagBlock): string[] {

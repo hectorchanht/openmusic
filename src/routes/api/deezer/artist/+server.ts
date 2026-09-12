@@ -15,7 +15,7 @@
 // TTL — a hard miss returns the empty shape WITHOUT a long TTL (a transient upstream failure
 // pinned 24h is worse UX). T-17-10: every upstream field is optional + null-safe.
 import type { RequestHandler } from './$types';
-import { fetchWithRetry, corsHeaders } from '$lib/proxy/http';
+import { fetchWithRetry, corsHeaders, jsonResponse } from '$lib/proxy/http';
 import { edgeCache } from '$lib/proxy/edge-cache';
 import { pickBestArtistId, DEEZER_ARTIST_SEARCH_LIMIT } from '$lib/proxy/deezer-pick';
 
@@ -36,14 +36,9 @@ interface ArtistResult {
 
 const EMPTY: ArtistResult = { picture: null, fans: null, albums: null };
 
-function jsonResult(body: ArtistResult, origin: string | null, ttl?: number): Response {
-	const headers: Record<string, string> = {
-		...corsHeaders(origin),
-		'content-type': 'application/json'
-	};
-	if (ttl != null) headers['Cache-Control'] = `public, max-age=${ttl}`;
-	return new Response(JSON.stringify(body satisfies ArtistResult), { status: 200, headers });
-}
+// Shared JSON responder (src/lib/proxy/http.ts).
+const jsonResult = (body: unknown, origin: string | null, ttl?: number): Response =>
+	jsonResponse(body, origin, { ttl });
 
 // Upstream shapes — we only read the fields we need; all optional (untrusted JSON, T-17-10).
 interface DzArtistHit {

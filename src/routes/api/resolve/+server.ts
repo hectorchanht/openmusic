@@ -19,7 +19,7 @@
 // 31-D-07: no new Cloudflare binding, no new secret, no new package — `caches.default` only,
 // reached through the single `edgeCache()` guard (never a second `typeof caches`).
 import type { RequestHandler } from './$types';
-import { corsHeaders } from '$lib/proxy/http';
+import { corsHeaders, jsonResponse } from '$lib/proxy/http';
 import { edgeCache } from '$lib/proxy/edge-cache';
 import {
 	capTerm,
@@ -34,37 +34,9 @@ import { resolveOnEdge, resolveUrlOnEdge } from '$lib/proxy/resolve-edge';
 /** Ceiling on the whole background fill (32-D-10: ONE qq search). Bounded — nobody is waiting. */
 const FILL_TIMEOUT_MS = 8000;
 
-/**
- * EVERY response from this route is `no-store`, deliberately — 31-D-09.
- *
- * This is where /api/resolve DIFFERS from its siblings. /api/og and /api/deezer/search set
- * `public, max-age=<ttl>` because their response IS the artifact and is immutable for its key.
- * A /api/resolve response is only a VIEW of a mutable entry that the D-09 bust can invalidate at
- * any moment, so it must never be stored by an intermediary.
- *
- * Shipping `public, max-age=RESOLVE_TTL_S` here silently defeated the whole bust path: Cloudflare/
- * workerd stored the `{hit:true, entry}` JSON in the AUTOMATIC response cache keyed on the request
- * URL, so after a successful POST bust (`{busted:true}`, entry genuinely deleted) the next GET
- * still came back `{hit:true}` with `CF-Cache-Status: HIT` for up to 900s — handing the client back
- * the exact dead URL it had just reported. D-11 makes that path load-bearing, not an edge case.
- *
- * The entry's OWN TTL is unaffected: `writeResolveEntry` puts `public, max-age=RESOLVE_TTL_S` on
- * the STORED response, which is the correct and only place for it.
- *
- * 32-D-10a leaves this `no-store` EXACTLY as it is, and the reasoning above gets stronger, not
- * weaker: a positive entry is now stored for a YEAR, so an intermediary that cached this response
- * would defeat the bust for far longer than the 900s observed above. Do not add a max-age here.
- */
-function jsonResult(body: unknown, origin: string | null, status = 200): Response {
-	return new Response(JSON.stringify(body), {
-		status,
-		headers: {
-			...corsHeaders(origin),
-			'content-type': 'application/json',
-			'Cache-Control': 'no-store'
-		}
-	});
-}
+// Shared JSON responder (src/lib/proxy/http.ts). This route is never cached.
+const jsonResult = (body: unknown, origin: string | null, status = 200): Response =>
+	jsonResponse(body, origin, { status, cacheControl: 'no-store' });
 
 export const GET: RequestHandler = async ({ url, request, platform }) => {
 	const origin = request.headers.get('origin');

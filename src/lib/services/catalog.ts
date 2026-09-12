@@ -3,7 +3,7 @@
 // (1691-1707) and `ensureTrackDetails` (2506-2513) — generalized to the registry so
 // NO source is ever named here. All DOM/render calls (dom.searchStatus,
 // renderMiniSearchList, playFromList) are dropped — those are Phase 4.
-import { SOURCES, getEnabledAdapters } from '$lib/sources/registry';
+import { SOURCES, getEnabledAdapters, onlySource } from '$lib/sources/registry';
 import { makeUid, type SourceId, type Track, type SettledSourceResult } from '$lib/sources/types';
 import type { DefaultQuality } from '$lib/stores/settings.svelte';
 import { sleep } from '$lib/proxy/http';
@@ -205,21 +205,6 @@ function interleave(perSource: SettledSourceResult[]): Track[] {
 			out.push(track);
 		}
 	}
-	return out;
-}
-
-/**
- * Per-source prefs that restrict a `searchAll` to a SINGLE source id (RESOLVE-02). Mirrors
- * fallback.ts's `onlySource` — deliberately DUPLICATED here (not imported) to avoid a
- * catalog↔fallback import cycle (fallback.ts imports searchAll/ensureTrackDetails FROM here). Every
- * registered source is explicitly set false so none falls through `getEnabledAdapters` to "enabled";
- * only `id` is flipped true, so the resolve/lyric walk fans out to exactly ONE source per step,
- * never all 7 (D-08 isolation).
- */
-function onlySource(id: SourceId): Partial<Record<SourceId, boolean>> {
-	const out: Partial<Record<SourceId, boolean>> = {};
-	for (const sourceId of Object.keys(SOURCES) as SourceId[]) out[sourceId] = false;
-	out[id] = true;
 	return out;
 }
 

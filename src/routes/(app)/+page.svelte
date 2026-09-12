@@ -60,6 +60,7 @@
 	import { toast } from '$lib/stores/toast.svelte';
 	import type { PageData } from './$types';
 	import type { Track } from '$lib/sources/types';
+	import { coverGradient } from '$lib/services/cover-gradient';
 
 	// `data.og` comes from the universal +page.ts load: non-null when this is a shared-song link
 	// (`/?play=<token>`), so the shared song gets a crawler-correct OG card in the SSR HTML (GLN-4).
@@ -233,9 +234,9 @@
 	// D-15: the home local toast copy migrated to the global `toast` store (rendered once by
 	// ToastHost in the (app) layout). Call sites use `toast.show(...)`.
 
+	// Shared placeholder gradient (cover-gradient.ts) — was inlined in eight files.
 	function fallbackCover(seed: string): string {
-		const h = (seed.split('').reduce((a, c) => a + c.charCodeAt(0), 0) * 47) % 360;
-		return `linear-gradient(145deg, hsl(${h} 55% 32%), hsl(${(h + 40) % 360} 55% 18%))`;
+		return coverGradient(seed);
 	}
 
 	// quick-260606-wv8 (supersedes v7k; extends nza's FIX-B / rvy's FIX-A): prefer a real cover

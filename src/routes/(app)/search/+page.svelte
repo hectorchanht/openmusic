@@ -39,6 +39,7 @@
 	import TrackMenu from '$lib/components/TrackMenu.svelte';
 	import VersionPicker from '$lib/components/VersionPicker.svelte';
 	import type { Track } from '$lib/sources/types';
+	import { coverGradient } from '$lib/services/cover-gradient';
 
 	// UX-04 / D-03/D-04: swipe-right = add to queue (TrackMenu addQueue semantics — append to
 	// end via player.addToQueue), swipe-left = play next (TrackMenu playNext() semantics — splice
@@ -322,9 +323,9 @@
 		});
 	}
 
+	// Shared placeholder gradient (cover-gradient.ts) — was inlined in eight files.
 	function fallbackCover(t: Track): string {
-		const h = (t.uid.split('').reduce((a, c) => a + c.charCodeAt(0), 0) * 47) % 360;
-		return `linear-gradient(145deg, hsl(${h} 55% 32%), hsl(${(h + 40) % 360} 55% 18%))`;
+		return coverGradient(t.uid);
 	}
 
 	// SRCH-01 / D-01 + D-02: full score-based re-sort of the (already-deduped) result set.

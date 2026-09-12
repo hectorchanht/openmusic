@@ -38,6 +38,7 @@
 	import PageOg from '$lib/components/PageOg.svelte';
 	import type { PageData } from './$types';
 	import type { Track } from '$lib/sources/types';
+	import { coverGradient } from '$lib/services/cover-gradient';
 
 	// `data.og` comes from the universal +page.ts load (album title/description derived at SSR) so
 	// the album page emits a crawler-correct OG card in the server HTML (GLN-4).
@@ -82,9 +83,9 @@
 	let enrichLoading = $state(false);
 
 	// Synthetic gradient cover keyed by the stub (no source cover on a Last.fm stub).
+	// Shared placeholder gradient (cover-gradient.ts) — was inlined in eight files.
 	function fallbackCover(seed: string): string {
-		const h = (seed.split('').reduce((a, c) => a + c.charCodeAt(0), 0) * 47) % 360;
-		return `linear-gradient(145deg, hsl(${h} 55% 32%), hsl(${(h + 40) % 360} 55% 18%))`;
+		return coverGradient(seed);
 	}
 
 	// Stable in-flight-guard key for a stub row (used by swipeQueue/swipeNext). The `album:`

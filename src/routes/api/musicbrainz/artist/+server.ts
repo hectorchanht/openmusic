@@ -12,7 +12,7 @@
 // searches then reads the top hit's aliases from the same response when present, else returns the
 // canonical name only — the display layer falls back to canonical, never blank).
 import type { RequestHandler } from './$types';
-import { corsHeaders } from '$lib/proxy/http';
+import { corsHeaders, jsonResponse } from '$lib/proxy/http';
 import { edgeCache } from '$lib/proxy/edge-cache';
 import { MB_WS, mbFetch, normalizeLocale, isMbid } from '$lib/proxy/musicbrainz-shared';
 
@@ -49,14 +49,9 @@ const EMPTY: MbArtistIdentity = { mbid: null, name: null, country: null, names: 
 // wrong identity is far worse than no identity (it would show the wrong discography entirely).
 const MIN_SCORE = 90;
 
-function jsonResult(body: MbArtistIdentity, origin: string | null, ttl?: number): Response {
-	const headers: Record<string, string> = {
-		...corsHeaders(origin),
-		'content-type': 'application/json'
-	};
-	if (ttl != null) headers['Cache-Control'] = `public, max-age=${ttl}`;
-	return new Response(JSON.stringify(body), { status: 200, headers });
-}
+// Shared JSON responder (src/lib/proxy/http.ts).
+const jsonResult = (body: unknown, origin: string | null, ttl?: number): Response =>
+	jsonResponse(body, origin, { ttl });
 
 export const OPTIONS: RequestHandler = ({ request }) =>
 	new Response(null, { status: 204, headers: corsHeaders(request.headers.get('origin')) });

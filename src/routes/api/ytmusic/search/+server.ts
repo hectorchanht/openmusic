@@ -12,7 +12,7 @@
 // WEB_REMIX key lives only in SEARCH_URL (server -> upstream); it is NEVER echoed into a response
 // body. CORS is allowlisted (never '*').
 import type { RequestHandler } from './$types';
-import { corsHeaders } from '$lib/proxy/http';
+import { corsHeaders, jsonResponse } from '$lib/proxy/http';
 import { edgeCache, ownOriginCacheKey } from '$lib/proxy/edge-cache';
 import { searchInnerTube, SONGS_FILTER, VIDEOS_FILTER } from '$lib/proxy/ytmusic';
 
@@ -25,14 +25,9 @@ const EMPTY_SEARCH_ENVELOPE = {
 	contents: { sectionListRenderer: { contents: [{ musicShelfRenderer: { contents: [] } }] } }
 };
 
-function jsonPassthrough(body: unknown, origin: string | null, ttl?: number): Response {
-	const headers: Record<string, string> = {
-		...corsHeaders(origin),
-		'content-type': 'application/json'
-	};
-	if (ttl != null) headers['Cache-Control'] = `public, max-age=${ttl}`;
-	return new Response(JSON.stringify(body), { status: 200, headers });
-}
+// Shared JSON responder (src/lib/proxy/http.ts).
+const jsonPassthrough = (body: unknown, origin: string | null, ttl?: number): Response =>
+	jsonResponse(body, origin, { ttl });
 
 export const GET: RequestHandler = async ({ url, request }) => {
 	const origin = request.headers.get('origin');

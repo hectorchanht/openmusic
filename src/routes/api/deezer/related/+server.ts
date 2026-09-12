@@ -10,7 +10,7 @@
 // similar.ts already runs. NO secret, NO env read (Deezer public API, same posture as the
 // existing /api/deezer/search route).
 import type { RequestHandler } from './$types';
-import { fetchWithRetry, corsHeaders } from '$lib/proxy/http';
+import { fetchWithRetry, corsHeaders, jsonResponse } from '$lib/proxy/http';
 import { edgeCache } from '$lib/proxy/edge-cache';
 import { pickBestArtistId, DEEZER_ARTIST_SEARCH_LIMIT } from '$lib/proxy/deezer-pick';
 
@@ -26,14 +26,9 @@ interface RelatedResult {
 	artists: string[];
 }
 
-function jsonResult(body: RelatedResult, origin: string | null, ttl?: number): Response {
-	const headers: Record<string, string> = {
-		...corsHeaders(origin),
-		'content-type': 'application/json'
-	};
-	if (ttl != null) headers['Cache-Control'] = `public, max-age=${ttl}`;
-	return new Response(JSON.stringify(body satisfies RelatedResult), { status: 200, headers });
-}
+// Shared JSON responder (src/lib/proxy/http.ts).
+const jsonResult = (body: unknown, origin: string | null, ttl?: number): Response =>
+	jsonResponse(body, origin, { ttl });
 
 // Upstream shape — we only read the fields we need; all optional (untrusted JSON).
 interface DzArtistHit {

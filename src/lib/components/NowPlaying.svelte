@@ -60,6 +60,7 @@
 	import { parseLRC, reorderPairs, splitParenLines, lineSeekFraction, type LyricLine } from '$lib/services/lrc';
 	import { createVelocityTracker } from '$lib/gestures/velocity';
 	import type { Track } from '$lib/sources/types';
+	import { coverGradient } from '$lib/services/cover-gradient';
 
 	type Tab = 'queue' | 'lyrics' | 'related';
 	let tab = $state<Tab>('lyrics');
@@ -131,10 +132,9 @@
 		versionAc?.abort(); // cancel any in-flight fetch when the sheet is dismissed.
 	}
 
+	// Shared placeholder (cover-gradient.ts); the null case keeps its own fixed colour.
 	function fallbackCover(t: Track | null): string {
-		if (!t) return 'linear-gradient(145deg,#3a2d63,#1a1326)';
-		const h = (t.uid.split('').reduce((a, c) => a + c.charCodeAt(0), 0) * 47) % 360;
-		return `linear-gradient(145deg, hsl(${h} 55% 32%), hsl(${(h + 40) % 360} 55% 18%))`;
+		return t ? coverGradient(t.uid) : 'linear-gradient(145deg,#3a2d63,#1a1326)';
 	}
 
 	// ---- progress / scrubber (plan 002) ----

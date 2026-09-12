@@ -40,6 +40,7 @@
 	import PageOg from '$lib/components/PageOg.svelte';
 	import type { PageData } from './$types';
 	import type { Track } from '$lib/sources/types';
+	import { coverGradient } from '$lib/services/cover-gradient';
 
 	// `data.og` comes from the universal +page.ts load (artist title/description derived at SSR) so
 	// the artist page emits a crawler-correct OG card in the server HTML (GLN-4).
@@ -148,9 +149,9 @@
 	// `enrich?.lastfmArt ?? hero` precedent (Deezer hi-res wins, never downgrades to null).
 	const merged = $derived(mergeEnrichArtist(enrich, dz));
 
+	// Shared placeholder gradient (cover-gradient.ts) — was inlined in eight files.
 	function fallbackCover(t: Track): string {
-		const h = (t.uid.split('').reduce((a, c) => a + c.charCodeAt(0), 0) * 47) % 360;
-		return `linear-gradient(145deg, hsl(${h} 55% 32%), hsl(${(h + 40) % 360} 55% 18%))`;
+		return coverGradient(t.uid);
 	}
 	// COVER-02 D-14: hit-song rows resolve empty/broken covers lazily on scroll via use:lazyCover,
 	// repainting through this reactive uid→url map. SOLID https only (Plan 02 gate) — safe for the

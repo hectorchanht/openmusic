@@ -117,12 +117,7 @@ export function albumHref(entry: DiscographyEntry, artistName: string): string {
 	return entry.id ? base + '&dzid=' + encodeURIComponent(String(entry.id)) : base;
 }
 
-/**
- * Deterministic gradient placeholder for a release with no cover art. Hoisted out of the artist
- * page by quick-260831-qkx so the discography page renders IDENTICAL placeholders rather than
- * carrying a second copy of the hash. Same seed → same gradient, on both surfaces.
- */
-export function fallbackCoverSeed(seed: string): string {
-	const h = (seed.split('').reduce((a, c) => a + c.charCodeAt(0), 0) * 47) % 360;
-	return `linear-gradient(145deg, hsl(${h} 55% 32%), hsl(${(h + 40) % 360} 55% 18%))`;
-}
+// fallbackCoverSeed moved to cover-gradient.ts as `coverGradient` — it was duplicated verbatim in
+// eight other files as `fallbackCover`. Re-exported under the old name so existing importers and
+// its tests keep working; new call sites should import `coverGradient` directly.
+export { coverGradient as fallbackCoverSeed } from './cover-gradient';

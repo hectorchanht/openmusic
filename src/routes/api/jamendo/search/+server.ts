@@ -15,7 +15,7 @@
 // TTL 1h: Jamendo's catalogue moves slowly; an hourly refresh is plenty.
 import type { RequestHandler } from './$types';
 import type { Env } from '$lib/proxy/proxy-types';
-import { fetchWithRetry, corsHeaders } from '$lib/proxy/http';
+import { fetchWithRetry, corsHeaders, jsonResponse } from '$lib/proxy/http';
 import { edgeCache } from '$lib/proxy/edge-cache';
 
 const JM_BASE = 'https://api.jamendo.com/v3.0/tracks/';
@@ -23,14 +23,9 @@ const TTL = 3600; // 1h — search metadata is stable enough
 
 // edgeCache() shared from $lib/proxy/edge-cache (quick-260713-mqv).
 
-function jsonPassthrough(body: unknown, origin: string | null, ttl?: number): Response {
-	const headers: Record<string, string> = {
-		...corsHeaders(origin),
-		'content-type': 'application/json'
-	};
-	if (ttl != null) headers['Cache-Control'] = `public, max-age=${ttl}`;
-	return new Response(JSON.stringify(body), { status: 200, headers });
-}
+// Shared JSON responder (src/lib/proxy/http.ts).
+const jsonPassthrough = (body: unknown, origin: string | null, ttl?: number): Response =>
+	jsonResponse(body, origin, { ttl });
 
 export const GET: RequestHandler = async ({ url, request, platform }) => {
 	const origin = request.headers.get('origin');

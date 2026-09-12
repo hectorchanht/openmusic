@@ -25,7 +25,7 @@
 // (never user-supplied). Cache ONLY a non-empty success with a bounded TTL — a hard miss returns
 // the empty shape WITHOUT a long TTL, so a transient upstream failure is not pinned (T-17-13).
 import type { RequestHandler } from './$types';
-import { fetchWithRetry, corsHeaders } from '$lib/proxy/http';
+import { fetchWithRetry, corsHeaders, jsonResponse } from '$lib/proxy/http';
 import { edgeCache } from '$lib/proxy/edge-cache';
 import { pickBestArtistId, DEEZER_ARTIST_SEARCH_LIMIT } from '$lib/proxy/deezer-pick';
 
@@ -61,15 +61,9 @@ interface RadioResult {
 
 const EMPTY: RadioResult = { tracks: [] };
 
-function jsonResult(body: RadioResult, origin: string | null, ttl?: number): Response {
-	return new Response(JSON.stringify(body), {
-		headers: {
-			'content-type': 'application/json; charset=utf-8',
-			...(ttl ? { 'cache-control': `public, max-age=${ttl}` } : {}),
-			...corsHeaders(origin)
-		}
-	});
-}
+// Shared JSON responder (src/lib/proxy/http.ts).
+const jsonResult = (body: unknown, origin: string | null, ttl?: number): Response =>
+	jsonResponse(body, origin, { ttl });
 
 export const OPTIONS: RequestHandler = ({ request }) =>
 	new Response(null, { status: 204, headers: corsHeaders(request.headers.get('origin')) });

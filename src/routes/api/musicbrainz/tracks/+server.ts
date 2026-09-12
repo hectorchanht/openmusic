@@ -11,7 +11,7 @@
 // were Simplified. Taking the first release is a deliberate simplification.
 // ponytail: first-release-wins; if edition mismatches are reported, select by country/date instead.
 import type { RequestHandler } from './$types';
-import { corsHeaders } from '$lib/proxy/http';
+import { corsHeaders, jsonResponse } from '$lib/proxy/http';
 import { edgeCache } from '$lib/proxy/edge-cache';
 import { MB_WS, mbFetch, isMbid } from '$lib/proxy/musicbrainz-shared';
 
@@ -48,14 +48,9 @@ export interface MbTracksResult {
 
 const EMPTY: MbTracksResult = { tracks: [] };
 
-function jsonResult(body: MbTracksResult, origin: string | null, ttl?: number): Response {
-	const headers: Record<string, string> = {
-		...corsHeaders(origin),
-		'content-type': 'application/json'
-	};
-	if (ttl != null) headers['Cache-Control'] = `public, max-age=${ttl}`;
-	return new Response(JSON.stringify(body), { status: 200, headers });
-}
+// Shared JSON responder (src/lib/proxy/http.ts).
+const jsonResult = (body: unknown, origin: string | null, ttl?: number): Response =>
+	jsonResponse(body, origin, { ttl });
 
 export const OPTIONS: RequestHandler = ({ request }) =>
 	new Response(null, { status: 204, headers: corsHeaders(request.headers.get('origin')) });

@@ -36,9 +36,8 @@
 // album-and-next-song-bug) is unaffected. Zero network — pure data.
 import type { Track } from '$lib/sources/types';
 import { matchKey } from '$lib/services/match-key';
+import { hasHttpsScheme } from '$lib/services/url-safety';
 
-/** SOLID = a non-empty https URL (mirrors player.svelte.ts httpsOnly / cover-backfill isSolidCover). */
-const httpsOnly = (u?: string | null): u is string => typeof u === 'string' && u.startsWith('https:');
 
 /**
  * One cover for a whole installed list, with SONG-keyed membership.
@@ -55,7 +54,7 @@ export type AttachedCover = { url: string; keys: Set<string> };
  * mutated.
  */
 export function seedCover(tracks: Track[], cover: string | null | undefined): Track[] {
-	if (!httpsOnly(cover)) return tracks;
+	if (!hasHttpsScheme(cover)) return tracks;
 	return tracks.map((t) => ({ ...t, cover }));
 }
 
@@ -64,6 +63,6 @@ export function seedCover(tracks: Track[], cover: string | null | undefined): Tr
  * cover is missing/non-https — the caller reads that as "clear the attachment".
  */
 export function buildAttachment(tracks: Track[], cover: string | null | undefined): AttachedCover | null {
-	if (!httpsOnly(cover)) return null;
+	if (!hasHttpsScheme(cover)) return null;
 	return { url: cover, keys: new Set(tracks.map((t) => matchKey(t.artist, t.title))) };
 }

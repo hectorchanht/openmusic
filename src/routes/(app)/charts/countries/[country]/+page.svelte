@@ -16,6 +16,7 @@
 	import { t } from '$lib/i18n';
 	import TrackMenu from '$lib/components/TrackMenu.svelte';
 	import type { Track } from '$lib/sources/types';
+	import { coverGradient } from '$lib/services/cover-gradient';
 
 	const CHART_LIMIT = 100; // D-12: deep list (~100 rows)
 
@@ -54,9 +55,9 @@
 		};
 	}
 
+	// Shared placeholder gradient (cover-gradient.ts) — was inlined in eight files.
 	function fallbackCover(it: DiscoveryTrack): string {
-		const h = (rowKey(it).split('').reduce((a, c) => a + c.charCodeAt(0), 0) * 47) % 360;
-		return `linear-gradient(145deg, hsl(${h} 55% 32%), hsl(${(h + 40) % 360} 55% 18%))`;
+		return coverGradient(rowKey(it));
 	}
 
 	async function play(it: DiscoveryTrack) {
