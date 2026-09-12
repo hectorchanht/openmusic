@@ -1,5 +1,5 @@
 ---
-status: awaiting_human_verify
+status: superseded
 trigger: "Background playback: Android shows no media-playing pill in top nav; on track-end while backgrounded the next song plays a split-second then stops (sound leak), resumes only on returning to foreground. In a second observed case the next song was marked dead while current played, and on track-end the player stopped (no sound leak) but resumed on foreground."
 created: 2026-07-03
 updated: 2026-07-03
@@ -110,3 +110,19 @@ files_changed:
   - src/lib/stores/player.svelte.test.ts (4 regression tests + stubDocument helper)
 
 - timestamp: 2026-07-03 — Option A (foreground-resume) REVERTED per user; Option B (background stream-error → SKIP forward) implemented. Preserves the midplay-stall single-reresolve-then-skip, external-pause RESPECT + deliberatePause, dead-track skip/mark-dead, and playGen supersedence — all still hold (verified by full suite). vitest 991 pass, svelte-check 0/0.
+
+## SUPERSEDED — closed 2026-09-12
+
+Device-confirmed fixed: four songs played continuously on an Android phone with the screen OFF.
+
+This session was one of SEVEN open at once, each a different hypothesis about the same symptom
+(playback stopping in the background), all left in `awaiting_human_verify` /
+`fix-applied-pending-device-verify` since June-August because none was ever ground-truthed.
+
+The symptom was finally traced in `resolved/slow-cold-start-first-playing.md` — see its RESOLVED
+section for the full cause chain. It was not a better hypothesis that closed it; it was measurement
+(an on-device action log, then direct probes of the CDN and upstreams).
+
+The fixes applied by THIS session are live in `player.svelte.ts` and are NOT being unpicked. Closing
+as superseded rather than re-investigating — if the symptom ever returns, start from the resolved
+session's measurements, not from this file's hypothesis.

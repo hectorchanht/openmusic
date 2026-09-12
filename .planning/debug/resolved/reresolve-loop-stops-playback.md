@@ -1,7 +1,7 @@
 ---
 gsd_debug_version: 1.0
 slug: reresolve-loop-stops-playback
-status: fix-applied-pending-device-verify
+status: superseded
 trigger: "Song stopped (playback pinned, never advances). Confirmed from the on-device action log: a tight infinite audio.error → reresolveCurrent loop on one track after a long background gap."
 created: 2026-06-30
 updated: 2026-06-30
@@ -63,3 +63,19 @@ killer here is the re-resolve loop, not the initial-load autoplay gap.
   fallback's per-episode `attempted` set still bounds the 2-source ping-pong, but a 3+-source
   resolve-but-unplayable chain has no absolute backstop. Not the cause of THIS stop; left untouched to
   avoid reintroducing whatever false-stop it was disabled for. Candidate for a separate review.
+
+## SUPERSEDED — closed 2026-09-12
+
+Device-confirmed fixed: four songs played continuously on an Android phone with the screen OFF.
+
+This session was one of SEVEN open at once, each a different hypothesis about the same symptom
+(playback stopping in the background), all left in `awaiting_human_verify` /
+`fix-applied-pending-device-verify` since June-August because none was ever ground-truthed.
+
+The symptom was finally traced in `resolved/slow-cold-start-first-playing.md` — see its RESOLVED
+section for the full cause chain. It was not a better hypothesis that closed it; it was measurement
+(an on-device action log, then direct probes of the CDN and upstreams).
+
+The fixes applied by THIS session are live in `player.svelte.ts` and are NOT being unpicked. Closing
+as superseded rather than re-investigating — if the symptom ever returns, start from the resolved
+session's measurements, not from this file's hypothesis.

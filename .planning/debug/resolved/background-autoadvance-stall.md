@@ -1,7 +1,7 @@
 ---
 gsd_debug_version: 1.0
 slug: background-autoadvance-stall
-status: fix-applied-pending-device-verify
+status: superseded
 trigger: "After a song finishes while the screen is locked / playing in background, the NEXT song is presented at 0:00 with no end time (no duration) and does not auto-play. Opening the app makes it start playing by itself. The track is resolvable (it plays once foregrounded)."
 created: 2026-06-30
 updated: 2026-06-30
@@ -94,3 +94,19 @@ constrained by the OS. This fix ensures the player correctly SKIPS dead tracks (
 rather than pinning on one, so by foreground-resume the current track is a playable one that then
 resumes — but truly gapless background advance across track changes would need MediaSession-continuity
 work (separate, needs device evidence).
+
+## SUPERSEDED — closed 2026-09-12
+
+Device-confirmed fixed: four songs played continuously on an Android phone with the screen OFF.
+
+This session was one of SEVEN open at once, each a different hypothesis about the same symptom
+(playback stopping in the background), all left in `awaiting_human_verify` /
+`fix-applied-pending-device-verify` since June-August because none was ever ground-truthed.
+
+The symptom was finally traced in `resolved/slow-cold-start-first-playing.md` — see its RESOLVED
+section for the full cause chain. It was not a better hypothesis that closed it; it was measurement
+(an on-device action log, then direct probes of the CDN and upstreams).
+
+The fixes applied by THIS session are live in `player.svelte.ts` and are NOT being unpicked. Closing
+as superseded rather than re-investigating — if the symptom ever returns, start from the resolved
+session's measurements, not from this file's hypothesis.

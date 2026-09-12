@@ -1,7 +1,7 @@
 ---
 gsd_debug_version: 1.0
 slug: bg-lockscreen-stall-noskip
-status: awaiting_human_verify
+status: superseded
 trigger: "Track stuck showing 'fail to fetch' on the lock screen; never advances until the user manually presses next then prev (same song then plays fine in ~600ms). Music should never stop: retry the failed song ONCE, then skip to next if it still fails. Action log shows a bg advance→play with NO resolve.ok and NO playing for ~33s while hidden; no audio.error fired."
 created: 2026-07-09
 updated: 2026-08-31
@@ -289,3 +289,19 @@ cascade except running out of queue.
 - Dual-`<audio>` gapless buffer / crossfade: tried and reverted (focus-steal, player.svelte.ts:1363).
 - Re-adding `scheduleExternalResume`: removed in `e29ae66` for the voice-note resume-fight; no `pause`
   event appears in this log, so it is irrelevant here regardless.
+
+## SUPERSEDED — closed 2026-09-12
+
+Device-confirmed fixed: four songs played continuously on an Android phone with the screen OFF.
+
+This session was one of SEVEN open at once, each a different hypothesis about the same symptom
+(playback stopping in the background), all left in `awaiting_human_verify` /
+`fix-applied-pending-device-verify` since June-August because none was ever ground-truthed.
+
+The symptom was finally traced in `resolved/slow-cold-start-first-playing.md` — see its RESOLVED
+section for the full cause chain. It was not a better hypothesis that closed it; it was measurement
+(an on-device action log, then direct probes of the CDN and upstreams).
+
+The fixes applied by THIS session are live in `player.svelte.ts` and are NOT being unpicked. Closing
+as superseded rather than re-investigating — if the symptom ever returns, start from the resolved
+session's measurements, not from this file's hypothesis.

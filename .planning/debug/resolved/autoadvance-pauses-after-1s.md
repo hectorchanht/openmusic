@@ -1,7 +1,7 @@
 ---
 gsd_debug_version: 1.0
 slug: autoadvance-pauses-after-1s
-status: awaiting_human_verify
+status: superseded
 trigger: "Playable songs stop at the very beginning and the player freezes/stalls instead of continuing. A song ends, the next (playable) track becomes current, ~1s of audio plays, then it STOPS at the start and never advances. Resumable by tapping play; switching back to the foreground app sometimes resumes it. Happens on Android Chrome, frequently during screen lock or while backgrounded. Player should NEVER stop on external interruption — it must self-heal (re-issue play / auto-advance) and keep music playing non-stop. Future-song cache + prefetch already exist to guarantee non-stop playback; they are not preventing this stall."
 created: 2026-06-30
 updated: 2026-06-30
@@ -125,3 +125,19 @@ verification: |
 files_changed:
   - src/lib/stores/player.svelte.ts (pauseAudio/disarmResume/scheduleExternalResume + pause/playing listeners + src-set resets + clearQueue reset + four deliberate-pause call sites routed through pauseAudio + devicechange/headphone-unplug guard)
   - src/lib/stores/player.svelte.test.ts (external-pause self-heal regression suite + 2 headphone-unplug tests)
+
+## SUPERSEDED — closed 2026-09-12
+
+Device-confirmed fixed: four songs played continuously on an Android phone with the screen OFF.
+
+This session was one of SEVEN open at once, each a different hypothesis about the same symptom
+(playback stopping in the background), all left in `awaiting_human_verify` /
+`fix-applied-pending-device-verify` since June-August because none was ever ground-truthed.
+
+The symptom was finally traced in `resolved/slow-cold-start-first-playing.md` — see its RESOLVED
+section for the full cause chain. It was not a better hypothesis that closed it; it was measurement
+(an on-device action log, then direct probes of the CDN and upstreams).
+
+The fixes applied by THIS session are live in `player.svelte.ts` and are NOT being unpicked. Closing
+as superseded rather than re-investigating — if the symptom ever returns, start from the resolved
+session's measurements, not from this file's hypothesis.

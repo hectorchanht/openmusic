@@ -1,7 +1,7 @@
 ---
 gsd_debug_version: 1.0
 slug: midplay-stall-background
-status: awaiting_human_verify
+status: superseded
 trigger: "Songs stuck at middle of playing recently, cause unknown, seems not network. Sometimes shows error 'playback stopped - couldn't load songs' — but fetch errors should never stop the player, they should skip until a playable song."
 created: 2026-07-02
 updated: 2026-07-02
@@ -120,3 +120,19 @@ next_action: Apply the SIMPLIFYING fix in player.svelte.ts (remove scheduleExter
       confirmation on-device. The netease region-lock (the 403s) is upstream/environmental; this fix makes
       the player skip past it cleanly rather than curing the 403s.
 - files_changed: [src/lib/stores/player.svelte.ts, src/lib/stores/player.svelte.test.ts]
+
+## SUPERSEDED — closed 2026-09-12
+
+Device-confirmed fixed: four songs played continuously on an Android phone with the screen OFF.
+
+This session was one of SEVEN open at once, each a different hypothesis about the same symptom
+(playback stopping in the background), all left in `awaiting_human_verify` /
+`fix-applied-pending-device-verify` since June-August because none was ever ground-truthed.
+
+The symptom was finally traced in `resolved/slow-cold-start-first-playing.md` — see its RESOLVED
+section for the full cause chain. It was not a better hypothesis that closed it; it was measurement
+(an on-device action log, then direct probes of the CDN and upstreams).
+
+The fixes applied by THIS session are live in `player.svelte.ts` and are NOT being unpicked. Closing
+as superseded rather than re-investigating — if the symptom ever returns, start from the resolved
+session's measurements, not from this file's hypothesis.

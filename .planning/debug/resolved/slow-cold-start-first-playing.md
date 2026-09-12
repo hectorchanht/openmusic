@@ -1,10 +1,10 @@
 ---
 gsd_debug_version: 1.0
 slug: slow-cold-start-first-playing
-status: investigating
+status: resolved
 trigger: "撳落去要等幾秒先開聲 — slow time from tap to first audible sound. Goal: cut tap → first `playing` event latency. Platform: Android Chrome / PWA. Companion symptom (mid-song stop, background/locked only) deferred to a separate session by user decision."
 created: 2026-09-12
-updated: 2026-09-12T15:10
+updated: 2026-09-12T16:30
 ---
 
 # Debug: slow tap → first `playing` (cold path 34.7s, warm path bimodal 220ms vs 3.4s)
@@ -295,6 +295,51 @@ So the lever is COVERAGE of pre-resolution and pre-buffering, not per-request op
 
 Deliberately NOT acted on yet: widening prewarm coverage is a real API-volume decision in a repo with
 three recorded fetch-flood freezes, so it needs an explicit call on scope and caps.
+
+## RESOLVED — device-confirmed 2026-09-12
+
+**User, on an Android phone with the screen OFF: four songs played continuously, unattended.**
+
+That is the symptom this session opened on. Round-2 capture at the same point: a track ended, the
+grow/advance chain went silent for 26,016 ms, and playback only resumed when the user foregrounded
+the app. Round-3 showed the background advance itself fixed (`playing ms:53 / 86 / 148 / 187` while
+hidden). This is the end-to-end confirmation across a multi-track run.
+
+### What actually fixed it, in the order the causes were removed
+
+| commit | cause removed |
+|---|---|
+| `3382300` | readiness guard trusted a url with NO age check — prefetch rubber-stamped dead urls |
+| `acf96c0` | `tryFallback` had NO deadline; a failed track cost 6s + an unbounded 19–29s walk |
+| `0971a00` | the guard was FIVE inline copies, four of them stale-blind — fixing one fixed nothing |
+| `34f4ff1` | cross-source substitution could silently adopt an instrumental/karaoke/cover |
+| `1a5dc14` | a related-list TAP pinned the track, so it survived every later queue reset |
+| `4266e9f` | netease search handed `<audio>` the raw upstream Meting url (23ms to audio.error) |
+| `cda5220` | kuwo 526s on a broken TLS cert while FIRST in the resolve floor; + preconnect |
+| `6b5980a` | a dry grow dead-ended playback silently — no advance, no notice, no state change |
+
+### The seven prior sessions
+
+`midplay-stall-background`, `autoadvance-pauses-after-1s`, `bg-resolve-gap-stall`,
+`reresolve-loop-stops-playback`, `background-autoadvance-stall`, `bg-no-pill-split-play-stop`,
+`bg-lockscreen-stall-noskip` — all left in `awaiting_human_verify` /
+`fix-applied-pending-device-verify` since June–August. Every one was a different hypothesis about
+THIS symptom, and none was ever ground-truthed; each round wrote a new theory on top of the last.
+The thing that finally moved it was not a better hypothesis, it was **measurement**: an on-device
+action log, then direct probes of the CDN and the upstreams.
+
+Their fixes are live in `player.svelte.ts` and are not being unpicked. They can be archived as
+superseded by this session rather than re-investigated.
+
+### Still open (NOT fixed, deliberately)
+
+- **Cold tap ≈5.5s and largely irreducible.** Measured: `/api/qq/detail` upstream 2.75–6.09s;
+  device-to-CDN first byte ~2s while the CDN itself answers in ~0.3s (83% of which is handshake).
+  Instant cold start is not achievable — only pre-resolution and pre-buffering produce it, and those
+  already work (`prebuffer-blob` starts at ms:36–187).
+- **H3 first-byte** attribution to the phone's network path is inferred, not independently proven.
+- **`/api/lastfm/similar-tracks`** emits image urls without the host allowlist its siblings apply.
+- **Per-page row boilerplate** — the one duplication left after the dedup sweep; needs a component.
 
 ## Candidate fixes — NOT applied (each needs the capture to justify)
 

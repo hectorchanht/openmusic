@@ -1,7 +1,7 @@
 ---
 gsd_debug_version: 1.0
 slug: bg-resolve-gap-stall
-status: fix-applied-pending-device-verify
+status: superseded
 trigger: "Android lock screen, current song playing. Sometimes it stops at the beginning of the NEXT song with 0:00 and empty duration. The same song plays fine when the user switches next then prev. Sometimes the next song does auto-play on lock screen. User theory: songs played before are CF-worker-cached so they load fast/seamless and Android does not kill them; never-played songs load slower, stall, and get frozen by Android."
 created: 2026-07-08
 updated: 2026-07-08
@@ -140,3 +140,19 @@ download held in memory (~neutral vs the old preload=auto, which also fetched th
   bg-error-skipped again on later passes (strikes → routed past); (c) NO audible artifact, and the media
   pill / lock-screen controls behave normally (the Web Audio keep-alive's one real risk). If the pill or
   focus misbehaves, gate the bridge to hidden-only or revert `keepAliveOn`/`keepAliveOff`.
+
+## SUPERSEDED — closed 2026-09-12
+
+Device-confirmed fixed: four songs played continuously on an Android phone with the screen OFF.
+
+This session was one of SEVEN open at once, each a different hypothesis about the same symptom
+(playback stopping in the background), all left in `awaiting_human_verify` /
+`fix-applied-pending-device-verify` since June-August because none was ever ground-truthed.
+
+The symptom was finally traced in `resolved/slow-cold-start-first-playing.md` — see its RESOLVED
+section for the full cause chain. It was not a better hypothesis that closed it; it was measurement
+(an on-device action log, then direct probes of the CDN and upstreams).
+
+The fixes applied by THIS session are live in `player.svelte.ts` and are NOT being unpicked. Closing
+as superseded rather than re-investigating — if the symptom ever returns, start from the resolved
+session's measurements, not from this file's hypothesis.
