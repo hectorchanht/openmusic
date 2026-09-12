@@ -740,7 +740,11 @@
 		// keeps playNext from mis-splicing — playNext filters the uid out FIRST, then looks for
 		// current, which would be gone, landing the track at index 0.
 		if (player.current?.uid === track.uid) return;
-		player.playNext(track);
+		// pin:false — this tap means "play this now", NOT "pin this for later". playNext is borrowed
+		// purely for its splice-after-current positioning; taking its manualUids side effect too left
+		// the tapped song surviving every later queue reset (a main-page play then yielded
+		// `c1, b1, c2…`). An explicit Play-next — the swipe-left above, or the track menu — still pins.
+		player.playNext(track, { pin: false });
 		// Cold start: with no current, playNext plays the track itself (setting current
 		// synchronously), so this guard is what prevents a double play().
 		// No toast/haptic — the row becoming the playing track IS the feedback.

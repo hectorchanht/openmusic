@@ -2341,8 +2341,22 @@ class Player {
 	}
 
 	/** Insert a track right after the current one (de-duped). Plays it if nothing is playing. */
-	playNext(t: Track) {
-		this.manualUids.add(t.uid); // explicit manual add — preserved across regen
+	/**
+	 * Splice a track in directly after the current one.
+	 *
+	 * `pin` (default true) records the track in `manualUids`, which is what makes it SURVIVE a later
+	 * queue reset (quick-260618-fiz Fix 4 re-weaves pinned entries after the new seed). That is right
+	 * for an explicit "Play next" — a swipe-left or the track menu, both of which raise a toast, so
+	 * the user knowingly pinned it.
+	 *
+	 * It is WRONG for a plain tap that just means "play this now". `relatedTapPlay` called this only
+	 * to get the splice and inherited the pin as a side effect, so a related-list tap on b1 left b1
+	 * pinned forever: starting a brand-new queue from the main page then produced `c1, b1, c2…`
+	 * instead of `c1, c2, c3…` — a song the user never queued, riding along through every later
+	 * context switch. Pass `{ pin: false }` for positional inserts that carry no user intent to keep.
+	 */
+	playNext(t: Track, opts: { pin?: boolean } = {}) {
+		if (opts.pin !== false) this.manualUids.add(t.uid); // explicit manual add — preserved across regen
 		const q = this.queue.filter((x) => x.uid !== t.uid);
 		const i = q.findIndex((x) => x.uid === this.current?.uid);
 		q.splice(i >= 0 ? i + 1 : 0, 0, t);

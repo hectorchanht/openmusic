@@ -3494,6 +3494,45 @@ describe('quick-260618-fiz Fix 4 — explicit queue entries survive a fresh play
 		expect(uids.indexOf(manualX.uid)).toBeGreaterThan(uids.indexOf(newSong.uid));
 	});
 
+	// The EXACT user-reported sequence. a1 playing with a2,a3,a4 up next; tap b1 in the RELATED list
+	// (→ a1, b1 playing, a2, a3, a4); then play c1 from the main page. Expected c1, c2, c3… but the
+	// user got `c1, b1, c2` — b1 rode along through a full queue reset.
+	//
+	// Cause: relatedTapPlay borrowed playNext purely for its splice-after-current positioning and
+	// inherited manualUids too, so a plain TAP was recorded as an explicit user PIN — and pins are
+	// DESIGNED to survive a context switch (the test above proves that, and must keep passing). A tap
+	// means "play this now", not "keep this forever".
+	//
+	// These assert the pin decision itself, which is the new logic. What a pin then DOES across a
+	// fresh play is already covered by the surrounding quick-260618-fiz tests, so it is not re-tested
+	// here.
+	it('a related-list TAP (pin:false) splices in WITHOUT pinning', () => {
+		const a1 = mk('netease', 'A1', 'A', 'A1');
+		const a2 = mk('qq', 'A2', 'A', 'A2');
+		const b1 = mk('kuwo', 'B1', 'B', 'B1');
+		player.current = a1;
+		player.queue = [a1, a2];
+
+		player.playNext(b1, { pin: false }); // what relatedTapPlay now does
+
+		// Spliced directly after current so it plays next…
+		expect(player.queue.map((t) => t.uid)).toEqual([a1.uid, b1.uid, a2.uid]);
+		// …but NOT recorded as a user pin, so a later queue reset drops it.
+		expect((player as unknown as { manualUids: Set<string> }).manualUids.has(b1.uid)).toBe(false);
+	});
+
+	it('an explicit playNext (default) still pins — swipe-left / track menu are unchanged', () => {
+		const a1 = mk('netease', 'A1', 'A', 'A1');
+		const b1 = mk('kuwo', 'B1', 'B', 'B1');
+		player.current = a1;
+		player.queue = [a1];
+
+		player.playNext(b1);
+
+		expect(player.queue.map((t) => t.uid)).toEqual([a1.uid, b1.uid]);
+		expect((player as unknown as { manualUids: Set<string> }).manualUids.has(b1.uid)).toBe(true);
+	});
+
 	// quick-260831-sp9. The home shelves (liked / downloads / history / playlists) call
 	// play({fresh:true}) WITHOUT installing a queue — a simple tap is meant to generate a new
 	// Up-Next, not snapshot the shelf. But queueContext decides generated-vs-same-list, and with no
