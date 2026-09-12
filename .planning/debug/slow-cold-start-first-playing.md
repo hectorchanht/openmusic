@@ -4,7 +4,7 @@ slug: slow-cold-start-first-playing
 status: investigating
 trigger: "撳落去要等幾秒先開聲 — slow time from tap to first audible sound. Goal: cut tap → first `playing` event latency. Platform: Android Chrome / PWA. Companion symptom (mid-song stop, background/locked only) deferred to a separate session by user decision."
 created: 2026-09-12
-updated: 2026-09-12T11:00
+updated: 2026-09-12T12:10
 ---
 
 # Debug: slow tap → first `playing` (cold path 34.7s, warm path bimodal 220ms vs 3.4s)
@@ -77,39 +77,81 @@ Repo-known loop classes, check for regression rather than rediscovery: audio.err
 - User CAN export the action log again. Ask for a targeted capture rather than guessing.
 - Do NOT push to main — Cloudflare Pages auto-deploys to production on push.
 
+## ROOT CAUSE CONFIRMED — device capture round 2 (2026-09-12, new build verified live via `src.set`)
+
+Both symptoms are ONE cause: **`play()` bounds its first resolve with a 6 s watchdog, then hands a
+failure to `runFallback` → `tryFallback`, which has NO deadline of any kind.**
+
+`src/lib/services/fallback.ts` (122 lines) contains zero `setTimeout`, `race`, or deadline. It is a
+SERIAL `for` loop over up to 7 sources, each doing `searchAll` then `ensureTrackDetails`, each
+bounded only by apiFetch's 25 s `REQUEST_TIMEOUT_MS`. Theoretical worst case 7 × 50 s = 350 s.
+It aborts only on a generation change (`playGen`), never on elapsed time.
+
+`RESOLVE_WATCHDOG_MS = 6000` (player.svelte.ts:756) therefore guards ONLY the first resolve. The
+expensive part is entirely unguarded — the watchdog hands off to an unbounded walk.
+
+### Measured — cold tap, 56,369 ms to first sound
+
+| Δ from tap | event | note |
+|---|---|---|
+| 0 | `play` kuwo:75684778 | TAP |
+| +6,030 | `resolve.timeout` kuwo | watchdog, `ac.abort()`, → runFallback |
+| +35,308 | `fallback` kuwo→netease | **29,278 ms inside the unbounded walk** |
+| +37,445 | `play` netease:1440014557 | |
+| +43,457 | `resolve.timeout` netease | another 6 s watchdog |
+| +48,837 | `fallback` netease→qq | |
+| +53,445 | `resolve.ok` qq | 4,608 ms |
+| **+56,369** | **`playing`** | |
+
+### Measured — THE BACKGROUND STOP (matches the user's narrative exactly)
+
+| t | event | user-visible |
+|---|---|---|
+| 785714 | `visibility hidden:true` | switches to WhatsApp |
+| 997976 | `ended` qq:0003ysON0L5Kky | song A finishes |
+| 997978 | `play` qq:003MvIJf28Emkj | song B starts resolving |
+| 1004009 | `resolve.timeout` song B | +6,031 ms |
+| — | **26,016 ms of TOTAL SILENCE** | **"then it stop"** — runFallback walking, nothing to hear |
+| 1030025 | `visibility hidden:false` | switches back to OpenMusic |
+| 1034593 | `advance` → song C | **"song b is skipped"**, **"song c is being played without me clicking"** |
+| 1040596 | `resolve.timeout` song C | +6,002 ms |
+| 1049508 | `resolve.ok` | |
+| 1052002 | `playing` | **"song e take a few sec to load and play by itself"** |
+
+The player never stopped. It was blocked inside an unbounded fallback walk. From the seat of a user
+with the screen off, a 26 s silent gap IS a stop.
+
+## H1 / H2 / H3 — RESOLVED by the `media.*` instrumentation
+
+- **H1 (Chrome `stalled` → re-resolve) — ELIMINATED.** No `stall.retry` in any slow case.
+- **H2 (cold FLAC stream too big) — ELIMINATED.** Bandwidth is fine: slow case `qq:001rBvxx2sEvf9`
+  buffered **46.2 s of audio by ms:5199**. FLAC size is not the problem.
+- **H3 (first-byte delay) — CONFIRMED.** In both slow cases there is NO `media.progress` before
+  `loadedmetadata`, with `buf:0 rs:0 ns:2` — the element is connected and waiting on the FIRST BYTE
+  for 2,173–2,888 ms. Once bytes arrive, `canplay` follows in 15–307 ms.
+
+| case | loadstart | first progress | loadedmetadata | playing |
+|---|---|---|---|---|
+| fast `qq:0003ysON0L5Kky` | ms:26 | **ms:68** | ms:74 | **ms:78** |
+| slow `qq:001rBvxx2sEvf9` | ms:8 | ms:3247 (AFTER playing) | **ms:2888** | ms:2904 |
+| slow `qq:000mQkBo42a7r4` | ms:20 | ms:2175 | **ms:2173** | ms:2480 |
+
+Both slow cases occur immediately after fallback churn; the fast case follows a quiet ~19 s. That
+correlation points at connection contention during the walk, but is NOT yet nailed — it is a
+SECONDARY ~2.5 s cost, an order of magnitude smaller than the 26–29 s walk, so it is not the
+priority.
+
+## Confirmed working — the stale-url age check (commit 3382300)
+
+No `resolve.ok` (~38 ms) → `stall.retry` → `audio.error hasPlayed:false` sequence anywhere in this
+capture. That failure shape is gone. The remaining slowness is a different, larger mechanism.
+
 ## Current Focus
 
-- hypothesis: The `resolve.ok` → `playing` gap is spent INSIDE the browser's media load (src-set → first byte → decode), not in player.svelte.ts. Competing mechanisms for the ~3 s mode: (H1) Chrome `stalled` (3 s no-progress) → `stall.retry` → re-resolve → new src; (H2) cold stream start of a 1.7 Mbps FLAC on the device network; (H3) media byte request queued behind low-priority image/cover fetches in Chrome's ResourceScheduler.
-- test: the existing log cannot separate H1/H2/H3 — it has no media-element events between `resolve.ok` and `playing`. Add one-shot per-src media event instrumentation (loadstart / first progress / loadedmetadata / canplay / stalled / suspend / waiting with Δms from src-set + readyState/networkState/bufferedEnd) and ask for a device capture.
-- expecting: H1 → `stall.retry` line present in the 3 s cases; H2 → first `progress` quick but `canplay` late (bytes trickling); H3 → `loadstart` immediate but first `progress` ~2.5–3 s late while the CDN TTFB is ~0.35 s.
-- next_action: DONE — instrumentation committed locally (player.svelte.ts driveSrc `src.set` + attach() `media.*` one-shot lines + `playing.ms`; vitest green, `pnpm check` clean). NOT pushed (auto-deploy). CHECKPOINT (human-action): user pushes/deploys, reproduces one fast + one slow start on device, exports the Activity log. On resume: read the `src.set` → `media.*` → `playing` lines for the slow cases and pick H1/H2/H3 per `expecting` above.
-- known_pattern_candidate: none in knowledge-base (file absent).
-
-## Fix applied — stale-url readiness guard (2026-09-12, commit 3382300)
-
-CONFIRMED secondary cause, fixed independently of H1/H2/H3 (which still need the device capture).
-
-**Root cause:** `ensureTrackDetails` (catalog.ts) trusted `detailsLoaded && audioUrl` with NO age
-check. `prefetchNext` fills `audioUrl` ahead of time; CN audio urls are signed and short-lived, so a
-track played minutes after its prefetch got a dead url back in 38 ms and the player then spent
-~8.4 s per strike discovering it. This is the mechanism behind the cold case's first ~20 s.
-
-**Fix:** added `Track.resolvedAt`, stamped at the ONE `ensureTrackDetails` seam via a thin wrapper
-(covers all four resolve return paths — cache url hit, mid shortcut, name stub, cold adapter walk —
-without editing any of them). Guard now also requires `hasFreshUrl`. Reuses `RESOLVE_URL_TTL_S`
-(900 s) rather than a second constant: that name already means "how long a signed CN audio url is
-trusted" and the edge bakes the same window into `urlExp`, so the two seams cannot drift.
-
-Unstamped = STALE by construction (re-resolve ~100 ms vs ~8.4 s per strike — the asymmetry is the
-whole argument). NOT added to the `serializeTrack` whitelist: persist already nulls `audioUrl` and
-resets `detailsLoaded`, so a restored track re-resolves regardless.
-
-**Gates:** `pnpm check` 4413 files 0 errors · `pnpm test` 1960/1960 (3 new) · `pnpm build` clean.
-**Scope:** does not touch the external-pause/resume path, `recoverLoadStall`, the `driveSrc` brake,
-or prefetch/prebuffer — no overlap with the seven open mid-song-stop sessions' live fixes.
-**Unverified on device.** Expected effect: removes the stale-prefetch penalty from the cold path.
-It does NOT address the bimodal ~120 ms vs ~3 s warm gap — that is still H1/H2/H3, still needs the
-capture.
+- hypothesis: CONFIRMED — `tryFallback` (fallback.ts) is an unbounded serial walk over up to 7
+  sources with no elapsed-time deadline; `RESOLVE_WATCHDOG_MS` guards only `play()`'s first resolve,
+  so a failed track costs 6 s + an unbounded 19–29 s walk. Backgrounded, that gap is heard as a stop.
+- next_action: bound the failure episode end-to-end, then re-capture on device.
 
 ## Candidate fixes — NOT applied (each needs the capture to justify)
 
