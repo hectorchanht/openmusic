@@ -1,6 +1,7 @@
 package com.openmusic.app;
 
 import android.os.Bundle;
+import android.util.Log;
 import android.view.View;
 
 import androidx.core.graphics.Insets;
@@ -31,8 +32,15 @@ public class MainActivity extends BridgeActivity {
      * status bar. Capacitor 8 ships no inset handling of its own (CapacitorWebView imports
      * Insets but never uses it), so the padding has to come from here.
      *
-     * Padding the root CoordinatorLayout (dark #0b0b0f background, matching the app theme-color)
-     * pushes the WebView below the system bars while the window itself stays edge-to-edge.
+     * TARGET VIEW — do NOT switch this to a layout id from android/app/src/main/res/layout.
+     * Capacitor 8's BridgeActivity calls setContentView(com.getcapacitor.android.R.layout
+     * .capacitor_bridge_layout_main) — the LIBRARY's layout. The app-module activity_main.xml
+     * that older Capacitor templates shipped is never inflated (it was deleted alongside this
+     * comment). android.R.id.content is the decor FrameLayout hosting whatever the bridge
+     * inflated, so it exists regardless of Capacitor's internal layout/id names.
+     *
+     * The explicit background paints the strip the padding opens up with the app's
+     * theme-color (#0b0b0f, app.html) instead of the window default. Window stays edge-to-edge.
      * Web and iOS builds are untouched — this file only exists in the Capacitor shell.
      *
      * ponytail: top inset only. The bottom gesture bar overlays fine today and the web layout
@@ -40,15 +48,22 @@ public class MainActivity extends BridgeActivity {
      * nav bar clipping the tab bar.
      */
     private void applyStatusBarInset() {
-        View root = findViewById(R.id.om_root);
-        if (root == null) return;
-        ViewCompat.setOnApplyWindowInsetsListener(root, (view, windowInsets) -> {
+        View content = findViewById(android.R.id.content);
+        if (content == null) {
+            Log.w("OpenMusicInsets", "android.R.id.content missing — status bar inset NOT applied");
+            return;
+        }
+        content.setBackgroundColor(0xFF0B0B0F);
+        ViewCompat.setOnApplyWindowInsetsListener(content, (view, windowInsets) -> {
             Insets bars = windowInsets.getInsets(
                 WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout()
             );
+            // Diagnostic: `adb logcat -s OpenMusicInsets` proves whether the listener fires and
+            // what the platform reports, so a future top-padding regression is measured, not guessed.
+            Log.i("OpenMusicInsets", "top=" + bars.top + " bottom=" + bars.bottom);
             view.setPadding(view.getPaddingLeft(), bars.top, view.getPaddingRight(), view.getPaddingBottom());
             return windowInsets;
         });
-        ViewCompat.requestApplyInsets(root);
+        ViewCompat.requestApplyInsets(content);
     }
 }
