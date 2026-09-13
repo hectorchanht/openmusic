@@ -14,9 +14,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import { serializeActionLog } from '$lib/diagnostics/action-log-logic';
 import { MAX_UPLOAD_BYTES } from '$lib/proxy/diag-payload';
-import { POST } from './+server';
+import { GET, POST } from './+server';
 
 const UPLOAD_TOKEN = 'up-secret';
+const READ_TOKEN = 'read-secret';
 
 /**
  * In-memory R2Bucket stand-in. A `Response` stands in for `R2ObjectBody` because it has both the
@@ -64,6 +65,8 @@ function fakeEvent(method: 'GET' | 'POST', opts: EventOpts = {}) {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const callPOST = (event: ReturnType<typeof fakeEvent>) => POST(event as any);
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const callGET = (event: ReturnType<typeof fakeEvent>) => GET(event as any);
 
 const bearer = (token: string) => ({ authorization: `Bearer ${token}` });
 
@@ -224,5 +227,159 @@ describe('POST /api/diag — token confidentiality (T-33-02)', () => {
 		);
 		expect(bodies).toHaveLength(6);
 		for (const text of bodies) expect(text).not.toContain(UPLOAD_TOKEN);
+	});
+});
+
+/** Read env: BOTH tokens configured, so "the upload token gets 401 on GET" is a real assertion. */
+const readEnv = (bucket: StubBucket) => ({
+	DIAG_READ_TOKEN: READ_TOKEN,
+	DIAG_UPLOAD_TOKEN: UPLOAD_TOKEN,
+	DIAG: bucket
+});
+
+const KEY_A = 'log/2026-09-13T00-00-00-000Z-aaaaaaaa.json';
+const KEY_B = 'log/2026-09-13T00-00-01-000Z-bbbbbbbb.json';
+
+/** A bucket already holding two logs plus one object OUTSIDE the log/ prefix. */
+function seededBucket() {
+	const bucket = stubBucket();
+	bucket.store.set(KEY_A, LOG);
+	bucket.store.set(KEY_B, LOG);
+	bucket.store.set('other/not-a-log.json', 'nope');
+	return bucket;
+}
+
+describe('GET /api/diag — auth (D-02, T-33-07)', () => {
+	it('no Authorization header → 401', async () => {
+		const res = await callGET(fakeEvent('GET', { env: readEnv(seededBucket()) }));
+		expect(res.status).toBe(401);
+		expect(await res.json()).toEqual({ ok: false, err: 'unauthorized' });
+	});
+
+	it('the UPLOAD token → 401: write capability must not grant read', async () => {
+		const bucket = seededBucket();
+		const res = await callGET(
+			fakeEvent('GET', { headers: bearer(UPLOAD_TOKEN), env: readEnv(bucket) })
+		);
+		expect(res.status).toBe(401);
+		expect(bucket.list).not.toHaveBeenCalled();
+	});
+
+	it('the read token but no DIAG binding → 503 unconfigured', async () => {
+		const res = await callGET(
+			fakeEvent('GET', { headers: bearer(READ_TOKEN), env: { DIAG_READ_TOKEN: READ_TOKEN } })
+		);
+		expect(res.status).toBe(503);
+		expect(await res.json()).toEqual({ ok: false, err: 'unconfigured' });
+	});
+});
+
+describe('GET /api/diag — list (D-02)', () => {
+	it('no ?key → 200 with one row per stored log, listed under the log/ prefix only', async () => {
+		const bucket = seededBucket();
+		const res = await callGET(
+			fakeEvent('GET', { headers: bearer(READ_TOKEN), env: readEnv(bucket) })
+		);
+		expect(res.status).toBe(200);
+		expect(bucket.list).toHaveBeenCalledTimes(1);
+		expect(bucket.list).toHaveBeenCalledWith({ prefix: 'log/' });
+		const body = (await res.json()) as {
+			ok: boolean;
+			logs: Array<{ key: string; size: number; uploaded: string }>;
+		};
+		expect(body.ok).toBe(true);
+		expect(body.logs).toHaveLength(2);
+		expect(body.logs.map((l) => l.key)).toEqual([KEY_A, KEY_B]);
+		expect(body.logs[0].size).toBe(LOG.length);
+		// A Date serialises to an ISO string on the way out — the caller never sees an epoch number.
+		expect(body.logs[0].uploaded).toBe('1970-01-01T00:00:00.000Z');
+	});
+});
+
+describe('GET /api/diag?key= — fetch one (D-02, T-33-09)', () => {
+	it('an existing key → 200 with the stored bytes verbatim as application/json', async () => {
+		const bucket = seededBucket();
+		const res = await callGET(
+			fakeEvent('GET', { headers: bearer(READ_TOKEN), env: readEnv(bucket), search: { key: KEY_A } })
+		);
+		expect(res.status).toBe(200);
+		expect(res.headers.get('content-type')).toBe('application/json');
+		expect(await res.text()).toBe(LOG);
+		expect(bucket.get).toHaveBeenCalledWith(KEY_A);
+	});
+
+	it('a well-formed key that is not stored → 404 not-found', async () => {
+		const res = await callGET(
+			fakeEvent('GET', {
+				headers: bearer(READ_TOKEN),
+				env: readEnv(seededBucket()),
+				search: { key: 'log/does-not-exist.json' }
+			})
+		);
+		expect(res.status).toBe(404);
+		expect(await res.json()).toEqual({ ok: false, err: 'not-found' });
+	});
+
+	it('a traversal key → 400 invalid-key and bucket.get is never called', async () => {
+		const bucket = seededBucket();
+		const res = await callGET(
+			fakeEvent('GET', {
+				headers: bearer(READ_TOKEN),
+				env: readEnv(bucket),
+				search: { key: '../secrets' }
+			})
+		);
+		expect(res.status).toBe(400);
+		expect(await res.json()).toEqual({ ok: false, err: 'invalid-key' });
+		expect(bucket.get).not.toHaveBeenCalled();
+	});
+
+	it('a key outside the log/ prefix → 400 invalid-key and bucket.get is never called', async () => {
+		const bucket = seededBucket();
+		const res = await callGET(
+			fakeEvent('GET', {
+				headers: bearer(READ_TOKEN),
+				env: readEnv(bucket),
+				search: { key: 'other/not-a-log.json' }
+			})
+		);
+		expect(res.status).toBe(400);
+		expect(bucket.get).not.toHaveBeenCalled();
+	});
+});
+
+describe('GET /api/diag — token confidentiality (T-33-02)', () => {
+	it('no GET response body of any status contains either token', async () => {
+		const bodies = await Promise.all(
+			[
+				fakeEvent('GET', { env: readEnv(seededBucket()) }), // 401
+				fakeEvent('GET', { headers: bearer(UPLOAD_TOKEN), env: readEnv(seededBucket()) }), // 401
+				fakeEvent('GET', {
+					headers: bearer(READ_TOKEN),
+					env: { DIAG_READ_TOKEN: READ_TOKEN }
+				}), // 503
+				fakeEvent('GET', { headers: bearer(READ_TOKEN), env: readEnv(seededBucket()) }), // 200 list
+				fakeEvent('GET', {
+					headers: bearer(READ_TOKEN),
+					env: readEnv(seededBucket()),
+					search: { key: KEY_A }
+				}), // 200 one
+				fakeEvent('GET', {
+					headers: bearer(READ_TOKEN),
+					env: readEnv(seededBucket()),
+					search: { key: '../secrets' }
+				}), // 400
+				fakeEvent('GET', {
+					headers: bearer(READ_TOKEN),
+					env: readEnv(seededBucket()),
+					search: { key: 'log/does-not-exist.json' }
+				}) // 404
+			].map(async (event) => (await callGET(event)).text())
+		);
+		expect(bodies).toHaveLength(7);
+		for (const text of bodies) {
+			expect(text).not.toContain(READ_TOKEN);
+			expect(text).not.toContain(UPLOAD_TOKEN);
+		}
 	});
 });
