@@ -341,9 +341,23 @@
 				{/key}
 			</div>
 			<div class="head-actions">
-				<!-- Like is the SOLE accent in the header (D-09); the mid-list Like row is removed.
-				     Reuses the existing like() + liked derived; the Heart import stays (Pitfall 7). -->
-				<button class="hd-btn" class:liked aria-pressed={liked} aria-label={liked ? t('menu.liked') : t('menu.like')} onclick={like} use:tapBounce><Heart size={20} fill={liked ? 'currentColor' : 'none'} /></button>
+				<!-- D-09 AMENDED by quick-260913-je8: the header accent slot is DOWNLOAD now, not Like.
+				     D-09's "Like is the sole header accent AND the mid-list Like row is removed" no
+				     longer holds — Like is back as a text row below; the rest of D-09 (two-row marquee
+				     header, explicit Close affordance) stands unchanged.
+				     Download is DELIBERATELY duplicated (header icon + list row): both call the SAME
+				     gated('download', doDownload) and read the SAME tri-state sources (inFlight +
+				     library.downloading / isDownloaded), so the two can never disagree (D-11/D-12). -->
+				{#if library.isDownloaded(track.uid)}
+					<button class="hd-btn" disabled aria-disabled="true" aria-label={t('menu.downloaded')}><Check size={20} /></button>
+				{:else}
+					{@const hdBusy = inFlight.has('download') || library.downloading.has(track.uid)}
+					{#if hdBusy}
+						<button class="hd-btn" disabled aria-busy="true" aria-label={t('menu.preparing')}><span class="row-spinner motion-always"></span></button>
+					{:else}
+						<button class="hd-btn" aria-label={t('menu.download')} onclick={() => gated('download', doDownload)} use:tapBounce><Download size={20} /></button>
+					{/if}
+				{/if}
 				<!-- NEW explicit Close affordance (today close is scrim/drag only). It ONLY flips
 				     state via close() → the $effect cleanup is the SOLE overlays.dismiss caller, so
 				     scrim/X/drag/back all converge on one dismiss path (overlay invariant; D-09). -->
@@ -394,6 +408,13 @@
 				{#if dlBusy}<span class="row-spinner motion-always"></span>{:else}<Download size={18} />{/if} {t('menu.download')}
 			</button>
 		{/if}
+		<!-- quick-260913-je8: the mid-list Like row is RESTORED (D-09 had removed it when Like owned
+		     the header accent slot — the header is Download now, so the only Like affordance has to
+		     live here). Same like() + `liked` derived as before; .mi.accent carries the liked tint so
+		     this needs no new CSS and no new i18n keys. -->
+		<button class="mi" class:accent={liked} aria-pressed={liked} onclick={like} use:tapBounce>
+			<Heart size={18} fill={liked ? 'currentColor' : 'none'} /> {liked ? t('menu.liked') : t('menu.like')}
+		</button>
 		<button class="mi" onclick={() => { pickerOpen = true; }} use:tapBounce><ListPlus size={18} /> {t('menu.addToPlaylist')}</button>
 		<!-- Opens the GLOBAL SleepTimerSheet (mounted in the app layout) — not a local sub-sheet
 		     here, so the timer indicator is reachable from the nowbar + now-playing too (D-08). -->
@@ -457,8 +478,9 @@
 	.menu-head { font-size: calc(13px * var(--fs-title, 1)); color: var(--color-text-muted); padding: 8px 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 	.menu-head.row { display: flex; align-items: center; justify-content: space-between; }
 	.x { background: none; border: none; color: var(--color-text); cursor: pointer; display: grid; place-items: center; }
-	/* D-08/D-09/D-10: two-row marquee header + top-right Like/Close cluster. Left text column
-	   flexes (min-width:0 so the clips can shrink-and-ellipsis); right cluster is fixed-width. */
+	/* D-08/D-09/D-10: two-row marquee header + top-right action/Close cluster (quick-260913-je8:
+	   the action slot is Download, was Like). Left text column flexes (min-width:0 so the clips can
+	   shrink-and-ellipsis); right cluster is fixed-width. */
 	.sheet-head { display: flex; align-items: center; gap: 12px; padding: 8px 10px; }
 	.head-text { flex: 1; min-width: 0; }
 	.hd-title { font-size: calc(15px * var(--fs-title, 1)); font-weight: 600; color: var(--color-text); line-height: 1.25; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-width: 0; max-width: 100%; }
@@ -466,7 +488,9 @@
 	.head-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 18px; }
 	.hd-btn { min-width: 44px; min-height: 44px; display: grid; place-items: center; background: none; border: none; border-radius: 10px; color: var(--color-text); cursor: pointer; }
 	.hd-btn:hover { background: var(--color-surface); }
-	.hd-btn.liked { color: var(--color-primary); }
+	.hd-btn:disabled { opacity: 0.4; cursor: default; }
+	/* quick-260913-je8: `.hd-btn.liked` is gone with the header Heart — the liked tint now rides
+	   the shared `.mi.accent` on the list row. (Left in place it is an unused-CSS check failure.) */
 	.mi { width: 100%; display: flex; align-items: center; gap: 12px; background: none; border: none; color: var(--color-text); font-size: 15px; padding: 12px; border-radius: 10px; cursor: pointer; text-align: left; }
 	.mi:hover { background: var(--color-surface); }
 	.mi:disabled { opacity: 0.4; cursor: default; }

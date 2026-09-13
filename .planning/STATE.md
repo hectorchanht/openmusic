@@ -63,7 +63,7 @@ Full observed evidence: `.planning/phases/30-carrier-free-share-links-type-artis
 ### Prior phase (Phase 27 — YouTube Music Source, v1.4) — COMPLETE + E2E-VERIFIED
 
 Phase 27 complete (27-01..04). E2E-verified against LIVE YouTube via the dev-server routes: /api/ytmusic/search 200 (rows+videoId), /api/ytmusic/lyrics 200 (1513c + attribution), /api/ytmusic/stream 206 audio/mp4 + Range (playback) and 200 full-file (download). pnpm check clean, 1320 tests green. E2E caught + fixed a prod-breaking bug (quick-270715 / commit 29c1c7d): stream route exported non-HTTP-verb functions, illegal in SvelteKit +server.ts → 500; helpers moved to $lib/proxy/ytmusic.ts.
-Last activity: 2026-09-13
+Last activity: 2026-09-13 - Completed quick task 260913-je8: TrackMenu header Download + restored Like row
 Remaining human UAT: real-device <audio> playback+seek + download-to-disk; deployed-Worker player+googlevideo same-IP egress + bot-challenge under load (T-27-03-OP). Account/library sync = separate legal-gated milestone (spike 008).
 
 ## Performance Metrics
@@ -474,6 +474,7 @@ Items acknowledged and deferred at v1.2 milestone close on 2026-06-15 (81 total)
 | uat_gap | 999.1-05-HUMAN-UAT.md | partial (4 open) | signed-APK release pipeline + sideload — needs keystore + device (v2.0 backlog) |
 | uat_gap | 999.1-06-HUMAN-UAT.md | partial (5 open) | native install/storage smokes — Android device only (v2.0 backlog) |
 | quick_task | 75 tasks (260605→260616) | missing | quick-task status markers unresolved by scanner; most shipped via `quick-*` commits, unconfirmed at close — triage with `/gsd:check-todos` / `/gsd:cleanup` |
+| 260913-je8 | Replace TrackMenu top-right like button with download button; menu list shows both download and like | 2026-09-13 | ffc2e6a | [260913-je8-replace-trackmenu-top-right-like-button-](./quick/260913-je8-replace-trackmenu-top-right-like-button-/) |
 
 The 🔴 verification/UAT gaps are device-only human tests (iOS audio, Android APK) that cannot be reproduced in this environment. The 75 quick-tasks are predominantly false-positives (completed work whose completion marker the scanner could not match).
 
