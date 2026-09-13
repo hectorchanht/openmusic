@@ -40,6 +40,22 @@ export interface Env {
 	// NEVER echoed to the client (same threat class as AZURE_TRANSLATOR_KEY, T-25c-01). Absent
 	// key is a SUPPORTED state: the DeepL tier is SKIPPED and the cascade falls through to Google.
 	DEEPL_KEY?: string;
+	/** OPTIONAL R2 bucket holding maintainer-uploaded activity logs (Phase 33 / D-07 — R2 over KV
+	 * for strong read-after-write AND list-after-write). Bound as `DIAG` in wrangler.jsonc.
+	 * `R2Bucket` is a GLOBAL type from the Cloudflare Workers types already listed in tsconfig
+	 * `types` — deliberately no import here (an import would be the only one in this file).
+	 * ABSENT under `vite dev` and in unit tests is a SUPPORTED state: the diagnostic routes 503
+	 * rather than throwing, the same posture as an absent LASTFM_KEY. */
+	DIAG?: R2Bucket;
+	// OPTIONAL bearer token required to WRITE a log (D-01/D-03). Lives on the maintainer's device
+	// only; set via `wrangler pages secret put`, NEVER as a `var` and NEVER `VITE_`-prefixed, so it
+	// cannot reach the client bundle (T-33-03). Absent ⇒ uploads DISABLED — `bearerMatches` fails
+	// CLOSED, so a forgotten secret locks the door rather than removing it (T-33-01).
+	DIAG_UPLOAD_TOKEN?: string;
+	// OPTIONAL bearer token required to LIST/FETCH logs (D-02/D-03). NEVER shipped to any device —
+	// used only from curl on the maintainer's laptop. Absent ⇒ reads disabled (same fail-closed
+	// posture as DIAG_UPLOAD_TOKEN).
+	DIAG_READ_TOKEN?: string;
 }
 
 export interface ProxyAdapter {

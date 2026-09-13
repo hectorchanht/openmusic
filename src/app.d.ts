@@ -17,6 +17,13 @@ declare global {
 				// track.love, track.scrobble). Server-side only — used to compute the
 				// md5 api_sig on the edge, never on the client bundle.
 				LASTFM_SECRET?: string;
+				// Phase 33 diagnostics (D-07 / D-03). This declaration is the SvelteKit-facing
+				// mirror; the functional contract with the doc comments is `Env` in
+				// $lib/proxy/proxy-types.ts, which every route casts `platform?.env` to.
+				DIAG?: R2Bucket;
+				// Server-only bearer tokens — `wrangler pages secret put`, never a VITE_ var.
+				DIAG_UPLOAD_TOKEN?: string;
+				DIAG_READ_TOKEN?: string;
 			};
 			// 31-D-06: the Cloudflare ExecutionContext. `waitUntil()` keeps the Worker alive for a
 			// background job AFTER the response has already been sent — the /api/resolve edge-cache

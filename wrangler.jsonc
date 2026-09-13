@@ -13,5 +13,19 @@
 	// here: it is only needed for OAuth flows we don't implement.
 	"vars": {
 		"JAMENDO_CLIENT_ID": "1df0a42f"
-	}
+	},
+	// Phase 33 / D-07 — diagnostics log store. Holds ONLY maintainer-uploaded activity logs;
+	// both the write and the read path are bearer-token gated (D-01/D-02/D-03). The secrets
+	// DIAG_UPLOAD_TOKEN / DIAG_READ_TOKEN are set with `wrangler pages secret put …` and are
+	// NEVER listed as `vars` above (vars are baked into the public Pages config).
+	// CAVEAT: `vars`, `kv_namespaces` and `r2_buckets` are NON-INHERITABLE. If anyone later adds
+	// an `env.preview` block they must re-declare BOTH `vars` and `r2_buckets` inside it, or
+	// JAMENDO_CLIENT_ID silently disappears from previews.
+	// The bucket name must match the one created by Plan 06's human checkpoint exactly.
+	"r2_buckets": [
+		{
+			"binding": "DIAG",
+			"bucket_name": "openmusic-diag"
+		}
+	]
 }
