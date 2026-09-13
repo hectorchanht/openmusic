@@ -32,6 +32,28 @@ describe('buildArtwork (MS-01)', () => {
 		expect(art.every((a) => a.src === '/favicon.svg')).toBe(true);
 		expect(art.every((a) => a.type === 'image/svg+xml')).toBe(true);
 	});
+
+	// quick-260913-artcrash — NATIVE CRASH GUARD, not cosmetics. A non-https src reaches
+	// @jofr/capacitor-media-session's urlToBitmap(), which does a blocking
+	// HttpURLConnection.connect() with no try/catch inside a method declared
+	// `throws IOException`. Android's cleartext block (allowMixedContent:false) turns a
+	// http:// cover into an UNCAUGHT IOException on the CapacitorPlugins thread, killing the
+	// process on every metadata write — song-end and then every relaunch via restore().
+	// If these ever go green-to-red, the APK is crash-looping again.
+	it('falls back to /favicon.svg for an http cover (native cleartext crash guard)', () => {
+		const art = buildArtwork('http://y.gtimg.cn/music/photo_new/T002R300x300M000.jpg');
+		expect(art.every((a) => a.src === '/favicon.svg')).toBe(true);
+	});
+
+	it('falls back to /favicon.svg for a protocol-relative cover', () => {
+		const art = buildArtwork('//y.gtimg.cn/music/photo_new/T002R300x300M000.jpg');
+		expect(art.every((a) => a.src === '/favicon.svg')).toBe(true);
+	});
+
+	it('does not let an https-prefixed hostname smuggle cleartext through', () => {
+		const art = buildArtwork('http://https.evil.example/art.jpg');
+		expect(art.every((a) => a.src === '/favicon.svg')).toBe(true);
+	});
 });
 
 describe('safePositionState (MS-04, T-kyf-02)', () => {

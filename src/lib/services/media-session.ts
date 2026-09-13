@@ -11,6 +11,7 @@
 // keeping the runes store a thin caller. `MediaImage`, `MediaPositionState`, and
 // `MediaSessionPlaybackState` are DOM lib types (lib.dom.d.ts) — not hand-rolled.
 import type { Track } from '$lib/sources/types';
+import { hasHttpsScheme } from '$lib/services/url-safety';
 
 // types-only import keeps the source layer fully decoupled; reference it so the
 // import is not flagged as unused while still erasing at runtime.
@@ -25,15 +26,40 @@ const FALLBACK_ART = '/favicon.svg';
 /**
  * Build the `MediaMetadata.artwork` array (MS-01).
  *
- * - Non-empty cover URL → one entry per ladder size (plus `any`), every `src`
+ * - https cover URL → one entry per ladder size (plus `any`), every `src`
  *   equal to the cover URL with an EMPTY `type` (the cover is a remote raster of
  *   unknown MIME — the browser content-sniffs it).
- * - null / empty-string cover → the SVG fallback array pointing at `/favicon.svg`
- *   (`type: 'image/svg+xml'`, `sizes: 'any'`). Graceful degradation on platforms
- *   that don't render SVG media-art is accepted (no binary PNG is authored).
+ * - null / empty-string / NON-https cover → the SVG fallback array pointing at
+ *   `/favicon.svg` (`type: 'image/svg+xml'`, `sizes: 'any'`). Graceful degradation on
+ *   platforms that don't render SVG media-art is accepted (no binary PNG is authored).
+ *
+ * The https gate is a CRASH GUARD on native, not just a mixed-content nicety
+ * (quick-260913-artcrash). @jofr/capacitor-media-session's setMetadata is declared
+ * `throws IOException` and its urlToBitmap() does a blocking HttpURLConnection.connect()
+ * with NO try/catch. Capacitor invokes it by reflection on the CapacitorPlugins
+ * HandlerThread, so an IOException there is UNCAUGHT and kills the process — the JS-side
+ * fire-and-forget `.catch()` in native-media-session.ts cannot intercept a native throw.
+ * A QQ cover arriving as `http://y.gtimg.cn/...` hits Android's cleartext block
+ * (capacitor.config.ts allowMixedContent:false, D-12/T-999.1-04) and hard-crashes the app
+ * at every metadata write — i.e. on the song-end -> next() transition, and then again on
+ * every relaunch as restore() replays the persisted track, leaving the app unopenable
+ * even after a force stop.
+ *
+ * Routing the non-https cover to FALLBACK_ART defuses it: `/favicon.svg` matches neither
+ * the plugin's `startsWith("http")` branch nor its `;base64,` branch, so urlToBitmap
+ * returns null without touching the network.
+ *
+ * This is the same `hasHttpsScheme` predicate every other cover surface already uses;
+ * artwork was the one consumer that never imported it.
+ *
+ * REMAINING WINDOW (not closed here): an https cover whose fetch fails natively — offline
+ * playback of a downloaded track, a 404, a TLS error — still throws IOException inside the
+ * plugin and still kills the process. Closing that means never handing the plugin a URL it
+ * has to fetch (convert to a data: URL first), which needs a CORS-clean byte source for
+ * cover hosts and is a separate change.
  */
 export function buildArtwork(cover: string | null): MediaImage[] {
-	if (cover) {
+	if (hasHttpsScheme(cover)) {
 		const ladder: MediaImage[] = SIZE_LADDER.map((sizes) => ({ src: cover, sizes, type: '' }));
 		ladder.push({ src: cover, sizes: 'any', type: '' });
 		return ladder;
