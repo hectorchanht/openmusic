@@ -33,6 +33,19 @@ describe('corsHeaders (T-01-02 — never an open relay)', () => {
 		expect(Object.values(h)).not.toContain('*');
 	});
 
+	it('advertises Authorization in Allow-Headers without widening origin trust (T-33-06/T-33-10)', () => {
+		// https://localhost is the Capacitor WebView origin that preflights the bearer POST.
+		const allowed = corsHeaders('https://localhost')['Access-Control-Allow-Headers']
+			.split(',')
+			.map((h) => h.trim());
+		// The fix must ADD, not replace — Range in particular carries audio seeking.
+		expect(allowed).toContain('Authorization');
+		expect(allowed).toContain('Content-Type');
+		expect(allowed).toContain('Range');
+		// Advertising a header must not make a foreign origin allowed.
+		expect(corsHeaders('https://evil.example.com')['Access-Control-Allow-Origin']).toBeUndefined();
+	});
+
 	it('always sets Vary: Origin so caches do not cross-pollinate', () => {
 		expect(corsHeaders('https://openmusic.lol').Vary).toBe('Origin');
 	});

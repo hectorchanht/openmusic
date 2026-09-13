@@ -31,7 +31,12 @@ export function corsHeaders(origin: string | null): Record<string, string> {
 	const headers: Record<string, string> = {
 		Vary: 'Origin',
 		'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-		'Access-Control-Allow-Headers': 'Content-Type, Range'
+		// `Authorization` is NOT a CORS-safelisted request header, so the Capacitor WebView
+		// (https://localhost → https://openmusic.lol, cross-origin) preflights any bearer POST and
+		// fails it unless the header is advertised here (T-33-06). Allow-Headers only says which
+		// headers an ALREADY allow-listed origin may send — it grants nothing to a foreign origin,
+		// so this does not widen Allow-Origin (T-33-10).
+		'Access-Control-Allow-Headers': 'Content-Type, Range, Authorization'
 	};
 	if (isAllowedOrigin(origin)) {
 		headers['Access-Control-Allow-Origin'] = origin;
