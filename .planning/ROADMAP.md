@@ -315,7 +315,7 @@ Scope (raw, pre-planning):
 **Goal:** The maintainer taps ONE "Upload log" button on Settings → Activity log and the on-device Activity log lands in an R2 bucket behind a token-gated `/api/diag`; seconds later it is listed and fetched from the laptop with curl — replacing the reproduce → export → paste-a-huge-JSON-blob loop that gated four root-cause fixes on 2026-09-12. Single-user v1: write gated by `DIAG_UPLOAD_TOKEN`, read by `DIAG_READ_TOKEN`, both edge-only.
 **Requirements**: D-01..D-07 (locked decisions in 33-CONTEXT.md — no REQUIREMENTS.md; the D-numbers are the traceability keys). D-07 resolved to R2 in 33-RESEARCH.md.
 **Depends on:** Phase 32
-**Plans:** 5/7 plans executed
+**Plans:** 6/7 plans executed
 
 Plans:
 **Wave 1**
@@ -331,7 +331,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 33-06-PLAN.md — CHECKPOINT: wrangler re-auth on the openmusic account, enable R2, create bucket, set both Pages secrets (D-03/D-07)
+- [x] 33-06-PLAN.md — CHECKPOINT: wrangler re-auth on the openmusic account, enable R2, create bucket, set both Pages secrets (D-03/D-07)
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
