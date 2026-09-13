@@ -61,7 +61,7 @@ Extracted from the settings pages. The effective rhythm is **2 / 4 / 6 / 8 / 12 
 
 ## Typography
 
-Sizes are scaled at runtime by the user's `--fs-*` multipliers on list surfaces only; **settings pages do not use them** — the values below are literal. Declared: **4 sizes, 2 weights**.
+Sizes are scaled at runtime by the user's `--fs-*` multipliers on list surfaces only; **settings pages do not use them** — the values below are literal. Declared: **6 sizes, 2 weights** (corrected by gsd-ui-checker 2026-09-13 — the table below enumerates 22.4 / 15 / 14 / 13.6 / 13 / 12px). The 13.6 vs 13px pair is INHERITED near-duplicate debt (global `h2` `0.85rem` vs local `.chip`/`.seg` `13px`), matched here for consistency with the existing settings pages rather than introduced by this phase — same accepted-debt treatment as the Spacing section.
 
 | Role | Size | Weight | Line Height |
 |------|------|--------|-------------|
@@ -484,7 +484,7 @@ Same `size` prop, same 4px gap, same `.row-badges` wrapper — the badge cluster
 - **Cross-source fallback is BARRED for `device:` uids** (34-RESEARCH Open Q2). Silently substituting a streamed recording of the same song directly contradicts D-06 ("the user sees why it won't play") and the `quick-260913-jq4` truthfulness posture. The user hears nothing and reads why — that is the correct outcome.
 - The entry is **not removed** by the tap, not by the playback error, and not by any background pass. It is dropped only inside the next explicit user-initiated import (D-07 / D-08).
 
-**Surfaces hidden for `device:` entries** (34-RESEARCH bites #10, #11): the **Share** affordance and the **Download** affordance in the track menu. Sharing a link to a file only on this phone, and downloading a file already on this phone, are both nonsense. Both are already gated by `track-menu-gate.ts`; extend that gate rather than adding conditionals in `TrackMenu.svelte`.
+**Surfaces hidden for `device:` entries** (34-RESEARCH bites #10, #11): the **Share** affordance and the **Download** affordance in the track menu. Sharing a link to a file only on this phone, and downloading a file already on this phone, are both nonsense. **No existing visibility gate covers this** — corrected by gsd-ui-checker 2026-09-13. `src/lib/components/track-menu-gate.ts` exports only `isGatedReady` and `shouldStartResolve`, which are pure resolve-then-act TIMING decisions (Phase 19, MENU-01) and have nothing to do with affordance visibility. `TrackMenu.svelte` currently renders Share (`:495`) and Download (`:411,474,481`) unconditionally, gated only on `track.uid !== player.current?.uid`. The planner must design a NEW visibility condition — do NOT overload `track-menu-gate.ts` with a concern it was not built for.
 
 ---
 
