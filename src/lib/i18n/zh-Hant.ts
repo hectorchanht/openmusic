@@ -140,6 +140,11 @@ const zhHant: Dict = {
 	"settings.activityClear": "清除記錄",
 	"settings.activityCopy": "複製記錄",
 	"settings.activityCopied": "已複製活動記錄。",
+	"settings.activityUpload": "上傳記錄",
+	"settings.activityUploadPrompt": "貼上診斷上傳權杖",
+	"settings.activityUploaded": "已上傳記錄。",
+	"settings.activityUploadFailed": "上傳失敗。",
+	"settings.activityUploadEmpty": "沒有可上傳的內容。",
 
 	// --- appearance / sizing (quick-260607-fnp) ---
 	"settings.groupAppearance": "外觀",

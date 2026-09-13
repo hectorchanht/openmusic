@@ -140,6 +140,11 @@ const zhHans: Dict = {
 	"settings.activityClear": "清除日志",
 	"settings.activityCopy": "复制日志",
 	"settings.activityCopied": "已复制活动日志。",
+	"settings.activityUpload": "上传日志",
+	"settings.activityUploadPrompt": "粘贴诊断上传令牌",
+	"settings.activityUploaded": "已上传日志。",
+	"settings.activityUploadFailed": "上传失败。",
+	"settings.activityUploadEmpty": "没有可上传的内容。",
 
 	// --- appearance / sizing (quick-260607-fnp) ---
 	"settings.groupAppearance": "外观",

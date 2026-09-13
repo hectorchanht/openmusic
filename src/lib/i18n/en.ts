@@ -146,6 +146,12 @@ const en = {
 	"settings.activityClear": "Clear log",
 	"settings.activityCopy": "Copy log",
 	"settings.activityCopied": "Activity log copied.",
+	// --- activity log upload (Phase 33 / D-06) ---
+	"settings.activityUpload": "Upload log",
+	"settings.activityUploadPrompt": "Paste the diagnostics upload token",
+	"settings.activityUploaded": "Log uploaded.",
+	"settings.activityUploadFailed": "Upload failed.",
+	"settings.activityUploadEmpty": "Nothing to upload.",
 
 	// --- appearance / sizing (quick-260607-fnp) ---
 	"settings.groupAppearance": "Appearance",
