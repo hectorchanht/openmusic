@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: YTMusic-Powered Up-Next
 status: executing
-stopped_at: "Phase 32: 8/9 plans done, pushed+deploying; 32-08 device checkpoints pending"
-last_updated: "2026-09-13T18:25:30.156Z"
+stopped_at: "Phase 33: 33-07 Tasks 1-2 done (deployed, Tier-2 11/11); Task 3 Tier-3 device round trip pending human"
+last_updated: "2026-09-13T19:05:00.000Z"
 last_activity: 2026-09-13
 progress:
   total_phases: 9
   completed_phases: 5
   total_plans: 58
-  completed_plans: 51
+  completed_plans: 52
   percent: 56
 ---
 
@@ -25,9 +25,23 @@ See: .planning/PROJECT.md (updated 2026-06-10)
 
 ## Current Position
 
-Phase: 33 (activity-log-upload-for-automated-diagnosis) — EXECUTING
+Phase: 33 (activity-log-upload-for-automated-diagnosis) — EXECUTING (6.5/7)
 Plan: 7 of 7
-Status: Executing Phase 33
+Status: 33-07 Tasks 1-2 complete; Task 3 awaiting device verification
+
+### 33-07 checkpoint status
+
+| # | Checkpoint | Requirement | Status |
+|---|-----------|-------------|--------|
+| 1 | Approve push to main (auto-deploys production) | T-33-14 | ✅ **APPROVED + PUSHED** — `origin/main` == `HEAD` == `40b1cab`; Pages deployment `2b9e232d` (commit `a172f59`) is **Active** |
+| 2 | Tier-2 curl matrix against the live edge | D-01/D-02/D-05/D-07 | ✅ **PASSED 11/11** — 401 no/wrong token · 200 + `log/…` key · 200 list · 401 upload-token-on-read (asymmetry) · 413 oversize (NOT 5xx) · 400 malformed · 200 byte-identical fetch · 400 `../` key · `Authorization` in Allow-Headers. Full table: `33-07-SUMMARY.md` |
+| 3 | Tier-3 phone upload → laptop fetch | D-04/D-06 | ⏳ **PENDING HUMAN — device only.** `JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home pnpm apk`, install, Settings → Activity log → **Upload log**, paste `DIAG_UPLOAD_TOKEN` from `.dev.vars` (**never** the READ token — T-33-07), then fetch from the laptop with `DIAG_READ_TOKEN`. Two unknowns: does `prompt()` work in the Capacitor WebView (fallback = inline text input), and does the cross-origin preflight carrying `Authorization` succeed from the APK |
+
+**Build-order lesson, do not repeat:** deployment `c70c76d6` (commit `9dba501`) **FAILED** because the Pages build validated `wrangler.jsonc`'s `r2_buckets` binding at **12:15:53** against a bucket not created until **12:19:38**. Identical source built green once the bucket was real. `pnpm build` locally never gates on binding existence — **create the R2 bucket BEFORE pushing a wrangler.jsonc that declares its binding.**
+
+**Curl-harness gotcha, not a WAF bug:** three Tier-2 curls returned **403** purely because the request omitted `content-type: application/json`, which Cloudflare rejects upstream of the app. `/api/diag` never emits 403 on any path.
+
+**R2 bucket `openmusic-diag` is EMPTY** — the three synthetic Tier-2 objects were deleted. The first object listed will be the device upload, which makes Task 3 unambiguous.
 
 ### 30-06 checkpoint status
 

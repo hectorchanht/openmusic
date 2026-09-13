@@ -315,7 +315,7 @@ Scope (raw, pre-planning):
 **Goal:** The maintainer taps ONE "Upload log" button on Settings → Activity log and the on-device Activity log lands in an R2 bucket behind a token-gated `/api/diag`; seconds later it is listed and fetched from the laptop with curl — replacing the reproduce → export → paste-a-huge-JSON-blob loop that gated four root-cause fixes on 2026-09-12. Single-user v1: write gated by `DIAG_UPLOAD_TOKEN`, read by `DIAG_READ_TOKEN`, both edge-only.
 **Requirements**: D-01..D-07 (locked decisions in 33-CONTEXT.md — no REQUIREMENTS.md; the D-numbers are the traceability keys). D-07 resolved to R2 in 33-RESEARCH.md.
 **Depends on:** Phase 32
-**Plans:** 6/7 plans executed
+**Plans:** 7/7 plans executed (33-07 Tier-3 device check pending human)
 
 Plans:
 **Wave 1**
@@ -335,4 +335,4 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 33-07-PLAN.md — CHECKPOINT: approve push → deploy → Tier-2 curl matrix on openmusic.lol → Tier-3 phone upload / laptop fetch
+- [x] 33-07-PLAN.md — CHECKPOINT: pushed + deployed (`40b1cab`, deployment `2b9e232d` Active); Tier-2 curl matrix PASSED 11/11 on openmusic.lol. **Tier-3 phone upload / laptop fetch still pending human** (D-04/D-06 not device-observed)
