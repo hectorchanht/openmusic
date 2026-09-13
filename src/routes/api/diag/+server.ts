@@ -20,7 +20,7 @@ import type { RequestHandler } from './$types';
 import type { Env } from '$lib/proxy/proxy-types';
 import { jsonResponse } from '$lib/proxy/http';
 import { bearerMatches } from '$lib/proxy/diag-auth';
-import { screenLogPayload, diagKey, MAX_UPLOAD_BYTES } from '$lib/proxy/diag-payload';
+import { screenLogPayload, diagKey, isDiagKey, MAX_UPLOAD_BYTES } from '$lib/proxy/diag-payload';
 
 export const POST: RequestHandler = async ({ request, platform }) => {
 	const origin = request.headers.get('origin');
@@ -64,4 +64,47 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 
 	// No ttl / cacheControl => no Cache-Control header. A diagnostics reply is never cacheable.
 	return jsonResponse({ ok: true, key, entries }, origin);
+};
+
+export const GET: RequestHandler = async ({ url, request, platform }) => {
+	const origin = request.headers.get('origin');
+	const env = platform?.env as Env | undefined;
+
+	// AUTH against the READ token ONLY (D-02 / D-03). The upload token lives on a device and must
+	// not open this door — write capability does not grant read (T-33-07).
+	if (!(await bearerMatches(request.headers.get('authorization'), env?.DIAG_READ_TOKEN))) {
+		return jsonResponse({ ok: false, err: 'unauthorized' }, origin, { status: 401 });
+	}
+
+	const bucket = env?.DIAG;
+	if (!bucket) return jsonResponse({ ok: false, err: 'unconfigured' }, origin, { status: 503 });
+
+	const key = url.searchParams.get('key');
+
+	// LIST. `list()` IS the index — no manifest object to keep in sync, so no read-modify-write race
+	// between two concurrent uploads. `diagKey`'s ISO prefix makes R2's lexicographic key order
+	// chronological for free. `uploaded` is a Date; serializing the reply renders it as ISO.
+	if (key === null) {
+		const { objects } = await bucket.list({ prefix: 'log/' });
+		const logs = objects.map((o) => ({ key: o.key, size: o.size, uploaded: o.uploaded }));
+		return jsonResponse({ ok: true, logs }, origin);
+	}
+
+	// FETCH ONE. Screen the untrusted key BEFORE any storage call (T-33-09), so this endpoint can
+	// only ever return objects the upload endpoint could have written.
+	if (!isDiagKey(key)) {
+		return jsonResponse({ ok: false, err: 'invalid-key' }, origin, { status: 400 });
+	}
+	const obj = await bucket.get(key);
+	if (!obj) return jsonResponse({ ok: false, err: 'not-found' }, origin, { status: 404 });
+
+	// The ONLY hand-built Response in this file, and the reason is CPU, not style: the stored object
+	// is ALREADY serialized JSON, so jsonResponse would encode it a second time into a JSON string,
+	// and parse-then-re-encode would spend the 10 ms budget we do not have. Streaming `obj.body`
+	// straight through is zero-CPU passthrough — the same posture as the audio stream routes.
+	// CORS is still applied: hooks.server.ts merges it onto every /api/* response.
+	return new Response(obj.body, {
+		status: 200,
+		headers: { 'content-type': 'application/json' }
+	});
 };
