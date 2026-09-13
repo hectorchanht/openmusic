@@ -152,6 +152,19 @@ async function nativeGet(uid: string): Promise<Blob | null> {
 	}
 }
 
+// quick-260913-jq4: existence WITHOUT reading the file. `stat` returns the size, so the same
+// 31-D-13 floor applies — a truncated/empty on-disk copy reports absent on native exactly as it
+// reads as a miss on web, and the two platforms can never disagree about what "downloaded" means.
+async function nativeHas(uid: string): Promise<boolean> {
+	try {
+		const { size } = await Filesystem.stat({ path: nativePath(uid), directory: NATIVE_DIR });
+		return typeof size === 'number' && size >= MIN_BLOB_BYTES;
+	} catch {
+		// not-found / any failure: absent (parity with nativeGet's null).
+		return false;
+	}
+}
+
 async function nativeDel(uid: string): Promise<void> {
 	// Remove the app-private offline copy. Swallow not-found (parity with IDB del()).
 	try {
@@ -254,6 +267,39 @@ export async function get(uid: string): Promise<Blob | null> {
 }
 
 /**
+ * quick-260913-jq4: "is there an offline copy for `uid`?" — WITHOUT materializing it.
+ *
+ * WHY THIS IS NOT `get(uid) !== null`. The UI asks this question on every menu open, and a stored
+ * blob is a whole audio file (a lossless track is tens of MB). `get` would pull those bytes into
+ * memory just to compare against null. `getKey` answers from the index alone.
+ *
+ * WHY THE UI ASKS IT AT ALL. `library.isDownloaded` is membership in the downloads REFERENCE list,
+ * and `addDownload` deliberately runs BEFORE the fetch (DL-BUG-01: a failed download still leaves
+ * the song re-streamable). On top of that the web save is an `<a download>` click, which reports
+ * success even when the user cancels the browser's save dialog — the platform exposes no cancel
+ * signal. So the list cannot answer "is this actually downloaded" and this can: the offline copy is
+ * what makes an offline play work, and it is the one artifact the app can verify.
+ *
+ * Same never-throws / SSR-guarded posture as the rest of the module: no IDB, no browser, any error
+ * → `false` (absent), never a rejection.
+ */
+export async function has(uid: string): Promise<boolean> {
+	if (!uid) return false;
+	if (Capacitor.isNativePlatform()) return nativeHas(uid);
+	const db = await openDb();
+	if (!db) return false;
+	return new Promise<boolean>((resolve) => {
+		try {
+			const req = txStore(db, 'readonly').getKey(uid);
+			req.onsuccess = () => resolve(req.result !== undefined);
+			req.onerror = () => resolve(false);
+		} catch {
+			resolve(false);
+		}
+	});
+}
+
+/**
  * Delete the entry for `uid`. Resolves silently on success / miss / failure. Never throws.
  */
 export async function del(uid: string): Promise<void> {
@@ -273,4 +319,4 @@ export async function del(uid: string): Promise<void> {
 }
 
 /** Bundled namespace export so callers can `import { blobStore } from '$lib/services/blob-store'`. */
-export const blobStore = { put, get, del };
+export const blobStore = { put, get, has, del };

@@ -41,10 +41,13 @@ const getUri = vi.fn((_opts: { path: string; directory: string }) =>
 	Promise.resolve({ uri: 'file:///data/user/0/com.openmusic.app/files/downloads/x' })
 );
 const deleteFile = vi.fn((_opts: { path: string; directory: string }) => Promise.resolve());
+// quick-260913-jq4: nativeHas asks for the SIZE only (stat), never the bytes.
+const stat = vi.fn((_opts: { path: string; directory: string }) => Promise.resolve({ size: 200000 }));
 vi.mock('@capacitor/filesystem', () => ({
 	Filesystem: {
 		getUri: (opts: unknown) => getUri(opts as never),
-		deleteFile: (opts: unknown) => deleteFile(opts as never)
+		deleteFile: (opts: unknown) => deleteFile(opts as never),
+		stat: (opts: unknown) => stat(opts as never)
 	},
 	Directory: { Data: 'DATA', External: 'EXTERNAL' }
 }));
@@ -81,7 +84,7 @@ function installLocalStorageShim() {
 	return map;
 }
 
-import { blobStore, put, get, del } from './blob-store';
+import { blobStore, put, get, has, del } from './blob-store';
 
 beforeEach(() => {
 	isNativePlatform.mockReturnValue(false);
@@ -90,6 +93,7 @@ beforeEach(() => {
 		.mockReset()
 		.mockResolvedValue({ uri: 'file:///data/user/0/com.openmusic.app/files/downloads/x' });
 	deleteFile.mockReset().mockResolvedValue(undefined);
+	stat.mockReset().mockResolvedValue({ size: 200000 });
 	saveToMusic.mockReset().mockResolvedValue({ uri: 'content://media/external/audio/media/42' });
 	deleteFromMusic.mockReset().mockResolvedValue(undefined);
 	installLocalStorageShim();
@@ -101,12 +105,14 @@ afterEach(() => {
 });
 
 describe('blob-store — namespace export shape (consumers must keep compiling)', () => {
-	it('exports blobStore = { put, get, del } with the three functions intact', () => {
+	it('exports blobStore = { put, get, has, del } with the four functions intact', () => {
 		expect(typeof blobStore.put).toBe('function');
 		expect(typeof blobStore.get).toBe('function');
+		expect(typeof blobStore.has).toBe('function');
 		expect(typeof blobStore.del).toBe('function');
 		expect(blobStore.put).toBe(put);
 		expect(blobStore.get).toBe(get);
+		expect(blobStore.has).toBe(has);
 		expect(blobStore.del).toBe(del);
 	});
 });
@@ -132,6 +138,61 @@ describe('blob-store — web branch (isNativePlatform false)', () => {
 		isNativePlatform.mockReturnValue(false);
 		await expect(del('netease-1')).resolves.toBeUndefined();
 		expect(deleteFile).not.toHaveBeenCalled();
+	});
+
+	// quick-260913-jq4
+	it('has falls through to the IDB path (no indexedDB → false), not the native backend', async () => {
+		isNativePlatform.mockReturnValue(false);
+		await expect(has('netease-1')).resolves.toBe(false);
+		expect(stat).not.toHaveBeenCalled();
+	});
+
+	it('has rejects an empty uid without touching any backend', async () => {
+		isNativePlatform.mockReturnValue(false);
+		await expect(has('')).resolves.toBe(false);
+		expect(stat).not.toHaveBeenCalled();
+	});
+});
+
+// quick-260913-jq4 — `has` is what the download button's Check state reads, so its "absent" answer
+// has to be trustworthy on BOTH platforms: the reference list already lies (addDownload runs before
+// the fetch, and an <a download> click reports success even when the user cancels the save dialog),
+// which is the whole reason this probe exists.
+describe('blob-store — native branch has (isNativePlatform true)', () => {
+	beforeEach(() => isNativePlatform.mockReturnValue(true));
+
+	it('stats the app-private path and reports present for a real-sized file', async () => {
+		stat.mockResolvedValueOnce({ size: 200000 });
+		await expect(has('netease-1')).resolves.toBe(true);
+		expect(stat).toHaveBeenCalledWith(
+			expect.objectContaining({ path: expect.stringContaining('netease-1'), directory: 'DATA' })
+		);
+	});
+
+	it('reports ABSENT for a file under MIN_BLOB_BYTES (same 31-D-13 floor as get)', async () => {
+		stat.mockResolvedValueOnce({ size: 8191 });
+		await expect(has('netease-tiny')).resolves.toBe(false);
+	});
+
+	it('reports present exactly at MIN_BLOB_BYTES', async () => {
+		stat.mockResolvedValueOnce({ size: 8192 });
+		await expect(has('netease-edge')).resolves.toBe(true);
+	});
+
+	it('reports absent (never throws) when stat rejects — the not-found path', async () => {
+		stat.mockRejectedValueOnce(new Error('File does not exist'));
+		await expect(has('netease-gone')).resolves.toBe(false);
+	});
+
+	it('reports absent when stat returns no usable size', async () => {
+		stat.mockResolvedValueOnce({ size: undefined as unknown as number });
+		await expect(has('netease-weird')).resolves.toBe(false);
+	});
+
+	it('never reads the bytes (no getUri / no fetch) — the point of the probe', async () => {
+		stat.mockResolvedValueOnce({ size: 200000 });
+		await has('netease-1');
+		expect(getUri).not.toHaveBeenCalled();
 	});
 });
 
@@ -327,6 +388,16 @@ describe('blob-store — web IDB read gate (31-D-13)', () => {
 					req.onsuccess?.();
 				});
 				return req;
+			},
+			// quick-260913-jq4: `has` reads the KEY, never the value — the shim mirrors that so the
+			// test would catch a `has` that quietly went back to pulling the whole blob.
+			getKey(uid: string) {
+				const req: { result?: unknown; onsuccess?: () => void; onerror?: () => void } = {};
+				queueMicrotask(() => {
+					req.result = records.has(uid) ? uid : undefined;
+					req.onsuccess?.();
+				});
+				return req;
 			}
 		};
 		const db = {
@@ -380,5 +451,12 @@ describe('blob-store — web IDB read gate (31-D-13)', () => {
 
 	it('resolves null for a miss (undefined record)', async () => {
 		await expect(get('netease-absent')).resolves.toBeNull();
+	});
+
+	// quick-260913-jq4
+	it('has reports present for a stored record and absent for a miss', async () => {
+		records.set('netease-ok', bytes(200000));
+		await expect(has('netease-ok')).resolves.toBe(true);
+		await expect(has('netease-absent')).resolves.toBe(false);
 	});
 });

@@ -24,6 +24,9 @@
 	import { fetchVariants } from '$lib/services/variants';
 	import VersionPicker from '$lib/components/VersionPicker.svelte';
 	import { downloadTrack } from '$lib/services/download-track';
+	// quick-260913-jq4: the Check state is backed by the offline copy, not the downloads list.
+	import { blobStore } from '$lib/services/blob-store';
+	import { browser } from '$app/environment';
 	import { songShareUrl } from '$lib/services/share';
 	// quick-260809-3uo: the share card now carries the cover the user is looking at — read from the
 	// SAME shared reactive cache every other surface reads, plus the retained iTunes id.
@@ -167,9 +170,23 @@
 	// D-12: we deliberately do NOT onclose() first — the Download row reflects its per-uid state
 	// (library.downloading / isDownloaded) inline whether or not the menu stays open. The result
 	// sentinel is localized to a toast here (the service is i18n-free by contract).
-	async function doDownload(resolved: Track) {
+	// quick-260913-jq4: Download DOES NOT go through gated() any more (D-02 still stands for Remix
+	// and Detail — they genuinely need a resolved audioUrl in hand before they can run).
+	//
+	// gated() pre-resolved the stub and then vetoed on `!resolved.audioUrl` with toast.noAudio
+	// BEFORE doDownload ever ran. That veto was both redundant and wrong here:
+	//   - it resolves at the STREAMING default, while downloadTrack forces its own fresh resolve at
+	//     settings.downloadQuality — so it could reject a download that would have succeeded, and
+	//     the user saw an instant "no audio available" on the first tap instead of a spinner;
+	//   - downloadTrack already brackets library.beginDownload/endDownload SYNCHRONOUSLY before its
+	//     first await, so the per-uid spinner appears on the same tick and spans the REAL operation;
+	//   - downloadTrack never throws and returns 'no-audio' itself when there truly is none.
+	// One resolve, one authority, and the toast now reports what actually happened.
+	async function startDownload() {
+		if (!track) return;
+		if (library.downloading.has(track.uid)) return; // D-03 equivalent: a second tap while busy is a no-op
 		toast.show(t('toast.preparingDownload'));
-		const res = await downloadTrack(resolved);
+		const res = await downloadTrack(track);
 		toast.show(
 			res === 'saved'
 				? t('toast.downloaded')
@@ -177,7 +194,45 @@
 					? t('toast.noAudio')
 					: t('toast.downloadFailedKeptInLibrary')
 		);
+		// The Check state is blob-backed (see `blobPresent`), so re-probe rather than assume: 'saved'
+		// only means the anchor click fired, which is true even when the user cancels the save dialog.
+		await probeBlob();
 	}
+
+	// quick-260913-jq4 — WHAT "DOWNLOADED" MEANS. `library.isDownloaded(uid)` is membership in the
+	// downloads REFERENCE list, and `library.addDownload` deliberately runs BEFORE the fetch so a
+	// failed download still leaves the song re-streamable (DL-BUG-01). On top of that the web save is
+	// an `<a download>` click, which reports success even when the user cancels the browser's save
+	// dialog — the platform gives no cancel signal. So the list happily says "Downloaded" with
+	// nothing stored anywhere.
+	//
+	// The offline copy CAN be checked, and it is the thing that actually makes an offline play work,
+	// so the Check state reads that instead. `null` = not probed yet → render the normal Download
+	// affordance (the probe is a single indexed key lookup; it lands in ms).
+	//
+	// The downloads list keeps its own meaning ("the user asked for this offline") and is untouched;
+	// migrating the other surfaces that render download state to this probe is a separate change.
+	let blobPresent = $state<boolean | null>(null);
+	async function probeBlob() {
+		const uid = track?.uid;
+		if (!browser || !uid) return;
+		const present = await blobStore.has(uid);
+		if (track?.uid === uid) blobPresent = present; // ignore a probe the user has already navigated past
+	}
+	$effect(() => {
+		const uid = track?.uid;
+		if (!open || !uid) {
+			blobPresent = null;
+			return;
+		}
+		let alive = true;
+		untrack(() => blobStore.has(uid)).then((present) => {
+			if (alive) blobPresent = present;
+		});
+		return () => {
+			alive = false;
+		};
+	});
 	async function doShare() {
 		if (!track) return;
 		onclose();
@@ -348,15 +403,12 @@
 				     Download is DELIBERATELY duplicated (header icon + list row): both call the SAME
 				     gated('download', doDownload) and read the SAME tri-state sources (inFlight +
 				     library.downloading / isDownloaded), so the two can never disagree (D-11/D-12). -->
-				{#if library.isDownloaded(track.uid)}
+				{#if library.downloading.has(track.uid)}
+					<button class="hd-btn" disabled aria-busy="true" aria-label={t('menu.preparing')}><span class="row-spinner motion-always"></span></button>
+				{:else if blobPresent === true}
 					<button class="hd-btn" disabled aria-disabled="true" aria-label={t('menu.downloaded')}><Check size={20} /></button>
 				{:else}
-					{@const hdBusy = inFlight.has('download') || library.downloading.has(track.uid)}
-					{#if hdBusy}
-						<button class="hd-btn" disabled aria-busy="true" aria-label={t('menu.preparing')}><span class="row-spinner motion-always"></span></button>
-					{:else}
-						<button class="hd-btn" aria-label={t('menu.download')} onclick={() => gated('download', doDownload)} use:tapBounce><Download size={20} /></button>
-					{/if}
+					<button class="hd-btn" aria-label={t('menu.download')} onclick={startDownload} use:tapBounce><Download size={20} /></button>
 				{/if}
 				<!-- NEW explicit Close affordance (today close is scrim/drag only). It ONLY flips
 				     state via close() → the $effect cleanup is the SOLE overlays.dismiss caller, so
@@ -400,13 +452,14 @@
 		     Otherwise GATED — resolve-then-act at settings.downloadQuality via downloadTrack. The busy
 		     state reads BOTH the gated stub-resolve (inFlight) AND the shared per-uid library.downloading
 		     set, so the row shows its spinner whether or not this menu stays open (D-12). -->
-		{#if library.isDownloaded(track.uid)}
+		{#if library.downloading.has(track.uid)}
+			<button class="mi" aria-busy="true" disabled aria-label={t('menu.preparing')}>
+				<span class="row-spinner motion-always"></span> {t('menu.download')}
+			</button>
+		{:else if blobPresent === true}
 			<button class="mi" disabled aria-disabled="true"><Check size={18} /> {t('menu.downloaded')}</button>
 		{:else}
-			{@const dlBusy = inFlight.has('download') || library.downloading.has(track.uid)}
-			<button class="mi" aria-busy={dlBusy} disabled={dlBusy} aria-label={dlBusy ? t('menu.preparing') : undefined} onclick={() => gated('download', doDownload)} use:tapBounce>
-				{#if dlBusy}<span class="row-spinner motion-always"></span>{:else}<Download size={18} />{/if} {t('menu.download')}
-			</button>
+			<button class="mi" onclick={startDownload} use:tapBounce><Download size={18} /> {t('menu.download')}</button>
 		{/if}
 		<!-- quick-260913-je8: the mid-list Like row is RESTORED (D-09 had removed it when Like owned
 		     the header accent slot — the header is Download now, so the only Like affordance has to
