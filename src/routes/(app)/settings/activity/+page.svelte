@@ -1,13 +1,18 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
-	import { ChevronLeft, Copy, Trash2 } from '@lucide/svelte';
+	import { ChevronLeft, Copy, Trash2, Upload } from '@lucide/svelte';
 	import { actionLog } from '$lib/stores/actionLog.svelte';
 	import { serializeActionLog } from '$lib/diagnostics/action-log-logic';
+	import { apiFetch } from '$lib/services/api-base';
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { t } from '$lib/i18n';
 
+	/** Device-local upload token, namespaced like every other openmusic:<domain>:v<N> key. */
+	const DIAG_TOKEN_KEY = 'openmusic:diag:v1';
+
 	let msg = $state('');
+	let uploading = $state(false);
 
 	onMount(() => actionLog.load());
 
@@ -45,6 +50,64 @@
 		}
 	}
 
+	// D-04: uploading is an EXPLICIT user action ONLY. Bound to onclick and nothing else — no
+	// timer, no app-start hook, no reactive trigger, no background retry. A failure flashes once
+	// and STOPS. Three recorded fetch-flood freezes (api-fetch-flood-freeze) are why: uncapped
+	// /api/* traffic saturates the connection pool and wedges the whole app. One tap = at most
+	// one request.
+	async function uploadLog() {
+		if (uploading) return; // double-tap re-entrancy guard, NOT a retry
+		const text = serializeActionLog(actionLog.entries);
+		if (!text || text === '[]') return flash(t('settings.activityUploadEmpty'));
+
+		// The token is typed in by the maintainer on their own device and kept there. It is the
+		// WRITE-ONLY half of the two-token split (T-33-07/T-33-11) — the read token never touches a
+		// device — and it is deliberately NOT a build-time env var: Vite inlines those into the
+		// public client bundle (D-03, T-33-03).
+		let token = '';
+		try {
+			token = localStorage.getItem(DIAG_TOKEN_KEY) ?? '';
+		} catch {
+			/* storage unavailable — prompt instead */
+		}
+		if (!token) {
+			token = (prompt(t('settings.activityUploadPrompt')) ?? '').trim();
+			if (!token) return;
+			try {
+				localStorage.setItem(DIAG_TOKEN_KEY, token);
+			} catch {
+				/* non-fatal — this upload still proceeds, the next one re-prompts */
+			}
+		}
+
+		uploading = true;
+		try {
+			// Through apiFetch, never the raw platform call: a bodied POST skips the GET dedupe but
+			// keeps the 8-way concurrency cap, the 25 s timeout and the circuit breaker.
+			const res = await apiFetch('/api/diag', {
+				method: 'POST',
+				headers: { Authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+				body: text
+			});
+			// One line of on-device audit so the viewer itself shows 401 vs 413 vs 200.
+			actionLog.log('diag.upload', { status: res.status });
+			if (res.status === 401) {
+				// A mistyped token must not wedge the button forever — drop it so the NEXT tap
+				// re-prompts. Still no automatic retry.
+				try {
+					localStorage.removeItem(DIAG_TOKEN_KEY);
+				} catch {
+					/* */
+				}
+			}
+			flash(res.ok ? t('settings.activityUploaded') : t('settings.activityUploadFailed'));
+		} catch {
+			flash(t('settings.activityUploadFailed'));
+		} finally {
+			uploading = false;
+		}
+	}
+
 	function clearLog() {
 		actionLog.clear();
 	}
@@ -59,6 +122,7 @@
 
 <div class="actions">
 	<button class="item" onclick={copyLog} use:tapBounce><Copy size={18} /> {t('settings.activityCopy')}</button>
+	<button class="item" onclick={uploadLog} disabled={uploading} use:tapBounce><Upload size={18} /> {t('settings.activityUpload')}</button>
 	<button class="item danger" onclick={clearLog} use:tapBounce><Trash2 size={18} /> {t('settings.activityClear')}</button>
 </div>
 
