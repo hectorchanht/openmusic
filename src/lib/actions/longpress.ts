@@ -16,6 +16,16 @@ import type { Action } from 'svelte/action';
 // schedule a ~700ms self-disarm — the armed flag is only ever live for the brief window a trailing
 // click could arrive, and a later independent tap is never swallowed. We deliberately do NOT
 // disarm on pointerup: the trailing click arrives AFTER pointerup, so that would defeat the fix.
+//
+// WHERE THE SUPPRESSOR LISTENS (quick-260913-p2k — the half quick-260606-tmh missed): the guard
+// used to be bound to `node`, which only ever caught a trailing click that landed back on the ROW.
+// But every `onlongpress` handler mounts the TrackMenu SYNCHRONOUSLY, so by the time the finger
+// lifts the sheet is already under it — the trailing click lands on a MENU button, a different
+// subtree the row's listener never sees. Harmless while that slot was Like; once it became
+// Download (quick-260913-je8) a long-press started a download on its own. So the suppressor now
+// listens on `document` in the capture phase, where it sees the trailing click wherever it lands.
+// It is attached ONLY while armed (and detached by the eat, the self-disarm, or destroy), so a
+// long list registers no steady-state document listeners — there is at most one, for ~700ms.
 
 /**
  * Pure helper: should the trailing native click be suppressed because a longpress just fired?
@@ -33,16 +43,33 @@ export const longpress: Action<HTMLElement, number | undefined, { onlongpress: (
 ) => {
 	let timer: ReturnType<typeof setTimeout> | null = null;
 	let disarmTimer: ReturnType<typeof setTimeout> | null = null;
-	let suppressNextClick = false; // armed when the longpress fires; eats the next click
+	// ONE flag, two meanings kept deliberately in sync: `armed` is true exactly while the
+	// document-level capture listener is attached, and that attachment IS the "eat the next click"
+	// state. Collapsing the old separate `suppressNextClick` boolean into it removes the only way
+	// the two could disagree (flag set, listener detached — a silently dead guard).
+	let armed = false;
 	let sx = 0;
 	let sy = 0;
+	// Attach/detach the document-level suppressor. Idempotent on both sides: `armed` mirrors
+	// whether the listener is currently attached, so a re-press or a destroy mid-window cannot
+	// leave a stray capture listener on document.
+	const armSuppressor = () => {
+		if (armed) return;
+		armed = true;
+		document.addEventListener('click', clickCapture, true);
+	};
+	const disarmSuppressor = () => {
+		if (!armed) return;
+		armed = false;
+		document.removeEventListener('click', clickCapture, true);
+	};
 	const clear = () => {
 		if (timer) {
 			clearTimeout(timer);
 			timer = null;
 		}
-		// Cancel a pending safety-disarm too (e.g. on destroy / a fresh press), but do NOT reset
-		// suppressNextClick here — the trailing click arrives after pointerup, so the click handler
+		// Cancel a pending safety-disarm too (e.g. on destroy / a fresh press), but do NOT disarm
+		// the suppressor here — the trailing click arrives after pointerup, so the click handler
 		// and the disarm timeout are the only places allowed to reset it.
 		if (disarmTimer) {
 			clearTimeout(disarmTimer);
@@ -57,11 +84,11 @@ export const longpress: Action<HTMLElement, number | undefined, { onlongpress: (
 			timer = null;
 			node.dispatchEvent(new CustomEvent('longpress'));
 			// Arm the one-shot click suppressor for the trailing native click this hold will produce.
-			if (shouldSuppressClickAfterLongpress(true)) suppressNextClick = true;
+			if (shouldSuppressClickAfterLongpress(true)) armSuppressor();
 			// Self-disarm: some mobile browsers emit no synthetic click after a long hold, so never
-			// leave the flag armed long enough to eat a later legitimate tap.
+			// leave the guard armed long enough to eat a later legitimate tap.
 			disarmTimer = setTimeout(() => {
-				suppressNextClick = false;
+				disarmSuppressor();
 				disarmTimer = null;
 			}, 700);
 		}, duration ?? 450);
@@ -69,13 +96,13 @@ export const longpress: Action<HTMLElement, number | undefined, { onlongpress: (
 	const move = (e: PointerEvent) => {
 		if (timer && (Math.abs(e.clientX - sx) > 8 || Math.abs(e.clientY - sy) > 8)) clear();
 	};
-	// CAPTURE phase so we intercept before the element's own bubble-phase onclick (which plays).
+	// CAPTURE phase on `document` so we intercept before ANY element's bubble-phase onclick —
+	// the row's own (which plays) AND the just-mounted menu's (which downloads) or the scrim's
+	// (which would close the sheet the hold just opened).
 	const clickCapture = (e: MouseEvent) => {
-		if (suppressNextClick) {
-			e.preventDefault();
-			e.stopPropagation();
-			suppressNextClick = false;
-		}
+		e.preventDefault();
+		e.stopPropagation();
+		disarmSuppressor(); // one-shot
 	};
 	const ctx = (e: Event) => e.preventDefault();
 	node.addEventListener('pointerdown', down);
@@ -84,17 +111,16 @@ export const longpress: Action<HTMLElement, number | undefined, { onlongpress: (
 	node.addEventListener('pointerleave', clear);
 	node.addEventListener('pointercancel', clear);
 	node.addEventListener('contextmenu', ctx);
-	node.addEventListener('click', clickCapture, true);
 	return {
 		destroy() {
 			clear();
+			disarmSuppressor(); // never leave a capture listener on document behind an unmounted row
 			node.removeEventListener('pointerdown', down);
 			node.removeEventListener('pointermove', move);
 			node.removeEventListener('pointerup', clear);
 			node.removeEventListener('pointerleave', clear);
 			node.removeEventListener('pointercancel', clear);
 			node.removeEventListener('contextmenu', ctx);
-			node.removeEventListener('click', clickCapture, true);
 		}
 	};
 };
