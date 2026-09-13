@@ -4,7 +4,7 @@ milestone: v1.5
 milestone_name: YTMusic-Powered Up-Next
 status: executing
 stopped_at: "Phase 32: 8/9 plans done, pushed+deploying; 32-08 device checkpoints pending"
-last_updated: "2026-09-13T18:24:08.574Z"
+last_updated: "2026-09-13T18:25:30.156Z"
 last_activity: 2026-09-13
 progress:
   total_phases: 9
@@ -247,6 +247,8 @@ Recent decisions affecting current work:
 - [Phase ?]: 33-04: the ?key= reply streams the stored R2 object body instead of using jsonResponse — it is already serialized JSON and re-encoding would burn the 10ms Workers Free CPU budget
 - [Phase ?]: 33-05: diagnostics upload token is entered at runtime (prompt) and stored under openmusic:diag:v1, never a build-time env var; a 401 evicts it so the next tap re-prompts
 - [Phase ?]: 33-05: log upload is onclick-only with a re-entrancy guard and no retry path, routed through apiFetch's governor (D-04)
+- [Phase ?]: 33-06: diagnostic tokens generated ONCE into gitignored .dev.vars then piped into wrangler pages secret put — local and prod share one pair, which Plan 07's curls depend on
+- [Phase ?]: 33-06: openmusic is hosted under Cloudflare user f147259@gmail.com (account f1868a07…), not frank.chan@flowtheroom.com — this machine's wrangler login now points there; Flow-account work needs another wrangler login
 
 ### Pending Todos
 
