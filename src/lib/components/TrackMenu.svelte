@@ -453,8 +453,27 @@
 		     state reads BOTH the gated stub-resolve (inFlight) AND the shared per-uid library.downloading
 		     set, so the row shows its spinner whether or not this menu stays open (D-12). -->
 		{#if library.downloading.has(track.uid)}
-			<button class="mi" aria-busy="true" disabled aria-label={t('menu.preparing')}>
-				<span class="row-spinner motion-always"></span> {t('menu.download')}
+			<!-- quick-260913-omi: real byte progress, not a decorative animation. `downloadProgress`
+			     is absent until the first bytes land (and stays absent for a response with no
+			     Content-Length), and THAT is the indeterminate state — it keeps the spinner. Once a
+			     fraction exists the spinner's job is done: the bar says "moving" more precisely than
+			     it could, so the icon goes static and the percentage carries the detail. The fill is
+			     an 18%-opacity ::after, low enough that the label stays legible over it without any
+			     stacking-context work. -->
+			{@const frac = library.downloadProgress[track.uid]}
+			<button
+				class="mi"
+				class:dl-progress={frac !== undefined}
+				style:--dl={frac ?? 0}
+				aria-busy="true"
+				disabled
+				aria-label={frac === undefined
+					? t('menu.preparing')
+					: `${t('menu.download')} ${Math.round(frac * 100)}%`}
+			>
+				{#if frac === undefined}<span class="row-spinner motion-always"></span>{:else}<Download size={18} />{/if}
+				{t('menu.download')}
+				{#if frac !== undefined}<span class="count">{Math.round(frac * 100)}%</span>{/if}
 			</button>
 		{:else if blobPresent === true}
 			<button class="mi" disabled aria-disabled="true"><Check size={18} /> {t('menu.downloaded')}</button>
@@ -548,7 +567,27 @@
 	.mi:hover { background: var(--color-surface); }
 	.mi:disabled { opacity: 0.4; cursor: default; }
 	.mi.accent { color: var(--color-primary); }
-	.mi .count { margin-left: auto; font-size: 12px; color: var(--color-text-muted); }
+	/* tabular-nums: the download percentage climbs digit by digit and would otherwise jitter the
+	   row's right edge on every repaint (quick-260913-omi). Harmless for the playlist counts. */
+	.mi .count { margin-left: auto; font-size: 12px; color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
+	/* quick-260913-omi: download progress fill. `--dl` is the 0..1 fraction, set inline per render.
+	   An ::after at 18% opacity sits UNDER the label without needing a stacking context — the tint
+	   is light enough that the text and icon stay fully legible through it. The width transition is
+	   deliberately un-tagged (no .motion-always) so app.css's reduce-motion rule kills it. */
+	.mi.dl-progress { position: relative; overflow: hidden; }
+	.mi.dl-progress::after {
+		content: '';
+		position: absolute;
+		inset: 0 auto 0 0;
+		width: calc(var(--dl, 0) * 100%);
+		background: var(--color-primary);
+		opacity: 0.18;
+		transition: width 120ms linear;
+		pointer-events: none;
+	}
+	/* A disabled row is dimmed to 0.4; the progress row is disabled only because it is busy, and at
+	   0.4 the bar and the percentage are hard to read. Keep it legible. */
+	.mi.dl-progress:disabled { opacity: 1; }
 	/* MENU-01 inline resolve spinner — neutral (NOT accent), sits in the leading 18px icon box so
 	   the row width does not shift. quick-260809-mvz: keeps rotating under BOTH reduce-motion gates
 	   (markup carries `.motion-always`, app.css's escape hatch) — a frozen spinner reads as a hung

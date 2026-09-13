@@ -32,6 +32,7 @@ import { ensureTrackDetails } from '$lib/services/catalog';
 import { hasFreshAudioUrl } from '$lib/services/track-ready';
 import { blobStore } from '$lib/services/blob-store';
 import { saveBlobToDisk } from '$lib/services/download-save';
+import { readBlobWithProgress } from '$lib/services/download-progress';
 import { buildDownloadFilename, extFromAudioUrl } from '$lib/services/download-filename';
 
 /** 'saved' = blob fetched + saved to disk; 'no-audio' = nothing to download; 'failed' = fetch/save error. */
@@ -106,7 +107,13 @@ export async function downloadTrack(
 		// audio stream. audioUrl is often an ABSOLUTE CDN URL (qq/kuwo/joox) — apiFetch would corrupt it —
 		// and a full-file body must not be routed through the JSON governor's dedup/cap.
 		const resp = await fetch(r.audioUrl);
-		const blob = await resp.blob();
+		// quick-260913-omi: read the body through a reader instead of `resp.blob()` so the Download
+		// row can show REAL progress. Same one fetch, same one pass over the bytes — progress is a
+		// side effect of the read we were already doing. Without a Content-Length the helper falls
+		// back to `resp.blob()` and reports nothing, so the row keeps its indeterminate spinner.
+		const blob = await readBlobWithProgress(resp, (fraction) =>
+			library.setDownloadProgress(track.uid, fraction)
+		);
 
 		// DL-FILE-01 (D-05/D-06/D-07): controlled, translated filename `{artist} - {song}.{ext}`. The
 		// caller-free display-name translation (names.dn*, synchronous cached-or-raw) is applied here;

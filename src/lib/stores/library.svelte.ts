@@ -37,6 +37,12 @@ class Library {
 	 *  stuck spinner). begin/endDownload reassign a NEW Set (like TrackMenu `inFlight`) so the
 	 *  runes graph re-renders; one uid's transition never touches another's. */
 	downloading = $state<Set<string>>(new Set());
+	/** quick-260913-omi: 0..1 progress per IN-FLIGHT uid, for the Download row's bar. Same posture
+	 *  as `downloading` above — transient, never in LibShape, never persisted — and deliberately a
+	 *  SEPARATE map rather than a richer `downloading` value: an absent entry means INDETERMINATE
+	 *  (no Content-Length), which is a real state the UI renders differently (spinner, not 0%), and
+	 *  folding it into the busy set would force every existing `downloading.has(uid)` reader to care. */
+	downloadProgress = $state<Record<string, number>>({});
 	private loaded = false;
 
 	/** Hydrate from localStorage once, in the browser. Call from a layout onMount. */
@@ -164,6 +170,9 @@ class Library {
 	 *  TrackMenu `inFlight`); NOT persisted (transient runtime state). */
 	beginDownload(uid: string) {
 		this.downloading = new Set(this.downloading).add(uid);
+		// quick-260913-omi: drop any residue from a previous attempt so a retry starts indeterminate
+		// rather than resuming the failed run's bar at 60%.
+		if (uid in this.downloadProgress) this.clearDownloadProgress(uid);
 	}
 	/** Clear a uid's in-flight flag. Copy → delete → reassign; absent uid is a no-op. Never
 	 *  touches another uid's state (isolation) and never persists. */
@@ -171,6 +180,22 @@ class Library {
 		const next = new Set(this.downloading);
 		next.delete(uid);
 		this.downloading = next;
+		// quick-260913-omi: endDownload runs in downloadTrack's `finally`, so EVERY exit path — saved,
+		// no-audio, failed, throw — leaves no progress residue behind.
+		this.clearDownloadProgress(uid);
+	}
+	/** quick-260913-omi: record a uid's 0..1 download progress. Copy-on-write reassign (the
+	 *  `downloading` idiom) — cheap because readBlobWithProgress only calls this once per whole
+	 *  percent. Ignores a uid that is not in flight, so a late callback from a superseded run
+	 *  cannot resurrect a bar on a finished row. */
+	setDownloadProgress(uid: string, fraction: number) {
+		if (!this.downloading.has(uid)) return;
+		this.downloadProgress = { ...this.downloadProgress, [uid]: fraction };
+	}
+	private clearDownloadProgress(uid: string) {
+		if (!(uid in this.downloadProgress)) return;
+		const { [uid]: _dropped, ...rest } = this.downloadProgress;
+		this.downloadProgress = rest;
 	}
 
 	isDownloaded(uid: string): boolean {
