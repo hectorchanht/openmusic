@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: YTMusic-Powered Up-Next
 status: executing
-stopped_at: "Phase 32: 8/9 plans done, pushed+deploying; 32-08 device checkpoints pending"
-last_updated: "2026-09-12T22:57:45.017Z"
-last_activity: "2026-09-11 - Completed quick task 260910-tqw: flush half-open sheet rest"
+stopped_at: "Phase 33: 33-01 done (diag auth + payload helpers); 33-02 next"
+last_updated: "2026-09-13T06:23:14.994Z"
+last_activity: 2026-09-13
 progress:
   total_phases: 9
   completed_phases: 5
   total_plans: 58
-  completed_plans: 45
+  completed_plans: 46
   percent: 56
 ---
 
@@ -21,13 +21,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-10)
 
 **Core value:** A user on their phone can search a song, tap it, and have it play instantly with a smooth, native-app-like experience — and keep playing when the screen locks.
-**Current focus:** Phase 32 — QQ-lossless-first resolve
+**Current focus:** Phase 33 — activity-log-upload-for-automated-diagnosis
 
 ## Current Position
 
-Phase: 32 (QQ-lossless-first resolve) — EXECUTING
-Plan: 8 of 9 (32-09 executed out of order per D-20; 32-07 and 32-08 remain)
-Status: Executing Phase 32
+Phase: 33 (activity-log-upload-for-automated-diagnosis) — EXECUTING
+Plan: 2 of 7
+Status: Executing Phase 33
 
 ### 30-06 checkpoint status
 
@@ -49,7 +49,7 @@ Full observed evidence: `.planning/phases/30-carrier-free-share-links-type-artis
 ### Prior phase (Phase 27 — YouTube Music Source, v1.4) — COMPLETE + E2E-VERIFIED
 
 Phase 27 complete (27-01..04). E2E-verified against LIVE YouTube via the dev-server routes: /api/ytmusic/search 200 (rows+videoId), /api/ytmusic/lyrics 200 (1513c + attribution), /api/ytmusic/stream 206 audio/mp4 + Range (playback) and 200 full-file (download). pnpm check clean, 1320 tests green. E2E caught + fixed a prod-breaking bug (quick-270715 / commit 29c1c7d): stream route exported non-HTTP-verb functions, illegal in SvelteKit +server.ts → 500; helpers moved to $lib/proxy/ytmusic.ts.
-Last activity: 2026-09-11 - Completed quick task 260910-tqw: flush half-open sheet rest
+Last activity: 2026-09-13
 Remaining human UAT: real-device <audio> playback+seek + download-to-disk; deployed-Worker player+googlevideo same-IP egress + bot-challenge under load (T-27-03-OP). Account/library sync = separate legal-gated milestone (spike 008).
 
 ## Performance Metrics
@@ -129,6 +129,7 @@ Remaining human UAT: real-device <audio> playback+seek + download-to-disk; deplo
 | Phase 32 P06 | ~9 min | 2 tasks | 4 files |
 | Phase 32 P09 | 28 min | 3 tasks | 10 files |
 | Phase 32 P07 | 22 min | 3 tasks | 2 files |
+| Phase 33 P01 | 5min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -232,6 +233,8 @@ Recent decisions affecting current work:
 - [Phase ?]: 32-D-15: 24 MB prebuffer ceiling read from Content-Length (all sources, no Track plumbing) rather than the qq-only song_size_*_str — FLAC streams, every lossy tier still prebuffers
 - [Phase 32]: 32-D-20: the edge resolve entry carries BOTH a permanent qq song_mid and a short-TTL playable url; the url's 900s lifetime lives as an in-payload urlExp the edge checks at read time, so writeResolveEntry's payload-driven Cache-Control split (32-D-10a) is byte-unchanged
 - [Phase 32]: 32-09: catalog's own-mid equality guard covers BOTH the url adoption and the mid adoption — with lossless mid-holders now reading the cache, guarding only the url branch would leave the sibling branch able to rewrite a known track's identity on a matchKey collision
+- [Phase ?]: 33-01: bearerMatches uses a WebCrypto digest-then-XOR compare and fails closed on an unset secret — no timingSafeEqual, so the node-tested path is the workerd production path
+- [Phase ?]: 33-01: screenLogPayload delegates parse+validate to the existing parseActionLog and screens 512 KiB before parsing (Workers free-tier 10ms CPU budget)
 
 ### Pending Todos
 
@@ -426,7 +429,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-01T04:51:51.053Z
+Last session: 2026-09-13T06:23:01.995Z
 Stopped at: Phase 32: 8/9 plans done, pushed+deploying; 32-08 device checkpoints pending
 Resume: run 32-08-PLAN.md (device checkpoints). **32-07 closed VALIDATION #6 and the v2 half of #3, and BLOCKED two v3 walks — 32-08 must pick them up.** PROVEN LIVE on the deployed workerd edge (https://openmusic.lol, which is already running 32-04): cold GET `{"hit":false}` -> warm GET `{"hit":true}` with a qq `songid`, NO `url` field, `avail.qq:"ok"`; 9/9 warm hits across the YVR and SEA PoPs; POST bust `{"busted":true}` -> miss -> unattended re-fill -> hit (the 32-D-10a repair path works); `Cache-Control: no-store` on every route response (31-D-09 intact). BLOCKED, carry to 32-08: the two 32-D-20 v3 url-layer walks — (1) stale-url -> refresh, (2) bust -> miss -> mid-only -> url-warm — because v3 is on `main` but NOT deployed (the live entries carry no `url` keys, while v3's fill emits explicit nulls), and no preview server could be started here. Exact commands are in 32-07-SUMMARY.md § Task 2; run `pnpm build && pnpm preview` (NOT `pnpm dev` — `edgeCache()` returns null there) or `pnpm run deploy` (NEVER bare `pnpm deploy`). Expect every warm entry to miss once on the v2->v3 key rollover; that is by design. Folded todo `edge-resolve-cache-returns-miss.md` RESOLVED and moved to completed/ — root cause was the probe using `?artist=&title=` when the route has only ever read `a`/`t`, so it hit the `if (!a && !t)` zero-touch short-circuit and never consulted the cache. Still outstanding from Phase 30, unchanged: install `android/app/build/outputs/apk/debug/app-debug.apk` on an Android device, open `/song/Olivia-Dean/Man-I-Need` (proven to return a real 30,840 B JPEG from production), confirm the cover renders rather than a broken image, then kill the network and confirm the gradient fallback appears. That single check closes 30-06 and Phase 30. Do NOT run `/gsd:verify-work` for Phase 30 until it is approved — OG-PAGE-01 terminates in it. Optional, non-blocking leftovers: iMessage/Slack cards, and real 24h cache TTL/eviction.
 

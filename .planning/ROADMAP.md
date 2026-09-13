@@ -315,12 +315,12 @@ Scope (raw, pre-planning):
 **Goal:** The maintainer taps ONE "Upload log" button on Settings → Activity log and the on-device Activity log lands in an R2 bucket behind a token-gated `/api/diag`; seconds later it is listed and fetched from the laptop with curl — replacing the reproduce → export → paste-a-huge-JSON-blob loop that gated four root-cause fixes on 2026-09-12. Single-user v1: write gated by `DIAG_UPLOAD_TOKEN`, read by `DIAG_READ_TOKEN`, both edge-only.
 **Requirements**: D-01..D-07 (locked decisions in 33-CONTEXT.md — no REQUIREMENTS.md; the D-numbers are the traceability keys). D-07 resolved to R2 in 33-RESEARCH.md.
 **Depends on:** Phase 32
-**Plans:** 7 plans
+**Plans:** 1/7 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 33-01-PLAN.md — pure helpers: `bearerMatches` (fail-closed digest compare) + `screenLogPayload`/`diagKey`/`isDiagKey` (D-05 screen reusing parseActionLog), with tests (D-01/D-03/D-05)
+- [x] 33-01-PLAN.md — pure helpers: `bearerMatches` (fail-closed digest compare) + `screenLogPayload`/`diagKey`/`isDiagKey` (D-05 screen reusing parseActionLog), with tests (D-01/D-03/D-05)
 - [ ] 33-02-PLAN.md — shared seams: `Authorization` in CORS Allow-Headers + test; `Env`/`App.Platform.env` typing of `DIAG`/`DIAG_UPLOAD_TOKEN`/`DIAG_READ_TOKEN`; `wrangler.jsonc` R2 binding `DIAG` → `openmusic-diag` (D-03/D-07)
 - [ ] 33-03-PLAN.md — 5 i18n keys × 15 locales, double-quoted (D-06)
 
