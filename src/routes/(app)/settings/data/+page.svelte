@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
-	import { ChevronLeft, Trash2, RefreshCw, Languages, Image, Search, SlidersHorizontal, Download, Upload, Undo2 } from '@lucide/svelte';
+	import { ChevronLeft, Trash2, RefreshCw, Languages, Image, Search, SlidersHorizontal, Download, Upload, Undo2, CloudDownload, CircleStop } from '@lucide/svelte';
 	import { settings } from '$lib/stores/settings.svelte';
 	import { library } from '$lib/stores/library.svelte';
 	import { names } from '$lib/stores/names.svelte';
@@ -11,6 +11,10 @@
 	import { t } from '$lib/i18n';
 	import { applyEnvelope, backupFilename, buildEnvelope, hasUndoSnapshot, serializeEnvelope, storageKeys, undoImport, validateEnvelope } from '$lib/backup/backup-logic';
 	import { exportBackup } from '$lib/services/backup-io';
+	import { findMissing, sweepMissing } from '$lib/backup/sweep';
+	import { blobStore } from '$lib/services/blob-store';
+	import { downloadTrack } from '$lib/services/download-track';
+	import type { Track } from '$lib/sources/types';
 
 	const TOP_PICKS_KEY = 'openmusic:top-picks:v1';
 	const HOME_LIBRARY_KEY = 'openmusic:home-library:v1';
@@ -18,6 +22,12 @@
 	let counts = $state({ liked: 0, playlists: 0, downloads: 0 });
 	let canUndo = $state(false);
 	let fileInput = $state<HTMLInputElement | null>(null);
+	// null = not probed yet, so the button shows (0) rather than a wrong count on first paint.
+	let missing = $state<Track[] | null>(null);
+	let sweeping = $state(false);
+	let sweepDone = $state(0);
+	// House convention: a guard the UI never reads reactively stays a PLAIN field.
+	let sweepCtl: AbortController | null = null;
 
 	onMount(() => {
 		settings.load();
@@ -29,6 +39,7 @@
 		// appears after the reload on the APK (plan 05 checkpoint), pass localStorage here and at the
 		// two call sites below plus a snapshot.length > 2_000_000 pre-check. That is the whole swap.
 		try { canUndo = hasUndoSnapshot(sessionStorage); } catch { /* */ }
+		refreshMissing();
 	});
 
 	function flash(m: string) { msg = m; setTimeout(() => (msg = ''), 1800); }
@@ -98,6 +109,47 @@
 		if (r === 'write-failed') flash(t('backup.errWriteFailed'));
 	}
 
+	// 35-D-07: "missing" means the bytes are absent per blobStore.has at render time. It is never
+	// stored in the backup file, which is what reconciles a Replace-import with a device that has
+	// real local downloads: an imported entry whose bytes happen to be here reads as present, one
+	// whose bytes are absent reads as missing. Scope is this page only — DownloadControl.svelte is
+	// deliberately NOT migrated in this phase (see TrackMenu.svelte:213-214).
+	async function refreshMissing() {
+		missing = await findMissing(library.downloads, blobStore.has);
+	}
+
+	// 35-D-06: NEVER auto-started — nothing on the import path calls this. A large unasked-for
+	// network job, possibly on cellular, is exactly the mistake openmusic-pushes-autodeploy-live
+	// already cost once. The same button doubles as Stop while a run is in flight.
+	//
+	// The injected download runs in the 31-D-12 SILENT-REPAIR mode: the offline blob is re-persisted
+	// (IDB on web, Directory.Data + MediaStore on native) with no <a download> click, so 200 songs
+	// pop zero save dialogs. Do NOT swap it for the album bulk mode that skips blobStore.put — that
+	// is the exact opposite of what this sweep exists to restore.
+	//
+	// Sequential + a stop signal + a re-probe per iteration is the api-fetch-flood-freeze mitigation;
+	// the full reasoning lives in sweep.ts. Do not add concurrency at this layer.
+	async function redownloadMissing() {
+		if (sweeping) { sweepCtl?.abort(); return; }
+		sweeping = true;
+		sweepCtl = new AbortController();
+		sweepDone = 0;
+		try {
+			const r = await sweepMissing(missing ?? library.downloads, {
+				has: blobStore.has,
+				download: (tr) => downloadTrack(tr, { save: false }),
+				signal: sweepCtl.signal,
+				onProgress: (done) => (sweepDone = done)
+			});
+			flash(t('backup.sweepDone', { saved: r.saved, failed: r.failed }));
+		} finally {
+			sweeping = false;
+			sweepCtl = null;
+			counts = { liked: library.liked.length, playlists: library.playlists.length, downloads: library.downloads.length };
+			await refreshMissing();
+		}
+	}
+
 	function clearPicks() {
 		try { localStorage.removeItem(TOP_PICKS_KEY); } catch { /* */ }
 		try { localStorage.removeItem(HOME_LIBRARY_KEY); } catch { /* */ } // hhd: also reset library shelves
@@ -139,6 +191,10 @@
 		<button class="item" onclick={undoNow} use:tapBounce><Undo2 size={18} /> {t('backup.undo')}</button>
 		<p class="hint">{t('backup.undoDesc')}</p>
 	{/if}
+	<button class="item" onclick={redownloadMissing} disabled={!sweeping && (missing?.length ?? 0) === 0} use:tapBounce>
+		{#if sweeping}<CircleStop size={18} /> {t('backup.stop')} ({sweepDone}/{missing?.length ?? 0}){:else}<CloudDownload size={18} /> {t('backup.redownload', { n: missing?.length ?? 0 })}{/if}
+	</button>
+	<p class="hint">{t('backup.redownloadDesc')}</p>
 	<button class="item" onclick={clearPicks} use:tapBounce><RefreshCw size={18} /> {t('settings.clearPicks')}</button>
 	<p class="hint">{t('settings.clearPicksDesc')}</p>
 	<button class="item" onclick={clearNameCache} use:tapBounce><Languages size={18} /> {t('settings.clearNameCache')}</button>
@@ -163,6 +219,7 @@
 	.muted { color: var(--color-text-muted); font-size: 12px; margin: 0 0 12px; }
 	.hint { color: var(--color-text-muted); font-size: 12px; margin: -2px 0 10px 4px; }
 	.item { width: 100%; display: flex; align-items: center; gap: 12px; background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); padding: 14px; border-radius: 12px; font-size: 15px; cursor: pointer; text-align: left; margin-bottom: 8px; }
+	.item:disabled { opacity: 0.5; cursor: default; }
 	.item.danger { color: #ff7a90; }
 	.flash { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(var(--tabbar-h) + 70px); background: #000; color: #fff; padding: 10px 16px; border-radius: 999px; font-size: 13px; }
 </style>
