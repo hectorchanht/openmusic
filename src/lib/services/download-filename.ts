@@ -13,7 +13,10 @@
 // D-06: audio container extensions we recognize on a resolved audioUrl. Case-insensitive, matched
 // at end-of-string after the query string is stripped. Copied verbatim from the inline regex the
 // two call sites used so behavior is identical.
-const AUDIO_EXT = /\.(mp3|flac|m4a|aac|ogg|wav)$/i;
+// 34-D-12: exported as a tuple so device-filename.ts's extension chips and this module's export path
+// can never disagree about what "audio" means.
+export const AUDIO_EXTENSIONS = ['mp3', 'flac', 'm4a', 'aac', 'ogg', 'wav'] as const;
+const AUDIO_EXT = new RegExp(`\\.(${AUDIO_EXTENSIONS.join('|')})$`, 'i');
 
 /**
  * D-06: derive the container extension from a resolved audio URL. The `?query` is stripped first
