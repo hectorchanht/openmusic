@@ -85,14 +85,13 @@ describe('envelope', () => {
 	it('storageKeys enumerates a Storage by index and survives a throwing store', () => {
 		const map = new Map<string, string>([['a', '1'], ['b', '2']]);
 		expect(storageKeys({ length: map.size, key: (i) => Array.from(map.keys())[i] ?? null })).toEqual(['a', 'b']);
-		expect(
-			storageKeys({
-				get length() {
-					throw new Error('nope');
-				},
-				key: () => null
-			})
-		).toEqual([]);
+		const hostile: Pick<Storage, 'length' | 'key'> = {
+			get length(): number {
+				throw new Error('storage unavailable');
+			},
+			key: () => null
+		};
+		expect(storageKeys(hostile)).toEqual([]);
 	});
 });
 
