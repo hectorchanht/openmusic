@@ -417,6 +417,10 @@
 	// human filename + the bug fix apply; the native Download/openmusic placement is out of scope for
 	// the album bulk path. hvu: the pre-29 implementation only added to library; the real file save
 	// (via download-save.ts anchor seam) is what downloadTrack now performs per track.
+	// 36-03 consequence of that same persist:false: skipping blobStore.put also skips the native
+	// public-folder write, so an album download still produces NO `Music/OpenMusic/` file and the
+	// device music player never sees these (now correctly numbered) tags for the album case —
+	// pre-existing Phase 29 behaviour, flagged for the roadmap backlog, deliberately not changed here.
 	async function downloadAlbum() {
 		if (!tracks.length || busyAction === 'download') return;
 		busyAction = 'download';
@@ -424,8 +428,18 @@
 		try {
 			const resolved = await resolveAllCached();
 			let saved = 0;
-			for (const tr of resolved) {
-				const res = await downloadTrack(tr, { persist: false });
+			for (const [i, tr] of resolved.entries()) {
+				// 36-D-11 / 36-D-12: `i + 1` over THIS page's `resolved` list is the real album order —
+				// the tracklist comes from Deezer / MusicBrainz / Last.fm in album order, making this the
+				// ONLY legitimate track-number source in the app. `tr.displayIndex` is forbidden here: it
+				// is interleaved MULTI-SOURCE search ordering, not a position on a record.
+				// `albumArtist || undefined` because the $derived is '' on a deep link, and undefined lets
+				// downloadTrack fall back to the track's own artist (D-12's grouping default).
+				const res = await downloadTrack(tr, {
+					persist: false,
+					trackNumber: String(i + 1),
+					albumArtist: albumArtist || undefined
+				});
 				if (res === 'saved') saved++;
 				// Stagger so browser doesn't squash concurrent downloads / hit per-origin caps.
 				await new Promise((r) => setTimeout(r, 250));
