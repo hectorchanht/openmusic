@@ -342,13 +342,13 @@ Plans:
 **Goal:** A user taps an "Import songs from device" button in the Settings download page, the app scans the device's Music/Download folders via Android MediaStore, parses each audio file's metadata (title/artist/album/duration/embedded art), maps it to a `Track`, indexes it into the library, and those files then appear as downloaded songs everywhere downloaded state is shown — playable offline like any app-downloaded track.
 **Requirements**: 34-CONTEXT.md D-01..D-16 (no REQUIREMENTS.md entry — the locked decisions are the requirement set)
 **Depends on:** Nothing (independent — touches the download/library stack, not Phase 33's diagnostics)
-**Plans:** 11 plans
+**Plans:** 2/11 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 34-01-PLAN.md — device-track.ts identity contract + blob-store device branch, data-loss refusal, D-09 stored-URI fallback
-- [ ] 34-03-PLAN.md — device-filename.ts: import rules model, presets, parseFilename, ReDoS save-time probe
+- [x] 34-01-PLAN.md — device-track.ts identity contract + blob-store device branch, data-loss refusal, D-09 stored-URI fallback
+- [x] 34-03-PLAN.md — device-filename.ts: import rules model, presets, parseFilename, ReDoS save-time probe
 - [ ] 34-04-PLAN.md — Kotlin requestReadAudio + paged scanAudio, manifest permissions, media-store.ts typings
 - [ ] 34-05-PLAN.md — 44 i18n keys × 15 locales
 

@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: YTMusic-Powered Up-Next
 status: executing
-stopped_at: "34 wave 1 — executing (35-05 + 36-05 device checkpoints still PENDING HUMAN)"
-last_updated: "2026-09-14T02:02:05.412Z"
+stopped_at: Completed 35-01-PLAN.md (backup codec core)
+last_updated: "2026-09-14T02:09:18.236Z"
 last_activity: 2026-09-14
 progress:
   total_phases: 12
   completed_phases: 7
   total_plans: 80
-  completed_plans: 63
+  completed_plans: 64
   percent: 58
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-06-10)
 ## Current Position
 
 Phase: 34 (import-device-songs-as-native-downloads) — EXECUTING
-Plan: 1 of 11
+Plan: 2 of 11
 Status: Executing Phase 34
 
 ### 36-05 checkpoint status
@@ -189,6 +189,7 @@ Remaining human UAT: real-device <audio> playback+seek + download-to-disk; deplo
 | Phase 35 P03 | 12min | 3 tasks | 8 files |
 | Phase 35 P04 | 25 min | 2 tasks | 1 files |
 | Phase 36 P04 | 9min | 3 tasks | 23 files |
+| Phase 34 P03 | 5 | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -319,6 +320,8 @@ Recent decisions affecting current work:
 - [Phase 36]: 36-04: Settings → Downloads is a NEW route (settings/playback keeps download quality); Phase 34's device-import button joins it
 - [Phase 36]: 36-04: no tagged-marker — re-running retag is idempotent and the user's call; a marker would drift from the files on disk
 - [Phase 36]: 36-04: nativePut deletes the previously recorded public content URI before saveToMusic, so a re-put replaces instead of creating 'name (1).m4a' duplicates
+- [Phase 34]: 34-03: presets are fixed audited regexes; only the custom pattern is untrusted — compiled, group-checked and time-probed at save (ReDoS layer 1)
+- [Phase 34]: 34-03: AUDIO_EXTENSIONS exported from download-filename.ts as the single audio-extension vocabulary shared by export and import
 
 ### Pending Todos
 
@@ -514,7 +517,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-14T01:46:03.381Z
+Last session: 2026-09-14T02:09:13.136Z
 Stopped at: Completed 35-01-PLAN.md (backup codec core)
 Resume: run 32-08-PLAN.md (device checkpoints). **32-07 closed VALIDATION #6 and the v2 half of #3, and BLOCKED two v3 walks — 32-08 must pick them up.** PROVEN LIVE on the deployed workerd edge (https://openmusic.lol, which is already running 32-04): cold GET `{"hit":false}` -> warm GET `{"hit":true}` with a qq `songid`, NO `url` field, `avail.qq:"ok"`; 9/9 warm hits across the YVR and SEA PoPs; POST bust `{"busted":true}` -> miss -> unattended re-fill -> hit (the 32-D-10a repair path works); `Cache-Control: no-store` on every route response (31-D-09 intact). BLOCKED, carry to 32-08: the two 32-D-20 v3 url-layer walks — (1) stale-url -> refresh, (2) bust -> miss -> mid-only -> url-warm — because v3 is on `main` but NOT deployed (the live entries carry no `url` keys, while v3's fill emits explicit nulls), and no preview server could be started here. Exact commands are in 32-07-SUMMARY.md § Task 2; run `pnpm build && pnpm preview` (NOT `pnpm dev` — `edgeCache()` returns null there) or `pnpm run deploy` (NEVER bare `pnpm deploy`). Expect every warm entry to miss once on the v2->v3 key rollover; that is by design. Folded todo `edge-resolve-cache-returns-miss.md` RESOLVED and moved to completed/ — root cause was the probe using `?artist=&title=` when the route has only ever read `a`/`t`, so it hit the `if (!a && !t)` zero-touch short-circuit and never consulted the cache. Still outstanding from Phase 30, unchanged: install `android/app/build/outputs/apk/debug/app-debug.apk` on an Android device, open `/song/Olivia-Dean/Man-I-Need` (proven to return a real 30,840 B JPEG from production), confirm the cover renders rather than a broken image, then kill the network and confirm the gradient fallback appears. That single check closes 30-06 and Phase 30. Do NOT run `/gsd:verify-work` for Phase 30 until it is approved — OG-PAGE-01 terminates in it. Optional, non-blocking leftovers: iMessage/Slack cards, and real 24h cache TTL/eviction.
 
