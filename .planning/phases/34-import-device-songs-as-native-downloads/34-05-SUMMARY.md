@@ -132,3 +132,9 @@ None - no external service configuration required.
 ---
 *Phase: 34-import-device-songs-as-native-downloads*
 *Completed: 2026-09-13*
+
+## Self-Check: PASSED
+
+- All 4 commits present in git log (`8e0c3bb`, `2ca0abf`, `b7b1e4c`, `98f58d6`).
+- `34-05-SUMMARY.md` present on disk.
+- No tracked-file deletions across the plan's commits.
