@@ -8,11 +8,14 @@ import {
 	IMPORT_EXTENSIONS,
 	IMPORT_RULES_KEY,
 	PRESET_LABELS,
+	PATTERN_PROBE_BUDGET_MS,
+	PATTERN_PROBE_LEN,
 	PRESET_ORDER,
 	extOf,
 	parseFilename,
 	parseImportRules,
 	stemOf,
+	validateCustomPattern,
 	type ImportRules
 } from './device-filename';
 
@@ -229,5 +232,72 @@ describe('D-16 fallback', () => {
 	it('never returns an empty title', () => {
 		expect(parseFilename('.mp3', DEFAULT_IMPORT_RULES, null).title).not.toBe('');
 		expect(parseFilename('  -  .mp3', DEFAULT_IMPORT_RULES, null).title).not.toBe('');
+	});
+});
+
+// The save-time half of the ReDoS defence (34-RESEARCH Pitfall 8 layer 1). The user's raw regex is
+// the ONE untrusted input in this module; it gets compiled, group-checked and time-probed before it
+// is ever allowed near a 3000-file scan on the single-threaded WebView.
+describe('validateCustomPattern (Pitfall 8 layer 1)', () => {
+	it('accepts a well-formed named-group pattern and returns a usable RegExp', () => {
+		const out = validateCustomPattern('^(?<artist>.+?) - (?<title>.+)$');
+		expect(out.ok).toBe(true);
+		if (!out.ok) return;
+		expect(out.re.exec('Adele - Hello')?.groups?.artist).toBe('Adele');
+	});
+
+	it('rejects a pattern the RegExp constructor cannot compile, without propagating the throw', () => {
+		expect(validateCustomPattern('(?<title>[')).toEqual({ ok: false, reason: 'invalid' });
+	});
+
+	it('rejects a valid pattern that has none of the recognised named groups', () => {
+		expect(validateCustomPattern('^(.+) - (.+)$')).toEqual({ ok: false, reason: 'no-groups' });
+	});
+
+	it('accepts album or track alone as a satisfying group', () => {
+		expect(validateCustomPattern('(?<album>x)').ok).toBe(true);
+		expect(validateCustomPattern('(?<track>\\d+)').ok).toBe(true);
+	});
+
+	it('rejects a catastrophically-backtracking pattern, and the probe itself stays bounded', () => {
+		const t0 = Date.now();
+		const out = validateCustomPattern('^(?<title>(a+)+)$');
+		const elapsed = Date.now() - t0;
+		expect(out).toEqual({ ok: false, reason: 'too-slow' });
+		// The battery is capped at PATTERN_PROBE_LEN chars precisely so a pathological pattern is
+		// MEASURABLE rather than a hang. If this ever fails, the probe has become the DoS.
+		expect(elapsed).toBeLessThan(2000);
+	});
+
+	it('rejects an empty or whitespace-only pattern as invalid', () => {
+		expect(validateCustomPattern('')).toEqual({ ok: false, reason: 'invalid' });
+		expect(validateCustomPattern('   ')).toEqual({ ok: false, reason: 'invalid' });
+	});
+
+	it('returns a RegExp with NO g flag, so exec cannot skip alternate filenames', () => {
+		const out = validateCustomPattern('(?<title>.+)');
+		expect(out.ok).toBe(true);
+		if (!out.ok) return;
+		expect(out.re.flags).toBe('');
+		expect(out.re.global).toBe(false);
+		// A stateful lastIndex would make every second call miss.
+		expect(out.re.exec('one')?.groups?.title).toBe('one');
+		expect(out.re.exec('two')?.groups?.title).toBe('two');
+	});
+
+	it('exposes the documented probe budget and probe length', () => {
+		expect(PATTERN_PROBE_BUDGET_MS).toBe(25);
+		expect(PATTERN_PROBE_LEN).toBe(24);
+	});
+
+	it('produces a pattern parseFilename can use end to end', () => {
+		const out = validateCustomPattern('^(?<track>\\d+)_(?<artist>[^_]+)_(?<title>.+)$');
+		expect(out.ok).toBe(true);
+		if (!out.ok) return;
+		expect(parseFilename('03_Adele_Hello.mp3', DEFAULT_IMPORT_RULES, out.re)).toEqual({
+			track: 3,
+			artist: 'Adele',
+			title: 'Hello'
+		});
 	});
 });
