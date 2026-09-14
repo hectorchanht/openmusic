@@ -41,6 +41,26 @@ Status: **PAUSED at 36-05 Task 2 — blocking human checkpoint (physical Android
 
 Task 3 (record results + flip `36-VALIDATION.md` sign-off) cannot start until the human reports outcomes. `36-VALIDATION.md` remains `nyquist_compliant: false` / `wave_0_complete: false` deliberately.
 
+### 35-05 checkpoint status
+
+| # | Checkpoint | Requirement | Status |
+|---|-----------|-------------|--------|
+| 1 | D-15 picker + import + reload + Undo (A4 probe) + damaged/newer refusals | D-15 / D-08 / D-09 / D-11 / D-13 | ⏳ **PENDING HUMAN — emulator ready.** `emulator-5554` (API 34) has the debug APK installed (md5 `715d7c55f08f266b7fd4282ff55165ff`, byte-identical host→device) and three fixtures in `/sdcard/Download/`, MediaStore-indexed as `application/json`. Reply `approved`, or `A4 FAIL` if **Undo last import** is absent after the post-import reload. |
+| 2 | D-16/D-17 share sheet, readable output, dismiss-is-not-an-error | D-16 / D-17 / D-18 | ⏳ **PENDING HUMAN — emulator ready.** A DISMISSED share sheet showing no toast is a PASS, not a failure. |
+
+**A4 is the phase's only unresolved research question.** If **Undo last import** does not appear after
+the D-13 reload, `sessionStorage` did not survive `location.reload()` in the Capacitor WebView. The fix
+is already documented at `src/routes/(app)/settings/data/+page.svelte:36-40`: pass `localStorage` at the
+three call sites plus a `snapshot.length > 2_000_000` pre-check. Do that as a **follow-up quick task**,
+not inside plan 05, and do not approve checkpoint 1.
+
+**Pre-import baseline on the emulator:** no `openmusic:library:v1` key exists, so the counts line reads
+`0 liked · 0 playlists · 0 downloads` before, `2 liked · 0 playlists · 0 downloads` after, and back to
+`0 liked …` after Undo.
+
+**Label drift, not a bug:** the plan calls the sweep button "Re-download missing (N)"; the shipped
+label is **"Re-download missing songs (N)"** (`backup.redownload`).
+
 ### 33-07 checkpoint status
 
 | # | Checkpoint | Requirement | Status |
@@ -325,6 +345,7 @@ Recent decisions affecting current work:
 - [Phase 6]: iOS standalone-PWA background audio is contested (STACK.md vs PITFALLS.md); only a real-device spike (iOS 15.4 / 16 / 17 / 18 / 18.4+) covering play-while-locked AND pause→wait→resume-from-lock can resolve it. Research flag set.
 - [Phase 11]: (Deferred → v1.3) Highest-risk write-side surface — owns T-lfm-01/02/03 (secret/sk leakage, CSRF) + `api_sig` UTF-8/CJK correctness. Mandatory `周杰伦`/`稻香` signing fixture test must run in the workerd/`wrangler dev` runtime (throws NotSupportedError under jsdom/Node — that's runtime, not a code bug).
 - [Phase 13]: (Deferred → v1.3) May need `/gsd:plan-phase --research-phase 13` IF CJK normalization proves complex (Traditional/Simplified folding, CJK punctuation variants, "ghost" loved stubs with no playable source).
+- [Phase 35]: 35-05 is PAUSED at two blocking human-verify checkpoints on `emulator-5554`. Everything automatable is staged (APK installed, fixtures pushed, logcat capturing under the session scratchpad). D-15 / D-16 / D-17 and research A4 are UNVERIFIED until the human taps and reports.
 - [Phase 10]: GD Studio `ytmusic` is deferred from v1.1; if ever pulled in it warrants its own feasibility spike (`s`-checksum drift, 50 req/5 min cap, instance failover, Western-catalog match rate).
 
 ### Quick Tasks Completed
