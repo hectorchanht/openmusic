@@ -430,7 +430,8 @@ describe('syncDevice', () => {
 
 		expect(plan.summary.patternFellBack).toBe(true);
 		expect(plan.summary.added).toBe(5);
-		expect(plan.downloads[0].title).toBe('Song 5');
+		// Row 5 is the one parsed AFTER the fallback: the presets still produced a real title.
+		expect(plan.downloads[4].title).toBe('Song 5');
 		expect(elapsed).toBeLessThan(3000);
 	});
 

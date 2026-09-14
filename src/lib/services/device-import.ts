@@ -156,3 +156,119 @@ export function classifyRow(
 	// that matches nothing imports as an ordinary device track rather than being dropped.
 	return { kind: 'import', track };
 }
+
+/**
+ * 34-D-07/D-08 — the full re-sync: new files added, seen files refreshed, confirmed-gone entries
+ * dropped. Pure and total; the caller (Plan 34-07's store) pages the bridge and APPLIES this plan.
+ *
+ * `opts.complete` is the whole D-08 reconciliation. A cancelled or failed walk cannot tell "the file
+ * is gone" from "we never reached that page", so it returns a plan that only ever ADDS.
+ */
+export function syncDevice(existing: Track[], rows: ScanRow[], rules: ImportRules, opts: { complete: boolean; custom: RegExp | null }): SyncPlan {
+	const summary = emptySummary(rules);
+	summary.complete = opts.complete;
+
+	const library = Array.isArray(existing) ? existing : [];
+	// D-03: the merge index holds REAL-SOURCE entries only. Never device↔device, never
+	// device↔catalog — an imported song and its streamed twin stay two separate entries.
+	const existingByKey = new Map<string, Track>();
+	const existingDevice = new Set<string>();
+	const storedCover = new Map<string, string | null>();
+	for (const t of library) {
+		if (isDeviceUid(t.uid)) {
+			existingDevice.add(t.uid);
+			storedCover.set(t.uid, t.cover);
+		} else {
+			const key = matchKey(t.artist, t.title);
+			// First entry wins, so a re-scan cannot make the merge target depend on list order.
+			if (!existingByKey.has(key)) existingByKey.set(key, t);
+		}
+	}
+
+	// Paging overlap: a file inserted mid-walk shifts the window, so the same _ID can arrive twice.
+	const rowIds = new Set<string>();
+	const unique: ScanRow[] = [];
+	for (const row of Array.isArray(rows) ? rows : []) {
+		if (!row || rowIds.has(row.id)) continue;
+		rowIds.add(row.id);
+		unique.push(row);
+	}
+
+	let custom = opts.custom;
+	let spent = 0;
+	const added: Track[] = [];
+	const refreshed = new Map<string, Track>();
+	const seen = new Set<string>();
+	const relink: { uid: string; uri: string }[] = [];
+	const relinkedUids = new Set<string>();
+
+	for (const row of unique) {
+		let verdict: RowVerdict;
+		if (custom) {
+			// ReDoS layer 2 (RESEARCH Pitfall 8): measure what the untrusted pattern actually costs
+			// and, once the run's cumulative budget is gone, finish the scan with the D-13 presets
+			// instead of hanging the single-threaded WebView. The UI surfaces toast.patternFellBack.
+			const started = performance.now();
+			verdict = classifyRow(row, rules, existingByKey, custom);
+			spent += performance.now() - started;
+			if (spent > PATTERN_SCAN_BUDGET_MS) {
+				custom = null;
+				summary.patternFellBack = true;
+			}
+		} else {
+			verdict = classifyRow(row, rules, existingByKey, null);
+		}
+
+		if (verdict.kind === 'skip') {
+			if (verdict.reason === 'short') summary.skippedShort++;
+			else if (verdict.reason === 'ext') summary.skippedExt++;
+			else if (verdict.reason === 'rule') summary.skippedRule++;
+			else summary.skippedOutside++;
+			continue;
+		}
+
+		if (verdict.kind === 'relink') {
+			// Two public copies of one song relink the stored entry once; the second is not an error.
+			if (relinkedUids.has(verdict.uid)) continue;
+			relinkedUids.add(verdict.uid);
+			relink.push({ uid: verdict.uid, uri: verdict.uri });
+			summary.relinked++;
+			continue;
+		}
+
+		const fresh = verdict.track;
+		seen.add(fresh.uid);
+		if (existingDevice.has(fresh.uid)) {
+			summary.already++;
+			// Refresh-in-place (see the header note): the FILE's tags are the truth for a device
+			// entry, but a cover adopted from the cover chain is ours and the row never brings one,
+			// so it is carried across rather than blanked.
+			refreshed.set(fresh.uid, { ...fresh, cover: fresh.cover ?? storedCover.get(fresh.uid) ?? null });
+		} else {
+			summary.added++;
+			added.push(fresh);
+		}
+	}
+
+	const kept: Track[] = [];
+	for (const t of library) {
+		if (!isDeviceUid(t.uid)) {
+			// Real-source entries are never reordered, rewritten or dropped by an import — the same
+			// reference goes back out, so nothing re-renders and nothing is churned.
+			kept.push(t);
+			continue;
+		}
+		if (seen.has(t.uid)) {
+			kept.push(refreshed.get(t.uid) ?? t);
+			continue;
+		}
+		// 34-D-07 / D-08: DROP ONLY ON A COMPLETE SCAN — a cancelled or failed walk cannot tell
+		// "gone" from "never reached", and treating the second as the first is the transient-failure
+		// data loss D-08 exists to forbid.
+		if (opts.complete) summary.removed++;
+		else kept.push(t);
+	}
+
+	// New device tracks go in front: library.addDownload's most-recent-first convention.
+	return { downloads: [...added, ...kept], relink, summary };
+}
