@@ -41,6 +41,7 @@ vi.mock('$lib/sources/registry', () => ({
 }));
 vi.mock('$lib/services/catalog', () => ({ searchAll: vi.fn(), ensureTrackDetails: vi.fn() }));
 
+import { deviceUid } from '$lib/services/device-track';
 import { fallbackOrder, tryFallback } from './fallback';
 import { searchAll, ensureTrackDetails } from '$lib/services/catalog';
 
@@ -230,5 +231,45 @@ describe('tryFallback — abort unwinds the walk (FALLBACK_BUDGET_MS contract)',
 
 		expect(out).toBeNull();
 		expect(mockSearch).not.toHaveBeenCalled();
+	});
+});
+
+// 34-D-06 / RESEARCH Open Q2 / UI-SPEC Contract 8: an imported device file that will not play is the
+// USER'S OWN file gone missing. Silently substituting some other recording scraped off a streaming
+// source — successful failover is silent by design — would tell the user their file played when it
+// did not. The bar is the first statement of tryFallback (the SERVICE), so every caller route
+// (play(), the audio `error` listener, handleDefinitiveFailure's retry) is covered by one line.
+describe('34-D-06 device uids never fall back', () => {
+	beforeEach(() => {
+		mockSearch.mockReset();
+		mockEnsure.mockReset();
+	});
+
+	it('returns null for a device: uid without ever searching', async () => {
+		const failed = { ...mk('kuwo', '42', 'a', 't', null), uid: deviceUid('42') };
+
+		const out = await tryFallback(failed, undefined, undefined, new Set());
+
+		expect(out).toBeNull();
+		expect(searchAll).not.toHaveBeenCalled();
+		expect(ensureTrackDetails).not.toHaveBeenCalled();
+	});
+
+	it('does not touch the attempted set (nothing was tried)', async () => {
+		const attempted = new Set<SourceId>();
+		await tryFallback({ ...mk('kuwo', '42', 'a', 't', null), uid: deviceUid('42') }, 'qq', undefined, attempted);
+		expect(attempted.size).toBe(0);
+	});
+
+	it('regression pin: a normal kuwo track still walks qq first when preferred', async () => {
+		mockSearch.mockResolvedValue({ interleaved: [], perSource: {}, errors: {} } as never);
+		const attempted = new Set<SourceId>();
+
+		const out = await tryFallback(mk('kuwo', '7', 'a', 't', null), 'qq', undefined, attempted);
+
+		expect(out).toBeNull();
+		expect(mockSearch).toHaveBeenCalled();
+		expect(mockSearch.mock.calls[0][2]).toMatchObject({ qq: true }); // qq searched first
+		expect(attempted.has('qq')).toBe(true);
 	});
 });

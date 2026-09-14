@@ -11,6 +11,7 @@ import { sleep } from '$lib/proxy/http';
 import { SOURCES } from '$lib/sources/registry';
 import { makeUid, type SourceId, type Track } from '$lib/sources/types';
 import { RESOLVE_URL_TTL_S, type ResolveEntry } from '$lib/proxy/resolve-cache';
+import { deviceUid } from '$lib/services/device-track';
 
 // 31-D-08: ensureTrackDetails now reads the edge resolve cache before resolving. Mocked here for
 // the WHOLE file and defaulted to a MISS (null), so every pre-existing suite keeps asserting the
@@ -1376,5 +1377,59 @@ describe('ensureTrackDetails — edge resolve cache (32-D-10 / 32-D-10b)', () =>
 			expect(readResolveCache).toHaveBeenCalledTimes(1); // the bypass is scoped to a LYRIC re-resolve
 			expect(out.audioUrl).toBe('https://cdn.qq/flac.flac');
 		});
+	});
+});
+
+// 34-D-01 / RESEARCH bite #1: a `device:` uid is an IDENTITY namespace, not a registry source. The
+// Track's `source` on such an entry is a documented PLACEHOLDER ('kuwo'), so an unguarded call would
+// dispatch SOURCES['kuwo'].resolve on a foreign songid and resolve a DIFFERENT song under the user's
+// own file's identity. The guard is the first statement of ensureTrackDetails — above isTrackReady,
+// because a local file has no TTL/freshness semantics at all.
+describe('34-D-01 device uid guard', () => {
+	function deviceTrack(extra: Partial<Track> = {}): Track {
+		return mk('kuwo', '42', 1, { uid: deviceUid('42'), detailsLoaded: true, audioUrl: null, ...extra });
+	}
+
+	it('returns a device track untouched and never dispatches to a source adapter', async () => {
+		const resolveSpy = vi.spyOn(SOURCES.kuwo, 'resolve');
+		const searchSpy = vi.spyOn(SOURCES.kuwo, 'search');
+		const t = deviceTrack();
+
+		const out = await ensureTrackDetails(t);
+
+		expect(out).toBe(t); // SAME object reference — nothing was rebuilt
+		expect(resolveSpy).not.toHaveBeenCalled();
+		expect(searchSpy).not.toHaveBeenCalled();
+		expect(readResolveCache).not.toHaveBeenCalled();
+		expect(out.resolvedAt).toBeUndefined(); // never stamped — the file IS the resolve
+	});
+
+	it('never applies freshness semantics to a device track (unloaded + stale resolvedAt)', async () => {
+		// The guard sits ABOVE isTrackReady (RESEARCH Open Q5): detailsLoaded:false and an expired
+		// resolvedAt would both make a NETWORK track re-resolve. A local file must never be judged stale
+		// — this codebase has been bitten by re-resolve loops three times.
+		const resolveSpy = vi.spyOn(SOURCES.kuwo, 'resolve');
+		const t = deviceTrack({
+			detailsLoaded: false,
+			resolvedAt: Date.now() - (RESOLVE_URL_TTL_S + 600) * 1000
+		});
+
+		const out = await ensureTrackDetails(t);
+
+		expect(out).toBe(t);
+		expect(resolveSpy).not.toHaveBeenCalled();
+		expect(readResolveCache).not.toHaveBeenCalled();
+	});
+
+	it('regression pin: a normal kuwo:42 track still resolves through SOURCES.kuwo.resolve', async () => {
+		const t = mk('kuwo', '42');
+		const resolveSpy = vi
+			.spyOn(SOURCES.kuwo, 'resolve')
+			.mockResolvedValue({ ...t, detailsLoaded: true, audioUrl: 'https://cdn/x.mp3', lrc: '[00:01]hi' });
+
+		const out = await ensureTrackDetails(t);
+
+		expect(resolveSpy).toHaveBeenCalledOnce();
+		expect(out.audioUrl).toBe('https://cdn/x.mp3');
 	});
 });

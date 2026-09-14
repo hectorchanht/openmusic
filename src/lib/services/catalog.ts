@@ -15,6 +15,7 @@ import { isAcceptableSubstitute } from './song-variant';
 import { readResolveCache, registerServedResolve } from './resolve-cache-client';
 import { logAction } from '$lib/stores/actionLog.svelte';
 import { isTrackReady } from './track-ready';
+import { isDeviceUid } from '$lib/services/device-track';
 // 32-D-20: the cached url is filled at ONE tier (lossless), so the read gate and the adoption gate
 // both need the caller's EFFECTIVE tier. Same leaf-store + pure-helper pair sources/qq.ts uses.
 import { effectiveQuality } from '$lib/sources/quality';
@@ -337,8 +338,9 @@ async function resolveFromCachedMid(
  * shared readiness guard (`isTrackReady`) — the monolith guard of legacy 2507 plus the freshness
  * check it always lacked.
  *
- * This wrapper owns the guard and the `resolvedAt` stamp so both live at exactly ONE seam, the same
- * discipline the cache read and the cross-source lyric tail already follow. `resolveTrackDetails`
+ * This wrapper owns the guard, the `resolvedAt` stamp and the 34-D-01 device short-circuit so all
+ * three live at exactly ONE seam, the same discipline the cache read and the cross-source lyric tail
+ * already follow. `resolveTrackDetails`
  * below is the unchanged body and has several return paths; stamping here covers all of them
  * (cache url hit, mid shortcut, name stub, cold adapter walk) without touching any of them.
  */
@@ -347,6 +349,14 @@ export async function ensureTrackDetails(
 	signal?: AbortSignal,
 	quality?: DefaultQuality
 ): Promise<Track> {
+	// 34-D-01 / RESEARCH bite #1: a `device:` uid is an IDENTITY namespace, not a registry source, so
+	// `track.source` on one is a PLACEHOLDER ('kuwo') exactly like the resolveByName stubs the RESOLVE-02
+	// comment below guards. Unguarded, this would dispatch SOURCES['kuwo'].resolve on a FOREIGN songid and
+	// resolve a DIFFERENT song under the user's own file's identity. There is nothing to fetch either: the
+	// file IS the resolve — blobStore.get serves its bytes (34-D-05). The return sits ABOVE isTrackReady
+	// because a local file has no resolvedAt/TTL semantics and must never be judged stale (Open Q5: no
+	// refresh stamping — this codebase has been bitten by re-resolve loops three times).
+	if (isDeviceUid(track.uid)) return track;
 	if (isTrackReady(track)) return track;
 	const resolved = await resolveTrackDetails(track, signal, quality);
 	// Stamp ONLY when this call actually produced a url. A fall-through (abort, every source missed,

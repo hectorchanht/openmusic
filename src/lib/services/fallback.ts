@@ -12,6 +12,7 @@ import { searchAll, ensureTrackDetails } from '$lib/services/catalog';
 import { dedupeBest, sameSongKey } from '$lib/services/dedupe';
 import { isAcceptableSubstitute } from '$lib/services/song-variant';
 import { getEnabledAdapters, SOURCES, onlySource } from '$lib/sources/registry';
+import { isDeviceUid } from '$lib/services/device-track';
 import type { SourceId, Track } from '$lib/sources/types';
 
 /**
@@ -77,6 +78,15 @@ export async function tryFallback(
 	signal?: AbortSignal,
 	attempted?: Set<SourceId>
 ): Promise<Track | null> {
+	// 34-D-06 / RESEARCH Open Q2 / UI-SPEC Contract 8: an imported device file that will not play is the
+	// USER'S OWN file gone missing or undecodable. Failover is SILENT by design, so substituting some
+	// other recording scraped off a streaming source would tell the user their file played when it did
+	// not — the opposite of the quick-260913-jq4 truthfulness posture ("the user sees why it won't
+	// play"). Returning null routes the caller into its existing total-failure path, which skips with a
+	// notice. The bar lives HERE, in the service, so every caller route — play(), the audio `error`
+	// listener, handleDefinitiveFailure's retry — is covered by one line. `fallbackOrder` is untouched:
+	// a device uid has no source to order from in the first place.
+	if (isDeviceUid(failed.uid)) return null;
 	const query = `${failed.artist} ${failed.title}`.trim();
 	if (!query) return null;
 	const order = fallbackOrder(failed.source, preferred, attempted);
