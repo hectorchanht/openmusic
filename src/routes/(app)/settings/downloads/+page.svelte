@@ -16,7 +16,12 @@
 		CircleAlert,
 		Check,
 		FolderSearch,
-		SlidersHorizontal
+		SlidersHorizontal,
+		FileMusic,
+		Timer,
+		ListFilter,
+		ListX,
+		Regex
 	} from '@lucide/svelte';
 	import { settings } from '$lib/stores/settings.svelte';
 	import { library } from '$lib/stores/library.svelte';
@@ -24,6 +29,14 @@
 	import { blobStore } from '$lib/services/blob-store';
 	import { retagDownloads, type RetagEntry } from '$lib/services/retag';
 	import { deviceImport } from '$lib/stores/device-import.svelte';
+	import {
+		PRESET_ORDER,
+		PRESET_LABELS,
+		IMPORT_EXTENSIONS,
+		parseFilename,
+		validateCustomPattern,
+		type PresetId
+	} from '$lib/services/device-filename';
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { t } from '$lib/i18n';
 
@@ -46,10 +59,44 @@
 	);
 	const s = $derived(deviceImport.summary);
 
+	// Contract 6: the DRAFT is page-local and the SAVED pattern lives in the store. They diverge on a
+	// rejection and that divergence IS the contract — the typed text stays under the user's eyes while
+	// the last working pattern stays in force.
+	let patternDraft = $state('');
+	const PREVIEW_SAMPLE = '01. Adele - Hello (Live).mp3';
+
+	// The preview runs against ONE fixed sample using the SAVED (already probe-passed) pattern, never
+	// the draft and never a file list — so it can never become a second unbounded execution path
+	// (T-34-21 / contract 6).
+	const preview = $derived.by(() => {
+		const v = deviceImport.rules.customPattern ? validateCustomPattern(deviceImport.rules.customPattern) : null;
+		const r = parseFilename(PREVIEW_SAMPLE, deviceImport.rules, v && v.ok ? v.re : null);
+		return r.artist ? `${r.artist} · ${r.title}` : r.title || '—';
+	});
+
+	// Presets are multi-select and tried in the order the user DECLARED them (device-filename.ts:
+	// first match wins), so enabling appends rather than re-sorting into canonical order.
+	function togglePreset(p: PresetId) {
+		const on = deviceImport.rules.presets.includes(p);
+		deviceImport.setRules({
+			presets: on ? deviceImport.rules.presets.filter((x) => x !== p) : [...deviceImport.rules.presets, p]
+		});
+	}
+	function toggleExt(ext: string) {
+		const on = deviceImport.rules.extensions.includes(ext);
+		deviceImport.setRules({
+			extensions: on ? deviceImport.rules.extensions.filter((x) => x !== ext) : [...deviceImport.rules.extensions, ext]
+		});
+	}
+	// Contract 6: validate on BLUR and on accordion-collapse, NEVER per keystroke — compiling a
+	// half-typed regex on every input event paints a red error under the user's own finger.
+	function commitPattern() { deviceImport.setCustomPattern(patternDraft); }
+
 	onMount(async () => {
 		settings.load();
 		library.load();
 		deviceImport.load();
+		patternDraft = deviceImport.rules.customPattern;
 		native = Capacitor.isNativePlatform();
 		// 36-D-18: the scope is the app's OWN downloads it STILL HOLDS A COPY OF — never a device-wide
 		// sweep. `library.downloads` is the reference list (a row survives a failed/cancelled save), so
@@ -189,6 +236,105 @@
 	     Open state is deliberately NOT persisted; every visit starts collapsed. -->
 	<details class="advanced">
 		<summary use:tapBounce><SlidersHorizontal size={15} aria-hidden="true" /> {t('import.rules')}</summary>
+		<!-- FIRST child, deliberately: a user who opens this out of curiosity is told immediately
+		     that they can close it again (D-14). -->
+		<p class="muted">{t('import.rulesNote')}</p>
+
+		<!-- Order = most-likely-to-be-adjusted first: parsing, length, types, skip rules. -->
+		<section>
+			<h2><FileMusic size={15} /> {t('import.parsing')}</h2>
+			<!-- UI-SPEC Spacing KNOWN FLAG: `.chip` is ~33px tall, below the 44px touch minimum. It is
+			     the app's established chip (/settings/playback) and is reused VERBATIM here — fixing it
+			     on one page creates drift; fixing it app-wide is a dedicated pass. -->
+			<div class="chips">
+				{#each PRESET_ORDER as p (p)}
+					<!-- LITERAL labels: they describe a filename shape, not prose. -->
+					<button class="chip" class:on={deviceImport.rules.presets.includes(p)} aria-pressed={deviceImport.rules.presets.includes(p)} onclick={() => togglePreset(p)} use:tapBounce>{PRESET_LABELS[p]}</button>
+				{/each}
+			</div>
+			<button class="row-toggle" onclick={() => deviceImport.setRules({ stripTrackNo: !deviceImport.rules.stripTrackNo })} aria-pressed={deviceImport.rules.stripTrackNo} use:tapBounce>
+				<span>{t('import.stripTrackNo')}</span>
+				<span class="sw" class:on={deviceImport.rules.stripTrackNo}></span>
+			</button>
+			<button class="row-toggle" onclick={() => deviceImport.setRules({ stripBrackets: !deviceImport.rules.stripBrackets })} aria-pressed={deviceImport.rules.stripBrackets} use:tapBounce>
+				<span>{t('import.stripBrackets')}</span>
+				<span class="sw" class:on={deviceImport.rules.stripBrackets}></span>
+			</button>
+			<!-- D-15, stated plainly. Without this the presets read as an override and a user will
+			     "fix" correctly-tagged files. Not filler — do not drop. -->
+			<p class="muted">{t('import.parsingNote')}</p>
+
+			<!-- The raw-regex escape hatch hides ONE LEVEL DEEPER (contract 2): a user who opened
+			     "Import rules" to flip a switch never sees a regex field. -->
+			<details class="advanced nested" ontoggle={(e) => { if (!e.currentTarget.open) commitPattern(); }}>
+				<summary use:tapBounce><Regex size={14} aria-hidden="true" /> {t('import.customPattern')}</summary>
+				<p class="muted">{t('import.customPatternNote')}</p>
+				<!-- autocapitalize/autocorrect/spellcheck off is a real bug fix, not a nicety: iOS Safari
+				     capitalises the first character of a regex and autocorrects `(?<artist>` into
+				     something that no longer compiles. -->
+				<input
+					class="txt mono"
+					type="text"
+					bind:value={patternDraft}
+					placeholder="^(?<artist>.+?) - (?<title>.+)$"
+					autocapitalize="off"
+					autocorrect="off"
+					spellcheck="false"
+					aria-label={t('import.customPattern')}
+					aria-invalid={deviceImport.patternError ? 'true' : undefined}
+					aria-describedby={deviceImport.patternError ? 'pattern-msg' : undefined}
+					onblur={commitPattern}
+				/>
+				{#if deviceImport.patternError}
+					<p id="pattern-msg" class="hint reject">
+						{t(deviceImport.patternError === 'invalid' ? 'import.patternInvalid' : deviceImport.patternError === 'no-groups' ? 'import.patternNoGroups' : 'import.patternTooSlow')}
+					</p>
+				{/if}
+				<p class="hint mono"><span class="muted">{t('import.patternPreview')}</span> {PREVIEW_SAMPLE} → {preview}</p>
+			</details>
+		</section>
+
+		<section>
+			<h2><Timer size={15} /> {t('import.minLength')}</h2>
+			<div class="lbl"><span>{t('import.minLength')}</span><span class="val">{deviceImport.rules.minSeconds}s</span></div>
+			<input
+				type="range"
+				min="0"
+				max="120"
+				step="5"
+				value={deviceImport.rules.minSeconds}
+				oninput={(e) => deviceImport.setRules({ minSeconds: Number(e.currentTarget.value) })}
+				aria-label={t('import.minLength')}
+			/>
+			<p class="muted">{t('import.minLengthNote')}</p>
+		</section>
+
+		<section>
+			<h2><ListFilter size={15} /> {t('import.fileTypes')}</h2>
+			<div class="chips">
+				{#each IMPORT_EXTENSIONS as ext (ext)}
+					<!-- LITERAL labels: file extensions are identifiers, not prose. -->
+					<button class="chip" class:on={deviceImport.rules.extensions.includes(ext)} aria-pressed={deviceImport.rules.extensions.includes(ext)} onclick={() => toggleExt(ext)} use:tapBounce>{ext}</button>
+				{/each}
+			</div>
+			<p class="muted">{t('import.fileTypesNote')}</p>
+		</section>
+
+		<section>
+			<h2><ListX size={15} /> {t('import.skipRules')}</h2>
+			<textarea
+				class="txt"
+				rows="3"
+				placeholder={'interview\nringtone\nvoice memo'}
+				autocapitalize="off"
+				spellcheck="false"
+				{...{ autocorrect: 'off' }}
+				value={deviceImport.rules.skipRules.join('\n')}
+				onblur={(e) => deviceImport.setRules({ skipRules: e.currentTarget.value.split('\n').map((x) => x.trim()).filter(Boolean) })}
+				aria-label={t('import.skipRules')}
+			></textarea>
+			<p class="muted">{t('import.skipRulesNote')}</p>
+		</section>
 	</details>
 {/if}
 
@@ -238,4 +384,26 @@
 	.summary .hint.removed { color: #ff7a90; }
 	.empty-block { align-items: center; text-align: center; color: var(--color-text-muted); }
 	.empty-block .hint { margin: 0; }
+
+	/* Rules panel (contracts 5/6). `.chip.on`, `.row-toggle` and `.sw` are the settings idiom,
+	   copied verbatim from /settings/playback. Free-text inputs are NEW to this app — no
+	   `type="text"` or `<textarea>` existed anywhere in src/, so UI-SPEC sets their shape. */
+	.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+	.chip.on { background: var(--color-primary); color: #fff; border-color: transparent; }
+	.row-toggle { width: 100%; display: flex; align-items: center; justify-content: space-between; background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); padding: 13px 14px; border-radius: 12px; font-size: 14px; cursor: pointer; margin: 8px 0 0; }
+	.sw { width: 40px; height: 22px; border-radius: 999px; background: var(--color-border); position: relative; transition: background 0.15s ease; flex: none; }
+	.sw::after { content: ''; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: #fff; transition: transform 0.15s ease; }
+	.sw.on { background: var(--color-primary); }
+	.sw.on::after { transform: translateX(18px); }
+	.txt { width: 100%; min-height: 44px; padding: 12px 14px; background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: 12px; color: var(--color-text); font-family: inherit; font-size: 14px; }
+	.txt::placeholder { color: var(--color-text-muted); }
+	.txt:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+	.txt[aria-invalid='true'] { border-color: #ff7a90; }
+	/* A regex is code: in Inter, `\s` and `\5` are ambiguous. The only monospace in the phase. */
+	.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+	.hint.reject { color: #ff7a90; font-size: 12px; margin: 6px 0 0; }
+	.advanced.nested { margin: 12px 0 0; }
+	.lbl { display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 6px; }
+	input[type='range'] { width: 100%; accent-color: var(--color-primary); }
+	.chip:focus-visible, .row-toggle:focus-visible, .advanced summary:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
 </style>
