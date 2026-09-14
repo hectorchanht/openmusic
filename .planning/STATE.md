@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: YTMusic-Powered Up-Next
 status: executing
-stopped_at: Completed 35-01-PLAN.md (backup codec core)
+stopped_at: "34 wave 3 — executing (35-05 + 36-05 device checkpoints still PENDING HUMAN)"
 last_updated: "2026-09-14T02:44:29.063Z"
 last_activity: 2026-09-14
 progress:
