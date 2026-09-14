@@ -270,3 +270,110 @@ export function validateEnvelope(raw: string): ValidateResult {
 		skipped
 	};
 }
+
+/**
+ * 35-D-08 Replace, not merge: drop every restorable key (including name-tr languages the file
+ * does NOT carry), then write the file's payloads. The ONLY function in this module that may
+ * throw — a quota failure mid-write is exactly what applyEnvelope's rollback catches — and it is
+ * private so that contract never leaks.
+ *
+ * 35-D-08: the library wipe is a plain removeItem, NOT library.clearAll(). clearAll() mutates the
+ * live runes fields and fires save(), which could write an empty blob back over our setItem if any
+ * reactive path ran before the reload. A plain remove leaves every singleton untouched until the
+ * 35-D-13 reload re-runs load() cold.
+ *
+ * Collect-then-mutate, two passes: indices shift during removal, so the prefix scan can never be
+ * interleaved with removeItem (names.svelte.ts:282-293).
+ */
+function wipeAndWrite(env: BackupEnvelope, live: Storage): void {
+	const doomed: string[] = [...BACKUP_EXACT_KEYS];
+	for (const k of storageKeys(live)) if (k.startsWith(NAME_TR_PREFIX)) doomed.push(k);
+	for (const k of doomed) live.removeItem(k);
+	for (const [k, v] of Object.entries(env.keys)) live.setItem(k, JSON.stringify(v));
+}
+
+/**
+ * Snapshot → wipe → write, all-or-nothing (35-D-08 / 35-D-09 / 35-D-10).
+ *
+ * Both stores are PARAMETERS: the page passes the persistent store as `live` and the per-tab one
+ * as `undo`. That single call-site argument is the whole platform seam — if the per-tab store ever
+ * turns out not to survive a reload in the native WebView, the fallback is one different argument,
+ * not a change in here.
+ *
+ * 35-D-09: if the snapshot cannot be stored we refuse rather than proceed. A destructive one-tap
+ * button with no undo is precisely the thing this decision exists to prevent, and nothing has been
+ * written at that point, so the live store is byte-identical.
+ *
+ * The reload (35-D-13) belongs to the page — this module has no window.
+ */
+export function applyEnvelope(env: BackupEnvelope, live: Storage, undo: Storage): ApplyResult {
+	const snapshot = serializeEnvelope(buildEnvelope((k) => live.getItem(k), storageKeys(live)));
+	try {
+		undo.setItem(UNDO_KEY, snapshot);
+	} catch {
+		return 'no-snapshot';
+	}
+	try {
+		wipeAndWrite(env, live);
+	} catch {
+		// Quota (or a hostile store) mid-write. Best-effort rollback through the SAME validator the
+		// import path uses — one code path in both directions. The snapshot deliberately STAYS so
+		// the user can retry the undo by hand if even this fails.
+		const back = validateEnvelope(snapshot);
+		if (back.ok) {
+			try {
+				wipeAndWrite(back.envelope, live);
+			} catch {
+				/* nothing further we can do from here — the snapshot is still on disk */
+			}
+		}
+		return 'write-failed';
+	}
+	return 'ok';
+}
+
+/**
+ * Put the pre-import bytes back and drop the snapshot. An unreadable snapshot is discarded rather
+ * than written back, so a corrupt undo can never damage the live store.
+ *
+ * ponytail: one level of undo — a redo stack is unrequested, and the snapshot is intentionally NOT
+ * re-snapshotted before the restore.
+ */
+export function undoImport(live: Storage, undo: Storage): ApplyResult {
+	let raw: string | null = null;
+	try {
+		raw = undo.getItem(UNDO_KEY);
+	} catch {
+		/* unavailable — treat as no snapshot */
+	}
+	if (raw == null) return 'no-snapshot';
+	const res = validateEnvelope(raw);
+	if (!res.ok) {
+		try {
+			undo.removeItem(UNDO_KEY);
+		} catch {
+			/* ignore */
+		}
+		return 'no-snapshot';
+	}
+	try {
+		wipeAndWrite(res.envelope, live);
+	} catch {
+		return 'write-failed';
+	}
+	try {
+		undo.removeItem(UNDO_KEY);
+	} catch {
+		/* ignore */
+	}
+	return 'ok';
+}
+
+/** Does an Undo import affordance have anything to offer? Read by the page after the reload. */
+export function hasUndoSnapshot(undo: Pick<Storage, 'getItem'>): boolean {
+	try {
+		return undo.getItem(UNDO_KEY) != null;
+	} catch {
+		return false;
+	}
+}
