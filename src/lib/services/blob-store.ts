@@ -120,6 +120,21 @@ async function nativePut(uid: string, blob: Blob, filename?: string): Promise<bo
 	// eliminating the whole-blob base64 OOM/ANR risk for large lossless files.
 	try {
 		const { uri: sourcePath } = await Filesystem.getUri({ path: nativePath(uid), directory: NATIVE_DIR });
+		// 36-D-19: a re-put for the SAME uid (retag, or the 31-D-12 background repair) used to leave the
+		// EARLIER public Music/OpenMusic/ file in place, so MediaStore de-duplicated the name and created
+		// a second entry (`Artist - Song (1).m4a`). The device library then showed the song twice, one of
+		// them stale. Deleting the recorded previous URI first makes put() idempotent per uid.
+		// Ordering is the safety argument: step 1 (the app-private PLAYABLE copy) has ALREADY landed, so a
+		// crash between the delete and the save costs at most the public visibility copy, never the file
+		// playback reads. Best-effort with the same WR-01 posture — a delete failure must not stop the save.
+		const prev = getStoredUri(uid);
+		if (prev) {
+			try {
+				await MediaStoreSaver.deleteFromMusic({ uri: prev });
+			} catch {
+				// already gone / bridge failure: fall through and save anyway (worst case: a duplicate).
+			}
+		}
 		// DL-FILE-01 (D-06): the PUBLIC MediaStore filename becomes the human `{artist} - {song}.{ext}`
 		// name when the caller threads one through put() (TrackMenu supplies it via the new 3rd arg).
 		// When absent (album / legacy callers) fall back to nativeFileName(uid) = `<uid>.mp3` so those

@@ -277,6 +277,37 @@ describe('blob-store — native branch put (isNativePlatform true)', () => {
 		writeBlob.mockRejectedValue(new Error('disk full'));
 		await expect(put('netease-1', new Blob(['a']))).resolves.toBe(false);
 	});
+
+	// --- 36-D-19: a re-put for the same uid must REPLACE the public copy, not add a second one ---
+	// Retag re-puts every downloaded uid, so without this the user's Music/OpenMusic/ folder would
+	// double in size and show every song twice (the second as `… (1).m4a`).
+	it('put deletes the PREVIOUSLY recorded public URI before saving the new one (36-D-19)', async () => {
+		localStorage.setItem('openmusic-blob-uri:netease-123', 'content://media/external/audio/media/7');
+		const ok = await put('netease-123', new Blob(['audio-bytes']));
+		expect(ok).toBe(true);
+		expect(deleteFromMusic).toHaveBeenCalledTimes(1);
+		expect(deleteFromMusic.mock.calls[0][0]).toEqual({ uri: 'content://media/external/audio/media/7' });
+		// ORDER is the whole point — deleting AFTER the save would remove the file we just wrote.
+		expect(deleteFromMusic.mock.invocationCallOrder[0]).toBeLessThan(saveToMusic.mock.invocationCallOrder[0]);
+		// the index now points at the NEW entry
+		expect(localStorage.getItem('openmusic-blob-uri:netease-123')).toBe('content://media/external/audio/media/42');
+	});
+
+	it('put does NOT call deleteFromMusic on a first put (no recorded uri)', async () => {
+		const ok = await put('netease-123', new Blob(['audio-bytes']));
+		expect(ok).toBe(true);
+		expect(deleteFromMusic).not.toHaveBeenCalled();
+		expect(saveToMusic).toHaveBeenCalledTimes(1);
+	});
+
+	it('put still saves (and resolves true) when deleteFromMusic rejects — best-effort, WR-01 posture', async () => {
+		localStorage.setItem('openmusic-blob-uri:netease-123', 'content://media/external/audio/media/7');
+		deleteFromMusic.mockRejectedValue(new Error('no such entry'));
+		const ok = await put('netease-123', new Blob(['audio-bytes']));
+		expect(ok).toBe(true);
+		expect(saveToMusic).toHaveBeenCalledTimes(1);
+		expect(localStorage.getItem('openmusic-blob-uri:netease-123')).toBe('content://media/external/audio/media/42');
+	});
 });
 
 describe('blob-store — native branch get (isNativePlatform true)', () => {
