@@ -398,12 +398,12 @@ Plans:
 **Goal:** Every song downloaded to the device is written to disk fully tagged — title, artist, album, album artist, track/disc number, year, genre, duration, and embedded cover art — in the right container format (ID3v2 for MP3, MP4 atoms for m4a/AAC, Vorbis comments + PICTURE for FLAC). The device's own music player, the file browser, and Phase 34's device-import scan all read a complete, correctly-grouped library instead of a wall of untitled files. Any individual field the app does not know (and an unfetchable cover) is simply omitted — never a placeholder, never a corrupt file.
 **Requirements**: TBD
 **Depends on:** Nothing hard. Shares an audio-tag codec with Phase 34 (34 READS the tags this phase WRITES) — whichever is planned first owns the module.
-**Plans:** 1/5 plans executed
+**Plans:** 2/5 plans executed
 
 Plans:
 
 - [x] 36-01-PLAN.md — Node 24 toolchain bump + taglib-wasm@2.2.2 exact pin + TagLib licence attribution (wave 1)
-- [ ] 36-02-PLAN.md — Pure audio-tags.ts codec (read+write, 3 containers) + binary fixtures + round-trip suite (wave 2)
+- [x] 36-02-PLAN.md — Pure audio-tags.ts codec (read+write, 3 containers) + binary fixtures + round-trip suite (wave 2)
 - [ ] 36-03-PLAN.md — Tag step at the downloadTrack seam, album-page track#/albumArtist threading, SW wasm precache filter (wave 3)
 - [ ] 36-04-PLAN.md — Opt-in retag of the app's own downloads: retag.ts, nativePut duplicate guard, Settings → Downloads page, 15-locale i18n (wave 3)
 - [ ] 36-05-PLAN.md — Debug APK build + on-device D-15 checklist (human) + validation sign-off (wave 4)
