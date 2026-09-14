@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: YTMusic-Powered Up-Next
-status: verifying
+status: executing
 stopped_at: Phase 36 context gathered
-last_updated: "2026-09-14T00:33:19.205Z"
-last_activity: "2026-09-13 - Completed quick tasks 260913-je8 / -p2k / -jq4 / -omi / -tmi: TrackMenu header Download + Like row, long-press trailing-click fix, download-state truthfulness, real download progress, correct audio MIME type"
+last_updated: "2026-09-14T00:36:58.639Z"
+last_activity: 2026-09-14
 progress:
   total_phases: 12
   completed_phases: 6
@@ -21,13 +21,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-10)
 
 **Core value:** A user on their phone can search a song, tap it, and have it play instantly with a smooth, native-app-like experience — and keep playing when the screen locks.
-**Current focus:** Phase 33 — activity-log-upload-for-automated-diagnosis
+**Current focus:** Phase 34 — import-device-songs-as-native-downloads
 
 ## Current Position
 
-Phase: 33 (activity-log-upload-for-automated-diagnosis) — EXECUTING (6.5/7)
-Plan: 7 of 7
-Status: 33-07 Tasks 1-2 complete; Task 3 awaiting device verification
+Phase: 34 (import-device-songs-as-native-downloads) — EXECUTING
+Plan: 1 of 11
+Status: Executing Phase 34
 
 ### 33-07 checkpoint status
 
@@ -63,7 +63,7 @@ Full observed evidence: `.planning/phases/30-carrier-free-share-links-type-artis
 ### Prior phase (Phase 27 — YouTube Music Source, v1.4) — COMPLETE + E2E-VERIFIED
 
 Phase 27 complete (27-01..04). E2E-verified against LIVE YouTube via the dev-server routes: /api/ytmusic/search 200 (rows+videoId), /api/ytmusic/lyrics 200 (1513c + attribution), /api/ytmusic/stream 206 audio/mp4 + Range (playback) and 200 full-file (download). pnpm check clean, 1320 tests green. E2E caught + fixed a prod-breaking bug (quick-270715 / commit 29c1c7d): stream route exported non-HTTP-verb functions, illegal in SvelteKit +server.ts → 500; helpers moved to $lib/proxy/ytmusic.ts.
-Last activity: 2026-09-13 - Completed quick tasks 260913-je8 / -p2k / -jq4 / -omi / -tmi: TrackMenu header Download + Like row, long-press trailing-click fix, download-state truthfulness, real download progress, correct audio MIME type
+Last activity: 2026-09-14
 Remaining human UAT: real-device <audio> playback+seek + download-to-disk; deployed-Worker player+googlevideo same-IP egress + bot-challenge under load (T-27-03-OP). Account/library sync = separate legal-gated milestone (spike 008).
 
 ## Performance Metrics
