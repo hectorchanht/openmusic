@@ -13,6 +13,10 @@ import type { Track } from '$lib/sources/types';
 // The node Vitest project has no jsdom, so every store/service dep is mocked here; the REAL pure
 // download-filename helper runs so the exact `{artist} - {title}.{ext}` output is asserted end-to-end.
 
+// The tagger's return shape, kept loose here so a test can stub ANY discriminant (the real union is
+// narrow-by-result and would force a cast per outcome).
+type TagOutcomeLike = { blob: Blob; result: string; format?: string };
+
 // ---- hoisted mocks (referenced inside the vi.mock factories below) --------------------------------
 const mocks = vi.hoisted(() => ({
 	library: {
@@ -31,7 +35,14 @@ const mocks = vi.hoisted(() => ({
 	},
 	ensureTrackDetails: vi.fn(async (_t: Track, _s?: unknown, _q?: unknown) => _t),
 	put: vi.fn(async (_uid: string, _blob: Blob, _filename?: string) => true),
-	saveBlobToDisk: vi.fn((_blob: Blob, _filename: string) => true)
+	saveBlobToDisk: vi.fn((_blob: Blob, _filename: string) => true),
+	// 36-03: the tag seam. Default = a no-op passthrough reporting success, so every PRE-EXISTING
+	// test above still asserts on the fetched blob's own identity/type.
+	tagAudioBlob: vi.fn(
+		async (blob: Blob, _f: unknown, _a?: unknown): Promise<TagOutcomeLike> => ({ blob, result: 'tagged', format: 'm4a' })
+	),
+	resolveArtworkDataUrl: vi.fn(async (_q: unknown): Promise<string | null> => null),
+	logAction: vi.fn((_ev: string, _d?: Record<string, unknown>) => {})
 }));
 
 vi.mock('$lib/stores/library.svelte', () => ({ library: mocks.library }));
@@ -41,6 +52,9 @@ vi.mock('$lib/stores/names.svelte', () => ({ names: mocks.names }));
 vi.mock('$lib/services/catalog', () => ({ ensureTrackDetails: mocks.ensureTrackDetails }));
 vi.mock('$lib/services/blob-store', () => ({ blobStore: { put: mocks.put }, put: mocks.put }));
 vi.mock('$lib/services/download-save', () => ({ saveBlobToDisk: mocks.saveBlobToDisk }));
+vi.mock('$lib/services/audio-tags', () => ({ tagAudioBlob: mocks.tagAudioBlob }));
+vi.mock('$lib/services/media-artwork', () => ({ resolveArtworkDataUrl: mocks.resolveArtworkDataUrl }));
+vi.mock('$lib/stores/actionLog.svelte', () => ({ logAction: mocks.logAction }));
 
 import { downloadTrack, type DownloadResult } from './download-track';
 
@@ -97,6 +111,9 @@ beforeEach(() => {
 	mocks.ensureTrackDetails.mockReset();
 	mocks.put.mockReset().mockResolvedValue(true);
 	mocks.saveBlobToDisk.mockReset().mockReturnValue(true);
+	mocks.tagAudioBlob.mockReset().mockImplementation(async (blob: Blob) => ({ blob, result: 'tagged', format: 'm4a' }));
+	mocks.resolveArtworkDataUrl.mockReset().mockResolvedValue(null);
+	mocks.logAction.mockReset();
 	windowOpen = vi.fn();
 	vi.stubGlobal('window', { open: windowOpen });
 });
@@ -336,15 +353,164 @@ describe('downloadTrack — DOWNLOAD ISOLATION CONTRACT (D-18)', () => {
 	});
 });
 
+// Strip whole-line comments in all three shapes (`//`, `/*`, ` *`) — a `//`-only filter lets a
+// JSDoc line through, and these guards search for identifiers that comments legitimately NAME in
+// order to forbid them (36-02 hit exactly that).
+const stripComments = (src: string) =>
+	src
+		.split('\n')
+		.filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l))
+		.join('\n');
+
 describe('downloadTrack — import contract (node compile safety + DL-BUG-01)', () => {
 	it('imports neither $lib/i18n nor $lib/stores/toast, and contains no window.open', () => {
-		const src = readFileSync(new URL('./download-track.ts', import.meta.url), 'utf8')
-			.split('\n')
-			.filter((l) => !l.trim().startsWith('//'))
-			.join('\n');
+		const src = stripComments(readFileSync(new URL('./download-track.ts', import.meta.url), 'utf8'));
 		expect(src).not.toContain('$lib/i18n');
 		expect(src).not.toContain('$lib/stores/toast');
 		expect(src).not.toContain('window.open');
+	});
+
+	// 36-D-11: `displayIndex` is INTERLEAVE ORDERING across sources (sources/types.ts), not an album
+	// position. It must never reach a tag, at the seam or at the album page.
+	it('routes through the tag seam and never reads displayIndex', () => {
+		const src = stripComments(readFileSync(new URL('./download-track.ts', import.meta.url), 'utf8'));
+		expect(src).toContain('tagAudioBlob(');
+		expect(src).toContain('resolveArtworkDataUrl(');
+		expect(src).not.toContain('displayIndex');
+	});
+
+	it('the album page supplies a real 1-based album position, never displayIndex', () => {
+		const page = readFileSync(new URL('../../routes/(app)/album/[name]/+page.svelte', import.meta.url), 'utf8');
+		const start = page.indexOf('async function downloadAlbum()');
+		expect(start).toBeGreaterThan(-1);
+		// Function-level close brace: the first `\n\t}` after the opening line.
+		const end = page.indexOf('\n\t}', start);
+		expect(end).toBeGreaterThan(start);
+		const body = stripComments(page.slice(start, end));
+		expect(body).toContain('trackNumber: String(i + 1)');
+		expect(body).not.toContain('displayIndex');
+	});
+});
+
+describe('downloadTrack — 36-D-06 TAG-OR-INTACT', () => {
+	async function runWith(outcome: (blob: Blob) => TagOutcomeLike, url = 'https://cdn.example.com/x.mp3') {
+		mocks.ensureTrackDetails.mockResolvedValue(mk({ audioUrl: url }));
+		const fetched = new Blob(['audio']);
+		stubFetch(fetched);
+		mocks.tagAudioBlob.mockImplementation(async (blob: Blob) => outcome(blob));
+		const res = await downloadTrack(mk({ audioUrl: null, detailsLoaded: false }));
+		return { res, fetched };
+	}
+
+	it('saves the ORIGINAL bytes and still returns "saved" when the container is unrecognised', async () => {
+		const { res } = await runWith((blob) => ({ blob, result: 'unknown-container' }));
+		expect(res).toBe('saved');
+		// same object identity as what the tagger was handed — untouched bytes reach disk
+		const handed = mocks.tagAudioBlob.mock.calls[0][0];
+		expect(mocks.put.mock.calls[0][1]).toBe(handed);
+		expect(mocks.saveBlobToDisk.mock.calls[0][0]).toBe(handed);
+	});
+
+	it('returns "saved" when the file is over the tagger size ceiling', async () => {
+		const { res } = await runWith((blob) => ({ blob, result: 'skipped-size' }));
+		expect(res).toBe('saved');
+	});
+
+	it('returns "saved" when the codec itself errors', async () => {
+		const { res } = await runWith((blob) => ({ blob, result: 'error' }));
+		expect(res).toBe('saved');
+	});
+
+	it('writes the NEW blob to both seams when tagging succeeds, keeping the derived mime', async () => {
+		const { res } = await runWith(
+			(blob) => ({ blob: new Blob(['tagged-audio'], { type: blob.type }), result: 'tagged', format: 'm4a' }),
+			'https://cdn.example.com/song.m4a'
+		);
+		expect(res).toBe('saved');
+		const putBlob = mocks.put.mock.calls[0][1];
+		expect(putBlob).toBe(mocks.saveBlobToDisk.mock.calls[0][0]);
+		expect(putBlob).not.toBe(mocks.tagAudioBlob.mock.calls[0][0]);
+		// quick-260913-tmi survives tagging: the type is still the one derived from the URL
+		expect(putBlob.type).toBe('audio/mp4');
+	});
+
+	it('logs the outcome once to the Activity log', async () => {
+		await runWith((blob) => ({ blob, result: 'skipped-size' }));
+		expect(mocks.logAction).toHaveBeenCalledTimes(1);
+		const [ev, data] = mocks.logAction.mock.calls[0];
+		expect(ev).toBe('download.tag');
+		expect(data).toMatchObject({ uid: 'netease-1', result: 'skipped-size', art: false });
+	});
+});
+
+describe('downloadTrack — 36-D-11 / 36-D-12 album context', () => {
+	const fields = () => mocks.tagAudioBlob.mock.calls[0][1] as Record<string, unknown>;
+
+	beforeEach(() => {
+		mocks.ensureTrackDetails.mockResolvedValue(mk({ audioUrl: 'https://cdn.example.com/x.mp3', artist: 'Artist', title: 'Song' }));
+		stubFetch(new Blob(['a']));
+	});
+
+	it('sends NO track number and falls albumArtist back to the track artist by default', async () => {
+		await downloadTrack(mk({ audioUrl: null, detailsLoaded: false }));
+		expect(fields()).toEqual({ title: 'Song', artist: 'Artist', album: undefined, albumArtist: 'Artist', trackNumber: undefined });
+	});
+
+	it('passes the album loop\'s trackNumber and albumArtist through verbatim', async () => {
+		await downloadTrack(mk({ audioUrl: null, detailsLoaded: false }), {
+			persist: false,
+			trackNumber: '3',
+			albumArtist: 'Various'
+		});
+		expect(fields()).toMatchObject({ trackNumber: '3', albumArtist: 'Various' });
+	});
+
+	it('omits an empty album rather than inventing one (36-D-10)', async () => {
+		mocks.ensureTrackDetails.mockResolvedValue(mk({ audioUrl: 'https://cdn.example.com/x.mp3', album: '' }));
+		await downloadTrack(mk({ audioUrl: null, detailsLoaded: false }));
+		expect(fields().album).toBeUndefined();
+	});
+
+	it('tags with the SAME translated display names the filename uses (Pattern 5)', async () => {
+		mocks.names.dnArtist.mockReturnValue('邓紫棋');
+		mocks.names.dnTitle.mockReturnValue('光年之外');
+		await downloadTrack(mk({ audioUrl: null, detailsLoaded: false }));
+		expect(fields()).toMatchObject({ title: '光年之外', artist: '邓紫棋', albumArtist: '邓紫棋' });
+		expect(mocks.saveBlobToDisk.mock.calls[0][1]).toBe('邓紫棋 - 光年之外.mp3');
+	});
+});
+
+describe('downloadTrack — 36-D-13 / 36-D-14 artwork', () => {
+	beforeEach(() => {
+		stubFetch(new Blob(['a']));
+	});
+
+	it('resolves the displayed cover once and hands it to the tagger', async () => {
+		mocks.ensureTrackDetails.mockResolvedValue(
+			mk({ audioUrl: 'https://cdn.example.com/x.mp3', cover: 'https://cdn-images.dzcdn.net/c.jpg' })
+		);
+		mocks.names.dnTitle.mockReturnValue('光年之外');
+		mocks.resolveArtworkDataUrl.mockResolvedValue('data:image/jpeg;base64,AAAA');
+
+		await downloadTrack(mk({ audioUrl: null, detailsLoaded: false }));
+
+		expect(mocks.resolveArtworkDataUrl).toHaveBeenCalledTimes(1);
+		expect(mocks.resolveArtworkDataUrl.mock.calls[0][0]).toEqual({
+			cover: 'https://cdn-images.dzcdn.net/c.jpg',
+			title: '光年之外',
+			artist: 'Artist'
+		});
+		expect(mocks.tagAudioBlob.mock.calls[0][2]).toBe('data:image/jpeg;base64,AAAA');
+	});
+
+	it('still writes the text tags when no artwork resolves', async () => {
+		mocks.ensureTrackDetails.mockResolvedValue(mk({ audioUrl: 'https://cdn.example.com/x.mp3', cover: null }));
+		mocks.resolveArtworkDataUrl.mockResolvedValue(null);
+
+		expect(await downloadTrack(mk({ audioUrl: null, detailsLoaded: false }))).toBe('saved');
+
+		expect(mocks.tagAudioBlob).toHaveBeenCalledTimes(1);
+		expect(mocks.tagAudioBlob.mock.calls[0][2]).toBeNull();
 	});
 });
 

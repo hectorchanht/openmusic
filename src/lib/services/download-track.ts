@@ -22,6 +22,10 @@
 //   DL-BUG-01 (D-09): a failed save returns 'failed' — it NEVER `window.open`s the raw stream URL
 //     (the "download opened a media page" bug). The caller shows toast.downloadFailedKeptInLibrary;
 //     the song already sits in library.downloads (addDownload ran) and re-streams on tap.
+//
+//   36-D-06 TAG-OR-INTACT: tagging happens in memory between the blob read and the two save paths;
+//     ANY tag failure (unknown container, oversize, art miss, library throw) saves the ORIGINAL
+//     bytes and the result is still 'saved'. Never 'failed' for a file that landed and plays.
 
 import type { Track } from '$lib/sources/types';
 import { library } from '$lib/stores/library.svelte';
@@ -34,6 +38,9 @@ import { blobStore } from '$lib/services/blob-store';
 import { saveBlobToDisk } from '$lib/services/download-save';
 import { readBlobWithProgress } from '$lib/services/download-progress';
 import { audioMimeForUrl, buildDownloadFilename, extFromAudioUrl } from '$lib/services/download-filename';
+import { tagAudioBlob } from '$lib/services/audio-tags';
+import { resolveArtworkDataUrl } from '$lib/services/media-artwork';
+import { logAction } from '$lib/stores/actionLog.svelte';
 
 /** 'saved' = blob fetched + saved to disk; 'no-audio' = nothing to download; 'failed' = fetch/save error. */
 export type DownloadResult = 'saved' | 'no-audio' | 'failed';
@@ -61,10 +68,15 @@ function currentQualityMeets(curQuality: string | null, want: DefaultQuality): b
  * offline blob is re-persisted and the library record refreshed, but no `<a download>` click fires.
  * The repair is triggered by a playback error the user never asked about, so popping a file-save
  * dialog mid-song would itself be the bug.
+ *
+ * 36-D-11 / 36-D-12: `opts.trackNumber` and `opts.albumArtist` are supplied ONLY by the album page
+ * loop, the one place in the app that knows a real album position and a real album artist. Every
+ * other caller omits them and gets no track number at all, with `albumArtist` defaulting to the
+ * track's own artist (the grouping default).
  */
 export async function downloadTrack(
 	track: Track,
-	opts?: { persist?: boolean; save?: boolean }
+	opts?: { persist?: boolean; save?: boolean; trackNumber?: string; albumArtist?: string }
 ): Promise<DownloadResult> {
 	// DL-STATE-01: bracket the per-uid spinner. beginDownload BEFORE the first await; endDownload in
 	// the `finally` so EVERY exit (saved / no-audio / failed / any throw) clears the spinner exactly once.
@@ -116,7 +128,7 @@ export async function downloadTrack(
 		// qq CDN serves audio as `application/x-www-form-urlencoded`, and `resp.blob()` was stamping
 		// that onto the saved file and the offline copy. Threaded in so the streaming path builds the
 		// Blob with the right type from the start rather than re-wrapping tens of MB afterwards.
-		const blob = await readBlobWithProgress(
+		const rawBlob = await readBlobWithProgress(
 			resp,
 			(fraction) => library.setDownloadProgress(track.uid, fraction),
 			{ type: audioMimeForUrl(r.audioUrl, resp.headers?.get?.('content-type')) }
@@ -125,8 +137,50 @@ export async function downloadTrack(
 		// DL-FILE-01 (D-05/D-06/D-07): controlled, translated filename `{artist} - {song}.{ext}`. The
 		// caller-free display-name translation (names.dn*, synchronous cached-or-raw) is applied here;
 		// the pure download-filename helper composes + sanitizes.
+		//
+		// 36 Pattern 5: the SAME two display names feed the filename AND the embedded tags, so a file
+		// can never be named 標題 while its tag says 标题.
+		const dnArtist = names.dnArtist(r.artist);
+		const dnTitle = names.dnTitle(r.title);
+		// FILENAME ONLY. `extFromAudioUrl` is NOT the container dispatch key — its 'mp3' default would
+		// route a FLAC into ID3. The codec sniffs the actual bytes instead (RESEARCH Pitfall 3).
 		const ext = extFromAudioUrl(r.audioUrl);
-		const filename = buildDownloadFilename(names.dnArtist(r.artist), names.dnTitle(r.title), ext);
+		const filename = buildDownloadFilename(dnArtist, dnTitle, ext);
+
+		// 36-D-13 / 36-D-14: embed the cover the app itself displays, through the existing artwork
+		// resolver — no new fetch path, no new host surface. Bounded by its own 6 s / 1 MB / https-only
+		// limits, and D-14 accepts that wait on a download the user explicitly asked for.
+		// RAW fetch (not apiFetch — fetch→apiFetch audit): the resolver's direct CDN tier is a raw
+		// image fetch (Deezer/iTunes are CORS-clean); its /api/og fallback tier already goes through
+		// `apiUrl` and the governor. Nothing new to route here.
+		const artDataUrl = await resolveArtworkDataUrl({ cover: r.cover, title: dnTitle, artist: dnArtist });
+
+		// 36-D-05 — THE seam. All four download callers (TrackMenu, DownloadControl, the album bulk
+		// loop, background repair) pass through this one line, so one insertion tags every path.
+		// No try/catch of our own: `tagAudioBlob` NEVER rejects and returns the original blob on any
+		// failure, which is exactly how D-17 NEVER-THROWS and 36-D-06 TAG-OR-INTACT hold by
+		// construction. `r.album || undefined` is 36-D-10: an empty album is OMITTED, not looked up.
+		const tagged = await tagAudioBlob(
+			rawBlob,
+			{
+				title: dnTitle,
+				artist: dnArtist,
+				album: r.album || undefined,
+				albumArtist: opts?.albumArtist ?? dnArtist,
+				trackNumber: opts?.trackNumber
+			},
+			artDataUrl
+		);
+		const blob = tagged.blob;
+		// Activity log (Settings → Activity log) is where a silently-untagged download becomes
+		// visible on device — `skipped-size` and `error` are otherwise indistinguishable from success.
+		logAction('download.tag', {
+			uid: r.uid,
+			result: tagged.result,
+			...(tagged.result === 'tagged' ? { format: tagged.format } : {}),
+			art: artDataUrl != null,
+			bytes: rawBlob.size
+		});
 
 		// Offline cache (kyf): persist the SAME blob keyed by uid so a later player.play() of this uid
 		// streams from the local blob instead of the CDN. The filename is threaded to the native public
