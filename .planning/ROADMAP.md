@@ -336,3 +336,43 @@ Plans:
 **Wave 4** *(blocked on Wave 3 completion)*
 
 - [x] 33-07-PLAN.md — CHECKPOINT: pushed + deployed (`40b1cab`, deployment `2b9e232d` Active); Tier-2 curl matrix PASSED 11/11 on openmusic.lol. **Tier-3 phone upload / laptop fetch still pending human** (D-04/D-06 not device-observed)
+
+### Phase 34: Import device songs as native downloads
+
+**Goal:** A user taps an "Import songs from device" button in the Settings download page, the app scans the device's Music/Download folders via Android MediaStore, parses each audio file's metadata (title/artist/album/duration/embedded art), maps it to a `Track`, indexes it into the library, and those files then appear as downloaded songs everywhere downloaded state is shown — playable offline like any app-downloaded track.
+**Requirements**: 34-CONTEXT.md D-01..D-16 (no REQUIREMENTS.md entry — the locked decisions are the requirement set)
+**Depends on:** Nothing (independent — touches the download/library stack, not Phase 33's diagnostics)
+**Plans:** 11 plans
+
+Plans:
+- [ ] 34-01-PLAN.md — device-track.ts identity contract + blob-store device branch, data-loss refusal, D-09 stored-URI fallback
+- [ ] 34-02-PLAN.md — ensureTrackDetails/tryFallback device guards, library unavailable state + setDownloads, the two player D-06 seams
+- [ ] 34-03-PLAN.md — device-filename.ts: import rules model, presets, parseFilename, ReDoS save-time probe
+- [ ] 34-04-PLAN.md — Kotlin requestReadAudio + paged scanAudio, manifest permissions, media-store.ts typings
+- [ ] 34-05-PLAN.md — 44 i18n keys × 15 locales
+- [ ] 34-06-PLAN.md — device-import.ts: classifyRow + syncDevice (re-sync diff, merge lane, summary, ReDoS layer 2)
+- [ ] 34-07-PLAN.md — device-import.svelte.ts store + RowBadges/DownloadControl/TrackMenu unavailable + device gating
+- [ ] 34-08-PLAN.md — /settings/downloads page, native-gated index row, layout toast host
+- [ ] 34-09-PLAN.md — APK build + seed; device UAT 1 (permission), 2 (Download/ folder), 7 (no file deletion)
+- [ ] 34-10-PLAN.md — device UAT 8 (no duplicates/relink), 9 (missing-file lifecycle), 3 (playback), 4 (seek)
+- [ ] 34-11-PLAN.md — device UAT 6 (1000+ files), 5 (>100 MB), 10 (media session)
+
+### Phase 35: One-click export and import of all app data
+
+**Goal:** One button in Settings > Data exports every piece of user state — liked songs / library, play history, search history, settings, names, cover cache — into a single portable file, and one button imports it back, restoring the app on a new device or after a wipe. Round-trip is lossless and version-tagged, and an import from a newer or corrupt file fails safe instead of half-writing.
+**Requirements**: TBD
+**Depends on:** Nothing (independent — localStorage/store serialization only)
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 35 to break down)
+
+### Phase 36: Tag downloaded songs with full metadata
+
+**Goal:** Every song downloaded to the device is written to disk fully tagged — title, artist, album, album artist, track/disc number, year, genre, duration, and embedded cover art — in the right container format (ID3v2 for MP3, MP4 atoms for m4a/AAC, Vorbis comments + PICTURE for FLAC). The device's own music player, the file browser, and Phase 34's device-import scan all read a complete, correctly-grouped library instead of a wall of untitled files. Any individual field the app does not know (and an unfetchable cover) is simply omitted — never a placeholder, never a corrupt file.
+**Requirements**: TBD
+**Depends on:** Nothing hard. Shares an audio-tag codec with Phase 34 (34 READS the tags this phase WRITES) — whichever is planned first owns the module.
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 36 to break down)
