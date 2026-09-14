@@ -15,10 +15,13 @@ import {
 	NAME_TR_PREFIX,
 	SETTINGS_KEY,
 	UNDO_KEY,
+	applyEnvelope,
 	backupFilename,
 	buildEnvelope,
+	hasUndoSnapshot,
 	serializeEnvelope,
 	storageKeys,
+	undoImport,
 	validateEnvelope,
 	type BackupEnvelope
 } from './backup-logic';
@@ -249,6 +252,133 @@ describe('array guard', () => {
 
 	it('rejects a non-object library payload outright', () => {
 		expect(validateEnvelope(okEnvelope({ [LIBRARY_KEY]: [] }))).toEqual({ ok: false, reason: 'damaged' });
+	});
+});
+
+// ---------------------------------------------------------------------------------------------
+// Apply / undo (35-D-08, 35-D-09, 35-D-10). Two in-memory Storage objects, passed as ARGUMENTS —
+// the stub shape is settings-persist.svelte.test.ts:11-22 verbatim, with no vi.stubGlobal because
+// nothing under test reaches for a global.
+// ---------------------------------------------------------------------------------------------
+
+/** `failSetItemOn: 2` throws on the SECOND setItem only, so a rollback write still succeeds. */
+function makeStore(entries: Record<string, string> = {}, opts: { failSetItemOn?: number; failEverySetItem?: boolean } = {}) {
+	const map = new Map<string, string>(Object.entries(entries));
+	let writes = 0;
+	const store: Storage = {
+		get length() {
+			return map.size;
+		},
+		clear: () => map.clear(),
+		getItem: (k: string) => (map.has(k) ? (map.get(k) as string) : null),
+		key: (i: number) => Array.from(map.keys())[i] ?? null,
+		removeItem: (k: string) => void map.delete(k),
+		setItem: (k: string, v: string) => {
+			writes++;
+			if (opts.failEverySetItem || writes === opts.failSetItemOn) throw new Error('QuotaExceededError');
+			map.set(k, String(v));
+		}
+	};
+	return { map, store };
+}
+
+/** A backup that came from ANOTHER device — deliberately disjoint from `seed()`. */
+function importedEnvelope(): BackupEnvelope {
+	const source: Record<string, string> = {
+		[LIBRARY_KEY]: JSON.stringify({ liked: [{ uid: 'qq:9' }], playlists: [], downloads: [], favArtists: [] }),
+		[HISTORY_KEY]: JSON.stringify([]),
+		[SEARCH_HISTORY_KEY]: JSON.stringify([{ query: 'imported', ts: 2 }]),
+		[SETTINGS_KEY]: JSON.stringify({ appLang: 'en' }),
+		'openmusic:name-tr:v2:fr': JSON.stringify({ Foo: 'Fou' })
+	};
+	return buildEnvelope(readerFor(source), Object.keys(source), new Date('2026-09-13T00:00:00Z'));
+}
+
+function liveSeed(): Record<string, string> {
+	return { ...seed(), 'openmusic:name-tr:v2:ja': JSON.stringify({ Foo: 'フー' }) };
+}
+
+describe('atomic', () => {
+	it('writes NOTHING when the snapshot cannot be stored (35-D-09: no safety net, no import)', () => {
+		const live = makeStore(liveSeed());
+		const undo = makeStore({}, { failEverySetItem: true });
+		const before = Object.fromEntries(live.map);
+		expect(applyEnvelope(importedEnvelope(), live.store, undo.store)).toBe('no-snapshot');
+		expect(Object.fromEntries(live.map)).toEqual(before);
+	});
+
+	it('REPLACES the 35-D-01 families and leaves every other key untouched', () => {
+		const live = makeStore(liveSeed());
+		const undo = makeStore();
+		const before = Object.fromEntries(live.map);
+		expect(applyEnvelope(importedEnvelope(), live.store, undo.store)).toBe('ok');
+		expect(live.map.get(LIBRARY_KEY)).toBe(JSON.stringify({ liked: [{ uid: 'qq:9' }], playlists: [], downloads: [], favArtists: [] }));
+		expect(live.map.get('openmusic:name-tr:v2:fr')).toBe(JSON.stringify({ Foo: 'Fou' }));
+		// Replace, not merge: name-tr languages absent from the file are gone.
+		expect(live.map.has('openmusic:name-tr:v2:ja')).toBe(false);
+		expect(live.map.has('openmusic:name-tr:v2:zh-Hant')).toBe(false);
+		for (const untouched of ['openmusic:player:v1', 'openmusic:cover-cache:v1', 'openmusic:diag:v1', 'openmusic-blob-uri:kuwo:1']) {
+			expect(live.map.get(untouched)).toBe(before[untouched]);
+		}
+	});
+
+	it('restores the snapshot and keeps it when a write fails midway', () => {
+		const live = makeStore(liveSeed(), { failSetItemOn: 2 });
+		const undo = makeStore();
+		const before = Object.fromEntries(live.map);
+		expect(applyEnvelope(importedEnvelope(), live.store, undo.store)).toBe('write-failed');
+		expect(Object.fromEntries(live.map)).toEqual(before);
+		expect(undo.store.getItem(UNDO_KEY)).not.toBeNull();
+	});
+
+	it('stores the snapshot in the SAME envelope shape an export produces (35-D-09: no second serializer)', () => {
+		const live = makeStore(liveSeed());
+		const undo = makeStore();
+		const before = Object.fromEntries(live.map);
+		expect(applyEnvelope(importedEnvelope(), live.store, undo.store)).toBe('ok');
+		const snapshot = validateEnvelope(undo.store.getItem(UNDO_KEY) as string);
+		expect(snapshot.ok).toBe(true);
+		if (snapshot.ok) {
+			expect(snapshot.envelope.keys[LIBRARY_KEY]).toEqual(JSON.parse(before[LIBRARY_KEY]));
+			expect(snapshot.envelope.keys['openmusic:name-tr:v2:ja']).toEqual(JSON.parse(before['openmusic:name-tr:v2:ja']));
+			expect('openmusic:player:v1' in snapshot.envelope.keys).toBe(false);
+		}
+	});
+});
+
+describe('undo', () => {
+	it('reports a snapshot only once one exists', () => {
+		const live = makeStore(liveSeed());
+		const undo = makeStore();
+		expect(hasUndoSnapshot(undo.store)).toBe(false);
+		applyEnvelope(importedEnvelope(), live.store, undo.store);
+		expect(hasUndoSnapshot(undo.store)).toBe(true);
+	});
+
+	it('restores the pre-import bytes and clears the snapshot', () => {
+		const live = makeStore(liveSeed());
+		const undo = makeStore();
+		const before = Object.fromEntries(live.map);
+		applyEnvelope(importedEnvelope(), live.store, undo.store);
+		expect(undoImport(live.store, undo.store)).toBe('ok');
+		expect(Object.fromEntries(live.map)).toEqual(before);
+		expect(undo.store.getItem(UNDO_KEY)).toBeNull();
+	});
+
+	it('is a no-op when no snapshot was ever taken', () => {
+		const live = makeStore(liveSeed());
+		const before = Object.fromEntries(live.map);
+		expect(undoImport(live.store, makeStore().store)).toBe('no-snapshot');
+		expect(Object.fromEntries(live.map)).toEqual(before);
+	});
+
+	it('discards an unreadable snapshot instead of writing garbage back', () => {
+		const live = makeStore(liveSeed());
+		const undo = makeStore({ [UNDO_KEY]: 'garbage' });
+		const before = Object.fromEntries(live.map);
+		expect(undoImport(live.store, undo.store)).toBe('no-snapshot');
+		expect(Object.fromEntries(live.map)).toEqual(before);
+		expect(undo.store.getItem(UNDO_KEY)).toBeNull();
 	});
 });
 
