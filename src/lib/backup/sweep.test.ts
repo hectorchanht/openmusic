@@ -21,9 +21,9 @@ const hasOnly = (...present: string[]) => vi.fn(async (uid: string) => present.i
 describe('sweepMissing', () => {
 	it('skips uids whose bytes are already here and downloads the rest', async () => {
 		const has = hasOnly('kuwo:1', 'kuwo:3');
-		const download = vi.fn(async (): Promise<DownloadResult> => 'saved');
+		const download = vi.fn(async (_track: Track): Promise<DownloadResult> => 'saved');
 		const res = await sweepMissing(tracks, { has, download, delayMs: 0 });
-		expect(download.mock.calls.map((c) => (c[0] as Track).uid)).toEqual(['kuwo:2', 'kuwo:4', 'kuwo:5']);
+		expect(download.mock.calls.map((c) => c[0].uid)).toEqual(['kuwo:2', 'kuwo:4', 'kuwo:5']);
 		expect(res).toEqual({ saved: 3, failed: 0, skipped: 2, stopped: false });
 	});
 
