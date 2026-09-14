@@ -161,3 +161,13 @@ None. Every file touched is inside the plan's declared threat model: `validateEn
 - Plan 03/04 must pass the **per-tab** Storage as `undo`. Passing the persistent store would reintroduce the quota hazard this plan's storage split exists to avoid.
 - 35-VALIDATION.md's open risk stands: that the per-tab store survives `location.reload()` in the Capacitor WebView is a standards expectation, unverified on this stack. Probe it before shipping the Undo affordance (plan 04).
 - `validateEnvelope` treats `openmusic:library:tab` (a machine-local UI key) as an unknown version of the `openmusic:library:` domain, so a hand-edited file containing it would list it in `skipped`. Harmless — it is never exported — but worth knowing if a skipped-key message ever looks odd.
+
+## Self-Check: PASSED
+
+All three source artifacts and this SUMMARY exist on disk; all six commits (`28d85a8`, `36523a4`, `3f6c743`, `f803d17`, `282ba63`, `f46613c`) resolve in `git log`.
+
+## STATE.md concurrency note
+
+`.planning/STATE.md` carries a SINGLE position cursor, and at execution time it read `Phase: 36 … Plan: 2 of 5` — the other session's phase. Running `state.advance-plan` therefore moved **Phase 36's** pointer to `3 of 5`. That line was reverted by hand immediately; phase 35 did not claim the cursor. Everything else recorded here is additive and non-colliding: the `Phase 35 P01` metrics row, the Phase 35 decision entry, the global `completed_plans` 53 → 54, and the ROADMAP Phase 35 row (`1/6 plans executed`, `35-01` checked).
+
+Worth fixing upstream: with two sessions executing different phases in one working tree, `state.advance-plan` mutates whichever phase the cursor happens to point at, with no phase argument to guard it.

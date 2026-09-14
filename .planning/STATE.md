@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: YTMusic-Powered Up-Next
 status: executing
-stopped_at: Phase 35 planned — 6 plans, 3 waves
-last_updated: "2026-09-14T01:13:50.975Z"
+stopped_at: Completed 35-01-PLAN.md (backup codec core)
+last_updated: "2026-09-14T01:20:25.493Z"
 last_activity: 2026-09-14
 progress:
   total_phases: 12
   completed_phases: 6
   total_plans: 80
-  completed_plans: 53
+  completed_plans: 54
   percent: 50
 ---
 
@@ -150,6 +150,7 @@ Remaining human UAT: real-device <audio> playback+seek + download-to-disk; deplo
 | Phase 33 P05 | 5min | 1 tasks | 1 files |
 | Phase 33 P06 | 15min | 2 tasks | 1 files |
 | Phase 36 P01 | 9min | 2 tasks | 7 files |
+| Phase 35 P01 | 25m | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -269,6 +270,7 @@ Recent decisions affecting current work:
 - [Phase ?]: 33-06: openmusic is hosted under Cloudflare user f147259@gmail.com (account f1868a07…), not frank.chan@flowtheroom.com — this machine's wrangler login now points there; Flow-account work needs another wrangler login
 - [Phase ?]: 36-01: NEVER auto-bump taglib-wasm — pinned at exactly 2.2.2 (no range); a wasm version change is a review event, not a pnpm update (T-36-01)
 - [Phase ?]: 36-01: Node 24 across .nvmrc/engines/3 workflows; .npmrc engine-strict=true kept. Cloudflare Pages NODE_VERSION=24 env var is a pending human dashboard action (non-blocking)
+- [Phase 35]: 35-01: the import rollback snapshot lives in the per-tab Storage, never the persistent one — the 5 live keys already hold ~740 KB of a ~5 MB origin budget and library.save()'s quota catch is silent — A snapshot that overflows quota would fail invisibly and take the live data with it; applyEnvelope refuses the import outright when the snapshot cannot be stored (35-D-09)
 
 ### Pending Todos
 
@@ -463,8 +465,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-14T01:13:45.433Z
-Stopped at: Phase 35 planned — 6 plans, 3 waves
+Last session: 2026-09-14T01:20:25.481Z
+Stopped at: Completed 35-01-PLAN.md (backup codec core)
 Resume: run 32-08-PLAN.md (device checkpoints). **32-07 closed VALIDATION #6 and the v2 half of #3, and BLOCKED two v3 walks — 32-08 must pick them up.** PROVEN LIVE on the deployed workerd edge (https://openmusic.lol, which is already running 32-04): cold GET `{"hit":false}` -> warm GET `{"hit":true}` with a qq `songid`, NO `url` field, `avail.qq:"ok"`; 9/9 warm hits across the YVR and SEA PoPs; POST bust `{"busted":true}` -> miss -> unattended re-fill -> hit (the 32-D-10a repair path works); `Cache-Control: no-store` on every route response (31-D-09 intact). BLOCKED, carry to 32-08: the two 32-D-20 v3 url-layer walks — (1) stale-url -> refresh, (2) bust -> miss -> mid-only -> url-warm — because v3 is on `main` but NOT deployed (the live entries carry no `url` keys, while v3's fill emits explicit nulls), and no preview server could be started here. Exact commands are in 32-07-SUMMARY.md § Task 2; run `pnpm build && pnpm preview` (NOT `pnpm dev` — `edgeCache()` returns null there) or `pnpm run deploy` (NEVER bare `pnpm deploy`). Expect every warm entry to miss once on the v2->v3 key rollover; that is by design. Folded todo `edge-resolve-cache-returns-miss.md` RESOLVED and moved to completed/ — root cause was the probe using `?artist=&title=` when the route has only ever read `a`/`t`, so it hit the `if (!a && !t)` zero-touch short-circuit and never consulted the cache. Still outstanding from Phase 30, unchanged: install `android/app/build/outputs/apk/debug/app-debug.apk` on an Android device, open `/song/Olivia-Dean/Man-I-Need` (proven to return a real 30,840 B JPEG from production), confirm the cover renders rather than a broken image, then kill the network and confirm the gradient fallback appears. That single check closes 30-06 and Phase 30. Do NOT run `/gsd:verify-work` for Phase 30 until it is approved — OG-PAGE-01 terminates in it. Optional, non-blocking leftovers: iMessage/Slack cards, and real 24h cache TTL/eviction.
 
 ## Deferred Items
