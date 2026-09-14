@@ -235,3 +235,84 @@ export function parseFilename(
 	// 34-D-16 fallback: nothing matched (or the user turned every preset off) — the stem IS the title.
 	return { title: stem, artist: '' };
 }
+
+// ─── The custom-pattern escape hatch: save-time ReDoS probe (RESEARCH Pitfall 8, layer 1) ────────
+//
+// A user-typed regex is the only untrusted input in this module, and it runs over thousands of
+// attacker-influenceable filenames on the single-threaded WebView. JS RegExp has no timeout, there
+// are no Web Workers (CLAUDE.md architectural constraint), and a runtime dependency is forbidden
+// (`safe-regex` / `recheck` were explicitly rejected). So the defence is three cheap layers:
+//   1. THIS — compile, require a named group, and time a small adversarial battery at SAVE time.
+//   2. A cumulative scan budget with preset fallback in device-import.ts (Plan 34-06).
+//   3. The presets above are fixed audited patterns, never user input.
+//
+// WHY 24 CHARS AND 25 ms. A well-behaved pattern finishes the whole battery in microseconds, so the
+// budget has enormous headroom and cannot produce a false rejection. A catastrophic pattern like
+// `(a+)+$` takes roughly 2^24 backtracking steps on 24 characters — hundreds of milliseconds, well
+// over budget but BOUNDED, so the probe itself can never hang. The same pattern on a real 200-char
+// filename would be ~2^200, i.e. never. That asymmetry is the whole trick: keep the probe input
+// short enough to be measurable and long enough to be exponential. Each battery string ends in `!`
+// because it is the FAILING match that forces the backtracking; a string that matches returns early.
+
+/** Wall-clock budget for the whole probe battery. Over this → the pattern is refused at save time. */
+export const PATTERN_PROBE_BUDGET_MS = 25;
+
+/** Length of each adversarial probe string, before its trailing `!`. */
+export const PATTERN_PROBE_LEN = 24;
+
+export type PatternRejection = 'invalid' | 'no-groups' | 'too-slow';
+
+/** The named groups parseFilename knows how to consume. At least one must be present. */
+const NAMED_GROUP = /\(\?<(title|artist|album|track)>/;
+
+/** Build the probe battery: generic adversarial shapes plus one string made from the pattern's own
+ *  literal characters, so a pattern tuned to its own alphabet still gets a worst-case input. */
+function probeBattery(src: string): string[] {
+	const literals = src.replace(/[\\^$.*+?()[\]{}|]/g, '') || 'a';
+	const fromSrc = literals.repeat(Math.ceil(PATTERN_PROBE_LEN / literals.length)).slice(0, PATTERN_PROBE_LEN);
+	return [
+		'a'.repeat(PATTERN_PROBE_LEN) + '!',
+		'a '.repeat(PATTERN_PROBE_LEN / 2) + '!',
+		'ab'.repeat(PATTERN_PROBE_LEN / 2) + '!',
+		'-'.repeat(PATTERN_PROBE_LEN) + '!',
+		'1. '.repeat(PATTERN_PROBE_LEN / 3) + '!',
+		fromSrc + '!'
+	];
+}
+
+/**
+ * 34-D-12: validate a user-typed custom pattern before it is ever saved or run over a library.
+ *
+ * All three rejections are NON-DESTRUCTIVE at the call site (UI-SPEC contract 6): the typed text
+ * stays in the field, the last valid pattern stays in force, and the Import CTA stays enabled — a
+ * bad regex must never block D-14's "one tap and it works".
+ *
+ * ponytail: a pattern that is polynomial at 24 chars but exponential later slips through layer 1 —
+ * layer 2 (device-import.ts PATTERN_SCAN_BUDGET_MS) bounds that to one run's budget.
+ */
+export function validateCustomPattern(
+	src: string
+): { ok: true; re: RegExp } | { ok: false; reason: PatternRejection } {
+	// Empty is "no custom pattern", not a valid one — the caller clears the rule instead of saving ''.
+	if (src.trim() === '') return { ok: false, reason: 'invalid' };
+
+	let re: RegExp;
+	try {
+		// NO FLAGS, deliberately. A `g` flag carries a stateful `lastIndex` across calls, so exec()
+		// would silently skip every second filename in the scan loop.
+		re = new RegExp(src);
+	} catch {
+		return { ok: false, reason: 'invalid' };
+	}
+
+	if (!NAMED_GROUP.test(src)) return { ok: false, reason: 'no-groups' };
+
+	const t0 = performance.now(); // global in Node >= 16 and every browser — no import needed
+	for (const s of probeBattery(src)) {
+		re.test(s);
+		// Checked after EVERY string, not once at the end: the first catastrophic probe must abort
+		// the battery rather than be repeated five more times.
+		if (performance.now() - t0 > PATTERN_PROBE_BUDGET_MS) return { ok: false, reason: 'too-slow' };
+	}
+	return { ok: true, re };
+}
