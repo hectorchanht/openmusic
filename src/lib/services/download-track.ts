@@ -33,7 +33,7 @@ import { hasFreshAudioUrl } from '$lib/services/track-ready';
 import { blobStore } from '$lib/services/blob-store';
 import { saveBlobToDisk } from '$lib/services/download-save';
 import { readBlobWithProgress } from '$lib/services/download-progress';
-import { buildDownloadFilename, extFromAudioUrl } from '$lib/services/download-filename';
+import { audioMimeForUrl, buildDownloadFilename, extFromAudioUrl } from '$lib/services/download-filename';
 
 /** 'saved' = blob fetched + saved to disk; 'no-audio' = nothing to download; 'failed' = fetch/save error. */
 export type DownloadResult = 'saved' | 'no-audio' | 'failed';
@@ -111,8 +111,15 @@ export async function downloadTrack(
 		// row can show REAL progress. Same one fetch, same one pass over the bytes — progress is a
 		// side effect of the read we were already doing. Without a Content-Length the helper falls
 		// back to `resp.blob()` and reports nothing, so the row keeps its indeterminate spinner.
-		const blob = await readBlobWithProgress(resp, (fraction) =>
-			library.setDownloadProgress(track.uid, fraction)
+		//
+		// quick-260913-tmi: the type is derived from the audio URL, NOT from the response header — the
+		// qq CDN serves audio as `application/x-www-form-urlencoded`, and `resp.blob()` was stamping
+		// that onto the saved file and the offline copy. Threaded in so the streaming path builds the
+		// Blob with the right type from the start rather than re-wrapping tens of MB afterwards.
+		const blob = await readBlobWithProgress(
+			resp,
+			(fraction) => library.setDownloadProgress(track.uid, fraction),
+			{ type: audioMimeForUrl(r.audioUrl, resp.headers?.get?.('content-type')) }
 		);
 
 		// DL-FILE-01 (D-05/D-06/D-07): controlled, translated filename `{artist} - {song}.{ext}`. The

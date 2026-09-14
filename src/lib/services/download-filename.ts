@@ -25,6 +25,41 @@ export function extFromAudioUrl(audioUrl: string | null): string {
 	return (audioUrl?.split('?')[0].match(AUDIO_EXT)?.[1] ?? 'mp3').toLowerCase();
 }
 
+// quick-260913-tmi: ext → audio MIME. Covers exactly the AUDIO_EXT set above, so the two vocabularies
+// cannot drift. m4a/aac in an MP4 container are `audio/mp4`; a bare ADTS `.aac` is `audio/aac`.
+const AUDIO_MIME: Record<string, string> = {
+	mp3: 'audio/mpeg',
+	flac: 'audio/flac',
+	m4a: 'audio/mp4',
+	aac: 'audio/aac',
+	ogg: 'audio/ogg',
+	wav: 'audio/wav'
+};
+
+/**
+ * quick-260913-tmi: the MIME type a downloaded blob should carry, given the resolved audio URL and
+ * whatever the response's `Content-Type` header claimed.
+ *
+ * WHY THIS EXISTS. The qq CDN serves audio as `application/x-www-form-urlencoded`. `resp.blob()`
+ * takes its type straight from that header, so a 24MB m4a was being persisted to IndexedDB and
+ * handed to `<a download>` labelled as a form body. Playback survived only because browsers sniff
+ * the bytes; that is luck, not a contract, and the saved file carries the wrong type to whatever
+ * opens it next.
+ *
+ * POLICY: trust the header ONLY when it already looks like audio — a correct `audio/mpeg` on an
+ * `.mp3` agrees with the derived value anyway, so deferring to it costs nothing and keeps a CDN
+ * that knows better (a subtype we do not model) authoritative. Otherwise derive from the URL's
+ * container extension, which is what the filename and the OS will go by. Unknown extension falls
+ * back through `extFromAudioUrl`'s 'mp3' default, so this always returns a real audio type.
+ *
+ * Pure and store-free, like the rest of this module.
+ */
+export function audioMimeForUrl(audioUrl: string | null, headerType?: string | null): string {
+	const claimed = (headerType ?? '').split(';')[0].trim().toLowerCase();
+	if (claimed.startsWith('audio/')) return claimed;
+	return AUDIO_MIME[extFromAudioUrl(audioUrl)] ?? 'audio/mpeg';
+}
+
 /**
  * D-05/D-08: compose `${artist} - ${title}.${ext}` then strip filesystem-unsafe chars. `artist`
  * and `title` MUST already be run through `names.dn*` by the caller (D-05/D-07 raw fallback) — this

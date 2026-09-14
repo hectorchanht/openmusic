@@ -119,3 +119,44 @@ describe('readBlobWithProgress — indeterminate transfer (falls back, reports n
 		expect(blob.size).toBe(10);
 	});
 });
+
+// quick-260913-tmi — the upstream Content-Type is not trustworthy (the qq CDN sends
+// application/x-www-form-urlencoded for audio), so the caller derives a type from the audio URL and
+// threads it in. The streaming path must build the Blob with it directly — re-wrapping tens of MB
+// afterwards is exactly what the option avoids.
+describe('readBlobWithProgress — caller-supplied media type', () => {
+	it('stamps the caller type on the streamed blob, overriding a junk Content-Type', async () => {
+		const resp = fakeResponse([chunk(12)], {
+			'content-length': '12',
+			'content-type': 'application/x-www-form-urlencoded'
+		});
+		const blob = await readBlobWithProgress(resp, () => {}, { type: 'audio/mp4' });
+		expect(blob.type).toBe('audio/mp4');
+		expect(blob.size).toBe(12);
+	});
+
+	it('applies the caller type on the indeterminate fallback path too', async () => {
+		const resp = fakeResponse([chunk(12)], { 'content-type': 'application/x-www-form-urlencoded' });
+		const blob = await readBlobWithProgress(resp, () => {}, { type: 'audio/flac' });
+		expect(blob.type).toBe('audio/flac');
+		expect(blob.size).toBe(12);
+	});
+
+	it('returns the SAME blob object on the fallback path when the type already matches (no re-wrap)', async () => {
+		const resp = fakeResponse([chunk(12)], { 'content-type': 'audio/mpeg' });
+		const first = await resp.blob();
+		const resp2 = {
+			headers: resp.headers,
+			body: null,
+			blob: async () => first
+		} as unknown as Response;
+		const blob = await readBlobWithProgress(resp2, () => {}, { type: 'audio/mpeg' });
+		expect(blob).toBe(first);
+	});
+
+	it('keeps the response type when no override is supplied (unchanged behaviour)', async () => {
+		const resp = fakeResponse([chunk(12)], { 'content-length': '12', 'content-type': 'audio/ogg' });
+		const blob = await readBlobWithProgress(resp, () => {});
+		expect(blob.type).toBe('audio/ogg');
+	});
+});

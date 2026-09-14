@@ -136,9 +136,17 @@ describe('downloadTrack — happy path (non-current re-resolve → saved)', () =
 		expect(mocks.library.addDownload).toHaveBeenCalledWith(resolved);
 		// RAW fetch of the resolved absolute CDN URL
 		expect(f).toHaveBeenCalledWith('https://cdn.example.com/song.flac');
-		// human filename threaded to BOTH the offline blob and the save seam
-		expect(mocks.put).toHaveBeenCalledWith('netease-1', blob, 'Artist - Song.flac');
-		expect(mocks.saveBlobToDisk).toHaveBeenCalledWith(blob, 'Artist - Song.flac');
+		// human filename threaded to BOTH the offline blob and the save seam. quick-260913-tmi: the
+		// blob is no longer the fetched object by IDENTITY — it is re-typed from the audio URL's
+		// container extension because the upstream Content-Type cannot be trusted — so assert on the
+		// bytes, the type and the filename, which is what those two seams actually consume.
+		const [putUid, putBlob, putName] = mocks.put.mock.calls[0];
+		expect([putUid, putName]).toEqual(['netease-1', 'Artist - Song.flac']);
+		expect(putBlob.size).toBe(blob.size);
+		expect(putBlob.type).toBe('audio/flac');
+		const [saveBlob, saveName] = mocks.saveBlobToDisk.mock.calls[0];
+		expect(saveName).toBe('Artist - Song.flac');
+		expect(saveBlob).toBe(putBlob); // the SAME blob reaches disk and the offline cache
 		// begin/end bracket
 		expect(mocks.library.beginDownload).toHaveBeenCalledWith('netease-1');
 		expect(mocks.library.endDownload).toHaveBeenCalledWith('netease-1');
@@ -337,5 +345,61 @@ describe('downloadTrack — import contract (node compile safety + DL-BUG-01)', 
 		expect(src).not.toContain('$lib/i18n');
 		expect(src).not.toContain('$lib/stores/toast');
 		expect(src).not.toContain('window.open');
+	});
+});
+
+// quick-260913-tmi — the qq CDN serves audio as `application/x-www-form-urlencoded`. `resp.blob()`
+// took its type straight from that header, so a 24MB m4a was persisted to IndexedDB and handed to
+// `<a download>` labelled as a form body; playback survived only because browsers sniff the bytes.
+// downloadTrack now derives the type from the resolved URL and threads it into the read.
+describe('downloadTrack — media type is derived, not trusted (quick-260913-tmi)', () => {
+	function stubFetchWithHeaders(blob: Blob, headers: Record<string, string>) {
+		const f = vi.fn(async (_url: string) => ({
+			ok: true,
+			headers: { get: (k: string) => headers[k.toLowerCase()] ?? null },
+			body: null,
+			blob: async () => blob
+		}));
+		vi.stubGlobal('fetch', f);
+		return f;
+	}
+
+	it('overrides a junk upstream Content-Type with the type implied by the audio URL', async () => {
+		mocks.ensureTrackDetails.mockResolvedValue(
+			mk({
+				uid: 'qq-1',
+				artist: 'Tame Impala',
+				title: 'Dracula',
+				audioUrl: 'https://isure6.stream.qqmusic.qq.com/C600002xIMbb0urBTq.m4a?guid=1&vkey=72BC34',
+				detailsLoaded: true
+			})
+		);
+		stubFetchWithHeaders(new Blob(['audio'], { type: 'application/x-www-form-urlencoded' }), {
+			'content-type': 'application/x-www-form-urlencoded'
+		});
+
+		expect(await downloadTrack(mk({ uid: 'qq-1', audioUrl: null, detailsLoaded: false }))).toBe('saved');
+
+		const [, storedBlob, storedName] = mocks.put.mock.calls[0];
+		expect(storedBlob.type).toBe('audio/mp4');
+		// the filename's extension and the media type now agree
+		expect(storedName).toBe('Tame Impala - Dracula.m4a');
+	});
+
+	it('leaves a correct upstream audio Content-Type alone', async () => {
+		mocks.ensureTrackDetails.mockResolvedValue(
+			mk({
+				uid: 'netease-2',
+				artist: 'A',
+				title: 'B',
+				audioUrl: 'https://cdn.example.com/song.mp3',
+				detailsLoaded: true
+			})
+		);
+		stubFetchWithHeaders(new Blob(['audio'], { type: 'audio/mpeg' }), { 'content-type': 'audio/mpeg' });
+
+		await downloadTrack(mk({ uid: 'netease-2', audioUrl: null, detailsLoaded: false }));
+
+		expect(mocks.put.mock.calls[0][1].type).toBe('audio/mpeg');
 	});
 });

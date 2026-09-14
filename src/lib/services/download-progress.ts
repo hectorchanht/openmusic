@@ -31,18 +31,28 @@
  * callback without it costing anything. It is called with 1 only via the clamp below; the caller
  * should treat completion as "the promise resolved", not "progress reached 1".
  *
+ * `opts.type` overrides the media type of the returned Blob (quick-260913-tmi). Callers pass the
+ * type derived from the audio URL's container extension because the upstream `Content-Type` cannot
+ * be trusted — the qq CDN serves audio as `application/x-www-form-urlencoded`. Omitted → the
+ * response's own type, as before.
+ *
  * Never throws on its own account: a mid-stream read error propagates to the caller, which already
  * owns the never-throws boundary (download-track's D-17 try/catch → 'failed').
  */
 export async function readBlobWithProgress(
 	resp: Response,
-	onProgress: (fraction: number) => void
+	onProgress: (fraction: number) => void,
+	opts?: { type?: string }
 ): Promise<Blob> {
 	const total = Number(resp.headers?.get?.('content-length') ?? '');
 	const body = resp.body;
 	// Indeterminate: no honest fraction to report → today's behaviour, untouched.
 	if (!Number.isFinite(total) || total <= 0 || !body || typeof body.getReader !== 'function') {
-		return resp.blob();
+		const blob = await resp.blob();
+		// quick-260913-tmi: `resp.blob()` types itself from Content-Type, which some CDNs get wrong.
+		// Re-wrap ONLY when the caller's type actually differs — a needless re-wrap would allocate a
+		// second reference to tens of MB for nothing.
+		return opts?.type && blob.type !== opts.type ? new Blob([blob], { type: opts.type }) : blob;
 	}
 
 	const reader = body.getReader();
@@ -65,6 +75,9 @@ export async function readBlobWithProgress(
 		}
 	}
 
-	// Preserve the content type so the saved file and the offline blob keep their media type.
-	return new Blob(chunks, { type: resp.headers?.get?.('content-type') ?? '' });
+	// quick-260913-tmi: the caller's `type` wins when supplied — it is derived from the audio URL's
+	// container extension precisely because the upstream Content-Type cannot be trusted. Constructing
+	// the Blob with it here is free (we were building this Blob anyway), so the main path never pays
+	// for a re-wrap. No override → keep the response's own type, as before.
+	return new Blob(chunks, { type: opts?.type ?? resp.headers?.get?.('content-type') ?? '' });
 }
