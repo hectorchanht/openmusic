@@ -382,13 +382,13 @@ Plans:
 **Goal:** One button in Settings > Data exports every piece of user state — liked songs / library, play history, search history, settings, names, cover cache — into a single portable file, and one button imports it back, restoring the app on a new device or after a wipe. Round-trip is lossless and version-tagged, and an import from a newer or corrupt file fails safe instead of half-writing.
 **Requirements**: D-01..D-18 (see `35-CONTEXT.md` — no REQ- IDs assigned; the decision refs are the requirements)
 **Depends on:** Nothing (independent — localStorage/store serialization only)
-**Plans:** 2/6 plans executed
+**Plans:** 3/6 plans executed
 
 Plans:
 
 - [x] 35-01 — Envelope build/validate/apply/undo, pure core + tests (wave 1)
 - [x] 35-02 — 22 `backup.*` i18n keys across all 15 dictionaries (wave 1)
-- [ ] 35-03 — `@capacitor/share`, platform-split `backup-io.ts`, sequential sweep (wave 1)
+- [x] 35-03 — `@capacitor/share`, platform-split `backup-io.ts`, sequential sweep (wave 1)
 - [ ] 35-04 — Settings → Data: Export / Import / Undo / Re-download missing (wave 2)
 - [ ] 35-05 — Android APK checkpoints: picker, share sheet, sessionStorage A4 probe (wave 3, human)
 - [ ] 35-06 — Real-iPhone export/import checkpoint (wave 3, human)

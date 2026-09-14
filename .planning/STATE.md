@@ -154,6 +154,7 @@ Remaining human UAT: real-device <audio> playback+seek + download-to-disk; deplo
 | Phase 36 P02 | 11min | 3 tasks | 7 files |
 | Phase 35 P02 | ~20 min | 2 tasks | 15 files |
 | Phase 36 P03 | 6min | 3 tasks | 4 files |
+| Phase 35 P03 | 12min | 3 tasks | 8 files |
 
 ## Accumulated Context
 
