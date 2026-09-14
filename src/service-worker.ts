@@ -12,7 +12,16 @@ import { shouldBypass, cacheNameFor } from '$lib/services/sw-cache';
 const sw = globalThis.self as unknown as ServiceWorkerGlobalScope;
 
 const CACHE = cacheNameFor(version); // `cache-${version}` — rotates per deploy (T-24-02)
-const ASSETS = [...build, ...files]; // app bundle + static/ files
+// app bundle + static/ files, MINUS any .wasm.
+//
+// 36-D-01 / RESEARCH Pitfall 9: the taglib wasm is 686 kB (230 kB gzip) and is needed ONLY by a user
+// who presses Download — it is behind a dynamic import precisely so nobody else pays for it. But
+// SvelteKit lists emitted assets in `build`, so `cache.addAll(ASSETS)` would re-download it on every
+// install AND on every deploy (the cache name rotates per version), for every PWA user, most of whom
+// never download a song. Excluded here; the runtime fetch branch below still caches it on first use,
+// since it is a same-origin basic 200. If a future build stops emitting a .wasm, the filter is simply
+// a no-op — correct in both worlds.
+const ASSETS = [...build, ...files].filter((p) => !p.endsWith('.wasm'));
 
 // install — precache the app shell into the version-keyed cache.
 sw.addEventListener('install', (event) => {
