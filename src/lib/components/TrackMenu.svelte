@@ -32,6 +32,7 @@
 	// SAME shared reactive cache every other surface reads, plus the retained iTunes id.
 	import { readCoverByUidOrName } from '$lib/stores/cover-version.svelte';
 	import { recallItunesId } from '$lib/services/itunes-cover';
+	import { isDeviceUid } from '$lib/services/device-track';
 	import type { Track } from '$lib/sources/types';
 
 	// `loading` = the menu opened on a discovery STUB and is still resolving the real Track
@@ -42,6 +43,7 @@
 	let pickerOpen = $state(false);
 	let detailTrack = $state<Track | null>(null);
 	const liked = $derived(track ? library.isLiked(track.uid) : false);
+	const isDevice = $derived(!!track && isDeviceUid(track.uid));
 
 	// Gap 4 (26-10): a lazily-fed VersionPicker reachable from the long-press menu — "Play from
 	// source". A queued/played song carries only its own source, so the cross-source variants are
@@ -403,12 +405,19 @@
 				     Download is DELIBERATELY duplicated (header icon + list row): both call the SAME
 				     gated('download', doDownload) and read the SAME tri-state sources (inFlight +
 				     library.downloading / isDownloaded), so the two can never disagree (D-11/D-12). -->
-				{#if library.downloading.has(track.uid)}
-					<button class="hd-btn" disabled aria-busy="true" aria-label={t('menu.preparing')}><span class="row-spinner motion-always"></span></button>
-				{:else if blobPresent === true}
-					<button class="hd-btn" disabled aria-disabled="true" aria-label={t('menu.downloaded')}><Check size={20} /></button>
-				{:else}
-					<button class="hd-btn" aria-label={t('menu.download')} onclick={startDownload} use:tapBounce><Download size={20} /></button>
+				<!-- 34 (RESEARCH bites #10/#11, UI-SPEC Contract 8): Download and Share are HIDDEN for
+				     device: entries — downloading a file already on this phone and sharing a link to a
+				     file only on this phone are both nonsense. This is a NEW visibility condition;
+				     track-menu-gate.ts (isGatedReady/shouldStartResolve) is resolve TIMING and is
+				     deliberately not extended. -->
+				{#if !isDevice}
+					{#if library.downloading.has(track.uid)}
+						<button class="hd-btn" disabled aria-busy="true" aria-label={t('menu.preparing')}><span class="row-spinner motion-always"></span></button>
+					{:else if blobPresent === true}
+						<button class="hd-btn" disabled aria-disabled="true" aria-label={t('menu.downloaded')}><Check size={20} /></button>
+					{:else}
+						<button class="hd-btn" aria-label={t('menu.download')} onclick={startDownload} use:tapBounce><Download size={20} /></button>
+					{/if}
 				{/if}
 				<!-- NEW explicit Close affordance (today close is scrim/drag only). It ONLY flips
 				     state via close() → the $effect cleanup is the SOLE overlays.dismiss caller, so
@@ -452,6 +461,8 @@
 		     Otherwise GATED — resolve-then-act at settings.downloadQuality via downloadTrack. The busy
 		     state reads BOTH the gated stub-resolve (inFlight) AND the shared per-uid library.downloading
 		     set, so the row shows its spinner whether or not this menu stays open (D-12). -->
+		<!-- Hidden for device: entries — see the header fork's note. -->
+		{#if !isDevice}
 		{#if library.downloading.has(track.uid)}
 			<!-- quick-260913-omi: real byte progress, not a decorative animation. `downloadProgress`
 			     is absent until the first bytes land (and stays absent for a response with no
@@ -480,6 +491,7 @@
 		{:else}
 			<button class="mi" onclick={startDownload} use:tapBounce><Download size={18} /> {t('menu.download')}</button>
 		{/if}
+		{/if}
 		<!-- quick-260913-je8: the mid-list Like row is RESTORED (D-09 had removed it when Like owned
 		     the header accent slot — the header is Download now, so the only Like affordance has to
 		     live here). Same like() + `liked` derived as before; .mi.accent carries the liked tint so
@@ -492,7 +504,11 @@
 		     here, so the timer indicator is reachable from the nowbar + now-playing too (D-08). -->
 		<button class="mi" onclick={() => { close(); tick().then(() => (sleepTimer.sheetOpen = true)); }} use:tapBounce><Moon size={18} /> {t('menu.sleepTimer')}</button>
 		<button class="mi" onclick={gotoArtist} use:tapBounce><User size={18} /> {t('menu.goToArtist')}</button>
-		<button class="mi" onclick={doShare} use:tapBounce><Share2 size={18} /> {t('menu.share')}</button>
+		<!-- Hidden for device: entries — a share link to a file only on this phone is nonsense
+		     (and would emit a URL carrying a local uid). See the header fork's note. -->
+		{#if !isDevice}
+			<button class="mi" onclick={doShare} use:tapBounce><Share2 size={18} /> {t('menu.share')}</button>
+		{/if}
 		<!-- Detail: GATED — resolves details to populate the detail sheet's audioUrl/quality rows. -->
 		<button class="mi" aria-busy={inFlight.has('detail')} aria-label={inFlight.has('detail') ? t('menu.preparing') : undefined} onclick={() => gated('detail', doDetail)} use:tapBounce>
 			{#if inFlight.has('detail')}<span class="row-spinner motion-always"></span>{:else}<Info size={18} />{/if} {t('menu.detail')}

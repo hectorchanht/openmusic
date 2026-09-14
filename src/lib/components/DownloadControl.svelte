@@ -7,6 +7,9 @@
 	//   downloading → neutral spinner, disabled, aria-busy   (library.downloading.has(uid), plus a
 	//                 per-instance localBusy that also covers the album-stub resolve gap)
 	//   downloaded  → Check icon, greyed, disabled           (library.isDownloaded(uid))
+	//   unavailable → CircleAlert, #ff7a90, non-interactive (library.isUnavailable — 34-D-06; re-import
+	//                 is the fix, one tap away in Settings → Downloads; the badge does not try to be
+	//                 a button)
 	//
 	// DL-BUG-01: the tap NEVER window.open()s / showSaveFilePicker()s — downloadTrack owns save and
 	// returns a 'saved' | 'no-audio' | 'failed' sentinel we localize to a toast (never a media page).
@@ -18,7 +21,7 @@
 	// blob / native public folder this phase — 29-CONTEXT / RESEARCH Open Q2; only the human filename +
 	// the bug-fix apply). The resolved Track is cached so the greyed Downloaded state shows after a
 	// successful album-row save.
-	import { Download, Check } from '@lucide/svelte';
+	import { Download, Check, CircleAlert } from '@lucide/svelte';
 	import { library } from '$lib/stores/library.svelte';
 	import { toast } from '$lib/stores/toast.svelte';
 	import { tapBounce } from '$lib/actions/tapBounce';
@@ -49,6 +52,7 @@
 	const uid = $derived(resolved?.uid ?? track?.uid ?? '');
 	const isDownloaded = $derived(!!uid && library.isDownloaded(uid));
 	const isDownloading = $derived(localBusy || (!!uid && library.downloading.has(uid)));
+	const isUnavailable = $derived(!!uid && library.isUnavailable(uid));
 
 	async function run() {
 		if (isDownloaded || isDownloading) return;
@@ -79,7 +83,12 @@
 	}
 </script>
 
-{#if isDownloaded}
+{#if isDownloaded && isUnavailable}
+	<!-- 34-D-06: still a download, but its file is gone — same 40×40 footprint, louder glyph. -->
+	<span class="dc unavailable" aria-label={t('menu.unavailable')} title={t('menu.unavailable')}>
+		<CircleAlert size={18} />
+	</span>
+{:else if isDownloaded}
 	<!-- Downloaded: a non-interactive span (greyed, disabled-by-absence-of-onclick) — D-11 label. -->
 	<span class="dc downloaded" aria-label={t('menu.downloaded')} title={t('menu.downloaded')}>
 		<Check size={18} />
@@ -117,6 +126,12 @@
 		cursor: default;
 	}
 	.dc.busy {
+		cursor: default;
+	}
+	/* 34-D-06: full opacity against .downloaded's 0.4 — this one is meant to catch the eye. */
+	.dc.unavailable {
+		color: #ff7a90;
+		opacity: 1;
 		cursor: default;
 	}
 	/* Neutral inline resolve spinner (copied from TrackMenu .row-spinner) — NOT accent. quick-260809-mvz:
