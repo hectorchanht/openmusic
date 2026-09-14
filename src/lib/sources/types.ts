@@ -138,6 +138,9 @@ export interface SettledSourceResult {
  * Build the canonical track uid. D-10 COLON form, e.g. makeUid('netease','123') === 'netease:123'.
  * Every adapter's search() MUST emit uids via this helper so identity is uniform.
  */
-export function makeUid(source: SourceId, songid: string): string {
+// 34-D-01: 'device' is an identity NAMESPACE for imported files, not a SourceId — the registry
+// (SOURCES: Record<SourceId, …>) is deliberately NOT widened; only the uid helper accepts it so
+// device uids keep the colon-form contract without a cast.
+export function makeUid(source: SourceId | 'device', songid: string): string {
 	return `${source}:${songid}`;
 }
