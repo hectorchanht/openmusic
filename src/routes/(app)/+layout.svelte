@@ -12,6 +12,8 @@
 	import { swUpdate } from '$lib/stores/swUpdate.svelte';
 	import { LANDING_PATHS } from '$lib/services/home-layout';
 	import { overlays } from '$lib/stores/overlays.svelte';
+	import { deviceImport } from '$lib/stores/device-import.svelte';
+	import { toast } from '$lib/stores/toast.svelte';
 	import { t, type TranslationKey } from '$lib/i18n';
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import NowPlaying from '$lib/components/NowPlaying.svelte';
@@ -97,6 +99,24 @@
 				// Retry only when the store provides a recovery action (loop-guard); offline has none.
 				host = { kind: 'stopped', text, action: n.action };
 			}
+		});
+	});
+
+	// --- Device-import notice host (34) ------------------------------------------------------
+	// The second, much smaller store→UI channel, mirroring the player-notice host above: the store
+	// emits a TranslationKey + params, this host localises it. UI-SPEC contract 3 is why it lives
+	// here and not on /settings/downloads — a scan keeps running when the user navigates away, so
+	// the completion toast must fire from a host that is always mounted.
+	//
+	// untrack() keeps settings.appLang out of this effect's dependencies (WR-04: t() reads it, and a
+	// later language switch would otherwise re-run this against a stale notice), and clearing the
+	// channel here is what stops a remount from re-showing a toast the user already saw.
+	$effect(() => {
+		const n = deviceImport.notice;
+		if (!n) return;
+		untrack(() => {
+			toast.show(t(n.key, n.params));
+			deviceImport.notice = null;
 		});
 	});
 
