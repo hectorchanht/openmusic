@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: YTMusic-Powered Up-Next
 status: executing
-stopped_at: Completed 35-01-PLAN.md (backup codec core)
-last_updated: "2026-09-14T01:46:22.926Z"
+stopped_at: "36-05 Task 2 — BLOCKING device checkpoint (physical Android phone required)"
+last_updated: "2026-09-14T01:52:57.000Z"
 last_activity: 2026-09-14
 progress:
   total_phases: 12
@@ -27,7 +27,19 @@ See: .planning/PROJECT.md (updated 2026-06-10)
 
 Phase: 36 (tag-downloaded-songs-with-full-metadata) — EXECUTING
 Plan: 5 of 5
-Status: Executing Phase 36
+Status: **PAUSED at 36-05 Task 2 — blocking human checkpoint (physical Android device)**
+
+### 36-05 checkpoint status
+
+| # | Checkpoint | Requirement | Status |
+|---|-----------|-------------|--------|
+| 1 | On-device D-15 checklist (9 steps) | D-15 / A1 / A2 / A3 / A5 / A6 | ⏳ **PENDING HUMAN — device only.** APK built and verified: `android/app/build/outputs/apk/debug/app-debug.apk` (6,130,598 B, +273,104 B over the pre-phase build), carrying `taglib-web.bIFBWRq2.wasm` (686,505 B) byte-identically through `build/` → `assets/public/` → APK, deflated to 271,972 B in the zip. Install with `adb install -r`, then run the 9-step checklist in `36-05-PLAN.md` Task 2. Reply `approved`, or with tokens `SCANNER-BLIND` / `ART-MISS` / `ID3V24-UNREAD` / `OOM` / `DUPLICATE-FILE` / `PARENT-FOLDER-ALBUM` **plus device model + Android version**. |
+
+**Do NOT "fix" a SCANNER-BLIND result with MediaStore `ContentValues`.** D-15's own named fallback is **refuted** at AOSP source level — `ModernMediaScanner.scanItemAudio` pre-sets `ARTIST="<unknown>"` / `ALBUM=<parent folder>` and overwrites app-supplied columns on any later scan. A failure is a re-research trigger (T-36-19).
+
+**Expected, not a bug:** a download whose track has no album shows on Android under a pseudo-album named **"OpenMusic"** (the parent folder), not "Unknown album" — the OS scanner's default, not a string the app wrote.
+
+Task 3 (record results + flip `36-VALIDATION.md` sign-off) cannot start until the human reports outcomes. `36-VALIDATION.md` remains `nyquist_compliant: false` / `wave_0_complete: false` deliberately.
 
 ### 33-07 checkpoint status
 
