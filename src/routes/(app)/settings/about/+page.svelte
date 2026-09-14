@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
-	import { ChevronLeft, Info, Mail, Code2 } from '@lucide/svelte';
+	import { ChevronLeft, Info, Mail, Code2, Tag } from '@lucide/svelte';
 	import { settings } from '$lib/stores/settings.svelte';
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { t } from '$lib/i18n';
@@ -10,6 +10,7 @@
 
 	const CONTACT = 'zephyr9709@anglernook.com';
 	const REPO = 'https://github.com/hectorchanht/openmusic';
+	const TAGLIB = 'https://github.com/taglib/taglib';
 
 	// What the app does today (literal — brand/credits text, not part of the translated UI chrome).
 	const features = [
@@ -19,7 +20,12 @@
 		'Real album & artist art via Deezer → iTunes → CN fallback',
 		'Synced lyrics + per-part translation (artist / title / lyrics) across 15 UI languages',
 		'Favorites, playlists, listen history & downloads',
-		'Installable PWA with background audio & media-session controls'
+		'Installable PWA with background audio & media-session controls',
+		// 36-D-01: TagLib is dual-licensed LGPL-2.1 / MPL-1.1 — weak copyleft, so shipping it
+		// obliges us to give notice. The npm tarball ships only the MIT wrapper LICENSE and omits
+		// TagLib's own COPYING.LGPL/COPYING.MPL, so this line + the licence link below are the notice.
+		// We consume the prebuilt wasm unmodified, so there is no contribute-back obligation.
+		'Downloaded songs are tagged (title, artist, album, cover) via TagLib — compiled to WebAssembly, used unmodified under its LGPL-2.1 / MPL-1.1 dual licence'
 	];
 </script>
 
@@ -44,6 +50,7 @@
 <section>
 	<a class="item link" href="mailto:{CONTACT}"><Mail size={18} /> <span>{CONTACT}</span></a>
 	<a class="item link" href={REPO} target="_blank" rel="noopener noreferrer"><Code2 size={18} /> <span>Source code on GitHub</span></a>
+	<a class="item link" href={TAGLIB} target="_blank" rel="noopener noreferrer"><Tag size={18} /> <span>TagLib licence (LGPL / MPL)</span></a>
 </section>
 
 <style>
