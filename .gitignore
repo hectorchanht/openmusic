@@ -7,13 +7,15 @@ __pycache__/
 *.so
 
 # Distribution / packaging
-# NOTE: lib/ and lib64/ are anchored to repo root with a leading slash so they
-# only match the Python build dirs, NOT the SvelteKit source dir src/lib/.
+# NOTE: lib/, lib64/ and downloads/ are anchored to repo root with a leading
+# slash so they only match the Python build dirs, NOT SvelteKit source dirs —
+# src/lib/, and src/routes/(app)/settings/downloads/ which an unanchored
+# `downloads/` silently excluded from git.
 .Python
 build/
 develop-eggs/
 dist/
-downloads/
+/downloads/
 eggs/
 .eggs/
 /lib/
