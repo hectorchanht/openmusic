@@ -24,7 +24,12 @@ vi.mock('@capacitor/core', () => ({
 	Capacitor: {
 		isNativePlatform: () => isNativePlatform(),
 		// WR-03: native get() resolves the file URI and streams it via convertFileSrc + fetch.
-		convertFileSrc: (uri: string) => `http://localhost/_capacitor_file_${uri}`
+		// 34-D-05: a content:// URI (an imported device file, or a relinked public Music/ copy) maps
+		// to the local server's _capacitor_content_ prefix instead — same shape Capacitor emits.
+		convertFileSrc: (uri: string) =>
+			uri.startsWith('content://')
+				? `http://localhost/_capacitor_content_/${uri.slice('content://'.length)}`
+				: `http://localhost/_capacitor_file_${uri}`
 	}
 }));
 
@@ -60,10 +65,15 @@ const saveToMusic = vi.fn((_opts: { fileName: string; sourcePath: string }) =>
 	Promise.resolve({ uri: 'content://media/external/audio/media/42' })
 );
 const deleteFromMusic = vi.fn((_opts: { uri: string }) => Promise.resolve());
+const scanAudio = vi.fn();
+const requestReadAudio = vi.fn();
 vi.mock('./media-store', () => ({
 	MediaStoreSaver: {
 		saveToMusic: (opts: unknown) => saveToMusic(opts as never),
-		deleteFromMusic: (opts: unknown) => deleteFromMusic(opts as never)
+		deleteFromMusic: (opts: unknown) => deleteFromMusic(opts as never),
+		// Phase 34 scan bridge — unused by blob-store, declared so the factory stays complete.
+		scanAudio: (opts: unknown) => scanAudio(opts as never),
+		requestReadAudio: () => requestReadAudio()
 	}
 }));
 
@@ -84,10 +94,25 @@ function installLocalStorageShim() {
 	return map;
 }
 
-import { blobStore, put, get, has, del } from './blob-store';
+// 34-D-05: the device read/probe paths go through fetch(convertFileSrc(contentUri)). A default
+// "readable file" response is installed in beforeEach; tests that need a failure re-stub it.
+const fetchMock = vi.fn();
+function okAudioResponse() {
+	return {
+		ok: true,
+		blob: () => Promise.resolve(new Blob([new Uint8Array(200000)])),
+		body: { cancel: vi.fn() }
+	};
+}
+
+import { blobStore, put, get, has, del, linkPublicUri } from './blob-store';
 
 beforeEach(() => {
 	isNativePlatform.mockReturnValue(false);
+	scanAudio.mockReset();
+	requestReadAudio.mockReset();
+	fetchMock.mockReset().mockImplementation(() => Promise.resolve(okAudioResponse()));
+	vi.stubGlobal('fetch', fetchMock);
 	writeBlob.mockReset().mockResolvedValue('file:///data/downloads/x');
 	getUri
 		.mockReset()
@@ -399,6 +424,143 @@ describe('blob-store — native branch del (isNativePlatform true)', () => {
 	it('del resolves void (never rejects) when the file is absent / delete throws', async () => {
 		deleteFile.mockRejectedValue(new Error('File does not exist'));
 		await expect(del('netease-absent')).resolves.toBeUndefined();
+	});
+});
+
+// --- Phase 34: imported device files through the SHARED seam ---------------------------------
+// D-05 says the in-place read belongs INSIDE blobStore's native branch so all five player call
+// sites get it for free. Pitfall 1 says the same seam must refuse to delete, because an imported
+// file is the USER'S, not the app's.
+describe('blob-store — device: uids (34-D-05 / D-06 / Pitfall 1)', () => {
+	beforeEach(() => isNativePlatform.mockReturnValue(true));
+
+	// THE data-loss guard. Removing an imported song must never reach contentResolver.delete().
+	it('del on a device: uid NEVER calls deleteFromMusic, even with a content URI in the index', async () => {
+		localStorage.setItem(
+			'openmusic-blob-uri:device:42',
+			'content://media/external/audio/media/42'
+		);
+		await expect(del('device:42')).resolves.toBeUndefined();
+		expect(deleteFromMusic).not.toHaveBeenCalled();
+		expect(deleteFile).not.toHaveBeenCalled();
+		// the stray index entry is cleared so no later refactor can find a device URI to delete
+		expect(localStorage.getItem('openmusic-blob-uri:device:42')).toBeNull();
+	});
+
+	it('del on a REAL uid still removes the public entry (the guard is narrow, not a blanket off-switch)', async () => {
+		await put('netease-123', new Blob(['audio-bytes']));
+		deleteFromMusic.mockClear();
+		await del('netease-123');
+		expect(deleteFromMusic).toHaveBeenCalledTimes(1);
+	});
+
+	it('get reads the file IN PLACE through convertFileSrc + fetch (D-04: no copy is made)', async () => {
+		const v = await get('device:42');
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+		expect(String(fetchMock.mock.calls[0][0])).toBe(
+			'http://localhost/_capacitor_content_/media/external/audio/media/42'
+		);
+		expect(v).toBeInstanceOf(Blob);
+		expect((v as Blob).size).toBe(200000);
+		// no app-private lookup: a device file has no app-private copy to look for
+		expect(getUri).not.toHaveBeenCalled();
+	});
+
+	it('get resolves null (never rejects) when the file is gone or unreadable', async () => {
+		fetchMock.mockRejectedValueOnce(new Error('ENOENT'));
+		await expect(get('device:42')).resolves.toBeNull();
+		fetchMock.mockResolvedValueOnce({ ok: false });
+		await expect(get('device:42')).resolves.toBeNull();
+	});
+
+	it('get applies the same 31-D-13 size floor to a device file', async () => {
+		fetchMock.mockResolvedValueOnce({
+			ok: true,
+			blob: () => Promise.resolve(new Blob([new Uint8Array(100)]))
+		});
+		await expect(get('device:42')).resolves.toBeNull();
+	});
+
+	it('D-06: a missing device file is a READ-ONLY miss — nothing is deleted, nothing is evicted', async () => {
+		localStorage.setItem('openmusic:probe', 'untouched');
+		fetchMock.mockRejectedValue(new Error('ENOENT'));
+		await expect(get('device:42')).resolves.toBeNull();
+		expect(deleteFromMusic).not.toHaveBeenCalled();
+		expect(deleteFile).not.toHaveBeenCalled();
+		expect(localStorage.getItem('openmusic:probe')).toBe('untouched');
+	});
+
+	it('has agrees with get (RESEARCH bite #4 — a badge that disagrees is the jq4 bug)', async () => {
+		await expect(has('device:42')).resolves.toBe(true);
+		expect(stat).not.toHaveBeenCalled();
+		fetchMock.mockRejectedValueOnce(new Error('ENOENT'));
+		await expect(has('device:42')).resolves.toBe(false);
+		fetchMock.mockResolvedValueOnce({ ok: false });
+		await expect(has('device:42')).resolves.toBe(false);
+	});
+
+	it('has cancels the probe stream instead of draining the file', async () => {
+		const cancel = vi.fn();
+		fetchMock.mockResolvedValueOnce({ ok: true, body: { cancel } });
+		await expect(has('device:42')).resolves.toBe(true);
+		expect(cancel).toHaveBeenCalledTimes(1);
+	});
+
+	it('a malformed device uid never reaches the network', async () => {
+		await expect(get('device:../etc/passwd')).resolves.toBeNull();
+		await expect(has('device:')).resolves.toBe(false);
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it('web: a device uid no-ops cleanly (it can only exist on native)', async () => {
+		isNativePlatform.mockReturnValue(false);
+		await expect(get('device:42')).resolves.toBeNull();
+		await expect(del('device:42')).resolves.toBeUndefined();
+		expect(fetchMock).not.toHaveBeenCalled();
+		expect(deleteFromMusic).not.toHaveBeenCalled();
+	});
+});
+
+// --- 34-D-09: a real-source download whose app-private copy is gone plays from its public copy ---
+describe('blob-store — stored public-URI fallback (34-D-09)', () => {
+	beforeEach(() => isNativePlatform.mockReturnValue(true));
+
+	it('get falls back to the recorded public URI when the app-private copy is gone', async () => {
+		localStorage.setItem('openmusic-blob-uri:kuwo:7', 'content://media/external/audio/media/9');
+		getUri.mockRejectedValueOnce(new Error('File does not exist'));
+		const v = await get('kuwo:7');
+		expect(v).toBeInstanceOf(Blob);
+		expect(String(fetchMock.mock.calls[0][0])).toBe(
+			'http://localhost/_capacitor_content_/media/external/audio/media/9'
+		);
+	});
+
+	it('get still resolves null when there is no recorded public URI (existing behaviour)', async () => {
+		getUri.mockRejectedValueOnce(new Error('File does not exist'));
+		await expect(get('kuwo:7')).resolves.toBeNull();
+	});
+
+	it('has falls back to probing the recorded public URI when stat rejects', async () => {
+		localStorage.setItem('openmusic-blob-uri:kuwo:7', 'content://media/external/audio/media/9');
+		stat.mockRejectedValueOnce(new Error('File does not exist'));
+		await expect(has('kuwo:7')).resolves.toBe(true);
+	});
+
+	it('linkPublicUri records a real-source uid and REFUSES a device uid', () => {
+		linkPublicUri('kuwo:7', 'content://media/external/audio/media/9');
+		expect(localStorage.getItem('openmusic-blob-uri:kuwo:7')).toBe(
+			'content://media/external/audio/media/9'
+		);
+		// Pitfall 1: a device URI in this index is exactly what would feed deleteFromMusic later.
+		linkPublicUri('device:42', 'content://media/external/audio/media/42');
+		expect(localStorage.getItem('openmusic-blob-uri:device:42')).toBeNull();
+		linkPublicUri('', 'content://x');
+		linkPublicUri('kuwo:8', '');
+		expect(localStorage.getItem('openmusic-blob-uri:kuwo:8')).toBeNull();
+	});
+
+	it('is exported on the blobStore namespace', () => {
+		expect(blobStore.linkPublicUri).toBe(linkPublicUri);
 	});
 });
 

@@ -20,6 +20,7 @@ import { Capacitor } from '@capacitor/core';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import write_blob from 'capacitor-blob-writer';
 import { MediaStoreSaver } from './media-store';
+import { isDeviceUid, deviceContentUri } from './device-track';
 
 const DB_NAME = 'openmusic-blobs';
 const STORE = 'tracks';
@@ -56,6 +57,12 @@ function isUsableBlob(v: unknown): v is Blob {
 // OFFLINE-READ SPLIT (planner-allowed): get() reads the app-private copy (kept from plan 03), NOT
 // the content URI — the simplest robust split (no readFromMusic bridge method needed; the public
 // copy is purely for visibility). del() removes BOTH the app-private copy and the public entry.
+//
+// AMENDED 34-D-09: get()/has() now read the app-private copy FIRST and the RECORDED PUBLIC URI
+// SECOND. The public copy stopped being visibility-only the moment the import's merge lane could
+// find a `Music/OpenMusic/` file whose app-private twin had been evicted — the recorded URI is what
+// restores playability for it. The app-private copy is still the primary read; nothing above this
+// line changed, a second chance was added below it.
 //
 // All native functions mirror the web branch's never-throws contract EXACTLY: every path resolves
 // false / null / void and NEVER rejects, so a failed public-Music write degrades to CDN playback
@@ -147,18 +154,20 @@ async function nativePut(uid: string, blob: Blob, filename?: string): Promise<bo
 	return true;
 }
 
-async function nativeGet(uid: string): Promise<Blob | null> {
+/**
+ * Read a local `file://` or `content://` URI into a Blob, or null. Never throws.
+ *
+ * WR-03: the WebView's local server streams the file natively via convertFileSrc + fetch — no
+ * whole-file base64 round-trip (Filesystem.readFile would hand back the entire file base64-encoded
+ * in one string and we'd atob it byte-by-byte, the same OOM spike as the old write path, on EVERY
+ * offline play).
+ */
+async function readContentUri(uri: string): Promise<Blob | null> {
 	try {
-		// Read the app-private copy (the offline-read source) WITHOUT a whole-file base64 round-trip
-		// (WR-03 — Filesystem.readFile would return the entire file base64-encoded in one string and
-		// we'd atob it byte-by-byte, the same OOM spike as the old write path on EVERY offline play).
-		// Resolve the file's URI and let the WebView stream it natively via convertFileSrc + fetch —
-		// no per-byte JS work, no giant intermediate string.
-		const { uri } = await Filesystem.getUri({ path: nativePath(uid), directory: NATIVE_DIR });
-		// RAW fetch (not apiFetch — fetch→apiFetch audit): a LOCAL Capacitor file URI, not /api.
+		// RAW fetch (not apiFetch — fetch→apiFetch audit): a LOCAL Capacitor URI, never /api.
 		const res = await fetch(Capacitor.convertFileSrc(uri));
 		if (!res.ok) return null;
-		// 31-D-13: same size floor as the IDB path — a truncated/empty on-disk copy must read as a
+		// 31-D-13: same size floor as the IDB path — a truncated/empty/unreadable copy must read as a
 		// miss, never be handed to <audio> as a blob: src that can only fire `error`.
 		const blob = await res.blob();
 		return isUsableBlob(blob) ? blob : null;
@@ -167,20 +176,101 @@ async function nativeGet(uid: string): Promise<Blob | null> {
 	}
 }
 
-// quick-260913-jq4: existence WITHOUT reading the file. `stat` returns the size, so the same
-// 31-D-13 floor applies — a truncated/empty on-disk copy reports absent on native exactly as it
-// reads as a miss on web, and the two platforms can never disagree about what "downloaded" means.
-async function nativeHas(uid: string): Promise<boolean> {
+/**
+ * "Is this URI readable?" without materialising the file. Never throws.
+ *
+ * ponytail: this opens a stream and immediately cancels it — the ceiling is one round-trip through
+ * the local server per probe. Upgrade to `fetch(url, { method: 'HEAD' })` if Capacitor's local
+ * server is ever confirmed to answer HEAD (WebViewLocalServer only handles GET today).
+ */
+async function probeContentUri(uri: string): Promise<boolean> {
 	try {
-		const { size } = await Filesystem.stat({ path: nativePath(uid), directory: NATIVE_DIR });
-		return typeof size === 'number' && size >= MIN_BLOB_BYTES;
+		const res = await fetch(Capacitor.convertFileSrc(uri));
+		if (!res.ok) return false;
+		try {
+			await res.body?.cancel();
+		} catch {
+			// a body that cannot be cancelled is still a readable file — the answer stands.
+		}
+		return true;
 	} catch {
-		// not-found / any failure: absent (parity with nativeGet's null).
 		return false;
 	}
 }
 
+async function nativeGet(uid: string): Promise<Blob | null> {
+	// 34-D-05: an imported device file is read IN PLACE here, at the SHARED seam. The 31-D-13 comment
+	// above states the principle this reuses — "that is why the gate lives at this single read
+	// boundary instead of at the three call sites: one guard, zero call-site cost, no reader can
+	// forget it." Two things follow from putting the device read here:
+	//   1. Every one of the player's five offline-read sites (player.svelte.ts ~581/666/2864/3122/
+	//      3335) plays a device file with ZERO edits, including the next one someone writes.
+	//   2. RESEARCH Pitfall 2 is dodged. Capacitor's handleLocalRequest (WebViewLocalServer.java:
+	//      339-377) answers EVERY Range request with a stream positioned at byte 0 while labelling
+	//      it with the requested offset. Returning a Blob keeps the caller on URL.createObjectURL,
+	//      and Chromium's own blob storage implements Range correctly.
+	//      DO NOT "optimise" the Blob away into a direct `_capacitor_content_` audio.src — that is a
+	//      silent seek-corruption bug, not a shortcut.
+	// ponytail: the Blob is NOT re-typed from the row's MIME (RESEARCH Pitfall 4 — a content path has
+	// no extension so the local server can emit Content-Type: null for FLAC/M4A). A uid carries no
+	// MIME, and Chromium content-sniffs blob: sources [ASSUMED A3, device UAT item 3 covers FLAC and
+	// m4a]. Upgrade path if UAT disagrees: persist mimeType on the Track and blob.slice(0, size, mime).
+	if (isDeviceUid(uid)) {
+		const uri = deviceContentUri(uid);
+		return uri ? readContentUri(uri) : null;
+	}
+	try {
+		const { uri } = await Filesystem.getUri({ path: nativePath(uid), directory: NATIVE_DIR });
+		const blob = await readContentUri(uri);
+		if (blob) return blob;
+	} catch {
+		// getUri rejected (no app-private copy) — fall through to the recorded public URI.
+	}
+	// 34-D-09: the app-private copy is gone or unusable. The import's merge lane records the public
+	// `Music/OpenMusic/` URI for a real-source uid via linkPublicUri, so an evicted download still
+	// plays from the copy the app itself wrote. No stored URI → null, exactly as before.
+	const stored = getStoredUri(uid);
+	return stored ? readContentUri(stored) : null;
+}
+
+// quick-260913-jq4: existence WITHOUT reading the file. `stat` returns the size, so the same
+// 31-D-13 floor applies — a truncated/empty on-disk copy reports absent on native exactly as it
+// reads as a miss on web, and the two platforms can never disagree about what "downloaded" means.
+async function nativeHas(uid: string): Promise<boolean> {
+	// 34-D-05 (RESEARCH bite #4): `has` MUST agree with `get` or the download badge lies — the exact
+	// bug quick-260913-jq4 fixed. A device file has no app-private copy to stat, so its existence
+	// question is "is the content URI readable", answered the same way `get` answers it.
+	if (isDeviceUid(uid)) {
+		const uri = deviceContentUri(uid);
+		return uri ? probeContentUri(uri) : false;
+	}
+	try {
+		const { size } = await Filesystem.stat({ path: nativePath(uid), directory: NATIVE_DIR });
+		if (typeof size === 'number' && size >= MIN_BLOB_BYTES) return true;
+	} catch {
+		// not-found / any failure: fall through (parity with nativeGet).
+	}
+	// 34-D-09: same second chance nativeGet takes, so the two can never disagree.
+	const stored = getStoredUri(uid);
+	return stored ? probeContentUri(stored) : false;
+}
+
 async function nativeDel(uid: string): Promise<void> {
+	// ---- 34 PITFALL 1 (DATA LOSS GUARD) ------------------------------------------------------
+	// An imported file is the USER'S file, not the app's. `deleteFromMusic` below performs a
+	// MediaStore `contentResolver.delete()`, which DELETES THE FILE — so a device uid reaching it
+	// would mean "remove from library" silently destroys the user's music. D-04 (play in place, no
+	// copy) and D-06 (a missing file stays listed) both forbid this module ever mutating a device
+	// file. Refuse, clear any stray index entry, and return.
+	//
+	// This is the FIRST statement on purpose: no later refactor can slip a delete above it. It is
+	// also why `linkPublicUri` refuses device uids — nothing may ever put a device content URI into
+	// the index this function reads. The second, independent guard (keeping the library ROW listed)
+	// lives at the player's silent-eviction site, Plan 34-02.
+	if (isDeviceUid(uid)) {
+		clearStoredUri(uid);
+		return;
+	}
 	// Remove the app-private offline copy. Swallow not-found (parity with IDB del()).
 	try {
 		await Filesystem.deleteFile({ path: nativePath(uid), directory: NATIVE_DIR });
@@ -333,5 +423,19 @@ export async function del(uid: string): Promise<void> {
 	});
 }
 
+/**
+ * 34-D-09: record a public `Music/OpenMusic/` content URI for a REAL-source uid so nativeGet /
+ * nativeHas can fall back to it when the app-private copy is gone. Never throws.
+ *
+ * Only real-source uids may be relinked. A DEVICE uid is refused outright (Pitfall 1): the index
+ * this writes is the one `nativeDel` reads to pick a MediaStore row to delete, so a device URI in
+ * here is a deleted user file waiting for a refactor to find it. The import's merge lane in
+ * device-import.ts is the sole caller.
+ */
+export function linkPublicUri(uid: string, uri: string): void {
+	if (!uid || !uri || isDeviceUid(uid)) return;
+	setStoredUri(uid, uri);
+}
+
 /** Bundled namespace export so callers can `import { blobStore } from '$lib/services/blob-store'`. */
-export const blobStore = { put, get, has, del };
+export const blobStore = { put, get, has, del, linkPublicUri };
