@@ -86,18 +86,8 @@ const real = (over: Partial<Track> = {}): Track =>
 		...over
 	}) as Track;
 
-const dev = (id: string): Track =>
-	({
-		uid: deviceUid(id),
-		source: 'kuwo',
-		id,
-		title: `Song ${id}`,
-		artist: 'Someone',
-		album: '',
-		cover: null,
-		audioUrl: null,
-		detailsLoaded: false
-	}) as Track;
+// A device entry as it sits in library.downloads — `source` is the documented placeholder (34-01).
+const dev = (id: string): Track => real({ uid: deviceUid(id), title: `Song ${id}`, artist: 'Someone' });
 
 /** Reset every PUBLIC field. `loaded`/`importGen` are private plain fields by design and are not
  *  reset — the idempotency test below depends on `loaded` surviving, which is the point of it. */
