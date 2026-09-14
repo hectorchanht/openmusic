@@ -345,16 +345,36 @@ Plans:
 **Plans:** 11 plans
 
 Plans:
+**Wave 1**
+
 - [ ] 34-01-PLAN.md — device-track.ts identity contract + blob-store device branch, data-loss refusal, D-09 stored-URI fallback
-- [ ] 34-02-PLAN.md — ensureTrackDetails/tryFallback device guards, library unavailable state + setDownloads, the two player D-06 seams
 - [ ] 34-03-PLAN.md — device-filename.ts: import rules model, presets, parseFilename, ReDoS save-time probe
 - [ ] 34-04-PLAN.md — Kotlin requestReadAudio + paged scanAudio, manifest permissions, media-store.ts typings
 - [ ] 34-05-PLAN.md — 44 i18n keys × 15 locales
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 34-02-PLAN.md — ensureTrackDetails/tryFallback device guards, library unavailable state + setDownloads, the two player D-06 seams
 - [ ] 34-06-PLAN.md — device-import.ts: classifyRow + syncDevice (re-sync diff, merge lane, summary, ReDoS layer 2)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 34-07-PLAN.md — device-import.svelte.ts store + RowBadges/DownloadControl/TrackMenu unavailable + device gating
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 34-08-PLAN.md — /settings/downloads page, native-gated index row, layout toast host
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
 - [ ] 34-09-PLAN.md — APK build + seed; device UAT 1 (permission), 2 (Download/ folder), 7 (no file deletion)
+
+**Wave 6** *(blocked on Wave 5 completion)*
+
 - [ ] 34-10-PLAN.md — device UAT 8 (no duplicates/relink), 9 (missing-file lifecycle), 3 (playback), 4 (seek)
+
+**Wave 7** *(blocked on Wave 6 completion)*
+
 - [ ] 34-11-PLAN.md — device UAT 6 (1000+ files), 5 (>100 MB), 10 (media session)
 
 ### Phase 35: One-click export and import of all app data
@@ -365,6 +385,7 @@ Plans:
 **Plans:** 0 plans
 
 Plans:
+
 - [ ] TBD (run /gsd-plan-phase 35 to break down)
 
 ### Phase 36: Tag downloaded songs with full metadata
@@ -375,4 +396,5 @@ Plans:
 **Plans:** 0 plans
 
 Plans:
+
 - [ ] TBD (run /gsd-plan-phase 36 to break down)

@@ -4,12 +4,12 @@ milestone: v1.5
 milestone_name: YTMusic-Powered Up-Next
 status: verifying
 stopped_at: Phase 36 context gathered
-last_updated: "2026-09-14T00:03:12.830Z"
-last_activity: "2026-09-13 - Completed quick tasks 260913-je8 / -p2k / -jq4 / -omi: TrackMenu header Download + Like row, long-press trailing-click fix, download-state truthfulness, real download progress on the Download row"
+last_updated: "2026-09-14T00:33:19.205Z"
+last_activity: "2026-09-13 - Completed quick tasks 260913-je8 / -p2k / -jq4 / -omi / -tmi: TrackMenu header Download + Like row, long-press trailing-click fix, download-state truthfulness, real download progress, correct audio MIME type"
 progress:
   total_phases: 12
   completed_phases: 6
-  total_plans: 58
+  total_plans: 69
   completed_plans: 52
   percent: 50
 ---
