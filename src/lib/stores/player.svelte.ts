@@ -68,6 +68,7 @@ export function srcExt(url: string): string {
 }
 import { resolveStub } from '$lib/services/discovery';
 import { blobStore } from '$lib/services/blob-store';
+import { isDeviceUid } from '$lib/services/device-track';
 import { settings } from '$lib/stores/settings.svelte';
 import { sleepTimer } from '$lib/stores/sleepTimer.svelte';
 import { isExpired, fadeVolumeAt, canFadeVolume, decideEndedAction } from '$lib/services/sleep-timer';
@@ -2098,7 +2099,12 @@ class Player {
 					const uid = track.uid;
 					logAction('blob.corrupt', { uid });
 					void blobStore.del(uid); // never-throws
-					library.removeDownload(uid); // makes reresolveCurrent's isDownloaded gate false
+					// 34-D-06 / RESEARCH Pitfall 10: evict-and-silently-re-download is the right repair for an
+					// evictable APP blob and the wrong one for the user's own file. A device file that will not
+					// decode stays LISTED and marked; re-downloading a local file is meaningless (downloadTrack
+					// would just return 'failed'). blobStore.del is already a refusal for device uids (Plan
+					// 34-01), so the call above is harmless — kept so the stored-uri index is cleared.
+					if (isDeviceUid(uid)) library.markUnavailable(uid); else library.removeDownload(uid); // makes reresolveCurrent's isDownloaded gate false
 					if (!this.corruptNotified.has(uid)) {
 						this.corruptNotified.add(uid);
 						this.notice = {
@@ -2112,7 +2118,7 @@ class Player {
 							if (this.notice?.kind === 'corrupt-download') this.notice = null;
 						}, Player.SKIP_BURST_WINDOW_MS);
 					}
-					if (!this.redownloadQueued.has(uid)) {
+					if (!isDeviceUid(uid) && !this.redownloadQueued.has(uid)) {
 						this.redownloadQueued.add(uid);
 						// Dynamic import: download-track imports the player singleton, so a static import
 						// here would close a module cycle. Fire-and-forget + never-throw; `save:false` keeps
@@ -3122,6 +3128,25 @@ class Player {
 			if (library.isDownloaded(track.uid)) {
 				const offlineBlob = await blobStore.get(track.uid).catch(() => null);
 				if (myGen !== this.playGen) return; // CR-02: superseded mid-IDB-read — discard
+				// ─── 34-D-06 (the ONE player seam D-05 could not cover) ──────────────────────────────────
+				// blobStore.get answers "give me the bytes" for both kinds of download, but only the player
+				// knows the read came back empty. For a `device:` uid that means the USER'S OWN file is gone
+				// (deleted, SD card pulled) — not an evictable app blob. Mark it so RowBadges /
+				// DownloadControl swap to the alert glyph, say why inline (the Nowbar renders player.error),
+				// and hand off to the existing never-stop skip so a downloads queue keeps advancing. The
+				// entry is NEVER removed here — D-07/D-08: only the next explicit import may drop it.
+				// Without this branch we would fall through to ensureTrackDetails (guarded — returns the
+				// track url-less) → runFallback (barred in tryFallback) → a generic "couldn't play": honest,
+				// but it would not tell the user their file is missing or leave any mark behind.
+				if (!offlineBlob && isDeviceUid(track.uid)) {
+					library.markUnavailable(track.uid);
+					logAction('device.missing', { uid: track.uid });
+					this.loading = false;
+					this.error = 'toast.fileMissing';
+					this.clearMedia();
+					this.handleTotalFailure(track);
+					return;
+				}
 				if (offlineBlob && this.audio) {
 					if (this.cachedBlobUrl) {
 						URL.revokeObjectURL(this.cachedBlobUrl);
