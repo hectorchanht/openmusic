@@ -55,8 +55,17 @@
          entries needs NO runtime permission (RELATIVE_PATH + IS_PENDING). Only the legacy API <=28
          branch (Environment.getExternalStoragePublicDirectory(DIRECTORY_MUSIC)) needs
          WRITE_EXTERNAL_STORAGE, so it is scoped to maxSdkVersion="28" — a no-op on modern Android
-         (T-999.1-18 mitigation). NO READ_MEDIA_AUDIO / broad media-read scope is requested. -->
+         (T-999.1-18 mitigation).
+
+         34-D-11: READ_MEDIA_AUDIO (API 33+) / READ_EXTERNAL_STORAGE (API 29-32, capped at 32) are
+         requested AT TAP TIME by MediaStoreSaverPlugin.requestReadAudio so the user's own Music/ and
+         Download/ audio can be scanned and played in place. Audio only — no images/video, no
+         MANAGE_EXTERNAL_STORAGE, no broad storage scope. -->
     <uses-permission
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="28" />
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
 </manifest>
