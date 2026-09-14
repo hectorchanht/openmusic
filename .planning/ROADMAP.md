@@ -342,7 +342,7 @@ Plans:
 **Goal:** A user taps an "Import songs from device" button in the Settings download page, the app scans the device's Music/Download folders via Android MediaStore, parses each audio file's metadata (title/artist/album/duration/embedded art), maps it to a `Track`, indexes it into the library, and those files then appear as downloaded songs everywhere downloaded state is shown — playable offline like any app-downloaded track.
 **Requirements**: 34-CONTEXT.md D-01..D-16 (no REQUIREMENTS.md entry — the locked decisions are the requirement set)
 **Depends on:** Nothing (independent — touches the download/library stack, not Phase 33's diagnostics)
-**Plans:** 4/11 plans executed
+**Plans:** 5/11 plans executed
 
 Plans:
 **Wave 1**
@@ -354,7 +354,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 34-02-PLAN.md — ensureTrackDetails/tryFallback device guards, library unavailable state + setDownloads, the two player D-06 seams
+- [x] 34-02-PLAN.md — ensureTrackDetails/tryFallback device guards, library unavailable state + setDownloads, the two player D-06 seams
 - [ ] 34-06-PLAN.md — device-import.ts: classifyRow + syncDevice (re-sync diff, merge lane, summary, ReDoS layer 2)
 
 **Wave 3** *(blocked on Wave 2 completion)*
