@@ -171,3 +171,5 @@ All three source artifacts and this SUMMARY exist on disk; all six commits (`28d
 `.planning/STATE.md` carries a SINGLE position cursor, and at execution time it read `Phase: 36 … Plan: 2 of 5` — the other session's phase. Running `state.advance-plan` therefore moved **Phase 36's** pointer to `3 of 5`. That line was reverted by hand immediately; phase 35 did not claim the cursor. Everything else recorded here is additive and non-colliding: the `Phase 35 P01` metrics row, the Phase 35 decision entry, the global `completed_plans` 53 → 54, and the ROADMAP Phase 35 row (`1/6 plans executed`, `35-01` checked).
 
 Worth fixing upstream: with two sessions executing different phases in one working tree, `state.advance-plan` mutates whichever phase the cursor happens to point at, with no phase argument to guard it.
+
+Also left alone, as not mine: `src/lib/services/audio-tags.ts` appeared untracked during this plan (phase 36 work from the concurrent session) and was never staged.
