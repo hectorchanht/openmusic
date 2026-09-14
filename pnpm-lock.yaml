@@ -19,6 +19,9 @@ dependencies:
   '@capacitor/filesystem':
     specifier: 8.1.2
     version: 8.1.2(@capacitor/core@8.4.0)
+  '@capacitor/share':
+    specifier: ^8.0.1
+    version: 8.0.1(@capacitor/core@8.4.0)
   '@capacitor/splash-screen':
     specifier: ^8.0.1
     version: 8.0.1(@capacitor/core@8.4.0)
@@ -141,6 +144,14 @@ packages:
     dependencies:
       '@capacitor/core': 8.4.0
       '@capacitor/synapse': 1.0.4
+    dev: false
+
+  /@capacitor/share@8.0.1(@capacitor/core@8.4.0):
+    resolution: {integrity: sha512-3cSBKBCJVon54rKDROP2rqGyeGks4pBh9TbaEk9S375Kbek/ZHe72N50zIa0Vn9Eac/SuhwgehO/mmA4CsUOiw==}
+    peerDependencies:
+      '@capacitor/core': '>=8.0.0'
+    dependencies:
+      '@capacitor/core': 8.4.0
     dev: false
 
   /@capacitor/splash-screen@8.0.1(@capacitor/core@8.4.0):

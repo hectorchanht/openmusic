@@ -49,6 +49,7 @@
 		"@capacitor/app": "^8.1.0",
 		"@capacitor/core": "8.4.0",
 		"@capacitor/filesystem": "8.1.2",
+		"@capacitor/share": "^8.0.1",
 		"@capacitor/splash-screen": "^8.0.1",
 		"@capacitor/status-bar": "^8.0.2",
 		"@jofr/capacitor-media-session": "4.0.0",
