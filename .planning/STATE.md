@@ -4,13 +4,13 @@ milestone: v1.5
 milestone_name: YTMusic-Powered Up-Next
 status: executing
 stopped_at: Completed 35-01-PLAN.md (backup codec core)
-last_updated: "2026-09-14T01:27:32.823Z"
+last_updated: "2026-09-14T01:30:57.158Z"
 last_activity: 2026-09-14
 progress:
   total_phases: 12
   completed_phases: 6
   total_plans: 80
-  completed_plans: 55
+  completed_plans: 56
   percent: 50
 ---
 
@@ -152,6 +152,7 @@ Remaining human UAT: real-device <audio> playback+seek + download-to-disk; deplo
 | Phase 36 P01 | 9min | 2 tasks | 7 files |
 | Phase 35 P01 | 25m | 3 tasks | 3 files |
 | Phase 36 P02 | 11min | 3 tasks | 7 files |
+| Phase 35 P02 | ~20 min | 2 tasks | 15 files |
 
 ## Accumulated Context
 
@@ -274,6 +275,7 @@ Recent decisions affecting current work:
 - [Phase 35]: 35-01: the import rollback snapshot lives in the per-tab Storage, never the persistent one — the 5 live keys already hold ~740 KB of a ~5 MB origin budget and library.save()'s quota catch is silent — A snapshot that overflows quota would fail invisibly and take the live data with it; applyEnvelope refuses the import outright when the snapshot cannot be stored (35-D-09)
 - [Phase ?]: 36-02: audio-tags.ts is the ONE tag codec — pure, store-free, never-throws; taglib-wasm behind a memoised dynamic import; container sniffed from bytes, never a URL extension
 - [Phase ?]: 36-02: binary test fixtures co-located at src/lib/services/__fixtures__/ (repo has no tests/ dir); Vitest's include glob never collects them
+- [Phase ?]: 35-02: the 22 backup.* UI strings live in 15 locale dicts (not the 16 CONTEXT D-11/CLAUDE.md claim); the three D-11 failure messages are distinct sentences in every language
 
 ### Pending Todos
 
