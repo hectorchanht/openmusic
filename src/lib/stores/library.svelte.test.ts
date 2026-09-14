@@ -8,6 +8,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 // (mirrors player.svelte.test.ts). The cover-chain tests are unaffected (they never assert
 // on localStorage; save()/setCachedCover just write to the stub).
 vi.mock('$app/environment', () => ({ browser: true }));
+// 34-D-06: blobStore is mocked so "setDownloads never deletes a file" is a direct assertion rather
+// than an inference, and removeDownload's existing del() never reaches real IDB/Capacitor here.
+const { blobDel } = vi.hoisted(() => ({ blobDel: vi.fn(async () => {}) }));
+vi.mock('$lib/services/blob-store', () => ({ blobStore: { del: blobDel } }));
 import { library } from './library.svelte';
 import type { Track } from '$lib/sources/types';
 
@@ -124,5 +128,122 @@ describe('library.downloading (per-uid in-flight set, D-10)', () => {
 		expect(raw).toBeTruthy();
 		const payload = JSON.parse(raw as string) as Record<string, unknown>;
 		expect('downloading' in payload).toBe(false);
+	});
+});
+
+// 34-D-06: a device: entry whose file was missing at last play is MARKED, not removed — the user
+// sees why it will not play and can re-import (D-08: removal only ever inside an explicit import).
+// setDownloads is that import's single wholesale write: add / drop / refresh in one persisted pass.
+describe('34-D-06 unavailable + setDownloads', () => {
+	beforeEach(() => {
+		library.downloads = [];
+		library.liked = [];
+		library.playlists = [];
+		library.favArtists = [];
+		library.unavailable = new Set();
+		memStore.clear();
+	});
+
+	const payload = () =>
+		JSON.parse(localStorage.getItem('openmusic:library:v1') as string) as Record<string, unknown>;
+
+	it('markUnavailable marks exactly one uid, and an empty uid is a no-op', () => {
+		library.markUnavailable('device:42');
+		expect(library.isUnavailable('device:42')).toBe(true);
+		expect(library.isUnavailable('device:43')).toBe(false);
+
+		library.markUnavailable('');
+		expect(library.unavailable.size).toBe(1);
+	});
+
+	it('reassigns a NEW Set reference (copy-on-write, like beginDownload) so runes re-render', () => {
+		const before = library.unavailable;
+		library.markUnavailable('device:42');
+		expect(library.unavailable).not.toBe(before);
+	});
+
+	it('is PERSISTED — unlike downloading/downloadProgress, a missing file is still missing after relaunch', () => {
+		library.markUnavailable('device:42');
+		expect(payload().unavailable).toEqual(['device:42']);
+	});
+
+	it('load() of an OLD payload with no `unavailable` key yields an empty Set (tolerant migration)', () => {
+		memStore.set(
+			'openmusic:library:v1',
+			JSON.stringify({ liked: [], playlists: [], downloads: [mk({ uid: 'device:42' })] })
+		);
+		(library as unknown as { loaded: boolean }).loaded = false;
+		library.load();
+		expect(library.unavailable.size).toBe(0);
+		expect(library.downloads).toHaveLength(1);
+	});
+
+	it('load() restores a persisted unavailable list', () => {
+		memStore.set(
+			'openmusic:library:v1',
+			JSON.stringify({ liked: [], playlists: [], downloads: [], unavailable: ['device:42'] })
+		);
+		(library as unknown as { loaded: boolean }).loaded = false;
+		library.load();
+		expect(library.isUnavailable('device:42')).toBe(true);
+	});
+
+	it('clearUnavailable(uid) clears one and persists; clearUnavailable() clears ALL', () => {
+		library.markUnavailable('device:42');
+		library.markUnavailable('device:43');
+
+		library.clearUnavailable('device:42');
+		expect(library.isUnavailable('device:42')).toBe(false);
+		expect(library.isUnavailable('device:43')).toBe(true);
+		expect(payload().unavailable).toEqual(['device:43']);
+
+		library.clearUnavailable();
+		expect(library.unavailable.size).toBe(0);
+		expect(payload().unavailable).toEqual([]);
+	});
+
+	it('setDownloads replaces the list wholesale, order preserved, and persists', () => {
+		library.downloads = [mk({ uid: 'device:1' })];
+		const next = [mk({ uid: 'device:2' }), mk({ uid: 'kuwo:7', source: 'kuwo' })];
+
+		library.setDownloads(next);
+
+		expect(library.downloads.map((t) => t.uid)).toEqual(['device:2', 'kuwo:7']);
+		expect((payload().downloads as Track[]).map((t) => t.uid)).toEqual(['device:2', 'kuwo:7']);
+	});
+
+	it('setDownloads prunes `unavailable` to uids still present in the new list', () => {
+		library.markUnavailable('device:1'); // dropped by this import → mark goes with it
+		library.markUnavailable('device:2'); // still listed → stays marked
+
+		library.setDownloads([mk({ uid: 'device:2' })]);
+
+		expect(library.isUnavailable('device:1')).toBe(false);
+		expect(library.isUnavailable('device:2')).toBe(true);
+		expect(payload().unavailable).toEqual(['device:2']);
+	});
+
+	it('setDownloads NEVER deletes a file — the import drop lane has nothing to delete', () => {
+		library.downloads = [mk({ uid: 'device:1' })];
+		library.setDownloads([]);
+		expect(blobDel).not.toHaveBeenCalled();
+	});
+
+	it('removeDownload on a device uid still removes the row (explicit user removal) and clears its mark', () => {
+		library.downloads = [mk({ uid: 'device:42' })];
+		library.markUnavailable('device:42');
+
+		library.removeDownload('device:42');
+
+		expect(library.isDownloaded('device:42')).toBe(false);
+		expect(library.isUnavailable('device:42')).toBe(false);
+		// The FILE is protected downstream: blobStore.del refuses device uids (Plan 34-01).
+		expect(blobDel).toHaveBeenCalledWith('device:42');
+	});
+
+	it('clearAll also empties unavailable', () => {
+		library.markUnavailable('device:42');
+		library.clearAll();
+		expect(library.unavailable.size).toBe(0);
 	});
 });

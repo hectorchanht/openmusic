@@ -21,6 +21,10 @@ interface LibShape {
 	downloads: Track[];
 	/** kmn: favourite artists (names). Optional in storage for non-destructive migration. */
 	favArtists?: string[];
+	/** 34-D-06: device: entries whose file was missing at last play. PERSISTED (unlike downloading/
+	 *  downloadProgress) because a missing file is still missing after a relaunch and the badge must
+	 *  not lie until the user taps it again. Optional in storage for non-destructive migration. */
+	unavailable?: string[];
 }
 
 class Library {
@@ -37,6 +41,14 @@ class Library {
 	 *  stuck spinner). begin/endDownload reassign a NEW Set (like TrackMenu `inFlight`) so the
 	 *  runes graph re-renders; one uid's transition never touches another's. */
 	downloading = $state<Set<string>>(new Set());
+	/** 34-D-06: uids whose bytes could not be read at last play. SET by the player's two device seams
+	 *  — the offline-miss branch (blobStore.get returned nothing) and the corrupt-blob branch — and by
+	 *  nothing else. CLEARED by the next explicit import (setDownloads prunes it / clearUnavailable),
+	 *  or by removing the entry outright. READ by RowBadges / DownloadControl through isUnavailable()
+	 *  (UI-SPEC Contract 8) to swap the downloaded tick for the alert glyph. Unlike `downloading` above
+	 *  this IS persisted (see LibShape) — a file the OS lost is still lost after a relaunch. Reassigned
+	 *  copy-on-write (the beginDownload idiom) so the runes graph re-renders. */
+	unavailable = $state<Set<string>>(new Set());
 	/** quick-260913-omi: 0..1 progress per IN-FLIGHT uid, for the Download row's bar. Same posture
 	 *  as `downloading` above — transient, never in LibShape, never persisted — and deliberately a
 	 *  SEPARATE map rather than a richer `downloading` value: an absent entry means INDETERMINATE
@@ -57,6 +69,7 @@ class Library {
 				this.playlists = v.playlists ?? [];
 				this.downloads = v.downloads ?? [];
 				this.favArtists = Array.isArray(v.favArtists) ? v.favArtists : [];
+				this.unavailable = new Set(Array.isArray(v.unavailable) ? v.unavailable : []);
 			}
 		} catch {
 			/* corrupt/unavailable — start empty */
@@ -72,7 +85,8 @@ class Library {
 					liked: this.liked,
 					playlists: this.playlists,
 					downloads: this.downloads,
-					favArtists: this.favArtists
+					favArtists: this.favArtists,
+					unavailable: [...this.unavailable]
 				})
 			);
 		} catch {
@@ -207,12 +221,60 @@ class Library {
 			this.save();
 		}
 	}
+	/**
+	 * 34-D-06 NOTE: this method is the EXPLICIT removal path (library/+page.svelte:162 edit-mode swipe
+	 * + the import's own drop lane via setDownloads). It is deliberately NOT guarded for device uids —
+	 * the user may remove an imported entry on purpose; the file itself is protected by blobStore.del's
+	 * device refusal (Plan 34-01), and the player's SILENT eviction site is guarded in player.svelte.ts
+	 * instead.
+	 */
 	removeDownload(uid: string) {
 		this.downloads = this.downloads.filter((t) => t.uid !== uid);
+		// The row is gone, so its unavailable mark has nothing left to annotate.
+		if (this.unavailable.has(uid)) {
+			const next = new Set(this.unavailable);
+			next.delete(uid);
+			this.unavailable = next;
+		}
 		this.save();
 		// kyf: also drop the cached blob so the offline cache stays consistent with the
 		// registry (never throws — browser/SSR + IDB-missing return no-op).
 		void blobStore.del(uid);
+	}
+
+	// ---- unavailable (34-D-06, persisted per-uid "its file would not read") -----------------
+	isUnavailable(uid: string): boolean {
+		return this.unavailable.has(uid);
+	}
+	markUnavailable(uid: string) {
+		if (!uid) return;
+		this.unavailable = new Set(this.unavailable).add(uid);
+		this.save();
+	}
+	/** Clear ONE uid's mark, or every mark when called with no argument (the import's reset). */
+	clearUnavailable(uid?: string) {
+		if (uid === undefined) {
+			this.unavailable = new Set();
+		} else {
+			const next = new Set(this.unavailable);
+			next.delete(uid);
+			this.unavailable = next;
+		}
+		this.save();
+	}
+
+	/**
+	 * 34-D-07/D-08: replace the download list wholesale — the import's single persisted write for
+	 * add / drop / refresh. Deliberately does NOT call blobStore.del for dropped entries: the only
+	 * lane that drops here is the device import, whose files the app never owned and must never
+	 * delete (Plan 34-01's refusal is the backstop). Marks for uids that are no longer listed are
+	 * pruned, so a re-import that finds the file again starts clean.
+	 */
+	setDownloads(next: Track[]) {
+		this.downloads = next;
+		const present = new Set(next.map((t) => t.uid));
+		this.unavailable = new Set([...this.unavailable].filter((uid) => present.has(uid)));
+		this.save();
 	}
 
 	clearAll() {
@@ -220,6 +282,7 @@ class Library {
 		this.playlists = [];
 		this.downloads = [];
 		this.favArtists = [];
+		this.unavailable = new Set();
 		this.save();
 	}
 }
