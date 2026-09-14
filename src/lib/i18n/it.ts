@@ -134,6 +134,16 @@ const it: Dict = {
 	"settings.activityUploaded": "Registro caricato.",
 	"settings.activityUploadFailed": "Caricamento non riuscito.",
 	"settings.activityUploadEmpty": "Niente da caricare.",
+
+	// --- downloads settings / retag (36-D-17) ---
+	"settings.groupDownloads": "Download",
+	"settings.groupDownloadsDesc": "Aggiungi metadati ai file scaricati",
+	"settings.retagDownloads": "Riassegna i tag ai brani scaricati ({count})",
+	"settings.retagDownloadsDesc": "Riscrive le copie offline che questa app conserva ancora con titolo, artista, album e copertina. Su Android viene riscritto anche il file in Music/OpenMusic. I file salvati nella cartella download del browser non sono raggiungibili da qui.",
+	"settings.retagConfirm": "Riscrivere {count} file scaricati con i tag dei metadati? Un file che non può essere taggato resta intatto.",
+	"settings.retagProgress": "Tagging {done} di {total}…",
+	"settings.retagDone": "{tagged} di {total} taggati. {skipped} saltati.",
+	"settings.retagNone": "Nessun download offline da riassegnare.",
 	"settings.groupAppearance": "Aspetto",
 	"settings.groupAppearanceDesc": "Dimensione testo, copertine e layout",
 	"settings.appearanceText": "Dimensione testo",

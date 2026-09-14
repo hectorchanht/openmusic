@@ -134,6 +134,16 @@ const fr: Dict = {
 	"settings.activityUploaded": "Journal envoyé.",
 	"settings.activityUploadFailed": "Échec de l’envoi.",
 	"settings.activityUploadEmpty": "Rien à envoyer.",
+
+	// --- downloads settings / retag (36-D-17) ---
+	"settings.groupDownloads": "Téléchargements",
+	"settings.groupDownloadsDesc": "Ajouter des métadonnées aux fichiers téléchargés",
+	"settings.retagDownloads": "Réétiqueter les titres téléchargés ({count})",
+	"settings.retagDownloadsDesc": "Réécrit les copies hors ligne que l'application conserve encore avec le titre, l'artiste, l'album et la pochette. Sur Android, le fichier dans Music/OpenMusic est également réécrit. Les fichiers enregistrés via le dossier de téléchargement du navigateur sont inaccessibles d'ici.",
+	"settings.retagConfirm": "Réécrire {count} fichiers téléchargés avec des métadonnées ? Un fichier impossible à étiqueter reste intact.",
+	"settings.retagProgress": "Étiquetage {done} sur {total}…",
+	"settings.retagDone": "{tagged} sur {total} étiquetés. {skipped} ignorés.",
+	"settings.retagNone": "Aucun téléchargement hors ligne à réétiqueter.",
 	"settings.groupAppearance": "Apparence",
 	"settings.groupAppearanceDesc": "Taille du texte, pochettes et mise en page",
 	"settings.appearanceText": "Taille du texte",

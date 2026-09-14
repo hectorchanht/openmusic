@@ -134,6 +134,16 @@ const tr: Dict = {
 	"settings.activityUploaded": "Günlük yüklendi.",
 	"settings.activityUploadFailed": "Yükleme başarısız.",
 	"settings.activityUploadEmpty": "Yüklenecek bir şey yok.",
+
+	// --- downloads settings / retag (36-D-17) ---
+	"settings.groupDownloads": "İndirilenler",
+	"settings.groupDownloadsDesc": "İndirilen dosyalara meta veri ekle",
+	"settings.retagDownloads": "İndirilen şarkıları yeniden etiketle ({count})",
+	"settings.retagDownloadsDesc": "Uygulamanın hâlâ sakladığı çevrimdışı kopyaları başlık, sanatçı, albüm ve kapak resmiyle yeniden yazar. Android'de Music/OpenMusic içindeki dosya da yeniden yazılır. Tarayıcının indirilenler klasörüne kaydedilen dosyalara buradan erişilemez.",
+	"settings.retagConfirm": "{count} indirilen dosya meta veri etiketleriyle yeniden yazılsın mı? Etiketlenemeyen dosya olduğu gibi bırakılır.",
+	"settings.retagProgress": "{total} dosyadan {done} tanesi etiketleniyor…",
+	"settings.retagDone": "{total} dosyadan {tagged} tanesi etiketlendi. {skipped} tanesi atlandı.",
+	"settings.retagNone": "Yeniden etiketlenecek çevrimdışı indirme yok.",
 	"settings.groupAppearance": "Görünüm",
 	"settings.groupAppearanceDesc": "Metin boyutu, kapaklar ve düzen",
 	"settings.appearanceText": "Metin boyutu",

@@ -134,6 +134,16 @@ const pt: Dict = {
 	"settings.activityUploaded": "Registro enviado.",
 	"settings.activityUploadFailed": "Falha no envio.",
 	"settings.activityUploadEmpty": "Nada para enviar.",
+
+	// --- downloads settings / retag (36-D-17) ---
+	"settings.groupDownloads": "Downloads",
+	"settings.groupDownloadsDesc": "Adicionar metadados aos ficheiros transferidos",
+	"settings.retagDownloads": "Voltar a etiquetar músicas transferidas ({count})",
+	"settings.retagDownloadsDesc": "Reescreve as cópias offline que esta app ainda guarda com título, artista, álbum e capa. No Android o ficheiro em Music/OpenMusic também é reescrito. Os ficheiros guardados na pasta de transferências do navegador não podem ser alcançados daqui.",
+	"settings.retagConfirm": "Reescrever {count} ficheiros transferidos com etiquetas de metadados? Um ficheiro que não possa ser etiquetado fica intacto.",
+	"settings.retagProgress": "A etiquetar {done} de {total}…",
+	"settings.retagDone": "{tagged} de {total} etiquetados. {skipped} ignorados.",
+	"settings.retagNone": "Não há transferências offline para voltar a etiquetar.",
 	"settings.groupAppearance": "Aparência",
 	"settings.groupAppearanceDesc": "Tamanho do texto, capas e layout",
 	"settings.appearanceText": "Tamanho do texto",

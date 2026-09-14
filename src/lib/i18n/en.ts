@@ -153,6 +153,16 @@ const en = {
 	"settings.activityUploadFailed": "Upload failed.",
 	"settings.activityUploadEmpty": "Nothing to upload.",
 
+	// --- downloads settings / retag (36-D-17) ---
+	"settings.groupDownloads": "Downloads",
+	"settings.groupDownloadsDesc": "Tag downloaded files with metadata",
+	"settings.retagDownloads": "Retag downloaded songs ({count})",
+	"settings.retagDownloadsDesc": "Rewrites the offline copies this app still holds with title, artist, album and cover art. On Android the file in Music/OpenMusic is rewritten too. Files you saved through the browser's download folder can't be reached from here.",
+	"settings.retagConfirm": "Rewrite {count} downloaded files with metadata tags? A file that can't be tagged is left untouched.",
+	"settings.retagProgress": "Tagging {done} of {total}…",
+	"settings.retagDone": "Tagged {tagged} of {total}. Skipped {skipped}.",
+	"settings.retagNone": "No offline downloads to retag.",
+
 	// --- appearance / sizing (quick-260607-fnp) ---
 	"settings.groupAppearance": "Appearance",
 	"settings.groupAppearanceDesc": "Text size, cover size & layout",

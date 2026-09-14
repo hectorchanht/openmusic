@@ -134,6 +134,16 @@ const de: Dict = {
 	"settings.activityUploaded": "Protokoll hochgeladen.",
 	"settings.activityUploadFailed": "Hochladen fehlgeschlagen.",
 	"settings.activityUploadEmpty": "Nichts zum Hochladen.",
+
+	// --- downloads settings / retag (36-D-17) ---
+	"settings.groupDownloads": "Downloads",
+	"settings.groupDownloadsDesc": "Heruntergeladene Dateien mit Metadaten versehen",
+	"settings.retagDownloads": "Heruntergeladene Titel neu taggen ({count})",
+	"settings.retagDownloadsDesc": "Schreibt Titel, Interpret, Album und Cover in die Offline-Kopien, die diese App noch besitzt. Unter Android wird auch die Datei in Music/OpenMusic neu geschrieben. Dateien im Download-Ordner des Browsers sind von hier aus nicht erreichbar.",
+	"settings.retagConfirm": "{count} heruntergeladene Dateien mit Metadaten neu schreiben? Eine Datei, die nicht getaggt werden kann, bleibt unverändert.",
+	"settings.retagProgress": "Tagge {done} von {total}…",
+	"settings.retagDone": "{tagged} von {total} getaggt. {skipped} übersprungen.",
+	"settings.retagNone": "Keine Offline-Downloads zum Neutaggen.",
 	"settings.groupAppearance": "Darstellung",
 	"settings.groupAppearanceDesc": "Textgröße, Cover & Layout",
 	"settings.appearanceText": "Textgröße",

@@ -134,6 +134,16 @@ const id: Dict = {
 	"settings.activityUploaded": "Log diunggah.",
 	"settings.activityUploadFailed": "Unggahan gagal.",
 	"settings.activityUploadEmpty": "Tidak ada yang perlu diunggah.",
+
+	// --- downloads settings / retag (36-D-17) ---
+	"settings.groupDownloads": "Unduhan",
+	"settings.groupDownloadsDesc": "Tambahkan metadata ke berkas yang diunduh",
+	"settings.retagDownloads": "Tag ulang lagu yang diunduh ({count})",
+	"settings.retagDownloadsDesc": "Menulis ulang salinan luring yang masih disimpan aplikasi ini dengan judul, artis, album, dan sampul. Di Android, berkas di Music/OpenMusic juga ditulis ulang. Berkas yang disimpan lewat folder unduhan peramban tidak dapat dijangkau dari sini.",
+	"settings.retagConfirm": "Tulis ulang {count} berkas unduhan dengan tag metadata? Berkas yang tidak bisa ditandai dibiarkan apa adanya.",
+	"settings.retagProgress": "Menandai {done} dari {total}…",
+	"settings.retagDone": "{tagged} dari {total} ditandai. {skipped} dilewati.",
+	"settings.retagNone": "Tidak ada unduhan luring untuk ditag ulang.",
 	"settings.groupAppearance": "Tampilan",
 	"settings.groupAppearanceDesc": "Ukuran teks, sampul & tata letak",
 	"settings.appearanceText": "Ukuran teks",

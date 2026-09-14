@@ -146,6 +146,16 @@ const zhHans: Dict = {
 	"settings.activityUploadFailed": "上传失败。",
 	"settings.activityUploadEmpty": "没有可上传的内容。",
 
+	// --- downloads settings / retag (36-D-17) ---
+	"settings.groupDownloads": "下载",
+	"settings.groupDownloadsDesc": "为下载的文件写入歌曲信息",
+	"settings.retagDownloads": "重写下载歌曲的信息（{count}）",
+	"settings.retagDownloadsDesc": "为本应用仍保存的离线副本重新写入歌名、歌手、专辑和封面。在 Android 上也会重写 Music/OpenMusic 中的文件。通过浏览器下载文件夹保存的文件无法在此处理。",
+	"settings.retagConfirm": "为 {count} 个下载的文件写入歌曲信息？无法写入的文件会保持原样。",
+	"settings.retagProgress": "正在写入第 {done} 个，共 {total} 个…",
+	"settings.retagDone": "已写入 {tagged} 个，共 {total} 个。跳过 {skipped} 个。",
+	"settings.retagNone": "没有可重写信息的离线下载。",
+
 	// --- appearance / sizing (quick-260607-fnp) ---
 	"settings.groupAppearance": "外观",
 	"settings.groupAppearanceDesc": "文字大小、封面大小与布局",

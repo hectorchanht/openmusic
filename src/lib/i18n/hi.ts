@@ -134,6 +134,16 @@ const hi: Dict = {
 	"settings.activityUploaded": "लॉग अपलोड हो गया।",
 	"settings.activityUploadFailed": "अपलोड विफल।",
 	"settings.activityUploadEmpty": "अपलोड करने के लिए कुछ नहीं है।",
+
+	// --- downloads settings / retag (36-D-17) ---
+	"settings.groupDownloads": "डाउनलोड",
+	"settings.groupDownloadsDesc": "डाउनलोड की गई फ़ाइलों में मेटाडेटा जोड़ें",
+	"settings.retagDownloads": "डाउनलोड किए गए गाने फिर से टैग करें ({count})",
+	"settings.retagDownloadsDesc": "ऐप के पास अब भी मौजूद ऑफ़लाइन कॉपियों में शीर्षक, कलाकार, एल्बम और कवर आर्ट दोबारा लिखता है। Android पर Music/OpenMusic की फ़ाइल भी दोबारा लिखी जाती है। ब्राउज़र के डाउनलोड फ़ोल्डर में सहेजी गई फ़ाइलें यहाँ से नहीं पहुँची जा सकतीं।",
+	"settings.retagConfirm": "{count} डाउनलोड की गई फ़ाइलों में मेटाडेटा टैग लिखें? जिस फ़ाइल को टैग नहीं किया जा सकता, वह अछूती रहती है।",
+	"settings.retagProgress": "{total} में से {done} टैग हो रहे हैं…",
+	"settings.retagDone": "{total} में से {tagged} टैग हुए। {skipped} छोड़े गए।",
+	"settings.retagNone": "फिर से टैग करने के लिए कोई ऑफ़लाइन डाउनलोड नहीं है।",
 	"settings.groupAppearance": "रूप",
 	"settings.groupAppearanceDesc": "टेक्स्ट आकार, कवर और लेआउट",
 	"settings.appearanceText": "टेक्स्ट आकार",

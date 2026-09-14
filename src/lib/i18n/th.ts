@@ -134,6 +134,16 @@ const th: Dict = {
 	"settings.activityUploaded": "อัปโหลดบันทึกแล้ว",
 	"settings.activityUploadFailed": "อัปโหลดไม่สำเร็จ",
 	"settings.activityUploadEmpty": "ไม่มีอะไรให้อัปโหลด",
+
+	// --- downloads settings / retag (36-D-17) ---
+	"settings.groupDownloads": "ดาวน์โหลด",
+	"settings.groupDownloadsDesc": "เพิ่มข้อมูลเพลงลงในไฟล์ที่ดาวน์โหลด",
+	"settings.retagDownloads": "เขียนข้อมูลเพลงที่ดาวน์โหลดใหม่ ({count})",
+	"settings.retagDownloadsDesc": "เขียนชื่อเพลง ศิลปิน อัลบั้ม และภาพปกลงในสำเนาออฟไลน์ที่แอปยังเก็บไว้ บน Android ไฟล์ใน Music/OpenMusic จะถูกเขียนใหม่ด้วย ไฟล์ที่บันทึกผ่านโฟลเดอร์ดาวน์โหลดของเบราว์เซอร์ไม่สามารถเข้าถึงได้จากที่นี่",
+	"settings.retagConfirm": "เขียนข้อมูลเพลงลงในไฟล์ที่ดาวน์โหลด {count} ไฟล์หรือไม่? ไฟล์ที่เขียนไม่ได้จะไม่ถูกแตะต้อง",
+	"settings.retagProgress": "กำลังเขียน {done} จาก {total}…",
+	"settings.retagDone": "เขียนแล้ว {tagged} จาก {total} ข้าม {skipped}",
+	"settings.retagNone": "ไม่มีไฟล์ออฟไลน์ให้เขียนข้อมูลใหม่",
 	"settings.groupAppearance": "ลักษณะที่ปรากฏ",
 	"settings.groupAppearanceDesc": "ขนาดข้อความ ปก และเลย์เอาต์",
 	"settings.appearanceText": "ขนาดข้อความ",

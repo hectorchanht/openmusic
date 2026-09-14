@@ -134,6 +134,16 @@ const es: Dict = {
 	"settings.activityUploaded": "Registro subido.",
 	"settings.activityUploadFailed": "Error al subir.",
 	"settings.activityUploadEmpty": "Nada que subir.",
+
+	// --- downloads settings / retag (36-D-17) ---
+	"settings.groupDownloads": "Descargas",
+	"settings.groupDownloadsDesc": "Añadir metadatos a los archivos descargados",
+	"settings.retagDownloads": "Volver a etiquetar canciones descargadas ({count})",
+	"settings.retagDownloadsDesc": "Reescribe las copias sin conexión que la app todavía conserva con título, artista, álbum y carátula. En Android también se reescribe el archivo en Music/OpenMusic. Los archivos guardados en la carpeta de descargas del navegador no son accesibles desde aquí.",
+	"settings.retagConfirm": "¿Reescribir {count} archivos descargados con etiquetas de metadatos? Un archivo que no se pueda etiquetar se deja intacto.",
+	"settings.retagProgress": "Etiquetando {done} de {total}…",
+	"settings.retagDone": "Etiquetadas {tagged} de {total}. Omitidas {skipped}.",
+	"settings.retagNone": "No hay descargas sin conexión para volver a etiquetar.",
 	"settings.groupAppearance": "Apariencia",
 	"settings.groupAppearanceDesc": "Tamaño de texto, portadas y diseño",
 	"settings.appearanceText": "Tamaño de texto",

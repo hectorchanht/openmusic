@@ -134,6 +134,16 @@ const ru: Dict = {
 	"settings.activityUploaded": "Журнал выгружен.",
 	"settings.activityUploadFailed": "Не удалось выгрузить.",
 	"settings.activityUploadEmpty": "Нечего выгружать.",
+
+	// --- downloads settings / retag (36-D-17) ---
+	"settings.groupDownloads": "Загрузки",
+	"settings.groupDownloadsDesc": "Записывать метаданные в загруженные файлы",
+	"settings.retagDownloads": "Перезаписать теги загруженных песен ({count})",
+	"settings.retagDownloadsDesc": "Перезаписывает офлайн-копии, которые ещё хранит приложение, с названием, исполнителем, альбомом и обложкой. На Android файл в Music/OpenMusic также перезаписывается. Файлы, сохранённые через папку загрузок браузера, отсюда недоступны.",
+	"settings.retagConfirm": "Перезаписать теги в {count} загруженных файлах? Файл, который не удалось обработать, остаётся без изменений.",
+	"settings.retagProgress": "Обработка {done} из {total}…",
+	"settings.retagDone": "Обработано {tagged} из {total}. Пропущено {skipped}.",
+	"settings.retagNone": "Нет офлайн-загрузок для перезаписи тегов.",
 	"settings.groupAppearance": "Оформление",
 	"settings.groupAppearanceDesc": "Размер текста, обложки и макет",
 	"settings.appearanceText": "Размер текста",

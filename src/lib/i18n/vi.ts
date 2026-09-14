@@ -134,6 +134,16 @@ const vi: Dict = {
 	"settings.activityUploaded": "Đã tải nhật ký lên.",
 	"settings.activityUploadFailed": "Tải lên thất bại.",
 	"settings.activityUploadEmpty": "Không có gì để tải lên.",
+
+	// --- downloads settings / retag (36-D-17) ---
+	"settings.groupDownloads": "Tải xuống",
+	"settings.groupDownloadsDesc": "Ghi thông tin bài hát vào tệp đã tải",
+	"settings.retagDownloads": "Ghi lại thẻ cho bài hát đã tải ({count})",
+	"settings.retagDownloadsDesc": "Ghi lại tiêu đề, nghệ sĩ, album và ảnh bìa vào các bản sao ngoại tuyến mà ứng dụng vẫn giữ. Trên Android, tệp trong Music/OpenMusic cũng được ghi lại. Không thể truy cập từ đây các tệp bạn đã lưu qua thư mục tải xuống của trình duyệt.",
+	"settings.retagConfirm": "Ghi lại thẻ thông tin cho {count} tệp đã tải? Tệp không thể gắn thẻ sẽ được giữ nguyên.",
+	"settings.retagProgress": "Đang gắn thẻ {done} trên {total}…",
+	"settings.retagDone": "Đã gắn thẻ {tagged} trên {total}. Bỏ qua {skipped}.",
+	"settings.retagNone": "Không có bản tải ngoại tuyến nào để ghi lại thẻ.",
 	"settings.groupAppearance": "Giao diện",
 	"settings.groupAppearanceDesc": "Cỡ chữ, ảnh bìa & bố cục",
 	"settings.appearanceText": "Cỡ chữ",

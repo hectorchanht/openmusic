@@ -134,6 +134,16 @@ const ar: Dict = {
 	"settings.activityUploaded": "تم رفع السجل.",
 	"settings.activityUploadFailed": "فشل الرفع.",
 	"settings.activityUploadEmpty": "لا يوجد ما يمكن رفعه.",
+
+	// --- downloads settings / retag (36-D-17) ---
+	"settings.groupDownloads": "التنزيلات",
+	"settings.groupDownloadsDesc": "إضافة بيانات وصفية للملفات المنزَّلة",
+	"settings.retagDownloads": "إعادة وسم الأغاني المنزَّلة ({count})",
+	"settings.retagDownloadsDesc": "يعيد كتابة النسخ دون اتصال التي ما زال التطبيق يحتفظ بها مع العنوان والفنان والألبوم وصورة الغلاف. على أندرويد تتم إعادة كتابة الملف في Music/OpenMusic أيضًا. الملفات المحفوظة عبر مجلد تنزيلات المتصفح لا يمكن الوصول إليها من هنا.",
+	"settings.retagConfirm": "إعادة كتابة {count} ملفًا منزَّلاً مع بيانات وصفية؟ الملف الذي يتعذر وسمه يُترك دون تغيير.",
+	"settings.retagProgress": "جارٍ وسم {done} من {total}…",
+	"settings.retagDone": "تم وسم {tagged} من {total}. تم تخطي {skipped}.",
+	"settings.retagNone": "لا توجد تنزيلات دون اتصال لإعادة وسمها.",
 	"settings.groupAppearance": "المظهر",
 	"settings.groupAppearanceDesc": "حجم النص والأغلفة والتخطيط",
 	"settings.appearanceText": "حجم النص",

@@ -146,6 +146,16 @@ const zhHant: Dict = {
 	"settings.activityUploadFailed": "上傳失敗。",
 	"settings.activityUploadEmpty": "沒有可上傳的內容。",
 
+	// --- downloads settings / retag (36-D-17) ---
+	"settings.groupDownloads": "下載",
+	"settings.groupDownloadsDesc": "為下載的檔案寫入歌曲資訊",
+	"settings.retagDownloads": "重寫下載歌曲的資訊（{count}）",
+	"settings.retagDownloadsDesc": "為本應用程式仍保存的離線副本重新寫入歌名、歌手、專輯和封面。在 Android 上也會重寫 Music/OpenMusic 中的檔案。透過瀏覽器下載資料夾儲存的檔案無法在此處理。",
+	"settings.retagConfirm": "為 {count} 個下載的檔案寫入歌曲資訊？無法寫入的檔案會保持原樣。",
+	"settings.retagProgress": "正在寫入第 {done} 個，共 {total} 個…",
+	"settings.retagDone": "已寫入 {tagged} 個，共 {total} 個。略過 {skipped} 個。",
+	"settings.retagNone": "沒有可重寫資訊的離線下載。",
+
 	// --- appearance / sizing (quick-260607-fnp) ---
 	"settings.groupAppearance": "外觀",
 	"settings.groupAppearanceDesc": "文字大小、封面大小與版面",
