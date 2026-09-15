@@ -564,9 +564,21 @@ async function resolveTrackDetails(
  * (never a fan-out), AbortSignal-honoring, and never-throws (returns null on any failure).
  */
 async function crossSourceLyric(track: Track, signal: AbortSignal): Promise<string | null> {
+	return lyricWalk(track.artist || '', track.title || '', track.source, signal);
+}
+
+/**
+ * 37-D-03: `crossSourceLyric`'s body, verbatim, with the skipped source as a PARAMETER. Two entry
+ * points share it — `crossSourceLyric` (skip the track's own source: it already resolved lyric-less)
+ * and `lyricByName` (skip nothing).
+ */
+async function lyricWalk(
+	artist: string,
+	title: string,
+	skipSource: SourceId | null,
+	signal: AbortSignal
+): Promise<string | null> {
 	try {
-		const artist = track.artist || '';
-		const title = track.title || '';
 		if (!artist && !title) return null;
 		const query = `${artist} ${title}`.trim();
 		const wantKey = matchKey(artist, title);
@@ -575,7 +587,7 @@ async function crossSourceLyric(track: Track, signal: AbortSignal): Promise<stri
 		const order = getEnabledAdapters({}).map((a) => a.id);
 		for (const src of order) {
 			if (signal.aborted) return null;
-			if (src === track.source || LYRICLESS_SOURCES.has(src)) continue;
+			if (src === skipSource || LYRICLESS_SOURCES.has(src)) continue;
 			try {
 				const sr = await searchAll(query, 1, onlySource(src), signal);
 				if (signal.aborted) return null;
@@ -598,4 +610,26 @@ async function crossSourceLyric(track: Track, signal: AbortSignal): Promise<stri
 		// Best-effort — any failure (abort, source throw, drift) leaves the primary track lyric-less.
 		return null;
 	}
+}
+
+/**
+ * 37-D-03: the same bounded walk, entered by NAME — no Track in, a bare string out.
+ *
+ * Why a second entry point rather than calling `crossSourceLyric` with a device Track: that one skips
+ * `track.source`, and a `device:` track's source is the 34-D-01 PLACEHOLDER 'kuwo'. Passing the track
+ * in would silently drop the single best CN lyric source — and per MEMORY `sandbox-no-cn-upstream-network`
+ * the only CN source reachable from the dev sandbox, so the feature would also be untestable locally.
+ * This wrapper passes `null`, so nothing is skipped but the genuinely lyric-less sources.
+ *
+ * The return is `string | null` BY CONSTRUCTION, never a Track. That is the 34-D-01 guarantee in the
+ * type system: a caller enriching a device track physically cannot adopt an `audioUrl` from this — the
+ * file's bytes stay the only source of audio. Never throws, honors `signal`, issues at most one search
+ * and one candidate resolve per source and stops at the first lyric.
+ */
+export async function lyricByName(
+	artist: string,
+	title: string,
+	signal: AbortSignal
+): Promise<string | null> {
+	return lyricWalk(artist, title, null, signal);
 }
