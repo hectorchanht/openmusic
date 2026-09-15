@@ -8,6 +8,15 @@ import fixture from './__fixtures__/ytmusic-search.json';
 
 const ac = new AbortController();
 
+// quick-260915-3ng: resolve() grew a NATIVE branch (device-side googlevideo url) in front of the
+// proxy stamp. Both the platform switch and the native resolver are mocked, so every pre-existing
+// test below keeps running the WEB branch untouched (isNative defaults false in beforeEach).
+const mocks = vi.hoisted(() => ({ isNative: vi.fn(() => false), nativeResolve: vi.fn() }));
+vi.mock('@capacitor/core', () => ({ Capacitor: { isNativePlatform: () => mocks.isNative() } }));
+vi.mock('../services/ytmusic-native', () => ({
+	nativeResolveStreamUrl: (...a: unknown[]) => mocks.nativeResolve(...a)
+}));
+
 // Mirror audius.test.ts: stub the GLOBAL fetch (apiFetch → governor → fetch) with a JSON Response.
 function mockFetch(body: unknown, contentType = 'application/json') {
 	return vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => {
@@ -21,6 +30,8 @@ function mockFetch(body: unknown, contentType = 'application/json') {
 beforeEach(() => {
 	__resetGovernor(); // no inflight-dedupe / breaker state leaking across tests
 	vi.restoreAllMocks();
+	mocks.isNative.mockReturnValue(false); // WEB branch unless a test opts into native
+	mocks.nativeResolve.mockReset();
 });
 afterEach(() => {
 	vi.restoreAllMocks();
@@ -273,6 +284,8 @@ describe('ytmusic.resolve — deterministic stream stamp + best-effort plain lyr
 		expect(out.quality).toBeTruthy();
 		expect(out.qualityLabel).toBeTruthy();
 		expect(out.lrcUrl).toBeNull(); // YTM has no separate timed-lyric URL — never set lrcUrl
+		// The web branch must not even CALL the native resolver (quick-260915-3ng).
+		expect(mocks.nativeResolve).not.toHaveBeenCalled();
 	});
 
 	it('populates track.lrc from a { text } lyrics payload (plain lyrics, spike 007 tier 1)', async () => {
@@ -318,5 +331,48 @@ describe('ytmusic.resolve — deterministic stream stamp + best-effort plain lyr
 
 		expect(out.lrc).toBeNull();
 		expect(out.audioUrl).toBe('/api/ytmusic/stream/vid45');
+	});
+});
+
+describe('ytmusic.resolve — native on-device googlevideo url with proxy fallback (quick-260915-3ng)', () => {
+	const DIRECT = 'https://rr1---sn-x.googlevideo.com/videoplayback?itag=140';
+
+	it('stamps the DEVICE-resolved googlevideo url on native, keeping the itag-140 quality labels', async () => {
+		mocks.isNative.mockReturnValue(true);
+		mocks.nativeResolve.mockResolvedValue(DIRECT);
+		vi.stubGlobal('fetch', mockFetch({ text: 'na na na' }));
+
+		const signal = new AbortController().signal;
+		const out = await ytmusic.resolve(stubTrack('vidN1'), signal);
+
+		expect(out.audioUrl).toBe(DIRECT);
+		expect(out.quality).toBe('128k');
+		expect(out.qualityLabel).toBe('128k AAC');
+		expect(out.detailsLoaded).toBe(true);
+		// Lyrics stay best-effort on the native path too.
+		expect(out.lrc).toBe('na na na');
+		expect(mocks.nativeResolve).toHaveBeenCalledTimes(1);
+		expect(mocks.nativeResolve).toHaveBeenCalledWith('vidN1', signal);
+	});
+
+	it('falls back to the /api/ytmusic/stream proxy path when the native resolve returns null', async () => {
+		mocks.isNative.mockReturnValue(true);
+		mocks.nativeResolve.mockResolvedValue(null);
+		vi.stubGlobal('fetch', mockFetch({}));
+
+		const out = await ytmusic.resolve(stubTrack('vidN2'), new AbortController().signal);
+
+		expect(out.audioUrl?.endsWith('/api/ytmusic/stream/vidN2')).toBe(true);
+		expect(out.detailsLoaded).toBe(true);
+	});
+
+	it('falls back to the proxy path when the native resolve REJECTS (defensive — it never should)', async () => {
+		mocks.isNative.mockReturnValue(true);
+		mocks.nativeResolve.mockRejectedValue(new Error('bridge blew up'));
+		vi.stubGlobal('fetch', mockFetch({}));
+
+		const out = await ytmusic.resolve(stubTrack('vidN3'), new AbortController().signal);
+
+		expect(out.audioUrl?.endsWith('/api/ytmusic/stream/vidN3')).toBe(true);
 	});
 });

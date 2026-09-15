@@ -4,11 +4,19 @@
 // anywhere in Plan 27. Account/library sync is a separate, later, legal-gated milestone (spike 008);
 // if a change here ever tempts adding auth "while we're here", STOP — it is explicitly out of scope.
 //
-// Closest analog is audius.ts: the playable stream URL is DETERMINISTIC from the videoId, so
-// resolve() has NO client-side JSON hop — it just stamps the own-origin /api/ytmusic/stream/{videoId}
-// path. The bytes are edge-proxied because the real googlevideo URL is IP-locked + expires ~6h
-// (spike 006), so the client's <audio>.src only ever sees the own-origin path (Capacitor/CORS-safe,
-// exactly like the audius <audio>.src note).
+// On WEB the closest analog is audius.ts: the playable stream URL is DETERMINISTIC from the videoId,
+// so resolve() has NO client-side JSON hop — it just stamps the own-origin /api/ytmusic/stream/{videoId}
+// path and the bytes are edge-proxied (Capacitor/CORS-safe, exactly like the audius <audio>.src note).
+//
+// On NATIVE (quick-260915-3ng) the DEVICE resolves the real googlevideo URL itself, via the two
+// InnerTube hops in ../services/ytmusic-native.ts. googlevideo FULL-IP-locks that URL to whoever
+// called `player`, so the edge proxy — which calls player and then fetches the bytes from the same
+// datacenter IP — is refused with 403 in production, while the identical chain from a residential IP
+// serves 206. A browser cannot make the player call at all (InnerTube sends no CORS headers), so this
+// stays native-only; CapacitorHttp bypasses the WebView's CORS and lets us set origin/user-agent, and
+// <audio src> plays the returned URL directly because media elements perform no CORS check.
+// A null from the native resolver falls back to the proxy path — behaviour degrades to today's, never
+// worse. ZERO auth on both paths (anonymous visitorData only).
 //
 // search() parses the proxied InnerTube WEB_REMIX envelope CLIENT-side (testable per conventions —
 // see ytmusic.test.ts + the captured __fixtures__/ytmusic-search.json). The parse is a direct port of
@@ -20,6 +28,8 @@
 import type { SourceAdapter, Track } from './types';
 import { makeUid } from './types';
 import { apiFetch, apiUrl } from '../services/api-base';
+import { Capacitor } from '@capacitor/core';
+import { nativeResolveStreamUrl } from '../services/ytmusic-native';
 
 // --- InnerTube search-envelope shapes (untrusted, deeply/inconsistently nested; every field
 // optional and accessed via optional chaining — the drift guard in search() throws when the
@@ -234,13 +244,23 @@ export const ytmusic: SourceAdapter = {
 
 	async resolve(track: Track, signal: AbortSignal): Promise<Track> {
 		if (!track.songid) throw new Error('ytmusic: missing videoId on resolve');
-		// STREAM URL — deterministic from the videoId (the audius pattern), so there is no JSON hop for
-		// it. Own-origin proxy path; apiUrl prefixes VITE_API_BASE on native, returns it unchanged on web
-		// (Capacitor/CORS-safe). The /api/ytmusic/stream/{videoId} byte-proxy is Plan 27-03.
-		track.audioUrl = apiUrl('/api/ytmusic/stream/' + encodeURIComponent(track.songid));
+		// STREAM URL. WEB: deterministic from the videoId (the audius pattern) — no JSON hop, no await
+		// before the stamp, just the own-origin /api/ytmusic/stream/{videoId} byte-proxy (Plan 27-03).
+		// NATIVE: the device resolves the real googlevideo URL first (quick-260915-3ng — the edge cannot,
+		// see the header note); a null result falls straight through to the same proxy stamp, and a throw
+		// is caught for the same reason (the resolver is never-throw by contract, this is belt+braces).
+		// apiUrl returns an ABSOLUTE url unchanged (32-D-13), so the fallback line is correct on both
+		// builds and api-base needs no change.
+		// No new TTL is needed: hasFreshAudioUrl re-trusts a url for RESOLVE_URL_TTL_S (15 min) and a
+		// googlevideo url lives ~6h, so the existing guard always re-resolves well inside the window.
+		let direct: string | null = null;
+		if (Capacitor.isNativePlatform()) {
+			direct = await nativeResolveStreamUrl(track.songid, signal).catch(() => null);
+		}
+		track.audioUrl = direct ?? apiUrl('/api/ytmusic/stream/' + encodeURIComponent(track.songid));
 		// itag 140 = 128 kbps AAC/mp4 (spike 006 — the iOS-Safari-safe format, NOT Opus/webm itag 251).
-		// The proxy path carries no file extension, so inferQualityFromUrl would MISLABEL it 320K —
-		// stamp the true AAC-128 tier directly instead.
+		// Neither the proxy path nor the googlevideo url carries a file extension, so
+		// inferQualityFromUrl would MISLABEL both 320K — stamp the true AAC-128 tier directly instead.
 		track.quality = '128k';
 		track.qualityLabel = '128k AAC';
 		track.detailsLoaded = true;

@@ -130,6 +130,12 @@ export async function downloadTrack(
 		// RAW fetch (not apiFetch — fetch→apiFetch audit): a MEDIA download-to-blob of the resolved
 		// audio stream. audioUrl is often an ABSOLUTE CDN URL (qq/kuwo/joox) — apiFetch would corrupt it —
 		// and a full-file body must not be routed through the JSON governor's dedup/cap.
+		// quick-260915-3ng: on NATIVE a ytmusic audioUrl is now a DIRECT googlevideo url, which sends no
+		// access-control-allow-origin — so this fetch() CORS-fails in the WebView. That is no regression:
+		// ytmusic downloads are already broken today because the /api/ytmusic/stream proxy 403s in
+		// production. Deliberately NOT routed through CapacitorHttp — it returns binary as base64, the
+		// exact memory bloat capacitor-blob-writer exists to avoid. Native ytmusic downloads are a
+		// future item, not part of that task.
 		const resp = await fetch(r.audioUrl);
 		// quick-260913-omi: read the body through a reader instead of `resp.blob()` so the Download
 		// row can show REAL progress. Same one fetch, same one pass over the bytes — progress is a
