@@ -49,6 +49,15 @@ const FIELDS = {
 	trackNumber: '7'
 };
 
+/**
+ * quick-260915-062: the RAW LRC as resolved — timestamps included, CJK, multi-line. The locked
+ * decision is that this string survives byte-for-byte, so the fixture is the assertion.
+ */
+const LRC = '[00:12.34]歌詞一\n[00:15.00]line two';
+
+/** Container markers a lyrics write leaves behind — and must NOT leave when there are no lyrics. */
+const LYRIC_MARKERS = ['USLT', '\xa9lyr', 'LYRICS='];
+
 /** Raw bytes as a latin1 string, so a test can assert on atom/frame names directly. */
 function raw(bytes: Uint8Array): string {
 	return Buffer.from(bytes).toString('latin1');
@@ -287,5 +296,48 @@ describe('audio-tags — dataUrlToBytes', () => {
 describe('audio-tags — readAudioTags', () => {
 	it('returns null for bytes that are not one of the three containers', async () => {
 		await expect(readAudioTags(new Uint8Array(4096).fill(0x41))).resolves.toBeNull();
+	});
+});
+
+describe('audio-tags — lyrics (quick-260915-062): raw LRC, timestamps intact', () => {
+	it.each(CASES)('%s round-trips the LRC byte-for-byte and writes the container marker', async (format, bytes) => {
+		const out = await writeAudioTags(bytes, { title: 'T', lyrics: LRC });
+		expect(out).not.toBeNull();
+		expect(out?.format).toBe(format);
+		const back = await readAudioTags(out!.bytes);
+		// Byte-for-byte: the leading [mm:ss.xx] stamps, the CJK and the newline all survive.
+		expect(back?.lyrics).toBe(LRC);
+		const marker = { mp3: 'USLT', m4a: '\xa9lyr', flac: 'LYRICS=' }[format];
+		expect(raw(out!.bytes)).toContain(marker);
+	});
+
+	it.each(CASES)('%s carries lyrics through tagAudioBlob alongside every other field', async (format, bytes) => {
+		const out = await tagAudioBlob(new Blob([bytes]), { ...FIELDS, lyrics: LRC });
+		expect(out.result).toBe('tagged');
+		const back = await readAudioTags(new Uint8Array(await out.blob.arrayBuffer()));
+		expect(back).toMatchObject({ format, ...FIELDS, lyrics: LRC });
+	});
+
+	it.each(CASES)('%s writes NO lyrics bytes when the track has none', async (_f, bytes) => {
+		const out = await writeAudioTags(bytes, { title: 'T' });
+		expect(out).not.toBeNull();
+		expect((await readAudioTags(out!.bytes))?.lyrics).toBeUndefined();
+		const s = raw(out!.bytes);
+		for (const marker of LYRIC_MARKERS) expect(s).not.toContain(marker);
+	});
+
+	it.each(CASES)('%s omits an EMPTY lrc rather than writing an empty frame (36-D-10 rule)', async (_f, bytes) => {
+		const out = await writeAudioTags(bytes, { title: 'T', lyrics: '' });
+		expect(out).not.toBeNull();
+		expect((await readAudioTags(out!.bytes))?.lyrics).toBeUndefined();
+		const s = raw(out!.bytes);
+		for (const marker of LYRIC_MARKERS) expect(s).not.toContain(marker);
+	});
+
+	it('counts as a real field: lyrics alone is enough to tag', async () => {
+		const out = await tagAudioBlob(new Blob([FLAC]), { lyrics: LRC });
+		expect(out.result).toBe('tagged');
+		const back = await readAudioTags(new Uint8Array(await out.blob.arrayBuffer()));
+		expect(back?.lyrics).toBe(LRC);
 	});
 });

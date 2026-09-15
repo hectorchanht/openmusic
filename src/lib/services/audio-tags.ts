@@ -45,6 +45,19 @@ export interface AudioTagFields {
 	albumArtist?: string;
 	/** 36-D-11: set ONLY by the album download loop. `displayIndex` must never be used here. */
 	trackNumber?: string;
+	/**
+	 * quick-260915-062: the track's RAW LRC, TIMESTAMPS INCLUDED, exactly as resolved —
+	 * `[00:12.34]歌詞` lines are passed through untouched. Locked user decision, weighed and
+	 * accepted: players that parse synced lyrics (Poweramp, foobar2000, Navidrome, Plex) scroll
+	 * them in time, players that do not will show the `[mm:ss.xx]` prefixes literally. Do NOT strip
+	 * the stamps and do NOT try a dual plain-text + synced mapping.
+	 *
+	 * Omitted when the track has no lyrics (`Track.lrc` null or '') — same "omit, never placeholder"
+	 * contract as 36-D-10's album, so a lyric-less download carries no empty frame at all.
+	 *
+	 * No size path of its own: an LRC is a few KB and TAG_MAX_BYTES already bounds the whole file.
+	 */
+	lyrics?: string;
 }
 
 /** The containers we tag. Chosen from the BYTES, never from a URL extension (RESEARCH Pitfall 3). */
@@ -111,7 +124,9 @@ const CONTAINER_BY_FORMAT: Record<string, AudioContainer> = {
 
 /** True when at least one field carries a real value — otherwise there is nothing to write. */
 function hasAnyField(fields: AudioTagFields): boolean {
-	return Boolean(fields.title || fields.artist || fields.album || fields.albumArtist || fields.trackNumber);
+	return Boolean(
+		fields.title || fields.artist || fields.album || fields.albumArtist || fields.trackNumber || fields.lyrics
+	);
 }
 
 /**
@@ -151,8 +166,15 @@ export async function writeAudioTags(
 			if (fields.album) tag.setAlbum(fields.album);
 			// ALBUMARTIST / TRACKNUMBER are format-agnostic property keys; taglib maps them onto
 			// TPE2 (ID3), aART/trkn (MP4) and ALBUMARTIST/TRACKNUMBER (Vorbis).
+			//
+			// quick-260915-062: the same goes for the LYRICS key — USLT (ID3v2), ©lyr (MP4),
+			// LYRICS= (Vorbis). Verified by round-tripping the real fixtures, NOT assumed: taglib-wasm's
+			// own constants table documents this key as Vorbis-only, but that table is metadata and the
+			// C++ PropertyMap does the real mapping in all three containers. Still ONE pass — never a
+			// second apply*/reopen for lyrics (RESEARCH Pitfall 7 doubles peak memory).
 			if (fields.albumArtist) file.setProperty('ALBUMARTIST', fields.albumArtist);
 			if (fields.trackNumber) file.setProperty('TRACKNUMBER', fields.trackNumber);
+			if (fields.lyrics) file.setProperty('LYRICS', fields.lyrics);
 			if (art) {
 				file.setPictures([
 					{ mimeType: art.mimeType, data: art.data, type: 'FrontCover', description: '' }
@@ -202,11 +224,17 @@ export async function readAudioTags(
 		const album = firstString(t.album);
 		const albumArtist = firstString(t.albumArtist);
 		const trackNumber = firstString(t.trackNumber) ?? firstString(t.track);
+		// quick-260915-062: NOT a `firstString` case, and not `getProperty('LYRICS')` either (that
+		// returns undefined after a save). taglib-wasm surfaces lyrics on its own structured path, as
+		// `ExtendedTag.lyrics: UnsyncedLyrics[]` — so read the first entry's text and leave
+		// `firstString`'s signature alone.
+		const lyrics = t.lyrics?.[0]?.text;
 		if (title) out.title = title;
 		if (artist) out.artist = artist;
 		if (album) out.album = album;
 		if (albumArtist) out.albumArtist = albumArtist;
 		if (trackNumber) out.trackNumber = trackNumber;
+		if (lyrics) out.lyrics = lyrics;
 		return out;
 	} catch {
 		return null;
