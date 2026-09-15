@@ -53,7 +53,7 @@ export type DownloadResult = 'saved' | 'no-audio' | 'failed';
 // the streamed quality already meets/exceeds the wanted tier.
 //   - 'auto' / '320' / '128' → any resolved stream (320k or lossless) meets/exceeds the tier
 //   - 'lossless'             → reuse ONLY when the current stream is already lossless; else re-resolve
-function currentQualityMeets(curQuality: string | null, want: DefaultQuality): boolean {
+export function currentQualityMeets(curQuality: string | null, want: DefaultQuality): boolean {
 	if (want === 'auto' || want === '320' || want === '128') return true;
 	// want === 'lossless'
 	return (curQuality ?? '').toLowerCase() === 'lossless';
@@ -94,10 +94,21 @@ export async function downloadTrack(
 			cur.uid === track.uid &&
 			hasFreshAudioUrl(cur) &&
 			currentQualityMeets(cur.quality, settings.downloadQuality);
+		// quick-260915-26g: the same reuse test applied to the track we were HANDED. The download
+		// affordance now probes (resolve at the download tier + HEAD) to label itself `FLAC · 38.2 MB`
+		// and passes that probed Track straight back in on the tap. Without this branch the tap would
+		// re-resolve a THIRD time and could save a DIFFERENT file than the label just promised.
+		// currentQualityMeets' lossless guard still forces a re-resolve for a streaming-tier track
+		// under want='lossless', and hasFreshAudioUrl re-checks the 15-min TTL here — so a stale probe
+		// simply re-resolves and no existing caller's behavior changes.
+		const reuseInput =
+			!reuseCurrent && hasFreshAudioUrl(track) && currentQualityMeets(track.quality, settings.downloadQuality);
 		if (reuseCurrent) {
 			// Reuse the already-resolved current track's URL/details (a fresh COPY — never the live
 			// player.current reference, so nothing downstream can mutate the playing track).
 			r = { ...(cur as Track) };
+		} else if (reuseInput) {
+			r = { ...track };
 		} else {
 			// Re-resolve at the user's DOWNLOAD quality (separate from the streaming default). WR-07: the
 			// tier is threaded through ensureTrackDetails as an explicit per-call parameter — never a
