@@ -245,6 +245,34 @@ describe('downloadTrack — reuse-current-quality (pzs-04 isolation)', () => {
 	});
 });
 
+describe('downloadTrack — reuse a tier-satisfying INPUT track (quick-260915-26g)', () => {
+	it('does NOT re-resolve when the passed-in track is already fresh and meets the tier', async () => {
+		mocks.settings.downloadQuality = 'lossless';
+		const f = stubFetch(new Blob(['a']));
+
+		const res = await downloadTrack(
+			mk({ uid: 'kuwo-9', audioUrl: 'https://cdn.example.com/probed.flac', quality: 'lossless', resolvedAt: Date.now() })
+		);
+
+		expect(res).toBe('saved');
+		expect(mocks.ensureTrackDetails).not.toHaveBeenCalled();
+		// the SAME file the probe measured reaches the fetch — label and download agree
+		expect(f).toHaveBeenCalledWith('https://cdn.example.com/probed.flac');
+	});
+
+	it('still re-resolves when the passed-in track is a lower tier than the wanted lossless', async () => {
+		mocks.settings.downloadQuality = 'lossless';
+		mocks.ensureTrackDetails.mockResolvedValue(mk({ uid: 'kuwo-9', audioUrl: 'https://cdn.example.com/hi.flac' }));
+		stubFetch(new Blob(['a']));
+
+		await downloadTrack(
+			mk({ uid: 'kuwo-9', audioUrl: 'https://cdn.example.com/lo.mp3', quality: '320k', resolvedAt: Date.now() })
+		);
+
+		expect(mocks.ensureTrackDetails).toHaveBeenCalledTimes(1);
+	});
+});
+
 describe('downloadTrack — no-audio', () => {
 	it('returns "no-audio" and never fetches when the resolved track has no audioUrl', async () => {
 		mocks.ensureTrackDetails.mockResolvedValue(mk({ audioUrl: null, detailsLoaded: true }));
