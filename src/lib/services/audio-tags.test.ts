@@ -299,6 +299,37 @@ describe('audio-tags — readAudioTags', () => {
 	});
 });
 
+// 37-D-02: the embedded FrontCover comes out of the SAME readTags() pass that already yields
+// title/artist/lyrics — never a second `readCoverArt`/`readPictures` open of a file up to 40 MB.
+// These tests are the permanent form of the scratch round-trip RESEARCH Q2 ran.
+describe('audio-tags — embedded picture read (37-D-02)', () => {
+	it.each(CASES)('%s round-trips the front cover: mime + byte-exact data', async (format, bytes) => {
+		const out = await writeAudioTags(bytes, FIELDS, ART);
+		expect(out?.format).toBe(format);
+		const back = await readAudioTags(out!.bytes);
+		expect(back?.art?.mimeType).toBe('image/png');
+		// Byte-exact, not just "some bytes": a truncated/padded picture would still be truthy.
+		expect(Array.from(back!.art!.data)).toEqual(Array.from(ART_BYTES));
+	});
+
+	// The single-picture case above IS `pictures[0]`, so the `?? pictures[0]` fallback branch is
+	// covered by it; the write side has no way to emit a second, non-FrontCover entry.
+	it.each(CASES)('%s written with NO picture reads back with art ABSENT', async (_f, bytes) => {
+		const out = await writeAudioTags(bytes, FIELDS, null);
+		expect(out).not.toBeNull();
+		const back = await readAudioTags(out!.bytes);
+		expect(back?.art).toBeUndefined();
+		// Same "absent is ABSENT" contract as album — the key is missing, not an empty object.
+		expect('art' in (back as object)).toBe(false);
+	});
+
+	it('never opens the file a second time for the picture (T-37-04)', () => {
+		const src = readFileSync(new URL('./audio-tags.ts', import.meta.url), 'utf8');
+		expect(src).not.toContain('readCoverArt');
+		expect(src).not.toContain('readPictures');
+	});
+});
+
 describe('audio-tags — lyrics (quick-260915-062): raw LRC, timestamps intact', () => {
 	it.each(CASES)('%s round-trips the LRC byte-for-byte and writes the container marker', async (format, bytes) => {
 		const out = await writeAudioTags(bytes, { title: 'T', lyrics: LRC });
