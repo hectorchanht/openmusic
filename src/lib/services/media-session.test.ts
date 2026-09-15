@@ -54,6 +54,23 @@ describe('buildArtwork (MS-01)', () => {
 		const art = buildArtwork('http://https.evil.example/art.jpg');
 		expect(art.every((a) => a.src === '/favicon.svg')).toBe(true);
 	});
+
+	// 37-D-02 / RESEARCH Pitfall 9: an embedded cover arrives as a data: URL. It must reach the card
+	// (the plugin's network-free `;base64,` branch), and as ONE entry — the ladder would duplicate a
+	// ~100 KB string six times for an array native-media-session.ts only reads `[0]` of.
+	it('passes a data:image cover through as a SINGLE sizes:any entry', () => {
+		const cover = 'data:image/png;base64,iVBORw0KGgo=';
+		const art = buildArtwork(cover);
+		expect(art).toHaveLength(1);
+		expect(art[0].src).toBe(cover);
+		expect(art[0].sizes).toBe('any');
+		expect(art[0].type).toBe('image/png');
+	});
+
+	it('falls back to /favicon.svg for a NON-image data: URL (T-37-01)', () => {
+		const art = buildArtwork('data:text/html;base64,PHNjcmlwdD4=');
+		expect(art.every((a) => a.src === '/favicon.svg')).toBe(true);
+	});
 });
 
 describe('safePositionState (MS-04, T-kyf-02)', () => {
