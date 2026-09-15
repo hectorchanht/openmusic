@@ -209,16 +209,34 @@ function firstString(v: string | string[] | number | undefined): string | undefi
  *
  * A field with no value is ABSENT from the result, never an empty string — same contract as the
  * write side, so `readAudioTags(writeAudioTags(x)).album === undefined` is a meaningful assertion.
+ *
+ * 37-D-02: the embedded front cover comes back on `art`, read from the SAME `readTags()` call —
+ * `readTags` populates `ExtendedTag.pictures` for free in that one open pass
+ * (taglib-wasm `dist/src/utils/tag-mapping.js:34-35`). Deliberately NOT the two cover helpers
+ * `taglib-wasm/simple` also exports: each is a second full `withAudioFile` open + wasm heap copy of a
+ * file up to TAG_MAX_BYTES (40 MB, ~6× peak RSS, heap never shrinks), and the cover-art one throws the
+ * MIME away — which is exactly what the `data:` URL downstream needs. One pass, one dispose. The test
+ * greps this file for their names, so do not reintroduce either even in prose.
+ *
+ * `art` is widened onto the RETURN type only, never onto `AudioTagFields` — that interface is the
+ * WRITE input and the write side already takes a picture as its own argument (`writeAudioTags(…, art)`),
+ * so putting it on the fields object would create two ways to pass one cover.
+ *
+ * The bytes it carries are MEMORY-ONLY downstream: a `data:` URL built from them must never reach the
+ * localStorage cover cache (whose writer is sized for ~100-byte https entries).
  */
 export async function readAudioTags(
 	bytes: Uint8Array
-): Promise<(AudioTagFields & { format: AudioContainer }) | null> {
+): Promise<(AudioTagFields & { format: AudioContainer; art?: { data: Uint8Array; mimeType: string } }) | null> {
 	try {
 		const { readTags, readFormat } = await loadSimple();
 		const format = CONTAINER_BY_FORMAT[(await readFormat(bytes)) ?? ''];
 		if (!format) return null;
 		const t = await readTags(bytes);
-		const out: AudioTagFields & { format: AudioContainer } = { format };
+		const out: AudioTagFields & {
+			format: AudioContainer;
+			art?: { data: Uint8Array; mimeType: string };
+		} = { format };
 		const title = firstString(t.title);
 		const artist = firstString(t.artist);
 		const album = firstString(t.album);
@@ -229,12 +247,17 @@ export async function readAudioTags(
 		// `ExtendedTag.lyrics: UnsyncedLyrics[]` — so read the first entry's text and leave
 		// `firstString`'s signature alone.
 		const lyrics = t.lyrics?.[0]?.text;
+		// 37-D-02: FrontCover preferred, `pictures[0]` as the fallback (the same rule the simple API's
+		// own cover helper documents). Anything odd — no array, empty data, a blank mime — leaves `art` absent
+		// rather than rejecting: the never-throws contract (36-D-06) covers the picture too.
+		const pic = t.pictures?.find((p) => p.type === 'FrontCover') ?? t.pictures?.[0];
 		if (title) out.title = title;
 		if (artist) out.artist = artist;
 		if (album) out.album = album;
 		if (albumArtist) out.albumArtist = albumArtist;
 		if (trackNumber) out.trackNumber = trackNumber;
 		if (lyrics) out.lyrics = lyrics;
+		if (pic?.data?.length && pic.mimeType) out.art = { data: pic.data, mimeType: pic.mimeType };
 		return out;
 	} catch {
 		return null;

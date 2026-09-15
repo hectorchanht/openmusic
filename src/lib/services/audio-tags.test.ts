@@ -324,6 +324,9 @@ describe('audio-tags — embedded picture read (37-D-02)', () => {
 	});
 
 	it('never opens the file a second time for the picture (T-37-04)', () => {
+		// Raw source, comments INCLUDED: the whole-file grep is the plan's own gate, and keeping the
+		// names out of the prose too means the check can never be satisfied by a comment that says
+		// "don't call X" while the code does.
 		const src = readFileSync(new URL('./audio-tags.ts', import.meta.url), 'utf8');
 		expect(src).not.toContain('readCoverArt');
 		expect(src).not.toContain('readPictures');
