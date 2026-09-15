@@ -1,24 +1,37 @@
-// Shared YouTube Music (InnerTube) edge module — the ONE place that owns the verified InnerTube
-// constants + the low-level POST/visitorData/lyrics-parse helpers reused by the /api/ytmusic/*
-// routes (search + lyrics here in Plan 27-02; the stream route imports getVisitorData in 27-03).
+// YouTube Music (InnerTube) EDGE module — the low-level POST / visitorData / lyrics-parse helpers
+// behind the /api/ytmusic/* routes (search + lyrics from Plan 27-02; the stream route imports
+// getVisitorData from 27-03).
+//
+// The PURE InnerTube constants + player-response helpers moved to ./ytmusic-innertube.ts in
+// quick-260915-3ng so the native on-device resolver can import them without dragging fetchWithRetry /
+// edgeCache into the client bundle. They are RE-EXPORTED below, so every existing
+// `$lib/proxy/ytmusic` importer keeps working unchanged.
 //
 // ZERO auth: only the PUBLIC WEB_REMIX key + the anonymous client context. `getVisitorData()` grabs
 // an ANONYMOUS InnerTube visitor token (responseContext.visitorData) — NOT a user credential, NOT
 // account auth. No OAuth / device-flow / cookie / user-token / library-sync code lives here or
 // anywhere in Plan 27 (spike 008 is a separate, later, legal-gated milestone).
 //
-// Everything here is SERVER-SIDE (Cloudflare edge / SvelteKit endpoint): it uses the RAW edge fetch
-// via fetchWithRetry — NEVER apiFetch (apiFetch is the CLIENT governor seam and must not run
-// edge-side). The WEB_REMIX key + visitorData stay edge-side; no /api/ytmusic response body ever
-// echoes them to the client (threat T-27-02-02).
+// Everything in THIS file is SERVER-SIDE (Cloudflare edge / SvelteKit endpoint): it uses the RAW edge
+// fetch via fetchWithRetry — NEVER apiFetch (apiFetch is the CLIENT governor seam and must not run
+// edge-side). No /api/ytmusic response body ever echoes the key or a visitorData token to the client
+// (threat T-27-02-02); that invariant is about our RESPONSES and is unaffected by the key also
+// shipping in the native bundle (quick-260915-3ng — the key is public either way).
 import { fetchWithRetry } from './http';
 import { edgeCache } from './edge-cache';
+import {
+	extractVisitorData,
+	INNERTUBE_HEADERS,
+	SEARCH_URL,
+	WEB_REMIX_CONTEXT,
+	WEB_REMIX_KEY
+} from './ytmusic-innertube';
 
-// --- Verified InnerTube constants (spikes 005/006/007) — SCREAMING_SNAKE, one rotation point. ---
+// Re-export every pure primitive so existing importers ('$lib/proxy/ytmusic') need zero edits.
+export * from './ytmusic-innertube';
 
-/** Public WEB_REMIX key shipped in the YTM web client — NOT a secret, but kept edge-side so no
- *  /api/ytmusic response leaks it and there is a single place to rotate (spikes 005/006/007). */
-export const WEB_REMIX_KEY = 'AIzaSyC9XL3ZjWddXya6X74dJoCTL-WEYFDNX30';
+// --- Search filter params (spike 005) — SCREAMING_SNAKE. The client/URL/player constants live
+// in ./ytmusic-innertube.ts, still one rotation point each. ---
 
 /** InnerTube `params` for the search "Songs" chip — a clean song shelf, no Top-result/Videos/Albums
  *  noise. Verbatim from spike 005 (sent as-is in the POST body; the upstream accepts it, status 200). */
@@ -31,47 +44,11 @@ export const SONGS_FILTER = 'EgWKAQIIAWoKEAkQBRAKEAMQBA%3D%3D';
  *  parser already handles, so the search route merges both shelves (quick-260715-jdj). */
 export const VIDEOS_FILTER = 'EgWKAQIQAWoKEAkQChAFEAMQBBAV';
 
-/** InnerTube client context interface — WEB_REMIX for metadata; the optional fields (visitorData /
- *  androidSdkVersion / deviceModel) let Plan 27-03 build the ANDROID_VR player context of the same
- *  shape. */
-export interface InnerTubeContext {
-	client: {
-		clientName: string;
-		clientVersion: string;
-		hl: string;
-		gl: string;
-		visitorData?: string;
-		androidSdkVersion?: number;
-		deviceModel?: string;
-	};
-}
-
-/** Anonymous WEB_REMIX metadata context (spike 005). Metadata endpoints are NOT bot-gated, so
- *  search/lyrics need no visitorData at all — only the stream `player` call (27-03) does. */
-export const WEB_REMIX_CONTEXT: InnerTubeContext = {
-	client: { clientName: 'WEB_REMIX', clientVersion: '1.20240101.01.00', hl: 'en', gl: 'US' }
-};
-
-// Endpoint URLs (key appended server-side; the client never sees these). music.youtube.com for the
-// metadata endpoints (spikes 005/007); www.youtube.com for the player/stream endpoint (spike 006).
-export const SEARCH_URL =
-	'https://music.youtube.com/youtubei/v1/search?prettyPrint=false&key=' + WEB_REMIX_KEY;
+// Metadata endpoint URLs local to this module (SEARCH_URL / PLAYER_URL live in ./ytmusic-innertube).
 export const NEXT_URL =
 	'https://music.youtube.com/youtubei/v1/next?prettyPrint=false&key=' + WEB_REMIX_KEY;
 export const BROWSE_URL =
 	'https://music.youtube.com/youtubei/v1/browse?prettyPrint=false&key=' + WEB_REMIX_KEY;
-/** Player endpoint (spike 006) — used by the Plan 27-03 stream route, exported here so the key +
- *  URL live in ONE place. */
-export const PLAYER_URL =
-	'https://www.youtube.com/youtubei/v1/player?prettyPrint=false&key=' + WEB_REMIX_KEY;
-
-// Base headers every InnerTube POST carries (origin/referer make the request look like the web
-// client). A caller may add/override (e.g. the ANDROID_VR user-agent in 27-03) via opts.headers.
-const INNERTUBE_HEADERS: Record<string, string> = {
-	'content-type': 'application/json',
-	origin: 'https://music.youtube.com',
-	referer: 'https://music.youtube.com/'
-};
 const INNERTUBE_TIMEOUT_MS = 12000;
 // Adversarial upstream (spike 006 note): one retry on 429/5xx is enough for a metadata hop; the
 // route maps a final failure to its own sentinel (empty envelope / {} / null visitorData).
@@ -189,9 +166,7 @@ export async function getVisitorData(refresh = false): Promise<string | null> {
 	// Grab a fresh anonymous token from any WEB_REMIX response. NEVER throw to the caller.
 	try {
 		const json = await innerTubePost(SEARCH_URL, { context: WEB_REMIX_CONTEXT, query: 'music' });
-		const vd =
-			(json as { responseContext?: { visitorData?: string } })?.responseContext?.visitorData ??
-			null;
+		const vd = extractVisitorData(json);
 		if (vd) {
 			cachedVisitorData = vd;
 			cachedVisitorAt = Date.now();
@@ -270,65 +245,4 @@ export function extractLyrics(browseJson: unknown): {
 	};
 	walk(browseJson);
 	return { text, attribution };
-}
-
-// --- Player-response helpers (Plan 27-03 stream route). These live HERE, not in the +server.ts
-// route, because SvelteKit `+server.ts` only permits HTTP-verb (or `_`-prefixed) exports — a
-// top-level `export function selectAudioFormat` in the route throws `Invalid export` at request
-// time (caught by E2E, not by the fixture unit test which imports the module directly). Keeping
-// them in this shared module also matches the project convention of extracting pure, testable
-// logic out of the endpoint. ---
-
-/** Untrusted InnerTube player-response shapes — every field optional, accessed via optional
- *  chaining (no `as any`, mirroring the search-adapter + lyrics-walker typing above). */
-export interface YtAdaptiveFormat {
-	itag?: number;
-	mimeType?: string;
-	bitrate?: number;
-	/** Direct googlevideo URL — present for itag 140 (spike 006: no signatureCipher, no n-throttle). */
-	url?: string;
-	/** A ciphered format has this INSTEAD of `url`; we ignore it (we solve no signature cipher). */
-	signatureCipher?: string;
-}
-export interface YtPlayerJson {
-	playabilityStatus?: { status?: string; reason?: string };
-	streamingData?: { adaptiveFormats?: YtAdaptiveFormat[] };
-}
-
-/**
- * True only when `playabilityStatus.status === 'OK'`. LOGIN_REQUIRED / UNPLAYABLE / a bot challenge
- * are all false — the stream route refreshes visitorData once then 502s. Pure (spike 006).
- */
-export function isPlayable(playerJson: unknown): boolean {
-	return (playerJson as YtPlayerJson)?.playabilityStatus?.status === 'OK';
-}
-
-/**
- * Pick the streamable audio URL from a player response's adaptiveFormats:
- *   1. itag 140 (AAC-LC / mp4, 128 kbps) with a direct `url` — the codec iOS Safari `<audio>` plays
- *      (Opus/webm itag 251 does NOT play in Safari, so it is NEVER chosen).
- *   2. else the highest-bitrate `audio/mp4` format with a direct `url` (a safety fallback).
- *   3. else null (no playable AAC — the route 502s so cross-source fallback engages).
- * Ciphered formats (signatureCipher, no `url`) are ignored — we solve no signature cipher (spike 006).
- */
-export function selectAudioFormat(playerJson: unknown): string | null {
-	const formats = (playerJson as YtPlayerJson)?.streamingData?.adaptiveFormats ?? [];
-
-	// 1. itag 140 = AAC-LC/mp4 128k — the primary pick (spike 006).
-	const itag140 = formats.find(
-		(f) => f?.itag === 140 && typeof f?.url === 'string' && f.url.length > 0
-	);
-	if (itag140?.url) return itag140.url;
-
-	// 2. Fallback: highest-bitrate audio/mp4 with a DIRECT url (never Opus/webm, never ciphered).
-	const mp4 = formats
-		.filter(
-			(f) =>
-				typeof f?.url === 'string' &&
-				f.url.length > 0 &&
-				(f?.mimeType ?? '').startsWith('audio/mp4')
-		)
-		.sort((a, b) => (b?.bitrate ?? 0) - (a?.bitrate ?? 0));
-
-	return mp4[0]?.url ?? null;
 }
