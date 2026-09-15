@@ -3428,72 +3428,95 @@ class Player {
 					this.maybeRetryAutoplay(myGen); // bytes may already be present — try immediately
 				}
 			}
-			// COVER-01 / D-09: the playing track still has NO art (sync read missed AND the resolve
-			// did not carry a cover). Fire the Plan-02 single-item tier chain off the audio critical
-			// path — best-effort, never-throw, generation-guarded — so the nowbar/now-playing/lock
-			// screen pick up a real cover when one exists, and keep the gradient/favicon when it does
-			// not (D-12). Non-blocking: playback never waits on it (T-21-07 accept).
-			// media-card-shows-app-icon: the gate is SCHEME-based, not truthiness-based. A non-https
-			// cover is truthy, so `!this.resolvedCover` skipped this full-chain resolve — while the
-			// `else if` below rejects it on hasHttpsScheme, so such a track fell through BOTH branches
-			// and kept a cover that can never reach the OS media card (buildArtwork's https gate emits
-			// /favicon.svg). That was the QQ bug; e17ce39 fixed it at the qq.ts source, this fixes the
-			// gate that let it starve. kuwo/netease still commit `pic` raw — covered here for free.
-			if (!hasHttpsScheme(this.resolvedCover)) void this.resolveCoverAsync(resolved, myGen);
-			// COVER-01 (Plan 26-02): the now-playing track ALREADY painted from a SOLID inline source
-			// cover (kuwo pic / qq album_pic / netease pic — the click-to-play hot path with NO cover
-			// network call). Fire a BOUNDED, LAZY, post-paint Deezer HQ UPGRADE off the audio critical
-			// path: at most ONE Deezer call for the CURRENT now-playing track only (never a per-tile
-			// fan-out — T-26-02-01), generation-guarded, never awaited. `else if` keeps it mutually
-			// exclusive with the full-chain miss path above — a track is EITHER coverless (full chain)
-			// OR has an inline cover (single Deezer upgrade), never both.
-			// quick-260831-t2g: an ATTACHED cover (album art, discovery tile art) is already the
-			// right image, so skip the Deezer HQ upgrade for it — that call is the remaining
-			// per-play cover fetch, and on an album it would also let siblings drift apart. Tracks
-			// whose cover came from the SOURCE inline (a kuwo/qq thumbnail) still get upgraded.
-			else if (hasHttpsScheme(this.resolvedCover) && !this.attachedCoverFor(resolved))
-				void this.upgradeCoverAsync(resolved, myGen);
-			// Fresh play -> per-context sourcing branch (Phase 17, D-03/D-04). 'generated'
-			// (global default) regenerates the auto portion from genre-similar songs; 'same-list'
-			// keeps the snapshot the caller passed via setQueue (search results / liked list /
-			// etc.) and only tops it up on exhaust via ensureAhead (the snapshot still grows when
-			// it runs out — D-03). A non-fresh play (auto-advance/failover) never regenerates.
-			if (opts?.fresh) {
-				// D-10: a fresh user play starts a NEW listening session — clear the swipe-removed
-				// exclusion budget BEFORE regenerate so previously-removed songs are eligible again.
-				this.removedUids.clear();
-				// quick-260615-i9u (Feature B): install the captured history baseline FIRST so the
-				// clicked song sits right after the prior current and earlier tracks stay revisitable
-				// via prev(). weaveFreshHistory bumps queueGen so any stale in-flight regen/grow
-				// discards (WR-06). THEN build the tail per the effective up-next mode.
-				this.weaveFreshHistory(resolved);
-				// quick-260618-lsw (LSW-02 / LSW-01): a fresh click anchors the Up-Next list at the
-				// clicked song so it is the FIRST row. Set AFTER weaveFreshHistory installs the woven
-				// queue so the anchor uid is definitely present in this.queue. Auto-advance (the non-fresh
-				// else branch below) leaves this put so the just-played song stays in the list.
-				this.upNextAnchorUid = resolved.uid;
-				if (settings.effectiveUpnextMode(this.queueContext) === 'generated') {
-					// generated: regenerate (now history-aware) replaces only the tail after the seed.
-					void this.regenerate(resolved).then(() => this.primeNext());
-				} else {
-					// same-list: setListQueue already installed [seed, ...list-remainder]; weave only
-					// PREPENDED history, so the remainder survives as the tail. On exhaust ensureAhead
-					// grows it (D-03).
-					void this.primeNext();
-				}
-			} else {
-				// quick-260615-i9u (Feature B): a non-fresh advance (next/prev/auto-advance/failover/
-				// retry) never weaves — history already lives in the queue array. Null any capture left
-				// by a setQueue/setListQueue that is NOT followed by a fresh play so it can't leak into
-				// a LATER fresh play.
-				this.pendingHistory = null;
-				this.pendingManual = null; // quick-260618-fiz (Fix 4): same one-shot discipline
-				void this.primeNext();
-			}
+			this.postPlayCover(resolved, myGen);
+			this.postPlayQueue(resolved, opts);
 		} catch (e) {
 			this.error = e instanceof Error ? e.message : String(e);
 		} finally {
 			this.loading = false;
+		}
+	}
+
+	/**
+	 * The post-src COVER tail of play(), extracted verbatim from it (CLAUDE.md flags this store as a
+	 * god object and asks for cohesive slices to be pulled out as the store thin-calls them). Two
+	 * MUTUALLY EXCLUSIVE branches — a coverless track gets the full tier chain, a track that already
+	 * painted from an inline source cover gets at most one Deezer HQ upgrade — and keeping them in one
+	 * method is what keeps them exclusive. Non-blocking: playback never waits on either.
+	 */
+	private postPlayCover(resolved: Track, myGen: number): void {
+		// COVER-01 / D-09: the playing track still has NO art (sync read missed AND the resolve
+		// did not carry a cover). Fire the Plan-02 single-item tier chain off the audio critical
+		// path — best-effort, never-throw, generation-guarded — so the nowbar/now-playing/lock
+		// screen pick up a real cover when one exists, and keep the gradient/favicon when it does
+		// not (D-12). Non-blocking: playback never waits on it (T-21-07 accept).
+		// media-card-shows-app-icon: the gate is SCHEME-based, not truthiness-based. A non-https
+		// cover is truthy, so `!this.resolvedCover` skipped this full-chain resolve — while the
+		// `else if` below rejects it on hasHttpsScheme, so such a track fell through BOTH branches
+		// and kept a cover that can never reach the OS media card (buildArtwork's https gate emits
+		// /favicon.svg). That was the QQ bug; e17ce39 fixed it at the qq.ts source, this fixes the
+		// gate that let it starve. kuwo/netease still commit `pic` raw — covered here for free.
+		if (!hasHttpsScheme(this.resolvedCover)) void this.resolveCoverAsync(resolved, myGen);
+		// COVER-01 (Plan 26-02): the now-playing track ALREADY painted from a SOLID inline source
+		// cover (kuwo pic / qq album_pic / netease pic — the click-to-play hot path with NO cover
+		// network call). Fire a BOUNDED, LAZY, post-paint Deezer HQ UPGRADE off the audio critical
+		// path: at most ONE Deezer call for the CURRENT now-playing track only (never a per-tile
+		// fan-out — T-26-02-01), generation-guarded, never awaited. `else if` keeps it mutually
+		// exclusive with the full-chain miss path above — a track is EITHER coverless (full chain)
+		// OR has an inline cover (single Deezer upgrade), never both.
+		// quick-260831-t2g: an ATTACHED cover (album art, discovery tile art) is already the
+		// right image, so skip the Deezer HQ upgrade for it — that call is the remaining
+		// per-play cover fetch, and on an album it would also let siblings drift apart. Tracks
+		// whose cover came from the SOURCE inline (a kuwo/qq thumbnail) still get upgraded.
+		else if (hasHttpsScheme(this.resolvedCover) && !this.attachedCoverFor(resolved))
+			void this.upgradeCoverAsync(resolved, myGen);
+	}
+
+	/**
+	 * The post-src QUEUE tail of play(), extracted verbatim from it. A FRESH user play rebuilds the
+	 * up-next from the seed per the effective mode; every other entry (auto-advance, failover, next())
+	 * just tops the queue up. `primeNext()` is reached from BOTH branches, so no caller loses it.
+	 *
+	 * Only `fresh` is read — the parameter is typed to that one field so the shape of play()'s options
+	 * bag is not restated here.
+	 */
+	private postPlayQueue(resolved: Track, opts?: { fresh?: boolean }): void {
+		// Fresh play -> per-context sourcing branch (Phase 17, D-03/D-04). 'generated'
+		// (global default) regenerates the auto portion from genre-similar songs; 'same-list'
+		// keeps the snapshot the caller passed via setQueue (search results / liked list /
+		// etc.) and only tops it up on exhaust via ensureAhead (the snapshot still grows when
+		// it runs out — D-03). A non-fresh play (auto-advance/failover) never regenerates.
+		if (opts?.fresh) {
+			// D-10: a fresh user play starts a NEW listening session — clear the swipe-removed
+			// exclusion budget BEFORE regenerate so previously-removed songs are eligible again.
+			this.removedUids.clear();
+			// quick-260615-i9u (Feature B): install the captured history baseline FIRST so the
+			// clicked song sits right after the prior current and earlier tracks stay revisitable
+			// via prev(). weaveFreshHistory bumps queueGen so any stale in-flight regen/grow
+			// discards (WR-06). THEN build the tail per the effective up-next mode.
+			this.weaveFreshHistory(resolved);
+			// quick-260618-lsw (LSW-02 / LSW-01): a fresh click anchors the Up-Next list at the
+			// clicked song so it is the FIRST row. Set AFTER weaveFreshHistory installs the woven
+			// queue so the anchor uid is definitely present in this.queue. Auto-advance (the non-fresh
+			// else branch below) leaves this put so the just-played song stays in the list.
+			this.upNextAnchorUid = resolved.uid;
+			if (settings.effectiveUpnextMode(this.queueContext) === 'generated') {
+				// generated: regenerate (now history-aware) replaces only the tail after the seed.
+				void this.regenerate(resolved).then(() => this.primeNext());
+			} else {
+				// same-list: setListQueue already installed [seed, ...list-remainder]; weave only
+				// PREPENDED history, so the remainder survives as the tail. On exhaust ensureAhead
+				// grows it (D-03).
+				void this.primeNext();
+			}
+		} else {
+			// quick-260615-i9u (Feature B): a non-fresh advance (next/prev/auto-advance/failover/
+			// retry) never weaves — history already lives in the queue array. Null any capture left
+			// by a setQueue/setListQueue that is NOT followed by a fresh play so it can't leak into
+			// a LATER fresh play.
+			this.pendingHistory = null;
+			this.pendingManual = null; // quick-260618-fiz (Fix 4): same one-shot discipline
+			void this.primeNext();
 		}
 	}
 
