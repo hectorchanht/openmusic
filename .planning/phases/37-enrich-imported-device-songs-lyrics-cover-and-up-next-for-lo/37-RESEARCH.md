@@ -604,15 +604,19 @@ Not a rename/refactor/migration phase — but two categories have real content w
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Should the fall-through apply to ordinary downloaded tracks?**
+   RESOLVED: 37-D-01 — yes, unconditional fall-through for every offline-served track (37-02 Task 2a/2b; 37-03 test #5 pins an ordinary download reaching the cover chain + up-next).
    Known: they hit the same `return` and lose the same two features. Unclear: whether that is intended for offline-first behaviour (a cover chain is a network call on a path designed to work offline). Recommendation: **yes, fall through** — the cover chain is already best-effort and never-throws offline, and a device-only gate would re-create the exact asymmetry that caused four prior cover bugs. Record as `37-D-01`.
 
 2. **A device track with `artist: ''`** (an untagged, unparseable file — `device-track.ts:114`).
+   RESOLVED: 37-D-05 — recovered artist/title are QUERY-ONLY for that play's name-based fallbacks; never written to `library.downloads`, `player.current` or persisted state, so `syncDevice`'s cover-only carry-across has nothing to blank (37-02 Task 1; 37-03 test #7).
    Known: the tag read at step 2 can RECOVER artist/title from the file's own embedded tags, which MediaStore missed. Unclear: whether to write the recovered artist/title back onto the library entry. Recommendation: yes — it is free, it is the file's own truth (34-D-15 "tags win"), and it is what makes the name-based fallbacks work at all. It also survives a re-import: `syncDevice` refresh-in-place only carries `cover` across (`device-import.ts:249`), so a re-scan would blank a recovered artist. **That is a real gap the planner must close** — either persist the recovered fields the way `cover` is carried, or accept a re-decode after each re-import.
 
-3. **`hasHttpsScheme` widening vs a flag.** Three sites (`:3442`, `:3455`, `healCover:3679`) branch on it. A shared "renderable cover" predicate in `url-safety.ts` is the root-cause fix; a per-track flag is smaller but re-creates the two-predicate asymmetry. Recommendation: the shared predicate, applied at `:3442`/`:3455` and `buildArtwork`, with `healCover` left explicitly https-only (Pitfall 4).
+3. **`hasHttpsScheme` widening vs a flag.**
+   RESOLVED: 37-D-02 — narrower two-site predicate: `isRenderableCover` (https OR `data:image/*;base64`) at `buildArtwork` and the `postPlayCover` full-chain skip gate only; `upgradeCoverAsync`, the Site A/B cache writes, `library.adoptCover` and `healCover` deliberately stay `hasHttpsScheme` (cacheable / probe-able, not renderable) (37-01 Task 3; 37-02 Task 2b).
+   Three sites (`:3442`, `:3455`, `healCover:3679`) branch on it. A shared "renderable cover" predicate in `url-safety.ts` is the root-cause fix; a per-track flag is smaller but re-creates the two-predicate asymmetry. Recommendation: the shared predicate, applied at `:3442`/`:3455` and `buildArtwork`, with `healCover` left explicitly https-only (Pitfall 4).
 
 ---
 
