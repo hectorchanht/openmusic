@@ -3,6 +3,7 @@ import {
 	searchAll,
 	ensureTrackDetails,
 	resolveNameStub,
+	lyricByName,
 	__clearSearchCache,
 	SEARCH_STAGGER_MS,
 	type PartialSearchResult
@@ -798,6 +799,53 @@ describe('ensureTrackDetails — crossSourceLyric is single-source (RESOLVE-02)'
 		expect(kuwoSearch).not.toHaveBeenCalled();
 		// bounded: at most ONE candidate resolved.
 		expect(qqResolve).toHaveBeenCalledOnce();
+	});
+});
+
+// 37-D-03: the SAME walk, reached by NAME with no Track and no skipped source. A `device:` track's
+// `source` is the 34-D-01 placeholder 'kuwo' — the best CN lyric source — so the name-only entry
+// point must skip nothing. The return is a bare string, so no caller can adopt an audioUrl from it.
+describe('lyricByName — name-only lyric walk (37-D-03)', () => {
+	/** Every source silent by default, so "which rung ran" is provable rather than inferred. */
+	function silenceAllSearches() {
+		const spies: Partial<Record<SourceId, ReturnType<typeof vi.spyOn>>> = {};
+		for (const id of Object.keys(SOURCES) as SourceId[]) {
+			spies[id] = vi.spyOn(SOURCES[id], 'search').mockResolvedValue([]);
+		}
+		return spies;
+	}
+
+	it('walks the kuwo rung crossSourceLyric would skip for a device track', async () => {
+		const search = silenceAllSearches();
+		const cand = mk('kuwo', 'k9', 1, { artist: 'Jay', title: 'Rain' });
+		search.kuwo!.mockResolvedValue([cand]);
+		const kuwoResolve = vi
+			.spyOn(SOURCES.kuwo, 'resolve')
+			.mockResolvedValue({ ...cand, detailsLoaded: true, audioUrl: 'https://cdn/kw.mp3', lrc: '[00:02]kw' });
+
+		const out = await lyricByName('Jay', 'Rain', new AbortController().signal);
+
+		expect(out).toBe('[00:02]kw');
+		expect(search.kuwo).toHaveBeenCalledOnce();
+		expect(kuwoResolve).toHaveBeenCalledOnce();
+		// A bare string — structurally incapable of carrying an audioUrl back to a device track.
+		expect(typeof out === 'string' || out === null).toBe(true);
+	});
+
+	it('returns null with ZERO searches for an empty artist AND title', async () => {
+		const search = silenceAllSearches();
+		const out = await lyricByName('', '', new AbortController().signal);
+		expect(out).toBeNull();
+		for (const id of Object.keys(SOURCES) as SourceId[]) expect(search[id]).not.toHaveBeenCalled();
+	});
+
+	it('returns null with ZERO searches when the signal is already aborted', async () => {
+		const search = silenceAllSearches();
+		const ac = new AbortController();
+		ac.abort();
+		const out = await lyricByName('Jay', 'Rain', ac.signal);
+		expect(out).toBeNull();
+		for (const id of Object.keys(SOURCES) as SourceId[]) expect(search[id]).not.toHaveBeenCalled();
 	});
 });
 
