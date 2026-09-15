@@ -226,6 +226,30 @@ describe('GET /api/ytmusic/stream/:videoId — ANDROID_VR player → googlevideo
 		expect(h.spy).not.toHaveBeenCalled();
 	});
 
+	// Wire-level guard for the ANDROID_VR_VERSION pin in +server.ts (see its ROTTING VERSION PIN comment).
+	it('the player POST sends one consistent ANDROID_VR clientVersion in body + UA, with visitorData (rotting pin guard, quick-260915-30m)', async () => {
+		const h = stubFetch([OK]);
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		await streamGet(ev('vid123') as any);
+
+		const call = h.spy.mock.calls.find(([u]) => String(u) === PLAYER_URL);
+		expect(call).toBeDefined();
+		const init = call![1] as RequestInit;
+		const client = JSON.parse(init.body as string).context.client;
+
+		expect(client.clientName).toBe('ANDROID_VR');
+		// Deliberately pins NO literal version — this test must not rot at the next bump. It asserts only
+		// that the body and the UA agree, which is what a two-place edit silently broke.
+		const ua = new Headers((init.headers ?? {}) as HeadersInit).get('user-agent') ?? '';
+		const uaVersion = /oculus\/(\S+) /.exec(ua)?.[1];
+		expect(typeof client.clientVersion).toBe('string');
+		expect(client.clientVersion.length).toBeGreaterThan(0);
+		expect(client.clientVersion).toBe(uaVersion);
+		// visitorData stays mandatory — a current clientVersion without it is still LOGIN_REQUIRED.
+		expect(typeof client.visitorData).toBe('string');
+		expect(client.visitorData.length).toBeGreaterThan(0);
+	});
+
 	it('OPTIONS → 204 with allowlisted corsHeaders', async () => {
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		const res = await streamOptions(ev('vid123') as any);
