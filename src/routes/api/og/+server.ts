@@ -85,6 +85,18 @@ const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
  * quick-260807-vl1: a RASTER (og-fallback.ts), no longer an inlined SVG — no major platform renders
  * an SVG og:image, so the previous fallback was invisible in exactly the messengers this endpoint
  * exists for. The bytes are already decoded at module scope, so this is allocation-only.
+ *
+ * quick-260914-to2 — `x-og-fallback: 1` is a MACHINE marker, purely additive. A crawler is not the
+ * only consumer any more: media-artwork.ts asks this endpoint for a cover to embed in a download and
+ * to hand the OS media session, and a total miss and a real cover are BOTH 200 + image/jpeg, so
+ * without a marker the app stamped the branded card in as FrontCover. Body, status, content-type,
+ * Content-Length and Cache-Control stay byte-identical — crawlers ignore unknown headers.
+ *
+ * WHY IT IS EXPOSED: on the native build the app fetches https://openmusic.lol/api/og from
+ * https://localhost, i.e. CROSS-origin, and a non-safelisted response header is invisible to
+ * `headers.get()` without Access-Control-Expose-Headers. Without this line the guard would silently
+ * never fire on the APK. Only THIS response carries the marker, so only this one exposes it —
+ * corsHeaders() in $lib/proxy/http.ts is deliberately left alone.
  */
 function ogFallback(origin: string | null): Response {
 	return new Response(OG_FALLBACK_BYTES, {
@@ -93,7 +105,9 @@ function ogFallback(origin: string | null): Response {
 			...corsHeaders(origin),
 			'content-type': OG_FALLBACK_TYPE,
 			'Content-Length': String(OG_FALLBACK_BYTES.length),
-			'Cache-Control': CACHE_CONTROL
+			'Cache-Control': CACHE_CONTROL,
+			'x-og-fallback': '1',
+			'Access-Control-Expose-Headers': 'x-og-fallback'
 		}
 	});
 }

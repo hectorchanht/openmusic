@@ -793,6 +793,10 @@ describe('/api/og — zero-work short-circuit + input coercion', () => {
 		expect(calls).toHaveLength(0);
 		// The body is the real raster: magic bytes must match the declared type.
 		expect(magicOf(new Uint8Array(await res.arrayBuffer()))).toBe(OG_FALLBACK_TYPE);
+		// quick-260914-to2: the MACHINE marker that lets an in-app consumer tell "no cover exists"
+		// from "here is the cover" — both are 200 + image/jpeg. Exposed cross-origin for the APK.
+		expect(res.headers.get('x-og-fallback')).toBe('1');
+		expect(res.headers.get('Access-Control-Expose-Headers')).toContain('x-og-fallback');
 	});
 
 	it('a type outside the closed set is COERCED to song (never a 404/500)', async () => {
@@ -821,6 +825,9 @@ describe('/api/og — streams image bytes (never a 30x, never a 500)', () => {
 		expect(res.headers.get('content-type')).toBe('image/jpeg');
 		expect(res.headers.get('Cache-Control')).toBe('public, max-age=86400, immutable');
 		expect(res.headers.get('Access-Control-Allow-Origin')).toBe('https://openmusic.lol');
+		// quick-260914-to2: a REAL relayed cover must NOT carry the fallback marker — that is the
+		// whole discriminant media-artwork.ts relies on.
+		expect(res.headers.get('x-og-fallback')).toBeNull();
 		expect(await res.text()).toBe(JPEG_BODY);
 		// worst case for this path: 1 resolve + 1 image = 2 subrequests
 		expect(calls).toHaveLength(2);
@@ -839,12 +846,16 @@ describe('/api/og — streams image bytes (never a 30x, never a 500)', () => {
 		const thrown = await callGET(fakeEvent(SONG));
 		expect(thrown.status).toBe(200);
 		expect(thrown.headers.get('content-type')).toBe(OG_FALLBACK_TYPE);
+		expect(thrown.headers.get('Content-Length')).toBe(String(OG_FALLBACK_BYTES.length));
+		expect(thrown.headers.get('x-og-fallback')).toBe('1');
+		expect(thrown.headers.get('Access-Control-Expose-Headers')).toContain('x-og-fallback');
 
 		vi.unstubAllGlobals();
 		stubRoute({ dz: DZ_HIT, image: 'NOTOK' });
 		const notOk = await callGET(fakeEvent(SONG));
 		expect(notOk.status).toBe(200);
 		expect(notOk.headers.get('content-type')).toBe(OG_FALLBACK_TYPE);
+		expect(notOk.headers.get('x-og-fallback')).toBe('1');
 	});
 
 	it('every tier faulting still returns 200 + the branded card', async () => {
@@ -904,6 +915,9 @@ describe('/api/og — two caches.default layers, both keyed own-origin', () => {
 		expect(await res2.text()).toBe(JPEG_BODY);
 		expect(res2.headers.get('content-type')).toBe('image/jpeg');
 		expect(res2.headers.get('Cache-Control')).toBe('public, max-age=86400, immutable');
+		// quick-260914-to2: cache writes happen on SUCCESS only, so a bytes-layer hit is never the
+		// branded card and must never look like one.
+		expect(res2.headers.get('x-og-fallback')).toBeNull();
 		// CORS re-applied for THIS request's origin (WR-01) — the stored copy is CORS-free.
 		expect(res2.headers.get('Access-Control-Allow-Origin')).toBe('http://localhost:5173');
 	});
