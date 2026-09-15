@@ -12,3 +12,11 @@ Resolved debug sessions. Used by `gsd-debugger` to surface known-pattern hypothe
 - **Files changed:** src/lib/stores/player.svelte.ts, src/lib/stores/player.svelte.test.ts
 ---
 
+## media-card-shows-app-icon — Chrome OS media card shows the PWA icon while the in-app hero shows the real cover (QQ tracks)
+- **Date:** 2026-09-14
+- **Error patterns:** media card, media panel, mediaSession, MediaMetadata, artwork, /favicon.svg, app icon, PWA icon, purple icon, cover, album art, album_pic, singer_pic, http://y.gtimg.cn, http scheme, mixed content, hasHttpsScheme, buildArtwork, resolvedCover, qq, hero correct card wrong
+- **Root cause:** QQ detail returns `album_pic`/`singer_pic` as `http://y.gtimg.cn/...` and `qq.ts` committed it raw as `track.cover` (its 32-D-05 `https()` helper only upgraded the stream url). play() adopted the http url into `resolvedCover`, where it is truthy (so `resolveCoverAsync`, `upgradeCoverAsync`, `healCover` all skip) but fails `buildArtwork`'s https gate, so every MediaMetadata write carried `/favicon.svg`. The hero painted the same url because Chrome auto-upgrades mixed-content images. `library.adoptCover` also cached the http url in the name layer ungated, so replays re-seeded it. Hypothesis "Chrome can't fetch CN covers (hotlink 403)" was disproven: y.gtimg.cn serves https 200 with no referer.
+- **Fix:** `qq.ts` https-upgrades the cover via the existing `https()` helper; `library.adoptCover` gates `setCachedCover` on `hasHttpsScheme`; `player.svelte.ts` post-resolve adopt prefers an https resolve over a non-https seed; regression test in `qq.test.ts`. Commit e17ce39.
+- **Files changed:** src/lib/sources/qq.ts, src/lib/stores/library.svelte.ts, src/lib/stores/player.svelte.ts, src/lib/sources/qq.test.ts
+---
+
