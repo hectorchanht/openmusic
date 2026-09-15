@@ -30,6 +30,7 @@
 import type { Track } from '$lib/sources/types';
 import { library } from '$lib/stores/library.svelte';
 import { player } from '$lib/stores/player.svelte';
+import { readCoverByUidOrName } from '$lib/stores/cover-version.svelte';
 import { settings, type DefaultQuality } from '$lib/stores/settings.svelte';
 import { names } from '$lib/stores/names.svelte';
 import { ensureTrackDetails } from '$lib/services/catalog';
@@ -153,7 +154,31 @@ export async function downloadTrack(
 		// RAW fetch (not apiFetch — fetch→apiFetch audit): the resolver's direct CDN tier is a raw
 		// image fetch (Deezer/iTunes are CORS-clean); its /api/og fallback tier already goes through
 		// `apiUrl` and the governor. Nothing new to route here.
-		const artDataUrl = await resolveArtworkDataUrl({ cover: r.cover, title: dnTitle, artist: dnArtist });
+		//
+		// quick-260914-to2 — WHY THE LADDER. "the cover the app itself displays" was read from `r.cover`
+		// alone, which is NOT where that cover lives. A CN source's `Track.cover` is frequently null /
+		// non-https / CORS-dead, so the resolver's direct tier was skipped or failed and its /api/og tier
+		// answered — with the branded share card. 板斧 / Novel Flash played in-app with correct art while its
+		// downloaded file carried the openmusic card. The displayed cover actually lives in the SHARED
+		// reactive cover cache, or on `player.resolvedCover` when this IS the playing song. Same
+		// hero / media-card asymmetry fixed at player.svelte.ts:1300; the precedence below is
+		// TrackMenu.svelte's share ladder verbatim, widest authority first.
+		//
+		// RULE 1 — the cache lookup uses the RAW `r.artist` / `r.title`, NEVER `dnArtist` / `dnTitle`. The
+		// name layer is matchKey'd on raw CATALOG metadata, so a display-language string (zh-Hant 夢伴 for
+		// catalog 梦伴) misses the cache for exactly the users the display conversion exists for.
+		// `resolveArtworkDataUrl` still receives the dn* strings because they feed its /api/og TEXT query,
+		// a different consumer.
+		//
+		// RULE 2 — reading `player.current` / `player.resolvedCover` here is READ-ONLY and preserves the
+		// D-18 DOWNLOAD ISOLATION contract (no assignment, no gen bump, no <audio> touch). Do not "fix"
+		// it back out; the isolation test's throwing setters prove it stays a read.
+		const displayCover =
+			(player.current?.uid === r.uid ? player.resolvedCover : null) ??
+			readCoverByUidOrName(r.uid, r.artist, r.title) ??
+			r.cover ??
+			null;
+		const artDataUrl = await resolveArtworkDataUrl({ cover: displayCover, title: dnTitle, artist: dnArtist });
 
 		// 36-D-05 — THE seam. All four download callers (TrackMenu, DownloadControl, the album bulk
 		// loop, background repair) pass through this one line, so one insertion tags every path.

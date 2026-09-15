@@ -26,8 +26,12 @@ const mocks = vi.hoisted(() => ({
 		isDownloaded: vi.fn((_uid: string) => false)
 	},
 	// player is READ-ONLY from the service — `current` / `playGen` here get throwing setters in the
-	// isolation test to prove the service never writes them.
-	player: { current: null as Track | null, playGen: 0 },
+	// isolation test to prove the service never writes them. `resolvedCover` joins them for the
+	// quick-260914-to2 display-cover ladder — also read-only.
+	player: { current: null as Track | null, playGen: 0, resolvedCover: null as string | null },
+	// quick-260914-to2: the shared reactive cover cache. Defaults to null so every PRE-EXISTING
+	// artwork assertion (which expects `r.cover`) keeps passing through the ladder unchanged.
+	readCoverByUidOrName: vi.fn((_u: string, _a: string, _t: string): string | null => null),
 	settings: { downloadQuality: 'lossless' as string },
 	names: {
 		dnArtist: vi.fn((s: string) => s),
@@ -47,6 +51,9 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('$lib/stores/library.svelte', () => ({ library: mocks.library }));
 vi.mock('$lib/stores/player.svelte', () => ({ player: mocks.player }));
+// cover-version is a RUNES store — it must be mocked here or the import chain pulls $app/environment
+// into the single node Vitest project (quick-260914-to2).
+vi.mock('$lib/stores/cover-version.svelte', () => ({ readCoverByUidOrName: mocks.readCoverByUidOrName }));
 vi.mock('$lib/stores/settings.svelte', () => ({ settings: mocks.settings }));
 vi.mock('$lib/stores/names.svelte', () => ({ names: mocks.names }));
 vi.mock('$lib/services/catalog', () => ({ ensureTrackDetails: mocks.ensureTrackDetails }));
@@ -105,6 +112,8 @@ beforeEach(() => {
 	// reset player as PLAIN writable data props (the isolation test swaps in throwing accessors).
 	Object.defineProperty(mocks.player, 'current', { configurable: true, writable: true, value: null });
 	Object.defineProperty(mocks.player, 'playGen', { configurable: true, writable: true, value: 0 });
+	Object.defineProperty(mocks.player, 'resolvedCover', { configurable: true, writable: true, value: null });
+	mocks.readCoverByUidOrName.mockReset().mockReturnValue(null);
 	mocks.settings.downloadQuality = 'lossless';
 	mocks.names.dnArtist.mockReset().mockImplementation((s: string) => s);
 	mocks.names.dnTitle.mockReset().mockImplementation((s: string) => s);
@@ -511,6 +520,95 @@ describe('downloadTrack — 36-D-13 / 36-D-14 artwork', () => {
 
 		expect(mocks.tagAudioBlob).toHaveBeenCalledTimes(1);
 		expect(mocks.tagAudioBlob.mock.calls[0][2]).toBeNull();
+	});
+});
+
+// quick-260914-to2 — a download embedded the branded /api/og share card instead of the cover the app
+// itself displays (板斧 / Novel Flash played with the right art while its file carried the card). Cause: this
+// service read `r.cover` ONLY, and a CN `Track.cover` is frequently null / non-https / CORS-dead, so the
+// resolver's direct tier was skipped or failed and its /api/og tier answered. The cover every UI surface
+// shows lives in the SHARED reactive cover cache, or — for the playing song — on `player.resolvedCover`.
+describe('downloadTrack — quick-260914-to2 display-cover ladder', () => {
+	beforeEach(() => {
+		stubFetch(new Blob(['a']));
+	});
+
+	const artCover = () => (mocks.resolveArtworkDataUrl.mock.calls[0][0] as { cover: string | null }).cover;
+
+	it('prefers the shared cover cache over a dead r.cover', async () => {
+		mocks.ensureTrackDetails.mockResolvedValue(
+			mk({ audioUrl: 'https://cdn.example.com/x.mp3', cover: 'http://y.gtimg.cn/dead.jpg' })
+		);
+		mocks.readCoverByUidOrName.mockReturnValue('https://cdn-images.dzcdn.net/real.jpg');
+
+		await downloadTrack(mk({ audioUrl: null, detailsLoaded: false }));
+
+		expect(artCover()).toBe('https://cdn-images.dzcdn.net/real.jpg');
+	});
+
+	it('uses the cache when r.cover is null', async () => {
+		mocks.ensureTrackDetails.mockResolvedValue(mk({ audioUrl: 'https://cdn.example.com/x.mp3', cover: null }));
+		mocks.readCoverByUidOrName.mockReturnValue('https://cdn-images.dzcdn.net/real.jpg');
+
+		await downloadTrack(mk({ audioUrl: null, detailsLoaded: false }));
+
+		expect(artCover()).toBe('https://cdn-images.dzcdn.net/real.jpg');
+	});
+
+	it('prefers the hero cover when THIS is the playing song', async () => {
+		Object.defineProperty(mocks.player, 'current', {
+			configurable: true,
+			writable: true,
+			value: mk({ uid: 'netease-1', cover: 'http://y.gtimg.cn/dead.jpg' })
+		});
+		Object.defineProperty(mocks.player, 'resolvedCover', {
+			configurable: true,
+			writable: true,
+			value: 'https://is1-ssl.mzstatic.com/hero.jpg'
+		});
+		mocks.readCoverByUidOrName.mockReturnValue('https://cdn-images.dzcdn.net/cache.jpg');
+
+		await downloadTrack(mk({ uid: 'netease-1' }));
+
+		expect(artCover()).toBe('https://is1-ssl.mzstatic.com/hero.jpg');
+	});
+
+	it('ignores the hero cover when a DIFFERENT song is playing', async () => {
+		Object.defineProperty(mocks.player, 'current', {
+			configurable: true,
+			writable: true,
+			value: mk({ uid: 'qq-9' })
+		});
+		Object.defineProperty(mocks.player, 'resolvedCover', {
+			configurable: true,
+			writable: true,
+			value: 'https://is1-ssl.mzstatic.com/hero.jpg'
+		});
+		mocks.ensureTrackDetails.mockResolvedValue(mk({ audioUrl: 'https://cdn.example.com/x.mp3', cover: null }));
+		mocks.readCoverByUidOrName.mockReturnValue('https://cdn-images.dzcdn.net/cache.jpg');
+
+		await downloadTrack(mk({ uid: 'netease-1', audioUrl: null, detailsLoaded: false }));
+
+		expect(artCover()).toBe('https://cdn-images.dzcdn.net/cache.jpg');
+	});
+
+	// The name layer is matchKey'd on RAW CATALOG metadata, so a display-language lookup would miss the
+	// cache for exactly the users the translation exists for. The dn* strings still feed the resolver's
+	// /api/og TEXT query — a different consumer.
+	it('queries the cache with RAW catalog names while the resolver keeps the display names', async () => {
+		mocks.names.dnArtist.mockReturnValue('顯示歌手');
+		mocks.names.dnTitle.mockReturnValue('顯示標題');
+		mocks.ensureTrackDetails.mockResolvedValue(
+			mk({ audioUrl: 'https://cdn.example.com/x.mp3', artist: 'catalog-artist', title: 'catalog-title' })
+		);
+
+		await downloadTrack(mk({ audioUrl: null, detailsLoaded: false }));
+
+		expect(mocks.readCoverByUidOrName).toHaveBeenCalledWith('netease-1', 'catalog-artist', 'catalog-title');
+		expect(mocks.resolveArtworkDataUrl.mock.calls[0][0]).toMatchObject({
+			title: '顯示標題',
+			artist: '顯示歌手'
+		});
 	});
 });
 
