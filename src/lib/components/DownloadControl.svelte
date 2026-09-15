@@ -21,18 +21,27 @@
 	// blob / native public folder this phase — 29-CONTEXT / RESEARCH Open Q2; only the human filename +
 	// the bug-fix apply). The resolved Track is cached so the greyed Downloaded state shows after a
 	// successful album-row save.
+	//
+	// quick-260915-26g — THE `probe` PROP. The control can show what the tap will ACTUALLY produce
+	// (`FLAC · 38.2 MB`) instead of the tier the user merely asked for: `settings.downloadQuality` is
+	// a request, not a promise. That truth costs a resolve + a HEAD per render, so it is OPT-IN and
+	// DEFAULTS OFF — see the prop doc. Today no call site sets it (every one is a list row); the prop
+	// exists so the default-off contract is enforced by the component itself.
+	import { untrack } from 'svelte';
 	import { Download, Check, CircleAlert } from '@lucide/svelte';
 	import { library } from '$lib/stores/library.svelte';
 	import { toast } from '$lib/stores/toast.svelte';
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { t } from '$lib/i18n';
 	import { downloadTrack } from '$lib/services/download-track';
+	import { probeDownload, formatDownloadMeta, type DownloadProbe } from '$lib/services/download-probe';
 	import type { Track } from '$lib/sources/types';
 
 	let {
 		track = null,
 		persist = true,
-		resolve = null
+		resolve = null,
+		probe = false
 	}: {
 		/** The resolved Track (library / history rows). Album rows pass null + a `resolve` closure. */
 		track?: Track | null;
@@ -40,6 +49,13 @@
 		persist?: boolean;
 		/** Album stubs: resolve {artist,title} → Track on tap. When set, click resolves before saving. */
 		resolve?: (() => Promise<Track | null>) | null;
+		/**
+		 * Opt-in: resolve at settings.downloadQuality + HEAD the url to show the REAL format/size.
+		 * DEFAULT OFF, and it must stay off for list rows (library, album, RowBadges) — a per-row
+		 * probe is exactly the fan-out this app engineered away (T-26g-02, the apiFetch governor and
+		 * the api-fetch-flood freeze). Only a single focused surface the user just opened may set it.
+		 */
+		probe?: boolean;
 	} = $props();
 
 	// Cache a stub's resolved Track so post-download state (Downloaded) reads its uid.
@@ -53,6 +69,33 @@
 	const isDownloaded = $derived(!!uid && library.isDownloaded(uid));
 	const isDownloading = $derived(localBusy || (!!uid && library.downloading.has(uid)));
 	const isUnavailable = $derived(!!uid && library.isUnavailable(uid));
+
+	// quick-260915-26g: the probe, gated on the opt-in prop so an unset call site does nothing at all.
+	// `untrack` the service call (memory: restore-effect self-invalidation loop) — it reads settings
+	// and player state internally, and without untrack those reads would re-trigger this effect and
+	// re-fire the probe. The AbortController cleanup is what stops an in-flight resolve/HEAD the
+	// instant the surface closes, so a stale label can never land on the next song.
+	let probed = $state<DownloadProbe | null>(null);
+	let probing = $state(false);
+	$effect(() => {
+		const target = resolved ?? track;
+		if (!probe || !target || isDownloaded) {
+			probed = null;
+			probing = false;
+			return;
+		}
+		const ac = new AbortController();
+		probing = true;
+		untrack(() => probeDownload(target, ac.signal)).then((p) => {
+			if (!ac.signal.aborted) {
+				probed = p;
+				probing = false;
+			}
+		});
+		return () => ac.abort();
+	});
+	const meta = $derived(probed ? formatDownloadMeta(probed) : null);
+	const dlLabel = $derived(meta ? `${t('menu.download')} · ${meta}` : t('menu.download'));
 
 	async function run() {
 		if (isDownloaded || isDownloading) return;
@@ -68,8 +111,12 @@
 				toast.show(t('toast.noAudio'));
 				return;
 			}
+			// quick-260915-26g: hand back the PROBED Track when it is this same song — it already
+			// carries a url resolved at the download tier, so downloadTrack's reuseInput branch skips a
+			// third resolve and saves the file the label promised. A stale probe just re-resolves there.
+			const picked = probed?.track && probed.track.uid === target.uid ? probed.track : target;
 			// DL-BUG-01: downloadTrack never navigates; it returns a sentinel the UI localizes here.
-			const res = await downloadTrack(target, { persist });
+			const res = await downloadTrack(picked, { persist });
 			toast.show(
 				res === 'saved'
 					? t('toast.downloaded')
@@ -97,6 +144,15 @@
 	<span class="dc busy" aria-busy="true" aria-label={t('toast.preparingDownload')}>
 		<span class="row-spinner motion-always"></span>
 	</span>
+{:else if probe}
+	<!-- quick-260915-26g: the probing branch is SEPARATE so the default (probe off) markup below stays
+	     exactly what every list row renders today — one 40×40 button, no wrapper, no extra node. -->
+	<span class="dc-wrap">
+		<button class="dc" aria-label={dlLabel} title={dlLabel} onclick={run} use:tapBounce>
+			<Download size={18} />
+		</button>
+		{#if probing}<span class="dc-meta skel" aria-hidden="true"></span>{:else if meta}<span class="dc-meta">{meta}</span>{/if}
+	</span>
 {:else}
 	<button class="dc" aria-label={t('menu.download')} title={t('menu.download')} onclick={run} use:tapBounce>
 		<Download size={18} />
@@ -119,6 +175,25 @@
 	button.dc:hover {
 		background: var(--color-surface);
 		color: var(--color-text);
+	}
+	/* quick-260915-26g: only ever rendered in the opt-in probe branch, so the 40×40 list footprint
+	   is untouched. The skeleton is a plain sized block — an animation here would compete with the
+	   download spinner two states over for the same "working" meaning. */
+	.dc-wrap {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+	}
+	.dc-meta {
+		font-size: 11px;
+		color: var(--color-text-muted);
+		white-space: nowrap;
+	}
+	.dc-meta.skel {
+		width: 64px;
+		height: 11px;
+		border-radius: var(--radius-full);
+		background: var(--color-surface);
 	}
 	/* Downloaded + busy are non-interactive; greyed to read as "done"/"working". */
 	.dc.downloaded {
