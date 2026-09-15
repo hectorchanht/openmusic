@@ -95,7 +95,7 @@ Full observed evidence: `.planning/phases/30-carrier-free-share-links-type-artis
 ### Prior phase (Phase 27 — YouTube Music Source, v1.4) — COMPLETE + E2E-VERIFIED
 
 Phase 27 complete (27-01..04). E2E-verified against LIVE YouTube via the dev-server routes: /api/ytmusic/search 200 (rows+videoId), /api/ytmusic/lyrics 200 (1513c + attribution), /api/ytmusic/stream 206 audio/mp4 + Range (playback) and 200 full-file (download). pnpm check clean, 1320 tests green. E2E caught + fixed a prod-breaking bug (quick-270715 / commit 29c1c7d): stream route exported non-HTTP-verb functions, illegal in SvelteKit +server.ts → 500; helpers moved to $lib/proxy/ytmusic.ts.
-Last activity: 2026-09-14 - Completed quick task 260914-to2: downloaded-song cover art (shared cache source + branded /api/og fallback suppressed)
+Last activity: 2026-09-15 - Completed quick task 260915-062: embed the raw LRC as the lyrics tag on every download path
 Remaining human UAT: real-device <audio> playback+seek + download-to-disk; deployed-Worker player+googlevideo same-IP egress + bot-challenge under load (T-27-03-OP). Account/library sync = separate legal-gated milestone (spike 008).
 
 ## Performance Metrics
@@ -556,6 +556,7 @@ Items acknowledged and deferred at v1.2 milestone close on 2026-06-15 (81 total)
 | 260913-omi | Download row shows real byte progress (streamed bytes vs Content-Length) | 2026-09-13 | 2b164ca | [260913-omi-download-row-shows-real-download-progres](./quick/260913-omi-download-row-shows-real-download-progres/) |
 | 260913-tmi | Derive the downloaded audio MIME type from the URL instead of trusting the CDN's Content-Type | 2026-09-13 | a7d7c64 | [260913-tmi-fix-wrong-mime-type-on-downloaded-audio](./quick/260913-tmi-fix-wrong-mime-type-on-downloaded-audio/) |
 | 260914-to2 | Downloads embed the cover the app displays (shared cover cache) and never the branded /api/og fallback card | 2026-09-14 | 0bf64b4 | [260914-to2-embed-no-cover-when-api-og-returns-brand](./quick/260914-to2-embed-no-cover-when-api-og-returns-brand/) |
+| 260915-062 | Downloaded songs embed the raw LRC (timestamps kept) as the lyrics tag — USLT / ©lyr / LYRICS | 2026-09-15 | ab8e25a | [260915-062-embed-lyrics-tag-in-downloaded-songs](./quick/260915-062-embed-lyrics-tag-in-downloaded-songs/) |
 
 The 🔴 verification/UAT gaps are device-only human tests (iOS audio, Android APK) that cannot be reproduced in this environment. The 75 quick-tasks are predominantly false-positives (completed work whose completion marker the scanner could not match).
 
