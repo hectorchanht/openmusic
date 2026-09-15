@@ -1,7 +1,7 @@
 // YouTube Music STREAM byte-proxy (Plan 27-03, YT-PLAY-01 / YT-DOWNLOAD-01) — THE WALL (spike 006).
 //
 // GET /api/ytmusic/stream/:videoId — the money route. It POSTs the InnerTube ANDROID_VR `player`
-// endpoint (clientVersion 1.60.19 + a cached anonymous visitorData token) edge-side, selects itag 140
+// endpoint (clientVersion ANDROID_VR_VERSION + a cached anonymous visitorData token) edge-side, selects itag 140
 // (AAC-LC/mp4, the codec iOS Safari <audio> plays — NOT Opus/webm itag 251), then fetches the
 // IP-locked googlevideo URL **within the same Worker invocation** and streams the bytes back with
 // Range passthrough — exactly the audius stream pattern, plus the "call player first" step.
@@ -41,8 +41,19 @@ import {
 
 // ANDROID_VR client (spike 006 — the ONLY context that returns playabilityStatus OK from a
 // datacenter IP once a visitorData token is attached). UA must match the VR client or the gate re-fires.
-const ANDROID_VR_UA =
-	'com.google.android.apps.youtube.vr.oculus/1.60.19 (Linux; U; Android 12; Quest 3) gzip';
+// ROTTING VERSION PIN (quick-260915-30m) — the ONE place the ANDROID_VR client version lives (the UA
+// string and playerBody() both read it, so the two pins can no longer drift apart). YouTube gates
+// STALE ANDROID_VR clientVersions with `playabilityStatus.status === 'LOGIN_REQUIRED'` ("Sign in to
+// confirm you're not a bot") and zero adaptiveFormats, so isPlayable() is false on BOTH the initial
+// player call and the visitorData-refresh retry → this route hard-502s → the client's cross-source
+// fallback trips and EVERY ytmusic track is silently skipped (diag symptom: `resolve.ok hasUrl:true`
+// → `src.set` → `audio.error hasPlayed:false` → advance, never `playing`).
+// THE FIX WHEN IT ROTS AGAIN: bump this to a current ANDROID_VR release. The prior 1.60.x pin died
+// 2026-09; 1.65.10 verified OK (22 adaptiveFormats, itag-140 direct url serving 206 audio/mp4).
+// Isolation-tested: the version ALONE flips LOGIN_REQUIRED→OK; UA/osName/osVersion are irrelevant;
+// visitorData stays MANDATORY (no visitorData → LOGIN_REQUIRED even on 1.65.10).
+const ANDROID_VR_VERSION = '1.65.10';
+const ANDROID_VR_UA = `com.google.android.apps.youtube.vr.oculus/${ANDROID_VR_VERSION} (Linux; U; Android 12; Quest 3) gzip`;
 const PLAYER_TIMEOUT_MS = 15000; // player JSON hop
 const MEDIA_TIMEOUT_MS = 15000; // googlevideo bytes are heavier than JSON (audius posture)
 
@@ -51,7 +62,7 @@ const MEDIA_TIMEOUT_MS = 15000; // googlevideo bytes are heavier than JSON (audi
 function playerBody(videoId: string, visitorData: string | null) {
 	const client: Record<string, unknown> = {
 		clientName: 'ANDROID_VR',
-		clientVersion: '1.60.19',
+		clientVersion: ANDROID_VR_VERSION,
 		androidSdkVersion: 32,
 		deviceModel: 'Quest 3',
 		hl: 'en',
