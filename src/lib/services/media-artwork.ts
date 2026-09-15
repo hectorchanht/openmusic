@@ -37,6 +37,10 @@
 // simply use it the way it was designed to be used, with the title/artist the media session already
 // has in hand.
 //
+// A total miss on /api/og is NOT a miss at the HTTP level: it answers 200 + image/jpeg + the branded
+// openmusic share card, because a crawler that gets a non-200 shows no card at all. That response
+// carries `x-og-fallback` and fetchAsDataUrl treats it as no cover (quick-260914-to2).
+//
 // If every source fails we return null and the caller sends the `/favicon.svg` sentinel, which
 // matches neither of the plugin's branches — `urlToBitmap` returns null without touching the
 // network, clearing stale art rather than crashing.
@@ -78,6 +82,14 @@ async function fetchAsDataUrl(url: string): Promise<string | null> {
 	try {
 		const res = await fetch(url, { signal: AbortSignal.timeout(ART_FETCH_TIMEOUT_MS) });
 		if (!res.ok) return null;
+		// quick-260914-to2: /api/og NEVER 404s a cover miss — it serves 200 + image/jpeg + the branded
+		// share card so a social crawler always gets an image. A 200 image that IS the card is not a
+		// cover: accepting it stamped the openmusic logo into no-cover downloads as FrontCover and onto
+		// the OS media card. The marker is the only discriminant (both outcomes are valid 200 images);
+		// the route exposes it via Access-Control-Expose-Headers so this read also works on the native
+		// build, where /api/og is cross-origin. null here lets the caller embed nothing / send the
+		// favicon sentinel — do not "fix" this back to returning the bytes.
+		if (res.headers.get('x-og-fallback')) return null;
 		const type = res.headers.get('content-type');
 		if (!isImageType(type)) return null;
 		const buf = await res.arrayBuffer();

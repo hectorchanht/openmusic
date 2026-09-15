@@ -20,12 +20,16 @@ import {
 
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
-function imageResponse(bytes: Uint8Array, type = 'image/jpeg'): Response {
+function imageResponse(
+	bytes: Uint8Array,
+	type = 'image/jpeg',
+	extraHeaders: Record<string, string> = {}
+): Response {
 	// Response's BodyInit rejects Uint8Array<ArrayBufferLike>, and `bytes.buffer` widens to
 	// ArrayBuffer | SharedArrayBuffer. Copying into a fresh ArrayBuffer types exactly, no cast.
 	const body = new ArrayBuffer(bytes.byteLength);
 	new Uint8Array(body).set(bytes);
-	return new Response(body, { status: 200, headers: { 'content-type': type } });
+	return new Response(body, { status: 200, headers: { 'content-type': type, ...extraHeaders } });
 }
 
 afterEach(() => {
@@ -155,5 +159,36 @@ describe('resolveArtworkDataUrl (native crash guard)', () => {
 			});
 			expect(out === null || out.startsWith('data:')).toBe(true);
 		}
+	});
+});
+
+// quick-260914-to2 — /api/og answers a TOTAL cover miss with 200 + image/jpeg + the branded openmusic
+// share card, because a crawler that gets a non-200 shows no card at all. Accepting that 200 as a
+// cover stamped the app logo into no-cover downloads as FrontCover and onto the OS media card. The
+// `x-og-fallback` marker is the ONLY way to tell the two apart — both are valid 200 images.
+describe('resolveArtworkDataUrl — a marked /api/og fallback is NOT a cover', () => {
+	it('returns null when the /api/og response carries x-og-fallback', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () => imageResponse(PNG, 'image/jpeg', { 'x-og-fallback': '1' }))
+		);
+		await expect(resolveArtworkDataUrl({ cover: null, title: 'T', artist: 'A' })).resolves.toBeNull();
+	});
+
+	it('still returns a data: URL for an UNMARKED /api/og image', async () => {
+		vi.stubGlobal('fetch', vi.fn(async () => imageResponse(PNG, 'image/jpeg')));
+		await expect(resolveArtworkDataUrl({ cover: null, title: 'T', artist: 'A' })).resolves.toBe(
+			`data:image/jpeg;base64,${Buffer.from(PNG).toString('base64')}`
+		);
+	});
+
+	it('never rejects on the marked path (never-throws contract)', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () => imageResponse(PNG, 'image/jpeg', { 'x-og-fallback': '1' }))
+		);
+		await expect(
+			resolveArtworkDataUrl({ cover: 'https://cdn.example.com/a.jpg', title: 'T', artist: 'A' })
+		).resolves.toBeNull();
 	});
 });
