@@ -4,6 +4,7 @@
 import { browser } from '$app/environment';
 import { blobStore } from '$lib/services/blob-store';
 import { setCachedCover } from '$lib/services/cover-cache';
+import { hasHttpsScheme } from '$lib/services/url-safety';
 import { matchKey } from '$lib/services/match-key';
 import type { Track } from '$lib/sources/types';
 
@@ -131,7 +132,10 @@ class Library {
 		this.downloads.forEach(fill);
 		this.playlists.forEach((p) => p.tracks.forEach(fill));
 		if (changed) this.save();
-		setCachedCover(src.artist, src.title, cover);
+		// media-card-shows-app-icon: the shared name-layer cache is https-only everywhere else
+		// (T-0bb-01 — writeCoverBoth / resolveCoverForTrack). This was the ONE ungated writer, so an
+		// http source cover poisoned the cache and re-seeded player.resolvedCover on every replay.
+		if (hasHttpsScheme(cover)) setCachedCover(src.artist, src.title, cover);
 	}
 
 	createPlaylist(name: string): Playlist {

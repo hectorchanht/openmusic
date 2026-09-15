@@ -180,6 +180,35 @@ describe('qq.resolve', () => {
 		expect(calledUrl).not.toMatch(/[?&]msg=/);
 	});
 
+	// media-card-shows-app-icon: tang's REAL album_pic/singer_pic are `http://y.gtimg.cn/...`. The
+	// raw http url reached player.resolvedCover, where it was truthy enough to skip every cover
+	// re-resolve yet failed buildArtwork's https gate — the OS media card showed the app icon while
+	// the hero painted the same url via Chrome's mixed-content autoupgrade. The adapter now upgrades
+	// covers at the same 32-D-05 boundary as the stream url.
+	it('https-upgrades an http album_pic / singer_pic cover (media-card-shows-app-icon)', async () => {
+		const httpAlbum = 'http://y.gtimg.cn/music/photo_new/T002R500x500M0000037lGPa24IpCz_1.jpg';
+		const httpSinger = 'http://y.gtimg.cn/music/photo_new/T001R500x500M000002knSQ01Ts1vS_0.jpg';
+		vi.stubGlobal('fetch', mockFetchOnce({ ...detailFixture, album_pic: httpAlbum }));
+		const withAlbum = await qq.resolve(stubTrack(), ac.signal);
+		expect(withAlbum.cover).toBe(upgraded(httpAlbum));
+
+		// No album_pic → singer_pic is the fallback, and it is upgraded too.
+		vi.stubGlobal(
+			'fetch',
+			mockFetchOnce({ ...detailFixture, album_pic: undefined, singer_pic: httpSinger })
+		);
+		const withSinger = await qq.resolve(stubTrack(), ac.signal);
+		expect(withSinger.cover).toBe(upgraded(httpSinger));
+
+		// Neither pic → the stub's own cover stands (no `https(null)` leak into a truthy value).
+		vi.stubGlobal(
+			'fetch',
+			mockFetchOnce({ ...detailFixture, album_pic: undefined, singer_pic: undefined })
+		);
+		const none = await qq.resolve(stubTrack(), ac.signal);
+		expect(none.cover).toBeNull();
+	});
+
 	// 32-D-12 / research Q4: the direct GET must stay a SIMPLE request. Any author-set header
 	// triggers a CORS preflight (measured 1.016s — it would hand back most of what going direct
 	// saves) and tang's Access-Control-Allow-Headers is `Content-Type` only, so it would also FAIL.

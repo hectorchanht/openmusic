@@ -3306,7 +3306,10 @@ class Player {
 				// COVER-01: ensureTrackDetails resolved a cover the sync set missed (the search stub
 				// had none) — adopt it into the single field so the network-path MediaMetadata write
 				// below and both UI surfaces show real art without waiting on the async tier chain.
-				if (!this.resolvedCover) this.resolvedCover = resolved.cover;
+				// media-card-shows-app-icon: a NON-https seed (an http url from a pre-fix cache entry or
+				// persisted current) must not outrank a resolve that carries a real https cover — it can
+				// never reach the media card (buildArtwork) and it starves every https-gated re-resolve.
+				if (!hasHttpsScheme(this.resolvedCover)) this.resolvedCover = resolved.cover;
 				// quick-260615-hep Site B: ensureTrackDetails fetched a real cover — write BOTH layers + bump
 				// so home/library tiles for this song reuse it and repaint live. https-only (T-0bb-01).
 				if (hasHttpsScheme(resolved.cover))

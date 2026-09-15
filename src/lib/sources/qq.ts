@@ -347,7 +347,14 @@ export const qq: SourceAdapter = {
 			track.title = track.title || d.song_title || d.song_name || '';
 			track.artist = d.singer_name || track.artist;
 			track.album = d.album_name || d.album_title || track.album || '';
-			track.cover = d.album_pic || d.singer_pic || track.cover;
+			// media-card-shows-app-icon: tang returns `http://y.gtimg.cn/...` for album_pic/singer_pic.
+			// Left raw, that url reaches player.resolvedCover where it is TRUTHY (so resolveCoverAsync /
+			// upgradeCoverAsync / healCover all skip) but NOT https (so buildArtwork emits /favicon.svg) —
+			// the OS media card sat on the app icon while the hero painted the same url via Chrome's
+			// mixed-content autoupgrade. y.gtimg.cn serves https byte-identical (200 image/jpeg, no
+			// referer needed — measured 2026-09-14), so upgrade it here, at the same 32-D-05 boundary
+			// the stream url already crosses. Idempotent on an already-https url.
+			track.cover = https(d.album_pic || d.singer_pic || null) || track.cover;
 			track.pageUrl = d.song_h5_url || track.pageUrl;
 
 			// 播放链接（按优先级挑一个）(legacy:2364-2366). WR-07: per-call quality wins.
