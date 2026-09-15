@@ -12,7 +12,13 @@
 import { browser } from '$app/environment';
 import { SvelteSet } from 'svelte/reactivity';
 import { Capacitor } from '@capacitor/core';
-import { ensureTrackDetails } from '$lib/services/catalog';
+// 37-D-03: lyricByName is the NAME-ONLY lyric walk. ensureTrackDetails returns a `device:` uid
+// untouched (34-D-01), so it is the one lyric path a local file can actually use — and it returns a
+// bare string, so this branch structurally cannot adopt an audioUrl for a device track.
+import { ensureTrackDetails, lyricByName } from '$lib/services/catalog';
+// 37-02: the memoised, never-throws read of an offline blob's OWN embedded LRC + front cover.
+import { localEnrichment } from '$lib/services/local-tags';
+import { combinedSignal } from '$lib/services/abort-signal';
 import { hasFreshAudioUrl, isTrackReady } from '$lib/services/track-ready';
 import { preconnectForSource, noteAudioOrigin } from '$lib/services/preconnect';
 import { tryFallback } from '$lib/services/fallback';
@@ -85,7 +91,7 @@ import type { SourceId, Track } from '$lib/sources/types';
 // `t(n.msg)` and the token is guaranteed to exist in every dictionary. No runtime UI dependency —
 // the store still emits raw, host-rendered data (D-03); this just type-checks the token keys.
 import type { TranslationKey } from '$lib/i18n';
-import { hasHttpsScheme } from '$lib/services/url-safety';
+import { hasHttpsScheme, isRenderableCover } from '$lib/services/url-safety';
 
 /**
  * The minimal display shape the now-bar renders the INSTANT a discovery stub is tapped,
@@ -591,11 +597,14 @@ class Player {
 				// so a warm restore is never worse than a cold one.
 				if (resolved.lrcUnresolved && !resolved.lrc) this.backfillLyrics(resolved);
 			} else {
-				this.current = { ...target, detailsLoaded: true };
-				// Restored a downloaded track from its blob (no network resolve) — backfill lyrics
-				// off the critical path so the now-playing lyrics view isn't empty (the persisted
-				// shape strips lrc/lrcUrl).
-				this.backfillLyrics(this.current);
+				const localTrack: Track = { ...target, detailsLoaded: true };
+				this.current = localTrack;
+				// Restored a downloaded track from its blob (no network resolve) — enrich off the
+				// critical path so the now-playing lyrics view isn't empty (the persisted shape strips
+				// lrc/lrcUrl) and the hero/media card get the file's own cover. A PWA reopen gets the
+				// same embedded-first treatment as a fresh play; the uid + playGen guards inside make a
+				// late landing harmless if the user taps another song while it runs.
+				void this.enrichFromLocalFile(localTrack, offlineBlob, this.playGen);
 			}
 			if (!this.audio) return;
 			if (this.cachedBlobUrl) {
@@ -712,6 +721,26 @@ class Player {
 		if (track.lrc) return; // already have lyrics — nothing to do
 		const uid = track.uid;
 		const myGen = this.playGen;
+		// 37-D-03: a `device:` uid cannot use the ensureTrackDetails path at all — catalog.ts returns a
+		// device track untouched (34-D-01, deliberately ABOVE the isTrackReady staleness check, because
+		// a local file has no TTL and must never be judged stale). So the call this branch replaces was
+		// a guaranteed no-op: the input carries no lrc, the resolve hands it straight back, the `.then`
+		// bails. lyricByName is the same walk minus the Track — it is driven by artist/title only and
+		// returns a bare `string | null`, so there is no shape here that could hand a device track an
+		// audioUrl. Same two guards, same best-effort catch, same lrc-only patch.
+		if (isDeviceUid(uid)) {
+			void lyricByName(track.artist, track.title, combinedSignal(Player.LYRIC_WALK_TIMEOUT_MS))
+				.then((lrc) => {
+					if (myGen !== this.playGen) return; // track changed mid-walk — discard
+					if (this.current?.uid !== uid) return; // current moved on — discard
+					if (!lrc) return; // no source had lyrics for this name — leave as-is
+					this.current = { ...this.current, lrc };
+				})
+				.catch(() => {
+					/* lyric backfill is best-effort — audio already plays from the local file */
+				});
+			return;
+		}
 		void ensureTrackDetails({ ...track, detailsLoaded: false, lrcUnresolved: true })
 			.then((resolved) => {
 				if (myGen !== this.playGen) return; // track changed mid-fetch — discard
@@ -722,6 +751,67 @@ class Player {
 			.catch(() => {
 				/* lyric backfill is best-effort — audio already plays from the blob */
 			});
+	}
+
+	/**
+	 * EMBEDDED-FIRST enrichment for a track served from local bytes (37-D-04). Files this app
+	 * downloads carry both a FrontCover picture and the raw LRC, so for the common case everything
+	 * the now-playing surfaces need is already on the device and needs no network at all.
+	 *
+	 * The wasm decode is the ZERO-NETWORK path and it is the GATE: the name-based fallbacks fire only
+	 * for whichever of {lyric, cover} the file did NOT supply, and only AFTER the read settles.
+	 * Running them concurrently with it would fire calls the file's own tags then make redundant —
+	 * the opposite of this project's standing API-call-reduction posture. The two fallbacks do run in
+	 * parallel with each other.
+	 *
+	 * Bounded by construction: it fires from play() and restore() for `this.current` ONLY — never per
+	 * row, never from prefetchNext (that would turn one decode per play into two, and the Emscripten
+	 * heap grows but never shrinks) — and localEnrichment memoises the result, negative included, so
+	 * one uid is decoded at most once a session. Never rejects.
+	 *
+	 * LOOP SAFETY: this writes `current.lrc` and `resolvedCover` and NOTHING else. It never touches
+	 * audio.src, never bumps a generation, and never sets `detailsLoaded: false` / clears `audioUrl`
+	 * — those are reresolveCurrent's inputs, and a local file has no url to re-resolve. Same shape as
+	 * backfillLyrics, which is the template for every off-critical-path patch in this store.
+	 */
+	private async enrichFromLocalFile(track: Track, blob: Blob, myGen: number): Promise<void> {
+		try {
+			const uid = track.uid;
+			const found = await localEnrichment(uid, blob);
+			if (myGen !== this.playGen) return; // a newer play() superseded — discard
+			const cur = this.current;
+			if (!cur || cur.uid !== uid) return; // current moved on — discard
+			// The file's own LRC wins, and only when the track has none yet.
+			if (found.lrc && !cur.lrc) this.current = { ...cur, lrc: found.lrc };
+			if (found.art) {
+				// MEMORY-ONLY, and that is a hard constraint, not a preference: writeCoverBoth /
+				// setCachedCover have no scheme and no length guard, the cover cache is localStorage
+				// sized for ~80-150-byte https entries, and its writer swallows QuotaExceededError — so
+				// ONE ~400 KB `data:` URL in there silently stops all cover caching for the session.
+				// resolvedCover is not persisted either (player-persist never reads it). syncMetadata
+				// builds a FRESH MediaMetadata through buildArtwork, which passes a `data:` cover to the
+				// OS card as a single entry; no bumpCoverVersion, because nothing SHARED changed.
+				this.resolvedCover = found.art;
+				this.syncMetadata();
+			}
+			// 37-D-05: QUERY-ONLY. MediaStore maps an untagged file's artist to '', which degenerates
+			// every name-based lookup — the file's own tags can recover it. This local is what the
+			// fallbacks below are asked with; `this.current` is deliberately NOT renamed, because a
+			// re-import carries only `cover` across (device-import syncDevice) and a persisted
+			// recovered name would be silently blanked by the next scan.
+			const q: Track = {
+				...cur,
+				artist: found.artist || cur.artist,
+				title: found.title || cur.title
+			};
+			// Only for what the file did not supply. postPlayCover's own renderable gate additionally
+			// skips the chain when an https cover was already seeded from the cache.
+			if (!found.art) this.postPlayCover(q, myGen);
+			if (!found.lrc && !cur.lrc) this.backfillLyrics(q);
+			logAction('enrich.local', { uid, lrc: !!found.lrc, art: !!found.art, cached: !!found.cached });
+		} catch {
+			/* embedded enrichment is best-effort — audio already plays from the local file */
+		}
 	}
 
 	/** Timestamp (Date.now()) of the most recent seekFraction() call. The audio.error handler
@@ -775,6 +865,12 @@ class Player {
 	 * and miscounting it would march toward the FAILURE_CAP loop-guard STOP. Never STOP, always SKIP
 	 * (the standing policy — see `nowbar-freeze-reresolve-loop`). */
 	private static FALLBACK_BUDGET_MS = 8000;
+	/**
+	 * 37-D-03: deadline on the device lyric walk. Lyrics are decoration — audio is already playing
+	 * from the local file — but the walk is up to ~5 single-source rungs and each apiFetch carries a
+	 * ~25s ceiling of its own, so with no bound of its own it could hold a connection far longer than
+	 * anything on this path should. Sits above a healthy multi-rung walk and well under 5x25s. */
+	private static LYRIC_WALK_TIMEOUT_MS = 12000;
 	/**
 	 * DRY-GROW RECOVERY (user report 2026-09-12). When the queue empties, next() grows it and advances
 	 * into the new tracks. If the grow returned NOTHING the old code simply fell out of the `.then`
@@ -3152,12 +3248,12 @@ class Player {
 						URL.revokeObjectURL(this.cachedBlobUrl);
 					}
 					this.cachedBlobUrl = URL.createObjectURL(offlineBlob);
-					this.current = { ...track, detailsLoaded: true };
+					// Held as a local as well: this is the track handed to the enrichment + the shared
+					// post-play queue tail at the end of the branch, and `this.current` can be
+					// reassigned by either of them.
+					const localTrack: Track = { ...track, detailsLoaded: true };
+					this.current = localTrack;
 					this.persist();
-					// Offline-blob play skips the network resolve — backfill lyrics off the critical
-					// path so a downloaded track (whose queue/list entry may carry no lrc) still shows
-					// its lyrics in the now-playing view.
-					this.backfillLyrics(this.current);
 					const ms = this.ms;
 					if (ms) {
 						ms.metadata = makeMetadata({
@@ -3209,11 +3305,22 @@ class Player {
 						this.maybeRetryAutoplay(myGen);
 					}
 					this.loading = false;
-					// PLAY-09 / D-15: keep up-next topped up + pre-resolve the next track even on the
-					// offline-blob path so the ended→next auto-advance into a downloaded queue still
-					// prefetches (a no-op resolve for an already-downloaded next track; a real resolve
-					// when the next entry is a network track). Best-effort, non-blocking.
-					void this.primeNext();
+					// 37-D-01: this branch used to `return` here after a bare primeNext(), which sat 225
+					// lines ABOVE the cover chain and the fresh-play up-next branch. So EVERY
+					// offline-served track — an imported `device:` file or a song the user downloaded —
+					// silently lost its cover, its lyrics and its generated up-next. That one return was
+					// the whole bug; these two calls are the whole fix.
+					//
+					// The fall-through is deliberately UNCONDITIONAL — no isDeviceUid gate. An ordinary
+					// download hits the same return and loses the same two features, and a device-only
+					// gate would re-create the two-code-paths asymmetry behind four prior cover-surface
+					// bugs. The cover chain is NOT fired here: enrichFromLocalFile decides after reading
+					// the file's own tags, because the file may already carry the art (37-D-04).
+					//
+					// PLAY-09 / D-15 is preserved: primeNext() is reached through BOTH branches of
+					// postPlayQueue, so the downloaded-queue prefetch this used to do still happens.
+					void this.enrichFromLocalFile(localTrack, offlineBlob, myGen);
+					this.postPlayQueue(localTrack, opts);
 					return;
 				}
 			}
@@ -3456,7 +3563,12 @@ class Player {
 		// and kept a cover that can never reach the OS media card (buildArtwork's https gate emits
 		// /favicon.svg). That was the QQ bug; e17ce39 fixed it at the qq.ts source, this fixes the
 		// gate that let it starve. kuwo/netease still commit `pic` raw — covered here for free.
-		if (!hasHttpsScheme(this.resolvedCover)) void this.resolveCoverAsync(resolved, myGen);
+		// 37-D-02: RENDERABLE, not cacheable. A `data:` cover extracted from a local file's own tags
+		// IS art the hero, the nowbar and the media card all paint, so the full Deezer→iTunes→CN chain
+		// must not re-run for it on every play. isRenderableCover is the DISPLAYABLE predicate;
+		// everything below that writes to or probes the localStorage cover cache deliberately keeps
+		// hasHttpsScheme (a `data:` URL in that cache silently kills all cover caching).
+		if (!isRenderableCover(this.resolvedCover)) void this.resolveCoverAsync(resolved, myGen);
 		// COVER-01 (Plan 26-02): the now-playing track ALREADY painted from a SOLID inline source
 		// cover (kuwo pic / qq album_pic / netease pic — the click-to-play hot path with NO cover
 		// network call). Fire a BOUNDED, LAZY, post-paint Deezer HQ UPGRADE off the audio critical
@@ -3468,6 +3580,9 @@ class Player {
 		// right image, so skip the Deezer HQ upgrade for it — that call is the remaining
 		// per-play cover fetch, and on an album it would also let siblings drift apart. Tracks
 		// whose cover came from the SOURCE inline (a kuwo/qq thumbnail) still get upgraded.
+		// 37-D-02: this gate stays https-ONLY on purpose. An embedded cover is the file's own truth
+		// (the locked "embedded first" decision), so it is never "upgraded" to a Deezer image — and
+		// upgradeCoverAsync's result is cacheable, which a `data:` URL is not.
 		else if (hasHttpsScheme(this.resolvedCover) && !this.attachedCoverFor(resolved))
 			void this.upgradeCoverAsync(resolved, myGen);
 	}
