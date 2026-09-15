@@ -462,7 +462,14 @@ describe('downloadTrack — 36-D-11 / 36-D-12 album context', () => {
 
 	it('sends NO track number and falls albumArtist back to the track artist by default', async () => {
 		await downloadTrack(mk({ audioUrl: null, detailsLoaded: false }));
-		expect(fields()).toEqual({ title: 'Song', artist: 'Artist', album: undefined, albumArtist: 'Artist', trackNumber: undefined });
+		expect(fields()).toEqual({
+			title: 'Song',
+			artist: 'Artist',
+			album: undefined,
+			albumArtist: 'Artist',
+			trackNumber: undefined,
+			lyrics: undefined
+		});
 	});
 
 	it('passes the album loop\'s trackNumber and albumArtist through verbatim', async () => {
@@ -486,6 +493,45 @@ describe('downloadTrack — 36-D-11 / 36-D-12 album context', () => {
 		await downloadTrack(mk({ audioUrl: null, detailsLoaded: false }));
 		expect(fields()).toMatchObject({ title: '光年之外', artist: '邓紫棋', albumArtist: '邓紫棋' });
 		expect(mocks.saveBlobToDisk.mock.calls[0][1]).toBe('邓紫棋 - 光年之外.mp3');
+	});
+});
+
+describe('downloadTrack — quick-260915-062 lyrics through the seam', () => {
+	const fields = () => mocks.tagAudioBlob.mock.calls[0][1] as Record<string, unknown>;
+	const resolved = (lrc: string | null) =>
+		mocks.ensureTrackDetails.mockResolvedValue(mk({ audioUrl: 'https://cdn.example.com/x.mp3', lrc }));
+
+	beforeEach(() => {
+		stubFetch(new Blob(['a']));
+	});
+
+	it('hands the resolved LRC to the tagger verbatim, timestamps and all', async () => {
+		resolved('[00:01.00]hi');
+		await downloadTrack(mk({ audioUrl: null, detailsLoaded: false }));
+		expect(fields().lyrics).toBe('[00:01.00]hi');
+	});
+
+	it('sends undefined — never an empty string — when the track has no lyrics', async () => {
+		resolved(null);
+		await downloadTrack(mk({ audioUrl: null, detailsLoaded: false }));
+		expect(fields().lyrics).toBeUndefined();
+	});
+
+	it('omits an empty LRC rather than writing an empty frame', async () => {
+		resolved('');
+		await downloadTrack(mk({ audioUrl: null, detailsLoaded: false }));
+		expect(fields().lyrics).toBeUndefined();
+	});
+
+	// The album bulk loop (persist:false) and 31-D-12 background repair (save:false) inherit lyrics
+	// from the SAME seam — proof that neither path needs wiring of its own.
+	it.each([
+		['album bulk', { persist: false }],
+		['background repair', { save: false }]
+	])('%s embeds lyrics with no path-specific wiring', async (_name, opts) => {
+		resolved('[00:02.00]yo');
+		await downloadTrack(mk({ audioUrl: null, detailsLoaded: false }), opts);
+		expect(fields().lyrics).toBe('[00:02.00]yo');
 	});
 });
 

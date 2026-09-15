@@ -185,6 +185,13 @@ export async function downloadTrack(
 		// No try/catch of our own: `tagAudioBlob` NEVER rejects and returns the original blob on any
 		// failure, which is exactly how D-17 NEVER-THROWS and 36-D-06 TAG-OR-INTACT hold by
 		// construction. `r.album || undefined` is 36-D-10: an empty album is OMITTED, not looked up.
+		//
+		// quick-260915-062 — lyrics ride the same seam. `r.lrc` is ALREADY resolved by
+		// `ensureTrackDetails` above (or copied off `player.current` on the reuse path), so this is a
+		// zero-fetch addition: no lrcUrl resolution, no new host, nothing added to the D-18 isolation
+		// surface. `|| undefined` mirrors 36-D-10 so a track with no lyrics gets no frame at all, and
+		// because all four callers funnel through this one line, the album bulk loop and the
+		// background repair path embed lyrics with no change of their own.
 		const tagged = await tagAudioBlob(
 			rawBlob,
 			{
@@ -192,7 +199,8 @@ export async function downloadTrack(
 				artist: dnArtist,
 				album: r.album || undefined,
 				albumArtist: opts?.albumArtist ?? dnArtist,
-				trackNumber: opts?.trackNumber
+				trackNumber: opts?.trackNumber,
+				lyrics: r.lrc || undefined
 			},
 			artDataUrl
 		);
