@@ -407,3 +407,16 @@ Plans:
 - [x] 36-03-PLAN.md — Tag step at the downloadTrack seam, album-page track#/albumArtist threading, SW wasm precache filter (wave 3)
 - [x] 36-04-PLAN.md — Opt-in retag of the app's own downloads: retag.ts, nativePut duplicate guard, Settings → Downloads page, 15-locale i18n (wave 3)
 - [ ] 36-05-PLAN.md — Debug APK build + on-device D-15 checklist (human) + validation sign-off (wave 4)
+
+### Phase 37: Enrich imported device songs — lyrics, cover and up-next for local files
+
+**Goal:** An offline-served track — an imported `device:` file or an ordinary download — behaves like a streamed song: on first play it reads its own embedded LRC + FrontCover (one bounded wasm decode, memoised per session), shows them in the lyrics pane, hero, nowbar and OS media card, falls back to name-based online lyrics/cover only for what the file lacks, and generates online similar-song Up-Next — without a network resolve ever supplying a device track's audio (34-D-01).
+**Requirements**: ENRICH-01 (embedded-first lyrics with name-based fallback), ENRICH-02 (embedded-first cover reaching hero/nowbar/media card, memory-only), ENRICH-03 (online similar Up-Next for offline-served tracks), ENRICH-04 (safety: 34-D-01 intact, no re-resolve loop, no fan-out, no `data:` in localStorage)
+**Depends on:** Phase 36
+**Plans:** 4 plans
+
+Plans:
+- [ ] 37-01-PLAN.md — Pure seams: `readAudioTags` returns the embedded picture from the existing pass, `lyricByName` export (walks kuwo), `isRenderableCover` + `buildArtwork` passes `data:` (wave 1)
+- [ ] 37-02-PLAN.md — `local-tags.ts` memoised embedded read + `player.svelte.ts` blob-branch fall-through, tag-gated fallbacks, device lyric-by-name (wave 2)
+- [ ] 37-03-PLAN.md — Player-suite enrichment tests incl. the 34-D-01 regression + full `pnpm test`/`pnpm check` gate + static audit (wave 3)
+- [ ] 37-04-PLAN.md — Debug APK + on-device UAT for the two `[UNVERIFIED-SANDBOX]` items (real MediaStore FrontCover; `data:` lock-screen artwork) (wave 4, human)
