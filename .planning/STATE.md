@@ -95,7 +95,7 @@ Full observed evidence: `.planning/phases/30-carrier-free-share-links-type-artis
 ### Prior phase (Phase 27 — YouTube Music Source, v1.4) — COMPLETE + E2E-VERIFIED
 
 Phase 27 complete (27-01..04). E2E-verified against LIVE YouTube via the dev-server routes: /api/ytmusic/search 200 (rows+videoId), /api/ytmusic/lyrics 200 (1513c + attribution), /api/ytmusic/stream 206 audio/mp4 + Range (playback) and 200 full-file (download). pnpm check clean, 1320 tests green. E2E caught + fixed a prod-breaking bug (quick-270715 / commit 29c1c7d): stream route exported non-HTTP-verb functions, illegal in SvelteKit +server.ts → 500; helpers moved to $lib/proxy/ytmusic.ts.
-Last activity: 2026-09-15 - Completed quick task 260915-26g: probed format/size label on the download affordance (live-verified on the dev server)
+Last activity: 2026-09-15 - Completed quick task 260915-30m: bumped the rotted ANDROID_VR clientVersion pin that was 502-ing every ytmusic stream (diagnosed from device diag logs; edge-IP behaviour unconfirmed until deploy)
 Remaining human UAT: real-device <audio> playback+seek + download-to-disk; deployed-Worker player+googlevideo same-IP egress + bot-challenge under load (T-27-03-OP). Account/library sync = separate legal-gated milestone (spike 008).
 
 ## Performance Metrics
@@ -201,6 +201,7 @@ Remaining human UAT: real-device <audio> playback+seek + download-to-disk; deplo
 
 ### Roadmap Evolution
 
+- Phase 37 added: Enrich imported device songs — lyrics, cover and up-next for local files; imported `device:` tracks play with no lyrics pane, no cover and no up-next because `rowToTrack` mints them `cover: null` / `lrc: null`, `ensureTrackDetails` returns a device uid untouched (34-D-01, correctly — the file IS the resolve), and library playback installs a `same-list` queue with nothing to grow. Enrich from the file's OWN tags first (audio-tags reads LYRICS as of quick-260915-062 but has no picture READ yet), then a name-based online fallback, without ever letting a network resolve supply a device track's audioUrl
 - Phase 36 added: Tag downloaded songs with full metadata — write the complete tag set (title/artist/album/album-artist/track/disc/year/genre + embedded art) per container (ID3v2, MP4 atoms, Vorbis+PICTURE) at the download-save seam; shares an audio-tag codec with Phase 34 (device-import READS the tags this phase WRITES)
 - Phase 35 added: One-click export and import of all app data — single-file backup/restore of library, history, search history, settings, names, cover cache from Settings > Data (which today can only CLEAR data)
 - Phase 34 added: Import device songs as native downloads — manual "Import songs from device" button in Settings > Download; MediaStore scan + metadata parse + map to Track + index into library as downloaded (native-only, web build no-ops)
@@ -558,6 +559,7 @@ Items acknowledged and deferred at v1.2 milestone close on 2026-06-15 (81 total)
 | 260914-to2 | Downloads embed the cover the app displays (shared cover cache) and never the branded /api/og fallback card | 2026-09-14 | 0bf64b4 | [260914-to2-embed-no-cover-when-api-og-returns-brand](./quick/260914-to2-embed-no-cover-when-api-og-returns-brand/) |
 | 260915-062 | Downloaded songs embed the raw LRC (timestamps kept) as the lyrics tag — USLT / ©lyr / LYRICS | 2026-09-15 | ab8e25a | [260915-062-embed-lyrics-tag-in-downloaded-songs](./quick/260915-062-embed-lyrics-tag-in-downloaded-songs/) |
 | 260915-26g | Download row shows the probed real container + size (FLAC · 35.0 MB), opt-in per surface so list rows never fan out | 2026-09-15 | f18900d | [260915-26g-show-format-quality-and-size-on-download](./quick/260915-26g-show-format-quality-and-size-on-download/) |
+| 260915-30m | ytmusic stream 502 fixed: stale ANDROID_VR clientVersion pin (1.60.19 → 1.65.10) collapsed into one constant; YouTube gated the old version with LOGIN_REQUIRED, skipping every ytmusic track | 2026-09-15 | d26c787 | [260915-30m-fix-ytmusic-stream-502-by-bumping-the-pi](./quick/260915-30m-fix-ytmusic-stream-502-by-bumping-the-pi/) |
 
 The 🔴 verification/UAT gaps are device-only human tests (iOS audio, Android APK) that cannot be reproduced in this environment. The 75 quick-tasks are predominantly false-positives (completed work whose completion marker the scanner could not match).
 
