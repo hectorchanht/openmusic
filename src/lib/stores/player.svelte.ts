@@ -3433,7 +3433,13 @@ class Player {
 			// path — best-effort, never-throw, generation-guarded — so the nowbar/now-playing/lock
 			// screen pick up a real cover when one exists, and keep the gradient/favicon when it does
 			// not (D-12). Non-blocking: playback never waits on it (T-21-07 accept).
-			if (!this.resolvedCover) void this.resolveCoverAsync(resolved, myGen);
+			// media-card-shows-app-icon: the gate is SCHEME-based, not truthiness-based. A non-https
+			// cover is truthy, so `!this.resolvedCover` skipped this full-chain resolve — while the
+			// `else if` below rejects it on hasHttpsScheme, so such a track fell through BOTH branches
+			// and kept a cover that can never reach the OS media card (buildArtwork's https gate emits
+			// /favicon.svg). That was the QQ bug; e17ce39 fixed it at the qq.ts source, this fixes the
+			// gate that let it starve. kuwo/netease still commit `pic` raw — covered here for free.
+			if (!hasHttpsScheme(this.resolvedCover)) void this.resolveCoverAsync(resolved, myGen);
 			// COVER-01 (Plan 26-02): the now-playing track ALREADY painted from a SOLID inline source
 			// cover (kuwo pic / qq album_pic / netease pic — the click-to-play hot path with NO cover
 			// network call). Fire a BOUNDED, LAZY, post-paint Deezer HQ UPGRADE off the audio critical
