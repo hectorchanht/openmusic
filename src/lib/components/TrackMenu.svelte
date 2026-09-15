@@ -24,6 +24,10 @@
 	import { fetchVariants } from '$lib/services/variants';
 	import VersionPicker from '$lib/components/VersionPicker.svelte';
 	import { downloadTrack } from '$lib/services/download-track';
+	// quick-260915-26g: the shared probe + the shared label formatter. TrackMenu cannot mount
+	// DownloadControl (its Check state is blob-backed and its rows are full-width text buttons, not
+	// 40x40 icons), so it consumes the same SERVICE instead — one implementation, two surfaces.
+	import { probeDownload, formatDownloadMeta, type DownloadProbe } from '$lib/services/download-probe';
 	// quick-260913-jq4: the Check state is backed by the offline copy, not the downloads list.
 	import { blobStore } from '$lib/services/blob-store';
 	import { browser } from '$app/environment';
@@ -188,7 +192,11 @@
 		if (!track) return;
 		if (library.downloading.has(track.uid)) return; // D-03 equivalent: a second tap while busy is a no-op
 		toast.show(t('toast.preparingDownload'));
-		const res = await downloadTrack(track);
+		// quick-260915-26g: the label and the file must agree. The probe already resolved this song AT
+		// settings.downloadQuality, so pass that Track back in — downloadTrack's reuseInput branch then
+		// saves the exact file the row just measured instead of re-resolving a third time.
+		const picked = dlProbe?.track && dlProbe.track.uid === track.uid ? dlProbe.track : track;
+		const res = await downloadTrack(picked);
 		toast.show(
 			res === 'saved'
 				? t('toast.downloaded')
@@ -235,6 +243,48 @@
 			alive = false;
 		};
 	});
+
+	// quick-260915-26g — THE ONE OPT-IN PROBE SURFACE. `settings.downloadQuality` is a request, not a
+	// promise (kuwo answers "lossless" with a 320K mp3), so the Download row states what the tap will
+	// ACTUALLY produce: `FLAC · 38.2 MB`, measured. The user chose that truth over an instant guess and
+	// accepted its cost.
+	//
+	// THE COST, EXPLICITLY. This sits beside the 31-D-03 prewarm and does NOT replace it: prewarm
+	// resolves at the STREAMING tier, and a download-tier (lossless) url must never become the url the
+	// player streams — that is how a phone on cellular ends up pulling a 52 MB FLAC. So at
+	// downloadQuality='lossless' a menu open costs prewarm + the probe's resolve + one HEAD; at
+	// auto/320/128 the probe reuses the freshly-resolved track and issues only the HEAD. Re-opening the
+	// same menu costs nothing (the service memoises per uid|quality).
+	let dlProbe = $state<DownloadProbe | null>(null);
+	let dlProbing = $state(false);
+	$effect(() => {
+		// GATE ON `=== false`, NOT `!== true`. `blobPresent` starts null and is filled by the async
+		// effect above, so `!== true` would fire a resolve + HEAD on EVERY open — including for an
+		// already-downloaded song, whose Download row is not even rendered — and then abort it a tick
+		// later. Waiting for a definite "not downloaded" costs one tick and saves a guaranteed wasted
+		// round-trip; this app is specifically sensitive to menu-open request volume. Do not simplify.
+		const target = track;
+		if (!open || !target || isDevice || blobPresent !== false) {
+			dlProbe = null;
+			dlProbing = false;
+			return;
+		}
+		const ac = new AbortController();
+		dlProbing = true;
+		// untrack: probeDownload reads settings/player internally and those reads would otherwise
+		// re-invalidate this effect (the restore-effect self-invalidation loop). Same discipline as the
+		// blobPresent effect above; the cleanup aborts on close so no stale label lands on the next song.
+		untrack(() => probeDownload(target, ac.signal)).then((p) => {
+			if (!ac.signal.aborted) {
+				dlProbe = p;
+				dlProbing = false;
+			}
+		});
+		return () => ac.abort();
+	});
+	const dlMeta = $derived(dlProbe ? formatDownloadMeta(dlProbe) : null);
+	const dlLabel = $derived(dlMeta ? `${t('menu.download')} \u00b7 ${dlMeta}` : t('menu.download'));
+
 	async function doShare() {
 		if (!track) return;
 		onclose();
@@ -416,7 +466,8 @@
 					{:else if blobPresent === true}
 						<button class="hd-btn" disabled aria-disabled="true" aria-label={t('menu.downloaded')}><Check size={20} /></button>
 					{:else}
-						<button class="hd-btn" aria-label={t('menu.download')} onclick={startDownload} use:tapBounce><Download size={20} /></button>
+						<!-- quick-260915-26g: icon-only slot, so the probed detail rides the label/tooltip. -->
+						<button class="hd-btn" aria-label={dlLabel} title={dlLabel} onclick={startDownload} use:tapBounce><Download size={20} /></button>
 					{/if}
 				{/if}
 				<!-- NEW explicit Close affordance (today close is scrim/drag only). It ONLY flips
@@ -489,7 +540,13 @@
 		{:else if blobPresent === true}
 			<button class="mi" disabled aria-disabled="true"><Check size={18} /> {t('menu.downloaded')}</button>
 		{:else}
-			<button class="mi" onclick={startDownload} use:tapBounce><Download size={18} /> {t('menu.download')}</button>
+			<!-- quick-260915-26g: the probed format/size reuses the SAME `.count` slot the download
+			     percentage already occupies, so it needs no new layout rule. The skeleton is aria-hidden
+			     and the button keeps its `menu.download` name — no new i18n key for either. -->
+			<button class="mi" aria-label={dlLabel} onclick={startDownload} use:tapBounce>
+				<Download size={18} /> {t('menu.download')}
+				{#if dlProbing}<span class="count skel" aria-hidden="true"></span>{:else if dlMeta}<span class="count">{dlMeta}</span>{/if}
+			</button>
 		{/if}
 		{/if}
 		<!-- quick-260913-je8: the mid-list Like row is RESTORED (D-09 had removed it when Like owned
@@ -586,6 +643,9 @@
 	/* tabular-nums: the download percentage climbs digit by digit and would otherwise jitter the
 	   row's right edge on every repaint (quick-260913-omi). Harmless for the playlist counts. */
 	.mi .count { margin-left: auto; font-size: 12px; color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
+	/* quick-260915-26g: placeholder for the in-flight download probe. Static, not animated — the row
+	   spinner two states over already owns the "working" signal and two of them would compete. */
+	.mi .count.skel { display: inline-block; width: 64px; height: 11px; border-radius: var(--radius-full); background: var(--color-surface); }
 	/* quick-260913-omi: download progress fill. `--dl` is the 0..1 fraction, set inline per render.
 	   An ::after at 18% opacity sits UNDER the label without needing a stacking context — the tint
 	   is light enough that the text and icon stay fully legible through it. The width transition is
