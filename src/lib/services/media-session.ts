@@ -11,7 +11,7 @@
 // keeping the runes store a thin caller. `MediaImage`, `MediaPositionState`, and
 // `MediaSessionPlaybackState` are DOM lib types (lib.dom.d.ts) — not hand-rolled.
 import type { Track } from '$lib/sources/types';
-import { hasHttpsScheme } from '$lib/services/url-safety';
+import { hasHttpsScheme, isRenderableCover } from '$lib/services/url-safety';
 
 // types-only import keeps the source layer fully decoupled; reference it so the
 // import is not flagged as unused while still erasing at runtime.
@@ -57,12 +57,30 @@ const FALLBACK_ART = '/favicon.svg';
  * plugin and still kills the process. Closing that means never handing the plugin a URL it
  * has to fetch (convert to a data: URL first), which needs a CORS-clean byte source for
  * cover hosts and is a separate change.
+ *
+ * 37-D-02 — a `data:image/...;base64,` cover PASSES, and is the one case that is structurally
+ * immune to the crash the https gate exists for: that src takes the plugin's OWN `;base64,` branch
+ * (quoted at media-artwork.ts:9-13), which decodes the bytes inline and never opens a connection, so
+ * there is no IOException to throw. `resolveArtworkDataUrl` already passes an inbound `data:` through
+ * untouched — until now `buildArtwork` was the step that destroyed it into /favicon.svg.
+ *
+ * ONE entry for it, not the SIZE_LADDER: the ladder would duplicate a ~100 KB string six times, and
+ * native-media-session.ts reads only `[0]` because the plugin keeps the last of whatever it is given
+ * (RESEARCH Pitfall 9). A NON-image data: URL is not renderable and still takes the fallback — the
+ * MIME on an embedded picture is untrusted user-file content (T-37-01).
  */
 export function buildArtwork(cover: string | null): MediaImage[] {
+	// Captured BEFORE the guard: `hasHttpsScheme` is an `url is string` predicate, so on its false
+	// branch TS narrows `cover` itself to `never` and no string method is callable on it.
+	const raw = cover ?? '';
 	if (hasHttpsScheme(cover)) {
 		const ladder: MediaImage[] = SIZE_LADDER.map((sizes) => ({ src: cover, sizes, type: '' }));
 		ladder.push({ src: cover, sizes: 'any', type: '' });
 		return ladder;
+	}
+	// https was handled above, so this is exactly the data:image case.
+	if (isRenderableCover(raw)) {
+		return [{ src: raw, sizes: 'any', type: raw.slice('data:'.length, raw.indexOf(';')) }];
 	}
 	return [{ src: FALLBACK_ART, sizes: 'any', type: 'image/svg+xml' }];
 }

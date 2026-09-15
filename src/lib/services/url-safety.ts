@@ -25,3 +25,29 @@
 export function hasHttpsScheme(url: string | null | undefined): url is string {
 	return typeof url === 'string' && url.startsWith('https:');
 }
+
+/** A base64 `data:` URL whose MIME is an image. Anchored, so only the scheme position matches. */
+const DATA_IMAGE_RE = /^data:image\/[a-z0-9.+-]+;base64,/i;
+
+/**
+ * 37-D-02: true when a surface can DISPLAY `url` — https, or an inline base64 image.
+ *
+ * TWO predicates, one definition each, and they are NOT interchangeable:
+ *
+ * - `isRenderableCover` = DISPLAYABLE. Use it where the question is "can this be shown" — the
+ *   `buildArtwork` gate and the player's full-chain skip gate. Those two disagreeing is the exact
+ *   shape of the `media-card-shows-app-icon` bug, where a truthy-but-not-https cover fell through
+ *   both branches and could never reach the media card.
+ * - `hasHttpsScheme` = CACHEABLE / PROBE-ABLE. It deliberately stays the predicate at
+ *   `writeCoverBoth` call sites, `library.adoptCover`, `upgradeCoverAsync` and `healCover`. The
+ *   cover cache is localStorage sized for ~80-150-byte entries with no scheme or length guard in its
+ *   writer and a swallowed QuotaExceededError — one ~100 KB `data:` URL in there silently kills ALL
+ *   cover caching. A local file's embedded art also cannot 404, so it is not a heal/probe target.
+ *
+ * The `image/` allowlist is a security control, not tidiness: an embedded picture's MIME comes from
+ * an UNTRUSTED user file (T-37-01), so `data:text/html;base64,...` must never pass. A non-base64
+ * `data:` URL is rejected too — the only producer in this app emits base64.
+ */
+export function isRenderableCover(url: string | null | undefined): url is string {
+	return hasHttpsScheme(url) || (typeof url === 'string' && DATA_IMAGE_RE.test(url));
+}
