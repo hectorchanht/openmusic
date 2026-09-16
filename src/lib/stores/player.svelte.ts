@@ -38,7 +38,9 @@ import {
 	createNativeMediaSession,
 	type PlayerMediaSession
 } from '$lib/services/native-media-session';
-import { getCachedCoverByUid, getCachedCover } from '$lib/services/cover-cache';
+// quick-260915-w4f: getPinnedCover is the USER'S explicit cover choice. It leads every cover seed
+// in this store, and (uniquely) it is removed only by healCover's failed probe — never by a resolver.
+import { getCachedCoverByUid, getCachedCover, getPinnedCover } from '$lib/services/cover-cache';
 import { resolveCoverForTrack, resolveDeezerHQ } from '$lib/services/cover-backfill';
 import { matchKey } from '$lib/services/match-key';
 // quick-260615-hep: feed every displayed now-playing cover into the shared cache (both layers) +
@@ -53,7 +55,8 @@ import {
 	writeCoverBoth,
 	bumpCoverVersion,
 	removeCoverBoth,
-	readCoverByUidOrName
+	readCoverByUidOrName,
+	unpinCover
 } from '$lib/stores/cover-version.svelte';
 // quick-260704-3ov: the pure serialize/parse codec was extracted out of this god-object into
 // a colocated, node-tested module (the "runes store thinly wraps a pure helper" precedent).
@@ -571,7 +574,10 @@ class Player {
 		// app name once the user resumed. Seed the ONE cover field (mirrors play()'s sync seed: track
 		// cover → uid cache → name cache) so the hero/nowbar paint any known cover, THEN write the
 		// media metadata from the restored track so title/artist are present the moment playback resumes.
+		// quick-260915-w4f: the pin leads here too — a reload/PWA reopen must come back showing the
+		// cover the user chose, not the source thumbnail on target.cover.
 		this.resolvedCover =
+			getPinnedCover(target.uid) ??
 			target.cover ??
 			getCachedCoverByUid(target.uid) ??
 			getCachedCover(target.artist, target.title) ??
@@ -783,7 +789,9 @@ class Player {
 			if (!cur || cur.uid !== uid) return; // current moved on — discard
 			// The file's own LRC wins, and only when the track has none yet.
 			if (found.lrc && !cur.lrc) this.current = { ...cur, lrc: found.lrc };
-			if (found.art) {
+			// quick-260915-w4f: a local file's embedded art is the DEFAULT truth for a device track, but
+			// an explicit pin is still the user's — so it yields.
+			if (found.art && !getPinnedCover(uid)) {
 				// MEMORY-ONLY, and that is a hard constraint, not a preference: writeCoverBoth /
 				// setCachedCover have no scheme and no length guard, the cover cache is localStorage
 				// sized for ~80-150-byte https entries, and its writer swallows QuotaExceededError — so
@@ -3197,7 +3205,12 @@ class Player {
 		// quick-260831-t2g: an attached cover outranks everything, INCLUDING the source's own inline
 		// art. That is the point — every song on an album must show the album's cover, not whatever
 		// thumbnail each source happens to return for it.
+		// quick-260915-w4f: a USER PIN outranks even the attached album cover. t2g's rule is "the album's
+		// art, not whatever thumbnail a source returned"; a pin is the user saying "THIS song, THIS art",
+		// which is a stronger statement than either. It is also why the pin has to be read here and not
+		// only through the cache read below — track.cover sits ahead of the cache.
 		this.resolvedCover =
+			getPinnedCover(track.uid) ??
 			this.attachedCoverFor(track) ??
 			track.cover ??
 			getCachedCoverByUid(track.uid) ??
@@ -3206,7 +3219,11 @@ class Player {
 		// quick-260615-hep Site A: write the displayed cover (incl. the track.cover path) into BOTH cache
 		// layers + bump so other surfaces reuse it and repaint live. https-only (T-0bb-01); writeCoverBoth
 		// no-ops on empty/non-https — harmless even before the myGen guards' discard points (real art only).
-		if (hasHttpsScheme(this.resolvedCover))
+		// quick-260915-w4f: a PINNED cover is NOT written here. writeCoverBoth also writes the SHARED
+		// {artist,title} name layer, which would push this one song's chosen art onto every same-named
+		// uid (covers, live versions, other sources) — the exact leak the separate pin store exists to
+		// prevent. The pin store IS the persistence; nothing else needs to learn it.
+		if (hasHttpsScheme(this.resolvedCover) && !getPinnedCover(track.uid))
 			writeCoverBoth(track.uid, track.artist, track.title, this.resolvedCover);
 		// cover-hero-mediacard-missing (Issue 2): populate the OS media card title/artist IMMEDIATELY
 		// from the stub — BEFORE the async ensureTrackDetails resolve — so the card never shows the bare
@@ -3601,7 +3618,13 @@ class Player {
 		// 37-D-02: this gate stays https-ONLY on purpose. An embedded cover is the file's own truth
 		// (the locked "embedded first" decision), so it is never "upgraded" to a Deezer image — and
 		// upgradeCoverAsync's result is cacheable, which a `data:` URL is not.
-		else if (hasHttpsScheme(this.resolvedCover) && !this.attachedCoverFor(resolved))
+		// quick-260915-w4f: a PINNED cover is never HQ-upgraded. The Deezer upgrade is a resolver
+		// PREFERENCE, and the whole point of a pin is that preferences stop applying to this song.
+		else if (
+			hasHttpsScheme(this.resolvedCover) &&
+			!this.attachedCoverFor(resolved) &&
+			!getPinnedCover(resolved.uid)
+		)
 			void this.upgradeCoverAsync(resolved, myGen);
 	}
 
@@ -3795,12 +3818,20 @@ class Player {
 			const cur = this.current;
 			if (!cur || cur.uid !== uid) return; // (1) no track / superseded — discard
 			if (!hasHttpsScheme(url)) return; // (2) not a cacheable, renderable URL
+			// quick-260915-w4f (4): when the song is PINNED, the pin is the only URL this seam accepts.
+			// A Last.fm hi-res swap / any other "better cover" discovery must not displace the user's
+			// choice. The pin url itself IS allowed through — that is how the cover picker makes the
+			// hero, the Nowbar and the OS media card adopt a fresh pin instantly (Q5): this method is
+			// already THE seam for exactly that, so it is reused rather than duplicated.
+			const pinned = getPinnedCover(uid);
+			if (pinned && url !== pinned) return;
 			if (url === this.resolvedCover) return; // (3) already showing it — nothing to do
 			this.resolvedCover = url;
 			this.adoptedCoverUid = uid;
 			// Writes uid + name layers AND bumps the reactive signal, so every sibling surface for this
-			// song (up-next rows, search tiles, backfill) repaints with the same art.
-			writeCoverBoth(uid, cur.artist, cur.title, url);
+			// song (up-next rows, search tiles, backfill) repaints with the same art. SKIPPED for a pin:
+			// pinCover already bumped, and the name layer must never carry a pin (see play()'s Site A).
+			if (!pinned) writeCoverBoth(uid, cur.artist, cur.title, url);
 			const ms = this.ms;
 			if (ms) {
 				ms.metadata = makeMetadata({
@@ -3851,6 +3882,12 @@ class Player {
 			if (alive) return;
 			// (6) Dead url. Bail if a newer play() superseded this heal mid-probe (T-20e-03).
 			if (myGen !== this.playGen) return;
+			// quick-260915-w4f (Q2) — THE ONE CASE THAT OVERRIDES A PIN, and it is deliberately narrow:
+			// a FAILED IMAGE LOAD, never a resolver preferring something else. A pin names a URL, not an
+			// image; once that URL is dead the pin can no longer deliver what the user chose, and keeping
+			// it would repaint a black hero on every replay forever (the exact bug 20e fixed). So drop it
+			// BEFORE the eviction + re-resolve below, and let the normal chain find fresh art.
+			if (getPinnedCover(uid) === url) unpinCover(uid);
 			// Evict BOTH cache layers (empty-uid safe — removeCoverBoth skips the shared 'uid:' slot for
 			// an empty uid) so the stale dead cover is dropped before the re-resolve re-caches.
 			removeCoverBoth(uid, artist, title);

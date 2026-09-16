@@ -54,7 +54,14 @@ vi.mock('$lib/services/picks', () => ({ buildDiversePicks: vi.fn(async () => [])
 // every OTHER export (setCachedCover, clearCoverCache, …) real so unrelated suites are untouched.
 vi.mock('$lib/services/cover-cache', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('$lib/services/cover-cache')>();
-	return { ...actual, getCachedCoverByUid: vi.fn(() => null), getCachedCover: vi.fn(() => null) };
+	// quick-260915-w4f: getPinnedCover is mocked too — it now leads every cover seed in the store, so
+	// the pin tests drive it directly while every OTHER suite keeps the unpinned default (null).
+	return {
+		...actual,
+		getCachedCoverByUid: vi.fn(() => null),
+		getCachedCover: vi.fn(() => null),
+		getPinnedCover: vi.fn((): string | null => null)
+	};
 });
 vi.mock('$lib/services/cover-backfill', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('$lib/services/cover-backfill')>();
@@ -71,7 +78,13 @@ vi.mock('$lib/services/cover-backfill', async (importOriginal) => {
 // player store's existing cover-write sites (Site A/Site C) still behave.
 vi.mock('$lib/stores/cover-version.svelte', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('$lib/stores/cover-version.svelte')>();
-	return { ...actual, removeCoverBoth: vi.fn(actual.removeCoverBoth) };
+	// quick-260915-w4f: unpinCover is wrapped (call-through) so healCover's ONE pin-removing path —
+	// a genuinely failed image load — is observable.
+	return {
+		...actual,
+		removeCoverBoth: vi.fn(actual.removeCoverBoth),
+		unpinCover: vi.fn(actual.unpinCover)
+	};
 });
 // 26-09 (Gap 2): spy on logAction so regenerate()'s `upnext.source` formation-source event is
 // observable. importOriginal keeps the real actionLog singleton + throttled persist for every OTHER
@@ -111,11 +124,12 @@ import { buildDiversePicks } from '$lib/services/picks';
 import {
 	getCachedCoverByUid,
 	getCachedCover,
+	getPinnedCover,
 	uidCoverCacheKey,
 	coverCacheKey
 } from '$lib/services/cover-cache';
 import { resolveCoverForTrack, resolveDeezerHQ } from '$lib/services/cover-backfill';
-import { removeCoverBoth } from '$lib/stores/cover-version.svelte';
+import { removeCoverBoth, unpinCover } from '$lib/stores/cover-version.svelte';
 import { logAction } from '$lib/stores/actionLog.svelte';
 import {
 	registerServedResolve,
@@ -136,6 +150,9 @@ const mockDeezerHQ = vi.mocked(resolveDeezerHQ);
 const mockNameCover = vi.mocked(getCachedCover);
 const mockResolveCover = vi.mocked(resolveCoverForTrack);
 const mockRemoveCoverBoth = vi.mocked(removeCoverBoth);
+// quick-260915-w4f: the user's pinned cover + the one path that removes it.
+const mockGetPinned = vi.mocked(getPinnedCover);
+const mockUnpinCover = vi.mocked(unpinCover);
 const mockLogAction = vi.mocked(logAction);
 
 function mk(source: SourceId, songid: string, artist: string, title: string): Track {
@@ -6862,5 +6879,246 @@ describe('slow-cold-start-first-playing — media-load instrumentation', () => {
 		expect(mockLogAction).toHaveBeenCalledWith('src.set', { uid: 'qq:B', kind: 'url', ext: 'blob' });
 		fake.fire('progress');
 		expect(mockLogAction.mock.calls.filter(([ev]) => ev === 'media.progress')).toHaveLength(2);
+	});
+});
+
+// ── cover pin (quick-260915-w4f) ────────────────────────────────────────────────────────────────
+// A PIN is the cover the user explicitly chose in the TrackMenu picker. The contract this block
+// pins down is precedence + immunity: the pin leads EVERY cover seed in the store (ahead of the
+// attached album cover and ahead of track.cover), it is never leaked into the shared name layer, no
+// resolver preference can displace it (no Deezer HQ upgrade, no Last.fm adoptCover swap) — and the
+// single exception is healCover's FAILED IMAGE PROBE, which unpins because a pin names a URL and a
+// dead URL can no longer deliver what the user chose.
+//
+// mockGetPinned is reset to null in beforeEach so nothing here leaks into the rest of the file.
+describe('cover pin (quick-260915-w4f)', () => {
+	const PIN = 'https://pin/chosen.jpg';
+	let el: ReturnType<typeof makeFakeAudio>;
+	let images: Array<{ src: string; onload: (() => void) | null; onerror: (() => void) | null }>;
+
+	const rc = () => (player as unknown as { resolvedCover: string | null }).resolvedCover;
+	const rawCover = (key: string): string | null => {
+		const rec = JSON.parse(localStorage.getItem('openmusic:cover-cache:v1') ?? '{}');
+		const v = rec[key];
+		if (typeof v === 'string') return v;
+		return v && typeof v.u === 'string' ? v.u : null;
+	};
+	const fireProbe = (ok: boolean) => {
+		const img = images[images.length - 1];
+		if (ok) img.onload?.();
+		else img.onerror?.();
+	};
+
+	beforeEach(() => {
+		(player.play as unknown as { mockRestore(): void }).mockRestore?.();
+		mockEnsure.mockReset();
+		mockUidCover.mockReset().mockReturnValue(null);
+		mockNameCover.mockReset().mockReturnValue(null);
+		mockResolveCover.mockReset().mockResolvedValue(null);
+		mockDeezerHQ.mockReset().mockResolvedValue(null);
+		mockRemoveCoverBoth.mockClear();
+		mockUnpinCover.mockClear();
+		mockGetPinned.mockReset().mockReturnValue(null); // unpinned by default — no leak into other suites
+		localStorage.clear();
+		player.current = null;
+		player.queue = [];
+		player.error = null;
+		player.loading = false;
+		(player as unknown as { resolvedCover: string | null }).resolvedCover = null;
+		(player as unknown as { attachedCover: unknown }).attachedCover = null;
+		(player as unknown as { healProbed: Set<string> }).healProbed.clear();
+
+		images = [];
+		vi.stubGlobal(
+			'Image',
+			vi.fn(function (this: Record<string, unknown>) {
+				const img = { src: '', onload: null, onerror: null, decoding: '', referrerPolicy: '' };
+				images.push(img);
+				return img;
+			})
+		);
+		vi.stubGlobal('navigator', {
+			onLine: true,
+			mediaSession: {
+				metadata: null,
+				playbackState: 'none',
+				setPositionState: () => {},
+				setActionHandler: () => {}
+			}
+		});
+		vi.stubGlobal('MediaMetadata', FakeMediaMetadata);
+		coverMetadataSink = [];
+		el = makeFakeAudio();
+		player.attach(el as unknown as HTMLAudioElement);
+		vi.spyOn(library, 'isDownloaded').mockReturnValue(false);
+		vi.spyOn(library, 'adoptCover').mockImplementation(() => {});
+	});
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
+	it('play() seeds resolvedCover from the PIN, ahead of track.cover', () => {
+		mockGetPinned.mockReturnValue(PIN);
+		const t = { ...stub('netease', 'P1', 'Artist', 'Song'), cover: 'https://src/s.jpg' };
+		mockEnsure.mockReturnValue(new Promise(() => {})); // never settles — the seed is synchronous
+		void player.play(t);
+		expect(rc()).toBe(PIN);
+	});
+
+	it('play() does NOT write a pinned cover into either cache layer (no name-layer leak)', () => {
+		mockGetPinned.mockReturnValue(PIN);
+		const t = { ...stub('netease', 'P2', 'Artist', 'Song'), cover: 'https://src/s.jpg' };
+		mockEnsure.mockReturnValue(new Promise(() => {}));
+		void player.play(t);
+		// The name layer is SHARED across uids — a pin there would repaint every same-named song.
+		expect(rawCover(coverCacheKey('Artist', 'Song'))).toBeNull();
+		expect(rawCover(uidCoverCacheKey(t.uid))).toBeNull();
+	});
+
+	it('play() still writes both layers for an UNPINNED track (Site A unchanged)', () => {
+		const t = { ...stub('netease', 'P3', 'Artist', 'Song'), cover: 'https://src/s.jpg' };
+		mockEnsure.mockReturnValue(new Promise(() => {}));
+		void player.play(t);
+		expect(rc()).toBe('https://src/s.jpg');
+		expect(rawCover(coverCacheKey('Artist', 'Song'))).toBe('https://src/s.jpg');
+	});
+
+	it('a pinned uid never fires the Deezer HQ upgrade (a pin outranks resolver preference)', async () => {
+		mockGetPinned.mockReturnValue(PIN);
+		const t = { ...stub('netease', 'P4', 'Artist', 'Song'), cover: 'https://src/s.jpg' };
+		mockEnsure.mockResolvedValue({
+			...mk('netease', 'P4', 'Artist', 'Song'),
+			cover: 'https://src/s.jpg',
+			audioUrl: 'https://cdn/4.mp3'
+		});
+		await player.play(t);
+		await flush();
+		expect(mockDeezerHQ).not.toHaveBeenCalled();
+		expect(rc()).toBe(PIN);
+	});
+
+	it('an UNPINNED track with an https inline cover still gets the HQ upgrade (gate unchanged)', async () => {
+		const t = { ...stub('netease', 'P5', 'Artist', 'Song'), cover: 'https://src/s.jpg' };
+		mockEnsure.mockResolvedValue({
+			...mk('netease', 'P5', 'Artist', 'Song'),
+			cover: 'https://src/s.jpg',
+			audioUrl: 'https://cdn/5.mp3'
+		});
+		await player.play(t);
+		await flush();
+		expect(mockDeezerHQ).toHaveBeenCalled();
+	});
+
+	it('adoptCover REFUSES a non-pin url when the uid is pinned (Last.fm swap cannot displace a pin)', () => {
+		const cur = mk('netease', 'P6', 'Artist', 'Song');
+		player.current = cur;
+		(player as unknown as { resolvedCover: string | null }).resolvedCover = PIN;
+		mockGetPinned.mockReturnValue(PIN);
+
+		player.adoptCover(cur.uid, 'https://lastfm.freetls.fastly.net/i/u/300x300/big.jpg');
+
+		expect(rc()).toBe(PIN); // unchanged
+		expect(rawCover(coverCacheKey('Artist', 'Song'))).toBeNull(); // and nothing was cached
+	});
+
+	it('adoptCover(uid, <the pin url>) adopts it + refreshes the OS metadata, without a cache write', () => {
+		const cur = mk('netease', 'P7', 'Artist', 'Song');
+		player.current = cur;
+		(player as unknown as { resolvedCover: string | null }).resolvedCover = 'https://src/old.jpg';
+		mockGetPinned.mockReturnValue(PIN);
+
+		player.adoptCover(cur.uid, PIN);
+
+		// This is the path the cover picker uses: pin → adoptCover → hero/Nowbar/media card repaint.
+		expect(rc()).toBe(PIN);
+		const md = (navigator as unknown as { mediaSession: { metadata: { artwork: Array<{ src: string }> } | null } })
+			.mediaSession.metadata;
+		expect(md?.artwork.some((a) => a.src === PIN)).toBe(true);
+		// pinCover already bumped the reactive signal, and the pin must not reach the name layer.
+		expect(rawCover(coverCacheKey('Artist', 'Song'))).toBeNull();
+	});
+
+	it('healCover UNPINS when the pinned url genuinely fails to load, then re-resolves fresh art', async () => {
+		const t = mk('netease', 'P8', 'Artist', 'Song');
+		player.current = t;
+		(player as unknown as { resolvedCover: string | null }).resolvedCover = PIN;
+		mockGetPinned.mockReturnValue(PIN);
+		mockResolveCover.mockResolvedValue('https://cdn/fresh.jpg');
+
+		const p = player.healCover(t.uid);
+		await flush();
+		fireProbe(false); // the pinned URL is dead
+		await p;
+		await flush();
+
+		expect(mockUnpinCover).toHaveBeenCalledWith(t.uid);
+		expect(mockRemoveCoverBoth).toHaveBeenCalledWith(t.uid, 'Artist', 'Song');
+		expect(rc()).toBe('https://cdn/fresh.jpg');
+	});
+
+	it('healCover leaves the pin ALONE when the probe loads (only a dead URL unpins)', async () => {
+		const t = mk('netease', 'P9', 'Artist', 'Song');
+		player.current = t;
+		(player as unknown as { resolvedCover: string | null }).resolvedCover = PIN;
+		mockGetPinned.mockReturnValue(PIN);
+
+		const p = player.healCover(t.uid);
+		await flush();
+		fireProbe(true); // alive
+		await p;
+		await flush();
+
+		expect(mockUnpinCover).not.toHaveBeenCalled();
+		expect(mockRemoveCoverBoth).not.toHaveBeenCalled();
+		expect(rc()).toBe(PIN);
+	});
+
+	it('healCover does NOT unpin when the dead url is not the pin (a different displayed cover died)', async () => {
+		const t = mk('netease', 'PA', 'Artist', 'Song');
+		player.current = t;
+		(player as unknown as { resolvedCover: string | null }).resolvedCover = 'https://cdn/other-dead.jpg';
+		mockGetPinned.mockReturnValue(PIN);
+		mockResolveCover.mockResolvedValue('https://cdn/fresh.jpg');
+
+		const p = player.healCover(t.uid);
+		await flush();
+		fireProbe(false);
+		await p;
+		await flush();
+
+		expect(mockUnpinCover).not.toHaveBeenCalled();
+	});
+
+	it('restore() seeds resolvedCover from the PIN, ahead of the persisted target.cover', async () => {
+		const cur = mk('netease', 'PB', 'Artist', 'Song');
+		localStorage.setItem(
+			'openmusic:player:v1',
+			JSON.stringify({
+				v: 1,
+				current: {
+					uid: cur.uid,
+					source: cur.source,
+					songid: cur.songid,
+					title: cur.title,
+					artist: cur.artist,
+					album: cur.album,
+					cover: 'https://src/persisted.jpg',
+					quality: cur.quality,
+					qualityLabel: cur.qualityLabel,
+					keyword: cur.keyword,
+					displayIndex: cur.displayIndex
+				},
+				queue: [],
+				currentTime: 0,
+				shuffle: false
+			})
+		);
+		mockGetPinned.mockReturnValue(PIN);
+		mockEnsure.mockResolvedValue({ ...cur, audioUrl: 'https://cdn/pb.mp3', detailsLoaded: true });
+
+		await player.restore();
+
+		expect(rc()).toBe(PIN);
 	});
 });
