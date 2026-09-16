@@ -2,7 +2,7 @@
 	import { tick, untrack } from 'svelte';
 	import { fly } from 'svelte/transition';
 	import { goto } from '$app/navigation';
-	import { ListStart, ListEnd, Download, Check, Heart, ListPlus, User, Share2, Info, X, Plus, Shuffle, Trash2, Moon, Sparkles, Layers } from '@lucide/svelte';
+	import { ListStart, ListEnd, Download, Check, Heart, ListPlus, User, Share2, Info, X, Plus, Shuffle, Trash2, Moon, Sparkles, Layers, Image as ImageIcon } from '@lucide/svelte';
 	import { player } from '$lib/stores/player.svelte';
 	import { sleepTimer } from '$lib/stores/sleepTimer.svelte';
 	import { library } from '$lib/stores/library.svelte';
@@ -34,7 +34,10 @@
 	import { songShareUrl } from '$lib/services/share';
 	// quick-260809-3uo: the share card now carries the cover the user is looking at — read from the
 	// SAME shared reactive cache every other surface reads, plus the retained iTunes id.
-	import { readCoverByUidOrName } from '$lib/stores/cover-version.svelte';
+	import { readCoverByUidOrName, readPinnedCover, pinCover } from '$lib/stores/cover-version.svelte';
+	// quick-260915-w4f: the ENUMERATE-ALL cover collector. Imported for the picker only — it runs
+	// alongside resolveTrackChain, never inside it, and fires ONLY on the Change-cover tap (Q1).
+	import { collectCoverCandidates, type CoverCandidate } from '$lib/services/cover-backfill';
 	import { recallItunesId } from '$lib/services/itunes-cover';
 	import { isDeviceUid } from '$lib/services/device-track';
 	import type { Track } from '$lib/sources/types';
@@ -64,6 +67,33 @@
 	let versionsList = $state<Track[]>([]);
 	let versionGen = 0;
 	let versionAc: AbortController | null = null;
+
+	// quick-260915-w4f: the cover picker. Same shape as the Play-from-source picker above and for the
+	// same reason — the candidate fan-out is a real cost (Deezer + iTunes + a full CN searchAll), so it
+	// fires ONLY on the Change-cover row tap, never on menu open (T-26-10-02 posture). coverGen /
+	// coverAc are PLAIN fields: supersedence guards the UI never reads reactively (house convention).
+	let coverOpen = $state(false);
+	let coverLoading = $state(false);
+	let coverCandidates = $state<CoverCandidate[]>([]);
+	let coverGen = 0;
+	let coverAc: AbortController | null = null;
+
+	// The cover the user is CURRENTLY looking at for this track. Hoisted out of doShare (it needed the
+	// identical expression) so the picker can tick the active tile and the share card can carry it —
+	// one precedence chain, two consumers. Widest authority first: the user's pin, then the hero's own
+	// cover when this IS the playing song, then the shared cache every list row reads, then the stub's art.
+	//
+	// 🔴 The cache lookup MUST use the RAW track.artist / track.title, NOT the display-language strings
+	// (see doShare's note below) — the name layer is matchKey'd on raw CATALOG metadata.
+	const activeCover = $derived(
+		track
+			? (readPinnedCover(track.uid) ??
+					(player.current?.uid === track.uid ? player.resolvedCover : null) ??
+					readCoverByUidOrName(track.uid, track.artist, track.title) ??
+					track.cover ??
+					null)
+			: null
+	);
 
 	// MENU-01 (D-02/D-03): per-action in-flight set drives the inline row spinners. A gated
 	// action (Download / Detail / Remix) is tappable on a STUB — tapping kicks off the resolve,
@@ -107,6 +137,7 @@
 
 	function close() {
 		pickerOpen = false;
+		coverAc?.abort(); // quick-260915-w4f: never leave a candidate fan-out running behind a closed menu
 		onclose();
 	}
 	// Gap 4 (26-10): open the Play-from-source picker + fire the SINGLE lazy variant fan-out. Called
@@ -129,6 +160,41 @@
 	function closeVersions() {
 		versionsOpen = false;
 		versionAc?.abort(); // cancel any in-flight fetch when the sheet is dismissed.
+	}
+	// quick-260915-w4f: open the cover picker + fire the SINGLE candidate fan-out (Q1). Mirrors
+	// openVersions exactly — gen bump + abort the prior fetch, open the sheet IMMEDIATELY with a
+	// spinner so the sheet never waits on the network, then fill it.
+	async function openCoverPicker() {
+		// like-state-wrong-track-menu / 8a848d9: a uid-less name stub has no identity to pin against,
+		// so there is nothing to key a pin by. The row is disabled for the same reason as Like.
+		if (!track?.uid) return;
+		const gen = ++coverGen;
+		coverAc?.abort();
+		const ac = new AbortController();
+		coverAc = ac;
+		coverCandidates = [];
+		coverLoading = true;
+		coverOpen = true;
+		const list = await collectCoverCandidates(track, ac.signal);
+		if (gen !== coverGen || ac.signal.aborted) return; // superseded / cancelled
+		coverCandidates = list;
+		coverLoading = false;
+	}
+	function closeCoverPicker() {
+		coverOpen = false;
+		coverAc?.abort();
+	}
+	// Pin the tapped candidate. pinCover persists it (own key, no TTL/LRU — Q3) and bumps the shared
+	// reactive signal, so every list row repaints. player.adoptCover is a no-op unless this song is
+	// CURRENT; when it is, it is what repaints the NowPlaying hero, the Nowbar and the OS media card
+	// instantly — it is already the ONE promotion seam, and Task 2 taught it to accept a pin (Q5).
+	function pickCover(url: string) {
+		if (!track?.uid) return;
+		pinCover(track.uid, url);
+		player.adoptCover(track.uid, url);
+		toast.show(t('toast.coverPinned'));
+		closeCoverPicker();
+		close();
 	}
 	function playNext() { if (track) { player.playNext(track); toast.show(t('toast.playingNext')); } close(); }
 	function addQueue() { if (track) { hapticTick(); player.addToQueue(track); toast.show(t('toast.addedToQueue')); } close(); }
@@ -337,11 +403,7 @@
 		// name layer is matchKey'd on the raw CATALOG metadata; passing the display-language strings
 		// (quick-260808-urx converts them — zh-Hant 夢伴 for catalog 梦伴) would miss the cache for
 		// exactly the users the display conversion exists for.
-		const shareCover =
-			(player.current?.uid === track.uid ? player.resolvedCover : null) ??
-			readCoverByUidOrName(track.uid, track.artist, track.title) ??
-			track.cover ??
-			null;
+		const shareCover = activeCover;
 		// An uncovered-tier cover (netease / qq / joox) simply yields no token and no regression — the
 		// carrier is advisory, and the card falls back to the server tier chain exactly as today. The
 		// iTunes id is recalled HERE because coverToken is pure: a store/storage never flows into a
@@ -430,6 +492,14 @@
 			return () => untrack(() => overlays.dismiss("trackmenu-detail"));
 		}
 	});
+	// quick-260915-w4f: the cover picker's own balanced overlay entry (same shape + `untrack` guard
+	// as the two above, distinct id so Back pops exactly this sheet).
+	$effect(() => {
+		if (coverOpen && track) {
+			untrack(() => overlays.open("trackmenu-cover", () => closeCoverPicker()));
+			return () => untrack(() => overlays.dismiss("trackmenu-cover"));
+		}
+	});
 </script>
 
 {#if open && track}
@@ -504,6 +574,11 @@
 		     track (variants discovered on demand; the picker's loading/empty states cover a single-source
 		     song). Available for the current track too (switch the playing source). -->
 		<button class="mi" onclick={openVersions} use:tapBounce><Layers size={18} /> {t('menu.versions')}</button>
+		<!-- quick-260915-w4f: Change cover. The cover chain is first-solid-wins and sometimes wins wrong
+		     (wrong album, live-version art, a low-res CN thumbnail); this lets the user override it once,
+		     per song, permanently. The candidate fan-out fires on THIS tap only (Q1). `disabled` mirrors
+		     the Like row: a uid-less stub has no identity to pin against. -->
+		<button class="mi" disabled={!track.uid} onclick={openCoverPicker} use:tapBounce><ImageIcon size={18} /> {t('menu.changeCover')}</button>
 		{#if player.queue.length > 1}
 			<button class="mi" class:on={player.shuffle} onclick={shuffleQueue} use:tapBounce><Shuffle size={18} /> {t('menu.shuffleQueue')}</button>
 			<button class="mi" onclick={clearQueue} use:tapBounce><Trash2 size={18} /> {t('menu.clearQueue')}</button>
@@ -602,6 +677,32 @@
 	</div>
 {/if}
 
+<!-- quick-260915-w4f: the cover picker. Mounted OUTSIDE the {#if open && track} block (like the
+     playlist-picker / detail sub-sheets) so it survives the menu closing on a pick. Thumbnails are
+     `<img src>` ATTRIBUTES, never CSS url() (T-rvy-01); every candidate already passed the https
+     gate in collectCoverCandidates (T-w4f-01). -->
+{#if coverOpen && track}
+	<button class="scrim" aria-label={t('menu.close')} onclick={closeCoverPicker}></button>
+	<div class="menu" transition:fly={{ y: 240, duration: 200 }} use:dragClose={{ onclose: closeCoverPicker }} use:focusTrap>
+		<div class="menu-head row"><span>{t('menu.changeCover')}</span><button class="x" aria-label={t('menu.close')} onclick={closeCoverPicker} use:tapBounce><X size={18} /></button></div>
+		{#if coverLoading && !coverCandidates.length}
+			<div class="cover-wait"><span class="row-spinner motion-always"></span></div>
+		{:else if !coverCandidates.length}
+			<p class="cover-none">{t('menu.coverPickerNone')}</p>
+		{:else}
+			<div class="cover-grid">
+				{#each coverCandidates as c (c.url)}
+					<button class="cand" class:on={c.url === activeCover} aria-pressed={c.url === activeCover} onclick={() => pickCover(c.url)} use:tapBounce>
+						<img src={c.url} alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" />
+						<span class="src">{c.source === 'deezer' ? 'Deezer' : c.source === 'itunes' ? 'iTunes' : c.source}</span>
+						{#if c.url === activeCover}<span class="tick"><Check size={14} /></span>{/if}
+					</button>
+				{/each}
+			</div>
+		{/if}
+	</div>
+{/if}
+
 <!-- Gap 4 (26-10): the Play-from-source VersionPicker. Mounted OUTSIDE the {#if open && track} menu
      block (like the playlist-picker/detail sub-sheets) so it survives the menu closing on a pick.
      WR-02: this TrackMenu-hosted picker uses the DISTINCT overlay id 'versionpicker-menu' so it never
@@ -672,6 +773,16 @@
 	   app. aria-busy + the menu.preparing label still carry the state for non-visual users. */
 	.row-spinner { width: 16px; height: 16px; flex: none; border: 2px solid var(--color-text-muted); border-top-color: transparent; border-radius: 50%; animation: spin 0.7s linear infinite; }
 	@keyframes spin { to { transform: rotate(360deg); } }
+	/* quick-260915-w4f — cover picker grid. 3 columns fits a 375px viewport with the sheet's insets
+	   (~105px tiles), four rows deep for the 12-candidate cap. */
+	.cover-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 4px 8px 12px; }
+	.cand { position: relative; padding: 0; border: 2px solid transparent; border-radius: 10px; overflow: hidden; background: var(--color-surface); cursor: pointer; aspect-ratio: 1; }
+	.cand img { width: 100%; height: 100%; object-fit: cover; display: block; }
+	.cand.on { border-color: var(--color-primary); }
+	.cand .src { position: absolute; left: 0; right: 0; bottom: 0; font-size: 11px; padding: 2px 4px; background: rgba(0, 0, 0, 0.55); color: #fff; text-transform: capitalize; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.cand .tick { position: absolute; top: 4px; right: 4px; display: grid; place-items: center; color: #fff; filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.8)); }
+	.cover-wait { display: grid; place-items: center; padding: 28px 12px; }
+	.cover-none { text-align: center; color: var(--color-text-muted); font-size: 13px; padding: 20px 12px; }
 	.detail { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; padding: 6px 12px 14px; margin: 0; }
 	.detail dt { color: var(--color-text-muted); font-size: 12px; }
 	.detail dd { margin: 0; font-size: 13px; }
