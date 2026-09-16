@@ -247,3 +247,92 @@ describe('34-D-06 unavailable + setDownloads', () => {
 		expect(library.unavailable.size).toBe(0);
 	});
 });
+
+// quick-260915-vb9: the Library page's per-tab "Clear all" row needs a per-LIST wipe. The naive
+// implementation (loop removeLiked/removeDownload) re-serialises the WHOLE library payload once per
+// track — 300 downloads = 300 localStorage writes on a phone. These specs pin the contract: one
+// persisted save per clear, only the targeted list emptied, and (downloads only) one blob delete per
+// former uid so the offline cache does not outlive the registry.
+describe('quick-260915-vb9 per-list clears', () => {
+	beforeEach(() => {
+		library.liked = [];
+		library.downloads = [];
+		library.playlists = [];
+		library.favArtists = [];
+		library.unavailable = new Set();
+		memStore.clear();
+		blobDel.mockClear();
+	});
+
+	const payload = () =>
+		JSON.parse(localStorage.getItem('openmusic:library:v1') as string) as Record<string, unknown>;
+
+	it('clearLiked empties liked only and persists', () => {
+		library.liked = [mk({ uid: 'netease-1' }), mk({ uid: 'qq-9', source: 'qq' })];
+		library.downloads = [mk({ uid: 'kuwo-7', source: 'kuwo' })];
+		library.favArtists = ['G.E.M. 邓紫棋'];
+		library.playlists = [{ id: 'pl_x', name: 'mix', tracks: [mk({ uid: 'netease-1' })] }];
+
+		library.clearLiked();
+
+		expect(library.liked).toEqual([]);
+		expect(payload().liked).toEqual([]);
+		expect(library.downloads).toHaveLength(1);
+		expect(library.favArtists).toEqual(['G.E.M. 邓紫棋']);
+		expect(library.playlists[0].tracks).toHaveLength(1);
+	});
+
+	it('clearDownloads empties downloads + marks, deletes every blob, and saves EXACTLY once', () => {
+		library.downloads = [mk({ uid: 'kuwo:7', source: 'kuwo' }), mk({ uid: 'device:42' })];
+		library.liked = [mk({ uid: 'netease-1' })];
+		library.unavailable = new Set(['device:42']);
+		const setItem = vi.spyOn(localStorage, 'setItem');
+
+		library.clearDownloads();
+
+		expect(library.downloads).toEqual([]);
+		expect(library.unavailable.size).toBe(0);
+		expect(payload().downloads).toEqual([]);
+		expect(payload().unavailable).toEqual([]);
+		// The LIKED list must survive a downloads-only clear.
+		expect(library.liked).toHaveLength(1);
+		// One write for the whole clear — not one per track.
+		expect(setItem).toHaveBeenCalledTimes(1);
+		// Per-uid delete so blobStore.del's device: refusal (Plan 34-01) still protects imports.
+		expect(blobDel).toHaveBeenCalledTimes(2);
+		expect(blobDel).toHaveBeenCalledWith('kuwo:7');
+		expect(blobDel).toHaveBeenCalledWith('device:42');
+		setItem.mockRestore();
+	});
+
+	it('clearFavArtists empties favArtists only and persists', () => {
+		library.favArtists = ['a', 'b'];
+		library.liked = [mk({ uid: 'netease-1' })];
+
+		library.clearFavArtists();
+
+		expect(library.favArtists).toEqual([]);
+		expect(payload().favArtists).toEqual([]);
+		expect(library.liked).toHaveLength(1);
+	});
+
+	it('clearPlaylistTracks empties ONE playlist, keeps its identity, leaves siblings alone', () => {
+		library.playlists = [
+			{ id: 'pl_a', name: 'mix', tracks: [mk({ uid: 'netease-1' }), mk({ uid: 'qq-9', source: 'qq' })] },
+			{ id: 'pl_b', name: 'other', tracks: [mk({ uid: 'kuwo-7', source: 'kuwo' })] }
+		];
+
+		library.clearPlaylistTracks('pl_a');
+
+		expect(library.playlists[0]).toMatchObject({ id: 'pl_a', name: 'mix', tracks: [] });
+		expect(library.playlists[1].tracks).toHaveLength(1);
+		expect((payload().playlists as { tracks: unknown[] }[])[0].tracks).toEqual([]);
+	});
+
+	it('clearPlaylistTracks on an unknown id is a harmless no-op', () => {
+		library.playlists = [{ id: 'pl_a', name: 'mix', tracks: [mk({ uid: 'netease-1' })] }];
+
+		expect(() => library.clearPlaylistTracks('nope')).not.toThrow();
+		expect(library.playlists[0].tracks).toHaveLength(1);
+	});
+});
