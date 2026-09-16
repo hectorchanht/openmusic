@@ -1,20 +1,24 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, untrack } from 'svelte';
+	import { fly } from 'svelte/transition';
 	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import { Heart, ListMusic, Download, Trash2, Play, Clock, Pencil, Check, Users, ListEnd, ListStart } from '@lucide/svelte';
+	import { Heart, ListMusic, Download, Trash2, Play, Clock, Pencil, Check, Users, ListEnd, ListStart, Shuffle, Ellipsis, X } from '@lucide/svelte';
 	import { library } from '$lib/stores/library.svelte';
 	import { history } from '$lib/stores/history.svelte';
 	import { player } from '$lib/stores/player.svelte';
 	import { names } from '$lib/stores/names.svelte';
 	import { enrichArtist } from '$lib/services/lastfm';
 	import { deezerArtistCover } from '$lib/services/deezer';
-	import { mapWithConcurrency } from '$lib/services/discovery';
+	import { mapWithConcurrency, shuffle } from '$lib/services/discovery';
 	import { t } from '$lib/i18n';
 	import { longpress } from '$lib/actions/longpress';
 	import { swipeAction } from '$lib/actions/swipeAction';
 	import { tapBounce } from '$lib/actions/tapBounce';
+	import { dragClose } from '$lib/actions/dragClose';
+	import { focusTrap } from '$lib/actions/focusTrap';
+	import { overlays } from '$lib/stores/overlays.svelte';
 	import { lazyCover } from '$lib/actions/lazyCover';
 	// quick-260910-qwt: the shared row cover read (resolved → track.cover → the shared cache).
 	import { pickRowCover } from '$lib/services/row-cover';
@@ -92,8 +96,9 @@
 		if (!browser) return;
 		try { localStorage.setItem(TAB_KEY, v); } catch { /* quota — non-fatal */ }
 	}
-	// kyf-followup: active-tab label, surfaced next to the page heading so the pill row
-	// can shrink to icon-only and fit all 5 tabs in one row.
+	// kyf-followup: active-tab label, so the pill row can shrink to icon-only and fit all 5 tabs.
+	// quick-260915-vb9: this IS the page heading now — the bottom nav already says "Library", so
+	// repeating it above the tab name was the same word twice on a phone-width screen.
 	const tabLabel = $derived<string>(
 		tab === 'liked' ? t('library.liked')
 			: tab === 'playlists' ? t('library.playlists')
@@ -146,6 +151,20 @@
 	let menuOpen = $state(false);
 	function openMenu(t: Track) { menuTrack = t; menuOpen = true; }
 
+	// quick-260915-vb9: the per-tab list sheet (the ⋯ button). Inline rather than a component:
+	// TrackMenu is track-scoped (it needs a Track) and a ListMenu.svelte would have exactly one
+	// consumer. Copies the album page's playlist-picker idiom verbatim.
+	let listMenuOpen = $state(false);
+	// Back-to-close overlay. Dep is `listMenuOpen` ONLY, and the cleanup is the SOLE dismiss caller,
+	// so scrim / X / drag / hardware Back all converge on one history pop (TrackMenu's rationale).
+	// The id must differ from TrackMenu's `trackmenu-*` — both are mounted on this page.
+	$effect(() => {
+		if (listMenuOpen) {
+			untrack(() => overlays.open('library-list-menu', () => (listMenuOpen = false)));
+			return () => untrack(() => overlays.dismiss('library-list-menu'));
+		}
+	});
+
 	// Bulk-edit mode (ii6 / j49). When editMode is true, row click REMOVES the track from
 	// the CURRENT list instead of playing it. Per-tab remove dispatched in rowAction; the Edit
 	// button appears on every bulk-editable tab. History stays read-only (its own "Clear all"
@@ -172,6 +191,64 @@
 			(tab === 'playlists' && library.playlists.some((p) => p.tracks.length > 0)) ||
 			(tab === 'fav-artists' && library.favArtists.length > 0)
 	);
+	/**
+	 * quick-260915-vb9: the current tab's playable tracks — what Play / Shuffle / Add to queue /
+	 * Play next all act on. Empty means those affordances HIDE (not disable — a dead button is
+	 * worse than no button).
+	 * Deliberately empty on the Playlists tab with no ?playlist detail pin: each folder already has
+	 * its own Play button, and flattening every playlist into one queue is not something anyone
+	 * asked for. Also empty on fav-artists — artists are not tracks.
+	 */
+	const tabList = $derived<Track[]>(
+		tab === 'liked' ? library.liked
+			: tab === 'downloads' ? library.downloads
+			: tab === 'history' ? (history.entries as Track[])
+			: tab === 'playlists' ? (detailPlaylist?.tracks ?? [])
+			: []
+	);
+	/** The ⋯ button hides entirely when every row of its sheet would be hidden. */
+	const listMenuHasItems = $derived(
+		tabList.length > 0 || (tab === 'fav-artists' && library.favArtists.length > 0) || !!detailPlaylist
+	);
+	/**
+	 * quick-260915-vb9: wipe the CURRENT tab's list only — never the whole library (clearAll exists
+	 * for that and lives in Settings → Data). confirm() is the house pattern for a destructive tap
+	 * (settings/data/+page.svelte; Capacitor 8 renders it as a native AlertDialog), so a single
+	 * mis-tap can never empty a list.
+	 */
+	function clearCurrentList() {
+		if (!confirm(t('library.clearListConfirm', { name: detailPlaylist?.name ?? tabLabel }))) return;
+		if (tab === 'liked') library.clearLiked();
+		else if (tab === 'downloads') library.clearDownloads();
+		else if (tab === 'fav-artists') library.clearFavArtists();
+		else if (tab === 'history') history.clear();
+		else if (detailPlaylist) library.clearPlaylistTracks(detailPlaylist.id);
+		editMode = false; // nothing left to edit
+		listMenuOpen = false;
+	}
+	function deleteDetailPlaylist() {
+		if (!detailPlaylist) return;
+		if (!confirm(t('library.deletePlaylistConfirm', { name: detailPlaylist.name }))) return;
+		library.deletePlaylist(detailPlaylist.id);
+		detailPlaylistId = null; // the detail view's subject is gone — fall back to all playlists
+		listMenuOpen = false;
+	}
+	// quick-260915-vb9: whole-list queue actions. addToQueue/playNext each persist per call — fine
+	// at library sizes. ponytail: N persists, batch if a 1000-song list ever measures slow.
+	function queueWholeList() {
+		for (const x of tabList) player.addToQueue(x);
+		toast.show(t('toast.addedToQueue'));
+		hapticTick();
+		listMenuOpen = false;
+	}
+	function playListNext() {
+		// Reversed: each playNext splices at current+1, so feeding the list backwards lands it
+		// after current in its ORIGINAL order.
+		for (const x of [...tabList].reverse()) player.playNext(x);
+		toast.show(t('toast.playingNext'));
+		hapticTick();
+		listMenuOpen = false;
+	}
 	onMount(() => {
 		library.load();
 		history.load();
@@ -181,33 +258,54 @@
 	function fallbackCover(t: Track): string {
 		return coverGradient(t.uid);
 	}
-	function playList(list: Track[], t: Track) {
+	/**
+	 * quick-260915-vb9: `wholeList` marks the caller as an explicit "play this entire list" button
+	 * (the action row's Play/Shuffle, and each playlist folder's own Play) rather than a row tap.
+	 * It pins player.play's same-list branch so the list the user pressed Play ON is what Up Next
+	 * shows — every library context resolves to the 'generated' up-next mode by default, which
+	 * would otherwise replace the tail with genre-similar songs and drop the list entirely.
+	 * A plain row tap passes nothing and keeps the user's per-context sourcing setting.
+	 */
+	function playList(list: Track[], t: Track, opts?: { wholeList?: boolean }) {
 		// Phase 17 (QUEUE-03): pass the active tab's queue context so per-context sourcing
 		// resolves. 'playlists' tab → the 'playlist' context (singular QueueContext token).
-		const ctx: QueueContext = tab === 'playlists' ? 'playlist' : tab === 'downloads' ? 'downloads' : 'liked';
+		// quick-260915-vb9: 'history' added so this one function serves every tab and playEntry
+		// cannot drift from it.
+		const ctx: QueueContext = tab === 'playlists' ? 'playlist'
+			: tab === 'downloads' ? 'downloads'
+			: tab === 'history' ? 'history'
+			: 'liked';
 		// Set queue+context FIRST, then fresh-play so the per-context up-next mode resolves
 		// (a 'generated' context regenerates up-next from the seed instead of using `list`).
 		player.setListQueue(list, ctx);
-		player.play(t, { fresh: true });
+		player.play(t, { fresh: true, sameList: opts?.wholeList });
 	}
 	// Listen history: replay slice (audioUrl re-resolves on play), moved here from settings.
 	function playEntry(track: Track) {
-		player.setListQueue(history.entries as Track[], 'history');
-		player.play(track, { fresh: true });
+		playList(history.entries as Track[], track);
+	}
+	// quick-260915-vb9: the action row's Play — the whole tab, from the top.
+	function playAll() {
+		if (tabList.length) playList(tabList, tabList[0], { wholeList: true });
+	}
+	/**
+	 * quick-260915-vb9: Shuffle installs a Fisher-Yates COPY of the tab as the queue — it does NOT
+	 * call player.toggleShuffle(). That mode only reorders the tail AFTER the current track and is
+	 * a no-op when shuffle is already on, so the result would depend on prior state; a shuffled copy
+	 * is deterministic and leaves the user's shuffle setting alone.
+	 */
+	function shuffleAll() {
+		const s = shuffle(tabList);
+		if (s.length) playList(s, s[0], { wholeList: true });
 	}
 </script>
 
 <svelte:head><title>{t('library.title')}</title></svelte:head>
 
+<!-- quick-260915-vb9: the heading is the active tab's label alone. Edit moved to the action row
+     below; the history-only Clear button became the sheet's per-tab "Clear all" row. -->
 <header class="head">
-	<h1>{t('library.heading')} <span class="tab-sub">{tabLabel}</span></h1>
-	{#if editableTabHasContent}
-		<button class="edit-btn" aria-pressed={editMode} onclick={() => (editMode = !editMode)} use:tapBounce>
-			{#if editMode}<Check size={16} /> {t('common.done')}{:else}<Pencil size={16} /> {t('library.edit')}{/if}
-		</button>
-	{:else if tab === 'history' && history.entries.length}
-		<button class="edit-btn danger" onclick={() => history.clear()} use:tapBounce><Trash2 size={16} /> {t('history.clear')}</button>
-	{/if}
+	<h1>{tabLabel}</h1>
 </header>
 
 <!-- kyf-followup: icon-only pills (text moved to the header sub-label) so all 5 tabs
@@ -220,6 +318,23 @@
 	<button class:active={tab === 'fav-artists'} aria-pressed={tab === 'fav-artists'} aria-current={tab === 'fav-artists' ? 'page' : undefined} aria-label={t('library.favArtists')} title={t('library.favArtists')} onclick={() => setTab('fav-artists')} use:tapBounce><Users size={16} /></button>
 	<button class:active={tab === 'history'} aria-pressed={tab === 'history'} aria-current={tab === 'history' ? 'page' : undefined} aria-label={t('history.heading')} title={t('history.heading')} onclick={() => setTab('history')} use:tapBounce><Clock size={16} /></button>
 </nav>
+
+<!-- quick-260915-vb9: per-tab action row. Every button is conditional — a tab with nothing to
+     play shows no Play/Shuffle at all rather than dead greyed-out controls. -->
+<div class="actions">
+	{#if tabList.length}
+		<button class="edit-btn" onclick={playAll} use:tapBounce><Play size={16} /> {t('library.playAll')}</button>
+		<button class="edit-btn" onclick={shuffleAll} use:tapBounce><Shuffle size={16} /> {t('nowplaying.shuffle')}</button>
+	{/if}
+	{#if editableTabHasContent}
+		<button class="edit-btn" aria-pressed={editMode} onclick={() => (editMode = !editMode)} use:tapBounce>
+			{#if editMode}<Check size={16} /> {t('common.done')}{:else}<Pencil size={16} /> {t('library.edit')}{/if}
+		</button>
+	{/if}
+	{#if listMenuHasItems}
+		<button class="edit-btn" aria-label={t('menu.options')} title={t('menu.options')} onclick={() => (listMenuOpen = true)} use:tapBounce><Ellipsis size={16} /></button>
+	{/if}
+</div>
 
 {#if tab === 'liked'}
 	{#if library.liked.length}
@@ -256,7 +371,10 @@
 					{#if editMode}
 						<button class="del" aria-label={t('library.deletePlaylist')} onclick={() => library.deletePlaylist(pl.id)} use:tapBounce><Trash2 size={16} /></button>
 					{:else if pl.tracks.length}
-						<button class="del" aria-label={t('library.playAll')} title={t('library.playAll')} onclick={() => playList(pl.tracks, pl.tracks[0])} use:tapBounce><Play size={16} /></button>
+						<!-- quick-260915-vb9: a folder's own Play is a whole-list play too, so it gets the
+						     same Up-Next guarantee as the action row's Play (two Play buttons on one page
+						     must not behave differently). -->
+						<button class="del" aria-label={t('library.playAll')} title={t('library.playAll')} onclick={() => playList(pl.tracks, pl.tracks[0], { wholeList: true })} use:tapBounce><Play size={16} /></button>
 					{/if}
 				</div>
 				{#if pl.tracks.length}
@@ -346,16 +464,37 @@
 	{:else}<p class="empty"><Clock size={28} /><span>{t('history.empty')}</span></p>{/if}
 {/if}
 
+<!-- quick-260915-vb9: per-tab list sheet (⋯). Only applicable rows render — no dead entries. -->
+{#if listMenuOpen}
+	<button class="scrim" aria-label={t('menu.close')} onclick={() => (listMenuOpen = false)}></button>
+	<div class="sheet" transition:fly={{ y: 240, duration: 200 }} use:dragClose={{ onclose: () => (listMenuOpen = false) }} use:focusTrap>
+		<div class="sheet-head">{tabLabel}</div>
+		{#if tabList.length}
+			<button class="mi" onclick={queueWholeList} use:tapBounce><ListEnd size={18} /> {t('menu.addToQueue')}</button>
+			<button class="mi" onclick={playListNext} use:tapBounce><ListStart size={18} /> {t('menu.playNext')}</button>
+		{/if}
+		{#if detailPlaylist}
+			<button class="mi danger" onclick={deleteDetailPlaylist} use:tapBounce><Trash2 size={18} /> {t('library.deletePlaylist')}</button>
+		{/if}
+		{#if listMenuHasItems}
+			<button class="mi danger" onclick={clearCurrentList} use:tapBounce><Trash2 size={18} /> {t('library.clearList')}</button>
+		{/if}
+		<button class="mi close" onclick={() => (listMenuOpen = false)} use:tapBounce><X size={18} /> {t('menu.close')}</button>
+	</div>
+{/if}
+
 <TrackMenu track={menuTrack} open={menuOpen} onclose={() => (menuOpen = false)} />
 
 <style>
 	.head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 16px 0 12px; flex-wrap: wrap; }
 	.head h1 { font-size: calc(1.4rem * var(--fs-title, 1)); margin: 0; min-width: 0; }
-	.tab-sub { color: var(--color-text-muted); font-weight: 400; font-size: 0.95rem; margin-left: 8px; }
 	.edit-btn { display: inline-flex; align-items: center; gap: 6px; background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); padding: 6px 12px; border-radius: 999px; font-size: 13px; cursor: pointer; }
 	.edit-btn[aria-pressed='true'] { background: var(--color-primary); color: #fff; border-color: transparent; }
-	.edit-btn.danger { color: #ff7a90; }
-	.edit-btn.danger:hover { background: rgba(255, 122, 144, 0.12); }
+	/* quick-260915-vb9: four 13px pills — Play ~70px, Shuffle ~90px, Edit ~70px, ⋯ ~40px plus 24px
+	   of gaps ≈ 300px, inside a 360px viewport minus page padding, so one line holds. `flex: 0 1 auto`
+	   lets a long translated label shrink rather than push ⋯ off the edge. */
+	.actions { display: flex; gap: 8px; margin-bottom: 14px; }
+	.actions .edit-btn { flex: 0 1 auto; white-space: nowrap; min-width: 0; overflow: hidden; }
 	.edit-row { color: #ff7a90; }
 	.edit-row:hover { background: rgba(255, 122, 144, 0.08); }
 	.tabs { display: flex; gap: 8px; margin-bottom: 14px; }
@@ -408,4 +547,12 @@
 	.fav-tile.edit-row .fav-name { color: #ff7a90; }
 	.fav-tile.edit-row .fav-avatar { filter: brightness(0.65); }
 	.fav-trash { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -60%); color: #fff; pointer-events: none; }
+	/* ---- quick-260915-vb9: per-tab list sheet (mirrors the album page's playlist picker) ---- */
+	.scrim { position: fixed; inset: 0; z-index: 80; background: rgba(0, 0, 0, 0.45); border: none; }
+	.sheet { position: fixed; left: 12px; right: 12px; bottom: 16px; z-index: 81; background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: 16px; padding: 8px; max-width: 680px; margin: 0 auto; box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.5); max-height: 70vh; overflow-y: auto; }
+	.sheet-head { font-size: 13px; color: var(--color-text-muted); padding: 8px 10px; }
+	.mi { width: 100%; display: flex; align-items: center; gap: 12px; background: none; border: none; color: var(--color-text); font-size: 15px; padding: 12px; border-radius: 10px; cursor: pointer; text-align: left; }
+	.mi:hover { background: var(--color-surface); }
+	.mi.danger { color: #ff7a90; }
+	.mi.close { color: var(--color-text-muted); }
 </style>
