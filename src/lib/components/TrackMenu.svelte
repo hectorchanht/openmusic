@@ -553,7 +553,9 @@
 		     the header accent slot — the header is Download now, so the only Like affordance has to
 		     live here). Same like() + `liked` derived as before; .mi.accent carries the liked tint so
 		     this needs no new CSS and no new i18n keys. -->
-		<button class="mi" class:accent={liked} aria-pressed={liked} onclick={like} use:tapBounce>
+		<!-- like-state-wrong-track-menu: a name-stub (uid:'') has no identity to like yet; the row waits for
+		     the host page's resolve to swap in the real Track rather than firing a no-op + wrong toast. -->
+		<button class="mi" class:accent={liked} aria-pressed={liked} disabled={!track.uid} onclick={like} use:tapBounce>
 			<Heart size={18} fill={liked ? 'currentColor' : 'none'} /> {liked ? t('menu.liked') : t('menu.like')}
 		</button>
 		<button class="mi" onclick={() => { pickerOpen = true; }} use:tapBounce><ListPlus size={18} /> {t('menu.addToPlaylist')}</button>

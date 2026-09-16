@@ -336,3 +336,35 @@ describe('quick-260915-vb9 per-list clears', () => {
 		expect(library.playlists[0].tracks).toHaveLength(1);
 	});
 });
+
+// like-state-wrong-track-menu: a uid-less name-stub (home / charts DiscoveryTrack → uid:'') must never
+// enter the liked list, and an already-poisoned store must stop reporting every stub as "Liked".
+describe('like-state-wrong-track-menu: uid-less tracks cannot be liked or read as liked', () => {
+	beforeEach(() => {
+		library.liked = [];
+		memStore.clear();
+	});
+
+	it('isLiked("") is false even when a poisoned uid:"" entry is present', () => {
+		library.liked = [mk({ uid: '' })];
+		expect(library.isLiked('')).toBe(false);
+		expect(library.isLiked('netease:1')).toBe(false);
+	});
+
+	it('toggleLike on a uid-less stub is a no-op and persists nothing', () => {
+		library.toggleLike(mk({ uid: '' }));
+		expect(library.liked).toHaveLength(0);
+		expect(memStore.has('openmusic:library:v1')).toBe(false);
+	});
+
+	it('load() prunes uid-less entries from an already-poisoned store, keeps real ones', () => {
+		memStore.set(
+			'openmusic:library:v1',
+			JSON.stringify({ liked: [mk({ uid: '' }), mk({ uid: 'kuwo:7' })], playlists: [], downloads: [] })
+		);
+		(library as unknown as { loaded: boolean }).loaded = false;
+		library.load();
+		expect(library.liked.map((t) => t.uid)).toEqual(['kuwo:7']);
+		expect(library.isLiked('kuwo:7')).toBe(true);
+	});
+});

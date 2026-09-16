@@ -66,7 +66,9 @@ class Library {
 			const raw = localStorage.getItem(KEY);
 			if (raw) {
 				const v = JSON.parse(raw) as Partial<LibShape>;
-				this.liked = v.liked ?? [];
+				// like-state-wrong-track-menu: self-heal a store already poisoned by a uid-less like
+				// (see isLiked) — the entry can never match anything and would still render a row.
+				this.liked = (v.liked ?? []).filter((t) => !!t?.uid);
 				this.playlists = v.playlists ?? [];
 				this.downloads = v.downloads ?? [];
 				this.favArtists = Array.isArray(v.favArtists) ? v.favArtists : [];
@@ -95,10 +97,16 @@ class Library {
 		}
 	}
 
+	/** like-state-wrong-track-menu: a uid-less Track has NO identity — home/charts open TrackMenu on a
+	 *  name-stub (`uid: ''`) while the real Track resolves, and the Like row is tappable on it (D-01).
+	 *  Before this guard ONE such tap persisted `{uid:''}` and every later stub read `isLiked('')` as
+	 *  true ("Liked" on songs never liked). RowBadges had patched this at its own call site only;
+	 *  the guard belongs here, where every caller converges. */
 	isLiked(uid: string): boolean {
-		return this.liked.some((t) => t.uid === uid);
+		return !!uid && this.liked.some((t) => t.uid === uid);
 	}
 	toggleLike(t: Track) {
+		if (!t.uid) return; // like-state-wrong-track-menu: nothing to key on — refuse, never poison the list
 		this.liked = this.isLiked(t.uid) ? this.liked.filter((x) => x.uid !== t.uid) : [t, ...this.liked];
 		this.save();
 	}
