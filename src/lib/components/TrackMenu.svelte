@@ -2,7 +2,7 @@
 	import { tick, untrack } from 'svelte';
 	import { fly } from 'svelte/transition';
 	import { goto } from '$app/navigation';
-	import { ListStart, ListEnd, Download, Check, Heart, ListPlus, User, Share2, Info, X, Plus, Shuffle, Trash2, Moon, Sparkles, Layers, Image as ImageIcon } from '@lucide/svelte';
+	import { ListStart, ListEnd, Download, Check, Heart, ListPlus, User, Share2, Info, X, Plus, Shuffle, Trash2, Moon, Sparkles, Layers, Image as ImageIcon, ChevronDown } from '@lucide/svelte';
 	import { player } from '$lib/stores/player.svelte';
 	import { sleepTimer } from '$lib/stores/sleepTimer.svelte';
 	import { library } from '$lib/stores/library.svelte';
@@ -10,6 +10,11 @@
 	import { overlays } from '$lib/stores/overlays.svelte';
 	import { settings } from '$lib/stores/settings.svelte';
 	import { dragClose } from '$lib/actions/dragClose';
+	// quick-260916-0d9: the Download row's SECOND gesture. Q4 — longpress and the parent sheet's
+	// dragClose are mutually exclusive by the SAME 8px threshold: any move >8px cancels the longpress
+	// timer (longpress.ts `move`) and is the only thing that starts a drag (dragClose.ts, `rawDy >
+	// DRAG_START`), so a stationary hold never drags and a drag never opens the picker.
+	import { longpress } from '$lib/actions/longpress';
 	import { focusTrap } from '$lib/actions/focusTrap';
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { marquee } from '$lib/actions/marquee';
@@ -21,7 +26,11 @@
 	import { prewarmTrack } from '$lib/services/prewarm';
 	// Gap 4 (26-10): the LAZY on-demand cross-source variant fetch (26-08) fed to the Play-from-source
 	// picker — fired ONLY on the row tap, never on menu open (T-26-10-02).
-	import { fetchVariants } from '$lib/services/variants';
+	// quick-260916-0d9: the SAME fan-out feeds the Download-from picker (Q1 — no second copy of
+	// song-identity matching), with `versionsIncludingOwn` assembling its rows.
+	import { fetchVariants, versionsIncludingOwn } from '$lib/services/variants';
+	import { mapWithConcurrency } from '$lib/services/discovery';
+	import { SOURCES } from '$lib/sources/registry';
 	import VersionPicker from '$lib/components/VersionPicker.svelte';
 	import { downloadTrack } from '$lib/services/download-track';
 	// quick-260915-26g: the shared probe + the shared label formatter. TrackMenu cannot mount
@@ -77,6 +86,19 @@
 	let coverCandidates = $state<CoverCandidate[]>([]);
 	let coverGen = 0;
 	let coverAc: AbortController | null = null;
+
+	// quick-260916-0d9 — the "Download from…" picker. Same shape as the two pickers above and opened
+	// the same opt-in way (T-26-10-02 posture), except the trigger is a LONG-PRESS on the Download row
+	// rather than a row of its own: one tap must keep doing exactly what it does today.
+	// `dlPickProbes` is uid → probe; ABSENT means still probing (skeleton), a probe whose `track` is
+	// null means that source refused (disabled "Unavailable" row). dlPickGen / dlPickAc are PLAIN
+	// fields — supersedence guards the UI never reads reactively (house convention).
+	let dlPickOpen = $state(false);
+	let dlPickLoading = $state(false);
+	let dlPickList = $state<Track[]>([]);
+	let dlPickProbes = $state<Record<string, DownloadProbe | undefined>>({});
+	let dlPickGen = 0;
+	let dlPickAc: AbortController | null = null;
 
 	// The cover the user is CURRENTLY looking at for this track. Hoisted out of doShare (it needed the
 	// identical expression) so the picker can tick the active tile and the share card can carry it —
@@ -138,6 +160,7 @@
 	function close() {
 		pickerOpen = false;
 		coverAc?.abort(); // quick-260915-w4f: never leave a candidate fan-out running behind a closed menu
+		dlPickAc?.abort(); // quick-260916-0d9: same rule for the download-picker probe pool
 		onclose();
 	}
 	// Gap 4 (26-10): open the Play-from-source picker + fire the SINGLE lazy variant fan-out. Called
@@ -351,6 +374,75 @@
 	const dlMeta = $derived(dlProbe ? formatDownloadMeta(dlProbe) : null);
 	const dlLabel = $derived(dlMeta ? `${t('menu.download')} \u00b7 ${dlMeta}` : t('menu.download'));
 
+	// quick-260916-0d9 \u2014 OPEN THE "Download from\u2026" SHEET (long-press only; one tap is unchanged).
+	//
+	// Q2 PROBE COST. The sheet opens on the SAME tick with the own-source row already labelled: the
+	// main Download row's `dlProbe` was measured under the exact `uid|downloadQuality` memo key
+	// `probeDownload` would use, so seeding it costs zero network AND guarantees that row is never a
+	// skeleton (the service would answer instantly anyway \u2014 seeding skips even the microtask).
+	// `fetchVariants` then runs behind a spinner line (its searchAll is D-04 TTL-memoised, so a
+	// re-open is free), and every OTHER candidate is probed through `mapWithConcurrency(\u2026, 2, \u2026)`.
+	//
+	// WHY 2, AND DO NOT RAISE IT. Each probe is one governed `ensureTrackDetails` + one raw HEAD/Range,
+	// so 2 in flight can hold at most 2 of `apiFetch`'s MAX_CONCURRENT_REQUESTS=8 slots, leaving >=6
+	// for playback. An uncapped `/api/*` fan-out is precisely what froze this app (api-fetch-flood-freeze).
+	async function openDownloadPicker() {
+		if (!track?.uid || isDevice) return;
+		const gen = ++dlPickGen;
+		dlPickAc?.abort();
+		const ac = new AbortController();
+		dlPickAc = ac;
+		const target = track;
+		dlPickProbes = dlProbe?.track?.uid === target.uid ? { [target.uid]: dlProbe } : {};
+		dlPickList = versionsIncludingOwn(target, []);
+		dlPickLoading = true;
+		dlPickOpen = true;
+		const found = await fetchVariants(target, ac.signal);
+		if (gen !== dlPickGen || ac.signal.aborted) return; // superseded / cancelled
+		dlPickList = versionsIncludingOwn(target, found);
+		dlPickLoading = false;
+		// Per-item write INSIDE fn so each row fills the instant its own probe lands, rather than the
+		// whole sheet unblanking at the end. untrack: probeDownload reads settings/player internally
+		// and this runs inside a user handler, not an effect \u2014 the guard matches the dlProbe effect's.
+		await mapWithConcurrency(
+			dlPickList.filter((v) => !(v.uid in dlPickProbes)),
+			2,
+			async (v) => {
+				const p = await untrack(() => probeDownload(v, ac.signal));
+				if (gen !== dlPickGen || ac.signal.aborted) return;
+				dlPickProbes = { ...dlPickProbes, [v.uid]: p };
+			}
+		);
+	}
+	function closeDownloadPicker() {
+		dlPickOpen = false;
+		dlPickAc?.abort(); // closing the sheet cancels every probe still in flight (T-0d9-01)
+	}
+	// quick-260916-0d9 \u2014 Q5 IDENTITY. `track` (the ORIGINAL the menu opened on) carries the identity;
+	// `audioFrom` carries the row's MEASURED audio. downloadTrack spreads the original, so
+	// library.addDownload and blobStore.put both key by the original uid \u2014 which is what makes
+	// `library.isDownloaded(track.uid)` true and `player.play(track)` take the offline-blob branch and
+	// play the source the user actually chose. It also skips the re-resolve, so the bytes saved are the
+	// bytes the row promised (never a larger re-resolved file \u2014 the 52 MB-FLAC-on-cellular incident).
+	async function pickDownload(v: Track) {
+		if (!track) return;
+		const p = dlPickProbes[v.uid];
+		if (!p?.track?.audioUrl) return; // the row is disabled in that state anyway
+		if (library.downloading.has(track.uid)) return; // D-03 equivalent: a second tap while busy is a no-op
+		closeDownloadPicker();
+		toast.show(t('toast.preparingDownload'));
+		const res = await downloadTrack(track, { audioFrom: p.track });
+		toast.show(
+			res === 'saved'
+				? t('toast.downloaded')
+				: res === 'no-audio'
+					? t('toast.noAudio')
+					: t('toast.downloadFailedKeptInLibrary')
+		);
+		// D-12: the menu itself stays open \u2014 the Download row reflects downloading/downloaded inline.
+		await probeBlob();
+	}
+
 	async function doShare() {
 		if (!track) return;
 		onclose();
@@ -500,6 +592,14 @@
 			return () => untrack(() => overlays.dismiss("trackmenu-cover"));
 		}
 	});
+	// quick-260916-0d9: the download picker's own balanced overlay entry — distinct id so Back pops
+	// exactly this sheet, and its close handler aborts the probe pool on every dismiss route.
+	$effect(() => {
+		if (dlPickOpen && track) {
+			untrack(() => overlays.open("trackmenu-dlpick", () => closeDownloadPicker()));
+			return () => untrack(() => overlays.dismiss("trackmenu-dlpick"));
+		}
+	});
 </script>
 
 {#if open && track}
@@ -618,9 +718,17 @@
 			<!-- quick-260915-26g: the probed format/size reuses the SAME `.count` slot the download
 			     percentage already occupies, so it needs no new layout rule. The skeleton is aria-hidden
 			     and the button keeps its `menu.download` name — no new i18n key for either. -->
-			<button class="mi" aria-label={dlLabel} onclick={startDownload} use:tapBounce>
+			<!-- quick-260916-0d9: ONE tap is byte-for-byte the old behaviour; a ~450ms HOLD opens the
+			     "Download from…" sheet instead. The trailing native click a hold produces is eaten by
+			     longpress's DOCUMENT-capture suppressor (quick-260913-p2k moved it to document
+			     precisely so a sheet mounted under the finger is covered), so `onclick={startDownload}`
+			     does NOT also fire — verified in longpress.ts, not assumed. The parent sheet's
+			     dragClose cannot fire either: it needs rawDy > 8px, the same distance that cancels the
+			     longpress timer. The caret + the hold hint on title/aria-label make it discoverable. -->
+			<button class="mi" aria-label={`${dlLabel} · ${t('menu.downloadHoldHint')}`} title={t('menu.downloadHoldHint')} onclick={startDownload} onlongpress={openDownloadPicker} use:longpress use:tapBounce>
 				<Download size={18} /> {t('menu.download')}
 				{#if dlProbing}<span class="count skel" aria-hidden="true"></span>{:else if dlMeta}<span class="count">{dlMeta}</span>{/if}
+				<ChevronDown size={14} class="hold-caret" aria-hidden="true" />
 			</button>
 		{/if}
 		{/if}
@@ -703,6 +811,33 @@
 	</div>
 {/if}
 
+<!-- quick-260916-0d9 — the "Download from…" sheet. Mounted OUTSIDE the {#if open && track} block (like
+     the other sub-sheets) so it survives the menu closing on a pick. One row per SOURCE: the own
+     source first (already labelled from the main row's probe), then whatever the single fan-out
+     found, each filling in as its own capped probe lands. A source whose probe came back empty is a
+     DISABLED "Unavailable" row — a blocked upstream degrades one row, never the sheet. -->
+{#if dlPickOpen && track}
+	<button class="scrim" aria-label={t('menu.close')} onclick={closeDownloadPicker}></button>
+	<div class="menu" transition:fly={{ y: 240, duration: 200 }} use:dragClose={{ onclose: closeDownloadPicker }} use:focusTrap>
+		<div class="menu-head row"><span>{t('menu.downloadFrom')}</span><button class="x" aria-label={t('menu.close')} onclick={closeDownloadPicker} use:tapBounce><X size={18} /></button></div>
+		{#each dlPickList as v (v.uid)}
+			{@const p = dlPickProbes[v.uid]}
+			{@const meta = p ? formatDownloadMeta(p) : null}
+			{@const unavailable = p !== undefined && !p.track?.audioUrl}
+			<button class="mi" disabled={unavailable} aria-disabled={unavailable} onclick={() => pickDownload(v)} use:tapBounce>
+				<Download size={18} />
+				<span class="dl-src">{SOURCES[v.source]?.label ?? v.source}</span>
+				{#if p === undefined}<span class="count skel" aria-hidden="true"></span>
+				{:else if unavailable}<span class="count">{t('menu.downloadUnavailable')}</span>
+				{:else if meta}<span class="count">{meta}</span>{/if}
+			</button>
+		{/each}
+		{#if dlPickLoading}
+			<p class="dl-wait" aria-busy="true"><span class="row-spinner motion-always"></span>{t('versions.loading')}</p>
+		{/if}
+	</div>
+{/if}
+
 <!-- Gap 4 (26-10): the Play-from-source VersionPicker. Mounted OUTSIDE the {#if open && track} menu
      block (like the playlist-picker/detail sub-sheets) so it survives the menu closing on a pick.
      WR-02: this TrackMenu-hosted picker uses the DISTINCT overlay id 'versionpicker-menu' so it never
@@ -749,6 +884,16 @@
 	/* quick-260915-26g: placeholder for the in-flight download probe. Static, not animated — the row
 	   spinner two states over already owns the "working" signal and two of them would compete. */
 	.mi .count.skel { display: inline-block; width: 64px; height: 11px; border-radius: var(--radius-full); background: var(--color-surface); }
+	/* quick-260916-0d9 — download picker. The source label takes the row's free space and ellipsises
+	   (CJK source labels plus a `FLAC · 38.2 MB` count still fit one line at 375px; a long count
+	   ellipsises the label, which is the right thing to lose). */
+	.dl-src { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.dl-wait { display: flex; align-items: center; gap: 10px; color: var(--color-text-muted); font-size: 13px; padding: 10px 12px; margin: 0; }
+	/* The hold-affordance caret on the Download row. `.count` already carries `margin-left: auto`, so
+	   the caret only needs to claim the right edge itself when NO count rendered (no probe yet, no
+	   meta) — hence auto by default and a plain gap when it follows a `.count`. */
+	.mi :global(.hold-caret) { flex: none; color: var(--color-text-muted); margin-left: auto; }
+	.mi .count + :global(.hold-caret) { margin-left: 4px; }
 	/* quick-260913-omi: download progress fill. `--dl` is the 0..1 fraction, set inline per render.
 	   An ::after at 18% opacity sits UNDER the label without needing a stacking context — the tint
 	   is light enough that the text and icon stay fully legible through it. The width transition is
