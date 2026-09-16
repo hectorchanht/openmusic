@@ -10,7 +10,8 @@
 	import { lazyCover } from '$lib/actions/lazyCover';
 	// quick-260910-qwt: the shared row cover read (resolved → track.cover → the shared cache).
 	import { pickRowCover } from '$lib/services/row-cover';
-	import { readCoverByUidOrName } from '$lib/stores/cover-version.svelte';
+	// quick-260915-w4f: readPinnedCover is pickRowCover's new leading rung (beats t.cover).
+	import { readCoverByUidOrName, readPinnedCover } from '$lib/stores/cover-version.svelte';
 	import { enrichArtist } from '$lib/services/lastfm';
 	import { deezerArtistCover, deezerSearchTopN, type DeezerHit } from '$lib/services/deezer';
 	import {
@@ -752,7 +753,7 @@
 		{#each results as t (t.uid)}
 			<!-- quick-260910-qwt: the shared three-rung row cover read. It must sit directly under the
 			     {#each} — Svelte only allows {@const} as an immediate block child. -->
-			{@const art = pickRowCover(resolvedCovers[t.uid], t.cover, readCoverByUidOrName(t.uid, t.artist, t.title))}
+			{@const art = pickRowCover(readPinnedCover(t.uid), resolvedCovers[t.uid], t.cover, readCoverByUidOrName(t.uid, t.artist, t.title))}
 			<li class="row-line">
 				<!-- VERSIONS-01: version-picker trigger. A SIBLING tap target (its own ≥44px hit area,
 				     mirroring CompactRow's .opt layout) placed BEFORE the play/grip control, so it never

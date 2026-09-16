@@ -22,7 +22,10 @@ import {
 	setCachedCover,
 	setCachedCoverByUid,
 	removeCachedCoverByUid,
-	removeCachedCover
+	removeCachedCover,
+	getPinnedCover,
+	setPinnedCover,
+	removePinnedCover
 } from '$lib/services/cover-cache';
 
 // Module-scoped reactive counter. Held in a small object because top-level `$state` reassignment must be
@@ -89,7 +92,46 @@ export function readCoverByUidOrName(uid: string, artist: string, title: string)
 	// lazyCover / resolveCoverForTrack all already apply this guard on their side; now that this read
 	// is the rung-3 authority on EVERY row surface (row-cover.ts `pickRowCover`), it must hold on the
 	// read side too. An empty uid reads only the per-song {artist,title} name layer.
-	return (uid ? getCachedCoverByUid(uid) : null) ?? getCachedCover(artist, title);
+	//
+	// quick-260915-w4f: read order is now PIN → uid → name → null. A pin is the user's explicit
+	// choice in the TrackMenu cover picker, so it outranks anything a resolver cached. It lives in
+	// its own storage key (see cover-cache.ts PIN_KEY) and getPinnedCover already no-ops an empty uid.
+	return getPinnedCover(uid) ?? (uid ? getCachedCoverByUid(uid) : null) ?? getCachedCover(artist, title);
+}
+
+/**
+ * quick-260915-w4f: reactive read of the USER'S PINNED cover for a uid (null when unpinned).
+ * Depends on coverVersion() exactly like the readers above, so pinning repaints every bound surface.
+ *
+ * Exposed SEPARATELY from readCoverByUidOrName because `pickRowCover` needs the pin as its own
+ * leading rung: rows put `track.cover` AHEAD of the cache (rung 2 — an attached album cover must beat
+ * a per-track image), so a pin folded only into the cache read would silently lose to track.cover on
+ * every list surface.
+ */
+export function readPinnedCover(uid: string): string | null {
+	coverVersion(); // reactive dependency — recompute when a pin (or any cover) lands
+	return getPinnedCover(uid);
+}
+
+/**
+ * The ONLY sanctioned pin WRITER (mirrors writeCoverBoth's role): persist the user's choice and bump
+ * the global signal so every mounted surface repaints. Deliberately does NOT touch the cover cache —
+ * writing the pin into the shared name layer would push this one song's art onto every same-named uid.
+ */
+export function pinCover(uid: string, url: string): void {
+	setPinnedCover(uid, url);
+	bumpCoverVersion();
+}
+
+/**
+ * Drop a pin + bump. The ONLY caller is player.healCover, on a pinned URL that genuinely FAILED to
+ * load (quick-260915-w4f Q2): a pin names a URL, not an image, so once the URL is dead it can no
+ * longer deliver what the user chose and keeping it would repaint a black hero on every replay.
+ * A resolver merely PREFERRING a different image never reaches here.
+ */
+export function unpinCover(uid: string): void {
+	removePinnedCover(uid);
+	bumpCoverVersion();
 }
 
 /** Reactive read of a {artist,title} name-key cover (discovery tiles carry no uid). Depends on coverVersion(). */

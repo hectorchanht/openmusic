@@ -8,6 +8,12 @@
 // this for the Up-Next tile with a three-rung read; this module is that helper MOVED and generalised
 // so every row surface shares the ONE read order:
 //
+//   0. `pinned`   — the cover the USER explicitly chose in the TrackMenu cover picker
+//      (quick-260915-w4f). It leads because the whole point of a pin is that no resolver
+//      preference applies any more — and in particular it must beat rung 2 (`track.cover`), which
+//      is exactly where the first-solid-wins chain's wrong answer usually sits. Like rung 3 it is
+//      passed IN (as `readPinnedCover(uid)`) so the CALL SITE takes the `coverVersion()` dependency
+//      and this module stays a pure, node-testable `.ts`.
 //   1. `resolved` — the surface's component-local lazyCover / carousel map. Kept FIRST so a D-15
 //      repaired URL (lazyCover probed `track.cover`, found it dead, re-resolved) still beats the
 //      broken `track.cover` sitting in rung 2.
@@ -28,13 +34,14 @@
 // (T-26-10-01).
 
 /**
- * A track row's cover URL: `resolved` → `seeded` → `cached` → null (gradient). See the module
- * header for what each rung is and why the cache read is passed in rather than read here.
+ * A track row's cover URL: `pinned` → `resolved` → `seeded` → `cached` → null (gradient). See the
+ * module header for what each rung is and why the pin + cache reads are passed in rather than read here.
  */
 export function pickRowCover(
+	pinned: string | null | undefined,
 	resolved: string | undefined,
 	seeded: string | null | undefined,
 	cached: string | null
 ): string | null {
-	return resolved || seeded || cached || null;
+	return pinned || resolved || seeded || cached || null;
 }

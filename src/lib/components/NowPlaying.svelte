@@ -37,7 +37,9 @@
 	// the current song repaints the hero live (one resolved cover reused EVERYWHERE, cached).
 	// quick-260910-q5a: `bumpCoverVersion` joins this import — the Up-Next fill below repaints every
 	// mounted tile through the same one global signal as the home backfill.
-	import { readCoverByUidOrName, bumpCoverVersion } from '$lib/stores/cover-version.svelte';
+	// quick-260915-w4f: readPinnedCover is pickRowCover's new leading rung, and also the pin read the
+	// cellBg carousel needs (it puts tk.cover ahead of everything, so a pin would otherwise lose).
+	import { readCoverByUidOrName, readPinnedCover, bumpCoverVersion } from '$lib/stores/cover-version.svelte';
 	import { backfillCovers } from '$lib/services/cover-backfill';
 	import { upNextCoverNeeds, UPNEXT_COVER_MAX } from '$lib/services/upnext-covers';
 	// quick-260910-qwt: the tile read order generalised out of upnext-covers into the ONE shared
@@ -674,12 +676,13 @@
 	// neighbors resolve through the SAME shared resolvedCovers map (lazyCover → Deezer→iTunes→CN) so a
 	// null-cover neighbor shows real art instead of a perpetual gradient (quick-260629-nyl Task 1).
 	// Resolved url wins over the raw track.cover; gradient fallback only on a true miss. null → 'none'.
-	const cellBg = (tk: Track | null) =>
-		tk
-			? (resolvedCovers[tk.uid] ?? tk.cover)
-				? `url(${resolvedCovers[tk.uid] ?? tk.cover})`
-				: fallbackCover(tk)
-			: 'none';
+	// quick-260915-w4f: the user's pin leads here too — computed ONCE so the truthiness test and the
+	// url() use the same value (they previously restated the same expression twice).
+	const cellBg = (tk: Track | null) => {
+		if (!tk) return 'none';
+		const u = readPinnedCover(tk.uid) ?? resolvedCovers[tk.uid] ?? tk.cover;
+		return u ? `url(${u})` : fallbackCover(tk);
+	};
 
 	// ---- Meta crossfade (NP-TEXT-XFADE) ----
 	// On track change the {#key uid} block remounts title+artist, so an in:/out:fade crossfades the
@@ -1552,7 +1555,7 @@
 							<!-- quick-260910-q5a: the tile's three-rung cover read (see the Gap 3 block below).
 							     quick-260910-qwt: now the SHARED pickRowCover — the identical read every other row
 							     surface uses (resolved → track.cover → shared cache). Behaviour is unchanged here. -->
-							{@const qArt = pickRowCover(resolvedCovers[track.uid], track.cover, readCoverByUidOrName(track.uid, track.artist, track.title))}
+							{@const qArt = pickRowCover(readPinnedCover(track.uid), resolvedCovers[track.uid], track.cover, readCoverByUidOrName(track.uid, track.artist, track.title))}
 							<li
 								class:lifted={i === dragFrom}
 								class:over={i === dragOver && i !== dragFrom}
@@ -1660,7 +1663,7 @@
 							     here were the observed /api/deezer/search flood (T-26-10-01) and that rule still
 							     holds. The coverless rows are filled by the ONE capped, tab-gated backfillCovers
 							     effect above. Must sit directly under the {#each} ({@const} is block-child only). -->
-							{@const rArt = pickRowCover(resolvedCovers[track.uid], track.cover, readCoverByUidOrName(track.uid, track.artist, track.title))}
+							{@const rArt = pickRowCover(readPinnedCover(track.uid), resolvedCovers[track.uid], track.cover, readCoverByUidOrName(track.uid, track.artist, track.title))}
 							<!-- quick-260625-pzs-02: reveal layers sit BEHIND the row; the row translateX
 							     (use:swipeAction) slides to expose them. Right-drag → queue, left-drag → play
 							     next. aria-hidden (the same actions stay reachable via the long-press menu). -->

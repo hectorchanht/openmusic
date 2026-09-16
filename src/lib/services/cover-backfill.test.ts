@@ -4,6 +4,7 @@ import {
 	backfillArtistCovers,
 	resolveCoverForTrack,
 	resolveDeezerHQ,
+	collectCoverCandidates,
 	__resetCoverMissCache
 } from './cover-backfill';
 import * as catalog from './catalog';
@@ -571,5 +572,87 @@ describe('click-to-play cover fan-out proof (Plan 26-02, T-26-02-01)', () => {
 		expect(itunesSpy).toHaveBeenCalled(); // tier 2 (Deezer missed)
 		expect(searchSpy).toHaveBeenCalled(); // tier 3 (Deezer + iTunes missed)
 		expect(out).toBe('https://cn.example/cn.jpg');
+	});
+});
+
+// quick-260915-w4f — collectCoverCandidates. The picker's ENUMERATE-ALL counterpart to
+// resolveTrackChain's stop-at-first. It runs alongside the chain and must not change it: the
+// fast-path tests above are untouched and still assert the sequential short-circuit.
+describe('collectCoverCandidates (quick-260915-w4f)', () => {
+	const track = mk('qq', 'c1', {
+		artist: 'Adele',
+		title: 'Hello',
+		cover: 'https://own/c.jpg'
+	});
+
+	it('orders own → deezer → itunes → CN, https-only, deduped by url, labelled by source', async () => {
+		vi.spyOn(deezer, 'deezerSearchTopN').mockResolvedValue([
+			{ id: '1', title: 'Hello', artist: 'Adele', album: '25', cover: 'https://dz/1.jpg', preview: null },
+			{ id: '2', title: 'Hello', artist: 'Adele', album: '25', cover: null, preview: null }
+		]);
+		vi.spyOn(itunes, 'itunesSongCover').mockResolvedValue('https://it/1.jpg');
+		vi.spyOn(catalog, 'searchAll').mockResolvedValue(
+			result([
+				mk('kuwo', 'k', { cover: 'https://k/1.jpg' }),
+				mk('qq', 'q', { cover: 'http://insecure/x.jpg' }),
+				mk('netease', 'n', { cover: 'https://k/1.jpg' }) // duplicate URL of the kuwo hit
+			])
+		);
+
+		const out = await collectCoverCandidates(track);
+
+		expect(out).toEqual([
+			{ url: 'https://own/c.jpg', source: 'qq' },
+			{ url: 'https://dz/1.jpg', source: 'deezer' },
+			{ url: 'https://it/1.jpg', source: 'itunes' },
+			{ url: 'https://k/1.jpg', source: 'kuwo' }
+		]);
+		// The null Deezer cover, the http qq cover and the duplicate netease URL are all gone.
+		expect(out.every((c) => c.url.startsWith('https:'))).toBe(true);
+	});
+
+	it('one tier rejecting still returns the other tiers (parallel + per-tier never-throw)', async () => {
+		vi.spyOn(deezer, 'deezerSearchTopN').mockResolvedValue([
+			{ id: '1', title: 'x', artist: 'y', album: '', cover: 'https://dz/1.jpg', preview: null }
+		]);
+		vi.spyOn(itunes, 'itunesSongCover').mockResolvedValue(null);
+		vi.spyOn(catalog, 'searchAll').mockRejectedValue(new Error('CN upstream blocked'));
+
+		const out = await collectCoverCandidates(mk('kuwo', 'k1', { cover: null }));
+		expect(out).toEqual([{ url: 'https://dz/1.jpg', source: 'deezer' }]);
+	});
+
+	it('an already-aborted signal returns [] and issues no fetch', async () => {
+		const deezerSpy = vi.spyOn(deezer, 'deezerSearchTopN');
+		const itunesSpy = vi.spyOn(itunes, 'itunesSongCover');
+		const searchSpy = vi.spyOn(catalog, 'searchAll');
+		const ac = new AbortController();
+		ac.abort();
+
+		expect(await collectCoverCandidates(track, ac.signal)).toEqual([]);
+		expect(deezerSpy).not.toHaveBeenCalled();
+		expect(itunesSpy).not.toHaveBeenCalled();
+		expect(searchSpy).not.toHaveBeenCalled();
+	});
+
+	it('caps the grid at 12 candidates (the CN interleaved list can be dozens)', async () => {
+		vi.spyOn(deezer, 'deezerSearchTopN').mockResolvedValue([]);
+		vi.spyOn(itunes, 'itunesSongCover').mockResolvedValue(null);
+		vi.spyOn(catalog, 'searchAll').mockResolvedValue(
+			result(Array.from({ length: 30 }, (_, i) => mk('kuwo', `k${i}`, { cover: `https://k/${i}.jpg` })))
+		);
+		const out = await collectCoverCandidates(mk('kuwo', 'seed', { cover: null }));
+		expect(out).toHaveLength(12);
+	});
+
+	it('does NOT write the cover cache (enumerating candidates is not a resolve)', async () => {
+		vi.spyOn(deezer, 'deezerSearchTopN').mockResolvedValue([
+			{ id: '1', title: 'x', artist: 'y', album: '', cover: 'https://dz/1.jpg', preview: null }
+		]);
+		vi.spyOn(itunes, 'itunesSongCover').mockResolvedValue(null);
+		vi.spyOn(catalog, 'searchAll').mockResolvedValue(result([]));
+		await collectCoverCandidates(track);
+		expect(getCachedCover('Adele', 'Hello')).toBeNull();
+		expect(getCachedCoverByUid(track.uid)).toBeNull();
 	});
 });

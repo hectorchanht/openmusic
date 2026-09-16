@@ -40,6 +40,8 @@
 //     every user's cache — the exact re-resolve storm this change avoids.
 
 import { matchKey } from './match-key';
+// quick-260915-w4f: the shared https predicate guards what setPinnedCover is allowed to persist.
+import { hasHttpsScheme } from './url-safety';
 
 const CACHE_KEY = 'openmusic:cover-cache:v1';
 
@@ -348,4 +350,73 @@ export function removeCachedCover(artist: string, title: string): void {
  */
 export function removeCachedArtistCover(artist: string): void {
 	removeKey(artistCoverCacheKey(artist));
+}
+
+// ── USER COVER PINS (quick-260915-w4f) ──────────────────────────────────────────────────────────
+// A PIN is the cover the USER explicitly chose for one song in the TrackMenu cover picker. It is
+// deliberately NOT stored in CACHE_KEY above, and not in any of that record's three key families:
+//   - the `<matchKey>` NAME layer is SHARED across uids, so writing a pin there would push one
+//     user's pick onto every same-named song (covers, live versions, other sources' uploads);
+//   - even a uid-only entry inside CACHE_KEY would inherit the 14-day read-side TTL, the 2000-entry
+//     oldest-write-first eviction AND clearCoverCache() — three ways a deliberate choice gets
+//     SILENTLY wiped.
+// A pin is USER INTENT, not a cache, so it gets its own key with no TTL and no cap. The separation
+// also makes it immune to every existing cache writer (writeCoverBoth / resolveCoverForTrack /
+// resolveDeezerHQ / removeCoverBoth) with zero changes to them. The ONE thing that removes a pin is
+// a genuinely dead URL (player.healCover's failed probe) — see the Q2 contract there.
+const PIN_KEY = 'openmusic:cover-pins:v1';
+
+/** Read the pin record; {} on absent / corrupt / unavailable storage (never throws). */
+function readPins(): Record<string, string> {
+	try {
+		const raw = localStorage.getItem(PIN_KEY);
+		if (!raw) return {};
+		const v: unknown = JSON.parse(raw);
+		if (v && typeof v === 'object' && !Array.isArray(v)) return v as Record<string, string>;
+		return {};
+	} catch {
+		return {};
+	}
+}
+
+/**
+ * The user's pinned cover for `uid`, or null. Pure read, never throws.
+ * EMPTY-UID GUARD (quick-260910-qwt / 8a848d9): a uid-less name stub has no identity, so it must
+ * never read a shared slot — an empty uid is always a miss, whatever is on disk.
+ */
+export function getPinnedCover(uid: string): string | null {
+	if (!uid) return null;
+	const v = readPins()[uid];
+	return typeof v === 'string' && v.length > 0 ? v : null;
+}
+
+/**
+ * Pin `url` as the cover for `uid`. No-op on an empty uid (no identity to pin against) or a
+ * non-https url (T-w4f-02 — the value is painted as an `<img src>` and handed to the OS media
+ * session). Swallows quota / unavailable storage. Callers use pinCover() in cover-version.svelte.ts
+ * so the reactive bump is never forgotten.
+ */
+export function setPinnedCover(uid: string, url: string): void {
+	if (!uid || !hasHttpsScheme(url)) return;
+	try {
+		const rec = readPins();
+		rec[uid] = url;
+		localStorage.setItem(PIN_KEY, JSON.stringify(rec));
+	} catch {
+		/* quota or unavailable — non-fatal, the pin simply does not persist */
+	}
+}
+
+/** Drop the pin for `uid`. Removing a missing uid is a true no-op. Never throws. */
+export function removePinnedCover(uid: string): void {
+	if (!uid) return;
+	try {
+		const rec = readPins();
+		if (uid in rec) {
+			delete rec[uid];
+			localStorage.setItem(PIN_KEY, JSON.stringify(rec));
+		}
+	} catch {
+		/* unavailable / quota / corrupt — non-fatal, no-op */
+	}
 }

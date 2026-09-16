@@ -63,7 +63,7 @@ import {
 	artistCoverCacheKey
 } from '$lib/services/cover-cache';
 import { mapWithConcurrency } from '$lib/services/discovery';
-import { deezerSongCover, deezerArtistCover } from '$lib/services/deezer';
+import { deezerSongCover, deezerArtistCover, deezerSearchTopN } from '$lib/services/deezer';
 import { itunesSongCover, itunesArtistCover } from '$lib/services/itunes-cover';
 import type { Track } from '$lib/sources/types';
 import { hasHttpsScheme } from './url-safety';
@@ -357,4 +357,95 @@ export async function backfillArtistCovers(
 	}
 
 	await mapWithConcurrency(work, CAP, resolveOneArtist);
+}
+
+// ── COVER CANDIDATE COLLECTION (quick-260915-w4f) ───────────────────────────────────────────────
+// The cover picker needs the OPPOSITE of resolveTrackChain: not the first solid cover, but EVERY
+// cover the resolvers know, labelled by where it came from, so the user can choose. That is a
+// different shape of work (parallel, enumerate-all) from the chain (sequential, stop-at-first), so
+// it lives ALONGSIDE the chain and never inside it — the click-to-play fast path pays nothing for
+// this feature and resolveTrackChain / resolveCoverForTrack / resolveDeezerHQ are unchanged.
+//
+// It is called ONLY from the picker's tap handler, never on menu open — the same opt-in posture as
+// the Play-from-source variant fan-out (T-26-10-02). Every candidate passes the https guard
+// (T-0bb-01 / T-w4f-01); no new image origin is introduced (Deezer is host-allowlisted at the edge
+// proxy, iTunes mzstatic and the CN covers are what every row already paints).
+
+/** One offered cover: a https URL plus the tier/source that produced it (used as the grid label). */
+export interface CoverCandidate {
+	/** The https cover URL — rendered as an `<img src>` attribute, never CSS url() (T-rvy-01). */
+	url: string;
+	/** `'deezer'` | `'itunes'` | a SourceId (`'kuwo'`, `'qq'`, …) — the raw label the grid shows. */
+	source: string;
+}
+
+// ponytail: hard cap of 12. The CN `interleaved` list alone can be dozens of rows, and 12 fills a
+// 375px 3-column grid four rows deep — enough to choose from without an endless scroll of
+// near-identical thumbnails. Raise it if users ask for more.
+const MAX_CANDIDATES = 12;
+
+/**
+ * Every https cover candidate for `track`, ordered own → Deezer → iTunes → CN, deduped by URL.
+ *
+ * The three network tiers run in PARALLEL (unlike the chain's sequential fall-through) because the
+ * picker wants all of them regardless of which ones hit; each is wrapped so one tier throwing or
+ * timing out still yields the others. Returns [] on an aborted signal or a total miss. Never throws.
+ */
+export async function collectCoverCandidates(
+	track: Track,
+	signal?: AbortSignal
+): Promise<CoverCandidate[]> {
+	if (signal?.aborted) return [];
+	const artist = track.artist ?? '';
+	const title = track.title ?? '';
+	const term = `${artist} ${title}`.trim();
+
+	// Per-tier never-throw, mirroring `tier()` above but returning a LIST instead of a first hit.
+	const safe = async (fn: () => Promise<CoverCandidate[]>): Promise<CoverCandidate[]> => {
+		try {
+			return await fn();
+		} catch {
+			return [];
+		}
+	};
+
+	const [deezerHits, itunesHit, cnHits] = await Promise.all([
+		safe(async () =>
+			(await deezerSearchTopN(term, 5, signal)).map((h) => ({
+				url: h.cover ?? '',
+				source: 'deezer'
+			}))
+		),
+		safe(async () => {
+			const url = await itunesSongCover(artist, title, signal);
+			// iTunes exposes only its top hit through this service (fetchTopArtwork is private), so
+			// this tier contributes at most one candidate. Deferred: a multi-hit iTunes tier.
+			return url ? [{ url, source: 'itunes' }] : [];
+		}),
+		safe(async () => {
+			const r = await searchAll(term, 1, {}, signal);
+			// Every CN result carries its own `source`, so each source is labelled for free.
+			return r.interleaved.map((t) => ({ url: t.cover ?? '', source: String(t.source) }));
+		})
+	]);
+
+	// The track's own inline cover leads: it is what the user is looking at right now, so it should
+	// be the first (and usually the pre-selected) tile.
+	const all: CoverCandidate[] = [
+		{ url: track.cover ?? '', source: String(track.source ?? '') },
+		...deezerHits,
+		...itunesHit,
+		...cnHits
+	];
+
+	const seen = new Set<string>();
+	const out: CoverCandidate[] = [];
+	for (const c of all) {
+		if (!hasHttpsScheme(c.url)) continue; // T-w4f-01 — https only, empty/http is a miss
+		if (seen.has(c.url)) continue; // same image from two tiers → keep the first (better label)
+		seen.add(c.url);
+		out.push(c);
+		if (out.length >= MAX_CANDIDATES) break;
+	}
+	return out;
 }

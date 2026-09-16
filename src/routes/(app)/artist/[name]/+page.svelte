@@ -21,7 +21,9 @@
 	import { lazyCover } from '$lib/actions/lazyCover';
 	// quick-260910-qwt: the shared row cover read (resolved → track.cover → the shared cache).
 	import { pickRowCover } from '$lib/services/row-cover';
-	import { readCoverByUidOrName } from '$lib/stores/cover-version.svelte';
+	// quick-260915-w4f: readPinnedCover is pickRowCover's new leading rung — the user's pinned
+	// cover must beat track.cover, not just the cache.
+	import { readCoverByUidOrName, readPinnedCover } from '$lib/stores/cover-version.svelte';
 	import { dragScroll } from '$lib/actions/dragScroll';
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { marquee } from '$lib/actions/marquee';
@@ -602,7 +604,7 @@
 				{#each songs.slice(0, shown) as track, i (track.uid)}
 					<!-- quick-260910-qwt: the shared three-rung row cover read. Must sit directly under the
 					     {#each} — Svelte only allows {@const} as an immediate block child. -->
-					{@const art = pickRowCover(resolvedCovers[track.uid], track.cover, readCoverByUidOrName(track.uid, track.artist, track.title))}
+					{@const art = pickRowCover(readPinnedCover(track.uid), resolvedCovers[track.uid], track.cover, readCoverByUidOrName(track.uid, track.artist, track.title))}
 					<li>
 						<button class="row" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); menuTrack = track; menuOpen = true; }} use:swipeAction={{ onSwipeRight: () => queueTrack(track), onSwipeLeft: () => nextTrack(track) }} onclick={() => { player.setListQueue(songs, 'artist'); player.play(track, { fresh: true }); }}>
 							<span class="rank">{i + 1}</span>

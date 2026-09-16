@@ -12,7 +12,11 @@ import {
 	removeCachedCoverByUid,
 	removeCachedCover,
 	removeCachedArtistCover,
-	coverAgeByUidOrName
+	coverAgeByUidOrName,
+	clearCoverCache,
+	getPinnedCover,
+	setPinnedCover,
+	removePinnedCover
 } from './cover-cache';
 import { matchKey } from './match-key';
 
@@ -659,5 +663,76 @@ describe('cover-cache — coverAgeByUidOrName freshness reader (quick-260704-4fr
 		});
 		expect(() => coverAgeByUidOrName('netease:1', 'A', 'B')).not.toThrow();
 		expect(coverAgeByUidOrName('netease:1', 'A', 'B')).toBeNull();
+	});
+});
+
+// quick-260915-w4f — the USER PIN store. A pin is the cover the user explicitly chose in the
+// TrackMenu picker, so it deliberately lives on its OWN localStorage key with no TTL, no LRU cap and
+// no clearCoverCache reach. These tests pin exactly those separations (plus the empty-uid / non-https
+// refusals) because every one of them is a way a deliberate choice could otherwise be silently wiped.
+describe('cover-cache — user pin store (quick-260915-w4f)', () => {
+	let store: MemStorage;
+	const originalLocalStorage = (globalThis as { localStorage?: Storage }).localStorage;
+	const PIN_KEY = 'openmusic:cover-pins:v1';
+
+	beforeEach(() => {
+		store = new MemStorage();
+		Object.defineProperty(globalThis, 'localStorage', {
+			value: store,
+			configurable: true,
+			writable: true
+		});
+	});
+	afterEach(() => {
+		Object.defineProperty(globalThis, 'localStorage', {
+			value: originalLocalStorage,
+			configurable: true,
+			writable: true
+		});
+	});
+
+	it('set → get round-trips a pinned url; an unknown uid is null', () => {
+		setPinnedCover('netease:1', 'https://a/x.jpg');
+		expect(getPinnedCover('netease:1')).toBe('https://a/x.jpg');
+		expect(getPinnedCover('netease:unknown')).toBeNull();
+	});
+
+	it('refuses an empty uid and a non-https url (T-w4f-02 / T-w4f-05)', () => {
+		setPinnedCover('', 'https://a/x.jpg');
+		expect(getPinnedCover('')).toBeNull();
+		setPinnedCover('netease:2', 'http://insecure/x.jpg');
+		expect(getPinnedCover('netease:2')).toBeNull();
+	});
+
+	it('getPinnedCover("") is null even when a "" key exists on disk (the shared-slot trap)', () => {
+		store.__raw(PIN_KEY, JSON.stringify({ '': 'https://leaked/x.jpg' }));
+		expect(getPinnedCover('')).toBeNull();
+	});
+
+	it('remove drops the pin; removing a missing uid does not throw', () => {
+		setPinnedCover('kuwo:9', 'https://a/x.jpg');
+		removePinnedCover('kuwo:9');
+		expect(getPinnedCover('kuwo:9')).toBeNull();
+		expect(() => removePinnedCover('kuwo:nope')).not.toThrow();
+	});
+
+	it('clearCoverCache leaves the pin intact (separate key — the whole point of Q3)', () => {
+		setCachedCover('A', 'B', 'https://cache/x.jpg');
+		setPinnedCover('qq:7', 'https://pin/x.jpg');
+		clearCoverCache();
+		expect(getCachedCover('A', 'B')).toBeNull();
+		expect(getPinnedCover('qq:7')).toBe('https://pin/x.jpg');
+	});
+
+	it('a pin is NOT written into the cover cache (no name-layer leak onto same-named uids)', () => {
+		setPinnedCover('qq:7', 'https://pin/x.jpg');
+		expect(store.getItem('openmusic:cover-cache:v1')).toBeNull();
+	});
+
+	it('corrupt JSON under the pin key reads as null and does not block a later write', () => {
+		store.__raw(PIN_KEY, '{not json');
+		expect(getPinnedCover('netease:1')).toBeNull();
+		setPinnedCover('netease:1', 'https://a/x.jpg');
+		expect(getPinnedCover('netease:1')).toBe('https://a/x.jpg');
 	});
 });

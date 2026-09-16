@@ -22,7 +22,9 @@
 	import { lazyCover } from '$lib/actions/lazyCover';
 	// quick-260910-qwt: the shared row cover read (resolved → track.cover → the shared cache).
 	import { pickRowCover } from '$lib/services/row-cover';
-	import { readCoverByUidOrName } from '$lib/stores/cover-version.svelte';
+	// quick-260915-w4f: readPinnedCover is pickRowCover's new leading rung — the user's pinned
+	// cover must beat track.cover, not just the cache.
+	import { readCoverByUidOrName, readPinnedCover } from '$lib/stores/cover-version.svelte';
 	import { toast } from '$lib/stores/toast.svelte';
 	import { tick as hapticTick } from '$lib/util/haptics';
 	import TrackMenu from '$lib/components/TrackMenu.svelte';
@@ -342,7 +344,7 @@
 			{#each library.liked as track (track.uid)}
 				<!-- quick-260910-qwt: the shared three-rung row cover read. Must sit directly under the
 				     {#each} — Svelte only allows {@const} as an immediate block child. -->
-				{@const art = pickRowCover(resolvedCovers[track.uid], track.cover, readCoverByUidOrName(track.uid, track.artist, track.title))}
+				{@const art = pickRowCover(readPinnedCover(track.uid), resolvedCovers[track.uid], track.cover, readCoverByUidOrName(track.uid, track.artist, track.title))}
 				<li class="row-line">
 					<div class="swipe-wrap">
 						<span class="reveal reveal-queue" aria-hidden="true"><ListEnd size={20} /></span>
@@ -381,7 +383,7 @@
 					<ul class="list">
 						{#each pl.tracks as track (track.uid)}
 							<!-- quick-260910-qwt: shared three-rung row cover read (see the liked list above). -->
-							{@const art = pickRowCover(resolvedCovers[track.uid], track.cover, readCoverByUidOrName(track.uid, track.artist, track.title))}
+							{@const art = pickRowCover(readPinnedCover(track.uid), resolvedCovers[track.uid], track.cover, readCoverByUidOrName(track.uid, track.artist, track.title))}
 							<li class="row-line">
 								<div class="swipe-wrap">
 									<span class="reveal reveal-queue" aria-hidden="true"><ListEnd size={20} /></span>
@@ -406,7 +408,7 @@
 		<ul class="list">
 			{#each library.downloads as track (track.uid)}
 				<!-- quick-260910-qwt: shared three-rung row cover read (see the liked list above). -->
-				{@const art = pickRowCover(resolvedCovers[track.uid], track.cover, readCoverByUidOrName(track.uid, track.artist, track.title))}
+				{@const art = pickRowCover(readPinnedCover(track.uid), resolvedCovers[track.uid], track.cover, readCoverByUidOrName(track.uid, track.artist, track.title))}
 				<li class="row-line">
 					<div class="swipe-wrap">
 						<span class="reveal reveal-queue" aria-hidden="true"><ListEnd size={20} /></span>
@@ -445,7 +447,7 @@
 			{#each history.entries as entry (entry.uid)}
 				{@const track = entry as Track}
 				<!-- quick-260910-qwt: shared three-rung row cover read (see the liked list above). -->
-				{@const art = pickRowCover(resolvedCovers[track.uid], track.cover, readCoverByUidOrName(track.uid, track.artist, track.title))}
+				{@const art = pickRowCover(readPinnedCover(track.uid), resolvedCovers[track.uid], track.cover, readCoverByUidOrName(track.uid, track.artist, track.title))}
 				<li class="row-line">
 					<div class="swipe-wrap">
 						<span class="reveal reveal-queue" aria-hidden="true"><ListEnd size={20} /></span>
