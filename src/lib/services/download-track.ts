@@ -74,10 +74,25 @@ export function currentQualityMeets(curQuality: string | null, want: DefaultQual
  * loop, the one place in the app that knows a real album position and a real album artist. Every
  * other caller omits them and gets no track number at all, with `albumArtist` defaulting to the
  * track's own artist (the grouping default).
+ *
+ * quick-260916-0d9: `opts.audioFrom` is the "Download from…" picker's contract — download the DONOR
+ * track's ALREADY-MEASURED audio under THIS track's identity. It skips BOTH reuse tests AND the
+ * re-resolve, deliberately:
+ *   - `reuseCurrent` matches on uid, and the uid here is the ORIGINAL's — so whenever this song
+ *     happens to be playing it would silently substitute `player.current`'s url for the source row
+ *     the user just picked;
+ *   - a re-resolve at `settings.downloadQuality` could fetch a DIFFERENT (bigger) file than the size
+ *     the picker row showed — the whole point of the sheet is that the bytes shown are the bytes
+ *     saved (the 52 MB-FLAC-on-cellular incident).
+ * Everything downstream is untouched: `r` spreads `track`, so the ORIGINAL uid/source/songid flow
+ * into `library.addDownload` AND `blobStore.put` — which is what makes `library.isDownloaded(uid)`
+ * and `player.play(original)`'s offline-blob branch line up with what was actually saved. A donor url
+ * that went stale (sheet left open past the 15-min TTL) is NOT re-checked here: it fails at `fetch`
+ * → 'failed' → the existing "kept in Library" degrade, the same as any other CDN refusal.
  */
 export async function downloadTrack(
 	track: Track,
-	opts?: { persist?: boolean; save?: boolean; trackNumber?: string; albumArtist?: string }
+	opts?: { persist?: boolean; save?: boolean; trackNumber?: string; albumArtist?: string; audioFrom?: Track }
 ): Promise<DownloadResult> {
 	// DL-STATE-01: bracket the per-uid spinner. beginDownload BEFORE the first await; endDownload in
 	// the `finally` so EVERY exit (saved / no-audio / failed / any throw) clears the spinner exactly once.
@@ -103,7 +118,23 @@ export async function downloadTrack(
 		// simply re-resolves and no existing caller's behavior changes.
 		const reuseInput =
 			!reuseCurrent && hasFreshAudioUrl(track) && currentQualityMeets(track.quality, settings.downloadQuality);
-		if (reuseCurrent) {
+		if (opts?.audioFrom) {
+			// quick-260916-0d9: the picker already resolved + HEAD-measured THIS source's file. Take its
+			// audio verbatim onto the ORIGINAL identity — no reuse test, no re-resolve (see the doc
+			// comment above for why either would betray the size the row promised). `track.lrc ||
+			// d.lrc`: the song's own lyrics win; the donor's are a free fallback for a source that has
+			// them when the original doesn't.
+			const d = opts.audioFrom;
+			r = {
+				...track,
+				audioUrl: d.audioUrl,
+				quality: d.quality,
+				qualityLabel: d.qualityLabel,
+				resolvedAt: d.resolvedAt,
+				detailsLoaded: true,
+				lrc: track.lrc || d.lrc
+			};
+		} else if (reuseCurrent) {
 			// Reuse the already-resolved current track's URL/details (a fresh COPY — never the live
 			// player.current reference, so nothing downstream can mutate the playing track).
 			r = { ...(cur as Track) };

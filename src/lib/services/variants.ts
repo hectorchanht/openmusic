@@ -12,7 +12,7 @@
 // failure, an aborted signal, a blank query, or a no-match all map to [].
 import type { Track } from '$lib/sources/types';
 import { searchAll } from './catalog';
-import { groupVariants, sameSongKey } from './dedupe';
+import { collapseVariants, groupVariants, sameSongKey } from './dedupe';
 
 /**
  * Fetch the cross-source variants of ONE song on demand.
@@ -45,4 +45,36 @@ export async function fetchVariants(track: Track, signal?: AbortSignal): Promise
 		// Never-throw: a transient upstream/proxy failure must not break the picker-open path.
 		return [];
 	}
+}
+
+/**
+ * The "Download from…" picker's row list: the song's OWN source first, then one row per other
+ * source that has it (quick-260916-0d9).
+ *
+ * Two jobs, both borrowed rather than reinvented (Q1 — no third copy of song identity anywhere):
+ *   - the own track is ALWAYS present, even when `fetchVariants` returned [] (CN blocked, offline,
+ *     no match) — the picker must never open with zero rows for a song that is right there;
+ *   - `collapseVariants` (the SAME intra-source collapse VersionPicker applies at render) folds a
+ *     source's ten near-identical hits into one row, so the list reads one-row-per-source.
+ *
+ * Slot 0 of the collapsed list is always the own track's bucket (collapseVariants preserves
+ * first-appearance bucket order and `track` is input[0]), but its WINNER may be a same-source /
+ * same-album search hit that `better()` outranked it with. We force our own object back into that
+ * slot: the caller seeds its probe map by the ORIGINAL uid and records the download under the
+ * ORIGINAL identity, so a swapped uid would leave that row a permanent skeleton and save the song
+ * under a uid the menu never opened on.
+ *
+ * Pure, never throws, no network.
+ */
+export function versionsIncludingOwn(track: Track, variants: Track[]): Track[] {
+	const collapsed = collapseVariants([track, ...variants]);
+	const rows = collapsed[0]?.uid === track.uid ? collapsed : [track, ...collapsed.slice(1)];
+	// Belt-and-braces uid dedupe: collapse buckets by source|album|tag, so two rows COULD in
+	// principle share a uid only if the caller passed the own track in twice under different albums.
+	const seen = new Set<string>();
+	return rows.filter((v) => {
+		if (seen.has(v.uid)) return false;
+		seen.add(v.uid);
+		return true;
+	});
 }
