@@ -130,6 +130,22 @@ describe('versionsIncludingOwn — the Download-from picker row list', () => {
 		expect(new Set(out.map((v) => v.uid)).size).toBe(out.length);
 	});
 
+	// Observed against the live dev server: collapseVariants buckets by source|album|tag, so "Hello"
+	// / Adele produced 3 qq + 3 netease + 4 ytmusic rows — every one labelled with nothing but its
+	// source name. The picker's row identity is the SOURCE, so a different-ALBUM sibling must fold in
+	// too, not just a same-album one.
+	it('folds a same-source DIFFERENT-album sibling into the one source row', () => {
+		const seed = mk('qq', 'q1', 'Hello', 'Adele', { album: '25' });
+		const out = versionsIncludingOwn(seed, [
+			mk('qq', 'q2', 'Hello', 'Adele', { album: 'Greatest Hits' }),
+			mk('qq', 'q3', 'Hello', 'Adele', { album: 'Live at the BBC' }),
+			mk('ytmusic', 'y1', 'Hello', 'Adele', { album: 'A' }),
+			mk('ytmusic', 'y2', 'Hello', 'Adele', { album: 'B' })
+		]);
+		expect(out.map((v) => v.source)).toEqual(['qq', 'ytmusic']);
+		expect(out[0]).toBe(seed);
+	});
+
 	it('keeps the handed track even when a higher-quality same-source hit would outrank it', () => {
 		// better() inside collapseVariants would otherwise swap in the lossless sibling and the picker
 		// would download under a uid the menu never opened on.

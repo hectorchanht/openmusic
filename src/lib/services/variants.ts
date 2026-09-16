@@ -69,12 +69,19 @@ export async function fetchVariants(track: Track, signal?: AbortSignal): Promise
 export function versionsIncludingOwn(track: Track, variants: Track[]): Track[] {
 	const collapsed = collapseVariants([track, ...variants]);
 	const rows = collapsed[0]?.uid === track.uid ? collapsed : [track, ...collapsed.slice(1)];
-	// Belt-and-braces uid dedupe: collapse buckets by source|album|tag, so two rows COULD in
-	// principle share a uid only if the caller passed the own track in twice under different albums.
+	// ONE ROW PER SOURCE — and collapseVariants alone does NOT give that. It buckets by
+	// `source|album|tag`, so against live data ("Hello" / Adele, measured through the dev server) it
+	// returned 3 qq + 3 netease + 4 ytmusic rows: eleven rows, each labelled with nothing but its
+	// source name, with no way for the user to tell one "YouTube Music" from the next three. A row's
+	// identity in this picker IS the source (Q3 — at a fixed tier each adapter's ladder yields one
+	// url per source, and the container is a property of that url), so keep each source's FIRST row
+	// (already the best within its bucket, in search-rank order) and drop the rest. Subsumes uid
+	// dedupe, keeps the own track (it is rows[0], so it claims its source first), and cuts the
+	// caller's probe pool from eleven to four on that same query.
 	const seen = new Set<string>();
 	return rows.filter((v) => {
-		if (seen.has(v.uid)) return false;
-		seen.add(v.uid);
+		if (seen.has(v.source)) return false;
+		seen.add(v.source);
 		return true;
 	});
 }
