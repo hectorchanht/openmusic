@@ -363,6 +363,9 @@ const zhHant: Dict = {
 	"library.playAll": "全部播放",
 	"library.edit": "編輯",
 	"library.remove": "移除",
+	"library.clearList": "全部清除",
+	"library.clearListConfirm": "確定要清空「{name}」的全部內容嗎？此操作無法復原。",
+	"library.deletePlaylistConfirm": "刪除播放清單「{name}」？",
 	"library.downloadsNote": "已下載的檔案儲存在你的裝置上。此清單會引用並在點擊時重新串流（網頁應用無法離線播放任意已儲存的檔案）。",
 
 	// --- artist ---

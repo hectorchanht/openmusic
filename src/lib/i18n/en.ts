@@ -389,6 +389,9 @@ const en = {
 	"library.playAll": "Play all",
 	"library.edit": "Edit",
 	"library.remove": "Remove",
+	"library.clearList": "Clear all",
+	"library.clearListConfirm": "Remove everything from {name}? This cannot be undone.",
+	"library.deletePlaylistConfirm": "Delete playlist {name}?",
 	"library.downloadsNote":
 		"Downloaded files are saved to your device. This list references them and re-streams on tap (web apps can't replay arbitrary saved files offline).",
 
