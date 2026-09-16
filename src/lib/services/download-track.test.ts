@@ -741,3 +741,98 @@ describe('downloadTrack — media type is derived, not trusted (quick-260913-tmi
 		expect(mocks.put.mock.calls[0][1].type).toBe('audio/mpeg');
 	});
 });
+
+// quick-260916-0d9 — `opts.audioFrom`: the "Download from…" picker measured a SPECIFIC source's file
+// (`FLAC · 38.2 MB`) and the user tapped THAT row. The save must therefore carry the DONOR's bytes
+// while being recorded under the ORIGINAL track's identity — `library.isDownloaded(original.uid)` and
+// `player.play(original)`'s offline-blob branch both key off the original uid, so a donor-uid record
+// would "download successfully" and then never play offline. It must also skip BOTH reuse tests and
+// the re-resolve: reuseCurrent would substitute player.current's url whenever this song is playing,
+// and a re-resolve at the settings tier could fetch a file the picker never showed (the 52 MB FLAC
+// cellular incident).
+describe('downloadTrack — audioFrom donor url under the original identity (quick-260916-0d9)', () => {
+	const donor = () =>
+		mk({
+			uid: 'kuwo-77',
+			source: 'kuwo',
+			songid: '77',
+			title: 'Donor Title',
+			artist: 'Donor Artist',
+			audioUrl: 'https://cdn.kuwo.example/x.flac',
+			quality: 'lossless',
+			qualityLabel: 'FLAC',
+			resolvedAt: Date.now()
+		});
+
+	it('fetches the DONOR url, records the ORIGINAL identity, keys the blob by the ORIGINAL uid', async () => {
+		const original = mk({ uid: 'netease-1', source: 'netease', songid: '1', artist: 'Artist', title: 'Song' });
+		const f = stubFetch(new Blob(['audio']));
+
+		const res = await downloadTrack(original, { audioFrom: donor() });
+
+		expect(res).toBe('saved');
+		expect(f).toHaveBeenCalledWith('https://cdn.kuwo.example/x.flac');
+		const saved = mocks.library.addDownload.mock.calls[0][0] as Track;
+		expect(saved).toMatchObject({
+			uid: 'netease-1',
+			source: 'netease',
+			songid: '1',
+			title: 'Song',
+			artist: 'Artist',
+			audioUrl: 'https://cdn.kuwo.example/x.flac'
+		});
+		// the offline blob is keyed by the ORIGINAL uid — this is what makes player.play(original)
+		// take the offline branch — and the filename uses the original names + the donor's container.
+		const [putUid, , putName] = mocks.put.mock.calls[0];
+		expect(putUid).toBe('netease-1');
+		expect(putName).toBe('Artist - Song.flac');
+	});
+
+	it('bypasses the reuseCurrent branch — the donor url wins even while this song is playing', async () => {
+		Object.defineProperty(mocks.player, 'current', {
+			configurable: true,
+			writable: true,
+			value: mk({ uid: 'netease-1', audioUrl: 'https://cdn.example.com/PLAYING.mp3' })
+		});
+		const f = stubFetch(new Blob(['a']));
+
+		await downloadTrack(mk({ uid: 'netease-1' }), { audioFrom: donor() });
+
+		expect(f).toHaveBeenCalledWith('https://cdn.kuwo.example/x.flac');
+		expect(mocks.ensureTrackDetails).not.toHaveBeenCalled();
+	});
+
+	it('bypasses the tier gate — a 320k donor under downloadQuality "lossless" is NOT re-resolved', async () => {
+		mocks.settings.downloadQuality = 'lossless';
+		const f = stubFetch(new Blob(['a']));
+
+		await downloadTrack(mk({ uid: 'netease-1' }), {
+			audioFrom: mk({ uid: 'kuwo-77', source: 'kuwo', audioUrl: 'https://cdn.kuwo.example/y.mp3', quality: '320k' })
+		});
+
+		expect(mocks.ensureTrackDetails).not.toHaveBeenCalled();
+		expect(f).toHaveBeenCalledWith('https://cdn.kuwo.example/y.mp3');
+	});
+
+	it('DL-BUG-01 holds: a donor with no audioUrl returns "no-audio" and still keeps the ORIGINAL in the library', async () => {
+		stubFetch(new Blob(['a']));
+
+		const res = await downloadTrack(mk({ uid: 'netease-1' }), {
+			audioFrom: mk({ uid: 'kuwo-77', source: 'kuwo', audioUrl: null })
+		});
+
+		expect(res).toBe('no-audio');
+		expect(mocks.library.addDownload.mock.calls[0][0]).toMatchObject({ uid: 'netease-1', source: 'netease' });
+		expect(mocks.library.endDownload).toHaveBeenCalledWith('netease-1');
+	});
+
+	it('embeds the donor lyrics when the original has none, and prefers the original lyrics when it does', async () => {
+		stubFetch(new Blob(['a']));
+		await downloadTrack(mk({ uid: 'netease-1', lrc: null }), { audioFrom: mk({ ...donor(), lrc: '[00:01.00]x' }) });
+		expect((mocks.tagAudioBlob.mock.calls[0][1] as { lyrics?: string }).lyrics).toBe('[00:01.00]x');
+
+		mocks.tagAudioBlob.mockClear();
+		await downloadTrack(mk({ uid: 'netease-1', lrc: 'own' }), { audioFrom: mk({ ...donor(), lrc: '[00:01.00]x' }) });
+		expect((mocks.tagAudioBlob.mock.calls[0][1] as { lyrics?: string }).lyrics).toBe('own');
+	});
+});

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { fetchVariants } from './variants';
+import { fetchVariants, versionsIncludingOwn } from './variants';
 import * as catalog from './catalog';
 import { __clearSearchCache } from './ttl-cache';
 import { makeUid, type SourceId, type Track } from '$lib/sources/types';
@@ -104,5 +104,37 @@ describe('fetchVariants — single on-demand cross-source fan-out', () => {
 		});
 		const out = await fetchVariants(mk('qq', 'q1', 'Hello', 'Adele'), ctrl.signal);
 		expect(out).toEqual([]);
+	});
+});
+
+// quick-260916-0d9 — the "Download from…" picker's row list. The picker must ALWAYS show the song's
+// own source (even when the fan-out returned nothing — CN blocked, offline, no match), and must show
+// ONE row per source rather than a source's ten near-identical search hits.
+describe('versionsIncludingOwn — the Download-from picker row list', () => {
+	it('returns just the own track when the fan-out found nothing', () => {
+		const seed = mk('qq', 'q1', 'Hello', 'Adele');
+		expect(versionsIncludingOwn(seed, [])).toEqual([seed]);
+	});
+
+	it('puts the own track first, collapses intra-source duplicates, and never repeats a uid', () => {
+		const seed = mk('qq', 'q1', 'Hello', 'Adele');
+		const out = versionsIncludingOwn(seed, [
+			mk('qq', 'q1', 'Hello', 'Adele'), // the fan-out's copy of the own track — same uid
+			mk('kuwo', 'k1', 'Hello', 'Adele', { album: '25' }),
+			mk('kuwo', 'k2', 'Hello', 'Adele', { album: '25' }), // same source + album → collapses
+			mk('netease', 'n1', 'Hello', 'Adele')
+		]);
+
+		expect(out[0]).toBe(seed); // the ORIGINAL object, so the caller's seeded probe (keyed by its uid) lands
+		expect(out.map((v) => v.source)).toEqual(['qq', 'kuwo', 'netease']);
+		expect(new Set(out.map((v) => v.uid)).size).toBe(out.length);
+	});
+
+	it('keeps the handed track even when a higher-quality same-source hit would outrank it', () => {
+		// better() inside collapseVariants would otherwise swap in the lossless sibling and the picker
+		// would download under a uid the menu never opened on.
+		const seed = mk('kuwo', 'k1', 'Hello', 'Adele', { album: '25', quality: '128k' });
+		const out = versionsIncludingOwn(seed, [mk('kuwo', 'k9', 'Hello', 'Adele', { album: '25', quality: 'lossless' })]);
+		expect(out).toEqual([seed]);
 	});
 });
