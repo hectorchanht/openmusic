@@ -281,6 +281,42 @@ class Library {
 		this.save();
 	}
 
+	// ---- per-list clears (quick-260915-vb9) --------------------------------------------------
+	// The Library page's per-tab "Clear all" row. Each is ONE save() for the whole list: the
+	// obvious implementation (loop the matching removeX) re-serialises the ENTIRE library payload
+	// once per row, so a 300-song Downloads tab would do 300 localStorage writes on a phone.
+	// Scoped deliberately — clearAll() nukes everything, these only touch the tab the user is on.
+
+	clearLiked() {
+		this.liked = [];
+		this.save();
+	}
+
+	/** quick-260915-vb9: the blob delete stays PER-UID (not a bulk wipe) so blobStore.del's
+	 *  device: refusal (Plan 34-01) keeps protecting imported files exactly as removeDownload does
+	 *  — the registry row goes on explicit user intent, the user's own file never does. Fire-and-
+	 *  forget: del() never throws, and the persisted state is already correct without it. */
+	clearDownloads() {
+		const uids = this.downloads.map((t) => t.uid);
+		this.downloads = [];
+		// Every mark annotates a row that no longer exists.
+		this.unavailable = new Set();
+		this.save();
+		for (const uid of uids) void blobStore.del(uid);
+	}
+
+	clearFavArtists() {
+		this.favArtists = [];
+		this.save();
+	}
+
+	/** quick-260915-vb9: empty ONE playlist without deleting it (same immutable-map shape as
+	 *  removeFromPlaylist). An unknown id maps to an unchanged list — a no-op, never a throw. */
+	clearPlaylistTracks(id: string) {
+		this.playlists = this.playlists.map((p) => (p.id === id ? { ...p, tracks: [] } : p));
+		this.save();
+	}
+
 	clearAll() {
 		this.liked = [];
 		this.playlists = [];
