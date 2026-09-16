@@ -3114,7 +3114,25 @@ class Player {
 	 * manual entries. `next()`, `prev()`, and auto-advance (ended) call the NON-fresh
 	 * path, so they never regenerate.
 	 */
-	async play(track: Track, opts?: { fresh?: boolean; fromFallback?: boolean; context?: QueueContext }) {
+	/**
+	 * quick-260915-vb9 — `sameList`: force the fresh-play tail to KEEP the queue the caller just
+	 * installed instead of regenerating it from genre-similar songs.
+	 *
+	 * The mode is normally resolved from `queueContext` via settings.effectiveUpnextMode(), and every
+	 * context except 'album' resolves to 'generated' by default (UPNEXT_DEFAULTS) — correct for a
+	 * plain ROW TAP, which means "play this song" and should seed a similar-songs Up-Next
+	 * (quick-260831-jtw). It is wrong for an explicit "play this whole LIST" button: the user pressed
+	 * Play/Shuffle ON a list, so the list IS the Up-Next they asked for. Without this flag regenerate()
+	 * replaces the tail and the list the user pressed Play on never reaches Up Next.
+	 *
+	 * Deliberately a per-call option, not a new QueueContext token and not a settings override: it is
+	 * the CALL that carries the intent, and the user's per-context preference must keep governing
+	 * ordinary taps on the same surface.
+	 */
+	async play(
+		track: Track,
+		opts?: { fresh?: boolean; fromFallback?: boolean; context?: QueueContext; sameList?: boolean }
+	) {
 		logAction('play', { uid: track.uid, source: track.source, fresh: !!opts?.fresh });
 		// quick-260831-sp9: adopt the surface that started this play, WITHOUT touching the queue.
 		//
@@ -3595,7 +3613,7 @@ class Player {
 	 * Only `fresh` is read — the parameter is typed to that one field so the shape of play()'s options
 	 * bag is not restated here.
 	 */
-	private postPlayQueue(resolved: Track, opts?: { fresh?: boolean }): void {
+	private postPlayQueue(resolved: Track, opts?: { fresh?: boolean; sameList?: boolean }): void {
 		// Fresh play -> per-context sourcing branch (Phase 17, D-03/D-04). 'generated'
 		// (global default) regenerates the auto portion from genre-similar songs; 'same-list'
 		// keeps the snapshot the caller passed via setQueue (search results / liked list /
@@ -3615,7 +3633,11 @@ class Player {
 			// queue so the anchor uid is definitely present in this.queue. Auto-advance (the non-fresh
 			// else branch below) leaves this put so the just-played song stays in the list.
 			this.upNextAnchorUid = resolved.uid;
-			if (settings.effectiveUpnextMode(this.queueContext) === 'generated') {
+			// quick-260915-vb9: an explicit "play this whole list" caller (opts.sameList) pins the
+			// same-list branch — the list it just installed IS the Up-Next the user asked for, so the
+			// context's default 'generated' mode must not throw it away. Row taps pass nothing and
+			// keep resolving through the user's per-context setting exactly as before.
+			if (!opts?.sameList && settings.effectiveUpnextMode(this.queueContext) === 'generated') {
 				// generated: regenerate (now history-aware) replaces only the tail after the seed.
 				void this.regenerate(resolved).then(() => this.primeNext());
 			} else {

@@ -3993,6 +3993,55 @@ describe('player.play — auto-expand fresh-only guard + per-context branch (Pha
 		expect(regenSpy).not.toHaveBeenCalled();
 		expect(aheadSpy).toHaveBeenCalledTimes(1); // snapshot still grows on exhaust (D-03)
 	});
+
+	// quick-260915-vb9: the Library tab's Play/Shuffle buttons install the tab's list then fresh-play
+	// its first track. Every library context resolves to 'generated' by default, so WITHOUT the
+	// sameList opt regenerate() replaces the tail and the list the user pressed Play on never reaches
+	// Up Next (both similar/diverse generators are mocked dry here, so that truncation is observable).
+	// No spy on regenerate — the assertion is the QUEUE the Up-Next pane slices from.
+	it('opts.sameList keeps the installed list as Up Next in a generated context', async () => {
+		vi.spyOn(
+			player as unknown as { ensureAhead(): Promise<void> },
+			'ensureAhead'
+		).mockResolvedValue(undefined);
+		const list = [
+			resolved('netease', 'L1'),
+			resolved('netease', 'L2'),
+			resolved('netease', 'L3')
+		].map((t, i) => ({ ...t, title: `Song ${i}` }));
+		player.queueContext = null;
+		player.setQueue(list, 'liked'); // 'liked' → global 'generated' default
+		mockEnsure.mockResolvedValue(list[0]);
+
+		await player.play(list[0], { fresh: true, sameList: true });
+		await flush();
+
+		// The Up-Next pane renders queue.slice(indexOf(upNextAnchorUid)) — assert on exactly that.
+		const from = player.queue.findIndex((t) => t.uid === player.upNextAnchorUid);
+		expect(from).toBeGreaterThanOrEqual(0);
+		expect(player.queue.slice(from).map((t) => t.title)).toEqual(['Song 0', 'Song 1', 'Song 2']);
+	});
+
+	it('WITHOUT sameList the same generated context regenerates the tail away (control)', async () => {
+		vi.spyOn(
+			player as unknown as { ensureAhead(): Promise<void> },
+			'ensureAhead'
+		).mockResolvedValue(undefined);
+		const list = [
+			resolved('netease', 'R1'),
+			resolved('netease', 'R2'),
+			resolved('netease', 'R3')
+		].map((t, i) => ({ ...t, title: `Tune ${i}` }));
+		player.queueContext = null;
+		player.setQueue(list, 'liked');
+		mockEnsure.mockResolvedValue(list[0]);
+
+		await player.play(list[0], { fresh: true });
+		await flush();
+
+		const from = player.queue.findIndex((t) => t.uid === player.upNextAnchorUid);
+		expect(player.queue.slice(from).map((t) => t.title)).toEqual(['Tune 0']);
+	});
 });
 
 describe('player.removeFromQueue / clearQueue / removedUids (Phase 17 QUEUE-05 / D-08..D-10)', () => {
