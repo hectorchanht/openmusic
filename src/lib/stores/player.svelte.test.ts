@@ -4039,8 +4039,14 @@ describe('player.play — auto-expand fresh-only guard + per-context branch (Pha
 		await player.play(list[0], { fresh: true });
 		await flush();
 
+		// The rest of the list is GONE from Up Next — regenerate() replaced the tail. Asserted as an
+		// absence rather than an exact array: what fills the tail depends on the generator mocks,
+		// but the list's own tracks must not be there.
 		const from = player.queue.findIndex((t) => t.uid === player.upNextAnchorUid);
-		expect(player.queue.slice(from).map((t) => t.title)).toEqual(['Tune 0']);
+		const upNext = player.queue.slice(from).map((t) => t.title);
+		expect(upNext[0]).toBe('Tune 0');
+		expect(upNext).not.toContain('Tune 1');
+		expect(upNext).not.toContain('Tune 2');
 	});
 });
 
