@@ -95,7 +95,7 @@ Full observed evidence: `.planning/phases/30-carrier-free-share-links-type-artis
 ### Prior phase (Phase 27 — YouTube Music Source, v1.4) — COMPLETE + E2E-VERIFIED
 
 Phase 27 complete (27-01..04). E2E-verified against LIVE YouTube via the dev-server routes: /api/ytmusic/search 200 (rows+videoId), /api/ytmusic/lyrics 200 (1513c + attribution), /api/ytmusic/stream 206 audio/mp4 + Range (playback) and 200 full-file (download). pnpm check clean, 1320 tests green. E2E caught + fixed a prod-breaking bug (quick-270715 / commit 29c1c7d): stream route exported non-HTTP-verb functions, illegal in SvelteKit +server.ts → 500; helpers moved to $lib/proxy/ytmusic.ts.
-Last activity: 2026-09-15 - Completed quick task 260915-3ng: ytmusic now resolves its stream URL on-device on native (the edge's byte fetch is 403'd by googlevideo's IP lock). Code-level verified, UNPUSHED pending an on-device APK test
+Last activity: 2026-09-16 - Completed quick task 260915-vb9: library per-tab action row (Play / Shuffle / Edit / ⋯ menu) + tab-label heading; Play & Shuffle now fill Up Next with that tab's list
 Remaining human UAT: real-device <audio> playback+seek + download-to-disk; deployed-Worker player+googlevideo same-IP egress + bot-challenge under load (T-27-03-OP). Account/library sync = separate legal-gated milestone (spike 008).
 
 ## Performance Metrics
@@ -561,6 +561,7 @@ Items acknowledged and deferred at v1.2 milestone close on 2026-06-15 (81 total)
 | 260915-26g | Download row shows the probed real container + size (FLAC · 35.0 MB), opt-in per surface so list rows never fan out | 2026-09-15 | f18900d | [260915-26g-show-format-quality-and-size-on-download](./quick/260915-26g-show-format-quality-and-size-on-download/) |
 | 260915-30m | ytmusic stream 502 fixed: stale ANDROID_VR clientVersion pin (1.60.19 → 1.65.10) collapsed into one constant; YouTube gated the old version with LOGIN_REQUIRED, skipping every ytmusic track | 2026-09-15 | d26c787 | [260915-30m-fix-ytmusic-stream-502-by-bumping-the-pi](./quick/260915-30m-fix-ytmusic-stream-502-by-bumping-the-pi/) |
 | 260915-3ng | Native-only on-device ytmusic resolve via CapacitorHttp (both InnerTube hops from the phone's IP, satisfying googlevideo's full-IP lock); proxy fallback on null, web path unchanged. Verified code-level (check 0 errors, 2472 tests); **on-device APK confirmation outstanding — DO NOT PUSH until it passes** | 2026-09-15 | 7417537 | [260915-3ng-native-only-ytmusic-playback-resolve-the](./quick/260915-3ng-native-only-ytmusic-playback-resolve-the/) |
+| 260915-vb9 | Library page: heading is the active tab label alone (no duplicate "Library"); per-tab action row (Play all / Shuffle / Edit / ⋯) + inline list sheet (Add to queue, Play next, Delete playlist, Clear all, confirm-gated). Play/Shuffle install the whole tab list as Up Next via a new `play({ sameList })` intent flag — the per-context up-next default was regenerating over it | 2026-09-16 | 4e4f0e0 | [260915-vb9-library-page-header-cleanup-and-per-tab-](./quick/260915-vb9-library-page-header-cleanup-and-per-tab-/) |
 
 The 🔴 verification/UAT gaps are device-only human tests (iOS audio, Android APK) that cannot be reproduced in this environment. The 75 quick-tasks are predominantly false-positives (completed work whose completion marker the scanner could not match).
 
