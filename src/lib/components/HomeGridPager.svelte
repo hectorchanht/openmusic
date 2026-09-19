@@ -113,4 +113,17 @@
 			transition: none;
 		}
 	}
+
+	/* quick-260919-et3 (D-8): cap the columns at desktop so the 3x3 snap page KEEPS its shape.
+	   `repeat(3, 1fr)` in a 1900px page would blow each tile up to ~600px; the dot indicator would
+	   still say "page 1 of 3" while three enormous covers filled the screen. Capping at 220px and
+	   packing to the start keeps the geometry the dots describe.
+	   A desktop-specific TILES_PER_PAGE (more tiles per page, fewer pages) is deliberately out of
+	   scope — it would change the JS pagination, not just the layout. */
+	@media (min-width: 1024px) {
+		.page {
+			grid-template-columns: repeat(3, minmax(0, 220px));
+			justify-content: start;
+		}
+	}
 </style>

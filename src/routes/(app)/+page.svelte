@@ -1057,6 +1057,11 @@
 		display: inline-flex; align-items: center; gap: 5px;
 	}
 	/* Horizontal scroll row (copied from the artist page .albumrow pattern). */
+	/* quick-260919-et3 (D-8): VERIFIED to need no desktop rule — do not "fix" this. `.album` below
+	   is a fixed 130px flex basis, so a container that is 1900px instead of 390px simply fits ~13
+	   tiles instead of ~5, for free. Same for CompactPager, whose column is already capped at
+	   420px above 640px. The desktop affordance these shelves DO need is a pointer one, and that
+	   is <ShelfChevrons /> sitting after each row, not a CSS change here. */
 	.albumrow { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 4px; }
 	/* min-width:0 is REQUIRED: without it the flex item's default min-width:auto lets the
 	   nowrap .al-name/.al-count grow the tile past its 130px basis to fit the full text — which
@@ -1106,4 +1111,14 @@
 	.artist-tile .art { position: relative; inset: auto; width: 100%; aspect-ratio: 1 / 1; border-radius: 50%; overflow: hidden; background-size: cover; background-position: center; background-color: var(--color-surface-2); }
 	.artist-name { width: 100%; min-width: 0; overflow: hidden; white-space: nowrap; text-align: center; font-size: calc(11px * var(--fs-title, 1)); font-weight: 600; color: var(--color-text); }
 	.error { color: #ff7a90; font-size: 14px; }
+
+	/* quick-260919-et3 (D-8): at desktop the fallback grid holds the TILE SIZE and lets the COUNT
+	   follow the window, instead of inflating three tiles to 600px each in a 1900px column.
+	   --home-grid-cols (the user's column-count setting) stays authoritative below 1024px and is
+	   deliberately overridden above it — a calc() is not valid as a repeat() count, so there is no
+	   way to honour the setting AND derive columns from the width in one rule. --cover-scale stays
+	   inside the minmax so the cover-size setting still scales desktop tiles. */
+	@media (min-width: 1024px) {
+		.grid { grid-template-columns: repeat(auto-fill, minmax(calc(150px * var(--cover-scale, 1)), 1fr)); }
+	}
 </style>
