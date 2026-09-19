@@ -220,7 +220,7 @@
 {#snippet lightCard()}{@render chrome(PALETTE.light)}{/snippet}
 
 <section>
-    <h2><Palette size={15} /> {t("settings.accentColor")}</h2>
+    <h2><Palette size={15} /> {t("settings.accentColor")}<SettingHint label={t("settings.accentColor")} text={t("settings.accentColorDesc")} /></h2>
     <div class="swatches">
         {#each ACCENT_PRESETS as c (c)}
             <button
@@ -233,7 +233,6 @@
             ></button>
         {/each}
     </div>
-    <SettingHint label={t("settings.accentColor")} text={t("settings.accentColorDesc")} />
 </section>
 
 <!-- quick-260919-ebi: "Motion" (settings.appearanceMotion), not the "Playback & motion" heading
@@ -246,8 +245,8 @@
         label={t("settings.reduceMotion")}
         checked={settings.reduceMotion}
         onchange={toggleMotion}
+        hint={t("settings.reduceMotionDesc")}
     />
-    <SettingHint label={t("settings.reduceMotion")} text={t("settings.reduceMotionDesc")} />
 </section>
 
 <section>
@@ -255,7 +254,7 @@
 
     <div class="ctl">
         <div class="lab">
-            <span>{t("settings.fontSizeTitle")}</span><span class="val"
+            <span>{t("settings.fontSizeTitle")}<SettingHint label={t("settings.fontSizeTitle")} text={t("settings.fontSizeTitleDesc")} /></span><span class="val"
                 >{settings.fontScaleTitle}%</span
             >
         </div>
@@ -272,12 +271,11 @@
             style:font-size={`${(1.05 * settings.fontScaleTitle) / 100}rem`}
             >{demoTitle}</span
         >
-        <SettingHint label={t("settings.fontSizeTitle")} text={t("settings.fontSizeTitleDesc")} />
     </div>
 
     <div class="ctl">
         <div class="lab">
-            <span>{t("settings.fontSizeArtist")}</span><span class="val"
+            <span>{t("settings.fontSizeArtist")}<SettingHint label={t("settings.fontSizeArtist")} text={t("settings.fontSizeArtistDesc")} /></span><span class="val"
                 >{settings.fontScaleArtist}%</span
             >
         </div>
@@ -294,12 +292,11 @@
             style:font-size={`${(0.9 * settings.fontScaleArtist) / 100}rem`}
             >{demoArtist}</span
         >
-        <SettingHint label={t("settings.fontSizeArtist")} text={t("settings.fontSizeArtistDesc")} />
     </div>
 
     <div class="ctl">
         <div class="lab">
-            <span>{t("settings.fontSizeLyrics")}</span><span class="val"
+            <span>{t("settings.fontSizeLyrics")}<SettingHint label={t("settings.fontSizeLyrics")} text={t("settings.fontSizeLyricsDesc")} /></span><span class="val"
                 >{settings.fontScaleLyrics}%</span
             >
         </div>
@@ -316,12 +313,11 @@
             style:font-size={`${(1 * settings.fontScaleLyrics) / 100}rem`}
             >{demoTitle}</span
         >
-        <SettingHint label={t("settings.fontSizeLyrics")} text={t("settings.fontSizeLyricsDesc")} />
     </div>
 
     <div class="ctl">
         <div class="lab">
-            <span>{t("settings.fontSizeNpTitle")}</span><span class="val"
+            <span>{t("settings.fontSizeNpTitle")}<SettingHint label={t("settings.fontSizeNpTitle")} text={t("settings.fontSizeNpTitleDesc")} /></span><span class="val"
                 >{settings.fontScaleNpTitle}%</span
             >
         </div>
@@ -338,12 +334,11 @@
             style:font-size={`${(1.5 * settings.fontScaleNpTitle) / 100}rem`}
             >{demoTitle}</span
         >
-        <SettingHint label={t("settings.fontSizeNpTitle")} text={t("settings.fontSizeNpTitleDesc")} />
     </div>
 
     <div class="ctl">
         <div class="lab">
-            <span>{t("settings.fontSizeNpArtist")}</span><span class="val"
+            <span>{t("settings.fontSizeNpArtist")}<SettingHint label={t("settings.fontSizeNpArtist")} text={t("settings.fontSizeNpArtistDesc")} /></span><span class="val"
                 >{settings.fontScaleNpArtist}%</span
             >
         </div>
@@ -360,7 +355,6 @@
             style:font-size={`${(1 * settings.fontScaleNpArtist) / 100}rem`}
             >{demoArtist}</span
         >
-        <SettingHint label={t("settings.fontSizeNpArtist")} text={t("settings.fontSizeNpArtistDesc")} />
     </div>
 </section>
 
@@ -369,7 +363,7 @@
 
     <div class="ctl">
         <div class="lab">
-            <span>{t("settings.coverSize")}</span><span class="val"
+            <span>{t("settings.coverSize")}<SettingHint label={t("settings.coverSize")} text={t("settings.coverScaleDesc")} /></span><span class="val"
                 >{settings.coverScale}%</span
             >
         </div>
@@ -394,7 +388,6 @@
                 ></span>
             {/each}
         </div>
-        <SettingHint label={t("settings.coverSize")} text={t("settings.coverScaleDesc")} />
     </div>
 
     <!-- quick-260919-ebi: "Home grid columns" (+ its quick-260618-goe live grid demo) moved to
@@ -443,7 +436,10 @@
     section {
         margin: 18px 0;
     }
+    /* quick-260919-ebi: `position: relative` on every title that carries an inline (i) — it
+       anchors SettingHint's description panel, which is scoped and cannot set this on its host. */
     section h2 {
+        position: relative;
         display: flex;
         align-items: center;
         gap: 6px;
@@ -457,6 +453,7 @@
         margin: 0 0 18px;
     }
     .lab {
+        position: relative;
         display: flex;
         align-items: baseline;
         justify-content: space-between;

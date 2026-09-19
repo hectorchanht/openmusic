@@ -164,16 +164,17 @@
      word (D-6), so a contradictory pair (titleLang zh-Hant + lock Simplified) resolves to the
      lock. Chinese-only by construction; see lockScriptSync's isChineseLine gate. -->
 <section>
-	<h2><Languages size={15} /> {t('settings.zhScript')}</h2>
+	<h2><Languages size={15} /> {t('settings.zhScript')}<SettingHint label={t('settings.zhScript')} text={t('settings.zhScriptNote')} /></h2>
 	<SettingPicker label={t('settings.zhScript')} options={zhOptions} value={settings.zhScript} onpick={setZhScript} />
-	<SettingHint label={t('settings.zhScript')} text={t('settings.zhScriptNote')} />
 </section>
 
 <hr class="div" />
 
 <!-- 1. Lyrics translate mode — how translated lyrics display (replace vs show below). -->
 <section>
-	<h2><Replace size={15} /> {t('settings.lyricsTranslateMode')}</h2>
+	<!-- The (i) is hidden while the control is disabled: its text describes the two ENABLED states,
+	     and the visible OFF note below already says why nothing here is pickable. -->
+	<h2><Replace size={15} /> {t('settings.lyricsTranslateMode')}{#if settings.lyricsLang !== 'off'}<SettingHint label={t('settings.lyricsTranslateMode')} text={t('settings.translateModeOnNote')} />{/if}</h2>
 	<!-- quick-260919-ebi (F3): replace-vs-below is a shape on screen, so it is picked by tapping
 	     one of two lyric mockups. -->
 	<SettingPicker
@@ -192,8 +193,6 @@
 	     because a disabled control with no visible reason is the confusing case. -->
 	{#if settings.lyricsLang === 'off'}
 		<p class="muted">{t('settings.translateModeOffNote')}</p>
-	{:else}
-		<SettingHint label={t('settings.lyricsTranslateMode')} text={t('settings.translateModeOnNote')} />
 	{/if}
 
 	<!-- quick-260919-ebi (F2): the one shared boolean row — inset + switch + accent edge. These two
@@ -203,15 +202,15 @@
 		label={t('settings.lyricsHideParenTranslation')}
 		checked={settings.lyricsHideParenTranslation}
 		onchange={() => { settings.lyricsHideParenTranslation = !settings.lyricsHideParenTranslation; settings.save(); }}
+		hint={t('settings.lyricsHideParenTranslationNote')}
 	/>
-	<SettingHint label={t('settings.lyricsHideParenTranslation')} text={t('settings.lyricsHideParenTranslationNote')} />
 
 	<SettingToggle
 		label={t('settings.lyricsHideParenLines')}
 		checked={settings.lyricsHideParenLines}
 		onchange={() => { settings.lyricsHideParenLines = !settings.lyricsHideParenLines; settings.save(); }}
+		hint={t('settings.lyricsHideParenLinesNote')}
 	/>
-	<SettingHint label={t('settings.lyricsHideParenLines')} text={t('settings.lyricsHideParenLinesNote')} />
 </section>
 
 <hr class="div" />
@@ -219,21 +218,19 @@
 <!-- 2. Per-part language pickers — lyrics (lifted to top), then artist, title. -->
 {#each parts as part, i (part.key)}
 	<section>
-		<h2><Languages size={15} /> {t(part.headingKey)}</h2>
+		<h2><Languages size={15} /> {t(part.headingKey)}<SettingHint label={t(part.headingKey)} text={t(part.noteKey)} /></h2>
 		<div class="chips">
 			{#each langs as l (l.v)}
 				<button class="chip" class:on={TARGET[part.key]() === l.v} onclick={() => setTarget(part.key, l.v)} use:tapBounce>{l.v === 'off' ? t('settings.optOff') : l.v === 'auto' ? t('settings.bioAuto') : l.label}</button>
 			{/each}
 		</div>
-		<SettingHint label={t(part.headingKey)} text={t(part.noteKey)} />
 		<div class="skip" class:disabled={TARGET[part.key]() === 'off'}>
-			<p class="sublabel">{t('settings.skipLanguages')}</p>
+			<p class="sublabel">{t('settings.skipLanguages')}<SettingHint label={t('settings.skipLanguages')} text={t('settings.skipLanguagesNote')} /></p>
 			<div class="chips">
 				{#each sources as s (s.v)}
 					<button class="chip skipchip" class:on={SKIP[part.key]().includes(s.v)} disabled={TARGET[part.key]() === 'off'} onclick={() => toggleSkip(part.key, s.v)} use:tapBounce>{s.label}</button>
 				{/each}
 			</div>
-			<SettingHint label={t('settings.skipLanguages')} text={t('settings.skipLanguagesNote')} />
 		</div>
 	</section>
 	<hr class="div" />
@@ -241,13 +238,12 @@
 
 <!-- 3. Bio info — per-part picker; Auto follows the app/device language (default). -->
 <section>
-	<h2><Languages size={15} /> {t('settings.translateLastfm')}</h2>
+	<h2><Languages size={15} /> {t('settings.translateLastfm')}<SettingHint label={t('settings.translateLastfm')} text={t('settings.translateLastfmNote')} /></h2>
 	<div class="chips">
 		{#each bioOptions as o (o.v)}
 			<button class="chip" class:on={settings.bioLang === o.v} onclick={() => setBio(o.v)} use:tapBounce>{o.v === 'auto' ? t('settings.bioAuto') : o.v === 'off' ? t('settings.optOff') : o.label}</button>
 		{/each}
 	</div>
-	<SettingHint label={t('settings.translateLastfm')} text={t('settings.translateLastfmNote')} />
 </section>
 
 <hr class="div" />
@@ -266,7 +262,9 @@
 	.back { background: none; border: none; color: var(--color-text); cursor: pointer; display: grid; place-items: center; width: 36px; height: 36px; }
 	.head h1 { font-size: 1.4rem; margin: 0; }
 	section { margin: 18px 0; }
-	section h2 { display: flex; align-items: center; gap: 6px; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--color-text-muted); margin: 0 0 10px; }
+	/* quick-260919-ebi: `position: relative` on every title that carries an inline (i) — it anchors
+	   SettingHint's description panel, which is scoped and cannot set this on its host. */
+	section h2 { display: flex; align-items: center; gap: 6px; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--color-text-muted); margin: 0 0 10px; position: relative; }
 	.muted { color: var(--color-text-muted); font-size: 12px; margin: 8px 0 0; }
 	.chips { display: flex; flex-wrap: wrap; gap: 8px; }
 	.chip { background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); padding: 8px 14px; border-radius: 999px; font-size: 13px; cursor: pointer; }
@@ -274,7 +272,7 @@
 	.chip:disabled { cursor: default; }
 	.skip { margin-top: 12px; }
 	.skip.disabled { opacity: 0.45; pointer-events: none; }
-	.sublabel { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--color-text-muted); margin: 0 0 8px; }
+	.sublabel { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--color-text-muted); margin: 0 0 8px; position: relative; }
 	.skipchip.on { background: var(--color-surface); color: var(--color-primary); border-color: var(--color-primary); }
 	/* quick-260919-ebi: the .seg CSS moved into SettingPicker.svelte — the quick-260919-2jo Chinese
 	   script control is pixel-identical there, because the rules were lifted verbatim. */

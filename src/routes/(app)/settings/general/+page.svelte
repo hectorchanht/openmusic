@@ -44,13 +44,12 @@
 </header>
 
 <section>
-	<h2><Globe size={15} /> {t('settings.appLanguage')}</h2>
+	<h2><Globe size={15} /> {t('settings.appLanguage')}<SettingHint label={t('settings.appLanguage')} text={t('settings.appLanguageDesc')} /></h2>
 	<div class="chips">
 		{#each appLangs as l (l.v)}
 			<button class="chip" class:on={settings.appLang === l.v} onclick={() => setAppLang(l.v)} use:tapBounce>{l.label}</button>
 		{/each}
 	</div>
-	<SettingHint label={t('settings.appLanguage')} text={t('settings.appLanguageDesc')} />
 </section>
 
 <!-- quick-260919-ebi: Theme, Accent colour and Reduce motion moved OUT of here, into
@@ -67,8 +66,8 @@
 		label={t('settings.shareIncludeTitle')}
 		checked={settings.shareIncludeTitle}
 		onchange={toggleShareTitle}
+		hint={t('settings.shareIncludeTitleDesc')}
 	/>
-	<SettingHint label={t('settings.shareIncludeTitle')} text={t('settings.shareIncludeTitleDesc')} />
 </section>
 
 <style>
@@ -79,7 +78,9 @@
 	.back { background: none; border: none; color: var(--color-text); cursor: pointer; display: grid; place-items: center; width: 36px; height: 36px; }
 	.head h1 { font-size: 1.4rem; margin: 0; }
 	section { margin: 18px 0; }
-	section h2 { display: flex; align-items: center; gap: 6px; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--color-text-muted); margin: 0 0 10px; }
+	/* quick-260919-ebi: `position: relative` anchors the inline (i)'s description panel to the
+	   heading — SettingHint is scoped and cannot set this on its host. */
+	section h2 { display: flex; align-items: center; gap: 6px; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--color-text-muted); margin: 0 0 10px; position: relative; }
 	.chips { display: flex; flex-wrap: wrap; gap: 8px; }
 	.chip { background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); padding: 8px 14px; border-radius: 999px; font-size: 13px; cursor: pointer; }
 	.chip.on { background: var(--color-primary); color: #fff; border-color: transparent; }

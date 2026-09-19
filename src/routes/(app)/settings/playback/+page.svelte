@@ -101,30 +101,27 @@
 </header>
 
 <section>
-	<h2><Music size={15} /> {t('settings.defaultQuality')}</h2>
+	<h2><Music size={15} /> {t('settings.defaultQuality')}<SettingHint label={t('settings.defaultQuality')} text={t('settings.defaultQualityNote')} /></h2>
 	<!-- quick-260919-ebi: NO preview here on purpose — stream quality is a network + behaviour
 	     setting. A mockup would have to draw a difference the user cannot see on screen, so the
 	     labels and the note stay. -->
 	<SettingPicker label={t('settings.defaultQuality')} options={qualityOptions} value={settings.defaultQuality} onpick={setQuality} />
-	<SettingHint label={t('settings.defaultQuality')} text={t('settings.defaultQualityNote')} />
 </section>
 
 <section>
-	<h2><Download size={15} /> {t('settings.downloadQuality')}</h2>
+	<h2><Download size={15} /> {t('settings.downloadQuality')}<SettingHint label={t('settings.downloadQuality')} text={t('settings.downloadQualityNote')} /></h2>
 	<!-- quick-260919-ebi: kept beside defaultQuality (not moved to Downloads) precisely so the two
 	     read as an identical control the user can compare. Same reason it gets no preview. -->
 	<SettingPicker label={t('settings.downloadQuality')} options={qualityOptions} value={settings.downloadQuality} onpick={setDownloadQuality} />
-	<SettingHint label={t('settings.downloadQuality')} text={t('settings.downloadQualityNote')} />
 </section>
 
 <section>
-	<h2><Radio size={15} /> {t('settings.defaultSource')}</h2>
+	<h2><Radio size={15} /> {t('settings.defaultSource')}<SettingHint label={t('settings.defaultSource')} text={t('settings.defaultSourceNote')} /></h2>
 	<div class="chips">
 		{#each sources as s (s.v)}
 			<button class="chip" class:on={settings.defaultSource === s.v} onclick={() => setSource(s.v)} use:tapBounce>{s.key ? t(s.key as TranslationKey) : s.literal}</button>
 		{/each}
 	</div>
-	<SettingHint label={t('settings.defaultSource')} text={t('settings.defaultSourceNote')} />
 </section>
 
 <!-- quick-260919-ebi (F3): three booleans that are PURELY about what lands on screen, so each
@@ -228,7 +225,7 @@
 <section>
 	<h2><Zap size={15} /> {t('settings.playbackMotion')}</h2>
 
-	<h3 class="sub"><Maximize2 size={14} /> {t('settings.autoExpand')}</h3>
+	<h3 class="sub"><Maximize2 size={14} /> {t('settings.autoExpand')}<SettingHint label={t('settings.autoExpand')} text={t('settings.autoExpandDesc')} /></h3>
 	<SettingPicker
 		variant="preview"
 		label={t('settings.autoExpand')}
@@ -239,9 +236,8 @@
 		value={boolValue(settings.autoExpandOnPlay)}
 		onpick={toggleExpand}
 	/>
-	<SettingHint label={t('settings.autoExpand')} text={t('settings.autoExpandDesc')} />
 
-	<h3 class="sub"><BadgeCheck size={14} /> {t('settings.showQualityTag')}</h3>
+	<h3 class="sub"><BadgeCheck size={14} /> {t('settings.showQualityTag')}<SettingHint label={t('settings.showQualityTag')} text={t('settings.showQualityTagDesc')} /></h3>
 	<SettingPicker
 		variant="preview"
 		label={t('settings.showQualityTag')}
@@ -252,7 +248,6 @@
 		value={boolValue(settings.showQualityTag)}
 		onpick={toggleQualityTag}
 	/>
-	<SettingHint label={t('settings.showQualityTag')} text={t('settings.showQualityTagDesc')} />
 
 	<h3 class="sub"><Mic2 size={14} /> {t('settings.nowbarLyrics')}</h3>
 	<!-- quick-260919-ebi: no hint here — the two mini bars ARE the sentence this used to carry
@@ -298,13 +293,12 @@
 <!-- ii6: Advanced > Sources — tucked behind a <details> accordion so the Playback tab
 	   stays speed/quality-first. Lets a user opt INTO 5sing (enabledByDefault:false). -->
 <details class="advanced">
-	<summary><Sliders size={15} /> {t('settings.sourcesAdvanced')}</summary>
+	<summary><Sliders size={15} /> {t('settings.sourcesAdvanced')}<SettingHint label={t('settings.sourcesAdvanced')} text={t('settings.sourcesAdvancedNote')} /></summary>
 	<div class="chips">
 		{#each Object.values(SOURCES) as adapter (adapter.id)}
 			<button class="chip" class:on={sourceEnabled(adapter.id)} onclick={() => toggleSource(adapter.id)} use:tapBounce>{adapter.label}</button>
 		{/each}
 	</div>
-	<SettingHint label={t('settings.sourcesAdvanced')} text={t('settings.sourcesAdvancedNote')} />
 </details>
 
 <style>
@@ -315,17 +309,19 @@
 	.back { background: none; border: none; color: var(--color-text); cursor: pointer; display: grid; place-items: center; width: 36px; height: 36px; }
 	.head h1 { font-size: 1.4rem; margin: 0; }
 	section { margin: 18px 0; }
-	section h2 { display: flex; align-items: center; gap: 6px; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--color-text-muted); margin: 0 0 10px; }
+	/* quick-260919-ebi: `position: relative` on every title that carries an inline (i) — it anchors
+	   SettingHint's description panel, which is scoped and cannot set this on its host. */
+	section h2 { display: flex; align-items: center; gap: 6px; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--color-text-muted); margin: 0 0 10px; position: relative; }
 	.muted { color: var(--color-text-muted); font-size: 12px; margin: 8px 0 0; display: flex; align-items: center; gap: 4px;}
 	.chips { display: flex; flex-wrap: wrap; gap: 8px; }
 	.chip { background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); padding: 8px 14px; border-radius: 999px; font-size: 13px; cursor: pointer; }
 	.chip.on { background: var(--color-primary); color: #fff; border-color: transparent; }
 	/* quick-260919-ebi: the .seg CSS moved into SettingPicker.svelte; .row-toggle/.sw went with the
 	   three toggle rows the previews replaced. */
-	.sub { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; margin: 16px 0 8px; }
+	.sub { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; margin: 16px 0 8px; position: relative; }
 	.upnext-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 0; }
 	.upnext-row .ctx-label { font-size: 14px; color: var(--color-text); }
 	.advanced { margin: 22px 0; padding: 10px 12px; background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: 12px; }
-	.advanced summary { display: inline-flex; align-items: center; gap: 6px; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--color-text-muted); cursor: pointer; padding: 4px 0; }
+	.advanced summary { position: relative; display: flex; align-items: center; gap: 6px; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--color-text-muted); cursor: pointer; padding: 4px 0; }
 	.advanced .chips { margin-top: 12px; }
 </style>

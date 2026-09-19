@@ -319,9 +319,8 @@
 
 <!-- 4. ITEMS PER SHELF -->
 <section>
-	<h2><SlidersHorizontal size={15} /> {t('settings.itemsPerShelf', { n: settings.homeShelfSize })}</h2>
+	<h2><SlidersHorizontal size={15} /> {t('settings.itemsPerShelf', { n: settings.homeShelfSize })}<SettingHint label={t('settings.itemsPerShelf', { n: settings.homeShelfSize })} text={t('settings.itemsPerShelfDesc')} /></h2>
 	<input class="range" type="range" min={SHELF_MIN} max={SHELF_MAX} step="1" value={settings.homeShelfSize} oninput={setShelfSize} aria-label={t('settings.itemsPerShelf', { n: settings.homeShelfSize })} />
-	<SettingHint label={t('settings.itemsPerShelf', { n: settings.homeShelfSize })} text={t('settings.itemsPerShelfDesc')} />
 </section>
 
 <!-- 4b. HOME GRID COLUMNS -->
@@ -329,7 +328,7 @@
      columns", and this page already owns shelf size and tile density. The quick-260618-goe live
      grid demo came across verbatim. -->
 <section>
-	<h2><Grid3x3 size={15} /> {t('settings.gridColumns')}</h2>
+	<h2><Grid3x3 size={15} /> {t('settings.gridColumns')}<SettingHint label={t('settings.gridColumns')} text={t('settings.gridColumnsDesc')} /></h2>
 	<div class="lab"><span>{t('settings.gridColumns')}</span><span class="val">{settings.homeGridCols}</span></div>
 	<input class="range" type="range" min={GRID_COLS_MIN} max={GRID_COLS_MAX} step="1" value={settings.homeGridCols} oninput={setCols} aria-label={t('settings.gridColumns')} />
 	<!-- quick-260618-goe (decision #4): live grid-columns demo — a mock grid whose
@@ -340,21 +339,19 @@
 			<span class="grid-demo-cell"></span>
 		{/each}
 	</div>
-	<SettingHint label={t('settings.gridColumns')} text={t('settings.gridColumnsDesc')} />
 </section>
 
 <!-- 5. DEFAULT LANDING TAB -->
 <section>
-	<h2><Compass size={15} /> {t('settings.defaultLandingTab')}</h2>
+	<h2><Compass size={15} /> {t('settings.defaultLandingTab')}<SettingHint label={t('settings.defaultLandingTab')} text={t('settings.defaultLandingTabDesc')} /></h2>
 	<!-- quick-260919-ebi: NO preview — three tab labels with one ringed adds nothing over three
 	     tab labels, which is what the segmented control already is. -->
 	<SettingPicker label={t('settings.defaultLandingTab')} options={landingOptions} value={settings.homeLandingTab} onpick={setLanding} />
-	<SettingHint label={t('settings.defaultLandingTab')} text={t('settings.defaultLandingTabDesc')} />
 </section>
 
 <!-- 6. TILE DENSITY -->
 <section>
-	<h2><LayoutList size={15} /> {t('settings.tileDensity')}</h2>
+	<h2><LayoutList size={15} /> {t('settings.tileDensity')}<SettingHint label={t('settings.tileDensity')} text={t('settings.tileDensityDesc')} /></h2>
 	<!-- quick-260919-ebi (F3): the first preview picker with THREE options — this setting IS a
 	     layout shape, so three tiny layout mockups say it better than three words. -->
 	<SettingPicker
@@ -368,7 +365,6 @@
 		value={settings.homeDensity}
 		onpick={setDensity}
 	/>
-	<SettingHint label={t('settings.tileDensity')} text={t('settings.tileDensityDesc')} />
 </section>
 
 <!-- 7. HOME CHROME -->
@@ -388,7 +384,7 @@
 		onpick={toggleSearchPill}
 	/>
 
-	<h3 class="sub">{t('settings.showRandomize')}</h3>
+	<h3 class="sub">{t('settings.showRandomize')}<SettingHint label={t('settings.showRandomize')} text={t('settings.showRandomizeDesc')} /></h3>
 	<SettingPicker
 		variant="preview"
 		label={t('settings.showRandomize')}
@@ -399,8 +395,6 @@
 		value={boolValue(settings.homeShowRandomize)}
 		onpick={toggleRandomize}
 	/>
-	<!-- The mock shows the button appearing; it cannot show what tapping it DOES. -->
-	<SettingHint label={t('settings.showRandomize')} text={t('settings.showRandomizeDesc')} />
 </section>
 
 <style>
@@ -411,7 +405,9 @@
 	.back { background: none; border: none; color: var(--color-text); cursor: pointer; display: grid; place-items: center; width: 36px; height: 36px; }
 	.head h1 { font-size: 1.4rem; margin: 0; }
 	section { margin: 18px 0; }
-	section h2 { display: flex; align-items: center; gap: 6px; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--color-text-muted); margin: 0 0 10px; }
+	/* quick-260919-ebi: `position: relative` on every title that carries an inline (i) — it anchors
+	   SettingHint's description panel, which is scoped and cannot set this on its host. */
+	section h2 { display: flex; align-items: center; gap: 6px; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--color-text-muted); margin: 0 0 10px; position: relative; }
 	.muted { color: var(--color-text-muted); font-size: 12px; margin: 8px 0 0; }
 	/* Reorder list */
 	.reorder { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
@@ -448,7 +444,7 @@
 	   two Home-chrome toggle rows the previews replaced. `.sw` below STAYS: it is the bare
 	   section-visibility switch inside the 44px drag-reorder rows, which is not a settings row and
 	   has no label of its own — SettingToggle does not fit there. */
-	.sub { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; margin: 16px 0 8px; }
+	.sub { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; margin: 16px 0 8px; position: relative; }
 	.sw { width: 40px; height: 22px; border-radius: 999px; background: var(--color-border); position: relative; transition: background 0.15s ease; flex: none; border: none; cursor: pointer; padding: 0; }
 	.sw::after { content: ''; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: #fff; transition: transform 0.15s ease; }
 	.sw.on { background: var(--color-primary); }
