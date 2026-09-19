@@ -2,7 +2,7 @@
 	import { tick, untrack } from 'svelte';
 	import { fly } from 'svelte/transition';
 	import { goto } from '$app/navigation';
-	import { ListStart, ListEnd, Download, Check, Heart, ListPlus, User, Share2, Info, X, Plus, Shuffle, Trash2, Moon, Sparkles, Layers, Image as ImageIcon, ChevronDown } from '@lucide/svelte';
+	import { ListStart, ListEnd, Download, Check, Heart, ListPlus, User, Share2, Info, X, Plus, Shuffle, Trash2, Moon, Sparkles, Layers, Image as ImageIcon, ChevronDown, Tags } from '@lucide/svelte';
 	import { player } from '$lib/stores/player.svelte';
 	import { sleepTimer } from '$lib/stores/sleepTimer.svelte';
 	import { library } from '$lib/stores/library.svelte';
@@ -32,6 +32,9 @@
 	import { mapWithConcurrency } from '$lib/services/discovery';
 	import { SOURCES } from '$lib/sources/registry';
 	import VersionPicker from '$lib/components/VersionPicker.svelte';
+	// quick-260919-1eh: the tag-edit sheet. Same co-mount arrangement as VersionPicker above — it
+	// owns its own overlay lifecycle under a DISTINCT overlayId.
+	import MetadataEditor from '$lib/components/MetadataEditor.svelte';
 	import { downloadTrack } from '$lib/services/download-track';
 	// quick-260915-26g: the shared probe + the shared label formatter. TrackMenu cannot mount
 	// DownloadControl (its Check state is blob-backed and its rows are full-width text buttons, not
@@ -58,6 +61,9 @@
 
 	let pickerOpen = $state(false);
 	let detailTrack = $state<Track | null>(null);
+	// quick-260919-1eh: the metadata editor sheet's open flag. No lazy fan-out to guard — the sheet
+	// seeds itself from the track already in hand and saves offline, so there is no gen/abort pair.
+	let tagsOpen = $state(false);
 	const liked = $derived(track ? library.isLiked(track.uid) : false);
 	const isDevice = $derived(!!track && isDeviceUid(track.uid));
 
@@ -159,6 +165,7 @@
 
 	function close() {
 		pickerOpen = false;
+		tagsOpen = false; // quick-260919-1eh: reset alongside the other sheet flags
 		coverAc?.abort(); // quick-260915-w4f: never leave a candidate fan-out running behind a closed menu
 		dlPickAc?.abort(); // quick-260916-0d9: same rule for the download-picker probe pool
 		onclose();
@@ -679,6 +686,18 @@
 		     per song, permanently. The candidate fan-out fires on THIS tap only (Q1). `disabled` mirrors
 		     the Like row: a uid-less stub has no identity to pin against. -->
 		<button class="mi" disabled={!track.uid} onclick={openCoverPicker} use:tapBounce><ImageIcon size={18} /> {t('menu.changeCover')}</button>
+		<!-- quick-260919-1eh: Edit metadata. Shown ONLY for a file the app actually owns a copy of.
+		     `blobPresent` is the blob-backed probe, NOT library.isDownloaded — quick-260913-jq4
+		     explains why the reference list lies (it is populated BEFORE the fetch, and the web save
+		     is an <a download> click that reports success even when the user cancels the dialog), so
+		     the list happily says "Downloaded" with nothing stored anywhere.
+		     `!isDevice` is the UI half of the device exclusion: an imported file is the USER'S file,
+		     and blobStore.put has no device short-circuit — it would write an orphan app-private copy
+		     plus a SECOND public copy of a song they already have. retagOne's own guard is the
+		     enforcing half; this just keeps the row from appearing at all. -->
+		{#if blobPresent && !isDevice}
+			<button class="mi" onclick={() => (tagsOpen = true)} use:tapBounce><Tags size={18} /> {t('menu.editTags')}</button>
+		{/if}
 		{#if player.queue.length > 1}
 			<button class="mi" class:on={player.shuffle} onclick={shuffleQueue} use:tapBounce><Shuffle size={18} /> {t('menu.shuffleQueue')}</button>
 			<button class="mi" onclick={clearQueue} use:tapBounce><Trash2 size={18} /> {t('menu.clearQueue')}</button>
@@ -852,6 +871,30 @@
 	overlayId="versionpicker-menu"
 	onclose={closeVersions}
 	onpick={(v) => { player.play(v, { fresh: true }); close(); }}
+/>
+
+<!-- quick-260919-1eh: the metadata editor. Mounted OUTSIDE the {#if open && track} menu block, like
+     the VersionPicker above, so it survives the menu closing on save. `cover` is the SAME activeCover
+     ladder the share card and the cover picker already read — one precedence chain, now three
+     consumers. `lyrics` is what the app HAS: the playing song's resolved lrc, else null (the editor
+     never fires a network resolve to go hunting — it must work offline).
+
+     onsaved fires BOTH repaint seams, always: applyMetadata repaints the library list rows (in-place
+     proxy mutation, so already-rendered home shelves update too), adoptMetadata repaints the
+     NowPlaying hero, the Nowbar and the OS media card — those read player.current directly, so the
+     library write alone would leave them showing the old title until the next track change. -->
+<MetadataEditor
+	{track}
+	open={tagsOpen}
+	cover={activeCover}
+	lyrics={track && player.current?.uid === track.uid ? player.current.lrc : null}
+	onclose={() => (tagsOpen = false)}
+	onsaved={(patch) => {
+		if (!track) return;
+		library.applyMetadata(track.uid, patch);
+		player.adoptMetadata(track.uid, patch);
+		close();
+	}}
 />
 
 <style>
