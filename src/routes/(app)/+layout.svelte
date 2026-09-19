@@ -248,6 +248,28 @@
 	     toast.show(msg); this is the only place the message is rendered. -->
 	<ToastHost />
 
+	<!-- quick-260919-npfix (Fix 1) — the nav is GATED on the overlay, not merely painted under it.
+	     Reported as "tabbar is still visible when now playing page opens", and that is literally what
+	     it was: *while it opens*. `.np` is `fixed; inset:0; z-index:50` against the nav's `z-index:21`,
+	     so once the overlay is at rest it already covers the bottom bar AND the >=1024px rail
+	     completely (measured: elementFromPoint(44,450) with the sheet open is inside `.np`). What was
+	     NOT covered is the 320ms `transition:fly={{y:600}}` mount — Svelte's `fly` animates opacity
+	     0->1 as well as the offset, so for the whole open animation the overlay is BOTH translated
+	     down and semi-transparent and the nav shows straight through it (captured at t=90ms: the
+	     rail's Home/Search/Library/Settings column is fully legible beside the rising sheet).
+	     That is why the two obvious "fixes" are both wrong here and are deliberately NOT applied:
+	     bumping z-index changes nothing (50 already beats 21), and forcing the sheet to `full` changes
+	     nothing either (the snap machine is healthy — `closed` is the correct landing state for a
+	     Nowbar tap, and `.np` is full-viewport in every sheet state). Occlusion cannot fix a window in
+	     which the occluder is transparent; only absence can. YouTube Music's keep-the-rail desktop
+	     layout is a legitimate design, but the user is reporting the leak as a bug and wants the
+	     overlay to own the viewport, so honour that — on BOTH layouts, since the bottom bar leaks
+	     through the same translucent window at 375px.
+	     Same `{#if !player.expanded}` idiom as <Nowbar /> six lines up, so open/close symmetry is
+	     already the established behaviour here; it also drops the nav out of the tab order and the
+	     accessibility tree while NowPlaying's focusTrap is active, which is what a modal overlay
+	     wants anyway. -->
+	{#if !player.expanded}
 	<nav class="tabbar">
 		{#each tabs as tab (tab.href)}
 			{@const Icon = tab.icon}
@@ -273,6 +295,7 @@
 			</a>
 		{/each}
 	</nav>
+	{/if}
 	<!-- audio element lives in the ROOT layout (persists across navigation) -->
 </div>
 
