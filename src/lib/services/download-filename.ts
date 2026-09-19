@@ -64,12 +64,33 @@ export function audioMimeForUrl(audioUrl: string | null, headerType?: string | n
 }
 
 /**
+ * THE ONE SANITIZER (quick-260919-30x, T-30x-01). The char class `/[/\\?%*:|"<>]/g` is the VERBATIM
+ * one this module has always used (originally TrackMenu.svelte:204 — do not invent a new class):
+ * stripping path separators + reserved chars blocks `../` traversal and MediaStore RELATIVE_PATH
+ * escape (T-29-01-01), so no `/` or `\` survives.
+ *
+ * Extracted from `buildDownloadFilename` because the metadata editor now lets a user TYPE a
+ * filename, and that string reaches a MediaStore `saveToMusic({ fileName })`. Both paths go through
+ * here, so there is still exactly ONE of these — a second copy is how a security control drifts.
+ * Total over null/undefined.
+ */
+export function sanitizeFilename(name: string): string {
+	return String(name ?? '').replace(/[/\\?%*:|"<>]/g, '_');
+}
+
+/**
+ * quick-260919-30x: the cap on a USER-TYPED base name, applied before the extension is appended.
+ * Android's filename limit is 255 BYTES, and a CJK name is 3 bytes per character — 120 characters
+ * is comfortably inside it with room left for `.flac`.
+ */
+export const MAX_FILENAME_BASE = 120;
+
+/**
  * D-05/D-08: compose `${artist} - ${title}.${ext}` then strip filesystem-unsafe chars. `artist`
  * and `title` MUST already be run through `names.dn*` by the caller (D-05/D-07 raw fallback) — this
- * helper never translates. The sanitize char class `/[/\\?%*:|"<>]/g` is copied VERBATIM from
- * TrackMenu.svelte:204 (do not invent a new class): stripping path separators + reserved chars
- * blocks `../` traversal and MediaStore RELATIVE_PATH escape (T-29-01-01) — no `/` or `\` survives.
+ * helper never translates. Sanitizing is delegated to `sanitizeFilename` above; the output is
+ * byte-identical to what this function has always produced.
  */
 export function buildDownloadFilename(artist: string, title: string, ext: string): string {
-	return `${artist} - ${title}.${ext}`.replace(/[/\\?%*:|"<>]/g, '_');
+	return sanitizeFilename(`${artist} - ${title}.${ext}`);
 }

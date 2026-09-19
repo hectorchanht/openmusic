@@ -297,6 +297,8 @@ const fr: Dict = {
 	"tags.fieldTitle": "Titre du morceau",
 	"tags.fieldArtist": "Artiste",
 	"tags.fieldAlbum": "Album",
+	"tags.fieldFilename": "Nom du fichier",
+	"tags.filenameHint": "Uniquement pour le fichier sur ton téléphone. Laisse vide pour le nommer d'après le titre et l'artiste. Le type de fichier est conservé dans les deux cas.",
 	"tags.hint": "Enregistré dans le fichier lui-même, avec la pochette et les paroles que cette application affiche. Laissez un champ vide pour conserver ce que le fichier contient déjà.",
 	"tags.save": "Enregistrer",
 	"tags.cancel": "Annuler",

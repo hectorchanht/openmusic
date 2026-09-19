@@ -297,6 +297,8 @@ const pt: Dict = {
 	"tags.fieldTitle": "Título da música",
 	"tags.fieldArtist": "Artista",
 	"tags.fieldAlbum": "Álbum",
+	"tags.fieldFilename": "Nome do ficheiro",
+	"tags.filenameHint": "Apenas para o ficheiro no teu telemóvel. Deixa em branco para o nomear a partir do título e do artista. O tipo de ficheiro mantém-se em qualquer dos casos.",
 	"tags.hint": "É guardado no próprio ficheiro, juntamente com a capa e a letra que esta app mostra. Deixe um campo vazio para manter o que o ficheiro já tem.",
 	"tags.save": "Guardar",
 	"tags.cancel": "Cancelar",

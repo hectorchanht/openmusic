@@ -297,6 +297,8 @@ const tr: Dict = {
 	"tags.fieldTitle": "Şarkı adı",
 	"tags.fieldArtist": "Sanatçı",
 	"tags.fieldAlbum": "Albüm",
+	"tags.fieldFilename": "Dosya adı",
+	"tags.filenameHint": "Yalnızca telefonundaki dosya için. Adın başlık ve sanatçıdan oluşması için boş bırak. Dosya türü her iki durumda da korunur.",
 	"tags.hint": "Dosyanın kendisine, bu uygulamanın gösterdiği kapak ve sözlerle birlikte yazılır. Dosyadaki mevcut bilgiyi korumak için alanı boş bırakın.",
 	"tags.save": "Kaydet",
 	"tags.cancel": "İptal",

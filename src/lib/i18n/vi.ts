@@ -297,6 +297,8 @@ const vi: Dict = {
 	"tags.fieldTitle": "Tên bài hát",
 	"tags.fieldArtist": "Nghệ sĩ",
 	"tags.fieldAlbum": "Album",
+	"tags.fieldFilename": "Tên tệp",
+	"tags.filenameHint": "Chỉ áp dụng cho tệp trên điện thoại của bạn. Để trống để đặt tên theo tên bài hát và nghệ sĩ. Định dạng tệp được giữ nguyên trong cả hai trường hợp.",
 	"tags.hint": "Được ghi vào chính tệp, cùng ảnh bìa và lời bài hát mà ứng dụng đang hiển thị. Để trống một ô nếu muốn giữ nguyên thông tin sẵn có trong tệp.",
 	"tags.save": "Lưu",
 	"tags.cancel": "Hủy",

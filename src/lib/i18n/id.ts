@@ -297,6 +297,8 @@ const id: Dict = {
 	"tags.fieldTitle": "Judul lagu",
 	"tags.fieldArtist": "Artis",
 	"tags.fieldAlbum": "Album",
+	"tags.fieldFilename": "Nama berkas",
+	"tags.filenameHint": "Hanya untuk berkas di ponsel kamu. Kosongkan agar dinamai dari judul dan artis. Jenis berkas tetap sama dalam kedua kasus.",
 	"tags.hint": "Disimpan ke dalam berkasnya sendiri, beserta sampul dan lirik yang ditampilkan aplikasi ini. Biarkan kolom kosong untuk mempertahankan isi berkas saat ini.",
 	"tags.save": "Simpan",
 	"tags.cancel": "Batal",

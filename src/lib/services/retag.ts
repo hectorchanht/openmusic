@@ -31,7 +31,7 @@
 import { blobStore } from './blob-store';
 import { albumTag, tagAudioBlob, readAudioTags } from './audio-tags';
 import { resolveArtworkDataUrl } from './media-artwork';
-import { buildDownloadFilename } from './download-filename';
+import { buildDownloadFilename, sanitizeFilename, MAX_FILENAME_BASE } from './download-filename';
 // Both PURE (no runes store, no i18n) — the purity contract above still holds.
 import { isDeviceUid } from '$lib/services/device-track';
 import { forgetLocalEnrichment } from '$lib/services/local-tags';
@@ -50,6 +50,16 @@ export interface RetagEntry {
 	 * whatever is on disk (D-4). There is no clear verb in the codec, by design.
 	 */
 	lyrics?: string;
+	/**
+	 * quick-260919-30x: the BASE name the user typed for the file on disk, without an extension.
+	 * ABSENT (or blank, or a string that sanitizes to nothing) means "name it from the title and
+	 * artist", which is exactly today's behaviour — the field is a strict no-op unless used (D-7).
+	 * The extension is ALWAYS `out.format`, the SNIFFED container, never anything the user typed
+	 * (D-6): a `.txt` in a MediaStore audio entry is not a name the app should be able to write.
+	 * Ignored on the web build's `blobStore.put` (the IDB record is uid-keyed), which is why the
+	 * editor hides the field there (D-8).
+	 */
+	filename?: string;
 }
 
 /**
@@ -138,7 +148,19 @@ export async function retagOne(entry: RetagEntry): Promise<RetagItemResult> {
 
 		// The extension comes from the SNIFFED container, not from a URL — the stored Track's
 		// audioUrl is nulled by persistence, and a URL extension lies anyway (RESEARCH Pattern 2).
-		const ok = await blobStore.put(entry.uid, out.blob, buildDownloadFilename(entry.artist, entry.title, out.format));
+		//
+		// quick-260919-30x (D-6/D-7, T-30x-01): a user-typed base name, if there is one, otherwise
+		// the derived name this has always written. `sanitizeFilename` is the SAME single sanitizer
+		// the builder uses, so no `/` or `\` can reach MediaStore; `^\.+$` is the "a name of only
+		// dots is not a name" guard — `.` and `..` must never become a filename. The extension is
+		// appended from `out.format` afterwards, so it is never the user's to choose.
+		const base = sanitizeFilename(entry.filename ?? '')
+			.trim()
+			.replace(/^\.+$/, '')
+			.slice(0, MAX_FILENAME_BASE)
+			.trim();
+		const name = base ? `${base}.${out.format}` : buildDownloadFilename(entry.artist, entry.title, out.format);
+		const ok = await blobStore.put(entry.uid, out.blob, name);
 		if (!ok) return 'put-failed';
 		// quick-260919-1eh: the bytes under this uid just changed, so the session memo that caches the
 		// file's OWN art + LRC is now describing a file that no longer exists. Evict on the success

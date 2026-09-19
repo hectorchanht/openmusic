@@ -319,6 +319,8 @@ const zhHans: Dict = {
 	"tags.fieldTitle": "歌曲名",
 	"tags.fieldArtist": "歌手",
 	"tags.fieldAlbum": "专辑",
+	"tags.fieldFilename": "文件名",
+	"tags.filenameHint": "只影响手机上的文件。留空则按歌名和歌手命名。无论哪种方式，文件格式都不变。",
 	"tags.hint": "信息会写入文件本身，连同本应用当前显示的封面和歌词。留空表示保留文件中已有的内容。",
 	"tags.save": "保存",
 	"tags.cancel": "取消",

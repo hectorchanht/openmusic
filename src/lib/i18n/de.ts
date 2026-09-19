@@ -297,6 +297,8 @@ const de: Dict = {
 	"tags.fieldTitle": "Titel",
 	"tags.fieldArtist": "Interpret",
 	"tags.fieldAlbum": "Album",
+	"tags.fieldFilename": "Dateiname",
+	"tags.filenameHint": "Nur für die Datei auf deinem Telefon. Lass das Feld leer, damit der Name aus Titel und Interpret gebildet wird. Der Dateityp bleibt in beiden Fällen erhalten.",
 	"tags.hint": "Wird in die Datei selbst geschrieben, zusammen mit dem Cover und dem Liedtext, die diese App anzeigt. Ein leeres Feld behält, was bereits in der Datei steht.",
 	"tags.save": "Speichern",
 	"tags.cancel": "Abbrechen",

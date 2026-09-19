@@ -343,6 +343,8 @@ const en = {
 	"tags.fieldTitle": "Song title",
 	"tags.fieldArtist": "Artist",
 	"tags.fieldAlbum": "Album",
+	"tags.fieldFilename": "File name",
+	"tags.filenameHint": "Only for the file on your phone. Leave blank to name it from the title and artist. The file type is kept either way.",
 	"tags.hint": "Saved into the file itself, along with the cover and lyrics this app shows. Leave a field blank to keep what the file already has.",
 	"tags.save": "Save",
 	"tags.cancel": "Cancel",
