@@ -7557,7 +7557,15 @@ describe('player — the automatic lyric embed (quick-260919-3j1, F3)', () => {
 		expect(mockSyncFileTags).toHaveBeenCalledTimes(1);
 	});
 
-	it('a device: uid NEVER reaches syncFileTags (retagOne refuses it too — this is the second guard)', async () => {
+	// quick-260919-ejm — THIS IS NOW THE ONLY GUARD, not the second one.
+	//
+	// The test name used to read "retagOne refuses it too", and that is no longer true: `retagOne`
+	// writes an imported file in place now, on the user's explicit authorisation. So this guard
+	// stopped being belt-and-braces the moment that refusal was lifted, and it is what keeps D-6
+	// true — `embedLyricsIntoFile` is the ONLY automatic file writer in the app, and a user-file
+	// rewrite must happen from exactly two EXPLICIT gestures (Edit metadata -> Save, and the
+	// confirmed Settings sweep), never from a lyric fetch landing during playback.
+	it('a device: uid NEVER reaches syncFileTags — the automatic writer must not touch a user file', async () => {
 		const d: Track = { ...mk('kuwo', '77', 'Adele', 'Hello'), uid: deviceUid('77'), audioUrl: null, lrc: null };
 		mockLyricByName.mockResolvedValue('[00:05]by-name');
 		await playFresh(d);

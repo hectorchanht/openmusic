@@ -472,6 +472,20 @@ describe('blob-store — device: uids (34-D-05 / D-06 / Pitfall 1)', () => {
 		expect(deleteFile).not.toHaveBeenCalled();
 		// the stray index entry is cleared so no later refactor can find a device URI to delete
 		expect(localStorage.getItem('openmusic-blob-uri:device:42')).toBeNull();
+		// quick-260919-ejm: and the NEW write capability is not reachable from a delete either.
+		// This task added a write to a user file and NOTHING else — no delete, no rename, no move.
+		expect(writeInPlace).not.toHaveBeenCalled();
+	});
+
+	// quick-260919-ejm — A CHARACTERISATION TEST, not a new guard. `nativePut` is unchanged: it still
+	// has NO device short-circuit, so a device uid reaching `put` would write an orphan app-private
+	// copy plus a SECOND public copy of the user's own song (the quick-260919-1eh hazard). What this
+	// pins is that the hazard is avoided by ROUTING — `retagOne`'s device fork never calls `put`, and
+	// `put` never reaches the in-place write. If a future refactor gives `put` a device branch, this
+	// test is what should stop it.
+	it('put on a device: uid never reaches writeInPlace — the two write sinks stay disjoint', async () => {
+		await put('device:42', new Blob([new Uint8Array(200000)]));
+		expect(writeInPlace).not.toHaveBeenCalled();
 	});
 
 	it('del on a REAL uid still removes the public entry (the guard is narrow, not a blanket off-switch)', async () => {
