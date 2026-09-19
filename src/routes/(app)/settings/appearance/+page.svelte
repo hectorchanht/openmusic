@@ -27,6 +27,7 @@
     import SettingToggle from "$lib/components/SettingToggle.svelte";
     import SettingPicker from "$lib/components/SettingPicker.svelte";
     import SettingHint from "$lib/components/SettingHint.svelte";
+    import RowActionsConfig from "$lib/components/RowActionsConfig.svelte";
     import { tapBounce } from "$lib/actions/tapBounce";
     import { t } from "$lib/i18n";
 
@@ -388,6 +389,22 @@
                 ></span>
             {/each}
         </div>
+    </div>
+
+    <!-- quick-260919-l9e: the song-row buttons. NO chip list and NO separate preview — the control
+         IS a replica of the row it configures, so what you arrange is what you get (the same
+         what-you-see philosophy as the cover-size demo above, one step further). The .lab wrapper
+         is what anchors SettingHint's panel; a bare label has no `position: relative`. -->
+    <div class="ctl">
+        <div class="lab">
+            <span
+                >{t("settings.rowButtons")}<SettingHint
+                    label={t("settings.rowButtons")}
+                    text={t("settings.rowButtonsDesc")}
+                /></span
+            >
+        </div>
+        <RowActionsConfig title={demoTitle} artist={demoArtist} />
     </div>
 
     <!-- quick-260919-ebi: "Home grid columns" (+ its quick-260618-goe live grid demo) moved to
