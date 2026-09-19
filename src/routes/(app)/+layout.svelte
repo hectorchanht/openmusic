@@ -418,6 +418,12 @@
 			top: 0;
 			bottom: 0;
 			right: auto;
+			/* quick-260919-et3 — MUST cancel the mobile `height: var(--tabbar-h)`. With top, bottom AND
+			   height all set on a fixed element the box is over-constrained and `height` wins, so the
+			   rail resolved to a 56px stub: the tabs still PAINTED (overflow is visible) but the
+			   background and the border-right divider covered only the top 56px, and the nav's own box
+			   stopped above two of its three tabs. `auto` lets top/bottom drive the full height. */
+			height: auto;
 			width: var(--rail-w);
 			flex-direction: column;
 			justify-content: flex-start;
