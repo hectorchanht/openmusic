@@ -2,7 +2,7 @@
 	import { tick, untrack } from 'svelte';
 	import { fly } from 'svelte/transition';
 	import { goto } from '$app/navigation';
-	import { ListStart, ListEnd, Download, Check, Heart, ListPlus, User, Share2, Info, X, Plus, Shuffle, Trash2, Moon, Sparkles, Layers, Image as ImageIcon, ChevronDown, Tags, Mic2, EyeOff } from '@lucide/svelte';
+	import { ListStart, ListEnd, Download, Check, Heart, ListPlus, User, Share2, Info, X, Plus, Shuffle, Repeat, Repeat1, Trash2, Moon, Sparkles, Layers, Image as ImageIcon, ChevronDown, Tags, Mic2, EyeOff } from '@lucide/svelte';
 	import { player } from '$lib/stores/player.svelte';
 	import { sleepTimer } from '$lib/stores/sleepTimer.svelte';
 	import { library } from '$lib/stores/library.svelte';
@@ -382,6 +382,13 @@
 	// ii6: Shuffle moved off the NowPlaying transport row into the menu. Shown only when
 	// there's a queue to shuffle (otherwise the action would be a no-op).
 	function shuffleQueue() { player.toggleShuffle(); close(); }
+	// quick-260919-0mw (correction): Repeat follows Shuffle off the NowPlaying transport row into this
+	// menu, so the transport row can hand its slot to Download. Same shape as shuffleQueue — cycle,
+	// then close — because a menu row that stays open after acting reads as "nothing happened".
+	// Closing costs the in-place cycle the old button had, so the row must show WHICH mode it is in
+	// before the tap, not after: the label itself swaps between the two existing nowplaying.* keys
+	// (see the template), which is the only state readout that survives the menu closing.
+	function cycleRepeatMode() { player.cycleRepeat(); close(); }
 	// GLN-5: clear-queue relocated here from the NowPlaying subnav. Clearing a queue that is just
 	// [current] is a no-op, so the item is gated to queue.length > 1 in the template.
 	function clearQueue() { player.clearQueue(); close(); }
@@ -925,6 +932,32 @@
 		{#if isDevice}
 			<button class="mi" onclick={noImport} use:tapBounce><EyeOff size={18} /> {t('menu.noImport')}</button>
 		{/if}
+		<!-- quick-260919-0mw (correction): Repeat, relocated from the NowPlaying transport row.
+		     Deliberately OUTSIDE the queue.length > 1 gate that wraps Shuffle: shuffling a
+		     one-track queue is a no-op, but repeat-ONE on a one-track queue is the single most
+		     obvious reason to reach for repeat at all. Gated on player.current instead — there has
+		     to be something playing for a repeat mode to mean anything.
+		     PLAY-10 / D-10: repeat is BINARY here (off ↔ one), not the three-state off/one/all
+		     cycle it is in most players — player.cycleRepeat() has no 'all' branch. So this row is
+		     the same two-state shape as the Shuffle row above it and needs no extra affordance.
+		     State legibility, three ways, because the menu CLOSES on tap and a kebab row is read
+		     from a cold start every time (unlike the button, which sat in the user's eyeline):
+		       1. class:on — the shared active-row highlight. NOTE it had no CSS rule at all until
+		          this change (see .mi.on in the style block): the Shuffle row has carried the class
+		          since ii6 while rendering identically on and off. Adding the rule there rather
+		          than a repeat-only class fixes both rows at once.
+		       2. icon swap — Repeat1 (the glyph with the 1) when repeat-one is armed, exactly the
+		          swap the transport button did.
+		       3. the LABEL swaps to "Repeat one" — the decisive one, and free: both nowplaying.*
+		          keys already exist in all 15 dictionaries from the button this replaces, so no new
+		          key was minted. Highlight-alone would be ambiguous in a list where several rows
+		          can be highlighted at once. -->
+		{#if player.current}
+			<button class="mi" class:on={player.repeatMode !== 'off'} aria-pressed={player.repeatMode !== 'off'} onclick={cycleRepeatMode} use:tapBounce>
+				{#if player.repeatMode === 'one'}<Repeat1 size={18} />{:else}<Repeat size={18} />{/if}
+				{player.repeatMode === 'one' ? t('nowplaying.repeatModeOne') : t('nowplaying.repeat')}
+			</button>
+		{/if}
 		{#if player.queue.length > 1}
 			<button class="mi" class:on={player.shuffle} onclick={shuffleQueue} use:tapBounce><Shuffle size={18} /> {t('menu.shuffleQueue')}</button>
 			<button class="mi" onclick={clearQueue} use:tapBounce><Trash2 size={18} /> {t('menu.clearQueue')}</button>
@@ -1207,6 +1240,13 @@
 	.mi:hover { background: var(--color-surface); }
 	.mi:disabled { opacity: 0.4; cursor: default; }
 	.mi.accent { color: var(--color-primary); }
+	/* quick-260919-0mw (correction): the ACTIVE-state rule for a toggle row. `class:on` was already
+	   in the markup on the Shuffle row (ii6) but NO rule ever matched it, so shuffle-on and
+	   shuffle-off rendered pixel-identical. Relocating Repeat here needed a real active state, and
+	   the fix belongs on the shared `.on`, not on a repeat-only class - one rule, and the Shuffle
+	   row above it starts showing the state it has been claiming to show all along. Same declaration
+	   as `.accent` because it is the same idea: this row is not neutral right now. */
+	.mi.on { color: var(--color-primary); }
 	/* tabular-nums: the download percentage climbs digit by digit and would otherwise jitter the
 	   row's right edge on every repaint (quick-260913-omi). Harmless for the playlist counts. */
 	.mi .count { margin-left: auto; font-size: 12px; color: var(--color-text-muted); font-variant-numeric: tabular-nums; }

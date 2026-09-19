@@ -14,7 +14,7 @@
 	import { fly, fade } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
 	import { goto } from '$app/navigation';
-	import { ChevronDown, MoreVertical, Heart, SkipBack, SkipForward, Play, Pause, Repeat, Repeat1, GripVertical, Moon, ListEnd, ListStart, Layers, Trash2 } from '@lucide/svelte';
+	import { ChevronDown, MoreVertical, Heart, SkipBack, SkipForward, Play, Pause, GripVertical, Moon, ListEnd, ListStart, Layers, Trash2 } from '@lucide/svelte';
 	import { player, fmtTime } from '$lib/stores/player.svelte';
 	import { sleepTimer } from '$lib/stores/sleepTimer.svelte';
 	import { settings, effectiveTarget } from '$lib/stores/settings.svelte';
@@ -1535,18 +1535,18 @@
 			</span>
 		</button>
 		<button class="t" aria-label={t('nowplaying.next')} onclick={() => player.next()} use:tapBounce><SkipForward size={26} /></button>
-		<button class="t" class:on={player.repeatMode !== 'off'} aria-pressed={player.repeatMode !== 'off'} aria-label={player.repeatMode === 'one' ? t('nowplaying.repeatModeOne') : t('nowplaying.repeat')} onclick={() => player.cycleRepeat()} use:tapBounce>
-			{#if player.repeatMode === 'one'}<Repeat1 size={20} />{:else}<Repeat size={20} />{/if}
-		</button>
-		<!-- quick-260919-0mw — the download control. The request was "replace the shuffle button", but
-		     Shuffle was ALREADY removed from this row by ii6 (see the "Like replaces Shuffle" note at
-		     the top of this script — it lives in the TrackMenu kebab now), so this is an ADDITION,
-		     not a swap. Nothing was displaced to make room, because nothing needed to be.
-		     Placed trailing so the two non-transport affordances (Heart, Download) bracket the three
-		     real transport buttons. `persist` stays at its true default: this is a user-initiated
-		     download and SHOULD land in the offline blob store. `probe` stays FALSE by decision, not
-		     oversight — it would cost a resolve + a HEAD on every render of the now-playing view, and
-		     a format/size readout is not what was asked for here. -->
+		<!-- quick-260919-0mw (correction) — the download control takes REPEAT's slot. The original ask
+		     was "replace the shuffle button with download", but ii6 had already moved Shuffle into the
+		     TrackMenu kebab, so the first pass appended Download as a sixth item instead of replacing
+		     anything. What was meant: the row stays FIVE wide and Repeat is the control that yields the
+		     slot — it follows Shuffle into the kebab (TrackMenu `cycleRepeatMode`). That split is the
+		     right one on its own terms: Repeat is a set-and-forget MODE, Download is a per-song ACTION,
+		     so the per-song control belongs beside the other per-song control (Heart) and the two of
+		     them bracket the three real transport buttons.
+		     `persist` stays at its true default: this is a user-initiated download and SHOULD land in
+		     the offline blob store. `probe` stays FALSE by decision, not oversight — it would cost a
+		     resolve + a HEAD on every render of the now-playing view, and a format/size readout is not
+		     what was asked for here. -->
 		<span class="t-dl"><DownloadControl track={player.current} /></span>
 	</div>
 	</div>
