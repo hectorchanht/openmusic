@@ -138,10 +138,10 @@
 				<span class="r-title" use:marquee><span class="marquee-inner">{title}</span></span>
 				{#if subtitle}<span class="r-sub" use:marquee><span class="marquee-inner">{subtitle}</span></span>{/if}
 			</span>
+			<!-- DL-STATE-01: passive liked ♥ + downloaded ✓ indicators via the shared RowBadges (quick-260723
+				 rollout to all song rows). Non-interactive; like/download INITIATION stays in the ⋮ menu here. -->
+			{#if track}<RowBadges uid={track.uid} />{/if}
 		</button>
-		<!-- DL-STATE-01: passive liked ♥ + downloaded ✓ indicators via the shared RowBadges (quick-260723
-		     rollout to all song rows). Non-interactive; like/download INITIATION stays in the ⋮ menu here. -->
-		{#if track}<RowBadges uid={track.uid} />{/if}
 		<button class="opt" aria-label={t('menu.options')} onclick={() => onrequestmenu?.()}>
 			<MoreVertical size={18} />
 		</button>
