@@ -20,7 +20,10 @@
     // quick-260919-1we (F2): the docked mini player's lyric line. parseLRC + the SHARED active-line
     // scan, over the SHARED pin-aware lyrics read — so the line shown here is the same LRC the
     // NowPlaying pane shows, including a user's Fix-lyrics pick (D-4).
-    import { parseLRC, activeLineAt } from "$lib/services/lrc";
+    // quick-260919-2jo: `parseLyrics`, NOT the raw `parseLRC` — the one lyric seam that applies the
+    // Chinese script lock (and repaints live when it is flipped). Same signature, same output shape.
+    import { activeLineAt } from "$lib/services/lrc";
+    import { parseLyrics } from "$lib/stores/lyric-script.svelte";
     import { readLyrics } from "$lib/stores/lyric-pins.svelte";
 
     type Variant = "docked" | "embed";
@@ -64,8 +67,9 @@
     //    NowPlaying's stacked pane (an original/translation pair rendered on two rows); one line in
     //    an 11px row has no room for a pair, so raw parsed lines are the right granularity here.
     //    This derived depends on the lyric STRING, not on currentTime, so it costs one pass over the
-    //    LRC per TRACK — not per tick.
-    const lyricLines = $derived(parseLRC(readLyrics(player.current) ?? ""));
+    //    LRC per TRACK — not per tick. quick-260919-2jo: the script conversion rides INSIDE that same
+    //    once-per-track pass (parseLyrics), so the per-tick scan below still walks plain strings.
+    const lyricLines = $derived(parseLyrics(readLyrics(player.current)));
     // 2. The early return gates the whole scan: with the setting off this costs one boolean read per
     //    tick and nothing else. `variant !== "docked"` is D-8's embed exclusion — repeating the
     //    current line directly above NowPlaying's full lyrics pane is noise.

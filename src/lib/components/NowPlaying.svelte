@@ -63,7 +63,11 @@
 	import VersionPicker from '$lib/components/VersionPicker.svelte';
 	import RowBadges from '$lib/components/RowBadges.svelte';
 	import Nowbar from '$lib/components/Nowbar.svelte';
-	import { parseLRC, reorderPairs, splitParenLines, lineSeekFraction, activeLineAt, type LyricLine } from '$lib/services/lrc';
+	import { reorderPairs, splitParenLines, lineSeekFraction, activeLineAt, type LyricLine } from '$lib/services/lrc';
+	// quick-260919-2jo: the Chinese script lock for lyric text. `parseLyrics` replaces `parseLRC`
+	// (the ORIGINAL lines); `lockLyricLines` covers the translation column, which is a SECOND source
+	// of source-derived text produced after parse time.
+	import { parseLyrics, lockLyricLines } from '$lib/stores/lyric-script.svelte';
 	// quick-260919-1we (D-4): the user's explicit lyric pick, layered into a reactive READ so it
 	// outranks whatever the chain (or a downloaded file's embedded tag) supplied.
 	import { readLyrics } from '$lib/stores/lyric-pins.svelte';
@@ -186,10 +190,16 @@
 	// file — `enrichFromLocalFile` writes `current.lrc`, and `current.lrc` is only the SECOND rung
 	// of readLyrics' pin → track.lrc → null order. It is also what repaints this pane the instant a
 	// pick lands (readLyrics takes the lyricVersion() dependency), with no replay and no player call.
+	//
+	// quick-260919-2jo: `parseLyrics` = parseLRC + the Chinese script lock, so the pane repaints in
+	// the locked script the instant the setting flips — mid-song, lyrics open, no reload. The lock
+	// runs FIRST, before reorderPairs / splitParenLines, and that is safe by construction: both of
+	// those decide on `dominantScript`, and an s2t/t2s conversion is Han→Han (it never changes a
+	// line's script class) and never touches the bracket characters splitParenLines matches on.
 	const lines = $derived<LyricLine[]>(
 		(() => {
 			const src = readLyrics(player.current);
-			return src ? splitParenLines(reorderPairs(parseLRC(src))) : [];
+			return src ? splitParenLines(reorderPairs(parseLyrics(src))) : [];
 		})()
 	);
 	// When multiple lyric lines share a timestamp (common in CN LRCs that ship the original
@@ -439,6 +449,13 @@
 			.finally(() => { if (trKey === key) translating = false; });
 	});
 	const showTr = $derived(settings.lyricsLang !== 'off' && translated.length === lines.length);
+	// quick-260919-2jo: the rendered translation column, script-locked. Kept SEPARATE from
+	// `translated` on purpose — `translated` stays the raw /api/translate output so `trCache`
+	// (keyed `uid:lang:n:skip`, which deliberately has no lock segment) is never poisoned with
+	// locked text and a lock flip costs no round-trip. This derived re-runs on the flip alone and
+	// repaints in place. Positionally aligned, so `showTr`'s length gate and the `[i]` indexing in
+	// the template are unchanged.
+	const trLines = $derived(lockLyricLines(translated));
 	// ---- related ----
 	let related = $state<Track[]>([]);
 	let relatedLoading = $state(false);
@@ -1662,10 +1679,10 @@
 								<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 								<p data-i={i} class:active={l.time === activeTime && activeTime >= 0} class:paren={l.fromParen} onclick={() => seekToLine(l)} onkeydown={(e) => seekToLineKey(e, l)} role="button" tabindex="0">
 									{#if showTr && settings.translateMode === 'replace' && !hideTrForLine}
-										{translated[i]}
+										{trLines[i]}
 									{:else}
 										{l.text}
-										{#if showTr && !hideTrForLine}<span class="tr" class:active={l.time === activeTime && activeTime >= 0}>{translated[i]}</span>{/if}
+										{#if showTr && !hideTrForLine}<span class="tr" class:active={l.time === activeTime && activeTime >= 0}>{trLines[i]}</span>{/if}
 									{/if}
 								</p>
 							{/if}

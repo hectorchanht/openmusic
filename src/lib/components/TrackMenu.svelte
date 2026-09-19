@@ -62,7 +62,7 @@
 	// posture as the cover picker one line up — the parallel walk fires ONLY on the Fix-lyrics tap
 	// (T-1we-03), never on menu open. `readLyrics` is D-4's single read (pin → track.lrc → null).
 	import { readLyrics, pinLyrics, unpinLyrics } from '$lib/stores/lyric-pins.svelte';
-	import { parseLRC } from '$lib/services/lrc';
+	import { parseLyrics } from '$lib/stores/lyric-script.svelte';
 	import { combinedSignal } from '$lib/services/abort-signal';
 	import { recallItunesId } from '$lib/services/itunes-cover';
 	import { isDeviceUid } from '$lib/services/device-track';
@@ -1091,7 +1091,11 @@
 			<button class="mi" onclick={openLyricsPicker} use:tapBounce><Mic2 size={18} /> {t('menu.lyricsRetry')}</button>
 		{:else}
 			{#each lyricCandidates as c (c.source)}
-				{@const preview = parseLRC(c.lrc).find((l) => l.text.trim())?.text ?? ''}
+				<!-- quick-260919-2jo: the preview is script-locked, the CANDIDATE is not. `pickLyrics(c.lrc)`
+				     still pins the RAW upstream text, so the pin stays source data and re-renders through
+				     the lock like anything else. Locking the preview is what makes it honest: with the lock
+				     on, two candidates that differ only in script WILL render identically once picked. -->
+				{@const preview = parseLyrics(c.lrc).find((l) => l.text.trim())?.text ?? ''}
 				<button class="mi" onclick={() => pickLyrics(c.lrc)} use:tapBounce>
 					{#if c.lrc === pinnedNow}<Check size={18} />{:else}<Mic2 size={18} />{/if}
 					<span class="dl-src">{SOURCES[c.source]?.label ?? c.source}</span>
