@@ -228,9 +228,9 @@ Plans:
 
 Captured 2026-09-19 (user batch dump):
 
-- Long-press menu on a downloaded song: **"Mark no more import"** — removes it from the download list AND excludes that file from future device-import scans. Needs a recovery list UI to un-exclude previously marked songs.
+- ~~Long-press menu: **"Mark no more import"** + recovery list~~ — SHIPPED 2026-09-19 as quick-260919-30x (bounded `openmusic:import-exclusions:v1` honoured by the Phase 34 scan; "Allow again" list under Settings → Downloads; the user's own file is never touched).
 - Changing a song's cover must also **rewrite the cover into the downloaded file**, and the system must remember the override.
-- Allow the user to **rename the downloaded file**.
+- ~~Allow the user to **rename the downloaded file**~~ — SHIPPED 2026-09-19 as quick-260919-30x (filename row in the metadata editor; native-only, app-downloaded tracks only, refused for imported `device:` files).
 - Downloaded songs still show **meta: size, format, quality/bitrate**.
 - **Offline playback reads lyrics from the downloaded file** — a downloaded song should be fully self-sufficient offline.
 - Song meta must go through the app's **locale translation** too (observed: 简体 "过一招" album tag under a 繁體 title).
