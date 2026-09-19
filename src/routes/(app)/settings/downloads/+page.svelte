@@ -108,11 +108,19 @@
 			if (!(await blobStore.has(d.uid))) continue;
 			// The display-name translation happens HERE, not in retag.ts — the service stays store-free,
 			// and the tag and the filename it writes then agree with what the user sees in the app.
+			//
+			// quick-260919-2jo — the album rides `names.zhLock`, the SIBLING of the download seam's
+			// own fix (download-track.ts). Same bug in the same shape: title/artist went through the
+			// display-name layer (script-converted) while the album stayed the RAW catalog string, so
+			// a bulk retag rewrote a Traditional title next to a Simplified album — and this page is
+			// the ONLY route a user has to repair files they downloaded before the lock existed, so
+			// fixing only the fresh-download path would have left the repair itself broken. zhLock,
+			// not dnTitle: synchronous and network-free, no /api/translate batch in the retag loop.
 			out.push({
 				uid: d.uid,
 				title: names.dnTitle(d.title),
 				artist: names.dnArtist(d.artist),
-				album: d.album,
+				album: names.zhLock(d.album),
 				cover: d.cover
 			});
 		}

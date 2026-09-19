@@ -180,6 +180,17 @@ describe('retag — what it hands the codec and the store', () => {
 	});
 });
 
+// quick-260919-2jo — the bulk-retag ENTRY builds its RetagEntry list in a .svelte route whose
+// helper is not exported, so assert the composition at the source. This is the one check that
+// fails if the album regresses back to the raw catalog string while title/artist stay converted.
+describe('retag — the Settings → Downloads entry routes the album through the script lock', () => {
+	it('builds its RetagEntry album from names.zhLock, not the raw d.album', () => {
+		const page = readFileSync('src/routes/(app)/settings/downloads/+page.svelte', 'utf-8');
+		expect(page).toMatch(/album: names\.zhLock\(d\.album\)/);
+		expect(page).not.toMatch(/^\s*album: d\.album,/m);
+	});
+});
+
 describe('retag — module shape / purity', () => {
 	const src = readFileSync(fileURLToPath(new URL('./retag.ts', import.meta.url)), 'utf-8');
 	const code = src
