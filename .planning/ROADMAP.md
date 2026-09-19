@@ -234,6 +234,7 @@ Captured 2026-09-19 (user batch dump):
 - Downloaded songs still show **meta: size, format, quality/bitrate**.
 - **Offline playback reads lyrics from the downloaded file** — a downloaded song should be fully self-sufficient offline.
 - Song meta must go through the app's **locale translation** too (observed: 简体 "过一招" album tag under a 繁體 title).
+- **Full metadata editor for a downloaded song** — a popup from the song menu that edits every meta field (song name, artist name, album, …) and writes the result into the file's tags. Cover stays synced with the edit, lyrics stay synced with the edit. (Added 2026-09-19, same batch.)
 
 Overlaps Phases 34 (import device songs), 36 (tag downloaded songs with metadata), 37 (enrich imported device songs — in progress). **Audit what is already built before planning.**
 
