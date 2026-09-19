@@ -82,6 +82,11 @@
 	let tagsOpen = $state(false);
 	const liked = $derived(track ? library.isLiked(track.uid) : false);
 	const isDevice = $derived(!!track && isDeviceUid(track.uid));
+	// quick-260919-dlring: is there an artist worth navigating TO? A name-stub and a `device:` import
+	// with no artist tag both arrive with an empty (or whitespace-only) `artist`, and `/artist/` with
+	// an empty param is not a page. Gates the header text control below; gotoArtist() re-checks it so
+	// the `menu.goToArtist` row cannot route there either.
+	const hasArtist = $derived(!!track && track.artist.trim() !== '');
 
 	// Gap 4 (26-10): a lazily-fed VersionPicker reachable from the long-press menu — "Play from
 	// source". A queued/played song carries only its own source, so the cross-source variants are
@@ -411,7 +416,10 @@
 	// the goto() (single overlay → back cancels goto, the menu nav "does nothing"; stacked
 	// overlays → goto lands then back over-pops, snapping the URL home). See the overlays store.
 	function gotoArtist() {
-		if (!track) return;
+		// quick-260919-dlring: `hasArtist` is re-checked HERE, not only at the two call sites, so no
+		// caller can route to `/artist/` with an empty name. Navigating with the RAW track.artist is
+		// load-bearing — names.dnArtist is a display translation and the route must not see it.
+		if (!track || !hasArtist) return;
 		const dest = `/artist/${encodeURIComponent(track.artist)}`;
 		overlays.navigateAway(() => goto(dest));
 	}
@@ -833,12 +841,32 @@
 		     re-measures the wider resolved text (NowPlaying analog; Pitfall 2). The keyframe is
 		     GLOBAL in app.css (Pitfall 4) — the component styles only the clip wrappers. -->
 		<div class="sheet-head">
-			<div class="head-text">
+			<!-- quick-260919-dlring: the header text block IS the Go-to-artist control. It routes
+			     through the SAME gotoArtist() as the `menu.goToArtist` row below — one route-building
+			     path, one overlays.navigateAway() dismissal, so the two can never disagree (exactly
+			     the header-icon + list-row precedent D-09/je8 set for Download). Note gotoArtist()
+			     navigates with the RAW track.artist; names.dnArtist is display-only and must never
+			     reach the route.
+			     A <button> that is a SIBLING of .head-actions, never a wrapper around it — the Like /
+			     Download / Close buttons must not end up nested inside a button. The two clip elements
+			     are <span>s (not <div>s) so the button's phrasing-only content model holds; `use:marquee`
+			     is untouched and the CSS gives them back `display: block`, so the two-row shape and the
+			     header height are byte-identical to the div version.
+			     NO usable artist (a name-stub, or a `device:` import with no artist tag) → `disabled`.
+			     A disabled button is not focusable and not clickable, so the header degrades to inert
+			     text rather than becoming a control that navigates nowhere; `.head-text` carries no
+			     `:disabled` dimming, so it still LOOKS exactly like the plain block it used to be. -->
+			<button
+				class="head-text"
+				onclick={gotoArtist}
+				disabled={!hasArtist}
+				aria-label={hasArtist ? `${t('menu.goToArtist')}: ${names.dnArtist(track.artist)}` : undefined}
+			>
 				{#key track.uid}
-					<div class="hd-title" use:marquee><span class="marquee-inner">{names.dnTitle(track.title)}</span></div>
-					<div class="hd-artist" use:marquee><span class="marquee-inner">{names.dnArtist(track.artist)}</span></div>
+					<span class="hd-title" use:marquee><span class="marquee-inner">{names.dnTitle(track.title)}</span></span>
+					<span class="hd-artist" use:marquee><span class="marquee-inner">{names.dnArtist(track.artist)}</span></span>
 				{/key}
-			</div>
+			</button>
 			<div class="head-actions">
 				<!-- D-09 AMENDED by quick-260913-je8: the header accent slot is DOWNLOAD now, not Like.
 				     D-09's "Like is the sole header accent AND the mid-list Like row is removed" no
@@ -1267,9 +1295,31 @@
 	   the action slot is Download, was Like). Left text column flexes (min-width:0 so the clips can
 	   shrink-and-ellipsis); right cluster is fixed-width. */
 	.sheet-head { display: flex; align-items: center; gap: 12px; padding: 8px 10px; }
-	.head-text { flex: 1; min-width: 0; }
-	.hd-title { font-size: calc(15px * var(--fs-title, 1)); font-weight: 600; color: var(--color-text); line-height: 1.25; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-width: 0; max-width: 100%; }
-	.hd-artist { font-size: calc(13px * var(--fs-artist, 1)); font-weight: 400; color: var(--color-text-muted); line-height: 1.25; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-width: 0; max-width: 100%; }
+	/* quick-260919-dlring: `.head-text` is a <button> now (Go to artist). Every declaration past the
+	   original `flex`/`min-width` pair is a UA reset — the box must stay pixel-identical to the div it
+	   replaced, so no padding, no border, no UA font, and text-align: left instead of the button
+	   default centre. `display: block` keeps the two rows stacked (a button is inline-block and
+	   would shrink-wrap). Deliberately NO `:disabled` opacity: with no artist to visit this button is
+	   inert, and inert must look like the plain text block it used to be, not like a greyed control. */
+	.head-text {
+		flex: 1;
+		min-width: 0;
+		display: block;
+		appearance: none;
+		background: none;
+		border: 0;
+		padding: 0;
+		margin: 0;
+		font: inherit;
+		color: inherit;
+		text-align: left;
+		-webkit-tap-highlight-color: transparent;
+	}
+	.head-text:not(:disabled) { cursor: pointer; }
+	/* `display: block` because these are <span>s now (phrasing content, so they are legal inside the
+	   button above) — everything else is unchanged from when they were <div>s. */
+	.hd-title { display: block; font-size: calc(15px * var(--fs-title, 1)); font-weight: 600; color: var(--color-text); line-height: 1.25; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-width: 0; max-width: 100%; }
+	.hd-artist { display: block; font-size: calc(13px * var(--fs-artist, 1)); font-weight: 400; color: var(--color-text-muted); line-height: 1.25; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-width: 0; max-width: 100%; }
 	.head-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 18px; }
 	.hd-btn { min-width: 44px; min-height: 44px; display: grid; place-items: center; background: none; border: none; border-radius: 10px; color: var(--color-text); cursor: pointer; }
 	.hd-btn:hover { background: var(--color-surface); }
