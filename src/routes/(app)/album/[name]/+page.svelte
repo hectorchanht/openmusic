@@ -16,8 +16,6 @@
 	import { entityCardUrl } from '$lib/services/share';
 	import { dragClose } from '$lib/actions/dragClose';
 	import { focusTrap } from '$lib/actions/focusTrap';
-	import { longpress } from '$lib/actions/longpress';
-	import { swipeAction } from '$lib/actions/swipeAction';
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { shouldRun } from '$lib/actions/inflightGuard';
 	import { toast as globalToast } from '$lib/stores/toast.svelte';
@@ -35,12 +33,12 @@
 	import { mbTracks } from '$lib/services/musicbrainz';
 	import { mergeEnrichAlbum } from '$lib/services/enrich-merge';
 	import { marquee } from '$lib/actions/marquee';
+	import SongRow from '$lib/components/SongRow.svelte';
 	import TrackMenu from '$lib/components/TrackMenu.svelte';
 	import DownloadControl from '$lib/components/DownloadControl.svelte';
 	import PageOg from '$lib/components/PageOg.svelte';
 	import type { PageData } from './$types';
 	import type { Track } from '$lib/sources/types';
-	import { coverGradient } from '$lib/services/cover-gradient';
 
 	// `data.og` comes from the universal +page.ts load (album title/description derived at SSR) so
 	// the album page emits a crawler-correct OG card in the server HTML (GLN-4).
@@ -83,12 +81,6 @@
 	// from Last.fm enrich; tracked explicitly so an empty result / deep-link doesn't strand the
 	// skeleton — it stays false unless the enrich effect actually fires).
 	let enrichLoading = $state(false);
-
-	// Synthetic gradient cover keyed by the stub (no source cover on a Last.fm stub).
-	// Shared placeholder gradient (cover-gradient.ts) — was inlined in eight files.
-	function fallbackCover(seed: string): string {
-		return coverGradient(seed);
-	}
 
 	// Stable in-flight-guard key for a stub row (used by swipeQueue/swipeNext). The `album:`
 	// prefix is disjoint from real source uids so it never collides with a resolved Track uid.
@@ -703,23 +695,41 @@
 	</div>
 	<ul class="list">
 		{#each tracks as track, i (i)}
-			<li class="row-line">
-				<div class="swipe-wrap">
-					<!-- UX-04 reveal layers behind the row; the row translateX (use:swipeAction) exposes them. -->
-					<span class="reveal reveal-queue" aria-hidden="true"><ListEnd size={20} /></span>
-					<span class="reveal reveal-next" aria-hidden="true"><ListStart size={20} /></span>
-					<button class="row" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openMenu(track); }} onclick={() => playStub(track, i)} use:swipeAction={{ onSwipeRight: () => swipeQueue(track), onSwipeLeft: () => swipeNext(track) }}>
-						<span class="rank">{i + 1}</span>
-						<span class="art" style:background-image={heroImg ? `url(${heroImg})` : fallbackCover(track.artist + track.title)}></span>
-						<span class="meta"><span class="r-title">{names.dnTitle(track.title)}</span><span class="r-sub">{names.dnArtist(track.artist)}</span></span>
-						<Play size={16} />
-					</button>
-				</div>
-				<!-- D-11 album-row control. Album rows are {artist,title} STUBS → resolve on tap
-				     (persist:false, see downloadAlbum LIMITATION note). Per-uid state only surfaces
-				     after a resolve, so a stub reads idle until first tapped — acceptable for stubs. -->
-				<DownloadControl track={null} persist={false} resolve={() => resolveStub(track.artist, track.title).catch(() => null)} />
-			</li>
+			<!-- quick-260919-l9e: the shared row. A tracklist entry is an AlbumStub ({artist,title}),
+			     so it is lifted to a Track through the SAME `nameStub` albumQueue() already uses —
+			     one stub shape for the row and the queue, not two. A stub with an empty field yields
+			     null and renders nothing; `i` still comes from the {#each}, so the album index the
+			     tap and the queue install depend on is unaffected. -->
+			{@const rowTrack = nameStub(track.artist, track.title, heroImg)}
+			{#if rowTrack}
+				<li class="row-line">
+					<div class="swipe-wrap">
+						<!-- UX-04 reveal layers behind the row; the row translateX exposes them. -->
+						<span class="reveal reveal-queue" aria-hidden="true"><ListEnd size={20} /></span>
+						<span class="reveal reveal-next" aria-hidden="true"><ListStart size={20} /></span>
+						<!-- The tap path is untouched (quick-260919-alb): playStub installs the optimistic
+						     now-bar and albumQueue(i, real) slot-substitutes in the same tick. `lazy={false}`
+						     because every row on an album legitimately shares the one album cover, so N
+						     per-row resolve chains would buy nothing; `cover={heroImg}` is that shared art.
+						     `actions={[]}` — a stub has no resolved uid, and the album's own download
+						     control is the resolve-on-tap sibling below, which SongRow cannot express. -->
+						<SongRow
+							track={rowTrack}
+							index={i}
+							cover={heroImg}
+							actions={[]}
+							lazy={false}
+							onplay={() => playStub(track, i)}
+							onrequestmenu={() => openMenu(track)}
+							swipe={{ onSwipeRight: () => swipeQueue(track), onSwipeLeft: () => swipeNext(track) }}
+						/>
+					</div>
+					<!-- D-11 album-row control. Album rows are {artist,title} STUBS → resolve on tap
+					     (persist:false, see downloadAlbum LIMITATION note). Per-uid state only surfaces
+					     after a resolve, so a stub reads idle until first tapped — acceptable for stubs. -->
+					<DownloadControl track={null} persist={false} resolve={() => resolveStub(track.artist, track.title).catch(() => null)} />
+				</li>
+			{/if}
 		{/each}
 	</ul>
 {:else if !albumArtist}
@@ -786,15 +796,13 @@
 	}
 	.reveal-queue { left: 0; color: var(--color-text-muted); }
 	.reveal-next { right: 0; color: var(--color-text-muted); }
-	.row { width: 100%; text-align: left; background: var(--color-bg); position: relative; z-index: 1; border: none; padding: 6px; border-radius: 8px; cursor: pointer; display: flex; align-items: center; gap: 12px; color: var(--color-text); }
-	/* MENU-03 / D-12: hover-capable devices only — touch otherwise latches this :hover
-	   background on a row under a held finger while the track menu opens. */
-	@media (hover: hover) { .row:hover { background: var(--color-surface); } }
-	.rank { width: 18px; text-align: center; color: var(--color-text-muted); font-size: 13px; flex: none; }
+	/* quick-260919-l9e: the real tracklist row is SongRow.svelte now (its styles travelled with
+	   it). `.row` / `.rank` / `.art` / `.meta` are KEPT because the 10-row loading skeleton above
+	   still renders `<span class="row">` with them and the .sk-* bars. The interactive-only rules
+	   (:hover, .r-title, .r-sub) went with the markup. */
+	.row { width: 100%; text-align: left; background: var(--color-bg); position: relative; z-index: 1; border: none; padding: 6px; border-radius: 8px; display: flex; align-items: center; gap: 12px; color: var(--color-text); }
 	.art { width: 44px; height: 44px; border-radius: 6px; background-size: cover; background-position: center; flex: none; }
 	.meta { display: flex; flex-direction: column; min-width: 0; flex: 1; }
-	.r-title { font-size: calc(14px * var(--fs-title, 1)); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-	.r-sub { font-size: calc(12px * var(--fs-artist, 1)); color: var(--color-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 	/* ---- loading skeletons (global .sk in app.css supplies the grey + shimmer; these size the
 	   blocks to match the real content) ---- */
