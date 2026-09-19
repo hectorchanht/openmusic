@@ -41,6 +41,7 @@ import { library } from '$lib/stores/library.svelte';
 import { DEFAULT_IMPORT_RULES, IMPORT_RULES_KEY } from '$lib/services/device-filename';
 import { emptySummary, SCAN_PAGE_SIZE } from '$lib/services/device-import';
 import { deviceUid, type ScanRow } from '$lib/services/device-track';
+import { excludeUid, unexcludeUid } from '$lib/services/import-exclusions';
 import type { Track } from '$lib/sources/types';
 
 const memStore = new Map<string, string>();
@@ -296,6 +297,52 @@ describe('runImport — applying the plan', () => {
 		const clearUnavailable = vi.spyOn(library, 'clearUnavailable');
 		await deviceImport.runImport();
 		expect(clearUnavailable).toHaveBeenCalledWith();
+	});
+});
+
+// quick-260919-30x — THE WIRING TEST FOR "don't import again". The brain's own suite proves that a
+// marked uid is skipped; what is proved HERE is the thing that makes the feature real rather than
+// decorative: the store reads the marks AT CALL TIME and passes them in, so a full scan does not
+// put a marked file straight back.
+describe('runImport — the user\u2019s "don\u2019t import again" marks (quick-260919-30x)', () => {
+	it('does not re-import a file the user marked, and reports it as its own skip', async () => {
+		scanAudio.mockResolvedValue({
+			rows: [row({ id: '1' }), row({ id: '2', displayName: 'Daft Punk - Da Funk.mp3' })],
+			total: 2
+		});
+		excludeUid(deviceUid('1'), 'Adele - Hello');
+
+		await deviceImport.runImport();
+
+		expect(library.downloads.map((t) => t.uid)).not.toContain(deviceUid('1'));
+		expect(library.downloads.map((t) => t.uid)).toContain(deviceUid('2'));
+		expect(deviceImport.summary?.skippedExcluded).toBe(1);
+		expect(deviceImport.summary?.added).toBe(1);
+	});
+
+	it('marks are read at CALL time — one made after the page mounted still counts', async () => {
+		scanAudio.mockResolvedValue({ rows: [row({ id: '1' })], total: 1 });
+		// first run: nothing marked, the file comes in
+		await deviceImport.runImport();
+		expect(library.downloads.map((t) => t.uid)).toContain(deviceUid('1'));
+
+		// the user marks it from the track menu, then scans again
+		excludeUid(deviceUid('1'), 'Adele - Hello');
+		await deviceImport.runImport();
+		expect(library.downloads.map((t) => t.uid)).not.toContain(deviceUid('1'));
+		expect(deviceImport.summary?.skippedExcluded).toBe(1);
+	});
+
+	it('"Allow again" brings the file back on the NEXT scan (D-4)', async () => {
+		scanAudio.mockResolvedValue({ rows: [row({ id: '1' })], total: 1 });
+		excludeUid(deviceUid('1'), 'Adele - Hello');
+		await deviceImport.runImport();
+		expect(library.downloads.map((t) => t.uid)).not.toContain(deviceUid('1'));
+
+		unexcludeUid(deviceUid('1'));
+		await deviceImport.runImport();
+		expect(library.downloads.map((t) => t.uid)).toContain(deviceUid('1'));
+		expect(deviceImport.summary?.added).toBe(1);
 	});
 });
 
