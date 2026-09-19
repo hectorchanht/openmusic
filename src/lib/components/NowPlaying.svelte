@@ -64,6 +64,9 @@
 	import RowBadges from '$lib/components/RowBadges.svelte';
 	import Nowbar from '$lib/components/Nowbar.svelte';
 	import { parseLRC, reorderPairs, splitParenLines, lineSeekFraction, type LyricLine } from '$lib/services/lrc';
+	// quick-260919-1we (D-4): the user's explicit lyric pick, layered into a reactive READ so it
+	// outranks whatever the chain (or a downloaded file's embedded tag) supplied.
+	import { readLyrics } from '$lib/stores/lyric-pins.svelte';
 	import { createVelocityTracker } from '$lib/gestures/velocity';
 	import type { Track } from '$lib/sources/types';
 	import { coverGradient } from '$lib/services/cover-gradient';
@@ -176,8 +179,18 @@
 	// own entry so each part (main text + parenthesised clause) flows through the per-line
 	// translate path independently. The split entries carry `fromParen:true` so the renderer
 	// can suppress their translations when settings.lyricsHideParenTranslation is on.
+	//
+	// quick-260919-1we (D-4): the SOURCE of this pipeline is `readLyrics(player.current)`, not
+	// `player.current.lrc`. That one read is what makes a user's explicit pick in the Fix-lyrics
+	// picker beat everything else, INCLUDING Phase 37's embedded-LRC enrichment for a downloaded
+	// file — `enrichFromLocalFile` writes `current.lrc`, and `current.lrc` is only the SECOND rung
+	// of readLyrics' pin → track.lrc → null order. It is also what repaints this pane the instant a
+	// pick lands (readLyrics takes the lyricVersion() dependency), with no replay and no player call.
 	const lines = $derived<LyricLine[]>(
-		player.current?.lrc ? splitParenLines(reorderPairs(parseLRC(player.current.lrc))) : []
+		(() => {
+			const src = readLyrics(player.current);
+			return src ? splitParenLines(reorderPairs(parseLRC(src))) : [];
+		})()
 	);
 	// When multiple lyric lines share a timestamp (common in CN LRCs that ship the original
 	// + an inline translation as two consecutive entries at the same time, plus our own

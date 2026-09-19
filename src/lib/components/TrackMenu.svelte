@@ -2,7 +2,7 @@
 	import { tick, untrack } from 'svelte';
 	import { fly } from 'svelte/transition';
 	import { goto } from '$app/navigation';
-	import { ListStart, ListEnd, Download, Check, Heart, ListPlus, User, Share2, Info, X, Plus, Shuffle, Trash2, Moon, Sparkles, Layers, Image as ImageIcon, ChevronDown, Tags } from '@lucide/svelte';
+	import { ListStart, ListEnd, Download, Check, Heart, ListPlus, User, Share2, Info, X, Plus, Shuffle, Trash2, Moon, Sparkles, Layers, Image as ImageIcon, ChevronDown, Tags, Mic2 } from '@lucide/svelte';
 	import { player } from '$lib/stores/player.svelte';
 	import { sleepTimer } from '$lib/stores/sleepTimer.svelte';
 	import { library } from '$lib/stores/library.svelte';
@@ -22,7 +22,7 @@
 	import { tick as hapticTick } from '$lib/util/haptics';
 	import { isGatedReady, shouldStartResolve } from './track-menu-gate';
 	import { t } from '$lib/i18n';
-	import { ensureTrackDetails } from '$lib/services/catalog';
+	import { ensureTrackDetails, collectLyricCandidates, type LyricCandidate } from '$lib/services/catalog';
 	import { prewarmTrack } from '$lib/services/prewarm';
 	// Gap 4 (26-10): the LAZY on-demand cross-source variant fetch (26-08) fed to the Play-from-source
 	// picker — fired ONLY on the row tap, never on menu open (T-26-10-02).
@@ -50,6 +50,12 @@
 	// quick-260915-w4f: the ENUMERATE-ALL cover collector. Imported for the picker only — it runs
 	// alongside resolveTrackChain, never inside it, and fires ONLY on the Change-cover tap (Q1).
 	import { collectCoverCandidates, type CoverCandidate } from '$lib/services/cover-backfill';
+	// quick-260919-1we: the lyrics picker's ENUMERATE-ALL collector + the pin read/write pair. Same
+	// posture as the cover picker one line up — the parallel walk fires ONLY on the Fix-lyrics tap
+	// (T-1we-03), never on menu open. `readLyrics` is D-4's single read (pin → track.lrc → null).
+	import { readLyrics, pinLyrics, unpinLyrics } from '$lib/stores/lyric-pins.svelte';
+	import { parseLRC } from '$lib/services/lrc';
+	import { combinedSignal } from '$lib/services/abort-signal';
 	import { recallItunesId } from '$lib/services/itunes-cover';
 	import { isDeviceUid } from '$lib/services/device-track';
 	import type { Track } from '$lib/sources/types';
@@ -92,6 +98,18 @@
 	let coverCandidates = $state<CoverCandidate[]>([]);
 	let coverGen = 0;
 	let coverAc: AbortController | null = null;
+
+	// quick-260919-1we: the LYRICS picker — the exact same shape as the cover picker above, for the
+	// exact same reason. The lyric chain is first-source-wins and sometimes wins wrong (wrong song,
+	// wrong language, an instrumental's LRC), so this lets the user override it once, per song,
+	// permanently. The candidate walk is a parallel per-source fan-out (a real cost), so it fires ONLY
+	// on the Fix-lyrics row tap, never on menu open (T-1we-03 / T-26-10-02 posture). lyricGen /
+	// lyricAc are PLAIN fields: supersedence guards the UI never reads reactively (house convention).
+	let lyricsOpen = $state(false);
+	let lyricsLoading = $state(false);
+	let lyricCandidates = $state<LyricCandidate[]>([]);
+	let lyricGen = 0;
+	let lyricAc: AbortController | null = null;
 
 	// quick-260916-0d9 — the "Download from…" picker. Same shape as the two pickers above and opened
 	// the same opt-in way (T-26-10-02 posture), except the trigger is a LONG-PRESS on the Download row
@@ -168,6 +186,7 @@
 		tagsOpen = false; // quick-260919-1eh: reset alongside the other sheet flags
 		coverAc?.abort(); // quick-260915-w4f: never leave a candidate fan-out running behind a closed menu
 		dlPickAc?.abort(); // quick-260916-0d9: same rule for the download-picker probe pool
+		lyricAc?.abort(); // quick-260919-1we: same rule for the lyric-candidate walk
 		onclose();
 	}
 	// Gap 4 (26-10): open the Play-from-source picker + fire the SINGLE lazy variant fan-out. Called
@@ -224,6 +243,53 @@
 		player.adoptCover(track.uid, url);
 		toast.show(t('toast.coverPinned'));
 		closeCoverPicker();
+		close();
+	}
+
+	// quick-260919-1we (D-6): opening the sheet IS the reloader. Nothing caches a resolved LRC
+	// client-side (apiFetch's GET dedupe is in-flight only), so every open re-walks the sources live —
+	// which is why there is no always-visible "Reload" button: it would re-run the walk that just ran.
+	// Mirrors openCoverPicker exactly: gen bump + abort the prior walk, open the sheet IMMEDIATELY
+	// with a spinner so it never waits on the network, then fill it.
+	async function openLyricsPicker() {
+		// Same reason the Like and Change-cover rows are disabled: a uid-less name stub has no
+		// identity to pin against (D-1 — the pin record is keyed per uid).
+		if (!track?.uid) return;
+		const gen = ++lyricGen;
+		lyricAc?.abort();
+		const ac = new AbortController();
+		lyricAc = ac;
+		lyricCandidates = [];
+		lyricsLoading = true;
+		lyricsOpen = true;
+		// combinedSignal is the shared caller-signal + timeout primitive (never hand-roll a second
+		// controller). The 15s ceiling is T-1we-03: a hung upstream must not pin the sheet on a spinner.
+		const list = await collectLyricCandidates(track.artist, track.title, combinedSignal(15_000, ac.signal));
+		if (gen !== lyricGen || ac.signal.aborted) return; // superseded by a re-tap / cancelled
+		lyricCandidates = list;
+		lyricsLoading = false;
+	}
+	function closeLyricsPicker() {
+		lyricsOpen = false;
+		lyricAc?.abort();
+	}
+	// Pin the tapped LRC. D-4: NO player call is needed — pinLyrics bumps the shared reactive signal
+	// and every lyrics surface reads through readLyrics(), so the NowPlaying pane and the Nowbar line
+	// repaint on the spot with no replay and no `player.current` surgery.
+	function pickLyrics(lrc: string) {
+		if (!track?.uid) return;
+		pinLyrics(track.uid, lrc);
+		toast.show(t('toast.lyricsPinned'));
+		closeLyricsPicker();
+		close();
+	}
+	// D-6: drop the pin and fall the read back to the app's own lyrics. Reuses menu.lyricsAuto as the
+	// toast text rather than minting a sixth key for one sentence.
+	function resetLyrics() {
+		if (!track?.uid) return;
+		unpinLyrics(track.uid);
+		toast.show(t('menu.lyricsAuto'));
+		closeLyricsPicker();
 		close();
 	}
 	function playNext() { if (track) { player.playNext(track); toast.show(t('toast.playingNext')); } close(); }
@@ -686,6 +752,12 @@
 		     per song, permanently. The candidate fan-out fires on THIS tap only (Q1). `disabled` mirrors
 		     the Like row: a uid-less stub has no identity to pin against. -->
 		<button class="mi" disabled={!track.uid} onclick={openCoverPicker} use:tapBounce><ImageIcon size={18} /> {t('menu.changeCover')}</button>
+		<!-- quick-260919-1we: Fix lyrics. Same story as Change cover one line up, for the lyric chain:
+		     it is first-source-wins and sometimes wins wrong (wrong song, wrong language, an
+		     instrumental's LRC), and until now the user had no way to correct it. The per-source walk
+		     fires on THIS tap only (T-1we-03). `disabled` mirrors the Like / Change-cover rows: a
+		     uid-less stub has no identity to pin against (D-1). -->
+		<button class="mi" disabled={!track.uid} onclick={openLyricsPicker} use:tapBounce><Mic2 size={18} /> {t('menu.fixLyrics')}</button>
 		<!-- quick-260919-1eh: Edit metadata. Shown ONLY for a file the app actually owns a copy of.
 		     `blobPresent` is the blob-backed probe, NOT library.isDownloaded — quick-260913-jq4
 		     explains why the reference list lies (it is populated BEFORE the fetch, and the web save
@@ -830,6 +902,42 @@
 	</div>
 {/if}
 
+<!-- quick-260919-1we: the lyrics picker. Mounted OUTSIDE the {#if open && track} block (like the cover
+     picker above) so it survives the menu closing on a pick. One row per SOURCE that actually returned
+     an LRC (D-5), labelled from the registry exactly like the Download-from rows, with the first
+     timestamped line as a preview so the user can tell two candidates apart without playing them.
+     The LRC text is rendered as Svelte text interpolation, which escapes — no {@html} anywhere in this
+     feature (T-1we-02). -->
+{#if lyricsOpen && track}
+	{@const pinnedNow = readLyrics(track)}
+	<button class="scrim" aria-label={t('menu.close')} onclick={closeLyricsPicker}></button>
+	<div class="menu" transition:fly={{ y: 240, duration: 200 }} use:dragClose={{ onclose: closeLyricsPicker }} use:focusTrap>
+		<div class="menu-head row"><span>{t('menu.fixLyrics')}</span><button class="x" aria-label={t('menu.close')} onclick={closeLyricsPicker} use:tapBounce><X size={18} /></button></div>
+		{#if lyricsLoading && !lyricCandidates.length}
+			<div class="cover-wait"><span class="row-spinner motion-always"></span></div>
+		{:else if !lyricCandidates.length}
+			<p class="cover-none">{t('menu.lyricsPickerNone')}</p>
+			<!-- D-6: Retry is shown ONLY on a dry walk — the one affordance that is not redundant with
+			     re-opening the sheet, because the sheet is already open. -->
+			<button class="mi" onclick={openLyricsPicker} use:tapBounce><Mic2 size={18} /> {t('menu.lyricsRetry')}</button>
+		{:else}
+			{#each lyricCandidates as c (c.source)}
+				{@const preview = parseLRC(c.lrc).find((l) => l.text.trim())?.text ?? ''}
+				<button class="mi" onclick={() => pickLyrics(c.lrc)} use:tapBounce>
+					{#if c.lrc === pinnedNow}<Check size={18} />{:else}<Mic2 size={18} />{/if}
+					<span class="dl-src">{SOURCES[c.source]?.label ?? c.source}</span>
+					{#if preview}<span class="count lyr-prev">{preview}</span>{/if}
+				</button>
+			{/each}
+		{/if}
+		<!-- D-6: Use-automatic is shown ONLY when a pin exists. `readLyrics` leads with the pin and falls
+		     back to track.lrc, so "the read differs from the track's own lrc" IS "a pin exists". -->
+		{#if pinnedNow !== (track.lrc ?? null)}
+			<button class="mi" onclick={resetLyrics} use:tapBounce><Sparkles size={18} /> {t('menu.lyricsAuto')}</button>
+		{/if}
+	</div>
+{/if}
+
 <!-- quick-260916-0d9 — the "Download from…" sheet. Mounted OUTSIDE the {#if open && track} block (like
      the other sub-sheets) so it survives the menu closing on a pick. One row per SOURCE: the own
      source first (already labelled from the main row's probe), then whatever the single fan-out
@@ -876,8 +984,13 @@
 <!-- quick-260919-1eh: the metadata editor. Mounted OUTSIDE the {#if open && track} menu block, like
      the VersionPicker above, so it survives the menu closing on save. `cover` is the SAME activeCover
      ladder the share card and the cover picker already read — one precedence chain, now three
-     consumers. `lyrics` is what the app HAS: the playing song's resolved lrc, else null (the editor
-     never fires a network resolve to go hunting — it must work offline).
+     consumers. `lyrics` is what the app HAS: the playing song's resolved lrc, else the row's own
+     (the editor never fires a network resolve to go hunting — it must work offline).
+
+     quick-260919-1we (D-4): that read now goes through `readLyrics`, so a retag writes the lyrics the
+     user CHOSE in the Fix-lyrics picker into the file, not the superseded ones the chain happened to
+     pick first. The current-track preference is kept — player.current carries the resolved lrc a list
+     row may still be a stub for.
 
      onsaved fires BOTH repaint seams, always: applyMetadata repaints the library list rows (in-place
      proxy mutation, so already-rendered home shelves update too), adoptMetadata repaints the
@@ -887,7 +1000,7 @@
 	{track}
 	open={tagsOpen}
 	cover={activeCover}
-	lyrics={track && player.current?.uid === track.uid ? player.current.lrc : null}
+	lyrics={readLyrics(track && player.current?.uid === track.uid ? player.current : track)}
 	onclose={() => (tagsOpen = false)}
 	onsaved={(patch) => {
 		if (!track) return;
@@ -931,6 +1044,9 @@
 	   (CJK source labels plus a `FLAC · 38.2 MB` count still fit one line at 375px; a long count
 	   ellipsises the label, which is the right thing to lose). */
 	.dl-src { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	/* quick-260919-1we: the candidate's first sung line, so two sources are distinguishable without
+	   playing either. Capped so a long line never pushes the source label out of the row. */
+	.lyr-prev { max-width: 55%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 	.dl-wait { display: flex; align-items: center; gap: 10px; color: var(--color-text-muted); font-size: 13px; padding: 10px 12px; margin: 0; }
 	/* The hold-affordance caret on the Download row. `.count` already carries `margin-left: auto`, so
 	   the caret only needs to claim the right edge itself when NO count rendered (no probe yet, no
