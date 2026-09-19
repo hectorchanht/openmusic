@@ -35,7 +35,10 @@ const mocks = vi.hoisted(() => ({
 	settings: { downloadQuality: 'lossless' as string },
 	names: {
 		dnArtist: vi.fn((s: string) => s),
-		dnTitle: vi.fn((s: string) => s)
+		dnTitle: vi.fn((s: string) => s),
+		// quick-260919-2jo: the script lock on the album tag. Identity by default (the lock is
+		// 'off' for a fresh install, D-1) so every PRE-EXISTING album assertion is unchanged.
+		zhLock: vi.fn((s: string) => s)
 	},
 	ensureTrackDetails: vi.fn(async (_t: Track, _s?: unknown, _q?: unknown) => _t),
 	put: vi.fn(async (_uid: string, _blob: Blob, _filename?: string) => true),
@@ -122,6 +125,7 @@ beforeEach(() => {
 	mocks.settings.downloadQuality = 'lossless';
 	mocks.names.dnArtist.mockReset().mockImplementation((s: string) => s);
 	mocks.names.dnTitle.mockReset().mockImplementation((s: string) => s);
+	mocks.names.zhLock.mockReset().mockImplementation((s: string) => s);
 	mocks.ensureTrackDetails.mockReset();
 	mocks.put.mockReset().mockResolvedValue(true);
 	mocks.saveBlobToDisk.mockReset().mockReturnValue(true);
@@ -545,6 +549,28 @@ describe('downloadTrack — 36-D-11 / 36-D-12 album context', () => {
 		);
 		await downloadTrack(mk({ audioUrl: null, detailsLoaded: false }));
 		expect(fields().album).toBeUndefined();
+	});
+
+	it('SCRIPT LOCK: a DISTINCT album is written in the locked script (quick-260919-2jo)', async () => {
+		// What 0mw could NOT fix. Its two-title compare only drops an album that IS the song title;
+		// a genuine album name kept riding the RAW catalog script, so the file carried a Traditional
+		// title tag next to a Simplified album tag. The album now goes through names.zhLock.
+		mocks.names.dnTitle.mockReturnValue('過一招');
+		mocks.names.zhLock.mockImplementation((s: string) => (s === '爱你的宇宙' ? '愛你的宇宙' : s));
+		mocks.ensureTrackDetails.mockResolvedValue(
+			mk({ audioUrl: 'https://cdn.example.com/x.m4a', title: '过一招', album: '爱你的宇宙' })
+		);
+		await downloadTrack(mk({ audioUrl: null, detailsLoaded: false }));
+		expect(mocks.names.zhLock).toHaveBeenCalledWith('爱你的宇宙'); // the RAW catalog album goes in
+		expect(fields().album).toBe('愛你的宇宙'); // …and the LOCKED one is tagged
+	});
+
+	it('SCRIPT LOCK off: the album tag is byte-for-byte what it is today (D-1)', async () => {
+		mocks.ensureTrackDetails.mockResolvedValue(
+			mk({ audioUrl: 'https://cdn.example.com/x.m4a', title: '过一招', album: '爱你的宇宙' })
+		);
+		await downloadTrack(mk({ audioUrl: null, detailsLoaded: false }));
+		expect(fields().album).toBe('爱你的宇宙');
 	});
 
 	it('tags with the SAME translated display names the filename uses (Pattern 5)', async () => {

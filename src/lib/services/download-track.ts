@@ -239,6 +239,15 @@ export async function downloadTrack(
 		// catalog string, so a one-title compare misses the Simplified-album/Traditional-title case
 		// (quick-260919-0mw).
 		//
+		// quick-260919-2jo / D-7 — that RAW album is now run through the Chinese script lock, which
+		// CLOSES the case 0mw could only detect. 0mw's two-title compare drops an album that IS the
+		// song title in either script; it could do nothing about a genuine, DISTINCT album name,
+		// which kept being written in whatever script the catalog happened to use while the title
+		// tag next to it carried the user's locked script. `names.zhLock` (NOT `dnTitle`) because it
+		// is synchronous and network-free — routing the album through the translation layer would
+		// queue an /api/translate batch inside the download path, and the reported bug is a script
+		// mismatch, not a missing translation. With the lock off this is byte-for-byte identity.
+		//
 		// quick-260915-062 — lyrics ride the same seam. `r.lrc` is ALREADY resolved by
 		// `ensureTrackDetails` above (or copied off `player.current` on the reuse path), so this is a
 		// zero-fetch addition: no lrcUrl resolution, no new host, nothing added to the D-18 isolation
@@ -250,7 +259,7 @@ export async function downloadTrack(
 			{
 				title: dnTitle,
 				artist: dnArtist,
-				album: albumTag(r.album, r.title, dnTitle),
+				album: albumTag(names.zhLock(r.album), r.title, dnTitle),
 				albumArtist: opts?.albumArtist ?? dnArtist,
 				trackNumber: opts?.trackNumber,
 				lyrics: r.lrc || undefined

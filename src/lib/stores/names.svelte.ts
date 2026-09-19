@@ -40,7 +40,7 @@ import { browser } from '$app/environment';
 import { settings, effectiveTarget } from '$lib/stores/settings.svelte';
 import { translateLinesEx } from '$lib/services/translate';
 import { shouldTranslate } from '$lib/i18n/detect';
-import { isChineseLine, s2tConvertLineSync, warmS2T } from '$lib/services/zh-convert';
+import { isChineseLine, s2tConvertLineSync, warmS2T, lockScriptSync, warmScript, type ZhScript } from '$lib/services/zh-convert';
 
 // Bump to abandon all previously-persisted (possibly poisoned) name translations.
 const STORE_VER = 'v2';
@@ -63,6 +63,11 @@ class Names {
 	// incremented in the flush handler for a name that came back genuinely-identical.
 	private attempts = new Map<string, Map<string, number>>();
 	private purged = false;
+	// quick-260919-2jo: once-per-direction latch for the script-lock dict warm. PLAIN field, not
+	// `$state` — it is an internal guard the UI never reads reactively (the house convention for
+	// loop guards / generation counters). A Set, not a boolean, because a user can flip the lock
+	// between the two scripts in one session and each direction has its own dict.
+	private lockWarmed = new Set<string>();
 
 	// Drop every persisted name translation from BEFORE the current store version, so poisoned
 	// echo-era identity entries can't keep serving Simplified originals. Once per session.
@@ -186,7 +191,7 @@ class Names {
 	 * NOT re-queued (so an in-flight re-render can't burn an attempt); a name that keeps
 	 * coming back genuinely-identical is queued at most MAX_ATTEMPTS times per session.
 	 */
-	private resolve(text: string, target: string, whitelist: readonly string[]): string {
+	private resolveTranslated(text: string, target: string, whitelist: readonly string[]): string {
 		void this.rev; // reactive dependency
 		if (!text || target === 'off' || !browser) return text;
 		if (!shouldTranslate(text, target, whitelist)) return text;
@@ -231,6 +236,66 @@ class Names {
 		return text;
 	}
 
+	/**
+	 * quick-260919-2jo — THE display seam. Every public accessor (dnArtist / dnTitle / dnLastfm /
+	 * dnBio, and the 26 call sites behind them: rows, now-playing, the OS media-session card, the
+	 * document title, the download filename) already funnels through `resolve`, so wrapping it
+	 * here applies the Chinese script lock EVERYWHERE with zero call-site edits.
+	 *
+	 * The lock is applied AFTER `resolveTranslated`, and that ordering is the point:
+	 *  - the translation cache (`openmusic:name-tr:*`) stays keyed on ORIGINALS and is never
+	 *    written with locked text, so flipping the lock needs no cache flush;
+	 *  - D-6, the lock wins. titleLang: zh-Hant + lock: Simplified translates to Traditional and
+	 *    then locks back to Simplified. Wasteful, but it is a contradiction the user authored and
+	 *    the lock gets the last word rather than us arbitrating.
+	 */
+	private resolve(text: string, target: string, whitelist: readonly string[]): string {
+		return this.applyLock(this.resolveTranslated(text, target, whitelist));
+	}
+
+	/**
+	 * quick-260919-2jo: force one already-resolved string into the locked script. 'off' — and any
+	 * value that is not one of the two scripts, i.e. a tampered persisted setting that slipped the
+	 * load() guard (T-2jo-02) — returns the input BYTE-FOR-BYTE, which is what makes D-1's default
+	 * a true no-op for every existing user. Non-Chinese text is filtered inside `lockScriptSync`
+	 * by the single `isChineseLine` gate; there is deliberately no second classifier here.
+	 */
+	private applyLock(text: string): string {
+		void this.rev; // reactive dependency — a warmLock rev bump must repaint lock-only surfaces
+		if (!browser || !text) return text;
+		const target = settings.zhScript; // reactive $state read: flipping the setting repaints
+		if (target !== 'zh-Hant' && target !== 'zh-Hans') return text;
+		this.warmLock(target);
+		return lockScriptSync(text, target);
+	}
+
+	/**
+	 * quick-260919-2jo: warm the locked direction's dict ONCE, then bump `rev` so the first render
+	 * (which necessarily showed the unconverted original — `lockScriptSync` degrades to identity
+	 * while cold) repaints converted.
+	 *
+	 * LOAD-BEARING, not belt-and-braces: with translation OFF there is no async translate queue to
+	 * bump `rev` at all, so without this a cold dict would leave the whole page in the source
+	 * script until some unrelated re-render happened to come along. Latched per direction → one
+	 * dict build, one rev bump, no retry storm (T-2jo-03).
+	 */
+	private warmLock(target: ZhScript): void {
+		if (this.lockWarmed.has(target)) return;
+		this.lockWarmed.add(target);
+		void warmScript(target).then(() => {
+			this.rev++;
+		});
+	}
+
+	/**
+	 * quick-260919-2jo: the script lock WITHOUT the translation layer — public for callers that
+	 * want script consistency but must not pay for a `/api/translate` round trip. Synchronous and
+	 * network-free by construction (D-7); `download-track.ts` uses it for the album tag.
+	 */
+	zhLock(text: string): string {
+		return this.applyLock(text);
+	}
+
 	/** Artist name → artistLang + artistSkip. ju0: `'auto'` resolves to settings.appLang. */
 	dnArtist(text: string): string {
 		return this.resolve(text, effectiveTarget(settings.artistLang), settings.artistSkip);
@@ -267,6 +332,11 @@ class Names {
 			settings.bioLang
 		].some((t) => effectiveTarget(t) === 'zh-Hant');
 		if (wantsHant) warmS2T();
+		// quick-260919-2jo: …or when the script lock is on — warm THAT direction at boot so the
+		// cold-dict first render (original script, then a warmLock repaint) is the rare case
+		// rather than the normal one. Non-Chinese users with the lock off download neither dict.
+		const lock = settings.zhScript;
+		if (lock === 'zh-Hant' || lock === 'zh-Hans') this.warmLock(lock);
 	}
 
 	/** Drop ALL cached name/bio translations — in-memory maps + every `openmusic:name-tr:*` key.

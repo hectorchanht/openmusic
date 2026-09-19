@@ -49,7 +49,10 @@ const settingsMock = vi.hoisted(() => ({
 	bioLang: 'ja',
 	artistSkip: [] as string[],
 	titleSkip: [] as string[],
-	lastfmSkip: [] as string[]
+	lastfmSkip: [] as string[],
+	// quick-260919-2jo: the script lock. 'off' is the D-1 default and a byte-for-byte no-op, so
+	// every PRE-EXISTING test in this file runs against exactly the old behaviour.
+	zhScript: 'off' as string
 }));
 vi.mock('$lib/stores/settings.svelte', () => ({
 	settings: settingsMock,
@@ -87,6 +90,7 @@ beforeEach(() => {
 	settingsMock.titleLang = 'ja';
 	settingsMock.lastfmLang = 'ja';
 	settingsMock.bioLang = 'ja';
+	settingsMock.zhScript = 'off'; // quick-260919-2jo — the lock is opt-in per test
 });
 afterEach(() => {
 	vi.useRealTimers();
@@ -241,5 +245,88 @@ describe('names + songShareUrl — share links carry display-language names (qui
 		expect(songShareUrl({ title: names.dnTitle('Hello'), artist: names.dnArtist('Adele') })).toBe(
 			'/song/Adele/Hello'
 		);
+	});
+});
+
+
+// quick-260919-2jo — the Chinese script lock at the one display seam.
+describe('names — Chinese script lock (quick-260919-2jo)', () => {
+	/** Warm one direction's dict on the SAME module instance the freshly-reset names store has. */
+	async function warmLock(target: 'zh-Hant' | 'zh-Hans'): Promise<void> {
+		const zh = await import('$lib/services/zh-convert');
+		await zh.warmScript(target);
+	}
+
+	it("'off' is byte-for-byte identical (D-1 — the no-surprise default)", async () => {
+		settingsMock.titleLang = 'off';
+		settingsMock.artistLang = 'off';
+		const { names } = await import('./names.svelte');
+		await warmLock('zh-Hant');
+		expect(names.dnTitle('过一招')).toBe('过一招');
+		expect(names.dnArtist('邓紫棋')).toBe('邓紫棋');
+	});
+
+	it("'zh-Hant' re-scripts Chinese names with translation OFF (no API involved)", async () => {
+		settingsMock.titleLang = 'off';
+		settingsMock.artistLang = 'off';
+		settingsMock.zhScript = 'zh-Hant';
+		const { names } = await import('./names.svelte');
+		await warmLock('zh-Hant');
+		expect(names.dnTitle('过一招')).toBe('過一招');
+		expect(names.dnArtist('邓紫棋')).toBe('鄧紫棋');
+		expect(translateMock).not.toHaveBeenCalled(); // offline conversion, never the API path
+	});
+
+	it("'zh-Hans' mirrors it", async () => {
+		settingsMock.titleLang = 'off';
+		settingsMock.artistLang = 'off';
+		settingsMock.zhScript = 'zh-Hans';
+		const { names } = await import('./names.svelte');
+		await warmLock('zh-Hans');
+		expect(names.dnTitle('過一招')).toBe('过一招');
+		expect(names.dnArtist('鄧紫棋')).toBe('邓紫棋');
+		expect(translateMock).not.toHaveBeenCalled();
+	});
+
+	it('leaves English and kana-bearing Japanese untouched under BOTH settings', async () => {
+		settingsMock.titleLang = 'off';
+		for (const lock of ['zh-Hant', 'zh-Hans'] as const) {
+			vi.resetModules();
+			settingsMock.zhScript = lock;
+			const { names } = await import('./names.svelte');
+			await warmLock(lock);
+			expect(names.dnTitle('Man I Need')).toBe('Man I Need');
+			expect(names.dnTitle('さくらの唄')).toBe('さくらの唄'); // kana ⇒ ja ⇒ never converted
+		}
+	});
+
+	it('zhLock is the same lock without the translation layer, and makes NO network call', async () => {
+		settingsMock.zhScript = 'zh-Hant';
+		const { names } = await import('./names.svelte');
+		await warmLock('zh-Hant');
+		expect(names.zhLock('过一招 (feat. 拉天糖)')).toBe('過一招 (feat. 拉天糖)');
+		expect(names.zhLock('Beauty Behind the Madness')).toBe('Beauty Behind the Madness');
+		expect(translateMock).not.toHaveBeenCalled();
+	});
+
+	it('zhLock is a no-op while the lock is off', async () => {
+		const { names } = await import('./names.svelte');
+		await warmLock('zh-Hant');
+		expect(names.zhLock('过一招')).toBe('过一招');
+	});
+
+	it('does NOT pollute the translation cache — the persisted map keeps the RAW pair', async () => {
+		// The lock is applied AFTER the cache read, so the cache stays keyed on originals and
+		// holds the API's own output. Flipping the lock therefore needs no cache flush.
+		settingsMock.artistLang = 'ja';
+		settingsMock.zhScript = 'zh-Hant';
+		translateMock.mockResolvedValue({ out: ['过一招'], flags: [true] });
+		const { names } = await import('./names.svelte');
+		await warmLock('zh-Hant');
+		names.dnArtist('ORIG');
+		await flush();
+		expect(names.dnArtist('ORIG')).toBe('過一招'); // displayed: translated THEN locked (D-6)
+		const persisted = JSON.parse(memStore.get('openmusic:name-tr:v2:ja') as string);
+		expect(persisted).toEqual({ ORIG: '过一招' }); // stored: the API's own output, unlocked
 	});
 });
