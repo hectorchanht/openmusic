@@ -13,43 +13,23 @@
 	import { deezerArtistCover } from '$lib/services/deezer';
 	import { mapWithConcurrency, shuffle } from '$lib/services/discovery';
 	import { t } from '$lib/i18n';
-	import { longpress } from '$lib/actions/longpress';
-	import { swipeAction } from '$lib/actions/swipeAction';
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { dragClose } from '$lib/actions/dragClose';
 	import { focusTrap } from '$lib/actions/focusTrap';
 	import { overlays } from '$lib/stores/overlays.svelte';
-	import { lazyCover } from '$lib/actions/lazyCover';
-	// quick-260910-qwt: the shared row cover read (resolved → track.cover → the shared cache).
-	import { pickRowCover } from '$lib/services/row-cover';
-	// quick-260915-w4f: readPinnedCover is pickRowCover's new leading rung — the user's pinned
-	// cover must beat track.cover, not just the cache.
-	import { readCoverByUidOrName, readPinnedCover } from '$lib/stores/cover-version.svelte';
 	import { toast } from '$lib/stores/toast.svelte';
 	import { tick as hapticTick } from '$lib/util/haptics';
+	import SongRow from '$lib/components/SongRow.svelte';
 	import TrackMenu from '$lib/components/TrackMenu.svelte';
-	import DownloadControl from '$lib/components/DownloadControl.svelte';
 	import type { Track } from '$lib/sources/types';
 	import type { QueueContext } from '$lib/config/defaults';
-	import { coverGradient } from '$lib/services/cover-gradient';
 	// quick-260919-2jo: the shared tab-URL mechanism. This page READ `?tab=` (D-13) but never
 	// wrote it back — pickTab is that read, syncTabUrl is the missing half.
 	import { pickTab, syncTabUrl } from '$lib/services/url-tab';
 
-	// UX-04 / D-03/D-04: swipe-right = add to queue (player.addToQueue, append-to-end), swipe-left
-	// = play next (player.playNext, splice-after-current) — same semantics as TrackMenu, plus the
-	// global toast + a commit-tier haptic tick. Wired on the TRACK rows only (liked/downloads/
-	// history/playlist-detail); fav-artist + playlist-folder rows are not tracks and get no swipe.
-	function swipeQueue(track: Track) {
-		player.addToQueue(track);
-		toast.show(t('toast.addedToQueue'));
-		hapticTick();
-	}
-	function swipeNext(track: Track) {
-		player.playNext(track);
-		toast.show(t('toast.playingNext'));
-		hapticTick();
-	}
+	// UX-04 / D-03/D-04 swipe-right = queue, swipe-left = play next: the handlers moved INTO
+	// SongRow (quick-260919-l9e), so this page no longer declares them. Still wired on the TRACK
+	// rows only — fav-artist tiles and playlist FOLDER rows are not tracks and render no SongRow.
 
 	type Tab = 'liked' | 'playlists' | 'downloads' | 'fav-artists' | 'history';
 	const VALID_TABS: ReadonlySet<Tab> = new Set(['liked', 'playlists', 'downloads', 'fav-artists', 'history']);
@@ -146,19 +126,9 @@
 		const h = (name.split('').reduce((a, c) => a + c.charCodeAt(0), 0) * 47) % 360;
 		return `linear-gradient(145deg, hsl(${h} 55% 32%), hsl(${(h + 40) % 360} 55% 18%))`;
 	}
-	// COVER-02 D-14: track-row covers resolve lazily on scroll-into-view via use:lazyCover,
-	// repainting through this reactive uid→url map (mirrors the favCovers reactive-map idiom).
-	// Values are SOLID https URLs only (Plan 02 gate) — safe for the existing background-image
-	// render path, no widening of the injection surface (T-0bb-01).
-	//
-	// quick-260910-qwt: the map stays rung 1, but all four track lists now paint through the shared
-	// `pickRowCover` read (resolved → track.cover → the shared reactive cover cache). A song whose
-	// cover was resolved on ANY other surface paints here on FIRST render — no intersection, no
-	// network — and repaints live via coverVersion(). A reactive READ; no new request path.
-	let resolvedCovers = $state<Record<string, string>>({});
-	function onCoverResolved(uid: string, url: string) {
-		resolvedCovers = { ...resolvedCovers, [uid]: url };
-	}
+	// COVER-02 D-14 lazy row covers + the shared pickRowCover read now live INSIDE SongRow
+	// (quick-260919-l9e), so the four track lists no longer keep a uid→url map here. Unchanged
+	// behaviour: a cover resolved on any other surface still paints on first render, no network.
 
 	let menuTrack = $state<Track | null>(null);
 	let menuOpen = $state(false);
@@ -267,10 +237,6 @@
 		history.load();
 	});
 
-	// Shared placeholder gradient (cover-gradient.ts) — was inlined in eight files.
-	function fallbackCover(t: Track): string {
-		return coverGradient(t.uid);
-	}
 	/**
 	 * quick-260915-vb9: `wholeList` marks the caller as an explicit "play this entire list" button
 	 * (the action row's Play/Shuffle, and each playlist folder's own Play) rather than a row tap.
@@ -353,21 +319,25 @@
 	{#if library.liked.length}
 		<ul class="list" class:editing={editMode}>
 			{#each library.liked as track (track.uid)}
-				<!-- quick-260910-qwt: the shared three-rung row cover read. Must sit directly under the
-				     {#each} — Svelte only allows {@const} as an immediate block child. -->
-				{@const art = pickRowCover(readPinnedCover(track.uid), resolvedCovers[track.uid], track.cover, readCoverByUidOrName(track.uid, track.artist, track.title))}
 				<li class="row-line">
 					<div class="swipe-wrap">
 						<span class="reveal reveal-queue" aria-hidden="true"><ListEnd size={20} /></span>
 						<span class="reveal reveal-next" aria-hidden="true"><ListStart size={20} /></span>
-						<button class="row" class:is-active={player.current?.uid === track.uid} class:edit-row={editMode} use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openMenu(track); }} onclick={() => rowAction(track, library.liked)} use:swipeAction={{ onSwipeRight: () => swipeQueue(track), onSwipeLeft: () => swipeNext(track) }}>
-							<span class="art" use:lazyCover={{ track, onResolved: onCoverResolved }} style:background-image={art ? `url(${art})` : fallbackCover(track)}></span>
-							<span class="meta"><span class="r-title">{names.dnTitle(track.title)}</span><span class="r-sub">{names.dnArtist(track.artist)}</span></span>
-							{#if editMode}<Trash2 size={16} />{:else}<Play size={16} />{/if}
-						</button>
+						<!-- quick-260919-l9e: the shared row. `swipe` is omitted — the app convention
+						     (right = queue, left = play next) now lives in the component. `onplay` still
+						     routes through rowAction, so in bulk-edit mode a row tap REMOVES; `danger`
+						     is what makes that visible, replacing the old .edit-row tint and the
+						     Trash-instead-of-Play trailing glyph. The row's own inline Download button
+						     (settings.rowActions) replaces the sibling DownloadControl that used to sit
+						     outside the swipe-wrap — one download affordance per row, not two. -->
+						<SongRow
+							{track}
+							danger={editMode}
+							subtitle={names.dnArtist(track.artist)}
+							onplay={() => rowAction(track, library.liked)}
+							onrequestmenu={() => openMenu(track)}
+						/>
 					</div>
-					<!-- D-11: per-row download control (tri-state, own tap target beside the row). -->
-					<DownloadControl track={track} />
 				</li>
 			{/each}
 		</ul>
@@ -393,20 +363,20 @@
 				{#if pl.tracks.length}
 					<ul class="list">
 						{#each pl.tracks as track (track.uid)}
-							<!-- quick-260910-qwt: shared three-rung row cover read (see the liked list above). -->
-							{@const art = pickRowCover(readPinnedCover(track.uid), resolvedCovers[track.uid], track.cover, readCoverByUidOrName(track.uid, track.artist, track.title))}
 							<li class="row-line">
 								<div class="swipe-wrap">
 									<span class="reveal reveal-queue" aria-hidden="true"><ListEnd size={20} /></span>
 									<span class="reveal reveal-next" aria-hidden="true"><ListStart size={20} /></span>
-									<button class="row" class:is-active={player.current?.uid === track.uid} class:edit-row={editMode} use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openMenu(track); }} onclick={() => rowAction(track, pl.tracks, pl.id)} use:swipeAction={{ onSwipeRight: () => swipeQueue(track), onSwipeLeft: () => swipeNext(track) }}>
-										<span class="art" use:lazyCover={{ track, onResolved: onCoverResolved }} style:background-image={art ? `url(${art})` : fallbackCover(track)}></span>
-										<span class="meta"><span class="r-title">{names.dnTitle(track.title)}</span><span class="r-sub">{names.dnArtist(track.artist)}</span></span>
-										{#if editMode}<Trash2 size={16} />{:else}<Play size={16} />{/if}
-									</button>
+									<!-- The shared row (see the liked list above). rowAction carries pl.id so
+									     a bulk-edit tap removes from THIS playlist. -->
+									<SongRow
+										{track}
+										danger={editMode}
+										subtitle={names.dnArtist(track.artist)}
+										onplay={() => rowAction(track, pl.tracks, pl.id)}
+										onrequestmenu={() => openMenu(track)}
+									/>
 								</div>
-								<!-- D-11: per-row download control (own tap target beside the row). -->
-								<DownloadControl track={track} />
 							</li>
 						{/each}
 					</ul>
@@ -418,20 +388,21 @@
 	{#if library.downloads.length}
 		<ul class="list">
 			{#each library.downloads as track (track.uid)}
-				<!-- quick-260910-qwt: shared three-rung row cover read (see the liked list above). -->
-				{@const art = pickRowCover(readPinnedCover(track.uid), resolvedCovers[track.uid], track.cover, readCoverByUidOrName(track.uid, track.artist, track.title))}
 				<li class="row-line">
 					<div class="swipe-wrap">
 						<span class="reveal reveal-queue" aria-hidden="true"><ListEnd size={20} /></span>
 						<span class="reveal reveal-next" aria-hidden="true"><ListStart size={20} /></span>
-						<button class="row" class:is-active={player.current?.uid === track.uid} class:edit-row={editMode} use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openMenu(track); }} onclick={() => rowAction(track, library.downloads)} use:swipeAction={{ onSwipeRight: () => swipeQueue(track), onSwipeLeft: () => swipeNext(track) }}>
-							<span class="art" use:lazyCover={{ track, onResolved: onCoverResolved }} style:background-image={art ? `url(${art})` : fallbackCover(track)}></span>
-							<span class="meta"><span class="r-title">{names.dnTitle(track.title)}</span><span class="r-sub">{names.dnArtist(track.artist)}</span></span>
-							{#if editMode}<Trash2 size={16} />{:else}<Play size={16} />{/if}
-						</button>
+						<!-- The shared row (see the liked list above). On THIS tab the inline Download
+						     button renders its greyed "downloaded" state, which is what the sibling
+						     control used to show. -->
+						<SongRow
+							{track}
+							danger={editMode}
+							subtitle={names.dnArtist(track.artist)}
+							onplay={() => rowAction(track, library.downloads)}
+							onrequestmenu={() => openMenu(track)}
+						/>
 					</div>
-					<!-- D-11: per-row download control. On this tab it renders the greyed "Downloaded" state. -->
-					<DownloadControl track={track} />
 				</li>
 			{/each}
 		</ul>
@@ -457,20 +428,19 @@
 		<ul class="list">
 			{#each history.entries as entry (entry.uid)}
 				{@const track = entry as Track}
-				<!-- quick-260910-qwt: shared three-rung row cover read (see the liked list above). -->
-				{@const art = pickRowCover(readPinnedCover(track.uid), resolvedCovers[track.uid], track.cover, readCoverByUidOrName(track.uid, track.artist, track.title))}
 				<li class="row-line">
 					<div class="swipe-wrap">
 						<span class="reveal reveal-queue" aria-hidden="true"><ListEnd size={20} /></span>
 						<span class="reveal reveal-next" aria-hidden="true"><ListStart size={20} /></span>
-						<button class="row" class:is-active={player.current?.uid === track.uid} use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openMenu(track); }} onclick={() => playEntry(track)} use:swipeAction={{ onSwipeRight: () => swipeQueue(track), onSwipeLeft: () => swipeNext(track) }}>
-							<span class="art" use:lazyCover={{ track, onResolved: onCoverResolved }} style:background-image={art ? `url(${art})` : fallbackCover(track)}></span>
-							<span class="meta"><span class="r-title">{names.dnTitle(track.title)}</span><span class="r-sub">{names.dnArtist(track.artist)}</span></span>
-							<Play size={16} />
-						</button>
+						<!-- The shared row (see the liked list above). History is deliberately NOT
+						     bulk-editable (it has its own Clear all), so no `danger` here. -->
+						<SongRow
+							{track}
+							subtitle={names.dnArtist(track.artist)}
+							onplay={() => playEntry(track)}
+							onrequestmenu={() => openMenu(track)}
+						/>
 					</div>
-					<!-- D-11: per-row download control (initiation + state affordance on history rows). -->
-					<DownloadControl track={track} />
 				</li>
 			{/each}
 		</ul>
@@ -508,14 +478,16 @@
 	   lets a long translated label shrink rather than push ⋯ off the edge. */
 	.actions { display: flex; gap: 8px; margin-bottom: 14px; }
 	.actions .edit-btn { flex: 0 1 auto; white-space: nowrap; min-width: 0; overflow: hidden; }
+	/* fav-artists tiles only — the track rows' copy of this is SongRow's `danger`. */
 	.edit-row { color: #ff7a90; }
 	.edit-row:hover { background: rgba(255, 122, 144, 0.08); }
 	.tabs { display: flex; gap: 8px; margin-bottom: 14px; }
 	.tabs button { flex: 1; display: inline-flex; align-items: center; justify-content: center; background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text-muted); padding: 10px 0; border-radius: 999px; cursor: pointer; min-width: 0; }
 	.tabs button.active { background: var(--color-primary); color: #fff; border-color: transparent; }
 	.list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
-	/* D-11: each row = the swipe-wrap (flex 1) + a trailing DownloadControl (its own tap target,
-	   OUTSIDE the overflow:hidden swipe-wrap so the swipe reveal never clips it). */
+	/* D-11 used to lay out the swipe-wrap beside a trailing DownloadControl. quick-260919-l9e
+	   moved that control INSIDE the row (settings.rowActions), so the wrap is now the only child
+	   and this rule survives purely to give it `flex: 1` over the li's full width. */
 	.row-line { display: flex; align-items: center; gap: 6px; }
 	.row-line .swipe-wrap { flex: 1; min-width: 0; }
 	/* UX-04: positioning context for the swipe reveal layers. The reveal spans sit BEHIND the row
@@ -528,21 +500,11 @@
 	}
 	.reveal-queue { left: 0; color: var(--color-text-muted); }
 	.reveal-next { right: 0; color: var(--color-text-muted); }
-	.row { width: 100%; text-align: left; background: var(--color-bg); position: relative; z-index: 1; border: none; padding: 8px; border-radius: 10px; cursor: pointer; display: flex; align-items: center; gap: 12px; color: var(--color-text); }
-	/* MENU-03 / D-12: hover-capable devices only — touch otherwise latches this :hover
-	   background on a row under a held finger while the track menu opens. */
-	@media (hover: hover) { .row:hover { background: var(--color-surface); } }
-	/* Active/selected row = the currently-playing track. NOT hover-gated, so the light-grey
-	   --color-surface highlight shows on touch too. The edit-row modifier (red, remove-mode) must
-	   keep precedence over this neutral highlight: in edit mode a row click removes, not plays, so
-	   the grey active tint would be misleading — the more-specific .row.edit-row.is-active below
-	   suppresses it. */
-	.row.is-active { background: var(--color-surface); }
-	.row.edit-row.is-active { background: var(--color-bg); }
-	.art { width: 48px; height: 48px; border-radius: 8px; background-size: cover; background-position: center; flex: none; }
-	.meta { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-	.r-title { font-size: calc(14px * var(--fs-title, 1)); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-	.r-sub { font-size: calc(12px * var(--fs-artist, 1)); color: var(--color-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	/* quick-260919-l9e: every track row on this page is SongRow.svelte now (its styles travelled
+	   with it — Svelte scopes per component), and unlike the artist / album / charts / search pages
+	   this one renders NO row skeleton, so the whole `.row` / `.art` / `.meta` / `.r-*` block went
+	   with the markup. `.edit-row` stays below: the fav-artists tiles still use it, and the
+	   in-row half of it (red text, is-active suppressed) is now SongRow's `danger` prop. */
 	.pl { margin-bottom: 18px; }
 	.pl-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
 	.pl-head h2 { font-size: 1rem; margin: 0; }
