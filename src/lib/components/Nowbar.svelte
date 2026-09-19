@@ -238,30 +238,6 @@
              sub-slop tap still reaches onclick={handleOpen} (tap-to-expand, D-07) while a committed
              swipe never replays it. Attached to .np-open ONLY — the .np-prog loader rail above sits
              OUTSIDE this button and stays visually pinned while the content slides (UI-SPEC §5). -->
-        {#if desktopBar}
-            <!-- quick-260919-et3: the YouTube Music transport cluster — prev / play / next then
-                 `2:06 / 2:33`, pinned to the LEFT of the bar as in the reference. It sits OUTSIDE
-                 .np-open on purpose: .np-open is the tap-to-expand + coverSwipe surface, and a
-                 nested <button> there would be invalid HTML and would fight the gesture.
-                 Reuses nowplaying.previous / nowplaying.next — the same actions, so the same
-                 labels; no new keys for something already named. -->
-            <div class="np-transport">
-                <button
-                    class="np-t"
-                    aria-label={t("nowplaying.previous")}
-                    onclick={() => player.prev()}
-                    use:tapBounce><SkipBack size={20} /></button
-                >
-                {@render playControl()}
-                <button
-                    class="np-t"
-                    aria-label={t("nowplaying.next")}
-                    onclick={() => player.next()}
-                    use:tapBounce><SkipForward size={20} /></button
-                >
-                <span class="np-time">{elapsedText} / {totalText}</span>
-            </div>
-        {/if}
         <button
             class="np-open"
             aria-label={t("nowbar.openNowPlaying")}
@@ -361,9 +337,25 @@
             </button>
         {/if}
         {#if desktopBar}
-            <!-- quick-260919-et3: the far-right volume control. A NATIVE <input type="range"> —
-                 it is keyboard-operable, screen-reader-labelled and drag-correct for free, and a
-                 hand-rolled pointer-drag slider would be a hundred lines to get worse.
+            <!-- quick-260919-et3 (follow-up): the right-hand cluster, in flow order readout →
+                 volume → transport, so prev/play/next are RIGHTMOST and the play button lands at
+                 the same edge the mobile bar puts it ("put prev · pause · next at the right like
+                 mobile play at the right"). The first cut of this bar copied YouTube Music and
+                 pinned the transport to the LEFT; the user wants the mobile position mirrored, not
+                 the reference.
+                 The readout travelled WITH the transport rather than staying behind. Left alone
+                 beside the title it stopped reading as a clock for the controls and started reading
+                 as a third line of track metadata; it describes the transport, so it sits with it.
+                 All three stay OUTSIDE .np-open, which is the tap-to-expand + coverSwipe surface —
+                 a nested <button> there would be invalid HTML and would fight the gesture. They are
+                 direct .nowbar children, so the bar's own 10px flex gap separates them and no
+                 wrapper element is needed to group them on the right: .np-open is `flex: 1` and
+                 eats all the slack, which is what pushes the whole cluster to the edge. -->
+            <span class="np-time">{elapsedText} / {totalText}</span>
+            <!-- quick-260919-et3: the volume control, now to the LEFT of the transport. A NATIVE
+                 <input type="range"> — it is keyboard-operable, screen-reader-labelled and
+                 drag-correct for free, and a hand-rolled pointer-drag slider would be a hundred
+                 lines to get worse.
                  `value={player.muted ? 0 : player.volume}` keeps the thumb honest while muted
                  without destroying the level the store is holding for the unmute. -->
             <div class="np-vol">
@@ -388,6 +380,25 @@
                     oninput={(e) =>
                         player.setVolume(e.currentTarget.valueAsNumber)}
                 />
+            </div>
+            <!-- Reuses nowplaying.previous / nowplaying.next — the same actions, so the same
+                 labels; no new keys for something already named. playControl is the SHARED snippet
+                 the mobile branch below renders, so the resolving-spinner + glyph-crossfade markup
+                 exists once, not once per breakpoint. -->
+            <div class="np-transport">
+                <button
+                    class="np-t"
+                    aria-label={t("nowplaying.previous")}
+                    onclick={() => player.prev()}
+                    use:tapBounce><SkipBack size={20} /></button
+                >
+                {@render playControl()}
+                <button
+                    class="np-t"
+                    aria-label={t("nowplaying.next")}
+                    onclick={() => player.next()}
+                    use:tapBounce><SkipForward size={20} /></button
+                >
             </div>
         {:else}
             {@render playControl()}
@@ -695,7 +706,8 @@
            breathing every second, and the reserved box stops 0:59 -> 10:00 (and the pre-metadata
            em-dash state) from nudging the cover and title sideways. */
         .np-time {
-            margin-left: 8px;
+            /* No margin: as a direct .nowbar child the bar's own `gap: 10px` spaces it. The
+               margin-left here was for its old home INSIDE .np-transport, whose gap is 4px. */
             font-size: 12px;
             color: var(--color-text);
             opacity: 0.7;
