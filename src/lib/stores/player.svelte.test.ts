@@ -7639,3 +7639,106 @@ describe('player — the automatic lyric embed (quick-260919-3j1, F3)', () => {
 		expect(entry.artist).toBe('Edited Artist');
 	});
 });
+
+/**
+ * quick-260919-et3 — the user volume level, and its cooperation with the sleep-timer fade (D-02).
+ *
+ * The fade used to snapshot `audio.volume` at fade start and write it back on finish/abort. With a
+ * user-facing slider that snapshot clobbers in both directions, so `player.volume` is now the
+ * single source of truth: the ramp reads it every tick and the restore writes it. The mid-fade test
+ * is the one that would have caught the old behaviour.
+ */
+describe('volume — user level is the single source of truth (quick-260919-et3)', () => {
+	beforeEach(() => {
+		sleepTimer.cancel();
+		player.volume = 1;
+		player.muted = false;
+	});
+	afterEach(() => sleepTimer.cancel());
+
+	it('setVolume clamps, writes through to the element, and persists under openmusic:volume:v1', () => {
+		const audio = makeSleepAudio();
+		player.attach(audio as unknown as HTMLAudioElement);
+
+		player.setVolume(0.42);
+		expect(player.volume).toBeCloseTo(0.42);
+		expect(audio.volume).toBeCloseTo(0.42);
+		expect(JSON.parse(localStorage.getItem('openmusic:volume:v1') as string)).toEqual({
+			volume: 0.42,
+			muted: false
+		});
+
+		player.setVolume(5);
+		expect(player.volume).toBe(1);
+		player.setVolume(-3);
+		expect(player.volume).toBe(0);
+		player.setVolume(NaN); // garbage is ignored, not turned into NaN volume
+		expect(player.volume).toBe(0);
+	});
+
+	it('attach() restores the persisted level onto the fresh element', () => {
+		localStorage.setItem('openmusic:volume:v1', JSON.stringify({ volume: 0.3, muted: true }));
+		const audio = Object.assign(makeSleepAudio(), { muted: false });
+		player.attach(audio as unknown as HTMLAudioElement);
+
+		expect(player.volume).toBeCloseTo(0.3);
+		expect(player.muted).toBe(true);
+		expect(audio.volume).toBeCloseTo(0.3);
+		expect(audio.muted).toBe(true);
+	});
+
+	it('mute/unmute uses the native flag, so the level comes back untouched', () => {
+		const audio = Object.assign(makeSleepAudio(), { muted: false });
+		player.attach(audio as unknown as HTMLAudioElement);
+		player.setVolume(0.7);
+
+		player.toggleMute();
+		expect(audio.muted).toBe(true);
+		expect(player.volume).toBeCloseTo(0.7); // level never destroyed
+
+		player.toggleMute();
+		expect(audio.muted).toBe(false);
+		expect(audio.volume).toBeCloseTo(0.7); // ...so unmute restores exactly it
+	});
+
+	it('raising the slider off zero unmutes', () => {
+		const audio = Object.assign(makeSleepAudio(), { muted: false });
+		player.attach(audio as unknown as HTMLAudioElement);
+		player.toggleMute();
+		expect(player.muted).toBe(true);
+
+		player.setVolume(0.25);
+		expect(player.muted).toBe(false);
+		expect(audio.muted).toBe(false);
+	});
+
+	it('D-02 TRAP: a volume change mid-fade is NOT clobbered — the ramp follows it and the restore lands on it', () => {
+		vi.useFakeTimers();
+		try {
+			const audio = makeSleepAudio();
+			player.attach(audio as unknown as HTMLAudioElement);
+			sleepTimer.set('minutes', 5);
+			sleepTimer.deadline = Date.now() - 1;
+
+			audio.fire('timeupdate'); // arms the ~10s fade, ramping from player.volume (1)
+			vi.advanceTimersByTime(400);
+			expect(audio.volume).toBeGreaterThan(0.9); // ~1 * (1 - 0.04)
+
+			// The user drags the slider down to 0.5 WHILE the fade is running.
+			player.setVolume(0.5);
+			vi.advanceTimersByTime(400); // one/two more 200ms fade ticks
+
+			// The ramp re-read the new base: ~0.5 * (1 - 0.08), not ~0.92 (old snapshot) and not
+			// 0.5 flat (a naive element write that ignored the fade).
+			expect(audio.volume).toBeLessThan(0.5);
+			expect(audio.volume).toBeGreaterThan(0.4);
+
+			// ...and the end-of-fade restore lands on the USER's level, not the pre-fade 1.
+			vi.advanceTimersByTime(10_000);
+			expect(audio.pause).toHaveBeenCalled();
+			expect(audio.volume).toBeCloseTo(0.5);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+});

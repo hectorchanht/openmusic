@@ -303,6 +303,9 @@ const en = {
 	// --- now bar (layout) ---
 	"nowbar.openNowPlaying": "Open now playing",
 	"nowbar.playPause": "Play/pause",
+	"nowbar.volume": "Volume",
+	"nowbar.mute": "Mute",
+	"nowbar.unmute": "Unmute",
 
 	// --- track menu ---
 	"menu.playNext": "Play next",

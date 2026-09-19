@@ -7,7 +7,17 @@
     //   - 'embed': position:static, sits in the parent's normal flow. Used inside NowPlaying.svelte
     //     in the fullshrink layout so the cover/title/artist/play row stays visible above the
     //     open subnav sheet.
-    import { Play, Pause, Loader, Moon } from "@lucide/svelte";
+    import {
+        Play,
+        Pause,
+        Loader,
+        Moon,
+        SkipBack,
+        SkipForward,
+        Volume1,
+        Volume2,
+        VolumeX,
+    } from "@lucide/svelte";
     import { fade } from "svelte/transition";
     import { player, fmtTime } from "$lib/stores/player.svelte";
     import { names } from "$lib/stores/names.svelte";
@@ -120,6 +130,51 @@
     const hasPrevNeighbor = $derived(npIndex !== 0);
     const hasNextNeighbor = $derived(!!player.current);
 
+    // quick-260919-et3: the desktop player-bar gate. et3 already made this bar span rail-edge to
+    // window-edge at >=1024px; this fills it in with the YouTube-Music transport (prev/play/next +
+    // elapsed/total) and a volume control.
+    //
+    // This is a DOM gate, not just a CSS one, and the `(hover: hover)` half is the reason. iOS
+    // ignores `audio.volume` entirely (writes are swallowed, reads stay 1), so a volume slider on a
+    // touch surface is a control that visibly does nothing. A width-only query would render one on
+    // a landscape tablet. Requiring a hover-capable pointer keeps every touch device — phone,
+    // tablet, touchscreen laptop in touch mode — on the untouched mobile markup: no slider, no
+    // speaker button, no transport, nothing in the DOM at all.
+    //
+    // `variant === "docked"` is the second exclusion: the `embed` variant renders INSIDE the open
+    // NowPlaying sheet, which has its own full transport a few hundred pixels below.
+    let hoverDesktop = $state(false);
+    $effect(() => {
+        const mq = window.matchMedia("(min-width: 1024px) and (hover: hover)");
+        hoverDesktop = mq.matches;
+        const onChange = () => (hoverDesktop = mq.matches);
+        mq.addEventListener("change", onChange);
+        return () => mq.removeEventListener("change", onChange);
+    });
+    const desktopBar = $derived(hoverDesktop && variant === "docked");
+
+    // quick-260919-et3: the `2:06 / 2:33` readout. fmtTime is the store's existing NaN/Infinity-safe
+    // formatter (player.svelte.ts) — not a second one.
+    //
+    // These are $derived and $derived is LAZY: on mobile `.np-time` is never rendered, so neither
+    // one is ever read and neither is ever computed. player.currentTime is a ~4x/s firehose, but a
+    // derived STRING only writes the DOM when the string changes — i.e. once per second, one text
+    // node, no $effect and nothing else on the tick path (same property the 1we lyric row has).
+    //
+    // player.duration is documented as "0 until loadedmetadata; never NaN", so the unknown-duration
+    // state is `duration > 0`, not a NaN check. It renders a fixed-width em dash pair and .np-time
+    // carries a min-width, so the readout box is the same size before and after metadata lands and
+    // the same size at 0:59 and 10:00 — no twitch, ever.
+    const elapsedText = $derived(fmtTime(player.currentTime));
+    const totalText = $derived(
+        player.duration > 0 ? fmtTime(player.duration) : "—:—",
+    );
+
+    // quick-260919-et3: muted OR dragged to zero both read as "no sound", so both show VolumeX and
+    // both label the button "Unmute" — clicking it must give sound back either way, which
+    // player.toggleMute() + setVolume's unmute-on-raise contract already guarantee.
+    const silent = $derived(player.muted || player.volume === 0);
+
     function fallbackCover(): string {
         return "linear-gradient(145deg,#3a2d63,#1a1326)";
     }
@@ -128,6 +183,36 @@
         else player.expand();
     }
 </script>
+
+<!-- quick-260919-et3: the play/pause control, lifted into a snippet so the desktop transport
+     cluster and the mobile right-hand button are the SAME markup rather than two copies that
+     drift. Exactly one call site renders per breakpoint. The resolving-spinner branch, the
+     .motion-always escape hatch and the .play-glyph crossfade are all carried over verbatim. -->
+{#snippet playControl()}
+    {#if resolving}
+        <span
+            class="np-btn np-spin motion-always"
+            aria-label={t("common.loading")}
+            aria-busy="true"><Loader size={18} /></span
+        >
+    {:else}
+        <button
+            class="np-btn"
+            aria-label={t("nowbar.playPause")}
+            onclick={() => player.toggle()}
+            use:tapBounce
+        >
+            <span
+                class="play-glyph"
+                class:is-playing={player.playing}
+                aria-hidden="true"
+            >
+                <span class="pg pg-play"><Play size={18} /></span>
+                <span class="pg pg-pause"><Pause size={18} /></span>
+            </span>
+        </button>
+    {/if}
+{/snippet}
 
 {#if np}
     <div class="nowbar" class:embed={variant === "embed"}>
@@ -153,6 +238,30 @@
              sub-slop tap still reaches onclick={handleOpen} (tap-to-expand, D-07) while a committed
              swipe never replays it. Attached to .np-open ONLY — the .np-prog loader rail above sits
              OUTSIDE this button and stays visually pinned while the content slides (UI-SPEC §5). -->
+        {#if desktopBar}
+            <!-- quick-260919-et3: the YouTube Music transport cluster — prev / play / next then
+                 `2:06 / 2:33`, pinned to the LEFT of the bar as in the reference. It sits OUTSIDE
+                 .np-open on purpose: .np-open is the tap-to-expand + coverSwipe surface, and a
+                 nested <button> there would be invalid HTML and would fight the gesture.
+                 Reuses nowplaying.previous / nowplaying.next — the same actions, so the same
+                 labels; no new keys for something already named. -->
+            <div class="np-transport">
+                <button
+                    class="np-t"
+                    aria-label={t("nowplaying.previous")}
+                    onclick={() => player.prev()}
+                    use:tapBounce><SkipBack size={20} /></button
+                >
+                {@render playControl()}
+                <button
+                    class="np-t"
+                    aria-label={t("nowplaying.next")}
+                    onclick={() => player.next()}
+                    use:tapBounce><SkipForward size={20} /></button
+                >
+                <span class="np-time">{elapsedText} / {totalText}</span>
+            </div>
+        {/if}
         <button
             class="np-open"
             aria-label={t("nowbar.openNowPlaying")}
@@ -251,28 +360,37 @@
                     >{/if}
             </button>
         {/if}
-        {#if resolving}
-            <span
-                class="np-btn np-spin motion-always"
-                aria-label={t("common.loading")}
-                aria-busy="true"><Loader size={18} /></span
-            >
-        {:else}
-            <button
-                class="np-btn"
-                aria-label={t("nowbar.playPause")}
-                onclick={() => player.toggle()}
-                use:tapBounce
-            >
-                <span
-                    class="play-glyph"
-                    class:is-playing={player.playing}
-                    aria-hidden="true"
+        {#if desktopBar}
+            <!-- quick-260919-et3: the far-right volume control. A NATIVE <input type="range"> —
+                 it is keyboard-operable, screen-reader-labelled and drag-correct for free, and a
+                 hand-rolled pointer-drag slider would be a hundred lines to get worse.
+                 `value={player.muted ? 0 : player.volume}` keeps the thumb honest while muted
+                 without destroying the level the store is holding for the unmute. -->
+            <div class="np-vol">
+                <button
+                    class="np-volbtn"
+                    aria-label={t(silent ? "nowbar.unmute" : "nowbar.mute")}
+                    onclick={() => player.toggleMute()}
+                    use:tapBounce
                 >
-                    <span class="pg pg-play"><Play size={18} /></span>
-                    <span class="pg pg-pause"><Pause size={18} /></span>
-                </span>
-            </button>
+                    {#if silent}<VolumeX size={18} />{:else if player.volume < 0.5}<Volume1
+                            size={18}
+                        />{:else}<Volume2 size={18} />{/if}
+                </button>
+                <input
+                    class="np-volrange"
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.01"
+                    aria-label={t("nowbar.volume")}
+                    value={player.muted ? 0 : player.volume}
+                    oninput={(e) =>
+                        player.setVolume(e.currentTarget.valueAsNumber)}
+                />
+            </div>
+        {:else}
+            {@render playControl()}
         {/if}
     </div>
 {/if}
@@ -531,6 +649,118 @@
         .nowbar:not(.embed) {
             left: var(--rail-w);
             bottom: 0;
+        }
+
+        /* quick-260919-et3 (fill-in): the transport + volume clusters. EVERY rule for them lives
+           inside this media query — not because the elements could otherwise leak (they are
+           `{#if desktopBar}`-gated and simply do not exist on mobile) but because the file's
+           mobile-safety audit greps for exactly that, and a rule sitting outside would be a false
+           positive that costs someone a re-audit.
+
+           Both clusters are `flex: none` inside a `height: var(--nowbar-h)` / `overflow: hidden`
+           bar, and their tallest child is the existing 40px .np-btn. The bar's height is a fixed
+           custom property, so 64px is structurally guaranteed in every state (lyric, no lyric,
+           instrumental gap, error) — the 1we measurement stands untouched. */
+        .np-transport {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            flex: none;
+        }
+        /* Prev/next: flat ghost buttons, deliberately NOT the filled primary circle — the play
+           button stays the one accented control in the cluster, as in the reference. */
+        .np-t {
+            background: none;
+            border: none;
+            color: var(--color-text);
+            width: 34px;
+            height: 34px;
+            border-radius: 50%;
+            display: grid;
+            place-items: center;
+            cursor: pointer;
+            opacity: 0.85;
+            transition:
+                background 0.12s ease,
+                transform 0.12s ease;
+        }
+        .np-t:hover {
+            background: rgba(255, 255, 255, 0.1);
+            opacity: 1;
+        }
+        .np-t:active {
+            transform: scale(0.92);
+        }
+        /* tabular-nums + min-width is the no-twitch pair: equal-width digits stop the readout
+           breathing every second, and the reserved box stops 0:59 -> 10:00 (and the pre-metadata
+           em-dash state) from nudging the cover and title sideways. */
+        .np-time {
+            margin-left: 8px;
+            font-size: 12px;
+            color: var(--color-text);
+            opacity: 0.7;
+            font-variant-numeric: tabular-nums;
+            white-space: nowrap;
+            min-width: 84px;
+            text-align: center;
+        }
+
+        .np-vol {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex: none;
+        }
+        .np-volbtn {
+            background: none;
+            border: none;
+            color: var(--color-text);
+            width: 34px;
+            height: 34px;
+            border-radius: 50%;
+            display: grid;
+            place-items: center;
+            cursor: pointer;
+            opacity: 0.85;
+            transition:
+                background 0.12s ease,
+                transform 0.12s ease;
+        }
+        .np-volbtn:hover {
+            background: rgba(255, 255, 255, 0.1);
+            opacity: 1;
+        }
+        .np-volbtn:active {
+            transform: scale(0.92);
+        }
+        /* `appearance: none` + an explicit track/thumb is required because the two vendors
+           disagree about everything else; the element itself stays a native range input, so
+           keyboard arrows, Home/End and pointer capture keep working for free. */
+        .np-volrange {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 90px;
+            height: 4px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.25);
+            cursor: pointer;
+        }
+        .np-volrange::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: var(--color-text);
+            cursor: pointer;
+        }
+        .np-volrange::-moz-range-thumb {
+            width: 12px;
+            height: 12px;
+            border: none;
+            border-radius: 50%;
+            background: var(--color-text);
+            cursor: pointer;
         }
     }
 </style>

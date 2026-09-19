@@ -279,6 +279,9 @@ const zhHant: Dict = {
 	// --- now bar ---
 	"nowbar.openNowPlaying": "開啟正在播放",
 	"nowbar.playPause": "播放／暫停",
+	"nowbar.volume": "音量",
+	"nowbar.mute": "靜音",
+	"nowbar.unmute": "取消靜音",
 
 	// --- track menu ---
 	"menu.playNext": "下一首播放",

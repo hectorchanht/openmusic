@@ -1036,8 +1036,6 @@ class Player {
 	 *  expiry ramps the volume down over ~10s then pauses; cleared on finish/abort. Plain field —
 	 *  internal fade lifecycle, never reactive. Mirrors the stallTimer clearInterval idiom. */
 	private fadeTimer: ReturnType<typeof setInterval> | null = null;
-	/** Volume snapshot taken at the start of a fade so finishExpiry/abortFade can restore it (D-02). */
-	private preFadeVolume = 1;
 	/** Coarse secondary minutes-deadline backstop (RESEARCH Assumption A1): catches the iOS
 	 *  screen-wake case where `timeupdate` stalled while locked. The `timeupdate` listener stays
 	 *  the authority; this is a belt-and-suspenders net armed via onSleepTimerSet(). */
@@ -1046,6 +1044,31 @@ class Player {
 	currentTime = $state(0);
 	/** 0 until loadedmetadata; never NaN. */
 	duration = $state(0);
+
+	/**
+	 * quick-260919-et3: the USER's volume level, [0,1]. Reactive — the desktop Nowbar slider reads
+	 * it — and the SINGLE SOURCE OF TRUTH for `audio.volume`. Nothing else may treat the live
+	 * element value as authoritative.
+	 *
+	 * D-02 (sleep-timer fade) is exactly why that rule exists. The fade used to snapshot
+	 * `audio.volume` into a private `preFadeVolume` at fade start and write it back on
+	 * finish/abort. With a user-facing control that snapshot is a clobber in both directions: a
+	 * volume change made mid-fade would be overwritten by the restore, and the fade would keep
+	 * ramping from a level the user had already left. So `preFadeVolume` is GONE — the fade ramps
+	 * FROM this field (re-read every 200ms tick, so a mid-fade change is picked up within one
+	 * tick and the ramp continues from the new level) and restores TO this field. The element is
+	 * a sink, never a source.
+	 *
+	 * Mute is the native `audio.muted` flag, deliberately NOT a volume write to 0 — the platform
+	 * already restores the level on unmute, so there is no "previous level" to remember here.
+	 *
+	 * iOS ignores volume writes entirely (reads stay 1); that is pre-existing and harmless, and
+	 * the UI that drives this is desktop/hover-only so it never reaches a touch device.
+	 */
+	volume = $state(1);
+	/** quick-260919-et3: native-mute flag, mirrored onto `audio.muted`. Unmuting restores `volume`
+	 *  because muting never touched it. */
+	muted = $state(false);
 
 	private audio: HTMLAudioElement | null = null;
 	private growing = false;
@@ -1817,13 +1840,17 @@ class Player {
 		const audio = this.audio;
 		if (canFadeVolume(audio)) {
 			// D-01: ~10s linear fade, then pause (the indicator stays until finishExpiry cancels it).
-			this.preFadeVolume = audio.volume;
+			// quick-260919-et3: the ramp base is re-read from `this.volume` on EVERY tick instead of
+			// snapshotted once into the old `preFadeVolume`. That is what lets the user move the
+			// desktop slider mid-fade: the very next 200ms tick ramps from their new level at the
+			// fade's current progress fraction, so the fade neither fights the slider nor gets
+			// undone by it.
 			const start = Date.now();
 			const FADE_MS = 10_000;
 			this.disarmFadeTimer(); // never stack two fades
 			this.fadeTimer = setInterval(() => {
 				const elapsed = Date.now() - start;
-				audio.volume = fadeVolumeAt(elapsed, FADE_MS, this.preFadeVolume); // pure, clamped [0,1]
+				audio.volume = fadeVolumeAt(elapsed, FADE_MS, this.volume); // pure, clamped [0,1]
 				if (elapsed >= FADE_MS) this.finishExpiry();
 			}, 200);
 		} else {
@@ -1840,7 +1867,10 @@ class Player {
 		// EXTERNAL-PAUSE SELF-HEAL: the sleep-timer stop is INTENTIONAL — route through pauseAudio()
 		// so the `pause` listener does not treat it as an external pause and re-play the track.
 		this.pauseAudio();
-		if (this.audio) this.audio.volume = this.preFadeVolume; // D-02: restore for next play
+		// D-02: restore for next play. quick-260919-et3 — restores to the USER's level, which is
+		// also what the ramp was reading, so a mid-fade change survives the stop.
+		// disarmFadeTimer() above already cleared fadeTimer, so applyVolume writes through.
+		this.applyVolume();
 		sleepTimer.cancel();
 	}
 
@@ -1849,7 +1879,7 @@ class Player {
 	private abortFade() {
 		if (this.fadeTimer) {
 			this.disarmFadeTimer();
-			if (this.audio) this.audio.volume = this.preFadeVolume; // restore
+			this.applyVolume(); // restore to the user's level (D-02, quick-260919-et3)
 			sleepTimer.cancel(); // user is awake — clear the timer too
 		}
 	}
@@ -1896,6 +1926,11 @@ class Player {
 	attach(el: HTMLAudioElement) {
 		this.audio = el;
 		el.setAttribute('referrerpolicy', 'no-referrer');
+		// quick-260919-et3: restore the persisted level and push it onto the fresh element. The
+		// element is created per page load with volume=1/muted=false, so without this the saved
+		// level would be reactive-only and silently ignored by the audio.
+		this.loadVolume();
+		this.applyVolume();
 
 		// GLN-6: page-lifecycle persistence. attach() runs client-side from the root layout, but guard
 		// document/window so a stray SSR/test call never throws. On hide/freeze/navigation-away, flush
@@ -4147,6 +4182,76 @@ class Player {
 			logAction('upnext.source', { via, count: tail.length });
 		} catch {
 			/* leave queue as-is */
+		}
+	}
+
+	/**
+	 * quick-260919-et3: set the user's volume level. The ONLY writer of `this.volume`.
+	 * Dragging above 0 unmutes (matching every desktop player); dragging to 0 leaves the mute
+	 * flag alone so a later drag back up is not swallowed.
+	 */
+	setVolume(v: number) {
+		const next = Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : this.volume;
+		this.volume = next;
+		if (next > 0) this.muted = false;
+		this.applyVolume();
+		this.persistVolume();
+	}
+
+	/** quick-260919-et3: native mute toggle. `audio.muted` never touches `audio.volume`, so
+	 *  unmuting restores the exact prior level with no snapshot to keep. */
+	toggleMute() {
+		this.muted = !this.muted;
+		this.applyVolume();
+		this.persistVolume();
+	}
+
+	/**
+	 * quick-260919-et3: push `volume`/`muted` onto the element. The mute flag is always written —
+	 * it is orthogonal to the fade. The LEVEL is skipped while a sleep-timer fade owns
+	 * `audio.volume` (D-02): the fade's 200ms tick re-reads `this.volume` and would immediately
+	 * overwrite anything written here anyway, and writing full volume mid-fade would be an
+	 * audible jump back up. See the `volume` field doc for the whole cooperation contract.
+	 */
+	private applyVolume() {
+		if (!this.audio) return;
+		this.audio.muted = this.muted;
+		if (this.fadeTimer) return;
+		this.audio.volume = this.volume;
+	}
+
+	/** quick-260919-et3: `openmusic:<domain>:v<N>` convention. A DEDICATED key, not the throttled
+	 *  `openmusic:player:v1` blob — that one is REMOVED whenever persist() runs with no current
+	 *  track, which would silently reset the level on any cold boot. */
+	private static VOLUME_KEY = 'openmusic:volume:v1';
+
+	private persistVolume() {
+		if (!browser) return;
+		try {
+			localStorage.setItem(
+				Player.VOLUME_KEY,
+				JSON.stringify({ volume: this.volume, muted: this.muted })
+			);
+		} catch {
+			/* quota / private mode — a lost volume level is not worth a throw */
+		}
+	}
+
+	/** quick-260919-et3: called once from attach(), which the layout already runs inside untrack()
+	 *  — so writing these $state fields here cannot self-invalidate the mount effect
+	 *  (restore-effect-self-invalidation-loop). */
+	private loadVolume() {
+		if (!browser) return;
+		try {
+			const raw = localStorage.getItem(Player.VOLUME_KEY);
+			if (!raw) return;
+			const saved = JSON.parse(raw) as { volume?: unknown; muted?: unknown };
+			if (typeof saved.volume === 'number' && Number.isFinite(saved.volume)) {
+				this.volume = Math.min(1, Math.max(0, saved.volume));
+			}
+			if (typeof saved.muted === 'boolean') this.muted = saved.muted;
+		} catch {
+			/* corrupt entry → keep the defaults */
 		}
 	}
 
