@@ -434,7 +434,6 @@ const fr: Dict = {
 	"settings.homeSectionDensity": "Disposition",
 	// general settings helper text (quick-260630-fce)
 	"settings.appLanguageDesc": "Définit la langue des boutons, menus et libellés de l'application ; les noms de chansons et d'artistes suivent vos réglages de Traduction, pas celui-ci.",
-	"settings.themeDesc": "Bascule toute l'application entre un aspect sombre et un aspect clair ; choisissez celui qui repose le plus vos yeux dans votre environnement habituel.",
 	"settings.accentColorDesc": "La couleur de surbrillance des commandes actives, des interrupteurs et du morceau en cours de lecture ; choisissez celle qui vous plaît.",
 	"settings.reduceMotionDesc": "Désactive les animations et transitions non essentielles dans toute l'application ; activez-le si le mouvement vous gêne ou pour aider à économiser la batterie.",
 	"settings.shareIncludeTitleDesc": "Ajoute une ligne de titre (chanson • artiste) au-dessus du lien lors du partage. Désactivé, seul le lien est envoyé — l'aperçu du lien affiche déjà le titre.",

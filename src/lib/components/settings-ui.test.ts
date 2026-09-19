@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 
 // quick-260919-ebi (F2) — STRUCTURAL gate for the shared settings row/picker components.
 //
@@ -13,6 +13,10 @@ import { readFileSync } from 'node:fs';
 
 const ROUTES = 'src/routes/(app)/settings';
 const read = (p: string) => readFileSync(p, 'utf-8');
+/** Source with comments removed. These components DOCUMENT the rules they follow ("no <img>",
+ *  "no url(...)", "a wrapper role=group"), so a gate reading raw text would match its own prose
+ *  and either trip on nothing or pass on a comment. Always assert against the CODE. */
+const readCode = (p: string) => stripComments(read(p));
 
 /** Strip `//` line comments and `<!-- -->` / CSS block comments so a comment that MENTIONS a class
  *  (every one of the deletion notes below does) can never self-invalidate the gate. */
@@ -66,8 +70,8 @@ describe('shared settings rows (quick-260919-ebi F2)', () => {
 	}
 
 	it('SettingToggle and SettingRow are the ONLY definitions of the two row kinds', () => {
-		const toggle = read('src/lib/components/SettingToggle.svelte');
-		const row = read('src/lib/components/SettingRow.svelte');
+		const toggle = readCode('src/lib/components/SettingToggle.svelte');
+		const row = readCode('src/lib/components/SettingRow.svelte');
 		// The boolean kind: a real switch, the carried-over 40x22 pill, and the accent left edge.
 		expect(toggle).toMatch(/role="switch"/);
 		expect(toggle).toMatch(/aria-checked=\{checked\}/);
@@ -76,6 +80,48 @@ describe('shared settings rows (quick-260919-ebi F2)', () => {
 		// The config kind: chevron ALWAYS present (never inside an {#if}), raised surface.
 		expect(row).toMatch(/<ChevronRight size=\{18\} class="chev" \/>/);
 		expect(row).toMatch(/background: var\(--color-surface-2\)/);
+	});
+
+	it('SettingPicker is the ONE picker, with the a11y vocabulary on both variants', () => {
+		const picker = readCode('src/lib/components/SettingPicker.svelte');
+		// Both variants: a group with a name, and every option a real <button> with aria-pressed.
+		expect(picker.match(/role="group"/g) ?? []).toHaveLength(2);
+		expect(picker.match(/aria-pressed=\{value === o\.v\}/g) ?? []).toHaveLength(2);
+		expect(picker.match(/aria-label=\{o\.label\}/g) ?? []).toHaveLength(2);
+		// The seg variant is the EXISTING pill row, not a second implementation of it.
+		expect(picker).toMatch(/\.seg button\.on \{[\s\S]*?background: var\(--color-primary\)/);
+		// Mocks never announce themselves; the button's aria-label is the accessible name.
+		expect(picker).toMatch(/class="mock" aria-hidden="true"/);
+	});
+
+	// T-ebi-01: a preview that fetched a remote asset would leak a request and break offline, for
+	// cosmetics. Previews are CSS/SVG only — this is the control, not a style preference.
+	it('SettingPicker renders no image and requests nothing over the network', () => {
+		const picker = readCode('src/lib/components/SettingPicker.svelte');
+		expect(picker).not.toMatch(/<img/);
+		expect(picker).not.toMatch(/url\(/);
+	});
+
+	it('the Theme preview is painted in LITERAL palette values, the one sanctioned exception', () => {
+		const page = readCode(`${ROUTES}/appearance/+page.svelte`);
+		// The dark card must look dark while the LIGHT theme is active, so tokens cannot be used.
+		// These are the real app.css values; if they drift apart, the preview starts lying.
+		for (const hex of ['#0b0b0f', '#f4f4f6', '#f7f7fa', '#1a1a22']) {
+			expect(page, `appearance page should carry the literal ${hex}`).toContain(hex);
+		}
+		expect(page).toMatch(/variant="preview"/);
+	});
+
+	it('settings.themeDesc is gone from ALL 15 dictionaries (the two cards replaced it)', () => {
+		const files = readdirSync('src/lib/i18n').filter(
+			(f) => f.endsWith('.ts') && !['index.ts', 'detect.ts'].includes(f) && !f.endsWith('.test.ts')
+		);
+		expect(files).toHaveLength(15);
+		for (const f of files) {
+			expect(read(`src/lib/i18n/${f}`), `${f} still carries settings.themeDesc`).not.toContain(
+				'"settings.themeDesc"'
+			);
+		}
 	});
 
 	it('each converted page imports the shared component it uses', () => {

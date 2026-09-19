@@ -434,7 +434,6 @@ const es: Dict = {
 	"settings.homeSectionDensity": "Diseño",
 	// general settings helper text (quick-260630-fce)
 	"settings.appLanguageDesc": "Establece el idioma de los botones, menús y etiquetas de la app; los nombres de canciones y artistas siguen tus ajustes de Traducción, no este.",
-	"settings.themeDesc": "Cambia toda la app entre un aspecto oscuro y uno claro; elige el que resulte más cómodo para tus ojos en tu entorno habitual.",
 	"settings.accentColorDesc": "El color de resalte usado en los controles activos, los interruptores y la canción en reproducción; elige el que más te guste.",
 	"settings.reduceMotionDesc": "Desactiva las animaciones y transiciones no esenciales en toda la app; actívalo si el movimiento te molesta o para ayudar a ahorrar batería.",
 	"settings.shareIncludeTitleDesc": "Añade una línea de título (canción • artista) encima del enlace al compartir. Desactivado envía solo el enlace: la vista previa ya muestra el título.",

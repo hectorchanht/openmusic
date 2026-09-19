@@ -8,7 +8,6 @@
         Type,
         LayoutGrid,
         Sun,
-        Moon,
         Palette,
         Zap,
     } from "@lucide/svelte";
@@ -26,6 +25,7 @@
     // settings store (Pitfall 6 / SSR-leak rule).
     import { player } from "$lib/stores/player.svelte";
     import SettingToggle from "$lib/components/SettingToggle.svelte";
+    import SettingPicker from "$lib/components/SettingPicker.svelte";
     import { tapBounce } from "$lib/actions/tapBounce";
     import { t } from "$lib/i18n";
 
@@ -77,6 +77,37 @@
         settings.reduceMotion = !settings.reduceMotion;
         settings.save();
     }
+
+    // quick-260919-ebi (F3): THE sanctioned literal-colour exception to the mock-primitive rule.
+    // Every other preview in the app paints itself from theme tokens so it is automatically correct
+    // in both themes. These two cards must do the OPPOSITE: the dark card has to look dark while
+    // the LIGHT theme is active, and vice versa — that contrast IS the thing being previewed, and a
+    // token would make both cards identical and the picker useless. The values are the real palette
+    // from app.css (`:root` and `:root[data-theme='light']`, the blocks applyTheme() drives), not
+    // eyeballed approximations; if app.css changes, these change with it.
+    type Palette = {
+        bg: string;
+        surface2: string;
+        border: string;
+        text: string;
+        muted: string;
+    };
+    const PALETTE: Record<Theme, Palette> = {
+        dark: {
+            bg: "#0b0b0f",
+            surface2: "#1d1d27",
+            border: "#888888",
+            text: "#f4f4f6",
+            muted: "#a0a0ad",
+        },
+        light: {
+            bg: "#f7f7fa",
+            surface2: "#ececf2",
+            border: "#c5c5cf",
+            text: "#1a1a22",
+            muted: "#5a5a66",
+        },
+    };
     const num = (e: Event) =>
         Number((e.currentTarget as HTMLInputElement).value);
 </script>
@@ -105,22 +136,87 @@
 <!-- quick-260919-ebi: Theme / Accent colour / Motion moved here from /settings/general — a page
      literally named Appearance that did not contain dark mode was the single worst findability bug
      in Settings. They sit ABOVE Text size because theme and accent frame everything below them. -->
+<!-- quick-260919-ebi (F3): one mini app-chrome mock, rendered twice in the two real palettes —
+     header bar, two content lines with a cover tile, and the docked now-bar. The paragraph that
+     used to explain "switches the whole app between a dark and a light look" is gone, because the
+     two cards show exactly that and the sentence could only restate it. -->
+{#snippet chrome(p: Palette)}
+    <span
+        class="mock-chrome"
+        style:background={p.bg}
+        style:border-radius="3px"
+        style:padding="5px"
+    >
+        <span class="mock-bar" style:background={p.surface2}>
+            <span class="mock-line" style:background={p.text} style:width="40%"
+            ></span>
+        </span>
+        <span class="mock-row">
+            <span
+                class="mock-tile"
+                style:background={p.surface2}
+                style:border-color={p.border}
+                style:width="18px"
+            ></span>
+            <span class="mock-col">
+                <span
+                    class="mock-line"
+                    style:background={p.text}
+                    style:width="80%"
+                ></span>
+                <span
+                    class="mock-line"
+                    style:background={p.muted}
+                    style:width="55%"
+                ></span>
+            </span>
+        </span>
+        <span class="mock-bar" style:background={p.surface2}>
+            <span
+                class="mock-tile"
+                style:background={p.bg}
+                style:border-color={p.border}
+                style:width="10px"
+            ></span>
+            <span class="mock-col">
+                <span
+                    class="mock-line"
+                    style:background={p.text}
+                    style:width="70%"
+                ></span>
+                <span
+                    class="mock-line"
+                    style:background={p.muted}
+                    style:width="45%"
+                ></span>
+            </span>
+        </span>
+    </span>
+{/snippet}
+
 <section>
     <h2><Sun size={15} /> {t("settings.theme")}</h2>
-    <div class="seg">
-        <button
-            class:on={settings.theme === "dark"}
-            onclick={() => setTheme("dark")}
-            use:tapBounce><Moon size={15} /> {t("settings.themeDark")}</button
-        >
-        <button
-            class:on={settings.theme === "light"}
-            onclick={() => setTheme("light")}
-            use:tapBounce><Sun size={15} /> {t("settings.themeLight")}</button
-        >
-    </div>
-    <p class="note">{t("settings.themeDesc")}</p>
+    <SettingPicker
+        variant="preview"
+        label={t("settings.theme")}
+        value={settings.theme}
+        onpick={setTheme}
+        options={[
+            {
+                v: "dark" as Theme,
+                label: t("settings.themeDark"),
+                preview: darkCard,
+            },
+            {
+                v: "light" as Theme,
+                label: t("settings.themeLight"),
+                preview: lightCard,
+            },
+        ]}
+    />
 </section>
+{#snippet darkCard()}{@render chrome(PALETTE.dark)}{/snippet}
+{#snippet lightCard()}{@render chrome(PALETTE.light)}{/snippet}
 
 <section>
     <h2><Palette size={15} /> {t("settings.accentColor")}</h2>
@@ -414,30 +510,8 @@
     }
     /* quick-260919-ebi: the segmented control, accent swatches and toggle row that arrived with
        theme / accent / reduce-motion, carried VERBATIM from /settings/general so nothing jumps. */
-    .seg {
-        display: inline-flex;
-        background: var(--color-surface-2);
-        border: 1px solid var(--color-border);
-        border-radius: 999px;
-        padding: 3px;
-        gap: 3px;
-    }
-    .seg button {
-        background: none;
-        border: none;
-        color: var(--color-text-muted);
-        padding: 7px 16px;
-        border-radius: 999px;
-        font-size: 13px;
-        cursor: pointer;
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-    }
-    .seg button.on {
-        background: var(--color-primary);
-        color: #fff;
-    }
+    /* quick-260919-ebi: the .seg CSS moved into SettingPicker.svelte; the accent swatches below
+       stay local because the swatch IS already its own preview (a colour is a colour). */
     .swatches {
         display: flex;
         gap: 12px;
