@@ -17,6 +17,11 @@
     import { tapBounce } from "$lib/actions/tapBounce";
     import { t, tMaybeKey } from "$lib/i18n";
     import { marquee } from "$lib/actions/marquee";
+    // quick-260919-1we (F2): the docked mini player's lyric line. parseLRC + the SHARED active-line
+    // scan, over the SHARED pin-aware lyrics read — so the line shown here is the same LRC the
+    // NowPlaying pane shows, including a user's Fix-lyrics pick (D-4).
+    import { parseLRC, activeLineAt } from "$lib/services/lrc";
+    import { readLyrics } from "$lib/stores/lyric-pins.svelte";
 
     type Variant = "docked" | "embed";
 
@@ -52,6 +57,34 @@
     const npKey = $derived(
         player.current?.uid ?? `${np?.artist ?? ""}|${np?.title ?? ""}`,
     );
+
+    // quick-260919-1we (F2): the currently-sung line, or "" to keep the artist line.
+    //
+    // 1. parseLRC ONLY — deliberately no reorderPairs / splitParenLines. Those two exist to serve
+    //    NowPlaying's stacked pane (an original/translation pair rendered on two rows); one line in
+    //    an 11px row has no room for a pair, so raw parsed lines are the right granularity here.
+    //    This derived depends on the lyric STRING, not on currentTime, so it costs one pass over the
+    //    LRC per TRACK — not per tick.
+    const lyricLines = $derived(parseLRC(readLyrics(player.current) ?? ""));
+    // 2. The early return gates the whole scan: with the setting off this costs one boolean read per
+    //    tick and nothing else. `variant !== "docked"` is D-8's embed exclusion — repeating the
+    //    current line directly above NowPlaying's full lyrics pane is noise.
+    // 3. It returns a STRING. player.currentTime changes ~4x/s so this re-evaluates ~4x/s, but
+    //    Svelte 5 only writes the DOM when the VALUE changes — so the repaint (and the {#key} fade)
+    //    happens on LINE change, never once per timeupdate tick. No $effect, no logAction, nothing
+    //    else on the timeupdate firehose.
+    //
+    // parseLRC silently drops every line with no timestamp, so an unsynced plain-text LRC yields []
+    // -> "" -> the artist line renders unchanged. Same for an instrumental and for no lyrics at all.
+    // That is the whole degrade story; it needs no extra branch.
+    const lyricText = $derived.by(() => {
+        if (!settings.nowbarLyrics || variant !== "docked") return "";
+        // A playback error must never be hidden behind a lyric. When there IS an error the Nowbar is
+        // not the surface to show the song's poetry on, so the artist+error branch takes the row back.
+        if (player.error) return "";
+        const { idx } = activeLineAt(lyricLines, player.currentTime);
+        return idx >= 0 ? lyricLines[idx].text : "";
+    });
 
     // NP-05 boundaries (D-02): rubber-band a prev swipe on the first track, but always allow a
     // next swipe while a current track exists. player.next() owns queue growth, so an end-of-queue
@@ -138,12 +171,27 @@
                         {names.dnTitle(np?.title ?? "")}
                         </span>
                     </span>
+                    <!-- quick-260919-1we (D-8): the lyric REPLACES the artist, it never adds a
+                         third row. The bar is a fixed --nowbar-h, so a third line would squeeze the
+                         other two and a CONDITIONAL third line would shift the layout every time the
+                         LRC has a gap - the exact flicker this feature must not cause. Replacing
+                         means zero layout change, and the artist is one tap away in the hero.
+                         xfadeMs is the file's existing reduced-motion-aware duration (0 under
+                         settings.reduceMotion OR the OS query) - reused, not a second motion gate.
+                         in: only, no out:: an outgoing line animating while the incoming one arrives
+                         in the same 11px row reads as a smear. -->
                     <span class="np-artist" use:marquee>
                         <span class="marquee-inner">
-                        {names.dnArtist(np?.artist ?? "")}
-                        {#if player.error}· <span class="err"
-                            >{tMaybeKey(player.error)}</span
-                        >{/if}
+                        {#if lyricText}
+                            {#key lyricText}
+                                <span class="np-lyric" in:fade={{ duration: xfadeMs }}>{lyricText}</span>
+                            {/key}
+                        {:else}
+                            {names.dnArtist(np?.artist ?? "")}
+                            {#if player.error}· <span class="err"
+                                >{tMaybeKey(player.error)}</span
+                            >{/if}
+                        {/if}
                         </span>
                     </span>
                 </span>
@@ -344,6 +392,16 @@
         display: block;
         font-size: 11px;
         color: var(--color-text);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    /* quick-260919-1we: the lyric line sits in the SAME row as the artist it replaces. No height,
+       no margin, no padding - the row geometry must not move between the two branches. */
+    .np-lyric {
+        font-size: 11px;
+        color: var(--color-text);
+        opacity: 0.9;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
