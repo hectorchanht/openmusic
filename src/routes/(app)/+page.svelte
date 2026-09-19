@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
+	import { navigating } from '$app/state';
 	import { Search, Settings, RotateCw, ChevronRight } from '@lucide/svelte';
 	import Logo from '$lib/components/Logo.svelte';
 	import ShelfChevrons from '$lib/components/ShelfChevrons.svelte';
@@ -589,6 +590,49 @@
 		return arr.slice(0, compactCount);
 	}
 
+	// debug page-switch-lag-tap-dead (cycle 3): PROGRESSIVE SHELF MOUNT. The default config is 29
+	// shelves × 24 rows = 692 CompactRows (9392 DOM nodes, 1374 ResizeObservers) mounted in ONE
+	// synchronous render for a viewport that shows ~3 shelves. On a 4x-throttled prod build that was a
+	// 455 ms long task between the Home-tab tap and the first frame — "tap Home, nothing happens" —
+	// versus 54–109 ms and NO long task with three shelves. So shelves now mount against a flat
+	// budget consumed in the user's section order (above-the-fold first): REVEAL_INITIAL with the
+	// page, then REVEAL_PER_FRAME more per animation frame until every shelf is in, after which the
+	// budget is Infinity so a later Randomize / revalidate renders in full as before. Every shelf still
+	// ends up in the DOM — this is staging, not windowing.
+	//
+	// Back/forward (`popstate`) mounts everything at once: SvelteKit restores scrollY synchronously
+	// after the render, and a three-shelf page would clamp that position to ~0.
+	// One shelf per frame: 24 rows ≈ 30 ms at 4x CPU, so a step stays under a frame-ish and taps
+	// land between steps; two per frame measured as 55–100 ms tasks at 4x for the same total time.
+	const REVEAL_INITIAL = 3;
+	const REVEAL_PER_FRAME = 1;
+	let revealed = $state(navigating.type === 'popstate' ? Infinity : REVEAL_INITIAL);
+	function shelfCount(id: HomeSectionId): number {
+		if (id === 'tags') return tagShelves.length;
+		if (id === 'countries') return countryShelves.length;
+		if (id === 'playlists') return playlistShelves.length;
+		return 1;
+	}
+	/** Per visible section: how many of its shelves may mount right now, plus the grand total. */
+	const shelfBudget = $derived.by(() => {
+		const per: Partial<Record<HomeSectionId, number>> = {};
+		let used = 0;
+		for (const id of resolveSectionOrder(settings.homeSectionOrder)) {
+			if (settings.homeHidden.includes(id)) continue;
+			per[id] = Math.max(0, revealed - used);
+			used += shelfCount(id);
+		}
+		return { per, total: used };
+	});
+	function revealShelves() {
+		if (revealed >= shelfBudget.total) {
+			revealed = Infinity;
+			return;
+		}
+		revealed += REVEAL_PER_FRAME;
+		requestAnimationFrame(revealShelves);
+	}
+
 	// Library-track row play (matches librarySongRow's comfortable behavior) + its menu open.
 	// quick-260831-sp9: pass the SHELF's queue context. These shelves deliberately do not install a
 	// queue — a simple tap should generate a fresh Up-Next — but without a context the player kept
@@ -661,6 +705,8 @@
 			// Cold cache: full fetch. Seed the queue unless a shared link is taking over.
 			refresh(!token);
 		}
+		// Cycle 3: stage the remaining shelves in over the next frames (see shelfBudget).
+		requestAnimationFrame(revealShelves);
 	});
 </script>
 
@@ -721,7 +767,7 @@
 		     skipping any id in settings.homeHidden. The per-section markup lives in the
 		     snippets below; only ORDER + the hidden-skip are new. -->
 		{#each resolveSectionOrder(settings.homeSectionOrder) as id (id)}
-			{#if !settings.homeHidden.includes(id)}
+			{#if !settings.homeHidden.includes(id) && (shelfBudget.per[id] ?? 0) > 0}
 				{#if id === 'top-hits'}{@render topHitsBlock()}
 				{:else if id === 'top-artists'}{@render topArtistsBlock()}
 				{:else if id === 'tags'}{@render tagsBlock()}
@@ -878,14 +924,14 @@
 {/snippet}
 
 {#snippet tagsBlock()}
-	{#each tagShelves as shelf (shelf.label)}
+	{#each tagShelves.slice(0, shelfBudget.per.tags ?? 0) as shelf (shelf.label)}
 		{@render titleNav(t('home.tagShelf', { tag: shelf.label }), '/charts/tags/' + encodeURIComponent(shelf.label))}
 		{@render discoveryShelf(shelf.tracks, densityOf('tags'))}
 	{/each}
 {/snippet}
 
 {#snippet countriesBlock()}
-	{#each countryShelves as shelf (shelf.label)}
+	{#each countryShelves.slice(0, shelfBudget.per.countries ?? 0) as shelf (shelf.label)}
 		{@render titleNav(t('home.countryShelf', { country: shelf.label }), '/charts/countries/' + encodeURIComponent(shelf.label))}
 		{@render discoveryShelf(shelf.tracks, densityOf('countries'))}
 	{/each}
@@ -1005,7 +1051,7 @@
 {/snippet}
 
 {#snippet playlistsBlock()}
-	{#each playlistShelves as shelf (shelf.id)}
+	{#each playlistShelves.slice(0, shelfBudget.per.playlists ?? 0) as shelf (shelf.id)}
 		<!-- D-13: per-playlist shelf deep-links to THAT playlist's detail (tab=playlists +
 		     the playlist id), NOT the generic Playlists tab. id is encodeURIComponent-wrapped. -->
 		{@render titleNav(shelf.name, '/library?tab=playlists&playlist=' + encodeURIComponent(shelf.id))}

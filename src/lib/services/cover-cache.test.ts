@@ -770,13 +770,42 @@ describe('cover-cache — parsed-record memo (debug page-switch-lag-tap-dead)', 
 		spy.mockRestore();
 	});
 
-	it('a raw string rewritten underneath (other tab / test stub) is re-parsed, never served stale', () => {
+	it('a hit does not touch localStorage — getItem copies the whole blob, ~700 rows read per bump', () => {
 		setCachedCover('A', 'B', 'https://a/x.jpg');
-		expect(getCachedCover('A', 'B')).toBe('https://a/x.jpg');
-		store.__raw(CACHE_KEY, JSON.stringify({ [coverCacheKey('A', 'B')]: 'https://other/tab.jpg' }));
-		expect(getCachedCover('A', 'B')).toBe('https://other/tab.jpg');
-		store.removeItem(CACHE_KEY);
+		const spy = vi.spyOn(store, 'getItem');
+		for (let i = 0; i < 300; i++) getCachedCover('A', 'B');
+		expect(spy).not.toHaveBeenCalled();
+		spy.mockRestore();
+	});
+
+	it('clearCoverCache drops the memo too — the next read sees the empty disk', () => {
+		setCachedCover('A', 'B', 'https://a/x.jpg');
+		clearCoverCache();
 		expect(getCachedCover('A', 'B')).toBeNull();
+	});
+
+	it("another tab's write arrives via the `storage` event and invalidates the memo (never served stale)", async () => {
+		// The listener is registered at module init, so load a fresh copy with a `window` present.
+		const handlers: ((e: { key: string | null }) => void)[] = [];
+		(globalThis as { window?: unknown }).window = {
+			addEventListener: (_t: string, fn: (e: { key: string | null }) => void) => handlers.push(fn)
+		};
+		vi.resetModules();
+		try {
+			const fresh = await import('./cover-cache');
+			fresh.setCachedCover('A', 'B', 'https://a/x.jpg');
+			expect(fresh.getCachedCover('A', 'B')).toBe('https://a/x.jpg');
+			store.__raw(CACHE_KEY, JSON.stringify({ [coverCacheKey('A', 'B')]: 'https://other/tab.jpg' }));
+			expect(fresh.getCachedCover('A', 'B')).toBe('https://a/x.jpg'); // memo is authoritative until told otherwise
+			expect(handlers.length).toBeGreaterThan(0);
+			for (const h of handlers) h({ key: CACHE_KEY });
+			expect(fresh.getCachedCover('A', 'B')).toBe('https://other/tab.jpg');
+			store.removeItem(CACHE_KEY);
+			for (const h of handlers) h({ key: null }); // the other tab called localStorage.clear()
+			expect(fresh.getCachedCover('A', 'B')).toBeNull();
+		} finally {
+			delete (globalThis as { window?: unknown }).window;
+		}
 	});
 
 	it('a setItem that throws never leaves an in-memory entry that disk does not have', () => {

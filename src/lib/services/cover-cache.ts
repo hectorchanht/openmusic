@@ -147,40 +147,50 @@ export function setCachedItunesId(artworkKey: string, id: string): void {
 /** Wipe the entire cover cache (used by the Data settings tab). Never throws. */
 export function clearCoverCache(): void {
 	try {
-		localStorage.removeItem(CACHE_KEY);
+		cache.clear();
 	} catch {
 		/* unavailable storage — no-op */
 	}
 }
 
 /**
- * debug page-switch-lag-tap-dead: a parsed-record memo keyed on the RAW stored string.
+ * debug page-switch-lag-tap-dead: a parsed-record memo.
  *
- * Every read used to be getItem + JSON.parse of the WHOLE blob. The home route does ~300 cover
+ * Every read used to be getItem + JSON.parse of the WHOLE blob. The home route does ~700 cover
  * reads per mount (one per tile, and every coverVersion bump re-runs all of them), and at the
  * MAX_ENTRIES cap the blob is ~310 KB — measured 1252 full parses inside ONE 1.0 s long task between
  * the Home-tab tap and the first painted frame (4–5 s at a phone-like 4x CPU throttle). That was
  * "tap the home tab, nothing happens for a second".
  *
- * The memo is keyed on the raw string rather than on "did this module write?" so it stays correct
- * when another tab, a test stub or devtools rewrites storage underneath us: getItem is a cheap
- * in-renderer copy and a 310 KB `===` is a memcmp, so a hit costs microseconds instead of a parse.
- * Writers hand the memo the exact string they just stored, so the read that follows every backfill
- * write is a hit too; a setItem that throws drops the memo first, so a record mutated in place by a
- * writer can never be served as if it were on disk.
+ * Cycle 3: a hit no longer touches localStorage AT ALL. The first cut kept `getItem` on every read
+ * and compared the raw string against the memo's — but getItem copies the whole 310 KB blob, and
+ * with ~700 rows re-reading per bump that copy alone was 85 ms (1x) / 340 ms (4x CPU) of every
+ * post-paint frame in which a backfilled cover landed. The memo is now authoritative for THIS
+ * document: every writer in this module goes through write()/clear() below, and a write from
+ * another tab arrives via the platform's own `storage` event (which fires only in OTHER documents
+ * of the origin), so that event is the one external invalidation. A setItem that throws drops the
+ * memo first, so a record mutated in place by a writer can never be served as if it were on disk.
+ * The memo also remembers WHICH Storage object it was read from: in a browser that is one object
+ * for the document's lifetime (an identity compare, no copy), while the node suites install a fresh
+ * stub per test and must never see the previous test's record.
  */
 function memoRecord<T extends object>(key: string) {
-	let memo: { raw: string; rec: T } | null = null;
+	let memo: { store: Storage; rec: T } | null = null;
+	if (typeof window !== 'undefined') {
+		window.addEventListener('storage', (e) => {
+			if (e.key === null || e.key === key) memo = null; // null key = the other tab called clear()
+		});
+	}
 	return {
 		/** The whole record; {} on absent / corrupt / unavailable storage — never throws. */
 		read(): T {
 			try {
+				if (memo && memo.store === localStorage) return memo.rec;
 				const raw = localStorage.getItem(key);
 				if (!raw) return {} as T;
-				if (memo && memo.raw === raw) return memo.rec;
 				const v: unknown = JSON.parse(raw);
 				if (v && typeof v === 'object' && !Array.isArray(v)) {
-					memo = { raw, rec: v as T };
+					memo = { store: localStorage, rec: v as T };
 					return memo.rec;
 				}
 				return {} as T;
@@ -191,9 +201,13 @@ function memoRecord<T extends object>(key: string) {
 		/** Persist `rec`. Throws exactly like setItem (quota / unavailable) — callers keep their try/catch. */
 		write(rec: T): void {
 			memo = null;
-			const raw = JSON.stringify(rec);
-			localStorage.setItem(key, raw);
-			memo = { raw, rec };
+			localStorage.setItem(key, JSON.stringify(rec));
+			memo = { store: localStorage, rec };
+		},
+		/** Drop the record. Throws exactly like removeItem — callers keep their try/catch. */
+		clear(): void {
+			memo = null;
+			localStorage.removeItem(key);
 		}
 	};
 }
