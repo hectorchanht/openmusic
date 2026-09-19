@@ -39,7 +39,7 @@ import { blobStore } from '$lib/services/blob-store';
 import { saveBlobToDisk } from '$lib/services/download-save';
 import { readBlobWithProgress } from '$lib/services/download-progress';
 import { audioMimeForUrl, buildDownloadFilename, extFromAudioUrl } from '$lib/services/download-filename';
-import { tagAudioBlob } from '$lib/services/audio-tags';
+import { albumTag, tagAudioBlob } from '$lib/services/audio-tags';
 import { resolveArtworkDataUrl } from '$lib/services/media-artwork';
 import { logAction } from '$lib/stores/actionLog.svelte';
 
@@ -232,7 +232,12 @@ export async function downloadTrack(
 		// loop, background repair) pass through this one line, so one insertion tags every path.
 		// No try/catch of our own: `tagAudioBlob` NEVER rejects and returns the original blob on any
 		// failure, which is exactly how D-17 NEVER-THROWS and 36-D-06 TAG-OR-INTACT hold by
-		// construction. `r.album || undefined` is 36-D-10: an empty album is OMITTED, not looked up.
+		// construction. 36-D-10 (an empty album is OMITTED, not looked up) now lives inside
+		// `albumTag`, which additionally drops an album that is just the song's own title — CN and
+		// streaming catalogs set a single's `album` to its track name, and we used to write it. BOTH
+		// titles go in: the tag carries `dnTitle` (script-converted) while the album rides the RAW
+		// catalog string, so a one-title compare misses the Simplified-album/Traditional-title case
+		// (quick-260919-0mw).
 		//
 		// quick-260915-062 — lyrics ride the same seam. `r.lrc` is ALREADY resolved by
 		// `ensureTrackDetails` above (or copied off `player.current` on the reuse path), so this is a
@@ -245,7 +250,7 @@ export async function downloadTrack(
 			{
 				title: dnTitle,
 				artist: dnArtist,
-				album: r.album || undefined,
+				album: albumTag(r.album, r.title, dnTitle),
 				albumArtist: opts?.albumArtist ?? dnArtist,
 				trackNumber: opts?.trackNumber,
 				lyrics: r.lrc || undefined

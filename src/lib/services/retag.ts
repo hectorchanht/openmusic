@@ -29,7 +29,7 @@
 // it) settled this — one at a time, with progress reported per entry.
 
 import { blobStore } from './blob-store';
-import { tagAudioBlob, readAudioTags } from './audio-tags';
+import { albumTag, tagAudioBlob, readAudioTags } from './audio-tags';
 import { resolveArtworkDataUrl } from './media-artwork';
 import { buildDownloadFilename } from './download-filename';
 
@@ -76,13 +76,17 @@ async function retagOne(entry: RetagEntry): Promise<RetagItemResult> {
 
 		// 36-D-11: NO trackNumber — a download's position in an album is not knowable from here (the
 		// list order is display ordering, not album order). 36-D-12: albumArtist falls back to the
-		// track's own artist. An empty album is omitted entirely rather than written blank (36-D-10).
+		// track's own artist. 36-D-10 (an empty album is omitted rather than written blank) now lives
+		// inside `albumTag`, which also drops an album equal to the song's own title — so this
+		// background path RE-TAGS away the bad album on files downloaded before quick-260919-0mw.
+		// A RetagEntry carries ONE title (already display-translated by the caller), so that is the
+		// only title available to compare against.
 		const out = await tagAudioBlob(
 			blob,
 			{
 				title: entry.title,
 				artist: entry.artist,
-				album: entry.album || undefined,
+				album: albumTag(entry.album, entry.title),
 				albumArtist: entry.artist
 			},
 			art

@@ -59,7 +59,12 @@ vi.mock('$lib/stores/names.svelte', () => ({ names: mocks.names }));
 vi.mock('$lib/services/catalog', () => ({ ensureTrackDetails: mocks.ensureTrackDetails }));
 vi.mock('$lib/services/blob-store', () => ({ blobStore: { put: mocks.put }, put: mocks.put }));
 vi.mock('$lib/services/download-save', () => ({ saveBlobToDisk: mocks.saveBlobToDisk }));
-vi.mock('$lib/services/audio-tags', () => ({ tagAudioBlob: mocks.tagAudioBlob }));
+// quick-260919-0mw: spread the REAL module so `albumTag` (a pure string helper the download seam
+// now calls) is present — only the codec entry point is stubbed.
+vi.mock('$lib/services/audio-tags', async (orig) => ({
+	...(await orig<typeof import('$lib/services/audio-tags')>()),
+	tagAudioBlob: mocks.tagAudioBlob
+}));
 vi.mock('$lib/services/media-artwork', () => ({ resolveArtworkDataUrl: mocks.resolveArtworkDataUrl }));
 vi.mock('$lib/stores/actionLog.svelte', () => ({ logAction: mocks.logAction }));
 
@@ -511,6 +516,33 @@ describe('downloadTrack — 36-D-11 / 36-D-12 album context', () => {
 
 	it('omits an empty album rather than inventing one (36-D-10)', async () => {
 		mocks.ensureTrackDetails.mockResolvedValue(mk({ audioUrl: 'https://cdn.example.com/x.mp3', album: '' }));
+		await downloadTrack(mk({ audioUrl: null, detailsLoaded: false }));
+		expect(fields().album).toBeUndefined();
+	});
+
+	it('drops an album that is only the song title, keeps a real one (quick-260919-0mw)', async () => {
+		// `The Weeknd - The Hills (Explicit).flac` shipped with ALBUM=`The Hills (Explicit)`.
+		mocks.ensureTrackDetails.mockResolvedValue(
+			mk({ audioUrl: 'https://cdn.example.com/x.mp3', title: 'The Hills (Explicit)', album: 'The Hills (Explicit)' })
+		);
+		await downloadTrack(mk({ audioUrl: null, detailsLoaded: false }));
+		expect(fields().album).toBeUndefined();
+
+		mocks.tagAudioBlob.mockClear();
+		mocks.ensureTrackDetails.mockResolvedValue(
+			mk({ audioUrl: 'https://cdn.example.com/x.mp3', title: 'The Hills', album: 'Beauty Behind the Madness' })
+		);
+		await downloadTrack(mk({ audioUrl: null, detailsLoaded: false }));
+		expect(fields().album).toBe('Beauty Behind the Madness');
+	});
+
+	it('SCRIPT MISMATCH: a Simplified album equal to the Traditional display title is dropped', async () => {
+		// The `Polar G - 過一招 (feat. 拉天糖).m4a` case — the album rides the RAW catalog string while
+		// the filename/tag carries dnTitle, which is why BOTH titles are handed to albumTag.
+		mocks.names.dnTitle.mockReturnValue('過一招 (feat. 拉天糖)');
+		mocks.ensureTrackDetails.mockResolvedValue(
+			mk({ audioUrl: 'https://cdn.example.com/x.m4a', title: '过一招 (feat. 拉天糖)', album: '过一招 (feat. 拉天糖)' })
+		);
 		await downloadTrack(mk({ audioUrl: null, detailsLoaded: false }));
 		expect(fields().album).toBeUndefined();
 	});

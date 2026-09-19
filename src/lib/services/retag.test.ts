@@ -24,7 +24,13 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('$lib/services/blob-store', () => ({ blobStore: { get: mocks.get, put: mocks.put } }));
 vi.mock('./blob-store', () => ({ blobStore: { get: mocks.get, put: mocks.put } }));
-vi.mock('./audio-tags', () => ({ tagAudioBlob: mocks.tagAudioBlob, readAudioTags: mocks.readAudioTags }));
+// quick-260919-0mw: spread the REAL module so `albumTag` (a pure string helper retag now calls) is
+// present — only the two codec entry points are stubbed.
+vi.mock('./audio-tags', async (orig) => ({
+	...(await orig<typeof import('./audio-tags')>()),
+	tagAudioBlob: mocks.tagAudioBlob,
+	readAudioTags: mocks.readAudioTags
+}));
 vi.mock('./media-artwork', () => ({ resolveArtworkDataUrl: mocks.resolveArtworkDataUrl }));
 
 import * as retagModule from './retag';

@@ -7,6 +7,7 @@ import {
 	readAudioTags,
 	tagAudioBlob,
 	dataUrlToBytes,
+	albumTag,
 	TAG_MAX_BYTES,
 	type AudioContainer
 } from './audio-tags';
@@ -87,6 +88,7 @@ describe('audio-tags — module shape and purity (36-D-03)', () => {
 	it('exports exactly the tag codec surface, named, with no default', () => {
 		expect(Object.keys(mod).sort()).toEqual([
 			'TAG_MAX_BYTES',
+			'albumTag', // quick-260919-0mw — the pure album-vs-title guard both writers call
 			'dataUrlToBytes',
 			'readAudioTags',
 			'tagAudioBlob',
@@ -373,5 +375,68 @@ describe('audio-tags — lyrics (quick-260915-062): raw LRC, timestamps intact',
 		expect(out.result).toBe('tagged');
 		const back = await readAudioTags(new Uint8Array(await out.blob.arrayBuffer()));
 		expect(back?.lyrics).toBe(LRC);
+	});
+});
+
+// quick-260919-0mw — albumTag(). Downloads arrived claiming an album that was just the song title
+// (`The Weeknd - The Hills (Explicit).flac` → ALBUM=`The Hills (Explicit)`; `Polar G - 過一招 (feat.
+// 拉天糖).m4a` → ALBUM=`过一招 (feat. 拉天糖)`). The value is real upstream data — CN/streaming catalogs
+// set a single's album to its own track name — so the guard sits at the write seam.
+describe('albumTag — drop an album that is just the song title (quick-260919-0mw)', () => {
+	it('keeps a GENUINE album name', () => {
+		expect(albumTag('Beauty Behind the Madness', 'The Hills')).toBe('Beauty Behind the Madness');
+	});
+
+	it('drops an album equal to the title', () => {
+		expect(albumTag('The Hills', 'The Hills')).toBeUndefined();
+	});
+
+	it('drops the real evidence shape, parenthetical included', () => {
+		expect(albumTag('The Hills (Explicit)', 'The Hills (Explicit)')).toBeUndefined();
+	});
+
+	it('is case / space / punctuation insensitive (matchKey normalisation)', () => {
+		expect(albumTag('the hills', 'The Hills')).toBeUndefined();
+		expect(albumTag('The  Hills!', 'The Hills')).toBeUndefined();
+	});
+
+	it('drops when ANY supplied title matches — the multi-title call shape', () => {
+		expect(
+			albumTag('过一招 (feat. 拉天糖)', '过一招 (feat. 拉天糖)', '過一招 (feat. 拉天糖)')
+		).toBeUndefined();
+	});
+
+	it('SCRIPT MISMATCH: the raw title matches even when the display title does not', () => {
+		// This is the Polar G case — the album rides the RAW catalog string (Simplified) while the
+		// tag/filename carries the display title (Traditional). Passing BOTH is what catches it.
+		expect(albumTag('过一招', '过一招', '過一招')).toBeUndefined();
+		// Only the display title supplied → the mismatch survives, which is why both are passed.
+		expect(albumTag('过一招', '過一招')).toBe('过一招');
+	});
+
+	it('keeps an album whose name merely CONTAINS the title', () => {
+		expect(albumTag('The Hills Have Eyes', 'The Hills')).toBe('The Hills Have Eyes');
+	});
+
+	it('36-D-10 unchanged: an empty / absent album is omitted', () => {
+		expect(albumTag('', 'x')).toBeUndefined();
+		expect(albumTag(undefined, 'x')).toBeUndefined();
+		expect(albumTag(null, 'x')).toBeUndefined();
+	});
+
+	it('an absent title cannot drop anything', () => {
+		expect(albumTag('25', undefined, null, '')).toBe('25');
+	});
+
+	it('downstream: an undefined album means setAlbum is never called (36-D-10 re-pinned)', async () => {
+		const out = await tagAudioBlob(new Blob([FLAC]), {
+			title: 'The Hills',
+			artist: 'The Weeknd',
+			album: albumTag('The Hills', 'The Hills')
+		});
+		expect(out.result).toBe('tagged');
+		const back = await readAudioTags(new Uint8Array(await out.blob.arrayBuffer()));
+		expect(back?.title).toBe('The Hills');
+		expect(back?.album ?? '').toBe(''); // no album frame written at all
 	});
 });

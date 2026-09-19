@@ -26,6 +26,11 @@
 // and `readAudioTags` return `null`; `tagAudioBlob` returns the caller's ORIGINAL blob with a
 // non-'tagged' result. A file that downloaded fine must never be lost to a tagging problem — the
 // untagged-but-intact file is always the fallback.
+//
+// quick-260919-0mw: `match-key.ts` is the ONE static import, and it is inside the purity contract —
+// a dependency-free pure string normaliser, no store, no `$app`, no alias beyond `$lib`. Reused
+// rather than re-inlined so the app has one normaliser, not two (CLAUDE.md shared primitives).
+import { matchKey } from '$lib/services/match-key';
 
 /**
  * Everything we might know about a track. An absent field is simply NOT WRITTEN — never an empty
@@ -58,6 +63,40 @@ export interface AudioTagFields {
 	 * No size path of its own: an LRC is a few KB and TAG_MAX_BYTES already bounds the whole file.
 	 */
 	lyrics?: string;
+}
+
+/**
+ * quick-260919-0mw — the ALBUM value to write, or `undefined` when there is no real album to name.
+ *
+ * THE BUG: a downloaded single arrived on the phone claiming an album that was just its own song
+ * title. Evidence: `The Weeknd - The Hills (Explicit).flac` tagged ALBUM=`The Hills (Explicit)`, and
+ * `Polar G - 過一招 (feat. 拉天糖).m4a` tagged ALBUM=`过一招 (feat. 拉天糖)`. This is NOT a writer bug —
+ * 36-D-10 already omits an EMPTY album, and the Android MediaStore bridge only READS the column. The
+ * bad value is real upstream data: CN/streaming catalogs set a single's `album` to its own track
+ * name, `Track.album` is copied through verbatim by the resolvers (kuwo.ts `album: d.album ||
+ * track.album`), and we faithfully wrote it. An album whose name IS the song is not information —
+ * it is noise that makes every single its own one-track album in the user's library.
+ *
+ * VARIADIC `titles` because a comparison must see BOTH titles: the filename/tag uses the DISPLAY
+ * title (script-converted by the `names` store) while the album rides the RAW catalog string — which
+ * is exactly why the Polar G evidence shows a Simplified album next to a Traditional filename.
+ * Matching ANY supplied title drops the album. That also removes any need for `zh-convert` here (it
+ * is async and heavy); the call sites simply hand in both strings.
+ *
+ * Normalisation is `matchKey('', s)` — the project's ONE case/space/punctuation-insensitive
+ * normaliser — rather than a second copy of the same regex chain.
+ */
+export function albumTag(
+	album: string | null | undefined,
+	...titles: (string | null | undefined)[]
+): string | undefined {
+	if (!album) return undefined; // 36-D-10 unchanged: an empty album was already omitted
+	const a = matchKey('', album);
+	for (const title of titles) {
+		if (!title) continue;
+		if (matchKey('', title) === a) return undefined;
+	}
+	return album;
 }
 
 /** The containers we tag. Chosen from the BYTES, never from a URL extension (RESEARCH Pitfall 3). */
