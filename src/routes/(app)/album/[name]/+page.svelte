@@ -432,6 +432,24 @@
 		}
 	}
 
+	// quick-260919-alb (feature): append the WHOLE album to the END of the queue, leaving the current
+	// track and position untouched. Stubs again, for the same reason as the play path — instant, zero
+	// upstream calls, each entry resolves when it reaches the front.
+	//
+	// No busyAction guard: this is SYNCHRONOUS (nothing can be in flight), and addToQueue dedupes by
+	// uid, so a double-tap is already a no-op. The sameSongKey skip covers the one case uid dedupe
+	// cannot — the currently playing track sits in the queue under its REAL source uid while the
+	// album hands us its synthetic stub uid, so without it "append the album you are playing" would
+	// tack a duplicate of the current song onto the end.
+	function queueAlbum() {
+		for (const tr of albumQueue()) {
+			if (player.queue.some((q) => sameSongKey(q, tr))) continue;
+			player.addToQueue(tr);
+		}
+		globalToast.show(t('toast.addedToQueue'));
+		hapticTick();
+	}
+
 	// Download the album → resolve all + route EACH track through the SHARED downloadTrack (29-03)
 	// with persist:false, staggered so the browser doesn't dedupe simultaneous anchor saves.
 	// DL-BUG-01: the old inline fetch → anchor → new-tab-stream fallback is DELETED — downloadTrack
@@ -677,6 +695,9 @@
 		<button class="act" aria-label={t('menu.download')} disabled={busyAction === 'download'} onclick={downloadAlbum} use:tapBounce><Download size={20} /></button>
 		<button class="act" aria-label={t('menu.addToPlaylist')} disabled={busyAction === 'addToPlaylist'} onclick={() => (pickerOpen = true)} use:tapBounce><ListPlus size={20} /></button>
 		<button class="act play" aria-label={t('nowplaying.playPause')} disabled={busyAction === 'play'} onclick={playAlbum} use:tapBounce><Play size={20} /></button>
+			<!-- quick-260919-alb: append the whole album to the end of the queue. ListEnd is the same icon
+			     the row swipe-right (add-to-queue) reveal uses, so the two surfaces read as one action. -->
+			<button class="act" aria-label={t('menu.addToQueue')} onclick={queueAlbum} use:tapBounce><ListEnd size={20} /></button>
 		<button class="act" aria-label={albumLiked ? t('menu.liked') : t('menu.like')} disabled={busyAction === 'like'} onclick={likeAlbum} use:tapBounce><Heart size={20} fill={albumLiked ? 'currentColor' : 'none'} /></button>
 		<button class="act" aria-label={t('menu.share')} disabled={busyAction === 'share'} onclick={shareAlbum} use:tapBounce><Share2 size={20} /></button>
 	</div>
