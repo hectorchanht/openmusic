@@ -12,7 +12,21 @@ import { makeUid, type SourceId, type Track } from '$lib/sources/types';
 // Mock the resolve-on-tap shim so we control settle order + timing.
 vi.mock('$lib/services/discovery', () => ({ resolveStub: vi.fn() }));
 // Mock the detail resolver so prefetchNext's pre-resolve is observable/controllable in node.
-vi.mock('$lib/services/catalog', () => ({ ensureTrackDetails: vi.fn(), searchAll: vi.fn() }));
+// 37-D-03: lyricByName is the NAME-ONLY lyric walk backfillLyrics routes a `device:` uid to. It is
+// a REAL import in player.svelte.ts, so this factory has to declare it or the device branch calls
+// `undefined` — the miss the offline-served enrichment suite below asserts against.
+vi.mock('$lib/services/catalog', () => ({
+	ensureTrackDetails: vi.fn(),
+	searchAll: vi.fn(),
+	lyricByName: vi.fn(async () => null)
+}));
+// 37-D-04: the zero-network embedded tag read is the GATE for the name-based network fallbacks, so
+// the enrichment suite drives it directly — a hit, a miss, or a DEFERRED promise (supersedence).
+// Default is the "this file carries nothing" miss, which is what every other suite wants.
+vi.mock('$lib/services/local-tags', () => ({
+	localEnrichment: vi.fn(async () => ({ lrc: null, art: null })),
+	__resetLocalTagsMemo: vi.fn()
+}));
 // Mock the cross-source fallback so the resilience tests drive runFallback's total-failure exit
 // (null = all sources exhausted) without real network.
 vi.mock('$lib/services/fallback', () => ({ tryFallback: vi.fn(), fallbackOrder: vi.fn(() => []) }));
@@ -112,7 +126,10 @@ import { sleepTimer } from '$lib/stores/sleepTimer.svelte';
 import { settings } from './settings.svelte';
 import { library } from '$lib/stores/library.svelte';
 import { resolveStub } from '$lib/services/discovery';
-import { ensureTrackDetails } from '$lib/services/catalog';
+import { ensureTrackDetails, lyricByName } from '$lib/services/catalog';
+import { localEnrichment } from '$lib/services/local-tags';
+import type { LocalEnrichment } from '$lib/services/local-tags';
+import { deviceUid } from '$lib/services/device-track';
 import { tryFallback } from '$lib/services/fallback';
 import { blobStore } from '$lib/services/blob-store';
 import { downloadTrack } from '$lib/services/download-track';
@@ -154,6 +171,9 @@ const mockRemoveCoverBoth = vi.mocked(removeCoverBoth);
 const mockGetPinned = vi.mocked(getPinnedCover);
 const mockUnpinCover = vi.mocked(unpinCover);
 const mockLogAction = vi.mocked(logAction);
+// Phase 37: the embedded tag read and the name-only lyric walk it gates.
+const mockLocal = vi.mocked(localEnrichment);
+const mockLyricByName = vi.mocked(lyricByName);
 
 function mk(source: SourceId, songid: string, artist: string, title: string): Track {
 	return {
@@ -7120,5 +7140,237 @@ describe('cover pin (quick-260915-w4f)', () => {
 		await player.restore();
 
 		expect(rc()).toBe(PIN);
+	});
+});
+
+// Phase 37 (37-D-01..07). The offline-blob branch of play() used to `return` 225 lines above the
+// cover chain and the fresh-play up-next branch, so EVERY locally-served track — an imported
+// `device:` file or an ordinary download — silently lost its cover, its lyrics and its Up-Next.
+// Plan 02 removed that return and added an embedded-first enrichment in front of the network
+// fallbacks. Nothing asserted any of it, and this store has three documented loop incidents, so
+// what keeps the fall-through honest over time is a suite that drives the REAL play() against a
+// fake <audio> and pins what enrichment may and may NOT touch.
+//
+// The highest-value case is the 34-D-01 regression: a `device:` uid has no upstream to resolve, so
+// a device play must never call ensureTrackDetails and `current.audioUrl` must stay null.
+describe('player.play — offline-served enrichment (Phase 37, 37-D-01..07)', () => {
+	let el: ReturnType<typeof makeFakeAudio>;
+	const DEV_ID = '4242';
+	const devUid = deviceUid(DEV_ID);
+	const PNG = 'data:image/png;base64,AAAA';
+
+	/** An imported MediaStore row as it reaches play(): device uid, no url, no cover, no lyrics. */
+	const dev = (id: string, artist = 'Adele', title = 'Hello'): Track => ({
+		...mk('kuwo', id, artist, title),
+		uid: deviceUid(id),
+		audioUrl: null,
+		resolvedAt: undefined,
+		cover: null,
+		lrc: null
+	});
+
+	/** Install a one-track downloads queue and drive the REAL fresh play through the blob branch. */
+	const playFresh = async (t: Track) => {
+		player.setQueue([t], 'downloads');
+		await player.play(t, { fresh: true });
+		await flush();
+	};
+
+	beforeEach(() => {
+		(player.play as unknown as { mockRestore(): void }).mockRestore?.();
+		mockEnsure.mockReset().mockResolvedValue(mk('kuwo', 'unused', 'U', 'U'));
+		mockBlobGet.mockReset().mockResolvedValue(new Blob([new Uint8Array(16)]));
+		mockLocal.mockReset().mockResolvedValue({ lrc: null, art: null });
+		mockLyricByName.mockReset().mockResolvedValue(null);
+		mockResolveCover.mockReset().mockResolvedValue(null);
+		// play() re-seeds resolvedCover from pin → attached → track.cover → uid cache → name cache on
+		// EVERY entry, so clearing the field is not enough: the three sync reads are module-scope
+		// vi.fn()s that earlier suites in this file leave pointing at a cover. A stale hit here makes
+		// postPlayCover's renderable gate skip the chain, which would silently pass every
+		// "the fallback did NOT fire" assertion below for the wrong reason.
+		mockGetPinned.mockReset().mockReturnValue(null);
+		mockUidCover.mockReset().mockReturnValue(null);
+		mockNameCover.mockReset().mockReturnValue(null);
+		// A 3-track tail keeps the queue more than 2 ahead of current, so primeNext's ensureAhead is a
+		// no-op and buildSimilarQueue's call count means "regenerate ran", nothing else.
+		mockSimilar.mockReset().mockResolvedValue([
+			mk('kuwo', 's1', 'B', 'One'),
+			mk('kuwo', 's2', 'C', 'Two'),
+			mk('kuwo', 's3', 'D', 'Three')
+		]);
+		mockPicks.mockReset().mockResolvedValue([]);
+		player.current = null;
+		player.queue = [];
+		player.error = null;
+		player.loading = false;
+		player.resolvedCover = null;
+		player.upNextAnchorUid = null;
+		// The up-next mode is read off the singleton, which earlier suites may have moved.
+		settings.upnextMode = 'generated';
+		settings.upnextPerContext = { album: 'same-list' };
+		vi.stubGlobal('navigator', { onLine: true });
+		vi.stubGlobal('URL', { createObjectURL: () => 'blob:local-bytes', revokeObjectURL: vi.fn() });
+		vi.spyOn(library, 'isDownloaded').mockReturnValue(true);
+		el = makeFakeAudio();
+		player.attach(el as unknown as HTMLAudioElement);
+	});
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
+		mockLocal.mockReset();
+		mockLyricByName.mockReset();
+	});
+
+	it('34-D-01: a device play never calls ensureTrackDetails and never acquires an audioUrl', async () => {
+		// THE regression. catalog.ts hands a `device:` track straight back, so any resolve is at best a
+		// wasted round-trip — and at worst, if that guard ever moves, a url adopted for bytes that only
+		// exist on the user's own disk. The enrichment added in plan 02 must stay url-free by shape:
+		// it reads tags and walks lyrics BY NAME, and neither can produce an audioUrl.
+		const t = dev(DEV_ID);
+
+		await playFresh(t);
+		await flush();
+
+		expect(mockEnsure).not.toHaveBeenCalled();
+		expect(player.current?.uid).toBe(devUid);
+		expect(player.current?.audioUrl).toBeNull();
+		expect(el.src).toBe('blob:local-bytes');
+	});
+
+	it('37-D-01: a device play reaches regenerate and anchors Up-Next at the device uid', async () => {
+		const t = dev(DEV_ID);
+
+		await playFresh(t);
+		await flush();
+
+		expect(mockSimilar).toHaveBeenCalledTimes(1);
+		expect((mockSimilar.mock.calls[0][0] as Track).uid).toBe(devUid);
+		expect(player.upNextAnchorUid).toBe(devUid);
+		expect(player.queue.map((q) => q.uid)).toContain('kuwo:s1');
+	});
+
+	it("the file's own LRC + front cover land, and NEITHER network fallback fires", async () => {
+		// Embedded-first (37-D-04): the zero-network read is the GATE. When the file supplies both,
+		// the cover chain and the lyric walk must not run at all.
+		const d = deferred<LocalEnrichment>();
+		mockLocal.mockReturnValue(d.promise);
+		const t = dev(DEV_ID);
+
+		await playFresh(t);
+		const srcAfterPlay = el.src; // the ONE src this play may assign
+
+		d.resolve({ lrc: '[00:01]x', art: PNG });
+		await flush();
+		await flush();
+
+		expect(player.current?.lrc).toBe('[00:01]x');
+		expect(player.resolvedCover?.startsWith('data:image/png')).toBe(true);
+		expect(mockResolveCover).not.toHaveBeenCalled();
+		expect(mockLyricByName).not.toHaveBeenCalled();
+		// T-37-05: a ~400 KB data: URL in the localStorage cover cache silently stops ALL cover
+		// caching for the session (its writer swallows QuotaExceededError). resolvedCover is the
+		// memory-only home for embedded art; the cache stays https-only.
+		expect(localStorage.getItem('openmusic:cover-cache:v1') ?? '').not.toContain('data:');
+		// T-37-06: enrichment is a patch, never a re-drive — the blob src is not re-assigned.
+		expect(el.src).toBe(srcAfterPlay);
+	});
+
+	it('a tag miss on a device track routes to lyricByName + the cover chain, still never to ensureTrackDetails', async () => {
+		mockLocal.mockResolvedValue({ lrc: null, art: null });
+		mockLyricByName.mockResolvedValue('[00:05]by-name');
+		const t = dev(DEV_ID);
+
+		await playFresh(t);
+		await flush();
+		await flush();
+
+		expect(mockLyricByName).toHaveBeenCalledExactlyOnceWith(
+			'Adele',
+			'Hello',
+			expect.any(AbortSignal)
+		);
+		expect(mockResolveCover).toHaveBeenCalledTimes(1);
+		expect(mockEnsure).not.toHaveBeenCalled(); // 34-D-01 holds on the fallback path too
+		expect(player.current?.lrc).toBe('[00:05]by-name');
+	});
+
+	it('37-D-01: an ORDINARY download gets the cover chain, the up-next AND the pre-existing lrcUnresolved backfill', async () => {
+		// The fall-through is deliberately un-gated on isDeviceUid — a downloaded kuwo track hit the
+		// same `return` and lost the same two features. Its lyric backfill keeps the pre-existing
+		// ensureTrackDetails path (it HAS an upstream), which is the half 34-D-01 does not apply to.
+		mockLocal.mockResolvedValue({ lrc: null, art: null });
+		const t: Track = { ...mk('kuwo', 'k1', 'Adele', 'Hello'), cover: null, lrc: null };
+
+		await playFresh(t);
+		await flush();
+		await flush();
+
+		expect(mockEnsure).toHaveBeenCalledWith(
+			expect.objectContaining({ uid: t.uid, lrcUnresolved: true, detailsLoaded: false })
+		);
+		expect(mockSimilar).toHaveBeenCalledTimes(1);
+		expect((mockSimilar.mock.calls[0][0] as Track).uid).toBe(t.uid);
+		expect(mockResolveCover).toHaveBeenCalledTimes(1);
+		expect(mockLyricByName).not.toHaveBeenCalled(); // not a device uid
+	});
+
+	it('a superseding play() during the tag read discards the stale lrc + cover write', async () => {
+		const d = deferred<LocalEnrichment>();
+		mockLocal.mockReturnValue(d.promise);
+		const t = dev(DEV_ID);
+		const other = stub('kuwo', 'other', 'B', 'T');
+		// Only the device file is local — the superseding play takes the ordinary network branch.
+		vi.mocked(library.isDownloaded).mockImplementation((uid: string) => uid === devUid);
+		mockEnsure.mockResolvedValue({ ...mk('kuwo', 'other', 'B', 'T'), audioUrl: 'https://cdn/o.mp3' });
+
+		await playFresh(t);
+		await player.play(other, { fresh: true }); // bumps playGen — the device read is now stale
+		await flush();
+
+		d.resolve({ lrc: '[00:01]stale', art: PNG });
+		await flush();
+		await flush();
+
+		expect(player.current?.uid).toBe('kuwo:other');
+		expect(player.current?.lrc).not.toBe('[00:01]stale');
+		expect(player.resolvedCover?.startsWith('data:')).not.toBe(true);
+	});
+
+	it('37-D-05: a recovered artist/title is QUERY-ONLY — it drives the fallbacks, never player.current', async () => {
+		// MediaStore maps an untagged file's artist to '', which degenerates every name lookup. The
+		// file's own tags recover it for THIS play's queries only: a re-import carries just `cover`
+		// across, so a persisted recovered name would be blanked by the next scan.
+		mockLocal.mockResolvedValue({ lrc: null, art: null, artist: 'Recovered', title: 'Name' });
+		const t = dev(DEV_ID, 'Adele', 'Hello');
+
+		await playFresh(t);
+		await flush();
+		await flush();
+
+		expect(mockLyricByName).toHaveBeenCalledExactlyOnceWith(
+			'Recovered',
+			'Name',
+			expect.any(AbortSignal)
+		);
+		expect(mockResolveCover).toHaveBeenCalledWith(
+			expect.objectContaining({ artist: 'Recovered', title: 'Name' })
+		);
+		expect(player.current?.artist).toBe('Adele');
+		expect(player.current?.title).toBe('Hello');
+	});
+
+	it('T-37-06: enrichment bumps no generation — playGen is unchanged after the tags land', async () => {
+		const d = deferred<LocalEnrichment>();
+		mockLocal.mockReturnValue(d.promise);
+		const t = dev(DEV_ID);
+
+		await playFresh(t);
+		const genAfterPlay = (player as unknown as { playGen: number }).playGen;
+
+		d.resolve({ lrc: '[00:01]x', art: PNG });
+		await flush();
+		await flush();
+
+		expect((player as unknown as { playGen: number }).playGen).toBe(genAfterPlay);
 	});
 });
