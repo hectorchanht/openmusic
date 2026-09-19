@@ -270,6 +270,7 @@ const pt: Dict = {
 	"menu.detailArtist": "Artista",
 	"menu.detailAlbum": "Álbum",
 	"menu.detailQuality": "Qualidade",
+	"menu.detailFile": "Ficheiro",
 	"menu.detailSource": "Fonte",
 	"menu.detailUid": "UID",
 	"menu.detailAudioUrl": "URL de áudio",

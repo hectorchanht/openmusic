@@ -270,6 +270,7 @@ const th: Dict = {
 	"menu.detailArtist": "ศิลปิน",
 	"menu.detailAlbum": "อัลบั้ม",
 	"menu.detailQuality": "คุณภาพ",
+	"menu.detailFile": "ไฟล์",
 	"menu.detailSource": "แหล่งที่มา",
 	"menu.detailUid": "UID",
 	"menu.detailAudioUrl": "URL เสียง",

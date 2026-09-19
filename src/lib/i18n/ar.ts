@@ -270,6 +270,7 @@ const ar: Dict = {
 	"menu.detailArtist": "فنان",
 	"menu.detailAlbum": "الألبوم",
 	"menu.detailQuality": "الجودة",
+	"menu.detailFile": "الملف",
 	"menu.detailSource": "المصدر",
 	"menu.detailUid": "معرف فريد",
 	"menu.detailAudioUrl": "عنوان URL للصوت",

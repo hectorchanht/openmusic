@@ -270,6 +270,7 @@ const tr: Dict = {
 	"menu.detailArtist": "Sanatçı",
 	"menu.detailAlbum": "Albüm",
 	"menu.detailQuality": "Kalite",
+	"menu.detailFile": "Dosya",
 	"menu.detailSource": "Kaynak",
 	"menu.detailUid": "UID",
 	"menu.detailAudioUrl": "Ses URL'si",

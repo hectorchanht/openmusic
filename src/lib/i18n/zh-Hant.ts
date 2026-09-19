@@ -292,6 +292,7 @@ const zhHant: Dict = {
 	"menu.detailArtist": "歌手",
 	"menu.detailAlbum": "專輯",
 	"menu.detailQuality": "音質",
+	"menu.detailFile": "檔案",
 	"menu.detailSource": "來源",
 	"menu.detailUid": "UID",
 	"menu.detailAudioUrl": "音訊網址",

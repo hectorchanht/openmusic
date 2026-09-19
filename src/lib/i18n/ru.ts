@@ -270,6 +270,7 @@ const ru: Dict = {
 	"menu.detailArtist": "Художник",
 	"menu.detailAlbum": "Альбом",
 	"menu.detailQuality": "Качество",
+	"menu.detailFile": "Файл",
 	"menu.detailSource": "Источник",
 	"menu.detailUid": "UID",
 	"menu.detailAudioUrl": "URL-адрес аудио",

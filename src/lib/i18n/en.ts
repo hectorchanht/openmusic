@@ -316,6 +316,7 @@ const en = {
 	"menu.detailArtist": "Artist",
 	"menu.detailAlbum": "Album",
 	"menu.detailQuality": "Quality",
+	"menu.detailFile": "File",
 	"menu.detailSource": "Source",
 	"menu.detailUid": "UID",
 	"menu.detailAudioUrl": "Audio URL",

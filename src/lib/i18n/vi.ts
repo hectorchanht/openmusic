@@ -270,6 +270,7 @@ const vi: Dict = {
 	"menu.detailArtist": "nghệ sĩ",
 	"menu.detailAlbum": "Album",
 	"menu.detailQuality": "chất lượng",
+	"menu.detailFile": "Tệp",
 	"menu.detailSource": "Nguồn",
 	"menu.detailUid": "UID",
 	"menu.detailAudioUrl": "URL âm thanh",

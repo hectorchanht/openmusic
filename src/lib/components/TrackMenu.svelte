@@ -39,7 +39,10 @@
 	// quick-260915-26g: the shared probe + the shared label formatter. TrackMenu cannot mount
 	// DownloadControl (its Check state is blob-backed and its rows are full-width text buttons, not
 	// 40x40 icons), so it consumes the same SERVICE instead — one implementation, two surfaces.
-	import { probeDownload, formatDownloadMeta, type DownloadProbe } from '$lib/services/download-probe';
+	// quick-260919-3j1 (F2): `localFileMeta` is the SIBLING of probeDownload — same module, same
+	// formatter, opposite question. probeDownload asks the CDN "what WOULD I get"; localFileMeta
+	// reads the bytes on the device and answers "what DO I have", with no network at all.
+	import { probeDownload, localFileMeta, formatDownloadMeta, type DownloadProbe } from '$lib/services/download-probe';
 	// quick-260913-jq4: the Check state is backed by the offline copy, not the downloads list.
 	import { blobStore } from '$lib/services/blob-store';
 	// quick-260919-3j1: the app-wide SERIALIZER in front of retagOne — the ONE tag-write path
@@ -537,6 +540,39 @@
 		return () => ac.abort();
 	});
 	const dlMeta = $derived(dlProbe ? formatDownloadMeta(dlProbe) : null);
+
+	// quick-260919-3j1 (F2) — the MIRROR of the dlProbe effect above, and deliberately so.
+	//
+	// The two are MUTUALLY EXCLUSIVE by their gates: the download probe fires only on
+	// `blobPresent === false`, this one only on `blobPresent === true`, so neither can ever run for
+	// the same song. Same `===` discipline for the same reason stated above — `blobPresent` starts
+	// null, so `!== false` would fire on EVERY open and abort a tick later.
+	//
+	// UNLIKE dlProbe: no `isDevice` exclusion, on purpose. An imported file is exactly the case where
+	// the app's catalog metadata is thinnest and the file's own numbers are the only truth.
+	// `blobStore.stat` reads a device uid in place through the same content-URI path `nativeGet`
+	// uses, and READING is always permitted — it is writing, moving and deleting that are refused.
+	//
+	// `localFileMeta` reads nothing reactive, but the untrack keeps this effect's dependency set to
+	// exactly {open, track, blobPresent} — the same discipline the two effects beside it follow
+	// (restore-effect self-invalidation loop).
+	let localProbe = $state<DownloadProbe | null>(null);
+	$effect(() => {
+		const target = track;
+		if (!open || !target || blobPresent !== true) {
+			localProbe = null;
+			return;
+		}
+		let alive = true;
+		untrack(() => localFileMeta(target)).then((p) => {
+			// drop a late result the user has already navigated past
+			if (alive && track?.uid === target.uid) localProbe = p;
+		});
+		return () => {
+			alive = false;
+		};
+	});
+	const localMeta = $derived(localProbe ? formatDownloadMeta(localProbe) : null);
 	const dlLabel = $derived(dlMeta ? `${t('menu.download')} \u00b7 ${dlMeta}` : t('menu.download'));
 
 	// quick-260916-0d9 \u2014 OPEN THE "Download from\u2026" SHEET (long-press only; one tap is unchanged).
@@ -907,7 +943,15 @@
 				{#if frac !== undefined}<span class="count">{Math.round(frac * 100)}%</span>{/if}
 			</button>
 		{:else if blobPresent === true}
-			<button class="mi" disabled aria-disabled="true"><Check size={18} /> {t('menu.downloaded')}</button>
+			<!-- quick-260919-3j1 (F2): the SAME `.count` slot the Download row's probed `FLAC · 38.2 MB`
+			     label and the download percentage already occupy — no new layout rule, no new key
+			     (formatDownloadMeta composes source tokens + unit symbols). This is the parity the
+			     user asked for: a song that is NOT downloaded says what it would be, a song that IS
+			     downloaded says what it is. -->
+			<button class="mi" disabled aria-disabled="true">
+				<Check size={18} /> {t('menu.downloaded')}
+				{#if localMeta}<span class="count">{localMeta}</span>{/if}
+			</button>
 		{:else}
 			<!-- quick-260915-26g: the probed format/size reuses the SAME `.count` slot the download
 			     percentage already occupies, so it needs no new layout rule. The skeleton is aria-hidden
@@ -972,6 +1016,12 @@
 			<dt>{t('menu.detailArtist')}</dt><dd>{names.dnArtist(detailTrack.artist)}</dd>
 			<dt>{t('menu.detailAlbum')}</dt><dd>{detailTrack.album ? names.dnTitle(detailTrack.album) : '—'}</dd>
 			<dt>{t('menu.detailQuality')}</dt><dd>{detailTrack.qualityLabel || detailTrack.quality || t('menu.detailUnknown')}</dd>
+			<!-- quick-260919-3j1 (F2): the file this app actually holds — container + real size, read
+			     from the local bytes. ASYMMETRY WORTH RECORDING: this lane also works for an imported
+			     `device:` song, which the Downloaded row above does NOT render for (it sits inside
+			     `{#if !isDevice}`). Left as-is rather than restructuring the device branch — for an
+			     imported file the Detail sheet is the right home for its numbers anyway. -->
+			<dt>{t('menu.detailFile')}</dt><dd>{localMeta ?? t('menu.detailUnknown')}</dd>
 			<dt>{t('menu.detailSource')}</dt><dd>{detailTrack.source}</dd>
 			<dt>{t('menu.detailUid')}</dt><dd class="mono">{detailTrack.uid}</dd>
 			<dt>{t('menu.detailAudioUrl')}</dt><dd class="mono break">{detailTrack.audioUrl || t('menu.detailNotResolved')}</dd>

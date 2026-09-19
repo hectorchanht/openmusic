@@ -270,6 +270,7 @@ const hi: Dict = {
 	"menu.detailArtist": "कलाकार",
 	"menu.detailAlbum": "एलबम",
 	"menu.detailQuality": "गुणवत्ता",
+	"menu.detailFile": "फ़ाइल",
 	"menu.detailSource": "स्रोत",
 	"menu.detailUid": "यूआईडी",
 	"menu.detailAudioUrl": "ऑडियो यूआरएल",
