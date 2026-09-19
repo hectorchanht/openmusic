@@ -275,8 +275,8 @@ Captured 2026-09-19 (user batch dump):
 - ~~**Audit and rearrange the settings page tabs** + visual toggle/config split + pick-by-seeing~~ — SHIPPED 2026-09-19 as quick-260919-ebi. Per the user's decision the "screen captures" are live CSS/SVG mockups rendered by the app (no image assets, theme-correct, never stale); per their follow-up the prose moved behind a tap/hover `SettingHint` so the page reads clean. Four misfiled rows moved and the reset groups followed them.
 - ~~Every tab set is **URL-persistent** (like the library tabs)~~ — SHIPPED 2026-09-19 as quick-260919-2jo (shared `url-tab.ts`; Library + artist discography converted; settings/charts were already separate routes; the NowPlaying overlay tabs deferred because the overlay's open state is not in the URL).
 
-**Remaining in this phase: the wide desktop view only** — the user chose the full YouTube-Music shape (persistent left rail + full-width multi-column shelves); planned as quick-260919-et3.
-- Add a **wide desktop view**: content expands to full desktop width to maximize exposure, similar to the YouTube Music desktop layout (left rail nav + wide multi-column shelves).
+**Status 2026-09-19: every item in this phase is delivered** (quick-260919-2jo / ebi / et3). Close it on the next `/gsd:review-backlog` rather than promoting it. None of it is browser-verified — each SUMMARY carries its own checklist, and the desktop layout in particular has never been seen rendering at any window size.
+- ~~Add a **wide desktop view**~~ — SHIPPED 2026-09-19 as quick-260919-et3 (breakpoint 1024px; the bottom tab bar restyles into an 88px left rail, the Nowbar becomes a rail-to-edge desktop player bar, shelves fill the window with chevron paging). Deliberately NOT done: a desktop now-playing redesign and a persistent header search field.
 
 Plans:
 - [ ] TBD (promote with /gsd:review-backlog when ready)
