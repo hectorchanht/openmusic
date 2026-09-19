@@ -16,6 +16,10 @@
 	import { toast } from '$lib/stores/toast.svelte';
 	import { t, type TranslationKey } from '$lib/i18n';
 	import { tapBounce } from '$lib/actions/tapBounce';
+	// quick-260919-npfix (Fix 2): the pure Space / left / right -> transport mapping. All of the
+	// "may I steal this key?" branching lives there so it is node-testable; this file keeps only
+	// the listener.
+	import { transportAction, describeTarget } from '$lib/services/transport-keys';
 	import NowPlaying from '$lib/components/NowPlaying.svelte';
 	import Nowbar from '$lib/components/Nowbar.svelte';
 	import SleepTimerSheet from '$lib/components/SleepTimerSheet.svelte';
@@ -164,10 +168,40 @@
 		// quick-260713-7pi: watch for a new service-worker build and surface a Reload prompt
 		// (the .update-bar banner below). No-op on the native build / no-SW browsers.
 		const teardownSwUpdate = swUpdate.init();
+
+		// quick-260919-npfix (Fix 2) — GLOBAL transport keys: Space = play/pause, left/right =
+		// prev/next, on every page of the shell rather than only inside the open NowPlaying overlay
+		// (where the identical listener used to live, and has been deleted from). Mounted here, in
+		// onMount beside the other teardowns, for the same reason player.attach() uses raw listeners:
+		// an `$effect` that calls into the player would take reactive deps on state the player then
+		// writes, which is the documented self-invalidation freeze class.
+		//
+		// `transportAction` returns null for every key that is not ours — typing, a chord, an
+		// auto-repeat, or a focused control with its own contract for that key — and the handler then
+		// does NOTHING, not even preventDefault, so those keys behave exactly as before. It is gated
+		// on `e.target`, never on a global "an input is focused" flag: a recorded incident has a
+		// mobile dropdown disappearing because Android Chrome dropped such a flag mid-type, and the
+		// event's own target cannot go stale that way.
+		//
+		// preventDefault ONLY on Space (it would otherwise scroll the page). The arrows are left
+		// alone: nothing scrolls horizontally here, and swallowing them would be the more invasive
+		// choice.
+		const onTransportKey = (e: KeyboardEvent) => {
+			const action = transportAction(e, describeTarget(e.target));
+			if (!action) return;
+			if (action === 'toggle') {
+				e.preventDefault();
+				player.toggle();
+			} else if (action === 'prev') player.prev();
+			else player.next();
+		};
+		window.addEventListener('keydown', onTransportKey);
+
 		return () => {
 			teardownOverlays();
 			teardownOnline();
 			teardownSwUpdate();
+			window.removeEventListener('keydown', onTransportKey);
 		};
 	});
 

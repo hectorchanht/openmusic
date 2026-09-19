@@ -409,43 +409,18 @@
 		return () => untrack(() => overlays.dismiss('nowplaying'));
 	});
 
-	// ---- Keyboard shortcuts (gte) — Space/←/→ on the open NowPlaying overlay.
-	// NowPlaying only renders while player.expanded, so mount == overlay open; the cleanup
-	// removes the listener on collapse. Suppress when typing in inputs / textareas / contentEditable
-	// or while an IME composition is active so we never break text entry.
-	$effect(() => {
-		if (typeof window === 'undefined') return;
-		function isTextEntry(el: EventTarget | null): boolean {
-			if (!(el instanceof HTMLElement)) return false;
-			const tag = el.tagName;
-			if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
-			return el.isContentEditable;
-		}
-		const onKey = (e: KeyboardEvent) => {
-			if (e.isComposing) return;
-			if (isTextEntry(e.target)) return;
-			if (e.key === ' ' || e.code === 'Space') {
-				// WR-08: the focusTrap keeps focus on a NowPlaying control, and Space-activates-
-				// the-focused-button is the platform convention — let focused interactive
-				// elements win; only an unfocused-control Space toggles play/pause.
-				const el = e.target as HTMLElement | null;
-				if (
-					el instanceof HTMLButtonElement ||
-					el?.getAttribute('role') === 'button' ||
-					el?.getAttribute('role') === 'slider'
-				)
-					return;
-				e.preventDefault();
-				player.toggle();
-			} else if (e.key === 'ArrowLeft') {
-				player.prev();
-			} else if (e.key === 'ArrowRight') {
-				player.next();
-			}
-		};
-		window.addEventListener('keydown', onKey);
-		return () => window.removeEventListener('keydown', onKey);
-	});
+	// ---- Keyboard shortcuts — MOVED OUT (quick-260919-npfix, Fix 2).
+	// The Space/left/right window listener that used to live here was mounted with this component, so
+	// the shortcuts existed ONLY while the overlay was open. They are global now: one listener in the
+	// app shell ((app)/+layout.svelte) over the pure `transportAction` mapping in
+	// services/transport-keys.ts. Deleting the copy rather than keeping both is the point — two
+	// listeners would double-fire every Space while NowPlaying was open.
+	//
+	// That move also RESOLVED this file's long-standing double meaning for the arrow keys: `seekKey`
+	// on the `.scrubber` (role="slider", above) nudges +-5s and is UNCHANGED, while prev/next is the
+	// document-level fallback. The old window listener target-guarded only its Space branch, so with
+	// the scrubber focused an ArrowRight ran BOTH (+5s AND next()); transportAction now yields arrows
+	// to role="slider" on the same "the focused control wins" principle WR-08 already applied to Space.
 
 	// ---- NP top drag-down to collapse ----
 	// Wrapping container (.np-top) carries the drag, so a downward swipe ANYWHERE on the
