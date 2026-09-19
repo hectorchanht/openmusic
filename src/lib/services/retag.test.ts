@@ -242,6 +242,51 @@ describe('retag — the single-file save path (quick-260919-1eh)', () => {
 		expect(fields.lyrics).toBeUndefined();
 	});
 
+	// ── quick-260919-30x: the OPTIONAL typed filename (D-6/D-7, T-30x-01) ───────────────────────
+	it('a typed base name is used, with the SNIFFED container appended (D-6)', async () => {
+		expect(await retagOne(entry(1, { filename: 'My Song' }))).toBe('tagged');
+		expect(mocks.put.mock.calls[0][2]).toBe('My Song.m4a');
+	});
+
+	it('a typed extension is NOT honoured — it is just more base name (D-6)', async () => {
+		// Stops a user typing `note.txt` into a MediaStore AUDIO entry.
+		expect(await retagOne(entry(1, { filename: 'note.txt' }))).toBe('tagged');
+		expect(mocks.put.mock.calls[0][2]).toBe('note.txt.m4a');
+	});
+
+	it('a traversal attempt reaches put with no separator left in it (T-30x-01)', async () => {
+		expect(await retagOne(entry(1, { filename: 'evil/../../x' }))).toBe('tagged');
+		const name = mocks.put.mock.calls[0][2] as string;
+		expect(name).not.toContain('/');
+		expect(name).not.toContain('\\');
+		expect(name.endsWith('.m4a')).toBe(true);
+	});
+
+	it('absent / blank / whitespace-only / all-dots falls back to today\u2019s derived name (D-7)', async () => {
+		for (const filename of [undefined, '', '   ', '\t\n ', '.', '..', '...']) {
+			mocks.put.mockClear();
+			expect(await retagOne(entry(1, { filename }))).toBe('tagged');
+			expect(mocks.put.mock.calls[0][2]).toBe('A1 - T1.m4a');
+		}
+	});
+
+	it('a name that SANITIZES to nothing usable still falls back rather than writing junk', async () => {
+		mocks.put.mockClear();
+		expect(await retagOne(entry(1, { filename: '   ...   ' }))).toBe('tagged');
+		expect(mocks.put.mock.calls[0][2]).toBe('A1 - T1.m4a');
+	});
+
+	it('an over-long typed name is truncated BEFORE the extension is appended', async () => {
+		expect(await retagOne(entry(1, { filename: 'z'.repeat(400) }))).toBe('tagged');
+		expect(mocks.put.mock.calls[0][2]).toBe('z'.repeat(120) + '.m4a');
+	});
+
+	it('a device: uid is still refused with a filename set — no get, no put', async () => {
+		expect(await retagOne(entry(1, { uid: 'device:4711', filename: 'Rename me' }))).toBe('device-skipped');
+		expect(mocks.get).not.toHaveBeenCalled();
+		expect(mocks.put).not.toHaveBeenCalled();
+	});
+
 	it('a device: uid is refused BEFORE any blobStore call — no get, no put', async () => {
 		expect(await retagOne(entry(1, { uid: 'device:4711' }))).toBe('device-skipped');
 		expect(mocks.get).not.toHaveBeenCalled();

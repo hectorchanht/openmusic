@@ -5,7 +5,44 @@ import { describe, it, expect } from 'vitest';
 // no store, no DOM — so this test file drives them directly under the single Vitest node project.
 // The rows below mirror 29-VALIDATION DL-FILE-01: translated/raw/sanitize/each-ext/default-mp3 and
 // query-strip/case-insensitive/unknown→mp3.
-import { audioMimeForUrl, extFromAudioUrl, buildDownloadFilename } from './download-filename';
+import {
+	audioMimeForUrl,
+	extFromAudioUrl,
+	buildDownloadFilename,
+	sanitizeFilename,
+	MAX_FILENAME_BASE
+} from './download-filename';
+
+// quick-260919-30x — the sanitize step is now its own export because the metadata editor lets a user
+// TYPE a filename, and that string reaches a MediaStore `saveToMusic({ fileName })`. One sanitizer,
+// the same VERBATIM char class the builder always used (T-30x-01) — a second one would be the
+// security control drifting in exactly the way the shared-primitives audit found.
+describe('download-filename — sanitizeFilename (quick-260919-30x)', () => {
+	it('replaces every reserved/path char with an underscore', () => {
+		expect(sanitizeFilename('a/b\\c?d%e*f:g|h"i<j>k')).toBe('a_b_c_d_e_f_g_h_i_j_k');
+	});
+
+	it('leaves a path traversal attempt with no separator to traverse with', () => {
+		const out = sanitizeFilename('evil/../../x');
+		expect(out).not.toContain('/');
+		expect(out).not.toContain('\\');
+	});
+
+	it('is total over null/undefined and passes CJK through untouched', () => {
+		expect(sanitizeFilename(null as unknown as string)).toBe('');
+		expect(sanitizeFilename(undefined as unknown as string)).toBe('');
+		expect(sanitizeFilename('光年之外')).toBe('光年之外');
+	});
+
+	it('buildDownloadFilename is byte-identical after routing through it', () => {
+		expect(buildDownloadFilename('AC/DC', 'T:N:T', 'mp3')).toBe('AC_DC - T_N_T.mp3');
+		expect(buildDownloadFilename('a?b%c*d|e<f>g', 'h"i', 'mp3')).toBe('a_b_c_d_e_f_g - h_i.mp3');
+	});
+
+	it('caps the typed base name below Android’s 255-byte filename limit', () => {
+		expect(MAX_FILENAME_BASE).toBe(120);
+	});
+});
 
 describe('download-filename — extFromAudioUrl (D-06)', () => {
 	it('query-strips then lowercases the matched extension', () => {
