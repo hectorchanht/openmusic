@@ -46,6 +46,10 @@
 	// row-cover helper every row surface now paints through (search / library / artist / CompactRow /
 	// Up Next / Related). Same three rungs, same precedence — just no longer Up-Next-specific.
 	import { pickRowCover } from '$lib/services/row-cover';
+	// quick-260919-0mw: the ONE shared tri-state download affordance. It already owns the idle /
+	// downloading / downloaded / unavailable states, the shared downloadTrack path, its own toasts,
+	// its own t() keys and tapBounce — so this is a mount, never a re-implementation.
+	import DownloadControl from '$lib/components/DownloadControl.svelte';
 	import { marquee } from '$lib/actions/marquee';
 	import { swipeAction } from '$lib/actions/swipeAction';
 	import { coverSwipe } from '$lib/actions/coverSwipe';
@@ -1512,6 +1516,16 @@
 		<button class="t" class:on={player.repeatMode !== 'off'} aria-pressed={player.repeatMode !== 'off'} aria-label={player.repeatMode === 'one' ? t('nowplaying.repeatModeOne') : t('nowplaying.repeat')} onclick={() => player.cycleRepeat()} use:tapBounce>
 			{#if player.repeatMode === 'one'}<Repeat1 size={20} />{:else}<Repeat size={20} />{/if}
 		</button>
+		<!-- quick-260919-0mw — the download control. The request was "replace the shuffle button", but
+		     Shuffle was ALREADY removed from this row by ii6 (see the "Like replaces Shuffle" note at
+		     the top of this script — it lives in the TrackMenu kebab now), so this is an ADDITION,
+		     not a swap. Nothing was displaced to make room, because nothing needed to be.
+		     Placed trailing so the two non-transport affordances (Heart, Download) bracket the three
+		     real transport buttons. `persist` stays at its true default: this is a user-initiated
+		     download and SHOULD land in the offline blob store. `probe` stays FALSE by decision, not
+		     oversight — it would cost a resolve + a HEAD on every render of the now-playing view, and
+		     a format/size readout is not what was asked for here. -->
+		<span class="t-dl"><DownloadControl track={player.current} /></span>
 	</div>
 	</div>
 
@@ -1857,6 +1871,17 @@
 	.transport { display: flex; align-items: center; justify-content: space-between; margin: 10px 4px 22px; transition: margin 0.32s cubic-bezier(.22,1,.36,1); }
 	.t { background: none; border: none; color: var(--color-text); cursor: pointer; opacity: 0.85; display: grid; place-items: center; }
 	.t.on { color: var(--color-primary); opacity: 1; }
+	/* quick-260919-0mw: size the shared DownloadControl to its five `.t` siblings — it ships a 40×40
+	   list-row footprint with an 18px glyph and a muted colour, none of which match this row. The
+	   override lives HERE (scoped under .t-dl, :global to cross the child's style scope) rather than
+	   in DownloadControl.svelte, because five list-row call sites depend on its current look. */
+	.t-dl { display: grid; place-items: center; }
+	.t-dl :global(.dc) { width: auto; height: auto; color: var(--color-text); opacity: 0.85; }
+	.t-dl :global(.dc svg) { width: 20px; height: 20px; }
+	.t-dl :global(button.dc:hover) { background: none; color: var(--color-text); }
+	/* The downloaded/unavailable states keep their own meaning — only the neutral idle colour moved. */
+	.t-dl :global(.dc.downloaded) { opacity: 0.4; }
+	.t-dl :global(.dc.unavailable) { color: #ff7a90; opacity: 1; }
 	.st-row { display: flex; justify-content: center; margin: 2px 4px 0; }
 	.st-readout { display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 999px; font-size: 13px; font-variant-numeric: tabular-nums; background: var(--color-surface); }
 	.play { width: 62px; height: 62px; border-radius: 50%; border: none; background: #fff; color: #000; cursor: pointer; display: grid; place-items: center; }
