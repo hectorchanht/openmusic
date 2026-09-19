@@ -485,7 +485,6 @@ const zhHant: Dict = {
 	"settings.itemsPerShelfDesc": "每個首頁區塊在你開啟查看更多之前所顯示的項目數量；調高可一眼瀏覽更多，調低則讓頁面更精簡。",
 	"settings.defaultLandingTabDesc": "開啟應用程式時預設進入的分頁——首頁、搜尋或音樂庫；設定為你通常最先使用的那一個。",
 	"settings.tileDensityDesc": "書架的版面配置，與「每列項目數」不同，後者只是數量。",
-	"settings.showSearchPillDesc": "切換首頁頂部的搜尋列；若你通常改從「搜尋」分頁搜尋，可關閉此項讓首頁更簡潔。",
 	"settings.showRandomizeDesc": "播放全新的隨機組合。",
 	// playback settings helper text (quick-260630-fce)
 	// data settings helper text (quick-260630-fce)

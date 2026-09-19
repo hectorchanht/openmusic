@@ -453,7 +453,6 @@ const de: Dict = {
 	"settings.itemsPerShelfDesc": "Wie viele Elemente jedes Startseiten-Regal anzeigt, bevor du es öffnen musst, um mehr zu sehen; erhöhe es, um mehr auf einen Blick zu sehen, oder verringere es für eine kürzere Seite.",
 	"settings.defaultLandingTabDesc": "Welcher Tab beim Start der App geöffnet wird — Start, Suche oder Bibliothek; stelle ihn auf den ein, den du normalerweise zuerst ansteuerst.",
 	"settings.tileDensityDesc": "Das Layout der Regale — nicht zu verwechseln mit Titel pro Regal, einer reinen Anzahl.",
-	"settings.showSearchPillDesc": "Schaltet die Suchleiste oben auf dem Startbildschirm um; deaktiviere sie für eine aufgeräumtere Startseite, wenn du normalerweise über den Such-Tab suchst.",
 	"settings.showRandomizeDesc": "Spielt einen neuen Zufallsmix.",
 	// playback settings helper text (quick-260630-fce)
 	// data settings helper text (quick-260630-fce)

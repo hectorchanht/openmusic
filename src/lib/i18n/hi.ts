@@ -453,7 +453,6 @@ const hi: Dict = {
 	"settings.itemsPerShelfDesc": "और देखने के लिए खोलने से पहले प्रत्येक होम शेल्फ़ कितने आइटम दिखाता है; एक नज़र में ज़्यादा देखने के लिए बढ़ाएँ या छोटे पेज के लिए घटाएँ।",
 	"settings.defaultLandingTabDesc": "ऐप शुरू करने पर कौन-सा टैब खुले — होम, खोज या लाइब्रेरी; इसे वही सेट करें जिसे आप आमतौर पर पहले खोलते हैं।",
 	"settings.tileDensityDesc": "शेल्फ़ का लेआउट — «प्रति शेल्फ़ आइटम» से अलग, जो केवल एक संख्या है।",
-	"settings.showSearchPillDesc": "होम स्क्रीन के ऊपर सर्च बार को चालू/बंद करता है; अगर आप आमतौर पर खोज टैब से खोजते हैं तो साफ़-सुथरे होम के लिए इसे बंद करें।",
 	"settings.showRandomizeDesc": "एक नया रैंडम मिक्स चलाता है।",
 	// playback settings helper text (quick-260630-fce)
 	// data settings helper text (quick-260630-fce)

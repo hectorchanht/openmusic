@@ -453,7 +453,6 @@ const ar: Dict = {
 	"settings.itemsPerShelfDesc": "عدد العناصر التي يعرضها كل رف في الصفحة الرئيسية قبل أن تحتاج لفتحه لرؤية المزيد؛ زِده لتصفّح أكثر بنظرة واحدة أو أنقصه لصفحة أقصر.",
 	"settings.defaultLandingTabDesc": "علامة التبويب التي تُفتح عند تشغيل التطبيق — الرئيسية أو البحث أو المكتبة؛ اضبطها على التي تبدأ بها عادةً.",
 	"settings.tileDensityDesc": "تخطيط الرفوف — يختلف عن «العناصر لكل رف» الذي هو مجرد عدد.",
-	"settings.showSearchPillDesc": "يبدّل شريط البحث أعلى الشاشة الرئيسية؛ أوقفه لتحصل على صفحة رئيسية أنظف إذا كنت عادةً تبحث من علامة تبويب البحث.",
 	"settings.showRandomizeDesc": "يشغّل مزيجًا عشوائيًا جديدًا.",
 	// playback settings helper text (quick-260630-fce)
 	// data settings helper text (quick-260630-fce)

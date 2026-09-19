@@ -453,7 +453,6 @@ const vi: Dict = {
 	"settings.itemsPerShelfDesc": "Mỗi kệ Trang chủ hiển thị bao nhiêu mục trước khi bạn cần mở ra để xem thêm; tăng để xem nhiều hơn trong một cái nhìn, giảm để trang ngắn hơn.",
 	"settings.defaultLandingTabDesc": "Tab nào mở khi bạn khởi động ứng dụng — Trang chủ, Tìm kiếm hoặc Thư viện; đặt theo tab bạn thường mở đầu tiên.",
 	"settings.tileDensityDesc": "Bố cục kệ — khác với Số mục mỗi kệ, vốn chỉ là số lượng.",
-	"settings.showSearchPillDesc": "Bật/tắt thanh tìm kiếm ở đầu màn hình Trang chủ; tắt để Trang chủ gọn hơn nếu bạn thường tìm từ tab Tìm kiếm.",
 	"settings.showRandomizeDesc": "Phát một bản phối ngẫu nhiên mới.",
 	// playback settings helper text (quick-260630-fce)
 	// data settings helper text (quick-260630-fce)

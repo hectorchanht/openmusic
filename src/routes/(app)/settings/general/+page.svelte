@@ -6,6 +6,7 @@
 	import { ChevronLeft, Globe, Share2 } from '@lucide/svelte';
 	import { settings } from '$lib/stores/settings.svelte';
 	import SettingToggle from '$lib/components/SettingToggle.svelte';
+	import SettingHint from '$lib/components/SettingHint.svelte';
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { t, type AppLang } from '$lib/i18n';
 
@@ -49,7 +50,7 @@
 			<button class="chip" class:on={settings.appLang === l.v} onclick={() => setAppLang(l.v)} use:tapBounce>{l.label}</button>
 		{/each}
 	</div>
-	<p class="muted">{t('settings.appLanguageDesc')}</p>
+	<SettingHint label={t('settings.appLanguage')} text={t('settings.appLanguageDesc')} />
 </section>
 
 <!-- quick-260919-ebi: Theme, Accent colour and Reduce motion moved OUT of here, into
@@ -67,7 +68,7 @@
 		checked={settings.shareIncludeTitle}
 		onchange={toggleShareTitle}
 	/>
-	<p class="muted">{t('settings.shareIncludeTitleDesc')}</p>
+	<SettingHint label={t('settings.shareIncludeTitle')} text={t('settings.shareIncludeTitleDesc')} />
 </section>
 
 <style>

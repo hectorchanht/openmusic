@@ -453,7 +453,6 @@ const es: Dict = {
 	"settings.itemsPerShelfDesc": "Cuántos elementos muestra cada estante de Inicio antes de tener que abrirlo para ver más; súbelo para ojear más de un vistazo o bájalo para una página más corta.",
 	"settings.defaultLandingTabDesc": "Qué pestaña se abre al iniciar la app: Inicio, Buscar o Biblioteca; configúrala según la que sueles usar primero.",
 	"settings.tileDensityDesc": "El diseño de las estanterías; distinto de Elementos por estantería, que solo es una cantidad.",
-	"settings.showSearchPillDesc": "Activa o desactiva la barra de búsqueda en la parte superior de la pantalla de Inicio; desactívala para un Inicio más limpio si sueles buscar desde la pestaña Buscar.",
 	"settings.showRandomizeDesc": "Reproduce una mezcla aleatoria nueva.",
 	// playback settings helper text (quick-260630-fce)
 	// data settings helper text (quick-260630-fce)

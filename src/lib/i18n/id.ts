@@ -453,7 +453,6 @@ const id: Dict = {
 	"settings.itemsPerShelfDesc": "Berapa item yang ditampilkan setiap rak Beranda sebelum Anda perlu membukanya untuk melihat lebih banyak; perbesar untuk menelusuri lebih banyak sekilas atau perkecil untuk halaman lebih pendek.",
 	"settings.defaultLandingTabDesc": "Tab mana yang terbuka saat Anda membuka aplikasi — Beranda, Cari, atau Pustaka; atur ke yang biasanya Anda buka lebih dulu.",
 	"settings.tileDensityDesc": "Tata letak rak — berbeda dari Item per rak, yang hanya sebuah jumlah.",
-	"settings.showSearchPillDesc": "Mengaktifkan atau menonaktifkan bilah pencarian di bagian atas layar Beranda; matikan agar Beranda lebih bersih jika Anda biasanya mencari dari tab Cari.",
 	"settings.showRandomizeDesc": "Memutar campuran acak yang baru.",
 	// playback settings helper text (quick-260630-fce)
 	// data settings helper text (quick-260630-fce)

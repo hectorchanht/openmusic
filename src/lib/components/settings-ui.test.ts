@@ -37,19 +37,23 @@ function declaresRule(src: string, cls: string): boolean {
 }
 
 describe('shared settings rows (quick-260919-ebi F2)', () => {
-	// Pages fully converted in task 2. /settings/downloads is OUT OF SCOPE on purpose: its toggles
-	// drive the `deviceImport` store inside a collapsed <details> on a native-only page, and the
-	// chip idiom there is multi-select in half its call sites — a separate pass, not a half-convert.
-	// /settings/home keeps ONE `.sw` rule deliberately — the bare section-visibility switch inside
-	// the 44px drag-reorder rows, which is not a settings ROW and has no label of its own — so it
-	// is checked for .row-toggle and .item only, below.
-	const CONVERTED = [
-		`${ROUTES}/+page.svelte`,
-		`${ROUTES}/general/+page.svelte`,
-		`${ROUTES}/appearance/+page.svelte`,
-		`${ROUTES}/translation/+page.svelte`,
-		`${ROUTES}/playback/+page.svelte`,
-		`${ROUTES}/data/+page.svelte`
+	// Every settings page EXCEPT /settings/downloads, which is out of scope on purpose: its
+	// toggles drive the `deviceImport` store inside a collapsed <details> on a native-only page,
+	// and the chip idiom there is multi-select in half its call sites — a separate pass, not a
+	// half-convert.
+	//
+	// /settings/home keeps ONE `.sw` rule deliberately: the bare section-visibility switch inside
+	// the 44px drag-reorder rows. That is not a settings ROW — it has no label of its own and no
+	// room for one — so SettingToggle does not fit and the exception is recorded here rather than
+	// silently tolerated.
+	const CONVERTED: [string, string[]][] = [
+		[`${ROUTES}/+page.svelte`, ['row-toggle', 'sw', 'item']],
+		[`${ROUTES}/general/+page.svelte`, ['row-toggle', 'sw', 'item']],
+		[`${ROUTES}/appearance/+page.svelte`, ['row-toggle', 'sw', 'item']],
+		[`${ROUTES}/translation/+page.svelte`, ['row-toggle', 'sw', 'item']],
+		[`${ROUTES}/playback/+page.svelte`, ['row-toggle', 'sw', 'item']],
+		[`${ROUTES}/data/+page.svelte`, ['row-toggle', 'sw', 'item']],
+		[`${ROUTES}/home/+page.svelte`, ['row-toggle', 'item']]
 	];
 
 	// The gate is only worth having if it actually trips, so pin the helper itself.
@@ -62,14 +66,22 @@ describe('shared settings rows (quick-260919-ebi F2)', () => {
 		expect(declaresRule('\t.swatches { display: flex; }\n\t.swatch { width: 34px; }', 'sw')).toBe(false);
 	});
 
-	for (const file of CONVERTED) {
-		it(`${file} declares no local .row-toggle / .sw / .item rule`, () => {
+	for (const [file, classes] of CONVERTED) {
+		it(`${file} declares no local ${classes.map((c) => `.${c}`).join(' / ')} rule`, () => {
 			const src = read(file);
-			for (const cls of ['row-toggle', 'sw', 'item']) {
+			for (const cls of classes) {
 				expect(declaresRule(src, cls), `${file} re-declares .${cls} — import the shared component`).toBe(false);
 			}
 		});
 	}
+
+	// The .seg pill row lived on four pages. SettingPicker is now its ONLY definition.
+	it('no settings page re-declares the .seg segmented control', () => {
+		for (const [file] of CONVERTED) {
+			expect(declaresRule(read(file), 'seg'), `${file} re-declares .seg — use SettingPicker`).toBe(false);
+		}
+		expect(declaresRule(read('src/lib/components/SettingPicker.svelte'), 'seg')).toBe(true);
+	});
 
 	it('SettingToggle and SettingRow are the ONLY definitions of the two row kinds', () => {
 		const toggle = readCode('src/lib/components/SettingToggle.svelte');
@@ -153,7 +165,13 @@ describe('shared settings rows (quick-260919-ebi F2)', () => {
 			[`${ROUTES}/appearance/+page.svelte`, 'SettingPicker'],
 			[`${ROUTES}/translation/+page.svelte`, 'SettingToggle'],
 			[`${ROUTES}/playback/+page.svelte`, 'SettingPicker'],
-			[`${ROUTES}/playback/+page.svelte`, 'SettingHint']
+			[`${ROUTES}/playback/+page.svelte`, 'SettingHint'],
+			[`${ROUTES}/translation/+page.svelte`, 'SettingPicker'],
+			[`${ROUTES}/translation/+page.svelte`, 'SettingHint'],
+			[`${ROUTES}/home/+page.svelte`, 'SettingPicker'],
+			[`${ROUTES}/home/+page.svelte`, 'SettingHint'],
+			[`${ROUTES}/general/+page.svelte`, 'SettingHint'],
+			[`${ROUTES}/appearance/+page.svelte`, 'SettingHint']
 		];
 		for (const [file, comp] of uses) {
 			// Quote style differs per file (appearance/ was prettier'd to double quotes), so match

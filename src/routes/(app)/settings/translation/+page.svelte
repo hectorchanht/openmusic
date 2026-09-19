@@ -3,6 +3,8 @@
 	import { goto } from '$app/navigation';
 	import { ChevronLeft, Languages, Replace } from '@lucide/svelte';
 	import SettingToggle from '$lib/components/SettingToggle.svelte';
+	import SettingPicker from '$lib/components/SettingPicker.svelte';
+	import SettingHint from '$lib/components/SettingHint.svelte';
 	import { settings, type LyricsLang, type SourceLang, type TranslateMode, type ZhScriptSetting } from '$lib/stores/settings.svelte';
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { t, type TranslationKey } from '$lib/i18n';
@@ -111,6 +113,14 @@
 	// Prepend Auto, but filter out the existing 'auto' item from the rest of the array
 	const bioOptions = [{ v: 'auto' as const, label: '' }, ...langs.filter(l => l.v !== 'auto')];
 
+	// quick-260919-ebi: both labelled controls on this page now come from the ONE SettingPicker.
+	// zhScript gets NO preview — the endonym labels 繁體中文 / 简体中文 already ARE the difference,
+	// so a mockup could only redraw the same two words.
+	const zhOptions = $derived(
+		ZH_SCRIPTS.map((z) => ({ v: z.v, label: z.v === 'off' ? t('settings.optOff') : z.label }))
+	);
+	const modeOptions = $derived(modes.map((m) => ({ v: m.v, label: t(m.key as TranslationKey) })));
+
 </script>
 
 <svelte:head><title>{t('settings.title')}</title></svelte:head>
@@ -121,18 +131,42 @@
 	<button class="reset" onclick={() => { if (confirm(t('settings.resetConfirm'))) { settings.resetTranslation(); } }} use:tapBounce>{t('settings.resetGroup')}</button>
 </header>
 
+<!-- quick-260919-ebi (F3): the translate-mode mocks use NEUTRAL BLOCK TEXT, not a real bilingual
+     pair, and that is a deliberate call. Any real sample would have to pick an original language
+     and a target language — which is itself a translation problem, and would need 15 versions of
+     the mock to stay honest in every UI language. Dots stand for the original line, dashes for
+     its translation, so the SHAPE (one line replaced vs two lines stacked) is the whole message
+     and nothing needs translating. -->
+{#snippet modeReplace()}
+	<span class="mock-chrome" style:justify-content="center">
+		<span class="mock-col" style:gap="6px">
+			{#each [0, 1, 2] as r (r)}
+				<span class="mock-text dim">&#8212; &#8212; &#8212;</span>
+			{/each}
+		</span>
+	</span>
+{/snippet}
+{#snippet modeBelow()}
+	<span class="mock-chrome" style:justify-content="center">
+		<span class="mock-col" style:gap="6px">
+			{#each [0, 1] as r (r)}
+				<span class="mock-col" style:gap="1px">
+					<span class="mock-text">&#8226;&#8226;&#8226; &#8226;&#8226;&#8226;</span>
+					<span class="mock-text dim">&#8212; &#8212; &#8212;</span>
+				</span>
+			{/each}
+		</span>
+	</span>
+{/snippet}
+
 <!-- 0. Chinese script lock (quick-260919-2jo) — sits ABOVE everything else because it governs the
      names and titles the sections below then translate: the lock is applied LAST and has the last
      word (D-6), so a contradictory pair (titleLang zh-Hant + lock Simplified) resolves to the
      lock. Chinese-only by construction; see lockScriptSync's isChineseLine gate. -->
 <section>
 	<h2><Languages size={15} /> {t('settings.zhScript')}</h2>
-	<div class="seg">
-		{#each ZH_SCRIPTS as z (z.v)}
-			<button class:on={settings.zhScript === z.v} onclick={() => setZhScript(z.v)} use:tapBounce>{z.v === 'off' ? t('settings.optOff') : z.label}</button>
-		{/each}
-	</div>
-	<p class="muted">{t('settings.zhScriptNote')}</p>
+	<SettingPicker label={t('settings.zhScript')} options={zhOptions} value={settings.zhScript} onpick={setZhScript} />
+	<SettingHint label={t('settings.zhScript')} text={t('settings.zhScriptNote')} />
 </section>
 
 <hr class="div" />
@@ -140,12 +174,27 @@
 <!-- 1. Lyrics translate mode — how translated lyrics display (replace vs show below). -->
 <section>
 	<h2><Replace size={15} /> {t('settings.lyricsTranslateMode')}</h2>
-	<div class="seg" class:disabled={settings.lyricsLang === 'off'}>
-		{#each modes as m (m.v)}
-			<button class:on={settings.translateMode === m.v} disabled={settings.lyricsLang === 'off'} onclick={() => setMode(m.v)} use:tapBounce>{t(m.key as TranslationKey)}</button>
-		{/each}
-	</div>
-	<p class="muted">{settings.lyricsLang === 'off' ? t('settings.translateModeOffNote') : t('settings.translateModeOnNote')}</p>
+	<!-- quick-260919-ebi (F3): replace-vs-below is a shape on screen, so it is picked by tapping
+	     one of two lyric mockups. -->
+	<SettingPicker
+		variant="preview"
+		label={t('settings.lyricsTranslateMode')}
+		options={[
+			{ ...modeOptions[0], preview: modeReplace },
+			{ ...modeOptions[1], preview: modeBelow }
+		]}
+		value={settings.translateMode}
+		onpick={setMode}
+		disabled={settings.lyricsLang === 'off'}
+	/>
+	<!-- The OFF note is NOT the prose a preview replaces: it explains why the control above is
+	     DISABLED, which no mockup of the enabled states can say. It stays on screen, unhidden,
+	     because a disabled control with no visible reason is the confusing case. -->
+	{#if settings.lyricsLang === 'off'}
+		<p class="muted">{t('settings.translateModeOffNote')}</p>
+	{:else}
+		<SettingHint label={t('settings.lyricsTranslateMode')} text={t('settings.translateModeOnNote')} />
+	{/if}
 
 	<!-- quick-260919-ebi (F2): the one shared boolean row — inset + switch + accent edge. These two
 	     keep their prose: a before/after lyric pair would need a representative bilingual sample
@@ -155,14 +204,14 @@
 		checked={settings.lyricsHideParenTranslation}
 		onchange={() => { settings.lyricsHideParenTranslation = !settings.lyricsHideParenTranslation; settings.save(); }}
 	/>
-	<p class="muted">{t('settings.lyricsHideParenTranslationNote')}</p>
+	<SettingHint label={t('settings.lyricsHideParenTranslation')} text={t('settings.lyricsHideParenTranslationNote')} />
 
 	<SettingToggle
 		label={t('settings.lyricsHideParenLines')}
 		checked={settings.lyricsHideParenLines}
 		onchange={() => { settings.lyricsHideParenLines = !settings.lyricsHideParenLines; settings.save(); }}
 	/>
-	<p class="muted">{t('settings.lyricsHideParenLinesNote')}</p>
+	<SettingHint label={t('settings.lyricsHideParenLines')} text={t('settings.lyricsHideParenLinesNote')} />
 </section>
 
 <hr class="div" />
@@ -176,7 +225,7 @@
 				<button class="chip" class:on={TARGET[part.key]() === l.v} onclick={() => setTarget(part.key, l.v)} use:tapBounce>{l.v === 'off' ? t('settings.optOff') : l.v === 'auto' ? t('settings.bioAuto') : l.label}</button>
 			{/each}
 		</div>
-		<p class="muted">{t(part.noteKey)}</p>
+		<SettingHint label={t(part.headingKey)} text={t(part.noteKey)} />
 		<div class="skip" class:disabled={TARGET[part.key]() === 'off'}>
 			<p class="sublabel">{t('settings.skipLanguages')}</p>
 			<div class="chips">
@@ -184,7 +233,7 @@
 					<button class="chip skipchip" class:on={SKIP[part.key]().includes(s.v)} disabled={TARGET[part.key]() === 'off'} onclick={() => toggleSkip(part.key, s.v)} use:tapBounce>{s.label}</button>
 				{/each}
 			</div>
-			<p class="muted">{t('settings.skipLanguagesNote')}</p>
+			<SettingHint label={t('settings.skipLanguages')} text={t('settings.skipLanguagesNote')} />
 		</div>
 	</section>
 	<hr class="div" />
@@ -198,7 +247,7 @@
 			<button class="chip" class:on={settings.bioLang === o.v} onclick={() => setBio(o.v)} use:tapBounce>{o.v === 'auto' ? t('settings.bioAuto') : o.v === 'off' ? t('settings.optOff') : o.label}</button>
 		{/each}
 	</div>
-	<p class="muted">{t('settings.translateLastfmNote')}</p>
+	<SettingHint label={t('settings.translateLastfm')} text={t('settings.translateLastfmNote')} />
 </section>
 
 <hr class="div" />
@@ -227,10 +276,8 @@
 	.skip.disabled { opacity: 0.45; pointer-events: none; }
 	.sublabel { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--color-text-muted); margin: 0 0 8px; }
 	.skipchip.on { background: var(--color-surface); color: var(--color-primary); border-color: var(--color-primary); }
-	.seg { display: inline-flex; background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: 999px; padding: 3px; gap: 3px; }
-	.seg.disabled { opacity: 0.5; }
-	.seg button { background: none; border: none; color: var(--color-text-muted); padding: 7px 16px; border-radius: 999px; font-size: 13px; cursor: pointer; }
-	.seg button.on { background: var(--color-primary); color: #fff; }
+	/* quick-260919-ebi: the .seg CSS moved into SettingPicker.svelte — the quick-260919-2jo Chinese
+	   script control is pixel-identical there, because the rules were lifted verbatim. */
 	.link { background: none; border: none; color: var(--color-primary); cursor: pointer; font-size: 14px; padding: 0; }
 	.div { border: none; border-top: 1px solid var(--color-border); margin: 4px 0; }
 	/* quick-260919-ebi: the toggle-row CSS moved into SettingToggle.svelte. */

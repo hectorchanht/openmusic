@@ -453,7 +453,6 @@ const it: Dict = {
 	"settings.itemsPerShelfDesc": "Quanti elementi mostra ogni scaffale della Home prima di doverlo aprire per vederne altri; aumentalo per scorrere di più a colpo d'occhio o riducilo per una pagina più breve.",
 	"settings.defaultLandingTabDesc": "Quale scheda si apre all'avvio dell'app — Home, Cerca o Libreria; impostala su quella che usi di solito per prima.",
 	"settings.tileDensityDesc": "Il layout degli scaffali — diverso da Elementi per scaffale, che è solo un numero.",
-	"settings.showSearchPillDesc": "Attiva o disattiva la barra di ricerca in cima alla schermata Home; disattivala per una Home più pulita se di solito cerchi dalla scheda Cerca.",
 	"settings.showRandomizeDesc": "Riproduce un nuovo mix casuale.",
 	// playback settings helper text (quick-260630-fce)
 	// data settings helper text (quick-260630-fce)

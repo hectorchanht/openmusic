@@ -453,7 +453,6 @@ const fr: Dict = {
 	"settings.itemsPerShelfDesc": "Combien d'éléments chaque étagère de l'accueil affiche avant de devoir l'ouvrir pour en voir plus ; augmentez-le pour parcourir plus d'un coup d'œil ou réduisez-le pour une page plus courte.",
 	"settings.defaultLandingTabDesc": "Quel onglet s'ouvre au lancement de l'application — Accueil, Recherche ou Bibliothèque ; réglez-le sur celui que vous utilisez le plus souvent en premier.",
 	"settings.tileDensityDesc": "La mise en page des étagères ; distinct d'Éléments par étagère, qui n'est qu'un nombre.",
-	"settings.showSearchPillDesc": "Active ou désactive la barre de recherche en haut de l'écran d'accueil ; désactivez-la pour un accueil plus épuré si vous recherchez d'habitude depuis l'onglet Recherche.",
 	"settings.showRandomizeDesc": "Lance un nouveau mix aléatoire.",
 	// playback settings helper text (quick-260630-fce)
 	// data settings helper text (quick-260630-fce)

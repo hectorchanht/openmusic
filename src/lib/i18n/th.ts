@@ -453,7 +453,6 @@ const th: Dict = {
 	"settings.itemsPerShelfDesc": "จำนวนรายการที่แต่ละชั้นวางหน้าแรกแสดงก่อนที่คุณต้องเปิดดูเพิ่ม เพิ่มเพื่อดูได้มากขึ้นในพริบตา ลดเพื่อให้หน้าสั้นลง",
 	"settings.defaultLandingTabDesc": "แท็บที่จะเปิดเมื่อคุณเริ่มแอป — หน้าแรก ค้นหา หรือคลัง ตั้งเป็นแท็บที่คุณมักเปิดก่อน",
 	"settings.tileDensityDesc": "เลย์เอาต์ของชั้นวาง ต่างจากจำนวนรายการต่อชั้นซึ่งเป็นแค่จำนวน",
-	"settings.showSearchPillDesc": "เปิด/ปิดแถบค้นหาที่ด้านบนของหน้าแรก ปิดเพื่อให้หน้าแรกดูสะอาดขึ้นหากคุณมักค้นหาจากแท็บค้นหาแทน",
 	"settings.showRandomizeDesc": "เล่นมิกซ์สุ่มชุดใหม่",
 	// playback settings helper text (quick-260630-fce)
 	// data settings helper text (quick-260630-fce)

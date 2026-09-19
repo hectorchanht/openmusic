@@ -485,7 +485,6 @@ const zhHans: Dict = {
 	"settings.itemsPerShelfDesc": "每个首页栏目在你打开查看更多之前显示的项目数量；调高可一眼浏览更多，调低则让页面更简短。",
 	"settings.defaultLandingTabDesc": "打开应用时默认进入的标签页——首页、搜索或音乐库；设置为你通常最先使用的那一个。",
 	"settings.tileDensityDesc": "货架的版面布局，与“每行项目数”不同，后者只是数量。",
-	"settings.showSearchPillDesc": "切换首页顶部的搜索栏；若你通常改从“搜索”标签页搜索，可关闭此项让首页更简洁。",
 	"settings.showRandomizeDesc": "播放全新的随机组合。",
 	// playback settings helper text (quick-260630-fce)
 	// data settings helper text (quick-260630-fce)

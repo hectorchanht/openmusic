@@ -498,7 +498,6 @@ const en = {
 	"settings.itemsPerShelfDesc": "How many items each Home shelf shows before you need to open it to see more; raise it to browse more at a glance, lower it for a shorter page.",
 	"settings.defaultLandingTabDesc": "Which tab opens when you launch the app — Home, Search or Library; set it to whatever you usually reach for first.",
 	"settings.tileDensityDesc": "The shelf layout — separate from Items per shelf, which is only a count.",
-	"settings.showSearchPillDesc": "Toggles the search bar at the top of the Home screen; turn it off for a cleaner Home when you usually search from the Search tab instead.",
 	"settings.showRandomizeDesc": "Plays a fresh random mix.",
 	// playback settings helper text (quick-260630-fce)
 	// data settings helper text (quick-260630-fce)

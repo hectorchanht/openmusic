@@ -26,6 +26,7 @@
     import { player } from "$lib/stores/player.svelte";
     import SettingToggle from "$lib/components/SettingToggle.svelte";
     import SettingPicker from "$lib/components/SettingPicker.svelte";
+    import SettingHint from "$lib/components/SettingHint.svelte";
     import { tapBounce } from "$lib/actions/tapBounce";
     import { t } from "$lib/i18n";
 
@@ -232,7 +233,7 @@
             ></button>
         {/each}
     </div>
-    <p class="note">{t("settings.accentColorDesc")}</p>
+    <SettingHint label={t("settings.accentColor")} text={t("settings.accentColorDesc")} />
 </section>
 
 <!-- quick-260919-ebi: "Motion" (settings.appearanceMotion), not the "Playback & motion" heading
@@ -246,7 +247,7 @@
         checked={settings.reduceMotion}
         onchange={toggleMotion}
     />
-    <p class="note">{t("settings.reduceMotionDesc")}</p>
+    <SettingHint label={t("settings.reduceMotion")} text={t("settings.reduceMotionDesc")} />
 </section>
 
 <section>
@@ -271,7 +272,7 @@
             style:font-size={`${(1.05 * settings.fontScaleTitle) / 100}rem`}
             >{demoTitle}</span
         >
-        <p class="note">{t("settings.fontSizeTitleDesc")}</p>
+        <SettingHint label={t("settings.fontSizeTitle")} text={t("settings.fontSizeTitleDesc")} />
     </div>
 
     <div class="ctl">
@@ -293,7 +294,7 @@
             style:font-size={`${(0.9 * settings.fontScaleArtist) / 100}rem`}
             >{demoArtist}</span
         >
-        <p class="note">{t("settings.fontSizeArtistDesc")}</p>
+        <SettingHint label={t("settings.fontSizeArtist")} text={t("settings.fontSizeArtistDesc")} />
     </div>
 
     <div class="ctl">
@@ -315,7 +316,7 @@
             style:font-size={`${(1 * settings.fontScaleLyrics) / 100}rem`}
             >{demoTitle}</span
         >
-        <p class="note">{t("settings.fontSizeLyricsDesc")}</p>
+        <SettingHint label={t("settings.fontSizeLyrics")} text={t("settings.fontSizeLyricsDesc")} />
     </div>
 
     <div class="ctl">
@@ -337,7 +338,7 @@
             style:font-size={`${(1.5 * settings.fontScaleNpTitle) / 100}rem`}
             >{demoTitle}</span
         >
-        <p class="note">{t("settings.fontSizeNpTitleDesc")}</p>
+        <SettingHint label={t("settings.fontSizeNpTitle")} text={t("settings.fontSizeNpTitleDesc")} />
     </div>
 
     <div class="ctl">
@@ -359,7 +360,7 @@
             style:font-size={`${(1 * settings.fontScaleNpArtist) / 100}rem`}
             >{demoArtist}</span
         >
-        <p class="note">{t("settings.fontSizeNpArtistDesc")}</p>
+        <SettingHint label={t("settings.fontSizeNpArtist")} text={t("settings.fontSizeNpArtistDesc")} />
     </div>
 </section>
 
@@ -393,7 +394,7 @@
                 ></span>
             {/each}
         </div>
-        <p class="note">{t("settings.coverScaleDesc")}</p>
+        <SettingHint label={t("settings.coverSize")} text={t("settings.coverScaleDesc")} />
     </div>
 
     <!-- quick-260919-ebi: "Home grid columns" (+ its quick-260618-goe live grid demo) moved to

@@ -453,7 +453,6 @@ const tr: Dict = {
 	"settings.itemsPerShelfDesc": "Her Ana ekran rafının, daha fazlasını görmek için açmadan önce kaç öğe gösterdiğini belirler; bir bakışta daha çoğunu görmek için artırın, daha kısa sayfa için azaltın.",
 	"settings.defaultLandingTabDesc": "Uygulamayı açtığınızda hangi sekmenin açılacağı — Ana ekran, Arama veya Kitaplık; genelde ilk açtığınız hangisiyse onu seçin.",
 	"settings.tileDensityDesc": "Raf düzeni — yalnızca bir sayı olan Raf başına öğe'den farklıdır.",
-	"settings.showSearchPillDesc": "Ana ekranın üstündeki arama çubuğunu açıp kapatır; genelde Arama sekmesinden arıyorsanız daha temiz bir Ana ekran için kapatın.",
 	"settings.showRandomizeDesc": "Yeni bir rastgele karışım çalar.",
 	// playback settings helper text (quick-260630-fce)
 	// data settings helper text (quick-260630-fce)

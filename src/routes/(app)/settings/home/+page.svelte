@@ -13,7 +13,9 @@
 		ToggleRight,
 		TableOfContents,
 		DiscAlbum,
-		Grid3x3
+		Grid3x3,
+		Search,
+		Shuffle
 	} from '@lucide/svelte';
 	// quick-260919-ebi: GRID_COLS_MIN/MAX arrived with the Home grid columns slider.
 	import { settings, GRID_COLS_MIN, GRID_COLS_MAX } from '$lib/stores/settings.svelte';
@@ -27,6 +29,8 @@
 		type HomeLandingTab
 	} from '$lib/services/home-layout';
 	import { DISCOVERY_TAGS, DISCOVERY_COUNTRIES } from '$lib/services/discovery';
+	import SettingPicker from '$lib/components/SettingPicker.svelte';
+	import SettingHint from '$lib/components/SettingHint.svelte';
 	import { dragReorder } from '$lib/actions/dragReorder';
 	import { chipReorder } from '$lib/actions/chipReorder';
 	import { t, type TranslationKey } from '$lib/i18n';
@@ -137,12 +141,14 @@
 		settings.homeDensity = v;
 		settings.save();
 	}
-	function toggleSearchPill() {
-		settings.homeShowSearchPill = !settings.homeShowSearchPill;
+	// quick-260919-ebi: the preview picker hands back the PICKED state ('off'|'on'), so tapping the
+	// already-selected card must be a no-op — a bare `!x` flip would turn it straight back off.
+	function toggleSearchPill(v: 'off' | 'on') {
+		settings.homeShowSearchPill = v === 'on';
 		settings.save();
 	}
-	function toggleRandomize() {
-		settings.homeShowRandomize = !settings.homeShowRandomize;
+	function toggleRandomize(v: 'off' | 'on') {
+		settings.homeShowRandomize = v === 'on';
 		settings.save();
 	}
 
@@ -156,6 +162,14 @@
 		{ v: 'pile', key: 'settings.densityPile' },
 		{ v: 'grid', key: 'settings.densityGrid' }
 	];
+	// quick-260919-ebi: the labelled + preview pickers below all come from the ONE SettingPicker.
+	const landingOptions = $derived(landings.map((l) => ({ v: l.v, label: t(l.key) })));
+	const densityLabels = $derived(densities.map((d) => ({ v: d.v, label: t(d.key) })));
+	const offOn = $derived([
+		{ v: 'off' as const, label: t('settings.optOff') },
+		{ v: 'on' as const, label: t('settings.optOn') }
+	]);
+	const boolValue = (x: boolean) => (x ? 'on' : 'off');
 
 	// Empty (or all-invalid) selection → home shows the FULL pool; surface that hint.
 	const tagsShowingAll = $derived(resolveSubset(settings.homeTags, DISCOVERY_TAGS).length === DISCOVERY_TAGS.length && settings.homeTags.length === 0);
@@ -170,6 +184,70 @@
 	<button class="reset" onclick={() => { if (confirm(t('settings.resetConfirm'))) { settings.resetHome(); } }}>{t('settings.resetGroup')}</button>
 </header>
 
+<!-- quick-260919-ebi (F3): the Home preview mocks, all built from the shared .mock-* primitives
+     in SettingPicker — CSS/SVG only, theme tokens only, so they are correct in dark AND light
+     with no per-theme branch. -->
+
+<!-- One Home-header mock, rendered four times: the search pill present/absent, then the
+     Randomize button present/absent. Same frame both times, so the ONLY thing that moves between
+     the two cards is the thing being picked. -->
+{#snippet homeHeader(pill: boolean, rnd: boolean)}
+	<span class="mock-chrome">
+		<span class="mock-row">
+			<span class="mock-line" style:width="30%"></span>
+			<span style:flex="1"></span>
+			{#if rnd}<span class="mock-badge"><Shuffle size={6} /></span>{/if}
+		</span>
+		{#if pill}
+			<span class="mock-bar" style:border-radius="999px">
+				<Search size={7} />
+				<span class="mock-line dim" style:width="55%"></span>
+			</span>
+		{/if}
+		<span class="mock-grid" style:grid-template-columns="repeat(3, 1fr)">
+			{#each [0, 1, 2] as i (i)}<span class="mock-tile"></span>{/each}
+		</span>
+	</span>
+{/snippet}
+{#snippet pillOff()}{@render homeHeader(false, settings.homeShowRandomize)}{/snippet}
+{#snippet pillOn()}{@render homeHeader(true, settings.homeShowRandomize)}{/snippet}
+{#snippet randomizeOff()}{@render homeHeader(settings.homeShowSearchPill, false)}{/snippet}
+{#snippet randomizeOn()}{@render homeHeader(settings.homeShowSearchPill, true)}{/snippet}
+
+<!-- homeDensity — three tiny layout mockups, because this setting IS a layout shape. -->
+{#snippet densityList()}
+	<span class="mock-chrome" style:justify-content="center">
+		<span class="mock-col">
+			{#each [0, 1, 2] as r (r)}
+				<span class="mock-row">
+					<span class="mock-tile" style:width="11px"></span>
+					<span class="mock-col">
+						<span class="mock-line" style:width="70%"></span>
+						<span class="mock-line dim" style:width="45%"></span>
+					</span>
+				</span>
+			{/each}
+		</span>
+	</span>
+{/snippet}
+{#snippet densityPile()}
+	<span class="mock-chrome" style:justify-content="center">
+		<span class="mock-line" style:width="35%"></span>
+		<!-- A horizontal cover shelf, with the fourth tile deliberately half-cut at the edge to
+		     say "this one scrolls sideways". .mock already clips. -->
+		<span class="mock-row" style:flex-wrap="nowrap">
+			{#each [0, 1, 2, 3] as i (i)}<span class="mock-tile" style:width="26px"></span>{/each}
+		</span>
+	</span>
+{/snippet}
+{#snippet densityGrid()}
+	<span class="mock-chrome" style:justify-content="center">
+		<span class="mock-grid" style:grid-template-columns="repeat(3, 1fr)">
+			{#each [0, 1, 2, 3, 4, 5] as i (i)}<span class="mock-tile"></span>{/each}
+		</span>
+	</span>
+{/snippet}
+
 <!-- 1. SECTION ORDER + VISIBILITY -->
 <section>
 	<h2><LayoutGrid size={15} /> {t('settings.homeSections')}</h2>
@@ -180,6 +258,11 @@
 				<span class="rlabel">{t(sectionLabel[id])}</span>
 				<!-- D-07: per-section density (list/pile/grid). aria-pressed reflects the active
 				     mode; aria-label names the section + option for screen readers. -->
+				<!-- quick-260919-ebi: this one deliberately keeps its three icons and does NOT become
+				     a preview picker, even though it is the same enum as the global tile density
+				     above. A 44px drag-reorder row has no room for three mockups, and the global
+				     preview directly above already teaches the same three-shape vocabulary — so the
+				     icons here read as shorthand for something the user has just been shown. -->
 				<span class="density-seg" role="group" aria-label={t('settings.homeSectionDensity')}>
 					{#each densities as d (d.v)}
 						<button
@@ -238,7 +321,7 @@
 <section>
 	<h2><SlidersHorizontal size={15} /> {t('settings.itemsPerShelf', { n: settings.homeShelfSize })}</h2>
 	<input class="range" type="range" min={SHELF_MIN} max={SHELF_MAX} step="1" value={settings.homeShelfSize} oninput={setShelfSize} aria-label={t('settings.itemsPerShelf', { n: settings.homeShelfSize })} />
-	<p class="muted">{t('settings.itemsPerShelfDesc')}</p>
+	<SettingHint label={t('settings.itemsPerShelf', { n: settings.homeShelfSize })} text={t('settings.itemsPerShelfDesc')} />
 </section>
 
 <!-- 4b. HOME GRID COLUMNS -->
@@ -257,44 +340,67 @@
 			<span class="grid-demo-cell"></span>
 		{/each}
 	</div>
-	<p class="muted">{t('settings.gridColumnsDesc')}</p>
+	<SettingHint label={t('settings.gridColumns')} text={t('settings.gridColumnsDesc')} />
 </section>
 
 <!-- 5. DEFAULT LANDING TAB -->
 <section>
 	<h2><Compass size={15} /> {t('settings.defaultLandingTab')}</h2>
-	<div class="seg">
-		{#each landings as l (l.v)}
-			<button class:on={settings.homeLandingTab === l.v} onclick={() => setLanding(l.v)}>{t(l.key)}</button>
-		{/each}
-	</div>
-	<p class="muted">{t('settings.defaultLandingTabDesc')}</p>
+	<!-- quick-260919-ebi: NO preview — three tab labels with one ringed adds nothing over three
+	     tab labels, which is what the segmented control already is. -->
+	<SettingPicker label={t('settings.defaultLandingTab')} options={landingOptions} value={settings.homeLandingTab} onpick={setLanding} />
+	<SettingHint label={t('settings.defaultLandingTab')} text={t('settings.defaultLandingTabDesc')} />
 </section>
 
 <!-- 6. TILE DENSITY -->
 <section>
 	<h2><LayoutList size={15} /> {t('settings.tileDensity')}</h2>
-	<div class="seg">
-		{#each densities as d (d.v)}
-			<button class:on={settings.homeDensity === d.v} onclick={() => setDensity(d.v)}>{t(d.key)}</button>
-		{/each}
-	</div>
-	<p class="muted">{t('settings.tileDensityDesc')}</p>
+	<!-- quick-260919-ebi (F3): the first preview picker with THREE options — this setting IS a
+	     layout shape, so three tiny layout mockups say it better than three words. -->
+	<SettingPicker
+		variant="preview"
+		label={t('settings.tileDensity')}
+		options={[
+			{ ...densityLabels[0], preview: densityList },
+			{ ...densityLabels[1], preview: densityPile },
+			{ ...densityLabels[2], preview: densityGrid }
+		]}
+		value={settings.homeDensity}
+		onpick={setDensity}
+	/>
+	<SettingHint label={t('settings.tileDensity')} text={t('settings.tileDensityDesc')} />
 </section>
 
 <!-- 7. HOME CHROME -->
 <section>
 	<h2><ToggleRight size={15} /> {t('settings.homeChrome')}</h2>
-	<button class="row-toggle" onclick={toggleSearchPill}>
-		<span>{t('settings.showSearchPill')}</span>
-		<span class="sw" class:on={settings.homeShowSearchPill}></span>
-	</button>
-	<p class="muted">{t('settings.showSearchPillDesc')}</p>
-	<button class="row-toggle" onclick={toggleRandomize}>
-		<span>{t('settings.showRandomize')}</span>
-		<span class="sw" class:on={settings.homeShowRandomize}></span>
-	</button>
-	<p class="muted">{t('settings.showRandomizeDesc')}</p>
+	<h3 class="sub">{t('settings.showSearchPill')}</h3>
+	<!-- quick-260919-ebi: no hint — the header mock with and without the pill is the whole
+	     sentence; the rest of the old paragraph was advice about when to turn it off. -->
+	<SettingPicker
+		variant="preview"
+		label={t('settings.showSearchPill')}
+		options={[
+			{ ...offOn[0], preview: pillOff },
+			{ ...offOn[1], preview: pillOn }
+		]}
+		value={boolValue(settings.homeShowSearchPill)}
+		onpick={toggleSearchPill}
+	/>
+
+	<h3 class="sub">{t('settings.showRandomize')}</h3>
+	<SettingPicker
+		variant="preview"
+		label={t('settings.showRandomize')}
+		options={[
+			{ ...offOn[0], preview: randomizeOff },
+			{ ...offOn[1], preview: randomizeOn }
+		]}
+		value={boolValue(settings.homeShowRandomize)}
+		onpick={toggleRandomize}
+	/>
+	<!-- The mock shows the button appearing; it cannot show what tapping it DOES. -->
+	<SettingHint label={t('settings.showRandomize')} text={t('settings.showRandomizeDesc')} />
 </section>
 
 <style>
@@ -338,13 +444,11 @@
 	.demo-cap { display: block; margin-top: 10px; font-size: 11px; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.4px; }
 	.grid-demo { display: grid; gap: 6px; margin-top: 6px; max-width: 220px; }
 	.grid-demo-cell { aspect-ratio: 1 / 1; border-radius: var(--radius-sm, 6px); background: var(--color-surface-2); }
-	/* Segmented control */
-	.seg { display: inline-flex; background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: 999px; padding: 3px; gap: 3px; }
-	.seg button { background: none; border: none; color: var(--color-text-muted); padding: 7px 16px; border-radius: 999px; font-size: 13px; cursor: pointer; }
-	.seg button.on { background: var(--color-primary); color: #fff; }
-	/* Toggle rows */
-	.row-toggle { width: 100%; display: flex; align-items: center; justify-content: space-between; background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); padding: 13px 14px; border-radius: 12px; font-size: 14px; cursor: pointer; margin-bottom: 8px; }
-	.row-toggle span:first-child { display: inline-flex; align-items: center; gap: 10px; }
+	/* quick-260919-ebi: the .seg CSS moved into SettingPicker.svelte, and .row-toggle left with the
+	   two Home-chrome toggle rows the previews replaced. `.sw` below STAYS: it is the bare
+	   section-visibility switch inside the 44px drag-reorder rows, which is not a settings row and
+	   has no label of its own — SettingToggle does not fit there. */
+	.sub { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; margin: 16px 0 8px; }
 	.sw { width: 40px; height: 22px; border-radius: 999px; background: var(--color-border); position: relative; transition: background 0.15s ease; flex: none; border: none; cursor: pointer; padding: 0; }
 	.sw::after { content: ''; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: #fff; transition: transform 0.15s ease; }
 	.sw.on { background: var(--color-primary); }
