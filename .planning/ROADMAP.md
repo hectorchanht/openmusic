@@ -253,8 +253,10 @@ Plans:
 
 Captured 2026-09-19 (user batch dump):
 
-- Add a **lyrics picker + reloader** to the song menu (choose a different lyrics match / force re-fetch).
-- Add a mode showing the **current lyric line under the collapsed play bar** (Nowbar).
+- ~~Add a **lyrics picker + reloader** to the song menu~~ — SHIPPED 2026-09-19 as quick-260919-1we (`Fix lyrics` row → per-source picker, pinned per-uid in `openmusic:lyric-pins:v1`, applied at read time so it outranks an embedded LRC).
+- ~~Add a mode showing the **current lyric line under the collapsed play bar** (Nowbar)~~ — SHIPPED 2026-09-19 as quick-260919-1we (opt-in `nowbarLyrics` setting; the line replaces the artist name in the docked bar).
+
+**This phase is fully delivered by quick-260919-1we — close it on the next `/gsd:review-backlog` rather than promoting it.**
 
 Plans:
 - [ ] TBD (promote with /gsd:review-backlog when ready)
