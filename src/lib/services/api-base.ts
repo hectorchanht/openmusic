@@ -44,6 +44,19 @@ export function apiUrl(path: string): string {
 	return BASE + path;
 }
 
+/**
+ * The PUBLIC origin this build talks to, or `''` on web (where every /api/* call is same-origin).
+ *
+ * quick-260919-0mw: share.ts needs the deployed origin when the RUNTIME origin is useless to a
+ * recipient (the Capacitor WebView reports `https://localhost`). That value already lives here as
+ * the native build's VITE_API_BASE, so this exposes it rather than letting a second module hardcode
+ * `openmusic.lol` — one build-time constant, one owner. Read LAZILY per call for the same reason
+ * apiUrl reads it lazily: a test's `vi.stubEnv('VITE_API_BASE', …)` flips it without a rebuild.
+ */
+export function apiOrigin(): string {
+	return import.meta.env.VITE_API_BASE ?? '';
+}
+
 // ── OUTBOUND REQUEST GOVERNOR (debug-nowbar-frozen-audius-spam) ──────────────────────────────
 // api-base is the SINGLE client fetch seam for every /api/* call (all source adapters, cover,
 // lyrics, translate). It used to be a thin `fetch` wrapper with NO governance, so when the

@@ -3,9 +3,55 @@
 // stubs; ensureTrackDetails re-resolves the (expiring) audio URL on play, so we never
 // embed a stale stream URL. The visible URL also carries a human-readable `?t=<slug>`
 // segment for readability — the authoritative decode reads the opaque `play` payload.
+import { apiOrigin } from '$lib/services/api-base';
 import type { Track } from '$lib/sources/types';
 
 type Stub = Pick<Track, 'uid' | 'source' | 'songid' | 'title' | 'artist' | 'album' | 'cover'>;
+
+/**
+ * The origin every share link is built on (quick-260919-0mw).
+ *
+ * WHY: a share link is for SOMEONE ELSE's browser, so it must carry an origin that resolves off
+ * this device. The Capacitor WebView reports `location.origin === 'https://localhost'`, so a link
+ * copied inside the APK read `https://localhost/song/古巨基/愛得太遲?ci=…` — a dead link for the
+ * recipient. A dev server (`http://localhost:4321`) has the same problem.
+ *
+ * Fixed ONCE here rather than at the four builders: the reported bug came through songShareUrl,
+ * but entityCardUrl / entityShareUrl / shareUrl inlined the same origin read, so patching only the
+ * reported path would have left the album/artist card links broken from the APK.
+ *
+ * CONTRACT:
+ *  - SSR (`typeof location === 'undefined'`) → `''`, exactly as before, so the link stays relative
+ *    and this module stays server-importable (several loaders import it).
+ *  - A REAL web origin passes through UNCHANGED — the deployed website's links must be
+ *    byte-identical to today. The rewrite can only ever narrow to one known-good host.
+ *  - localhost / 127.0.0.1 / [::1], a `capacitor:` or `file:` protocol, or the literal `'null'` an
+ *    opaque origin yields → the public origin.
+ *
+ * Matched on hostname + protocol via `new URL`, NOT a substring: `origin.includes('localhost')`
+ * would also rewrite a legitimate host like `localhost.example.com`. The parse is wrapped because
+ * a share builder must never throw.
+ */
+export function shareOrigin(): string {
+	if (typeof location === 'undefined') return '';
+	const origin = location.origin;
+	// An opaque origin (sandboxed iframe, some file: contexts) serialises to the string 'null'.
+	if (origin && origin !== 'null') {
+		try {
+			const u = new URL(origin);
+			const local =
+				u.hostname === 'localhost' || u.hostname === '127.0.0.1' || u.hostname === '[::1]';
+			const nonWeb = u.protocol === 'capacitor:' || u.protocol === 'file:';
+			if (!local && !nonWeb) return origin;
+		} catch {
+			/* unparseable origin — fall through to the public one */
+		}
+	}
+	// VITE_API_BASE is the native build's deployed origin. The literal is the fallback for a WEB
+	// build (which leaves it empty) that somehow reports a localhost origin — i.e. a dev server,
+	// where the developer still wants a link they can actually send.
+	return apiOrigin() || 'https://openmusic.lol';
+}
 
 /** v2 share payload: current track + a capped queue. Legacy v1 tokens are a bare Stub. */
 interface SharePayloadV2 {
@@ -209,10 +255,10 @@ export function encodeTrack(t: Track): string {
 /**
  * Build a share URL carrying the current track + (optional) up-next queue. The visible URL
  * reads `${origin}/?t=<slug>&play=<payload>` — the `t` slug is human-readable; the authoritative
- * decode reads the opaque `play` payload. `origin` is guarded for SSR.
+ * decode reads the opaque `play` payload. `origin` comes from shareOrigin() (SSR-guarded).
  */
 export function shareUrl(current: Track, queue?: Track[]): string {
-	const base = typeof location !== 'undefined' ? location.origin : '';
+	const base = shareOrigin(); // quick-260919-0mw — public origin when the runtime one is localhost/capacitor/file
 	const slug = slugify(current.title, current.artist);
 	const payload = encodeShare(current, queue ?? []);
 	const slugSeg = slug ? `t=${encodeURIComponent(slug)}&` : '';
@@ -363,7 +409,7 @@ export function coverToken(
  *
  * The empty-input guard is `encodePathSegment`'s `'-'` (it decodes back to ''), replacing the old
  * `slugify(...) || 's'` placeholder — `'s'` would have decoded to a bogus literal OG title.
- * `origin` is SSR-guarded the same way shareUrl / entityShareUrl read it. `slugify` and the
+ * `origin` comes from shareOrigin(), the same way shareUrl / entityShareUrl read it. `slugify` and the
  * queue-restore encode/decode path are UNTOUCHED — they still depend on the exports below.
  */
 export function songShareUrl(
@@ -371,7 +417,7 @@ export function songShareUrl(
 	coverUrl?: string | null,
 	itunesId?: string | null
 ): string {
-	const base = typeof location !== 'undefined' ? location.origin : '';
+	const base = shareOrigin(); // quick-260919-0mw — public origin when the runtime one is localhost/capacitor/file
 	const path = `${base}/song/${encodePathSegment(t.artist)}/${encodePathSegment(t.title)}`;
 	// quick-260809-3uo: a cover that does not tokenize adds NO param at all — never `?ci=` empty,
 	// never a junk value. The path segments are untouched, so raw CJK survives (quick-260807-vl1).
@@ -405,7 +451,7 @@ export function songShareUrl(
  * The in-app page still re-converts per the VIEWER's own setting on hydration via the `names` store.
  */
 export function entityCardUrl(opts: { type: 'album' | 'artist'; name: string; artist?: string }): string {
-	const base = typeof location !== 'undefined' ? location.origin : '';
+	const base = shareOrigin(); // quick-260919-0mw — public origin when the runtime one is localhost/capacitor/file
 	if (opts.type === 'artist') return `${base}/artist/${encodePathSegment(opts.name)}`;
 	return `${base}/album/${encodePathSegment(opts.artist ?? '')}/${encodePathSegment(opts.name)}`;
 }
@@ -427,14 +473,14 @@ const ENTITY_SOURCE_ONLY_RE = /^(netease|qq|kuwo|joox|fivesing|jamendo)([A-Za-z0
  * Build a readable per-entity share URL `${origin}/{type}/{slug}-{source}{id}` (D-04). The slug
  * is cosmetic (ASCII, may be '' for an all-CJK title — see slugify); the trailing `{source}{id}`
  * is the AUTHORITATIVE decode key. When the slug is empty the leading hyphen is dropped so the
- * path is `/{type}/{source}{id}`. `origin` is guarded for SSR (reused verbatim from shareUrl).
+ * path is `/{type}/{source}{id}`. `origin` comes from shareOrigin() (reused by all four builders).
  * Pure apart from the optional `location` read — server-importable.
  */
 export function entityShareUrl(
 	type: 'song' | 'album' | 'artist',
 	t: { title: string; artist: string; source: string; songid: string }
 ): string {
-	const base = typeof location !== 'undefined' ? location.origin : '';
+	const base = shareOrigin(); // quick-260919-0mw — public origin when the runtime one is localhost/capacitor/file
 	const slug = slugify(t.title, t.artist);
 	const id = `${t.source}${t.songid}`;
 	const path = slug ? `${slug}-${id}` : id;

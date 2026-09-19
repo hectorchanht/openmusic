@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
 	slugify,
@@ -16,7 +16,8 @@ import {
 	entityShareUrl,
 	parseEntityParam,
 	buildOg,
-	isHttpsUrl
+	isHttpsUrl,
+	shareOrigin
 } from './share';
 import { coverUrlFromToken } from '$lib/proxy/og-cover';
 import { matchKey } from '$lib/services/match-key';
@@ -837,5 +838,117 @@ describe('TrackMenu share call site — source guard (quick-260809-3uo)', () => 
 		// RED under: dropping the uid identity check, which would stamp the now-playing art onto a
 		// share of some OTHER row.
 		expect(src).toMatch(/player\.current\?\.uid === track\.uid \? player\.resolvedCover : null/);
+	});
+});
+
+
+// quick-260919-0mw — shareOrigin(). A share link is for SOMEONE ELSE's browser, so the runtime
+// origin is only usable when it is a real web origin. The APK WebView reports `https://localhost`
+// and a dev server `http://localhost:4321`; both produced dead links. The WEB behaviour must not
+// move — that is the first two cases and the byte-identity check at the bottom.
+describe('shareOrigin — public-origin fallback (quick-260919-0mw)', () => {
+	afterEach(() => {
+		vi.unstubAllGlobals();
+		vi.unstubAllEnvs();
+	});
+
+	const withOrigin = (origin: string) => vi.stubGlobal('location', { origin });
+
+	it('passes a real web origin through UNCHANGED (deployed site is byte-identical to today)', () => {
+		withOrigin('https://openmusic.lol');
+		expect(shareOrigin()).toBe('https://openmusic.lol');
+	});
+
+	it('passes ANY real web origin through, including a preview deployment', () => {
+		withOrigin('https://some-preview.pages.dev');
+		expect(shareOrigin()).toBe('https://some-preview.pages.dev');
+	});
+
+	it('does NOT rewrite a legitimate host that merely CONTAINS "localhost"', () => {
+		// The substring trap: `origin.includes('localhost')` would have rewritten this.
+		withOrigin('https://localhost.example.com');
+		expect(shareOrigin()).toBe('https://localhost.example.com');
+	});
+
+	it('rewrites the APK WebView origin https://localhost to the public origin', () => {
+		withOrigin('https://localhost');
+		expect(shareOrigin()).toBe('https://openmusic.lol');
+	});
+
+	it('rewrites capacitor://localhost', () => {
+		withOrigin('capacitor://localhost');
+		expect(shareOrigin()).toBe('https://openmusic.lol');
+	});
+
+	it('rewrites a local dev-server origin (both localhost and 127.0.0.1, any port)', () => {
+		withOrigin('http://localhost:4321');
+		expect(shareOrigin()).toBe('https://openmusic.lol');
+		withOrigin('http://127.0.0.1:5173');
+		expect(shareOrigin()).toBe('https://openmusic.lol');
+	});
+
+	it('rewrites a file: origin and the literal "null" an opaque origin yields', () => {
+		withOrigin('file://');
+		expect(shareOrigin()).toBe('https://openmusic.lol');
+		withOrigin('null');
+		expect(shareOrigin()).toBe('https://openmusic.lol');
+	});
+
+	it('prefers the build-time VITE_API_BASE over the hardcoded fallback (one owner for the domain)', () => {
+		vi.stubEnv('VITE_API_BASE', 'https://staging.openmusic.lol');
+		withOrigin('https://localhost');
+		expect(shareOrigin()).toBe('https://staging.openmusic.lol');
+	});
+
+	it('returns "" under SSR so the link stays relative, exactly as before', () => {
+		// No location stub — `typeof location === 'undefined'`, the server-import case.
+		expect(shareOrigin()).toBe('');
+	});
+});
+
+describe('share builders use shareOrigin (quick-260919-0mw)', () => {
+	afterEach(() => vi.unstubAllGlobals());
+
+	const track = { title: '愛得太遲', artist: '古巨基' };
+
+	it('songShareUrl: the reported https://localhost link becomes the public one, path + ci byte-identical', () => {
+		vi.stubGlobal('location', { origin: 'https://openmusic.lol' });
+		const web = songShareUrl(track, 'https://is1-ssl.mzstatic.com/image/thumb/a/b/100x100bb.jpg');
+		vi.stubGlobal('location', { origin: 'https://localhost' });
+		const apk = songShareUrl(track, 'https://is1-ssl.mzstatic.com/image/thumb/a/b/100x100bb.jpg');
+
+		expect(web.startsWith('https://openmusic.lol/song/')).toBe(true);
+		expect(apk).toBe(web); // ONLY the origin differed — path segments, raw CJK and ?ci= are unchanged
+		// The reported broken shape, now repaired end to end (raw CJK preserved, quick-260807-vl1).
+		expect(apk).toBe('https://openmusic.lol/song/古巨基/愛得太遲');
+	});
+
+	it('shareUrl / entityCardUrl / entityShareUrl are ALL fixed, not just the reported one', () => {
+		vi.stubGlobal('location', { origin: 'https://localhost' });
+		const t = {
+			uid: 'kuwo:1',
+			source: 'kuwo' as const,
+			songid: '1',
+			title: 'Hello',
+			artist: 'Adele',
+			album: '25',
+			cover: null,
+			audioUrl: null,
+			lrc: null,
+			lrcUrl: null,
+			detailsLoaded: false,
+			quality: null,
+			qualityLabel: null,
+			keyword: 'x',
+			displayIndex: 1
+		};
+		expect(shareUrl(t).startsWith('https://openmusic.lol/?')).toBe(true);
+		expect(entityCardUrl({ type: 'artist', name: 'Adele' })).toBe(
+			'https://openmusic.lol/artist/Adele'
+		);
+		expect(entityCardUrl({ type: 'album', name: '25', artist: 'Adele' })).toBe(
+			'https://openmusic.lol/album/Adele/25'
+		);
+		expect(entityShareUrl('song', t).startsWith('https://openmusic.lol/song/')).toBe(true);
 	});
 });
