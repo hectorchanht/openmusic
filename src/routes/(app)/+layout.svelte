@@ -3,7 +3,7 @@
 	import { fly } from 'svelte/transition';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
-	import { House, Search, Library, Settings } from '@lucide/svelte';
+	import { House, Search, Library, Settings, Heart, ListMusic, Download, Users, Clock } from '@lucide/svelte';
 	import { player } from '$lib/stores/player.svelte';
 	import { library } from '$lib/stores/library.svelte';
 	import { settings } from '$lib/stores/settings.svelte';
@@ -11,6 +11,8 @@
 	import { online } from '$lib/stores/online.svelte';
 	import { swUpdate } from '$lib/stores/swUpdate.svelte';
 	import { LANDING_PATHS } from '$lib/services/home-layout';
+	// quick-260919-oc6: the nav's active-match rule, shared with the library page's allowlist.
+	import { navActive } from '$lib/services/library-tabs';
 	import { overlays } from '$lib/stores/overlays.svelte';
 	import { deviceImport } from '$lib/stores/device-import.svelte';
 	import { toast } from '$lib/stores/toast.svelte';
@@ -284,10 +286,33 @@
 	// <ShelfChevrons /> already uses. Settings stays reachable on mobile via the home-header gear,
 	// which is unchanged; the rail has no header, which is why it needs this.
 	// Reuses the existing `home.settings` string (that gear's aria-label) — no new i18n key.
-	const tabs: { href: string; labelKey: TranslationKey; icon: Component; desktopOnly?: boolean }[] = [
+	//
+	// quick-260919-oc6: `mobileOnly` is the mirror flag, and it exists because the rail spreads the
+	// Library's five tabs into five destinations. At desktop the generic "Library" entry is
+	// REPLACED by them, not joined by them: keeping both would light two entries on every library
+	// URL and offer the same destination twice. Reverting is deleting one flag.
+	// The five hrefs ride the EXISTING `?tab=` mechanism the library page already reads/writes
+	// (pickTab/tabHref, `openmusic:library:tab`) — no new nav state, and all five labels are
+	// existing TranslationKeys, so no i18n edits.
+	// Liked's href carries an explicit `?tab=liked` even though D-5 strips that param from the
+	// canonical URL: a plain `/library` means "whatever tab was stored" (that is what the mobile
+	// Library tab and the home links mean), which cannot express "Liked" when the stored tab is
+	// History. The page's own URL write reconciles it back to `/library` on arrival.
+	const tabs: {
+		href: string;
+		labelKey: TranslationKey;
+		icon: Component;
+		desktopOnly?: boolean;
+		mobileOnly?: boolean;
+	}[] = [
 		{ href: '/', labelKey: 'nav.home', icon: House },
 		{ href: '/search', labelKey: 'nav.search', icon: Search },
-		{ href: '/library', labelKey: 'nav.library', icon: Library },
+		{ href: '/library', labelKey: 'nav.library', icon: Library, mobileOnly: true },
+		{ href: '/library?tab=liked', labelKey: 'library.liked', icon: Heart, desktopOnly: true },
+		{ href: '/library?tab=playlists', labelKey: 'library.playlists', icon: ListMusic, desktopOnly: true },
+		{ href: '/library?tab=downloads', labelKey: 'library.downloads', icon: Download, desktopOnly: true },
+		{ href: '/library?tab=fav-artists', labelKey: 'library.favArtists', icon: Users, desktopOnly: true },
+		{ href: '/library?tab=history', labelKey: 'history.heading', icon: Clock, desktopOnly: true },
 		{ href: '/settings', labelKey: 'home.settings', icon: Settings, desktopOnly: true }
 	];
 
@@ -369,15 +394,39 @@
 	     Same `{#if !player.expanded}` idiom as <Nowbar /> six lines up, so open/close symmetry is
 	     already the established behaviour here; it also drops the nav out of the tab order and the
 	     accessibility tree while NowPlaying's focusTrap is active, which is what a modal overlay
-	     wants anyway. -->
-	{#if !player.expanded}
-	<nav class="tabbar">
+	     wants anyway.
+
+	     quick-260919-oc6 — every sentence above still holds and the MECHANISM is still absence, not
+	     paint order: the reproduced failure was a TRANSPARENT occluder, so z-index/opacity fixes
+	     cannot work. `display: none` IS absence — no box is generated, nothing paints, the nav is
+	     out of the tab order and out of the accessibility tree, exactly what the `{#if}` achieved
+	     and exactly what focusTrap wants. The only difference is that a CLASS can be opted back to
+	     `display: flex` inside the one `@media (min-width: 1024px)` block, which keeps CSS the
+	     single source of truth for the breakpoint (the `.tab.desktop-only` / <ShelfChevrons />
+	     convention) and needs no matchMedia in JS.
+	     So at desktop the rail STAYS mounted while `.np` is open, and `.np` is inset past it
+	     (`left: var(--rail-w)` in NowPlaying.svelte) — the two never overlap and the z ladder
+	     (nowbar 20 / rail 21 / .np 50 / toast 90) is unchanged. On mobile the bar is absent for the
+	     whole fly-in, exactly as npfix made it.
+	     ponytail — known ceiling: a rail click while NowPlaying is open navigates UNDERNEATH the
+	     open sheet and does not collapse it. The sheet's focusTrap keeps keyboard focus inside
+	     `.np`, so the rail is pointer-reachable only. Collapse-on-rail-click is a one-line
+	     player.collapse() if wanted, but its interaction with the overlays history sentinel needs
+	     its own look — out of scope here. -->
+	<nav class="tabbar" class:np-open={player.expanded}>
 		{#each tabs as tab (tab.href)}
 			{@const Icon = tab.icon}
 			<!-- Exact match, plus a subpath match so the rail's Settings tab stays lit on
 			     /settings/general etc. Provably inert for the three mobile tabs: '/' can never
-			     match '//', and /search and /library have no child routes. -->
-			{@const active = page.url.pathname === tab.href || page.url.pathname.startsWith(tab.href + '/')}
+			     match '//', and /search and /library have no child routes.
+			     quick-260919-oc6: that expression is now `navActive` and is unchanged for every
+			     TAB-LESS href — library-tabs.test.ts pins it case by case, which is what makes
+			     "the mobile bar is untouched" checkable rather than asserted. For the five
+			     `?tab=` rail hrefs it ALSO compares the tab, via the same pickTab allowlist the
+			     library page validates with and the same 'liked' default D-5 omits from the URL,
+			     so exactly one library entry is lit — never zero (canonical /library), never two
+			     (a tampered ?tab= falls back to the default). -->
+			{@const active = navActive(page.url, tab.href)}
 			<!-- quick-260611-fr9: active route's tab icon is FILLED, others OUTLINE. Lucide is
 			     outline-only, so we use the established `fill` prop idiom (cf. NowPlaying Heart).
 			     stroke-width is nudged down on the active (filled) glyph so it doesn't read heavy. -->
@@ -388,6 +437,7 @@
 				class="tab"
 				class:active
 				class:desktop-only={tab.desktopOnly}
+				class:mobile-only={tab.mobileOnly}
 				href={tab.href}
 				aria-current={active ? 'page' : undefined}
 				use:tapBounce
@@ -396,7 +446,6 @@
 			</a>
 		{/each}
 	</nav>
-	{/if}
 	<!-- audio element lives in the ROOT layout (persists across navigation) -->
 </div>
 
@@ -437,6 +486,11 @@
 		z-index: 21;
 		padding: 8px;
 	}
+	/* quick-260919-oc6 — the npfix gate, as a class instead of an `{#if}`. Identical effect below
+	   1024px: display:none generates no box, paints nothing, and removes the nav from the tab
+	   order and the accessibility tree for the whole translucent fly-in. Switched back on in the
+	   desktop block, where the rail must survive an open NowPlaying. */
+	.tabbar.np-open { display: none; }
 	.tab {
 		flex: 1;
 		display: flex;
@@ -589,6 +643,18 @@
 			padding: 16px 8px 8px;
 		}
 		.tab.desktop-only {
+			display: flex;
+		}
+		/* quick-260919-oc6 — the mirror of the rule above, and the only place the flag does
+		   anything: at desktop the generic Library entry steps aside for the five `?tab=` entries
+		   that replace it. Nothing is added to the mobile cascade for this. */
+		.tab.mobile-only {
+			display: none;
+		}
+		/* quick-260919-oc6 — the rail STAYS while NowPlaying is open (the sheet insets past it,
+		   `left: var(--rail-w)` in NowPlaying.svelte), so the desktop's only navigation does not
+		   vanish the moment a song opens. Cancels the mobile `.tabbar.np-open { display: none }`. */
+		.tabbar.np-open {
 			display: flex;
 		}
 		.tab {

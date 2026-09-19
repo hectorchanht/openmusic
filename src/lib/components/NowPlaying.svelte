@@ -67,6 +67,11 @@
 	// the same split measures 355 / 497 / 355 (verified live). 1280 is also the `xl` rung of the same
 	// sm/md/lg scale 640/1024 already sit on, so this adds a rung rather than a second scale.
 	//
+	// quick-260919-oc6 AMENDS the width premise above: `.np` is NO LONGER full-viewport at >=1024
+	// — it starts at `left: var(--rail-w)` so the rail stays visible beside it, making the sheet
+	// `100vw - 88px` wide. The 1280 rung still stands: the same split there is now ~326 / 457 /
+	// 326, still comfortably above the 278 measurement that read as cramped. WIDE_MQ is unchanged.
+	//
 	// This one has to be JS, unlike the 1024 rail which is pure CSS: the difference is STRUCTURAL,
 	// not cosmetic. Rendering all three panes and hiding two with CSS would mount NpRelated on a
 	// phone and fan out a searchAll for every track — the exact flood class this codebase already
@@ -1173,6 +1178,16 @@
 	   gap above the header (.bar). The header and .np-top follow immediately, neither carries a
 	   top margin. Bottom safe-area inset is preserved; only the TOP is flush. */
 	.np { position: fixed; inset: 0; z-index: 50; background: var(--color-bg); display: flex; flex-direction: column; padding: 0 18px env(safe-area-inset-bottom); overflow: hidden; }
+	/* quick-260919-oc6 — at desktop the rail stays mounted while this sheet is open (the layout's
+	   `class:np-open` opts `.tabbar` back to display:flex there), so the sheet starts where the
+	   rail ends instead of covering it. Same token and same rule shape as `.nowbar:not(.embed)`
+	   in Nowbar.svelte, and 1024 is the existing rung (breakpoints.test.ts).
+	   `inset: 0` is stylesheet-only — the inline styles on the <section> are transform/transition
+	   — so this longhand override wins in the cascade. The sheet's own `style:inset` is on the
+	   inner `.sheet` and is unaffected. */
+	@media (min-width: 1024px) {
+		.np { left: var(--rail-w); }
+	}
 	/* NP-04: top running-line loader. .np-prog / .np-prog.indet / .sliver + the np-indet
 	   keyframe + reduced-motion override are copied byte-for-byte from Nowbar.svelte so the
 	   loader is visually identical to the nowbar's indeterminate bar. .np-top-loader pins it

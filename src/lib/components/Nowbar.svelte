@@ -655,7 +655,12 @@
        desktop-specific transport layout, or any restructuring of NowPlaying.svelte. Tapping this
        bar at desktop still opens the same full-screen sheet, which still covers the rail. That is
        a deliberate omission, not an oversight: CLAUDE.md flags NowPlaying.svelte (~2000 lines) as
-       a re-render hotspot to SPLIT, and growing it with a desktop variant is how it got that big. */
+       a re-render hotspot to SPLIT, and growing it with a desktop variant is how it got that big.
+
+       quick-260919-oc6: the "still covers the rail" half is no longer true — the sheet now insets
+       past the rail (`left: var(--rail-w)` on `.np`) and the rail stays mounted while it is open.
+       The deliberate omission that REMAINS is the desktop-specific transport layout / the
+       NowPlaying split itself. */
     @media (min-width: 1024px) {
         .nowbar:not(.embed) {
             left: var(--rail-w);
