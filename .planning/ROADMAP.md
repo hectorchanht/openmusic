@@ -471,7 +471,7 @@ Plans:
 **Plans:** 4 plans
 
 Plans:
-- [ ] 37-01-PLAN.md — Pure seams: `readAudioTags` returns the embedded picture from the existing pass, `lyricByName` export (walks kuwo), `isRenderableCover` + `buildArtwork` passes `data:` (wave 1)
-- [ ] 37-02-PLAN.md — `local-tags.ts` memoised embedded read + `player.svelte.ts` blob-branch fall-through, tag-gated fallbacks, device lyric-by-name (wave 2)
-- [ ] 37-03-PLAN.md — Player-suite enrichment tests incl. the 34-D-01 regression + full `pnpm test`/`pnpm check` gate + static audit (wave 3)
+- [x] 37-01-PLAN.md — Pure seams: `readAudioTags` returns the embedded picture from the existing pass, `lyricByName` export (walks kuwo), `isRenderableCover` + `buildArtwork` passes `data:` (wave 1)
+- [x] 37-02-PLAN.md — `local-tags.ts` memoised embedded read + `player.svelte.ts` blob-branch fall-through, tag-gated fallbacks, device lyric-by-name (wave 2)
+- [x] 37-03-PLAN.md — Player-suite enrichment tests incl. the 34-D-01 regression + full `pnpm test`/`pnpm check` gate + static audit (wave 3)
 - [ ] 37-04-PLAN.md — Debug APK + on-device UAT for the two `[UNVERIFIED-SANDBOX]` items (real MediaStore FrontCover; `data:` lock-screen artwork) (wave 4, human)
