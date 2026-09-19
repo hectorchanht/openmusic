@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { nextScrollLeft, canScroll } from './shelf-scroll';
+import { nextScrollLeft, canScroll, gridColumns, GRID_ROWS_PER_PAGE } from './shelf-scroll';
 
 // quick-260919-et3: the step maths behind the desktop shelf chevrons, extracted pure so the one
 // branchy bit of that component is testable without a DOM (this project's Vitest is node-only).
@@ -61,5 +61,38 @@ describe('canScroll — chevron enabled state', () => {
 	it('is false for an unmeasured element', () => {
 		expect(canScroll(0, 0, 5000, 'next')).toBe(false);
 		expect(canScroll(0, Number.NaN, 5000, 'prev')).toBe(false);
+	});
+});
+
+// The grid pager's responsive column count. The load-bearing assertion is the MOBILE one: the
+// user asked for a wide desktop grid, and the acceptance condition was that phones keep the exact
+// 3×3 they have today. That is a property of this function alone, so it is checked here.
+describe('gridColumns — responsive grid-pager columns', () => {
+	it('stays at 3 columns for every phone-width track', () => {
+		// 320px (iPhone SE) through 430px (Pro Max), minus the page's 16px side padding.
+		for (const w of [288, 343, 358, 398, 430]) {
+			expect(gridColumns(w)).toBe(3);
+		}
+	});
+
+	it('stays at 3 columns through tablet portrait, so nothing below the desktop rail changes', () => {
+		expect(gridColumns(736)).toBe(3); // 768px viewport
+		expect(gridColumns(749)).toBe(3); // last width that still fits only 3
+	});
+
+	it('adds columns once tiles would otherwise exceed the minimum size', () => {
+		expect(gridColumns(750)).toBe(4);
+		expect(gridColumns(888)).toBe(4); // 1024px viewport minus the 88px rail and padding
+		expect(gridColumns(1684)).toBe(8); // ~1820px desktop, the width in the report
+	});
+
+	it('falls back to 3 for an unmeasured track rather than collapsing to one column', () => {
+		expect(gridColumns(0)).toBe(3);
+		expect(gridColumns(Number.NaN)).toBe(3);
+	});
+
+	it('derives an honest page size from the columns (this is what the dots count)', () => {
+		expect(gridColumns(343) * GRID_ROWS_PER_PAGE).toBe(9); // unchanged 3x3 on mobile
+		expect(gridColumns(1684) * GRID_ROWS_PER_PAGE).toBe(24);
 	});
 });

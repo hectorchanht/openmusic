@@ -1,4 +1,5 @@
-// quick-260919-et3: step maths for the desktop shelf chevrons (<ShelfChevrons />).
+// quick-260919-et3: geometry maths for the desktop shelves — the chevron step (<ShelfChevrons />)
+// and the responsive grid-pager column count (<HomeGridPager />).
 //
 // Pure, DOM-free and dependency-free so it runs under this project's node-only Vitest, in the
 // same shape as dragScroll.ts's shouldSuppressClick: the branchy part lives here with a test, the
@@ -54,4 +55,32 @@ export function canScroll(
 	const max = maxScrollLeft(clientWidth, scrollWidth);
 	if (max <= 0) return false;
 	return dir === 'next' ? scrollLeft < max - EDGE_EPSILON : scrollLeft > EDGE_EPSILON;
+}
+
+// --- grid-pager column maths (quick-260919-et3 follow-up) ----------------------------------
+//
+// <HomeGridPager /> used to be a hardcoded 3×3: three columns and nine tiles per snap page. At
+// 1820px that left two thirds of the window empty. The grid now fits as many columns as the
+// track is wide, which means the PAGE SIZE is no longer a constant — it is `cols × rows`, so the
+// dot indicator keeps counting real pages instead of describing a 3×3 that no longer exists.
+
+/** Rows per snap page. Unchanged from the original 3×3 — only the column count went responsive. */
+export const GRID_ROWS_PER_PAGE = 3;
+
+/**
+ * Floor on the column count, and the value every phone resolves to. It is ALSO the mobile
+ * guarantee: a tile needs GRID_TILE_MIN + GRID_GAP = 190px, so the formula below cannot reach 4
+ * columns until the track is 750px wide. No phone gets there, so mobile stays at exactly the 3
+ * columns it has always had — without this file knowing anything about the 1024px breakpoint.
+ */
+const GRID_MIN_COLS = 3;
+/** Narrowest a cover tile is allowed to get before we stop adding columns. */
+const GRID_TILE_MIN = 180;
+/** Must match the `.page` grid-gap in HomeGridPager.svelte. */
+const GRID_GAP = 10;
+
+/** How many columns fit in a `width`px grid track. Never fewer than GRID_MIN_COLS. */
+export function gridColumns(width: number): number {
+	if (unmeasured(width)) return GRID_MIN_COLS;
+	return Math.max(GRID_MIN_COLS, Math.floor((width + GRID_GAP) / (GRID_TILE_MIN + GRID_GAP)));
 }
