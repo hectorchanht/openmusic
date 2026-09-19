@@ -264,6 +264,44 @@ export function lineSeekFraction(time: number, duration: number): number | null 
 }
 
 /**
+ * quick-260919-1we: the currently-sung line at `now`. Lifted VERBATIM out of NowPlaying's inlined
+ * `$derived.by` so the Nowbar's one-line variant runs the identical scan instead of a second copy
+ * that could drift (the 2026-09-12 audit's exact failure mode — four of five copies of a guard
+ * silently lacked a check).
+ *
+ * GROUP CONTRACT — do not "fix" this to return the last of a group. When several lines share a
+ * timestamp (common in CN LRCs that ship the original + an inline translation as two consecutive
+ * entries at the same time, plus splitParenLines' parent + paren clauses) they are all
+ * simultaneously active for the user: it is one moment of the song. So `idx` anchors the group with
+ * its FIRST entry (NowPlaying uses it as the scroll anchor) and `time` is the shared timestamp every
+ * sibling compares itself against (`lines[i].time === time`).
+ *
+ * Before the first timestamp → `{ idx: -1, time: -1 }`. Past the last → the last line stays active
+ * (no wrap, no reset).
+ *
+ * ponytail: O(n) forward scan, re-run once per `timeupdate` (~4 Hz) over tens of lines. Ceiling: a
+ * pathological multi-thousand-line LRC. Upgrade path is a persistent cursor that only walks forward
+ * from the previous index — not worth the seek/scrub invalidation it would need until a profile says
+ * otherwise, and it will not.
+ */
+export function activeLineAt(
+	lines: LyricLine[],
+	now: number
+): { idx: number; time: number } {
+	let idx = -1;
+	let time = -1;
+	for (let i = 0; i < lines.length; i++) {
+		const t = lines[i].time;
+		if (t > now) break;
+		if (t > time) {
+			time = t;
+			idx = i;
+		}
+	}
+	return { idx, time };
+}
+
+/**
  * Infer a quality tag/label from an audio URL's file extension. Lossless extensions
  * → LOSSLESS; everything else → 320K. Ported verbatim from legacy/index.html:1747-1758.
  */

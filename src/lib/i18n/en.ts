@@ -100,6 +100,7 @@ const en = {
 	"settings.playbackMotion": "Playback & motion",
 	"settings.autoExpand": "Auto-expand now-playing on play",
 	"settings.showQualityTag": "Show quality tag on now-playing",
+	"settings.nowbarLyrics": "Show lyrics in the mini player",
 	"settings.reduceMotion": "Reduce motion",
 	"settings.shareIncludeTitle": "Include title when sharing",
 	"settings.data": "Data",
@@ -486,6 +487,7 @@ const en = {
 	// playback settings helper text (quick-260630-fce)
 	"settings.autoExpandDesc": "When on, the now-playing screen expands to full screen each time you start a track; turn it off to keep the mini player at the bottom and stay on your current screen.",
 	"settings.showQualityTagDesc": "When on, the now-playing screen shows the audio quality of the current track (for example FLAC or 320); it is hidden when the source does not report one.",
+	"settings.nowbarLyricsDesc": "The mini player shows the current lyric line instead of the artist name.",
 	// data settings helper text (quick-260630-fce)
 	"settings.clearPicksDesc": "Removes the cached top picks and Home library shelves so they regenerate fresh next time; use it if your recommendations feel stale.",
 	"settings.clearNameCacheDesc": "Clears stored artist and title name translations so they are fetched again; use it after changing translation settings or if a translated name looks wrong.",

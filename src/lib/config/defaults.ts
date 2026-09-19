@@ -93,6 +93,11 @@ export const PLAYBACK_DEFAULTS = {
 	 *  Now-Playing page. OFF by default — it is extra chrome, and the same value is already
 	 *  reachable from the song detail sheet (TrackMenu) for anyone who wants it occasionally. */
 	showQualityTag: false,
+	/** quick-260919-1we (D-7): make the docked mini player show the currently-sung lyric line in
+	 *  place of the artist name. OFF by default, for the same reason showQualityTag above is: it
+	 *  REPLACES information already on screen with different information, so a user who never opens
+	 *  Settings must keep exactly today's Nowbar. */
+	nowbarLyrics: false,
 	/** Per-source enable map. Empty = each adapter's own enabledByDefault wins. */
 	enabledSources: {} as Partial<Record<SourceId, boolean>>
 } as const;

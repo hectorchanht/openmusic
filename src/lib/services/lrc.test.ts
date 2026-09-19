@@ -5,7 +5,8 @@ import {
 	splitParenLines,
 	dominantScript,
 	reorderPairs,
-	lineSeekFraction
+	lineSeekFraction,
+	activeLineAt
 } from './lrc';
 
 describe('parseLRC', () => {
@@ -304,5 +305,42 @@ describe('reorderPairs', () => {
 		const once = reorderPairs(input);
 		const twice = reorderPairs(once);
 		expect(twice).toEqual(once);
+	});
+});
+
+// quick-260919-1we: the active-line scan, lifted verbatim out of NowPlaying so the Nowbar's one-line
+// variant shares it. These assertions ARE the extraction's regression gate — NowPlaying's scroll
+// anchor and its sibling-active test both read this return, so a "cleanup" that changed the group
+// contract would silently desync the highlighted line from the scrolled-to line.
+describe('activeLineAt', () => {
+	const L = (time: number, text: string) => ({ time, text });
+
+	it('is inactive before the first timestamp', () => {
+		expect(activeLineAt([L(5, 'a'), L(10, 'b')], 0)).toEqual({ idx: -1, time: -1 });
+		expect(activeLineAt([L(5, 'a')], 4.99)).toEqual({ idx: -1, time: -1 });
+	});
+
+	it('activates at/after a timestamp — exactly ON the boundary counts', () => {
+		const lines = [L(5, 'a'), L(10, 'b')];
+		expect(activeLineAt(lines, 5)).toEqual({ idx: 0, time: 5 });
+		expect(activeLineAt(lines, 7.2)).toEqual({ idx: 0, time: 5 });
+		expect(activeLineAt(lines, 10)).toEqual({ idx: 1, time: 10 });
+	});
+
+	it('anchors a same-timestamp GROUP on its FIRST entry (do not "fix" this to the last)', () => {
+		// The CN original + inline-translation pair, the reason the contract is what it is.
+		const lines = [L(5, 'original'), L(5, 'translation'), L(5, '(paren)'), L(9, 'next')];
+		expect(activeLineAt(lines, 6)).toEqual({ idx: 0, time: 5 });
+		// `time` is what every sibling compares against to render itself active.
+		expect(lines.filter((l) => l.time === activeLineAt(lines, 6).time)).toHaveLength(3);
+	});
+
+	it('an empty array is inactive', () => {
+		expect(activeLineAt([], 12)).toEqual({ idx: -1, time: -1 });
+	});
+
+	it('past the final timestamp the last line stays active (no wrap, no reset)', () => {
+		const lines = [L(5, 'a'), L(10, 'b')];
+		expect(activeLineAt(lines, 10_000)).toEqual({ idx: 1, time: 10 });
 	});
 });

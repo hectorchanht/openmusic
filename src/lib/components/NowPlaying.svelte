@@ -63,7 +63,7 @@
 	import VersionPicker from '$lib/components/VersionPicker.svelte';
 	import RowBadges from '$lib/components/RowBadges.svelte';
 	import Nowbar from '$lib/components/Nowbar.svelte';
-	import { parseLRC, reorderPairs, splitParenLines, lineSeekFraction, type LyricLine } from '$lib/services/lrc';
+	import { parseLRC, reorderPairs, splitParenLines, lineSeekFraction, activeLineAt, type LyricLine } from '$lib/services/lrc';
 	// quick-260919-1we (D-4): the user's explicit lyric pick, layered into a reactive READ so it
 	// outranks whatever the chain (or a downloaded file's embedded tag) supplied.
 	import { readLyrics } from '$lib/stores/lyric-pins.svelte';
@@ -198,22 +198,14 @@
 	// the user — they're the same moment of the song. `activeLine` is the FIRST entry of
 	// that group (used as the scroll anchor); `activeTime` is the shared timestamp so the
 	// renderer can mark every sibling line active via `lines[i].time === activeTime`.
-	const activeIndexAndTime = $derived.by(() => {
-		let idx = -1;
-		let maxTime = -1;
-		const now = player.currentTime;
-		for (let i = 0; i < lines.length; i++) {
-			const t = lines[i].time;
-			if (t > now) break;
-			if (t > maxTime) {
-				maxTime = t;
-				idx = i;
-			}
-		}
-		return { idx, maxTime };
-	});
-	const activeLine = $derived(activeIndexAndTime.idx);
-	const activeTime = $derived(activeIndexAndTime.maxTime);
+	//
+	// quick-260919-1we: the scan itself now lives in `lrc.ts` (`activeLineAt`) so the Nowbar's
+	// one-line variant runs the IDENTICAL code instead of a second copy that could drift. This is a
+	// dedupe, not a change — `activeLine` / `activeTime` keep their names and meanings, so every
+	// downstream consumer (the scroll anchor, the sibling-active test) is untouched.
+	const active = $derived(activeLineAt(lines, player.currentTime));
+	const activeLine = $derived(active.idx);
+	const activeTime = $derived(active.time);
 	let lyricsEl = $state<HTMLElement | null>(null);
 	// D-11/LYR-03: trailing-spacer height (px) ≈ half the visible band, set from the anchor
 	// $effect's visHeight. A REAL element growing scrollHeight is required because browsers clamp

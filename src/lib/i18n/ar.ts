@@ -85,6 +85,7 @@ const ar: Dict = {
 	"settings.playbackMotion": "التشغيل والحركة",
 	"settings.autoExpand": "التوسيع التلقائي للتشغيل الآن أثناء اللعب",
 	"settings.showQualityTag": "إظهار وسم الجودة في شاشة التشغيل",
+	"settings.nowbarLyrics": "إظهار الكلمات في المشغّل المصغّر",
 	"settings.reduceMotion": "تقليل الحركة",
 	"settings.shareIncludeTitle": "تضمين العنوان عند المشاركة",
 	"settings.data": "البيانات",
@@ -441,6 +442,7 @@ const ar: Dict = {
 	// playback settings helper text (quick-260630-fce)
 	"settings.autoExpandDesc": "عند التفعيل، تتوسّع شاشة التشغيل لملء الشاشة في كل مرة تبدأ فيها مقطعًا؛ أوقفه لإبقاء المشغّل المصغّر في الأسفل والبقاء على شاشتك الحالية.",
 	"settings.showQualityTagDesc": "عند التفعيل، تعرض شاشة التشغيل جودة الصوت للمقطع الحالي (مثل FLAC أو 320)؛ وتختفي إذا لم يوفّرها المصدر.",
+	"settings.nowbarLyricsDesc": "يعرض المشغّل المصغّر سطر الكلمات الحالي بدلاً من اسم الفنان.",
 	// data settings helper text (quick-260630-fce)
 	"settings.clearPicksDesc": "يحذف أفضل الاختيارات وأرفف مكتبة الصفحة الرئيسية المخزّنة مؤقتًا لتُعاد توليدها في المرة القادمة؛ استخدمه إذا بدت توصياتك قديمة.",
 	"settings.clearNameCacheDesc": "يمسح ترجمات أسماء الفنانين والعناوين المخزّنة لإعادة جلبها؛ استخدمه بعد تغيير إعدادات الترجمة أو إذا بدا اسم مترجم خاطئًا.",

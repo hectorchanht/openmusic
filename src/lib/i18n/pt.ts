@@ -85,6 +85,7 @@ const pt: Dict = {
 	"settings.playbackMotion": "Reprodução e movimento",
 	"settings.autoExpand": "Expandir automaticamente reproduzindo agora em jogo",
 	"settings.showQualityTag": "Mostrar etiqueta de qualidade em reprodução",
+	"settings.nowbarLyrics": "Mostrar a letra no mini player",
 	"settings.reduceMotion": "Reduzir o movimento",
 	"settings.shareIncludeTitle": "Incluir o título ao compartilhar",
 	"settings.data": "Dados",
@@ -441,6 +442,7 @@ const pt: Dict = {
 	// playback settings helper text (quick-260630-fce)
 	"settings.autoExpandDesc": "Quando ativado, a tela de reprodução se expande para tela cheia sempre que você inicia uma faixa; desative para manter o miniplayer embaixo e permanecer na tela atual.",
 	"settings.showQualityTagDesc": "Quando ativado, o ecrã de reprodução mostra a qualidade de áudio da faixa atual (por exemplo FLAC ou 320); fica oculta se a fonte não a indicar.",
+	"settings.nowbarLyricsDesc": "O mini player mostra a linha atual da letra em vez do nome do artista.",
 	// data settings helper text (quick-260630-fce)
 	"settings.clearPicksDesc": "Remove as principais escolhas e as prateleiras da biblioteca da Início em cache para que sejam recriadas na próxima vez; use se suas recomendações parecerem desatualizadas.",
 	"settings.clearNameCacheDesc": "Limpa as traduções de nomes de artistas e títulos armazenadas para que sejam buscadas de novo; use após alterar as configurações de tradução ou se um nome traduzido parecer errado.",

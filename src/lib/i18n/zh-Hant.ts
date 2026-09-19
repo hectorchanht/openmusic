@@ -94,6 +94,7 @@ const zhHant: Dict = {
 	"settings.playbackMotion": "播放與動態",
 	"settings.autoExpand": "播放時自動展開正在播放",
 	"settings.showQualityTag": "在正在播放頁顯示音質標籤",
+	"settings.nowbarLyrics": "在迷你播放器中顯示歌詞",
 	"settings.reduceMotion": "減少動態效果",
 	"settings.shareIncludeTitle": "分享時附上標題",
 	"settings.data": "資料",
@@ -473,6 +474,7 @@ const zhHant: Dict = {
 	// playback settings helper text (quick-260630-fce)
 	"settings.autoExpandDesc": "開啟時，每次播放歌曲都會將正在播放畫面展開為全螢幕；關閉則維持底部的迷你播放器，並停留在目前畫面。",
 	"settings.showQualityTagDesc": "開啟後，正在播放頁會顯示目前歌曲的音質（例如 FLAC 或 320）；音源未提供時則不顯示。",
+	"settings.nowbarLyricsDesc": "迷你播放器會顯示目前的歌詞行，而非歌手名稱。",
 	// data settings helper text (quick-260630-fce)
 	"settings.clearPicksDesc": "清除快取的精選推薦與首頁音樂庫區塊，下次將重新產生；若覺得推薦內容過時可使用此項。",
 	"settings.clearNameCacheDesc": "清除已儲存的歌手與標題名稱翻譯，使其重新取得；變更翻譯設定後、或某個翻譯名稱有誤時可使用。",

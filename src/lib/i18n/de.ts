@@ -85,6 +85,7 @@ const de: Dict = {
 	"settings.playbackMotion": "Wiedergabe und Bewegung",
 	"settings.autoExpand": "Jetzt automatisch erweitern – Wiedergabe bei Wiedergabe",
 	"settings.showQualityTag": "Qualitäts-Tag im Now-Playing anzeigen",
+	"settings.nowbarLyrics": "Songtext im Mini-Player anzeigen",
 	"settings.reduceMotion": "Bewegung reduzieren",
 	"settings.shareIncludeTitle": "Titel beim Teilen einfügen",
 	"settings.data": "Daten",
@@ -441,6 +442,7 @@ const de: Dict = {
 	// playback settings helper text (quick-260630-fce)
 	"settings.autoExpandDesc": "Wenn aktiviert, wird der Wiedergabebildschirm bei jedem Titelstart auf Vollbild erweitert; deaktiviere es, um den Mini-Player unten zu behalten und auf deinem aktuellen Bildschirm zu bleiben.",
 	"settings.showQualityTagDesc": "Wenn aktiviert, zeigt der Now-Playing-Bildschirm die Audioqualität des aktuellen Titels an (zum Beispiel FLAC oder 320); sie wird ausgeblendet, wenn die Quelle keine meldet.",
+	"settings.nowbarLyricsDesc": "Der Mini-Player zeigt die aktuelle Songtextzeile statt des Künstlernamens.",
 	// data settings helper text (quick-260630-fce)
 	"settings.clearPicksDesc": "Entfernt die zwischengespeicherten Top-Auswahlen und Startseiten-Bibliotheksregale, damit sie beim nächsten Mal neu erstellt werden; nutze es, wenn deine Empfehlungen veraltet wirken.",
 	"settings.clearNameCacheDesc": "Löscht gespeicherte Übersetzungen von Künstler- und Titelnamen, damit sie erneut geladen werden; nutze es nach dem Ändern der Übersetzungseinstellungen oder wenn ein übersetzter Name falsch wirkt.",

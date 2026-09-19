@@ -85,6 +85,7 @@ const hi: Dict = {
 	"settings.playbackMotion": "प्लेबैक और गति",
 	"settings.autoExpand": "अभी स्वचालित-विस्तृत करें-खेलने पर",
 	"settings.showQualityTag": "अभी चल रहे पर क्वालिटी टैग दिखाएँ",
+	"settings.nowbarLyrics": "मिनी प्लेयर में बोल दिखाएँ",
 	"settings.reduceMotion": "गति कम करें",
 	"settings.shareIncludeTitle": "साझा करते समय शीर्षक शामिल करें",
 	"settings.data": "डेटा",
@@ -441,6 +442,7 @@ const hi: Dict = {
 	// playback settings helper text (quick-260630-fce)
 	"settings.autoExpandDesc": "चालू होने पर, हर बार ट्रैक शुरू करने पर अभी-चल-रहा स्क्रीन फ़ुल स्क्रीन में फैल जाता है; इसे बंद करें ताकि नीचे मिनी प्लेयर बना रहे और आप अपनी मौजूदा स्क्रीन पर रहें।",
 	"settings.showQualityTagDesc": "चालू होने पर, अभी चल रहा स्क्रीन मौजूदा ट्रैक की ऑडियो क्वालिटी दिखाती है (जैसे FLAC या 320); स्रोत न बताए तो यह छिपी रहती है।",
+	"settings.nowbarLyricsDesc": "मिनी प्लेयर कलाकार के नाम की जगह बोल की मौजूदा पंक्ति दिखाता है।",
 	// data settings helper text (quick-260630-fce)
 	"settings.clearPicksDesc": "कैश की गई टॉप पिक्स और होम लाइब्रेरी शेल्फ़ हटा देता है ताकि अगली बार वे नए सिरे से बनें; अगर आपकी सिफ़ारिशें पुरानी लगें तो इसका उपयोग करें।",
 	"settings.clearNameCacheDesc": "संग्रहित कलाकार और शीर्षक नाम अनुवाद हटा देता है ताकि वे फिर से लाए जाएँ; अनुवाद सेटिंग बदलने के बाद या किसी अनूदित नाम के गलत दिखने पर इसका उपयोग करें।",
