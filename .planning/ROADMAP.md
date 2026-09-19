@@ -272,10 +272,10 @@ Plans:
 Captured 2026-09-19 (user batch dump):
 
 - ~~Settings → Translation: a checkbox that forces **ALL Chinese text app-wide to either Traditional or Simplified**~~ — SHIPPED 2026-09-19 as quick-260919-2jo (`zhScript` off/Hant/Hans, applied at the `names.resolve` seam + the download and bulk-retag album tags).
-- **Audit and rearrange the settings page tabs**: group settings into the correct tabs, and give a clear visual distinction between toggles and config rows. Replace text descriptions of what a toggle does with **actual screen captures** showing the visual difference, so the user picks by seeing it.
+- ~~**Audit and rearrange the settings page tabs** + visual toggle/config split + pick-by-seeing~~ — SHIPPED 2026-09-19 as quick-260919-ebi. Per the user's decision the "screen captures" are live CSS/SVG mockups rendered by the app (no image assets, theme-correct, never stale); per their follow-up the prose moved behind a tap/hover `SettingHint` so the page reads clean. Four misfiled rows moved and the reset groups followed them.
 - ~~Every tab set is **URL-persistent** (like the library tabs)~~ — SHIPPED 2026-09-19 as quick-260919-2jo (shared `url-tab.ts`; Library + artist discography converted; settings/charts were already separate routes; the NowPlaying overlay tabs deferred because the overlay's open state is not in the URL).
 
-**Remaining in this phase: the settings tab audit with screenshot pickers, and the wide desktop view — both blocked on design input from the user.**
+**Remaining in this phase: the wide desktop view only** — the user chose the full YouTube-Music shape (persistent left rail + full-width multi-column shelves); planned as quick-260919-et3.
 - Add a **wide desktop view**: content expands to full desktop width to maximize exposure, similar to the YouTube Music desktop layout (left rail nav + wide multi-column shelves).
 
 Plans:
