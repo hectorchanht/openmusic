@@ -24,15 +24,23 @@
 	import type { Track } from '$lib/sources/types';
 	import type { QueueContext } from '$lib/config/defaults';
 	// quick-260919-2jo: the shared tab-URL mechanism. This page READ `?tab=` (D-13) but never
-	// wrote it back — pickTab is that read, syncTabUrl is the missing half.
-	import { pickTab, syncTabUrl } from '$lib/services/url-tab';
+	// wrote it back — pickTab is that read, url-tab's write half filled it in.
+	// quick-260919-oc6: that write moved off url-tab's raw history.replaceState helper (which
+	// SvelteKit never observes) onto goto(), so `page.url` stays truthful for the rail. tabHref
+	// still owns the D-5 default-stripping rule, and the helper stays in url-tab.ts for
+	// /artist/[name]/albums, whose URL no rail entry reads.
+	import { pickTab, tabHref } from '$lib/services/url-tab';
+	import { LIBRARY_TAB_SET, DEFAULT_LIBRARY_TAB, type LibraryTab } from '$lib/services/library-tabs';
 
 	// UX-04 / D-03/D-04 swipe-right = queue, swipe-left = play next: the handlers moved INTO
 	// SongRow (quick-260919-l9e), so this page no longer declares them. Still wired on the TRACK
 	// rows only — fav-artist tiles and playlist FOLDER rows are not tracks and render no SongRow.
 
-	type Tab = 'liked' | 'playlists' | 'downloads' | 'fav-artists' | 'history';
-	const VALID_TABS: ReadonlySet<Tab> = new Set(['liked', 'playlists', 'downloads', 'fav-artists', 'history']);
+	// quick-260919-oc6: the allowlist and its default now live in $lib/services/library-tabs (the
+	// desktop rail needs the same two to decide which of its five library entries is lit). The
+	// local names are kept so the ~20 `tab === …` / `VALID_TABS.has` sites below are untouched.
+	type Tab = LibraryTab;
+	const VALID_TABS = LIBRARY_TAB_SET;
 	const TAB_KEY = 'openmusic:library:tab';
 	/** Persisted last-viewed tab — restored synchronously on the first read so the page
 	 *  renders the correct tab from frame 1. SSR-guarded; corrupt value falls back to 'liked'.
@@ -74,6 +82,10 @@
 	// When a valid ?playlist=<id> is present, pin the Playlists tab to that playlist's detail view.
 	let detailPlaylistId = $state<string | null>(loadInitialPlaylist());
 	let tab = $state<Tab>(loadInitialTab());
+	// quick-260919-oc6: "the URL I have already reconciled", compared on `.search` only (the
+	// pathname is constant while this page is mounted). PLAIN field, not $state — the UI never
+	// reads it, per the store convention for internal guards/counters.
+	let appliedSearch: string | null = null;
 	const detailPlaylist = $derived(
 		detailPlaylistId ? (library.playlists.find((p) => p.id === detailPlaylistId) ?? null) : null
 	);
@@ -85,10 +97,74 @@
 		if (!browser) return;
 		try { localStorage.setItem(TAB_KEY, v); } catch { /* quota — non-fatal */ }
 		// quick-260919-2jo: …and the address bar, so the tab is linkable and survives a reload.
-		// 'liked' is the default and stays OUT of the URL (D-5). Raw replaceState inside — no new
-		// history entry, so Back still leaves the page rather than replaying tab switches.
-		syncTabUrl(page.url, 'tab', v, 'liked');
+		// 'liked' is the default and stays OUT of the URL (D-5). No new history entry, so Back
+		// still leaves the page rather than replaying tab switches.
+		// quick-260919-oc6: the write goes through the ROUTER now (writeTabUrl → goto) instead of
+		// raw history.replaceState, because `page.url` must stay truthful — the desktop rail reads
+		// it to decide which library entry is lit, and a raw replaceState leaves it stale, so a
+		// pill tap would light the wrong rail entry.
+		writeTabUrl(v);
 	}
+
+	/** quick-260919-oc6: publish `v` into the address bar through the router.
+	 *
+	 *  `goto(..., { replaceState: true })` is a NORMAL router navigation, not the $app/navigation
+	 *  shallow-routing replaceState that url-tab.ts / overlays.svelte.ts warn about (those desync
+	 *  the router's history index; goto owns it). replaceState adds no history entry, so the
+	 *  overlay-depth == history-depth invariant NowPlaying relies on is untouched. Precedent:
+	 *  (app)/+layout.svelte's landing-tab redirect.
+	 *
+	 *  `appliedSearch` is set BEFORE the goto so the $effect below recognises its own echo and
+	 *  does not re-apply it. */
+	function writeTabUrl(v: Tab) {
+		const href = tabHref(page.url, 'tab', v, DEFAULT_LIBRARY_TAB);
+		if (href === page.url.href) return;
+		appliedSearch = new URL(href).search;
+		void goto(href, { replaceState: true, noScroll: true, keepFocus: true });
+	}
+
+	/** quick-260919-oc6: follow the URL on EVERY navigation, not just at mount.
+	 *
+	 *  The defect this fixes: `loadInitialTab()` runs once at init, but `/library?tab=liked` →
+	 *  `/library?tab=downloads` is the SAME route, so SvelteKit does not remount the component and
+	 *  nothing re-read the URL — a rail click changed the address bar and nothing else.
+	 *
+	 *  `page.url` is the ONLY tracked read; everything else is untracked, so a `library.playlists`
+	 *  edit or this effect's own `tab` write cannot re-run URL parsing.
+	 *
+	 *  Loop safety: goto → page.url changes → effect runs → `url.search === appliedSearch` → return.
+	 *  And `writeTabUrl` early-returns whenever the href already equals `page.url.href`. */
+	$effect(() => {
+		const url = page.url;
+		untrack(() => {
+			if (url.search === appliedSearch) return;
+			appliedSearch = url.search;
+			// Precedence exactly as loadInitialTab() documents: ?playlist > ?tab > stored tab.
+			const pid = loadInitialPlaylist();
+			const qp = pickTab(url, 'tab', VALID_TABS, '' as Tab | '');
+			if (pid) {
+				detailPlaylistId = pid;
+				tab = 'playlists';
+			} else if (qp) {
+				detailPlaylistId = null;
+				tab = qp;
+			}
+			// else: plain /library, or a T-23-10 garbage ?tab= — leave `tab` alone so the stored
+			// tab keeps winning, which is what loadInitialTab() does on a cold load.
+			if (pid || qp) {
+				// A URL-driven switch (rail click) persists like a pill tap; nothing downstream can
+				// tell the two apart, and it would be surprising if only one of them stuck.
+				try { localStorage.setItem(TAB_KEY, tab); } catch { /* quota — non-fatal */ }
+			}
+			// Publish the EFFECTIVE tab back so the rail agrees with the page: plain /library with
+			// a stored 'history' lights History, ?playlist=X becomes ?playlist=X&tab=playlists (the
+			// deep link survives — tabHref keeps every other param), ?tab=liked collapses to the
+			// canonical /library (D-5), and a garbage ?tab= is sanitised. Idempotent by the two
+			// guards above, so at mount this recomputes what loadInitialTab() already seeded and
+			// frame 1 is unchanged.
+			writeTabUrl(tab);
+		});
+	});
 	// kyf-followup: active-tab label, so the pill row can shrink to icon-only and fit all 5 tabs.
 	// quick-260915-vb9: this IS the page heading now — the bottom nav already says "Library", so
 	// repeating it above the tab name was the same word twice on a phone-width screen.
