@@ -362,7 +362,7 @@ export function removeCachedArtistCover(artist: string): void {
 //     SILENTLY wiped.
 // A pin is USER INTENT, not a cache, so it gets its own key with no TTL and no cap. The separation
 // also makes it immune to every existing cache writer (writeCoverBoth / resolveCoverForTrack /
-// resolveDeezerHQ / removeCoverBoth) with zero changes to them. The ONE thing that removes a pin is
+// resolveHqCover / removeCoverBoth) with zero changes to them. The ONE thing that removes a pin is
 // a genuinely dead URL (player.healCover's failed probe) — see the Q2 contract there.
 const PIN_KEY = 'openmusic:cover-pins:v1';
 

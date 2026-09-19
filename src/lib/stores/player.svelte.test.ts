@@ -65,12 +65,12 @@ vi.mock('$lib/services/cover-cache', async (importOriginal) => {
 });
 vi.mock('$lib/services/cover-backfill', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('$lib/services/cover-backfill')>();
-	// quick-260831-t2g: resolveDeezerHQ is the post-paint upgrade call — the remaining per-play
+	// quick-260831-t2g: resolveHqCover is the post-paint upgrade call — the remaining per-play
 	// cover fetch. Mocked so the tests can assert it is NOT made for an attached cover.
 	return {
 		...actual,
 		resolveCoverForTrack: vi.fn(async () => null),
-		resolveDeezerHQ: vi.fn(async () => null)
+		resolveHqCover: vi.fn(async () => null)
 	};
 });
 // quick-260704-20e: spy on the BOTH-layers evictor so healCover's dead-probe eviction is observable.
@@ -128,7 +128,7 @@ import {
 	uidCoverCacheKey,
 	coverCacheKey
 } from '$lib/services/cover-cache';
-import { resolveCoverForTrack, resolveDeezerHQ } from '$lib/services/cover-backfill';
+import { resolveCoverForTrack, resolveHqCover } from '$lib/services/cover-backfill';
 import { removeCoverBoth, unpinCover } from '$lib/stores/cover-version.svelte';
 import { logAction } from '$lib/stores/actionLog.svelte';
 import {
@@ -146,7 +146,7 @@ const mockPicks = vi.mocked(buildDiversePicks);
 const mockUidCover = vi.mocked(getCachedCoverByUid);
 // quick-260831-t2g: the two cover-fetch paths — the full tier chain and the HQ upgrade.
 const mockCoverResolve = vi.mocked(resolveCoverForTrack);
-const mockDeezerHQ = vi.mocked(resolveDeezerHQ);
+const mockHqCover = vi.mocked(resolveHqCover);
 const mockNameCover = vi.mocked(getCachedCover);
 const mockResolveCover = vi.mocked(resolveCoverForTrack);
 const mockRemoveCoverBoth = vi.mocked(removeCoverBoth);
@@ -405,7 +405,7 @@ describe('player.playStub — attached cover skips cover fetching (quick-260831-
 		(player.play as unknown as { mockRestore(): void }).mockRestore?.();
 		mockEnsure.mockReset();
 		mockCoverResolve.mockReset().mockResolvedValue(null);
-		mockDeezerHQ.mockReset().mockResolvedValue(null);
+		mockHqCover.mockReset().mockResolvedValue(null);
 		mockUidCover.mockReset().mockReturnValue(null);
 		player.current = null;
 		player.queue = [];
@@ -438,7 +438,7 @@ describe('player.playStub — attached cover skips cover fetching (quick-260831-
 		await player.playStub('Coldplay', 'Spies', 'https://img/album.jpg', 'album');
 		await flush();
 
-		expect(mockDeezerHQ).not.toHaveBeenCalled();
+		expect(mockHqCover).not.toHaveBeenCalled();
 	});
 
 	it('STILL upgrades a track whose cover came from the source inline (quality preserved)', async () => {
@@ -454,7 +454,7 @@ describe('player.playStub — attached cover skips cover fetching (quick-260831-
 		await player.playStub('Coldplay', 'Sparks', null, 'album');
 		await flush();
 
-		expect(mockDeezerHQ).toHaveBeenCalled();
+		expect(mockHqCover).toHaveBeenCalled();
 	});
 
 	it('album siblings all end up on the SAME cover — the reported inconsistency', async () => {
@@ -534,7 +534,7 @@ describe('album-scoped attached cover — every track, every advance (quick-2609
 		(player.play as unknown as { mockRestore(): void }).mockRestore?.();
 		mockEnsure.mockReset();
 		mockCoverResolve.mockReset().mockResolvedValue(null);
-		mockDeezerHQ.mockReset().mockResolvedValue(null);
+		mockHqCover.mockReset().mockResolvedValue(null);
 		mockUidCover.mockReset().mockReturnValue(null);
 		player.current = null;
 		player.queue = [];
@@ -587,7 +587,7 @@ describe('album-scoped attached cover — every track, every advance (quick-2609
 		expect(player.resolvedCover).toBe(A);
 		// Zero cover network: neither the full tier chain nor the Deezer HQ upgrade runs.
 		expect(mockCoverResolve).not.toHaveBeenCalled();
-		expect(mockDeezerHQ).not.toHaveBeenCalled();
+		expect(mockHqCover).not.toHaveBeenCalled();
 	});
 
 	it('a DIFFERENT album replaces the attachment — never the previous album art', async () => {
@@ -6915,7 +6915,7 @@ describe('cover pin (quick-260915-w4f)', () => {
 		mockUidCover.mockReset().mockReturnValue(null);
 		mockNameCover.mockReset().mockReturnValue(null);
 		mockResolveCover.mockReset().mockResolvedValue(null);
-		mockDeezerHQ.mockReset().mockResolvedValue(null);
+		mockHqCover.mockReset().mockResolvedValue(null);
 		mockRemoveCoverBoth.mockClear();
 		mockUnpinCover.mockClear();
 		mockGetPinned.mockReset().mockReturnValue(null); // unpinned by default — no leak into other suites
@@ -6994,7 +6994,7 @@ describe('cover pin (quick-260915-w4f)', () => {
 		});
 		await player.play(t);
 		await flush();
-		expect(mockDeezerHQ).not.toHaveBeenCalled();
+		expect(mockHqCover).not.toHaveBeenCalled();
 		expect(rc()).toBe(PIN);
 	});
 
@@ -7007,7 +7007,7 @@ describe('cover pin (quick-260915-w4f)', () => {
 		});
 		await player.play(t);
 		await flush();
-		expect(mockDeezerHQ).toHaveBeenCalled();
+		expect(mockHqCover).toHaveBeenCalled();
 	});
 
 	it('adoptCover REFUSES a non-pin url when the uid is pinned (Last.fm swap cannot displace a pin)', () => {
