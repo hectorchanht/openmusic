@@ -32,6 +32,7 @@
 	import { marquee } from '$lib/actions/marquee';
 	import { coverSwipe } from '$lib/actions/coverSwipe';
 	import { scrub } from '$lib/actions/scrub';
+	import { seekTargetFraction, SEEK_STEP_SECONDS } from '$lib/services/transport-keys';
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { focusTrap } from '$lib/actions/focusTrap';
 	import { toast } from '$lib/stores/toast.svelte';
@@ -181,10 +182,19 @@
 		scrubbing = false;
 	}
 	// Keyboard parity retained: arrows nudge ±5s via the store (unchanged behaviour).
+	// quick-260919-keys: the step and the arithmetic now come from services/transport-keys, which is
+	// also what the global Shift+arrows use — the two ±5s seeks in the app are the same ±5s by
+	// construction rather than by two copies of `(currentTime ± 5) / duration` staying in sync.
+	// Still only reached when the `.scrubber` itself has focus; the global listener yields arrows to
+	// role="slider", so a shifted OR plain arrow here seeks exactly once.
 	function seekKey(e: KeyboardEvent) {
-		if (player.duration <= 0) return;
-		if (e.key === 'ArrowRight') player.seekFraction((player.currentTime + 5) / player.duration);
-		else if (e.key === 'ArrowLeft') player.seekFraction((player.currentTime - 5) / player.duration);
+		if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+		const frac = seekTargetFraction(
+			player.currentTime,
+			player.duration,
+			e.key === 'ArrowRight' ? SEEK_STEP_SECONDS : -SEEK_STEP_SECONDS
+		);
+		if (frac !== null) player.seekFraction(frac);
 	}
 
 

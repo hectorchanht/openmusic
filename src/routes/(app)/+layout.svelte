@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount, untrack, type Component } from 'svelte';
+	import { onMount, tick, untrack, type Component } from 'svelte';
 	import { fly } from 'svelte/transition';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
@@ -19,7 +19,14 @@
 	// quick-260919-npfix (Fix 2): the pure Space / left / right -> transport mapping. All of the
 	// "may I steal this key?" branching lives there so it is node-testable; this file keeps only
 	// the listener.
-	import { transportAction, describeTarget } from '$lib/services/transport-keys';
+	// quick-260919-keys: same module, extended — Shift+arrows seek, ArrowUp opens now-playing at
+	// the top of the page, Escape dismisses the innermost layer, `/` focuses search.
+	import {
+		transportAction,
+		describeTarget,
+		seekTargetFraction,
+		SEEK_STEP_SECONDS
+	} from '$lib/services/transport-keys';
 	import NowPlaying from '$lib/components/NowPlaying.svelte';
 	import Nowbar from '$lib/components/Nowbar.svelte';
 	import SleepTimerSheet from '$lib/components/SleepTimerSheet.svelte';
@@ -124,6 +131,21 @@
 		});
 	});
 
+	// quick-260919-keys — `/` focuses THE search field, the one on /search: there is no second
+	// search affordance in the app and this task does not add one. Off-route the obvious behaviour
+	// is to go there first, which is what every app with this shortcut does, and `goto` + `tick`
+	// is all that takes because the field is already in the route's markup. The lookup is a
+	// `data-search-input` attribute rather than a new id or an exported ref — nothing else needs to
+	// know about it, and an attribute changes neither layout nor focus order (so it is inert on
+	// mobile, which has no keyboard to fire this in the first place).
+	// The search page's own onMount focus (RHX-01) may also fire on a fresh empty visit; focusing
+	// an already-focused element is a no-op, so the two cannot fight.
+	async function focusSearchField() {
+		if (location.pathname !== '/search') await goto('/search');
+		await tick();
+		document.querySelector<HTMLInputElement>('[data-search-input]')?.focus();
+	}
+
 	function onRetry() {
 		// Invoke the store-provided recovery (D-05) then clear the local host so the pill leaves.
 		host?.action?.();
@@ -186,14 +208,59 @@
 		// preventDefault ONLY on Space (it would otherwise scroll the page). The arrows are left
 		// alone: nothing scrolls horizontally here, and swallowing them would be the more invasive
 		// choice.
+		//
+		// quick-260919-keys extends the SAME listener and the SAME mapping — deliberately not a
+		// second one, since two window listeners is exactly the double-fire the npfix move was
+		// undoing. The two ambient facts the pure mapping cannot read off a KeyboardEvent are
+		// supplied here:
+		//   overlayOpen — `overlays.depth`, the ONE stack every dismissible layer registers in
+		//                 (now-playing, TrackMenu, the picker sheets, the sleep timer, the metadata
+		//                 editor). Not `player.expanded`: that would miss a menu opened on top.
+		//   atScrollTop — `window.scrollY`. The WINDOW is the scroller on every route: `.app` /
+		//                 `.content` are in normal flow, and the only `overflow-y:auto` boxes in
+		//                 the codebase are overlay sheets, which `overlayOpen` already excludes.
+		//                 That also covers the >=1280 three-column now-playing sheet — its columns
+		//                 scroll independently, but ArrowUp only ever fires with the sheet CLOSED.
 		const onTransportKey = (e: KeyboardEvent) => {
-			const action = transportAction(e, describeTarget(e.target));
+			const action = transportAction(e, describeTarget(e.target), {
+				overlayOpen: overlays.depth > 0,
+				atScrollTop: window.scrollY <= 0
+			});
 			if (!action) return;
 			if (action === 'toggle') {
 				e.preventDefault();
 				player.toggle();
 			} else if (action === 'prev') player.prev();
-			else player.next();
+			else if (action === 'next') player.next();
+			else if (action === 'seek-back' || action === 'seek-fwd') {
+				// Same +-5s the focused `.scrubber` does, through the same single seek API — the step
+				// and the arithmetic both live in transport-keys so there is one of each.
+				const frac = seekTargetFraction(
+					player.currentTime,
+					player.duration,
+					action === 'seek-fwd' ? SEEK_STEP_SECONDS : -SEEK_STEP_SECONDS
+				);
+				if (frac === null) return; // nothing seekable yet — leave the key entirely alone
+				e.preventDefault(); // Shift+arrow would otherwise extend the document selection
+				player.seekFraction(frac);
+			} else if (action === 'open-now-playing') {
+				// Only reachable with nothing open AND the page already at the top, so there is no
+				// scroll to suppress — preventDefault is for the browser's caret-browsing mode.
+				e.preventDefault();
+				if (player.current) player.expand();
+			} else if (action === 'close-overlay') {
+				// THE SINGLE DISMISS PATH, reused rather than re-implemented: Escape is routed
+				// through history.back(), which is literally the back gesture, so it lands in the
+				// overlays popstate listener → closeTop() → the INNERMOST layer's own close handler.
+				// That is what keeps Esc from closing now-playing out from under an open TrackMenu,
+				// and what keeps history depth == stack depth (calling overlays.closeTop() directly
+				// would pop the stack but leave the history entry behind, desyncing the two).
+				e.preventDefault();
+				history.back();
+			} else if (action === 'focus-search') {
+				e.preventDefault(); // Firefox quick-find would otherwise open on `/`
+				focusSearchField();
+			}
 		};
 		window.addEventListener('keydown', onTransportKey);
 

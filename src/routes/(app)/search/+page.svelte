@@ -576,7 +576,12 @@
 
 <form class="bar" onsubmit={run}>
 	<div class="input-wrap">
+		<!-- quick-260919-keys: the `/` shortcut in (app)/+layout.svelte finds THIS field by attribute
+		     (it has to reach across the route boundary, and this is the app's only search input).
+		     An inert data-* hook — no layout, styling, focus order or a11y change, so mobile is
+		     untouched. -->
 		<input
+			data-search-input
 			bind:this={queryInputEl}
 			bind:value={q}
 			placeholder={t('search.placeholder')}
