@@ -736,3 +736,58 @@ describe('cover-cache — user pin store (quick-260915-w4f)', () => {
 		expect(getPinnedCover('netease:1')).toBe('https://a/x.jpg');
 	});
 });
+
+// debug page-switch-lag-tap-dead: the parsed-record memo. The home route does ~300 cover reads per
+// mount; each used to re-parse the whole blob (~310 KB at the cap) — 1252 parses / 1.0 s on one tap.
+// These pin the two halves of the contract: a hit costs no parse, and the memo can never go stale
+// against what is actually on disk.
+describe('cover-cache — parsed-record memo (debug page-switch-lag-tap-dead)', () => {
+	let store: MemStorage;
+	const originalLocalStorage = (globalThis as { localStorage?: Storage }).localStorage;
+
+	beforeEach(() => {
+		store = new MemStorage();
+		Object.defineProperty(globalThis, 'localStorage', { value: store, configurable: true, writable: true });
+	});
+	afterEach(() => {
+		Object.defineProperty(globalThis, 'localStorage', {
+			value: originalLocalStorage,
+			configurable: true,
+			writable: true
+		});
+	});
+
+	it('300 reads after one write cost zero JSON.parse — the writer refreshes the memo', () => {
+		setCachedCover('A', 'B', 'https://a/x.jpg');
+		setPinnedCover('qq:1', 'https://pin/x.jpg');
+		const spy = vi.spyOn(JSON, 'parse');
+		for (let i = 0; i < 300; i++) {
+			getCachedCover('A', 'B');
+			getCachedCoverByUid('qq:1');
+			getPinnedCover('qq:1');
+		}
+		expect(spy).not.toHaveBeenCalled();
+		spy.mockRestore();
+	});
+
+	it('a raw string rewritten underneath (other tab / test stub) is re-parsed, never served stale', () => {
+		setCachedCover('A', 'B', 'https://a/x.jpg');
+		expect(getCachedCover('A', 'B')).toBe('https://a/x.jpg');
+		store.__raw(CACHE_KEY, JSON.stringify({ [coverCacheKey('A', 'B')]: 'https://other/tab.jpg' }));
+		expect(getCachedCover('A', 'B')).toBe('https://other/tab.jpg');
+		store.removeItem(CACHE_KEY);
+		expect(getCachedCover('A', 'B')).toBeNull();
+	});
+
+	it('a setItem that throws never leaves an in-memory entry that disk does not have', () => {
+		setCachedCover('A', 'B', 'https://a/x.jpg');
+		const ok = store.setItem.bind(store);
+		store.setItem = () => {
+			throw new Error('QuotaExceededError');
+		};
+		setCachedCover('C', 'D', 'https://c/d.jpg'); // mutates the memoised record, then fails to persist
+		store.setItem = ok;
+		expect(getCachedCover('C', 'D')).toBeNull(); // disk wins
+		expect(getCachedCover('A', 'B')).toBe('https://a/x.jpg');
+	});
+});

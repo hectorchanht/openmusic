@@ -154,21 +154,59 @@ export function clearCoverCache(): void {
 }
 
 /**
+ * debug page-switch-lag-tap-dead: a parsed-record memo keyed on the RAW stored string.
+ *
+ * Every read used to be getItem + JSON.parse of the WHOLE blob. The home route does ~300 cover
+ * reads per mount (one per tile, and every coverVersion bump re-runs all of them), and at the
+ * MAX_ENTRIES cap the blob is ~310 KB — measured 1252 full parses inside ONE 1.0 s long task between
+ * the Home-tab tap and the first painted frame (4–5 s at a phone-like 4x CPU throttle). That was
+ * "tap the home tab, nothing happens for a second".
+ *
+ * The memo is keyed on the raw string rather than on "did this module write?" so it stays correct
+ * when another tab, a test stub or devtools rewrites storage underneath us: getItem is a cheap
+ * in-renderer copy and a 310 KB `===` is a memcmp, so a hit costs microseconds instead of a parse.
+ * Writers hand the memo the exact string they just stored, so the read that follows every backfill
+ * write is a hit too; a setItem that throws drops the memo first, so a record mutated in place by a
+ * writer can never be served as if it were on disk.
+ */
+function memoRecord<T extends object>(key: string) {
+	let memo: { raw: string; rec: T } | null = null;
+	return {
+		/** The whole record; {} on absent / corrupt / unavailable storage — never throws. */
+		read(): T {
+			try {
+				const raw = localStorage.getItem(key);
+				if (!raw) return {} as T;
+				if (memo && memo.raw === raw) return memo.rec;
+				const v: unknown = JSON.parse(raw);
+				if (v && typeof v === 'object' && !Array.isArray(v)) {
+					memo = { raw, rec: v as T };
+					return memo.rec;
+				}
+				return {} as T;
+			} catch {
+				return {} as T;
+			}
+		},
+		/** Persist `rec`. Throws exactly like setItem (quota / unavailable) — callers keep their try/catch. */
+		write(rec: T): void {
+			memo = null;
+			const raw = JSON.stringify(rec);
+			localStorage.setItem(key, raw);
+			memo = { raw, rec };
+		}
+	};
+}
+
+const cache = memoRecord<Record<string, CoverEntry | string>>(CACHE_KEY);
+
+/**
  * Read the whole record; returns {} on absent / corrupt / unavailable storage (never throws).
  * Shape-agnostic — entries may be `{u,t}` (current) or a legacy bare `string` (grandfathered);
  * normalization + TTL expiry live in readKey so writeKey/removeKey still see raw entries.
  */
 function readRecord(): Record<string, CoverEntry | string> {
-	try {
-		const raw = localStorage.getItem(CACHE_KEY);
-		if (!raw) return {};
-		const v: unknown = JSON.parse(raw);
-		if (v && typeof v === 'object' && !Array.isArray(v))
-			return v as Record<string, CoverEntry | string>;
-		return {};
-	} catch {
-		return {};
-	}
+	return cache.read();
 }
 
 /**
@@ -211,7 +249,7 @@ function writeKey(key: string, url: string): void {
 				i++;
 			}
 		}
-		localStorage.setItem(CACHE_KEY, JSON.stringify(rec));
+		cache.write(rec);
 	} catch {
 		/* quota or unavailable — non-fatal, the tile simply keeps its gradient */
 	}
@@ -318,7 +356,7 @@ function removeKey(key: string): void {
 		const rec = readRecord();
 		if (key in rec) {
 			delete rec[key];
-			localStorage.setItem(CACHE_KEY, JSON.stringify(rec));
+			cache.write(rec);
 		}
 	} catch {
 		/* unavailable / quota / corrupt — non-fatal, no-op */
@@ -366,17 +404,14 @@ export function removeCachedArtistCover(artist: string): void {
 // a genuinely dead URL (player.healCover's failed probe) — see the Q2 contract there.
 const PIN_KEY = 'openmusic:cover-pins:v1';
 
+// debug page-switch-lag-tap-dead: same parsed-record memo as the cover cache — every row read
+// consults the pin layer first (readCoverByUidOrName / readPinnedCover), so it was a second
+// whole-blob parse per tile.
+const pins = memoRecord<Record<string, string>>(PIN_KEY);
+
 /** Read the pin record; {} on absent / corrupt / unavailable storage (never throws). */
 function readPins(): Record<string, string> {
-	try {
-		const raw = localStorage.getItem(PIN_KEY);
-		if (!raw) return {};
-		const v: unknown = JSON.parse(raw);
-		if (v && typeof v === 'object' && !Array.isArray(v)) return v as Record<string, string>;
-		return {};
-	} catch {
-		return {};
-	}
+	return pins.read();
 }
 
 /**
@@ -401,7 +436,7 @@ export function setPinnedCover(uid: string, url: string): void {
 	try {
 		const rec = readPins();
 		rec[uid] = url;
-		localStorage.setItem(PIN_KEY, JSON.stringify(rec));
+		pins.write(rec);
 	} catch {
 		/* quota or unavailable — non-fatal, the pin simply does not persist */
 	}
@@ -414,7 +449,7 @@ export function removePinnedCover(uid: string): void {
 		const rec = readPins();
 		if (uid in rec) {
 			delete rec[uid];
-			localStorage.setItem(PIN_KEY, JSON.stringify(rec));
+			pins.write(rec);
 		}
 	} catch {
 		/* unavailable / quota / corrupt — non-fatal, no-op */
