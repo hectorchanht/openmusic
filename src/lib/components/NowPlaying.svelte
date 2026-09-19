@@ -55,6 +55,37 @@
 
 	type Tab = 'queue' | 'lyrics' | 'related';
 	let tab = $state<Tab>('lyrics');
+
+	// quick-260919-np3 — the desktop three-up breakpoint.
+	//
+	// 1280px, NOT the 1024px rail rung (--rail-w / (app)/+layout.svelte). `.np` is fixed inset:0 over
+	// the rail, so unlike every other surface this one does get the full viewport width — and 1024 is
+	// still too narrow: minus the 18px side padding, two 18px gutters and the column padding, the
+	// 1fr/1.4fr/1fr split lands at 278 / 389 / 278, and a 278px track column carrying a 36px cover
+	// plus a two-line title/artist is where the text starts wrapping and reading as cramped. At 1280
+	// the same split measures 355 / 497 / 355 (verified live). 1280 is also the `xl` rung of the same
+	// sm/md/lg scale 640/1024 already sit on, so this adds a rung rather than a second scale.
+	//
+	// This one has to be JS, unlike the 1024 rail which is pure CSS: the difference is STRUCTURAL,
+	// not cosmetic. Rendering all three panes and hiding two with CSS would mount NpRelated on a
+	// phone and fan out a searchAll for every track — the exact flood class this codebase already
+	// has an apiFetch governor and a circuit breaker for. So the breakpoint drives an `{#if}`, and
+	// below it the mobile markup is literally the same tree it was before.
+	//
+	// `browser`-guarded by the typeof check (SSR is off app-wide, but stores/components that touch
+	// window must still be safe by convention), and the listener is torn down with the component.
+	const WIDE_MQ = '(min-width: 1280px)';
+	let wide = $state(
+		typeof window !== 'undefined' && window.matchMedia ? window.matchMedia(WIDE_MQ).matches : false
+	);
+	$effect(() => {
+		if (typeof window === 'undefined' || !window.matchMedia) return;
+		const mq = window.matchMedia(WIDE_MQ);
+		const onChange = (e: MediaQueryListEvent) => (wide = e.matches);
+		wide = mq.matches;
+		mq.addEventListener('change', onChange);
+		return () => mq.removeEventListener('change', onChange);
+	});
 	// shuffle/repeat moved to the store (gte) so the audio `ended` handler + next() can read
 	// them. The transport buttons below bind to player.shuffle / player.repeatMode directly.
 
@@ -1060,12 +1091,28 @@
 			<span class="handle"></span>
 		</div>
 
-		<nav class="subnav"
-			onpointerdown={gripDown} onpointermove={gripMove} onpointerup={gripUp} onpointercancel={gripUp}>
-			<button data-tab="queue" class:active={tab === 'queue'} onclick={() => selectTab('queue')} use:tapBounce>{t('nowplaying.upNext')}</button>
-			<button data-tab="lyrics" class:active={tab === 'lyrics'} onclick={() => selectTab('lyrics')} use:tapBounce>{t('nowplaying.lyrics')}</button>
-			<button data-tab="related" class:active={tab === 'related'} onclick={() => selectTab('related')} use:tapBounce>{t('nowplaying.related')}</button>
-		</nav>
+		<!-- quick-260919-np3 — the tab bar at <1280px, UNCHANGED (the same three buttons, the same
+		     `data-tab` contract the grip's tap-to-switch reads, the same drag handlers). At >=1280px
+		     the three panes render side by side, so three buttons that switch nothing would be a lie;
+		     the block below replaces it with the SAME three labels as inert column headings, aligned
+		     to the column grid. Headings over hiding: three unlabelled lists is worse than one extra
+		     row of text, and the headings double as the drag surface the subnav already was (same
+		     pointer handlers), so the snap machine keeps working identically at every width. -->
+		{#if wide}
+			<div class="subnav heads" aria-hidden="true"
+				onpointerdown={gripDown} onpointermove={gripMove} onpointerup={gripUp} onpointercancel={gripUp}>
+				<span>{t('nowplaying.upNext')}</span>
+				<span>{t('nowplaying.lyrics')}</span>
+				<span>{t('nowplaying.related')}</span>
+			</div>
+		{:else}
+			<nav class="subnav"
+				onpointerdown={gripDown} onpointermove={gripMove} onpointerup={gripUp} onpointercancel={gripUp}>
+				<button data-tab="queue" class:active={tab === 'queue'} onclick={() => selectTab('queue')} use:tapBounce>{t('nowplaying.upNext')}</button>
+				<button data-tab="lyrics" class:active={tab === 'lyrics'} onclick={() => selectTab('lyrics')} use:tapBounce>{t('nowplaying.lyrics')}</button>
+				<button data-tab="related" class:active={tab === 'related'} onclick={() => selectTab('related')} use:tapBounce>{t('nowplaying.related')}</button>
+			</nav>
+		{/if}
 
 		<!-- The pane prop lists live in snippets so the narrow (one-of-three) and wide (all three)
 		     branches below cannot drift apart — one definition, two call sites. -->
@@ -1086,11 +1133,26 @@
 			<NpRelated {resolvedCovers} onMenu={openMenu} />
 		{/snippet}
 
-		<div class="panel">
-			{#if tab === 'queue'}{@render upNextPane()}
-			{:else if tab === 'lyrics'}{@render lyricsPane()}
-			{:else}{@render relatedPane()}{/if}
-		</div>
+		{#if wide}
+			<!-- >=1280px: Up Next | Lyrics | Related, all three at once. `grid-template-columns:
+			     1fr 1.4fr 1fr` gives lyrics ~41% of the row against ~29% each for the two track
+			     lists — enough extra for the thing you actually read, while keeping each list column
+			     at ~340px at 1280 (the rail eats 88px) and ~390px at 1440, comfortably clear of the
+			     ~310px that makes a cover+title+artist row cramped. Each column is its own `.panel`
+			     scroller, so they scroll independently and `.np`'s `overflow: hidden` keeps the page
+			     itself still. -->
+			<div class="cols">
+				<div class="panel">{@render upNextPane()}</div>
+				<div class="panel">{@render lyricsPane()}</div>
+				<div class="panel">{@render relatedPane()}</div>
+			</div>
+		{:else}
+			<div class="panel">
+				{#if tab === 'queue'}{@render upNextPane()}
+				{:else if tab === 'lyrics'}{@render lyricsPane()}
+				{:else}{@render relatedPane()}{/if}
+			</div>
+		{/if}
 	</div>
 
 	<TrackMenu track={menuTrack} open={menuOpen} onclose={() => (menuOpen = false)} />
@@ -1339,5 +1401,44 @@
 	   above stays, because the scroll container is still the parent's element (and both the lyrics
 	   anchor `$effect` and the Up-Next scroll-to-current still find it via `.closest('.panel')`).
 
-	   Nothing about the panel or the tab bar changed with the split. */
+	   >=1280px three-up. `.cols` REPLACES the single `.panel` (it is not a wrapper around it), so
+	   every `.panel` rule above — including the `.sheet.half .panel` / `.sheet.full .panel`
+	   flex/overflow pair — applies unchanged to each of the three columns, which is what makes them
+	   scroll independently for free. `min-height: 0` on both the grid and its children is the part
+	   that actually keeps the page still: without it a long lyric column would blow the flex row out
+	   past `.np` instead of scrolling inside its own box.
+
+	   The 1fr/1.4fr/1fr ratio and the 1280 rung are argued at the `wide` declaration in the script.
+	   Equal-height stretch (the grid default) is why an empty or mid-fetch pane cannot collapse its
+	   column or shift its neighbours: the track lists never see the Related column's content at all,
+	   and the column box is sized by the grid row, not by what is in it. */
+	.cols {
+		display: grid;
+		grid-template-columns: 1fr 1.4fr 1fr;
+		gap: 18px;
+		flex: 1;
+		min-height: 0;
+		overflow: hidden;
+	}
+	.cols > .panel { min-height: 0; padding: 0 4px; }
+	/* Column headings at >=1280px: the same three labels the tab bar carried, laid on the SAME grid
+	   as the columns below so each sits over its own list. Inert (no button, aria-hidden) because
+	   the lists they name are all on screen — there is nothing left to switch. */
+	.subnav.heads {
+		display: grid;
+		grid-template-columns: 1fr 1.4fr 1fr;
+		gap: 18px;
+		padding: 0 4px 8px;
+		touch-action: none;
+		user-select: none;
+		-webkit-user-select: none;
+	}
+	.subnav.heads span {
+		font-size: 12px;
+		font-weight: 700;
+		letter-spacing: 0.06em;
+		text-transform: uppercase;
+		color: var(--color-text-muted);
+		padding: 8px 2px 0;
+	}
 </style>

@@ -20,10 +20,16 @@
 	import RowBadges from '$lib/components/RowBadges.svelte';
 	import type { Track } from '$lib/sources/types';
 
-	// quick-260919-np3: the Related pane, lifted OUT of NowPlaying.svelte verbatim. The old
-	// `tab === 'related'` gate on the fetch is now the MOUNT — the parent renders this component
-	// exactly when that tab is selected — so the lazy fan-out stays lazy and nothing about the rows,
-	// the swipe handlers or the tap-to-play composition changed.
+	// quick-260919-np3: the Related pane, lifted OUT of NowPlaying.svelte. The rows, the swipe
+	// handlers and the tap-to-play composition are verbatim; what CHANGED is the fetch gate.
+	//
+	// It used to be `tab === 'related'` — selecting the tab was the only way to reach it, so "the tab
+	// is open" and "the pane is on screen" were the same statement. At >=1280px they stop being the
+	// same: all three panes render at once, so a mount-only gate would fan out a searchAll for EVERY
+	// track change whether or not anyone is looking at this column. This app has a documented history
+	// of /api/* floods freezing the whole UI (the apiFetch governor's MAX_CONCURRENT_REQUESTS +
+	// circuit breaker exist because of them), so the gate was not deleted — it was re-pointed at the
+	// thing it was always a proxy for: VISIBILITY, measured directly with an IntersectionObserver.
 	let {
 		resolvedCovers,
 		onMenu
@@ -32,13 +38,49 @@
 		onMenu: (track: Track) => void;
 	} = $props();
 
+	let paneEl = $state<HTMLElement | null>(null);
+	let visible = $state(false);
+
+	// Minimum on-screen height that counts as "the user can see this pane". A bare
+	// `entry.isIntersecting` fires on a ONE-PIXEL sliver, which is exactly what the sheet's `closed`
+	// peek state leaves showing — so a plain threshold-0 observer would re-introduce the fetch on
+	// every collapsed open. 48px is one list row: below that there is nothing to read anyway.
+	const MIN_VISIBLE_PX = 48;
+	// The predicate above is in PIXELS but IntersectionObserver only notifies on THRESHOLD crossings,
+	// which are RATIOS — with the default `[0]` it fires once when the pane first touches the
+	// viewport and then never again, because growing a 25px sliver into a 270px column never
+	// re-crosses 0%. Measured live: the sheet dragged peek -> full left `visible` stuck at false and
+	// the fetch never fired. This ladder re-notifies across the range so the px predicate is actually
+	// re-evaluated as the sheet moves. It is a notification-density knob, NOT a second gate — every
+	// callback still decides on `intersectionRect.height`.
+	const RATIOS = [0, 0.01, 0.05, 0.1, 0.2, 0.35, 0.5, 0.75, 1];
+
+	$effect(() => {
+		const el = paneEl;
+		if (!el || typeof IntersectionObserver === 'undefined') {
+			// No IO (SSR / ancient engine) -> fall back to "mounted means visible", i.e. exactly the
+			// old tab-gated behaviour. Never LESS eager than before, so no lyrics/related regression.
+			visible = !!el;
+			return;
+		}
+		const io = new IntersectionObserver(
+			(entries) => {
+				const e = entries[entries.length - 1];
+				visible = e.isIntersecting && e.intersectionRect.height >= MIN_VISIBLE_PX;
+			},
+			{ threshold: RATIOS }
+		);
+		io.observe(el);
+		return () => io.disconnect();
+	});
+
 	// ---- related ----
 	let related = $state<Track[]>([]);
 	let relatedLoading = $state(false);
 	let relatedFor = '';
 	$effect(() => {
 		const cur = player.current;
-		if (cur && relatedFor !== cur.uid) {
+		if (visible && cur && relatedFor !== cur.uid) {
 			relatedFor = cur.uid;
 			related = [];
 			relatedLoading = true;
@@ -62,11 +104,13 @@
 	// /api/deezer/search, typically far fewer, <=6 in flight, ~0 on re-open (skip-cached + the 5-min
 	// miss memo). This is emphatically NOT a per-row `use:lazyCover` on Related — T-26-10-01 holds.
 	//
-	// `related` is reassigned ONLY by its own fetch effect (once per track change), so adding it as
-	// a dependency cannot loop; `backfillCovers` runs under `untrack` and this effect never reads
-	// `coverVersion()`, so `onResolved -> bumpCoverVersion` repaints the tiles without re-triggering
-	// the fill (cf. restore-effect-self-invalidation-loop).
+	// quick-260919-np3: gated on the SAME `visible` signal as the fetch above, so an off-screen
+	// column costs nothing. `related` is reassigned ONLY by its own fetch effect (once per track
+	// change), so adding it as a dependency cannot loop; `backfillCovers` runs under `untrack` and
+	// this effect never reads `coverVersion()`, so `onResolved -> bumpCoverVersion` repaints the
+	// tiles without re-triggering the fill (cf. restore-effect-self-invalidation-loop).
 	$effect(() => {
+		if (!visible) return;
 		const needs = upNextCoverNeeds(related);
 		if (!needs.length) return;
 		const ac = new AbortController();
@@ -122,7 +166,10 @@
 	}
 </script>
 
-<div class="rel-pane">
+<!-- The IntersectionObserver target. `min-height` keeps it a real, measurable box in every state
+     (mid-fetch skeleton, no-related empty text, or a short list) so an empty pane can neither
+     collapse its grid column at >=1280px nor make the observer report a zero-height rect. -->
+<div class="rel-pane" bind:this={paneEl}>
 	{#if related.length}
 		<ul class="list">
 			{#each related as track (track.uid)}
