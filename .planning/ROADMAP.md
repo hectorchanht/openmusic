@@ -229,10 +229,10 @@ Plans:
 Captured 2026-09-19 (user batch dump):
 
 - ~~Long-press menu: **"Mark no more import"** + recovery list~~ — SHIPPED 2026-09-19 as quick-260919-30x (bounded `openmusic:import-exclusions:v1` honoured by the Phase 34 scan; "Allow again" list under Settings → Downloads; the user's own file is never touched).
-- Changing a song's cover must also **rewrite the cover into the downloaded file**, and the system must remember the override.
+- ~~Changing a song's cover must also **rewrite the cover into the downloaded file**, remembered by the system~~ — SHIPPED 2026-09-19 as quick-260919-3j1 (the existing cover PIN is the memory; the file is rewritten eagerly on an explicit pin and lazily in the Settings sweep — never on an automatic resolve or `healCover`).
 - ~~Allow the user to **rename the downloaded file**~~ — SHIPPED 2026-09-19 as quick-260919-30x (filename row in the metadata editor; native-only, app-downloaded tracks only, refused for imported `device:` files).
-- Downloaded songs still show **meta: size, format, quality/bitrate**.
-- **Offline playback reads lyrics from the downloaded file** — a downloaded song should be fully self-sufficient offline.
+- ~~Downloaded songs still show **meta: size, format, quality/bitrate**~~ — SHIPPED 2026-09-19 as quick-260919-3j1 (`blobStore.stat` + a magic-byte container sniff; read from the local bytes, zero network; Downloaded row + Detail sheet).
+- ~~**Offline playback reads lyrics from the downloaded file**~~ — SHIPPED 2026-09-19 as quick-260919-3j1 (lyrics are embedded on the first successful online fetch, once per uid per session; a user's lyric pin also reaches the file; offline does no network walk at all and says so honestly).
 - Song meta must go through the app's **locale translation** too (observed: 简体 "过一招" album tag under a 繁體 title).
 - **Full metadata editor for a downloaded song** — a popup from the song menu that edits every meta field (song name, artist name, album, …) and writes the result into the file's tags. Cover stays synced with the edit, lyrics stay synced with the edit. (Added 2026-09-19, same batch.)
 
