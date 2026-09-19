@@ -7,16 +7,31 @@
 	// so every surface (home/search/artist/up-next/related) shows identical indicators with no style
 	// drift (D-08 one-shared-thing philosophy). Renders NOTHING unless the row is liked and/or downloaded.
 	//
+	// quick-260919-l9e (D-5) — A PASSIVE BADGE YIELDS TO AN ACTIVE CONTROL. When the row itself renders
+	// the button for a state (SongRow's inline ♥ / DownloadControl), the host passes hideLiked /
+	// hideDownloaded and this component drops that glyph: two hearts for one fact is a bug, and
+	// DownloadControl already draws the ✓ and the 34-D-06 ⚠ itself, so nothing is lost. Both default
+	// false, so every pre-existing call site is byte-identical.
+	//
 	// Identity note: only rows carrying a real source uid (`<source>:<id>`) match — name-stub rows with
 	// uid:'' (e.g. the charts DiscoveryTrack lists) can never light up, so they intentionally omit this.
 	import { Heart, Check, CircleAlert } from '@lucide/svelte';
 	import { library } from '$lib/stores/library.svelte';
 	import { t } from '$lib/i18n';
 
-	let { uid, size = 14 }: { uid: string; size?: number } = $props();
+	let {
+		uid,
+		size = 14,
+		hideLiked = false,
+		hideDownloaded = false
+	}: { uid: string; size?: number; hideLiked?: boolean; hideDownloaded?: boolean } = $props();
 
-	const liked = $derived(!!uid && library.isLiked(uid));
-	const downloaded = $derived(!!uid && library.isDownloaded(uid));
+	// quick-260919-l9e (D-5): the suppression is gated at the $derived, NOT just in the markup — a
+	// badge the row will never draw must not hold a live library subscription either (D-7: these
+	// rows render 24+ at a time). `unavailable` is only read inside the `downloaded` branch, so it
+	// follows for free.
+	const liked = $derived(!hideLiked && !!uid && library.isLiked(uid));
+	const downloaded = $derived(!hideDownloaded && !!uid && library.isDownloaded(uid));
 	// 34-D-06: an imported song whose file the OS no longer has is still a download — it stays
 	// listed and is MARKED, never silently dropped. Same badge slot, so no row reflows.
 	const unavailable = $derived(!!uid && library.isUnavailable(uid));
