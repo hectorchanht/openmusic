@@ -381,4 +381,20 @@
 		font-weight: 600;
 		cursor: pointer;
 	}
+
+	/* ---- quick-260919-et3: the DESKTOP layout ------------------------------------------------
+	   Everything desktop lives inside this one media block and NOTHING above it was modified, so
+	   the mobile cascade is provably untouched — the only mobile-visible delta in this whole task
+	   is the additive `aria-current` attribute on the active tab.
+
+	   D-5 — `.content` is 1920px at >=1024, not unlimited. Every laptop (1440/1512/1728) therefore
+	   fills edge to edge, which is the ask, while a 3440px ultrawide does not stretch a CompactRow
+	   to 3400px (that reads as broken, not generous).
+	   ponytail: hard cap. Revisit only if someone actually runs this on an ultrawide. */
+	@media (min-width: 1024px) {
+		.content {
+			max-width: 1920px;
+			padding: 0 24px;
+		}
+	}
 </style>

@@ -23,6 +23,15 @@
 
   --nowbar-h: 64px;
   --tabbar-h: 56px;
+  /* quick-260919-et3 (D-1, D-3): width of the DESKTOP left rail — the same `<nav class="tabbar">`
+     restyled at `@media (min-width: 1024px)`, not a second nav. 1024 is the `lg` rung of the same
+     sm/md/lg scale the app's only other breakpoint (640px) already sits on, so this adds a rung,
+     not a new scale; 640 itself is far too low for a rail because landscape phones are 844-932px
+     wide and must keep the bottom bar. Consequence: iPad portrait (820px) stays mobile, iPad
+     landscape (1024px) gets the rail. 88px is YouTube Music's mini-guide width and fits the
+     existing icon-over-label `.tab` column unchanged. Consumed by `.app`/`.tabbar` in
+     `(app)/+layout.svelte` and by `.nowbar`'s desktop left offset. */
+  --rail-w: 88px;
 
   /* Appearance scales (quick-260607-fnp). Multipliers off each rule's base font-size / tile
      size; 1 = today. settings.applyTheme() overrides these on <html> from the user's % choice. */
