@@ -398,18 +398,25 @@
 	// AND for a source that reports no tier — both render nothing (never an empty pill).
 	// Same read order as TrackMenu.svelte:429 / VersionPicker.svelte:58.
 	const qualityTag = $derived(player.current?.qualityLabel || player.current?.quality || null);
+	// debug page-switch-lag-tap-dead: goto() runs FIRST via overlays.navigateAway(), and the sheet is
+	// collapsed by its close() handler AFTERWARDS with history.back() suppressed. The old order
+	// (`player.collapse(); goto(...)`) closed the sheet but never navigated: the unmount's $effect
+	// cleanup (below) fired overlays.dismiss → history.back(), and SvelteKit's popstate handler
+	// invalidates the in-flight navigation token BEFORE it decides the entry is unchanged
+	// (kit client.js: `token = {}` precedes the `history_index === current_history_index` return),
+	// so goto() resolved as a silent no-op. Same bug + same fix as TrackMenu.gotoArtist().
 	function openArtistName(name: string) {
 		if (!name) return;
-		player.collapse();
-		goto(`/artist/${encodeURIComponent(name)}`);
+		overlays.navigateAway(() => goto(`/artist/${encodeURIComponent(name)}`));
 	}
 
 	// ---- back-gesture: NowPlaying only renders while player.expanded, so mount == overlay
 	// open. The back gesture runs player.collapse() (→ unmount → cleanup dismisses); the
-	// header ChevronDown, cover drag-collapse, and openArtist all also call player.collapse(),
-	// so they route through the SAME single dismiss path (the $effect cleanup). History depth
-	// stays balanced: open pushes 1 state, cleanup's dismiss() pops it (or back-gesture's
-	// closeTop already popped it → dismiss is a no-op).
+	// header ChevronDown and cover drag-collapse also call player.collapse(), and openArtistName
+	// reaches it through navigateAway's close() sweep, so they all route through the SAME single
+	// dismiss path (the $effect cleanup). History depth stays balanced: open pushes 1 state,
+	// cleanup's dismiss() pops it (or back-gesture's closeTop already popped it → dismiss is a
+	// no-op; or navigateAway is mid-flight → back() is suppressed so the destination survives).
 	$effect(() => {
 		// untrack: overlays.open/dismiss READ the $state overlay stack internally (isTop/has).
 		// Without untrack this effect would capture that stack as a dependency and RE-RUN
