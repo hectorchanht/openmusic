@@ -72,6 +72,87 @@ describe('dictionaries', () => {
 	});
 });
 
+describe('quick-260919-ebi dead strings', () => {
+	// The parity test above only proves the 15 dictionaries AGREE. It stays perfectly green while
+	// all 15 carry the SAME dead string — which is exactly the failure mode a settings sweep
+	// produces. These assertions close that hole for the keys this task orphaned or introduced.
+	//
+	// Three descriptions were DELETED outright, because their live preview says the whole sentence
+	// and a tooltip would only restate the picture:
+	//   themeDesc        -> two cards painted in the two real palettes
+	//   nowbarLyricsDesc -> two mini bars, artist line vs lyric line ("instead of the artist name")
+	//   showSearchPillDesc -> the Home header mock with and without the pill
+	//
+	// The rest were SHORTENED and moved behind the SettingHint (i) disclosure rather than deleted,
+	// because each carries something the mock cannot show — a trigger condition, a caveat, or a
+	// distinction from a neighbouring setting. Keeping them PRESENT is the assertion: a later
+	// "tidy-up" that deletes them would be deleting information, not clutter.
+	const ABSENT = [
+		'settings.themeDesc',
+		'settings.nowbarLyricsDesc',
+		'settings.showSearchPillDesc'
+	] as const;
+	const PRESENT = [
+		'settings.optOn',
+		'settings.appearanceMotion',
+		'settings.aboutSetting',
+		'settings.translateModeOffNote',
+		'settings.translateModeOnNote',
+		'settings.autoExpandDesc',
+		'settings.showQualityTagDesc',
+		'settings.showRandomizeDesc',
+		'settings.tileDensityDesc'
+	] as const;
+
+	it('the deleted description keys are gone from EVERY locale, not just en', () => {
+		for (const lang of Object.keys(dicts) as Array<keyof typeof dicts>) {
+			for (const key of ABSENT) {
+				expect(
+					Object.prototype.hasOwnProperty.call(dicts[lang], key),
+					`${lang}.${key} should be deleted — its live preview replaced it`
+				).toBe(false);
+			}
+		}
+	});
+
+	it('the added + kept-short keys are present and non-blank in EVERY locale', () => {
+		for (const lang of Object.keys(dicts) as Array<keyof typeof dicts>) {
+			for (const key of PRESENT) {
+				expect(dicts[lang][key], `${lang}.${key} should exist and be non-blank`).toBeTruthy();
+			}
+		}
+	});
+
+	it('no source file still references a deleted key', () => {
+		// The dictionaries can be clean while a page still calls t('settings.themeDesc'), which
+		// would render the raw key string on screen (lookupKey returns the key, never blank).
+		const SRC = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
+		const files: string[] = [];
+		const walk = (dir: string) => {
+			for (const e of readdirSync(dir, { withFileTypes: true })) {
+				const full = join(dir, e.name);
+				if (e.isDirectory()) walk(full);
+				// Skip tests: this file and settings-ui.test.ts NAME the deleted keys on purpose.
+				else if (/\.(ts|svelte)$/.test(e.name) && !/\.test\.ts$/.test(e.name)) files.push(full);
+			}
+		};
+		walk(SRC);
+		expect(files.length).toBeGreaterThan(100);
+		for (const key of ABSENT) {
+			const offenders = files.filter((f) => readFileSync(f, 'utf-8').includes(key));
+			expect(offenders, `${key} is deleted but still referenced`).toEqual([]);
+		}
+	});
+
+	it('the kept-short descriptions are actually SHORT in en (they moved into a tooltip)', () => {
+		// The point of the disclosure was a quieter page. A 250-character paragraph behind an (i)
+		// is still a paragraph; these were rewritten down, and this keeps them down.
+		for (const key of ['settings.autoExpandDesc', 'settings.showQualityTagDesc', 'settings.showRandomizeDesc'] as const) {
+			expect(dicts.en[key].length, `en.${key} should be a short line, not a paragraph`).toBeLessThan(90);
+		}
+	});
+});
+
 describe('quote-style convention (IN-01)', () => {
 	// CLAUDE.md mandates DOUBLE quotes for every key AND value in src/lib/i18n/*.ts (a
 	// manual, formatter-less convention — no tool enforces it). This test makes the
