@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 // PURE module — no runes, no $app/environment — so the node Vitest project compiles it.
 import * as mod from './local-tags';
-import { localEnrichment, __resetLocalTagsMemo } from './local-tags';
+import { localEnrichment, forgetLocalEnrichment, __resetLocalTagsMemo } from './local-tags';
 import { writeAudioTags, dataUrlToBytes, TAG_MAX_BYTES } from './audio-tags';
 import { MAX_ART_BYTES } from './media-artwork';
 
@@ -44,7 +44,7 @@ beforeEach(() => __resetLocalTagsMemo());
 
 describe('local-tags — module shape and purity', () => {
 	it('exports only the memo service surface, named, with no default', () => {
-		expect(Object.keys(mod).sort()).toEqual(['__resetLocalTagsMemo', 'localEnrichment']);
+		expect(Object.keys(mod).sort()).toEqual(['__resetLocalTagsMemo', 'forgetLocalEnrichment', 'localEnrichment']);
 		expect((mod as Record<string, unknown>).default).toBeUndefined();
 	});
 
@@ -169,5 +169,29 @@ describe('local-tags — memo (37-D-06)', () => {
 		expect((await localEnrichment('device:evict-7', blob)).cached).toBe(true);
 		expect((await localEnrichment('device:evict-0', blob)).cached).toBeFalsy();
 		expect(spy).toHaveBeenCalledTimes(9);
+	});
+});
+
+// quick-260919-1eh — a retag REWRITES the bytes under a uid the memo is already keyed by, so the
+// rewriter has to be able to drop exactly that one entry. Per-uid, not __resetLocalTagsMemo(): the
+// other five entries describe files nobody touched and re-decoding them costs the wasm pass again.
+describe('local-tags — forgetLocalEnrichment (per-uid eviction after a rewrite)', () => {
+	it('drops exactly that uid — it re-decodes, a sibling still answers from the memo', async () => {
+		const blob = await blobWith({ title: 'T', lyrics: LRC });
+		const spy = vi.spyOn(blob, 'arrayBuffer');
+		await localEnrichment('netease:edited', blob);
+		await localEnrichment('netease:untouched', blob);
+		expect(spy).toHaveBeenCalledTimes(2);
+
+		forgetLocalEnrichment('netease:edited');
+
+		expect((await localEnrichment('netease:edited', blob)).cached).toBeFalsy();
+		expect(spy).toHaveBeenCalledTimes(3);
+		expect((await localEnrichment('netease:untouched', blob)).cached).toBe(true);
+		expect(spy).toHaveBeenCalledTimes(3);
+	});
+
+	it('an unknown uid is a harmless no-op (never throws)', () => {
+		expect(() => forgetLocalEnrichment('netease:never-seen')).not.toThrow();
 	});
 });

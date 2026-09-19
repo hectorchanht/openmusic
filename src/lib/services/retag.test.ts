@@ -19,7 +19,8 @@ const mocks = vi.hoisted(() => ({
 		async (blob: Blob, _f: unknown, _a?: unknown): Promise<TagOutcomeLike> => ({ blob, result: 'tagged', format: 'm4a' })
 	),
 	readAudioTags: vi.fn(async (_b: Uint8Array): Promise<Record<string, unknown> | null> => ({ title: 'T', format: 'm4a' })),
-	resolveArtworkDataUrl: vi.fn(async (_q: unknown): Promise<string | null> => 'data:image/png;base64,AA')
+	resolveArtworkDataUrl: vi.fn(async (_q: unknown): Promise<string | null> => 'data:image/png;base64,AA'),
+	forgetLocalEnrichment: vi.fn((_uid: string) => {})
 }));
 
 vi.mock('$lib/services/blob-store', () => ({ blobStore: { get: mocks.get, put: mocks.put } }));
@@ -32,9 +33,13 @@ vi.mock('./audio-tags', async (orig) => ({
 	readAudioTags: mocks.readAudioTags
 }));
 vi.mock('./media-artwork', () => ({ resolveArtworkDataUrl: mocks.resolveArtworkDataUrl }));
+// quick-260919-1eh: stubbed rather than spread — the real module pulls the wasm codec in, and the
+// only thing retag asks of it is the one-line per-uid memo eviction.
+vi.mock('$lib/services/local-tags', () => ({ forgetLocalEnrichment: mocks.forgetLocalEnrichment }));
+vi.mock('./local-tags', () => ({ forgetLocalEnrichment: mocks.forgetLocalEnrichment }));
 
 import * as retagModule from './retag';
-import { retagDownloads, type RetagEntry } from './retag';
+import { retagDownloads, retagOne, type RetagEntry } from './retag';
 
 function entry(n: number, over: Partial<RetagEntry> = {}): RetagEntry {
 	return { uid: `netease-${n}`, title: `T${n}`, artist: `A${n}`, album: `Al${n}`, cover: null, ...over };
@@ -52,6 +57,7 @@ beforeEach(() => {
 		format: 'm4a'
 	}));
 	mocks.resolveArtworkDataUrl.mockReset().mockResolvedValue('data:image/png;base64,AA');
+	mocks.forgetLocalEnrichment.mockReset();
 });
 
 describe('retag — per-file isolation (36-D-19)', () => {
@@ -195,8 +201,63 @@ describe('retag — module shape / purity', () => {
 		expect(code).not.toMatch(/displayIndex/);
 	});
 
-	it('exports exactly retagDownloads at runtime, with no default export', () => {
-		expect(Object.keys(retagModule)).toEqual(['retagDownloads']);
+	it('exports exactly the batch loop + its per-item step at runtime, with no default export', () => {
+		// quick-260919-1eh: retagOne is public now — it is the metadata editor's ENTIRE save path.
+		expect(Object.keys(retagModule)).toEqual(['retagDownloads', 'retagOne']);
 		expect(src).not.toMatch(/export default/);
+	});
+});
+
+// quick-260919-1eh — retagOne is now BOTH the batch loop's per-item step and the metadata editor's
+// entire save. Three new obligations: lyrics thread through, `device:` files are refused before any
+// blobStore call, and a successful rewrite evicts the local-tags memo keyed by that uid.
+describe('retag — the single-file save path (quick-260919-1eh)', () => {
+	it('lyrics set → passed through to the codec verbatim', async () => {
+		const lrc = '[00:12.34]line one';
+		expect(await retagOne(entry(1, { lyrics: lrc }))).toBe('tagged');
+		const fields = mocks.tagAudioBlob.mock.calls[0][1] as Record<string, unknown>;
+		expect(fields.lyrics).toBe(lrc);
+	});
+
+	it('lyrics absent → the fields object carries NO lyrics key (omission preserves the file\'s own)', async () => {
+		await retagOne(entry(1));
+		const fields = mocks.tagAudioBlob.mock.calls[0][1] as Record<string, unknown>;
+		expect(fields.lyrics).toBeUndefined();
+	});
+
+	it('an empty-string lyrics is omission, not a clear (D-4)', async () => {
+		await retagOne(entry(1, { lyrics: '' }));
+		const fields = mocks.tagAudioBlob.mock.calls[0][1] as Record<string, unknown>;
+		expect(fields.lyrics).toBeUndefined();
+	});
+
+	it('a device: uid is refused BEFORE any blobStore call — no get, no put', async () => {
+		expect(await retagOne(entry(1, { uid: 'device:4711' }))).toBe('device-skipped');
+		expect(mocks.get).not.toHaveBeenCalled();
+		expect(mocks.put).not.toHaveBeenCalled();
+		expect(mocks.tagAudioBlob).not.toHaveBeenCalled();
+	});
+
+	it('the SHIPPED Settings sweep no longer touches an imported file: mixed list still adds up', async () => {
+		const report = await retagDownloads([entry(1), entry(2, { uid: 'device:4711' }), entry(3)]);
+		expect(report).toEqual({ total: 3, tagged: 2, skipped: { 'device-skipped': 1 } });
+		expect(report.tagged + Object.values(report.skipped).reduce((a, b) => a + b, 0)).toBe(report.total);
+		expect(mocks.put.mock.calls.map((c) => c[0])).toEqual(['netease-1', 'netease-3']);
+	});
+
+	it('a successful rewrite evicts the local-tags memo for exactly that uid', async () => {
+		await retagOne(entry(7));
+		expect(mocks.forgetLocalEnrichment).toHaveBeenCalledWith('netease-7');
+	});
+
+	it('a FAILED rewrite leaves the memo alone (the bytes on disk did not change)', async () => {
+		mocks.put.mockResolvedValue(false);
+		expect(await retagOne(entry(7))).toBe('put-failed');
+		expect(mocks.forgetLocalEnrichment).not.toHaveBeenCalled();
+
+		mocks.forgetLocalEnrichment.mockReset();
+		mocks.readAudioTags.mockResolvedValue(null);
+		expect(await retagOne(entry(8))).toBe('verify-failed');
+		expect(mocks.forgetLocalEnrichment).not.toHaveBeenCalled();
 	});
 });
