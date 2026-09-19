@@ -104,6 +104,16 @@ export type SourceLang =
  */
 export type ZhScriptSetting = 'off' | 'zh-Hant' | 'zh-Hans';
 
+/**
+ * quick-260919-l9e: the inline buttons a song row can show beside a song, BESIDES the ⋮ menu.
+ * The ⋮ is deliberately NOT a member — it always renders, which is what makes "none of them"
+ * a safe choice rather than a dead-end row.
+ */
+export type RowAction = 'like' | 'download';
+/** The canonical set AND the default left-to-right order. The settings control iterates this to
+ *  show a disabled action in a stable place, and load() validates against it. One source of truth. */
+export const ROW_ACTIONS: readonly RowAction[] = ['like', 'download'];
+
 class Settings {
 	/** UI-chrome language (separate from content translation; stays en/zh-Hant/zh-Hans). */
 	appLang = $state<AppLang>(GENERAL_DEFAULTS.appLang);
@@ -170,6 +180,11 @@ class Settings {
 	coverScale = $state<number>(APPEARANCE_DEFAULTS.coverScale);
 	/** Home fallback-grid COLUMN count (clamped 2–5; default 3 = today). */
 	homeGridCols = $state<number>(APPEARANCE_DEFAULTS.homeGridCols);
+	/** quick-260919-l9e: which inline buttons every SongRow shows, IN ORDER. The array IS the
+	 *  left-to-right layout — reordering it reorders the buttons — so it is an ordered list, never
+	 *  a set. A per-surface `actions` prop overrides it (Up Next must not grow a Download button
+	 *  just because this is on); undefined means "follow the user". */
+	rowActions = $state<RowAction[]>([...APPEARANCE_DEFAULTS.rowActions]);
 	// 32-D-02 (SUPERSEDES D-03's "default to the 128–160k band" rationale): the default is
 	// now 'auto' — lossless on a positively-identified unmetered connection, '320' otherwise.
 	// Every source ladder (QQ/JOOX/Kuwo) resolves this pref through ONE seam,
@@ -295,6 +310,17 @@ class Settings {
 				this.fontScaleNpArtist = clampInt(v.fontScaleNpArtist, FONT_SCALE_MIN, FONT_SCALE_MAX, APPEARANCE_DEFAULTS.fontScaleNpArtist);
 				this.coverScale = clampInt(v.coverScale, COVER_SCALE_MIN, COVER_SCALE_MAX, APPEARANCE_DEFAULTS.coverScale);
 				this.homeGridCols = clampInt(v.homeGridCols, GRID_COLS_MIN, GRID_COLS_MAX, APPEARANCE_DEFAULTS.homeGridCols);
+				// quick-260919-l9e / T-l9e-01 (tampering): localStorage is user/extension-writable.
+				// DELIBERATE ASYMMETRY — do not "fix" this into a single fallback: a valid but EMPTY
+				// array SURVIVES (it means "no inline buttons", a legitimate choice — the ⋮ is
+				// unconditional so the row can never become unreachable), while a NON-array is
+				// replaced by the default. Unknown and duplicate members are DROPPED rather than
+				// poisoning the order.
+				this.rowActions = Array.isArray(v.rowActions)
+					? (v.rowActions as unknown[]).filter(
+							(x, i, a): x is RowAction => ROW_ACTIONS.includes(x as RowAction) && a.indexOf(x) === i
+						)
+					: [...APPEARANCE_DEFAULTS.rowActions];
 				this.translateMode = (v.translateMode as TranslateMode) ?? TRANSLATION_DEFAULTS.translateMode;
 				// quick-260919-2jo / T-2jo-02: VALIDATED against the union, not cast. A tampered or
 				// stale `openmusic:settings:v1` must never hand a garbage token to lockScriptSync's
@@ -419,6 +445,7 @@ class Settings {
 					fontScaleNpArtist: this.fontScaleNpArtist,
 					coverScale: this.coverScale,
 					homeGridCols: this.homeGridCols,
+					rowActions: this.rowActions,
 					translateMode: this.translateMode,
 					zhScript: this.zhScript,
 					lyricsHideParenTranslation: this.lyricsHideParenTranslation,
@@ -498,6 +525,7 @@ class Settings {
 		this.fontScaleNpTitle = d.fontScaleNpTitle;
 		this.fontScaleNpArtist = d.fontScaleNpArtist;
 		this.coverScale = d.coverScale;
+		this.rowActions = [...d.rowActions];
 		this.save();
 	}
 

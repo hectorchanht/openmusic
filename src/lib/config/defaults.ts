@@ -18,7 +18,7 @@ import {
 	type HomeSectionId
 } from '$lib/services/home-layout';
 import type { SourceId } from '$lib/sources/types';
-import type { LyricsLang, SourceLang, TranslateMode, DefaultQuality, DefaultSource, Theme, ZhScriptSetting } from '$lib/stores/settings.svelte';
+import type { LyricsLang, SourceLang, TranslateMode, DefaultQuality, DefaultSource, Theme, ZhScriptSetting, RowAction } from '$lib/stores/settings.svelte';
 
 /** The accent-color hex used when the user hasn't picked one. Pulled out so the General
  *  reset can restore it without importing from settings.svelte.ts (circular). */
@@ -52,7 +52,15 @@ export const APPEARANCE_DEFAULTS = {
 	/** Now-playing artist font scale — paired with fontScaleNpTitle, same rationale. */
 	fontScaleNpArtist: 100,
 	coverScale: 100,
-	homeGridCols: 3
+	homeGridCols: 3,
+	/** quick-260919-l9e (D-1): which inline buttons a song row shows, IN ORDER — the array is a
+	 *  left-to-right layout, not a set, so moving 'download' first really moves the button.
+	 *  BOTH ON: the user explicitly asked to have these buttons, so a default that hides them
+	 *  would ship the opposite of the request. It lives in Appearance (not Playback) because it
+	 *  is what a list row LOOKS like, next to Cover size — the other "what fills a row" control.
+	 *  WR-10: this literal lives HERE and nowhere else. The ⋮ menu is NOT in this list; it is
+	 *  unconditional, which is what makes an empty array a safe user choice. */
+	rowActions: ['like', 'download'] as readonly RowAction[]
 } as const;
 
 // ---- Translation -----------------------------------------------------------------------
