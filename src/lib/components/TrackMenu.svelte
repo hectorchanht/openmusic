@@ -352,6 +352,13 @@
 		if (!track?.uid) return;
 		pinLyrics(track.uid, lrc);
 		toast.show(t('toast.lyricsPinned'));
+		// quick-260919-3j1 (F3): and into the FILE, when this app holds an offline copy. The pin above
+		// stays the in-app mechanism (it bumps the shared signal and every lyrics surface repaints
+		// through readLyrics, 1we's D-4) — but a pin lives in localStorage keyed by uid, so it is
+		// invisible to the phone's music app, to any other player, and to the file itself. The whole
+		// point of F3 is that the downloaded file is SELF-SUFFICIENT. Same explicit-tap-only gate as
+		// pickCover; see writeTagsForGesture.
+		writeTagsForGesture({ lyrics: lrc });
 		closeLyricsPicker();
 		close();
 	}

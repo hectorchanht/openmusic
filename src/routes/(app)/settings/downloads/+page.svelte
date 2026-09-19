@@ -34,6 +34,10 @@
 	import { retagDownloads, type RetagEntry } from '$lib/services/retag';
 	import { deviceImport } from '$lib/stores/device-import.svelte';
 	import { readExclusions, unexcludeUid } from '$lib/services/import-exclusions';
+	// quick-260919-3j1: the PURE pin read, not the `.svelte.ts` reactive wrapper — this is an onMount
+	// batch build, not a reactive render, and the page must not take a reactive dependency on the
+	// pin record while assembling a list.
+	import { getPinnedLyrics } from '$lib/services/lyric-pins';
 	import {
 		PRESET_ORDER,
 		PRESET_LABELS,
@@ -156,7 +160,13 @@
 				title: names.dnTitle(d.title),
 				artist: names.dnArtist(d.artist),
 				album: names.zhLock(d.album),
-				cover: readPinnedCover(d.uid) ?? readCoverByUidOrName(d.uid, d.artist, d.title) ?? d.cover
+				cover: readPinnedCover(d.uid) ?? readCoverByUidOrName(d.uid, d.artist, d.title) ?? d.cover,
+				// quick-260919-3j1 (F3): the sweep carries the PINNED LRC too. `?? undefined` so an
+				// absent pin is OMISSION — `tagAudioBlob` runs a setter only for a truthy field, so the
+				// file's own lyrics are preserved; `RetagEntry.lyrics` has no clear verb, by design.
+				// Together with the cover ladder above this makes the opt-in sweep the repair path for
+				// every file downloaded before the embed seams existed.
+				lyrics: getPinnedLyrics(d.uid) ?? d.lrc ?? undefined
 			});
 		}
 		eligible = out;
