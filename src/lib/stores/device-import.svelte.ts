@@ -30,6 +30,7 @@ import {
 	type ImportRules,
 	type PatternRejection
 } from '$lib/services/device-filename';
+import { excludedUids } from '$lib/services/import-exclusions';
 import type { ScanRow } from '$lib/services/device-track';
 import { library } from '$lib/stores/library.svelte';
 import { blobStore } from '$lib/services/blob-store';
@@ -191,7 +192,11 @@ class DeviceImport {
 		const v = this.rules.customPattern ? validateCustomPattern(this.rules.customPattern) : null;
 		const custom = v && v.ok ? v.re : null;
 
-		const plan = syncDevice(library.downloads, rows, this.rules, { complete, custom });
+		// quick-260919-30x: the user's per-file "don't import again" marks. Read HERE, at call time,
+		// not at module load or on mount — the user may have marked files from the track menu since
+		// this page was opened, and a scan that ignored those marks would put every one of them
+		// straight back.
+		const plan = syncDevice(library.downloads, rows, this.rules, { complete, custom, excluded: excludedUids() });
 
 		// RELINK FIRST, then the downloads commit (34-06's handoff): the stored public URI must be
 		// in the index before the entry it belongs to is published, or a relinked song is playable

@@ -21,7 +21,7 @@
 // ponytail: add getVersion() + content re-match (displayName + size + duration) if that ever bites.
 
 import type { Track } from '$lib/sources/types';
-import { isDeviceUid, rowToTrack, type ScanRow } from './device-track';
+import { deviceUid, isDeviceUid, rowToTrack, type ScanRow } from './device-track';
 import { extOf, parseFilename, type ImportRules } from './device-filename';
 import { matchKey } from './match-key';
 
@@ -57,6 +57,9 @@ export interface ImportSummary {
 	skippedExt: number;
 	skippedRule: number;
 	skippedOutside: number;
+	/** quick-260919-30x: files the user marked "don't import again". Its OWN line in the summary —
+	 *  folding it into skippedRule would report the user's explicit choice as a preset's doing. */
+	skippedExcluded: number;
 	/** The floor in force — UI-SPEC's skipTooShort line carries the actual `{seconds}`. */
 	minSeconds: number;
 	/** false → the D-07 drop pass did NOT run (cancelled or failed scan). */
@@ -76,6 +79,7 @@ export function emptySummary(rules: ImportRules): ImportSummary {
 		skippedExt: 0,
 		skippedRule: 0,
 		skippedOutside: 0,
+		skippedExcluded: 0,
 		minSeconds: rules?.minSeconds ?? 0,
 		complete: true,
 		patternFellBack: false
@@ -85,7 +89,11 @@ export function emptySummary(rules: ImportRules): ImportSummary {
 export type RowVerdict =
 	| { kind: 'import'; track: Track }
 	| { kind: 'relink'; uid: string; uri: string }
-	| { kind: 'skip'; reason: 'short' | 'ext' | 'rule' | 'outside' };
+	| { kind: 'skip'; reason: 'short' | 'ext' | 'rule' | 'outside' | 'excluded' };
+
+/** quick-260919-30x / D-10: the default for `classifyRow`'s optional 5th argument. Module-level and
+ *  frozen so every existing call site keeps today's behaviour without allocating a set per row. */
+const EMPTY_EXCLUDED: ReadonlySet<string> = Object.freeze(new Set<string>());
 
 export interface SyncPlan {
 	downloads: Track[];
@@ -100,19 +108,33 @@ function isInside(relativePath: string): boolean {
 }
 
 /**
- * One row → exactly one verdict. Filters run in the order outside → ext → short → rule, so a row
- * failing several is counted ONCE, under the first — a summary whose categories add up to more than
- * the file count is worse than no summary.
+ * One row → exactly one verdict. Filters run in the order outside → excluded → ext → short → rule,
+ * so a row failing several is counted ONCE, under the first — a summary whose categories add up to
+ * more than the file count is worse than no summary.
+ *
+ * quick-260919-30x: `excluded` is the user's per-file "don't import again" mark (the record lives in
+ * import-exclusions.ts). Optional with a frozen empty default (D-10) so every existing call site is
+ * byte-identical to today.
  */
 export function classifyRow(
 	row: ScanRow,
 	rules: ImportRules,
 	existingByKey: Map<string, Track>,
-	custom: RegExp | null
+	custom: RegExp | null,
+	excluded: ReadonlySet<string> = EMPTY_EXCLUDED
 ): RowVerdict {
 	// A missing/malformed row has no folder, so it fails the scope test first — same as a real row
 	// from somewhere we do not scan. Never throws on a null.
 	if (!row || !isInside(row.relativePath)) return { kind: 'skip', reason: 'outside' };
+
+	// quick-260919-30x — ORDERING, stated because it is a decision and not an accident:
+	//  · `outside` stays FIRST. A malformed or null row has no folder and must never reach an id read.
+	//  · `excluded` comes SECOND, ahead of every generic filter, because an explicit per-file choice
+	//    by the user outranks anything a preset inferred — and a row failing several filters must
+	//    still be counted exactly once, under the one that actually describes why.
+	// Placing it here (not after `rowToTrack`) also means a marked file never runs `parseFilename`
+	// and never spends the custom-pattern ReDoS budget (T-30x-06) — strictly less work than today.
+	if (excluded.has(deviceUid(row.id ?? ''))) return { kind: 'skip', reason: 'excluded' };
 
 	const ext = extOf(row.displayName ?? '');
 	if (!ext || !rules.extensions.includes(ext)) return { kind: 'skip', reason: 'ext' };
@@ -164,7 +186,15 @@ export function classifyRow(
  * `opts.complete` is the whole D-08 reconciliation. A cancelled or failed walk cannot tell "the file
  * is gone" from "we never reached that page", so it returns a plan that only ever ADDS.
  */
-export function syncDevice(existing: Track[], rows: ScanRow[], rules: ImportRules, opts: { complete: boolean; custom: RegExp | null }): SyncPlan {
+export function syncDevice(
+	existing: Track[],
+	rows: ScanRow[],
+	rules: ImportRules,
+	opts: { complete: boolean; custom: RegExp | null; excluded?: ReadonlySet<string> }
+): SyncPlan {
+	// quick-260919-30x / D-10: optional, defaulted here so the store is the only caller that has to
+	// know the feature exists.
+	const excluded = opts.excluded ?? EMPTY_EXCLUDED;
 	const summary = emptySummary(rules);
 	summary.complete = opts.complete;
 
@@ -209,20 +239,21 @@ export function syncDevice(existing: Track[], rows: ScanRow[], rules: ImportRule
 			// and, once the run's cumulative budget is gone, finish the scan with the D-13 presets
 			// instead of hanging the single-threaded WebView. The UI surfaces toast.patternFellBack.
 			const started = performance.now();
-			verdict = classifyRow(row, rules, existingByKey, custom);
+			verdict = classifyRow(row, rules, existingByKey, custom, excluded);
 			spent += performance.now() - started;
 			if (spent > PATTERN_SCAN_BUDGET_MS) {
 				custom = null;
 				summary.patternFellBack = true;
 			}
 		} else {
-			verdict = classifyRow(row, rules, existingByKey, null);
+			verdict = classifyRow(row, rules, existingByKey, null, excluded);
 		}
 
 		if (verdict.kind === 'skip') {
 			if (verdict.reason === 'short') summary.skippedShort++;
 			else if (verdict.reason === 'ext') summary.skippedExt++;
 			else if (verdict.reason === 'rule') summary.skippedRule++;
+			else if (verdict.reason === 'excluded') summary.skippedExcluded++;
 			else summary.skippedOutside++;
 			continue;
 		}
@@ -265,6 +296,11 @@ export function syncDevice(existing: Track[], rows: ScanRow[], rules: ImportRule
 		// 34-D-07 / D-08: DROP ONLY ON A COMPLETE SCAN — a cancelled or failed walk cannot tell
 		// "gone" from "never reached", and treating the second as the first is the transient-failure
 		// data loss D-08 exists to forbid.
+		//
+		// quick-260919-30x: an ALREADY-IMPORTED entry the user has since marked is simply never
+		// `seen` (classifyRow skipped its row), so it falls through THIS existing lane — which is
+		// also why an incomplete scan still keeps it listed. DO NOT add a second removal path for
+		// exclusions: the mark takes a row out of the library, it never takes a file off the disk.
 		if (opts.complete) summary.removed++;
 		else kept.push(t);
 	}
