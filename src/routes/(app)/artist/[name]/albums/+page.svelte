@@ -27,14 +27,19 @@
 		fallbackCoverSeed,
 		type DiscographyFilter
 	} from '$lib/services/discography';
+	// quick-260919-2jo: the shared tab-URL mechanism (F2) — `/artist/X/albums?tab=single` is now
+	// a real cold-load target, and switching the filter writes it back.
+	import { pickTab, syncTabUrl } from '$lib/services/url-tab';
 
 	const name = $derived(decodeURIComponent(page.params.name ?? ''));
 
 	let albums = $state<DiscographyEntry[]>([]);
 	let albumsFor = '';
 	let loading = $state(true);
-	// Preset to albums + EPs (user decision) — the noise is opt-IN, not opt-out.
-	let filter = $state<DiscographyFilter>('main');
+	// Preset to albums + EPs (user decision) — the noise is opt-IN, not opt-out. quick-260919-2jo:
+	// seeded from `?tab=`, validated against VALID_FILTERS; anything else falls back to the preset.
+	const VALID_FILTERS: ReadonlySet<string> = new Set(['main', 'single', 'all']);
+	let filter = $state<DiscographyFilter>(pickTab(page.url, 'tab', VALID_FILTERS, 'main'));
 
 	const shown = $derived(filterByType(albums, filter));
 
@@ -88,7 +93,7 @@
 			class:on={filter === f.id}
 			role="tab"
 			aria-selected={filter === f.id}
-			onclick={() => (filter = f.id)}
+			onclick={() => { filter = f.id; syncTabUrl(page.url, 'tab', f.id, 'main'); }}
 			use:tapBounce>{t(f.key)}</button
 		>
 	{/each}

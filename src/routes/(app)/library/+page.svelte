@@ -32,6 +32,9 @@
 	import type { Track } from '$lib/sources/types';
 	import type { QueueContext } from '$lib/config/defaults';
 	import { coverGradient } from '$lib/services/cover-gradient';
+	// quick-260919-2jo: the shared tab-URL mechanism. This page READ `?tab=` (D-13) but never
+	// wrote it back — pickTab is that read, syncTabUrl is the missing half.
+	import { pickTab, syncTabUrl } from '$lib/services/url-tab';
 
 	// UX-04 / D-03/D-04: swipe-right = add to queue (player.addToQueue, append-to-end), swipe-left
 	// = play next (player.playNext, splice-after-current) — same semantics as TrackMenu, plus the
@@ -61,8 +64,12 @@
 		try {
 			// A valid ?playlist deep-link forces the Playlists tab (its detail view lives there).
 			if (loadInitialPlaylist()) return 'playlists';
-			const qp = page.url.searchParams.get('tab');
-			if (qp && VALID_TABS.has(qp as Tab)) return qp as Tab;
+			// quick-260919-2jo: the inline read+validate is now `pickTab` (same allowlist, same
+			// T-23-10 fallback). Precedence is UNCHANGED: ?playlist beats ?tab beats the stored tab.
+			// A sentinel fallback distinguishes "no usable ?tab=" from a real `?tab=liked`, so the
+			// stored tab is still consulted in the former case only.
+			const qp = pickTab(page.url, 'tab', VALID_TABS, '' as Tab | '');
+			if (qp) return qp;
 			const raw = localStorage.getItem(TAB_KEY);
 			if (raw && VALID_TABS.has(raw as Tab)) return raw as Tab;
 		} catch {
@@ -97,6 +104,10 @@
 		detailPlaylistId = null;
 		if (!browser) return;
 		try { localStorage.setItem(TAB_KEY, v); } catch { /* quota — non-fatal */ }
+		// quick-260919-2jo: …and the address bar, so the tab is linkable and survives a reload.
+		// 'liked' is the default and stays OUT of the URL (D-5). Raw replaceState inside — no new
+		// history entry, so Back still leaves the page rather than replaying tab switches.
+		syncTabUrl(page.url, 'tab', v, 'liked');
 	}
 	// kyf-followup: active-tab label, so the pill row can shrink to icon-only and fit all 5 tabs.
 	// quick-260915-vb9: this IS the page heading now — the bottom nav already says "Library", so
