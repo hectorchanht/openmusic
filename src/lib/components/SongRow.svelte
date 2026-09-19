@@ -96,7 +96,10 @@
 		actions?: RowAction[];
 		/** Second line. Default `names.dnArtist(track.album || track.artist)`. */
 		subtitle?: string;
-		/** A host-known cover → rung 2 of pickRowCover. Omit and the shared chain resolves it. */
+		/** A host-known cover → rung 2 of pickRowCover. OMIT and it defaults to `track.cover`, the
+		 *  song's own source art, which is what every list surface passed here by hand. Pass an
+		 *  explicit value only to override that (the album tracklist passes the album hero, whose
+		 *  stub rows carry no source cover of their own). `null` forces the rung empty. */
 		cover?: string | null;
 		/** Highlight. Default: this is the currently-playing track. */
 		active?: boolean;
@@ -120,7 +123,7 @@
 		grip = false,
 		actions = undefined,
 		subtitle = undefined,
-		cover = null,
+		cover = undefined,
 		active = undefined,
 		lazy = true,
 		danger = false
@@ -148,7 +151,9 @@
 		pickRowCover(
 			readPinnedCover(track.uid),
 			resolvedCover ?? undefined,
-			cover,
+			// `cover ?? track.cover` would let an explicit `null` fall THROUGH to track.cover, which
+			// is the opposite of what passing null means. Only an OMITTED prop defaults.
+			cover === undefined ? track.cover : cover,
 			readCoverByUidOrName(track.uid, track.artist, track.title)
 		)
 	);

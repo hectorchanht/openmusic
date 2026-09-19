@@ -3,7 +3,6 @@
 	import { ListEnd, ListStart, ChevronLeft } from '@lucide/svelte';
 	import { getGeoTopTracks, type DiscoveryTrack } from '$lib/services/lastfm';
 	import { resolveStub } from '$lib/services/discovery';
-	import { swipeAction } from '$lib/actions/swipeAction';
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { shouldRun } from '$lib/actions/inflightGuard';
 	import { player } from '$lib/stores/player.svelte';
@@ -179,7 +178,6 @@
 				<span class="reveal reveal-left" aria-hidden="true"><ListStart size={20} /></span>
 				<SongRow
 					track={stub}
-					cover={it.image ?? null}
 					actions={[]}
 					onplay={() => play(it)}
 					onrequestmenu={() => openMenu(it)}
