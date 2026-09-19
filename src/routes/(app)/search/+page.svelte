@@ -7,11 +7,7 @@
 	import { dedupeBestWithDeezer } from '$lib/services/dedupe-deezer';
 	import { scoreMatch } from '$lib/services/score-match';
 	import { computeSetContext } from '$lib/services/score-context';
-	import { lazyCover } from '$lib/actions/lazyCover';
 	// quick-260910-qwt: the shared row cover read (resolved → track.cover → the shared cache).
-	import { pickRowCover } from '$lib/services/row-cover';
-	// quick-260915-w4f: readPinnedCover is pickRowCover's new leading rung (beats t.cover).
-	import { readCoverByUidOrName, readPinnedCover } from '$lib/stores/cover-version.svelte';
 	import { enrichArtist } from '$lib/services/lastfm';
 	import { deezerArtistCover, deezerSearchTopN, type DeezerHit } from '$lib/services/deezer';
 	import {
@@ -31,32 +27,17 @@
 	import { online } from '$lib/stores/online.svelte';
 	import { t } from '$lib/i18n';
 	import { LoaderCircle, ListEnd, ListStart, Layers, X, Trash2, Search } from '@lucide/svelte';
-	import { longpress } from '$lib/actions/longpress';
-	import { swipeAction } from '$lib/actions/swipeAction';
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { dragScroll } from '$lib/actions/dragScroll';
 	import { toast } from '$lib/stores/toast.svelte';
-	import { tick as hapticTick } from '$lib/util/haptics';
+	import SongRow from '$lib/components/SongRow.svelte';
 	import TrackMenu from '$lib/components/TrackMenu.svelte';
 	import VersionPicker from '$lib/components/VersionPicker.svelte';
 	import type { Track } from '$lib/sources/types';
-	import { coverGradient } from '$lib/services/cover-gradient';
 
-	// UX-04 / D-03/D-04: swipe-right = add to queue (TrackMenu addQueue semantics — append to
-	// end via player.addToQueue), swipe-left = play next (TrackMenu playNext() semantics — splice
-	// after current via player.playNext). Both fire the global toast + a commit-tier haptic tick.
-	// The reveal layer renders BEHIND the row and the row's translateX (driven by swipeAction)
-	// slides to expose it; the row springs back on release.
-	function swipeQueue(track: Track) {
-		player.addToQueue(track);
-		toast.show(t('toast.addedToQueue'));
-		hapticTick();
-	}
-	function swipeNext(track: Track) {
-		player.playNext(track);
-		toast.show(t('toast.playingNext'));
-		hapticTick();
-	}
+	// UX-04 / D-03/D-04 swipe-right = queue, swipe-left = play next: the handlers moved INTO
+	// SongRow (quick-260919-l9e), which is why this page no longer declares them. The reveal
+	// layers below stay here — they are the .swipe-wrap's decoration, not the row's.
 
 	let menuTrack = $state<Track | null>(null);
 	let menuOpen = $state(false);
@@ -85,17 +66,10 @@
 	let q = $state('');
 	let queryInputEl = $state<HTMLInputElement | null>(null);
 	let results = $state<Track[]>([]);
-	// SRCH-02 / COVER-02: lazily-resolved covers keyed by track.uid. lazyCover fires onResolved
-	// with a SOLID https URL (Plan 02 isSolidCover gate) when a row scrolls into view and its
-	// cover is empty/broken; reassigning the object triggers a reactive repaint of that row's
-	// .art background-image. The resolve helper never refetches (cache-first + in-flight dedupe).
-	//
-	// quick-260910-qwt: this map is still rung 1, but it is no longer the row's ONLY source — the row
-	// now paints through the shared `pickRowCover` read (resolved → t.cover → the shared reactive
-	// cover cache). So a cover resolved on ANY other surface (home, library, Up Next, Related, the
-	// now-playing track) paints here on FIRST render with no intersection and no network, and repaints
-	// live via coverVersion(). A reactive READ, not a fetch: no new request path is added.
-	let resolvedCovers = $state<Record<string, string>>({});
+	// SRCH-02 / COVER-02 cover resolution (the per-row lazyCover + the shared pickRowCover read
+	// over the reactive cover cache) now lives INSIDE SongRow — quick-260919-l9e — so this page no
+	// longer keeps a uid->url map of its own. The behaviour is unchanged: a cover resolved on any
+	// other surface still paints here on first render with no intersection and no network.
 	let loading = $state(false);
 	let searched = $state(false);
 	let ac: AbortController | null = null;
@@ -322,11 +296,6 @@
 			artistTiles,
 			artistTilesFor
 		});
-	}
-
-	// Shared placeholder gradient (cover-gradient.ts) — was inlined in eight files.
-	function fallbackCover(t: Track): string {
-		return coverGradient(t.uid);
 	}
 
 	// SRCH-01 / D-01 + D-02: full score-based re-sort of the (already-deduped) result set.
@@ -758,7 +727,6 @@
 		{#each results as t (t.uid)}
 			<!-- quick-260910-qwt: the shared three-rung row cover read. It must sit directly under the
 			     {#each} — Svelte only allows {@const} as an immediate block child. -->
-			{@const art = pickRowCover(readPinnedCover(t.uid), resolvedCovers[t.uid], t.cover, readCoverByUidOrName(t.uid, t.artist, t.title))}
 			<li class="row-line">
 				<!-- VERSIONS-01: version-picker trigger. A SIBLING tap target (its own ≥44px hit area,
 				     mirroring CompactRow's .opt layout) placed BEFORE the play/grip control, so it never
@@ -782,25 +750,17 @@
 					     reachable via the long-press TrackMenu (swipe is an enhancement). -->
 					<span class="reveal reveal-queue" aria-hidden="true"><ListEnd size={20} /></span>
 					<span class="reveal reveal-next" aria-hidden="true"><ListStart size={20} /></span>
-					<button
-						class="row"
-						class:is-active={player.current?.uid === t.uid}
-						use:tapBounce
-						use:longpress
-						onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); menuTrack = t; menuOpen = true; }}
-						onclick={() => { player.setListQueue(results, 'search'); player.play(t, { fresh: true }); }}
-						use:swipeAction={{ onSwipeRight: () => swipeQueue(t), onSwipeLeft: () => swipeNext(t) }}
-					>
-						<span
-							class="art"
-							use:lazyCover={{ track: t, onResolved: (uid, url) => { resolvedCovers = { ...resolvedCovers, [uid]: url }; } }}
-							style:background-image={art ? `url(${art})` : fallbackCover(t)}
-						></span>
-						<span class="meta">
-							<span class="r-title">{names.dnTitle(t.title)}</span>
-							<span class="r-artist">{names.dnArtist(t.artist)}</span>
-						</span>
-					</button>
+					<!-- quick-260919-l9e: the shared row. `swipe` is OMITTED on purpose — this page wanted
+					     exactly the app convention (right = queue, left = play next), which now lives in
+					     the component, so the page's own swipeQueue/swipeNext are gone. Ordering is
+					     untouched: `results` is already rankList-sorted by scoreMatch and the row neither
+					     reads nor re-sorts it, it only hands the same array to setListQueue. -->
+					<SongRow
+						track={t}
+						subtitle={names.dnArtist(t.artist)}
+						onplay={() => { player.setListQueue(results, 'search'); player.play(t, { fresh: true }); }}
+						onrequestmenu={() => { menuTrack = t; menuOpen = true; }}
+					/>
 				</div>
 			</li>
 		{/each}
@@ -937,6 +897,10 @@
 	   --src-netease field) reveals from the RIGHT edge — matching the drag direction. */
 	.reveal-queue { left: 0; color: var(--color-text-muted); }
 	.reveal-next { right: 0; color: var(--color-text-muted); }
+	/* quick-260919-l9e: the RESULT row is SongRow.svelte now (its styles travelled with it).
+	   `.row` / `.art` / `.meta` and the :hover are KEPT — the 6-row loading skeleton and BOTH
+	   typeahead dropdowns (.row.suggest-row: recent searches + live suggestions) still use them.
+	   The result-row-only rules (.row.is-active, .r-title, .r-artist) went with the markup. */
 	.row {
 		width: 100%; display: flex; align-items: center; gap: 12px; padding: 8px;
 		background: var(--color-bg); position: relative; z-index: 1;
@@ -945,13 +909,8 @@
 	/* MENU-03 / D-12: hover-capable devices only — touch otherwise latches this :hover
 	   background on a row under a held finger while the track menu opens. */
 	@media (hover: hover) { .row:hover { background: var(--color-surface); } }
-	/* Active/selected row = the currently-playing track. NOT gated behind hover, so the light-grey
-	   --color-surface highlight (same token as :hover) shows on touch too. */
-	.row.is-active { background: var(--color-surface); }
 	.art { width: 48px; height: 48px; border-radius: 8px; background-size: cover; background-position: center; flex: none; }
 	.meta { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-	.r-title { font-size: calc(14px * var(--fs-title, 1)); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--color-text);}
-	.r-artist { font-size: calc(12px * var(--fs-artist, 1)); color: var(--color-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 	/* --- infinite-scroll loading state --- */
 	.sentinel { height: 1px; margin: 0; padding: 0; list-style: none; }
