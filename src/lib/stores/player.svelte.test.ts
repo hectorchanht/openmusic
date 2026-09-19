@@ -103,6 +103,9 @@ vi.mock('$lib/stores/cover-version.svelte', async (importOriginal) => {
 // 26-09 (Gap 2): spy on logAction so regenerate()'s `upnext.source` formation-source event is
 // observable. importOriginal keeps the real actionLog singleton + throttled persist for every OTHER
 // call site (play/ended/stall/…); we only WRAP logAction (call-through) so it still records calls.
+// quick-260919-3j1 (F3): the app-wide tag-rewrite serializer. The player's automatic lyric embed is
+// the ONLY automatic file writer in the app, so its gates are asserted against this mock directly.
+vi.mock('$lib/services/file-tag-sync', () => ({ syncFileTags: vi.fn(async () => 'tagged') }));
 vi.mock('$lib/stores/actionLog.svelte', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('$lib/stores/actionLog.svelte')>();
 	return { ...actual, logAction: vi.fn(actual.logAction) };
@@ -148,6 +151,7 @@ import {
 import { resolveCoverForTrack, resolveHqCover } from '$lib/services/cover-backfill';
 import { removeCoverBoth, unpinCover } from '$lib/stores/cover-version.svelte';
 import { logAction } from '$lib/stores/actionLog.svelte';
+import { syncFileTags } from '$lib/services/file-tag-sync';
 import {
 	registerServedResolve,
 	__resetResolveCacheClient
@@ -174,6 +178,8 @@ const mockLogAction = vi.mocked(logAction);
 // Phase 37: the embedded tag read and the name-only lyric walk it gates.
 const mockLocal = vi.mocked(localEnrichment);
 const mockLyricByName = vi.mocked(lyricByName);
+// quick-260919-3j1: the ONE automatic file writer.
+const mockSyncFileTags = vi.mocked(syncFileTags);
 
 function mk(source: SourceId, songid: string, artist: string, title: string): Track {
 	return {
@@ -7436,5 +7442,192 @@ describe('player.play — offline-served enrichment (Phase 37, 37-D-01..07)', ()
 		await flush();
 
 		expect((player as unknown as { playGen: number }).playGen).toBe(genAfterPlay);
+	});
+});
+
+
+// ── quick-260919-3j1 (F3) — a downloaded song's lyrics end up in its own file ─────────────────
+//
+// Two halves, both about NOT doing work that cannot help:
+//   (a) offline, `backfillLyrics` fires no walk at all — up to ~5 source rungs that cannot succeed,
+//       behind which the pane would show nothing anyway;
+//   (b) online, a SUCCESSFUL backfill for a song this app holds a copy of writes those lyrics into
+//       the file, so the next play needs no network for lyrics. This is the only AUTOMATIC file
+//       writer in the app, so its five gates are what this suite exists to pin.
+describe('player — the automatic lyric embed (quick-260919-3j1, F3)', () => {
+	let el: ReturnType<typeof makeFakeAudio>;
+	const DL = mk('kuwo', 'dl1', 'Adele', 'Hello');
+
+	/** Reach into the private per-session attempt Set so each case starts clean. */
+	const clearTried = () =>
+		(player as unknown as { lyricEmbedTried: Set<string> }).lyricEmbedTried.clear();
+
+	const playFresh = async (t: Track) => {
+		player.setQueue([t], 'downloads');
+		await player.play(t, { fresh: true });
+		await flush();
+		await flush();
+	};
+
+	beforeEach(() => {
+		(player.play as unknown as { mockRestore(): void }).mockRestore?.();
+		mockEnsure.mockReset().mockResolvedValue(mk('kuwo', 'unused', 'U', 'U'));
+		mockBlobGet.mockReset().mockResolvedValue(new Blob([new Uint8Array(16)]));
+		mockLocal.mockReset().mockResolvedValue({ lrc: null, art: null });
+		mockLyricByName.mockReset().mockResolvedValue(null);
+		mockResolveCover.mockReset().mockResolvedValue(null);
+		mockGetPinned.mockReset().mockReturnValue(null);
+		mockUidCover.mockReset().mockReturnValue(null);
+		mockNameCover.mockReset().mockReturnValue(null);
+		mockSimilar.mockReset().mockResolvedValue([]);
+		mockPicks.mockReset().mockResolvedValue([]);
+		mockSyncFileTags.mockReset().mockResolvedValue('tagged');
+		clearTried();
+		player.current = null;
+		player.queue = [];
+		player.error = null;
+		player.loading = false;
+		player.resolvedCover = null;
+		player.upNextAnchorUid = null;
+		settings.upnextMode = 'generated';
+		vi.stubGlobal('navigator', { onLine: true });
+		vi.stubGlobal('URL', { createObjectURL: () => 'blob:local-bytes', revokeObjectURL: vi.fn() });
+		vi.spyOn(library, 'isDownloaded').mockReturnValue(true);
+		library.downloads = [DL, { ...mk('kuwo', 'dev', 'Adele', 'Hello'), uid: deviceUid('77') }];
+		el = makeFakeAudio();
+		player.attach(el as unknown as HTMLAudioElement);
+	});
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
+		library.downloads = [];
+		clearTried();
+	});
+
+	// ── (a) D-5: offline fires NO walk at all ──────────────────────────────────────────────────
+	it('offline: NEITHER ensureTrackDetails NOR lyricByName is called, and current is untouched', async () => {
+		vi.stubGlobal('navigator', { onLine: false });
+		await playFresh(DL);
+
+		expect(mockEnsure).not.toHaveBeenCalled();
+		expect(mockLyricByName).not.toHaveBeenCalled();
+		expect(player.current?.lrc).toBeNull();
+		expect(mockSyncFileTags).not.toHaveBeenCalled();
+	});
+
+	it('offline: a DEVICE track fires no name walk either', async () => {
+		vi.stubGlobal('navigator', { onLine: false });
+		const d: Track = { ...mk('kuwo', '77', 'Adele', 'Hello'), uid: deviceUid('77'), audioUrl: null, lrc: null };
+		await playFresh(d);
+
+		expect(mockLyricByName).not.toHaveBeenCalled();
+		expect(mockEnsure).not.toHaveBeenCalled();
+	});
+
+	it('an environment with no navigator.onLine property reads as ONLINE, never offline', async () => {
+		vi.stubGlobal('navigator', {});
+		mockEnsure.mockResolvedValue({ ...DL, lrc: '[00:01]words' });
+		await playFresh(DL);
+
+		expect(mockEnsure).toHaveBeenCalled();
+	});
+
+	// ── (b) the embed ──────────────────────────────────────────────────────────────────────────
+	it('online: a successful backfill for a DOWNLOADED uid calls syncFileTags ONCE with that LRC', async () => {
+		mockEnsure.mockResolvedValue({ ...DL, lrc: '[00:01]words' });
+		await playFresh(DL);
+
+		expect(mockSyncFileTags).toHaveBeenCalledTimes(1);
+		const entry = mockSyncFileTags.mock.calls[0][0];
+		expect(entry.uid).toBe(DL.uid);
+		expect(entry.lyrics).toBe('[00:01]words');
+		// No filename: the sticky base in blob-store is what preserves a user-typed name.
+		expect(entry.filename).toBeUndefined();
+		expect(player.current?.lrc).toBe('[00:01]words');
+	});
+
+	it('the SAME uid does not trigger a second embed later in the session, whatever the first outcome', async () => {
+		mockSyncFileTags.mockResolvedValue('put-failed');
+		mockEnsure.mockResolvedValue({ ...DL, lrc: '[00:01]words' });
+		await playFresh(DL);
+		expect(mockSyncFileTags).toHaveBeenCalledTimes(1);
+
+		player.current = null;
+		await playFresh(DL);
+		expect(mockSyncFileTags).toHaveBeenCalledTimes(1);
+	});
+
+	it('a device: uid NEVER reaches syncFileTags (retagOne refuses it too — this is the second guard)', async () => {
+		const d: Track = { ...mk('kuwo', '77', 'Adele', 'Hello'), uid: deviceUid('77'), audioUrl: null, lrc: null };
+		mockLyricByName.mockResolvedValue('[00:05]by-name');
+		await playFresh(d);
+
+		expect(player.current?.lrc).toBe('[00:05]by-name'); // the patch still happens
+		expect(mockSyncFileTags).not.toHaveBeenCalled(); // the WRITE does not
+	});
+
+	it('a uid that is NOT in library.downloads never reaches syncFileTags', async () => {
+		vi.mocked(library.isDownloaded).mockReturnValue(false);
+		const t = mk('kuwo', 'stream1', 'Adele', 'Hello');
+		mockEnsure.mockResolvedValue({ ...t, lrc: '[00:01]words' });
+		// A streaming play still backfills lyrics on a cache hit; it just has no file to write into.
+		player.setQueue([t], 'downloads');
+		await player.play({ ...t, lrc: null }, { fresh: true });
+		await flush();
+		await flush();
+
+		expect(mockSyncFileTags).not.toHaveBeenCalled();
+	});
+
+	it('a backfill that lands AFTER the track changed patches nothing and writes nothing', async () => {
+		const d = deferred<Track>();
+		mockEnsure.mockReturnValueOnce(d.promise);
+		const other = mk('kuwo', 'other', 'B', 'T');
+
+		await playFresh(DL);
+		mockEnsure.mockResolvedValue({ ...other, audioUrl: 'https://cdn/o.mp3' });
+		await player.play(other, { fresh: true }); // bumps playGen
+		await flush();
+
+		d.resolve({ ...DL, lrc: '[00:01]stale' });
+		await flush();
+		await flush();
+
+		expect(player.current?.uid).toBe(other.uid);
+		expect(player.current?.lrc).not.toBe('[00:01]stale');
+		expect(mockSyncFileTags).not.toHaveBeenCalled();
+	});
+
+	it('playback is never awaited on: a REJECTING embed cannot escape, and audio.src is untouched', async () => {
+		mockSyncFileTags.mockRejectedValue(new Error('wasm exploded'));
+		mockEnsure.mockResolvedValue({ ...DL, lrc: '[00:01]words' });
+
+		await playFresh(DL);
+		const srcAfterPlay = el.src;
+		await flush();
+		await flush();
+
+		expect(el.src).toBe(srcAfterPlay);
+		expect(player.current?.lrc).toBe('[00:01]words'); // the patch survived the failed write
+		expect(player.error).toBeNull();
+	});
+
+	it('the embed bumps no generation', async () => {
+		mockEnsure.mockResolvedValue({ ...DL, lrc: '[00:01]words' });
+		await playFresh(DL);
+		const gen = (player as unknown as { playGen: number }).playGen;
+		await flush();
+		await flush();
+		expect((player as unknown as { playGen: number }).playGen).toBe(gen);
+	});
+
+	it('the entry carries the library row\'s own display strings, not a bare catalog echo', async () => {
+		library.downloads = [{ ...DL, title: 'Edited Title', artist: 'Edited Artist', album: 'Al' }];
+		mockEnsure.mockResolvedValue({ ...DL, lrc: '[00:01]words' });
+		await playFresh(DL);
+
+		const entry = mockSyncFileTags.mock.calls[0][0];
+		expect(entry.title).toBe('Edited Title');
+		expect(entry.artist).toBe('Edited Artist');
 	});
 });

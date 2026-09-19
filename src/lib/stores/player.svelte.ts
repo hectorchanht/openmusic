@@ -77,6 +77,10 @@ export function srcExt(url: string): string {
 }
 import { resolveStub } from '$lib/services/discovery';
 import { blobStore } from '$lib/services/blob-store';
+// quick-260919-3j1 (F3): the app-wide SERIALIZER in front of retagOne. NEVER retagOne directly —
+// one tag pass peaks at ~6x the file size, and this store's automatic embed can fire while the
+// metadata editor or a track-menu pin is already running one.
+import { syncFileTags } from '$lib/services/file-tag-sync';
 import { isDeviceUid } from '$lib/services/device-track';
 import { settings } from '$lib/stores/settings.svelte';
 import { sleepTimer } from '$lib/stores/sleepTimer.svelte';
@@ -725,6 +729,18 @@ class Player {
 	 *  lyric-less url and the backfill would be a no-op. */
 	private backfillLyrics(track: Track) {
 		if (track.lrc) return; // already have lyrics — nothing to do
+		// quick-260919-3j1 (F3 / D-5) — OFFLINE, THIS WALK CANNOT SUCCEED, SO IT DOES NOT RUN.
+		// Both branches below are network walks (up to ~5 source rungs). With no network they are a
+		// guaranteed 0-for-N, and the lyrics pane shows nothing either way — so skipping them makes
+		// the pane fall straight to the existing `nowplaying.noLyrics` ("No lyrics for this track.")
+		// instead of showing nothing behind a doomed fetch. The honest degrade; no new string.
+		//
+		// `navigator.onLine === false` is the SAME idiom runFallback's offline gate uses (see the
+		// D-08 gate below), not the `online` store: this store already listens to the platform
+		// `online` event, so the truth source is identical and no new store edge is created. The
+		// `=== false` shape is load-bearing — an environment without the property must read as
+		// ONLINE, never as offline.
+		if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
 		const uid = track.uid;
 		const myGen = this.playGen;
 		// 37-D-03: a `device:` uid cannot use the ensureTrackDetails path at all — catalog.ts returns a
@@ -741,6 +757,7 @@ class Player {
 					if (this.current?.uid !== uid) return; // current moved on — discard
 					if (!lrc) return; // no source had lyrics for this name — leave as-is
 					this.current = { ...this.current, lrc };
+					this.embedLyricsIntoFile(uid, lrc); // quick-260919-3j1 (F3)
 				})
 				.catch(() => {
 					/* lyric backfill is best-effort — audio already plays from the local file */
@@ -753,11 +770,80 @@ class Player {
 				if (this.current?.uid !== uid) return; // current moved on — discard
 				if (!resolved.lrc) return; // resolve produced no lyrics — leave as-is
 				this.current = { ...this.current, lrc: resolved.lrc, lrcUrl: resolved.lrcUrl };
+				this.embedLyricsIntoFile(uid, resolved.lrc); // quick-260919-3j1 (F3)
 			})
 			.catch(() => {
 				/* lyric backfill is best-effort — audio already plays from the blob */
 			});
 	}
+
+	/**
+	 * quick-260919-3j1 (F3) — THE ONLY AUTOMATIC FILE WRITER IN THE APP.
+	 *
+	 * When the network DOES produce lyrics for a song this app holds an offline copy of, put them in
+	 * the FILE, so the NEXT play needs no network for lyrics at all. Without this, a downloaded song
+	 * re-walks up to ~5 sources for its words on every single play, and is silent offline.
+	 *
+	 * WHY THIS CANNOT THRASH, in full — it is the only automatic writer, so the argument has to be
+	 * complete:
+	 *   1. It can ONLY fire for a file whose own tags carried no usable LRC. `enrichFromLocalFile`
+	 *      gates `backfillLyrics` on exactly that (`local-tags.ts`, 37-D-07).
+	 *   2. It is SELF-TERMINATING. Once the LRC is in the file, the next play's `localEnrichment`
+	 *      finds it, `backfillLyrics` is never called for that uid again, and neither is this.
+	 *   3. ONE attempt per uid per session even when it fails — the uid joins the Set BEFORE the
+	 *      await, so a failure cannot retry on every subsequent play.
+	 *   4. Serialized app-wide by `syncFileTags`, so it can never run beside an editor save or a pin.
+	 *   5. `tagAudioBlob` refuses anything over TAG_MAX_BYTES (40 MB) with 'skipped-size', leaving
+	 *      the file byte-identical.
+	 * Contrast with the cover side, which has NO automatic writer at all: `healCover` can fire per
+	 * render on a flaky image, and rewriting a 27 MB FLAC's tags there would be catastrophic. A
+	 * cover pin already makes the user's choice permanent in the app without touching the file.
+	 *
+	 * OFF THE CRITICAL PATH, like `backfillLyrics` itself ("the template for every off-critical-path
+	 * patch in this store"): never awaited, never bumps a generation, never touches `audio.src`.
+	 *
+	 * ponytail: it runs WHILE the song plays, so a large FLAC pays one wasm pass mid-playback. The
+	 * blob `<audio>` is reading from was already materialised before this starts, so the rewrite
+	 * cannot break the current play. If device UAT ever hears a hiccup, move the call to the `ended`
+	 * handler rather than adding a timer.
+	 */
+	private embedLyricsIntoFile(uid: string, lrc: string): void {
+		if (!lrc) return;
+		// Belt-and-braces: `retagOne` refuses a `device:` uid as its FIRST statement. An imported file
+		// is the USER'S file — never written, renamed, moved or deleted.
+		if (isDeviceUid(uid)) return;
+		if (!library.isDownloaded(uid)) return; // nothing to write into
+		if (this.lyricEmbedTried.has(uid)) return;
+		this.lyricEmbedTried.add(uid); // BEFORE the await — a failure must not retry on every play
+		// prewarm.ts's MAX_TRACKED_UIDS idiom: clear wholesale on overflow. Forgetting a key costs one
+		// redundant attempt, which is cheaper than an LRU nobody will maintain.
+		if (this.lyricEmbedTried.size > Player.MAX_LYRIC_EMBEDS) this.lyricEmbedTried.clear();
+		const own = library.downloads.find((d) => d.uid === uid);
+		if (!own) return;
+		// D-7: the SAME entry construction the Settings sweep and the track-menu pins use.
+		// `library.applyMetadata` persists an editor edit into library.downloads, so `dnTitle` here
+		// reproduces the user's own edit, not the catalog string. RAW artist/title for the cover cache
+		// lookup — the name layer is matchKey'd on catalog metadata. NO `filename`: the sticky base
+		// recorded in blob-store is what keeps a user-typed name from being reverted.
+		void syncFileTags({
+			uid,
+			title: names.dnTitle(own.title),
+			artist: names.dnArtist(own.artist),
+			album: names.zhLock(own.album),
+			cover: readCoverByUidOrName(uid, own.artist, own.title),
+			lyrics: lrc
+		})
+			.then((r) => logAction('lyrics.embed', { uid, result: r }))
+			.catch(() => {
+				/* never-throws by contract; the catch is what guarantees it cannot escape into playback */
+			});
+	}
+
+	/** quick-260919-3j1: one automatic embed attempt per uid per session. PLAIN field, not `$state` —
+	 *  the house convention for an internal budget the UI never reads reactively
+	 *  (`consecutiveFailures` / `playGen` are the precedent). */
+	private lyricEmbedTried = new Set<string>();
+	private static MAX_LYRIC_EMBEDS = 200;
 
 	/**
 	 * EMBEDDED-FIRST enrichment for a track served from local bytes (37-D-04). Files this app
