@@ -298,8 +298,14 @@
 	//
 	// Gate on `blobPresent === true`, never `!== false`: it starts `null` and is filled by the menu's
 	// own open-effect, so `!== false` would fire a rewrite for a song this app has no copy of.
-	// `!isDevice` is belt-and-braces — `retagOne` refuses a `device:` uid as its first statement, and
-	// an imported file is the USER'S file: never written, renamed, moved or deleted.
+	//
+	// quick-260919-ejm (D-6) — `isDevice` STAYS, and it is now a DELIBERATE BOUNDARY, not an echo of
+	// a `retagOne` guard that has been lifted. Do not "fix" this by symmetry with the Edit-metadata
+	// row above. A user-file rewrite happens from exactly TWO explicit gestures — Edit metadata ->
+	// Save, and the confirmed Settings -> Downloads sweep — and a one-tap cover or lyric pin is
+	// neither: silently rewriting 27 MB of someone's own FLAC as a side effect of tapping a
+	// thumbnail is not what was authorised. The pin already makes the choice permanent IN THE APP
+	// for an imported file, which is the whole user-visible benefit, with none of the risk.
 	//
 	// FIRE-AND-FORGET: the pin has already repainted every surface, so the file write must never
 	// block the sheet closing. Success needs no toast (`toast.coverPinned` / `toast.lyricsPinned`
@@ -893,16 +899,19 @@
 		     fires on THIS tap only (T-1we-03). `disabled` mirrors the Like / Change-cover rows: a
 		     uid-less stub has no identity to pin against (D-1). -->
 		<button class="mi" disabled={!track.uid} onclick={openLyricsPicker} use:tapBounce><Mic2 size={18} /> {t('menu.fixLyrics')}</button>
-		<!-- quick-260919-1eh: Edit metadata. Shown ONLY for a file the app actually owns a copy of.
+		<!-- quick-260919-1eh: Edit metadata. Shown ONLY for a file the app actually holds bytes for.
 		     `blobPresent` is the blob-backed probe, NOT library.isDownloaded — quick-260913-jq4
 		     explains why the reference list lies (it is populated BEFORE the fetch, and the web save
 		     is an <a download> click that reports success even when the user cancels the dialog), so
 		     the list happily says "Downloaded" with nothing stored anywhere.
-		     `!isDevice` is the UI half of the device exclusion: an imported file is the USER'S file,
-		     and blobStore.put has no device short-circuit — it would write an orphan app-private copy
-		     plus a SECOND public copy of a song they already have. retagOne's own guard is the
-		     enforcing half; this just keeps the row from appearing at all. -->
-		{#if blobPresent && !isDevice}
+
+		     quick-260919-ejm: the `!isDevice` half is GONE. It was the UI mirror of a service refusal
+		     that no longer exists — `retagOne` now routes an imported uid to the authorised in-place
+		     rewrite (`overwriteDeviceFile`) instead of to `blobStore.put`, so the duplicate-file
+		     hazard that justified hiding this row is avoided by routing rather than by hiding.
+		     `blobPresent` is true for an imported file because `blobStore.has` reads the user's file
+		     in place (34-D-05), which is exactly the right meaning here: there are bytes to edit. -->
+		{#if blobPresent}
 			<button class="mi" onclick={() => (tagsOpen = true)} use:tapBounce><Tags size={18} /> {t('menu.editTags')}</button>
 		{/if}
 		<!-- quick-260919-30x: Don't import again. The mirror image of the row above — that one is for

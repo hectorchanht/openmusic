@@ -25,6 +25,9 @@
 	// concurrent wasm tag passes over a large file on a phone is an OOM, not a slowdown.
 	import { syncFileTags } from '$lib/services/file-tag-sync';
 	import { buildDownloadFilename } from '$lib/services/download-filename';
+	// quick-260919-ejm: the sheet OPENS for an imported song now; only the rename affordance is
+	// withheld. PURE module — no store, no cycle.
+	import { isDeviceUid } from '$lib/services/device-track';
 	import type { Track } from '$lib/sources/types';
 
 	let {
@@ -67,13 +70,20 @@
 	// unreachable by any browser API — 1eh's documented platform ceiling. A visible field that
 	// silently does nothing is worse than no field.
 	//
-	// D-5 / this plan's scope_semantics (c) — WHY THERE IS NO `isDevice` GUARD HERE, ON PURPOSE.
-	// Renaming a `device:` file would mean a Kotlin MediaStore DISPLAY_NAME update: it MOVES/RENAMES
-	// a file this app does not own. It can never happen, and it is already impossible twice over —
-	// TrackMenu only opens this sheet under `{#if blobPresent && !isDevice}`, and `retagOne` refuses
-	// a device uid as its first statement. A third guard here would just invite someone to relax one
-	// of the two that actually enforce it.
+	// quick-260919-ejm — THIS SHEET NOW OPENS FOR AN IMPORTED SONG. The comment that stood here said
+	// it could not, and that is no longer true: TrackMenu's Edit-metadata row is gated on
+	// `blobPresent` alone, and `retagOne` routes a device uid to the authorised IN-PLACE rewrite.
+	// Everything in this sheet works for one — title, artist and album are written into the user's
+	// own file, at its own path.
+	//
+	// THE ONE THING WITHHELD IS THE RENAME (D-7). `overwriteDeviceFile` cannot rename: the Kotlin
+	// side never writes DISPLAY_NAME / RELATIVE_PATH / DATA, because moving or renaming a file the
+	// user filed themselves is a separate capability that was not authorised. `retagOne` therefore
+	// IGNORES `filename` on the device fork — so a File name field here would be a box that silently
+	// does nothing, which is the same "worse than no field" argument the web build already lost.
+	// This is the last guard standing, so it is the real one, not belt-and-braces.
 	const native = Capacitor.isNativePlatform();
+	const isDevice = $derived(!!track && isDeviceUid(track.uid));
 
 	// Seed on OPEN only. The effect's ONLY dependency is `open` — the ENTIRE body is untracked, not
 	// just the `track` read, and that is load-bearing twice over:
@@ -185,7 +195,7 @@
 			spellcheck="false"
 			disabled={saving}
 		/>
-		{#if native}
+		{#if native && !isDevice}
 			<!-- The one field with a placeholder: the derived name is the DEFAULT, not the current
 			     value, so it belongs in the placeholder rather than in the box. The 'mp3' below is a
 			     display-only stand-in — retagOne appends the REAL sniffed container, so the saved

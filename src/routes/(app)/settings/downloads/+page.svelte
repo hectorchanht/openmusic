@@ -27,7 +27,10 @@
 	import { settings } from '$lib/stores/settings.svelte';
 	import { library } from '$lib/stores/library.svelte';
 	import { names } from '$lib/stores/names.svelte';
-	import { blobStore } from '$lib/services/blob-store';
+	import { blobStore, replayPendingDeviceWrites } from '$lib/services/blob-store';
+	// quick-260919-ejm: the sweep now includes imported songs, so this page has to be able to COUNT
+	// them before it asks. PURE module (the sole owner of the `device:` literal).
+	import { isDeviceUid } from '$lib/services/device-track';
 	// quick-260919-3j1: the sweep's cover was the PERSISTED Track.cover — not the user's pin and not
 	// the shared reactive cache. See the ladder in the entry loop below.
 	import { readPinnedCover, readCoverByUidOrName } from '$lib/stores/cover-version.svelte';
@@ -124,6 +127,17 @@
 		patternDraft = deviceImport.rules.customPattern;
 		native = Capacitor.isNativePlatform();
 		excluded = Object.entries(readExclusions());
+		// quick-260919-ejm (D-2) — RECOVERY POINT. The in-place rewrite of an imported file is
+		// temp-then-stream, and the ONE window it cannot make atomic is a process death MID-STREAM:
+		// the user's file is left partial and the complete new bytes sit in the temp file beside a
+		// journal entry. This is one of exactly two places that finishes the job (the other is the
+		// top of the next `overwriteDeviceFile`). No app-boot hook, deliberately — a file write in
+		// the app shell's mount is the class of automatic write this codebase keeps out.
+		//
+		// FIRE-AND-FORGET: `replayPendingDeviceWrites` never throws and never rejects, and a page
+		// mount must never await a file write. On the overwhelmingly common path the journal is
+		// empty and this is a single localStorage read.
+		void replayPendingDeviceWrites();
 		// 36-D-18: the scope is the app's OWN downloads it STILL HOLDS A COPY OF — never a device-wide
 		// sweep. `library.downloads` is the reference list (a row survives a failed/cancelled save), so
 		// `blobStore.has` is what makes the count honest. Sequential because the list is small and
@@ -172,6 +186,13 @@
 		eligible = out;
 	});
 
+	// quick-260919-ejm: how many of the files about to be rewritten are the USER'S OWN. Note there
+	// is deliberately NO change to the eligible loop above: imported rows have always been in that
+	// list (they live in `library.downloads` and `blobStore.has` reads them in place, 34-D-05) and
+	// were always skipped by `retagOne`. The absence of a change there is the point — lifting the
+	// refusal in the service is the whole mechanism, and this page only has to be honest about it.
+	const importedCount = $derived(eligible.filter((e) => isDeviceUid(e.uid)).length);
+
 	function flash(m: string) { msg = m; setTimeout(() => (msg = ''), 2600); }
 
 	// 36-D-17: opt-in ONLY. This runs from a tap, after a confirm naming the count, and from nowhere
@@ -182,7 +203,17 @@
 	async function retag() {
 		if (busy) return;
 		if (eligible.length === 0) { flash(t('settings.retagNone')); return; }
-		if (!confirm(t('settings.retagConfirm', { count: eligible.length }))) return;
+		// quick-260919-ejm — THE AUTHORISED-RISK DISCLOSURE. This sweep can now rewrite files the app
+		// does not own, in place, and the user agrees to that BEFORE it runs, with the count in front
+		// of them. Appended rather than swapped, so the existing sentence (what the sweep does, and
+		// that an untaggable file is left alone) is still the first thing read. D-4: imported songs
+		// are in the default scope rather than opt-in — there is no per-row selection UI to opt into,
+		// and the bulk sweep is what was asked for; the confirm IS the opt-in.
+		const ask =
+			importedCount > 0
+				? `${t('settings.retagConfirm', { count: eligible.length })}\n\n${t('settings.retagImported', { count: importedCount })}`
+				: t('settings.retagConfirm', { count: eligible.length });
+		if (!confirm(ask)) return;
 		busy = true;
 		try {
 			const r = await retagDownloads(eligible, (done, total) => (progress = { done, total }));
