@@ -42,6 +42,11 @@
 	import { probeDownload, formatDownloadMeta, type DownloadProbe } from '$lib/services/download-probe';
 	// quick-260913-jq4: the Check state is backed by the offline copy, not the downloads list.
 	import { blobStore } from '$lib/services/blob-store';
+	// quick-260919-3j1: the app-wide SERIALIZER in front of retagOne — the ONE tag-write path
+	// (verify-before-write, and a `device:` uid refused as its first statement). Never retagOne
+	// directly: two concurrent wasm passes over a 27 MB FLAC on a phone is an OOM.
+	import { syncFileTags } from '$lib/services/file-tag-sync';
+	import type { RetagEntry } from '$lib/services/retag';
 	import { browser } from '$app/environment';
 	import { songShareUrl } from '$lib/services/share';
 	// quick-260809-3uo: the share card now carries the cover the user is looking at — read from the
@@ -243,8 +248,71 @@
 		pinCover(track.uid, url);
 		player.adoptCover(track.uid, url);
 		toast.show(t('toast.coverPinned'));
+		// quick-260919-3j1 (F1 / D-1): and, when this app holds an offline copy, put the art in the
+		// FILE. The pin above is what makes the choice permanent IN THE APP; a pin lives in
+		// localStorage keyed by uid, so it is invisible to the phone's own music app, to any other
+		// player, and to the file itself.
+		writeTagsForGesture({ cover: url });
 		closeCoverPicker();
 		close();
+	}
+
+	// quick-260919-3j1 — THE ONE ENTRY BUILDER the two pin gestures share, so they cannot drift apart.
+	// A component-local function over `track` / `names` / `player`, deliberately NOT a new module:
+	// the one thing it must never become is a second copy of the Settings sweep's construction.
+	//
+	// D-7: `names.dnTitle` / `dnArtist` / `zhLock` is a VERBATIM copy of that sweep's entry
+	// (settings/downloads/+page.svelte). `library.applyMetadata` persists an editor edit into
+	// library.downloads, so `dnTitle(track.title)` reproduces the user's OWN edit, not the catalog
+	// string — a cover pin cannot clobber a manual metadata edit.
+	//
+	// NO `filename`: the sticky base recorded by quick-260919-3j1's blob-store index is what keeps a
+	// user-typed file name from being reverted by a rewrite that knows nothing about it.
+	//
+	// `lyrics` is the SAME expression the <MetadataEditor> mount at the bottom of this file uses, so
+	// a cover pin can never blank the lyrics the app is currently showing.
+	function fileSyncEntry(overrides: Partial<RetagEntry>): RetagEntry | null {
+		if (!track?.uid) return null;
+		return {
+			uid: track.uid,
+			title: names.dnTitle(track.title),
+			artist: names.dnArtist(track.artist),
+			album: names.zhLock(track.album),
+			cover: activeCover,
+			lyrics: readLyrics(track && player.current?.uid === track.uid ? player.current : track) ?? undefined,
+			...overrides
+		};
+	}
+
+	// quick-260919-3j1 (D-1) — THE REWRITE TRIGGER, AND THE LINE NOTHING AUTOMATIC MAY CROSS.
+	//
+	// This fires on an EXPLICIT TAP only: a cover pin or a lyric pin, one song, one wasm pass —
+	// identical in cost and shape to the metadata editor's Save that already ships. An automatic
+	// cover resolve, `cover-backfill`, `adoptCover` or `healCover` must NEVER reach this line.
+	// `healCover` alone can fire PER RENDER on a flaky image; rewriting a 27 MB FLAC's tags there
+	// would be catastrophic. The pin already makes the user's choice permanent in the app without
+	// touching the file, which is why no automatic path needs this at all.
+	//
+	// Gate on `blobPresent === true`, never `!== false`: it starts `null` and is filled by the menu's
+	// own open-effect, so `!== false` would fire a rewrite for a song this app has no copy of.
+	// `!isDevice` is belt-and-braces — `retagOne` refuses a `device:` uid as its first statement, and
+	// an imported file is the USER'S file: never written, renamed, moved or deleted.
+	//
+	// FIRE-AND-FORGET: the pin has already repainted every surface, so the file write must never
+	// block the sheet closing. Success needs no toast (`toast.coverPinned` / `toast.lyricsPinned`
+	// already said it); only a real failure speaks, through the existing `toast.tagsFailed`.
+	//
+	// THE HONEST CEILING: pinning while OFFLINE still writes the text tags, but the ART cannot be
+	// fetched — `resolveArtworkDataUrl` fails, `tagAudioBlob` then simply runs no picture setter, so
+	// the file's existing art survives untouched. The Settings -> Downloads sweep repairs it later,
+	// because that sweep now reads the pin (the other half of this task).
+	function writeTagsForGesture(overrides: Partial<RetagEntry>) {
+		if (blobPresent !== true || isDevice) return;
+		const entry = fileSyncEntry(overrides);
+		if (!entry) return;
+		void syncFileTags(entry).then((r) => {
+			if (r !== 'tagged' && r !== 'device-skipped') toast.show(t('toast.tagsFailed'));
+		});
 	}
 
 	// quick-260919-1we (D-6): opening the sheet IS the reloader. Nothing caches a resolved LRC

@@ -28,6 +28,9 @@
 	import { library } from '$lib/stores/library.svelte';
 	import { names } from '$lib/stores/names.svelte';
 	import { blobStore } from '$lib/services/blob-store';
+	// quick-260919-3j1: the sweep's cover was the PERSISTED Track.cover — not the user's pin and not
+	// the shared reactive cache. See the ladder in the entry loop below.
+	import { readPinnedCover, readCoverByUidOrName } from '$lib/stores/cover-version.svelte';
 	import { retagDownloads, type RetagEntry } from '$lib/services/retag';
 	import { deviceImport } from '$lib/stores/device-import.svelte';
 	import { readExclusions, unexcludeUid } from '$lib/services/import-exclusions';
@@ -135,12 +138,25 @@
 			// the ONLY route a user has to repair files they downloaded before the lock existed, so
 			// fixing only the fresh-download path would have left the repair itself broken. zhLock,
 			// not dnTitle: synchronous and network-free, no /api/translate batch in the retag loop.
+			//
+			// quick-260919-3j1 (F1) — THE SWEEP WAS WRITING THE WRONG COVER. `cover: d.cover` reads the
+			// PERSISTED Track.cover: not the user's pin, and not the shared reactive cache every list
+			// surface renders from. So this batch has always re-tagged files with stale art, and would
+			// have ignored a cover pin entirely. The ladder below is the one `download-track.ts` uses,
+			// minus `player.resolvedCover` (a now-playing concept with no place in a batch loop).
+			//
+			// This is what makes the opt-in sweep the REPAIR PATH for every file downloaded or pinned
+			// before the embed seams existed.
+			//
+			// RAW `d.artist` / `d.title` for the cache lookup, NOT dnArtist/dnTitle: the name layer is
+			// matchKey'd on raw CATALOG metadata (download-track.ts RULE 1), so a display-language
+			// string misses the cache for exactly the users the script conversion exists for.
 			out.push({
 				uid: d.uid,
 				title: names.dnTitle(d.title),
 				artist: names.dnArtist(d.artist),
 				album: names.zhLock(d.album),
-				cover: d.cover
+				cover: readPinnedCover(d.uid) ?? readCoverByUidOrName(d.uid, d.artist, d.title) ?? d.cover
 			});
 		}
 		eligible = out;
