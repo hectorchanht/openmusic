@@ -28,7 +28,7 @@
 // a possible artwork fetch. The api-fetch-flood history (and the album download loop that followed
 // it) settled this — one at a time, with progress reported per entry.
 
-import { blobStore, getStoredName, setStoredName } from './blob-store';
+import { blobStore, getStoredName, setStoredName, overwriteDeviceFile } from './blob-store';
 import { albumTag, tagAudioBlob, readAudioTags } from './audio-tags';
 import { resolveArtworkDataUrl } from './media-artwork';
 import { buildDownloadFilename, sanitizeFilename, MAX_FILENAME_BASE } from './download-filename';
@@ -67,8 +67,12 @@ export interface RetagEntry {
  *  - `missing`           the app no longer holds a copy (deleted outside the app)
  *  - `skipped-size` / `unknown-container` / `no-fields` / `error`  straight from the codec
  *  - `verify-failed`     the tagged bytes did not parse back — never written (Pitfall 10)
- *  - `put-failed`        the write itself failed (disk full, IDB error)
- *  - `device-skipped`    an imported `device:` file — refused on principle, see retagOne
+ *  - `put-failed`        the write itself failed (disk full, IDB error, or a refused/failed
+ *                        in-place rewrite of an imported file)
+ *  - `device-skipped`    quick-260919-ejm: an imported `device:` file on a platform that CANNOT
+ *                        write in place — the web build, or Android below API 29. NOT a refusal
+ *                        on principle any more; on a capable device an imported file is tagged
+ *                        like any other.
  */
 export type RetagItemResult =
 	| 'tagged'
@@ -97,21 +101,31 @@ export interface RetagReport {
  * one path that can replace a working file with unparseable ones.
  */
 export async function retagOne(entry: RetagEntry): Promise<RetagItemResult> {
-	// quick-260919-1eh — AN IMPORTED FILE IS THE USER'S FILE, NOT THE APP'S (34 Pitfall 1).
+	// quick-260919-ejm — AN IMPORTED FILE IS THE USER'S FILE, AND IT IS NOW WRITTEN IN PLACE.
 	//
-	// The guard lives HERE, not at either call site, because the SHIPPED Settings -> Downloads sweep
-	// already had this bug: its eligible list is `library.downloads` filtered by `blobStore.has`,
-	// imported rows live in `library.downloads`, and `has` returns TRUE for them (nativeHas
-	// short-circuits a device: uid to the MediaStore content URI and reads the user's file in place,
-	// 34-D-05). So the sweep was feeding device uids straight to `blobStore.put` — which has NO such
-	// short-circuit: it would write an orphan app-private copy that `get` will never read, and then
-	// MediaStore-save a SECOND public copy of a song the user already owns. A silent duplicate of
-	// their own music, plus an edit that never shows up.
+	// This replaces quick-260919-1eh's blanket `if (isDeviceUid(entry.uid)) return 'device-skipped'`.
+	// Three things that comment recorded, all still true, and one that changed:
 	//
-	// One guard here covers the batch sweep and the new metadata editor, at zero call-site cost.
-	// Editing an imported file needs a Kotlin `openFileDescriptor(uri, "rw")` in-place rewrite plus a
-	// MediaStore column update — a native change with its own device UAT, not this.
-	if (isDeviceUid(entry.uid)) return 'device-skipped';
+	// 1. THE HAZARD IT NAMED IS STILL REAL. `blobStore.put` has NO device short-circuit: a device uid
+	//    reaching it writes an orphan app-private copy that `get` will never read, then MediaStore-
+	//    saves a SECOND public copy of a song the user already owns — a silent duplicate of their own
+	//    music plus an edit that never shows up. That is still exactly what would happen. It is
+	//    avoided because the device path DOES NOT GO THROUGH `put` AT ALL, not because a guard stops
+	//    it: the two write sinks are disjoint by routing (see `overwriteDeviceFile`'s first statement,
+	//    which refuses a non-device uid just as firmly).
+	// 2. THE ROUTE IT DESCRIBED IS STILL THE ROUTE. The Settings -> Downloads sweep lists imported
+	//    rows because `blobStore.has` reads the user's file in place (34-D-05), and the metadata
+	//    editor's Save is this same function. One fork here covers both, at zero call-site cost.
+	// 3. WHAT CHANGED: the user explicitly authorised the in-place rewrite it said was "not this" —
+	//    a Kotlin `openFileDescriptor(uri, "rwt")` stream plus a MediaStore column update, with a
+	//    temp-then-verify-then-journal ladder in front of it (see `overwriteDeviceFile`). The
+	//    condition of that authorisation is the ladder, not the feature.
+	//
+	// THE FORK SITS AT THE WRITE STEP, deliberately. The codec pass and the verify-before-write round
+	// trip are SHARED, not duplicated: a device file gets exactly the same "bytes that do not parse
+	// back are never written" protection an app download gets, and there is no second code path for
+	// that protection to drift out of.
+	const device = isDeviceUid(entry.uid);
 	try {
 		const blob = await blobStore.get(entry.uid);
 		if (!blob) return 'missing';
@@ -146,9 +160,6 @@ export async function retagOne(entry: RetagEntry): Promise<RetagItemResult> {
 		if (!back) return 'verify-failed';
 		if (entry.title && back.title !== entry.title) return 'verify-failed';
 
-		// The extension comes from the SNIFFED container, not from a URL — the stored Track's
-		// audioUrl is nulled by persistence, and a URL extension lies anyway (RESEARCH Pattern 2).
-		//
 		// quick-260919-30x (D-6/D-7, T-30x-01): a user-typed base name, if there is one, otherwise
 		// the derived name this has always written. `sanitizeFilename` is the SAME single sanitizer
 		// the builder uses, so no `/` or `\` can reach MediaStore; `^\.+$` is the "a name of only
@@ -162,26 +173,52 @@ export async function retagOne(entry: RetagEntry): Promise<RetagItemResult> {
 		// That silence is the new case — a cover pin, a lyric pin and the player's automatic lyric
 		// embed all rewrite this file knowing nothing about its name, and without this line each of
 		// them would rename a file the user deliberately named via the editor's File name field.
-		const base = sanitizeFilename(entry.filename ?? getStoredName(entry.uid) ?? '')
-			.trim()
-			.replace(/^\.+$/, '')
-			.slice(0, MAX_FILENAME_BASE)
-			.trim();
-		const name = base ? `${base}.${out.format}` : buildDownloadFilename(entry.artist, entry.title, out.format);
-		const ok = await blobStore.put(entry.uid, out.blob, name);
-		if (!ok) return 'put-failed';
-		// quick-260919-1eh: the bytes under this uid just changed, so the session memo that caches the
-		// file's OWN art + LRC is now describing a file that no longer exists. Evict on the success
-		// path ONLY — every other outcome left the file byte-identical, so its memo entry is still true.
+		if (device) {
+			// quick-260919-ejm (D-7): NO NAME, EVER. `entry.filename` is ignored and the sticky-name
+			// index is neither read nor written for a device uid — the in-place write cannot rename,
+			// and a name threaded into a call that silently drops it is how a rename capability gets
+			// added by accident later. `expectedBytes` is the ORIGINAL blob read at the top of this
+			// function: the Kotlin side checks it against the row's CURRENT SIZE column, which is the
+			// guard against a reassigned MediaStore _ID pointing this uid at a DIFFERENT song
+			// (34-D-02). Same `albumTag` the app-download branch uses, so an imported file gets the
+			// identical album normalisation.
+			const wrote = await overwriteDeviceFile(entry.uid, out.blob, {
+				title: entry.title,
+				artist: entry.artist,
+				album: albumTag(entry.album, entry.title),
+				expectedBytes: blob.size
+			});
+			// 'unsupported' is the web build and Android below API 29 — no MediaStore row to write
+			// into, so the honest answer is the skipped bucket, not a failure. Everything else that
+			// is not 'ok' left the file either untouched or replayable, and reads as a failed write.
+			if (wrote === 'unsupported') return 'device-skipped';
+			if (wrote !== 'ok') return 'put-failed';
+		} else {
+			// The extension comes from the SNIFFED container, not from a URL — the stored Track's
+			// audioUrl is nulled by persistence, and a URL extension lies anyway (RESEARCH Pattern 2).
+			const base = sanitizeFilename(entry.filename ?? getStoredName(entry.uid) ?? '')
+				.trim()
+				.replace(/^\.+$/, '')
+				.slice(0, MAX_FILENAME_BASE)
+				.trim();
+			const name = base ? `${base}.${out.format}` : buildDownloadFilename(entry.artist, entry.title, out.format);
+			const ok = await blobStore.put(entry.uid, out.blob, name);
+			if (!ok) return 'put-failed';
+			// quick-260919-3j1 (D-6): remember a name the user TYPED, so no LATER rewrite reverts it.
+			// Only when the CALLER supplied one — a DERIVED name is deliberately not recorded, which
+			// is what keeps today's behaviour intact: editing the title still renames the file.
+			//
+			// ponytail: a typed name is sticky with NO "reset to derived" button. The escape hatch is
+			// the editor field's own placeholder, which shows the derived name — retyping it re-records
+			// it. Upgrade path if anyone asks: a clear affordance that calls a `clearStoredName` export.
+			if (entry.filename && base) setStoredName(entry.uid, base);
+		}
+		// BELOW the fork, so it can never be reachable from only one branch. quick-260919-1eh: the
+		// bytes under this uid just changed, so the session memo that caches the file's OWN art + LRC
+		// is now describing a file that no longer exists — and for an imported file that memo is the
+		// ONLY metadata source, so a missed eviction means the app serves pre-edit tags for the rest
+		// of the session. Success path ONLY: every other outcome left the file byte-identical.
 		forgetLocalEnrichment(entry.uid);
-		// quick-260919-3j1 (D-6): remember a name the user TYPED, so no LATER rewrite reverts it. Only
-		// when the CALLER supplied one — a DERIVED name is deliberately not recorded, which is what
-		// keeps today's behaviour intact: editing the title still renames the file.
-		//
-		// ponytail: a typed name is sticky with NO "reset to derived" button. The escape hatch is the
-		// editor field's own placeholder, which shows the derived name — retyping it re-records it.
-		// Upgrade path if anyone asks: a clear affordance that calls a `clearStoredName` export.
-		if (entry.filename && base) setStoredName(entry.uid, base);
 		return 'tagged';
 	} catch {
 		return 'error';
