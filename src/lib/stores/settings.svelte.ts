@@ -472,30 +472,38 @@ class Settings {
 		else delete r.dataset.theme;
 	}
 
-	/** Reset the appearance scales to their defaults (k3y: now reads `DEFAULTS.appearance`
-	 *  from config/defaults.ts). Used by the /settings/appearance reset button + Data tab. */
+	/** Reset the Appearance settings group — theme, accent, reduce-motion, the five font scales and
+	 *  cover size (k3y: reads `DEFAULTS.appearance`; theme/accent/reduceMotion read
+	 *  `DEFAULTS.general`). Used by the /settings/appearance reset button + Data tab.
+	 *
+	 *  quick-260919-ebi: reset-group MEMBERSHIP follows the rows, so "Reset this group" keeps
+	 *  meaning "reset what this page shows". theme/accent/reduceMotion moved in from resetGeneral()
+	 *  and homeGridCols moved out to resetHome(), mirroring the four row moves. The fields
+	 *  themselves stay in GENERAL_DEFAULTS / APPEARANCE_DEFAULTS — defaults.ts is untouched, only
+	 *  which reset() touches which field changed. */
 	resetAppearance() {
 		const d = DEFAULTS.appearance;
+		const g = DEFAULTS.general;
+		this.theme = g.theme;
+		this.accent = g.accent;
+		this.reduceMotion = g.reduceMotion;
 		this.fontScaleTitle = d.fontScaleTitle;
 		this.fontScaleArtist = d.fontScaleArtist;
 		this.fontScaleLyrics = d.fontScaleLyrics;
 		this.fontScaleNpTitle = d.fontScaleNpTitle;
 		this.fontScaleNpArtist = d.fontScaleNpArtist;
 		this.coverScale = d.coverScale;
-		this.homeGridCols = d.homeGridCols;
 		this.save();
 	}
 
-	/** Reset the General settings group (app language, accent, reduce-motion, share title, theme).
+	/** Reset the General settings group (app language + share title).
 	 *  k3y; shareIncludeTitle added quick-260808-vzu — miss this touchpoint and "reset" silently
-	 *  leaves the setting stuck at the user's old value. */
+	 *  leaves the setting stuck at the user's old value.
+	 *  quick-260919-ebi: accent / reduceMotion / theme left for resetAppearance() with their rows. */
 	resetGeneral() {
 		const d = DEFAULTS.general;
 		this.appLang = d.appLang;
-		this.accent = d.accent;
-		this.reduceMotion = d.reduceMotion;
 		this.shareIncludeTitle = d.shareIncludeTitle;
-		this.theme = d.theme;
 		this.save();
 	}
 
@@ -547,9 +555,12 @@ class Settings {
 	}
 
 	/** Reset the Home layout settings (section order/hidden + tag/country selection + size +
-	 *  density + landing tab + chrome toggles). k3y. */
+	 *  grid columns + density + landing tab + chrome toggles). k3y.
+	 *  quick-260919-ebi: homeGridCols arrived from resetAppearance() with its slider. The VALUE
+	 *  still lives in APPEARANCE_DEFAULTS (defaults.ts untouched) — only the group changed. */
 	resetHome() {
 		const d = DEFAULTS.home;
+		this.homeGridCols = DEFAULTS.appearance.homeGridCols;
 		this.homeSectionOrder = [...d.homeSectionOrder];
 		this.homeHidden = [...d.homeHidden];
 		this.homeTags = [...d.homeTags];

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { settings, FONT_SCALE_MIN, FONT_SCALE_MAX } from './settings.svelte';
-import { UPNEXT_DEFAULTS } from '$lib/config/defaults';
+import { DEFAULTS, UPNEXT_DEFAULTS } from '$lib/config/defaults';
 import type { QueueContext, UpnextMode } from '$lib/config/defaults';
 import { darken } from '$lib/services/color';
 import { migrateDensity } from '$lib/services/home-layout';
@@ -320,5 +320,54 @@ describe('settings.zhScript — Chinese script lock (quick-260919-2jo)', () => {
 		const { readFileSync } = await import('node:fs');
 		const src = readFileSync('src/lib/stores/settings.svelte.ts', 'utf8');
 		expect(src).toMatch(/zhScript: this\.zhScript/);
+	});
+});
+
+// quick-260919-ebi (T-ebi-02) — reset-group MEMBERSHIP follows the moved rows, so a page's
+// "Reset this group" resets exactly the settings that page displays. These assertions are the
+// pin: a later edit that drops a field from a group fails CI instead of silently leaving a
+// setting unresettable (the exact failure resetGeneral's own comment records for
+// shareIncludeTitle). load() is a no-op under the node project, so we dirty the fields by hand
+// and assert what each reset() touches AND what it deliberately leaves alone.
+describe('reset groups follow their rows (quick-260919-ebi)', () => {
+	beforeEach(() => {
+		settings.theme = 'light';
+		settings.accent = '#ff0033';
+		settings.reduceMotion = true;
+		settings.appLang = 'fr';
+		settings.shareIncludeTitle = !DEFAULTS.general.shareIncludeTitle;
+		settings.homeGridCols = 5;
+		settings.coverScale = 130;
+	});
+
+	it('resetAppearance() restores theme, accent and reduceMotion (moved in from General)', () => {
+		settings.resetAppearance();
+		expect(settings.theme).toBe(DEFAULTS.general.theme);
+		expect(settings.accent).toBe(DEFAULTS.general.accent);
+		expect(settings.reduceMotion).toBe(DEFAULTS.general.reduceMotion);
+		expect(settings.coverScale).toBe(DEFAULTS.appearance.coverScale);
+	});
+
+	it('resetAppearance() does NOT touch homeGridCols (it moved to Home)', () => {
+		settings.resetAppearance();
+		expect(settings.homeGridCols).toBe(5);
+	});
+
+	it('resetGeneral() does NOT touch theme, accent or reduceMotion (they moved to Appearance)', () => {
+		settings.resetGeneral();
+		expect(settings.theme).toBe('light');
+		expect(settings.accent).toBe('#ff0033');
+		expect(settings.reduceMotion).toBe(true);
+	});
+
+	it('resetGeneral() still restores appLang and shareIncludeTitle (the rows it kept)', () => {
+		settings.resetGeneral();
+		expect(settings.appLang).toBe(DEFAULTS.general.appLang);
+		expect(settings.shareIncludeTitle).toBe(DEFAULTS.general.shareIncludeTitle);
+	});
+
+	it('resetHome() restores homeGridCols (moved in from Appearance)', () => {
+		settings.resetHome();
+		expect(settings.homeGridCols).toBe(DEFAULTS.appearance.homeGridCols);
 	});
 });

@@ -94,6 +94,7 @@ const zhHans: Dict = {
 	"settings.themeDark": "深色",
 	"settings.themeLight": "浅色",
 	"settings.playbackMotion": "播放与动效",
+	"settings.appearanceMotion": "动态效果",
 	"settings.autoExpand": "播放时自动展开正在播放",
 	"settings.showQualityTag": "在正在播放页显示音质标签",
 	"settings.nowbarLyrics": "在迷你播放器中显示歌词",
@@ -126,7 +127,7 @@ const zhHans: Dict = {
 	"settings.groupLastfm": "Last.fm",
 	"settings.groupData": "数据",
 	"settings.groupAbout": "关于",
-	"settings.groupGeneralDesc": "语言、主题色、动效",
+	"settings.groupGeneralDesc": "语言与分享",
 	"settings.groupTranslationDesc": "歌词与名称翻译",
 	"settings.groupPlaybackDesc": "音质、来源、自动展开",
 	"settings.groupHistoryDesc": "最近播放",
@@ -165,7 +166,7 @@ const zhHans: Dict = {
 
 	// --- appearance / sizing (quick-260607-fnp) ---
 	"settings.groupAppearance": "外观",
-	"settings.groupAppearanceDesc": "文字大小、封面大小与布局",
+	"settings.groupAppearanceDesc": "主题、强调色、文字与封面大小",
 	"settings.appearanceText": "文字大小",
 	"settings.appearanceLayout": "封面与布局",
 	"settings.fontSizeTitle": "歌曲标题",
@@ -181,7 +182,7 @@ const zhHans: Dict = {
 	"settings.clearCoverCache": "清除封面缓存",
 	"settings.clearCoverCacheHint": "删除已保存的封面，下次查看时会重新获取缺失或过时的封面。",
 	"settings.clearSearchHistory": "清除搜索记录",
-	"settings.resetAppearance": "重置外观大小",
+	"settings.resetAppearance": "重置外观",
 	"settings.resetGroup": "恢复默认",
 	"settings.resetConfirm": "将此选项卡恢复为默认值？",
 	"settings.resetDone": "已恢复默认值。",
@@ -491,7 +492,7 @@ const zhHans: Dict = {
 	"settings.clearPicksDesc": "清除缓存的精选推荐与首页音乐库栏目，下次将重新生成；若觉得推荐内容过时可使用此项。",
 	"settings.clearNameCacheDesc": "清除已存储的歌手与标题名称翻译，使其重新获取；更改翻译设置后、或某个翻译名称有误时可使用。",
 	"settings.clearSearchHistoryDesc": "从此设备删除你保存的过往搜索记录，使最近搜索列表重新清空；此操作不会影响你的音乐库。",
-	"settings.resetAppearanceDesc": "将所有文字大小、封面大小与网格列数还原为默认的 100% 值；此操作不会影响你的音乐库或其他设置。",
+	"settings.resetAppearanceDesc": "将主题、强调色、减少动态效果、所有文字大小与封面大小还原为默认值；不会影响你的音乐库或其他设置。",
 	"settings.clearLibraryDesc": "永久删除此设备上你所有的喜欢歌曲、播放列表与下载；此操作无法撤销，若想保留请先导出备份。",
 	// --- backup (Settings → Data, phase 35) ---
 	"backup.export": "导出备份",

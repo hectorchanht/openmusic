@@ -15,7 +15,8 @@
 		DiscAlbum,
 		Grid3x3
 	} from '@lucide/svelte';
-	import { settings } from '$lib/stores/settings.svelte';
+	// quick-260919-ebi: GRID_COLS_MIN/MAX arrived with the Home grid columns slider.
+	import { settings, GRID_COLS_MIN, GRID_COLS_MAX } from '$lib/stores/settings.svelte';
 	import {
 		resolveSectionOrder,
 		resolveSubset,
@@ -121,6 +122,11 @@
 
 	function setShelfSize(e: Event) {
 		settings.homeShelfSize = Number((e.currentTarget as HTMLInputElement).value);
+		settings.save();
+	}
+	// quick-260919-ebi: moved from /settings/appearance with its slider.
+	function setCols(e: Event) {
+		settings.homeGridCols = Number((e.currentTarget as HTMLInputElement).value);
 		settings.save();
 	}
 	function setLanding(v: HomeLandingTab) {
@@ -235,6 +241,25 @@
 	<p class="muted">{t('settings.itemsPerShelfDesc')}</p>
 </section>
 
+<!-- 4b. HOME GRID COLUMNS -->
+<!-- quick-260919-ebi: moved here from /settings/appearance — the label is literally "Home grid
+     columns", and this page already owns shelf size and tile density. The quick-260618-goe live
+     grid demo came across verbatim. -->
+<section>
+	<h2><Grid3x3 size={15} /> {t('settings.gridColumns')}</h2>
+	<div class="lab"><span>{t('settings.gridColumns')}</span><span class="val">{settings.homeGridCols}</span></div>
+	<input class="range" type="range" min={GRID_COLS_MIN} max={GRID_COLS_MAX} step="1" value={settings.homeGridCols} oninput={setCols} aria-label={t('settings.gridColumns')} />
+	<!-- quick-260618-goe (decision #4): live grid-columns demo — a mock grid whose
+	     column count tracks homeGridCols (matches the home .grid var behavior). aria-hidden. -->
+	<span class="demo-cap">{t('settings.preview')}</span>
+	<div class="grid-demo" aria-hidden="true" style:grid-template-columns={`repeat(${settings.homeGridCols}, 1fr)`}>
+		{#each Array(6) as _, i (i)}
+			<span class="grid-demo-cell"></span>
+		{/each}
+	</div>
+	<p class="muted">{t('settings.gridColumnsDesc')}</p>
+</section>
+
 <!-- 5. DEFAULT LANDING TAB -->
 <section>
 	<h2><Compass size={15} /> {t('settings.defaultLandingTab')}</h2>
@@ -306,6 +331,13 @@
 	.chip:global(.chip-dragging) { cursor: grabbing; z-index: 5; opacity: 0.9; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45); }
 	/* Range slider */
 	.range { width: 100%; accent-color: var(--color-primary); }
+	/* quick-260919-ebi: slider label + live grid demo, carried verbatim from /settings/appearance
+	   with the Home grid columns control. */
+	.lab { display: flex; align-items: baseline; justify-content: space-between; font-size: 14px; margin-bottom: 6px; }
+	.val { color: var(--color-primary); font-variant-numeric: tabular-nums; font-size: 13px; }
+	.demo-cap { display: block; margin-top: 10px; font-size: 11px; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.4px; }
+	.grid-demo { display: grid; gap: 6px; margin-top: 6px; max-width: 220px; }
+	.grid-demo-cell { aspect-ratio: 1 / 1; border-radius: var(--radius-sm, 6px); background: var(--color-surface-2); }
 	/* Segmented control */
 	.seg { display: inline-flex; background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: 999px; padding: 3px; gap: 3px; }
 	.seg button { background: none; border: none; color: var(--color-text-muted); padding: 7px 16px; border-radius: 999px; font-size: 13px; cursor: pointer; }

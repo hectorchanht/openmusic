@@ -1,15 +1,25 @@
 <script lang="ts">
     import { onMount } from "svelte";
     import { goto } from "$app/navigation";
-    import { ChevronLeft, Type, LayoutGrid } from "@lucide/svelte";
+    // quick-260919-ebi: Sun/Moon/Palette/Zap arrived with theme, accent and reduce-motion;
+    // LayoutGrid stayed for "Covers & layout" but GRID_COLS_* left for /settings/home.
+    import {
+        ChevronLeft,
+        Type,
+        LayoutGrid,
+        Sun,
+        Moon,
+        Palette,
+        Zap,
+    } from "@lucide/svelte";
     import {
         settings,
+        ACCENT_PRESETS,
         FONT_SCALE_MIN,
         FONT_SCALE_MAX,
         COVER_SCALE_MIN,
         COVER_SCALE_MAX,
-        GRID_COLS_MIN,
-        GRID_COLS_MAX,
+        type Theme,
     } from "$lib/stores/settings.svelte";
     // Demo text is sourced from the current/last-played track (D-12). The page may import the
     // player — settings stays a LEAF store because the player read happens HERE, not in the
@@ -52,8 +62,18 @@
         settings.coverScale = v;
         settings.save();
     }
-    function setCols(v: number) {
-        settings.homeGridCols = v;
+    // quick-260919-ebi: theme / accent / reduce-motion handlers moved here from
+    // /settings/general along with their rows.
+    function setTheme(v: Theme) {
+        settings.theme = v;
+        settings.save();
+    }
+    function setAccent(hex: string) {
+        settings.accent = hex;
+        settings.save();
+    }
+    function toggleMotion() {
+        settings.reduceMotion = !settings.reduceMotion;
         settings.save();
     }
     const num = (e: Event) =>
@@ -80,6 +100,54 @@
         use:tapBounce>{t("settings.resetGroup")}</button
     >
 </header>
+
+<!-- quick-260919-ebi: Theme / Accent colour / Motion moved here from /settings/general — a page
+     literally named Appearance that did not contain dark mode was the single worst findability bug
+     in Settings. They sit ABOVE Text size because theme and accent frame everything below them. -->
+<section>
+    <h2><Sun size={15} /> {t("settings.theme")}</h2>
+    <div class="seg">
+        <button
+            class:on={settings.theme === "dark"}
+            onclick={() => setTheme("dark")}
+            use:tapBounce><Moon size={15} /> {t("settings.themeDark")}</button
+        >
+        <button
+            class:on={settings.theme === "light"}
+            onclick={() => setTheme("light")}
+            use:tapBounce><Sun size={15} /> {t("settings.themeLight")}</button
+        >
+    </div>
+    <p class="note">{t("settings.themeDesc")}</p>
+</section>
+
+<section>
+    <h2><Palette size={15} /> {t("settings.accentColor")}</h2>
+    <div class="swatches">
+        {#each ACCENT_PRESETS as c (c)}
+            <button
+                class="swatch"
+                class:on={settings.accent === c}
+                style:background={c}
+                aria-label={c}
+                onclick={() => setAccent(c)}
+                use:tapBounce
+            ></button>
+        {/each}
+    </div>
+    <p class="note">{t("settings.accentColorDesc")}</p>
+</section>
+
+<!-- quick-260919-ebi: "Motion" (settings.appearanceMotion), not the "Playback & motion" heading
+     General borrowed — this page has no playback on it, so that key would have read as a lie. -->
+<section>
+    <h2><Zap size={15} /> {t("settings.appearanceMotion")}</h2>
+    <button class="row-toggle" onclick={toggleMotion}>
+        <span><Zap size={16} /> {t("settings.reduceMotion")}</span>
+        <span class="sw" class:on={settings.reduceMotion}></span>
+    </button>
+    <p class="note">{t("settings.reduceMotionDesc")}</p>
+</section>
 
 <section>
     <h2><Type size={15} /> {t("settings.appearanceText")}</h2>
@@ -228,34 +296,9 @@
         <p class="note">{t("settings.coverScaleDesc")}</p>
     </div>
 
-    <div class="ctl">
-        <div class="lab">
-            <span>{t("settings.gridColumns")}</span><span class="val"
-                >{settings.homeGridCols}</span
-            >
-        </div>
-        <input
-            type="range"
-            min={GRID_COLS_MIN}
-            max={GRID_COLS_MAX}
-            step="1"
-            value={settings.homeGridCols}
-            oninput={(e) => setCols(num(e))}
-        />
-        <!-- quick-260618-goe (decision #4): live grid-columns demo — a mock grid whose
-             column count tracks homeGridCols (matches the home .grid var behavior). aria-hidden. -->
-        <span class="demo-cap">{t("settings.preview")}</span>
-        <div
-            class="grid-demo"
-            aria-hidden="true"
-            style:grid-template-columns={`repeat(${settings.homeGridCols}, 1fr)`}
-        >
-            {#each Array(6) as _, i (i)}
-                <span class="grid-demo-cell"></span>
-            {/each}
-        </div>
-        <p class="note">{t("settings.gridColumnsDesc")}</p>
-    </div>
+    <!-- quick-260919-ebi: "Home grid columns" (+ its quick-260618-goe live grid demo) moved to
+         /settings/home, directly after Items per shelf — the label says Home, and Home already
+         owns shelf size and tile density. -->
 
     <p class="note">{t("settings.appearanceNote")}</p>
 </section>
@@ -365,16 +408,93 @@
         flex: none;
         transition: width 0.12s ease, height 0.12s ease;
     }
-    .grid-demo {
-        display: grid;
-        gap: 6px;
-        margin-top: 6px;
-        max-width: 220px;
-    }
-    .grid-demo-cell {
-        aspect-ratio: 1 / 1;
-        border-radius: var(--radius-sm, 6px);
+    /* quick-260919-ebi: the segmented control, accent swatches and toggle row that arrived with
+       theme / accent / reduce-motion, carried VERBATIM from /settings/general so nothing jumps. */
+    .seg {
+        display: inline-flex;
         background: var(--color-surface-2);
+        border: 1px solid var(--color-border);
+        border-radius: 999px;
+        padding: 3px;
+        gap: 3px;
+    }
+    .seg button {
+        background: none;
+        border: none;
+        color: var(--color-text-muted);
+        padding: 7px 16px;
+        border-radius: 999px;
+        font-size: 13px;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+    }
+    .seg button.on {
+        background: var(--color-primary);
+        color: #fff;
+    }
+    .swatches {
+        display: flex;
+        gap: 12px;
+    }
+    .swatch {
+        width: 34px;
+        height: 34px;
+        border-radius: 50%;
+        border: 2px solid transparent;
+        cursor: pointer;
+    }
+    .swatch.on {
+        border-color: #fff;
+        box-shadow:
+            0 0 0 2px var(--color-bg),
+            0 0 0 4px currentColor;
+    }
+    .row-toggle {
+        width: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        background: var(--color-surface-2);
+        border: 1px solid var(--color-border);
+        color: var(--color-text);
+        padding: 13px 14px;
+        border-radius: 12px;
+        font-size: 14px;
+        cursor: pointer;
+        margin-bottom: 8px;
+    }
+    .row-toggle span:first-child {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+    }
+    .sw {
+        width: 40px;
+        height: 22px;
+        border-radius: 999px;
+        background: var(--color-border);
+        position: relative;
+        transition: background 0.15s ease;
+        flex: none;
+    }
+    .sw::after {
+        content: "";
+        position: absolute;
+        top: 2px;
+        left: 2px;
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        background: #fff;
+        transition: transform 0.15s ease;
+    }
+    .sw.on {
+        background: var(--color-primary);
+    }
+    .sw.on::after {
+        transform: translateX(18px);
     }
     @media (prefers-reduced-motion: reduce) {
         .cover-demo-tile {

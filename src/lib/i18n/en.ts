@@ -100,6 +100,7 @@ const en = {
 	"settings.themeDark": "Dark",
 	"settings.themeLight": "Light",
 	"settings.playbackMotion": "Playback & motion",
+	"settings.appearanceMotion": "Motion",
 	"settings.autoExpand": "Auto-expand now-playing on play",
 	"settings.showQualityTag": "Show quality tag on now-playing",
 	"settings.nowbarLyrics": "Show lyrics in the mini player",
@@ -132,7 +133,7 @@ const en = {
 	"settings.groupLastfm": "Last.fm",
 	"settings.groupData": "Data",
 	"settings.groupAbout": "About",
-	"settings.groupGeneralDesc": "Language, accent, motion",
+	"settings.groupGeneralDesc": "Language & sharing",
 	"settings.groupTranslationDesc": "Lyrics & name translation",
 	"settings.groupPlaybackDesc": "Quality, source, auto-expand",
 	"settings.groupHistoryDesc": "Recently played",
@@ -172,7 +173,7 @@ const en = {
 
 	// --- appearance / sizing (quick-260607-fnp) ---
 	"settings.groupAppearance": "Appearance",
-	"settings.groupAppearanceDesc": "Text size, cover size & layout",
+	"settings.groupAppearanceDesc": "Theme, accent, text & cover size",
 	"settings.appearanceText": "Text size",
 	"settings.appearanceLayout": "Covers & layout",
 	"settings.fontSizeTitle": "Song title",
@@ -188,7 +189,7 @@ const en = {
 	"settings.clearCoverCache": "Clear cover cache",
 	"settings.clearCoverCacheHint": "Removes saved cover art so missing or outdated covers are fetched again next time.",
 	"settings.clearSearchHistory": "Clear search history",
-	"settings.resetAppearance": "Reset appearance sizes",
+	"settings.resetAppearance": "Reset appearance",
 	"settings.resetGroup": "Reset to default",
 	"settings.resetConfirm": "Reset this tab to defaults?",
 	"settings.resetDone": "Reset to defaults.",
@@ -504,7 +505,7 @@ const en = {
 	"settings.clearPicksDesc": "Removes the cached top picks and Home library shelves so they regenerate fresh next time; use it if your recommendations feel stale.",
 	"settings.clearNameCacheDesc": "Clears stored artist and title name translations so they are fetched again; use it after changing translation settings or if a translated name looks wrong.",
 	"settings.clearSearchHistoryDesc": "Deletes your saved past searches from this device so the recent-searches list starts empty; this does not affect your library.",
-	"settings.resetAppearanceDesc": "Restores all text sizes, cover size and grid columns back to their default 100% values; this does not touch your library or other settings.",
+	"settings.resetAppearanceDesc": "Restores the theme, accent colour, reduce motion, all text sizes and cover size back to their defaults; this does not touch your library or other settings.",
 	"settings.clearLibraryDesc": "Permanently deletes all your liked songs, playlists and downloads on this device; this cannot be undone, so export a backup first if you want to keep them.",
 	// --- backup (Settings → Data, phase 35) ---
 	"backup.export": "Export backup",

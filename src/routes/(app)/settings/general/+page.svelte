@@ -1,8 +1,10 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
-	import { ChevronLeft, Globe, Palette, Zap, Sun, Moon, Share2 } from '@lucide/svelte';
-	import { settings, ACCENT_PRESETS, type Theme } from '$lib/stores/settings.svelte';
+	// quick-260919-ebi: theme / accent / reduce-motion moved General → Appearance, so the Palette,
+	// Sun, Moon and Zap icons left with them.
+	import { ChevronLeft, Globe, Share2 } from '@lucide/svelte';
+	import { settings } from '$lib/stores/settings.svelte';
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { t, type AppLang } from '$lib/i18n';
 
@@ -28,10 +30,7 @@
 	];
 
 	function setAppLang(v: AppLang) { settings.appLang = v; settings.save(); }
-	function setAccent(hex: string) { settings.accent = hex; settings.save(); }
-	function toggleMotion() { settings.reduceMotion = !settings.reduceMotion; settings.save(); }
 	function toggleShareTitle() { settings.shareIncludeTitle = !settings.shareIncludeTitle; settings.save(); }
-	function setTheme(v: Theme) { settings.theme = v; settings.save(); }
 </script>
 
 <svelte:head><title>{t('settings.title')}</title></svelte:head>
@@ -52,33 +51,10 @@
 	<p class="muted">{t('settings.appLanguageDesc')}</p>
 </section>
 
-<section>
-	<h2><Sun size={15} /> {t('settings.theme')}</h2>
-	<div class="seg">
-		<button class:on={settings.theme === 'dark'} onclick={() => setTheme('dark')} use:tapBounce><Moon size={15} /> {t('settings.themeDark')}</button>
-		<button class:on={settings.theme === 'light'} onclick={() => setTheme('light')} use:tapBounce><Sun size={15} /> {t('settings.themeLight')}</button>
-	</div>
-	<p class="muted">{t('settings.themeDesc')}</p>
-</section>
-
-<section>
-	<h2><Palette size={15} /> {t('settings.accentColor')}</h2>
-	<div class="swatches">
-		{#each ACCENT_PRESETS as c (c)}
-			<button class="swatch" class:on={settings.accent === c} style:background={c} aria-label={c} onclick={() => setAccent(c)} use:tapBounce></button>
-		{/each}
-	</div>
-	<p class="muted">{t('settings.accentColorDesc')}</p>
-</section>
-
-<section>
-	<h2><Zap size={15} /> {t('settings.playbackMotion')}</h2>
-	<button class="row-toggle" onclick={toggleMotion}>
-		<span><Zap size={16} /> {t('settings.reduceMotion')}</span>
-		<span class="sw" class:on={settings.reduceMotion}></span>
-	</button>
-	<p class="muted">{t('settings.reduceMotionDesc')}</p>
-</section>
+<!-- quick-260919-ebi: Theme, Accent colour and Reduce motion moved OUT of here, into
+     /settings/appearance — a page literally named Appearance that did not contain dark mode was the
+     single worst findability bug in Settings. General now holds the two things that are neither
+     visual nor playback: the UI language and the share payload. -->
 
 <!-- quick-260808-vzu — no <h2> heading here on purpose: the row label already says what it does,
      and a heading would cost a third i18n key across all 15 locales for no extra information. -->
@@ -102,12 +78,7 @@
 	.chips { display: flex; flex-wrap: wrap; gap: 8px; }
 	.chip { background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); padding: 8px 14px; border-radius: 999px; font-size: 13px; cursor: pointer; }
 	.chip.on { background: var(--color-primary); color: #fff; border-color: transparent; }
-	.seg { display: inline-flex; background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: 999px; padding: 3px; gap: 3px; }
-	.seg button { background: none; border: none; color: var(--color-text-muted); padding: 7px 16px; border-radius: 999px; font-size: 13px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
-	.seg button.on { background: var(--color-primary); color: #fff; }
-	.swatches { display: flex; gap: 12px; }
-	.swatch { width: 34px; height: 34px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; }
-	.swatch.on { border-color: #fff; box-shadow: 0 0 0 2px var(--color-bg), 0 0 0 4px currentColor; }
+	/* quick-260919-ebi: .seg / .swatches / .swatch left with the theme + accent controls. */
 	.row-toggle { width: 100%; display: flex; align-items: center; justify-content: space-between; background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); padding: 13px 14px; border-radius: 12px; font-size: 14px; cursor: pointer; margin-bottom: 8px; }
 	.row-toggle span:first-child { display: inline-flex; align-items: center; gap: 10px; }
 	.sw { width: 40px; height: 22px; border-radius: 999px; background: var(--color-border); position: relative; transition: background 0.15s ease; flex: none; }
