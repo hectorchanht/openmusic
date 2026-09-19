@@ -3849,6 +3849,50 @@ class Player {
 	}
 
 	/**
+	 * quick-260919-1eh: the same promotion seam as adoptCover, for the NAME fields.
+	 *
+	 * This is the ONE seam that closes the hero / Nowbar / OS media-card asymmetry for a metadata
+	 * edit. Those three surfaces read `player.current` (and `resolvedCover`) DIRECTLY rather than the
+	 * library, so an edit that only called `library.applyMetadata` would repaint every list row and
+	 * leave the now-playing surfaces showing the old title until the next track change.
+	 *
+	 * Guards mirror adoptCover line for line: uid identity (an edit on a song that is NOT playing is
+	 * discarded), in-place field writes, then a FRESH `MediaMetadata` object — never an in-place
+	 * mutate of the existing one (A2 / Pitfall 4). Never throws: it is called from a DOM handler.
+	 *
+	 * D-4: a blank field is omission, not a clear — same rule as the codec and `library.applyMetadata`.
+	 *
+	 * Persistence needs no extra call here: mutating `this.current` in place is enough, the existing
+	 * persist path writes `current` as-is. No generation bump, no `<audio>` touch — the bytes and the
+	 * playback position are not what changed.
+	 */
+	adoptMetadata(uid: string, patch: { title?: string; artist?: string; album?: string }): void {
+		try {
+			const cur = this.current;
+			if (!cur || cur.uid !== uid) return; // no track / another song's edit — discard
+			const title = patch.title?.trim();
+			const artist = patch.artist?.trim();
+			const album = patch.album?.trim();
+			if (!title && !artist && !album) return; // nothing to adopt — no metadata churn
+			if (title) cur.title = title;
+			if (artist) cur.artist = artist;
+			if (album) cur.album = album;
+			const ms = this.ms;
+			if (ms) {
+				ms.metadata = makeMetadata({
+					title: names.dnTitle(cur.title),
+					artist: names.dnArtist(cur.artist),
+					album: cur.album,
+					artwork: buildArtwork(this.resolvedCover)
+				});
+				ms.playbackState = playbackStateFor(!!this.current, this.playing);
+			}
+		} catch {
+			// Best-effort — a failure leaves the previous names standing (never throws into a DOM handler).
+		}
+	}
+
+	/**
 	 * quick-260704-20e: SELF-HEAL a DEAD current cover — the missing counterpart to resolveCoverAsync
 	 * (which fires only when resolvedCover is NULL). resolvedCover is seeded FIRST from track.cover — a
 	 * source-CDN thumbnail that frequently expires / is served over http: — and resolveCoverAsync's

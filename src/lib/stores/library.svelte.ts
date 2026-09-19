@@ -146,6 +146,41 @@ class Library {
 		if (hasHttpsScheme(cover)) setCachedCover(src.artist, src.title, cover);
 	}
 
+	/**
+	 * quick-260919-1eh: adopt a user's METADATA EDIT across every list that holds this song.
+	 *
+	 * Mutates the `$state` proxies IN PLACE (not `{...t, title}` rebuilds) for the same reason
+	 * adoptCover does: home shelves (likedShelf/downloadsShelf) hold snapshot copies of these
+	 * references, so an immutable rebuild would update the store but leave already-rendered tiles
+	 * stale until reload. Fine-grained proxy mutation reaches every copy live.
+	 *
+	 * Matched on `t.uid === uid` ONLY. adoptCover's matchKey widening exists to FILL an EMPTY cover
+	 * across duplicate identities (the same song stored under another source's uid); a name edit is a
+	 * single-identity user action and must not rewrite a same-named row from another source.
+	 *
+	 * D-4: an empty/blank field is OMISSION, not a clear — it mirrors the codec, where a falsy field
+	 * leaves what is already in the file. There is no "blank this out" verb anywhere in this chain.
+	 */
+	applyMetadata(uid: string, patch: { title?: string; artist?: string; album?: string }) {
+		if (!uid) return;
+		const title = patch.title?.trim();
+		const artist = patch.artist?.trim();
+		const album = patch.album?.trim();
+		if (!title && !artist && !album) return;
+		let changed = false;
+		const fill = (t: Track) => {
+			if (t.uid !== uid) return;
+			if (title) t.title = title;
+			if (artist) t.artist = artist;
+			if (album) t.album = album;
+			changed = true;
+		};
+		this.liked.forEach(fill);
+		this.downloads.forEach(fill);
+		this.playlists.forEach((p) => p.tracks.forEach(fill));
+		if (changed) this.save();
+	}
+
 	createPlaylist(name: string): Playlist {
 		const id = `pl_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
 		const pl: Playlist = { id, name: name.trim() || 'Untitled', tracks: [] };
