@@ -588,26 +588,46 @@ async function lyricWalk(
 		for (const src of order) {
 			if (signal.aborted) return null;
 			if (src === skipSource || LYRICLESS_SOURCES.has(src)) continue;
-			try {
-				const sr = await searchAll(query, 1, onlySource(src), signal);
-				if (signal.aborted) return null;
-				const best = sr.interleaved
-					.filter((c) => matchKey(c.artist || '', c.title || '') === wantKey)
-					.sort((a, b) => scoreMatch(q, b) - scoreMatch(q, a))[0];
-				if (!best) continue;
-				// Use an inline lrc (qq/kuwo return it in the detail body) or resolve this ONE candidate.
-				if (best.lrc && best.lrc.trim()) return best.lrc;
-				const resolvedCand = await SOURCES[best.source].resolve(best, signal);
-				if (signal.aborted) return null;
-				if (resolvedCand.lrc && resolvedCand.lrc.trim()) return resolvedCand.lrc;
-				// resolved but still lyric-less — advance to the next lyric-capable source (bounded walk).
-			} catch {
-				/* this source dry / threw — try the next source's single search */
-			}
+			const lrc = await lyricFromSource(src, query, wantKey, q, signal);
+			if (lrc) return lrc;
+			// dry / lyric-less — advance to the next lyric-capable source (bounded walk).
 		}
 		return null;
 	} catch {
 		// Best-effort — any failure (abort, source throw, drift) leaves the primary track lyric-less.
+		return null;
+	}
+}
+
+/**
+ * quick-260919-1we: the BODY of `lyricWalk`'s per-source step, extracted verbatim so the picker's
+ * `collectLyricCandidates` runs the exact same step across every source instead of a second,
+ * subtly-different matching algorithm. Bounded by construction: ONE single-source `searchAll`
+ * (`onlySource` prefs — never a fan-out) and AT MOST ONE candidate `resolve`. The inner try/catch
+ * swallows a dry or throwing source, so a caller sees its absence, not its failure.
+ */
+async function lyricFromSource(
+	src: SourceId,
+	query: string,
+	wantKey: string,
+	q: { artist: string; title: string },
+	signal: AbortSignal
+): Promise<string | null> {
+	try {
+		const sr = await searchAll(query, 1, onlySource(src), signal);
+		if (signal.aborted) return null;
+		const best = sr.interleaved
+			.filter((c) => matchKey(c.artist || '', c.title || '') === wantKey)
+			.sort((a, b) => scoreMatch(q, b) - scoreMatch(q, a))[0];
+		if (!best) return null;
+		// Use an inline lrc (qq/kuwo return it in the detail body) or resolve this ONE candidate.
+		if (best.lrc && best.lrc.trim()) return best.lrc;
+		const resolvedCand = await SOURCES[best.source].resolve(best, signal);
+		if (signal.aborted) return null;
+		if (resolvedCand.lrc && resolvedCand.lrc.trim()) return resolvedCand.lrc;
+		return null;
+	} catch {
+		/* this source dry / threw — the caller advances to the next source */
 		return null;
 	}
 }
@@ -632,4 +652,62 @@ export async function lyricByName(
 	signal: AbortSignal
 ): Promise<string | null> {
 	return lyricWalk(artist, title, null, signal);
+}
+
+/** One offered LRC: the text plus the source that produced it (the picker row's label). */
+export interface LyricCandidate {
+	source: SourceId;
+	lrc: string;
+}
+
+/**
+ * quick-260919-1we (D-5) — every source's LRC for one song, for the TrackMenu lyrics picker.
+ *
+ * The same relationship to `lyricWalk` that `collectCoverCandidates` has to the cover chain: the walk
+ * STOPS at the first hit because it sits on the playback path, whereas the picker wants them ALL so
+ * the user can choose. Both run the identical per-source step (`lyricFromSource` — `matchKey`
+ * identity + `scoreMatch` ranking, `LYRICLESS_SOURCES` skipped), so there is no second matching
+ * algorithm to drift.
+ *
+ * This is a PARALLEL fan-out and is therefore opt-in AT THE CALL SITE ONLY (T-26-10-02 posture,
+ * exactly like `collectCoverCandidates`): it runs on the Fix-lyrics row TAP, never on menu open.
+ * Still bounded the same way the walk is — one search and at most one candidate resolve per source,
+ * never an all-source fan-out per source — and every source is wrapped so one throwing source
+ * degrades to its own absence rather than taking the others down.
+ *
+ * Returns [] on an empty artist AND title, on an already-aborted signal, and on a total miss.
+ * Preserves `getEnabledAdapters({})` registry order in the returned array. Never throws.
+ */
+export async function collectLyricCandidates(
+	artist: string,
+	title: string,
+	signal: AbortSignal
+): Promise<LyricCandidate[]> {
+	try {
+		if (!artist && !title) return [];
+		if (signal.aborted) return [];
+		const query = `${artist} ${title}`.trim();
+		const wantKey = matchKey(artist, title);
+		const q = { artist, title };
+		const order = getEnabledAdapters({})
+			.map((a) => a.id)
+			.filter((id) => !LYRICLESS_SOURCES.has(id));
+
+		// Per-source never-throw, mirroring collectCoverCandidates' `safe()`: one source throwing or
+		// timing out still yields the others' candidates.
+		const safe = async (src: SourceId): Promise<LyricCandidate | null> => {
+			try {
+				const lrc = await lyricFromSource(src, query, wantKey, q, signal);
+				return lrc ? { source: src, lrc } : null;
+			} catch {
+				return null;
+			}
+		};
+
+		const hits = await Promise.all(order.map(safe));
+		// Registry order preserved: Promise.all resolves positionally, so filtering keeps the order.
+		return hits.filter((h): h is LyricCandidate => h !== null);
+	} catch {
+		return [];
+	}
 }

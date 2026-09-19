@@ -4,6 +4,7 @@ import {
 	ensureTrackDetails,
 	resolveNameStub,
 	lyricByName,
+	collectLyricCandidates,
 	__clearSearchCache,
 	SEARCH_STAGGER_MS,
 	type PartialSearchResult
@@ -846,6 +847,124 @@ describe('lyricByName — name-only lyric walk (37-D-03)', () => {
 		const out = await lyricByName('Jay', 'Rain', ac.signal);
 		expect(out).toBeNull();
 		for (const id of Object.keys(SOURCES) as SourceId[]) expect(search[id]).not.toHaveBeenCalled();
+	});
+});
+
+// quick-260919-1we (D-5): the picker's collector. Same per-source step as the walk (lyricFromSource),
+// but ENUMERATE-ALL in parallel instead of stop-at-first, because the user is choosing. The
+// describe block above (lyricByName) is the regression gate for that extraction and is deliberately
+// left unmodified.
+describe('collectLyricCandidates — every source with an LRC (quick-260919-1we)', () => {
+	const LYRICLESS: SourceId[] = ['jamendo', 'audius', 'fivesing'];
+
+	/** Every source silent by default, so "which rung ran" is provable rather than inferred. */
+	function silenceAllSearches() {
+		const spies: Partial<Record<SourceId, ReturnType<typeof vi.spyOn>>> = {};
+		for (const id of Object.keys(SOURCES) as SourceId[]) {
+			spies[id] = vi.spyOn(SOURCES[id], 'search').mockResolvedValue([]);
+		}
+		return spies;
+	}
+
+	it('returns ONE {source,lrc} per source that yields an LRC and omits the dry ones', async () => {
+		const search = silenceAllSearches();
+		const kw = mk('kuwo', 'k1', 1, { artist: 'Jay', title: 'Rain', lrc: '[00:01]kw' });
+		const qq = mk('qq', 'q1', 1, { artist: 'Jay', title: 'Rain', lrc: '[00:01]qq' });
+		search.kuwo!.mockResolvedValue([kw]);
+		search.qq!.mockResolvedValue([qq]);
+		// netease matches by name but resolves lyric-less → absent from the result.
+		const ne = mk('netease', 'n1', 1, { artist: 'Jay', title: 'Rain' });
+		search.netease!.mockResolvedValue([ne]);
+		vi.spyOn(SOURCES.netease, 'resolve').mockResolvedValue({
+			...ne,
+			detailsLoaded: true,
+			audioUrl: 'https://cdn/ne.mp3',
+			lrc: null
+		});
+
+		const out = await collectLyricCandidates('Jay', 'Rain', new AbortController().signal);
+
+		expect(out.map((c) => c.source).sort()).toEqual(['kuwo', 'qq']);
+		expect(out.find((c) => c.source === 'kuwo')?.lrc).toBe('[00:01]kw');
+		expect(out.find((c) => c.source === 'qq')?.lrc).toBe('[00:01]qq');
+	});
+
+	it('preserves REGISTRY order, not completion order (a parallel fan-out settles out of order)', async () => {
+		const search = silenceAllSearches();
+		// Deliberately invert completion order against registry order (qq, netease, kuwo — the
+		// post-2026-08-31 demotion): kuwo answers instantly, qq answers last. Positional Promise.all
+		// is what keeps the picker rows stable, not the order the network happened to reply in.
+		const delays: Partial<Record<SourceId, number>> = { qq: 30, netease: 15, kuwo: 0 };
+		for (const id of ['qq', 'netease', 'kuwo'] as SourceId[]) {
+			search[id]!.mockImplementation(
+				async () =>
+					new Promise((res) =>
+						setTimeout(
+							() => res([mk(id, `${id}1`, 1, { artist: 'Jay', title: 'Rain', lrc: `[00:01]${id}` })]),
+							delays[id]
+						)
+					)
+			);
+		}
+		const out = await collectLyricCandidates('Jay', 'Rain', new AbortController().signal);
+		expect(out.map((c) => c.source)).toEqual(['qq', 'netease', 'kuwo']);
+	});
+
+	it('never searches a LYRICLESS_SOURCES member', async () => {
+		const search = silenceAllSearches();
+		search.kuwo!.mockResolvedValue([
+			mk('kuwo', 'k1', 1, { artist: 'Jay', title: 'Rain', lrc: '[00:01]kw' })
+		]);
+		await collectLyricCandidates('Jay', 'Rain', new AbortController().signal);
+		for (const id of LYRICLESS) expect(search[id]).not.toHaveBeenCalled();
+	});
+
+	it('a THROWING source degrades to its own absence — the others still come back', async () => {
+		const search = silenceAllSearches();
+		search.netease!.mockRejectedValue(new Error('upstream drift'));
+		search.kuwo!.mockResolvedValue([
+			mk('kuwo', 'k1', 1, { artist: 'Jay', title: 'Rain', lrc: '[00:01]kw' })
+		]);
+		search.qq!.mockResolvedValue([
+			mk('qq', 'q1', 1, { artist: 'Jay', title: 'Rain', lrc: '[00:01]qq' })
+		]);
+
+		const out = await collectLyricCandidates('Jay', 'Rain', new AbortController().signal);
+
+		expect(out.map((c) => c.source).sort()).toEqual(['kuwo', 'qq']);
+		expect(search.netease).toHaveBeenCalled();
+	});
+
+	it('an empty artist AND title issues zero searches and returns []', async () => {
+		const search = silenceAllSearches();
+		const out = await collectLyricCandidates('', '', new AbortController().signal);
+		expect(out).toEqual([]);
+		for (const id of Object.keys(SOURCES) as SourceId[]) expect(search[id]).not.toHaveBeenCalled();
+	});
+
+	it('a pre-aborted signal issues zero searches and returns []', async () => {
+		const search = silenceAllSearches();
+		const ac = new AbortController();
+		ac.abort();
+		const out = await collectLyricCandidates('Jay', 'Rain', ac.signal);
+		expect(out).toEqual([]);
+		for (const id of Object.keys(SOURCES) as SourceId[]) expect(search[id]).not.toHaveBeenCalled();
+	});
+
+	it('bounded: at most one candidate resolve per source (never a per-source fan-out)', async () => {
+		const search = silenceAllSearches();
+		const a = mk('kuwo', 'k1', 1, { artist: 'Jay', title: 'Rain' });
+		const b = mk('kuwo', 'k2', 2, { artist: 'Jay', title: 'Rain' });
+		search.kuwo!.mockResolvedValue([a, b]);
+		const kuwoResolve = vi
+			.spyOn(SOURCES.kuwo, 'resolve')
+			.mockResolvedValue({ ...a, detailsLoaded: true, audioUrl: 'https://cdn/kw.mp3', lrc: '[00:01]kw' });
+
+		const out = await collectLyricCandidates('Jay', 'Rain', new AbortController().signal);
+
+		expect(out).toEqual([{ source: 'kuwo', lrc: '[00:01]kw' }]);
+		expect(search.kuwo).toHaveBeenCalledOnce();
+		expect(kuwoResolve).toHaveBeenCalledOnce();
 	});
 });
 
