@@ -460,4 +460,25 @@
         text-overflow: ellipsis;
         white-space: nowrap;
     }
+
+    /* quick-260919-et3 (D-6): at desktop the tab bar is a LEFT RAIL, so nothing occupies the
+       bottom edge any more — the docked nowbar drops to the floor and starts where the rail ends.
+       `right: 0`, the height, the blur and the border-top all still apply, so it spans rail-edge
+       to window-edge: the YouTube Music desktop player bar, for three declarations.
+
+       `:not(.embed)` is a guard, not decoration — `.embed` is the position:static variant that
+       NowPlaying mounts inside itself, and a leaked `left` offset there would shove it sideways
+       inside the sheet.
+
+       Explicitly NOT done: a desktop two-pane now-playing (cover left, queue + lyrics right), a
+       desktop-specific transport layout, or any restructuring of NowPlaying.svelte. Tapping this
+       bar at desktop still opens the same full-screen sheet, which still covers the rail. That is
+       a deliberate omission, not an oversight: CLAUDE.md flags NowPlaying.svelte (~2000 lines) as
+       a re-render hotspot to SPLIT, and growing it with a desktop variant is how it got that big. */
+    @media (min-width: 1024px) {
+        .nowbar:not(.embed) {
+            left: var(--rail-w);
+            bottom: 0;
+        }
+    }
 </style>
