@@ -27,6 +27,8 @@
 	import { t } from '$lib/i18n';
 	import { goto } from '$app/navigation';
 	import { resolveStub } from '$lib/services/discovery';
+	import { nameStub } from '$lib/services/similar';
+	import { sameSongKey } from '$lib/services/dedupe';
 	import { downloadTrack } from '$lib/services/download-track';
 	import { enrichAlbum, getAlbumTracklist, type EnrichResult } from '$lib/services/lastfm';
 	import { deezerAlbum, deezerAlbumTracks, type DeezerAlbumInfo } from '$lib/services/deezer';
@@ -247,7 +249,7 @@
 	// carry no cover), dedupes a same-song double-tap, and supersedes an in-flight resolve.
 	// playStub returns null for BOTH a miss AND a supersede; toast only on a genuine miss
 	// (pendingTrack cleared) — a supersede leaves pendingTrack on the newer song (no toast).
-	async function playStub(stub: AlbumStub) {
+	async function playStub(stub: AlbumStub, index: number) {
 		// quick-260831-t2g: hand the ALBUM cover to the player. Every track on an album shares the
 		// album's art, so resolving a cover per song was both wasted fetches and a source of
 		// inconsistency (siblings landing on different images). player.playStub attaches this to the
@@ -259,12 +261,13 @@
 		}
 		// album-and-next-song-bug fix: playStub installs a one-track queue ([tr]) for the optimistic
 		// now-bar, so up-next would otherwise be GENERATED (or grown) rather than the album remainder,
-		// and next() could fail. Resolve the rest of the album and re-anchor the queue AROUND the
-		// now-playing track so up-next IS the album's remaining tracks (and stays so under the
-		// "same-list" sourcing setting). setListQueue keeps `tr` (already current) as the member, so
-		// playback is not interrupted. Guard a stale tap: only install while `tr` is still current.
-		const all = await resolveAllCached();
-		if (player.current?.uid === tr.uid && all.length) player.setListQueue(all, 'album', heroImg);
+		// and next() could fail. Install the album AROUND the now-playing track so up-next IS the
+		// album's remaining tracks (and stays so under the "same-list" sourcing setting). setListQueue
+		// keeps `tr` (already current) as the member, so playback is not interrupted.
+		// quick-260919-alb: the list is albumQueue() STUBS, installed in the SAME TICK the tap starts
+		// playing — this used to await the ~10s resolveAll fan-out first, which left Up Next empty for
+		// up to ten seconds after the tap. Guard a stale tap: only install while `tr` is still current.
+		if (player.current?.uid === tr.uid) player.setListQueue(albumQueue(index, tr), 'album', heroImg);
 	}
 
 	// UX-04 / D-03/D-04: row swipe-actions. Album rows are {artist,title} STUBS, so — exactly like
@@ -376,32 +379,54 @@
 		!!resolvedCache && resolvedCache.length > 0 && resolvedCache.every((tr) => library.isLiked(tr.uid))
 	);
 
-	// Play the whole album: play track 1 instantly (optimistic now-bar), then resolve the rest
-	// and set the queue in album order so it plays straight through.
+	// quick-260919-alb: the album tracklist as LAZY name-only Tracks — the SAME `resolveByName` stub
+	// shape Up Next is already built from (similar.ts nameStub), so the whole album can be installed
+	// as the queue with ZERO network: each entry resolves kuwo-first when it reaches the front, via
+	// ensureTrackDetails -> resolveNameStub. This is what makes Up Next populate in the same tick as
+	// the play tap instead of after the ~10s resolveAll fan-out.
+	//
+	// `at`/`real` drop the ALREADY-RESOLVED playing track into its own album slot so setListQueue's
+	// queueWithAnchor finds it by UID. Without that the anchor falls through to the sameSongKey path,
+	// which has to match the album tracklist's metadata against the source's — and on a miss it
+	// front-splices current AND leaves that track's own stub in the list as a duplicate.
+	function albumQueue(at = -1, real: Track | null = null): Track[] {
+		return tracks
+			.map((s, i) => (i === at && real ? real : nameStub(s.artist, s.title)))
+			.filter((tr): tr is Track => tr !== null);
+	}
+
+	// Play the whole album: play track 1 instantly (optimistic now-bar) and install the rest of the
+	// album as Up Next in the same tick, in album order, so it plays straight through.
 	async function playAlbum() {
 		if (!tracks.length || busyAction === 'play') return;
 		busyAction = 'play';
 		try {
-			const first = await player.playStub(tracks[0].artist, tracks[0].title, heroImg, 'album');
+			// quick-260919-alb: `sameList` (quick-260915-vb9) — pressing Play ON a list is an explicit
+			// "this list IS my Up Next", so the fresh-play tail must not regenerate over the install
+			// below. It matters only for a user who overrode album -> generated (UPNEXT_DEFAULTS pins
+			// album to 'same-list'): the old code's regenerate was discarded by the ~10s install's
+			// queueGen bump, and installing in the same tick instead would have let regenerate win.
+			const first = await player.playStub(tracks[0].artist, tracks[0].title, heroImg, 'album', {
+				sameList: true
+			});
 			if (!first) {
 				if (player.pendingTrack == null) globalToast.show(t('album.unplayable'));
 				return;
 			}
-			const all = await resolveAllCached();
 			// album-and-next-song-bug fix: `first` (player.current) was resolved by playStub's own
-			// resolveStub and may be a DIFFERENT source-variant uid than `all`'s entry for track 0
-			// (resolveStub is non-deterministic + dedupeBest collapses variants). A plain setQueue(all)
-			// would leave indexOf(current) === -1 → next() dead. setListQueue re-anchors current into
-			// the album list (by uid, then by same-song key) so the whole album plays straight through.
+			// resolveStub and may be a DIFFERENT source-variant uid than the album list's entry for
+			// track 0 (resolveStub is non-deterministic + dedupeBest collapses variants). A plain
+			// setQueue(list) would leave indexOf(current) === -1 → next() dead. setListQueue re-anchors
+			// current into the album list (by uid — albumQueue puts `first` ITSELF at slot 0 — then by
+			// same-song key) so the whole album plays straight through.
 			// quick-260910-piz: hand the album cover to the QUEUE install too, not just to playStub. The
 			// player seeds every queued entry's `track.cover` (so each Up Next tile paints the album art
 			// — Gap 3 removed the per-tile resolve) AND scopes the album-art attachment to the whole
 			// list (so the hero keeps it across every advance instead of flipping to the source's own
-			// thumbnail). `heroImg` is read HERE, at install time — after the ~10s resolveAll — so an
-			// enrich that landed meanwhile is applied; if it is still null at that instant the queue
-			// simply carries no album art (accepted, no retro-patch).
-			if (all.length) player.setListQueue(all, 'album', heroImg);
-			else player.setQueue([first], 'album', heroImg);
+			// thumbnail). quick-260919-alb: `heroImg` is now read at TAP time rather than ~10s later, so
+			// an enrich still in flight leaves the queue carrying no album art (accepted — the enrich
+			// effect fires on mount, long before a tap, and the optimistic now-bar reads the same value).
+			player.setListQueue(albumQueue(0, first), 'album', heroImg);
 		} finally {
 			busyAction = null;
 		}
@@ -662,7 +687,7 @@
 					<!-- UX-04 reveal layers behind the row; the row translateX (use:swipeAction) exposes them. -->
 					<span class="reveal reveal-queue" aria-hidden="true"><ListEnd size={20} /></span>
 					<span class="reveal reveal-next" aria-hidden="true"><ListStart size={20} /></span>
-					<button class="row" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openMenu(track); }} onclick={() => playStub(track)} use:swipeAction={{ onSwipeRight: () => swipeQueue(track), onSwipeLeft: () => swipeNext(track) }}>
+					<button class="row" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openMenu(track); }} onclick={() => playStub(track, i)} use:swipeAction={{ onSwipeRight: () => swipeQueue(track), onSwipeLeft: () => swipeNext(track) }}>
 						<span class="rank">{i + 1}</span>
 						<span class="art" style:background-image={heroImg ? `url(${heroImg})` : fallbackCover(track.artist + track.title)}></span>
 						<span class="meta"><span class="r-title">{names.dnTitle(track.title)}</span><span class="r-sub">{names.dnArtist(track.artist)}</span></span>

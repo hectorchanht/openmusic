@@ -128,8 +128,15 @@ function sourceLadder(): SourceId[] {
  * Gap 3 (26-07): `image` is the OPTIONAL Last.fm per-track cover from the endpoint. When it is a
  * SOLID https URL it seeds `cover` so the Up-Next tile paints without a per-song cover chain; a
  * missing / non-https value keeps cover:null (today's coverless-similar behavior, T-26-07-01).
+ *
+ * quick-260919-alb: EXPORTED. The album page builds the same shape from its {artist,title}
+ * tracklist so the whole album can be installed as the queue with zero network (each entry
+ * resolves on play, exactly like these). The `similar-` songid prefix is kept deliberately —
+ * it is an identity namespace, not a provenance claim, and sharing it means the same song
+ * reached from an album and from an Up-Next suggestion collapses to ONE identity under
+ * dedupe/exclude.
  */
-function nameStub(artist: string, title: string, image?: string | null): Track | null {
+export function nameStub(artist: string, title: string, image?: string | null): Track | null {
 	if (!artist || !title) return null;
 	const key = matchKey(artist, title); // `${norm(artist)}|${norm(title)}`, artist-first
 	if (!key || key === '|') return null;

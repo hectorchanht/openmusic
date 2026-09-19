@@ -7742,3 +7742,57 @@ describe('volume — user level is the single source of truth (quick-260919-et3)
 		}
 	});
 });
+
+describe('album Up-Next installed from lazy name stubs (quick-260919-alb)', () => {
+	// The album page now installs its WHOLE tracklist as `resolveByName` name stubs the moment
+	// playback starts, instead of first awaiting the ~10s resolveAll fan-out (the reported "up next
+	// is not instantly populated"). Two things have to hold for that to be safe, and both live in
+	// setListQueue: album ORDER survives, and the already-resolved playing track anchors INSIDE the
+	// list — indexOf(current) must never be -1, or next()/prev()/ensureAhead/prefetchNext all go
+	// dead (the album-and-next-song bug the old ~10s install was written to avoid).
+	//
+	// A stub's uid is SYNTHETIC, so the uid leg of queueWithAnchor cannot match the playing track —
+	// which is exactly why the page drops the resolved track into its own album slot before
+	// installing. Test 2 is what that buys.
+	function nameStub(artist: string, title: string): Track {
+		const songid = `similar-${artist}|${title}`.toLowerCase().replace(/\s+/g, '');
+		return { ...stub('kuwo', songid, artist, title), resolveByName: true };
+	}
+
+	beforeEach(() => {
+		player.queue = [];
+		player.current = null;
+		player.upNextAnchorUid = null;
+	});
+
+	it('Test 1 — the real playing track takes its own album slot: exact order, anchored by uid', () => {
+		const titles = ["Don't Panic", 'Shiver', 'Spies', 'Sparks'];
+		const list = titles.map((t) => nameStub('Coldplay', t));
+		// What the page's albumQueue(at, real) does: slot 2 carries the RESOLVED track, not its stub.
+		const playing = mk('qq', 'alb-spies', 'Coldplay', 'Spies');
+		list[2] = playing;
+		player.current = playing;
+
+		player.setListQueue(list, 'album', null);
+
+		expect(player.queue.map((t) => t.title)).toEqual(titles); // album order, nothing reordered
+		expect(player.queue[2]).toBe(playing); // the exact object → audio keeps playing
+		expect(player.queue.findIndex((t) => t.uid === player.current?.uid)).toBe(2); // next()/prev() alive
+		expect(player.upNextAnchorUid).toBe(playing.uid);
+		expect(player.queue.filter((t) => t.title === 'Spies')).toHaveLength(1); // no stub left behind
+	});
+
+	it('Test 2 — WITHOUT that substitution a metadata mismatch front-splices current and dupes it', () => {
+		// The sameSongKey fallback leg normalizes title+artist, so it only rescues the anchor when the
+		// album tracklist's metadata matches the source's. Traditional-vs-Simplified is the live case
+		// in this catalog: the tracklist says 周杰倫, the CN source resolves to 周杰伦.
+		const list = ['最偉大的作品', '說好不哭'].map((t) => nameStub('周杰倫', t));
+		const playing = mk('qq', 'alb-zjl', '周杰伦', '说好不哭');
+		player.current = playing;
+
+		player.setListQueue(list, 'album', null); // the naive install — stubs only
+
+		expect(player.queue[0]).toBe(playing); // front-spliced, NOT at its album slot
+		expect(player.queue).toHaveLength(3); // ...and its own stub is still in the list
+	});
+});

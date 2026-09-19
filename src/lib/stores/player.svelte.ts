@@ -3184,7 +3184,8 @@ class Player {
 		artist: string,
 		title: string,
 		cover?: string | null,
-		context: QueueContext = null
+		context: QueueContext = null,
+		opts: { sameList?: boolean } = {}
 	): Promise<Track | null> {
 		const key = `${artist}${PENDING_KEY_SEP}${title}`.toLowerCase().trim();
 
@@ -3225,7 +3226,11 @@ class Player {
 			// page's follow-up setListQueue(all, 'album', heroImg) then widens it to the whole album.
 			if (hasHttpsScheme(cover)) tr = { ...tr, cover };
 			this.setQueue([tr], context, cover);
-			void this.play(tr, { fresh: true });
+			// quick-260919-alb: forward the caller's `sameList` intent (quick-260915-vb9) to play().
+			// A "play this whole LIST" button (the album hero Play) installs its list right after this
+			// call returns, so the fresh-play tail must KEEP that list instead of regenerating over it.
+			// A plain row tap passes nothing and keeps resolving through the user's per-context setting.
+			void this.play(tr, { fresh: true, sameList: opts.sameList });
 			return tr;
 		}
 
