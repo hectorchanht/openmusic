@@ -130,7 +130,12 @@ describe('shared settings rows (quick-260919-ebi F2)', () => {
 		expect(hint).toMatch(/aria-controls=\{id\}/);
 		expect(hint).toMatch(/aria-label=\{label/);
 		// TAP is the primary affordance; hover is a pointer-device bonus, never the only way in.
-		expect(hint).toMatch(/onclick=\{\(\) => \(open = !open\)\}/);
+		expect(hint).toMatch(/onclick=\{toggle\}/);
+		expect(hint).toMatch(/open = !open/);
+		// The (i) now sits INSIDE the title (an <h2>, a sub-heading, a <summary>), so the revealed
+		// description is lifted out of that title's flow rather than pushed into it.
+		expect(hint).toMatch(/position: absolute/);
+		expect(hint).toMatch(/top: 100%/);
 		expect(hint).toMatch(/@media \(hover: hover\)/);
 	});
 
