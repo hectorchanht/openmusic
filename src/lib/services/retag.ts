@@ -28,7 +28,7 @@
 // a possible artwork fetch. The api-fetch-flood history (and the album download loop that followed
 // it) settled this — one at a time, with progress reported per entry.
 
-import { blobStore } from './blob-store';
+import { blobStore, getStoredName, setStoredName } from './blob-store';
 import { albumTag, tagAudioBlob, readAudioTags } from './audio-tags';
 import { resolveArtworkDataUrl } from './media-artwork';
 import { buildDownloadFilename, sanitizeFilename, MAX_FILENAME_BASE } from './download-filename';
@@ -154,7 +154,15 @@ export async function retagOne(entry: RetagEntry): Promise<RetagItemResult> {
 		// the builder uses, so no `/` or `\` can reach MediaStore; `^\.+$` is the "a name of only
 		// dots is not a name" guard — `.` and `..` must never become a filename. The extension is
 		// appended from `out.format` afterwards, so it is never the user's to choose.
-		const base = sanitizeFilename(entry.filename ?? '')
+		//
+		// quick-260919-3j1 (D-6, T-3j1-01): the RECORDED name is the fallback, and it sits INSIDE the
+		// sanitize call rather than beside it — a stored `../evil` or `...` is re-sanitized on READ,
+		// so nothing hand-written into localStorage can reach `blobStore.put`. Order is the decision:
+		// what the CALLER passes always wins, the remembered name only fills a caller's silence.
+		// That silence is the new case — a cover pin, a lyric pin and the player's automatic lyric
+		// embed all rewrite this file knowing nothing about its name, and without this line each of
+		// them would rename a file the user deliberately named via the editor's File name field.
+		const base = sanitizeFilename(entry.filename ?? getStoredName(entry.uid) ?? '')
 			.trim()
 			.replace(/^\.+$/, '')
 			.slice(0, MAX_FILENAME_BASE)
@@ -166,6 +174,14 @@ export async function retagOne(entry: RetagEntry): Promise<RetagItemResult> {
 		// file's OWN art + LRC is now describing a file that no longer exists. Evict on the success
 		// path ONLY — every other outcome left the file byte-identical, so its memo entry is still true.
 		forgetLocalEnrichment(entry.uid);
+		// quick-260919-3j1 (D-6): remember a name the user TYPED, so no LATER rewrite reverts it. Only
+		// when the CALLER supplied one — a DERIVED name is deliberately not recorded, which is what
+		// keeps today's behaviour intact: editing the title still renames the file.
+		//
+		// ponytail: a typed name is sticky with NO "reset to derived" button. The escape hatch is the
+		// editor field's own placeholder, which shows the derived name — retyping it re-records it.
+		// Upgrade path if anyone asks: a clear affordance that calls a `clearStoredName` export.
+		if (entry.filename && base) setStoredName(entry.uid, base);
 		return 'tagged';
 	} catch {
 		return 'error';

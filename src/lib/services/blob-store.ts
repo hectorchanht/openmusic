@@ -21,6 +21,9 @@ import { Filesystem, Directory } from '@capacitor/filesystem';
 import write_blob from 'capacitor-blob-writer';
 import { MediaStoreSaver } from './media-store';
 import { isDeviceUid, deviceContentUri } from './device-track';
+// quick-260919-3j1 (D-6): the SAME cap the metadata editor's typed name is already held to. PURE,
+// import-free module — no cycle, nothing reactive.
+import { MAX_FILENAME_BASE } from './download-filename';
 
 const DB_NAME = 'openmusic-blobs';
 const STORE = 'tracks';
@@ -105,6 +108,64 @@ function setStoredUri(uid: string, uri: string): void {
 function clearStoredUri(uid: string): void {
 	try {
 		if (typeof localStorage !== 'undefined') localStorage.removeItem(uriIndexKey(uid));
+	} catch {
+		// ignore.
+	}
+}
+
+// --- quick-260919-3j1 (D-6): the PER-UID STICKY FILE NAME -------------------------------------
+//
+// WHY. `retagOne` recomputes the on-disk name from title+artist whenever the caller supplies none.
+// That was harmless while the editor's Save was the only single-file writer, because the editor
+// always passes what the user typed. This task adds three MORE rewrite triggers (a cover pin, a
+// lyric pin, the player's automatic lyric embed), and none of them knows anything about a file
+// name — so without this index, pinning a cover would silently rename a file the user deliberately
+// named hours ago via quick-260919-30x's File name field. The shipped Settings sweep has the same
+// hole.
+//
+// WHAT IS REMEMBERED. Only a name the user TYPED (retag records it solely when the CALLER supplied
+// `filename`). A name the app DERIVED is deliberately NOT recorded, so editing the title still
+// renames the file exactly as it does today.
+//
+// Same posture as the URI index above it — localStorage, per-uid key, try/catch'd, never throws.
+// T-3j1-01: the stored value is re-sanitized on READ by retag (the fallback sits INSIDE the
+// existing `sanitizeFilename(...)` call), so a hand-edited `../evil` can never reach `blobStore.put`.
+
+/** localStorage key for the user-typed base file name (no extension) recorded for `uid`. */
+function nameIndexKey(uid: string): string {
+	return `openmusic-blob-name:${uid}`;
+}
+
+/** The user-typed base name recorded for `uid`, or null. Never throws. */
+export function getStoredName(uid: string): string | null {
+	if (!uid) return null;
+	try {
+		return typeof localStorage !== 'undefined' ? localStorage.getItem(nameIndexKey(uid)) : null;
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Record the user-typed base name for `uid`. T-3j1-02: a no-op on an empty uid or empty base, and
+ * capped at MAX_FILENAME_BASE so the index can never hold a name longer than one that could be
+ * written. Never throws.
+ */
+export function setStoredName(uid: string, base: string): void {
+	if (!uid || !base) return;
+	try {
+		if (typeof localStorage !== 'undefined') {
+			localStorage.setItem(nameIndexKey(uid), String(base).slice(0, MAX_FILENAME_BASE));
+		}
+	} catch {
+		// ignore — the index is a best-effort convenience, exactly like the URI one.
+	}
+}
+
+/** Drop the recorded name for `uid`. Never throws. */
+function clearStoredName(uid: string): void {
+	try {
+		if (typeof localStorage !== 'undefined') localStorage.removeItem(nameIndexKey(uid));
 	} catch {
 		// ignore.
 	}
@@ -409,6 +470,10 @@ export async function has(uid: string): Promise<boolean> {
  */
 export async function del(uid: string): Promise<void> {
 	if (!uid) return;
+	// quick-260919-3j1 (T-3j1-02): the name dies with the file, on BOTH platforms. ABOVE the native
+	// fork on purpose — nativeDel's device-uid early return would otherwise skip it, leaving an entry
+	// that outlives its file and could name the NEXT thing stored under that uid.
+	clearStoredName(uid);
 	if (Capacitor.isNativePlatform()) return nativeDel(uid);
 	const db = await openDb();
 	if (!db) return;
@@ -438,4 +503,4 @@ export function linkPublicUri(uid: string, uri: string): void {
 }
 
 /** Bundled namespace export so callers can `import { blobStore } from '$lib/services/blob-store'`. */
-export const blobStore = { put, get, has, del, linkPublicUri };
+export const blobStore = { put, get, has, del, linkPublicUri, getStoredName };

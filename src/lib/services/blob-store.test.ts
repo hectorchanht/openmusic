@@ -105,7 +105,7 @@ function okAudioResponse() {
 	};
 }
 
-import { blobStore, put, get, has, del, linkPublicUri } from './blob-store';
+import { blobStore, put, get, has, del, linkPublicUri, getStoredName, setStoredName } from './blob-store';
 
 beforeEach(() => {
 	isNativePlatform.mockReturnValue(false);
@@ -561,6 +561,85 @@ describe('blob-store — stored public-URI fallback (34-D-09)', () => {
 
 	it('is exported on the blobStore namespace', () => {
 		expect(blobStore.linkPublicUri).toBe(linkPublicUri);
+	});
+});
+
+// --- quick-260919-3j1 (D-6, T-3j1-01/02): the per-uid sticky FILE NAME index -------------------
+// The enabling fix for this task's three new rewrite triggers. Without it a cover pin would silently
+// rename a file the user deliberately named in the metadata editor hours earlier.
+describe('blob-store — the sticky user-typed file name (quick-260919-3j1)', () => {
+	it('is null when nothing was stored', () => {
+		expect(getStoredName('netease:1')).toBeNull();
+	});
+
+	it('round-trips a base name', () => {
+		setStoredName('netease:1', 'My Song');
+		expect(getStoredName('netease:1')).toBe('My Song');
+	});
+
+	it('is per uid — one song\'s name never leaks onto another', () => {
+		setStoredName('netease:1', 'One');
+		setStoredName('kuwo:2', 'Two');
+		expect(getStoredName('netease:1')).toBe('One');
+		expect(getStoredName('kuwo:2')).toBe('Two');
+	});
+
+	it('an empty uid or an empty base is a no-op (T-3j1-02)', () => {
+		setStoredName('', 'Nope');
+		setStoredName('netease:9', '');
+		expect(getStoredName('')).toBeNull();
+		expect(getStoredName('netease:9')).toBeNull();
+		expect(localStorage.length).toBe(0);
+	});
+
+	it('caps the stored base at MAX_FILENAME_BASE (T-3j1-02)', () => {
+		setStoredName('netease:1', 'z'.repeat(400));
+		expect(getStoredName('netease:1')).toBe('z'.repeat(120));
+	});
+
+	it('never throws on unavailable / corrupt localStorage', () => {
+		vi.stubGlobal('localStorage', {
+			getItem: () => {
+				throw new Error('SecurityError');
+			},
+			setItem: () => {
+				throw new Error('QuotaExceededError');
+			},
+			removeItem: () => {
+				throw new Error('nope');
+			}
+		});
+		expect(() => setStoredName('netease:1', 'x')).not.toThrow();
+		expect(getStoredName('netease:1')).toBeNull();
+	});
+
+	it('del clears the stored name on the WEB branch', async () => {
+		isNativePlatform.mockReturnValue(false);
+		setStoredName('netease:1', 'My Song');
+		await del('netease:1');
+		expect(getStoredName('netease:1')).toBeNull();
+	});
+
+	it('del clears the stored name on the NATIVE branch', async () => {
+		isNativePlatform.mockReturnValue(true);
+		setStoredName('netease:1', 'My Song');
+		await del('netease:1');
+		expect(getStoredName('netease:1')).toBeNull();
+	});
+
+	// The clear sits ABOVE the platform fork precisely so nativeDel's device-uid early return cannot
+	// skip it — an entry that outlives its file could name the next thing stored under that uid.
+	it('del clears the stored name for a device: uid too, without touching the user\'s file', async () => {
+		isNativePlatform.mockReturnValue(true);
+		setStoredName('device:42', 'Their Song');
+		await del('device:42');
+		expect(getStoredName('device:42')).toBeNull();
+		expect(deleteFile).not.toHaveBeenCalled();
+		expect(deleteFromMusic).not.toHaveBeenCalled();
+	});
+
+	it('is exported on the blobStore namespace', () => {
+		expect(blobStore.getStoredName).toBe(getStoredName);
 	});
 });
 

@@ -12,19 +12,35 @@ import { fileURLToPath } from 'node:url';
 
 type TagOutcomeLike = { blob: Blob; result: string; format?: string };
 
-const mocks = vi.hoisted(() => ({
-	get: vi.fn(async (_uid: string): Promise<Blob | null> => new Blob(['audio'])),
-	put: vi.fn(async (_uid: string, _blob: Blob, _filename?: string) => true),
-	tagAudioBlob: vi.fn(
-		async (blob: Blob, _f: unknown, _a?: unknown): Promise<TagOutcomeLike> => ({ blob, result: 'tagged', format: 'm4a' })
-	),
-	readAudioTags: vi.fn(async (_b: Uint8Array): Promise<Record<string, unknown> | null> => ({ title: 'T', format: 'm4a' })),
-	resolveArtworkDataUrl: vi.fn(async (_q: unknown): Promise<string | null> => 'data:image/png;base64,AA'),
-	forgetLocalEnrichment: vi.fn((_uid: string) => {})
-}));
+const mocks = vi.hoisted(() => {
+	// quick-260919-3j1: the per-uid sticky-name index retagOne now reads (as the filename FALLBACK)
+	// and writes (only when the CALLER supplied a name). An in-memory Map stands in for localStorage.
+	const names = new Map<string, string>();
+	return {
+		get: vi.fn(async (_uid: string): Promise<Blob | null> => new Blob(['audio'])),
+		put: vi.fn(async (_uid: string, _blob: Blob, _filename?: string) => true),
+		tagAudioBlob: vi.fn(
+			async (blob: Blob, _f: unknown, _a?: unknown): Promise<TagOutcomeLike> => ({ blob, result: 'tagged', format: 'm4a' })
+		),
+		readAudioTags: vi.fn(async (_b: Uint8Array): Promise<Record<string, unknown> | null> => ({ title: 'T', format: 'm4a' })),
+		resolveArtworkDataUrl: vi.fn(async (_q: unknown): Promise<string | null> => 'data:image/png;base64,AA'),
+		forgetLocalEnrichment: vi.fn((_uid: string) => {}),
+		names,
+		getStoredName: vi.fn((uid: string): string | null => names.get(uid) ?? null),
+		setStoredName: vi.fn((uid: string, base: string): void => void names.set(uid, base))
+	};
+});
 
-vi.mock('$lib/services/blob-store', () => ({ blobStore: { get: mocks.get, put: mocks.put } }));
-vi.mock('./blob-store', () => ({ blobStore: { get: mocks.get, put: mocks.put } }));
+vi.mock('$lib/services/blob-store', () => ({
+	blobStore: { get: mocks.get, put: mocks.put, getStoredName: mocks.getStoredName },
+	getStoredName: mocks.getStoredName,
+	setStoredName: mocks.setStoredName
+}));
+vi.mock('./blob-store', () => ({
+	blobStore: { get: mocks.get, put: mocks.put, getStoredName: mocks.getStoredName },
+	getStoredName: mocks.getStoredName,
+	setStoredName: mocks.setStoredName
+}));
 // quick-260919-0mw: spread the REAL module so `albumTag` (a pure string helper retag now calls) is
 // present — only the two codec entry points are stubbed.
 vi.mock('./audio-tags', async (orig) => ({
@@ -58,6 +74,9 @@ beforeEach(() => {
 	}));
 	mocks.resolveArtworkDataUrl.mockReset().mockResolvedValue('data:image/png;base64,AA');
 	mocks.forgetLocalEnrichment.mockReset();
+	mocks.names.clear();
+	mocks.getStoredName.mockClear();
+	mocks.setStoredName.mockClear();
 });
 
 describe('retag — per-file isolation (36-D-19)', () => {
@@ -304,6 +323,75 @@ describe('retag — the single-file save path (quick-260919-1eh)', () => {
 	it('a successful rewrite evicts the local-tags memo for exactly that uid', async () => {
 		await retagOne(entry(7));
 		expect(mocks.forgetLocalEnrichment).toHaveBeenCalledWith('netease-7');
+	});
+
+	// ── quick-260919-3j1 (D-6, T-3j1-01): the typed name becomes STICKY ──────────────────────────
+	// The enabling fix for the three new rewrite triggers this task adds: a cover pin, a lyric pin and
+	// the player's automatic lyric embed all pass NO filename, and without this each would rename a
+	// file the user deliberately named in the editor.
+	it('records the sanitized base when the CALLER supplied a filename', async () => {
+		expect(await retagOne(entry(1, { filename: 'My Song' }))).toBe('tagged');
+		expect(mocks.setStoredName).toHaveBeenCalledWith('netease-1', 'My Song');
+	});
+
+	it('a caller with NO filename reuses the recorded base, NOT the derived title+artist name', async () => {
+		await retagOne(entry(1, { filename: 'My Song' }));
+		mocks.put.mockClear();
+		// A later rewrite that knows nothing about the name (a cover pin): same file name, new ext.
+		mocks.tagAudioBlob.mockImplementation(async (blob: Blob) => ({ blob, result: 'tagged', format: 'flac' }));
+		expect(await retagOne(entry(1, { title: 'T1' }))).toBe('tagged');
+		expect(mocks.put.mock.calls[0][2]).toBe('My Song.flac');
+	});
+
+	it('with NO recorded base and no filename it is byte-identical to today', async () => {
+		expect(await retagOne(entry(1))).toBe('tagged');
+		expect(mocks.put.mock.calls[0][2]).toBe('A1 - T1.m4a');
+		expect(mocks.setStoredName).not.toHaveBeenCalled();
+	});
+
+	it('a DERIVED name is never recorded, so a later title edit still renames the file (D-6)', async () => {
+		await retagOne(entry(1));
+		expect(mocks.setStoredName).not.toHaveBeenCalled();
+		mocks.put.mockClear();
+		expect(await retagOne(entry(1, { title: 'Renamed' }))).toBe('tagged');
+		expect(mocks.put.mock.calls[0][2]).toBe('A1 - Renamed.m4a');
+	});
+
+	it('a caller-supplied filename still OUTRANKS the recorded base', async () => {
+		mocks.names.set('netease-1', 'Old Name');
+		mocks.put.mockClear();
+		expect(await retagOne(entry(1, { filename: 'Newer Name' }))).toBe('tagged');
+		expect(mocks.put.mock.calls[0][2]).toBe('Newer Name.m4a');
+	});
+
+	it('T-3j1-01: a recorded base is RE-SANITIZED on read — `../evil` never reaches put', async () => {
+		mocks.names.set('netease-1', '../../evil');
+		mocks.put.mockClear();
+		const name = (await retagOne(entry(1)), mocks.put.mock.calls[0][2] as string);
+		expect(name).not.toContain('/');
+		expect(name).not.toContain('\\');
+		expect(name.endsWith('.m4a')).toBe(true);
+	});
+
+	it('T-3j1-01: a recorded base of only dots falls back to the derived name', async () => {
+		mocks.names.set('netease-1', '...');
+		mocks.put.mockClear();
+		await retagOne(entry(1));
+		expect(mocks.put.mock.calls[0][2]).toBe('A1 - T1.m4a');
+	});
+
+	it('nothing is recorded on a non-"tagged" outcome (T-3j1-02)', async () => {
+		mocks.put.mockResolvedValue(false);
+		expect(await retagOne(entry(1, { filename: 'My Song' }))).toBe('put-failed');
+		expect(mocks.setStoredName).not.toHaveBeenCalled();
+
+		mocks.put.mockResolvedValue(true);
+		mocks.readAudioTags.mockResolvedValue(null);
+		expect(await retagOne(entry(2, { filename: 'My Song' }))).toBe('verify-failed');
+		expect(mocks.setStoredName).not.toHaveBeenCalled();
+
+		expect(await retagOne(entry(3, { uid: 'device:1', filename: 'My Song' }))).toBe('device-skipped');
+		expect(mocks.setStoredName).not.toHaveBeenCalled();
 	});
 
 	it('a FAILED rewrite leaves the memo alone (the bytes on disk did not change)', async () => {
