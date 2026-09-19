@@ -220,6 +220,60 @@ Plans:
 
 - The existing ~626-test suite stays green and pnpm check passes (web must not regress)
 
+### Phase 999.2: Downloaded songs are self-sufficient offline (BACKLOG)
+
+**Goal:** [Captured for future planning] A downloaded song carries everything it needs — correct tags, its own lyrics, a user-controllable filename and cover — and the user controls what gets re-imported.
+**Requirements:** TBD
+**Plans:** 0 plans
+
+Captured 2026-09-19 (user batch dump):
+
+- Long-press menu on a downloaded song: **"Mark no more import"** — removes it from the download list AND excludes that file from future device-import scans. Needs a recovery list UI to un-exclude previously marked songs.
+- Changing a song's cover must also **rewrite the cover into the downloaded file**, and the system must remember the override.
+- Allow the user to **rename the downloaded file**.
+- Downloaded songs still show **meta: size, format, quality/bitrate**.
+- **Offline playback reads lyrics from the downloaded file** — a downloaded song should be fully self-sufficient offline.
+- Song meta must go through the app's **locale translation** too (observed: 简体 "过一招" album tag under a 繁體 title).
+
+Overlaps Phases 34 (import device songs), 36 (tag downloaded songs with metadata), 37 (enrich imported device songs — in progress). **Audit what is already built before planning.**
+
+Open questions to answer from the code first:
+- Does app-data import MERGE with existing data, or overwrite it?
+- Is lyrics currently read from the downloaded file during offline playback?
+
+Plans:
+- [ ] TBD (promote with /gsd:review-backlog when ready)
+
+### Phase 999.3: Lyrics control — picker, reloader, and Nowbar line (BACKLOG)
+
+**Goal:** [Captured for future planning] The user can fix a wrong lyrics match themselves and see the current line without expanding the player.
+**Requirements:** TBD
+**Plans:** 0 plans
+
+Captured 2026-09-19 (user batch dump):
+
+- Add a **lyrics picker + reloader** to the song menu (choose a different lyrics match / force re-fetch).
+- Add a mode showing the **current lyric line under the collapsed play bar** (Nowbar).
+
+Plans:
+- [ ] TBD (promote with /gsd:review-backlog when ready)
+
+### Phase 999.4: Settings audit, URL-persistent tabs, and wide desktop layout (BACKLOG)
+
+**Goal:** [Captured for future planning] Settings are grouped and visually legible, every tab is linkable, and desktop stops rendering a phone column.
+**Requirements:** TBD
+**Plans:** 0 plans
+
+Captured 2026-09-19 (user batch dump):
+
+- Settings → Translation: a checkbox that forces **ALL Chinese text app-wide to either Traditional or Simplified**. Affects Chinese only — no effect on other languages.
+- **Audit and rearrange the settings page tabs**: group settings into the correct tabs, and give a clear visual distinction between toggles and config rows. Replace text descriptions of what a toggle does with **actual screen captures** showing the visual difference, so the user picks by seeing it.
+- Every tab set is **URL-persistent** (like the library tabs) — a URL can deep-link straight to a specific tab.
+- Add a **wide desktop view**: content expands to full desktop width to maximize exposure, similar to the YouTube Music desktop layout (left rail nav + wide multi-column shelves).
+
+Plans:
+- [ ] TBD (promote with /gsd:review-backlog when ready)
+
 ### Phase 26: Minimal-API Click-to-Play Redesign
 
 **Goal:** Cut a single-song play from ~59 `/api/*` calls to ~3 while staying fully functional across every language/region/genre. Grounded in spikes 001–004 (`Skill("spike-findings-openmusic")` + [`spikes/004-source-coverage-by-segment/POLICY.md`](spikes/004-source-coverage-by-segment/POLICY.md)): kuwo is empirically 100% playable+cover across all 14 language/region×genre segments; Last.fm `track.getSimilar` returns exact `{artist,title}` pairs in 1 call; measured baseline is ~59 calls/play (56 = `buildSimilarQueue`'s 8 similar-artists × 7 sources). **Hard rule: never fan out all 7 sources on click.**
