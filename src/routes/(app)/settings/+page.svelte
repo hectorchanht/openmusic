@@ -1,8 +1,11 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
-	import { ChevronLeft, ChevronRight, Globe, Type, LayoutGrid, Languages, Music, Radio, HardDriveDownload, Database, ScrollText, Info } from '@lucide/svelte';
+	// quick-260919-ebi: ChevronRight + tapBounce now live inside SettingRow; Radio stays only for
+	// the commented-out Last.fm row below.
+	import { ChevronLeft, Globe, Type, LayoutGrid, Languages, Music, Radio, HardDriveDownload, Database, ScrollText, Info } from '@lucide/svelte';
 	import { settings } from '$lib/stores/settings.svelte';
+	import SettingRow from '$lib/components/SettingRow.svelte';
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { t, type TranslationKey } from '$lib/i18n';
 	import type { Component } from 'svelte';
@@ -40,14 +43,9 @@
 <ul class="groups">
 	{#each groups as g (g.href)}
 		<li>
-			<button class="item" onclick={() => goto(g.href)} use:tapBounce>
-				<g.icon size={20} />
-				<span class="txt">
-					<span class="g-title">{t(g.title)}</span>
-					<span class="g-desc">{t(g.desc)}</span>
-				</span>
-				<ChevronRight size={18} class="chev" />
-			</button>
+			<!-- quick-260919-ebi (F2): every row here LEADS SOMEWHERE, so they are all the raised +
+			     chevron kind. The shared component is now the only place that shape is declared. -->
+			<SettingRow icon={g.icon} label={t(g.title)} desc={t(g.desc)} onclick={() => goto(g.href)} />
 		</li>
 	{/each}
 </ul>
@@ -56,11 +54,7 @@
 	.head { display: flex; align-items: center; gap: 8px; padding: 14px 0 12px; }
 	.back { background: none; border: none; color: var(--color-text); cursor: pointer; display: grid; place-items: center; width: 36px; height: 36px; }
 	.head h1 { font-size: 1.4rem; margin: 0; }
-	.groups { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
-	.item { width: 100%; display: flex; align-items: center; gap: 14px; background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); padding: 14px; border-radius: 12px; cursor: pointer; text-align: left; }
-	.item:hover { background: var(--color-surface); }
-	.txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-	.g-title { font-size: 15px; font-weight: 600; }
-	.g-desc { font-size: 12px; color: var(--color-text-muted); }
-	.item :global(.chev) { color: var(--color-text-muted); flex: none; }
+	/* quick-260919-ebi: the row CSS (.item/.txt/.g-title/.g-desc/.chev) moved into SettingRow.svelte;
+	   SettingRow owns its own 8px bottom margin, so the list gap is gone. */
+	.groups { list-style: none; margin: 8px 0 0; padding: 0; }
 </style>

@@ -25,6 +25,7 @@
     // player — settings stays a LEAF store because the player read happens HERE, not in the
     // settings store (Pitfall 6 / SSR-leak rule).
     import { player } from "$lib/stores/player.svelte";
+    import SettingToggle from "$lib/components/SettingToggle.svelte";
     import { tapBounce } from "$lib/actions/tapBounce";
     import { t } from "$lib/i18n";
 
@@ -142,10 +143,13 @@
      General borrowed — this page has no playback on it, so that key would have read as a lie. -->
 <section>
     <h2><Zap size={15} /> {t("settings.appearanceMotion")}</h2>
-    <button class="row-toggle" onclick={toggleMotion}>
-        <span><Zap size={16} /> {t("settings.reduceMotion")}</span>
-        <span class="sw" class:on={settings.reduceMotion}></span>
-    </button>
+    <!-- quick-260919-ebi (F2): the one shared boolean row — inset + switch + accent edge. -->
+    <SettingToggle
+        icon={Zap}
+        label={t("settings.reduceMotion")}
+        checked={settings.reduceMotion}
+        onchange={toggleMotion}
+    />
     <p class="note">{t("settings.reduceMotionDesc")}</p>
 </section>
 
@@ -451,51 +455,7 @@
             0 0 0 2px var(--color-bg),
             0 0 0 4px currentColor;
     }
-    .row-toggle {
-        width: 100%;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        background: var(--color-surface-2);
-        border: 1px solid var(--color-border);
-        color: var(--color-text);
-        padding: 13px 14px;
-        border-radius: 12px;
-        font-size: 14px;
-        cursor: pointer;
-        margin-bottom: 8px;
-    }
-    .row-toggle span:first-child {
-        display: inline-flex;
-        align-items: center;
-        gap: 10px;
-    }
-    .sw {
-        width: 40px;
-        height: 22px;
-        border-radius: 999px;
-        background: var(--color-border);
-        position: relative;
-        transition: background 0.15s ease;
-        flex: none;
-    }
-    .sw::after {
-        content: "";
-        position: absolute;
-        top: 2px;
-        left: 2px;
-        width: 18px;
-        height: 18px;
-        border-radius: 50%;
-        background: #fff;
-        transition: transform 0.15s ease;
-    }
-    .sw.on {
-        background: var(--color-primary);
-    }
-    .sw.on::after {
-        transform: translateX(18px);
-    }
+    /* quick-260919-ebi: the toggle-row CSS moved into SettingToggle.svelte. */
     @media (prefers-reduced-motion: reduce) {
         .cover-demo-tile {
             transition: none;

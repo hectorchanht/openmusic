@@ -3,6 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { ChevronLeft, Trash2, RefreshCw, Languages, Image, Search, SlidersHorizontal, Download, Upload, Undo2, CloudDownload, CircleStop } from '@lucide/svelte';
 	import { settings } from '$lib/stores/settings.svelte';
+	import SettingRow from '$lib/components/SettingRow.svelte';
 	import { library } from '$lib/stores/library.svelte';
 	import { names } from '$lib/stores/names.svelte';
 	import { clearCoverCache } from '$lib/services/cover-cache';
@@ -177,9 +178,14 @@
 
 <section>
 	<p class="muted">{t('settings.dataCounts', { liked: counts.liked, playlists: counts.playlists, downloads: counts.downloads })}</p>
-	<button class="item" onclick={exportNow} use:tapBounce><Download size={18} /> {t('backup.export')}</button>
+	<!-- quick-260919-ebi (F2): these rows RUN something rather than flipping a boolean, so they are
+	     the raised + chevron kind (SettingRow) — the same shape the /settings index uses, and now
+	     visually distinct from a toggle row. The `.hint` paragraphs stay OUTSIDE the rows: they are
+	     long enough that folding them into the row's second line would turn each action into a
+	     paragraph-sized block. -->
+	<SettingRow icon={Download} label={t('backup.export')} onclick={exportNow} />
 	<p class="hint">{t('backup.exportDesc')}</p>
-	<button class="item" onclick={pickImport} use:tapBounce><Upload size={18} /> {t('backup.import')}</button>
+	<SettingRow icon={Upload} label={t('backup.import')} onclick={pickImport} />
 	<p class="hint">{t('backup.importDesc')}</p>
 	<!-- Leading with a real MIME type is load-bearing, not cosmetic. A type list that STARTS with a
 	     bare extension makes Capacitor's BridgeWebChromeClient.showFilePicker:379 index validTypes[0]
@@ -188,24 +194,29 @@
 	     file out: drop the attribute entirely, validateEnvelope is the real gate. -->
 	<input type="file" accept="application/json,.json" bind:this={fileInput} onchange={onPicked} hidden />
 	{#if canUndo}
-		<button class="item" onclick={undoNow} use:tapBounce><Undo2 size={18} /> {t('backup.undo')}</button>
+		<SettingRow icon={Undo2} label={t('backup.undo')} onclick={undoNow} />
 		<p class="hint">{t('backup.undoDesc')}</p>
 	{/if}
-	<button class="item" onclick={redownloadMissing} disabled={!sweeping && (missing?.length ?? 0) === 0} use:tapBounce>
-		{#if sweeping}<CircleStop size={18} /> {t('backup.stop')} ({sweepDone}/{missing?.length ?? 0}){:else}<CloudDownload size={18} /> {t('backup.redownload', { n: missing?.length ?? 0 })}{/if}
-	</button>
+	<SettingRow
+		icon={sweeping ? CircleStop : CloudDownload}
+		label={sweeping
+			? `${t('backup.stop')} (${sweepDone}/${missing?.length ?? 0})`
+			: t('backup.redownload', { n: missing?.length ?? 0 })}
+		onclick={redownloadMissing}
+		disabled={!sweeping && (missing?.length ?? 0) === 0}
+	/>
 	<p class="hint">{t('backup.redownloadDesc')}</p>
-	<button class="item" onclick={clearPicks} use:tapBounce><RefreshCw size={18} /> {t('settings.clearPicks')}</button>
+	<SettingRow icon={RefreshCw} label={t('settings.clearPicks')} onclick={clearPicks} />
 	<p class="hint">{t('settings.clearPicksDesc')}</p>
-	<button class="item" onclick={clearNameCache} use:tapBounce><Languages size={18} /> {t('settings.clearNameCache')}</button>
+	<SettingRow icon={Languages} label={t('settings.clearNameCache')} onclick={clearNameCache} />
 	<p class="hint">{t('settings.clearNameCacheDesc')}</p>
-	<button class="item" onclick={clearCovers} use:tapBounce><Image size={18} /> {t('settings.clearCoverCache')}</button>
+	<SettingRow icon={Image} label={t('settings.clearCoverCache')} onclick={clearCovers} />
 	<p class="hint">{t('settings.clearCoverCacheHint')}</p>
-	<button class="item" onclick={clearSearchHistory} use:tapBounce><Search size={18} /> {t('settings.clearSearchHistory')}</button>
+	<SettingRow icon={Search} label={t('settings.clearSearchHistory')} onclick={clearSearchHistory} />
 	<p class="hint">{t('settings.clearSearchHistoryDesc')}</p>
-	<button class="item" onclick={resetAppearance} use:tapBounce><SlidersHorizontal size={18} /> {t('settings.resetAppearance')}</button>
+	<SettingRow icon={SlidersHorizontal} label={t('settings.resetAppearance')} onclick={resetAppearance} />
 	<p class="hint">{t('settings.resetAppearanceDesc')}</p>
-	<button class="item danger" onclick={clearLibrary} use:tapBounce><Trash2 size={18} /> {t('settings.clearLibrary')}</button>
+	<SettingRow icon={Trash2} label={t('settings.clearLibrary')} onclick={clearLibrary} danger />
 	<p class="hint">{t('settings.clearLibraryDesc')}</p>
 </section>
 
@@ -218,8 +229,6 @@
 	section { margin: 18px 0; }
 	.muted { color: var(--color-text-muted); font-size: 12px; margin: 0 0 12px; }
 	.hint { color: var(--color-text-muted); font-size: 12px; margin: -2px 0 10px 4px; }
-	.item { width: 100%; display: flex; align-items: center; gap: 12px; background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); padding: 14px; border-radius: 12px; font-size: 15px; cursor: pointer; text-align: left; margin-bottom: 8px; }
-	.item:disabled { opacity: 0.5; cursor: default; }
-	.item.danger { color: #ff7a90; }
+	/* quick-260919-ebi: the action-row CSS (.item, :disabled, .danger) moved into SettingRow.svelte. */
 	.flash { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(var(--tabbar-h) + 70px); background: #000; color: #fff; padding: 10px 16px; border-radius: 999px; font-size: 13px; }
 </style>

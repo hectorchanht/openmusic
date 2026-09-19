@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { ChevronLeft, Languages, Replace } from '@lucide/svelte';
+	import SettingToggle from '$lib/components/SettingToggle.svelte';
 	import { settings, type LyricsLang, type SourceLang, type TranslateMode, type ZhScriptSetting } from '$lib/stores/settings.svelte';
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { t, type TranslationKey } from '$lib/i18n';
@@ -146,16 +147,21 @@
 	</div>
 	<p class="muted">{settings.lyricsLang === 'off' ? t('settings.translateModeOffNote') : t('settings.translateModeOnNote')}</p>
 
-	<button class="row-toggle" onclick={() => { settings.lyricsHideParenTranslation = !settings.lyricsHideParenTranslation; settings.save(); }}>
-		<span>{t('settings.lyricsHideParenTranslation')}</span>
-		<span class="sw" class:on={settings.lyricsHideParenTranslation}></span>
-	</button>
+	<!-- quick-260919-ebi (F2): the one shared boolean row — inset + switch + accent edge. These two
+	     keep their prose: a before/after lyric pair would need a representative bilingual sample
+	     line, and choosing that line is itself a translation problem. -->
+	<SettingToggle
+		label={t('settings.lyricsHideParenTranslation')}
+		checked={settings.lyricsHideParenTranslation}
+		onchange={() => { settings.lyricsHideParenTranslation = !settings.lyricsHideParenTranslation; settings.save(); }}
+	/>
 	<p class="muted">{t('settings.lyricsHideParenTranslationNote')}</p>
 
-	<button class="row-toggle" onclick={() => { settings.lyricsHideParenLines = !settings.lyricsHideParenLines; settings.save(); }}>
-		<span>{t('settings.lyricsHideParenLines')}</span>
-		<span class="sw" class:on={settings.lyricsHideParenLines}></span>
-	</button>
+	<SettingToggle
+		label={t('settings.lyricsHideParenLines')}
+		checked={settings.lyricsHideParenLines}
+		onchange={() => { settings.lyricsHideParenLines = !settings.lyricsHideParenLines; settings.save(); }}
+	/>
 	<p class="muted">{t('settings.lyricsHideParenLinesNote')}</p>
 </section>
 
@@ -227,9 +233,5 @@
 	.seg button.on { background: var(--color-primary); color: #fff; }
 	.link { background: none; border: none; color: var(--color-primary); cursor: pointer; font-size: 14px; padding: 0; }
 	.div { border: none; border-top: 1px solid var(--color-border); margin: 4px 0; }
-	.row-toggle { width: 100%; display: flex; align-items: center; justify-content: space-between; background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); padding: 13px 14px; border-radius: 12px; font-size: 14px; cursor: pointer; margin-top: 12px; }
-	.sw { width: 40px; height: 22px; border-radius: 999px; background: var(--color-border); position: relative; transition: background 0.15s ease; flex: none; }
-	.sw::after { content: ''; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: #fff; transition: transform 0.15s ease; }
-	.sw.on { background: var(--color-primary); }
-	.sw.on::after { transform: translateX(18px); }
+	/* quick-260919-ebi: the toggle-row CSS moved into SettingToggle.svelte. */
 </style>

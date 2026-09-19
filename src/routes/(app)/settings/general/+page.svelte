@@ -5,6 +5,7 @@
 	// Sun, Moon and Zap icons left with them.
 	import { ChevronLeft, Globe, Share2 } from '@lucide/svelte';
 	import { settings } from '$lib/stores/settings.svelte';
+	import SettingToggle from '$lib/components/SettingToggle.svelte';
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { t, type AppLang } from '$lib/i18n';
 
@@ -59,10 +60,13 @@
 <!-- quick-260808-vzu — no <h2> heading here on purpose: the row label already says what it does,
      and a heading would cost a third i18n key across all 15 locales for no extra information. -->
 <section>
-	<button class="row-toggle" onclick={toggleShareTitle}>
-		<span><Share2 size={16} /> {t('settings.shareIncludeTitle')}</span>
-		<span class="sw" class:on={settings.shareIncludeTitle}></span>
-	</button>
+	<!-- quick-260919-ebi (F2): the one shared boolean row — inset + switch + accent edge. -->
+	<SettingToggle
+		icon={Share2}
+		label={t('settings.shareIncludeTitle')}
+		checked={settings.shareIncludeTitle}
+		onchange={toggleShareTitle}
+	/>
 	<p class="muted">{t('settings.shareIncludeTitleDesc')}</p>
 </section>
 
@@ -78,11 +82,6 @@
 	.chips { display: flex; flex-wrap: wrap; gap: 8px; }
 	.chip { background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); padding: 8px 14px; border-radius: 999px; font-size: 13px; cursor: pointer; }
 	.chip.on { background: var(--color-primary); color: #fff; border-color: transparent; }
-	/* quick-260919-ebi: .seg / .swatches / .swatch left with the theme + accent controls. */
-	.row-toggle { width: 100%; display: flex; align-items: center; justify-content: space-between; background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); padding: 13px 14px; border-radius: 12px; font-size: 14px; cursor: pointer; margin-bottom: 8px; }
-	.row-toggle span:first-child { display: inline-flex; align-items: center; gap: 10px; }
-	.sw { width: 40px; height: 22px; border-radius: 999px; background: var(--color-border); position: relative; transition: background 0.15s ease; flex: none; }
-	.sw::after { content: ''; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: #fff; transition: transform 0.15s ease; }
-	.sw.on { background: var(--color-primary); }
-	.sw.on::after { transform: translateX(18px); }
+	/* quick-260919-ebi: .seg / .swatches / .swatch left with the theme + accent controls; the
+	   toggle-row CSS moved into SettingToggle.svelte. */
 </style>
