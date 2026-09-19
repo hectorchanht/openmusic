@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
+	DISCOVERY_TAGS,
+	DEFAULT_HOME_TAGS,
 	HOME_SECTIONS,
 	DEFAULT_SECTION_ORDER,
 	resolveSectionOrder,
@@ -180,7 +182,7 @@ describe('clampShelfSize', () => {
 
 	it('passes a valid value through', () => {
 		expect(clampShelfSize(18)).toBe(18);
-		expect(clampShelfSize(SHELF_DEFAULT)).toBe(16);
+		expect(clampShelfSize(SHELF_DEFAULT)).toBe(24);
 	});
 
 	it('floors a fractional value', () => {
@@ -192,11 +194,17 @@ describe('clampShelfSize', () => {
 		expect(clampShelfSize('x')).toBe(SHELF_DEFAULT);
 		expect(clampShelfSize(undefined)).toBe(SHELF_DEFAULT);
 		expect(clampShelfSize(NaN)).toBe(SHELF_DEFAULT);
-		expect(clampShelfSize(SHELF_DEFAULT)).toBe(16);
+		expect(clampShelfSize(SHELF_DEFAULT)).toBe(24);
 	});
 
 	it('a negative value clamps up to SHELF_MIN (never a NaN / negative page size)', () => {
 		expect(clampShelfSize(-5)).toBe(SHELF_MIN);
+	});
+
+	// quick-260919-hm1: the default IS the maximum now. Asserted as a relation, not a literal,
+	// so moving SHELF_MAX can never leave the default quietly below it.
+	it('SHELF_DEFAULT is the maximum the slider allows', () => {
+		expect(SHELF_DEFAULT).toBe(SHELF_MAX);
 	});
 });
 
@@ -263,5 +271,23 @@ describe('migrateDensity (quick-260618-goe)', () => {
 		expect(migrateDensity(null)).toBeUndefined();
 		expect(migrateDensity(42)).toBeUndefined();
 		expect(migrateDensity({})).toBeUndefined();
+	});
+});
+
+// DEFAULT_HOME_TAGS (quick-260919-hm1) — the shipped genre default is now the WHOLE pool, with
+// the curated CJK/global set still at the front. Asserted against DISCOVERY_TAGS rather than a
+// copied list so adding a genre to the pool without enabling it fails here.
+describe('DEFAULT_HOME_TAGS (quick-260919-hm1)', () => {
+	it('enables every genre in the pool, with no duplicates', () => {
+		expect([...DEFAULT_HOME_TAGS].sort()).toEqual([...DISCOVERY_TAGS].sort());
+		expect(new Set(DEFAULT_HOME_TAGS).size).toBe(DEFAULT_HOME_TAGS.length);
+	});
+
+	it('keeps the curated CJK/global picks at the top of the shelf order', () => {
+		expect(DEFAULT_HOME_TAGS.slice(0, 2)).toEqual(['cantopop', 'mandopop']);
+	});
+
+	it('survives resolveSubset unchanged (order preserved, nothing dropped)', () => {
+		expect(resolveSubset(DEFAULT_HOME_TAGS, DISCOVERY_TAGS)).toEqual(DEFAULT_HOME_TAGS);
 	});
 });

@@ -204,11 +204,16 @@ class Settings {
 	homeSectionOrder = $state<string[]>([...HOME_DEFAULTS.homeSectionOrder]);
 	/** Section ids the user has hidden (intersected with the known set at render). */
 	homeHidden = $state<string[]>([...HOME_DEFAULTS.homeHidden]);
-	/** Selected GENRE-tag subset (ordered — drives genre shelf order); default = curated set. */
+	/** Selected GENRE-tag subset (ordered — drives genre shelf order). quick-260919-hm1: the
+	 *  default is now the FULL pool (every genre on). An existing install keeps its own selection
+	 *  — load() only falls back to the default when the persisted value is missing/not an array. */
 	homeTags = $state<string[]>([...HOME_DEFAULTS.homeTags]);
 	/** Selected COUNTRY subset (ordered — drives country shelf order); default = curated set. */
 	homeCountries = $state<string[]>([...HOME_DEFAULTS.homeCountries]);
-	/** Tiles per shelf (clamped to [6,24]; default 18 = today). */
+	/** Tiles per shelf (clamped to [SHELF_MIN, SHELF_MAX] = [8,24] by clampShelfSize).
+	 *  quick-260919-hm1: the DEFAULT is now 24 — the top of that range. An existing install is
+	 *  untouched: the load() path below runs clampShelfSize over the PERSISTED number, so a saved
+	 *  16 stays 16; only a blob with no homeShelfSize at all picks up the new default. */
 	homeShelfSize = $state<number>(HOME_DEFAULTS.homeShelfSize);
 	/** Which tab the app opens on at `/`. */
 	homeLandingTab = $state<HomeLandingTab>(HOME_DEFAULTS.homeLandingTab);

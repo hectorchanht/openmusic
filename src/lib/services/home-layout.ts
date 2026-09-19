@@ -73,9 +73,18 @@ export const DISCOVERY_COUNTRIES: string[] = [
 	'Turkey'
 ];
 
-// Curated DEFAULT selections (a fresh user sees these as shelves — a manageable subset of the
-// broad pools above, balancing global + CJK). The full pools remain available as toggle chips.
-export const DEFAULT_HOME_TAGS: string[] = [
+// DEFAULT selections (what a fresh user — and anyone who presses "Reset to default" — sees).
+//
+// quick-260919-hm1: GENRES now default to the WHOLE pool, not the curated 8-of-22 subset. The
+// curated order is kept at the FRONT and the rest of the pool appended, so the first shelves a
+// fresh user scrolls past are still the CJK/global mix this app is biased toward — enabling the
+// long tail adds shelves below, it does not reshuffle the top of the page.
+// COST (stated deliberately, per this repo's API-flood history): each selected tag is ONE
+// `tag.getTopTracks` call on a cold home, so the genre fan-out goes 8 → 22 requests, and the
+// cover-backfill set grows with it. Both stay behind the existing limiters — the home's
+// FANOUT_CAP=4, cover-backfill's CAP=6 in-flight pool, and apiFetch's GET dedupe /
+// MAX_CONCURRENT_REQUESTS=8 / circuit breaker. No new throttle is needed or wanted here.
+const CURATED_HOME_TAGS: string[] = [
 	'cantopop',
 	'mandopop',
 	'pop',
@@ -84,6 +93,10 @@ export const DEFAULT_HOME_TAGS: string[] = [
 	'k-pop',
 	'electronic',
 	'latin'
+];
+export const DEFAULT_HOME_TAGS: string[] = [
+	...CURATED_HOME_TAGS,
+	...DISCOVERY_TAGS.filter((tag) => !CURATED_HOME_TAGS.includes(tag))
 ];
 export const DEFAULT_HOME_COUNTRIES: string[] = [
 	'United States',
@@ -182,7 +195,10 @@ export function resolveSubset(saved: string[] | undefined, pool: string[]): stri
 
 export const SHELF_MIN = 8;
 export const SHELF_MAX = 24;
-export const SHELF_DEFAULT = 16;
+/** quick-260919-hm1: the default is now the MAXIMUM the slider allows (SHELF_MAX). 24 is also
+ *  under HomeGridPager's MAX_TILES=27, so a full shelf is rendered whole — nothing is sliced off
+ *  the end at any column count. */
+export const SHELF_DEFAULT = SHELF_MAX;
 
 /**
  * Coerce a persisted items-per-shelf value into a SAFE integer in [SHELF_MIN, SHELF_MAX]
