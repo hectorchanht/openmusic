@@ -3,20 +3,16 @@
 	import { ListEnd, ListStart, ChevronLeft } from '@lucide/svelte';
 	import { getTagTopTracks, type DiscoveryTrack } from '$lib/services/lastfm';
 	import { resolveStub } from '$lib/services/discovery';
-	import { lazyCover } from '$lib/actions/lazyCover';
-	import { longpress } from '$lib/actions/longpress';
-	import { marquee } from '$lib/actions/marquee';
 	import { swipeAction } from '$lib/actions/swipeAction';
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { shouldRun } from '$lib/actions/inflightGuard';
 	import { player } from '$lib/stores/player.svelte';
-	import { names } from '$lib/stores/names.svelte';
 	import { toast } from '$lib/stores/toast.svelte';
 	import * as haptics from '$lib/util/haptics';
 	import { t } from '$lib/i18n';
+	import SongRow from '$lib/components/SongRow.svelte';
 	import TrackMenu from '$lib/components/TrackMenu.svelte';
 	import type { Track } from '$lib/sources/types';
-	import { coverGradient } from '$lib/services/cover-gradient';
 
 	const CHART_LIMIT = 100; // D-12: deep list (~100 rows)
 
@@ -32,7 +28,6 @@
 	});
 
 	let tracks = $state<DiscoveryTrack[]>([]);
-	let resolvedCovers = $state<Record<string, string>>({});
 
 	const SKELETON_MIN_MS = 280;
 	let showSkeleton = $state(true);
@@ -52,11 +47,6 @@
 			cover: it.image ?? null, audioUrl: null, lrc: null, lrcUrl: null, detailsLoaded: false,
 			quality: null, qualityLabel: null, keyword: '', displayIndex: 0
 		};
-	}
-
-	// Shared placeholder gradient (cover-gradient.ts) — was inlined in eight files.
-	function fallbackCover(it: DiscoveryTrack): string {
-		return coverGradient(rowKey(it));
 	}
 
 	async function play(it: DiscoveryTrack) {
@@ -176,32 +166,26 @@
 {:else if tracks.length > 0}
 	<ul class="list">
 		{#each tracks as it (rowKey(it))}
+			<!-- quick-260919-l9e: the shared row. These rows are DiscoveryTrack STUBS, so every
+			     interaction has to resolve first — which is why all four callbacks are overridden
+			     here rather than taking SongRow's defaults: `onplay` is playStub (not setListQueue
+			     + play), `onrequestmenu` resolves before opening, and the swipe pair keeps the
+			     D-16/WR-03 per-row-per-action in-flight guard. `actions={[]}` because a stub has no
+			     uid: Like/Download key off the RESOLVED uid and would be no-ops wearing a real
+			     button. The ⋮ is unconditional, so the menu is now reachable by tap, not only by
+			     long-press. {@const} must be the immediate block child of the {#each}. -->
+			{@const stub = stubTrack(it)}
 			<li class="row-wrap">
 				<span class="reveal reveal-right" aria-hidden="true"><ListEnd size={20} /></span>
 				<span class="reveal reveal-left" aria-hidden="true"><ListStart size={20} /></span>
-				<button
-					class="row"
-					use:tapBounce
-					use:longpress
-					onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openMenu(it); }}
-					onclick={() => play(it)}
-					use:swipeAction={{ onSwipeRight: () => swipeQueue(it), onSwipeLeft: () => swipeNext(it) }}
-				>
-					<span
-						class="art"
-						use:lazyCover={{
-							track: stubTrack(it),
-							onResolved: (_uid, url) => { resolvedCovers = { ...resolvedCovers, [rowKey(it)]: url }; }
-						}}
-						style:background-image={(resolvedCovers[rowKey(it)] ?? it.image)
-							? `url(${resolvedCovers[rowKey(it)] ?? it.image})`
-							: fallbackCover(it)}
-					></span>
-					<span class="meta">
-						<span class="r-title" use:marquee><span class="marquee-inner">{names.dnTitle(it.title)}</span></span>
-						<span class="r-artist" use:marquee><span class="marquee-inner">{names.dnArtist(it.artist)}</span></span>
-					</span>
-				</button>
+				<SongRow
+					track={stub}
+					cover={it.image ?? null}
+					actions={[]}
+					onplay={() => play(it)}
+					onrequestmenu={() => openMenu(it)}
+					swipe={{ onSwipeRight: () => swipeQueue(it), onSwipeLeft: () => swipeNext(it) }}
+				/>
 			</li>
 		{/each}
 	</ul>
@@ -222,16 +206,17 @@
 	}
 	.reveal-right { left: 0; color: var(--color-text-muted); }
 	.reveal-left { right: 0; color: var(--color-text-muted); }
+	/* quick-260919-l9e: the real row is SongRow.svelte now (its styles travelled with it — Svelte
+	   scopes per component). `.row` / `.art` / `.meta` are KEPT because the 12-row skeleton above
+	   still renders `<span class="row skel">` with them, and it is the whole first paint of a cold
+	   charts page. The interactive-only rules (:hover, .r-title, .r-artist) went with the markup. */
 	.row {
 		position: relative; z-index: 1; width: 100%; display: flex; align-items: center; gap: 12px;
 		padding: 8px; background: var(--color-bg); border: none; border-radius: var(--radius-md);
-		cursor: pointer; text-align: left; transition: background 0.12s ease;
+		text-align: left;
 	}
-	@media (hover: hover) { .row:hover { background: var(--color-surface); } }
 	.art { width: 48px; height: 48px; border-radius: 8px; background-size: cover; background-position: center; flex: none; }
 	.meta { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-	.r-title { font-size: calc(14px * var(--fs-title, 1)); font-weight: 600; min-width: 0; max-width: 100%; }
-	.r-artist { font-size: calc(12px * var(--fs-artist, 1)); color: var(--color-text-muted); min-width: 0; max-width: 100%; }
 	.skel-wrap { display: flex; flex-direction: column; gap: 6px; list-style: none; }
 	.skel { pointer-events: none; background: none; }
 	.skel .art { background: rgba(255, 255, 255, 0.11); }
