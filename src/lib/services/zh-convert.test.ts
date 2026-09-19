@@ -4,7 +4,11 @@ import {
 	t2sConvertLines,
 	isChineseLine,
 	warmS2T,
-	s2tConvertLineSync
+	s2tConvertLineSync,
+	warmT2S,
+	t2sConvertLineSync,
+	warmScript,
+	lockScriptSync
 } from './zh-convert';
 
 // Pure/node tests (no jsdom, no $app/environment mock, no localStorage): zh-convert is a pure
@@ -134,5 +138,76 @@ describe('s2tConvertLineSync / warmS2T — synchronous no-flash path (quick-2607
 
 	it('returns null for an empty line (nothing to convert)', () => {
 		expect(s2tConvertLineSync('')).toBeNull();
+	});
+});
+
+// ---------------------------------------------------------------------------------------------
+// quick-260919-2jo — the t2s sync/warm mirror + the direction-dispatching script lock.
+// ---------------------------------------------------------------------------------------------
+
+describe('t2sConvertLineSync / warmT2S — the sync mirror (quick-260919-2jo)', () => {
+	it('converts synchronously once the t2s dict is warm', async () => {
+		await warmScript('zh-Hans'); // awaits the SAME memoized build the sync handle publishes
+		expect(t2sConvertLineSync('繁體中文')).toBe('繁体中文');
+	});
+
+	it('passes already-Simplified input through unchanged', async () => {
+		await warmScript('zh-Hans');
+		expect(t2sConvertLineSync('周杰伦')).toBe('周杰伦');
+	});
+
+	it('returns null for an empty line (nothing to convert)', () => {
+		expect(t2sConvertLineSync('')).toBeNull();
+	});
+
+	it('warmT2S is fire-and-forget and never throws', () => {
+		expect(() => warmT2S()).not.toThrow();
+	});
+});
+
+describe('lockScriptSync — the Chinese-only script lock (quick-260919-2jo)', () => {
+	it('forces Simplified input to Traditional', async () => {
+		await warmScript('zh-Hant');
+		expect(lockScriptSync('简体', 'zh-Hant')).toBe('簡體');
+		expect(lockScriptSync('邓紫棋', 'zh-Hant')).toBe('鄧紫棋');
+	});
+
+	it('forces Traditional input to Simplified (the mirror)', async () => {
+		await warmScript('zh-Hans');
+		expect(lockScriptSync('繁體', 'zh-Hans')).toBe('繁体');
+		expect(lockScriptSync('過一招', 'zh-Hans')).toBe('过一招');
+	});
+
+	it('is a stable no-op on input already in the target script', async () => {
+		await warmScript('zh-Hant');
+		await warmScript('zh-Hans');
+		expect(lockScriptSync('台灣', 'zh-Hant')).toBe('台灣');
+		expect(lockScriptSync('周杰伦', 'zh-Hans')).toBe('周杰伦');
+	});
+
+	it('leaves non-Chinese untouched in BOTH directions (the D-04 gate)', async () => {
+		await warmScript('zh-Hant');
+		await warmScript('zh-Hans');
+		for (const target of ['zh-Hant', 'zh-Hans'] as const) {
+			expect(lockScriptSync('Hello World', target)).toBe('Hello World');
+			expect(lockScriptSync('こんにちは世界', target)).toBe('こんにちは世界'); // kana → ja
+			expect(lockScriptSync('안녕하세요', target)).toBe('안녕하세요'); // hangul → ko
+			expect(lockScriptSync('', target)).toBe('');
+		}
+	});
+
+	it('COLD (converter not warm) returns the INPUT — never null, never a throw', async () => {
+		vi.resetModules();
+		const cold = await import('./zh-convert');
+		// No warm call on this fresh module instance: both sync handles are still null.
+		expect(cold.lockScriptSync('简体', 'zh-Hant')).toBe('简体');
+		expect(cold.lockScriptSync('繁體', 'zh-Hans')).toBe('繁體');
+		vi.resetModules();
+	});
+
+	it('warmScript resolves (never rejects) and makes the direction convert', async () => {
+		await expect(warmScript('zh-Hant')).resolves.toBeUndefined();
+		await expect(warmScript('zh-Hans')).resolves.toBeUndefined();
+		expect(lockScriptSync('头发', 'zh-Hant')).toBe('頭髮'); // phrase-level quality survives the lock
 	});
 });

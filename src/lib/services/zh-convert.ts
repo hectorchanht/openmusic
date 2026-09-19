@@ -191,14 +191,27 @@ async function buildT2sConvertLine(): Promise<ConvertLine> {
 	return (line: string) => converter.phrase(LangType.t2s, line);
 }
 
+// quick-260919-2jo: the t2s twin of `convertLineSync` — a SYNCHRONOUS handle published once the
+// lazy t2s build resolves, so the script lock can convert Traditional→Simplified on the FIRST
+// render with no flash. Null until warm. Named `t2sLineSync` (not `t2sConvertLineSync`) because
+// the exported accessor below owns that name, mirroring convertLineSync / s2tConvertLineSync.
+let t2sLineSync: ConvertLine | null = null;
+
 function loadT2sConvertLine(): Promise<ConvertLine> {
 	if (!t2sPromise) {
-		t2sPromise = buildT2sConvertLine().catch((err) => {
-			// Never cache a rejected build (the s2t discipline) — a transient chunk/import failure
-			// must not permanently disable conversion for the Worker's lifetime.
-			t2sPromise = null;
-			throw err;
-		});
+		t2sPromise = buildT2sConvertLine()
+			.then((fn) => {
+				// quick-260919-2jo: publish the sync handle so t2sConvertLineSync can convert
+				// without awaiting (verbatim the loadConvertLine discipline).
+				t2sLineSync = fn;
+				return fn;
+			})
+			.catch((err) => {
+				// Never cache a rejected build (the s2t discipline) — a transient chunk/import failure
+				// must not permanently disable conversion for the Worker's lifetime.
+				t2sPromise = null;
+				throw err;
+			});
 	}
 	return t2sPromise;
 }
@@ -216,9 +229,9 @@ function loadT2sConvertLine(): Promise<ConvertLine> {
  * returned unchanged) rather than throwing into the caller — at the edge that means the cover
  * search simply runs on the original terms, never a 500.
  *
- * No sync/warm variant (no `warmT2S`, no `t2sConvertLineSync`): the only caller is async edge
- * code, so a synchronous handle would be dead weight. Add them when a latency-sensitive UI
- * caller exists.
+ * quick-260919-2jo: the latency-sensitive UI caller this file's header used to say did not exist
+ * now does — the Chinese script lock (Settings → Translation) needs t2s on the render path, so
+ * `warmT2S` / `t2sConvertLineSync` are defined below as exact mirrors of the s2t pair.
  */
 export async function t2sConvertLines(lines: string[]): Promise<string[]> {
 	if (lines.length === 0) return [];
@@ -227,5 +240,77 @@ export async function t2sConvertLines(lines: string[]): Promise<string[]> {
 		return lines.map((line) => (line ? convert(line) : line));
 	} catch {
 		return lines.slice();
+	}
+}
+
+
+/**
+ * quick-260919-2jo: fire-and-forget trigger of the lazy t2s dict load — the exact mirror of
+ * `warmS2T`. Never throws (a failed load leaves `t2sLineSync` null and `t2sConvertLineSync`
+ * keeps returning null, which every caller treats as "not warm yet").
+ */
+export function warmT2S(): void {
+	void loadT2sConvertLine().catch(() => {});
+}
+
+/**
+ * quick-260919-2jo: SYNCHRONOUS Traditional→Simplified for ONE line — the exact mirror of
+ * `s2tConvertLineSync`, same contract. Returns the converted string once the t2s dict is warm,
+ * else `null` ("not warm yet" — the caller should warm and fall back to the input for this
+ * render). Never throws. Callers MUST gate on isChineseLine() first (this does not re-check
+ * language). Already-Simplified input passes through unchanged, so the returned string may equal
+ * the input — that is a genuine, stable Simplified result.
+ */
+export function t2sConvertLineSync(text: string): string | null {
+	if (!t2sLineSync || !text) return null;
+	try {
+		return t2sLineSync(text);
+	} catch {
+		return null;
+	}
+}
+
+/** quick-260919-2jo: the two scripts the lock can force. Deliberately NOT `LyricsLang` — the
+ *  lock is a SCRIPT control, not a translation target, and it must never accept 'en'/'ja'/'ko'. */
+export type ZhScript = 'zh-Hant' | 'zh-Hans';
+
+/**
+ * quick-260919-2jo — THE script lock. Force one line into `target`'s script, whatever script the
+ * upstream catalog returned. The single entry point the app uses; nothing else should reach for a
+ * direction-specific sync converter.
+ *
+ * Order is load-bearing:
+ *   1. empty → the input (nothing to convert, and detectLang would answer 'en' anyway);
+ *   2. `!isChineseLine(text)` → the input. THIS is the entire "Chinese only, every other language
+ *      passes through untouched" guarantee, and it is deliberately the ONLY language test here —
+ *      one classifier, not two. `isChineseLine` delegates to `detectLang`, which classifies
+ *      kana→'ja' and hangul→'ko' BEFORE Han, so Japanese and Korean lines are safe by that
+ *      ordering (D-04). KNOWN, ACCEPTED CEILING (also D-04): a Japanese line with ZERO kana (pure
+ *      kanji) detects as Chinese and WILL be converted. Pre-existing across every caller of this
+ *      predicate; do not widen the gate here to paper over it.
+ *   3. dispatch to the matching sync converter and degrade to the INPUT when it answers null.
+ *
+ * Never throws and never returns null: a cold (not yet warm) or faulted converter degrades to
+ * IDENTITY, so a first render shows the original text rather than a blank. Callers that care
+ * about the cold case should `warmScript(target)` and re-render.
+ */
+export function lockScriptSync(text: string, target: ZhScript): string {
+	if (!text) return text;
+	if (!isChineseLine(text)) return text;
+	const converted = target === 'zh-Hant' ? s2tConvertLineSync(text) : t2sConvertLineSync(text);
+	return converted ?? text;
+}
+
+/**
+ * quick-260919-2jo: await the lazy dict build for ONE direction, swallowing failure. Unlike the
+ * fire-and-forget `warmS2T`/`warmT2S`, this hands back a promise so a reactive caller can bump its
+ * own revision counter once the dict lands and repaint (see `names.warmLock`). Resolves void on
+ * success AND on failure — never rejects.
+ */
+export async function warmScript(target: ZhScript): Promise<void> {
+	try {
+		await (target === 'zh-Hant' ? loadConvertLine() : loadT2sConvertLine());
+	} catch {
+		/* a failed dict build leaves the sync handle null; lockScriptSync degrades to identity */
 	}
 }
