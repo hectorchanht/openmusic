@@ -105,7 +105,7 @@ function okAudioResponse() {
 	};
 }
 
-import { blobStore, put, get, has, del, linkPublicUri, getStoredName, setStoredName } from './blob-store';
+import { blobStore, put, get, has, stat as statBlob, del, linkPublicUri, getStoredName, setStoredName } from './blob-store';
 
 beforeEach(() => {
 	isNativePlatform.mockReturnValue(false);
@@ -564,6 +564,82 @@ describe('blob-store — stored public-URI fallback (34-D-09)', () => {
 	});
 });
 
+// --- quick-260919-3j1 (F2): stat — size + the first 12 bytes, WITHOUT materialising the file ----
+describe('blob-store — native stat (quick-260919-3j1)', () => {
+	beforeEach(() => isNativePlatform.mockReturnValue(true));
+
+	/** A streaming response whose body hands back `head` once, then ends. */
+	function streamResponse(bytes: number, head: number[]) {
+		const cancel = vi.fn(async () => {});
+		return {
+			ok: true,
+			headers: new Headers({ 'content-length': String(bytes) }),
+			body: {
+				getReader: () => ({
+					read: async () => ({ value: new Uint8Array([...head, ...new Array(64).fill(0)]), done: false }),
+					cancel
+				})
+			},
+			// present so a regression that reaches for the WHOLE file is visible
+			blob: vi.fn(async () => new Blob([new Uint8Array(bytes)])),
+			arrayBuffer: vi.fn(async () => new ArrayBuffer(bytes)),
+			__cancel: cancel
+		};
+	}
+
+	it('reads content-length + a 12-byte header and CANCELS the stream', async () => {
+		const r = streamResponse(29_300_000, [0x66, 0x4c, 0x61, 0x43]); // 'fLaC'
+		fetchMock.mockResolvedValue(r);
+		const out = await statBlob('kuwo:7');
+		expect(out?.bytes).toBe(29_300_000);
+		expect(out?.head.length).toBe(12);
+		expect(Array.from(out!.head.subarray(0, 4))).toEqual([0x66, 0x4c, 0x61, 0x43]);
+		// The file is never materialised to answer a question about it.
+		expect(r.blob).not.toHaveBeenCalled();
+		expect(r.arrayBuffer).not.toHaveBeenCalled();
+		expect(r.__cancel).toHaveBeenCalled();
+	});
+
+	it('reports absent for a copy under MIN_BLOB_BYTES (the 31-D-13 floor, same as get/has)', async () => {
+		fetchMock.mockResolvedValue(streamResponse(8191, [0x66, 0x4c, 0x61, 0x43]));
+		await expect(statBlob('kuwo:7')).resolves.toBeNull();
+	});
+
+	it('READS a device: file in place — reading is always permitted, writing is not', async () => {
+		fetchMock.mockResolvedValue(streamResponse(29_300_000, [0x66, 0x4c, 0x61, 0x43]));
+		const out = await statBlob('device:4711');
+		expect(out?.bytes).toBe(29_300_000);
+		expect(String(fetchMock.mock.calls[0][0])).toContain('_capacitor_content_');
+		// Nothing about a stat may touch the user's file.
+		expect(writeBlob).not.toHaveBeenCalled();
+		expect(deleteFile).not.toHaveBeenCalled();
+		expect(deleteFromMusic).not.toHaveBeenCalled();
+		expect(saveToMusic).not.toHaveBeenCalled();
+	});
+
+	it('falls back to the recorded public URI when the app-private copy is gone (34-D-09 parity)', async () => {
+		localStorage.setItem('openmusic-blob-uri:kuwo:7', 'content://media/external/audio/media/9');
+		getUri.mockRejectedValueOnce(new Error('File does not exist'));
+		fetchMock.mockResolvedValue(streamResponse(29_300_000, [0x66, 0x4c, 0x61, 0x43]));
+		await expect(statBlob('kuwo:7')).resolves.not.toBeNull();
+		expect(String(fetchMock.mock.calls[0][0])).toBe(
+			'http://localhost/_capacitor_content_/media/external/audio/media/9'
+		);
+	});
+
+	it('never throws — a fetch rejection, a !ok response and an empty uid are all null', async () => {
+		fetchMock.mockRejectedValueOnce(new Error('local server died'));
+		await expect(statBlob('kuwo:7')).resolves.toBeNull();
+		fetchMock.mockResolvedValueOnce({ ok: false, headers: new Headers() });
+		await expect(statBlob('kuwo:7')).resolves.toBeNull();
+		await expect(statBlob('')).resolves.toBeNull();
+	});
+
+	it('is exported on the blobStore namespace', () => {
+		expect(blobStore.stat).toBe(statBlob);
+	});
+});
+
 // --- quick-260919-3j1 (D-6, T-3j1-01/02): the per-uid sticky FILE NAME index -------------------
 // The enabling fix for this task's three new rewrite triggers. Without it a cover pin would silently
 // rename a file the user deliberately named in the metadata editor hours earlier.
@@ -730,5 +806,28 @@ describe('blob-store — web IDB read gate (31-D-13)', () => {
 		records.set('netease-ok', bytes(200000));
 		await expect(has('netease-ok')).resolves.toBe(true);
 		await expect(has('netease-absent')).resolves.toBe(false);
+	});
+
+	// quick-260919-3j1 (F2): the WEB stat. The rule `has` states — the UI asks on every menu open and
+	// a stored blob is a whole audio file — applies here too: `blob.size` is free on the lazy handle
+	// and only twelve bytes may ever be read.
+	it('stat reads blob.size + a 12-byte slice and NEVER arrayBuffers the whole blob', async () => {
+		const flac = new Blob([new Uint8Array([0x66, 0x4c, 0x61, 0x43, ...new Array(200000).fill(0)])]);
+		const wholeFile = vi.spyOn(flac, 'arrayBuffer');
+		const slice = vi.spyOn(flac, 'slice');
+		records.set('netease-flac', flac);
+
+		const out = await statBlob('netease-flac');
+
+		expect(out?.bytes).toBe(flac.size);
+		expect(Array.from(out!.head)).toEqual([0x66, 0x4c, 0x61, 0x43, 0, 0, 0, 0, 0, 0, 0, 0]);
+		expect(slice).toHaveBeenCalledWith(0, 12);
+		expect(wholeFile).not.toHaveBeenCalled();
+	});
+
+	it('stat is null for a miss and for a copy under the 31-D-13 floor', async () => {
+		records.set('netease-tiny', bytes(8191));
+		await expect(statBlob('netease-absent')).resolves.toBeNull();
+		await expect(statBlob('netease-tiny')).resolves.toBeNull();
 	});
 });

@@ -259,6 +259,74 @@ async function probeContentUri(uri: string): Promise<boolean> {
 	}
 }
 
+/**
+ * quick-260919-3j1 (F2): SIZE + the first bytes of a stored file, WITHOUT materialising it.
+ *
+ * The rule is the one `has`'s doc comment already states: the UI asks on every menu open and a
+ * stored blob is a whole audio file (a lossless track is tens of MB), so nothing may pull the bytes
+ * into memory to answer a question about them. Twelve bytes is every magic number
+ * `containerFromMagic` knows.
+ *
+ * Native: modelled on `probeContentUri` (open a stream, take what you need, cancel) rather than on
+ * `readContentUri` (which materialises). `content-length` is the size; the first chunk off the body
+ * reader carries the header. Same URI precedence `nativeGet` uses — see `nativeUri` below.
+ *
+ * Reading is ALWAYS permitted, including for an imported `device:` file. It is writing, moving and
+ * deleting that are refused (34 Pitfall 1) — and an imported file is exactly the case where the
+ * app's catalog metadata is thinnest and the file's own numbers are the only truth.
+ *
+ * Never throws; any failure is null, which the caller renders as "nothing known".
+ */
+async function nativeStat(uid: string): Promise<{ bytes: number; head: Uint8Array } | null> {
+	const uri = await nativeUri(uid);
+	if (!uri) return null;
+	try {
+		const res = await fetch(Capacitor.convertFileSrc(uri));
+		if (!res.ok) return null;
+		const bytes = Number(res.headers?.get?.('content-length') ?? NaN);
+		const reader = res.body?.getReader();
+		let head = new Uint8Array(0);
+		if (reader) {
+			try {
+				const { value } = await reader.read();
+				if (value) head = value.slice(0, 12);
+			} finally {
+				// Take the header and drop the rest — a file manager's worth of bytes must not stream
+				// behind a label (same posture as probeContentUri's cancel).
+				try {
+					await reader.cancel();
+				} catch {
+					// a body that cannot be cancelled is still a readable file — the answer stands.
+				}
+			}
+		}
+		// 31-D-13: a truncated copy must stat as absent exactly as it reads as a miss, so the two
+		// platforms can never disagree about what "downloaded" means.
+		if (!Number.isFinite(bytes) || bytes < MIN_BLOB_BYTES) return null;
+		return { bytes, head };
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * The URI precedence `nativeGet` / `nativeHas` use, lifted so `nativeStat` cannot drift from them:
+ * a device uid reads its MediaStore content URI IN PLACE (34-D-05), otherwise the app-private copy
+ * (34-D-09 primary), otherwise the recorded public `Music/OpenMusic/` URI. `nativeGet`'s OWN
+ * behaviour is unchanged — it still falls back on a READ failure, which a URI alone cannot express,
+ * so it keeps its own two-step.
+ */
+async function nativeUri(uid: string): Promise<string | null> {
+	if (isDeviceUid(uid)) return deviceContentUri(uid) || null;
+	try {
+		const { uri } = await Filesystem.getUri({ path: nativePath(uid), directory: NATIVE_DIR });
+		if (uri) return uri;
+	} catch {
+		// no app-private copy — fall through to the recorded public URI.
+	}
+	return getStoredUri(uid);
+}
+
 async function nativeGet(uid: string): Promise<Blob | null> {
 	// 34-D-05: an imported device file is read IN PLACE here, at the SHARED seam. The 31-D-13 comment
 	// above states the principle this reuses — "that is why the gate lives at this single read
@@ -466,6 +534,38 @@ export async function has(uid: string): Promise<boolean> {
 }
 
 /**
+ * quick-260919-3j1 (F2): the local file's real SIZE + its first 12 bytes, or null. Never throws.
+ *
+ * Web: the IDB `get` hands back a LAZY Blob handle, so `blob.size` is free and a 12-byte
+ * `slice(0, 12).arrayBuffer()` is the only read — `blob.arrayBuffer()` over the whole file is
+ * exactly what this exists to avoid. Reuses `isUsableBlob` so the 31-D-13 floor holds.
+ */
+export async function stat(uid: string): Promise<{ bytes: number; head: Uint8Array } | null> {
+	if (!uid) return null;
+	if (Capacitor.isNativePlatform()) return nativeStat(uid);
+	const db = await openDb();
+	if (!db) return null;
+	const blob = await new Promise<Blob | null>((resolve) => {
+		try {
+			const req = txStore(db, 'readonly').get(uid);
+			req.onsuccess = () => {
+				const v = req.result as Blob | undefined;
+				resolve(isUsableBlob(v) ? v : null);
+			};
+			req.onerror = () => resolve(null);
+		} catch {
+			resolve(null);
+		}
+	});
+	if (!blob) return null;
+	try {
+		return { bytes: blob.size, head: new Uint8Array(await blob.slice(0, 12).arrayBuffer()) };
+	} catch {
+		return null;
+	}
+}
+
+/**
  * Delete the entry for `uid`. Resolves silently on success / miss / failure. Never throws.
  */
 export async function del(uid: string): Promise<void> {
@@ -503,4 +603,4 @@ export function linkPublicUri(uid: string, uri: string): void {
 }
 
 /** Bundled namespace export so callers can `import { blobStore } from '$lib/services/blob-store'`. */
-export const blobStore = { put, get, has, del, linkPublicUri, getStoredName };
+export const blobStore = { put, get, has, stat, del, linkPublicUri, getStoredName };

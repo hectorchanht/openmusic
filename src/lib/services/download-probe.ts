@@ -20,6 +20,14 @@
 //   D-18 DOWNLOAD ISOLATION: `player.current` is read READ-ONLY (to reuse an already-resolved url)
 //     and handed out only as a COPY. Never assigned, never gen-bumped, never near the <audio>.
 //
+//   THE LOCAL HALF (quick-260919-3j1, F2 / D-4). `probeDownload` answers "what WOULD I get" — it
+//     resolves at the download tier and asks the CDN. `localFileMeta` answers "what DO I HAVE": for a
+//     song this app already holds an offline copy of, the authoritative answer is ON THE DEVICE, so
+//     it costs NO network at all. Size is the stored blob's own size / content-length; the container
+//     is SNIFFED from the file's first 12 bytes — never from `blob.type` (the qq CDN lies in
+//     Content-Type) and never from a URL extension. Quality rides the persisted `Track.qualityLabel`,
+//     and `formatDownloadMeta` already drops it for a lossless container, which is exactly right.
+//
 //   NEVER GUESS A CONTAINER: `extFromAudioUrl`'s 'mp3' default is FILENAME-only, and the qq CDN
 //     serves audio as `application/x-www-form-urlencoded`. Only an `audio/*` Content-Type or a REAL
 //     url extension counts; anything else omits the format rather than inventing one.
@@ -32,6 +40,7 @@ import { AUDIO_EXTENSIONS } from '$lib/services/download-filename';
 import { currentQualityMeets } from '$lib/services/download-track';
 import { settings } from '$lib/stores/settings.svelte';
 import { player } from '$lib/stores/player.svelte';
+import { blobStore } from '$lib/services/blob-store';
 
 /** What the download affordance can truthfully say. `track` is the resolved Track the numbers
  *  describe — handing it to `downloadTrack` is what makes the label and the file agree. */
@@ -107,6 +116,64 @@ const AUDIO_EXT = new RegExp(`\\.(${AUDIO_EXTENSIONS.join('|')})$`, 'i');
  */
 export function containerFromUrl(url: string | null): string | null {
 	return url?.split('?')[0].match(AUDIO_EXT)?.[1]?.toLowerCase() ?? null;
+}
+
+/**
+ * quick-260919-3j1 (F2): the container from a file's own first bytes — the third sibling of
+ * `containerFromContentType` / `containerFromUrl`, and the only one that cannot be lied to.
+ *
+ * MAGIC ONLY, and null rather than a guess (this module's stated NEVER GUESS A CONTAINER rule).
+ * T-3j1-05: the bytes are compared against fixed constants and never rendered, executed, or used to
+ * build a path — a hostile file yields null and the label degrades to size-only.
+ */
+export function containerFromMagic(head: Uint8Array | null | undefined): string | null {
+	const b = head;
+	if (!b || b.length < 4) return null;
+	const ascii = (o: number, n: number) =>
+		String.fromCharCode(...Array.from(b.subarray(o, o + n)));
+	if (ascii(0, 4) === 'fLaC') return 'flac';
+	if (ascii(0, 4) === 'OggS') return 'ogg';
+	// RIFF is also AVI/WebP — the WAVE form type at byte 8 is what makes it audio.
+	if (ascii(0, 4) === 'RIFF') return b.length >= 12 && ascii(8, 4) === 'WAVE' ? 'wav' : null;
+	// ISO-BMFF: the box SIZE occupies bytes 0-3, so `ftyp` sits at byte 4.
+	if (b.length >= 8 && ascii(4, 4) === 'ftyp') return 'm4a';
+	if (ascii(0, 3) === 'ID3') return 'mp3';
+	// A bare MPEG frame sync: 11 set bits — 0xFF then the top three bits of the next byte.
+	if (b[0] === 0xff && (b[1] & 0xe0) === 0xe0) return 'mp3';
+	return null;
+}
+
+/**
+ * quick-260919-3j1 (F2 / D-4): what the app ACTUALLY HAS on disk for `track`. Zero network, ever.
+ *
+ * Never rejects: a uid with no local copy (and any failure) resolves the all-null sentinel, which
+ * the caller renders as no label at all. Memoised under a DISTINCT `local|` key prefix in the same
+ * memo `probeDownload` uses, so re-opening a menu costs nothing and `__resetDownloadProbe` still
+ * clears it. The download tier is deliberately NOT part of that key — the file on disk does not
+ * change when the setting does.
+ */
+export async function localFileMeta(track: Track): Promise<DownloadProbe> {
+	if (!track?.uid) return none();
+	const key = `local|${track.uid}`;
+	const hit = memo.get(key);
+	if (hit) return hit;
+	let st: { bytes: number; head: Uint8Array } | null = null;
+	try {
+		st = await blobStore.stat(track.uid);
+	} catch {
+		// blob-store is never-throws by contract; the catch is belt-and-braces, not an expectation.
+		return none();
+	}
+	if (!st) return none();
+	const result: DownloadProbe = {
+		container: containerFromMagic(st.head),
+		qualityLabel: track.qualityLabel ?? null,
+		bytes: st.bytes,
+		track
+	};
+	if (memo.size >= MAX_MEMO) memo.clear();
+	memo.set(key, result);
+	return result;
 }
 
 /** Containers that ARE the quality claim — no bitrate label can add to "this is a FLAC". */

@@ -28,6 +28,8 @@ const mocks = vi.hoisted(() => ({
 	readCoverByUidOrName: vi.fn((): string | null => null),
 	names: { dnArtist: vi.fn((s: string) => s), dnTitle: vi.fn((s: string) => s) },
 	put: vi.fn(async () => true),
+	// quick-260919-3j1 (F2): the local, network-free half. Mocked so NOTHING here reaches IDB/native.
+	stat: vi.fn(async (): Promise<{ bytes: number; head: Uint8Array } | null> => null),
 	saveBlobToDisk: vi.fn(() => true),
 	tagAudioBlob: vi.fn(async (blob: Blob) => ({ blob, result: 'tagged', format: 'm4a' })),
 	resolveArtworkDataUrl: vi.fn(async (): Promise<string | null> => null),
@@ -40,7 +42,11 @@ vi.mock('$lib/services/catalog', () => ({ ensureTrackDetails: mocks.ensureTrackD
 vi.mock('$lib/stores/library.svelte', () => ({ library: mocks.library }));
 vi.mock('$lib/stores/cover-version.svelte', () => ({ readCoverByUidOrName: mocks.readCoverByUidOrName }));
 vi.mock('$lib/stores/names.svelte', () => ({ names: mocks.names }));
-vi.mock('$lib/services/blob-store', () => ({ blobStore: { put: mocks.put }, put: mocks.put }));
+vi.mock('$lib/services/blob-store', () => ({
+	blobStore: { put: mocks.put, stat: mocks.stat },
+	put: mocks.put,
+	stat: mocks.stat
+}));
 vi.mock('$lib/services/download-save', () => ({ saveBlobToDisk: mocks.saveBlobToDisk }));
 vi.mock('$lib/services/audio-tags', () => ({ tagAudioBlob: mocks.tagAudioBlob }));
 vi.mock('$lib/services/media-artwork', () => ({ resolveArtworkDataUrl: mocks.resolveArtworkDataUrl }));
@@ -52,6 +58,8 @@ import {
 	formatDownloadMeta,
 	containerFromUrl,
 	containerFromContentType,
+	containerFromMagic,
+	localFileMeta,
 	__resetDownloadProbe
 } from './download-probe';
 
@@ -377,5 +385,152 @@ describe('probeDownload — abort', () => {
 		// nothing was memoised — a later open of the same menu still does the work
 		const ok = await probeDownload(mk({ audioUrl: null, detailsLoaded: false }));
 		expect(ok.bytes).toBe(2048);
+	});
+});
+
+// ── quick-260919-3j1 (F2 / D-4): the LOCAL half ────────────────────────────────────────────────
+// A song that is already downloaded has an authoritative answer ON THE DEVICE. probeDownload above
+// answers "what WOULD I get" (resolve + HEAD); this answers "what DO I have" — and it must cost no
+// network at all, which is the single most important thing these tests pin.
+
+/** A 12-byte header starting with `sig`, zero-padded. */
+function head(...sig: Array<number | string>): Uint8Array {
+	const bytes: number[] = [];
+	for (const part of sig) {
+		if (typeof part === 'number') bytes.push(part);
+		else for (const ch of part) bytes.push(ch.charCodeAt(0));
+	}
+	while (bytes.length < 12) bytes.push(0);
+	return new Uint8Array(bytes);
+}
+
+describe('containerFromMagic — the one container source that cannot be lied to', () => {
+	it('sniffs every container the app writes', () => {
+		expect(containerFromMagic(head('fLaC'))).toBe('flac');
+		expect(containerFromMagic(head('OggS'))).toBe('ogg');
+		expect(containerFromMagic(head('RIFF', 0, 0, 0, 0, 'WAVE'))).toBe('wav');
+		expect(containerFromMagic(head(0, 0, 0, 0x20, 'ftypM4A '))).toBe('m4a');
+		expect(containerFromMagic(head('ID3', 3, 0))).toBe('mp3');
+		// A bare MPEG frame sync — an mp3 with no ID3 header at all.
+		expect(containerFromMagic(head(0xff, 0xfb, 0x90, 0x00))).toBe('mp3');
+		expect(containerFromMagic(head(0xff, 0xe0, 0x00, 0x00))).toBe('mp3');
+	});
+
+	it('NEVER GUESSES: garbage, empty and too-short all return null (T-3j1-05)', () => {
+		expect(containerFromMagic(head(0x00, 0x01, 0x02, 0x03))).toBeNull();
+		expect(containerFromMagic(new Uint8Array(0))).toBeNull();
+		expect(containerFromMagic(new Uint8Array([0x66, 0x4c]))).toBeNull();
+		expect(containerFromMagic(null)).toBeNull();
+		expect(containerFromMagic(undefined)).toBeNull();
+		// RIFF without the WAVE form type is an AVI/WebP, not audio.
+		expect(containerFromMagic(head('RIFF', 0, 0, 0, 0, 'AVI '))).toBeNull();
+		// 0xFF alone is not a frame sync — the top three bits of byte 1 must be set.
+		expect(containerFromMagic(head(0xff, 0x00, 0x00, 0x00))).toBeNull();
+	});
+});
+
+describe('localFileMeta — the numbers come from the local bytes, never the network', () => {
+	// A fetch that FAILS the test if it is ever called: the contract is zero network, not "cheap".
+	let fetchMock: ReturnType<typeof vi.fn>;
+	beforeEach(() => {
+		__resetDownloadProbe();
+		mocks.stat.mockReset().mockResolvedValue(null);
+		fetchMock = vi.fn(async () => {
+			throw new Error('localFileMeta must never touch the network');
+		});
+		vi.stubGlobal('fetch', fetchMock);
+	});
+
+	it('no local copy → the all-null sentinel, with NO network call', async () => {
+		await expect(localFileMeta(mk())).resolves.toEqual({
+			container: null,
+			qualityLabel: null,
+			bytes: null,
+			track: null
+		});
+		expect(fetchMock).not.toHaveBeenCalled();
+		expect(mocks.ensureTrackDetails).not.toHaveBeenCalled();
+	});
+
+	it('a stored FLAC reports its real container + size, and renders `FLAC · 27.9 MB`', async () => {
+		mocks.stat.mockResolvedValue({ bytes: 29_300_000, head: head('fLaC') });
+		const p = await localFileMeta(mk({ uid: 'kuwo-flac' }));
+		expect(p.container).toBe('flac');
+		expect(p.bytes).toBe(29_300_000);
+		expect(formatDownloadMeta(p)).toBe('FLAC · 27.9 MB');
+		// The whole point: an already-downloaded song costs NO probe.
+		expect(fetchMock).not.toHaveBeenCalled();
+		expect(mocks.ensureTrackDetails).not.toHaveBeenCalled();
+	});
+
+	it('passes the persisted qualityLabel through, and the lossless container still wins it', async () => {
+		mocks.stat.mockResolvedValue({ bytes: 29_300_000, head: head('fLaC') });
+		const p = await localFileMeta(mk({ uid: 'kuwo-q', qualityLabel: '320K' }));
+		expect(p.qualityLabel).toBe('320K');
+		expect(formatDownloadMeta(p)).toBe('FLAC · 27.9 MB');
+	});
+
+	it('a lossy container keeps the quality label', async () => {
+		mocks.stat.mockResolvedValue({ bytes: 8_500_000, head: head('ID3', 3, 0) });
+		const p = await localFileMeta(mk({ uid: 'kuwo-mp3', qualityLabel: '320K' }));
+		expect(formatDownloadMeta(p)).toBe('320K · 8.1 MB');
+	});
+
+	it('an unsniffable file still reports its size', async () => {
+		mocks.stat.mockResolvedValue({ bytes: 8_500_000, head: head(0, 1, 2, 3) });
+		const p = await localFileMeta(mk({ uid: 'kuwo-junk', qualityLabel: null }));
+		expect(p.container).toBeNull();
+		expect(formatDownloadMeta(p)).toBe('8.1 MB');
+	});
+
+	it('memoises per uid — re-opening the menu costs no second stat', async () => {
+		mocks.stat.mockResolvedValue({ bytes: 29_300_000, head: head('fLaC') });
+		await localFileMeta(mk({ uid: 'kuwo-memo' }));
+		await localFileMeta(mk({ uid: 'kuwo-memo' }));
+		expect(mocks.stat).toHaveBeenCalledTimes(1);
+	});
+
+	it('the memo key is uid-only — the download TIER does not change the file on disk', async () => {
+		mocks.stat.mockResolvedValue({ bytes: 29_300_000, head: head('fLaC') });
+		await localFileMeta(mk({ uid: 'kuwo-tier' }));
+		mocks.settings.downloadQuality = '128';
+		await localFileMeta(mk({ uid: 'kuwo-tier' }));
+		expect(mocks.stat).toHaveBeenCalledTimes(1);
+		mocks.settings.downloadQuality = 'lossless';
+	});
+
+	it('__resetDownloadProbe clears the local memo too', async () => {
+		mocks.stat.mockResolvedValue({ bytes: 29_300_000, head: head('fLaC') });
+		await localFileMeta(mk({ uid: 'kuwo-reset' }));
+		__resetDownloadProbe();
+		await localFileMeta(mk({ uid: 'kuwo-reset' }));
+		expect(mocks.stat).toHaveBeenCalledTimes(2);
+	});
+
+	it('a miss is NOT memoised — a later download is picked up on reopen', async () => {
+		mocks.stat.mockResolvedValueOnce(null);
+		await localFileMeta(mk({ uid: 'kuwo-later' }));
+		mocks.stat.mockResolvedValue({ bytes: 29_300_000, head: head('fLaC') });
+		expect((await localFileMeta(mk({ uid: 'kuwo-later' }))).container).toBe('flac');
+	});
+
+	it('NEVER rejects — a throwing stat is the sentinel', async () => {
+		mocks.stat.mockRejectedValue(new Error('IDB died'));
+		await expect(localFileMeta(mk({ uid: 'kuwo-boom' }))).resolves.toEqual({
+			container: null,
+			qualityLabel: null,
+			bytes: null,
+			track: null
+		});
+	});
+
+	it('a uid-less name stub is a miss, and never reaches the store', async () => {
+		await expect(localFileMeta(mk({ uid: '' }))).resolves.toEqual({
+			container: null,
+			qualityLabel: null,
+			bytes: null,
+			track: null
+		});
+		expect(mocks.stat).not.toHaveBeenCalled();
 	});
 });
