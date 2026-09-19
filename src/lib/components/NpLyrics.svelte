@@ -32,7 +32,11 @@
 	// the parent renders this component exactly when that tab is selected (mobile) or always, as the
 	// middle column, at >=1280px. `sheetState` is the one piece of parent state the anchor maths
 	// genuinely needs (closed top-pins, half/full centres), so it arrives as a prop.
-	let { sheetState }: { sheetState: 'closed' | 'half' | 'full' } = $props();
+	// quick-260919-npfix (Fix 3): `wide` is the parent's ALREADY-COMPUTED >=1280px matchMedia flag
+	// (NowPlaying.svelte `wide`, the quick-260919-np3 three-column breakpoint) handed down rather
+	// than a second matchMedia listener here — one source of truth for that rung, and this pane has
+	// no business owning a breakpoint the parent uses to decide whether it is mounted at all.
+	let { sheetState, wide }: { sheetState: 'closed' | 'half' | 'full'; wide: boolean } = $props();
 
 	// ---- lyrics ----
 	// Lyrics pipeline: parse the LRC, then split any line carrying a `(...)` clause into its
@@ -151,7 +155,12 @@
 		e.preventDefault();
 		seekToLine(line);
 	}
-	$effect(() => {
+	// quick-260919-npfix (Fix 3): the anchoring body is now a NAMED function so it can run twice per
+	// effect pass — once immediately, once after the sheet's reflow settles. See the $effect below.
+	// Every reactive value it needs is read at the TOP, before any early return, so a synchronous
+	// call from the effect registers all of them as dependencies (a call made from the deferred
+	// timer registers nothing, which is what we want).
+	function anchorActiveLine() {
 		const idx = activeLine;
 		// sheetState is a read dependency: re-anchor the active line whenever the sheet
 		// changes mode (closed/half/full) while the same line stays active.
@@ -159,6 +168,7 @@
 		// this component only exists while the lyrics tab is selected (mobile) or as the middle
 		// column at >=1280px. Same condition, expressed structurally.
 		const mode = sheetState;
+		const desktop = wide;
 		if (!autoScroll || idx < 0 || !lyricsEl) return;
 		// quick-260618-t7p Task 2: `idx` (activeLine) is an index into the FULL `lines` array, but the
 		// rendered <p> list is FILTERED when settings.lyricsHideParenLines is ON, so a positional
@@ -200,11 +210,51 @@
 		const visHeight = Math.max(0, visBottom - visTop);
 		const visTopWithin = visTop - cRect.top; // visible-band top, in container-local coords
 		const TOP_PAD = 12; // breathing room when top-pinned (closed)
+		// quick-260919-npfix (Fix 3): the top-pin is a PHONE compromise, not the intent. It exists
+		// because a closed sheet on a phone is a ~100px peek — there is no room to centre in, so the
+		// active line is pinned to the top of the strip instead. At >=1280px the closed peek is the
+		// whole lyrics COLUMN (measured 305px tall at 1440x900, and it only grows with the window),
+		// which is ample; top-pinning there just parks the line you are reading in the upper third for
+		// no reason. So `closed` top-pins only on the narrow layout, and desktop centres in all three
+		// sheet states — which is the ask. half/full are unchanged on both layouts.
 		const anchorWithin =
-			mode === 'closed'
+			mode === 'closed' && !desktop
 				? visTopWithin + TOP_PAD
 				: visTopWithin + visHeight / 2 - el.offsetHeight / 2; // visible-band center
+		// ponytail: the FIRST and LAST lines still clamp to the pane edge, because the browser clamps
+		// scrollTop to [0, scrollHeight - clientHeight] and there is no content beyond them to scroll
+		// past. That is a CONTENT limit, not a mode limit — measured at 1440x900, every line that can
+		// be centred lands within 1px in all three states, while the tail of a 56-line lyric in `full`
+		// (791px band, 394px of scroll) sits up to ~136px high. Upgrade path if this ever matters: half
+		// a band's worth of blank scroll padding above and below `.lyrics`, Spotify-style. Not taken
+		// here — it pushes real lyric text down by ~400px in `full` to buy edge-centring nobody asked
+		// for, and the ask was about the three sheet modes.
 		container.scrollTo({ top: offsetWithin - anchorWithin, behavior: 'smooth' });
+	}
+
+	// quick-260919-npfix (Fix 3): how long to wait before re-anchoring after a sheet-state change.
+	// The sheet's own transform/inset transition is 0.28s and the `.np.reflow` cover reflow above it
+	// is 0.32s, both on the shared cubic-bezier(.22,1,.36,1); 340ms clears the slower of the two.
+	// Same number, and the same reason, as the parent's measureOffsets() settle fallback.
+	const REFLOW_SETTLE_MS = 340;
+
+	$effect(() => {
+		// Immediate pass — also what registers this effect's dependencies (activeLine, autoScroll,
+		// lyricsEl, sheetState, wide are all read at the top of anchorActiveLine before any return).
+		anchorActiveLine();
+		// SETTLE PASS — the missing half of "centred all the time". sheetState flips SYNCHRONOUSLY,
+		// so the immediate pass above measures the container while the sheet + cover are still
+		// mid-transition and scrolls to a target that is already stale by the time they land. Measured
+		// on main at 1440x900, with the same line active throughout: closed -129px off the visible
+		// centre (the top-pin, by design), half -118px, full -281px — and full stayed -281px four
+		// seconds later, because nothing re-ran. One deferred re-anchor fixes all of them.
+		// Safe to re-arm on every pass: it is a plain clearTimeout/setTimeout pair, and
+		// anchorActiveLine is idempotent (offsetWithin is scroll-position-independent, so recomputing
+		// mid-smooth-scroll yields the same target) and writes NO $state — the scrollTo it issues only
+		// reaches bumpResume(), which no-ops while autoScroll is on. So this cannot become the
+		// self-invalidating effect class that froze the app before.
+		const settle = setTimeout(anchorActiveLine, REFLOW_SETTLE_MS);
+		return () => clearTimeout(settle);
 	});
 
 	// ---- lyrics translation ----

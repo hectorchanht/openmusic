@@ -1102,7 +1102,13 @@
 			/>
 		{/snippet}
 		{#snippet lyricsPane()}
-			<NpLyrics {sheetState} />
+			<!-- quick-260919-npfix (Fix 3): `wide` rides along so the pane can tell the phone's
+			     closed-state top-pin (a ~100px peek with nowhere to centre) from the desktop column's
+			     closed state (the full lyrics column, measured 305px at 1440x900), and centre the
+			     active line in all three sheet states on desktop. Passed down rather than re-derived
+			     there — it is the SAME quick-260919-np3 1280px flag that decides this pane is mounted
+			     as a column in the first place. -->
+			<NpLyrics {sheetState} {wide} />
 		{/snippet}
 		{#snippet relatedPane()}
 			<NpRelated {resolvedCovers} onMenu={openMenu} />
