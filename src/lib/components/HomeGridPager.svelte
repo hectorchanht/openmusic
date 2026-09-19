@@ -19,6 +19,7 @@
 	import type { Snippet } from 'svelte';
 	import { browser } from '$app/environment';
 	import { gridColumns, GRID_ROWS_PER_PAGE } from './shelf-scroll';
+	import { dragScroll } from '$lib/actions/dragScroll';
 
 	interface Props {
 		items: T[];
@@ -76,7 +77,11 @@
 </script>
 
 <div class="gridpager" style:--cols={cols}>
-	<div class="track" bind:this={trackEl} onscroll={onScroll}>
+	<!-- use:dragScroll — the .albumrow shelves have had mouse drag-to-pan since
+	     quick-260606-rvy; the two paginated tracks never did, so on desktop the only way to
+	     reach page 2 was the scrollbar this component hides. The action turns the snap off for
+	     the gesture and back on at release, so a drag lands on a whole page. -->
+	<div class="track" bind:this={trackEl} use:dragScroll onscroll={onScroll}>
 		{#each pages as page, pi (pi)}
 			<div class="page">
 				{#each page as item (key(item))}

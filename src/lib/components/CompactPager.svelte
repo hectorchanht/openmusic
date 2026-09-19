@@ -7,6 +7,7 @@
 	// Columns = ceil(items.length / 4). The HOST passes a `row` snippet rendering one item (a
 	// CompactRow); the pager owns only the chunking + the snap track geometry.
 	import type { Snippet } from 'svelte';
+	import { dragScroll } from '$lib/actions/dragScroll';
 
 	interface Props {
 		items: T[];
@@ -33,7 +34,10 @@
 	});
 </script>
 
-<div class="pager">
+<!-- use:dragScroll — mouse drag-to-pan on desktop, matching .albumrow and HomeGridPager.
+     The scrollbar is hidden here too, so without it a pointer user had no way to reach the
+     later columns at all. -->
+<div class="pager" use:dragScroll>
 	{#each columns as col, ci (ci)}
 		<div class="column">
 			{#each col as item (key(item))}
