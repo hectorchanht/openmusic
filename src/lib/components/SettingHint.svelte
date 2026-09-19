@@ -58,6 +58,10 @@
 		align-items: flex-start;
 		gap: 6px;
 		margin-top: 8px;
+		/* Positioned so the COLLAPSED (absolutely-positioned, clipped) description resolves against
+		   this row rather than the page — an unpositioned .sr-only node can land outside the
+		   viewport and add a stray scrollbar on a narrow screen. */
+		position: relative;
 	}
 	.info {
 		background: none;
