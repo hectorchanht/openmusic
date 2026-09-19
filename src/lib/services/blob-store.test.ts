@@ -65,11 +65,25 @@ const saveToMusic = vi.fn((_opts: { fileName: string; sourcePath: string }) =>
 	Promise.resolve({ uri: 'content://media/external/audio/media/42' })
 );
 const deleteFromMusic = vi.fn((_opts: { uri: string }) => Promise.resolve());
+// quick-260919-ejm: the ONE write capability against a file the app does not own. Mocked here the
+// same way every other bridge method is — the Kotlin side is unreachable from the node project, so
+// these tests pin the CONTRACT (which reject prefix means the user's file is intact) and nothing else.
+const writeInPlace = vi.fn(
+	(_opts: {
+		uri: string;
+		sourcePath: string;
+		expectedBytes?: string;
+		title?: string;
+		artist?: string;
+		album?: string;
+	}) => Promise.resolve()
+);
 const scanAudio = vi.fn();
 const requestReadAudio = vi.fn();
 vi.mock('./media-store', () => ({
 	MediaStoreSaver: {
 		saveToMusic: (opts: unknown) => saveToMusic(opts as never),
+		writeInPlace: (opts: unknown) => writeInPlace(opts as never),
 		deleteFromMusic: (opts: unknown) => deleteFromMusic(opts as never),
 		// Phase 34 scan bridge — unused by blob-store, declared so the factory stays complete.
 		scanAudio: (opts: unknown) => scanAudio(opts as never),
@@ -105,7 +119,19 @@ function okAudioResponse() {
 	};
 }
 
-import { blobStore, put, get, has, stat as statBlob, del, linkPublicUri, getStoredName, setStoredName } from './blob-store';
+import {
+	blobStore,
+	put,
+	get,
+	has,
+	stat as statBlob,
+	del,
+	linkPublicUri,
+	getStoredName,
+	setStoredName,
+	overwriteDeviceFile,
+	replayPendingDeviceWrites
+} from './blob-store';
 
 beforeEach(() => {
 	isNativePlatform.mockReturnValue(false);
@@ -121,6 +147,7 @@ beforeEach(() => {
 	stat.mockReset().mockResolvedValue({ size: 200000 });
 	saveToMusic.mockReset().mockResolvedValue({ uri: 'content://media/external/audio/media/42' });
 	deleteFromMusic.mockReset().mockResolvedValue(undefined);
+	writeInPlace.mockReset().mockResolvedValue(undefined);
 	installLocalStorageShim();
 });
 
@@ -829,5 +856,277 @@ describe('blob-store — web IDB read gate (31-D-13)', () => {
 		records.set('netease-tiny', bytes(8191));
 		await expect(statBlob('netease-absent')).resolves.toBeNull();
 		await expect(statBlob('netease-tiny')).resolves.toBeNull();
+	});
+});
+
+// --- quick-260919-ejm: overwriteDeviceFile — the IN-PLACE rewrite of the user's own file --------
+//
+// The one write capability this app has against a file it does not own, and the only one it will
+// get. Every test below is about the FAILURE LADDER, because the whole authorisation rests on it:
+// each rung must be provably unable to reach the bridge, and the ONE rung that can leave a file
+// partial (`io:`) must provably keep its recovery state.
+//
+// The rungs, and where each is pinned:
+//   3  a blob under MIN_BLOB_BYTES              -> no temp write, no bridge call
+//   4  the temp write itself fails              -> temp cleaned up, no bridge call
+//   5  the temp file is INCOMPLETE              -> temp deleted, no bridge call
+//   6  `precheck:` (the Kotlin SIZE guard)      -> journal + temp cleared
+//   7  `denied` (consent refused)               -> journal + temp cleared
+//   8  `io:` (partial write)                    -> journal + temp KEPT for replay
+//   9/10 a death before or during the bridge    -> replayPendingDeviceWrites finishes the job
+const PENDING_KEY = 'openmusic:retag-pending:v1';
+function pending(): Record<string, { bytes: number }> {
+	try {
+		return JSON.parse(localStorage.getItem(PENDING_KEY) || '{}');
+	} catch {
+		return {};
+	}
+}
+/** A blob comfortably above the 31-D-13 floor, so only the case under test can reject it. */
+function realAudio(size = 200000) {
+	return new Blob([new Uint8Array(size)]);
+}
+
+describe('blob-store — overwriteDeviceFile guards (quick-260919-ejm, ladder rungs 3-5)', () => {
+	beforeEach(() => isNativePlatform.mockReturnValue(true));
+
+	// The inverse of nativeDel's guard, and the same first-statement discipline: an app-download uid
+	// must be structurally unable to reach a bridge method that truncates an existing file.
+	it('REFUSES a non-device uid outright — no temp write, no bridge call', async () => {
+		await expect(overwriteDeviceFile('netease-1', realAudio())).resolves.toBe('failed');
+		expect(writeBlob).not.toHaveBeenCalled();
+		expect(writeInPlace).not.toHaveBeenCalled();
+	});
+
+	it('is unsupported on the web branch — there is no MediaStore to write into', async () => {
+		isNativePlatform.mockReturnValue(false);
+		await expect(overwriteDeviceFile('device:42', realAudio())).resolves.toBe('unsupported');
+		expect(writeBlob).not.toHaveBeenCalled();
+		expect(writeInPlace).not.toHaveBeenCalled();
+	});
+
+	it('is unsupported for a malformed device uid (no content URI can be reconstructed)', async () => {
+		await expect(overwriteDeviceFile('device:../evil', realAudio())).resolves.toBe('unsupported');
+		expect(writeInPlace).not.toHaveBeenCalled();
+	});
+
+	// Rung 3. A junk blob can never truncate a real song.
+	it('rung 3: a blob under MIN_BLOB_BYTES never reaches the disk or the bridge', async () => {
+		await expect(overwriteDeviceFile('device:42', realAudio(8191))).resolves.toBe('failed');
+		expect(writeBlob).not.toHaveBeenCalled();
+		expect(writeInPlace).not.toHaveBeenCalled();
+	});
+
+	// Rung 4. Disk full / a rejecting writer: nothing has opened the user's file.
+	it('rung 4: a failed temp write returns failed, cleans the temp and never calls the bridge', async () => {
+		writeBlob.mockRejectedValueOnce(new Error('ENOSPC'));
+		await expect(overwriteDeviceFile('device:42', realAudio())).resolves.toBe('failed');
+		expect(writeInPlace).not.toHaveBeenCalled();
+		expect(deleteFile).toHaveBeenCalledWith(
+			expect.objectContaining({ path: expect.stringContaining('retag-tmp/') })
+		);
+		expect(pending()).toEqual({});
+	});
+
+	// Rung 5. THE completeness gate — a temp file that is short is not a recovery source.
+	it('rung 5: an INCOMPLETE temp file deletes the temp and never calls the bridge', async () => {
+		const blob = realAudio();
+		stat.mockResolvedValueOnce({ size: blob.size - 1 });
+		await expect(overwriteDeviceFile('device:42', blob)).resolves.toBe('failed');
+		expect(writeInPlace).not.toHaveBeenCalled();
+		expect(deleteFile).toHaveBeenCalled();
+		expect(pending()).toEqual({});
+	});
+
+	it('rung 5: a stat that REJECTS is treated as incomplete, not as complete', async () => {
+		stat.mockRejectedValueOnce(new Error('no such file'));
+		await expect(overwriteDeviceFile('device:42', realAudio())).resolves.toBe('failed');
+		expect(writeInPlace).not.toHaveBeenCalled();
+	});
+
+	it('writes the temp to an APP-PRIVATE path, never anywhere the user can see', async () => {
+		await overwriteDeviceFile('device:42', realAudio());
+		expect(writeBlob).toHaveBeenCalledWith(
+			expect.objectContaining({ path: 'retag-tmp/device_42', directory: 'DATA', recursive: true })
+		);
+	});
+});
+
+describe('blob-store — overwriteDeviceFile happy path (quick-260919-ejm)', () => {
+	beforeEach(() => isNativePlatform.mockReturnValue(true));
+
+	it('streams the temp over the RECONSTRUCTED content URI, then clears the journal and the temp', async () => {
+		const blob = realAudio();
+		await expect(
+			overwriteDeviceFile('device:42', blob, {
+				title: 'Hello',
+				artist: 'Adele',
+				album: '25',
+				expectedBytes: 4711
+			})
+		).resolves.toBe('ok');
+		expect(writeInPlace).toHaveBeenCalledWith({
+			uri: 'content://media/external/audio/media/42',
+			sourcePath: 'file:///data/user/0/com.openmusic.app/files/downloads/x',
+			expectedBytes: '4711',
+			title: 'Hello',
+			artist: 'Adele',
+			album: '25'
+		});
+		expect(pending()).toEqual({});
+		expect(deleteFile).toHaveBeenCalledWith(
+			expect.objectContaining({ path: 'retag-tmp/device_42' })
+		);
+	});
+
+	it('omits expectedBytes when the caller has none (never sends the string "undefined")', async () => {
+		await overwriteDeviceFile('device:42', realAudio());
+		expect(writeInPlace.mock.calls[0][0].expectedBytes).toBeUndefined();
+	});
+
+	it('records the journal entry BEFORE the bridge call — the death-in-the-gap recovery (rung 9)', async () => {
+		const blob = realAudio();
+		let seen: Record<string, { bytes: number }> = {};
+		writeInPlace.mockImplementationOnce(() => {
+			seen = pending();
+			return Promise.resolve();
+		});
+		await overwriteDeviceFile('device:42', blob);
+		expect(seen).toEqual({ 'device:42': { bytes: blob.size } });
+	});
+});
+
+describe('blob-store — overwriteDeviceFile reject-code contract (quick-260919-ejm)', () => {
+	beforeEach(() => isNativePlatform.mockReturnValue(true));
+
+	// unsupported: / precheck: / denied all mean NOTHING was written, so the recovery state is dead
+	// weight — keeping it would replay a write that was correctly refused.
+	it('rung 2: an `unsupported:` reject is unsupported, and clears the journal and the temp', async () => {
+		writeInPlace.mockRejectedValueOnce(new Error('unsupported:api'));
+		await expect(overwriteDeviceFile('device:42', realAudio())).resolves.toBe('unsupported');
+		expect(pending()).toEqual({});
+		expect(deleteFile).toHaveBeenCalledWith(
+			expect.objectContaining({ path: 'retag-tmp/device_42' })
+		);
+	});
+
+	it('rung 6: a `precheck:` reject (the row changed) is failed, and clears the journal and the temp', async () => {
+		writeInPlace.mockRejectedValueOnce(new Error('precheck:target changed'));
+		await expect(overwriteDeviceFile('device:42', realAudio())).resolves.toBe('failed');
+		expect(pending()).toEqual({});
+		expect(deleteFile).toHaveBeenCalledWith(
+			expect.objectContaining({ path: 'retag-tmp/device_42' })
+		);
+	});
+
+	it('rung 7: a `denied` reject is failed, and clears the journal and the temp', async () => {
+		writeInPlace.mockRejectedValueOnce(new Error('denied'));
+		await expect(overwriteDeviceFile('device:42', realAudio())).resolves.toBe('failed');
+		expect(pending()).toEqual({});
+		expect(deleteFile).toHaveBeenCalledWith(
+			expect.objectContaining({ path: 'retag-tmp/device_42' })
+		);
+	});
+
+	// THE ONE THAT MUST NOT CLEAN UP. The descriptor was open, the file may be partial, and the temp
+	// file is the only complete copy of the bytes that belong there.
+	it('rung 8: an `io:` reject KEEPS both the journal entry and the temp file', async () => {
+		const blob = realAudio();
+		deleteFile.mockClear();
+		writeInPlace.mockRejectedValueOnce(new Error('io:write failed'));
+		await expect(overwriteDeviceFile('device:42', blob)).resolves.toBe('failed');
+		expect(pending()).toEqual({ 'device:42': { bytes: blob.size } });
+		expect(deleteFile).not.toHaveBeenCalled();
+	});
+
+	// An unrecognised message is treated as the DANGEROUS case, not the convenient one.
+	it('an UNPREFIXED reject is treated as io: — recovery state is kept, not discarded', async () => {
+		const blob = realAudio();
+		deleteFile.mockClear();
+		writeInPlace.mockRejectedValueOnce(new Error('something nobody planned for'));
+		await expect(overwriteDeviceFile('device:42', blob)).resolves.toBe('failed');
+		expect(pending()).toEqual({ 'device:42': { bytes: blob.size } });
+		expect(deleteFile).not.toHaveBeenCalled();
+	});
+});
+
+describe('blob-store — replayPendingDeviceWrites (quick-260919-ejm, rungs 9-10)', () => {
+	beforeEach(() => isNativePlatform.mockReturnValue(true));
+
+	it('re-streams a recorded uid with NO expectedBytes, then clears the entry and the temp', async () => {
+		localStorage.setItem(PENDING_KEY, JSON.stringify({ 'device:42': { bytes: 200000 } }));
+		stat.mockResolvedValue({ size: 200000 });
+		await replayPendingDeviceWrites();
+		expect(writeInPlace).toHaveBeenCalledWith({
+			uri: 'content://media/external/audio/media/42',
+			sourcePath: 'file:///data/user/0/com.openmusic.app/files/downloads/x'
+		});
+		expect(pending()).toEqual({});
+		expect(deleteFile).toHaveBeenCalledWith(
+			expect.objectContaining({ path: 'retag-tmp/device_42' })
+		);
+	});
+
+	it('drops an entry whose temp file is GONE or the wrong size — a short temp is not a recovery source', async () => {
+		localStorage.setItem(PENDING_KEY, JSON.stringify({ 'device:42': { bytes: 200000 } }));
+		stat.mockResolvedValue({ size: 12 });
+		await replayPendingDeviceWrites();
+		expect(writeInPlace).not.toHaveBeenCalled();
+		expect(pending()).toEqual({});
+	});
+
+	it('KEEPS the entry when the replay itself fails with io: (it can be tried again)', async () => {
+		localStorage.setItem(PENDING_KEY, JSON.stringify({ 'device:42': { bytes: 200000 } }));
+		stat.mockResolvedValue({ size: 200000 });
+		writeInPlace.mockRejectedValueOnce(new Error('io:still failing'));
+		await replayPendingDeviceWrites();
+		expect(pending()).toEqual({ 'device:42': { bytes: 200000 } });
+	});
+
+	it('drops an entry the bridge refused outright (denied / precheck) — replaying it is pointless', async () => {
+		localStorage.setItem(PENDING_KEY, JSON.stringify({ 'device:42': { bytes: 200000 } }));
+		stat.mockResolvedValue({ size: 200000 });
+		writeInPlace.mockRejectedValueOnce(new Error('precheck:target changed'));
+		await replayPendingDeviceWrites();
+		expect(pending()).toEqual({});
+	});
+
+	it('never throws — corrupt journal JSON, a bad uid and a web platform are all quiet no-ops', async () => {
+		localStorage.setItem(PENDING_KEY, '{not json');
+		await expect(replayPendingDeviceWrites()).resolves.toBeUndefined();
+		localStorage.setItem(PENDING_KEY, JSON.stringify({ 'netease-1': { bytes: 1 } }));
+		await expect(replayPendingDeviceWrites()).resolves.toBeUndefined();
+		expect(writeInPlace).not.toHaveBeenCalled();
+		isNativePlatform.mockReturnValue(false);
+		await expect(replayPendingDeviceWrites()).resolves.toBeUndefined();
+	});
+
+	// A fresh write is about to clobber the temp that is the ONLY recovery source for a pending
+	// entry, so the pending write is finished FIRST rather than dropped.
+	it('overwriteDeviceFile replays a pending write before clobbering its temp file', async () => {
+		localStorage.setItem(PENDING_KEY, JSON.stringify({ 'device:7': { bytes: 200000 } }));
+		stat.mockResolvedValue({ size: 200000 });
+		const blob = realAudio();
+		stat.mockResolvedValueOnce({ size: 200000 }).mockResolvedValueOnce({ size: blob.size });
+		await expect(overwriteDeviceFile('device:42', blob)).resolves.toBe('ok');
+		expect(writeInPlace.mock.calls.map((c) => c[0].uri)).toEqual([
+			'content://media/external/audio/media/7',
+			'content://media/external/audio/media/42'
+		]);
+	});
+
+	it('bounds the journal: an overflowing record is cleared wholesale (the prewarm.ts idiom)', async () => {
+		const fat: Record<string, { bytes: number }> = {};
+		for (let i = 0; i < 40; i++) fat[`device:${1000 + i}`] = { bytes: 200000 };
+		localStorage.setItem(PENDING_KEY, JSON.stringify(fat));
+		// The replay at the top of overwriteDeviceFile drains what it can; whatever survives must
+		// never let the record grow without bound.
+		stat.mockResolvedValue({ size: 1 });
+		await overwriteDeviceFile('device:42', realAudio());
+		expect(Object.keys(pending()).length).toBeLessThanOrEqual(20);
+	});
+
+	it('is exported on the blobStore namespace (overwriteDeviceFile only — replay stays a free function)', () => {
+		expect(blobStore.overwriteDeviceFile).toBe(overwriteDeviceFile);
 	});
 });
