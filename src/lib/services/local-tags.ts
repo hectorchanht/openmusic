@@ -71,6 +71,21 @@ export function __resetLocalTagsMemo(): void {
 }
 
 /**
+ * quick-260919-1eh: drop ONE uid's memo entry.
+ *
+ * The memo is keyed by uid and a retag REWRITES the bytes stored under that key, so without this the
+ * next offline play of an edited song paints the PRE-edit embedded art and LRC for the rest of the
+ * session — the memo would be describing a file that no longer exists. `retag.ts` calls it on the
+ * 'tagged' path only.
+ *
+ * Per-uid, NOT `__resetLocalTagsMemo()`: the other (up to five) entries describe files nobody
+ * touched, and re-decoding them costs the ~686 kB wasm pass plus a full file copy each.
+ */
+export function forgetLocalEnrichment(uid: string): void {
+	memo.delete(uid);
+}
+
+/**
  * Read `blob`'s embedded LRC + front cover, once per `uid` per session.
  *
  * Off the audio critical path by contract: the caller sets `audio.src` and starts playback FIRST,

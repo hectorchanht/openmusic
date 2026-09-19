@@ -203,7 +203,7 @@ describe('retag — module shape / purity', () => {
 
 	it('exports exactly the batch loop + its per-item step at runtime, with no default export', () => {
 		// quick-260919-1eh: retagOne is public now — it is the metadata editor's ENTIRE save path.
-		expect(Object.keys(retagModule)).toEqual(['retagDownloads', 'retagOne']);
+		expect(Object.keys(retagModule).sort()).toEqual(['retagDownloads', 'retagOne']);
 		expect(src).not.toMatch(/export default/);
 	});
 });

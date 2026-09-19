@@ -32,6 +32,9 @@ import { blobStore } from './blob-store';
 import { albumTag, tagAudioBlob, readAudioTags } from './audio-tags';
 import { resolveArtworkDataUrl } from './media-artwork';
 import { buildDownloadFilename } from './download-filename';
+// Both PURE (no runes store, no i18n) — the purity contract above still holds.
+import { isDeviceUid } from '$lib/services/device-track';
+import { forgetLocalEnrichment } from '$lib/services/local-tags';
 
 /** One downloadable the caller wants re-tagged. Strings are already display-translated. */
 export interface RetagEntry {
@@ -40,6 +43,13 @@ export interface RetagEntry {
 	artist: string;
 	album: string;
 	cover: string | null;
+	/**
+	 * quick-260919-1eh: RAW LRC with `[mm:ss.xx]` timestamps — exactly the quick-260915-062 contract
+	 * the download path already writes. ABSENT (or empty) means "leave the file's own lyrics alone",
+	 * NEVER "clear them": `tagAudioBlob` runs a setter only for a truthy field, so omission preserves
+	 * whatever is on disk (D-4). There is no clear verb in the codec, by design.
+	 */
+	lyrics?: string;
 }
 
 /**
@@ -48,10 +58,12 @@ export interface RetagEntry {
  *  - `skipped-size` / `unknown-container` / `no-fields` / `error`  straight from the codec
  *  - `verify-failed`     the tagged bytes did not parse back — never written (Pitfall 10)
  *  - `put-failed`        the write itself failed (disk full, IDB error)
+ *  - `device-skipped`    an imported `device:` file — refused on principle, see retagOne
  */
 export type RetagItemResult =
 	| 'tagged'
 	| 'missing'
+	| 'device-skipped'
 	| 'skipped-size'
 	| 'unknown-container'
 	| 'no-fields'
@@ -66,8 +78,30 @@ export interface RetagReport {
 	skipped: Partial<Record<Exclude<RetagItemResult, 'tagged'>, number>>;
 }
 
-/** Retag ONE entry. Never throws — every failure mode is a RetagItemResult. */
-async function retagOne(entry: RetagEntry): Promise<RetagItemResult> {
+/**
+ * Retag ONE entry. Never throws — every failure mode is a RetagItemResult.
+ *
+ * quick-260919-1eh: PUBLIC now, because this is BOTH the batch loop's per-item step and the metadata
+ * editor's ENTIRE save. The editor reuses it rather than calling `tagAudioBlob` itself precisely for
+ * the verify-before-write step below (Pitfall 10) — an editor that wrote its own bytes would be the
+ * one path that can replace a working file with unparseable ones.
+ */
+export async function retagOne(entry: RetagEntry): Promise<RetagItemResult> {
+	// quick-260919-1eh — AN IMPORTED FILE IS THE USER'S FILE, NOT THE APP'S (34 Pitfall 1).
+	//
+	// The guard lives HERE, not at either call site, because the SHIPPED Settings -> Downloads sweep
+	// already had this bug: its eligible list is `library.downloads` filtered by `blobStore.has`,
+	// imported rows live in `library.downloads`, and `has` returns TRUE for them (nativeHas
+	// short-circuits a device: uid to the MediaStore content URI and reads the user's file in place,
+	// 34-D-05). So the sweep was feeding device uids straight to `blobStore.put` — which has NO such
+	// short-circuit: it would write an orphan app-private copy that `get` will never read, and then
+	// MediaStore-save a SECOND public copy of a song the user already owns. A silent duplicate of
+	// their own music, plus an edit that never shows up.
+	//
+	// One guard here covers the batch sweep and the new metadata editor, at zero call-site cost.
+	// Editing an imported file needs a Kotlin `openFileDescriptor(uri, "rw")` in-place rewrite plus a
+	// MediaStore column update — a native change with its own device UAT, not this.
+	if (isDeviceUid(entry.uid)) return 'device-skipped';
 	try {
 		const blob = await blobStore.get(entry.uid);
 		if (!blob) return 'missing';
@@ -87,7 +121,11 @@ async function retagOne(entry: RetagEntry): Promise<RetagItemResult> {
 				title: entry.title,
 				artist: entry.artist,
 				album: albumTag(entry.album, entry.title),
-				albumArtist: entry.artist
+				albumArtist: entry.artist,
+				// quick-260919-1eh: threaded into the EXISTING single codec pass — a second
+				// tagAudioBlob/apply pass would reopen the file and double peak wasm memory
+				// (RESEARCH Pitfall 7). `|| undefined` so '' is omission, never a blank write.
+				lyrics: entry.lyrics || undefined
 			},
 			art
 		);
@@ -101,7 +139,12 @@ async function retagOne(entry: RetagEntry): Promise<RetagItemResult> {
 		// The extension comes from the SNIFFED container, not from a URL — the stored Track's
 		// audioUrl is nulled by persistence, and a URL extension lies anyway (RESEARCH Pattern 2).
 		const ok = await blobStore.put(entry.uid, out.blob, buildDownloadFilename(entry.artist, entry.title, out.format));
-		return ok ? 'tagged' : 'put-failed';
+		if (!ok) return 'put-failed';
+		// quick-260919-1eh: the bytes under this uid just changed, so the session memo that caches the
+		// file's OWN art + LRC is now describing a file that no longer exists. Evict on the success
+		// path ONLY — every other outcome left the file byte-identical, so its memo entry is still true.
+		forgetLocalEnrichment(entry.uid);
+		return 'tagged';
 	} catch {
 		return 'error';
 	}
