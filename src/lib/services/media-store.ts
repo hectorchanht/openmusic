@@ -34,6 +34,43 @@ export interface MediaStoreSaverPlugin {
 	 */
 	saveToMusic(opts: { fileName: string; sourcePath: string }): Promise<{ uri: string }>;
 	/**
+	 * quick-260919-ejm — THE ONE WRITE CAPABILITY THIS APP HAS AGAINST A FILE IT DOES NOT OWN.
+	 *
+	 * Rewrite the bytes of an EXISTING MediaStore row IN PLACE: same row, same path, same name, no
+	 * second copy. `uri` must be the `content://media/...` URI of a device row (the only caller
+	 * passes `deviceContentUri(uid)`); `sourcePath` is a `file://` temp the app already wrote and
+	 * verified complete. Nothing is renamed or moved — DISPLAY_NAME / RELATIVE_PATH / DATA are never
+	 * written (D-7).
+	 *
+	 * `expectedBytes` is the target row's size as the JS side read it moments earlier. The Kotlin
+	 * side refuses the write when the row's current SIZE column disagrees, which is the guard
+	 * against a reassigned MediaStore `_ID` (34-D-02) silently pointing the uid at a DIFFERENT song.
+	 * Blank or absent SKIPS that check — the replay path only, where a partial write means the size
+	 * no longer matches by definition.
+	 *
+	 * `title` / `artist` / `album` update the MediaStore columns best-effort AFTER the bytes land
+	 * (D-8: the phone's music app renders the columns, not the tags). A failed column update still
+	 * resolves — the bytes are already on disk.
+	 *
+	 * THE REJECT-CODE CONTRACT — route on the PREFIX, it decides whether the user's file is intact:
+	 *  - `unsupported:...`  API below 29. Nothing was written.
+	 *  - `precheck:...`     a failed precondition (not a media uri, the row changed, the temp source
+	 *                       is missing or empty). Nothing was written — no descriptor was opened.
+	 *  - `denied`           Android refused write access, or the user dismissed the consent dialog.
+	 *                       Nothing was written.
+	 *  - `io:...`           the descriptor WAS open and the bytes may be PARTIAL. The caller must
+	 *                       keep its pending-write journal entry and the temp file so a replay can
+	 *                       finish the job; clearing them here strands a truncated file forever.
+	 */
+	writeInPlace(opts: {
+		uri: string;
+		sourcePath: string;
+		expectedBytes?: string;
+		title?: string;
+		artist?: string;
+		album?: string;
+	}): Promise<void>;
+	/**
 	 * Delete the MediaStore entry previously created by `saveToMusic` (the `uri` it returned).
 	 * Resolves even when the entry is already absent (the plugin swallows not-found).
 	 */
