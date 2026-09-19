@@ -19,7 +19,11 @@
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { t } from '$lib/i18n';
 	import { Capacitor } from '@capacitor/core';
-	import { retagOne } from '$lib/services/retag';
+	// quick-260919-3j1: the save goes through the app-wide SERIALIZER, not straight to retagOne. The
+	// `saving` guard below already stops this sheet racing ITSELF; what it cannot see is the player's
+	// automatic lyric embed or a cover/lyric pin firing from the track menu at the same moment. Two
+	// concurrent wasm tag passes over a large file on a phone is an OOM, not a slowdown.
+	import { syncFileTags } from '$lib/services/file-tag-sync';
 	import { buildDownloadFilename } from '$lib/services/download-filename';
 	import type { Track } from '$lib/sources/types';
 
@@ -108,6 +112,7 @@
 		// discriminant, and every discriminant other than 'tagged' means the file on disk was not
 		// touched at all. The never-throw contract IS the error handling here.
 		//
+		// (`syncFileTags` preserves that contract: a rejection that somehow escaped maps to 'error'.)
 		// It also owns the verify-before-write step (the tagged bytes are parsed back and must return
 		// the written title before anything reaches the disk), which is exactly why this sheet calls
 		// it instead of reaching for tagAudioBlob itself. A retag OVERWRITES a file that works.
@@ -115,7 +120,7 @@
 		// `library.applyMetadata` / `player.adoptMetadata`, which are about the DISPLAY model; the
 		// filename is a disk artifact and has no place in either. `|| undefined` so a blank field is
 		// omission, never a blank name.
-		const result = await retagOne({
+		const result = await syncFileTags({
 			uid: track.uid,
 			...patch,
 			cover,
