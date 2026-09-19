@@ -148,6 +148,7 @@ const it: Dict = {
 	"settings.retagDownloads": "Riassegna i tag ai brani scaricati ({count})",
 	"settings.retagDownloadsDesc": "Riscrive le copie offline che questa app conserva ancora con titolo, artista, album e copertina. Su Android viene riscritto anche il file in Music/OpenMusic. I file salvati nella cartella download del browser non sono raggiungibili da qui.",
 	"settings.retagConfirm": "Riscrivere {count} file scaricati con i tag dei metadati? Un file che non può essere taggato resta intatto.",
+	"settings.retagImported": "{count} di questi sono brani importati da questo telefono. I loro file verranno riscritti sul posto: stesso file, stesso nome, nessuna copia.",
 	"settings.retagProgress": "Tagging {done} di {total}…",
 	"settings.retagDone": "{tagged} di {total} taggati. {skipped} saltati.",
 	"settings.retagNone": "Nessun download offline da riassegnare.",

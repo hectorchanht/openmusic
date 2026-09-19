@@ -148,6 +148,7 @@ const es: Dict = {
 	"settings.retagDownloads": "Volver a etiquetar canciones descargadas ({count})",
 	"settings.retagDownloadsDesc": "Reescribe las copias sin conexión que la app todavía conserva con título, artista, álbum y carátula. En Android también se reescribe el archivo en Music/OpenMusic. Los archivos guardados en la carpeta de descargas del navegador no son accesibles desde aquí.",
 	"settings.retagConfirm": "¿Reescribir {count} archivos descargados con etiquetas de metadatos? Un archivo que no se pueda etiquetar se deja intacto.",
+	"settings.retagImported": "{count} de estas son canciones importadas de este teléfono. Sus archivos se reescribirán donde están: el mismo archivo, el mismo nombre, sin copias.",
 	"settings.retagProgress": "Etiquetando {done} de {total}…",
 	"settings.retagDone": "Etiquetadas {tagged} de {total}. Omitidas {skipped}.",
 	"settings.retagNone": "No hay descargas sin conexión para volver a etiquetar.",

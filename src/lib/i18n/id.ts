@@ -148,6 +148,7 @@ const id: Dict = {
 	"settings.retagDownloads": "Tag ulang lagu yang diunduh ({count})",
 	"settings.retagDownloadsDesc": "Menulis ulang salinan luring yang masih disimpan aplikasi ini dengan judul, artis, album, dan sampul. Di Android, berkas di Music/OpenMusic juga ditulis ulang. Berkas yang disimpan lewat folder unduhan peramban tidak dapat dijangkau dari sini.",
 	"settings.retagConfirm": "Tulis ulang {count} berkas unduhan dengan tag metadata? Berkas yang tidak bisa ditandai dibiarkan apa adanya.",
+	"settings.retagImported": "{count} di antaranya adalah lagu yang diimpor dari ponsel ini. Berkasnya akan ditulis ulang di tempatnya — berkas yang sama, nama yang sama, tanpa salinan.",
 	"settings.retagProgress": "Menandai {done} dari {total}…",
 	"settings.retagDone": "{tagged} dari {total} ditandai. {skipped} dilewati.",
 	"settings.retagNone": "Tidak ada unduhan luring untuk ditag ulang.",

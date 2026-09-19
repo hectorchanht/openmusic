@@ -148,6 +148,7 @@ const pt: Dict = {
 	"settings.retagDownloads": "Voltar a etiquetar músicas transferidas ({count})",
 	"settings.retagDownloadsDesc": "Reescreve as cópias offline que esta app ainda guarda com título, artista, álbum e capa. No Android o ficheiro em Music/OpenMusic também é reescrito. Os ficheiros guardados na pasta de transferências do navegador não podem ser alcançados daqui.",
 	"settings.retagConfirm": "Reescrever {count} ficheiros transferidos com etiquetas de metadados? Um ficheiro que não possa ser etiquetado fica intacto.",
+	"settings.retagImported": "{count} destas são músicas importadas deste telemóvel. Os respetivos ficheiros serão reescritos no local — o mesmo ficheiro, o mesmo nome, sem cópias.",
 	"settings.retagProgress": "A etiquetar {done} de {total}…",
 	"settings.retagDone": "{tagged} de {total} etiquetados. {skipped} ignorados.",
 	"settings.retagNone": "Não há transferências offline para voltar a etiquetar.",

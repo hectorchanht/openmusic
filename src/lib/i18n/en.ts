@@ -166,6 +166,7 @@ const en = {
 	"settings.retagDownloads": "Retag downloaded songs ({count})",
 	"settings.retagDownloadsDesc": "Rewrites the offline copies this app still holds with title, artist, album and cover art. On Android the file in Music/OpenMusic is rewritten too. Files you saved through the browser's download folder can't be reached from here.",
 	"settings.retagConfirm": "Rewrite {count} downloaded files with metadata tags? A file that can't be tagged is left untouched.",
+	"settings.retagImported": "{count} of these are songs imported from this phone. Their files will be rewritten where they are — same file, same name, no copy.",
 	"settings.retagProgress": "Tagging {done} of {total}…",
 	"settings.retagDone": "Tagged {tagged} of {total}. Skipped {skipped}.",
 	"settings.retagNone": "No offline downloads to retag.",

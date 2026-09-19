@@ -148,6 +148,7 @@ const fr: Dict = {
 	"settings.retagDownloads": "Réétiqueter les titres téléchargés ({count})",
 	"settings.retagDownloadsDesc": "Réécrit les copies hors ligne que l'application conserve encore avec le titre, l'artiste, l'album et la pochette. Sur Android, le fichier dans Music/OpenMusic est également réécrit. Les fichiers enregistrés via le dossier de téléchargement du navigateur sont inaccessibles d'ici.",
 	"settings.retagConfirm": "Réécrire {count} fichiers téléchargés avec des métadonnées ? Un fichier impossible à étiqueter reste intact.",
+	"settings.retagImported": "{count} d'entre elles sont des morceaux importés depuis ce téléphone. Leurs fichiers seront réécrits sur place — même fichier, même nom, aucune copie.",
 	"settings.retagProgress": "Étiquetage {done} sur {total}…",
 	"settings.retagDone": "{tagged} sur {total} étiquetés. {skipped} ignorés.",
 	"settings.retagNone": "Aucun téléchargement hors ligne à réétiqueter.",
