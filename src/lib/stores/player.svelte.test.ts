@@ -3231,6 +3231,70 @@ describe('player.resolvedCover — single-field artwork guarantee (COVER-01 / D-
 		expect(() => player.adoptCover('netease:ORPHAN', 'https://cdn/art.jpg')).not.toThrow();
 		expect(rc()).toBeNull();
 	});
+
+	// ---- player.adoptMetadata — the same seam, for the NAME fields (quick-260919-1eh) ----
+	// The hero and the OS media card read `player.current` (+ resolvedCover) DIRECTLY, not the
+	// library, so a metadata edit that only wrote library.applyMetadata would repaint the list rows
+	// and leave the now-playing surfaces showing the old title until the next track change. Same
+	// guards as adoptCover: uid identity, in-place field writes, a FRESH MediaMetadata object.
+
+	it('adoptMetadata(uid, patch) for the CURRENT track rewrites its fields in place', () => {
+		const cur = mk('netease', 'MD1', 'Old Artist', 'Old Title');
+		player.current = cur;
+
+		player.adoptMetadata(cur.uid, { title: 'New Title', artist: 'New Artist', album: 'New Album' });
+
+		expect(player.current?.title).toBe('New Title');
+		expect(player.current?.artist).toBe('New Artist');
+		expect(player.current?.album).toBe('New Album');
+	});
+
+	it('adoptMetadata re-fires a FRESH MediaMetadata carrying the new name fields', () => {
+		const cur = mk('netease', 'MD2', 'Old Artist', 'Old Title');
+		player.current = cur;
+		(player as unknown as { resolvedCover: string | null }).resolvedCover = 'https://cdn/art.jpg';
+		(player as unknown as { syncMetadata(): void }).syncMetadata(); // metadata #0 — the old names
+		const before = metadataLog.length;
+
+		player.adoptMetadata(cur.uid, { title: 'New Title', artist: 'New Artist' });
+
+		expect(metadataLog.length).toBe(before + 1);
+		const landed = metadataLog[metadataLog.length - 1] as unknown as { title: string; artist: string };
+		expect(fakeMediaSession.metadata).toBe(landed); // a genuinely fresh object, assigned (A2/Pitfall 4)
+		expect(landed.title).toBe('New Title');
+		expect(landed.artist).toBe('New Artist');
+	});
+
+	it('adoptMetadata for a STALE uid is a no-op — the user edited a song that is not playing', () => {
+		const cur = mk('qq', 'MD-NEW', 'Artist B', 'Song B');
+		player.current = cur;
+		(player as unknown as { syncMetadata(): void }).syncMetadata();
+		const before = metadataLog.length;
+
+		player.adoptMetadata('netease:MD-OLD', { title: 'Should Not Land', artist: 'Nope' });
+
+		expect(player.current?.title).toBe('Song B');
+		expect(player.current?.artist).toBe('Artist B');
+		expect(metadataLog.length).toBe(before); // no repaint churn for another song's edit
+	});
+
+	it('adoptMetadata skips empty/absent fields — blank means KEEP, never blank it out (D-4)', () => {
+		const cur = mk('netease', 'MD3', 'Keep Artist', 'Keep Title');
+		cur.album = 'Keep Album';
+		player.current = cur;
+
+		player.adoptMetadata(cur.uid, { title: '', artist: '   ', album: undefined });
+
+		expect(player.current?.title).toBe('Keep Title');
+		expect(player.current?.artist).toBe('Keep Artist');
+		expect(player.current?.album).toBe('Keep Album');
+	});
+
+	it('adoptMetadata with NO current track never throws (called straight from a DOM handler)', () => {
+		player.current = null;
+		expect(() => player.adoptMetadata('netease:ORPHAN', { title: 'x' })).not.toThrow();
+		expect(player.current).toBeNull();
+	});
 });
 
 describe('player.healCover — dead current-cover self-heal (quick-260704-20e)', () => {

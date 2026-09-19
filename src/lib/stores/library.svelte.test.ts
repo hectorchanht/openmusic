@@ -368,3 +368,74 @@ describe('like-state-wrong-track-menu: uid-less tracks cannot be liked or read a
 		expect(library.isLiked('kuwo:7')).toBe(true);
 	});
 });
+
+// quick-260919-1eh — library.applyMetadata: the metadata editor's list-row repaint seam.
+// Same in-place discipline as adoptCover (home shelves hold snapshot references), but matched on
+// uid ONLY: adoptCover's matchKey widening exists to FILL an empty cover across duplicate
+// identities, whereas a name edit is a single-identity user action that must not rewrite a
+// same-named row belonging to another source.
+describe('library.applyMetadata (quick-260919-1eh)', () => {
+	beforeEach(() => {
+		library.liked = [];
+		library.downloads = [];
+		library.playlists = [];
+		memStore.clear();
+	});
+
+	it('updates the matching entry in downloads, liked and every playlist — same object references', () => {
+		library.liked = [mk({ uid: 'netease-1' }), mk({ uid: 'qq-9', source: 'qq' })];
+		library.downloads = [mk({ uid: 'netease-1' })];
+		library.playlists = [
+			{ id: 'pl_x', name: 'mix', tracks: [mk({ uid: 'netease-1' }), mk({ uid: 'kuwo-7' })] }
+		];
+		// A reference captured BEFORE the call must read the new title — this is the whole point of
+		// mutating the proxy instead of rebuilding it.
+		const captured = library.liked[0];
+
+		library.applyMetadata('netease-1', { title: 'Edited', artist: 'Edited Artist', album: 'Edited Album' });
+
+		expect(captured.title).toBe('Edited');
+		expect(library.liked[0].artist).toBe('Edited Artist');
+		expect(library.downloads[0].title).toBe('Edited');
+		expect(library.downloads[0].album).toBe('Edited Album');
+		expect(library.playlists[0].tracks[0].title).toBe('Edited');
+	});
+
+	it('matches uid ONLY — a same-named row from another source is left alone', () => {
+		library.liked = [mk({ uid: 'netease-1' }), mk({ uid: 'qq-9', source: 'qq' })];
+
+		library.applyMetadata('netease-1', { title: 'Edited' });
+
+		expect(library.liked[0].title).toBe('Edited');
+		expect(library.liked[1].title).toBe('多远都要在一起'); // same song, different uid — untouched
+	});
+
+	it('an absent or empty field leaves that field untouched (D-4: blank means keep)', () => {
+		library.liked = [mk({ uid: 'netease-1', album: 'Original Album' })];
+
+		library.applyMetadata('netease-1', { title: 'Edited', artist: '  ', album: '' });
+
+		expect(library.liked[0].title).toBe('Edited');
+		expect(library.liked[0].artist).toBe('G.E.M. 邓紫棋');
+		expect(library.liked[0].album).toBe('Original Album');
+	});
+
+	it('an unknown uid changes nothing and does not persist', () => {
+		library.liked = [mk({ uid: 'netease-1' })];
+		memStore.clear();
+
+		library.applyMetadata('netease-999', { title: 'Nope' });
+
+		expect(library.liked[0].title).toBe('多远都要在一起');
+		expect(memStore.get('openmusic:library:v1')).toBeUndefined(); // save() never ran
+	});
+
+	it('a real change DOES persist', () => {
+		library.liked = [mk({ uid: 'netease-1' })];
+		memStore.clear();
+
+		library.applyMetadata('netease-1', { title: 'Edited' });
+
+		expect(memStore.get('openmusic:library:v1')).toContain('Edited');
+	});
+});
