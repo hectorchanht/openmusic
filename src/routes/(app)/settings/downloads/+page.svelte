@@ -21,7 +21,8 @@
 		Timer,
 		ListFilter,
 		ListX,
-		Regex
+		Regex,
+		EyeOff
 	} from '@lucide/svelte';
 	import { settings } from '$lib/stores/settings.svelte';
 	import { library } from '$lib/stores/library.svelte';
@@ -29,6 +30,7 @@
 	import { blobStore } from '$lib/services/blob-store';
 	import { retagDownloads, type RetagEntry } from '$lib/services/retag';
 	import { deviceImport } from '$lib/stores/device-import.svelte';
+	import { readExclusions, unexcludeUid } from '$lib/services/import-exclusions';
 	import {
 		PRESET_ORDER,
 		PRESET_LABELS,
@@ -50,6 +52,22 @@
 	// stays inside the browser-guard discipline, and kept to this page body — the settings-index row
 	// is NOT gated, because the retag control below works on web and the row leads to it.
 	let native = $state(false);
+
+	// quick-260919-30x — THE RECOVERY LIST. `[uid, label][]`, seeded from localStorage in onMount.
+	// D-9: deliberately NO `*.svelte.ts` reactive wrapper. lyric-pins needed one because a pin is
+	// written from one surface while another renders it live during playback; here the only WRITER is
+	// TrackMenu and the only READER is this page, and the two cannot be mounted at the same time — so
+	// a plain local `$state` seeded once on mount is the whole requirement. The absence is a decision,
+	// not an omission.
+	let excluded = $state<[string, string][]>([]);
+
+	function allowAgain(uid: string) {
+		unexcludeUid(uid);
+		excluded = excluded.filter(([u]) => u !== uid);
+		// D-4: allowing only makes the file ELIGIBLE again; the scan above is what brings it back.
+		// A per-file import would need a single-row scan path that does not exist.
+		flash(t('toast.noImportUndone'));
+	}
 
 	// Progress is read from the STORE, never from page-local state: navigating away must not cancel
 	// the scan and coming back must re-attach to it (contract 3).
@@ -98,6 +116,7 @@
 		deviceImport.load();
 		patternDraft = deviceImport.rules.customPattern;
 		native = Capacitor.isNativePlatform();
+		excluded = Object.entries(readExclusions());
 		// 36-D-18: the scope is the app's OWN downloads it STILL HOLDS A COPY OF — never a device-wide
 		// sweep. `library.downloads` is the reference list (a row survives a failed/cancelled save), so
 		// `blobStore.has` is what makes the count honest. Sequential because the list is small and
@@ -230,6 +249,10 @@
 					{#if s.skippedShort > 0}<span class="hint">{t('import.skipTooShort', { count: s.skippedShort, seconds: s.minSeconds })}</span>{/if}
 					{#if s.skippedExt > 0}<span class="hint">{t('import.skipExtension', { count: s.skippedExt })}</span>{/if}
 					{#if s.skippedRule > 0}<span class="hint">{t('import.skipRule', { count: s.skippedRule })}</span>{/if}
+					<!-- quick-260919-30x: the user's own per-file marks get their own line — reporting an
+					     explicit choice as a skip RULE would misattribute it. Same zero-renders-nothing
+					     contract as every sibling. -->
+					{#if s.skippedExcluded > 0}<span class="hint">{t('import.skipExcluded', { count: s.skippedExcluded })}</span>{/if}
 					<!-- Last, and the only line in the error colour: it is the only one describing a loss. -->
 					{#if s.removed > 0}<span class="hint removed">{t('import.summaryRemoved', { count: s.removed })}</span>{/if}
 				</div>
@@ -355,6 +378,29 @@
 	{#if progress}<p class="muted">{t('settings.retagProgress', { done: progress.done, total: progress.total })}</p>{/if}
 </section>
 
+<!-- quick-260919-30x — the recovery list for "Don't import again". It is the MITIGATION for D-3's
+     accepted failure mode (a MediaStore provider rebuild reassigns _IDs, so a mark can lapse or, in
+     the pathological case, land on a different file): every mark is visible here and reversible in
+     one tap, rather than being invisible state the user cannot reach.
+     NOT behind `{#if native}` on purpose — a mark made on the phone is still worth SEEING and
+     clearing on the web build, and the section renders its own empty line when there is nothing. -->
+<section>
+	<h2><EyeOff size={15} /> {t('settings.excludedHeading')}</h2>
+	<p class="muted">{t('settings.excludedNote')}</p>
+	{#if excluded.length === 0}
+		<p class="muted">{t('settings.excludedNone')}</p>
+	{:else}
+		{#each excluded as [uid, label] (uid)}
+			<!-- Plain {label} interpolation: Svelte escapes it. No @html — the label is composed from
+			     catalog strings the app did not author. -->
+			<div class="excl-row">
+				<span class="excl-label">{label || uid}</span>
+				<button class="chip" onclick={() => allowAgain(uid)} use:tapBounce>{t('settings.excludedRestore')}</button>
+			</div>
+		{/each}
+	{/if}
+</section>
+
 {#if msg}<p class="flash">{msg}</p>{/if}
 
 <style>
@@ -370,6 +416,10 @@
 	.chip { background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); padding: 8px 14px; border-radius: 999px; font-size: 13px; cursor: pointer; }
 	.advanced { margin: 22px 0; padding: 10px 12px; background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: 12px; }
 	.advanced summary { display: inline-flex; align-items: center; gap: 6px; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--color-text-muted); cursor: pointer; padding: 4px 0; min-height: 44px; }
+	/* quick-260919-30x: the recovery row reuses `.item`'s surface tokens and the page's existing
+	   `.chip` for its button — only the label/button split is new. */
+	.excl-row { display: flex; align-items: center; gap: 12px; background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: 12px; padding: 10px 10px 10px 14px; margin-bottom: 8px; }
+	.excl-label { flex: 1; min-width: 0; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 	.flash { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(var(--tabbar-h) + 70px); background: #000; color: #fff; padding: 10px 16px; border-radius: 999px; font-size: 13px; }
 
 	/* Contract 3/4 + UI-SPEC Color: the import CTA is this page's single accent-filled action. */

@@ -2,7 +2,7 @@
 	import { tick, untrack } from 'svelte';
 	import { fly } from 'svelte/transition';
 	import { goto } from '$app/navigation';
-	import { ListStart, ListEnd, Download, Check, Heart, ListPlus, User, Share2, Info, X, Plus, Shuffle, Trash2, Moon, Sparkles, Layers, Image as ImageIcon, ChevronDown, Tags, Mic2 } from '@lucide/svelte';
+	import { ListStart, ListEnd, Download, Check, Heart, ListPlus, User, Share2, Info, X, Plus, Shuffle, Trash2, Moon, Sparkles, Layers, Image as ImageIcon, ChevronDown, Tags, Mic2, EyeOff } from '@lucide/svelte';
 	import { player } from '$lib/stores/player.svelte';
 	import { sleepTimer } from '$lib/stores/sleepTimer.svelte';
 	import { library } from '$lib/stores/library.svelte';
@@ -58,6 +58,7 @@
 	import { combinedSignal } from '$lib/services/abort-signal';
 	import { recallItunesId } from '$lib/services/itunes-cover';
 	import { isDeviceUid } from '$lib/services/device-track';
+	import { excludeUid } from '$lib/services/import-exclusions';
 	import type { Track } from '$lib/sources/types';
 
 	// `loading` = the menu opened on a discovery STUB and is still resolving the real Track
@@ -369,6 +370,29 @@
 		// The Check state is blob-backed (see `blobPresent`), so re-probe rather than assume: 'saved'
 		// only means the anchor click fired, which is true even when the user cancels the save dialog.
 		await probeBlob();
+	}
+
+	// quick-260919-30x — "Don't import again" for an IMPORTED (device:) song.
+	//
+	// THIS IS NOT A DELETE, and the distinction is the whole feature. `library.removeDownload` drops
+	// the library row and then calls `blobStore.del`, whose native branch REFUSES a `device:` uid as
+	// its FIRST statement (34 Pitfall 1) — so `deleteFromMusic` (a MediaStore contentResolver.delete,
+	// which really does destroy the file) is never reached. The user's own audio file is not read,
+	// renamed, moved or deleted: it stays in their Music/ or Download/ folder under its own name and
+	// their phone's music app still lists it. The only things that change are the in-memory +
+	// localStorage library row and the new exclusion mark.
+	//
+	// The mark is what makes the removal STICK: without it the next device scan finds the same file
+	// and imports it straight back. `toast.noImportDone` says "stays on your phone" for the same
+	// reason — a row that reads like a delete has to promise, in the moment, that it is not one.
+	function noImport() {
+		if (!track?.uid) return;
+		// excludeUid BEFORE removeDownload: the label is read off the track, and the removal is what
+		// makes the row disappear. `names.dn*` so the recovery list reads in the user's display script.
+		excludeUid(track.uid, `${names.dnArtist(track.artist)} - ${names.dnTitle(track.title)}`.trim());
+		library.removeDownload(track.uid);
+		toast.show(t('toast.noImportDone'));
+		close();
 	}
 
 	// quick-260913-jq4 — WHAT "DOWNLOADED" MEANS. `library.isDownloaded(uid)` is membership in the
@@ -769,6 +793,17 @@
 		     enforcing half; this just keeps the row from appearing at all. -->
 		{#if blobPresent && !isDevice}
 			<button class="mi" onclick={() => (tagsOpen = true)} use:tapBounce><Tags size={18} /> {t('menu.editTags')}</button>
+		{/if}
+		<!-- quick-260919-30x: Don't import again. The mirror image of the row above — that one is for
+		     a file the APP owns, this one is for a file the USER owns, so they sit together.
+		     `{#if isDevice}` and ONLY isDevice: for an app-downloaded song `removeDownload` already
+		     deletes both copies the app itself created (the app-private file and the public
+		     Music/OpenMusic/ entry, 999.1-D-11), so no file survives for a scan to find — an
+		     exclusion recorded against it would be dead state forever and the label would be a lie,
+		     since no scan ever imports an app download under its own uid.
+		     For a device: uid nothing on disk is touched at all — see noImport() above. -->
+		{#if isDevice}
+			<button class="mi" onclick={noImport} use:tapBounce><EyeOff size={18} /> {t('menu.noImport')}</button>
 		{/if}
 		{#if player.queue.length > 1}
 			<button class="mi" class:on={player.shuffle} onclick={shuffleQueue} use:tapBounce><Shuffle size={18} /> {t('menu.shuffleQueue')}</button>
