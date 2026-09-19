@@ -27,19 +27,39 @@ const mocks = vi.hoisted(() => {
 		forgetLocalEnrichment: vi.fn((_uid: string) => {}),
 		names,
 		getStoredName: vi.fn((uid: string): string | null => names.get(uid) ?? null),
-		setStoredName: vi.fn((uid: string, base: string): void => void names.set(uid, base))
+		setStoredName: vi.fn((uid: string, base: string): void => void names.set(uid, base)),
+		// quick-260919-ejm: the device write sink. `put` and this are MUTUALLY EXCLUSIVE — which of
+		// the two a uid reaches is the entire contract these tests exist to pin.
+		overwriteDeviceFile: vi.fn(
+			async (_uid: string, _blob: Blob, _meta?: unknown): Promise<'ok' | 'unsupported' | 'failed'> => 'ok'
+		)
 	};
 });
 
+// Both specifiers, same shape — retag.ts imports './blob-store' but other modules in the graph use
+// the alias. Inlined in each factory rather than shared via a const: vi.mock is hoisted above every
+// top-level binding, so a shared object would be read before it is initialised.
 vi.mock('$lib/services/blob-store', () => ({
-	blobStore: { get: mocks.get, put: mocks.put, getStoredName: mocks.getStoredName },
+	blobStore: {
+		get: mocks.get,
+		put: mocks.put,
+		getStoredName: mocks.getStoredName,
+		overwriteDeviceFile: mocks.overwriteDeviceFile
+	},
 	getStoredName: mocks.getStoredName,
-	setStoredName: mocks.setStoredName
+	setStoredName: mocks.setStoredName,
+	overwriteDeviceFile: mocks.overwriteDeviceFile
 }));
 vi.mock('./blob-store', () => ({
-	blobStore: { get: mocks.get, put: mocks.put, getStoredName: mocks.getStoredName },
+	blobStore: {
+		get: mocks.get,
+		put: mocks.put,
+		getStoredName: mocks.getStoredName,
+		overwriteDeviceFile: mocks.overwriteDeviceFile
+	},
 	getStoredName: mocks.getStoredName,
-	setStoredName: mocks.setStoredName
+	setStoredName: mocks.setStoredName,
+	overwriteDeviceFile: mocks.overwriteDeviceFile
 }));
 // quick-260919-0mw: spread the REAL module so `albumTag` (a pure string helper retag now calls) is
 // present — only the two codec entry points are stubbed.
@@ -77,6 +97,7 @@ beforeEach(() => {
 	mocks.names.clear();
 	mocks.getStoredName.mockClear();
 	mocks.setStoredName.mockClear();
+	mocks.overwriteDeviceFile.mockReset().mockResolvedValue('ok');
 });
 
 describe('retag — per-file isolation (36-D-19)', () => {
@@ -300,24 +321,20 @@ describe('retag — the single-file save path (quick-260919-1eh)', () => {
 		expect(mocks.put.mock.calls[0][2]).toBe('z'.repeat(120) + '.m4a');
 	});
 
-	it('a device: uid is still refused with a filename set — no get, no put', async () => {
-		expect(await retagOne(entry(1, { uid: 'device:4711', filename: 'Rename me' }))).toBe('device-skipped');
-		expect(mocks.get).not.toHaveBeenCalled();
-		expect(mocks.put).not.toHaveBeenCalled();
-	});
+	// quick-260919-ejm REPLACES the two 1eh refusal cases that stood here ('a device: uid is still
+	// refused with a filename set' and 'a device: uid is refused BEFORE any blobStore call'). The
+	// refusal was lifted deliberately, on the user's explicit authorisation, so those two assertions
+	// are now false by design — they are replaced by their new-contract equivalents in the
+	// 'device fork' describe below, which pin the thing that actually still matters: a device uid
+	// reaches overwriteDeviceFile and NEVER blobStore.put.
 
-	it('a device: uid is refused BEFORE any blobStore call — no get, no put', async () => {
-		expect(await retagOne(entry(1, { uid: 'device:4711' }))).toBe('device-skipped');
-		expect(mocks.get).not.toHaveBeenCalled();
-		expect(mocks.put).not.toHaveBeenCalled();
-		expect(mocks.tagAudioBlob).not.toHaveBeenCalled();
-	});
-
-	it('the SHIPPED Settings sweep no longer touches an imported file: mixed list still adds up', async () => {
+	it('the Settings sweep now INCLUDES an imported file: a mixed list still adds up', async () => {
 		const report = await retagDownloads([entry(1), entry(2, { uid: 'device:4711' }), entry(3)]);
-		expect(report).toEqual({ total: 3, tagged: 2, skipped: { 'device-skipped': 1 } });
+		expect(report).toEqual({ total: 3, tagged: 3, skipped: {} });
 		expect(report.tagged + Object.values(report.skipped).reduce((a, b) => a + b, 0)).toBe(report.total);
+		// The imported entry went to the in-place write, the app's own two went to put.
 		expect(mocks.put.mock.calls.map((c) => c[0])).toEqual(['netease-1', 'netease-3']);
+		expect(mocks.overwriteDeviceFile.mock.calls.map((c) => c[0])).toEqual(['device:4711']);
 	});
 
 	it('a successful rewrite evicts the local-tags memo for exactly that uid', async () => {
@@ -390,7 +407,10 @@ describe('retag — the single-file save path (quick-260919-1eh)', () => {
 		expect(await retagOne(entry(2, { filename: 'My Song' }))).toBe('verify-failed');
 		expect(mocks.setStoredName).not.toHaveBeenCalled();
 
-		expect(await retagOne(entry(3, { uid: 'device:1', filename: 'My Song' }))).toBe('device-skipped');
+		// quick-260919-ejm: a device uid now SUCCEEDS, and still records no name — D-7 says the
+		// in-place write cannot rename, so the sticky-name index is neither read nor written for one.
+		mocks.readAudioTags.mockImplementation(async () => ({ title: 'T3', format: 'm4a' }));
+		expect(await retagOne(entry(3, { uid: 'device:1', filename: 'My Song' }))).toBe('tagged');
 		expect(mocks.setStoredName).not.toHaveBeenCalled();
 	});
 
@@ -403,5 +423,127 @@ describe('retag — the single-file save path (quick-260919-1eh)', () => {
 		mocks.readAudioTags.mockResolvedValue(null);
 		expect(await retagOne(entry(8))).toBe('verify-failed');
 		expect(mocks.forgetLocalEnrichment).not.toHaveBeenCalled();
+	});
+});
+
+// --- quick-260919-ejm: the DEVICE FORK -------------------------------------------------------
+//
+// The 1eh guard (`if (isDeviceUid(entry.uid)) return 'device-skipped'`) is gone. The user
+// authorised rewriting their own imported files in place, and the refusal that stood here is
+// replaced by a FORK AT THE WRITE STEP: same codec pass, same verify-before-write, different sink.
+//
+// What these tests pin is the thing the refusal was really protecting — `blobStore.put` has no
+// device short-circuit, so a device uid reaching it would write an orphan app-private copy plus a
+// SECOND public copy of a song the user already owns. That hazard is still real; it is now avoided
+// by ROUTING (the fork never calls put) rather than by refusing to run at all.
+describe('retag — the device fork (quick-260919-ejm)', () => {
+	const dev = (over: Partial<RetagEntry> = {}) => entry(1, { uid: 'device:4711', ...over });
+
+	it('runs the FULL codec pass for a device uid — get, tag and the verify round-trip all happen', async () => {
+		expect(await retagOne(dev())).toBe('tagged');
+		expect(mocks.get).toHaveBeenCalledWith('device:4711');
+		expect(mocks.tagAudioBlob).toHaveBeenCalledTimes(1);
+		expect(mocks.readAudioTags).toHaveBeenCalledTimes(1);
+	});
+
+	// THE inverse of the 1eh bug, asserted directly.
+	it('NEVER calls blobStore.put for a device uid — it writes through overwriteDeviceFile instead', async () => {
+		await retagOne(dev());
+		expect(mocks.put).not.toHaveBeenCalled();
+		expect(mocks.overwriteDeviceFile).toHaveBeenCalledTimes(1);
+	});
+
+	it('hands over the TAGGED blob and the ORIGINAL blob size as expectedBytes (the row precondition)', async () => {
+		const original = new Blob([new Uint8Array(4711)]);
+		const tagged = new Blob([new Uint8Array(4800)]);
+		mocks.get.mockResolvedValueOnce(original);
+		mocks.tagAudioBlob.mockResolvedValueOnce({ blob: tagged, result: 'tagged', format: 'm4a' });
+		mocks.readAudioTags.mockResolvedValueOnce({ title: 'T1', format: 'm4a' });
+		await retagOne(dev({ album: 'Al1' }));
+		const [uid, blob, meta] = mocks.overwriteDeviceFile.mock.calls[0];
+		expect(uid).toBe('device:4711');
+		expect(blob).toBe(tagged);
+		expect(meta).toEqual({ title: 'T1', artist: 'A1', album: 'Al1', expectedBytes: 4711 });
+	});
+
+	it("'ok' is 'tagged', and it evicts the local-tags memo for that uid", async () => {
+		expect(await retagOne(dev())).toBe('tagged');
+		expect(mocks.forgetLocalEnrichment).toHaveBeenCalledWith('device:4711');
+	});
+
+	// The bucket keeps a meaning rather than being deleted: on web and on API below 29 there is no
+	// MediaStore row to write into, and "skipped" is the honest word for that.
+	it("'unsupported' is still 'device-skipped' — the bucket now means the PLATFORM cannot, not that we refuse", async () => {
+		mocks.overwriteDeviceFile.mockResolvedValueOnce('unsupported');
+		expect(await retagOne(dev())).toBe('device-skipped');
+		expect(mocks.forgetLocalEnrichment).not.toHaveBeenCalled();
+	});
+
+	it("'failed' is 'put-failed', and the memo is left alone (the bytes on disk may not have changed)", async () => {
+		mocks.overwriteDeviceFile.mockResolvedValueOnce('failed');
+		expect(await retagOne(dev())).toBe('put-failed');
+		expect(mocks.forgetLocalEnrichment).not.toHaveBeenCalled();
+	});
+
+	// D-7: the in-place write cannot rename, so a filename must not be threaded anywhere.
+	it('IGNORES entry.filename for a device uid — the sticky-name index is neither read nor written', async () => {
+		expect(await retagOne(dev({ filename: 'Rename me' }))).toBe('tagged');
+		expect(mocks.getStoredName).not.toHaveBeenCalled();
+		expect(mocks.setStoredName).not.toHaveBeenCalled();
+		// and nothing name-shaped reached the write
+		expect(JSON.stringify(mocks.overwriteDeviceFile.mock.calls[0][2])).not.toContain('Rename me');
+	});
+
+	it('a RECORDED name for a device uid is not consulted either', async () => {
+		mocks.names.set('device:4711', 'Typed earlier');
+		expect(await retagOne(dev())).toBe('tagged');
+		expect(mocks.getStoredName).not.toHaveBeenCalled();
+	});
+
+	// Ladder rung 1: the 40 MB ceiling must still decline BEFORE anything is opened for write.
+	it('rung 1: a skipped-size codec outcome returns before overwriteDeviceFile is reached', async () => {
+		mocks.tagAudioBlob.mockResolvedValueOnce({ blob: new Blob(['x']), result: 'skipped-size', format: 'flac' });
+		expect(await retagOne(dev())).toBe('skipped-size');
+		expect(mocks.overwriteDeviceFile).not.toHaveBeenCalled();
+	});
+
+	it('rung 1: unknown-container and no-fields decline the same way', async () => {
+		mocks.tagAudioBlob.mockResolvedValueOnce({ blob: new Blob(['x']), result: 'unknown-container' });
+		expect(await retagOne(dev())).toBe('unknown-container');
+		mocks.tagAudioBlob.mockResolvedValueOnce({ blob: new Blob(['x']), result: 'no-fields' });
+		expect(await retagOne(dev())).toBe('no-fields');
+		expect(mocks.overwriteDeviceFile).not.toHaveBeenCalled();
+	});
+
+	// Ladder rung 2: unparseable bytes never reach a file descriptor.
+	it('rung 2: verify-before-write still gates the device path', async () => {
+		mocks.readAudioTags.mockResolvedValueOnce(null);
+		expect(await retagOne(dev())).toBe('verify-failed');
+		expect(mocks.overwriteDeviceFile).not.toHaveBeenCalled();
+
+		mocks.readAudioTags.mockResolvedValueOnce({ title: 'something else', format: 'm4a' });
+		expect(await retagOne(dev())).toBe('verify-failed');
+		expect(mocks.overwriteDeviceFile).not.toHaveBeenCalled();
+	});
+
+	it('a missing file is still `missing` — nothing is written for a song the app cannot read', async () => {
+		mocks.get.mockResolvedValueOnce(null);
+		expect(await retagOne(dev())).toBe('missing');
+		expect(mocks.overwriteDeviceFile).not.toHaveBeenCalled();
+	});
+
+	// The other half of the exclusion: the app-download path must be byte-identical.
+	it('an APP-DOWNLOAD uid is unchanged — put with the derived name, overwriteDeviceFile never called', async () => {
+		expect(await retagOne(entry(1))).toBe('tagged');
+		expect(mocks.put).toHaveBeenCalledTimes(1);
+		expect(mocks.put.mock.calls[0][2]).toBe('A1 - T1.m4a');
+		expect(mocks.overwriteDeviceFile).not.toHaveBeenCalled();
+	});
+
+	it('an app-download uid still honours the sticky typed name', async () => {
+		mocks.names.set('netease-1', 'Typed earlier');
+		expect(await retagOne(entry(1))).toBe('tagged');
+		expect(mocks.put.mock.calls[0][2]).toBe('Typed earlier.m4a');
+		expect(mocks.overwriteDeviceFile).not.toHaveBeenCalled();
 	});
 });
