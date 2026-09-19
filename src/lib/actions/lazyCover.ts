@@ -38,6 +38,18 @@ export interface LazyCoverParam {
 	track: Track;
 	/** Called with (uid, url) when a SOLID cover is available (cache hit, good existing cover, or resolved). */
 	onResolved: (uid: string, url: string) => void;
+	/**
+	 * Default true. `false` = the action observes nothing and resolves nothing — the row keeps
+	 * whatever cover its host already knows. This is the OPT-OUT for a surface where a per-row
+	 * chain is forbidden or pointless: the album tracklist (every row legitimately shares the one
+	 * album cover, so N per-row chains would buy nothing) and, should they ever consume a shared
+	 * row, the Up-Next / Related panes, where per-row chains WERE the observed /api/deezer/search
+	 * flood (T-26-10-01) and are replaced by one capped backfillCovers pool.
+	 *
+	 * Read ONCE at mount (an opt-out is a per-surface constant, not a runtime toggle) — flipping it
+	 * later does not start observing a row that mounted disabled.
+	 */
+	enabled?: boolean;
 }
 
 // Module-level de-dupe: a uid currently resolving anywhere on the page is in this Set, so two
@@ -181,8 +193,10 @@ export const lazyCover: Action<HTMLElement, LazyCoverParam> = (node, param) => {
 	let current = param;
 	let done = false; // one-shot: a row resolves at most once
 
-	// SSR / no-IO guard — the action is a no-op (the caller keeps whatever cover it has).
-	if (typeof IntersectionObserver === 'undefined') {
+	// SSR / no-IO guard, and the explicit `enabled: false` opt-out — the action is a no-op (the
+	// caller keeps whatever cover it has). Checked BEFORE the observer is built so a disabled row
+	// costs no IntersectionObserver at all, not just no fetch.
+	if (typeof IntersectionObserver === 'undefined' || param.enabled === false) {
 		return {
 			update(next: LazyCoverParam) {
 				current = next;

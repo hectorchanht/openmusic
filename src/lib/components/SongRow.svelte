@@ -3,16 +3,30 @@
 	// section has been asking for this: `swipeQueue` / `swipeNext` / `openMenu` / `rowKey` were
 	// re-declared across 6+ pages in three variants. They live here now, once.
 	//
-	// STRANGLER MIGRATION — today exactly ONE surface consumes this (the artist page's Hit songs).
-	// Album / library / search / charts / NpUpNext / NpRelated follow in a later commit; their prop
-	// needs are already priced into the shape below (`swipe` and `actions` exist for Up Next, which
-	// overrides both). CompactRow is deliberately NOT yet folded in (D-3): it serves the home
+	// STRANGLER MIGRATION — round 2 adds charts/tags, charts/countries, search, album and the four
+	// library lists, so SIX surfaces run on this row. The two NowPlaying panes (NpUpNext, NpRelated)
+	// stay on their own markup ON PURPOSE — see the "WHY THE SHEET PANES ARE NOT HERE" note below.
+	// CompactRow is deliberately NOT yet folded in (D-3): it serves the home
 	// shelves, which had a live layout regression hours before this was written, and re-expressing
 	// it would put that surface inside the blast radius of a brand-new component for zero visible
 	// gain. CONVERGENCE CONDITION: once >=3 surfaces run on SongRow, re-express CompactRow's
 	// `variant='track'` branch as <SongRow index={null} actions={[]}> at the 40x40 art scale.
 	// `variant='artist'` (round avatar, one line, no menu) is NEVER unified — D-4, and CLAUDE.md
 	// already records that the item-type difference is real.
+	//
+	// WHY THE SHEET PANES ARE NOT HERE (NpUpNext / NpRelated). Three of their requirements are not
+	// prop-shaped, they are shape-shaped, and expressing them would mean degrading the panes:
+	//   1. NO per-row cover chain is allowed on either pane (T-26-10-01 — per-row use:lazyCover WAS
+	//      the observed /api/deezer/search flood). `lazy={false}` below covers that half, but
+	//   2. the ⋮ is UNCONDITIONAL here, and quick-260910-nx6 deliberately DELETED the per-row
+	//      control from Up Next to buy back 44px in a narrow sheet column; re-adding it undoes a
+	//      shipped decision, and
+	//   3. Up Next's grip is a real pointer-drag reorder handle that must sit OUTSIDE the swiped
+	//      element (so it does not slide with the row) and needs down/move/up callbacks with the
+	//      row index. `grip` below is a decorative, pointer-events:none glyph INSIDE `.srow`.
+	// Up Next also branches on a probe-dead `skipped` state (dim + leading ✗ + tap-retries-this-
+	// exact-track) and paints a purple playing tint over an opaque base. Forcing those through
+	// would cost more props than the markup they replace. The panes keep their own rows.
 	//
 	// D-6 — WHY A <div> WITH A STRETCHED .hit BUTTON, not a <button> row. The inline Like/Download
 	// controls are real buttons, and a <button> inside a <button> is invalid HTML that browsers
@@ -86,6 +100,15 @@
 		cover?: string | null;
 		/** Highlight. Default: this is the currently-playing track. */
 		active?: boolean;
+		/** Default true. `false` = NO per-row cover chain (see LazyCoverParam.enabled). The album
+		 *  tracklist sets it: every row legitimately shares the one album cover, so N per-row
+		 *  resolves would buy nothing and cost N fan-outs. Constant per surface, read once. */
+		lazy?: boolean;
+		/** Destructive mode — the row's tap REMOVES rather than plays (library's bulk-edit). Tints
+		 *  the text red and suppresses the neutral is-active highlight, which would otherwise say
+		 *  "this is playing" on a row whose tap deletes it. The host still owns what `onplay` does;
+		 *  this only makes that visible. */
+		danger?: boolean;
 	}
 
 	let {
@@ -98,7 +121,9 @@
 		actions = undefined,
 		subtitle = undefined,
 		cover = null,
-		active = undefined
+		active = undefined,
+		lazy = true,
+		danger = false
 	}: Props = $props();
 
 	// The prop FORCES; the setting is the fallback. Order is load-bearing — `acts` IS the
@@ -107,6 +132,13 @@
 	const sub = $derived(subtitle ?? names.dnArtist(track.album || track.artist));
 	const isActive = $derived(active ?? player.current?.uid === track.uid);
 	const liked = $derived(library.isLiked(track.uid));
+
+	// The placeholder gradient's SEED. A real song seeds off its uid, but the discovery surfaces
+	// (charts/tags, charts/countries) and the album tracklist render synthetic stubs whose uid is
+	// '' — seeding every one of those off '' paints the SAME gradient down the whole list (the
+	// charts-tags-same-cover bug, in its gradient form). Fall back to the {artist,title} pair,
+	// which is exactly the name identity lazyCover and the cover cache already use for a stub.
+	const gradientSeed = $derived(track.uid || `${track.artist} ${track.title}`);
 
 	// The shared three-rung row cover read (quick-260910-qwt + quick-260915-w4f rung 0): the user's
 	// PINNED cover, then this row's own lazyCover result, then a host-provided cover, then the
@@ -151,7 +183,7 @@
 	}
 </script>
 
-<div class="srow" class:is-active={isActive} use:tapBounce use:swipeAction={swipeOpts}>
+<div class="srow" class:is-active={isActive} class:is-danger={danger} use:tapBounce use:swipeAction={swipeOpts}>
 	<!-- D-6: the stretched transparent hit target. It carries play + long-press and nothing else;
 	     its aria-label is the row's whole readable content, since the visuals below are inert. -->
 	<button
@@ -169,8 +201,8 @@
 	{#if index != null}<span class="rank">{index + 1}</span>{/if}
 	<span
 		class="art"
-		use:lazyCover={{ track, onResolved: (_uid, url) => (resolvedCover = url) }}
-		style:background-image={art ? `url(${art})` : coverGradient(track.uid)}
+		use:lazyCover={{ track, enabled: lazy, onResolved: (_uid, url) => (resolvedCover = url) }}
+		style:background-image={art ? `url(${art})` : coverGradient(gradientSeed)}
 	></span>
 	<span class="meta">
 		<span class="r-title" use:marquee><span class="marquee-inner">{names.dnTitle(track.title)}</span></span>
@@ -211,6 +243,15 @@
 		padding: 6px;
 		border-radius: 8px;
 		transition: background 0.12s ease;
+		/* quick-260910-k45, generalised: OPAQUE, not transparent. Every migrated surface wraps this
+		   row in a `.swipe-wrap` holding the UX-04 reveal icons (queue / play-next) BEHIND it; the
+		   swipe's translateX slides the row to expose one side. z-index only ORDERS layers — only an
+		   opaque background OCCLUDES, and without it the reveal glyphs show through the title text
+		   at rest. It has to live HERE: a Svelte 5 child component's root element does not inherit
+		   the parent's style scope, so no host rule can reach `.srow`. `--color-bg` is the page
+		   background on every consuming surface, so the artist page (no reveals) is unchanged. */
+		background: var(--color-bg);
+		z-index: 1;
 	}
 	/* MENU-03 / D-12: hover-capable devices only — touch otherwise latches this :hover under a
 	   held finger while the track menu opens. */
@@ -221,6 +262,22 @@
 	}
 	.srow.is-active {
 		background: var(--color-surface);
+	}
+	/* Library bulk-edit: a row whose tap REMOVES. The red tint must beat the neutral is-active
+	   highlight (a grey "this is playing" cue on a delete-on-tap row is actively misleading), which
+	   is what the compound selector below does — the same precedence the library page expressed as
+	   `.row.edit-row.is-active` before it moved here. */
+	.srow.is-danger .r-title,
+	.srow.is-danger .r-sub {
+		color: #ff7a90;
+	}
+	.srow.is-danger.is-active {
+		background: var(--color-bg);
+	}
+	@media (hover: hover) {
+		.srow.is-danger:hover {
+			background: rgba(255, 122, 144, 0.08);
+		}
 	}
 	/* D-6: the row's real tap target, stretched under everything. Transparent and label-only. */
 	.hit {
