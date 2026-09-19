@@ -3,6 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { Search, Settings, RotateCw, ChevronRight } from '@lucide/svelte';
 	import Logo from '$lib/components/Logo.svelte';
+	import ShelfChevrons from '$lib/components/ShelfChevrons.svelte';
 	import { buildDiversePicks } from '$lib/services/picks';
 	import type { QueueContext } from '$lib/config/defaults';
 	import {
@@ -817,6 +818,11 @@
 					</button>
 				{/each}
 			</div>
+			<!-- quick-260919-et3: ShelfChevrons resolves its target as root.previousElementSibling,
+			     so it MUST stay the IMMEDIATE sibling after the .albumrow it drives. It renders
+			     nothing below 1024px (display:none), so the mobile DOM gains one inert element
+			     per shelf and no layout space at all. -->
+			<ShelfChevrons />
 		{/if}
 	{/if}
 {/snippet}
@@ -867,6 +873,7 @@
 				</button>
 			{/each}
 		</div>
+		<ShelfChevrons />
 	{/if}
 {/snippet}
 
@@ -934,6 +941,7 @@
 		<div class="albumrow" use:dragScroll>
 			{#each tracks as track (track.uid)}{@render librarySongRow(track, ctx)}{/each}
 		</div>
+		<ShelfChevrons />
 	{/if}
 {/snippet}
 
@@ -991,6 +999,7 @@
 					</button>
 				{/each}
 			</div>
+			<ShelfChevrons />
 		{/if}
 	{/if}
 {/snippet}
