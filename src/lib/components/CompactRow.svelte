@@ -99,7 +99,9 @@
 
 {#if variant === 'artist'}
 	<!-- quick-260910-qjv: artist tap feedback, parity with song rows -->
-	<button class="crow" use:tapBounce onclick={() => onopen?.()}>
+	<!-- quick-260919-et3: `is-artist` exists for ONE CSS rule (see .crow.is-artist below) — this
+	     button is the pager column's direct child, where .crow's `flex: 1` grows it vertically. -->
+	<button class="crow is-artist" use:tapBounce onclick={() => onopen?.()}>
 		<span
 			class="art round"
 			style:background-image={effectiveCover ? `url(${effectiveCover})` : fallbackGradient(seed)}
@@ -179,6 +181,18 @@
 		.crow:hover {
 			background: var(--color-surface);
 		}
+	}
+	/* quick-260919-et3: the artist variant has NO .crow-wrap — the button IS the direct child of
+	   CompactPager's `.column` (a COLUMN flex container), so `flex: 1` above resolves to
+	   "grow along the BLOCK axis" and each row stretched to an equal share of the column's height.
+	   In a full 4-row column that share is exactly 44px, so nothing looked wrong; a SHORT last
+	   column (2 artists of a 10-artist shelf) split the same 200px two ways instead of four, giving
+	   96px rows whose centred avatars no longer lined up with the 44px track rows in the shelves
+	   above and below. Track rows are immune: their flex parent is the row-direction .crow-wrap,
+	   which is where that `flex: 1` is meant to apply (fill the width beside the ⋮).
+	   `flex: none` restores the natural height, which min-height: 44px above already pins. */
+	.crow.is-artist {
+		flex: none;
 	}
 	/* Active/selected row = the currently-playing track. NOT hover-gated, so the light-grey
 	   --color-surface highlight shows on touch too. Discovery stubs (track == null) never match. */
