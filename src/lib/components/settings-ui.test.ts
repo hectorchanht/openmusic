@@ -40,13 +40,15 @@ describe('shared settings rows (quick-260919-ebi F2)', () => {
 	// Pages fully converted in task 2. /settings/downloads is OUT OF SCOPE on purpose: its toggles
 	// drive the `deviceImport` store inside a collapsed <details> on a native-only page, and the
 	// chip idiom there is multi-select in half its call sites — a separate pass, not a half-convert.
-	// /settings/playback and /settings/home are added to this list by tasks 4 and 5, which replace
-	// their remaining toggle rows with previews outright (converting them first would be churn).
+	// /settings/home keeps ONE `.sw` rule deliberately — the bare section-visibility switch inside
+	// the 44px drag-reorder rows, which is not a settings ROW and has no label of its own — so it
+	// is checked for .row-toggle and .item only, below.
 	const CONVERTED = [
 		`${ROUTES}/+page.svelte`,
 		`${ROUTES}/general/+page.svelte`,
 		`${ROUTES}/appearance/+page.svelte`,
 		`${ROUTES}/translation/+page.svelte`,
+		`${ROUTES}/playback/+page.svelte`,
 		`${ROUTES}/data/+page.svelte`
 	];
 
@@ -102,6 +104,24 @@ describe('shared settings rows (quick-260919-ebi F2)', () => {
 		expect(picker).not.toMatch(/url\(/);
 	});
 
+	// The descriptions moved off-screen behind an (i) disclosure. "Off-screen" must NOT mean
+	// "gone for a screen reader", and on a mobile-first app it must not mean "hover-only" either.
+	it('SettingHint hides the description visually WITHOUT removing it from the a11y tree', () => {
+		const hint = readCode('src/lib/components/SettingHint.svelte');
+		// Clipped, not removed. Any of these three would drop it out of the accessibility tree.
+		expect(hint).toMatch(/clip-path: inset\(50%\)/);
+		expect(hint).not.toMatch(/display:\s*none/);
+		expect(hint).not.toMatch(/visibility:\s*hidden/);
+		// A real button with a real name, so it is Tab-reachable and Enter/Space-operable.
+		expect(hint).toMatch(/<button/);
+		expect(hint).toMatch(/aria-expanded=\{open\}/);
+		expect(hint).toMatch(/aria-controls=\{id\}/);
+		expect(hint).toMatch(/aria-label=\{label/);
+		// TAP is the primary affordance; hover is a pointer-device bonus, never the only way in.
+		expect(hint).toMatch(/onclick=\{\(\) => \(open = !open\)\}/);
+		expect(hint).toMatch(/@media \(hover: hover\)/);
+	});
+
 	it('the Theme preview is painted in LITERAL palette values, the one sanctioned exception', () => {
 		const page = readCode(`${ROUTES}/appearance/+page.svelte`);
 		// The dark card must look dark while the LIGHT theme is active, so tokens cannot be used.
@@ -130,7 +150,10 @@ describe('shared settings rows (quick-260919-ebi F2)', () => {
 			[`${ROUTES}/data/+page.svelte`, 'SettingRow'],
 			[`${ROUTES}/general/+page.svelte`, 'SettingToggle'],
 			[`${ROUTES}/appearance/+page.svelte`, 'SettingToggle'],
-			[`${ROUTES}/translation/+page.svelte`, 'SettingToggle']
+			[`${ROUTES}/appearance/+page.svelte`, 'SettingPicker'],
+			[`${ROUTES}/translation/+page.svelte`, 'SettingToggle'],
+			[`${ROUTES}/playback/+page.svelte`, 'SettingPicker'],
+			[`${ROUTES}/playback/+page.svelte`, 'SettingHint']
 		];
 		for (const [file, comp] of uses) {
 			// Quote style differs per file (appearance/ was prettier'd to double quotes), so match

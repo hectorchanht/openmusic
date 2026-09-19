@@ -211,6 +211,21 @@
 		background: var(--color-primary);
 		opacity: 1;
 	}
+	/* A line of REAL (tiny) text, for the previews whose whole point is a label — the FLAC badge
+	   sitting next to a song title, or artist-vs-lyric in the mini bar. Untranslated literals only
+	   (a format name, a static demo song), so this never needs 15 versions. */
+	.mock :global(.mock-text) {
+		font-size: 7px;
+		line-height: 1.3;
+		color: var(--color-text);
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		min-width: 0;
+	}
+	.mock :global(.mock-text.dim) {
+		color: var(--color-text-muted);
+	}
 	/* A cover tile. */
 	.mock :global(.mock-tile) {
 		display: block;
