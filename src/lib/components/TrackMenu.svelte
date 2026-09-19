@@ -32,6 +32,7 @@
 	import { mapWithConcurrency } from '$lib/services/discovery';
 	import { SOURCES } from '$lib/sources/registry';
 	import VersionPicker from '$lib/components/VersionPicker.svelte';
+	import DownloadRing from '$lib/components/DownloadRing.svelte';
 	// quick-260919-1eh: the tag-edit sheet. Same co-mount arrangement as VersionPicker above — it
 	// owns its own overlay lifecycle under a DISTINCT overlayId.
 	import MetadataEditor from '$lib/components/MetadataEditor.svelte';
@@ -872,7 +873,21 @@
 				</button>
 				{#if !isDevice}
 					{#if library.downloading.has(track.uid)}
-						<button class="hd-btn" disabled aria-busy="true" aria-label={t('menu.preparing')}><span class="row-spinner motion-always"></span></button>
+						<!-- quick-260919-dlring: same shared ring as the list row below and as every
+						     DownloadControl — determinate when downloadProgress has a fraction for this
+						     uid, spinning when it does not. The 20px glyph sizes it, so the header's
+						     44×44 measured slot is unchanged. -->
+						{@const hdFrac = library.downloadProgress[track.uid]}
+						<button
+							class="hd-btn dl-busy"
+							disabled
+							aria-busy="true"
+							aria-label={hdFrac === undefined
+								? t('menu.preparing')
+								: `${t('menu.download')} ${Math.round(hdFrac * 100)}%`}
+						>
+							<DownloadRing value={hdFrac}><Download size={20} /></DownloadRing>
+						</button>
 					{:else if blobPresent === true}
 						<button class="hd-btn" disabled aria-disabled="true" aria-label={t('menu.downloaded')}><Check size={20} /></button>
 					{:else}
@@ -990,23 +1005,22 @@
 		{#if library.downloading.has(track.uid)}
 			<!-- quick-260913-omi: real byte progress, not a decorative animation. `downloadProgress`
 			     is absent until the first bytes land (and stays absent for a response with no
-			     Content-Length), and THAT is the indeterminate state — it keeps the spinner. Once a
-			     fraction exists the spinner's job is done: the bar says "moving" more precisely than
-			     it could, so the icon goes static and the percentage carries the detail. The fill is
-			     an 18%-opacity ::after, low enough that the label stays legible over it without any
-			     stacking-context work. -->
+			     Content-Length), and THAT is the indeterminate state.
+			     quick-260919-dlring REPLACES omi's full-width ::after tint with the shared ring in the
+			     row's leading icon box. Not "keep the bar too": the bar and the ring say the same
+			     number, and the row ALREADY carries the exact figure in `.count` — a third rendering
+			     of one value is noise, and the ring is what every other download affordance in the app
+			     now shows, so this row stops being the one that looks different. -->
 			{@const frac = library.downloadProgress[track.uid]}
 			<button
-				class="mi"
-				class:dl-progress={frac !== undefined}
-				style:--dl={frac ?? 0}
+				class="mi dl-busy"
 				aria-busy="true"
 				disabled
 				aria-label={frac === undefined
 					? t('menu.preparing')
 					: `${t('menu.download')} ${Math.round(frac * 100)}%`}
 			>
-				{#if frac === undefined}<span class="row-spinner motion-always"></span>{:else}<Download size={18} />{/if}
+				<DownloadRing value={frac}><Download size={18} /></DownloadRing>
 				{t('menu.download')}
 				{#if frac !== undefined}<span class="count">{Math.round(frac * 100)}%</span>{/if}
 			</button>
@@ -1290,24 +1304,17 @@
 	   meta) — hence auto by default and a plain gap when it follows a `.count`. */
 	.mi :global(.hold-caret) { flex: none; color: var(--color-text-muted); margin-left: auto; }
 	.mi .count + :global(.hold-caret) { margin-left: 4px; }
-	/* quick-260913-omi: download progress fill. `--dl` is the 0..1 fraction, set inline per render.
-	   An ::after at 18% opacity sits UNDER the label without needing a stacking context — the tint
-	   is light enough that the text and icon stay fully legible through it. The width transition is
-	   deliberately un-tagged (no .motion-always) so app.css's reduce-motion rule kills it. */
-	.mi.dl-progress { position: relative; overflow: hidden; }
-	.mi.dl-progress::after {
-		content: '';
-		position: absolute;
-		inset: 0 auto 0 0;
-		width: calc(var(--dl, 0) * 100%);
-		background: var(--color-primary);
-		opacity: 0.18;
-		transition: width 120ms linear;
-		pointer-events: none;
-	}
-	/* A disabled row is dimmed to 0.4; the progress row is disabled only because it is busy, and at
-	   0.4 the bar and the percentage are hard to read. Keep it legible. */
-	.mi.dl-progress:disabled { opacity: 1; }
+	/* quick-260919-dlring: omi's `.dl-progress` ::after bar is gone — the shared DownloadRing in the
+	   row's icon box carries the fraction now (see the markup note). What survives is omi's other
+	   call: a disabled row is dimmed to 0.4, but this one is disabled only because it is BUSY, and at
+	   0.4 the ring and the percentage are hard to read. `.dl-busy` now covers the indeterminate case
+	   too — an undimmed ring is the point of the state. NOTE: no `overflow: hidden` here any more;
+	   the ring is drawn a few px outside its icon box and clipping it would flatten one side.
+	   The header button joins the same rule: it is the SAME state, and at 0.4 its ring read as an
+	   already-greyed Downloaded tick. Its OTHER disabled states (the Check) stay dimmed — the class
+	   is on the busy fork only. */
+	.mi.dl-busy:disabled,
+	.hd-btn.dl-busy:disabled { opacity: 1; }
 	/* MENU-01 inline resolve spinner — neutral (NOT accent), sits in the leading 18px icon box so
 	   the row width does not shift. quick-260809-mvz: keeps rotating under BOTH reduce-motion gates
 	   (markup carries `.motion-always`, app.css's escape hatch) — a frozen spinner reads as a hung

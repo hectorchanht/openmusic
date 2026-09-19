@@ -4,8 +4,11 @@
 	// Renders a single tri-state control keyed on the track's uid, reading the SHARED reactive
 	// library state so one song's spinner never touches another's (T-29-04-02):
 	//   idle        → Download icon, enabled  → tap runs the shared downloadTrack path (29-03)
-	//   downloading → neutral spinner, disabled, aria-busy   (library.downloading.has(uid), plus a
-	//                 per-instance localBusy that also covers the album-stub resolve gap)
+	//   downloading → the shared DownloadRing, disabled, aria-busy (library.downloading.has(uid), plus
+	//                 a per-instance localBusy that also covers the album-stub resolve gap).
+	//                 quick-260919-dlring: the ring fills clockwise with REAL byte progress when
+	//                 library.downloadProgress has a fraction for this uid, and spins when it does not
+	//                 (no Content-Length, or the localBusy resolve window before any bytes exist).
 	//   downloaded  → Check icon, greyed, disabled           (library.isDownloaded(uid))
 	//   unavailable → CircleAlert, #ff7a90, non-interactive (library.isUnavailable — 34-D-06; re-import
 	//                 is the fix, one tap away in Settings → Downloads; the badge does not try to be
@@ -34,6 +37,7 @@
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { t } from '$lib/i18n';
 	import { downloadTrack } from '$lib/services/download-track';
+	import DownloadRing from '$lib/components/DownloadRing.svelte';
 	import { probeDownload, formatDownloadMeta, type DownloadProbe } from '$lib/services/download-probe';
 	import type { Track } from '$lib/sources/types';
 
@@ -69,6 +73,14 @@
 	const isDownloaded = $derived(!!uid && library.isDownloaded(uid));
 	const isDownloading = $derived(localBusy || (!!uid && library.downloading.has(uid)));
 	const isUnavailable = $derived(!!uid && library.isUnavailable(uid));
+	// quick-260919-dlring: 0..1 or undefined (= indeterminate). Read straight from the shared store —
+	// no second pipeline, and an album stub mid-resolve (no uid yet) is correctly indeterminate.
+	const dlFrac = $derived(uid ? library.downloadProgress[uid] : undefined);
+	const busyLabel = $derived(
+		dlFrac === undefined
+			? t('toast.preparingDownload')
+			: `${t('menu.download')} ${Math.round(dlFrac * 100)}%`
+	);
 
 	// quick-260915-26g: the probe, gated on the opt-in prop so an unset call site does nothing at all.
 	// `untrack` the service call (memory: restore-effect self-invalidation loop) — it reads settings
@@ -141,8 +153,8 @@
 		<Check size={18} />
 	</span>
 {:else if isDownloading}
-	<span class="dc busy" aria-busy="true" aria-label={t('toast.preparingDownload')}>
-		<span class="row-spinner motion-always"></span>
+	<span class="dc busy" aria-busy="true" aria-label={busyLabel} title={busyLabel}>
+		<DownloadRing value={dlFrac}><Download size={18} /></DownloadRing>
 	</span>
 {:else if probe}
 	<!-- quick-260915-26g: the probing branch is SEPARATE so the default (probe off) markup below stays
@@ -164,6 +176,12 @@
 		flex: none;
 		width: 40px;
 		height: 40px;
+		/* quick-260919-dlring: the idle state is a <button> and the busy/downloaded states are <span>s,
+		   so the UA's default button padding made the control 6px wider in its idle state ONLY. List
+		   rows never saw it (40×40 is fixed), but NowPlaying's `.t-dl` override sizes this control to
+		   its content — where the transport is `space-between`, so the glyph JUMPED when a download
+		   started. Zeroing it makes every state the same box everywhere. */
+		padding: 0;
 		display: grid;
 		place-items: center;
 		background: none;
@@ -209,21 +227,7 @@
 		opacity: 1;
 		cursor: default;
 	}
-	/* Neutral inline resolve spinner (copied from TrackMenu .row-spinner) — NOT accent. quick-260809-mvz:
-	   it keeps rotating under BOTH reduce-motion gates (the markup carries `.motion-always`, app.css's
-	   escape hatch) — a frozen spinner reads as a hung app, so the rotation is the message, not polish. */
-	.row-spinner {
-		width: 16px;
-		height: 16px;
-		flex: none;
-		border: 2px solid var(--color-text-muted);
-		border-top-color: transparent;
-		border-radius: 50%;
-		animation: spin 0.7s linear infinite;
-	}
-	@keyframes spin {
-		to {
-			transform: rotate(360deg);
-		}
-	}
+	/* quick-260919-dlring: the local neutral `.row-spinner` is gone — the busy state is now the shared
+	   DownloadRing, which owns the spin (indeterminate) AND the accent fill (determinate), including
+	   the reduce-motion handling the old spinner carried inline. */
 </style>
