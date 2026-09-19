@@ -3,7 +3,7 @@
 	import { fly } from 'svelte/transition';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
-	import { House, Search, Library } from '@lucide/svelte';
+	import { House, Search, Library, Settings } from '@lucide/svelte';
 	import { player } from '$lib/stores/player.svelte';
 	import { library } from '$lib/stores/library.svelte';
 	import { settings } from '$lib/stores/settings.svelte';
@@ -172,10 +172,22 @@
 	});
 
 	// Store a translation KEY per tab (not the literal) so the nav re-renders when appLang changes.
-	const tabs: { href: string; labelKey: TranslationKey; icon: Component }[] = [
+	//
+	// quick-260919-et3 follow-up: `desktopOnly` marks a destination that belongs on the DESKTOP
+	// RAIL but not on the phone's bottom bar. It exists because D-2 made the rail and the bottom
+	// bar the SAME <nav> — that is the property worth keeping (one navigation definition, keyboard
+	// and screen-reader parity for free), so "add Settings to the rail" has to be expressed as a
+	// per-item visibility flag rather than a second nav. The mobile bar therefore still renders
+	// exactly three tabs: the fourth is display:none below 1024px, which keeps it out of the
+	// layout, out of the tab order and out of the accessibility tree — the same mechanism
+	// <ShelfChevrons /> already uses. Settings stays reachable on mobile via the home-header gear,
+	// which is unchanged; the rail has no header, which is why it needs this.
+	// Reuses the existing `home.settings` string (that gear's aria-label) — no new i18n key.
+	const tabs: { href: string; labelKey: TranslationKey; icon: Component; desktopOnly?: boolean }[] = [
 		{ href: '/', labelKey: 'nav.home', icon: House },
 		{ href: '/search', labelKey: 'nav.search', icon: Search },
-		{ href: '/library', labelKey: 'nav.library', icon: Library }
+		{ href: '/library', labelKey: 'nav.library', icon: Library },
+		{ href: '/settings', labelKey: 'home.settings', icon: Settings, desktopOnly: true }
 	];
 
 </script>
@@ -239,14 +251,24 @@
 	<nav class="tabbar">
 		{#each tabs as tab (tab.href)}
 			{@const Icon = tab.icon}
-			{@const active = page.url.pathname === tab.href}
+			<!-- Exact match, plus a subpath match so the rail's Settings tab stays lit on
+			     /settings/general etc. Provably inert for the three mobile tabs: '/' can never
+			     match '//', and /search and /library have no child routes. -->
+			{@const active = page.url.pathname === tab.href || page.url.pathname.startsWith(tab.href + '/')}
 			<!-- quick-260611-fr9: active route's tab icon is FILLED, others OUTLINE. Lucide is
 			     outline-only, so we use the established `fill` prop idiom (cf. NowPlaying Heart).
 			     stroke-width is nudged down on the active (filled) glyph so it doesn't read heavy. -->
 			<!-- quick-260919-et3 (D-4): aria-current marks the active destination for assistive tech.
 			     One attribute, no new strings, no visual change — and it improves the announcement on
 			     mobile too, which is why it is the one delta this task makes outside a media query. -->
-			<a class="tab" class:active href={tab.href} aria-current={active ? 'page' : undefined} use:tapBounce>
+			<a
+				class="tab"
+				class:active
+				class:desktop-only={tab.desktopOnly}
+				href={tab.href}
+				aria-current={active ? 'page' : undefined}
+				use:tapBounce
+			>
 				<span class="ic"><Icon size={20} fill={active ? 'currentColor' : 'none'} strokeWidth={active ? 1.5 : 2} /></span>{t(tab.labelKey)}
 			</a>
 		{/each}
@@ -303,6 +325,14 @@
 	}
 	.tab .ic { display: grid; place-items: center; }
 	.tab.active { color: var(--color-text); }
+	/* quick-260919-et3 follow-up — THE ONE RULE THIS TASK PUTS OUTSIDE THE DESKTOP MEDIA QUERY,
+	   and the rule that makes the fourth tab free on mobile: display:none means Settings is not
+	   rendered as a box, not focusable and not in the accessibility tree below 1024px, so the
+	   bottom bar is still the same three tabs it has always been. It is switched back on in the
+	   desktop block, which keeps CSS the single source of truth for the breakpoint — same
+	   mechanism as <ShelfChevrons />. It cannot affect any existing tab: nothing else carries
+	   the class. */
+	.tab.desktop-only { display: none; }
 
 	/* OFFL-03 global offline indicator: a thin, unobtrusive top banner. Sits in normal flow
 	   above the page content (no fixed positioning — keeps it simple, never overlaps the nowbar
@@ -434,8 +464,11 @@
 			   on a full-height rail (there is no home indicator along the left edge). */
 			padding: 16px 8px 8px;
 		}
+		.tab.desktop-only {
+			display: flex;
+		}
 		.tab {
-			/* flex:1 MUST be cancelled here or the three tabs stretch to fill 100dvh. */
+			/* flex:1 MUST be cancelled here or the tabs stretch to fill 100dvh. */
 			flex: none;
 			font-size: 11px;
 			gap: 4px;
