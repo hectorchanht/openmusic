@@ -81,8 +81,29 @@
     // parseLRC silently drops every line with no timestamp, so an unsynced plain-text LRC yields []
     // -> "" -> the artist line renders unchanged. Same for an instrumental and for no lyrics at all.
     // That is the whole degrade story; it needs no extra branch.
+    // quick-260919-1we (correction): the layout SWITCH. D-8 made the lyric REPLACE the artist, and
+    // the user rejected that trade - losing the artist was too much information. Their own two
+    // options were a third line or artist-on-the-title-line; this is the second, because of what
+    // D-8 was actually right about: the Nowbar is a fixed --nowbar-h (64px) docked bar and MUST NOT
+    // jump. A third line makes the meta column 3 rows when a lyric exists and 2 when it doesn't -
+    // a per-track, and during an instrumental gap a per-SECOND, height change. Moving the artist up
+    // keeps the column at exactly TWO rows in every state there is:
+    //   setting off          -> title / artist
+    //   setting on, lyric    -> title . artist / lyric
+    //   setting on, no lyric -> title . artist / (empty, height-reserved)
+    // Two rows always, so nothing can shift: not between tracks, not when an LRC is unsynced
+    // (parseLRC drops untimestamped lines -> [] -> ""), not in an instrumental gap, not when the
+    // lyrics resolve async mid-track. The reserved row is a plain fixed height on .np-lyricrow, not
+    // a &nbsp; or a min-height, so "empty" and "full" are byte-identical geometry.
+    //
+    // This is SETTING-driven, never TRACK-driven, and that is the whole point. Deciding the layout
+    // per track (two-line-with-artist only for tracks that HAVE lyrics) would look tidier for a
+    // no-lyric track but reintroduces exactly the jump D-8 forbade, one per track change and one
+    // more whenever a late lyric resolve lands.
+    const lyricsRow = $derived(settings.nowbarLyrics && variant === "docked");
+
     const lyricText = $derived.by(() => {
-        if (!settings.nowbarLyrics || variant !== "docked") return "";
+        if (!lyricsRow) return "";
         // A playback error must never be hidden behind a lyric. When there IS an error the Nowbar is
         // not the surface to show the song's poetry on, so the artist+error branch takes the row back.
         if (player.error) return "";
@@ -172,29 +193,41 @@
                 >
                     <span class="np-title" use:marquee>
                         <span class="marquee-inner">
-                        {names.dnTitle(np?.title ?? "")}
+                        {names.dnTitle(np?.title ?? "")}{#if lyricsRow}<span
+                                class="np-tl-artist"
+                                >· {names.dnArtist(np?.artist ?? "")}</span
+                            >{/if}
                         </span>
                     </span>
-                    <!-- quick-260919-1we (D-8): the lyric REPLACES the artist, it never adds a
-                         third row. The bar is a fixed --nowbar-h, so a third line would squeeze the
-                         other two and a CONDITIONAL third line would shift the layout every time the
-                         LRC has a gap - the exact flicker this feature must not cause. Replacing
-                         means zero layout change, and the artist is one tap away in the hero.
+                    <!-- quick-260919-1we (correction): the second row. With lyricsRow on it belongs
+                         to the lyric ALONE - the artist moved up to the title line, so a lyric no
+                         longer costs it (the user's objection to D-8). .np-lyricrow pins the row's
+                         height so an empty lyric (no LRC / unsynced / instrumental gap) occupies the
+                         same box a full one does; see the lyricsRow comment for why that is the one
+                         thing this row must guarantee.
+                         The error branch stays FIRST and still wins: a playback failure is not
+                         something to hide behind a song's poetry, and the second row is where the
+                         Nowbar has always put it.
                          xfadeMs is the file's existing reduced-motion-aware duration (0 under
                          settings.reduceMotion OR the OS query) - reused, not a second motion gate.
                          in: only, no out:: an outgoing line animating while the incoming one arrives
-                         in the same 11px row reads as a smear. -->
-                    <span class="np-artist" use:marquee>
+                         in the same 11px row reads as a smear. The {#key lyricText} block is the
+                         1we performance property and is unchanged - it remounts on the line VALUE
+                         changing, i.e. per LINE, never per timeupdate tick. -->
+                    <span class="np-artist" class:np-lyricrow={lyricsRow} use:marquee>
                         <span class="marquee-inner">
-                        {#if lyricText}
-                            {#key lyricText}
-                                <span class="np-lyric" in:fade={{ duration: xfadeMs }}>{lyricText}</span>
-                            {/key}
+                        {#if player.error}
+                            {#if !lyricsRow}{names.dnArtist(np?.artist ?? "")} · {/if}<span class="err"
+                                >{tMaybeKey(player.error)}</span
+                            >
+                        {:else if lyricsRow}
+                            {#if lyricText}
+                                {#key lyricText}
+                                    <span class="np-lyric" in:fade={{ duration: xfadeMs }}>{lyricText}</span>
+                                {/key}
+                            {/if}
                         {:else}
                             {names.dnArtist(np?.artist ?? "")}
-                            {#if player.error}· <span class="err"
-                                >{tMaybeKey(player.error)}</span
-                            >{/if}
                         {/if}
                         </span>
                     </span>
@@ -400,8 +433,23 @@
         overflow: hidden;
         text-overflow: ellipsis;
     }
-    /* quick-260919-1we: the lyric line sits in the SAME row as the artist it replaces. No height,
-       no margin, no padding - the row geometry must not move between the two branches. */
+    /* quick-260919-1we (correction): the artist, appended to the title line so the lyric can have
+       the second row to itself. Regular weight at 0.7 opacity keeps the title the thing the eye
+       lands on - this is the same line, not a promotion. */
+    .np-tl-artist {
+        font-weight: 400;
+        opacity: 0.7;
+        margin-left: 4px;
+    }
+    /* quick-260919-1we (correction): the height reservation, and the only load-bearing rule in this
+       change. The second row is fixed at its own line box whether it holds a lyric, an error, or
+       nothing at all, so the docked bar's geometry is identical for a track with an LRC, a track
+       with an unsynced LRC, a track with no lyrics, and a track sitting in an instrumental gap.
+       Without this the empty row would collapse to 0 and the title would slide down. */
+    .np-lyricrow {
+        height: 14px;
+        line-height: 14px;
+    }
     .np-lyric {
         font-size: 11px;
         color: var(--color-text);
