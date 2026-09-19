@@ -851,6 +851,25 @@
 				     file only on this phone are both nonsense. This is a NEW visibility condition;
 				     track-menu-gate.ts (isGatedReady/shouldStartResolve) is resolve TIMING and is
 				     deliberately not extended. -->
+				<!-- quick-260919-et3: Like as a header icon, BEFORE Download. Duplicated with the Like
+				     text row below on exactly the precedent D-09/je8 set for Download (header icon +
+				     list row): both call the same like() and read the same `liked` derived, so the two
+				     can never disagree. NOT wrapped in the !isDevice guard — that guard exists because
+				     downloading a file already on this phone is nonsense, which says nothing about
+				     liking an imported song. Same `!track.uid` disable as the row: a name-stub has no
+				     identity to like yet. -->
+				<button
+					class="hd-btn"
+					class:accent={liked}
+					aria-pressed={liked}
+					disabled={!track.uid}
+					aria-label={liked ? t('menu.liked') : t('menu.like')}
+					title={liked ? t('menu.liked') : t('menu.like')}
+					onclick={like}
+					use:tapBounce
+				>
+					<Heart size={20} fill={liked ? 'currentColor' : 'none'} />
+				</button>
 				{#if !isDevice}
 					{#if library.downloading.has(track.uid)}
 						<button class="hd-btn" disabled aria-busy="true" aria-label={t('menu.preparing')}><span class="row-spinner motion-always"></span></button>
@@ -1234,8 +1253,13 @@
 	.hd-btn { min-width: 44px; min-height: 44px; display: grid; place-items: center; background: none; border: none; border-radius: 10px; color: var(--color-text); cursor: pointer; }
 	.hd-btn:hover { background: var(--color-surface); }
 	.hd-btn:disabled { opacity: 0.4; cursor: default; }
-	/* quick-260913-je8: `.hd-btn.liked` is gone with the header Heart — the liked tint now rides
-	   the shared `.mi.accent` on the list row. (Left in place it is an unused-CSS check failure.) */
+	/* quick-260919-et3: the header Heart is back (before Download), so the liked tint needs a rule
+	   here again. je8 had removed `.hd-btn.liked` when the header slot became Download. Named
+	   `.accent` to match `.mi.accent` on the list row rather than reviving a second name for the
+	   same idea — and declared, not merely applied: `class:accent` with no matching rule is the
+	   exact defect quick-260919-0mw found on the Shuffle row, where an active state had rendered
+	   pixel-identical to inactive since ii6. */
+	.hd-btn.accent { color: var(--color-primary); }
 	.mi { width: 100%; display: flex; align-items: center; gap: 12px; background: none; border: none; color: var(--color-text); font-size: 15px; padding: 12px; border-radius: 10px; cursor: pointer; text-align: left; }
 	.mi:hover { background: var(--color-surface); }
 	.mi:disabled { opacity: 0.4; cursor: default; }
