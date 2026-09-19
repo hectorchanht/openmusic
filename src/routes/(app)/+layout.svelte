@@ -243,7 +243,10 @@
 			<!-- quick-260611-fr9: active route's tab icon is FILLED, others OUTLINE. Lucide is
 			     outline-only, so we use the established `fill` prop idiom (cf. NowPlaying Heart).
 			     stroke-width is nudged down on the active (filled) glyph so it doesn't read heavy. -->
-			<a class="tab" class:active href={tab.href} use:tapBounce>
+			<!-- quick-260919-et3 (D-4): aria-current marks the active destination for assistive tech.
+			     One attribute, no new strings, no visual change — and it improves the announcement on
+			     mobile too, which is why it is the one delta this task makes outside a media query. -->
+			<a class="tab" class:active href={tab.href} aria-current={active ? 'page' : undefined} use:tapBounce>
 				<span class="ic"><Icon size={20} fill={active ? 'currentColor' : 'none'} strokeWidth={active ? 1.5 : 2} /></span>{t(tab.labelKey)}
 			</a>
 		{/each}
@@ -395,6 +398,52 @@
 		.content {
 			max-width: 1920px;
 			padding: 0 24px;
+		}
+
+		/* D-2 — the rail IS the bottom tab bar. Same `<nav>`, same `<a>` children, same `tabs`
+		   array above (still the only navigation definition in the codebase): a second nav
+		   component would be a second source of truth, and the cheapest way to guarantee there
+		   isn't one is to not create a second DOM node. Keyboard and screen-reader parity is
+		   therefore structural, not something we had to re-implement — it is literally the same
+		   navigation landmark with the same anchors in the same order.
+		   D-9 — no transition between the two layouts: this is a viewport-size restyle, not a
+		   state change, so there is no animation for `prefers-reduced-motion` to gate. */
+		.app {
+			/* The bar no longer occupies bottom space; the rail occupies left space. Only the
+			   nowbar remains docked at the bottom. */
+			padding-left: var(--rail-w);
+			padding-bottom: var(--nowbar-h);
+		}
+		.tabbar {
+			top: 0;
+			bottom: 0;
+			right: auto;
+			width: var(--rail-w);
+			flex-direction: column;
+			justify-content: flex-start;
+			gap: 4px;
+			border-top: none;
+			border-right: 1px solid var(--color-border);
+			/* Re-stated deliberately: the mobile rule's env(safe-area-inset-bottom) is meaningless
+			   on a full-height rail (there is no home indicator along the left edge). */
+			padding: 16px 8px 8px;
+		}
+		.tab {
+			/* flex:1 MUST be cancelled here or the three tabs stretch to fill 100dvh. */
+			flex: none;
+			font-size: 11px;
+			gap: 4px;
+			padding: 10px 0;
+			border-radius: 10px;
+		}
+	}
+
+	/* Pointer devices only — an iPad in landscape is >=1024px and would otherwise latch a sticky
+	   hover on the last-tapped tab. House style is a separate `@media (hover: hover)` block. */
+	@media (min-width: 1024px) and (hover: hover) {
+		.tab:hover {
+			color: var(--color-text);
+			background: var(--color-surface-2);
 		}
 	}
 </style>
