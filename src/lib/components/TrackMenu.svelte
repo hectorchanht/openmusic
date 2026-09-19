@@ -1006,21 +1006,28 @@
 			<!-- quick-260913-omi: real byte progress, not a decorative animation. `downloadProgress`
 			     is absent until the first bytes land (and stays absent for a response with no
 			     Content-Length), and THAT is the indeterminate state.
-			     quick-260919-dlring REPLACES omi's full-width ::after tint with the shared ring in the
-			     row's leading icon box. Not "keep the bar too": the bar and the ring say the same
-			     number, and the row ALREADY carries the exact figure in `.count` — a third rendering
-			     of one value is noise, and the ring is what every other download affordance in the app
-			     now shows, so this row stops being the one that looks different. -->
+			     quick-260919-dlring REVERTED here (and ONLY here): omi's full-width ::after tint is the
+			     indicator for this row again. The ring stays in every other download affordance —
+			     DownloadControl and this menu's own header button — but inside the menu's LIST content
+			     the bar already spans the row and the `.count` already prints the exact figure, so a
+			     ring beside them is a third rendering of one number. The glyph is therefore STATIC in
+			     both states: no ring, no spinner. It is the same Download glyph the idle row shows, so
+			     the icon box never empties and the label never shifts — it just stops being a second
+			     busy indicator. The indeterminate state keeps a bar too (a sliding one, below) rather
+			     than a spinner, so the bar is the row's ONLY progress channel in both states. -->
 			{@const frac = library.downloadProgress[track.uid]}
 			<button
-				class="mi dl-busy"
+				class="mi dl-busy dl-progress"
+				class:dl-indeterminate={frac === undefined}
+				class:motion-always={frac === undefined}
+				style:--dl={frac ?? 0}
 				aria-busy="true"
 				disabled
 				aria-label={frac === undefined
 					? t('menu.preparing')
 					: `${t('menu.download')} ${Math.round(frac * 100)}%`}
 			>
-				<DownloadRing value={frac}><Download size={18} /></DownloadRing>
+				<Download size={18} />
 				{t('menu.download')}
 				{#if frac !== undefined}<span class="count">{Math.round(frac * 100)}%</span>{/if}
 			</button>
@@ -1304,12 +1311,41 @@
 	   meta) — hence auto by default and a plain gap when it follows a `.count`. */
 	.mi :global(.hold-caret) { flex: none; color: var(--color-text-muted); margin-left: auto; }
 	.mi .count + :global(.hold-caret) { margin-left: 4px; }
-	/* quick-260919-dlring: omi's `.dl-progress` ::after bar is gone — the shared DownloadRing in the
-	   row's icon box carries the fraction now (see the markup note). What survives is omi's other
-	   call: a disabled row is dimmed to 0.4, but this one is disabled only because it is BUSY, and at
-	   0.4 the ring and the percentage are hard to read. `.dl-busy` now covers the indeterminate case
-	   too — an undimmed ring is the point of the state. NOTE: no `overflow: hidden` here any more;
-	   the ring is drawn a few px outside its icon box and clipping it would flatten one side.
+	/* quick-260913-omi: download progress fill, RESTORED by quick-260919-dlring's row revert. `--dl`
+	   is the 0..1 fraction, set inline per render. An ::after at 18% opacity sits UNDER the label
+	   without needing a stacking context — the tint is light enough that the text and icon stay fully
+	   legible through it. The width transition is deliberately un-tagged (no .motion-always) so
+	   app.css's reduce-motion rule kills it. */
+	.mi.dl-progress { position: relative; overflow: hidden; }
+	.mi.dl-progress::after {
+		content: '';
+		position: absolute;
+		inset: 0 auto 0 0;
+		width: calc(var(--dl, 0) * 100%);
+		background: var(--color-primary);
+		opacity: 0.18;
+		transition: width 120ms linear;
+		pointer-events: none;
+	}
+	/* Indeterminate (no Content-Length, or no bytes yet): omi parked a SPINNER here, but the row's
+	   glyph is no longer allowed to indicate anything, so the bar covers this state instead — a
+	   fixed-width tint sliding across the row, the standard indeterminate idiom. `transform` is used
+	   (not `left`) so it never triggers layout, and `--dl` is ignored while this class is on.
+	   The markup pairs this class with `.motion-always`, app.css's escape hatch, for the same reason
+	   the spinner carried it: a frozen indeterminate bar reads as 32% progress, i.e. a lie. The
+	   DETERMINATE row stays un-tagged, so its width transition is still killed by reduce-motion. */
+	.mi.dl-indeterminate::after {
+		width: 32%;
+		transition: none;
+		animation: dl-slide 1.4s ease-in-out infinite;
+	}
+	@keyframes dl-slide {
+		0% { transform: translateX(-100%); }
+		100% { transform: translateX(313%); }
+	}
+	/* omi's other call, kept by quick-260919-dlring: a disabled row is dimmed to 0.4, but this one is
+	   disabled only because it is BUSY, and at 0.4 the bar and the percentage are hard to read.
+	   `.dl-busy` covers the indeterminate case too — an undimmed bar is the point of the state.
 	   The header button joins the same rule: it is the SAME state, and at 0.4 its ring read as an
 	   already-greyed Downloaded tick. Its OTHER disabled states (the Check) stay dimmed — the class
 	   is on the busy fork only. */
