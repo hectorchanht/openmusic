@@ -1116,14 +1116,16 @@ describe('blob-store — replayPendingDeviceWrites (quick-260919-ejm, rungs 9-10
 	});
 
 	it('bounds the journal: an overflowing record is cleared wholesale (the prewarm.ts idiom)', async () => {
+		// 25 entries that SURVIVE the replay pass (every replay fails with io:, so every one is
+		// kept), which is the only way the record can actually reach the cap. The 26th write then
+		// clears it wholesale rather than growing it — losing a repair, never unbounded storage.
 		const fat: Record<string, { bytes: number }> = {};
-		for (let i = 0; i < 40; i++) fat[`device:${1000 + i}`] = { bytes: 200000 };
+		for (let i = 0; i < 25; i++) fat[`device:${1000 + i}`] = { bytes: 200000 };
 		localStorage.setItem(PENDING_KEY, JSON.stringify(fat));
-		// The replay at the top of overwriteDeviceFile drains what it can; whatever survives must
-		// never let the record grow without bound.
-		stat.mockResolvedValue({ size: 1 });
-		await overwriteDeviceFile('device:42', realAudio());
-		expect(Object.keys(pending()).length).toBeLessThanOrEqual(20);
+		stat.mockResolvedValue({ size: 200000 });
+		writeInPlace.mockRejectedValue(new Error('io:still failing'));
+		await overwriteDeviceFile('device:42', realAudio(200000));
+		expect(Object.keys(pending())).toEqual(['device:42']);
 	});
 
 	it('is exported on the blobStore namespace (overwriteDeviceFile only — replay stays a free function)', () => {

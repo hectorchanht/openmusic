@@ -171,6 +171,274 @@ function clearStoredName(uid: string): void {
 	}
 }
 
+// --- quick-260919-ejm: THE IN-PLACE REWRITE OF THE USER'S OWN FILE ---------------------------
+//
+// THE AUTHORISED EXCEPTION, named once so no later audit reads it as a regression. Everything else
+// in this module treats an imported `device:` file as READ-ONLY (34 Pitfall 1): `nativeDel` refuses
+// one as its first statement, `linkPublicUri` refuses one outright, and `nativePut` has no device
+// branch at all. This function is the ONE write capability the app has against a file it does not
+// own. The user authorised it explicitly, for exactly one purpose — editing an imported song's
+// metadata rewrites THAT file, at its own path, under its own name — and on one condition: every
+// failure short of a process death mid-stream leaves the song byte-identical.
+//
+// It adds NO delete, rename or move capability. `MediaStoreSaver.writeInPlace` never writes
+// DISPLAY_NAME / RELATIVE_PATH / DATA (D-7), and `RetagEntry.filename` is ignored on this path.
+//
+// WHY TEMP-THEN-STREAM RATHER THAN A BACKUP COPY (D-1). A backup of a 27 MB FLAC doubles peak disk
+// for every retag and needs an eviction policy nobody will maintain, and it only protects against
+// "the new bytes are wrong" — which `retagOne`'s verify-before-write already catches BEFORE
+// anything is opened. Temp-then-stream instead puts a COMPLETE, VERIFIED copy of the NEW bytes on
+// disk at the moment of the risky write, which is what makes an interrupted write replayable.
+//
+// THE ONE WINDOW THAT CANNOT BE CLOSED. Truncate-then-write is not atomic, and MediaStore offers no
+// rename-into-place for a file the app does not own, so a process death MID-STREAM leaves a partial
+// file. The journal below plus the retained temp file are the recovery: the next `overwriteDeviceFile`
+// or the next Settings -> Downloads visit re-streams the complete temp over it. Named, not hidden.
+
+/** quick-260919-ejm: `'ok'` wrote the file; `'unsupported'` cannot here; `'failed'` did not write. */
+export type DeviceWriteResult = 'ok' | 'unsupported' | 'failed';
+
+/** Optional MediaStore column values + the precondition size, all from the one caller (retagOne). */
+export interface DeviceWriteMeta {
+	title?: string;
+	artist?: string;
+	album?: string;
+	/** The ORIGINAL file's size, checked Kotlin-side against the row's current SIZE column. */
+	expectedBytes?: number;
+}
+
+// D-2 — THE PENDING-WRITE JOURNAL. A uid is recorded BEFORE the bridge call and cleared after it,
+// so a death in between (or during) is discoverable afterwards, with the temp file as the recovery
+// source. Bounded and cleared wholesale on overflow — prewarm.ts's MAX_TRACKED_UIDS idiom: losing
+// an entry costs one un-replayed repair, which is cheaper than an LRU nobody will maintain.
+//
+// ponytail: replay is LAZY — it runs at the top of the next `overwriteDeviceFile` and on the
+// Settings -> Downloads mount, and nowhere else. NO app-boot hook, because a file write in the app
+// shell's mount is exactly the class of automatic write this codebase has spent three tasks keeping
+// out. Upgrade path if device UAT shows a truncated file lingers too long: call
+// `replayPendingDeviceWrites()` from the `(app)` layout's existing mount.
+const PENDING_KEY = 'openmusic:retag-pending:v1';
+const MAX_PENDING = 20;
+
+/** uid -> the size of the temp file that is the recovery source for it. */
+type PendingWrites = Record<string, { bytes: number }>;
+
+function readPending(): PendingWrites {
+	try {
+		if (typeof localStorage === 'undefined') return {};
+		const raw = localStorage.getItem(PENDING_KEY);
+		if (!raw) return {};
+		const parsed: unknown = JSON.parse(raw);
+		return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as PendingWrites) : {};
+	} catch {
+		return {};
+	}
+}
+
+function writePending(rec: PendingWrites): void {
+	try {
+		if (typeof localStorage !== 'undefined') localStorage.setItem(PENDING_KEY, JSON.stringify(rec));
+	} catch {
+		// ignore — a journal that cannot be written costs recovery, never the write itself.
+	}
+}
+
+/** Record `uid` as mid-write. Clears the whole record on overflow rather than evicting cleverly. */
+function markPending(uid: string, bytes: number): void {
+	const rec = readPending();
+	if (!(uid in rec) && Object.keys(rec).length >= MAX_PENDING) {
+		writePending({ [uid]: { bytes } });
+		return;
+	}
+	rec[uid] = { bytes };
+	writePending(rec);
+}
+
+function clearPending(uid: string): void {
+	const rec = readPending();
+	if (!(uid in rec)) return;
+	delete rec[uid];
+	writePending(rec);
+}
+
+/**
+ * The temp path for `uid`. App-private (`Directory.Data`), same sanitizer `nativePath` uses, so it
+ * can never be a user-visible path — and neither can the delete below it.
+ */
+function tempPath(uid: string): string {
+	return `retag-tmp/${uid.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+}
+
+/**
+ * quick-260919-ejm: delete the temp copy for `uid`. This is a NEW `Filesystem.deleteFile` call
+ * site, so it is worth being explicit for the quick-260919-30x call-site audit: it targets
+ * `Directory.Data/retag-tmp/*` — a file THIS APP wrote milliseconds earlier — and can never name a
+ * user file. The user-file delete refusal lives untouched in `nativeDel` above.
+ */
+async function deleteTemp(uid: string): Promise<void> {
+	try {
+		await Filesystem.deleteFile({ path: tempPath(uid), directory: NATIVE_DIR });
+	} catch {
+		// not-found / any failure: swallow, same posture as every other delete in this module.
+	}
+}
+
+/** The Kotlin reject-code contract. `io:` means a descriptor WAS open and the bytes may be partial. */
+function rejectCode(e: unknown): 'unsupported' | 'precheck' | 'denied' | 'io' {
+	const msg = String((e as { message?: unknown })?.message ?? e ?? '');
+	if (msg.startsWith('unsupported:')) return 'unsupported';
+	if (msg.startsWith('precheck:')) return 'precheck';
+	if (msg === 'denied' || msg.startsWith('denied')) return 'denied';
+	// ANYTHING unrecognised is treated as the dangerous case, never the convenient one: assuming a
+	// write did not happen and deleting the only complete copy of the bytes is how a truncated file
+	// becomes a permanent one.
+	return 'io';
+}
+
+/**
+ * Finish any write that was interrupted, from its temp file. Never throws, never rejects.
+ *
+ * Called at the top of `overwriteDeviceFile` and from the Settings -> Downloads mount. The bridge
+ * call carries NO `expectedBytes`: after a partial write the row's size no longer matches the
+ * original by definition, so the precondition that protects a FRESH write would block the repair.
+ * The completeness check that replaces it is the stat below — the temp must still be exactly the
+ * size the journal recorded, or it is not a recovery source and the entry is dropped.
+ */
+export async function replayPendingDeviceWrites(): Promise<void> {
+	try {
+		if (!Capacitor.isNativePlatform()) return;
+		const rec = readPending();
+		for (const [uid, entry] of Object.entries(rec)) {
+			const target = deviceContentUri(uid);
+			if (!target) {
+				// Not a device uid, or an id that is not /^\d+$/ — nothing here may ever be written.
+				clearPending(uid);
+				continue;
+			}
+			let size = -1;
+			try {
+				size = Number((await Filesystem.stat({ path: tempPath(uid), directory: NATIVE_DIR }))?.size);
+			} catch {
+				size = -1;
+			}
+			if (!Number.isFinite(size) || size <= 0 || size !== entry?.bytes) {
+				clearPending(uid);
+				await deleteTemp(uid);
+				continue;
+			}
+			try {
+				const { uri: sourcePath } = await Filesystem.getUri({ path: tempPath(uid), directory: NATIVE_DIR });
+				await MediaStoreSaver.writeInPlace({ uri: target, sourcePath });
+				clearPending(uid);
+				await deleteTemp(uid);
+			} catch (e) {
+				// Same contract as the fresh write: only an `io:` failure is worth another attempt.
+				if (rejectCode(e) !== 'io') {
+					clearPending(uid);
+					await deleteTemp(uid);
+				}
+			}
+		}
+	} catch {
+		// A repair pass that fails is a repair that has not happened yet, never a thrown error into
+		// a page mount or a retag loop.
+	}
+}
+
+/**
+ * Rewrite the user's OWN imported file in place: same file, same path, same name, no copy.
+ *
+ * Ladder rungs 3-10 in order; `retagOne` owns rungs 1-2 (the codec decline and the
+ * verify-before-write round trip) so unparseable bytes never reach a file descriptor.
+ */
+export async function overwriteDeviceFile(uid: string, blob: Blob, meta: DeviceWriteMeta = {}): Promise<DeviceWriteResult> {
+	// FIRST STATEMENT, mirroring `nativeDel`'s discipline in the opposite direction: no refactor may
+	// slip an app-download uid into the one function that truncates an existing file. `nativePut`
+	// has no device short-circuit (the quick-260919-1eh hazard) and this has no real-source one —
+	// the two write paths are disjoint by ROUTING, which is why neither needs to guard the other.
+	if (!isDeviceUid(uid)) return 'failed';
+	if (!Capacitor.isNativePlatform()) return 'unsupported';
+	const target = deviceContentUri(uid);
+	if (!target) return 'unsupported';
+	// Rung 3: the 31-D-13 floor, used here as a WRITE gate rather than a read one. A junk blob must
+	// never be the thing that truncates a real song.
+	if (!(blob instanceof Blob) || blob.size < MIN_BLOB_BYTES) return 'failed';
+
+	// D-2 recovery point #1. This runs BEFORE the temp path is touched, and deliberately does NOT
+	// skip the current uid: the temp file we are about to clobber is the ONLY recovery source for a
+	// pending write on this same song, so it gets finished first rather than discarded. One extra
+	// stream on a rare path buys a rung that cannot otherwise be closed.
+	await replayPendingDeviceWrites();
+
+	const path = tempPath(uid);
+	// Rung 4: the temp write. Streams via capacitor-blob-writer (no base64 round-trip — the same
+	// WR-02 reasoning `nativePut` documents), to an app-private path. Nothing has opened the user's
+	// file yet, so a failure here is byte-identical to never having tried.
+	try {
+		await write_blob({ path, directory: NATIVE_DIR, blob, recursive: true });
+	} catch {
+		clearPending(uid);
+		await deleteTemp(uid);
+		return 'failed';
+	}
+	// Rung 5: THE COMPLETENESS GATE. A temp file short of the blob's size is not a copy of the new
+	// bytes, it is a second way to truncate the song. A stat that rejects counts as incomplete —
+	// "could not confirm" is never "confirmed".
+	try {
+		const size = Number((await Filesystem.stat({ path, directory: NATIVE_DIR }))?.size);
+		if (!Number.isFinite(size) || size !== blob.size) {
+			clearPending(uid);
+			await deleteTemp(uid);
+			return 'failed';
+		}
+	} catch {
+		clearPending(uid);
+		await deleteTemp(uid);
+		return 'failed';
+	}
+
+	// Rung 9: recorded BEFORE the bridge call. A death from here on is discoverable, and the temp
+	// file beside it is the complete new bytes.
+	markPending(uid, blob.size);
+	let sourcePath: string;
+	try {
+		sourcePath = (await Filesystem.getUri({ path, directory: NATIVE_DIR })).uri;
+	} catch {
+		clearPending(uid);
+		await deleteTemp(uid);
+		return 'failed';
+	}
+
+	try {
+		await MediaStoreSaver.writeInPlace({
+			uri: target,
+			sourcePath,
+			// A STRING (the whole param surface is strings, so no numeric-accessor behaviour has to
+			// be guessed across Capacitor versions). Omitted entirely when the caller has none —
+			// a literal "undefined" would read as a real size and fail every precondition.
+			...(typeof meta.expectedBytes === 'number' && Number.isFinite(meta.expectedBytes)
+				? { expectedBytes: String(meta.expectedBytes) }
+				: {}),
+			...(meta.title ? { title: meta.title } : {}),
+			...(meta.artist ? { artist: meta.artist } : {}),
+			...(meta.album ? { album: meta.album } : {})
+		});
+	} catch (e) {
+		// Rung 8 is the ONLY path that keeps its recovery state. `unsupported:` / `precheck:` /
+		// `denied` all mean nothing was written, so the journal entry and the temp are dead weight
+		// that would replay a write which was correctly refused.
+		const code = rejectCode(e);
+		if (code === 'io') return 'failed';
+		clearPending(uid);
+		await deleteTemp(uid);
+		return code === 'unsupported' ? 'unsupported' : 'failed';
+	}
+
+	clearPending(uid);
+	await deleteTemp(uid);
+	return 'ok';
+}
+
 async function nativePut(uid: string, blob: Blob, filename?: string): Promise<boolean> {
 	// Step 1 — app-private offline copy (the get() read source) via capacitor-blob-writer, which
 	// streams the Blob straight to disk (NO base64 round-trip). This copy is what get() serves
@@ -603,4 +871,4 @@ export function linkPublicUri(uid: string, uri: string): void {
 }
 
 /** Bundled namespace export so callers can `import { blobStore } from '$lib/services/blob-store'`. */
-export const blobStore = { put, get, has, stat, del, linkPublicUri, getStoredName };
+export const blobStore = { put, get, has, stat, del, linkPublicUri, getStoredName, overwriteDeviceFile };
