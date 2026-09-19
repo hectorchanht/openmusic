@@ -18,7 +18,9 @@
 	import { focusTrap } from '$lib/actions/focusTrap';
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { t } from '$lib/i18n';
+	import { Capacitor } from '@capacitor/core';
 	import { retagOne } from '$lib/services/retag';
+	import { buildDownloadFilename } from '$lib/services/download-filename';
 	import type { Track } from '$lib/sources/types';
 
 	let {
@@ -51,7 +53,23 @@
 	let title = $state('');
 	let artist = $state('');
 	let album = $state('');
+	// quick-260919-30x: the BASE name of the file on disk, without an extension.
+	let filename = $state('');
 	let saving = $state(false);
+
+	// quick-260919-30x / D-8 — a plain const, not `$derived`: the platform cannot change at runtime.
+	// The field is NATIVE-ONLY because the web branch of `blobStore.put` ignores `filename` entirely
+	// (the IndexedDB record is uid-keyed) and the copy sitting in the browser's Downloads folder is
+	// unreachable by any browser API — 1eh's documented platform ceiling. A visible field that
+	// silently does nothing is worse than no field.
+	//
+	// D-5 / this plan's scope_semantics (c) — WHY THERE IS NO `isDevice` GUARD HERE, ON PURPOSE.
+	// Renaming a `device:` file would mean a Kotlin MediaStore DISPLAY_NAME update: it MOVES/RENAMES
+	// a file this app does not own. It can never happen, and it is already impossible twice over —
+	// TrackMenu only opens this sheet under `{#if blobPresent && !isDevice}`, and `retagOne` refuses
+	// a device uid as its first statement. A third guard here would just invite someone to relax one
+	// of the two that actually enforce it.
+	const native = Capacitor.isNativePlatform();
 
 	// Seed on OPEN only. The effect's ONLY dependency is `open` — the ENTIRE body is untracked, not
 	// just the `track` read, and that is load-bearing twice over:
@@ -72,6 +90,12 @@
 			title = tr ? names.dnTitle(tr.title) : '';
 			artist = tr ? names.dnArtist(tr.artist) : '';
 			album = tr?.album ?? '';
+			// Seeded BLANK on purpose (D-7): blank means "derive the name from the title and artist",
+			// which is exactly what this sheet writes today — so an untouched sheet produces a
+			// byte-identical filename and the field has no regression surface. The derived name is
+			// shown as the input's placeholder, which is what a placeholder is for: a default, not a
+			// current value.
+			filename = '';
 			saving = false;
 		});
 	});
@@ -87,7 +111,17 @@
 		// It also owns the verify-before-write step (the tagged bytes are parsed back and must return
 		// the written title before anything reaches the disk), which is exactly why this sheet calls
 		// it instead of reaching for tagAudioBlob itself. A retag OVERWRITES a file that works.
-		const result = await retagOne({ uid: track.uid, ...patch, cover, lyrics: lyrics || undefined });
+		// quick-260919-30x: `filename` is deliberately NOT part of `patch`. `patch` feeds
+		// `library.applyMetadata` / `player.adoptMetadata`, which are about the DISPLAY model; the
+		// filename is a disk artifact and has no place in either. `|| undefined` so a blank field is
+		// omission, never a blank name.
+		const result = await retagOne({
+			uid: track.uid,
+			...patch,
+			cover,
+			lyrics: lyrics || undefined,
+			filename: filename.trim() || undefined
+		});
 		saving = false;
 		if (result === 'tagged') {
 			onsaved(patch);
@@ -146,6 +180,24 @@
 			spellcheck="false"
 			disabled={saving}
 		/>
+		{#if native}
+			<!-- The one field with a placeholder: the derived name is the DEFAULT, not the current
+			     value, so it belongs in the placeholder rather than in the box. The 'mp3' below is a
+			     display-only stand-in — retagOne appends the REAL sniffed container, so the saved
+			     file keeps its own type whatever this shows. -->
+			<label class="fld" for="mde-filename">{t('tags.fieldFilename')}</label>
+			<input
+				id="mde-filename"
+				type="text"
+				bind:value={filename}
+				placeholder={buildDownloadFilename(artist || '', title || '', 'mp3').replace(/\.mp3$/, '')}
+				autocomplete="off"
+				autocapitalize="off"
+				spellcheck="false"
+				disabled={saving}
+			/>
+			<p class="hint">{t('tags.filenameHint')}</p>
+		{/if}
 		<p class="hint">{t('tags.hint')}</p>
 		<div class="actions">
 			<button class="mi" onclick={onclose} use:tapBounce>{t('tags.cancel')}</button>
