@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
-	import { ChevronLeft, Languages, Replace } from '@lucide/svelte';
+	import { ChevronDown, ChevronLeft, Languages, Replace } from '@lucide/svelte';
 	import SettingToggle from '$lib/components/SettingToggle.svelte';
 	import SettingPicker from '$lib/components/SettingPicker.svelte';
 	import SettingHint from '$lib/components/SettingHint.svelte';
@@ -60,23 +60,70 @@
 		{ v: 'below', key: 'settings.optShowBelow' }
 	];
 
-	type PartKey = 'artist' | 'title' | 'lyrics';
+	// quick-260919-hm2: 'bio' joins the per-part model. It used to be its own hand-rolled section
+	// with its own option array and its own setter, purely because it is the one part with no
+	// skip-language list — which the `skip` flag on `parts` below now expresses in one boolean.
+	// bioLang's declared type is `'auto' | LyricsLang`, and LyricsLang ALREADY contains 'auto'
+	// (see the ju0 note on the union), so the two are the same type and the map below is exact.
+	type PartKey = 'artist' | 'title' | 'lyrics' | 'bio';
 	const TARGET: Record<PartKey, () => LyricsLang> = {
 		artist: () => settings.artistLang,
 		title: () => settings.titleLang,
-		lyrics: () => settings.lyricsLang
+		lyrics: () => settings.lyricsLang,
+		bio: () => settings.bioLang
 	};
 	const SKIP: Record<PartKey, () => SourceLang[]> = {
 		artist: () => settings.artistSkip,
 		title: () => settings.titleSkip,
-		lyrics: () => settings.lyricsSkip
+		lyrics: () => settings.lyricsSkip,
+		// Bio has no skip whitelist — names.dnBio() passes `[]` literally. Kept in the map so the
+		// record stays total; the `skip: false` flag on `parts` is what hides the UI.
+		bio: () => []
 	};
 
 	function setTarget(part: PartKey, v: LyricsLang) {
 		if (part === 'artist') settings.artistLang = v;
 		else if (part === 'title') settings.titleLang = v;
+		else if (part === 'bio') settings.bioLang = v;
 		else settings.lyricsLang = v;
 		settings.save();
+	}
+
+	// --- the shared "apply to all" target (quick-260919-hm2) ---------------------------------
+	//
+	// DELIBERATELY DERIVED, NOT STORED. There is no fifth persisted field: the shared control
+	// simply reports whether the four real targets agree, and writing it writes all four. That
+	// means no new localStorage key, no migration, and no way for a stored "shared" value to
+	// drift out of sync with the parts it claims to describe.
+	//
+	// WHAT HAPPENS WHEN THE FOUR DISAGREE (the decision this feature turns on): the shared
+	// control reads as MIXED and no chip is selected. It does NOT adopt one part's value and it
+	// does NOT write anything on render — a user who already set lyrics=繁體中文 and left the rest
+	// Off opens this page and finds both facts intact. Mixed is a display state only; the four
+	// parts collapse to one value exactly when the user taps a chip here, never before.
+	//
+	// SCOPE: these are the four parts the page has always exposed. `settings.lastfmLang` is NOT
+	// swept in — despite looking like a sibling field, it targets Last.fm TAG chips (names.dnLastfm
+	// → TagChips), has no control on this page, and "apply to all" must not silently change a
+	// setting the user cannot see.
+	const PART_KEYS = ['lyrics', 'artist', 'title', 'bio'] as const;
+	const sharedTarget = $derived.by<LyricsLang | null>(() => {
+		const first = TARGET.lyrics();
+		return PART_KEYS.every((k) => TARGET[k]() === first) ? first : null;
+	});
+	function applyAll(v: LyricsLang) {
+		settings.lyricsLang = v;
+		settings.artistLang = v;
+		settings.titleLang = v;
+		settings.bioLang = v;
+		settings.save();
+	}
+	/** One language value → its chip/summary label. 'off' and 'auto' are chrome (translated);
+	 *  every other label is the language's own endonym, which is the same in every UI language. */
+	function langLabel(v: LyricsLang): string {
+		if (v === 'off') return t('settings.optOff');
+		if (v === 'auto') return t('settings.bioAuto');
+		return langs.find((l) => l.v === v)?.label ?? v;
 	}
 	function toggleSkip(part: PartKey, v: SourceLang) {
 		const cur = SKIP[part]();
@@ -96,22 +143,19 @@
 		{ v: 'zh-Hans', label: '简体中文' }
 	];
 	function setZhScript(v: ZhScriptSetting) { settings.zhScript = v; settings.save(); }
-	function setBio(v: 'auto' | LyricsLang) { settings.bioLang = v; settings.save(); }
 
 	// quick-260607-fnp: Lyrics lifted to the TOP (below the lyrics translate-mode control),
-	// then artist + title. Bio info renders as its OWN picker section below (supersedes the
-	// f4y read-only note — the user keeps a per-part bio language picker, default = Auto).
-	const parts: { key: PartKey; headingKey: TranslationKey; noteKey: TranslationKey }[] = [
-		{ key: 'lyrics', headingKey: 'settings.lyricsTranslation', noteKey: 'settings.translateLyricsNote' },
-		{ key: 'artist', headingKey: 'settings.translateArtist', noteKey: 'settings.translateArtistNote' },
-		{ key: 'title', headingKey: 'settings.translateTitle', noteKey: 'settings.translateTitleNote' }
+	// then artist + title.
+	// quick-260919-hm2: bio joins the list instead of hand-rolling its own section below. Its
+	// old `bioOptions` array existed only to float Auto above Off; it now shares `langs` with the
+	// other three, so the four accordions are chip-for-chip identical (Off, Auto, then endonyms).
+	// `skip` marks which parts have a source-language whitelist — bio does not.
+	const parts: { key: PartKey; headingKey: TranslationKey; noteKey: TranslationKey; skip: boolean }[] = [
+		{ key: 'lyrics', headingKey: 'settings.lyricsTranslation', noteKey: 'settings.translateLyricsNote', skip: true },
+		{ key: 'artist', headingKey: 'settings.translateArtist', noteKey: 'settings.translateArtistNote', skip: true },
+		{ key: 'title', headingKey: 'settings.translateTitle', noteKey: 'settings.translateTitleNote', skip: true },
+		{ key: 'bio', headingKey: 'settings.translateLastfm', noteKey: 'settings.translateLastfmNote', skip: false }
 	];
-	// Bio target options: Auto (follow app/device language — DEFAULT) + the standard list
-	// (Off + languages). `langs` already starts with Off, so just prepend Auto.
-	// const bioOptions: { v: 'auto' | LyricsLang; label: string }[] = [{ v: 'auto', label: '' }, ...langs];
-
-	// Prepend Auto, but filter out the existing 'auto' item from the rest of the array
-	const bioOptions = [{ v: 'auto' as const, label: '' }, ...langs.filter(l => l.v !== 'auto')];
 
 	// quick-260919-ebi: both labelled controls on this page now come from the ONE SettingPicker.
 	// zhScript gets NO preview — the endonym labels 繁體中文 / 简体中文 already ARE the difference,
@@ -215,35 +259,65 @@
 
 <hr class="div" />
 
-<!-- 2. Per-part language pickers — lyrics (lifted to top), then artist, title. -->
-{#each parts as part, i (part.key)}
-	<section>
-		<h2><Languages size={15} /> {t(part.headingKey)}<SettingHint label={t(part.headingKey)} text={t(part.noteKey)} /></h2>
+<!-- 2. TRANSLATION TARGETS (quick-260919-hm2) — the four content parts, grouped.
+     This page used to stack four independent sections, each with its own always-open 19-chip
+     language list (plus three 17-chip skip lists): ~127 chips on screen before you had done
+     anything. They are now ONE section of <details> accordions, and every language list starts
+     CLOSED, so the page opens as five one-line rows that each state their current value.
+
+     THE ACCORDION IS THE EXISTING `.advanced` <details>/<summary> IDIOM from the Playback page
+     (Advanced > Sources), reused verbatim rather than reinvented — including the reason
+     SettingHint stopPropagation()s its click: a hint inside a <summary> must not also toggle
+     the accordion it explains.
+
+     The "Apply to all" row sits FIRST and writes all four at once; the four per-part rows below
+     it still set exactly one part each, so nothing that was individually settable stopped being
+     individually settable. When the parts disagree, the shared row reads Mixed and selects
+     nothing — it never flattens an existing per-part mix on render (see `sharedTarget`). -->
+<section>
+	<h2><Languages size={15} /> {t('settings.translateTargets')}</h2>
+
+	<details class="advanced">
+		<summary>
+			<Languages size={15} />
+			{t('settings.translateApplyAll')}
+			<SettingHint label={t('settings.translateApplyAll')} text={t('settings.translateApplyAllNote')} />
+			<span class="cur">{sharedTarget === null ? t('settings.translateMixed') : langLabel(sharedTarget)}</span>
+			<span class="chev" aria-hidden="true"><ChevronDown size={15} /></span>
+		</summary>
 		<div class="chips">
 			{#each langs as l (l.v)}
-				<button class="chip" class:on={TARGET[part.key]() === l.v} onclick={() => setTarget(part.key, l.v)} use:tapBounce>{l.v === 'off' ? t('settings.optOff') : l.v === 'auto' ? t('settings.bioAuto') : l.label}</button>
+				<button class="chip" class:on={sharedTarget === l.v} onclick={() => applyAll(l.v)} use:tapBounce>{langLabel(l.v)}</button>
 			{/each}
 		</div>
-		<div class="skip" class:disabled={TARGET[part.key]() === 'off'}>
-			<p class="sublabel">{t('settings.skipLanguages')}<SettingHint label={t('settings.skipLanguages')} text={t('settings.skipLanguagesNote')} /></p>
+	</details>
+
+	{#each parts as part (part.key)}
+		<details class="advanced">
+			<summary>
+				<Languages size={15} />
+				{t(part.headingKey)}
+				<SettingHint label={t(part.headingKey)} text={t(part.noteKey)} />
+				<span class="cur">{langLabel(TARGET[part.key]())}</span>
+				<span class="chev" aria-hidden="true"><ChevronDown size={15} /></span>
+			</summary>
 			<div class="chips">
-				{#each sources as s (s.v)}
-					<button class="chip skipchip" class:on={SKIP[part.key]().includes(s.v)} disabled={TARGET[part.key]() === 'off'} onclick={() => toggleSkip(part.key, s.v)} use:tapBounce>{s.label}</button>
+				{#each langs as l (l.v)}
+					<button class="chip" class:on={TARGET[part.key]() === l.v} onclick={() => setTarget(part.key, l.v)} use:tapBounce>{langLabel(l.v)}</button>
 				{/each}
 			</div>
-		</div>
-	</section>
-	<hr class="div" />
-{/each}
-
-<!-- 3. Bio info — per-part picker; Auto follows the app/device language (default). -->
-<section>
-	<h2><Languages size={15} /> {t('settings.translateLastfm')}<SettingHint label={t('settings.translateLastfm')} text={t('settings.translateLastfmNote')} /></h2>
-	<div class="chips">
-		{#each bioOptions as o (o.v)}
-			<button class="chip" class:on={settings.bioLang === o.v} onclick={() => setBio(o.v)} use:tapBounce>{o.v === 'auto' ? t('settings.bioAuto') : o.v === 'off' ? t('settings.optOff') : o.label}</button>
-		{/each}
-	</div>
+			{#if part.skip}
+				<div class="skip" class:disabled={TARGET[part.key]() === 'off'}>
+					<p class="sublabel">{t('settings.skipLanguages')}<SettingHint label={t('settings.skipLanguages')} text={t('settings.skipLanguagesNote')} /></p>
+					<div class="chips">
+						{#each sources as s (s.v)}
+							<button class="chip skipchip" class:on={SKIP[part.key]().includes(s.v)} disabled={TARGET[part.key]() === 'off'} onclick={() => toggleSkip(part.key, s.v)} use:tapBounce>{s.label}</button>
+						{/each}
+					</div>
+				</div>
+			{/if}
+		</details>
+	{/each}
 </section>
 
 <hr class="div" />
@@ -274,6 +348,33 @@
 	.skip.disabled { opacity: 0.45; pointer-events: none; }
 	.sublabel { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--color-text-muted); margin: 0 0 8px; position: relative; }
 	.skipchip.on { background: var(--color-surface); color: var(--color-primary); border-color: var(--color-primary); }
+	/* quick-260919-hm2: the collapsed language lists. Lifted verbatim from the Playback page's
+	   `.advanced` Advanced > Sources accordion so the two read as the same control. */
+	.advanced { margin: 10px 0; padding: 10px 12px; background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: 12px; }
+	/* The summary is a settings ROW, not a section heading, so it takes the app's row type (14px
+	   sentence case, like .rlabel on the Home page and SettingToggle's label) rather than the
+	   uppercase + letter-spaced heading type the Playback `.advanced` summary uses for its single
+	   "Advanced > Sources" disclosure. That is also what makes "Lyrics translation · Auto (app
+	   language)" fit on one 375px line — uppercase + 0.5px tracking did not. */
+	.advanced summary { position: relative; display: flex; align-items: center; gap: 6px; font-size: 14px; color: var(--color-text); cursor: pointer; padding: 4px 0; }
+	.advanced .chips { margin-top: 12px; }
+	/* The row's CURRENT value, right-aligned — it is what makes a CLOSED page still readable:
+	   five collapsed rows that each say what they are set to. */
+	.cur { margin-left: auto; color: var(--color-text-muted); font-size: 13px; text-align: right; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	/* `display: flex` on a <summary> removes the UA disclosure marker, so the accordion would have
+	   no affordance at all — fine for one "Advanced" footer, not for five rows that ARE the page.
+	   This is that marker, put back explicitly and rotated on open. */
+	.advanced .chev { display: inline-flex; flex: none; color: var(--color-text-muted); transition: transform 0.15s ease; }
+	.advanced[open] .chev { transform: rotate(180deg); }
+	@media (prefers-reduced-motion: reduce) {
+		.advanced .chev { transition: none; }
+	}
+	/* An unselected .chip is --color-surface-2, and it now sits ON a --color-surface-2 panel, so
+	   drop it a step to keep the fill visible. The selected states are restated at the higher
+	   specificity the descendant selector creates. */
+	.advanced .chip { background: var(--color-bg); }
+	.advanced .chip.on { background: var(--color-primary); color: #fff; border-color: transparent; }
+	.advanced .skipchip.on { background: var(--color-surface); color: var(--color-primary); border-color: var(--color-primary); }
 	/* quick-260919-ebi: the .seg CSS moved into SettingPicker.svelte — the quick-260919-2jo Chinese
 	   script control is pixel-identical there, because the rules were lifted verbatim. */
 	.link { background: none; border: none; color: var(--color-primary); cursor: pointer; font-size: 14px; padding: 0; }
