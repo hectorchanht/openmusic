@@ -1,36 +1,21 @@
-<script module lang="ts">
-	// quick-260625-pzs-03: module-scoped (NOT per-instance) cache of COMPLETE lyric translations,
-	// keyed by the SAME `key` string the translate $effect computes (`${uid}:${lang}:${n}:${skip}`).
-	// Living at module scope means it survives a component remount / re-subscribe, so blurring and
-	// refocusing the tab (which resets the per-instance plain `trKey = ''`) re-hydrates the cached
-	// translation synchronously instead of re-issuing /api/translate. Only COMPLETE renders are
-	// stored (T-pzs-01) — a soft-fail echo (translateLinesEx complete:false) is never frozen.
-	const trCache = new Map<string, string[]>();
-</script>
-
 <script lang="ts">
 	import { untrack } from 'svelte';
 	import { Spring } from 'svelte/motion';
 	import { fly, fade } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
 	import { goto } from '$app/navigation';
-	import { ChevronDown, MoreVertical, Heart, SkipBack, SkipForward, Play, Pause, GripVertical, Moon, ListEnd, ListStart, Layers, Trash2 } from '@lucide/svelte';
+	import { ChevronDown, MoreVertical, Heart, SkipBack, SkipForward, Play, Pause, Moon } from '@lucide/svelte';
 	import { player, fmtTime } from '$lib/stores/player.svelte';
 	import { sleepTimer } from '$lib/stores/sleepTimer.svelte';
-	import { settings, effectiveTarget } from '$lib/stores/settings.svelte';
+	import { settings } from '$lib/stores/settings.svelte';
 	import { library } from '$lib/stores/library.svelte';
 	import { names } from '$lib/stores/names.svelte';
 	import { overlays } from '$lib/stores/overlays.svelte';
 	import { t, tMaybeKey } from '$lib/i18n';
-	import { searchAll } from '$lib/services/catalog';
-	import { dedupeBest } from '$lib/services/dedupe';
 	// Gap 4 (26-10): the LAZY on-demand cross-source variant fetch (26-08) fed to the per-row
 	// version picker — fired ONLY on a trigger tap, never on list render (T-26-10-02).
 	import { fetchVariants } from '$lib/services/variants';
-	import { translateLinesEx } from '$lib/services/translate';
-	import { shouldTranslate } from '$lib/i18n/detect';
 	import { enrichTrack } from '$lib/services/lastfm';
-	import { longpress } from '$lib/actions/longpress';
 	import { lazyCover } from '$lib/actions/lazyCover';
 	// cover-hero-mediacard-missing (Issue 1): the reactive cover-cache read helper the up-next rows /
 	// home tiles use — the hero current cell now falls back to it so a cover that lands anywhere for
@@ -39,19 +24,12 @@
 	// mounted tile through the same one global signal as the home backfill.
 	// quick-260915-w4f: readPinnedCover is pickRowCover's new leading rung, and also the pin read the
 	// cellBg carousel needs (it puts tk.cover ahead of everything, so a pin would otherwise lose).
-	import { readCoverByUidOrName, readPinnedCover, bumpCoverVersion } from '$lib/stores/cover-version.svelte';
-	import { backfillCovers } from '$lib/services/cover-backfill';
-	import { upNextCoverNeeds, UPNEXT_COVER_MAX } from '$lib/services/upnext-covers';
-	// quick-260910-qwt: the tile read order generalised out of upnext-covers into the ONE shared
-	// row-cover helper every row surface now paints through (search / library / artist / CompactRow /
-	// Up Next / Related). Same three rungs, same precedence — just no longer Up-Next-specific.
-	import { pickRowCover } from '$lib/services/row-cover';
+	import { readCoverByUidOrName, readPinnedCover } from '$lib/stores/cover-version.svelte';
 	// quick-260919-0mw: the ONE shared tri-state download affordance. It already owns the idle /
 	// downloading / downloaded / unavailable states, the shared downloadTrack path, its own toasts,
 	// its own t() keys and tapBounce — so this is a mount, never a re-implementation.
 	import DownloadControl from '$lib/components/DownloadControl.svelte';
 	import { marquee } from '$lib/actions/marquee';
-	import { swipeAction } from '$lib/actions/swipeAction';
 	import { coverSwipe } from '$lib/actions/coverSwipe';
 	import { scrub } from '$lib/actions/scrub';
 	import { tapBounce } from '$lib/actions/tapBounce';
@@ -61,16 +39,16 @@
 	import { splitArtists } from '$lib/util/artist-split';
 	import TrackMenu from '$lib/components/TrackMenu.svelte';
 	import VersionPicker from '$lib/components/VersionPicker.svelte';
-	import RowBadges from '$lib/components/RowBadges.svelte';
 	import Nowbar from '$lib/components/Nowbar.svelte';
-	import { reorderPairs, splitParenLines, lineSeekFraction, activeLineAt, type LyricLine } from '$lib/services/lrc';
-	// quick-260919-2jo: the Chinese script lock for lyric text. `parseLyrics` replaces `parseLRC`
-	// (the ORIGINAL lines); `lockLyricLines` covers the translation column, which is a SECOND source
-	// of source-derived text produced after parse time.
-	import { parseLyrics, lockLyricLines } from '$lib/stores/lyric-script.svelte';
-	// quick-260919-1we (D-4): the user's explicit lyric pick, layered into a reactive READ so it
-	// outranks whatever the chain (or a downloaded file's embedded tag) supplied.
-	import { readLyrics } from '$lib/stores/lyric-pins.svelte';
+	// quick-260919-np3: the three sheet panes. CLAUDE.md flags this file as a ~2000-line re-render
+	// hotspot whose stated fix is "split lyrics pane / up-next / transport into children that each
+	// subscribe to only the $state they need" — so the desktop three-up layout is built ON that
+	// split rather than bolted onto the monolith. Each child owns its own state and effects; the
+	// parent hands over only what it is the authority for (the anchored queue slice, the carousel's
+	// resolved-cover map, the sheet state, and the two shared overlay openers).
+	import NpUpNext from '$lib/components/NpUpNext.svelte';
+	import NpLyrics from '$lib/components/NpLyrics.svelte';
+	import NpRelated from '$lib/components/NpRelated.svelte';
 	import { createVelocityTracker } from '$lib/gestures/velocity';
 	import type { Track } from '$lib/sources/types';
 	import { coverGradient } from '$lib/services/cover-gradient';
@@ -178,307 +156,6 @@
 		else if (e.key === 'ArrowLeft') player.seekFraction((player.currentTime - 5) / player.duration);
 	}
 
-	// ---- lyrics ----
-	// Lyrics pipeline: parse the LRC, then split any line carrying a `(...)` clause into its
-	// own entry so each part (main text + parenthesised clause) flows through the per-line
-	// translate path independently. The split entries carry `fromParen:true` so the renderer
-	// can suppress their translations when settings.lyricsHideParenTranslation is on.
-	//
-	// quick-260919-1we (D-4): the SOURCE of this pipeline is `readLyrics(player.current)`, not
-	// `player.current.lrc`. That one read is what makes a user's explicit pick in the Fix-lyrics
-	// picker beat everything else, INCLUDING Phase 37's embedded-LRC enrichment for a downloaded
-	// file — `enrichFromLocalFile` writes `current.lrc`, and `current.lrc` is only the SECOND rung
-	// of readLyrics' pin → track.lrc → null order. It is also what repaints this pane the instant a
-	// pick lands (readLyrics takes the lyricVersion() dependency), with no replay and no player call.
-	//
-	// quick-260919-2jo: `parseLyrics` = parseLRC + the Chinese script lock, so the pane repaints in
-	// the locked script the instant the setting flips — mid-song, lyrics open, no reload. The lock
-	// runs FIRST, before reorderPairs / splitParenLines, and that is safe by construction: both of
-	// those decide on `dominantScript`, and an s2t/t2s conversion is Han→Han (it never changes a
-	// line's script class) and never touches the bracket characters splitParenLines matches on.
-	const lines = $derived<LyricLine[]>(
-		(() => {
-			const src = readLyrics(player.current);
-			return src ? splitParenLines(reorderPairs(parseLyrics(src))) : [];
-		})()
-	);
-	// When multiple lyric lines share a timestamp (common in CN LRCs that ship the original
-	// + an inline translation as two consecutive entries at the same time, plus our own
-	// splitParenLines parent + paren clauses), ALL of them are simultaneously active for
-	// the user — they're the same moment of the song. `activeLine` is the FIRST entry of
-	// that group (used as the scroll anchor); `activeTime` is the shared timestamp so the
-	// renderer can mark every sibling line active via `lines[i].time === activeTime`.
-	//
-	// quick-260919-1we: the scan itself now lives in `lrc.ts` (`activeLineAt`) so the Nowbar's
-	// one-line variant runs the IDENTICAL code instead of a second copy that could drift. This is a
-	// dedupe, not a change — `activeLine` / `activeTime` keep their names and meanings, so every
-	// downstream consumer (the scroll anchor, the sibling-active test) is untouched.
-	const active = $derived(activeLineAt(lines, player.currentTime));
-	const activeLine = $derived(active.idx);
-	const activeTime = $derived(active.time);
-	let lyricsEl = $state<HTMLElement | null>(null);
-	// D-11/LYR-03: trailing-spacer height (px) ≈ half the visible band, set from the anchor
-	// $effect's visHeight. A REAL element growing scrollHeight is required because browsers clamp
-	// scrollTo to content bounds — without it the last lines pin to the bottom instead of centring.
-	// NO top spacer (D-12).
-	let spacerH = $state(0);
-	let autoScroll = $state(true);
-	let idleTimer: ReturnType<typeof setTimeout> | null = null;
-	// D-10/LYR-02: how long after manual scrolling STOPS before auto-scroll resumes. Raised from
-	// the old 600ms (which snapped the view back mid-read) to ~3s.
-	const RESUME_MS = 3000;
-	// Touch-presence auto-scroll: pause WHILE a finger is down (or wheel is active), resume a
-	// short grace after release.
-	//
-	// The browser fires `pointercancel` on a touch that the page's scroll gesture has claimed
-	// — this used to be treated as a release, which scheduled the resume timer + flipped
-	// autoScroll back to true while the user's finger was STILL on the panel scrolling away
-	// from the active line. Fix: only true `pointerup` releases. Track active pointers in a
-	// Set so multi-touch (and the lost-pointer case where the element never sees pointerup
-	// because the scroll claimed it) still resolves — a window-level pointerup capture-phase
-	// listener catches the real finger-lift even after pointercancel stole it from the panel.
-	const pressedPointers = new Set<number>();
-	function lyricsTouched(e: PointerEvent) {
-		autoScroll = false;
-		if (idleTimer) clearTimeout(idleTimer);
-		pressedPointers.add(e.pointerId);
-		if (typeof window !== 'undefined') {
-			window.addEventListener('pointerup', windowPointerUp, { capture: true });
-			window.addEventListener('pointercancel', windowPointerUp, { capture: true });
-		}
-	}
-	function windowPointerUp(e: PointerEvent) {
-		// `pointerup` is the real finger-lift — release; `pointercancel` from the window means
-		// the OS truly cancelled (app backgrounded, etc.), also release. The element-local
-		// `pointercancel` handler is dropped from the JSX below precisely because it fires
-		// during a scroll-gesture takeover even though the finger is still down.
-		if (!pressedPointers.has(e.pointerId)) return;
-		pressedPointers.delete(e.pointerId);
-		if (pressedPointers.size === 0) {
-			window.removeEventListener('pointerup', windowPointerUp, { capture: true });
-			window.removeEventListener('pointercancel', windowPointerUp, { capture: true });
-			lyricsReleased();
-		}
-	}
-	function lyricsReleased() {
-		if (idleTimer) clearTimeout(idleTimer);
-		idleTimer = setTimeout(() => (autoScroll = true), RESUME_MS);
-	}
-	function lyricsWheel() {
-		// No release event for a wheel — pause, then schedule the same grace resume.
-		autoScroll = false;
-		if (idleTimer) clearTimeout(idleTimer);
-		lyricsReleased();
-	}
-	// Pitfall 1 / D-10: iOS momentum scrolling keeps firing `scroll` events with NO further
-	// pointer or wheel events after the finger lifts — so a timer armed at pointerup/wheel would
-	// resume auto-scroll mid-glide and snap the view back. bumpResume re-arms the RESUME_MS timer
-	// on every scroll tick while suspended, so resume only fires ~3s after scrolling TRULY stops
-	// (momentum included). It is a no-op once auto-scroll is already on, so the anchor $effect's
-	// own programmatic smooth-scroll never re-suspends itself.
-	function bumpResume() {
-		if (autoScroll) return;
-		if (idleTimer) clearTimeout(idleTimer);
-		idleTimer = setTimeout(() => (autoScroll = true), RESUME_MS);
-	}
-	// D-01/D-02/D-03: tap any lyric line to seek there. seekFraction is the only seek API and
-	// already auto-plays when paused (D-03 free — no explicit play()). lineSeekFraction guards
-	// duration <= 0 / non-finite → null, so no unbounded value reaches the audio element.
-	// After seeking we clear the idle timer and force autoScroll back on (D-02): this overrides
-	// the suspend that this tap's OWN lyricsTouched pointerdown just set, so the anchor $effect
-	// re-runs on the autoScroll flip and smooth-centers the now-active (tapped) line immediately.
-	function seekToLine(line: LyricLine) {
-		const frac = lineSeekFraction(line.time, player.duration);
-		if (frac !== null) player.seekFraction(frac); // D-03: auto-plays if paused
-		if (idleTimer) clearTimeout(idleTimer);
-		autoScroll = true;
-	}
-	// Keyboard parity for the tappable lyric line (Enter/Space) — mirrors the cover's tapCoverKey
-	// and the grip's gripKey idiom, satisfying the a11y click-needs-keydown rule.
-	function seekToLineKey(e: KeyboardEvent, line: LyricLine) {
-		if (e.key !== 'Enter' && e.key !== ' ') return;
-		e.preventDefault();
-		seekToLine(line);
-	}
-	$effect(() => {
-		const idx = activeLine;
-		// sheetState is a read dependency: re-anchor the active line whenever the sheet
-		// changes mode (closed/half/full) while the same line stays active.
-		const mode = sheetState;
-		if (tab !== 'lyrics' || !autoScroll || idx < 0 || !lyricsEl) return;
-		// quick-260618-t7p Task 2: `idx` (activeLine) is an index into the FULL `lines` array, but the
-		// rendered <p> list is FILTERED when settings.lyricsHideParenLines is ON, so a positional
-		// querySelectorAll('p')[idx] selected the wrong (or out-of-range) element → over-scroll /
-		// off-centre. Each rendered <p> now carries data-i={i} (its FULL-array index), so select the
-		// active line by that index space directly. FALLBACK: when the active line is itself a hidden
-		// paren line (no rendered <p> for that idx), anchor on the nearest rendered line with the
-		// largest data-i <= idx (the previous visible line) so the view still anchors sanely.
-		let el = lyricsEl.querySelector(`p[data-i="${idx}"]`) as HTMLElement | null;
-		if (!el) {
-			let best = -1;
-			for (const p of lyricsEl.querySelectorAll<HTMLElement>('p[data-i]')) {
-				const di = Number(p.dataset.i);
-				if (Number.isFinite(di) && di <= idx && di > best) {
-					best = di;
-					el = p;
-				}
-			}
-		}
-		// Scope the scroll to the bounded .panel container (the overflow-y:auto scroller) and
-		// move it manually — never the ancestor-walking scroll-into-view API, which yanks the
-		// sheet to full in half mode. Compute the line's offset RELATIVE TO the container via rect deltas
-		// (offsetParent-agnostic), then anchor it inside the panel without changing sheetState.
-		const container = lyricsEl.closest('.panel') as HTMLElement | null;
-		if (!el || !container) return;
-		const elRect = el.getBoundingClientRect();
-		const cRect = container.getBoundingClientRect();
-		const offsetWithin = elRect.top - cRect.top + container.scrollTop; // line top in container scroll-space
-		// Anchor depends on the sheet mode. In HALF the sheet is position:absolute;inset:0 then
-		// translated DOWN by halfOffset, so container.clientHeight spans the full viewport while only
-		// the slice between the container top and the viewport bottom is actually VISIBLE. Centering on
-		// clientHeight/2 would land below the visible fold (the reported "near the bottom" bug). So derive
-		// the anchor from the live VISIBLE band (rect intersect viewport), which self-corrects for every mode:
-		//   closed -> anchor near the visible TOP (tiny peek height, top-pin per spec)
-		//   half / full -> center within the visible band
-		const vh = typeof window !== 'undefined' ? window.innerHeight : cRect.bottom;
-		const visTop = Math.max(cRect.top, 0);
-		const visBottom = Math.min(cRect.bottom, vh);
-		const visHeight = Math.max(0, visBottom - visTop);
-		spacerH = Math.round(visHeight / 2); // D-11: end spacer ≈ half the visible band → last line can center
-		const visTopWithin = visTop - cRect.top; // visible-band top, in container-local coords
-		const TOP_PAD = 12; // breathing room when top-pinned (closed)
-		const anchorWithin =
-			mode === 'closed'
-				? visTopWithin + TOP_PAD
-				: visTopWithin + visHeight / 2 - el.offsetHeight / 2; // visible-band center
-		container.scrollTo({ top: offsetWithin - anchorWithin, behavior: 'smooth' });
-	});
-
-	// ---- lyrics translation ----
-	let translated = $state<string[]>([]);
-	let translating = $state(false);
-	let trKey = '';
-	$effect(() => {
-		// ju0: lyricsLang now allows 'auto' (→ appLang). Resolve once here so both the
-		// rerun key, shouldTranslate(), and translateLines() all see the SAME final token.
-		const rawLang = settings.lyricsLang;
-		const lang = effectiveTarget(rawLang);
-		const skip = settings.lyricsSkip;
-		const t = player.current;
-		const n = lines.length;
-		if (tab !== 'lyrics' || rawLang === 'off' || !n || !t) {
-			// quick-260618-fiz Fix 1: flipping INTO a no-translate state (lyricsLang → 'off', leaving
-			// the lyrics tab, or losing the track/lines) must drop any stale translations immediately
-			// rather than leaving the previous song's output rendered until the next translate round.
-			// Reset trKey too so re-entering the active state re-runs the translation from scratch.
-			if (translated.length) translated = [];
-			if (translating) translating = false;
-			trKey = '';
-			return;
-		}
-		// Per-line whitelist: only the lines whose detected source is NOT whitelisted (and
-		// is not already in the target) get sent to /api/translate. Skipped lines keep
-		// their ORIGINAL text in the corresponding output slot so index alignment +
-		// showTr/translateMode (below/replace) render unchanged. Include skip in the key so
-		// toggling the whitelist re-runs the effect.
-		const key = `${t.uid}:${lang}:${n}:${skip.slice().sort().join(',')}`;
-		if (trKey === key) return;
-		// quick-260625-pzs-03: serve a previously-COMPLETED translation for this exact key from the
-		// module-scoped cache BEFORE any reset/fetch. On a tab blur→focus or component remount the
-		// per-instance `trKey` was reset to '' so this same track's effect re-runs; the cache hit
-		// re-renders the finished translation synchronously — no untranslated flash, no /api/translate
-		// round-trip. Only complete renders ever land in trCache (populated below), so a soft-fail
-		// echo is never served as final.
-		const cached = trCache.get(key);
-		if (cached) {
-			trKey = key;
-			translated = cached;
-			translating = false;
-			return;
-		}
-		trKey = key;
-		// WR-09: invalidate the PREVIOUS track's output immediately. The render gate is a pure
-		// length comparison (translated.length === lines.length) — when the new track happens to
-		// have the same line count, the old song's translations would otherwise render under the
-		// new lyrics for the whole translate round-trip (and fully REPLACE them in replace mode).
-		// quick-260618-fiz Fix 1: this synchronous clear ALSO makes a lyricsSkip/lyricsLang toggle
-		// re-derive the CURRENT song's lyrics immediately — the key includes skip+lang, so flipping
-		// either changes the key, drops the now-stale output here, and re-translates without a song
-		// change (the "only applies to the next song" symptom was render staleness, not a dead effect).
-		translated = [];
-		translating = true;
-		const sendIdx: number[] = [];
-		const sendText: string[] = [];
-		for (let i = 0; i < lines.length; i++) {
-			if (shouldTranslate(lines[i].text, lang, skip)) {
-				sendIdx.push(i);
-				sendText.push(lines[i].text);
-			}
-		}
-		const stitch = (out: string[]) => lines.map((l, i) => {
-			const pos = sendIdx.indexOf(i);
-			return pos === -1 ? l.text : (out[pos] ?? l.text);
-		});
-		// quick-260618-fiz Fix 1: the all-whitelisted case (every line skipped / already target →
-		// sendText.length === 0) resolves to the aligned ORIGINALS. Set it SYNCHRONOUSLY (stitch([])
-		// maps each line to its own text) rather than waiting on a resolved-empty promise, so showTr
-		// (translated.length === lines.length) stays true the instant the user whitelists the last
-		// source — the originals render immediately instead of flashing untranslated for a microtask.
-		if (!sendText.length) {
-			// All-whitelisted / already-target: the stitched output is the aligned originals — trivially
-			// COMPLETE (every line is its own text), so it is safe to cache (quick-260625-pzs-03 step 4).
-			const stitched = stitch([]);
-			if (stitched.length === lines.length) trCache.set(key, stitched);
-			translated = stitched;
-			translating = false;
-			return;
-		}
-		// quick-260625-pzs-03: translateLinesEx exposes `complete` so we only FREEZE a fully-translated
-		// batch. A transient soft-fail echoes the originals with complete:false — it is rendered (so the
-		// user sees the originals meanwhile) but NOT cached, so switching language/back re-attempts it.
-		translateLinesEx(sendText, lang)
-			.then((res) => {
-				if (trKey !== key) return;
-				const stitched = stitch(res.out);
-				translated = stitched;
-				// Cache ONLY a complete render whose length matches (same gate the render uses). This is
-				// the T-pzs-01 mitigation: an incomplete/echoed result is never frozen as final.
-				if (res.complete && stitched.length === lines.length) trCache.set(key, stitched);
-			})
-			.catch(() => { if (trKey === key) translated = []; })
-			.finally(() => { if (trKey === key) translating = false; });
-	});
-	const showTr = $derived(settings.lyricsLang !== 'off' && translated.length === lines.length);
-	// quick-260919-2jo: the rendered translation column, script-locked. Kept SEPARATE from
-	// `translated` on purpose — `translated` stays the raw /api/translate output so `trCache`
-	// (keyed `uid:lang:n:skip`, which deliberately has no lock segment) is never poisoned with
-	// locked text and a lock flip costs no round-trip. This derived re-runs on the flip alone and
-	// repaints in place. Positionally aligned, so `showTr`'s length gate and the `[i]` indexing in
-	// the template are unchanged.
-	const trLines = $derived(lockLyricLines(translated));
-	// ---- related ----
-	let related = $state<Track[]>([]);
-	let relatedLoading = $state(false);
-	let relatedFor = '';
-	$effect(() => {
-		const t = player.current;
-		if (tab === 'related' && t && relatedFor !== t.uid) {
-			relatedFor = t.uid;
-			related = [];
-			relatedLoading = true;
-			searchAll(t.artist, 1)
-				.then((r) => {
-					if (relatedFor !== t.uid) return; // race guard: a newer track took over
-					related = dedupeBest(r.interleaved, settings.preferredSource).filter((x) => x.uid !== t.uid).slice(0, 20);
-					relatedLoading = false;
-				})
-				.catch(() => {
-					if (relatedFor !== t.uid) return;
-					related = [];
-					relatedLoading = false;
-				});
-		}
-	});
 
 	// ---- Last.fm enrichment (Phase 8, ENRICH-01/02) ----
 	// Best-effort, OFF the playback critical path: keyed on the current uid, the
@@ -621,60 +298,6 @@
 	const upNextStart = $derived(anchorIdx >= 0 ? anchorIdx : ci >= 0 ? ci : 0);
 	const upNextList = $derived(player.queue.slice(upNextStart)); // [anchor, ...current, ...tail]
 
-	// quick-260910-q5a — POST-PAINT Up-Next cover fill.
-	//
-	// WHY HERE: one component effect on `upNextList` covers EVERY queue install path (regenerate,
-	// ensureAhead, the diverse safety-net, restore, a manual add) from a single site, without adding
-	// another $effect to the ~3000-line player god object. Nothing about resolve/playback moves.
-	//
-	// WHY GATED: nothing is fetched until the user actually OPENS Up Next (sheet open + queue tab),
-	// so the click-to-play critical path pays zero — a tap with the sheet closed issues no cover call.
-	//
-	// THE COST NUMBER: ≤20 tier-1 /api/deezer/search per fill (UPNEXT_COVER_MAX), ≤6 in flight
-	// (backfillCovers' CAP=6 pool); the iTunes + CN tiers fire ONLY on a per-row Deezer miss; a
-	// re-open issues ~0 (backfillCovers skips cached rows and remembers misses for 5 min).
-	//
-	// WHY THIS IS *NOT* THE T-26-10-01 FLOOD: that was N uncoordinated per-tile `use:lazyCover`
-	// chains, one per rendered row, re-firing on every list render with no shared cap. This is ONE
-	// capped pool from ONE site, aborted on re-run, behind the apiFetch governor. The
-	// no-`use:lazyCover`-on-Up-Next rule still holds — do not re-introduce it.
-	//
-	// quick-260910-qwt: the RELATED tab reuses this SAME single pool — the tab now selects the row
-	// list (`queue` → upNextList, `related` → related, `lyrics` → nothing), everything else about the
-	// effect is unchanged. Cost: `related` is at most 20 rows and `upNextCoverNeeds` skips every row
-	// already carrying an https source cover (most CN search hits carry an inline pic), so a Related
-	// fill is ≤20 tier-1 /api/deezer/search, typically far fewer, ≤6 in flight, ~0 on re-open
-	// (skip-cached + the 5-min miss memo). Switching tab aborts the other pool, so still at most ONE
-	// live fill. This is emphatically NOT a per-row `use:lazyCover` on Related — T-26-10-01 holds.
-	//
-	// SELF-INVALIDATION GUARD (cf. restore-effect-self-invalidation-loop): this effect NEVER reads
-	// `coverVersion()` — `upNextCoverNeeds` is cache-free, and the `readCoverByUidOrName` read lives
-	// in the template, not here — and `backfillCovers` is called under `untrack`. So `onResolved →
-	// bumpCoverVersion` repaints the tiles but cannot re-trigger the effect that started the fill.
-	// `related` is reassigned ONLY by its own fetch effect (once per track change), so adding it as a
-	// dependency cannot loop either.
-	//
-	// PIZ GUARD (quick-260910-piz): `upNextCoverNeeds` skips any row with an https `track.cover`, so
-	// an album-installed queue is never even submitted; `backfillCovers` writes the NAME cache layer
-	// only and never touches `track.cover` / `attachedCover`.
-	$effect(() => {
-		if (sheetState === 'closed') return;
-		const rows = tab === 'queue' ? upNextList : tab === 'related' ? related : null;
-		if (!rows) return;
-		const needs = upNextCoverNeeds(rows);
-		if (!needs.length) return;
-		const ac = new AbortController();
-		untrack(() => {
-			void backfillCovers(needs, {
-				signal: ac.signal,
-				onResolved: () => bumpCoverVersion(),
-				max: UPNEXT_COVER_MAX
-			});
-		});
-		// A re-run (queue change / tab switch / sheet close) aborts the in-flight fill, so at most ONE
-		// pool is ever live. backfillCovers treats abort ≠ miss, so nothing is poisoned in the memo.
-		return () => ac.abort();
-	});
 	const prevCover = $derived(ci > 0 ? player.queue[ci - 1] : null);
 	const nextCover = $derived(ci >= 0 && ci + 1 < player.queue.length ? player.queue[ci + 1] : null);
 	// hasPrev is false at the first queued track; player.prev() restarts the song when currentTime
@@ -738,69 +361,6 @@
 		if (!name) return;
 		player.collapse();
 		goto(`/artist/${encodeURIComponent(name)}`);
-	}
-
-	// quick-260625-pzs-02: swipe-to-queue on the Related list, mirroring search/+page.svelte:41-50.
-	// swipe-right = add to queue (D-03), swipe-left = play next (D-04). Reuses the shared swipeAction
-	// (tap-preserving + vertical-yielding) so tap-to-play and long-press menu keep working.
-	function relatedSwipeQueue(track: Track) {
-		player.addToQueue(track);
-		toast.show(t('toast.addedToQueue'));
-		hapticTick();
-	}
-	function relatedSwipeNext(track: Track) {
-		player.playNext(track);
-		toast.show(t('toast.playingNext'));
-		hapticTick();
-	}
-
-	// quick-260910-qjv: a Related TAP is "queue at the top and play", not "nuke my queue". It used
-	// to be play({ fresh: true }) — the fresh branch weaves history, re-anchors upNextAnchorUid to
-	// the tapped song, clears removedUids and REGENERATES the tail, so every row the user had lined
-	// up vanished. Composed from two existing store methods instead, zero store diff:
-	//   playNext  — the exact surgery swipe-left above already performs (de-dupe by uid, splice
-	//               after current, pin in manualUids, persist), and
-	//   play(…, { fresh: false }) — the path next()/prev()/auto-advance take: it never weaves
-	//               history, never re-anchors, never clears removedUids and never regenerates.
-	// So upNextList (the anchored queue.slice) keeps every row; only the .playing highlight moves.
-	function relatedTapPlay(track: Track) {
-		// Tapping the now-playing song is a NO-OP, not a restart: the related list excludes current
-		// and reloads on a current change, so this only covers the async reload window. It also
-		// keeps playNext from mis-splicing — playNext filters the uid out FIRST, then looks for
-		// current, which would be gone, landing the track at index 0.
-		if (player.current?.uid === track.uid) return;
-		// pin:false — this tap means "play this now", NOT "pin this for later". playNext is borrowed
-		// purely for its splice-after-current positioning; taking its manualUids side effect too left
-		// the tapped song surviving every later queue reset (a main-page play then yielded
-		// `c1, b1, c2…`). An explicit Play-next — the swipe-left above, or the track menu — still pins.
-		player.playNext(track, { pin: false });
-		// Cold start: with no current, playNext plays the track itself (setting current
-		// synchronously), so this guard is what prevents a double play().
-		// No toast/haptic — the row becoming the playing track IS the feedback.
-		if (player.current?.uid !== track.uid) void player.play(track, { fresh: false });
-	}
-
-	// quick-260910-nx6: the same split-by-direction swipe on the UP-NEXT list, replacing the
-	// always-visible per-row Layers button (right = open the version picker) and the old
-	// swipe-to-remove action (left = remove). swipeAction is a PURE DOM gesture — the host fires haptics on commit
-	// (PATTERNS.md §3.3), exactly like the related helpers above.
-	// quick-260910-omt: the removal used to be silent AND irreversible — a mis-swipe permanently
-	// session-excluded the song (D-10 removedUids) with no feedback. It now raises an undo toast:
-	// removeFromQueue hands back a receipt, restoreToQueue reverses the queue index, the manual
-	// pin and the exclusion. The callback lives HERE because stores stay i18n-free and never
-	// import UI; it closes over the receipt only, never over private player state. Per the toast
-	// contract a superseding toast DISCARDS a pending undo (it can never fire late).
-	function queueSwipeVersions(track: Track) {
-		openVersionPicker(track);
-		hapticTick();
-	}
-	function queueSwipeRemove(track: Track) {
-		const r = player.removeFromQueue(track.uid);
-		if (!r) return; // nothing removed (current row / not in queue) → no toast, nothing to undo
-		toast.show(t('toast.removedFromQueue'), {
-			action: { label: t('toast.undo'), run: () => player.restoreToQueue(r) }
-		});
-		hapticTick();
 	}
 
 	// ---- back-gesture: NowPlaying only renders while player.expanded, so mount == overlay
@@ -1259,81 +819,6 @@
 		};
 	});
 
-	// ---- Up-Next reorder: custom pointer/touch drag on the far-right grip handle ----
-	// (NOT native HTML5 DnD — poor on touch). On drop we call player.reorderQueue,
-	// which pins the moved track manual so it survives the next fresh-play regen.
-	let queueListEl = $state<HTMLElement | null>(null);
-	// quick-260618-ink (tweak 2): one-shot latch — plain let (NOT $state) so reading it does not make
-	// the scroll effect re-run; reset to false when the list closes so the next open re-fires.
-	let upNextScrollDone = false;
-	let dragFrom = $state(-1); // source row index while dragging (-1 = idle)
-	let dragOver = $state(-1); // current target row index
-	let rowDragY = $state(0); // px the lifted row follows the finger
-	let rowDragStartY = 0;
-
-	/** Find the queue row index under client-Y `y` by measuring each <li>'s rect. */
-	function rowIndexAt(y: number): number {
-		if (!queueListEl) return dragFrom;
-		const items = queueListEl.querySelectorAll('li');
-		for (let i = 0; i < items.length; i++) {
-			const r = items[i].getBoundingClientRect();
-			if (y < r.top + r.height / 2) return i;
-		}
-		return items.length - 1;
-	}
-
-	function gripDragDown(e: PointerEvent, index: number) {
-		e.stopPropagation(); // don't trigger the row's play onclick
-		dragFrom = index;
-		dragOver = index;
-		rowDragStartY = e.clientY;
-		rowDragY = 0;
-		(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-	}
-	function gripDragMove(e: PointerEvent) {
-		if (dragFrom < 0) return;
-		rowDragY = e.clientY - rowDragStartY;
-		dragOver = rowIndexAt(e.clientY);
-	}
-	function gripDragUp() {
-		if (dragFrom < 0) return;
-		// list is sliced from current (upNextStart); reorderQueue needs queue-absolute indices.
-		if (dragOver >= 0 && dragOver !== dragFrom)
-			player.reorderQueue(dragFrom + upNextStart, dragOver + upNextStart);
-		dragFrom = -1;
-		dragOver = -1;
-		rowDragY = 0;
-	}
-
-	// quick-260618-ink (tweak 2): ONE-SHOT scroll-to-current on Up-Next OPEN only. Latched by
-	// upNextScrollDone, reset when the list closes. Deliberately NOT a mutation-driven scroll —
-	// 260615-mnr removed continuous auto-scroll (overflow-anchor:none) and that must not return.
-	$effect(() => {
-		// Only `tab` + `sheetState` are TRACKED reads — the open/visibility transitions. The row
-		// lookup happens inside the rAF callback (untracked DOM read), so a queue mutation alone
-		// never re-fires this scroll.
-		const isOpen = tab === 'queue' && sheetState !== 'closed';
-		if (!isOpen) {
-			upNextScrollDone = false; // re-arm for the next open
-			return;
-		}
-		if (upNextScrollDone) return;
-		upNextScrollDone = true; // latch immediately so a reactive re-tick cannot re-scroll
-		if (typeof window === 'undefined') return;
-		// The DOM may not be laid out the same tick the tab flips; wait one frame so layout flushed.
-		requestAnimationFrame(() => {
-			const container = queueListEl?.closest('.panel') as HTMLElement | null;
-			const playingRow = queueListEl?.querySelector('.q-row.playing') as HTMLElement | null;
-			const li = playingRow?.closest('li') as HTMLElement | null;
-			if (!container || !li) return;
-			// Pin the current row to the container TOP (block:'start' semantics) via rect deltas —
-			// NOT Element.scrollIntoView() ancestor-walking (it yanks the sheet to full).
-			const liRect = li.getBoundingClientRect();
-			const cRect = container.getBoundingClientRect();
-			const offsetWithin = liRect.top - cRect.top + container.scrollTop;
-			container.scrollTo({ top: offsetWithin, behavior: 'smooth' });
-		});
-	});
 </script>
 
 <section
@@ -1582,143 +1067,29 @@
 			<button data-tab="related" class:active={tab === 'related'} onclick={() => selectTab('related')} use:tapBounce>{t('nowplaying.related')}</button>
 		</nav>
 
-		<div class="panel">
-			{#if tab === 'queue'}
-				{#if upNextList.length}
-					<ul class="list" bind:this={queueListEl}>
-						{#each upNextList as track, i (track.uid)}
-							{@const skipped = player.isUnplayable(track.uid)}
-							<!-- quick-260910-q5a: the tile's three-rung cover read (see the Gap 3 block below).
-							     quick-260910-qwt: now the SHARED pickRowCover — the identical read every other row
-							     surface uses (resolved → track.cover → shared cache). Behaviour is unchanged here. -->
-							{@const qArt = pickRowCover(readPinnedCover(track.uid), resolvedCovers[track.uid], track.cover, readCoverByUidOrName(track.uid, track.artist, track.title))}
-							<li
-								class:lifted={i === dragFrom}
-								class:over={i === dragOver && i !== dragFrom}
-								style:transform={i === dragFrom && rowDragY ? `translateY(${rowDragY}px)` : undefined}
-							>
-								<!-- Gap 4 (26-10): per-row version-picker trigger, still the single lazy fetchVariants
-								     fan-out fired ONLY on a deliberate gesture, never on list render (T-26-10-02).
-								     quick-260910-nx6: it is no longer an always-visible per-row button — the trigger is now the
-								     swipe-RIGHT reveal below (hidden at rest, per the user decision, one fewer 44px control per
-								     row). Keyboard/AT reach is unchanged: the long-press / contextmenu TrackMenu still lists
-								     "Play from source" (TrackMenu.svelte → openVersions). The wrapper is a <span>, so the
-								     Gap 4 no-button-in-button constraint still holds. -->
-								<!-- quick-260615-i9u (Feature A): a probe-confirmed-dead Up-Next entry stays IN the queue
-								     (nextPlayableIndex just routes past it) — render it dimmed with a leading ✗ and branch
-								     the row tap to retry-that-exact-track instead of a fresh play. swipeAction/longpress/grip
-								     are deliberately untouched so reorder + swipe actions keep working on a skipped row. -->
-								<span class="swipe-wrap q-swipe" class:is-current={track.uid === player.current?.uid}>
-								<!-- quick-260910-nx6: reveal layers sit BEHIND the row; the row's translateX exposes one
-								     side. Left edge = versions (a RIGHT drag), right edge = remove (a LEFT drag). aria-hidden
-								     — decorative only. -->
-								<span class="reveal reveal-versions" aria-hidden="true"><Layers size={20} /></span>
-								<span class="reveal reveal-remove" aria-hidden="true"><Trash2 size={20} /></span>
-								<!-- quick-260910-nx6: swipeAction's `enabled` is GLOBAL (it would also kill swipe-right, which
-								     stays available on the current row) — so the current-row remove gate is expressed by leaving
-								     onSwipeLeft UNDEFINED instead: swipeAction calls `onSwipeLeft?.()`, i.e. a silent no-op that
-								     still springs the row back. Preserves the old swipe-to-remove `enabled: uid !== current` contract
-								     (T-nx6-01: the playing track can never be removed by gesture). -->
-								<button class="row q-row" class:playing={track.uid === player.current?.uid} class:skipped use:swipeAction={{ onSwipeRight: () => queueSwipeVersions(track), onSwipeLeft: track.uid === player.current?.uid ? undefined : () => queueSwipeRemove(track) }} use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openMenu(track); }} onclick={(e) => { (e.currentTarget as HTMLElement)?.blur(); skipped ? player.retryUnplayable(track) : player.play(track, {fresh: false}); }} title={skipped ? t('nowplaying.skippedRetry') : undefined}>
-									<!-- Gap 3 (26-10): the Up-Next LIST tile paints from the SEEDED cover (26-07 seeds the
-									     name-stub's cover with the Last.fm image; search/resolved tracks carry their real cover),
-									     with a gradient on a true miss — NO per-tile use:lazyCover Deezer→iTunes→CN chain (that
-									     was the observed /api/deezer/search flood — T-26-10-01). The `resolvedCovers[track.uid] ??`
-									     read is KEPT (zero-cost): the map is still fed by the prev/next CAROUSEL neighbors below,
-									     so a row that WAS a neighbor keeps its resolved cover, but the list itself resolves nothing.
-									     Accepted trade-off: an Up-Next tile no longer self-heals a dead cover via the chain — only the
-									     now-playing track gets the optional HQ upgrade (per the UAT). https-only; never throws.
+		<!-- The pane prop lists live in snippets so the narrow (one-of-three) and wide (all three)
+		     branches below cannot drift apart — one definition, two call sites. -->
+		{#snippet upNextPane()}
+			<NpUpNext
+				rows={upNextList}
+				startIndex={upNextStart}
+				{resolvedCovers}
+				open={sheetState !== 'closed'}
+				onMenu={openMenu}
+				onVersions={openVersionPicker}
+			/>
+		{/snippet}
+		{#snippet lyricsPane()}
+			<NpLyrics {sheetState} />
+		{/snippet}
+		{#snippet relatedPane()}
+			<NpRelated {resolvedCovers} onMenu={openMenu} />
+		{/snippet}
 
-									     quick-260910-q5a: that 26-07 SEED is dead in practice — a live probe of 20 `track.getSimilar`
-									     pairs returned withImage: 0, so a similarity-generated list has no seeded cover at all. The tile
-									     therefore now reads a THIRD rung, the shared reactive cover cache, via `readCoverByUidOrName`
-									     (uid → name layer). That is a reactive READ depending on coverVersion(), NOT a per-tile fetch —
-									     T-26-10-01's no-`use:lazyCover`-here rule still holds; the single capped backfillCovers pass in
-									     the gated $effect above is the ONLY network path. Same asymmetry class the hero fixed in
-									     cover-hero-mediacard-missing. `track.cover` stays AHEAD of the cache so a quick-260910-piz
-									     attached album cover always wins over a per-track image. -->
-									<span class="q-art" style:background-image={qArt ? `url(${qArt})` : fallbackCover(track)}></span>
-									<span class="q-text">
-										{#if skipped}<span class="r-skip" aria-hidden="true">✗</span>{/if}
-										<span class="r-title">{names.dnTitle(track.title)}</span>
-										<span class="r-artist">{names.dnArtist(track.artist)}</span>
-									</span>
-									<!-- quick-260723: passive liked/downloaded indicators on up-next rows. -->
-									<RowBadges uid={track.uid} />
-								</button>
-								</span>
-								<button
-									class="grip-handle"
-									aria-label={t('nowplaying.reorderTrack')}
-									onpointerdown={(e) => gripDragDown(e, i)}
-									onpointermove={gripDragMove}
-									onpointerup={gripDragUp}
-									onpointercancel={gripDragUp}
-									onclick={(e) => e.stopPropagation()}
-								><GripVertical size={18} /></button>
-							</li>
-						{/each}
-					</ul>
-				{:else}<p class="empty">{t('nowplaying.noQueue')}</p>{/if}
-			{:else if tab === 'lyrics'}
-				{#if lines.length}
-					{#if translating}<p class="tr-hint">{t('nowplaying.translating')}</p>{/if}
-					<div class="lyrics" role="group" aria-label={t('nowplaying.lyrics')} bind:this={lyricsEl} onpointerdown={lyricsTouched} onwheel={lyricsWheel} onscroll={bumpResume}>
-						{#each lines as l, i (i)}
-							{#if !(l.fromParen && settings.lyricsHideParenLines)}
-								{@const hideTrForLine = l.fromParen && settings.lyricsHideParenTranslation}
-								<!-- D-01: every lyric line is a tap target that seeks to its timestamp. The line stays a
-								     semantic <p> so the anchor $effect's `querySelectorAll('p')[idx]` scroll-centering, the
-								     `.lyrics p` centring/active/paren CSS, and the activeTime↔translated[i] index alignment
-								     are ALL untouched (swapping to <button> would break the anchor lookup the plan forbids
-								     editing). onkeydown gives Enter/Space parity (seekToLineKey); role="button"+tabindex make
-								     it a focusable control. A <p> cannot legally carry an interactive role/tabindex per ARIA,
-								     so the three resulting advisories are silenced at element scope only. -->
-								<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-								<!-- svelte-ignore a11y_no_noninteractive_element_to_interactive_role -->
-								<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-								<p data-i={i} class:active={l.time === activeTime && activeTime >= 0} class:paren={l.fromParen} onclick={() => seekToLine(l)} onkeydown={(e) => seekToLineKey(e, l)} role="button" tabindex="0">
-									{#if showTr && settings.translateMode === 'replace' && !hideTrForLine}
-										{trLines[i]}
-									{:else}
-										{l.text}
-										{#if showTr && !hideTrForLine}<span class="tr" class:active={l.time === activeTime && activeTime >= 0}>{trLines[i]}</span>{/if}
-									{/if}
-								</p>
-							{/if}
-						{/each}
-					</div>
-				{:else}<p class="empty">{t('nowplaying.noLyrics')}</p>{/if}
-			{:else}
-				{#if related.length}
-					<ul class="list">
-						{#each related as track (track.uid)}
-							<!-- quick-260910-qwt: Related rows had NO art at all. This is the same shared
-							     three-rung read the Up-Next tile uses (resolved → track.cover → shared cache) —
-							     a reactive READ, never a fetch. NO `use:lazyCover` on these rows: per-row chains
-							     here were the observed /api/deezer/search flood (T-26-10-01) and that rule still
-							     holds. The coverless rows are filled by the ONE capped, tab-gated backfillCovers
-							     effect above. Must sit directly under the {#each} ({@const} is block-child only). -->
-							{@const rArt = pickRowCover(readPinnedCover(track.uid), resolvedCovers[track.uid], track.cover, readCoverByUidOrName(track.uid, track.artist, track.title))}
-							<!-- quick-260625-pzs-02: reveal layers sit BEHIND the row; the row translateX
-							     (use:swipeAction) slides to expose them. Right-drag → queue, left-drag → play
-							     next. aria-hidden (the same actions stay reachable via the long-press menu). -->
-							<li class="swipe-wrap related-swipe">
-								<span class="reveal reveal-queue" aria-hidden="true"><ListEnd size={20} /></span>
-								<span class="reveal reveal-next" aria-hidden="true"><ListStart size={20} /></span>
-								<button class="row rel-row" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openMenu(track); }} onclick={() => relatedTapPlay(track)} use:swipeAction={{ onSwipeRight: () => relatedSwipeQueue(track), onSwipeLeft: () => relatedSwipeNext(track) }}><span class="q-art" style:background-image={rArt ? `url(${rArt})` : fallbackCover(track)}></span><span class="r-meta"><span class="r-title">{names.dnTitle(track.title)}</span><span class="r-artist">{names.dnArtist(track.artist)}</span></span><RowBadges uid={track.uid} /></button>
-							</li>
-						{/each}
-					</ul>
-				{:else if relatedLoading}
-					<ul class="list" aria-label={t('nowplaying.loadingRelated')}>
-						<span class="vh">{t('nowplaying.loadingRelated')}</span>
-						{#each Array(8) as _, i (i)}
-							<li><span class="row skel" aria-hidden="true"><span class="r-title sk"></span><span class="r-artist sk"></span></span></li>
-						{/each}
-					</ul>
-				{:else}<p class="empty">{t('nowplaying.noRelated')}</p>{/if}
-			{/if}
+		<div class="panel">
+			{#if tab === 'queue'}{@render upNextPane()}
+			{:else if tab === 'lyrics'}{@render lyricsPane()}
+			{:else}{@render relatedPane()}{/if}
 		</div>
 	</div>
 
@@ -1962,114 +1333,11 @@
 	   does its own explicit `container.scrollTo(...)` (it never relies on anchoring), and the
 	   related tab doesn't auto-scroll, so disabling anchoring here is safe for all three tabs. */
 	.panel { flex: 1; overflow-y: auto; overscroll-behavior-y: contain; overflow-anchor: none; }
-	.list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
-	.row { width: 100%; text-align: left; background: none; border: none; padding: 8px 6px; border-radius: 8px; cursor: pointer; display: flex; flex-direction: column; }
-	/* quick-260625-pzs-02: swipe-to-queue on the RELATED list only (mirrors search/+page.svelte:669-677).
-	   The reveal spans sit BEHIND the row; the row's translateX (use:swipeAction) slides to expose the
-	   correct side. The related .row is normally transparent, so it gets an opaque bg + z-index here so
-	   the reveal stays masked at rest and clipped during travel. The Up-Next list gets its own
-	   `.q-swipe` variant (quick-260910-nx6).
-	   quick-260910-k45: the opaque background this comment described was never actually written —
-	   the rule only had `z-index: 1`, which orders layers but does not occlude, so the reveal icons
-	   showed through the transparent row at rest. `background: var(--color-bg)` matches `.np`, so the
-	   now-opaque row looks unchanged over the sheet. */
-	.related-swipe { position: relative; overflow: hidden; border-radius: 10px; }
-	.related-swipe .reveal {
-		position: absolute; top: 0; bottom: 0; width: 96px; display: flex; align-items: center;
-		justify-content: center; color: #fff; pointer-events: none;
-	}
-	.related-swipe .reveal-queue { left: 0; color: var(--color-text-muted); }
-	.related-swipe .reveal-next { right: 0; color: var(--color-text-muted); }
-	.related-swipe .row { background: var(--color-bg); position: relative; z-index: 1; }
-	/* quick-260910-nx6: the same reveal pattern on the UP-NEXT list. The wrapper is a <span> (not the
-	   <li>, which also holds the always-visible grip) so the grip never slides with the row;
-	   flex:1/min-width:0 make it fill the li beside that sibling button, and the old
-	   `.q-row { flex: 1; min-width: 0 }` now applies INSIDE the wrapper where `.row { width: 100% }`
-	   sizes it. The opaque background is the quick-260910-k45 root-cause fix carried over: z-index
-	   only ORDERS layers, only an opaque background OCCLUDES — without it the grip/reveal icons
-	   render through the row's title text mid-swipe (confirmed live before this task). */
-	.q-swipe { position: relative; overflow: hidden; border-radius: 10px; flex: 1; min-width: 0; }
-	.q-swipe .reveal {
-		position: absolute; top: 0; bottom: 0; width: 96px; display: flex; align-items: center;
-		justify-content: center; color: var(--color-text-muted); pointer-events: none;
-	}
-	.q-swipe .reveal-versions { left: 0; }
-	.q-swipe .reveal-remove { right: 0; }
-	/* The current row's swipe-LEFT is a deliberate no-op (T-nx6-01), so never flash a trash icon
-	   that cannot do anything. */
-	.q-swipe.is-current .reveal-remove { display: none; }
-	.q-swipe .q-row { background: var(--color-bg); position: relative; z-index: 1; }
-	/* MENU-03 / D-12: hover-capable devices only — touch otherwise latches this :hover
-	   background on a queue/related row under a held finger while the track menu opens. */
-	@media (hover: hover) { .row:hover { background: var(--color-surface); } }
-	.row.playing { background: rgba(124,92,255,0.15); }
-	/* quick-260910-nx6: `.row.playing` is TRANSLUCENT and, later at equal specificity, would beat
-	   the opaque `.q-swipe .q-row` on the playing row and re-open the bleed. Same tint, composited
-	   over the opaque bg. `.row.playing` itself stays untouched (it is the generic rule). */
-	.q-swipe .q-row.playing { background: linear-gradient(rgba(124,92,255,0.15), rgba(124,92,255,0.15)) var(--color-bg); }
-	/* Queue rows: play-button + far-right grip side by side. */
-	.list li { display: flex; align-items: center; gap: 2px; }
-	.q-row { flex: 1; min-width: 0; }
-	/* quick-260629-nyl Task 1: Up-Next rows lay the lazy album-art thumbnail to the LEFT of a
-	   min-width:0 text column so the title/artist still stack and ellipsis as before. Only the
-	   Up-Next `.q-row` is switched to row-direction; the generic `.row` (related skeleton/list)
-	   keeps its column layout untouched. The art dims with the row via `.q-row.skipped` (child). */
-	.q-row { flex-direction: row; align-items: center; gap: 0; }
-	.q-art { width: 36px; height: 36px; border-radius: 6px; background-size: cover; background-position: center; background-color: rgba(255,255,255,0.04); flex: none; margin-right: 8px; }
-	.q-text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
-	.grip-handle { flex: 0 0 auto; background: none; border: none; color: var(--color-text-muted); opacity: 0.55; cursor: grab; touch-action: none; display: grid; place-items: center; padding: 8px 6px; border-radius: 8px; }
-	.grip-handle:active { cursor: grabbing; opacity: 0.9; }
-	.list li.lifted { position: relative; z-index: 2; opacity: 0.92; }
-	.list li.lifted .q-row { background: var(--color-surface); }
-	/* quick-260910-nx6: the drop shadow moves to the wrapper — `.q-swipe { overflow: hidden }` would
-	   clip it off the row during a grip drag. `.list li.over .q-row` is INSET, so it is unaffected. */
-	.list li.lifted .q-swipe { box-shadow: 0 6px 18px rgba(0,0,0,0.4); }
-	.list li.over .q-row { box-shadow: inset 0 2px 0 var(--color-primary); }
-	.r-title { font-size: calc(14px * var(--fs-title, 1)); font-weight: 600; color: var(--color-text);}
-	.r-artist { font-size: calc(12px * var(--fs-artist, 1)); color: var(--color-text-muted); }
-	/* quick-260723: Related list rows go row-direction so RowBadges sit at the trailing edge; the
-	   text stacks inside .r-meta. The shared `.row` (column) + its skeleton variant stay untouched. */
-	.row.rel-row { flex-direction: row; align-items: center; gap: 8px; }
-	/* quick-260910-qwt: Related reuses the 36px .q-art tile — the row already has gap: 8px, so drop
-	   the tile's own right margin instead of adding a second art rule. */
-	.rel-row .q-art { margin-right: 0; }
-	.rel-row .r-meta { display: flex; flex-direction: column; min-width: 0; flex: 1; }
-	/* quick-260615-i9u (Feature A): a probe-confirmed-dead Up-Next row, dimmed + leading ✗. Tapping
-	   it retries that exact track. Reuses existing design tokens (no new hardcoded colors). */
-	/* quick-260910-nx6: scoped to the CHILDREN — dimming the button itself made the whole row
-	   translucent, letting the reveal layers behind it show through. Art/text/badges dim, the
-	   row's own background stays opaque. */
-	.q-row.skipped > * { opacity: 0.45; }
-	.r-skip { font-size: calc(12px * var(--fs-artist, 1)); font-weight: 600; color: var(--color-text-muted); margin-right: 6px; }
-	/* Related-tab loading skeleton: placeholder rows mirror the real .row shape
-	   (stacked title + artist bars) so the list keeps its size/shape while fetching.
-	   Bars use the global `.sk` shimmer; reduce-motion handled there. */
-	.row.skel { pointer-events: none; gap: 6px; }
-	.row.skel .sk { display: block; }
-	.row.skel .r-title { width: 55%; height: 14px; }
-	.row.skel .r-artist { width: 38%; height: 12px; }
-	/* Visually-hidden screen-reader cue for the skeleton list. */
-	.vh { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
-	/* Side padding gives the active line's transform: scale + bold weight room to grow
-	   without bumping the parent's `overflow: hidden` clip. word-break/overflow-wrap force
-	   even unbroken-character runs (CJK with no spaces, or long URLs) to wrap inside the
-	   column instead of being clipped at the edges. */
-	.lyrics { text-align: center; line-height: 1.3; }
-	.lyrics p { font-size: calc(1rem * var(--fs-lyrics, 1)); color: var(--color-text-muted); transition: color 0.2s ease, transform 0.2s ease; margin: 0; white-space: normal; overflow-wrap: anywhere; word-break: break-word; }
-	.lyrics p.active { color: var(--color-text); font-weight: 700; }
-	/* paren-derived sibling line — slightly smaller / lower contrast than the parent so the
-	   reader can tell "this is the embedded-translation part" at a glance. */
-	.lyrics p.paren { font-size: calc(0.9rem * var(--fs-lyrics, 1)); opacity: 0.85; }
-	.lyrics .tr { display: block; font-size: 0.82em; font-weight: 400; color: var(--color-text-muted); margin-top: 2px; }
-	/* quick-260618-t7p Task 3: the per-line translation inside an active line is a CHILD .tr span, so
-	   .lyrics p.active (which only restyles the <p>'s own color/weight) does not reach it and the base
-	   .lyrics .tr pins a muted color/weight 400 — the translation stayed un-highlighted while its parent
-	   line was active. Mirror the active-line emphasis (same tokens as .lyrics p.active) so the active
-	   moment's translation reads as highlighted in lockstep with the original. */
-	.lyrics .tr.active { color: var(--color-text); font-weight: 700; }
-	/* D-11/LYR-03: end spacer — height is set inline from spacerH (≈ half the visible band) so the
-	   last lines can reach the vertical center. flex-shrink:0 keeps it from collapsing inside the
-	   flex column. */
-	.tr-hint { text-align: center; font-size: 11px; color: var(--color-primary); margin: 0 0 6px; }
-	.empty { color: var(--color-text-muted); font-size: 14px; text-align: center; padding: 24px; }
+	/* quick-260919-np3: the row / lyric / skeleton rules that used to live here moved into
+	   NpUpNext.svelte, NpLyrics.svelte and NpRelated.svelte with the markup they style — Svelte
+	   scopes styles per component, so a rule cannot stay behind once its element leaves. `.panel`
+	   above stays, because the scroll container is still the parent's element (and both the lyrics
+	   anchor `$effect` and the Up-Next scroll-to-current still find it via `.closest('.panel')`).
+
+	   Nothing about the panel or the tab bar changed with the split. */
 </style>
