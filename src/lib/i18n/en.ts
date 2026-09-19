@@ -76,6 +76,8 @@ const en = {
 	"settings.translateLastfm": "Bio info",
 	"settings.translateArtistNote": "Translate displayed artist names to this language.",
 	"settings.translateTitleNote": "Translate displayed song & album titles to this language.",
+	"settings.zhScript": "Chinese script",
+	"settings.zhScriptNote": "Force every Chinese title, artist and album into one script, whatever the source used. Chinese only — other languages are unaffected.",
 	"settings.translateLyricsNote": "Translate displayed lyric lines to this language.",
 	"settings.translateLastfmNote": "Pick a language for artist bios, or Auto to follow your app language.",
 	"settings.skipLanguages": "Skip these source languages",

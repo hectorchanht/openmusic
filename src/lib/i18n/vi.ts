@@ -61,6 +61,8 @@ const vi: Dict = {
 	"settings.translateLastfm": "Tiểu sử",
 	"settings.translateArtistNote": "Dịch tên nghệ sĩ được hiển thị sang ngôn ngữ này.",
 	"settings.translateTitleNote": "Dịch tiêu đề bài hát và album được hiển thị sang ngôn ngữ này.",
+	"settings.zhScript": "Chữ viết tiếng Trung",
+	"settings.zhScriptNote": "Buộc mọi tên bài hát, nghệ sĩ và album tiếng Trung hiển thị theo một kiểu chữ duy nhất, bất kể nguồn dùng kiểu nào. Chỉ tiếng Trung — các ngôn ngữ khác không bị ảnh hưởng.",
 	"settings.translateLyricsNote": "Dịch các dòng lời bài hát được hiển thị sang ngôn ngữ này.",
 	"settings.translateLastfmNote": "Tiểu sử nghệ sĩ được dịch tự động sang ngôn ngữ ứng dụng.",
 	"settings.skipLanguages": "Bỏ qua các ngôn ngữ nguồn này",

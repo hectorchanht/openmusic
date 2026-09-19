@@ -61,6 +61,8 @@ const tr: Dict = {
 	"settings.translateLastfm": "Biyografi",
 	"settings.translateArtistNote": "Görüntülenen sanatçı adlarını bu dile çevirin.",
 	"settings.translateTitleNote": "Görüntülenen şarkı ve albüm başlıklarını bu dile çevirin.",
+	"settings.zhScript": "Çince yazı",
+	"settings.zhScriptNote": "Kaynak hangisini kullanırsa kullansın, tüm Çince parça, sanatçı ve albüm adlarını tek bir yazıya çevirir. Yalnızca Çince — diğer diller etkilenmez.",
 	"settings.translateLyricsNote": "Görüntülenen şarkı sözü satırlarını bu dile çevirin.",
 	"settings.translateLastfmNote": "Sanatçı biyografileri uygulama dilinize otomatik çevrilir.",
 	"settings.skipLanguages": "Bu kaynak dilleri atla",

@@ -61,6 +61,8 @@ const th: Dict = {
 	"settings.translateLastfm": "ข้อมูลประวัติ",
 	"settings.translateArtistNote": "แปลชื่อศิลปินที่แสดงเป็นภาษานี้",
 	"settings.translateTitleNote": "แปลชื่อเพลงและอัลบั้มที่แสดงเป็นภาษานี้",
+	"settings.zhScript": "ตัวอักษรจีน",
+	"settings.zhScriptNote": "บังคับให้ชื่อเพลง ศิลปิน และอัลบั้มภาษาจีนทั้งหมดใช้ตัวอักษรเดียวกัน ไม่ว่าแหล่งที่มาจะใช้แบบใด เฉพาะภาษาจีน — ภาษาอื่นไม่ได้รับผลกระทบ",
 	"settings.translateLyricsNote": "แปลเนื้อเพลงที่แสดงเป็นภาษานี้",
 	"settings.translateLastfmNote": "ประวัติศิลปินจะถูกแปลเป็นภาษาแอปของคุณโดยอัตโนมัติ",
 	"settings.skipLanguages": "ข้ามภาษาต้นฉบับเหล่านี้",

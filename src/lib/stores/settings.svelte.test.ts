@@ -278,3 +278,47 @@ describe('accent-hover derivation (Phase 17 UX-07)', () => {
 		expect(() => settings.applyTheme()).not.toThrow();
 	});
 });
+
+// quick-260919-2jo — the Chinese script lock setting (F1).
+//
+// load() is browser-guarded and `browser` is false under the node project, so the persisted-parse
+// path is asserted at the SOURCE (the T-2jo-02 union guard) rather than by driving load() — the
+// same limitation every other load()-parse rule in this store has. Everything the singleton can
+// actually express (default, reset, save payload) is asserted live.
+describe('settings.zhScript — Chinese script lock (quick-260919-2jo)', () => {
+	// NO beforeEach reset: the default assertion below must see the untouched $state initializer,
+	// not a value this suite wrote. The mutating cases run after it and end on resetTranslation().
+	it("defaults to 'off' — D-1: an existing user sees no text change until they opt in", () => {
+		expect(settings.zhScript).toBe('off');
+	});
+
+	it("resetTranslation() returns it to 'off'", () => {
+		settings.zhScript = 'zh-Hant';
+		settings.resetTranslation();
+		expect(settings.zhScript).toBe('off');
+	});
+
+	it('accepts both script targets', () => {
+		settings.zhScript = 'zh-Hant';
+		expect(settings.zhScript).toBe('zh-Hant');
+		settings.zhScript = 'zh-Hans';
+		expect(settings.zhScript).toBe('zh-Hans');
+		settings.resetTranslation(); // leave the shared singleton as we found it
+	});
+
+	it('load() validates the persisted value against the 3-member union (T-2jo-02)', async () => {
+		// A tampered `openmusic:settings:v1` must never hand a garbage token to lockScriptSync's
+		// direction dispatch. This is the one check that fails if the guard is loosened to a cast.
+		const { readFileSync } = await import('node:fs');
+		const src = readFileSync('src/lib/stores/settings.svelte.ts', 'utf8');
+		expect(src).toMatch(
+			/v\.zhScript === 'zh-Hant' \|\| v\.zhScript === 'zh-Hans'[\s\S]{0,120}TRANSLATION_DEFAULTS\.zhScript/
+		);
+	});
+
+	it('save() carries zhScript in the persisted payload', async () => {
+		const { readFileSync } = await import('node:fs');
+		const src = readFileSync('src/lib/stores/settings.svelte.ts', 'utf8');
+		expect(src).toMatch(/zhScript: this\.zhScript/);
+	});
+});

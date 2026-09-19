@@ -61,6 +61,8 @@ const hi: Dict = {
 	"settings.translateLastfm": "बायो जानकारी",
 	"settings.translateArtistNote": "प्रदर्शित कलाकार नामों का इस भाषा में अनुवाद करें।",
 	"settings.translateTitleNote": "प्रदर्शित गीत और एल्बम शीर्षकों का इस भाषा में अनुवाद करें।",
+	"settings.zhScript": "चीनी लिपि",
+	"settings.zhScriptNote": "स्रोत चाहे जो भी लिपि दे, सभी चीनी शीर्षक, कलाकार और एल्बम नाम एक ही लिपि में दिखाएं। केवल चीनी — अन्य भाषाएँ अप्रभावित रहती हैं।",
 	"settings.translateLyricsNote": "प्रदर्शित गीत पंक्तियों का इस भाषा में अनुवाद करें।",
 	"settings.translateLastfmNote": "कलाकार की बायो आपकी ऐप भाषा में स्वतः अनुवादित होती है।",
 	"settings.skipLanguages": "इन स्रोत भाषाओं को छोड़ें",

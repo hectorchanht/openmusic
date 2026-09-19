@@ -61,6 +61,8 @@ const id: Dict = {
 	"settings.translateLastfm": "Info bio",
 	"settings.translateArtistNote": "Terjemahkan nama artis yang ditampilkan ke bahasa ini.",
 	"settings.translateTitleNote": "Terjemahkan judul lagu & album yang ditampilkan ke bahasa ini.",
+	"settings.zhScript": "Aksara Tionghoa",
+	"settings.zhScriptNote": "Paksa semua judul, artis, dan album berbahasa Tionghoa ke satu aksara, apa pun yang dipakai sumbernya. Hanya bahasa Tionghoa — bahasa lain tidak terpengaruh.",
 	"settings.translateLyricsNote": "Terjemahkan baris lirik yang ditampilkan ke bahasa ini.",
 	"settings.translateLastfmNote": "Biografi artis diterjemahkan otomatis ke bahasa aplikasi Anda.",
 	"settings.skipLanguages": "Lewati bahasa sumber ini",

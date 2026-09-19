@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { ChevronLeft, Languages, Replace } from '@lucide/svelte';
-	import { settings, type LyricsLang, type SourceLang, type TranslateMode } from '$lib/stores/settings.svelte';
+	import { settings, type LyricsLang, type SourceLang, type TranslateMode, type ZhScriptSetting } from '$lib/stores/settings.svelte';
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { t, type TranslationKey } from '$lib/i18n';
 
@@ -84,6 +84,15 @@
 		settings.save();
 	}
 	function setMode(v: TranslateMode) { settings.translateMode = v; settings.save(); }
+	// quick-260919-2jo: the Chinese SCRIPT lock. Endonyms are LITERAL here, exactly like `langs`
+	// and `sources` above — a script's own name is the same in every UI language, so the pills
+	// need no dictionary entry and only the heading + note are translated (2 new keys, not 5).
+	const ZH_SCRIPTS: { v: ZhScriptSetting; label: string }[] = [
+		{ v: 'off', label: '' },
+		{ v: 'zh-Hant', label: '繁體中文' },
+		{ v: 'zh-Hans', label: '简体中文' }
+	];
+	function setZhScript(v: ZhScriptSetting) { settings.zhScript = v; settings.save(); }
 	function setBio(v: 'auto' | LyricsLang) { settings.bioLang = v; settings.save(); }
 
 	// quick-260607-fnp: Lyrics lifted to the TOP (below the lyrics translate-mode control),
@@ -110,6 +119,22 @@
 	<h1>{t('settings.groupTranslation')}</h1>
 	<button class="reset" onclick={() => { if (confirm(t('settings.resetConfirm'))) { settings.resetTranslation(); } }} use:tapBounce>{t('settings.resetGroup')}</button>
 </header>
+
+<!-- 0. Chinese script lock (quick-260919-2jo) — sits ABOVE everything else because it governs the
+     names and titles the sections below then translate: the lock is applied LAST and has the last
+     word (D-6), so a contradictory pair (titleLang zh-Hant + lock Simplified) resolves to the
+     lock. Chinese-only by construction; see lockScriptSync's isChineseLine gate. -->
+<section>
+	<h2><Languages size={15} /> {t('settings.zhScript')}</h2>
+	<div class="seg">
+		{#each ZH_SCRIPTS as z (z.v)}
+			<button class:on={settings.zhScript === z.v} onclick={() => setZhScript(z.v)} use:tapBounce>{z.v === 'off' ? t('settings.optOff') : z.label}</button>
+		{/each}
+	</div>
+	<p class="muted">{t('settings.zhScriptNote')}</p>
+</section>
+
+<hr class="div" />
 
 <!-- 1. Lyrics translate mode — how translated lyrics display (replace vs show below). -->
 <section>

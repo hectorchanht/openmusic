@@ -61,6 +61,8 @@ const fr: Dict = {
 	"settings.translateLastfm": "Bio",
 	"settings.translateArtistNote": "Traduisez les noms d’artistes affichés dans cette langue.",
 	"settings.translateTitleNote": "Traduisez les titres des chansons et des albums affichés dans cette langue.",
+	"settings.zhScript": "Écriture chinoise",
+	"settings.zhScriptNote": "Force tous les titres, artistes et albums chinois dans une seule écriture, quelle que soit celle de la source. Chinois uniquement — les autres langues ne sont pas affectées.",
 	"settings.translateLyricsNote": "Traduisez les lignes de paroles affichées dans cette langue.",
 	"settings.translateLastfmNote": "Les biographies sont traduites automatiquement dans la langue de l’app.",
 	"settings.skipLanguages": "Ignorer ces langues sources",

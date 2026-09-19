@@ -18,7 +18,7 @@ import {
 	type HomeSectionId
 } from '$lib/services/home-layout';
 import type { SourceId } from '$lib/sources/types';
-import type { LyricsLang, SourceLang, TranslateMode, DefaultQuality, DefaultSource, Theme } from '$lib/stores/settings.svelte';
+import type { LyricsLang, SourceLang, TranslateMode, DefaultQuality, DefaultSource, Theme, ZhScriptSetting } from '$lib/stores/settings.svelte';
 
 /** The accent-color hex used when the user hasn't picked one. Pulled out so the General
  *  reset can restore it without importing from settings.svelte.ts (circular). */
@@ -70,6 +70,13 @@ export const TRANSLATION_DEFAULTS = {
 	lyricsSkip: [] as readonly SourceLang[],
 	lastfmSkip: [] as readonly SourceLang[],
 	translateMode: 'replace' as TranslateMode,
+	/** quick-260919-2jo (D-1): the Chinese script lock is OFF by default. "Default only show
+	 *  either" reads as wanting it ON, but silently re-scripting every Chinese string for an
+	 *  existing user on their next app open is the more surprising outcome — and it would also
+	 *  silently change the tags written into files they download. It sits in the same group as
+	 *  titleLang / artistLang, which are 'off' by default for the same reason (k3y / f4y).
+	 *  WR-10: this literal lives HERE and nowhere else. */
+	zhScript: 'off' as ZhScriptSetting,
 	/** Hide translations for lyrics lines extracted from a `(...)` clause. Default OFF —
 	 *  parens-translations render alongside the parent line. */
 	lyricsHideParenTranslation: false,

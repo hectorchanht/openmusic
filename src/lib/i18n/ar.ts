@@ -61,6 +61,8 @@ const ar: Dict = {
 	"settings.translateLastfm": "السيرة",
 	"settings.translateArtistNote": "ترجمة أسماء الفنانين المعروضة إلى هذه اللغة.",
 	"settings.translateTitleNote": "ترجمة عناوين الأغاني والألبومات المعروضة إلى هذه اللغة.",
+	"settings.zhScript": "الرسم الصيني",
+	"settings.zhScriptNote": "فرض رسم موحّد على جميع عناوين الأغاني والفنّانين والألبومات الصينية، مهما كان الرسم المستخدم في المصدر. للصينية فقط — لا تتأثر اللغات الأخرى.",
 	"settings.translateLyricsNote": "ترجمة الخطوط الغنائية المعروضة إلى هذه اللغة.",
 	"settings.translateLastfmNote": "تُترجم السير الذاتية تلقائيًا إلى لغة التطبيق.",
 	"settings.skipLanguages": "تخطي هذه اللغات المصدر",

@@ -94,6 +94,16 @@ export type SourceLang =
 	| 'vi'
 	| 'th';
 
+/**
+ * quick-260919-2jo: the Chinese SCRIPT lock — force every displayed Chinese title / artist /
+ * album into one script whatever the source returned. Deliberately its own 3-member union and
+ * NOT `LyricsLang`: this is a script control, not a translation target, so 'en' / 'ja' / 'ko'
+ * must be unrepresentable. The literal is repeated here rather than imported from
+ * `$lib/services/zh-convert` (whose `ZhScript` is the 2-member subset) because `settings` is a
+ * LEAF store — it imports nothing from the service/store layers, and this keeps it that way.
+ */
+export type ZhScriptSetting = 'off' | 'zh-Hant' | 'zh-Hans';
+
 class Settings {
 	/** UI-chrome language (separate from content translation; stays en/zh-Hant/zh-Hans). */
 	appLang = $state<AppLang>(GENERAL_DEFAULTS.appLang);
@@ -129,6 +139,9 @@ class Settings {
 	 * untranslated; otherwise an explicit language (quick-260607-fnp; supersedes the f4y note). */
 	bioLang = $state<'auto' | LyricsLang>(TRANSLATION_DEFAULTS.bioLang);
 	translateMode = $state<TranslateMode>(TRANSLATION_DEFAULTS.translateMode);
+	/** quick-260919-2jo: force displayed Chinese into ONE script. 'off' (D-1 default) is a
+	 *  byte-for-byte no-op — every `names.dn*` return value is exactly what it is today. */
+	zhScript = $state<ZhScriptSetting>(TRANSLATION_DEFAULTS.zhScript);
 	/** Hide the auto-generated translation for lyrics lines that came from a `(...)` clause
 	 *  split out of their parent (typically an embedded-translation in the original LRC).
 	 *  Off by default → those lines render + translate like any other line. */
@@ -278,6 +291,14 @@ class Settings {
 				this.coverScale = clampInt(v.coverScale, COVER_SCALE_MIN, COVER_SCALE_MAX, APPEARANCE_DEFAULTS.coverScale);
 				this.homeGridCols = clampInt(v.homeGridCols, GRID_COLS_MIN, GRID_COLS_MAX, APPEARANCE_DEFAULTS.homeGridCols);
 				this.translateMode = (v.translateMode as TranslateMode) ?? TRANSLATION_DEFAULTS.translateMode;
+				// quick-260919-2jo / T-2jo-02: VALIDATED against the union, not cast. A tampered or
+				// stale `openmusic:settings:v1` must never hand a garbage token to lockScriptSync's
+				// direction dispatch — anything that is not one of the two scripts falls back to 'off'
+				// (the upnextMode guard's shape, not translateMode's bare cast).
+				this.zhScript =
+					v.zhScript === 'zh-Hant' || v.zhScript === 'zh-Hans'
+						? v.zhScript
+						: TRANSLATION_DEFAULTS.zhScript;
 				// Booleans: an explicit persisted boolean wins; anything else (absent/tampered)
 				// falls back to the defaults.ts const (same single-source rule as above).
 				this.lyricsHideParenTranslation =
@@ -394,6 +415,7 @@ class Settings {
 					coverScale: this.coverScale,
 					homeGridCols: this.homeGridCols,
 					translateMode: this.translateMode,
+					zhScript: this.zhScript,
 					lyricsHideParenTranslation: this.lyricsHideParenTranslation,
 					lyricsHideParenLines: this.lyricsHideParenLines,
 					defaultQuality: this.defaultQuality,
@@ -490,6 +512,7 @@ class Settings {
 		this.lyricsSkip = [...d.lyricsSkip];
 		this.lastfmSkip = [...d.lastfmSkip];
 		this.translateMode = d.translateMode;
+		this.zhScript = d.zhScript; // quick-260919-2jo — back to 'off' (D-1)
 		this.lyricsHideParenTranslation = d.lyricsHideParenTranslation;
 		this.lyricsHideParenLines = d.lyricsHideParenLines;
 		this.save();

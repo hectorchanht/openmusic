@@ -70,6 +70,8 @@ const zhHant: Dict = {
 	"settings.translateLastfm": "簡介",
 	"settings.translateArtistNote": "將顯示的歌手名稱翻譯成此語言。",
 	"settings.translateTitleNote": "將顯示的歌曲與專輯名稱翻譯成此語言。",
+	"settings.zhScript": "中文字體",
+	"settings.zhScriptNote": "無論來源使用哪種字體，都將所有中文歌名、歌手與專輯名統一為同一字體。僅限中文，不影響其他語言。",
 	"settings.translateLyricsNote": "將顯示的歌詞翻譯成此語言。",
 	"settings.translateLastfmNote": "為歌手簡介選擇語言，或選「自動」以跟隨應用程式語言。",
 	"settings.skipLanguages": "跳過這些來源語言",

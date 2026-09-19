@@ -61,6 +61,8 @@ const ru: Dict = {
 	"settings.translateLastfm": "Биография",
 	"settings.translateArtistNote": "Переведите отображаемые имена исполнителей на этот язык.",
 	"settings.translateTitleNote": "Переведите отображаемые названия песен и альбомов на этот язык.",
+	"settings.zhScript": "Китайское письмо",
+	"settings.zhScriptNote": "Приводит все китайские названия, имена исполнителей и альбомы к одному письму независимо от источника. Только китайский — другие языки не затрагиваются.",
 	"settings.translateLyricsNote": "Переведите отображаемые текстовые строки на этот язык.",
 	"settings.translateLastfmNote": "Биографии переводятся автоматически на язык приложения.",
 	"settings.skipLanguages": "Пропустить эти исходные языки",

@@ -70,6 +70,8 @@ const zhHans: Dict = {
 	"settings.translateLastfm": "简介",
 	"settings.translateArtistNote": "将显示的歌手名称翻译成此语言。",
 	"settings.translateTitleNote": "将显示的歌曲与专辑名称翻译成此语言。",
+	"settings.zhScript": "中文字体",
+	"settings.zhScriptNote": "无论来源使用哪种字体，都将所有中文歌名、歌手与专辑名统一为同一字体。仅限中文，不影响其他语言。",
 	"settings.translateLyricsNote": "将显示的歌词翻译成此语言。",
 	"settings.translateLastfmNote": "为歌手简介选择语言，或选「自动」以跟随应用语言。",
 	"settings.skipLanguages": "跳过这些来源语言",
