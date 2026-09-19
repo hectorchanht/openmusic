@@ -15,20 +15,11 @@
 	import { names } from '$lib/stores/names.svelte';
 	import { toast } from '$lib/stores/toast.svelte';
 	import { online } from '$lib/stores/online.svelte';
-	import RowBadges from '$lib/components/RowBadges.svelte';
 	import { t, type TranslationKey } from '$lib/i18n';
-	import { longpress } from '$lib/actions/longpress';
-	import { lazyCover } from '$lib/actions/lazyCover';
-	// quick-260910-qwt: the shared row cover read (resolved → track.cover → the shared cache).
-	import { pickRowCover } from '$lib/services/row-cover';
-	// quick-260915-w4f: readPinnedCover is pickRowCover's new leading rung — the user's pinned
-	// cover must beat track.cover, not just the cache.
-	import { readCoverByUidOrName, readPinnedCover } from '$lib/stores/cover-version.svelte';
 	import { dragScroll } from '$lib/actions/dragScroll';
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { marquee } from '$lib/actions/marquee';
-	import { swipeAction } from '$lib/actions/swipeAction';
-	import { tick as hapticTick } from '$lib/util/haptics';
+	import SongRow from '$lib/components/SongRow.svelte';
 	import TrackMenu from '$lib/components/TrackMenu.svelte';
 	import TagChips from '$lib/components/TagChips.svelte';
 	import { enrichArtist, type EnrichResult } from '$lib/services/lastfm';
@@ -42,7 +33,6 @@
 	import PageOg from '$lib/components/PageOg.svelte';
 	import type { PageData } from './$types';
 	import type { Track } from '$lib/sources/types';
-	import { coverGradient } from '$lib/services/cover-gradient';
 
 	// `data.og` comes from the universal +page.ts load (artist title/description derived at SSR) so
 	// the artist page emits a crawler-correct OG card in the server HTML (GLN-4).
@@ -151,24 +141,10 @@
 	// `enrich?.lastfmArt ?? hero` precedent (Deezer hi-res wins, never downgrades to null).
 	const merged = $derived(mergeEnrichArtist(enrich, dz));
 
-	// Shared placeholder gradient (cover-gradient.ts) — was inlined in eight files.
-	function fallbackCover(t: Track): string {
-		return coverGradient(t.uid);
-	}
-	// COVER-02 D-14: hit-song rows resolve empty/broken covers lazily on scroll via use:lazyCover,
-	// repainting through this reactive uid→url map. SOLID https only (Plan 02 gate) — safe for the
-	// existing background-image render (T-0bb-01). The al-cover album/related rows are NOT touched.
-	//
-	// quick-260910-qwt: the map stays rung 1, but the hit-song row now paints through the shared
-	// `pickRowCover` read (resolved → track.cover → the shared reactive cover cache), so a cover
-	// resolved on ANY other surface paints here on FIRST render — no intersection, no network — and
-	// repaints live via coverVersion(). A reactive READ; no new request path. (al-cover still not touched.)
-	let resolvedCovers = $state<Record<string, string>>({});
-	function onCoverResolved(uid: string, url: string) {
-		resolvedCovers = { ...resolvedCovers, [uid]: url };
-	}
-	// String-seed placeholder for a coverless row. quick-260831-qkx hoisted it to
-	// $lib/services/discography so the discography page renders the identical gradient.
+	// quick-260919-l9e: the hit-song row's cover plumbing (the COVER-02 D-14 uid→url map, the
+	// quick-260910-qwt three-rung pickRowCover read and the placeholder gradient) moved INTO
+	// SongRow with the markup it fed — it was per-row state that no other shelf on this page
+	// touches. The album / related shelves keep their own `fallbackCoverSeed` chain, untouched.
 
 	// kmn: action-bar state. Heart fills when artist is in library.favArtists; play picks a
 	// random hit + queues all songs from this artist; share uses Web Share API.
@@ -180,19 +156,6 @@
 		const was = favArtist;
 		library.toggleFavArtist(name);
 		toast.show(was ? t('toast.artistUnfavorited') : t('toast.artistFavorited'));
-	}
-
-	// Swipe-action commit handlers (UX-04 D-03/D-04) — same semantics as TrackMenu addQueue()/
-	// playNext(): right = append to queue, left = play next. Commit-tier haptic tick + toast (D-17).
-	function queueTrack(track: Track) {
-		player.addToQueue(track);
-		hapticTick();
-		toast.show(t('toast.addedToQueue'));
-	}
-	function nextTrack(track: Track) {
-		player.playNext(track);
-		hapticTick();
-		toast.show(t('toast.playingNext'));
 	}
 
 	function playArtistRandom() {
@@ -602,20 +565,18 @@
 		{#if songs.length}
 			<ul class="list">
 				{#each songs.slice(0, shown) as track, i (track.uid)}
-					<!-- quick-260910-qwt: the shared three-rung row cover read. Must sit directly under the
-					     {#each} — Svelte only allows {@const} as an immediate block child. -->
-					{@const art = pickRowCover(readPinnedCover(track.uid), resolvedCovers[track.uid], track.cover, readCoverByUidOrName(track.uid, track.artist, track.title))}
+					<!-- quick-260919-l9e: the shared row. Swipe is omitted ON PURPOSE — this page wants
+					     exactly the app convention (right = queue, left = play next), which now lives
+					     inside the component. The key stays `track.uid` (IDENTITY); `index` is the
+					     displayIndex, ORDERING only. The queue is still the FULL loaded `songs`, not the
+					     render window (quick-260831-rjo). -->
 					<li>
-						<button class="row" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); menuTrack = track; menuOpen = true; }} use:swipeAction={{ onSwipeRight: () => queueTrack(track), onSwipeLeft: () => nextTrack(track) }} onclick={() => { player.setListQueue(songs, 'artist'); player.play(track, { fresh: true }); }}>
-							<span class="rank">{i + 1}</span>
-							<span class="art" use:lazyCover={{ track, onResolved: onCoverResolved }} style:background-image={art ? `url(${art})` : fallbackCover(track)}></span>
-							<span class="meta">
-								<span class="r-title">{names.dnTitle(track.title)}</span>
-								<span class="r-sub">{names.dnArtist(track.album || track.artist)}</span>
-							</span>
-							<!-- quick-260723: passive liked ♥ + downloaded ✓ indicators on artist hit-song rows. -->
-							<RowBadges uid={track.uid} />
-						</button>
+						<SongRow
+							{track}
+							index={i}
+							onplay={() => { player.setListQueue(songs, 'artist'); player.play(track, { fresh: true }); }}
+							onrequestmenu={() => { menuTrack = track; menuOpen = true; }}
+						/>
 					</li>
 				{/each}
 			</ul>
@@ -715,15 +676,14 @@
 	   .al-name / .al-count clips above + the use:marquee action + inner .marquee-inner span
 	   in the markup are the only per-file pieces — the global rule animates them. */
 	.list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
-	.row { width: 100%; text-align: left; background: none; border: none; padding: 6px; border-radius: 8px; cursor: pointer; display: flex; align-items: center; gap: 12px; }
-	/* MENU-03 / D-12: hover-capable devices only — touch otherwise latches this :hover
-	   background on a row under a held finger while the track menu opens. */
-	@media (hover: hover) { .row:hover { background: var(--color-surface); } }
-	.rank { width: 18px; text-align: center; color: var(--color-text-muted); font-size: 13px; flex: none; }
+	/* quick-260919-l9e: the real hit-song row moved to SongRow.svelte (Svelte scopes styles per
+	   component, so its rules travelled with it). These three are KEPT because the `{#if loading}`
+	   SKELETON above still renders `<span class="row">` with `.art` / `.meta` / the .sk-* bars —
+	   8 rows tall, and the first thing a user sees on a cold artist page. The interactive-only
+	   rules (.rank, .r-title, .r-sub and the :hover) are gone with the markup that used them. */
+	.row { width: 100%; text-align: left; background: none; border: none; padding: 6px; border-radius: 8px; display: flex; align-items: center; gap: 12px; }
 	.art { width: 44px; height: 44px; border-radius: 6px; background-size: cover; background-position: center; flex: none; }
 	.meta { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-	.r-title { font-size: calc(14px * var(--fs-title, 1)); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--color-text-muted);}
-	.r-sub { font-size: calc(12px * var(--fs-artist, 1)); color: var(--color-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 	.muted { color: var(--color-text-muted); font-size: 14px; }
 	/* quick-260831-rjo: centered "Show more" / "Loading more…" slot under the hit-songs list.
 	   The button reuses the existing .act pill so it matches the hero action bar. */
