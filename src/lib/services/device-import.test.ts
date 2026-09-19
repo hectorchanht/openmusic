@@ -194,6 +194,49 @@ describe('classifyRow', () => {
 		).toEqual({ kind: 'skip', reason: 'rule' });
 	});
 
+	// ── quick-260919-30x: the user's explicit "don't import again" ────────────────────────────────
+	it('skips a row whose device uid the user marked', () => {
+		expect(classifyRow(row({ id: '7' }), rules(), NONE, null, new Set([deviceUid('7')]))).toEqual({
+			kind: 'skip',
+			reason: 'excluded'
+		});
+	});
+
+	it('an explicit mark OUTRANKS a generic rule — counted once, as "excluded"', () => {
+		// The row fails minSeconds AND a skip rule AND is marked. One row, one verdict, and the
+		// verdict the user chose by hand wins over the ones a preset inferred.
+		const r = rules({ minSeconds: 30, skipRules: ['voice memo'] });
+		expect(
+			classifyRow(
+				row({ id: '7', displayName: 'Voice Memo.mp3', durationMs: 1_000 }),
+				r,
+				NONE,
+				null,
+				new Set([deviceUid('7')])
+			)
+		).toEqual({ kind: 'skip', reason: 'excluded' });
+	});
+
+	it('"outside" stays the FIRST filter, even for a marked row', () => {
+		// A malformed/null row has no folder and must never reach an id read.
+		expect(
+			classifyRow(row({ id: '7', relativePath: 'Ringtones/' }), rules(), NONE, null, new Set([deviceUid('7')]))
+		).toEqual({ kind: 'skip', reason: 'outside' });
+	});
+
+	it('with no 5th argument every verdict is byte-identical to today (D-10 default)', () => {
+		const cases: ScanRow[] = [
+			row({ id: '1' }),
+			row({ id: '2', relativePath: 'Ringtones/' }),
+			row({ id: '3', displayName: 'x.opus' }),
+			row({ id: '4', durationMs: 1_000 })
+		];
+		const r = rules({ minSeconds: 30 });
+		for (const c of cases) {
+			expect(classifyRow(c, r, NONE, null)).toEqual(classifyRow(c, r, NONE, null, new Set()));
+		}
+	});
+
 	// ── D-09/D-10: the merge lane ────────────────────────────────────────────────────────────────
 	it('relinks an OpenMusic-folder row onto the matching real-source entry', () => {
 		const stored = track();
@@ -276,6 +319,7 @@ describe('emptySummary', () => {
 			skippedExt: 0,
 			skippedRule: 0,
 			skippedOutside: 0,
+			skippedExcluded: 0,
 			minSeconds: 45,
 			complete: true,
 			patternFellBack: false
@@ -433,6 +477,85 @@ describe('syncDevice', () => {
 		// Row 5 is the one parsed AFTER the fallback: the presets still produced a real title.
 		expect(plan.downloads[4].title).toBe('Song 5');
 		expect(elapsed).toBeLessThan(3000);
+	});
+
+	// ── quick-260919-30x: the exclusion set the scan honours ─────────────────────────────────────
+	it('does not add an excluded row and counts it under skippedExcluded', () => {
+		const plan = syncDevice(
+			[],
+			[row({ id: '7' }), row({ id: '8', displayName: 'Daft Punk - Da Funk.mp3' })],
+			rules(),
+			{ complete: true, custom: null, excluded: new Set([deviceUid('7')]) }
+		);
+		expect(uids(plan.downloads)).not.toContain(deviceUid('7'));
+		expect(uids(plan.downloads)).toContain(deviceUid('8'));
+		expect(plan.summary.skippedExcluded).toBe(1);
+		expect(plan.summary.added).toBe(1);
+	});
+
+	it('the buckets still add up to the unique row count with skippedExcluded included', () => {
+		const rows = [
+			row({ id: '1', relativePath: 'Ringtones/' }),
+			row({ id: '2', displayName: 'x.opus' }),
+			row({ id: '3', durationMs: 1_000 }),
+			row({ id: '4', displayName: 'Voice Memo.mp3' }),
+			row({ id: '5' }),
+			row({ id: '6', displayName: 'Daft Punk - Da Funk.mp3' }),
+			row({ id: '6', displayName: 'Daft Punk - Da Funk.mp3' }) // paging overlap — not unique
+		];
+		const plan = syncDevice([dev('5')], rows, rules({ minSeconds: 30, skipRules: ['voice memo'] }), {
+			complete: true,
+			custom: null,
+			excluded: new Set([deviceUid('6')])
+		});
+		const s = plan.summary;
+		const total =
+			s.added +
+			s.relinked +
+			s.already +
+			s.skippedShort +
+			s.skippedExt +
+			s.skippedRule +
+			s.skippedOutside +
+			s.skippedExcluded;
+		expect(s.skippedExcluded).toBe(1);
+		expect(total).toBe(6); // 7 rows, one a paging duplicate
+	});
+
+	// THE TEST THAT MAKES THE FEATURE STICK. An already-imported entry the user marked is never
+	// `seen`, so a COMPLETE scan drops it through the existing D-07/D-08 lane — no second removal
+	// path, and marking a song without removing it first still takes it out of the library.
+	it('drops an already-imported entry that is now excluded (D-07/D-08 lane, no new code)', () => {
+		const plan = syncDevice([dev('7'), dev('8')], [row({ id: '7' }), row({ id: '8' })], rules(), {
+			complete: true,
+			custom: null,
+			excluded: new Set([deviceUid('7')])
+		});
+		expect(uids(plan.downloads)).not.toContain(deviceUid('7'));
+		expect(uids(plan.downloads)).toContain(deviceUid('8'));
+		expect(plan.summary.removed).toBe(1);
+		expect(plan.summary.skippedExcluded).toBe(1);
+		expect(plan.summary.already).toBe(1);
+	});
+
+	it('an INCOMPLETE scan still keeps an excluded entry listed (D-08 outranks the mark)', () => {
+		// D-08 forbids inferring "gone" from a walk that never finished — a mark must not become the
+		// loophole that lets a cancelled scan delete library rows.
+		const plan = syncDevice([dev('7')], [row({ id: '7' })], rules(), {
+			complete: false,
+			custom: null,
+			excluded: new Set([deviceUid('7')])
+		});
+		expect(uids(plan.downloads)).toContain(deviceUid('7'));
+		expect(plan.summary.removed).toBe(0);
+	});
+
+	it('omitting opts.excluded is identical to passing an empty set (D-10)', () => {
+		const rows = [row({ id: '1' }), row({ id: '2', displayName: 'Daft Punk - Da Funk.mp3' })];
+		const a = syncDevice([], rows, rules(), { complete: true, custom: null });
+		const b = syncDevice([], rows, rules(), { complete: true, custom: null, excluded: new Set() });
+		expect(a.summary).toEqual(b.summary);
+		expect(uids(a.downloads)).toEqual(uids(b.downloads));
 	});
 
 	it('is total over empty and malformed input', () => {
