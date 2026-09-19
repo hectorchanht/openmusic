@@ -53,18 +53,27 @@
 	let album = $state('');
 	let saving = $state(false);
 
-	// Seed on OPEN only, with the track read untracked: a re-render that swaps the track object (the
-	// host resolves a stub behind the sheet) must not wipe what the user has typed. Seeded from the
-	// DISPLAY strings so the fields show exactly what is on screen — whatever the user then leaves in
-	// the box is written VERBATIM, never re-run through the display-name translation on its way to
-	// disk (an explicit edit is the user's exact intent).
+	// Seed on OPEN only. The effect's ONLY dependency is `open` — the ENTIRE body is untracked, not
+	// just the `track` read, and that is load-bearing twice over:
+	//   1. `names.dnTitle/dnArtist` READ the reactive name map and settings, AND schedule a
+	//      translation batch as a side effect. Tracked, a late translation landing would re-run this
+	//      effect and wipe whatever the user had typed mid-edit — and the write-inside-an-effect is
+	//      the self-invalidation loop shape this codebase has been bitten by before.
+	//   2. A re-render that swaps the track object (the host resolving a stub behind the sheet) must
+	//      not re-seed either.
+	// Seeded from the DISPLAY strings so the fields show exactly what is on screen — whatever the
+	// user then leaves in the box is written VERBATIM, never re-run through the display-name
+	// translation on its way to disk (an explicit edit is the user's exact intent, not a string the
+	// app derived).
 	$effect(() => {
 		if (!open) return;
-		const tr = untrack(() => track);
-		title = tr ? names.dnTitle(tr.title) : '';
-		artist = tr ? names.dnArtist(tr.artist) : '';
-		album = tr?.album ?? '';
-		saving = false;
+		untrack(() => {
+			const tr = track;
+			title = tr ? names.dnTitle(tr.title) : '';
+			artist = tr ? names.dnArtist(tr.artist) : '';
+			album = tr?.album ?? '';
+			saving = false;
+		});
 	});
 
 	async function save() {
