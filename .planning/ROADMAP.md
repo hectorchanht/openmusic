@@ -233,14 +233,16 @@ Captured 2026-09-19 (user batch dump):
 - ~~Allow the user to **rename the downloaded file**~~ — SHIPPED 2026-09-19 as quick-260919-30x (filename row in the metadata editor; native-only, app-downloaded tracks only, refused for imported `device:` files).
 - ~~Downloaded songs still show **meta: size, format, quality/bitrate**~~ — SHIPPED 2026-09-19 as quick-260919-3j1 (`blobStore.stat` + a magic-byte container sniff; read from the local bytes, zero network; Downloaded row + Detail sheet).
 - ~~**Offline playback reads lyrics from the downloaded file**~~ — SHIPPED 2026-09-19 as quick-260919-3j1 (lyrics are embedded on the first successful online fetch, once per uid per session; a user's lyric pin also reaches the file; offline does no network walk at all and says so honestly).
-- Song meta must go through the app's **locale translation** too (observed: 简体 "过一招" album tag under a 繁體 title).
+- ~~Song meta must go through the app's **locale translation** too~~ — SHIPPED 2026-09-19 as quick-260919-2jo, verified 2026-09-19. Title and artist route through `names.dnTitle`/`dnArtist`; album routes through `names.dnTitle` at every display site and `names.zhLock` at both tag-write seams (fresh download and the Settings sweep). An audit for raw `{x.title|artist|album}` renders that bypass the `names` seam found 7 hits, all of them OG meta or cache keys, none user-facing display.
 - **Full metadata editor for a downloaded song** — a popup from the song menu that edits every meta field (song name, artist name, album, …) and writes the result into the file's tags. Cover stays synced with the edit, lyrics stay synced with the edit. (Added 2026-09-19, same batch.)
 
 Overlaps Phases 34 (import device songs), 36 (tag downloaded songs with metadata), 37 (enrich imported device songs — in progress). **Audit what is already built before planning.**
 
-Open questions to answer from the code first:
-- Does app-data import MERGE with existing data, or overwrite it?
-- Is lyrics currently read from the downloaded file during offline playback?
+**Status 2026-09-19: every item above is delivered** (quick-260919-1eh / 2jo / 30x / 3j1). Close this phase on the next `/gsd:review-backlog` rather than promoting it. What is NOT covered is on-device verification — every one of those tasks shipped construction-level only, and their SUMMARYs each list what needs an APK to confirm.
+
+Open questions — ANSWERED 2026-09-19 (quick-260919-0mw):
+- **Does app-data import MERGE or overwrite?** It REPLACES. `wipeAndWrite()` (`src/lib/backup/backup-logic.ts:288`, `35-D-08`) deletes every restorable key first — library, history, search history, settings, `name-tr:*` — including keys the imported file does not carry. Downloaded audio *blobs* in IndexedDB survive; the downloads *list* does not. Player state is excluded from backup entirely (`35-D-02`).
+- **Is lyrics read from the downloaded file offline?** It was, but only when the file happened to carry usable embedded LRC — otherwise the player still reached for the network. Closed 2026-09-19 by quick-260919-3j1.
 
 Plans:
 - [ ] TBD (promote with /gsd:review-backlog when ready)
