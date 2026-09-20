@@ -1041,35 +1041,6 @@
 		{#if blobPresent}
 			<button class="mi" onclick={() => (tagsOpen = true)} use:tapBounce><Tags size={18} /> {t('menu.editTags')}</button>
 		{/if}
-		<!-- quick-260919-30x: Don't import again. The mirror image of the row above — that one is for
-		     a file the APP owns, this one is for a file the USER owns, so they sit together.
-		     `{#if isDevice}` and ONLY isDevice: for an app-downloaded song `removeDownload` already
-		     deletes both copies the app itself created (the app-private file and the public
-		     Music/OpenMusic/ entry, 999.1-D-11), so no file survives for a scan to find — an
-		     exclusion recorded against it would be dead state forever and the label would be a lie,
-		     since no scan ever imports an app download under its own uid.
-		     For a device: uid nothing on disk is touched at all — see noImport() above.
-
-		     quick-260919-vrq AMENDS BOTH HALVES OF THAT. (1) "Nothing exposes removal for an app
-		     download" is no longer true — the `{:else if}` below IS that removal, behind a confirm
-		     sheet. (2) The dead-state argument held only while removal ALWAYS destroyed both copies;
-		     it stops holding the moment the user can KEEP the file, because a surviving Music/OpenMusic
-		     copy is exactly what a later scan can re-import. (It comes back under a NEW `device:` uid,
-		     so a uid-keyed mark is not a guaranteed block either — see confirmRemoveDownload.) The
-		     two rows stay mutually exclusive, now by STRUCTURE: if / else-if, never both.
-
-		     THE GATE, "is there something to remove": EITHER thing removeDownload clears — an offline
-		     copy (`blobPresent === true`, the blob-backed truth of quick-260913-jq4) OR a downloads-list
-		     row (`library.isDownloaded`, which can be true with NO blob at all: addDownload runs before
-		     the fetch, and the web `<a download>` save reports success on a cancelled dialog).
-		     `blobPresent` alone would leave that stale row unremovable from here; `isDownloaded` alone
-		     would hide the row for a blob whose list entry was lost. `=== true` and not merely truthy,
-		     so the row cannot flash in during the `null` pre-probe tick. `!isDevice` is implied. -->
-		{#if isDevice}
-			<button class="mi" onclick={noImport} use:tapBounce><EyeOff size={18} /> {t('menu.noImport')}</button>
-		{:else if blobPresent === true || library.isDownloaded(track.uid)}
-			<button class="mi" onclick={openRemoveDownload} use:tapBounce><Trash2 size={18} /> {t('menu.removeDownload')}</button>
-		{/if}
 		<!-- quick-260919-0mw (correction): Repeat, relocated from the NowPlaying transport row.
 		     Deliberately OUTSIDE the queue.length > 1 gate that wraps Shuffle: shuffling a
 		     one-track queue is a no-op, but repeat-ONE on a one-track queue is the single most
@@ -1173,6 +1144,40 @@
 				<button type="button" class="mi-caret" aria-label={t('menu.downloadFrom')} title={t('menu.downloadFrom')} onclick={openDownloadPicker} use:tapBounce><ChevronDown size={14} /></button>
 			</div>
 		{/if}
+		{/if}
+		<!-- quick-260919-30x: Don't import again. The mirror image of the row above — that one is for
+		     a file the APP owns, this one is for a file the USER owns, so they sit together.
+		     `{#if isDevice}` and ONLY isDevice: for an app-downloaded song `removeDownload` already
+		     deletes both copies the app itself created (the app-private file and the public
+		     Music/OpenMusic/ entry, 999.1-D-11), so no file survives for a scan to find — an
+		     exclusion recorded against it would be dead state forever and the label would be a lie,
+		     since no scan ever imports an app download under its own uid.
+		     For a device: uid nothing on disk is touched at all — see noImport() above.
+
+		     quick-260919-vrq AMENDS BOTH HALVES OF THAT. (1) "Nothing exposes removal for an app
+		     download" is no longer true — the `{:else if}` below IS that removal, behind a confirm
+		     sheet. (2) The dead-state argument held only while removal ALWAYS destroyed both copies;
+		     it stops holding the moment the user can KEEP the file, because a surviving Music/OpenMusic
+		     copy is exactly what a later scan can re-import. (It comes back under a NEW `device:` uid,
+		     so a uid-keyed mark is not a guaranteed block either — see confirmRemoveDownload.) The
+		     two rows stay mutually exclusive, now by STRUCTURE: if / else-if, never both.
+
+		     quick-260919-vrq (placement): this pair sits directly BELOW the Download row rather
+		     than up beside Edit metadata. Remove-download is the inverse of the row above it and
+		     the two are mutually exclusive states of one thing, so reading them apart made the
+		     menu answer "can I download this?" in two separate places.
+		     
+		     THE GATE, "is there something to remove": EITHER thing removeDownload clears — an offline
+		     copy (`blobPresent === true`, the blob-backed truth of quick-260913-jq4) OR a downloads-list
+		     row (`library.isDownloaded`, which can be true with NO blob at all: addDownload runs before
+		     the fetch, and the web `<a download>` save reports success on a cancelled dialog).
+		     `blobPresent` alone would leave that stale row unremovable from here; `isDownloaded` alone
+		     would hide the row for a blob whose list entry was lost. `=== true` and not merely truthy,
+		     so the row cannot flash in during the `null` pre-probe tick. `!isDevice` is implied. -->
+		{#if isDevice}
+			<button class="mi" onclick={noImport} use:tapBounce><EyeOff size={18} /> {t('menu.noImport')}</button>
+		{:else if blobPresent === true || library.isDownloaded(track.uid)}
+			<button class="mi" onclick={openRemoveDownload} use:tapBounce><Trash2 size={18} /> {t('menu.removeDownload')}</button>
 		{/if}
 		<!-- quick-260913-je8: the mid-list Like row is RESTORED (D-09 had removed it when Like owned
 		     the header accent slot — the header is Download now, so the only Like affordance has to
