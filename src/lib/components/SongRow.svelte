@@ -450,7 +450,7 @@
 		flex: none;
 		width: 18px;
 		text-align: center;
-		font-size: 12px;
+		font-size: 0.75rem;
 		color: var(--color-text-muted);
 	}
 	.art {
@@ -476,7 +476,7 @@
 		min-width: 0;
 		overflow: hidden;
 		white-space: nowrap;
-		font-size: calc(14px * var(--fs-title, 1));
+		font-size: calc(0.875rem * var(--fs-title, 1));
 		font-weight: 600;
 		line-height: 1.3;
 	}
@@ -484,7 +484,7 @@
 		min-width: 0;
 		overflow: hidden;
 		white-space: nowrap;
-		font-size: calc(12px * var(--fs-artist, 1));
+		font-size: calc(0.75rem * var(--fs-artist, 1));
 		font-weight: 400;
 		line-height: 1.3;
 		color: var(--color-text-muted);

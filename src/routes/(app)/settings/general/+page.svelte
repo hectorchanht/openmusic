@@ -72,14 +72,14 @@
 </section>
 
 <style>
-	.reset { background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text-muted); padding: 6px 12px; border-radius: 999px; font-size: 12px; cursor: pointer; }
+	.reset { background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text-muted); padding: 6px 12px; border-radius: 999px; font-size: 0.75rem; cursor: pointer; }
 	.reset:hover { color: var(--color-text); }
 	section { margin: 18px 0; }
 	/* quick-260919-ebi: `position: relative` anchors the inline (i)'s description panel to the
 	   heading — SettingHint is scoped and cannot set this on its host. */
 	section h2 { display: flex; align-items: center; gap: 6px; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--color-text-muted); margin: 0 0 10px; position: relative; }
 	.chips { display: flex; flex-wrap: wrap; gap: 8px; }
-	.chip { background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); padding: 8px 14px; border-radius: 999px; font-size: 13px; cursor: pointer; }
+	.chip { background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); padding: 8px 14px; border-radius: 999px; font-size: 0.8125rem; cursor: pointer; }
 	.chip.on { background: var(--color-primary); color: #fff; border-color: transparent; }
 	/* quick-260919-ebi: .seg / .swatches / .swatch left with the theme + accent controls; the
 	   toggle-row CSS moved into SettingToggle.svelte. */

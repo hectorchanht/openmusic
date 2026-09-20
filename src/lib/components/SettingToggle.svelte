@@ -88,7 +88,7 @@
 		color: var(--color-text);
 		padding: 13px 14px;
 		border-radius: 12px;
-		font-size: 14px;
+		font-size: 0.875rem;
 		cursor: pointer;
 		text-align: left;
 		margin-bottom: 8px;

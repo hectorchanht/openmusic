@@ -497,7 +497,7 @@
 		flex-direction: column;
 		align-items: center;
 		gap: 2px;
-		font-size: 10px;
+		font-size: 0.625rem;
 		color: var(--color-text-muted);
 		transition: color 0.15s ease;
 	}
@@ -517,7 +517,7 @@
 	   or tabbar). Muted/dark so it reads as a status hint, not an error. */
 	.offline-bar {
 		text-align: center;
-		font-size: 12px;
+		font-size: 0.75rem;
 		font-weight: 600;
 		color: var(--color-text-muted);
 		background: var(--color-surface-2);
@@ -533,7 +533,7 @@
 		justify-content: center;
 		gap: 12px;
 		flex-wrap: wrap;
-		font-size: 12px;
+		font-size: 0.75rem;
 		font-weight: 600;
 		color: var(--color-text);
 		background: var(--color-surface-2);
@@ -548,7 +548,7 @@
 		border: none;
 		border-radius: 999px;
 		padding: 4px 14px;
-		font-size: 12px;
+		font-size: 0.75rem;
 		font-weight: 700;
 		cursor: pointer;
 	}
@@ -570,7 +570,7 @@
 		color: #fff;
 		padding: 10px 16px;
 		border-radius: 999px;
-		font-size: 13px;
+		font-size: 0.8125rem;
 		box-shadow: var(--shadow-lg);
 	}
 	.notice-toast.sticky {
@@ -588,7 +588,7 @@
 		border: none;
 		border-radius: 999px;
 		padding: 5px 14px;
-		font-size: 13px;
+		font-size: 0.8125rem;
 		font-weight: 600;
 		cursor: pointer;
 	}
@@ -662,7 +662,7 @@
 			flex: none;
 			width: 100%;
 			text-align: center;
-			font-size: 11px;
+			font-size: 0.6875rem;
 			gap: 4px;
 			padding: 10px 0;
 			border-radius: 10px;

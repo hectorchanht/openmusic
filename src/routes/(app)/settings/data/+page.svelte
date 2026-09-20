@@ -222,8 +222,8 @@
 
 <style>
 	section { margin: 18px 0; }
-	.muted { color: var(--color-text-muted); font-size: 12px; margin: 0 0 12px; }
-	.hint { color: var(--color-text-muted); font-size: 12px; margin: -2px 0 10px 4px; }
+	.muted { color: var(--color-text-muted); font-size: 0.75rem; margin: 0 0 12px; }
+	.hint { color: var(--color-text-muted); font-size: 0.75rem; margin: -2px 0 10px 4px; }
 	/* quick-260919-ebi: the action-row CSS (.item, :disabled, .danger) moved into SettingRow.svelte. */
-	.flash { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(var(--tabbar-h) + 70px); background: #000; color: #fff; padding: 10px 16px; border-radius: 999px; font-size: 13px; }
+	.flash { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(var(--tabbar-h) + 70px); background: #000; color: #fff; padding: 10px 16px; border-radius: 999px; font-size: 0.8125rem; }
 </style>

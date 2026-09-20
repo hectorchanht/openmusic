@@ -812,7 +812,7 @@
 	.input-wrap { position: relative; flex: 1; min-width: 0; display: flex; }
 	.bar input {
 		flex: 1; min-width: 0; background: var(--color-surface-2); border: 1px solid var(--color-border);
-		color: var(--color-text); border-radius: 999px; padding: 12px; font-size: 15px; outline: none; height: 40px;
+		color: var(--color-text); border-radius: 999px; padding: 12px; font-size: 0.9375rem; outline: none; height: 40px;
 	}
 	.bar input:focus { border-color: var(--color-primary); }
 	/* quick-260711-sm7: clear (X) button — full input-height grid-centred (NO translateY, so the
@@ -832,8 +832,8 @@
 	.bar button[disabled] { opacity: 0.8; cursor: default; }
 	.spin { display: inline-flex; animation: spin 0.7s linear infinite; }
 	@keyframes spin { to { transform: rotate(360deg); } }
-	.muted { color: var(--color-text-muted); font-size: 14px; }
-	.end-note { list-style: none; text-align: center; color: var(--color-text-muted); font-size: 12px; padding: 16px 0 4px; }
+	.muted { color: var(--color-text-muted); font-size: 0.875rem; }
+	.end-note { list-style: none; text-align: center; color: var(--color-text-muted); font-size: 0.75rem; padding: 16px 0 4px; }
 	/* kyf + ljl-followup: artist tiles row — round avatars above the song list. Every unique
 	   artist in the result set gets a tile; the row scrolls HORIZONTALLY (use:dragScroll on
 	   the inner container) so there's no count cap. */
@@ -843,15 +843,15 @@
 	.artist-tiles::-webkit-scrollbar { display: none; }
 	.artist-tile { flex: 0 0 96px; background: none; border: none; padding: 0; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 6px; color: var(--color-text); }
 	.artist-avatar { width: 96px; height: 96px; border-radius: 50%; background-size: cover; background-position: center; }
-	.artist-name { font-size: 12px; font-weight: 600; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 96px; color: var(--color-text);}
+	.artist-name { font-size: 0.75rem; font-weight: 600; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 96px; color: var(--color-text);}
 
 	/* OFFL-03 inline offline empty-state (shared idiom across online-only surfaces). */
 	.offline-state { text-align: center; padding: 32px 16px; color: var(--color-text-muted); }
-	.offline-title { font-size: 15px; font-weight: 600; color: var(--color-text); margin: 0 0 6px; }
-	.offline-body { font-size: 13px; margin: 0 0 16px; }
+	.offline-title { font-size: 0.9375rem; font-weight: 600; color: var(--color-text); margin: 0 0 6px; }
+	.offline-body { font-size: 0.8125rem; margin: 0 0 16px; }
 	.offline-cta {
 		background: var(--color-primary); border: none; color: #fff; border-radius: 999px;
-		padding: 9px 18px; font-size: 13px; font-weight: 600; cursor: pointer;
+		padding: 9px 18px; font-size: 0.8125rem; font-weight: 600; cursor: pointer;
 	}
 
 	/* --- D-05 past-search suggestions --- */
@@ -859,9 +859,9 @@
 	.suggest-head {
 		display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;
 	}
-	.suggest-title { font-size: 12px; font-weight: 700; color: var(--color-text-muted); letter-spacing: 0.02em; }
+	.suggest-title { font-size: 0.75rem; font-weight: 700; color: var(--color-text-muted); letter-spacing: 0.02em; }
 	.suggest-clear {
-		background: none; border: none; color: var(--color-primary); font-size: 12px; font-weight: 600;
+		background: none; border: none; color: var(--color-primary); font-size: 0.75rem; font-weight: 600;
 		cursor: pointer; padding: 4px 6px; border-radius: 8px;
 	}
 	.suggest-clear:hover { background: var(--color-surface); }
@@ -877,14 +877,14 @@
 	}
 	@media (hover: hover) { .recent-del:hover { background: var(--color-surface); color: var(--color-text); } }
 	.suggest-q {
-		font-size: 14px; color: var(--color-text);
+		font-size: 0.875rem; color: var(--color-text);
 		white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 	}
 	/* ql0: typeahead suggestion rows — a small kind glyph + title/artist stack. */
-	.suggest-kind { flex: none; width: 18px; text-align: center; color: var(--color-text-muted); font-size: 13px; }
+	.suggest-kind { flex: none; width: 18px; text-align: center; color: var(--color-text-muted); font-size: 0.8125rem; }
 	.suggest-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 	.suggest-sub {
-		font-size: 12px; color: var(--color-text-muted);
+		font-size: 0.75rem; color: var(--color-text-muted);
 		white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 	}
 

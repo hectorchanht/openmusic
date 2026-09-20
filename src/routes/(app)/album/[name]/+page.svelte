@@ -772,25 +772,25 @@
 	.hero { padding: 14px 0 18px; text-align: center; }
 	.cover { width: 160px; height: 160px; border-radius: 12px; margin: 8px auto 12px; background-size: cover; background-position: center; box-shadow: 0 12px 34px rgba(0,0,0,0.5); }
 	.hero h1 { font-size: calc(1.5rem * var(--fs-title, 1)); margin: 0; }
-	.artist { color: var(--color-text); font-size: calc(14px * var(--fs-artist, 1)); margin: 4px 0 0; opacity: 0.85; }
-	.note { color: var(--color-text-muted); font-size: 12px; margin-top: 4px; }
-	.info { color: var(--color-text-muted); font-size: 12px; margin-top: 6px; display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+	.artist { color: var(--color-text); font-size: calc(0.875rem * var(--fs-artist, 1)); margin: 4px 0 0; opacity: 0.85; }
+	.note { color: var(--color-text-muted); font-size: 0.75rem; margin-top: 4px; }
+	.info { color: var(--color-text-muted); font-size: 0.75rem; margin-top: 6px; display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
 	/* Deezer album info (ENRICH-04) — release/label/genres/tracks/duration/fans rows. */
-	.dzinfo { color: var(--color-text-muted); font-size: 12px; margin-top: 8px; display: flex; gap: 6px 16px; justify-content: center; flex-wrap: wrap; max-width: 520px; margin-left: auto; margin-right: auto; }
+	.dzinfo { color: var(--color-text-muted); font-size: 0.75rem; margin-top: 8px; display: flex; gap: 6px 16px; justify-content: center; flex-wrap: wrap; max-width: 520px; margin-left: auto; margin-right: auto; }
 	.dzrow { display: inline-flex; align-items: baseline; gap: 5px; min-width: 0; }
 	.dzrow b { color: var(--color-text); font-weight: 600; }
 	.dzrow.label { max-width: 220px; }
 	.dzrow .lbl { display: inline-block; max-width: 150px; min-width: 0; overflow: hidden; white-space: nowrap; }
 	.dzinfo .sk-info.short { width: 90px; }
-	.muted { color: var(--color-text-muted); font-size: 14px; }
+	.muted { color: var(--color-text-muted); font-size: 0.875rem; }
 
 	/* OFFL-03 inline offline empty-state (shared idiom across online-only surfaces). */
 	.offline-state { text-align: center; padding: 32px 16px; color: var(--color-text-muted); }
-	.offline-title { font-size: 15px; font-weight: 600; color: var(--color-text); margin: 0 0 6px; }
-	.offline-body { font-size: 13px; margin: 0 0 16px; }
+	.offline-title { font-size: 0.9375rem; font-weight: 600; color: var(--color-text); margin: 0 0 6px; }
+	.offline-body { font-size: 0.8125rem; margin: 0 0 16px; }
 	.offline-cta {
 		background: var(--color-primary); border: none; color: #fff; border-radius: 999px;
-		padding: 9px 18px; font-size: 13px; font-weight: 600; cursor: pointer;
+		padding: 9px 18px; font-size: 0.8125rem; font-weight: 600; cursor: pointer;
 	}
 	.list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 	/* D-11: each row is the swipe-wrap (flex 1). It used to carry a trailing DownloadControl as a
@@ -835,8 +835,8 @@
 	/* ---- add-to-playlist picker (mirrors the track menu sheet) ---- */
 	.scrim { position: fixed; inset: 0; z-index: 80; background: rgba(0, 0, 0, 0.45); border: none; }
 	.picker { position: fixed; left: 12px; right: 12px; bottom: 16px; z-index: 81; background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: 16px; padding: 8px; max-width: 680px; margin: 0 auto; box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.5); max-height: 70vh; overflow-y: auto; }
-	.picker-head { font-size: 13px; color: var(--color-text-muted); padding: 8px 10px; }
-	.mi { width: 100%; display: flex; align-items: center; gap: 12px; background: none; border: none; color: var(--color-text); font-size: 15px; padding: 12px; border-radius: 10px; cursor: pointer; text-align: left; }
+	.picker-head { font-size: 0.8125rem; color: var(--color-text-muted); padding: 8px 10px; }
+	.mi { width: 100%; display: flex; align-items: center; gap: 12px; background: none; border: none; color: var(--color-text); font-size: 0.9375rem; padding: 12px; border-radius: 10px; cursor: pointer; text-align: left; }
 	.mi:hover { background: var(--color-surface); }
 	.mi.close { color: var(--color-text-muted); }
 </style>

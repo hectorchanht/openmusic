@@ -1501,7 +1501,7 @@
 	.scrim { position: fixed; inset: 0; z-index: 80; background: rgba(0,0,0,0.45); border: none; }
 	.menu, .modal { position: fixed; left: 12px; right: 12px; bottom: 16px; z-index: 81; background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: 16px; padding: 8px; max-width: 680px; margin: 0 auto; box-shadow: 0 -10px 40px rgba(0,0,0,0.5); max-height: 90vh; overflow-y: auto; }
 	/* Legacy single-line head — STILL used by the playlist-picker + detail sub-sheets. */
-	.menu-head { font-size: calc(13px * var(--fs-title, 1)); color: var(--color-text-muted); padding: 8px 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.menu-head { font-size: calc(0.8125rem * var(--fs-title, 1)); color: var(--color-text-muted); padding: 8px 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 	.menu-head.row { display: flex; align-items: center; justify-content: space-between; }
 	.x { background: none; border: none; color: var(--color-text); cursor: pointer; display: grid; place-items: center; }
 	/* D-08/D-09/D-10: two-row marquee header + top-right action/Close cluster (quick-260913-je8:
@@ -1531,8 +1531,8 @@
 	.head-text:not(:disabled) { cursor: pointer; }
 	/* `display: block` because these are <span>s now (phrasing content, so they are legal inside the
 	   button above) — everything else is unchanged from when they were <div>s. */
-	.hd-title { display: block; font-size: calc(15px * var(--fs-title, 1)); font-weight: 600; color: var(--color-text); line-height: 1.25; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-width: 0; max-width: 100%; }
-	.hd-artist { display: block; font-size: calc(13px * var(--fs-artist, 1)); font-weight: 400; color: var(--color-text-muted); line-height: 1.25; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-width: 0; max-width: 100%; }
+	.hd-title { display: block; font-size: calc(0.9375rem * var(--fs-title, 1)); font-weight: 600; color: var(--color-text); line-height: 1.25; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-width: 0; max-width: 100%; }
+	.hd-artist { display: block; font-size: calc(0.8125rem * var(--fs-artist, 1)); font-weight: 400; color: var(--color-text-muted); line-height: 1.25; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-width: 0; max-width: 100%; }
 	.head-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 18px; }
 	.hd-btn { min-width: 44px; min-height: 44px; display: grid; place-items: center; background: none; border: none; border-radius: 10px; color: var(--color-text); cursor: pointer; }
 	.hd-btn:hover { background: var(--color-surface); }
@@ -1544,7 +1544,7 @@
 	   exact defect quick-260919-0mw found on the Shuffle row, where an active state had rendered
 	   pixel-identical to inactive since ii6. */
 	.hd-btn.accent { color: var(--color-primary); }
-	.mi { width: 100%; display: flex; align-items: center; gap: 12px; background: none; border: none; color: var(--color-text); font-size: 15px; padding: 12px; border-radius: 10px; cursor: pointer; text-align: left; }
+	.mi { width: 100%; display: flex; align-items: center; gap: 12px; background: none; border: none; color: var(--color-text); font-size: 0.9375rem; padding: 12px; border-radius: 10px; cursor: pointer; text-align: left; }
 	.mi:hover { background: var(--color-surface); }
 	.mi:disabled { opacity: 0.4; cursor: default; }
 	.mi.accent { color: var(--color-primary); }
@@ -1561,12 +1561,12 @@
 	   that makes two files carrying the declaration. The danger tint is #ff7a90, the literal already
 	   in system use by SettingRow's `.danger` and RowBadges' `.unavailable` — app.css defines no
 	   --color-danger token and this task does not invent one. */
-	.hint { color: var(--color-text-muted); font-size: 12px; line-height: 1.4; padding: 10px 12px 4px; margin: 0; }
+	.hint { color: var(--color-text-muted); font-size: 0.75rem; line-height: 1.4; padding: 10px 12px 4px; margin: 0; }
 	.actions { display: flex; gap: 8px; padding: 4px; }
 	.mi.danger { color: #ff7a90; }
 	/* tabular-nums: the download percentage climbs digit by digit and would otherwise jitter the
 	   row's right edge on every repaint (quick-260913-omi). Harmless for the playlist counts. */
-	.mi .count { margin-left: auto; font-size: 12px; color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
+	.mi .count { margin-left: auto; font-size: 0.75rem; color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
 	/* quick-260915-26g: placeholder for the in-flight download probe. Static, not animated — the row
 	   spinner two states over already owns the "working" signal and two of them would compete. */
 	.mi .count.skel { display: inline-block; width: 64px; height: 11px; border-radius: var(--radius-full); background: var(--color-surface); }
@@ -1577,7 +1577,7 @@
 	/* quick-260919-1we: the candidate's first sung line, so two sources are distinguishable without
 	   playing either. Capped so a long line never pushes the source label out of the row. */
 	.lyr-prev { max-width: 55%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-	.dl-wait { display: flex; align-items: center; gap: 10px; color: var(--color-text-muted); font-size: 13px; padding: 10px 12px; margin: 0; }
+	.dl-wait { display: flex; align-items: center; gap: 10px; color: var(--color-text-muted); font-size: 0.8125rem; padding: 10px 12px; margin: 0; }
 	/* quick-260919-vrq: the Download row is now TWO sibling buttons in a flex wrapper (a tappable
 	   caret cannot live inside a <button>). The caret's two old decoration-only rules went with it —
 	   the glyph is a real control now, so it no longer needs a rule to fake a right-edge position.
@@ -1642,13 +1642,13 @@
 	.cand { position: relative; padding: 0; border: 2px solid transparent; border-radius: 10px; overflow: hidden; background: var(--color-surface); cursor: pointer; aspect-ratio: 1; }
 	.cand img { width: 100%; height: 100%; object-fit: cover; display: block; }
 	.cand.on { border-color: var(--color-primary); }
-	.cand .src { position: absolute; left: 0; right: 0; bottom: 0; font-size: 11px; padding: 2px 4px; background: rgba(0, 0, 0, 0.55); color: #fff; text-transform: capitalize; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.cand .src { position: absolute; left: 0; right: 0; bottom: 0; font-size: 0.6875rem; padding: 2px 4px; background: rgba(0, 0, 0, 0.55); color: #fff; text-transform: capitalize; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 	.cand .tick { position: absolute; top: 4px; right: 4px; display: grid; place-items: center; color: #fff; filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.8)); }
 	.cover-wait { display: grid; place-items: center; padding: 28px 12px; }
-	.cover-none { text-align: center; color: var(--color-text-muted); font-size: 13px; padding: 20px 12px; }
+	.cover-none { text-align: center; color: var(--color-text-muted); font-size: 0.8125rem; padding: 20px 12px; }
 	.detail { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; padding: 6px 12px 14px; margin: 0; }
-	.detail dt { color: var(--color-text-muted); font-size: 12px; }
-	.detail dd { margin: 0; font-size: 13px; }
-	.mono { font-family: ui-monospace, monospace; font-size: 11px; }
+	.detail dt { color: var(--color-text-muted); font-size: 0.75rem; }
+	.detail dd { margin: 0; font-size: 0.8125rem; }
+	.mono { font-family: ui-monospace, monospace; font-size: 0.6875rem; }
 	.break { word-break: break-all; }
 </style>

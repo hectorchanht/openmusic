@@ -232,21 +232,21 @@
 		padding: 8px; max-width: 680px; margin: 0 auto; box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.5);
 		max-height: 90vh; overflow-y: auto;
 	}
-	.menu-head { font-size: calc(13px * var(--fs-title, 1)); color: var(--color-text-muted); padding: 8px 10px; }
-	.fld { display: block; font-size: 12px; color: var(--color-text-muted); padding: 8px 12px 4px; }
+	.menu-head { font-size: calc(0.8125rem * var(--fs-title, 1)); color: var(--color-text-muted); padding: 8px 10px; }
+	.fld { display: block; font-size: 0.75rem; color: var(--color-text-muted); padding: 8px 12px 4px; }
 	input {
 		width: 100%; box-sizing: border-box; min-height: 44px; padding: 10px 12px;
 		background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 10px;
 		color: var(--color-text);
 		/* 16px minimum: anything smaller makes iOS Safari zoom the viewport on focus. */
-		font-size: 16px;
+		font-size: 1rem;
 	}
 	input:disabled { opacity: 0.5; }
-	.hint { color: var(--color-text-muted); font-size: 12px; line-height: 1.4; padding: 10px 12px 4px; margin: 0; }
+	.hint { color: var(--color-text-muted); font-size: 0.75rem; line-height: 1.4; padding: 10px 12px 4px; margin: 0; }
 	.actions { display: flex; gap: 8px; padding: 4px; }
 	.mi {
 		flex: 1; display: flex; align-items: center; justify-content: center; min-height: 44px;
-		background: none; border: none; color: var(--color-text); font-size: 15px; padding: 12px;
+		background: none; border: none; color: var(--color-text); font-size: 0.9375rem; padding: 12px;
 		border-radius: 10px; cursor: pointer;
 	}
 	.mi:hover { background: var(--color-surface); }

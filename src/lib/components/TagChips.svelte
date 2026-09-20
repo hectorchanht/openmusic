@@ -52,7 +52,7 @@
 		display: inline-flex;
 		align-items: center;
 		font: inherit;
-		font-size: 12px;
+		font-size: 0.75rem;
 		line-height: 1;
 		padding: 6px 10px;
 		border-radius: var(--radius-full);

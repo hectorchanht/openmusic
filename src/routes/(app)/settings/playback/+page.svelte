@@ -303,21 +303,21 @@
 </details>
 
 <style>
-	.reset { background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text-muted); padding: 6px 12px; border-radius: 999px; font-size: 12px; cursor: pointer; }
+	.reset { background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text-muted); padding: 6px 12px; border-radius: 999px; font-size: 0.75rem; cursor: pointer; }
 	.reset:hover { color: var(--color-text); }
 	section { margin: 18px 0; }
 	/* quick-260919-ebi: `position: relative` on every title that carries an inline (i) — it anchors
 	   SettingHint's description panel, which is scoped and cannot set this on its host. */
 	section h2 { display: flex; align-items: center; gap: 6px; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--color-text-muted); margin: 0 0 10px; position: relative; }
-	.muted { color: var(--color-text-muted); font-size: 12px; margin: 8px 0 0; display: flex; align-items: center; gap: 4px;}
+	.muted { color: var(--color-text-muted); font-size: 0.75rem; margin: 8px 0 0; display: flex; align-items: center; gap: 4px;}
 	.chips { display: flex; flex-wrap: wrap; gap: 8px; }
-	.chip { background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); padding: 8px 14px; border-radius: 999px; font-size: 13px; cursor: pointer; }
+	.chip { background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); padding: 8px 14px; border-radius: 999px; font-size: 0.8125rem; cursor: pointer; }
 	.chip.on { background: var(--color-primary); color: #fff; border-color: transparent; }
 	/* quick-260919-ebi: the .seg CSS moved into SettingPicker.svelte; .row-toggle/.sw went with the
 	   three toggle rows the previews replaced. */
-	.sub { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; margin: 16px 0 8px; position: relative; }
+	.sub { display: flex; align-items: center; gap: 6px; font-size: 0.8125rem; font-weight: 600; margin: 16px 0 8px; position: relative; }
 	.upnext-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 0; }
-	.upnext-row .ctx-label { font-size: 14px; color: var(--color-text); }
+	.upnext-row .ctx-label { font-size: 0.875rem; color: var(--color-text); }
 	.advanced { margin: 22px 0; padding: 10px 12px; background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: 12px; }
 	.advanced summary { position: relative; display: flex; align-items: center; gap: 6px; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--color-text-muted); cursor: pointer; padding: 4px 0; }
 	.advanced .chips { margin-top: 12px; }

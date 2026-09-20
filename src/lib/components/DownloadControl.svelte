@@ -216,7 +216,7 @@
 		gap: 4px;
 	}
 	.dc-meta {
-		font-size: 11px;
+		font-size: 0.6875rem;
 		color: var(--color-text-muted);
 		white-space: nowrap;
 	}

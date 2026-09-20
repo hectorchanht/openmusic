@@ -143,12 +143,12 @@
 
 <style>
 	.actions { display: flex; gap: 8px; margin: 8px 0 12px; }
-	.item { flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px; background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); padding: 12px; border-radius: 12px; font-size: 14px; cursor: pointer; }
+	.item { flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px; background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); padding: 12px; border-radius: 12px; font-size: 0.875rem; cursor: pointer; }
 	.item:hover { background: var(--color-surface); }
 	.item.danger { color: #ff7a90; }
-	.empty { color: var(--color-text-muted); font-size: 13px; text-align: center; margin: 32px 0; }
+	.empty { color: var(--color-text-muted); font-size: 0.8125rem; text-align: center; margin: 32px 0; }
 	.log { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; max-height: calc(100dvh - var(--tabbar-h) - 180px); overflow-y: auto; background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: 12px; }
-	.row { display: flex; gap: 8px; align-items: baseline; padding: 6px 10px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px; line-height: 1.4; border-bottom: 1px solid var(--color-border); white-space: nowrap; }
+	.row { display: flex; gap: 8px; align-items: baseline; padding: 6px 10px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.6875rem; line-height: 1.4; border-bottom: 1px solid var(--color-border); white-space: nowrap; }
 	.row:last-child { border-bottom: none; }
 	.ts { color: var(--color-text-muted); flex: none; }
 	.ev { color: var(--color-text); font-weight: 600; flex: none; }

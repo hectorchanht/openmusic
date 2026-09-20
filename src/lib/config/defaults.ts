@@ -43,6 +43,11 @@ export const GENERAL_DEFAULTS = {
 
 // ---- Appearance (per-part sizing) ------------------------------------------------------
 export const APPEARANCE_DEFAULTS = {
+	/** quick-260920-kxz: GLOBAL text scale, percent. Drives `--fs-app`, which multiplies the ROOT
+	 *  font-size, so it reaches every rem-sized rule in one move (which is why the px→rem sweep in
+	 *  the same task exists — a root multiplier cannot move `font-size: 14px`). It COMPOSES with,
+	 *  never replaces, the per-part scales below: a title at 120% app × 120% title is 1.44×. */
+	fontScaleApp: 100,
 	fontScaleTitle: 100,
 	fontScaleArtist: 100,
 	fontScaleLyrics: 100,
@@ -55,12 +60,17 @@ export const APPEARANCE_DEFAULTS = {
 	homeGridCols: 3,
 	/** quick-260919-l9e (D-1): which inline buttons a song row shows, IN ORDER — the array is a
 	 *  left-to-right layout, not a set, so moving 'download' first really moves the button.
-	 *  BOTH ON: the user explicitly asked to have these buttons, so a default that hides them
-	 *  would ship the opposite of the request. It lives in Appearance (not Playback) because it
-	 *  is what a list row LOOKS like, next to Cover size — the other "what fills a row" control.
-	 *  WR-10: this literal lives HERE and nowhere else. The ⋮ menu is NOT in this list; it is
-	 *  unconditional, which is what makes an empty array a safe user choice. */
-	rowActions: ['like', 'download'] as readonly RowAction[]
+	 *  It lives in Appearance (not Playback) because it is what a list row LOOKS like, next to
+	 *  the row-size controls — the other "what fills a row" knobs.
+	 *
+	 *  quick-260920-kxz REVERSES l9e's "BOTH ON" default. l9e read the request "have these
+	 *  buttons" as "have them by default"; the user has now asked for the opposite — a fresh row
+	 *  shows neither Like nor Download, and either is switched on from the Song rows editor in
+	 *  Settings → Appearance. The capability is unchanged, only its starting position.
+	 *  NEITHER ON is safe for exactly the reason l9e already gave below: the ⋮ menu is NOT in this
+	 *  list and is unconditional, so every action stays reachable from an empty row.
+	 *  WR-10: this literal lives HERE and nowhere else. */
+	rowActions: [] as readonly RowAction[]
 } as const;
 
 // ---- Translation -----------------------------------------------------------------------

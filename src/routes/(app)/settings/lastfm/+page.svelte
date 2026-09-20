@@ -28,9 +28,9 @@
 
 <style>
 	section { margin: 18px 0; }
-	.item { width: 100%; display: flex; align-items: center; gap: 12px; background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); padding: 14px; border-radius: 12px; font-size: 15px; text-align: left; }
+	.item { width: 100%; display: flex; align-items: center; gap: 12px; background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); padding: 14px; border-radius: 12px; font-size: 0.9375rem; text-align: left; }
 	.item:disabled { opacity: 0.55; cursor: default; }
 	.label { flex: 1; min-width: 0; }
-	.pill { flex: none; font-size: 11px; padding: 4px 10px; border-radius: 999px; background: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
-	.muted { color: var(--color-text-muted); font-size: 12px; margin: 10px 0 0; }
+	.pill { flex: none; font-size: 0.6875rem; padding: 4px 10px; border-radius: 999px; background: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+	.muted { color: var(--color-text-muted); font-size: 0.75rem; margin: 10px 0 0; }
 </style>

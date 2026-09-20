@@ -35,6 +35,12 @@
 
   /* Appearance scales (quick-260607-fnp). Multipliers off each rule's base font-size / tile
      size; 1 = today. settings.applyTheme() overrides these on <html> from the user's % choice. */
+  /* quick-260920-kxz: the GLOBAL text multiplier, applied to the ROOT font-size below rather
+     than to one rule — which is why every `font-size` under src/ is expressed in `rem`. Do NOT
+     re-introduce a pixel text size anywhere; a px rule is immune to this var and would be the one
+     label in the app that ignores the user's text-size choice. The per-part `--fs-*` below
+     multiply on top of the rescaled root. */
+  --fs-app: 1;
   --fs-title: 1;
   --fs-artist: 1;
   --fs-lyrics: 1;
@@ -77,6 +83,9 @@
 }
 
 * { box-sizing: border-box; }
+/* quick-260920-kxz: the one place the global text size lands. 100% is the browser's own default
+   (16px unless the user changed it in their browser), so 1× is byte-for-byte today's rendering. */
+html { font-size: calc(100% * var(--fs-app, 1)); }
 html, body { margin: 0; padding: 0; }
 body {
   background: var(--color-bg);

@@ -221,11 +221,11 @@
 		line-height: 1.3;
 	}
 	.cfg-title {
-		font-size: calc(14px * var(--fs-title, 1));
+		font-size: calc(0.875rem * var(--fs-title, 1));
 		font-weight: 600;
 	}
 	.cfg-sub {
-		font-size: calc(12px * var(--fs-artist, 1));
+		font-size: calc(0.75rem * var(--fs-artist, 1));
 		color: var(--color-text-muted);
 	}
 	.slot {

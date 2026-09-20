@@ -210,8 +210,8 @@
 	   background on a related row under a held finger while the track menu opens. */
 	@media (hover: hover) { .row:hover { background: var(--color-surface); } }
 	.q-art { width: 36px; height: 36px; border-radius: 6px; background-size: cover; background-position: center; background-color: rgba(255,255,255,0.04); flex: none; }
-	.r-title { font-size: calc(14px * var(--fs-title, 1)); font-weight: 600; color: var(--color-text);}
-	.r-artist { font-size: calc(12px * var(--fs-artist, 1)); color: var(--color-text-muted); }
+	.r-title { font-size: calc(0.875rem * var(--fs-title, 1)); font-weight: 600; color: var(--color-text);}
+	.r-artist { font-size: calc(0.75rem * var(--fs-artist, 1)); color: var(--color-text-muted); }
 	/* quick-260723: Related list rows go row-direction so RowBadges sit at the trailing edge; the
 	   text stacks inside .r-meta. The shared `.row` (column) + its skeleton variant stay untouched. */
 	.row.rel-row { flex-direction: row; align-items: center; gap: 8px; }
@@ -225,5 +225,5 @@
 	.row.skel .r-artist { width: 38%; height: 12px; }
 	/* Visually-hidden screen-reader cue for the skeleton list. */
 	.vh { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
-	.empty { color: var(--color-text-muted); font-size: 14px; text-align: center; padding: 24px; }
+	.empty { color: var(--color-text-muted); font-size: 0.875rem; text-align: center; padding: 24px; }
 </style>

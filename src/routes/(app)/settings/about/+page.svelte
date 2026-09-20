@@ -54,11 +54,11 @@
 <style>
 	section { margin: 18px 0; }
 	section h2 { font-size: 0.95rem; margin: 0 0 8px; color: var(--color-text); }
-	.item { width: 100%; display: flex; align-items: center; gap: 12px; background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); padding: 14px; border-radius: 12px; font-size: 15px; text-align: left; }
-	.item.static { cursor: default; color: var(--color-text-muted); font-size: 13px; }
+	.item { width: 100%; display: flex; align-items: center; gap: 12px; background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); padding: 14px; border-radius: 12px; font-size: 0.9375rem; text-align: left; }
+	.item.static { cursor: default; color: var(--color-text-muted); font-size: 0.8125rem; }
 	.item.link { cursor: pointer; margin-bottom: 8px; }
 	.item.link:hover { background: var(--color-surface); }
 	.item.link span { word-break: break-all; }
-	.features { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; color: var(--color-text-muted); font-size: 13px; line-height: 1.4; }
+	.features { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; color: var(--color-text-muted); font-size: 0.8125rem; line-height: 1.4; }
 	.features li::marker { color: var(--color-primary); }
 </style>

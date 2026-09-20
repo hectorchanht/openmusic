@@ -631,17 +631,17 @@
 	.hero { padding: 14px 0 18px; text-align: center; }
 	.herocover { width: 150px; height: 150px; border-radius: 50%; margin: 8px auto 12px; background-size: cover; background-position: center; box-shadow: 0 12px 34px rgba(0,0,0,0.5); }
 	.hero h1 { font-size: calc(1.7rem * var(--fs-title, 1)); margin: 0; }
-	.note { color: var(--color-text-muted); font-size: 12px; margin-top: 4px; }
+	.note { color: var(--color-text-muted); font-size: 0.75rem; margin-top: 4px; }
 	.herotags { display: flex; justify-content: center; margin-top: 8px; }
 	/* Deezer info stats (ENRICH-04) — fan/album counts under the hero, source-labeled. */
 	.dzstats { display: flex; justify-content: center; gap: 18px; margin-top: 10px; flex-wrap: wrap; }
-	.dzstat { color: var(--color-text-muted); font-size: 12px; }
+	.dzstat { color: var(--color-text-muted); font-size: 0.75rem; }
 	.dzstat strong { color: var(--color-text); font-weight: 600; }
 	.dzstats .sk-stat { display: inline-block; width: 64px; height: 13px; }
 	/* kmn: action bar — three pill buttons centered under the hero title/note. Mirrors the
 	   album-page action-bar visual language. */
 	.actions { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; margin: 14px 0 6px; }
-	.act { display: inline-flex; align-items: center; gap: 7px; background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); padding: 9px 16px; border-radius: 999px; font-size: 13px; cursor: pointer; }
+	.act { display: inline-flex; align-items: center; gap: 7px; background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); padding: 9px 16px; border-radius: 999px; font-size: 0.8125rem; cursor: pointer; }
 	.act:hover { background: var(--color-surface); }
 	.act:disabled { opacity: 0.45; cursor: default; }
 	.act.on { color: var(--color-primary); border-color: var(--color-primary); }
@@ -649,8 +649,8 @@
 	.act.primary:hover { filter: brightness(1.06); }
 	.bio { text-align: left; margin: 16px 0 0; }
 	.bio h2 { font-size: calc(1.1rem * var(--fs-title, 1)); margin: 0 0 8px; }
-	.bio p { color: var(--color-text-muted); font-size: 13px; line-height: 1.55; margin: 0; }
-	.readmore { display: inline-block; margin-top: 8px; color: var(--color-primary); font-size: 13px; }
+	.bio p { color: var(--color-text-muted); font-size: 0.8125rem; line-height: 1.55; margin: 0; }
+	.readmore { display: inline-block; margin-top: 8px; color: var(--color-primary); font-size: 0.8125rem; }
 	section { margin: 18px 0; }
 	section h2 { font-size: calc(1.1rem * var(--fs-title, 1)); margin: 0 0 12px; }
 	/* quick-260831-re9: album covers are painted as TWO layers — the cover URL over the deterministic
@@ -672,9 +672,9 @@
 	.album { flex: 0 0 130px; min-width: 0; max-width: 130px; background: none; border: none; padding: 0; cursor: pointer; text-align: left; display: flex; flex-direction: column; gap: 4px; }
 	.al-cover { width: 130px; height: 130px; border-radius: 10px; background-size: cover; background-position: center; }
 	.al-cover.round { border-radius: 50%; }
-	.al-name { font-size: calc(12px * var(--fs-title, 1)); font-weight: 600; color: var(--color-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.al-name { font-size: calc(0.75rem * var(--fs-title, 1)); font-weight: 600; color: var(--color-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 	.al-name.center { text-align: center; }
-	.al-count { font-size: calc(11px * var(--fs-artist, 1)); color: var(--color-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.al-count { font-size: calc(0.6875rem * var(--fs-artist, 1)); color: var(--color-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 	/* Marquee animation lives globally in app.css (transform-based .marquee-inner). The
 	   .al-name / .al-count clips above + the use:marquee action + inner .marquee-inner span
 	   in the markup are the only per-file pieces — the global rule animates them. */
@@ -687,19 +687,19 @@
 	.row { width: 100%; text-align: left; background: none; border: none; padding: 6px; border-radius: 8px; display: flex; align-items: center; gap: 12px; }
 	.art { width: 44px; height: 44px; border-radius: 6px; background-size: cover; background-position: center; flex: none; }
 	.meta { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-	.muted { color: var(--color-text-muted); font-size: 14px; }
+	.muted { color: var(--color-text-muted); font-size: 0.875rem; }
 	/* quick-260831-rjo: centered "Show more" / "Loading more…" slot under the hit-songs list.
 	   The button reuses the existing .act pill so it matches the hero action bar. */
 	.more { display: flex; justify-content: center; margin-top: 12px; }
-	.more .muted { margin: 0; font-size: 13px; }
+	.more .muted { margin: 0; font-size: 0.8125rem; }
 
 	/* OFFL-03 inline offline empty-state (shared idiom across online-only surfaces). */
 	.offline-state { text-align: center; padding: 32px 16px; color: var(--color-text-muted); }
-	.offline-title { font-size: 15px; font-weight: 600; color: var(--color-text); margin: 0 0 6px; }
-	.offline-body { font-size: 13px; margin: 0 0 16px; }
+	.offline-title { font-size: 0.9375rem; font-weight: 600; color: var(--color-text); margin: 0 0 6px; }
+	.offline-body { font-size: 0.8125rem; margin: 0 0 16px; }
 	.offline-cta {
 		background: var(--color-primary); border: none; color: #fff; border-radius: 999px;
-		padding: 9px 18px; font-size: 13px; font-weight: 600; cursor: pointer;
+		padding: 9px 18px; font-size: 0.8125rem; font-weight: 600; cursor: pointer;
 	}
 
 	/* ---- loading skeletons (global .sk in app.css supplies the grey + shimmer; these size the

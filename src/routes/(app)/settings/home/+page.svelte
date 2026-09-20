@@ -398,28 +398,28 @@
 </section>
 
 <style>
-	.reset { background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text-muted); padding: 6px 12px; border-radius: 999px; font-size: 12px; cursor: pointer; }
+	.reset { background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text-muted); padding: 6px 12px; border-radius: 999px; font-size: 0.75rem; cursor: pointer; }
 	.reset:hover { color: var(--color-text); }
 	section { margin: 18px 0; }
 	/* quick-260919-ebi: `position: relative` on every title that carries an inline (i) — it anchors
 	   SettingHint's description panel, which is scoped and cannot set this on its host. */
 	section h2 { display: flex; align-items: center; gap: 6px; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--color-text-muted); margin: 0 0 10px; position: relative; }
-	.muted { color: var(--color-text-muted); font-size: 12px; margin: 8px 0 0; }
+	.muted { color: var(--color-text-muted); font-size: 0.75rem; margin: 8px 0 0; }
 	/* Reorder list */
 	.reorder { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 	.rrow { display: flex; align-items: center; gap: 10px; background: var(--color-surface-2); border: 1px solid var(--color-border); padding: 11px 12px; border-radius: 12px; }
 	/* The grip OWNS the vertical gesture (touch-action:none) so a drag reorders, not scrolls. */
 	.grip { display: grid; place-items: center; color: var(--color-text-muted); cursor: grab; touch-action: none; flex: none; }
 	.grip:active { cursor: grabbing; }
-	.rlabel { flex: 1; min-width: 0; font-size: 14px; }
+	.rlabel { flex: 1; min-width: 0; font-size: 0.875rem; }
 	/* D-07: compact/comfortable per-section density segment — a small two-button segmented
 	   control. The active option carries aria-pressed + the accent fill. */
 	.density-seg { display: inline-flex; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 999px; padding: 2px; gap: 2px; flex: none; }
-	.dseg-btn { background: none; border: none; color: var(--color-text-muted); padding: 5px 10px; border-radius: 999px; font-size: 11px; cursor: pointer; white-space: nowrap; }
+	.dseg-btn { background: none; border: none; color: var(--color-text-muted); padding: 5px 10px; border-radius: 999px; font-size: 0.6875rem; cursor: pointer; white-space: nowrap; }
 	.dseg-btn.on { background: var(--color-primary); color: #fff; }
 	/* Chips (multiselect) */
 	.chips { display: flex; flex-wrap: wrap; gap: 8px; }
-	.chip { background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); padding: 8px 14px; border-radius: 999px; font-size: 13px; cursor: pointer; }
+	.chip { background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); padding: 8px 14px; border-radius: 999px; font-size: 0.8125rem; cursor: pointer; }
 	.chip.on { background: var(--color-primary); color: #fff; border-color: transparent; }
 	/* Selected chips are draggable to reorder — own the touch gesture so a drag reorders
 	   rather than scrolls the page; lift the chip while dragging. */
@@ -431,16 +431,16 @@
 	.range { width: 100%; accent-color: var(--color-primary); }
 	/* quick-260919-ebi: slider label + live grid demo, carried verbatim from /settings/appearance
 	   with the Home grid columns control. */
-	.lab { display: flex; align-items: baseline; justify-content: space-between; font-size: 14px; margin-bottom: 6px; }
-	.val { color: var(--color-primary); font-variant-numeric: tabular-nums; font-size: 13px; }
-	.demo-cap { display: block; margin-top: 10px; font-size: 11px; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.4px; }
+	.lab { display: flex; align-items: baseline; justify-content: space-between; font-size: 0.875rem; margin-bottom: 6px; }
+	.val { color: var(--color-primary); font-variant-numeric: tabular-nums; font-size: 0.8125rem; }
+	.demo-cap { display: block; margin-top: 10px; font-size: 0.6875rem; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.4px; }
 	.grid-demo { display: grid; gap: 6px; margin-top: 6px; max-width: 220px; }
 	.grid-demo-cell { aspect-ratio: 1 / 1; border-radius: var(--radius-sm, 6px); background: var(--color-surface-2); }
 	/* quick-260919-ebi: the .seg CSS moved into SettingPicker.svelte, and .row-toggle left with the
 	   two Home-chrome toggle rows the previews replaced. `.sw` below STAYS: it is the bare
 	   section-visibility switch inside the 44px drag-reorder rows, which is not a settings row and
 	   has no label of its own — SettingToggle does not fit there. */
-	.sub { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; margin: 16px 0 8px; position: relative; }
+	.sub { display: flex; align-items: center; gap: 6px; font-size: 0.8125rem; font-weight: 600; margin: 16px 0 8px; position: relative; }
 	.sw { width: 40px; height: 22px; border-radius: 999px; background: var(--color-border); position: relative; transition: background 0.15s ease; flex: none; border: none; cursor: pointer; padding: 0; }
 	.sw::after { content: ''; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: #fff; transition: transform 0.15s ease; }
 	.sw.on { background: var(--color-primary); }

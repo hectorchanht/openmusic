@@ -460,24 +460,24 @@
 <style>
 	section { margin: 18px 0; }
 	section h2 { display: flex; align-items: center; gap: 6px; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--color-text-muted); margin: 0 0 10px; }
-	.muted { color: var(--color-text-muted); font-size: 12px; margin: 8px 0 0; }
-	.hint { color: var(--color-text-muted); font-size: 12px; margin: -2px 0 10px 4px; }
-	.item { width: 100%; display: flex; align-items: center; gap: 12px; background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); padding: 14px; border-radius: 12px; font-size: 15px; cursor: pointer; text-align: left; margin-bottom: 8px; }
+	.muted { color: var(--color-text-muted); font-size: 0.75rem; margin: 8px 0 0; }
+	.hint { color: var(--color-text-muted); font-size: 0.75rem; margin: -2px 0 10px 4px; }
+	.item { width: 100%; display: flex; align-items: center; gap: 12px; background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); padding: 14px; border-radius: 12px; font-size: 0.9375rem; cursor: pointer; text-align: left; margin-bottom: 8px; }
 	.item:disabled { opacity: 0.5; cursor: default; }
-	.chip { background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); padding: 8px 14px; border-radius: 999px; font-size: 13px; cursor: pointer; }
+	.chip { background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); padding: 8px 14px; border-radius: 999px; font-size: 0.8125rem; cursor: pointer; }
 	.advanced { margin: 22px 0; padding: 10px 12px; background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: 12px; }
 	.advanced summary { display: inline-flex; align-items: center; gap: 6px; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--color-text-muted); cursor: pointer; padding: 4px 0; min-height: 44px; }
 	/* quick-260919-30x: the recovery row reuses `.item`'s surface tokens and the page's existing
 	   `.chip` for its button — only the label/button split is new. */
 	.excl-row { display: flex; align-items: center; gap: 12px; background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: 12px; padding: 10px 10px 10px 14px; margin-bottom: 8px; }
-	.excl-label { flex: 1; min-width: 0; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-	.flash { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(var(--tabbar-h) + 70px); background: #000; color: #fff; padding: 10px 16px; border-radius: 999px; font-size: 13px; }
+	.excl-label { flex: 1; min-width: 0; font-size: 0.875rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.flash { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(var(--tabbar-h) + 70px); background: #000; color: #fff; padding: 10px 16px; border-radius: 999px; font-size: 0.8125rem; }
 
 	/* Contract 3/4 + UI-SPEC Color: the import CTA is this page's single accent-filled action. */
-	.cta { width: 100%; min-height: 48px; display: flex; align-items: center; justify-content: center; gap: 8px; background: var(--color-primary); color: #fff; border: none; border-radius: 12px; font-size: 15px; font-weight: 600; cursor: pointer; }
+	.cta { width: 100%; min-height: 48px; display: flex; align-items: center; justify-content: center; gap: 8px; background: var(--color-primary); color: #fff; border: none; border-radius: 12px; font-size: 0.9375rem; font-weight: 600; cursor: pointer; }
 	.cta:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
 	.cta.busy { background: var(--color-surface-2); color: var(--color-text); border: 1px solid var(--color-border); justify-content: space-between; padding: 0 8px 0 14px; gap: 12px; font-weight: 400; }
-	.lbl-prog { font-size: 13px; color: var(--color-text-muted); white-space: nowrap; }
+	.lbl-prog { font-size: 0.8125rem; color: var(--color-text-muted); white-space: nowrap; }
 	.rail { flex: 1; height: 6px; background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: 999px; overflow: hidden; position: relative; }
 	.rail .fill { display: block; height: 100%; background: var(--color-primary); border-radius: 999px; transition: width 0.25s linear; }
 	.rail.indet .fill.sliver { width: 35%; transition: none; animation: np-indet 1.1s ease-in-out infinite; }
@@ -486,10 +486,10 @@
 		100% { transform: translateX(310%); }
 	}
 	.chip.cancel { min-height: 44px; min-width: 44px; color: var(--color-text-muted); }
-	.hint.perm { display: flex; gap: 6px; align-items: flex-start; color: var(--color-text-muted); font-size: 12px; margin: 8px 0; }
+	.hint.perm { display: flex; gap: 6px; align-items: flex-start; color: var(--color-text-muted); font-size: 0.75rem; margin: 8px 0; }
 	.summary, .empty-block { background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: 12px; padding: 14px; margin: 12px 0; display: flex; flex-direction: column; gap: 6px; }
-	.summary strong { font-size: 15px; font-weight: 600; display: flex; gap: 6px; align-items: center; }
-	.summary .hint { font-size: 12px; color: var(--color-text-muted); margin: 0; }
+	.summary strong { font-size: 0.9375rem; font-weight: 600; display: flex; gap: 6px; align-items: center; }
+	.summary .hint { font-size: 0.75rem; color: var(--color-text-muted); margin: 0; }
 	.summary .hint.removed { color: #ff7a90; }
 	.empty-block { align-items: center; text-align: center; color: var(--color-text-muted); }
 	.empty-block .hint { margin: 0; }
@@ -499,20 +499,20 @@
 	   `type="text"` or `<textarea>` existed anywhere in src/, so UI-SPEC sets their shape. */
 	.chips { display: flex; flex-wrap: wrap; gap: 8px; }
 	.chip.on { background: var(--color-primary); color: #fff; border-color: transparent; }
-	.row-toggle { width: 100%; display: flex; align-items: center; justify-content: space-between; background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); padding: 13px 14px; border-radius: 12px; font-size: 14px; cursor: pointer; margin: 8px 0 0; }
+	.row-toggle { width: 100%; display: flex; align-items: center; justify-content: space-between; background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); padding: 13px 14px; border-radius: 12px; font-size: 0.875rem; cursor: pointer; margin: 8px 0 0; }
 	.sw { width: 40px; height: 22px; border-radius: 999px; background: var(--color-border); position: relative; transition: background 0.15s ease; flex: none; }
 	.sw::after { content: ''; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: #fff; transition: transform 0.15s ease; }
 	.sw.on { background: var(--color-primary); }
 	.sw.on::after { transform: translateX(18px); }
-	.txt { width: 100%; min-height: 44px; padding: 12px 14px; background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: 12px; color: var(--color-text); font-family: inherit; font-size: 14px; }
+	.txt { width: 100%; min-height: 44px; padding: 12px 14px; background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: 12px; color: var(--color-text); font-family: inherit; font-size: 0.875rem; }
 	.txt::placeholder { color: var(--color-text-muted); }
 	.txt:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
 	.txt[aria-invalid='true'] { border-color: #ff7a90; }
 	/* A regex is code: in Inter, `\s` and `\5` are ambiguous. The only monospace in the phase. */
-	.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
-	.hint.reject { color: #ff7a90; font-size: 12px; margin: 6px 0 0; }
+	.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.8125rem; }
+	.hint.reject { color: #ff7a90; font-size: 0.75rem; margin: 6px 0 0; }
 	.advanced.nested { margin: 12px 0 0; }
-	.lbl { display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 6px; }
+	.lbl { display: flex; justify-content: space-between; font-size: 0.875rem; margin-bottom: 6px; }
 	input[type='range'] { width: 100%; accent-color: var(--color-primary); }
 	.chip:focus-visible, .row-toggle:focus-visible, .advanced summary:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
 </style>

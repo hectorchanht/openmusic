@@ -1078,7 +1078,7 @@
 	.searchpill {
 		width: 100%; text-align: left; background: var(--color-surface-2);
 		border: 1px solid var(--color-border); border-radius: 999px;
-		padding: 11px 16px; color: var(--color-text-muted); font-size: 13px;
+		padding: 11px 16px; color: var(--color-text-muted); font-size: 0.8125rem;
 		display: flex; align-items: center; gap: 8px; cursor: pointer; margin-bottom: 18px;
 	}
 	.section .head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 12px; }
@@ -1117,7 +1117,7 @@
 	.cs-bar-sub { width: 40%; height: 9px; }
 	.more, .retry {
 		background: none; border: 1px solid var(--color-border); color: var(--color-text-muted);
-		padding: 5px 12px; border-radius: 999px; font-size: 12px; cursor: pointer;
+		padding: 5px 12px; border-radius: 999px; font-size: 0.75rem; cursor: pointer;
 		display: inline-flex; align-items: center; gap: 5px;
 	}
 	/* Horizontal scroll row (copied from the artist page .albumrow pattern). */
@@ -1148,9 +1148,9 @@
 	/* FIX-B: real cover (Last.fm or CAA) layered over the gradient span; onerror hides it
 	   (a 404 → the gradient shows). inherit border-radius so the round variant clips it. */
 	.al-cover-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: inherit; }
-	.al-name { font-size: calc(12px * var(--fs-title, 1)); font-weight: 600; color: var(--color-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.al-name { font-size: calc(0.75rem * var(--fs-title, 1)); font-weight: 600; color: var(--color-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 	.al-name.center { text-align: center; }
-	.al-count { font-size: calc(11px * var(--fs-artist, 1)); color: var(--color-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.al-count { font-size: calc(0.6875rem * var(--fs-artist, 1)); color: var(--color-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 	/* Marquee animation now lives globally in app.css (transform-based .marquee-inner). The
 	   clip element keeps overflow:hidden + white-space:nowrap above; when text overflows the
 	   use:marquee action sets --marquee-dx + .marquee-on and the inner span scrolls. */
@@ -1166,15 +1166,15 @@
 	.art { position: absolute; inset: 0; background-size: cover; background-position: center; }
 	.scrim { position: absolute; inset: 0; background: linear-gradient(to top, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0) 55%); }
 	.label { position: absolute; left: 7px; right: 7px; bottom: 6px; text-align: left; }
-	.t-title { font-size: calc(11px * var(--fs-title, 1)); font-weight: 700; line-height: 1.2; color: #fff; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-	.t-artist { font-size: calc(10px * var(--fs-artist, 1)); color: #d8d8de; margin-top: 2px; opacity: 0.85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-	.q { position: absolute; top: 6px; right: 6px; font-size: 8px; font-weight: 700; padding: 2px 5px; border-radius: 4px; background: rgba(0,0,0,0.55); color: #fff; }
+	.t-title { font-size: calc(0.6875rem * var(--fs-title, 1)); font-weight: 700; line-height: 1.2; color: #fff; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+	.t-artist { font-size: calc(0.625rem * var(--fs-artist, 1)); color: #d8d8de; margin-top: 2px; opacity: 0.85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.q { position: absolute; top: 6px; right: 6px; font-size: 0.5rem; font-weight: 700; padding: 2px 5px; border-radius: 4px; background: rgba(0,0,0,0.55); color: #fff; }
 	/* quick-260618-goe: artist grid tile — round cover + centered name BELOW (no overlay/scrim),
 	   so it overrides the square aspect-ratio .tile shell with a flex-column layout. */
 	.artist-tile { position: static; aspect-ratio: auto; background: none; border-radius: 0; display: flex; flex-direction: column; align-items: center; gap: 6px; }
 	.artist-tile .art { position: relative; inset: auto; width: 100%; aspect-ratio: 1 / 1; border-radius: 50%; overflow: hidden; background-size: cover; background-position: center; background-color: var(--color-surface-2); }
-	.artist-name { width: 100%; min-width: 0; overflow: hidden; white-space: nowrap; text-align: center; font-size: calc(11px * var(--fs-title, 1)); font-weight: 600; color: var(--color-text); }
-	.error { color: #ff7a90; font-size: 14px; }
+	.artist-name { width: 100%; min-width: 0; overflow: hidden; white-space: nowrap; text-align: center; font-size: calc(0.6875rem * var(--fs-title, 1)); font-weight: 600; color: var(--color-text); }
+	.error { color: #ff7a90; font-size: 0.875rem; }
 
 	/* quick-260919-et3 (D-8): at desktop the fallback grid holds the TILE SIZE and lets the COUNT
 	   follow the window, instead of inflating three tiles to 600px each in a 1900px column.

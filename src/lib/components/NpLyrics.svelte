@@ -411,6 +411,6 @@
 	   line was active. Mirror the active-line emphasis (same tokens as .lyrics p.active) so the active
 	   moment's translation reads as highlighted in lockstep with the original. */
 	.lyrics .tr.active { color: var(--color-text); font-weight: 700; }
-	.tr-hint { text-align: center; font-size: 11px; color: var(--color-primary); margin: 0 0 6px; }
-	.empty { color: var(--color-text-muted); font-size: 14px; text-align: center; padding: 24px; }
+	.tr-hint { text-align: center; font-size: 0.6875rem; color: var(--color-primary); margin: 0 0 6px; }
+	.empty { color: var(--color-text-muted); font-size: 0.875rem; text-align: center; padding: 24px; }
 </style>

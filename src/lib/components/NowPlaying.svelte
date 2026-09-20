@@ -1332,12 +1332,12 @@
 	/* Marquee lives globally in app.css (transform-based .marquee-inner). The .title/.artist
 	   clips above + the use:marquee action + inner .marquee-inner span in the markup are the
 	   only per-file pieces — the global rule animates them. (gmy unified the drift.) */
-	.np-error { color: #ff6b6b; font-size: 13px; text-align: center; margin: 2px 2px 10px; }
+	.np-error { color: #ff6b6b; font-size: 0.8125rem; text-align: center; margin: 2px 2px 10px; }
 	.prog { margin: 4px 0; }
 	/* plan 002: the seek rail is now the shared global `.scrubber` (app.css) driven by
 	   use:scrub — the old local `.track`/`.fill`/`.knob` rules were removed. */
 	/* plan 006: tabular-nums so the ticking current-time readout never jitters horizontally. */
-	.times { display: flex; justify-content: space-between; font-size: 11px; color: var(--color-text-muted); margin-top: 4px; font-variant-numeric: tabular-nums; }
+	.times { display: flex; justify-content: space-between; font-size: 0.6875rem; color: var(--color-text-muted); margin-top: 4px; font-variant-numeric: tabular-nums; }
 	/* quick-260910-tqw: the bottom margin glides with the .cover/.meta reflow (byte-identical
 	   0.32s curve) instead of hitching at t=0; see .np.reflow .transport above. */
 	.transport { display: flex; align-items: center; justify-content: space-between; margin: 10px 4px 0; transition: margin 0.32s cubic-bezier(.22,1,.36,1); }
@@ -1355,7 +1355,7 @@
 	.t-dl :global(.dc.downloaded) { opacity: 0.4; }
 	.t-dl :global(.dc.unavailable) { color: #ff7a90; opacity: 1; }
 	.st-row { display: flex; justify-content: center; margin: 2px 4px 0; }
-	.st-readout { display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 999px; font-size: 13px; font-variant-numeric: tabular-nums; background: var(--color-surface); }
+	.st-readout { display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 999px; font-size: 0.8125rem; font-variant-numeric: tabular-nums; background: var(--color-surface); }
 	.play { width: 62px; height: 62px; border-radius: 50%; border: none; background: #fff; color: #000; cursor: pointer; display: grid; place-items: center; }
 	.sheet { display: flex; flex-direction: column; flex: 1; min-height: 0; will-change: transform; user-select: none; -webkit-user-select: none; }
 	.sheet.full {
@@ -1397,7 +1397,7 @@
 	.grip:active { cursor: grabbing; }
 	.handle { width: 44px; height: 5px; border-radius: 999px; background: var(--color-text-muted); opacity: 0.6; margin-top: 15px; }
 	.subnav { display: flex; justify-content: space-around; padding-bottom: 6px; touch-action: none; user-select: none; -webkit-user-select: none; }
-	.subnav button { background: none; border: none; color: var(--color-text-muted); font-size: 13px; min-height: 40px; padding: 8px 12px; cursor: pointer; border-bottom: 2px solid transparent; }
+	.subnav button { background: none; border: none; color: var(--color-text-muted); font-size: 0.8125rem; min-height: 40px; padding: 8px 12px; cursor: pointer; border-bottom: 2px solid transparent; }
 	.subnav button.active { color: var(--color-text); border-bottom-color: var(--color-primary); }
 	/* NP-02: contain over-scroll/bounce to the panel edges so half-open scroll never chains to
 	   the page behind the sheet. NO touch-action: none — the panel keeps its pan-y scroll (the
@@ -1451,7 +1451,7 @@
 		-webkit-user-select: none;
 	}
 	.subnav.heads span {
-		font-size: 12px;
+		font-size: 0.75rem;
 		font-weight: 700;
 		letter-spacing: 0.06em;
 		text-transform: uppercase;

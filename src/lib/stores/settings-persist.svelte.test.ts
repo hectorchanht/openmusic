@@ -86,10 +86,13 @@ describe('settings persistence round-trip — shareIncludeTitle (quick-260808-vz
 describe('settings persistence round-trip — rowActions (quick-260919-l9e)', () => {
 	beforeEach(() => memStore.clear());
 
-	it("defaults to ['like','download'] when nothing is persisted", async () => {
+	// quick-260920-kxz REVERSED the default from ['like','download'] to []: a fresh row shows
+	// neither button, and either is switched on from the Song rows editor. The persisted-list
+	// cases below are UNCHANGED — only the "what does a fresh install get" assertions move.
+	it('defaults to [] when nothing is persisted (quick-260920-kxz)', async () => {
 		const settings = await freshSettings();
 		settings.load();
-		expect(settings.rowActions).toEqual(['like', 'download']);
+		expect(settings.rowActions).toEqual([]);
 	});
 
 	it('a persisted subset wins on load', async () => {
@@ -116,11 +119,11 @@ describe('settings persistence round-trip — rowActions (quick-260919-l9e)', ()
 	});
 
 	// T-l9e-01 (tampering): localStorage is user/extension-writable.
-	it.each([['like'], [null], [{}], [7]])('a corrupt non-array (%p) falls back to the default', async (bad) => {
+	it.each([['like'], [null], [{}], [7]])('a corrupt non-array (%p) falls back to the default ([])', async (bad) => {
 		memStore.set(KEY, JSON.stringify({ appLang: 'en', rowActions: bad }));
 		const settings = await freshSettings();
 		settings.load();
-		expect(settings.rowActions).toEqual(['like', 'download']);
+		expect(settings.rowActions).toEqual([]);
 	});
 
 	it('unknown and duplicate members are dropped rather than poisoning the order', async () => {
@@ -137,12 +140,50 @@ describe('settings persistence round-trip — rowActions (quick-260919-l9e)', ()
 		expect(JSON.parse(localStorage.getItem(KEY) as string).rowActions).toEqual(['download']);
 	});
 
+	// quick-260920-kxz: the starting value has to be NON-empty now, or the case would pass
+	// trivially against the new [] default without ever proving that reset touched the field.
 	it('resetAppearance() reverts the field AND the persisted blob', async () => {
 		const settings = await freshSettings();
-		settings.rowActions = [];
+		settings.rowActions = ['download', 'like'];
 		settings.save();
 		settings.resetAppearance();
-		expect(settings.rowActions).toEqual(['like', 'download']);
-		expect(JSON.parse(localStorage.getItem(KEY) as string).rowActions).toEqual(['like', 'download']);
+		expect(settings.rowActions).toEqual([]);
+		expect(JSON.parse(localStorage.getItem(KEY) as string).rowActions).toEqual([]);
+	});
+});
+
+// quick-260920-kxz. fontScaleApp is the ROOT text multiplier — the one scale that can make the
+// whole app, Settings included, unreadable if a bad value survives load(). So the clamp gets a
+// case of its own on top of the usual default / round-trip / reset trio (T-kxz-01).
+describe('settings persistence round-trip — fontScaleApp (quick-260920-kxz)', () => {
+	beforeEach(() => memStore.clear());
+
+	it('defaults to 100 when nothing is persisted', async () => {
+		const settings = await freshSettings();
+		settings.load();
+		expect(settings.fontScaleApp).toBe(100);
+	});
+
+	it('a persisted value loads and save() writes it back into the blob', async () => {
+		memStore.set(KEY, JSON.stringify({ appLang: 'en', fontScaleApp: 130 }));
+		const settings = await freshSettings();
+		settings.load();
+		expect(settings.fontScaleApp).toBe(130);
+		settings.save();
+		expect(JSON.parse(localStorage.getItem(KEY) as string).fontScaleApp).toBe(130);
+	});
+
+	// T-kxz-01 (tampering): localStorage is user/extension-writable. An out-of-range value must
+	// land on the bound, not on <html> — 250% would push Settings itself off the screen.
+	it('an out-of-range value clamps to FONT_SCALE_MAX, and resetAppearance() returns it to 100', async () => {
+		memStore.set(KEY, JSON.stringify({ appLang: 'en', fontScaleApp: 250 }));
+		const settings = await freshSettings();
+		const { FONT_SCALE_MAX } = await import('./settings.svelte');
+		settings.load();
+		expect(settings.fontScaleApp).toBe(FONT_SCALE_MAX);
+		expect(FONT_SCALE_MAX).toBe(200);
+		settings.resetAppearance();
+		expect(settings.fontScaleApp).toBe(100);
+		expect(JSON.parse(localStorage.getItem(KEY) as string).fontScaleApp).toBe(100);
 	});
 });

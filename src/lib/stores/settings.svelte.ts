@@ -164,6 +164,10 @@ class Settings {
 	// --- appearance / per-part sizing (quick-260607-fnp) -----------------------------------
 	// Percent scales (100 = today's size). Applied app-wide as CSS custom properties in
 	// applyTheme(); `app.css :root` defaults to 1× so SSR / no-JS / returning users see no change.
+	/** quick-260920-kxz: GLOBAL text scale, percent. Unlike the per-part scales below it does not
+	 *  target one rule — it drives `--fs-app`, which multiplies the ROOT font-size, so every
+	 *  rem-sized rule in the app moves at once and the per-part scales multiply on top of it. */
+	fontScaleApp = $state<number>(APPEARANCE_DEFAULTS.fontScaleApp);
 	/** Song/track TITLE font scale, percent (clamped 70–160). */
 	fontScaleTitle = $state<number>(APPEARANCE_DEFAULTS.fontScaleTitle);
 	/** ARTIST/subtitle font scale, percent (clamped 70–160). */
@@ -303,6 +307,10 @@ class Settings {
 						: UPNEXT_DEFAULTS.mode;
 				this.bioLang = (v.bioLang as 'auto' | LyricsLang) ?? TRANSLATION_DEFAULTS.bioLang;
 				// Appearance scales (fnp): clamp to safe bounds; absent → the defaults.ts values.
+				// quick-260920-kxz / T-kxz-01 (tampering): same clamp as every sibling scale. A
+				// tampered 0 or 10000 here would make the WHOLE app unreadable (it is the root
+				// multiplier), so the bounds are what keeps Settings itself reachable to undo it.
+				this.fontScaleApp = clampInt(v.fontScaleApp, FONT_SCALE_MIN, FONT_SCALE_MAX, APPEARANCE_DEFAULTS.fontScaleApp);
 				this.fontScaleTitle = clampInt(v.fontScaleTitle, FONT_SCALE_MIN, FONT_SCALE_MAX, APPEARANCE_DEFAULTS.fontScaleTitle);
 				this.fontScaleArtist = clampInt(v.fontScaleArtist, FONT_SCALE_MIN, FONT_SCALE_MAX, APPEARANCE_DEFAULTS.fontScaleArtist);
 				this.fontScaleLyrics = clampInt(v.fontScaleLyrics, FONT_SCALE_MIN, FONT_SCALE_MAX, APPEARANCE_DEFAULTS.fontScaleLyrics);
@@ -438,6 +446,7 @@ class Settings {
 					upnextPerContext: this.upnextPerContext,
 					upnextMode: this.upnextMode,
 					bioLang: this.bioLang,
+					fontScaleApp: this.fontScaleApp,
 					fontScaleTitle: this.fontScaleTitle,
 					fontScaleArtist: this.fontScaleArtist,
 					fontScaleLyrics: this.fontScaleLyrics,
@@ -489,6 +498,10 @@ class Settings {
 		// the accent — ~12% darken matches today's #7c5cff → #6a48f0 relationship (A3).
 		r.style.setProperty('--color-primary-hover', darken(this.accent, 0.12));
 		// Appearance scales (fnp) — multipliers off the per-rule base sizes. 100% → 1 (no change).
+		// quick-260920-kxz: the ROOT multiplier — app.css turns it into
+		// `html { font-size: calc(100% * var(--fs-app, 1)) }`, so it moves every rem rule at once
+		// and the per-part multipliers below compose on top of the rescaled root.
+		r.style.setProperty('--fs-app', String(this.fontScaleApp / 100));
 		r.style.setProperty('--fs-title', String(this.fontScaleTitle / 100));
 		r.style.setProperty('--fs-artist', String(this.fontScaleArtist / 100));
 		r.style.setProperty('--fs-lyrics', String(this.fontScaleLyrics / 100));
@@ -504,8 +517,8 @@ class Settings {
 		else delete r.dataset.theme;
 	}
 
-	/** Reset the Appearance settings group — theme, accent, reduce-motion, the five font scales and
-	 *  cover size (k3y: reads `DEFAULTS.appearance`; theme/accent/reduceMotion read
+	/** Reset the Appearance settings group — theme, accent, reduce-motion, the global + five
+	 *  per-part font scales (quick-260920-kxz added fontScaleApp) and cover size (k3y: reads `DEFAULTS.appearance`; theme/accent/reduceMotion read
 	 *  `DEFAULTS.general`). Used by the /settings/appearance reset button + Data tab.
 	 *
 	 *  quick-260919-ebi: reset-group MEMBERSHIP follows the rows, so "Reset this group" keeps
@@ -519,6 +532,7 @@ class Settings {
 		this.theme = g.theme;
 		this.accent = g.accent;
 		this.reduceMotion = g.reduceMotion;
+		this.fontScaleApp = d.fontScaleApp;
 		this.fontScaleTitle = d.fontScaleTitle;
 		this.fontScaleArtist = d.fontScaleArtist;
 		this.fontScaleLyrics = d.fontScaleLyrics;

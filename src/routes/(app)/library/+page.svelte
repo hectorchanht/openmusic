@@ -547,7 +547,7 @@
 <style>
 	.head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 16px 0 12px; flex-wrap: wrap; }
 	.head h1 { font-size: calc(1.4rem * var(--fs-title, 1)); margin: 0; min-width: 0; }
-	.edit-btn { display: inline-flex; align-items: center; gap: 6px; background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); padding: 6px 12px; border-radius: 999px; font-size: 13px; cursor: pointer; }
+	.edit-btn { display: inline-flex; align-items: center; gap: 6px; background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); padding: 6px 12px; border-radius: 999px; font-size: 0.8125rem; cursor: pointer; }
 	.edit-btn[aria-pressed='true'] { background: var(--color-primary); color: #fff; border-color: transparent; }
 	/* quick-260915-vb9: four 13px pills — Play ~70px, Shuffle ~90px, Edit ~70px, ⋯ ~40px plus 24px
 	   of gaps ≈ 300px, inside a 360px viewport minus page padding, so one line holds. `flex: 0 1 auto`
@@ -584,25 +584,25 @@
 	.pl { margin-bottom: 18px; }
 	.pl-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
 	.pl-head h2 { font-size: 1rem; margin: 0; }
-	.count { color: var(--color-text-muted); font-size: 12px; font-weight: 400; }
+	.count { color: var(--color-text-muted); font-size: 0.75rem; font-weight: 400; }
 	.del { background: none; border: none; color: var(--color-text-muted); cursor: pointer; display: grid; place-items: center; padding: 6px; }
-	.empty { display: flex; flex-direction: column; align-items: center; gap: 10px; color: var(--color-text-muted); padding: 48px 16px; text-align: center; font-size: 14px; }
-	.empty-sm { color: var(--color-text-muted); font-size: 13px; padding: 4px 8px; }
-	.note { color: var(--color-text-muted); font-size: 11px; margin-top: 12px; }
+	.empty { display: flex; flex-direction: column; align-items: center; gap: 10px; color: var(--color-text-muted); padding: 48px 16px; text-align: center; font-size: 0.875rem; }
+	.empty-sm { color: var(--color-text-muted); font-size: 0.8125rem; padding: 4px 8px; }
+	.note { color: var(--color-text-muted); font-size: 0.6875rem; margin-top: 12px; }
 	/* kyf: fav-artists tab grid — responsive round-avatar tiles. */
 	.fav-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 14px; }
 	.fav-tile { position: relative; background: none; border: none; padding: 6px; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 6px; color: var(--color-text); border-radius: 12px; }
 	.fav-tile:hover { background: var(--color-surface); }
 	.fav-avatar { width: 88px; height: 88px; border-radius: 50%; background-size: cover; background-position: center; }
-	.fav-name { font-size: 13px; font-weight: 600; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+	.fav-name { font-size: 0.8125rem; font-weight: 600; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 	.fav-tile.edit-row .fav-name { color: #ff7a90; }
 	.fav-tile.edit-row .fav-avatar { filter: brightness(0.65); }
 	.fav-trash { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -60%); color: #fff; pointer-events: none; }
 	/* ---- quick-260915-vb9: per-tab list sheet (mirrors the album page's playlist picker) ---- */
 	.scrim { position: fixed; inset: 0; z-index: 80; background: rgba(0, 0, 0, 0.45); border: none; }
 	.sheet { position: fixed; left: 12px; right: 12px; bottom: 16px; z-index: 81; background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: 16px; padding: 8px; max-width: 680px; margin: 0 auto; box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.5); max-height: 70vh; overflow-y: auto; }
-	.sheet-head { font-size: 13px; color: var(--color-text-muted); padding: 8px 10px; }
-	.mi { width: 100%; display: flex; align-items: center; gap: 12px; background: none; border: none; color: var(--color-text); font-size: 15px; padding: 12px; border-radius: 10px; cursor: pointer; text-align: left; }
+	.sheet-head { font-size: 0.8125rem; color: var(--color-text-muted); padding: 8px 10px; }
+	.mi { width: 100%; display: flex; align-items: center; gap: 12px; background: none; border: none; color: var(--color-text); font-size: 0.9375rem; padding: 12px; border-radius: 10px; cursor: pointer; text-align: left; }
 	.mi:hover { background: var(--color-surface); }
 	.mi.danger { color: #ff7a90; }
 	.mi.close { color: var(--color-text-muted); }

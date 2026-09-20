@@ -416,7 +416,7 @@
         color: var(--color-text-muted);
         padding: 6px 12px;
         border-radius: 999px;
-        font-size: 12px;
+        font-size: 0.75rem;
         cursor: pointer;
     }
     .reset:hover {
@@ -446,13 +446,13 @@
         display: flex;
         align-items: baseline;
         justify-content: space-between;
-        font-size: 14px;
+        font-size: 0.875rem;
         margin-bottom: 6px;
     }
     .val {
         color: var(--color-primary);
         font-variant-numeric: tabular-nums;
-        font-size: 13px;
+        font-size: 0.8125rem;
     }
     input[type="range"] {
         width: 100%;
@@ -470,14 +470,14 @@
     }
     .note {
         color: var(--color-text-muted);
-        font-size: 12px;
+        font-size: 0.75rem;
         margin: 4px 0 0;
     }
     /* quick-260618-goe: live preview demos under Cover Size + Home Grid Columns. */
     .demo-cap {
         display: block;
         margin-top: 10px;
-        font-size: 11px;
+        font-size: 0.6875rem;
         color: var(--color-text-muted);
         text-transform: uppercase;
         letter-spacing: 0.4px;

@@ -138,28 +138,28 @@
 		padding: 8px; max-width: 680px; margin: 0 auto; box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.5);
 		max-height: 90vh; overflow-y: auto;
 	}
-	.menu-head { font-size: calc(13px * var(--fs-title, 1)); color: var(--color-text-muted); padding: 8px 10px; }
-	.empty { color: var(--color-text-muted); font-size: 14px; padding: 8px 12px 12px; margin: 0; }
+	.menu-head { font-size: calc(0.8125rem * var(--fs-title, 1)); color: var(--color-text-muted); padding: 8px 10px; }
+	.empty { color: var(--color-text-muted); font-size: 0.875rem; padding: 8px 12px 12px; margin: 0; }
 	/* Gap 4 loading affordance — mirrors TrackMenu's .row-spinner idiom, including the
 	   quick-260809-mvz `.motion-always` exemption that keeps it turning under reduce-motion. */
-	.loading { display: flex; align-items: center; gap: 10px; color: var(--color-text-muted); font-size: 14px; padding: 12px; margin: 0; }
+	.loading { display: flex; align-items: center; gap: 10px; color: var(--color-text-muted); font-size: 0.875rem; padding: 12px; margin: 0; }
 	.row-spinner { width: 16px; height: 16px; flex: none; border: 2px solid var(--color-text-muted); border-top-color: transparent; border-radius: 50%; animation: spin 0.7s linear infinite; }
 	@keyframes spin { to { transform: rotate(360deg); } }
 	.mi {
 		width: 100%; display: flex; align-items: center; gap: 12px; min-height: 44px;
-		background: none; border: none; color: var(--color-text); font-size: 15px; padding: 12px;
+		background: none; border: none; color: var(--color-text); font-size: 0.9375rem; padding: 12px;
 		border-radius: 10px; cursor: pointer; text-align: left;
 	}
 	.mi:hover { background: var(--color-surface); }
 	.ver-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 	/* Title row is a flex line so the (Live)/(Demo) tag pill stays visible while the name ellipsizes. */
-	.ver-title { font-size: 14px; font-weight: 600; color: var(--color-text); display: flex; align-items: center; gap: 6px; min-width: 0; }
+	.ver-title { font-size: 0.875rem; font-weight: 600; color: var(--color-text); display: flex; align-items: center; gap: 6px; min-width: 0; }
 	.ver-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 	/* Gap 5 version tag — a muted pill next to the title, consistent weight with .src but subdued. */
 	.ver-tag {
-		flex: 0 0 auto; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em;
+		flex: 0 0 auto; font-size: 0.625rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em;
 		color: var(--color-text-muted); background: var(--color-surface); padding: 1px 6px; border-radius: 6px;
 		width: fit-content;
 	}
-	.ver-sub { font-size: 12px; color: var(--color-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.ver-sub { font-size: 0.75rem; color: var(--color-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 </style>

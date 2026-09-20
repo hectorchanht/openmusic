@@ -53,7 +53,7 @@
 		color: var(--color-text);
 		padding: 14px;
 		border-radius: 12px;
-		font-size: 15px;
+		font-size: 0.9375rem;
 		cursor: pointer;
 		text-align: left;
 		margin-bottom: 8px;
@@ -77,15 +77,15 @@
 		gap: 2px;
 	}
 	.lbl {
-		font-size: 15px;
+		font-size: 0.9375rem;
 		font-weight: 600;
 	}
 	.desc {
-		font-size: 12px;
+		font-size: 0.75rem;
 		color: var(--color-text-muted);
 	}
 	.value {
-		font-size: 13px;
+		font-size: 0.8125rem;
 		color: var(--color-primary);
 		flex: none;
 		max-width: 45%;

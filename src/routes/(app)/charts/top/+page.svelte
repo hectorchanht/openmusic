@@ -309,7 +309,7 @@
 	.tab {
 		background: var(--color-surface-2); border: 1px solid var(--color-border);
 		color: var(--color-text-muted); border-radius: var(--radius-full);
-		padding: 8px 16px; font-size: 13px; font-weight: 600; cursor: pointer;
+		padding: 8px 16px; font-size: 0.8125rem; font-weight: 600; cursor: pointer;
 		transition: background 0.12s ease, color 0.12s ease;
 	}
 	.tab[aria-pressed='true'] { background: var(--color-primary); border-color: var(--color-primary); color: #fff; }
@@ -318,11 +318,11 @@
 
 	/* OFFL-03 inline offline empty-state (shared idiom across online-only surfaces). */
 	.offline-state { text-align: center; padding: 32px 16px; color: var(--color-text-muted); }
-	.offline-title { font-size: 15px; font-weight: 600; color: var(--color-text); margin: 0 0 6px; }
-	.offline-body { font-size: 13px; margin: 0 0 16px; }
+	.offline-title { font-size: 0.9375rem; font-weight: 600; color: var(--color-text); margin: 0 0 6px; }
+	.offline-body { font-size: 0.8125rem; margin: 0 0 16px; }
 	.offline-cta {
 		background: var(--color-primary); border: none; color: #fff; border-radius: 999px;
-		padding: 9px 18px; font-size: 13px; font-weight: 600; cursor: pointer;
+		padding: 9px 18px; font-size: 0.8125rem; font-weight: 600; cursor: pointer;
 	}
 
 	/* Row wrapper hosts the swipe reveal layers BEHIND the .row (which slides via translateX). */
@@ -353,7 +353,7 @@
 	.art { width: 48px; height: 48px; border-radius: 8px; background-size: cover; background-position: center; flex: none; }
 	.art.round { border-radius: var(--radius-full); }
 	.meta { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-	.r-title { font-size: calc(14px * var(--fs-title, 1)); font-weight: 600; min-width: 0; max-width: 100%; }
+	.r-title { font-size: calc(0.875rem * var(--fs-title, 1)); font-weight: 600; min-width: 0; max-width: 100%; }
 
 	/* skeleton (search-page pattern) */
 	.skel-wrap { display: flex; flex-direction: column; gap: 6px; list-style: none; }

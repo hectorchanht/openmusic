@@ -127,7 +127,7 @@
 		color: var(--color-text-muted);
 		/* Reset the host's type: headings here are uppercase + letter-spaced + semibold, and the
 		   description is prose, not a continuation of the title. */
-		font-size: 12px;
+		font-size: 0.75rem;
 		font-weight: 400;
 		line-height: 1.5;
 		text-align: left;

@@ -547,7 +547,7 @@
 	   light theme inverts text to near-black and the nowbar reads as dark-on-dark. */
     .np-title {
         display: block;
-        font-size: 13px;
+        font-size: 0.8125rem;
         font-weight: 700;
         white-space: nowrap;
         overflow: hidden;
@@ -556,7 +556,7 @@
     }
     .np-artist {
         display: block;
-        font-size: 11px;
+        font-size: 0.6875rem;
         color: var(--color-text);
         white-space: nowrap;
         overflow: hidden;
@@ -577,10 +577,10 @@
        Without this the empty row would collapse to 0 and the title would slide down. */
     .np-lyricrow {
         height: 14px;
-        line-height: 14px;
+        line-height: 0.875rem;
     }
     .np-lyric {
-        font-size: 11px;
+        font-size: 0.6875rem;
         color: var(--color-text);
         opacity: 0.9;
         white-space: nowrap;
@@ -625,7 +625,7 @@
         border-radius: 999px;
         background: rgba(255, 255, 255, 0.08);
         color: var(--color-text);
-        font-size: 12px;
+        font-size: 0.75rem;
         font-variant-numeric: tabular-nums;
         cursor: pointer;
         transition: transform 0.12s ease;
@@ -713,7 +713,7 @@
         .np-time {
             /* No margin: as a direct .nowbar child the bar's own `gap: 10px` spaces it. The
                margin-left here was for its old home INSIDE .np-transport, whose gap is 4px. */
-            font-size: 12px;
+            font-size: 0.75rem;
             color: var(--color-text);
             opacity: 0.7;
             font-variant-numeric: tabular-nums;

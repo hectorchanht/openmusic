@@ -107,7 +107,7 @@
 		color: var(--color-text-muted);
 		padding: 7px 16px;
 		border-radius: 999px;
-		font-size: 13px;
+		font-size: 0.8125rem;
 		cursor: pointer;
 		display: inline-flex;
 		align-items: center;
@@ -123,7 +123,7 @@
 	/* The compact icon-only form the per-context up-next rows use (was `.upnext-row .seg button`). */
 	.seg button.icon-only {
 		padding: 6px 12px;
-		font-size: 12px;
+		font-size: 0.75rem;
 	}
 
 	/* ---- variant='preview' — a responsive row of tappable mockup cards ------------------- */
@@ -157,7 +157,7 @@
 		cursor: default;
 	}
 	.cap {
-		font-size: 12px;
+		font-size: 0.75rem;
 		color: var(--color-text-muted);
 		text-align: center;
 	}
@@ -215,7 +215,7 @@
 	   sitting next to a song title, or artist-vs-lyric in the mini bar. Untranslated literals only
 	   (a format name, a static demo song), so this never needs 15 versions. */
 	.mock :global(.mock-text) {
-		font-size: 7px;
+		font-size: 0.4375rem;
 		line-height: 1.3;
 		color: var(--color-text);
 		white-space: nowrap;
@@ -240,7 +240,7 @@
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		font-size: 6px;
+		font-size: 0.375rem;
 		line-height: 1;
 		letter-spacing: 0.3px;
 		padding: 2px 4px;

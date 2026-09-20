@@ -16,8 +16,8 @@
 {#if toast.msg}<div class="toast" role="status" aria-live="polite" transition:fly={{ y: -20, duration: 180 }}><span class="msg">{toast.msg}</span>{#if toast.action}<button type="button" class="act" onclick={() => toast.act()} use:tapBounce>{toast.action.label}</button>{/if}</div>{/if}
 
 <style>
-	.toast { position: fixed; left: 50%; transform: translateX(-50%); top: calc(env(safe-area-inset-top, 0px) + 14px); z-index: 90; background: #000; color: #fff; padding: 10px 16px; border-radius: 999px; font-size: 13px; box-shadow: var(--shadow-lg); border-color: darkgrey; display: flex; align-items: center; gap: 12px; max-width: min(92vw, 520px); }
+	.toast { position: fixed; left: 50%; transform: translateX(-50%); top: calc(env(safe-area-inset-top, 0px) + 14px); z-index: 90; background: #000; color: #fff; padding: 10px 16px; border-radius: 999px; font-size: 0.8125rem; box-shadow: var(--shadow-lg); border-color: darkgrey; display: flex; align-items: center; gap: 12px; max-width: min(92vw, 520px); }
 	.toast .msg { min-width: 0; }
 	/* Copied from +layout.svelte's .notice-toast .retry (the never-stop pill's button). */
-	.toast .act { flex: none; background: var(--color-primary, #7c5cff); color: #fff; border: none; border-radius: 999px; padding: 8px 14px; font-size: 13px; font-weight: 600; cursor: pointer; min-height: 32px; }
+	.toast .act { flex: none; background: var(--color-primary, #7c5cff); color: #fff; border: none; border-radius: 999px; padding: 8px 14px; font-size: 0.8125rem; font-weight: 600; cursor: pointer; min-height: 32px; }
 </style>

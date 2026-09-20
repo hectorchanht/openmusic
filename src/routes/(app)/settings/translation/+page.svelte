@@ -330,20 +330,20 @@
 </section>
 
 <style>
-	.reset { background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text-muted); padding: 6px 12px; border-radius: 999px; font-size: 12px; cursor: pointer; }
+	.reset { background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text-muted); padding: 6px 12px; border-radius: 999px; font-size: 0.75rem; cursor: pointer; }
 	.reset:hover { color: var(--color-text); }
 	section { margin: 18px 0; }
 	/* quick-260919-ebi: `position: relative` on every title that carries an inline (i) — it anchors
 	   SettingHint's description panel, which is scoped and cannot set this on its host. */
 	section h2 { display: flex; align-items: center; gap: 6px; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--color-text-muted); margin: 0 0 10px; position: relative; }
-	.muted { color: var(--color-text-muted); font-size: 12px; margin: 8px 0 0; }
+	.muted { color: var(--color-text-muted); font-size: 0.75rem; margin: 8px 0 0; }
 	.chips { display: flex; flex-wrap: wrap; gap: 8px; }
-	.chip { background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); padding: 8px 14px; border-radius: 999px; font-size: 13px; cursor: pointer; }
+	.chip { background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); padding: 8px 14px; border-radius: 999px; font-size: 0.8125rem; cursor: pointer; }
 	.chip.on { background: var(--color-primary); color: #fff; border-color: transparent; }
 	.chip:disabled { cursor: default; }
 	.skip { margin-top: 12px; }
 	.skip.disabled { opacity: 0.45; pointer-events: none; }
-	.sublabel { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--color-text-muted); margin: 0 0 8px; position: relative; }
+	.sublabel { font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--color-text-muted); margin: 0 0 8px; position: relative; }
 	.skipchip.on { background: var(--color-surface); color: var(--color-primary); border-color: var(--color-primary); }
 	/* quick-260919-hm2: the collapsed language lists. Lifted verbatim from the Playback page's
 	   `.advanced` Advanced > Sources accordion so the two read as the same control. */
@@ -353,11 +353,11 @@
 	   uppercase + letter-spaced heading type the Playback `.advanced` summary uses for its single
 	   "Advanced > Sources" disclosure. That is also what makes "Lyrics translation · Auto (app
 	   language)" fit on one 375px line — uppercase + 0.5px tracking did not. */
-	.advanced summary { position: relative; display: flex; align-items: center; gap: 6px; font-size: 14px; color: var(--color-text); cursor: pointer; padding: 4px 0; }
+	.advanced summary { position: relative; display: flex; align-items: center; gap: 6px; font-size: 0.875rem; color: var(--color-text); cursor: pointer; padding: 4px 0; }
 	.advanced .chips { margin-top: 12px; }
 	/* The row's CURRENT value, right-aligned — it is what makes a CLOSED page still readable:
 	   five collapsed rows that each say what they are set to. */
-	.cur { margin-left: auto; color: var(--color-text-muted); font-size: 13px; text-align: right; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.cur { margin-left: auto; color: var(--color-text-muted); font-size: 0.8125rem; text-align: right; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 	/* `display: flex` on a <summary> removes the UA disclosure marker, so the accordion would have
 	   no affordance at all — fine for one "Advanced" footer, not for five rows that ARE the page.
 	   This is that marker, put back explicitly and rotated on open. */
@@ -374,7 +374,7 @@
 	.advanced .skipchip.on { background: var(--color-surface); color: var(--color-primary); border-color: var(--color-primary); }
 	/* quick-260919-ebi: the .seg CSS moved into SettingPicker.svelte — the quick-260919-2jo Chinese
 	   script control is pixel-identical there, because the rules were lifted verbatim. */
-	.link { background: none; border: none; color: var(--color-primary); cursor: pointer; font-size: 14px; padding: 0; }
+	.link { background: none; border: none; color: var(--color-primary); cursor: pointer; font-size: 0.875rem; padding: 0; }
 	.div { border: none; border-top: 1px solid var(--color-border); margin: 4px 0; }
 	/* quick-260919-ebi: the toggle-row CSS moved into SettingToggle.svelte. */
 </style>

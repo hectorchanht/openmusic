@@ -317,14 +317,14 @@
 	   clip it off the row during a grip drag. `.list li.over .q-row` is INSET, so it is unaffected. */
 	.list li.lifted .q-swipe { box-shadow: 0 6px 18px rgba(0,0,0,0.4); }
 	.list li.over .q-row { box-shadow: inset 0 2px 0 var(--color-primary); }
-	.r-title { font-size: calc(14px * var(--fs-title, 1)); font-weight: 600; color: var(--color-text);}
-	.r-artist { font-size: calc(12px * var(--fs-artist, 1)); color: var(--color-text-muted); }
+	.r-title { font-size: calc(0.875rem * var(--fs-title, 1)); font-weight: 600; color: var(--color-text);}
+	.r-artist { font-size: calc(0.75rem * var(--fs-artist, 1)); color: var(--color-text-muted); }
 	/* quick-260615-i9u (Feature A): a probe-confirmed-dead Up-Next row, dimmed + leading ✗. Tapping
 	   it retries that exact track. Reuses existing design tokens (no new hardcoded colors).
 	   quick-260910-nx6: scoped to the CHILDREN — dimming the button itself made the whole row
 	   translucent, letting the reveal layers behind it show through. Art/text/badges dim, the
 	   row's own background stays opaque. */
 	.q-row.skipped > * { opacity: 0.45; }
-	.r-skip { font-size: calc(12px * var(--fs-artist, 1)); font-weight: 600; color: var(--color-text-muted); margin-right: 6px; }
-	.empty { color: var(--color-text-muted); font-size: 14px; text-align: center; padding: 24px; }
+	.r-skip { font-size: calc(0.75rem * var(--fs-artist, 1)); font-weight: 600; color: var(--color-text-muted); margin-right: 6px; }
+	.empty { color: var(--color-text-muted); font-size: 0.875rem; text-align: center; padding: 24px; }
 </style>
