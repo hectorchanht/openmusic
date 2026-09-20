@@ -46,7 +46,15 @@
 	} = $props();
 </script>
 
-<div class="setting-toggle" class:on={checked} class:disabled use:tapBounce>
+<!-- quick-260919-l9e — `only: '.hit'` for the same reason SongRow needs it: pointerdown BUBBLES,
+     so an ungated container bounce scaled this row for a press on ANY descendant, and a scale
+     moves children. The browser hit-tests pointerup at the ORIGINAL coordinates, so a control
+     that slid inward loses its outer edge and the click retargets to this inert div. That is not
+     hypothetical here — `.lbl` carries SettingHint's own 28px (i) button, which is small enough
+     that the displacement eats a real share of it. Gating on `.hit` keeps the row's own bounce
+     (a press anywhere on the row still toggles and still bounces, because `.lbl`/`.sw` are
+     pointer-events:none) while leaving the (i) at rest so it keeps its full tap target. -->
+<div class="setting-toggle" class:on={checked} class:disabled use:tapBounce={{ only: '.hit' }}>
 	<button
 		class="hit"
 		role="switch"

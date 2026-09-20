@@ -149,10 +149,19 @@
 	const liked = $derived(library.isLiked(track.uid));
 
 	// The placeholder gradient's SEED. A real song seeds off its uid, but the discovery surfaces
-	// (charts/tags, charts/countries) and the album tracklist render synthetic stubs whose uid is
-	// '' — seeding every one of those off '' paints the SAME gradient down the whole list (the
-	// charts-tags-same-cover bug, in its gradient form). Fall back to the {artist,title} pair,
-	// which is exactly the name identity lazyCover and the cover cache already use for a stub.
+	// (charts/tags, charts/countries) render synthetic stubs whose uid is '' — seeding every one of
+	// those off '' paints the SAME gradient down the whole list (the charts-tags-same-cover bug, in
+	// its gradient form). Fall back to the {artist,title} pair, which is exactly the name identity
+	// lazyCover and the cover cache already use for a stub.
+	//
+	// quick-260919-l9e CORRECTION: this comment used to claim the ALBUM tracklist was in that same
+	// empty-uid group. It is not. `nameStub` (`$lib/services/similar.ts`) mints a TRUTHY synthetic
+	// uid, `${source}:similar-${matchKey}`, so an album row takes the `track.uid` branch below and
+	// gets a per-row gradient — correct, and the reason nobody noticed. The distinction matters
+	// beyond this seed: `toggleLike`'s `!track.uid` guard CANNOT catch an album stub, so a surface
+	// that passed `actions={['like']}` on album rows would persist an unplayable synthetic uid into
+	// the liked list. Every stub surface passes `actions={[]}` today, which is what keeps that
+	// unreachable — treat it as a precondition of that prop, not an accident.
 	const gradientSeed = $derived(track.uid || `${track.artist} ${track.title}`);
 
 	// The shared three-rung row cover read (quick-260910-qwt + quick-260915-w4f rung 0): the user's
