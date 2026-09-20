@@ -56,3 +56,33 @@ export function navActive(url: URL, href: string): boolean {
 		return false;
 	}
 }
+
+/** The subset of a MouseEvent the interception rule reads. Keeps the rule node-testable —
+ *  callers pass the real event, tests pass a literal. */
+export interface NavClickLike {
+	defaultPrevented: boolean;
+	button: number;
+	metaKey: boolean;
+	ctrlKey: boolean;
+	shiftKey: boolean;
+	altKey: boolean;
+}
+
+/**
+ * quick-260920-m0l — should a tab/rail click be intercepted and routed through
+ * `overlays.navigateAway` instead of letting the plain <a> navigate?
+ *
+ * TRUE only when an overlay is actually open. A tap on the rail while the now-playing sheet is
+ * up used to navigate UNDERNEATH it and leave it open; navigateAway navigates first and then
+ * closes every open overlay, which is what collapses the sheet.
+ *
+ * FALSE for a modified or non-primary click — open-in-new-tab belongs to the browser, and the
+ * current tab is not navigating anyway, so the overlay must stay exactly as it is. FALSE at depth
+ * 0 as well, so the ordinary no-overlay path keeps native anchor behaviour and pays no JS.
+ */
+export function shouldInterceptNavClick(e: NavClickLike, overlayDepth: number): boolean {
+	if (e.defaultPrevented) return false;
+	if (e.button !== 0) return false;
+	if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return false;
+	return overlayDepth > 0;
+}

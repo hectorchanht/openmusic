@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { LIBRARY_TAB_SET, DEFAULT_LIBRARY_TAB, navActive, type LibraryTab } from './library-tabs';
+import {
+	LIBRARY_TAB_SET,
+	DEFAULT_LIBRARY_TAB,
+	navActive,
+	shouldInterceptNavClick,
+	type LibraryTab,
+	type NavClickLike
+} from './library-tabs';
 
 // quick-260919-oc6 — pure/node tests, same shape as url-tab.test.ts. `navActive` is a total
 // function over (URL, href): no DOM, no runes, no $app.
@@ -95,5 +102,41 @@ describe('navActive — a tabbed href also compares ?tab= through pickTab', () =
 		const notAUrl = { searchParams: null } as unknown as URL;
 		expect(() => navActive(notAUrl, '/library?tab=liked')).not.toThrow();
 		expect(navActive(notAUrl, '/library?tab=liked')).toBe(false);
+	});
+});
+
+describe('shouldInterceptNavClick (quick-260920-m0l)', () => {
+	const plain = (over: Partial<NavClickLike> = {}): NavClickLike => ({
+		defaultPrevented: false,
+		button: 0,
+		metaKey: false,
+		ctrlKey: false,
+		shiftKey: false,
+		altKey: false,
+		...over
+	});
+
+	it('intercepts a plain left click while an overlay is open', () => {
+		expect(shouldInterceptNavClick(plain(), 1)).toBe(true);
+		expect(shouldInterceptNavClick(plain(), 3)).toBe(true);
+	});
+
+	it('does NOT intercept when no overlay is open — the plain anchor navigates', () => {
+		expect(shouldInterceptNavClick(plain(), 0)).toBe(false);
+	});
+
+	it('does NOT intercept modified clicks — open-in-new-tab belongs to the browser', () => {
+		for (const k of ['metaKey', 'ctrlKey', 'shiftKey', 'altKey'] as const) {
+			expect(shouldInterceptNavClick(plain({ [k]: true }), 1)).toBe(false);
+		}
+	});
+
+	it('does NOT intercept middle / right clicks', () => {
+		expect(shouldInterceptNavClick(plain({ button: 1 }), 1)).toBe(false);
+		expect(shouldInterceptNavClick(plain({ button: 2 }), 1)).toBe(false);
+	});
+
+	it('does NOT intercept an already-handled click', () => {
+		expect(shouldInterceptNavClick(plain({ defaultPrevented: true }), 1)).toBe(false);
 	});
 });

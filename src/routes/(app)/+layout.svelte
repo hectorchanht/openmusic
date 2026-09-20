@@ -12,7 +12,7 @@
 	import { swUpdate } from '$lib/stores/swUpdate.svelte';
 	import { LANDING_PATHS } from '$lib/services/home-layout';
 	// quick-260919-oc6: the nav's active-match rule, shared with the library page's allowlist.
-	import { navActive } from '$lib/services/library-tabs';
+	import { navActive, shouldInterceptNavClick } from '$lib/services/library-tabs';
 	import { overlays } from '$lib/stores/overlays.svelte';
 	import { deviceImport } from '$lib/stores/device-import.svelte';
 	import { toast } from '$lib/stores/toast.svelte';
@@ -298,6 +298,32 @@
 	// canonical URL: a plain `/library` means "whatever tab was stored" (that is what the mobile
 	// Library tab and the home links mean), which cannot express "Liked" when the stored tab is
 	// History. The page's own URL write reconciles it back to `/library` on arrival.
+	// quick-260920-m0l: a tab/rail tap while an overlay is open navigates AND closes the overlay.
+	// This is the ceiling the comment on the <nav> below used to describe: the rail stayed
+	// clickable under the open now-playing sheet, so you navigated UNDERNEATH it and the sheet
+	// never collapsed.
+	//
+	// The "own look" that comment asked for is `overlays.navigateAway`, which already exists and
+	// is what NowPlaying.openArtistName and TrackMenu.gotoArtist use. Do NOT hand-roll
+	// `player.collapse(); goto(...)`: that order closes the sheet first, and SvelteKit then
+	// resolves goto() as a SILENT NO-OP because the overlay's raw Back entry is no longer the
+	// current one (traced in the `page-switch-lag-tap-dead` debug note). navigateAway runs goto()
+	// FIRST with the overlays still open, suppresses the history.back() that each unmounting
+	// host's cleanup would fire, and only then closes what is left — and `nowplaying`'s close
+	// handler IS player.collapse(), so the collapse comes free.
+	//
+	// Gated on `overlays.depth`, not `player.expanded`, for the same reason the keyboard block
+	// above gives: `expanded` misses a menu opened on top of the sheet. At depth 0 we do nothing
+	// and let the plain <a> navigate, so the ordinary path keeps native anchor behaviour
+	// (prefetch, middle-click, cmd-click) and pays no JS.
+	function onTabClick(e: MouseEvent, href: string) {
+		// The rule itself is pure and lives in library-tabs.ts next to navActive, so the
+		// modified-click and depth-0 carve-outs are node-tested rather than asserted here.
+		if (!shouldInterceptNavClick(e, overlays.depth)) return;
+		e.preventDefault();
+		overlays.navigateAway(() => goto(href));
+	}
+
 	const tabs: {
 		href: string;
 		labelKey: TranslationKey;
@@ -408,11 +434,12 @@
 	     (`left: var(--rail-w)` in NowPlaying.svelte) — the two never overlap and the z ladder
 	     (nowbar 20 / rail 21 / .np 50 / toast 90) is unchanged. On mobile the bar is absent for the
 	     whole fly-in, exactly as npfix made it.
-	     ponytail — known ceiling: a rail click while NowPlaying is open navigates UNDERNEATH the
-	     open sheet and does not collapse it. The sheet's focusTrap keeps keyboard focus inside
-	     `.np`, so the rail is pointer-reachable only. Collapse-on-rail-click is a one-line
-	     player.collapse() if wanted, but its interaction with the overlays history sentinel needs
-	     its own look — out of scope here. -->
+	     quick-260920-m0l: a rail click while NowPlaying is open used to navigate UNDERNEATH the
+	     open sheet without collapsing it. Fixed — `onTabClick` routes the click through
+	     `overlays.navigateAway`, which navigates first and then closes every open overlay
+	     (nowplaying's close handler is player.collapse()). See the note on that function for why
+	     the ordering is not negotiable. The sheet's focusTrap still keeps keyboard focus inside
+	     `.np`, so the rail remains pointer-reachable only. -->
 	<nav class="tabbar" class:np-open={player.expanded}>
 		{#each tabs as tab (tab.href)}
 			{@const Icon = tab.icon}
@@ -440,6 +467,7 @@
 				class:mobile-only={tab.mobileOnly}
 				href={tab.href}
 				aria-current={active ? 'page' : undefined}
+				onclick={(e) => onTabClick(e, tab.href)}
 				use:tapBounce
 			>
 				<span class="ic"><Icon size={20} fill={active ? 'currentColor' : 'none'} strokeWidth={active ? 1.5 : 2} /></span>{t(tab.labelKey)}
