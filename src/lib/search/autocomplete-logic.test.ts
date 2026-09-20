@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
 	deriveSuggestions,
+	suggestionKeyword,
 	debounce,
 	MIN_QUERY_LEN,
 	SUGGEST_DEBOUNCE_MS,
@@ -197,5 +198,27 @@ describe('debounce', () => {
 
 	it('exposes the configured default debounce window', () => {
 		expect(SUGGEST_DEBOUNCE_MS).toBe(300);
+	});
+});
+
+describe('suggestionKeyword', () => {
+	it('joins the title and the artist with a single space', () => {
+		expect(suggestionKeyword({ title: '有人', artist: '周杰倫' })).toBe('有人 周杰倫');
+	});
+
+	it('returns the title alone when the artist is an empty string', () => {
+		expect(suggestionKeyword({ title: 'Song', artist: '' })).toBe('Song');
+	});
+
+	it('returns the title alone when the artist is undefined', () => {
+		expect(suggestionKeyword({ title: 'Song' })).toBe('Song');
+	});
+
+	it('returns the title alone when the artist is whitespace only', () => {
+		expect(suggestionKeyword({ title: 'Song', artist: '   ' })).toBe('Song');
+	});
+
+	it('trims both sides and joins with exactly one space', () => {
+		expect(suggestionKeyword({ title: '  Song  ', artist: ' Artist ' })).toBe('Song Artist');
 	});
 });

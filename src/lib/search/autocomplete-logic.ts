@@ -142,6 +142,24 @@ export function deriveSuggestions(hits: DeezerHit[], query: string): Suggestion[
 	return out;
 }
 
+/**
+ * The search keyword committed when a SONG (♫) suggestion is tapped (quick-260919-pbs).
+ *
+ * Form is `"<title> <artist>"` — the user's locked decision, not a tunable. The tap both PLAYS
+ * the stub and commits this query, so the input text and the results below it always agree.
+ *
+ * The falsy/whitespace-artist fallback (→ the trimmed title alone) is load-bearing, not
+ * defensive padding: `deriveSuggestions` emits `artist: ''` for a hit with no artist, so
+ * naively joining would commit a query with a trailing space and search for the title plus
+ * nothing. Takes `Pick<Suggestion, 'title' | 'artist'>` rather than the full `Suggestion` —
+ * only these two fields matter, and callers/tests need not fabricate `kind`/`key`.
+ */
+export function suggestionKeyword(s: Pick<Suggestion, 'title' | 'artist'>): string {
+	const title = (s.title ?? '').trim();
+	const artist = (s.artist ?? '').trim();
+	return artist ? `${title} ${artist}` : title;
+}
+
 /** A debounced callable: invoking it (re)schedules `fn`; `.cancel()` drops any pending call. */
 export interface Debounced<F extends (...args: never[]) => void> {
 	(...args: Parameters<F>): void;
