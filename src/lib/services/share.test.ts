@@ -674,6 +674,31 @@ describe('coverToken (quick-260809-3uo) — URL → short cover id, null for any
 			expect(coverToken(url)).toBeNull();
 	});
 
+	// quick-260920-kn4 — YouTube Music artwork hosts are OUT of the grammar, ON PURPOSE.
+	//
+	// quick-260919-0mw put YouTube Music at the FRONT of resolveTrackChain, so the cover the app
+	// displays is now usually a googleusercontent / ytimg URL — which tokenizes to null, so a share
+	// link carries no `?ci=` and /api/og falls back to its branded image on a text-resolve miss.
+	//
+	// The fix is NOT to widen this grammar. A googleusercontent artwork URL is an opaque irregular
+	// path with `=w120-h120-s-l90-rj` suffixes — there is nothing structural to close a grammar over
+	// (the same reason iTunes is carried by ID, not by path). Widening would also add hosts /api/og
+	// fetches, which T-3uo-02 forbids. TrackMenu instead prewarms the iTunes cover for the same song
+	// and carries THAT (`i:<id>`), leaving the displayed art untouched.
+	//
+	// This case passes against current code: it is a guard against a later "fix", not a RED test.
+	it('returns null for YouTube Music artwork hosts, with or without an iTunes id', () => {
+		for (const url of [
+			'https://lh3.googleusercontent.com/sVqjAhFWUsQV6c4hVZ5cVqJZ9Qo0m3n=w544-h544-l90-rj',
+			'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg',
+			'https://yt3.googleusercontent.com/ytc/AIdro_kQ9xV2=s176-c-k-c0x00ffffff-no-rj'
+		]) {
+			expect(coverToken(url)).toBeNull();
+			// An id in hand must not promote an out-of-grammar host: the URL decides the tag.
+			expect(coverToken(url, '446760418')).toBeNull();
+		}
+	});
+
 	it('returns null for non-https, relative, garbage and empty input, and never throws', () => {
 		for (const bad of [
 			REAL_DZ_500.replace('https:', 'http:'),
