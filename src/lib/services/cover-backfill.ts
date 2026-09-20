@@ -9,21 +9,33 @@
 // (b) by lifting the default cap (the home now passes a cap = the full gathered gradient set).
 //
 // MULTI-TIER CHAINS (stop at the first SOLID — non-empty, https — cover):
-//  - TRACK: YouTube Music → iTunes → Deezer → CN.   (quick-260919-0mw REORDER — was Deezer → iTunes → CN)
-//    - Tier 1 YouTube Music (searchAll with onlySource('ytmusic') → dedupeBest[0].cover — the SAME
+//  - TRACK: iTunes → Deezer → CN → YouTube Music.
+//    quick-260920-nyq REORDER (partial revert of quick-260919-0mw's YTM-first, which was itself a
+//    reorder of Deezer → iTunes → CN). The user delegated the RANK to us, to be decided on FETCH
+//    SPEED and PICTURE SIZE. That ranking, and the reasoning behind each position:
+//    - Tier 1 iTunes (itunesSongCover — no-auth, CORS-open DIRECT fetch to itunes.apple.com that
+//      never touches our edge, soft-limited). FIRST because it is both the fastest hop and the
+//      largest artwork in the chain (1200px).
+//    - Tier 2 Deezer (deezerSongCover via the own-origin /api/deezer/search proxy — no key, no env
+//      var, edge-cached, CORS-blocked direct so proxied). cover_xl is 1000px and the tier is
+//      reliable. Fires ONLY on an iTunes miss.
+//    - Tier 3 CN (searchAll with default prefs → dedupeBest[0].cover — the SAME resolver resolveStub
+//      / picks / similar use; NO new endpoint, NO rate limit). Genuinely high quality WHEN PRESENT
+//      (the user's own observation about qq art), but it is the SLOWEST tier (~2.7s upstream qq
+//      detail, measured) and the one that misses most often, so it must not sit in front of two
+//      faster, larger tiers. It still wins exactly where the user saw it winning: the CJK catalog
+//      iTunes and Deezer do not carry falls through to it. There is deliberately NO qq-only tier —
+//      this fan-out already contains qq and dedupeBest(…, preferredSource) already picks it.
+//      Fires ONLY on an iTunes+Deezer miss. CAA-by-mbid stays a tileCover-level step.
+//    - Tier 4 YouTube Music (searchAll with onlySource('ytmusic') → dedupeBest[0].cover — the SAME
 //      resolver the CN tier uses, just pointed at one source, so there is NO new module and NO new
-//      fetch path here). A YTM hit is used AS-IS; iTunes + Deezer + CN are NOT issued. YTM is now
-//      tier-1 because it is the user's chosen ranking: its art is the release's own thumbnail and it
-//      covers CJK/indie catalog that Deezer simply does not carry (the "color block" long tail).
-//    - Tier 2 iTunes (itunesSongCover — no-auth, CORS-open direct fetch to itunes.apple.com, soft-
-//      limited). Fires ONLY on a YTM miss.
-//    - Tier 3 Deezer (deezerSongCover via the own-origin /api/deezer/search proxy — no key, no env
-//      var, edge-cached, CORS-blocked direct so proxied). Fires ONLY on a YTM+iTunes miss.
-//    - Tier 4 CN (searchAll with default prefs → dedupeBest[0].cover — the SAME resolver resolveStub
-//      / picks / similar use; NO new endpoint, NO rate limit). Fires ONLY on a triple miss → deep-
-//      chain calls are rare. CAA-by-mbid stays a tileCover-level step (an <img> 404 → gradient).
-//  - ARTIST: Deezer → iTunes.  DELIBERATELY UNCHANGED by quick-260919-0mw — the reorder request was
-//    about SONG covers; YTM has no artist-picture endpoint worth a tier here.
+//      fetch path here). LAST because its art is the search-shelf thumbnail at 120x120 — frequently
+//      a CHANNEL AVATAR rather than album art — on a Google host (yt3/lh3.googleusercontent.com,
+//      i.ytimg.com) that CN-facing users routinely cannot load (see
+//      .planning/debug/ytmusic-cover-blank-hero.md). It is kept as the last fall-through because it
+//      does cover indie/CJK long-tail catalog nothing above it carries.
+//  - ARTIST: Deezer → iTunes.  DELIBERATELY UNCHANGED by quick-260919-0mw and quick-260920-nyq —
+//    both reorders were about SONG covers; YTM has no artist-picture endpoint worth a tier here.
 //    - Tier 1 deezerArtistCover (real artist picture). Tier 2 itunesArtistCover (entity=album&
 //      attribute=artistTerm → the artist's top-album cover as the artist-image proxy). Cached under
 //      the ARTIST-only key (never collides with a track of the same name).
@@ -33,13 +45,15 @@
 //    track.getInfo backfill step (the optional album.getInfo last-resort is not worth the extra
 //    call — we stop at CN).
 //
-// RATE-LIMIT / COST REASONING AFTER THE REORDER (quick-260919-0mw): tier-1 used to be an edge-cached
-// Deezer GET; it is now an InnerTube POST through our own /api/ytmusic/search proxy, so a COLD home
-// issues one YTM search per uncached tile instead of one Deezer search. That is bounded by the
-// SAME machinery as before and needs NO new throttle: the CAP=6 in-flight pool below, the 5-minute
-// negative-miss cache, the skip-already-cached gate, and — because the tier goes through searchAll →
-// the adapter → apiFetch — the outbound governor (GET dedupe, MAX_CONCURRENT_REQUESTS=8, 25s
-// timeout, circuit breaker). A warm visit still issues ~0 requests. Do NOT add another limiter here.
+// RATE-LIMIT / COST REASONING AFTER THE REORDER (quick-260920-nyq; supersedes the quick-260919-0mw
+// note that tier-1 was an InnerTube POST through /api/ytmusic/search): tier-1 is again a direct
+// CORS-open iTunes GET that never touches our edge — CHEAPER for us than either the YTM POST it
+// replaces or the edge-cached Deezer GET that preceded that. Deezer/CN/YTM fire ONLY on a miss, so
+// the deep chain runs rarely. Everything is bounded by the SAME machinery as before and needs NO new
+// throttle: the CAP=6 in-flight pool below, the 5-minute negative-miss cache, the skip-already-cached
+// gate, and — for the tiers that go through searchAll → the adapter → apiFetch — the outbound
+// governor (GET dedupe, MAX_CONCURRENT_REQUESTS=8, 25s timeout, circuit breaker). A warm visit still
+// issues ~0 requests. Do NOT add another limiter here.
 //
 // PER-TIER NEVER-THROW: each tier is wrapped so a throw in one tier falls through to the NEXT tier
 // (not the whole-function catch); the outer try/catch is a backstop. The whole call never rejects.
@@ -57,8 +71,8 @@
 //   (inside deezer.ts / itunes-cover.ts) — do NOT add another. The total `max` cap defaults high
 //   (DEFAULT_MAX) so an unsupplied caller is not artificially throttled; the home passes an explicit
 //   cap = its full gathered gradient set. Already-cached items are SKIPPED + names de-duped, so a
-//   warm visit issues ~0 requests regardless of the high cap. Rate-limit math after quick-260919-0mw:
-//   YTM first (own-origin proxy, inherits the apiFetch governor); iTunes/Deezer/CN fire ONLY on a YTM
+//   warm visit issues ~0 requests regardless of the high cap. Rate-limit math after quick-260920-nyq:
+//   iTunes first (direct CORS-open GET, never touches our edge); Deezer/CN/YTM fire ONLY on an iTunes
 //   miss, so the deep chain runs rarely.
 // CACHED: a SOLID (https) resolved cover is written via setCachedCover / setCachedArtistCover; an
 //   onResolved callback lets the page bump a reactive counter so each cover appears as it lands.
@@ -173,11 +187,14 @@ async function tier(fn: () => Promise<string | null>): Promise<string | null> {
 }
 
 /**
- * quick-260919-0mw — the YouTube Music cover tier, shaped EXACTLY like the CN tier below: the same
+ * The YouTube Music cover tier (quick-260919-0mw), shaped EXACTLY like the CN tier below: the same
  * `searchAll → dedupeBest[0].cover` resolver, just aimed at one source via `onlySource('ytmusic')`
  * (registry.ts — it zeroes every other source explicitly, so a user-enabled source cannot leak into
  * a walk meant to touch one). No new module, no new endpoint, no new fetch: it inherits the apiFetch
  * governor and the adapter's own error handling for free. `signal` is threaded like every other tier.
+ *
+ * quick-260920-nyq: this tier is unchanged, but it is now the LAST tier of the chain rather than the
+ * first, and it is no longer offered as an HQ upgrade at all — see the module header's rank.
  */
 async function ytmusicSongCover(
 	artist: string,
@@ -189,16 +206,17 @@ async function ytmusicSongCover(
 }
 
 /**
- * The shared TRACK tier chain: YouTube Music → (on miss) iTunes → (on miss) Deezer → (on miss) CN.
+ * The shared TRACK tier chain: iTunes → (on miss) Deezer → (on miss) CN → (on miss) YouTube Music.
  * Stops at the first SOLID https cover; a non-https / empty result is a miss and falls through.
  * Returns the SOLID URL or null on a total miss. Never throws (per-tier never-throw + backstop).
  * This is the single source of truth for the track chain — resolveOne and resolveCoverForTrack
  * both call it so the tier order + https guard live in exactly one place (D-10).
  *
- * quick-260919-0mw: the order was Deezer → iTunes → CN; YTM was inserted at the FRONT (user-chosen
- * ranking) and Deezer demoted behind iTunes. Editing this one function moves every consumer —
- * resolveCoverForTrack, backfillCovers.resolveOne, lazyCover, the player's resolveCoverAsync and
- * healCover all route through here.
+ * quick-260919-0mw: the order was Deezer → iTunes → CN; YTM was inserted at the FRONT.
+ * quick-260920-nyq: YTM demoted from tier 1 to tier 4 and iTunes promoted to tier 1 — the rank is
+ * now ordered on fetch speed + picture size; the full rationale per tier is in the module header.
+ * Editing this one function moves every consumer — resolveCoverForTrack, backfillCovers.resolveOne,
+ * lazyCover, the player's resolveCoverAsync and healCover all route through here.
  */
 async function resolveTrackChain(
 	artist: string,
@@ -207,23 +225,19 @@ async function resolveTrackChain(
 ): Promise<string | null> {
 	if (signal?.aborted) return null;
 	try {
-		// Tier 1 — YouTube Music (PRIMARY). A SOLID hit is used as-is; iTunes + Deezer + CN are NOT issued.
-		let cover = await tier(() => ytmusicSongCover(artist, title, signal));
+		// Tier 1 — iTunes (PRIMARY: fastest hop, largest artwork). A SOLID hit is used as-is;
+		// Deezer + CN + YTM are NOT issued.
+		let cover = await tier(() => itunesSongCover(artist, title, signal));
 		if (signal?.aborted) return null;
 
-		// Tier 2 — iTunes (fires only on a YTM miss).
-		if (!cover) {
-			cover = await tier(() => itunesSongCover(artist, title, signal));
-			if (signal?.aborted) return null;
-		}
-
-		// Tier 3 — Deezer (fires only on a YTM+iTunes miss).
+		// Tier 2 — Deezer (fires only on an iTunes miss).
 		if (!cover) {
 			cover = await tier(() => deezerSongCover(artist, title, signal));
 			if (signal?.aborted) return null;
 		}
 
-		// Tier 4 — CN (existing resolver; fires only on a YTM+iTunes+Deezer miss).
+		// Tier 3 — CN (existing resolver; fires only on an iTunes+Deezer miss). Slowest tier, but
+		// the one that carries the CJK catalog the two above do not.
 		if (!cover) {
 			cover = await tier(async () => {
 				// WR-01: thread `signal` (and explicit `{}` prefs) so the CN
@@ -232,6 +246,13 @@ async function resolveTrackChain(
 				const r = await searchAll(`${artist} ${title}`, 1, {}, signal);
 				return dedupeBest(r.interleaved, settings.preferredSource)[0]?.cover ?? null;
 			});
+			if (signal?.aborted) return null;
+		}
+
+		// Tier 4 — YouTube Music (fires only on an iTunes+Deezer+CN miss — a 120px thumbnail on a
+		// host many users cannot reach is a last resort, not a lead; quick-260920-nyq).
+		if (!cover) {
+			cover = await tier(() => ytmusicSongCover(artist, title, signal));
 			if (signal?.aborted) return null;
 		}
 
@@ -245,8 +266,9 @@ async function resolveTrackChain(
 /**
  * Single-item cover resolve helper (Plan 21-02, COVER-02) — the seam Plans 03/04/05 consume.
  *
- * Runs the SAME YTM → iTunes(1200) → Deezer → CN tier chain as backfillCovers (via resolveTrackChain,
- * the shared `tier()` never-throw wrapper + isSolidCover https guard — NOT a new fetch ladder).
+ * Runs the SAME iTunes(1200) → Deezer → CN → YTM tier chain as backfillCovers (quick-260920-nyq;
+ * was YTM → iTunes → Deezer → CN per quick-260919-0mw) via resolveTrackChain — reusing the shared
+ * `tier()` never-throw wrapper + hasHttpsScheme guard, NOT a new fetch ladder.
  * Returns the first SOLID https URL or null on a total miss. NEVER throws.
  *
  * On a SOLID hit it writes the {artist,title} name layer always, and the uid layer ONLY when the
@@ -276,18 +298,23 @@ export async function resolveCoverForTrack(
 
 /**
  * HQ cover UPGRADE (Plan 26-02, COVER-01) — the bounded, short counterpart to resolveCoverForTrack.
- * This is NOT the miss-recovery chain: it issues YTM and, only on a YTM miss, Deezer, and NEVER
- * touches iTunes or the CN `searchAll` tier. Purpose: a track that already painted from its inline
- * source cover (kuwo `pic` / qq `album_pic` / netease `pic`) can lazily, post-paint, pick up higher-
- * quality album art — the single OPTIONAL cover step in the click-to-play ~3-call budget.
+ * This is NOT the miss-recovery chain: it issues iTunes and, only on an iTunes miss, Deezer, and
+ * NEVER touches YouTube Music or the CN `searchAll` tier. Purpose: a track that already painted from
+ * its inline source cover (kuwo `pic` / qq `album_pic` / netease `pic`) can lazily, post-paint, pick
+ * up higher-quality album art — the single OPTIONAL cover step in the click-to-play ~3-call budget.
  *
- * quick-260919-0mw: was `resolveDeezerHQ`, a single Deezer tier. Renamed because the old name became
- * a lie once YTM took the lead, and made a two-tier ladder so the HQ upgrade agrees with the ranking
- * resolveTrackChain now uses. COST: a YTM miss now costs a SECOND call — worst case 2, common case 1
- * (a YTM hit short-circuits). That is the deliberate price of the new ranking.
+ * quick-260919-0mw: was `resolveDeezerHQ`, a single Deezer tier; it became YTM → Deezer.
+ * quick-260920-nyq: YTM is REMOVED from the upgrade entirely, and iTunes leads. An "HQ upgrade" must
+ * never replace a larger cover with a smaller one, and a YTM thumbnail's pixel size is NOT knowable
+ * from its URL contract (`bestThumb` takes the largest LISTED size, which is a 120x120 search-shelf
+ * image and often a channel AVATAR). Observed live on the hero: lastfm-300 → yt3-120 → lastfm-300,
+ * with the 120px url written into the SHARED name cache layer. The lazy correct answer to "never
+ * downgrade" is to not offer that tier as an upgrade at all, rather than to add a size oracle.
  *
- * T-26-02-01 IS PRESERVED: still bounded to the now-playing track by its caller, still NEVER a
- * per-tile fan-out, still no iTunes and no 7-source CN searchAll.
+ * T-26-02-01 IS PRESERVED: still bounded to the now-playing track by its caller, still at most 2
+ * calls, still NEVER a per-tile fan-out and never the 7-source CN searchAll. The ONE change to that
+ * guard's wording is that iTunes is now ALLOWED here — it is a direct CORS-open GET that never
+ * touches our edge, i.e. cheaper than the YTM InnerTube POST it replaces.
  *
  * Reuses the SAME never-throw `tier()` wrapper + https guard as resolveTrackChain, so the
  * https-only render/cache guard (T-0bb-01 / T-26-02-02) lives in exactly one place. On a SOLID https hit
@@ -302,8 +329,8 @@ export async function resolveHqCover(
 	signal?: AbortSignal
 ): Promise<string | null> {
 	if (signal?.aborted) return null;
-	// TWO TIERS — YTM, then Deezer on a miss. iTunes + CN are NEVER issued (upgrade, not a chain).
-	let cover = await tier(() => ytmusicSongCover(track.artist ?? '', track.title ?? '', signal));
+	// TWO TIERS — iTunes, then Deezer on a miss. YTM + CN are NEVER issued (upgrade, not a chain).
+	let cover = await tier(() => itunesSongCover(track.artist ?? '', track.title ?? '', signal));
 	if (signal?.aborted) return null;
 	if (!cover) {
 		cover = await tier(() => deezerSongCover(track.artist ?? '', track.title ?? '', signal));
@@ -320,8 +347,8 @@ export async function resolveHqCover(
 
 /**
  * SHARE-CARD CARRIER chain (quick-260920-l82, generalises quick-260920-kn4) — the THIRD sibling of
- * resolveCoverForTrack (miss-recovery: YTM → iTunes → Deezer → CN, WRITES the cache) and
- * resolveHqCover (upgrade: YTM → Deezer, WRITES the cache). Same `tier()` never-throw wrapper and
+ * resolveCoverForTrack (miss-recovery: iTunes → Deezer → CN → YTM, WRITES the cache) and
+ * resolveHqCover (upgrade: iTunes → Deezer, WRITES the cache). Same `tier()` never-throw wrapper and
  * the same `hasHttpsScheme` guard (T-0bb-01) — this is NOT a new fetch ladder, only a different
  * tier subset for a different question: "which cover can the share link actually CARRY?"
  *
@@ -341,6 +368,13 @@ export async function resolveHqCover(
  * pictures live on a separate field), so its output always tokenizes; Deezer's art-less placeholder
  * has an empty md5, fails DZ_COVER_PATH and simply yields no carrier — the carrier is advisory and
  * the card falls through to today's server chain.
+ *
+ * quick-260920-nyq: the nyq reorder deliberately does NOT reach this function — `coverToken`
+ * (share.ts) is a CLOSED `?ci=` host grammar and reordering the display chain silently killed
+ * share-card art once already (YTM-first). Its iTunes → Deezer subset now happens to match the HEAD
+ * of the display chain; that is COINCIDENCE, not coupling, so do not "deduplicate" the two later —
+ * the display chain may be reranked again and this subset must not follow it. Pinned by a unit test
+ * asserting zero `searchAll` calls from here.
  *
  * 🔴 THE ONE DIVERGENCE FROM ITS TWO SIBLINGS: this function MUST NOT write the uid or name layer of
  * the cover cache (no setCachedCoverByUid / setCachedCover / writeCoverBoth), and must not touch the
@@ -380,8 +414,8 @@ export async function resolveShareCover(
 }
 
 /**
- * Lazily resolve + cache real covers (track chain YTM → iTunes → Deezer → CN) for the given
- * {artist,title} rows.
+ * Lazily resolve + cache real covers (track chain iTunes → Deezer → CN → YTM, quick-260920-nyq) for
+ * the given {artist,title} rows.
  *
  * Skips any row already in the cover-cache (never re-searches a cached cover), slices the
  * remaining work to `max`, then resolves it through a concurrency-capped pool. Each SOLID (https,
@@ -409,7 +443,7 @@ export async function backfillCovers(items: CoverNeed[], opts: BackfillOpts = {}
 	const work = remaining.slice(0, Math.max(0, max));
 	if (!work.length) return;
 
-	// (3) resolveOne: run the SHARED YTM → iTunes → Deezer → CN chain (resolveTrackChain — same tier()
+	// (3) resolveOne: run the SHARED iTunes → Deezer → CN → YTM chain (resolveTrackChain — same tier()
 	//     never-throw + https guard); cache + notify only a SOLID https cover (quick-260607-0bb).
 	async function resolveOne(item: CoverNeed): Promise<void> {
 		if (signal?.aborted) return;
@@ -519,11 +553,21 @@ export interface CoverCandidate {
 // near-identical thumbnails. Raise it if users ask for more.
 const MAX_CANDIDATES = 12;
 
+// quick-260920-nyq: per-tier ceiling — 12 tiles / 3 multi-hit network tiers (YTM, Deezer, CN; the
+// iTunes service exposes only its top hit). Before this the grid was single-tier: a live check of
+// 知己知彼 / 王菲 showed 12 of 12 tiles from ytmusic, and Dracula / Tame Impala 11 of 12, so whatever
+// the user picked was almost certainly a Google-hosted URL. A cap keeps the grid MIXED, which is the
+// whole point of a picker. `own` is never capped — it is a single tile and it is what the user is
+// looking at right now.
+const PER_TIER_CAP = 4;
+
 /**
- * Every https cover candidate for `track`, ordered own → YTM → iTunes → Deezer → CN, deduped by URL.
+ * Every https cover candidate for `track`, ordered own → iTunes → Deezer → CN → YTM, deduped by URL,
+ * with each network tier capped at PER_TIER_CAP.
  *
- * quick-260919-0mw: the order mirrors resolveTrackChain's new ranking so the picker grid agrees with
- * what the chain would have chosen on its own. `own` still leads (it is what the user is looking at).
+ * quick-260919-0mw / quick-260920-nyq: the order mirrors resolveTrackChain's ranking so the picker
+ * grid agrees with what the chain would have chosen on its own — which after nyq means YTM tiles
+ * come LAST. `own` still leads (it is what the user is looking at).
  *
  * The four network tiers run in PARALLEL (unlike the chain's sequential fall-through) because the
  * picker wants all of them regardless of which ones hit; each is wrapped so one tier throwing or
@@ -546,6 +590,12 @@ export async function collectCoverCandidates(
 			return [];
 		}
 	};
+
+	// quick-260920-nyq: the per-tier ceiling, applied to a tier's OWN list before the tiers are
+	// concatenated — a cap applied after the merge would still let the first tier eat the grid.
+	// The https filter moves up here so the cap counts RENDERABLE tiles, not rejected ones.
+	const capTier = (hits: CoverCandidate[]): CoverCandidate[] =>
+		hits.filter((c) => hasHttpsScheme(c.url)).slice(0, PER_TIER_CAP);
 
 	const [ytmHits, itunesHit, deezerHits, cnHits] = await Promise.all([
 		// quick-260919-0mw — the ytmusic tier, sourced exactly like the CN tier but pinned to one
@@ -574,13 +624,15 @@ export async function collectCoverCandidates(
 	]);
 
 	// The track's own inline cover leads: it is what the user is looking at right now, so it should
-	// be the first (and usually the pre-selected) tile. The rest follow the chain's tier ranking.
+	// be the first (and usually the pre-selected) tile. The rest follow the chain's tier ranking
+	// (quick-260920-nyq: iTunes → Deezer → CN → YTM), each capped at PER_TIER_CAP. CN rows stay
+	// self-labelled by source, so a qq cover shows as `qq`.
 	const all: CoverCandidate[] = [
 		{ url: track.cover ?? '', source: String(track.source ?? '') },
-		...ytmHits,
-		...itunesHit,
-		...deezerHits,
-		...cnHits
+		...capTier(itunesHit),
+		...capTier(deezerHits),
+		...capTier(cnHits),
+		...capTier(ytmHits)
 	];
 
 	const seen = new Set<string>();
