@@ -803,6 +803,86 @@ describe('songShareUrl + ogImageUrl carry the token (quick-260809-3uo)', () => {
 });
 
 // ---------------------------------------------------------------------------------------------
+// THE `?u=` UID CARRIER (38-D-08 / D-09 / D-30)
+// ---------------------------------------------------------------------------------------------
+// The recipient of a share link should hear the SAME version the sender did, resolved by identity
+// instead of a name search. The carrier is the separator-less `{source}{songid}` form so the
+// recipient reuses `parseEntityParam` verbatim — zero new validation code, and the closed source
+// enum IS the V5 input-validation allowlist (T-38-01).
+//
+// The identity is an OPTIONAL 4th argument precisely so every assertion above stays green: a
+// carrier-free call must remain BYTE-IDENTICAL to today.
+describe('songShareUrl uid carrier — ?u= (38-D-08/D-09/D-30)', () => {
+	const KUWO = { uid: 'kuwo:123', source: 'kuwo', songid: '123' };
+
+	it('without an identity the URL is byte-identical to today — no `u`, no `?` at all', () => {
+		const url = songShareUrl({ title: 'Dao Xiang', artist: 'Jay Chou' });
+		expect(url.endsWith('/song/Jay-Chou/Dao-Xiang')).toBe(true);
+		expect(url).not.toContain('?');
+	});
+
+	it('appends `?u={source}{songid}` when handed an identity and no cover', () => {
+		const url = songShareUrl({ title: 'Dao Xiang', artist: 'Jay Chou' }, null, null, KUWO);
+		expect(url.endsWith('/song/Jay-Chou/Dao-Xiang?u=kuwo123')).toBe(true);
+		expect(url.match(/\?/g) ?? []).toHaveLength(1);
+	});
+
+	it('keeps `?ci=` FIRST and appends `&u=` second when both are present', () => {
+		const url = songShareUrl({ title: '你瞞我瞞', artist: '陳柏宇' }, REAL_DZ_1000, null, KUWO);
+		// The existing `/song/{artist}/{title}?ci=` prefix contract is unchanged (quick-260809-3uo).
+		expect(url).toContain('/song/陳柏宇/你瞞我瞞?ci=');
+		expect(url).toContain('&u=kuwo123');
+		expect(url.match(/\?/g) ?? []).toHaveLength(1);
+	});
+
+	it('a `device:` uid carries NOTHING — a local file must never share as a foreign kuwo song', () => {
+		// 34-D-01: a device track's `source` is a PLACEHOLDER. A carrier built from it would resolve
+		// a completely different song under the local file's title.
+		const url = songShareUrl({ title: 'A', artist: 'B' }, null, null, {
+			uid: 'device:abc',
+			source: 'kuwo',
+			songid: 'abc'
+		});
+		expect(url).not.toContain('?');
+	});
+
+	it('an identity that does not round-trip through parseEntityParam adds NO param', () => {
+		// quick-260809-3uo applied to `u`: never an empty carrier, never a junk one.
+		for (const id of [
+			{ uid: 'kuwo:', source: 'kuwo', songid: '' },
+			{ uid: 'ytmusic:dQw4w9-gXcQ', source: 'ytmusic', songid: 'dQw4w9-gXcQ' }
+		])
+			expect(songShareUrl({ title: 'A', artist: 'B' }, null, null, id)).not.toContain('?');
+	});
+
+	it('the source enum covers audius + ytmusic (D-30) and still rejects everything else', () => {
+		expect(parseEntityParam('audius123')).toEqual({ source: 'audius', id: '123', uid: 'audius:123' });
+		expect(parseEntityParam('ytmusicAbC1')?.uid).toBe('ytmusic:AbC1');
+		expect(parseEntityParam('kugou1')).toBeNull();
+		expect(parseEntityParam('evil123')).toBeNull();
+		expect(parseEntityParam('')).toBeNull();
+	});
+
+	it('round-trips: the emitted carrier decodes back to the exact uid for every live source', () => {
+		for (const source of [
+			'netease',
+			'qq',
+			'kuwo',
+			'joox',
+			'fivesing',
+			'jamendo',
+			'audius'
+		] as const) {
+			const id = { uid: `${source}:42`, source, songid: '42' };
+			const url = songShareUrl({ title: 'A', artist: 'B' }, null, null, id);
+			// `location` is undefined under node so the origin is '' — prefix a host to parse it.
+			const u = new URL(`https://x${url}`).searchParams.get('u');
+			expect(parseEntityParam(u ?? '')?.uid).toBe(id.uid);
+		}
+	});
+});
+
+// ---------------------------------------------------------------------------------------------
 // SOURCE GUARD — the TrackMenu share call site (quick-260809-3uo)
 // ---------------------------------------------------------------------------------------------
 // doShare() is a component handler, not an export, and there is no jsdom project (vite.config.ts
