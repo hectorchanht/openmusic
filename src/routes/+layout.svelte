@@ -1,10 +1,13 @@
 <script lang="ts">
 	import "../app.css";
-	import { untrack } from "svelte";
+	import { onMount, untrack } from "svelte";
 	import { browser } from "$app/environment";
+	import { goto } from "$app/navigation";
 	import { page } from "$app/state";
+	import { Capacitor } from "@capacitor/core";
 	import { player } from "$lib/stores/player.svelte";
 	import { names } from "$lib/stores/names.svelte";
+	import { deepLinkPath } from "$lib/services/share-arrival";
 
 	let { children } = $props();
 	let audioEl: HTMLAudioElement;
@@ -55,6 +58,36 @@
 		const title = names.dnTitle(cur.title);
 		const artist = names.dnArtist(cur.artist);
 		document.title = artist ? `${title} • ${artist}` : title;
+	});
+
+	// 38-D-25: an intercepted Android App Link becomes a NORMAL in-app navigation, so the web and
+	// the APK share ONE arrival path — goto() lands on the same /song route with the same carrier,
+	// and the landing page's arrival logic is the only thing that decides arm-vs-play.
+	//
+	// TWO SEAMS, NOT ONE. `appUrlOpen` is emitted ONLY from AppPlugin.handleOnNewIntent — i.e. the
+	// activity was ALREADY RUNNING (launchMode=singleTask routes a re-tap there). On a COLD start
+	// Capacitor's Bridge captures intent.getData() into a private `intentUri` and then loads
+	// index.html; it NEVER navigates to it, so the event does not fire and the deep link is
+	// silently lost unless getLaunchUrl() is read. Wiring only the listener would ship a link that
+	// works with the app open and lands on the home screen when it is not — the commoner case.
+	// (Verified against @capacitor/app@8.1.0 AppPlugin.java + @capacitor/android@8.4.0 Bridge.java:228.)
+	//
+	// onMount, NOT $effect: goto() → the /song route → arrival WRITES player $state, which inside a
+	// tracked effect is the restore-effect self-invalidation loop the untrack() block above exists
+	// to fix. onMount also runs after the client router has hydrated, so goto() is safe by then.
+	//
+	// IDEMPOTENCY: getLaunchUrl() returns the same intentUri for the whole activity lifetime — it is
+	// never cleared — so a re-mount (HMR in dev) re-fires the deep link. D-03's no-op guard in the
+	// arrival path (already current uid → return) absorbs that.
+	onMount(() => {
+		if (!Capacitor.isNativePlatform()) return; // web build: no-op, behaviour byte-identical
+		void (async () => {
+			const { App } = await import("@capacitor/app"); // dynamic — keeps it out of the web chunk
+			// COLD: the launch intent's URL, the only place a cold deep link is visible.
+			const launch = await App.getLaunchUrl();
+			const p = deepLinkPath(launch?.url);
+			if (p) void goto(p);
+		})();
 	});
 </script>
 
