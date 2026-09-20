@@ -661,6 +661,7 @@
 			/* flex:1 MUST be cancelled here or the tabs stretch to fill 100dvh. */
 			flex: none;
 			width: 100%;
+			text-align: center;
 			font-size: 11px;
 			gap: 4px;
 			padding: 10px 0;
