@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.openmusic.app",
+      "sha256_cert_fingerprints": [
+        "37:30:88:C4:7F:83:64:6F:83:D8:B3:C7:E1:58:FB:37:F5:8D:17:7C:1B:27:00:3F:BF:1A:5E:AD:87:EB:8D:A2"
+      ]
+    }
+  }
+]
