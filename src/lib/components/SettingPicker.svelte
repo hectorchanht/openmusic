@@ -254,6 +254,26 @@
 		border: 1px solid var(--color-border);
 		color: var(--color-text-muted);
 	}
+	/* quick-260920-m0l: marks the ONE element a section actually configures. Without it a
+	   preview pair asks the user to diff two cards to find what moved — which was the bug
+	   reported against "Show search bar". Same accent-outline language as the Appearance wings
+	   (quick-260920-kxz), but DECORATIVE: mocks are aria-hidden and take no focus, so this is a
+	   pure "look here" marker, never an affordance.
+	   `.slot` is the OFF half of a pair: the element is absent, so there is nothing to outline
+	   and the card would read as "nothing here". An empty outlined box in its place says "this
+	   is the slot that disappears". Callers size it — the shapes differ per element. */
+	.mock :global(.mock-focus) {
+		outline: 1.5px dashed color-mix(in srgb, var(--color-primary) 55%, transparent);
+		outline-offset: 2px;
+		background-color: color-mix(in srgb, var(--color-primary) 12%, transparent);
+	}
+	.mock :global(.mock-focus.slot) {
+		background-color: transparent;
+		/* `flex: none` or the empty box is a flex child with nothing to hold it open and
+		   collapses to height 0 inside `.mock-chrome` (column) — the outline then draws as a
+		   hairline and the OFF card is back to showing nothing. */
+		flex: none;
+	}
 	/* Generic row/column helpers so a preview snippet never needs its own CSS. */
 	.mock :global(.mock-row) {
 		display: flex;

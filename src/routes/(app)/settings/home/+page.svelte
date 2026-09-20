@@ -191,28 +191,39 @@
 <!-- One Home-header mock, rendered four times: the search pill present/absent, then the
      Randomize button present/absent. Same frame both times, so the ONLY thing that moves between
      the two cards is the thing being picked. -->
-{#snippet homeHeader(pill: boolean, rnd: boolean)}
+<!-- quick-260920-m0l: `focus` names the element THIS section configures, so the card marks what
+     moves instead of making the user diff the Off and On frames (the reported bug against "Show
+     search bar"). The OFF half has nothing to outline — the element is gone — so it draws an
+     empty `.slot` box in the same place, which reads as "this is what disappears". The randomize
+     pair had the identical defect and takes the identical fix, so both call sites pass a focus. -->
+{#snippet homeHeader(pill: boolean, rnd: boolean, focus: 'pill' | 'rnd' | null)}
 	<span class="mock-chrome">
 		<span class="mock-row">
 			<span class="mock-line" style:width="30%"></span>
 			<span style:flex="1"></span>
-			{#if rnd}<span class="mock-badge"><Shuffle size={6} /></span>{/if}
+			{#if rnd}
+				<span class="mock-badge" class:mock-focus={focus === 'rnd'}><Shuffle size={6} /></span>
+			{:else if focus === 'rnd'}
+				<span class="mock-focus slot" style:width="14px" style:height="10px" style:border-radius="999px"></span>
+			{/if}
 		</span>
 		{#if pill}
-			<span class="mock-bar" style:border-radius="999px">
+			<span class="mock-bar" class:mock-focus={focus === 'pill'} style:border-radius="999px">
 				<Search size={7} />
 				<span class="mock-line dim" style:width="55%"></span>
 			</span>
+		{:else if focus === 'pill'}
+			<span class="mock-focus slot" style:height="13px" style:border-radius="999px"></span>
 		{/if}
 		<span class="mock-grid" style:grid-template-columns="repeat(3, 1fr)">
 			{#each [0, 1, 2] as i (i)}<span class="mock-tile"></span>{/each}
 		</span>
 	</span>
 {/snippet}
-{#snippet pillOff()}{@render homeHeader(false, settings.homeShowRandomize)}{/snippet}
-{#snippet pillOn()}{@render homeHeader(true, settings.homeShowRandomize)}{/snippet}
-{#snippet randomizeOff()}{@render homeHeader(settings.homeShowSearchPill, false)}{/snippet}
-{#snippet randomizeOn()}{@render homeHeader(settings.homeShowSearchPill, true)}{/snippet}
+{#snippet pillOff()}{@render homeHeader(false, settings.homeShowRandomize, 'pill')}{/snippet}
+{#snippet pillOn()}{@render homeHeader(true, settings.homeShowRandomize, 'pill')}{/snippet}
+{#snippet randomizeOff()}{@render homeHeader(settings.homeShowSearchPill, false, 'rnd')}{/snippet}
+{#snippet randomizeOn()}{@render homeHeader(settings.homeShowSearchPill, true, 'rnd')}{/snippet}
 
 <!-- homeDensity — three tiny layout mockups, because this setting IS a layout shape. -->
 {#snippet densityList()}
