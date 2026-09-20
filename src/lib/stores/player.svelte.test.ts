@@ -921,10 +921,13 @@ describe('player.spliceAndPlay — splice after current + non-fresh play (38-D-0
 			player.loading = false;
 		});
 
+		// Read `current` through a getter so TS control-flow does not narrow it to the `null`
+		// assigned above — spliceAndPlay mutates it synchronously, which is the point of the guard.
+		const cur = () => player.current;
 		expect(player.spliceAndPlay(R)).toBe(true);
 		await flush();
 
-		expect(player.current?.uid).toBe(R.uid);
+		expect(cur()?.uid).toBe(R.uid);
 		expect(uids(player.queue)).toEqual([R.uid]);
 		// 38-D-29: this autoplay IS why spliceAndPlay is NOT the cold share-arrival path. The guard
 		// keeps it from firing a second play(); armTrack is what a cold arrival uses instead.

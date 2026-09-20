@@ -2615,6 +2615,22 @@ class Player {
 		this.persist();
 	}
 
+	/** 38-D-02 — the ONE queue-splice primitive: de-dupe by uid FIRST, then land the track directly
+	 *  after `current` (index 0 when there is no current). Extracted so the three arrivals needing
+	 *  this exact shape provably share it instead of carrying copies that drift: `playNext` (pins,
+	 *  and autoplays on an empty queue), `spliceAndPlay` (plays, never pins) and `armTrack` (seats a
+	 *  resolved + paused track, never plays).
+	 *
+	 *  The de-dupe-BEFORE-lookup ordering is load-bearing, and it is why every caller guards on
+	 *  `current?.uid === t.uid`: splicing the CURRENT track filters it out, so the findIndex for
+	 *  current returns -1 and the track lands at index 0 instead of staying put. */
+	private spliceAfterCurrent(t: Track): void {
+		const q = this.queue.filter((x) => x.uid !== t.uid);
+		const i = q.findIndex((x) => x.uid === this.current?.uid);
+		q.splice(i >= 0 ? i + 1 : 0, 0, t);
+		this.queue = q;
+	}
+
 	/** Insert a track right after the current one (de-duped). Plays it if nothing is playing. */
 	/**
 	 * Splice a track in directly after the current one.
@@ -2632,12 +2648,52 @@ class Player {
 	 */
 	playNext(t: Track, opts: { pin?: boolean } = {}) {
 		if (opts.pin !== false) this.manualUids.add(t.uid); // explicit manual add — preserved across regen
-		const q = this.queue.filter((x) => x.uid !== t.uid);
-		const i = q.findIndex((x) => x.uid === this.current?.uid);
-		q.splice(i >= 0 ? i + 1 : 0, 0, t);
-		this.queue = q;
+		this.spliceAfterCurrent(t);
 		if (!this.current) this.play(t);
 		else this.persist();
+	}
+
+	/**
+	 * 38-D-02/D-07 — splice a track in right after `current` and play it WITHOUT destroying the
+	 * listener's queue shape. Returns false when the track is ALREADY current (a no-op re-open,
+	 * 38-D-03); true when it was spliced and started.
+	 *
+	 * quick-260910-qjv (relocated here from NpRelated.relatedTapPlay, which was its first and until
+	 * now only implementation): a Related TAP is "queue at the top and play", not "nuke my queue". It
+	 * used to be play({ fresh: true }) — the fresh branch weaves history, re-anchors upNextAnchorUid
+	 * to the tapped song, clears removedUids and REGENERATES the tail, so every row the user had
+	 * lined up vanished. Composed from two existing methods instead:
+	 *   playNext({ pin: false }) — the exact surgery a swipe-left performs (de-dupe by uid, splice
+	 *       after current, persist) MINUS the pin. pin:false because this means "play this now", NOT
+	 *       "pin this for later": taking playNext's manualUids side effect too left the tapped song
+	 *       surviving every later queue reset (a main-page play then yielded `c1, b1, c2…`). An
+	 *       explicit Play-next — the swipe-left, or the track menu — still pins.
+	 *   play(…, { fresh: false }) — the path next()/prev()/auto-advance take: it never weaves
+	 *       history, never re-anchors, never clears removedUids and never regenerates.
+	 * So the anchored queue.slice the Up-Next pane renders keeps every row; only the .playing
+	 * highlight moves.
+	 *
+	 * The already-current guard is not cosmetic. Tapping the now-playing song is a NO-OP, not a
+	 * restart, and it also keeps spliceAfterCurrent from mis-splicing: it filters the uid out FIRST,
+	 * then looks for current — which would be gone — landing the track at index 0.
+	 *
+	 * The second `current?.uid !== t.uid` check is the double-play guard: on a cold start, with no
+	 * current, playNext plays the track itself (setting current synchronously). No toast/haptic —
+	 * the row becoming the playing track IS the feedback.
+	 *
+	 * 🔴 NOT the cold share-arrival path. playNext AUTOPLAYS on a truly empty queue (38-D-29), which
+	 * a first-time visitor with nothing persisted hits, and a non-gesture autoplay both violates
+	 * 38-D-06 and is rejected by mobile autoplay policy anyway. A cold arrival calls `armTrack`,
+	 * which seats the track resolved + paused and never calls play().
+	 *
+	 * It lives on the store because the share arrival (both /song routes) and the legacy `?play=`
+	 * decoder are its second and third callers, and CLAUDE.md flags a third inline copy as debt.
+	 */
+	spliceAndPlay(t: Track): boolean {
+		if (this.current?.uid === t.uid) return false;
+		this.playNext(t, { pin: false });
+		if (this.current?.uid !== t.uid) void this.play(t, { fresh: false });
+		return true;
 	}
 
 	/** Append a track to the end of the queue (de-duped). Plays it if nothing is playing. */

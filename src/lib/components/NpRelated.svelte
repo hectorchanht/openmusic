@@ -138,31 +138,12 @@
 		hapticTick();
 	}
 
-	// quick-260910-qjv: a Related TAP is "queue at the top and play", not "nuke my queue". It used
-	// to be play({ fresh: true }) — the fresh branch weaves history, re-anchors upNextAnchorUid to
-	// the tapped song, clears removedUids and REGENERATES the tail, so every row the user had lined
-	// up vanished. Composed from two existing store methods instead, zero store diff:
-	//   playNext  — the exact surgery swipe-left above already performs (de-dupe by uid, splice
-	//               after current, pin in manualUids, persist), and
-	//   play(…, { fresh: false }) — the path next()/prev()/auto-advance take: it never weaves
-	//               history, never re-anchors, never clears removedUids and never regenerates.
-	// So the anchored queue.slice the Up-Next pane renders keeps every row; only the .playing
-	// highlight moves.
+	// quick-260910-qjv → player.spliceAndPlay (38-D-07). The full decision record (why fresh:true
+	// nuked the queue, why pin:false, the D-03 already-current no-op guard and the double-play guard)
+	// lives on that method now — the share-arrival path is its second caller, so the composition
+	// belongs in the store. No toast/haptic — the row becoming the playing track IS the feedback.
 	function relatedTapPlay(track: Track) {
-		// Tapping the now-playing song is a NO-OP, not a restart: the related list excludes current
-		// and reloads on a current change, so this only covers the async reload window. It also
-		// keeps playNext from mis-splicing — playNext filters the uid out FIRST, then looks for
-		// current, which would be gone, landing the track at index 0.
-		if (player.current?.uid === track.uid) return;
-		// pin:false — this tap means "play this now", NOT "pin this for later". playNext is borrowed
-		// purely for its splice-after-current positioning; taking its manualUids side effect too left
-		// the tapped song surviving every later queue reset (a main-page play then yielded
-		// `c1, b1, c2…`). An explicit Play-next — the swipe-left above, or the track menu — still pins.
-		player.playNext(track, { pin: false });
-		// Cold start: with no current, playNext plays the track itself (setting current
-		// synchronously), so this guard is what prevents a double play().
-		// No toast/haptic — the row becoming the playing track IS the feedback.
-		if (player.current?.uid !== track.uid) void player.play(track, { fresh: false });
+		player.spliceAndPlay(track);
 	}
 </script>
 
