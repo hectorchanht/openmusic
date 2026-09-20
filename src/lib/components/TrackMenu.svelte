@@ -36,6 +36,10 @@
 	// quick-260919-1eh: the tag-edit sheet. Same co-mount arrangement as VersionPicker above — it
 	// owns its own overlay lifecycle under a DISTINCT overlayId.
 	import MetadataEditor from '$lib/components/MetadataEditor.svelte';
+	// quick-260919-vrq: the app's ONLY boolean-control idiom (a real <button role="switch"
+	// aria-checked>). No `type="checkbox"` exists anywhere in src, so the Remove-download confirm
+	// borrows this rather than hand-rolling one.
+	import SettingToggle from '$lib/components/SettingToggle.svelte';
 	import { downloadTrack } from '$lib/services/download-track';
 	// quick-260915-26g: the shared probe + the shared label formatter. TrackMenu cannot mount
 	// DownloadControl (its Check state is blob-backed and its rows are full-width text buttons, not
@@ -76,6 +80,15 @@
 	let { track, open, loading = false, onclose }: { track: Track | null; open: boolean; loading?: boolean; onclose: () => void } = $props();
 
 	let pickerOpen = $state(false);
+	// quick-260919-vrq — the Remove-download CONFIRM, and why it is a SHEET rather than window.confirm.
+	// The confirm carries a toggle whose position changes what the removal actually does (files die vs
+	// files stay), and confirm() cannot hold a control. So it mirrors the playlist picker above
+	// exactly: same scrim / .menu / fly / dragClose / focusTrap, its own overlay id, reset in close().
+	// `rmDeleteFile` defaults ON — that is today's removeDownload behaviour (999.1-D-11: both copies),
+	// so the row keeps meaning what its label says — and is re-armed on every open so an untick made
+	// for one song never silently carries over to the next.
+	let rmOpen = $state(false);
+	let rmDeleteFile = $state(true);
 	let detailTrack = $state<Track | null>(null);
 	// quick-260919-1eh: the metadata editor sheet's open flag. No lazy fan-out to guard — the sheet
 	// seeds itself from the track already in hand and saves offline, so there is no gen/abort pair.
@@ -199,6 +212,7 @@
 	function close() {
 		pickerOpen = false;
 		tagsOpen = false; // quick-260919-1eh: reset alongside the other sheet flags
+		rmOpen = false; // quick-260919-vrq: same — a confirm must never outlive the menu that raised it
 		coverAc?.abort(); // quick-260915-w4f: never leave a candidate fan-out running behind a closed menu
 		dlPickAc?.abort(); // quick-260916-0d9: same rule for the download-picker probe pool
 		lyricAc?.abort(); // quick-260919-1we: same rule for the lyric-candidate walk
@@ -492,6 +506,42 @@
 		excludeUid(track.uid, `${names.dnArtist(track.artist)} - ${names.dnTitle(track.title)}`.trim());
 		library.removeDownload(track.uid);
 		toast.show(t('toast.noImportDone'));
+		close();
+	}
+
+	// quick-260919-vrq — "Remove download" for an APP-DOWNLOADED song, behind a confirm sheet.
+	//
+	// (a) TOGGLE ON (the default) = delete + exclude, which is what the user asked for verbatim
+	//     ("checkbox on remove file on disk and auto added to exclude list"). The exclusion mark is
+	//     belt-and-braces rather than dead state: `deleteFromMusic` never throws, so a MediaStore
+	//     delete that fails SILENTLY leaves a Music/OpenMusic copy behind that a later scan could
+	//     find — the mark records the user's intent against exactly that case.
+	// (b) TOGGLE OFF = the library row only. `blobStore.del` is never reached, so the app-private
+	//     file and the Music/OpenMusic entry (native) or the IndexedDB copy (web) all survive. NO
+	//     exclusion mark is written: the user chose to KEEP the file, and a mark keyed on the APP uid
+	//     would not block a rescan anyway — a rescan imports that surviving file under a NEW
+	//     `device:` uid. So neither the toast nor the body copy promises it cannot come back.
+	// (c) APP DOWNLOADS ONLY. `blobStore.del` REFUSES a `device:` uid as its first statement (34
+	//     Pitfall 1), so "delete the offline copy" is something the app literally cannot do for an
+	//     import — offering the toggle there would be a UI lie. `device:` keeps noImport.
+	// (d) ON THE WEB the toggle is SHOWN, not hidden or disabled: the browser build's `blobStore.del`
+	//     deletes the IndexedDB offline copy, which is real reachable bytes. Only a file saved through
+	//     the browser's own download folder is out of reach, and `menu.removeDownloadBody` says so —
+	//     the same truth `settings.retagDownloadsDesc` already tells.
+	function openRemoveDownload() {
+		if (!track?.uid) return;
+		rmDeleteFile = true;
+		rmOpen = true;
+	}
+	function confirmRemoveDownload() {
+		if (!track?.uid) return;
+		// Same label expression as noImport — `names.dn*` so the recovery list reads in the user's
+		// display script.
+		if (rmDeleteFile)
+			excludeUid(track.uid, `${names.dnArtist(track.artist)} - ${names.dnTitle(track.title)}`.trim());
+		library.removeDownload(track.uid, { deleteFile: rmDeleteFile });
+		toast.show(t('toast.downloadRemoved'));
+		rmOpen = false;
 		close();
 	}
 
@@ -808,6 +858,14 @@
 			return () => untrack(() => overlays.dismiss("trackmenu-picker"));
 		}
 	});
+	// quick-260919-vrq: the remove-download confirm's own balanced entry — same shape + untrack guard,
+	// distinct id so Back pops exactly this sheet, and Back is a DISMISS, so it removes nothing.
+	$effect(() => {
+		if (rmOpen && track) {
+			untrack(() => overlays.open("trackmenu-rmdl", () => (rmOpen = false)));
+			return () => untrack(() => overlays.dismiss("trackmenu-rmdl"));
+		}
+	});
 	$effect(() => {
 		if (detailTrack) {
 			untrack(() => overlays.open("trackmenu-detail", () => (detailTrack = null)));
@@ -990,9 +1048,27 @@
 		     Music/OpenMusic/ entry, 999.1-D-11), so no file survives for a scan to find — an
 		     exclusion recorded against it would be dead state forever and the label would be a lie,
 		     since no scan ever imports an app download under its own uid.
-		     For a device: uid nothing on disk is touched at all — see noImport() above. -->
+		     For a device: uid nothing on disk is touched at all — see noImport() above.
+
+		     quick-260919-vrq AMENDS BOTH HALVES OF THAT. (1) "Nothing exposes removal for an app
+		     download" is no longer true — the `{:else if}` below IS that removal, behind a confirm
+		     sheet. (2) The dead-state argument held only while removal ALWAYS destroyed both copies;
+		     it stops holding the moment the user can KEEP the file, because a surviving Music/OpenMusic
+		     copy is exactly what a later scan can re-import. (It comes back under a NEW `device:` uid,
+		     so a uid-keyed mark is not a guaranteed block either — see confirmRemoveDownload.) The
+		     two rows stay mutually exclusive, now by STRUCTURE: if / else-if, never both.
+
+		     THE GATE, "is there something to remove": EITHER thing removeDownload clears — an offline
+		     copy (`blobPresent === true`, the blob-backed truth of quick-260913-jq4) OR a downloads-list
+		     row (`library.isDownloaded`, which can be true with NO blob at all: addDownload runs before
+		     the fetch, and the web `<a download>` save reports success on a cancelled dialog).
+		     `blobPresent` alone would leave that stale row unremovable from here; `isDownloaded` alone
+		     would hide the row for a blob whose list entry was lost. `=== true` and not merely truthy,
+		     so the row cannot flash in during the `null` pre-probe tick. `!isDevice` is implied. -->
 		{#if isDevice}
 			<button class="mi" onclick={noImport} use:tapBounce><EyeOff size={18} /> {t('menu.noImport')}</button>
+		{:else if blobPresent === true || library.isDownloaded(track.uid)}
+			<button class="mi" onclick={openRemoveDownload} use:tapBounce><Trash2 size={18} /> {t('menu.removeDownload')}</button>
 		{/if}
 		<!-- quick-260919-0mw (correction): Repeat, relocated from the NowPlaying transport row.
 		     Deliberately OUTSIDE the queue.length > 1 gate that wraps Shuffle: shuffling a
@@ -1132,6 +1208,26 @@
 			<button class="mi" onclick={() => addToPlaylist(pl.id)} use:tapBounce><ListPlus size={18} /> {pl.name} <span class="count">{pl.tracks.length}</span></button>
 		{/each}
 		<button class="mi accent" onclick={newPlaylist} use:tapBounce><Plus size={18} /> {t('menu.newPlaylist')}</button>
+	</div>
+{/if}
+
+<!-- quick-260919-vrq: the Remove-download CONFIRM. Mounted OUTSIDE the {#if open && track} block for
+     the same reason as the playlist picker above — it has to survive the parent menu closing. The
+     boolean is a SettingToggle because that is the app's only boolean-control idiom (a real
+     <button role="switch" aria-checked>, so the state is exposed to assistive tech) and no
+     `type="checkbox"` exists anywhere in src. Cancel, the scrim, a drag-down and the Back gesture all
+     converge on `rmOpen = false` through the overlay's close handler: NOTHING is removed on any
+     dismiss route, only the explicit Remove button acts. -->
+{#if rmOpen && track}
+	<button class="scrim" aria-label={t('menu.close')} onclick={() => (rmOpen = false)}></button>
+	<div class="menu" transition:fly={{ y: 240, duration: 200 }} use:dragClose={{ onclose: () => (rmOpen = false) }} use:focusTrap>
+		<div class="menu-head">{t('menu.removeDownload')}</div>
+		<p class="hint">{t('menu.removeDownloadBody')}</p>
+		<SettingToggle label={t('menu.removeDownloadDeleteFile')} checked={rmDeleteFile} onchange={() => (rmDeleteFile = !rmDeleteFile)} />
+		<div class="actions">
+			<button class="mi" onclick={() => (rmOpen = false)} use:tapBounce>{t('tags.cancel')}</button>
+			<button class="mi danger" onclick={confirmRemoveDownload} use:tapBounce><Trash2 size={18} /> {t('menu.removeDownloadAction')}</button>
+		</div>
 	</div>
 {/if}
 
@@ -1353,6 +1449,15 @@
 	   row above it starts showing the state it has been claiming to show all along. Same declaration
 	   as `.accent` because it is the same idea: this row is not neutral right now. */
 	.mi.on { color: var(--color-primary); }
+	/* quick-260919-vrq — the remove-download confirm's body copy + button pair. `.hint` and `.actions`
+	   are taken VERBATIM from MetadataEditor.svelte (its footer is the same shape: a paragraph of
+	   explanation over a Cancel/commit pair), so the two sheets read identically; noted here because
+	   that makes two files carrying the declaration. The danger tint is #ff7a90, the literal already
+	   in system use by SettingRow's `.danger` and RowBadges' `.unavailable` — app.css defines no
+	   --color-danger token and this task does not invent one. */
+	.hint { color: var(--color-text-muted); font-size: 12px; line-height: 1.4; padding: 10px 12px 4px; margin: 0; }
+	.actions { display: flex; gap: 8px; padding: 4px; }
+	.mi.danger { color: #ff7a90; }
 	/* tabular-nums: the download percentage climbs digit by digit and would otherwise jitter the
 	   row's right edge on every repaint (quick-260913-omi). Harmless for the playlist counts. */
 	.mi .count { margin-left: auto; font-size: 12px; color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
