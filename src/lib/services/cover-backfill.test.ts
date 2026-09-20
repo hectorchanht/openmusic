@@ -22,9 +22,14 @@ import {
 } from './cover-cache';
 import { makeUid, type SourceId, type Track } from '$lib/sources/types';
 
-// cover-backfill (quick-260607-0bb supersedes wv8; quick-260919-0mw reordered the TRACK chain).
-// These tests pin the multi-tier chains:
-//   TRACK:  YTM → iTunes → Deezer → CN, stop at first SOLID (https, non-empty);
+// cover-backfill (quick-260607-0bb supersedes wv8; quick-260919-0mw then quick-260920-nyq reordered
+// the TRACK chain). These tests pin the multi-tier chains:
+//   TRACK:  iTunes → Deezer → CN → YTM, stop at first SOLID (https, non-empty). quick-260920-nyq
+//     ranks the tiers on FETCH SPEED + PICTURE SIZE: iTunes is a direct CORS-open GET at 1200px,
+//     Deezer is an edge-proxied 1000px, CN is high quality but the slowest and the most likely to
+//     miss, and YTM is a 120px search-shelf thumbnail (often a channel avatar) on a host many users
+//     cannot load — so it is the last resort. CN upstreams are blocked in the sandbox, which is
+//     exactly why the order is pinned HERE with mocked tiers rather than checked live.
 //   ARTIST: Deezer → iTunes, stop at first SOLID (deliberately NOT reordered).
 // Each tier never-throws (a throw in one tier falls through to the next, whole call never rejects);
 // only https covers are cached/notified; already-cached items are skipped; the fan-out is capped to
@@ -72,10 +77,11 @@ function result(tracks: Track[]): catalog.SearchResult {
 	return { perSource: [], interleaved: tracks };
 }
 
-// quick-260919-0mw — tier 1 (ytmusic) and the last tier (CN) are the SAME `searchAll` function; the
-// prefs arg is the only thing that tells them apart (`onlySource('ytmusic')` vs `{}`). A plain
+// quick-260919-0mw — the ytmusic tier and the CN tier are the SAME `searchAll` function; the prefs
+// arg is the only thing that tells them apart (`onlySource('ytmusic')` vs `{}`). A plain
 // mockResolvedValue therefore answers for BOTH, which would make the CN tier unobservable — so tier
-// tests mock by prefs and count by prefs.
+// tests mock by prefs and count by prefs. (quick-260920-nyq swapped which of the two runs first;
+// this harness is order-agnostic and needed no change.)
 function mockSearch(opts: { ytm?: Track[]; cn?: Track[] } = {}) {
 	return vi
 		.spyOn(catalog, 'searchAll')
@@ -100,9 +106,10 @@ beforeEach(() => {
 	// Same reasoning for the share-card memo: module-scoped + session-lived, so a hit recorded in one
 	// test would otherwise short-circuit the tier calls another test expects to observe.
 	__resetShareCoverMemo();
-	// quick-260919-0mw: tier 1 is now a `searchAll` walk, so EVERY chain test issues one even when it
-	// only cares about iTunes/Deezer. Default it to a miss so an unmocked test can never reach the
-	// real network; tests that pin a tier re-mock it with mockSearch().
+	// Default `searchAll` to a miss so an unmocked test can never reach the real network; tests that
+	// pin a tier re-mock it with mockSearch(). (quick-260920-nyq: after the reorder a chain test that
+	// only cares about iTunes/Deezer usually issues NO searchAll at all — the default now mostly
+	// matters for the deep-fall-through tests.)
 	vi.spyOn(catalog, 'searchAll').mockResolvedValue(result([]));
 });
 
@@ -116,12 +123,13 @@ afterEach(() => {
 	});
 });
 
-describe('backfillCovers — YTM → iTunes → Deezer → CN track chain (quick-260919-0mw)', () => {
+describe('backfillCovers — iTunes → Deezer → CN → YTM track chain (quick-260920-nyq)', () => {
 	const YTM = 'https://lh3.googleusercontent.com/ytm.jpg';
+	const IT = 'https://is1-ssl.mzstatic.com/it-cover.jpg';
 
-	it('uses the YouTube Music cover when present and calls NO iTunes, NO Deezer, NO CN tier (tier-1 short-circuit)', async () => {
+	it('uses the iTunes cover when present and calls NO Deezer and NO searchAll at all (tier-1 short-circuit)', async () => {
 		const searchSpy = mockSearch({ ytm: [mk('ytmusic', 'y', { cover: YTM })] });
-		const itunesSpy = vi.spyOn(itunes, 'itunesSongCover');
+		const itunesSpy = vi.spyOn(itunes, 'itunesSongCover').mockResolvedValue(IT);
 		const deezerSpy = vi.spyOn(deezer, 'deezerSongCover');
 
 		const resolved: Array<[string, string]> = [];
@@ -129,62 +137,40 @@ describe('backfillCovers — YTM → iTunes → Deezer → CN track chain (quick
 			onResolved: (k, u) => resolved.push([k, u])
 		});
 
-		// The YTM tier is searchAll pinned to ONE source via onlySource() — every other source is
-		// explicitly false, so a user-enabled source cannot leak into the tier-1 walk.
-		expect(searchSpy).toHaveBeenCalledWith(
-			'Drake Hotline Bling',
-			1,
-			expect.objectContaining({ ytmusic: true, netease: false }),
-			undefined
-		);
-		expect(itunesSpy).not.toHaveBeenCalled(); // YTM hit → no iTunes
-		expect(deezerSpy).not.toHaveBeenCalled(); // YTM hit → no Deezer
-		expect(cnCalls()).toHaveLength(0); // YTM hit → no CN search
-		expect(getCachedCover('Drake', 'Hotline Bling')).toBe(YTM);
+		// iTunes receives the caller's signal (undefined here — no signal supplied).
+		expect(itunesSpy).toHaveBeenCalledWith('Drake', 'Hotline Bling', undefined);
+		expect(deezerSpy).not.toHaveBeenCalled(); // iTunes hit → no Deezer
+		// quick-260920-nyq: the tier-1 hit now short-circuits BEFORE either searchAll tier, so the
+		// common case issues ZERO CN and ZERO YTM searches — not one, as it did under YTM-first.
+		expect(searchSpy).not.toHaveBeenCalled();
+		expect(getCachedCover('Drake', 'Hotline Bling')).toBe(IT);
 		expect(resolved).toHaveLength(1);
-		expect(resolved[0][1]).toBe(YTM);
+		expect(resolved[0][1]).toBe(IT);
 	});
 
-	it('falls back to iTunes when YTM misses (and calls NEITHER Deezer NOR the CN tier)', async () => {
-		mockSearch(); // both searchAll tiers miss
-		const itunesSpy = vi
-			.spyOn(itunes, 'itunesSongCover')
-			.mockResolvedValue('https://is1-ssl.mzstatic.com/it-cover.jpg');
-		const deezerSpy = vi.spyOn(deezer, 'deezerSongCover');
+	it('falls back to Deezer when iTunes misses (and issues NO searchAll — neither CN nor YTM)', async () => {
+		const searchSpy = mockSearch({ ytm: [mk('ytmusic', 'y', { cover: YTM })] });
+		const itunesSpy = vi.spyOn(itunes, 'itunesSongCover').mockResolvedValue(null);
+		const deezerSpy = vi
+			.spyOn(deezer, 'deezerSongCover')
+			.mockResolvedValue('https://cdn-images.dzcdn.net/dz-cover.jpg');
 
 		const resolved: Array<[string, string]> = [];
 		await backfillCovers([{ artist: 'Adele', title: 'Hello' }], {
 			onResolved: (k, u) => resolved.push([k, u])
 		});
 
-		expect(ytmCalls()).toHaveLength(1);
-		// iTunes receives the caller's signal (undefined here — no signal supplied).
-		expect(itunesSpy).toHaveBeenCalledWith('Adele', 'Hello', undefined);
-		expect(deezerSpy).not.toHaveBeenCalled(); // iTunes hit → no Deezer
-		expect(cnCalls()).toHaveLength(0); // iTunes hit → no CN search
-		expect(getCachedCover('Adele', 'Hello')).toBe('https://is1-ssl.mzstatic.com/it-cover.jpg');
-		expect(resolved).toHaveLength(1);
-		expect(resolved[0][1]).toBe('https://is1-ssl.mzstatic.com/it-cover.jpg');
-	});
-
-	it('falls back to Deezer when YTM + iTunes miss (and does NOT reach the CN tier)', async () => {
-		mockSearch();
-		const itunesSpy = vi.spyOn(itunes, 'itunesSongCover').mockResolvedValue(null);
-		const deezerSpy = vi
-			.spyOn(deezer, 'deezerSongCover')
-			.mockResolvedValue('https://cdn-images.dzcdn.net/dz-cover.jpg');
-
-		await backfillCovers([{ artist: 'Adele', title: 'Hello' }]);
-
 		expect(itunesSpy).toHaveBeenCalled();
 		expect(deezerSpy).toHaveBeenCalledWith('Adele', 'Hello', undefined);
-		expect(cnCalls()).toHaveLength(0);
+		expect(searchSpy).not.toHaveBeenCalled(); // Deezer hit → neither searchAll tier runs
 		expect(getCachedCover('Adele', 'Hello')).toBe('https://cdn-images.dzcdn.net/dz-cover.jpg');
+		expect(resolved).toHaveLength(1);
+		expect(resolved[0][1]).toBe('https://cdn-images.dzcdn.net/dz-cover.jpg');
 	});
 
-	it('falls back to the CN cover when YTM + iTunes + Deezer all miss, then caches + notifies', async () => {
+	it('falls back to the CN cover when iTunes + Deezer miss (and does NOT reach the YTM tier)', async () => {
 		const hit = mk('netease', 'hit', { cover: 'https://cn.example/cn-cover.jpg' });
-		const searchSpy = mockSearch({ cn: [hit] });
+		const searchSpy = mockSearch({ cn: [hit], ytm: [mk('ytmusic', 'y', { cover: YTM })] });
 		const itunesSpy = vi.spyOn(itunes, 'itunesSongCover').mockResolvedValue(null);
 		const deezerSpy = vi.spyOn(deezer, 'deezerSongCover').mockResolvedValue(null);
 
@@ -193,15 +179,45 @@ describe('backfillCovers — YTM → iTunes → Deezer → CN track chain (quick
 			onResolved: (k, u) => resolved.push([k, u])
 		});
 
-		expect(ytmCalls()).toHaveLength(1);
 		expect(itunesSpy).toHaveBeenCalled();
 		expect(deezerSpy).toHaveBeenCalled();
 		// WR-01: the CN tier threads explicit {} prefs + the caller's signal (undefined here) so the
 		// fan-out is abortable like the tiers above.
 		expect(searchSpy).toHaveBeenCalledWith('Jay Chou Simple Love', 1, {}, undefined);
+		expect(cnCalls()).toHaveLength(1);
+		expect(ytmCalls()).toHaveLength(0); // CN hit → YTM (tier 4) never runs
+		// The CJK case the user cares about: qq/netease art wins here precisely because the two
+		// faster tiers above do not carry the song.
 		expect(getCachedCover('Jay Chou', 'Simple Love')).toBe('https://cn.example/cn-cover.jpg');
 		expect(resolved).toHaveLength(1);
 		expect(resolved[0][1]).toBe('https://cn.example/cn-cover.jpg');
+	});
+
+	it('falls back to YouTube Music LAST, when iTunes + Deezer + CN all miss, then caches + notifies', async () => {
+		const searchSpy = mockSearch({ ytm: [mk('ytmusic', 'y', { cover: YTM })] });
+		const itunesSpy = vi.spyOn(itunes, 'itunesSongCover').mockResolvedValue(null);
+		const deezerSpy = vi.spyOn(deezer, 'deezerSongCover').mockResolvedValue(null);
+
+		const resolved: Array<[string, string]> = [];
+		await backfillCovers([{ artist: 'Drake', title: 'Hotline Bling' }], {
+			onResolved: (k, u) => resolved.push([k, u])
+		});
+
+		expect(itunesSpy).toHaveBeenCalled();
+		expect(deezerSpy).toHaveBeenCalled();
+		expect(cnCalls()).toHaveLength(1);
+		// The YTM tier is searchAll pinned to ONE source via onlySource() — every other source is
+		// explicitly false, so a user-enabled source cannot leak into the walk.
+		expect(searchSpy).toHaveBeenCalledWith(
+			'Drake Hotline Bling',
+			1,
+			expect.objectContaining({ ytmusic: true, netease: false }),
+			undefined
+		);
+		expect(ytmCalls()).toHaveLength(1);
+		expect(getCachedCover('Drake', 'Hotline Bling')).toBe(YTM);
+		expect(resolved).toHaveLength(1);
+		expect(resolved[0][1]).toBe(YTM);
 	});
 
 	it('leaves the gradient (no cache, no notify) when all four tiers miss', async () => {
@@ -254,15 +270,16 @@ describe('backfillCovers — YTM → iTunes → Deezer → CN track chain (quick
 	});
 
 	it('treats a NON-https cover as a miss and falls through to the next tier', async () => {
-		// YTM returns an http (insecure) URL → must NOT be cached; falls through to iTunes.
-		mockSearch({ ytm: [mk('ytmusic', 'y', { cover: 'http://insecure.example/x.jpg' })] });
-		const itunesSpy = vi
-			.spyOn(itunes, 'itunesSongCover')
-			.mockResolvedValue('https://is1-ssl.mzstatic.com/ok.jpg');
+		// iTunes returns an http (insecure) URL → must NOT be cached; falls through to Deezer.
+		mockSearch();
+		vi.spyOn(itunes, 'itunesSongCover').mockResolvedValue('http://insecure.example/x.jpg');
+		const deezerSpy = vi
+			.spyOn(deezer, 'deezerSongCover')
+			.mockResolvedValue('https://cdn-images.dzcdn.net/ok.jpg');
 
 		await backfillCovers([{ artist: 'A', title: 'B' }]);
-		expect(itunesSpy).toHaveBeenCalled();
-		expect(getCachedCover('A', 'B')).toBe('https://is1-ssl.mzstatic.com/ok.jpg');
+		expect(deezerSpy).toHaveBeenCalled();
+		expect(getCachedCover('A', 'B')).toBe('https://cdn-images.dzcdn.net/ok.jpg');
 	});
 
 	it('does NOT cache an http-only final result (all tiers non-https → gradient)', async () => {
@@ -279,25 +296,8 @@ describe('backfillCovers — YTM → iTunes → Deezer → CN track chain (quick
 		expect(resolved).toHaveLength(0);
 	});
 
-	it('falls through to iTunes when the YTM tier THROWS (per-tier never-throw)', async () => {
-		vi.spyOn(catalog, 'searchAll').mockImplementation(async (_kw, _page, prefs) => {
-			if (prefs?.ytmusic) throw new Error('ytmusic down');
-			return result([]);
-		});
-		const itunesSpy = vi
-			.spyOn(itunes, 'itunesSongCover')
-			.mockResolvedValue('https://is1-ssl.mzstatic.com/it.jpg');
-		const deezerSpy = vi.spyOn(deezer, 'deezerSongCover');
-
-		await backfillCovers([{ artist: 'X', title: 'Y' }]);
-		expect(itunesSpy).toHaveBeenCalled();
-		expect(deezerSpy).not.toHaveBeenCalled();
-		expect(cnCalls()).toHaveLength(0);
-		expect(getCachedCover('X', 'Y')).toBe('https://is1-ssl.mzstatic.com/it.jpg');
-	});
-
-	it('falls through to Deezer when iTunes THROWS after a YTM miss (per-tier never-throw)', async () => {
-		mockSearch();
+	it('falls through to Deezer when the iTunes tier THROWS (per-tier never-throw)', async () => {
+		const searchSpy = mockSearch();
 		vi.spyOn(itunes, 'itunesSongCover').mockRejectedValue(new Error('itunes down'));
 		const deezerSpy = vi
 			.spyOn(deezer, 'deezerSongCover')
@@ -305,10 +305,11 @@ describe('backfillCovers — YTM → iTunes → Deezer → CN track chain (quick
 
 		await backfillCovers([{ artist: 'X', title: 'Y' }]);
 		expect(deezerSpy).toHaveBeenCalled();
+		expect(searchSpy).not.toHaveBeenCalled(); // a throw is a miss, not an escalation past Deezer
 		expect(getCachedCover('X', 'Y')).toBe('https://cdn-images.dzcdn.net/dz.jpg');
 	});
 
-	it('falls through to CN when Deezer THROWS after a YTM + iTunes miss (per-tier never-throw)', async () => {
+	it('falls through to CN when Deezer THROWS after an iTunes miss (per-tier never-throw)', async () => {
 		const hit = mk('netease', 'hit', { cover: 'https://cn.example/cn.jpg' });
 		mockSearch({ cn: [hit] });
 		vi.spyOn(itunes, 'itunesSongCover').mockResolvedValue(null);
@@ -316,7 +317,22 @@ describe('backfillCovers — YTM → iTunes → Deezer → CN track chain (quick
 
 		await backfillCovers([{ artist: 'X', title: 'Y' }]);
 		expect(cnCalls()).toHaveLength(1);
+		expect(ytmCalls()).toHaveLength(0);
 		expect(getCachedCover('X', 'Y')).toBe('https://cn.example/cn.jpg');
+	});
+
+	it('falls through to YTM when the CN tier THROWS after an iTunes + Deezer miss (per-tier never-throw)', async () => {
+		vi.spyOn(catalog, 'searchAll').mockImplementation(async (_kw, _page, prefs) => {
+			if (prefs?.ytmusic) return result([mk('ytmusic', 'y', { cover: YTM })]);
+			throw new Error('CN upstream blocked');
+		});
+		vi.spyOn(itunes, 'itunesSongCover').mockResolvedValue(null);
+		vi.spyOn(deezer, 'deezerSongCover').mockResolvedValue(null);
+
+		await backfillCovers([{ artist: 'X', title: 'Y' }]);
+		expect(cnCalls()).toHaveLength(1);
+		expect(ytmCalls()).toHaveLength(1);
+		expect(getCachedCover('X', 'Y')).toBe(YTM);
 	});
 
 	it('never rejects when ALL tiers throw (degrades to the gradient)', async () => {
@@ -341,7 +357,10 @@ describe('backfillCovers — YTM → iTunes → Deezer → CN track chain (quick
 	});
 
 	it('caps the track fan-out to `max`', async () => {
-		mockSearch({ ytm: [mk('ytmusic', 'y', { cover: YTM })] });
+		mockSearch();
+		// quick-260920-nyq: count the TIER-1 resolver, which is iTunes now — a YTM count would be 0
+		// here, since an iTunes hit short-circuits before either searchAll tier.
+		const itunesSpy = vi.spyOn(itunes, 'itunesSongCover').mockResolvedValue(IT);
 		await backfillCovers(
 			[
 				{ artist: 'A', title: '1' },
@@ -350,7 +369,7 @@ describe('backfillCovers — YTM → iTunes → Deezer → CN track chain (quick
 			],
 			{ max: 2 }
 		);
-		expect(ytmCalls()).toHaveLength(2);
+		expect(itunesSpy).toHaveBeenCalledTimes(2);
 	});
 });
 
@@ -455,30 +474,33 @@ describe('backfillArtistCovers — Deezer → iTunes artist chain (quick-260607-
 
 describe('resolveCoverForTrack — shared single-item resolve helper (Plan 21-02, COVER-02)', () => {
 	it('returns a SOLID https URL on a tier hit and writes BOTH cache layers', async () => {
-		mockSearch({ ytm: [mk('ytmusic', 'y', { cover: 'https://lh3.googleusercontent.com/ytm.jpg' })] });
+		mockSearch();
+		vi.spyOn(itunes, 'itunesSongCover').mockResolvedValue('https://is1-ssl.mzstatic.com/it.jpg');
 		const t = mk('netease', '12345', { artist: 'Drake', title: 'Hotline Bling' });
 
 		const out = await resolveCoverForTrack(t);
-		expect(out).toBe('https://lh3.googleusercontent.com/ytm.jpg');
+		expect(out).toBe('https://is1-ssl.mzstatic.com/it.jpg');
 		// BOTH layers written on a SOLID hit (D-13).
-		expect(getCachedCoverByUid('netease:12345')).toBe('https://lh3.googleusercontent.com/ytm.jpg');
-		expect(getCachedCover('Drake', 'Hotline Bling')).toBe('https://lh3.googleusercontent.com/ytm.jpg');
+		expect(getCachedCoverByUid('netease:12345')).toBe('https://is1-ssl.mzstatic.com/it.jpg');
+		expect(getCachedCover('Drake', 'Hotline Bling')).toBe('https://is1-ssl.mzstatic.com/it.jpg');
 	});
 
-	it('runs the YTM → iTunes → Deezer → CN tier order (falls through to iTunes on a YTM miss)', async () => {
-		mockSearch();
-		const itunesSpy = vi
-			.spyOn(itunes, 'itunesSongCover')
-			.mockResolvedValue('https://is1-ssl.mzstatic.com/it.jpg');
-		const deezerSpy = vi.spyOn(deezer, 'deezerSongCover');
+	it('runs the iTunes → Deezer → CN → YTM tier order (falls through to Deezer on an iTunes miss, no searchAll issued)', async () => {
+		const searchSpy = mockSearch({ ytm: [mk('ytmusic', 'y', { cover: 'https://ytm/x.jpg' })] });
+		const itunesSpy = vi.spyOn(itunes, 'itunesSongCover').mockResolvedValue(null);
+		const deezerSpy = vi
+			.spyOn(deezer, 'deezerSongCover')
+			.mockResolvedValue('https://cdn-images.dzcdn.net/dz.jpg');
 		const t = mk('qq', 'abc', { artist: 'Adele', title: 'Hello' });
 
 		const out = await resolveCoverForTrack(t);
-		expect(out).toBe('https://is1-ssl.mzstatic.com/it.jpg');
-		expect(ytmCalls()).toHaveLength(1);
+		expect(out).toBe('https://cdn-images.dzcdn.net/dz.jpg');
 		expect(itunesSpy).toHaveBeenCalled();
-		expect(deezerSpy).not.toHaveBeenCalled();
-		expect(cnCalls()).toHaveLength(0);
+		expect(deezerSpy).toHaveBeenCalled();
+		// quick-260920-nyq: anything resolving before tier 4 issues ZERO ytmusic searches, so a
+		// Google-hosted 120px thumbnail can never displace the art a faster/larger tier already has.
+		expect(ytmCalls()).toHaveLength(0);
+		expect(searchSpy).not.toHaveBeenCalled(); // no CN fan-out either
 	});
 
 	it('returns null on a total miss (chain never throws), caching nothing', async () => {
@@ -527,26 +549,26 @@ describe('resolveCoverForTrack — shared single-item resolve helper (Plan 21-02
 	});
 });
 
-describe('resolveHqCover — YTM → Deezer HQ upgrade (Plan 26-02 COVER-01; quick-260919-0mw)', () => {
+describe('resolveHqCover — iTunes → Deezer HQ upgrade (no YTM, no CN) (quick-260920-nyq)', () => {
+	const IT = 'https://is1-ssl.mzstatic.com/hq-600x600bb.jpg';
 	const YTM = 'https://lh3.googleusercontent.com/hq.jpg';
 
-	it('returns the SOLID YTM cover and issues NEITHER Deezer, iTunes NOR the CN tier (tier-1 short-circuit)', async () => {
+	it('returns the SOLID iTunes cover and issues NEITHER Deezer NOR any searchAll (tier-1 short-circuit)', async () => {
 		const searchSpy = mockSearch({ ytm: [mk('ytmusic', 'y', { cover: YTM })] });
-		const itunesSpy = vi.spyOn(itunes, 'itunesSongCover');
+		const itunesSpy = vi.spyOn(itunes, 'itunesSongCover').mockResolvedValue(IT);
 		const deezerSpy = vi.spyOn(deezer, 'deezerSongCover');
 		const t = mk('kuwo', '999', { artist: 'Drake', title: 'Hotline Bling' });
 
 		const out = await resolveHqCover(t);
-		expect(out).toBe(YTM);
-		expect(searchSpy).toHaveBeenCalledTimes(1); // exactly ONE call — the YTM tier
-		expect(deezerSpy).not.toHaveBeenCalled(); // YTM hit → no second call (common case = 1 call)
-		expect(itunesSpy).not.toHaveBeenCalled(); // NEVER iTunes — this is an upgrade, not a chain
-		expect(cnCalls()).toHaveLength(0); // NEVER the CN searchAll tier (T-26-02-01 fan-out bound)
+		expect(out).toBe(IT);
+		expect(itunesSpy).toHaveBeenCalledTimes(1); // exactly ONE call — the iTunes tier
+		expect(deezerSpy).not.toHaveBeenCalled(); // iTunes hit → no second call (common case = 1)
+		expect(searchSpy).not.toHaveBeenCalled(); // NEVER a searchAll — no YTM, no CN fan-out
 	});
 
-	it('falls back to Deezer on a YTM miss — worst case TWO calls, still no iTunes and no CN', async () => {
-		mockSearch();
-		const itunesSpy = vi.spyOn(itunes, 'itunesSongCover');
+	it('falls back to Deezer on an iTunes miss — worst case TWO calls, still zero searchAll', async () => {
+		const searchSpy = mockSearch({ ytm: [mk('ytmusic', 'y', { cover: YTM })] });
+		const itunesSpy = vi.spyOn(itunes, 'itunesSongCover').mockResolvedValue(null);
 		const deezerSpy = vi
 			.spyOn(deezer, 'deezerSongCover')
 			.mockResolvedValue('https://cdn-images.dzcdn.net/hq.jpg');
@@ -554,43 +576,66 @@ describe('resolveHqCover — YTM → Deezer HQ upgrade (Plan 26-02 COVER-01; qui
 
 		const out = await resolveHqCover(t);
 		expect(out).toBe('https://cdn-images.dzcdn.net/hq.jpg');
-		expect(ytmCalls()).toHaveLength(1);
+		expect(itunesSpy).toHaveBeenCalledWith('Drake', 'Hotline Bling', undefined);
 		expect(deezerSpy).toHaveBeenCalledWith('Drake', 'Hotline Bling', undefined);
-		expect(itunesSpy).not.toHaveBeenCalled();
-		expect(cnCalls()).toHaveLength(0);
+		expect(itunesSpy.mock.calls.length + deezerSpy.mock.calls.length).toBeLessThanOrEqual(2);
+		expect(searchSpy).not.toHaveBeenCalled();
 	});
 
-	it('writes BOTH cache layers on a SOLID hit (real uid → uid layer + name layer)', async () => {
-		mockSearch({ ytm: [mk('ytmusic', 'y', { cover: YTM })] });
-		const t = mk('kuwo', '12345', { artist: 'Drake', title: 'Hotline Bling' });
-		await resolveHqCover(t);
-		expect(getCachedCoverByUid('kuwo:12345')).toBe(YTM);
-		expect(getCachedCover('Drake', 'Hotline Bling')).toBe(YTM);
-	});
-
-	it('writes ONLY the name layer for an empty-uid stub (charts-tags-same-cover guard)', async () => {
-		mockSearch({ ytm: [mk('ytmusic', 'y', { cover: YTM })] });
-		const stub = mk('netease', 'ignored', { uid: '', artist: 'Foo Fighters', title: 'Everlong' });
-		await resolveHqCover(stub);
-		expect(getCachedCoverByUid('')).toBeNull(); // shared 'uid:' slot never written for an empty uid
-		expect(getCachedCover('Foo Fighters', 'Everlong')).toBe(YTM);
-	});
-
-	it('returns null (no throw) and caches nothing when BOTH tiers miss — never touches iTunes/CN', async () => {
-		mockSearch();
-		const itunesSpy = vi.spyOn(itunes, 'itunesSongCover');
-		const deezerSpy = vi.spyOn(deezer, 'deezerSongCover').mockResolvedValue(null);
-		const t = mk('kuwo', 'miss', { artist: 'A', title: 'B' });
+	it('NEVER offers the YTM tier — a YTM-only cover yields null, not a 120px avatar', async () => {
+		// The "never replace a larger cover with a smaller one" guard. YTM HAS a cover here and the
+		// upgrade still returns null: its pixel size is not knowable from the URL contract, and the
+		// tier it would displace is 500-1000px album art already painted from the inline source
+		// cover. Observed live before this change: lastfm-300 → yt3-120 → lastfm-300, with the 120px
+		// URL written into the SHARED name cache layer.
+		const searchSpy = mockSearch({
+			ytm: [mk('ytmusic', 'y', { cover: 'https://yt3.googleusercontent.com/AV=w120-h120-s-l90-rj' })]
+		});
+		vi.spyOn(itunes, 'itunesSongCover').mockResolvedValue(null);
+		vi.spyOn(deezer, 'deezerSongCover').mockResolvedValue(null);
+		const t = mk('kuwo', 'ytm-only', { artist: 'A', title: 'B' });
 
 		await expect(resolveHqCover(t)).resolves.toBeNull();
-		expect(deezerSpy).toHaveBeenCalledTimes(1);
-		expect(itunesSpy).not.toHaveBeenCalled();
+		expect(searchSpy).not.toHaveBeenCalled();
+		expect(ytmCalls()).toHaveLength(0);
 		expect(cnCalls()).toHaveLength(0);
 		expect(getCachedCover('A', 'B')).toBeNull();
 	});
 
-	it('treats a non-https result from either tier as a miss (isSolidCover) — returns null, caches nothing', async () => {
-		mockSearch({ ytm: [mk('ytmusic', 'y', { cover: 'http://insecure.example/ytm.jpg' })] });
+	it('writes BOTH cache layers on a SOLID hit (real uid → uid layer + name layer)', async () => {
+		mockSearch();
+		vi.spyOn(itunes, 'itunesSongCover').mockResolvedValue(IT);
+		const t = mk('kuwo', '12345', { artist: 'Drake', title: 'Hotline Bling' });
+		await resolveHqCover(t);
+		expect(getCachedCoverByUid('kuwo:12345')).toBe(IT);
+		expect(getCachedCover('Drake', 'Hotline Bling')).toBe(IT);
+	});
+
+	it('writes ONLY the name layer for an empty-uid stub (charts-tags-same-cover guard)', async () => {
+		mockSearch();
+		vi.spyOn(itunes, 'itunesSongCover').mockResolvedValue(IT);
+		const stub = mk('netease', 'ignored', { uid: '', artist: 'Foo Fighters', title: 'Everlong' });
+		await resolveHqCover(stub);
+		expect(getCachedCoverByUid('')).toBeNull(); // shared 'uid:' slot never written for an empty uid
+		expect(getCachedCover('Foo Fighters', 'Everlong')).toBe(IT);
+	});
+
+	it('returns null (no throw) and caches nothing when BOTH tiers miss — never any searchAll', async () => {
+		const searchSpy = mockSearch();
+		const itunesSpy = vi.spyOn(itunes, 'itunesSongCover').mockResolvedValue(null);
+		const deezerSpy = vi.spyOn(deezer, 'deezerSongCover').mockResolvedValue(null);
+		const t = mk('kuwo', 'miss', { artist: 'A', title: 'B' });
+
+		await expect(resolveHqCover(t)).resolves.toBeNull();
+		expect(itunesSpy).toHaveBeenCalledTimes(1);
+		expect(deezerSpy).toHaveBeenCalledTimes(1);
+		expect(searchSpy).not.toHaveBeenCalled();
+		expect(getCachedCover('A', 'B')).toBeNull();
+	});
+
+	it('treats a non-https result from either tier as a miss (https guard) — returns null, caches nothing', async () => {
+		mockSearch();
+		vi.spyOn(itunes, 'itunesSongCover').mockResolvedValue('http://insecure.example/it.jpg');
 		vi.spyOn(deezer, 'deezerSongCover').mockResolvedValue('http://insecure.example/x.jpg');
 		const t = mk('kuwo', 'ins', { artist: 'A', title: 'B' });
 		await expect(resolveHqCover(t)).resolves.toBeNull();
@@ -598,21 +643,23 @@ describe('resolveHqCover — YTM → Deezer HQ upgrade (Plan 26-02 COVER-01; qui
 	});
 
 	it('never throws when a tier throws (per-tier never-throw) — returns null', async () => {
-		vi.spyOn(catalog, 'searchAll').mockRejectedValue(new Error('ytmusic down'));
+		vi.spyOn(itunes, 'itunesSongCover').mockRejectedValue(new Error('itunes down'));
 		vi.spyOn(deezer, 'deezerSongCover').mockRejectedValue(new Error('deezer down'));
 		const t = mk('kuwo', 'throw', { artist: 'A', title: 'B' });
 		await expect(resolveHqCover(t)).resolves.toBeNull();
 	});
 
 	it('returns null immediately when the signal is already aborted (issues NO call at all)', async () => {
-		const searchSpy = mockSearch({ ytm: [mk('ytmusic', 'y', { cover: YTM })] });
+		const searchSpy = mockSearch();
+		const itunesSpy = vi.spyOn(itunes, 'itunesSongCover').mockResolvedValue(IT);
 		const deezerSpy = vi.spyOn(deezer, 'deezerSongCover');
 		const t = mk('kuwo', 'abort', { artist: 'A', title: 'B' });
 		const ac = new AbortController();
 		ac.abort();
 		await expect(resolveHqCover(t, ac.signal)).resolves.toBeNull();
-		expect(searchSpy).not.toHaveBeenCalled();
+		expect(itunesSpy).not.toHaveBeenCalled();
 		expect(deezerSpy).not.toHaveBeenCalled();
+		expect(searchSpy).not.toHaveBeenCalled();
 	});
 });
 
@@ -620,17 +667,21 @@ describe('resolveHqCover — YTM → Deezer HQ upgrade (Plan 26-02 COVER-01; qui
 // measured the Deezer+iTunes tiers + a 7-source CN searchAll per COVERLESS tile as a large share of a
 // play's /api calls; kuwo returns a usable cover inline on 38/38, so ~all plays need zero cover network
 // work. These tests pin the two paths at the SERVICE seam the player drives:
-//   - INLINE-COVER hot path → the bounded resolveHqCover UPGRADE: 0 iTunes + 0 CN + ≤2 calls total.
-//   - COVERLESS miss path   → resolveCoverForTrack still fans the full YTM → iTunes → Deezer → CN chain.
+//   - INLINE-COVER hot path → the bounded resolveHqCover UPGRADE: 0 searchAll + ≤2 calls total.
+//   - COVERLESS miss path   → resolveCoverForTrack still fans the full iTunes → Deezer → CN → YTM chain.
 // They are regression guards for behavior already landed in Tasks 1–2 (so they are GREEN on first run
 // by design — the hot path never fans out, the miss path still recovers).
 describe('click-to-play cover fan-out proof (Plan 26-02, T-26-02-01)', () => {
-	it('INLINE-COVER hot path (resolveHqCover): 0 iTunes + 0 CN searchAll + at most 2 upgrade calls', async () => {
-		mockSearch({ ytm: [mk('ytmusic', 'y', { cover: 'https://lh3.googleusercontent.com/hq.jpg' })] });
+	it('INLINE-COVER hot path (resolveHqCover): 0 searchAll (no CN, no YTM) + at most 2 upgrade calls', async () => {
+		const searchSpy = mockSearch({
+			ytm: [mk('ytmusic', 'y', { cover: 'https://lh3.googleusercontent.com/hq.jpg' })]
+		});
 		const deezerSpy = vi
 			.spyOn(deezer, 'deezerSongCover')
 			.mockResolvedValue('https://cdn-images.dzcdn.net/hq.jpg');
-		const itunesSpy = vi.spyOn(itunes, 'itunesSongCover');
+		const itunesSpy = vi
+			.spyOn(itunes, 'itunesSongCover')
+			.mockResolvedValue('https://is1-ssl.mzstatic.com/hq.jpg');
 		// A resolved track that ALREADY carries a SOLID inline source cover (kuwo pic) — the player
 		// painted it synchronously and fires ONLY the optional HQ upgrade for it.
 		const inline = mk('kuwo', 'inline', {
@@ -641,17 +692,20 @@ describe('click-to-play cover fan-out proof (Plan 26-02, T-26-02-01)', () => {
 
 		await resolveHqCover(inline);
 
-		expect(itunesSpy).not.toHaveBeenCalled(); // ZERO iTunes on the hot path
-		expect(cnCalls()).toHaveLength(0); // ZERO CN searchAll on the hot path (T-26-02-01)
-		// quick-260919-0mw: the ladder is YTM then Deezer-on-miss — never more than 2 calls, and a
-		// YTM hit (this case) short-circuits to 1.
-		expect(ytmCalls().length + deezerSpy.mock.calls.length).toBeLessThanOrEqual(2);
+		// quick-260920-nyq: ZERO searchAll on the hot path — neither the CN fan-out (T-26-02-01) nor
+		// the YTM tier, which the upgrade no longer offers at all.
+		expect(searchSpy).not.toHaveBeenCalled();
+		expect(cnCalls()).toHaveLength(0);
+		expect(ytmCalls()).toHaveLength(0);
+		// The ladder is iTunes then Deezer-on-miss — never more than 2 calls, and an iTunes hit
+		// (this case) short-circuits to 1.
+		expect(itunesSpy.mock.calls.length + deezerSpy.mock.calls.length).toBeLessThanOrEqual(2);
 		expect(deezerSpy).not.toHaveBeenCalled();
 	});
 
-	it('COVERLESS miss path (resolveCoverForTrack): still fans through YTM → iTunes → Deezer → CN', async () => {
-		const cnHit = mk('netease', 'cn', { cover: 'https://cn.example/cn.jpg' });
-		mockSearch({ cn: [cnHit] });
+	it('COVERLESS miss path (resolveCoverForTrack): still fans through iTunes → Deezer → CN → YTM', async () => {
+		const ytmHit = mk('ytmusic', 'y', { cover: 'https://lh3.googleusercontent.com/last.jpg' });
+		mockSearch({ ytm: [ytmHit] }); // CN misses, YTM (tier 4) is the only hit
 		const itunesSpy = vi.spyOn(itunes, 'itunesSongCover').mockResolvedValue(null);
 		const deezerSpy = vi.spyOn(deezer, 'deezerSongCover').mockResolvedValue(null);
 		// A genuinely coverless source (joox/fivesing) — no inline cover, so the full chain must run.
@@ -659,11 +713,11 @@ describe('click-to-play cover fan-out proof (Plan 26-02, T-26-02-01)', () => {
 
 		const out = await resolveCoverForTrack(coverless);
 
-		expect(ytmCalls()).toHaveLength(1); // tier 1
-		expect(itunesSpy).toHaveBeenCalled(); // tier 2 (YTM missed)
-		expect(deezerSpy).toHaveBeenCalled(); // tier 3 (YTM + iTunes missed)
-		expect(cnCalls()).toHaveLength(1); // tier 4 (all three missed)
-		expect(out).toBe('https://cn.example/cn.jpg');
+		expect(itunesSpy).toHaveBeenCalled(); // tier 1
+		expect(deezerSpy).toHaveBeenCalled(); // tier 2 (iTunes missed)
+		expect(cnCalls()).toHaveLength(1); // tier 3 (iTunes + Deezer missed)
+		expect(ytmCalls()).toHaveLength(1); // tier 4 — the last resort, reached only on a triple miss
+		expect(out).toBe('https://lh3.googleusercontent.com/last.jpg');
 	});
 });
 
@@ -677,8 +731,8 @@ describe('collectCoverCandidates (quick-260915-w4f)', () => {
 		cover: 'https://own/c.jpg'
 	});
 
-	it('orders own → ytmusic → itunes → deezer → CN, https-only, deduped by url, labelled by source', async () => {
-		// quick-260919-0mw: the grid order mirrors resolveTrackChain's tier ranking.
+	it('orders own → itunes → deezer → CN → ytmusic, https-only, deduped by url, labelled by source', async () => {
+		// quick-260920-nyq: the grid order mirrors resolveTrackChain's tier ranking — so YTM LAST.
 		vi.spyOn(deezer, 'deezerSearchTopN').mockResolvedValue([
 			{ id: '1', title: 'Hello', artist: 'Adele', album: '25', cover: 'https://dz/1.jpg', preview: null },
 			{ id: '2', title: 'Hello', artist: 'Adele', album: '25', cover: null, preview: null }
@@ -697,10 +751,10 @@ describe('collectCoverCandidates (quick-260915-w4f)', () => {
 
 		expect(out).toEqual([
 			{ url: 'https://own/c.jpg', source: 'qq' },
-			{ url: 'https://ytm/1.jpg', source: 'ytmusic' },
 			{ url: 'https://it/1.jpg', source: 'itunes' },
 			{ url: 'https://dz/1.jpg', source: 'deezer' },
-			{ url: 'https://k/1.jpg', source: 'kuwo' }
+			{ url: 'https://k/1.jpg', source: 'kuwo' },
+			{ url: 'https://ytm/1.jpg', source: 'ytmusic' }
 		]);
 		// The null Deezer cover, the http qq cover and the duplicate netease URL are all gone.
 		expect(out.every((c) => c.url.startsWith('https:'))).toBe(true);
@@ -731,14 +785,54 @@ describe('collectCoverCandidates (quick-260915-w4f)', () => {
 		expect(searchSpy).not.toHaveBeenCalled();
 	});
 
-	it('caps the grid at 12 candidates (the CN interleaved list can be dozens)', async () => {
+	it('caps the grid at 12 candidates overall (PER_TIER_CAP alone can still offer 14)', async () => {
+		// own(1) + iTunes(1) + Deezer(4 of 5) + CN(4 of 30) + YTM(4 of 30) = 14 → trimmed to 12.
+		vi.spyOn(deezer, 'deezerSearchTopN').mockResolvedValue(
+			Array.from({ length: 5 }, (_, i) => ({
+				id: String(i),
+				title: 'x',
+				artist: 'y',
+				album: '',
+				cover: `https://dz/${i}.jpg`,
+				preview: null
+			}))
+		);
+		vi.spyOn(itunes, 'itunesSongCover').mockResolvedValue('https://it/1.jpg');
+		mockSearch({
+			cn: Array.from({ length: 30 }, (_, i) => mk('kuwo', `k${i}`, { cover: `https://k/${i}.jpg` })),
+			ytm: Array.from({ length: 30 }, (_, i) =>
+				mk('ytmusic', `y${i}`, { cover: `https://ytm/${i}.jpg` })
+			)
+		});
+		const out = await collectCoverCandidates(mk('kuwo', 'seed', { cover: 'https://own/s.jpg' }));
+		expect(out).toHaveLength(12);
+	});
+
+	it('quick-260920-nyq: caps EVERY network tier at PER_TIER_CAP (4) and keeps ytmusic last', async () => {
+		// The picker regression this fixes: a live check showed 12 of 12 tiles from ytmusic (and
+		// 11 of 12 on another track), so whatever the user picked was almost certainly a
+		// Google-hosted URL. A capped, mixed grid is the whole point of offering a choice.
 		vi.spyOn(deezer, 'deezerSearchTopN').mockResolvedValue([]);
 		vi.spyOn(itunes, 'itunesSongCover').mockResolvedValue(null);
 		mockSearch({
-			cn: Array.from({ length: 30 }, (_, i) => mk('kuwo', `k${i}`, { cover: `https://k/${i}.jpg` }))
+			ytm: Array.from({ length: 12 }, (_, i) =>
+				mk('ytmusic', `y${i}`, { cover: `https://ytm/${i}.jpg` })
+			),
+			cn: [
+				mk('kuwo', 'k1', { cover: 'https://k/1.jpg' }),
+				mk('qq', 'q1', { cover: 'https://q/1.jpg' }),
+				mk('netease', 'n1', { cover: 'https://n/1.jpg' })
+			]
 		});
+
 		const out = await collectCoverCandidates(mk('kuwo', 'seed', { cover: null }));
-		expect(out).toHaveLength(12);
+
+		const ytmTiles = out.filter((c) => c.source === 'ytmusic');
+		const cnTiles = out.filter((c) => c.source !== 'ytmusic');
+		expect(ytmTiles).toHaveLength(4); // 12 hits, capped to 4
+		expect(cnTiles.map((c) => c.source)).toEqual(['kuwo', 'qq', 'netease']); // all 3 survive
+		// Every CN tile precedes every ytmusic tile.
+		expect(out.findIndex((c) => c.source === 'ytmusic')).toBe(cnTiles.length);
 	});
 
 	it('does NOT write the cover cache (enumerating candidates is not a resolve)', async () => {
@@ -767,6 +861,10 @@ describe('resolveShareCover — share-card carrier chain (quick-260920-l82)', ()
 		expect(deezerSpy).not.toHaveBeenCalled();
 		// YTM and CN are excluded BY CONSTRUCTION — neither host is in coverToken's closed grammar
 		// (YTM) or on any /api/og allow-list (CN), so no searchAll is issued at all.
+		// quick-260920-nyq: the nyq reorder must never reach this chain — no CN, no YTM searchAll.
+		// The iTunes → Deezer subset now matching the display chain's HEAD is coincidence, not
+		// coupling: reordering the display chain silently killed share-card art once already.
+		expect(catalog.searchAll).not.toHaveBeenCalled();
 		expect(ytmCalls()).toHaveLength(0);
 		expect(cnCalls()).toHaveLength(0);
 	});
