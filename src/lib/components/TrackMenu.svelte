@@ -1,18 +1,3 @@
-<script module lang="ts">
-	// quick-260920-kn4 — SESSION MEMO for the share-card iTunes fallback: track.uid → mzstatic URL.
-	//
-	// MODULE scope, not instance scope: every list page mounts its OWN <TrackMenu>, so an instance
-	// field would re-issue the same iTunes GET each time the user crosses pages. The retained
-	// `itunes:<artworkKey>` ID family already persists 14 days in the cover cache, but the mzstatic
-	// URL that KEYS it is stored nowhere the UI is allowed to read (see the effect below — writing it
-	// into the shared cover cache would change the art every row renders), so the URL itself is
-	// memoised here for the session.
-	//
-	// HITS ONLY. A miss or an abort is never memoised, so a transient iTunes failure does not stick
-	// for the rest of the session (CLAUDE.md: never cache a failure).
-	const shareItunesMemo = new Map<string, string>();
-</script>
-
 <script lang="ts">
 	import { tick, untrack } from 'svelte';
 	import { fly } from 'svelte/transition';
@@ -77,14 +62,17 @@
 	import { readCoverByUidOrName, readPinnedCover, pinCover } from '$lib/stores/cover-version.svelte';
 	// quick-260915-w4f: the ENUMERATE-ALL cover collector. Imported for the picker only — it runs
 	// alongside resolveTrackChain, never inside it, and fires ONLY on the Change-cover tap (Q1).
-	import { collectCoverCandidates, type CoverCandidate } from '$lib/services/cover-backfill';
+	// quick-260920-l82: the share-card carrier chain now lives beside the display chain in
+	// cover-backfill.ts — this component no longer calls a cover tier directly (CLAUDE.md "Shared
+	// Primitives — import these, never re-inline them"). `resolveShareCover` also owns the session memo.
+	import { collectCoverCandidates, resolveShareCover, type CoverCandidate } from '$lib/services/cover-backfill';
 	// quick-260919-1we: the lyrics picker's ENUMERATE-ALL collector + the pin read/write pair. Same
 	// posture as the cover picker one line up — the parallel walk fires ONLY on the Fix-lyrics tap
 	// (T-1we-03), never on menu open. `readLyrics` is D-4's single read (pin → track.lrc → null).
 	import { readLyrics, pinLyrics, unpinLyrics } from '$lib/stores/lyric-pins.svelte';
 	import { parseLyrics } from '$lib/stores/lyric-script.svelte';
 	import { combinedSignal } from '$lib/services/abort-signal';
-	import { recallItunesId, itunesSongCover } from '$lib/services/itunes-cover';
+	import { recallItunesId } from '$lib/services/itunes-cover';
 	import { isDeviceUid } from '$lib/services/device-track';
 	import { excludeUid } from '$lib/services/import-exclusions';
 	import type { Track } from '$lib/sources/types';
@@ -198,9 +186,12 @@
 	// over (the same reason iTunes is carried by ID, not by path). It would also WIDEN the set of
 	// hosts /api/og fetches, which T-3uo-02 forbids.
 	//
-	// SO: while the menu is open, PREWARM the iTunes cover for the same song. `itunesSongCover →
-	// fetchTopArtwork → rememberItunesId` retains the numeric id against that URL, so `recallItunesId`
-	// in doShare yields it and `coverToken` emits `i:<id>`. It is a PREWARM and not an await in
+	// SO: while the menu is open, PREWARM a carriable cover for the same song via `resolveShareCover`
+	// (cover-backfill.ts — iTunes, then Deezer on a miss). Its iTunes tier runs `fetchTopArtwork →
+	// rememberItunesId`, which retains the numeric id against that URL, so `recallItunesId` in doShare
+	// yields it and `coverToken` emits `i:<id>`. quick-260920-l82: the DEEZER tier is new and closes
+	// kn4's residual gap — a song iTunes does not carry now yields `d:<32hex>` rather than the branded
+	// card. It is a PREWARM and not an await in
 	// doShare because navigator.share() must run synchronously inside the user gesture on iOS Safari.
 	let shareCoverFallback = $state<string | null>(null);
 	$effect(() => {
@@ -213,41 +204,37 @@
 		}
 		// NEVER override a working carrier: if the cover the user is looking at already tokenizes
 		// (Deezer / Last.fm / kuwo / iTunes-with-id), the link is byte-identical to before and no
-		// iTunes request is made. recallItunesId is a sync localStorage read, not reactive.
+		// request is made at all. recallItunesId is a sync localStorage read, not reactive.
 		if (coverToken(cover, recallItunesId(cover)) !== null) {
 			shareCoverFallback = null;
 			return;
 		}
-		const hit = shareItunesMemo.get(target.uid);
-		if (hit) {
-			shareCoverFallback = hit;
-			return;
-		}
+		// quick-260920-l82: no memo branch here any more — memoisation lives inside resolveShareCover.
+		// A memo hit therefore lands one microtask later instead of synchronously; doShare reads
+		// `shareCoverFallback` on a later user tap, so the ordering is unaffected.
 		const ac = new AbortController();
-		// RAW target.artist / target.title, NOT the display-language names.dn* strings — same rule as
-		// activeCover's cache lookup above: the iTunes term must be the catalog metadata.
+		// The whole `target` Track is passed, so the RAW target.artist / target.title travel inside it,
+		// NOT the display-language names.dn* strings — same rule as activeCover's cache lookup above:
+		// the iTunes/Deezer search term must be the catalog metadata.
 		// combinedSignal is the shared primitive (never hand-roll a second timeout); 8 s is the
 		// ceiling because this is a background nicety behind a menu the user may close at any moment —
 		// long enough for a slow mobile round-trip, short enough that a hung request cannot outlive
 		// the session's interest in it.
-		// untrack for the same reason the sibling effects give: itunesSongCover reads the cover cache
-		// internally and those reads would otherwise re-invalidate this effect (the restore-effect
+		// untrack for the same reason the sibling effects give: resolveShareCover's iTunes tier reads
+		// and writes the `itunes:` id family of the cover cache and Deezer's ttl-cache reads
+		// localStorage — those reads would otherwise re-invalidate this effect (the restore-effect
 		// self-invalidation loop).
-		untrack(() => itunesSongCover(target.artist, target.title, combinedSignal(8_000, ac.signal))).then(
-			(url) => {
-				// Drop a late result for a song the user has already navigated past — exactly like the
-				// localProbe effect below. No stale cover is ever carried for the wrong song.
-				if (ac.signal.aborted || track?.uid !== target.uid) return;
-				if (url) {
-					shareItunesMemo.set(target.uid, url);
-					shareCoverFallback = url;
-				}
-			}
-		);
-		// 🔴 DO NOT call writeCoverBoth / any cover-cache writer here. The ask was about the SHARE CARD
-		// only. `activeCover` reads readCoverByUidOrName, so writing the iTunes URL under the uid/name
-		// key would flip the art the app DISPLAYS from the YTM cover to the iTunes cover on every list
-		// row and on the hero. The fallback lives in this $state + the module memo, nowhere else.
+		untrack(() => resolveShareCover(target, combinedSignal(8_000, ac.signal))).then((url) => {
+			// Drop a late result for a song the user has already navigated past — exactly like the
+			// localProbe effect below. No stale cover is ever carried for the wrong song.
+			if (ac.signal.aborted || track?.uid !== target.uid) return;
+			if (url) shareCoverFallback = url;
+		});
+		// 🔴 The no-cache-write prohibition now lives with the chain: resolveShareCover writes NEITHER
+		// cover-cache layer, pinned by its "NO cover-cache write on a hit" test in cover-backfill.test.ts.
+		// This component must still never call writeCoverBoth here — `activeCover` reads
+		// readCoverByUidOrName, so a write would flip the art the app DISPLAYS on every list row and
+		// on the hero. The fallback lives in this $state and the service-level memo, nowhere else.
 		return () => ac.abort();
 	});
 
@@ -812,7 +799,7 @@
 		// null. Effects flush after this synchronous handler in Svelte 5, so today the order is
 		// already safe — reading first makes it correct regardless of flush timing.
 		//
-		// The fallback is the iTunes prewarm result, used ONLY when the displayed cover could not be
+		// The fallback is the resolveShareCover prewarm result (iTunes, else Deezer), used ONLY when the displayed cover could not be
 		// tokenized (see the effect above for why YTM hosts cannot be). It never overrides a working
 		// carrier, so links for Deezer/Last.fm/kuwo/iTunes covers are unchanged.
 		const shareCover = shareCoverFallback ?? activeCover;
