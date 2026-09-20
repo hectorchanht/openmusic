@@ -354,6 +354,11 @@ class Player {
 	private pendingKey = '';
 	/** Monotonic generation: a newer playStub bumps it so a stale resolve's result is discarded. */
 	private pendingGen = 0;
+	/** Monotonic generation for armTrack (38-D-05) supersedence — a newer arm, or any user play(),
+	 *  discards an in-flight arm's result. Deliberately NOT pendingGen: playStub owns that counter, and
+	 *  a shared one would make an arrival cancel an in-flight tap's overlay bookkeeping. Plain field —
+	 *  no $state, it is an internal supersedence guard the UI never reads (house convention). */
+	private armGen = 0;
 
 	/**
 	 * The ONE cover field every now-playing surface reads (COVER-01 / D-09). Set SYNCHRONOUSLY on
@@ -650,6 +655,131 @@ class Player {
 			/* re-resolve failed — track stays in `current`, user can tap play to retry */
 		} finally {
 			this.loading = false;
+		}
+	}
+
+	/**
+	 * 38-D-05 — seat a track RESOLVED + ARMED + PAUSED: one tap from sound. This is the same shape
+	 * `restore()` builds for a PWA reopen (splice → cover seed chain → syncMetadata → offline-first
+	 * resolve → direct `audio.src`), MINUS everything persistence-specific: no localStorage read, no
+	 * queue/shuffle/repeat install, no `upNextAnchorUid` re-anchor, no `pendingSeek` (a shared song
+	 * always starts at 0). `restore()` is deliberately left at a ZERO diff — four of its eighteen
+	 * steps are persistence-only and two are actively WRONG here, and it is the freeze-sensitive boot
+	 * path pinned by its own tests. A new method beats a boolean threaded through it.
+	 *
+	 * 🔴 It NEVER calls play(). 38-D-06: a share-link navigation is not an in-page gesture, so mobile
+	 * autoplay policy would reject the play anyway, and `quick-260809-38i` removed arrival autoplay
+	 * deliberately. 38-D-29 is why this exists as its own method rather than riding `spliceAndPlay`:
+	 * `playNext` AUTOPLAYS when the queue is empty, and a first-time visitor (nothing persisted →
+	 * `restore()` returns early → `current` is null) is exactly that case.
+	 *
+	 * 38-D-02: the shared song lands right after the OLD current via the shared `spliceAfterCurrent`,
+	 * so whatever the recipient had queued survives in order. It is NOT added to `manualUids` — same
+	 * pin:false reasoning as `spliceAndPlay`: an arrival carries no intent to keep the song across a
+	 * later queue reset.
+	 *
+	 * 38-D-04: the armed seat is persisted, so a reload / PWA reopen brings the SHARED song back
+	 * armed rather than the previous one. No new storage key — it rides the existing blob.
+	 *
+	 * Returns the resolved Track when `audio.src` was armed; null when the resolve produced no
+	 * playable src (a dead or wrong carrier — the caller falls back to the name resolve, 38-D-10) or
+	 * when a newer arm / a user `play()` superseded the call.
+	 */
+	async armTrack(track: Track): Promise<Track | null> {
+		if (!browser) return null;
+		const gen = ++this.armGen;
+		const playGenAtStart = this.playGen;
+		logAction('armTrack', { uid: track.uid, source: track.source });
+		// 38-D-29: the splice primitive DIRECTLY, never via playNext/spliceAndPlay — playNext plays
+		// the track itself when the queue is empty, which is the autoplay this method exists to avoid.
+		this.spliceAfterCurrent(track);
+		this.current = track;
+		// Seed the ONE cover field before any await (mirrors restore()/play(): pinned → track cover →
+		// uid cache → name cache) so the hero/nowbar paint a known cover immediately, THEN write the
+		// media metadata so the OS card has title/artist the moment the user taps play —
+		// cover-hero-mediacard-missing, and quick-260915-w4f for why the pin leads the chain.
+		this.resolvedCover =
+			getPinnedCover(track.uid) ??
+			track.cover ??
+			getCachedCoverByUid(track.uid) ??
+			getCachedCover(track.artist, track.title) ??
+			null;
+		this.syncMetadata();
+		this.loading = true;
+		this.persist();
+		// Set when a newer arm or a user play() lands mid-resolve. playStub's discipline: the newer
+		// call owns `current`/`loading` from that moment, so the `finally` must not clear them.
+		let superseded = false;
+		try {
+			// Offline-first, exactly as restore(): a recipient who already downloaded this song gets
+			// the blob and never touches the network.
+			let resolved: Track = track;
+			let offlineBlob: Blob | null = null;
+			if (library.isDownloaded(track.uid)) {
+				offlineBlob = await blobStore.get(track.uid).catch(() => null);
+				if (gen !== this.armGen || playGenAtStart !== this.playGen) {
+					superseded = true;
+					return null;
+				}
+			}
+			if (!offlineBlob) {
+				resolved = await ensureTrackDetails(track);
+				if (gen !== this.armGen || playGenAtStart !== this.playGen) {
+					superseded = true;
+					return null;
+				}
+				this.current = resolved;
+				const i = this.indexOf(track);
+				if (i >= 0) this.queue[i] = resolved;
+				// 31-D-08: an edge-cache hit resolved a url with no lyrics — fill the pane out of band
+				// so an armed arrival is never worse than a cold play.
+				if (resolved.lrcUnresolved && !resolved.lrc) this.backfillLyrics(resolved);
+			} else {
+				const localTrack: Track = { ...track, detailsLoaded: true };
+				this.current = localTrack;
+				resolved = localTrack;
+				void this.enrichFromLocalFile(localTrack, offlineBlob, this.playGen);
+			}
+			if (!this.audio) return resolved;
+			if (this.cachedBlobUrl) {
+				URL.revokeObjectURL(this.cachedBlobUrl);
+				this.cachedBlobUrl = null;
+			}
+			let src: string;
+			if (offlineBlob) {
+				this.cachedBlobUrl = URL.createObjectURL(offlineBlob);
+				src = this.cachedBlobUrl;
+			} else if (resolved.audioUrl) {
+				src = resolved.audioUrl;
+			} else {
+				// 38-D-10: a dead / wrong / unresolvable carrier must not leave a dead row in the
+				// RECIPIENT's queue — the arrival module immediately re-arms by name over this seat.
+				// `current` stays seated on restore()'s precedent ("user can tap play to retry").
+				this.queue = this.queue.filter((x) => x.uid !== track.uid);
+				this.persist();
+				return null;
+			}
+			const audio = this.audio;
+			// 31-D-12: record provenance for the audio.error handler. Like restore(), this is a DIRECT
+			// assign, deliberately NOT routed through driveSrc — it is a one-shot INITIAL arm, not a
+			// recovery re-attach, and routing it would newly subject a share arrival to the re-drive
+			// brake (nowbar-freeze-reresolve-loop) in the freeze-sensitive core.
+			this.lastSrcKind = offlineBlob ? 'download-blob' : 'url';
+			audio.src = src;
+			// 38-D-14: warm-up stops HERE, at the src assign. No forced element reload, no preload
+			// bump, no blob pre-buffer (that shape caused api-fetch-flood-freeze) and no deferred seek
+			// slot — a shared song always starts at 0, unlike a restored one. The browser's own default
+			// metadata peek is all the head start this needs.
+			this.persist();
+			return resolved;
+		} catch {
+			// Resolve failed — same 38-D-10 outcome as an empty url: drop the dead row, keep the seat,
+			// hand the fallback back to the caller. Never throws.
+			this.queue = this.queue.filter((x) => x.uid !== track.uid);
+			this.persist();
+			return null;
+		} finally {
+			if (!superseded) this.loading = false;
 		}
 	}
 
