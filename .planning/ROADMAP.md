@@ -481,3 +481,16 @@ Plans:
 - [x] 37-02-PLAN.md — `local-tags.ts` memoised embedded read + `player.svelte.ts` blob-branch fall-through, tag-gated fallbacks, device lyric-by-name (wave 2)
 - [x] 37-03-PLAN.md — Player-suite enrichment tests incl. the 34-D-01 regression + full `pnpm test`/`pnpm check` gate + static audit (wave 3)
 - [ ] 37-04-PLAN.md — Debug APK + on-device UAT for the two `[UNVERIFIED-SANDBOX]` items (real MediaStore FrontCover; `data:` lock-screen artwork) (wave 4, human)
+
+### Phase 38: Share links that play instantly and open in the app
+
+**Goal:** A shared song link is instant and native. Two halves:
+(A) **Prefetch the stream on the share landing page.** Opening a share link (`/song/<artist>/<title>?play=<token>`) currently lands on a page where the first tap still pays the full cold-resolve gap (~2.7s upstream detail + device-to-CDN, see `cold-start-budget-measured`). The landing page should resolve the audio URL and warm the CDN while the recipient is still looking at the page, so tap -> sound is immediate. Must respect the generation guards in `player.svelte.ts`, must not re-introduce the prebuffer/fetch-flood freeze class (`api-fetch-flood-freeze` — route through the `apiFetch` governor, no eager blob pre-buffer), and must not autoplay (mobile autoplay policy).
+(B) **Open the link in the installed app.** Android App Links so a share link tapped on a device with the OpenMusic APK installed opens the app, not the browser. Today there is NO deep-link support at all: `android/app/src/main/AndroidManifest.xml` has only the MAIN/LAUNCHER intent-filter and no `assetlinks.json` exists. Needs: a `VIEW` intent-filter with `autoVerify` for `openmusic.lol`, `static/.well-known/assetlinks.json` carrying the debug AND release keystore SHA256 fingerprints (served from the Cloudflare Pages site), and a Capacitor `App.addListener('appUrlOpen')` handler that routes the incoming URL through `goto()` so the EXISTING share-token decode + play path in `share.ts` runs unchanged. Web behaviour must be byte-identical when the app is not installed.
+
+**Requirements**: TBD
+**Depends on:** Phase 37
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 38 to break down)
