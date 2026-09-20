@@ -1279,7 +1279,7 @@
 	.np.reflow .cover { width: auto; aspect-ratio: auto; height: 30vh; margin: 0 -18px; border-radius: 0; }
 	.np.reflow .cover::before { content: ''; position: absolute; inset: 0; border-radius: inherit; background: linear-gradient(180deg, rgba(0,0,0,0.45) 0%, rgba(0,0,0,0) 28%, rgba(0,0,0,0) 60%, rgba(0,0,0,0.35) 100%); }
 	.np.reflow .bar { position: absolute; top: 0; left: 18px; right: 18px; z-index: 2; }
-	.np.reflow .meta { position: relative; z-index: 2; margin-top: -42px; padding: 0 2px; }
+	.np.reflow .meta { position: relative; z-index: 2; margin-top: -2rem; padding: 0 2px; }
 	/* quick-260910-tqw FLUSH HALF REST: in half the sheet is a STATIC flex item that simply
 	   follows .np-top in normal flow — `position: absolute` was removed in f251ed0 ("way better
 	   dragging ux") — so the ONLY thing between transport.bottom and sheet.top is .transport's
