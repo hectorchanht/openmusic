@@ -134,6 +134,28 @@ export function __resetCoverMissCache(): void {
 	missAt.clear();
 }
 
+// ── SHARE-CARD COVER MEMO (quick-260920-kn4, relocated here by quick-260920-l82) ────────────────
+// SESSION MEMO for the share-card carrier chain: track.uid → the resolved https cover URL.
+//
+// MODULE scope, not instance scope: every list page mounts its OWN <TrackMenu>, so an instance
+// field would re-issue the same iTunes GET each time the user crosses pages. The retained
+// `itunes:<artworkKey>` ID family already persists 14 days in the cover cache, but the mzstatic
+// URL that KEYS it is stored nowhere the UI is allowed to read (see resolveShareCover — writing it
+// into the shared cover cache would change the art every row renders), so the URL itself is
+// memoised here for the session.
+//
+// quick-260920-l82: it moved out of TrackMenu's `<script module>` because a service module is the
+// natural cross-instance home — the memo belongs beside the chain it memoises, and every future
+// share surface gets it for free instead of re-declaring a second Map.
+//
+// HITS ONLY. A miss or an abort is never memoised, so a transient iTunes failure does not stick
+// for the rest of the session (CLAUDE.md: never cache a failure).
+const shareCoverMemo = new Map<string, string>();
+/** TEST-ONLY: clear the session-scoped share-cover memo so a hit cannot leak across tests. */
+export function __resetShareCoverMemo(): void {
+	shareCoverMemo.clear();
+}
+
 
 /**
  * Per-tier never-throw wrapper: a THROW in one tier falls through to the NEXT tier (returns null on
@@ -291,6 +313,67 @@ export async function resolveHqCover(
 		// Mirror resolveCoverForTrack's write posture: real-uid uid layer + always-safe name layer.
 		if (track.uid) setCachedCoverByUid(track.uid, cover);
 		setCachedCover(track.artist, track.title, cover);
+		return cover;
+	}
+	return null;
+}
+
+/**
+ * SHARE-CARD CARRIER chain (quick-260920-l82, generalises quick-260920-kn4) — the THIRD sibling of
+ * resolveCoverForTrack (miss-recovery: YTM → iTunes → Deezer → CN, WRITES the cache) and
+ * resolveHqCover (upgrade: YTM → Deezer, WRITES the cache). Same `tier()` never-throw wrapper and
+ * the same `hasHttpsScheme` guard (T-0bb-01) — this is NOT a new fetch ladder, only a different
+ * tier subset for a different question: "which cover can the share link actually CARRY?"
+ *
+ * WHY A DIFFERENT SUBSET. `coverToken` (share.ts) is a CLOSED grammar — `d:` Deezer, `l:` Last.fm,
+ * `k:` kuwo, `i:` iTunes-by-retained-id. YouTube Music (lh3.googleusercontent.com / i.ytimg.com) is
+ * EXCLUDED because it is not in that grammar: its artwork URLs are opaque irregular paths, and
+ * widening the host set /api/og fetches is forbidden by T-3uo-02. That exclusion is the whole reason
+ * this function exists — calling resolveTrackChain here would hand back the untokenizable YTM cover
+ * and regress the card to the branded OpenMusic fallback. CN is excluded too: netease/qq/joox hosts
+ * are on no /api/og allow-list, and a 7-source searchAll is far too expensive for a menu-open prewarm.
+ *
+ * WHY iTUNES FIRST: `itunesSongCover → fetchTopArtwork → rememberItunesId` retains the numeric id
+ * against that URL in the DISJOINT `itunes:` cache family, so `recallItunesId` yields it at share
+ * time and `coverToken` emits `i:<id>`. DEEZER SECOND is the quick-260920-l82 addition over kn4
+ * (which issued iTunes only): a song iTunes does not carry now yields `d:<32hex>` instead of the
+ * branded card. `deezerSongCover` returns `album.cover_*` only (`/images/cover/<32hex>/…` — artist
+ * pictures live on a separate field), so its output always tokenizes; Deezer's art-less placeholder
+ * has an empty md5, fails DZ_COVER_PATH and simply yields no carrier — the carrier is advisory and
+ * the card falls through to today's server chain.
+ *
+ * 🔴 THE ONE DIVERGENCE FROM ITS TWO SIBLINGS: this function MUST NOT write the uid or name layer of
+ * the cover cache (no setCachedCoverByUid / setCachedCover / writeCoverBoth), and must not touch the
+ * `missAt` negative cache (that one keys the DISPLAY chain by name and must not be poisoned by a
+ * share-only probe). `activeCover` in TrackMenu reads readCoverByUidOrName, so caching this URL would
+ * flip the art the app DISPLAYS — every list row and the hero — from the YTM cover to this one. The
+ * ask was about the share card ONLY. The result lives in the caller's `$state` and the session memo
+ * above, nowhere else. The `itunes:` id-family write inside itunesSongCover is fine: disjoint key
+ * family, no display surface reads it. Pinned by the "NO cover-cache write on a hit" unit test.
+ *
+ * COST: at most 2 requests per menu open, 0 on a memo hit, 0 when the displayed cover already
+ * tokenizes (the caller's guard). iTunes is a direct CORS-open GET; Deezer goes through the
+ * own-origin proxy and inherits the apiFetch governor. Never throws; honors an AbortSignal.
+ */
+export async function resolveShareCover(
+	track: Track,
+	signal?: AbortSignal
+): Promise<string | null> {
+	if (signal?.aborted) return null;
+	// HITS-ONLY memo, keyed by uid. An EMPTY uid is never memoised — that would collapse every
+	// distinct stub onto one slot (the same posture the siblings take with the uid cache layer).
+	if (track.uid) {
+		const hit = shareCoverMemo.get(track.uid);
+		if (hit) return hit;
+	}
+	let cover = await tier(() => itunesSongCover(track.artist ?? '', track.title ?? '', signal));
+	if (signal?.aborted) return null;
+	if (!cover) {
+		cover = await tier(() => deezerSongCover(track.artist ?? '', track.title ?? '', signal));
+		if (signal?.aborted) return null;
+	}
+	if (hasHttpsScheme(cover)) {
+		if (track.uid) shareCoverMemo.set(track.uid, cover);
 		return cover;
 	}
 	return null;

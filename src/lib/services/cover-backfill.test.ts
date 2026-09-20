@@ -4,9 +4,12 @@ import {
 	backfillArtistCovers,
 	resolveCoverForTrack,
 	resolveHqCover,
+	resolveShareCover,
 	collectCoverCandidates,
-	__resetCoverMissCache
+	__resetCoverMissCache,
+	__resetShareCoverMemo
 } from './cover-backfill';
+import { coverToken } from './share';
 import * as catalog from './catalog';
 import * as deezer from './deezer';
 import * as itunes from './itunes-cover';
@@ -94,6 +97,9 @@ beforeEach(() => {
 	// The negative-miss cache is module-scoped + session-lived — reset it so a miss recorded in one
 	// test can't skip the re-search another test expects (many tests reuse the same X/Y key).
 	__resetCoverMissCache();
+	// Same reasoning for the share-card memo: module-scoped + session-lived, so a hit recorded in one
+	// test would otherwise short-circuit the tier calls another test expects to observe.
+	__resetShareCoverMemo();
 	// quick-260919-0mw: tier 1 is now a `searchAll` walk, so EVERY chain test issues one even when it
 	// only cares about iTunes/Deezer. Default it to a miss so an unmocked test can never reach the
 	// real network; tests that pin a tier re-mock it with mockSearch().
@@ -744,5 +750,110 @@ describe('collectCoverCandidates (quick-260915-w4f)', () => {
 		await collectCoverCandidates(track);
 		expect(getCachedCover('Adele', 'Hello')).toBeNull();
 		expect(getCachedCoverByUid(track.uid)).toBeNull();
+	});
+});
+
+describe('resolveShareCover — share-card carrier chain (quick-260920-l82)', () => {
+	const ITUNES = 'https://is1-ssl.mzstatic.com/image/thumb/X/600x600bb.jpg';
+	const DZ = 'https://cdn-images.dzcdn.net/images/cover/fe1082c5ef54876802146897e76b592e/1000x1000-000000-80-0-0.jpg';
+
+	it('returns the iTunes cover and issues NO Deezer, NO YTM and NO CN searchAll', async () => {
+		const itunesSpy = vi.spyOn(itunes, 'itunesSongCover').mockResolvedValue(ITUNES);
+		const deezerSpy = vi.spyOn(deezer, 'deezerSongCover');
+		mockSearch({ ytm: [mk('ytmusic', 'y', { cover: 'https://lh3.googleusercontent.com/x.jpg' })] });
+
+		expect(await resolveShareCover(mk('kuwo', 's1', { artist: 'Drake', title: 'Hotline Bling' }))).toBe(ITUNES);
+		expect(itunesSpy).toHaveBeenCalledTimes(1);
+		expect(deezerSpy).not.toHaveBeenCalled();
+		// YTM and CN are excluded BY CONSTRUCTION — neither host is in coverToken's closed grammar
+		// (YTM) or on any /api/og allow-list (CN), so no searchAll is issued at all.
+		expect(ytmCalls()).toHaveLength(0);
+		expect(cnCalls()).toHaveLength(0);
+	});
+
+	it('falls back to Deezer on an iTunes miss, and that URL TOKENIZES (closes the kn4 residual gap)', async () => {
+		vi.spyOn(itunes, 'itunesSongCover').mockResolvedValue(null);
+		const deezerSpy = vi.spyOn(deezer, 'deezerSongCover').mockResolvedValue(DZ);
+
+		const out = await resolveShareCover(mk('kuwo', 's2', { artist: 'Drake', title: 'Hotline Bling' }));
+		expect(out).toBe(DZ);
+		expect(deezerSpy).toHaveBeenCalledWith('Drake', 'Hotline Bling', undefined);
+		// The point of the Deezer tier: its output is a carrier, so a song iTunes lacks gets a `d:`
+		// token on the share link instead of falling to the branded OpenMusic card.
+		expect(coverToken(out)).toBe('d:fe1082c5ef54876802146897e76b592e');
+	});
+
+	it('returns null (no throw) and caches nothing when both tiers miss', async () => {
+		vi.spyOn(itunes, 'itunesSongCover').mockResolvedValue(null);
+		vi.spyOn(deezer, 'deezerSongCover').mockResolvedValue(null);
+		const t = mk('kuwo', 's3', { artist: 'A', title: 'B' });
+		await expect(resolveShareCover(t)).resolves.toBeNull();
+		expect(getCachedCover('A', 'B')).toBeNull();
+	});
+
+	it('writes NEITHER cover-cache layer on a hit (the ONE divergence from its two siblings)', async () => {
+		// resolveCoverForTrack / resolveHqCover both WRITE the uid + name layers. This one must not:
+		// TrackMenu's activeCover reads readCoverByUidOrName, so a write here would flip the art the
+		// app DISPLAYS (every list row + the hero) from the YTM cover to this share-only probe result.
+		vi.spyOn(itunes, 'itunesSongCover').mockResolvedValue(ITUNES);
+		vi.spyOn(deezer, 'deezerSongCover').mockResolvedValue(null);
+		const t = mk('kuwo', 'share1', { artist: 'Drake', title: 'Hotline Bling' });
+		expect(await resolveShareCover(t)).toBe(ITUNES);
+		expect(getCachedCoverByUid('kuwo:share1')).toBeNull();
+		expect(getCachedCover('Drake', 'Hotline Bling')).toBeNull();
+	});
+
+	it('memoises a hit by uid — a second call for the same track issues zero tier calls', async () => {
+		const itunesSpy = vi.spyOn(itunes, 'itunesSongCover').mockResolvedValue(ITUNES);
+		vi.spyOn(deezer, 'deezerSongCover').mockResolvedValue(null);
+		const t = mk('kuwo', 's5', { artist: 'Drake', title: 'Hotline Bling' });
+		expect(await resolveShareCover(t)).toBe(ITUNES);
+		expect(await resolveShareCover(t)).toBe(ITUNES);
+		expect(itunesSpy).toHaveBeenCalledTimes(1);
+	});
+
+	it('memoises HITS ONLY — a miss retries on the next call (never cache a failure)', async () => {
+		const itunesSpy = vi.spyOn(itunes, 'itunesSongCover').mockResolvedValue(null);
+		vi.spyOn(deezer, 'deezerSongCover').mockResolvedValue(null);
+		const t = mk('kuwo', 's6', { artist: 'Drake', title: 'Hotline Bling' });
+		expect(await resolveShareCover(t)).toBeNull();
+		itunesSpy.mockResolvedValue(ITUNES);
+		expect(await resolveShareCover(t)).toBe(ITUNES);
+		expect(itunesSpy).toHaveBeenCalledTimes(2);
+	});
+
+	it('never throws when a tier throws — iTunes rejecting falls through to Deezer', async () => {
+		const itunesSpy = vi.spyOn(itunes, 'itunesSongCover').mockRejectedValue(new Error('itunes down'));
+		const deezerSpy = vi.spyOn(deezer, 'deezerSongCover').mockResolvedValue(DZ);
+		expect(await resolveShareCover(mk('kuwo', 's7', { artist: 'A', title: 'B' }))).toBe(DZ);
+
+		deezerSpy.mockRejectedValue(new Error('deezer down'));
+		itunesSpy.mockRejectedValue(new Error('itunes down'));
+		await expect(resolveShareCover(mk('kuwo', 's7b', { artist: 'A', title: 'B' }))).resolves.toBeNull();
+	});
+
+	it('treats a non-https iTunes result as a miss and falls through to Deezer', async () => {
+		vi.spyOn(itunes, 'itunesSongCover').mockResolvedValue('http://insecure.example/x.jpg');
+		vi.spyOn(deezer, 'deezerSongCover').mockResolvedValue(DZ);
+		expect(await resolveShareCover(mk('kuwo', 's8', { artist: 'A', title: 'B' }))).toBe(DZ);
+	});
+
+	it('returns null immediately when the signal is already aborted (issues NO call at all)', async () => {
+		const itunesSpy = vi.spyOn(itunes, 'itunesSongCover').mockResolvedValue(ITUNES);
+		const deezerSpy = vi.spyOn(deezer, 'deezerSongCover').mockResolvedValue(DZ);
+		const ac = new AbortController();
+		ac.abort();
+		await expect(resolveShareCover(mk('kuwo', 's9', { artist: 'A', title: 'B' }), ac.signal)).resolves.toBeNull();
+		expect(itunesSpy).not.toHaveBeenCalled();
+		expect(deezerSpy).not.toHaveBeenCalled();
+	});
+
+	it('never memoises an EMPTY uid — unrelated stubs cannot share one slot', async () => {
+		const itunesSpy = vi.spyOn(itunes, 'itunesSongCover').mockResolvedValue(ITUNES);
+		vi.spyOn(deezer, 'deezerSongCover').mockResolvedValue(null);
+		const stub = mk('netease', 'ignored', { uid: '', artist: 'Foo Fighters', title: 'Everlong' });
+		expect(await resolveShareCover(stub)).toBe(ITUNES);
+		expect(await resolveShareCover(stub)).toBe(ITUNES);
+		expect(itunesSpy).toHaveBeenCalledTimes(2);
 	});
 });
