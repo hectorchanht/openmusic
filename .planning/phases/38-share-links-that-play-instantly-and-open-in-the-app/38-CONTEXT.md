@@ -129,6 +129,25 @@ playing" therefore needs an explicit definition:
   re-sign and the release keystore fingerprint is the stable, only identity. `launchMode="singleTask"`
   is already set on MainActivity, which is what App Links needs.
 
+### Added during planning (post-research)
+
+- **D-27:** An in-flight resolve counts as **WARM**. The cold/warm test is
+  `player.playing || player.loading`, not `playing` alone. Rationale: a user with a resolve in
+  flight has already committed to listening; arming over them would silently kill the track they
+  just started. Both are existing `$state` fields. (Closes a gap in D-01 that research surfaced.)
+- **D-28:** No UI-SPEC for this phase (`--skip-ui`). D-17..D-20 already ARE the visual contract and
+  they are all "reuse what exists" — the only new pixel is the D-20 toast. The UI gate's keyword
+  match ("PageOg", "landing page") was incidental.
+- **D-29 (forced by research, not a user choice):** `playNext()` AUTOPLAYS when the queue is truly
+  empty (`player.svelte.ts:2640` — `if (!this.current) this.play(t)`). A first-time visitor with no
+  persisted blob hits exactly that path, so D-02's "one insert path for both arrivals" taken
+  literally would VIOLATE D-06 (no autoplay on cold arrival). The cold branch must arm explicitly
+  and must NOT route through `playNext`'s empty-queue fallback. D-06 wins — it is a mobile autoplay
+  policy constraint, not a preference.
+- **D-30:** Fix the stale source enum at `src/lib/services/share.ts:467` (missing `audius`,
+  `ytmusic`) as part of this phase. The new `?u=` carrier's source allowlist is a V5 input-validation
+  control (see RESEARCH § Security Domain) and it must not be built on a known-incomplete enum.
+
 ### Claude's Discretion
 - Exact toast wording and its translation key name.
 - The query-param letter for the uid carrier (`?u=` is a suggestion, not a lock).
