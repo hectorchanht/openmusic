@@ -221,8 +221,16 @@ export async function downloadTrack(
 		// RULE 2 — reading `player.current` / `player.resolvedCover` here is READ-ONLY and preserves the
 		// D-18 DOWNLOAD ISOLATION contract (no assignment, no gen bump, no <audio> touch). Do not "fix"
 		// it back out; the isolation test's throwing setters prove it stays a read.
+		//
+		// quick-260920-oj8 — closes the quick-260920-nyq deferred item. The playing-song rung was
+		// `player.resolvedCover`, the OLD precedence; nyq made the hero / Nowbar / OS card paint from
+		// the shared cache first, so a download could embed art the app was NOT showing. The user's call
+		// is one resolver everywhere — "same song, same cover everywhere", and for a downloaded file that
+		// means what you see is what gets embedded — so this reads the ONE now-playing reader
+		// (`displayCover`: pin → uid → name → resolvedCover, with an embedded `data:` cover kept ahead of
+		// the https-only cache per 37-D-02). Still a pure READ, so RULE 2's D-18 isolation holds.
 		const displayCover =
-			(player.current?.uid === r.uid ? player.resolvedCover : null) ??
+			(player.current?.uid === r.uid ? player.displayCover : null) ??
 			readCoverByUidOrName(r.uid, r.artist, r.title) ??
 			r.cover ??
 			null;

@@ -28,7 +28,14 @@ const mocks = vi.hoisted(() => ({
 	// player is READ-ONLY from the service — `current` / `playGen` here get throwing setters in the
 	// isolation test to prove the service never writes them. `resolvedCover` joins them for the
 	// quick-260914-to2 display-cover ladder — also read-only.
-	player: { current: null as Track | null, playGen: 0, resolvedCover: null as string | null },
+	// quick-260920-oj8: `displayCover` is the ONE now-playing cover reader (pin → uid → name →
+	// resolvedCover) and is what this service now embeds for the playing song — also read-only.
+	player: {
+		current: null as Track | null,
+		playGen: 0,
+		resolvedCover: null as string | null,
+		displayCover: null as string | null
+	},
 	// quick-260914-to2: the shared reactive cover cache. Defaults to null so every PRE-EXISTING
 	// artwork assertion (which expects `r.cover`) keeps passing through the ladder unchanged.
 	readCoverByUidOrName: vi.fn((_u: string, _a: string, _t: string): string | null => null),
@@ -121,6 +128,7 @@ beforeEach(() => {
 	Object.defineProperty(mocks.player, 'current', { configurable: true, writable: true, value: null });
 	Object.defineProperty(mocks.player, 'playGen', { configurable: true, writable: true, value: 0 });
 	Object.defineProperty(mocks.player, 'resolvedCover', { configurable: true, writable: true, value: null });
+	Object.defineProperty(mocks.player, 'displayCover', { configurable: true, writable: true, value: null });
 	mocks.readCoverByUidOrName.mockReset().mockReturnValue(null);
 	mocks.settings.downloadQuality = 'lossless';
 	mocks.names.dnArtist.mockReset().mockImplementation((s: string) => s);
@@ -687,22 +695,52 @@ describe('downloadTrack — quick-260914-to2 display-cover ladder', () => {
 		expect(artCover()).toBe('https://cdn-images.dzcdn.net/real.jpg');
 	});
 
-	it('prefers the hero cover when THIS is the playing song', async () => {
+	// quick-260920-oj8 — this used to assert `resolvedCover` WINS for the playing song. That was the
+	// old precedence and it is exactly the bug the user's "same song, same cover everywhere" call
+	// closes: after quick-260920-nyq the hero paints from the shared cache, so a stale `resolvedCover`
+	// meant the file carried art the app was never showing. The DIVERGENCE is constructed on purpose —
+	// `displayCover` (what the hero shows) and `resolvedCover` (the play()-entry seed) hold different
+	// URLs — so reverting this site to `resolvedCover` fails this test.
+	it('embeds what the HERO shows, not a stale resolvedCover, when THIS is the playing song', async () => {
 		Object.defineProperty(mocks.player, 'current', {
 			configurable: true,
 			writable: true,
 			value: mk({ uid: 'netease-1', cover: 'http://y.gtimg.cn/dead.jpg' })
 		});
+		// What the hero / Nowbar / OS card are painting (cache-led, per nyq).
+		Object.defineProperty(mocks.player, 'displayCover', {
+			configurable: true,
+			writable: true,
+			value: 'https://cdn-images.dzcdn.net/cache.jpg'
+		});
+		// The stale synchronous seed the file used to get instead.
 		Object.defineProperty(mocks.player, 'resolvedCover', {
 			configurable: true,
 			writable: true,
-			value: 'https://is1-ssl.mzstatic.com/hero.jpg'
+			value: 'https://is1-ssl.mzstatic.com/stale.jpg'
 		});
 		mocks.readCoverByUidOrName.mockReturnValue('https://cdn-images.dzcdn.net/cache.jpg');
 
 		await downloadTrack(mk({ uid: 'netease-1' }));
 
-		expect(artCover()).toBe('https://is1-ssl.mzstatic.com/hero.jpg');
+		expect(artCover()).toBe('https://cdn-images.dzcdn.net/cache.jpg');
+	});
+
+	// 37-D-02 rides along for free: `displayCover` keeps an embedded local-file `data:` cover ahead of
+	// the https-only cache, so a downloaded file gets the file's own art — the getter owns that rule,
+	// this site just has to read it.
+	it('embeds an embedded data: cover the hero is showing, over a cached https cover', async () => {
+		Object.defineProperty(mocks.player, 'current', { configurable: true, writable: true, value: mk({ uid: 'netease-1' }) });
+		Object.defineProperty(mocks.player, 'displayCover', {
+			configurable: true,
+			writable: true,
+			value: 'data:image/jpeg;base64,AAAA'
+		});
+		mocks.readCoverByUidOrName.mockReturnValue('https://cdn-images.dzcdn.net/cache.jpg');
+
+		await downloadTrack(mk({ uid: 'netease-1' }));
+
+		expect(artCover()).toBe('data:image/jpeg;base64,AAAA');
 	});
 
 	it('ignores the hero cover when a DIFFERENT song is playing', async () => {
