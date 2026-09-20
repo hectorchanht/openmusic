@@ -6,6 +6,8 @@ import {
 	MIN_QUERY_LEN,
 	SUGGEST_DEBOUNCE_MS,
 	SUGGEST_CAP,
+	ARTIST_ROWS,
+	ALBUM_ROWS,
 	type Suggestion
 } from './autocomplete-logic';
 import type { DeezerHit } from '$lib/services/deezer';
@@ -89,24 +91,17 @@ describe('deriveSuggestions', () => {
 		expect(new Set(keys).size).toBe(keys.length); // all keys unique
 	});
 
-	it('interleaves at least one artist suggestion near the top when artists are present', () => {
-		const hits: DeezerHit[] = [];
-		// many songs by distinct artists so both kinds are available beyond the cap
-		for (let i = 0; i < 12; i++) hits.push(hit(`Song ${i}`, `Artist ${i}`));
-		const out = deriveSuggestions(hits, 'song');
-		expect(out.some((s) => s.kind === 'artist')).toBe(true);
-	});
-
 	// --- album suggestions (quick-260712-gm4) ---
 
 	it('emits distinct album suggestions carrying the album artist as the sub (gm4)', () => {
 		const hits = [
 			hit('Song A', 'Jay Chou', 'Jay'),
-			hit('Song B', 'Jay Chou', 'Fantasy'),
-			hit('Song C', 'Eason Chan', 'H3M')
+			hit('Song B', 'Jay Chou', 'Fantasy')
 		];
+		// kept to 2 distinct albums because ALBUM_ROWS caps the album group (quick-260919-pid);
+		// the dedupe semantics under test here are unchanged.
 		const albums = deriveSuggestions(hits, 'jay').filter((s) => s.kind === 'album');
-		expect(albums.map((s) => s.title)).toEqual(['Jay', 'Fantasy', 'H3M']);
+		expect(albums.map((s) => s.title)).toEqual(['Jay', 'Fantasy']);
 		expect(albums[0]).toMatchObject({ kind: 'album', title: 'Jay', artist: 'Jay Chou' });
 	});
 
@@ -130,17 +125,6 @@ describe('deriveSuggestions', () => {
 		expect(out.some((s) => s.kind === 'album')).toBe(true);
 	});
 
-	it('surfaces album rows near the top when present, without exceeding the cap (gm4)', () => {
-		const hits: DeezerHit[] = [];
-		for (let i = 0; i < 12; i++) hits.push(hit(`Song ${i}`, `Artist ${i}`, `Album ${i}`));
-		const out = deriveSuggestions(hits, 'song');
-		expect(out.length).toBeLessThanOrEqual(SUGGEST_CAP);
-		expect(out.some((s) => s.kind === 'album')).toBe(true);
-		// all three kinds present
-		expect(out.some((s) => s.kind === 'song')).toBe(true);
-		expect(out.some((s) => s.kind === 'artist')).toBe(true);
-	});
-
 	it('tolerates missing / nullish title and artist fields without throwing', () => {
 		const dirty = [
 			{ id: '1', title: undefined, artist: 'A', album: '', cover: null, preview: null },
@@ -150,6 +134,76 @@ describe('deriveSuggestions', () => {
 		const out = deriveSuggestions(dirty, 'ok');
 		// the song with a title survives; the title-less one is skipped
 		expect(out.filter((s: Suggestion) => s.kind === 'song').map((s) => s.title)).toEqual(['OK']);
+	});
+
+	// --- bounded grouped order (quick-260919-pid) ---
+
+	it('groups suggestions artists then albums then songs, never interleaved (quick-260919-pid)', () => {
+		const hits = [hit('Song A', 'Artist 1', 'Album 1'), hit('Song B', 'Artist 2', 'Album 2')];
+		const out = deriveSuggestions(hits, 'son');
+		expect(out.map((s) => s.kind)).toEqual(['artist', 'artist', 'album', 'album', 'song', 'song']);
+		expect(out.map((s) => s.title)).toEqual([
+			'Artist 1',
+			'Artist 2',
+			'Album 1',
+			'Album 2',
+			'Song A',
+			'Song B'
+		]);
+	});
+
+	it('bounds the leading groups at ARTIST_ROWS / ALBUM_ROWS so songs keep slots (quick-260919-pid)', () => {
+		// Why BOUNDED rather than a plain concat: measured against live Deezer, an unbounded
+		// [...artists, ...albums, ...songs].slice(0, 8) rendered ZERO song rows for 5 of 6 queries
+		// (8 hits routinely carry 8 distinct artists), and songs are the only playable kind.
+		const hits: DeezerHit[] = [];
+		for (let i = 0; i < 8; i++) hits.push(hit(`Song ${i}`, `Artist ${i}`, `Album ${i}`));
+		const out = deriveSuggestions(hits, 'song');
+		expect(ARTIST_ROWS).toBe(2);
+		expect(ALBUM_ROWS).toBe(2);
+		expect(out.length).toBe(SUGGEST_CAP);
+		expect(out.map((s) => s.kind)).toEqual([
+			'artist',
+			'artist',
+			'album',
+			'album',
+			'song',
+			'song',
+			'song',
+			'song'
+		]);
+		// first-seen relevance order is kept WITHIN each truncated group
+		expect(out.filter((s) => s.kind === 'artist').map((s) => s.title)).toEqual([
+			'Artist 0',
+			'Artist 1'
+		]);
+		expect(out.filter((s) => s.kind === 'album').map((s) => s.title)).toEqual(['Album 0', 'Album 1']);
+	});
+
+	it('backfills with songs when a leading group is short (quick-260919-pid)', () => {
+		const hits: DeezerHit[] = [];
+		// empty artist -> 0 artist rows; every hit shares one album -> exactly 1 album row
+		for (let i = 0; i < 8; i++) hits.push(hit(`Song ${i}`, '', 'Same LP'));
+		const out = deriveSuggestions(hits, 'song');
+		expect(out.length).toBe(SUGGEST_CAP);
+		expect(out[0].kind).toBe('album');
+		expect(out.slice(1).every((s) => s.kind === 'song')).toBe(true); // songs expanded to fill
+	});
+
+	it('stays SHORT when there are no songs - the caps never backfill (quick-260919-pid)', () => {
+		// ASYMMETRIC BY DESIGN: ARTIST_ROWS / ALBUM_ROWS are ceilings on those two kinds, NEVER a
+		// floor to pad from. Songs expand into unused leading slots; artists/albums never expand.
+		const hits: DeezerHit[] = [];
+		// an empty title skips the SONG only - the hit's artist and album are still collected
+		for (let i = 0; i < 5; i++) hits.push(hit('', `Artist ${i}`, `Album ${i}`));
+		const out = deriveSuggestions(hits, 'art');
+		expect(out.map((s) => s.kind)).toEqual(['artist', 'artist', 'album', 'album']);
+		expect(out.length).toBe(4);
+	});
+
+	it('emits one row per kind for a single hit (quick-260919-pid)', () => {
+		const out = deriveSuggestions([hit('Only Song', 'Solo', 'Solo LP')], 'sol');
+		expect(out.map((s) => s.kind)).toEqual(['artist', 'album', 'song']);
 	});
 });
 
