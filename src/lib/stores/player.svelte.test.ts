@@ -851,6 +851,108 @@ describe('Related tap — playNext + non-fresh play preserves Up Next (quick-260
 	});
 });
 
+describe('player.spliceAndPlay — splice after current + non-fresh play (38-D-02/D-03/D-07)', () => {
+	const q1 = () => mk('kuwo', 'P1', 'Coldplay', 'Yellow');
+	const q2 = () => mk('kuwo', 'P2', 'Coldplay', 'Trouble');
+	const q3 = () => mk('kuwo', 'P3', 'Coldplay', 'Spies');
+	const q4 = () => mk('kuwo', 'P4', 'Coldplay', 'Shiver');
+	const rel = () => mk('kuwo', 'P9', 'Oasis', 'Wonderwall');
+	const uids = (ts: Track[]) => ts.map((t) => t.uid);
+	// Tests may cast to read a private field; production code must not.
+	const manual = () => (player as unknown as { manualUids: Set<string> }).manualUids;
+
+	// Same restore idiom as the qjv suite above: the fresh-vs-non-fresh branch under test lives
+	// inside the REAL play(), so the suite-wide play spy is restored here.
+	beforeEach(() => {
+		(player.play as unknown as { mockRestore(): void }).mockRestore?.();
+		mockEnsure.mockReset().mockImplementation(async (t: Track) => t);
+		mockSimilar.mockReset().mockResolvedValue([]);
+		mockPicks.mockReset().mockResolvedValue([]);
+		player.current = null;
+		player.queue = [];
+		manual().clear();
+		player.attach(makeFakeAudio() as unknown as HTMLAudioElement);
+	});
+
+	/** Queue of four with q2 playing, anchored one row ABOVE current (a played row still in view). */
+	async function startQueue() {
+		const tracks = [q1(), q2(), q3(), q4()];
+		player.setQueue(tracks, 'search');
+		await player.play(tracks[1]); // non-fresh — nothing regenerates
+		await flush();
+		player.upNextAnchorUid = tracks[0].uid;
+		manual().clear();
+		mockSimilar.mockClear();
+		return tracks;
+	}
+
+	it('splices after current, plays it non-fresh, never pins, and returns true', async () => {
+		const [t1, t2, t3, t4] = await startQueue();
+		const R = rel();
+
+		expect(player.spliceAndPlay(R)).toBe(true);
+		await flush();
+
+		expect(uids(player.queue)).toEqual([t1.uid, t2.uid, R.uid, t3.uid, t4.uid]);
+		expect(player.current?.uid).toBe(R.uid);
+		expect(manual().has(R.uid)).toBe(false); // pin:false — does not survive a later queue reset
+		expect(player.upNextAnchorUid).toBe(t1.uid); // NOT re-anchored
+		expect(mockSimilar).not.toHaveBeenCalled(); // non-fresh — the tail is untouched
+	});
+
+	it('re-opening the song that is ALREADY current is a no-op returning false (38-D-03)', async () => {
+		const [t1, t2, t3, t4] = await startQueue();
+		const spy = vi.spyOn(player, 'play');
+
+		expect(player.spliceAndPlay(t2)).toBe(false);
+		await flush();
+
+		expect(uids(player.queue)).toEqual([t1.uid, t2.uid, t3.uid, t4.uid]);
+		expect(spy).not.toHaveBeenCalled();
+		spy.mockRestore();
+	});
+
+	it('cold + empty queue: playNext plays it ITSELF — exactly one play(), never two', async () => {
+		player.current = null;
+		player.queue = [];
+		const R = rel();
+		const spy = vi.spyOn(player, 'play').mockImplementation(async (t: Track) => {
+			player.current = t;
+			player.loading = false;
+		});
+
+		expect(player.spliceAndPlay(R)).toBe(true);
+		await flush();
+
+		expect(player.current?.uid).toBe(R.uid);
+		expect(uids(player.queue)).toEqual([R.uid]);
+		// 38-D-29: this autoplay IS why spliceAndPlay is NOT the cold share-arrival path. The guard
+		// keeps it from firing a second play(); armTrack is what a cold arrival uses instead.
+		expect(spy).toHaveBeenCalledTimes(1);
+		spy.mockRestore();
+	});
+
+	it('playNext still pins by default after the spliceAfterCurrent extraction', async () => {
+		const [t1, t2, t3, t4] = await startQueue();
+		const R = rel();
+
+		player.playNext(R);
+
+		expect(uids(player.queue)).toEqual([t1.uid, t2.uid, R.uid, t3.uid, t4.uid]);
+		expect(manual().has(R.uid)).toBe(true);
+	});
+
+	it('playNext({ pin: false }) splices identically without pinning', async () => {
+		const [t1, t2, t3, t4] = await startQueue();
+		const R = rel();
+
+		player.playNext(R, { pin: false });
+
+		expect(uids(player.queue)).toEqual([t1.uid, t2.uid, R.uid, t3.uid, t4.uid]);
+		expect(manual().has(R.uid)).toBe(false);
+	});
+});
+
 describe('player.playStub — optimistic resolve-on-tap (FIX-A)', () => {
 	it('locks the tapped stub into pendingTrack + loading SYNCHRONOUSLY, before resolve', () => {
 		const d = deferred<Track | null>();
