@@ -439,3 +439,43 @@ describe('library.applyMetadata (quick-260919-1eh)', () => {
 		expect(memStore.get('openmusic:library:v1')).toContain('Edited');
 	});
 });
+
+// quick-260919-vrq: the TrackMenu "Remove download" sheet lets the user KEEP the offline copy while
+// still dropping the library row, so removeDownload grew a `{ deleteFile }` opt-out. Two directions,
+// two specs: the default must stay byte-for-byte today's behaviour (every existing caller passes no
+// options), and the opt-out must drop the row WITHOUT ever reaching blobStore.del.
+describe('quick-260919-vrq removeDownload { deleteFile } opt-out', () => {
+	beforeEach(() => {
+		library.downloads = [];
+		library.unavailable = new Set();
+		memStore.clear();
+		blobDel.mockClear();
+	});
+
+	const payload = () =>
+		JSON.parse(localStorage.getItem('openmusic:library:v1') as string) as Record<string, unknown>;
+
+	it('default (no options) drops the row, clears the mark, and deletes the blob', () => {
+		library.downloads = [mk({ uid: 'kuwo:9', source: 'kuwo' })];
+		library.markUnavailable('kuwo:9');
+
+		library.removeDownload('kuwo:9');
+
+		expect(library.isDownloaded('kuwo:9')).toBe(false);
+		expect(library.isUnavailable('kuwo:9')).toBe(false);
+		expect(blobDel).toHaveBeenCalledWith('kuwo:9');
+	});
+
+	it('deleteFile: false drops the row and the mark but NEVER touches the offline copy', () => {
+		library.downloads = [mk({ uid: 'kuwo:10', source: 'kuwo' })];
+		library.markUnavailable('kuwo:10');
+		blobDel.mockClear();
+
+		library.removeDownload('kuwo:10', { deleteFile: false });
+
+		expect(library.isDownloaded('kuwo:10')).toBe(false);
+		expect(library.isUnavailable('kuwo:10')).toBe(false);
+		expect((payload().downloads as { uid: string }[]).some((t) => t.uid === 'kuwo:10')).toBe(false);
+		expect(blobDel).not.toHaveBeenCalled();
+	});
+});
