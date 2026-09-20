@@ -9,6 +9,10 @@
 	//                 quick-260919-dlring: the ring fills clockwise with REAL byte progress when
 	//                 library.downloadProgress has a fraction for this uid, and spins when it does not
 	//                 (no Content-Length, or the localBusy resolve window before any bytes exist).
+	//                 quick-260919-v71: this state is evaluated FIRST (via the shared downloadState()
+	//                 helper) — isDownloaded is true from addDownload onward, which runs PRE-fetch by
+	//                 design (DL-BUG-01), so a downloading song is also "downloaded" and the tick
+	//                 would otherwise hide the ring for the whole transfer.
 	//   downloaded  → Check icon, greyed, disabled           (library.isDownloaded(uid))
 	//   unavailable → CircleAlert, #ff7a90, non-interactive (library.isUnavailable — 34-D-06; re-import
 	//                 is the fix, one tap away in Settings → Downloads; the badge does not try to be
@@ -38,6 +42,7 @@
 	import { t } from '$lib/i18n';
 	import { downloadTrack } from '$lib/services/download-track';
 	import DownloadRing from '$lib/components/DownloadRing.svelte';
+	import { downloadState } from '$lib/components/download-state';
 	import { probeDownload, formatDownloadMeta, type DownloadProbe } from '$lib/services/download-probe';
 	import type { Track } from '$lib/sources/types';
 
@@ -73,6 +78,12 @@
 	const isDownloaded = $derived(!!uid && library.isDownloaded(uid));
 	const isDownloading = $derived(localBusy || (!!uid && library.downloading.has(uid)));
 	const isUnavailable = $derived(!!uid && library.isUnavailable(uid));
+	// quick-260919-v71: the render branches read THIS, not the three flags directly — the shared
+	// helper owns the precedence (busy > unavailable > downloaded > idle) so this control and
+	// RowBadges' passive ✓ can never disagree. run() and the probe $effect still read the flags.
+	const dlState = $derived(
+		downloadState({ downloading: isDownloading, downloaded: isDownloaded, unavailable: isUnavailable })
+	);
 	// quick-260919-dlring: 0..1 or undefined (= indeterminate). Read straight from the shared store —
 	// no second pipeline, and an album stub mid-resolve (no uid yet) is correctly indeterminate.
 	const dlFrac = $derived(uid ? library.downloadProgress[uid] : undefined);
@@ -142,19 +153,19 @@
 	}
 </script>
 
-{#if isDownloaded && isUnavailable}
+{#if dlState === 'busy'}
+	<span class="dc busy" aria-busy="true" aria-label={busyLabel} title={busyLabel}>
+		<DownloadRing value={dlFrac}><Download size={18} /></DownloadRing>
+	</span>
+{:else if dlState === 'unavailable'}
 	<!-- 34-D-06: still a download, but its file is gone — same 40×40 footprint, louder glyph. -->
 	<span class="dc unavailable" aria-label={t('menu.unavailable')} title={t('menu.unavailable')}>
 		<CircleAlert size={18} />
 	</span>
-{:else if isDownloaded}
+{:else if dlState === 'downloaded'}
 	<!-- Downloaded: a non-interactive span (greyed, disabled-by-absence-of-onclick) — D-11 label. -->
 	<span class="dc downloaded" aria-label={t('menu.downloaded')} title={t('menu.downloaded')}>
 		<Check size={18} />
-	</span>
-{:else if isDownloading}
-	<span class="dc busy" aria-busy="true" aria-label={busyLabel} title={busyLabel}>
-		<DownloadRing value={dlFrac}><Download size={18} /></DownloadRing>
 	</span>
 {:else if probe}
 	<!-- quick-260915-26g: the probing branch is SEPARATE so the default (probe off) markup below stays

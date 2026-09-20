@@ -17,6 +17,7 @@
 	// uid:'' (e.g. the charts DiscoveryTrack lists) can never light up, so they intentionally omit this.
 	import { Heart, Check, CircleAlert } from '@lucide/svelte';
 	import { library } from '$lib/stores/library.svelte';
+	import { downloadState } from '$lib/components/download-state';
 	import { t } from '$lib/i18n';
 
 	let {
@@ -28,23 +29,37 @@
 
 	// quick-260919-l9e (D-5): the suppression is gated at the $derived, NOT just in the markup — a
 	// badge the row will never draw must not hold a live library subscription either (D-7: these
-	// rows render 24+ at a time). `unavailable` is only read inside the `downloaded` branch, so it
-	// follows for free.
+	// rows render 24+ at a time). quick-260919-v71 keeps that gate OUTSIDE the helper call for the
+	// same reason: a suppressed badge must still subscribe to nothing.
 	const liked = $derived(!hideLiked && !!uid && library.isLiked(uid));
-	const downloaded = $derived(!hideDownloaded && !!uid && library.isDownloaded(uid));
 	// 34-D-06: an imported song whose file the OS no longer has is still a download — it stays
 	// listed and is MARKED, never silently dropped. Same badge slot, so no row reflows.
-	const unavailable = $derived(!!uid && library.isUnavailable(uid));
+	//
+	// quick-260919-v71: this used to be a bare `library.isDownloaded(uid)`, so the passive ✓ lit up
+	// MID-download — isDownloaded is true from addDownload onward, which runs PRE-fetch by design so
+	// a failed save keeps the song (DL-BUG-01). `downloading` is tested first via the shared helper,
+	// so this badge and DownloadControl can never disagree about what in-flight looks like.
+	const dl = $derived(
+		!hideDownloaded && !!uid
+			? downloadState({
+					downloading: library.downloading.has(uid),
+					downloaded: library.isDownloaded(uid),
+					unavailable: library.isUnavailable(uid)
+				})
+			: 'idle'
+	);
 </script>
 
-{#if liked || downloaded}
+{#if liked || dl === 'downloaded' || dl === 'unavailable'}
 	<span class="row-badges">
 		{#if liked}
 			<span class="rb liked" aria-label={t('menu.liked')} title={t('menu.liked')}><Heart {size} fill="currentColor" /></span>
 		{/if}
-		{#if downloaded && unavailable}
+		<!-- quick-260919-v71: a 'busy' row draws NO download glyph — this badge is PASSIVE, and the
+		     active DownloadControl (or the TrackMenu bar) owns the in-flight visual. -->
+		{#if dl === 'unavailable'}
 			<span class="rb unavailable" aria-label={t('menu.unavailable')} title={t('menu.unavailable')}><CircleAlert {size} /></span>
-		{:else if downloaded}
+		{:else if dl === 'downloaded'}
 			<span class="rb downloaded" aria-label={t('menu.downloaded')} title={t('menu.downloaded')}><Check {size} /></span>
 		{/if}
 	</span>
