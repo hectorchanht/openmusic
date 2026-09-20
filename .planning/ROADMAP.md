@@ -495,7 +495,7 @@ Plans:
 
 **Requirements**: TBD
 **Depends on:** Phase 37
-**Plans:** 6/9 plans executed
+**Plans:** 7/9 plans executed
 
 Plans:
 - [x] 38-01-PLAN.md — Pure seam: `songShareUrl` uid carrier (`?u={source}{songid}`, D-30 enum fix) + `share-arrival.ts` arrivalMode / stubFromUidParam / deepLinkPath with node tests (wave 1)
@@ -505,5 +505,5 @@ Plans:
 - [x] 38-06-PLAN.md — TrackMenu passes the track identity (pinned source-text tests stay green) + `toast.sharedPlaying` in all 15 locales (wave 2)
 - [x] 38-07-PLAN.md — Capacitor deep link in the root layout: `getLaunchUrl()` COLD + `appUrlOpen` WARM, both host-gated (wave 2)
 - [ ] 38-08-PLAN.md — HUMAN: release keystore SHA256 via keytool → second fingerprint in assetlinks.json (wave 2, checkpoint)
-- [ ] 38-05-PLAN.md — Both `/song/*` pages resolve on mount + CTA adopts the in-flight arrival; legacy `?play=` re-pointed at `arriveTrack`; folded todo closed; full-suite web gate (wave 3)
+- [x] 38-05-PLAN.md — Both `/song/*` pages resolve on mount + CTA adopts the in-flight arrival; legacy `?play=` re-pointed at `arriveTrack`; folded todo closed; full-suite web gate (wave 3)
 - [ ] 38-09-PLAN.md — Deploy approval, emulator App Links `verified` + cold/warm/negative deep links, real-device felt-latency sign-off (wave 4, checkpoints)
