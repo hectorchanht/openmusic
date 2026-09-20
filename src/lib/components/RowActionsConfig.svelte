@@ -1,5 +1,12 @@
+<script module lang="ts">
+	/** Which part of the replica row a wing selects. Lives in `<script module>` so the page can
+	 *  import the union from the component that owns the wings (quick-260920-kxz). */
+	export type RowScaleTarget = 'title' | 'artist' | 'cover';
+</script>
+
 <script lang="ts">
-	// RowActionsConfig — the Settings control for `settings.rowActions` (quick-260919-l9e).
+	// RowActionsConfig — the Settings control for `settings.rowActions` (quick-260919-l9e) AND,
+	// since quick-260920-kxz, for the three song-row SIZE scales.
 	//
 	// THE CONTROL IS SHAPED LIKE THE THING IT CONFIGURES. A chip multi-select would have told the
 	// user which buttons are on but not where they land; this is a replica of a song row whose
@@ -24,12 +31,48 @@
 	// slot is a real <button>: Enter/Space toggles it (the native click), Left/Right move it. The
 	// aria-label carries the state AND the position, because neither is conveyable by the visual
 	// order alone.
+	//
+	// quick-260920-kxz — THE ROW'S PARTS ARE CONTROLS TOO. The cover, title and artist are no
+	// longer inert decoration around the button strip: each is a "wing", a real <button> that
+	// tells the PAGE which of the three row scales its single slider should drive. Same rule as
+	// the strip above, applied to the rest of the row — the preview is not a picture of the
+	// effect, it is the effect — and it replaces a block of five sliders whose labels were the
+	// only clue about which surface each one touched.
+	// No extra wiring is needed to make the replica resize: `.cfg-title` / `.cfg-sub` / `.cfg-art`
+	// already read `--fs-title` / `--fs-artist` / `--cover-scale` from :root, which the page's
+	// live commit repaints through applyTheme().
+	// Keyboard parity holds for the same reason it does for the slots: every wing is a real
+	// <button>, so Enter/Space select it for free, and the aria-label carries the current
+	// percentage AND whether this wing is the selected one.
 	import { tick } from 'svelte';
 	import { Heart, Download, MoreVertical } from '@lucide/svelte';
 	import { settings, ROW_ACTIONS, type RowAction } from '$lib/stores/settings.svelte';
 	import { t } from '$lib/i18n';
 
-	let { title, artist }: { title: string; artist: string } = $props();
+	let {
+		title,
+		artist,
+		target,
+		onselect
+	}: {
+		title: string;
+		artist: string;
+		/** Which wing is selected (null = none). Owned by the page, which also owns the slider. */
+		target: RowScaleTarget | null;
+		onselect: (t: RowScaleTarget) => void;
+	} = $props();
+
+	/** The i18n name + current percentage each wing announces. Reuses the EXISTING per-part
+	 *  labels — the five sliders are gone, their names are not. */
+	const wing = (k: RowScaleTarget) =>
+		k === 'title'
+			? { name: t('settings.fontSizeTitle'), value: settings.fontScaleTitle }
+			: k === 'artist'
+				? { name: t('settings.fontSizeArtist'), value: settings.fontScaleArtist }
+				: { name: t('settings.coverSize'), value: settings.coverScale };
+	/** Stateful label: "press to resize" vs "selected, use the slider below". */
+	const wingLabel = (k: RowScaleTarget) =>
+		t(target === k ? 'settings.wingPicked' : 'settings.wingPick', wing(k));
 
 	const enabled = $derived(settings.rowActions);
 	/** Enabled (in the user's order) first, then the switched-off remainder, dimmed. */
@@ -148,10 +191,35 @@
 </script>
 
 <div class="cfg-row" class:no-anim={settings.reduceMotion} bind:this={stripEl}>
-	<span class="cfg-art" aria-hidden="true"></span>
-	<span class="cfg-meta" aria-hidden="true">
-		<span class="cfg-title">{title}</span>
-		<span class="cfg-sub">{artist}</span>
+	<!-- quick-260920-kxz: the cover tile IS the cover-size control. It keeps its own gradient and
+	     `--cover-scale` sizing, so selecting it and dragging grows the very tile you tapped. -->
+	<button
+		type="button"
+		class="wing cfg-art"
+		class:sel={target === 'cover'}
+		aria-pressed={target === 'cover'}
+		aria-label={wingLabel('cover')}
+		onclick={() => onselect('cover')}
+	></button>
+	<!-- `aria-hidden` is GONE from .cfg-meta: the title and artist text are now the labels of two
+	     real buttons, so hiding them would hide the controls themselves. -->
+	<span class="cfg-meta">
+		<button
+			type="button"
+			class="wing cfg-title"
+			class:sel={target === 'title'}
+			aria-pressed={target === 'title'}
+			aria-label={wingLabel('title')}
+			onclick={() => onselect('title')}>{title}</button
+		>
+		<button
+			type="button"
+			class="wing cfg-sub"
+			class:sel={target === 'artist'}
+			aria-pressed={target === 'artist'}
+			aria-label={wingLabel('artist')}
+			onclick={() => onselect('artist')}>{artist}</button
+		>
 	</span>
 	{#each slots as a (a)}
 		{@const on = enabled.includes(a)}
@@ -194,9 +262,41 @@
 		align-items: center;
 		gap: 12px;
 		min-height: 44px;
-		padding: 6px;
+		/* quick-260920-kxz: 6px → 10px. The wings draw an outline at `outline-offset: 3px`, which
+		   is painted OUTSIDE the box and would otherwise sit flush against the card edge. */
+		padding: 10px;
 		border-radius: 8px;
 		background: var(--color-surface);
+	}
+	/* quick-260920-kxz — WING. The accent-tinted affordance that says "this part is tappable".
+	   Dashed while unselected, solid once picked; no new colour is invented, it is the user's own
+	   accent (--color-primary) mixed down. NpPreviewEditor carries a second scoped copy of these
+	   ~10 lines on purpose: two copies of one small rule beat a third component existing only to
+	   hold them, and the two mocks are free to drift (this one has a cover wing, NP has none). */
+	.wing {
+		position: relative;
+		/* Button reset first, so a wing is geometrically identical to the span it replaced. */
+		border: 0;
+		padding: 0;
+		color: inherit;
+		font: inherit;
+		text-align: left;
+		cursor: pointer;
+		border-radius: 6px;
+		outline: 1.5px dashed color-mix(in srgb, var(--color-primary) 55%, transparent);
+		outline-offset: 3px;
+		/* background-COLOR, not the `background` shorthand: the cover wing paints a gradient over
+		   this and must keep it. */
+		background-color: color-mix(in srgb, var(--color-primary) 10%, transparent);
+	}
+	.wing.sel {
+		outline-style: solid;
+		outline-color: var(--color-primary);
+		background-color: color-mix(in srgb, var(--color-primary) 18%, transparent);
+	}
+	.wing:focus-visible {
+		outline: 2px solid var(--color-primary);
+		outline-offset: 2px;
 	}
 	.cfg-art {
 		flex: none;
@@ -210,11 +310,15 @@
 		min-width: 0;
 		display: flex;
 		flex-direction: column;
-		gap: 2px;
+		/* quick-260920-kxz: 2px → 8px. Two stacked wings at `outline-offset: 3px` would otherwise
+		   draw overlapping outlines and read as one target instead of two. */
+		gap: 8px;
+		align-items: flex-start;
 	}
 	.cfg-title,
 	.cfg-sub {
 		min-width: 0;
+		max-width: 100%;
 		overflow: hidden;
 		white-space: nowrap;
 		text-overflow: ellipsis;

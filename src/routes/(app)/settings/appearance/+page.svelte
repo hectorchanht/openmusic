@@ -3,9 +3,12 @@
     import { goto } from "$app/navigation";
     // quick-260919-ebi: Sun/Moon/Palette/Zap arrived with theme, accent and reduce-motion;
     // LayoutGrid stayed for "Covers & layout" but GRID_COLS_* left for /settings/home.
+    // quick-260920-kxz: LayoutGrid left with the "Covers & layout" heading — the section is now
+    // "Song rows" (ListMusic), and Now playing got its own (Disc3).
     import {
         Type,
-        LayoutGrid,
+        ListMusic,
+        Disc3,
         Sun,
         Palette,
         Zap,
@@ -27,7 +30,9 @@
     import SettingToggle from "$lib/components/SettingToggle.svelte";
     import SettingPicker from "$lib/components/SettingPicker.svelte";
     import SettingHint from "$lib/components/SettingHint.svelte";
-    import RowActionsConfig from "$lib/components/RowActionsConfig.svelte";
+    import RowActionsConfig, {
+        type RowScaleTarget,
+    } from "$lib/components/RowActionsConfig.svelte";
     import { tapBounce } from "$lib/actions/tapBounce";
     import { t } from "$lib/i18n";
 
@@ -41,28 +46,54 @@
 
     // Each slider writes the store + persists; applyTheme() (called inside save) pushes the new
     // CSS custom properties to <html> so every surface re-sizes live.
-    function setTitle(v: number) {
-        settings.fontScaleTitle = v;
+    //
+    // quick-260920-kxz: the six per-part setters are gone. Five of them fed a flat list of
+    // sliders under one "Text size" heading that mixed LIST-row scales with NOW-PLAYING-only
+    // scales, so a user could not tell which surface a slider touched — the CSS wiring was
+    // always split (--fs-title/--fs-artist/--cover-scale for rows, --fs-np-*/--fs-lyrics for the
+    // full-screen view); only the page lied about it. Now each group is configured ON a replica
+    // of its own surface, and the three Now-Playing scales live in NpPreviewEditor.
+    function setApp(v: number) {
+        settings.fontScaleApp = v;
         settings.save();
     }
-    function setArtist(v: number) {
-        settings.fontScaleArtist = v;
-        settings.save();
-    }
-    function setLyrics(v: number) {
-        settings.fontScaleLyrics = v;
-        settings.save();
-    }
-    function setNpTitle(v: number) {
-        settings.fontScaleNpTitle = v;
-        settings.save();
-    }
-    function setNpArtist(v: number) {
-        settings.fontScaleNpArtist = v;
-        settings.save();
-    }
-    function setCover(v: number) {
-        settings.coverScale = v;
+
+    // ---- Song rows editor -------------------------------------------------------------
+    // ONE slider, retargeted by whichever wing of the replica row is selected. Default 'title'
+    // so the slider is never orphaned (a range input with nothing to drive is a dead control).
+    let rowTarget = $state<RowScaleTarget>("title");
+    const rowValue = $derived(
+        rowTarget === "title"
+            ? settings.fontScaleTitle
+            : rowTarget === "artist"
+              ? settings.fontScaleArtist
+              : settings.coverScale,
+    );
+    const rowName = $derived(
+        t(
+            rowTarget === "title"
+                ? "settings.fontSizeTitle"
+                : rowTarget === "artist"
+                  ? "settings.fontSizeArtist"
+                  : "settings.coverSize",
+        ),
+    );
+    // Cover size has its own, tighter bounds than the font scales.
+    const rowMin = $derived(
+        rowTarget === "cover" ? COVER_SCALE_MIN : FONT_SCALE_MIN,
+    );
+    const rowMax = $derived(
+        rowTarget === "cover" ? COVER_SCALE_MAX : FONT_SCALE_MAX,
+    );
+    /** LIVE commit (locked decision) — write + save on every input event. The replica repaints
+     *  because save() calls applyTheme(), which pushes the :root vars the replica reads. There is
+     *  nothing to cancel here: this replica IS what every list in the app already looks like, so
+     *  the user is watching the real result, not a proposal. (Now playing, which the user cannot
+     *  see from this page, gets draft-then-commit instead — see NpPreviewEditor.) */
+    function setRow(v: number) {
+        if (rowTarget === "title") settings.fontScaleTitle = v;
+        else if (rowTarget === "artist") settings.fontScaleArtist = v;
+        else settings.coverScale = v;
         settings.save();
     }
     // quick-260919-ebi: theme / accent / reduce-motion handlers moved here from
@@ -245,13 +276,21 @@
     />
 </section>
 
+<!-- quick-260920-kxz: ONE global slider replaces the five-slider "Text size" block. It is the
+     only sizing control on this page that is not attached to a mock, and it does not need one —
+     the settings page itself is rendered at the size being dragged, so the preview is the page. -->
 <section>
-    <h2><Type size={15} /> {t("settings.appearanceText")}</h2>
+    <h2>
+        <Type size={15} /> {t("settings.fontSizeApp")}<SettingHint
+            label={t("settings.fontSizeApp")}
+            text={t("settings.fontSizeAppDesc")}
+        />
+    </h2>
 
     <div class="ctl">
         <div class="lab">
-            <span>{t("settings.fontSizeTitle")}<SettingHint label={t("settings.fontSizeTitle")} text={t("settings.fontSizeTitleDesc")} /></span><span class="val"
-                >{settings.fontScaleTitle}%</span
+            <span>{t("settings.fontSizeApp")}</span><span class="val"
+                >{settings.fontScaleApp}%</span
             >
         </div>
         <input
@@ -259,155 +298,53 @@
             min={FONT_SCALE_MIN}
             max={FONT_SCALE_MAX}
             step="5"
-            value={settings.fontScaleTitle}
-            oninput={(e) => setTitle(num(e))}
+            value={settings.fontScaleApp}
+            oninput={(e) => setApp(num(e))}
+            aria-label={t("settings.fontSizeApp")}
         />
-        <span
-            class="prev"
-            style:font-size={`${(1.05 * settings.fontScaleTitle) / 100}rem`}
-            >{demoTitle}</span
-        >
-    </div>
-
-    <div class="ctl">
-        <div class="lab">
-            <span>{t("settings.fontSizeArtist")}<SettingHint label={t("settings.fontSizeArtist")} text={t("settings.fontSizeArtistDesc")} /></span><span class="val"
-                >{settings.fontScaleArtist}%</span
-            >
-        </div>
-        <input
-            type="range"
-            min={FONT_SCALE_MIN}
-            max={FONT_SCALE_MAX}
-            step="5"
-            value={settings.fontScaleArtist}
-            oninput={(e) => setArtist(num(e))}
-        />
-        <span
-            class="prev muted"
-            style:font-size={`${(0.9 * settings.fontScaleArtist) / 100}rem`}
-            >{demoArtist}</span
-        >
-    </div>
-
-    <div class="ctl">
-        <div class="lab">
-            <span>{t("settings.fontSizeLyrics")}<SettingHint label={t("settings.fontSizeLyrics")} text={t("settings.fontSizeLyricsDesc")} /></span><span class="val"
-                >{settings.fontScaleLyrics}%</span
-            >
-        </div>
-        <input
-            type="range"
-            min={FONT_SCALE_MIN}
-            max={FONT_SCALE_MAX}
-            step="5"
-            value={settings.fontScaleLyrics}
-            oninput={(e) => setLyrics(num(e))}
-        />
-        <span
-            class="prev muted"
-            style:font-size={`${(1 * settings.fontScaleLyrics) / 100}rem`}
-            >{demoTitle}</span
-        >
-    </div>
-
-    <div class="ctl">
-        <div class="lab">
-            <span>{t("settings.fontSizeNpTitle")}<SettingHint label={t("settings.fontSizeNpTitle")} text={t("settings.fontSizeNpTitleDesc")} /></span><span class="val"
-                >{settings.fontScaleNpTitle}%</span
-            >
-        </div>
-        <input
-            type="range"
-            min={FONT_SCALE_MIN}
-            max={FONT_SCALE_MAX}
-            step="5"
-            value={settings.fontScaleNpTitle}
-            oninput={(e) => setNpTitle(num(e))}
-        />
-        <span
-            class="prev"
-            style:font-size={`${(1.5 * settings.fontScaleNpTitle) / 100}rem`}
-            >{demoTitle}</span
-        >
-    </div>
-
-    <div class="ctl">
-        <div class="lab">
-            <span>{t("settings.fontSizeNpArtist")}<SettingHint label={t("settings.fontSizeNpArtist")} text={t("settings.fontSizeNpArtistDesc")} /></span><span class="val"
-                >{settings.fontScaleNpArtist}%</span
-            >
-        </div>
-        <input
-            type="range"
-            min={FONT_SCALE_MIN}
-            max={FONT_SCALE_MAX}
-            step="5"
-            value={settings.fontScaleNpArtist}
-            oninput={(e) => setNpArtist(num(e))}
-        />
-        <span
-            class="prev muted"
-            style:font-size={`${(1 * settings.fontScaleNpArtist) / 100}rem`}
-            >{demoArtist}</span
-        >
+        <!-- quick-260920-kxz: this note moved up from "Covers & layout", where it was a
+             half-truth ("sizes apply across the whole app" described no slider on the page).
+             Next to the global scale it is simply what the control does. -->
+        <p class="note">{t("settings.appearanceNote")}</p>
     </div>
 </section>
 
+<!-- quick-260920-kxz: the Song rows editor. The replica row carries BOTH controls now — the
+     wings pick which part the single slider below resizes, and the button strip inside the same
+     row still drags/toggles the inline actions. One mock, everything a list row can be told.
+     The old "Covers & layout" section's standalone cover tiles are gone with it: the row's own
+     cover wing IS the tile being resized, so a second picture of it could only disagree. -->
 <section>
-    <h2><LayoutGrid size={15} /> {t("settings.appearanceLayout")}</h2>
+    <h2>
+        <ListMusic size={15} /> {t("settings.songRowEditor")}<SettingHint
+            label={t("settings.songRowEditor")}
+            text={t("settings.songRowEditorDesc")}
+        />
+    </h2>
 
     <div class="ctl">
-        <div class="lab">
-            <span>{t("settings.coverSize")}<SettingHint label={t("settings.coverSize")} text={t("settings.coverScaleDesc")} /></span><span class="val"
-                >{settings.coverScale}%</span
-            >
+        <RowActionsConfig
+            title={demoTitle}
+            artist={demoArtist}
+            target={rowTarget}
+            onselect={(k) => (rowTarget = k)}
+        />
+        <div class="lab editor-lab">
+            <span>{rowName}</span><span class="val">{rowValue}%</span>
         </div>
         <input
             type="range"
-            min={COVER_SCALE_MIN}
-            max={COVER_SCALE_MAX}
+            min={rowMin}
+            max={rowMax}
             step="5"
-            value={settings.coverScale}
-            oninput={(e) => setCover(num(e))}
+            value={rowValue}
+            oninput={(e) => setRow(num(e))}
+            aria-label={t("settings.editorSlider", { name: rowName })}
         />
-        <!-- quick-260618-goe (decision #4): live cover-size demo — three mock cover tiles
-             sized off coverScale, the SAME relationship the crow fix now uses. aria-hidden. -->
-        <span class="demo-cap">{t("settings.preview")}</span>
-        <div class="cover-demo" aria-hidden="true">
-            {#each [0, 1, 2] as i (i)}
-                <span
-                    class="cover-demo-tile"
-                    style:width={`${(56 * settings.coverScale) / 100}px`}
-                    style:height={`${(56 * settings.coverScale) / 100}px`}
-                    style:background={`linear-gradient(145deg, hsl(${i * 90 + 200} 55% 38%), hsl(${i * 90 + 240} 55% 22%))`}
-                ></span>
-            {/each}
-        </div>
     </div>
-
-    <!-- quick-260919-l9e: the song-row buttons. NO chip list and NO separate preview — the control
-         IS a replica of the row it configures, so what you arrange is what you get (the same
-         what-you-see philosophy as the cover-size demo above, one step further). The .lab wrapper
-         is what anchors SettingHint's panel; a bare label has no `position: relative`. -->
-    <div class="ctl">
-        <div class="lab">
-            <span
-                >{t("settings.rowButtons")}<SettingHint
-                    label={t("settings.rowButtons")}
-                    text={t("settings.rowButtonsDesc")}
-                /></span
-            >
-        </div>
-        <RowActionsConfig title={demoTitle} artist={demoArtist} />
-    </div>
-
-    <!-- quick-260919-ebi: "Home grid columns" (+ its quick-260618-goe live grid demo) moved to
-         /settings/home, directly after Items per shelf — the label says Home, and Home already
-         owns shelf size and tile density. -->
-
-    <p class="note">{t("settings.appearanceNote")}</p>
 </section>
+
+<!-- quick-260920-kxz: the Now playing editor mounts here (Task 3). -->
 
 <style>
     .reset {
@@ -458,43 +395,19 @@
         width: 100%;
         accent-color: var(--color-primary);
     }
-    .prev {
-        display: inline-block;
-        margin-top: 8px;
-        font-weight: 700;
-        line-height: 1.2;
-    }
-    .prev.muted {
-        color: var(--color-text-muted);
-        font-weight: 600;
+    /* quick-260920-kxz: `.editor-lab` sits UNDER its mock, not above it — the mock is the
+       subject being configured, the readout is its caption. */
+    .editor-lab {
+        margin-top: 12px;
     }
     .note {
         color: var(--color-text-muted);
         font-size: 0.75rem;
         margin: 4px 0 0;
     }
-    /* quick-260618-goe: live preview demos under Cover Size + Home Grid Columns. */
-    .demo-cap {
-        display: block;
-        margin-top: 10px;
-        font-size: 0.6875rem;
-        color: var(--color-text-muted);
-        text-transform: uppercase;
-        letter-spacing: 0.4px;
-    }
-    .cover-demo {
-        display: flex;
-        align-items: flex-end;
-        gap: 8px;
-        margin-top: 6px;
-    }
-    .cover-demo-tile {
-        display: block;
-        border-radius: var(--radius-md);
-        background-color: var(--color-surface-2);
-        flex: none;
-        transition: width 0.12s ease, height 0.12s ease;
-    }
+    /* quick-260920-kxz: the quick-260618-goe cover-demo tiles + `.demo-cap` (and the
+       reduced-motion block that damped their transition) are gone with the section that held
+       them — the replica row's cover wing replaced them. */
     /* quick-260919-ebi: the segmented control, accent swatches and toggle row that arrived with
        theme / accent / reduce-motion, carried VERBATIM from /settings/general so nothing jumps. */
     /* quick-260919-ebi: the .seg CSS moved into SettingPicker.svelte; the accent swatches below
@@ -517,9 +430,4 @@
             0 0 0 4px currentColor;
     }
     /* quick-260919-ebi: the toggle-row CSS moved into SettingToggle.svelte. */
-    @media (prefers-reduced-motion: reduce) {
-        .cover-demo-tile {
-            transition: none;
-        }
-    }
 </style>
