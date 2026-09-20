@@ -830,7 +830,7 @@
 
 {#snippet topArtistsBlock()}
 	{#if topArtists.length}
-		{@render titleNav(t('home.topArtists'), '/charts/top')}
+		{@render titleNav(t('home.topArtists'), '/charts/top?tab=artists')}
 		{#if densityOf('top-artists') === 'list'}
 			<CompactPager items={compactSlice(topArtists)} key={(a) => a.name}>
 				{#snippet row(a: DiscoveryArtist)}

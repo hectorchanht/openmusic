@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
+	import { page } from '$app/state';
+	import { pickTab, syncTabUrl } from '$lib/services/url-tab';
 	import { ListEnd, ListStart } from '@lucide/svelte';
 	import {
 		getChartTopTracks,
@@ -30,7 +32,12 @@
 	// under the per-type convention as a tab toggle on one route). Songs = the deep .row list
 	// with tap/long-press/swipe; Artists = round-avatar rows tapping to /artist/{name}.
 	type View = 'tracks' | 'artists';
-	let view = $state<View>('tracks');
+	// quick-260919-hdr: URL-backed, same idiom as the discography filter (quick-260919-2jo) — seeded
+	// from `?tab=`, validated, anything else falls back to the default. Both home shelves used to
+	// link at the bare `/charts/top`, so "Top artists" landed on the Songs tab; the href now carries
+	// the tab and this seed honours it. Also makes the tab linkable and survive a reload.
+	const VALID_VIEWS: ReadonlySet<string> = new Set(['tracks', 'artists']);
+	let view = $state<View>(pickTab(page.url, 'tab', VALID_VIEWS, 'tracks'));
 
 	let tracks = $state<DiscoveryTrack[]>([]);
 	let artists = $state<DiscoveryArtist[]>([]);
@@ -200,7 +207,7 @@
 		type="button"
 		class="tab"
 		aria-pressed={view === 'tracks'}
-		onclick={() => (view = 'tracks')}
+		onclick={() => { view = 'tracks'; syncTabUrl(page.url, 'tab', 'tracks', 'tracks'); }}
 	>
 		{t('charts.topTracksTab')}
 	</button>
@@ -208,7 +215,7 @@
 		type="button"
 		class="tab"
 		aria-pressed={view === 'artists'}
-		onclick={() => (view = 'artists')}
+		onclick={() => { view = 'artists'; syncTabUrl(page.url, 'tab', 'artists', 'tracks'); }}
 	>
 		{t('charts.topArtistsTab')}
 	</button>
