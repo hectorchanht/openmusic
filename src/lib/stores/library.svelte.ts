@@ -274,8 +274,15 @@ class Library {
 	 * the user may remove an imported entry on purpose; the file itself is protected by blobStore.del's
 	 * device refusal (Plan 34-01), and the player's SILENT eviction site is guarded in player.svelte.ts
 	 * instead.
+	 *
+	 * quick-260919-vrq: `deleteFile: false` is the TrackMenu "Remove download" sheet's UNTICKED path
+	 * — the user chose to keep the files. The row still goes (and its unavailable mark with it), but
+	 * the bytes stay: on native the app-private copy AND the public Music/OpenMusic entry, on the web
+	 * the IndexedDB copy. Recording an import EXCLUSION is deliberately NOT this method's business —
+	 * the caller decides that (see TrackMenu `confirmRemoveDownload`). Omitting the argument is
+	 * byte-for-byte the old behaviour, so every existing call site is untouched.
 	 */
-	removeDownload(uid: string) {
+	removeDownload(uid: string, opts: { deleteFile?: boolean } = {}) {
 		this.downloads = this.downloads.filter((t) => t.uid !== uid);
 		// The row is gone, so its unavailable mark has nothing left to annotate.
 		if (this.unavailable.has(uid)) {
@@ -286,7 +293,7 @@ class Library {
 		this.save();
 		// kyf: also drop the cached blob so the offline cache stays consistent with the
 		// registry (never throws — browser/SSR + IDB-missing return no-op).
-		void blobStore.del(uid);
+		if (opts.deleteFile ?? true) void blobStore.del(uid);
 	}
 
 	// ---- unavailable (34-D-06, persisted per-uid "its file would not read") -----------------
