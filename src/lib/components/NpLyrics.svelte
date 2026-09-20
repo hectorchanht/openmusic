@@ -18,7 +18,7 @@
 	import { t } from '$lib/i18n';
 	import { translateLinesEx } from '$lib/services/translate';
 	import { shouldTranslate } from '$lib/i18n/detect';
-	import { reorderPairs, splitParenLines, lineSeekFraction, activeLineAt, type LyricLine } from '$lib/services/lrc';
+	import { reorderPairs, splitParenLines, lineSeekFraction, activeLineAt, lyricAnchorMetrics, type LyricLine } from '$lib/services/lrc';
 	// quick-260919-2jo: the Chinese script lock for lyric text. `parseLyrics` replaces `parseLRC`
 	// (the ORIGINAL lines); `lockLyricLines` covers the translation column, which is a SECOND source
 	// of source-derived text produced after parse time.
@@ -78,6 +78,12 @@
 	const activeTime = $derived(active.time);
 	let lyricsEl = $state<HTMLElement | null>(null);
 	let autoScroll = $state(true);
+	// quick-260920-n6j: last padding written to `.lyrics`, as the exact CSS strings. Plain `let`s, not
+	// $state — nothing reactive reads them; they only stop the anchor pass from rewriting an unchanged
+	// value. Instance-scoped (NOT module-scoped like `trCache`) on purpose: a remount hands us a FRESH
+	// element with no padding, and a surviving guard would skip re-applying it.
+	let lastPadTop = '';
+	let lastPadBottom = '';
 	let idleTimer: ReturnType<typeof setTimeout> | null = null;
 	// D-10/LYR-02: how long after manual scrolling STOPS before auto-scroll resumes. Raised from
 	// the old 600ms (which snapped the view back mid-read) to ~3s.
@@ -194,9 +200,9 @@
 		// (offsetParent-agnostic), then anchor it inside the panel without changing sheetState.
 		const container = lyricsEl.closest('.panel') as HTMLElement | null;
 		if (!el || !container) return;
-		const elRect = el.getBoundingClientRect();
+		// Every early return is ABOVE this point: an empty, paused-autoScroll or manually-scrolled
+		// pane never reaches the padding write below, so it never carries stray blank space.
 		const cRect = container.getBoundingClientRect();
-		const offsetWithin = elRect.top - cRect.top + container.scrollTop; // line top in container scroll-space
 		// Anchor depends on the sheet mode. In HALF the sheet is position:absolute;inset:0 then
 		// translated DOWN by halfOffset, so container.clientHeight spans the full viewport while only
 		// the slice between the container top and the viewport bottom is actually VISIBLE. Centering on
@@ -217,18 +223,36 @@
 		// which is ample; top-pinning there just parks the line you are reading in the upper third for
 		// no reason. So `closed` top-pins only on the narrow layout, and desktop centres in all three
 		// sheet states — which is the ask. half/full are unchanged on both layouts.
-		const anchorWithin =
-			mode === 'closed' && !desktop
-				? visTopWithin + TOP_PAD
-				: visTopWithin + visHeight / 2 - el.offsetHeight / 2; // visible-band center
-		// ponytail: the FIRST and LAST lines still clamp to the pane edge, because the browser clamps
-		// scrollTop to [0, scrollHeight - clientHeight] and there is no content beyond them to scroll
-		// past. That is a CONTENT limit, not a mode limit — measured at 1440x900, every line that can
-		// be centred lands within 1px in all three states, while the tail of a 56-line lyric in `full`
-		// (791px band, 394px of scroll) sits up to ~136px high. Upgrade path if this ever matters: half
-		// a band's worth of blank scroll padding above and below `.lyrics`, Spotify-style. Not taken
-		// here — it pushes real lyric text down by ~400px in `full` to buy edge-centring nobody asked
-		// for, and the ask was about the three sheet modes.
+		const { anchorWithin, padTop, padBottom } = lyricAnchorMetrics({
+			visTopWithin,
+			visHeight,
+			clientHeight: container.clientHeight,
+			lineHeight: el.offsetHeight,
+			topPin: mode === 'closed' && !desktop,
+			topPad: TOP_PAD
+		});
+		// quick-260920-n6j: the padding upgrade path the old ceiling comment named — TAKEN. The browser
+		// clamps scrollTop to [0, scrollHeight - clientHeight], so without blank space beyond the head
+		// and tail of the lyric those lines could never reach the anchor. Head pad = the anchor offset
+		// (line 1 lands on the anchor at scrollTop 0); tail pad = clientHeight - anchor - line (the last
+		// line lands on it at max scroll). Both are derived from the LIVE anchor, so the phone top-pin
+		// gets its own, much smaller pads and its tail lines reach the pin too.
+		// Write only on CHANGE: padding shifts `offsetWithin`, and an unconditional write would
+		// invalidate layout on every anchor pass (~4 Hz, once per timeupdate).
+		const topPx = `${padTop}px`;
+		const bottomPx = `${padBottom}px`;
+		if (topPx !== lastPadTop) {
+			lyricsEl.style.paddingTop = topPx;
+			lastPadTop = topPx;
+		}
+		if (bottomPx !== lastPadBottom) {
+			lyricsEl.style.paddingBottom = bottomPx;
+			lastPadBottom = bottomPx;
+		}
+		// ONLY NOW measure the line: the padding above just moved it. `cRect` stays valid — inner
+		// padding does not move the bounded `.panel` scroller's own rect.
+		const elRect = el.getBoundingClientRect();
+		const offsetWithin = elRect.top - cRect.top + container.scrollTop; // line top in container scroll-space
 		container.scrollTo({ top: offsetWithin - anchorWithin, behavior: 'smooth' });
 	}
 
