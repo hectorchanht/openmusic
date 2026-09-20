@@ -956,6 +956,133 @@ describe('player.spliceAndPlay — splice after current + non-fresh play (38-D-0
 	});
 });
 
+
+// 38-D-05/D-06/D-29: armTrack is the COLD share-arrival seat — the exact state restore() builds for
+// a PWA reopen (cover seed → syncMetadata → resolve → audio.src) minus everything persistence-
+// specific, and it must NEVER call play(). The empty-queue test below is the regression that pins
+// D-29: playNext autoplays when the queue is empty, which is precisely the trap a first-time share
+// visitor (nothing persisted → restore() returns early → current is null) would otherwise fall into.
+describe('player.armTrack — cold seat: resolved + armed + paused, never plays (38-D-05/D-06/D-29)', () => {
+	const S = () => stub('kuwo', 'A9', 'Oasis', 'Live Forever');
+	const A = () => mk('kuwo', 'AA', 'Coldplay', 'Yellow');
+	const B = () => mk('kuwo', 'AB', 'Coldplay', 'Trouble');
+	const C = () => mk('kuwo', 'AC', 'Coldplay', 'Spies');
+	const uids = (ts: Track[]) => ts.map((t) => t.uid);
+	const manual = () => (player as unknown as { manualUids: Set<string> }).manualUids;
+	const ARM_STATE_KEY = 'openmusic:player:v1';
+	let fake: ReturnType<typeof makeFakeAudio>;
+
+	// The suite-wide play spy is KEPT here on purpose — `expect(player.play).not.toHaveBeenCalled()`
+	// is a stronger statement of D-06 than "the fake audio never got a play() call" alone.
+	beforeEach(() => {
+		mockEnsure.mockReset();
+		mockGetPinned.mockReset().mockReturnValue(null);
+		mockUidCover.mockReset().mockReturnValue(null);
+		mockNameCover.mockReset().mockReturnValue(null);
+		vi.spyOn(library, 'isDownloaded').mockReturnValue(false);
+		player.current = null;
+		player.queue = [];
+		player.loading = false;
+		manual().clear();
+		fake = makeFakeAudio();
+		player.attach(fake as unknown as HTMLAudioElement);
+	});
+
+	it('cold + empty queue: seats the track armed and paused — NO audio.play(), ever', async () => {
+		const s = S();
+		mockEnsure.mockResolvedValue({ ...s, audioUrl: 'https://cdn/s.mp3', detailsLoaded: true });
+
+		const resolved = await player.armTrack(s);
+
+		expect(resolved?.uid).toBe(s.uid);
+		expect(fake.play).not.toHaveBeenCalled();
+		expect(player.play).not.toHaveBeenCalled();
+		expect(player.current?.uid).toBe(s.uid);
+		expect(fake.src).toBe('https://cdn/s.mp3');
+		expect(uids(player.queue)).toEqual([s.uid]);
+		expect(player.loading).toBe(false);
+		expect(player.playing).toBe(false);
+	});
+
+	it('over a paused restored session: splices after current and keeps the queue shape (38-D-02)', async () => {
+		const [a, b, c] = [A(), B(), C()];
+		player.queue = [a, c, b];
+		player.current = c;
+		player.upNextAnchorUid = a.uid;
+		player.repeatMode = 'one';
+		player.shuffle = true;
+		const s = S();
+		mockEnsure.mockResolvedValue({ ...s, audioUrl: 'https://cdn/s.mp3', detailsLoaded: true });
+
+		await player.armTrack(s);
+
+		expect(uids(player.queue)).toEqual([a.uid, c.uid, s.uid, b.uid]);
+		expect(player.current?.uid).toBe(s.uid);
+		expect(player.upNextAnchorUid).toBe(a.uid); // NOT re-anchored
+		expect(player.repeatMode).toBe('one');
+		expect(player.shuffle).toBe(true);
+		expect(manual().has(s.uid)).toBe(false); // pin:false semantics
+	});
+
+	it('persists the armed seat so a reload restores the SHARED song (38-D-04)', async () => {
+		const s = S();
+		mockEnsure.mockResolvedValue({ ...s, audioUrl: 'https://cdn/s.mp3', detailsLoaded: true });
+
+		await player.armTrack(s);
+
+		const raw = localStorage.getItem(ARM_STATE_KEY) as string;
+		expect(JSON.parse(raw).current.uid).toBe(s.uid);
+	});
+
+	it('seeds resolvedCover from the uid cache SYNCHRONOUSLY, before the resolve settles', async () => {
+		const s = S();
+		mockUidCover.mockReturnValue('https://img/x.jpg');
+		const d = deferred<Track>();
+		mockEnsure.mockReturnValue(d.promise);
+
+		const p = player.armTrack(s); // do NOT await — the seat is synchronous
+
+		expect(player.resolvedCover).toBe('https://img/x.jpg');
+		expect(player.current?.uid).toBe(s.uid);
+		d.resolve({ ...s, audioUrl: 'https://cdn/s.mp3', detailsLoaded: true });
+		await p;
+	});
+
+	it('a carrier miss (no playable url) returns null and leaves no dead row in the queue (38-D-10)', async () => {
+		const s = S();
+		mockEnsure.mockResolvedValue(s); // still audioUrl:null — nothing to arm
+
+		const resolved = await player.armTrack(s);
+
+		expect(resolved).toBeNull();
+		expect(fake.src).toBe('');
+		expect(uids(player.queue)).not.toContain(s.uid);
+		expect(player.loading).toBe(false);
+	});
+
+	it('a newer play() supersedes an in-flight arm: no src, and loading is left to the newer call', async () => {
+		const s = S();
+		const d = deferred<Track>();
+		mockEnsure.mockReturnValue(d.promise);
+
+		const p = player.armTrack(s);
+		(player as unknown as { playGen: number }).playGen++; // a user tap started something else
+		d.resolve({ ...s, audioUrl: 'https://cdn/s.mp3', detailsLoaded: true });
+
+		await expect(p).resolves.toBeNull();
+		expect(fake.src).toBe('');
+		expect(player.loading).toBe(true); // NOT flipped — the newer call owns it
+	});
+
+	it('never throws: a rejecting resolve settles to null with loading cleared', async () => {
+		const s = S();
+		mockEnsure.mockRejectedValue(new Error('upstream down'));
+
+		await expect(player.armTrack(s)).resolves.toBeNull();
+		expect(player.loading).toBe(false);
+	});
+});
+
 describe('player.playStub — optimistic resolve-on-tap (FIX-A)', () => {
 	it('locks the tapped stub into pendingTrack + loading SYNCHRONOUSLY, before resolve', () => {
 		const d = deferred<Track | null>();
