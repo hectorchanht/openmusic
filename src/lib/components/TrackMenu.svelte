@@ -935,9 +935,12 @@
 				     Download is DELIBERATELY duplicated (header icon + list row): both call the SAME
 				     gated('download', doDownload) and read the SAME tri-state sources (inFlight +
 				     library.downloading / isDownloaded), so the two can never disagree (D-11/D-12). -->
-				<!-- 34 (RESEARCH bites #10/#11, UI-SPEC Contract 8): Download and Share are HIDDEN for
-				     device: entries — downloading a file already on this phone and sharing a link to a
-				     file only on this phone are both nonsense. This is a NEW visibility condition;
+				<!-- 34 (RESEARCH bites #10/#11, UI-SPEC Contract 8): Download is HIDDEN for device:
+				     entries — downloading a file already on this phone is nonsense. This is a NEW
+				     visibility condition.
+				     quick-260920-kia: Contract 8's SHARE half is SUPERSEDED — Share is unconditional;
+				     see the Share row's note below for why the "local uid in the URL" premise no longer
+				     holds. The `!isDevice` fork below gates DOWNLOAD ONLY.
 				     track-menu-gate.ts (isGatedReady/shouldStartResolve) is resolve TIMING and is
 				     deliberately not extended. -->
 				<!-- quick-260919-et3: Like as a header icon, BEFORE Download. Duplicated with the Like
@@ -1195,11 +1198,17 @@
 		     here, so the timer indicator is reachable from the nowbar + now-playing too (D-08). -->
 		<button class="mi" onclick={() => { close(); tick().then(() => (sleepTimer.sheetOpen = true)); }} use:tapBounce><Moon size={18} /> {t('menu.sleepTimer')}</button>
 		<button class="mi" onclick={gotoArtist} use:tapBounce><User size={18} /> {t('menu.goToArtist')}</button>
-		<!-- Hidden for device: entries — a share link to a file only on this phone is nonsense
-		     (and would emit a URL carrying a local uid). See the header fork's note. -->
-		{#if !isDevice}
-			<button class="mi" onclick={doShare} use:tapBounce><Share2 size={18} /> {t('menu.share')}</button>
-		{/if}
+		<!-- quick-260920-kia: Share is UNCONDITIONAL — UI-SPEC Contract 8's `!isDevice` guard on
+		     Share (see the header fork's note) is SUPERSEDED. Its rationale ("a share link to a file
+		     only on this phone is nonsense, and would emit a URL carrying a local uid") was wrong
+		     about the mechanism: songShareUrl() emits a NAME-based /song/{artist}/{title} catalog
+		     link, and share.ts uidCarrier() returns null for isDeviceUid() (38-D-08), so an imported
+		     local track shares a valid catalog link and no device: uid ever reaches the URL. Sharing
+		     an imported song therefore means what sharing any other song means: "here is this song".
+		     NO runtime guard is added in doShare() — the device skip already lives at the one place
+		     every caller routes through (share.ts), pinned by share.test.ts "a `device:` uid carries
+		     NOTHING". Do not reintroduce a device guard here. -->
+		<button class="mi" onclick={doShare} use:tapBounce><Share2 size={18} /> {t('menu.share')}</button>
 		<!-- Detail: GATED — resolves details to populate the detail sheet's audioUrl/quality rows. -->
 		<button class="mi" aria-busy={inFlight.has('detail')} aria-label={inFlight.has('detail') ? t('menu.preparing') : undefined} onclick={() => gated('detail', doDetail)} use:tapBounce>
 			{#if inFlight.has('detail')}<span class="row-spinner motion-always"></span>{:else}<Info size={18} />{/if} {t('menu.detail')}
