@@ -495,10 +495,10 @@ Plans:
 
 **Requirements**: TBD
 **Depends on:** Phase 37
-**Plans:** 9 plans
+**Plans:** 1/9 plans executed
 
 Plans:
-- [ ] 38-01-PLAN.md — Pure seam: `songShareUrl` uid carrier (`?u={source}{songid}`, D-30 enum fix) + `share-arrival.ts` arrivalMode / stubFromUidParam / deepLinkPath with node tests (wave 1)
+- [x] 38-01-PLAN.md — Pure seam: `songShareUrl` uid carrier (`?u={source}{songid}`, D-30 enum fix) + `share-arrival.ts` arrivalMode / stubFromUidParam / deepLinkPath with node tests (wave 1)
 - [ ] 38-02-PLAN.md — Player: `spliceAfterCurrent` helper, `spliceAndPlay` (warm, D-07), `armTrack` (cold seat, never plays — D-29), NpRelated net deletion, D-06 empty-queue regression test (wave 1)
 - [ ] 38-03-PLAN.md — Android static half: `static/.well-known/assetlinks.json` (debug fingerprint) + autoVerify VIEW intent-filter on MainActivity (wave 1)
 - [ ] 38-04-PLAN.md — Arrival orchestration: `arriveTrack` + `arriveShared` (carrier fast path, D-10 name fall-through) + mocked branch tests (wave 2)

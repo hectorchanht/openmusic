@@ -4,13 +4,13 @@ milestone: v1.5
 milestone_name: YTMusic-Powered Up-Next
 status: executing
 stopped_at: Phase 38 planned — 9 plans in 4 waves
-last_updated: "2026-09-20T19:25:29.744Z"
-last_activity: "2026-09-20 - quick-260919-vrq: TrackMenu's Download row split so its caret is a real button opening the source picker (long-press still works, suppressor verified across the split), plus a \"Remove download\" row whose confirm sheet carries a keep-the-file toggle — ON deletes the offline copy and records an exclusion, OFF drops only the library row. Required an additive `removeDownload(uid, { deleteFile })` with a default that leaves both existing callers untouched. pnpm check 0 errors, 2923 tests pass, and both toggle directions were verified against real IndexedDB + localStorage state in the browser, not just unit-tested. NOTE: the OFF path cannot promise the file won't return — a rescan finds it under a new device: uid; the copy is worded accordingly. Five quick tasks today (oc6, pbs, pid, v71, vrq) are all on main and NOTHING IS PUSHED. Open from before: 37-04 device UAT, and the Android per-file-vs-per-sweep write-consent question from quick-260919-ejm"
+last_updated: "2026-09-20T19:37:31.065Z"
+last_activity: 2026-09-20
 progress:
   total_phases: 17
   completed_phases: 7
   total_plans: 93
-  completed_plans: 73
+  completed_plans: 74
   percent: 41
 ---
 
@@ -21,13 +21,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-10)
 
 **Core value:** A user on their phone can search a song, tap it, and have it play instantly with a smooth, native-app-like experience — and keep playing when the screen locks.
-**Current focus:** Phase 34 — import-device-songs-as-native-downloads
+**Current focus:** Phase 38 — share-links-that-play-instantly-and-open-in-the-app
 
 ## Current Position
 
-Phase: 34 (import-device-songs-as-native-downloads) — EXECUTING
-Plan: 9 of 11
-Status: Executing Phase 34
+Phase: 38 (share-links-that-play-instantly-and-open-in-the-app) — EXECUTING
+Plan: 2 of 9
+Status: Executing Phase 38
 
 ### 36-05 checkpoint status
 
@@ -95,7 +95,7 @@ Full observed evidence: `.planning/phases/30-carrier-free-share-links-type-artis
 ### Prior phase (Phase 27 — YouTube Music Source, v1.4) — COMPLETE + E2E-VERIFIED
 
 Phase 27 complete (27-01..04). E2E-verified against LIVE YouTube via the dev-server routes: /api/ytmusic/search 200 (rows+videoId), /api/ytmusic/lyrics 200 (1513c + attribution), /api/ytmusic/stream 206 audio/mp4 + Range (playback) and 200 full-file (download). pnpm check clean, 1320 tests green. E2E caught + fixed a prod-breaking bug (quick-270715 / commit 29c1c7d): stream route exported non-HTTP-verb functions, illegal in SvelteKit +server.ts → 500; helpers moved to $lib/proxy/ytmusic.ts.
-Last activity: 2026-09-20 - quick-260919-vrq: TrackMenu's Download row split so its caret is a real button opening the source picker (long-press still works, suppressor verified across the split), plus a "Remove download" row whose confirm sheet carries a keep-the-file toggle — ON deletes the offline copy and records an exclusion, OFF drops only the library row. Required an additive `removeDownload(uid, { deleteFile })` with a default that leaves both existing callers untouched. pnpm check 0 errors, 2923 tests pass, and both toggle directions were verified against real IndexedDB + localStorage state in the browser, not just unit-tested. NOTE: the OFF path cannot promise the file won't return — a rescan finds it under a new device: uid; the copy is worded accordingly. Five quick tasks today (oc6, pbs, pid, v71, vrq) are all on main and NOTHING IS PUSHED. Open from before: 37-04 device UAT, and the Android per-file-vs-per-sweep write-consent question from quick-260919-ejm
+Last activity: 2026-09-20
 Remaining human UAT: real-device <audio> playback+seek + download-to-disk; deployed-Worker player+googlevideo same-IP egress + bot-challenge under load (T-27-03-OP). Account/library sync = separate legal-gated milestone (spike 008).
 
 ## Performance Metrics
@@ -196,6 +196,7 @@ Remaining human UAT: real-device <audio> playback+seek + download-to-disk; deplo
 | Phase 34 P06 | 7min | 2 tasks | 2 files |
 | Phase 34 P07 | 8min | 2 tasks | 5 files |
 | Phase 34 P08 | 18min | 3 tasks | 3 files |
+| Phase 38 P01 | 20m | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -340,6 +341,8 @@ Recent decisions affecting current work:
 - [Phase ?]: 34-07: the import completion toast is a PRECEDENCE (failed > patternFellBack > done), not sequential assignments — one notice slot with no await between writes made toast.patternFellBack unreachable
 - [Phase ?]: 34-07: plan.relink is applied BEFORE library.setDownloads, so a relinked song is playable immediately rather than after the next launch
 - [Phase ?]: 34-08: /settings/downloads index row stays visible on web — Phase 36's retag shares the page and works there, so the native gate lives in the page body, not the navigation
+- [Phase 38]: 38-D-08/D-09: share carrier is the separator-less {source}{songid} form, reusing parseEntityParam as the validator — Zero new validation code and the closed source enum doubles as the input-validation allowlist for the attacker-controllable ?u= param
+- [Phase 38]: 38-D-30: the share source enum now includes audius|ytmusic — It is the allowlist standing between the ?u= carrier and a SOURCES[source].resolve dispatch, so it must equal the SourceId union
 
 ### Pending Todos
 
@@ -535,7 +538,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-20T19:25:29.732Z
+Last session: 2026-09-20T19:36:08.992Z
 Stopped at: Phase 38 planned — 9 plans in 4 waves
 Resume: run 32-08-PLAN.md (device checkpoints). **32-07 closed VALIDATION #6 and the v2 half of #3, and BLOCKED two v3 walks — 32-08 must pick them up.** PROVEN LIVE on the deployed workerd edge (https://openmusic.lol, which is already running 32-04): cold GET `{"hit":false}` -> warm GET `{"hit":true}` with a qq `songid`, NO `url` field, `avail.qq:"ok"`; 9/9 warm hits across the YVR and SEA PoPs; POST bust `{"busted":true}` -> miss -> unattended re-fill -> hit (the 32-D-10a repair path works); `Cache-Control: no-store` on every route response (31-D-09 intact). BLOCKED, carry to 32-08: the two 32-D-20 v3 url-layer walks — (1) stale-url -> refresh, (2) bust -> miss -> mid-only -> url-warm — because v3 is on `main` but NOT deployed (the live entries carry no `url` keys, while v3's fill emits explicit nulls), and no preview server could be started here. Exact commands are in 32-07-SUMMARY.md § Task 2; run `pnpm build && pnpm preview` (NOT `pnpm dev` — `edgeCache()` returns null there) or `pnpm run deploy` (NEVER bare `pnpm deploy`). Expect every warm entry to miss once on the v2->v3 key rollover; that is by design. Folded todo `edge-resolve-cache-returns-miss.md` RESOLVED and moved to completed/ — root cause was the probe using `?artist=&title=` when the route has only ever read `a`/`t`, so it hit the `if (!a && !t)` zero-touch short-circuit and never consulted the cache. Still outstanding from Phase 30, unchanged: install `android/app/build/outputs/apk/debug/app-debug.apk` on an Android device, open `/song/Olivia-Dean/Man-I-Need` (proven to return a real 30,840 B JPEG from production), confirm the cover renders rather than a broken image, then kill the network and confirm the gradient fallback appears. That single check closes 30-06 and Phase 30. Do NOT run `/gsd:verify-work` for Phase 30 until it is approved — OG-PAGE-01 terminates in it. Optional, non-blocking leftovers: iMessage/Slack cards, and real 24h cache TTL/eviction.
 
