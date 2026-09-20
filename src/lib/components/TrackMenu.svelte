@@ -165,7 +165,14 @@
 	const activeCover = $derived(
 		track
 			? (readPinnedCover(track.uid) ??
-					(player.current?.uid === track.uid ? player.resolvedCover : null) ??
+					// quick-260920-oj8 — closes the quick-260920-nyq deferred item. This rung was
+					// `player.resolvedCover`, the OLD precedence: nyq made the hero / Nowbar / OS card paint
+					// from the shared cache first, so for the playing song this ladder could tick a picker
+					// tile that is NOT the art on screen. The user's call is one resolver everywhere —
+					// "same song, same cover everywhere" — so it reads the ONE now-playing reader
+					// (`displayCover`: pin → uid → name → resolvedCover, embedded `data:` kept ahead of the
+					// https-only cache per 37-D-02). Not re-inlined: the getter is the single seam.
+					(player.current?.uid === track.uid ? player.displayCover : null) ??
 					readCoverByUidOrName(track.uid, track.artist, track.title) ??
 					track.cover ??
 					null)
