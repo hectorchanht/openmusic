@@ -4,9 +4,11 @@
 // embed a stale stream URL. The visible URL also carries a human-readable `?t=<slug>`
 // segment for readability — the authoritative decode reads the opaque `play` payload.
 import { apiOrigin } from '$lib/services/api-base';
+// device-track.ts is PURE (it imports only $lib/sources/types), so share.ts stays server-importable.
+import { isDeviceUid } from '$lib/services/device-track';
 import type { Track } from '$lib/sources/types';
 
-type Stub = Pick<Track, 'uid' | 'source' | 'songid' | 'title' | 'artist' | 'album' | 'cover'>;
+export type Stub = Pick<Track, 'uid' | 'source' | 'songid' | 'title' | 'artist' | 'album' | 'cover'>;
 
 /**
  * The origin every share link is built on (quick-260919-0mw).
@@ -86,7 +88,7 @@ function toStub(t: Track): Stub {
 }
 
 /** Rehydrate a persisted stub into a full (unresolved) Track — audio URL/lyrics re-fetched on play. */
-function stubToTrack(v: Stub): Track {
+export function stubToTrack(v: Stub): Track {
 	return {
 		...v,
 		audioUrl: null,
@@ -415,14 +417,43 @@ export function coverToken(
 export function songShareUrl(
 	t: { title: string; artist: string },
 	coverUrl?: string | null,
-	itunesId?: string | null
+	itunesId?: string | null,
+	id?: { uid: string; source: string; songid: string } | null
 ): string {
 	const base = shareOrigin(); // quick-260919-0mw — public origin when the runtime one is localhost/capacitor/file
 	const path = `${base}/song/${encodePathSegment(t.artist)}/${encodePathSegment(t.title)}`;
 	// quick-260809-3uo: a cover that does not tokenize adds NO param at all — never `?ci=` empty,
 	// never a junk value. The path segments are untouched, so raw CJK survives (quick-260807-vl1).
 	const token = coverToken(coverUrl, itunesId);
-	return usableToken(token) ? `${path}?ci=${encodeURIComponent(token)}` : path;
+	const withCi = usableToken(token) ? `${path}?ci=${encodeURIComponent(token)}` : path;
+	// 38-D-08: `ci` stays FIRST, `u` second — the `/song/{artist}/{title}?ci=` prefix is a pinned
+	// contract, and a carrier-free call appends nothing, so today's links stay byte-identical.
+	const u = uidCarrier(id);
+	return u ? `${withCi}${withCi.includes('?') ? '&' : '?'}u=${encodeURIComponent(u)}` : withCi;
+}
+
+/**
+ * 38-D-08/D-09: the song-identity carrier value for `?u=`, or `null` for "emit nothing".
+ *
+ * FORM — separator-less `{source}{songid}` (`kuwo123`), NOT the colon uid. That is exactly what
+ * `parseEntityParam` already decodes, so the recipient reuses a TESTED validator verbatim instead
+ * of getting a second, subtly-different source check (RESEARCH §7c option 1). D-09's "readable in a
+ * URL bar" holds either way.
+ *
+ * EMIT ONLY IF IT DECODES — the quick-260809-3uo rule applied to `u`. A songid that does not round
+ * trip (empty, or a ytmusic id containing `-`, which the `[A-Za-z0-9]+` anchor rejects) would be a
+ * junk param the recipient must ignore anyway, so it is never written. Such a link degrades to
+ * today's name resolve (D-10), never to a broken carrier.
+ *
+ * DEVICE TRACKS ARE SKIPPED — 34-D-01: a `device:` track's `source` is a PLACEHOLDER (`'kuwo'`)
+ * that is never dispatched. Emitting `u=kuwo{mediastore id}` would make the recipient resolve and
+ * play a COMPLETELY DIFFERENT song under the local file's title. The uid is the only honest
+ * discriminator, so the gate reads it rather than the source.
+ */
+function uidCarrier(id?: { uid: string; source: string; songid: string } | null): string | null {
+	if (!id || isDeviceUid(id.uid)) return null;
+	const param = `${id.source}${id.songid}`;
+	return parseEntityParam(param) ? param : null;
 }
 
 /**
@@ -460,14 +491,19 @@ export function entityCardUrl(opts: { type: 'album' | 'artist'; name: string; ar
  *  set, `{source}{id}` is unambiguously separable from the cosmetic slug (D-04 / A7). This list
  *  MUST stay aligned with the live `SourceId` union in $lib/sources/types (24-04 reconcile:
  *  the previous `kugou|migu` anchor was stale — those sources don't exist; the real set is
- *  netease|qq|kuwo|joox|fivesing|jamendo, so fivesing/jamendo entity links now decode). */
+ *  netease|qq|kuwo|joox|fivesing|jamendo, so fivesing/jamendo entity links now decode).
+ *  38-D-30: it was stale AGAIN — `audius` and `ytmusic` shipped without being added here, so those
+ *  entity links silently fell through to the name resolve. It matters more now than it did: this
+ *  alternation is ALSO the V5 input-validation allowlist for the attacker-controllable `?u=` share
+ *  carrier (T-38-01), the only gate between a query param and a `SOURCES[source].resolve` dispatch.
+ *  It MUST equal the `SourceId` union in $lib/sources/types — check both when adding a source. */
 // WR-03: anchor on the LAST `-{source}{id}` boundary. The leading `.*` is greedy, so the regex
 // consumes as much of the cosmetic slug as possible before backtracking to the final valid
 // `-{source}{id}` occurrence — a slug whose text contains an earlier source-name word (e.g.
 // `kuwo-mix-qq42`) no longer mis-splits on the earlier token. The `^` + `.*` keeps the match
 // rooted so partial mid-string matches can't sneak in.
-const ENTITY_SOURCE_RE = /^.*-(netease|qq|kuwo|joox|fivesing|jamendo)([A-Za-z0-9]+)$/;
-const ENTITY_SOURCE_ONLY_RE = /^(netease|qq|kuwo|joox|fivesing|jamendo)([A-Za-z0-9]+)$/;
+const ENTITY_SOURCE_RE = /^.*-(netease|qq|kuwo|joox|fivesing|jamendo|audius|ytmusic)([A-Za-z0-9]+)$/;
+const ENTITY_SOURCE_ONLY_RE = /^(netease|qq|kuwo|joox|fivesing|jamendo|audius|ytmusic)([A-Za-z0-9]+)$/;
 
 /**
  * Build a readable per-entity share URL `${origin}/{type}/{slug}-{source}{id}` (D-04). The slug
