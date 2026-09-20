@@ -257,11 +257,12 @@
 				     charts/countries were (quick-260919-l9e) — same DiscoveryTrack stubs, so the same
 				     four overrides. `onplay` is playStub (not setListQueue + play), `onrequestmenu`
 				     resolves BEFORE opening, and the swipe pair keeps the D-16/WR-03
-				     per-row-per-action in-flight guard. `actions={[]}` because a stub carries no uid:
-				     Like/Download key off the RESOLVED uid, so they would be no-ops wearing a real
-				     button — and toggleLike would otherwise persist a synthetic uid into the liked
-				     list. The ⋮ is unconditional, so the menu is now reachable by TAP here, not only
-				     by long-press. {@const} must be the immediate block child of the {#each}. -->
+				     per-row-per-action in-flight guard. `resolve` is the same resolve-on-tap seam for
+				     the INLINE buttons (quick-260919-l9e): a stub carries no uid, so Like/Download key
+				     off the RESOLVED uid — the row used to pass `actions={[]}` to hide them, which
+				     meant settings.rowActions was silently ignored here. The ⋮ is unconditional, so
+				     the menu is reachable by TAP, not only by long-press. {@const} must be the
+				     immediate block child of the {#each}. -->
 				{@const stub = stubTrack(it)}
 				<li class="row-wrap">
 					<!-- Reveal layers behind the row: right=queue (primary), left=play next. -->
@@ -269,7 +270,7 @@
 					<span class="reveal reveal-left" aria-hidden="true"><ListStart size={20} /></span>
 					<SongRow
 						track={stub}
-						actions={[]}
+						resolve={() => resolveStub(it.artist, it.title).catch(() => null)}
 						onplay={() => play(it)}
 						onrequestmenu={() => openMenu(it)}
 						swipe={{ onSwipeRight: () => swipeQueue(it), onSwipeLeft: () => swipeNext(it) }}

@@ -36,7 +36,6 @@
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import SongRow from '$lib/components/SongRow.svelte';
 	import TrackMenu from '$lib/components/TrackMenu.svelte';
-	import DownloadControl from '$lib/components/DownloadControl.svelte';
 	import PageOg from '$lib/components/PageOg.svelte';
 	import type { PageData } from './$types';
 	import type { Track } from '$lib/sources/types';
@@ -720,23 +719,25 @@
 						     now-bar and albumQueue(i, real) slot-substitutes in the same tick. `lazy={false}`
 						     because every row on an album legitimately shares the one album cover, so N
 						     per-row resolve chains would buy nothing; `cover={heroImg}` is that shared art.
-						     `actions={[]}` — a stub has no resolved uid, and the album's own download
-						     control is the resolve-on-tap sibling below, which SongRow cannot express. -->
+						     quick-260919-l9e: the D-11 album-row DownloadControl that used to sit OUTSIDE
+						     this row is now INSIDE it — SongRow takes the very same `resolve` + `persist`
+						     pair and hands them straight to the same component, so the control is
+						     unchanged while `settings.rowActions` finally governs it (order included) as
+						     it does on every other surface. It also feeds the Like button, which could not
+						     exist here before: an album row's nameStub uid is TRUTHY, so liking it without
+						     resolving would persist an unplayable `similar-` uid. -->
 						<SongRow
 							track={rowTrack}
 							index={i}
 							cover={heroImg}
-							actions={[]}
 							lazy={false}
+							persist={false}
+							resolve={() => resolveStub(track.artist, track.title).catch(() => null)}
 							onplay={() => playStub(track, i)}
 							onrequestmenu={() => openMenu(track)}
 							swipe={{ onSwipeRight: () => swipeQueue(track), onSwipeLeft: () => swipeNext(track) }}
 						/>
 					</div>
-					<!-- D-11 album-row control. Album rows are {artist,title} STUBS → resolve on tap
-					     (persist:false, see downloadAlbum LIMITATION note). Per-uid state only surfaces
-					     after a resolve, so a stub reads idle until first tapped — acceptable for stubs. -->
-					<DownloadControl track={null} persist={false} resolve={() => resolveStub(track.artist, track.title).catch(() => null)} />
 				</li>
 			{/if}
 		{/each}
@@ -792,8 +793,9 @@
 		padding: 9px 18px; font-size: 13px; font-weight: 600; cursor: pointer;
 	}
 	.list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
-	/* D-11: each row = the swipe-wrap (flex 1) + a trailing DownloadControl (its own tap target,
-	   OUTSIDE the overflow:hidden swipe-wrap so the swipe reveal never clips it). */
+	/* D-11: each row is the swipe-wrap (flex 1). It used to carry a trailing DownloadControl as a
+	   sibling — quick-260919-l9e moved that control INSIDE SongRow so settings.rowActions governs it,
+	   and the flex column is kept because the row's own geometry depends on nothing else. */
 	.row-line { display: flex; align-items: center; gap: 6px; }
 	.row-line .swipe-wrap { flex: 1; min-width: 0; }
 	/* UX-04: positioning context for the swipe reveal layers. The reveal spans sit BEHIND the row

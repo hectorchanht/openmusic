@@ -167,17 +167,19 @@
 			     interaction has to resolve first — which is why all four callbacks are overridden
 			     here rather than taking SongRow's defaults: `onplay` is playStub (not setListQueue
 			     + play), `onrequestmenu` resolves before opening, and the swipe pair keeps the
-			     D-16/WR-03 per-row-per-action in-flight guard. `actions={[]}` because a stub has no
-			     uid: Like/Download key off the RESOLVED uid and would be no-ops wearing a real
-			     button. The ⋮ is unconditional, so the menu is now reachable by tap, not only by
-			     long-press. {@const} must be the immediate block child of the {#each}. -->
+			     D-16/WR-03 per-row-per-action in-flight guard. `resolve` is that same seam for the
+			     INLINE buttons (quick-260919-l9e): a stub has no uid, so Like/Download key off the
+			     RESOLVED uid. This row used to pass `actions={[]}` to hide them, which meant
+			     settings.rowActions was silently ignored here. The ⋮ is unconditional, so the menu is
+			     reachable by tap, not only by long-press. {@const} must be the immediate block child
+			     of the {#each}. -->
 			{@const stub = stubTrack(it)}
 			<li class="row-wrap">
 				<span class="reveal reveal-right" aria-hidden="true"><ListEnd size={20} /></span>
 				<span class="reveal reveal-left" aria-hidden="true"><ListStart size={20} /></span>
 				<SongRow
 					track={stub}
-					actions={[]}
+					resolve={() => resolveStub(it.artist, it.title).catch(() => null)}
 					onplay={() => play(it)}
 					onrequestmenu={() => openMenu(it)}
 					swipe={{ onSwipeRight: () => swipeQueue(it), onSwipeLeft: () => swipeNext(it) }}

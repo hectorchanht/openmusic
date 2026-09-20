@@ -83,8 +83,10 @@
 	import { settings, type RowAction } from '$lib/stores/settings.svelte';
 	import { tick as hapticTick } from '$lib/util/haptics';
 	import { t } from '$lib/i18n';
+	import { rowActionTarget, hasRealIdentity } from '$lib/components/row-action-target';
 	import RowBadges from '$lib/components/RowBadges.svelte';
 	import DownloadControl from '$lib/components/DownloadControl.svelte';
+	import DownloadRing from '$lib/components/DownloadRing.svelte';
 
 	interface Props {
 		/** The song. `uid = ${source}:${songid}` is IDENTITY (makeUid). */
@@ -106,6 +108,18 @@
 		 *  button just because the setting is on. The ⋮ is NOT in this union: it always renders,
 		 *  which is what makes an empty list a safe choice rather than a dead-end row. */
 		actions?: RowAction[];
+		/** RESOLVE-ON-TAP, for a surface whose rows are STUBS (quick-260919-l9e). Omit on a surface
+		 *  whose rows are already real Tracks — a real row must not gain a single instruction from
+		 *  this. When set, an inline action that needs identity resolves FIRST and then acts on the
+		 *  result: that is what lets charts/album rows carry Like/Download at all, instead of the
+		 *  `actions={[]}` opt-out they used to need. Called ONLY from a tap (D-7 forbids per-row
+		 *  network on a render path), at most once per row — the result is cached and shared by both
+		 *  buttons. It must never throw; return null for "no playable match". */
+		resolve?: (() => Promise<Track | null>) | null;
+		/** Forwarded verbatim to DownloadControl. The album tracklist passes false (album downloads
+		 *  stay OUT of the offline blob / native public folder — 29-CONTEXT Open Q2); everything
+		 *  else takes the default. */
+		persist?: boolean;
 		/** Second line. Default `names.dnArtist(track.album || track.artist)`. */
 		subtitle?: string;
 		/** A host-known cover → rung 2 of pickRowCover. OMIT and it defaults to `track.cover`, the
@@ -134,6 +148,8 @@
 		swipe = undefined,
 		grip = false,
 		actions = undefined,
+		resolve = null,
+		persist = true,
 		subtitle = undefined,
 		cover = undefined,
 		active = undefined,
@@ -146,7 +162,18 @@
 	const acts = $derived(actions ?? settings.rowActions);
 	const sub = $derived(subtitle ?? names.dnArtist(track.album || track.artist));
 	const isActive = $derived(active ?? player.current?.uid === track.uid);
-	const liked = $derived(library.isLiked(track.uid));
+
+	// RESOLVE-ON-TAP state (quick-260919-l9e). A stub row has no uid to key liked/downloaded state
+	// on until something resolves it, so the first action that resolves CACHES the result here and
+	// every per-uid read below switches to it — the same "cache the resolved Track so post-download
+	// state reads its uid" move DownloadControl already makes for the album stub, hoisted one level
+	// so the Like button and the Download button share ONE resolve instead of running two.
+	let resolvedTrack = $state<Track | null>(null);
+	/** The uid every state read keys on: the resolved one once we have it, else the row's own. */
+	const actUid = $derived(resolvedTrack?.uid ?? track.uid);
+	const liked = $derived(library.isLiked(actUid));
+	/** In-flight guard, THIS row THIS action (Download's lives in DownloadControl's localBusy). */
+	let likeBusy = $state(false);
 
 	// The placeholder gradient's SEED. A real song seeds off its uid, but the discovery surfaces
 	// (charts/tags, charts/countries) render synthetic stubs whose uid is '' — seeding every one of
@@ -158,10 +185,11 @@
 	// empty-uid group. It is not. `nameStub` (`$lib/services/similar.ts`) mints a TRUTHY synthetic
 	// uid, `${source}:similar-${matchKey}`, so an album row takes the `track.uid` branch below and
 	// gets a per-row gradient — correct, and the reason nobody noticed. The distinction matters
-	// beyond this seed: `toggleLike`'s `!track.uid` guard CANNOT catch an album stub, so a surface
-	// that passed `actions={['like']}` on album rows would persist an unplayable synthetic uid into
-	// the liked list. Every stub surface passes `actions={[]}` today, which is what keeps that
-	// unreachable — treat it as a precondition of that prop, not an accident.
+	// beyond this seed: a `!track.uid` guard CANNOT catch an album stub, so a surface that rendered
+	// a Like button over album rows would persist an unplayable synthetic uid into the liked list.
+	// That hazard is now handled rather than avoided — the stub surfaces dropped their
+	// `actions={[]}` opt-out and pass a `resolve` instead, and `row-action-target.ts` discriminates
+	// on `resolveByName` (which nameStub sets) precisely because the uid test cannot.
 	const gradientSeed = $derived(track.uid || `${track.artist} ${track.title}`);
 
 	// The shared three-rung row cover read (quick-260910-qwt + quick-260915-w4f rung 0): the user's
@@ -178,13 +206,31 @@
 			readCoverByUidOrName(track.uid, track.artist, track.title)
 		)
 	);
+	// The row's IDENTITY as a VALUE, not as an object reference. A $derived that recomputes to an
+	// equal string does not notify, so the effect below fires on a real song change and NOT merely
+	// because a host re-created the row object ({@const rowTrack = nameStub(...)} on the album page
+	// mints a fresh Track whenever the hero art lands) — which would otherwise cancel an in-flight
+	// resolve started by a tap, i.e. a tap that visibly does nothing.
+	const rowId = $derived(`${track.uid}|${track.artist}|${track.title}`);
 	// WR-01 defense-in-depth: if this instance is ever reused for a DIFFERENT song (identity
 	// change), drop the previous song's resolved art so it cannot paint over the new title. Lists
 	// are uid-keyed so this is normally a no-op — it is insurance against a non-keyed {#each}
 	// reorder, and it is the ONE $effect D-7 permits.
+	//
+	// It is also this row's GENERATION GUARD (the playGen/menuGen idiom). `rowGen` is a PLAIN field,
+	// not $state — nothing renders it (the house convention for loop guards / generation counters).
+	// Bumping it in the body AND the teardown means a late resolve is discarded when the row is
+	// re-keyed to another song OR unmounted (navigated away, list changed underneath), so a result
+	// that lands seconds after the user left can never like or download anything.
+	let rowGen = 0;
 	$effect(() => {
-		void track.uid;
+		void rowId;
 		resolvedCover = null;
+		resolvedTrack = null;
+		rowGen++;
+		return () => {
+			rowGen++;
+		};
 	});
 
 	// The app-wide swipe convention, lifted verbatim from the per-page copies it replaces (UX-04
@@ -203,16 +249,54 @@
 		swipe === null ? { enabled: false } : (swipe ?? { onSwipeRight: queueTrack, onSwipeLeft: nextTrack })
 	);
 
-	// like-state-wrong-track-menu, carried over from TrackMenu's Like row: a name-stub (uid:'') has
-	// no identity, so library.toggleLike REFUSES it — and the toast below, which reads the state
-	// back AFTER the toggle, would then report an "Unliked" that never happened on top of a button
-	// that did nothing. No surface reaches this today (the three stub surfaces — charts/tags,
-	// charts/countries, album — all pass actions={[]} precisely because a stub has no uid to key
-	// on), so this is what keeps a FUTURE stub surface honest rather than a live bug.
-	function toggleLike() {
-		if (!track.uid) return;
-		library.toggleLike(track);
-		toast.show(library.isLiked(track.uid) ? t('toast.liked') : t('toast.unliked'));
+	/**
+	 * Run the host's resolver ONCE for this row and cache the result. Returns null for a miss, a
+	 * throw, a superseded row, or a resolver that hands back another stub — so a caller can treat
+	 * null as "there is no real song here" without re-checking identity.
+	 */
+	async function runResolve(): Promise<Track | null> {
+		if (!resolve) return null;
+		const gen = rowGen;
+		const r = await resolve().catch(() => null);
+		if (gen !== rowGen) return null; // superseded: this row is now a different song, or gone
+		if (!hasRealIdentity(r)) return null;
+		resolvedTrack = r;
+		return r;
+	}
+
+	// like-state-wrong-track-menu, carried over from TrackMenu's Like row: a stub has no identity to
+	// key on, so library.toggleLike REFUSES it — and a toast that reads the state back AFTER the
+	// toggle would then report an "Unliked" that never happened on top of a button that did nothing.
+	//
+	// quick-260919-l9e makes the button WORK on a stub instead of standing it down: the three charts
+	// surfaces and the album tracklist used to pass actions={[]} purely because of that missing uid,
+	// which meant settings.rowActions governed five surfaces and was silently ignored on four. With
+	// a `resolve` in hand the row resolves on tap and then likes the REAL Track — never the stub,
+	// whose uid is TRUTHY on an album row (`${source}:similar-${matchKey}`) and would otherwise be
+	// persisted into the liked list as an unplayable entry. `rowActionTarget` owns that decision.
+	async function toggleLike() {
+		if (likeBusy) return; // second tap during a multi-second resolve: no-op, not a double-toggle
+		const gen = rowGen;
+		const plan = rowActionTarget(track, resolvedTrack, !!resolve);
+		let target = plan.kind === 'act' ? plan.track : null;
+		if (plan.kind === 'resolve') {
+			likeBusy = true;
+			try {
+				target = await runResolve();
+			} finally {
+				likeBusy = false;
+			}
+			if (gen !== rowGen) return; // superseded mid-resolve — act on nothing, say nothing
+		}
+		// TELL THE TRUTH: a refused stub or a failed resolve is a button that did nothing, so it
+		// says so with the surfaces' own unplayable copy rather than claiming a Liked/Unliked that
+		// never happened.
+		if (!target) {
+			toast.show(t('home.unplayable'));
+			return;
+		}
+		library.toggleLike(target);
+		toast.show(library.isLiked(target.uid) ? t('toast.liked') : t('toast.unliked'));
 	}
 </script>
 
@@ -248,23 +332,40 @@
 		<span class="r-sub" use:marquee><span class="marquee-inner">{sub}</span></span>
 	</span>
 	<!-- D-5: the passive badge stands down for whichever state this row draws a live control for. -->
-	<RowBadges uid={track.uid} hideLiked={acts.includes('like')} hideDownloaded={acts.includes('download')} />
+	<RowBadges uid={actUid} hideLiked={acts.includes('like')} hideDownloaded={acts.includes('download')} />
 	{#each acts as a (a)}
 		{#if a === 'like'}
 			<button
 				class="ract"
 				class:on={liked}
 				aria-pressed={liked}
+				aria-busy={likeBusy}
 				aria-label={t(liked ? 'menu.liked' : 'menu.like')}
 				title={t(liked ? 'menu.liked' : 'menu.like')}
 				use:tapBounce
 				onclick={toggleLike}
 			>
-				<Heart size={18} fill={liked ? 'currentColor' : 'none'} />
+				{#if likeBusy}
+					<!-- A stub resolve takes SECONDS (searchAll fan-out), and a tap with no visible
+					     change reads as a swallowed click. The shared indeterminate ring — the same one
+					     the Download button one slot over spins — wraps the heart without changing the
+					     36px box, so nothing shifts under the finger. -->
+					<DownloadRing><Heart size={18} fill="none" /></DownloadRing>
+				{:else}
+					<Heart size={18} fill={liked ? 'currentColor' : 'none'} />
+				{/if}
 			</button>
 		{:else if a === 'download'}
-			<!-- No `probe`, ever: this is a list row (see D-7 / DownloadControl's own contract). -->
-			<DownloadControl {track} />
+			<!-- No `probe`, ever: this is a list row (see D-7 / DownloadControl's own contract).
+			     A stub row hands DownloadControl `track={null}` + the resolver, which is the contract
+			     it already serves the album page's own control with — and NOT the stub itself, whose
+			     truthy synthetic uid would make it try to download an unresolvable song. Once either
+			     button has resolved, the real Track goes down instead and the resolve is not repeated. -->
+			<DownloadControl
+				track={resolvedTrack ?? (resolve ? null : track)}
+				resolve={resolve ? runResolve : null}
+				{persist}
+			/>
 		{/if}
 	{/each}
 	<button class="opt" aria-label={t('menu.options')} onclick={onrequestmenu}>
