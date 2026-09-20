@@ -495,14 +495,14 @@ Plans:
 
 **Requirements**: TBD
 **Depends on:** Phase 37
-**Plans:** 4/9 plans executed
+**Plans:** 5/9 plans executed
 
 Plans:
 - [x] 38-01-PLAN.md — Pure seam: `songShareUrl` uid carrier (`?u={source}{songid}`, D-30 enum fix) + `share-arrival.ts` arrivalMode / stubFromUidParam / deepLinkPath with node tests (wave 1)
 - [x] 38-02-PLAN.md — Player: `spliceAfterCurrent` helper, `spliceAndPlay` (warm, D-07), `armTrack` (cold seat, never plays — D-29), NpRelated net deletion, D-06 empty-queue regression test (wave 1)
 - [x] 38-03-PLAN.md — Android static half: `static/.well-known/assetlinks.json` (debug fingerprint) + autoVerify VIEW intent-filter on MainActivity (wave 1)
 - [x] 38-04-PLAN.md — Arrival orchestration: `arriveTrack` + `arriveShared` (carrier fast path, D-10 name fall-through) + mocked branch tests (wave 2)
-- [ ] 38-06-PLAN.md — TrackMenu passes the track identity (pinned source-text tests stay green) + `toast.sharedPlaying` in all 15 locales (wave 2)
+- [x] 38-06-PLAN.md — TrackMenu passes the track identity (pinned source-text tests stay green) + `toast.sharedPlaying` in all 15 locales (wave 2)
 - [ ] 38-07-PLAN.md — Capacitor deep link in the root layout: `getLaunchUrl()` COLD + `appUrlOpen` WARM, both host-gated (wave 2)
 - [ ] 38-08-PLAN.md — HUMAN: release keystore SHA256 via keytool → second fingerprint in assetlinks.json (wave 2, checkpoint)
 - [ ] 38-05-PLAN.md — Both `/song/*` pages resolve on mount + CTA adopts the in-flight arrival; legacy `?play=` re-pointed at `arriveTrack`; folded todo closed; full-suite web gate (wave 3)
