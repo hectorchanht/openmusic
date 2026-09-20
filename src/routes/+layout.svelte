@@ -81,13 +81,26 @@
 	// arrival path (already current uid → return) absorbs that.
 	onMount(() => {
 		if (!Capacitor.isNativePlatform()) return; // web build: no-op, behaviour byte-identical
+		let off: (() => void) | undefined;
 		void (async () => {
 			const { App } = await import("@capacitor/app"); // dynamic — keeps it out of the web chunk
 			// COLD: the launch intent's URL, the only place a cold deep link is visible.
 			const launch = await App.getLaunchUrl();
 			const p = deepLinkPath(launch?.url);
 			if (p) void goto(p);
+			// WARM: singleTask routes a re-tap while the activity is alive to onNewIntent, which is
+			// what emits this event. Same deepLinkPath gate as the cold path — T-38-02: a hostile app
+			// can send ANY VIEW URL, and the manifest's host filter is the OS's gate, not ours.
+			const h = await App.addListener("appUrlOpen", (e) => {
+				const p = deepLinkPath(e.url);
+				if (p) void goto(p);
+			});
+			// The disposer only matters for a real teardown (HMR in dev), but a leaked duplicate
+			// listener would double-fire goto on every warm link. D-03's no-op guard would absorb it;
+			// do not lean on that when releasing the handle costs one line.
+			off = () => void h.remove();
 		})();
+		return () => off?.();
 	});
 </script>
 
