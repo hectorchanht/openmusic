@@ -5,7 +5,7 @@
 	// Not a true artist catalog — an approximation from cross-source search.
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
-	import { ChevronLeft, Heart, Play, Share2 } from '@lucide/svelte';
+	import { Heart, Play, Share2 } from '@lucide/svelte';
 	import { searchAll } from '$lib/services/catalog';
 	import { dedupeBest } from '$lib/services/dedupe';
 	import { settings } from '$lib/stores/settings.svelte';
@@ -19,6 +19,7 @@
 	import { dragScroll } from '$lib/actions/dragScroll';
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { marquee } from '$lib/actions/marquee';
+	import PageHeader from '$lib/components/PageHeader.svelte';
 	import SongRow from '$lib/components/SongRow.svelte';
 	import TrackMenu from '$lib/components/TrackMenu.svelte';
 	import TagChips from '$lib/components/TagChips.svelte';
@@ -425,8 +426,12 @@
 	<PageOg og={data.og} />
 {/if}
 
-<header class="hero">
-	<button type="button" class="back" aria-label={t('common.back')} onclick={() => history.back()} use:tapBounce><ChevronLeft size={22} /></button>
+<PageHeader backLabel={t('common.back')} />
+
+<!-- quick-260919-hdr: the chevron left this hero for the shared PageHeader, so the hero is a
+     plain <div> now — two <header> elements on one page, one of them holding only a back button,
+     was never the right shape. -->
+<div class="hero">
 	{#if heroImg}
 		<div class="herocover" style:background-image={`url(${heroImg})`}></div>
 	{:else if loading || enrichLoading}
@@ -494,7 +499,7 @@
 			<a class="readmore" href={enrich.bioUrl} target="_blank" rel="noopener noreferrer">{t('lastfm.readMore')}</a>
 		</section>
 	{/if}
-</header>
+</div>
 
 {#if !online.isOnline && !songs.length}
 	<!-- OFFL-03 inline offline state: artist discovery needs the network — the effects above
@@ -624,8 +629,6 @@
 
 <style>
 	.hero { padding: 14px 0 18px; text-align: center; }
-	.back { display: grid; place-items: center; width: 36px; height: 36px; background: none; border: none; color: var(--color-text); cursor: pointer; margin: 0 0 8px; padding: 0; }
-	.back:hover { background: var(--color-surface-2); border-radius: 50%; }
 	.herocover { width: 150px; height: 150px; border-radius: 50%; margin: 8px auto 12px; background-size: cover; background-position: center; box-shadow: 0 12px 34px rgba(0,0,0,0.5); }
 	.hero h1 { font-size: calc(1.7rem * var(--fs-title, 1)); margin: 0; }
 	.note { color: var(--color-text-muted); font-size: 12px; margin-top: 4px; }

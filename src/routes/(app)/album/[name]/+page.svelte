@@ -7,7 +7,7 @@
 	import { page } from '$app/state';
 	import { untrack } from 'svelte';
 	import { fly } from 'svelte/transition';
-	import { ChevronLeft, Play, Download, ListPlus, Heart, Share2, Plus, X } from '@lucide/svelte';
+	import { Play, Download, ListPlus, Heart, Share2, Plus, X } from '@lucide/svelte';
 	import { player } from '$lib/stores/player.svelte';
 	import { library } from '$lib/stores/library.svelte';
 	import { names } from '$lib/stores/names.svelte';
@@ -33,6 +33,7 @@
 	import { mbTracks } from '$lib/services/musicbrainz';
 	import { mergeEnrichAlbum } from '$lib/services/enrich-merge';
 	import { marquee } from '$lib/actions/marquee';
+	import PageHeader from '$lib/components/PageHeader.svelte';
 	import SongRow from '$lib/components/SongRow.svelte';
 	import TrackMenu from '$lib/components/TrackMenu.svelte';
 	import DownloadControl from '$lib/components/DownloadControl.svelte';
@@ -615,8 +616,16 @@
 	<PageOg og={data.og} />
 {/if}
 
-<header class="hero">
-	<button class="back" aria-label={t('album.back')} onclick={() => goto(albumArtist ? '/artist/' + encodeURIComponent(albumArtist) : '/')} use:tapBounce><ChevronLeft size={22} /></button>
+<!-- quick-260919-hdr: this page's back is NOT history.back() and must not become it — an album is
+     reached from its artist, from search, from a shelf, and the chevron always means "up to the
+     artist" (falling back to Home when the album has no known artist). That is exactly why
+     PageHeader takes the action as a prop. -->
+<PageHeader
+	backLabel={t('album.back')}
+	onback={() => goto(albumArtist ? '/artist/' + encodeURIComponent(albumArtist) : '/')}
+/>
+
+<div class="hero">
 	{#if heroImg}
 		<div class="cover" style:background-image={`url(${heroImg})`}></div>
 	{:else if loading || enrichLoading}
@@ -656,7 +665,7 @@
 			{#if merged.deezerFans != null}<span class="dzrow"><b>{t('deezer.fans')}</b> {numFmt.format(merged.deezerFans)}</span>{/if}
 		</div>
 	{/if}
-</header>
+</div>
 
 {#if loading}
 	<ul class="list" aria-label={t('album.loading')}>
@@ -757,8 +766,9 @@
 {/if}
 
 <style>
-	.hero { padding: 14px 0 18px; text-align: center; position: relative; }
-	.back { position: absolute; left: 0; top: 8px; background: none; border: none; color: var(--color-text); cursor: pointer; display: grid; place-items: center; width: 36px; height: 36px; }
+	/* `position: relative` went with the absolutely-positioned .back (quick-260919-hdr) — the
+	   chevron is in-flow above the hero now, like every other page. */
+	.hero { padding: 14px 0 18px; text-align: center; }
 	.cover { width: 160px; height: 160px; border-radius: 12px; margin: 8px auto 12px; background-size: cover; background-position: center; box-shadow: 0 12px 34px rgba(0,0,0,0.5); }
 	.hero h1 { font-size: calc(1.5rem * var(--fs-title, 1)); margin: 0; }
 	.artist { color: var(--color-text); font-size: calc(14px * var(--fs-artist, 1)); margin: 4px 0 0; opacity: 0.85; }

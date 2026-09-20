@@ -1,10 +1,11 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
-	import { ChevronLeft, Info, Mail, Code2, Tag } from '@lucide/svelte';
+	import { Info, Mail, Code2, Tag } from '@lucide/svelte';
 	import { settings } from '$lib/stores/settings.svelte';
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { t } from '$lib/i18n';
+	import PageHeader from '$lib/components/PageHeader.svelte';
 
 	onMount(() => settings.load());
 
@@ -31,10 +32,7 @@
 
 <svelte:head><title>{t('settings.title')}</title></svelte:head>
 
-<header class="head">
-	<button class="back" aria-label={t('settings.backToSettings')} onclick={() => goto('/settings')} use:tapBounce><ChevronLeft size={22} /></button>
-	<h1>{t('settings.about')}</h1>
-</header>
+<PageHeader title={t('settings.about')} backLabel={t('settings.backToSettings')} onback={() => goto('/settings')} />
 
 <section>
 	<div class="item static"><Info size={18} /> {t('settings.aboutLine')}</div>
@@ -54,9 +52,6 @@
 </section>
 
 <style>
-	.head { display: flex; align-items: center; gap: 8px; padding: 14px 0 12px; }
-	.back { background: none; border: none; color: var(--color-text); cursor: pointer; display: grid; place-items: center; width: 36px; height: 36px; }
-	.head h1 { font-size: 1.4rem; margin: 0; }
 	section { margin: 18px 0; }
 	section h2 { font-size: 0.95rem; margin: 0 0 8px; color: var(--color-text); }
 	.item { width: 100%; display: flex; align-items: center; gap: 12px; background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); padding: 14px; border-radius: 12px; font-size: 15px; text-align: left; }

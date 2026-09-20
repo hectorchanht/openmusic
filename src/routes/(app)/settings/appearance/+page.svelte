@@ -4,7 +4,6 @@
     // quick-260919-ebi: Sun/Moon/Palette/Zap arrived with theme, accent and reduce-motion;
     // LayoutGrid stayed for "Covers & layout" but GRID_COLS_* left for /settings/home.
     import {
-        ChevronLeft,
         Type,
         LayoutGrid,
         Sun,
@@ -24,6 +23,7 @@
     // player — settings stays a LEAF store because the player read happens HERE, not in the
     // settings store (Pitfall 6 / SSR-leak rule).
     import { player } from "$lib/stores/player.svelte";
+    import PageHeader from "$lib/components/PageHeader.svelte";
     import SettingToggle from "$lib/components/SettingToggle.svelte";
     import SettingPicker from "$lib/components/SettingPicker.svelte";
     import SettingHint from "$lib/components/SettingHint.svelte";
@@ -116,24 +116,19 @@
 
 <svelte:head><title>{t("settings.title")}</title></svelte:head>
 
-<header class="head">
-    <button
-        class="back"
-        aria-label={t("settings.backToSettings")}
-        onclick={() => goto("/settings")}
-        use:tapBounce><ChevronLeft size={22} /></button
-    >
-    <h1>{t("settings.groupAppearance")}</h1>
-    <button
-        class="reset"
-        onclick={() => {
-            if (confirm(t("settings.resetConfirm"))) {
-                settings.resetAppearance();
-            }
-        }}
-        use:tapBounce>{t("settings.resetGroup")}</button
-    >
-</header>
+<PageHeader title={t("settings.groupAppearance")} backLabel={t("settings.backToSettings")} onback={() => goto("/settings")}>
+    {#snippet trailing()}
+        <button
+            class="reset"
+            onclick={() => {
+                if (confirm(t("settings.resetConfirm"))) {
+                    settings.resetAppearance();
+                }
+            }}
+            use:tapBounce>{t("settings.resetGroup")}</button
+        >
+    {/snippet}
+</PageHeader>
 
 <!-- quick-260919-ebi: Theme / Accent colour / Motion moved here from /settings/general — a page
      literally named Appearance that did not contain dark mode was the single worst findability bug
@@ -415,15 +410,6 @@
 </section>
 
 <style>
-    .head {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        padding: 14px 0 12px;
-    }
-    .head h1 {
-        flex: 1;
-    }
     .reset {
         background: var(--color-surface-2);
         border: 1px solid var(--color-border);
@@ -435,20 +421,6 @@
     }
     .reset:hover {
         color: var(--color-text);
-    }
-    .back {
-        background: none;
-        border: none;
-        color: var(--color-text);
-        cursor: pointer;
-        display: grid;
-        place-items: center;
-        width: 36px;
-        height: 36px;
-    }
-    .head h1 {
-        font-size: 1.4rem;
-        margin: 0;
     }
     section {
         margin: 18px 0;

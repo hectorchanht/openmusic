@@ -1,12 +1,13 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
-	import { ChevronLeft, Copy, Trash2, Upload } from '@lucide/svelte';
+	import { Copy, Trash2, Upload } from '@lucide/svelte';
 	import { actionLog } from '$lib/stores/actionLog.svelte';
 	import { serializeActionLog } from '$lib/diagnostics/action-log-logic';
 	import { apiFetch } from '$lib/services/api-base';
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { t } from '$lib/i18n';
+	import PageHeader from '$lib/components/PageHeader.svelte';
 
 	/** Device-local upload token, namespaced like every other openmusic:<domain>:v<N> key. */
 	const DIAG_TOKEN_KEY = 'openmusic:diag:v1';
@@ -115,10 +116,7 @@
 
 <svelte:head><title>{t('settings.title')}</title></svelte:head>
 
-<header class="head">
-	<button class="back" aria-label={t('settings.backToSettings')} onclick={() => goto('/settings')} use:tapBounce><ChevronLeft size={22} /></button>
-	<h1>{t('settings.activityHeading')}</h1>
-</header>
+<PageHeader title={t('settings.activityHeading')} backLabel={t('settings.backToSettings')} onback={() => goto('/settings')} />
 
 <div class="actions">
 	<button class="item" onclick={copyLog} use:tapBounce><Copy size={18} /> {t('settings.activityCopy')}</button>
@@ -144,9 +142,6 @@
 {#if msg}<p class="flash">{msg}</p>{/if}
 
 <style>
-	.head { display: flex; align-items: center; gap: 8px; padding: 14px 0 12px; }
-	.back { background: none; border: none; color: var(--color-text); cursor: pointer; display: grid; place-items: center; width: 36px; height: 36px; }
-	.head h1 { font-size: 1.4rem; margin: 0; }
 	.actions { display: flex; gap: 8px; margin: 8px 0 12px; }
 	.item { flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px; background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); padding: 12px; border-radius: 12px; font-size: 14px; cursor: pointer; }
 	.item:hover { background: var(--color-surface); }

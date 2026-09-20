@@ -10,11 +10,11 @@
 	// Source + ordering come from the same helpers the shelf uses ($lib/services/discography), so
 	// there is one source of truth for "what order" and "what counts as an album".
 	import { page } from '$app/state';
-	import { ChevronLeft } from '@lucide/svelte';
 	import { goto } from '$app/navigation';
 	import { names } from '$lib/stores/names.svelte';
 	import { online } from '$lib/stores/online.svelte';
 	import { t, type TranslationKey } from '$lib/i18n';
+	import PageHeader from '$lib/components/PageHeader.svelte';
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { marquee } from '$lib/actions/marquee';
 	import { loadDiscography } from '$lib/services/discography-source';
@@ -76,15 +76,7 @@
 
 <svelte:head><title>{names.dnArtist(name)} — {t('artist.discography')}</title></svelte:head>
 
-<header class="head">
-	<button class="back" onclick={() => history.back()} use:tapBounce aria-label={t('common.back')}>
-		<ChevronLeft size={22} />
-	</button>
-	<div class="titles">
-		<h1 use:marquee><span class="marquee-inner">{names.dnArtist(name)}</span></h1>
-		<p class="sub">{t('artist.discography')}</p>
-	</div>
-</header>
+<PageHeader title={names.dnArtist(name)} subtitle={t('artist.discography')} backLabel={t('common.back')} />
 
 <div class="chips" role="tablist">
 	{#each FILTERS as f (f.id)}
@@ -126,12 +118,6 @@
 {/if}
 
 <style>
-	.head { display: flex; align-items: center; gap: 8px; padding: 12px 4px 4px; }
-	.back { background: none; border: none; color: var(--color-text); padding: 4px; cursor: pointer; }
-	.titles { min-width: 0; }
-	h1 { font-size: calc(1.25rem * var(--fs-title, 1)); margin: 0; white-space: nowrap; overflow: hidden; }
-	.sub { margin: 2px 0 0; font-size: 0.8rem; color: var(--color-text-muted); }
-
 	.chips { display: flex; gap: 8px; padding: 10px 4px 4px; overflow-x: auto; }
 	.chip { flex: 0 0 auto; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--color-border); background: none; color: var(--color-text-muted); font-size: 0.8rem; font-weight: 600; cursor: pointer; white-space: nowrap; }
 	.chip.on { background: var(--color-primary); border-color: var(--color-primary); color: #fff; }

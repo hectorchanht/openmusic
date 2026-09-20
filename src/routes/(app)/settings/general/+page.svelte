@@ -3,8 +3,9 @@
 	import { goto } from '$app/navigation';
 	// quick-260919-ebi: theme / accent / reduce-motion moved General → Appearance, so the Palette,
 	// Sun, Moon and Zap icons left with them.
-	import { ChevronLeft, Globe, Share2 } from '@lucide/svelte';
+	import { Globe, Share2 } from '@lucide/svelte';
 	import { settings } from '$lib/stores/settings.svelte';
+	import PageHeader from '$lib/components/PageHeader.svelte';
 	import SettingToggle from '$lib/components/SettingToggle.svelte';
 	import SettingHint from '$lib/components/SettingHint.svelte';
 	import { tapBounce } from '$lib/actions/tapBounce';
@@ -37,11 +38,11 @@
 
 <svelte:head><title>{t('settings.title')}</title></svelte:head>
 
-<header class="head">
-	<button class="back" aria-label={t('settings.backToSettings')} onclick={() => goto('/settings')} use:tapBounce><ChevronLeft size={22} /></button>
-	<h1>{t('settings.groupGeneral')}</h1>
-	<button class="reset" onclick={() => { if (confirm(t('settings.resetConfirm'))) { settings.resetGeneral(); } }} use:tapBounce>{t('settings.resetGroup')}</button>
-</header>
+<PageHeader title={t('settings.groupGeneral')} backLabel={t('settings.backToSettings')} onback={() => goto('/settings')}>
+	{#snippet trailing()}
+		<button class="reset" onclick={() => { if (confirm(t('settings.resetConfirm'))) { settings.resetGeneral(); } }} use:tapBounce>{t('settings.resetGroup')}</button>
+	{/snippet}
+</PageHeader>
 
 <section>
 	<h2><Globe size={15} /> {t('settings.appLanguage')}<SettingHint label={t('settings.appLanguage')} text={t('settings.appLanguageDesc')} /></h2>
@@ -71,12 +72,8 @@
 </section>
 
 <style>
-	.head { display: flex; align-items: center; gap: 8px; padding: 14px 0 12px; }
-	.head h1 { flex: 1; }
 	.reset { background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text-muted); padding: 6px 12px; border-radius: 999px; font-size: 12px; cursor: pointer; }
 	.reset:hover { color: var(--color-text); }
-	.back { background: none; border: none; color: var(--color-text); cursor: pointer; display: grid; place-items: center; width: 36px; height: 36px; }
-	.head h1 { font-size: 1.4rem; margin: 0; }
 	section { margin: 18px 0; }
 	/* quick-260919-ebi: `position: relative` anchors the inline (i)'s description panel to the
 	   heading — SettingHint is scoped and cannot set this on its host. */

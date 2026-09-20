@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
-	import { ChevronDown, ChevronLeft, Languages, Replace } from '@lucide/svelte';
+	import { ChevronDown, Languages, Replace } from '@lucide/svelte';
+	import PageHeader from '$lib/components/PageHeader.svelte';
 	import SettingToggle from '$lib/components/SettingToggle.svelte';
 	import SettingPicker from '$lib/components/SettingPicker.svelte';
 	import SettingHint from '$lib/components/SettingHint.svelte';
@@ -169,11 +170,11 @@
 
 <svelte:head><title>{t('settings.title')}</title></svelte:head>
 
-<header class="head">
-	<button class="back" aria-label={t('settings.backToSettings')} onclick={() => goto('/settings')} use:tapBounce><ChevronLeft size={22} /></button>
-	<h1>{t('settings.groupTranslation')}</h1>
-	<button class="reset" onclick={() => { if (confirm(t('settings.resetConfirm'))) { settings.resetTranslation(); } }} use:tapBounce>{t('settings.resetGroup')}</button>
-</header>
+<PageHeader title={t('settings.groupTranslation')} backLabel={t('settings.backToSettings')} onback={() => goto('/settings')}>
+	{#snippet trailing()}
+		<button class="reset" onclick={() => { if (confirm(t('settings.resetConfirm'))) { settings.resetTranslation(); } }} use:tapBounce>{t('settings.resetGroup')}</button>
+	{/snippet}
+</PageHeader>
 
 <!-- quick-260919-ebi (F3): the translate-mode mocks use NEUTRAL BLOCK TEXT, not a real bilingual
      pair, and that is a deliberate call. Any real sample would have to pick an original language
@@ -329,12 +330,8 @@
 </section>
 
 <style>
-	.head { display: flex; align-items: center; gap: 8px; padding: 14px 0 12px; }
-	.head h1 { flex: 1; }
 	.reset { background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text-muted); padding: 6px 12px; border-radius: 999px; font-size: 12px; cursor: pointer; }
 	.reset:hover { color: var(--color-text); }
-	.back { background: none; border: none; color: var(--color-text); cursor: pointer; display: grid; place-items: center; width: 36px; height: 36px; }
-	.head h1 { font-size: 1.4rem; margin: 0; }
 	section { margin: 18px 0; }
 	/* quick-260919-ebi: `position: relative` on every title that carries an inline (i) — it anchors
 	   SettingHint's description panel, which is scoped and cannot set this on its host. */

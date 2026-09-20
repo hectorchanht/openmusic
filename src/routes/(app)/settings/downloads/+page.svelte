@@ -9,7 +9,6 @@
 	import { goto } from '$app/navigation';
 	import { Capacitor } from '@capacitor/core';
 	import {
-		ChevronLeft,
 		Tags,
 		HardDriveDownload,
 		Smartphone,
@@ -51,6 +50,7 @@
 	} from '$lib/services/device-filename';
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { t } from '$lib/i18n';
+	import PageHeader from '$lib/components/PageHeader.svelte';
 
 	let msg = $state('');
 	let eligible = $state<RetagEntry[]>([]);
@@ -227,10 +227,7 @@
 
 <svelte:head><title>{t('settings.title')}</title></svelte:head>
 
-<header class="head">
-	<button class="back" aria-label={t('settings.backToSettings')} onclick={() => goto('/settings')} use:tapBounce><ChevronLeft size={22} /></button>
-	<h1>{t('settings.groupDownloads')}</h1>
-</header>
+<PageHeader title={t('settings.groupDownloads')} backLabel={t('settings.backToSettings')} onback={() => goto('/settings')} />
 
 <section>
 	<h2><HardDriveDownload size={15} /> {t('import.heading')}</h2>
@@ -461,9 +458,6 @@
 {#if msg}<p class="flash">{msg}</p>{/if}
 
 <style>
-	.head { display: flex; align-items: center; gap: 8px; padding: 14px 0 12px; }
-	.back { background: none; border: none; color: var(--color-text); cursor: pointer; display: grid; place-items: center; width: 36px; height: 36px; }
-	.head h1 { font-size: 1.4rem; margin: 0; }
 	section { margin: 18px 0; }
 	section h2 { display: flex; align-items: center; gap: 6px; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--color-text-muted); margin: 0 0 10px; }
 	.muted { color: var(--color-text-muted); font-size: 12px; margin: 8px 0 0; }

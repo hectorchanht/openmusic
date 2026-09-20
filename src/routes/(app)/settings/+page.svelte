@@ -3,8 +3,9 @@
 	import { goto } from '$app/navigation';
 	// quick-260919-ebi: ChevronRight + tapBounce now live inside SettingRow; Radio stays only for
 	// the commented-out Last.fm row below.
-	import { ChevronLeft, Globe, Type, LayoutGrid, Languages, Music, Radio, HardDriveDownload, Database, ScrollText, Info } from '@lucide/svelte';
+	import { Globe, Type, LayoutGrid, Languages, Music, Radio, HardDriveDownload, Database, ScrollText, Info } from '@lucide/svelte';
 	import { settings } from '$lib/stores/settings.svelte';
+	import PageHeader from '$lib/components/PageHeader.svelte';
 	import SettingRow from '$lib/components/SettingRow.svelte';
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { t, type TranslationKey } from '$lib/i18n';
@@ -35,10 +36,7 @@
 
 <svelte:head><title>{t('settings.title')}</title></svelte:head>
 
-<header class="head">
-	<button class="back" aria-label={t('common.back')} onclick={() => goto('/')} use:tapBounce><ChevronLeft size={22} /></button>
-	<h1>{t('settings.heading')}</h1>
-</header>
+<PageHeader title={t('settings.heading')} backLabel={t('common.back')} onback={() => goto('/')} />
 
 <ul class="groups">
 	{#each groups as g (g.href)}
@@ -51,9 +49,6 @@
 </ul>
 
 <style>
-	.head { display: flex; align-items: center; gap: 8px; padding: 14px 0 12px; }
-	.back { background: none; border: none; color: var(--color-text); cursor: pointer; display: grid; place-items: center; width: 36px; height: 36px; }
-	.head h1 { font-size: 1.4rem; margin: 0; }
 	/* quick-260919-ebi: the row CSS (.item/.txt/.g-title/.g-desc/.chev) moved into SettingRow.svelte;
 	   SettingRow owns its own 8px bottom margin, so the list gap is gone. */
 	.groups { list-style: none; margin: 8px 0 0; padding: 0; }

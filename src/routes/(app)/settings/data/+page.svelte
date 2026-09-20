@@ -1,8 +1,9 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
-	import { ChevronLeft, Trash2, RefreshCw, Languages, Image, Search, SlidersHorizontal, Download, Upload, Undo2, CloudDownload, CircleStop } from '@lucide/svelte';
+	import { Trash2, RefreshCw, Languages, Image, Search, SlidersHorizontal, Download, Upload, Undo2, CloudDownload, CircleStop } from '@lucide/svelte';
 	import { settings } from '$lib/stores/settings.svelte';
+	import PageHeader from '$lib/components/PageHeader.svelte';
 	import SettingRow from '$lib/components/SettingRow.svelte';
 	import { library } from '$lib/stores/library.svelte';
 	import { names } from '$lib/stores/names.svelte';
@@ -171,10 +172,7 @@
 
 <svelte:head><title>{t('settings.title')}</title></svelte:head>
 
-<header class="head">
-	<button class="back" aria-label={t('settings.backToSettings')} onclick={() => goto('/settings')} use:tapBounce><ChevronLeft size={22} /></button>
-	<h1>{t('settings.data')}</h1>
-</header>
+<PageHeader title={t('settings.data')} backLabel={t('settings.backToSettings')} onback={() => goto('/settings')} />
 
 <section>
 	<p class="muted">{t('settings.dataCounts', { liked: counts.liked, playlists: counts.playlists, downloads: counts.downloads })}</p>
@@ -223,9 +221,6 @@
 {#if msg}<p class="flash">{msg}</p>{/if}
 
 <style>
-	.head { display: flex; align-items: center; gap: 8px; padding: 14px 0 12px; }
-	.back { background: none; border: none; color: var(--color-text); cursor: pointer; display: grid; place-items: center; width: 36px; height: 36px; }
-	.head h1 { font-size: 1.4rem; margin: 0; }
 	section { margin: 18px 0; }
 	.muted { color: var(--color-text-muted); font-size: 12px; margin: 0 0 12px; }
 	.hint { color: var(--color-text-muted); font-size: 12px; margin: -2px 0 10px 4px; }
