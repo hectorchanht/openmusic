@@ -495,7 +495,7 @@ Plans:
 
 **Requirements**: TBD
 **Depends on:** Phase 37
-**Plans:** 8/9 plans executed
+**Plans:** 9/9 plans written; 8 complete + 38-09 partial (awaiting the real-device checkpoint — phase NOT fully verified)
 
 Plans:
 - [x] 38-01-PLAN.md — Pure seam: `songShareUrl` uid carrier (`?u={source}{songid}`, D-30 enum fix) + `share-arrival.ts` arrivalMode / stubFromUidParam / deepLinkPath with node tests (wave 1)
@@ -506,4 +506,4 @@ Plans:
 - [x] 38-07-PLAN.md — Capacitor deep link in the root layout: `getLaunchUrl()` COLD + `appUrlOpen` WARM, both host-gated (wave 2)
 - [x] 38-08-PLAN.md — HUMAN: release keystore SHA256 via keytool → second fingerprint in assetlinks.json (wave 2, checkpoint)
 - [x] 38-05-PLAN.md — Both `/song/*` pages resolve on mount + CTA adopts the in-flight arrival; legacy `?play=` re-pointed at `arriveTrack`; folded todo closed; full-suite web gate (wave 3)
-- [ ] 38-09-PLAN.md — Deploy approval, emulator App Links `verified` + cold/warm/negative deep links, real-device felt-latency sign-off (wave 4, checkpoints)
+- [~] 38-09-PLAN.md — Deploy approval, emulator App Links `verified` + cold/warm/negative deep links, real-device felt-latency sign-off (wave 4, checkpoints) — **PARTIAL: Tasks 1-2 done (emulator verified on the DEBUG key); Task 3 is a blocking human checkpoint needing a real phone for the RELEASE fingerprint + felt latency. `38-VALIDATION.md` `nyquist_compliant` stays `false` until then.**
