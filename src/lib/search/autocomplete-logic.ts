@@ -4,7 +4,7 @@
 // state, the debounced fetch via `deezerSearchTopN`, the AbortController, and the render),
 // exactly as `search-history-logic.ts` is wrapped by the searchHistory runes store.
 //
-// Why a separate pure module: the suggestion derivation (dedupe / cap / interleave) and the
+// Why a separate pure module: the suggestion derivation (dedupe / cap / group) and the
 // debounce primitive are framework-free algorithms. Keeping them out of the `.svelte` file
 // lets them be unit-tested in the node Vitest project without a DOM and keeps the component
 // thin — same split discipline the repo already uses for search history.
@@ -20,9 +20,17 @@ export const MIN_QUERY_LEN = 2;
  *  each keystroke so only the trailing pause fetches. */
 export const SUGGEST_DEBOUNCE_MS = 300;
 
-/** Maximum number of combined (song + artist) suggestions surfaced at once. Keeps the
+/** Maximum number of combined (artist + album + song) suggestions surfaced at once. Keeps the
  *  typeahead list short on a mobile screen and bounds the render. */
 export const SUGGEST_CAP = 8;
+
+/** Ceiling on ARTIST rows (quick-260919-pid). Measured live queries produce up to 8 distinct
+ *  artists within 8 hits, which unbounded would consume the whole cap and leave zero songs. */
+export const ARTIST_ROWS = 2;
+
+/** Ceiling on ALBUM rows (quick-260919-pid). Same reason — 7-8 distinct album|artist pairs per
+ *  8 hits is the norm. 2 + 2 leaves at least 4 song slots under SUGGEST_CAP. */
+export const ALBUM_ROWS = 2;
 
 /**
  * A single typeahead suggestion. `kind` distinguishes a song row (carries the performing
@@ -56,9 +64,9 @@ export interface Suggestion {
  *    (kind:'album', title=hit.album, artist=hit.artist for the muted sub), case-insensitively
  *    deduped on `${album}|${artist}` with first-seen casing + order; empty album names skipped.
  *    Deezer already returns `hit.album` on every search hit, so albums cost ZERO extra network.
- *  - The combined list is capped at `SUGGEST_CAP`, interleaved a few songs first, then a couple
- *    artists, then a couple albums near the top, then round-robin the remainder across all three
- *    kinds so none is starved below the cap. `key` is `song:${title}|${artist}` /
+ *  - The combined list is GROUPED (quick-260919-pid): up to `ARTIST_ROWS` artists, then up to
+ *    `ALBUM_ROWS` albums, then songs filling the rest, capped at `SUGGEST_CAP` — see the
+ *    in-body decision record. `key` is `song:${title}|${artist}` /
  *    `artist:${name}` / `album:${title}|${artist}`, guaranteed unique because each kind is
  *    deduped first AND the kind prefix keeps a same-named song/artist/album from colliding.
  *
@@ -110,36 +118,41 @@ export function deriveSuggestions(hits: DeezerHit[], query: string): Suggestion[
 		albums.push({ kind: 'album', title, artist, key: `album:${title}|${artist}` });
 	}
 
-	// --- interleave: a few songs first, then a couple artists, then a couple albums near the
-	// top, then round-robin the remainder across all three kinds so none is starved below the
-	// cap. Guarantees song/artist/album rows all surface near the top when present.
-	const out: Suggestion[] = [];
-	const SONGS_FIRST = 3; // show a few top songs before the artist/album blocks
-	const ARTISTS_NEAR_TOP = 2; // then a couple of artist rows
-	const ALBUMS_NEAR_TOP = 2; // then a couple of album rows
-
-	let si = 0; // song cursor
-	let ai = 0; // artist cursor
-	let li = 0; // album cursor
-
-	for (; si < songs.length && out.length < SUGGEST_CAP && si < SONGS_FIRST; si++) {
-		out.push(songs[si]);
-	}
-	for (; ai < artists.length && out.length < SUGGEST_CAP && ai < ARTISTS_NEAR_TOP; ai++) {
-		out.push(artists[ai]);
-	}
-	for (; li < albums.length && out.length < SUGGEST_CAP && li < ALBUMS_NEAR_TOP; li++) {
-		out.push(albums[li]);
-	}
-	// Fill the remainder: round-robin remaining songs → artists → albums so every kind keeps
-	// appearing until the cap is reached.
-	while (out.length < SUGGEST_CAP && (si < songs.length || ai < artists.length || li < albums.length)) {
-		if (si < songs.length && out.length < SUGGEST_CAP) out.push(songs[si++]);
-		if (ai < artists.length && out.length < SUGGEST_CAP) out.push(artists[ai++]);
-		if (li < albums.length && out.length < SUGGEST_CAP) out.push(albums[li++]);
-	}
-
-	return out;
+	// --- bounded grouped concat (quick-260919-pid): artists (<= ARTIST_ROWS), then albums
+	// (<= ALBUM_ROWS), then songs fill every remaining slot up to SUGGEST_CAP. The locked decision
+	// is GROUPED BY KIND in that order — no headings and no i18n keys, because the page already
+	// marks kind with the glyphs ♪ artist / ◎ album / ♫ song.
+	//
+	// Why the two LEADING groups are bounded. The page fetches only SUGGEST_CAP hits and `artists`
+	// derives from the SAME hit list as `songs`, so an UNBOUNDED concat starves the songs. Measured
+	// against live Deezer through the app's own proxy, with [...artists, ...albums, ...songs]:
+	//
+	//   query        | distinct artists | distinct album|artist | song rows unbounded would show
+	//   love         | 8                | 8                     | 0
+	//   happy        | 8                | 8                     | 0
+	//   hello        | 8                | 8                     | 0
+	//   jay chou     | 1                | 7                     | 0
+	//   周杰倫        | 2                | 7                     | 0
+	//   tame impala  | 1                | 5                     | 2
+	//
+	// Five of six render ZERO song rows — including artist-name queries — and a song row is the
+	// only directly playable kind. 2 + 2 guarantees >= 4 song slots whenever 4+ distinct songs exist.
+	//
+	// Backfill / asymmetry rule — do NOT "fix" the short list. A short leading group lets songs
+	// expand into the unused slots, so the output still reaches SUGGEST_CAP whenever enough total
+	// suggestions exist (no holes). But with NO songs the output is legitimately SHORT: the caps are
+	// ceilings on artist/album rows, NEVER a floor to backfill from. Asymmetric on purpose —
+	// artist/album rows are navigation, song rows are the product.
+	//
+	// SUPERSEDED (was ql0/gm4 interleave): "a few songs first, then a couple artists, then a couple
+	// albums near the top, then round-robin the remainder across all three kinds so none is starved
+	// below the cap. Guarantees song/artist/album rows all surface near the top when present."
+	// Grouping revokes that guarantee for artists/albums beyond their caps, by choice.
+	return [
+		...artists.slice(0, ARTIST_ROWS),
+		...albums.slice(0, ALBUM_ROWS),
+		...songs
+	].slice(0, SUGGEST_CAP);
 }
 
 /**
