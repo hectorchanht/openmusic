@@ -49,9 +49,12 @@ Task IDs are filled in by the planner; the behaviour → command mapping is fixe
 | `spliceAndPlay` keeps queue shape; no-ops on current uid | 2 | — | N/A | unit | `pnpm test -- player.svelte.test.ts` | ✅ extend | ✅ green |
 | `armTrack` never plays; cold+EMPTY queue produces NO audio | 2 | — | N/A (D-06 correctness) | unit | `pnpm test -- player.svelte.test.ts` | ✅ extend | ✅ green |
 | i18n key parity for the new toast key | 2 | — | N/A | unit | `pnpm test -- i18n.test.ts` | ✅ automatic | ✅ green |
-| `assetlinks.json` reachable + correct content-type | 3 | T-38-05 | https, own origin, no redirect | manual | `curl -i https://openmusic.lol/.well-known/assetlinks.json` | manual | ⬜ pending |
-| App Links verified on device | 3 | T-38-02 | host+prefix restricted intent-filter | manual | `adb shell pm get-app-links com.openmusic.app` | manual | ⬜ pending |
-| Cold-start deep link opens the app (NOT just warm) | 3 | — | `getLaunchUrl()` path exercised | manual | `adb shell am start -a android.intent.action.VIEW -d …` | manual | ⬜ pending |
+| `assetlinks.json` reachable + correct content-type | 3 | T-38-05 | https, own origin, no redirect | manual | `curl -i https://openmusic.lol/.well-known/assetlinks.json` | manual | ✅ green |
+| App Links verified on device | 3 | T-38-02 | host+prefix restricted intent-filter | manual | `adb shell pm get-app-links com.openmusic.app` | manual | ✅ green |
+| Cold-start deep link opens the app (NOT just warm) | 3 | — | `getLaunchUrl()` path exercised | manual | `adb shell am start -a android.intent.action.VIEW -d …` | manual | ✅ green |
+| Warm deep link re-routes a running app (NOT a relaunch) | 3 | — | `appUrlOpen` path exercised, same PID | manual | force-stop-free `adb shell am start …` after `KEYCODE_HOME` | manual | ✅ green |
+| Negative: an unclaimed path opens a browser | 3 | T-38-02 | intent-filter scoped to `/song`,`/album`,`/artist` only | manual | `adb shell am start … -d "https://openmusic.lol/search"` | manual | ✅ green |
+| Release-signed APK verifies + felt first-tap latency | 3 | T-38-05 | release fingerprint accepted by the OS | manual | real device — Task 3 human checkpoint | manual | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -79,7 +82,27 @@ Android App Links cannot be verified from the web build. These require a deploye
 | Deep link opens the app — COLD (not running) | Device/emulator only; exercises `getLaunchUrl()`, a DIFFERENT code path from `appUrlOpen` | force-stop the app first, then the same `am start` |
 | Instant-play felt latency | Perceptual | Tap a shared link on a device, confirm sound is immediate |
 
-Emulator available: `Pixel_3a_API_34` AVD. `pnpm apk` requires `JAVA_HOME` set to Homebrew `openjdk@21`.
+Emulator available: `Pixel_3a_API_34` AVD. `pnpm apk` requires `JAVA_HOME` set to Homebrew `openjdk@21`
+— use the literal path `/opt/homebrew/opt/openjdk@21`; `$(/usr/libexec/java_home -v 21)` resolves to
+JDK **20** on this machine (the brew JDK is not symlinked into `/Library/Java/JavaVirtualMachines`)
+and the Gradle build fails with `invalid source release: 21`.
+
+### Emulator evidence — 2026-09-20, `Pixel_3a_API_34` (API 34), debug APK
+
+| Check | Observed |
+|---|---|
+| Live JSON | `HTTP/2 200`, `content-type: application/json`, `content-length: 432`, **no** `location:`; `diff <(curl -s …) static/.well-known/assetlinks.json` → identical |
+| OS signature | `Signatures: [37:30:88:C4:…:AD:87:EB:8D:A2]` — equals the **debug** fingerprint in `assetlinks.json` |
+| Verification | `openmusic.lol: verified` (reached within 10s of `pm verify-app-links --re-verify`; `none` immediately before) |
+| Cold (`getLaunchUrl`) | after `am force-stop` (`pidof` exit 1) → focus `com.openmusic.app/.MainActivity`, WebView URL `…/song/Adele/Hello?u=kuwo7758916` |
+| Warm (`appUrlOpen`) | HOME, then a 2nd `am start` → `Activity not started, its current task has been brought to the front`, PID unchanged (`6071` → `6071`), WebView URL `…/song/Coldplay/Yellow?u=kuwo6979350` |
+| Negative | `pm query-activities … /search` lists **only** `com.android.chrome`; focus landed on Chrome and `pidof com.openmusic.app` exited 1 |
+| Positive control | `pm query-activities … /song/Adele/Hello` lists `com.openmusic.app.MainActivity` first |
+
+**Not verified on the emulator** (deferred to the Task 3 device checkpoint): the RELEASE fingerprint
+(the emulator ran the debug key) and felt first-tap latency. In-app playback was also not exercised —
+the kuwo upstream was returning `error code: 526` throughout the run, so a shared `?u=kuwo…` carrier
+could not resolve to audio. Routing was the assertion and routing passed; playback is untested here.
 
 ---
 
