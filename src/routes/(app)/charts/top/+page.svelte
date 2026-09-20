@@ -9,10 +9,7 @@
 		type DiscoveryArtist
 	} from '$lib/services/lastfm';
 	import { resolveStub } from '$lib/services/discovery';
-	import { lazyCover } from '$lib/actions/lazyCover';
-	import { longpress } from '$lib/actions/longpress';
 	import { marquee } from '$lib/actions/marquee';
-	import { swipeAction } from '$lib/actions/swipeAction';
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { shouldRun } from '$lib/actions/inflightGuard';
 	import { player } from '$lib/stores/player.svelte';
@@ -22,6 +19,7 @@
 	import * as haptics from '$lib/util/haptics';
 	import { t } from '$lib/i18n';
 	import PageHeader from '$lib/components/PageHeader.svelte';
+	import SongRow from '$lib/components/SongRow.svelte';
 	import TrackMenu from '$lib/components/TrackMenu.svelte';
 	import type { Track } from '$lib/sources/types';
 
@@ -36,9 +34,6 @@
 
 	let tracks = $state<DiscoveryTrack[]>([]);
 	let artists = $state<DiscoveryArtist[]>([]);
-
-	// lazyCover-resolved row covers keyed by a stable row key (mirrors search page).
-	let resolvedCovers = $state<Record<string, string>>({});
 
 	// Dwell-floored skeleton (search-page pattern): a cache HIT settles within a microtask,
 	// before any paint — hold the skeleton flag for a minimum on-screen window so it never
@@ -76,12 +71,6 @@
 			keyword: '',
 			displayIndex: 0
 		};
-	}
-
-	function fallbackCover(it: DiscoveryTrack): string {
-		const seed = rowKey(it);
-		const h = (seed.split('').reduce((a, c) => a + c.charCodeAt(0), 0) * 47) % 360;
-		return `linear-gradient(145deg, hsl(${h} 55% 32%), hsl(${(h + 40) % 360} 55% 18%))`;
 	}
 
 	function fallbackArtistCover(name: string): string {
@@ -257,38 +246,27 @@
 	{:else if tracks.length > 0}
 		<ul class="list">
 			{#each tracks as it (rowKey(it))}
+				<!-- quick-260919-hdr: the shared row, migrated exactly as charts/tags and
+				     charts/countries were (quick-260919-l9e) — same DiscoveryTrack stubs, so the same
+				     four overrides. `onplay` is playStub (not setListQueue + play), `onrequestmenu`
+				     resolves BEFORE opening, and the swipe pair keeps the D-16/WR-03
+				     per-row-per-action in-flight guard. `actions={[]}` because a stub carries no uid:
+				     Like/Download key off the RESOLVED uid, so they would be no-ops wearing a real
+				     button — and toggleLike would otherwise persist a synthetic uid into the liked
+				     list. The ⋮ is unconditional, so the menu is now reachable by TAP here, not only
+				     by long-press. {@const} must be the immediate block child of the {#each}. -->
+				{@const stub = stubTrack(it)}
 				<li class="row-wrap">
 					<!-- Reveal layers behind the row: right=queue (primary), left=play next. -->
 					<span class="reveal reveal-right" aria-hidden="true"><ListEnd size={20} /></span>
 					<span class="reveal reveal-left" aria-hidden="true"><ListStart size={20} /></span>
-					<button
-						class="row"
-						use:tapBounce
-						use:longpress
-						onlongpress={(e) => {
-							(e.currentTarget as HTMLElement)?.blur();
-							openMenu(it);
-						}}
-						onclick={() => play(it)}
-						use:swipeAction={{ onSwipeRight: () => swipeQueue(it), onSwipeLeft: () => swipeNext(it) }}
-					>
-						<span
-							class="art"
-							use:lazyCover={{
-								track: stubTrack(it),
-								onResolved: (_uid, url) => {
-									resolvedCovers = { ...resolvedCovers, [rowKey(it)]: url };
-								}
-							}}
-							style:background-image={(resolvedCovers[rowKey(it)] ?? it.image)
-								? `url(${resolvedCovers[rowKey(it)] ?? it.image})`
-								: fallbackCover(it)}
-						></span>
-						<span class="meta">
-							<span class="r-title" use:marquee><span class="marquee-inner">{names.dnTitle(it.title)}</span></span>
-							<span class="r-artist" use:marquee><span class="marquee-inner">{names.dnArtist(it.artist)}</span></span>
-						</span>
-					</button>
+					<SongRow
+						track={stub}
+						actions={[]}
+						onplay={() => play(it)}
+						onrequestmenu={() => openMenu(it)}
+						swipe={{ onSwipeRight: () => swipeQueue(it), onSwipeLeft: () => swipeNext(it) }}
+					/>
 				</li>
 			{/each}
 		</ul>
@@ -345,9 +323,18 @@
 		position: absolute; top: 0; bottom: 0; width: 72px; display: flex; align-items: center;
 		justify-content: center; color: #fff; pointer-events: none;
 	}
-	.reveal-right { left: 0; background: var(--color-primary); }
-	.reveal-left { right: 0; background: var(--color-surface-2); color: var(--color-text-muted); }
+	/* quick-260919-hdr: the reveal glyphs lost their coloured plates to match charts/tags and
+	   charts/countries — SongRow paints an OPAQUE --color-bg over them at rest, so the plate was
+	   only ever visible mid-swipe and differed from every other migrated list. */
+	.reveal-right { left: 0; color: var(--color-text-muted); }
+	.reveal-left { right: 0; color: var(--color-text-muted); }
 
+	/* quick-260919-hdr: the SONG rows are SongRow.svelte now (their styles travelled with it —
+	   Svelte scopes per component). `.row` / `.art` / `.meta` / `.r-title` are KEPT because the
+	   ARTISTS view still renders its own `<button class="row">` (round avatar, one line, no menu —
+	   an artist is not a track, D-09 / CLAUDE.md), and because the 12-row skeleton above is the
+	   whole first paint of a cold charts page. `.r-artist` went with the song rows: nothing else
+	   drew a second line. */
 	.row {
 		position: relative; z-index: 1; width: 100%; display: flex; align-items: center; gap: 12px;
 		padding: 8px; background: var(--color-bg); border: none; border-radius: var(--radius-md);
@@ -359,7 +346,6 @@
 	.art.round { border-radius: var(--radius-full); }
 	.meta { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 	.r-title { font-size: calc(14px * var(--fs-title, 1)); font-weight: 600; min-width: 0; max-width: 100%; }
-	.r-artist { font-size: calc(12px * var(--fs-artist, 1)); color: var(--color-text-muted); min-width: 0; max-width: 100%; }
 
 	/* skeleton (search-page pattern) */
 	.skel-wrap { display: flex; flex-direction: column; gap: 6px; list-style: none; }
