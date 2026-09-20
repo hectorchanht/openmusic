@@ -22,6 +22,29 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+            <!-- 38-D-23/D-24: Android App Links. Claims openmusic.lol ONLY (the one host
+                 shareOrigin() can emit) and ONLY the three share surfaces — every other
+                 openmusic.lol URL still opens in a browser, by design. autoVerify makes the OS
+                 fetch https://openmusic.lol/.well-known/assetlinks.json at install/update and
+                 grant this activity the domain with no disambiguation dialog.
+                 NOTE: verification is per-HOST. The pathPrefix entries narrow which URLs this
+                 filter MATCHES; they are not part of what gets verified.
+                 NOTE: pathPrefix="/song" also matches "/songbook". No such route exists today,
+                 but a future /songs route would silently start opening in the app.
+                 https only: shareOrigin() rewrites localhost/capacitor:/file: to the public
+                 https origin and can never emit http, so claiming http would claim a scheme we
+                 never produce.
+                 38-D-26: android:launchMode="singleTask" (already set above) is what routes a
+                 re-tapped link into onNewIntent instead of a second task. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="openmusic.lol" android:pathPrefix="/song" />
+                <data android:scheme="https" android:host="openmusic.lol" android:pathPrefix="/album" />
+                <data android:scheme="https" android:host="openmusic.lol" android:pathPrefix="/artist" />
+            </intent-filter>
+
         </activity>
 
         <provider
