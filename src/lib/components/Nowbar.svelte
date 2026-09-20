@@ -178,6 +178,10 @@
     function fallbackCover(): string {
         return "linear-gradient(145deg,#3a2d63,#1a1326)";
     }
+
+    // quick-260920-nyq: computed ONCE — the truthiness test and the url() previously restated the
+    // same expression twice (the same defect quick-260915-w4f fixed in NowPlaying's cellBg).
+    const npCover = $derived(player.resolvedCover ?? np?.cover);
     function handleOpen() {
         if (onOpen) onOpen();
         else player.expand();
@@ -267,8 +271,8 @@
                     class="np-art"
                     in:fade={{ duration: xfadeMs }}
                     out:fade={{ duration: xfadeMs }}
-                    style:background-image={(player.resolvedCover ?? np?.cover)
-                        ? `url(${player.resolvedCover ?? np?.cover})`
+                    style:background-image={npCover
+                        ? `url(${npCover}), ${fallbackCover()}`
                         : fallbackCover()}
                 ></span>
                 <span

@@ -376,7 +376,8 @@
 	const cellBg = (tk: Track | null) => {
 		if (!tk) return 'none';
 		const u = readPinnedCover(tk.uid) ?? resolvedCovers[tk.uid] ?? tk.cover;
-		return u ? `url(${u})` : fallbackCover(tk);
+		// quick-260920-nyq: gradient UNDER the image here too — see the hero comment below.
+		return u ? `url(${u}), ${fallbackCover(tk)}` : fallbackCover(tk);
 	};
 
 	// ---- Meta crossfade (NP-TEXT-XFADE) ----
@@ -958,11 +959,18 @@
 				     (coverSwipe) is on the parent .cover-strip and is unaffected. xfadeMs → 0 under
 				     reduce-motion, so it becomes an instant swap. -->
 				{#key effectiveCover}
+					<!-- quick-260920-nyq: DEAD ≠ MISSING. A CSS background-image has no error event and
+					     nothing painted underneath it, so a truthy-but-unloadable url (blocked host,
+					     404, expired CDN signature) painted the void — the reported "blank black
+					     block". D-12's gradient only fired on a NULL cover. The placeholder is now a
+					     LAYER, not a branch: the gradient sits under the image, so a failed load
+					     reveals the normal per-uid placeholder. `background-size`/`-position` are
+					     single values and already apply to both layers. -->
 					<div
 						class="cover-img"
 						in:fade={{ duration: xfadeMs }}
 						out:fade={{ duration: xfadeMs }}
-						style:background-image={effectiveCover ? `url(${effectiveCover})` : fallbackCover(player.current)}
+						style:background-image={effectiveCover ? `url(${effectiveCover}), ${fallbackCover(player.current)}` : fallbackCover(player.current)}
 					></div>
 				{/key}
 			</div>
