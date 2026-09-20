@@ -48,6 +48,10 @@
 		bumpCoverVersion
 	} from '$lib/stores/cover-version.svelte';
 	import { decodeShare } from '$lib/services/share';
+	// 38-D-12: the legacy `?play=` decoder lands here. A static import is correct on THIS page — it
+	// already imports the player store at module top (it is not an SSR landing surface); the
+	// lazy-import-inside-onMount contract is specific to the two /song/* routes.
+	import { arriveTrack } from '$lib/services/share-arrival';
 	import { player } from '$lib/stores/player.svelte';
 	import { library } from '$lib/stores/library.svelte';
 	import { history as playHistory } from '$lib/stores/history.svelte';
@@ -666,19 +670,24 @@
 		if (libCache) applyLibraryCache(libCache);
 		else buildLibraryShelves(false);
 
-		// Shared link: /?play=<token> → reconstruct the current track + up-next queue and play
-		// through the SAME continuity path normal tap-to-play uses, so a shared song auto-advances
-		// (regenerate/ensureAhead + prefetchNext) at end instead of stopping (GLN-1) AND restores
-		// the shared queue, not just one song (GLN-2). decodeShare also accepts legacy v1 tokens.
+		// Shared link: /?play=<token>. 38-D-11: the DECODER is kept — nothing emits this shape any
+		// more, but old links are in the wild and must keep working. 38-D-12: what changed is where
+		// it lands. Its payload is now ONLY `current`; the sender's queue is deliberately DROPPED,
+		// because the RECIPIENT's queue shape is what survives an arrival (38-D-02/D-07). The old
+		// body here did a `setQueue(...)` install plus a FRESH play of the decoded track — a full queue
+		// replacement plus a tail regeneration, i.e. exactly the queue nuke this phase exists to stop
+		// (GLN-1/GLN-2 wanted continuity, but paid for it with the recipient's whole up-next).
+		// Routing through `arriveTrack` gives one behaviour instead of three: cold → armed, paused,
+		// no autoplay (38-D-06); warm → splice in after current and play, queue rows intact —
+		// identical to a /song/* arrival and to the Android deep link.
 		const token = new URLSearchParams(location.search).get('play');
 		if (token) {
-			const { current, queue } = decodeShare(token);
+			const { current } = decodeShare(token);
 			if (current) {
-				// Multi-item queue → install it; otherwise seed a 1-item queue (legacy/single-track
-				// token). fresh:true makes the player regenerate a similar-artist up-next + prefetch,
-				// matching a normal fresh play so the shared song keeps playing continuously.
-				player.setQueue(queue.length > 1 ? queue : [current], 'home-discovery');
-				player.play(current, { fresh: true });
+				void arriveTrack(current).then((o) => {
+					// 38-D-20: only a WARM arrival changed the music under the user, so only it toasts.
+					if (o === 'played') toast.show(t('toast.sharedPlaying'));
+				});
 			}
 			// Clear the params via the global window.history (the play-history store is imported as
 			// `playHistory`, so `window.history` is the real History API here).

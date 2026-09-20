@@ -30,3 +30,24 @@ risky during the Phase 30 exploration when the answer was plainly no.
 
 **Likely absorbed by Phase 30** — that phase edits this file's data contract anyway. Keep this as a
 standalone only if Phase 30 slips or its scope narrows to the endpoint alone.
+
+---
+
+## Resolution (Phase 38, plan 05)
+
+**Closed 2026-09-20.** Both parts verified against the live file, not assumed:
+
+- **Part 1 (mandatory) — already correct.** `src/routes/(app)/song/[slug]/+page.svelte:18-22` now
+  reads *"quick-260723-r4p: the cover IS carried, via the readable `?c=` carrier — the comment that
+  used to claim otherwise here was stale from the moment that carrier landed"*, i.e. the stale
+  "the cover is never carried" claim this todo was filed against is gone and the ref is preserved.
+  No further edit was needed; the comment states the real invariant.
+- **Part 2 (optional follow-on) — done.** The placeholder `<div>` is now the *fallback*: the page
+  renders `<img class="cover" src={data.og.image} referrerpolicy="no-referrer">` (`:83-92` before
+  this plan's edits), so the crawler card and the landing page show the same art. The gradient is
+  the null/error branch only.
+
+Absorbed as predicted, by Phase 38 rather than Phase 30 — that phase edited the data contract, this
+one rewrote the page's mount behaviour. Plan 38-05 additionally rewrote the page's mount comments to
+the new resolve-on-mount invariant (38-D-13/D-06/D-15), keeping every existing decision ref
+(`quick-260809-38i`, `quick-260723-r4p`) intact — the same CLAUDE.md rule this todo invoked.

@@ -8,10 +8,25 @@
 	// the player store (which pulls the whole client graph) is imported LAZILY inside onMount under a
 	// `browser` guard, so SSR never compiles the store graph in. i18n is likewise lazy-imported
 	// client-side (its index imports the settings store), keeping this page store-free during SSR.
+	//
+	// 38-D-13/38-D-06: the page RESOLVES on mount again. `share-arrival` is imported LAZILY inside
+	// onMount (it imports the player store, so a module-top import would break the paragraph above).
+	// It still starts NO audio on mount: quick-260809-38i's no-autoplay decision STANDS (D-06 — a
+	// share navigation is not an in-page gesture and mobile autoplay policy rejects it). What moved
+	// back to mount is the RESOLVE, never the playback.
+	//
+	// 38-D-15: this legacy CARRIER-FREE shape gets the SAME mount-time treatment — it passes `u: null`
+	// and lands on the name resolve. Nothing emits this URL shape any more (`songShareUrl` emits
+	// /song/{artist}/{title}), but old links are in the wild and they are the ones that need the help
+	// most: identical treatment via the shared module, which is also a net deletion of the duplicated
+	// resolve-and-play body this page used to carry. Same reasoning as D-11 for the `?play=` decoder.
 	import { browser } from '$app/environment';
 	import { onMount } from 'svelte';
 	import PageOg from '$lib/components/PageOg.svelte';
 	import type { PageData } from './$types';
+	// `import type` is ERASED at compile time, so this pulls nothing from share-arrival (and its
+	// player-store graph) into SSR. The VALUE import stays lazy inside onMount.
+	import type { ArrivalOutcome } from '$lib/services/share-arrival';
 
 	let { data }: { data: PageData } = $props();
 
@@ -32,11 +47,13 @@
 	// first-class event), so an error falls back to the existing .cover--placeholder block.
 	let coverFailed = $state(false);
 
-	// DQ-3 resolve-and-play status. Drives the inline UI: 'resolving' shows a spinner, 'playing'
-	// means the player took over, 'notfound' shows a clear message + retry. NEVER stays 'resolving'
-	// forever — every resolveAndPlay() settles it to 'playing' or 'notfound' (no stuck loader).
-	// quick-260809-38i: it now starts at 'idle' and STAYS there until the user taps play, so opening a
-	// shared link renders no status line and, more importantly, starts no audio.
+	// DQ-3 arrival status. Drives the inline UI: 'resolving' shows a spinner, 'playing' means sound
+	// is out, 'notfound' shows a clear message + retry. NEVER stays 'resolving' forever — every
+	// arrive() settles it (no stuck loader).
+	// 38-D-17/38-D-18: an 'armed' or 'noop' outcome maps back to 'idle'. The NOWBAR is the armed
+	// indicator — it comes free from the (app) layout — so there is no extra status line for it and
+	// NowPlaying deliberately stays collapsed.
+	// quick-260809-38i: the status still only ever reaches 'playing' through a real user gesture.
 	let status = $state<'idle' | 'resolving' | 'playing' | 'notfound'>('idle');
 	// Lazily-imported i18n getter for the not-found message; null until the client import resolves,
 	// in which case we render a plain English fallback (keeps the page SSR-safe + never blank).
@@ -45,35 +62,92 @@
 	// autoplay-blocked case; removing the autoplay removes that whole class of failure). Still named
 	// `retry` because it is also what re-runs the resolve after a 'notfound'.
 	let retry = $state<(() => void) | null>(null);
+	// 38-D-16: the mount-time arrival, held so a tap DURING it adopts the same promise instead of
+	// firing a second resolve. Plain fields, not `$state` — nothing renders them, which is the house
+	// rule for internal guards (CLAUDE.md, cf. player's `playGen`/`pendingGen`).
+	let inflight: Promise<ArrivalOutcome> | null = null;
+	let ac: AbortController | null = null;
 
-	async function resolveAndPlay() {
+	async function arrive(): Promise<ArrivalOutcome> {
 		if (!browser || !data.name) {
 			// No name carrier → nothing to resolve (e.g. a hand-trimmed ASCII-only link). Treat as a
 			// genuine miss rather than a stuck loader.
 			status = 'notfound';
-			return;
+			return 'notfound';
 		}
 		status = 'resolving';
-		// Lazy imports keep SSR store-free (both pull the client store graph).
-		const { player } = await import('$lib/stores/player.svelte');
-		try {
-			const { t } = await import('$lib/i18n');
-			notFoundMsg = t('home.unplayable');
-		} catch {
-			/* keep the English fallback already set above */
+		// Lazy import keeps SSR store-free — share-arrival imports the player store (its own header
+		// comment carries the same contract).
+		const { arriveShared } = await import('$lib/services/share-arrival');
+		// 38-D-15: `u: null` — this shape has no song-identity carrier, so the arrival goes straight
+		// to the name resolve. Same single path as /song/{artist}/{title}, just without the fast lane.
+		const outcome = await arriveShared(
+			{ artist: data.artist, title: data.name, u: null },
+			ac?.signal
+		);
+		if (outcome === 'played') {
+			status = 'playing';
+			// 38-D-20: a warm arrival changed the music without the user touching the player, so it
+			// says so — and says the recipient's queue survived. Both imports pull the client store
+			// graph, hence lazy; the try/catch means a failed chunk costs a toast, never the page.
+			try {
+				const [{ toast }, { t }] = await Promise.all([
+					import('$lib/stores/toast.svelte'),
+					import('$lib/i18n')
+				]);
+				toast.show(t('toast.sharedPlaying'));
+			} catch {
+				/* no toast is a fine degradation — the music is already playing */
+			}
+		} else if (outcome === 'notfound') {
+			status = 'notfound';
+			try {
+				const { t } = await import('$lib/i18n');
+				notFoundMsg = t('home.unplayable');
+			} catch {
+				/* keep the English fallback already set above */
+			}
+		} else {
+			// 'armed' | 'noop' — the song is seated in the nowbar, one tap from sound. No status line.
+			status = 'idle';
 		}
-		const tr = await player.playStub(data.artist, data.name, null, 'home-discovery');
-		// Mirror the home idiom: playStub returns null for BOTH a genuine miss AND a supersede; a
-		// supersede leaves pendingTrack pointing at the newer song (don't flag notfound then).
-		if (tr === null && player.pendingTrack == null) status = 'notfound';
-		else status = 'playing';
+		return outcome;
+	}
+
+	// 38-D-19: the CTA handler. It is the real user gesture mobile autoplay policy requires, and it
+	// now STARTS an already-armed element instead of beginning a resolve.
+	async function playNow() {
+		// 38-D-16: adopt the in-flight mount resolve — never a second request.
+		let outcome = await (inflight ?? (inflight = arrive()));
+		if (outcome === 'notfound') {
+			// The CTA is still the retry affordance: one more attempt, then give up quietly (the
+			// 'notfound' message is already on screen).
+			inflight = arrive();
+			outcome = await inflight;
+			if (outcome === 'notfound') return;
+		}
+		const { player } = await import('$lib/stores/player.svelte');
+		// `toggle()` is exactly "start the already-armed element" — the same call the nowbar makes.
+		// Guarded on `player.playing` so a 'played'/'noop' arrival on an already-playing song does not
+		// PAUSE it. The old resolve-and-play-a-stub call is gone: it did setQueue + play(fresh:true),
+		// the queue nuke this phase removes.
+		if (!player.playing) player.toggle();
+		status = 'playing';
 	}
 
 	onMount(() => {
-		// quick-260809-38i: bind the handler ONLY — no resolve, no playback. Opening a share link must
-		// start NO audio; the "Play on openmusic" control below runs the exact same resolve on a real
-		// user gesture, which is also the gesture mobile browsers require for playback anyway.
-		retry = () => void resolveAndPlay();
+		if (!browser) return;
+		// onMount, NEVER a tracked rune effect: the arrival writes player state, and a tracked effect
+		// that reads then writes that state self-invalidates into a loop
+		// (restore-effect-self-invalidation-loop — see the untrack() block at
+		// src/routes/+layout.svelte:24-33).
+		// quick-260809-38i: the ref and its decision both stand — nothing here PLAYS. The resolve is
+		// what fires on mount (38-D-13); `arrive()` never calls play() or toggle().
+		ac = new AbortController();
+		inflight = arrive();
+		retry = () => void playNow();
+		// A fast navigation away aborts before the name fan-out, rather than spending it on a dead view.
+		return () => ac?.abort();
 	});
 </script>
 
@@ -106,10 +180,12 @@
 		<p class="status status--error" aria-live="polite">{notFoundMsg}</p>
 	{/if}
 
-	<!-- quick-260809-38i: the PRIMARY play path — the page no longer resolves or plays on mount, so
-	     this tap is what starts everything (and it re-runs the resolve after a 'notfound'). Disabled
-	     while a resolve is in flight; available client-side only (retry is bound in onMount). -->
-	<button class="play-cta" onclick={() => retry?.()} disabled={status === 'resolving' || retry === null}>
+	<!-- quick-260809-38i: still the ONLY thing that starts audio — the page resolves on mount but
+	     never plays. 38-D-19: this tap starts the already-armed element. 38-D-16: it is deliberately
+	     NOT disabled during 'resolving' — a tap mid-flight ADOPTS the in-flight resolve (the spinner
+	     line still shows), and after a 'notfound' it re-runs it. Available client-side only (retry is
+	     bound in onMount). -->
+	<button class="play-cta" onclick={() => retry?.()} disabled={retry === null}>
 		Play on openmusic
 	</button>
 </section>
