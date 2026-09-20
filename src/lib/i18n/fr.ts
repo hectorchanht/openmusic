@@ -173,7 +173,7 @@ const fr: Dict = {
 	"settings.songRowEditor": "Lignes de morceaux",
 	"settings.songRowEditorDesc": "Touchez une partie mise en évidence de la ligne d’exemple pour la sélectionner, puis faites glisser le curseur : la ligne se redimensionne pendant le glissement. Faites glisser un bouton pour le déplacer, touchez-le pour le désactiver ; le menu ⋮ est toujours là.",
 	"settings.npEditor": "Lecture en cours",
-	"settings.npEditorDesc": "Ces tailles ne changent que la vue Lecture en cours en plein écran. Touchez une partie mise en évidence, faites glisser le curseur, puis Enregistrer — ou Annuler pour conserver vos réglages.",
+	"settings.npEditorDesc": "Ces tailles ne changent que la vue Lecture en cours en plein écran. Touchez une partie mise en évidence, puis faites glisser le curseur — les changements s’appliquent aussitôt.",
 	"settings.wingPick": "{name}, {value} %. Appuyez pour redimensionner cette partie.",
 	"settings.wingPicked": "{name}, {value} %, sélectionné. Utilisez le curseur ci-dessous pour le redimensionner.",
 	"settings.editorSlider": "Taille de {name}",

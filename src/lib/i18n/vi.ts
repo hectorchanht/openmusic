@@ -173,7 +173,7 @@ const vi: Dict = {
 	"settings.songRowEditor": "Hàng bài hát",
 	"settings.songRowEditorDesc": "Chạm vào phần được làm nổi bật trên hàng ví dụ để chọn, rồi kéo thanh trượt — hàng đổi cỡ ngay khi bạn kéo. Kéo một nút để di chuyển, chạm để tắt; menu ⋮ luôn có ở đó.",
 	"settings.npEditor": "Đang phát",
-	"settings.npEditorDesc": "Các cỡ này chỉ thay đổi màn hình Đang phát toàn màn hình. Chạm vào phần được làm nổi bật, kéo thanh trượt, rồi nhấn Lưu — hoặc Hủy để giữ nguyên như cũ.",
+	"settings.npEditorDesc": "Các cỡ này chỉ thay đổi màn hình Đang phát toàn màn hình. Chạm vào phần được làm nổi bật, rồi kéo thanh trượt — thay đổi áp dụng ngay.",
 	"settings.wingPick": "{name}, {value}%. Nhấn để đổi cỡ phần này.",
 	"settings.wingPicked": "{name}, {value}%, đã chọn. Dùng thanh trượt bên dưới để đổi cỡ.",
 	"settings.editorSlider": "Cỡ của {name}",

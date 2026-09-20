@@ -173,7 +173,7 @@ const es: Dict = {
 	"settings.songRowEditor": "Filas de canciones",
 	"settings.songRowEditorDesc": "Toca una parte resaltada de la fila de ejemplo para seleccionarla y arrastra el control: la fila cambia de tamaño mientras arrastras. Arrastra un botón para moverlo, tócalo para desactivarlo; el menú ⋮ siempre está.",
 	"settings.npEditor": "Reproduciendo",
-	"settings.npEditorDesc": "Estos tamaños solo cambian la vista Reproduciendo a pantalla completa. Toca una parte resaltada, arrastra el control y pulsa Guardar, o Cancelar para conservar lo que tenías.",
+	"settings.npEditorDesc": "Estos tamaños solo cambian la vista Reproduciendo a pantalla completa. Toca una parte resaltada y arrastra el control: los cambios se aplican al instante.",
 	"settings.wingPick": "{name}, {value} %. Pulsa para cambiar el tamaño de esta parte.",
 	"settings.wingPicked": "{name}, {value} %, seleccionado. Usa el control de abajo para cambiar su tamaño.",
 	"settings.editorSlider": "Tamaño de {name}",

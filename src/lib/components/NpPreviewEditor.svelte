@@ -9,82 +9,51 @@
 	// formulas, copied from NowPlaying.svelte (.title/.artist) and NpLyrics.svelte (.lyrics p),
 	// and kept in step BY HAND if those move.
 	//
-	// DRAFT-THEN-COMMIT, unlike the song-row editor above it, which commits live. The difference
-	// is not taste: a song row is on screen in every list the moment you leave this page, so a
-	// live commit shows the user the real thing. The full-screen Now Playing view is NOT visible
-	// from Settings — this mock is the only feedback there is — so a drag that overshoots must be
-	// undoable without the user having to remember what "100%" looked like. Hence Cancel/Save.
+	// COMMITS LIVE, exactly like the song-row editor above it (user call, quick-260920-kxz — this
+	// started as draft-then-commit with Cancel/Save and was cut back). Because the store is written
+	// on every drag, applyTheme() pushes the three custom properties to :root and the mock inherits
+	// the REAL values — no local shadowing needed, and the actual Now Playing surface is already
+	// resized by the time the user gets back to it. The page header's "Reset this group" therefore
+	// flows into the mock for free; there is no draft to keep in step with it.
 	import { settings, FONT_SCALE_MIN, FONT_SCALE_MAX } from '$lib/stores/settings.svelte';
 	import { t } from '$lib/i18n';
 	import { coverGradient } from '$lib/services/cover-gradient';
-	import { tapBounce } from '$lib/actions/tapBounce';
 
 	/** Demo text from the page (D-12): the current/last-played track, or the static fallback. */
 	let { title, artist }: { title: string; artist: string } = $props();
 
 	type NpTarget = 'npTitle' | 'npArtist' | 'lyrics';
 
-	const persisted = () => ({
-		npTitle: settings.fontScaleNpTitle,
-		npArtist: settings.fontScaleNpArtist,
-		lyrics: settings.fontScaleLyrics
-	});
-
-	let draft = $state(persisted());
 	let target = $state<NpTarget>('npTitle');
-	// PLAIN field, not $state — nothing renders from it; it only gates the re-seed effect below
-	// (house convention: internal guards stay off the reactive graph).
-	let touched = false;
-	const dirty = $derived(JSON.stringify(draft) !== JSON.stringify(persisted()));
 
-	// Re-seed from the store while the draft is UNTOUCHED. The page header's "Reset this group"
-	// button writes the store from under us; without this the mock would keep showing the old
-	// numbers and Save would then push them straight back, quietly undoing the reset. A TOUCHED
-	// draft is never clobbered — that is the user's in-progress edit.
-	$effect(() => {
-		const p = persisted();
-		if (!touched) draft = p;
-	});
-
+	/** Write the selected part's scale straight to the store, same shape as the song-row editor's
+	 *  `commit`. `settings.save()` persists AND runs applyTheme(), which is what repaints both this
+	 *  mock and the real Now Playing view. */
 	function onInput(v: number) {
-		touched = true;
-		draft = { ...draft, [target]: v };
-	}
-	function cancel() {
-		draft = persisted();
-		touched = false;
-	}
-	function save() {
-		settings.fontScaleNpTitle = draft.npTitle;
-		settings.fontScaleNpArtist = draft.npArtist;
-		settings.fontScaleLyrics = draft.lyrics;
+		if (target === 'npTitle') settings.fontScaleNpTitle = v;
+		else if (target === 'npArtist') settings.fontScaleNpArtist = v;
+		else settings.fontScaleLyrics = v;
 		settings.save();
-		touched = false;
 	}
 
-	/** The i18n name + current DRAFT percentage each wing announces. Reuses the existing per-part
-	 *  labels — the Now-Playing sliders are gone, their names are not. */
+	/** The i18n name + current percentage each wing announces — read straight off the store, which
+	 *  is now the single source of truth. Reuses the existing per-part labels: the Now-Playing
+	 *  sliders are gone, their names are not. */
 	const wing = (k: NpTarget) =>
 		k === 'npTitle'
-			? { name: t('settings.fontSizeNpTitle'), value: draft.npTitle }
+			? { name: t('settings.fontSizeNpTitle'), value: settings.fontScaleNpTitle }
 			: k === 'npArtist'
-				? { name: t('settings.fontSizeNpArtist'), value: draft.npArtist }
-				: { name: t('settings.fontSizeLyrics'), value: draft.lyrics };
+				? { name: t('settings.fontSizeNpArtist'), value: settings.fontScaleNpArtist }
+				: { name: t('settings.fontSizeLyrics'), value: settings.fontScaleLyrics };
 	const wingLabel = (k: NpTarget) =>
 		t(target === k ? 'settings.wingPicked' : 'settings.wingPick', wing(k));
 	const current = $derived(wing(target));
 </script>
 
-<!-- THE WHOLE TRICK: the DRAFT values are pushed as the same three custom properties the real
-     surfaces read, but scoped to this subtree, where they shadow the :root values applyTheme()
-     set. So the scoped rules below can be byte-copies of NowPlaying's/NpLyrics' formulas, the
-     mock tracks the slider live, and the real app stays at the persisted size until Save. -->
-<div
-	class="np-mock"
-	style:--fs-np-title={draft.npTitle / 100}
-	style:--fs-np-artist={draft.npArtist / 100}
-	style:--fs-lyrics={draft.lyrics / 100}
->
+<!-- No local custom properties: the scoped rules below are byte-copies of NowPlaying's/NpLyrics'
+     formulas and read the SAME :root values applyTheme() sets, so the mock and the real surface
+     cannot drift apart. -->
+<div class="np-mock">
 	<!-- No wing on the cover: NowPlaying's artwork is NOT sized by `--cover-scale` (that is a
 	     list-tile scale), so a cover wing here would be a control for nothing. -->
 	<span class="np-art" aria-hidden="true" style:background={coverGradient(title)}></span>
@@ -133,13 +102,6 @@
 	oninput={(e) => onInput(Number((e.currentTarget as HTMLInputElement).value))}
 />
 
-<!-- The GENERIC Cancel/Save strings, not new Now-Playing-specific ones. TrackMenu already reuses
-     `tags.cancel` outside a tag dialog — these two words carry no tag meaning. -->
-<div class="actions">
-	<button class="mi" onclick={cancel} disabled={!dirty} use:tapBounce>{t('tags.cancel')}</button>
-	<button class="mi primary" onclick={save} disabled={!dirty} use:tapBounce>{t('tags.save')}</button>
-</div>
-
 <style>
 	.np-mock {
 		display: flex;
@@ -156,41 +118,18 @@
 		border-radius: 12px;
 		align-self: center;
 	}
-	/* Copied from NowPlaying.svelte `.title` — weight, line-height and the nowrap/ellipsis clamp
-	   included, because how a long title truncates is exactly what a size change decides. */
-	.np-title {
-		font-size: calc(1.5rem * var(--fs-np-title, 1));
-		font-weight: 800;
-		line-height: 1.2;
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		max-width: 100%;
-	}
-	/* NowPlaying.svelte `.artist`. */
-	.np-artist {
-		font-size: calc(1rem * var(--fs-np-artist, 1));
-	}
-	.np-lyrics {
-		display: flex;
-		flex-direction: column;
-		gap: 6px;
-		align-items: flex-start;
-		max-width: 100%;
-	}
-	/* NpLyrics.svelte `.lyrics p` + `p.active`. */
-	.ly {
-		font-size: calc(1rem * var(--fs-lyrics, 1));
-		color: var(--color-text-muted);
-	}
-	.ly.active {
-		color: var(--color-text);
-		font-weight: 700;
-	}
 	/* quick-260920-kxz — WING, the second scoped copy of RowActionsConfig's ~10 lines. Copied on
 	   purpose: a third component existing only to hold one small rule would cost more than the
 	   duplication, and the two mocks legitimately differ (that one has a cover wing, this one
-	   must not). See the note at RowActionsConfig's `.wing`. */
+	   must not). See the note at RowActionsConfig's `.wing`.
+	   ORDER IS LOAD-BEARING — this block MUST stay ABOVE the per-part size rules below. `font:
+	   inherit` is a SHORTHAND and therefore resets `font-size` to the inherited value, wiping the
+	   `calc(Nrem * var(--fs-*, 1))` formulas. Svelte scopes both selectors to the same (0,2,0)
+	   specificity (`.wing.svelte-x` vs `.np-title.svelte-x`), so nothing but source order breaks
+	   the tie: declared after, the reset wins and the mock silently stops resizing — which is
+	   exactly the bug this ordering fixes. Do NOT "fix" a recurrence by swapping the shorthand for
+	   longhands; `font-weight: inherit` / `line-height: inherit` would just move the same override
+	   onto `.np-title`'s weight 800 and line-height 1.2. Keep the reset first. */
 	.wing {
 		position: relative;
 		border: 0;
@@ -213,6 +152,44 @@
 		outline: 2px solid var(--color-primary);
 		outline-offset: 2px;
 	}
+	/* Copied from NowPlaying.svelte `.title` — weight, line-height and the nowrap/ellipsis clamp
+	   included, because how a long title truncates is exactly what a size change decides. */
+	.np-title {
+		font-size: calc(1.5rem * var(--fs-np-title, 1));
+		font-weight: 800;
+		line-height: 1.2;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		max-width: 100%;
+	}
+	/* NowPlaying.svelte `.artist`. */
+	.np-artist {
+		font-size: calc(1rem * var(--fs-np-artist, 1));
+	}
+	/* CENTRED, and full-width to centre against — NpLyrics.svelte's `.lyrics` is
+	   `text-align: center; line-height: 1.3`, so a left-aligned replica was simply wrong about the
+	   surface it mocks (quick-260920-kxz). `.wing`'s `text-align: left` reset is declared above, so
+	   this wins the same-specificity tie on source order — see the ORDER IS LOAD-BEARING note. */
+	.np-lyrics {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+		align-self: stretch;
+		align-items: center;
+		text-align: center;
+		line-height: 1.3;
+		max-width: 100%;
+	}
+	/* NpLyrics.svelte `.lyrics p` + `p.active`. */
+	.ly {
+		font-size: calc(1rem * var(--fs-lyrics, 1));
+		color: var(--color-text-muted);
+	}
+	.ly.active {
+		color: var(--color-text);
+		font-weight: 700;
+	}
 	/* Matches the appearance page's own `.editor-lab` — the readout is the mock's caption. */
 	.editor-lab {
 		position: relative;
@@ -230,28 +207,5 @@
 	input[type='range'] {
 		width: 100%;
 		accent-color: var(--color-primary);
-	}
-	.actions {
-		display: flex;
-		gap: 8px;
-		justify-content: flex-end;
-		margin-top: 8px;
-	}
-	.mi {
-		padding: 8px 14px;
-		border-radius: 999px;
-		border: 1px solid var(--color-border);
-		background: var(--color-surface-2);
-		color: var(--color-text);
-		cursor: pointer;
-	}
-	.mi.primary {
-		background: var(--color-primary);
-		border-color: transparent;
-		color: #fff;
-	}
-	.mi:disabled {
-		opacity: 0.45;
-		cursor: default;
 	}
 </style>

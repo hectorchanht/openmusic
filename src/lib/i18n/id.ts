@@ -173,7 +173,7 @@ const id: Dict = {
 	"settings.songRowEditor": "Baris lagu",
 	"settings.songRowEditorDesc": "Ketuk bagian yang disorot pada baris contoh untuk memilihnya, lalu geser penggeser — baris berubah ukuran saat Anda menggeser. Seret tombol untuk memindahkannya, ketuk untuk mematikannya; menu ⋮ selalu ada.",
 	"settings.npEditor": "Sedang diputar",
-	"settings.npEditorDesc": "Ukuran ini hanya mengubah tampilan Sedang diputar layar penuh. Ketuk bagian yang disorot, geser penggeser, lalu Simpan — atau Batal untuk mempertahankan yang lama.",
+	"settings.npEditorDesc": "Ukuran ini hanya mengubah tampilan Sedang diputar layar penuh. Ketuk bagian yang disorot, lalu geser penggeser — perubahan langsung diterapkan.",
 	"settings.wingPick": "{name}, {value}%. Tekan untuk mengubah ukuran bagian ini.",
 	"settings.wingPicked": "{name}, {value}%, terpilih. Gunakan penggeser di bawah untuk mengubah ukurannya.",
 	"settings.editorSlider": "Ukuran {name}",

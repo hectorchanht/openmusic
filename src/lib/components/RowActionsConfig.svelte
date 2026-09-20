@@ -272,7 +272,16 @@
 	   Dashed while unselected, solid once picked; no new colour is invented, it is the user's own
 	   accent (--color-primary) mixed down. NpPreviewEditor carries a second scoped copy of these
 	   ~10 lines on purpose: two copies of one small rule beat a third component existing only to
-	   hold them, and the two mocks are free to drift (this one has a cover wing, NP has none). */
+	   hold them, and the two mocks are free to drift (this one has a cover wing, NP has none).
+	   ORDER IS LOAD-BEARING — this block MUST stay ABOVE `.cfg-title` / `.cfg-sub` / `.cfg-art`
+	   below. `font: inherit` is a SHORTHAND and therefore resets `font-size` to the inherited
+	   value, wiping their `calc(Nrem * var(--fs-*, 1))` formulas. Svelte scopes both selectors to
+	   the same (0,2,0) specificity (`.wing.svelte-x` vs `.cfg-title.svelte-x`), so nothing but
+	   source order breaks the tie: declared after, the reset wins and the replica silently stops
+	   resizing. That is not hypothetical — NpPreviewEditor shipped with this block last and its
+	   mock never moved. Do NOT "fix" a recurrence by swapping the shorthand for longhands;
+	   `font-weight: inherit` would just move the same override onto `.cfg-title`'s weight 600.
+	   Keep the reset first. */
 	.wing {
 		position: relative;
 		/* Button reset first, so a wing is geometrically identical to the span it replaced. */

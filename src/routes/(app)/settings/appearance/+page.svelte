@@ -86,11 +86,11 @@
     const rowMax = $derived(
         rowTarget === "cover" ? COVER_SCALE_MAX : FONT_SCALE_MAX,
     );
-    /** LIVE commit (locked decision) — write + save on every input event. The replica repaints
-     *  because save() calls applyTheme(), which pushes the :root vars the replica reads. There is
-     *  nothing to cancel here: this replica IS what every list in the app already looks like, so
-     *  the user is watching the real result, not a proposal. (Now playing, which the user cannot
-     *  see from this page, gets draft-then-commit instead — see NpPreviewEditor.) */
+    /** LIVE commit — write + save on every input event. The replica repaints because save() calls
+     *  applyTheme(), which pushes the :root vars the replica reads. There is nothing to cancel
+     *  here: this replica IS what every list in the app already looks like, so the user is
+     *  watching the real result, not a proposal. NpPreviewEditor commits live the same way
+     *  (quick-260920-kxz — it briefly had Cancel/Save; the user asked for immediate apply). */
     function setRow(v: number) {
         if (rowTarget === "title") settings.fontScaleTitle = v;
         else if (rowTarget === "artist") settings.fontScaleArtist = v;
@@ -345,11 +345,10 @@
     </div>
 </section>
 
-<!-- quick-260920-kxz: the Now playing editor. It is the one sizing control on this page that
-     does NOT commit live — Now Playing is a full-screen surface the user cannot see from here, so
-     its mock is the only feedback there is and a wrong drag has to be cancellable. The Song rows
-     editor above commits live for the mirror-image reason: its replica IS what every list shows,
-     so the user is already looking at the real result. -->
+<!-- quick-260920-kxz: the Now playing editor. Like the Song rows editor above it, it commits
+     LIVE — every drag writes the store and persists. It was built draft-then-commit (Cancel/Save)
+     on the theory that a surface you cannot see from Settings needs an undo; the user asked for
+     immediate apply instead, so the mock plus the per-group Reset carry that weight. -->
 <section>
     <h2>
         <Disc3 size={15} /> {t("settings.npEditor")}<SettingHint

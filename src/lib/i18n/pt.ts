@@ -173,7 +173,7 @@ const pt: Dict = {
 	"settings.songRowEditor": "Linhas de músicas",
 	"settings.songRowEditorDesc": "Toque numa parte destacada da linha de exemplo para selecioná-la e arraste o controle — a linha muda de tamanho enquanto você arrasta. Arraste um botão para movê-lo, toque nele para desligá-lo; o menu ⋮ está sempre ali.",
 	"settings.npEditor": "Tocando agora",
-	"settings.npEditorDesc": "Estes tamanhos mudam apenas a tela cheia de Tocando agora. Toque numa parte destacada, arraste o controle e toque em Salvar — ou em Cancelar para manter o que você tinha.",
+	"settings.npEditorDesc": "Estes tamanhos mudam apenas a tela cheia de Tocando agora. Toque numa parte destacada e arraste o controle — as mudanças valem na hora.",
 	"settings.wingPick": "{name}, {value}%. Toque para redimensionar esta parte.",
 	"settings.wingPicked": "{name}, {value}%, selecionado. Use o controle abaixo para redimensioná-lo.",
 	"settings.editorSlider": "Tamanho de {name}",

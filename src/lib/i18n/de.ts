@@ -173,7 +173,7 @@ const de: Dict = {
 	"settings.songRowEditor": "Songzeilen",
 	"settings.songRowEditorDesc": "Tippe auf einen hervorgehobenen Teil der Beispielzeile, um ihn auszuwählen, und zieh dann den Regler — die Zeile ändert ihre Größe beim Ziehen. Zieh eine Schaltfläche, um sie zu verschieben, tippe sie an, um sie auszuschalten; das ⋮-Menü ist immer da.",
 	"settings.npEditor": "Wiedergabe",
-	"settings.npEditorDesc": "Diese Größen ändern nur die Vollbild-Wiedergabeansicht. Tippe auf einen hervorgehobenen Teil, zieh den Regler und dann Speichern — oder Abbrechen, um alles so zu lassen.",
+	"settings.npEditorDesc": "Diese Größen ändern nur die Vollbild-Wiedergabeansicht. Tippe auf einen hervorgehobenen Teil und zieh dann den Regler — Änderungen gelten sofort.",
 	"settings.wingPick": "{name}, {value} %. Antippen, um diesen Teil zu skalieren.",
 	"settings.wingPicked": "{name}, {value} %, ausgewählt. Nutze den Regler unten, um die Größe zu ändern.",
 	"settings.editorSlider": "Größe von {name}",

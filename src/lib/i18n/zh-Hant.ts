@@ -186,7 +186,7 @@ const zhHant: Dict = {
 	"settings.songRowEditor": "歌曲列表",
 	"settings.songRowEditorDesc": "點按範例列中反白的部分即可選取，然後拖曳滑桿 — 該列會隨拖曳即時改變大小。拖曳按鈕可移動位置，點按可關閉；⋮ 選單永遠都在。",
 	"settings.npEditor": "正在播放",
-	"settings.npEditorDesc": "這些大小只影響全螢幕的「正在播放」畫面。點按反白的部分，拖曳滑桿，然後按「儲存」 — 或按「取消」保留原本的設定。",
+	"settings.npEditorDesc": "這些大小只影響全螢幕的「正在播放」畫面。點按反白的部分，然後拖曳滑桿 — 變更會立即生效。",
 	"settings.wingPick": "{name}，{value}%。點按以調整這個部分的大小。",
 	"settings.wingPicked": "{name}，{value}%，已選取。使用下方的滑桿調整大小。",
 	"settings.editorSlider": "{name} 的大小",

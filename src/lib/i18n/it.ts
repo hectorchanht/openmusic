@@ -173,7 +173,7 @@ const it: Dict = {
 	"settings.songRowEditor": "Righe dei brani",
 	"settings.songRowEditorDesc": "Tocca una parte evidenziata della riga di esempio per selezionarla, poi trascina il cursore: la riga si ridimensiona mentre trascini. Trascina un pulsante per spostarlo, toccalo per disattivarlo; il menu ⋮ c’è sempre.",
 	"settings.npEditor": "In riproduzione",
-	"settings.npEditorDesc": "Queste dimensioni cambiano solo la schermata In riproduzione a tutto schermo. Tocca una parte evidenziata, trascina il cursore, poi Salva — oppure Annulla per tenere quello che avevi.",
+	"settings.npEditorDesc": "Queste dimensioni cambiano solo la schermata In riproduzione a tutto schermo. Tocca una parte evidenziata, poi trascina il cursore: le modifiche sono immediate.",
 	"settings.wingPick": "{name}, {value}%. Tocca per ridimensionare questa parte.",
 	"settings.wingPicked": "{name}, {value}%, selezionato. Usa il cursore qui sotto per ridimensionarlo.",
 	"settings.editorSlider": "Dimensione di {name}",

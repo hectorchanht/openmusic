@@ -173,7 +173,7 @@ const tr: Dict = {
 	"settings.songRowEditor": "Şarkı satırları",
 	"settings.songRowEditorDesc": "Örnek satırda vurgulanmış bir parçaya dokunup seçin, sonra kaydırıcıyı sürükleyin — satır siz sürükledikçe yeniden boyutlanır. Bir düğmeyi taşımak için sürükleyin, kapatmak için dokunun; ⋮ menüsü her zaman oradadır.",
 	"settings.npEditor": "Şimdi çalıyor",
-	"settings.npEditorDesc": "Bu boyutlar yalnızca tam ekran Şimdi çalıyor görünümünü değiştirir. Vurgulanmış bir parçaya dokunun, kaydırıcıyı sürükleyin, sonra Kaydet’e basın — ya da eskisini korumak için İptal.",
+	"settings.npEditorDesc": "Bu boyutlar yalnızca tam ekran Şimdi çalıyor görünümünü değiştirir. Vurgulanmış bir parçaya dokunun, sonra kaydırıcıyı sürükleyin — değişiklikler anında uygulanır.",
 	"settings.wingPick": "{name}, %{value}. Bu parçayı yeniden boyutlandırmak için basın.",
 	"settings.wingPicked": "{name}, %{value}, seçili. Boyutlandırmak için aşağıdaki kaydırıcıyı kullanın.",
 	"settings.editorSlider": "{name} boyutu",
