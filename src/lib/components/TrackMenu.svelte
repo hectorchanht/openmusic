@@ -1079,12 +1079,23 @@
 			     precisely so a sheet mounted under the finger is covered), so `onclick={startDownload}`
 			     does NOT also fire — verified in longpress.ts, not assumed. The parent sheet's
 			     dragClose cannot fire either: it needs rawDy > 8px, the same distance that cancels the
-			     longpress timer. The caret + the hold hint on title/aria-label make it discoverable. -->
-			<button class="mi" aria-label={`${dlLabel} · ${t('menu.downloadHoldHint')}`} title={t('menu.downloadHoldHint')} onclick={startDownload} onlongpress={openDownloadPicker} use:longpress use:tapBounce>
-				<Download size={18} /> {t('menu.download')}
-				{#if dlProbing}<span class="count skel" aria-hidden="true"></span>{:else if dlMeta}<span class="count">{dlMeta}</span>{/if}
-				<ChevronDown size={14} class="hold-caret" aria-hidden="true" />
-			</button>
+			     longpress timer. The hold hint on title/aria-label makes it discoverable.
+			     quick-260919-vrq: the caret is no longer a decorative hint — it is a SIBLING BUTTON
+			     that opens the same “Download from…” sheet on a PLAIN TAP. A <button> cannot nest a
+			     <button>, so making the caret tappable forces the row to split in two. Its accessible
+			     name reuses `menu.downloadFrom` deliberately: that string names exactly the sheet it
+			     opens, so the caret needs no new key. Splitting the row does NOT weaken the hold:
+			     longpress.ts attaches its one-shot click suppressor on DOCUMENT in the CAPTURE phase,
+			     i.e. target-agnostic, so a hold's trailing click is eaten wherever it lands — the main
+			     button, the caret, or the sheet that just mounted under the finger (read in
+			     longpress.ts `clickCapture`, not assumed). -->
+			<div class="mi-split">
+				<button class="mi" aria-label={`${dlLabel} · ${t('menu.downloadHoldHint')}`} title={t('menu.downloadHoldHint')} onclick={startDownload} onlongpress={openDownloadPicker} use:longpress use:tapBounce>
+					<Download size={18} /> {t('menu.download')}
+					{#if dlProbing}<span class="count skel" aria-hidden="true"></span>{:else if dlMeta}<span class="count">{dlMeta}</span>{/if}
+				</button>
+				<button type="button" class="mi-caret" aria-label={t('menu.downloadFrom')} title={t('menu.downloadFrom')} onclick={openDownloadPicker} use:tapBounce><ChevronDown size={14} /></button>
+			</div>
 		{/if}
 		{/if}
 		<!-- quick-260913-je8: the mid-list Like row is RESTORED (D-09 had removed it when Like owned
@@ -1356,11 +1367,18 @@
 	   playing either. Capped so a long line never pushes the source label out of the row. */
 	.lyr-prev { max-width: 55%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 	.dl-wait { display: flex; align-items: center; gap: 10px; color: var(--color-text-muted); font-size: 13px; padding: 10px 12px; margin: 0; }
-	/* The hold-affordance caret on the Download row. `.count` already carries `margin-left: auto`, so
-	   the caret only needs to claim the right edge itself when NO count rendered (no probe yet, no
-	   meta) — hence auto by default and a plain gap when it follows a `.count`. */
-	.mi :global(.hold-caret) { flex: none; color: var(--color-text-muted); margin-left: auto; }
-	.mi .count + :global(.hold-caret) { margin-left: 4px; }
+	/* quick-260919-vrq: the Download row is now TWO sibling buttons in a flex wrapper (a tappable
+	   caret cannot live inside a <button>). The caret's two old decoration-only rules went with it —
+	   the glyph is a real control now, so it no longer needs a rule to fake a right-edge position.
+	   `.mi` declares `width: 100%`, which as a flex item would size it off the wrapper rather than
+	   the free space, so `flex: 1` + `min-width: 0` is what actually lets it take the row and lets
+	   its label ellipsise. `.count`'s own `margin-left: auto` still pushes the meta to the main
+	   button's right edge, so the icon/label/meta rhythm is unchanged. The caret repeats `.mi`'s
+	   12px vertical padding so the row height is identical, with 14px horizontal for a ~42px target. */
+	.mi-split { display: flex; align-items: center; }
+	.mi-split .mi { flex: 1; min-width: 0; }
+	.mi-caret { flex: none; display: flex; align-items: center; background: none; border: none; color: var(--color-text-muted); padding: 12px 14px; border-radius: 10px; cursor: pointer; }
+	.mi-caret:hover { background: var(--color-surface); }
 	/* quick-260913-omi: download progress fill, RESTORED by quick-260919-dlring's row revert. `--dl`
 	   is the 0..1 fraction, set inline per render. An ::after at 18% opacity sits UNDER the label
 	   without needing a stacking context — the tint is light enough that the text and icon stay fully
