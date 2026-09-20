@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: YTMusic-Powered Up-Next
 status: executing
-stopped_at: "34 waves 1-4 complete (code done, 34-01..34-08); STOPPED before wave 5 device UAT. 34-09/10/11 + 35-05 + 36-05 all PENDING HUMAN device work."
-last_updated: "2026-09-14T03:04:28.284Z"
-last_activity: 2026-09-14
+stopped_at: Phase 38 context gathered
+last_updated: "2026-09-20T18:40:25.094Z"
+last_activity: "2026-09-20 - quick-260919-vrq: TrackMenu's Download row split so its caret is a real button opening the source picker (long-press still works, suppressor verified across the split), plus a \"Remove download\" row whose confirm sheet carries a keep-the-file toggle — ON deletes the offline copy and records an exclusion, OFF drops only the library row. Required an additive `removeDownload(uid, { deleteFile })` with a default that leaves both existing callers untouched. pnpm check 0 errors, 2923 tests pass, and both toggle directions were verified against real IndexedDB + localStorage state in the browser, not just unit-tested. NOTE: the OFF path cannot promise the file won't return — a rescan finds it under a new device: uid; the copy is worded accordingly. Five quick tasks today (oc6, pbs, pid, v71, vrq) are all on main and NOTHING IS PUSHED. Open from before: 37-04 device UAT, and the Android per-file-vs-per-sweep write-consent question from quick-260919-ejm"
 progress:
-  total_phases: 12
+  total_phases: 17
   completed_phases: 7
-  total_plans: 80
-  completed_plans: 70
-  percent: 58
+  total_plans: 84
+  completed_plans: 73
+  percent: 41
 ---
 
 # Project State
@@ -535,8 +535,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-14T03:04:18.162Z
-Stopped at: Completed 35-01-PLAN.md (backup codec core)
+Last session: 2026-09-20T18:40:25.080Z
+Stopped at: Phase 38 context gathered
 Resume: run 32-08-PLAN.md (device checkpoints). **32-07 closed VALIDATION #6 and the v2 half of #3, and BLOCKED two v3 walks — 32-08 must pick them up.** PROVEN LIVE on the deployed workerd edge (https://openmusic.lol, which is already running 32-04): cold GET `{"hit":false}` -> warm GET `{"hit":true}` with a qq `songid`, NO `url` field, `avail.qq:"ok"`; 9/9 warm hits across the YVR and SEA PoPs; POST bust `{"busted":true}` -> miss -> unattended re-fill -> hit (the 32-D-10a repair path works); `Cache-Control: no-store` on every route response (31-D-09 intact). BLOCKED, carry to 32-08: the two 32-D-20 v3 url-layer walks — (1) stale-url -> refresh, (2) bust -> miss -> mid-only -> url-warm — because v3 is on `main` but NOT deployed (the live entries carry no `url` keys, while v3's fill emits explicit nulls), and no preview server could be started here. Exact commands are in 32-07-SUMMARY.md § Task 2; run `pnpm build && pnpm preview` (NOT `pnpm dev` — `edgeCache()` returns null there) or `pnpm run deploy` (NEVER bare `pnpm deploy`). Expect every warm entry to miss once on the v2->v3 key rollover; that is by design. Folded todo `edge-resolve-cache-returns-miss.md` RESOLVED and moved to completed/ — root cause was the probe using `?artist=&title=` when the route has only ever read `a`/`t`, so it hit the `if (!a && !t)` zero-touch short-circuit and never consulted the cache. Still outstanding from Phase 30, unchanged: install `android/app/build/outputs/apk/debug/app-debug.apk` on an Android device, open `/song/Olivia-Dean/Man-I-Need` (proven to return a real 30,840 B JPEG from production), confirm the cover renders rather than a broken image, then kill the network and confirm the gradient fallback appears. That single check closes 30-06 and Phase 30. Do NOT run `/gsd:verify-work` for Phase 30 until it is approved — OG-PAGE-01 terminates in it. Optional, non-blocking leftovers: iMessage/Slack cards, and real 24h cache TTL/eviction.
 
 ## Deferred Items
