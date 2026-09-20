@@ -1273,13 +1273,13 @@
 	   but applies to the resting strip so the post-swap repaint does not animate. */
 	@media (prefers-reduced-motion: reduce) { .cover-strip { transition: none; } }
 	:global(:root[data-reduce-motion]) .cover-strip { transition: none; }
-	.meta { margin: 4px 2px 12px; transition: margin 0.32s cubic-bezier(.22,1,.36,1); display: flex; flex-direction: column; align-items: flex-start; gap: 0px; }
+	.meta { margin: 0px 0px 12px; transition: margin 0.32s cubic-bezier(.22,1,.36,1); display: flex; flex-direction: column; align-items: flex-start; gap: 0px; }
 	/* Reflow (sheet half/full): cover becomes a full-bleed YT-Music banner that the
 	   header overlaps at the top and the meta overlaps at the bottom. */
 	.np.reflow .cover { width: auto; aspect-ratio: auto; height: 30vh; margin: 0 -18px; border-radius: 0; }
 	.np.reflow .cover::before { content: ''; position: absolute; inset: 0; border-radius: inherit; background: linear-gradient(180deg, rgba(0,0,0,0.45) 0%, rgba(0,0,0,0) 28%, rgba(0,0,0,0) 60%, rgba(0,0,0,0.35) 100%); }
 	.np.reflow .bar { position: absolute; top: 0; left: 18px; right: 18px; z-index: 2; }
-	.np.reflow .meta { position: relative; z-index: 2; margin-top: -2rem; padding: 0 2px; }
+	.np.reflow .meta { position: relative; z-index: 2; margin-top: -1.8rem; }
 	/* quick-260910-tqw FLUSH HALF REST: in half the sheet is a STATIC flex item that simply
 	   follows .np-top in normal flow — `position: absolute` was removed in f251ed0 ("way better
 	   dragging ux") — so the ONLY thing between transport.bottom and sheet.top is .transport's
@@ -1340,7 +1340,7 @@
 	.times { display: flex; justify-content: space-between; font-size: 11px; color: var(--color-text-muted); margin-top: 4px; font-variant-numeric: tabular-nums; }
 	/* quick-260910-tqw: the bottom margin glides with the .cover/.meta reflow (byte-identical
 	   0.32s curve) instead of hitching at t=0; see .np.reflow .transport above. */
-	.transport { display: flex; align-items: center; justify-content: space-between; margin: 10px 4px 22px; transition: margin 0.32s cubic-bezier(.22,1,.36,1); }
+	.transport { display: flex; align-items: center; justify-content: space-between; margin: 10px 4px 0; transition: margin 0.32s cubic-bezier(.22,1,.36,1); }
 	.t { background: none; border: none; color: var(--color-text); cursor: pointer; opacity: 0.85; display: grid; place-items: center; }
 	.t.on { color: var(--color-primary); opacity: 1; }
 	/* quick-260919-0mw: size the shared DownloadControl to its five `.t` siblings — it ships a 40×40
@@ -1395,7 +1395,7 @@
 	}
 	.grip { display: flex; justify-content: center; padding: 0px; cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; }
 	.grip:active { cursor: grabbing; }
-	.handle { width: 44px; height: 5px; border-radius: 999px; background: var(--color-text-muted); opacity: 0.6; margin-top: 5px; }
+	.handle { width: 44px; height: 5px; border-radius: 999px; background: var(--color-text-muted); opacity: 0.6; margin-top: 15px; }
 	.subnav { display: flex; justify-content: space-around; padding-bottom: 6px; touch-action: none; user-select: none; -webkit-user-select: none; }
 	.subnav button { background: none; border: none; color: var(--color-text-muted); font-size: 13px; min-height: 40px; padding: 8px 12px; cursor: pointer; border-bottom: 2px solid transparent; }
 	.subnav button.active { color: var(--color-text); border-bottom-color: var(--color-primary); }
