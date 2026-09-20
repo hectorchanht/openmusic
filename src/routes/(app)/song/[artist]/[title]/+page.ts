@@ -52,6 +52,14 @@ export const load: PageLoad = ({ params, url }) => {
 		image: ogImageUrl(url.origin, 'song', artist, title, url.searchParams.get('ci') ?? '')
 	};
 
-	// Same page-data contract as song/[slug] so the page component is a near-copy.
-	return { og, name: title, artist };
+	// Same page-data contract as song/[slug] so the page component is a near-copy, plus the 38-D-08
+	// song-identity carrier `u` (`{source}{songid}` — the recipient does ONE direct detail resolve
+	// instead of a name search, and hears the same version the sender did).
+	//
+	// 38-D-08: `u` is echoed OPAQUE — NO parse and NO validation happens here. The closed source-enum
+	// gate is `parseEntityParam`, which runs CLIENT-side inside share-arrival (T-38-01), so this
+	// loader never turns the carrier into a source dispatch or a URL. It therefore stays SYNCHRONOUS
+	// and performs NO fetch: the T-24-08 / SSRF posture above is unchanged by this param — do not add
+	// a fetch here to "pre-resolve" it.
+	return { og, name: title, artist, u: url.searchParams.get('u') };
 };
