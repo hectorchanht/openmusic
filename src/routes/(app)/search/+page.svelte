@@ -12,6 +12,7 @@
 	import { deezerArtistCover, deezerSearchTopN, type DeezerHit } from '$lib/services/deezer';
 	import {
 		deriveSuggestions,
+		suggestionKeyword,
 		debounce,
 		MIN_QUERY_LEN,
 		SUGGEST_CAP,
@@ -145,9 +146,19 @@
 	//    search commit here would just be a slower detour to the same information.
 	//  - song  (♫) → PLAY it. A Suggestion is Deezer-derived and carries no uid/source/Track, so
 	//    the optimistic resolve-on-tap primitive playStub() is the right entry: it locks the stub
-	//    into the now-bar synchronously and owns pendingGen supersedence + same-key dedupe. `q` is
-	//    deliberately left alone — the tap is a play action, not a query commit, and rewriting the
-	//    input would show committed-looking text over a content area that never searched for it.
+	//    into the now-bar synchronously and owns pendingGen supersedence + same-key dedupe.
+	//    quick-260919-pbs SUPERSEDES rjo's `q`-untouched half: the tap now ALSO commits a search
+	//    for suggestionKeyword(s) — `"<title> <artist>"`, or the title alone when the suggestion
+	//    carries no artist. rjo's objection was "committed-looking text over a content area that
+	//    never searched for it"; it no longer applies, because the content area now searches for
+	//    exactly the text the input shows, so the two are consistent rather than contradictory.
+	//    ORDERING (established by reading, not assumed): play FIRST, then `q = …; run()`. The IIFE
+	//    runs synchronously up to playStub's first await, so the stub lands in the now-bar in the
+	//    same tick as the click, and playback stops depending on run()'s early returns (`!kw`,
+	//    offline). Safe in either order — run() aborts only ac/moreAc/suggestAc, none of which is
+	//    threaded into playStub (whose 3rd arg is `cover`, not a signal), and it never touches
+	//    player state or pendingGen — but play-first is the order whose safety does not depend on
+	//    run()'s internals staying as they are.
 	//  - album (◎) → unchanged: fill the input and run the full search.
 	function pickSuggestion(s: Suggestion) {
 		inputFocused = false;
@@ -167,6 +178,10 @@
 				const tr = await player.playStub(s.artist ?? '', s.title, undefined, 'search');
 				if (tr === null && player.pendingTrack == null) toast.show(t('home.unplayable'));
 			})();
+			// quick-260919-pbs: …and commit the search too. No teardown here — pickSuggestion's
+			// prologue already did it and run() repeats its own.
+			q = suggestionKeyword(s);
+			run();
 			return;
 		}
 		q = s.title;
