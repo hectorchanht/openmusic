@@ -102,6 +102,8 @@ describe('song share page — resolve on mount, never play on mount (quick-26080
 	/** The arrive() body — the only thing mount reaches beyond the bindings. */
 	const arriveBody =
 		src.match(/async function arrive\(\): Promise<ArrivalOutcome> \{([\s\S]*?)\n\t\}/)?.[1] ?? '';
+	/** The CTA handler body — what the user's tap runs, which is NOT the mount path. */
+	const playNowBody = src.match(/async function playNow\(\) \{([\s\S]*?)\n\t\}/)?.[1] ?? '';
 
 	it('onMount fires the arrival resolve (38-D-13)', () => {
 		expect(onMountBody).not.toBe(''); // the extraction itself must not silently pass
@@ -121,12 +123,20 @@ describe('song share page — resolve on mount, never play on mount (quick-26080
 		expect(onMountBody).not.toMatch(/\.play\(|\.toggle\(/);
 	});
 
-	it('the tap is what starts the armed element, and it stays tappable mid-resolve (38-D-16)', () => {
+	it('the tap is what starts the song, and it stays tappable mid-resolve (38-D-16)', () => {
 		// Paired with the assertions above on purpose: deleting the CONTROL instead of the autoplay
 		// would satisfy them and leave the page unplayable.
 		expect(src).toContain('retry = () => void playNow();');
-		expect(src).toContain('if (!player.playing) player.toggle();');
 		expect(src).toContain('disabled={retry === null}');
+		// quick-260920-oja: this used to assert the literal `if (!player.playing) player.toggle();`
+		// in THIS file. That line was the whole CTA and it was wrong for every tap after the first —
+		// it started whatever was current then, not the shared song. It now lives in `replayShared`,
+		// together with the "is the shared song still current?" question it was missing, and is
+		// pinned BEHAVIOURALLY by share-arrival.test.ts (cases a-d) rather than by a source grep. The
+		// guard that survives here is the one this file can actually make: the page must delegate to
+		// that service and must NOT re-grow a local transport call of its own.
+		expect(playNowBody).toContain('replayShared(');
+		expect(playNowBody).not.toMatch(/\.play\(|\.toggle\(/);
 	});
 });
 

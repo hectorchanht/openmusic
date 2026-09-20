@@ -66,7 +66,24 @@
 	// firing a second resolve. Plain fields, not `$state` — nothing renders them, which is the house
 	// rule for internal guards (CLAUDE.md, cf. player's `playGen`/`pendingGen`).
 	let inflight: Promise<ArrivalOutcome> | null = null;
+	// quick-260920-oja: the uid the arrival actually SEATED — the carrier's, or the name resolve's
+	// after a D-10 fall-through. It is what lets a later tap tell "the shared song is still current"
+	// from "the listener has played something else since", the notion the CTA never had. Plain field
+	// like `inflight`, for the same reason: nothing renders it.
+	let seatedUid: string | null = null;
 	let ac: AbortController | null = null;
+
+	/** The 'notfound' presentation — shared by the mount arrival and the CTA tap, both of which miss
+	 *  the same way (quick-260920-oja: the tap re-resolves now, so it can reach this too). */
+	async function showNotFound() {
+		status = 'notfound';
+		try {
+			const { t } = await import('$lib/i18n');
+			notFoundMsg = t('home.unplayable');
+		} catch {
+			/* keep the English fallback already set above */
+		}
+	}
 
 	async function arrive(): Promise<ArrivalOutcome> {
 		if (!browser || !data.name) {
@@ -85,6 +102,13 @@
 			{ artist: data.artist, title: data.name, u: null },
 			ac?.signal
 		);
+		// quick-260920-oja: record WHICH song the arrival seated, before any status bookkeeping. On a
+		// 'notfound' it seated nothing, and `current` is then whatever the listener already had — so
+		// recording it there would make the CTA toggle a stranger's song.
+		if (outcome !== 'notfound') {
+			const { player } = await import('$lib/stores/player.svelte');
+			seatedUid = player.current?.uid ?? null;
+		}
 		if (outcome === 'played') {
 			status = 'playing';
 			// 38-D-20: a warm arrival changed the music without the user touching the player, so it
@@ -100,13 +124,7 @@
 				/* no toast is a fine degradation — the music is already playing */
 			}
 		} else if (outcome === 'notfound') {
-			status = 'notfound';
-			try {
-				const { t } = await import('$lib/i18n');
-				notFoundMsg = t('home.unplayable');
-			} catch {
-				/* keep the English fallback already set above */
-			}
+			await showNotFound();
 		} else {
 			// 'armed' | 'noop' — the song is seated in the nowbar, one tap from sound. No status line.
 			status = 'idle';
@@ -115,23 +133,38 @@
 	}
 
 	// 38-D-19: the CTA handler. It is the real user gesture mobile autoplay policy requires, and it
-	// now STARTS an already-armed element instead of beginning a resolve.
+	// starts an already-armed element instead of beginning a resolve.
+	//
+	// quick-260920-oja: it no longer REPLAYS the memoised mount outcome. `inflight` still serves the
+	// case it was built for (38-D-16 — a tap DURING the resolve adopts it instead of firing a second
+	// request), but the moment that promise has SETTLED it stops being the source of truth: awaiting
+	// it returned the cached outcome instantly and the handler fell through to a bare `toggle()`,
+	// which starts whatever is current NOW. A tap after the listener had played other songs therefore
+	// did nothing at all (something else playing → the guard skipped) or started THAT song. The
+	// decision moved into the shared service, where both pages and the service's own tests hold it.
 	async function playNow() {
-		// 38-D-16: adopt the in-flight mount resolve — never a second request.
-		let outcome = await (inflight ?? (inflight = arrive()));
-		if (outcome === 'notfound') {
-			// The CTA is still the retry affordance: one more attempt, then give up quietly (the
-			// 'notfound' message is already on screen).
-			inflight = arrive();
-			outcome = await inflight;
-			if (outcome === 'notfound') return;
+		if (!browser || !data.name) {
+			await showNotFound();
+			return;
 		}
+		if (inflight) {
+			await inflight; // 38-D-16: adopt the in-flight mount resolve — never a second request.
+			inflight = null; // …and it is spent: a later tap re-resolves instead of replaying it.
+		}
+		const { replayShared } = await import('$lib/services/share-arrival');
+		const outcome = await replayShared(
+			{ artist: data.artist, title: data.name, u: null },
+			seatedUid,
+			ac?.signal
+		);
+		if (outcome === 'notfound') {
+			await showNotFound();
+			return;
+		}
+		if (outcome !== 'played') return; // 'noop' — the page unmounted mid-resolve; nothing to show
+		// Whatever it took (a start or a re-seat), the shared song holds the seat again.
 		const { player } = await import('$lib/stores/player.svelte');
-		// `toggle()` is exactly "start the already-armed element" — the same call the nowbar makes.
-		// Guarded on `player.playing` so a 'played'/'noop' arrival on an already-playing song does not
-		// PAUSE it. The old resolve-and-play-a-stub call is gone: it did setQueue + play(fresh:true),
-		// the queue nuke this phase removes.
-		if (!player.playing) player.toggle();
+		seatedUid = player.current?.uid ?? seatedUid;
 		status = 'playing';
 	}
 

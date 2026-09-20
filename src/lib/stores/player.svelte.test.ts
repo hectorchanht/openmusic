@@ -900,6 +900,20 @@ describe('player.spliceAndPlay — splice after current + non-fresh play (38-D-0
 		expect(mockSimilar).not.toHaveBeenCalled(); // non-fresh — the tail is untouched
 	});
 
+	it('a track already sitting in Up Next MOVES to just after current — never a duplicate', async () => {
+		// quick-260920-oja depends on exactly this: the share CTA re-seats through spliceAndPlay, and
+		// the shared song is often still somewhere in the queue from the arrival. spliceAfterCurrent
+		// de-dupes by uid BEFORE it splices, so the row relocates instead of doubling.
+		const [t1, t2, t3, t4] = await startQueue();
+
+		expect(player.spliceAndPlay(t4)).toBe(true);
+		await flush();
+
+		expect(uids(player.queue)).toEqual([t1.uid, t2.uid, t4.uid, t3.uid]);
+		expect(player.queue.filter((x) => x.uid === t4.uid)).toHaveLength(1);
+		expect(player.current?.uid).toBe(t4.uid);
+	});
+
 	it('re-opening the song that is ALREADY current is a no-op returning false (38-D-03)', async () => {
 		const [t1, t2, t3, t4] = await startQueue();
 		const spy = vi.spyOn(player, 'play');
