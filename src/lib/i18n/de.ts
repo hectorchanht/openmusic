@@ -341,6 +341,7 @@ const de: Dict = {
 	"timer.cancel": "Timer abbrechen",
 	"toast.playingNext": "Als nächstes wird gespielt",
 	"toast.addedToQueue": "Zur Warteschlange hinzugefügt",
+	"toast.sharedPlaying": "Geteilter Song wird gespielt · deine Warteschlange bleibt",
 	"toast.removedFromQueue": "Aus der Warteschlange entfernt",
 	"toast.undo": "Rückgängig",
 	"toast.preparingDownload": "Download wird vorbereitet…",

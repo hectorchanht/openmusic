@@ -341,6 +341,7 @@ const it: Dict = {
 	"timer.cancel": "Annulla timer",
 	"toast.playingNext": "Giocare dopo",
 	"toast.addedToQueue": "Aggiunto alla coda",
+	"toast.sharedPlaying": "Riproduzione del brano condiviso · la tua coda resta intatta",
 	"toast.removedFromQueue": "Rimosso dalla coda",
 	"toast.undo": "Annulla",
 	"toast.preparingDownload": "Preparazione download…",

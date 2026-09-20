@@ -341,6 +341,7 @@ const vi: Dict = {
 	"timer.cancel": "Hủy hẹn giờ",
 	"toast.playingNext": "Phát tiếp theo",
 	"toast.addedToQueue": "Đã thêm vào hàng đợi",
+	"toast.sharedPlaying": "Đang phát bài hát được chia sẻ · hàng đợi của bạn được giữ nguyên",
 	"toast.removedFromQueue": "Đã xóa khỏi hàng đợi",
 	"toast.undo": "Hoàn tác",
 	"toast.preparingDownload": "Đang chuẩn bị tải xuống…",

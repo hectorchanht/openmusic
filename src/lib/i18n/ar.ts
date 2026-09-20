@@ -341,6 +341,7 @@ const ar: Dict = {
 	"timer.cancel": "إلغاء المؤقت",
 	"toast.playingNext": "اللعب المقبل",
 	"toast.addedToQueue": "تمت الإضافة إلى قائمة الانتظار",
+	"toast.sharedPlaying": "يتم تشغيل الأغنية المشتركة · قائمة الانتظار محفوظة",
 	"toast.removedFromQueue": "تمت الإزالة من قائمة الانتظار",
 	"toast.undo": "تراجع",
 	"toast.preparingDownload": "جارٍ التحضير للتنزيل…",

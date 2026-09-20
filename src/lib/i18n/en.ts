@@ -393,6 +393,9 @@ const en = {
 	// --- toasts ---
 	"toast.playingNext": "Playing next",
 	"toast.addedToQueue": "Added to queue",
+	// 38-D-20: a share arrival changes the music WITHOUT a player tap, so — unlike a Related-row tap
+	// — it announces itself and reassures that the queue survived.
+	"toast.sharedPlaying": "Playing shared song · your queue is kept",
 	"toast.removedFromQueue": "Removed from queue",
 	"toast.undo": "Undo",
 	"toast.preparingDownload": "Preparing download…",

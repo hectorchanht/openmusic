@@ -341,6 +341,7 @@ const th: Dict = {
 	"timer.cancel": "ยกเลิกตัวตั้งเวลา",
 	"toast.playingNext": "กำลังเล่นต่อไป",
 	"toast.addedToQueue": "เพิ่มเข้าคิวแล้ว",
+	"toast.sharedPlaying": "กำลังเล่นเพลงที่แชร์ · คิวของคุณยังอยู่",
 	"toast.removedFromQueue": "ลบออกจากคิวแล้ว",
 	"toast.undo": "เลิกทำ",
 	"toast.preparingDownload": "กำลังเตรียมการดาวน์โหลด...",

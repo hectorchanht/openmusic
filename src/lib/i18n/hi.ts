@@ -341,6 +341,7 @@ const hi: Dict = {
 	"timer.cancel": "टाइमर रद्द करें",
 	"toast.playingNext": "अगला खेल रहा हूँ",
 	"toast.addedToQueue": "कतार में जोड़ा गया",
+	"toast.sharedPlaying": "साझा गाना चल रहा है · आपकी कतार बनी हुई है",
 	"toast.removedFromQueue": "कतार से हटाया गया",
 	"toast.undo": "पूर्ववत करें",
 	"toast.preparingDownload": "डाउनलोड की तैयारी की जा रही है...",

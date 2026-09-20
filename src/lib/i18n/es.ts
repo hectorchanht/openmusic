@@ -341,6 +341,7 @@ const es: Dict = {
 	"timer.cancel": "Cancelar temporizador",
 	"toast.playingNext": "Jugando a continuación",
 	"toast.addedToQueue": "Agregado a la cola",
+	"toast.sharedPlaying": "Reproduciendo la canción compartida · tu cola se mantiene",
 	"toast.removedFromQueue": "Eliminado de la cola",
 	"toast.undo": "Deshacer",
 	"toast.preparingDownload": "Preparando descarga…",
