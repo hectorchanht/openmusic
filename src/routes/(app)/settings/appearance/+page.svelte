@@ -33,6 +33,7 @@
     import RowActionsConfig, {
         type RowScaleTarget,
     } from "$lib/components/RowActionsConfig.svelte";
+    import NpPreviewEditor from "$lib/components/NpPreviewEditor.svelte";
     import { tapBounce } from "$lib/actions/tapBounce";
     import { t } from "$lib/i18n";
 
@@ -344,7 +345,23 @@
     </div>
 </section>
 
-<!-- quick-260920-kxz: the Now playing editor mounts here (Task 3). -->
+<!-- quick-260920-kxz: the Now playing editor. It is the one sizing control on this page that
+     does NOT commit live — Now Playing is a full-screen surface the user cannot see from here, so
+     its mock is the only feedback there is and a wrong drag has to be cancellable. The Song rows
+     editor above commits live for the mirror-image reason: its replica IS what every list shows,
+     so the user is already looking at the real result. -->
+<section>
+    <h2>
+        <Disc3 size={15} /> {t("settings.npEditor")}<SettingHint
+            label={t("settings.npEditor")}
+            text={t("settings.npEditorDesc")}
+        />
+    </h2>
+
+    <div class="ctl">
+        <NpPreviewEditor title={demoTitle} artist={demoArtist} />
+    </div>
+</section>
 
 <style>
     .reset {
