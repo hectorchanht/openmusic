@@ -82,29 +82,47 @@ describe('song/[slug] legacy loader — cover carrier + og:type', () => {
 });
 
 // ---------------------------------------------------------------------------------------------
-// SOURCE GUARD — the sibling +page.svelte (quick-260809-38i)
+// SOURCE GUARD — the sibling +page.svelte (quick-260809-38i, 38-D-06/D-13/D-16)
 // ---------------------------------------------------------------------------------------------
-// Opening a share link must start NO audio; playback begins only on the user's tap. That is
-// COMPONENT behaviour, and there is no jsdom project here (vite.config.ts declares a single node
-// project), so the component cannot be mounted in a test. Guarding the SOURCE is the honest option:
-// it is a regression tripwire on the exact two lines that matter, not a proof of runtime behaviour.
-describe('song share page — no autoplay on mount (quick-260809-38i)', () => {
+// Opening a share link now RESOLVES on mount (38-D-13) and must STILL start no audio: playback
+// begins only on the user's tap. quick-260809-38i's decision is unchanged — what moved back to
+// mount is the resolve, never the playback (38-D-06; a share navigation is not an in-page gesture,
+// and mobile autoplay policy rejects it). That is COMPONENT behaviour, and there is no jsdom
+// project here (vite.config.ts declares a single node project), so the component cannot be mounted
+// in a test. Guarding the SOURCE is the honest option: it is a regression tripwire on the exact
+// lines that matter, not a proof of runtime behaviour.
+describe('song share page — resolve on mount, never play on mount (quick-260809-38i)', () => {
 	const src = readFileSync(new URL('./+page.svelte', import.meta.url), 'utf8');
 
 	/** The onMount body, so the assertion is about what runs on mount and nothing else. */
 	const onMountBody = src.match(/onMount\(\(\) => \{([\s\S]*?)\n\t\}\);/)?.[1] ?? '';
+	/** The arrive() body — the only thing mount reaches beyond the bindings. */
+	const arriveBody =
+		src.match(/async function arrive\(\): Promise<ArrivalOutcome> \{([\s\S]*?)\n\t\}/)?.[1] ?? '';
 
-	it('onMount BINDS resolveAndPlay but never CALLS it', () => {
+	it('onMount fires the arrival resolve (38-D-13)', () => {
 		expect(onMountBody).not.toBe(''); // the extraction itself must not silently pass
-		// Naming it once is the binding; a second mention is the autoplay call coming back. (A regex
-		// for `onMount(...resolveAndPlay` cannot express this — the binding is inside onMount too.)
-		expect(onMountBody.match(/resolveAndPlay/g) ?? []).toHaveLength(1);
-		expect(onMountBody).toContain('retry = () => void resolveAndPlay();');
+		expect(onMountBody).toContain('inflight = arrive();');
 	});
 
-	it('still binds the retry handler, so the play CTA keeps working', () => {
-		// Paired with the assertion above on purpose: deleting the CONTROL instead of the autoplay
-		// would satisfy the first test and leave the page unplayable.
-		expect(src).toContain('retry = () => void resolveAndPlay();');
+	it('onMount BINDS the play handler but never CALLS it', () => {
+		// Naming it once is the binding; a second mention is the autoplay call coming back. (A regex
+		// for `onMount(...playNow` cannot express this — the binding is inside onMount too.)
+		expect(onMountBody.match(/playNow/g) ?? []).toHaveLength(1);
+		expect(onMountBody).toContain('retry = () => void playNow();');
+	});
+
+	it('nothing on the mount path starts audio (38-D-06)', () => {
+		expect(arriveBody).not.toBe('');
+		expect(arriveBody).not.toMatch(/\.play\(|\.toggle\(/);
+		expect(onMountBody).not.toMatch(/\.play\(|\.toggle\(/);
+	});
+
+	it('the tap is what starts the armed element, and it stays tappable mid-resolve (38-D-16)', () => {
+		// Paired with the assertions above on purpose: deleting the CONTROL instead of the autoplay
+		// would satisfy them and leave the page unplayable.
+		expect(src).toContain('retry = () => void playNow();');
+		expect(src).toContain('if (!player.playing) player.toggle();');
+		expect(src).toContain('disabled={retry === null}');
 	});
 });
