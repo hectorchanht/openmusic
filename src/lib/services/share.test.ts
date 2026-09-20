@@ -942,7 +942,58 @@ describe('TrackMenu share call site — source guard (quick-260809-3uo)', () => 
 	it('prefers the hero cover only when the menu is on the PLAYING song', () => {
 		// RED under: dropping the uid identity check, which would stamp the now-playing art onto a
 		// share of some OTHER row.
-		expect(src).toMatch(/player\.current\?\.uid === track\.uid \? player\.resolvedCover : null/);
+		// quick-260920-oj8: the FIELD changed from `resolvedCover` to `displayCover` — the identity
+		// check this pins did not. See the describe below for why the field matters.
+		expect(src).toMatch(/player\.current\?\.uid === track\.uid \? player\.displayCover : null/);
+	});
+});
+
+// quick-260920-oj8 — the `activeCover` ladder reads the ONE now-playing cover reader.
+//
+// WHY HERE: this file already owns the TrackMenu source guards (same expression, same reason — a
+// component-instance `$derived` in a `.svelte` file with no jsdom project to mount it in), so the
+// ladder keeps ONE guard rather than a second copy in a second file.
+//
+// WHAT CHANGED: the playing-song rung was `player.resolvedCover`, the OLD precedence. quick-260920-nyq
+// made the hero / Nowbar / OS media card paint from the shared cover cache first, leaving this ladder
+// able to tick a picker tile that is NOT the art on screen. The user's call — "everywhere cover is
+// shown is run through the same cover resolver, same chain, so same song have the same cover
+// everywhere" — makes `player.displayCover` (pin → uid → name → resolvedCover, embedded `data:` ahead
+// of the https-only cache per 37-D-02) the single reader.
+//
+// The BEHAVIOURAL divergence (cache holds cover A, resolvedCover holds cover B, the site must yield A)
+// is asserted where it can actually run: `player.svelte.test.ts` for the getter, and
+// `download-track.test.ts` for the other site closed by the same task.
+describe('TrackMenu activeCover — quick-260920-oj8 one cover reader', () => {
+	// Comment lines stripped: the guard forbids an identifier the comments above it legitimately NAME.
+	const ladder = (() => {
+		const src = readFileSync(new URL('../components/TrackMenu.svelte', import.meta.url), 'utf8');
+		const start = src.indexOf('const activeCover = $derived(');
+		const end = src.indexOf('\n\t);', start);
+		return src
+			.slice(start, end)
+			.split('\n')
+			.filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l))
+			.join('\n');
+	})();
+
+	it('reads player.displayCover for the playing song and never player.resolvedCover', () => {
+		// RED under: reverting the rung — the picker would tick a tile the hero is not showing.
+		expect(ladder).toContain('player.displayCover');
+		expect(ladder).not.toContain('player.resolvedCover');
+	});
+
+	it('keeps the pin first and track.cover last', () => {
+		// RED under: reordering the rungs — a user's explicit pin must outrank every resolver, and the
+		// stub's own art stays the last resort before the gradient.
+		const pin = ladder.indexOf('readPinnedCover(');
+		const playing = ladder.indexOf('player.displayCover');
+		const cached = ladder.indexOf('readCoverByUidOrName(');
+		const seeded = ladder.indexOf('track.cover');
+		expect(pin).toBeGreaterThan(-1);
+		expect(playing).toBeGreaterThan(pin);
+		expect(cached).toBeGreaterThan(playing);
+		expect(seeded).toBeGreaterThan(cached);
 	});
 });
 
