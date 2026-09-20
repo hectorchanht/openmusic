@@ -6,7 +6,8 @@ import {
 	dominantScript,
 	reorderPairs,
 	lineSeekFraction,
-	activeLineAt
+	activeLineAt,
+	lyricAnchorMetrics
 } from './lrc';
 
 describe('parseLRC', () => {
@@ -342,5 +343,86 @@ describe('activeLineAt', () => {
 	it('past the final timestamp the last line stays active (no wrap, no reset)', () => {
 		const lines = [L(5, 'a'), L(10, 'b')];
 		expect(activeLineAt(lines, 10_000)).toEqual({ idx: 1, time: 10 });
+	});
+});
+
+describe('lyricAnchorMetrics', () => {
+	// Centring case: the visible band IS the whole container (full sheet / desktop column), so the
+	// head and tail padding come out symmetric.
+	it('centres in the band and pads head/tail symmetrically when band == container', () => {
+		expect(
+			lyricAnchorMetrics({
+				visTopWithin: 0,
+				visHeight: 800,
+				clientHeight: 800,
+				lineHeight: 40,
+				topPin: false,
+				topPad: 12
+			})
+		).toEqual({ anchorWithin: 380, padTop: 380, padBottom: 380 });
+	});
+
+	// Phone `closed` peek: pinned TOP_PAD below the band top, and the tail pad still lets the last
+	// line reach that same top anchor.
+	it('top-pins at topPad and still pads the tail so the last line reaches the pin', () => {
+		expect(
+			lyricAnchorMetrics({
+				visTopWithin: 0,
+				visHeight: 100,
+				clientHeight: 100,
+				lineHeight: 40,
+				topPin: true,
+				topPad: 12
+			})
+		).toEqual({ anchorWithin: 12, padTop: 12, padBottom: 48 });
+	});
+
+	// Half sheet: the container spans the viewport but only a sub-band of it is visible. The tail pad
+	// must use clientHeight (what the browser clamps scrollTop against), NOT the shorter visHeight.
+	it('pads the tail against clientHeight, not the shorter visible band', () => {
+		expect(
+			lyricAnchorMetrics({
+				visTopWithin: 0,
+				visHeight: 400,
+				clientHeight: 800,
+				lineHeight: 40,
+				topPin: false,
+				topPad: 12
+			})
+		).toEqual({ anchorWithin: 180, padTop: 180, padBottom: 580 });
+	});
+
+	// A mid-transition measurement must never reach the DOM as `NaNpx` or a negative padding.
+	it('clamps non-finite and negative measurements to finite, non-negative output', () => {
+		const out = lyricAnchorMetrics({
+			visTopWithin: Number.NaN,
+			visHeight: Number.NaN,
+			clientHeight: 0,
+			lineHeight: -40,
+			topPin: false,
+			topPad: Number.POSITIVE_INFINITY
+		});
+		for (const v of Object.values(out)) {
+			expect(Number.isFinite(v)).toBe(true);
+			expect(v).toBeGreaterThanOrEqual(0);
+		}
+	});
+
+	// IDENTITY: this helper is a MOVE of the anchor expression that was inlined in NpLyrics, not a
+	// behaviour change. Mid-list anchoring must be bit-identical to what shipped.
+	it('reproduces the previously-inlined anchor expression for finite inputs', () => {
+		const cases = [
+			{ visTopWithin: 0, visHeight: 791, clientHeight: 791, lineHeight: 27, topPad: 12 },
+			{ visTopWithin: 120, visHeight: 305, clientHeight: 900, lineHeight: 54, topPad: 12 },
+			{ visTopWithin: 7, visHeight: 100, clientHeight: 100, lineHeight: 21, topPad: 12 }
+		];
+		for (const c of cases) {
+			for (const topPin of [true, false]) {
+				const expected = topPin
+					? c.visTopWithin + c.topPad
+					: c.visTopWithin + c.visHeight / 2 - c.lineHeight / 2;
+				expect(lyricAnchorMetrics({ ...c, topPin }).anchorWithin).toBe(expected);
+			}
+		}
 	});
 });
