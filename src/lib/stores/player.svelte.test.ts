@@ -3196,11 +3196,15 @@ describe('player.resolvedCover — single-field artwork guarantee (COVER-01 / D-
 
 	it('sets resolvedCover === track.cover SYNCHRONOUSLY on play() entry (no await)', () => {
 		const t = { ...stub('netease', 'A', 'Artist', 'Song'), cover: 'https://cdn/has-cover.jpg' };
+		// quick-260920-nyq: the SEED's precedence is what this test pins — track.cover short-circuits
+		// the uid/name cache lookup in play()'s synchronous seed. It can no longer be expressed as
+		// `expect(mockUidCover).not.toHaveBeenCalled()`, because the display READER (displayCover, via
+		// syncMetadata) now consults the shared cache on every play by design. Seeding the cache with
+		// a DIFFERENT url and asserting the seed ignored it is the stronger statement anyway.
+		mockUidCover.mockReturnValue('https://cdn/cache-not-used-by-seed.jpg');
 		mockEnsure.mockReturnValue(new Promise(() => {})); // never settles — prove the set is sync
 		void player.play(t);
 		expect(rc()).toBe('https://cdn/has-cover.jpg');
-		// uid/name cache must NOT be consulted when the track already carries a cover.
-		expect(mockUidCover).not.toHaveBeenCalled();
 	});
 
 	it('falls back to the uid-cache hit when track.cover is null (uid BEFORE name)', () => {
@@ -3363,19 +3367,43 @@ describe('player.resolvedCover — single-field artwork guarantee (COVER-01 / D-
 		expect(md?.artwork.some((a) => a.src === 'https://cdn/cache-landed-art.jpg')).toBe(true);
 	});
 
-	it('cover-hero-mediacard-missing (Issue 2, media-card): resolvedCover still WINS over the cache when both are present', () => {
-		// Precedence guard for `this.resolvedCover ?? readCoverByUidOrName(...)`: when resolvedCover is
-		// set it must take priority over any cached value (the normal resolved path is unchanged).
+	it('quick-260920-nyq: the SHARED cache now WINS over resolvedCover when both are present', () => {
+		// Precedence guard for `displayCover`. This assertion is INVERTED from its original form
+		// (`resolvedCover ?? readCoverByUidOrName(...)`, resolvedCover winning) — that precedence WAS
+		// the "same song, different cover in different places" bug: resolvedCover is only refreshed in
+		// play()'s narrow gen-guarded windows, so a cover written by a sibling surface (up-next
+		// lazyCover, a backfill, another tile, a user PIN) reached every list row and never reached the
+		// hero, the Nowbar or the media card. The cache leads on all of them now; resolvedCover is the
+		// synchronous seed and the last resort.
 		const cur = mk('netease', 'MCP', '林家謙', '每當變幻時');
 		player.current = cur;
-		(player as unknown as { resolvedCover: string | null }).resolvedCover = 'https://cdn/resolved-wins.jpg';
-		mockUidCover.mockReturnValue('https://cdn/cache-should-lose.jpg');
+		(player as unknown as { resolvedCover: string | null }).resolvedCover = 'https://cdn/resolved-is-last-resort.jpg';
+		mockUidCover.mockReturnValue('https://cdn/cache-now-wins.jpg');
 
 		(player as unknown as { syncMetadata(): void }).syncMetadata();
 
 		const md = fakeMediaSession.metadata as { artwork: Array<{ src: string }> } | null;
-		expect(md?.artwork.some((a) => a.src === 'https://cdn/resolved-wins.jpg')).toBe(true);
-		expect(md?.artwork.some((a) => a.src === 'https://cdn/cache-should-lose.jpg')).toBe(false);
+		expect(md?.artwork.some((a) => a.src === 'https://cdn/cache-now-wins.jpg')).toBe(true);
+		expect(md?.artwork.some((a) => a.src === 'https://cdn/resolved-is-last-resort.jpg')).toBe(false);
+	});
+
+	it('quick-260920-nyq: an embedded local-file data: cover still outranks the shared cache (37-D-02)', () => {
+		// The one exception in displayCover. An embedded cover is the file's OWN truth and is never
+		// written to the https-only cover cache, so cache-first would let a streaming version's
+		// NAME-layer art displace it. "Embedded first" is a locked decision.
+		const cur = mk('netease', 'MCD', '林家謙', '每當變幻時');
+		player.current = cur;
+		const embedded = 'data:image/jpeg;base64,/9j/EMBEDDED';
+		(player as unknown as { resolvedCover: string | null }).resolvedCover = embedded;
+		mockUidCover.mockReturnValue('https://cdn/cache-must-not-displace-embedded.jpg');
+
+		(player as unknown as { syncMetadata(): void }).syncMetadata();
+
+		const md = fakeMediaSession.metadata as { artwork: Array<{ src: string }> } | null;
+		expect(md?.artwork.some((a) => a.src === embedded)).toBe(true);
+		expect(
+			md?.artwork.some((a) => a.src === 'https://cdn/cache-must-not-displace-embedded.jpg')
+		).toBe(false);
 	});
 
 	// ---- player.adoptCover — the ONE promotion seam (quick-260809-38i) ----

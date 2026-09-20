@@ -24,7 +24,9 @@
 	// mounted tile through the same one global signal as the home backfill.
 	// quick-260915-w4f: readPinnedCover is pickRowCover's new leading rung, and also the pin read the
 	// cellBg carousel needs (it puts tk.cover ahead of everything, so a pin would otherwise lose).
-	import { readCoverByUidOrName, readPinnedCover } from '$lib/stores/cover-version.svelte';
+	// quick-260920-nyq: readCoverByUidOrName dropped — the hero's cache read moved into the store's
+	// displayCover getter, so this file no longer reads the cache for the CURRENT track directly.
+	import { readPinnedCover } from '$lib/stores/cover-version.svelte';
 	// quick-260919-0mw: the ONE shared tri-state download affordance. It already owns the idle /
 	// downloading / downloaded / unavailable states, the shared downloadTrack path, its own toasts,
 	// its own t() keys and tapBounce — so this is a mount, never a re-implementation.
@@ -275,21 +277,19 @@
 	// here once the chain lands. The swap no longer needs a head position in this chain: it IS
 	// resolvedCover the moment maybeSwapCover adopts it.
 	//
-	// cover-hero-mediacard-missing (Issue 1): FINAL fallback = the reactive cover cache (uid → name).
-	// Before this, the hero was the ONLY cover surface not bound to the cache: it read resolvedCover
-	// alone, while the up-next rows + carousel neighbors resolve via use:lazyCover and read the cache
-	// reactively. resolvedCover is refreshed only in play()'s narrow windows (resolveCoverAsync fires
-	// once, when it starts null + gen-guarded; healCover only repairs a non-null DEAD url), so a cover
-	// that lands in the cache via a SIBLING surface (the same song's up-next row, a backfill, another
-	// tile) after those windows showed on up-next but never on the hero — the reported "hero blank
-	// while up-next has it". readCoverByUidOrName depends on coverVersion(), so the hero now repaints
-	// the instant ANY cover lands for the current song. Null (all miss) → the seeded gradient (D-12).
-	const effectiveCover = $derived(
-		player.resolvedCover ??
-			(player.current
-				? readCoverByUidOrName(player.current.uid, player.current.artist, player.current.title)
-				: null)
-	);
+	// cover-hero-mediacard-missing (Issue 1): the hero was once the ONLY cover surface not bound to
+	// the shared cache — it read resolvedCover alone, while the up-next rows + carousel neighbors
+	// resolve via use:lazyCover and read the cache reactively. resolvedCover is refreshed only in
+	// play()'s narrow windows (resolveCoverAsync fires once, when it starts null + gen-guarded;
+	// healCover only repairs a non-null DEAD url), so a cover that landed in the cache via a SIBLING
+	// surface (the same song's up-next row, a backfill, another tile) after those windows showed on
+	// up-next but never on the hero — the reported "hero blank while up-next has it".
+	//
+	// quick-260920-nyq: precedence INVERTED and moved into the store — the shared cache
+	// (pin → uid → name) now LEADS and resolvedCover is the last resort, so the hero repaints in
+	// lockstep with every tile, the Nowbar and the OS media card (all four read player.displayCover).
+	// The `data:` embedded-cover exception lives in the getter. Null (all miss) → gradient (D-12).
+	const effectiveCover = $derived(player.displayCover);
 
 	// quick-260704-20e: self-heal a DEAD current cover — the counterpart to the neighbor cells'
 	// use:lazyCover. resolvedCover is seeded FIRST from track.cover (a source-CDN thumbnail that

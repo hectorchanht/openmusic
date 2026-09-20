@@ -370,6 +370,37 @@ class Player {
 	 * keeps /favicon.svg via buildArtwork (D-12). It IS `$state` so the two component surfaces
 	 * reactively repaint when the async land assigns it. */
 	resolvedCover = $state<string | null>(null);
+
+	/**
+	 * quick-260920-nyq — THE reader for every now-playing cover surface (hero, Nowbar, OS media card).
+	 *
+	 * PRECEDENCE INVERTED. `resolvedCover` used to LEAD on all three, while every list row read the
+	 * shared reactive cache. That is the "same song, different cover in different places" asymmetry:
+	 * `resolvedCover` is only refreshed inside play()'s narrow gen-guarded windows, so a cover written
+	 * by a SIBLING surface (up-next lazyCover, a home backfill, another tile, a user PIN) reached the
+	 * rows and never reached the hero. The cache now leads and `resolvedCover` is the last resort.
+	 *
+	 * `resolvedCover` keeps its two jobs: the SYNCHRONOUS seed on play() entry (the optimistic stub
+	 * paints before anything is in the cache) and the final fallback (`pendingTrack` with
+	 * `current === null` has no uid to read by). It stays the WRITE seam — adoptCover /
+	 * upgradeCoverAsync / healCover are untouched; this inverts the READ only.
+	 *
+	 * Pin precedence is INHERITED from readCoverByUidOrName (PIN → uid → name, quick-260915-w4f), not
+	 * re-implemented here. That read calls coverVersion(), so anything binding this getter repaints on
+	 * every cover write, pin and eviction.
+	 *
+	 * 37-D-02 EXCEPTION: an embedded local-file `data:` cover outranks the cache. It is the file's own
+	 * truth and is never written to the https-only cover cache, so cache-first would let a streaming
+	 * version's NAME-layer art displace it ("embedded first" is a locked decision).
+	 */
+	get displayCover(): string | null {
+		const rc = this.resolvedCover;
+		const cur = this.current;
+		if (!cur) return rc;
+		if (rc && !hasHttpsScheme(rc) && isRenderableCover(rc)) return rc; // embedded data: cover
+		return readCoverByUidOrName(cur.uid, cur.artist, cur.title) ?? rc;
+	}
+
 	/** quick-260831-t2g: a cover the CALLER supplied (an album's art, a discovery tile's image),
 	 *  keyed by SONG identity — `matchKey(artist, title)` — not by uid.
 	 *
@@ -1614,14 +1645,16 @@ class Player {
 	 * cover-hero-mediacard-missing (Issue 2): write the OS/browser media metadata (title + artist +
 	 * album + best-known artwork) from the CURRENT track. Title/artist come straight off the track
 	 * (always present post-search), so the media card ALWAYS shows the song identity regardless of
-	 * whether a cover has resolved yet. Artwork mirrors the HERO fix: resolvedCover wins when set, else
-	 * fall back to the SHARED cover cache (readCoverByUidOrName, uid-first → name), else buildArtwork's
-	 * /favicon.svg. WHY the cache fallback (media-card asymmetry): resolveCoverAsync fires ONLY when
-	 * resolvedCover starts null + is gen-guarded, so a cover that lands in the shared cache via another
-	 * surface (up-next lazyCover, backfill, sibling tile) AFTER that window never reaches resolvedCover
-	 * — reading resolvedCover alone would leave the lock-screen art on the favicon even though the cache
-	 * has the real cover. Assigns a BRAND-NEW MediaMetadata (Pitfall 4) so the lock screen repaints, and
-	 * mirrors the current playbackState.
+	 * whether a cover has resolved yet. Artwork mirrors the HERO fix: it reads `displayCover`, so the
+	 * SHARED cover cache (PIN → uid → name) LEADS and resolvedCover is the last resort, else
+	 * buildArtwork's /favicon.svg. WHY the cache leads (media-card asymmetry): resolveCoverAsync fires
+	 * ONLY when resolvedCover starts null + is gen-guarded, so a cover that lands in the shared cache
+	 * via another surface (up-next lazyCover, backfill, sibling tile) AFTER that window never reaches
+	 * resolvedCover — reading resolvedCover alone left the lock-screen art on the favicon even though
+	 * the cache had the real cover. quick-260920-nyq made the cache the LEADING rung rather than the
+	 * fallback, so the card cannot disagree with the hero or the rows.
+	 * Assigns a BRAND-NEW MediaMetadata (Pitfall 4) so the lock screen repaints, and mirrors the
+	 * current playbackState.
 	 *
 	 * WHY it exists: before this, ms.metadata was written ONLY inside play()'s success branches, so
 	 * paths that never call play() — a PWA reopen (restore()) then a resume — left the OS card with no
@@ -1637,11 +1670,10 @@ class Player {
 			title: names.dnTitle(cur.title),
 			artist: names.dnArtist(cur.artist),
 			album: cur.album,
-			// resolvedCover wins when set; else the shared cover cache (a cover that landed via another
-			// surface), else buildArtwork's favicon fallback — mirrors the NowPlaying hero fix.
-			artwork: buildArtwork(
-				this.resolvedCover ?? readCoverByUidOrName(cur.uid, cur.artist, cur.title)
-			)
+			// quick-260920-nyq: the ONE now-playing cover reader — shared cache (PIN → uid → name)
+			// first, resolvedCover last, else buildArtwork's favicon fallback. Same value the hero
+			// and the Nowbar paint, so the three surfaces cannot disagree.
+			artwork: buildArtwork(this.displayCover)
 		});
 		ms.playbackState = playbackStateFor(!!this.current, this.playing);
 	}
@@ -3607,7 +3639,7 @@ class Player {
 							title: names.dnTitle(track.title),
 							artist: names.dnArtist(track.artist),
 							album: track.album,
-							artwork: buildArtwork(this.resolvedCover)
+							artwork: buildArtwork(this.displayCover)
 						});
 						ms.playbackState = 'playing';
 					}
@@ -3800,7 +3832,7 @@ class Player {
 					title: names.dnTitle(resolved.title),
 					artist: names.dnArtist(resolved.artist),
 					album: resolved.album,
-					artwork: buildArtwork(this.resolvedCover)
+					artwork: buildArtwork(this.displayCover)
 				});
 				ms.playbackState = 'playing';
 			}
@@ -4023,7 +4055,7 @@ class Player {
 				title: names.dnTitle(resolved.title),
 				artist: names.dnArtist(resolved.artist),
 				album: resolved.album,
-				artwork: buildArtwork(this.resolvedCover)
+				artwork: buildArtwork(this.displayCover)
 			});
 			ms.playbackState = playbackStateFor(!!this.current, this.playing);
 		}
@@ -4035,8 +4067,11 @@ class Player {
 	 * this fires ONLY when the track ALREADY painted from a SOLID inline source cover (kuwo pic / qq
 	 * album_pic / netease pic), to lazily pick up higher-quality album art post-paint. It is the
 	 * single OPTIONAL cover step in the click-to-play ~3-call budget:
-	 *   - issues the YTM tier and, only on a YTM miss, Deezer (resolveHqCover — no iTunes, no CN
-	 *     searchAll → still NO per-tile fan-out). quick-260919-0mw: worst case 2 calls, common case 1.
+	 *   - issues the iTunes tier and, only on an iTunes miss, Deezer (resolveHqCover — no YTM, no CN
+	 *     searchAll → still NO per-tile fan-out). Worst case 2 calls, common case 1. quick-260920-nyq
+	 *     dropped the YTM tier from the upgrade: a 120px search-shelf thumbnail (often a channel
+	 *     avatar) is not an upgrade over 500-1000px album art, and its size is not knowable from the
+	 *     URL, so the tier is not offered here at all.
 	 *   - fires at most ONCE per play for the CURRENT now-playing track only (never inside a queue loop),
 	 *   - is generation-guarded by the captured myGen (bails the instant a newer play() supersedes),
 	 *   - is never awaited on the audio critical path (playback never waits on it — T-21-07 accept).
@@ -4077,7 +4112,7 @@ class Player {
 				title: names.dnTitle(resolved.title),
 				artist: names.dnArtist(resolved.artist),
 				album: resolved.album,
-				artwork: buildArtwork(this.resolvedCover)
+				artwork: buildArtwork(this.displayCover)
 			});
 			ms.playbackState = playbackStateFor(!!this.current, this.playing);
 		}
@@ -4151,7 +4186,7 @@ class Player {
 					title: names.dnTitle(cur.title),
 					artist: names.dnArtist(cur.artist),
 					album: cur.album,
-					artwork: buildArtwork(this.resolvedCover)
+					artwork: buildArtwork(this.displayCover)
 				});
 				ms.playbackState = playbackStateFor(!!this.current, this.playing);
 			}
@@ -4195,7 +4230,7 @@ class Player {
 					title: names.dnTitle(cur.title),
 					artist: names.dnArtist(cur.artist),
 					album: cur.album,
-					artwork: buildArtwork(this.resolvedCover)
+					artwork: buildArtwork(this.displayCover)
 				});
 				ms.playbackState = playbackStateFor(!!this.current, this.playing);
 			}

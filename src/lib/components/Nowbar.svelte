@@ -181,7 +181,7 @@
 
     // quick-260920-nyq: computed ONCE — the truthiness test and the url() previously restated the
     // same expression twice (the same defect quick-260915-w4f fixed in NowPlaying's cellBg).
-    const npCover = $derived(player.resolvedCover ?? np?.cover);
+    const npCover = $derived(player.displayCover ?? np?.cover);
     function handleOpen() {
         if (onOpen) onOpen();
         else player.expand();
@@ -260,6 +260,10 @@
                  async tier chain lands, so a no-cover-source track shows resolved art here once the
                  chain settles. While still resolving an optimistic stub (current null, pendingTrack
                  set), fall back to the tapped np.cover, then to the seeded gradient (D-12).
+                 quick-260920-nyq: that field is now read through player.displayCover, so the shared
+                 reactive cover cache (pin → uid → name) leads here exactly as it does on the hero,
+                 the OS media card and every list row — one cache write repaints all of them. -->
+            <!--
                  NOWBAR-XFADE: .np-art + .np-meta are wrapped in {#key npKey} so a track change
                  remounts them and the in:/out:fade crossfades cover + text together. They stay
                  DIRECT flex children of .np-open (no wrapper element) so the 10px gap + ellipsis
