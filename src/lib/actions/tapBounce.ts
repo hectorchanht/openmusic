@@ -22,13 +22,40 @@ import { settings } from '$lib/stores/settings.svelte';
 // COMPOSABILITY: this action does NOT preventDefault, does NOT stopPropagation, and does NOT touch
 // click/longpress — it is purely visual and composes with the existing use:longpress, use:swipeAction
 // and onclick handlers already on these buttons.
+//
+// quick-260919-l9e — `only`, AND WHY A CONTAINER MUST NOT BOUNCE FOR ITS CHILDREN'S TAPS.
+// pointerdown BUBBLES, so putting this action on a container scales that container for a press on
+// ANY control inside it. A scale MOVES those controls: at the keyframe's 0.94 peak, a control whose
+// centre sits `d` px from the container's centre slides `0.06 * d` px inward — ~6px for a row's
+// like button, ~9px for its download button, ~12px for its trailing ⋮. The browser hit-tests
+// pointerup at the ORIGINAL screen coords, so a press that started on the control can be released
+// over the gap beside it; `click` then fires on the nearest COMMON ANCESTOR — the inert container —
+// and the tap is silently SWALLOWED. Measured on the search page: the outer ~17% of the like
+// button, and the outer ~30% of the ⋮, were dead while the row bounced.
+// `only` is the fix: pass a selector for the node's OWN tap target and a press on a sibling control
+// leaves the container at rest, so nothing moves under the finger. Omit it and every press bounces,
+// which is correct for a leaf control (the 150-odd `<button use:tapBounce>` call sites) — a leaf
+// scales about its own centre, where the same maths costs ~1px at the rim.
+export interface TapBounceOpts {
+	/**
+	 * CSS selector for the descendant whose press may bounce this node. A pointerdown whose target
+	 * is not inside it is IGNORED. Only a container that also holds other controls needs this; on a
+	 * leaf control omit it (the default: any press bounces).
+	 */
+	only?: string;
+}
 
-export const tapBounce: Action<HTMLElement> = (node) => {
-	const down = () => {
+export const tapBounce: Action<HTMLElement, TapBounceOpts | undefined> = (node, opts) => {
+	let only = opts?.only;
+
+	const down = (e: PointerEvent) => {
 		// App reduce-motion flag: do nothing so no scale + no dangling class. (The global
 		// `:root[data-reduce-motion] *` rule in app.css ALSO kills the keyframe for defense-in-depth;
 		// this just avoids leaving the class on the node when the animation won't run.)
 		if (settings.reduceMotion) return;
+		// The press belongs to a sibling control, not to this node's own tap target → stay at rest
+		// so that control cannot slide out from under the finger before its click lands.
+		if (only && !(e.target as Element | null)?.closest?.(only)) return;
 		// Rapid re-press mid-animation: drop the class + force a reflow so the keyframe restarts.
 		if (node.classList.contains('tap-bouncing')) {
 			node.classList.remove('tap-bouncing');
@@ -47,6 +74,9 @@ export const tapBounce: Action<HTMLElement> = (node) => {
 	node.addEventListener('animationend', end);
 
 	return {
+		update(next: TapBounceOpts | undefined) {
+			only = next?.only;
+		},
 		destroy() {
 			node.removeEventListener('pointerdown', down);
 			node.removeEventListener('animationend', end);

@@ -36,7 +36,19 @@
 	// buttons are SIBLINGS painted above it. This is the quick-260919-1eh solution, verbatim.
 	// use:swipeAction and use:tapBounce go on the WRAPPER, not on `.hit` — swipeAction writes inline
 	// translateX on its own node, and on an absolutely-positioned child the row would not visibly
-	// slide.
+	// slide. But the wrapper's bounce MUST be scoped to `.hit` (quick-260919-l9e): pointerdown
+	// bubbles, so an unscoped `use:tapBounce` here scaled the whole row for a press on Like /
+	// Download / ⋮ as well, sliding those controls ~6 / ~9 / ~12px inward at the keyframe's 0.94
+	// peak while the browser hit-tested the release at the ORIGINAL coords. The press and the
+	// release then landed on different elements, `click` fired on their common ancestor — this
+	// inert `.srow` div — and the tap was SWALLOWED (the reported "like does nothing", "download
+	// fails", "the ⋮ is swallowed sometimes"; measured dead zones were the outer ~17% of Like and
+	// ~30% of the ⋮). `only: '.hit'` means a row tap still bounces the row — `.hit` is stretched
+	// over it and the visuals are pointer-events:none, so every press that is NOT on one of these
+	// controls lands there — while a press ON a control leaves the row at rest and nothing moves
+	// under the finger. Each control keeps its OWN bounce, which scales about its own centre and
+	// so displaces its own rim by ~1px instead of its width. `.opt` deliberately has none, exactly
+	// as CompactRow's trailing ⋮ does not.
 	//
 	// D-2 — WIDTH: THE TITLE GIVES. Every control here is fixed-width (rank 18, art 44, each inline
 	// action 36, the menu 44) and `.meta` is the only flexible box, so it absorbs 100% of the
@@ -182,13 +194,26 @@
 		swipe === null ? { enabled: false } : (swipe ?? { onSwipeRight: queueTrack, onSwipeLeft: nextTrack })
 	);
 
+	// like-state-wrong-track-menu, carried over from TrackMenu's Like row: a name-stub (uid:'') has
+	// no identity, so library.toggleLike REFUSES it — and the toast below, which reads the state
+	// back AFTER the toggle, would then report an "Unliked" that never happened on top of a button
+	// that did nothing. No surface reaches this today (the three stub surfaces — charts/tags,
+	// charts/countries, album — all pass actions={[]} precisely because a stub has no uid to key
+	// on), so this is what keeps a FUTURE stub surface honest rather than a live bug.
 	function toggleLike() {
+		if (!track.uid) return;
 		library.toggleLike(track);
 		toast.show(library.isLiked(track.uid) ? t('toast.liked') : t('toast.unliked'));
 	}
 </script>
 
-<div class="srow" class:is-active={isActive} class:is-danger={danger} use:tapBounce use:swipeAction={swipeOpts}>
+<div
+	class="srow"
+	class:is-active={isActive}
+	class:is-danger={danger}
+	use:tapBounce={{ only: '.hit' }}
+	use:swipeAction={swipeOpts}
+>
 	<!-- D-6: the stretched transparent hit target. It carries play + long-press and nothing else;
 	     its aria-label is the row's whole readable content, since the visuals below are inert. -->
 	<button
