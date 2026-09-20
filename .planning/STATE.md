@@ -95,7 +95,7 @@ Full observed evidence: `.planning/phases/30-carrier-free-share-links-type-artis
 ### Prior phase (Phase 27 — YouTube Music Source, v1.4) — COMPLETE + E2E-VERIFIED
 
 Phase 27 complete (27-01..04). E2E-verified against LIVE YouTube via the dev-server routes: /api/ytmusic/search 200 (rows+videoId), /api/ytmusic/lyrics 200 (1513c + attribution), /api/ytmusic/stream 206 audio/mp4 + Range (playback) and 200 full-file (download). pnpm check clean, 1320 tests green. E2E caught + fixed a prod-breaking bug (quick-270715 / commit 29c1c7d): stream route exported non-HTTP-verb functions, illegal in SvelteKit +server.ts → 500; helpers moved to $lib/proxy/ytmusic.ts.
-Last activity: 2026-09-20 - Completed quick task 260920-n6j: lyrics active line always centred (head/tail scroll padding)
+Last activity: 2026-09-20 - Completed quick task 260920-nyq: one cover chain everywhere (rank by speed+size, dead-cover gradient, single displayCover reader)
 Remaining human UAT: real-device <audio> playback+seek + download-to-disk; deployed-Worker player+googlevideo same-IP egress + bot-challenge under load (T-27-03-OP). Account/library sync = separate legal-gated milestone (spike 008).
 
 ## Performance Metrics
@@ -538,6 +538,7 @@ Recent decisions affecting current work:
 | 260910-soj | Fix the measureOffsets self-invalidating $effect (read+write of halfOffset) — Related tab no longer wedges on "Loading related…" | 2026-09-11 | 0e39660 | [260910-soj-fix-the-measureoffsets-self-invalidating](./quick/260910-soj-fix-the-measureoffsets-self-invalidating/) |
 | 260910-tqw | Half-open sheet rests flush against the transport row (.np.reflow .transport margin-bottom:0 + eased margin); retired the inert applyHalfInset / --sheet-half-top path | 2026-09-11 | 0654c4f | [260910-tqw-restore-the-flush-half-open-sheet-inset](./quick/260910-tqw-restore-the-flush-half-open-sheet-inset/) |
 | 260920-n6j | Lyrics pane: active line always centred — head/tail scroll padding so first/last lines reach the anchor | 2026-09-20 | dc5dcbd | [260920-n6j-lyrics-always-center](./quick/260920-n6j-lyrics-always-center/) |
+| 260920-nyq | One cover chain everywhere: iTunes→Deezer→CN/qq→YTM rank, dead cover degrades to gradient, hero/Nowbar/media-card read one `displayCover` | 2026-09-20 | 2f62047 | [260920-nyq-one-cover-chain](./quick/260920-nyq-one-cover-chain/) |
 
 > Note: off planned phase order (Phase-4-shaped UI pulled forward as a demo). Basic playback only; full audio engine = Phase 6, formal Mobile UI Shell = Phase 4. NOTE (2026-06-10): many of the quick-tasks above already exercise the v1.2 surfaces (failover/prefetch in gte/t5r/hvu, offline blob in kyf, Deezer enrichment plumbing in jau/jip, cover backfill in rvy/0bb/wv8, gesture machines in ggj/h4s/nqf) — v1.2 phases formalize, harden, and complete these rather than build from scratch.
 
