@@ -207,3 +207,70 @@ export async function arriveShared(
 	if (!byName) return 'notfound';
 	return arriveTrack(byName);
 }
+
+/**
+ * quick-260920-oja — the "user tapped Play on openmusic" entry point. The MOUNT arrival is
+ * `arriveShared` above; this is the gesture, and the two are not the same decision.
+ *
+ * The CTA used to live in the page as `await inflight` → `if (!player.playing) player.toggle()`.
+ * That is right for the FIRST tap and wrong for every later one: the mount promise is memoised, so a
+ * tap minutes later resolved instantly from the cached outcome and fell through to a bare `toggle()`
+ * — which starts whatever is current NOW. By then the listener has usually played other songs, so
+ * the tap either did literally NOTHING (something else already playing → the guard skipped) or
+ * started that OTHER song. The shared song was never re-seated. The missing notion was "is the
+ * shared song still the current track?", which is the only question this function asks.
+ *
+ * Two branches, both of which end in sound:
+ *  - STILL SEATED (`seatedUid` is current, or the carrier names the current song) → 38-D-19
+ *    unchanged: start the already-armed element. `toggle()` guarded on `!player.playing` so a tap on
+ *    an already-playing song never PAUSES it.
+ *  - NO LONGER SEATED → re-resolve and re-seat through `player.spliceAndPlay` (38-D-02/D-07): the
+ *    listener's queue shape survives, and `spliceAfterCurrent` de-dupes by uid FIRST, so a shared
+ *    song still sitting in Up Next MOVES rather than duplicating. Unlike the mount path this MAY
+ *    start sound — the tap is a real user gesture, so mobile autoplay policy is satisfied. 38-D-06
+ *    (no autoplay on MOUNT) is untouched: `arriveShared` still never plays.
+ *
+ * `seatedUid` is the uid the arrival actually seated (the carrier's, or the name resolve's after a
+ * D-10 fall-through), or null when it seated nothing. The page passes it; it is NOT re-derivable
+ * from the carrier alone.
+ *
+ * It re-resolves on every not-seated tap — carrier fast path first, name resolve on a miss, same
+ * D-08/D-10 ordering as the arrival — so it is also the 'notfound' retry affordance. Every request
+ * is inside `ensureTrackDetails`/`resolveStub`, i.e. behind the `apiFetch` governor; a repeat tap
+ * costs a deduped GET, not a fan-out.
+ */
+export async function replayShared(
+	input: { artist: string; title: string; u?: string | null },
+	seatedUid: string | null,
+	signal?: AbortSignal
+): Promise<ArrivalOutcome> {
+	/** 38-D-19's original body, unchanged: start the armed element, never pause a playing one. */
+	const startSeated = (): ArrivalOutcome => {
+		if (!player.playing) player.toggle();
+		return 'played';
+	};
+	/** Re-seat + play, unless the song already holds the seat (then it is just a start). */
+	const seat = (t: Track): ArrivalOutcome => {
+		if (player.current?.uid === t.uid) return startSeated();
+		player.spliceAndPlay(t);
+		return 'played';
+	};
+
+	if (seatedUid && player.current?.uid === seatedUid) return startSeated();
+
+	// T-38-01 still applies: `u` reaches a source dispatch ONLY through the closed-enum gate.
+	const stub = stubFromUidParam(input.u, input.artist, input.title);
+	if (stub) {
+		// The shared song came back around on its own (the listener navigated back to it) — no work.
+		if (player.current?.uid === stub.uid) return startSeated();
+		const resolved = await ensureTrackDetails(stub, signal);
+		// Same miss signal as the arrival: no audioUrl means the carrier gave us nothing (D-10).
+		if (resolved.audioUrl) return seat(resolved);
+	}
+
+	// The page navigated away mid-resolve — do not spend the search fan-out on a dead view (T-38-04).
+	if (signal?.aborted) return 'noop';
+
+	const byName = await resolveStub(input.artist, input.title);
+	return byName ? seat(byName) : 'notfound';
+}

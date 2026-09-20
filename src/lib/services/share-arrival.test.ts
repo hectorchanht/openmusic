@@ -15,6 +15,8 @@ vi.mock('$lib/stores/player.svelte', () => ({
 		playing: false,
 		loading: false,
 		spliceAndPlay: vi.fn(() => true),
+		// quick-260920-oja: the CTA's "start the already-armed element" call (38-D-19).
+		toggle: vi.fn(),
 		armTrack: vi.fn(async (t: Track) => ({ ...t, audioUrl: 'https://cdn/x.mp3', detailsLoaded: true }))
 	}
 }));
@@ -33,6 +35,7 @@ import {
 	arriveShared,
 	arriveTrack,
 	deepLinkPath,
+	replayShared,
 	stubFromUidParam
 } from './share-arrival';
 
@@ -269,5 +272,137 @@ describe('arriveShared / arriveTrack — orchestration (38-D-02/D-03/D-07/D-10/D
 			).toBe('noop');
 			expect(byName).not.toHaveBeenCalled();
 		});
+	});
+});
+
+// ---------------------------------------------------------------------------------------------
+// quick-260920-oja — the CTA tap, which is NOT the arrival
+// ---------------------------------------------------------------------------------------------
+// Reported: "play on openmusic works the first time, but clicking it again later wont play song".
+// The page memoised the mount arrival and a later tap replayed that cached outcome into a bare
+// `toggle()`, which starts whatever is current NOW — so with another song playing the tap did
+// nothing at all, and with another song paused it started THAT one. The four cases below are the
+// whole contract: still-seated taps behave exactly as 38-D-19 always did, and a not-seated tap
+// re-seats the shared song through spliceAndPlay (never a hand-rolled queue mutation).
+describe('replayShared — the CTA tap (quick-260920-oja)', () => {
+	const armTrack = vi.mocked(player.armTrack);
+	const spliceAndPlay = vi.mocked(player.spliceAndPlay);
+	const toggle = vi.mocked(player.toggle);
+	const ensure = vi.mocked(ensureTrackDetails);
+	const byName = vi.mocked(resolveStub);
+
+	const shared = (): Track => stubFromUidParam('kuwo123', 'Adele', 'Hello')!;
+	const somethingElse = (): Track => stubFromUidParam('netease999', 'Nirvana', 'Lithium')!;
+	const link = { artist: 'Adele', title: 'Hello', u: 'kuwo123' };
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		spliceAndPlay.mockReturnValue(true);
+		// The carrier resolves to a playable src by default — each test overrides only its own leg.
+		ensure.mockImplementation(async (t: Track) => ({ ...t, audioUrl: 'https://cdn/a.mp3' }));
+		byName.mockResolvedValue(null);
+		player.current = null;
+		player.playing = false;
+		player.loading = false;
+	});
+
+	it('(a) the shared song is still seated and PAUSED → start the armed element (38-D-19)', async () => {
+		const t = shared();
+		player.current = t;
+		expect(await replayShared(link, t.uid)).toBe('played');
+		expect(toggle).toHaveBeenCalledTimes(1);
+		// Nothing is re-seated and nothing is re-resolved: the element is already armed.
+		expect(spliceAndPlay).not.toHaveBeenCalled();
+		expect(armTrack).not.toHaveBeenCalled();
+		expect(ensure).not.toHaveBeenCalled();
+		expect(byName).not.toHaveBeenCalled();
+	});
+
+	it('(b) the shared song is still seated and PLAYING → nothing at all, the tap never pauses it', async () => {
+		const t = shared();
+		player.current = t;
+		player.playing = true;
+		expect(await replayShared(link, t.uid)).toBe('played');
+		expect(toggle).not.toHaveBeenCalled();
+		expect(spliceAndPlay).not.toHaveBeenCalled();
+	});
+
+	it('(c) a DIFFERENT song is current and playing → the shared song is re-seated and played', async () => {
+		// THE REPORTED BUG. The old body stopped at `if (!player.playing) player.toggle()`, so this
+		// tap was a silent no-op; the shared song never came back.
+		player.current = somethingElse();
+		player.playing = true;
+		expect(await replayShared(link, shared().uid)).toBe('played');
+		expect(spliceAndPlay).toHaveBeenCalledTimes(1);
+		expect(spliceAndPlay.mock.calls[0][0].uid).toBe('kuwo:123');
+		expect(spliceAndPlay.mock.calls[0][0].audioUrl).toBe('https://cdn/a.mp3');
+		// A re-seat is a play, not a transport toggle — toggling here would pause the other song.
+		expect(toggle).not.toHaveBeenCalled();
+	});
+
+	it('(c2) a different song is current and PAUSED → still the shared song, not the paused one', async () => {
+		// The other half of the report: the old bare toggle() started whatever happened to be seated.
+		player.current = somethingElse();
+		expect(await replayShared(link, shared().uid)).toBe('played');
+		expect(spliceAndPlay.mock.calls[0][0].uid).toBe('kuwo:123');
+		expect(toggle).not.toHaveBeenCalled();
+	});
+
+	it('(d) re-seating goes through spliceAndPlay, which de-dupes — a queued song MOVES, never doubles', async () => {
+		// The MOVE itself is spliceAfterCurrent's de-dupe-then-splice (pinned by
+		// player.svelte.test.ts). What is pinned HERE is that this function reaches for that one
+		// primitive and mutates no queue of its own — the failure mode a hand-rolled insert would be.
+		const queue = [somethingElse(), shared()];
+		(player as unknown as { queue: Track[] }).queue = queue;
+		player.current = queue[0];
+		player.playing = true;
+		expect(await replayShared(link, shared().uid)).toBe('played');
+		expect(spliceAndPlay).toHaveBeenCalledTimes(1);
+		expect((player as unknown as { queue: Track[] }).queue).toBe(queue); // untouched by the service
+	});
+
+	it('the carrier names the song that is current again → start it, zero network', async () => {
+		// seatedUid is stale (a D-10 fall-through seated something else), but the listener navigated
+		// back to the shared song. Re-seating a seated song would restart it.
+		player.current = shared();
+		expect(await replayShared(link, 'kuwo:someone-else')).toBe('played');
+		expect(toggle).toHaveBeenCalledTimes(1);
+		expect(ensure).not.toHaveBeenCalled();
+	});
+
+	it('a dead carrier falls through to the name resolve and plays THAT (D-10)', async () => {
+		player.current = somethingElse();
+		ensure.mockImplementation(async (t: Track) => t); // miss: returned untouched, no audioUrl
+		// A THIRD uid on purpose: the name resolve found the song on another source, and it is
+		// neither the dead carrier nor what the listener is currently playing.
+		const found = stubFromUidParam('qq777', 'Adele', 'Hello')!;
+		byName.mockResolvedValue(found);
+		expect(await replayShared(link, null)).toBe('played');
+		expect(byName).toHaveBeenCalledWith('Adele', 'Hello');
+		expect(spliceAndPlay).toHaveBeenCalledWith(found);
+	});
+
+	it('nothing resolves → notfound, so the tap stays the retry affordance', async () => {
+		ensure.mockImplementation(async (t: Track) => t);
+		expect(await replayShared(link, null)).toBe('notfound');
+		expect(spliceAndPlay).not.toHaveBeenCalled();
+		expect(toggle).not.toHaveBeenCalled();
+	});
+
+	it('T-38-04: unmounted mid-resolve → noop, the search fan-out is never spent', async () => {
+		ensure.mockImplementation(async (t: Track) => t);
+		expect(await replayShared(link, null, AbortSignal.abort())).toBe('noop');
+		expect(byName).not.toHaveBeenCalled();
+	});
+
+	it('T-38-01: an unknown source is no carrier — it never reaches a resolve dispatch', async () => {
+		player.current = somethingElse();
+		const found = somethingElse();
+		byName.mockResolvedValue(found);
+		expect(await replayShared({ artist: 'Adele', title: 'Hello', u: 'kugou1' }, null)).toBe(
+			'played'
+		);
+		expect(ensure).not.toHaveBeenCalled();
+		expect(byName).toHaveBeenCalledWith('Adele', 'Hello');
 	});
 });
