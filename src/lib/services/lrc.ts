@@ -264,6 +264,51 @@ export function lineSeekFraction(time: number, duration: number): number | null 
 }
 
 /**
+ * quick-260920-n6j: where the active lyric line should sit inside the container's scroll-space, plus
+ * the head/tail blank padding `.lyrics` needs so the FIRST and LAST lines can actually reach it.
+ *
+ * The clamp problem: the browser clamps `scrollTop` to `[0, scrollHeight - clientHeight]`, so with no
+ * padding there is nothing to scroll past at either end and the head/tail lines stay stuck at the
+ * pane edge. `padTop` = the anchor offset, so line 1 lands on the anchor at scrollTop 0; `padBottom`
+ * = the space below the anchor, so the last line lands on it at max scroll.
+ *
+ * `padBottom` uses `clientHeight`, NOT `visHeight`: the clamp bound is the scroller's own client
+ * height, while `visHeight` is only the slice of it currently intersecting the viewport (in the HALF
+ * sheet the container spans the whole viewport but is translated down). Padding against the shorter
+ * visible band would under-pad and leave the tail short of the anchor.
+ *
+ * The `anchorWithin` expression moved here VERBATIM from NpLyrics' inlined ternary — mid-list
+ * anchoring is unchanged (the identity test in lrc.test.ts pins that). DOM-free and store-free so
+ * the layout maths is node-testable.
+ *
+ * Every numeric input is clamped to a finite, non-negative value first: these are live DOM
+ * measurements, and a mid-transition read must never reach the DOM as `NaNpx` or a negative padding.
+ */
+export function lyricAnchorMetrics(m: {
+	visTopWithin: number;
+	visHeight: number;
+	clientHeight: number;
+	lineHeight: number;
+	topPin: boolean;
+	topPad: number;
+}): { anchorWithin: number; padTop: number; padBottom: number } {
+	const fin = (n: number) => (Number.isFinite(n) ? Math.max(0, n) : 0);
+	const visTopWithin = fin(m.visTopWithin);
+	const visHeight = fin(m.visHeight);
+	const clientHeight = fin(m.clientHeight);
+	const lineHeight = fin(m.lineHeight);
+	const topPad = fin(m.topPad);
+	const anchorWithin = m.topPin
+		? visTopWithin + topPad
+		: visTopWithin + visHeight / 2 - lineHeight / 2;
+	return {
+		anchorWithin,
+		padTop: Math.max(0, anchorWithin),
+		padBottom: Math.max(0, clientHeight - anchorWithin - lineHeight)
+	};
+}
+
+/**
  * quick-260919-1we: the currently-sung line at `now`. Lifted VERBATIM out of NowPlaying's inlined
  * `$derived.by` so the Nowbar's one-line variant runs the identical scan instead of a second copy
  * that could drift (the 2026-09-12 audit's exact failure mode — four of five copies of a guard
