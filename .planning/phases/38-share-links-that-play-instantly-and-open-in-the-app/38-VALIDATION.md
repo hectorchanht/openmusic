@@ -3,7 +3,7 @@ phase: 38
 slug: share-links-that-play-instantly-and-open-in-the-app
 status: draft
 nyquist_compliant: false
-wave_0_complete: false
+wave_0_complete: true
 created: 2026-09-20
 ---
 
@@ -42,13 +42,13 @@ Task IDs are filled in by the planner; the behaviour → command mapping is fixe
 
 | Behaviour | Wave | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---|---|---|---|---|---|---|---|
-| uid carrier emit/parse round-trip | 1 | T-38-01 | closed-enum source allowlist; unknown source → `null` | unit | `pnpm test -- share.test.ts` | ✅ extend | ⬜ pending |
-| `arrivalMode` cold/warm decision | 1 | — | N/A | unit | `pnpm test -- share-arrival.test.ts` | ❌ W0 | ⬜ pending |
-| stub builder from a uid param | 1 | T-38-01 | never constructs a URL from the carrier | unit | `pnpm test -- share-arrival.test.ts` | ❌ W0 | ⬜ pending |
-| deep-link URL → path, host allowlist | 1 | T-38-02 | off-host URL rejected before `goto()` | unit | `pnpm test -- share-arrival.test.ts` | ❌ W0 | ⬜ pending |
-| `spliceAndPlay` keeps queue shape; no-ops on current uid | 2 | — | N/A | unit | `pnpm test -- player.svelte.test.ts` | ✅ extend | ⬜ pending |
-| `armTrack` never plays; cold+EMPTY queue produces NO audio | 2 | — | N/A (D-06 correctness) | unit | `pnpm test -- player.svelte.test.ts` | ✅ extend | ⬜ pending |
-| i18n key parity for the new toast key | 2 | — | N/A | unit | `pnpm test -- i18n.test.ts` | ✅ automatic | ⬜ pending |
+| uid carrier emit/parse round-trip | 1 | T-38-01 | closed-enum source allowlist; unknown source → `null` | unit | `pnpm test -- share.test.ts` | ✅ extend | ✅ green |
+| `arrivalMode` cold/warm decision | 1 | — | N/A | unit | `pnpm test -- share-arrival.test.ts` | ❌ W0 | ✅ green |
+| stub builder from a uid param | 1 | T-38-01 | never constructs a URL from the carrier | unit | `pnpm test -- share-arrival.test.ts` | ❌ W0 | ✅ green |
+| deep-link URL → path, host allowlist | 1 | T-38-02 | off-host URL rejected before `goto()` | unit | `pnpm test -- share-arrival.test.ts` | ❌ W0 | ✅ green |
+| `spliceAndPlay` keeps queue shape; no-ops on current uid | 2 | — | N/A | unit | `pnpm test -- player.svelte.test.ts` | ✅ extend | ✅ green |
+| `armTrack` never plays; cold+EMPTY queue produces NO audio | 2 | — | N/A (D-06 correctness) | unit | `pnpm test -- player.svelte.test.ts` | ✅ extend | ✅ green |
+| i18n key parity for the new toast key | 2 | — | N/A | unit | `pnpm test -- i18n.test.ts` | ✅ automatic | ✅ green |
 | `assetlinks.json` reachable + correct content-type | 3 | T-38-05 | https, own origin, no redirect | manual | `curl -i https://openmusic.lol/.well-known/assetlinks.json` | manual | ⬜ pending |
 | App Links verified on device | 3 | T-38-02 | host+prefix restricted intent-filter | manual | `adb shell pm get-app-links com.openmusic.app` | manual | ⬜ pending |
 | Cold-start deep link opens the app (NOT just warm) | 3 | — | `getLaunchUrl()` path exercised | manual | `adb shell am start -a android.intent.action.VIEW -d …` | manual | ⬜ pending |
@@ -59,7 +59,7 @@ Task IDs are filled in by the planner; the behaviour → command mapping is fixe
 
 ## Wave 0 Requirements
 
-- [ ] `src/lib/services/share-arrival.test.ts` — the pure seam: `arrivalMode`, uid-stub builder, deep-link URL parse + host allowlist
+- [x] `src/lib/services/share-arrival.test.ts` — the pure seam: `arrivalMode`, uid-stub builder, deep-link URL parse + host allowlist
 - [x] No framework install needed — Vitest already configured
 - [x] No new fixtures needed
 
