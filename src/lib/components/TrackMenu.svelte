@@ -1,3 +1,18 @@
+<script module lang="ts">
+	// quick-260920-kn4 — SESSION MEMO for the share-card iTunes fallback: track.uid → mzstatic URL.
+	//
+	// MODULE scope, not instance scope: every list page mounts its OWN <TrackMenu>, so an instance
+	// field would re-issue the same iTunes GET each time the user crosses pages. The retained
+	// `itunes:<artworkKey>` ID family already persists 14 days in the cover cache, but the mzstatic
+	// URL that KEYS it is stored nowhere the UI is allowed to read (see the effect below — writing it
+	// into the shared cover cache would change the art every row renders), so the URL itself is
+	// memoised here for the session.
+	//
+	// HITS ONLY. A miss or an abort is never memoised, so a transient iTunes failure does not stick
+	// for the rest of the session (CLAUDE.md: never cache a failure).
+	const shareItunesMemo = new Map<string, string>();
+</script>
+
 <script lang="ts">
 	import { tick, untrack } from 'svelte';
 	import { fly } from 'svelte/transition';
@@ -56,7 +71,7 @@
 	import { syncFileTags } from '$lib/services/file-tag-sync';
 	import type { RetagEntry } from '$lib/services/retag';
 	import { browser } from '$app/environment';
-	import { songShareUrl } from '$lib/services/share';
+	import { songShareUrl, coverToken } from '$lib/services/share';
 	// quick-260809-3uo: the share card now carries the cover the user is looking at — read from the
 	// SAME shared reactive cache every other surface reads, plus the retained iTunes id.
 	import { readCoverByUidOrName, readPinnedCover, pinCover } from '$lib/stores/cover-version.svelte';
@@ -69,7 +84,7 @@
 	import { readLyrics, pinLyrics, unpinLyrics } from '$lib/stores/lyric-pins.svelte';
 	import { parseLyrics } from '$lib/stores/lyric-script.svelte';
 	import { combinedSignal } from '$lib/services/abort-signal';
-	import { recallItunesId } from '$lib/services/itunes-cover';
+	import { recallItunesId, itunesSongCover } from '$lib/services/itunes-cover';
 	import { isDeviceUid } from '$lib/services/device-track';
 	import { excludeUid } from '$lib/services/import-exclusions';
 	import type { Track } from '$lib/sources/types';
@@ -168,6 +183,73 @@
 					null)
 			: null
 	);
+
+	// quick-260920-kn4 — THE SHARE-CARD COVER FALLBACK (share card only; displayed art untouched).
+	//
+	// ROOT CAUSE. quick-260919-0mw put YouTube Music at the FRONT of resolveTrackChain, so
+	// `activeCover` above is now usually a lh3.googleusercontent.com / i.ytimg.com URL. `coverToken`
+	// is a CLOSED grammar (d: Deezer · l: Last.fm · k: kuwo · i: iTunes-by-id) and returns null for
+	// those hosts, so `songShareUrl` emits no `?ci=` at all, /api/og re-resolves from artist+title
+	// TEXT, and on a miss serves the branded OpenMusic fallback. The carrier grammar was simply never
+	// revisited when the tier order changed.
+	//
+	// REJECTED: adding googleusercontent/ytimg to the grammar. Their artwork URLs are opaque
+	// irregular paths with `=w120-h120-s-l90-rj` suffixes — nothing structural to close a grammar
+	// over (the same reason iTunes is carried by ID, not by path). It would also WIDEN the set of
+	// hosts /api/og fetches, which T-3uo-02 forbids.
+	//
+	// SO: while the menu is open, PREWARM the iTunes cover for the same song. `itunesSongCover →
+	// fetchTopArtwork → rememberItunesId` retains the numeric id against that URL, so `recallItunesId`
+	// in doShare yields it and `coverToken` emits `i:<id>`. It is a PREWARM and not an await in
+	// doShare because navigator.share() must run synchronously inside the user gesture on iOS Safari.
+	let shareCoverFallback = $state<string | null>(null);
+	$effect(() => {
+		// Tracked deps, read up-front and kept to exactly {open, track, activeCover}.
+		const target = track;
+		const cover = activeCover;
+		if (!open || !target) {
+			shareCoverFallback = null;
+			return;
+		}
+		// NEVER override a working carrier: if the cover the user is looking at already tokenizes
+		// (Deezer / Last.fm / kuwo / iTunes-with-id), the link is byte-identical to before and no
+		// iTunes request is made. recallItunesId is a sync localStorage read, not reactive.
+		if (coverToken(cover, recallItunesId(cover)) !== null) {
+			shareCoverFallback = null;
+			return;
+		}
+		const hit = shareItunesMemo.get(target.uid);
+		if (hit) {
+			shareCoverFallback = hit;
+			return;
+		}
+		const ac = new AbortController();
+		// RAW target.artist / target.title, NOT the display-language names.dn* strings — same rule as
+		// activeCover's cache lookup above: the iTunes term must be the catalog metadata.
+		// combinedSignal is the shared primitive (never hand-roll a second timeout); 8 s is the
+		// ceiling because this is a background nicety behind a menu the user may close at any moment —
+		// long enough for a slow mobile round-trip, short enough that a hung request cannot outlive
+		// the session's interest in it.
+		// untrack for the same reason the sibling effects give: itunesSongCover reads the cover cache
+		// internally and those reads would otherwise re-invalidate this effect (the restore-effect
+		// self-invalidation loop).
+		untrack(() => itunesSongCover(target.artist, target.title, combinedSignal(8_000, ac.signal))).then(
+			(url) => {
+				// Drop a late result for a song the user has already navigated past — exactly like the
+				// localProbe effect below. No stale cover is ever carried for the wrong song.
+				if (ac.signal.aborted || track?.uid !== target.uid) return;
+				if (url) {
+					shareItunesMemo.set(target.uid, url);
+					shareCoverFallback = url;
+				}
+			}
+		);
+		// 🔴 DO NOT call writeCoverBoth / any cover-cache writer here. The ask was about the SHARE CARD
+		// only. `activeCover` reads readCoverByUidOrName, so writing the iTunes URL under the uid/name
+		// key would flip the art the app DISPLAYS from the YTM cover to the iTunes cover on every list
+		// row and on the hero. The fallback lives in this $state + the module memo, nowhere else.
+		return () => ac.abort();
+	});
 
 	// MENU-01 (D-02/D-03): per-action in-flight set drives the inline row spinners. A gated
 	// action (Download / Detail / Remix) is tappable on a STUB — tapping kicks off the resolve,
@@ -725,6 +807,15 @@
 
 	async function doShare() {
 		if (!track) return;
+		// quick-260920-kn4 — read the carried cover BEFORE onclose(). `onclose()` flips `open` to
+		// false in the parent, which makes the prewarm effect above reset `shareCoverFallback` to
+		// null. Effects flush after this synchronous handler in Svelte 5, so today the order is
+		// already safe — reading first makes it correct regardless of flush timing.
+		//
+		// The fallback is the iTunes prewarm result, used ONLY when the displayed cover could not be
+		// tokenized (see the effect above for why YTM hosts cannot be). It never overrides a working
+		// carrier, so links for Deezer/Last.fm/kuwo/iTunes covers are unchanged.
+		const shareCover = shareCoverFallback ?? activeCover;
 		onclose();
 		// SHARE-02 / DQ-1 / DQ-4 / OG-PATH-02 (quick-260614-1w3, supersedes D-04/D-06 for the SONG
 		// surface): build the SHORT readable link `/song/{artist}/{title}` — CARRIER-FREE (no `?` at
@@ -775,7 +866,6 @@
 		// name layer is matchKey'd on the raw CATALOG metadata; passing the display-language strings
 		// (quick-260808-urx converts them — zh-Hant 夢伴 for catalog 梦伴) would miss the cache for
 		// exactly the users the display conversion exists for.
-		const shareCover = activeCover;
 		// An uncovered-tier cover (netease / qq / joox) simply yields no token and no regression — the
 		// carrier is advisory, and the card falls back to the server tier chain exactly as today. The
 		// iTunes id is recalled HERE because coverToken is pure: a store/storage never flows into a
