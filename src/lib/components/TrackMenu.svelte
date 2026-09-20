@@ -780,7 +780,9 @@
 		// carrier is advisory, and the card falls back to the server tier chain exactly as today. The
 		// iTunes id is recalled HERE because coverToken is pure: a store/storage never flows into a
 		// pure service (CLAUDE.md), so the component does the lookup and passes the value in.
-		const url = songShareUrl({ title: dTitle, artist: dArtist }, shareCover, recallItunesId(shareCover));
+		// 38-D-08: the 4th arg is the song IDENTITY (uid/source/songid) — a direct detail resolve, not a
+		// name search. Args 1-2 stay display names (OG-ZH-01); share.ts skips device:/non-decodable ids.
+		const url = songShareUrl({ title: dTitle, artist: dArtist }, shareCover, recallItunesId(shareCover), track);
 		try {
 			const nav = navigator as Navigator & { share?: (d: ShareData) => Promise<void> };
 			// quick-260808-vkd — the link rides `text`, NOT `url`. DO NOT "fix" this back.
