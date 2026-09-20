@@ -1064,7 +1064,7 @@
 		     the offline blob store. `probe` stays FALSE by decision, not oversight — it would cost a
 		     resolve + a HEAD on every render of the now-playing view, and a format/size readout is not
 		     what was asked for here. -->
-		<span class="t-dl"><DownloadControl track={player.current} /></span>
+		<span class="t-dl"><DownloadControl track={player.current} size={20}/></span>
 	</div>
 	</div>
 
@@ -1347,7 +1347,7 @@
 	   list-row footprint with an 18px glyph and a muted colour, none of which match this row. The
 	   override lives HERE (scoped under .t-dl, :global to cross the child's style scope) rather than
 	   in DownloadControl.svelte, because five list-row call sites depend on its current look. */
-	.t-dl { display: grid; place-items: center; }
+	.t-dl { display: grid; place-items: center; padding: 0 6px; }
 	.t-dl :global(.dc) { width: auto; height: auto; color: var(--color-text); opacity: 0.85; }
 	.t-dl :global(.dc svg) { width: 20px; height: 20px; }
 	.t-dl :global(button.dc:hover) { background: none; color: var(--color-text); }

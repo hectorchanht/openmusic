@@ -48,12 +48,14 @@
 
 	let {
 		track = null,
+		size = 18,
 		persist = true,
 		resolve = null,
-		probe = false
+		probe = false,
 	}: {
 		/** The resolved Track (library / history rows). Album rows pass null + a `resolve` closure. */
 		track?: Track | null;
+		size?: number;
 		/** Forwarded to downloadTrack. Album rows pass false (no offline blob / native public copy). */
 		persist?: boolean;
 		/** Album stubs: resolve {artist,title} → Track on tap. When set, click resolves before saving. */
@@ -155,30 +157,30 @@
 
 {#if dlState === 'busy'}
 	<span class="dc busy" aria-busy="true" aria-label={busyLabel} title={busyLabel}>
-		<DownloadRing value={dlFrac}><Download size={18} /></DownloadRing>
+		<DownloadRing value={dlFrac}><Download size={size} /></DownloadRing>
 	</span>
 {:else if dlState === 'unavailable'}
 	<!-- 34-D-06: still a download, but its file is gone — same 40×40 footprint, louder glyph. -->
 	<span class="dc unavailable" aria-label={t('menu.unavailable')} title={t('menu.unavailable')}>
-		<CircleAlert size={18} />
+		<CircleAlert size={size} />
 	</span>
 {:else if dlState === 'downloaded'}
 	<!-- Downloaded: a non-interactive span (greyed, disabled-by-absence-of-onclick) — D-11 label. -->
 	<span class="dc downloaded" aria-label={t('menu.downloaded')} title={t('menu.downloaded')}>
-		<Check size={18} />
+		<Check size={size} />
 	</span>
 {:else if probe}
 	<!-- quick-260915-26g: the probing branch is SEPARATE so the default (probe off) markup below stays
 	     exactly what every list row renders today — one 40×40 button, no wrapper, no extra node. -->
 	<span class="dc-wrap">
 		<button class="dc" aria-label={dlLabel} title={dlLabel} onclick={run} use:tapBounce>
-			<Download size={18} />
+			<Download size={size} />
 		</button>
 		{#if probing}<span class="dc-meta skel" aria-hidden="true"></span>{:else if meta}<span class="dc-meta">{meta}</span>{/if}
 	</span>
 {:else}
 	<button class="dc" aria-label={t('menu.download')} title={t('menu.download')} onclick={run} use:tapBounce>
-		<Download size={18} />
+		<Download size={size} />
 	</button>
 {/if}
 
