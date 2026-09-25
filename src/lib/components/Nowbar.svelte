@@ -583,10 +583,8 @@
        nothing at all, so the docked bar's geometry is identical for a track with an LRC, a track
        with an unsynced LRC, a track with no lyrics, and a track sitting in an instrumental gap.
        Without this the empty row would collapse to 0 and the title would slide down. */
-    .np-lyricrow {
-        height: 14px;
-        line-height: 0.875rem;
-    }
+    /* .np-lyricrow {
+    } */
     .np-lyric {
         font-size: 0.6875rem;
         color: var(--color-text);
