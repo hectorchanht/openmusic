@@ -698,7 +698,10 @@ class Player {
 			// DIRECT assign (it is not routed through driveSrc) — routing it would newly subject a boot
 			// restore to the re-drive brake, a behaviour change in the freeze-sensitive core.
 			this.lastSrcKind = offlineBlob ? 'download-blob' : 'url';
-			this.armedUid = target.uid; // debug-share-card-play-dead-replay
+			// debug-share-card-play-dead-replay: the RESOLVED uid, not target's — a name stub (share
+			// carrier, Radio/Up-Next tile) resolves to a different uid, and recording the stub's would make
+			// the first resume re-drive the src through play() instead of simply resuming.
+			this.armedUid = this.current?.uid ?? null;
 			audio.src = src;
 			// If duration is already finite (cached load, identical src reset), apply
 			// immediately and clear so the listener doesn't double-fire.
@@ -821,7 +824,7 @@ class Player {
 			// recovery re-attach, and routing it would newly subject a share arrival to the re-drive
 			// brake (nowbar-freeze-reresolve-loop) in the freeze-sensitive core.
 			this.lastSrcKind = offlineBlob ? 'download-blob' : 'url';
-			this.armedUid = track.uid; // debug-share-card-play-dead-replay
+			this.armedUid = resolved.uid; // debug-share-card-play-dead-replay: resolved, not the stub (see restore())
 			audio.src = src;
 			// 38-D-14: warm-up stops HERE, at the src assign. No forced element reload, no preload
 			// bump, no blob pre-buffer (that shape caused api-fetch-flood-freeze) and no deferred seek

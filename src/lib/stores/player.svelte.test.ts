@@ -8143,4 +8143,29 @@ describe('player.toggle — a seated but UNARMED current re-plays through play()
 		expect(el.src).toBe('https://cdn/chosen.ogg'); // the late resolve never re-attached its src
 		expect(player.loading).toBe(false); // …and left `loading` to the newer play()
 	});
+
+	it('restore() of a name stub records the RESOLVED uid — the first resume is a plain resume, not a re-play', async () => {
+		const el = makeFakeAudio();
+		player.attach(el as unknown as HTMLAudioElement);
+		// A persisted name stub (share carrier / Radio tile) — its uid is NOT the one it resolves to.
+		const stub = { ...mk('kuwo', 'similar-adele-hello', 'Adele', 'Hello'), audioUrl: null, detailsLoaded: false };
+		const real = mk('qq', 'MID1', 'Adele', 'Hello');
+		localStorage.setItem(
+			'openmusic:player:v1',
+			JSON.stringify({
+				v: 1,
+				current: { uid: stub.uid, source: stub.source, songid: stub.songid, title: stub.title, artist: stub.artist },
+				queue: [],
+				currentTime: 42,
+				shuffle: false
+			})
+		);
+		mockEnsure.mockResolvedValueOnce(real);
+		await player.restore();
+		expect(player.current?.uid).toBe(real.uid);
+		el.paused = true;
+		player.toggle();
+		expect(el.play).toHaveBeenCalledTimes(1); // resumes the restored src at its saved position
+		expect(player.play).not.toHaveBeenCalled(); // no re-drive that would drop the position
+	});
 });
