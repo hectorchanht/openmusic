@@ -507,3 +507,13 @@ Plans:
 - [x] 38-08-PLAN.md — HUMAN: release keystore SHA256 via keytool → second fingerprint in assetlinks.json (wave 2, checkpoint)
 - [x] 38-05-PLAN.md — Both `/song/*` pages resolve on mount + CTA adopts the in-flight arrival; legacy `?play=` re-pointed at `arriveTrack`; folded todo closed; full-suite web gate (wave 3)
 - [~] 38-09-PLAN.md — Deploy approval, emulator App Links `verified` + cold/warm/negative deep links, real-device felt-latency sign-off (wave 4, checkpoints) — **PARTIAL: Tasks 1-2 done (emulator verified on the DEBUG key); Task 3 is a blocking human checkpoint needing a real phone for the RELEASE fingerprint + felt latency. `38-VALIDATION.md` `nyquist_compliant` stays `false` until then.**
+
+### Phase 39: Fresh chart homepage — Apple Music, KKBOX and YouTube chart shelves, genre shelves, region-aware settings, old Last.fm/Deezer shelves hidden by default
+
+**Goal:** The home page shows what is actually hot in the listener's region right now. New default shelves — Top Songs + Top Albums (Apple Music RSS), New Releases + HK language rows (KKBOX), Top Artists + Trending (YouTube Charts), and genre shelves (regional pop via client-side legacy iTunes RSS, Western genres via Deezer genre charts) — driven by one main Chart region (defaulted from app language) plus optional extra regions. The existing Deezer Top Hits/Top Artists and Last.fm tag/country shelves stay available in /settings/home but are hidden by default, with a one-time switch for existing users. Randomize samples a random N from each cached top-50/100 pool so the first render varies at zero extra requests. De-risked by spikes 011 (edge reachability) + 012 (genre charts); blueprint in `.claude/skills/spike-findings-openmusic/references/home-charts.md`.
+**Requirements**: TBD
+**Depends on:** Phase 38
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 39 to break down)
