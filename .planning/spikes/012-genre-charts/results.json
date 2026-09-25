@@ -1,0 +1,283 @@
+{
+  "at": "2026-09-25T02:33:55.127Z",
+  "suites": {
+    "env": [
+      {
+        "name": "trace",
+        "status": 200,
+        "ms": 3,
+        "acao": "*",
+        "cc": null,
+        "count": 1,
+        "sample": [
+          "ip=2a06:98c0:3600::103 colo=YVR"
+        ]
+      }
+    ],
+    "itunes": [
+      {
+        "name": "hk Cantopop (1251)",
+        "status": 403,
+        "ms": 151,
+        "acao": "*",
+        "cc": "max-age=0, no-cache, no-store",
+        "count": 0,
+        "bodyHead": ""
+      },
+      {
+        "name": "hk Mandopop (1253)",
+        "status": 403,
+        "ms": 95,
+        "acao": "*",
+        "cc": "max-age=0, no-cache, no-store",
+        "count": 0,
+        "bodyHead": ""
+      },
+      {
+        "name": "tw Mandopop (1253)",
+        "status": 403,
+        "ms": 95,
+        "acao": "*",
+        "cc": "max-age=0, no-cache, no-store",
+        "count": 0,
+        "bodyHead": ""
+      },
+      {
+        "name": "hk K-Pop (51)",
+        "status": 403,
+        "ms": 55,
+        "acao": "*",
+        "cc": "max-age=0, no-cache, no-store",
+        "count": 0,
+        "bodyHead": ""
+      },
+      {
+        "name": "jp J-Pop (27)",
+        "status": 403,
+        "ms": 40,
+        "acao": "*",
+        "cc": "max-age=0, no-cache, no-store",
+        "count": 0,
+        "bodyHead": ""
+      },
+      {
+        "name": "hk Pop (14)",
+        "status": 403,
+        "ms": 47,
+        "acao": "*",
+        "cc": "max-age=0, no-cache, no-store",
+        "count": 0,
+        "bodyHead": ""
+      },
+      {
+        "name": "hk Soundtrack (16)",
+        "status": 403,
+        "ms": 46,
+        "acao": "*",
+        "cc": "max-age=0, no-cache, no-store",
+        "count": 0,
+        "bodyHead": ""
+      },
+      {
+        "name": "hk Anime (29)",
+        "status": 403,
+        "ms": 42,
+        "acao": "*",
+        "cc": "max-age=0, no-cache, no-store",
+        "count": 0,
+        "bodyHead": ""
+      },
+      {
+        "name": "us Hip-Hop (18)",
+        "status": 403,
+        "ms": 141,
+        "acao": "*",
+        "cc": "max-age=0, no-cache, no-store",
+        "count": 0,
+        "bodyHead": ""
+      },
+      {
+        "name": "hk bogus id (99999)",
+        "status": 403,
+        "ms": 41,
+        "acao": "*",
+        "cc": "max-age=0, no-cache, no-store",
+        "count": 0,
+        "bodyHead": ""
+      },
+      {
+        "name": "hk Cantopop ALBUMS",
+        "status": 403,
+        "ms": 102,
+        "acao": "*",
+        "cc": "max-age=0, no-cache, no-store",
+        "count": 0,
+        "bodyHead": ""
+      }
+    ],
+    "deezer": [
+      {
+        "name": "Pop (132)",
+        "status": 200,
+        "ms": 307,
+        "acao": null,
+        "cc": null,
+        "count": 50,
+        "sample": [
+          "Boston — STELLA LEFTY",
+          "Choosin' Texas — Ella Langley",
+          "Be Her — Ella Langley"
+        ],
+        "art": "https://cdn-images.dzcdn.net/images/cover/66d6baca9df5092af22a710ce10d39cf/1000x1000-000000-80-0-0.jpg"
+      },
+      {
+        "name": "Rap/Hip Hop (116)",
+        "status": 200,
+        "ms": 428,
+        "acao": null,
+        "cc": null,
+        "count": 50,
+        "sample": [
+          "Janice STFU — Drake",
+          "Anxiety — Doechii",
+          "squabble up — Kendrick Lamar"
+        ],
+        "art": "https://cdn-images.dzcdn.net/images/cover/cccf5e9af10b6aae96f5cdd5a27c2aff/1000x1000-000000-80-0-0.jpg"
+      },
+      {
+        "name": "Rock (152)",
+        "status": 200,
+        "ms": 359,
+        "acao": null,
+        "cc": null,
+        "count": 50,
+        "sample": [
+          "Edge of the Earth — The Beaches",
+          "Burning Blue — Mariah The Scientist",
+          "Holly! — The Band Camino"
+        ],
+        "art": "https://cdn-images.dzcdn.net/images/cover/ddb9659de210aae7c26c0c1d9c845994/1000x1000-000000-80-0-0.jpg"
+      },
+      {
+        "name": "Dance (113)",
+        "status": 200,
+        "ms": 289,
+        "acao": null,
+        "cc": null,
+        "count": 50,
+        "sample": [
+          "Dracula (with JENNIE) — Tame Impala",
+          "No Broke Boys — Disco Lines",
+          "Dai Dai — Shakira"
+        ],
+        "art": "https://cdn-images.dzcdn.net/images/cover/b868399da682f34dcd7d98af1c0de80b/1000x1000-000000-80-0-0.jpg"
+      },
+      {
+        "name": "R&B (165)",
+        "status": 200,
+        "ms": 264,
+        "acao": null,
+        "cc": null,
+        "count": 50,
+        "sample": [
+          "Love Me Not — Ravyn Lenae",
+          "Folded — Kehlani",
+          "Burning Blue — Mariah The Scientist"
+        ],
+        "art": "https://cdn-images.dzcdn.net/images/cover/9801ef458ad49afbc613ca2abeb79734/1000x1000-000000-80-0-0.jpg"
+      },
+      {
+        "name": "Electro (106)",
+        "status": 200,
+        "ms": 271,
+        "acao": null,
+        "cc": null,
+        "count": 50,
+        "sample": [
+          "Pillow Fight — Tinashe",
+          "Talk To You (ft. 54 Ultra) — ANOTR",
+          "Apple — Charli xcx"
+        ],
+        "art": "https://cdn-images.dzcdn.net/images/cover/562036c5d7129b7e917e3d444d6d4930/1000x1000-000000-80-0-0.jpg"
+      },
+      {
+        "name": "Asian (16)",
+        "status": 200,
+        "ms": 287,
+        "acao": null,
+        "cc": null,
+        "count": 50,
+        "sample": [
+          "Golden — HUNTR/X",
+          "Moonlit Floor (Kiss Me) — LISA",
+          "LEMONADE — aespa"
+        ],
+        "art": "https://cdn-images.dzcdn.net/images/cover/e54bda0628749119f7a9a05b71b40283/1000x1000-000000-80-0-0.jpg"
+      },
+      {
+        "name": "Alternative (85)",
+        "status": 200,
+        "ms": 308,
+        "acao": null,
+        "cc": null,
+        "count": 50,
+        "sample": [
+          "Dracula (with JENNIE) — Tame Impala",
+          "Edge of the Earth — The Beaches",
+          "back to friends — sombr"
+        ],
+        "art": "https://cdn-images.dzcdn.net/images/cover/b868399da682f34dcd7d98af1c0de80b/1000x1000-000000-80-0-0.jpg"
+      }
+    ],
+    "itunes403": [
+      {
+        "name": "no UA",
+        "status": 403,
+        "ms": 131,
+        "count": 0,
+        "server": "cloudflare",
+        "bodyHead": ""
+      },
+      {
+        "name": "curl UA",
+        "status": 403,
+        "ms": 67,
+        "count": 0,
+        "server": "cloudflare",
+        "bodyHead": ""
+      },
+      {
+        "name": "browser UA + accept + lang",
+        "status": 403,
+        "ms": 217,
+        "count": 0,
+        "server": "cloudflare",
+        "bodyHead": ""
+      },
+      {
+        "name": "xml format",
+        "status": 200,
+        "ms": 250,
+        "count": 1,
+        "server": "cloudflare",
+        "bodyHead": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n\n\t<feed xmlns:im=\"http://itunes.apple.com/rss\" xmlns=\"http://www.w3.org/2005/Atom\" xml:lang=\"zh\">\n\t\t<"
+      },
+      {
+        "name": "no genre (overall)",
+        "status": 403,
+        "ms": 133,
+        "count": 0,
+        "server": "cloudflare",
+        "bodyHead": ""
+      },
+      {
+        "name": "iTunes search API (control)",
+        "status": 429,
+        "ms": 107,
+        "count": 0,
+        "server": "cloudflare",
+        "bodyHead": "Rate limit has been exceeded for: itunes-apple-com|general|2a06:98c0:3600::103\n"
+      }
+    ]
+  }
+}

@@ -93,6 +93,18 @@ Design decisions that emerged; non-negotiable for the real build. Updated as spi
 - **[011] The undocumented two (KKBOX kma, YouTube Charts) degrade to an empty shelf, never an error**
   (never-throw boundary, like `deezer.ts`). KKBOX Open API (client credentials) is the documented fallback.
 
+- **[012] Genre shelves split by region.** Regional pop genres (Cantopop 1251 @hk, Mandopop 1253 @tw,
+  K-Pop 51 @hk, J-Pop 27 @jp) come from the **legacy iTunes RSS genre feed, fetched CLIENT-SIDE** —
+  itunes.apple.com rate-limits the shared Workers egress IP (403/429) but sends `access-control-allow-origin: *`.
+  Western genres (Rap 116, Rock 152, Dance 113, R&B 165, Electro 106, Alternative 85, Asian 16) come from
+  **Deezer `/chart/{id}/tracks` at the edge**. HK language rows from KKBOX categories 320/297/390.
+- **[012] Verify every legacy iTunes row's genre id** (`category.attributes['im:id']`) — a bogus id returns
+  the overall chart with a 200. Never use the HK storefront for J-Pop / Mandopop / Western genres (stale
+  purchase charts — the legacy feed ranks iTunes Store sales, not streams).
+- **[user 2026-09-24] Existing Last.fm/Deezer shelves stay, hidden by default.** The new chart homepage is the
+  default layout; Top Hits (Deezer), Top Artists (Deezer), Last.fm tag + country shelves remain in
+  /settings/home and can be re-enabled.
+
 ## Spikes
 
 | # | Name | Type | Validates | Verdict | Tags |
@@ -107,3 +119,4 @@ Design decisions that emerged; non-negotiable for the real build. Updated as spi
 | 008 | ytmusic-account-library | standard | Given a Google/YT auth (OAuth or cookie), when the user library is queried, then liked songs + recent history + a taste/genre signal are readable — ToS/legal risk flagged, not assumed | ⚠ PARTIAL — liked+history readable via InnerTube-as-user; **cookie auth native-only (web can't)**, only OAuth device-flow works (grey-area TV client); **genre not a field → infer**; adds per-user token storage (new threat model). **SPLIT to a later, legal-gated milestone** | ytmusic, auth, oauth, library, legal |
 | 010 | cn-album-upstream | standard | Given a CJK artist name in ANY script, when resolved against a keyless upstream, then ONE canonical artist identity + exhaustive original-script albums + ordered tracklists | ✅ VALIDATED — **MusicBrainz**. 陳奕迅 **72 albums vs Deezer's 5**; 周杰倫 titles in Chinese (最偉大的作品, not "Greatest Works Of Art"). Surprise: 陳奕迅/陈奕迅/Eason Chan AND 周傑倫/周杰伦 each collapse to ONE mbid at score 100 → the "3 artist pages" merge needs NO heuristic. Constraint: ~1 req/s → 503 (detectable, retryable); edge-cache 24h. Cover Art Archive fills MB's artwork gap | musicbrainz, cjk, albums, artist-identity, deezer, upstream |
 | 011 | edge-chart-sources | comparison | Given Cloudflare Workers egress, when Apple Music RSS / KKBOX kma / YouTube Charts are fetched for HK/TW/JP/US/KR, then each returns a current parseable chart with serving covers and survives a 15× burst | ✅ VALIDATED — **all three GO** (011a Apple ✓, 011b KKBOX ✓, 011c YouTube ✓): 2 colos (YVR/PDX), ~250 subrequests, zero blocks/WAF/429. Apple ~2% 15 s hangs → timeout + serve-stale; KKBOX freshest (median top-20 age 25 d) but hk/tw/sg only; YT 100 tracks + 100 artists w/ videoIds, weekly. Surprise: the "lag" is Last.fm audience skew + all-time ranking, not just staleness | charts, home, edge, apple-rss, kkbox, youtube-charts, freshness |
+| 012 | genre-charts | comparison | Given 011's sources lack genre, when legacy iTunes RSS genre feeds / Deezer genre charts / KKBOX categories are probed (Mac, edge, browser), then each genre shelf has a current, genre-correct source reachable where the app fetches it | ✅ VALIDATED — regional genres = **legacy iTunes RSS, client-side only** (edge 403/429: itunes.apple.com rate-limits the shared Workers IP; CORS `*` in browser, 84–100% on-genre, median age 18–85 d); Western genres = **Deezer `/chart/{id}`** at the edge (8/8, distinct, current); HK language rows = KKBOX 320/297/390. Landmine: bogus iTunes genre id returns the overall chart with 200; HK storefront Western/J-Pop genres are stale purchase charts | charts, home, genre, itunes-rss, deezer, kkbox, cors |

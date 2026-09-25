@@ -1,0 +1,8 @@
+{
+	// Throwaway probe Worker for spike 012 — `wrangler dev --remote` only, never deployed.
+	// Personal account (see .planning/spikes/CONVENTIONS.md).
+	"name": "openmusic-spike-012-genre-probe",
+	"main": "worker.js",
+	"compatibility_date": "2026-06-05",
+	"account_id": "0b9e5c70a8072908a4f186d65acd1db8"
+}
