@@ -12,7 +12,17 @@ the question requires otherwise.
 - **Live-app instrumentation** for behavior spikes: wrap `window.fetch` via the in-app browser's
   `javascript_tool` (debug inspection), reset the counter at the action boundary, categorize by URL.
   The `javascript_tool` has **no top-level await** — use synchronous IIFEs or poll across calls.
-- `curl`/`head` are NOT on this sandbox's PATH — use `node --input-type=module -e '…'` for ad-hoc HTTP.
+- `curl` IS on PATH as of 2026-09-24 (earlier sessions lacked it); `node --input-type=module -e '…'`
+  still works for ad-hoc HTTP and is what the harnesses use.
+- **Edge-reachability spikes (011) run a throwaway Worker via `wrangler dev --remote`** — the code executes
+  on the Cloudflare network, so subrequests egress from real Workers IPs (`2a06:98c0:…`) with the
+  `CF-Worker` header, without deploying anything public. Use the PERSONAL account
+  (`0b9e5c70a8072908a4f186d65acd1db8`, hardcoded as `account_id` in the spike's own `wrangler.jsonc`) —
+  never the Flow account; local wrangler cannot reach the openmusic prod account anyway. Start it via a
+  temporary `.claude/launch.json` entry + `preview_start`, remove the entry afterwards. Always include a
+  `cdn-cgi/trace` probe to record the egress IP + colo. Split probes into suites so one invocation stays
+  under the free-plan 50-subrequest cap. The colo is the one nearest this machine (North America) — HKG
+  cannot be observed this way; say so in the verdict.
 
 ## Structure
 - `.planning/spikes/NNN-name/harness.mjs` + `results.json`. Add `report.html` for matrix-shaped results.

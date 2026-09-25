@@ -20,6 +20,12 @@ Reference clients (Android/Kotlin, InnerTune lineage): Metrolist, OuterTune, Arc
 for their InnerTube client + auth approach, NOT reused. Spikes 005–008 answer go/no-go per pillar;
 the make-or-break is 006 (a stream URL that plays in a plain `<audio>` from the edge).
 
+## Idea — Session 3 (2026-09-24): fresh home-page charts
+Replace the home page's stale discovery shelves (Deezer `/chart` Top Hits/Artists + Last.fm tag/geo rows)
+with sources that reflect what is actually hot per region: Apple Music RSS (songs + albums), KKBOX
+(HK/TW songs + new releases), YouTube Charts (tracks + artists). Spike 011 answers whether each is
+reachable from the Cloudflare Workers edge, which is where the proxy runs.
+
 ## Requirements
 Design decisions that emerged; non-negotiable for the real build. Updated as spikes progress.
 
@@ -74,6 +80,19 @@ Design decisions that emerged; non-negotiable for the real build. Updated as spi
   Cloudflare IP**, and bot-challenge rate under load must be acceptable. This path is adversarial and will
   need ongoing maintenance (YouTube fights extractors). ToS/legal risk flagged for a human call.
 
+### Fresh home charts (Session 3, spike 011)
+- **[011] Home chart shelves source from Apple Music RSS + KKBOX kma + YouTube Charts, all fetched
+  edge-side.** All three verified from Workers egress (two colos, zero blocks). Last.fm geo/tag and
+  Deezer `/chart` are NOT fresh-regional: Last.fm geo HK is Western, Last.fm tags rank all-time.
+- **[011] Own the caching.** Apple sends `max-age=0, private`; charts change daily/weekly → edge-cache
+  each (source, territory, type) ~6 h with serve-stale on upstream failure. Apple hangs ~2% of calls →
+  5 s timeout, never block a shelf on it.
+- **[011] Per-source limits are hard:** Apple `limit` ≤ 100 and never the `cn` storefront (22-year-old
+  catalogue); KKBOX territories hk/tw/sg only, 50 rows max; YouTube per-country only (no global) and a
+  pinned real `clientVersion`.
+- **[011] The undocumented two (KKBOX kma, YouTube Charts) degrade to an empty shelf, never an error**
+  (never-throw boundary, like `deezer.ts`). KKBOX Open API (client credentials) is the documented fallback.
+
 ## Spikes
 
 | # | Name | Type | Validates | Verdict | Tags |
@@ -87,3 +106,4 @@ Design decisions that emerged; non-negotiable for the real build. Updated as spi
 | 007 | ytmusic-lyrics | standard | Given a videoId, when timed/plain lyrics are requested (InnerTube next→browse, else external fallback), then lyrics are returned | ⚠ PARTIAL — **plain lyrics broad + multilingual** (next→browse, no auth); **timed/synced NOT via YT** → reuse existing `crossSourceLyric` by name+artist for LRC. Net: GO | ytmusic, lyrics, innertube |
 | 008 | ytmusic-account-library | standard | Given a Google/YT auth (OAuth or cookie), when the user library is queried, then liked songs + recent history + a taste/genre signal are readable — ToS/legal risk flagged, not assumed | ⚠ PARTIAL — liked+history readable via InnerTube-as-user; **cookie auth native-only (web can't)**, only OAuth device-flow works (grey-area TV client); **genre not a field → infer**; adds per-user token storage (new threat model). **SPLIT to a later, legal-gated milestone** | ytmusic, auth, oauth, library, legal |
 | 010 | cn-album-upstream | standard | Given a CJK artist name in ANY script, when resolved against a keyless upstream, then ONE canonical artist identity + exhaustive original-script albums + ordered tracklists | ✅ VALIDATED — **MusicBrainz**. 陳奕迅 **72 albums vs Deezer's 5**; 周杰倫 titles in Chinese (最偉大的作品, not "Greatest Works Of Art"). Surprise: 陳奕迅/陈奕迅/Eason Chan AND 周傑倫/周杰伦 each collapse to ONE mbid at score 100 → the "3 artist pages" merge needs NO heuristic. Constraint: ~1 req/s → 503 (detectable, retryable); edge-cache 24h. Cover Art Archive fills MB's artwork gap | musicbrainz, cjk, albums, artist-identity, deezer, upstream |
+| 011 | edge-chart-sources | comparison | Given Cloudflare Workers egress, when Apple Music RSS / KKBOX kma / YouTube Charts are fetched for HK/TW/JP/US/KR, then each returns a current parseable chart with serving covers and survives a 15× burst | ✅ VALIDATED — **all three GO** (011a Apple ✓, 011b KKBOX ✓, 011c YouTube ✓): 2 colos (YVR/PDX), ~250 subrequests, zero blocks/WAF/429. Apple ~2% 15 s hangs → timeout + serve-stale; KKBOX freshest (median top-20 age 25 d) but hk/tw/sg only; YT 100 tracks + 100 artists w/ videoIds, weekly. Surprise: the "lag" is Last.fm audience skew + all-time ranking, not just staleness | charts, home, edge, apple-rss, kkbox, youtube-charts, freshness |

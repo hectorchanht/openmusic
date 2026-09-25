@@ -1,0 +1,9 @@
+{
+	// Throwaway probe Worker for spike 011. Runs ONLY via `wrangler dev --remote` (an edge preview
+	// session) — it is never `wrangler deploy`ed. Personal account, NOT the company Flow account and
+	// NOT the openmusic production account (which local wrangler auth cannot reach anyway).
+	"name": "openmusic-spike-011-edge-probe",
+	"main": "worker.js",
+	"compatibility_date": "2026-06-05",
+	"account_id": "0b9e5c70a8072908a4f186d65acd1db8"
+}

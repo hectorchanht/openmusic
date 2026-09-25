@@ -1,0 +1,1307 @@
+[
+  {
+    "label": "run1",
+    "at": "2026-09-25T02:20:30.004Z",
+    "suites": {
+      "env": [
+        {
+          "name": "cdn-cgi/trace",
+          "url": "https://www.cloudflare.com/cdn-cgi/trace",
+          "status": 200,
+          "ms": 2,
+          "bytes": 308,
+          "headers": {
+            "content-type": "text/plain",
+            "server": "cloudflare"
+          },
+          "count": 1,
+          "sample": [
+            "ip=2a06:98c0:3600::103 colo=YVR loc=CA warp=off"
+          ]
+        }
+      ],
+      "apple": [
+        {
+          "name": "songs hk 50",
+          "url": "https://rss.marketingtools.apple.com/api/v2/hk/music/most-played/50/songs.json",
+          "status": 200,
+          "ms": 1176,
+          "bytes": 35436,
+          "headers": {
+            "content-type": "application/json; charset=utf-8",
+            "cache-control": "max-age=0, private, must-revalidate",
+            "server": "cloudflare",
+            "cf-cache-status": "DYNAMIC"
+          },
+          "count": 50,
+          "updated": "Fri, 25 Sep 2026 02:20:31 +0000",
+          "sample": [
+            "用背脊唱情歌 — Gareth.T",
+            "說謊者 — MC 張天賦",
+            "旋轉木馬 — 米爺 & 黃淑蔓"
+          ],
+          "firstArt": "https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/f8/44/d1/f844d1ca-9db5-e05a-21c2-f1619daa4eea/5021732818638.jpg/100x100bb.jpg"
+        },
+        {
+          "name": "songs tw 50",
+          "url": "https://rss.marketingtools.apple.com/api/v2/tw/music/most-played/50/songs.json",
+          "status": 200,
+          "ms": 724,
+          "bytes": 34866,
+          "headers": {
+            "content-type": "application/json; charset=utf-8",
+            "cache-control": "max-age=0, private, must-revalidate",
+            "server": "cloudflare",
+            "cf-cache-status": "DYNAMIC"
+          },
+          "count": 50,
+          "updated": "Fri, 25 Sep 2026 02:20:32 +0000",
+          "sample": [
+            "要去什麼地方 — 田馥甄",
+            "甲乙丙丁Strangers — 李佳薇",
+            "大船 — 田馥甄"
+          ],
+          "firstArt": "https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/64/49/4c/64494cca-8338-c4d2-7225-951b8d183cd3/cover.jpg/100x100bb.jpg"
+        },
+        {
+          "name": "songs jp 50",
+          "url": "https://rss.marketingtools.apple.com/api/v2/jp/music/most-played/50/songs.json",
+          "status": 200,
+          "ms": 994,
+          "bytes": 32586,
+          "headers": {
+            "content-type": "application/json; charset=utf-8",
+            "cache-control": "max-age=0, private, must-revalidate",
+            "server": "cloudflare",
+            "cf-cache-status": "DYNAMIC"
+          },
+          "count": 50,
+          "updated": "Fri, 25 Sep 2026 02:20:33 +0000",
+          "sample": [
+            "ありふれた世界の果てに (feat. Awich, CHICO CARLITO, ONE OK ROCK & Paledusk) — YAO",
+            "Yes! 東京 (feat. SUPER★DRAGON, Sakurashimeji, ONE N' ONLY, BUDDiiS, ICEx & Lienel) — EBiDAN (恵比寿学園男子部), 超特急, M!LK & 原因は自分にある。",
+            "ライラック — Mrs. GREEN APPLE"
+          ],
+          "firstArt": "https://is1-ssl.mzstatic.com/image/thumb/Music221/v4/fa/d5/a6/fad5a6d5-60b1-4ba3-3da9-be47bb3b7d68/4550759798070_cover.jpg/100x100bb.jpg"
+        },
+        {
+          "name": "songs us 50",
+          "url": "https://rss.marketingtools.apple.com/api/v2/us/music/most-played/50/songs.json",
+          "status": 200,
+          "ms": 298,
+          "bytes": 32088,
+          "headers": {
+            "content-type": "application/json; charset=utf-8",
+            "cache-control": "max-age=0, private, must-revalidate",
+            "server": "cloudflare",
+            "cf-cache-status": "DYNAMIC"
+          },
+          "count": 50,
+          "updated": "Fri, 25 Sep 2026 02:20:33 +0000",
+          "sample": [
+            "Choosin' Texas — Ella Langley",
+            "Last Thing You Need — Morgan Wallen",
+            "BbY WOW — KAROL G, Judeline & rusowsky"
+          ],
+          "firstArt": "https://is1-ssl.mzstatic.com/image/thumb/Music221/v4/e2/91/4d/e2914d0a-7f1d-f04c-fbf4-c50b38548838/196873638690.jpg/100x100bb.jpg"
+        },
+        {
+          "name": "songs cn 50",
+          "url": "https://rss.marketingtools.apple.com/api/v2/cn/music/most-played/50/songs.json",
+          "status": 200,
+          "ms": 722,
+          "bytes": 30971,
+          "headers": {
+            "content-type": "application/json; charset=utf-8",
+            "cache-control": "max-age=0, private, must-revalidate",
+            "server": "cloudflare",
+            "cf-cache-status": "DYNAMIC"
+          },
+          "count": 50,
+          "updated": "Fri, 25 Sep 2026 02:20:34 +0000",
+          "sample": [
+            "我不难过 — 孙燕姿",
+            "七里香 — 周杰伦",
+            "我怀念的 — 孙燕姿"
+          ],
+          "firstArt": "https://is1-ssl.mzstatic.com/image/thumb/Music124/v4/24/fc/1d/24fc1d3e-b37f-968f-3d21-880edc8f8d79/mzi.ybwydvjn.jpg/100x100bb.jpg"
+        },
+        {
+          "name": "songs kr 50",
+          "url": "https://rss.marketingtools.apple.com/api/v2/kr/music/most-played/50/songs.json",
+          "status": 200,
+          "ms": 510,
+          "bytes": 35789,
+          "headers": {
+            "content-type": "application/json; charset=utf-8",
+            "cache-control": "max-age=0, private, must-revalidate",
+            "server": "cloudflare",
+            "cf-cache-status": "DYNAMIC"
+          },
+          "count": 50,
+          "updated": "Fri, 25 Sep 2026 02:20:34 +0000",
+          "sample": [
+            "SUN KISS — 튜이드",
+            "노스탈지아 — BIG Naughty",
+            "LOVE ATTACK — 리센느"
+          ],
+          "firstArt": "https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/f2/a0/02/f2a00270-a846-b0aa-65b3-91bc94442e10/823375310600_Cover.jpg/100x100bb.jpg"
+        },
+        {
+          "name": "songs sg 50",
+          "url": "https://rss.marketingtools.apple.com/api/v2/sg/music/most-played/50/songs.json",
+          "status": 200,
+          "ms": 707,
+          "bytes": 32310,
+          "headers": {
+            "content-type": "application/json; charset=utf-8",
+            "cache-control": "max-age=0, private, must-revalidate",
+            "server": "cloudflare",
+            "cf-cache-status": "DYNAMIC"
+          },
+          "count": 50,
+          "updated": "Fri, 25 Sep 2026 02:20:35 +0000",
+          "sample": [
+            "Nicole Kidman — ADÉLA",
+            "Ain't In LA — ADÉLA",
+            "hate that i made you love me — Ariana Grande"
+          ],
+          "firstArt": "https://is1-ssl.mzstatic.com/image/thumb/Music221/v4/5d/77/7b/5d777b87-e796-0b3e-cef6-d37d993dd8fe/26UMGIM82371.rgb.jpg/100x100bb.jpg"
+        },
+        {
+          "name": "albums hk 50",
+          "url": "https://rss.marketingtools.apple.com/api/v2/hk/music/most-played/50/albums.json",
+          "status": 200,
+          "ms": 650,
+          "bytes": 34523,
+          "headers": {
+            "content-type": "application/json; charset=utf-8",
+            "cache-control": "max-age=0, private, must-revalidate",
+            "server": "cloudflare",
+            "cf-cache-status": "DYNAMIC"
+          },
+          "count": 50,
+          "updated": "Fri, 25 Sep 2026 02:20:35 +0000",
+          "sample": [
+            "要去什麼地方 — 田馥甄",
+            "早春晴朗 影視原聲帶 — Various Artists",
+            "petal — Ariana Grande"
+          ],
+          "firstArt": "https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/64/49/4c/64494cca-8338-c4d2-7225-951b8d183cd3/cover.jpg/100x100bb.jpg"
+        },
+        {
+          "name": "albums tw 50",
+          "url": "https://rss.marketingtools.apple.com/api/v2/tw/music/most-played/50/albums.json",
+          "status": 200,
+          "ms": 408,
+          "bytes": 33887,
+          "headers": {
+            "content-type": "application/json; charset=utf-8",
+            "cache-control": "max-age=0, private, must-revalidate",
+            "server": "cloudflare",
+            "cf-cache-status": "DYNAMIC"
+          },
+          "count": 50,
+          "updated": "Fri, 25 Sep 2026 02:20:36 +0000",
+          "sample": [
+            "要去什麼地方 — 田馥甄",
+            "早春晴朗 影視原聲帶 — 群星",
+            "The House Of — 溫蒂漫步"
+          ],
+          "firstArt": "https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/64/49/4c/64494cca-8338-c4d2-7225-951b8d183cd3/cover.jpg/100x100bb.jpg"
+        },
+        {
+          "name": "songs hk 100",
+          "url": "https://rss.marketingtools.apple.com/api/v2/hk/music/most-played/100/songs.json",
+          "status": 200,
+          "ms": 1205,
+          "bytes": 70781,
+          "headers": {
+            "content-type": "application/json; charset=utf-8",
+            "cache-control": "max-age=0, private, must-revalidate",
+            "server": "cloudflare",
+            "cf-cache-status": "DYNAMIC"
+          },
+          "count": 100,
+          "updated": "Fri, 25 Sep 2026 02:20:37 +0000",
+          "sample": [
+            "用背脊唱情歌 — Gareth.T",
+            "說謊者 — MC 張天賦",
+            "旋轉木馬 — 米爺 & 黃淑蔓"
+          ],
+          "firstArt": "https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/f8/44/d1/f844d1ca-9db5-e05a-21c2-f1619daa4eea/5021732818638.jpg/100x100bb.jpg"
+        },
+        {
+          "name": "songs hk 200 (over max?)",
+          "url": "https://rss.marketingtools.apple.com/api/v2/hk/music/most-played/200/songs.json",
+          "status": 500,
+          "ms": 11437,
+          "bytes": 572,
+          "headers": {
+            "content-type": "text/html",
+            "server": "cloudflare",
+            "cf-cache-status": "DYNAMIC"
+          },
+          "count": 0,
+          "sample": [],
+          "bodyHead": "<html>\r\n<head><title>500 Internal Server Error</title></head>\r\n<body>\r\n<center><h1>500 Internal Server Error</h1></center>\r\n<hr><center>Apple</center>\r\n</body>\r\n</html>\r\n<!-- a padding to disable MSIE and Chrome friendly error page -->\r\n<!-"
+        },
+        {
+          "name": "songs xx (bad storefront)",
+          "url": "https://rss.marketingtools.apple.com/api/v2/xx/music/most-played/10/songs.json",
+          "status": 500,
+          "ms": 641,
+          "bytes": 572,
+          "headers": {
+            "content-type": "text/html",
+            "server": "cloudflare",
+            "cf-cache-status": "DYNAMIC"
+          },
+          "count": 0,
+          "sample": [],
+          "bodyHead": "<html>\r\n<head><title>500 Internal Server Error</title></head>\r\n<body>\r\n<center><h1>500 Internal Server Error</h1></center>\r\n<hr><center>Apple</center>\r\n</body>\r\n</html>\r\n<!-- a padding to disable MSIE and Chrome friendly error page -->\r\n<!-"
+        },
+        {
+          "name": "songs hk no-UA",
+          "url": "https://rss.marketingtools.apple.com/api/v2/hk/music/most-played/10/songs.json",
+          "status": 200,
+          "ms": 1031,
+          "bytes": 7509,
+          "headers": {
+            "content-type": "application/json; charset=utf-8",
+            "cache-control": "max-age=0, private, must-revalidate",
+            "server": "cloudflare",
+            "cf-cache-status": "DYNAMIC"
+          },
+          "count": 10,
+          "updated": "Fri, 25 Sep 2026 02:20:50 +0000",
+          "sample": [
+            "用背脊唱情歌 — Gareth.T",
+            "說謊者 — MC 張天賦",
+            "旋轉木馬 — 米爺 & 黃淑蔓"
+          ],
+          "firstArt": "https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/f8/44/d1/f844d1ca-9db5-e05a-21c2-f1619daa4eea/5021732818638.jpg/100x100bb.jpg"
+        },
+        {
+          "name": "OLD host rss.applemarketingtools.com",
+          "url": "https://rss.applemarketingtools.com/api/v2/hk/music/most-played/10/songs.json",
+          "status": 200,
+          "ms": 1547,
+          "bytes": 7509,
+          "headers": {
+            "content-type": "application/json; charset=utf-8",
+            "cache-control": "max-age=0, private, must-revalidate",
+            "server": "cloudflare",
+            "cf-cache-status": "DYNAMIC"
+          },
+          "count": 10,
+          "updated": "Fri, 25 Sep 2026 02:20:52 +0000",
+          "sample": [
+            "用背脊唱情歌 — Gareth.T",
+            "說謊者 — MC 張天賦",
+            "旋轉木馬 — 米爺 & 黃淑蔓"
+          ],
+          "firstArt": "https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/f8/44/d1/f844d1ca-9db5-e05a-21c2-f1619daa4eea/5021732818638.jpg/100x100bb.jpg"
+        },
+        {
+          "name": "artwork 100 (as given)",
+          "url": "https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/f8/44/d1/f844d1ca-9db5-e05a-21c2-f1619daa4eea/5021732818638.jpg/100x100bb.jpg",
+          "status": 206,
+          "ms": 288,
+          "headers": {
+            "content-type": "image/jpeg"
+          },
+          "count": 1,
+          "sample": []
+        },
+        {
+          "name": "artwork 600 (resized)",
+          "url": "https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/f8/44/d1/f844d1ca-9db5-e05a-21c2-f1619daa4eea/5021732818638.jpg/600x600bb.jpg",
+          "status": 206,
+          "ms": 352,
+          "headers": {
+            "content-type": "image/jpeg"
+          },
+          "count": 1,
+          "sample": []
+        }
+      ],
+      "kkbox": [
+        {
+          "name": "song hk",
+          "url": "https://kma.kkbox.com/charts/api/v1/daily?limit=50&lang=tc&category=297&type=song&terr=hk",
+          "status": 200,
+          "ms": 502,
+          "bytes": 37127,
+          "headers": {
+            "content-type": "application/json",
+            "cache-control": "no-cache, private",
+            "server": "cloudflare",
+            "cf-cache-status": "DYNAMIC"
+          },
+          "count": 50,
+          "updated": "2026-09-24",
+          "apiCode": "0",
+          "sample": [
+            "半糖去冰 — Tr33",
+            "甲乙丙丁Strangers - 你我怎麼兩清 — 李佳薇 (Jess Lee)",
+            "追愛狂想 — 姜濤 (Keung To)"
+          ],
+          "firstArt": "https://i.kfs.io/album/global/297476339,0v3/fit/500x500.jpg"
+        },
+        {
+          "name": "song tw",
+          "url": "https://kma.kkbox.com/charts/api/v1/daily?limit=50&lang=tc&category=297&type=song&terr=tw",
+          "status": 200,
+          "ms": 453,
+          "bytes": 38060,
+          "headers": {
+            "content-type": "application/json",
+            "cache-control": "no-cache, private",
+            "server": "cloudflare",
+            "cf-cache-status": "DYNAMIC"
+          },
+          "count": 50,
+          "updated": "2026-09-24",
+          "apiCode": "0",
+          "sample": [
+            "甲乙丙丁Strangers - 你我怎麼兩清 — 李佳薇 (Jess Lee)",
+            "大船 — 田馥甄 (Hebe)",
+            "要去什麼地方 — 田馥甄 (Hebe)"
+          ],
+          "firstArt": "https://i.kfs.io/album/global/295320632,0v2/fit/500x500.jpg"
+        },
+        {
+          "name": "song sg",
+          "url": "https://kma.kkbox.com/charts/api/v1/daily?limit=50&lang=tc&category=297&type=song&terr=sg",
+          "status": 200,
+          "ms": 422,
+          "bytes": 37691,
+          "headers": {
+            "content-type": "application/json",
+            "cache-control": "no-cache, private",
+            "server": "cloudflare",
+            "cf-cache-status": "DYNAMIC"
+          },
+          "count": 50,
+          "updated": "2026-09-24",
+          "apiCode": "0",
+          "sample": [
+            "甲乙丙丁Strangers - 你我怎么两清 — 李佳薇 (Jess Lee)",
+            "甲乙丙丁 (你我怎麼兩清) - Live — 天賜的聲音",
+            "要去什麼地方 — 田馥甄 (Hebe)"
+          ],
+          "firstArt": "https://i.kfs.io/album/global/295320632,0v2/fit/500x500.jpg"
+        },
+        {
+          "name": "song my",
+          "url": "https://kma.kkbox.com/charts/api/v1/daily?limit=50&lang=tc&category=297&type=song&terr=my",
+          "status": 404,
+          "ms": 321,
+          "bytes": 14,
+          "headers": {
+            "content-type": "application/json",
+            "cache-control": "no-cache, private",
+            "server": "cloudflare",
+            "cf-cache-status": "DYNAMIC"
+          },
+          "count": 0,
+          "sample": [],
+          "bodyHead": "{\"code\":\"101\"}"
+        },
+        {
+          "name": "song jp",
+          "url": "https://kma.kkbox.com/charts/api/v1/daily?limit=50&lang=tc&category=297&type=song&terr=jp",
+          "status": 200,
+          "ms": 424,
+          "bytes": 39272,
+          "headers": {
+            "content-type": "application/json",
+            "cache-control": "no-cache, private",
+            "server": "cloudflare",
+            "cf-cache-status": "DYNAMIC"
+          },
+          "count": 50,
+          "updated": "2026-09-24",
+          "apiCode": "0",
+          "sample": [
+            "看著我的眼睛說 — 張遠",
+            "為你寫下這首情歌 — Mayday (五月天)",
+            "甲乙丙丁Strangers - 你我怎麼兩清 — Jess Lee (李佳薇)"
+          ],
+          "firstArt": "https://i.kfs.io/album/global/280657750,0v1/fit/500x500.jpg"
+        },
+        {
+          "name": "newrelease hk",
+          "url": "https://kma.kkbox.com/charts/api/v1/daily?limit=50&lang=tc&category=297&type=newrelease&terr=hk",
+          "status": 200,
+          "ms": 257,
+          "bytes": 37041,
+          "headers": {
+            "content-type": "application/json",
+            "cache-control": "no-cache, private",
+            "server": "cloudflare",
+            "cf-cache-status": "DYNAMIC"
+          },
+          "count": 50,
+          "updated": "2026-09-24",
+          "apiCode": "0",
+          "sample": [
+            "半糖去冰 — Tr33",
+            "她（《早春晴朗》電視劇欒念人物曲&片頭曲） — Various Artists",
+            "大船 — 田馥甄 (Hebe)"
+          ],
+          "firstArt": "https://i.kfs.io/album/global/297476339,0v3/fit/500x500.jpg"
+        },
+        {
+          "name": "newrelease tw",
+          "url": "https://kma.kkbox.com/charts/api/v1/daily?limit=50&lang=tc&category=297&type=newrelease&terr=tw",
+          "status": 200,
+          "ms": 395,
+          "bytes": 37364,
+          "headers": {
+            "content-type": "application/json",
+            "cache-control": "no-cache, private",
+            "server": "cloudflare",
+            "cf-cache-status": "DYNAMIC"
+          },
+          "count": 50,
+          "updated": "2026-09-24",
+          "apiCode": "0",
+          "sample": [
+            "大船 — 田馥甄 (Hebe)",
+            "要去什麼地方 — 田馥甄 (Hebe)",
+            "她（《早春晴朗》電視劇欒念人物曲&片頭曲） — Various Artists"
+          ],
+          "firstArt": "https://i.kfs.io/album/global/298755321,0v5/fit/500x500.jpg"
+        },
+        {
+          "name": "song hk lang=en",
+          "url": "https://kma.kkbox.com/charts/api/v1/daily?limit=50&lang=en&category=297&type=song&terr=hk",
+          "status": 200,
+          "ms": 255,
+          "bytes": 37127,
+          "headers": {
+            "content-type": "application/json",
+            "cache-control": "no-cache, private",
+            "server": "cloudflare",
+            "cf-cache-status": "DYNAMIC"
+          },
+          "count": 50,
+          "updated": "2026-09-24",
+          "apiCode": "0",
+          "sample": [
+            "半糖去冰 — Tr33",
+            "甲乙丙丁Strangers - 你我怎麼兩清 — 李佳薇 (Jess Lee)",
+            "追愛狂想 — 姜濤 (Keung To)"
+          ],
+          "firstArt": "https://i.kfs.io/album/global/297476339,0v3/fit/500x500.jpg"
+        },
+        {
+          "name": "song hk cat=390",
+          "url": "https://kma.kkbox.com/charts/api/v1/daily?limit=50&lang=tc&category=390&type=song&terr=hk",
+          "status": 200,
+          "ms": 273,
+          "bytes": 34360,
+          "headers": {
+            "content-type": "application/json",
+            "cache-control": "no-cache, private",
+            "server": "cloudflare",
+            "cf-cache-status": "DYNAMIC"
+          },
+          "count": 50,
+          "updated": "2026-09-24",
+          "apiCode": "0",
+          "sample": [
+            "Helicopter — Anson Lo 盧瀚霆",
+            "Trippin’ Up — Anson Lo 盧瀚霆",
+            "FALLEN ANGEL — JENNIE"
+          ],
+          "firstArt": "https://i.kfs.io/album/global/294685709,0v2/fit/500x500.jpg"
+        },
+        {
+          "name": "song hk cat=320",
+          "url": "https://kma.kkbox.com/charts/api/v1/daily?limit=50&lang=tc&category=320&type=song&terr=hk",
+          "status": 200,
+          "ms": 384,
+          "bytes": 36216,
+          "headers": {
+            "content-type": "application/json",
+            "cache-control": "no-cache, private",
+            "server": "cloudflare",
+            "cf-cache-status": "DYNAMIC"
+          },
+          "count": 50,
+          "updated": "2026-09-24",
+          "apiCode": "0",
+          "sample": [
+            "四 — 陳卓賢 (Ian Chan)",
+            "陽光普照 — 容祖兒 (Joey Yung)",
+            "傷心萬里通 — 江𤒹生 (Anson Kong)"
+          ],
+          "firstArt": "https://i.kfs.io/album/global/298887838,0v3/fit/500x500.jpg"
+        },
+        {
+          "name": "song hk limit=100",
+          "url": "https://kma.kkbox.com/charts/api/v1/daily?limit=100&lang=tc&category=297&type=song&terr=hk",
+          "status": 200,
+          "ms": 276,
+          "bytes": 37127,
+          "headers": {
+            "content-type": "application/json",
+            "cache-control": "no-cache, private",
+            "server": "cloudflare",
+            "cf-cache-status": "DYNAMIC"
+          },
+          "count": 50,
+          "updated": "2026-09-24",
+          "apiCode": "0",
+          "sample": [
+            "半糖去冰 — Tr33",
+            "甲乙丙丁Strangers - 你我怎麼兩清 — 李佳薇 (Jess Lee)",
+            "追愛狂想 — 姜濤 (Keung To)"
+          ],
+          "firstArt": "https://i.kfs.io/album/global/297476339,0v3/fit/500x500.jpg"
+        },
+        {
+          "name": "song hk no-UA",
+          "url": "https://kma.kkbox.com/charts/api/v1/daily?limit=50&lang=tc&category=297&type=song&terr=hk",
+          "status": 200,
+          "ms": 254,
+          "bytes": 37127,
+          "headers": {
+            "content-type": "application/json",
+            "cache-control": "no-cache, private",
+            "server": "cloudflare",
+            "cf-cache-status": "DYNAMIC"
+          },
+          "count": 50,
+          "updated": "2026-09-24",
+          "apiCode": "0",
+          "sample": [
+            "半糖去冰 — Tr33",
+            "甲乙丙丁Strangers - 你我怎麼兩清 — 李佳薇 (Jess Lee)",
+            "追愛狂想 — 姜濤 (Keung To)"
+          ],
+          "firstArt": "https://i.kfs.io/album/global/297476339,0v3/fit/500x500.jpg"
+        },
+        {
+          "name": "cover i.kfs.io",
+          "url": "https://i.kfs.io/album/global/297476339,0v3/fit/500x500.jpg",
+          "status": 206,
+          "ms": 1009,
+          "headers": {
+            "content-type": "image/pjpeg"
+          },
+          "count": 1,
+          "sample": []
+        }
+      ],
+      "yt": [
+        {
+          "name": "TRACKS hk weekly",
+          "url": "https://charts.youtube.com/youtubei/v1/browse?alt=json",
+          "status": 200,
+          "ms": 715,
+          "bytes": 345699,
+          "headers": {
+            "content-type": "application/json; charset=UTF-8",
+            "server": "cloudflare",
+            "cf-cache-status": "DYNAMIC"
+          },
+          "count": 100,
+          "sample": [
+            "What Makes A Man — MC Cheung Tinfu [g1GBE8eeNyM]",
+            "我看見今晚的月色很美，你呢？ — Goodnight, Lillie [q70X4QvSZ9M]",
+            "SaWaDiKa — LISA [FyS5dAywkEo]"
+          ],
+          "firstArt": "https://yt3.googleusercontent.com/uPpqXUnbGdmQ82cg7rpsy4liWWG7ULspVJgol7ptMzvB9MFfI2VLoAZDQ2IwOx5CO1mH-GMdW8tASewH=w180-h180-l90-rj"
+        },
+        {
+          "name": "TRACKS tw weekly",
+          "url": "https://charts.youtube.com/youtubei/v1/browse?alt=json",
+          "status": 200,
+          "ms": 353,
+          "bytes": 342960,
+          "headers": {
+            "content-type": "application/json; charset=UTF-8",
+            "server": "cloudflare",
+            "cf-cache-status": "DYNAMIC"
+          },
+          "count": 100,
+          "sample": [
+            "甲乙丙丁Strangers — Jess Lee [YacpC7sUXMM]",
+            "海屿你 — 马也Crabbit, Cole先生 [tc4k170HmCY]",
+            "BAD — ATEEZ [-q_S27LbNKU]"
+          ],
+          "firstArt": "https://yt3.googleusercontent.com/awoyk8Z8XNivU4sRBupBx_pdbnk7yVJz3w4qvxzcrm-Ud9Ma6B-v9BVLOx1JLTJr5n-g51chJRdHEqSgSg=w180-h180-l90-rj"
+        },
+        {
+          "name": "TRACKS jp weekly",
+          "url": "https://charts.youtube.com/youtubei/v1/browse?alt=json",
+          "status": 200,
+          "ms": 368,
+          "bytes": 346356,
+          "headers": {
+            "content-type": "application/json; charset=UTF-8",
+            "server": "cloudflare",
+            "cf-cache-status": "DYNAMIC"
+          },
+          "count": 100,
+          "sample": [
+            "Yes! 東京 (feat. SUPER DRAGON, Sakurashimeji, ONE N' ONLY, BUDDiiS, ICEx & Lienel) — EBiDAN Ebisu Gakuen Boys Club, Chotokkyu, M!LK, GNJB [KsHKaP50FBE]",
+            "時空超えてユニバース — M!LK [JpIw7rSLRqc]",
+            "It's Me — ILLIT [bMhDJ0S0OBA]"
+          ],
+          "firstArt": "https://yt3.googleusercontent.com/pi5QDwxz6w2nNShQqq_Hfgz17GISa97pP7pNbc7EwjBbkD1SF4L3uaHfarQT--6nnqPO0LmumW1YuBv0=w180-h180-l90-rj"
+        },
+        {
+          "name": "TRACKS us weekly",
+          "url": "https://charts.youtube.com/youtubei/v1/browse?alt=json",
+          "status": 200,
+          "ms": 386,
+          "bytes": 364014,
+          "headers": {
+            "content-type": "application/json; charset=UTF-8",
+            "server": "cloudflare",
+            "cf-cache-status": "DYNAMIC"
+          },
+          "count": 100,
+          "sample": [
+            "Choosin' Texas — Ella Langley [nUsrYVxrDwI]",
+            "Dai Dai — Shakira, Burna Boy [fcnDmrtj6Sk]",
+            "BbY WOW — KAROL G, Judeline, rusowsky [fRIhCiUVaKs]"
+          ],
+          "firstArt": "https://yt3.googleusercontent.com/pXFQCa7a4g8yaLQOuE2y0zWK4X0A9Kdjx1PTC_KICZc9OEgahsFl-F6VBihBNOLAiYX7XnuPqaC4Yio=w180-h180-l90-rj"
+        },
+        {
+          "name": "TRACKS kr weekly",
+          "url": "https://charts.youtube.com/youtubei/v1/browse?alt=json",
+          "status": 200,
+          "ms": 378,
+          "bytes": 347386,
+          "headers": {
+            "content-type": "application/json; charset=UTF-8",
+            "server": "cloudflare",
+            "cf-cache-status": "DYNAMIC"
+          },
+          "count": 100,
+          "sample": [
+            "Dear my crazy soulmate — IU [RdUV9Ms5GM4]",
+            "퇴사할게여 — SOYEON [7mDDM0eBWR0]",
+            "BAD — ATEEZ [-q_S27LbNKU]"
+          ],
+          "firstArt": "https://yt3.googleusercontent.com/dfTaw-LhxWVGPdbKfML-ybvDnOySHxxbyyK_yJDSxnP1GDgcaW0obc5ZeeS6cTpJ-lu-CyiyA_VyGZr2=w180-h180-l90-rj"
+        },
+        {
+          "name": "ARTISTS hk weekly",
+          "url": "https://charts.youtube.com/youtubei/v1/browse?alt=json",
+          "status": 200,
+          "ms": 273,
+          "bytes": 263822,
+          "headers": {
+            "content-type": "application/json; charset=UTF-8",
+            "server": "cloudflare",
+            "cf-cache-status": "DYNAMIC"
+          },
+          "count": 100,
+          "sample": [
+            "Eason Chan",
+            "MC Cheung Tinfu",
+            "Jay Chou"
+          ],
+          "firstArt": "https://lh3.googleusercontent.com/MBjMu3EHBwUFMuf80d9OfCLVG2VywWGcD6OV6XUb4mBmLPWputvMOgEG7T2frxBlZdYkCho4NXGdzTQ"
+        },
+        {
+          "name": "ARTISTS tw weekly",
+          "url": "https://charts.youtube.com/youtubei/v1/browse?alt=json",
+          "status": 200,
+          "ms": 138,
+          "bytes": 260899,
+          "headers": {
+            "content-type": "application/json; charset=UTF-8",
+            "server": "cloudflare",
+            "cf-cache-status": "DYNAMIC"
+          },
+          "count": 100,
+          "sample": [
+            "Jay Chou",
+            "A-Lin+",
+            "JJ Lin"
+          ],
+          "firstArt": "https://yt3.googleusercontent.com/5vqNE8l4iYKmNCHd_YIgknhMF-W4ROcG5H7ZbdfOudxTcNSIIJrf9WpctLh43GlzFLmmcpMUxRQ918Kv"
+        },
+        {
+          "name": "TRACKS global (ZZ)",
+          "url": "https://charts.youtube.com/youtubei/v1/browse?alt=json",
+          "status": 400,
+          "ms": 173,
+          "bytes": 285,
+          "headers": {
+            "content-type": "application/json; charset=UTF-8",
+            "server": "cloudflare",
+            "cf-cache-status": "DYNAMIC"
+          },
+          "count": 0,
+          "sample": [],
+          "bodyHead": "{\n  \"error\": {\n    \"code\": 400,\n    \"message\": \"Request contains an invalid argument.\",\n    \"errors\": [\n      {\n        \"message\": \"Request contains an invalid argument.\",\n        \"domain\": \"global\",\n        \"reason\": \"badRequest\"\n      }\n "
+        },
+        {
+          "name": "TRACKS hk no origin/referer",
+          "url": "https://charts.youtube.com/youtubei/v1/browse?alt=json",
+          "status": 200,
+          "ms": 234,
+          "bytes": 345699,
+          "headers": {
+            "content-type": "application/json; charset=UTF-8",
+            "server": "cloudflare",
+            "cf-cache-status": "DYNAMIC"
+          },
+          "count": 100,
+          "sample": [
+            "What Makes A Man — MC Cheung Tinfu [g1GBE8eeNyM]",
+            "我看見今晚的月色很美，你呢？ — Goodnight, Lillie [q70X4QvSZ9M]",
+            "SaWaDiKa — LISA [FyS5dAywkEo]"
+          ],
+          "firstArt": "https://yt3.googleusercontent.com/uPpqXUnbGdmQ82cg7rpsy4liWWG7ULspVJgol7ptMzvB9MFfI2VLoAZDQ2IwOx5CO1mH-GMdW8tASewH=w180-h180-l90-rj"
+        },
+        {
+          "name": "TRACKS hk no-UA",
+          "url": "https://charts.youtube.com/youtubei/v1/browse?alt=json",
+          "status": 200,
+          "ms": 248,
+          "bytes": 345699,
+          "headers": {
+            "content-type": "application/json; charset=UTF-8",
+            "server": "cloudflare",
+            "cf-cache-status": "DYNAMIC"
+          },
+          "count": 100,
+          "sample": [
+            "What Makes A Man — MC Cheung Tinfu [g1GBE8eeNyM]",
+            "我看見今晚的月色很美，你呢？ — Goodnight, Lillie [q70X4QvSZ9M]",
+            "SaWaDiKa — LISA [FyS5dAywkEo]"
+          ],
+          "firstArt": "https://yt3.googleusercontent.com/uPpqXUnbGdmQ82cg7rpsy4liWWG7ULspVJgol7ptMzvB9MFfI2VLoAZDQ2IwOx5CO1mH-GMdW8tASewH=w180-h180-l90-rj"
+        },
+        {
+          "name": "TRACKS hk clientVersion=0.1",
+          "url": "https://charts.youtube.com/youtubei/v1/browse?alt=json",
+          "status": 404,
+          "ms": 60,
+          "bytes": 264,
+          "headers": {
+            "content-type": "application/json; charset=UTF-8",
+            "server": "cloudflare",
+            "cf-cache-status": "DYNAMIC"
+          },
+          "count": 0,
+          "sample": [],
+          "bodyHead": "{\n  \"error\": {\n    \"code\": 404,\n    \"message\": \"Requested entity was not found.\",\n    \"errors\": [\n      {\n        \"message\": \"Requested entity was not found.\",\n        \"domain\": \"global\",\n        \"reason\": \"notFound\"\n      }\n    ],\n    \"sta"
+        },
+        {
+          "name": "thumbnail",
+          "url": "https://yt3.googleusercontent.com/uPpqXUnbGdmQ82cg7rpsy4liWWG7ULspVJgol7ptMzvB9MFfI2VLoAZDQ2IwOx5CO1mH-GMdW8tASewH=w180-h180-l90-rj",
+          "status": 206,
+          "ms": 252,
+          "headers": {
+            "content-type": "image/jpeg"
+          },
+          "count": 1,
+          "sample": []
+        }
+      ],
+      "burst:apple": [
+        {
+          "name": "burst apple ×15 sequential",
+          "status": 200,
+          "count": 14,
+          "sample": [
+            "statuses {\"0\":1,\"200\":14}",
+            "ms p50=609 max=15000"
+          ],
+          "ms": 609
+        }
+      ],
+      "burst:kkbox": [
+        {
+          "name": "burst kkbox ×15 sequential",
+          "status": 200,
+          "count": 15,
+          "sample": [
+            "statuses {\"200\":15}",
+            "ms p50=367 max=465"
+          ],
+          "ms": 367
+        }
+      ],
+      "burst:yt": [
+        {
+          "name": "burst yt ×15 sequential",
+          "status": 200,
+          "count": 15,
+          "sample": [
+            "statuses {\"200\":15}",
+            "ms p50=236 max=399"
+          ],
+          "ms": 236
+        }
+      ]
+    }
+  },
+  {
+    "label": "followup-misc",
+    "at": "2026-09-25T02:22:34.876Z",
+    "suites": {
+      "misc": [
+        {
+          "name": "YT TRACKS cc=\"global\"",
+          "url": "https://charts.youtube.com/youtubei/v1/browse?alt=json",
+          "status": 400,
+          "ms": 177,
+          "bytes": 285,
+          "headers": {
+            "content-type": "application/json; charset=UTF-8",
+            "server": "cloudflare",
+            "cf-cache-status": "DYNAMIC"
+          },
+          "count": 0,
+          "sample": [],
+          "bodyHead": "{\n  \"error\": {\n    \"code\": 400,\n    \"message\": \"Request contains an invalid argument.\",\n    \"errors\": [\n      {\n        \"message\": \"Request contains an invalid argument.\",\n        \"domain\": \"global\",\n        \"reason\": \"badRequest\"\n      }\n "
+        },
+        {
+          "name": "YT TRACKS cc=\"GLOBAL\"",
+          "url": "https://charts.youtube.com/youtubei/v1/browse?alt=json",
+          "status": 400,
+          "ms": 142,
+          "bytes": 285,
+          "headers": {
+            "content-type": "application/json; charset=UTF-8",
+            "server": "cloudflare",
+            "cf-cache-status": "DYNAMIC"
+          },
+          "count": 0,
+          "sample": [],
+          "bodyHead": "{\n  \"error\": {\n    \"code\": 400,\n    \"message\": \"Request contains an invalid argument.\",\n    \"errors\": [\n      {\n        \"message\": \"Request contains an invalid argument.\",\n        \"domain\": \"global\",\n        \"reason\": \"badRequest\"\n      }\n "
+        },
+        {
+          "name": "YT TRACKS cc=\"\"",
+          "url": "https://charts.youtube.com/youtubei/v1/browse?alt=json",
+          "status": 400,
+          "ms": 159,
+          "bytes": 285,
+          "headers": {
+            "content-type": "application/json; charset=UTF-8",
+            "server": "cloudflare",
+            "cf-cache-status": "DYNAMIC"
+          },
+          "count": 0,
+          "sample": [],
+          "bodyHead": "{\n  \"error\": {\n    \"code\": 400,\n    \"message\": \"Request contains an invalid argument.\",\n    \"errors\": [\n      {\n        \"message\": \"Request contains an invalid argument.\",\n        \"domain\": \"global\",\n        \"reason\": \"badRequest\"\n      }\n "
+        },
+        {
+          "name": "YT hk period + release ages",
+          "url": "https://charts.youtube.com/youtubei/v1/browse?alt=json",
+          "status": 200,
+          "ms": 226,
+          "bytes": 345699,
+          "headers": {
+            "content-type": "application/json; charset=UTF-8",
+            "server": "cloudflare",
+            "cf-cache-status": "DYNAMIC"
+          },
+          "count": 100,
+          "sample": [
+            "period=[\"2026-09-17\"]",
+            "release age days (top 20): median=120 newest=15 oldest=4438"
+          ]
+        },
+        {
+          "name": "KKBOX weekly song hk",
+          "url": "https://kma.kkbox.com/charts/api/v1/weekly?type=song&terr=hk&lang=tc&category=297&limit=50",
+          "status": 200,
+          "ms": 467,
+          "bytes": 36951,
+          "headers": {
+            "content-type": "application/json",
+            "cache-control": "no-cache, private",
+            "server": "cloudflare",
+            "cf-cache-status": "DYNAMIC"
+          },
+          "count": 50,
+          "updated": "2026-09-24",
+          "apiCode": "0",
+          "sample": [
+            "半糖去冰 — Tr33",
+            "甲乙丙丁Strangers - 你我怎麼兩清 — 李佳薇 (Jess Lee)",
+            "追愛狂想 — 姜濤 (Keung To)"
+          ],
+          "firstArt": "https://i.kfs.io/album/global/297476339,0v3/fit/500x500.jpg"
+        },
+        {
+          "name": "KKBOX daily hk release ages",
+          "url": "https://kma.kkbox.com/charts/api/v1/daily?type=song&terr=hk&lang=tc&category=297&limit=50",
+          "status": 200,
+          "ms": 428,
+          "bytes": 37127,
+          "headers": {
+            "content-type": "application/json",
+            "cache-control": "no-cache, private",
+            "server": "cloudflare",
+            "cf-cache-status": "DYNAMIC"
+          },
+          "count": 50,
+          "sample": [
+            "release age days (top 20): median=25 newest=2 oldest=2161"
+          ]
+        },
+        {
+          "name": "Apple hk release ages",
+          "url": "https://rss.marketingtools.apple.com/api/v2/hk/music/most-played/20/songs.json",
+          "status": 200,
+          "ms": 879,
+          "bytes": 14550,
+          "headers": {
+            "content-type": "application/json; charset=utf-8",
+            "cache-control": "max-age=0, private, must-revalidate",
+            "server": "cloudflare",
+            "cf-cache-status": "DYNAMIC"
+          },
+          "count": 20,
+          "sample": [
+            "release age days (top 18): median=354 newest=16 oldest=8466"
+          ]
+        },
+        {
+          "name": "Apple tw release ages",
+          "url": "https://rss.marketingtools.apple.com/api/v2/tw/music/most-played/20/songs.json",
+          "status": 200,
+          "ms": 525,
+          "bytes": 13781,
+          "headers": {
+            "content-type": "application/json; charset=utf-8",
+            "cache-control": "max-age=0, private, must-revalidate",
+            "server": "cloudflare",
+            "cf-cache-status": "DYNAMIC"
+          },
+          "count": 20,
+          "sample": [
+            "release age days (top 10): median=91 newest=16 oldest=8662"
+          ]
+        },
+        {
+          "name": "Apple cn release ages",
+          "url": "https://rss.marketingtools.apple.com/api/v2/cn/music/most-played/20/songs.json",
+          "status": 200,
+          "ms": 1012,
+          "bytes": 12576,
+          "headers": {
+            "content-type": "application/json; charset=utf-8",
+            "cache-control": "max-age=0, private, must-revalidate",
+            "server": "cloudflare",
+            "cf-cache-status": "DYNAMIC"
+          },
+          "count": 20,
+          "sample": [
+            "release age days (top 20): median=7938 newest=3172 oldest=11140"
+          ]
+        },
+        {
+          "name": "KKBOX page (category names)",
+          "url": "https://kma.kkbox.com/charts/?terr=hk&lang=en",
+          "status": 200,
+          "ms": 763,
+          "bytes": 118491,
+          "headers": {
+            "content-type": "text/html; charset=UTF-8",
+            "cache-control": "no-cache, private",
+            "server": "cloudflare",
+            "cf-cache-status": "DYNAMIC"
+          },
+          "count": 2,
+          "sample": [
+            "320=View the Top 50"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "label": "followup-apple30",
+    "at": "2026-09-25T02:22:56.448Z",
+    "suites": {
+      "apple30": [
+        {
+          "name": "#0 new",
+          "status": 200,
+          "ms": 1124,
+          "count": 50,
+          "sample": [
+            "cache-control=max-age=0, private, must-revalidate age=-"
+          ]
+        },
+        {
+          "name": "#1 old",
+          "status": 200,
+          "ms": 850,
+          "count": 50,
+          "sample": [
+            "cache-control=max-age=0, private, must-revalidate age=-"
+          ]
+        },
+        {
+          "name": "#2 new",
+          "status": 200,
+          "ms": 867,
+          "count": 50,
+          "sample": [
+            "cache-control=max-age=0, private, must-revalidate age=-"
+          ]
+        },
+        {
+          "name": "#3 old",
+          "status": 200,
+          "ms": 385,
+          "count": 50,
+          "sample": [
+            "cache-control=max-age=0, private, must-revalidate age=-"
+          ]
+        },
+        {
+          "name": "#4 new",
+          "status": 200,
+          "ms": 791,
+          "count": 50,
+          "sample": [
+            "cache-control=max-age=0, private, must-revalidate age=-"
+          ]
+        },
+        {
+          "name": "#5 old",
+          "status": 200,
+          "ms": 491,
+          "count": 50,
+          "sample": [
+            "cache-control=max-age=0, private, must-revalidate age=-"
+          ]
+        },
+        {
+          "name": "#6 new",
+          "status": 200,
+          "ms": 654,
+          "count": 50,
+          "sample": [
+            "cache-control=max-age=0, private, must-revalidate age=-"
+          ]
+        },
+        {
+          "name": "#7 old",
+          "status": 200,
+          "ms": 598,
+          "count": 50,
+          "sample": [
+            "cache-control=max-age=0, private, must-revalidate age=-"
+          ]
+        },
+        {
+          "name": "#8 new",
+          "status": 200,
+          "ms": 464,
+          "count": 50,
+          "sample": [
+            "cache-control=max-age=0, private, must-revalidate age=-"
+          ]
+        },
+        {
+          "name": "#9 old",
+          "status": 200,
+          "ms": 555,
+          "count": 50,
+          "sample": [
+            "cache-control=max-age=0, private, must-revalidate age=-"
+          ]
+        },
+        {
+          "name": "#10 new",
+          "status": 200,
+          "ms": 433,
+          "count": 50,
+          "sample": [
+            "cache-control=max-age=0, private, must-revalidate age=-"
+          ]
+        },
+        {
+          "name": "#11 old",
+          "status": 200,
+          "ms": 360,
+          "count": 50,
+          "sample": [
+            "cache-control=max-age=0, private, must-revalidate age=-"
+          ]
+        },
+        {
+          "name": "#12 new",
+          "status": 200,
+          "ms": 315,
+          "count": 50,
+          "sample": [
+            "cache-control=max-age=0, private, must-revalidate age=-"
+          ]
+        },
+        {
+          "name": "#13 old",
+          "status": 200,
+          "ms": 541,
+          "count": 50,
+          "sample": [
+            "cache-control=max-age=0, private, must-revalidate age=-"
+          ]
+        },
+        {
+          "name": "#14 new",
+          "status": 200,
+          "ms": 588,
+          "count": 50,
+          "sample": [
+            "cache-control=max-age=0, private, must-revalidate age=-"
+          ]
+        },
+        {
+          "name": "#15 old",
+          "status": 200,
+          "ms": 381,
+          "count": 50,
+          "sample": [
+            "cache-control=max-age=0, private, must-revalidate age=-"
+          ]
+        },
+        {
+          "name": "#16 new",
+          "status": 200,
+          "ms": 733,
+          "count": 50,
+          "sample": [
+            "cache-control=max-age=0, private, must-revalidate age=-"
+          ]
+        },
+        {
+          "name": "#17 old",
+          "status": 200,
+          "ms": 984,
+          "count": 50,
+          "sample": [
+            "cache-control=max-age=0, private, must-revalidate age=-"
+          ]
+        },
+        {
+          "name": "#18 new",
+          "status": 200,
+          "ms": 501,
+          "count": 50,
+          "sample": [
+            "cache-control=max-age=0, private, must-revalidate age=-"
+          ]
+        },
+        {
+          "name": "#19 old",
+          "status": 200,
+          "ms": 376,
+          "count": 50,
+          "sample": [
+            "cache-control=max-age=0, private, must-revalidate age=-"
+          ]
+        },
+        {
+          "name": "#20 new",
+          "status": 200,
+          "ms": 308,
+          "count": 50,
+          "sample": [
+            "cache-control=max-age=0, private, must-revalidate age=-"
+          ]
+        },
+        {
+          "name": "#21 old",
+          "status": 200,
+          "ms": 1101,
+          "count": 50,
+          "sample": [
+            "cache-control=max-age=0, private, must-revalidate age=-"
+          ]
+        },
+        {
+          "name": "#22 new",
+          "status": 200,
+          "ms": 1251,
+          "count": 50,
+          "sample": [
+            "cache-control=max-age=0, private, must-revalidate age=-"
+          ]
+        },
+        {
+          "name": "#23 old",
+          "status": 200,
+          "ms": 903,
+          "count": 50,
+          "sample": [
+            "cache-control=max-age=0, private, must-revalidate age=-"
+          ]
+        },
+        {
+          "name": "#24 new",
+          "status": 200,
+          "ms": 768,
+          "count": 50,
+          "sample": [
+            "cache-control=max-age=0, private, must-revalidate age=-"
+          ]
+        },
+        {
+          "name": "#25 old",
+          "status": 200,
+          "ms": 545,
+          "count": 50,
+          "sample": [
+            "cache-control=max-age=0, private, must-revalidate age=-"
+          ]
+        },
+        {
+          "name": "#26 new",
+          "status": 200,
+          "ms": 1095,
+          "count": 50,
+          "sample": [
+            "cache-control=max-age=0, private, must-revalidate age=-"
+          ]
+        },
+        {
+          "name": "#27 old",
+          "status": 200,
+          "ms": 1456,
+          "count": 50,
+          "sample": [
+            "cache-control=max-age=0, private, must-revalidate age=-"
+          ]
+        },
+        {
+          "name": "#28 new",
+          "status": 200,
+          "ms": 945,
+          "count": 50,
+          "sample": [
+            "cache-control=max-age=0, private, must-revalidate age=-"
+          ]
+        },
+        {
+          "name": "#29 old",
+          "status": 200,
+          "ms": 1124,
+          "count": 50,
+          "sample": [
+            "cache-control=max-age=0, private, must-revalidate age=-"
+          ]
+        }
+      ]
+    }
+  }
+]
