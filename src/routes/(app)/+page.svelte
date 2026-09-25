@@ -6,6 +6,7 @@
 	import Logo from '$lib/components/Logo.svelte';
 	import ShelfChevrons from '$lib/components/ShelfChevrons.svelte';
 	import { buildDiversePicks } from '$lib/services/picks';
+	import { buildRadio } from '$lib/services/radio';
 	import type { QueueContext } from '$lib/config/defaults';
 	import {
 		getChartTopTracks,
@@ -127,6 +128,10 @@
 	let likedShelf = $state<Track[]>([]);
 	let downloadsShelf = $state<Track[]>([]);
 	let historyShelf = $state<Track[]>([]);
+	// quick-260924-pgu: "Your Radio" — lazy `nameStub` Tracks (resolveByName), similar-but-unheard
+	// songs seeded from play history. Built ONCE per mount (see onMount), not on every refresh(),
+	// because unlike the other local shelves it costs network.
+	let radioShelf = $state<Track[]>([]);
 	let playlistShelves = $state<{ id: string; name: string; tracks: Track[] }[]>([]);
 	// kmn: favourite artists shelf (round avatars). Covers backfill via the existing
 	// backfillArtistCovers chain (Deezer → iTunes) on mount + whenever the list changes.
@@ -160,6 +165,8 @@
 		// HistoryEntry IS the playable Track whitelist (audioUrl re-resolves on play()).
 		const historyTracks = playHistory.entries as unknown as Track[];
 		historyShelf = pickN(historyTracks, cap, randomize);
+		// quick-260924-pgu: Randomize reshuffles the radio tiles it already has — it does NOT refetch.
+		if (randomize) radioShelf = shuffle(radioShelf);
 		playlistShelves = library.playlists
 			.filter((p) => p.tracks.length > 0)
 			.map((p) => ({ id: p.id, name: p.name, tracks: pickN(p.tracks, cap, randomize) }));
@@ -644,7 +651,31 @@
 	// 'same-list' → no regenerate, and Up-Next still showed the album. Manual `Play next` /
 	// `Add to queue` entries survive because regenerate preserves them.
 	function playLibraryTrack(track: Track, ctx: QueueContext) {
+		// quick-260924-pgu: a radio row is a lazy name stub. play() records history with the
+		// PRE-resolve object (player.svelte.ts `history.record(track)`), so a raw stub play would
+		// write a synthetic `similar-` uid into history whose replay cannot resolve (toEntry drops
+		// `resolveByName`). Keyed on the TRACK, not on ctx, so the rule reads "stubs play via
+		// playStub" wherever a stub shows up; real library tracks keep the direct fresh play.
+		if (track.resolveByName) {
+			void playRadioTrack(track);
+			return;
+		}
 		player.play(track, { fresh: true, context: ctx });
+	}
+	// quick-260924-pgu: mirrors the album hero Play (quick-260919-alb / quick-260915-vb9) — `sameList`
+	// pins the same-list branch so the fresh-play tail does not regenerate over the install;
+	// setListQueue after the resolve anchors the now-real `current` into the shelf by
+	// uid-then-sameSongKey, so the remaining radio tiles are the Up Next. Toast gate copied from
+	// playStub(item) above (null = miss OR supersede; only a miss clears pendingTrack).
+	async function playRadioTrack(track: Track) {
+		const tr = await player.playStub(track.artist, track.title, track.cover, 'home-discovery', {
+			sameList: true
+		});
+		if (!tr) {
+			if (player.pendingTrack == null) toast.show(t('home.unplayable'));
+			return;
+		}
+		player.setListQueue(radioShelf, 'home-discovery');
 	}
 	function openTrackMenu(track: Track) {
 		menuTrack = track;
@@ -669,6 +700,14 @@
 		const libCache = loadLibraryCache();
 		if (libCache) applyLibraryCache(libCache);
 		else buildLibraryShelves(false);
+		// quick-260924-pgu: fires in the first request burst (ahead of the tag/country fan-out) so the
+		// shelf lands early; a hidden section spends nothing. buildRadio never throws and returns []
+		// on empty history (zero requests), so there is no error path — an empty shelf renders nothing.
+		if (!settings.homeHidden.includes('radio')) {
+			void buildRadio(playHistory.entries, clampShelfSize(settings.homeShelfSize)).then((r) => {
+				radioShelf = r;
+			});
+		}
 
 		// Shared link: /?play=<token>. 38-D-11: the DECODER is kept — nothing emits this shape any
 		// more, but old links are in the wild and must keep working. 38-D-12: what changed is where
@@ -786,6 +825,7 @@
 				{:else if id === 'fav-artists'}{@render favArtistsBlock()}
 				{:else if id === 'playlists'}{@render playlistsBlock()}
 				{:else if id === 'history'}{@render historyBlock()}
+				{:else if id === 'radio'}{@render radioBlock()}
 				{/if}
 			{/if}
 		{/each}
@@ -1018,6 +1058,17 @@
 	{#if historyShelf.length}
 		{@render titleNav(t('settings.homeSectionHistory'), '/library?tab=history')}
 		{@render libraryShelf(historyShelf, densityOf('history'), 'history')}
+	{/if}
+{/snippet}
+
+<!-- quick-260924-pgu: the header deep-links to the history the radio is seeded from (titleNav always
+     navigates; there is no radio page). libraryShelf gives list/grid/pile density, long-press
+     TrackMenu (which resolves `resolveByName` stubs on demand, same as album rows), and
+     use:lazyCover on-view cover resolution for stubs whose Last.fm/Deezer image was missing. -->
+{#snippet radioBlock()}
+	{#if radioShelf.length}
+		{@render titleNav(t('settings.homeSectionRadio'), '/library?tab=history')}
+		{@render libraryShelf(radioShelf, densityOf('radio'), 'home-discovery')}
 	{/if}
 {/snippet}
 
