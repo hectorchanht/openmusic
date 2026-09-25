@@ -241,10 +241,12 @@ Overlaps Phases 34 (import device songs), 36 (tag downloaded songs with metadata
 **Status 2026-09-19: every item above is delivered** (quick-260919-1eh / 2jo / 30x / 3j1). Close this phase on the next `/gsd:review-backlog` rather than promoting it. What is NOT covered is on-device verification — every one of those tasks shipped construction-level only, and their SUMMARYs each list what needs an APK to confirm.
 
 Open questions — ANSWERED 2026-09-19 (quick-260919-0mw):
+
 - **Does app-data import MERGE or overwrite?** It REPLACES. `wipeAndWrite()` (`src/lib/backup/backup-logic.ts:288`, `35-D-08`) deletes every restorable key first — library, history, search history, settings, `name-tr:*` — including keys the imported file does not carry. Downloaded audio *blobs* in IndexedDB survive; the downloads *list* does not. Player state is excluded from backup entirely (`35-D-02`).
 - **Is lyrics read from the downloaded file offline?** It was, but only when the file happened to carry usable embedded LRC — otherwise the player still reached for the network. Closed 2026-09-19 by quick-260919-3j1.
 
 Plans:
+
 - [ ] TBD (promote with /gsd:review-backlog when ready)
 
 ### Phase 999.3: Lyrics control — picker, reloader, and Nowbar line (BACKLOG)
@@ -261,6 +263,7 @@ Captured 2026-09-19 (user batch dump):
 **This phase is fully delivered by quick-260919-1we — close it on the next `/gsd:review-backlog` rather than promoting it.**
 
 Plans:
+
 - [ ] TBD (promote with /gsd:review-backlog when ready)
 
 ### Phase 999.4: Settings audit, URL-persistent tabs, and wide desktop layout (BACKLOG)
@@ -276,9 +279,11 @@ Captured 2026-09-19 (user batch dump):
 - ~~Every tab set is **URL-persistent** (like the library tabs)~~ — SHIPPED 2026-09-19 as quick-260919-2jo (shared `url-tab.ts`; Library + artist discography converted; settings/charts were already separate routes; the NowPlaying overlay tabs deferred because the overlay's open state is not in the URL).
 
 **Status 2026-09-19: every item in this phase is delivered** (quick-260919-2jo / ebi / et3). Close it on the next `/gsd:review-backlog` rather than promoting it. None of it is browser-verified — each SUMMARY carries its own checklist, and the desktop layout in particular has never been seen rendering at any window size.
+
 - ~~Add a **wide desktop view**~~ — SHIPPED 2026-09-19 as quick-260919-et3 (breakpoint 1024px; the bottom tab bar restyles into an 88px left rail, the Nowbar becomes a rail-to-edge desktop player bar, shelves fill the window with chevron paging). Deliberately NOT done: a desktop now-playing redesign and a persistent header search field.
 
 Plans:
+
 - [ ] TBD (promote with /gsd:review-backlog when ready)
 
 ### Phase 26: Minimal-API Click-to-Play Redesign
@@ -477,6 +482,7 @@ Plans:
 **Plans:** 4 plans
 
 Plans:
+
 - [x] 37-01-PLAN.md — Pure seams: `readAudioTags` returns the embedded picture from the existing pass, `lyricByName` export (walks kuwo), `isRenderableCover` + `buildArtwork` passes `data:` (wave 1)
 - [x] 37-02-PLAN.md — `local-tags.ts` memoised embedded read + `player.svelte.ts` blob-branch fall-through, tag-gated fallbacks, device lyric-by-name (wave 2)
 - [x] 37-03-PLAN.md — Player-suite enrichment tests incl. the 34-D-01 regression + full `pnpm test`/`pnpm check` gate + static audit (wave 3)
@@ -498,6 +504,7 @@ Plans:
 **Plans:** 9/9 plans written; 8 complete + 38-09 partial (awaiting the real-device checkpoint — phase NOT fully verified)
 
 Plans:
+
 - [x] 38-01-PLAN.md — Pure seam: `songShareUrl` uid carrier (`?u={source}{songid}`, D-30 enum fix) + `share-arrival.ts` arrivalMode / stubFromUidParam / deepLinkPath with node tests (wave 1)
 - [x] 38-02-PLAN.md — Player: `spliceAfterCurrent` helper, `spliceAndPlay` (warm, D-07), `armTrack` (cold seat, never plays — D-29), NpRelated net deletion, D-06 empty-queue regression test (wave 1)
 - [x] 38-03-PLAN.md — Android static half: `static/.well-known/assetlinks.json` (debug fingerprint) + autoVerify VIEW intent-filter on MainActivity (wave 1)
@@ -516,13 +523,24 @@ Plans:
 **Plans:** 10 plans
 
 Plans:
+**Wave 1**
+
 - [ ] 39-01-PLAN.md — Pure chart parsers + reciprocal-rank fusion + image-host allowlists + real-response fixtures (wave 1)
 - [ ] 39-02-PLAN.md — home-layout model: 17 section ids, 27-region allowlist, genre pool, versioned migration, reorderListed; i18n keys in 15 locales (wave 1)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 39-03-PLAN.md — Edge route /api/charts (Apple RSS · KKBOX · YouTube Charts) with serve-stale over caches.default (wave 2)
 - [ ] 39-04-PLAN.md — Deezer ?genre= branch + client chart services incl. client-side legacy iTunes genre feed (wave 2)
 - [ ] 39-05-PLAN.md — home-charts pure helpers: planChartShelves (hidden = 0 requests), samplePicks, Intl region labels, album href, cache keys (wave 2)
 - [ ] 39-06-PLAN.md — Settings fields: homeChartRegion / homeExtraRegions / homeChartGenres (no migration yet) (wave 2)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 39-07-PLAN.md — Home page wiring: v3 pools+picks cache, chart task runner, gated classic fetches, seven shelves, album CompactRow (wave 3)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 39-08-PLAN.md — Per-shelf placeholders + planned-aware reveal budget / skeleton (wave 4)
 - [ ] 39-09-PLAN.md — One-time layout switch for existing users, classic hidden by default, Clear-picks fix (wave 4)
 - [ ] 39-10-PLAN.md — /settings/home redesign: sections list with source lines, Charts group, Classic accordion (wave 4)
