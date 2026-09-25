@@ -1,0 +1,45 @@
+{
+  "generatedAt": "2026-07-14T13:52:46.776Z",
+  "videoId": "l78stHRr2Ps",
+  "clients": {
+    "ANDROID_MUSIC": {
+      "status": 200,
+      "playability": "LOGIN_REQUIRED",
+      "reason": "Please sign in",
+      "audioCount": 0,
+      "audioFormats": [],
+      "best": null
+    },
+    "ANDROID_VR": {
+      "status": 200,
+      "playability": "LOGIN_REQUIRED",
+      "reason": "Sign in to confirm you’re not a bot",
+      "audioCount": 0,
+      "audioFormats": [],
+      "best": null
+    },
+    "IOS": {
+      "status": 400,
+      "reason": null,
+      "audioCount": 0,
+      "audioFormats": [],
+      "best": null
+    },
+    "TVHTML5_EMBED": {
+      "status": 200,
+      "playability": "ERROR",
+      "reason": "YouTube is no longer supported in this application or device.",
+      "audioCount": 0,
+      "audioFormats": [],
+      "best": null
+    },
+    "WEB_REMIX": {
+      "status": 200,
+      "playability": "UNPLAYABLE",
+      "reason": "Video unavailable",
+      "audioCount": 0,
+      "audioFormats": [],
+      "best": null
+    }
+  }
+}

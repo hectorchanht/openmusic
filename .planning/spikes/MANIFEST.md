@@ -105,6 +105,18 @@ Design decisions that emerged; non-negotiable for the real build. Updated as spi
   default layout; Top Hits (Deezer), Top Artists (Deezer), Last.fm tag + country shelves remain in
   /settings/home and can be re-enabled.
 
+- **[user 2026-09-24] Chart region = one main region + optional extra regions.** A "Chart region" setting,
+  defaulted from the app language (zh-Hant→hk, zh-Hans→tw — never the stale cn storefront, ja→jp, ko→kr,
+  en→us), drives Top Songs / Top Albums / New Releases / Top Artists. A multi-select "More regions" adds one
+  Apple Top Songs shelf per extra storefront, replacing the Last.fm country shelves. KKBOX-only shelves
+  (New Releases, HK language rows) exist only when the region is hk/tw/sg.
+- **[user 2026-09-24] Existing users get a ONE-TIME switch** on first load after the update: new chart shelves
+  shown, old Deezer/Last.fm shelves hidden — library shelves, custom order and density preserved. They can
+  re-enable the old shelves in /settings/home.
+- **[user 2026-09-24] Default-on genre shelves: Asian pop (Cantopop@hk, Mandopop@tw, K-Pop@hk, J-Pop@jp via
+  client-side iTunes) + Western core (Hip-Hop, Rock, Dance, R&B via Deezer).** Electronic / Alternative / Asian
+  (Deezer) are available but off.
+
 ## Spikes
 
 | # | Name | Type | Validates | Verdict | Tags |

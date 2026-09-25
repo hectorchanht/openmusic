@@ -1,0 +1,85 @@
+{
+  "generatedAt": "2026-07-14T13:54:55.456Z",
+  "videoId": "l78stHRr2Ps",
+  "playability": "OK",
+  "expiresInSeconds": "21540",
+  "formats": [
+    {
+      "itag": 251,
+      "mime": "audio/webm",
+      "codec": "opus",
+      "bitrate": 137474,
+      "audioSampleRate": "48000",
+      "hasDirectUrl": true,
+      "ciphered": false,
+      "urlHasN": false,
+      "loudnessDb": 6.95,
+      "contentLength": "4239359"
+    },
+    {
+      "itag": 140,
+      "mime": "audio/mp4",
+      "codec": "mp4a.40.2",
+      "bitrate": 131477,
+      "audioSampleRate": "44100",
+      "hasDirectUrl": true,
+      "ciphered": false,
+      "urlHasN": false,
+      "loudnessDb": 6.95,
+      "contentLength": "4218164"
+    },
+    {
+      "itag": 249,
+      "mime": "audio/webm",
+      "codec": "opus",
+      "bitrate": 51679,
+      "audioSampleRate": "48000",
+      "hasDirectUrl": true,
+      "ciphered": false,
+      "urlHasN": false,
+      "loudnessDb": 6.95,
+      "contentLength": "1600344"
+    },
+    {
+      "itag": 139,
+      "mime": "audio/mp4",
+      "codec": "mp4a.40.5",
+      "bitrate": 50998,
+      "audioSampleRate": "22050",
+      "hasDirectUrl": true,
+      "ciphered": false,
+      "urlHasN": false,
+      "loudnessDb": 6.95,
+      "contentLength": "1590672"
+    }
+  ],
+  "bestItag": 251,
+  "bestCiphered": false,
+  "probeSameIp": {
+    "label": "same-ip ranged",
+    "ok": true,
+    "httpStatus": 206,
+    "contentType": "audio/webm",
+    "contentRange": "bytes 0-2097151/4239359",
+    "bytes": 2097152,
+    "ms": 786,
+    "throughputKbps": 20845
+  },
+  "probeSecond": {
+    "label": "repeat (throttle check)",
+    "ok": true,
+    "httpStatus": 206,
+    "contentType": "audio/webm",
+    "contentRange": "bytes 0-2097151/4239359",
+    "bytes": 2097152,
+    "ms": 621,
+    "throughputKbps": 26383
+  },
+  "urlParams": {
+    "hasIpParam": true,
+    "ipParam": "154.47.23.70",
+    "hasMn": true,
+    "host": "rr4---sn-oguelnlz.googlevideo.com",
+    "expire": "1784058895"
+  }
+}

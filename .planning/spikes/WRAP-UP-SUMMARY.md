@@ -1,5 +1,37 @@
 # Spike Wrap-Up Summary
 
+## Wrap-up 2 — 2026-09-25
+
+**Spikes processed:** 7 (005, 006, 007, 008, 010, 011, 012)
+**Feature areas:** YouTube Music source · Artist/album identity · Home charts
+**Skill output:** `./.claude/skills/spike-findings-openmusic/` (append mode — 3 new references)
+
+| # | Name | Type | Verdict | Feature Area |
+|---|------|------|---------|--------------|
+| 005 | ytmusic-innertube-search | standard | ✅ VALIDATED | YouTube Music source |
+| 006 | ytmusic-playable-stream | standard | ✅ VALIDATED (edge byte fetch later found 403) | YouTube Music source |
+| 007 | ytmusic-lyrics | standard | ⚠ PARTIAL (plain yes, timed via crossSourceLyric) | YouTube Music source |
+| 008 | ytmusic-account-library | standard | ⚠ PARTIAL → split to legal-gated milestone | YouTube Music source |
+| 010 | cn-album-upstream | standard | ✅ VALIDATED (MusicBrainz) | Artist/album identity |
+| 011 | edge-chart-sources | comparison | ✅ VALIDATED — Apple RSS, KKBOX, YouTube Charts all GO | Home charts |
+| 012 | genre-charts | comparison | ✅ VALIDATED — client-side iTunes + edge Deezer | Home charts |
+
+### Key findings
+- **YouTube Music (built, Phase 27):** anonymous search/lyrics; playback direct AAC via ANDROID_VR + visitorData,
+  but googlevideo 403s the Cloudflare edge's byte fetch — native resolves on-device. 502 = stale clientVersion.
+- **MusicBrainz (built):** one mbid per CJK artist across scripts; original-script albums (72 vs Deezer's 5).
+- **Home "lag" root cause:** Last.fm geo HK = Western scrobblers, Last.fm tags = all-time ranking, Deezer
+  `/chart` = global. KKBOX HK top-20 median release age 25 days.
+- **Edge reachability (2 colos):** Apple RSS v2, KKBOX kma, YouTube Charts, Deezer genre charts all reachable.
+  **itunes.apple.com is NOT** — it rate-limits the shared Workers egress IP (403/429) — but is CORS `*`, so
+  regional genre charts are fetched client-side.
+- **User decisions for the build:** main Chart region + extra regions; one-time switch for existing users; old
+  Deezer/Last.fm shelves hidden by default but re-enableable; default genres Asian pop + Western core.
+
+---
+
+## Wrap-up 1 — 2026-07-11
+
 **Date:** 2026-07-11
 **Spikes processed:** 4
 **Feature areas:** Source resolution · Similar/Up-Next · Click-to-play cost
