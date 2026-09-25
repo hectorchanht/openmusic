@@ -35,7 +35,7 @@ fallback (documented, not built); Apple music-video charts.
 
 | Shelf (section id — Claude's naming, keep stable once shipped) | Source | Fetch from |
 |---|---|---|
-| Top Songs (`chart-songs`) | **KKBOX** daily `type=song` when region ∈ {hk, tw, sg}; **Apple Music RSS** `most-played/songs` otherwise | edge |
+| Top Songs (`chart-songs`) | region ∈ {hk, tw, sg}: **KKBOX daily `type=song` + Apple Music RSS `most-played/songs`, blended into ONE ranked list**; other regions: Apple Music RSS | edge |
 | New Releases (`new-releases`) | KKBOX `type=newrelease` — region ∈ {hk, tw, sg} only; the section renders nothing elsewhere | edge |
 | Top Artists (`chart-artists`) | YouTube Charts `ARTISTS` weekly | edge |
 | Top Albums (`chart-albums`) | Apple Music RSS `most-played/albums` | edge |
@@ -43,9 +43,12 @@ fallback (documented, not built); Apple music-video charts.
 | Genres group (`genres`) — one shelf per selected genre | regional pop = legacy iTunes RSS genre feed (**client-side**); Western = Deezer `/chart/{id}/tracks` | client / edge |
 | More regions group (`regions`) — one Top Songs shelf per extra region | Apple Music RSS `most-played/songs` per storefront | edge |
 
-- **Top Songs source split is a Claude recommendation, not a user call** — spike 011 measured KKBOX HK's
-  top-20 median release age at 25 d vs Apple HK's 354 d (HK Apple Music listeners replay older catalogue).
-  The user's original proposal said Apple for Top Songs; flag this at plan review.
+- **Top Songs = KKBOX + Apple "together" (user decision, 2026-09-25, plan review).** For hk/tw/sg, fetch
+  both charts (2 edge-cached calls) and fuse them into one ranked pool with reciprocal-rank fusion
+  (score = Σ 1/(k + rank) over the sources a song appears in, k≈60), deduped by `matchKey` of
+  title + artist after stripping KKBOX's trailing Latin alias (`田馥甄 (Hebe)` → `田馥甄`). A song on both
+  charts rises; a song on one still appears. Display the cleaner name (Apple's when both exist). If either
+  source is empty, the shelf is the other alone. Pure + node-tested (`fuseCharts`).
 - Genre pool (id → source): `cantopop` iTunes 1251@hk · `mandopop` iTunes 1253@tw · `kpop` iTunes 51@hk ·
   `jpop` iTunes 27@jp · `hiphop` Deezer 116 · `rock` Deezer 152 · `dance` Deezer 113 · `rnb` Deezer 165 ·
   `electronic` Deezer 106 · `alternative` Deezer 85 · `asian` Deezer 16. Regional genres use a FIXED
@@ -53,13 +56,19 @@ fallback (documented, not built); Apple music-video charts.
 
 ### Region (user decision)
 - **One main "Chart region" + optional "More regions".** Chart region drives Top Songs / New Releases /
-  Top Artists / Top Albums. Default derived from the resolved app language: zh-Hant→`hk`, zh-Hans→`tw`
-  (NEVER `cn` — the CN storefront's top 20 median age is ~22 years), en→`us`; the other 12 locales map to
-  their home storefront (de→de, fr→fr, es→es, it→it, pt→br, ru→ru, tr→tr, th→th, vi→vn, id→id, hi→in,
-  ar→sa or ae) — researcher verifies each against Apple RSS and YouTube Charts, falling back to `us`.
-- The region list offered = storefronts verified for Apple RSS (KKBOX-only shelves simply don't render
-  outside hk/tw/sg; YouTube Charts country codes verified per region, unsupported → Top Artists/Trending
-  hidden for that region rather than erroring).
+  Top Artists / Top Albums. Persist as `'auto' | ChartRegion` (default `'auto'`, like `bioLang`), resolved
+  at render by a pure `resolveChartRegion(saved, settings.appLang)`. `appLang` is always concrete (detected
+  once, persisted; there is no 'auto' AppLang and no ja/ko dictionaries). Mapping (research-verified on Apple
+  RSS + YouTube Charts): zh-Hant→`hk`, zh-Hans→`tw` (NEVER `cn`), en→`us`, de→de, fr→fr, es→es, it→it,
+  pt→br, ru→ru, tr→tr, th→th, vi→vn, id→id, hi→in, **ar→sa** (the UAE chart is expat/Western-skewed).
+  Offered list = the 27 verified storefronts in 39-RESEARCH.md §Region table.
+- Claude's discretion: when `navigator.language` carries a region that is in the offered list (e.g.
+  zh-TW → `tw`), `'auto'` may prefer it over the language mapping.
+- KKBOX-only shelves don't render outside hk/tw/sg. **YouTube Charts returns 200 with the GLOBAL chart for
+  unsupported countries (cn, mo, kz, mm)** — the parser must compare the echoed
+  `…chartParams.countryCode` with the requested code and return `[]` on mismatch.
+- YouTube `hl` localizes artist names (hl `zh-TW` → 48/100 HK artists in native script: 陳奕迅, 周杰倫) —
+  send an `hl` matched to the region/app language.
 - "More regions" = multi-select + reorder chips (same interaction as today's countries chips). It
   REPLACES the Last.fm country shelves as the default per-country surface; the old `countries` section
   still exists under the classic group.
@@ -86,7 +95,14 @@ fallback (documented, not built); Apple music-video charts.
 - `top-hits` (Deezer), `top-artists` (Deezer), `tags` (Last.fm), `countries` (Last.fm) are NOT removed.
   They stay in /settings/home, hidden by default, visibly marked as the classic/Last.fm·Deezer sources,
   and re-enabling one restores today's behaviour exactly (including its current Randomize page trick).
-- A hidden section issues ZERO requests (today's rule — keep it).
+- **A hidden section issues ZERO requests — this is a NEW requirement, not today's behaviour.** Research
+  found `refresh()` fetches the Deezer chart + all 22 tag + 7 country Last.fm shelves regardless of
+  visibility (only `radio` checks `homeHidden`). Gate every classic fetch on visibility, or the one-time
+  switch hides ~30 requests' worth of shelves and still pays for them.
+- **The D-06 fallback grid and the loading skeleton must know about the new shelves.** Today
+  `hasAnyDiscovery` + the skeleton only consider the classic shelves; with those hidden the app would show
+  the `buildDiversePicks` fallback grid instead of the new charts. Fallback only when EVERY visible shelf
+  (new + classic) is empty.
 
 ### /settings/home layout
 - Groups (Claude's discretion on exact visuals; UI-SPEC decides): **Charts** (new sections + Chart region +
@@ -105,14 +121,17 @@ fallback (documented, not built); Apple music-video charts.
   the latest set B, not A"): the sampled arrangement is persisted, a reload shows the persisted arrangement,
   and only a cold cache or a Randomize press draws a new sample. A cold first render IS random, so two
   fresh users no longer see the same page.
+- **Stale-data refresh lands on the NEXT visit (user decision, 2026-09-25).** When a cached pool is older
+  than ~6 h, revalidate in the background and persist the fresh pool, but do NOT swap tiles on screen; the
+  next app open (or a Randomize press) samples from the fresh pool.
 
 ### Tile taps
 - Song tiles (Top Songs, New Releases, Trending, genres, regions): `player.playStub(artist, title, image,
   'home-discovery')` — the existing resolve-on-tap path; no new resolve logic. Trending tiles resolve by
   name too (the ytmusic edge byte fetch is 403 on the web build — spike 006 post-build finding).
 - Artist tiles: the existing artist-page navigation used by today's Top Artists tiles.
-- Album tiles: open the existing album page (MusicBrainz `?mbid=` / Deezer path) resolved from
-  album name + artist — researcher finds the existing album-open path and reuses it.
+- Album tiles: `albumHref({ name, id: null, mbid: null }, artist)` — the existing by-name album page, zero
+  extra calls at tap time. Strip Apple's ` - EP` / ` - Single` suffix from the name first.
 - Long-press = the existing `tileMenu` stub → `resolveStub` flow.
 
 ### Caching / resilience
@@ -129,8 +148,17 @@ fallback (documented, not built); Apple music-video charts.
 - Whether "See all" drilldowns exist for new shelves (if yes: one generic chart list page that renders the
   already-fetched pool, no new fetch; existing `/charts/*` pages stay for the classic shelves).
 - Default "More regions" set; region list ordering; how the settings groups look (UI-SPEC).
-- Whether Top Albums uses KKBOX or Apple for hk/tw (KKBOX `album` type returns error 103 — Apple is the
-  only album source verified).
+- Top Albums = Apple for every region (KKBOX `album` type returns error 103).
+- "See all" pages for the new shelves: skip this phase (research recommendation).
+- One-time switch may carry an existing per-section density override from an old shelf to its new
+  counterpart (top-hits→chart-songs, top-artists→chart-artists, tags→genres, countries→regions).
+- KKBOX theme-song subtitles (` - 電影《…》主題曲`): strip for the resolve query if it measurably helps
+  play-by-name; display may keep them.
+
+### Folded in (found during research)
+- "Clear picks" on /settings/data removes `openmusic:top-picks:v1`, but the home cache has been `v2` since
+  the last bump — the button is a no-op today. The cache key bumps again this phase: make the clear use the
+  current key constant (and clear every home chart cache key).
 </decisions>
 
 <specifics>
@@ -146,7 +174,7 @@ fallback (documented, not built); Apple music-video charts.
 - Legacy iTunes (client only): `https://itunes.apple.com/{cc}/rss/topsongs/limit=100/genre={id}/json` —
   CORS `*`, 700–1200 ms; **never from the edge** (shared Workers egress IP → 403/429).
 - Deezer genre: `https://api.deezer.com/chart/{genreId}/tracks?limit=50` (edge-verified 8/8).
-- Image hosts to add to the allowlist: `*.mzstatic.com`, `i.kfs.io`, `*.googleusercontent.com` (yt3/lh3).
+- Image hosts to add to the allowlist: `*.mzstatic.com`, `i.kfs.io`, `*.googleusercontent.com` (yt3/lh3), `i.ytimg.com`, `yt3.ggpht.com`. Share `?ci=` grammar needs no change (unknown hosts already fall through to the share-card fallback).
 - Randomize: the old `RANDOM_PAGE_BOUND` random-Last.fm-page trick stays for the classic shelves only.
 </specifics>
 
