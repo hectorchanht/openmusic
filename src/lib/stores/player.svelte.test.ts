@@ -8070,3 +8070,77 @@ describe('album Up-Next installed from lazy name stubs (quick-260919-alb)', () =
 		expect(player.queue).toHaveLength(3); // ...and its own stub is still in the list
 	});
 });
+
+// debug-share-card-play-dead-replay — "seated" is not "armed". A share link for a song that is
+// ALREADY `current` (played before → persisted → restored) is a D-03 no-op on arrival, so the CTA
+// reduces to toggle(). When the boot restore()'s re-resolve had failed, the <audio> held no src for
+// `current`; the bare audio.play() loaded nothing, fired `play` anyway (→ `playing` stale-true) and
+// every later tap — CTA, nowbar, NowPlaying — was a silent no-op. Reproduced end-to-end in headless
+// Chrome (restore's /api/* blocked at boot → tap → no `play` action, currentTime pinned at 0).
+describe('player.toggle — a seated but UNARMED current re-plays through play() (debug-share-card-play-dead-replay)', () => {
+	type Internals = { armedUid: string | null; playGen: number };
+	const internals = () => player as unknown as Internals;
+
+	it('unarmed → play(current, {fresh:false}) and NO bare audio.play(); armed → the plain resume', () => {
+		const el = makeFakeAudio();
+		player.attach(el as unknown as HTMLAudioElement);
+		const seated = mk('kuwo', 'S', 'Adele', 'Hello');
+		player.current = seated; // restore()/armTrack seated it, but its re-resolve never armed a src
+		internals().armedUid = null;
+		el.paused = true;
+
+		player.toggle();
+		expect(player.play).toHaveBeenCalledWith(seated, { fresh: false }); // the resolve + fallback path
+		expect(el.play).not.toHaveBeenCalled(); // never a play() on an empty element
+
+		// Armed for this uid (the ordinary PWA-reopen resume) → the existing bare resume, no re-play.
+		internals().armedUid = seated.uid;
+		player.toggle();
+		expect(player.play).toHaveBeenCalledTimes(1);
+		expect(el.play).toHaveBeenCalledTimes(1);
+	});
+
+	it('restore() bails when a user play() lands mid-resolve — never clobbers current / audio.src', async () => {
+		const el = makeFakeAudio();
+		player.attach(el as unknown as HTMLAudioElement);
+		const restored = mk('netease', 'RC', 'Adele', 'Hello');
+		localStorage.setItem(
+			'openmusic:player:v1',
+			JSON.stringify({
+				v: 1,
+				current: {
+					uid: restored.uid,
+					source: restored.source,
+					songid: restored.songid,
+					title: restored.title,
+					artist: restored.artist,
+					album: restored.album,
+					cover: restored.cover,
+					quality: restored.quality,
+					qualityLabel: restored.qualityLabel,
+					keyword: restored.keyword,
+					displayIndex: restored.displayIndex
+				},
+				queue: [],
+				currentTime: 0,
+				shuffle: false
+			})
+		);
+		let settle!: (t: Track) => void;
+		mockEnsure.mockReturnValueOnce(new Promise<Track>((r) => (settle = r)));
+		const restoring = player.restore();
+		expect(player.loading).toBe(true);
+		// A share CTA tap (or a warm deep-link arrival) plays something else while the boot resolve is
+		// still in flight — the top of the real play(): bump playGen, take current, attach a src.
+		const chosen = mk('joox', 'CH', 'Adele', 'Easy On Me');
+		internals().playGen++;
+		player.current = chosen;
+		player.loading = false;
+		el.src = 'https://cdn/chosen.ogg';
+		settle({ ...restored, audioUrl: 'https://cdn/restored.mp3', detailsLoaded: true });
+		await restoring;
+		expect(player.current?.uid).toBe(chosen.uid); // not written back to the restored track
+		expect(el.src).toBe('https://cdn/chosen.ogg'); // the late resolve never re-attached its src
+		expect(player.loading).toBe(false); // …and left `loading` to the newer play()
+	});
+});

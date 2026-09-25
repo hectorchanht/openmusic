@@ -244,7 +244,11 @@ export async function replayShared(
 	seatedUid: string | null,
 	signal?: AbortSignal
 ): Promise<ArrivalOutcome> {
-	/** 38-D-19's original body, unchanged: start the armed element, never pause a playing one. */
+	/** 38-D-19's original body, unchanged: start the armed element, never pause a playing one.
+	 *  debug-share-card-play-dead-replay: "seated" is not "armed" — when the shared song is already
+	 *  `current` (played before → restored) but restore()'s re-resolve failed, the element is EMPTY.
+	 *  `player.toggle()` now detects that (`armedUid`) and re-plays `current` itself, so this stays a
+	 *  bare toggle and the shared re-resolve lives in ONE place, the player. */
 	const startSeated = (): ArrivalOutcome => {
 		if (!player.playing) player.toggle();
 		return 'played';

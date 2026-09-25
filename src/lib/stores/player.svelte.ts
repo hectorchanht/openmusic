@@ -297,6 +297,13 @@ class Player {
 	 * evicting a download record for a prebuffer blob would silently delete a song the user never
 	 * downloaded. Plain field — internal, never read reactively (mirrors driveBurst above). */
 	private lastSrcKind: SrcKind = 'url';
+	/** debug-share-card-play-dead-replay: the uid the element is ARMED for — written at every
+	 *  `audio.src` assignment (restore / armTrack / driveSrc / the offline-blob play branch), next to
+	 *  lastSrcKind. `current` being seated says nothing about whether a src was ever attached for it:
+	 *  a boot restore() whose re-resolve failed (or has not landed) leaves `current` set and the
+	 *  element EMPTY (or still holding the previous track). toggle() reads this to tell a resume from
+	 *  "never armed → play()". Plain field — internal, never read reactively (mirrors lastSrcKind). */
+	private armedUid: string | null = null;
 	/** 31-D-12 one-shot dedupes, keyed by uid: at most ONE toast and ONE background re-download per
 	 *  corrupt track. Deliberately NOT playGen-guarded (the repair outlives the play that triggered
 	 *  it — by the time the bytes land the user has moved on, and that is fine); these Sets are the
@@ -624,6 +631,14 @@ class Player {
 			null;
 		this.syncMetadata();
 		this.loading = true;
+		// debug-share-card-play-dead-replay: the supersedence guard armTrack already carries. A user
+		// play() landing mid-restore (a share CTA tap, or a cold-start deep link's warm arrival —
+		// `loading` is true here, so D-27 classifies the arrival warm) bumps playGen; without this the
+		// late resolve wrote `current` and `audio.src` back to the RESTORED track over the one the user
+		// just chose. The newer play() owns `current`/`loading` from that moment, so `finally` must not
+		// clear them either.
+		const gen = this.playGen;
+		let superseded = false;
 		try {
 			// Offline-first restore: if the track is in library.downloads AND its blob is in
 			// IDB, skip the network ensureTrackDetails entirely. Lets the user resume a
@@ -633,9 +648,17 @@ class Player {
 			let offlineBlob: Blob | null = null;
 			if (library.isDownloaded(target.uid)) {
 				offlineBlob = await blobStore.get(target.uid).catch(() => null);
+				if (gen !== this.playGen) {
+					superseded = true;
+					return;
+				}
 			}
 			if (!offlineBlob) {
 				resolved = await ensureTrackDetails(target);
+				if (gen !== this.playGen) {
+					superseded = true;
+					return;
+				}
 				this.current = resolved;
 				const i = this.indexOf(target);
 				if (i >= 0) this.queue[i] = resolved;
@@ -675,6 +698,7 @@ class Player {
 			// DIRECT assign (it is not routed through driveSrc) — routing it would newly subject a boot
 			// restore to the re-drive brake, a behaviour change in the freeze-sensitive core.
 			this.lastSrcKind = offlineBlob ? 'download-blob' : 'url';
+			this.armedUid = target.uid; // debug-share-card-play-dead-replay
 			audio.src = src;
 			// If duration is already finite (cached load, identical src reset), apply
 			// immediately and clear so the listener doesn't double-fire.
@@ -683,9 +707,10 @@ class Player {
 				this.pendingSeek = null;
 			}
 		} catch {
-			/* re-resolve failed — track stays in `current`, user can tap play to retry */
+			// re-resolve failed — track stays in `current`; toggle() sees it is not armed and routes the
+			// user's tap through play() (debug-share-card-play-dead-replay), which IS the retry.
 		} finally {
-			this.loading = false;
+			if (!superseded) this.loading = false;
 		}
 	}
 
@@ -796,6 +821,7 @@ class Player {
 			// recovery re-attach, and routing it would newly subject a share arrival to the re-drive
 			// brake (nowbar-freeze-reresolve-loop) in the freeze-sensitive core.
 			this.lastSrcKind = offlineBlob ? 'download-blob' : 'url';
+			this.armedUid = track.uid; // debug-share-card-play-dead-replay
 			audio.src = src;
 			// 38-D-14: warm-up stops HERE, at the src assign. No forced element reload, no preload
 			// bump, no blob pre-buffer (that shape caused api-fetch-flood-freeze) and no deferred seek
@@ -1846,6 +1872,7 @@ class Player {
 			return false;
 		}
 		this.lastSrcKind = kind; // 31-D-12
+		this.armedUid = uid; // debug-share-card-play-dead-replay
 		this.audio.src = url;
 		// slow-cold-start-first-playing: stamp the src-set so the media-event log lines in attach() carry
 		// Δms from the attach (resolve.ok → playing was unexplained on device; this splits it into
@@ -3656,6 +3683,7 @@ class Player {
 					this.disarmResume();
 					this.deliberatePause = false;
 					this.lastSrcKind = 'download-blob'; // 31-D-12 (direct assign — see restore()'s note)
+					this.armedUid = track.uid; // debug-share-card-play-dead-replay
 					this.audio.src = this.cachedBlobUrl;
 					this.armStall();
 					// quick-260627-huo (HUO-PREFETCH): EAGER one-shot prefetch of the immediate-next at
@@ -4486,8 +4514,23 @@ class Player {
 		if (!this.audio) return;
 		// EXTERNAL-PAUSE SELF-HEAL: a user tap is INTENTIONAL — pausing routes through pauseAudio()
 		// so the `pause` listener does not immediately re-play the track the user just paused.
-		if (this.audio.paused) this.audio.play().catch(() => {});
-		else this.pauseAudio();
+		if (!this.audio.paused) {
+			this.pauseAudio();
+			return;
+		}
+		// debug-share-card-play-dead-replay: "seated" is not "armed". A boot restore() (or armTrack)
+		// whose re-resolve failed or has not landed leaves `current` set with NO src attached for it
+		// (empty element, or still the previous track's stream). A bare audio.play() there loads
+		// nothing but still fires `play`, so `playing` went stale-true and every later tap — the share
+		// CTA's `if (!playing) toggle()`, the nowbar, NowPlaying — was a silent no-op. Route the tap
+		// through play(): the resolve + never-stop fallback path. Non-fresh, so it is a resume of the
+		// seated song (no history weave, no regenerate), and its playGen bump supersedes an in-flight
+		// restore() rather than racing it.
+		if (this.current && this.armedUid !== this.current.uid) {
+			void this.play(this.current, { fresh: false });
+			return;
+		}
+		this.audio.play().catch(() => {});
 	}
 
 	/**
