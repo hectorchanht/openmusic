@@ -59,8 +59,9 @@ export async function getSimilarArtists(artist: string): Promise<string[]> {
  * by `match` (descending). Wrapped in the existing `cached()` TTL idiom keyed on artist+title
  * (excludeUids/seed filtering happens per-call OUTSIDE the cache, so the memoized value is
  * excludeUids-independent). Never-throws (→ [] on absent key / dry / error).
+ * quick-260924-pgu: EXPORTED for the home Radio shelf (radio.ts), which seeds from history instead of the current track. Contract unchanged.
  */
-async function fetchSimilarTracks(artist: string, title: string): Promise<Track[]> {
+export async function fetchSimilarTracks(artist: string, title: string): Promise<Track[]> {
 	const a = (artist ?? '').trim();
 	const t = (title ?? '').trim();
 	if (!a || !t) return [];
