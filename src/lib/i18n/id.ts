@@ -213,6 +213,7 @@ const id: Dict = {
 	"settings.homeSectionFavArtists": "Artis favorit",
 	"settings.homeSectionPlaylists": "Daftar putar",
 	"settings.homeSectionHistory": "Baru saja diputar",
+	"settings.homeSectionRadio": "Radio Anda",
 	"settings.dragToReorder": "Seret pegangan untuk menyusun ulang · beralih untuk menampilkan/menyembunyikan",
 	"settings.homeGenres": "Genre",
 	"settings.homeCountriesLabel": "Negara",

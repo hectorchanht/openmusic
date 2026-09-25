@@ -228,6 +228,7 @@ const zhHant: Dict = {
 	"settings.homeSectionFavArtists": "收藏的歌手",
 	"settings.homeSectionPlaylists": "播放清單",
 	"settings.homeSectionHistory": "最近播放",
+	"settings.homeSectionRadio": "你的電台",
 	"settings.dragToReorder": "拖曳握把以重新排序 · 切換以顯示／隱藏",
 	"settings.homeGenres": "曲風",
 	"settings.homeCountriesLabel": "地區",

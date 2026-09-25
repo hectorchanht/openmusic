@@ -22,10 +22,11 @@ import {
 // render — they clamp / drop / fall back to defaults. These tests are fully deterministic.
 
 describe('HOME_SECTIONS / DEFAULT_SECTION_ORDER', () => {
-	it('is the nine home group ids in canonical order (kyf: fav-artists moved next to top-artists)', () => {
+	it('is the ten home group ids in canonical order (kyf: fav-artists next to top-artists; quick-260924-pgu: radio third)', () => {
 		expect(HOME_SECTIONS).toEqual([
 			'liked',
 			'downloads',
+			'radio',
 			'top-hits',
 			'top-artists',
 			'fav-artists',
@@ -72,6 +73,7 @@ describe('resolveSectionOrder', () => {
 			// missing ids appended in canonical (HOME_SECTIONS) order
 			'liked',
 			'downloads',
+			'radio',
 			'top-artists',
 			'fav-artists',
 			'tags',
@@ -85,6 +87,7 @@ describe('resolveSectionOrder', () => {
 			'tags',
 			'liked',
 			'downloads',
+			'radio',
 			'top-hits',
 			'top-artists',
 			'fav-artists',
@@ -100,6 +103,7 @@ describe('resolveSectionOrder', () => {
 			'top-hits',
 			'liked',
 			'downloads',
+			'radio',
 			'top-artists',
 			'fav-artists',
 			'countries',
@@ -116,6 +120,7 @@ describe('resolveSectionOrder', () => {
 			'top-hits',
 			'liked',
 			'downloads',
+			'radio',
 			'fav-artists',
 			'playlists',
 			'history'
@@ -127,9 +132,10 @@ describe('resolveSectionOrder', () => {
 		const legacy = ['liked', 'downloads', 'top-hits', 'top-artists', 'tags', 'countries', 'playlists', 'history'];
 		const r = resolveSectionOrder(legacy);
 		expect(r).toContain('fav-artists');
-		// User's saved order preserved, fav-artists appended in canonical position (after history here)
+		// User's saved order preserved, the ids it lacks appended in canonical order (after history
+		// here) — quick-260924-pgu: 'radio' is one of them, which is how existing users gain the shelf.
 		expect(r.slice(0, legacy.length)).toEqual(legacy);
-		expect(r[legacy.length]).toBe('fav-artists');
+		expect(r.slice(legacy.length)).toEqual(['radio', 'fav-artists']);
 	});
 });
 

@@ -213,6 +213,7 @@ const ar: Dict = {
 	"settings.homeSectionFavArtists": "الفنانون المفضلون",
 	"settings.homeSectionPlaylists": "قوائم التشغيل",
 	"settings.homeSectionHistory": "تم تشغيلها مؤخرًا",
+	"settings.homeSectionRadio": "الراديو الخاص بك",
 	"settings.dragToReorder": "اسحب المقبض لإعادة الترتيب · قم بالتبديل للإظهار/الإخفاء",
 	"settings.homeGenres": "الأنواع",
 	"settings.homeCountriesLabel": "البلدان",

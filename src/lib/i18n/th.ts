@@ -213,6 +213,7 @@ const th: Dict = {
 	"settings.homeSectionFavArtists": "ศิลปินที่ชื่นชอบ",
 	"settings.homeSectionPlaylists": "เพลย์ลิสต์",
 	"settings.homeSectionHistory": "เล่นล่าสุด",
+	"settings.homeSectionRadio": "วิทยุของคุณ",
 	"settings.dragToReorder": "ลากที่จับเพื่อเรียงลำดับใหม่ · สลับเพื่อแสดง/ซ่อน",
 	"settings.homeGenres": "ประเภท",
 	"settings.homeCountriesLabel": "ประเทศต่างๆ",

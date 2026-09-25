@@ -46,6 +46,7 @@
 		countries: 'settings.homeSectionCountries',
 		liked: 'settings.homeSectionLiked',
 		downloads: 'settings.homeSectionDownloads',
+		radio: 'settings.homeSectionRadio',
 		'fav-artists': 'settings.homeSectionFavArtists',
 		playlists: 'settings.homeSectionPlaylists',
 		history: 'settings.homeSectionHistory'

@@ -213,6 +213,7 @@ const fr: Dict = {
 	"settings.homeSectionFavArtists": "Artistes favoris",
 	"settings.homeSectionPlaylists": "Playlists",
 	"settings.homeSectionHistory": "Écoutés récemment",
+	"settings.homeSectionRadio": "Ta radio",
 	"settings.dragToReorder": "Faites glisser la poignée pour réorganiser · basculer pour afficher/masquer",
 	"settings.homeGenres": "Genre",
 	"settings.homeCountriesLabel": "Pays",

@@ -213,6 +213,7 @@ const vi: Dict = {
 	"settings.homeSectionFavArtists": "Nghệ sĩ yêu thích",
 	"settings.homeSectionPlaylists": "Danh sách phát",
 	"settings.homeSectionHistory": "Đã phát gần đây",
+	"settings.homeSectionRadio": "Radio của bạn",
 	"settings.dragToReorder": "Kéo tay cầm để sắp xếp lại · chuyển đổi để hiển thị/ẩn",
 	"settings.homeGenres": "Thể loại",
 	"settings.homeCountriesLabel": "Quốc gia",

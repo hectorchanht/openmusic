@@ -213,6 +213,7 @@ const hi: Dict = {
 	"settings.homeSectionFavArtists": "पसंदीदा कलाकार",
 	"settings.homeSectionPlaylists": "प्लेलिस्ट",
 	"settings.homeSectionHistory": "हाल ही में चलाए गए",
+	"settings.homeSectionRadio": "आपका रेडियो",
 	"settings.dragToReorder": "पुनः व्यवस्थित करने के लिए ग्रिप को खींचें · दिखाने/छिपाने के लिए टॉगल करें",
 	"settings.homeGenres": "शैलियाँ",
 	"settings.homeCountriesLabel": "देश",

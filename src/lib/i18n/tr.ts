@@ -213,6 +213,7 @@ const tr: Dict = {
 	"settings.homeSectionFavArtists": "Favori sanatçılar",
 	"settings.homeSectionPlaylists": "Çalma listeleri",
 	"settings.homeSectionHistory": "Son çalınanlar",
+	"settings.homeSectionRadio": "Senin Radyon",
 	"settings.dragToReorder": "Yeniden sıralamak için tutma yerini sürükleyin · göstermek/gizlemek için geçiş yapın",
 	"settings.homeGenres": "Türler",
 	"settings.homeCountriesLabel": "Ülkeler",

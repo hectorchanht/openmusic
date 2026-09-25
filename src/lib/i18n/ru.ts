@@ -213,6 +213,7 @@ const ru: Dict = {
 	"settings.homeSectionFavArtists": "Любимые исполнители",
 	"settings.homeSectionPlaylists": "Плейлисты",
 	"settings.homeSectionHistory": "Недавние",
+	"settings.homeSectionRadio": "Ваше радио",
 	"settings.dragToReorder": "Перетащите ручку, чтобы изменить порядок · переключите, чтобы показать/скрыть",
 	"settings.homeGenres": "Жанры",
 	"settings.homeCountriesLabel": "Страны",

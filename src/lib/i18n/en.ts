@@ -248,6 +248,7 @@ const en = {
 	"settings.homeSectionFavArtists": "Favourite artists",
 	"settings.homeSectionPlaylists": "Playlists",
 	"settings.homeSectionHistory": "Recently played",
+	"settings.homeSectionRadio": "Your Radio",
 	"settings.dragToReorder": "Drag the grip to reorder · toggle to show/hide",
 	"settings.homeGenres": "Genres",
 	"settings.homeCountriesLabel": "Countries",

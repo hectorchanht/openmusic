@@ -120,7 +120,9 @@ export const DEFAULT_HOME_COUNTRIES: string[] = [
  * which matches the current four-block layout and keeps the persisted order tiny + stable
  * regardless of which tags/countries the user has selected.
  */
-export const HOME_SECTIONS = ['liked', 'downloads', 'top-hits', 'top-artists', 'fav-artists', 'tags', 'countries', 'playlists', 'history'] as const;
+// quick-260924-pgu: 'radio' sits in the personal group at the top so a fresh (or reset) user sees
+// personalised content first; an existing user's saved order gets it APPENDED by resolveSectionOrder.
+export const HOME_SECTIONS = ['liked', 'downloads', 'radio', 'top-hits', 'top-artists', 'fav-artists', 'tags', 'countries', 'playlists', 'history'] as const;
 
 export type HomeSectionId = (typeof HOME_SECTIONS)[number];
 
