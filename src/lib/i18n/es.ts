@@ -174,6 +174,8 @@ const es: Dict = {
 	"settings.songRowEditorDesc": "Toca una parte resaltada de la fila de ejemplo para seleccionarla y arrastra el control: la fila cambia de tamaño mientras arrastras. Arrastra un botón para moverlo, tócalo para desactivarlo; el menú ⋮ siempre está.",
 	"settings.npEditor": "Reproduciendo",
 	"settings.npEditorDesc": "Estos tamaños solo cambian la vista Reproduciendo a pantalla completa. Toca una parte resaltada y arrastra el control: los cambios se aplican al instante.",
+	"settings.lyricsAnchor": "Posición del resaltado de la letra",
+	"settings.lyricsAnchorDesc": "Dónde se sitúa la línea actual de la letra en el panel de letras, como porcentaje desde la parte superior del área visible. Con 50 % queda centrada en todas las vistas: mini, media y pantalla completa.",
 	"settings.wingPick": "{name}, {value} %. Pulsa para cambiar el tamaño de esta parte.",
 	"settings.wingPicked": "{name}, {value} %, seleccionado. Usa el control de abajo para cambiar su tamaño.",
 	"settings.editorSlider": "Tamaño de {name}",

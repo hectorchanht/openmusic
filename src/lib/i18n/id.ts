@@ -174,6 +174,8 @@ const id: Dict = {
 	"settings.songRowEditorDesc": "Ketuk bagian yang disorot pada baris contoh untuk memilihnya, lalu geser penggeser — baris berubah ukuran saat Anda menggeser. Seret tombol untuk memindahkannya, ketuk untuk mematikannya; menu ⋮ selalu ada.",
 	"settings.npEditor": "Sedang diputar",
 	"settings.npEditorDesc": "Ukuran ini hanya mengubah tampilan Sedang diputar layar penuh. Ketuk bagian yang disorot, lalu geser penggeser — perubahan langsung diterapkan.",
+	"settings.lyricsAnchor": "Posisi sorotan lirik",
+	"settings.lyricsAnchorDesc": "Letak baris lirik saat ini di panel lirik, sebagai persentase dari atas area yang terlihat. 50% membuatnya tetap di tengah di setiap tampilan — mini, setengah, dan layar penuh.",
 	"settings.wingPick": "{name}, {value}%. Tekan untuk mengubah ukuran bagian ini.",
 	"settings.wingPicked": "{name}, {value}%, terpilih. Gunakan penggeser di bawah untuk mengubah ukurannya.",
 	"settings.editorSlider": "Ukuran {name}",

@@ -187,6 +187,8 @@ const zhHans: Dict = {
 	"settings.songRowEditorDesc": "点按示例行中高亮的部分即可选中，然后拖动滑块 — 该行会随拖动实时改变大小。拖动按钮可移动位置，点按可关闭；⋮ 菜单始终都在。",
 	"settings.npEditor": "正在播放",
 	"settings.npEditorDesc": "这些大小只影响全屏的“正在播放”界面。点按高亮的部分，然后拖动滑块 — 更改会立即生效。",
+	"settings.lyricsAnchor": "歌词高亮位置",
+	"settings.lyricsAnchorDesc": "当前歌词行在歌词面板中的位置，以可见区域顶部起算的百分比表示。50% 会在所有视图中保持居中 — 迷你、半屏和全屏。",
 	"settings.wingPick": "{name}，{value}%。点按以调整这一部分的大小。",
 	"settings.wingPicked": "{name}，{value}%，已选中。使用下方的滑块调整大小。",
 	"settings.editorSlider": "{name} 的大小",

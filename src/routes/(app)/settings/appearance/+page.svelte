@@ -12,6 +12,7 @@
         Sun,
         Palette,
         Zap,
+        Mic2,
     } from "@lucide/svelte";
     import {
         settings,
@@ -20,6 +21,8 @@
         FONT_SCALE_MAX,
         COVER_SCALE_MIN,
         COVER_SCALE_MAX,
+        LYRICS_ANCHOR_MIN,
+        LYRICS_ANCHOR_MAX,
         type Theme,
     } from "$lib/stores/settings.svelte";
     // Demo text is sourced from the current/last-played track (D-12). The page may import the
@@ -56,6 +59,12 @@
     // of its own surface, and the three Now-Playing scales live in NpPreviewEditor.
     function setApp(v: number) {
         settings.fontScaleApp = v;
+        settings.save();
+    }
+    // quick-260926-m72: where the active lyric line sits in the lyrics pane (percent of the
+    // visible band). Commits live — NpLyrics reads the store, so an open pane re-anchors mid-drag.
+    function setLyricsAnchor(v: number) {
+        settings.lyricsAnchor = v;
         settings.save();
     }
 
@@ -359,6 +368,34 @@
 
     <div class="ctl">
         <NpPreviewEditor title={demoTitle} artist={demoArtist} />
+    </div>
+</section>
+
+<!-- quick-260926-m72: lyrics highlight position. The readout is the actual offset the pane uses
+     (percent of the visible band; 50% = centred in every sheet state). -->
+<section>
+    <h2>
+        <Mic2 size={15} /> {t("settings.lyricsAnchor")}<SettingHint
+            label={t("settings.lyricsAnchor")}
+            text={t("settings.lyricsAnchorDesc")}
+        />
+    </h2>
+
+    <div class="ctl">
+        <div class="lab">
+            <span>{t("settings.lyricsAnchor")}</span><span class="val"
+                >{settings.lyricsAnchor}%</span
+            >
+        </div>
+        <input
+            type="range"
+            min={LYRICS_ANCHOR_MIN}
+            max={LYRICS_ANCHOR_MAX}
+            step="5"
+            value={settings.lyricsAnchor}
+            oninput={(e) => setLyricsAnchor(num(e))}
+            aria-label={t("settings.lyricsAnchor")}
+        />
     </div>
 </section>
 

@@ -174,6 +174,8 @@ const tr: Dict = {
 	"settings.songRowEditorDesc": "Örnek satırda vurgulanmış bir parçaya dokunup seçin, sonra kaydırıcıyı sürükleyin — satır siz sürükledikçe yeniden boyutlanır. Bir düğmeyi taşımak için sürükleyin, kapatmak için dokunun; ⋮ menüsü her zaman oradadır.",
 	"settings.npEditor": "Şimdi çalıyor",
 	"settings.npEditorDesc": "Bu boyutlar yalnızca tam ekran Şimdi çalıyor görünümünü değiştirir. Vurgulanmış bir parçaya dokunun, sonra kaydırıcıyı sürükleyin — değişiklikler anında uygulanır.",
+	"settings.lyricsAnchor": "Şarkı sözü vurgusunun konumu",
+	"settings.lyricsAnchorDesc": "Geçerli şarkı sözü satırının sözler panelinde nerede durduğu, görünen alanın üstünden yüzde olarak. %50 onu her görünümde ortada tutar — mini, yarım ve tam ekran.",
 	"settings.wingPick": "{name}, %{value}. Bu parçayı yeniden boyutlandırmak için basın.",
 	"settings.wingPicked": "{name}, %{value}, seçili. Boyutlandırmak için aşağıdaki kaydırıcıyı kullanın.",
 	"settings.editorSlider": "{name} boyutu",

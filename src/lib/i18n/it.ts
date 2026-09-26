@@ -174,6 +174,8 @@ const it: Dict = {
 	"settings.songRowEditorDesc": "Tocca una parte evidenziata della riga di esempio per selezionarla, poi trascina il cursore: la riga si ridimensiona mentre trascini. Trascina un pulsante per spostarlo, toccalo per disattivarlo; il menu ⋮ c’è sempre.",
 	"settings.npEditor": "In riproduzione",
 	"settings.npEditorDesc": "Queste dimensioni cambiano solo la schermata In riproduzione a tutto schermo. Tocca una parte evidenziata, poi trascina il cursore: le modifiche sono immediate.",
+	"settings.lyricsAnchor": "Posizione della riga evidenziata",
+	"settings.lyricsAnchorDesc": "Dove si trova la riga del testo corrente nel pannello del testo, in percentuale dall'alto dell'area visibile. Al 50% resta centrata in ogni vista: mini, metà e schermo intero.",
 	"settings.wingPick": "{name}, {value}%. Tocca per ridimensionare questa parte.",
 	"settings.wingPicked": "{name}, {value}%, selezionato. Usa il cursore qui sotto per ridimensionarlo.",
 	"settings.editorSlider": "Dimensione di {name}",

@@ -211,6 +211,8 @@ const en = {
 	"settings.songRowEditorDesc": "Tap a highlighted part of the example row to pick it, then drag the slider — the row resizes as you drag. Drag a button to move it, tap it to switch it off; the ⋮ menu is always there.",
 	"settings.npEditor": "Now playing",
 	"settings.npEditorDesc": "These sizes change only the full-screen Now playing view. Tap a highlighted part, then drag the slider — changes apply right away.",
+	"settings.lyricsAnchor": "Lyrics highlight position",
+	"settings.lyricsAnchorDesc": "Where the current lyric line sits in the lyrics pane, as a percentage from the top of the visible area. 50% keeps it centred in every view — mini, half and full screen.",
 	"settings.wingPick": "{name}, {value}%. Press to resize this part.",
 	"settings.wingPicked": "{name}, {value}%, selected. Use the slider below to resize it.",
 	"settings.editorSlider": "Size of {name}",

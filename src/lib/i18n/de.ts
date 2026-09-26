@@ -174,6 +174,8 @@ const de: Dict = {
 	"settings.songRowEditorDesc": "Tippe auf einen hervorgehobenen Teil der Beispielzeile, um ihn auszuwählen, und zieh dann den Regler — die Zeile ändert ihre Größe beim Ziehen. Zieh eine Schaltfläche, um sie zu verschieben, tippe sie an, um sie auszuschalten; das ⋮-Menü ist immer da.",
 	"settings.npEditor": "Wiedergabe",
 	"settings.npEditorDesc": "Diese Größen ändern nur die Vollbild-Wiedergabeansicht. Tippe auf einen hervorgehobenen Teil und zieh dann den Regler — Änderungen gelten sofort.",
+	"settings.lyricsAnchor": "Position der Songtext-Markierung",
+	"settings.lyricsAnchorDesc": "Wo die aktuelle Songtextzeile im Songtextbereich steht, in Prozent vom oberen Rand des sichtbaren Bereichs. 50 % hält sie in jeder Ansicht mittig — Mini, halb und Vollbild.",
 	"settings.wingPick": "{name}, {value} %. Antippen, um diesen Teil zu skalieren.",
 	"settings.wingPicked": "{name}, {value} %, ausgewählt. Nutze den Regler unten, um die Größe zu ändern.",
 	"settings.editorSlider": "Größe von {name}",
