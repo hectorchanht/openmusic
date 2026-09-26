@@ -187,3 +187,118 @@ describe('settings persistence round-trip — fontScaleApp (quick-260920-kxz)', 
 		expect(JSON.parse(localStorage.getItem(KEY) as string).fontScaleApp).toBe(100);
 	});
 });
+
+// 39-D-25: the three home-chart settings (Chart region / More regions / Genres). Region gets an
+// ALLOWLIST guard on load (T-39-25) — a bare cast like bioLang would let 'cn' or garbage reach the
+// chart fetch planner. The two lists get a TYPE guard only (T-39-26); resolveExtraRegions /
+// resolveChartGenres clean the values at render.
+describe('settings persistence round-trip — home chart settings (39-D-25)', () => {
+	beforeEach(() => memStore.clear());
+
+	const DEFAULT_GENRES = ['cantopop', 'mandopop', 'kpop', 'jpop', 'hiphop', 'rock', 'dance', 'rnb'];
+
+	async function loadWith(blob: Record<string, unknown>) {
+		memStore.set(KEY, JSON.stringify({ appLang: 'en', ...blob }));
+		const settings = await freshSettings();
+		settings.load();
+		return settings;
+	}
+
+	it('homeChartRegion defaults to auto when nothing is persisted', async () => {
+		const settings = await freshSettings();
+		settings.load();
+		expect(settings.homeChartRegion).toBe('auto');
+	});
+
+	it('homeExtraRegions defaults to [] when nothing is persisted', async () => {
+		const settings = await freshSettings();
+		settings.load();
+		expect(settings.homeExtraRegions).toEqual([]);
+	});
+
+	it('homeChartGenres defaults to the 8 locked genres when nothing is persisted', async () => {
+		const settings = await freshSettings();
+		settings.load();
+		expect(settings.homeChartGenres).toEqual(DEFAULT_GENRES);
+	});
+
+	it('a blob without the three keys (existing install) loads the defaults', async () => {
+		const settings = await loadWith({ homeHidden: ['radio'] });
+		expect(settings.homeChartRegion).toBe('auto');
+		expect(settings.homeExtraRegions).toEqual([]);
+		expect(settings.homeChartGenres).toEqual(DEFAULT_GENRES);
+	});
+
+	it('a persisted offered region (tw) wins on load', async () => {
+		expect((await loadWith({ homeChartRegion: 'tw' })).homeChartRegion).toBe('tw');
+	});
+
+	it('a persisted cn region loads as auto (cn is not an offered region)', async () => {
+		expect((await loadWith({ homeChartRegion: 'cn' })).homeChartRegion).toBe('auto');
+	});
+
+	it('a non-string region (42) loads as auto', async () => {
+		expect((await loadWith({ homeChartRegion: 42 })).homeChartRegion).toBe('auto');
+	});
+
+	it('an upper-case region (HK) loads as auto — the allowlist is case-sensitive', async () => {
+		expect((await loadWith({ homeChartRegion: 'HK' })).homeChartRegion).toBe('auto');
+	});
+
+	it('a garbage region string loads as auto', async () => {
+		expect((await loadWith({ homeChartRegion: 'garbage' })).homeChartRegion).toBe('auto');
+	});
+
+	it('persisted homeExtraRegions load in their saved order', async () => {
+		expect((await loadWith({ homeExtraRegions: ['tw', 'jp'] })).homeExtraRegions).toEqual(['tw', 'jp']);
+	});
+
+	it('a non-array homeExtraRegions falls back to []', async () => {
+		expect((await loadWith({ homeExtraRegions: 'tw' })).homeExtraRegions).toEqual([]);
+	});
+
+	it('persisted homeChartGenres load in their saved order', async () => {
+		expect((await loadWith({ homeChartGenres: ['rock', 'kpop'] })).homeChartGenres).toEqual(['rock', 'kpop']);
+	});
+
+	it('an explicit empty homeChartGenres [] is preserved (a real choice, not a corrupt value)', async () => {
+		expect((await loadWith({ homeChartGenres: [] })).homeChartGenres).toEqual([]);
+	});
+
+	it('a non-array homeChartGenres ({}) falls back to the 8 defaults', async () => {
+		expect((await loadWith({ homeChartGenres: {} })).homeChartGenres).toEqual(DEFAULT_GENRES);
+	});
+
+	it('save() writes all three keys into the persisted blob', async () => {
+		const settings = await freshSettings();
+		settings.homeChartRegion = 'jp';
+		settings.homeExtraRegions = ['kr', 'us'];
+		settings.homeChartGenres = ['jpop'];
+		settings.save();
+		const blob = JSON.parse(localStorage.getItem(KEY) as string);
+		expect(blob.homeChartRegion).toBe('jp');
+		expect(blob.homeExtraRegions).toEqual(['kr', 'us']);
+		expect(blob.homeChartGenres).toEqual(['jpop']);
+	});
+
+	it('resetHome() reverts all three fields AND the persisted blob', async () => {
+		const settings = await loadWith({ homeChartRegion: 'tw', homeExtraRegions: ['jp'], homeChartGenres: [] });
+		settings.resetHome();
+		expect(settings.homeChartRegion).toBe('auto');
+		expect(settings.homeExtraRegions).toEqual([]);
+		expect(settings.homeChartGenres).toEqual(DEFAULT_GENRES);
+		const blob = JSON.parse(localStorage.getItem(KEY) as string);
+		expect(blob.homeChartRegion).toBe('auto');
+		expect(blob.homeExtraRegions).toEqual([]);
+		expect(blob.homeChartGenres).toEqual(DEFAULT_GENRES);
+	});
+
+	// T-39-27: a version stamp written before the new shelves render would let anyone who saves in
+	// between skip the one-time layout migration. Remove this test only in the plan that adds it.
+	it('does not write homeLayoutVersion yet (39-09 owns the one-time switch)', async () => {
+		const settings = await freshSettings();
+		settings.load();
+		settings.save();
+		expect(Object.keys(JSON.parse(localStorage.getItem(KEY) as string))).not.toContain('homeLayoutVersion');
+	});
+});
