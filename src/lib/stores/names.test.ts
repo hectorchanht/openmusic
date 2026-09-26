@@ -336,11 +336,10 @@ describe('names — rescued Chinese name aliases (quick-260925-x8o)', () => {
 	const RESCUE_KEY = 'openmusic:name-rescue:v1';
 	const DAY = 24 * 60 * 60 * 1000;
 
-	/** zh-Hant also warms t2s: an alias round-trips through Simplified before the s2t lock. */
+	/** warmScript('zh-Hant') now warms both dicts itself (quick-260926-bxg) — one call is enough. */
 	async function warmLock(target: 'zh-Hant' | 'zh-Hans'): Promise<void> {
 		const zh = await import('$lib/services/zh-convert');
 		await zh.warmScript(target);
-		if (target === 'zh-Hant') await zh.warmScript('zh-Hans');
 	}
 
 	function seed(): void {
@@ -371,7 +370,8 @@ describe('names — rescued Chinese name aliases (quick-260925-x8o)', () => {
 		await warmLock('zh-Hant');
 		// the pair is 40 days old (past HIT_TTL) — a verified pair is a fact for display
 		expect(names.dnTitle('Coral Sea', 'Jay Chou')).toBe('珊瑚海');
-		// 周杰倫, not 周傑倫: a raw s2t of the Traditional alias over-converts 杰 (see lockAlias)
+		// 周杰倫, not 周傑倫: a raw s2t of the Traditional alias over-converts 杰; the zh-Hant merge in
+		// lockScriptSync keeps it (quick-260926-bxg)
 		expect(names.dnArtist('Jay Chou')).toBe('周杰倫');
 		await flush();
 		expect(translateMock).not.toHaveBeenCalled();

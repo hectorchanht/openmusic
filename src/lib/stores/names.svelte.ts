@@ -368,29 +368,19 @@ class Names {
 	 * could undo it (titleLang 'en' would send 珊瑚海 to /api/translate and show "Coral Sea" after a
 	 * round trip), would put network on the render path, and could flicker. applyLock still renders
 	 * the selected script (周杰倫 vs 周杰伦); the translation cache is never written with alias text.
+	 *
+	 * quick-260926-bxg: the fold that keeps an already-Traditional alias like 周杰倫 from
+	 * over-converting to 周傑倫 now lives in the shared seam (zh-convert.ts lockScriptSync's zh-Hant
+	 * merge), so aliases and upstream names get identical treatment. The old alias-only pure
+	 * Simplified round trip, which corrupted names like 鍾鎮濤 → 鐘鎮濤, is gone.
 	 */
-
-	/**
-	 * quick-260925-x8o: lock an alias. Under zh-Hant it goes through Simplified FIRST: tongwen's s2t
-	 * phrase table is keyed on Simplified, so char-mapping an already-Traditional alias over-converts
-	 * (周杰倫 → 周傑倫) while 周杰伦 → 周杰倫. The round trip renders a rescued name exactly as the
-	 * lock renders the same name arriving Simplified from a CN catalog. Warms the t2s dict once (its
-	 * rev bump repaints the cold first render).
-	 */
-	private lockAlias(a: string): string {
-		if (settings.zhScript === 'zh-Hant') {
-			this.warmLock('zh-Hans');
-			a = lockScriptSync(a, 'zh-Hans');
-		}
-		return this.applyLock(a);
-	}
 
 	/** Artist name → artistLang + artistSkip. ju0: `'auto'` resolves to settings.appLang.
 	 * quick-260925-x8o: a rescued single-performer Chinese artist wins while the lock is on. */
 	dnArtist(text: string): string {
 		const a = this.aliasArtist(text);
 		return a !== null
-			? this.lockAlias(a)
+			? this.applyLock(a)
 			: this.resolve(text, effectiveTarget(settings.artistLang), settings.artistSkip);
 	}
 
@@ -400,7 +390,7 @@ class Names {
 	dnTitle(text: string, artist?: string): string {
 		const a = this.aliasTitle(text, artist);
 		return a !== null
-			? this.lockAlias(a)
+			? this.applyLock(a)
 			: this.resolve(text, effectiveTarget(settings.titleLang), settings.titleSkip);
 	}
 
@@ -433,6 +423,8 @@ class Names {
 		// quick-260919-2jo: …or when the script lock is on — warm THAT direction at boot so the
 		// cold-dict first render (original script, then a warmLock repaint) is the rare case
 		// rather than the normal one. Non-Chinese users with the lock off download neither dict.
+		// quick-260926-bxg: under zh-Hant warmLock builds BOTH dicts (warmScript('zh-Hant') awaits
+		// s2t and t2s for the merge).
 		const lock = settings.zhScript;
 		if (lock === 'zh-Hant' || lock === 'zh-Hans') this.warmLock(lock);
 	}
