@@ -14,25 +14,41 @@
 		DiscAlbum,
 		Grid3x3,
 		Search,
-		Shuffle
+		Shuffle,
+		TrendingUp,
+		MapPin,
+		Archive,
+		ChevronDown
 	} from '@lucide/svelte';
 	// quick-260919-ebi: GRID_COLS_MIN/MAX arrived with the Home grid columns slider.
 	import { settings, GRID_COLS_MIN, GRID_COLS_MAX } from '$lib/stores/settings.svelte';
 	import {
 		resolveSectionOrder,
 		resolveSubset,
+		resolveChartRegion,
+		resolveExtraRegions,
+		resolveChartGenres,
+		reorderListed,
+		CLASSIC_SECTIONS,
+		CHART_REGIONS,
+		KKBOX_REGIONS,
+		CHART_GENRE_IDS,
 		SHELF_MIN,
 		SHELF_MAX,
 		type HomeSectionId,
 		type HomeDensity,
-		type HomeLandingTab
+		type HomeLandingTab,
+		type ChartGenre,
+		type ChartRegion
 	} from '$lib/services/home-layout';
+	import { regionLabel, regionListLabel, CHART_GENRE_LABEL } from '$lib/services/home-charts';
 	import { DISCOVERY_TAGS, DISCOVERY_COUNTRIES } from '$lib/services/discovery';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import SettingPicker from '$lib/components/SettingPicker.svelte';
 	import SettingHint from '$lib/components/SettingHint.svelte';
 	import { dragReorder } from '$lib/actions/dragReorder';
 	import { chipReorder } from '$lib/actions/chipReorder';
+	import { tapBounce } from '$lib/actions/tapBounce';
 	import { t, type TranslationKey } from '$lib/i18n';
 
 	onMount(() => settings.load());
@@ -131,6 +147,102 @@
 	function onReorderCountry(from: number, to: number) {
 		settings.homeCountries = reorderList(selectedCountries, from, to);
 		settings.save();
+	}
+
+	// 39-D-42: the drag list shows every section EXCEPT the four classic ones, which live in the
+	// Classic accordion instead (not draggable — they keep their saved array slot, UI-SPEC §2.2).
+	const isClassic = (id: HomeSectionId) => (CLASSIC_SECTIONS as readonly string[]).includes(id);
+	const listed = $derived(order.filter((id) => !isClassic(id)));
+	const classicOn = $derived(CLASSIC_SECTIONS.filter((id) => !settings.homeHidden.includes(id)).length);
+
+	// Chart region: resolved exactly as Home resolves it (same navigator.language refinement), so the
+	// "Auto (…)" label names the region Home actually shows. `autoRegion` is what Auto WOULD pick —
+	// kept separate from `chartRegion` so the Auto chip stays truthful while an explicit region is saved.
+	const navLang = typeof navigator !== 'undefined' ? navigator.language : undefined;
+	const chartRegion = $derived(resolveChartRegion(settings.homeChartRegion, settings.appLang, navLang));
+	const autoRegion = $derived(resolveChartRegion('auto', settings.appLang, navLang));
+	const isKkbox = $derived(KKBOX_REGIONS.includes(chartRegion));
+	const selectedRegions = $derived(resolveExtraRegions(settings.homeExtraRegions, chartRegion));
+	const unselectedRegions = $derived(
+		CHART_REGIONS.filter((cc) => cc !== chartRegion && !selectedRegions.includes(cc))
+	);
+	const selectedGenres = $derived(resolveChartGenres(settings.homeChartGenres));
+	const unselectedGenres = $derived(CHART_GENRE_IDS.filter((g) => !selectedGenres.includes(g)));
+
+	// Chips are rendered ONLY from CHART_REGIONS / CHART_GENRE_IDS, so a tap can only write an
+	// allowlisted id; the resolvers re-validate on read anyway (T-39-39).
+	function setRegion(v: 'auto' | ChartRegion) {
+		settings.homeChartRegion = v;
+		settings.save();
+	}
+	function toggleRegion(cc: ChartRegion) {
+		settings.homeExtraRegions = settings.homeExtraRegions.includes(cc)
+			? settings.homeExtraRegions.filter((x) => x !== cc)
+			: [...settings.homeExtraRegions, cc];
+		settings.save();
+	}
+	function onReorderRegion(from: number, to: number) {
+		settings.homeExtraRegions = reorderList(selectedRegions, from, to);
+		settings.save();
+	}
+	// An empty genre selection is a real choice ("no genre shelves") — no fall-back-to-all.
+	function toggleGenre(g: ChartGenre) {
+		settings.homeChartGenres = selectedGenres.includes(g)
+			? selectedGenres.filter((x) => x !== g)
+			: [...selectedGenres, g];
+		settings.save();
+	}
+	function onReorderGenre(from: number, to: number) {
+		settings.homeChartGenres = reorderList(selectedGenres, from, to);
+		settings.save();
+	}
+
+	// 39-D-42 / UI-SPEC §2.6: region names come from Intl (no i18n keys), genre names from the typed
+	// CHART_GENRE_LABEL map (no template-string key cast).
+	const regionName = (cc: string) => regionLabel(cc, settings.appLang);
+	const autoLabel = $derived(t('settings.chartRegionAuto', { region: regionName(autoRegion) }));
+	const regionCur = $derived(
+		settings.homeChartRegion === 'auto' ? autoLabel : regionName(settings.homeChartRegion)
+	);
+	const moreRegionsCur = $derived(
+		selectedRegions.length ? regionListLabel(selectedRegions, settings.appLang) : t('settings.moreRegionsNone')
+	);
+	const classicCur = $derived(
+		classicOn === 0 ? t('settings.optOff') : t('settings.homeClassicOnCount', { n: classicOn })
+	);
+	const genreName = (g: ChartGenre) => t(CHART_GENRE_LABEL[g]);
+
+	// UI-SPEC §2.2 source line under each row label. Brand names are LITERAL proper nouns, never
+	// translated. Exhaustive on purpose: a new section id is a compile error here, not a silent
+	// "Your library".
+	function sourceLine(id: HomeSectionId): string {
+		switch (id) {
+			case 'chart-songs':
+				return isKkbox ? 'KKBOX · Apple Music' : 'Apple Music';
+			case 'new-releases':
+				return isKkbox ? 'KKBOX' : t('settings.homeSrcUnavailable', { region: regionName(chartRegion) });
+			case 'chart-artists':
+			case 'yt-trending':
+				return 'YouTube';
+			case 'chart-albums':
+			case 'regions':
+				return 'Apple Music';
+			case 'genres':
+				return 'Apple Music · Deezer';
+			case 'top-hits':
+			case 'top-artists':
+				return 'Deezer';
+			case 'tags':
+			case 'countries':
+				return 'Last.fm';
+			case 'liked':
+			case 'downloads':
+			case 'radio':
+			case 'fav-artists':
+			case 'playlists':
+			case 'history':
+				return t('settings.homeSrcLibrary');
+		}
 	}
 
 	function setShelfSize(e: Event) {
