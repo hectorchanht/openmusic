@@ -4,7 +4,7 @@
 	import { page } from '$app/state';
 	import { goto, afterNavigate } from '$app/navigation';
 	import { House, Search, Library, Settings, Heart, ListMusic, Download, Users, Clock } from '@lucide/svelte';
-	import { player } from '$lib/stores/player.svelte';
+	import { player, SKIP_REASON_KEY } from '$lib/stores/player.svelte';
 	import { library } from '$lib/stores/library.svelte';
 	import { settings } from '$lib/stores/settings.svelte';
 	import { names } from '$lib/stores/names.svelte';
@@ -94,10 +94,12 @@
 				}, SKIP_DISMISS_MS);
 			} else if (n.kind === 'skip') {
 				// D-02: count is always ≥ 1; >1 collapses into the batched "{n} songs skipped" wording.
+				// quick-260926-l69: the store emits a closed-union skipReason; localize it here.
+				const reason = t(SKIP_REASON_KEY[n.skipReason ?? 'no-source']);
 				const text =
 					(n.count ?? 1) > 1
-						? t('toast.skippedMany', { count: n.count ?? 1 })
-						: t('toast.skipped', { title: n.title ?? '' });
+						? t('toast.skippedMany', { count: n.count ?? 1, reason })
+						: t('toast.skipped', { title: n.title ?? '', reason });
 				host = { kind: 'skip', text };
 				// Auto-dismiss; restart the timer on every new skip so a burst replaces, not stacks.
 				clearSkipTimer();

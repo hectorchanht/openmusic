@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
 	import { GripVertical, Layers, Trash2 } from '@lucide/svelte';
-	import { player } from '$lib/stores/player.svelte';
+	import { player, SKIP_REASON_KEY } from '$lib/stores/player.svelte';
 	import { names } from '$lib/stores/names.svelte';
 	import { toast } from '$lib/stores/toast.svelte';
 	import { t } from '$lib/i18n';
@@ -215,7 +215,8 @@
 {#if rows.length}
 	<ul class="list" bind:this={queueListEl}>
 		{#each rows as track, i (track.uid)}
-			{@const skipped = player.isUnplayable(track.uid)}
+			{@const reason = player.skipReason(track.uid)}
+			{@const skipped = player.isUnplayable(track.uid) || reason !== null}
 			<!-- quick-260910-q5a: the tile's three-rung cover read (see the Gap 3 block below).
 			     quick-260910-qwt: now the SHARED pickRowCover — the identical read every other row
 			     surface uses (resolved → track.cover → shared cache). Behaviour is unchanged here. -->
@@ -235,7 +236,9 @@
 				<!-- quick-260615-i9u (Feature A): a probe-confirmed-dead Up-Next entry stays IN the queue
 				     (nextPlayableIndex just routes past it) — render it dimmed with a leading ✗ and branch
 				     the row tap to retry-that-exact-track instead of a fresh play. swipeAction/longpress/grip
-				     are deliberately untouched so reorder + swipe actions keep working on a skipped row. -->
+				     are deliberately untouched so reorder + swipe actions keep working on a skipped row.
+				     quick-260926-l69: a row carrying a skip reason (e.g. skipped via handleTotalFailure without a
+				     dead promotion) is a ✗ row too — it shows the localized reason and its tap retries. -->
 				<span class="swipe-wrap q-swipe" class:is-current={track.uid === player.current?.uid}>
 				<!-- quick-260910-nx6: reveal layers sit BEHIND the row; the row's translateX exposes one
 				     side. Left edge = versions (a RIGHT drag), right edge = remove (a LEFT drag). aria-hidden
@@ -267,7 +270,8 @@
 					     attached album cover always wins over a per-track image. -->
 					<span class="q-art" style:background-image={qArt ? `url(${qArt})` : coverGradient(track.uid)}></span>
 					<span class="q-text">
-						{#if skipped}<span class="r-skip" aria-hidden="true">✗</span>{/if}
+						<!-- quick-260926-l69: glyph stays aria-hidden; the reason text is read by screen readers. -->
+						{#if skipped}<span class="r-skip"><span aria-hidden="true">✗</span>{#if reason}<span class="r-why">{t(SKIP_REASON_KEY[reason])}</span>{/if}</span>{/if}
 						<span class="r-title">{names.dnTitle(track.title, track.artist)}</span>
 						<span class="r-artist">{names.dnArtist(track.artist)}</span>
 					</span>
@@ -349,6 +353,9 @@
 	   translucent, letting the reveal layers behind it show through. Art/text/badges dim, the
 	   row's own background stays opaque. */
 	.q-row.skipped > * { opacity: 0.45; }
-	.r-skip { font-size: calc(0.75rem * var(--fs-artist, 1)); font-weight: 600; color: var(--color-text-muted); margin-right: 6px; }
+	/* quick-260926-l69: the skip reason sits on the ✗ line (inherits these tokens); one line,
+	   ellipsised in the min-width:0 column so a long translation never widens the row. */
+	.r-skip { font-size: calc(0.75rem * var(--fs-artist, 1)); font-weight: 600; color: var(--color-text-muted); margin-right: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.r-why { margin-left: 6px; }
 	.empty { color: var(--color-text-muted); font-size: 0.875rem; text-align: center; padding: 24px; }
 </style>
