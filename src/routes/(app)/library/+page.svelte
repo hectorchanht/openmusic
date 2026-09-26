@@ -378,12 +378,12 @@
      play shows no Play/Shuffle at all rather than dead greyed-out controls. -->
 <div class="actions">
 	{#if tabList.length}
-		<button class="edit-btn" onclick={playAll} use:tapBounce><Play size={16} /> {t('library.playAll')}</button>
-		<button class="edit-btn" onclick={shuffleAll} use:tapBounce><Shuffle size={16} /> {t('nowplaying.shuffle')}</button>
+		<button class="edit-btn" onclick={playAll} use:tapBounce><Play size={16} /></button>
+		<button class="edit-btn" onclick={shuffleAll} use:tapBounce><Shuffle size={16} /></button>
 	{/if}
 	{#if editableTabHasContent}
 		<button class="edit-btn" aria-pressed={editMode} onclick={() => (editMode = !editMode)} use:tapBounce>
-			{#if editMode}<Check size={16} /> {t('common.done')}{:else}<Pencil size={16} /> {t('library.edit')}{/if}
+			{#if editMode}<Check size={16} /> {:else}<Pencil size={16} /> {/if}
 		</button>
 	{/if}
 	{#if listMenuHasItems}
