@@ -6,6 +6,7 @@ import { blobStore } from '$lib/services/blob-store';
 import { setCachedCover } from '$lib/services/cover-cache';
 import { hasHttpsScheme } from '$lib/services/url-safety';
 import { matchKey } from '$lib/services/match-key';
+import { isChineseLine, t2sConvertLineSync } from '$lib/services/zh-convert';
 import type { Track } from '$lib/sources/types';
 
 const KEY = 'openmusic:library:v1';
@@ -207,9 +208,19 @@ class Library {
 
 	// ---- favArtists (kmn) -----------------------------------------------------------------
 	/** Case-preserving compare key. Match on a trimmed-lowercase fold so "Daft Punk" /
-	 *  "daft punk" / "  Daft Punk  " collapse to one entry. */
+	 *  "daft punk" / "  Daft Punk  " collapse to one entry.
+	 *
+	 *  quick-260926-hl9: Chinese names also fold to Simplified so 周杰伦 / 周杰倫 are ONE favourite
+	 *  now that artist URLs follow the script lock. t2s is warm whenever a lock is on
+	 *  (warmScript('zh-Hans') builds t2s, warmScript('zh-Hant') builds both since quick-260926-bxg);
+	 *  a cold t2s returns the raw key = the exact old behaviour. library stays leaf-ish and must
+	 *  not import names. */
 	private favKey(name: string): string {
-		return (name ?? '').trim().toLowerCase();
+		// ponytail: with the lock OFF and t2s never warmed, a favourite saved under the other
+		// script is not matched; upgrade path = warmScript('zh-Hans') in load() when favArtists
+		// contains a Chinese name.
+		const k = (name ?? '').trim().toLowerCase();
+		return isChineseLine(k) ? (t2sConvertLineSync(k) ?? k) : k;
 	}
 	isFavArtist(name: string): boolean {
 		const k = this.favKey(name);

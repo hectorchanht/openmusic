@@ -361,6 +361,19 @@ class Names {
 		return this.applyLock(text);
 	}
 
+	/**
+	 * quick-260926-hl9: the ONE in-app artist route builder. Script lock ONLY (zhLock — sync,
+	 * network-free, Chinese-only, 'off' = byte-identical to the old inline builders), NEVER
+	 * dnArtist: a translated name ("Jay Chou" for 周杰伦) would change what the artist page
+	 * resolves, while searchAll / Last.fm are script-blind, so a re-scripted name resolves
+	 * identically. Encodes exactly once — SvelteKit decodes the param (OG-COMPAT-01). Reactive
+	 * through zhLock's rev / zhScript reads. share.ts builds its own display-language share URLs
+	 * (quick-260808-urx) and deliberately does not use this.
+	 */
+	artistHref(name: string): string {
+		return '/artist/' + encodeURIComponent(this.zhLock(name));
+	}
+
 	/*
 	 * quick-260925-x8o — rescued Chinese names (wa7-verified English→Chinese pairs) DISPLAY here while
 	 * the script lock is on. Aliased text BYPASSES resolveTranslated and goes to applyLock only: the

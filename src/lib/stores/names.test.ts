@@ -513,3 +513,54 @@ describe('names — rescued Chinese name aliases (quick-260925-x8o)', () => {
 		expect(names.zhLock('Jay Chou')).toBe('Jay Chou');
 	});
 });
+
+// quick-260926-hl9 — every in-app artist route goes through names.artistHref: the script lock
+// ONLY (zhLock), never the translation layer, encoded exactly once.
+describe('names.artistHref — artist routes follow the script lock (quick-260926-hl9)', () => {
+	/** warmScript('zh-Hant') warms both dicts itself (quick-260926-bxg). */
+	async function warmLock(target: 'zh-Hant' | 'zh-Hans'): Promise<void> {
+		const zh = await import('$lib/services/zh-convert');
+		await zh.warmScript(target);
+	}
+	const href = (n: string) => '/artist/' + encodeURIComponent(n);
+
+	it('zh-Hant: Simplified AND Traditional input land on the same Traditional route', async () => {
+		settingsMock.zhScript = 'zh-Hant';
+		const { names } = await import('./names.svelte');
+		await warmLock('zh-Hant');
+		expect(names.artistHref('周杰伦')).toBe(href('周杰倫'));
+		expect(names.artistHref('周杰倫')).toBe(href('周杰倫')); // idempotent (quick-260926-bxg)
+	});
+
+	it('zh-Hans: Traditional input lands on the Simplified route', async () => {
+		settingsMock.zhScript = 'zh-Hans';
+		const { names } = await import('./names.svelte');
+		await warmLock('zh-Hans');
+		expect(names.artistHref('周杰倫')).toBe(href('周杰伦'));
+	});
+
+	it("'off' is byte-identical to the old '/artist/' + encodeURIComponent builders", async () => {
+		const { names } = await import('./names.svelte');
+		await warmLock('zh-Hant');
+		expect(names.artistHref('周杰伦')).toBe(href('周杰伦'));
+		expect(names.artistHref('周杰倫')).toBe(href('周杰倫'));
+	});
+
+	it('leaves non-Chinese names untouched and keeps a slash inside the segment (T-hl9-01)', async () => {
+		settingsMock.zhScript = 'zh-Hant';
+		const { names } = await import('./names.svelte');
+		await warmLock('zh-Hant');
+		expect(names.artistHref('Coldplay')).toBe('/artist/Coldplay');
+		expect(names.artistHref('AC/DC')).toBe('/artist/AC%2FDC');
+	});
+
+	it('never translates the route, even with an artist translation target set (T-hl9-02)', async () => {
+		settingsMock.zhScript = 'zh-Hant'; // artistLang stays 'ja' from beforeEach
+		const { names } = await import('./names.svelte');
+		await warmLock('zh-Hant');
+		const out = names.artistHref('邓紫棋');
+		await flush();
+		expect(translateMock).not.toHaveBeenCalled();
+		expect(out).toBe(href('鄧紫棋'));
+	});
+});

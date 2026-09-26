@@ -13,6 +13,7 @@ vi.mock('$app/environment', () => ({ browser: true }));
 const { blobDel } = vi.hoisted(() => ({ blobDel: vi.fn(async () => {}) }));
 vi.mock('$lib/services/blob-store', () => ({ blobStore: { del: blobDel } }));
 import { library } from './library.svelte';
+import { warmScript } from '$lib/services/zh-convert';
 import type { Track } from '$lib/sources/types';
 
 const memStore = new Map<string, string>();
@@ -477,5 +478,29 @@ describe('quick-260919-vrq removeDownload { deleteFile } opt-out', () => {
 		expect(library.isUnavailable('kuwo:10')).toBe(false);
 		expect((payload().downloads as { uid: string }[]).some((t) => t.uid === 'kuwo:10')).toBe(false);
 		expect(blobDel).not.toHaveBeenCalled();
+	});
+});
+
+// quick-260926-hl9: artist URLs follow the script lock, so the same artist can arrive as 周杰伦 or
+// 周杰倫 — the favourite key folds Chinese to Simplified so the heart never splits them in two.
+describe('quick-260926-hl9 script-blind favArtists', () => {
+	beforeEach(() => {
+		library.favArtists = [];
+		memStore.clear();
+	});
+
+	it('a favourite saved in one script matches, and un-favourites, in the other', async () => {
+		await warmScript('zh-Hans');
+		library.toggleFavArtist('周杰伦');
+		expect(library.isFavArtist('周杰倫')).toBe(true);
+		expect(library.isFavArtist('周杰伦')).toBe(true);
+		library.toggleFavArtist('周杰倫');
+		expect(library.favArtists).toEqual([]);
+	});
+
+	it('Latin names keep the trim/lowercase fold and their saved case', () => {
+		library.toggleFavArtist('Daft Punk');
+		expect(library.isFavArtist('  daft punk  ')).toBe(true);
+		expect(library.favArtists).toEqual(['Daft Punk']);
 	});
 });
