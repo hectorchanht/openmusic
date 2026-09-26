@@ -18,7 +18,9 @@ vi.mock('$lib/services/discovery', () => ({ resolveStub: vi.fn() }));
 vi.mock('$lib/services/catalog', () => ({
 	ensureTrackDetails: vi.fn(),
 	searchAll: vi.fn(),
-	lyricByName: vi.fn(async () => null)
+	lyricByName: vi.fn(async () => null),
+	// quick-260926-l69: retryUnplayable evicts the song's cached single-source searches.
+	evictSearch: vi.fn()
 }));
 // 37-D-04: the zero-network embedded tag read is the GATE for the name-based network fallbacks, so
 // the enrichment suite drives it directly — a hit, a miss, or a DEFERRED promise (supersedence).
@@ -124,12 +126,12 @@ const localStorageMock: Storage = {
 };
 vi.stubGlobal('localStorage', localStorageMock);
 
-import { player } from './player.svelte';
+import { player, type SkipReason } from './player.svelte';
 import { sleepTimer } from '$lib/stores/sleepTimer.svelte';
 import { settings } from './settings.svelte';
 import { library } from '$lib/stores/library.svelte';
 import { resolveStub } from '$lib/services/discovery';
-import { ensureTrackDetails, lyricByName } from '$lib/services/catalog';
+import { ensureTrackDetails, lyricByName, evictSearch } from '$lib/services/catalog';
 import { localEnrichment } from '$lib/services/local-tags';
 import type { LocalEnrichment } from '$lib/services/local-tags';
 import { deviceUid } from '$lib/services/device-track';
@@ -5272,6 +5274,59 @@ describe('player.play — history-preserving fresh-play queue model (quick-26061
 
 		expect(player.queue.map((t) => t.uid)).toEqual([h0.uid, pc.uid, X.uid, a.uid, b.uid]);
 		expect(player.current?.uid).toBe(X.uid);
+	});
+});
+
+describe('skip reasons + genuine retry (quick-260926-l69)', () => {
+	type SkipInternals = {
+		recordSkip(uid: string, reason: SkipReason): void;
+		emitSkipNotice(title: string, reason: SkipReason): void;
+		fallbackEpisodeKey: string | null;
+		skipBurst: number;
+		skipBurstTimer: ReturnType<typeof setTimeout> | null;
+	};
+	const internals = () => player as unknown as SkipInternals;
+
+	afterEach(() => {
+		player.clearQueue();
+		const p = internals();
+		if (p.skipBurstTimer) clearTimeout(p.skipBurstTimer);
+		p.skipBurst = 0;
+		p.skipBurstTimer = null;
+		player.notice = null;
+		vi.mocked(evictSearch).mockClear();
+	});
+
+	it('skipReason is null until recorded, and clearQueue clears it', () => {
+		expect(player.skipReason('qq:1')).toBeNull();
+		internals().recordSkip('qq:1', 'timeout');
+		expect(player.skipReason('qq:1')).toBe('timeout');
+		player.clearQueue();
+		expect(player.skipReason('qq:1')).toBeNull();
+	});
+
+	it('retryUnplayable evicts the song searches, clears its reason, and resets the fallback episode', () => {
+		const bad = mk('qq', '1', 'B', 'Flaky');
+		internals().recordSkip(bad.uid, 'no-source');
+		internals().fallbackEpisodeKey = 'b|flaky';
+
+		player.retryUnplayable(bad);
+
+		expect(vi.mocked(evictSearch)).toHaveBeenCalledExactlyOnceWith('B Flaky');
+		expect(player.skipReason(bad.uid)).toBeNull();
+		expect(internals().fallbackEpisodeKey).toBeNull();
+	});
+
+	it('the skip notice carries the closed-union reason as data (keys only, no localized text)', () => {
+		internals().recordSkip('qq:1', 'no-source');
+		internals().emitSkipNotice('T', 'no-source');
+		expect(player.notice).toEqual({
+			kind: 'skip',
+			msg: 'toast.skipped',
+			count: 1,
+			title: 'T',
+			skipReason: 'no-source'
+		});
 	});
 });
 
