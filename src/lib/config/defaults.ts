@@ -57,6 +57,9 @@ export const APPEARANCE_DEFAULTS = {
 	fontScaleTitle: 100,
 	fontScaleArtist: 100,
 	fontScaleLyrics: 100,
+	/** quick-260926-m72: where the active lyric line sits in the lyrics pane, percent of the VISIBLE
+	 *  band (0 top, 50 centre, 100 bottom). Applies in every sheet state on phone and desktop. */
+	lyricsAnchor: 50,
 	/** Now-playing title font scale — separate slider from `fontScaleTitle` because NP's
 	 *  base size is ~1.5rem vs ~14px on list pages, so the same multiplier looks lopsided. */
 	fontScaleNpTitle: 100,

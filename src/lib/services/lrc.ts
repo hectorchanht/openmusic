@@ -277,9 +277,12 @@ export function lineSeekFraction(time: number, duration: number): number | null 
  * sheet the container spans the whole viewport but is translated down). Padding against the shorter
  * visible band would under-pad and leave the tail short of the anchor.
  *
- * The `anchorWithin` expression moved here VERBATIM from NpLyrics' inlined ternary — mid-list
- * anchoring is unchanged (the identity test in lrc.test.ts pins that). DOM-free and store-free so
- * the layout maths is node-testable.
+ * quick-260926-m72: the anchor is a user percent of the visible band (`settings.lyricsAnchor`,
+ * passed in as `anchorPct`): 0 = line top on the band top, 100 = line bottom on the band bottom,
+ * 50 = centred. The phone-closed pin-to-top special case is deleted — the user wants centre in every
+ * sheet state, and centre is now the default of a configurable offset. At 50 the anchor is
+ * bit-identical to the old centre expression (the identity test in lrc.test.ts pins that). DOM-free
+ * and store-free so the layout maths is node-testable.
  *
  * Every numeric input is clamped to a finite, non-negative value first: these are live DOM
  * measurements, and a mid-transition read must never reach the DOM as `NaNpx` or a negative padding.
@@ -289,18 +292,16 @@ export function lyricAnchorMetrics(m: {
 	visHeight: number;
 	clientHeight: number;
 	lineHeight: number;
-	topPin: boolean;
-	topPad: number;
+	/** 0 = line top on the visible-band top, 100 = line bottom on the band bottom, 50 = centred. */
+	anchorPct: number;
 }): { anchorWithin: number; padTop: number; padBottom: number } {
 	const fin = (n: number) => (Number.isFinite(n) ? Math.max(0, n) : 0);
 	const visTopWithin = fin(m.visTopWithin);
 	const visHeight = fin(m.visHeight);
 	const clientHeight = fin(m.clientHeight);
 	const lineHeight = fin(m.lineHeight);
-	const topPad = fin(m.topPad);
-	const anchorWithin = m.topPin
-		? visTopWithin + topPad
-		: visTopWithin + visHeight / 2 - lineHeight / 2;
+	const pct = Math.min(100, fin(m.anchorPct)) / 100;
+	const anchorWithin = visTopWithin + Math.max(0, visHeight - lineHeight) * pct;
 	return {
 		anchorWithin,
 		padTop: Math.max(0, anchorWithin),

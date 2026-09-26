@@ -62,6 +62,9 @@ const KEY = 'openmusic:settings:v1';
  *  values stay valid (clampInt re-clamps within the new, looser bounds). */
 export const FONT_SCALE_MIN = 50;
 export const FONT_SCALE_MAX = 200;
+/** quick-260926-m72: lyricsAnchor bounds — percent of the visible lyrics band (0 top, 100 bottom). */
+export const LYRICS_ANCHOR_MIN = 0;
+export const LYRICS_ANCHOR_MAX = 100;
 export const COVER_SCALE_MIN = 70;
 export const COVER_SCALE_MAX = 150;
 export const GRID_COLS_MIN = 2;
@@ -175,6 +178,8 @@ class Settings {
 	fontScaleArtist = $state<number>(APPEARANCE_DEFAULTS.fontScaleArtist);
 	/** LYRICS line font scale, percent (clamped 70–160). */
 	fontScaleLyrics = $state<number>(APPEARANCE_DEFAULTS.fontScaleLyrics);
+	/** quick-260926-m72: active lyric line position, percent of the visible lyrics band (clamped 0–100). */
+	lyricsAnchor = $state<number>(APPEARANCE_DEFAULTS.lyricsAnchor);
 	/** NOW-PLAYING title font scale, percent (clamped 70–160). Separate from fontScaleTitle
 	 *  because NP base size is 1.5rem vs ~14px on list pages — same multiplier looks lopsided. */
 	fontScaleNpTitle = $state<number>(APPEARANCE_DEFAULTS.fontScaleNpTitle);
@@ -334,6 +339,7 @@ class Settings {
 				this.fontScaleTitle = clampInt(v.fontScaleTitle, FONT_SCALE_MIN, FONT_SCALE_MAX, APPEARANCE_DEFAULTS.fontScaleTitle);
 				this.fontScaleArtist = clampInt(v.fontScaleArtist, FONT_SCALE_MIN, FONT_SCALE_MAX, APPEARANCE_DEFAULTS.fontScaleArtist);
 				this.fontScaleLyrics = clampInt(v.fontScaleLyrics, FONT_SCALE_MIN, FONT_SCALE_MAX, APPEARANCE_DEFAULTS.fontScaleLyrics);
+				this.lyricsAnchor = clampInt(v.lyricsAnchor, LYRICS_ANCHOR_MIN, LYRICS_ANCHOR_MAX, APPEARANCE_DEFAULTS.lyricsAnchor);
 				this.fontScaleNpTitle = clampInt(v.fontScaleNpTitle, FONT_SCALE_MIN, FONT_SCALE_MAX, APPEARANCE_DEFAULTS.fontScaleNpTitle);
 				this.fontScaleNpArtist = clampInt(v.fontScaleNpArtist, FONT_SCALE_MIN, FONT_SCALE_MAX, APPEARANCE_DEFAULTS.fontScaleNpArtist);
 				this.coverScale = clampInt(v.coverScale, COVER_SCALE_MIN, COVER_SCALE_MAX, APPEARANCE_DEFAULTS.coverScale);
@@ -514,6 +520,7 @@ class Settings {
 					fontScaleTitle: this.fontScaleTitle,
 					fontScaleArtist: this.fontScaleArtist,
 					fontScaleLyrics: this.fontScaleLyrics,
+					lyricsAnchor: this.lyricsAnchor,
 					fontScaleNpTitle: this.fontScaleNpTitle,
 					fontScaleNpArtist: this.fontScaleNpArtist,
 					coverScale: this.coverScale,
@@ -604,6 +611,7 @@ class Settings {
 		this.fontScaleTitle = d.fontScaleTitle;
 		this.fontScaleArtist = d.fontScaleArtist;
 		this.fontScaleLyrics = d.fontScaleLyrics;
+		this.lyricsAnchor = d.lyricsAnchor;
 		this.fontScaleNpTitle = d.fontScaleNpTitle;
 		this.fontScaleNpArtist = d.fontScaleNpArtist;
 		this.coverScale = d.coverScale;
