@@ -1135,7 +1135,7 @@
 			     phone sheet, before quick-260919-np3 mounted this pane as a standing column at >=1280px.
 			     There sheetState stays 'closed' while the column is fully on screen, so the pane's
 			     scroll-to-current and cover-backfill effects never ran. Same `wide` flag NpLyrics
-			     already receives (quick-260919-npfix Fix 3), folded into the one prop both gates read. -->
+			     used to receive (quick-260919-npfix Fix 3), folded into the one prop both gates read. -->
 			<NpUpNext
 				rows={upNextList}
 				startIndex={upNextStart}
@@ -1146,13 +1146,9 @@
 			/>
 		{/snippet}
 		{#snippet lyricsPane()}
-			<!-- quick-260919-npfix (Fix 3): `wide` rides along so the pane can tell the phone's
-			     closed-state top-pin (a ~100px peek with nowhere to centre) from the desktop column's
-			     closed state (the full lyrics column, measured 305px at 1440x900), and centre the
-			     active line in all three sheet states on desktop. Passed down rather than re-derived
-			     there — it is the SAME quick-260919-np3 1280px flag that decides this pane is mounted
-			     as a column in the first place. -->
-			<NpLyrics {sheetState} {wide} />
+			<!-- quick-260926-m72: `wide` is no longer passed — the lyrics anchor is the same
+			     settings.lyricsAnchor percent in every sheet state on phone and desktop. -->
+			<NpLyrics {sheetState} />
 		{/snippet}
 		{#snippet relatedPane()}
 			<NpRelated {resolvedCovers} onMenu={openMenu} />

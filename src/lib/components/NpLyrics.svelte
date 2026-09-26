@@ -31,12 +31,8 @@
 	// edit is that both `tab === 'lyrics'` gates (auto-scroll anchor + translation) became the MOUNT —
 	// the parent renders this component exactly when that tab is selected (mobile) or always, as the
 	// middle column, at >=1280px. `sheetState` is the one piece of parent state the anchor maths
-	// genuinely needs (closed top-pins, half/full centres), so it arrives as a prop.
-	// quick-260919-npfix (Fix 3): `wide` is the parent's ALREADY-COMPUTED >=1280px matchMedia flag
-	// (NowPlaying.svelte `wide`, the quick-260919-np3 three-column breakpoint) handed down rather
-	// than a second matchMedia listener here — one source of truth for that rung, and this pane has
-	// no business owning a breakpoint the parent uses to decide whether it is mounted at all.
-	let { sheetState, wide }: { sheetState: 'closed' | 'half' | 'full'; wide: boolean } = $props();
+	// genuinely needs (the visible band differs per mode), so it arrives as a prop.
+	let { sheetState }: { sheetState: 'closed' | 'half' | 'full' } = $props();
 
 	// ---- lyrics ----
 	// Lyrics pipeline: parse the LRC, then split any line carrying a `(...)` clause into its
@@ -173,8 +169,13 @@
 		// quick-260919-np3: the old `tab !== 'lyrics'` gate is GONE because it is now the mount —
 		// this component only exists while the lyrics tab is selected (mobile) or as the middle
 		// column at >=1280px. Same condition, expressed structurally.
-		const mode = sheetState;
-		const desktop = wide;
+		void sheetState;
+		// quick-260926-m72: the phone-closed pin-to-top special case is GONE — the user wants the
+		// active line centred in every sheet state (closed / half / full, phone and desktop), and the
+		// centre is now the default of a configurable offset (settings.lyricsAnchor, percent of the
+		// visible band). Read here, at the top, so the $effect re-anchors live when the Appearance
+		// slider moves.
+		const anchorPct = settings.lyricsAnchor;
 		if (!autoScroll || idx < 0 || !lyricsEl) return;
 		// quick-260618-t7p Task 2: `idx` (activeLine) is an index into the FULL `lines` array, but the
 		// rendered <p> list is FILTERED when settings.lyricsHideParenLines is ON, so a positional
@@ -208,35 +209,24 @@
 		// the slice between the container top and the viewport bottom is actually VISIBLE. Centering on
 		// clientHeight/2 would land below the visible fold (the reported "near the bottom" bug). So derive
 		// the anchor from the live VISIBLE band (rect intersect viewport), which self-corrects for every mode:
-		//   closed -> anchor near the visible TOP (tiny peek height, top-pin per spec)
-		//   half / full -> center within the visible band
+		//   every mode -> settings.lyricsAnchor percent of the visible band
 		const vh = typeof window !== 'undefined' ? window.innerHeight : cRect.bottom;
 		const visTop = Math.max(cRect.top, 0);
 		const visBottom = Math.min(cRect.bottom, vh);
 		const visHeight = Math.max(0, visBottom - visTop);
 		const visTopWithin = visTop - cRect.top; // visible-band top, in container-local coords
-		const TOP_PAD = 12; // breathing room when top-pinned (closed)
-		// quick-260919-npfix (Fix 3): the top-pin is a PHONE compromise, not the intent. It exists
-		// because a closed sheet on a phone is a ~100px peek — there is no room to centre in, so the
-		// active line is pinned to the top of the strip instead. At >=1280px the closed peek is the
-		// whole lyrics COLUMN (measured 305px tall at 1440x900, and it only grows with the window),
-		// which is ample; top-pinning there just parks the line you are reading in the upper third for
-		// no reason. So `closed` top-pins only on the narrow layout, and desktop centres in all three
-		// sheet states — which is the ask. half/full are unchanged on both layouts.
 		const { anchorWithin, padTop, padBottom } = lyricAnchorMetrics({
 			visTopWithin,
 			visHeight,
 			clientHeight: container.clientHeight,
 			lineHeight: el.offsetHeight,
-			topPin: mode === 'closed' && !desktop,
-			topPad: TOP_PAD
+			anchorPct
 		});
 		// quick-260920-n6j: the padding upgrade path the old ceiling comment named — TAKEN. The browser
 		// clamps scrollTop to [0, scrollHeight - clientHeight], so without blank space beyond the head
 		// and tail of the lyric those lines could never reach the anchor. Head pad = the anchor offset
 		// (line 1 lands on the anchor at scrollTop 0); tail pad = clientHeight - anchor - line (the last
-		// line lands on it at max scroll). Both are derived from the LIVE anchor, so the phone top-pin
-		// gets its own, much smaller pads and its tail lines reach the pin too.
+		// line lands on it at max scroll). Both are derived from the LIVE anchor.
 		// Write only on CHANGE: padding shifts `offsetWithin`, and an unconditional write would
 		// invalidate layout on every anchor pass (~4 Hz, once per timeupdate).
 		const topPx = `${padTop}px`;
@@ -264,7 +254,8 @@
 
 	$effect(() => {
 		// Immediate pass — also what registers this effect's dependencies (activeLine, autoScroll,
-		// lyricsEl, sheetState, wide are all read at the top of anchorActiveLine before any return).
+		// lyricsEl, sheetState, settings.lyricsAnchor are all read at the top of anchorActiveLine
+		// before any return).
 		anchorActiveLine();
 		// SETTLE PASS — the missing half of "centred all the time". sheetState flips SYNCHRONOUSLY,
 		// so the immediate pass above measures the container while the sheet + cover are still
