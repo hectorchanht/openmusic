@@ -18,7 +18,8 @@
 	// SSR-SAFETY (Pitfall 4): the ONLY module-top imports are PageOg, `browser`, `onMount`, `goto` and
 	// the page data type. NO store import and NO store method call at module scope, so SSR never
 	// compiles the client store graph in. `goto` is a $app/navigation function — import-safe on the
-	// server and only ever CALLED under the `browser` guard below.
+	// server and only ever CALLED under the `browser` guard below. quick-260926-hze / kvz: the names
+	// store (the forward's lockUrl and the visible title / artist lock) is imported lazily in onMount.
 	import { browser } from '$app/environment';
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
@@ -29,6 +30,15 @@
 
 	const name = $derived(data.name || data.og.title);
 	const artist = $derived(data.artist);
+	// quick-260926-kvz: the VISIBLE text follows the Chinese script lock, client-side only. SSR and
+	// crawlers get the raw route segments; `lock` is bound in onMount from a lazily-imported names
+	// store and stays null during SSR. Reactive: zhLock reads names.rev and settings.zhScript, so a
+	// cold dict repaints when warmLock lands and flipping the setting repaints. `name` / `artist` and
+	// every raw `data.artist` / `data.name` use (the forward target) stay untouched —
+	// they are resolution keys, not display.
+	let lock = $state<((s: string) => string) | null>(null);
+	const shownName = $derived(lock ? lock(name) : name);
+	const shownArtist = $derived(lock ? lock(artist) : artist);
 
 	onMount(() => {
 		if (!browser || !data.name) return;
@@ -47,7 +57,11 @@
 		// Known ceiling: on a cold share-link open the lock dict is usually still cold, so lockUrl
 		// is identity here and the layout's afterNavigate address-bar rewrite fixes the bar.
 		import('$lib/stores/names.svelte')
-			.then(({ names }) => goto(names.lockUrl(target), { replaceState: true }))
+			.then(({ names }) => {
+				// quick-260926-kvz: lock the visible text for the moment before the forward lands.
+				lock = (s) => names.zhLock(s);
+				return goto(names.lockUrl(target), { replaceState: true });
+			})
 			.catch(() => goto(target, { replaceState: true }));
 	});
 </script>
@@ -55,9 +69,9 @@
 <PageOg og={data.og} />
 
 <section class="album-share">
-	<h1 class="title">{name}</h1>
-	{#if artist}
-		<p class="artist">{artist}</p>
+	<h1 class="title">{shownName}</h1>
+	{#if shownArtist}
+		<p class="artist">{shownArtist}</p>
 	{/if}
 	<p class="status" aria-live="polite">Opening album on openmusic…</p>
 </section>

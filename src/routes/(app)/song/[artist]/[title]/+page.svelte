@@ -10,7 +10,8 @@
 	// top-level store import and NO store METHOD call at module scope — the player store (which pulls
 	// the whole client graph) is imported LAZILY inside onMount under a `browser` guard, so SSR never
 	// compiles the store graph in. i18n is likewise lazy-imported client-side (its index imports the
-	// settings store), keeping this page store-free during SSR.
+	// settings store), keeping this page store-free during SSR. quick-260926-kvz: the names store
+	// (the script lock on the visible title / artist) is likewise imported lazily inside onMount.
 	//
 	// 38-D-13/38-D-06: the page RESOLVES on mount again. `share-arrival` is imported LAZILY inside
 	// onMount (it imports the player store, so a module-top import would break the paragraph above)
@@ -34,6 +35,15 @@
 	// the authoritative identity on this shape (OG-PATH-01 — there are no query carriers).
 	const title = $derived(data.name || data.og.title);
 	const artist = $derived(data.artist);
+	// quick-260926-kvz: the VISIBLE text follows the Chinese script lock, client-side only. SSR and
+	// crawlers get the raw route segments; `lock` is bound in onMount from a lazily-imported names
+	// store and stays null during SSR. Reactive: zhLock reads names.rev and settings.zhScript, so a
+	// cold dict repaints when warmLock lands and flipping the setting repaints. `title` / `artist` and
+	// every raw `data.artist` / `data.name` use (the /api/og coverSrc, arriveShared, replayShared)
+	// stay untouched — they are resolution keys, not display.
+	let lock = $state<((s: string) => string) | null>(null);
+	const shownTitle = $derived(lock ? lock(title) : title);
+	const shownArtist = $derived(lock ? lock(artist) : artist);
 
 	// OG-PAGE-01 / Pitfall 7: the in-app cover goes through apiUrl(), NEVER data.og.image. og.image is
 	// an ABSOLUTE origin-derived URL for the meta tag; inside the Capacitor WebView that origin is
@@ -169,6 +179,9 @@
 
 	onMount(() => {
 		if (!browser) return;
+		// quick-260926-kvz: lazy for the same reason as share-arrival (SSR-SAFETY header) — a failed
+		// chunk keeps the raw text (never-throw).
+		import('$lib/stores/names.svelte').then(({ names }) => (lock = (s) => names.zhLock(s))).catch(() => {});
 		// onMount, NEVER a tracked rune effect: the arrival writes player state, and a tracked effect
 		// that reads then writes that state self-invalidates into a loop
 		// (restore-effect-self-invalidation-loop — see the untrack() block at
@@ -192,9 +205,9 @@
 		<!-- Decorative: the title + artist are rendered as text immediately below. -->
 		<img class="cover" src={coverSrc} alt="" onerror={() => (coverFailed = true)} />
 	{/if}
-	<h1 class="title">{title}</h1>
-	{#if artist}
-		<p class="artist">{artist}</p>
+	<h1 class="title">{shownTitle}</h1>
+	{#if shownArtist}
+		<p class="artist">{shownArtist}</p>
 	{/if}
 
 	{#if status === 'resolving'}

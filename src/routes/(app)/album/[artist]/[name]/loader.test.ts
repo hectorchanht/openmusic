@@ -8,6 +8,7 @@
 // before `load`. Passing an encoded form here would bake in Pitfall 1, the second decode that 500s
 // the LEGACY /album/{name} route today on a name containing a literal '%'.
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { load, ssr, prerender } from './+page';
 
 function ev(artist: string, name: string, origin = 'https://openmusic.lol') {
@@ -69,5 +70,32 @@ describe('album/[artist]/[name] loader — OG head', () => {
 	it('keeps og:image on an http dev origin (own-origin URL, NOT isHttpsUrl-gated)', () => {
 		const out = run('Nirvana', 'Nevermind', 'http://localhost:5173');
 		expect(out.og.image.startsWith('http://localhost:5173/api/og?type=album')).toBe(true);
+	});
+});
+
+// ---------------------------------------------------------------------------------------------
+// quick-260926-kvz — the VISIBLE text follows the Chinese script lock (client-side only)
+// ---------------------------------------------------------------------------------------------
+// The forward target was already locked (quick-260926-hze); the landing body still rendered the raw
+// route segments. The component cannot be mounted here (no jsdom project), so guard the SOURCE: the
+// display goes through a lazily-bound names.zhLock, while the forward stays keyed on raw data.
+describe('album share landing — visible text follows the script lock (quick-260926-kvz)', () => {
+	const src = readFileSync(new URL('./+page.svelte', import.meta.url), 'utf8');
+
+	it('renders the locked display fields, not the raw ones', () => {
+		expect(src).toContain('{shownName}');
+		expect(src).toContain('{shownArtist}');
+		expect(src).not.toContain('<h1 class="title">{name}</h1>');
+	});
+
+	it('binds the lock from a LAZY names import (no static store import — SSR-SAFETY)', () => {
+		expect(src).toContain("import('$lib/stores/names.svelte')");
+		expect(src).toContain('names.zhLock(');
+		expect(src).not.toMatch(/^\s*import\s[^(]*from '\$lib\/stores\//m);
+	});
+
+	it('keeps the raw route segments as the resolution keys', () => {
+		expect(src).toContain('encodeURIComponent(data.name)');
+		expect(src).toContain('encodeURIComponent(data.artist)');
 	});
 });

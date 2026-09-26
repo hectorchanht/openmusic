@@ -170,3 +170,32 @@ describe('song/[artist]/[title] loader — the ci cover-id carrier', () => {
 		expect(out.name).toBe('你瞞我瞞');
 	});
 });
+
+// ---------------------------------------------------------------------------------------------
+// quick-260926-kvz — the VISIBLE text follows the Chinese script lock (client-side only)
+// ---------------------------------------------------------------------------------------------
+// The URL and tab title were already locked (quick-260926-hze); the body still rendered the raw
+// route segments. Source guard for the same no-jsdom reason as above: the display goes through a
+// lazily-bound names.zhLock, while every resolution key stays raw.
+describe('song share page — visible text follows the script lock (quick-260926-kvz)', () => {
+	const src = readFileSync(new URL('./+page.svelte', import.meta.url), 'utf8');
+
+	it('renders the locked display fields, not the raw ones', () => {
+		expect(src).toContain('{shownTitle}');
+		expect(src).toContain('{shownArtist}');
+		expect(src).not.toContain('<h1 class="title">{title}</h1>');
+	});
+
+	it('binds the lock from a LAZY names import (no static store import — SSR-SAFETY)', () => {
+		expect(src).toContain("import('$lib/stores/names.svelte')");
+		expect(src).toContain('names.zhLock(');
+		expect(src).not.toMatch(/^\s*import\s[^(]*from '\$lib\/stores\//m);
+	});
+
+	it('keeps the raw route segments as the resolution keys', () => {
+		expect(src).toContain('encodeURIComponent(data.artist)');
+		// arriveShared + replayShared — both hand the resolve the RAW segments.
+		const key = '{ artist: data.artist, title: data.name, u: data.u }';
+		expect(src.split(key).length - 1).toBe(2);
+	});
+});
