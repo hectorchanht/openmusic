@@ -369,3 +369,36 @@ From src/lib/components/NpRelated.svelte (the pane idiom): `let relatedFor = '';
 <output>
 Create `.planning/quick/260926-nsz-per-song-comment-section-moderated-mvp/260926-nsz-SUMMARY.md` when done (record the live-probe results, the local-miniflare key you used, and any deviation from the gate order).
 </output>
+
+---
+
+## ADDENDUM (orchestrator, 2026-09-26) — user changes after planning. These OVERRIDE the tasks above where they conflict.
+
+### A. Tab order (user: "add comment into tab structure (queue/lyrics/comment/related)")
+- Narrow subnav order is **Up Next | Lyrics | Comments | Related** — the comments button is the THIRD button, Related moves to fourth. Narrow panel branches follow the same order.
+- Wide (>=1280) third-column pair reads **Comments | Related** (same relative order). Related stays the default selection on wide (`class:active={tab !== 'comments'}` on Related), so the current desktop layout is unchanged until the user picks Comments.
+- Adjust Task 3's grep gates/wording accordingly (still exactly 2 `data-tab="comments"` occurrences).
+
+### B. Cloudflare Turnstile on comment POSTING (user: widget already created; "finish integrating it")
+Canonical contract: developers.cloudflare.com/turnstile/spin (existing-widget flow). Secret already validated by the orchestrator (dummy-token siteverify → `invalid-input-response`, i.e. the secret is accepted).
+
+Config (names chosen by the user — keep them):
+- Server secret: `env.TurnstileSecret` (in `.dev.vars` locally; production must be set by a human: `wrangler pages secret put TurnstileSecret --project-name openmusic`, piped via stdin — the local wrangler auth cannot reach the openmusic account). Add `TurnstileSecret?: string` and `TURNSTILE_HOSTNAMES?: string` to `Env` in `src/lib/proxy/proxy-types.ts` with a comment. NEVER log or return the secret.
+- Hostname allowlist: `env.TURNSTILE_HOSTNAMES` comma list. Add `"TURNSTILE_HOSTNAMES": "openmusic.lol"` to `wrangler.jsonc` `vars` (production must NOT include localhost/127.0.0.1). Local dev value `localhost,127.0.0.1` is ALREADY in `.dev.vars` (orchestrator added it) — executor must NOT read, print or edit `.dev.vars`.
+- Site key is public by design: a constant `TURNSTILE_SITEKEY = '0x4AAAAAAFEvje1fGyRJgFd2'` in a small client module (e.g. `src/lib/config/turnstile.ts`) with that comment.
+- Action label: `comment` (both the widget `action` and the server's expected `result.action`).
+
+Server (`/api/comments` POST, action "post" ONLY — report stays unguarded, maintainer DELETE stays token-gated):
+- Body gains `token` (string, 1..2048 chars); missing/oversize → 400 `invalid` (update parseCommentBody + MAX body size if needed).
+- New pure-ish module `src/lib/proxy/turnstile.ts`: `verifyTurnstile({ token, ip, secret, hostnames, expectedAction }, fetchImpl = fetch)` → `'ok' | 'unconfigured' | 'rejected'`. Missing secret or empty allowlist → `'unconfigured'`. POST form-urlencoded to `https://challenges.cloudflare.com/turnstile/v0/siteverify` with `secret`, `response`, `remoteip`, `signal: AbortSignal.timeout(10_000)`; non-2xx / network error / JSON error → `'rejected'`; require `success === true && action === expectedAction && hostnames.has(hostname)`. Co-located tests with an injected fetch (success, action mismatch, hostname mismatch, success:false, non-ok, throw/timeout, unconfigured).
+- Order in the route: origin 403 → JSON 415 → size 413 → parse/validate 400 → client address 400 → **Turnstile** (`unconfigured` → 503 `unconfigured`; `rejected` → 403 `turnstile`) → throttle → thread write. Turnstile BEFORE throttle and ANY R2 access, so a tokenless bot costs zero R2 ops and cannot burn a real user's throttle slot. Route tests: stub global fetch (vi.stubGlobal) for siteverify; assert no R2 get/put on the 403/503 paths; existing post tests supply a token + a passing stub.
+- Do NOT call siteverify from the browser. Replay protection is siteverify's (single-use tokens).
+
+Client (`NpComments.svelte` + a tiny loader):
+- Lazy-load `https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit` ONCE per app, only when the Comments pane mounts (browser-guarded; a module-level promise; script `async defer`). No global `<script>` in app.html.
+- Explicit render into a container inside the composer: `turnstile.render(el, { sitekey: TURNSTILE_SITEKEY, action: 'comment', theme: 'auto', size: 'flexible', callback: t => token = t, 'expired-callback': () => token = '', 'error-callback': () => token = '' })`; `turnstile.remove(id)` on unmount. Post disabled until a token exists. After EVERY submit attempt (success or failure) call `turnstile.reset(id)` and clear the token (single-use).
+- Send the token as `token` in the JSON body (`postComment(k, name, text, token)`); map 403 `turnstile` → a TranslationKey like `comments.errVerify` ("Verification failed — try again"), 503 → unavailable.
+- Native (Capacitor `isNativePlatform()`, origin https://localhost): production allowlist excludes localhost, so a native post would always fail verification. On native, hide the composer + widget and show a muted note (new i18n key, e.g. `comments.postOnWeb`: "Posting is available at openmusic.lol"); reading and reporting still work. Document this as a known limit with the upgrade path (add `localhost` to the widget domains + prod allowlist, weaker) in a `ponytail:` comment.
+- New i18n keys in ALL 15 locales, double quotes.
+
+Update the threat register: T-nsz spam/sybil entries are now MITIGATED for posting by Turnstile (token + action + hostname), residual = human farms / solver services; reports remain un-gated (3 distinct IPs, maintainer DELETE as backstop).
