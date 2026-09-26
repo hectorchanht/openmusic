@@ -42,6 +42,7 @@ import { translateLinesEx } from '$lib/services/translate';
 import { shouldTranslate } from '$lib/i18n/detect';
 import { isChineseLine, s2tConvertLineSync, warmS2T, lockScriptSync, warmScript, type ZhScript } from '$lib/services/zh-convert';
 import { readRescueHits, onRescueHit, type ZhName } from '$lib/services/name-rescue';
+import { lockEntityHref } from '$lib/services/entity-href';
 import { matchKey, norm } from '$lib/services/match-key';
 import { splitArtists } from '$lib/util/artist-split';
 
@@ -372,6 +373,18 @@ class Names {
 	 */
 	artistHref(name: string): string {
 		return '/artist/' + encodeURIComponent(this.zhLock(name));
+	}
+
+	/**
+	 * quick-260926-hze: lock a WHOLE same-app entity href (/artist, /album, /song — name segments
+	 * plus the `?artist=` param) via the pure `lockEntityHref`. Script lock ONLY, never
+	 * translation, for the same reason as artistHref: a translated name changes what the page
+	 * resolves, a re-scripted one does not. Reactive through zhLock. 'off' returns the input
+	 * string itself (byte-identical). Callers: the album and chart-album links, the legacy album
+	 * share forward, and the (app) layout's address-bar rewrite.
+	 */
+	lockUrl(href: string): string {
+		return lockEntityHref(href, (s) => this.zhLock(s));
 	}
 
 	/*

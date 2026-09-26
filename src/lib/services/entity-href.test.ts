@@ -56,9 +56,11 @@ describe('lockEntityHref — fake lock (quick-260926-hze)', () => {
 	});
 });
 
+// 十一月的萧邦, not 范特西: tongwen s2t leaves 范 alone (a valid Traditional surname char), so
+// 范特西 has no zh-Hant form to lock to; 十一月的萧邦 ↔ 十一月的蕭邦 converts in both directions.
 describe('lockEntityHref — real script lock round trip (quick-260926-hze)', () => {
-	const simp = '/album/' + enc('范特西') + '?artist=' + enc('周杰伦');
-	const trad = '/album/' + enc('範特西') + '?artist=' + enc('周杰倫');
+	const simp = '/album/' + enc('十一月的萧邦') + '?artist=' + enc('周杰伦');
+	const trad = '/album/' + enc('十一月的蕭邦') + '?artist=' + enc('周杰倫');
 
 	it('zh-Hant locks a Simplified album href to Traditional', async () => {
 		await warmScript('zh-Hant');
@@ -68,5 +70,9 @@ describe('lockEntityHref — real script lock round trip (quick-260926-hze)', ()
 	it('zh-Hans locks the Traditional album href back to Simplified', async () => {
 		await warmScript('zh-Hans');
 		expect(lockEntityHref(trad, (s) => lockScriptSync(s, 'zh-Hans'))).toBe(simp);
+		const fantasy = '/album/' + enc('範特西') + '?artist=' + enc('周杰倫');
+		expect(lockEntityHref(fantasy, (s) => lockScriptSync(s, 'zh-Hans'))).toBe(
+			'/album/' + enc('范特西') + '?artist=' + enc('周杰伦')
+		);
 	});
 });

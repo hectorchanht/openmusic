@@ -573,13 +573,14 @@ describe('names.lockUrl (quick-260926-hze)', () => {
 		await zh.warmScript(target);
 	}
 	const enc = encodeURIComponent;
-	const simp = '/album/' + enc('范特西') + '?artist=' + enc('周杰伦') + '&dzid=1';
+	// 十一月的萧邦 converts both ways; 范 has no zh-Hant form in tongwen (see entity-href.test.ts).
+	const simp = '/album/' + enc('十一月的萧邦') + '?artist=' + enc('周杰伦') + '&dzid=1';
 
 	it('zh-Hant: locks the album title AND the artist param, keeps dzid', async () => {
 		settingsMock.zhScript = 'zh-Hant';
 		const { names } = await import('./names.svelte');
 		await warmLock('zh-Hant');
-		expect(names.lockUrl(simp)).toBe('/album/' + enc('範特西') + '?artist=' + enc('周杰倫') + '&dzid=1');
+		expect(names.lockUrl(simp)).toBe('/album/' + enc('十一月的蕭邦') + '?artist=' + enc('周杰倫') + '&dzid=1');
 	});
 
 	it("'off' returns the same string", async () => {

@@ -17,6 +17,7 @@
 import type { Track } from '$lib/sources/types';
 import { cached } from './ttl-cache';
 import { apiFetch } from './api-base';
+import { isChineseLine, lockScriptSync, warmScript } from './zh-convert';
 
 const MAX_TAGS = 5;
 // k3y client-side TTL for Last.fm /api/lastfm/info calls. The edge already caches
@@ -280,11 +281,33 @@ export async function getArtistTopAlbums(artist: string, limit = 30): Promise<Di
  * An album's ordered tracklist (D-05 — real album-page tracklist). Unlike the other
  * builders this consumes the Task-2 /api/lastfm/info album.getinfo `tracks` field, not
  * the discovery list endpoint. Returns [] on any failure / absent-key miss.
+ *
+ * quick-260926-hze — Chinese-title script rescue. Last.fm keeps ONE canonical title per
+ * album, sometimes Simplified, sometimes Traditional, and the album TITLE is its one
+ * script-sensitive key (the artist is script-blind). Probed: ('範特西','周杰倫') = 0 tracks
+ * vs ('范特西','周杰伦') = 10; ('十一月的萧邦','周杰伦') = 0 vs ('十一月的蕭邦','周杰倫') = 12.
+ * Since album URLs now follow the script lock and are the reload key, a Chinese-title miss
+ * retries the OTHER script(s), sequentially so a first-alt hit costs one extra call, not two.
+ * Hits and non-Chinese titles cost exactly the one original call. Chart albums (no dzid/mbid)
+ * resolve ONLY through here. Still never throws: fetchInfo, warmScript and lockScriptSync
+ * all never throw.
+ *
+ * ponytail: enrichAlbum is deliberately NOT rescued — Deezer supplies the hero cover in both
+ * scripts. Rescue enrichAlbum the same way if a Last.fm-only album loses its bio or art.
  */
 export async function getAlbumTracklist(
 	album: string,
 	artist: string
 ): Promise<{ artist: string; title: string }[]> {
 	const info = await fetchInfo({ method: 'album.getinfo', album, artist });
-	return info.tracks ?? [];
+	if (info.tracks?.length || !isChineseLine(album)) return info.tracks ?? [];
+	await warmScript('zh-Hant'); // builds s2t + t2s; memoized, never rejects
+	const alts = [...new Set([lockScriptSync(album, 'zh-Hans'), lockScriptSync(album, 'zh-Hant')])].filter(
+		(alt) => alt !== album
+	);
+	for (const alt of alts) {
+		const hit = await fetchInfo({ method: 'album.getinfo', album: alt, artist });
+		if (hit.tracks?.length) return hit.tracks;
+	}
+	return [];
 }
