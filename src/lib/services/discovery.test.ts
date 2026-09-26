@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import {
 	resolveStub,
+	preferEligible,
+	type Bests,
 	mapWithConcurrency,
 	shuffle,
 	pickRandomPage,
@@ -381,6 +383,166 @@ describe('resolveStub — English/romanized name rescue (quick-260925-wa7)', () 
 		expect((await resolveStub('周杰伦', '珊瑚海'))?.uid).toBe(weak.uid);
 		expect(search).toHaveBeenCalledTimes(1);
 		expect(look).toHaveBeenCalledTimes(0);
+	});
+});
+
+// quick-260926-c69 — eligible-first selection. resolveStub honours SourceAdapter.autoResolveEligible
+// (registry isAutoResolveEligible): a strong eligible (CN) row beats a ytmusic row; for a Latin query
+// with no strong eligible row the wa7 rescue runs FIRST to find one; a strong ytmusic row still beats
+// a weak eligible one; ytmusic stays the last resort. Every case pins BOTH call counts.
+describe('resolveStub — eligible-first selection (quick-260926-c69)', () => {
+	const junk = () => mk('qq', 'junk', '汪苏泷', { title: '左转灯' });
+	const ytm = () => mk('ytmusic', 'v1', 'Eric Chou', { title: '再愛你 - Zai Ai Ni' });
+	const cnEn = () => mk('qq', 'en', 'Eric Chou', { title: 'Zai Ai Ni' });
+	const cn = () => mk('qq', 'cn', '周兴哲', { title: '再爱你' });
+	const ytmZh = () => mk('ytmusic', 'z', '周興哲', { title: '再愛你' });
+	const zh = { artist: '周興哲', title: '再愛你' };
+
+	it('T1 Latin: strong eligible beats a strong ytmusic row ordered first; searchAll 1, lookup 0', async () => {
+		const search = vi.spyOn(catalog, 'searchAll').mockResolvedValue(result([ytm(), cnEn()]));
+		const look = vi.spyOn(nameRescue, 'lookupChineseName');
+
+		expect((await resolveStub('Eric Chou', 'Zai Ai Ni'))?.uid).toBe(cnEn().uid);
+		expect(search).toHaveBeenCalledTimes(1);
+		expect(look).toHaveBeenCalledTimes(0);
+	});
+
+	it('T2 LIVE CASE: weak eligible + strong ytmusic → rescue re-search finds the CN row; searchAll 2, lookup 1', async () => {
+		const search = vi
+			.spyOn(catalog, 'searchAll')
+			.mockResolvedValueOnce(result([junk(), ytm()]))
+			.mockResolvedValueOnce(result([cn()]));
+		const look = vi.spyOn(nameRescue, 'lookupChineseName').mockResolvedValue(zh);
+
+		expect((await resolveStub('Eric Chou', 'Zai Ai Ni'))?.uid).toBe(cn().uid);
+		expect(search).toHaveBeenCalledTimes(2);
+		expect(search.mock.calls[1][0]).toBe('周兴哲 再爱你');
+		expect(look).toHaveBeenCalledTimes(1);
+		expect(look).toHaveBeenCalledWith('Eric Chou', 'Zai Ai Ni');
+	});
+
+	it('T3 rescue miss → the strong ytmusic row, NOT the weak eligible junk; searchAll 1, lookup 1', async () => {
+		const search = vi.spyOn(catalog, 'searchAll').mockResolvedValue(result([junk(), ytm()]));
+		const look = vi.spyOn(nameRescue, 'lookupChineseName').mockResolvedValue(null);
+
+		expect((await resolveStub('Eric Chou', 'Zai Ai Ni'))?.uid).toBe(ytm().uid);
+		expect(search).toHaveBeenCalledTimes(1);
+		expect(look).toHaveBeenCalledTimes(1);
+	});
+
+	it('T4 no eligible row + strong ytmusic + rescue miss → ytmusic; searchAll 1, lookup 1 (pinned new cost)', async () => {
+		const search = vi.spyOn(catalog, 'searchAll').mockResolvedValue(result([ytm()]));
+		const look = vi.spyOn(nameRescue, 'lookupChineseName').mockResolvedValue(null);
+
+		expect((await resolveStub('Eric Chou', 'Zai Ai Ni'))?.uid).toBe(ytm().uid);
+		expect(search).toHaveBeenCalledTimes(1);
+		expect(look).toHaveBeenCalledTimes(1);
+	});
+
+	it('T5 the rescue re-search is eligible-only: its ytmusic row is ignored → the ORIGINAL ytmusic row; searchAll 2', async () => {
+		const search = vi
+			.spyOn(catalog, 'searchAll')
+			.mockResolvedValueOnce(result([junk(), ytm()]))
+			.mockResolvedValueOnce(
+				result([
+					mk('ytmusic', 'v2', '周興哲', { title: '再愛你' }),
+					mk('qq', 'aaa', 'Alpha', { title: 'Aaa' })
+				])
+			);
+		vi.spyOn(nameRescue, 'lookupChineseName').mockResolvedValue(zh);
+
+		expect((await resolveStub('Eric Chou', 'Zai Ai Ni'))?.uid).toBe(ytm().uid);
+		expect(search).toHaveBeenCalledTimes(2);
+	});
+
+	it('T6 rescue re-search THROWS → resolves (never throws) to the strong ytmusic row', async () => {
+		vi.spyOn(catalog, 'searchAll')
+			.mockResolvedValueOnce(result([junk(), ytm()]))
+			.mockRejectedValueOnce(new Error('search down'));
+		vi.spyOn(nameRescue, 'lookupChineseName').mockResolvedValue(zh);
+
+		expect((await resolveStub('Eric Chou', 'Zai Ai Ni'))?.uid).toBe(ytm().uid);
+	});
+
+	it('T7 CJK: weak eligible + strong ytmusic → ytmusic, no rescue; searchAll 1, lookup 0', async () => {
+		const search = vi.spyOn(catalog, 'searchAll').mockResolvedValue(result([junk(), ytmZh()]));
+		const look = vi.spyOn(nameRescue, 'lookupChineseName');
+
+		expect((await resolveStub('周興哲', '再愛你'))?.uid).toBe(ytmZh().uid);
+		expect(search).toHaveBeenCalledTimes(1);
+		expect(look).toHaveBeenCalledTimes(0);
+	});
+
+	it('T8 CJK fold: Traditional query vs Simplified eligible row is STRONG → beats Traditional ytmusic; searchAll 1, lookup 0', async () => {
+		const search = vi.spyOn(catalog, 'searchAll').mockResolvedValue(result([ytmZh(), cn()]));
+		const look = vi.spyOn(nameRescue, 'lookupChineseName');
+
+		expect((await resolveStub('周興哲', '再愛你'))?.uid).toBe(cn().uid);
+		expect(search).toHaveBeenCalledTimes(1);
+		expect(look).toHaveBeenCalledTimes(0);
+	});
+
+	it('T9 CJK, nothing strong: weak eligible beats weak ytmusic; searchAll 1, lookup 0', async () => {
+		const weak = mk('qq', 'w2', '酷客音乐', { title: '珊瑚海(钢琴曲)' });
+		const search = vi
+			.spyOn(catalog, 'searchAll')
+			.mockResolvedValue(result([mk('ytmusic', 'w', 'Someone', { title: 'Other' }), weak]));
+		const look = vi.spyOn(nameRescue, 'lookupChineseName');
+
+		expect((await resolveStub('周杰伦', '珊瑚海'))?.uid).toBe(weak.uid);
+		expect(search).toHaveBeenCalledTimes(1);
+		expect(look).toHaveBeenCalledTimes(0);
+	});
+
+	it('T10 ONLY a weak ytmusic row on a Traditional query → that row, no t2s retry; searchAll 1', async () => {
+		const only = mk('ytmusic', 'w', 'Someone', { title: 'Other' });
+		const search = vi.spyOn(catalog, 'searchAll').mockResolvedValue(result([only]));
+
+		expect((await resolveStub('周傑倫', '珊瑚海'))?.uid).toBe(only.uid);
+		expect(search).toHaveBeenCalledTimes(1);
+	});
+
+	it('T11 the t2s retry follows the same rule (eligible over a same-song ytmusic row); searchAll 2', async () => {
+		const cnRow = mk('qq', 'c', '周杰伦', { title: '止战之殇' });
+		const search = vi
+			.spyOn(catalog, 'searchAll')
+			.mockResolvedValueOnce(result([]))
+			.mockResolvedValueOnce(result([mk('ytmusic', 'y', '周杰伦', { title: '止战之殇' }), cnRow]));
+
+		expect((await resolveStub('周傑倫', '止戰之殤'))?.uid).toBe(cnRow.uid);
+		expect(search).toHaveBeenCalledTimes(2);
+	});
+});
+
+describe('preferEligible (quick-260926-c69)', () => {
+	const q = { artist: 'Eric Chou', title: 'Zai Ai Ni' };
+	const strongE = mk('qq', 'e', 'Eric Chou', { title: 'Zai Ai Ni' });
+	const weakE = mk('qq', 'we', '汪苏泷', { title: '左转灯' });
+	const strongI = mk('ytmusic', 'i', 'Eric Chou', { title: '再愛你 - Zai Ai Ni' });
+	const weakI = mk('ytmusic', 'wi', 'Someone', { title: 'Other' });
+	const pick = (b: Bests) => preferEligible(q, b);
+
+	it('(a) eligible strong + ineligible strong → eligible', async () => {
+		expect(await pick({ eligible: strongE, ineligible: strongI })).toBe(strongE);
+	});
+	it('(b) eligible weak + ineligible strong → ineligible', async () => {
+		expect(await pick({ eligible: weakE, ineligible: strongI })).toBe(strongI);
+	});
+	it('(c) both weak → eligible', async () => {
+		expect(await pick({ eligible: weakE, ineligible: weakI })).toBe(weakE);
+	});
+	it('(d) no eligible + ineligible weak → ineligible (last resort)', async () => {
+		expect(await pick({ eligible: null, ineligible: weakI })).toBe(weakI);
+	});
+	it('(e) both null → null', async () => {
+		expect(await pick({ eligible: null, ineligible: null })).toBeNull();
+	});
+	it('(f) Traditional query vs Simplified eligible row → eligible (t2s fold)', async () => {
+		const cnRow = mk('qq', 'cn', '周兴哲', { title: '再爱你' });
+		const ytZh = mk('ytmusic', 'z', '周興哲', { title: '再愛你' });
+		expect(
+			await preferEligible({ artist: '周興哲', title: '再愛你' }, { eligible: cnRow, ineligible: ytZh })
+		).toBe(cnRow);
 	});
 });
 

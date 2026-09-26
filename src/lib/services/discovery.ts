@@ -15,9 +15,13 @@ import { dedupeBest } from '$lib/services/dedupe';
 import { scoreMatch } from '$lib/services/score-match';
 import { isChineseLine, t2sConvertLines, t2sConvertLineSync } from '$lib/services/zh-convert';
 import { detectLang } from '$lib/i18n/detect';
-import { isStrongMatch, lookupChineseName } from '$lib/services/name-rescue';
+import { isStrongMatch, lookupChineseName, type ZhName } from '$lib/services/name-rescue';
 import { settings } from '$lib/stores/settings.svelte';
+import { isAutoResolveEligible } from '$lib/sources/registry';
 import type { Track } from '$lib/sources/types';
+
+/** quick-260926-c69: one attempt's best row per auto-resolve partition (see attempt). */
+export type Bests = { eligible: Track | null; ineligible: Track | null };
 
 /**
  * ONE search+score pass: searchAll → dedupeBest → scoreMatch stable-max. Extracted
@@ -31,31 +35,70 @@ import type { Track } from '$lib/sources/types';
  * dedupeBest position on equal scores) makes that ordering the FINAL tie-break among
  * similarly-scored candidates (D-02 tie-break). Throws only what searchAll throws — the
  * never-throw boundary is resolveStub's single try/catch.
+ *
+ * quick-260926-c69: ranks auto-resolve ELIGIBLE and INELIGIBLE rows separately (registry flag via
+ * isAutoResolveEligible — no source named here) and returns both bests; preferEligible decides.
  */
 async function attempt(
 	artist: string,
 	title: string,
 	accept?: (t: Track) => boolean
-): Promise<Track | null> {
+): Promise<Bests> {
 	const r = await searchAll(`${artist} ${title}`, 1);
-	// dedupeBest = the deduped, quality/preferredSource-ordered candidate list (FINAL
-	// tie-break). Re-rank IT by scoreMatch with a stable max: only replace the current
-	// best on a STRICTLY higher score, so equal scores keep the earlier dedupeBest slot.
-	let candidates = dedupeBest(r.interleaved, settings.preferredSource);
-	// quick-260925-wa7: the name rescue ranks only the rows it would accept (see rescueLatin).
-	if (accept) candidates = candidates.filter(accept);
-	if (candidates.length === 0) return null;
 	const query = { artist, title };
-	let best = candidates[0];
-	let bestScore = scoreMatch(query, best);
-	for (let i = 1; i < candidates.length; i++) {
-		const s = scoreMatch(query, candidates[i]);
-		if (s > bestScore) {
-			best = candidates[i];
-			bestScore = s;
+	const pick = (rows: Track[]): Track | null => {
+		// dedupeBest = the deduped, quality/preferredSource-ordered candidate list (FINAL
+		// tie-break). Re-rank IT by scoreMatch with a stable max: only replace the current
+		// best on a STRICTLY higher score, so equal scores keep the earlier dedupeBest slot.
+		let candidates = dedupeBest(rows, settings.preferredSource);
+		// quick-260925-wa7: the name rescue ranks only the rows it would accept (see rescueLatin).
+		if (accept) candidates = candidates.filter(accept);
+		if (candidates.length === 0) return null;
+		let best = candidates[0];
+		let bestScore = scoreMatch(query, best);
+		for (let i = 1; i < candidates.length; i++) {
+			const s = scoreMatch(query, candidates[i]);
+			if (s > bestScore) {
+				best = candidates[i];
+				bestScore = s;
+			}
 		}
-	}
-	return best;
+		return best;
+	};
+	// quick-260926-c69: partition BEFORE dedupeBest. Its same-key collapse is decided by quality →
+	// settings.preferredSource → SOURCE_RANK, so a user-preferred ineligible source could otherwise
+	// swallow its eligible same-song sibling and leave the eligible partition empty.
+	return {
+		eligible: pick(r.interleaved.filter((t) => isAutoResolveEligible(t.source))),
+		ineligible: pick(r.interleaved.filter((t) => !isAutoResolveEligible(t.source)))
+	};
+}
+
+/**
+ * quick-260926-c69 — isStrongMatch with Traditional/Simplified folded on BOTH sides, exactly as
+ * rescueLatin compares CJK names. Raw compare first; the t2s dict loads only when that fails AND a
+ * string is Chinese (the same trigger class as urx's first Chinese-script miss — lazy, memoized,
+ * once per session), so the Latin/JA/KO and strong-CJK common paths stay cold. t2sConvertLines is
+ * never-throw (identity fallback), so this cannot throw.
+ */
+async function strongFolded(query: ZhName, cand: ZhName): Promise<boolean> {
+	if (isStrongMatch(query, cand)) return true;
+	if (![query.artist, query.title, cand.artist, cand.title].some(isChineseLine)) return false;
+	const [qa, qt, ca, ct] = await t2sConvertLines([query.artist, query.title, cand.artist, cand.title]);
+	return isStrongMatch({ artist: qa, title: qt }, { artist: ca, title: ct });
+}
+
+/**
+ * quick-260926-c69 — the selection rule. An eligible row wins only when it genuinely (strongly)
+ * matches; a strong ineligible (ytmusic) row beats a weak/wrong eligible one — never play a wrong
+ * song; with nothing strong, today's result: the best eligible weak row, else the best ineligible
+ * one, else null. The `?? ineligible` tail is what keeps ytmusic the LAST RESORT — do not remove it.
+ */
+export async function preferEligible(query: ZhName, bests: Bests): Promise<Track | null> {
+	const { eligible, ineligible } = bests;
+	if (eligible && (await strongFolded(query, eligible))) return eligible;
+	if (ineligible && (await strongFolded(query, ineligible))) return ineligible;
+	return eligible ?? ineligible;
 }
 
 /**
@@ -103,17 +146,37 @@ async function attempt(
  * call-count tests). lookupChineseName is never-throw and cached (hit 30 d / miss 1 d), so a re-tap
  * costs zero lookups. The supersedence contract above still holds by construction — playStub still
  * awaits ONE resolveStub call; do NOT add a generation guard here either.
+ *
+ * quick-260926-c69 — ELIGIBLE-FIRST. resolveStub now honours SourceAdapter.autoResolveEligible (the
+ * registry flag, read via isAutoResolveEligible — never a source name), like fallback.ts and
+ * catalog.ts resolveNameStub already did. Four-way rule (preferEligible): strong eligible → it;
+ * else strong ineligible (ytmusic) → it; else weak eligible; else weak ineligible; else null. For a
+ * Latin query with no strong eligible row the wa7 rescue runs FIRST, even when a ytmusic row is
+ * strong — that row is exactly what the rescue exists to replace (web googlevideo 403s the edge
+ * byte fetch). Cost: strong eligible = 1 search / 0 lookups; Latin with eligible weak-or-absent +
+ * ytmusic strong = +1 lookup (cached) +1 search; a CJK query never looks up.
  */
 export async function resolveStub(artist: string, title: string): Promise<Track | null> {
 	try {
-		const hit = await attempt(artist, title);
+		const bests = await attempt(artist, title);
+		const query = { artist, title };
+		// quick-260926-c69 COMMON PATH — a strong eligible row: one searchAll, zero lookups.
+		if (bests.eligible && (await strongFolded(query, bests.eligible))) return bests.eligible;
 		// quick-260925-wa7 GATE A — Latin: NO kana/hangul/Han in either field ('en' is detectLang's
 		// "no CJK at all" verdict; isChineseLine alone would let JA/KO through).
 		const latin = detectLang(artist) === 'en' && detectLang(title) === 'en';
-		// GATE B — a strong hit, or any hit on a non-Latin query, returns exactly as before.
-		if (hit && !(latin && !isStrongMatch({ artist, title }, hit))) return hit;
-		// A thrown re-search must not turn a weak hit into null (never worse).
-		if (latin) return (await rescueLatin(artist, title).catch(() => null)) ?? hit;
+		// GATE B (generalised, quick-260926-c69) — a Latin query with NO strong ELIGIBLE row runs the
+		// rescue first, even when a ytmusic row is strong: that row is precisely what the rescue exists
+		// to replace (live: the CN 再爱你/周兴哲 row is found via the YTM en↔zh-TW pair + one Simplified
+		// re-search). On a miss the strong ytmusic row (or today's weak result) comes back. A thrown
+		// re-search must not turn a hit into null (never worse).
+		if (latin) {
+			return (await rescueLatin(artist, title).catch(() => null)) ?? (await preferEligible(query, bests));
+		}
+		// quick-260926-c69: a CJK query with any candidate settles here (strong ytmusic beats weak
+		// eligible; weak eligible beats weak ytmusic; ineligible-only returns the ytmusic row as today).
+		const settled = await preferEligible(query, bests);
+		if (settled) return settled;
 		// GATE 1 — script. Per-field, so a mixed Latin-artist / Chinese-title stub still qualifies.
 		// isChineseLine rides the kana/hangul-FIRST classifier, so JA/KO lines return false and a
 		// Japanese title is never wrongly Simplified-ified (D-04).
@@ -122,7 +185,8 @@ export async function resolveStub(artist: string, title: string): Promise<Track 
 		// GATE 2 — identity. The input was already Simplified (or the converter degraded to its
 		// never-throw identity fallback): there is nothing new to search, so do not spend a call.
 		if (a2 === artist && t2 === title) return null;
-		return await attempt(a2, t2);
+		// quick-260926-c69: the retry follows the same rule, scored against the CONVERTED query.
+		return await preferEligible({ artist: a2, title: t2 }, await attempt(a2, t2));
 	} catch {
 		return null;
 	}
@@ -138,15 +202,20 @@ export async function resolveStub(artist: string, title: string): Promise<Track 
  * QQ absent had a piano cover (纪钧瀚) tie a strong 周杰倫 row on scoreMatch and win the stable max,
  * which a top-row-only check would have thrown away. Null (no lookup / no strong row) → the caller
  * keeps its original result.
+ *
+ * quick-260926-c69: returns ONLY the eligible partition — the ineligible one is discarded on
+ * purpose; a ytmusic row here would just reproduce the row the rescue is trying to replace.
  */
 async function rescueLatin(artist: string, title: string): Promise<Track | null> {
 	const zh = await lookupChineseName(artist, title);
 	if (!zh) return null;
 	const [a2, t2] = await t2sConvertLines([zh.artist, zh.title]);
 	const fold = (s: string) => t2sConvertLineSync(s) ?? s; // warm: t2sConvertLines just loaded it
-	return attempt(a2, t2, (c) =>
-		isStrongMatch({ artist: a2, title: t2 }, { artist: fold(c.artist), title: fold(c.title) })
-	);
+	return (
+		await attempt(a2, t2, (c) =>
+			isStrongMatch({ artist: a2, title: t2 }, { artist: fold(c.artist), title: fold(c.title) })
+		)
+	).eligible;
 }
 
 // ---- Curated discovery sets (Phase 9, D-02 / CONTEXT discretion) ------------------
