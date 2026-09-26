@@ -7,7 +7,7 @@
 	import Logo from '$lib/components/Logo.svelte';
 	import ShelfChevrons from '$lib/components/ShelfChevrons.svelte';
 	import { buildDiversePicks } from '$lib/services/picks';
-	import { buildRadio } from '$lib/services/radio';
+	import { buildRadio, reseedRadio } from '$lib/services/radio';
 	import type { QueueContext } from '$lib/config/defaults';
 	import {
 		getChartTopTracks,
@@ -181,8 +181,19 @@
 	let historyShelf = $state<Track[]>([]);
 	// quick-260924-pgu: "Your Radio" — lazy `nameStub` Tracks (resolveByName), similar-but-unheard
 	// songs seeded from play history. Built ONCE per mount (see onMount), not on every refresh(),
-	// because unlike the other local shelves it costs network.
+	// because unlike the other local shelves it costs network. quick-260926-lw8: also rebuilt on
+	// Randomize with a fresh session seed — still never on a background refresh().
 	let radioShelf = $state<Track[]>([]);
+	// quick-260926-lw8: the WR-04 gen-guard idiom — a Randomize press while a build is in flight must
+	// not be clobbered by the older result landing late.
+	let radioGen = 0;
+	function rebuildRadio() {
+		if (settings.homeHidden.includes('radio')) return;
+		const gen = ++radioGen;
+		void buildRadio(playHistory.entries, clampShelfSize(settings.homeShelfSize)).then((r) => {
+			if (gen === radioGen) radioShelf = r;
+		});
+	}
 	let playlistShelves = $state<{ id: string; name: string; tracks: Track[] }[]>([]);
 	// kmn: favourite artists shelf (round avatars). Covers backfill via the existing
 	// backfillArtistCovers chain (Deezer → iTunes) on mount + whenever the list changes.
@@ -216,8 +227,11 @@
 		// HistoryEntry IS the playable Track whitelist (audioUrl re-resolves on play()).
 		const historyTracks = playHistory.entries as unknown as Track[];
 		historyShelf = pickN(historyTracks, cap, randomize);
-		// quick-260924-pgu: Randomize reshuffles the radio tiles it already has — it does NOT refetch.
-		if (randomize) radioShelf = shuffle(radioShelf);
+		// quick-260926-lw8 (was quick-260924-pgu's reshuffle of the tiles it already had): Randomize
+		// now draws a NEW session seed and rebuilds. Seeds already fetched this session are 6h-cached,
+		// so the cost is only the newly-sampled seed artists (still <= RADIO_SEEDS x 2), and the old
+		// tiles stay on screen until the new draw lands.
+		if (randomize) { reseedRadio(); rebuildRadio(); }
 		playlistShelves = library.playlists
 			.filter((p) => p.tracks.length > 0)
 			.map((p) => ({ id: p.id, name: p.name, tracks: pickN(p.tracks, cap, randomize) }));
@@ -1099,11 +1113,7 @@
 		// quick-260924-pgu: fires in the first request burst (ahead of the tag/country fan-out) so the
 		// shelf lands early; a hidden section spends nothing. buildRadio never throws and returns []
 		// on empty history (zero requests), so there is no error path — an empty shelf renders nothing.
-		if (!settings.homeHidden.includes('radio')) {
-			void buildRadio(playHistory.entries, clampShelfSize(settings.homeShelfSize)).then((r) => {
-				radioShelf = r;
-			});
-		}
+		rebuildRadio();
 
 		// Shared link: /?play=<token>. 38-D-11: the DECODER is kept — nothing emits this shape any
 		// more, but old links are in the wild and must keep working. 38-D-12: what changed is where
