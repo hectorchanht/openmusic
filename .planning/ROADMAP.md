@@ -520,12 +520,12 @@ Plans:
 **Goal:** The home page shows what is actually hot in the listener's region right now. New default shelves — Top Songs (KKBOX for hk/tw/sg, Apple Music RSS elsewhere), Top Albums (Apple Music RSS), New Releases (KKBOX), Top Artists + Trending (YouTube Charts), and genre shelves (regional pop via client-side legacy iTunes RSS, Western genres via Deezer genre charts) — driven by one main Chart region (defaulted from app language) plus optional extra regions. The existing Deezer Top Hits/Top Artists and Last.fm tag/country shelves stay available in /settings/home but are hidden by default, with a one-time switch for existing users. Randomize samples a random N from each cached top-50/100 pool so the first render varies at zero extra requests. De-risked by spikes 011 (edge reachability) + 012 (genre charts); blueprint in `.claude/skills/spike-findings-openmusic/references/home-charts.md`.
 **Requirements**: P39-01, P39-02, P39-03, P39-04, P39-05, P39-06, P39-07, P39-08, P39-09, P39-10, P39-11, P39-12, P39-13 (researcher-derived ids, 39-RESEARCH.md §Phase Requirements + 39-VALIDATION.md P39-13)
 **Depends on:** Phase 38
-**Plans:** 10 plans
+**Plans:** 1/10 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 39-01-PLAN.md — Pure chart parsers + reciprocal-rank fusion + image-host allowlists + real-response fixtures (wave 1)
+- [x] 39-01-PLAN.md — Pure chart parsers + reciprocal-rank fusion + image-host allowlists + real-response fixtures (wave 1)
 - [ ] 39-02-PLAN.md — home-layout model: 17 section ids, 27-region allowlist, genre pool, versioned migration, reorderListed; i18n keys in 15 locales (wave 1)
 
 **Wave 2** *(blocked on Wave 1 completion)*
