@@ -103,7 +103,7 @@ afterEach(() => {
 
 describe('GET /api/lyric-offset', () => {
 	it('a bad key is 400 invalid-key and never reaches R2', async () => {
-		for (const search of [{}, { k: 'ZZ'.repeat(16) }, { k: 'a'.repeat(31) }, { k: '../x' }]) {
+		for (const search of [{} as Record<string, string>, { k: 'ZZ'.repeat(16) }, { k: 'a'.repeat(31) }, { k: '../x' }]) {
 			const bucket = fakeBucket();
 			const res = await callGET(fakeEvent('GET', { search, env: env(bucket) }));
 			expect(res.status).toBe(400);
