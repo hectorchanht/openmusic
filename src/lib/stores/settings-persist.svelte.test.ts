@@ -88,13 +88,13 @@ describe('settings persistence round-trip — shareIncludeTitle (quick-260808-vz
 describe('settings persistence round-trip — rowActions (quick-260919-l9e)', () => {
 	beforeEach(() => memStore.clear());
 
-	// quick-260920-kxz REVERSED the default from ['like','download'] to []: a fresh row shows
-	// neither button, and either is switched on from the Song rows editor. The persisted-list
-	// cases below are UNCHANGED — only the "what does a fresh install get" assertions move.
-	it('defaults to [] when nothing is persisted (quick-260920-kxz)', async () => {
+	// quick-260925-vtg reversed quick-260920-kxz's [] default back to both on, Download first
+	// (the user's exported settings). The persisted-list cases below are UNCHANGED — only the
+	// "what does a fresh install get" assertions move.
+	it("defaults to ['download', 'like'] when nothing is persisted (quick-260925-vtg)", async () => {
 		const settings = await freshSettings();
 		settings.load();
-		expect(settings.rowActions).toEqual([]);
+		expect(settings.rowActions).toEqual(['download', 'like']);
 	});
 
 	it('a persisted subset wins on load', async () => {
@@ -121,12 +121,15 @@ describe('settings persistence round-trip — rowActions (quick-260919-l9e)', ()
 	});
 
 	// T-l9e-01 (tampering): localStorage is user/extension-writable.
-	it.each([['like'], [null], [{}], [7]])('a corrupt non-array (%p) falls back to the default ([])', async (bad) => {
-		memStore.set(KEY, JSON.stringify({ appLang: 'en', rowActions: bad }));
-		const settings = await freshSettings();
-		settings.load();
-		expect(settings.rowActions).toEqual([]);
-	});
+	it.each([['like'], [null], [{}], [7]])(
+		"a corrupt non-array (%p) falls back to the default (['download', 'like'], quick-260925-vtg)",
+		async (bad) => {
+			memStore.set(KEY, JSON.stringify({ appLang: 'en', rowActions: bad }));
+			const settings = await freshSettings();
+			settings.load();
+			expect(settings.rowActions).toEqual(['download', 'like']);
+		}
+	);
 
 	it('unknown and duplicate members are dropped rather than poisoning the order', async () => {
 		memStore.set(KEY, JSON.stringify({ appLang: 'en', rowActions: ['like', 'bogus', 7, 'like', 'download'] }));
@@ -142,15 +145,16 @@ describe('settings persistence round-trip — rowActions (quick-260919-l9e)', ()
 		expect(JSON.parse(localStorage.getItem(KEY) as string).rowActions).toEqual(['download']);
 	});
 
-	// quick-260920-kxz: the starting value has to be NON-empty now, or the case would pass
-	// trivially against the new [] default without ever proving that reset touched the field.
-	it('resetAppearance() reverts the field AND the persisted blob', async () => {
+	// quick-260925-vtg reversed kxz back to both on: the starting value must differ from the new
+	// ['download', 'like'] default, or the case would pass trivially without ever proving that
+	// reset touched the field — so it starts from [].
+	it('resetAppearance() reverts the field AND the persisted blob (quick-260925-vtg)', async () => {
 		const settings = await freshSettings();
-		settings.rowActions = ['download', 'like'];
+		settings.rowActions = [];
 		settings.save();
 		settings.resetAppearance();
-		expect(settings.rowActions).toEqual([]);
-		expect(JSON.parse(localStorage.getItem(KEY) as string).rowActions).toEqual([]);
+		expect(settings.rowActions).toEqual(['download', 'like']);
+		expect(JSON.parse(localStorage.getItem(KEY) as string).rowActions).toEqual(['download', 'like']);
 	});
 });
 
@@ -197,7 +201,21 @@ describe('settings persistence round-trip — fontScaleApp (quick-260920-kxz)', 
 describe('settings persistence round-trip — home chart settings (39-D-25)', () => {
 	beforeEach(() => memStore.clear());
 
-	const DEFAULT_GENRES = ['cantopop', 'mandopop', 'kpop', 'jpop', 'hiphop', 'rock', 'dance', 'rnb'];
+	// quick-260925-vtg: all 11 pool genres (supersedes the 39-D-10 8-genre lock); default region
+	// 'hk' and extra regions ['us'] (supersedes 39-D-25's 'auto' / []).
+	const DEFAULT_GENRES = [
+		'cantopop',
+		'mandopop',
+		'kpop',
+		'jpop',
+		'hiphop',
+		'rock',
+		'dance',
+		'rnb',
+		'electronic',
+		'alternative',
+		'asian'
+	];
 
 	async function loadWith(blob: Record<string, unknown>) {
 		memStore.set(KEY, JSON.stringify({ appLang: 'en', ...blob }));
@@ -206,28 +224,28 @@ describe('settings persistence round-trip — home chart settings (39-D-25)', ()
 		return settings;
 	}
 
-	it('homeChartRegion defaults to auto when nothing is persisted', async () => {
+	it('homeChartRegion defaults to hk when nothing is persisted (quick-260925-vtg)', async () => {
 		const settings = await freshSettings();
 		settings.load();
-		expect(settings.homeChartRegion).toBe('auto');
+		expect(settings.homeChartRegion).toBe('hk');
 	});
 
-	it('homeExtraRegions defaults to [] when nothing is persisted', async () => {
+	it("homeExtraRegions defaults to ['us'] when nothing is persisted (quick-260925-vtg)", async () => {
 		const settings = await freshSettings();
 		settings.load();
-		expect(settings.homeExtraRegions).toEqual([]);
+		expect(settings.homeExtraRegions).toEqual(['us']);
 	});
 
-	it('homeChartGenres defaults to the 8 locked genres when nothing is persisted', async () => {
+	it('homeChartGenres defaults to all 11 pool genres when nothing is persisted (quick-260925-vtg)', async () => {
 		const settings = await freshSettings();
 		settings.load();
 		expect(settings.homeChartGenres).toEqual(DEFAULT_GENRES);
 	});
 
-	it('a blob without the three keys (existing install) loads the defaults', async () => {
+	it('a blob without the three keys (existing install) loads the defaults (quick-260925-vtg)', async () => {
 		const settings = await loadWith({ homeHidden: ['radio'] });
-		expect(settings.homeChartRegion).toBe('auto');
-		expect(settings.homeExtraRegions).toEqual([]);
+		expect(settings.homeChartRegion).toBe('hk');
+		expect(settings.homeExtraRegions).toEqual(['us']);
 		expect(settings.homeChartGenres).toEqual(DEFAULT_GENRES);
 	});
 
@@ -235,28 +253,32 @@ describe('settings persistence round-trip — home chart settings (39-D-25)', ()
 		expect((await loadWith({ homeChartRegion: 'tw' })).homeChartRegion).toBe('tw');
 	});
 
-	it('a persisted cn region loads as auto (cn is not an offered region)', async () => {
-		expect((await loadWith({ homeChartRegion: 'cn' })).homeChartRegion).toBe('auto');
+	it("a persisted 'auto' region survives load (quick-260925-vtg — Auto is a real choice, not corruption)", async () => {
+		expect((await loadWith({ homeChartRegion: 'auto' })).homeChartRegion).toBe('auto');
 	});
 
-	it('a non-string region (42) loads as auto', async () => {
-		expect((await loadWith({ homeChartRegion: 42 })).homeChartRegion).toBe('auto');
+	it('a persisted cn region loads as the default (hk) — cn is not an offered region (quick-260925-vtg)', async () => {
+		expect((await loadWith({ homeChartRegion: 'cn' })).homeChartRegion).toBe('hk');
 	});
 
-	it('an upper-case region (HK) loads as auto — the allowlist is case-sensitive', async () => {
-		expect((await loadWith({ homeChartRegion: 'HK' })).homeChartRegion).toBe('auto');
+	it('a non-string region (42) loads as the default (hk) (quick-260925-vtg)', async () => {
+		expect((await loadWith({ homeChartRegion: 42 })).homeChartRegion).toBe('hk');
 	});
 
-	it('a garbage region string loads as auto', async () => {
-		expect((await loadWith({ homeChartRegion: 'garbage' })).homeChartRegion).toBe('auto');
+	it('an upper-case region (HK) loads as the default (hk) — the allowlist is case-sensitive (quick-260925-vtg)', async () => {
+		expect((await loadWith({ homeChartRegion: 'HK' })).homeChartRegion).toBe('hk');
+	});
+
+	it('a garbage region string loads as the default (hk) (quick-260925-vtg)', async () => {
+		expect((await loadWith({ homeChartRegion: 'garbage' })).homeChartRegion).toBe('hk');
 	});
 
 	it('persisted homeExtraRegions load in their saved order', async () => {
 		expect((await loadWith({ homeExtraRegions: ['tw', 'jp'] })).homeExtraRegions).toEqual(['tw', 'jp']);
 	});
 
-	it('a non-array homeExtraRegions falls back to []', async () => {
-		expect((await loadWith({ homeExtraRegions: 'tw' })).homeExtraRegions).toEqual([]);
+	it("a non-array homeExtraRegions falls back to the default ['us'] (quick-260925-vtg)", async () => {
+		expect((await loadWith({ homeExtraRegions: 'tw' })).homeExtraRegions).toEqual(['us']);
 	});
 
 	it('persisted homeChartGenres load in their saved order', async () => {
@@ -267,7 +289,7 @@ describe('settings persistence round-trip — home chart settings (39-D-25)', ()
 		expect((await loadWith({ homeChartGenres: [] })).homeChartGenres).toEqual([]);
 	});
 
-	it('a non-array homeChartGenres ({}) falls back to the 8 defaults', async () => {
+	it('a non-array homeChartGenres ({}) falls back to the 11 defaults (quick-260925-vtg)', async () => {
 		expect((await loadWith({ homeChartGenres: {} })).homeChartGenres).toEqual(DEFAULT_GENRES);
 	});
 
@@ -283,15 +305,15 @@ describe('settings persistence round-trip — home chart settings (39-D-25)', ()
 		expect(blob.homeChartGenres).toEqual(['jpop']);
 	});
 
-	it('resetHome() reverts all three fields AND the persisted blob', async () => {
+	it('resetHome() reverts all three fields AND the persisted blob (quick-260925-vtg)', async () => {
 		const settings = await loadWith({ homeChartRegion: 'tw', homeExtraRegions: ['jp'], homeChartGenres: [] });
 		settings.resetHome();
-		expect(settings.homeChartRegion).toBe('auto');
-		expect(settings.homeExtraRegions).toEqual([]);
+		expect(settings.homeChartRegion).toBe('hk');
+		expect(settings.homeExtraRegions).toEqual(['us']);
 		expect(settings.homeChartGenres).toEqual(DEFAULT_GENRES);
 		const blob = JSON.parse(localStorage.getItem(KEY) as string);
-		expect(blob.homeChartRegion).toBe('auto');
-		expect(blob.homeExtraRegions).toEqual([]);
+		expect(blob.homeChartRegion).toBe('hk');
+		expect(blob.homeExtraRegions).toEqual(['us']);
 		expect(blob.homeChartGenres).toEqual(DEFAULT_GENRES);
 	});
 
@@ -404,5 +426,32 @@ describe('one-time home layout switch (39-D-40 / P39-06)', () => {
 		expect(blob.homeLayoutVersion).toBe(2);
 		expect(blob.homeHidden).toEqual([...CLASSIC_SECTIONS]);
 		expect(blob.homeSectionOrder).toEqual(HOME_DEFAULTS.homeSectionOrder);
+	});
+});
+
+// quick-260925-vtg: the zhScript default flipped 'off' → 'zh-Hant'. Before this, load()'s allowlist
+// accepted only the two scripts and sent everything else to the default — harmless while the
+// default WAS 'off', but it would now silently re-script an existing user who explicitly chose
+// 'off'. These cases pin the widened guard.
+describe('settings persistence — zhScript survives load (quick-260925-vtg)', () => {
+	beforeEach(() => memStore.clear());
+
+	async function loadWith(blob: Record<string, unknown>) {
+		memStore.set(KEY, JSON.stringify({ appLang: 'en', ...blob }));
+		const settings = await freshSettings();
+		settings.load();
+		return settings;
+	}
+
+	it("a persisted 'off' loads as 'off' (a real choice, and the pre-vtg default)", async () => {
+		expect((await loadWith({ zhScript: 'off' })).zhScript).toBe('off');
+	});
+
+	it("a blob without the key loads the default 'zh-Hant'", async () => {
+		expect((await loadWith({})).zhScript).toBe('zh-Hant');
+	});
+
+	it("a garbage value ('bogus') loads the default 'zh-Hant'", async () => {
+		expect((await loadWith({ zhScript: 'bogus' })).zhScript).toBe('zh-Hant');
 	});
 });

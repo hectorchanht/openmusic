@@ -42,9 +42,11 @@ describe('poolKey / genrePoolKey', () => {
 });
 
 describe('planChartShelves', () => {
-	it('plans 14 tasks for a KKBOX region with every section visible', () => {
+	// quick-260925-vtg: counts are non-genre tasks + DEFAULT_CHART_GENRES.length, and the default
+	// genre set went 8 → 11, so each count below moved by 3.
+	it('plans 17 tasks for a KKBOX region with every section visible', () => {
 		const tasks = planChartShelves(cfg());
-		expect(tasks).toHaveLength(14);
+		expect(tasks).toHaveLength(17);
 		expect(keysOf(tasks)).toEqual(
 			[
 				'chart-songs:hk',
@@ -80,9 +82,9 @@ describe('planChartShelves', () => {
 		expect(genres[0]).toEqual({ key: 'genre:cantopop', section: 'genres', src: 'genre', genre: 'cantopop' });
 	});
 
-	it('plans 12 tasks for a non-KKBOX region, chart-songs exactly once (apple)', () => {
+	it('plans 15 tasks for a non-KKBOX region, chart-songs exactly once (apple) (quick-260925-vtg: 11 genres)', () => {
 		const tasks = planChartShelves(cfg({ region: 'us' }));
-		expect(tasks).toHaveLength(12);
+		expect(tasks).toHaveLength(15);
 		const songs = tasks.filter((t) => t.key === 'chart-songs:us');
 		expect(songs).toEqual([{ key: 'chart-songs:us', section: 'chart-songs', src: 'apple', kind: 'songs', cc: 'us' }]);
 	});
@@ -109,8 +111,8 @@ describe('planChartShelves', () => {
 		expect(planChartShelves(cfg({ hidden: [...CHART_SECTIONS], extraRegions: ['tw', 'jp'] }))).toEqual([]);
 	});
 
-	it('hiding a classic section id does not affect chart tasks', () => {
-		expect(planChartShelves(cfg({ hidden: ['top-hits', 'tags'] }))).toHaveLength(14);
+	it('hiding a classic section id does not affect chart tasks (quick-260925-vtg: 17 with 11 genres)', () => {
+		expect(planChartShelves(cfg({ hidden: ['top-hits', 'tags'] }))).toHaveLength(17);
 	});
 
 	it('adds one apple songs task per extra region, in order', () => {

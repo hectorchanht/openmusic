@@ -25,8 +25,10 @@ import type { SourceId } from '$lib/sources/types';
 import type { LyricsLang, SourceLang, TranslateMode, DefaultQuality, DefaultSource, Theme, ZhScriptSetting, RowAction } from '$lib/stores/settings.svelte';
 
 /** The accent-color hex used when the user hasn't picked one. Pulled out so the General
- *  reset can restore it without importing from settings.svelte.ts (circular). */
-export const DEFAULT_ACCENT = '#7c5cff';
+ *  reset can restore it without importing from settings.svelte.ts (circular).
+ *  quick-260925-vtg: teal — the user's own exported settings adopted as the defaults (was
+ *  #7c5cff). #00c2b8 is already an ACCENT_PRESETS entry, so the picker highlights it. */
+export const DEFAULT_ACCENT = '#00c2b8';
 
 // ---- General ---------------------------------------------------------------------------
 // First-visit detection lives in settings.load() (browser-language auto-detect). Reset reverts
@@ -67,38 +69,41 @@ export const APPEARANCE_DEFAULTS = {
 	 *  It lives in Appearance (not Playback) because it is what a list row LOOKS like, next to
 	 *  the row-size controls — the other "what fills a row" knobs.
 	 *
-	 *  quick-260920-kxz REVERSES l9e's "BOTH ON" default. l9e read the request "have these
-	 *  buttons" as "have them by default"; the user has now asked for the opposite — a fresh row
-	 *  shows neither Like nor Download, and either is switched on from the Song rows editor in
-	 *  Settings → Appearance. The capability is unchanged, only its starting position.
-	 *  NEITHER ON is safe for exactly the reason l9e already gave below: the ⋮ menu is NOT in this
-	 *  list and is unconditional, so every action stays reachable from an empty row.
+	 *  quick-260925-vtg supersedes quick-260920-kxz (which had flipped the default to neither
+	 *  on): a fresh row shows Download then Like — the user's own exported settings adopted as
+	 *  the defaults. Either can still be switched off from the Song rows editor in Settings →
+	 *  Appearance, and an empty row stays safe because the ⋮ menu is NOT in this list and is
+	 *  unconditional, so every action stays reachable. An existing user's persisted `[]` still
+	 *  survives load() (Array.isArray guard, asserted in settings-persist).
 	 *  WR-10: this literal lives HERE and nowhere else. */
-	rowActions: [] as readonly RowAction[]
+	rowActions: ['download', 'like'] as readonly RowAction[]
 } as const;
 
 // ---- Translation -----------------------------------------------------------------------
-// All per-part targets default OFF (k3y: matches today's installed-app behavior — content is
-// never auto-translated unless the user opts in). bioLang defaults 'auto' (bio is the one
-// "wants the app language" surface, established in fnp).
+// Every per-part target defaults OFF, so no surface auto-translates unless the user opts in.
+// artist/title/lastfm were already 'off' (k3y / f4y); quick-260925-vtg turns lyricsLang and
+// bioLang 'off' too (they were 'auto') — the user's own exported settings adopted as the defaults.
 export const TRANSLATION_DEFAULTS = {
-	lyricsLang: 'auto' as LyricsLang,
+	lyricsLang: 'off' as LyricsLang,
 	artistLang: 'off' as LyricsLang,
 	titleLang: 'off' as LyricsLang,
 	lastfmLang: 'off' as LyricsLang,
-	bioLang: 'auto' as 'auto' | LyricsLang,
-	artistSkip: [] as readonly SourceLang[],
-	titleSkip: [] as readonly SourceLang[],
-	lyricsSkip: [] as readonly SourceLang[],
+	bioLang: 'off' as 'auto' | LyricsLang,
+	// quick-260925-vtg — English titles/artists/lyrics are never translated by default (user's
+	// exported settings); lastfmSkip left empty to match the export.
+	artistSkip: ['en'] as readonly SourceLang[],
+	titleSkip: ['en'] as readonly SourceLang[],
+	lyricsSkip: ['en'] as readonly SourceLang[],
 	lastfmSkip: [] as readonly SourceLang[],
 	translateMode: 'replace' as TranslateMode,
-	/** quick-260919-2jo (D-1): the Chinese script lock is OFF by default. "Default only show
-	 *  either" reads as wanting it ON, but silently re-scripting every Chinese string for an
-	 *  existing user on their next app open is the more surprising outcome — and it would also
-	 *  silently change the tags written into files they download. It sits in the same group as
-	 *  titleLang / artistLang, which are 'off' by default for the same reason (k3y / f4y).
+	/** quick-260919-2jo (D-1) chose OFF so an EXISTING user saw no text change on their next app
+	 *  open (and no silent change to the tags written into files they download).
+	 *  quick-260925-vtg flips the DEFAULT to 'zh-Hant' — the user's own exported settings adopted
+	 *  as the defaults. Existing users are still untouched: load() now accepts a persisted 'off'
+	 *  as a real value (see the zhScript guard in settings.svelte.ts), so only a fresh install or
+	 *  Reset lands on 'zh-Hant'.
 	 *  WR-10: this literal lives HERE and nowhere else. */
-	zhScript: 'off' as ZhScriptSetting,
+	zhScript: 'zh-Hant' as ZhScriptSetting,
 	/** Hide translations for lyrics lines extracted from a `(...)` clause. Default OFF —
 	 *  parens-translations render alongside the parent line. */
 	lyricsHideParenTranslation: false,
@@ -115,15 +120,18 @@ export const PLAYBACK_DEFAULTS = {
 	// '128' rung actually selects QQ's `song_play_url_standard`, MEASURED at 98 kbps — below
 	// the band that comment asserted. The wrong number is why the default moved.
 	defaultQuality: 'auto' as DefaultQuality,
-	downloadQuality: 'lossless' as DefaultQuality, // favours quality over speed
+	// quick-260925-vtg — same 'auto' rule as defaultQuality (32-D-02: lossless on unmetered,
+	// '320' elsewhere), user's exported settings.
+	downloadQuality: 'auto' as DefaultQuality,
 	defaultSource: 'auto' as DefaultSource,
 	autoExpandOnPlay: false,
 	/** quick-260831-k5y: show the resolved track's quality tag (FLAC / 320 / …) on the
-	 *  Now-Playing page. OFF by default — it is extra chrome, and the same value is already
-	 *  reachable from the song detail sheet (TrackMenu) for anyone who wants it occasionally. */
-	showQualityTag: false,
+	 *  Now-Playing page. Shown by default per quick-260925-vtg (the user's own exported settings
+	 *  adopted as the defaults); k5y's original "extra chrome" reasoning for OFF is superseded. */
+	showQualityTag: true,
 	/** quick-260919-1we (D-7): make the docked mini player show the currently-sung lyric line in
-	 *  place of the artist name. OFF by default, for the same reason showQualityTag above is: it
+	 *  place of the artist name. OFF by default, for the reason k5y originally gave for
+	 *  showQualityTag (before quick-260925-vtg flipped it): it
 	 *  REPLACES information already on screen with different information, so a user who never opens
 	 *  Settings must keep exactly today's Nowbar. */
 	nowbarLyrics: false,
@@ -199,11 +207,12 @@ export const HOME_DEFAULTS = {
 	homeSectionDensity: {} as Partial<Record<HomeSectionId, HomeDensity>>,
 	homeShowSearchPill: true,
 	homeShowRandomize: true,
-	// 39-D-25: home chart settings. 'auto' region is resolved at render by resolveChartRegion.
-	// Extra regions default to none (UI-11: smallest cold fan-out). Genres default to the locked
-	// Asian-pop + Western-core set, sourced from home-layout.ts so the two never drift.
-	homeChartRegion: 'auto' as 'auto' | ChartRegion,
-	homeExtraRegions: [] as string[],
+	// 39-D-25 locked 'auto' region + no extra regions + the 8-genre set. quick-260925-vtg
+	// supersedes those three by explicit user request (the user's exported settings): region
+	// 'hk', extra ['us'], genres = all 11 (sourced from home-layout.ts so the two never drift).
+	// A persisted 'auto' is still honoured by load() and resolved at render by resolveChartRegion.
+	homeChartRegion: 'hk' as 'auto' | ChartRegion,
+	homeExtraRegions: ['us'] as string[],
 	homeChartGenres: [...DEFAULT_CHART_GENRES] as string[],
 	/** 39-D-40: the persisted home-layout version. A fresh install / reset is already on the chart
 	 *  layout, so it starts at the current version and never runs the migration. */

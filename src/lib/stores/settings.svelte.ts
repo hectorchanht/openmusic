@@ -145,12 +145,13 @@ class Settings {
 	upnextPerContext = $state<Partial<Record<Exclude<QueueContext, null>, UpnextMode>>>({
 		...UPNEXT_DEFAULTS.perContext
 	});
-	/** Bio (Last.fm artist bio) target language. `'auto'` = follow appLang (default); `'off'` =
-	 * untranslated; otherwise an explicit language (quick-260607-fnp; supersedes the f4y note). */
+	/** Bio (Last.fm artist bio) target language. `'auto'` = follow appLang; `'off'` = untranslated
+	 * (the default since quick-260925-vtg); otherwise an explicit language (quick-260607-fnp;
+	 * supersedes the f4y note). */
 	bioLang = $state<'auto' | LyricsLang>(TRANSLATION_DEFAULTS.bioLang);
 	translateMode = $state<TranslateMode>(TRANSLATION_DEFAULTS.translateMode);
-	/** quick-260919-2jo: force displayed Chinese into ONE script. 'off' (D-1 default) is a
-	 *  byte-for-byte no-op — every `names.dn*` return value is exactly what it is today. */
+	/** quick-260919-2jo: force displayed Chinese into ONE script. 'off' is a byte-for-byte no-op —
+	 *  every `names.dn*` return value is unchanged. Default 'zh-Hant' since quick-260925-vtg. */
 	zhScript = $state<ZhScriptSetting>(TRANSLATION_DEFAULTS.zhScript);
 	/** Hide the auto-generated translation for lyrics lines that came from a `(...)` clause
 	 *  split out of their parent (typically an embedded-translation in the original LRC).
@@ -209,11 +210,11 @@ class Settings {
 	theme = $state<Theme>(GENERAL_DEFAULTS.theme);
 	autoExpandOnPlay = $state<boolean>(PLAYBACK_DEFAULTS.autoExpandOnPlay);
 	/** quick-260831-k5y: render the resolved track's quality tag on the Now-Playing page.
-	 *  Off by default (PLAYBACK_DEFAULTS.showQualityTag). */
+	 *  Default lives in PLAYBACK_DEFAULTS.showQualityTag (ON since quick-260925-vtg). */
 	showQualityTag = $state<boolean>(PLAYBACK_DEFAULTS.showQualityTag);
 	/** quick-260919-1we (D-7): the docked Nowbar shows the currently-sung lyric line INSTEAD of the
 	 *  artist name. Off by default (PLAYBACK_DEFAULTS.nowbarLyrics) — it replaces information
-	 *  already on screen, so it is opt-in exactly like showQualityTag above. */
+	 *  already on screen, so it is opt-in. */
 	nowbarLyrics = $state<boolean>(PLAYBACK_DEFAULTS.nowbarLyrics);
 
 	// --- home layout (quick-260606-w87) ---------------------------------------------
@@ -285,10 +286,18 @@ class Settings {
 				this.artistLang = (v.artistLang as LyricsLang) ?? TRANSLATION_DEFAULTS.artistLang;
 				this.titleLang = (v.titleLang as LyricsLang) ?? TRANSLATION_DEFAULTS.titleLang;
 				this.lastfmLang = (v.lastfmLang as LyricsLang) ?? TRANSLATION_DEFAULTS.lastfmLang;
-				this.artistSkip = Array.isArray(v.artistSkip) ? (v.artistSkip as SourceLang[]) : [];
-				this.titleSkip = Array.isArray(v.titleSkip) ? (v.titleSkip as SourceLang[]) : [];
-				this.lyricsSkip = Array.isArray(v.lyricsSkip) ? (v.lyricsSkip as SourceLang[]) : [];
-				this.lastfmSkip = Array.isArray(v.lastfmSkip) ? (v.lastfmSkip as SourceLang[]) : [];
+				// quick-260925-vtg — an absent key reads defaults.ts, not a literal (WR-10); a
+				// persisted `[]` still wins (Array.isArray).
+				this.artistSkip = Array.isArray(v.artistSkip)
+					? (v.artistSkip as SourceLang[])
+					: [...TRANSLATION_DEFAULTS.artistSkip];
+				this.titleSkip = Array.isArray(v.titleSkip) ? (v.titleSkip as SourceLang[]) : [...TRANSLATION_DEFAULTS.titleSkip];
+				this.lyricsSkip = Array.isArray(v.lyricsSkip)
+					? (v.lyricsSkip as SourceLang[])
+					: [...TRANSLATION_DEFAULTS.lyricsSkip];
+				this.lastfmSkip = Array.isArray(v.lastfmSkip)
+					? (v.lastfmSkip as SourceLang[])
+					: [...TRANSLATION_DEFAULTS.lastfmSkip];
 				this.enabledSources =
 					v.enabledSources && typeof v.enabledSources === 'object' && !Array.isArray(v.enabledSources)
 						? (v.enabledSources as Partial<Record<SourceId, boolean>>)
@@ -343,10 +352,13 @@ class Settings {
 				this.translateMode = (v.translateMode as TranslateMode) ?? TRANSLATION_DEFAULTS.translateMode;
 				// quick-260919-2jo / T-2jo-02: VALIDATED against the union, not cast. A tampered or
 				// stale `openmusic:settings:v1` must never hand a garbage token to lockScriptSync's
-				// direction dispatch — anything that is not one of the two scripts falls back to 'off'
-				// (the upnextMode guard's shape, not translateMode's bare cast).
+				// direction dispatch — anything that is not a valid union member falls back to the
+				// default (the upnextMode guard's shape, not translateMode's bare cast).
+				// quick-260925-vtg — 'off' is a real persisted choice (and the pre-vtg default), so it
+				// must pass the guard now that the default is 'zh-Hant'; only absent/garbage falls to
+				// the default.
 				this.zhScript =
-					v.zhScript === 'zh-Hant' || v.zhScript === 'zh-Hans'
+					v.zhScript === 'off' || v.zhScript === 'zh-Hant' || v.zhScript === 'zh-Hans'
 						? v.zhScript
 						: TRANSLATION_DEFAULTS.zhScript;
 				// Booleans: an explicit persisted boolean wins; anything else (absent/tampered)
@@ -396,10 +408,15 @@ class Settings {
 					: [...HOME_DEFAULTS.homeCountries];
 				// 39-D-25 / T-39-25: allowlist guard like homeLandingTab. A bare cast like bioLang
 				// would let 'cn' or garbage reach the chart fetch planner.
+				// quick-260925-vtg — 'auto' (the "Auto (…)" chip) is honoured as a persisted value; it
+				// only survived before because the fallback literal happened to be 'auto'. Absent /
+				// garbage / 'cn' now fall to the defaults.ts value ('hk', itself allowlisted), not a
+				// literal (WR-10).
 				this.homeChartRegion =
-					typeof v.homeChartRegion === 'string' && (CHART_REGIONS as readonly string[]).includes(v.homeChartRegion)
-						? (v.homeChartRegion as ChartRegion)
-						: 'auto';
+					v.homeChartRegion === 'auto' ||
+					(typeof v.homeChartRegion === 'string' && (CHART_REGIONS as readonly string[]).includes(v.homeChartRegion))
+						? (v.homeChartRegion as 'auto' | ChartRegion)
+						: HOME_DEFAULTS.homeChartRegion;
 				// T-39-26: TYPE guard only. resolveExtraRegions / resolveChartGenres clean the values at
 				// render, and an explicit [] genre list is a real choice, so it is kept.
 				this.homeExtraRegions = Array.isArray(v.homeExtraRegions)
@@ -618,7 +635,7 @@ class Settings {
 		this.lyricsSkip = [...d.lyricsSkip];
 		this.lastfmSkip = [...d.lastfmSkip];
 		this.translateMode = d.translateMode;
-		this.zhScript = d.zhScript; // quick-260919-2jo — back to 'off' (D-1)
+		this.zhScript = d.zhScript; // quick-260919-2jo / quick-260925-vtg — back to TRANSLATION_DEFAULTS.zhScript ('zh-Hant')
 		this.lyricsHideParenTranslation = d.lyricsHideParenTranslation;
 		this.lyricsHideParenLines = d.lyricsHideParenLines;
 		this.save();

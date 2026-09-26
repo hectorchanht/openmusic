@@ -6,8 +6,8 @@
   --color-border: #888888;
   --color-text: #f4f4f6;
   --color-text-muted: #a0a0ad;
-  --color-primary: #7c5cff;
-  --color-primary-hover: #6a48f0;
+  --color-primary: #00c2b8; /* quick-260925-vtg: matches DEFAULT_ACCENT; applyTheme() overrides at runtime */
+  --color-primary-hover: #00aba2; /* quick-260925-vtg: darken(DEFAULT_ACCENT, 0.12) */
 
   --src-netease: #c20c0c;
   --src-qq: #1db954;

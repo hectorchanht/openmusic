@@ -223,8 +223,22 @@ export const DEEZER_GENRE_IDS: readonly number[] = CHART_GENRE_IDS.flatMap((g) =
 	return s.src === 'deezer' ? [s.id] : [];
 });
 
-/** Locked default: Asian pop + Western core; electronic / alternative / asian start off. */
-export const DEFAULT_CHART_GENRES: readonly ChartGenre[] = ['cantopop', 'mandopop', 'kpop', 'jpop', 'hiphop', 'rock', 'dance', 'rnb'];
+/** quick-260925-vtg — every pool genre, in pool order (the user's own exported settings adopted
+ *  as the defaults; supersedes the 39-D-10 8-genre lock). Kept as an explicit literal, not
+ *  `[...CHART_GENRE_IDS]`, so a future pool addition does not silently widen the default. */
+export const DEFAULT_CHART_GENRES: readonly ChartGenre[] = [
+	'cantopop',
+	'mandopop',
+	'kpop',
+	'jpop',
+	'hiphop',
+	'rock',
+	'dance',
+	'rnb',
+	'electronic',
+	'alternative',
+	'asian'
+];
 
 /**
  * Resolve the persisted genre selection: pool ids only, de-duped, saved order kept (it is the
@@ -286,10 +300,31 @@ export const CHART_SECTIONS = ['chart-songs', 'new-releases', 'chart-artists', '
 export type ChartSectionId = (typeof CHART_SECTIONS)[number];
 
 /**
- * Default order === HOME_SECTIONS (preserves today's fixed order). A fresh spread so the
- * caller can never accidentally mutate the canonical constant.
+ * quick-260925-vtg — no longer === HOME_SECTIONS: this is the user's own exported order (personal
+ * group radio-first, classic shelves interleaved where the export put them), adopted as the
+ * default. It MUST remain a permutation of all 17 HOME_SECTIONS ids (guarded by
+ * home-layout.test.ts) because resolveSectionOrder returns it verbatim as the fallback.
+ * HOME_SECTIONS itself stays the canonical/append order and is unchanged.
  */
-export const DEFAULT_SECTION_ORDER: HomeSectionId[] = [...HOME_SECTIONS];
+export const DEFAULT_SECTION_ORDER: HomeSectionId[] = [
+	'radio',
+	'downloads',
+	'liked',
+	'chart-songs',
+	'new-releases',
+	'chart-artists',
+	'chart-albums',
+	'yt-trending',
+	'genres',
+	'top-hits',
+	'top-artists',
+	'regions',
+	'tags',
+	'countries',
+	'fav-artists',
+	'playlists',
+	'history'
+];
 
 /**
  * Resolve a persisted section order into a VALID render order. Always returns a

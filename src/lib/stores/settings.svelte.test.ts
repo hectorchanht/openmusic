@@ -288,14 +288,16 @@ describe('accent-hover derivation (Phase 17 UX-07)', () => {
 describe('settings.zhScript — Chinese script lock (quick-260919-2jo)', () => {
 	// NO beforeEach reset: the default assertion below must see the untouched $state initializer,
 	// not a value this suite wrote. The mutating cases run after it and end on resetTranslation().
-	it("defaults to 'off' — D-1: an existing user sees no text change until they opt in", () => {
-		expect(settings.zhScript).toBe('off');
+	it("defaults to 'zh-Hant' — quick-260925-vtg: the user's exported settings adopted as the defaults", () => {
+		expect(settings.zhScript).toBe('zh-Hant');
 	});
 
-	it("resetTranslation() returns it to 'off'", () => {
-		settings.zhScript = 'zh-Hant';
+	// quick-260925-vtg: start from 'zh-Hans' — it must differ from the new default or the case
+	// proves nothing about reset.
+	it("resetTranslation() returns it to 'zh-Hant' (quick-260925-vtg)", () => {
+		settings.zhScript = 'zh-Hans';
 		settings.resetTranslation();
-		expect(settings.zhScript).toBe('off');
+		expect(settings.zhScript).toBe('zh-Hant');
 	});
 
 	it('accepts both script targets', () => {

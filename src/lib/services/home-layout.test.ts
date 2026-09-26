@@ -60,8 +60,31 @@ describe('HOME_SECTIONS / DEFAULT_SECTION_ORDER', () => {
 		]);
 	});
 
-	it('DEFAULT_SECTION_ORDER deep-equals HOME_SECTIONS (preserves today fixed order)', () => {
-		expect(DEFAULT_SECTION_ORDER).toEqual(HOME_SECTIONS);
+	it("DEFAULT_SECTION_ORDER is the user's exported order (quick-260925-vtg)", () => {
+		expect(DEFAULT_SECTION_ORDER).toEqual([
+			'radio',
+			'downloads',
+			'liked',
+			'chart-songs',
+			'new-releases',
+			'chart-artists',
+			'chart-albums',
+			'yt-trending',
+			'genres',
+			'top-hits',
+			'top-artists',
+			'regions',
+			'tags',
+			'countries',
+			'fav-artists',
+			'playlists',
+			'history'
+		]);
+	});
+
+	it('DEFAULT_SECTION_ORDER is a permutation of all 17 HOME_SECTIONS ids (quick-260925-vtg — resolveSectionOrder returns it verbatim)', () => {
+		expect([...DEFAULT_SECTION_ORDER].sort()).toEqual([...HOME_SECTIONS].sort());
+		expect(new Set(DEFAULT_SECTION_ORDER).size).toBe(17);
 	});
 
 	it('DEFAULT_SECTION_ORDER is a distinct array (not the same ref — safe to spread)', () => {
@@ -539,8 +562,20 @@ describe('CHART_GENRES / resolveChartGenres (39-D-10)', () => {
 		expect(DEEZER_GENRE_IDS).toEqual([116, 152, 113, 165, 106, 85, 16]);
 	});
 
-	it('DEFAULT_CHART_GENRES is Asian pop + Western core', () => {
-		expect(DEFAULT_CHART_GENRES).toEqual(['cantopop', 'mandopop', 'kpop', 'jpop', 'hiphop', 'rock', 'dance', 'rnb']);
+	it('DEFAULT_CHART_GENRES is every pool genre in pool order (quick-260925-vtg)', () => {
+		expect(DEFAULT_CHART_GENRES).toEqual([
+			'cantopop',
+			'mandopop',
+			'kpop',
+			'jpop',
+			'hiphop',
+			'rock',
+			'dance',
+			'rnb',
+			'electronic',
+			'alternative',
+			'asian'
+		]);
 	});
 
 	it('keeps only pool ids, de-duped, in saved order', () => {
@@ -716,7 +751,9 @@ describe('reorderListed (39-D-12)', () => {
 		const r = reorderListed(full, 0, 12);
 		for (const id of CLASSIC_SECTIONS) expect(r.indexOf(id)).toBe(full.indexOf(id));
 		expect([...r].sort()).toEqual([...full].sort());
-		expect(r[r.length - 1]).toBe('liked');
+		// quick-260925-vtg: the default order now starts with 'radio', which moves to the last
+		// non-classic slot (index 16).
+		expect(r[r.length - 1]).toBe('radio');
 	});
 
 	it('does not mutate the input', () => {
