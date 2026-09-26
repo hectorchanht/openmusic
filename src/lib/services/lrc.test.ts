@@ -7,7 +7,9 @@ import {
 	reorderPairs,
 	lineSeekFraction,
 	activeLineAt,
-	lyricAnchorMetrics
+	lyricAnchorMetrics,
+	normalizeLyricOffset,
+	formatLyricOffset
 } from './lrc';
 
 describe('parseLRC', () => {
@@ -183,6 +185,14 @@ describe('lineSeekFraction', () => {
 		expect(lineSeekFraction(10, Infinity)).toBeNull();
 		expect(lineSeekFraction(10, NaN)).toBeNull();
 	});
+
+	// quick-260926-mis: a realigned line seeks to where it is actually sung (line.time + offset).
+	it('shifts by offsetSec, floors at 0, and keeps the duration guard first', () => {
+		expect(lineSeekFraction(5, 100, 3)).toBeCloseTo(0.08, 10);
+		expect(lineSeekFraction(5, 100, -10)).toBe(0);
+		expect(lineSeekFraction(5, 100)).toBe(0.05);
+		expect(lineSeekFraction(5, 0, 3)).toBeNull();
+	});
 });
 
 describe('lrc pipeline idempotency', () => {
@@ -343,6 +353,46 @@ describe('activeLineAt', () => {
 	it('past the final timestamp the last line stays active (no wrap, no reset)', () => {
 		const lines = [L(5, 'a'), L(10, 'b')];
 		expect(activeLineAt(lines, 10_000)).toEqual({ idx: 1, time: 10 });
+	});
+
+	// quick-260926-mis: positive offset = lyrics shifted LATER, so the lyric clock is now - offset.
+	it('scans against now - offsetSec; omitted offset is identical to today', () => {
+		const lines = [L(5, 'a'), L(10, 'b')];
+		expect(activeLineAt(lines, 7, 3)).toEqual({ idx: -1, time: -1 });
+		expect(activeLineAt(lines, 7, -3)).toEqual({ idx: 1, time: 10 });
+		expect(activeLineAt(lines, 7)).toEqual({ idx: 0, time: 5 });
+	});
+});
+
+describe('normalizeLyricOffset (quick-260926-mis)', () => {
+	it('maps non-finite to 0', () => {
+		expect(normalizeLyricOffset(NaN)).toBe(0);
+		expect(normalizeLyricOffset(Infinity)).toBe(0);
+		expect(normalizeLyricOffset(-Infinity)).toBe(0);
+	});
+
+	it('rounds to 0.1s, half up', () => {
+		expect(normalizeLyricOffset(2.34)).toBe(2.3);
+		expect(normalizeLyricOffset(2.35)).toBe(2.4);
+		expect(normalizeLyricOffset(0)).toBe(0);
+	});
+
+	it('folds -0 to +0', () => {
+		expect(Object.is(normalizeLyricOffset(-0.04), 0)).toBe(true);
+	});
+
+	it('clamps to ±600s', () => {
+		expect(normalizeLyricOffset(9999)).toBe(600);
+		expect(normalizeLyricOffset(-9999)).toBe(-600);
+	});
+});
+
+describe('formatLyricOffset (quick-260926-mis)', () => {
+	it('signs every value, one decimal, U+2212 minus', () => {
+		expect(formatLyricOffset(0)).toBe('+0.0s');
+		expect(formatLyricOffset(1.5)).toBe('+1.5s');
+		expect(formatLyricOffset(-2.3)).toBe('\u22122.3s');
+		expect(formatLyricOffset(12)).toBe('+12.0s');
 	});
 });
 
