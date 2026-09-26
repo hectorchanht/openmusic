@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { cached, __clearSearchCache } from './ttl-cache';
+import { cached, evictCached, __clearSearchCache } from './ttl-cache';
 
 const TTL = 60_000;
 
@@ -70,5 +70,42 @@ describe('ttl-cache (D-04)', () => {
 		await cached('k', TTL, factory);
 
 		expect(factory).toHaveBeenCalledTimes(2);
+	});
+
+	// quick-260926-l69: a never-rejecting factory (catalog's DATA-03 contract) can veto its own value.
+	it('shouldStore false: the value is returned but NOT pinned — the next call re-invokes', async () => {
+		const factory = vi.fn(async () => 'poisoned');
+
+		await expect(cached('k', TTL, factory, () => false)).resolves.toBe('poisoned');
+		await cached('k', TTL, factory, () => false);
+
+		expect(factory).toHaveBeenCalledTimes(2);
+	});
+
+	it('shouldStore true: stored as usual — the second call is a HIT', async () => {
+		const factory = vi.fn(async () => 'good');
+
+		await cached('k', TTL, factory, () => true);
+		await cached('k', TTL, factory, () => true);
+
+		expect(factory).toHaveBeenCalledOnce();
+	});
+
+	it('evictCached(prefix) drops only keys starting with prefix', async () => {
+		const x = vi.fn(async () => 'x');
+		const y = vi.fn(async () => 'y');
+		const dz = vi.fn(async () => 'dz');
+		await cached('ab|x', TTL, x);
+		await cached('ab|y', TTL, y);
+		await cached('dz:ab|x', TTL, dz);
+
+		evictCached('ab|');
+		await cached('ab|x', TTL, x);
+		await cached('ab|y', TTL, y);
+		await cached('dz:ab|x', TTL, dz);
+
+		expect(x).toHaveBeenCalledTimes(2);
+		expect(y).toHaveBeenCalledTimes(2);
+		expect(dz).toHaveBeenCalledOnce();
 	});
 });

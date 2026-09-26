@@ -6,6 +6,7 @@ import {
 	lyricByName,
 	collectLyricCandidates,
 	__clearSearchCache,
+	evictSearch,
 	SEARCH_STAGGER_MS,
 	type PartialSearchResult
 } from './catalog';
@@ -222,6 +223,68 @@ describe('searchAll (D-04 TTL cache)', () => {
 
 		// same normalized key → only one fan-out
 		expect(n).toHaveBeenCalledOnce();
+	});
+
+	// quick-260926-l69 R1: a poisoned fan-out (a source errored, or the caller aborted mid-stagger)
+	// must never be pinned for SEARCH_TTL_MS — the next identical call fans out again.
+	it('does NOT cache a result where a source settled status:error', async () => {
+		const n = vi.spyOn(SOURCES.netease, 'search').mockResolvedValue([mk('netease', 'n1')]);
+		vi.spyOn(SOURCES.qq, 'search').mockRejectedValueOnce(new Error('qq 500')).mockResolvedValue([]);
+		vi.spyOn(SOURCES.kuwo, 'search').mockResolvedValue([]);
+		vi.spyOn(SOURCES.joox, 'search').mockResolvedValue([]);
+
+		const first = await searchAll('errkw', 1, ALL);
+		expect(first.perSource.some((p) => p.status === 'error')).toBe(true);
+		await searchAll('errkw', 1, ALL);
+
+		expect(n).toHaveBeenCalledTimes(2);
+	});
+
+	it('does NOT cache a result whose caller signal was aborted before it settled', async () => {
+		const ac = new AbortController();
+		const n = vi.spyOn(SOURCES.netease, 'search').mockResolvedValue([mk('netease', 'n1')]);
+		vi.spyOn(SOURCES.qq, 'search').mockImplementationOnce(async () => {
+			ac.abort();
+			return [];
+		});
+		vi.spyOn(SOURCES.kuwo, 'search').mockResolvedValue([]);
+		vi.spyOn(SOURCES.joox, 'search').mockResolvedValue([]);
+
+		await searchAll('abortkw', 1, ALL, ac.signal);
+		await searchAll('abortkw', 1, ALL);
+
+		expect(n).toHaveBeenCalledTimes(2);
+	});
+
+	it('still caches an all-ok result even when every source is empty', async () => {
+		const n = vi.spyOn(SOURCES.netease, 'search').mockResolvedValue([]);
+		const q = vi.spyOn(SOURCES.qq, 'search').mockResolvedValue([]);
+		vi.spyOn(SOURCES.kuwo, 'search').mockResolvedValue([]);
+		vi.spyOn(SOURCES.joox, 'search').mockResolvedValue([]);
+
+		await searchAll('drykw', 1, ALL);
+		await searchAll('drykw', 1, ALL);
+
+		expect(n).toHaveBeenCalledOnce();
+		expect(q).toHaveBeenCalledOnce();
+	});
+
+	it('evictSearch(keyword) drops only that query\'s entries (normalized)', async () => {
+		const n = vi.spyOn(SOURCES.netease, 'search').mockResolvedValue([mk('netease', 'n1')]);
+		vi.spyOn(SOURCES.qq, 'search').mockResolvedValue([]);
+		vi.spyOn(SOURCES.kuwo, 'search').mockResolvedValue([]);
+		vi.spyOn(SOURCES.joox, 'search').mockResolvedValue([]);
+
+		await searchAll('cachekw', 1, ALL);
+		await searchAll('otherkw', 1, ALL);
+		expect(n).toHaveBeenCalledTimes(2);
+
+		evictSearch('  CacheKW ');
+		await searchAll('cachekw', 1, ALL); // evicted → fans out again
+		await searchAll('otherkw', 1, ALL); // untouched → HIT
+
+		expect(n).toHaveBeenCalledTimes(3);
+		expect(n.mock.calls[2][0]).toBe('cachekw');
 	});
 });
 
