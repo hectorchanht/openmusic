@@ -283,6 +283,17 @@ describe('fuseCharts (39-D-07 / P39-13)', () => {
 		expect(out.map((t) => t.artist)).toEqual(['X1', 'Y1', 'X2', 'Y2']);
 	});
 
+	it("folds a KKBOX ' - subtitle' / 《…》 tail out of the fusion key, keeping Apple's display title (39-D-44)", () => {
+		// Real HK pair (2026-09-25): KKBOX carries the subtitle Apple drops.
+		const apple = [tr('李佳薇', '甲乙丙丁Strangers')];
+		const kkbox = [tr('李佳薇', '甲乙丙丁Strangers - 你我怎麼兩清')];
+		expect(fuseCharts([apple, kkbox])).toEqual([tr('李佳薇', '甲乙丙丁Strangers')]);
+		expect(fuseCharts([[tr('X', '歌')], [tr('X', '歌《電影》主題曲')]])).toHaveLength(1);
+		expect(fuseCharts([[tr('X', '歌')], [tr('X', '歌（電視劇片尾曲）')]])).toHaveLength(1);
+		// A title that IS the tail keeps its own key instead of blanking (and being skipped).
+		expect(fuseCharts([[tr('X', '《追》')]])).toEqual([tr('X', '《追》')]);
+	});
+
 	it('takes k as a parameter and still ranks the overlap first', () => {
 		expect(fuseCharts([a, b], 1)[0].title).toBe('song');
 	});

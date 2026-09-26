@@ -288,6 +288,19 @@ export function parseItunesGenreFeed(
 // ── Top Songs fusion ──────────────────────────────────────────────────────────────────────────
 
 /**
+ * 39-D-44: the FUSION key folds a KKBOX title tail Apple drops — a trailing ' - …' subtitle
+ * ('甲乙丙丁Strangers - 你我怎麼兩清' vs Apple '甲乙丙丁Strangers') or a '《…》…' theme-song tail;
+ * full-width '（…）' groups are already dropped by matchKey. Display strings are untouched (39-D-03).
+ * A title that is ONLY the tail ('《追》') keeps its raw key rather than blanking and being skipped.
+ * ponytail: a genuine 'Song - Live' variant now merges with the studio cut — acceptable for a chart,
+ * where the two are the same entry to a listener.
+ */
+function fusionKey(artist: string, title: string): string {
+	const key = matchKey(artist, title.replace(/\s+-\s+.*$/, '').replace(/《.*$/, ''));
+	return key.endsWith('|') ? matchKey(artist, title) : key;
+}
+
+/**
  * Reciprocal-rank fusion of ranked track lists into ONE ranked list (39-D-07, CONTEXT 2026-09-25:
  * Top Songs for hk/tw/sg = KKBOX + Apple blended). Score = Σ 1/(k + rank) over the lists a song
  * appears in (1-based rank), so a song on both charts rises and a song on one still appears.
@@ -296,7 +309,7 @@ export function parseItunesGenreFeed(
  * artist/title, `image` is the first non-null across the group. Ties keep first-appearance order;
  * the result is capped at `cap`. One empty list yields the other alone, in its original order.
  *
- * Identity is `matchKey`, whose norm() already drops bracketed groups, so '田馥甄 (Hebe)' and '田馥甄'
+ * Identity is `fusionKey` (matchKey over a tail-folded title); norm() already drops bracketed groups, so '田馥甄 (Hebe)' and '田馥甄'
  * share a key without pre-stripping. A blank key ('|') is skipped.
  * ponytail: matchKey does not fold Traditional/Simplified script or artist separators ('A & B' vs
  * 'A、B'), so such pairs stay separate entries; add a zh-convert + separator fold if duplicates show
@@ -306,7 +319,7 @@ export function fuseCharts(lists: DiscoveryTrack[][], k = 60, cap = 50): Discove
 	const groups = new Map<string, { item: DiscoveryTrack; score: number; first: number }>();
 	for (const list of lists) {
 		list.forEach((row, i) => {
-			const key = matchKey(row.artist, row.title);
+			const key = fusionKey(row.artist, row.title);
 			if (key === '|') return;
 			const g = groups.get(key);
 			if (g) {
