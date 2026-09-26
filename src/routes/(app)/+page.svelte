@@ -42,6 +42,8 @@
 		poolKey,
 		genrePoolKey,
 		samplePicks,
+		regionLabel,
+		CHART_GENRE_LABEL,
 		HOME_CACHE_KEY,
 		LEGACY_HOME_CACHE_KEYS,
 		POOL_STALE_MS,
@@ -1164,6 +1166,12 @@
 				{:else if id === 'playlists'}{@render playlistsBlock()}
 				{:else if id === 'history'}{@render historyBlock()}
 				{:else if id === 'radio'}{@render radioBlock()}
+				{:else if id === 'chart-songs'}{@render chartSongsBlock()}
+				{:else if id === 'new-releases'}{@render newReleasesBlock()}
+				{:else if id === 'chart-artists'}{@render chartArtistsBlock()}
+				{:else if id === 'yt-trending'}{@render ytTrendingBlock()}
+				{:else if id === 'genres'}{@render genresBlock()}
+				{:else if id === 'regions'}{@render regionsBlock()}
 				{/if}
 			{/if}
 		{/each}
@@ -1178,6 +1186,13 @@
 		<span class="subhead-label">{label}</span>
 		<ChevronRight class="subhead-chev" size={18} />
 	</button>
+{/snippet}
+
+<!-- 39-D-33 (UI-SPEC §1.2): the chart shelves have NO See-all page, so their heading is a plain,
+     non-focusable <h3> — a chevron leading nowhere would be a false affordance. `.subhead-label`
+     gives the single-line ellipsis ("Trending on YouTube · United Arab Emirates"). -->
+{#snippet titleStatic(label: string)}
+	<h3 class="subhead-static"><span class="subhead-label">{label}</span></h3>
 {/snippet}
 
 <!-- quick-260618-goe: one ARTIST tile for the 3×3 grid mode — round cover + centered name,
@@ -1218,51 +1233,57 @@
 {#snippet topArtistsBlock()}
 	{#if topArtists.length}
 		{@render titleNav(t('home.topArtists'), '/charts/top?tab=artists')}
-		{#if densityOf('top-artists') === 'list'}
-			<CompactPager items={compactSlice(topArtists)} key={(a) => a.name}>
-				{#snippet row(a: DiscoveryArtist)}
-					<CompactRow
-						variant="artist"
-						title={names.dnArtist(a.name)}
-						cover={tileCover({ image: a.image, mbid: a.mbid, artistName: a.name })}
-						seed={a.name}
-						onopen={() => goto('/artist/' + encodeURIComponent(a.name))}
-					/>
-				{/snippet}
-			</CompactPager>
-		{:else if densityOf('top-artists') === 'grid'}
-			<!-- 3×3 artist grid (decision documented in SUMMARY): reuse the .tile shell with a
-			     ROUND .art cover + a centered name label (artists are name-only, no ⋮/long-press). -->
-			<HomeGridPager items={topArtists.slice(0, 27)} key={(a) => a.name}>
-				{#snippet row(a: DiscoveryArtist)}
-					{@const artistCover = tileCover({ image: a.image, mbid: a.mbid, artistName: a.name })}
-					{@render artistGridTile(a.name, artistCover)}
-				{/snippet}
-			</HomeGridPager>
-		{:else}
-			<div class="albumrow" use:dragScroll>
-				{#each topArtists as a (a.name)}
-					{@const artistCover = tileCover({ image: a.image, mbid: a.mbid, artistName: a.name })}
-					<button class="album" use:tapBounce onclick={() => goto('/artist/' + encodeURIComponent(a.name))}>
-						<span class="al-cover round" style:background-image={fallbackCover(a.name)}>
-							{#if artistCover}<img class="al-cover-img" src={artistCover} loading="lazy" alt="" onerror={hideOnError} />{/if}
-						</span>
-						<span class="al-name center" use:marquee><span class="marquee-inner">{names.dnArtist(a.name)}</span></span>
-					</button>
-				{/each}
-			</div>
-			<!-- quick-260919-et3: ShelfChevrons resolves its target as root.previousElementSibling,
-			     so it MUST stay the IMMEDIATE sibling after the .albumrow it drives. It renders
-			     nothing below 1024px (display:none), so the mobile DOM gains one inert element
-			     per shelf and no layout space at all. -->
-			<ShelfChevrons />
-		{/if}
+		{@render artistShelf(topArtists, densityOf('top-artists'))}
+	{/if}
+{/snippet}
+
+<!-- A list/pile/grid ARTIST shelf (classic Top artists + chart Top artists share it). Artists are
+     name-only: tap opens the artist page, no ⋮, no long-press. -->
+{#snippet artistShelf(artists: DiscoveryArtist[], density: HomeDensity)}
+	{#if density === 'list'}
+		<CompactPager items={compactSlice(artists)} key={(a) => a.name}>
+			{#snippet row(a: DiscoveryArtist)}
+				<CompactRow
+					variant="artist"
+					title={names.dnArtist(a.name)}
+					cover={tileCover({ image: a.image, mbid: a.mbid, artistName: a.name })}
+					seed={a.name}
+					onopen={() => goto('/artist/' + encodeURIComponent(a.name))}
+				/>
+			{/snippet}
+		</CompactPager>
+	{:else if density === 'grid'}
+		<!-- 3×3 artist grid (decision documented in SUMMARY): reuse the .tile shell with a
+		     ROUND .art cover + a centered name label (artists are name-only, no ⋮/long-press). -->
+		<HomeGridPager items={artists.slice(0, 27)} key={(a) => a.name}>
+			{#snippet row(a: DiscoveryArtist)}
+				{@const artistCover = tileCover({ image: a.image, mbid: a.mbid, artistName: a.name })}
+				{@render artistGridTile(a.name, artistCover)}
+			{/snippet}
+		</HomeGridPager>
+	{:else}
+		<div class="albumrow" use:dragScroll>
+			{#each artists as a (a.name)}
+				{@const artistCover = tileCover({ image: a.image, mbid: a.mbid, artistName: a.name })}
+				<button class="album" use:tapBounce onclick={() => goto('/artist/' + encodeURIComponent(a.name))}>
+					<span class="al-cover round" style:background-image={fallbackCover(a.name)}>
+						{#if artistCover}<img class="al-cover-img" src={artistCover} loading="lazy" alt="" onerror={hideOnError} />{/if}
+					</span>
+					<span class="al-name center" use:marquee><span class="marquee-inner">{names.dnArtist(a.name)}</span></span>
+				</button>
+			{/each}
+		</div>
+		<!-- quick-260919-et3: ShelfChevrons resolves its target as root.previousElementSibling,
+		     so it MUST stay the IMMEDIATE sibling after the .albumrow it drives. It renders
+		     nothing below 1024px (display:none), so the mobile DOM gains one inert element
+		     per shelf and no layout space at all. -->
+		<ShelfChevrons />
 	{/if}
 {/snippet}
 
 <!-- A reusable list/pile/grid discovery shelf (top-hits / tags / countries share it).
      quick-260618-goe: param is now a HomeDensity ('list'|'pile'|'grid'), not a boolean. -->
-{#snippet discoveryShelf(items: DiscoveryTrack[], density: HomeDensity)}
+{#snippet discoveryShelf(items: DiscoveryTrack[], density: HomeDensity, coverOnPlay = true)}
 	{#if density === 'list'}
 		<CompactPager items={compactSlice(items)} key={(item) => item.artist + ' ' + item.title}>
 			{#snippet row(item: DiscoveryTrack)}
@@ -1271,7 +1292,7 @@
 					subtitle={names.dnArtist(item.artist)}
 					cover={tileCover(item)}
 					seed={item.artist + item.title}
-					onplay={() => playStub(item)}
+					onplay={() => playStub(item, coverOnPlay ? item.image : null)}
 					onrequestmenu={() => tileMenu(item)}
 				/>
 			{/snippet}
@@ -1281,7 +1302,7 @@
 		     capped at 27 by both the slice here and the component (belt-and-braces). -->
 		<HomeGridPager items={items.slice(0, 27)} key={(item) => item.artist + ' ' + item.title}>
 			{#snippet row(item: DiscoveryTrack)}
-				<button class="tile" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); tileMenu(item); }} onclick={() => playStub(item)}>
+				<button class="tile" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); tileMenu(item); }} onclick={() => playStub(item, coverOnPlay ? item.image : null)}>
 					<div class="art" style:background-image={fallbackCover(item.artist + item.title)}></div>
 					{#if tileCover(item)}<img class="al-cover-img" src={tileCover(item)} loading="lazy" alt="" onerror={hideOnError} />{/if}
 					<div class="scrim"></div>
@@ -1297,7 +1318,7 @@
 			{#each items as item (item.artist + ' ' + item.title)}
 				<!-- DiscoveryTrack carries NO uid → resolve-on-view is via scheduleBackfill + the global
 				     reactive signal (NOT use:lazyCover, which needs a Track); no synthetic uid stub. -->
-				<button class="album" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); tileMenu(item); }} onclick={() => playStub(item)}>
+				<button class="album" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); tileMenu(item); }} onclick={() => playStub(item, coverOnPlay ? item.image : null)}>
 					<span class="al-cover" style:background-image={fallbackCover(item.artist + item.title)}>
 						{#if tileCover(item)}<img class="al-cover-img" src={tileCover(item)} loading="lazy" alt="" onerror={hideOnError} />{/if}
 					</span>
@@ -1321,6 +1342,59 @@
 	{#each countryShelves.slice(0, shelfBudget.per.countries ?? 0) as shelf (shelf.label)}
 		{@render titleNav(t('home.countryShelf', { country: shelf.label }), '/charts/countries/' + encodeURIComponent(shelf.label))}
 		{@render discoveryShelf(shelf.tracks, densityOf('countries'))}
+	{/each}
+{/snippet}
+
+<!-- Chart shelves (UI-SPEC §1.1): each renders NOTHING — no header — while its sampled pool is
+     empty, like the library blocks. Titles are region-qualified with the localized region name. -->
+{#snippet chartSongsBlock()}
+	{@const items = sampledSongs(poolKey('chart-songs', chartRegion))}
+	{#if items.length}
+		{@render titleStatic(t('home.chartSongs', { region: regionLabel(chartRegion, settings.appLang) }))}
+		{@render discoveryShelf(items, densityOf('chart-songs'))}
+	{/if}
+{/snippet}
+
+{#snippet newReleasesBlock()}
+	{@const items = sampledSongs(poolKey('new-releases', chartRegion))}
+	{#if items.length}
+		{@render titleStatic(t('home.newReleases', { region: regionLabel(chartRegion, settings.appLang) }))}
+		{@render discoveryShelf(items, densityOf('new-releases'))}
+	{/if}
+{/snippet}
+
+{#snippet chartArtistsBlock()}
+	{@const items = sampledArtists(poolKey('chart-artists', chartRegion))}
+	{#if items.length}
+		{@render titleStatic(t('home.chartArtists', { region: regionLabel(chartRegion, settings.appLang) }))}
+		{@render artistShelf(items, densityOf('chart-artists'))}
+	{/if}
+{/snippet}
+
+<!-- 39-D-34 (UI-15 / research A12): a Trending tap passes a NULL cover. Google-hosted thumbnails
+     (some are 16:9 i.ytimg frames, often unloadable for CN-facing users) blank the NowPlaying hero,
+     which paints the cover as a CSS background with no error event. With null, play() runs the
+     normal iTunes-first cover chain while the tile itself still shows the thumbnail. A deliberate
+     deviation from CONTEXT's tap line, accepted at plan review. -->
+{#snippet ytTrendingBlock()}
+	{@const items = sampledSongs(poolKey('yt-trending', chartRegion))}
+	{#if items.length}
+		{@render titleStatic(t('home.ytTrending', { region: regionLabel(chartRegion, settings.appLang) }))}
+		{@render discoveryShelf(items, densityOf('yt-trending'), false)}
+	{/if}
+{/snippet}
+
+{#snippet genresBlock()}
+	{#each genreShelves.slice(0, shelfBudget.per.genres ?? 0) as shelf (shelf.key)}
+		{@render titleStatic(t(CHART_GENRE_LABEL[shelf.id]))}
+		{@render discoveryShelf(shelf.items, densityOf('genres'))}
+	{/each}
+{/snippet}
+
+{#snippet regionsBlock()}
+	{#each regionShelves.slice(0, shelfBudget.per.regions ?? 0) as shelf (shelf.key)}
+		{@render titleStatic(t('home.chartSongs', { region: regionLabel(shelf.cc, settings.appLang) }))}
+		{@render discoveryShelf(shelf.items, densityOf('regions'))}
 	{/each}
 {/snippet}
 
@@ -1474,7 +1548,9 @@
 	.section h2 { font-size: calc(1.1rem * var(--fs-title, 1)); margin: 0; }
 	/* D-14: section title is a full-row tap target (title + trailing chevron). Keeps the old
 	   .subhead typography (0.95rem/700); ≥44px touch height; chevron pushed right. */
-	.subhead-nav {
+	/* 39-D-33: the static chart-shelf heading shares the exact box + type of the tappable one; only
+	   the pointer affordances (cursor, hover) stay on .subhead-nav. */
+	.subhead-nav, .subhead-static {
 		width: 100%;
 		display: flex;
 		align-items: center;
@@ -1485,12 +1561,12 @@
 		padding-right: 6px;
 		background: none;
 		border: none;
-		cursor: pointer;
 		text-align: left;
 		color: var(--color-text);
 		font-size: calc(0.95rem * var(--fs-title, 1));
 		font-weight: 700;
 	}
+	.subhead-nav { cursor: pointer; }
 	.subhead-label { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 	.subhead-nav :global(.subhead-chev) { margin-left: auto; flex: none; color: var(--color-text-muted); height: 18px; width: 18px;}
 	@media (hover: hover) { .subhead-nav:hover .subhead-label { color: var(--color-text-muted); } }
