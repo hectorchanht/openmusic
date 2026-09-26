@@ -275,6 +275,19 @@ describe('key() cross-script + bilingual identity (quick-260926-n0r)', () => {
 		expect(n('Song - Remix', 'Song')).toBe(2);
 	});
 
+	// Live E2E rows (Gareth.T search): ytmusic video uploads prefix the title with the track's OWN
+	// artist ("gareth.t - …"). Stripped only when that prefix IS the row's artist.
+	it('an own-artist "<artist> - " title prefix collapses into the plain song', () => {
+		const n = (a: string, aArtist: string, b: string) =>
+			dedupeBest([mk('ytmusic', 'y1', a, aArtist), mk('qq', 'q1', b, G)]).length;
+		expect(n('gareth.t - 淺粉紅 pale pink (official video)', G, '浅粉红 pale pink')).toBe(1);
+		expect(n('gareth.t - 淺粉紅 baby pink (official video)', G, '浅粉红 baby pink')).toBe(1);
+		// a different uploader naming the artist in the title is a different row (KLAI piano cover)
+		expect(n('Gareth.T - 玻璃 (Glass) - Stripped Piano BGM w/ Lyrics', 'KLAI', '玻璃')).toBe(2);
+		// an arrangement tail after the prefix is not a translation — stays its own row
+		expect(n('gareth.t - 用背脊唱情歌 canon in d (lyric video)', G, '用背脊唱情歌')).toBe(2);
+	});
+
 	it('Up-Next shape: an appended ytmusic copy collapses into the history row and keeps slot 0', () => {
 		const out = dedupeBest([
 			mk('qq', 'q1', '颜色', G),
