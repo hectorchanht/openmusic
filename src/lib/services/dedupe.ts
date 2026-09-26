@@ -136,14 +136,24 @@ function stripTranslation(title: string): string {
  * computed warm — safe only because keys are never persisted, only compared within one call.
  */
 function key(t: Track): string {
+	return songKey(t.artist, t.title);
+}
+
+/**
+ * quick-260926-nsz: key()'s body over raw strings, exported so the comment thread key
+ * (services/comments.ts) hashes the SAME script-folded identity dedupe already uses instead of a
+ * second normalizer that would drift. Zero behaviour change for key(). NOTE the cold-dict caveat
+ * above: a persisted caller must ensure the t2s dict is warm first (comments.ts does).
+ */
+export function songKey(artistIn: string, titleIn: string): string {
 	const pre = (s: string) =>
 		foldScript(s || '')
 			.toLowerCase()
 			.replace(/[（(【\[].*?[)）\]】]/g, ' ') // drop (Live) / [Remaster] / 【...】
 			.replace(/\s*-\s*(remaster|live|acoustic|explicit|feat\.?|ft\.?).*$/i, ' ');
 	const strip = (s: string) => s.replace(/[^\p{L}\p{N}]+/gu, '').trim(); // strip all punctuation/space (keeps CJK + latin + digits)
-	const artist = strip(pre(t.artist));
-	let title = pre(t.title);
+	const artist = strip(pre(artistIn));
+	let title = pre(titleIn);
 	// "<own artist> - <title>" (ytmusic video uploads): drop the prefix only when it IS this row's artist.
 	const dash = title.indexOf(' - ');
 	if (artist && dash > 0 && strip(title.slice(0, dash)) === artist && title.slice(dash + 3).trim()) {
