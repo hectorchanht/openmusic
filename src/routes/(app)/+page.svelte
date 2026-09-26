@@ -29,9 +29,35 @@
 		resolveSubset,
 		clampShelfSize,
 		resolveSectionDensity,
+		resolveChartRegion,
+		resolveExtraRegions,
+		resolveChartGenres,
+		CHART_SECTIONS,
+		CLASSIC_SECTIONS,
 		type HomeSectionId,
 		type HomeDensity
 	} from '$lib/services/home-layout';
+	import {
+		planChartShelves,
+		poolKey,
+		genrePoolKey,
+		samplePicks,
+		HOME_CACHE_KEY,
+		LEGACY_HOME_CACHE_KEYS,
+		POOL_STALE_MS,
+		POOL_CAP,
+		type ChartTask
+	} from '$lib/services/home-charts';
+	import {
+		appleSongs,
+		appleAlbums,
+		kkboxSongs,
+		kkboxNewReleases,
+		ytTracks,
+		ytArtists,
+		genreChart
+	} from '$lib/services/charts';
+	import { fuseCharts, type ChartAlbum } from '$lib/services/chart-parse';
 	import { settings } from '$lib/stores/settings.svelte';
 	import { deezerChart } from '$lib/services/deezer';
 	import { backfillCovers, backfillArtistCovers } from '$lib/services/cover-backfill';
@@ -85,22 +111,35 @@
 	const FANOUT_CAP = 4; // ≤4 in-flight tag/country shelf fetches (Pitfall 11 / DISCO-04)
 	// Bumped to v2: the cache now holds the four Last.fm discovery shelves (D-01/D-02),
 	// not the flat v1 buildDiversePicks list. A stale v1 entry is simply ignored.
-	// w87: the cache is keyed by CACHE_KEY ONLY (NOT by the home-layout config). A config
+	// w87: the cache is keyed by HOME_CACHE_KEY ONLY (NOT by the home-layout config). A config
 	// change (subset / shelf size) is reconciled by the background refresh(false,true) that
 	// runs after applyCache — it re-fetches with the CURRENT config and overwrites the cache,
 	// so the next paint reflects the change without adding config to the key.
-	const CACHE_KEY = 'openmusic:top-picks:v2';
+	// 39-D-26: v3 (HOME_CACHE_KEY, shared with the settings Clear-picks button) adds the chart
+	// POOLS (≤ POOL_CAP rows per key) and the sampled PICKS (indices into each pool). A v2 blob is
+	// not migrated — loadCache rejects it, which simply forces one cold refresh; saveCache removes
+	// the legacy keys.
 
 	// A labelled tag/country row paired with its heading.
 	type Shelf = { label: string; tracks: DiscoveryTrack[] };
-	// Versioned cache payload: the four displayed shelves + the fallback flag.
+	/** Chart pools by pool key (poolKey / genrePoolKey), one map per item shape. */
+	type ChartPools = {
+		songs: Record<string, DiscoveryTrack[]>;
+		artists: Record<string, DiscoveryArtist[]>;
+		albums: Record<string, ChartAlbum[]>;
+	};
+	// Versioned cache payload: the chart pools + picks, the four classic shelves + the fallback flag.
 	// `cfg` (stamped by saveCache) is a signature of the home-layout config the shelves were
 	// built with (shelf size + selected tag/country subset). On reload we only background-
 	// revalidate when it DIFFERS from the current config — so a Randomize arrangement survives a
 	// refresh instead of being clobbered by a fresh page-1 fetch (a non-randomize revalidate is
 	// deterministic page 1, so skipping it when config is unchanged loses nothing).
 	type ShelfCache = {
-		v: 2;
+		v: 3;
+		/** When the pools were fetched — drives the silent POOL_STALE_MS revalidate (39-D-32). */
+		fetchedAt: number;
+		pools: ChartPools;
+		picks: Record<string, number[]>;
 		topHits: DiscoveryTrack[];
 		topArtists: DiscoveryArtist[];
 		tagShelves: Shelf[];
@@ -109,6 +148,14 @@
 		fallback: Track[];
 		cfg?: string;
 	};
+
+	// 39-D-26: chart pools + the sampled picks the shelves render (see sampledSongs & co).
+	let pools = $state<ChartPools>({ songs: {}, artists: {}, albums: {} });
+	let picks = $state<Record<string, number[]>>({});
+	// Plain fields — the UI never reads them. `pendingPools` holds a silently revalidated pool set
+	// that must NOT swap tiles on screen; the next mount or a Randomize press adopts it (39-D-32).
+	let poolsFetchedAt = 0;
+	let pendingPools: { pools: ChartPools; fetchedAt: number } | null = null;
 
 	let topHits = $state<DiscoveryTrack[]>([]);
 	let topArtists = $state<DiscoveryArtist[]>([]);
@@ -326,13 +373,19 @@
 		pushNeeding(topHits);
 		for (const s of tagShelves) pushNeeding(s.tracks);
 		for (const s of countryShelves) pushNeeding(s.tracks);
+		// 39-D-31: chart rows carry EMBEDDED art, so this normally adds nothing — the backfill stays
+		// the rare backup for an imageless (or allowlist-rejected) chart row.
+		const keys = plannedKeys();
+		for (const key of keys) pushNeeding(sampledSongs(key));
 		if (rows.length) {
 			void backfillCovers(rows, { onResolved: () => bumpCoverVersion(), max: rows.length });
 		}
 
 		// 0bb: artist tiles are structurally gradient (Last.fm artist art deprecated → null).
 		// Resolve their images via Deezer → iTunes, capped (= full gathered set) + cached + post-paint.
-		const artistNames = topArtists.filter((a) => !a.image).map((a) => a.name);
+		const artistNames = [...topArtists, ...keys.flatMap((key) => sampledArtists(key))]
+			.filter((a) => !a.image)
+			.map((a) => a.name);
 		if (artistNames.length) {
 			void backfillArtistCovers(artistNames, {
 				onResolved: () => bumpCoverVersion(),
@@ -341,18 +394,224 @@
 		}
 	}
 
-	// Has at least one Last.fm shelf returned anything? Drives the D-06 fallback decision.
-	function hasAnyDiscovery(
-		hits: DiscoveryTrack[],
-		artists: DiscoveryArtist[],
-		tags: Shelf[],
-		countries: Shelf[]
-	): boolean {
+	// --- Chart shelves (39-D-26 … 39-D-32) ------------------------------------------------------
+	// The resolved chart config. Every value has passed the home-layout resolvers, so nothing a
+	// persisted setting holds can reach an upstream URL unchecked.
+	const chartRegion = $derived(
+		resolveChartRegion(
+			settings.homeChartRegion,
+			settings.appLang,
+			typeof navigator !== 'undefined' ? navigator.language : undefined
+		)
+	);
+	const chartExtraRegions = $derived(resolveExtraRegions(settings.homeExtraRegions, chartRegion));
+	const chartGenres = $derived(resolveChartGenres(settings.homeChartGenres));
+	const isVisible = (id: HomeSectionId) => !settings.homeHidden.includes(id);
+	/** 39-D-30: any classic (Deezer / Last.fm) section visible — the only case that fetches them. */
+	const classicVisible = $derived(CLASSIC_SECTIONS.some((id) => isVisible(id)));
+
+	/** The fetches the visible, region-capable chart shelves need. Hidden ⇒ no task ⇒ zero requests. */
+	function chartTasks(): ChartTask[] {
+		return planChartShelves({
+			region: chartRegion,
+			extraRegions: chartExtraRegions,
+			genres: chartGenres,
+			hidden: settings.homeHidden
+		});
+	}
+	/** Distinct pool keys of the current plan (chart-songs plans two tasks under one key). */
+	function plannedKeys(): string[] {
+		return [...new Set(chartTasks().map((task) => task.key))];
+	}
+
+	// T-39-29: `picks` / `pools` are persisted, so a tampered or stale index is simply skipped and a
+	// non-array value yields an empty shelf instead of a render-time throw.
+	function sampled<T>(pool: T[] | undefined, key: string): T[] {
+		const idx = picks[key];
+		if (!Array.isArray(idx) || !Array.isArray(pool)) return [];
+		return idx.flatMap((i) => (pool[i] ? [pool[i]] : []));
+	}
+	const sampledSongs = (key: string) => sampled(pools.songs[key], key);
+	const sampledArtists = (key: string) => sampled(pools.artists[key], key);
+	const sampledAlbums = (key: string) => sampled(pools.albums[key], key);
+	const hasPool = (key: string) =>
+		!!(pools.songs[key]?.length || pools.artists[key]?.length || pools.albums[key]?.length);
+
+	const genreShelves = $derived(
+		chartGenres
+			.map((g) => ({ id: g, key: genrePoolKey(g), items: sampledSongs(genrePoolKey(g)) }))
+			.filter((s) => s.items.length)
+	);
+	const regionShelves = $derived(
+		chartExtraRegions
+			.map((cc) => ({ cc, key: poolKey('region', cc), items: sampledSongs(poolKey('region', cc)) }))
+			.filter((s) => s.items.length)
+	);
+
+	type TaskResult =
+		| { kind: 'songs'; items: DiscoveryTrack[] }
+		| { kind: 'artists'; items: DiscoveryArtist[] }
+		| { kind: 'albums'; items: ChartAlbum[] };
+	/** Every charts.ts call is never-throw (→ [] on failure), so no try/catch here. */
+	async function fetchTask(task: ChartTask): Promise<TaskResult> {
+		switch (task.src) {
+			case 'apple':
+				return task.kind === 'songs'
+					? { kind: 'songs', items: await appleSongs(task.cc) }
+					: { kind: 'albums', items: await appleAlbums(task.cc) };
+			case 'kkbox':
+				return {
+					kind: 'songs',
+					items: await (task.kind === 'song' ? kkboxSongs(task.cc) : kkboxNewReleases(task.cc))
+				};
+			case 'yt':
+				return task.kind === 'tracks'
+					? { kind: 'songs', items: await ytTracks(task.cc) }
+					: { kind: 'artists', items: await ytArtists(task.cc) };
+			case 'genre':
+				return { kind: 'songs', items: await genreChart(task.genre) };
+		}
+	}
+	function uniqBy<T>(items: T[], key: (x: T) => string): T[] {
+		const seen = new Set<string>();
+		return items.filter((x) => {
+			const k = key(x);
+			if (seen.has(k)) return false;
+			seen.add(k);
+			return true;
+		});
+	}
+
+	// Generation of the chart FETCH, separate from refreshGen: only a newer chart fetch supersedes
+	// one in flight. A Randomize press bumps refreshGen but must NOT cancel pools still landing on a
+	// cold load (the button stays enabled when no classic section is visible) — they are new content,
+	// not stale content. Plain field (never read by the UI).
+	let chartGen = 0;
+
+	/**
+	 * 39-D-28: run the planned tasks grouped by pool key, FANOUT_CAP groups in flight. Each group's
+	 * pool is written AS IT LANDS (chartGen-guarded), so one hanging Apple call never holds back the
+	 * KKBOX / YouTube shelves (RESEARCH Pitfall 9). `apply(key)` = also write the reactive state for
+	 * that key (the silent revalidate applies only keys with nothing on screen). An EMPTY answer
+	 * (upstream failure) keeps the current pool. Rows are de-duplicated on the way in because the
+	 * shelves key their rows by artist + title (or name) — a chart listing the same song twice
+	 * (explicit + clean) would otherwise collide.
+	 */
+	async function runChartTasks(tasks: ChartTask[], gen: number, apply: (key: string) => boolean) {
+		const groups = new Map<string, ChartTask[]>();
+		for (const task of tasks) groups.set(task.key, [...(groups.get(task.key) ?? []), task]);
+		const out: ChartPools = { songs: {}, artists: {}, albums: {} };
+		const outPicks: Record<string, number[]> = {};
+		const n = clampShelfSize(settings.homeShelfSize);
+		await mapWithConcurrency([...groups.values()], FANOUT_CAP, async (group) => {
+			const results = await Promise.all(group.map(fetchTask));
+			if (gen !== chartGen) return; // superseded by a newer chart fetch (WR-04 idiom)
+			const key = group[0].key;
+			const live = apply(key);
+			const first = results[0];
+			let len = 0;
+			if (first.kind === 'artists') {
+				const items = uniqBy(first.items, (a) => a.name).slice(0, POOL_CAP);
+				if (!(len = items.length)) return;
+				out.artists[key] = items;
+				if (live) pools.artists[key] = items;
+			} else if (first.kind === 'albums') {
+				const items = uniqBy(first.items, (a) => a.artist + ' ' + a.name).slice(0, POOL_CAP);
+				if (!(len = items.length)) return;
+				out.albums[key] = items;
+				if (live) pools.albums[key] = items;
+			} else {
+				// Top Songs in hk/tw/sg: KKBOX + Apple fused, Apple's list FIRST so its display strings
+				// win (CONTEXT). A one-list group runs through fuseCharts too — rank order is kept and
+				// duplicates collapse.
+				const lists = group
+					.map((task, i) => ({ apple: task.src === 'apple', r: results[i] }))
+					.sort((a, b) => Number(b.apple) - Number(a.apple))
+					.flatMap(({ r }) => (r.kind === 'songs' ? [r.items] : []));
+				const items = fuseCharts(lists, 60, POOL_CAP);
+				if (!(len = items.length)) return;
+				out.songs[key] = items;
+				if (live) pools.songs[key] = items;
+			}
+			outPicks[key] = samplePicks(len, n);
+			if (live) picks[key] = outPicks[key];
+		});
+		return { pools: out, picks: outPicks };
+	}
+
+	/**
+	 * 39-D-29: Randomize for the chart shelves is a LOCAL re-draw — zero requests. A pool set the
+	 * silent revalidate parked in `pendingPools` is adopted first, so the press samples fresh charts.
+	 */
+	function redrawPicks() {
+		if (pendingPools) {
+			pools = pendingPools.pools;
+			poolsFetchedAt = pendingPools.fetchedAt;
+			pendingPools = null;
+		}
+		const n = clampShelfSize(settings.homeShelfSize);
+		const next: Record<string, number[]> = {};
+		for (const map of [pools.songs, pools.artists, pools.albums]) {
+			for (const [key, pool] of Object.entries(map)) {
+				next[key] = samplePicks(Array.isArray(pool) ? pool.length : 0, n); // T-39-29
+			}
+		}
+		picks = next;
+	}
+
+	/**
+	 * 39-D-32 (CONTEXT: a stale refresh lands on the NEXT visit): refetch every planned pool in the
+	 * background and write it to the cache WITHOUT touching the pools on screen, so nothing swaps
+	 * under the user. A planned key with NO pool yet (its earlier fetch failed or was cut short) has
+	 * nothing to swap, so it is shown as it lands. `onlyMissing` fetches just those keys (fresh pools,
+	 * one failed shelf) instead of the whole plan. It bumps neither generation — it must never
+	 * supersede a user action — and bails if anything else started meanwhile.
+	 */
+	async function revalidatePools(onlyMissing = false) {
+		const gen = refreshGen;
+		const cg = chartGen;
+		const tasks = chartTasks().filter((task) => !onlyMissing || !hasPool(task.key));
+		const fresh = await runChartTasks(tasks, cg, (key) => !hasPool(key));
+		if (gen !== refreshGen || cg !== chartGen) return;
+		// A cached D-06 fallback grid hides every shelf; once a pool exists it has served its purpose,
+		// or the grid would be persisted (and shown) again on every later visit.
+		if (useFallback && hasAnyContent()) {
+			useFallback = false;
+			fallbackSongs = [];
+		}
+		if (onlyMissing) {
+			saveCache(); // every fetched key was missing, so all of them are already on screen
+			return;
+		}
+		const merged: ChartPools = {
+			songs: { ...pools.songs, ...fresh.pools.songs },
+			artists: { ...pools.artists, ...fresh.pools.artists },
+			albums: { ...pools.albums, ...fresh.pools.albums }
+		};
+		pendingPools = { pools: merged, fetchedAt: Date.now() };
+		saveCache({ pools: merged, picks: { ...picks, ...fresh.picks }, fetchedAt: pendingPools.fetchedAt });
+	}
+
+	// D-06 / UI-SPEC §1.8 (RESEARCH Pitfall 2): the fallback grid replaces EVERY section, so it may only
+	// win when every VISIBLE shelf — chart, classic and library — is empty. Also gates the cold skeleton.
+	function hasAnyContent(): boolean {
+		const library: [HomeSectionId, number][] = [
+			['liked', likedShelf.length],
+			['downloads', downloadsShelf.length],
+			['history', historyShelf.length],
+			['radio', radioShelf.length],
+			['playlists', playlistShelves.length],
+			['fav-artists', favArtistsShelf.length]
+		];
 		return (
-			hits.length > 0 ||
-			artists.length > 0 ||
-			tags.some((s) => s.tracks.length) ||
-			countries.some((s) => s.tracks.length)
+			plannedKeys().some(
+				(key) => sampledSongs(key).length || sampledArtists(key).length || sampledAlbums(key).length
+			) ||
+			(isVisible('top-hits') && topHits.length > 0) ||
+			(isVisible('top-artists') && topArtists.length > 0) ||
+			(isVisible('tags') && tagShelves.some((s) => s.tracks.length)) ||
+			(isVisible('countries') && countryShelves.some((s) => s.tracks.length)) ||
+			library.some(([id, n]) => n > 0 && isVisible(id))
 		);
 	}
 
@@ -360,35 +619,78 @@
 	// Signature of the home-layout config the shelves depend on. Two cached payloads with the
 	// same cfg would re-fetch (non-randomized) to the identical page-1 surface, so a reload can
 	// safely skip the revalidate and keep whatever is cached (incl. a Randomize arrangement).
+	// 39-D-27 (RESEARCH Pitfall 4): hidden now GATES fetching, so the visible network-backed set is
+	// part of the signature — un-hiding a section must revalidate, or the reload keeps a cache that
+	// never fetched it. Region / extra regions / genres are in it for the same reason.
 	function configSig(): string {
 		return JSON.stringify({
 			s: clampShelfSize(settings.homeShelfSize),
-			t: resolveSubset(settings.homeTags, DISCOVERY_TAGS),
-			c: resolveSubset(settings.homeCountries, DISCOVERY_COUNTRIES)
+			t: isVisible('tags') ? resolveSubset(settings.homeTags, DISCOVERY_TAGS) : [],
+			c: isVisible('countries') ? resolveSubset(settings.homeCountries, DISCOVERY_COUNTRIES) : [],
+			r: chartRegion,
+			x: chartExtraRegions,
+			g: chartGenres,
+			v: [...CHART_SECTIONS, ...CLASSIC_SECTIONS].filter((id) => isVisible(id))
 		});
 	}
 
-	function saveCache(payload: ShelfCache) {
-		payload.cfg = configSig();
+	/**
+	 * Persist the current home surface. `over` substitutes the pools/picks/fetchedAt (the silent
+	 * revalidate writes fresh pools without assigning them). Only the CURRENT plan's pool keys are
+	 * kept, so switching regions never grows the blob past ~one plan's worth of pools.
+	 */
+	function saveCache(over?: { pools: ChartPools; picks: Record<string, number[]>; fetchedAt: number }) {
+		const keep = new Set(plannedKeys());
+		function only<T>(m: Record<string, T>): Record<string, T> {
+			return Object.fromEntries(Object.entries(m).filter(([k]) => keep.has(k)));
+		}
+		const src = over?.pools ?? pools;
+		const payload: ShelfCache = {
+			v: 3,
+			cfg: configSig(),
+			fetchedAt: over?.fetchedAt ?? poolsFetchedAt,
+			pools: { songs: only(src.songs), artists: only(src.artists), albums: only(src.albums) },
+			picks: only(over?.picks ?? picks),
+			topHits,
+			topArtists,
+			tagShelves,
+			countryShelves,
+			useFallback,
+			fallback: fallbackSongs
+		};
 		try {
-			localStorage.setItem(CACHE_KEY, JSON.stringify(payload));
+			localStorage.setItem(HOME_CACHE_KEY, JSON.stringify(payload));
 		} catch {
 			/* quota or unavailable — non-fatal */
 		}
+		for (const key of LEGACY_HOME_CACHE_KEYS) {
+			try {
+				localStorage.removeItem(key);
+			} catch {
+				/* unavailable — non-fatal */
+			}
+		}
 	}
+	const isRecord = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 	function loadCache(): ShelfCache | null {
 		try {
-			const raw = localStorage.getItem(CACHE_KEY);
+			const raw = localStorage.getItem(HOME_CACHE_KEY);
 			if (!raw) return null;
 			const v: unknown = JSON.parse(raw);
-			if (v && typeof v === 'object' && (v as ShelfCache).v === 2) return v as ShelfCache;
-			return null;
+			// T-39-28: v3 + shape guard; anything else (incl. an old v2 blob) → null → cold refresh.
+			if (!isRecord(v) || v.v !== 3 || typeof v.fetchedAt !== 'number' || !isRecord(v.picks)) return null;
+			const p = v.pools;
+			if (!isRecord(p) || !isRecord(p.songs) || !isRecord(p.artists) || !isRecord(p.albums)) return null;
+			return v as unknown as ShelfCache;
 		} catch {
 			return null;
 		}
 	}
 
 	function applyCache(c: ShelfCache) {
+		pools = c.pools;
+		picks = c.picks;
+		poolsFetchedAt = c.fetchedAt;
 		topHits = c.topHits ?? [];
 		topArtists = c.topArtists ?? [];
 		tagShelves = c.tagShelves ?? [];
@@ -404,9 +706,9 @@
 	// varies, and each (method+params+page) stays edge-cached (T-vx2-03 — no new fan-out).
 	const RANDOM_PAGE_BOUND = 5;
 
-	// Fetch the four Last.fm shelves (concurrency-capped), fall back to buildDiversePicks
-	// when discovery is empty, cache the displayed result, and seed the player queue.
-	// Used by Randomize + cold start + background revalidate.
+	// Fetch the chart pools and the visible classic shelves (concurrency-capped), fall back to
+	// buildDiversePicks when every visible shelf is empty, cache the displayed result, and seed the
+	// player queue. Used by Randomize + cold start + background revalidate.
 	//
 	// `background` (WR-02): a post-cache-hit revalidate does NOT toggle `loading`, so the
 	// Randomize button stays enabled and shows live content rather than "Loading…".
@@ -418,7 +720,8 @@
 	// when an overlapping page comes back. A NON-randomize (cold/background) call passes the
 	// default page 1 → identical request + edge cache key as before, AND no shuffle, so the
 	// cache-friendly fast path is untouched. Randomize never reads loadCache(); it always
-	// FETCHES and OVERWRITES the cache below with the freshly-shuffled arrangement.
+	// FETCHES and OVERWRITES the cache below with the freshly-shuffled arrangement. (The chart
+	// shelves are the exception: their Randomize re-samples the cached pools locally — 39-D-29.)
 	let refreshGen = 0;
 	async function refresh(seedQueue = true, background = false, randomize = false) {
 		// quick-260607-hhd: library-sourced shelves rebuild on every refresh. They cost ~0
@@ -429,108 +732,126 @@
 		if (!background) loading = true;
 		error = null;
 		try {
-			// w87: per-shelf tile count is the user setting, clamped to [6,24] (T-w87-01 — a
-			// poisoned/old value can never produce a giant or NaN page size). Tag/country
-			// fan-out runs over the SELECTED subset (resolveSubset falls back to the full pool
-			// when none/garbage are selected, T-w87-03), so config can only NARROW the
-			// surface — fan-out width stays ≤ the pool size, behind FANOUT_CAP (Pitfall 11).
-			const perShelf = clampShelfSize(settings.homeShelfSize);
-			const tagPool = resolveSubset(settings.homeTags, DISCOVERY_TAGS);
-			const countryPool = resolveSubset(settings.homeCountries, DISCOVERY_COUNTRIES);
-			// Shelves 1+2 (chart) + the capped tag/country fan-out (shelves 3+4). All
-			// builders never throw (→ [] on failure / absent key), so this never rejects.
-			// On a randomize press, draw a fresh random page PER call so different shelves
-			// pull from different pages; on a normal call pass page 1 (cache-friendly).
-			const pg = () => (randomize ? pickRandomPage(RANDOM_PAGE_BOUND) : 1);
-			// TOP-HITS + TOP-ARTISTS source from the Deezer /chart: covers + artist pictures are
-			// EMBEDDED, so ONE request yields a fully-covered shelf and the per-tile cover backfill
-			// is demoted to a rare backup (user: "less requests, backfill as backup not norm").
-			// Tag/country shelves stay Last.fm (their imageless tiles are the backup backfill's job).
-			const dzChart = await deezerChart(perShelf);
-			if (gen !== refreshGen) return;
-			const [tagRows, countryRows] = await Promise.all([
-				mapWithConcurrency(tagPool, FANOUT_CAP, (tag) =>
-					getTagTopTracks(tag, perShelf, pg())
-				),
-				mapWithConcurrency(countryPool, FANOUT_CAP, (c) =>
-					getGeoTopTracks(c, perShelf, pg())
-				)
-			]);
-			if (gen !== refreshGen) return; // superseded by a newer refresh (WR-04)
-
-			// Deezer PRIMARY; fall back to the Last.fm chart PER SOURCE only when Deezer is empty.
-			const rawHits = dzChart.tracks.length
-				? dzChart.tracks
-				: await getChartTopTracks(perShelf, pg());
-			const rawArtists = dzChart.artists.length
-				? dzChart.artists
-				: await getChartTopArtists(perShelf);
-			if (gen !== refreshGen) return;
-
-			// On randomize, shuffle the chart shelves' tile order so even an overlapping page
-			// renders visibly differently. (Non-randomize leaves them in Last.fm rank order.)
-			const hits = randomize ? shuffle(rawHits) : rawHits;
-			const artists = randomize ? shuffle(rawArtists) : rawArtists;
-
-			// Build the tag/country shelves; on randomize also shuffle the tile order WITHIN
-			// each shelf. w87: map over the resolved SUBSET (tagPool/countryPool) so the
-			// shelves match the rows we fetched above — a deselected tag simply has no shelf.
-			let tags: Shelf[] = tagPool.map((label, i) => ({
-				label,
-				tracks: randomize ? shuffle(tagRows[i] ?? []) : (tagRows[i] ?? [])
-			})).filter((s) => s.tracks.length);
-			let countries: Shelf[] = countryPool.map((label, i) => ({
-				label,
-				tracks: randomize ? shuffle(countryRows[i] ?? []) : (countryRows[i] ?? [])
-			})).filter((s) => s.tracks.length);
-
-			// On randomize, also shuffle the ORDER of the shelves themselves (which tag/country
-			// shelf appears first) — done on the local vars BEFORE assignment + saveCache so the
-			// persisted cache and the rendered UI carry the identical shuffled arrangement.
+			// (a) CHART SHELVES. Randomize re-draws the picks locally (39-D-29, zero requests); every
+			// other call runs the planned tasks, assigning each pool as it lands.
 			if (randomize) {
-				tags = shuffle(tags);
-				countries = shuffle(countries);
+				redrawPicks();
+			} else {
+				const tasks = chartTasks();
+				if (tasks.length) {
+					await runChartTasks(tasks, ++chartGen, () => true);
+					if (gen !== refreshGen) return;
+					poolsFetchedAt = Date.now();
+					pendingPools = null; // this fetch is newer than anything a revalidate parked
+				}
 			}
 
-			if (hasAnyDiscovery(hits, artists, tags, countries)) {
-				// PRIMARY: the Last.fm discovery surface (D-01/D-02).
-				topHits = hits;
-				topArtists = artists;
-				tagShelves = tags;
-				countryShelves = countries;
+			// (b) CLASSIC shelves. 39-D-30 (RESEARCH Pitfall 1): a hidden classic section issues ZERO
+			// requests — Deezer /chart only for a visible top-hits / top-artists, the tag and country
+			// fan-outs only for their own visible section. Hidden → the shelf state is emptied.
+			let hits: DiscoveryTrack[] = [];
+			let artists: DiscoveryArtist[] = [];
+			let tags: Shelf[] = [];
+			let countries: Shelf[] = [];
+			if (classicVisible) {
+				const hitsVisible = isVisible('top-hits');
+				const artistsVisible = isVisible('top-artists');
+				// w87: per-shelf tile count is the user setting, clamped to [6,24] (T-w87-01 — a
+				// poisoned/old value can never produce a giant or NaN page size). Tag/country
+				// fan-out runs over the SELECTED subset (resolveSubset falls back to the full pool
+				// when none/garbage are selected, T-w87-03), so config can only NARROW the
+				// surface — fan-out width stays ≤ the pool size, behind FANOUT_CAP (Pitfall 11).
+				const perShelf = clampShelfSize(settings.homeShelfSize);
+				const tagPool = isVisible('tags') ? resolveSubset(settings.homeTags, DISCOVERY_TAGS) : [];
+				const countryPool = isVisible('countries')
+					? resolveSubset(settings.homeCountries, DISCOVERY_COUNTRIES)
+					: [];
+				// Shelves 1+2 (chart) + the capped tag/country fan-out (shelves 3+4). All
+				// builders never throw (→ [] on failure / absent key), so this never rejects.
+				// On a randomize press, draw a fresh random page PER call so different shelves
+				// pull from different pages; on a normal call pass page 1 (cache-friendly).
+				const pg = () => (randomize ? pickRandomPage(RANDOM_PAGE_BOUND) : 1);
+				// TOP-HITS + TOP-ARTISTS source from the Deezer /chart: covers + artist pictures are
+				// EMBEDDED, so ONE request yields a fully-covered shelf and the per-tile cover backfill
+				// is demoted to a rare backup (user: "less requests, backfill as backup not norm").
+				// Tag/country shelves stay Last.fm (their imageless tiles are the backup backfill's job).
+				const dzChart =
+					hitsVisible || artistsVisible ? await deezerChart(perShelf) : { tracks: [], artists: [] };
+				if (gen !== refreshGen) return;
+				const [tagRows, countryRows] = await Promise.all([
+					mapWithConcurrency(tagPool, FANOUT_CAP, (tag) =>
+						getTagTopTracks(tag, perShelf, pg())
+					),
+					mapWithConcurrency(countryPool, FANOUT_CAP, (c) =>
+						getGeoTopTracks(c, perShelf, pg())
+					)
+				]);
+				if (gen !== refreshGen) return; // superseded by a newer refresh (WR-04)
+
+				// Deezer PRIMARY; fall back to the Last.fm chart PER SOURCE only when Deezer is empty
+				// (and only for a visible section).
+				const rawHits = !hitsVisible
+					? []
+					: dzChart.tracks.length
+						? dzChart.tracks
+						: await getChartTopTracks(perShelf, pg());
+				const rawArtists = !artistsVisible
+					? []
+					: dzChart.artists.length
+						? dzChart.artists
+						: await getChartTopArtists(perShelf);
+				if (gen !== refreshGen) return;
+
+				// On randomize, shuffle the chart shelves' tile order so even an overlapping page
+				// renders visibly differently. (Non-randomize leaves them in Last.fm rank order.)
+				hits = randomize ? shuffle(rawHits) : rawHits;
+				artists = randomize ? shuffle(rawArtists) : rawArtists;
+
+				// Build the tag/country shelves; on randomize also shuffle the tile order WITHIN
+				// each shelf. w87: map over the resolved SUBSET (tagPool/countryPool) so the
+				// shelves match the rows we fetched above — a deselected tag simply has no shelf.
+				tags = tagPool.map((label, i) => ({
+					label,
+					tracks: randomize ? shuffle(tagRows[i] ?? []) : (tagRows[i] ?? [])
+				})).filter((s) => s.tracks.length);
+				countries = countryPool.map((label, i) => ({
+					label,
+					tracks: randomize ? shuffle(countryRows[i] ?? []) : (countryRows[i] ?? [])
+				})).filter((s) => s.tracks.length);
+
+				// On randomize, also shuffle the ORDER of the shelves themselves (which tag/country
+				// shelf appears first) — done on the local vars BEFORE assignment + saveCache so the
+				// persisted cache and the rendered UI carry the identical shuffled arrangement.
+				if (randomize) {
+					tags = shuffle(tags);
+					countries = shuffle(countries);
+				}
+			}
+			topHits = hits;
+			topArtists = artists;
+			tagShelves = tags;
+			countryShelves = countries;
+
+			// (c) FALLBACK gate — hasAnyContent() sees chart, classic AND library shelves (Pitfall 2).
+			if (hasAnyContent()) {
+				// PRIMARY: the chart / classic / library surface (D-01/D-02).
 				useFallback = false;
 				fallbackSongs = [];
-				saveCache({
-					v: 2,
-					topHits: hits,
-					topArtists: artists,
-					tagShelves: tags,
-					countryShelves: countries,
-					useFallback: false,
-					fallback: []
-				});
+				saveCache();
 				scheduleBackfill(); // FIX-A: fill gradients with real CN covers, post-paint, capped
 			} else {
 				// D-06 FALLBACK: absent key / all-empty → keep the home page populated.
-				const picks = await buildDiversePicks(PICK_COUNT);
+				const diverse = await buildDiversePicks(PICK_COUNT);
 				if (gen !== refreshGen) return; // superseded during the fallback fetch (WR-04)
-				if (picks.length) {
+				if (diverse.length) {
 					useFallback = true;
-					fallbackSongs = picks;
+					fallbackSongs = diverse;
 					topHits = [];
 					topArtists = [];
 					tagShelves = [];
 					countryShelves = [];
-					if (seedQueue) player.setQueue(picks, 'home-discovery');
-					saveCache({
-						v: 2,
-						topHits: [],
-						topArtists: [],
-						tagShelves: [],
-						countryShelves: [],
-						useFallback: true,
-						fallback: picks
-					});
+					if (seedQueue) player.setQueue(diverse, 'home-discovery');
+					saveCache(); // pools stay in the payload, even when empty
 				} else if (!background) {
 					error = t('home.noResults');
 				}
@@ -550,8 +871,9 @@
 	// supersede, so gate the toast on pendingTrack: a supersede leaves pendingTrack pointing
 	// at the NEWER song (no toast), a miss clears pendingTrack (toast). Cover-if-known is
 	// passed so the optimistic bar shows real art immediately when available.
-	async function playStub(item: DiscoveryTrack) {
-		const tr = await player.playStub(item.artist, item.title, item.image, 'home-discovery');
+	// `cover` defaults to the tile's own art; Trending passes null (39-D-34, see ytTrendingBlock).
+	async function playStub(item: DiscoveryTrack, cover: string | null = item.image) {
+		const tr = await player.playStub(item.artist, item.title, cover, 'home-discovery');
 		if (tr === null && player.pendingTrack == null) toast.show(t('home.unplayable'));
 	}
 
@@ -622,6 +944,14 @@
 		if (id === 'tags') return tagShelves.length;
 		if (id === 'countries') return countryShelves.length;
 		if (id === 'playlists') return playlistShelves.length;
+		if (id === 'genres') return genreShelves.length;
+		if (id === 'regions') return regionShelves.length;
+		// An empty single chart shelf renders nothing, so it must not use up a reveal frame.
+		if (id === 'chart-songs' || id === 'new-releases' || id === 'yt-trending') {
+			return sampledSongs(poolKey(id, chartRegion)).length ? 1 : 0;
+		}
+		if (id === 'chart-artists') return sampledArtists(poolKey(id, chartRegion)).length ? 1 : 0;
+		if (id === 'chart-albums') return sampledAlbums(poolKey(id, chartRegion)).length ? 1 : 0;
 		return 1;
 	}
 	/** Per visible section: how many of its shelves may mount right now, plus the grand total. */
@@ -749,6 +1079,12 @@
 			// keep the cached set instead (user: "after refresh it should show the latest set B,
 			// not A"). A config change still revalidates to reconcile the new shelf size/subset.
 			if (cached.cfg !== configSig()) void refresh(false, true);
+			// 39-D-32: pools older than POOL_STALE_MS revalidate SILENTLY — the fresh pools land in the
+			// cache (and a Randomize press) but tiles on screen do not swap until the next app open.
+			else if (Date.now() - cached.fetchedAt > POOL_STALE_MS) void revalidatePools();
+			// A planned key with no pool (a failed or cut-short first fetch) is fetched on its own, so
+			// a transient upstream miss cannot blank a shelf for the whole six hours.
+			else if (chartTasks().some((task) => !hasPool(task.key))) void revalidatePools(true);
 		} else {
 			// Cold cache: full fetch. Seed the queue unless a shared link is taking over.
 			refresh(!token);
@@ -777,11 +1113,13 @@
 	<div class="head">
 		<h2>{t('home.topPicks')}</h2>
 		{#if settings.homeShowRandomize}
-			<button class="more" onclick={() => refresh(true, false, true)} disabled={loading}><RotateCw size={13} /> {loading ? t('home.loadingPicks') : t('home.randomize')}</button>
+			<!-- UI-SPEC §1.7: the chart shelves re-sample locally, so the disabled "Loading…" state is
+			     confined to a visible classic section (the only case that still fetches). -->
+			<button class="more" onclick={() => refresh(true, false, true)} disabled={loading && classicVisible}><RotateCw size={13} /> {loading && classicVisible ? t('home.loadingPicks') : t('home.randomize')}</button>
 		{/if}
 	</div>
 
-	{#if loading && !useFallback && !topHits.length && !topArtists.length && !tagShelves.length && !countryShelves.length && !fallbackSongs.length}
+	{#if loading && !useFallback && !hasAnyContent() && !fallbackSongs.length}
 		<!-- Cold-load skeleton: compact-by-default, so match the compact pager shape — a column
 		     of 4 compact-row placeholders (40px art + 2 bars), with the next column peeking. -->
 		<div class="compact-skel-pager">
