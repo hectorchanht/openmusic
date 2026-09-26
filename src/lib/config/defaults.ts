@@ -14,6 +14,8 @@ import {
 	DEFAULT_HOME_COUNTRIES,
 	SHELF_DEFAULT,
 	DEFAULT_CHART_GENRES,
+	CLASSIC_SECTIONS,
+	HOME_LAYOUT_VERSION,
 	type ChartRegion,
 	type HomeDensity,
 	type HomeLandingTab,
@@ -181,7 +183,11 @@ export const UPNEXT_DEFAULTS = {
 // so this file stays a single source of truth (no risk of drift).
 export const HOME_DEFAULTS = {
 	homeSectionOrder: [...DEFAULT_SECTION_ORDER] as HomeSectionId[],
-	homeHidden: [] as string[],
+	// 39-D-39: the four classic Deezer/Last.fm shelves stay available but start hidden. A fresh
+	// install and Reset-to-default get the chart layout from here; an existing install gets it from
+	// the one-time migration in settings.load(), because its persisted `homeHidden: []` is a real
+	// value the type guard keeps (this default never reaches it).
+	homeHidden: [...CLASSIC_SECTIONS] as string[],
 	homeTags: [...DEFAULT_HOME_TAGS] as string[],
 	homeCountries: [...DEFAULT_HOME_COUNTRIES] as string[],
 	homeShelfSize: SHELF_DEFAULT,
@@ -196,13 +202,12 @@ export const HOME_DEFAULTS = {
 	// 39-D-25: home chart settings. 'auto' region is resolved at render by resolveChartRegion.
 	// Extra regions default to none (UI-11: smallest cold fan-out). Genres default to the locked
 	// Asian-pop + Western-core set, sourced from home-layout.ts so the two never drift.
-	// homeHidden stays [] and there is NO layout-version field here on purpose: both belong to the
-	// one-time layout switch (migrateHomeLayout), which must not ship before the chart shelves
-	// render: an early hide removes the classic shelves before anything replaces them, and an early
-	// version stamp makes anyone who saves in between skip the switch.
 	homeChartRegion: 'auto' as 'auto' | ChartRegion,
 	homeExtraRegions: [] as string[],
-	homeChartGenres: [...DEFAULT_CHART_GENRES] as string[]
+	homeChartGenres: [...DEFAULT_CHART_GENRES] as string[],
+	/** 39-D-40: the persisted home-layout version. A fresh install / reset is already on the chart
+	 *  layout, so it starts at the current version and never runs the migration. */
+	homeLayoutVersion: HOME_LAYOUT_VERSION
 } as const;
 
 /** All groups in one place — used to drive the reset-group helpers. */

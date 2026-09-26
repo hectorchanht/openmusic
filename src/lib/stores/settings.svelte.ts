@@ -20,7 +20,7 @@ import {
 // Pure util (no DOM/browser/store imports) — settings stays a LEAF store. Used by
 // applyTheme() to derive --color-primary-hover from the chosen accent (UX-07 root-cause fix).
 import { darken } from '$lib/services/color';
-import { CHART_REGIONS, clampShelfSize, migrateDensity, type ChartRegion, type HomeDensity, type HomeLandingTab, type HomeSectionId } from '$lib/services/home-layout';
+import { CHART_REGIONS, HOME_LAYOUT_VERSION, clampShelfSize, migrateDensity, migrateHomeLayout, type ChartRegion, type HomeDensity, type HomeLandingTab, type HomeSectionId } from '$lib/services/home-layout';
 
 export type LyricsLang =
 	| 'off'
@@ -254,6 +254,9 @@ class Settings {
 	homeShowSearchPill = $state<boolean>(HOME_DEFAULTS.homeShowSearchPill);
 	/** Show the Randomize button on home (default TRUE = today). */
 	homeShowRandomize = $state<boolean>(HOME_DEFAULTS.homeShowRandomize);
+	/** 39-D-40: persisted home-layout version. A PLAIN field, not $state: the UI never reads it —
+	 *  it only gates the one-time layout migration in load() and is written by save(). */
+	homeLayoutVersion: number = HOME_DEFAULTS.homeLayoutVersion;
 
 	private loaded = false;
 
@@ -265,6 +268,7 @@ class Settings {
 	load() {
 		if (this.loaded || !browser) return;
 		this.loaded = true;
+		let migrated = false;
 		try {
 			const raw = localStorage.getItem(KEY);
 			if (raw) {
@@ -427,11 +431,29 @@ class Settings {
 					if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
 					const out: Partial<Record<HomeSectionId, HomeDensity>> = {};
 					for (const [k, val] of Object.entries(raw as Record<string, unknown>)) {
-						const migrated = migrateDensity(val);
-						if (migrated) out[k as HomeSectionId] = migrated;
+						const next = migrateDensity(val);
+						if (next) out[k as HomeSectionId] = next;
 					}
 					return out;
 				})();
+				// 39-D-40 — the one-time switch to the chart layout (RESEARCH Pattern 5). Same record as
+				// the upnextPerContext block above: a one-shot migration needs its own persisted version
+				// marker, or it re-applies on every load. Absent / non-number = 1 (every pre-chart blob);
+				// a forged higher number only skips the switch (T-39-35). UI-SPEC §3: silent (no toast or
+				// banner), runs once, and only inserts the chart ids at the old chart slot, hides the four
+				// classic shelves and carries their density — library sections, relative order, shelf
+				// size, landing tab and chrome toggles are untouched. It runs AFTER the type guards and
+				// the density coercion above, so migrateHomeLayout only ever sees arrays and valid
+				// densities (T-39-37).
+				const ver = typeof v.homeLayoutVersion === 'number' ? v.homeLayoutVersion : 1;
+				if (ver < HOME_LAYOUT_VERSION) {
+					const m = migrateHomeLayout(this.homeSectionOrder, this.homeHidden, this.homeSectionDensity);
+					this.homeSectionOrder = m.order;
+					this.homeHidden = m.hidden;
+					this.homeSectionDensity = m.density;
+					migrated = true;
+				}
+				this.homeLayoutVersion = HOME_LAYOUT_VERSION;
 				// Booleans default TRUE via nullish-coalescing — NOT `!!v.x`, which would flip
 				// an ABSENT field to false and HIDE the chrome for a returning user (regression).
 				this.homeShowSearchPill = v.homeShowSearchPill ?? HOME_DEFAULTS.homeShowSearchPill;
@@ -443,6 +465,10 @@ class Settings {
 		} catch {
 			/* corrupt — keep defaults */
 		}
+		// 39-D-40 / RESEARCH Pitfall 5: the save is REQUIRED. Without a persisted version, a user who
+		// re-enables Top hits would have it re-hidden on every load (T-39-36). Only a migrated load
+		// writes; a first visit and an already-current blob do not.
+		if (migrated) this.save();
 		this.applyTheme();
 	}
 
@@ -503,7 +529,8 @@ class Settings {
 					homeDensity: this.homeDensity,
 					homeSectionDensity: this.homeSectionDensity,
 					homeShowSearchPill: this.homeShowSearchPill,
-					homeShowRandomize: this.homeShowRandomize
+					homeShowRandomize: this.homeShowRandomize,
+					homeLayoutVersion: this.homeLayoutVersion
 				})
 			);
 		} catch {
@@ -645,6 +672,7 @@ class Settings {
 		this.homeSectionDensity = { ...d.homeSectionDensity };
 		this.homeShowSearchPill = d.homeShowSearchPill;
 		this.homeShowRandomize = d.homeShowRandomize;
+		this.homeLayoutVersion = d.homeLayoutVersion;
 		this.save();
 	}
 }
