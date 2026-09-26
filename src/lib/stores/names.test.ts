@@ -589,3 +589,61 @@ describe('names.lockUrl (quick-260926-hze)', () => {
 		expect(names.lockUrl(simp)).toBe(simp);
 	});
 });
+
+// quick-260926-kvz — the zh-Hant TRANSLATION layer (not the lock) ran raw s2t, so a JOOX/HK 周杰倫
+// became 周傑倫 while a CN 周杰伦 became 周杰倫 — and the no-flash fast path PERSISTED the bad
+// result into openmusic:name-tr:v2:zh-Hant, where the cache hit (which ran first) served it forever.
+describe('names — zh-Hant translation is idempotent and self-heals (quick-260926-kvz)', () => {
+	const KEY = 'openmusic:name-tr:v2:zh-Hant';
+	const persisted = (): Record<string, string> => JSON.parse(memStore.get(KEY) ?? '{}');
+	/** Warm both dicts on the SAME module instance the freshly-reset names store imported. */
+	async function warmHant(): Promise<void> {
+		await (await import('$lib/services/zh-convert')).warmScript('zh-Hant');
+	}
+	function poison(): void {
+		memStore.set(KEY, JSON.stringify({ 周杰倫: '周傑倫', 'Coral Sea': '珊瑚海' }));
+	}
+
+	it('Traditional and Simplified input render the same Traditional name, offline', async () => {
+		settingsMock.artistLang = 'zh-Hant';
+		const { names } = await import('./names.svelte');
+		await warmHant();
+		expect(names.dnArtist('周杰倫')).toBe('周杰倫'); // was 周傑倫
+		expect(names.dnArtist('周杰伦')).toBe('周杰倫');
+		expect(translateMock).not.toHaveBeenCalled();
+	});
+
+	it('heals a poisoned persisted entry and leaves English-keyed API translations alone', async () => {
+		settingsMock.artistLang = 'zh-Hant';
+		settingsMock.titleLang = 'zh-Hant';
+		poison(); // seeded BEFORE the first dn* call — the zh-Hant map hydrates lazily
+		const { names } = await import('./names.svelte');
+		await warmHant();
+		expect(names.dnArtist('周杰倫')).toBe('周杰倫');
+		expect(persisted()).not.toHaveProperty('周杰倫');
+		expect(persisted()['Coral Sea']).toBe('珊瑚海');
+		expect(names.dnTitle('Coral Sea')).toBe('珊瑚海');
+		expect(translateMock).not.toHaveBeenCalled();
+	});
+
+	it('COLD dicts: the latched warm bumps rev, then the next render heals the entry', async () => {
+		settingsMock.artistLang = 'zh-Hant';
+		settingsMock.titleLang = 'zh-Hant';
+		poison();
+		translateMock.mockReturnValue(new Promise(() => {})); // a flush can never bump rev
+		const { names } = await import('./names.svelte');
+		const before = names.rev;
+		names.dnArtist('周杰倫'); // cold: one stale render is the accepted ceiling
+		await vi.waitFor(() => expect(names.rev).toBeGreaterThan(before));
+		expect(names.dnArtist('周杰倫')).toBe('周杰倫');
+		expect(persisted()).not.toHaveProperty('周杰倫');
+	});
+
+	it('warm() with a zh-Hant translation target (lock off) warms BOTH dicts', async () => {
+		settingsMock.artistLang = 'zh-Hant';
+		const { names } = await import('./names.svelte');
+		const zh = await import('$lib/services/zh-convert');
+		names.warm();
+		await vi.waitFor(() => expect(zh.t2sConvertLineSync('繁體')).toBe('繁体'));
+	});
+});

@@ -40,7 +40,7 @@ import { browser } from '$app/environment';
 import { settings, effectiveTarget } from '$lib/stores/settings.svelte';
 import { translateLinesEx } from '$lib/services/translate';
 import { shouldTranslate } from '$lib/i18n/detect';
-import { isChineseLine, s2tConvertLineSync, warmS2T, lockScriptSync, warmScript, type ZhScript } from '$lib/services/zh-convert';
+import { isChineseLine, s2tConvertLineSync, lockScriptSync, warmScript, type ZhScript } from '$lib/services/zh-convert';
 import { readRescueHits, onRescueHit, type ZhName } from '$lib/services/name-rescue';
 import { lockEntityHref } from '$lib/services/entity-href';
 import { matchKey, norm } from '$lib/services/match-key';
@@ -262,29 +262,53 @@ class Names {
 		if (!text || target === 'off' || !browser) return text;
 		if (!shouldTranslate(text, target, whitelist)) return text;
 		const m = this.langCache(target);
-		const hit = m.get(text);
-		if (hit !== undefined) return hit;
 		// quick-260712-et3 — zh-Hant NO-FLASH fast path. Simplified→Traditional is a
 		// deterministic OFFLINE conversion (tongwen s2t), so when the dict is already warm we
 		// convert on THIS render and return Traditional immediately — never Simplified-then-flip
 		// (the now-playing marquee title flash). Only Chinese lines qualify (isChineseLine rides
 		// the kana/hangul-first classifier, so JA/KO fall through to the async API path unchanged).
-		// If the dict is not warm yet, kick the lazy load and fall through to the async queue for
-		// this one render (the single unavoidable cold-start conversion).
+		// If the dict is not warm yet, kick the lazy load and fall through to the cache / async
+		// queue for this one render (the single unavoidable cold-start conversion).
+		//
+		// quick-260926-kvz — this now runs BEFORE the cache hit, and heals what it finds:
+		//  (1) the pre-kvz fast path ran RAW s2t and persisted the result (周杰倫 → 周傑倫), and the
+		//      cache hit ran first, so a converter fix alone would have served that poison forever;
+		//  (2) every Chinese key in the zh-Hant map is a deterministic offline result (this fast
+		//      path, or resolveZhHant's offline branch on a cold flush), so recomputing it and
+		//      overwriting / deleting a stale value costs no network;
+		//  (3) that is why STORE_VER stays v2 — a bump would discard every persisted API translation
+		//      (English → Chinese, e.g. Coral Sea → 珊瑚海) that cost network to build, and
+		//      non-Chinese keys never reach this block;
+		//  (4) cost: the s2t merge now runs per render instead of a Map hit — the same per-render
+		//      cost the lock already pays in applyLock. Persist ONLY when the map actually changed;
+		//      resolvers run on every render, so an unconditional persist would write localStorage
+		//      per row per render.
+		// ponytail: merge per render; a per-session verified-key Set restores the Map hit if
+		// profiling ever shows this on a hot path.
 		if (target === 'zh-Hant' && isChineseLine(text)) {
 			const conv = s2tConvertLineSync(text);
 			if (conv !== null) {
 				if (conv !== text) {
-					// Deterministic genuine translation — cache + persist so later renders and other
-					// surfaces hit instantly. Identity (already Traditional) is left uncached: it
-					// re-converts trivially next time and never flashes.
-					m.set(text, conv);
+					// Deterministic genuine translation — cache + persist so other surfaces read the
+					// same value. Rewrites a stale (raw-s2t) entry in place.
+					if (m.get(text) !== conv) {
+						m.set(text, conv);
+						this.persist(target);
+					}
+				} else if (m.has(text)) {
+					// Identity (already Traditional) is left uncached: it re-converts trivially next
+					// time and never flashes — and a poisoned identity entry is deleted.
+					m.delete(text);
 					this.persist(target);
 				}
 				return conv;
 			}
-			warmS2T(); // not warm yet — start the lazy load; async queue below handles this render
+			// Not warm yet — start the lazy load (both dicts; latched, one rev bump when they land)
+			// and fall through: this one render may still serve a stale cached value.
+			this.warmLock('zh-Hant');
 		}
+		const hit = m.get(text);
+		if (hit !== undefined) return hit;
 		// Already awaiting a response — don't re-queue, don't touch attempts. The flush will
 		// bump rev and this resolver will re-run with a cache hit (or count the attempt then).
 		if (this.inflightSet(target).has(text)) return text;
@@ -344,6 +368,10 @@ class Names {
 	 * bump `rev` at all, so without this a cold dict would leave the whole page in the source
 	 * script until some unrelated re-render happened to come along. Latched per direction → one
 	 * dict build, one rev bump, no retry storm (T-2jo-03).
+	 *
+	 * quick-260926-kvz: the zh-Hant TRANSLATION fast path in resolveTranslated shares this latch
+	 * because it needs the same two dicts (the s2t merge). With translation on but the lock off,
+	 * this bump is what repaints a cold first render (and heals a stale cached entry).
 	 */
 	private warmLock(target: ZhScript): void {
 		if (this.lockWarmed.has(target)) return;
@@ -445,7 +473,9 @@ class Names {
 			settings.lastfmLang,
 			settings.bioLang
 		].some((t) => effectiveTarget(t) === 'zh-Hant');
-		if (wantsHant) warmS2T();
+		// quick-260926-kvz: the shared zh-Hant latch — warms BOTH dicts (the s2t merge needs t2s)
+		// and bumps rev once when they land, so a cold first render repaints.
+		if (wantsHant) this.warmLock('zh-Hant');
 		// quick-260919-2jo: …or when the script lock is on — warm THAT direction at boot so the
 		// cold-dict first render (original script, then a warmLock repaint) is the rare case
 		// rather than the normal one. Non-Chinese users with the lock off download neither dict.
