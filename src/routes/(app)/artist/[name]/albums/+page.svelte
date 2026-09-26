@@ -103,7 +103,8 @@
 	<ul class="list">
 		{#each shown as al (al.mbid ?? al.id ?? al.name)}
 			<li>
-				<button class="row" onclick={() => goto(albumHref(al, name))} use:tapBounce>
+				<!-- quick-260926-hze: album title + artist follow the script lock -->
+				<button class="row" onclick={() => goto(names.lockUrl(albumHref(al, name)))} use:tapBounce>
 					<span class="cover" style:background-image={al.image ? `url(${al.image}), ${fallbackCoverSeed(al.name)}` : fallbackCoverSeed(al.name)}></span>
 					<span class="meta">
 						<span class="al-name" use:marquee><span class="marquee-inner">{names.dnTitle(al.name)}</span></span>

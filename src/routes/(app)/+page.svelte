@@ -1488,7 +1488,10 @@
      39-D-36: a tap opens the existing name-only album page through chartAlbumHref
      (/album/{name}?artist= → Last.fm album.getinfo tracklist + enrichAlbum + deezerAlbum), so the
      tap itself costs zero calls; Apple's ' - EP' / ' - Single' is stripped at parse AND in the href
-     builder. No long-press anywhere here: an album has no song to resolve (UI-14). -->
+     builder. No long-press anywhere here: an album has no song to resolve (UI-14).
+     quick-260926-hze: all three taps go through names.lockUrl, so the title and artist follow the
+     script lock; getAlbumTracklist rescues a reloaded locked title that Last.fm keys in the other
+     script. -->
 {#snippet albumShelf(items: ChartAlbum[], density: HomeDensity)}
 	{#if density === 'list'}
 		<CompactPager items={compactSlice(items)} key={(a) => a.artist + ' ' + a.name}>
@@ -1499,14 +1502,14 @@
 					subtitle={names.dnArtist(a.artist)}
 					cover={a.image}
 					seed={a.artist + a.name}
-					onopen={() => goto(chartAlbumHref(a))}
+					onopen={() => goto(names.lockUrl(chartAlbumHref(a)))}
 				/>
 			{/snippet}
 		</CompactPager>
 	{:else if density === 'grid'}
 		<HomeGridPager items={items.slice(0, 27)} key={(a) => a.artist + ' ' + a.name}>
 			{#snippet row(a: ChartAlbum)}
-				<button class="tile" use:tapBounce onclick={() => goto(chartAlbumHref(a))}>
+				<button class="tile" use:tapBounce onclick={() => goto(names.lockUrl(chartAlbumHref(a)))}>
 					<div class="art" style:background-image={fallbackCover(a.artist + a.name)}></div>
 					{#if a.image}<img class="al-cover-img" src={a.image} loading="lazy" alt="" onerror={hideOnError} />{/if}
 					<div class="scrim"></div>
@@ -1520,7 +1523,7 @@
 	{:else}
 		<div class="albumrow" use:dragScroll>
 			{#each items as a (a.artist + ' ' + a.name)}
-				<button class="album" use:tapBounce onclick={() => goto(chartAlbumHref(a))}>
+				<button class="album" use:tapBounce onclick={() => goto(names.lockUrl(chartAlbumHref(a)))}>
 					<span class="al-cover" style:background-image={fallbackCover(a.artist + a.name)}>
 						{#if a.image}<img class="al-cover-img" src={a.image} loading="lazy" alt="" onerror={hideOnError} />{/if}
 					</span>

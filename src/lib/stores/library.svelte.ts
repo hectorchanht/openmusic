@@ -6,7 +6,7 @@ import { blobStore } from '$lib/services/blob-store';
 import { setCachedCover } from '$lib/services/cover-cache';
 import { hasHttpsScheme } from '$lib/services/url-safety';
 import { matchKey } from '$lib/services/match-key';
-import { isChineseLine, t2sConvertLineSync } from '$lib/services/zh-convert';
+import { isChineseLine, t2sConvertLineSync, warmScript } from '$lib/services/zh-convert';
 import type { Track } from '$lib/sources/types';
 
 const KEY = 'openmusic:library:v1';
@@ -57,6 +57,12 @@ class Library {
 	 *  (no Content-Length), which is a real state the UI renders differently (spinner, not 0%), and
 	 *  folding it into the busy set would force every existing `downloading.has(uid)` reader to care. */
 	downloadProgress = $state<Record<string, number>>({});
+	/** quick-260926-hze: bumped once when the t2s fold dict lands. Read by isFavArtist so the
+	 *  landing repaints every heart and favourites list (the first render ran on a cold fold). */
+	private foldRev = $state(0);
+	/** quick-260926-hze: one-shot latch for warmFold. PLAIN field (house convention for loop
+	 *  guards): the UI never reads it. */
+	private foldWarmed = false;
 	private loaded = false;
 
 	/** Hydrate from localStorage once, in the browser. Call from a layout onMount. */
@@ -78,6 +84,7 @@ class Library {
 		} catch {
 			/* corrupt/unavailable — start empty */
 		}
+		this.warmFold(); // quick-260926-hze: after hydration, so it sees the saved favourites
 	}
 
 	private save() {
@@ -214,15 +221,19 @@ class Library {
 	 *  now that artist URLs follow the script lock. t2s is warm whenever a lock is on
 	 *  (warmScript('zh-Hans') builds t2s, warmScript('zh-Hant') builds both since quick-260926-bxg);
 	 *  a cold t2s returns the raw key = the exact old behaviour. library stays leaf-ish and must
-	 *  not import names. */
+	 *  not import names.
+	 *
+	 *  quick-260926-hze: the fold now warms ITSELF, lock-independent: warmFold() runs after load()
+	 *  and after a favourite toggle, and foldRev repaints once t2s lands, so a favourite saved
+	 *  under the other script matches even with the lock OFF. library still must not import names. */
 	private favKey(name: string): string {
-		// ponytail: with the lock OFF and t2s never warmed, a favourite saved under the other
-		// script is not matched; upgrade path = warmScript('zh-Hans') in load() when favArtists
-		// contains a Chinese name.
+		// ponytail: a user with ANY Chinese favourite downloads the ~22 KB gzip t2s dict even with
+		// the lock off; a Latin-only library never does.
 		const k = (name ?? '').trim().toLowerCase();
 		return isChineseLine(k) ? (t2sConvertLineSync(k) ?? k) : k;
 	}
 	isFavArtist(name: string): boolean {
+		void this.foldRev; // quick-260926-hze: reactive dependency — the fold-dict landing repaints
 		const k = this.favKey(name);
 		if (!k) return false;
 		return this.favArtists.some((n) => this.favKey(n) === k);
@@ -235,6 +246,17 @@ class Library {
 			? this.favArtists.filter((n) => this.favKey(n) !== k)
 			: [clean, ...this.favArtists];
 		this.save();
+		this.warmFold(); // quick-260926-hze: a first Chinese favourite warms the fold too
+	}
+
+	/** quick-260926-hze: warm the t2s fold dict ONCE when any favourite is Chinese, then bump
+	 *  foldRev. Latched → one build, one bump, no retry storm; warmScript never rejects. */
+	private warmFold(): void {
+		if (this.foldWarmed || !this.favArtists.some((n) => isChineseLine(n))) return;
+		this.foldWarmed = true;
+		void warmScript('zh-Hans').then(() => {
+			this.foldRev++;
+		});
 	}
 
 	// ---- downloading (D-10, transient per-uid in-flight state) -----------------------------

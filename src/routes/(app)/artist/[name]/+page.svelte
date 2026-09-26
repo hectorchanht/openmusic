@@ -149,11 +149,11 @@
 
 	// kmn: action-bar state. Heart fills when artist is in library.favArtists; play picks a
 	// random hit + queues all songs from this artist; share uses Web Share API.
-	// quick-260926-hl9: read through names.zhLock — it reads names.rev (bumped by warmLock once the
-	// dict lands) and settings.zhScript, so a cold deep link, whose first favKey ran before t2s was
-	// warm, re-derives and repaints the heart. On a locked route `name` is already locked, so the
-	// value is unchanged.
-	const favArtist = $derived(library.isFavArtist(names.zhLock(name)));
+	// quick-260926-hl9: this read went through names.zhLock so a cold deep link, whose first favKey
+	// ran before t2s was warm, repainted once the lock dict landed.
+	// quick-260926-hze: library now repaints ITSELF via foldRev (it warms the fold whenever a
+	// favourite is Chinese, lock on or off), so the zhLock detour is redundant and gone.
+	const favArtist = $derived(library.isFavArtist(name));
 
 	// WR-06 / D-15: feedback goes through the GLOBAL toast store (rendered once by ToastHost) —
 	// the local toastMsg/toastTimer copy this page shipped was re-consolidated away.
@@ -539,7 +539,8 @@
 		</h2>
 		<div class="albumrow" use:dragScroll>
 			{#each shelfAlbums as al (al.mbid ?? al.id ?? al.name)}
-				<button class="album" onclick={() => goto(albumHref(al, name))} use:tapBounce>
+				<!-- quick-260926-hze: album title + artist follow the script lock -->
+				<button class="album" onclick={() => goto(names.lockUrl(albumHref(al, name)))} use:tapBounce>
 					<span class="al-cover" style:background-image={al.image ? `url(${al.image}), ${fallbackCoverSeed(al.name)}` : fallbackCoverSeed(al.name)}></span>
 					<span class="al-name" use:marquee><span class="marquee-inner">{names.dnTitle(al.name)}</span></span>
 					<span class="al-count" use:marquee><span class="marquee-inner">

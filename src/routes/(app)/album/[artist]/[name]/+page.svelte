@@ -40,7 +40,15 @@
 			'/album/' +
 			encodeURIComponent(data.name) +
 			(data.artist ? '?artist=' + encodeURIComponent(data.artist) : '');
-		void goto(target, { replaceState: true });
+		// quick-260926-hze: forward to the script-LOCKED album URL. The names store comes in by a
+		// DYNAMIC import so the SSR-SAFETY invariant above (no module-top store import) holds; the
+		// (app) layout has already loaded that chunk, so there is no extra fetch. A chunk failure
+		// still forwards unlocked, never stranding the recipient on "Opening album…".
+		// Known ceiling: on a cold share-link open the lock dict is usually still cold, so lockUrl
+		// is identity here and the layout's afterNavigate address-bar rewrite fixes the bar.
+		import('$lib/stores/names.svelte')
+			.then(({ names }) => goto(names.lockUrl(target), { replaceState: true }))
+			.catch(() => goto(target, { replaceState: true }));
 	});
 </script>
 
