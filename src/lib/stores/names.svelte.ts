@@ -41,6 +41,9 @@ import { settings, effectiveTarget } from '$lib/stores/settings.svelte';
 import { translateLinesEx } from '$lib/services/translate';
 import { shouldTranslate } from '$lib/i18n/detect';
 import { isChineseLine, s2tConvertLineSync, warmS2T, lockScriptSync, warmScript, type ZhScript } from '$lib/services/zh-convert';
+import { readRescueHits, onRescueHit, type ZhName } from '$lib/services/name-rescue';
+import { matchKey, norm } from '$lib/services/match-key';
+import { splitArtists } from '$lib/util/artist-split';
 
 // Bump to abandon all previously-persisted (possibly poisoned) name translations.
 const STORE_VER = 'v2';
@@ -68,6 +71,68 @@ class Names {
 	// loop guards / generation counters). A Set, not a boolean, because a user can flip the lock
 	// between the two scripts in one session and each direction has its own dict.
 	private lockWarmed = new Set<string>();
+	// quick-260925-x8o: display aliases mirrored from the wa7 rescue cache (openmusic:name-rescue:v1).
+	// PLAIN fields — reactivity rides `rev` + settings.zhScript. titleAlias is keyed by the rescue's
+	// own matchKey(artist, title); artistAlias by norm(artist).
+	private titleAlias = new Map<string, string>();
+	private artistAlias = new Map<string, string>();
+	private aliasHydrated = false;
+
+	constructor() {
+		// quick-260925-x8o live repaint: a rescue that verifies a pair mid-tap repaints visible rows.
+		if (browser)
+			onRescueHit((artist, title, zh) => {
+				this.recordAlias(matchKey(artist, title), zh);
+				this.rev++;
+			});
+	}
+
+	/**
+	 * quick-260925-x8o: the wa7 live smoke paired `Joker Xue / The Actor` with the HK credit line
+	 * `薛之謙, 阿蘭, 劉宇寧, 白舉綱 & 袁成傑`. An artist-alone alias (no context, by decision) cannot
+	 * attribute a multi-performer credit to one raw artist, so only a single-performer zh artist
+	 * becomes an artist alias; the pair-keyed title alias still applies.
+	 * ponytail: single-performer rule; add per-part alignment if a "A & B" ↔ "甲, 乙" pair is ever needed.
+	 */
+	private recordAlias(key: string, zh: ZhName): void {
+		this.titleAlias.set(key, zh.title);
+		// norm() strips every non-letter/number, so '|' can only be matchKey's separator.
+		const bar = key.indexOf('|');
+		const artistKey = bar > 0 ? key.slice(0, bar) : '';
+		if (artistKey && splitArtists(zh.artist).length === 1) this.artistAlias.set(artistKey, zh.artist);
+	}
+
+	/** quick-260925-x8o: ONE localStorage read per session (T-x8o-03). */
+	private hydrateAliases(): void {
+		if (!browser || this.aliasHydrated) return;
+		this.aliasHydrated = true;
+		try {
+			for (const { key, zh } of readRescueHits()) this.recordAlias(key, zh);
+		} catch {
+			/* show originals */
+		}
+	}
+
+	private aliasOn(): boolean {
+		const s = settings.zhScript; // reactive read — flipping the setting repaints
+		return browser && (s === 'zh-Hant' || s === 'zh-Hans');
+	}
+
+	private aliasArtist(text: string): string | null {
+		void this.rev;
+		if (!text || !this.aliasOn()) return null;
+		this.hydrateAliases();
+		if (!this.artistAlias.size) return null;
+		return this.artistAlias.get(norm(text)) ?? null;
+	}
+
+	private aliasTitle(text: string, artist: string | undefined): string | null {
+		void this.rev;
+		if (!text || !artist || !this.aliasOn()) return null;
+		this.hydrateAliases();
+		if (!this.titleAlias.size) return null;
+		return this.titleAlias.get(matchKey(artist, text)) ?? null;
+	}
 
 	// Drop every persisted name translation from BEFORE the current store version, so poisoned
 	// echo-era identity entries can't keep serving Simplified originals. Once per session.
@@ -296,14 +361,47 @@ class Names {
 		return this.applyLock(text);
 	}
 
-	/** Artist name → artistLang + artistSkip. ju0: `'auto'` resolves to settings.appLang. */
-	dnArtist(text: string): string {
-		return this.resolve(text, effectiveTarget(settings.artistLang), settings.artistSkip);
+	/*
+	 * quick-260925-x8o — rescued Chinese names (wa7-verified English→Chinese pairs) DISPLAY here while
+	 * the script lock is on. Aliased text BYPASSES resolveTranslated and goes to applyLock only: the
+	 * alias IS the Chinese name the user asked to see, and routing it through titleLang/artistLang
+	 * could undo it (titleLang 'en' would send 珊瑚海 to /api/translate and show "Coral Sea" after a
+	 * round trip), would put network on the render path, and could flicker. applyLock still renders
+	 * the selected script (周杰倫 vs 周杰伦); the translation cache is never written with alias text.
+	 */
+
+	/**
+	 * quick-260925-x8o: lock an alias. Under zh-Hant it goes through Simplified FIRST: tongwen's s2t
+	 * phrase table is keyed on Simplified, so char-mapping an already-Traditional alias over-converts
+	 * (周杰倫 → 周傑倫) while 周杰伦 → 周杰倫. The round trip renders a rescued name exactly as the
+	 * lock renders the same name arriving Simplified from a CN catalog. Warms the t2s dict once (its
+	 * rev bump repaints the cold first render).
+	 */
+	private lockAlias(a: string): string {
+		if (settings.zhScript === 'zh-Hant') {
+			this.warmLock('zh-Hans');
+			a = lockScriptSync(a, 'zh-Hans');
+		}
+		return this.applyLock(a);
 	}
 
-	/** Song / album title → titleLang + titleSkip. ju0: `'auto'` resolves to settings.appLang. */
-	dnTitle(text: string): string {
-		return this.resolve(text, effectiveTarget(settings.titleLang), settings.titleSkip);
+	/** Artist name → artistLang + artistSkip. ju0: `'auto'` resolves to settings.appLang.
+	 * quick-260925-x8o: a rescued single-performer Chinese artist wins while the lock is on. */
+	dnArtist(text: string): string {
+		const a = this.aliasArtist(text);
+		return a !== null
+			? this.lockAlias(a)
+			: this.resolve(text, effectiveTarget(settings.artistLang), settings.artistSkip);
+	}
+
+	/** Song / album title → titleLang + titleSkip. ju0: `'auto'` resolves to settings.appLang.
+	 * quick-260925-x8o: `artist` is the SAME track's raw artist — it keys the rescued Chinese title
+	 * ("Coral Sea" alone must never become 珊瑚海). Album/artist-name callers must NOT pass one. */
+	dnTitle(text: string, artist?: string): string {
+		const a = this.aliasTitle(text, artist);
+		return a !== null
+			? this.lockAlias(a)
+			: this.resolve(text, effectiveTarget(settings.titleLang), settings.titleSkip);
 	}
 
 	/** Last.fm tag → lastfmLang + lastfmSkip. ju0: `'auto'` resolves to settings.appLang. */
@@ -340,7 +438,9 @@ class Names {
 	}
 
 	/** Drop ALL cached name/bio translations — in-memory maps + every `openmusic:name-tr:*` key.
-	 * Used by the Data settings tab. Bumps `rev` so live resolvers re-render from originals. */
+	 * Used by the Data settings tab. Bumps `rev` so live resolvers re-render from originals.
+	 * quick-260925-x8o: rescue aliases are untouched — they come from the RESOLUTION cache
+	 * (openmusic:name-rescue:v1), not this translation cache. */
 	clearCache(): void {
 		this.cache.clear();
 		this.pending.clear();

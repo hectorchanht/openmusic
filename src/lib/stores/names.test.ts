@@ -330,3 +330,135 @@ describe('names — Chinese script lock (quick-260919-2jo)', () => {
 		expect(persisted).toEqual({ ORIG: '过一招' }); // stored: the API's own output, unlocked
 	});
 });
+
+// quick-260925-x8o — wa7-verified English→Chinese pairs DISPLAY through the seam while the lock is on.
+describe('names — rescued Chinese name aliases (quick-260925-x8o)', () => {
+	const RESCUE_KEY = 'openmusic:name-rescue:v1';
+	const DAY = 24 * 60 * 60 * 1000;
+
+	/** zh-Hant also warms t2s: an alias round-trips through Simplified before the s2t lock. */
+	async function warmLock(target: 'zh-Hant' | 'zh-Hans'): Promise<void> {
+		const zh = await import('$lib/services/zh-convert');
+		await zh.warmScript(target);
+		if (target === 'zh-Hant') await zh.warmScript('zh-Hans');
+	}
+
+	function seed(): void {
+		const now = Date.now();
+		memStore.set(
+			RESCUE_KEY,
+			JSON.stringify({
+				// 40 d old — past the 30 d lookup TTL (HIT_TTL_MS); display must still use it.
+				'jaychou|coralsea': { a: '周杰倫', t: '珊瑚海', at: now - 40 * DAY },
+				'lullaboy|someonelikeu': { miss: true, at: now },
+				'jokerxue|theactor': { a: '薛之謙, 阿蘭, 劉宇寧, 白舉綱 & 袁成傑', t: '演員', at: now }
+			})
+		);
+	}
+
+	it("'off' is byte-for-byte unchanged — no alias", async () => {
+		seed();
+		const { names } = await import('./names.svelte');
+		expect(names.dnTitle('Coral Sea', 'Jay Chou')).toBe('Coral Sea');
+		expect(names.dnArtist('Jay Chou')).toBe('Jay Chou');
+	});
+
+	it("'zh-Hant' shows the verified pair and never sends it to /api/translate", async () => {
+		seed();
+		settingsMock.zhScript = 'zh-Hant';
+		translateMock.mockResolvedValue({ out: [], flags: [] });
+		const { names } = await import('./names.svelte');
+		await warmLock('zh-Hant');
+		// the pair is 40 days old (past HIT_TTL) — a verified pair is a fact for display
+		expect(names.dnTitle('Coral Sea', 'Jay Chou')).toBe('珊瑚海');
+		// 周杰倫, not 周傑倫: a raw s2t of the Traditional alias over-converts 杰 (see lockAlias)
+		expect(names.dnArtist('Jay Chou')).toBe('周杰倫');
+		await flush();
+		expect(translateMock).not.toHaveBeenCalled();
+	});
+
+	it("'zh-Hans' renders the alias in the selected script", async () => {
+		seed();
+		settingsMock.zhScript = 'zh-Hans';
+		const { names } = await import('./names.svelte');
+		await warmLock('zh-Hans');
+		expect(names.dnArtist('Jay Chou')).toBe('周杰伦');
+		expect(names.dnTitle('Coral Sea', 'Jay Chou')).toBe('珊瑚海');
+	});
+
+	it('the title alias is keyed by the PAIR — no artist or another artist never aliases', async () => {
+		seed();
+		settingsMock.zhScript = 'zh-Hant';
+		const { names } = await import('./names.svelte');
+		await warmLock('zh-Hant');
+		expect(names.dnTitle('Coral Sea')).toBe('Coral Sea');
+		expect(names.dnTitle('Coral Sea', 'Black Pearl')).toBe('Coral Sea');
+		expect(names.dnTitle('Coral Sea (Chillout Mix)', 'Black Pearl')).toBe('Coral Sea (Chillout Mix)');
+	});
+
+	it('a cached miss never aliases', async () => {
+		seed();
+		settingsMock.zhScript = 'zh-Hant';
+		const { names } = await import('./names.svelte');
+		await warmLock('zh-Hant');
+		expect(names.dnTitle('someone like u', 'lullaboy')).toBe('someone like u');
+	});
+
+	it('a multi-performer zh credit aliases the title but never the lone raw artist', async () => {
+		seed();
+		settingsMock.zhScript = 'zh-Hant';
+		const { names } = await import('./names.svelte');
+		await warmLock('zh-Hant');
+		expect(names.dnTitle('The Actor', 'Joker Xue')).toBe('演員');
+		expect(names.dnArtist('Joker Xue')).toBe('Joker Xue');
+	});
+
+	it('a new rescue write repaints live (rev bump) without a reload', async () => {
+		seed();
+		settingsMock.zhScript = 'zh-Hant';
+		const { names } = await import('./names.svelte');
+		const { writeRescueCache } = await import('$lib/services/name-rescue');
+		await warmLock('zh-Hant');
+		expect(names.dnTitle('Zai Ai Ni', 'Eric Chou')).toBe('Zai Ai Ni');
+		const before = names.rev;
+		writeRescueCache('Eric Chou', 'Zai Ai Ni', { artist: '周興哲', title: '再愛你' });
+		expect(names.rev).toBeGreaterThan(before);
+		expect(names.dnTitle('Zai Ai Ni', 'Eric Chou')).toBe('再愛你');
+		expect(names.dnArtist('Eric Chou')).toBe('周興哲');
+	});
+
+	it('a malformed rescue store returns originals and never throws', async () => {
+		settingsMock.zhScript = 'zh-Hant';
+		for (const raw of ['{not json', JSON.stringify({ 'x|y': 'str', 'a|b': { a: 1, t: 2 } })]) {
+			vi.resetModules();
+			memStore.set(RESCUE_KEY, raw);
+			const { names } = await import('./names.svelte');
+			await warmLock('zh-Hant');
+			expect(names.dnTitle('y', 'x')).toBe('y');
+			expect(names.dnTitle('b', 'a')).toBe('b');
+			expect(names.dnArtist('a')).toBe('a');
+		}
+	});
+
+	it('hydrates the alias map with ONE localStorage read per session', async () => {
+		seed();
+		settingsMock.zhScript = 'zh-Hant';
+		const spy = vi.spyOn(localStorageMock, 'getItem');
+		const { names } = await import('./names.svelte');
+		await warmLock('zh-Hant');
+		for (let i = 0; i < 25; i++) {
+			names.dnTitle(i % 2 ? 'Coral Sea' : 'Other ' + i, 'Jay Chou');
+			names.dnArtist(i % 2 ? 'Jay Chou' : 'Someone ' + i);
+		}
+		expect(spy.mock.calls.filter((c) => c[0] === RESCUE_KEY)).toHaveLength(1);
+	});
+
+	it('zhLock takes no artist and never aliases', async () => {
+		seed();
+		settingsMock.zhScript = 'zh-Hant';
+		const { names } = await import('./names.svelte');
+		await warmLock('zh-Hant');
+		expect(names.zhLock('Coral Sea')).toBe('Coral Sea');
+		expect(names.zhLock('Jay Chou')).toBe('Jay Chou');
+	});
+});
