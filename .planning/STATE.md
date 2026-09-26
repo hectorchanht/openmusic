@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: YTMusic-Powered Up-Next
 status: executing
-stopped_at: Completed 39-01-PLAN.md
-last_updated: "2026-09-26T02:42:10.422Z"
+stopped_at: Completed 39-02-PLAN.md
+last_updated: "2026-09-26T02:53:39.849Z"
 last_activity: 2026-09-26
 progress:
   total_phases: 18
   completed_phases: 8
   total_plans: 103
-  completed_plans: 83
+  completed_plans: 84
   percent: 44
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-06-10)
 ## Current Position
 
 Phase: 39 (Fresh chart homepage) — EXECUTING
-Plan: 2 of 10
+Plan: 3 of 10
 Status: Executing Phase 39
 
 ### 36-05 checkpoint status
@@ -205,6 +205,7 @@ Remaining human UAT: real-device <audio> playback+seek + download-to-disk; deplo
 | Phase 38 P08 | 5min | 2 tasks | 1 files |
 | Phase 38 P09 | 22min | 2 tasks | 2 files |
 | Phase 39 P01 | 7min | 3 tasks | 15 files |
+| Phase 39 P02 | 8min | 3 tasks | 18 files |
 
 ## Accumulated Context
 
@@ -366,6 +367,11 @@ Recent decisions affecting current work:
 - [Phase 39]: 39-D-06: parseItunesGenreFeed keeps only rows whose category im:id equals the requested genre (a bogus genre id returns the overall chart with a 200)
 - [Phase 39]: 39-D-07: fuseCharts = reciprocal-rank fusion (k=60, cap 50) keyed by matchKey; caller list order is display precedence ([apple, kkbox])
 - [Phase 39]: 39-01 finding: kept KKBOX ' - subtitle' titles defeat matchKey fusion (甲乙丙丁Strangers - 你我怎麼兩清 vs Apple 甲乙丙丁Strangers); consider a fusion-key-only subtitle fold in 39-04 / Open Question 5
+- [Phase 39]: 39-D-08: seven persisted chart section ids (chart-songs, new-releases, chart-artists, chart-albums, yt-trending, genres, regions) sit after radio; classic ids follow them
+- [Phase 39]: 39-D-09: resolveChartRegion = saved offered region > navigator.language region subtag in offered list > fixed app-language map > us; cn never resolves
+- [Phase 39]: 39-D-10: resolveChartGenres keeps an empty selection empty (no fall-back-to-all)
+- [Phase 39]: 39-D-11: migrateHomeLayout inserts missing chart ids at the first classic slot, hides classic ids, carries valid density old->new; idempotent
+- [Phase 39]: 39-D-12: reorderListed keeps classic ids at their exact array index
 
 ### Pending Todos
 
@@ -565,7 +571,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-26T02:42:10.410Z
+Last session: 2026-09-26T02:53:21.679Z
 Stopped at: Completed 39-01-PLAN.md
 Resume: run 32-08-PLAN.md (device checkpoints). **32-07 closed VALIDATION #6 and the v2 half of #3, and BLOCKED two v3 walks — 32-08 must pick them up.** PROVEN LIVE on the deployed workerd edge (https://openmusic.lol, which is already running 32-04): cold GET `{"hit":false}` -> warm GET `{"hit":true}` with a qq `songid`, NO `url` field, `avail.qq:"ok"`; 9/9 warm hits across the YVR and SEA PoPs; POST bust `{"busted":true}` -> miss -> unattended re-fill -> hit (the 32-D-10a repair path works); `Cache-Control: no-store` on every route response (31-D-09 intact). BLOCKED, carry to 32-08: the two 32-D-20 v3 url-layer walks — (1) stale-url -> refresh, (2) bust -> miss -> mid-only -> url-warm — because v3 is on `main` but NOT deployed (the live entries carry no `url` keys, while v3's fill emits explicit nulls), and no preview server could be started here. Exact commands are in 32-07-SUMMARY.md § Task 2; run `pnpm build && pnpm preview` (NOT `pnpm dev` — `edgeCache()` returns null there) or `pnpm run deploy` (NEVER bare `pnpm deploy`). Expect every warm entry to miss once on the v2->v3 key rollover; that is by design. Folded todo `edge-resolve-cache-returns-miss.md` RESOLVED and moved to completed/ — root cause was the probe using `?artist=&title=` when the route has only ever read `a`/`t`, so it hit the `if (!a && !t)` zero-touch short-circuit and never consulted the cache. Still outstanding from Phase 30, unchanged: install `android/app/build/outputs/apk/debug/app-debug.apk` on an Android device, open `/song/Olivia-Dean/Man-I-Need` (proven to return a real 30,840 B JPEG from production), confirm the cover renders rather than a broken image, then kill the network and confirm the gradient fallback appears. That single check closes 30-06 and Phase 30. Do NOT run `/gsd:verify-work` for Phase 30 until it is approved — OG-PAGE-01 terminates in it. Optional, non-blocking leftovers: iMessage/Slack cards, and real 24h cache TTL/eviction.
 
