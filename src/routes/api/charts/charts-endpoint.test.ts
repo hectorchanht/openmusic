@@ -19,6 +19,11 @@ import {
 	type ChartQuery
 } from '$lib/proxy/charts';
 import type { EdgeCache } from '$lib/proxy/edge-cache';
+import { GET, OPTIONS } from './+server';
+import appleHkSongs from '$lib/services/__fixtures__/charts/apple-hk-songs.json';
+import kkboxHkSong from '$lib/services/__fixtures__/charts/kkbox-hk-song.json';
+import ytHkTracks from '$lib/services/__fixtures__/charts/yt-hk-tracks.json';
+import ytCnGlobal from '$lib/services/__fixtures__/charts/yt-cn-global.json';
 
 const ORIGIN = 'https://openmusic.lol';
 
@@ -298,5 +303,223 @@ describe('proxy/charts helpers', () => {
 			await writeChartEntry(cacheStub, key, { fetchedAt: 0, items: ITEMS });
 			expect(await serveChart(cacheStub, key, async () => REFILL, undefined)).toEqual(ITEMS);
 		});
+	});
+});
+
+type Reply = Response | 'THROW';
+
+/** Stub every upstream. Each subrequest's URL AND init are recorded so counts/bodies can be asserted. */
+function stubUpstream(replies: Reply[]) {
+	const calls: { url: string; init: RequestInit | undefined }[] = [];
+	let i = 0;
+	vi.stubGlobal(
+		'fetch',
+		vi.fn(async (url: string, init?: RequestInit) => {
+			calls.push({ url: String(url), init });
+			const reply = replies.length ? replies[Math.min(i++, replies.length - 1)] : 'THROW';
+			if (reply === 'THROW') throw new Error('network down');
+			return reply.clone();
+		})
+	);
+	return { calls };
+}
+
+const json = (body: unknown) =>
+	new Response(JSON.stringify(body), {
+		status: 200,
+		headers: { 'content-type': 'application/json' }
+	});
+
+/** GET event. `waited` collects everything handed to ctx.waitUntil so the refill can be awaited. */
+function fakeGet(search: string, origin: string | null = ORIGIN) {
+	const url = new URL(`${ORIGIN}/api/charts?${search}`);
+	const waited: Promise<unknown>[] = [];
+	return {
+		waited,
+		event: {
+			url,
+			platform: { ctx: { waitUntil: vi.fn((p: Promise<unknown>) => void waited.push(p)) } },
+			request: new Request(url, origin ? { headers: { origin } } : {})
+		}
+	};
+}
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+const callGET = (event: ReturnType<typeof fakeGet>['event']) => GET(event as any);
+const callOPTIONS = (event: unknown) => OPTIONS(event as any);
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
+const APPLE_KEY = 'https://openmusic.lol/api/charts/_k?v=1&src=apple&kind=songs&cc=hk';
+const APPLE_URL = 'https://rss.marketingtools.apple.com/api/v2/hk/music/most-played/50/songs.json';
+
+describe('/api/charts GET', () => {
+	it('an unknown src → { items: [] } with zero cache touches, zero subrequests, no refill', async () => {
+		const { cacheStub, putKeys } = stubCache();
+		const { calls } = stubUpstream([json(appleHkSongs)]);
+		const { event, waited } = fakeGet('src=deezer&kind=songs&cc=hk');
+
+		const res = await callGET(event);
+		expect(res.status).toBe(200);
+		expect(await res.json()).toEqual({ items: [] });
+		expect(res.headers.get('Cache-Control')).toBeNull();
+		expect(cacheStub.match).not.toHaveBeenCalled();
+		expect(putKeys).toHaveLength(0);
+		expect(calls).toHaveLength(0);
+		expect(event.platform.ctx.waitUntil).not.toHaveBeenCalled();
+		expect(waited).toHaveLength(0);
+	});
+
+	it('a non-KKBOX region → { items: [] } with zero work', async () => {
+		const { cacheStub } = stubCache();
+		const { calls } = stubUpstream([json(kkboxHkSong)]);
+		const res = await callGET(fakeGet('src=kkbox&kind=song&cc=us').event);
+		expect(await res.json()).toEqual({ items: [] });
+		expect(cacheStub.match).not.toHaveBeenCalled();
+		expect(calls).toHaveLength(0);
+	});
+
+	it('cold apple/songs/hk → fetches Apple once, caches under the canonical key, 1800 s client ttl', async () => {
+		const { putKeys } = stubCache();
+		const { calls } = stubUpstream([json(appleHkSongs)]);
+		const { event } = fakeGet('src=apple&kind=songs&cc=hk');
+
+		const res = await callGET(event);
+		const body = (await res.json()) as { items: { artist: string; title: string }[] };
+		expect(body.items.length).toBeGreaterThanOrEqual(1);
+		expect(body.items[0].artist).toBeTruthy();
+		expect(calls.map((c) => c.url)).toEqual([APPLE_URL]);
+		expect(putKeys).toEqual([APPLE_KEY]);
+		expect(res.headers.get('Cache-Control')).toBe('public, max-age=1800');
+		expect(res.headers.get('Access-Control-Allow-Origin')).toBe(ORIGIN);
+	});
+
+	it('a second identical GET is a fresh hit — no subrequest, no refill', async () => {
+		stubCache();
+		const { calls } = stubUpstream([json(appleHkSongs)]);
+		await callGET(fakeGet('src=apple&kind=songs&cc=hk').event);
+		const second = fakeGet('src=apple&kind=songs&cc=hk');
+		const res = await callGET(second.event);
+
+		expect(((await res.json()) as { items: unknown[] }).items.length).toBeGreaterThan(0);
+		expect(calls).toHaveLength(1);
+		expect(second.event.platform.ctx.waitUntil).not.toHaveBeenCalled();
+	});
+
+	it('a stale entry is served immediately and refilled via waitUntil', async () => {
+		const { cacheStub, putKeys } = stubCache();
+		const key = chartCacheKey(ORIGIN, APPLE_HK);
+		const seededAt = Date.now() - 7 * 3600_000;
+		await writeChartEntry(cacheStub, key, { fetchedAt: seededAt, items: ITEMS });
+		putKeys.length = 0;
+		const { calls } = stubUpstream([json(appleHkSongs)]);
+		const { event, waited } = fakeGet('src=apple&kind=songs&cc=hk');
+
+		const res = await callGET(event);
+		expect(await res.json()).toEqual({ items: ITEMS });
+		expect(event.platform.ctx.waitUntil).toHaveBeenCalledTimes(1);
+		await Promise.all(waited);
+		expect(calls).toHaveLength(1);
+		expect(putKeys).toEqual([APPLE_KEY]);
+		const after = await readChartEntry(cacheStub, key);
+		expect(after!.fetchedAt).toBeGreaterThan(seededAt);
+		expect(after!.items).not.toEqual(ITEMS);
+	});
+
+	it('a stale entry + an empty upstream parse is never cached (stale entry untouched)', async () => {
+		const { cacheStub, putKeys } = stubCache();
+		const key = chartCacheKey(ORIGIN, APPLE_HK);
+		const seededAt = Date.now() - 7 * 3600_000;
+		await writeChartEntry(cacheStub, key, { fetchedAt: seededAt, items: ITEMS });
+		putKeys.length = 0;
+		stubUpstream([json({ feed: { results: [] } })]);
+		const { event, waited } = fakeGet('src=apple&kind=songs&cc=hk');
+
+		expect(await (await callGET(event)).json()).toEqual({ items: ITEMS });
+		await Promise.all(waited);
+		expect(putKeys).toHaveLength(0);
+		expect(await readChartEntry(cacheStub, key)).toEqual({ fetchedAt: seededAt, items: ITEMS });
+	});
+
+	it('a cold cache + an upstream failure → { items: [] }, empty never cached, no browser ttl', async () => {
+		const { putKeys } = stubCache();
+		stubUpstream(['THROW']);
+		const res = await callGET(fakeGet('src=apple&kind=songs&cc=hk').event);
+		expect(res.status).toBe(200);
+		expect(await res.json()).toEqual({ items: [] });
+		expect(putKeys).toHaveLength(0);
+		expect(res.headers.get('Cache-Control')).toBeNull();
+	});
+
+	it('a non-2xx upstream → { items: [] }, never cached', async () => {
+		const { putKeys } = stubCache();
+		stubUpstream([new Response('nope', { status: 404 })]);
+		const res = await callGET(fakeGet('src=apple&kind=albums&cc=hk').event);
+		expect(await res.json()).toEqual({ items: [] });
+		expect(putKeys).toHaveLength(0);
+	});
+
+	it('a YouTube global-fallback body (echo "global") → { items: [] }, never cached', async () => {
+		const { putKeys } = stubCache();
+		const { calls } = stubUpstream([json(ytCnGlobal)]);
+		const res = await callGET(fakeGet('src=yt&kind=tracks&cc=hk').event);
+
+		expect(await res.json()).toEqual({ items: [] });
+		expect(putKeys).toHaveLength(0);
+		expect(calls).toHaveLength(1);
+		expect(calls[0].url).toBe('https://charts.youtube.com/youtubei/v1/browse?alt=json');
+		expect(calls[0].init?.method).toBe('POST');
+		const sent = String(calls[0].init?.body);
+		expect(sent).toContain('"clientVersion":"2.0"');
+		expect(sent).toContain('chart_params_country_code=hk');
+	});
+
+	it('yt/tracks/hk with a matching echo → tracks with allowlisted YouTube art', async () => {
+		stubCache();
+		stubUpstream([json(ytHkTracks)]);
+		const res = await callGET(fakeGet('src=yt&kind=tracks&cc=hk').event);
+		const { items } = (await res.json()) as { items: { artist: string; image: string | null }[] };
+		expect(items.length).toBeGreaterThan(0);
+		for (const it of items) {
+			if (it.image) expect(new URL(it.image).hostname).toMatch(/googleusercontent\.com$|ytimg\.com$|ggpht\.com$/);
+		}
+	});
+
+	it('kkbox/song/hk → Latin aliases stripped, every cover on i.kfs.io', async () => {
+		stubCache();
+		const { calls } = stubUpstream([json(kkboxHkSong)]);
+		const res = await callGET(fakeGet('src=kkbox&kind=song&cc=hk').event);
+		const { items } = (await res.json()) as { items: { artist: string; image: string | null }[] };
+
+		expect(calls[0].url).toBe(
+			'https://kma.kkbox.com/charts/api/v1/daily?type=song&terr=hk&lang=tc&category=297&limit=50'
+		);
+		expect(items.length).toBeGreaterThan(0);
+		expect(items[0].artist).not.toMatch(/\([\x20-\x7E]+\)\s*$/);
+		// The fixture really carries an alias somewhere, so the strip is exercised, not vacuous.
+		expect(JSON.stringify(kkboxHkSong)).toMatch(/[^\x00-\x7F] ?\([\x20-\x7E]+\)"/);
+		for (const it of items) {
+			expect(it.artist).not.toMatch(/[^\x00-\x7F]\s*\([\x20-\x7E]+\)\s*$/);
+			expect(it.image!.startsWith('https://i.kfs.io/')).toBe(true);
+		}
+	});
+
+	it('junk extra params map onto the same cache key as the clean query', async () => {
+		const { putKeys } = stubCache();
+		stubUpstream([json(appleHkSongs)]);
+		await callGET(fakeGet('src=apple&kind=songs&cc=hk&foo=bar').event);
+		expect(putKeys).toEqual([APPLE_KEY]);
+	});
+});
+
+describe('/api/charts OPTIONS', () => {
+	it('answers 204 with own-origin CORS and no body', async () => {
+		const url = new URL(`${ORIGIN}/api/charts`);
+		const res = await callOPTIONS({
+			url,
+			request: new Request(url, { method: 'OPTIONS', headers: { origin: ORIGIN } })
+		});
+		expect(res.status).toBe(204);
+		expect(res.headers.get('Access-Control-Allow-Origin')).toBe(ORIGIN);
+		expect(await res.text()).toBe('');
 	});
 });
