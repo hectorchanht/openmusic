@@ -110,7 +110,7 @@ export async function resolveStub(artist: string, title: string): Promise<Track 
 // from `$lib/services/discovery` unchanged. Edit the pools in home-layout.ts.
 export { DISCOVERY_TAGS, DISCOVERY_COUNTRIES } from '$lib/services/home-layout';
 
-// ---- Randomize variation primitives (VX2) ----------------------------------------
+// ---- Randomize variation primitives (VX2) — shuffle()'s implementation now lives in shuffle.ts (39-D-19)
 // Two PURE helpers used by the home page's 隨機推薦 / Randomize button to genuinely VARY
 // the discovery surface on every press WITHOUT touching the never-throws builders, the
 // caching robustness, or the edge security boundary:
@@ -118,22 +118,7 @@ export { DISCOVERY_TAGS, DISCOVERY_COUNTRIES } from '$lib/services/home-layout';
 //   - pickRandomPage() varies WHICH Last.fm chart/tag/geo page is fetched.
 // Neither pulls in a dependency and neither adds seeding — they use the same plain
 // Math.random Fisher-Yates as picks.ts `sample()` (the established pattern in this repo).
-
-/**
- * Return a NEW array that is a uniformly-shuffled permutation of `arr` (copy-then-
- * Fisher-Yates — identical algorithm to picks.ts `sample()` but keeping the FULL
- * permutation instead of slicing). MUST NOT mutate the input. `[]` → `[]`, `[x]` → `[x]`.
- * Used to reshuffle within-shelf tile order AND the order of the tag/country shelves so
- * Randomize is visibly different even when a fetched page returns overlapping tracks.
- */
-export function shuffle<T>(arr: T[]): T[] {
-	const a = [...arr];
-	for (let i = a.length - 1; i > 0; i--) {
-		const j = Math.floor(Math.random() * (i + 1));
-		[a[i], a[j]] = [a[j], a[i]];
-	}
-	return a;
-}
+export { shuffle } from './shuffle';
 
 /**
  * Return a random INTEGER page in `[1, max]` inclusive (Last.fm pages are 1-based).
