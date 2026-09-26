@@ -298,7 +298,7 @@ const zhHans: Dict = {
 	"nowplaying.repeatModeOne": "单曲循环",
 	"nowplaying.collapsePanel": "收起面板",
 	"nowplaying.expandPanel": "展开面板",
-	"nowplaying.upNext": "待播列表",
+	"nowplaying.upNext": "待播",
 	"nowplaying.lyrics": "歌词",
 	"nowplaying.related": "相关",
 	"nowplaying.reorderTrack": "重新排序歌曲",

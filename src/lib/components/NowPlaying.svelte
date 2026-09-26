@@ -1111,9 +1111,9 @@
 		{#if wide}
 			<div class="subnav heads" aria-hidden="true"
 				onpointerdown={gripDown} onpointermove={gripMove} onpointerup={gripUp} onpointercancel={gripUp}>
-				<span>{t('nowplaying.upNext')}</span>
-				<span>{t('nowplaying.lyrics')}</span>
-				<span>{t('nowplaying.related')}</span>
+				<button>{t('nowplaying.upNext')}</button>
+				<button>{t('nowplaying.lyrics')}</button>
+				<button>{t('nowplaying.related')}</button>
 			</div>
 		{:else}
 			<nav class="subnav"
