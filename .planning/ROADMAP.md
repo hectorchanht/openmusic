@@ -520,7 +520,7 @@ Plans:
 **Goal:** The home page shows what is actually hot in the listener's region right now. New default shelves — Top Songs (KKBOX for hk/tw/sg, Apple Music RSS elsewhere), Top Albums (Apple Music RSS), New Releases (KKBOX), Top Artists + Trending (YouTube Charts), and genre shelves (regional pop via client-side legacy iTunes RSS, Western genres via Deezer genre charts) — driven by one main Chart region (defaulted from app language) plus optional extra regions. The existing Deezer Top Hits/Top Artists and Last.fm tag/country shelves stay available in /settings/home but are hidden by default, with a one-time switch for existing users. Randomize samples a random N from each cached top-50/100 pool so the first render varies at zero extra requests. De-risked by spikes 011 (edge reachability) + 012 (genre charts); blueprint in `.claude/skills/spike-findings-openmusic/references/home-charts.md`.
 **Requirements**: P39-01, P39-02, P39-03, P39-04, P39-05, P39-06, P39-07, P39-08, P39-09, P39-10, P39-11, P39-12, P39-13 (researcher-derived ids, 39-RESEARCH.md §Phase Requirements + 39-VALIDATION.md P39-13)
 **Depends on:** Phase 38
-**Plans:** 7/10 plans executed
+**Plans:** 8/10 plans executed
 
 Plans:
 **Wave 1**
@@ -541,6 +541,6 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 39-08-PLAN.md — Per-shelf placeholders + planned-aware reveal budget / skeleton (wave 4)
+- [x] 39-08-PLAN.md — Per-shelf placeholders + planned-aware reveal budget / skeleton (wave 4)
 - [ ] 39-09-PLAN.md — One-time layout switch for existing users, classic hidden by default, Clear-picks fix (wave 4)
 - [ ] 39-10-PLAN.md — /settings/home redesign: sections list with source lines, Charts group, Classic accordion (wave 4)
