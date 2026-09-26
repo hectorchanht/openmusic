@@ -10,6 +10,7 @@
 	import { readCoverByUidOrName, readPinnedCover, bumpCoverVersion } from '$lib/stores/cover-version.svelte';
 	import { backfillCovers } from '$lib/services/cover-backfill';
 	import { upNextCoverNeeds, UPNEXT_COVER_MAX } from '$lib/services/upnext-covers';
+	import { upNextScrollKey } from '$lib/services/upnext-scroll';
 	import { pickRowCover } from '$lib/services/row-cover';
 	import { coverGradient } from '$lib/services/cover-gradient';
 	import { tick as hapticTick } from '$lib/util/haptics';
@@ -25,6 +26,9 @@
 	// upNextList / upNextStart derivations; `tab === 'queue'` is GONE as a gate because mounting this
 	// component IS that gate now (the parent only renders it for the selected tab on mobile, and as
 	// one of three columns at >=1280px).
+	// upnext-no-scroll-to-current: `open` now means "the pane is ON SCREEN" — the parent computes it
+	// via `upNextPaneOpen(wide, sheetState)`, so at >=1280px it is true from mount (the column is
+	// visible while sheetState stays 'closed'); on the phone it is unchanged (sheet half/full).
 	let {
 		rows,
 		startIndex,
@@ -47,6 +51,9 @@
 	// click-to-play critical path pays zero — a tap with the sheet closed issues no cover call. That
 	// is the SAME gate as before (`sheetState !== 'closed'` plus the selected tab); the tab half now
 	// lives in the mount.
+	// upnext-no-scroll-to-current: at >=1280px `open` is true from mount (the column IS on screen),
+	// so this fill now runs there too — which the np3 CEILING below already budgeted for ("both
+	// columns mounted → TWO live pools"); before this fix the wide column never filled at all.
 	//
 	// THE COST NUMBER: <=20 tier-1 /api/deezer/search per fill (UPNEXT_COVER_MAX), <=6 in flight
 	// (backfillCovers' CAP=6 pool); the iTunes + CN tiers fire ONLY on a per-row Deezer miss; a
@@ -118,8 +125,11 @@
 	// which pins the moved track manual so it survives the next fresh-play regen.
 	let queueListEl = $state<HTMLElement | null>(null);
 	// quick-260618-ink (tweak 2): one-shot latch — plain let (NOT $state) so reading it does not make
-	// the scroll effect re-run; reset to false when the list closes so the next open re-fires.
-	let upNextScrollDone = false;
+	// the scroll effect re-run.
+	// upnext-no-scroll-to-current: the boolean became a uid-KEYED latch — it holds the
+	// `upNextScrollKey` last scrolled to, so a song change (new key) scrolls once more while a queue
+	// mutation under the same current (same key) is a no-op; null (pane closed) re-arms it.
+	let scrolledKey: string | null = null;
 	let dragFrom = $state(-1); // source row index while dragging (-1 = idle)
 	let dragOver = $state(-1); // current target row index
 	let rowDragY = $state(0); // px the lifted row follows the finger
@@ -159,25 +169,39 @@
 		rowDragY = 0;
 	}
 
-	// quick-260618-ink (tweak 2): ONE-SHOT scroll-to-current on Up-Next OPEN only. Latched by
-	// upNextScrollDone, reset when the list closes. Deliberately NOT a mutation-driven scroll —
-	// 260615-mnr removed continuous auto-scroll (overflow-anchor:none) and that must not return.
+	// quick-260618-ink (tweak 2): ONE-SHOT scroll-to-current on Up-Next OPEN. Deliberately NOT a
+	// mutation-driven scroll — 260615-mnr removed continuous auto-scroll (overflow-anchor:none) and
+	// that must not return.
+	//
+	// upnext-no-scroll-to-current: now one shot PER (open, current uid). The latch is keyed on the
+	// current song instead of a boolean, so next / prev / auto-advance / a row tap re-scroll once each
+	// — in the narrow sheet AND the >=1280px column alike (uniform by decision, no `wide` gate here) —
+	// while a remove / reorder / regenerate under the same current yields the SAME key and scrolls
+	// nothing. That keeps the exact mnr property (no scroll on a mutation), not the per-mutation
+	// re-pin it removed. `rows` is a tracked read on purpose: a home-shelf fresh play installs the
+	// queue only after the resolve await, i.e. AFTER `current` flipped, so the playing row can be
+	// absent at the first rAF — a miss un-latches, and the late weave's re-run then scrolls.
 	$effect(() => {
-		// `open` is the only TRACKED read — the open/visibility transition. The row lookup happens
-		// inside the rAF callback (untracked DOM read), so a queue mutation alone never re-fires this.
-		if (!open) {
-			upNextScrollDone = false; // re-arm for the next open
+		// TRACKED reads: `open`, `player.current?.uid`, `rows`. The row lookup itself stays inside the
+		// rAF callback (untracked DOM read).
+		const key = upNextScrollKey(open, player.current?.uid ?? null);
+		if (key === null || !rows.length) {
+			scrolledKey = null; // closed / nothing playing / nothing rendered — re-arm for the next open
 			return;
 		}
-		if (upNextScrollDone) return;
-		upNextScrollDone = true; // latch immediately so a reactive re-tick cannot re-scroll
+		if (scrolledKey === key) return; // same song (a queue mutation, a re-tick) — no scroll
+		scrolledKey = key; // latch immediately so a reactive re-tick cannot re-scroll
 		if (typeof window === 'undefined') return;
 		// The DOM may not be laid out the same tick the pane mounts; wait one frame so layout flushed.
 		requestAnimationFrame(() => {
+			if (scrolledKey !== key) return; // a newer song latched (or the pane closed) meanwhile
 			const container = queueListEl?.closest('.panel') as HTMLElement | null;
 			const playingRow = queueListEl?.querySelector('.q-row.playing') as HTMLElement | null;
 			const li = playingRow?.closest('li') as HTMLElement | null;
-			if (!container || !li) return;
+			if (!container || !li) {
+				scrolledKey = null; // row not rendered yet (fresh play before the weave) — re-arm
+				return;
+			}
 			// Pin the current row to the container TOP (block:'start' semantics) via rect deltas —
 			// NOT Element.scrollIntoView() ancestor-walking (it yanks the sheet to full).
 			const liRect = li.getBoundingClientRect();

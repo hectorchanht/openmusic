@@ -55,6 +55,10 @@
 	import { createVelocityTracker } from '$lib/gestures/velocity';
 	import type { Track } from '$lib/sources/types';
 	import { coverGradient } from '$lib/services/cover-gradient';
+	// upnext-no-scroll-to-current: the pure "is the Up-Next pane on screen?" decision — wide column
+	// OR sheet not closed — so the scroll-to-current and cover-backfill gates in NpUpNext fire at
+	// >=1280px, where the column is mounted while sheetState stays 'closed'.
+	import { upNextPaneOpen } from '$lib/services/upnext-scroll';
 
 	type Tab = 'queue' | 'lyrics' | 'related';
 	let tab = $state<Tab>('lyrics');
@@ -1127,11 +1131,16 @@
 		<!-- The pane prop lists live in snippets so the narrow (one-of-three) and wide (all three)
 		     branches below cannot drift apart — one definition, two call sites. -->
 		{#snippet upNextPane()}
+			<!-- upnext-no-scroll-to-current: `open` was `sheetState !== 'closed'` — written for the
+			     phone sheet, before quick-260919-np3 mounted this pane as a standing column at >=1280px.
+			     There sheetState stays 'closed' while the column is fully on screen, so the pane's
+			     scroll-to-current and cover-backfill effects never ran. Same `wide` flag NpLyrics
+			     already receives (quick-260919-npfix Fix 3), folded into the one prop both gates read. -->
 			<NpUpNext
 				rows={upNextList}
 				startIndex={upNextStart}
 				{resolvedCovers}
-				open={sheetState !== 'closed'}
+				open={upNextPaneOpen(wide, sheetState)}
 				onMenu={openMenu}
 				onVersions={openVersionPicker}
 			/>
