@@ -108,6 +108,138 @@ export const DEFAULT_HOME_COUNTRIES: string[] = [
 	'United Kingdom'
 ];
 
+// ---- Chart region (39-D-09) ------------------------------------------------------------
+
+/**
+ * The offered Chart regions: every one returned 200 from Apple RSS and was echo-verified on
+ * YouTube Charts (2026-09-25). Geographic, Asia-first — NOT alphabetical — so the chip order is
+ * stable in every UI language. Mainland China is deliberately absent (see LANG_REGION).
+ * This is the closed allowlist a persisted region is checked against before it can reach any
+ * upstream URL (T-39-06).
+ */
+export const CHART_REGIONS = ['hk', 'tw', 'sg', 'jp', 'kr', 'us', 'gb', 'ca', 'au', 'de', 'fr', 'es', 'it', 'pt', 'br', 'mx', 'ru', 'tr', 'th', 'vn', 'id', 'in', 'ph', 'my', 'sa', 'ae', 'eg'] as const;
+export type ChartRegion = (typeof CHART_REGIONS)[number];
+
+/** KKBOX publishes charts for these territories only. */
+export const KKBOX_REGIONS: readonly ChartRegion[] = ['hk', 'tw', 'sg'];
+/** All 27 echo-verified on YouTube Charts 2026-09-25. A separate const so a YouTube-side drop can
+ *  shrink it without touching the Apple list. */
+export const YT_REGIONS: readonly ChartRegion[] = CHART_REGIONS;
+
+/**
+ * App language → default Chart region for `'auto'`. A fixed-map lookup (the LANDING_PATHS
+ * posture): the region always comes from this table, never from the raw persisted string.
+ *   - zh-Hans → tw, NEVER cn: the CN storefront's top-20 median age is ~22 years.
+ *   - ar → sa, not ae: the UAE chart is expat/Western-skewed on both Apple and YouTube.
+ */
+const LANG_REGION: Record<string, ChartRegion> = {
+	en: 'us',
+	'zh-Hant': 'hk',
+	'zh-Hans': 'tw',
+	de: 'de',
+	fr: 'fr',
+	es: 'es',
+	it: 'it',
+	pt: 'br',
+	ru: 'ru',
+	tr: 'tr',
+	th: 'th',
+	vi: 'vn',
+	id: 'id',
+	hi: 'in',
+	ar: 'sa'
+};
+
+function isChartRegion(v: unknown): v is ChartRegion {
+	return typeof v === 'string' && (CHART_REGIONS as readonly string[]).includes(v);
+}
+
+/**
+ * Resolve the persisted `homeChartRegion` (`'auto' | ChartRegion`) to a concrete offered region:
+ *   1. a saved offered region wins;
+ *   2. else (39-D-09b) a `navigator.language` region subtag that is offered — 'zh-TW' → tw,
+ *      'en-GB' → gb, 'zh-Hant-HK' → hk;
+ *   3. else the app-language default, else 'us'.
+ * 'auto', garbage, cn or any other unknown code falls through; none of the three steps can yield a
+ * region outside CHART_REGIONS.
+ */
+export function resolveChartRegion(saved: unknown, appLang: string, navLang?: string): ChartRegion {
+	if (isChartRegion(saved)) return saved;
+	if (typeof navLang === 'string') {
+		const sub = navLang
+			.split(/[-_]/)
+			.slice(1)
+			.find((s) => /^[a-z]{2}$/i.test(s))
+			?.toLowerCase();
+		if (isChartRegion(sub)) return sub;
+	}
+	return Object.prototype.hasOwnProperty.call(LANG_REGION, appLang) ? LANG_REGION[appLang] : 'us';
+}
+
+/**
+ * Resolve the persisted "More regions" list: offered regions only, de-duped, saved order kept,
+ * the main region dropped (it already has its own shelves). Non-array → [] — the default is NO
+ * extra regions, unlike resolveSubset's full-pool fallback (T-39-07).
+ */
+export function resolveExtraRegions(saved: unknown, main: ChartRegion): ChartRegion[] {
+	if (!Array.isArray(saved)) return [];
+	const out: ChartRegion[] = [];
+	for (const cc of saved) {
+		if (isChartRegion(cc) && cc !== main && !out.includes(cc)) out.push(cc);
+	}
+	return out;
+}
+
+// ---- Chart genres (39-D-10) ------------------------------------------------------------
+
+export const CHART_GENRE_IDS = ['cantopop', 'mandopop', 'kpop', 'jpop', 'hiphop', 'rock', 'dance', 'rnb', 'electronic', 'alternative', 'asian'] as const;
+export type ChartGenre = (typeof CHART_GENRE_IDS)[number];
+export type ChartGenreSource = { src: 'itunes'; cc: 'hk' | 'tw' | 'jp'; id: number } | { src: 'deezer'; id: number };
+
+/**
+ * Where each genre shelf reads from. Regional genres use the legacy iTunes genre feed with a
+ * FIXED storefront, independent of the Chart region — the HK storefront's J-Pop and Mandopop
+ * charts are stale purchase charts, so Mandopop reads tw and J-Pop reads jp. Western genres read
+ * Deezer's genre charts, because the legacy feed ranks iTunes Store purchases (HK Rock median
+ * age ~18 years).
+ */
+export const CHART_GENRES: Record<ChartGenre, ChartGenreSource> = {
+	cantopop: { src: 'itunes', cc: 'hk', id: 1251 },
+	mandopop: { src: 'itunes', cc: 'tw', id: 1253 },
+	kpop: { src: 'itunes', cc: 'hk', id: 51 },
+	jpop: { src: 'itunes', cc: 'jp', id: 27 },
+	hiphop: { src: 'deezer', id: 116 },
+	rock: { src: 'deezer', id: 152 },
+	dance: { src: 'deezer', id: 113 },
+	rnb: { src: 'deezer', id: 165 },
+	electronic: { src: 'deezer', id: 106 },
+	alternative: { src: 'deezer', id: 85 },
+	asian: { src: 'deezer', id: 16 }
+};
+
+/** The Deezer genre ids in pool order — the edge route's allowlist. */
+export const DEEZER_GENRE_IDS: readonly number[] = CHART_GENRE_IDS.flatMap((g) => {
+	const s = CHART_GENRES[g];
+	return s.src === 'deezer' ? [s.id] : [];
+});
+
+/** Locked default: Asian pop + Western core; electronic / alternative / asian start off. */
+export const DEFAULT_CHART_GENRES: readonly ChartGenre[] = ['cantopop', 'mandopop', 'kpop', 'jpop', 'hiphop', 'rock', 'dance', 'rnb'];
+
+/**
+ * Resolve the persisted genre selection: pool ids only, de-duped, saved order kept (it is the
+ * shelf order). Non-array → the defaults. An EMPTY selection stays empty — it means "no genre
+ * shelves", so there is deliberately no fall-back-to-all here (contrast resolveSubset) (T-39-07).
+ */
+export function resolveChartGenres(saved: unknown): ChartGenre[] {
+	if (!Array.isArray(saved)) return [...DEFAULT_CHART_GENRES];
+	const out: ChartGenre[] = [];
+	for (const g of saved) {
+		if ((CHART_GENRE_IDS as readonly unknown[]).includes(g) && !out.includes(g)) out.push(g);
+	}
+	return out;
+}
+
 // ---- Section order + visibility --------------------------------------------------------
 
 /**
@@ -122,9 +254,36 @@ export const DEFAULT_HOME_COUNTRIES: string[] = [
  */
 // quick-260924-pgu: 'radio' sits in the personal group at the top so a fresh (or reset) user sees
 // personalised content first; an existing user's saved order gets it APPENDED by resolveSectionOrder.
-export const HOME_SECTIONS = ['liked', 'downloads', 'radio', 'top-hits', 'top-artists', 'fav-artists', 'tags', 'countries', 'playlists', 'history'] as const;
+// 39-D-08: the seven chart ids ('chart-songs' … 'regions') sit right after the personal group and
+// the four classic Deezer/Last.fm ids follow them. The chart ids are this project's own naming and
+// are PERSISTED exactly like the others — once shipped they must never be renamed.
+export const HOME_SECTIONS = [
+	'liked',
+	'downloads',
+	'radio',
+	'chart-songs',
+	'new-releases',
+	'chart-artists',
+	'chart-albums',
+	'yt-trending',
+	'genres',
+	'regions',
+	'top-hits',
+	'top-artists',
+	'tags',
+	'countries',
+	'fav-artists',
+	'playlists',
+	'history'
+] as const;
 
 export type HomeSectionId = (typeof HOME_SECTIONS)[number];
+
+/** 39-D-08: the four pre-chart shelves (Deezer top hits/artists, Last.fm tags/countries). */
+export const CLASSIC_SECTIONS = ['top-hits', 'top-artists', 'tags', 'countries'] as const;
+/** 39-D-08: the chart shelves, in canonical order. */
+export const CHART_SECTIONS = ['chart-songs', 'new-releases', 'chart-artists', 'chart-albums', 'yt-trending', 'genres', 'regions'] as const;
+export type ChartSectionId = (typeof CHART_SECTIONS)[number];
 
 /**
  * Default order === HOME_SECTIONS (preserves today's fixed order). A fresh spread so the
@@ -161,6 +320,23 @@ export function resolveSectionOrder(saved: string[] | undefined): HomeSectionId[
 	}
 	// If `saved` held ONLY garbage, `out` is now just the appended defaults — still valid.
 	return out.length ? out : [...DEFAULT_SECTION_ORDER];
+}
+
+/**
+ * 39-D-12: move one LISTED row of the /settings/home drag list. `from`/`to` index the listed
+ * (non-classic) ids only. Classic ids keep their exact array slot, so a hidden classic shelf never
+ * moves when the user drags a listed row; the listed ids refill the remaining slots in the new
+ * order. Out-of-range or non-integer indices return an unchanged copy (T-39-09).
+ */
+export function reorderListed(order: HomeSectionId[], from: number, to: number): HomeSectionId[] {
+	const isClassic = (id: HomeSectionId) => (CLASSIC_SECTIONS as readonly string[]).includes(id);
+	const listed = order.filter((id) => !isClassic(id));
+	const inRange = (i: number) => Number.isInteger(i) && i >= 0 && i < listed.length;
+	if (!inRange(from) || !inRange(to)) return [...order];
+	const [moved] = listed.splice(from, 1);
+	listed.splice(to, 0, moved);
+	let next = 0;
+	return order.map((id) => (isClassic(id) ? id : listed[next++]));
 }
 
 // ---- Tag / country subset --------------------------------------------------------------
@@ -279,3 +455,55 @@ export const LANDING_PATHS: Record<HomeLandingTab, string> = {
 	search: '/search',
 	library: '/library'
 };
+
+// ---- One-time chart-layout migration (39-D-11) -----------------------------------------
+
+/**
+ * Persisted home-layout version. A settings blob without the field is version 1. A one-shot
+ * migration needs its own persisted version marker (the same record settings.svelte.ts keeps at
+ * its upnextPerContext block): without it, a classic shelf the user re-enables would be re-hidden
+ * on every load.
+ */
+export const HOME_LAYOUT_VERSION = 2;
+
+/** Old shelf → its chart counterpart, for the per-section density carry-over. */
+const DENSITY_CARRY: [HomeSectionId, HomeSectionId][] = [
+	['top-hits', 'chart-songs'],
+	['top-artists', 'chart-artists'],
+	['tags', 'genres'],
+	['countries', 'regions']
+];
+
+/**
+ * The existing-user switch to the chart layout. Pure, never throws on array input, and idempotent
+ * (a second run finds nothing missing and the hidden union is unchanged):
+ *   - order: de-duped; only the MISSING chart ids are inserted, in canonical order, at the first
+ *     classic id's slot (where the old chart block sat) — after 'radio' when no classic id is
+ *     present, else at the start. Chart ids already present stay put.
+ *   - hidden: unioned with the four classic ids.
+ *   - density: a valid override on an old shelf is copied to its chart counterpart wherever the
+ *     counterpart has no valid override of its own.
+ * resolveSectionOrder stays the render-time robustness layer for anything still missing (T-39-08).
+ */
+export function migrateHomeLayout(
+	order: string[],
+	hidden: string[],
+	density: Partial<Record<HomeSectionId, HomeDensity>> = {}
+): { order: string[]; hidden: string[]; density: Partial<Record<HomeSectionId, HomeDensity>> } {
+	const out = [...new Set(order)];
+	const missing = CHART_SECTIONS.filter((id) => !out.includes(id));
+	let at = out.findIndex((id) => (CLASSIC_SECTIONS as readonly string[]).includes(id));
+	if (at < 0) at = out.includes('radio') ? out.indexOf('radio') + 1 : 0;
+	out.splice(at, 0, ...missing);
+	const valid = (v: unknown): v is HomeDensity => DENSITY_VALUES.includes(v as HomeDensity);
+	const carried: Partial<Record<HomeSectionId, HomeDensity>> = {};
+	for (const [from, to] of DENSITY_CARRY) {
+		const v = density[from];
+		if (valid(v) && !valid(density[to])) carried[to] = v;
+	}
+	return {
+		order: out,
+		hidden: [...new Set([...hidden, ...CLASSIC_SECTIONS])],
+		density: { ...density, ...carried }
+	};
+}

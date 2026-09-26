@@ -49,7 +49,15 @@
 		radio: 'settings.homeSectionRadio',
 		'fav-artists': 'settings.homeSectionFavArtists',
 		playlists: 'settings.homeSectionPlaylists',
-		history: 'settings.homeSectionHistory'
+		history: 'settings.homeSectionHistory',
+		'chart-songs': 'settings.homeSectionChartSongs',
+		'new-releases': 'settings.homeSectionNewReleases',
+		'chart-artists': 'settings.homeSectionChartArtists',
+		'chart-albums': 'settings.homeSectionChartAlbums',
+		'yt-trending': 'settings.homeSectionYtTrending',
+		genres: 'settings.homeSectionGenres',
+		// one key, one concept: the regions row IS the "More regions" setting
+		regions: 'settings.moreRegions'
 	};
 
 	const order = $derived(resolveSectionOrder(settings.homeSectionOrder));
