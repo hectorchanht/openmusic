@@ -347,8 +347,8 @@ describe('activeLineAt', () => {
 });
 
 describe('lyricAnchorMetrics', () => {
-	// Centring case: the visible band IS the whole container (full sheet / desktop column), so the
-	// head and tail padding come out symmetric.
+	// Centring case (anchorPct 50, the default): the visible band IS the whole container (full sheet /
+	// desktop column), so the head and tail padding come out symmetric.
 	it('centres in the band and pads head/tail symmetrically when band == container', () => {
 		expect(
 			lyricAnchorMetrics({
@@ -356,25 +356,23 @@ describe('lyricAnchorMetrics', () => {
 				visHeight: 800,
 				clientHeight: 800,
 				lineHeight: 40,
-				topPin: false,
-				topPad: 12
+				anchorPct: 50
 			})
 		).toEqual({ anchorWithin: 380, padTop: 380, padBottom: 380 });
 	});
 
-	// Phone `closed` peek: pinned TOP_PAD below the band top, and the tail pad still lets the last
-	// line reach that same top anchor.
-	it('top-pins at topPad and still pads the tail so the last line reaches the pin', () => {
+	// quick-260926-m72: anchorPct is a percent of the visible band — 0 puts the line top on the band
+	// top, 100 puts the line bottom on the band bottom; out-of-range clamps, non-finite reads as 0.
+	it.each([
+		[0, { anchorWithin: 0, padTop: 0, padBottom: 60 }],
+		[100, { anchorWithin: 60, padTop: 60, padBottom: 0 }],
+		[25, { anchorWithin: 15, padTop: 15, padBottom: 45 }],
+		[150, { anchorWithin: 60, padTop: 60, padBottom: 0 }],
+		[Number.NaN, { anchorWithin: 0, padTop: 0, padBottom: 60 }]
+	])('anchors at anchorPct %s of the visible band', (anchorPct, expected) => {
 		expect(
-			lyricAnchorMetrics({
-				visTopWithin: 0,
-				visHeight: 100,
-				clientHeight: 100,
-				lineHeight: 40,
-				topPin: true,
-				topPad: 12
-			})
-		).toEqual({ anchorWithin: 12, padTop: 12, padBottom: 48 });
+			lyricAnchorMetrics({ visTopWithin: 0, visHeight: 100, clientHeight: 100, lineHeight: 40, anchorPct })
+		).toEqual(expected);
 	});
 
 	// Half sheet: the container spans the viewport but only a sub-band of it is visible. The tail pad
@@ -386,8 +384,7 @@ describe('lyricAnchorMetrics', () => {
 				visHeight: 400,
 				clientHeight: 800,
 				lineHeight: 40,
-				topPin: false,
-				topPad: 12
+				anchorPct: 50
 			})
 		).toEqual({ anchorWithin: 180, padTop: 180, padBottom: 580 });
 	});
@@ -399,8 +396,7 @@ describe('lyricAnchorMetrics', () => {
 			visHeight: Number.NaN,
 			clientHeight: 0,
 			lineHeight: -40,
-			topPin: false,
-			topPad: Number.POSITIVE_INFINITY
+			anchorPct: Number.POSITIVE_INFINITY
 		});
 		for (const v of Object.values(out)) {
 			expect(Number.isFinite(v)).toBe(true);
@@ -408,21 +404,18 @@ describe('lyricAnchorMetrics', () => {
 		}
 	});
 
-	// IDENTITY: this helper is a MOVE of the anchor expression that was inlined in NpLyrics, not a
-	// behaviour change. Mid-list anchoring must be bit-identical to what shipped.
-	it('reproduces the previously-inlined anchor expression for finite inputs', () => {
+	// IDENTITY: the default (50) must be bit-identical to the centre expression that shipped before
+	// the anchor became configurable.
+	it('reproduces the previous centre expression at anchorPct 50 for finite inputs', () => {
 		const cases = [
-			{ visTopWithin: 0, visHeight: 791, clientHeight: 791, lineHeight: 27, topPad: 12 },
-			{ visTopWithin: 120, visHeight: 305, clientHeight: 900, lineHeight: 54, topPad: 12 },
-			{ visTopWithin: 7, visHeight: 100, clientHeight: 100, lineHeight: 21, topPad: 12 }
+			{ visTopWithin: 0, visHeight: 791, clientHeight: 791, lineHeight: 27 },
+			{ visTopWithin: 120, visHeight: 305, clientHeight: 900, lineHeight: 54 },
+			{ visTopWithin: 7, visHeight: 100, clientHeight: 100, lineHeight: 21 }
 		];
 		for (const c of cases) {
-			for (const topPin of [true, false]) {
-				const expected = topPin
-					? c.visTopWithin + c.topPad
-					: c.visTopWithin + c.visHeight / 2 - c.lineHeight / 2;
-				expect(lyricAnchorMetrics({ ...c, topPin }).anchorWithin).toBe(expected);
-			}
+			expect(lyricAnchorMetrics({ ...c, anchorPct: 50 }).anchorWithin).toBe(
+				c.visTopWithin + c.visHeight / 2 - c.lineHeight / 2
+			);
 		}
 	});
 });

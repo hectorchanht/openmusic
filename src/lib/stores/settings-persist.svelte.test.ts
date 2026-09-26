@@ -194,6 +194,39 @@ describe('settings persistence round-trip — fontScaleApp (quick-260920-kxz)', 
 	});
 });
 
+// quick-260926-m72: lyricsAnchor is where the active lyric line sits in the lyrics pane, percent of
+// the visible band. Same default / round-trip / clamp+reset trio as fontScaleApp (T-m72-01).
+describe('settings persistence round-trip — lyricsAnchor (quick-260926-m72)', () => {
+	beforeEach(() => memStore.clear());
+
+	it('defaults to 50 (centre) when nothing is persisted', async () => {
+		const settings = await freshSettings();
+		settings.load();
+		expect(settings.lyricsAnchor).toBe(50);
+	});
+
+	it('a persisted value loads and save() writes it back into the blob', async () => {
+		memStore.set(KEY, JSON.stringify({ appLang: 'en', lyricsAnchor: 20 }));
+		const settings = await freshSettings();
+		settings.load();
+		expect(settings.lyricsAnchor).toBe(20);
+		settings.save();
+		expect(JSON.parse(localStorage.getItem(KEY) as string).lyricsAnchor).toBe(20);
+	});
+
+	it('an out-of-range value clamps to LYRICS_ANCHOR_MAX, and resetAppearance() returns it to 50', async () => {
+		memStore.set(KEY, JSON.stringify({ appLang: 'en', lyricsAnchor: 150 }));
+		const settings = await freshSettings();
+		const { LYRICS_ANCHOR_MAX } = await import('./settings.svelte');
+		settings.load();
+		expect(settings.lyricsAnchor).toBe(LYRICS_ANCHOR_MAX);
+		expect(LYRICS_ANCHOR_MAX).toBe(100);
+		settings.resetAppearance();
+		expect(settings.lyricsAnchor).toBe(50);
+		expect(JSON.parse(localStorage.getItem(KEY) as string).lyricsAnchor).toBe(50);
+	});
+});
+
 // 39-D-25: the three home-chart settings (Chart region / More regions / Genres). Region gets an
 // ALLOWLIST guard on load (T-39-25) — a bare cast like bioLang would let 'cn' or garbage reach the
 // chart fetch planner. The two lists get a TYPE guard only (T-39-26); resolveExtraRegions /
