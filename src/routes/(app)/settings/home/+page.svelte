@@ -317,7 +317,7 @@
 
 <!-- 3. COUNTRIES -->
 <section>
-	<h2><Globe size={15} /> {t('settings.homeCountriesLabel')}</h2>
+	<h2><Globe size={15} /> {t('settings.homeSectionCountries')}</h2>
 	<div class="chips" use:chipReorder={{ onReorder: onReorderCountry }}>
 		{#each selectedCountries as c, i (c)}
 			<button class="chip on" data-chip-index={i} onclick={() => toggleCountry(c)}>{c}</button>
