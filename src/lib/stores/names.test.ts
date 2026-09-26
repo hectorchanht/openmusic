@@ -564,3 +564,27 @@ describe('names.artistHref — artist routes follow the script lock (quick-26092
 		expect(out).toBe(href('鄧紫棋'));
 	});
 });
+
+// quick-260926-hze — names.lockUrl: the script lock applied to a whole same-app entity href
+// (album title + ?artist=), never translation. 'off' hands back the input itself.
+describe('names.lockUrl (quick-260926-hze)', () => {
+	async function warmLock(target: 'zh-Hant' | 'zh-Hans'): Promise<void> {
+		const zh = await import('$lib/services/zh-convert');
+		await zh.warmScript(target);
+	}
+	const enc = encodeURIComponent;
+	const simp = '/album/' + enc('范特西') + '?artist=' + enc('周杰伦') + '&dzid=1';
+
+	it('zh-Hant: locks the album title AND the artist param, keeps dzid', async () => {
+		settingsMock.zhScript = 'zh-Hant';
+		const { names } = await import('./names.svelte');
+		await warmLock('zh-Hant');
+		expect(names.lockUrl(simp)).toBe('/album/' + enc('範特西') + '?artist=' + enc('周杰倫') + '&dzid=1');
+	});
+
+	it("'off' returns the same string", async () => {
+		const { names } = await import('./names.svelte');
+		await warmLock('zh-Hant');
+		expect(names.lockUrl(simp)).toBe(simp);
+	});
+});

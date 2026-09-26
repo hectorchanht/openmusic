@@ -352,3 +352,53 @@ describe('discovery list builders — clean lists, never throw', () => {
 		await expect(getChartTopArtists()).resolves.toEqual([]);
 	});
 });
+
+// quick-260926-hze — Last.fm keeps ONE canonical title per album, in either script (probed:
+// 範特西 0 tracks vs 范特西 10; 十一月的萧邦 0 vs 十一月的蕭邦 12). A Chinese-title miss retries
+// the other script(s) sequentially; hits and non-Chinese titles cost exactly one call.
+describe('quick-260926-hze getAlbumTracklist script rescue', () => {
+	const TRACKS = [{ artist: '周杰伦', title: '双截棍' }];
+
+	/** Stub fetch: tracks ONLY for the `hit` album title, `{}` otherwise. Records album params. */
+	function stubAlbums(hit: string): string[] {
+		const albums: string[] = [];
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async (input: RequestInfo | URL) => {
+				const album = new URL(String(input), 'http://x').searchParams.get('album') ?? '';
+				albums.push(album);
+				return new Response(JSON.stringify(album === hit ? { tracks: TRACKS } : {}), { status: 200 });
+			})
+		);
+		return albums;
+	}
+
+	it('Traditional miss → Simplified hit', async () => {
+		const albums = stubAlbums('范特西');
+		await expect(getAlbumTracklist('範特西', '周杰倫')).resolves.toEqual(TRACKS);
+		expect(albums[1]).toBe('范特西');
+	});
+
+	it('Simplified miss → Traditional hit', async () => {
+		const albums = stubAlbums('十一月的蕭邦');
+		await expect(getAlbumTracklist('十一月的萧邦', '周杰伦')).resolves.toEqual(TRACKS);
+		expect(albums.at(-1)).toBe('十一月的蕭邦');
+	});
+
+	it('a non-Chinese miss makes exactly ONE call', async () => {
+		const albums = stubAlbums('nothing');
+		await expect(getAlbumTracklist('Parachutes', 'Coldplay')).resolves.toEqual([]);
+		expect(albums).toHaveLength(1);
+	});
+
+	it('a first-lookup hit makes exactly ONE call', async () => {
+		const albums = stubAlbums('范特西');
+		await expect(getAlbumTracklist('范特西', '周杰伦')).resolves.toEqual(TRACKS);
+		expect(albums).toHaveLength(1);
+	});
+
+	it('a Chinese miss in every script resolves [] and never throws', async () => {
+		stubAlbums('nothing');
+		await expect(getAlbumTracklist('范特西', '周杰伦')).resolves.toEqual([]);
+	});
+});
