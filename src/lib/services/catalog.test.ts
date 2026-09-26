@@ -243,12 +243,15 @@ describe('searchAll (D-04 TTL cache)', () => {
 	it('does NOT cache a result whose caller signal was aborted before it settled', async () => {
 		const ac = new AbortController();
 		const n = vi.spyOn(SOURCES.netease, 'search').mockResolvedValue([mk('netease', 'n1')]);
-		vi.spyOn(SOURCES.qq, 'search').mockImplementationOnce(async () => {
-			ac.abort();
-			return [];
-		});
+		vi.spyOn(SOURCES.qq, 'search').mockResolvedValue([]);
 		vi.spyOn(SOURCES.kuwo, 'search').mockResolvedValue([]);
-		vi.spyOn(SOURCES.joox, 'search').mockResolvedValue([]);
+		// joox is last in the stagger, so every other adapter has already run when it aborts.
+		vi.spyOn(SOURCES.joox, 'search')
+			.mockImplementationOnce(async () => {
+				ac.abort();
+				return [];
+			})
+			.mockResolvedValue([]);
 
 		await searchAll('abortkw', 1, ALL, ac.signal);
 		await searchAll('abortkw', 1, ALL);

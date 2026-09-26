@@ -7,7 +7,7 @@ import { SOURCES, getEnabledAdapters, onlySource, isAutoResolveEligible } from '
 import { makeUid, type SourceId, type Track, type SettledSourceResult } from '$lib/sources/types';
 import type { DefaultQuality } from '$lib/stores/settings.svelte';
 import { sleep } from '$lib/proxy/http';
-import { cached, __clearSearchCache } from './ttl-cache';
+import { cached, evictCached, __clearSearchCache } from './ttl-cache';
 import { matchKey } from './match-key';
 import { scoreMatch } from './score-match';
 import { dedupeBest, sameSongKey } from './dedupe';
@@ -108,15 +108,37 @@ export async function searchAll(
 	// On a HIT, `cached` returns the resolved value WITHOUT invoking the factory, so we
 	// fire onPartial once below with the full cached set (pending:0) for a uniform path.
 	let wasMiss = false;
-	const result = await cached(key, SEARCH_TTL_MS, () => {
-		wasMiss = true;
-		return searchAllUncached(keyword, page, prefs, signal, onPartial);
-	});
+	// quick-260926-l69 R1: never pin a POISONED result. searchAllUncached never rejects, so a
+	// per-source throw became `{status:'error', tracks:[]}` and an abort mid-stagger
+	// (RESOLVE_WATCHDOG / fallback budget / playGen supersede) returned a partial `acc`; cached()
+	// then pinned that miss for SEARCH_TTL_MS and every re-tap of the same song replayed it in ms
+	// with zero network (Activity-log proof: first failure ~4 s, re-taps `play → resolve.fail` in
+	// 12 ms → advance). An ok-but-EMPTY result stays cached on purpose — a genuinely-dry source is
+	// a real answer.
+	const result = await cached(
+		key,
+		SEARCH_TTL_MS,
+		() => {
+			wasMiss = true;
+			return searchAllUncached(keyword, page, prefs, signal, onPartial);
+		},
+		(r) => !signal?.aborted && r.perSource.every((s) => s.status === 'ok')
+	);
 
 	if (onPartial && !wasMiss && !signal?.aborted) {
 		onPartial({ perSource: result.perSource, interleaved: result.interleaved, pending: 0 });
 	}
 	return result;
+}
+
+/**
+ * quick-260926-l69 R2: evict every cached `${query}|${sources}|${page}` entry for `keyword` — the
+ * explicit-retry escape hatch for an ok-but-dry flake R1 cannot see. Same normalization as the
+ * key builder in `searchAll`. Every other ttl-cache consumer namespaces its keys (`dz:`/`lf:`/
+ * `mb:`/`ch:`/`it:`), so this prefix cannot collide with them.
+ */
+export function evictSearch(keyword: string): void {
+	evictCached(`${keyword.trim().toLowerCase()}|`);
 }
 
 /**
