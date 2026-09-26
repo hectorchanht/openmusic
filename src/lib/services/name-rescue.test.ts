@@ -5,6 +5,8 @@ import {
 	pairYtmRows,
 	pairItunes,
 	readRescueCache,
+	readRescueHits,
+	onRescueHit,
 	writeRescueCache,
 	lookupChineseName,
 	NAME_RESCUE_KEY
@@ -307,6 +309,84 @@ describe('rescue cache (quick-260925-wa7)', () => {
 		setStorage(undefined);
 		expect(() => writeRescueCache('A', 'B', null)).not.toThrow();
 		expect(readRescueCache('A', 'B')).toBeNull();
+	});
+});
+
+describe('display hits + notify (quick-260925-x8o)', () => {
+	let store: MemStorage;
+	beforeEach(() => {
+		store = new MemStorage();
+		setStorage(store);
+	});
+	afterEach(() => {
+		setStorage(originalLocalStorage);
+		vi.restoreAllMocks();
+	});
+
+	it('readRescueHits ignores the 30 d lookup TTL — a 40-day-old hit still displays', () => {
+		const at = Date.now() - 40 * 24 * 60 * 60 * 1000;
+		store.setItem(NAME_RESCUE_KEY, JSON.stringify({ 'jaychou|coralsea': { a: '周杰倫', t: '珊瑚海', at } }));
+		expect(readRescueCache('Jay Chou', 'Coral Sea')).toBeNull(); // lookup TTL unchanged
+		expect(readRescueHits()).toEqual([{ key: 'jaychou|coralsea', zh: { artist: '周杰倫', title: '珊瑚海' } }]);
+	});
+
+	it('readRescueHits excludes misses and skips malformed entries without throwing', () => {
+		const at = Date.now();
+		store.setItem(
+			NAME_RESCUE_KEY,
+			JSON.stringify({
+				'a|miss': { miss: true, at },
+				'a|str': 'str',
+				'a|null': null,
+				'a|num': { a: 1, t: '乙', at },
+				'a|noa': { t: '乙', at },
+				'a|long': { a: '甲', t: 'x'.repeat(201), at },
+				'a|ok': { a: '甲', t: '乙', at }
+			})
+		);
+		expect(readRescueHits()).toEqual([{ key: 'a|ok', zh: { artist: '甲', title: '乙' } }]);
+		store.setItem(NAME_RESCUE_KEY, '{not json');
+		expect(readRescueHits()).toEqual([]);
+		store.setItem(NAME_RESCUE_KEY, '[1,2]');
+		expect(readRescueHits()).toEqual([]);
+		setStorage(undefined);
+		expect(readRescueHits()).toEqual([]);
+	});
+
+	it('onRescueHit fires once per HIT write, never for a miss; the returned fn unsubscribes', () => {
+		const fn = vi.fn();
+		const off = onRescueHit(fn);
+		const zh = { artist: '周杰倫', title: '珊瑚海' };
+		writeRescueCache('Jay Chou', 'Coral Sea', zh);
+		writeRescueCache('Nobody', 'Nothing', null);
+		expect(fn).toHaveBeenCalledTimes(1);
+		expect(fn).toHaveBeenCalledWith('Jay Chou', 'Coral Sea', zh);
+		off();
+		writeRescueCache('Jay Chou', 'Coral Sea', zh);
+		expect(fn).toHaveBeenCalledTimes(1);
+	});
+
+	it('a throwing listener neither escapes writeRescueCache nor stops the others', () => {
+		const bad = onRescueHit(() => {
+			throw new Error('boom');
+		});
+		const good = vi.fn();
+		const offGood = onRescueHit(good);
+		expect(() => writeRescueCache('A', 'B', { artist: '甲', title: '乙' })).not.toThrow();
+		expect(good).toHaveBeenCalledTimes(1);
+		bad();
+		offGood();
+	});
+
+	it('still notifies when persistence fails (quota) — the in-memory alias must not depend on it', () => {
+		vi.spyOn(store, 'setItem').mockImplementation(() => {
+			throw new Error('QuotaExceededError');
+		});
+		const fn = vi.fn();
+		const off = onRescueHit(fn);
+		writeRescueCache('Jay Chou', 'Coral Sea', { artist: '周杰倫', title: '珊瑚海' });
+		expect(fn).toHaveBeenCalledWith('Jay Chou', 'Coral Sea', { artist: '周杰倫', title: '珊瑚海' });
+		off();
 	});
 });
 

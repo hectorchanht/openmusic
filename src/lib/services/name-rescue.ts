@@ -247,6 +247,52 @@ export function writeRescueCache(artist: string, title: string, value: ZhName | 
 	} catch {
 		// quota / private mode — the rescue still works, it just is not remembered.
 	}
+	// quick-260925-x8o: notify AFTER the persist attempt, so a quota failure still repaints the
+	// display alias for this session.
+	if (value) {
+		for (const fn of rescueListeners) {
+			try {
+				fn(artist, title, value);
+			} catch {
+				// T-x8o-05: a broken listener never breaks the resolve path or the other listeners.
+			}
+		}
+	}
+}
+
+/**
+ * quick-260925-x8o — every verified pair, for DISPLAY. Deliberately ignores `at` / HIT_TTL_MS: a
+ * verified pair is a fact about the song; the TTL only governs re-lookup, and MAX_ENTRIES (the
+ * write-side eviction) still bounds the set. Misses and malformed entries are skipped (T-x8o-01 —
+ * the store is user-writable and these values now reach text sinks: rows, document.title, the OS
+ * media card, the download filename). Never throws.
+ */
+export function readRescueHits(): Array<{ key: string; zh: ZhName }> {
+	if (typeof localStorage === 'undefined') return [];
+	const out: Array<{ key: string; zh: ZhName }> = [];
+	try {
+		for (const [key, v] of Object.entries(loadRecord())) {
+			const e = v as Partial<{ a: unknown; t: unknown; miss: unknown }> | null;
+			if (!e || typeof e !== 'object' || e.miss === true) continue;
+			if (validName(e.a) && validName(e.t)) out.push({ key, zh: { artist: e.a, title: e.t } });
+		}
+	} catch {
+		// hostile record shape — show originals
+	}
+	return out;
+}
+
+/**
+ * quick-260925-x8o — subscribe to verified-pair writes. A hook, not an import: the subscriber is
+ * the runes store `names.svelte.ts` (live repaint via its `rev`), and this pure module must never
+ * import a store (CLAUDE.md pure/runes split). Returns the unsubscriber.
+ */
+export type RescueHitListener = (artist: string, title: string, zh: ZhName) => void;
+const rescueListeners = new Set<RescueHitListener>();
+
+export function onRescueHit(fn: RescueHitListener): () => void {
+	rescueListeners.add(fn);
+	return () => rescueListeners.delete(fn);
 }
 
 // ---- Orchestrator (quick-260925-wa7) --------------------------------------------------------
