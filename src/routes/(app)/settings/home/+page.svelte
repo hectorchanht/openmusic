@@ -4,7 +4,6 @@
 	import {
 		GripVertical,
 		LayoutGrid,
-		Tags,
 		Globe,
 		SlidersHorizontal,
 		Compass,
@@ -78,12 +77,10 @@
 
 	const order = $derived(resolveSectionOrder(settings.homeSectionOrder));
 
-	// dragReorder fires (from,to) as indices into `order`. Splice on a COPY, persist.
+	// 39-D-42: dragReorder fires (from,to) as indices into `listed` (the non-classic rows).
+	// reorderListed keeps every classic id at its exact array slot and bounds-checks (T-39-40).
 	function onReorder(from: number, to: number) {
-		const next = [...order];
-		const [moved] = next.splice(from, 1);
-		next.splice(to, 0, moved);
-		settings.homeSectionOrder = next;
+		settings.homeSectionOrder = reorderListed(order, from, to);
 		settings.save();
 	}
 
@@ -380,74 +377,155 @@
 	</span>
 {/snippet}
 
+<!-- D-07: per-section density (list/pile/grid). aria-pressed reflects the active mode; aria-label
+     names the section + option for screen readers. Shared by the drag list and the Classic rows. -->
+<!-- quick-260919-ebi: this one deliberately keeps its three icons and does NOT become a preview
+     picker, even though it is the same enum as the global tile density below. A 44px drag-reorder
+     row has no room for three mockups, and the global preview already teaches the same
+     three-shape vocabulary — so the icons here read as shorthand for something the user is shown. -->
+{#snippet densitySeg(id: HomeSectionId)}
+	<span class="density-seg" role="group" aria-label={t('settings.homeSectionDensity')}>
+		{#each densities as d (d.v)}
+			<button
+				class="dseg-btn"
+				class:on={sectionDensity(id) === d.v}
+				aria-pressed={sectionDensity(id) === d.v}
+				aria-label={`${t(sectionLabel[id])} · ${t(d.key)}`}
+				onclick={() => setSectionDensity(id, d.v)}
+			>
+				{#if d.v === 'pile'}
+					<DiscAlbum size={14} />
+				{:else if d.v === 'grid'}
+					<Grid3x3 size={14} />
+				{:else}
+					<TableOfContents size={14} />
+				{/if}
+			</button>
+		{/each}
+	</span>
+{/snippet}
+
 <!-- 1. SECTION ORDER + VISIBILITY -->
+<!-- 39-D-43 / UI-SPEC §2.2: ONE global drag list in the true Home render order, minus the four
+     classic ids (they live in the Classic accordion below). Group identity comes from each row's
+     source line. An unavailable New releases row stays fully toggleable, no dimming. -->
 <section>
 	<h2><LayoutGrid size={15} /> {t('settings.homeSections')}</h2>
 	<ul class="reorder" use:dragReorder={{ onReorder }}>
-		{#each order as id, i (id)}
+		{#each listed as id, i (id)}
 			<li class="rrow" data-reorder-index={i}>
 				<span class="grip" data-reorder-handle aria-label={t('settings.dragToReorder')}><GripVertical size={18} /></span>
-				<span class="rlabel">{t(sectionLabel[id])}</span>
-				<!-- D-07: per-section density (list/pile/grid). aria-pressed reflects the active
-				     mode; aria-label names the section + option for screen readers. -->
-				<!-- quick-260919-ebi: this one deliberately keeps its three icons and does NOT become
-				     a preview picker, even though it is the same enum as the global tile density
-				     above. A 44px drag-reorder row has no room for three mockups, and the global
-				     preview directly above already teaches the same three-shape vocabulary — so the
-				     icons here read as shorthand for something the user has just been shown. -->
-				<span class="density-seg" role="group" aria-label={t('settings.homeSectionDensity')}>
-					{#each densities as d (d.v)}
-						<button
-							class="dseg-btn"
-							class:on={sectionDensity(id) === d.v}
-							aria-pressed={sectionDensity(id) === d.v}
-							aria-label={`${t(sectionLabel[id])} · ${t(d.key)}`}
-							onclick={() => setSectionDensity(id, d.v)}
-						>
-							{#if d.v === 'pile'}
-								<DiscAlbum size={14} />
-							{:else if d.v === 'grid'}
-								<Grid3x3 size={14} />
-							{:else}
-								<TableOfContents size={14} />
-							{/if}
-						</button>
-					{/each}
-				</span>
-				<button class="sw" class:on={!settings.homeHidden.includes(id)} aria-label={t(sectionLabel[id])} onclick={() => toggleHidden(id)}></button>
+				<span class="rtext"><span class="rlabel">{t(sectionLabel[id])}</span><span class="rsub">{sourceLine(id)}</span></span>
+				{@render densitySeg(id)}
+				<!-- UI-16: role=switch + aria-checked so the visibility state is announced. -->
+				<button class="sw" class:on={!settings.homeHidden.includes(id)} role="switch" aria-checked={!settings.homeHidden.includes(id)} aria-label={t(sectionLabel[id])} onclick={() => toggleHidden(id)}></button>
 			</li>
 		{/each}
 	</ul>
 	<p class="muted">{t('settings.dragToReorder')}</p>
 </section>
 
-<!-- 2. GENRE TAGS -->
+<!-- 2. CHARTS -->
+<!-- 39-D-43 / UI-SPEC §2.3: the /settings/translation accordion row, reused verbatim. Collapsed by
+     default; the open state is not persisted. -->
 <section>
-	<h2><Tags size={15} /> {t('settings.homeGenres')}</h2>
+	<h2><TrendingUp size={15} /> {t('settings.homeGroupCharts')}</h2>
+
+	<details class="advanced">
+		<summary>
+			<MapPin size={15} />
+			{t('settings.chartRegion')}
+			<SettingHint label={t('settings.chartRegion')} text={t('settings.chartRegionDesc')} />
+			<span class="cur">{regionCur}</span>
+			<span class="chev" aria-hidden="true"><ChevronDown size={15} /></span>
+		</summary>
+		<!-- Fixed research order (Asia-first, geographic) so it is stable in every UI language. -->
+		<div class="chips" role="group" aria-label={t('settings.chartRegion')}>
+			<button class="chip" class:on={settings.homeChartRegion === 'auto'} aria-pressed={settings.homeChartRegion === 'auto'} onclick={() => setRegion('auto')} use:tapBounce>{autoLabel}</button>
+			{#each CHART_REGIONS as cc (cc)}
+				<button class="chip" class:on={settings.homeChartRegion === cc} aria-pressed={settings.homeChartRegion === cc} onclick={() => setRegion(cc)} use:tapBounce>{regionName(cc)}</button>
+			{/each}
+		</div>
+	</details>
+
+	<details class="advanced">
+		<summary>
+			<Globe size={15} />
+			{t('settings.moreRegions')}
+			<SettingHint label={t('settings.moreRegions')} text={t('settings.moreRegionsDesc')} />
+			<span class="cur">{moreRegionsCur}</span>
+			<span class="chev" aria-hidden="true"><ChevronDown size={15} /></span>
+		</summary>
+		<!-- The countries-chip idiom: selected first in saved (= shelf) order and draggable, then the
+		     pool (offered regions minus the main region minus the selected ones). -->
+		<div class="chips" use:chipReorder={{ onReorder: onReorderRegion }}>
+			{#each selectedRegions as cc, i (cc)}
+				<button class="chip on" data-chip-index={i} aria-pressed="true" onclick={() => toggleRegion(cc)}>{regionName(cc)}</button>
+			{/each}
+			{#each unselectedRegions as cc (cc)}
+				<button class="chip" aria-pressed="false" onclick={() => toggleRegion(cc)}>{regionName(cc)}</button>
+			{/each}
+		</div>
+		<p class="muted">{t('settings.homeDragReorderChips')}</p>
+	</details>
+
+	<h3 class="sub">{t('settings.homeGenres')}<SettingHint label={t('settings.homeGenres')} text={t('settings.chartGenresDesc')} /></h3>
+	<div class="chips" use:chipReorder={{ onReorder: onReorderGenre }}>
+		{#each selectedGenres as g, i (g)}
+			<button class="chip on" data-chip-index={i} aria-pressed="true" onclick={() => toggleGenre(g)}>{genreName(g)}</button>
+		{/each}
+		{#each unselectedGenres as g (g)}
+			<button class="chip" aria-pressed="false" onclick={() => toggleGenre(g)}>{genreName(g)}</button>
+		{/each}
+	</div>
+	<p class="muted">{selectedGenres.length ? t('settings.homeDragReorderChips') : t('settings.chartGenresNone')}</p>
+</section>
+
+<!-- 3. CLASSIC (Last.fm / Deezer) -->
+<!-- 39-D-43 / UI-SPEC §2.4: collapsed by default, de-emphasised with the Playback uppercase summary.
+     The `.cur` says whether any old shelf is on even while closed. Classic rows have no grip: a
+     classic shelf keeps its saved array slot on Home (UI-3). The tag/country chips stay operable
+     while their section is hidden, so they can be set up before turning it on. -->
+<details class="advanced classic">
+	<summary>
+		<Archive size={15} />
+		{t('settings.homeGroupClassic')}
+		<SettingHint label={t('settings.homeGroupClassic')} text={t('settings.homeClassicDesc')} />
+		<span class="cur">{classicCur}</span>
+		<span class="chev" aria-hidden="true"><ChevronDown size={15} /></span>
+	</summary>
+	<ul class="classic-rows">
+		{#each CLASSIC_SECTIONS as id (id)}
+			<li class="rrow">
+				<span class="rtext"><span class="rlabel">{t(sectionLabel[id])}</span><span class="rsub">{sourceLine(id)}</span></span>
+				{@render densitySeg(id)}
+				<button class="sw" class:on={!settings.homeHidden.includes(id)} role="switch" aria-checked={!settings.homeHidden.includes(id)} aria-label={t(sectionLabel[id])} onclick={() => toggleHidden(id)}></button>
+			</li>
+		{/each}
+	</ul>
+
+	<h3 class="sub">{t('settings.homeSectionTags')}</h3>
 	<div class="chips" use:chipReorder={{ onReorder: onReorderTag }}>
 		{#each selectedTags as tag, i (tag)}
-			<button class="chip on" data-chip-index={i} onclick={() => toggleTag(tag)}>{tag}</button>
+			<button class="chip on" data-chip-index={i} aria-pressed="true" onclick={() => toggleTag(tag)}>{tag}</button>
 		{/each}
 		{#each unselectedTags as tag (tag)}
-			<button class="chip" onclick={() => toggleTag(tag)}>{tag}</button>
+			<button class="chip" aria-pressed="false" onclick={() => toggleTag(tag)}>{tag}</button>
 		{/each}
 	</div>
 	<p class="muted">{tagsShowingAll ? t('settings.homeShowingAll') : t('settings.homeDragReorderChips')}</p>
-</section>
 
-<!-- 3. COUNTRIES -->
-<section>
-	<h2><Globe size={15} /> {t('settings.homeSectionCountries')}</h2>
+	<h3 class="sub">{t('settings.homeSectionCountries')}</h3>
 	<div class="chips" use:chipReorder={{ onReorder: onReorderCountry }}>
 		{#each selectedCountries as c, i (c)}
-			<button class="chip on" data-chip-index={i} onclick={() => toggleCountry(c)}>{c}</button>
+			<button class="chip on" data-chip-index={i} aria-pressed="true" onclick={() => toggleCountry(c)}>{c}</button>
 		{/each}
 		{#each unselectedCountries as c (c)}
-			<button class="chip" onclick={() => toggleCountry(c)}>{c}</button>
+			<button class="chip" aria-pressed="false" onclick={() => toggleCountry(c)}>{c}</button>
 		{/each}
 	</div>
 	<p class="muted">{countriesShowingAll ? t('settings.homeShowingAll') : t('settings.homeDragReorderChips')}</p>
-</section>
+</details>
 
 <!-- 4. ITEMS PER SHELF -->
 <section>
@@ -543,7 +621,12 @@
 	/* The grip OWNS the vertical gesture (touch-action:none) so a drag reorders, not scrolls. */
 	.grip { display: grid; place-items: center; color: var(--color-text-muted); cursor: grab; touch-action: none; flex: none; }
 	.grip:active { cursor: grabbing; }
-	.rlabel { flex: 1; min-width: 0; font-size: 0.875rem; }
+	/* 39-D-43: label + source line stack. .rtext owns the flex slot; .rlabel may wrap to two lines,
+	   .rsub is one ellipsized line (dragReorder measures real row heights, so mixed heights reorder). */
+	.rtext { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+	.rlabel { min-width: 0; font-size: 0.875rem; }
+	.rsub { font-size: 0.75rem; line-height: 1.3; color: var(--color-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.classic-rows { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 	/* D-07: compact/comfortable per-section density segment — a small two-button segmented
 	   control. The active option carries aria-pressed + the accent fill. */
 	.density-seg { display: inline-flex; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 999px; padding: 2px; gap: 2px; flex: none; }
@@ -559,6 +642,28 @@
 	/* .chip-dragging is added at runtime by use:chipReorder — :global() tells svelte-check the
 	   class is intentional (no false "unused selector"), while .chip keeps it scoped. */
 	.chip:global(.chip-dragging) { cursor: grabbing; z-index: 5; opacity: 0.9; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45); }
+	/* 39-D-43: the /settings/translation accordion (quick-260919-hm2), lifted verbatim — row-type
+	   summary, right-aligned current value, explicit rotating chevron. */
+	.advanced { margin: 10px 0; padding: 10px 12px; background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: 12px; }
+	.advanced summary { position: relative; display: flex; align-items: center; gap: 6px; font-size: 0.875rem; color: var(--color-text); cursor: pointer; padding: 4px 0; }
+	.advanced .chips { margin-top: 12px; }
+	.cur { margin-left: auto; color: var(--color-text-muted); font-size: 0.8125rem; text-align: right; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.advanced .chev { display: inline-flex; flex: none; color: var(--color-text-muted); transition: transform 0.15s ease; }
+	.advanced[open] .chev { transform: rotate(180deg); }
+	@media (prefers-reduced-motion: reduce) {
+		.advanced .chev { transition: none; }
+	}
+	/* Unselected chips and rows are --color-surface-2 and sit ON a --color-surface-2 panel, so drop
+	   them a step; the selected chip is restated at the descendant selector's specificity. */
+	.advanced .chip { background: var(--color-bg); }
+	.advanced .chip.on { background: var(--color-primary); color: #fff; border-color: transparent; }
+	.advanced .rrow { background: var(--color-bg); }
+	/* Classic is a GROUP disclosure, not a settings row: the Playback page's uppercase summary type
+	   and its 22px margin (UI-SPEC §Spacing), so it reads as de-emphasised. */
+	.advanced.classic { margin: 22px 0; }
+	.advanced.classic summary { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--color-text-muted); }
+	/* The value keeps the translation `.cur` type ("Off" / "1 on"), not the uppercase heading type. */
+	.advanced.classic .cur { text-transform: none; letter-spacing: normal; }
 	/* Range slider */
 	.range { width: 100%; accent-color: var(--color-primary); }
 	/* quick-260919-ebi: slider label + live grid demo, carried verbatim from /settings/appearance
