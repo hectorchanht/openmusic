@@ -4,7 +4,7 @@
 // Every body here is untrusted, two upstreams are undocumented, and two LIE with a 200 on bad input:
 // YouTube Charts serves the GLOBAL chart for an unsupported country, and the legacy iTunes genre feed
 // serves the OVERALL chart for a bogus genre id. So the validation lives here, in pure parsers pinned
-// by real fixtures (`__fixtures__/charts`), and the edge route + client services are thin callers.
+// by trimmed real-response fixtures, and the edge route + client services are thin callers.
 //
 // Contract: every parser returns `[]` (never throws) on null / {} / [] / a string / schema drift, reads
 // at most 50 rows, and never emits a raw image URL — it goes through the caller's `ImageValidator`
@@ -13,6 +13,7 @@
 // Pure module: no runes, no `$state`, no `$app/*`, no store imports — imported by BOTH the edge proxy
 // and the client, and node-Vitest-testable like match-key.ts.
 import type { DiscoveryTrack, DiscoveryArtist } from '$lib/services/lastfm';
+import { matchKey } from '$lib/services/match-key';
 
 /** An album-chart row (Apple RSS `most-played/albums`). */
 export interface ChartAlbum {
@@ -282,4 +283,42 @@ export function parseItunesGenreFeed(
 			})
 			.filter((t) => t.artist && t.title)
 	);
+}
+
+// ── Top Songs fusion ──────────────────────────────────────────────────────────────────────────
+
+/**
+ * Reciprocal-rank fusion of ranked track lists into ONE ranked list (39-D-07, CONTEXT 2026-09-25:
+ * Top Songs for hk/tw/sg = KKBOX + Apple blended). Score = Σ 1/(k + rank) over the lists a song
+ * appears in (1-based rank), so a song on both charts rises and a song on one still appears.
+ *
+ * Callers pass lists in DISPLAY-PRECEDENCE order (`[apple, kkbox]`): the first-seen row supplies
+ * artist/title, `image` is the first non-null across the group. Ties keep first-appearance order;
+ * the result is capped at `cap`. One empty list yields the other alone, in its original order.
+ *
+ * Identity is `matchKey`, whose norm() already drops bracketed groups, so '田馥甄 (Hebe)' and '田馥甄'
+ * share a key without pre-stripping. A blank key ('|') is skipped.
+ * ponytail: matchKey does not fold Traditional/Simplified script or artist separators ('A & B' vs
+ * 'A、B'), so such pairs stay separate entries; add a zh-convert + separator fold if duplicates show
+ * up on real charts.
+ */
+export function fuseCharts(lists: DiscoveryTrack[][], k = 60, cap = 50): DiscoveryTrack[] {
+	const groups = new Map<string, { item: DiscoveryTrack; score: number; first: number }>();
+	for (const list of lists) {
+		list.forEach((row, i) => {
+			const key = matchKey(row.artist, row.title);
+			if (key === '|') return;
+			const g = groups.get(key);
+			if (g) {
+				g.score += 1 / (k + i + 1);
+				g.item.image ??= row.image;
+			} else {
+				groups.set(key, { item: { ...row }, score: 1 / (k + i + 1), first: groups.size });
+			}
+		});
+	}
+	return [...groups.values()]
+		.sort((x, y) => y.score - x.score || x.first - y.first)
+		.slice(0, cap)
+		.map((g) => g.item);
 }
