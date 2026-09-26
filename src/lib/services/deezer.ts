@@ -111,6 +111,22 @@ export async function deezerChart(limit = 18, signal?: AbortSignal): Promise<Dee
 }
 
 /**
+ * Deezer's per-genre top tracks (39-D-16) through the same own-origin proxy
+ * (`/api/deezer/chart?genre={id}&limit=50`). Western genre shelves read this. Same WR-03 posture
+ * as deezerChart: failures REJECT inside cached() (never stored) and map to [] outside it.
+ */
+export async function deezerGenreChart(genreId: number, signal?: AbortSignal): Promise<DeezerChartTrack[]> {
+	if (signal?.aborted) return [];
+	return cached(`dz:chart:g${genreId}`, TTL_RELATED, async () => {
+		const url = `${CHART_PATH}?${new URLSearchParams({ genre: String(genreId), limit: '50' }).toString()}`;
+		const res = await apiFetch(url, { signal: combinedSignal(signal) }); // governed; abort/timeout REJECT
+		if (!res.ok) throw new Error(String(res.status));
+		const data = (await res.json()) as Partial<DeezerChartResult>;
+		return data.tracks ?? [];
+	}).catch(() => []);
+}
+
+/**
  * Build the OWN-ORIGIN proxy URL for a search `term`. The term is encoded via URLSearchParams
  * (no raw spaces / special chars leak into the query). Points at /api/deezer/search — NEVER
  * api.deezer.com (the browser fetch to Deezer is CORS-blocked, so it must be proxied).

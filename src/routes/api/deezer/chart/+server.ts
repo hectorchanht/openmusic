@@ -13,10 +13,16 @@
 // Deezer /chart shape (only the fields read; all optional — untrusted JSON):
 //   { tracks: { data: [ { title, artist: { name, picture_* }, album: { cover_* } } ] },
 //     artists: { data: [ { name, picture_xl, picture_big } ] } }
+//
+// 39-D-16: `?genre={id}` (allowlisted against DEEZER_GENRE_IDS) reads Deezer's genre chart
+// `/chart/{id}/tracks?limit=50` instead — shape `{ data: DzTrack[] }` — and answers
+// `{ tracks, artists: [] }` through the SAME reshape + image allowlist. An unknown or
+// non-numeric genre is ignored and falls through to today's `/chart` call.
 import type { RequestHandler } from './$types';
 import { fetchWithRetry, corsHeaders, jsonResponse } from '$lib/proxy/http';
 import { edgeCache } from '$lib/proxy/edge-cache';
 import { safeImageUrl as checkImageUrl, DEEZER_IMAGE_HOSTS } from '$lib/proxy/safe-image-url';
+import { DEEZER_GENRE_IDS } from '$lib/services/home-layout';
 
 const DEEZER_CHART = 'https://api.deezer.com/chart';
 // Charts shift slowly; an hour keeps re-browsing well under Deezer's ~50 req/5s rate cap.
@@ -63,6 +69,10 @@ interface DeezerChartResponse {
 	tracks?: { data?: DzTrack[] };
 	artists?: { data?: DzArtist[] };
 }
+/** `/chart/{id}/tracks` — a bare track list, no artists block (39-D-16). */
+interface DeezerGenreResponse {
+	data?: DzTrack[];
+}
 
 /** Reshape the Deezer /chart envelope into covered track + artist items (empty arrays on miss). */
 function reshapeChart(data: DeezerChartResponse, limit: number): DeezerChart {
@@ -96,6 +106,9 @@ export const GET: RequestHandler = async ({ url, request }) => {
 	const origin = request.headers.get('origin');
 	const limitRaw = Number(url.searchParams.get('limit') ?? '18');
 	const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(1, Math.trunc(limitRaw)), 100) : 18;
+	// 39-D-16 / T-39-16: allowlist gate — only a known Deezer genre id reaches the upstream URL.
+	const genreRaw = Number(url.searchParams.get('genre'));
+	const genre = DEEZER_GENRE_IDS.includes(genreRaw) ? genreRaw : null;
 
 	const cache = edgeCache();
 	const cacheReq = new Request(url.toString());
@@ -112,11 +125,20 @@ export const GET: RequestHandler = async ({ url, request }) => {
 	}
 
 	try {
-		// /chart has no params we pass through (limit applied client-side in reshape); fixed URL,
-		// no command/template construction. Bounded retry + native timeout.
-		const res = await fetchWithRetry(DEEZER_CHART, { signal: AbortSignal.timeout(8000) }, 2);
-		const data = (await res.json()) as DeezerChartResponse;
-		const result = reshapeChart(data, limit);
+		// The only pass-through is the allowlisted numeric genre id (39-D-16); the upstream limit is
+		// the literal 50 and `limit` is applied in reshape. No user string reaches the URL.
+		// Bounded retry + native timeout.
+		const upstream =
+			genre !== null ? `https://api.deezer.com/chart/${genre}/tracks?limit=50` : DEEZER_CHART;
+		const res = await fetchWithRetry(upstream, { signal: AbortSignal.timeout(8000) }, 2);
+		let result: DeezerChart;
+		if (genre !== null) {
+			// Feed the genre list through the ONE reshape so the ONE safeImageUrl binding serves both.
+			const body = (await res.json()) as DeezerGenreResponse;
+			result = { tracks: reshapeChart({ tracks: { data: body?.data } }, limit).tracks, artists: [] };
+		} else {
+			result = reshapeChart((await res.json()) as DeezerChartResponse, limit);
+		}
 		if (cache) {
 			const cached = new Response(JSON.stringify(result satisfies DeezerChart), {
 				status: 200,
