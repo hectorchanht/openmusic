@@ -294,8 +294,9 @@ describe('settings persistence round-trip — home chart settings (39-D-25)', ()
 	});
 
 	// T-39-27: a version stamp written before the new shelves render would let anyone who saves in
-	// between skip the one-time layout migration. Remove this test only in the plan that adds it.
-	it('does not write homeLayoutVersion yet (39-09 owns the one-time switch)', async () => {
+	// between skip the one-time layout migration. Remove this test only together with the change
+	// that wires migrateHomeLayout into load().
+	it('does not write homeLayoutVersion yet (the one-time layout switch owns it)', async () => {
 		const settings = await freshSettings();
 		settings.load();
 		settings.save();

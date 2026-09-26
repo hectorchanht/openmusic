@@ -13,6 +13,8 @@ import {
 	DEFAULT_HOME_TAGS,
 	DEFAULT_HOME_COUNTRIES,
 	SHELF_DEFAULT,
+	DEFAULT_CHART_GENRES,
+	type ChartRegion,
 	type HomeDensity,
 	type HomeLandingTab,
 	type HomeSectionId
@@ -190,7 +192,17 @@ export const HOME_DEFAULTS = {
 	 *  per-section entry flips just that section; resolved via resolveSectionDensity. */
 	homeSectionDensity: {} as Partial<Record<HomeSectionId, HomeDensity>>,
 	homeShowSearchPill: true,
-	homeShowRandomize: true
+	homeShowRandomize: true,
+	// 39-D-25: home chart settings. 'auto' region is resolved at render by resolveChartRegion.
+	// Extra regions default to none (UI-11: smallest cold fan-out). Genres default to the locked
+	// Asian-pop + Western-core set, sourced from home-layout.ts so the two never drift.
+	// homeHidden stays [] and there is NO layout-version field here on purpose: both belong to the
+	// one-time layout switch (migrateHomeLayout), which must not ship before the chart shelves
+	// render: an early hide removes the classic shelves before anything replaces them, and an early
+	// version stamp makes anyone who saves in between skip the switch.
+	homeChartRegion: 'auto' as 'auto' | ChartRegion,
+	homeExtraRegions: [] as string[],
+	homeChartGenres: [...DEFAULT_CHART_GENRES] as string[]
 } as const;
 
 /** All groups in one place — used to drive the reset-group helpers. */

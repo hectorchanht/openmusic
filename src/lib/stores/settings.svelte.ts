@@ -20,7 +20,7 @@ import {
 // Pure util (no DOM/browser/store imports) — settings stays a LEAF store. Used by
 // applyTheme() to derive --color-primary-hover from the chosen accent (UX-07 root-cause fix).
 import { darken } from '$lib/services/color';
-import { clampShelfSize, migrateDensity, type HomeDensity, type HomeLandingTab, type HomeSectionId } from '$lib/services/home-layout';
+import { CHART_REGIONS, clampShelfSize, migrateDensity, type ChartRegion, type HomeDensity, type HomeLandingTab, type HomeSectionId } from '$lib/services/home-layout';
 
 export type LyricsLang =
 	| 'off'
@@ -229,6 +229,13 @@ class Settings {
 	homeTags = $state<string[]>([...HOME_DEFAULTS.homeTags]);
 	/** Selected COUNTRY subset (ordered — drives country shelf order); default = curated set. */
 	homeCountries = $state<string[]>([...HOME_DEFAULTS.homeCountries]);
+	/** Main chart region (39-D-25). 'auto' is resolved at render by
+	 *  resolveChartRegion(saved, appLang, navigator.language); load() allowlists the value. */
+	homeChartRegion = $state<'auto' | ChartRegion>(HOME_DEFAULTS.homeChartRegion);
+	/** Extra chart regions (ORDERED — drives the regions shelf order, like homeTags). */
+	homeExtraRegions = $state<string[]>([...HOME_DEFAULTS.homeExtraRegions]);
+	/** Selected chart genres (ORDERED — drives genre shelf order). An explicit [] is a real choice. */
+	homeChartGenres = $state<string[]>([...HOME_DEFAULTS.homeChartGenres]);
 	/** Tiles per shelf (clamped to [SHELF_MIN, SHELF_MAX] = [8,24] by clampShelfSize).
 	 *  quick-260919-hm1: the DEFAULT is now 24 — the top of that range. An existing install is
 	 *  untouched: the load() path below runs clampShelfSize over the PERSISTED number, so a saved
@@ -383,6 +390,20 @@ class Settings {
 				this.homeCountries = Array.isArray(v.homeCountries)
 					? (v.homeCountries as string[])
 					: [...HOME_DEFAULTS.homeCountries];
+				// 39-D-25 / T-39-25: allowlist guard like homeLandingTab. A bare cast like bioLang
+				// would let 'cn' or garbage reach the chart fetch planner.
+				this.homeChartRegion =
+					typeof v.homeChartRegion === 'string' && (CHART_REGIONS as readonly string[]).includes(v.homeChartRegion)
+						? (v.homeChartRegion as ChartRegion)
+						: 'auto';
+				// T-39-26: TYPE guard only. resolveExtraRegions / resolveChartGenres clean the values at
+				// render, and an explicit [] genre list is a real choice, so it is kept.
+				this.homeExtraRegions = Array.isArray(v.homeExtraRegions)
+					? (v.homeExtraRegions as string[])
+					: [...HOME_DEFAULTS.homeExtraRegions];
+				this.homeChartGenres = Array.isArray(v.homeChartGenres)
+					? (v.homeChartGenres as string[])
+					: [...HOME_DEFAULTS.homeChartGenres];
 				// Shelf size is clamped to [6,24] on load (T-w87-01): a poisoned 999/"x"/
 				// negative becomes a safe value, never breaking the fan-out / page size.
 				this.homeShelfSize = clampShelfSize(v.homeShelfSize);
@@ -474,6 +495,9 @@ class Settings {
 					homeHidden: this.homeHidden,
 					homeTags: this.homeTags,
 					homeCountries: this.homeCountries,
+					homeChartRegion: this.homeChartRegion,
+					homeExtraRegions: this.homeExtraRegions,
+					homeChartGenres: this.homeChartGenres,
 					homeShelfSize: this.homeShelfSize,
 					homeLandingTab: this.homeLandingTab,
 					homeDensity: this.homeDensity,
@@ -612,6 +636,9 @@ class Settings {
 		this.homeHidden = [...d.homeHidden];
 		this.homeTags = [...d.homeTags];
 		this.homeCountries = [...d.homeCountries];
+		this.homeChartRegion = d.homeChartRegion;
+		this.homeExtraRegions = [...d.homeExtraRegions];
+		this.homeChartGenres = [...d.homeChartGenres];
 		this.homeShelfSize = d.homeShelfSize;
 		this.homeLandingTab = d.homeLandingTab;
 		this.homeDensity = d.homeDensity;
