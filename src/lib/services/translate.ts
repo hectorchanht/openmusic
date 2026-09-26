@@ -141,6 +141,8 @@ async function runApiLoop(lines: string[], to: string): Promise<TranslateResult>
 // failed dynamic import falls through to the full-API path so zh-Hant never hard-breaks
 // (T-25b-03). D-04: isChineseLine rides the kana/hangul-first classifier, so a JA-kana line is
 // NOT offline-converted — it lands in the API-bound subset like any other non-Chinese line.
+// quick-260926-kvz: the dynamic import now also pulls the ~22 KB gzip t2s dict, because
+// s2tConvertLines is the idempotent s2t↔t2s merge (already-Traditional input keeps its spelling).
 async function resolveZhHant(lines: string[]): Promise<TranslateResult> {
 	let mod: typeof import('./zh-convert');
 	try {
@@ -170,7 +172,8 @@ async function resolveZhHant(lines: string[]): Promise<TranslateResult> {
 
 	// Chinese subset → offline s2t. A converted Chinese line is a genuine zh-Hant translation, so
 	// flag those positions true (already-Traditional input s2t-passes-through unchanged — still
-	// correct Traditional, still genuinely translated for this target; T-25b-04 accepted).
+	// correct Traditional, still genuinely translated for this target; T-25b-04 accepted)
+	// (true since quick-260926-kvz: s2tConvertLines is the idempotent merge).
 	if (chineseIdx.length) {
 		const converted = await s2tConvertLines(chineseIdx.map((i) => lines[i]));
 		chineseIdx.forEach((orig, j) => {

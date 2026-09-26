@@ -284,12 +284,19 @@ describe('lockScriptSync zh-Hant — idempotent on already-Traditional input (qu
 	});
 
 	it('PARTIAL warm (s2t only, t2s cold) falls back to direct s2t — never worse than before', async () => {
+		// quick-260926-kvz: warmS2T now warms t2s too, so t2s is held cold by failing its dict import
+		// (the t2sConvertLines never-throw idiom) instead of simply not warming it.
+		vi.doMock('tongwen-dict/dist/t2s-char.min.json', () => {
+			throw new Error('chunk load failed');
+		});
 		vi.resetModules();
 		const m = await import('./zh-convert');
-		m.warmS2T();
-		await m.s2tConvertLines(['x']);
+		await m.warmScript('zh-Hant');
 		expect(m.t2sConvertLineSync('繁體')).toBeNull(); // t2s is still cold
+		expect(m.s2tConvertLineSync('周杰伦')).toBe('周杰倫');
 		expect(m.lockScriptSync('周杰伦', 'zh-Hant')).toBe('周杰倫');
+		expect(await m.s2tConvertLines(['周杰伦', '头发'])).toEqual(['周杰倫', '頭髮']);
+		vi.doUnmock('tongwen-dict/dist/t2s-char.min.json');
 		vi.resetModules();
 	});
 
@@ -299,6 +306,47 @@ describe('lockScriptSync zh-Hant — idempotent on already-Traditional input (qu
 		await m.warmScript('zh-Hant');
 		expect(m.t2sConvertLineSync('繁體')).toBe('繁体');
 		expect(m.lockScriptSync('周杰倫', 'zh-Hant')).toBe('周杰倫');
+		vi.resetModules();
+	});
+});
+
+// ---------------------------------------------------------------------------------------------
+// quick-260926-kvz — bxg made only the LOCK idempotent. The translation path (names' zh-Hant
+// no-flash fast path via s2tConvertLineSync, translate.ts resolveZhHant via s2tConvertLines) still
+// ran raw s2t, so a JOOX/HK 周杰倫 became 周傑倫 while a CN 周杰伦 became 周杰倫. Every exported
+// s2t entry point now goes through the same merge.
+// ---------------------------------------------------------------------------------------------
+
+describe('quick-260926-kvz — every exported s2t entry point is idempotent', () => {
+	it('s2tConvertLineSync keeps already-Traditional input and still converts Simplified', async () => {
+		await warmScript('zh-Hant');
+		expect(s2tConvertLineSync('周杰倫')).toBe('周杰倫'); // was 周傑倫
+		expect(s2tConvertLineSync('周杰伦')).toBe('周杰倫');
+		expect(s2tConvertLineSync('头发')).toBe('頭髮');
+		expect(s2tConvertLineSync('台灣')).toBe('台灣');
+		expect(s2tConvertLineSync('鍾鎮濤')).toBe('鍾鎮濤');
+	});
+
+	it('s2tConvertLines is idempotent and keeps blank slots aligned', async () => {
+		const out = await s2tConvertLines(['周杰倫', '周杰伦', '', '头发', '鍾鎮濤']);
+		expect(out).toEqual(['周杰倫', '周杰倫', '', '頭髮', '鍾鎮濤']);
+		expect(out.length).toBe(5);
+	});
+
+	it('warmS2T alone warms BOTH dicts, so the sync path gets the merge at boot', async () => {
+		vi.resetModules();
+		const m = await import('./zh-convert');
+		m.warmS2T();
+		await vi.waitFor(() => expect(m.t2sConvertLineSync('繁體')).toBe('繁体'));
+		await vi.waitFor(() => expect(m.s2tConvertLineSync('周杰倫')).toBe('周杰倫'));
+		vi.resetModules();
+	});
+
+	it('s2t COLD: s2tConvertLineSync answers null and the lock stays identity', async () => {
+		vi.resetModules();
+		const m = await import('./zh-convert');
+		expect(m.s2tConvertLineSync('简体')).toBeNull();
+		expect(m.lockScriptSync('简体', 'zh-Hant')).toBe('简体');
 		vi.resetModules();
 	});
 });

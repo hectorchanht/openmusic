@@ -86,9 +86,12 @@ function loadConvertLine(): Promise<ConvertLine> {
  * app boot when the Chinese content target is Traditional) so the converter is WARM before
  * names render — then s2tConvertLineSync succeeds on the first render and there is no flash.
  * Never throws (a failed load leaves convertLineSync null; callers just fall back to async).
+ *
+ * quick-260926-kvz: warms BOTH dicts (s2t + t2s) via warmScript('zh-Hant'), so the names no-flash
+ * fast path gets the idempotent merge at boot, not just raw s2t. warmScript never rejects.
  */
 export function warmS2T(): void {
-	void loadConvertLine().catch(() => {});
+	void warmScript('zh-Hant');
 }
 
 /**
@@ -99,18 +102,16 @@ export function warmS2T(): void {
  * MUST gate on isChineseLine() first (this does not re-check language). s2t leaves 台灣 as
  * 台灣, so the returned string may equal the input.
  *
- * quick-260926-bxg: that holds for 台灣 but NOT for every already-Traditional string. tongwen's
- * s2t phrase table is keyed on Simplified, so 周杰倫 misses the phrase 周杰伦 → 周杰倫, falls to
- * per-char mapping, and comes out 周傑倫 (杰 → 傑). The script lock therefore goes through the
- * merge in `lockScriptSync` rather than calling this directly.
+ * quick-260926-bxg: raw s2t holds that for 台灣 but NOT for every already-Traditional string —
+ * tongwen's s2t phrase table is keyed on Simplified, so 周杰倫 misses the phrase 周杰伦 → 周杰倫,
+ * falls to per-char mapping, and comes out 周傑倫 (杰 → 傑).
+ *
+ * quick-260926-kvz: this IS the idempotent merge (`s2tMerge`) now, so already-Traditional input
+ * keeps its source spelling (周杰倫 stays 周杰倫, 周傑倫 stays 周傑倫). null still means "s2t cold";
+ * t2s cold degrades to direct s2t — the pre-kvz behaviour, never worse.
  */
 export function s2tConvertLineSync(text: string): string | null {
-	if (!convertLineSync || !text) return null;
-	try {
-		return convertLineSync(text);
-	} catch {
-		return null;
-	}
+	return s2tMerge(text);
 }
 
 /**
@@ -132,8 +133,11 @@ export function isChineseLine(text: string): boolean {
  *
  * On the first call the s2t dict is dynamically imported + built once, then memoized. Each line
  * is converted with the phrase-level converter (D-01); blank lines pass through untouched so
- * alignment and empty slots are preserved (['', '中国'] → ['', '中國']). s2t leaves 台灣 as
- * 台灣, but quick-260926-bxg: already-Traditional input is NOT a no-op in general (周杰倫 → 周傑倫).
+ * alignment and empty slots are preserved (['', '中国'] → ['', '中國']).
+ *
+ * quick-260926-kvz: idempotent on already-Traditional input (周杰倫 stays 周杰倫, 台灣 stays 台灣)
+ * because every line goes through the same `s2tMerge` as the lock. That means it loads BOTH dicts
+ * (s2t + the ~22 KB gzip t2s); a t2s failure still converts with direct s2t.
  *
  * Never-throw boundary: any import/build/convert failure degrades to IDENTITY (the input lines
  * returned unchanged) rather than throwing into the caller — a converter fault becomes "not
@@ -142,8 +146,11 @@ export function isChineseLine(text: string): boolean {
 export async function s2tConvertLines(lines: string[]): Promise<string[]> {
 	if (lines.length === 0) return [];
 	try {
-		const convert = await loadConvertLine();
-		return lines.map((line) => (line ? convert(line) : line));
+		// allSettled, not Promise.all — same reason as warmScript: all would resolve early on a fast
+		// t2s failure while s2t is still in flight, and every line would come back unconverted.
+		await Promise.allSettled([loadConvertLine(), loadT2sConvertLine()]);
+		// s2t failed to load → per-line identity (the never-throw contract above).
+		return lines.map((line) => (line ? (s2tConvertLineSync(line) ?? line) : line));
 	} catch {
 		return lines.slice();
 	}
@@ -172,6 +179,8 @@ export async function s2tConvertLines(lines: string[]): Promise<string[]> {
 //
 // quick-260926-bxg: a zh-Hant script-LOCK user now also downloads this ~22 KB gzip t2s dict,
 // because warmScript('zh-Hant') builds both directions for the merge in lockScriptSync.
+// quick-260926-kvz: so does a zh-Hant TRANSLATION user (lock off), because s2tConvertLines and
+// warmS2T now build both directions for the same merge (`s2tMerge`).
 //
 // SEPARATE memoized build, deliberately NOT merged into buildConvertLine's one
 // createConverterMap call: a merged map would drag s2t's 148 KB phrase dict into the edge bundle
@@ -283,7 +292,12 @@ export type ZhScript = 'zh-Hant' | 'zh-Hans';
 
 /**
  * quick-260926-bxg: the zh-Hant lock, idempotent on already-Traditional input. Returns null only
- * when s2t is cold (lockScriptSync's `?? text` keeps the identity contract).
+ * when s2t is cold or `text` is empty (lockScriptSync's `?? text` keeps the identity contract).
+ *
+ * quick-260926-kvz: this is now the ONE Simplified→Traditional used by every exported entry point
+ * (s2tConvertLineSync, s2tConvertLines, lockScriptSync zh-Hant). It is built on the RAW module
+ * handles `convertLineSync` / `t2sLineSync`, never on the exported accessors — those route through
+ * here, so calling them would recurse.
  *
  * WHY a merge: tongwen's s2t phrase table is keyed on Simplified, so direct s2t of 周杰倫 misses
  * the phrase 周杰伦 → 周杰倫 and per-char maps 杰 → 傑 (周傑倫). Folding to Simplified first and
@@ -297,19 +311,28 @@ export type ZhScript = 'zh-Hant' | 'zh-Hans';
  * the merge equals direct s2t or strictly improves it. t2s cold, or a length mismatch after
  * conversion, returns direct s2t — exactly the old behaviour, never worse.
  */
-function hantLockSync(text: string): string | null {
-	const direct = s2tConvertLineSync(text);
-	if (direct === null) return null;
-	const folded = t2sConvertLineSync(text);
-	const round = folded === null ? null : s2tConvertLineSync(folded);
-	if (folded === null || round === null) return direct;
-	// Code points, not UTF-16 units: string indexing / split('') would tear astral chars (𠮷).
-	const a = Array.from(text);
-	const f = Array.from(folded);
-	const r = Array.from(round);
-	// tongwen phrase maps are length-preserving in practice; this is the never-worse guard.
-	if (f.length !== a.length || r.length !== a.length) return direct;
-	return a.map((c, i) => (c !== f[i] ? c : r[i])).join('');
+function s2tMerge(text: string): string | null {
+	if (!convertLineSync || !text) return null;
+	let direct: string;
+	try {
+		direct = convertLineSync(text);
+	} catch {
+		return null; // never-throw: a converter fault reads as "not ready"
+	}
+	if (!t2sLineSync) return direct;
+	try {
+		const folded = t2sLineSync(text);
+		const round = convertLineSync(folded);
+		// Code points, not UTF-16 units: string indexing / split('') would tear astral chars (𠮷).
+		const a = Array.from(text);
+		const f = Array.from(folded);
+		const r = Array.from(round);
+		// tongwen phrase maps are length-preserving in practice; this is the never-worse guard.
+		if (f.length !== a.length || r.length !== a.length) return direct;
+		return a.map((c, i) => (c !== f[i] ? c : r[i])).join('');
+	} catch {
+		return direct;
+	}
 }
 
 /**
@@ -327,8 +350,8 @@ function hantLockSync(text: string): string | null {
  *      kanji) detects as Chinese and WILL be converted. Pre-existing across every caller of this
  *      predicate; do not widen the gate here to paper over it.
  *   3. dispatch and degrade to the INPUT when it answers null: zh-Hant goes through the
- *      `hantLockSync` merge (quick-260926-bxg — idempotent on already-Traditional input), zh-Hans
- *      through t2s.
+ *      `s2tMerge` merge (quick-260926-bxg — idempotent on already-Traditional input; kvz made it
+ *      the shared s2t for every entry point), zh-Hans through t2s.
  *
  * Never throws and never returns null: a cold (not yet warm) or faulted converter degrades to
  * IDENTITY, so a first render shows the original text rather than a blank. Callers that care
@@ -337,7 +360,7 @@ function hantLockSync(text: string): string | null {
 export function lockScriptSync(text: string, target: ZhScript): string {
 	if (!text) return text;
 	if (!isChineseLine(text)) return text;
-	const converted = target === 'zh-Hant' ? hantLockSync(text) : t2sConvertLineSync(text);
+	const converted = target === 'zh-Hant' ? s2tMerge(text) : t2sConvertLineSync(text);
 	return converted ?? text;
 }
 
@@ -347,7 +370,7 @@ export function lockScriptSync(text: string, target: ZhScript): string {
  * its own revision counter once the dicts land and repaint (see `names.warmLock`). Resolves void on
  * success AND on failure — never rejects.
  *
- * quick-260926-bxg: zh-Hant awaits BOTH builds (the merge in `hantLockSync` needs t2s too); zh-Hans
+ * quick-260926-bxg: zh-Hant awaits BOTH builds (the merge in `s2tMerge` needs t2s too); zh-Hans
  * still awaits t2s only. allSettled, NOT Promise.all: all rejects on the FIRST failure while the
  * other build is still in flight, so a fast t2s chunk failure would resolve this early, warmLock
  * would bump rev before s2t landed, and the lock would stay cold until some unrelated re-render.
