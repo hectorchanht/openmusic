@@ -3,6 +3,7 @@
 // intact). Applied by the UI/picks layer to any list shown to the user so the
 // same song surfaced by multiple sources collapses to one — the highest quality.
 import type { SourceId, Track } from '$lib/sources/types';
+import { t2sConvertLineSync, warmT2S } from '$lib/services/zh-convert';
 
 // Tie-break when quality is equal/unknown. Tune freely.
 // 5sing is UGC (covers / 伴奏 / 原创) — it should NEVER win a tie against a mainstream CN
@@ -45,20 +46,108 @@ function qualityRank(t: Track): number {
 	return 0;
 }
 
-/** Normalized identity key: title+artist, case/space/punct-insensitive, suffixes dropped. */
-function key(t: Track): string {
-	const norm = (s: string) =>
-		(s || '')
-			.toLowerCase()
-			.replace(/[（(【\[].*?[)）\]】]/g, ' ') // drop (Live) / [Remaster] / 【...】
-			.replace(/\s*-\s*(remaster|live|acoustic|explicit|feat\.?|ft\.?).*$/i, ' ')
-			.replace(/[^\p{L}\p{N}]+/gu, '') // strip all punctuation/space (keeps CJK + latin + digits)
-			.trim();
-	return `${norm(t.title)}|${norm(t.artist)}`;
+const HAN = /\p{Script=Han}/u;
+const PRINTABLE_ASCII = /^[\x20-\x7e]+$/;
+// A leading Han run (inner spaces only BETWEEN Han chars), whitespace, then a Latin run starting
+// with a letter/digit. The Han and \s classes are disjoint, so this is linear on untrusted titles.
+const HAN_THEN_LATIN = /^\p{Script=Han}+(?:\s+\p{Script=Han}+)*\s+([a-z0-9][\x20-\x7e]*)$/u;
+// Tail words that name a DIFFERENT RENDITION, not a translation — a tail made only of these (or
+// numbers) is never stripped, else "玻璃 - remix" / "玻璃 - part 2" would merge into "玻璃"
+// (song-variant.ts exists precisely to keep renditions apart).
+const QUALIFIER_WORDS = new Set([
+	'live', 'demo', 'remix', 'mix', 'acoustic', 'inst', 'instrumental', 'karaoke', 'cover', 'remaster',
+	'remastered', 'explicit', 'version', 'ver', 'edit', 'radio', 'extended', 'original', 'feat', 'ft',
+	'part', 'pt'
+]);
+
+function isQualifierTail(tail: string): boolean {
+	return tail
+		.trim()
+		.split(/\s+/)
+		.every((w) => {
+			const x = w.replace(/\.$/, '');
+			return /^\d+$/.test(x) || QUALIFIER_WORDS.has(x);
+		});
 }
 
 /**
- * Two tracks are "the same song" iff their normalized title+artist keys match (WR-06). Reuses the
+ * Traditional → Simplified for a string carrying any Han char; cold dict → unchanged + warm.
+ * PER CHARACTER, not per line: the t2s phrase table also swaps regional VOCABULARY
+ * (緊急聯絡人 → 紧急联系人, 國際孤獨等級 → 国际孤独级别), which is a different title, not a
+ * spelling fold — one char at a time can only hit the char table, so it maps script alone.
+ */
+function foldScript(s: string): string {
+	if (!HAN.test(s)) return s; // Latin-only never touches the converter (no dict download)
+	let out = '';
+	for (const c of s) {
+		if (!HAN.test(c)) {
+			out += c;
+			continue;
+		}
+		const f = t2sConvertLineSync(c);
+		if (f === null) {
+			warmT2S();
+			return s;
+		}
+		out += f;
+	}
+	return out;
+}
+
+/** Title-only: drop a translated English tail so the CJK title keys alone (see key()). */
+function stripTranslation(title: string): string {
+	const s = title.trim();
+	// ytmusic "<CJK> - <english>": key on the head.
+	const cut = s.lastIndexOf(' - ');
+	if (cut > 0) {
+		const head = s.slice(0, cut);
+		const tail = s.slice(cut + 3);
+		if (HAN.test(head) && PRINTABLE_ASCII.test(tail) && !isQualifierTail(tail)) return head;
+	}
+	// bilingual "<Han> <Latin>": key on the Latin run (≥2 words), which is what ytmusic keeps.
+	const latin = HAN_THEN_LATIN.exec(s)?.[1];
+	if (latin && latin.trim().split(/\s+/).length >= 2 && !isQualifierTail(latin)) return latin;
+	return s;
+}
+
+/**
+ * Normalized identity key: title+artist, case/space/punct-insensitive, suffixes dropped.
+ *
+ * quick-260926-n0r: the same song kept showing twice in the NowPlaying Related tab and Up Next,
+ * because three live-data classes (Gareth.T) keyed differently here:
+ *   1. Simplified vs Traditional twins (qq 颜色 vs joox 顏色) — every string with a Han char is
+ *      folded to Simplified first, char by char (see foldScript). NOT gated on detectLang /
+ *      isChineseLine: "淺粉紅 pale pink" is mixed-script and may detect as 'en'. Cold t2s dict →
+ *      the string is keyed unfolded (exactly the pre-fix behaviour, never a throw) and warmT2S()
+ *      fires so a later call folds.
+ *   2. ytmusic "<CJK> - <english>" (玻璃 - glass) — keyed on the CJK head.
+ *   3. bilingual "<Han> <Latin>" whose ytmusic copy drops the Han (淺粉紅 pale pink vs pale pink) —
+ *      keyed on the Latin run, which must be ≥2 words ("我的 baby" vs "你的 baby" stay apart).
+ * 2 and 3 never strip a pure qualifier tail (remix / live / part 2 …) — that is a rendition.
+ *
+ * This deliberately loosens every key() consumer, all of which mean "same song": the WR-06
+ * fallback/catalog verification (whose second gate, isAcceptableSubstitute, is unchanged and still
+ * keeps renditions apart) and the version picker's groupVariants.
+ *
+ * ponytail: two DIFFERENT same-artist songs sharing an identical ≥2-word Latin tail would merge;
+ * add an album/duration tiebreak if that ever shows up. A key computed cold differs from one
+ * computed warm — safe only because keys are never persisted, only compared within one call.
+ */
+function key(t: Track): string {
+	const norm = (s: string, isTitle: boolean) => {
+		let v = foldScript(s || '')
+			.toLowerCase()
+			.replace(/[（(【\[].*?[)）\]】]/g, ' ') // drop (Live) / [Remaster] / 【...】
+			.replace(/\s*-\s*(remaster|live|acoustic|explicit|feat\.?|ft\.?).*$/i, ' ');
+		if (isTitle) v = stripTranslation(v);
+		return v.replace(/[^\p{L}\p{N}]+/gu, '').trim(); // strip all punctuation/space (keeps CJK + latin + digits)
+	};
+	return `${norm(t.title, true)}|${norm(t.artist, false)}`;
+}
+
+/**
+ * Two tracks are "the same song" iff their normalized title+artist keys match (WR-06) — script-,
+ * ytmusic-suffix- and bilingual-insensitive since quick-260926-n0r (see key()). Reuses the
  * exact `key()` normalization dedupe applies so a cross-source fallback can verify a fuzzy upstream
  * search returned the SAME song before adopting it (a fuzzy search can return an unrelated track,
  * which would otherwise silently auto-play under the original track's identity). A blank/untitled
