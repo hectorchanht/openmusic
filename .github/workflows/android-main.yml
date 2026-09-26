@@ -1,11 +1,16 @@
-# Push-to-main rolling prerelease.
+# Push-to-main rolling release, published as the GitHub "Latest" release.
 #
 # On every push to main: builds the native SvelteKit SPA, syncs Capacitor, builds
 # + signs a RELEASE APK with the consistent release keystore (same signing identity
 # as android-release.yml — Obtainium's update trust anchor), then republishes it to a
-# single rolling GitHub prerelease tagged `latest`. The old `latest` release+tag is
+# single rolling GitHub release tagged `latest`. The old `latest` release+tag is
 # deleted and recreated at the current commit each run, so there is always exactly one
-# prerelease sitting at HEAD.
+# rolling release sitting at HEAD.
+#
+# 2026-09-26 (user decision): published with `--latest`, not `--prerelease`, so every
+# main build is the repo's "Latest" release and the Releases page / latest-download
+# links point at it. A v* stable release (android-release.yml) takes the Latest badge
+# only until the next push to main.
 #
 # Channel note: this is the bleeding-edge channel. android-release.yml (v* tags) is the
 # stable channel. Both sign with the SAME keystore, so both are Obtainium-updatable —
@@ -15,7 +20,7 @@
 # THIS file resets the counter and downgrade-blocks the rolling channel — do not rename it.
 # The stable channel encodes versionCode from the semver tag instead (rename-proof); these
 # two schemes are NOT comparable, which is why you must pick one channel per install.
-name: Android Main (rolling prerelease)
+name: Android Main (rolling latest)
 
 on:
   push:
@@ -109,7 +114,7 @@ jobs:
 
       # Rolling publish: nuke the previous `latest` release+tag, recreate at this commit.
       # gh ships on the runner; GH_TOKEN scopes it to this repo.
-      - name: Publish rolling prerelease
+      - name: Publish rolling latest release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -117,7 +122,7 @@ jobs:
           gh release delete latest --cleanup-tag --yes || true
           gh release create latest \
             android/app/build/outputs/apk/release/openmusic-main.apk \
-            --prerelease \
+            --latest \
             --target "$GITHUB_SHA" \
             --title "OpenMusic (main $SHORT_SHA)" \
             --notes "Rolling build from main @ $SHORT_SHA (versionCode $VERSION_CODE). Bleeding-edge — signed with the release keystore."
