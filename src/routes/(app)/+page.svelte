@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { SvelteSet } from 'svelte/reactivity';
 	import { goto } from '$app/navigation';
 	import { navigating } from '$app/state';
 	import { Search, Settings, RotateCw, ChevronRight } from '@lucide/svelte';
@@ -428,6 +429,10 @@
 	function plannedKeys(): string[] {
 		return [...new Set(chartTasks().map((task) => task.key))];
 	}
+	// 39-D-37 (UI-SPEC §1.7): pool keys a visible refresh is fetching right now. A plain Set is not
+	// proxied by $state, hence SvelteSet. Only refresh() fills it — the silent revalidate never does,
+	// so a warm load never shows a placeholder.
+	const inflight = new SvelteSet<string>();
 
 	// T-39-29: `picks` / `pools` are persisted, so a tampered or stale index is simply skipped and a
 	// non-array value yields an empty shelf instead of a render-time throw.
@@ -441,16 +446,33 @@
 	const sampledAlbums = (key: string) => sampled(pools.albums[key], key);
 	const hasPool = (key: string) =>
 		!!(pools.songs[key]?.length || pools.artists[key]?.length || pools.albums[key]?.length);
+	/** Something sampled to render for this key (the shelf shows tiles). */
+	const hasItems = (key: string) =>
+		!!(sampledSongs(key).length || sampledArtists(key).length || sampledAlbums(key).length);
+	/** 39-D-37: the placeholder condition — planned, fetch in flight, nothing sampled for its exact key. */
+	function isPlanned(key: string): boolean {
+		return inflight.has(key) && !hasItems(key);
+	}
+	/** Any placeholder on screen — it replaces the global "Top picks" skeleton (UI-SPEC §1.7). */
+	const anyPlaceholder = $derived(plannedKeys().some(isPlanned));
 
+	// 39-D-37: an entry with no tiles yet stays while it is planned, so genresBlock / regionsBlock
+	// render its placeholder in the slot and shelfCount counts it like the real shelf.
 	const genreShelves = $derived(
 		chartGenres
-			.map((g) => ({ id: g, key: genrePoolKey(g), items: sampledSongs(genrePoolKey(g)) }))
-			.filter((s) => s.items.length)
+			.map((g) => {
+				const key = genrePoolKey(g);
+				return { id: g, key, items: sampledSongs(key), planned: isPlanned(key) };
+			})
+			.filter((s) => s.items.length || s.planned)
 	);
 	const regionShelves = $derived(
 		chartExtraRegions
-			.map((cc) => ({ cc, key: poolKey('region', cc), items: sampledSongs(poolKey('region', cc)) }))
-			.filter((s) => s.items.length)
+			.map((cc) => {
+				const key = poolKey('region', cc);
+				return { cc, key, items: sampledSongs(key), planned: isPlanned(key) };
+			})
+			.filter((s) => s.items.length || s.planned)
 	);
 
 	type TaskResult =
@@ -501,17 +523,24 @@
 	 * (upstream failure) keeps the current pool. Rows are de-duplicated on the way in because the
 	 * shelves key their rows by artist + title (or name) — a chart listing the same song twice
 	 * (explicit + clean) would otherwise collide.
+	 * `placeholders` (39-D-37, visible refresh only): every group key is in `inflight` until that
+	 * group settles — landed, empty or superseded — so a placeholder never outlives its fetch (T-39-33).
 	 */
-	async function runChartTasks(tasks: ChartTask[], gen: number, apply: (key: string) => boolean) {
+	async function runChartTasks(
+		tasks: ChartTask[],
+		gen: number,
+		apply: (key: string) => boolean,
+		placeholders = false
+	) {
 		const groups = new Map<string, ChartTask[]>();
 		for (const task of tasks) groups.set(task.key, [...(groups.get(task.key) ?? []), task]);
+		if (placeholders) for (const key of groups.keys()) inflight.add(key);
 		const out: ChartPools = { songs: {}, artists: {}, albums: {} };
 		const outPicks: Record<string, number[]> = {};
 		const n = clampShelfSize(settings.homeShelfSize);
-		await mapWithConcurrency([...groups.values()], FANOUT_CAP, async (group) => {
+		async function runGroup(group: ChartTask[], key: string) {
 			const results = await Promise.all(group.map(fetchTask));
 			if (gen !== chartGen) return; // superseded by a newer chart fetch (WR-04 idiom)
-			const key = group[0].key;
 			const live = apply(key);
 			const first = results[0];
 			let len = 0;
@@ -540,6 +569,17 @@
 			}
 			outPicks[key] = samplePicks(len, n);
 			if (live) picks[key] = outPicks[key];
+		}
+		await mapWithConcurrency([...groups.values()], FANOUT_CAP, async (group) => {
+			const key = group[0].key;
+			try {
+				await runGroup(group, key);
+			} finally {
+				// Same tick as the pool write, so the real shelf replaces the placeholder in place.
+				// ponytail: two overlapping visible refreshes share one Set, so the older one settling
+				// drops the newer one's placeholder early (cosmetic); refcount keys if that ever happens.
+				if (placeholders) inflight.delete(key);
+			}
 		});
 		return { pools: out, picks: outPicks };
 	}
@@ -609,9 +649,7 @@
 			['fav-artists', favArtistsShelf.length]
 		];
 		return (
-			plannedKeys().some(
-				(key) => sampledSongs(key).length || sampledArtists(key).length || sampledAlbums(key).length
-			) ||
+			plannedKeys().some(hasItems) ||
 			(isVisible('top-hits') && topHits.length > 0) ||
 			(isVisible('top-artists') && topArtists.length > 0) ||
 			(isVisible('tags') && tagShelves.some((s) => s.tracks.length)) ||
@@ -748,7 +786,8 @@
 			} else {
 				const tasks = chartTasks();
 				if (tasks.length) {
-					await runChartTasks(tasks, ++chartGen, () => true);
+					// 39-D-37: a visible fetch — keys with nothing on screen show their placeholder meanwhile.
+					await runChartTasks(tasks, ++chartGen, () => true, true);
 					if (gen !== refreshGen) return;
 					poolsFetchedAt = Date.now();
 					pendingPools = null; // this fetch is newer than anything a revalidate parked
@@ -953,14 +992,22 @@
 		if (id === 'tags') return tagShelves.length;
 		if (id === 'countries') return countryShelves.length;
 		if (id === 'playlists') return playlistShelves.length;
+		// genreShelves / regionShelves already include their planned (placeholder) entries.
 		if (id === 'genres') return genreShelves.length;
 		if (id === 'regions') return regionShelves.length;
-		// An empty single chart shelf renders nothing, so it must not use up a reveal frame.
-		if (id === 'chart-songs' || id === 'new-releases' || id === 'yt-trending') {
-			return sampledSongs(poolKey(id, chartRegion)).length ? 1 : 0;
+		// 39-D-37 (UI-SPEC §1.7): a single chart shelf counts once whether it shows tiles or its
+		// placeholder, so the first REVEAL_INITIAL slots fill the viewport on a cold load. With no
+		// planned task, or settled empty, it renders nothing and must not use up a reveal frame.
+		if (
+			id === 'chart-songs' ||
+			id === 'new-releases' ||
+			id === 'yt-trending' ||
+			id === 'chart-artists' ||
+			id === 'chart-albums'
+		) {
+			const key = poolKey(id, chartRegion);
+			return hasItems(key) || isPlanned(key) ? 1 : 0;
 		}
-		if (id === 'chart-artists') return sampledArtists(poolKey(id, chartRegion)).length ? 1 : 0;
-		if (id === 'chart-albums') return sampledAlbums(poolKey(id, chartRegion)).length ? 1 : 0;
 		return 1;
 	}
 	/** Per visible section: how many of its shelves may mount right now, plus the grand total. */
@@ -1128,9 +1175,11 @@
 		{/if}
 	</div>
 
-	{#if loading && !useFallback && !hasAnyContent() && !fallbackSongs.length}
+	{#if loading && !useFallback && !hasAnyContent() && !fallbackSongs.length && !anyPlaceholder}
 		<!-- Cold-load skeleton: compact-by-default, so match the compact pager shape — a column
-		     of 4 compact-row placeholders (40px art + 2 bars), with the next column peeking. -->
+		     of 4 compact-row placeholders (40px art + 2 bars), with the next column peeking.
+		     39-D-37: never alongside a per-shelf placeholder, so in practice only a classic-only
+		     config's first fetch shows it. -->
 		<div class="compact-skel-pager">
 			{@render compactSkeletonColumn()}
 			{@render compactSkeletonColumn()}
