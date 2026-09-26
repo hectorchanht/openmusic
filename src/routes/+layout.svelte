@@ -51,10 +51,25 @@
 	// route/app <title> stands. This effect WRITES a DOM property (document.title), never $state, so —
 	// unlike the attach()/restore() effect above — it cannot self-invalidate (no untrack needed).
 	// $effect never runs under SSR, so crawlers still get each route's SSR <title>; browser-guarded too.
+	//
+	// quick-260926-hze: when nothing is current, the route <title> (PageOg's og.title) is built from
+	// the route name AS NAVIGATED, so a typed / received link in the other script (/artist/周杰伦
+	// under zh-Hant) left the tab reading 周杰伦 while the address bar and the page said 周杰倫. The
+	// lock is applied HERE rather than in PageOg because PageOg also renders on the SSR share-landing
+	// routes that must never import a store (album/[artist]/[name] Pitfall 4). zhLock reads names.rev,
+	// so a cold dict repaints the tab once it lands; 'off' / non-Chinese titles are left untouched.
 	$effect(() => {
 		const cur = player.current;
 		void page.url.pathname; // re-apply after a route <title> overwrites document.title on nav
-		if (!browser || !cur) return;
+		if (!browser) return;
+		if (!cur) {
+			const ogTitle = page.data?.og?.title;
+			if (typeof ogTitle === 'string' && ogTitle) {
+				const locked = names.zhLock(ogTitle);
+				if (locked !== ogTitle) document.title = locked;
+			}
+			return;
+		}
 		const title = names.dnTitle(cur.title, cur.artist);
 		const artist = names.dnArtist(cur.artist);
 		document.title = artist ? `${title} • ${artist}` : title;
