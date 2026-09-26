@@ -6,6 +6,8 @@
 // those cases (the mock is module-scoped, one value per test file). So the persistence path gets
 // its own file with the browser-true harness (the library.svelte.test.ts:10-25 idiom).
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { HOME_DEFAULTS } from '$lib/config/defaults';
+import { CHART_SECTIONS, CLASSIC_SECTIONS } from '$lib/services/home-layout';
 vi.mock('$app/environment', () => ({ browser: true }));
 
 const memStore = new Map<string, string>();
@@ -293,13 +295,114 @@ describe('settings persistence round-trip — home chart settings (39-D-25)', ()
 		expect(blob.homeChartGenres).toEqual(DEFAULT_GENRES);
 	});
 
-	// T-39-27: a version stamp written before the new shelves render would let anyone who saves in
-	// between skip the one-time layout migration. Remove this test only together with the change
-	// that wires migrateHomeLayout into load().
-	it('does not write homeLayoutVersion yet (the one-time layout switch owns it)', async () => {
+	// T-39-36: the version stamp is what stops the one-time layout switch re-running on every load.
+	it('save() writes homeLayoutVersion 2', async () => {
 		const settings = await freshSettings();
 		settings.load();
 		settings.save();
-		expect(Object.keys(JSON.parse(localStorage.getItem(KEY) as string))).not.toContain('homeLayoutVersion');
+		expect(JSON.parse(localStorage.getItem(KEY) as string).homeLayoutVersion).toBe(2);
+	});
+});
+
+describe('one-time home layout switch (39-D-40 / P39-06)', () => {
+	beforeEach(() => memStore.clear());
+
+	// The pre-chart section order every existing install persisted (no homeLayoutVersion field).
+	const OLD_ORDER = ['liked', 'downloads', 'radio', 'top-hits', 'top-artists', 'fav-artists', 'tags', 'countries', 'playlists', 'history'];
+	const OLD_BLOB = {
+		appLang: 'en',
+		homeSectionOrder: OLD_ORDER,
+		homeHidden: [],
+		homeSectionDensity: { 'top-hits': 'pile' },
+		homeShelfSize: 16,
+		homeLandingTab: 'search',
+		homeShowSearchPill: false
+	};
+
+	async function loadWith(blob: Record<string, unknown>) {
+		memStore.set(KEY, JSON.stringify(blob));
+		const settings = await freshSettings();
+		settings.load();
+		return settings;
+	}
+	const persisted = () => JSON.parse(localStorage.getItem(KEY) as string);
+
+	it('an old blob migrates once: chart ids at the old chart slot, classics hidden, density carried, version saved', async () => {
+		const settings = await loadWith(OLD_BLOB);
+		const order = ['liked', 'downloads', 'radio', ...CHART_SECTIONS, 'top-hits', 'top-artists', 'fav-artists', 'tags', 'countries', 'playlists', 'history'];
+		expect(settings.homeSectionOrder).toEqual(order);
+		expect(settings.homeHidden).toEqual([...CLASSIC_SECTIONS]);
+		expect(settings.homeSectionDensity).toEqual({ 'top-hits': 'pile', 'chart-songs': 'pile' });
+		// load() saved: the persisted blob now carries the new layout AND the version marker.
+		const blob = persisted();
+		expect(blob.homeLayoutVersion).toBe(2);
+		expect(blob.homeSectionOrder).toEqual(order);
+		expect(blob.homeHidden).toEqual([...CLASSIC_SECTIONS]);
+	});
+
+	it('keeps a hidden library section, the library relative order, shelf size, landing tab and chrome toggles', async () => {
+		const custom = ['history', 'liked', 'top-artists', 'playlists', 'downloads', 'radio', 'top-hits', 'fav-artists', 'tags', 'countries'];
+		const settings = await loadWith({ ...OLD_BLOB, homeSectionOrder: custom, homeHidden: ['liked'] });
+		expect(settings.homeHidden).toContain('liked');
+		const library = ['history', 'liked', 'playlists', 'downloads', 'radio', 'fav-artists'];
+		expect(settings.homeSectionOrder.filter((id) => library.includes(id))).toEqual(library);
+		// Chart ids land where the first classic shelf sat.
+		expect(settings.homeSectionOrder.slice(2, 2 + CHART_SECTIONS.length)).toEqual([...CHART_SECTIONS]);
+		expect(settings.homeShelfSize).toBe(16);
+		expect(settings.homeLandingTab).toBe('search');
+		expect(settings.homeShowSearchPill).toBe(false);
+	});
+
+	it('a legacy density value is normalised before it carries (comfortable on tags → pile on genres)', async () => {
+		const settings = await loadWith({ ...OLD_BLOB, homeSectionDensity: { tags: 'comfortable' } });
+		expect(settings.homeSectionDensity).toEqual({ tags: 'pile', genres: 'pile' });
+	});
+
+	it('un-hiding a classic section after the migration survives a reload (no second migration)', async () => {
+		const settings = await loadWith(OLD_BLOB);
+		const order = [...settings.homeSectionOrder];
+		settings.homeHidden = settings.homeHidden.filter((id) => id !== 'top-hits');
+		settings.save();
+		const reloaded = await freshSettings();
+		reloaded.load();
+		expect(reloaded.homeHidden).not.toContain('top-hits');
+		expect(reloaded.homeSectionOrder).toEqual(order);
+	});
+
+	it('a blob already at version 2 is untouched and load() does not write', async () => {
+		const raw = JSON.stringify({ ...OLD_BLOB, homeLayoutVersion: 2 });
+		memStore.set(KEY, raw);
+		const settings = await freshSettings();
+		settings.load();
+		expect(settings.homeHidden).toEqual([]);
+		expect(settings.homeSectionOrder).toEqual(OLD_ORDER);
+		expect(localStorage.getItem(KEY)).toBe(raw);
+	});
+
+	// T-39-35: only a real number counts as a version; a string '2' is treated as a pre-chart blob.
+	it('a non-number homeLayoutVersion is treated as version 1 and migrates', async () => {
+		const settings = await loadWith({ ...OLD_BLOB, homeLayoutVersion: '2' });
+		expect(settings.homeHidden).toEqual([...CLASSIC_SECTIONS]);
+		expect(persisted().homeLayoutVersion).toBe(2);
+	});
+
+	it('a fresh install gets the classic-hidden defaults, never migrates and does not save', async () => {
+		const settings = await freshSettings();
+		settings.load();
+		expect(settings.homeHidden).toEqual([...CLASSIC_SECTIONS]);
+		expect(settings.homeSectionOrder).toEqual(HOME_DEFAULTS.homeSectionOrder);
+		expect(localStorage.getItem(KEY)).toBeNull();
+	});
+
+	it('resetHome() yields the new layout and persists version 2', async () => {
+		const settings = await loadWith({ ...OLD_BLOB, homeHidden: ['liked'], homeSectionOrder: ['history', ...OLD_ORDER] });
+		settings.homeHidden = [];
+		settings.resetHome();
+		expect(settings.homeHidden).toEqual([...CLASSIC_SECTIONS]);
+		expect(settings.homeSectionOrder).toEqual(HOME_DEFAULTS.homeSectionOrder);
+		const blob = persisted();
+		expect(blob.homeLayoutVersion).toBe(2);
+		expect(blob.homeHidden).toEqual([...CLASSIC_SECTIONS]);
+		expect(blob.homeSectionOrder).toEqual(HOME_DEFAULTS.homeSectionOrder);
 	});
 });
