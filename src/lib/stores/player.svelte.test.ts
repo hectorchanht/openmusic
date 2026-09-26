@@ -8113,9 +8113,10 @@ describe('album Up-Next installed from lazy name stubs (quick-260919-alb)', () =
 
 	it('Test 2 — WITHOUT that substitution a metadata mismatch front-splices current and dupes it', () => {
 		// The sameSongKey fallback leg normalizes title+artist, so it only rescues the anchor when the
-		// album tracklist's metadata matches the source's. Traditional-vs-Simplified is the live case
-		// in this catalog: the tracklist says 周杰倫, the CN source resolves to 周杰伦.
-		const list = ['最偉大的作品', '說好不哭'].map((t) => nameStub('周杰倫', t));
+		// album tracklist's metadata matches the source's. Trad-vs-Simp is folded by dedupe key() since
+		// quick-260926-n0r, so the demonstration uses a mismatch no script fold touches: the tracklist
+		// names the artist in Latin (Jay Chou), the CN source resolves to 周杰伦.
+		const list = ['最伟大的作品', '说好不哭'].map((t) => nameStub('Jay Chou', t));
 		const playing = mk('qq', 'alb-zjl', '周杰伦', '说好不哭');
 		player.current = playing;
 

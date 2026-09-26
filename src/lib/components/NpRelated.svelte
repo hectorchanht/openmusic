@@ -7,7 +7,7 @@
 	import { toast } from '$lib/stores/toast.svelte';
 	import { t } from '$lib/i18n';
 	import { searchAll } from '$lib/services/catalog';
-	import { dedupeBest } from '$lib/services/dedupe';
+	import { dedupeBest, sameSongKey } from '$lib/services/dedupe';
 	import { longpress } from '$lib/actions/longpress';
 	import { swipeAction } from '$lib/actions/swipeAction';
 	import { tapBounce } from '$lib/actions/tapBounce';
@@ -87,7 +87,12 @@
 			searchAll(cur.artist, 1)
 				.then((r) => {
 					if (relatedFor !== cur.uid) return; // race guard: a newer track took over
-					related = dedupeBest(r.interleaved, settings.preferredSource).filter((x) => x.uid !== cur.uid).slice(0, 20);
+					// quick-260926-n0r: dedupeBest collapses copies WITHIN the list, but the surviving winner can be a
+					// different-source copy of the playing song (ytmusic "跟悲傷結了帳 - No More" while qq 跟悲伤结了帐
+					// plays), which a uid-only filter missed.
+					related = dedupeBest(r.interleaved, settings.preferredSource)
+						.filter((x) => x.uid !== cur.uid && !sameSongKey(x, cur))
+						.slice(0, 20);
 					relatedLoading = false;
 				})
 				.catch(() => {
