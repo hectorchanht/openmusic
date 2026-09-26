@@ -504,3 +504,47 @@ describe('quick-260926-hl9 script-blind favArtists', () => {
 		expect(library.favArtists).toEqual(['Daft Punk']);
 	});
 });
+
+// quick-260926-hze: the favourite fold warms ITSELF, lock-independent. Each test gets a FRESH
+// library + zh-convert pair (resetModules) so t2s starts COLD, which is the lock-OFF world the
+// hl9 fold could not see into. The top-level $app/environment / blob-store mocks and the stubbed
+// localStorage persist across the reset.
+describe('quick-260926-hze self-warming favourite fold', () => {
+	type Fresh = typeof import('./library.svelte');
+	const rev = (lib: Fresh['library']) => (lib as unknown as { foldRev: number }).foldRev;
+
+	beforeEach(() => {
+		vi.resetModules();
+		memStore.clear();
+	});
+
+	it('a Traditional favourite matches its Simplified form once the fold dict lands', async () => {
+		memStore.set('openmusic:library:v1', JSON.stringify({ favArtists: ['周杰倫'] }));
+		const { library: fresh } = await import('./library.svelte');
+		const zh = await import('$lib/services/zh-convert');
+		fresh.load();
+		expect(fresh.isFavArtist('周杰倫')).toBe(true);
+		expect(fresh.isFavArtist('周杰伦')).toBe(false); // cold precondition: the test is not vacuous
+		await zh.warmScript('zh-Hans');
+		await vi.waitFor(() => expect(rev(fresh)).toBe(1));
+		expect(fresh.isFavArtist('周杰伦')).toBe(true);
+	});
+
+	it('a Latin-only library never warms the dict', async () => {
+		memStore.set('openmusic:library:v1', JSON.stringify({ favArtists: ['Daft Punk'] }));
+		const { library: fresh } = await import('./library.svelte');
+		fresh.load();
+		await Promise.resolve();
+		await Promise.resolve();
+		expect(rev(fresh)).toBe(0);
+	});
+
+	it('favouriting a Chinese name also warms the fold', async () => {
+		const { library: fresh } = await import('./library.svelte');
+		const zh = await import('$lib/services/zh-convert');
+		fresh.load();
+		fresh.toggleFavArtist('周杰倫');
+		await zh.warmScript('zh-Hans');
+		await vi.waitFor(() => expect(rev(fresh)).toBe(1));
+	});
+});
