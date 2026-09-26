@@ -95,7 +95,7 @@ Full observed evidence: `.planning/phases/30-carrier-free-share-links-type-artis
 ### Prior phase (Phase 27 — YouTube Music Source, v1.4) — COMPLETE + E2E-VERIFIED
 
 Phase 27 complete (27-01..04). E2E-verified against LIVE YouTube via the dev-server routes: /api/ytmusic/search 200 (rows+videoId), /api/ytmusic/lyrics 200 (1513c + attribution), /api/ytmusic/stream 206 audio/mp4 + Range (playback) and 200 full-file (download). pnpm check clean, 1320 tests green. E2E caught + fixed a prod-breaking bug (quick-270715 / commit 29c1c7d): stream route exported non-HTTP-verb functions, illegal in SvelteKit +server.ts → 500; helpers moved to $lib/proxy/ytmusic.ts.
-Last activity: 2026-09-26
+Last activity: 2026-09-26 - Completed quick task 260925-vtg: adopt the user's exported settings as app defaults
 Remaining human UAT: real-device <audio> playback+seek + download-to-disk; deployed-Worker player+googlevideo same-IP egress + bot-challenge under load (T-27-03-OP). Account/library sync = separate legal-gated milestone (spike 008).
 
 ## Performance Metrics
@@ -579,6 +579,7 @@ Recent decisions affecting current work:
 | 260920-nyq | One cover chain everywhere: iTunes→Deezer→CN/qq→YTM rank, dead cover degrades to gradient, hero/Nowbar/media-card read one `displayCover` | 2026-09-20 | 2f62047 | [260920-nyq-one-cover-chain](./quick/260920-nyq-one-cover-chain/) |
 | 260920-oj8 | Cover picker tile + downloaded-file art read the same `displayCover` as the hero | 2026-09-20 | a82bafa | [260920-oj8-cover-reader-parity](./quick/260920-oj8-cover-reader-parity/) |
 | 260920-oja | Share CTA re-seats and plays the shared song on a later tap (stale `inflight` memo) | 2026-09-20 | c85b93a | [260920-oja-share-cta-replay](./quick/260920-oja-share-cta-replay/) |
+| 260925-vtg | Adopt the user's exported settings as app defaults (accent, row buttons, translation skips, zh-Hant, download quality, quality tag, home order, hk + us charts, all 11 genres); load() keeps saved zhScript 'off' / region 'auto' | 2026-09-26 | ccd158f | [260925-vtg-make-exported-settings-the-app-defaults-](./quick/260925-vtg-make-exported-settings-the-app-defaults-/) |
 
 > Note: off planned phase order (Phase-4-shaped UI pulled forward as a demo). Basic playback only; full audio engine = Phase 6, formal Mobile UI Shell = Phase 4. NOTE (2026-06-10): many of the quick-tasks above already exercise the v1.2 surfaces (failover/prefetch in gte/t5r/hvu, offline blob in kyf, Deezer enrichment plumbing in jau/jip, cover backfill in rvy/0bb/wv8, gesture machines in ggj/h4s/nqf) — v1.2 phases formalize, harden, and complete these rather than build from scratch.
 
