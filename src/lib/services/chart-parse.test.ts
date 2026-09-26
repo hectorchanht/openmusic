@@ -7,8 +7,11 @@ import {
 	stripLatinAlias,
 	stripReleaseSuffix,
 	resizeMzstatic,
-	resizeYtThumb
+	resizeYtThumb,
+	fuseCharts
 } from './chart-parse';
+import type { DiscoveryTrack } from '$lib/services/lastfm';
+import { matchKey } from '$lib/services/match-key';
 import {
 	safeImageUrl,
 	APPLE_IMAGE_HOSTS,
@@ -219,5 +222,79 @@ describe('every parser never throws on garbage', () => {
 		expect(parseYtCharts(g, 'hk', 'tracks', youtube)).toEqual([]);
 		expect(parseYtCharts(g, 'hk', 'artists', youtube)).toEqual([]);
 		expect(parseItunesGenreFeed(g, 1251, apple)).toEqual([]);
+	});
+});
+
+describe('fuseCharts (39-D-07 / P39-13)', () => {
+	const tr = (artist: string, title: string, image: string | null = null): DiscoveryTrack => ({
+		artist,
+		title,
+		image,
+		mbid: null
+	});
+	const a = [tr('A1', 'one'), tr('Shared', 'song'), tr('A3', 'three')];
+	const b = [tr('shared', 'Song'), tr('B2', 'two'), tr('B3', 'three b')];
+
+	it('ranks a song on both charts above every single-chart song, each song once', () => {
+		const out = fuseCharts([a, b]);
+		expect(out[0].title).toBe('song');
+		expect(out).toHaveLength(5);
+		expect(new Set(out.map((t) => matchKey(t.artist, t.title))).size).toBe(5);
+	});
+
+	it("keeps the FIRST list's display strings on overlap (Apple precedence)", () => {
+		const apple = [tr('田馥甄', '要去什麼地方')];
+		const kkbox = [tr('田馥甄 (Hebe)', '要去什麼地方')];
+		expect(fuseCharts([apple, kkbox])).toEqual([tr('田馥甄', '要去什麼地方')]);
+		expect(fuseCharts([kkbox, apple])[0].artist).toBe('田馥甄 (Hebe)');
+	});
+
+	it('takes the first non-null image across the group without mutating inputs', () => {
+		const apple = [tr('X', 'y', null)];
+		const kkbox = [tr('X', 'y', 'https://i.kfs.io/a.jpg')];
+		expect(fuseCharts([apple, kkbox])[0].image).toBe('https://i.kfs.io/a.jpg');
+		expect(apple[0].image).toBeNull();
+	});
+
+	it('passes one list through unchanged when the other is empty', () => {
+		expect(fuseCharts([[], a])).toEqual(a);
+		expect(fuseCharts([a, []])).toEqual(a);
+		expect(fuseCharts([[], []])).toEqual([]);
+		expect(fuseCharts([])).toEqual([]);
+	});
+
+	it("skips a row whose match key is blank ('|')", () => {
+		const out = fuseCharts([[tr('', ''), tr('  ', '!!'), tr('A', 'b')]]);
+		expect(out).toEqual([tr('A', 'b')]);
+	});
+
+	it('caps the result (default 50)', () => {
+		const left = Array.from({ length: 50 }, (_, i) => tr(`L${i}`, `l${i}`));
+		const right = Array.from({ length: 50 }, (_, i) => tr(`R${i}`, `r${i}`));
+		expect(fuseCharts([left, right])).toHaveLength(50);
+		expect(fuseCharts([left, right], 60, 3)).toHaveLength(3);
+	});
+
+	it('breaks score ties by first appearance (stable)', () => {
+		const out = fuseCharts([
+			[tr('X1', 'x'), tr('X2', 'x')],
+			[tr('Y1', 'y'), tr('Y2', 'y')]
+		]);
+		expect(out.map((t) => t.artist)).toEqual(['X1', 'Y1', 'X2', 'Y2']);
+	});
+
+	it('takes k as a parameter and still ranks the overlap first', () => {
+		expect(fuseCharts([a, b], 1)[0].title).toBe('song');
+	});
+
+	it('fuses the real Apple + KKBOX HK fixtures into a unique, capped list', () => {
+		const out = fuseCharts([
+			parseAppleRss(appleHkSongs, 'songs', apple),
+			parseKkbox(kkboxHkSong, 'song', kkbox)
+		]);
+		expect(out.length).toBeGreaterThan(0);
+		expect(out.length).toBeLessThanOrEqual(50);
+		const keys = out.map((t) => matchKey(t.artist, t.title));
+		expect(new Set(keys).size).toBe(keys.length);
 	});
 });
