@@ -1017,7 +1017,7 @@ class Player {
 		// recorded in blob-store is what keeps a user-typed name from being reverted.
 		void syncFileTags({
 			uid,
-			title: names.dnTitle(own.title),
+			title: names.dnTitle(own.title, own.artist),
 			artist: names.dnArtist(own.artist),
 			album: names.zhLock(own.album),
 			cover: readCoverByUidOrName(uid, own.artist, own.title),
@@ -1696,7 +1696,7 @@ class Player {
 		const cur = this.current;
 		if (!ms || !cur) return;
 		ms.metadata = makeMetadata({
-			title: names.dnTitle(cur.title),
+			title: names.dnTitle(cur.title, cur.artist),
 			artist: names.dnArtist(cur.artist),
 			album: cur.album,
 			// quick-260920-nyq: the ONE now-playing cover reader — shared cache (PIN → uid → name)
@@ -3666,7 +3666,7 @@ class Player {
 					const ms = this.ms;
 					if (ms) {
 						ms.metadata = makeMetadata({
-							title: names.dnTitle(track.title),
+							title: names.dnTitle(track.title, track.artist),
 							artist: names.dnArtist(track.artist),
 							album: track.album,
 							artwork: buildArtwork(this.displayCover)
@@ -3860,7 +3860,7 @@ class Player {
 			const ms = this.ms;
 			if (ms) {
 				ms.metadata = makeMetadata({
-					title: names.dnTitle(resolved.title),
+					title: names.dnTitle(resolved.title, resolved.artist),
 					artist: names.dnArtist(resolved.artist),
 					album: resolved.album,
 					artwork: buildArtwork(this.displayCover)
@@ -4083,7 +4083,7 @@ class Player {
 		if (ms) {
 			// A FRESH MediaMetadata so the OS repaints the lock-screen art (never an in-place mutate).
 			ms.metadata = makeMetadata({
-				title: names.dnTitle(resolved.title),
+				title: names.dnTitle(resolved.title, resolved.artist),
 				artist: names.dnArtist(resolved.artist),
 				album: resolved.album,
 				artwork: buildArtwork(this.displayCover)
@@ -4140,7 +4140,7 @@ class Player {
 		if (ms) {
 			// A FRESH MediaMetadata so the OS repaints the lock-screen art (never an in-place mutate).
 			ms.metadata = makeMetadata({
-				title: names.dnTitle(resolved.title),
+				title: names.dnTitle(resolved.title, resolved.artist),
 				artist: names.dnArtist(resolved.artist),
 				album: resolved.album,
 				artwork: buildArtwork(this.displayCover)
@@ -4214,7 +4214,7 @@ class Player {
 			const ms = this.ms;
 			if (ms) {
 				ms.metadata = makeMetadata({
-					title: names.dnTitle(cur.title),
+					title: names.dnTitle(cur.title, cur.artist),
 					artist: names.dnArtist(cur.artist),
 					album: cur.album,
 					artwork: buildArtwork(this.displayCover)
@@ -4258,7 +4258,7 @@ class Player {
 			const ms = this.ms;
 			if (ms) {
 				ms.metadata = makeMetadata({
-					title: names.dnTitle(cur.title),
+					title: names.dnTitle(cur.title, cur.artist),
 					artist: names.dnArtist(cur.artist),
 					album: cur.album,
 					artwork: buildArtwork(this.displayCover)

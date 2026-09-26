@@ -171,7 +171,7 @@
 			// string misses the cache for exactly the users the script conversion exists for.
 			out.push({
 				uid: d.uid,
-				title: names.dnTitle(d.title),
+				title: names.dnTitle(d.title, d.artist),
 				artist: names.dnArtist(d.artist),
 				album: names.zhLock(d.album),
 				cover: readPinnedCover(d.uid) ?? readCoverByUidOrName(d.uid, d.artist, d.title) ?? d.cover,

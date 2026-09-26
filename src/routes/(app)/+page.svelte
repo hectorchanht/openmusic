@@ -1208,7 +1208,7 @@
 					{#if track.qualityLabel || track.quality}<span class="q">{track.qualityLabel ?? track.quality}</span>{/if}
 					<div class="scrim"></div>
 					<div class="label">
-						<div class="t-title">{names.dnTitle(track.title)}</div>
+						<div class="t-title">{names.dnTitle(track.title, track.artist)}</div>
 						<div class="t-artist">{names.dnArtist(track.artist)}</div>
 					</div>
 				</button>
@@ -1384,7 +1384,7 @@
 		<CompactPager items={compactSlice(items)} key={(item) => item.artist + ' ' + item.title}>
 			{#snippet row(item: DiscoveryTrack)}
 				<CompactRow
-					title={names.dnTitle(item.title)}
+					title={names.dnTitle(item.title, item.artist)}
 					subtitle={names.dnArtist(item.artist)}
 					cover={tileCover(item)}
 					seed={item.artist + item.title}
@@ -1403,7 +1403,7 @@
 					{#if tileCover(item)}<img class="al-cover-img" src={tileCover(item)} loading="lazy" alt="" onerror={hideOnError} />{/if}
 					<div class="scrim"></div>
 					<div class="label">
-						<div class="t-title">{names.dnTitle(item.title)}</div>
+						<div class="t-title">{names.dnTitle(item.title, item.artist)}</div>
 						<div class="t-artist">{names.dnArtist(item.artist)}</div>
 					</div>
 				</button>
@@ -1418,7 +1418,7 @@
 					<span class="al-cover" style:background-image={fallbackCover(item.artist + item.title)}>
 						{#if tileCover(item)}<img class="al-cover-img" src={tileCover(item)} loading="lazy" alt="" onerror={hideOnError} />{/if}
 					</span>
-					<span class="al-name" use:marquee><span class="marquee-inner">{names.dnTitle(item.title)}</span></span>
+					<span class="al-name" use:marquee><span class="marquee-inner">{names.dnTitle(item.title, item.artist)}</span></span>
 					<span class="al-count" use:marquee><span class="marquee-inner">{names.dnArtist(item.artist)}</span></span>
 				</button>
 			{/each}
@@ -1579,7 +1579,7 @@
 		<span class="al-cover" use:lazyCover={{ track, onResolved: () => bumpCoverVersion() }} style:background-image={rowCover ? `url(${rowCover})` : fallbackCover(track.uid)}>
 			{#if rowCover}<img class="al-cover-img" src={rowCover} loading="lazy" alt="" onerror={hideOnError} />{/if}
 		</span>
-		<span class="al-name" use:marquee><span class="marquee-inner">{names.dnTitle(track.title)}</span></span>
+		<span class="al-name" use:marquee><span class="marquee-inner">{names.dnTitle(track.title, track.artist)}</span></span>
 		<span class="al-count" use:marquee><span class="marquee-inner">{names.dnArtist(track.artist)}</span></span>
 	</button>
 {/snippet}
@@ -1591,7 +1591,7 @@
 		<CompactPager items={compactSlice(tracks)} key={(track) => track.uid}>
 			{#snippet row(track: Track)}
 				<CompactRow
-					title={names.dnTitle(track.title)}
+					title={names.dnTitle(track.title, track.artist)}
 					subtitle={names.dnArtist(track.artist)}
 					cover={libraryRowCover(track)}
 					seed={track.uid}
@@ -1611,7 +1611,7 @@
 					<div class="art" use:lazyCover={{ track, onResolved: () => bumpCoverVersion() }} style:background-image={rowCover ? `url(${rowCover})` : fallbackCover(track.uid)}></div>
 					<div class="scrim"></div>
 					<div class="label">
-						<div class="t-title">{names.dnTitle(track.title)}</div>
+						<div class="t-title">{names.dnTitle(track.title, track.artist)}</div>
 						<div class="t-artist">{names.dnArtist(track.artist)}</div>
 					</div>
 				</button>

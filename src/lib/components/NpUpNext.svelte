@@ -244,7 +244,7 @@
 					<span class="q-art" style:background-image={qArt ? `url(${qArt})` : coverGradient(track.uid)}></span>
 					<span class="q-text">
 						{#if skipped}<span class="r-skip" aria-hidden="true">✗</span>{/if}
-						<span class="r-title">{names.dnTitle(track.title)}</span>
+						<span class="r-title">{names.dnTitle(track.title, track.artist)}</span>
 						<span class="r-artist">{names.dnArtist(track.artist)}</span>
 					</span>
 					<!-- quick-260723: passive liked/downloaded indicators on up-next rows. -->

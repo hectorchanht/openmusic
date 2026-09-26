@@ -215,7 +215,7 @@ describe('names + songShareUrl — share links carry display-language names (qui
 	it.each([
 		[
 			'src/lib/components/TrackMenu.svelte',
-			[/names\.dnTitle\(track\.title\)/, /names\.dnArtist\(track\.artist\)/],
+			[/names\.dnTitle\(track\.title, track\.artist\)/, /names\.dnArtist\(track\.artist\)/],
 			[/songShareUrl\(\{ title: track\.title/]
 		],
 		[
@@ -451,6 +451,57 @@ describe('names — rescued Chinese name aliases (quick-260925-x8o)', () => {
 			names.dnArtist(i % 2 ? 'Jay Chou' : 'Someone ' + i);
 		}
 		expect(spy.mock.calls.filter((c) => c[0] === RESCUE_KEY)).toHaveLength(1);
+	});
+
+	// A song title passes its OWN artist; `artist` is optional, so svelte-check cannot catch a dropped
+	// edit. `absent` is the load-bearing half: one edited site satisfies `present`, but any bare form
+	// left in a multi-site file fails `absent`.
+	it.each([
+		['src/lib/components/SongRow.svelte', [/dnTitle\(track\.title, track\.artist\)/], [/dnTitle\(track\.title\)/]],
+		['src/lib/components/NpUpNext.svelte', [/dnTitle\(track\.title, track\.artist\)/], [/dnTitle\(track\.title\)/]],
+		['src/lib/components/NpRelated.svelte', [/dnTitle\(track\.title, track\.artist\)/], [/dnTitle\(track\.title\)/]],
+		['src/lib/components/Nowbar.svelte', [/dnTitle\(np\?\.title \?\? "", np\?\.artist \?\? ""\)/], [/dnTitle\(np\?\.title \?\? ""\)/]],
+		[
+			'src/lib/components/NowPlaying.svelte',
+			[/dnTitle\(player\.current\.title, player\.current\.artist\)/],
+			[/dnTitle\(player\.current\.title\)/]
+		],
+		['src/lib/components/VersionPicker.svelte', [/dnTitle\(v\.title, v\.artist\)/, /dnTitle\(v\.album\)/], [/dnTitle\(v\.title\)/]],
+		[
+			'src/lib/components/TrackMenu.svelte',
+			[/dnTitle\(track\.title, track\.artist\)/, /dnTitle\(detailTrack\.title, detailTrack\.artist\)/, /dnTitle\(detailTrack\.album\)/],
+			[/dnTitle\(track\.title\)/, /dnTitle\(detailTrack\.title\)/]
+		],
+		[
+			'src/routes/(app)/+page.svelte',
+			[/dnTitle\(track\.title, track\.artist\)/, /dnTitle\(item\.title, item\.artist\)/, /dnTitle\(a\.name\)/],
+			[/dnTitle\(track\.title\)/, /dnTitle\(item\.title\)/]
+		],
+		[
+			'src/routes/(app)/search/+page.svelte',
+			[/dnTitle\(s\.title, s\.kind === 'song' \? s\.artist : undefined\)/],
+			[/dnTitle\(s\.title\)/]
+		],
+		['src/routes/(app)/settings/downloads/+page.svelte', [/dnTitle\(d\.title, d\.artist\)/], [/dnTitle\(d\.title\)/]],
+		['src/routes/+layout.svelte', [/dnTitle\(cur\.title, cur\.artist\)/], [/dnTitle\(cur\.title\)/]],
+		[
+			'src/lib/stores/player.svelte.ts',
+			[
+				/dnTitle\(own\.title, own\.artist\)/,
+				/dnTitle\(cur\.title, cur\.artist\)/,
+				/dnTitle\(track\.title, track\.artist\)/,
+				/dnTitle\(resolved\.title, resolved\.artist\)/
+			],
+			[/dnTitle\((own|cur|track|resolved)\.title\)/]
+		],
+		['src/lib/services/download-track.ts', [/dnTitle\(r\.title, r\.artist\)/], [/dnTitle\(r\.title\)/]],
+		// the metadata editor shows the user's RAW editable value — deliberately no alias
+		['src/lib/components/MetadataEditor.svelte', [/names\.dnTitle\(tr\.title\)/], [/dnTitle\(tr\.title, /]]
+	])('%s passes the sibling artist to every song-title dnTitle', async (file, present, absent) => {
+		const { readFileSync } = await import('node:fs');
+		const src = readFileSync(file, 'utf8');
+		for (const re of present) expect(src).toMatch(re);
+		for (const re of absent) expect(src).not.toMatch(re);
 	});
 
 	it('zhLock takes no artist and never aliases', async () => {

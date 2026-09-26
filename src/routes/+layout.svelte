@@ -55,7 +55,7 @@
 		const cur = player.current;
 		void page.url.pathname; // re-apply after a route <title> overwrites document.title on nav
 		if (!browser || !cur) return;
-		const title = names.dnTitle(cur.title);
+		const title = names.dnTitle(cur.title, cur.artist);
 		const artist = names.dnArtist(cur.artist);
 		document.title = artist ? `${title} • ${artist}` : title;
 	});

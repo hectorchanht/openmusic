@@ -118,7 +118,7 @@
 				<button class="mi" onclick={() => pick(v)} use:tapBounce>
 					<span class="ver-meta">
 						<span class="ver-title">
-							<span class="ver-name" use:marquee><span class="marquee-inner">{names.dnTitle(v.title)}</span></span>
+							<span class="ver-name" use:marquee><span class="marquee-inner">{names.dnTitle(v.title, v.artist)}</span></span>
 						</span>
 						{#if vt}<span class="ver-tag">{tagLabel(vt)}</span>{/if}
 						<span class="ver-sub">{versionSub(v)}</span>

@@ -206,7 +206,7 @@ describe('downloadTrack — happy path (non-current re-resolve → saved)', () =
 		await downloadTrack(mk({ audioUrl: null, detailsLoaded: false }));
 
 		expect(mocks.names.dnArtist).toHaveBeenCalledWith('G.E.M.');
-		expect(mocks.names.dnTitle).toHaveBeenCalledWith('Lightyears');
+		expect(mocks.names.dnTitle).toHaveBeenCalledWith('Lightyears', 'G.E.M.');
 		expect(mocks.saveBlobToDisk).toHaveBeenCalledWith(expect.any(Blob), '邓紫棋 - 光年之外.mp3');
 	});
 });

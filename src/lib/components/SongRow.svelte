@@ -311,7 +311,7 @@
 	     its aria-label is the row's whole readable content, since the visuals below are inert. -->
 	<button
 		class="hit"
-		aria-label={`${names.dnTitle(track.title)} — ${sub}`}
+		aria-label={`${names.dnTitle(track.title, track.artist)} — ${sub}`}
 		use:longpress
 		onlongpress={(e) => {
 			(e.currentTarget as HTMLElement)?.blur();
@@ -328,7 +328,7 @@
 		style:background-image={art ? `url(${art})` : coverGradient(gradientSeed)}
 	></span>
 	<span class="meta">
-		<span class="r-title" use:marquee><span class="marquee-inner">{names.dnTitle(track.title)}</span></span>
+		<span class="r-title" use:marquee><span class="marquee-inner">{names.dnTitle(track.title, track.artist)}</span></span>
 		<span class="r-sub" use:marquee><span class="marquee-inner">{sub}</span></span>
 	</span>
 	<!-- D-5: the passive badge stands down for whichever state this row draws a live control for. -->

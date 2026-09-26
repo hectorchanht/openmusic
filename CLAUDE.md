@@ -214,6 +214,7 @@ freshness check, and one of three `pickImage` copies silently lacked its host-al
 | remote image allowlist | `proxy/safe-image-url.ts` | 4 copies of a SECURITY control |
 | Last.fm artwork pick | `proxy/lastfm-image.ts` (`pickLastfmImage`) | 2 copies |
 | JSON route response | `proxy/http.ts` (`jsonResponse`) | 18 copies (`jsonResult`/`jsonPassthrough`) |
+| rescued Chinese name (display alias) | `stores/names.svelte.ts` (`dnTitle(text, artist)`, `dnArtist`) over `services/name-rescue.ts` (`readRescueHits`, `onRescueHit`) | never per-component; a song title passes its OWN artist, album/artist names pass none |
 
 **Deliberately NOT merged** — same-looking is not same:
 - `share.ts` `isHttpsUrl` tests `/^https:\/\/\S+$/` (a complete URL), stricter than `hasHttpsScheme`.

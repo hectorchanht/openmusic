@@ -992,7 +992,7 @@
 		     (quick-260607-f4y). -->
 		{#key player.current?.uid}
 			<div class="title" use:marquee in:fade={{ duration: xfadeMs }} out:fade={{ duration: xfadeMs }}>
-				<span class="marquee-inner">{player.current ? names.dnTitle(player.current.title) : ''}</span>
+				<span class="marquee-inner">{player.current ? names.dnTitle(player.current.title, player.current.artist) : ''}</span>
 			</div>
 			<!-- quick-260625-pzs-01: one tappable link PER artist name (split on connectors). The row
 			keeps use:marquee + the in:/out:fade crossfade; names are joined by an INERT ` · `

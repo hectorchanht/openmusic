@@ -362,7 +362,7 @@
 	//
 	// D-7: `names.dnTitle` / `dnArtist` / `zhLock` is a VERBATIM copy of that sweep's entry
 	// (settings/downloads/+page.svelte). `library.applyMetadata` persists an editor edit into
-	// library.downloads, so `dnTitle(track.title)` reproduces the user's OWN edit, not the catalog
+	// library.downloads, so `dnTitle(track.title, track.artist)` reproduces the user's OWN edit, not the catalog
 	// string — a cover pin cannot clobber a manual metadata edit.
 	//
 	// NO `filename`: the sticky base recorded by quick-260919-3j1's blob-store index is what keeps a
@@ -374,7 +374,7 @@
 		if (!track?.uid) return null;
 		return {
 			uid: track.uid,
-			title: names.dnTitle(track.title),
+			title: names.dnTitle(track.title, track.artist),
 			artist: names.dnArtist(track.artist),
 			album: names.zhLock(track.album),
 			cover: activeCover,
@@ -579,7 +579,7 @@
 		if (!track?.uid) return;
 		// excludeUid BEFORE removeDownload: the label is read off the track, and the removal is what
 		// makes the row disappear. `names.dn*` so the recovery list reads in the user's display script.
-		excludeUid(track.uid, `${names.dnArtist(track.artist)} - ${names.dnTitle(track.title)}`.trim());
+		excludeUid(track.uid, `${names.dnArtist(track.artist)} - ${names.dnTitle(track.title, track.artist)}`.trim());
 		library.removeDownload(track.uid);
 		toast.show(t('toast.noImportDone'));
 		close();
@@ -614,7 +614,7 @@
 		// Same label expression as noImport — `names.dn*` so the recovery list reads in the user's
 		// display script.
 		if (rmDeleteFile)
-			excludeUid(track.uid, `${names.dnArtist(track.artist)} - ${names.dnTitle(track.title)}`.trim());
+			excludeUid(track.uid, `${names.dnArtist(track.artist)} - ${names.dnTitle(track.title, track.artist)}`.trim());
 		library.removeDownload(track.uid, { deleteFile: rmDeleteFile });
 		toast.show(t('toast.downloadRemoved'));
 		rmOpen = false;
@@ -841,7 +841,10 @@
 		//
 		// The recipient-side resolution risk this reintroduces — a Traditional query against the
 		// mostly-Simplified CN index — is closed by resolveStub's t2s rescue-on-miss (quick-260808-urx).
-		const dTitle = names.dnTitle(track.title);
+		// quick-260925-x8o: the title passes its artist too. dnArtist aliases a rescued artist alone,
+		// so a bare title would build a HYBRID /song/周杰倫/Coral Sea the recipient cannot rescue (a
+		// non-Latin artist skips the wa7 rescue); the pair gives /song/周杰倫/珊瑚海.
+		const dTitle = names.dnTitle(track.title, track.artist);
 		const dArtist = names.dnArtist(track.artist);
 		// quick-260809-3uo — CARRY THE COVER THE USER IS ACTUALLY LOOKING AT.
 		//
@@ -1007,7 +1010,7 @@
 				aria-label={hasArtist ? `${t('menu.goToArtist')}: ${names.dnArtist(track.artist)}` : undefined}
 			>
 				{#key track.uid}
-					<span class="hd-title" use:marquee><span class="marquee-inner">{names.dnTitle(track.title)}</span></span>
+					<span class="hd-title" use:marquee><span class="marquee-inner">{names.dnTitle(track.title, track.artist)}</span></span>
 					<span class="hd-artist" use:marquee><span class="marquee-inner">{names.dnArtist(track.artist)}</span></span>
 				{/key}
 			</button>
@@ -1336,7 +1339,7 @@
 	<div class="modal" transition:fly={{ y: 240, duration: 200 }} use:dragClose={{ onclose: () => (detailTrack = null) }} use:focusTrap>
 		<div class="menu-head row"><span>{t('menu.trackDetail')}</span><button class="x" aria-label={t('menu.close')} onclick={() => (detailTrack = null)} use:tapBounce><X size={18} /></button></div>
 		<dl class="detail">
-			<dt>{t('menu.detailTitle')}</dt><dd>{names.dnTitle(detailTrack.title)}</dd>
+			<dt>{t('menu.detailTitle')}</dt><dd>{names.dnTitle(detailTrack.title, detailTrack.artist)}</dd>
 			<dt>{t('menu.detailArtist')}</dt><dd>{names.dnArtist(detailTrack.artist)}</dd>
 			<dt>{t('menu.detailAlbum')}</dt><dd>{detailTrack.album ? names.dnTitle(detailTrack.album) : '—'}</dd>
 			<dt>{t('menu.detailQuality')}</dt><dd>{detailTrack.qualityLabel || detailTrack.quality || t('menu.detailUnknown')}</dd>

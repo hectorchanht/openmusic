@@ -286,7 +286,7 @@
                 >
                     <span class="np-title" use:marquee>
                         <span class="marquee-inner">
-                        {names.dnTitle(np?.title ?? "")}{#if lyricsRow}<span
+                        {names.dnTitle(np?.title ?? "", np?.artist ?? "")}{#if lyricsRow}<span
                                 class="np-tl-artist"
                                 >· {names.dnArtist(np?.artist ?? "")}</span
                             >{/if}

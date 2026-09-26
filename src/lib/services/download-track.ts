@@ -190,7 +190,7 @@ export async function downloadTrack(
 		// 36 Pattern 5: the SAME two display names feed the filename AND the embedded tags, so a file
 		// can never be named 標題 while its tag says 标题.
 		const dnArtist = names.dnArtist(r.artist);
-		const dnTitle = names.dnTitle(r.title);
+		const dnTitle = names.dnTitle(r.title, r.artist);
 		// FILENAME ONLY. `extFromAudioUrl` is NOT the container dispatch key — its 'mp3' default would
 		// route a FLAC into ID3. The codec sniffs the actual bytes instead (RESEARCH Pitfall 3).
 		const ext = extFromAudioUrl(r.audioUrl);
