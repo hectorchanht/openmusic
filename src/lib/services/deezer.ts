@@ -113,7 +113,9 @@ export async function deezerChart(limit = 18, signal?: AbortSignal): Promise<Dee
 /**
  * Deezer's per-genre top tracks (39-D-16) through the same own-origin proxy
  * (`/api/deezer/chart?genre={id}&limit=50`). Western genre shelves read this. Same WR-03 posture
- * as deezerChart: failures REJECT inside cached() (never stored) and map to [] outside it.
+ * as deezerChart: failures REJECT inside cached() (never stored) and map to [] outside it. An empty
+ * list rejects too — the route answers `{ tracks: [] }` with a 200 when Deezer failed, and memoising
+ * that would pin a blank genre shelf for 6 h.
  */
 export async function deezerGenreChart(genreId: number, signal?: AbortSignal): Promise<DeezerChartTrack[]> {
 	if (signal?.aborted) return [];
@@ -122,7 +124,8 @@ export async function deezerGenreChart(genreId: number, signal?: AbortSignal): P
 		const res = await apiFetch(url, { signal: combinedSignal(signal) }); // governed; abort/timeout REJECT
 		if (!res.ok) throw new Error(String(res.status));
 		const data = (await res.json()) as Partial<DeezerChartResult>;
-		return data.tracks ?? [];
+		if (!data.tracks?.length) throw new Error('empty chart');
+		return data.tracks;
 	}).catch(() => []);
 }
 
