@@ -259,8 +259,38 @@ export function splitParenLines(lines: LyricLine[]): LyricLine[] {
  * fraction-based seek, or `null` when the duration is unusable (≤ 0 or non-finite). DOM-free
  * and store-free so the seek math is node-testable; the component multiplies/guards via this.
  */
-export function lineSeekFraction(time: number, duration: number): number | null {
-	return duration > 0 && Number.isFinite(duration) ? time / duration : null;
+export function lineSeekFraction(
+	time: number,
+	duration: number,
+	offsetSec = 0
+): number | null {
+	// quick-260926-mis: a realigned line is sung at `time + offsetSec` (sign convention on
+	// LYRIC_OFFSET_MAX). Floored at 0 so a negative target never leaves this function.
+	return duration > 0 && Number.isFinite(duration) ? Math.max(0, time + offsetSec) / duration : null;
+}
+
+/**
+ * quick-260926-mis — per-song lyric TIME offset (a live recording's talking intro puts the LRC
+ * timestamps out of step with the audio).
+ *
+ * SIGN CONVENTION, the one place it is defined: `offsetSec` POSITIVE = lyrics shifted LATER (the
+ * audio has extra intro), so the lyric clock is `now - offsetSec` and a line is sung at
+ * `line.time + offsetSec`. `activeLineAt` and `lineSeekFraction` apply it; callers only pass it.
+ *
+ * ±600s is a sane bound (±10 min) that also caps a tampered localStorage value.
+ */
+export const LYRIC_OFFSET_MAX = 600;
+
+/** quick-260926-mis: non-finite → 0, clamp ±LYRIC_OFFSET_MAX, round to 0.1s, fold -0 to 0. */
+export function normalizeLyricOffset(n: number): number {
+	if (!Number.isFinite(n)) return 0;
+	const c = Math.min(LYRIC_OFFSET_MAX, Math.max(-LYRIC_OFFSET_MAX, n));
+	return Math.round(c * 10) / 10 || 0;
+}
+
+/** quick-260926-mis: always signed, one decimal, U+2212 minus — `+0.0s`, `−2.3s`. */
+export function formatLyricOffset(sec: number): string {
+	return (sec < 0 ? '\u2212' : '+') + Math.abs(sec).toFixed(1) + 's';
 }
 
 /**
@@ -332,13 +362,17 @@ export function lyricAnchorMetrics(m: {
  */
 export function activeLineAt(
 	lines: LyricLine[],
-	now: number
+	now: number,
+	offsetSec = 0
 ): { idx: number; time: number } {
+	// quick-260926-mis: scan the LYRIC clock (`now - offsetSec`, convention on LYRIC_OFFSET_MAX).
+	// `time` stays the line's OWN timestamp so sibling-active tests are unchanged.
+	const clock = now - offsetSec;
 	let idx = -1;
 	let time = -1;
 	for (let i = 0; i < lines.length; i++) {
 		const t = lines[i].time;
-		if (t > now) break;
+		if (t > clock) break;
 		if (t > time) {
 			time = t;
 			idx = i;
