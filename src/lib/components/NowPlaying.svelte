@@ -52,6 +52,9 @@
 	import NpUpNext from '$lib/components/NpUpNext.svelte';
 	import NpLyrics from '$lib/components/NpLyrics.svelte';
 	import NpRelated from '$lib/components/NpRelated.svelte';
+	// quick-260926-nsz: per-song comments — the 3rd tab on a phone, and the Comments | Related
+	// toggle of the third column at >=1280px.
+	import NpComments from '$lib/components/NpComments.svelte';
 	import { createVelocityTracker } from '$lib/gestures/velocity';
 	import type { Track } from '$lib/sources/types';
 	import { coverGradient } from '$lib/services/cover-gradient';
@@ -60,7 +63,7 @@
 	// >=1280px, where the column is mounted while sheetState stays 'closed'.
 	import { upNextPaneOpen } from '$lib/services/upnext-scroll';
 
-	type Tab = 'queue' | 'lyrics' | 'related';
+	type Tab = 'queue' | 'lyrics' | 'comments' | 'related';
 	let tab = $state<Tab>('lyrics');
 
 	// quick-260919-np3 — the desktop three-up breakpoint.
@@ -800,7 +803,10 @@
 			return; // gesture was a drag on the subnav row — don't switch tabs
 		}
 		tab = next;
-		if (sheetState === 'closed') {
+		// quick-260926-nsz: not at >=1280px. There `closed` is the resting state with every column
+		// fully on screen (see upNextPaneOpen), so a tap on the wide Comments | Related toggle must
+		// switch the column, not move the sheet.
+		if (sheetState === 'closed' && !wide) {
 			sheetState = 'half';
 		}
 	}
@@ -1112,18 +1118,29 @@
 		     to the column grid. Headings over hiding: three unlabelled lists is worse than one extra
 		     row of text, and the headings double as the drag surface the subnav already was (same
 		     pointer handlers), so the snap machine keeps working identically at every width. -->
+		<!-- quick-260926-nsz: the third wide heading is now a real Comments | Related toggle, so the
+		     row is no longer aria-hidden as a whole — only the two inert headings are. The toggle's
+		     buttons carry `data-tab`, so the existing grip machinery handles them unchanged: gripDown
+		     finds `.subnav button[data-tab]`, a TAP calls selectTab in gripUp and arms the click
+		     suppressor (so onclick does not double-fire; it stays for keyboard activation). Related
+		     stays the default at this width (`tab` was unused here, so it becomes the column selector
+		     for free, and a phone-to-desktop resize carries the choice across). -->
 		{#if wide}
-			<div class="subnav heads" aria-hidden="true"
+			<div class="subnav heads" role="group"
 				onpointerdown={gripDown} onpointermove={gripMove} onpointerup={gripUp} onpointercancel={gripUp}>
-				<button>{t('nowplaying.upNext')}</button>
-				<button>{t('nowplaying.lyrics')}</button>
-				<button>{t('nowplaying.related')}</button>
+				<button aria-hidden="true" tabindex="-1">{t('nowplaying.upNext')}</button>
+				<button aria-hidden="true" tabindex="-1">{t('nowplaying.lyrics')}</button>
+				<span class="pair">
+					<button data-tab="comments" class:active={tab === 'comments'} onclick={() => selectTab('comments')} use:tapBounce>{t('nowplaying.comments')}</button>
+					<button data-tab="related" class:active={tab !== 'comments'} onclick={() => selectTab('related')} use:tapBounce>{t('nowplaying.related')}</button>
+				</span>
 			</div>
 		{:else}
 			<nav class="subnav"
 				onpointerdown={gripDown} onpointermove={gripMove} onpointerup={gripUp} onpointercancel={gripUp}>
 				<button data-tab="queue" class:active={tab === 'queue'} onclick={() => selectTab('queue')} use:tapBounce>{t('nowplaying.upNext')}</button>
 				<button data-tab="lyrics" class:active={tab === 'lyrics'} onclick={() => selectTab('lyrics')} use:tapBounce>{t('nowplaying.lyrics')}</button>
+				<button data-tab="comments" class:active={tab === 'comments'} onclick={() => selectTab('comments')} use:tapBounce>{t('nowplaying.comments')}</button>
 				<button data-tab="related" class:active={tab === 'related'} onclick={() => selectTab('related')} use:tapBounce>{t('nowplaying.related')}</button>
 			</nav>
 		{/if}
@@ -1153,6 +1170,9 @@
 		{#snippet relatedPane()}
 			<NpRelated {resolvedCovers} onMenu={openMenu} />
 		{/snippet}
+		{#snippet commentsPane()}
+			<NpComments />
+		{/snippet}
 
 		{#if wide}
 			<!-- >=1280px: Up Next | Lyrics | Related, all three at once. `grid-template-columns:
@@ -1165,12 +1185,15 @@
 			<div class="cols">
 				<div class="panel">{@render upNextPane()}</div>
 				<div class="panel">{@render lyricsPane()}</div>
-				<div class="panel">{@render relatedPane()}</div>
+				<!-- quick-260926-nsz: toggling unmounts NpRelated (one searchAll on toggle-back, the
+				     same cost as switching tabs on a phone — accepted). -->
+				<div class="panel">{#if tab === 'comments'}{@render commentsPane()}{:else}{@render relatedPane()}{/if}</div>
 			</div>
 		{:else}
 			<div class="panel">
 				{#if tab === 'queue'}{@render upNextPane()}
 				{:else if tab === 'lyrics'}{@render lyricsPane()}
+				{:else if tab === 'comments'}{@render commentsPane()}
 				{:else}{@render relatedPane()}{/if}
 			</div>
 		{/if}
@@ -1453,8 +1476,9 @@
 	}
 	.cols > .panel { min-height: 0; padding: 0 4px; }
 	/* Column headings at >=1280px: the same three labels the tab bar carried, laid on the SAME grid
-	   as the columns below so each sits over its own list. Inert (no button, aria-hidden) because
-	   the lists they name are all on screen — there is nothing left to switch. */
+	   as the columns below so each sits over its own list. The first two are inert (aria-hidden)
+	   because the lists they name are on screen; the third is the Comments | Related toggle
+	   (quick-260926-nsz). */
 	.subnav.heads {
 		display: grid;
 		grid-template-columns: 1fr 1.4fr 1fr;
@@ -1464,12 +1488,7 @@
 		user-select: none;
 		-webkit-user-select: none;
 	}
-	.subnav.heads span {
-		font-size: 0.75rem;
-		font-weight: 700;
-		letter-spacing: 0.06em;
-		text-transform: uppercase;
-		color: var(--color-text-muted);
-		padding: 8px 2px 0;
-	}
+	/* quick-260926-nsz: replaces a dead span-selector rule here (the heads were always <button>s).
+	   The pair's buttons inherit `.subnav button` / `.active` like the phone tabs. */
+	.subnav.heads .pair { display: flex; justify-content: center; gap: 2px; }
 </style>
