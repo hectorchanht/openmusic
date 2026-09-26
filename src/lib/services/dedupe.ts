@@ -114,7 +114,7 @@ function stripTranslation(title: string): string {
  * Normalized identity key: title+artist, case/space/punct-insensitive, suffixes dropped.
  *
  * quick-260926-n0r: the same song kept showing twice in the NowPlaying Related tab and Up Next,
- * because three live-data classes (Gareth.T) keyed differently here:
+ * because these live-data classes (Gareth.T) keyed differently here:
  *   1. Simplified vs Traditional twins (qq 颜色 vs joox 顏色) — every string with a Han char is
  *      folded to Simplified first, char by char (see foldScript). NOT gated on detectLang /
  *      isChineseLine: "淺粉紅 pale pink" is mixed-script and may detect as 'en'. Cold t2s dict →
@@ -123,6 +123,8 @@ function stripTranslation(title: string): string {
  *   2. ytmusic "<CJK> - <english>" (玻璃 - glass) — keyed on the CJK head.
  *   3. bilingual "<Han> <Latin>" whose ytmusic copy drops the Han (淺粉紅 pale pink vs pale pink) —
  *      keyed on the Latin run, which must be ≥2 words ("我的 baby" vs "你的 baby" stay apart).
+ *   4. ytmusic video uploads titled "<own artist> - <title> (official video)" — the prefix is
+ *      dropped only when it normalizes to THIS row's artist (found by the live Gareth.T probe).
  * 2 and 3 never strip a pure qualifier tail (remix / live / part 2 …) — that is a rendition.
  *
  * This deliberately loosens every key() consumer, all of which mean "same song": the WR-06
@@ -134,15 +136,20 @@ function stripTranslation(title: string): string {
  * computed warm — safe only because keys are never persisted, only compared within one call.
  */
 function key(t: Track): string {
-	const norm = (s: string, isTitle: boolean) => {
-		let v = foldScript(s || '')
+	const pre = (s: string) =>
+		foldScript(s || '')
 			.toLowerCase()
 			.replace(/[（(【\[].*?[)）\]】]/g, ' ') // drop (Live) / [Remaster] / 【...】
 			.replace(/\s*-\s*(remaster|live|acoustic|explicit|feat\.?|ft\.?).*$/i, ' ');
-		if (isTitle) v = stripTranslation(v);
-		return v.replace(/[^\p{L}\p{N}]+/gu, '').trim(); // strip all punctuation/space (keeps CJK + latin + digits)
-	};
-	return `${norm(t.title, true)}|${norm(t.artist, false)}`;
+	const strip = (s: string) => s.replace(/[^\p{L}\p{N}]+/gu, '').trim(); // strip all punctuation/space (keeps CJK + latin + digits)
+	const artist = strip(pre(t.artist));
+	let title = pre(t.title);
+	// "<own artist> - <title>" (ytmusic video uploads): drop the prefix only when it IS this row's artist.
+	const dash = title.indexOf(' - ');
+	if (artist && dash > 0 && strip(title.slice(0, dash)) === artist && title.slice(dash + 3).trim()) {
+		title = title.slice(dash + 3);
+	}
+	return `${strip(stripTranslation(title))}|${artist}`;
 }
 
 /**
