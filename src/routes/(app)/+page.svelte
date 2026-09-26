@@ -1008,6 +1008,16 @@
 			const key = poolKey(id, chartRegion);
 			return hasItems(key) || isPlanned(key) ? 1 : 0;
 		}
+		// Same rule for the classic and library singles, which also render nothing while empty: on a
+		// fresh profile liked / downloads / radio lead the default order and would otherwise take every
+		// REVEAL_INITIAL slot before the first chart placeholder.
+		if (id === 'top-hits') return topHits.length ? 1 : 0;
+		if (id === 'top-artists') return topArtists.length ? 1 : 0;
+		if (id === 'liked') return likedShelf.length ? 1 : 0;
+		if (id === 'downloads') return downloadsShelf.length ? 1 : 0;
+		if (id === 'history') return historyShelf.length ? 1 : 0;
+		if (id === 'radio') return radioShelf.length ? 1 : 0;
+		if (id === 'fav-artists') return favArtistsShelf.length ? 1 : 0;
 		return 1;
 	}
 	/** Per visible section: how many of its shelves may mount right now, plus the grand total. */
@@ -1280,6 +1290,35 @@
 	</div>
 {/snippet}
 
+<!-- 39-D-38 (UI-SPEC §1.7): a planned chart shelf with nothing sampled holds its slot in section order,
+     so a slow Top songs never pops in above shelves that already landed. Heading bar + a body matched
+     to the shelf's density; replaced in place by the real shelf, or removed when it settles empty. -->
+{#snippet shelfPlaceholder(density: HomeDensity, round = false)}
+	<div class="ph" aria-hidden="true">
+		<div class="ph-head"><span class="sk ph-bar"></span></div>
+		{#if density === 'list'}
+			<div class="compact-skel-pager">
+				{@render compactSkeletonColumn()}
+				{@render compactSkeletonColumn()}
+			</div>
+		{:else if density === 'grid'}
+			<div class="grid">
+				{#each Array(9) as _, i (i)}<span class="sk ph-cell"></span>{/each}
+			</div>
+		{:else}
+			<div class="albumrow">
+				{#each Array(4) as _, i (i)}
+					<span class="ph-tile">
+						<span class="sk ph-cover" class:round></span>
+						<span class="cs-bar cs-bar-title sk"></span>
+						<span class="cs-bar cs-bar-sub sk"></span>
+					</span>
+				{/each}
+			</div>
+		{/if}
+	</div>
+{/snippet}
+
 {#snippet topHitsBlock()}
 	{#if topHits.length}
 		{@render titleNav(t('home.topHits'), '/charts/top')}
@@ -1403,12 +1442,15 @@
 {/snippet}
 
 <!-- Chart shelves (UI-SPEC §1.1): each renders NOTHING — no header — while its sampled pool is
-     empty, like the library blocks. Titles are region-qualified with the localized region name. -->
+     empty, like the library blocks, except for its placeholder while a visible fetch for it is in
+     flight (39-D-38). Titles are region-qualified with the localized region name. -->
 {#snippet chartSongsBlock()}
 	{@const items = sampledSongs(poolKey('chart-songs', chartRegion))}
 	{#if items.length}
 		{@render titleStatic(t('home.chartSongs', { region: regionLabel(chartRegion, settings.appLang) }))}
 		{@render discoveryShelf(items, densityOf('chart-songs'))}
+	{:else if isPlanned(poolKey('chart-songs', chartRegion))}
+		{@render shelfPlaceholder(densityOf('chart-songs'))}
 	{/if}
 {/snippet}
 
@@ -1417,6 +1459,8 @@
 	{#if items.length}
 		{@render titleStatic(t('home.newReleases', { region: regionLabel(chartRegion, settings.appLang) }))}
 		{@render discoveryShelf(items, densityOf('new-releases'))}
+	{:else if isPlanned(poolKey('new-releases', chartRegion))}
+		{@render shelfPlaceholder(densityOf('new-releases'))}
 	{/if}
 {/snippet}
 
@@ -1425,6 +1469,8 @@
 	{#if items.length}
 		{@render titleStatic(t('home.chartArtists', { region: regionLabel(chartRegion, settings.appLang) }))}
 		{@render artistShelf(items, densityOf('chart-artists'))}
+	{:else if isPlanned(poolKey('chart-artists', chartRegion))}
+		{@render shelfPlaceholder(densityOf('chart-artists'), true)}
 	{/if}
 {/snippet}
 
@@ -1433,6 +1479,8 @@
 	{#if items.length}
 		{@render titleStatic(t('home.chartAlbums', { region: regionLabel(chartRegion, settings.appLang) }))}
 		{@render albumShelf(items, densityOf('chart-albums'))}
+	{:else if isPlanned(poolKey('chart-albums', chartRegion))}
+		{@render shelfPlaceholder(densityOf('chart-albums'))}
 	{/if}
 {/snippet}
 
@@ -1496,20 +1544,30 @@
 	{#if items.length}
 		{@render titleStatic(t('home.ytTrending', { region: regionLabel(chartRegion, settings.appLang) }))}
 		{@render discoveryShelf(items, densityOf('yt-trending'), false)}
+	{:else if isPlanned(poolKey('yt-trending', chartRegion))}
+		{@render shelfPlaceholder(densityOf('yt-trending'))}
 	{/if}
 {/snippet}
 
 {#snippet genresBlock()}
 	{#each genreShelves.slice(0, shelfBudget.per.genres ?? 0) as shelf (shelf.key)}
-		{@render titleStatic(t(CHART_GENRE_LABEL[shelf.id]))}
-		{@render discoveryShelf(shelf.items, densityOf('genres'))}
+		{#if shelf.items.length}
+			{@render titleStatic(t(CHART_GENRE_LABEL[shelf.id]))}
+			{@render discoveryShelf(shelf.items, densityOf('genres'))}
+		{:else}
+			{@render shelfPlaceholder(densityOf('genres'))}
+		{/if}
 	{/each}
 {/snippet}
 
 {#snippet regionsBlock()}
 	{#each regionShelves.slice(0, shelfBudget.per.regions ?? 0) as shelf (shelf.key)}
-		{@render titleStatic(t('home.chartSongs', { region: regionLabel(shelf.cc, settings.appLang) }))}
-		{@render discoveryShelf(shelf.items, densityOf('regions'))}
+		{#if shelf.items.length}
+			{@render titleStatic(t('home.chartSongs', { region: regionLabel(shelf.cc, settings.appLang) }))}
+			{@render discoveryShelf(shelf.items, densityOf('regions'))}
+		{:else}
+			{@render shelfPlaceholder(densityOf('regions'))}
+		{/if}
 	{/each}
 {/snippet}
 
@@ -1695,6 +1753,16 @@
 	.cs-bar { height: 11px; border-radius: 5px; }
 	.cs-bar-title { width: 62%; }
 	.cs-bar-sub { width: 40%; height: 9px; }
+	/* 39-D-38: per-shelf placeholder (UI-SPEC §1.7). The heading row copies .subhead-static's box; the
+	   pile tile copies .album / .al-cover sizes; list and grid reuse the skeleton pager and .grid. */
+	.ph-head { min-height: 44px; display: flex; align-items: center; margin: 14px 16px 14px 0; }
+	.ph-bar { height: 12px; width: 40%; border-radius: 6px; }
+	.ph-tile { flex: 0 0 calc(130px * var(--cover-scale, 1)); display: flex; flex-direction: column; gap: 4px; }
+	.ph-cover { width: calc(130px * var(--cover-scale, 1)); height: calc(130px * var(--cover-scale, 1)); border-radius: 10px; }
+	.ph-cover.round { border-radius: 50%; }
+	.section.compact .ph-tile { flex-basis: calc(96px * var(--cover-scale, 1)); }
+	.section.compact .ph-cover { width: calc(96px * var(--cover-scale, 1)); height: calc(96px * var(--cover-scale, 1)); }
+	.ph-cell { aspect-ratio: 1 / 1; border-radius: var(--radius-md); }
 	.more, .retry {
 		background: none; border: 1px solid var(--color-border); color: var(--color-text-muted);
 		padding: 5px 12px; border-radius: 999px; font-size: 0.75rem; cursor: pointer;
