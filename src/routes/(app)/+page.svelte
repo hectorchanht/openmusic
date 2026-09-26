@@ -373,9 +373,11 @@
 				if (!it.image) rows.push({ artist: it.artist, title: it.title });
 			}
 		};
-		pushNeeding(topHits);
-		for (const s of tagShelves) pushNeeding(s.tracks);
-		for (const s of countryShelves) pushNeeding(s.tracks);
+		// 39-D-30: a hidden classic section spends nothing — not even the backfill for rows a cache
+		// written before it was hidden still holds (the mount runs this before the cfg revalidate).
+		if (isVisible('top-hits')) pushNeeding(topHits);
+		if (isVisible('tags')) for (const s of tagShelves) pushNeeding(s.tracks);
+		if (isVisible('countries')) for (const s of countryShelves) pushNeeding(s.tracks);
 		// 39-D-31: chart rows carry EMBEDDED art, so this normally adds nothing — the backfill stays
 		// the rare backup for an imageless (or allowlist-rejected) chart row.
 		const keys = plannedKeys();
@@ -386,7 +388,7 @@
 
 		// 0bb: artist tiles are structurally gradient (Last.fm artist art deprecated → null).
 		// Resolve their images via Deezer → iTunes, capped (= full gathered set) + cached + post-paint.
-		const artistNames = [...topArtists, ...keys.flatMap((key) => sampledArtists(key))]
+		const artistNames = [...(isVisible('top-artists') ? topArtists : []), ...keys.flatMap((key) => sampledArtists(key))]
 			.filter((a) => !a.image)
 			.map((a) => a.name);
 		if (artistNames.length) {
@@ -739,6 +741,10 @@
 			// other call runs the planned tasks, assigning each pool as it lands.
 			if (randomize) {
 				redrawPicks();
+				// Persist the new sample NOW: a visible classic section keeps this refresh in flight for
+				// seconds, and a reload before it settles must still show the tiles the user just saw
+				// ("set B, not A"). The save at the end rewrites it with the fresh classic shelves.
+				saveCache();
 			} else {
 				const tasks = chartTasks();
 				if (tasks.length) {
