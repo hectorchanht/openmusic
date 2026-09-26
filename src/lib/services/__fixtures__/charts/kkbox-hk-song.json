@@ -1,0 +1,89 @@
+{
+	"code": "0",
+	"message": "",
+	"data": {
+		"date": "2026-09-25",
+		"charts": {
+			"song": [
+				{
+					"rankings": {
+						"this_period": 1,
+						"last_period": 1
+					},
+					"song_id": "1_OVeo7k_TKl57_5YM",
+					"song_name": "半糖去冰",
+					"artist_name": "Tr33",
+					"album_name": "半糖去冰",
+					"cover_image": {
+						"normal": "https://i.kfs.io/album/global/297476339,0v3/fit/500x500.jpg",
+						"small": "https://i.kfs.io/album/global/297476339,0v3/fit/160x160.jpg"
+					},
+					"release_date": 1787673600
+				},
+				{
+					"rankings": {
+						"this_period": 2,
+						"last_period": 2
+					},
+					"song_id": "GptIJ2y--IKc1ewMvC",
+					"song_name": "甲乙丙丁Strangers - 你我怎麼兩清",
+					"artist_name": "李佳薇 (Jess Lee)",
+					"album_name": "甲乙丙丁Strangers",
+					"cover_image": {
+						"normal": "https://i.kfs.io/album/global/295320632,0v2/fit/500x500.jpg",
+						"small": "https://i.kfs.io/album/global/295320632,0v2/fit/160x160.jpg"
+					},
+					"release_date": 1783440000
+				},
+				{
+					"rankings": {
+						"this_period": 3,
+						"last_period": 3
+					},
+					"song_id": "Spr7Tzo81sYnrrWirO",
+					"song_name": "追愛狂想",
+					"artist_name": "姜濤 (Keung To)",
+					"album_name": "COMPOSITION",
+					"cover_image": {
+						"normal": "https://i.kfs.io/album/global/287642342,0v1/fit/500x500.jpg",
+						"small": "https://i.kfs.io/album/global/287642342,0v1/fit/160x160.jpg"
+					},
+					"release_date": 1765814400
+				},
+				{
+					"rankings": {
+						"this_period": 4,
+						"last_period": 4
+					},
+					"song_id": "KoZ3TUKBP2VFvKEB5P",
+					"song_name": "流浪星球",
+					"artist_name": "姜濤 (Keung To)",
+					"album_name": "COMPOSITION",
+					"cover_image": {
+						"normal": "https://i.kfs.io/album/global/287642342,0v1/fit/500x500.jpg",
+						"small": "https://i.kfs.io/album/global/287642342,0v1/fit/160x160.jpg"
+					},
+					"release_date": 1765814400
+				},
+				{
+					"rankings": {
+						"this_period": 5,
+						"last_period": 5
+					},
+					"song_id": "Ks8gDrl3fpSTTDFqi5",
+					"song_name": "她（《早春晴朗》電視劇欒念人物曲&片頭曲）",
+					"artist_name": "Various Artists",
+					"album_name": "早春晴朗 影視原聲帶",
+					"cover_image": {
+						"normal": "https://i.kfs.io/album/hk/298216296,0v1/fit/500x500.jpg",
+						"small": "https://i.kfs.io/album/hk/298216296,0v1/fit/160x160.jpg"
+					},
+					"release_date": 1788192000
+				}
+			]
+		},
+		"playlist_id": {
+			"song": "OqTpjKPxhreaH4AKw1"
+		}
+	}
+}

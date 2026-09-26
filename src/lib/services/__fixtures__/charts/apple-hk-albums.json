@@ -1,0 +1,50 @@
+{
+	"feed": {
+		"title": "熱門專輯",
+		"id": "https://rss.marketingtools.apple.com/api/v2/hk/music/most-played/50/albums.json",
+		"country": "hk",
+		"updated": "Sat, 26 Sep 2026 02:35:20 +0000",
+		"results": [
+			{
+				"id": "6814997249",
+				"name": "The Life of a Showgirl: The Encore",
+				"artistName": "Taylor Swift",
+				"artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/Music221/v4/a0/dd/fd/a0ddfd72-ee9e-f046-6466-a5dbefc696fa/26UM1IM21436.rgb.jpg/100x100bb.jpg",
+				"releaseDate": "2026-09-24",
+				"url": "https://music.apple.com/hk/album/the-life-of-a-showgirl-the-encore/6814997249"
+			},
+			{
+				"id": "6812635395",
+				"name": "要去什麼地方",
+				"artistName": "田馥甄",
+				"artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/64/49/4c/64494cca-8338-c4d2-7225-951b8d183cd3/cover.jpg/100x100bb.jpg",
+				"releaseDate": "2026-09-24",
+				"url": "https://music.apple.com/hk/album/%E8%A6%81%E5%8E%BB%E4%BB%80%E9%BA%BC%E5%9C%B0%E6%96%B9/6812635395"
+			},
+			{
+				"id": "6807333685",
+				"name": "早春晴朗 影視原聲帶",
+				"artistName": "Various Artists",
+				"artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/3c/7b/87/3c7b877a-25d4-5a6c-6b50-7e9187251e10/4896043209014.jpg/100x100bb.jpg",
+				"releaseDate": "2026-09-01",
+				"url": "https://music.apple.com/hk/album/%E6%97%A9%E6%98%A5%E6%99%B4%E6%9C%97-%E5%BD%B1%E8%A7%86%E5%8E%9F%E5%A3%B0%E5%B8%A6/6807333685"
+			},
+			{
+				"id": "6804046952",
+				"name": "Fallen Angel - EP",
+				"artistName": "JENNIE",
+				"artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/27/b0/ed/27b0edf5-ec5e-fb16-0193-298a679e7a50/196874698273.jpg/100x100bb.jpg",
+				"releaseDate": "2026-08-28",
+				"url": "https://music.apple.com/hk/album/fallen-angel-ep/6804046952"
+			},
+			{
+				"id": "6808550171",
+				"name": "SYNK : COMPLaeXITY - 2026 Special Digital Single - EP",
+				"artistName": "aespa",
+				"artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/db/e6/f2/dbe6f2d4-11d5-d4ef-0337-ef79abb110e0/888735956799.png/100x100bb.jpg",
+				"releaseDate": "2026-09-14",
+				"url": "https://music.apple.com/hk/album/synk-complaexity-2026-special-digital-single-ep/6808550171"
+			}
+		]
+	}
+}

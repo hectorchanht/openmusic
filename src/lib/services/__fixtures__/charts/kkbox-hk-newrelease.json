@@ -1,0 +1,89 @@
+{
+	"code": "0",
+	"message": "",
+	"data": {
+		"date": "2026-09-25",
+		"charts": {
+			"newrelease": [
+				{
+					"rankings": {
+						"this_period": 1,
+						"last_period": 1
+					},
+					"song_id": "1_OVeo7k_TKl57_5YM",
+					"song_name": "半糖去冰",
+					"artist_name": "Tr33",
+					"album_name": "半糖去冰",
+					"cover_image": {
+						"normal": "https://i.kfs.io/album/global/297476339,0v3/fit/500x500.jpg",
+						"small": "https://i.kfs.io/album/global/297476339,0v3/fit/160x160.jpg"
+					},
+					"release_date": 1787673600
+				},
+				{
+					"rankings": {
+						"this_period": 2,
+						"last_period": 2
+					},
+					"song_id": "Ks8gDrl3fpSTTDFqi5",
+					"song_name": "她（《早春晴朗》電視劇欒念人物曲&片頭曲）",
+					"artist_name": "Various Artists",
+					"album_name": "早春晴朗 影視原聲帶",
+					"cover_image": {
+						"normal": "https://i.kfs.io/album/hk/298216296,0v1/fit/500x500.jpg",
+						"small": "https://i.kfs.io/album/hk/298216296,0v1/fit/160x160.jpg"
+					},
+					"release_date": 1788192000
+				},
+				{
+					"rankings": {
+						"this_period": 3,
+						"last_period": 4
+					},
+					"song_id": "4sLwx95jOGRFjAQ2iv",
+					"song_name": "要去什麼地方",
+					"artist_name": "田馥甄 (Hebe)",
+					"album_name": "要去什麼地方",
+					"cover_image": {
+						"normal": "https://i.kfs.io/album/global/298755321,0v5/fit/500x500.jpg",
+						"small": "https://i.kfs.io/album/global/298755321,0v5/fit/160x160.jpg"
+					},
+					"release_date": 1790179200
+				},
+				{
+					"rankings": {
+						"this_period": 4,
+						"last_period": 3
+					},
+					"song_id": "SntEuq782cLmwLW9Kc",
+					"song_name": "大船",
+					"artist_name": "田馥甄 (Hebe)",
+					"album_name": "要去什麼地方",
+					"cover_image": {
+						"normal": "https://i.kfs.io/album/global/298755321,0v5/fit/500x500.jpg",
+						"small": "https://i.kfs.io/album/global/298755321,0v5/fit/160x160.jpg"
+					},
+					"release_date": 1790179200
+				},
+				{
+					"rankings": {
+						"this_period": 5,
+						"last_period": 6
+					},
+					"song_id": "1ZD3Y2v8mUN-62O288",
+					"song_name": "值得紀念的垃圾",
+					"artist_name": "田馥甄 (Hebe)",
+					"album_name": "要去什麼地方",
+					"cover_image": {
+						"normal": "https://i.kfs.io/album/global/298755321,0v5/fit/500x500.jpg",
+						"small": "https://i.kfs.io/album/global/298755321,0v5/fit/160x160.jpg"
+					},
+					"release_date": 1790179200
+				}
+			]
+		},
+		"playlist_id": {
+			"newrelease": "-qwG4sUQ8C9JxHgB9e"
+		}
+	}
+}

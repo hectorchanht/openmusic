@@ -61,3 +61,25 @@ export const LASTFM_IMAGE_HOSTS: ImageHostAllowlist = {
 	exact: ['last.fm'],
 	suffix: ['.last.fm', '.fastly.net']
 };
+
+// 39-D-01: chart shelf art from Apple Music RSS / legacy iTunes RSS, KKBOX kma and YouTube Charts.
+
+/** Apple art: Apple RSS `artworkUrl100` + legacy iTunes `im:image`, on is1-ssl.mzstatic.com and sibling shards. Apex not permitted. */
+export const APPLE_IMAGE_HOSTS: ImageHostAllowlist = {
+	suffix: ['.mzstatic.com']
+};
+
+/** KKBOX art: every cover is i.kfs.io/…/fit/500x500.jpg. Exact host only, so neither `kfs.io` nor `notkfs.io` passes. */
+export const KKBOX_IMAGE_HOSTS: ImageHostAllowlist = {
+	exact: ['i.kfs.io'],
+	suffix: []
+};
+
+/**
+ * YouTube Charts art: yt3/lh3.googleusercontent.com (square), i.ytimg.com (16:9 video frames) and
+ * yt3.ggpht.com. Apex `googleusercontent.com` not permitted.
+ */
+export const YOUTUBE_IMAGE_HOSTS: ImageHostAllowlist = {
+	exact: ['i.ytimg.com', 'yt3.ggpht.com'],
+	suffix: ['.googleusercontent.com']
+};

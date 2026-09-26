@@ -1,0 +1,80 @@
+{
+	"data": [
+		{
+			"id": 4022917771,
+			"title": "Janice STFU",
+			"position": 1,
+			"artist": {
+				"id": 246791,
+				"name": "Drake"
+			},
+			"album": {
+				"id": 983236081,
+				"title": "ICEMAN",
+				"cover_big": "https://cdn-images.dzcdn.net/images/cover/cccf5e9af10b6aae96f5cdd5a27c2aff/500x500-000000-80-0-0.jpg",
+				"cover_xl": "https://cdn-images.dzcdn.net/images/cover/cccf5e9af10b6aae96f5cdd5a27c2aff/1000x1000-000000-80-0-0.jpg"
+			}
+		},
+		{
+			"id": 3106586641,
+			"title": "luther",
+			"position": 2,
+			"artist": {
+				"id": 525046,
+				"name": "Kendrick Lamar"
+			},
+			"album": {
+				"id": 673968231,
+				"title": "GNX",
+				"cover_big": "https://cdn-images.dzcdn.net/images/cover/da5256ff8cacfe9ad90521f6e3792259/500x500-000000-80-0-0.jpg",
+				"cover_xl": "https://cdn-images.dzcdn.net/images/cover/da5256ff8cacfe9ad90521f6e3792259/1000x1000-000000-80-0-0.jpg"
+			}
+		},
+		{
+			"id": 4015341011,
+			"title": "Dai Dai",
+			"position": 3,
+			"artist": {
+				"id": 160,
+				"name": "Shakira"
+			},
+			"album": {
+				"id": 980745831,
+				"title": "Dai Dai",
+				"cover_big": "https://cdn-images.dzcdn.net/images/cover/a7f9bae0243c512059298a68d09f45a1/500x500-000000-80-0-0.jpg",
+				"cover_xl": "https://cdn-images.dzcdn.net/images/cover/a7f9bae0243c512059298a68d09f45a1/1000x1000-000000-80-0-0.jpg"
+			}
+		},
+		{
+			"id": 3262675101,
+			"title": "Anxiety",
+			"position": 4,
+			"artist": {
+				"id": 51965252,
+				"name": "Doechii"
+			},
+			"album": {
+				"id": 722247851,
+				"title": "Anxiety",
+				"cover_big": "https://cdn-images.dzcdn.net/images/cover/a86cc99df85173d25b3b8a5e52b10a1f/500x500-000000-80-0-0.jpg",
+				"cover_xl": "https://cdn-images.dzcdn.net/images/cover/a86cc99df85173d25b3b8a5e52b10a1f/1000x1000-000000-80-0-0.jpg"
+			}
+		},
+		{
+			"id": 3106586631,
+			"title": "squabble up",
+			"position": 5,
+			"artist": {
+				"id": 525046,
+				"name": "Kendrick Lamar"
+			},
+			"album": {
+				"id": 673968231,
+				"title": "GNX",
+				"cover_big": "https://cdn-images.dzcdn.net/images/cover/da5256ff8cacfe9ad90521f6e3792259/500x500-000000-80-0-0.jpg",
+				"cover_xl": "https://cdn-images.dzcdn.net/images/cover/da5256ff8cacfe9ad90521f6e3792259/1000x1000-000000-80-0-0.jpg"
+			}
+		}
+	],
+	"total": 50
+}

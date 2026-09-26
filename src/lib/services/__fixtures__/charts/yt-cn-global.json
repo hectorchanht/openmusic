@@ -1,0 +1,312 @@
+{
+	"contents": {
+		"sectionListRenderer": {
+			"contents": [
+				{
+					"musicAnalyticsSectionRenderer": {
+						"content": {
+							"perspectiveMetadata": {
+								"requestParams": {
+									"perspective": "CHART_DETAILS",
+									"chartParams": {
+										"countryCode": "global",
+										"chartType": "CHART_TYPE_TRACKS",
+										"chartPeriodType": "CHART_PERIOD_TYPE_WEEKLY"
+									}
+								}
+							},
+							"trackTypes": [
+								{
+									"listType": "TOP_VIEWS_CHART",
+									"chartPeriodType": "CHART_PERIOD_TYPE_WEEKLY",
+									"endDate": "2026-09-17",
+									"trackViews": [
+										{
+											"id": "G:Eb7xeKwvha8",
+											"name": "Dai Dai",
+											"thumbnail": {
+												"thumbnails": [
+													{
+														"url": "https://i.ytimg.com/vi/fcnDmrtj6Sk/default.jpg",
+														"width": 120,
+														"height": 90
+													},
+													{
+														"url": "https://i.ytimg.com/vi/fcnDmrtj6Sk/mqdefault.jpg",
+														"width": 320,
+														"height": 180
+													},
+													{
+														"url": "https://i.ytimg.com/vi/fcnDmrtj6Sk/hqdefault.jpg",
+														"width": 480,
+														"height": 360
+													},
+													{
+														"url": "https://i.ytimg.com/vi/fcnDmrtj6Sk/sddefault.jpg",
+														"width": 640,
+														"height": 480
+													},
+													{
+														"url": "https://i.ytimg.com/vi/fcnDmrtj6Sk/maxresdefault.jpg",
+														"width": 1920,
+														"height": 1080
+													}
+												]
+											},
+											"encryptedVideoId": "fcnDmrtj6Sk",
+											"chartEntryMetadata": {
+												"currentPosition": 1,
+												"previousPosition": 2,
+												"percentViewsChange": -0.09994613,
+												"periodsOnChart": 18
+											},
+											"artists": [
+												{
+													"kgMid": "/m/01wj18h",
+													"name": "Shakira"
+												},
+												{
+													"kgMid": "/m/010xb__l",
+													"name": "Burna Boy"
+												}
+											],
+											"releaseDate": {
+												"year": 2026,
+												"month": 5,
+												"day": 14
+											}
+										},
+										{
+											"id": "G:NAqJ4XjEWYs",
+											"name": "Parvati",
+											"thumbnail": {
+												"thumbnails": [
+													{
+														"url": "https://i.ytimg.com/vi/s2HYl12gmOY/default.jpg",
+														"width": 120,
+														"height": 90
+													},
+													{
+														"url": "https://i.ytimg.com/vi/s2HYl12gmOY/mqdefault.jpg",
+														"width": 320,
+														"height": 180
+													},
+													{
+														"url": "https://i.ytimg.com/vi/s2HYl12gmOY/hqdefault.jpg",
+														"width": 480,
+														"height": 360
+													},
+													{
+														"url": "https://i.ytimg.com/vi/s2HYl12gmOY/sddefault.jpg",
+														"width": 640,
+														"height": 480
+													},
+													{
+														"url": "https://i.ytimg.com/vi/s2HYl12gmOY/maxresdefault.jpg",
+														"width": 1920,
+														"height": 1080
+													}
+												]
+											},
+											"encryptedVideoId": "s2HYl12gmOY",
+											"chartEntryMetadata": {
+												"currentPosition": 2,
+												"previousPosition": 14,
+												"percentViewsChange": 1.428165,
+												"periodsOnChart": 3
+											},
+											"artists": [
+												{
+													"kgMid": "/g/11nph_9d1g",
+													"name": "Sadhu Tiwari"
+												}
+											],
+											"releaseDate": {
+												"year": 2026,
+												"month": 7,
+												"day": 10
+											}
+										},
+										{
+											"id": "G:m1gyfOEBHwQ",
+											"name": "KALYANI (Remix)",
+											"thumbnail": {
+												"thumbnails": [
+													{
+														"url": "https://i.ytimg.com/vi/xvT1jH8B9AM/default.jpg",
+														"width": 120,
+														"height": 90
+													},
+													{
+														"url": "https://i.ytimg.com/vi/xvT1jH8B9AM/mqdefault.jpg",
+														"width": 320,
+														"height": 180
+													},
+													{
+														"url": "https://i.ytimg.com/vi/xvT1jH8B9AM/hqdefault.jpg",
+														"width": 480,
+														"height": 360
+													},
+													{
+														"url": "https://i.ytimg.com/vi/xvT1jH8B9AM/sddefault.jpg",
+														"width": 640,
+														"height": 480
+													},
+													{
+														"url": "https://i.ytimg.com/vi/xvT1jH8B9AM/maxresdefault.jpg",
+														"width": 1920,
+														"height": 1080
+													}
+												]
+											},
+											"encryptedVideoId": "xvT1jH8B9AM",
+											"chartEntryMetadata": {
+												"currentPosition": 3,
+												"previousPosition": 3,
+												"percentViewsChange": 0.10535212,
+												"periodsOnChart": 22
+											},
+											"artists": [
+												{
+													"kgMid": "/g/11wv3j3cls",
+													"name": "ARJN"
+												},
+												{
+													"kgMid": "/g/11rj4hp4z1",
+													"name": "KDS"
+												},
+												{
+													"kgMid": "/g/11myqmgm82",
+													"name": "FIFTY4"
+												},
+												{
+													"kgMid": "/m/06qvc0",
+													"name": "Shreya Ghoshal"
+												}
+											],
+											"releaseDate": {
+												"year": 2026,
+												"month": 7,
+												"day": 1
+											}
+										},
+										{
+											"id": "G:6r3Eh9XGJB4",
+											"name": "BbY WOW",
+											"thumbnail": {
+												"thumbnails": [
+													{
+														"url": "https://i.ytimg.com/vi/fRIhCiUVaKs/default.jpg",
+														"width": 120,
+														"height": 90
+													},
+													{
+														"url": "https://i.ytimg.com/vi/fRIhCiUVaKs/mqdefault.jpg",
+														"width": 320,
+														"height": 180
+													},
+													{
+														"url": "https://i.ytimg.com/vi/fRIhCiUVaKs/hqdefault.jpg",
+														"width": 480,
+														"height": 360
+													},
+													{
+														"url": "https://i.ytimg.com/vi/fRIhCiUVaKs/sddefault.jpg",
+														"width": 640,
+														"height": 480
+													},
+													{
+														"url": "https://i.ytimg.com/vi/fRIhCiUVaKs/maxresdefault.jpg",
+														"width": 1920,
+														"height": 1080
+													}
+												]
+											},
+											"encryptedVideoId": "fRIhCiUVaKs",
+											"chartEntryMetadata": {
+												"currentPosition": 4,
+												"previousPosition": 6,
+												"percentViewsChange": 0.3643627,
+												"periodsOnChart": 4
+											},
+											"artists": [
+												{
+													"kgMid": "/g/11bt_1zp4n",
+													"name": "KAROL G"
+												},
+												{
+													"kgMid": "/g/11fpkx3wt9",
+													"name": "Judeline"
+												},
+												{
+													"kgMid": "/g/11g1wrkbb4",
+													"name": "rusowsky"
+												}
+											],
+											"releaseDate": {
+												"year": 2026,
+												"month": 8,
+												"day": 7
+											}
+										},
+										{
+											"id": "G:XmCWS3zgVLI",
+											"name": "SaWaDiKa",
+											"thumbnail": {
+												"thumbnails": [
+													{
+														"url": "https://i.ytimg.com/vi/FyS5dAywkEo/default.jpg",
+														"width": 120,
+														"height": 90
+													},
+													{
+														"url": "https://i.ytimg.com/vi/FyS5dAywkEo/mqdefault.jpg",
+														"width": 320,
+														"height": 180
+													},
+													{
+														"url": "https://i.ytimg.com/vi/FyS5dAywkEo/hqdefault.jpg",
+														"width": 480,
+														"height": 360
+													},
+													{
+														"url": "https://i.ytimg.com/vi/FyS5dAywkEo/sddefault.jpg",
+														"width": 640,
+														"height": 480
+													},
+													{
+														"url": "https://i.ytimg.com/vi/FyS5dAywkEo/maxresdefault.jpg",
+														"width": 1920,
+														"height": 1080
+													}
+												]
+											},
+											"encryptedVideoId": "FyS5dAywkEo",
+											"chartEntryMetadata": {
+												"currentPosition": 5,
+												"previousPosition": 1,
+												"percentViewsChange": -0.78896147,
+												"periodsOnChart": 2
+											},
+											"artists": [
+												{
+													"kgMid": "/g/11c1p4b_sm",
+													"name": "LISA"
+												}
+											],
+											"releaseDate": {
+												"year": 2026,
+												"month": 8,
+												"day": 27
+											}
+										}
+									]
+								}
+							]
+						}
+					}
+				}
+			]
+		}
+	}
+}
