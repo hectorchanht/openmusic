@@ -55,13 +55,18 @@ export function tabHref(url: URL, param: string, value: string, defaultValue: st
  * history entry, so the overlay depth == history depth invariant NowPlaying relies on is
  * untouched, and Back still leaves the page instead of walking back through tab switches.
  *
+ * quick-260926-hze: built from the LIVE address bar (`location.href`), not the caller's
+ * `page.url`. The (app) layout's script-lock rewrite uses the same raw replaceState, so after it
+ * `page.url` is still the PRE-rewrite URL; building from that would put the unlocked name back
+ * on the first tab switch.
+ *
  * Browser-guarded + try/catch: under SSR / the node test project this is a no-op, and a hostile
  * or rate-limited history API can never break a tab switch.
  */
-export function syncTabUrl(url: URL, param: string, value: string, defaultValue: string): void {
+export function syncTabUrl(param: string, value: string, defaultValue: string): void {
 	if (!browser) return;
 	try {
-		history.replaceState(history.state, '', tabHref(url, param, value, defaultValue));
+		history.replaceState(history.state, '', tabHref(new URL(location.href), param, value, defaultValue));
 	} catch {
 		/* history unavailable / throttled — the tab still switched, only the URL lagged */
 	}

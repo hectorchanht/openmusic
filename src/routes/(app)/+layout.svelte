@@ -2,12 +2,13 @@
 	import { onMount, tick, untrack, type Component } from 'svelte';
 	import { fly } from 'svelte/transition';
 	import { page } from '$app/state';
-	import { goto } from '$app/navigation';
+	import { goto, afterNavigate } from '$app/navigation';
 	import { House, Search, Library, Settings, Heart, ListMusic, Download, Users, Clock } from '@lucide/svelte';
 	import { player } from '$lib/stores/player.svelte';
 	import { library } from '$lib/stores/library.svelte';
 	import { settings } from '$lib/stores/settings.svelte';
 	import { names } from '$lib/stores/names.svelte';
+	import { warmScript } from '$lib/services/zh-convert';
 	import { online } from '$lib/stores/online.svelte';
 	import { swUpdate } from '$lib/stores/swUpdate.svelte';
 	import { LANDING_PATHS } from '$lib/services/home-layout';
@@ -148,6 +149,39 @@
 		document.querySelector<HTMLInputElement>('[data-search-input]')?.focus();
 	}
 
+	// quick-260926-hze — typed, received and history links in the OTHER script (/artist/周杰伦
+	// with the lock on 繁體, /album/…?artist=…, /song/…) are rewritten in the address bar to the
+	// locked script, so every entity URL the user sees follows the lock, not just in-app links.
+	//  - RAW history.replaceState, NOT $app/navigation replaceState: SvelteKit shallow routing
+	//    desyncs the router index and makes a later goto() a silent no-op (url-tab.ts and
+	//    overlays.svelte.ts document this). history.state is passed through untouched.
+	//  - page.url / page.params stay as navigated, so no component re-runs and nothing refetches.
+	//  - replaceState fires neither popstate nor afterNavigate, so this cannot loop; it adds no
+	//    history entry, so overlay depth == history depth still holds.
+	//  - An overlay sentinel entry ({ gsdOverlay }) is never rewritten (T-hze-04).
+	//  - A reload of the rewritten URL resolves because every resolver is script-tolerant:
+	//    searchAll, Deezer, MB / Deezer ids, the resolveStub t2s rescue, and getAlbumTracklist's
+	//    album-title rescue.
+	//  - syncTabUrl builds from the live address bar, so a later tab switch keeps the rewrite.
+	//  - afterNavigate + await only, no rAF / tick: the Browser pane's rAF is frozen.
+	// 'off' makes no write at all (names.lockUrl returns the input itself).
+	async function lockAddressBar(): Promise<void> {
+		const target = settings.zhScript;
+		if (target !== 'zh-Hant' && target !== 'zh-Hans') return;
+		await warmScript(target); // memoized: instant when warm, never rejects
+		// Read AFTER the await so a navigation that landed meanwhile is the one locked.
+		const here = location.pathname + location.search;
+		const locked = names.lockUrl(here);
+		if (locked === here || history.state?.gsdOverlay) return;
+		try {
+			history.replaceState(history.state, '', locked + location.hash);
+		} catch {
+			/* history unavailable / throttled — the page still works, only the bar lags */
+		}
+	}
+	// Registered during component init (afterNavigate cannot be called from onMount).
+	afterNavigate(() => void lockAddressBar());
+
 	function onRetry() {
 		// Invoke the store-provided recovery (D-05) then clear the local host so the pill leaves.
 		host?.action?.();
@@ -265,6 +299,11 @@
 			}
 		};
 		window.addEventListener('keydown', onTransportKey);
+
+		// quick-260926-hze: cover the cold-load 'enter' case whatever the relative timing of the
+		// initial afterNavigate callback and settings.load(); idempotent (a second call finds
+		// locked === here and writes nothing).
+		void lockAddressBar();
 
 		return () => {
 			teardownOverlays();

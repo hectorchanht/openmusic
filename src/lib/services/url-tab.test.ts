@@ -74,7 +74,7 @@ describe('syncTabUrl — the one impure line', () => {
 	it('is a no-op under SSR / node (browser === false) and never throws', () => {
 		const replaceState = vi.fn();
 		vi.stubGlobal('history', { state: null, replaceState });
-		expect(() => syncTabUrl(u('https://x/library'), 'tab', 'history', 'liked')).not.toThrow();
+		expect(() => syncTabUrl('tab', 'history', 'liked')).not.toThrow();
 		expect(replaceState).not.toHaveBeenCalled();
 	});
 });

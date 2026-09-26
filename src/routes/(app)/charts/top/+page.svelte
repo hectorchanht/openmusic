@@ -207,7 +207,7 @@
 		type="button"
 		class="tab"
 		aria-pressed={view === 'tracks'}
-		onclick={() => { view = 'tracks'; syncTabUrl(page.url, 'tab', 'tracks', 'tracks'); }}
+		onclick={() => { view = 'tracks'; syncTabUrl('tab', 'tracks', 'tracks'); }}
 	>
 		{t('charts.topTracksTab')}
 	</button>
@@ -215,7 +215,7 @@
 		type="button"
 		class="tab"
 		aria-pressed={view === 'artists'}
-		onclick={() => { view = 'artists'; syncTabUrl(page.url, 'tab', 'artists', 'tracks'); }}
+		onclick={() => { view = 'artists'; syncTabUrl('tab', 'artists', 'tracks'); }}
 	>
 		{t('charts.topArtistsTab')}
 	</button>

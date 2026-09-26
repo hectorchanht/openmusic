@@ -85,7 +85,7 @@
 			class:on={filter === f.id}
 			role="tab"
 			aria-selected={filter === f.id}
-			onclick={() => { filter = f.id; syncTabUrl(page.url, 'tab', f.id, 'main'); }}
+			onclick={() => { filter = f.id; syncTabUrl('tab', f.id, 'main'); }}
 			use:tapBounce>{t(f.key)}</button
 		>
 	{/each}
