@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest';
-import { dedupeBest, groupVariants, collapseVariants, variantTag } from './dedupe';
+import { describe, it, expect, vi, beforeAll } from 'vitest';
+import { dedupeBest, groupVariants, collapseVariants, variantTag, sameSongKey } from './dedupe';
+import { warmScript } from './zh-convert';
 import { makeUid, type SourceId, type Track } from '$lib/sources/types';
 
 // groupVariants (Phase 26-04, VERSIONS-01) is the version-picker's data source: it retains the
@@ -212,4 +213,89 @@ describe('dedupeBest — SOURCE_RANK tie-break (32-D-08)', () => {
 		expect(dedupeBest([nStub, qStub], 'netease')[0].source).toBe('netease');
 		expect(dedupeBest([qStub, nStub], 'netease')[0].source).toBe('netease');
 	});
+});
+
+// quick-260926-n0r: the same song kept showing twice in the NowPlaying Related tab and Up Next.
+// Every row below is a REAL Gareth.T search row (qq / joox / ytmusic). Three identity classes the
+// old key() missed: Simplified vs Traditional twins, ytmusic's "<CJK> - <english>" titles, and
+// bilingual "<Han> <Latin>" titles whose ytmusic copy drops the Han.
+describe('key() cross-script + bilingual identity (quick-260926-n0r)', () => {
+	const G = 'Gareth.T';
+	beforeAll(async () => {
+		await warmScript('zh-Hans');
+	});
+
+	it.each([
+		['浅粉红 pale pink', '淺粉紅 pale pink'],
+		['紧急联络人', '緊急聯絡人'],
+		['颜色', '顏色'],
+		['去北极忘记你', '去北極忘記你']
+	])('script twins collapse: qq %s == joox %s', (simp, trad) => {
+		const pair = [mk('joox', 'j1', trad, G), mk('qq', 'q1', simp, G)];
+		const out = dedupeBest(pair);
+		expect(out).toHaveLength(1);
+		expect(out[0].source).toBe('qq');
+		expect(groupVariants(pair).size).toBe(1);
+	});
+
+	it.each([
+		['玻璃 - glass', '玻璃'],
+		['用背脊唱情歌 - no full frontal', '用背脊唱情歌'],
+		['國際孤獨等級 - loner anthem', '国际孤独等级'],
+		['早到的U - your ride is here', '早到的U'],
+		['顏色 - colors', '颜色'],
+		['泥菩薩 - thanos', '泥菩萨'],
+		['緊急聯絡人 - emergency contact', '紧急联络人']
+	])('ytmusic english suffix collapses: %s == qq %s', (yt, qq) => {
+		const out = dedupeBest([mk('ytmusic', 'y1', yt, G), mk('qq', 'q1', qq, G)]);
+		expect(out).toHaveLength(1);
+		expect(out[0].source).toBe('qq');
+	});
+
+	it('the playing qq song matches its ytmusic Traditional + english copy (Related self-appearance)', () => {
+		expect(sameSongKey(mk('qq', 'q1', '跟悲伤结了帐', G), mk('ytmusic', 'y1', '跟悲傷結了帳 - No More', G))).toBe(true);
+	});
+
+	it('a bilingual "<Han> <Latin>" title collapses with its Latin-only twin; pale pink != baby pink', () => {
+		const palePink = [mk('qq', 'q1', '浅粉红 pale pink', G), mk('ytmusic', 'y1', 'pale pink', G)];
+		const babyPink = [mk('joox', 'j1', '淺粉紅 baby pink', G), mk('ytmusic', 'y2', 'baby pink', G)];
+		expect(dedupeBest(palePink)).toHaveLength(1);
+		expect(dedupeBest(babyPink)).toHaveLength(1);
+		expect(dedupeBest([...palePink, ...babyPink])).toHaveLength(2);
+	});
+
+	it('distinct renditions and single-word Latin tails are NOT merged', () => {
+		const n = (a: string, b: string) => dedupeBest([mk('ytmusic', 'y1', a, G), mk('qq', 'q1', b, G)]).length;
+		expect(n('玻璃 demo - glass demo', '玻璃')).toBe(2);
+		expect(n('玻璃 demo - glass demo', '玻璃 demo')).toBe(1);
+		expect(dedupeBest([mk('qq', 'q1', '玻璃 - remix', G), mk('qq', 'q2', '玻璃', G)])).toHaveLength(2);
+		expect(n('玻璃 - part 2', '玻璃')).toBe(2);
+		expect(n('我的 baby', '你的 baby')).toBe(2);
+		// no Han anywhere → the pre-fix key, pinning Western identity
+		expect(n('Song - Remix', 'Song')).toBe(2);
+	});
+
+	it('Up-Next shape: an appended ytmusic copy collapses into the history row and keeps slot 0', () => {
+		const out = dedupeBest([
+			mk('qq', 'q1', '颜色', G),
+			mk('netease', 'n1', 'Hello', 'Adele'),
+			mk('ytmusic', 'y1', '顏色 - colors', G)
+		]);
+		expect(out).toHaveLength(2);
+		expect(out[0].title).toBe('颜色');
+	});
+});
+
+// quick-260926-n0r: cold t2s dict. MUST stay the last block — resetModules hands back a fresh
+// zh-convert whose sync handle is null, so this is the first-paint case: no fold, no throw, and
+// key() itself fires warmT2S so a later call folds (no explicit warm here).
+describe('key() with the t2s dict cold (quick-260926-n0r)', () => {
+	it('degrades to no-fold, never throws, and self-warms so a later call folds', async () => {
+		vi.resetModules();
+		const fresh = await import('./dedupe');
+		const pair = [mk('qq', 'q1', '颜色', 'Gareth.T'), mk('joox', 'j1', '顏色', 'Gareth.T')];
+		expect(() => fresh.dedupeBest(pair)).not.toThrow();
+		expect(fresh.dedupeBest(pair)).toHaveLength(2);
+		await vi.waitFor(() => expect(fresh.dedupeBest(pair)).toHaveLength(1), { timeout: 5000 });
+	}, 10_000);
 });
