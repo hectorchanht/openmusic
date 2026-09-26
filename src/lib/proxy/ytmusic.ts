@@ -130,9 +130,15 @@ export async function innerTubePost(
 export async function searchInnerTube(
 	query: string,
 	params: string,
-	signal?: AbortSignal
+	signal?: AbortSignal,
+	locale?: { hl: string; gl: string }
 ): Promise<unknown> {
-	return innerTubePost(SEARCH_URL, { context: WEB_REMIX_CONTEXT, query, params }, { signal });
+	// quick-260925-wa7: an (already allowlisted — innerTubeLocale) locale overrides hl/gl only; no
+	// locale posts the SAME WEB_REMIX_CONTEXT object as before, so existing callers are unchanged.
+	const context = locale
+		? { client: { ...WEB_REMIX_CONTEXT.client, hl: locale.hl, gl: locale.gl } }
+		: WEB_REMIX_CONTEXT;
+	return innerTubePost(SEARCH_URL, { context, query, params }, { signal });
 }
 
 /**

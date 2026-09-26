@@ -14,7 +14,7 @@
 import type { RequestHandler } from './$types';
 import { corsHeaders, jsonResponse } from '$lib/proxy/http';
 import { edgeCache, ownOriginCacheKey } from '$lib/proxy/edge-cache';
-import { searchInnerTube, SONGS_FILTER, VIDEOS_FILTER } from '$lib/proxy/ytmusic';
+import { innerTubeLocale, searchInnerTube, SONGS_FILTER, VIDEOS_FILTER } from '$lib/proxy/ytmusic';
 
 const TTL = 600; // 10min — search ranking is stable enough to avoid hammering upstream on repeats.
 
@@ -34,8 +34,12 @@ export const GET: RequestHandler = async ({ url, request }) => {
 	const q = (url.searchParams.get('q') ?? '').trim();
 	// Empty query → empty (shelf-shaped) body, NO upstream call.
 	if (!q) return jsonPassthrough(EMPTY_SEARCH_ENVELOPE, origin);
+	// quick-260925-wa7: allowlisted locale (en/US default, zh-TW/TW) — the raw `hl` never reaches upstream.
+	const locale = innerTubeLocale(url.searchParams.get('hl'));
 
 	// Edge cache key = own-origin Request (NEVER the key-bearing upstream URL). Null under vite dev.
+	// It is the FULL URL incl. the query string, so `?q=X&hl=zh-TW` and `?q=X` are distinct entries
+	// (quick-260925-wa7) — do not "simplify" the key to `q` alone.
 	const cache = edgeCache();
 	const cacheReq = ownOriginCacheKey(url);
 	if (cache) {
@@ -49,8 +53,8 @@ export const GET: RequestHandler = async ({ url, request }) => {
 		// official catalog. Both are fixed-URL POSTs; `q` goes only into the body (open-relay guard
 		// T-27-02-01). Promise.allSettled so one failing filter never sinks the other shelf.
 		const [songs, videos] = await Promise.allSettled([
-			searchInnerTube(q, SONGS_FILTER),
-			searchInnerTube(q, VIDEOS_FILTER)
+			searchInnerTube(q, SONGS_FILTER, undefined, locale),
+			searchInnerTube(q, VIDEOS_FILTER, undefined, locale)
 		]);
 
 		// SONGS FIRST so the official-catalog variant of a track ranks above (and wins the dedupe

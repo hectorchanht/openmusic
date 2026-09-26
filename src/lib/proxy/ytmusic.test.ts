@@ -8,6 +8,8 @@ import {
 	PLAYER_URL,
 	WEB_REMIX_CONTEXT,
 	innerTubePost,
+	innerTubeLocale,
+	searchInnerTube,
 	getVisitorData,
 	findLyricsTab,
 	extractLyrics
@@ -206,5 +208,42 @@ describe('extractLyrics (ported from spike 007 — plain path)', () => {
 
 	it('returns {text:null,attribution:null} when the shelf is missing', () => {
 		expect(extractLyrics({ contents: {} })).toEqual({ text: null, attribution: null });
+	});
+});
+
+describe('innerTubeLocale + searchInnerTube locale (quick-260925-wa7)', () => {
+	it('allowlists zh-TW → TW and defaults everything else to en/US (exact match, no trim/case-fold)', () => {
+		expect(innerTubeLocale('zh-TW')).toEqual({ hl: 'zh-TW', gl: 'TW' });
+		for (const v of ['en', null, undefined, '']) {
+			expect(innerTubeLocale(v)).toEqual({ hl: 'en', gl: 'US' });
+		}
+		for (const v of ['fr', 'zh-TW;evil', 'ZH-TW', ' zh-TW', 'constructor', '__proto__']) {
+			expect(innerTubeLocale(v)).toEqual({ hl: 'en', gl: 'US' });
+		}
+	});
+
+	it('posts the locale in context.client when given', async () => {
+		const fetchSpy = vi.fn(async () => jsonRes({ ok: 1 }));
+		vi.stubGlobal('fetch', fetchSpy);
+		await searchInnerTube('q', SONGS_FILTER, undefined, { hl: 'zh-TW', gl: 'TW' });
+		const body = JSON.parse(String(((fetchSpy.mock.calls[0] as unknown[])[1] as RequestInit).body));
+		expect(body.context.client).toEqual({
+			clientName: 'WEB_REMIX',
+			clientVersion: WEB_REMIX_CONTEXT.client.clientVersion,
+			hl: 'zh-TW',
+			gl: 'TW'
+		});
+		expect(body.query).toBe('q');
+		expect(body.params).toBe(SONGS_FILTER);
+	});
+
+	it('posts WEB_REMIX_CONTEXT unchanged when no locale is given', async () => {
+		const fetchSpy = vi.fn(async () => jsonRes({ ok: 1 }));
+		vi.stubGlobal('fetch', fetchSpy);
+		await searchInnerTube('q', SONGS_FILTER);
+		const body = JSON.parse(String(((fetchSpy.mock.calls[0] as unknown[])[1] as RequestInit).body));
+		expect(body.context).toEqual(WEB_REMIX_CONTEXT);
+		expect(body.context.client.hl).toBe('en');
+		expect(body.context.client.gl).toBe('US');
 	});
 });

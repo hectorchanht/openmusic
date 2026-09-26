@@ -39,6 +39,24 @@ export const WEB_REMIX_CONTEXT: InnerTubeContext = {
 	client: { clientName: 'WEB_REMIX', clientVersion: '1.20240101.01.00', hl: 'en', gl: 'US' }
 };
 
+/** quick-260925-wa7 — the ONLY search locales a client may ask for; `gl` FOLLOWS `hl` from this table,
+ *  it is never a second client-controlled param. zh-TW exists so the Chinese-name rescue
+ *  (services/name-rescue.ts) can read YTM's zh-TW title/artist for the same videoId. */
+export const INNERTUBE_LOCALES = { en: 'US', 'zh-TW': 'TW' } as const;
+
+/**
+ * quick-260925-wa7 — SSRF/param-tampering allowlist (T-wa7-01): map a raw `?hl=` value to an InnerTube
+ * `{hl, gl}` pair. Exact OWN-key match only (no trim, no case-fold; hasOwnProperty so 'constructor' /
+ * '__proto__' cannot match) — anything else is en/US. The raw query value is never forwarded; only a
+ * table-derived pair is.
+ */
+export function innerTubeLocale(hl: string | null | undefined): { hl: string; gl: string } {
+	if (typeof hl === 'string' && Object.prototype.hasOwnProperty.call(INNERTUBE_LOCALES, hl)) {
+		return { hl, gl: INNERTUBE_LOCALES[hl as keyof typeof INNERTUBE_LOCALES] };
+	}
+	return { hl: 'en', gl: 'US' };
+}
+
 // Endpoint URLs (key appended in the URL). music.youtube.com for the metadata endpoints
 // (spikes 005/007); www.youtube.com for the player/stream endpoint (spike 006).
 export const SEARCH_URL =
