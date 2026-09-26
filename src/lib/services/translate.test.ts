@@ -243,3 +243,69 @@ describe('translateLinesEx — zh-Hant offline s2t routing (D-02 / D-04)', () =>
 		expect(r.out).toEqual(['A', 'B']);
 	});
 });
+
+// quick-260926-kvz — zh-Hant batches persisted BEFORE the s2t merge served an already-Traditional
+// 杰 as 傑 (周杰倫 → 周傑倫) for as long as the cache lived, and a cold names flush could copy that
+// back into the name cache. The localStorage hit now re-derives the Chinese positions offline.
+describe('translateLinesEx — zh-Hant lyrics cache heals pre-merge batches offline (quick-260926-kvz)', () => {
+	/** Let translateLinesEx write the REAL key for `lines`, overwrite its value with `stored`, then
+	 *  drop the module (and its in-memory cache) so the next call reads localStorage. */
+	async function seedBatch(lines: string[], to: string, api: string[], stored: string[]): Promise<string> {
+		const { translateLinesEx } = await import('./translate');
+		fetchMock.mockResolvedValue(jsonRes({ translated: api, flags: api.map(() => true) }));
+		await translateLinesEx(lines, to);
+		const key = lsKeys().find((k) => k.startsWith(`openmusic:lyrics-tr:v3:${to}:`));
+		expect(key).toBeDefined();
+		memStore.set(key as string, JSON.stringify(stored));
+		fetchMock.mockReset();
+		vi.resetModules();
+		return key as string;
+	}
+
+	it('heals a poisoned Chinese position with ZERO fetches, keeps the API line, rewrites storage', async () => {
+		const key = await seedBatch(['周杰倫', 'Hello'], 'zh-Hant', ['你好'], ['周傑倫', '你好']);
+		const { translateLinesEx } = await import('./translate');
+		const r = await translateLinesEx(['周杰倫', 'Hello'], 'zh-Hant');
+		expect(r.out).toEqual(['周杰倫', '你好']);
+		expect(r.complete).toBe(true);
+		expect(fetchMock).not.toHaveBeenCalled();
+		expect(JSON.parse(memStore.get(key) as string)).toEqual(['周杰倫', '你好']);
+	});
+
+	it('does not rewrite a clean batch', async () => {
+		await seedBatch(['周杰倫', 'Hello'], 'zh-Hant', ['你好'], ['周杰倫', '你好']);
+		const { translateLinesEx } = await import('./translate');
+		const setItem = vi.spyOn(localStorageMock, 'setItem');
+		const r = await translateLinesEx(['周杰倫', 'Hello'], 'zh-Hant');
+		expect(r.out).toEqual(['周杰倫', '你好']);
+		expect(setItem).not.toHaveBeenCalled();
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it('a non-zh-Hant hit is returned untouched without importing zh-convert', async () => {
+		const key = await seedBatch(['周杰倫'], 'ja', ['周杰倫'], ['周傑倫']);
+		const loaded = vi.fn();
+		vi.doMock('./zh-convert', async (orig) => {
+			loaded();
+			return await orig();
+		});
+		const { translateLinesEx } = await import('./translate');
+		const r = await translateLinesEx(['周杰倫'], 'ja');
+		expect(r.out).toEqual(['周傑倫']);
+		expect(loaded).not.toHaveBeenCalled();
+		expect(JSON.parse(memStore.get(key) as string)).toEqual(['周傑倫']);
+		vi.doUnmock('./zh-convert');
+	});
+
+	it('an s2t chunk failure keeps the cached value (never downgrades to the original)', async () => {
+		const key = await seedBatch(['周杰伦', 'Hello'], 'zh-Hant', ['你好'], ['周杰倫', '你好']);
+		vi.doMock('tongwen-dict/dist/s2t-char.min.json', () => {
+			throw new Error('chunk load failed');
+		});
+		const { translateLinesEx } = await import('./translate');
+		const r = await translateLinesEx(['周杰伦', 'Hello'], 'zh-Hant');
+		expect(r.out).toEqual(['周杰倫', '你好']);
+		expect(JSON.parse(memStore.get(key) as string)).toEqual(['周杰倫', '你好']);
+		vi.doUnmock('tongwen-dict/dist/s2t-char.min.json');
+	});
+});

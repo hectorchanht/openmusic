@@ -219,7 +219,8 @@ export async function translateLinesEx(lines: string[], to: string): Promise<Tra
 		try {
 			const c = localStorage.getItem(key);
 			if (c) {
-				const v = JSON.parse(c) as string[];
+				let v = JSON.parse(c) as string[];
+				if (to === 'zh-Hant') v = await healZhHantBatch(key, lines, v);
 				mem.set(key, v);
 				return { out: v, flags: v.map(() => true), complete: true };
 			}
@@ -242,6 +243,50 @@ export async function translateLinesEx(lines: string[], to: string): Promise<Tra
 		}
 	}
 	return best;
+}
+
+/**
+ * quick-260926-kvz: re-derive the Chinese positions of a PERSISTED zh-Hant batch offline. Batches
+ * cached before the s2t merge served an already-Traditional 杰 as 傑 (周杰倫 → 周傑倫) for as long
+ * as the entry lived, and a cold names flush reading one could re-poison the name cache. Chinese
+ * positions are deterministic offline results (resolveZhHant's s2t branch), so recomputing them
+ * costs no network; non-Chinese positions came from the API and are kept untouched. That is why
+ * CACHE_VER stays v3 — a bump would throw away those paid API lines. Writes back only on an
+ * actual change. Never throws.
+ *
+ * Per line via warmScript + s2tConvertLineSync, NOT s2tConvertLines: the batch call answers
+ * IDENTITY when s2t fails to load, which here would overwrite a good cached Traditional value with
+ * the untranslated original. The sync call answers null instead, and a null keeps the cached value.
+ */
+async function healZhHantBatch(key: string, lines: string[], v: string[]): Promise<string[]> {
+	if (!Array.isArray(v) || v.length !== lines.length) return v; // tampered / colliding entry
+	let mod: typeof import('./zh-convert');
+	try {
+		mod = await import('./zh-convert');
+	} catch {
+		return v;
+	}
+	const { isChineseLine, s2tConvertLineSync, warmScript } = mod;
+	const idx: number[] = [];
+	for (let i = 0; i < lines.length; i++) if (lines[i] && isChineseLine(lines[i])) idx.push(i);
+	if (!idx.length) return v;
+	await warmScript('zh-Hant'); // never rejects; loads both dicts for the merge
+	const healed = v.slice();
+	let changed = false;
+	for (const i of idx) {
+		const fresh = s2tConvertLineSync(lines[i]);
+		if (fresh !== null && fresh !== v[i]) {
+			healed[i] = fresh;
+			changed = true;
+		}
+	}
+	if (!changed) return v;
+	try {
+		localStorage.setItem(key, JSON.stringify(healed));
+	} catch {
+		/* quota — still serve the healed batch this session (mem) */
+	}
+	return healed;
 }
 
 /**
