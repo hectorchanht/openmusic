@@ -56,6 +56,15 @@ export interface Env {
 	// used only from curl on the maintainer's laptop. Absent ⇒ reads disabled (same fail-closed
 	// posture as DIAG_UPLOAD_TOKEN).
 	DIAG_READ_TOKEN?: string;
+	// quick-260926-nsz: OPTIONAL Cloudflare Turnstile secret for POST /api/comments. Set with
+	// `wrangler pages secret put TurnstileSecret`, NEVER as a `var` (vars are public config). Only
+	// ever sent in the siteverify form body — never logged or echoed. Absent ⇒ posting answers 503
+	// (reading and reporting still work).
+	TurnstileSecret?: string;
+	// quick-260926-nsz: comma list of hostnames a Turnstile token may have been minted on. PUBLIC,
+	// so it is a `var` in wrangler.jsonc ("openmusic.lol"); `.dev.vars` adds localhost for dev.
+	// Empty/absent ⇒ posting answers 503, same as a missing secret.
+	TURNSTILE_HOSTNAMES?: string;
 }
 
 export interface ProxyAdapter {

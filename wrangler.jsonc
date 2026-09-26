@@ -11,8 +11,12 @@
 	// `wrangler pages secret put …` instead — vars in this file are baked into the
 	// public Pages config. The Jamendo client_secret is intentionally NOT carried
 	// here: it is only needed for OAuth flows we don't implement.
+	// TURNSTILE_HOSTNAMES (quick-260926-nsz): hostnames a comment-post Turnstile token may be minted
+	// on. Production only — localhost/127.0.0.1 live in .dev.vars and must NOT be added here. The
+	// matching secret is TurnstileSecret (`wrangler pages secret put`, never a var).
 	"vars": {
-		"JAMENDO_CLIENT_ID": "1df0a42f"
+		"JAMENDO_CLIENT_ID": "1df0a42f",
+		"TURNSTILE_HOSTNAMES": "openmusic.lol"
 	},
 	// Phase 33 / D-07 — diagnostics log store. Holds ONLY maintainer-uploaded activity logs;
 	// both the write and the read path are bearer-token gated (D-01/D-02/D-03). The secrets
