@@ -20,3 +20,11 @@ Resolved debug sessions. Used by `gsd-debugger` to surface known-pattern hypothe
 - **Files changed:** src/lib/sources/qq.ts, src/lib/stores/library.svelte.ts, src/lib/stores/player.svelte.ts, src/lib/sources/qq.test.ts
 ---
 
+## upnext-no-scroll-to-current — wide (>=1280px) Up Next column never scrolls to the current song on open or on song change
+- **Date:** 2026-09-26
+- **Error patterns:** up next, upnext, queue list, scroll to current, scroll-to-current, not scrolled, does not follow, current row off-screen, current song below the fold, played history above current, desktop, wide mode, >=1280px, three columns, NowPlaying, NpUpNext, sheetState closed, open prop, one-shot latch, track change, next, prev, auto-advance, row tap, rAF, cover backfill not running in wide
+- **Root cause:** Two gates, one prop. NowPlaying.svelte passed `open={sheetState !== 'closed'}` to NpUpNext — written for the phone sheet (quick-260618-ink) before quick-260919-np3 mounted the pane as a standing column at >=1280px regardless of sheetState. In wide mode the column is fully on screen with `open === false`, so the scroll-to-current `$effect` AND the cover-backfill effect (same gate) never ran (NpLyrics got a `wide` prop for the identical desktop-closed case in npfix Fix 3; NpUpNext did not). Independently, the scroll latch was a boolean whose only tracked read was `open` (ink: preserve 260615-mnr no-scroll-on-mutation), so next/prev/auto-advance/row tap never re-scrolled in ANY layout.
+- **Fix:** Pure `services/upnext-scroll.ts`: `upNextPaneOpen(wide, sheetState) = wide || sheetState !== 'closed'` feeds the NpUpNext `open` prop (fixes both gates at the source); `upNextScrollKey(open, currentUid)` keys the latch on the current uid — a song change is a new key (scroll once), a remove/reorder/regen under the same current is the same key (no scroll, mnr preserved), null re-arms. Effect also tracks `rows` and un-latches on a rAF row miss so a home-shelf fresh play (queue installed after the resolve await) scrolls when the row lands. Uniform across narrow sheet + wide column by decision. Locked by upnext-scroll.test.ts (7 tests).
+- **Files changed:** src/lib/services/upnext-scroll.ts, src/lib/services/upnext-scroll.test.ts, src/lib/components/NowPlaying.svelte, src/lib/components/NpUpNext.svelte
+---
+
