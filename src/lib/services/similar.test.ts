@@ -384,7 +384,9 @@ describe('buildSimilarQueue — Deezer artist radio path (dry primary, one call)
 		const seed = mk('qq', 'seed', 'Drake', { title: 'Janice STFU (Explicit)' });
 
 		const via: string[] = [];
-		const out = await buildSimilarQueue(seed, new Set(), (v) => via.push(v));
+		// quick-260926-lw8: the radio path shuffles per call (default Math.random); the identity rng
+		// pins the raw order so this exact-order assertion stays deterministic.
+		const out = await buildSimilarQueue(seed, new Set(), (v) => via.push(v), () => 0.999);
 
 		expect(via).toEqual(['radio']);
 		expect(out.map((t) => t.title)).toEqual(['Cinderella', 'Father Stretch My Hands Pt. 1']);
@@ -424,6 +426,43 @@ describe('buildSimilarQueue — Deezer artist radio path (dry primary, one call)
 
 		const out = await buildSimilarQueue(seed);
 		expect(out[0].cover).toBe('https://dz.example/cover.jpg');
+	});
+
+	// quick-260926-lw8 — each regenerate iterates a shuffled COPY of the 6h-cached radio pairs, so
+	// successive Up Next builds differ with zero extra requests. ttl-cache hands back the SAME array
+	// reference on a hit, so an in-place shuffle would leak into the identity-rng call after it.
+	it('shuffles a copy of the cached radio pairs per call — cache untouched, one radio call', async () => {
+		const { spy } = stubRoutes({
+			tracks: [],
+			artists: [],
+			radio: Array.from({ length: 5 }, (_, i) => ({ artist: `R${i}`, title: `t${i}` }))
+		});
+		vi.spyOn(catalog, 'searchAll').mockResolvedValue(result(null));
+		const seed = mk('qq', 'seed', 'Drake', { title: 'Janice STFU (Explicit)' });
+		const raw5 = ['t0', 't1', 't2', 't3', 't4'];
+
+		// identity rng → the raw cached order
+		const raw = await buildSimilarQueue(seed, new Set(), undefined, () => 0.999);
+		expect(raw.map((t) => t.title)).toEqual(raw5);
+
+		const via: string[] = [];
+		const rotated = await buildSimilarQueue(seed, new Set(), (v) => via.push(v), () => 0);
+		expect(rotated.map((t) => t.title).sort()).toEqual(raw5);
+		expect(rotated.map((t) => t.title)).not.toEqual(raw5);
+		expect(rotated.every((t) => t.resolveByName === true)).toBe(true);
+		expect(via).toEqual(['radio']);
+
+		// the shuffled call did not reorder the cached array
+		const rawAgain = await buildSimilarQueue(seed, new Set(), undefined, () => 0.999);
+		expect(rawAgain).toEqual(raw);
+
+		// post-filter discipline intact under the shuffle
+		const excluded = raw.find((t) => t.title === 't1')!.uid;
+		const filtered = await buildSimilarQueue(seed, new Set([excluded]), undefined, () => 0);
+		expect(filtered.some((t) => t.uid === excluded)).toBe(false);
+
+		const radioCalls = spy.mock.calls.filter((c) => String(c[0]).includes('/api/deezer/radio'));
+		expect(radioCalls).toHaveLength(1);
 	});
 });
 

@@ -24,6 +24,7 @@ import { apiFetch } from '$lib/services/api-base';
 import { SOURCES, getEnabledAdapters, onlySource } from '$lib/sources/registry';
 import type { SourceId, Track } from '$lib/sources/types';
 import { hasHttpsScheme } from './url-safety';
+import { shuffle } from '$lib/services/shuffle';
 
 const SIMILAR_ARTIST_COUNT = 8; // fallback: how many similar artists to search (top N)
 const FALLBACK_LIMIT = 20; // same-artist fallback cap (matches the Related tab)
@@ -175,7 +176,8 @@ export function nameStub(artist: string, title: string, image?: string | null): 
  * Signature + never-throw/best-effort contract are backward-compatible so the player callers
  * (regenerate, ensureAhead) are untouched — the play() queue-swap already adopts a resolved
  * track's real uid via indexOf on resolve, so a synthetic→real uid change survives. The trailing
- * `report` param is OPTIONAL and additive (plan 26-09 opts in to log the up-next source).
+ * `report` param is OPTIONAL and additive (plan 26-09 opts in to log the up-next source), as is the
+ * trailing `rng` (quick-260926-lw8: orders the Deezer radio path; default Math.random, tests stub it).
  *
  * `report(via)` fires once on the terminal path: 'similar' (primary track.getSimilar produced
  * results), 'radio' (Deezer artist radio produced results), 'artist' (similar-artists fallback
@@ -184,7 +186,8 @@ export function nameStub(artist: string, title: string, image?: string | null): 
 export async function buildSimilarQueue(
 	track: Track,
 	excludeUids: Set<string> = new Set(),
-	report?: (via: 'similar' | 'radio' | 'artist' | 'lastresort' | 'empty') => void
+	report?: (via: 'similar' | 'radio' | 'artist' | 'lastresort' | 'empty') => void,
+	rng: () => number = Math.random
 ): Promise<Track[]> {
 	// PRIMARY: the seed is a REAL track (real uid), while stubs carry SYNTHETIC uids — so the seed
 	// cannot be dropped by uid. Drop it by normalized song identity instead; drop stubs by synthetic
@@ -231,7 +234,11 @@ export async function buildSimilarQueue(
 		const seedKey = matchKey(track.artist, track.title);
 		const seen = new Set<string>();
 		const radioOut: Track[] = [];
-		for (const p of radioPairs) {
+		// quick-260926-lw8 — deezerArtistRadio is cached() 6h and ttl-cache hands back the SAME array
+		// reference on every hit, so this copy-shuffle is what makes successive regenerates differ
+		// WITHOUT an extra request and WITHOUT mutating the cache; the seed / excludeUids / dedupe
+		// post-filter below runs on the shuffled copy unchanged (CR-01 gate intact).
+		for (const p of shuffle(radioPairs, rng)) {
 			const stub = nameStub((p.artist ?? '').trim(), (p.title ?? '').trim(), p.image);
 			if (!stub) continue;
 			if (matchKey(stub.artist, stub.title) === seedKey) continue; // drop the seed song
