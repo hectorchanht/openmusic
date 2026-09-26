@@ -13,7 +13,7 @@
 
 import type { RequestHandler } from './$types';
 import type { Env } from '$lib/proxy/proxy-types';
-import { jsonResponse } from '$lib/proxy/http';
+import { jsonResponse, isAllowedOrigin } from '$lib/proxy/http';
 import { edgeCache, ownOriginCacheKey } from '$lib/proxy/edge-cache';
 import {
 	isOffsetKey,
@@ -74,6 +74,20 @@ export const POST: RequestHandler = async (event) => {
 
 	const bucket = (platform?.env as Env | undefined)?.DIAG;
 	if (!bucket) return jsonResponse({ ok: false, err: 'unconfigured' }, origin, { status: 503 });
+
+	// quick-260926-mzn — drive-by vote guard. CORS only hides the RESPONSE: a foreign page can still
+	// fire a no-preflight `text/plain` POST from every visitor's browser, and each visitor's IP is a
+	// fresh voter, so one popular page could manufacture a consensus. Two cheap gates close that:
+	//   1. a browser always sends Origin on a POST — refuse any origin not on the CORS allow-list
+	//      (absent Origin = a non-browser client, which a web page cannot drive);
+	//   2. require application/json, which a cross-origin page cannot send without a preflight, and
+	//      hooks.server.ts answers that preflight with no Allow-Origin for a foreign origin.
+	if (origin !== null && !isAllowedOrigin(origin)) {
+		return jsonResponse({ ok: false, err: 'forbidden-origin' }, origin, { status: 403 });
+	}
+	if (!(request.headers.get('content-type') ?? '').toLowerCase().startsWith('application/json')) {
+		return jsonResponse({ ok: false, err: 'unsupported-type' }, origin, { status: 415 });
+	}
 
 	// Size screen exactly as /api/diag: the declared length costs no read; the real length is
 	// re-checked because the header can lie or be absent.

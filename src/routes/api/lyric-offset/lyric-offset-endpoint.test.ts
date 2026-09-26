@@ -57,7 +57,13 @@ interface EventOpts {
 function fakeEvent(method: 'GET' | 'POST', opts: EventOpts = {}) {
 	const url = new URL('https://openmusic.lol/api/lyric-offset');
 	for (const [k, v] of Object.entries(opts.search ?? {})) url.searchParams.set(k, v);
-	const headers = { origin: 'https://openmusic.lol', ...(opts.headers ?? {}) };
+	const headers: Record<string, string> = {
+		origin: 'https://openmusic.lol',
+		...(method === 'POST' ? { 'content-type': 'application/json' } : {}),
+		...(opts.headers ?? {})
+	};
+	// quick-260926-mzn: a header set to '' is dropped, so a test can model "browser sent no Origin".
+	for (const [h, v] of Object.entries(headers)) if (v === '') delete headers[h];
 	const ip = opts.ip === undefined ? '1.2.3.4' : opts.ip;
 	return {
 		url,
@@ -198,6 +204,35 @@ describe('POST /api/lyric-offset — rejects touch nothing', () => {
 			const bucket = fakeBucket();
 			await rejects(fakeEvent('POST', { body, env: env(bucket) }), bucket, 400, 'invalid');
 		}
+	});
+
+	it('a foreign Origin → 403 forbidden-origin (drive-by votes from another site)', async () => {
+		const bucket = fakeBucket();
+		await rejects(
+			fakeEvent('POST', { body: vote(1), headers: { origin: 'https://evil.example' }, env: env(bucket) }),
+			bucket,
+			403,
+			'forbidden-origin'
+		);
+	});
+
+	it('a non-JSON content type (the no-preflight text/plain form) → 415', async () => {
+		for (const ct of ['text/plain', '']) {
+			const bucket = fakeBucket();
+			await rejects(
+				fakeEvent('POST', { body: vote(1), headers: { 'content-type': ct }, env: env(bucket) }),
+				bucket,
+				415,
+				'unsupported-type'
+			);
+		}
+	});
+
+	it('an absent Origin (non-browser client) is still accepted', async () => {
+		const bucket = fakeBucket();
+		const res = await callPOST(fakeEvent('POST', { body: vote(1), headers: { origin: '' }, env: env(bucket) }));
+		expect(res.status).toBe(200);
+		expect(bucket.put).toHaveBeenCalledTimes(1);
 	});
 
 	it('no client address (null, or a throwing getClientAddress) → 400 no-address', async () => {

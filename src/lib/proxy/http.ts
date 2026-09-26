@@ -18,7 +18,9 @@ const ALLOWED_ORIGIN_PATTERNS: RegExp[] = [
 	/^capacitor:\/\/localhost$/ // future iOS Capacitor WebView origin — harmless to allow now (D-02)
 ];
 
-function isAllowedOrigin(origin: string | null): origin is string {
+// quick-260926-mzn: exported so /api/lyric-offset POST can refuse a foreign-origin browser write
+// outright (CORS headers alone only hide the RESPONSE; a no-preflight POST still executes).
+export function isAllowedOrigin(origin: string | null): origin is string {
 	return !!origin && ALLOWED_ORIGIN_PATTERNS.some((re) => re.test(origin));
 }
 
