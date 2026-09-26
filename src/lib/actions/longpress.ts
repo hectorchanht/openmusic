@@ -84,14 +84,30 @@ export const longpress: Action<HTMLElement, number | undefined, { onlongpress: (
 			timer = null;
 			node.dispatchEvent(new CustomEvent('longpress'));
 			// Arm the one-shot click suppressor for the trailing native click this hold will produce.
+			// The self-disarm is NOT started here — the finger is still down; see `release`.
 			if (shouldSuppressClickAfterLongpress(true)) armSuppressor();
-			// Self-disarm: some mobile browsers emit no synthetic click after a long hold, so never
-			// leave the guard armed long enough to eat a later legitimate tap.
-			disarmTimer = setTimeout(() => {
-				disarmSuppressor();
-				disarmTimer = null;
-			}, 700);
 		}, duration ?? 450);
+	};
+	// quick-260926-mzn: the self-disarm window starts at FINGER-LIFT, not at longpress-fire. It used
+	// to be scheduled when the hold fired and then CANCELLED by pointerup (which ran `clear`), so:
+	//   - a browser that sends NO trailing click after a hold (Android Chrome, iOS Safari usually)
+	//     left the guard armed indefinitely, and the next legitimate tap ANYWHERE was eaten — found
+	//     as "hold a lyric line, then the first ±0.5s / reset tap does nothing";
+	//   - a hold longer than ~1.15s disarmed before the lift, so a trailing click that DID come
+	//     got through (menu opens AND the row plays — the original quick-260606-tmh bug).
+	// Now: lift ends the hold, and if the guard is armed it gets exactly 700ms to catch the trailing
+	// click, then disarms. pointerleave/cancel re-arm the same window (idempotent).
+	const release = () => {
+		if (timer) {
+			clearTimeout(timer);
+			timer = null;
+		}
+		if (!armed) return;
+		if (disarmTimer) clearTimeout(disarmTimer);
+		disarmTimer = setTimeout(() => {
+			disarmSuppressor();
+			disarmTimer = null;
+		}, 700);
 	};
 	const move = (e: PointerEvent) => {
 		if (timer && (Math.abs(e.clientX - sx) > 8 || Math.abs(e.clientY - sy) > 8)) clear();
@@ -107,9 +123,9 @@ export const longpress: Action<HTMLElement, number | undefined, { onlongpress: (
 	const ctx = (e: Event) => e.preventDefault();
 	node.addEventListener('pointerdown', down);
 	node.addEventListener('pointermove', move);
-	node.addEventListener('pointerup', clear);
-	node.addEventListener('pointerleave', clear);
-	node.addEventListener('pointercancel', clear);
+	node.addEventListener('pointerup', release);
+	node.addEventListener('pointerleave', release);
+	node.addEventListener('pointercancel', release);
 	node.addEventListener('contextmenu', ctx);
 	return {
 		destroy() {
@@ -117,9 +133,9 @@ export const longpress: Action<HTMLElement, number | undefined, { onlongpress: (
 			disarmSuppressor(); // never leave a capture listener on document behind an unmounted row
 			node.removeEventListener('pointerdown', down);
 			node.removeEventListener('pointermove', move);
-			node.removeEventListener('pointerup', clear);
-			node.removeEventListener('pointerleave', clear);
-			node.removeEventListener('pointercancel', clear);
+			node.removeEventListener('pointerup', release);
+			node.removeEventListener('pointerleave', release);
+			node.removeEventListener('pointercancel', release);
 			node.removeEventListener('contextmenu', ctx);
 		}
 	};
