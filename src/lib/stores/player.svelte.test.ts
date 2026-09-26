@@ -6360,7 +6360,7 @@ describe('player resilience — background stream-error SKIPS to next (debug-bg-
 
 		el.fire('error'); // hidden + already-played → bg-error-skip, and now a strike toward routing past
 
-		expect(strikeSpy).toHaveBeenCalledWith(cur.uid);
+		expect(strikeSpy).toHaveBeenCalledWith(cur.uid, 'load-error');
 	});
 
 	it('a FOREGROUND stream-error still uses cross-source runFallback (no premature skip when visible)', () => {
@@ -6580,7 +6580,7 @@ describe('player resilience — synchronous audio.error storm is bounded (debug-
 
 		for (let i = 0; i < Player_FAILURE_CAP + 2; i++) el.fire('error');
 
-		expect(strikeSpy).toHaveBeenCalledWith(cur.uid); // SKIP: struck the dead track…
+		expect(strikeSpy).toHaveBeenCalledWith(cur.uid, 'load-error'); // SKIP: struck the dead track…
 		expect(player.error).not.toBe('toast.playbackStopped'); // …and did NOT hard-STOP
 		// Cast: TS flow-narrows player.notice to null (it can't see fire() mutate it) — read past it.
 		expect((player.notice as { kind?: string } | null)?.kind).not.toBe('stopped'); // no sticky Retry notice
@@ -7046,7 +7046,7 @@ describe('player resilience — corrupt blob self-repair (31-D-12/D-14)', () => 
 		el.fire('error');
 		await flush();
 
-		expect(strikeSpy).toHaveBeenCalledWith(cur.uid); // ceiling fired (strike + advance)
+		expect(strikeSpy).toHaveBeenCalledWith(cur.uid, 'load-error'); // ceiling fired (strike + advance)
 		expect(removeSpy).not.toHaveBeenCalled(); // …and the corrupt branch never ran
 		expect(mockDownloadTrack).not.toHaveBeenCalled();
 		expect(mockLogAction.mock.calls.filter(([evt]) => evt === 'blob.corrupt')).toHaveLength(0);
@@ -7185,7 +7185,7 @@ describe('player resilience — cache bust (31-D-09/31-D-11)', () => {
 		el.fire('error');
 		await flush();
 
-		expect(strikeSpy).toHaveBeenCalledWith(cur.uid); // ceiling won: strike + advance
+		expect(strikeSpy).toHaveBeenCalledWith(cur.uid, 'load-error'); // ceiling won: strike + advance
 		expect(posts()).toHaveLength(0); // …and returned before the report line
 	});
 });

@@ -10,12 +10,13 @@
 // when unsupported. The throw-prone artwork/position/state logic lives in the pure,
 // node-tested media-session.ts; this store is a thin caller of those helpers.
 import { browser } from '$app/environment';
-import { SvelteSet } from 'svelte/reactivity';
+import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 import { Capacitor } from '@capacitor/core';
 // 37-D-03: lyricByName is the NAME-ONLY lyric walk. ensureTrackDetails returns a `device:` uid
 // untouched (34-D-01), so it is the one lyric path a local file can actually use — and it returns a
 // bare string, so this branch structurally cannot adopt an audioUrl for a device track.
-import { ensureTrackDetails, lyricByName } from '$lib/services/catalog';
+// quick-260926-l69: evictSearch lets an explicit ✗-row retry drop the song's cached searches.
+import { ensureTrackDetails, lyricByName, evictSearch } from '$lib/services/catalog';
 // 37-02: the memoised, never-throws read of an offline blob's OWN embedded LRC + front cover.
 import { localEnrichment } from '$lib/services/local-tags';
 import { combinedSignal } from '$lib/services/abort-signal';
@@ -155,10 +156,25 @@ export interface PlayerNotice {
 	count?: number;
 	/** 'skip' only: the title of the most recently skipped track. */
 	title?: string;
+	/** quick-260926-l69: 'skip' only — why the most recent track was skipped. Deliberately NOT the
+	 *  `reason` field above (that is the 'stopped' discriminator). The host maps it via SKIP_REASON_KEY. */
+	skipReason?: SkipReason;
 	/** 'stopped'/loop-guard only: Retry — skips ahead to the next track, resets the counter,
 	 *  re-arms the never-stop chain (D-05). Absent on the offline-pause notice. */
 	action?: () => void;
 }
+
+/**
+ * quick-260926-l69: why a track was skipped — a closed union so no upstream free text ever crosses
+ * store → UI. Set per uid at every live skip / dead-promotion site; the Up Next row and the skip
+ * toast render it through SKIP_REASON_KEY + t() (the store stays i18n-free, same contract as `msg`).
+ */
+export type SkipReason = 'no-source' | 'timeout' | 'load-error';
+export const SKIP_REASON_KEY: Record<SkipReason, TranslationKey> = {
+	'no-source': 'skip.noSource',
+	timeout: 'skip.timeout',
+	'load-error': 'skip.loadError'
+};
 
 /**
  * 31-D-12: where the bytes behind the current `audio.src` came from.
@@ -1352,6 +1368,14 @@ class Player {
 	 */
 	private unplayableUids = new SvelteSet<string>();
 	/**
+	 * quick-260926-l69: the last skip cause per uid. Reactive (SvelteMap) because the Up Next row reads
+	 * it per-row to draw ✗ + the reason; session-scoped, never persisted. Cleared in lockstep with
+	 * `unplayableUids` (clearQueue / recoverFromStop / retryUnplayable / advanceTo's second chance /
+	 * handleDefinitiveFailure's promotion-undo) plus per-uid on a real `playing`. Private — read only
+	 * through skipReason().
+	 */
+	private skipReasons = new SvelteMap<string, SkipReason>();
+	/**
 	 * NEVER-STOP (quick-260630-q03): uids of dead tracks that have already been given their ONE
 	 * second-chance retry on advance. When current ends and the next candidate is in `unplayableUids`,
 	 * the advance re-resolves + replays it ONCE (a transient probe failure recovers this way) and
@@ -1420,15 +1444,23 @@ class Player {
 	 * the ✗ row draws. Returns true once the uid is dead (so the caller can mirror the no-mark/skip vs
 	 * mark-and-route-past branch).
 	 */
-	private strikeUnplayable(uid: string): boolean {
+	private strikeUnplayable(uid: string, reason: SkipReason): boolean {
 		const n = (this.unplayableStrikes.get(uid) ?? 0) + 1;
 		this.unplayableStrikes.set(uid, n);
 		if (n >= Player.STRIKE_CAP) {
-			logAction('mark-dead', { uid });
+			logAction('mark-dead', { uid, reason }); // quick-260926-l69: the reason rides the existing log line
 			this.unplayableUids.add(uid); // promote — reactive ✗ row + nextPlayableIndex routes past it
+			this.skipReasons.set(uid, reason); // quick-260926-l69: the ✗ row explains itself
 			return true;
 		}
 		return false;
+	}
+
+	/** quick-260926-l69: tag a uid with why it was just skipped (reactive — the Up Next row reads it)
+	 *  and record it in the Activity log. */
+	private recordSkip(uid: string, reason: SkipReason): void {
+		this.skipReasons.set(uid, reason);
+		logAction('skip', { uid, reason });
 	}
 
 	/** Drop a uid's accumulated strikes (a recovery point: a real `playing`, an explicit retry, or a
@@ -1479,7 +1511,7 @@ class Player {
 	 * complaint. This is the walk's single decision point, so the retry lives here rather than at
 	 * prefetchNext's two call sites.
 	 */
-	private async handleDefinitiveFailure(uid: string): Promise<void> {
+	private async handleDefinitiveFailure(uid: string, reason: SkipReason): Promise<void> {
 		// ─── 31-D-15 CROSS-SOURCE RETRY (before death, not after) ────────────────────────────────────
 		// Reuses tryFallback wholesale: it is already kuwo-first via registry order, already
 		// sameSongKey-gated (WR-06 — a fuzzy upstream search can return a DIFFERENT song), already
@@ -1531,12 +1563,13 @@ class Player {
 			// completely unchanged.
 		}
 		// ─────────────────────────────────────────────────────────────────────────────────────────────
-		const reachedCap = this.strikeUnplayable(uid);
+		const reachedCap = this.strikeUnplayable(uid, reason);
 		if (!reachedCap) return; // sub-cap: transient-equivalent this round, nothing further to do
 		const budgetLeft = (this.retryResolveAttempts.get(uid) ?? 0) < Player.RETRY_RESOLVE_MAX;
 		if (budgetLeft) {
 			// Undo the premature death and try a fresh re-resolve a few seconds later instead.
 			this.unplayableUids.delete(uid);
+			this.skipReasons.delete(uid); // quick-260926-l69: lockstep — the promotion is undone
 			this.scheduleRetryResolve(uid);
 		}
 		// else: budget exhausted — leave it promoted (genuinely dead).
@@ -1795,11 +1828,14 @@ class Player {
 		// blip, the exact regression 31-D-16 / HUO-RETRY were written against). The VISIBLE half of a
 		// live skip is emitSkipNotice (31-D-18), identical to the error-ceiling path. The real defect was
 		// that this skip fired on healthy tracks at all — fixed at the `stalled` listener.
-		this.strikeUnplayable(this.current.uid);
+		// quick-260926-l69: the row still shows ✗ + "timed out" via skipReasons — VISUAL only; routing
+		// (unplayableUids / nextPlayableIndex) is unchanged, so the track is not sidelined.
+		this.recordSkip(this.current.uid, 'timeout');
+		this.strikeUnplayable(this.current.uid, 'timeout');
 		// 31-D-18: the user is looking at a song stuck on the loading line — say that it was dropped.
 		// Same batched channel as every other visible skip. Deliberately does NOT touch failoverSkips:
 		// this path never counted toward the systemic ceiling and 31-D-17 keeps that accounting frozen.
-		this.emitSkipNotice(this.current.title);
+		this.emitSkipNotice(this.current.title, 'timeout');
 		// bg-lockscreen-stall-noskip (round 2): ONE bg skip per audible streak — the skipped-to track
 		// must itself produce audio (`playing` re-arms the flag) before another hidden-tab skip is
 		// allowed, so even the audible-bg path can never burn more than one hop down the queue.
@@ -2248,6 +2284,7 @@ class Player {
 			// toward a false permanent skip later in the session.
 			if (this.current) {
 				this.clearStrike(this.current.uid);
+				this.skipReasons.delete(this.current.uid); // quick-260926-l69: it plays — no longer skipped
 				// NEVER-STOP (quick-260630-q03): a recovered track is eligible for a fresh second-chance
 				// retry if it hits a later transient blip — drop its one-retry record.
 				this.retriedDeadUids.delete(this.current.uid);
@@ -2468,7 +2505,10 @@ class Player {
 				// recoverable: advanceTo still grants one second-chance retry and a real `playing` clears
 				// the strikes), then advance. next() bumps playGen via play(), superseding any in-flight
 				// fallback/reresolve for the now-abandoned dead track so it cannot re-enter this handler.
-				if (this.current) this.strikeUnplayable(this.current.uid);
+				if (this.current) {
+					this.recordSkip(this.current.uid, 'load-error'); // quick-260926-l69: tagged even if the STOP below trips
+					this.strikeUnplayable(this.current.uid, 'load-error');
+				}
 				// SYSTEMIC-FAILURE CEILING (debug-nowbar-frozen-audius-spam): this ceiling just fired for
 				// yet another track with no real `playing` since the last one. Count it; once
 				// SYSTEMIC_SKIP_CAP distinct tracks fail back-to-back the outage is systemic, so STOP
@@ -2484,7 +2524,7 @@ class Player {
 				// already collapses N skips inside SKIP_BURST_WINDOW_MS into ONE notice with a count, so a
 				// storm cannot become a toast storm. Emitted inside the else path, so the STOP branch above
 				// keeps its sticky Retry notice untouched.
-				if (this.current) this.emitSkipNotice(this.current.title);
+				if (this.current) this.emitSkipNotice(this.current.title, 'load-error');
 				this.next();
 				return;
 			}
@@ -2612,13 +2652,17 @@ class Player {
 					// prefetchNext route past it instead of replaying it (the log showed the same 5-track
 					// batch bg-error-skipping again a minute later). Bounded + recoverable: advanceTo still
 					// grants one second-chance retry, and a real `playing` clears the strikes.
-					if (this.current) this.strikeUnplayable(this.current.uid);
+					if (this.current) {
+						this.recordSkip(this.current.uid, 'load-error'); // quick-260926-l69
+						this.strikeUnplayable(this.current.uid, 'load-error');
+					}
 					this.playing = false;
 					// 31-D-17/31-D-18: this path DELIBERATELY differs from its sibling ceiling path in two
 					// ways, and both omissions are load-bearing — do not "fix" either of them.
 					//  (a) NO emitSkipNotice: it only runs while document.hidden, so nobody sees the toast,
 					//      and emitSkipNotice's burst window would replay it as a stale burst the moment the
-					//      user returns to the app.
+					//      user returns to the app. quick-260926-l69: the reason IS still recorded, so the
+					//      Up Next row explains the skip when the user returns.
 					//  (b) NO `++this.failoverSkips`, unlike the ceiling path above. failoverSkips is the
 					//      only CROSS-track bound in the system and reaching SYSTEMIC_SKIP_CAP calls
 					//      haltRunawayRecovery() — a hard pause + sticky Retry. Counting background skips
@@ -2956,6 +3000,7 @@ class Player {
 		this.manualUids.clear();
 		this.pendingManual = null; // quick-260618-fiz (Fix 4): drop any uncommitted manual carry too
 		this.unplayableUids.clear(); // PLAY-RESILIENCE: a user queue reset clears the dead-track set too
+		this.skipReasons.clear(); // quick-260926-l69: …and the per-uid skip reasons in lockstep
 		this.unplayableStrikes.clear(); // …and the sub-cap strike budget in lockstep (over-aggressive-skip fix)
 		this.retriedDeadUids.clear(); // NEVER-STOP (quick-260630-q03): …and the one-retry record in lockstep
 		this.cancelAllRetryResolves(); // quick-260627-huo: …and cancel any pending delayed re-resolve timers (no leak)
@@ -3141,7 +3186,7 @@ class Player {
 					// recover on a fresh resolve at click-time). 31-D-15: this now awaits a cross-source
 					// retry before any strike is recorded, so re-check the stale-guard after it (the walk
 					// re-checks after EVERY await — a superseded walk must discard, never write back).
-					await this.handleDefinitiveFailure(cand.uid);
+					await this.handleDefinitiveFailure(cand.uid, 'no-source'); // quick-260926-l69
 					if (sig.aborted || this.current?.uid !== seedUid) return; // current changed — discard
 					continue;
 				}
@@ -3156,7 +3201,7 @@ class Player {
 					// TIMEOUT stays unmarked entirely. Either way the walk advances this round.
 					if (probe.errored) {
 						// 31-D-15: awaits a cross-source retry before striking — re-check the stale-guard after.
-						await this.handleDefinitiveFailure(cand.uid);
+						await this.handleDefinitiveFailure(cand.uid, 'load-error'); // quick-260926-l69
 						if (sig.aborted || this.current?.uid !== seedUid) return; // current changed — discard
 					} else {
 						// quick-260629-nyl Task 2a: a probe TIMEOUT is the transient "playable later on click"
@@ -3649,7 +3694,7 @@ class Player {
 					this.loading = false;
 					this.error = 'toast.fileMissing';
 					this.clearMedia();
-					this.handleTotalFailure(track);
+					this.handleTotalFailure(track, 'load-error'); // quick-260926-l69: the file is gone
 					return;
 				}
 				if (offlineBlob && this.audio) {
@@ -4559,6 +4604,12 @@ class Player {
 		return this.unplayableUids.has(uid);
 	}
 
+	/** quick-260926-l69: reactive read of why `uid` was last skipped (null = not skipped / recovered).
+	 *  PUBLIC, read-only accessor — the SvelteMap itself stays private. */
+	skipReason(uid: string): SkipReason | null {
+		return this.skipReasons.get(uid) ?? null;
+	}
+
 	/**
 	 * quick-260615-i9u (Feature A): tap-to-retry a ✗ skipped Up-Next row. Clears the uid from the
 	 * dead set (un-dims the row reactively) and replays THAT EXACT track via the NON-fresh path
@@ -4572,6 +4623,16 @@ class Player {
 		this.clearStrike(track.uid); // over-aggressive-skip fix: a manual retry resets the strike budget too
 		this.retriedDeadUids.delete(track.uid); // NEVER-STOP (quick-260630-q03): a manual retry resets the auto-retry budget
 		this.cancelRetryResolve(track.uid); // quick-260627-huo: a manual retry supersedes any pending delayed retry
+		// quick-260926-l69 (R2): a GENUINE retry, not a replay of the prior miss. R1 keeps error/aborted
+		// search results out of the cache; this covers the remaining ok-but-dry flake (e.g. qq returning
+		// 0 rows under load) by evicting every cached search for the exact query tryFallback and
+		// resolveNameStub key their single-source searches on, and resets the fallback episode so
+		// tryFallback walks every eligible source again. Caps + generation guards are untouched.
+		// ponytail: evicts the CLIENT search cache only; a poisoned EDGE resolve-cache url (32-D-10) is repaired by its own reportDeadUrl bust path, and taps from surfaces other than Up Next rely on R1 alone.
+		this.skipReasons.delete(track.uid);
+		evictSearch(`${track.artist} ${track.title}`);
+		this.fallbackEpisodeKey = null;
+		this.fallbackAttempted = new Set<SourceId>();
 		void this.play(track, { fresh: false });
 	}
 
@@ -4605,6 +4666,7 @@ class Player {
 			logAction('retry-dead', { uid: t.uid });
 			this.retriedDeadUids.add(t.uid);
 			this.unplayableUids.delete(t.uid);
+			this.skipReasons.delete(t.uid); // quick-260926-l69: lockstep with the dead set
 			this.clearStrike(t.uid);
 			this.cancelRetryResolve(t.uid);
 			this.play(t, { fresh: false });
@@ -4811,7 +4873,8 @@ class Player {
 			// Strike the uid (so the queue walk routes past it and the ✗ row renders) and skip forward,
 			// leaving the track IN the queue so a later retry can still play it.
 			if (budgetExpired && !swap) {
-				this.strikeUnplayable(failed.uid);
+				this.recordSkip(failed.uid, 'timeout'); // quick-260926-l69
+				this.strikeUnplayable(failed.uid, 'timeout');
 				void this.next();
 				return;
 			}
@@ -4854,7 +4917,7 @@ class Player {
 	 * The skip path goes through the existing next() → play() which bumps playGen, so a user manual
 	 * skip mid-failover supersedes correctly (Pitfall 2) — there is NO parallel fast-skip path.
 	 */
-	private handleTotalFailure(failed: Track) {
+	private handleTotalFailure(failed: Track, reason: SkipReason = 'no-source') {
 		// D-12: never-stop wins over explicit repeat — break a repeat-one loop on a failing track so
 		// it doesn't loop a dead song forever, then continue with the skip/up-next path.
 		if (this.repeatMode === 'one') {
@@ -4873,12 +4936,14 @@ class Player {
 		// exhausted for this song) is another distinct failed track. Once SYSTEMIC_SKIP_CAP tracks fail
 		// back-to-back with no playback, STOP rather than skipping into yet another regenerate/resolve
 		// burst that spams /api/*. A real `playing` resets failoverSkips so this can't trip on a blip.
+		// quick-260926-l69: tag the row BEFORE the ceiling check so a halted run still explains itself.
+		this.recordSkip(failed.uid, reason);
 		if (++this.failoverSkips >= Player.SYSTEMIC_SKIP_CAP) {
 			this.haltRunawayRecovery();
 			return;
 		}
 		// D-02: emit a batched skip notice and auto-skip to the next track.
-		this.emitSkipNotice(failed.title);
+		this.emitSkipNotice(failed.title, reason);
 		this.next();
 	}
 
@@ -4947,6 +5012,7 @@ class Player {
 		// PLAY-RESILIENCE: a manual recovery re-arms everything — drop the probe-confirmed dead set so
 		// previously-sidelined tracks get a fresh chance on the way out of the stopped state.
 		this.unplayableUids.clear();
+		this.skipReasons.clear(); // quick-260926-l69: lockstep with the dead set
 		this.unplayableStrikes.clear(); // over-aggressive-skip fix: a full recovery resets the strike budget too
 		this.retriedDeadUids.clear(); // NEVER-STOP (quick-260630-q03): a full recovery clears the one-retry record too
 		this.cancelAllRetryResolves(); // quick-260627-huo: a full recovery cancels every pending delayed re-resolve
@@ -4960,7 +5026,7 @@ class Player {
 	 * skipped" rather than N stacked toasts). Each skip (re)starts the debounce; when it elapses
 	 * with no further skip the burst counter resets so the NEXT isolated failure starts at 1.
 	 */
-	private emitSkipNotice(title: string) {
+	private emitSkipNotice(title: string, reason: SkipReason) {
 		this.skipBurst++;
 		this.notice = {
 			kind: 'skip',
@@ -4968,7 +5034,8 @@ class Player {
 			// not a phantom `player.notice.skip` token that exists in no dictionary.
 			msg: this.skipBurst > 1 ? 'toast.skippedMany' : 'toast.skipped',
 			count: this.skipBurst,
-			title
+			title,
+			skipReason: reason // quick-260926-l69: the most recent skip's cause (keys only)
 		};
 		if (this.skipBurstTimer) clearTimeout(this.skipBurstTimer);
 		this.skipBurstTimer = setTimeout(() => {
