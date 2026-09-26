@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import {
 	resolveStub,
 	mapWithConcurrency,
@@ -8,6 +8,7 @@ import {
 	DISCOVERY_COUNTRIES
 } from './discovery';
 import * as catalog from './catalog';
+import * as nameRescue from './name-rescue';
 import { makeUid, type SourceId, type Track } from '$lib/sources/types';
 
 // resolveStub (Phase 9, D-03) is the LOAD-BEARING transform: a Last.fm {artist,title}
@@ -41,6 +42,13 @@ function mk(source: SourceId, songid: string, artist = 'a', extra: Partial<Track
 function result(tracks: Track[]): catalog.SearchResult {
 	return { perSource: [], interleaved: tracks };
 }
+
+// quick-260925-wa7: a Latin weak/miss now calls lookupChineseName, which would hit YTM + iTunes for
+// real. Default it to a miss for EVERY test so no test touches the network; the rescue block below
+// re-programs it per case.
+beforeEach(() => {
+	vi.spyOn(nameRescue, 'lookupChineseName').mockResolvedValue(null);
+});
 
 afterEach(() => {
 	vi.restoreAllMocks();
@@ -207,6 +215,172 @@ describe('resolveStub — t2s rescue-on-miss (quick-260808-urx)', () => {
 			.mockRejectedValueOnce(new Error('search down'));
 
 		await expect(resolveStub('周傑倫', '止戰之殤')).resolves.toBeNull();
+	});
+});
+
+// quick-260925-wa7 — English/romanized name rescue. Every branch pins BOTH the searchAll count and
+// the lookupChineseName count: a strong hit and every CJK query must cost exactly what they did
+// before. The real t2sConvertLines runs (offline dict), so the Simplified re-search query is literal.
+describe('resolveStub — English/romanized name rescue (quick-260925-wa7)', () => {
+	const GRAD = 'Graduation ("Mom, Don\'t Do That!" TV Series Theme Song)';
+	const nct = () => mk('qq', 'nct', 'NCT DREAM', { title: 'Graduation' });
+	const zhGrad = { artist: '周興哲', title: '最後一堂課' };
+
+	it('strong English hit → returned; searchAll 1, lookup 0', async () => {
+		const hit = mk('netease', 'lb', 'lullaboy', { title: 'someone like u' });
+		const search = vi.spyOn(catalog, 'searchAll').mockResolvedValue(result([hit]));
+		const look = vi.spyOn(nameRescue, 'lookupChineseName');
+
+		expect((await resolveStub('lullaboy', 'someone like u'))?.uid).toBe(hit.uid);
+		expect(search).toHaveBeenCalledTimes(1);
+		expect(look).toHaveBeenCalledTimes(0);
+	});
+
+	it('strong English hit (Bones & The Boy) → searchAll 1, lookup 0', async () => {
+		const hit = mk('qq', 'bb', 'Bones & The Boy', { title: 'Good In Me' });
+		const search = vi.spyOn(catalog, 'searchAll').mockResolvedValue(result([hit]));
+		const look = vi.spyOn(nameRescue, 'lookupChineseName');
+
+		expect((await resolveStub('Bones & The Boy', 'Good In Me'))?.uid).toBe(hit.uid);
+		expect(search).toHaveBeenCalledTimes(1);
+		expect(look).toHaveBeenCalledTimes(0);
+	});
+
+	it('English zero-result miss + lookup null → null; searchAll 1, lookup 1 with the ORIGINAL names', async () => {
+		const search = vi.spyOn(catalog, 'searchAll').mockResolvedValue(result([]));
+		const look = vi.spyOn(nameRescue, 'lookupChineseName').mockResolvedValue(null);
+
+		await expect(resolveStub('Eric Chou', 'Zai Ai Ni')).resolves.toBeNull();
+		expect(search).toHaveBeenCalledTimes(1);
+		expect(look).toHaveBeenCalledTimes(1);
+		expect(look).toHaveBeenCalledWith('Eric Chou', 'Zai Ai Ni');
+	});
+
+	it('weak English hit + lookup null → the weak row (never worse); searchAll 1, lookup 1', async () => {
+		const weak = nct();
+		const search = vi.spyOn(catalog, 'searchAll').mockResolvedValue(result([weak]));
+		const look = vi.spyOn(nameRescue, 'lookupChineseName').mockResolvedValue(null);
+
+		expect((await resolveStub('Eric Chou', GRAD))?.uid).toBe(weak.uid);
+		expect(search).toHaveBeenCalledTimes(1);
+		expect(look).toHaveBeenCalledTimes(1);
+	});
+
+	it('weak hit + lookup hit → ONE Simplified re-search whose strong row wins; searchAll 2', async () => {
+		const rescued = mk('qq', 'grad', 'Eric周兴哲', { title: '最后一堂课' });
+		const search = vi
+			.spyOn(catalog, 'searchAll')
+			.mockResolvedValueOnce(result([nct()]))
+			.mockResolvedValueOnce(result([rescued]));
+		const look = vi.spyOn(nameRescue, 'lookupChineseName').mockResolvedValue(zhGrad);
+
+		expect((await resolveStub('Eric Chou', GRAD))?.uid).toBe(rescued.uid);
+		expect(search).toHaveBeenCalledTimes(2);
+		expect(look).toHaveBeenCalledTimes(1);
+		// t2s is applied BEFORE the re-search (accepted convert-first deviation).
+		expect(search.mock.calls[1][0]).toBe('周兴哲 最后一堂课');
+	});
+
+	it('a Traditional re-search row still strong-matches (candidate folded to Simplified)', async () => {
+		const rescued = mk('kuwo', 'trad', '周興哲', { title: '最後一堂課' });
+		vi.spyOn(catalog, 'searchAll')
+			.mockResolvedValueOnce(result([nct()]))
+			.mockResolvedValueOnce(result([rescued]));
+		vi.spyOn(nameRescue, 'lookupChineseName').mockResolvedValue(zhGrad);
+
+		expect((await resolveStub('Eric Chou', GRAD))?.uid).toBe(rescued.uid);
+	});
+
+	it('the re-search ranks only strong rows — a better-scored cover does not hide the real one', async () => {
+		// scoreMatch prefers the cover (exact Simplified title) over the Traditional real row, so a
+		// top-row-only check would reject the rescue; ranking only strong rows keeps it.
+		const cover = mk('netease', 'cover', '某歌手', { title: '最后一堂课' });
+		const real = mk('joox', 'real', '周興哲', { title: '最後一堂課' });
+		const search = vi
+			.spyOn(catalog, 'searchAll')
+			.mockResolvedValueOnce(result([nct()]))
+			.mockResolvedValueOnce(result([cover, real]));
+		vi.spyOn(nameRescue, 'lookupChineseName').mockResolvedValue(zhGrad);
+
+		expect((await resolveStub('Eric Chou', GRAD))?.uid).toBe(real.uid);
+		expect(search).toHaveBeenCalledTimes(2);
+	});
+
+	it('weak hit + lookup hit + unrelated re-search row → the ORIGINAL weak row; searchAll 2', async () => {
+		const weak = nct();
+		const search = vi
+			.spyOn(catalog, 'searchAll')
+			.mockResolvedValueOnce(result([weak]))
+			.mockResolvedValueOnce(result([mk('qq', 'aaa', 'Alpha', { title: 'Aaa' })]));
+		vi.spyOn(nameRescue, 'lookupChineseName').mockResolvedValue(zhGrad);
+
+		expect((await resolveStub('Eric Chou', GRAD))?.uid).toBe(weak.uid);
+		expect(search).toHaveBeenCalledTimes(2);
+	});
+
+	it('weak hit + lookup hit + empty re-search → the original weak row', async () => {
+		const weak = nct();
+		const search = vi
+			.spyOn(catalog, 'searchAll')
+			.mockResolvedValueOnce(result([weak]))
+			.mockResolvedValueOnce(result([]));
+		vi.spyOn(nameRescue, 'lookupChineseName').mockResolvedValue(zhGrad);
+
+		expect((await resolveStub('Eric Chou', GRAD))?.uid).toBe(weak.uid);
+		expect(search).toHaveBeenCalledTimes(2);
+	});
+
+	it('weak hit + lookup hit + re-search THROWS → resolves (never throws) to the original weak row', async () => {
+		const weak = nct();
+		vi.spyOn(catalog, 'searchAll')
+			.mockResolvedValueOnce(result([weak]))
+			.mockRejectedValueOnce(new Error('search down'));
+		vi.spyOn(nameRescue, 'lookupChineseName').mockResolvedValue(zhGrad);
+
+		const out = await resolveStub('Eric Chou', GRAD);
+		expect(out?.uid).toBe(weak.uid);
+	});
+
+	it('Japanese miss → null; searchAll 1, lookup 0 (kana gate)', async () => {
+		const search = vi.spyOn(catalog, 'searchAll').mockResolvedValue(result([]));
+		const look = vi.spyOn(nameRescue, 'lookupChineseName');
+
+		await expect(resolveStub('YOASOBI', '夜に駆ける')).resolves.toBeNull();
+		expect(search).toHaveBeenCalledTimes(1);
+		expect(look).toHaveBeenCalledTimes(0);
+	});
+
+	it('Traditional Chinese miss → the existing t2s retry, lookup 0', async () => {
+		const hit = mk('kuwo', 'hit', '周杰伦', { title: '止战之殇' });
+		const search = vi
+			.spyOn(catalog, 'searchAll')
+			.mockResolvedValueOnce(result([]))
+			.mockResolvedValueOnce(result([hit]));
+		const look = vi.spyOn(nameRescue, 'lookupChineseName');
+
+		expect((await resolveStub('周傑倫', '止戰之殤'))?.uid).toBe(hit.uid);
+		expect(search).toHaveBeenCalledTimes(2);
+		expect(search.mock.calls[1][0]).toBe('周杰伦 止战之殇');
+		expect(look).toHaveBeenCalledTimes(0);
+	});
+
+	it('mixed Latin-artist / Chinese-title miss → t2s path only, lookup 0', async () => {
+		const search = vi.spyOn(catalog, 'searchAll').mockResolvedValue(result([]));
+		const look = vi.spyOn(nameRescue, 'lookupChineseName');
+
+		await expect(resolveStub('Jay Chou', '珊瑚海')).resolves.toBeNull();
+		expect(search).toHaveBeenCalledTimes(1);
+		expect(look).toHaveBeenCalledTimes(0);
+	});
+
+	it('a weak hit on a CJK query is returned as before (no rescue)', async () => {
+		const weak = mk('qq', 'w', '酷客音乐', { title: '珊瑚海(钢琴曲)' });
+		const search = vi.spyOn(catalog, 'searchAll').mockResolvedValue(result([weak]));
+		const look = vi.spyOn(nameRescue, 'lookupChineseName');
+
+		expect((await resolveStub('周杰伦', '珊瑚海'))?.uid).toBe(weak.uid);
+		expect(search).toHaveBeenCalledTimes(1);
+		expect(look).toHaveBeenCalledTimes(0);
 	});
 });
 

@@ -6,8 +6,10 @@ import {
 	pairItunes,
 	readRescueCache,
 	writeRescueCache,
+	lookupChineseName,
 	NAME_RESCUE_KEY
 } from './name-rescue';
+import * as apiBase from './api-base';
 
 // Fixtures below are copied from the 2026-09-26 live probes recorded in
 // .planning/quick/260925-wa7-*/260925-wa7-CONTEXT.md (quick-260925-wa7).
@@ -100,10 +102,35 @@ describe('pairYtmRows (quick-260925-wa7)', () => {
 		).toBeNull();
 	});
 
-	it('Mojito: Latin title, CJK artist → accepted in pass 2', () => {
+	it('Mojito: Latin title, CJK en-artist → accepted in pass 2 once YTM localized the artist elsewhere', () => {
+		// v9 is an official video of ANOTHER song: en 'Jay Chou' ↔ zh '周杰倫' proves the artist mapping.
+		expect(
+			pairYtmRows(
+				[row('v4', 'Mojito', '周杰倫'), row('v9', '七月的極光', 'Jay Chou')],
+				[row('v4', 'Mojito', '周杰倫'), row('v9', '七月的極光', '周杰倫')],
+				q('Jay Chou', 'Mojito')
+			)
+		).toEqual({ artist: '周杰倫', title: 'Mojito' });
+		// without any localizing row there is no artist evidence → null
 		expect(
 			pairYtmRows([row('v4', 'Mojito', '周杰倫')], [row('v4', 'Mojito', '周杰倫')], q('Jay Chou', 'Mojito'))
-		).toEqual({ artist: '周杰倫', title: 'Mojito' });
+		).toBeNull();
+	});
+
+	it('uploader cover with a bilingual title → null even when the artist mapping is known (live probe)', () => {
+		expect(
+			pairYtmRows(
+				[
+					row('u1', '周杰倫 Jay Chou & 梁心頤 Lara 珊瑚海 Coral Sea 純鋼琴 #YIMUZIC', '張義 YImuzic'),
+					row('v9', '珊瑚海', 'Jay Chou')
+				],
+				[
+					row('u1', '周杰倫 Jay Chou & 梁心頤 Lara 珊瑚海 Coral Sea 純鋼琴 #YIMUZIC', '張義 YImuzic'),
+					row('v9', '珊瑚海', '周杰倫')
+				],
+				q('Jay Chou', 'Coral Sea')
+			)
+		).toBeNull();
 	});
 
 	it('uploader video with identical Latin names in both locales → null', () => {
@@ -280,5 +307,156 @@ describe('rescue cache (quick-260925-wa7)', () => {
 		setStorage(undefined);
 		expect(() => writeRescueCache('A', 'B', null)).not.toThrow();
 		expect(readRescueCache('A', 'B')).toBeNull();
+	});
+});
+
+// ---- lookupChineseName orchestrator (quick-260925-wa7) ---------------------------------------
+
+/** Minimal InnerTube search envelope: one shelf, rows with videoId + title + ARTIST-typed run. */
+function envelope(rows: Array<[videoId: string, title: string, artist: string]>) {
+	return {
+		contents: {
+			sectionListRenderer: {
+				contents: [
+					{
+						musicShelfRenderer: {
+							contents: rows.map(([videoId, title, artist]) => ({
+								musicResponsiveListItemRenderer: {
+									playlistItemData: { videoId },
+									flexColumns: [
+										{ musicResponsiveListItemFlexColumnRenderer: { text: { runs: [{ text: title }] } } },
+										{
+											musicResponsiveListItemFlexColumnRenderer: {
+												text: {
+													runs: [
+														{
+															text: artist,
+															navigationEndpoint: {
+																browseEndpoint: {
+																	browseEndpointContextSupportedConfigs: {
+																		browseEndpointContextMusicConfig: { pageType: 'MUSIC_PAGE_TYPE_ARTIST' }
+																	}
+																}
+															}
+														}
+													]
+												}
+											}
+										}
+									]
+								}
+							}))
+						}
+					}
+				]
+			}
+		}
+	};
+}
+
+const json = (body: unknown, status = 200) =>
+	new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+
+type Routes = { en?: unknown; zh?: unknown; hk?: unknown; us?: unknown; hkLookup?: unknown; usLookup?: unknown };
+
+/** apiFetch spy routed by URL; a route value that is a Response/Error is returned/thrown as-is. */
+function routeApi(r: Routes) {
+	const pick = (path: string): unknown => {
+		if (path.includes('/api/ytmusic/search')) return path.includes('hl=zh-TW') ? r.zh : r.en;
+		if (path.includes('/lookup?')) return path.includes('country=hk') ? r.hkLookup : r.usLookup;
+		return path.includes('country=hk') ? r.hk : r.us;
+	};
+	return vi.spyOn(apiBase, 'apiFetch').mockImplementation(async (path: string) => {
+		const v = pick(path);
+		if (v instanceof Error) throw v;
+		if (v instanceof Response) return v;
+		return json(v ?? { results: [] });
+	});
+}
+
+const urls = (spy: ReturnType<typeof routeApi>) => spy.mock.calls.map((c) => String(c[0]));
+
+describe('lookupChineseName (quick-260925-wa7)', () => {
+	beforeEach(() => setStorage(new MemStorage()));
+	afterEach(() => {
+		setStorage(originalLocalStorage);
+		vi.restoreAllMocks();
+	});
+
+	it('cache hit / cached miss → no fetch at all', async () => {
+		const spy = routeApi({});
+		writeRescueCache('Jay Chou', 'Coral Sea', { artist: '周杰倫', title: '珊瑚海' });
+		writeRescueCache('Nobody', 'Nothing', null);
+		expect(await lookupChineseName('Jay Chou', 'Coral Sea')).toEqual({ artist: '周杰倫', title: '珊瑚海' });
+		expect(await lookupChineseName('Nobody', 'Nothing')).toBeNull();
+		expect(spy).toHaveBeenCalledTimes(0);
+	});
+
+	it('stage 1 verified (Zai Ai Ni) → zh-TW names, no iTunes call, cached', async () => {
+		const spy = routeApi({
+			en: { ytmusicMerged: [envelope([['v1', '再愛你 - Zai Ai Ni', 'Eric Chou']])] },
+			zh: { ytmusicMerged: [envelope([['v1', '再愛你', '周興哲']])] }
+		});
+		expect(await lookupChineseName('Eric Chou', 'Zai Ai Ni')).toEqual({ artist: '周興哲', title: '再愛你' });
+		const q = encodeURIComponent('Eric Chou Zai Ai Ni');
+		expect(urls(spy).sort()).toEqual(
+			[`/api/ytmusic/search?q=${q}&hl=en`, `/api/ytmusic/search?q=${q}&hl=zh-TW`].sort()
+		);
+		expect(urls(spy).some((u) => u.includes('itunes.apple.com'))).toBe(false);
+		for (const c of spy.mock.calls) expect(c[1]?.signal).toBeInstanceOf(AbortSignal);
+		expect(readRescueCache('Eric Chou', 'Zai Ai Ni')).toEqual({ artist: '周興哲', title: '再愛你' });
+	});
+
+	it('stage 1 unverified (Coral Sea) → iTunes HK search ↔ US lookup; no lookup for an empty store', async () => {
+		const spy = routeApi({
+			en: envelope([['v3', '珊瑚海', '周杰倫']]),
+			zh: envelope([['v3', '珊瑚海', '周杰倫']]),
+			hk: { results: [{ trackId: 1721454126, trackName: '珊瑚海 (feat. 梁心頤)', artistName: '周杰倫' }] },
+			us: { results: [] },
+			usLookup: { results: [{ trackId: 1721454126, trackName: 'Coral Sea (feat. Lara Veronin)', artistName: 'Jay Chou' }] }
+		});
+		expect(await lookupChineseName('Jay Chou', 'Coral Sea')).toEqual({ artist: '周杰倫', title: '珊瑚海' });
+		const all = urls(spy);
+		const searches = all.filter((u) => u.startsWith('https://itunes.apple.com/search?'));
+		expect(searches).toHaveLength(2);
+		for (const u of searches) {
+			const p = new URL(u).searchParams;
+			expect(p.get('term')).toBe('Jay Chou Coral Sea');
+			expect(p.get('entity')).toBe('song');
+			expect(p.get('limit')).toBe('3');
+		}
+		expect(searches.map((u) => new URL(u).searchParams.get('country')).sort()).toEqual(['hk', 'us']);
+		// HK found an id → looked up in the US store; US found none → NO HK lookup.
+		expect(all.filter((u) => u.startsWith('https://itunes.apple.com/lookup?'))).toEqual([
+			'https://itunes.apple.com/lookup?id=1721454126&country=us'
+		]);
+		expect(spy).toHaveBeenCalledTimes(5);
+		for (const c of spy.mock.calls) expect(c[1]?.signal).toBeInstanceOf(AbortSignal);
+	});
+
+	it('both stages miss → null, and the miss is cached (second call fetches nothing)', async () => {
+		const spy = routeApi({
+			en: envelope([]),
+			zh: envelope([]),
+			us: { results: [{ trackId: 5, trackName: 'Unbreakable Love', artistName: 'Eric Chou' }] },
+			hkLookup: { results: [{ trackId: 5, trackName: '永不失聯的愛', artistName: '周興哲' }] }
+		});
+		expect(await lookupChineseName('Eric Chou', 'Zai Ai Ni')).toBeNull();
+		const n = spy.mock.calls.length;
+		expect(n).toBe(5); // 2 YTM + 2 searches + 1 HK lookup
+		expect(await lookupChineseName('Eric Chou', 'Zai Ai Ni')).toBeNull();
+		expect(spy).toHaveBeenCalledTimes(n);
+		expect(readRescueCache('Eric Chou', 'Zai Ai Ni')).toBe('miss');
+	});
+
+	it('reject / 500 / non-JSON / shelf-less hops count as empty — never throws, miss cached', async () => {
+		routeApi({
+			en: new Error('network'),
+			zh: { nope: true }, // shelf-less → parseSearchEnvelope contract-drift throw, caught
+			hk: new Response('oops', { status: 500 }),
+			us: new Response('<html>', { status: 200 })
+		});
+		await expect(lookupChineseName('Jay Chou', 'Coral Sea')).resolves.toBeNull();
+		expect(readRescueCache('Jay Chou', 'Coral Sea')).toBe('miss');
 	});
 });

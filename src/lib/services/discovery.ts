@@ -13,7 +13,9 @@
 import { searchAll } from '$lib/services/catalog';
 import { dedupeBest } from '$lib/services/dedupe';
 import { scoreMatch } from '$lib/services/score-match';
-import { isChineseLine, t2sConvertLines } from '$lib/services/zh-convert';
+import { isChineseLine, t2sConvertLines, t2sConvertLineSync } from '$lib/services/zh-convert';
+import { detectLang } from '$lib/i18n/detect';
+import { isStrongMatch, lookupChineseName } from '$lib/services/name-rescue';
 import { settings } from '$lib/stores/settings.svelte';
 import type { Track } from '$lib/sources/types';
 
@@ -30,12 +32,18 @@ import type { Track } from '$lib/sources/types';
  * similarly-scored candidates (D-02 tie-break). Throws only what searchAll throws — the
  * never-throw boundary is resolveStub's single try/catch.
  */
-async function attempt(artist: string, title: string): Promise<Track | null> {
+async function attempt(
+	artist: string,
+	title: string,
+	accept?: (t: Track) => boolean
+): Promise<Track | null> {
 	const r = await searchAll(`${artist} ${title}`, 1);
 	// dedupeBest = the deduped, quality/preferredSource-ordered candidate list (FINAL
 	// tie-break). Re-rank IT by scoreMatch with a stable max: only replace the current
 	// best on a STRICTLY higher score, so equal scores keep the earlier dedupeBest slot.
-	const candidates = dedupeBest(r.interleaved, settings.preferredSource);
+	let candidates = dedupeBest(r.interleaved, settings.preferredSource);
+	// quick-260925-wa7: the name rescue ranks only the rows it would accept (see rescueLatin).
+	if (accept) candidates = candidates.filter(accept);
 	if (candidates.length === 0) return null;
 	const query = { artist, title };
 	let best = candidates[0];
@@ -83,11 +91,29 @@ async function attempt(artist: string, title: string): Promise<Track | null> {
  * memoized (~22 KB gzip, quick-260807-vl1) and loads only on the first Chinese-script MISS. The
  * two gates below are what make that a guarantee rather than a hope, and each is pinned by an
  * exact searchAll call-count assertion in discovery.test.ts.
+ *
+ * quick-260925-wa7 — ENGLISH/ROMANIZED NAME RESCUE. Shelves/radio/charts carry the label's English
+ * name for many Chinese songs ("Coral Sea — Jay Chou" = 珊瑚海 — 周杰倫). Those queries do not miss:
+ * the CN catalogs return junk (a piano cover, a same-title K-pop song), which the D-03 "zero results
+ * only" rule used to play. So for a CJK-FREE query whose first attempt is null or WEAK
+ * (`!isStrongMatch`), lookupChineseName finds the Chinese names (YTM en↔zh-TW, then iTunes HK↔US)
+ * and ONE Simplified re-search runs; its row is used only if it strongly matches the Chinese names,
+ * otherwise today's result (the weak hit or null) comes back — the rescue never makes a resolve
+ * worse. A strong first hit, and every CJK query, costs exactly what it did before (pinned by
+ * call-count tests). lookupChineseName is never-throw and cached (hit 30 d / miss 1 d), so a re-tap
+ * costs zero lookups. The supersedence contract above still holds by construction — playStub still
+ * awaits ONE resolveStub call; do NOT add a generation guard here either.
  */
 export async function resolveStub(artist: string, title: string): Promise<Track | null> {
 	try {
 		const hit = await attempt(artist, title);
-		if (hit) return hit;
+		// quick-260925-wa7 GATE A — Latin: NO kana/hangul/Han in either field ('en' is detectLang's
+		// "no CJK at all" verdict; isChineseLine alone would let JA/KO through).
+		const latin = detectLang(artist) === 'en' && detectLang(title) === 'en';
+		// GATE B — a strong hit, or any hit on a non-Latin query, returns exactly as before.
+		if (hit && !(latin && !isStrongMatch({ artist, title }, hit))) return hit;
+		// A thrown re-search must not turn a weak hit into null (never worse).
+		if (latin) return (await rescueLatin(artist, title).catch(() => null)) ?? hit;
 		// GATE 1 — script. Per-field, so a mixed Latin-artist / Chinese-title stub still qualifies.
 		// isChineseLine rides the kana/hangul-FIRST classifier, so JA/KO lines return false and a
 		// Japanese title is never wrongly Simplified-ified (D-04).
@@ -100,6 +126,27 @@ export async function resolveStub(artist: string, title: string): Promise<Track 
 	} catch {
 		return null;
 	}
+}
+
+/**
+ * quick-260925-wa7 — look up the Chinese names of a Latin {artist, title} and re-search ONCE with
+ * them. CONVERTS TO SIMPLIFIED FIRST (unlike the on-miss t2s retry above): this path is new, and the
+ * 2026-09-26 probe showed Traditional "周杰倫 珊瑚海" → [] on QQ while "周杰伦 珊瑚海" hit, so
+ * converting first costs one search instead of two. Accepted deviation, recorded in
+ * 260925-wa7-CONTEXT.md. Candidates are folded to Simplified too, so a Traditional row still
+ * matches. The re-search ranks ONLY rows that strongly match the Chinese names: a live probe with
+ * QQ absent had a piano cover (纪钧瀚) tie a strong 周杰倫 row on scoreMatch and win the stable max,
+ * which a top-row-only check would have thrown away. Null (no lookup / no strong row) → the caller
+ * keeps its original result.
+ */
+async function rescueLatin(artist: string, title: string): Promise<Track | null> {
+	const zh = await lookupChineseName(artist, title);
+	if (!zh) return null;
+	const [a2, t2] = await t2sConvertLines([zh.artist, zh.title]);
+	const fold = (s: string) => t2sConvertLineSync(s) ?? s; // warm: t2sConvertLines just loaded it
+	return attempt(a2, t2, (c) =>
+		isStrongMatch({ artist: a2, title: t2 }, { artist: fold(c.artist), title: fold(c.title) })
+	);
 }
 
 // ---- Curated discovery sets (Phase 9, D-02 / CONTEXT discretion) ------------------

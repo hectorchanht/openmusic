@@ -11,6 +11,9 @@
 // never-throw fetch orchestrator sits at the bottom. No runes, no `$app/*` — node-testable.
 import { detectLang } from '$lib/i18n/detect';
 import { matchKey, norm } from '$lib/services/match-key';
+import { apiFetch } from '$lib/services/api-base';
+import { combinedSignal } from '$lib/services/abort-signal';
+import { parseSearchEnvelope } from '$lib/sources/ytmusic';
 
 export interface ZhName {
 	artist: string;
@@ -80,20 +83,35 @@ export interface YtmRow {
 /**
  * quick-260925-wa7 stage 1 — join YTM hl=en and hl=zh-TW rows by videoId (songid). Accept an en row
  * only with ENGLISH EVIDENCE (its title contains the query title — YTM labels often ship bilingual
- * `再愛你 - Zai Ai Ni` titles) whose zh partner carries CJK and differs from the query. Pass 1 also
- * requires the en artist to match; pass 2 drops that (a CJK en-artist like `Mojito / 周杰倫` is
- * legitimate). Returns the zh-TW artist + cleaned title.
+ * `再愛你 - Zai Ai Ni` titles) whose zh partner carries CJK and differs from the query.
+ * Pass 1 also requires the en artist to match the query. Pass 2 covers a catalog row whose en artist
+ * is already CJK (`Mojito / 周杰倫`), but ONLY when its zh artist is one YTM itself localized from
+ * the query artist on some row of the same response (en `Jay Chou` ↔ zh `周杰倫` on an official
+ * video). Live-probe finding: a title-only pass 2 accepted uploader covers whose bilingual titles
+ * carry the query title (`周杰倫 Jay Chou & 梁心頤 Lara 珊瑚海 Coral Sea 純鋼琴 / 張義 YImuzic`), which
+ * then short-circuited the iTunes stage that finds the right answer. Returns the zh-TW artist +
+ * cleaned title.
  */
 export function pairYtmRows(enRows: YtmRow[], zhRows: YtmRow[], query: ZhName): ZhName | null {
 	const qt = norm(query.title);
 	if (!qt) return null;
 	const zhById = new Map<string, YtmRow>();
 	for (const z of zhRows) if (z?.songid && !zhById.has(z.songid)) zhById.set(z.songid, z);
-	for (const requireArtist of [true, false]) {
-		for (const r of enRows) {
-			const z = r?.songid ? zhById.get(r.songid) : undefined;
-			if (!z || !norm(r.title).includes(qt)) continue;
-			if (requireArtist && !componentMatches(r.artist, query.artist)) continue;
+	const pairs: Array<[YtmRow, YtmRow]> = [];
+	for (const r of enRows) {
+		const z = r?.songid ? zhById.get(r.songid) : undefined;
+		if (z) pairs.push([r, z]);
+	}
+	const localized = new Set<string>();
+	for (const [r, z] of pairs) {
+		if (componentMatches(r.artist, query.artist) && hasCjk(z.artist ?? '')) localized.add(norm(z.artist));
+	}
+	for (const pass of [1, 2]) {
+		for (const [r, z] of pairs) {
+			if (!norm(r.title).includes(qt)) continue;
+			const artistOk =
+				pass === 1 ? componentMatches(r.artist, query.artist) : localized.has(norm(z.artist ?? ''));
+			if (!artistOk) continue;
 			const out = zhCandidate(query, z.artist ?? '', z.title ?? '');
 			if (out) return out;
 		}
@@ -228,5 +246,86 @@ export function writeRescueCache(artist: string, title: string, value: ZhName | 
 		localStorage.setItem(NAME_RESCUE_KEY, JSON.stringify(rec));
 	} catch {
 		// quota / private mode — the rescue still works, it just is not remembered.
+	}
+}
+
+// ---- Orchestrator (quick-260925-wa7) --------------------------------------------------------
+// Same deadline as itunes-cover.ts. No caller signal: resolveStub has none, and playStub re-checks
+// pendingGen after its single await anyway.
+const LOOKUP_TIMEOUT_MS = 6000;
+const ITUNES_SEARCH = 'https://itunes.apple.com/search';
+const ITUNES_LOOKUP = 'https://itunes.apple.com/lookup';
+
+/** Never-throw GET → parsed JSON, or null on reject / non-OK / non-JSON. */
+async function fetchJson(path: string): Promise<unknown> {
+	try {
+		const res = await apiFetch(path, { signal: combinedSignal(LOOKUP_TIMEOUT_MS) });
+		return res.ok ? await res.json() : null;
+	} catch {
+		return null;
+	}
+}
+
+function ytmRows(json: unknown, keyword: string): YtmRow[] {
+	try {
+		return json ? parseSearchEnvelope(json, keyword) : [];
+	} catch {
+		return []; // shelf-less body → contract-drift throw → nothing to pair
+	}
+}
+
+function itunesResults(json: unknown): ItunesRow[] {
+	const r = (json as { results?: unknown } | null)?.results;
+	return Array.isArray(r) ? (r as ItunesRow[]) : [];
+}
+
+/**
+ * quick-260925-wa7 — the Chinese {artist, title} of an English/romanized song name, or null. First
+ * VERIFIED hit wins: stage 1 = our edge YTM search at hl=en + hl=zh-TW joined by videoId; stage 2
+ * (only when stage 1 finds nothing) = iTunes HK↔US cross-store by trackId.
+ *
+ * iTunes is CLIENT-SIDE ONLY (spike 012: the shared Workers egress IP gets 403/429), so this must
+ * never move into $lib/proxy/*. It goes through apiFetch — apiUrl passes an absolute https URL
+ * through unchanged (32-D-13) — so dedupe, the concurrency cap and the circuit breaker apply.
+ *
+ * Cost ceiling (T-wa7-04): ≤ 2 YTM + ≤ 4 iTunes GETs per COLD rescue, each 6 s-bounded, only for a
+ * weak/miss Latin query; the outcome is cached (hit 30 d, miss 1 d), so a re-tap costs nothing.
+ * Never throws; a failed hop counts as empty.
+ */
+export async function lookupChineseName(artist: string, title: string): Promise<ZhName | null> {
+	try {
+		const cached = readRescueCache(artist, title);
+		if (cached === 'miss') return null;
+		if (cached) return cached;
+		if (!norm(title)) return null; // nothing to look up (and nothing any pairing could verify)
+
+		const query = { artist, title };
+		const term = `${artist} ${title}`;
+		const ytm = '/api/ytmusic/search?q=' + encodeURIComponent(term);
+		const [en, zh] = await Promise.all([fetchJson(ytm + '&hl=en'), fetchJson(ytm + '&hl=zh-TW')]);
+		let found = pairYtmRows(ytmRows(en, term), ytmRows(zh, term), query);
+
+		if (!found) {
+			const search = (country: string) =>
+				fetchJson(
+					`${ITUNES_SEARCH}?${new URLSearchParams({ term, entity: 'song', limit: '3', country })}`
+				).then(itunesResults);
+			const [hkSearch, usSearch] = await Promise.all([search('hk'), search('us')]);
+			// Look each store's ids up in the OTHER store; ids are validated positive integers.
+			const lookup = async (ids: number[], country: string) =>
+				ids.length
+					? itunesResults(await fetchJson(`${ITUNES_LOOKUP}?id=${ids.join(',')}&country=${country}`))
+					: [];
+			const [hkLookup, usLookup] = await Promise.all([
+				lookup(itunesIds(usSearch), 'hk'),
+				lookup(itunesIds(hkSearch), 'us')
+			]);
+			found = pairItunes(query, hkSearch, usSearch, hkLookup, usLookup);
+		}
+
+		writeRescueCache(artist, title, found);
+		return found;
+	} catch {
+		return null;
 	}
 }
