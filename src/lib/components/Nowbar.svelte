@@ -35,6 +35,7 @@
     import { activeLineAt } from "$lib/services/lrc";
     import { parseLyrics } from "$lib/stores/lyric-script.svelte";
     import { readLyrics } from "$lib/stores/lyric-pins.svelte";
+    import { getLyricOffset } from "$lib/stores/lyric-offset.svelte";
 
     type Variant = "docked" | "embed";
 
@@ -80,6 +81,8 @@
     //    LRC per TRACK — not per tick. quick-260919-2jo: the script conversion rides INSIDE that same
     //    once-per-track pass (parseLyrics), so the per-tick scan below still walks plain strings.
     const lyricLines = $derived(parseLyrics(readLyrics(player.current)));
+    // quick-260926-mis: same offset as the pane, same function, so the two surfaces cannot drift.
+    const lyricOffset = $derived(getLyricOffset(player.current?.uid));
     // 2. The early return gates the whole scan: with the setting off this costs one boolean read per
     //    tick and nothing else. `variant !== "docked"` is D-8's embed exclusion — repeating the
     //    current line directly above NowPlaying's full lyrics pane is noise.
@@ -117,7 +120,7 @@
         // A playback error must never be hidden behind a lyric. When there IS an error the Nowbar is
         // not the surface to show the song's poetry on, so the artist+error branch takes the row back.
         if (player.error) return "";
-        const { idx } = activeLineAt(lyricLines, player.currentTime);
+        const { idx } = activeLineAt(lyricLines, player.currentTime, lyricOffset);
         return idx >= 0 ? lyricLines[idx].text : "";
     });
 

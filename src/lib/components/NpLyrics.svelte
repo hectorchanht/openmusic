@@ -18,7 +18,7 @@
 	import { t } from '$lib/i18n';
 	import { translateLinesEx } from '$lib/services/translate';
 	import { shouldTranslate } from '$lib/i18n/detect';
-	import { reorderPairs, splitParenLines, lineSeekFraction, activeLineAt, lyricAnchorMetrics, type LyricLine } from '$lib/services/lrc';
+	import { reorderPairs, splitParenLines, lineSeekFraction, activeLineAt, lyricAnchorMetrics, formatLyricOffset, type LyricLine } from '$lib/services/lrc';
 	// quick-260919-2jo: the Chinese script lock for lyric text. `parseLyrics` replaces `parseLRC`
 	// (the ORIGINAL lines); `lockLyricLines` covers the translation column, which is a SECOND source
 	// of source-derived text produced after parse time.
@@ -26,6 +26,10 @@
 	// quick-260919-1we (D-4): the user's explicit lyric pick, layered into a reactive READ so it
 	// outranks whatever the chain (or a downloaded file's embedded tag) supplied.
 	import { readLyrics } from '$lib/stores/lyric-pins.svelte';
+	// quick-260926-mis: per-song lyric TIME offset (hold a line to sync it; ±0.5s nudges).
+	import { getLyricOffset, setLyricOffset } from '$lib/stores/lyric-offset.svelte';
+	import { longpress } from '$lib/actions/longpress';
+	import { tick } from '$lib/util/haptics';
 
 	// quick-260919-np3: the lyrics pane, lifted OUT of NowPlaying.svelte verbatim. The ONLY semantic
 	// edit is that both `tab === 'lyrics'` gates (auto-scroll anchor + translation) became the MOUNT —
@@ -69,7 +73,12 @@
 	// one-line variant runs the IDENTICAL code instead of a second copy that could drift. This is a
 	// dedupe, not a change — `activeLine` / `activeTime` keep their names and meanings, so every
 	// downstream consumer (the scroll anchor, the sibling-active test) is untouched.
-	const active = $derived(activeLineAt(lines, player.currentTime));
+	//
+	// quick-260926-mis: `lyricOffset` is a $derived so the localStorage read happens once per track
+	// change / offset write, NOT per timeupdate. activeLineAt still returns the line's OWN time, so
+	// activeLine / activeTime and every consumer below are unchanged.
+	const lyricOffset = $derived(getLyricOffset(player.current?.uid));
+	const active = $derived(activeLineAt(lines, player.currentTime, lyricOffset));
 	const activeLine = $derived(active.idx);
 	const activeTime = $derived(active.time);
 	let lyricsEl = $state<HTMLElement | null>(null);
@@ -145,10 +154,32 @@
 	// the suspend that this tap's OWN lyricsTouched pointerdown just set, so the anchor $effect
 	// re-runs on the autoScroll flip and smooth-centers the now-active (tapped) line immediately.
 	function seekToLine(line: LyricLine) {
-		const frac = lineSeekFraction(line.time, player.duration);
+		// quick-260926-mis: a realigned line seeks to where it is actually sung (line.time + offset).
+		const frac = lineSeekFraction(line.time, player.duration, lyricOffset);
 		if (frac !== null) player.seekFraction(frac); // D-03: auto-plays if paused
 		if (idleTimer) clearTimeout(idleTimer);
 		autoScroll = true;
+	}
+	// quick-260926-mis: hold a line = "this line is being sung NOW". One hold beats dozens of ±0.5s
+	// taps for a 20-40s live intro. Sign from the lrc.ts convention: `currentTime - offset ===
+	// line.time` makes this line active, so offset = currentTime - line.time. The longpress action
+	// eats the trailing click, so seekToLine does not also fire. autoScroll/idleTimer handled like
+	// seekToLine so the anchor $effect re-centres the now-active line immediately.
+	function syncToLine(line: LyricLine) {
+		const uid = player.current?.uid;
+		if (!uid) return;
+		setLyricOffset(uid, player.currentTime - line.time);
+		tick();
+		if (idleTimer) clearTimeout(idleTimer);
+		autoScroll = true;
+	}
+	function nudgeOffset(delta: number) {
+		const uid = player.current?.uid;
+		if (uid) setLyricOffset(uid, lyricOffset + delta);
+	}
+	function resetOffset() {
+		const uid = player.current?.uid;
+		if (uid) setLyricOffset(uid, 0);
 	}
 	// Keyboard parity for the tappable lyric line (Enter/Space) — mirrors the cover's tapCoverKey
 	// and the grip's gripKey idiom, satisfying the a11y click-needs-keydown rule.
@@ -211,7 +242,11 @@
 		// the anchor from the live VISIBLE band (rect intersect viewport), which self-corrects for every mode:
 		//   every mode -> settings.lyricsAnchor percent of the visible band
 		const vh = typeof window !== 'undefined' ? window.innerHeight : cRect.bottom;
-		const visTop = Math.max(cRect.top, 0);
+		// quick-260926-mis: the sticky `.sync` row permanently covers the scroller's top, so the usable
+		// band starts below it — otherwise a low settings.lyricsAnchor parks the active line UNDER the
+		// row. A plain DOM read (no $state), so this pass still writes nothing reactive.
+		const syncH = container.querySelector<HTMLElement>('.sync')?.offsetHeight ?? 0;
+		const visTop = Math.max(cRect.top + syncH, 0);
 		const visBottom = Math.min(cRect.bottom, vh);
 		const visHeight = Math.max(0, visBottom - visTop);
 		const visTopWithin = visTop - cRect.top; // visible-band top, in container-local coords
@@ -378,6 +413,15 @@
 </script>
 
 {#if lines.length}
+	<!-- quick-260926-mis: offset control row. OUTSIDE `.lyrics` so it is not inside the padding the
+	     anchor pass writes and never gets `.lyrics`' onpointerdown (tapping it does not pause
+	     auto-scroll). Sticky so the readout stays visible while nudging after a scroll. -->
+	<div class="sync">
+		<button type="button" onclick={() => nudgeOffset(-0.5)} aria-label={t('lyrics.offsetEarlier')}>−0.5s</button>
+		<button type="button" class="readout" onclick={resetOffset} aria-label={t('lyrics.offsetReset', { value: formatLyricOffset(lyricOffset) })}>{formatLyricOffset(lyricOffset)}</button>
+		<button type="button" onclick={() => nudgeOffset(0.5)} aria-label={t('lyrics.offsetLater')}>+0.5s</button>
+		<span class="hint">{t('lyrics.offsetHint')}</span>
+	</div>
 	{#if translating}<p class="tr-hint">{t('nowplaying.translating')}</p>{/if}
 	<div class="lyrics" role="group" aria-label={t('nowplaying.lyrics')} bind:this={lyricsEl} onpointerdown={lyricsTouched} onwheel={lyricsWheel} onscroll={bumpResume}>
 		{#each lines as l, i (i)}
@@ -393,7 +437,7 @@
 				<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 				<!-- svelte-ignore a11y_no_noninteractive_element_to_interactive_role -->
 				<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-				<p data-i={i} class:active={l.time === activeTime && activeTime >= 0} class:paren={l.fromParen} onclick={() => seekToLine(l)} onkeydown={(e) => seekToLineKey(e, l)} role="button" tabindex="0">
+				<p data-i={i} class:active={l.time === activeTime && activeTime >= 0} class:paren={l.fromParen} use:longpress onlongpress={() => syncToLine(l)} onclick={() => seekToLine(l)} onkeydown={(e) => seekToLineKey(e, l)} role="button" tabindex="0">
 					{#if showTr && settings.translateMode === 'replace' && !hideTrForLine}
 						{trLines[i]}
 					{:else}
@@ -428,4 +472,11 @@
 	.lyrics .tr.active { color: var(--color-text); font-weight: 700; }
 	.tr-hint { text-align: center; font-size: 0.6875rem; color: var(--color-primary); margin: 0 0 6px; }
 	.empty { color: var(--color-text-muted); font-size: 0.875rem; text-align: center; padding: 24px; }
+	/* quick-260926-mis: quiet offset row. In normal flow above `.lyrics`, so it shifts every line by the
+	   same amount and anchorActiveLine (live rects) still lands exactly. Opaque --color-bg (what .np /
+	   .sheet paint) keeps it legible over lyrics scrolling beneath it. */
+	.sync { position: sticky; top: 0; z-index: 1; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; padding: 4px 0 6px; font-size: 0.6875rem; color: var(--color-text-muted); background: var(--color-bg); }
+	.sync button { background: none; border: 1px solid var(--color-text-muted); border-radius: 999px; color: inherit; font: inherit; padding: 2px 8px; min-width: 44px; min-height: 24px; cursor: pointer; }
+	.sync .readout { font-variant-numeric: tabular-nums; border-style: dashed; }
+	.sync .hint { flex-basis: 100%; text-align: center; font-size: 0.625rem; opacity: 0.7; }
 </style>
