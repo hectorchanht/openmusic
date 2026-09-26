@@ -9,6 +9,7 @@
 	import { names } from '$lib/stores/names.svelte';
 	import { clearCoverCache } from '$lib/services/cover-cache';
 	import { SEARCH_HISTORY_KEY } from '$lib/search/search-history-logic';
+	import { HOME_CACHE_KEY, LEGACY_HOME_CACHE_KEYS } from '$lib/services/home-charts';
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { t } from '$lib/i18n';
 	import { applyEnvelope, backupFilename, buildEnvelope, hasUndoSnapshot, serializeEnvelope, storageKeys, undoImport, validateEnvelope } from '$lib/backup/backup-logic';
@@ -18,7 +19,6 @@
 	import { downloadTrack } from '$lib/services/download-track';
 	import type { Track } from '$lib/sources/types';
 
-	const TOP_PICKS_KEY = 'openmusic:top-picks:v1';
 	const HOME_LIBRARY_KEY = 'openmusic:home-library:v1';
 	let msg = $state('');
 	let counts = $state({ liked: 0, playlists: 0, downloads: 0 });
@@ -152,8 +152,15 @@
 		}
 	}
 
+	// 39-D-41: this button removed `top-picks:v1` while the home page read `v2`, so "Clear picks" had
+	// been a no-op since that bump. The key now comes from the one $lib module the home page uses, so a
+	// future bump cannot desync them; the orphaned older keys go too. Backups are unaffected:
+	// backup-logic.ts copies an exact-key allowlist that never included the home cache.
 	function clearPicks() {
-		try { localStorage.removeItem(TOP_PICKS_KEY); } catch { /* */ }
+		try { localStorage.removeItem(HOME_CACHE_KEY); } catch { /* */ }
+		for (const k of LEGACY_HOME_CACHE_KEYS) {
+			try { localStorage.removeItem(k); } catch { /* */ }
+		}
 		try { localStorage.removeItem(HOME_LIBRARY_KEY); } catch { /* */ } // hhd: also reset library shelves
 		flash(t('settings.picksCleared'));
 	}
