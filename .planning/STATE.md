@@ -4,13 +4,13 @@ milestone: v1.5
 milestone_name: YTMusic-Powered Up-Next
 status: executing
 stopped_at: Completed 39-06-PLAN.md
-last_updated: "2026-09-26T03:17:11.011Z"
+last_updated: "2026-09-26T03:44:31.821Z"
 last_activity: 2026-09-26
 progress:
   total_phases: 18
   completed_phases: 8
   total_plans: 103
-  completed_plans: 88
+  completed_plans: 89
   percent: 44
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-06-10)
 ## Current Position
 
 Phase: 39 (Fresh chart homepage) — EXECUTING
-Plan: 7 of 10
+Plan: 8 of 10
 Status: Executing Phase 39
 
 ### 36-05 checkpoint status
@@ -210,6 +210,7 @@ Remaining human UAT: real-device <audio> playback+seek + download-to-disk; deplo
 | Phase 39 P04 | 5min | 2 tasks | 5 files |
 | Phase 39 P05 | 4min | 2 tasks | 4 files |
 | Phase 39 P06 | 4min | 2 tasks | 3 files |
+| Phase 39 P07 | 23min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -384,6 +385,9 @@ Recent decisions affecting current work:
 - [Phase 39]: 39-05: HOME_CACHE_KEY = openmusic:top-picks:v3 lives in $lib/services/home-charts, shared by the home page and the Clear-picks button
 - [Phase 39]: 39-06: homeChartRegion loads through a CHART_REGIONS allowlist (cn/42/HK/garbage -> 'auto'); homeExtraRegions/homeChartGenres are type-guarded only and an explicit [] genre list is kept
 - [Phase 39]: 39-06: no homeLayoutVersion and no homeHidden default change yet; a persist test asserts the key is absent until 39-09 wires migrateHomeLayout
+- [Phase 39]: 39-D-44: fuseCharts keys rows by a tail-folded title (' - subtitle', '《…》') so KKBOX subtitled titles fuse with Apple's; display unchanged
+- [Phase 39]: 39-07: chart pool writes are guarded by a dedicated chartGen (only a new chart fetch bumps it), so a local Randomize never cancels pools still landing
+- [Phase 39]: 39-07: an empty chart answer keeps the existing pool; a planned key with no pool on a warm mount is fetched alone and shown as it lands; saveCache keeps only the current plan's keys
 
 ### Pending Todos
 
@@ -583,7 +587,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-26T03:17:10.999Z
+Last session: 2026-09-26T03:44:24.118Z
 Stopped at: Completed 39-06-PLAN.md
 Resume: run 32-08-PLAN.md (device checkpoints). **32-07 closed VALIDATION #6 and the v2 half of #3, and BLOCKED two v3 walks — 32-08 must pick them up.** PROVEN LIVE on the deployed workerd edge (https://openmusic.lol, which is already running 32-04): cold GET `{"hit":false}` -> warm GET `{"hit":true}` with a qq `songid`, NO `url` field, `avail.qq:"ok"`; 9/9 warm hits across the YVR and SEA PoPs; POST bust `{"busted":true}` -> miss -> unattended re-fill -> hit (the 32-D-10a repair path works); `Cache-Control: no-store` on every route response (31-D-09 intact). BLOCKED, carry to 32-08: the two 32-D-20 v3 url-layer walks — (1) stale-url -> refresh, (2) bust -> miss -> mid-only -> url-warm — because v3 is on `main` but NOT deployed (the live entries carry no `url` keys, while v3's fill emits explicit nulls), and no preview server could be started here. Exact commands are in 32-07-SUMMARY.md § Task 2; run `pnpm build && pnpm preview` (NOT `pnpm dev` — `edgeCache()` returns null there) or `pnpm run deploy` (NEVER bare `pnpm deploy`). Expect every warm entry to miss once on the v2->v3 key rollover; that is by design. Folded todo `edge-resolve-cache-returns-miss.md` RESOLVED and moved to completed/ — root cause was the probe using `?artist=&title=` when the route has only ever read `a`/`t`, so it hit the `if (!a && !t)` zero-touch short-circuit and never consulted the cache. Still outstanding from Phase 30, unchanged: install `android/app/build/outputs/apk/debug/app-debug.apk` on an Android device, open `/song/Olivia-Dean/Man-I-Need` (proven to return a real 30,840 B JPEG from production), confirm the cover renders rather than a broken image, then kill the network and confirm the gradient fallback appears. That single check closes 30-06 and Phase 30. Do NOT run `/gsd:verify-work` for Phase 30 until it is approved — OG-PAGE-01 terminates in it. Optional, non-blocking leftovers: iMessage/Slack cards, and real 24h cache TTL/eviction.
 
