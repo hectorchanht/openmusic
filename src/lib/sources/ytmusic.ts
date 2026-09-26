@@ -169,7 +169,8 @@ function rowToTrack(row: YtRow, keyword: string, emitIndex: number): Track | nul
  *  rows, and map them to Track stubs. Throws a typed contract-drift error when the body is not an
  *  object or contains NO search shelf (YTM fuzzy-matches, so a live search never returns an
  *  empty/shelf-less body — a missing shelf is genuine drift, not "no results"). */
-function parseSearchEnvelope(json: unknown, keyword: string): Track[] {
+// Exported (quick-260925-wa7) so services/name-rescue.ts reuses this ONE InnerTube row parser.
+export function parseSearchEnvelope(json: unknown, keyword: string): Track[] {
 	if (!json || typeof json !== 'object') {
 		throw new Error('ytmusic: contract-drift (expected search shelf)');
 	}

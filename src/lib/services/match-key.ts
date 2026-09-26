@@ -20,7 +20,8 @@
 // dedupe.ts / history-logic.ts.
 
 /** Normalize one component (artist or title): case/space/punct-insensitive, bracket + feat./remaster/live suffixes dropped. */
-function norm(s: string): string {
+// Exported (quick-260925-wa7) so name-rescue.ts reuses this ONE normalizer instead of re-inlining it.
+export function norm(s: string): string {
 	return (s || '')
 		.toLowerCase()
 		.replace(/[（(【\[].*?[)）\]】]/g, ' ') // drop (Live) / [Remaster] / 【...】
