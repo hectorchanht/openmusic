@@ -396,7 +396,8 @@
 	// quick-260625-pzs-01: the now-playing artist string is split into individual names so each
 	// renders its own link to that SOLE artist. openArtistName generalises the old single-artist
 	// openArtist navigation, parameterised by the per-name string (T-pzs-04: encodeURIComponent the
-	// name exactly as before — the /artist/[name] route decodeURIComponent's the param).
+	// name exactly as before — the /artist/[name] route decodeURIComponent's the param; since
+	// quick-260926-hl9 names.artistHref does the encode, after the script lock).
 	const artistNames = $derived(splitArtists(player.current?.artist ?? ''));
 	// quick-260831-k5y: the resolved track's quality tag (FLAC / 320 / …), shown under the
 	// title/artist when settings.showQualityTag is on. `qualityLabel` is the source's own
@@ -413,7 +414,7 @@
 	// so goto() resolved as a silent no-op. Same bug + same fix as TrackMenu.gotoArtist().
 	function openArtistName(name: string) {
 		if (!name) return;
-		overlays.navigateAway(() => goto(`/artist/${encodeURIComponent(name)}`));
+		overlays.navigateAway(() => goto(names.artistHref(name)));
 	}
 
 	// ---- back-gesture: NowPlaying only renders while player.expanded, so mount == overlay

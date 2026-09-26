@@ -490,7 +490,7 @@
 			{#each library.favArtists as name (name)}
 				<button class="fav-tile" class:edit-row={editMode} use:tapBounce onclick={() => {
 					if (editMode) library.toggleFavArtist(name);
-					else goto('/artist/' + encodeURIComponent(name));
+					else goto(names.artistHref(name));
 				}}>
 					<span class="fav-avatar" style:background-image={favCovers[name] ? `url(${favCovers[name]})` : favArtistFallback(name)}></span>
 					<span class="fav-name">{names.dnArtist(name)}</span>

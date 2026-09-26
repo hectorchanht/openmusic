@@ -166,9 +166,10 @@
 		fetchSuggestions.cancel();
 		suggestAc?.abort();
 		if (s.kind === 'artist') {
-			// Same nav idiom as the artist TILE handler below (encodeURIComponent once —
-			// SvelteKit decodes the param itself, OG-COMPAT-01).
-			goto('/artist/' + encodeURIComponent(s.title));
+			// Same nav idiom as the artist TILE handler below: names.artistHref encodes once —
+			// SvelteKit decodes the param itself, OG-COMPAT-01 — and applies the script lock
+			// (quick-260926-hl9).
+			goto(names.artistHref(s.title));
 			return;
 		}
 		if (s.kind === 'song') {
@@ -730,7 +731,7 @@
 			<div class="artist-tiles" use:dragScroll>
 				{#each artistTiles as tile (tile.name)}
 					<!-- quick-260910-qjv: artist tap feedback, parity with song rows -->
-					<button class="artist-tile" use:tapBounce onclick={() => goto('/artist/' + encodeURIComponent(tile.name))}>
+					<button class="artist-tile" use:tapBounce onclick={() => goto(names.artistHref(tile.name))}>
 						<span class="artist-avatar" style:background-image={tile.image ? `url(${tile.image})` : fallbackArtistCover(tile.name)}></span>
 						<span class="artist-name">{names.dnArtist(tile.name)}</span>
 					</button>

@@ -621,7 +621,7 @@
      PageHeader takes the action as a prop. -->
 <PageHeader
 	backLabel={t('album.back')}
-	onback={() => goto(albumArtist ? '/artist/' + encodeURIComponent(albumArtist) : '/')}
+	onback={() => goto(albumArtist ? names.artistHref(albumArtist) : '/')}
 />
 
 <div class="hero">

@@ -286,7 +286,7 @@
 	<ul class="list">
 		{#each artists as a (a.name)}
 			<li>
-				<button class="row" onclick={() => goto('/artist/' + encodeURIComponent(a.name))} use:tapBounce>
+				<button class="row" onclick={() => goto(names.artistHref(a.name))} use:tapBounce>
 					<span
 						class="art round"
 						style:background-image={a.image ? `url(${a.image})` : fallbackArtistCover(a.name)}

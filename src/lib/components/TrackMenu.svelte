@@ -507,10 +507,12 @@
 	// overlays → goto lands then back over-pops, snapping the URL home). See the overlays store.
 	function gotoArtist() {
 		// quick-260919-dlring: `hasArtist` is re-checked HERE, not only at the two call sites, so no
-		// caller can route to `/artist/` with an empty name. Navigating with the RAW track.artist is
-		// load-bearing — names.dnArtist is a display translation and the route must not see it.
+		// caller can route to `/artist/` with an empty name. The route sees the RAW track.artist
+		// passed through the script lock ONLY (names.artistHref → zhLock), never names.dnArtist — a
+		// translation would change what the artist page resolves; the lock is safe because
+		// searchAll / Last.fm are script-blind (quick-260926-hl9).
 		if (!track || !hasArtist) return;
-		const dest = `/artist/${encodeURIComponent(track.artist)}`;
+		const dest = names.artistHref(track.artist);
 		overlays.navigateAway(() => goto(dest));
 	}
 
@@ -992,8 +994,8 @@
 			     through the SAME gotoArtist() as the `menu.goToArtist` row below — one route-building
 			     path, one overlays.navigateAway() dismissal, so the two can never disagree (exactly
 			     the header-icon + list-row precedent D-09/je8 set for Download). Note gotoArtist()
-			     navigates with the RAW track.artist; names.dnArtist is display-only and must never
-			     reach the route.
+			     navigates with the RAW track.artist through the script lock only (names.artistHref,
+			     quick-260926-hl9); names.dnArtist is display-only and must never reach the route.
 			     A <button> that is a SIBLING of .head-actions, never a wrapper around it — the Like /
 			     Download / Close buttons must not end up nested inside a button. The two clip elements
 			     are <span>s (not <div>s) so the button's phrasing-only content model holds; `use:marquee`

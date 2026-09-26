@@ -149,7 +149,11 @@
 
 	// kmn: action-bar state. Heart fills when artist is in library.favArtists; play picks a
 	// random hit + queues all songs from this artist; share uses Web Share API.
-	const favArtist = $derived(library.isFavArtist(name));
+	// quick-260926-hl9: read through names.zhLock — it reads names.rev (bumped by warmLock once the
+	// dict lands) and settings.zhScript, so a cold deep link, whose first favKey ran before t2s was
+	// warm, re-derives and repaints the heart. On a locked route `name` is already locked, so the
+	// value is unchanged.
+	const favArtist = $derived(library.isFavArtist(names.zhLock(name)));
 
 	// WR-06 / D-15: feedback goes through the GLOBAL toast store (rendered once by ToastHost) —
 	// the local toastMsg/toastTimer copy this page shipped was re-consolidated away.
@@ -531,7 +535,7 @@
 			{t('artist.albums')}
 			<!-- quick-260831-qkx: the shelf is albums+EPs only; the full discography (every record
 			     type, filterable) lives on its own page so nothing is hidden, just de-noised. -->
-			<a class="see-all" href={'/artist/' + encodeURIComponent(name) + '/albums'}>{t('artist.seeAllAlbums')}</a>
+			<a class="see-all" href={names.artistHref(name) + '/albums'}>{t('artist.seeAllAlbums')}</a>
 		</h2>
 		<div class="albumrow" use:dragScroll>
 			{#each shelfAlbums as al (al.mbid ?? al.id ?? al.name)}
@@ -615,7 +619,7 @@
 		<h2>{t('artist.moreLikeThis')}</h2>
 		<div class="albumrow" use:dragScroll>
 			{#each related as a (a.name)}
-				<button class="album" onclick={() => goto('/artist/' + encodeURIComponent(a.name))} use:tapBounce>
+				<button class="album" onclick={() => goto(names.artistHref(a.name))} use:tapBounce>
 					<span class="al-cover round" style:background-image={a.image ? `url(${a.image})` : fallbackCoverSeed(a.name)}></span>
 					<span class="al-name center" use:marquee><span class="marquee-inner">{names.dnArtist(a.name)}</span></span>
 				</button>

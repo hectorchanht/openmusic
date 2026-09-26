@@ -1267,7 +1267,7 @@
      artist variant). Reuses the .tile shell with .art.round + a name-only .label. -->
 {#snippet artistGridTile(name: string, cover: string | null)}
 	<!-- quick-260910-qjv: artist tap feedback, parity with song rows -->
-	<button class="tile artist-tile" use:tapBounce onclick={() => goto('/artist/' + encodeURIComponent(name))}>
+	<button class="tile artist-tile" use:tapBounce onclick={() => goto(names.artistHref(name))}>
 		<div class="art round" style:background-image={fallbackCover(name)}>
 			{#if cover}<img class="al-cover-img" src={cover} loading="lazy" alt="" onerror={hideOnError} />{/if}
 		</div>
@@ -1344,7 +1344,7 @@
 					title={names.dnArtist(a.name)}
 					cover={tileCover({ image: a.image, mbid: a.mbid, artistName: a.name })}
 					seed={a.name}
-					onopen={() => goto('/artist/' + encodeURIComponent(a.name))}
+					onopen={() => goto(names.artistHref(a.name))}
 				/>
 			{/snippet}
 		</CompactPager>
@@ -1361,7 +1361,7 @@
 		<div class="albumrow" use:dragScroll>
 			{#each artists as a (a.name)}
 				{@const artistCover = tileCover({ image: a.image, mbid: a.mbid, artistName: a.name })}
-				<button class="album" use:tapBounce onclick={() => goto('/artist/' + encodeURIComponent(a.name))}>
+				<button class="album" use:tapBounce onclick={() => goto(names.artistHref(a.name))}>
 					<span class="al-cover round" style:background-image={fallbackCover(a.name)}>
 						{#if artistCover}<img class="al-cover-img" src={artistCover} loading="lazy" alt="" onerror={hideOnError} />{/if}
 					</span>
@@ -1668,7 +1668,7 @@
 						title={names.dnArtist(a.name)}
 						cover={tileCover({ image: null, mbid: null, artistName: a.name })}
 						seed={a.name}
-						onopen={() => goto('/artist/' + encodeURIComponent(a.name))}
+						onopen={() => goto(names.artistHref(a.name))}
 					/>
 				{/snippet}
 			</CompactPager>
@@ -1682,7 +1682,7 @@
 			<div class="albumrow" use:dragScroll>
 				{#each favArtistsShelf as a (a.name)}
 					{@const artistCover = tileCover({ image: null, mbid: null, artistName: a.name })}
-					<button class="album" use:tapBounce onclick={() => goto('/artist/' + encodeURIComponent(a.name))}>
+					<button class="album" use:tapBounce onclick={() => goto(names.artistHref(a.name))}>
 						<span class="al-cover round" style:background-image={fallbackCover(a.name)}>
 							{#if artistCover}<img class="al-cover-img" src={artistCover} loading="lazy" alt="" onerror={hideOnError} />{/if}
 						</span>
