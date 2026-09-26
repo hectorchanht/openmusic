@@ -294,6 +294,7 @@ const es: Dict = {
 	"lyrics.offsetEarlier": "Letra 0,5 s antes",
 	"lyrics.offsetLater": "Letra 0,5 s después",
 	"lyrics.offsetReset": "Sincronía de la letra {value}. Toca para restablecer",
+	"lyrics.offsetShared": "Sincronizado por oyentes",
 	"nowplaying.loadingRelated": "Cargando relacionados...",
 	"nowplaying.noRelated": "No hay pistas relacionadas.",
 	"nowplaying.lastfmTags": "Etiquetas de last.fm",

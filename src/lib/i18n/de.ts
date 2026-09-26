@@ -294,6 +294,7 @@ const de: Dict = {
 	"lyrics.offsetEarlier": "Liedtext 0,5 s früher",
 	"lyrics.offsetLater": "Liedtext 0,5 s später",
 	"lyrics.offsetReset": "Liedtext-Timing {value}. Tippen zum Zurücksetzen",
+	"lyrics.offsetShared": "Von Hörern synchronisiert",
 	"nowplaying.loadingRelated": "Ähnliches wird geladen…",
 	"nowplaying.noRelated": "Keine ähnlichen Titel.",
 	"nowplaying.lastfmTags": "Last.fm-Tags",

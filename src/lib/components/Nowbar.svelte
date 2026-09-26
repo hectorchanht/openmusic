@@ -35,7 +35,8 @@
     import { activeLineAt } from "$lib/services/lrc";
     import { parseLyrics } from "$lib/stores/lyric-script.svelte";
     import { readLyrics } from "$lib/stores/lyric-pins.svelte";
-    import { getLyricOffset } from "$lib/stores/lyric-offset.svelte";
+    // quick-260926-mzn: the EFFECTIVE offset (local ?? listeners' consensus ?? 0), same as the pane.
+    import { getEffectiveLyricOffset, ensureSharedLyricOffset, lyricOffsetVersion } from "$lib/stores/lyric-offset.svelte";
 
     type Variant = "docked" | "embed";
 
@@ -82,7 +83,7 @@
     //    once-per-track pass (parseLyrics), so the per-tick scan below still walks plain strings.
     const lyricLines = $derived(parseLyrics(readLyrics(player.current)));
     // quick-260926-mis: same offset as the pane, same function, so the two surfaces cannot drift.
-    const lyricOffset = $derived(getLyricOffset(player.current?.uid));
+    const lyricOffset = $derived(getEffectiveLyricOffset(player.current?.uid));
     // 2. The early return gates the whole scan: with the setting off this costs one boolean read per
     //    tick and nothing else. `variant !== "docked"` is D-8's embed exclusion — repeating the
     //    current line directly above NowPlaying's full lyrics pane is noise.
@@ -114,6 +115,17 @@
     // no-lyric track but reintroduces exactly the jump D-8 forbade, one per track change and one
     // more whenever a late lyric resolve lands.
     const lyricsRow = $derived(settings.nowbarLyrics && variant === "docked");
+    // quick-260926-mzn: fetch the listeners' consensus only when the lyric row is rendered; the pane
+    // fetches for itself when it mounts and the store dedupes when both are up. Same no-self-
+    // invalidation guarantee as NpLyrics' twin effect: ensureSharedLyricOffset writes no $state
+    // synchronously, and this effect never reads the `_shared` it writes after its awaits.
+    $effect(() => {
+        if (!lyricsRow) return;
+        lyricOffsetVersion();
+        const uid = player.current?.uid;
+        const src = readLyrics(player.current);
+        if (uid && src) ensureSharedLyricOffset(uid, src);
+    });
 
     const lyricText = $derived.by(() => {
         if (!lyricsRow) return "";

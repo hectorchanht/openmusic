@@ -294,6 +294,7 @@ const ru: Dict = {
 	"lyrics.offsetEarlier": "Текст на 0,5 с раньше",
 	"lyrics.offsetLater": "Текст на 0,5 с позже",
 	"lyrics.offsetReset": "Сдвиг текста {value}. Нажмите, чтобы сбросить",
+	"lyrics.offsetShared": "Синхронизировано слушателями",
 	"nowplaying.loadingRelated": "Загрузка связанных…",
 	"nowplaying.noRelated": "Нет похожих треков.",
 	"nowplaying.lastfmTags": "Теги Last.fm",

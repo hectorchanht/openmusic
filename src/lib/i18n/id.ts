@@ -294,6 +294,7 @@ const id: Dict = {
 	"lyrics.offsetEarlier": "Lirik 0,5 dtk lebih awal",
 	"lyrics.offsetLater": "Lirik 0,5 dtk lebih lambat",
 	"lyrics.offsetReset": "Waktu lirik {value}. Ketuk untuk mengatur ulang",
+	"lyrics.offsetShared": "Diselaraskan oleh pendengar",
 	"nowplaying.loadingRelated": "Memuat terkait…",
 	"nowplaying.noRelated": "Tidak ada lagu terkait.",
 	"nowplaying.lastfmTags": "Tag last.fm",

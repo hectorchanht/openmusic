@@ -353,6 +353,7 @@ const en = {
 	"lyrics.offsetEarlier": "Lyrics 0.5s earlier",
 	"lyrics.offsetLater": "Lyrics 0.5s later",
 	"lyrics.offsetReset": "Lyrics timing {value}. Tap to reset",
+	"lyrics.offsetShared": "Synced by listeners",
 	"nowplaying.loadingRelated": "Loading related…",
 	"nowplaying.noRelated": "No related tracks.",
 	"nowplaying.lastfmTags": "Last.fm tags",

@@ -312,6 +312,7 @@ const zhHans: Dict = {
 	"lyrics.offsetEarlier": "歌词提前 0.5 秒",
 	"lyrics.offsetLater": "歌词延后 0.5 秒",
 	"lyrics.offsetReset": "歌词时间偏移 {value}，点按重置",
+	"lyrics.offsetShared": "由听众同步",
 	"nowplaying.loadingRelated": "加载相关歌曲中…",
 	"nowplaying.noRelated": "没有相关歌曲。",
 	"nowplaying.lastfmTags": "Last.fm 标签",

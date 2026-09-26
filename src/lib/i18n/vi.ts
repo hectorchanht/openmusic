@@ -294,6 +294,7 @@ const vi: Dict = {
 	"lyrics.offsetEarlier": "Lời bài hát sớm hơn 0,5 giây",
 	"lyrics.offsetLater": "Lời bài hát muộn hơn 0,5 giây",
 	"lyrics.offsetReset": "Thời gian lời bài hát {value}. Chạm để đặt lại",
+	"lyrics.offsetShared": "Được đồng bộ bởi người nghe",
 	"nowplaying.loadingRelated": "Đang tải liên quan…",
 	"nowplaying.noRelated": "Không có bài hát liên quan.",
 	"nowplaying.lastfmTags": "Thẻ Last.fm",

@@ -27,7 +27,16 @@
 	// outranks whatever the chain (or a downloaded file's embedded tag) supplied.
 	import { readLyrics } from '$lib/stores/lyric-pins.svelte';
 	// quick-260926-mis: per-song lyric TIME offset (hold a line to sync it; ±0.5s nudges).
-	import { getLyricOffset, setLyricOffset } from '$lib/stores/lyric-offset.svelte';
+	// quick-260926-mzn: + the shared listener consensus (effective read, fetch, vote, reset).
+	import {
+		setLyricOffset,
+		getEffectiveLyricOffset,
+		isSharedLyricOffset,
+		ensureSharedLyricOffset,
+		scheduleLyricOffsetVote,
+		resetLyricOffset,
+		lyricOffsetVersion
+	} from '$lib/stores/lyric-offset.svelte';
 	import { longpress } from '$lib/actions/longpress';
 	import { tick } from '$lib/util/haptics';
 
@@ -77,7 +86,22 @@
 	// quick-260926-mis: `lyricOffset` is a $derived so the localStorage read happens once per track
 	// change / offset write, NOT per timeupdate. activeLineAt still returns the line's OWN time, so
 	// activeLine / activeTime and every consumer below are unchanged.
-	const lyricOffset = $derived(getLyricOffset(player.current?.uid));
+	//
+	// quick-260926-mzn: the EFFECTIVE offset (local ?? listeners' consensus ?? 0). Nudges below add
+	// to it, so nudging from a shared value adjusts the listeners' alignment and makes it local.
+	const lyricOffset = $derived(getEffectiveLyricOffset(player.current?.uid));
+	const offsetShared = $derived(isSharedLyricOffset(player.current?.uid));
+	// quick-260926-mzn: ask for the listeners' consensus for this song's exact lyrics. Reads
+	// player.current / lyricVersion (via readLyrics) / lyricOffsetVersion — the last so clearing a
+	// local offset re-runs this and the shared value is fetched. ensureSharedLyricOffset writes NO
+	// $state synchronously (only `_shared`, after its awaits, which this effect never reads), so it
+	// is NOT the self-invalidating class that froze the app (restore-effect loop).
+	$effect(() => {
+		lyricOffsetVersion();
+		const uid = player.current?.uid;
+		const src = readLyrics(player.current);
+		if (uid && src) ensureSharedLyricOffset(uid, src);
+	});
 	const active = $derived(activeLineAt(lines, player.currentTime, lyricOffset));
 	const activeLine = $derived(active.idx);
 	const activeTime = $derived(active.time);
@@ -169,17 +193,24 @@
 		const uid = player.current?.uid;
 		if (!uid) return;
 		setLyricOffset(uid, player.currentTime - line.time);
+		// quick-260926-mzn: an explicit realign is a vote (debounced; the store no-ops on empty lrc).
+		scheduleLyricOffsetVote(uid, readLyrics(player.current) ?? '');
 		tick();
 		if (idleTimer) clearTimeout(idleTimer);
 		autoScroll = true;
 	}
 	function nudgeOffset(delta: number) {
 		const uid = player.current?.uid;
-		if (uid) setLyricOffset(uid, lyricOffset + delta);
+		if (!uid) return;
+		setLyricOffset(uid, lyricOffset + delta);
+		// quick-260926-mzn: a burst of nudges votes once, with the final value.
+		scheduleLyricOffsetVote(uid, readLyrics(player.current) ?? '');
 	}
+	// quick-260926-mzn: local -> back to the listeners' value (or 0); shared-only -> explicit 0.
+	// Never votes; cancels a pending vote. Semantics documented on resetLyricOffset.
 	function resetOffset() {
 		const uid = player.current?.uid;
-		if (uid) setLyricOffset(uid, 0);
+		if (uid) resetLyricOffset(uid);
 	}
 	// Keyboard parity for the tappable lyric line (Enter/Space) — mirrors the cover's tapCoverKey
 	// and the grip's gripKey idiom, satisfying the a11y click-needs-keydown rule.
@@ -420,6 +451,8 @@
 		<button type="button" onclick={() => nudgeOffset(-0.5)} aria-label={t('lyrics.offsetEarlier')}>−0.5s</button>
 		<button type="button" class="readout" onclick={resetOffset} aria-label={t('lyrics.offsetReset', { value: formatLyricOffset(lyricOffset) })}>{formatLyricOffset(lyricOffset)}</button>
 		<button type="button" onclick={() => nudgeOffset(0.5)} aria-label={t('lyrics.offsetLater')}>+0.5s</button>
+		<!-- quick-260926-mzn: provenance — shown only while the listeners' consensus is what's applied. -->
+		{#if offsetShared}<span class="shared">{t('lyrics.offsetShared')}</span>{/if}
 		<span class="hint">{t('lyrics.offsetHint')}</span>
 	</div>
 	{#if translating}<p class="tr-hint">{t('nowplaying.translating')}</p>{/if}
@@ -479,4 +512,6 @@
 	.sync button { background: none; border: 1px solid var(--color-text-muted); border-radius: 999px; color: inherit; font: inherit; padding: 2px 8px; min-width: 44px; min-height: 24px; cursor: pointer; }
 	.sync .readout { font-variant-numeric: tabular-nums; border-style: dashed; }
 	.sync .hint { flex-basis: 100%; text-align: center; font-size: 0.625rem; opacity: 0.7; }
+	/* quick-260926-mzn: "Synced by listeners", inline beside the readout it qualifies. */
+	.sync .shared { font-size: 0.625rem; opacity: 0.7; }
 </style>

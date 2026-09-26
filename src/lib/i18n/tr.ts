@@ -294,6 +294,7 @@ const tr: Dict = {
 	"lyrics.offsetEarlier": "Sözler 0,5 sn önce",
 	"lyrics.offsetLater": "Sözler 0,5 sn sonra",
 	"lyrics.offsetReset": "Söz zamanlaması {value}. Sıfırlamak için dokunun",
+	"lyrics.offsetShared": "Dinleyiciler tarafından eşitlendi",
 	"nowplaying.loadingRelated": "İlgili yükleniyor…",
 	"nowplaying.noRelated": "İlgili parça yok.",
 	"nowplaying.lastfmTags": "Last.fm etiketleri",

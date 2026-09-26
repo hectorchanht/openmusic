@@ -294,6 +294,7 @@ const fr: Dict = {
 	"lyrics.offsetEarlier": "Paroles 0,5 s plus tôt",
 	"lyrics.offsetLater": "Paroles 0,5 s plus tard",
 	"lyrics.offsetReset": "Décalage des paroles {value}. Touchez pour réinitialiser",
+	"lyrics.offsetShared": "Synchronisé par les auditeurs",
 	"nowplaying.loadingRelated": "Chargement lié…",
 	"nowplaying.noRelated": "Aucun titre similaire.",
 	"nowplaying.lastfmTags": "Balises Last.fm",

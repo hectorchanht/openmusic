@@ -294,6 +294,7 @@ const ar: Dict = {
 	"lyrics.offsetEarlier": "الكلمات أبكر بـ 0.5 ثانية",
 	"lyrics.offsetLater": "الكلمات أبطأ بـ 0.5 ثانية",
 	"lyrics.offsetReset": "توقيت الكلمات {value}. انقر لإعادة الضبط",
+	"lyrics.offsetShared": "مُزامنة من المستمعين",
 	"nowplaying.loadingRelated": "جارٍ التحميل ذات الصلة…",
 	"nowplaying.noRelated": "لا توجد مقاطع ذات صلة.",
 	"nowplaying.lastfmTags": "العلامات Last.fm",

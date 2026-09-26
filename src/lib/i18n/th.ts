@@ -294,6 +294,7 @@ const th: Dict = {
 	"lyrics.offsetEarlier": "เนื้อเพลงเร็วขึ้น 0.5 วินาที",
 	"lyrics.offsetLater": "เนื้อเพลงช้าลง 0.5 วินาที",
 	"lyrics.offsetReset": "เวลาเนื้อเพลง {value} แตะเพื่อรีเซ็ต",
+	"lyrics.offsetShared": "ซิงก์โดยผู้ฟัง",
 	"nowplaying.loadingRelated": "กำลังโหลดที่เกี่ยวข้อง...",
 	"nowplaying.noRelated": "ไม่มีเพลงที่เกี่ยวข้อง",
 	"nowplaying.lastfmTags": "แท็ก Last.fm",

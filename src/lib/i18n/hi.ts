@@ -294,6 +294,7 @@ const hi: Dict = {
 	"lyrics.offsetEarlier": "गीत 0.5 सेकंड पहले",
 	"lyrics.offsetLater": "गीत 0.5 सेकंड बाद",
 	"lyrics.offsetReset": "गीत का समय {value}. रीसेट करने के लिए टैप करें",
+	"lyrics.offsetShared": "श्रोताओं द्वारा सिंक किया गया",
 	"nowplaying.loadingRelated": "संबंधित लोड हो रहा है...",
 	"nowplaying.noRelated": "कोई संबंधित ट्रैक नहीं।",
 	"nowplaying.lastfmTags": "Last.fm टैग",
