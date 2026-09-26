@@ -211,3 +211,94 @@ describe('lockScriptSync — the Chinese-only script lock (quick-260919-2jo)', (
 		expect(lockScriptSync('头发', 'zh-Hant')).toBe('頭髮'); // phrase-level quality survives the lock
 	});
 });
+
+// ---------------------------------------------------------------------------------------------
+// quick-260926-bxg — tongwen's s2t phrase table is keyed on SIMPLIFIED, so an already-Traditional
+// line like 周杰倫 misses the phrase 周杰伦 → 周杰倫, falls through to per-char mapping, and 杰 → 傑
+// turns it into 周傑倫. The same artist then renders two ways depending on which source returned it.
+// ---------------------------------------------------------------------------------------------
+
+describe('lockScriptSync zh-Hant — idempotent on already-Traditional input (quick-260926-bxg)', () => {
+	it('keeps an already-Traditional name as-is (the bug: 周杰倫 used to become 周傑倫)', async () => {
+		await warmScript('zh-Hant');
+		expect(lockScriptSync('周杰倫', 'zh-Hant')).toBe('周杰倫');
+	});
+
+	it('still converts Simplified input phrase-aware', async () => {
+		await warmScript('zh-Hant');
+		expect(lockScriptSync('周杰伦', 'zh-Hant')).toBe('周杰倫');
+		expect(lockScriptSync('头发', 'zh-Hant')).toBe('頭髮');
+		expect(lockScriptSync('邓紫棋', 'zh-Hant')).toBe('鄧紫棋');
+	});
+
+	it('improves on direct s2t for a mixed-script line (頭发 → 頭髮, direct s2t gives 頭發)', async () => {
+		await warmScript('zh-Hant');
+		expect(lockScriptSync('頭发', 'zh-Hant')).toBe('頭髮');
+	});
+
+	it('keeps the source spelling — a script control, not a spelling normaliser', async () => {
+		await warmScript('zh-Hant');
+		expect(lockScriptSync('周傑倫', 'zh-Hant')).toBe('周傑倫');
+	});
+
+	it('never corrupts Traditional names a pure t2s→s2t round trip would rewrite', async () => {
+		await warmScript('zh-Hant');
+		for (const x of ['鍾鎮濤', '髮如雪', '臺灣', '麵']) {
+			expect(lockScriptSync(x, 'zh-Hant')).toBe(x);
+		}
+	});
+
+	it('passes mixed / non-CJK / astral code points through aligned', async () => {
+		await warmScript('zh-Hant');
+		expect(lockScriptSync('Jay 周杰倫', 'zh-Hant')).toBe('Jay 周杰倫');
+		expect(lockScriptSync('周杰倫 - 晴天', 'zh-Hant')).toBe('周杰倫 - 晴天');
+		expect(lockScriptSync('𠮷野家', 'zh-Hant')).toBe('𠮷野家'); // astral: proves code-point alignment
+	});
+
+	it('applying the lock twice equals applying it once', async () => {
+		await warmScript('zh-Hant');
+		for (const x of [
+			'周杰倫',
+			'周杰伦',
+			'周傑倫',
+			'头发',
+			'頭发',
+			'鍾鎮濤',
+			'钟镇涛',
+			'髮如雪',
+			'发如雪',
+			'臺灣',
+			'邓紫棋',
+			'周杰倫 - 晴天'
+		]) {
+			const once = lockScriptSync(x, 'zh-Hant');
+			expect(lockScriptSync(once, 'zh-Hant')).toBe(once);
+		}
+	});
+
+	it('round-trips with the zh-Hans lock', async () => {
+		await warmScript('zh-Hant');
+		await warmScript('zh-Hans');
+		expect(lockScriptSync(lockScriptSync('周杰伦', 'zh-Hant'), 'zh-Hans')).toBe('周杰伦');
+		expect(lockScriptSync(lockScriptSync('周杰倫', 'zh-Hans'), 'zh-Hant')).toBe('周杰倫');
+	});
+
+	it('PARTIAL warm (s2t only, t2s cold) falls back to direct s2t — never worse than before', async () => {
+		vi.resetModules();
+		const m = await import('./zh-convert');
+		m.warmS2T();
+		await m.s2tConvertLines(['x']);
+		expect(m.t2sConvertLineSync('繁體')).toBeNull(); // t2s is still cold
+		expect(m.lockScriptSync('周杰伦', 'zh-Hant')).toBe('周杰倫');
+		vi.resetModules();
+	});
+
+	it("warmScript('zh-Hant') alone warms the whole merge (names.warmLock's single rev bump)", async () => {
+		vi.resetModules();
+		const m = await import('./zh-convert');
+		await m.warmScript('zh-Hant');
+		expect(m.t2sConvertLineSync('繁體')).toBe('繁体');
+		expect(m.lockScriptSync('周杰倫', 'zh-Hant')).toBe('周杰倫');
+		vi.resetModules();
+	});
+});
