@@ -1,8 +1,11 @@
 // lyric-offset (reactive) — quick-260926-mis: per-song lyric TIME offset, in seconds.
 //
 // Keyed by track UID, NOT by name: a live version and its studio version are different uids and MUST
-// realign independently (the live one has a talking intro, the studio one is already in step). Only
-// non-zero values are stored; the sign convention lives in services/lrc.ts (LYRIC_OFFSET_MAX).
+// realign independently (the live one has a talking intro, the studio one is already in step). The
+// sign convention lives in services/lrc.ts (LYRIC_OFFSET_MAX).
+//
+// quick-260926-mzn: an explicit 0 IS stored — it is the opt-out from a shared consensus, so unset and
+// 0 must be distinguishable. Only clearLyricOffset deletes an entry.
 //
 // Same reactive-wrapper idiom as lyric-pins.svelte.ts, minus two things:
 //   - no separate pure `.ts`: the record read/write is a few lines, and the try/catch around
@@ -10,8 +13,14 @@
 //   - no rAF-deferred bump: the bump is SYNCHRONOUS. The highlight + anchor must repaint on the same
 //     tick as the hold/nudge; the verification browser pane has frozen rAF; and coalescing buys
 //     nothing for a write that only ever happens on a user gesture.
+//
+// quick-260926-mzn — SHARED LAYER. A listener's explicit realign is submitted as a vote; a listener
+// with NO local entry receives the consensus (median, >=3 agreeing) for the song's exact lyrics.
+// Effective offset = local ?? shared ?? 0. The shared value is in-memory per session, never
+// persisted: it is a default, not a user choice.
 
 import { normalizeLyricOffset } from '$lib/services/lrc';
+import { lyricOffsetKey, fetchSharedOffset, submitOffsetVote } from '$lib/services/lyric-offset-shared';
 
 const KEY = 'openmusic:lyric-offset:v1';
 
@@ -32,7 +41,17 @@ function readRec(): Record<string, number> {
 	}
 }
 
-/** The offset for `uid` (0 when none). Normalized on READ so a tampered value is clamped (T-mis-01). */
+function writeRec(rec: Record<string, number>): void {
+	try {
+		localStorage.setItem(KEY, JSON.stringify(rec));
+	} catch {
+		// quota / unavailable: non-fatal, the offset just does not persist
+	}
+	// Unconditional: readers re-read storage, so a failed write correctly still shows the old value.
+	_v.n++;
+}
+
+/** The LOCAL offset for `uid` (0 when none). Normalized on READ so a tampered value is clamped (T-mis-01). */
 export function getLyricOffset(uid: string | null | undefined): number {
 	lyricOffsetVersion(); // reactive dependency
 	if (!uid) return 0;
@@ -40,18 +59,117 @@ export function getLyricOffset(uid: string | null | undefined): number {
 	return normalizeLyricOffset(typeof v === 'number' ? v : 0);
 }
 
-/** Persist the offset for `uid` (0 deletes the entry) and repaint every reader on this tick. */
+/** Persist the offset for `uid` (0 included — see header) and repaint every reader on this tick. */
 export function setLyricOffset(uid: string, sec: number): void {
 	if (!uid) return;
-	const n = normalizeLyricOffset(sec);
-	try {
-		const rec = readRec();
-		if (n === 0) delete rec[uid];
-		else rec[uid] = n;
-		localStorage.setItem(KEY, JSON.stringify(rec));
-	} catch {
-		// quota / unavailable: non-fatal, the offset just does not persist
+	const rec = readRec();
+	rec[uid] = normalizeLyricOffset(sec);
+	writeRec(rec);
+}
+
+/** quick-260926-mzn: drop the local entry, so the shared consensus (or 0) applies again. */
+export function clearLyricOffset(uid: string): void {
+	if (!uid) return;
+	const rec = readRec();
+	delete rec[uid];
+	writeRec(rec);
+}
+
+/** quick-260926-mzn: true when `uid` has a local entry, including an explicit 0. */
+export function hasLocalLyricOffset(uid: string | null | undefined): boolean {
+	lyricOffsetVersion(); // reactive dependency
+	return !!uid && typeof readRec()[uid] === 'number';
+}
+
+// ---- quick-260926-mzn: shared consensus layer ----
+
+const _shared = $state<Record<string, number>>({});
+// Plain, non-reactive guards (house convention): nothing renders them.
+const requested = new Map<string, string>(); // uid -> the lrc its shared offset was requested for
+let voteTimer: ReturnType<typeof setTimeout> | null = null;
+export const VOTE_DEBOUNCE_MS = 4000;
+
+/** Local ?? shared ?? 0. Cheap enough for a $derived that re-runs on track change / offset write. */
+export function getEffectiveLyricOffset(uid: string | null | undefined): number {
+	lyricOffsetVersion(); // reactive dependency
+	if (!uid) return 0;
+	const local = readRec()[uid];
+	if (typeof local === 'number') return normalizeLyricOffset(local);
+	const shared = _shared[uid];
+	return typeof shared === 'number' ? shared : 0;
+}
+
+/** True when the applied offset is the listeners' consensus (no local entry, a shared value exists). */
+export function isSharedLyricOffset(uid: string | null | undefined): boolean {
+	lyricOffsetVersion(); // reactive dependency
+	if (!uid) return false;
+	return typeof readRec()[uid] !== 'number' && typeof _shared[uid] === 'number';
+}
+
+/**
+ * Fetch the consensus for (uid, lrc) once. The synchronous part writes NO $state — that is what keeps
+ * a calling $effect from self-invalidating (the restore-effect loop class). `_shared` is written only
+ * after the awaits, and only if no later lyrics change for this uid superseded the request.
+ *
+ * ponytail: one attempt per (uid, lyrics) per session, no retry — a miss or 503 just means no shared
+ * offset until the next session.
+ */
+export async function ensureSharedLyricOffset(uid: string, lrc: string | null | undefined): Promise<void> {
+	if (!uid || !lrc) return;
+	if (typeof readRec()[uid] === 'number') return; // a local entry wins; no need to ask
+	if (requested.get(uid) === lrc) return;
+	requested.set(uid, lrc);
+	const k = await lyricOffsetKey(uid, lrc);
+	if (!k) return;
+	const off = await fetchSharedOffset(k);
+	if (requested.get(uid) !== lrc) return; // superseded by a newer lyrics pick for this uid
+	if (off == null) delete _shared[uid];
+	else _shared[uid] = off;
+}
+
+/**
+ * Debounced vote after an explicit realign. Reads the local offset AT FIRE TIME, so a burst of
+ * nudges votes once with the final value, and a cleared offset votes nothing.
+ *
+ * ponytail: a single pending vote — a nudge on a second song within the window drops the first
+ * song's vote. Per-uid timers if it ever matters.
+ */
+export function scheduleLyricOffsetVote(uid: string, lrc: string): void {
+	if (!uid || !lrc) return;
+	if (voteTimer) clearTimeout(voteTimer);
+	voteTimer = setTimeout(async () => {
+		voteTimer = null;
+		const v = readRec()[uid];
+		if (typeof v !== 'number') return;
+		const k = await lyricOffsetKey(uid, lrc);
+		if (k) await submitOffsetVote(k, v);
+	}, VOTE_DEBOUNCE_MS);
+}
+
+/**
+ * The readout tap. Cancels any pending vote (reset never votes, and must not let a stale nudge vote
+ * fire), then:
+ *   - a local entry exists  -> clear it (back to the default: the listeners' value if one is
+ *     showing, else 0);
+ *   - only a shared value   -> store an explicit 0 (opt out of a bad consensus; survives reload);
+ *   - nothing               -> no-op.
+ * Two taps from "local 2 over shared 1.5" reach 0: first back to the listeners' value, then force 0.
+ * The "Synced by listeners" label tells the user which state they are in.
+ */
+export function resetLyricOffset(uid: string): void {
+	if (voteTimer) {
+		clearTimeout(voteTimer);
+		voteTimer = null;
 	}
-	// Unconditional: readers re-read storage, so a failed write correctly still shows the old value.
-	_v.n++;
+	if (!uid) return;
+	if (typeof readRec()[uid] === 'number') clearLyricOffset(uid);
+	else if (typeof _shared[uid] === 'number') setLyricOffset(uid, 0);
+}
+
+/** TEST-ONLY: reset the shared layer (mirrors api-base's __resetGovernor). */
+export function __resetSharedLyricOffsets(): void {
+	for (const k of Object.keys(_shared)) delete _shared[k];
+	requested.clear();
+	if (voteTimer) clearTimeout(voteTimer);
+	voteTimer = null;
 }
