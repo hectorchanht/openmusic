@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { SOURCES, getEnabledAdapters } from './registry';
+import { SOURCES, getEnabledAdapters, isAutoResolveEligible } from './registry';
 import { makeUid, type SourceId } from './types';
 
 // Order is load-bearing — getEnabledAdapters / fallbackOrder / resolveNameStub / interleave all
@@ -147,5 +147,18 @@ describe('makeUid', () => {
 
 	it('produces the colon form for ytmusic (songid = videoId)', () => {
 		expect(makeUid('ytmusic', 'abc')).toBe('ytmusic:abc');
+	});
+});
+
+// quick-260926-c69: the ONE auto-resolve eligibility predicate (fallback / catalog / discovery).
+describe('isAutoResolveEligible (quick-260926-c69)', () => {
+	it('ytmusic is off the auto-resolve floor', () => {
+		expect(isAutoResolveEligible('ytmusic')).toBe(false);
+	});
+
+	it('every other source is eligible (undefined flag = eligible)', () => {
+		for (const id of Object.keys(SOURCES) as SourceId[]) {
+			if (id !== 'ytmusic') expect(isAutoResolveEligible(id)).toBe(true);
+		}
 	});
 });

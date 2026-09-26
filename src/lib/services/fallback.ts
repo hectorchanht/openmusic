@@ -11,7 +11,7 @@
 import { searchAll, ensureTrackDetails } from '$lib/services/catalog';
 import { dedupeBest, sameSongKey } from '$lib/services/dedupe';
 import { isAcceptableSubstitute } from '$lib/services/song-variant';
-import { getEnabledAdapters, SOURCES, onlySource } from '$lib/sources/registry';
+import { getEnabledAdapters, onlySource, isAutoResolveEligible } from '$lib/sources/registry';
 import { isDeviceUid } from '$lib/services/device-track';
 import type { SourceId, Track } from '$lib/sources/types';
 
@@ -48,7 +48,8 @@ export function fallbackOrder(
 		// Plan 27-04: drop the failed source, every already-attempted source, AND every source flagged
 		// off the auto-resolve floor (autoResolveEligible === false → ytmusic) so it can never become a
 		// failover target. Registry-flag-driven — no source named here.
-		(s) => s !== failed && !attempted?.has(s) && SOURCES[s].autoResolveEligible !== false
+		// quick-260926-c69: predicate hoisted to registry.ts isAutoResolveEligible, behaviour identical.
+		(s) => s !== failed && !attempted?.has(s) && isAutoResolveEligible(s)
 	);
 	if (preferred && remaining.includes(preferred)) {
 		return [preferred, ...remaining.filter((s) => s !== preferred)];

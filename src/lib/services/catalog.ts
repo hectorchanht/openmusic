@@ -3,7 +3,7 @@
 // (1691-1707) and `ensureTrackDetails` (2506-2513) — generalized to the registry so
 // NO source is ever named here. All DOM/render calls (dom.searchStatus,
 // renderMiniSearchList, playFromList) are dropped — those are Phase 4.
-import { SOURCES, getEnabledAdapters, onlySource } from '$lib/sources/registry';
+import { SOURCES, getEnabledAdapters, onlySource, isAutoResolveEligible } from '$lib/sources/registry';
 import { makeUid, type SourceId, type Track, type SettledSourceResult } from '$lib/sources/types';
 import type { DefaultQuality } from '$lib/stores/settings.svelte';
 import { sleep } from '$lib/proxy/http';
@@ -237,9 +237,10 @@ export async function resolveNameStub(
 	// Plan 27-04 (YT-RESILIENCE-01): exclude sources flagged off the auto-resolve floor
 	// (autoResolveEligible === false → ytmusic) so an Up-Next name stub NEVER auto-resolves to a
 	// searchable-but-off-the-hot-path source. Registry-flag-driven — no source named here either.
+	// quick-260926-c69: predicate hoisted to registry.ts isAutoResolveEligible, behaviour identical.
 	const eligible = getEnabledAdapters({})
 		.map((a) => a.id)
-		.filter((id) => SOURCES[id].autoResolveEligible !== false);
+		.filter((id) => isAutoResolveEligible(id));
 	// 31-D-06(c): the edge entry remembers which sources came up DRY for this song. Searching a
 	// known-dry source is a wasted call, and skipping it is the entire point of caching the
 	// availability hint. Applied ONLY when at least one source survives — an all-dry (or stale)

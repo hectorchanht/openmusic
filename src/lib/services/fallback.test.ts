@@ -14,31 +14,38 @@ import { makeUid, type SourceId, type Track } from '$lib/sources/types';
 // but flagged autoResolveEligible:false, so fallbackOrder must EXCLUDE it as a failover target. Adding
 // it here proves the exclusion is what keeps the mainstream-floor assertions green (without the filter,
 // ytmusic would leak into every fallbackOrder result). The mainstream sources carry no flag (undefined).
-vi.mock('$lib/sources/registry', () => ({
-	SOURCES: {
+vi.mock('$lib/sources/registry', () => {
+	const SOURCES: Record<string, { id: string; autoResolveEligible?: boolean }> = {
 		kuwo: { id: 'kuwo' },
 		qq: { id: 'qq' },
 		netease: { id: 'netease' },
 		joox: { id: 'joox' },
 		ytmusic: { id: 'ytmusic', autoResolveEligible: false }
-	},
-	getEnabledAdapters: vi.fn(() => [
-		{ id: 'kuwo' },
-		{ id: 'qq' },
-		{ id: 'netease' },
-		{ id: 'joox' },
-		{ id: 'ytmusic' }
-	]),
-	// onlySource moved to the registry (it derives from SOURCES and is the counterpart to
-	// getEnabledAdapters). Mocked with the REAL behaviour, not a stub: tryFallback passes its result
-	// to searchAll, and the per-source assertions below read that prefs object.
-	onlySource: (id: string) => {
-		const prefs: Record<string, boolean> = {};
-		for (const sourceId of ['kuwo', 'qq', 'netease', 'joox', 'ytmusic']) prefs[sourceId] = false;
-		prefs[id] = true;
-		return prefs;
-	}
-}));
+	};
+	return {
+		SOURCES,
+		// quick-260926-c69: the eligibility predicate moved to the registry. Mocked with the REAL
+		// behaviour over the mocked SOURCES flags (like onlySource below), so the ytmusic-exclusion
+		// assertions still prove the flag is what keeps it off the failover floor.
+		isAutoResolveEligible: (id: string) => SOURCES[id].autoResolveEligible !== false,
+		getEnabledAdapters: vi.fn(() => [
+			{ id: 'kuwo' },
+			{ id: 'qq' },
+			{ id: 'netease' },
+			{ id: 'joox' },
+			{ id: 'ytmusic' }
+		]),
+		// onlySource moved to the registry (it derives from SOURCES and is the counterpart to
+		// getEnabledAdapters). Mocked with the REAL behaviour, not a stub: tryFallback passes its result
+		// to searchAll, and the per-source assertions below read that prefs object.
+		onlySource: (id: string) => {
+			const prefs: Record<string, boolean> = {};
+			for (const sourceId of ['kuwo', 'qq', 'netease', 'joox', 'ytmusic']) prefs[sourceId] = false;
+			prefs[id] = true;
+			return prefs;
+		}
+	};
+});
 vi.mock('$lib/services/catalog', () => ({ searchAll: vi.fn(), ensureTrackDetails: vi.fn() }));
 
 import { deviceUid } from '$lib/services/device-track';

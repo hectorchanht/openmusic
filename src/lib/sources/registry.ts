@@ -80,3 +80,17 @@ export function onlySource(id: SourceId): Partial<Record<SourceId, boolean>> {
 	prefs[id] = true;
 	return prefs;
 }
+
+/**
+ * The ONE predicate for "may this source be auto-selected to resolve a track it did not
+ * originate" — a cross-source failover target (fallback.ts), an Up-Next name-stub resolve
+ * (catalog.ts resolveNameStub), and candidate preference in the shared name resolver
+ * (discovery.ts resolveStub). quick-260926-c69: hoisted here after the rule had been inlined
+ * twice and was missing from the third consumer entirely.
+ *
+ * Reads the registry FLAG, so no consumer ever names a source. `undefined` = eligible, per the
+ * `SourceAdapter.autoResolveEligible` doc in types.ts (only an explicit `false` opts out).
+ */
+export function isAutoResolveEligible(id: SourceId): boolean {
+	return SOURCES[id].autoResolveEligible !== false;
+}
