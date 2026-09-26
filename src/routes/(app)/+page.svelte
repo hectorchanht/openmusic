@@ -43,6 +43,7 @@
 		genrePoolKey,
 		samplePicks,
 		regionLabel,
+		chartAlbumHref,
 		CHART_GENRE_LABEL,
 		HOME_CACHE_KEY,
 		LEGACY_HOME_CACHE_KEYS,
@@ -1169,6 +1170,7 @@
 				{:else if id === 'chart-songs'}{@render chartSongsBlock()}
 				{:else if id === 'new-releases'}{@render newReleasesBlock()}
 				{:else if id === 'chart-artists'}{@render chartArtistsBlock()}
+				{:else if id === 'chart-albums'}{@render chartAlbumsBlock()}
 				{:else if id === 'yt-trending'}{@render ytTrendingBlock()}
 				{:else if id === 'genres'}{@render genresBlock()}
 				{:else if id === 'regions'}{@render regionsBlock()}
@@ -1368,6 +1370,64 @@
 	{#if items.length}
 		{@render titleStatic(t('home.chartArtists', { region: regionLabel(chartRegion, settings.appLang) }))}
 		{@render artistShelf(items, densityOf('chart-artists'))}
+	{/if}
+{/snippet}
+
+{#snippet chartAlbumsBlock()}
+	{@const items = sampledAlbums(poolKey('chart-albums', chartRegion))}
+	{#if items.length}
+		{@render titleStatic(t('home.chartAlbums', { region: regionLabel(chartRegion, settings.appLang) }))}
+		{@render albumShelf(items, densityOf('chart-albums'))}
+	{/if}
+{/snippet}
+
+<!-- A list/pile/grid ALBUM shelf, structurally the discoveryShelf skeleton.
+     39-D-36: a tap opens the existing name-only album page through chartAlbumHref
+     (/album/{name}?artist= → Last.fm album.getinfo tracklist + enrichAlbum + deezerAlbum), so the
+     tap itself costs zero calls; Apple's ' - EP' / ' - Single' is stripped at parse AND in the href
+     builder. No long-press anywhere here: an album has no song to resolve (UI-14). -->
+{#snippet albumShelf(items: ChartAlbum[], density: HomeDensity)}
+	{#if density === 'list'}
+		<CompactPager items={compactSlice(items)} key={(a) => a.artist + ' ' + a.name}>
+			{#snippet row(a: ChartAlbum)}
+				<CompactRow
+					variant="album"
+					title={names.dnTitle(a.name)}
+					subtitle={names.dnArtist(a.artist)}
+					cover={a.image}
+					seed={a.artist + a.name}
+					onopen={() => goto(chartAlbumHref(a))}
+				/>
+			{/snippet}
+		</CompactPager>
+	{:else if density === 'grid'}
+		<HomeGridPager items={items.slice(0, 27)} key={(a) => a.artist + ' ' + a.name}>
+			{#snippet row(a: ChartAlbum)}
+				<button class="tile" use:tapBounce onclick={() => goto(chartAlbumHref(a))}>
+					<div class="art" style:background-image={fallbackCover(a.artist + a.name)}></div>
+					{#if a.image}<img class="al-cover-img" src={a.image} loading="lazy" alt="" onerror={hideOnError} />{/if}
+					<div class="scrim"></div>
+					<div class="label">
+						<div class="t-title">{names.dnTitle(a.name)}</div>
+						<div class="t-artist">{names.dnArtist(a.artist)}</div>
+					</div>
+				</button>
+			{/snippet}
+		</HomeGridPager>
+	{:else}
+		<div class="albumrow" use:dragScroll>
+			{#each items as a (a.artist + ' ' + a.name)}
+				<button class="album" use:tapBounce onclick={() => goto(chartAlbumHref(a))}>
+					<span class="al-cover" style:background-image={fallbackCover(a.artist + a.name)}>
+						{#if a.image}<img class="al-cover-img" src={a.image} loading="lazy" alt="" onerror={hideOnError} />{/if}
+					</span>
+					<span class="al-name" use:marquee><span class="marquee-inner">{names.dnTitle(a.name)}</span></span>
+					<span class="al-count" use:marquee><span class="marquee-inner">{names.dnArtist(a.artist)}</span></span>
+				</button>
+			{/each}
+		</div>
+		<!-- quick-260919-et3: must stay the IMMEDIATE sibling after the .albumrow it drives. -->
+		<ShelfChevrons />
 	{/if}
 {/snippet}
 

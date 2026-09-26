@@ -1,12 +1,15 @@
 <script lang="ts">
 	// CompactRow — the YT-Music quick-picks compact row (HOME-02/03, D-08/D-09, UI-SPEC §4.1).
 	//
-	// Two variants:
+	// Three variants:
 	//  - 'track' : 40×40 art (radius 6px) + title/subtitle (both marquee) + a trailing ⋮ option
 	//              button. tap row = play (onplay), tap ⋮ = open menu (onrequestmenu),
 	//              long-press row = open menu (onrequestmenu, via use:longpress).
 	//  - 'artist': 40×40 ROUND avatar + name only (marquee). tap = open artist (onopen). NO ⋮,
 	//              NO long-press (no meaningful artist menu — D-09).
+	//  - 'album' : 40×40 SQUARE art + title/subtitle (both marquee); the whole row is ONE button
+	//              firing onopen. NO ⋮, NO long-press, NO RowBadges — an album tile has no song to
+	//              resolve (39-D-35, parity with the artist variant).
 	//
 	// The HOST owns all TrackMenu / play / navigation state (callback props). This component is
 	// pure presentation + interaction wiring, mirroring the search-row idiom (search/+page.svelte
@@ -27,7 +30,7 @@
 	import { t } from '$lib/i18n';
 
 	interface Props {
-		variant?: 'track' | 'artist';
+		variant?: 'track' | 'artist' | 'album';
 		/** Primary line: track title (track) or artist name (artist). */
 		title: string;
 		/** Secondary line (track variant only): artist. */
@@ -46,7 +49,7 @@
 		onplay?: () => void;
 		/** track variant: tap ⋮ or long-press = open the track menu. */
 		onrequestmenu?: () => void;
-		/** artist variant: tap = open the artist page. */
+		/** artist / album variant: tap = open the artist / album page. */
 		onopen?: () => void;
 	}
 
@@ -108,6 +111,19 @@
 		></span>
 		<span class="meta">
 			<span class="r-title" use:marquee><span class="marquee-inner">{title}</span></span>
+		</span>
+	</button>
+{:else if variant === 'album'}
+	<!-- 39-D-35: same direct-child-of-the-pager-column situation as the artist row, so it reuses
+	     `is-artist` for the one flex rule (quick-260919-et3). -->
+	<button class="crow is-artist" use:tapBounce onclick={() => onopen?.()}>
+		<span
+			class="art"
+			style:background-image={effectiveCover ? `url(${effectiveCover})` : fallbackGradient(seed)}
+		></span>
+		<span class="meta">
+			<span class="r-title" use:marquee><span class="marquee-inner">{title}</span></span>
+			<span class="r-sub" use:marquee><span class="marquee-inner">{subtitle}</span></span>
 		</span>
 	</button>
 {:else}
@@ -190,7 +206,9 @@
 	   96px rows whose centred avatars no longer lined up with the 44px track rows in the shelves
 	   above and below. Track rows are immune: their flex parent is the row-direction .crow-wrap,
 	   which is where that `flex: 1` is meant to apply (fill the width beside the ⋮).
-	   `flex: none` restores the natural height, which min-height: 44px above already pins. */
+	   `flex: none` restores the natural height, which min-height: 44px above already pins.
+	   39-D-35: the album variant is the same bare button in the same column, so it carries the
+	   class too and this one rule covers both. */
 	.crow.is-artist {
 		flex: none;
 	}
