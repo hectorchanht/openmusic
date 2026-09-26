@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: YTMusic-Powered Up-Next
-status: executing
-stopped_at: Completed 39-09-PLAN.md
-last_updated: "2026-09-26T04:07:50.207Z"
+status: ready_for_verification
+stopped_at: Completed 39-10-PLAN.md
+last_updated: "2026-09-26T04:16:44.523Z"
 last_activity: 2026-09-26
 progress:
   total_phases: 18
-  completed_phases: 8
+  completed_phases: 9
   total_plans: 103
-  completed_plans: 91
-  percent: 44
+  completed_plans: 92
+  percent: 50
 ---
 
 # Project State
@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-06-10)
 
 Phase: 39 (Fresh chart homepage) — EXECUTING
 Plan: 10 of 10
-Status: Executing Phase 39
+Status: Phase 39 complete — ready for verification
 
 ### 36-05 checkpoint status
 
@@ -213,6 +213,7 @@ Remaining human UAT: real-device <audio> playback+seek + download-to-disk; deplo
 | Phase 39 P07 | 23min | 3 tasks | 4 files |
 | Phase 39 P08 | 12min | 2 tasks | 1 files |
 | Phase 39 P09 | 6min | 2 tasks | 4 files |
+| Phase 39 P10 | 11min | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -394,6 +395,9 @@ Recent decisions affecting current work:
 - [Phase 39]: 39-D-38: shelfPlaceholder(density, round) holds each planned chart shelf's slot (44px heading bar + list/pile/grid skeleton, aria-hidden); empty classic/library singles count 0 in shelfCount so the first reveal slots go to chart placeholders
 - [Phase 39]: 39-09: the layout migration runs inside settings.load() after the home type guards and density coercion; a migrated load saves immediately, a first visit or an already-v2 blob does not write
 - [Phase 39]: 39-09: homeLayoutVersion is a plain field; missing/non-number persisted value = version 1; defaults flip and migration shipped in one commit so no deploy hides classic shelves without the migration
+- [Phase 39]: 39-10: Auto chip/label resolve resolveChartRegion('auto') separately from the effective region so 'Auto (…)' stays truthful while an explicit region is saved
+- [Phase 39]: 39-10: onReorder→reorderListed shipped in the same commit as the template iterating listed (drag indices only mean listed-index once the template renders listed)
+- [Phase 39]: 39-10: Classic accordion keeps Playback 22px margin and a sentence-case .cur ('Off'/'1 on') inside its uppercase summary
 
 ### Pending Todos
 
@@ -593,8 +597,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-26T04:07:44.247Z
-Stopped at: Completed 39-09-PLAN.md
+Last session: 2026-09-26T04:16:38.103Z
+Stopped at: Completed 39-10-PLAN.md
 Resume: run 32-08-PLAN.md (device checkpoints). **32-07 closed VALIDATION #6 and the v2 half of #3, and BLOCKED two v3 walks — 32-08 must pick them up.** PROVEN LIVE on the deployed workerd edge (https://openmusic.lol, which is already running 32-04): cold GET `{"hit":false}` -> warm GET `{"hit":true}` with a qq `songid`, NO `url` field, `avail.qq:"ok"`; 9/9 warm hits across the YVR and SEA PoPs; POST bust `{"busted":true}` -> miss -> unattended re-fill -> hit (the 32-D-10a repair path works); `Cache-Control: no-store` on every route response (31-D-09 intact). BLOCKED, carry to 32-08: the two 32-D-20 v3 url-layer walks — (1) stale-url -> refresh, (2) bust -> miss -> mid-only -> url-warm — because v3 is on `main` but NOT deployed (the live entries carry no `url` keys, while v3's fill emits explicit nulls), and no preview server could be started here. Exact commands are in 32-07-SUMMARY.md § Task 2; run `pnpm build && pnpm preview` (NOT `pnpm dev` — `edgeCache()` returns null there) or `pnpm run deploy` (NEVER bare `pnpm deploy`). Expect every warm entry to miss once on the v2->v3 key rollover; that is by design. Folded todo `edge-resolve-cache-returns-miss.md` RESOLVED and moved to completed/ — root cause was the probe using `?artist=&title=` when the route has only ever read `a`/`t`, so it hit the `if (!a && !t)` zero-touch short-circuit and never consulted the cache. Still outstanding from Phase 30, unchanged: install `android/app/build/outputs/apk/debug/app-debug.apk` on an Android device, open `/song/Olivia-Dean/Man-I-Need` (proven to return a real 30,840 B JPEG from production), confirm the cover renders rather than a broken image, then kill the network and confirm the gradient fallback appears. That single check closes 30-06 and Phase 30. Do NOT run `/gsd:verify-work` for Phase 30 until it is approved — OG-PAGE-01 terminates in it. Optional, non-blocking leftovers: iMessage/Slack cards, and real 24h cache TTL/eviction.
 
 ## Deferred Items
