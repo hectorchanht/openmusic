@@ -1,0 +1,4 @@
+# quick-260926-ot5: the Turnstile bridge may be framed only by the Capacitor WebView origins; frame-ancestors supersedes X-Frame-Options, which cannot express an allowlist.
+/turnstile-bridge.html
+  Content-Security-Policy: frame-ancestors https://localhost capacitor://localhost
+  X-Robots-Tag: noindex
