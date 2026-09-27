@@ -307,7 +307,6 @@ const fr: Dict = {
 	"nowplaying.skippedRetry": "Ignorée — appuyez pour réessayer",
 	"nowplaying.translating": "traduire…",
 	"nowplaying.noLyrics": "Pas de paroles pour ce morceau.",
-	"lyrics.offsetHint": "Maintenez une ligne pour la caler sur l'instant présent",
 	"lyrics.offsetEarlier": "Paroles 0,5 s plus tôt",
 	"lyrics.offsetLater": "Paroles 0,5 s plus tard",
 	"lyrics.offsetReset": "Décalage des paroles {value}. Touchez pour réinitialiser",

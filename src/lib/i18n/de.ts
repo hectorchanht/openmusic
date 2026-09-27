@@ -307,7 +307,6 @@ const de: Dict = {
 	"nowplaying.skippedRetry": "Übersprungen — zum Wiederholen tippen",
 	"nowplaying.translating": "übersetzen…",
 	"nowplaying.noLyrics": "Für diesen Titel gibt es keinen Liedtext.",
-	"lyrics.offsetHint": "Halte eine Zeile gedrückt, um sie auf jetzt zu synchronisieren",
 	"lyrics.offsetEarlier": "Liedtext 0,5 s früher",
 	"lyrics.offsetLater": "Liedtext 0,5 s später",
 	"lyrics.offsetReset": "Liedtext-Timing {value}. Tippen zum Zurücksetzen",

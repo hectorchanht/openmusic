@@ -307,7 +307,6 @@ const id: Dict = {
 	"nowplaying.skippedRetry": "Dilewati — ketuk untuk coba lagi",
 	"nowplaying.translating": "menerjemahkan…",
 	"nowplaying.noLyrics": "Tidak ada lirik untuk lagu ini.",
-	"lyrics.offsetHint": "Tahan sebuah baris untuk menyelaraskannya ke saat ini",
 	"lyrics.offsetEarlier": "Lirik 0,5 dtk lebih awal",
 	"lyrics.offsetLater": "Lirik 0,5 dtk lebih lambat",
 	"lyrics.offsetReset": "Waktu lirik {value}. Ketuk untuk mengatur ulang",

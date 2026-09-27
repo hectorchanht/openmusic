@@ -307,7 +307,6 @@ const ru: Dict = {
 	"nowplaying.skippedRetry": "Пропущено — нажмите, чтобы повторить",
 	"nowplaying.translating": "перевод…",
 	"nowplaying.noLyrics": "Текста для этого трека нет.",
-	"lyrics.offsetHint": "Удерживайте строку, чтобы синхронизировать её с текущим моментом",
 	"lyrics.offsetEarlier": "Текст на 0,5 с раньше",
 	"lyrics.offsetLater": "Текст на 0,5 с позже",
 	"lyrics.offsetReset": "Сдвиг текста {value}. Нажмите, чтобы сбросить",

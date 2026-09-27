@@ -366,7 +366,6 @@ const en = {
 	"nowplaying.skippedRetry": "Skipped — tap to retry",
 	"nowplaying.translating": "translating…",
 	"nowplaying.noLyrics": "No lyrics for this track.",
-	"lyrics.offsetHint": "Hold a line to sync it to now",
 	"lyrics.offsetEarlier": "Lyrics 0.5s earlier",
 	"lyrics.offsetLater": "Lyrics 0.5s later",
 	"lyrics.offsetReset": "Lyrics timing {value}. Tap to reset",

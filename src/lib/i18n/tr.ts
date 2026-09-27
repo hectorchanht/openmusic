@@ -307,7 +307,6 @@ const tr: Dict = {
 	"nowplaying.skippedRetry": "Atlandı — yeniden denemek için dokunun",
 	"nowplaying.translating": "tercüme ediliyor…",
 	"nowplaying.noLyrics": "Bu parça için şarkı sözü bulunamadı.",
-	"lyrics.offsetHint": "Bir satırı şu ana eşitlemek için basılı tutun",
 	"lyrics.offsetEarlier": "Sözler 0,5 sn önce",
 	"lyrics.offsetLater": "Sözler 0,5 sn sonra",
 	"lyrics.offsetReset": "Söz zamanlaması {value}. Sıfırlamak için dokunun",

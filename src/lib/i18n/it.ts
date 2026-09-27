@@ -307,7 +307,6 @@ const it: Dict = {
 	"nowplaying.skippedRetry": "Saltata — tocca per riprovare",
 	"nowplaying.translating": "traducendo…",
 	"nowplaying.noLyrics": "Nessun testo per questa traccia.",
-	"lyrics.offsetHint": "Tieni premuta una riga per sincronizzarla con adesso",
 	"lyrics.offsetEarlier": "Testo 0,5 s prima",
 	"lyrics.offsetLater": "Testo 0,5 s dopo",
 	"lyrics.offsetReset": "Sincronia del testo {value}. Tocca per azzerare",

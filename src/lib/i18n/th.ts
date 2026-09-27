@@ -307,7 +307,6 @@ const th: Dict = {
 	"nowplaying.skippedRetry": "ข้ามแล้ว — แตะเพื่อลองใหม่",
 	"nowplaying.translating": "กำลังแปล...",
 	"nowplaying.noLyrics": "ไม่มีเนื้อเพลงสำหรับเพลงนี้",
-	"lyrics.offsetHint": "กดค้างที่บรรทัดเพื่อซิงก์กับตอนนี้",
 	"lyrics.offsetEarlier": "เนื้อเพลงเร็วขึ้น 0.5 วินาที",
 	"lyrics.offsetLater": "เนื้อเพลงช้าลง 0.5 วินาที",
 	"lyrics.offsetReset": "เวลาเนื้อเพลง {value} แตะเพื่อรีเซ็ต",

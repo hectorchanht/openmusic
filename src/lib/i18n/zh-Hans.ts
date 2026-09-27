@@ -325,7 +325,6 @@ const zhHans: Dict = {
 	"nowplaying.skippedRetry": "已跳过 — 点击重试",
 	"nowplaying.translating": "翻译中…",
 	"nowplaying.noLyrics": "这首歌没有歌词。",
-	"lyrics.offsetHint": "长按一行歌词，将其同步到当前位置",
 	"lyrics.offsetEarlier": "歌词提前 0.5 秒",
 	"lyrics.offsetLater": "歌词延后 0.5 秒",
 	"lyrics.offsetReset": "歌词时间偏移 {value}，点按重置",

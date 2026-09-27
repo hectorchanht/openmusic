@@ -18,7 +18,7 @@
 	import { t } from '$lib/i18n';
 	import { translateLinesEx } from '$lib/services/translate';
 	import { shouldTranslate } from '$lib/i18n/detect';
-	import { reorderPairs, splitParenLines, lineSeekFraction, activeLineAt, lyricAnchorMetrics, formatLyricOffset, type LyricLine } from '$lib/services/lrc';
+	import { reorderPairs, splitParenLines, lineSeekFraction, activeLineAt, lyricAnchorMetrics, formatLyricOffset, LYRIC_OFFSET_MAX, type LyricLine } from '$lib/services/lrc';
 	// quick-260919-2jo: the Chinese script lock for lyric text. `parseLyrics` replaces `parseLRC`
 	// (the ORIGINAL lines); `lockLyricLines` covers the translation column, which is a SECOND source
 	// of source-derived text produced after parse time.
@@ -164,6 +164,17 @@
 	function lyricsTouch(e: TouchEvent) {
 		dispatch({ type: 'touch', touches: e.touches.length });
 	}
+	// quick-260926-vur: `scroll` does not bubble and `.lyrics` never scrolls itself — the scroller is
+	// the parent's `.panel` — so an `onscroll` on `.lyrics` never fired and the momentum re-arm
+	// (Pitfall 1 / D-10: iOS keeps scrolling with no touch event after the lift) was dead. Listen on
+	// the real scroller. The anchor pass's own smooth scroll lands here too and is a no-op while idle.
+	$effect(() => {
+		const panel = lyricsEl?.closest('.panel');
+		if (!panel) return;
+		const onScroll = () => dispatch({ type: 'scroll' });
+		panel.addEventListener('scroll', onScroll, { passive: true });
+		return () => panel.removeEventListener('scroll', onScroll);
+	});
 	// An unmount mid-hold leaks no timer and no window listener.
 	$effect(() => () => {
 		if (idleTimer) clearTimeout(idleTimer);
@@ -181,8 +192,30 @@
 		if (frac !== null) player.seekFraction(frac); // D-03: auto-plays if paused
 		dispatch({ type: 'force' });
 	}
-	// quick-260926-vur: hold-to-sync (long-press a line = "sung now") is REMOVED — it fought the
-	// hold-to-peek gesture. The timing row's slider replaced it.
+	// quick-260926-vur: the timing slider's half-range, a per-track RATCHET (±60 s by default, which
+	// covers 20-40 s live intros; wider only for a larger offset from ±0.5 s taps or the listeners'
+	// consensus). It only ever WIDENS within a track: if `max` shrank mid-drag the browser would re-map
+	// the thumb's x to a new value under the finger (offset 70 → range ±120 → drag to 59.9 → range ±60
+	// → value jumps to ~30). `rangeFor` is a plain field — only this derived reads it.
+	let rangeFor = { uid: '', r: 60 };
+	const sliderRange = $derived.by(() => {
+		const uid = player.current?.uid ?? '';
+		const need = Math.min(LYRIC_OFFSET_MAX, Math.max(60, Math.ceil(Math.abs(lyricOffset) / 60) * 60));
+		if (rangeFor.uid !== uid) rangeFor = { uid, r: need };
+		else if (need > rangeFor.r) rangeFor.r = need;
+		return rangeFor.r;
+	});
+	// quick-260926-vur: the slider replaced hold-to-sync (the long-press fought hold-to-peek). Live:
+	// activeLineAt already reads `lyricOffset`, and 'force' turns auto-centre on so the highlighted
+	// line re-centres while dragging. The store normalizes (0.1 s, ±LYRIC_OFFSET_MAX); the 4 s vote
+	// debounce means only the settled value is voted.
+	function slideOffset(v: number) {
+		const uid = player.current?.uid;
+		if (!uid || !Number.isFinite(v)) return;
+		setLyricOffset(uid, v);
+		scheduleLyricOffsetVote(uid, readLyrics(player.current) ?? '');
+		dispatch({ type: 'force' });
+	}
 	function nudgeOffset(delta: number) {
 		const uid = player.current?.uid;
 		if (!uid) return;
@@ -432,11 +465,13 @@
 
 {#if lines.length}
 	<!-- quick-260926-mis: offset control row. OUTSIDE `.lyrics` so it is not inside the padding the
-	     anchor pass writes and never gets `.lyrics`' onpointerdown (tapping it does not pause
-	     auto-scroll). Sticky so the readout stays visible while nudging after a scroll.
+	     anchor pass writes and never reaches `.lyrics`' hold handlers (tapping or dragging it does not
+	     pause auto-scroll). Sticky so the readout stays visible while nudging after a scroll.
 	     quick-260926-qat: hidden by default, opened from the track menu (TrackMenu "Adjust lyrics
 	     timing"); the flag lives in the offset store so the menu, this pane and NowPlaying's tab switch
-	     share one source. The ✕ sits before the full-width hint so it stays on the button line. -->
+	     share one source. quick-260926-vur: the ✕ sits before the full-width native range slider so it
+	     stays on the button line; one-way `value` — the readout/reset/nudges write the store and the
+	     derived feeds the thumb back. -->
 	{#if lyricSyncOpen()}
 	<div class="sync">
 		<button type="button" onclick={() => nudgeOffset(-0.5)} aria-label={t('lyrics.offsetEarlier')}>−0.5s</button>
@@ -445,11 +480,11 @@
 		<!-- quick-260926-mzn: provenance — shown only while the listeners' consensus is what's applied. -->
 		{#if offsetShared}<span class="shared">{t('lyrics.offsetShared')}</span>{/if}
 		<button type="button" class="close" onclick={() => setLyricSyncOpen(false)} aria-label={t('menu.lyricsTimingHide')}><X size={14} /></button>
-		<span class="hint">{t('lyrics.offsetHint')}</span>
+		<input class="slider" type="range" min={-sliderRange} max={sliderRange} step="0.1" value={lyricOffset} aria-label={t('menu.lyricsTiming')} oninput={(e) => slideOffset(e.currentTarget.valueAsNumber)} />
 	</div>
 	{/if}
 	{#if translating}<p class="tr-hint">{t('nowplaying.translating')}</p>{/if}
-	<div class="lyrics" role="group" aria-label={t('nowplaying.lyrics')} bind:this={lyricsEl} onpointerdown={lyricsPointerDown} ontouchstart={lyricsTouch} ontouchend={lyricsTouch} ontouchcancel={lyricsTouch} onwheel={() => dispatch({ type: 'wheel' })} onscroll={() => dispatch({ type: 'scroll' })}>
+	<div class="lyrics" role="group" aria-label={t('nowplaying.lyrics')} bind:this={lyricsEl} onpointerdown={lyricsPointerDown} ontouchstart={lyricsTouch} ontouchend={lyricsTouch} ontouchcancel={lyricsTouch} onwheel={() => dispatch({ type: 'wheel' })}>
 		{#each lines as l, i (i)}
 			{#if !(l.fromParen && settings.lyricsHideParenLines)}
 				{@const hideTrForLine = l.fromParen && settings.lyricsHideParenTranslation}
@@ -504,7 +539,9 @@
 	.sync { position: sticky; top: 0; z-index: 1; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; padding: 4px 0 6px; font-size: 0.6875rem; color: var(--color-text-muted); background: var(--color-bg); }
 	.sync button { background: none; border: 1px solid var(--color-text-muted); border-radius: 999px; color: inherit; font: inherit; padding: 2px 8px; min-width: 44px; min-height: 24px; cursor: pointer; }
 	.sync .readout { font-variant-numeric: tabular-nums; border-style: dashed; }
-	.sync .hint { flex-basis: 100%; text-align: center; font-size: 0.625rem; opacity: 0.7; }
+	/* quick-260926-vur: own full-width line (flex-basis 100%, like the old hint). `touch-action: none`
+	   keeps a slightly diagonal thumb drag a slider drag instead of a `.panel` vertical scroll on Android. */
+	.sync .slider { flex-basis: 100%; margin: 2px 0 0; accent-color: var(--color-primary); touch-action: none; }
 	/* quick-260926-mzn: "Synced by listeners", inline beside the readout it qualifies. */
 	.sync .shared { font-size: 0.625rem; opacity: 0.7; }
 	.sync .close { min-width: 24px; min-height: 24px; padding: 2px 4px; border: none; display: inline-flex; align-items: center; }

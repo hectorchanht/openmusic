@@ -307,7 +307,6 @@ const es: Dict = {
 	"nowplaying.skippedRetry": "Omitida — toca para reintentar",
 	"nowplaying.translating": "traduciendo…",
 	"nowplaying.noLyrics": "No hay letras para esta pista.",
-	"lyrics.offsetHint": "Mantén pulsada una línea para sincronizarla con este momento",
 	"lyrics.offsetEarlier": "Letra 0,5 s antes",
 	"lyrics.offsetLater": "Letra 0,5 s después",
 	"lyrics.offsetReset": "Sincronía de la letra {value}. Toca para restablecer",

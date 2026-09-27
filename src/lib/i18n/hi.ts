@@ -307,7 +307,6 @@ const hi: Dict = {
 	"nowplaying.skippedRetry": "छोड़ा गया — पुनः प्रयास के लिए टैप करें",
 	"nowplaying.translating": "अनुवाद कर रहा हूँ...",
 	"nowplaying.noLyrics": "इस ट्रैक के लिए कोई गीत नहीं.",
-	"lyrics.offsetHint": "किसी पंक्ति को अभी से सिंक करने के लिए उसे दबाए रखें",
 	"lyrics.offsetEarlier": "गीत 0.5 सेकंड पहले",
 	"lyrics.offsetLater": "गीत 0.5 सेकंड बाद",
 	"lyrics.offsetReset": "गीत का समय {value}. रीसेट करने के लिए टैप करें",

@@ -307,7 +307,6 @@ const ar: Dict = {
 	"nowplaying.skippedRetry": "تم التخطي — اضغط لإعادة المحاولة",
 	"nowplaying.translating": "ترجمة…",
 	"nowplaying.noLyrics": "لا توجد كلمات لهذا المسار.",
-	"lyrics.offsetHint": "اضغط مطولًا على سطر لمزامنته مع اللحظة الحالية",
 	"lyrics.offsetEarlier": "الكلمات أبكر بـ 0.5 ثانية",
 	"lyrics.offsetLater": "الكلمات أبطأ بـ 0.5 ثانية",
 	"lyrics.offsetReset": "توقيت الكلمات {value}. انقر لإعادة الضبط",
