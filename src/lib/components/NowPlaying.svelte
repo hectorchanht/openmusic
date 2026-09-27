@@ -585,14 +585,16 @@
 	let sheetState = $state<SheetState>('closed');
 
 	// quick-260926-pb0: load the current track's comment thread so the Comments tab can show its
-	// count — one GET per track and only while the Now Playing pane is on screen (upNextPaneOpen:
-	// wide column OR sheet not closed). A background track change costs nothing until the sheet
-	// opens; half<->full toggles hit the store's uid dedupe. untrack: the store reads/writes its own
-	// $state (uid dedupe, loading flip), which must never become deps of this effect
-	// (cf. restore-effect-self-invalidation-loop).
+	// count — one GET per track. NOT gated on the sheet: the tab bar is visible in every sheet state,
+	// including the closed peek Now Playing opens in, and gating on upNextPaneOpen left the badge
+	// blank until the user dragged the sheet up (caught in E2E). The cost bound is the MOUNT itself —
+	// this component only renders while player.expanded — so a background track change with Now
+	// Playing closed still costs nothing, and re-opens hit the store's uid dedupe. untrack: the store
+	// reads/writes its own $state (uid dedupe, loading flip), which must never become deps of this
+	// effect (cf. restore-effect-self-invalidation-loop).
 	$effect(() => {
 		const cur = player.current;
-		if (!cur || !upNextPaneOpen(wide, sheetState)) return;
+		if (!cur) return;
 		untrack(() => comments.load(cur));
 	});
 	// The uid guard hides the previous song's count between a background track change and its load.
