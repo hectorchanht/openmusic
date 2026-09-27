@@ -15,8 +15,10 @@ import {
 	ytArtists,
 	itunesGenreChart,
 	genreChart,
+	fetchChartPool,
 	CHART_POOL_TTL_MS
 } from './charts';
+import type { ChartTask } from './home-charts';
 import { deezerGenreChart } from './deezer';
 import { __clearSearchCache } from './ttl-cache';
 import { __resetGovernor } from './api-base';
@@ -295,6 +297,43 @@ describe('deezerGenreChart (39-D-16)', () => {
 		const ctl = new AbortController();
 		ctl.abort();
 		expect(await deezerGenreChart(116, ctl.signal)).toEqual([]);
+		expect(calls).toHaveLength(0);
+	});
+});
+
+describe('fetchChartPool (quick-260927-1fx)', () => {
+	const KK_HK: ChartTask = { key: 'chart-songs:hk', section: 'chart-songs', src: 'kkbox', kind: 'song', cc: 'hk' };
+	const AP_HK: ChartTask = { key: 'chart-songs:hk', section: 'chart-songs', src: 'apple', kind: 'songs', cc: 'hk' };
+	const YT_ART: ChartTask = { key: 'chart-artists:hk', section: 'chart-artists', src: 'yt', kind: 'artists', cc: 'hk' };
+	const A = { artist: 'Artist A', title: 'Song A', image: 'https://a/a.jpg', mbid: null };
+	const B = { artist: 'Artist B', title: 'Song B', image: 'https://a/b.jpg', mbid: null };
+	const B2 = { ...B, image: 'https://k/b.jpg' };
+	const C = { artist: 'Artist C', title: 'Song C', image: null, mbid: null };
+
+	it('fuses a kkbox + apple group Apple-first: on-both-charts first, Apple strings win', async () => {
+		const { calls } = stubFetch((url) =>
+			jsonResponse({ items: url.includes('src=apple') ? [A, B] : [B2, C] })
+		);
+		const r = await fetchChartPool([KK_HK, AP_HK]);
+		expect(r).toEqual({ kind: 'songs', items: [B, A, C] });
+		expect(calls.sort()).toEqual([
+			'/api/charts?src=apple&kind=songs&cc=hk',
+			'/api/charts?src=kkbox&kind=song&cc=hk'
+		]);
+	});
+
+	it('de-duplicates artists by name and honours the cap', async () => {
+		const items = [ARTIST, { ...ARTIST, image: 'https://x/y.jpg' }, { name: 'Other', image: null, mbid: null }];
+		stubFetch(() => jsonResponse({ items }));
+		const r = await fetchChartPool([YT_ART]);
+		expect(r.kind).toBe('artists');
+		expect(r.items.map((a) => ('name' in a ? a.name : ''))).toEqual(['米爺', 'Other']);
+		expect((await fetchChartPool([YT_ART], 1)).items).toHaveLength(1);
+	});
+
+	it('an empty group → empty songs pool with zero fetches', async () => {
+		const { calls } = stubFetch(() => jsonResponse({ items: [SONG] }));
+		expect(await fetchChartPool([])).toEqual({ kind: 'songs', items: [] });
 		expect(calls).toHaveLength(0);
 	});
 });

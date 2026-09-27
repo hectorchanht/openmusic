@@ -7,7 +7,10 @@ import {
 	regionLabel,
 	regionListLabel,
 	chartAlbumHref,
+	poolTasks,
 	CHART_GENRE_LABEL,
+	CHART_POOL_LABEL,
+	CHART_POOL_KINDS,
 	HOME_CACHE_KEY,
 	LEGACY_HOME_CACHE_KEYS,
 	POOL_STALE_MS,
@@ -238,5 +241,58 @@ describe('constants', () => {
 		expect(LEGACY_HOME_CACHE_KEYS).toEqual(['openmusic:top-picks:v1', 'openmusic:top-picks:v2']);
 		expect(POOL_STALE_MS).toBe(21600000);
 		expect(POOL_CAP).toBe(50);
+	});
+});
+
+describe('poolTasks (quick-260927-1fx, T-1fx-01)', () => {
+	const bare = { extraRegions: [], genres: [], hidden: [] };
+
+	it('chart-songs:hk is exactly the home plan\'s group for that key (kkbox + apple, fused)', () => {
+		const want = planChartShelves({ region: 'hk', ...bare }).filter((t) => t.key === 'chart-songs:hk');
+		expect(want).toHaveLength(2);
+		expect(poolTasks('chart-songs', 'hk')).toEqual(want);
+	});
+
+	it('region:jp → one apple songs task', () => {
+		expect(poolTasks('region', 'jp')).toEqual([
+			{ key: 'region:jp', section: 'regions', src: 'apple', kind: 'songs', cc: 'jp' }
+		]);
+	});
+
+	it('genre:kpop → one genre task', () => {
+		expect(poolTasks('genre', 'kpop')).toEqual([
+			{ key: 'genre:kpop', section: 'genres', src: 'genre', genre: 'kpop' }
+		]);
+	});
+
+	it('every kind × region matches planChartShelves for that key', () => {
+		for (const kind of CHART_POOL_KINDS) {
+			if (kind === 'genre') continue;
+			for (const cc of CHART_REGIONS) {
+				const plan = planChartShelves({ region: cc, ...bare, extraRegions: [cc] });
+				expect(poolTasks(kind, cc)).toEqual(plan.filter((t) => t.key === poolKey(kind, cc)));
+			}
+		}
+	});
+
+	it('an unknown id or kind → [] (never a task, so never a fetch)', () => {
+		expect(poolTasks('chart-artists', 'zz')).toEqual([]);
+		expect(poolTasks('genre', 'nope')).toEqual([]);
+		expect(poolTasks('chart-songs', '')).toEqual([]);
+		expect(poolTasks('genre', 'hk')).toEqual([]);
+		expect(poolTasks('region', 'kpop')).toEqual([]);
+		expect(poolTasks('bogus' as never, 'hk')).toEqual([]);
+	});
+
+	it('CHART_POOL_LABEL names every region pool with an existing home label', () => {
+		expect(CHART_POOL_LABEL).toEqual({
+			'chart-songs': 'home.chartSongs',
+			'new-releases': 'home.newReleases',
+			'chart-artists': 'home.chartArtists',
+			'chart-albums': 'home.chartAlbums',
+			'yt-trending': 'home.ytTrending',
+			region: 'home.chartSongs'
+		});
+		expect([...CHART_POOL_KINDS].sort()).toEqual([...Object.keys(CHART_POOL_LABEL), 'genre'].sort());
 	});
 });
