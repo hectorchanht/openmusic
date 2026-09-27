@@ -1208,12 +1208,10 @@
 	</button>
 {/snippet}
 
-<!-- 39-D-33 (UI-SPEC §1.2): the chart shelves have NO See-all page, so their heading is a plain,
-     non-focusable <h3> — a chevron leading nowhere would be a false affordance. `.subhead-label`
-     gives the single-line ellipsis ("Trending on YouTube · United Arab Emirates"). -->
-{#snippet titleStatic(label: string)}
-	<h3 class="subhead-static"><span class="subhead-label">{label}</span></h3>
-{/snippet}
+<!-- quick-260927-1fx: 39-D-33 (UI-SPEC §1.2) is SUPERSEDED — every chart shelf now has a see-all
+     page (/charts/shelf/[kind]/[id] lists the whole POOL the shelf samples from, 39-D-26), so the
+     plain <h3> titleStatic heading is gone and chart headings are titleNav like every other shelf.
+     `.subhead-label` still gives the single-line ellipsis ("Trending on YouTube · United Arab Emirates"). -->
 
 <!-- quick-260618-goe: one ARTIST tile for the 3×3 grid mode — round cover + centered name,
      tap opens the artist page (artists are name-only: no ⋮, no long-press, mirroring CompactRow's
@@ -1400,7 +1398,7 @@
 {#snippet chartSongsBlock()}
 	{@const items = sampledSongs(poolKey('chart-songs', chartRegion))}
 	{#if items.length}
-		{@render titleStatic(t('home.chartSongs', { region: regionLabel(chartRegion, settings.appLang) }))}
+		{@render titleNav(t('home.chartSongs', { region: regionLabel(chartRegion, settings.appLang) }), '/charts/shelf/chart-songs/' + encodeURIComponent(chartRegion))}
 		{@render discoveryShelf(items, densityOf('chart-songs'))}
 	{:else if isPlanned(poolKey('chart-songs', chartRegion))}
 		{@render shelfPlaceholder(densityOf('chart-songs'))}
@@ -1410,7 +1408,7 @@
 {#snippet newReleasesBlock()}
 	{@const items = sampledSongs(poolKey('new-releases', chartRegion))}
 	{#if items.length}
-		{@render titleStatic(t('home.newReleases', { region: regionLabel(chartRegion, settings.appLang) }))}
+		{@render titleNav(t('home.newReleases', { region: regionLabel(chartRegion, settings.appLang) }), '/charts/shelf/new-releases/' + encodeURIComponent(chartRegion))}
 		{@render discoveryShelf(items, densityOf('new-releases'))}
 	{:else if isPlanned(poolKey('new-releases', chartRegion))}
 		{@render shelfPlaceholder(densityOf('new-releases'))}
@@ -1420,7 +1418,7 @@
 {#snippet chartArtistsBlock()}
 	{@const items = sampledArtists(poolKey('chart-artists', chartRegion))}
 	{#if items.length}
-		{@render titleStatic(t('home.chartArtists', { region: regionLabel(chartRegion, settings.appLang) }))}
+		{@render titleNav(t('home.chartArtists', { region: regionLabel(chartRegion, settings.appLang) }), '/charts/shelf/chart-artists/' + encodeURIComponent(chartRegion))}
 		{@render artistShelf(items, densityOf('chart-artists'))}
 	{:else if isPlanned(poolKey('chart-artists', chartRegion))}
 		{@render shelfPlaceholder(densityOf('chart-artists'), true)}
@@ -1430,7 +1428,7 @@
 {#snippet chartAlbumsBlock()}
 	{@const items = sampledAlbums(poolKey('chart-albums', chartRegion))}
 	{#if items.length}
-		{@render titleStatic(t('home.chartAlbums', { region: regionLabel(chartRegion, settings.appLang) }))}
+		{@render titleNav(t('home.chartAlbums', { region: regionLabel(chartRegion, settings.appLang) }), '/charts/shelf/chart-albums/' + encodeURIComponent(chartRegion))}
 		{@render albumShelf(items, densityOf('chart-albums'))}
 	{:else if isPlanned(poolKey('chart-albums', chartRegion))}
 		{@render shelfPlaceholder(densityOf('chart-albums'))}
@@ -1498,7 +1496,7 @@
 {#snippet ytTrendingBlock()}
 	{@const items = sampledSongs(poolKey('yt-trending', chartRegion))}
 	{#if items.length}
-		{@render titleStatic(t('home.ytTrending', { region: regionLabel(chartRegion, settings.appLang) }))}
+		{@render titleNav(t('home.ytTrending', { region: regionLabel(chartRegion, settings.appLang) }), '/charts/shelf/yt-trending/' + encodeURIComponent(chartRegion))}
 		{@render discoveryShelf(items, densityOf('yt-trending'), false)}
 	{:else if isPlanned(poolKey('yt-trending', chartRegion))}
 		{@render shelfPlaceholder(densityOf('yt-trending'))}
@@ -1508,7 +1506,7 @@
 {#snippet genresBlock()}
 	{#each genreShelves.slice(0, shelfBudget.per.genres ?? 0) as shelf (shelf.key)}
 		{#if shelf.items.length}
-			{@render titleStatic(t(CHART_GENRE_LABEL[shelf.id]))}
+			{@render titleNav(t(CHART_GENRE_LABEL[shelf.id]), '/charts/shelf/genre/' + encodeURIComponent(shelf.id))}
 			{@render discoveryShelf(shelf.items, densityOf('genres'))}
 		{:else}
 			{@render shelfPlaceholder(densityOf('genres'))}
@@ -1519,7 +1517,7 @@
 {#snippet regionsBlock()}
 	{#each regionShelves.slice(0, shelfBudget.per.regions ?? 0) as shelf (shelf.key)}
 		{#if shelf.items.length}
-			{@render titleStatic(t('home.chartSongs', { region: regionLabel(shelf.cc, settings.appLang) }))}
+			{@render titleNav(t('home.chartSongs', { region: regionLabel(shelf.cc, settings.appLang) }), '/charts/shelf/region/' + encodeURIComponent(shelf.cc))}
 			{@render discoveryShelf(shelf.items, densityOf('regions'))}
 		{:else}
 			{@render shelfPlaceholder(densityOf('regions'))}
@@ -1602,13 +1600,14 @@
 	{/if}
 {/snippet}
 
-<!-- quick-260924-pgu: the header deep-links to the history the radio is seeded from (titleNav always
-     navigates; there is no radio page). libraryShelf gives list/grid/pile density, long-press
+<!-- quick-260924-pgu: libraryShelf gives list/grid/pile density, long-press
      TrackMenu (which resolves `resolveByName` stubs on demand, same as album rows), and
-     use:lazyCover on-view cover resolution for stubs whose Last.fm/Deezer image was missing. -->
+     use:lazyCover on-view cover resolution for stubs whose Last.fm/Deezer image was missing.
+     quick-260927-1fx: the header opens /radio, the same buildRadio draw in full rows; it used to fall
+     back to /library?tab=history only because no radio page existed. -->
 {#snippet radioBlock()}
 	{#if radioShelf.length}
-		{@render titleNav(t('settings.homeSectionRadio'), '/library?tab=history')}
+		{@render titleNav(t('settings.homeSectionRadio'), '/radio')}
 		{@render libraryShelf(radioShelf, densityOf('radio'), 'home-discovery')}
 	{/if}
 {/snippet}
@@ -1677,9 +1676,8 @@
 	.section h2 { font-size: calc(1.1rem * var(--fs-title, 1)); margin: 0; }
 	/* D-14: section title is a full-row tap target (title + trailing chevron). Keeps the old
 	   .subhead typography (0.95rem/700); ≥44px touch height; chevron pushed right. */
-	/* 39-D-33: the static chart-shelf heading shares the exact box + type of the tappable one; only
-	   the pointer affordances (cursor, hover) stay on .subhead-nav. */
-	.subhead-nav, .subhead-static {
+	/* 39-D-33 superseded by quick-260927-1fx: the static variant is gone. */
+	.subhead-nav {
 		width: 100%;
 		display: flex;
 		align-items: center;
@@ -1694,8 +1692,8 @@
 		color: var(--color-text);
 		font-size: calc(0.95rem * var(--fs-title, 1));
 		font-weight: 700;
+		cursor: pointer;
 	}
-	.subhead-nav { cursor: pointer; }
 	.subhead-label { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 	.subhead-nav :global(.subhead-chev) { margin-left: auto; flex: none; color: var(--color-text-muted); height: 18px; width: 18px;}
 	@media (hover: hover) { .subhead-nav:hover .subhead-label { color: var(--color-text-muted); } }
@@ -1709,7 +1707,7 @@
 	.cs-bar { height: 11px; border-radius: 5px; }
 	.cs-bar-title { width: 62%; }
 	.cs-bar-sub { width: 40%; height: 9px; }
-	/* 39-D-38: per-shelf placeholder (UI-SPEC §1.7). The heading row copies .subhead-static's box; the
+	/* 39-D-38: per-shelf placeholder (UI-SPEC §1.7). The heading row copies .subhead-nav's box; the
 	   pile tile copies .album / .al-cover sizes; list and grid reuse the skeleton pager and .grid. */
 	.ph-head { min-height: 44px; display: flex; align-items: center; margin: 14px 16px 14px 0; }
 	.ph-bar { height: 12px; width: 40%; border-radius: 6px; }
