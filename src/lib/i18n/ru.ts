@@ -300,6 +300,8 @@ const ru: Dict = {
 	"comments.report": "Пожаловаться",
 	"comments.reportConfirm": "Подтвердить жалобу",
 	"comments.errVerify": "Проверка не пройдена — попробуйте ещё раз.",
+	"comments.write": "Написать комментарий",
+	"comments.cancel": "Отмена",
 	"nowplaying.reorderTrack": "Изменить порядок треков",
 	"nowplaying.noQueue": "Очереди пока нет.",
 	"nowplaying.skippedRetry": "Пропущено — нажмите, чтобы повторить",

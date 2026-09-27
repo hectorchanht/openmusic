@@ -359,6 +359,8 @@ const en = {
 	"comments.report": "Report",
 	"comments.reportConfirm": "Confirm report",
 	"comments.errVerify": "Verification failed — try again.",
+	"comments.write": "Write a comment",
+	"comments.cancel": "Cancel",
 	"nowplaying.reorderTrack": "Reorder track",
 	"nowplaying.noQueue": "No queue yet.",
 	"nowplaying.skippedRetry": "Skipped — tap to retry",

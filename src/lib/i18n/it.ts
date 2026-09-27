@@ -300,6 +300,8 @@ const it: Dict = {
 	"comments.report": "Segnala",
 	"comments.reportConfirm": "Conferma segnalazione",
 	"comments.errVerify": "Verifica non riuscita: riprova.",
+	"comments.write": "Scrivi un commento",
+	"comments.cancel": "Annulla",
 	"nowplaying.reorderTrack": "Riordina la traccia",
 	"nowplaying.noQueue": "Nessuna coda ancora.",
 	"nowplaying.skippedRetry": "Saltata — tocca per riprovare",

@@ -300,6 +300,8 @@ const ar: Dict = {
 	"comments.report": "إبلاغ",
 	"comments.reportConfirm": "تأكيد الإبلاغ",
 	"comments.errVerify": "فشل التحقق — حاول مرة أخرى.",
+	"comments.write": "اكتب تعليقًا",
+	"comments.cancel": "إلغاء",
 	"nowplaying.reorderTrack": "إعادة ترتيب المسار",
 	"nowplaying.noQueue": "لا يوجد طابور بعد.",
 	"nowplaying.skippedRetry": "تم التخطي — اضغط لإعادة المحاولة",

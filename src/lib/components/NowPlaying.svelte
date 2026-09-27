@@ -55,6 +55,7 @@
 	// quick-260926-nsz: per-song comments — the 3rd tab on a phone, and the Comments | Related
 	// toggle of the third column at >=1280px.
 	import NpComments from '$lib/components/NpComments.svelte';
+	import { comments } from '$lib/stores/comments.svelte';
 	import { createVelocityTracker } from '$lib/gestures/velocity';
 	import type { Track } from '$lib/sources/types';
 	import { coverGradient } from '$lib/services/cover-gradient';
@@ -582,6 +583,22 @@
 	// gripDown/gripMove/gripUp pointer handlers. Mirrors the old live-drag idiom.
 	type SheetState = 'closed' | 'half' | 'full';
 	let sheetState = $state<SheetState>('closed');
+
+	// quick-260926-pb0: load the current track's comment thread so the Comments tab can show its
+	// count — one GET per track and only while the Now Playing pane is on screen (upNextPaneOpen:
+	// wide column OR sheet not closed). A background track change costs nothing until the sheet
+	// opens; half<->full toggles hit the store's uid dedupe. untrack: the store reads/writes its own
+	// $state (uid dedupe, loading flip), which must never become deps of this effect
+	// (cf. restore-effect-self-invalidation-loop).
+	$effect(() => {
+		const cur = player.current;
+		if (!cur || !upNextPaneOpen(wide, sheetState)) return;
+		untrack(() => comments.load(cur));
+	});
+	// The uid guard hides the previous song's count between a background track change and its load.
+	const commentBadge = $derived(
+		player.current && comments.uid === player.current.uid ? comments.badge : null
+	);
 	let sheetEl = $state<HTMLElement | null>(null);
 	let transportEl = $state<HTMLElement | null>(null); // transport row → live bottom edge for flush half offset
 	let coverEl = $state<HTMLElement | null>(null); // cover banner → its 0.32s reflow must settle before re-measuring halfOffset
@@ -1131,7 +1148,7 @@
 				<button aria-hidden="true" tabindex="-1">{t('nowplaying.upNext')}</button>
 				<button aria-hidden="true" tabindex="-1">{t('nowplaying.lyrics')}</button>
 				<span class="pair">
-					<button data-tab="comments" class:active={tab === 'comments'} onclick={() => selectTab('comments')} use:tapBounce>{t('nowplaying.comments')}</button>
+					<button data-tab="comments" class:active={tab === 'comments'} onclick={() => selectTab('comments')} use:tapBounce>{t('nowplaying.comments')}{#if commentBadge}<span class="count">{commentBadge}</span>{/if}</button>
 					<button data-tab="related" class:active={tab !== 'comments'} onclick={() => selectTab('related')} use:tapBounce>{t('nowplaying.related')}</button>
 				</span>
 			</div>
@@ -1140,7 +1157,7 @@
 				onpointerdown={gripDown} onpointermove={gripMove} onpointerup={gripUp} onpointercancel={gripUp}>
 				<button data-tab="queue" class:active={tab === 'queue'} onclick={() => selectTab('queue')} use:tapBounce>{t('nowplaying.upNext')}</button>
 				<button data-tab="lyrics" class:active={tab === 'lyrics'} onclick={() => selectTab('lyrics')} use:tapBounce>{t('nowplaying.lyrics')}</button>
-				<button data-tab="comments" class:active={tab === 'comments'} onclick={() => selectTab('comments')} use:tapBounce>{t('nowplaying.comments')}</button>
+				<button data-tab="comments" class:active={tab === 'comments'} onclick={() => selectTab('comments')} use:tapBounce>{t('nowplaying.comments')}{#if commentBadge}<span class="count">{commentBadge}</span>{/if}</button>
 				<button data-tab="related" class:active={tab === 'related'} onclick={() => selectTab('related')} use:tapBounce>{t('nowplaying.related')}</button>
 			</nav>
 		{/if}
@@ -1436,6 +1453,7 @@
 	.subnav { display: flex; justify-content: space-around; padding-bottom: 6px; touch-action: none; user-select: none; -webkit-user-select: none; }
 	.subnav button { background: none; border: none; color: var(--color-text-muted); font-size: 0.8125rem; min-height: 40px; padding: 8px 12px; cursor: pointer; border-bottom: 2px solid transparent; }
 	.subnav button.active { color: var(--color-text); border-bottom-color: var(--color-primary); }
+	.subnav .count { margin-left: 5px; padding: 1px 6px; border-radius: 999px; background: var(--color-surface); color: var(--color-text-muted); font-size: 0.6875rem; font-variant-numeric: tabular-nums; }
 	/* NP-02: contain over-scroll/bounce to the panel edges so half-open scroll never chains to
 	   the page behind the sheet. NO touch-action: none — the panel keeps its pan-y scroll (the
 	   browser owns vertical scrolling here). iOS <16 lacks overscroll-behavior support, so it is

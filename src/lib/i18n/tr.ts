@@ -300,6 +300,8 @@ const tr: Dict = {
 	"comments.report": "Bildir",
 	"comments.reportConfirm": "Bildirimi onayla",
 	"comments.errVerify": "Doğrulama başarısız — tekrar dene.",
+	"comments.write": "Yorum yaz",
+	"comments.cancel": "İptal",
 	"nowplaying.reorderTrack": "Parçayı yeniden sırala",
 	"nowplaying.noQueue": "Henüz sıra yok.",
 	"nowplaying.skippedRetry": "Atlandı — yeniden denemek için dokunun",

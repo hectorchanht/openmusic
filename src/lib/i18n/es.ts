@@ -300,6 +300,8 @@ const es: Dict = {
 	"comments.report": "Denunciar",
 	"comments.reportConfirm": "Confirmar denuncia",
 	"comments.errVerify": "La verificación falló: inténtalo de nuevo.",
+	"comments.write": "Escribe un comentario",
+	"comments.cancel": "Cancelar",
 	"nowplaying.reorderTrack": "Reordenar pista",
 	"nowplaying.noQueue": "Aún no hay cola.",
 	"nowplaying.skippedRetry": "Omitida — toca para reintentar",

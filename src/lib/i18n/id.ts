@@ -300,6 +300,8 @@ const id: Dict = {
 	"comments.report": "Laporkan",
 	"comments.reportConfirm": "Konfirmasi laporan",
 	"comments.errVerify": "Verifikasi gagal — coba lagi.",
+	"comments.write": "Tulis komentar",
+	"comments.cancel": "Batal",
 	"nowplaying.reorderTrack": "Susun ulang trek",
 	"nowplaying.noQueue": "Belum ada antrian.",
 	"nowplaying.skippedRetry": "Dilewati — ketuk untuk coba lagi",

@@ -300,6 +300,8 @@ const hi: Dict = {
 	"comments.report": "रिपोर्ट करें",
 	"comments.reportConfirm": "रिपोर्ट की पुष्टि करें",
 	"comments.errVerify": "सत्यापन विफल — फिर कोशिश करें।",
+	"comments.write": "टिप्पणी लिखें",
+	"comments.cancel": "रद्द करें",
 	"nowplaying.reorderTrack": "ट्रैक पुनः व्यवस्थित करें",
 	"nowplaying.noQueue": "अभी तक कोई कतार नहीं है.",
 	"nowplaying.skippedRetry": "छोड़ा गया — पुनः प्रयास के लिए टैप करें",

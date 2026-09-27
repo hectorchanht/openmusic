@@ -1,28 +1,20 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
 	import { Capacitor } from '@capacitor/core';
-	import { player } from '$lib/stores/player.svelte';
 	import { settings } from '$lib/stores/settings.svelte';
+	import { comments } from '$lib/stores/comments.svelte';
 	import { t } from '$lib/i18n';
 	import { tapBounce } from '$lib/actions/tapBounce';
-	import {
-		commentThreadKey,
-		fetchComments,
-		postComment,
-		reportComment,
-		relativeTime,
-		type CommentItem,
-		type CommentErr
-	} from '$lib/services/comments';
+	import { postComment, relativeTime, type CommentErr } from '$lib/services/comments';
 	import { loadTurnstile, TURNSTILE_SITEKEY, type TurnstileApi } from '$lib/services/turnstile-widget';
 	import { apiOrigin } from '$lib/services/api-base';
 	import { BRIDGE_PATH, BRIDGE_MSG, bridgeOrigin, parseBridgeMessage } from '$lib/services/turnstile-bridge';
 
 	// quick-260926-nsz: the Comments pane — one public thread per SONG (every source copy and both
-	// Chinese scripts share it; see commentThreadKey). No props: it reads player.current like the
-	// other Now Playing panes. No IntersectionObserver (unlike NpRelated): this pane is mounted only
-	// while its tab / wide column is selected, and the cost is ONE edge-cached GET per track change
-	// through the apiFetch governor.
+	// Chinese scripts share it; see commentThreadKey). quick-260926-pb0: the thread is loaded by
+	// NowPlaying into the `comments` store (one edge-cached GET per track, only while the Now Playing
+	// pane is on screen) so the tab can show the count; this pane is a pure view of it plus the
+	// composer, which sits behind a "Write a comment" button.
 
 	const NAME_KEY = 'openmusic:comment-name:v1';
 	const TEXT_MAX = 280;
@@ -54,16 +46,12 @@
 		}
 	}
 
-	let items = $state<CommentItem[]>([]);
-	let loading = $state(false);
-	let unavailable = $state(false);
-	let threadKey = $state<string | null>(null);
+	let composing = $state(false);
 	let name = $state(readName());
 	let text = $state('');
 	let posting = $state(false);
 	let err = $state<CommentErr | null>(null);
 	let armed = $state<string | null>(null); // the id whose Report button is on its confirm step
-	let reported = $state<string[]>([]);
 	let token = $state(''); // single-use Turnstile token; '' = none yet / spent / expired
 	let tsEl = $state<HTMLElement | null>(null);
 	let bridgeEl = $state<HTMLIFrameElement | null>(null);
@@ -72,46 +60,23 @@
 	const bridgeHost = native ? bridgeOrigin(apiOrigin()) : null;
 	const bridgeSrc = bridgeHost ? bridgeHost + BRIDGE_PATH : null;
 
-	// Supersede guard — a PLAIN field, deliberately not $state (the player.svelte.ts generation-guard
-	// convention): the effect below must never read state it writes.
-	let commentsFor = '';
 	let ts: TurnstileApi | null = null;
 	let widgetId: string | null = null;
 
-	// The reporter stops seeing a comment at once, whatever the server decides.
-	const visible = $derived(items.filter((i) => !reported.includes(i.id)));
-
-	// Reads only player.current and the plain guard; writes the pane state it never reads, so it
-	// cannot self-invalidate (cf. restore-effect-self-invalidation-loop).
+	// A new song clears the previous thread's error line and armed Report. Reads only comments.uid
+	// and writes state it never reads, so it cannot self-invalidate.
 	$effect(() => {
-		const cur = player.current;
-		if (!cur || commentsFor === cur.uid) return;
-		commentsFor = cur.uid;
-		items = [];
+		void comments.uid;
 		err = null;
 		armed = null;
-		threadKey = null;
-		unavailable = false;
-		loading = true;
-		void (async () => {
-			const k = await commentThreadKey(cur.artist, cur.title);
-			if (commentsFor !== cur.uid) return; // a newer song owns the pane — drop this reply
-			if (!k) {
-				unavailable = true;
-				loading = false;
-				return;
-			}
-			threadKey = k;
-			const got = await fetchComments(k);
-			if (commentsFor !== cur.uid) return;
-			if (got === null) unavailable = true;
-			else items = got;
-			loading = false;
-		})();
 	});
 
 	// Turnstile widget: script lazy-loaded once per app, rendered explicitly into the composer,
 	// removed on unmount. Post stays disabled until the widget hands us a token.
+	// quick-260926-pb0: the `.ts` div (and the native bridge iframe) live inside the composing block,
+	// so this effect only runs once the user taps "Write a comment", and its cleanup removes the
+	// widget when Cancel / a successful post unmounts the div. Perf + privacy: readers never load
+	// challenges.cloudflare.com.
 	$effect(() => {
 		const el = tsEl;
 		if (!el || native) return;
@@ -144,7 +109,8 @@
 
 	// Native bridge: take token/clear only from OUR iframe at the API origin. Reads no $state
 	// synchronously (bridgeEl is read inside the handler only), so it runs once on mount and cannot
-	// self-invalidate (cf. restore-effect-self-invalidation-loop).
+	// self-invalidate (cf. restore-effect-self-invalidation-loop). While the composer is closed
+	// there is no iframe, so every message fails the source check and is ignored.
 	$effect(() => {
 		const host = bridgeHost;
 		if (!bridgeSrc || !host) return;
@@ -168,26 +134,38 @@
 		bridgeEl?.contentWindow?.postMessage({ type: BRIDGE_MSG.hello }, host);
 	}
 
+	// quick-260926-pb0: Cancel keeps the draft `text` — a mis-tapped Cancel must not eat a typed
+	// comment; reopening shows it.
+	function close() {
+		composing = false;
+		err = null;
+		token = '';
+	}
+
 	async function submit() {
 		const body = text.trim();
-		if (!threadKey || posting || !body || !token) return;
+		const k = comments.key;
+		const uid = comments.uid;
+		if (!k || posting || !body || !token) return;
 		const n = name.trim() || t('comments.defaultName');
 		writeName(name.trim());
 		posting = true;
 		err = null;
-		const uid = commentsFor;
-		const r = await postComment(threadKey, n, body, token);
+		const r = await postComment(k, n, body, token);
 		// Tokens are single-use: reset after EVERY attempt, success or failure.
 		token = '';
 		if (ts && widgetId) ts.reset(widgetId);
 		else if (bridgeHost) bridgeEl?.contentWindow?.postMessage({ type: BRIDGE_MSG.reset }, bridgeHost);
 		// Cleared BEFORE the supersede check: a song change mid-post must not leave Post disabled.
 		posting = false;
-		if (commentsFor !== uid) return; // song changed mid-post: the reply belongs to another thread
+		if (comments.uid !== uid) return; // song changed mid-post: the reply belongs to another thread
 		if (r.ok) {
-			items = r.items;
+			// The reply is the whole thread, newest first: the new comment lands on top and the
+			// tab count updates on the same tick. The name stays remembered (writeName above).
+			comments.replace(r.items);
 			text = '';
-		} else err = r.err;
+			composing = false;
+		} else err = r.err; // composer stays open with the error line
 	}
 
 	function report(id: string) {
@@ -196,8 +174,7 @@
 			return;
 		}
 		armed = null;
-		reported = [...reported, id];
-		if (threadKey) void reportComment(threadKey, id); // fire-and-forget
+		comments.report(id); // hides locally + fire-and-forget request
 	}
 
 	const errKey = (e: CommentErr) =>
@@ -211,52 +188,61 @@
 </script>
 
 <div class="cm-pane">
-	<div class="composer">
-		<input
-			maxlength="24"
-			bind:value={name}
-			placeholder={t('comments.namePlaceholder')}
-			aria-label={t('comments.namePlaceholder')}
-			autocomplete="nickname"
-			disabled={unavailable}
-		/>
-		<textarea
-			maxlength={TEXT_MAX}
-			bind:value={text}
-			placeholder={t('comments.textPlaceholder')}
-			aria-label={t('comments.textPlaceholder')}
-			rows="3"
-			disabled={unavailable}
-		></textarea>
-		{#if bridgeSrc}
-			<iframe class="ts-bridge" bind:this={bridgeEl} src={bridgeSrc} title="Cloudflare Turnstile" onload={hello}></iframe>
-		{:else if !native}
-			<div class="ts" bind:this={tsEl}></div>
-		{/if}
-		<div class="bar">
-			<!-- text.length, not code points: it counts what maxlength counts, so the number
-			     reaches 0 exactly when the textarea stops accepting input. -->
-			<span class="muted">{t('comments.remaining', { n: TEXT_MAX - text.length })}</span>
-			<button
-				class="post"
-				disabled={!text.trim() || posting || !threadKey || !token || unavailable}
-				onclick={submit}
-				use:tapBounce>{t('comments.post')}</button
-			>
+	{#if composing}
+		<div class="composer">
+			<input
+				maxlength="24"
+				bind:value={name}
+				placeholder={t('comments.namePlaceholder')}
+				aria-label={t('comments.namePlaceholder')}
+				autocomplete="nickname"
+				disabled={comments.unavailable}
+			/>
+			<textarea
+				maxlength={TEXT_MAX}
+				bind:value={text}
+				placeholder={t('comments.textPlaceholder')}
+				aria-label={t('comments.textPlaceholder')}
+				rows="3"
+				disabled={comments.unavailable}
+			></textarea>
+			{#if bridgeSrc}
+				<iframe class="ts-bridge" bind:this={bridgeEl} src={bridgeSrc} title="Cloudflare Turnstile" onload={hello}></iframe>
+			{:else if !native}
+				<div class="ts" bind:this={tsEl}></div>
+			{/if}
+			<div class="bar">
+				<!-- text.length, not code points: it counts what maxlength counts, so the number
+				     reaches 0 exactly when the textarea stops accepting input. -->
+				<span class="muted">{t('comments.remaining', { n: TEXT_MAX - text.length })}</span>
+				<span class="actions">
+					<button class="cancel" onclick={close} use:tapBounce>{t('comments.cancel')}</button>
+					<button
+						class="post"
+						disabled={!text.trim() || posting || !comments.key || !token || comments.unavailable}
+						onclick={submit}
+						use:tapBounce>{t('comments.post')}</button
+					>
+				</span>
+			</div>
+			{#if err}<p class="err">{t(errKey(err))}</p>{/if}
+			<p class="muted note">{t('comments.publicNote')}</p>
 		</div>
-		{#if err}<p class="err">{t(errKey(err))}</p>{/if}
-		<p class="muted note">{t('comments.publicNote')}</p>
-	</div>
+	{:else if !comments.unavailable}
+		<div class="write-row">
+			<button class="write" onclick={() => (composing = true)} use:tapBounce>{t('comments.write')}</button>
+		</div>
+	{/if}
 
-	{#if unavailable}
+	{#if comments.unavailable}
 		<p class="empty">{t('comments.unavailable')}</p>
-	{:else if loading}
+	{:else if comments.loading}
 		<p class="empty">{t('comments.loading')}</p>
-	{:else if !visible.length}
+	{:else if !comments.visible.length}
 		<p class="empty">{t('comments.empty')}</p>
 	{:else}
 		<ul class="list">
-			{#each visible as c (c.id)}
+			{#each comments.visible as c (c.id)}
 				<!-- Plain interpolation ONLY for name/text — never raw HTML (T-nsz-01). -->
 				<li class="cm">
 					<div class="head">
@@ -302,6 +288,31 @@
 		cursor: pointer;
 	}
 	.post:disabled { opacity: 0.5; cursor: default; }
+	.actions { display: flex; gap: 8px; }
+	.cancel {
+		background: none;
+		border: none;
+		color: var(--color-text-muted);
+		font-size: 0.8125rem;
+		min-height: 32px;
+		padding: 6px 10px;
+		cursor: pointer;
+	}
+	.write-row { margin-bottom: 14px; }
+	/* Looks like an inert input: a tap opens the real composer. */
+	.write {
+		background: var(--color-surface);
+		color: var(--color-text-muted);
+		border: none;
+		border-radius: 999px;
+		padding: 8px 12px;
+		width: 100%;
+		text-align: left;
+		font: inherit;
+		font-size: 0.875rem;
+		min-height: 40px;
+		cursor: text;
+	}
 	.muted { color: var(--color-text-muted); font-size: 0.75rem; }
 	.note { margin: 0; }
 	/* 65px = the flexible widget's fixed height; the interactive challenge renders inside that box. */
