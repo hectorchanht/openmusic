@@ -49,19 +49,10 @@
 		HOME_CACHE_KEY,
 		LEGACY_HOME_CACHE_KEYS,
 		POOL_STALE_MS,
-		POOL_CAP,
 		type ChartTask
 	} from '$lib/services/home-charts';
-	import {
-		appleSongs,
-		appleAlbums,
-		kkboxSongs,
-		kkboxNewReleases,
-		ytTracks,
-		ytArtists,
-		genreChart
-	} from '$lib/services/charts';
-	import { fuseCharts, type ChartAlbum } from '$lib/services/chart-parse';
+	import { fetchChartPool } from '$lib/services/charts';
+	import type { ChartAlbum } from '$lib/services/chart-parse';
 	import { settings } from '$lib/stores/settings.svelte';
 	import { deezerChart } from '$lib/services/deezer';
 	import { backfillCovers, backfillArtistCovers } from '$lib/services/cover-backfill';
@@ -489,40 +480,6 @@
 			.filter((s) => s.items.length || s.planned)
 	);
 
-	type TaskResult =
-		| { kind: 'songs'; items: DiscoveryTrack[] }
-		| { kind: 'artists'; items: DiscoveryArtist[] }
-		| { kind: 'albums'; items: ChartAlbum[] };
-	/** Every charts.ts call is never-throw (→ [] on failure), so no try/catch here. */
-	async function fetchTask(task: ChartTask): Promise<TaskResult> {
-		switch (task.src) {
-			case 'apple':
-				return task.kind === 'songs'
-					? { kind: 'songs', items: await appleSongs(task.cc) }
-					: { kind: 'albums', items: await appleAlbums(task.cc) };
-			case 'kkbox':
-				return {
-					kind: 'songs',
-					items: await (task.kind === 'song' ? kkboxSongs(task.cc) : kkboxNewReleases(task.cc))
-				};
-			case 'yt':
-				return task.kind === 'tracks'
-					? { kind: 'songs', items: await ytTracks(task.cc) }
-					: { kind: 'artists', items: await ytArtists(task.cc) };
-			case 'genre':
-				return { kind: 'songs', items: await genreChart(task.genre) };
-		}
-	}
-	function uniqBy<T>(items: T[], key: (x: T) => string): T[] {
-		const seen = new Set<string>();
-		return items.filter((x) => {
-			const k = key(x);
-			if (seen.has(k)) return false;
-			seen.add(k);
-			return true;
-		});
-	}
-
 	// Generation of the chart FETCH, separate from refreshGen: only a newer chart fetch supersedes
 	// one in flight. A Randomize press bumps refreshGen but must NOT cancel pools still landing on a
 	// cold load (the button stays enabled when no classic section is visible) — they are new content,
@@ -534,9 +491,8 @@
 	 * pool is written AS IT LANDS (chartGen-guarded), so one hanging Apple call never holds back the
 	 * KKBOX / YouTube shelves (RESEARCH Pitfall 9). `apply(key)` = also write the reactive state for
 	 * that key (the silent revalidate applies only keys with nothing on screen). An EMPTY answer
-	 * (upstream failure) keeps the current pool. Rows are de-duplicated on the way in because the
-	 * shelves key their rows by artist + title (or name) — a chart listing the same song twice
-	 * (explicit + clean) would otherwise collide.
+	 * (upstream failure) keeps the current pool. Fetch, de-dupe and fuse: see fetchChartPool
+	 * (quick-260927-1fx — shared with the see-all page so both draw the SAME pool).
 	 * `placeholders` (39-D-37, visible refresh only): every group key is in `inflight` until that
 	 * group settles — landed, empty or superseded — so a placeholder never outlives its fetch (T-39-33).
 	 */
@@ -553,35 +509,22 @@
 		const outPicks: Record<string, number[]> = {};
 		const n = clampShelfSize(settings.homeShelfSize);
 		async function runGroup(group: ChartTask[], key: string) {
-			const results = await Promise.all(group.map(fetchTask));
+			const r = await fetchChartPool(group);
 			if (gen !== chartGen) return; // superseded by a newer chart fetch (WR-04 idiom)
 			const live = apply(key);
-			const first = results[0];
-			let len = 0;
-			if (first.kind === 'artists') {
-				const items = uniqBy(first.items, (a) => a.name).slice(0, POOL_CAP);
-				if (!(len = items.length)) return;
-				out.artists[key] = items;
-				if (live) pools.artists[key] = items;
-			} else if (first.kind === 'albums') {
-				const items = uniqBy(first.items, (a) => a.artist + ' ' + a.name).slice(0, POOL_CAP);
-				if (!(len = items.length)) return;
-				out.albums[key] = items;
-				if (live) pools.albums[key] = items;
+			if (!r.items.length) return;
+			// Three branches: TS cannot correlate a union-indexed write.
+			if (r.kind === 'artists') {
+				out.artists[key] = r.items;
+				if (live) pools.artists[key] = r.items;
+			} else if (r.kind === 'albums') {
+				out.albums[key] = r.items;
+				if (live) pools.albums[key] = r.items;
 			} else {
-				// Top Songs in hk/tw/sg: KKBOX + Apple fused, Apple's list FIRST so its display strings
-				// win (CONTEXT). A one-list group runs through fuseCharts too — rank order is kept and
-				// duplicates collapse.
-				const lists = group
-					.map((task, i) => ({ apple: task.src === 'apple', r: results[i] }))
-					.sort((a, b) => Number(b.apple) - Number(a.apple))
-					.flatMap(({ r }) => (r.kind === 'songs' ? [r.items] : []));
-				const items = fuseCharts(lists, 60, POOL_CAP);
-				if (!(len = items.length)) return;
-				out.songs[key] = items;
-				if (live) pools.songs[key] = items;
+				out.songs[key] = r.items;
+				if (live) pools.songs[key] = r.items;
 			}
-			outPicks[key] = samplePicks(len, n);
+			outPicks[key] = samplePicks(r.items.length, n);
 			if (live) picks[key] = outPicks[key];
 		}
 		await mapWithConcurrency([...groups.values()], FANOUT_CAP, async (group) => {

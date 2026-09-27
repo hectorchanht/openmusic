@@ -10,6 +10,8 @@
 import {
 	KKBOX_REGIONS,
 	YT_REGIONS,
+	CHART_REGIONS,
+	CHART_GENRE_IDS,
 	type ChartGenre,
 	type ChartRegion,
 	type ChartSectionId
@@ -35,7 +37,18 @@ export type ChartTask =
 	| { key: string; section: ChartSectionId; src: 'yt'; kind: 'tracks' | 'artists'; cc: ChartRegion }
 	| { key: string; section: ChartSectionId; src: 'genre'; genre: ChartGenre };
 
-type RegionPool = 'chart-songs' | 'new-releases' | 'chart-artists' | 'chart-albums' | 'yt-trending' | 'region';
+export type RegionPool = 'chart-songs' | 'new-releases' | 'chart-artists' | 'chart-albums' | 'yt-trending' | 'region';
+/** quick-260927-1fx: the `[kind]` segment of a chart see-all page (/charts/shelf/[kind]/[id]). */
+export type ChartPoolKind = RegionPool | 'genre';
+export const CHART_POOL_KINDS: readonly ChartPoolKind[] = [
+	'chart-songs',
+	'new-releases',
+	'chart-artists',
+	'chart-albums',
+	'yt-trending',
+	'region',
+	'genre'
+];
 
 /** 39-D-21 / UI-SPEC §1.7: region-qualified so a region change never shows the previous region's
  *  items under the new title. */
@@ -88,6 +101,28 @@ export function planChartShelves(cfg: ChartPlanConfig): ChartTask[] {
 		}
 	}
 	return out;
+}
+
+/**
+ * quick-260927-1fx: the task group for ONE pool key — what a see-all page fetches. Derived FROM
+ * planChartShelves, so the page's group is provably the home shelf's group for that key (hk/tw/sg
+ * Top songs stays KKBOX + Apple fused). T-1fx-01: `kind` and `id` are both allowlisted here, so a
+ * tampered URL yields [] and never builds an upstream request. Passing `id` as an extra region is
+ * what plans the `region:<id>` key — the planner does not re-filter the main region out.
+ */
+export function poolTasks(kind: ChartPoolKind, id: string): ChartTask[] {
+	if (kind === 'genre') {
+		if (!(CHART_GENRE_IDS as readonly string[]).includes(id)) return [];
+		const genre = id as ChartGenre;
+		return planChartShelves({ region: CHART_REGIONS[0], extraRegions: [], genres: [genre], hidden: [] }).filter(
+			(t) => t.key === genrePoolKey(genre)
+		);
+	}
+	if (!CHART_POOL_KINDS.includes(kind) || !(CHART_REGIONS as readonly string[]).includes(id)) return [];
+	const cc = id as ChartRegion;
+	return planChartShelves({ region: cc, extraRegions: [cc], genres: [], hidden: [] }).filter(
+		(t) => t.key === poolKey(kind, cc)
+	);
 }
 
 /**
@@ -152,6 +187,16 @@ export const CHART_GENRE_LABEL: Record<ChartGenre, TranslationKey> = {
 	electronic: 'home.genre.electronic',
 	alternative: 'home.genre.alternative',
 	asian: 'home.genre.asian'
+};
+
+/** quick-260927-1fx: a region pool's title — the shelf's own label, reused as its see-all page title. */
+export const CHART_POOL_LABEL: Record<RegionPool, TranslationKey> = {
+	'chart-songs': 'home.chartSongs',
+	'new-releases': 'home.newReleases',
+	'chart-artists': 'home.chartArtists',
+	'chart-albums': 'home.chartAlbums',
+	'yt-trending': 'home.ytTrending',
+	region: 'home.chartSongs'
 };
 
 /** 39-D-24: v3 — the home cache now holds pools + picks. Lives in `$lib` (a route file can't be

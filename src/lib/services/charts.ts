@@ -16,11 +16,13 @@
 import { cached } from './ttl-cache';
 import { apiFetch } from './api-base';
 import { combinedSignal as combineWithTimeout } from './abort-signal';
-import { parseItunesGenreFeed, type ChartAlbum } from './chart-parse';
+import { parseItunesGenreFeed, fuseCharts, type ChartAlbum } from './chart-parse';
 import { safeImageUrl, APPLE_IMAGE_HOSTS } from '$lib/proxy/safe-image-url';
 import { CHART_GENRES, type ChartGenre, type ChartRegion } from './home-layout';
 import { deezerGenreChart } from './deezer';
 import type { DiscoveryTrack, DiscoveryArtist } from './lastfm';
+// home-charts is PURE and never imports this module, so this direction creates no cycle.
+import { POOL_CAP, type ChartTask } from './home-charts';
 
 const CHARTS_PATH = '/api/charts';
 const FETCH_TIMEOUT_MS = 6000;
@@ -123,4 +125,71 @@ export function genreChart(genre: ChartGenre, signal?: AbortSignal): Promise<Dis
 	return spec.src === 'itunes'
 		? itunesGenreChart(spec.cc, spec.id, signal)
 		: deezerGenreChart(spec.id, signal);
+}
+
+/** One pool key's fused, de-duplicated rows — what a chart shelf samples from and its see-all page lists. */
+export type ChartPool =
+	| { kind: 'songs'; items: DiscoveryTrack[] }
+	| { kind: 'artists'; items: DiscoveryArtist[] }
+	| { kind: 'albums'; items: ChartAlbum[] };
+
+/** Every fetcher above is never-throw (→ [] on failure), so no try/catch here. */
+async function fetchTask(task: ChartTask): Promise<ChartPool> {
+	switch (task.src) {
+		case 'apple':
+			return task.kind === 'songs'
+				? { kind: 'songs', items: await appleSongs(task.cc) }
+				: { kind: 'albums', items: await appleAlbums(task.cc) };
+		case 'kkbox':
+			return {
+				kind: 'songs',
+				items: await (task.kind === 'song' ? kkboxSongs(task.cc) : kkboxNewReleases(task.cc))
+			};
+		case 'yt':
+			return task.kind === 'tracks'
+				? { kind: 'songs', items: await ytTracks(task.cc) }
+				: { kind: 'artists', items: await ytArtists(task.cc) };
+		case 'genre':
+			return { kind: 'songs', items: await genreChart(task.genre) };
+	}
+}
+
+/** First-seen wins. */
+function uniqBy<T>(items: T[], key: (x: T) => string): T[] {
+	const seen = new Set<string>();
+	return items.filter((x) => {
+		const k = key(x);
+		if (seen.has(k)) return false;
+		seen.add(k);
+		return true;
+	});
+}
+
+/**
+ * quick-260927-1fx: fetch + fuse ONE pool key's task group (moved out of the home page so the shelf
+ * and its see-all page draw the SAME pool). Never throws; an empty group → an empty songs pool with
+ * zero fetches. Every fetcher is memoised 6 h, so a see-all page opened from its shelf costs zero
+ * requests.
+ *
+ * 39-D-28: rows are de-duplicated on the way in because the shelves key their rows by artist + title
+ * (or name) — a chart listing the same song twice (explicit + clean) would otherwise collide.
+ * 39-D-22: Top Songs in hk/tw/sg is KKBOX + Apple FUSED (not a fallback), Apple's list FIRST so its
+ * display strings win. A one-list group runs through fuseCharts too — rank order is kept and
+ * duplicates collapse.
+ */
+export async function fetchChartPool(group: ChartTask[], cap = POOL_CAP): Promise<ChartPool> {
+	if (!group.length) return { kind: 'songs', items: [] };
+	const results = await Promise.all(group.map(fetchTask));
+	const first = results[0];
+	if (first.kind === 'artists') {
+		return { kind: 'artists', items: uniqBy(first.items, (a) => a.name).slice(0, cap) };
+	}
+	if (first.kind === 'albums') {
+		return { kind: 'albums', items: uniqBy(first.items, (a) => a.artist + ' ' + a.name).slice(0, cap) };
+	}
+	const lists = group
+		.map((task, i) => ({ apple: task.src === 'apple', r: results[i] }))
+		.sort((a, b) => Number(b.apple) - Number(a.apple))
+		.flatMap(({ r }) => (r.kind === 'songs' ? [r.items] : []));
+	return { kind: 'songs', items: fuseCharts(lists, 60, cap) };
 }
