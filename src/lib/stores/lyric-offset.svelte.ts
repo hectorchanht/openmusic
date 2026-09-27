@@ -166,6 +166,36 @@ export function resetLyricOffset(uid: string): void {
 	else if (typeof _shared[uid] === 'number') setLyricOffset(uid, 0);
 }
 
+// ---- quick-260926-qat: the timing row's open flag ----
+//
+// The lyrics pane's timing row (−0.5s / readout / +0.5s) is hidden by default and opened from the
+// track menu. The flag is IN-MEMORY and SESSION-ONLY on purpose: a fresh app start always shows clean
+// lyrics, so it is never persisted. It stays open across track changes (a user realigning a whole live
+// album should not have to reopen it per song). `req` is a monotonic "bring the row into view" counter
+// NowPlaying reacts to — the same reactive-counter shape as `_v.n` — so that effect depends on the
+// counter alone, never on the flag or on any tab state.
+
+const _bar = $state({ open: false, req: 0 });
+
+/** Is the timing row shown? CALL inside a $derived/template/effect to depend on it. */
+export function lyricSyncOpen(): boolean {
+	return _bar.open;
+}
+
+/** Bumped on every open request. CALL inside an $effect to react to "show me the row". */
+export function lyricSyncRequest(): number {
+	return _bar.req;
+}
+
+export function setLyricSyncOpen(v: boolean): void {
+	_bar.open = v;
+	if (v) _bar.req++;
+}
+
+export function toggleLyricSyncOpen(): void {
+	setLyricSyncOpen(!_bar.open);
+}
+
 /** TEST-ONLY: reset the shared layer (mirrors api-base's __resetGovernor). */
 export function __resetSharedLyricOffsets(): void {
 	for (const k of Object.keys(_shared)) delete _shared[k];
