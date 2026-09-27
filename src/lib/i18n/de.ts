@@ -360,6 +360,8 @@ const de: Dict = {
 	"menu.versions": "Von Quelle abspielen",
 	"menu.changeCover": "Cover ändern",
 	"menu.fixLyrics": "Songtext korrigieren",
+	"menu.lyricsTiming": "Songtext-Timing anpassen",
+	"menu.lyricsTimingHide": "Songtext-Timing ausblenden",
 	"menu.lyricsPickerNone": "Für diesen Song wurde kein Songtext gefunden",
 	"menu.lyricsRetry": "Erneut versuchen",
 	"menu.lyricsAuto": "Automatischen Songtext verwenden",

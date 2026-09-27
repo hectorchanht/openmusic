@@ -423,6 +423,8 @@ const en = {
 	"menu.versions": "Play from source",
 	"menu.changeCover": "Change cover",
 	"menu.fixLyrics": "Fix lyrics",
+	"menu.lyricsTiming": "Adjust lyrics timing",
+	"menu.lyricsTimingHide": "Hide lyrics timing",
 	"menu.lyricsPickerNone": "No lyrics found for this song",
 	"menu.lyricsRetry": "Try again",
 	"menu.lyricsAuto": "Use automatic lyrics",

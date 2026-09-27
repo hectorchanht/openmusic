@@ -11,6 +11,8 @@
 	import { library } from '$lib/stores/library.svelte';
 	import { names } from '$lib/stores/names.svelte';
 	import { overlays } from '$lib/stores/overlays.svelte';
+	// quick-260926-qat: the lyrics timing row's "bring into view" counter (see the effect below).
+	import { lyricSyncRequest } from '$lib/stores/lyric-offset.svelte';
 	import { t, tMaybeKey } from '$lib/i18n';
 	// Gap 4 (26-10): the LAZY on-demand cross-source variant fetch (26-08) fed to the per-row
 	// version picker — fired ONLY on a trigger tap, never on list render (T-26-10-02).
@@ -66,6 +68,10 @@
 
 	type Tab = 'queue' | 'lyrics' | 'comments' | 'related';
 	let tab = $state<Tab>('lyrics');
+	// quick-260926-qat: PLAIN field (nothing renders it). Snapshot at mount so a request raised while
+	// this component was unmounted (menu opened from the Nowbar / a list row) is not replayed on the
+	// next expand; `tab` already defaults to 'lyrics' on mount, so the row is on screen anyway.
+	let seenSyncReq = lyricSyncRequest();
 
 	// quick-260919-np3 — the desktop three-up breakpoint.
 	//
@@ -596,6 +602,19 @@
 		const cur = player.current;
 		if (!cur) return;
 		untrack(() => comments.load(cur));
+	});
+	// quick-260926-qat: "Adjust lyrics timing" in the track menu brings the timing row into view.
+	// Reads ONLY the request counter; `wide`, `tab`, `sheetState`, `subnavMoved` are read inside
+	// untrack so this can never re-run on its own writes (cf. restore-effect-self-invalidation-loop).
+	// Wide layout: lyrics is always the middle column and selectTab there would only flip the
+	// Comments | Related column, so it is skipped. Narrow: selectTab('lyrics') is the same call the
+	// tab button makes — it also opens the sheet to half from closed, nothing more. `subnavMoved` is
+	// false here (the request comes from a menu tap, not a subnav drag).
+	$effect(() => {
+		const n = lyricSyncRequest();
+		if (n === seenSyncReq) return;
+		seenSyncReq = n;
+		untrack(() => { if (!wide) selectTab('lyrics'); });
 	});
 	// The uid guard hides the previous song's count between a background track change and its load.
 	const commentBadge = $derived(

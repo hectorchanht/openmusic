@@ -360,6 +360,8 @@ const ar: Dict = {
 	"menu.versions": "التشغيل من مصدر",
 	"menu.changeCover": "تغيير الغلاف",
 	"menu.fixLyrics": "إصلاح كلمات الأغنية",
+	"menu.lyricsTiming": "ضبط توقيت كلمات الأغنية",
+	"menu.lyricsTimingHide": "إخفاء توقيت كلمات الأغنية",
 	"menu.lyricsPickerNone": "لم يتم العثور على كلمات لهذه الأغنية",
 	"menu.lyricsRetry": "حاول مرة أخرى",
 	"menu.lyricsAuto": "استخدام الكلمات التلقائية",

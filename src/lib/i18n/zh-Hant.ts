@@ -382,6 +382,8 @@ const zhHant: Dict = {
 	"menu.versions": "從音源播放",
 	"menu.changeCover": "更換封面",
 	"menu.fixLyrics": "修正歌詞",
+	"menu.lyricsTiming": "調整歌詞時間",
+	"menu.lyricsTimingHide": "隱藏歌詞時間調整",
 	"menu.lyricsPickerNone": "找不到這首歌的歌詞",
 	"menu.lyricsRetry": "重試",
 	"menu.lyricsAuto": "使用自動歌詞",

@@ -360,6 +360,8 @@ const pt: Dict = {
 	"menu.versions": "Reproduzir da fonte",
 	"menu.changeCover": "Alterar capa",
 	"menu.fixLyrics": "Corrigir a letra",
+	"menu.lyricsTiming": "Ajustar tempo da letra",
+	"menu.lyricsTimingHide": "Ocultar tempo da letra",
 	"menu.lyricsPickerNone": "Nenhuma letra encontrada para esta música",
 	"menu.lyricsRetry": "Tentar novamente",
 	"menu.lyricsAuto": "Usar a letra automática",

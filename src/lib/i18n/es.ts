@@ -360,6 +360,8 @@ const es: Dict = {
 	"menu.versions": "Reproducir desde la fuente",
 	"menu.changeCover": "Cambiar portada",
 	"menu.fixLyrics": "Corregir la letra",
+	"menu.lyricsTiming": "Ajustar sincronía de la letra",
+	"menu.lyricsTimingHide": "Ocultar sincronía de la letra",
 	"menu.lyricsPickerNone": "No se encontró letra para esta canción",
 	"menu.lyricsRetry": "Reintentar",
 	"menu.lyricsAuto": "Usar la letra automática",

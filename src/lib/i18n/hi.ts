@@ -360,6 +360,8 @@ const hi: Dict = {
 	"menu.versions": "स्रोत से चलाएँ",
 	"menu.changeCover": "कवर बदलें",
 	"menu.fixLyrics": "बोल ठीक करें",
+	"menu.lyricsTiming": "बोल का समय समायोजित करें",
+	"menu.lyricsTimingHide": "बोल का समय छिपाएँ",
 	"menu.lyricsPickerNone": "इस गाने के लिए कोई बोल नहीं मिले",
 	"menu.lyricsRetry": "फिर कोशिश करें",
 	"menu.lyricsAuto": "स्वचालित बोल इस्तेमाल करें",

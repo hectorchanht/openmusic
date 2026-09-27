@@ -2,7 +2,7 @@
 	import { tick, untrack } from 'svelte';
 	import { fly } from 'svelte/transition';
 	import { goto } from '$app/navigation';
-	import { ListStart, ListEnd, Download, Check, Heart, ListPlus, User, Share2, Info, X, Plus, Shuffle, Repeat, Repeat1, Trash2, Moon, Sparkles, Layers, Image as ImageIcon, ChevronDown, Tags, Mic2, EyeOff } from '@lucide/svelte';
+	import { ListStart, ListEnd, Download, Check, Heart, ListPlus, User, Share2, Info, X, Plus, Shuffle, Repeat, Repeat1, Trash2, Moon, Sparkles, Layers, Image as ImageIcon, ChevronDown, Tags, Mic2, EyeOff, Timer } from '@lucide/svelte';
 	import { player } from '$lib/stores/player.svelte';
 	import { sleepTimer } from '$lib/stores/sleepTimer.svelte';
 	import { library } from '$lib/stores/library.svelte';
@@ -70,6 +70,7 @@
 	// posture as the cover picker one line up — the parallel walk fires ONLY on the Fix-lyrics tap
 	// (T-1we-03), never on menu open. `readLyrics` is D-4's single read (pin → track.lrc → null).
 	import { readLyrics, pinLyrics, unpinLyrics } from '$lib/stores/lyric-pins.svelte';
+	import { lyricSyncOpen, toggleLyricSyncOpen } from '$lib/stores/lyric-offset.svelte';
 	import { parseLyrics } from '$lib/stores/lyric-script.svelte';
 	import { combinedSignal } from '$lib/services/abort-signal';
 	import { recallItunesId } from '$lib/services/itunes-cover';
@@ -488,6 +489,8 @@
 	// GLN-5: clear-queue relocated here from the NowPlaying subnav. Clearing a queue that is just
 	// [current] is a no-op, so the item is gated to queue.length > 1 in the template.
 	function clearQueue() { player.clearQueue(); close(); }
+	// quick-260926-qat: show / hide the lyrics pane's timing row, then close (Repeat-row shape).
+	function toggleLyricsTiming() { toggleLyricSyncOpen(); close(); }
 	function like() {
 		if (!track) return;
 		hapticTick();
@@ -1120,6 +1123,16 @@
 		     fires on THIS tap only (T-1we-03). `disabled` mirrors the Like / Change-cover rows: a
 		     uid-less stub has no identity to pin against (D-1). -->
 		<button class="mi" disabled={!track.uid} onclick={openLyricsPicker} use:tapBounce><Mic2 size={18} /> {t('menu.fixLyrics')}</button>
+		<!-- quick-260926-qat: lyrics timing toggle. Shown ONLY for the currently playing track that
+		     actually has lyrics — the row it reveals lives in the Now Playing lyrics pane of
+		     player.current, so for any other track it would toggle something the user cannot see.
+		     readLyrics(player.current) is D-4's single read (pin → track.lrc → null) and takes the
+		     lyricVersion dependency, so a Fix-lyrics pick that lands lyrics makes this row appear live.
+		     Repeat-row idiom (class:on + aria-pressed + swapping label): the menu closes on tap, so the
+		     label must show the state before the tap. -->
+		{#if player.current?.uid === track.uid && readLyrics(player.current)}
+			<button class="mi" class:on={lyricSyncOpen()} aria-pressed={lyricSyncOpen()} onclick={toggleLyricsTiming} use:tapBounce><Timer size={18} /> {lyricSyncOpen() ? t('menu.lyricsTimingHide') : t('menu.lyricsTiming')}</button>
+		{/if}
 		<!-- quick-260919-1eh: Edit metadata. Shown ONLY for a file the app actually holds bytes for.
 		     `blobPresent` is the blob-backed probe, NOT library.isDownloaded — quick-260913-jq4
 		     explains why the reference list lies (it is populated BEFORE the fetch, and the web save

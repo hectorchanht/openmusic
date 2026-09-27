@@ -382,6 +382,8 @@ const zhHans: Dict = {
 	"menu.versions": "从音源播放",
 	"menu.changeCover": "更换封面",
 	"menu.fixLyrics": "修正歌词",
+	"menu.lyricsTiming": "调整歌词时间",
+	"menu.lyricsTimingHide": "隐藏歌词时间调整",
 	"menu.lyricsPickerNone": "未找到这首歌的歌词",
 	"menu.lyricsRetry": "重试",
 	"menu.lyricsAuto": "使用自动歌词",

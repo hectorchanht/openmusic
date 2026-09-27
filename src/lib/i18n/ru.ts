@@ -360,6 +360,8 @@ const ru: Dict = {
 	"menu.versions": "Воспроизвести из источника",
 	"menu.changeCover": "Изменить обложку",
 	"menu.fixLyrics": "Исправить текст песни",
+	"menu.lyricsTiming": "Настроить тайминг текста",
+	"menu.lyricsTimingHide": "Скрыть тайминг текста",
 	"menu.lyricsPickerNone": "Текст для этой песни не найден",
 	"menu.lyricsRetry": "Повторить попытку",
 	"menu.lyricsAuto": "Использовать автоматический текст",

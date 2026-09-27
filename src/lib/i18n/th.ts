@@ -360,6 +360,8 @@ const th: Dict = {
 	"menu.versions": "เล่นจากแหล่งที่มา",
 	"menu.changeCover": "เปลี่ยนปก",
 	"menu.fixLyrics": "แก้ไขเนื้อเพลง",
+	"menu.lyricsTiming": "ปรับจังหวะเนื้อเพลง",
+	"menu.lyricsTimingHide": "ซ่อนการปรับจังหวะเนื้อเพลง",
 	"menu.lyricsPickerNone": "ไม่พบเนื้อเพลงของเพลงนี้",
 	"menu.lyricsRetry": "ลองอีกครั้ง",
 	"menu.lyricsAuto": "ใช้เนื้อเพลงอัตโนมัติ",

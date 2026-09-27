@@ -360,6 +360,8 @@ const vi: Dict = {
 	"menu.versions": "Phát từ nguồn",
 	"menu.changeCover": "Đổi ảnh bìa",
 	"menu.fixLyrics": "Sửa lời bài hát",
+	"menu.lyricsTiming": "Chỉnh thời gian lời bài hát",
+	"menu.lyricsTimingHide": "Ẩn chỉnh thời gian lời bài hát",
 	"menu.lyricsPickerNone": "Không tìm thấy lời cho bài hát này",
 	"menu.lyricsRetry": "Thử lại",
 	"menu.lyricsAuto": "Dùng lời tự động",

@@ -360,6 +360,8 @@ const tr: Dict = {
 	"menu.versions": "Kaynaktan çal",
 	"menu.changeCover": "Kapağı değiştir",
 	"menu.fixLyrics": "Şarkı sözlerini düzelt",
+	"menu.lyricsTiming": "Şarkı sözü zamanlamasını ayarla",
+	"menu.lyricsTimingHide": "Şarkı sözü zamanlamasını gizle",
 	"menu.lyricsPickerNone": "Bu şarkı için söz bulunamadı",
 	"menu.lyricsRetry": "Tekrar dene",
 	"menu.lyricsAuto": "Otomatik sözleri kullan",

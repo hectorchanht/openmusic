@@ -35,8 +35,11 @@
 		ensureSharedLyricOffset,
 		scheduleLyricOffsetVote,
 		resetLyricOffset,
-		lyricOffsetVersion
+		lyricOffsetVersion,
+		lyricSyncOpen,
+		setLyricSyncOpen
 	} from '$lib/stores/lyric-offset.svelte';
+	import { X } from '@lucide/svelte';
 	import { longpress } from '$lib/actions/longpress';
 	import { tick } from '$lib/util/haptics';
 
@@ -190,6 +193,9 @@
 	// eats the trailing click, so seekToLine does not also fire. autoScroll/idleTimer handled like
 	// seekToLine so the anchor $effect re-centres the now-active line immediately.
 	function syncToLine(line: LyricLine) {
+		// quick-260926-qat: hold-to-sync only while the timing row is shown — with the readout hidden
+		// an accidental hold would shift the lyrics silently. Tap-to-seek (seekToLine) is untouched.
+		if (!lyricSyncOpen()) return;
 		const uid = player.current?.uid;
 		if (!uid) return;
 		setLyricOffset(uid, player.currentTime - line.time);
@@ -238,6 +244,9 @@
 		// visible band). Read here, at the top, so the $effect re-anchors live when the Appearance
 		// slider moves.
 		const anchorPct = settings.lyricsAnchor;
+		// quick-260926-qat: the timing row's height enters/leaves `syncH` when it toggles, so the
+		// effect must re-anchor on the flag; read at the top so the synchronous pass registers it.
+		lyricSyncOpen();
 		if (!autoScroll || idx < 0 || !lyricsEl) return;
 		// quick-260618-t7p Task 2: `idx` (activeLine) is an index into the FULL `lines` array, but the
 		// rendered <p> list is FILTERED when settings.lyricsHideParenLines is ON, so a positional
@@ -446,15 +455,21 @@
 {#if lines.length}
 	<!-- quick-260926-mis: offset control row. OUTSIDE `.lyrics` so it is not inside the padding the
 	     anchor pass writes and never gets `.lyrics`' onpointerdown (tapping it does not pause
-	     auto-scroll). Sticky so the readout stays visible while nudging after a scroll. -->
+	     auto-scroll). Sticky so the readout stays visible while nudging after a scroll.
+	     quick-260926-qat: hidden by default, opened from the track menu (TrackMenu "Adjust lyrics
+	     timing"); the flag lives in the offset store so the menu, this pane and NowPlaying's tab switch
+	     share one source. The ✕ sits before the full-width hint so it stays on the button line. -->
+	{#if lyricSyncOpen()}
 	<div class="sync">
 		<button type="button" onclick={() => nudgeOffset(-0.5)} aria-label={t('lyrics.offsetEarlier')}>−0.5s</button>
 		<button type="button" class="readout" onclick={resetOffset} aria-label={t('lyrics.offsetReset', { value: formatLyricOffset(lyricOffset) })}>{formatLyricOffset(lyricOffset)}</button>
 		<button type="button" onclick={() => nudgeOffset(0.5)} aria-label={t('lyrics.offsetLater')}>+0.5s</button>
 		<!-- quick-260926-mzn: provenance — shown only while the listeners' consensus is what's applied. -->
 		{#if offsetShared}<span class="shared">{t('lyrics.offsetShared')}</span>{/if}
+		<button type="button" class="close" onclick={() => setLyricSyncOpen(false)} aria-label={t('menu.lyricsTimingHide')}><X size={14} /></button>
 		<span class="hint">{t('lyrics.offsetHint')}</span>
 	</div>
+	{/if}
 	{#if translating}<p class="tr-hint">{t('nowplaying.translating')}</p>{/if}
 	<div class="lyrics" role="group" aria-label={t('nowplaying.lyrics')} bind:this={lyricsEl} onpointerdown={lyricsTouched} onwheel={lyricsWheel} onscroll={bumpResume}>
 		{#each lines as l, i (i)}
@@ -514,4 +529,5 @@
 	.sync .hint { flex-basis: 100%; text-align: center; font-size: 0.625rem; opacity: 0.7; }
 	/* quick-260926-mzn: "Synced by listeners", inline beside the readout it qualifies. */
 	.sync .shared { font-size: 0.625rem; opacity: 0.7; }
+	.sync .close { min-width: 24px; min-height: 24px; padding: 2px 4px; border: none; display: inline-flex; align-items: center; }
 </style>

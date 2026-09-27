@@ -360,6 +360,8 @@ const fr: Dict = {
 	"menu.versions": "Lire depuis la source",
 	"menu.changeCover": "Changer la pochette",
 	"menu.fixLyrics": "Corriger les paroles",
+	"menu.lyricsTiming": "Ajuster le timing des paroles",
+	"menu.lyricsTimingHide": "Masquer le timing des paroles",
 	"menu.lyricsPickerNone": "Aucune parole trouvée pour ce titre",
 	"menu.lyricsRetry": "Réessayer",
 	"menu.lyricsAuto": "Utiliser les paroles automatiques",

@@ -360,6 +360,8 @@ const id: Dict = {
 	"menu.versions": "Putar dari sumber",
 	"menu.changeCover": "Ubah sampul",
 	"menu.fixLyrics": "Perbaiki lirik",
+	"menu.lyricsTiming": "Sesuaikan waktu lirik",
+	"menu.lyricsTimingHide": "Sembunyikan waktu lirik",
 	"menu.lyricsPickerNone": "Lirik untuk lagu ini tidak ditemukan",
 	"menu.lyricsRetry": "Coba lagi",
 	"menu.lyricsAuto": "Gunakan lirik otomatis",
