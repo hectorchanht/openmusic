@@ -26,7 +26,7 @@
 	// quick-260919-1we (D-4): the user's explicit lyric pick, layered into a reactive READ so it
 	// outranks whatever the chain (or a downloaded file's embedded tag) supplied.
 	import { readLyrics } from '$lib/stores/lyric-pins.svelte';
-	// quick-260926-mis: per-song lyric TIME offset (hold a line to sync it; ±0.5s nudges).
+	// quick-260926-mis: per-song lyric TIME offset (±0.5s nudges; quick-260926-vur: + a slider).
 	// quick-260926-mzn: + the shared listener consensus (effective read, fetch, vote, reset).
 	import {
 		setLyricOffset,
@@ -40,8 +40,7 @@
 		setLyricSyncOpen
 	} from '$lib/stores/lyric-offset.svelte';
 	import { X } from '@lucide/svelte';
-	import { longpress } from '$lib/actions/longpress';
-	import { tick } from '$lib/util/haptics';
+	import { holdStep, pointerHoldEvent, HOLD_IDLE, type HoldEvent, type HoldState } from '$lib/services/lyric-hold';
 
 	// quick-260919-np3: the lyrics pane, lifted OUT of NowPlaying.svelte verbatim. The ONLY semantic
 	// edit is that both `tab === 'lyrics'` gates (auto-scroll anchor + translation) became the MOUNT —
@@ -120,91 +119,70 @@
 	// D-10/LYR-02: how long after manual scrolling STOPS before auto-scroll resumes. Raised from
 	// the old 600ms (which snapped the view back mid-read) to ~3s.
 	const RESUME_MS = 3000;
-	// Touch-presence auto-scroll: pause WHILE a finger is down (or wheel is active), resume a
-	// short grace after release.
-	//
-	// The browser fires `pointercancel` on a touch that the page's scroll gesture has claimed
-	// — this used to be treated as a release, which scheduled the resume timer + flipped
-	// autoScroll back to true while the user's finger was STILL on the panel scrolling away
-	// from the active line. Fix: only true `pointerup` releases. Track active pointers in a
-	// Set so multi-touch (and the lost-pointer case where the element never sees pointerup
-	// because the scroll claimed it) still resolves — a window-level pointerup capture-phase
-	// listener catches the real finger-lift even after pointercancel stole it from the panel.
-	const pressedPointers = new Set<number>();
-	function lyricsTouched(e: PointerEvent) {
-		autoScroll = false;
+	// quick-260926-vur: hold/resume for auto-centre — pause WHILE a finger (or mouse button) is down,
+	// resume RESUME_MS after the real release, momentum included. The old pointer-only tracking took
+	// `pointercancel` as the lift, but Android/iOS fire it the moment a touch becomes a native scroll
+	// with the finger still down, so the view snapped back mid-peek. Touches now go through touch
+	// events (they keep firing through the scroll takeover); decisions live in services/lyric-hold.ts.
+	// `hold` is a PLAIN field (nothing renders it); `autoScroll` stays $state for the anchor $effect.
+	let hold: HoldState = HOLD_IDLE;
+	function dispatch(e: HoldEvent) {
+		const r = holdStep(hold, e);
+		hold = r.state;
+		if (r.action === 'none') return;
 		if (idleTimer) clearTimeout(idleTimer);
-		pressedPointers.add(e.pointerId);
-		if (typeof window !== 'undefined') {
-			window.addEventListener('pointerup', windowPointerUp, { capture: true });
-			window.addEventListener('pointercancel', windowPointerUp, { capture: true });
+		idleTimer = null;
+		if (r.action === 'resume') {
+			autoScroll = true;
+			return;
 		}
-	}
-	function windowPointerUp(e: PointerEvent) {
-		// `pointerup` is the real finger-lift — release; `pointercancel` from the window means
-		// the OS truly cancelled (app backgrounded, etc.), also release. The element-local
-		// `pointercancel` handler is dropped from the JSX below precisely because it fires
-		// during a scroll-gesture takeover even though the finger is still down.
-		if (!pressedPointers.has(e.pointerId)) return;
-		pressedPointers.delete(e.pointerId);
-		if (pressedPointers.size === 0) {
-			window.removeEventListener('pointerup', windowPointerUp, { capture: true });
-			window.removeEventListener('pointercancel', windowPointerUp, { capture: true });
-			lyricsReleased();
-		}
-	}
-	function lyricsReleased() {
-		if (idleTimer) clearTimeout(idleTimer);
-		idleTimer = setTimeout(() => (autoScroll = true), RESUME_MS);
-	}
-	function lyricsWheel() {
-		// No release event for a wheel — pause, then schedule the same grace resume.
 		autoScroll = false;
-		if (idleTimer) clearTimeout(idleTimer);
-		lyricsReleased();
+		if (r.action === 'arm') idleTimer = setTimeout(() => dispatch({ type: 'tick' }), RESUME_MS);
 	}
-	// Pitfall 1 / D-10: iOS momentum scrolling keeps firing `scroll` events with NO further
-	// pointer or wheel events after the finger lifts — so a timer armed at pointerup/wheel would
-	// resume auto-scroll mid-glide and snap the view back. bumpResume re-arms the RESUME_MS timer
-	// on every scroll tick while suspended, so resume only fires ~3s after scrolling TRULY stops
-	// (momentum included). It is a no-op once auto-scroll is already on, so the anchor $effect's
-	// own programmatic smooth-scroll never re-suspends itself.
-	function bumpResume() {
-		if (autoScroll) return;
-		if (idleTimer) clearTimeout(idleTimer);
-		idleTimer = setTimeout(() => (autoScroll = true), RESUME_MS);
+	// Mouse only — pointerHoldEvent returns null for touch/pen, which the touch handlers own. The
+	// window CAPTURE listeners catch a release outside the pane (a mouse has no scroll takeover, so
+	// its pointercancel really is the end of the press).
+	function lyricsPointerDown(e: PointerEvent) {
+		const ev = pointerHoldEvent(e.pointerType, true);
+		if (!ev) return;
+		dispatch(ev);
+		window.addEventListener('pointerup', windowMouseUp, { capture: true });
+		window.addEventListener('pointercancel', windowMouseUp, { capture: true });
 	}
+	function windowMouseUp(e: PointerEvent) {
+		const ev = pointerHoldEvent(e.pointerType, false);
+		if (!ev) return; // a touch pointer lifting elsewhere is not this mouse press ending
+		dispatch(ev);
+		removeMouseListeners();
+	}
+	function removeMouseListeners() {
+		window.removeEventListener('pointerup', windowMouseUp, { capture: true });
+		window.removeEventListener('pointercancel', windowMouseUp, { capture: true });
+	}
+	// `e.touches` is the set REMAINING after the event, so a lift reads 0. Never preventDefault —
+	// the pane must keep native scrolling (Svelte registers touchstart passive anyway).
+	function lyricsTouch(e: TouchEvent) {
+		dispatch({ type: 'touch', touches: e.touches.length });
+	}
+	// An unmount mid-hold leaks no timer and no window listener.
+	$effect(() => () => {
+		if (idleTimer) clearTimeout(idleTimer);
+		removeMouseListeners();
+	});
 	// D-01/D-02/D-03: tap any lyric line to seek there. seekFraction is the only seek API and
 	// already auto-plays when paused (D-03 free — no explicit play()). lineSeekFraction guards
 	// duration <= 0 / non-finite → null, so no unbounded value reaches the audio element.
-	// After seeking we clear the idle timer and force autoScroll back on (D-02): this overrides
-	// the suspend that this tap's OWN lyricsTouched pointerdown just set, so the anchor $effect
-	// re-runs on the autoScroll flip and smooth-centers the now-active (tapped) line immediately.
+	// After seeking, 'force' clears the idle timer and turns autoScroll back on (D-02): this overrides
+	// the suspend this tap's OWN touch/mouse press just set, so the anchor $effect re-runs on the
+	// autoScroll flip and smooth-centers the now-active (tapped) line immediately.
 	function seekToLine(line: LyricLine) {
 		// quick-260926-mis: a realigned line seeks to where it is actually sung (line.time + offset).
 		const frac = lineSeekFraction(line.time, player.duration, lyricOffset);
 		if (frac !== null) player.seekFraction(frac); // D-03: auto-plays if paused
-		if (idleTimer) clearTimeout(idleTimer);
-		autoScroll = true;
+		dispatch({ type: 'force' });
 	}
-	// quick-260926-mis: hold a line = "this line is being sung NOW". One hold beats dozens of ±0.5s
-	// taps for a 20-40s live intro. Sign from the lrc.ts convention: `currentTime - offset ===
-	// line.time` makes this line active, so offset = currentTime - line.time. The longpress action
-	// eats the trailing click, so seekToLine does not also fire. autoScroll/idleTimer handled like
-	// seekToLine so the anchor $effect re-centres the now-active line immediately.
-	function syncToLine(line: LyricLine) {
-		// quick-260926-qat: hold-to-sync only while the timing row is shown — with the readout hidden
-		// an accidental hold would shift the lyrics silently. Tap-to-seek (seekToLine) is untouched.
-		if (!lyricSyncOpen()) return;
-		const uid = player.current?.uid;
-		if (!uid) return;
-		setLyricOffset(uid, player.currentTime - line.time);
-		// quick-260926-mzn: an explicit realign is a vote (debounced; the store no-ops on empty lrc).
-		scheduleLyricOffsetVote(uid, readLyrics(player.current) ?? '');
-		tick();
-		if (idleTimer) clearTimeout(idleTimer);
-		autoScroll = true;
-	}
+	// quick-260926-vur: hold-to-sync (long-press a line = "sung now") is REMOVED — it fought the
+	// hold-to-peek gesture. The timing row's slider replaced it.
 	function nudgeOffset(delta: number) {
 		const uid = player.current?.uid;
 		if (!uid) return;
@@ -341,7 +319,7 @@
 		// Safe to re-arm on every pass: it is a plain clearTimeout/setTimeout pair, and
 		// anchorActiveLine is idempotent (offsetWithin is scroll-position-independent, so recomputing
 		// mid-smooth-scroll yields the same target) and writes NO $state — the scrollTo it issues only
-		// reaches bumpResume(), which no-ops while autoScroll is on. So this cannot become the
+		// reaches the 'scroll' dispatch, which no-ops while not suspended. So this cannot become the
 		// self-invalidating effect class that froze the app before.
 		const settle = setTimeout(anchorActiveLine, REFLOW_SETTLE_MS);
 		return () => clearTimeout(settle);
@@ -471,7 +449,7 @@
 	</div>
 	{/if}
 	{#if translating}<p class="tr-hint">{t('nowplaying.translating')}</p>{/if}
-	<div class="lyrics" role="group" aria-label={t('nowplaying.lyrics')} bind:this={lyricsEl} onpointerdown={lyricsTouched} onwheel={lyricsWheel} onscroll={bumpResume}>
+	<div class="lyrics" role="group" aria-label={t('nowplaying.lyrics')} bind:this={lyricsEl} onpointerdown={lyricsPointerDown} ontouchstart={lyricsTouch} ontouchend={lyricsTouch} ontouchcancel={lyricsTouch} onwheel={() => dispatch({ type: 'wheel' })} onscroll={() => dispatch({ type: 'scroll' })}>
 		{#each lines as l, i (i)}
 			{#if !(l.fromParen && settings.lyricsHideParenLines)}
 				{@const hideTrForLine = l.fromParen && settings.lyricsHideParenTranslation}
@@ -485,7 +463,7 @@
 				<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 				<!-- svelte-ignore a11y_no_noninteractive_element_to_interactive_role -->
 				<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-				<p data-i={i} class:active={l.time === activeTime && activeTime >= 0} class:paren={l.fromParen} use:longpress onlongpress={() => syncToLine(l)} onclick={() => seekToLine(l)} onkeydown={(e) => seekToLineKey(e, l)} role="button" tabindex="0">
+				<p data-i={i} class:active={l.time === activeTime && activeTime >= 0} class:paren={l.fromParen} onclick={() => seekToLine(l)} onkeydown={(e) => seekToLineKey(e, l)} role="button" tabindex="0">
 					{#if showTr && settings.translateMode === 'replace' && !hideTrForLine}
 						{trLines[i]}
 					{:else}
