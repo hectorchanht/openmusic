@@ -1399,8 +1399,10 @@
 
 <!-- quick-260919-1we: the lyrics picker. Mounted OUTSIDE the {#if open && track} block (like the cover
      picker above) so it survives the menu closing on a pick. One row per SOURCE that actually returned
-     an LRC (D-5), labelled from the registry exactly like the Download-from rows, with the first
-     timestamped line as a preview so the user can tell two candidates apart without playing them.
+     an LRC (D-5), labelled from the registry exactly like the Download-from rows. quick-260926-vdp:
+     each source is a CARD showing the candidate's FULL script-locked text (timestamps and empty lines
+     dropped) in its own ~9-line scroll box, so the user can compare whole lyrics, not one line; only
+     the card's footer "Use these lyrics" button picks — a scroll gesture over the text never does.
      The LRC text is rendered as Svelte text interpolation, which escapes — no {@html} anywhere in this
      feature (T-1we-02). -->
 {#if lyricsOpen && track}
@@ -1421,12 +1423,21 @@
 				     still pins the RAW upstream text, so the pin stays source data and re-renders through
 				     the lock like anything else. Locking the preview is what makes it honest: with the lock
 				     on, two candidates that differ only in script WILL render identically once picked. -->
-				{@const preview = parseLyrics(c.lrc).find((l) => l.text.trim())?.text ?? ''}
-				<button class="mi" onclick={() => pickLyrics(c.lrc)} use:tapBounce>
-					{#if c.lrc === pinnedNow}<Check size={18} />{:else}<Mic2 size={18} />{/if}
-					<span class="dl-src">{SOURCES[c.source]?.label ?? c.source}</span>
-					{#if preview}<span class="count lyr-prev">{preview}</span>{/if}
-				</button>
+				{@const current = c.lrc === pinnedNow}
+				{@const text = parseLyrics(c.lrc).map((l) => l.text.trim()).filter(Boolean).join('\n')}
+				<div class="lyr-card" class:on={current}>
+					<div class="lyr-head">
+						<span class="dl-src">{SOURCES[c.source]?.label ?? c.source}</span>
+						{#if current}<span class="lyr-cur"><Check size={14} /> {t('menu.currentLyrics')}</span>{/if}
+					</div>
+					<!-- quick-260926-vdp: dragClose arms in its own `pointerdown` on the `.menu` node and only
+					     checks the `.menu`'s scrollTop, so a scroll gesture inside this inner box would start a
+					     sheet drag whenever the sheet itself is at the top. Stopping the bubble here means a
+					     finger inside the box only ever scrolls the box; the header, footer and the rest of the
+					     sheet still drag-close as before. role+aria-label = the NpLyrics precedent. -->
+					<div class="lyr-body" role="group" aria-label={t('nowplaying.lyrics')} onpointerdown={(e) => e.stopPropagation()}>{text}</div>
+					<button class="mi" onclick={() => pickLyrics(c.lrc)} use:tapBounce><Mic2 size={18} /> {t('menu.useTheseLyrics')}</button>
+				</div>
 			{/each}
 		{/if}
 		<!-- D-6: Use-automatic is shown ONLY when a pin exists. `readLyrics` leads with the pin and falls
@@ -1586,9 +1597,14 @@
 	   (CJK source labels plus a `FLAC · 38.2 MB` count still fit one line at 375px; a long count
 	   ellipsises the label, which is the right thing to lose). */
 	.dl-src { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-	/* quick-260919-1we: the candidate's first sung line, so two sources are distinguishable without
-	   playing either. Capped so a long line never pushes the source label out of the row. */
-	.lyr-prev { max-width: 55%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	/* quick-260926-vdp: one card per lyrics candidate. The body is capped at 12rem (≈9 lines at 1.5)
+	   with its own scroll so a 10k-line LRC cannot push the sheet off-screen; the `.menu` keeps its
+	   90vh scroll so several cards stay reachable. `pre-line` turns the `\n` joins into lines. */
+	.lyr-card { border: 1px solid var(--color-border); border-radius: 12px; margin: 6px 4px; overflow: hidden; }
+	.lyr-card.on { border-color: var(--color-primary); }
+	.lyr-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px 2px; font-size: 0.8125rem; color: var(--color-text-muted); }
+	.lyr-cur { display: inline-flex; align-items: center; gap: 4px; flex: none; color: var(--color-primary); font-size: 0.75rem; white-space: nowrap; }
+	.lyr-body { max-height: 12rem; overflow-y: auto; overscroll-behavior: contain; padding: 4px 12px 8px; font-size: 0.875rem; line-height: 1.5; white-space: pre-line; color: var(--color-text); }
 	.dl-wait { display: flex; align-items: center; gap: 10px; color: var(--color-text-muted); font-size: 0.8125rem; padding: 10px 12px; margin: 0; }
 	/* quick-260919-vrq: the Download row is now TWO sibling buttons in a flex wrapper (a tappable
 	   caret cannot live inside a <button>). The caret's two old decoration-only rules went with it —
