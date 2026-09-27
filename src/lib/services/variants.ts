@@ -12,7 +12,7 @@
 // failure, an aborted signal, a blank query, or a no-match all map to [].
 import type { Track } from '$lib/sources/types';
 import { searchAll } from './catalog';
-import { collapseVariants, groupVariants, sameSongKey } from './dedupe';
+import { collapseVariants, groupVariants, sameSongKey, songKey } from './dedupe';
 
 /**
  * Fetch the cross-source variants of ONE song on demand.
@@ -37,7 +37,16 @@ export async function fetchVariants(track: Track, signal?: AbortSignal): Promise
 		// Group by the SAME normalized identity dedupeBest/groupVariants use (one source of truth),
 		// then return the group that IS this song. sameSongKey guards a blank/untitled key so a
 		// no-title stub never matches a garbage group.
-		for (const variants of groupVariants(result.interleaved).values()) {
+		// quick-260927-2wt: sameSongKey now also matches a bilingual artist alias (G.E.M. vs
+		// G.E.M.邓紫棋), so an alias group earlier in the list could shadow this song's exact group.
+		// Exact-first keeps the old answer: groupVariants keys by key(t) === songKey(t.artist, t.title),
+		// and a blank-key track never hits (blank stubs are keyed by uid) so it falls through to the
+		// loop, whose blank guard still returns []. The alias fallback is a pure improvement (it used
+		// to return []).
+		const groups = groupVariants(result.interleaved);
+		const exact = groups.get(songKey(track.artist ?? '', track.title ?? ''));
+		if (exact) return exact;
+		for (const variants of groups.values()) {
 			if (variants.some((v) => sameSongKey(v, track))) return variants;
 		}
 		return [];

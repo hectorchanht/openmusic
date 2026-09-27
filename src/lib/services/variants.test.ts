@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { fetchVariants, versionsIncludingOwn } from './variants';
 import * as catalog from './catalog';
 import { __clearSearchCache } from './ttl-cache';
+import { warmScript } from './zh-convert';
 import { makeUid, type SourceId, type Track } from '$lib/sources/types';
 
 // Mirrors similar.test.ts / dedupe.test.ts mk() factory — a minimal valid Track fixture.
@@ -104,6 +105,27 @@ describe('fetchVariants — single on-demand cross-source fan-out', () => {
 		});
 		const out = await fetchVariants(mk('qq', 'q1', 'Hello', 'Adele'), ctrl.signal);
 		expect(out).toEqual([]);
+	});
+
+	// quick-260927-2wt: sameSongKey now also matches a bilingual artist alias, so the `G.E.M.` group
+	// (first in insertion order) would shadow the seed's own `G.E.M.邓紫棋` group without exact-first.
+	it('returns the EXACT-key group even when an alias group appears first (quick-260927-2wt)', async () => {
+		await warmScript('zh-Hans');
+		const T = '多远都要在一起';
+		const seed = mk('qq', 'q1', T, 'G.E.M.邓紫棋');
+		vi.spyOn(catalog, 'searchAll').mockResolvedValue(
+			sr([mk('netease', 'n1', T, 'G.E.M.'), mk('kuwo', 'k1', T, 'G.E.M.'), mk('qq', 'q1', T, 'G.E.M.邓紫棋'), mk('joox', 'j1', T, 'G.E.M.邓紫棋')])
+		);
+		const out = await fetchVariants(seed);
+		expect(out.map((t) => t.source)).toEqual(['qq', 'joox']);
+	});
+
+	it('falls back to the alias group when no exact group exists (quick-260927-2wt)', async () => {
+		await warmScript('zh-Hans');
+		const T = '多远都要在一起';
+		vi.spyOn(catalog, 'searchAll').mockResolvedValue(sr([mk('netease', 'n1', T, 'G.E.M.'), mk('kuwo', 'k1', T, 'G.E.M.')]));
+		const out = await fetchVariants(mk('qq', 'q1', T, 'G.E.M.邓紫棋'));
+		expect(out.map((t) => t.source)).toEqual(['netease', 'kuwo']);
 	});
 });
 
