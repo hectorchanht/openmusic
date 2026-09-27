@@ -299,6 +299,60 @@ describe('key() cross-script + bilingual identity (quick-260926-n0r)', () => {
 	});
 });
 
+// quick-260927-2wt: a Deezer/Last.fm radio stub (`G.E.M. | 多遠都要在一起`) resolved by a CN source
+// (`G.E.M.邓紫棋 | 多远都要在一起`) never anchored into its own slot in queueWithAnchor: the title keys
+// already agree after the n0r fold, the ARTIST halves (`gem` vs `gem邓紫棋`) did not. Artists are
+// always passed explicitly here — mk()'s default artist 'a' would hide an alias bug.
+describe('sameSongKey — bilingual artist alias (quick-260927-2wt)', () => {
+	const T_TRAD = '多遠都要在一起';
+	const T_SIMP = '多远都要在一起';
+	beforeAll(async () => {
+		await warmScript('zh-Hans');
+	});
+
+	it('the observed radio pair matches, both ways', () => {
+		const stub = mk('joox', 's1', T_TRAD, 'G.E.M.');
+		const resolved = mk('qq', 'q1', T_SIMP, 'G.E.M.邓紫棋');
+		expect(sameSongKey(stub, resolved)).toBe(true);
+		expect(sameSongKey(resolved, stub)).toBe(true);
+	});
+
+	it('regression pins: pure script twin and the Last.fm-style Han-only alias', () => {
+		expect(sameSongKey(mk('joox', 'j1', T_TRAD, '鄧紫棋'), mk('qq', 'q1', T_SIMP, '邓紫棋'))).toBe(true);
+		expect(sameSongKey(mk('joox', 'j1', T_TRAD, '鄧紫棋'), mk('qq', 'q1', T_SIMP, 'G.E.M. 鄧紫棋'))).toBe(true);
+	});
+
+	it('different songs stay apart', () => {
+		const s = (ta: string, aa: string, tb: string, ab: string) => sameSongKey(mk('qq', 'q1', ta, aa), mk('joox', 'j1', tb, ab));
+		// same alias artists, different title
+		expect(s(T_SIMP, 'G.E.M.', '泡沫', 'G.E.M.邓紫棋')).toBe(false);
+		// runs compare WHOLE, never as substrings
+		expect(s('Hello', 'A', 'Hello', 'A-Lin')).toBe(false);
+		expect(s('Hello', 'Jay', 'Hello', 'Jay Chou')).toBe(false);
+		// shared Latin run, different Han runs — neither side a subset
+		expect(s(T_SIMP, 'G.E.M.某', T_SIMP, 'G.E.M.另')).toBe(false);
+		// a blank artist on one side, then both
+		expect(s(T_SIMP, '', T_SIMP, 'G.E.M.邓紫棋')).toBe(false);
+		expect(s(T_SIMP, 'G.E.M.邓紫棋', T_SIMP, '')).toBe(false);
+		// both blank: no alias rule applies, the exact-key rule is today's (unchanged) behaviour
+		expect(s(T_SIMP, '', T_SIMP, '')).toBe(true);
+		// two unrelated artists, same title
+		expect(s(T_SIMP, 'Adele', T_SIMP, 'G.E.M.邓紫棋')).toBe(false);
+	});
+
+	it('key() is NOT loosened: dedupeBest / groupVariants keep the pair as 2 rows', () => {
+		const pair = [mk('joox', 's1', T_TRAD, 'G.E.M.'), mk('qq', 'q1', T_SIMP, 'G.E.M.邓紫棋')];
+		expect(dedupeBest(pair)).toHaveLength(2);
+		expect(groupVariants(pair).size).toBe(2);
+	});
+
+	it('queueWithAnchor lookup: the resolved anchor finds its stub at slot 2 (was -1)', () => {
+		const list = [mk('qq', 'q9', '泡沫', 'G.E.M.'), mk('netease', 'n2', '光年之外', 'G.E.M.'), mk('joox', 's1', T_TRAD, 'G.E.M.')];
+		const anchor = mk('qq', 'q1', T_SIMP, 'G.E.M.邓紫棋');
+		expect(dedupeBest(list).findIndex((t) => sameSongKey(t, anchor))).toBe(2);
+	});
+});
+
 // quick-260926-n0r: cold t2s dict. MUST stay the last block — resetModules hands back a fresh
 // zh-convert whose sync handle is null, so this is the first-paint case: no fold, no throw, and
 // key() itself fires warmT2S so a later call folds (no explicit warm here).

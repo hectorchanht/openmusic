@@ -51,6 +51,9 @@ const PRINTABLE_ASCII = /^[\x20-\x7e]+$/;
 // A leading Han run (inner spaces only BETWEEN Han chars), whitespace, then a Latin run starting
 // with a letter/digit. The Han and \s classes are disjoint, so this is linear on untrusted titles.
 const HAN_THEN_LATIN = /^\p{Script=Han}+(?:\s+\p{Script=Han}+)*\s+([a-z0-9][\x20-\x7e]*)$/u;
+// quick-260927-2wt: split an artist key into maximal Han / non-Han runs. The two classes are
+// disjoint, so the scan is linear (no backtracking) on untrusted upstream artist strings.
+const SCRIPT_RUNS = /\p{Script=Han}+|[^\p{Script=Han}]+/gu;
 // Tail words that name a DIFFERENT RENDITION, not a translation — a tail made only of these (or
 // numbers) is never stripped, else "玻璃 - remix" / "玻璃 - part 2" would merge into "玻璃"
 // (song-variant.ts exists precisely to keep renditions apart).
@@ -163,17 +166,63 @@ export function songKey(artistIn: string, titleIn: string): string {
 }
 
 /**
+ * quick-260927-2wt: two already-stripped, lowercased artist key halves name the same act when one
+ * side's script runs are ALL present in the other's (`[gem]` ⊂ `[gem, 邓紫棋]`, `[邓紫棋]` ⊂ `[gem, 邓紫棋]`).
+ * Runs compare WHOLE (array includes, never substring), so `a` vs `alin` and `jay` vs `jaychou`
+ * stay apart, and `gem某` vs `gem另` fail on the Han run. A blank side never matches.
+ */
+function aliasArtist(x: string, y: string): boolean {
+	if (!x || !y) return false;
+	const rx: string[] = x.match(SCRIPT_RUNS) ?? [];
+	const ry: string[] = y.match(SCRIPT_RUNS) ?? [];
+	const [small, big] = rx.length <= ry.length ? [rx, ry] : [ry, rx];
+	return small.length > 0 && small.every((r) => big.includes(r));
+}
+
+/**
  * Two tracks are "the same song" iff their normalized title+artist keys match (WR-06) — script-,
  * ytmusic-suffix- and bilingual-insensitive since quick-260926-n0r (see key()). Reuses the
  * exact `key()` normalization dedupe applies so a cross-source fallback can verify a fuzzy upstream
  * search returned the SAME song before adopting it (a fuzzy search can return an unrelated track,
  * which would otherwise silently auto-play under the original track's identity). A blank/untitled
  * key is never considered a match (returns false) so we don't adopt garbage on a no-title stub.
+ *
+ * quick-260927-2wt: a Deezer/Last.fm radio stub resolved by a CN source never anchored into its own
+ * slot in queueWithAnchor — it was spliced to the front while the stub lingered as a duplicate. The
+ * root cause is the ARTIST alias, not script: key() already folds Traditional → Simplified per char
+ * since n0r (the 2cy deferred-items note blaming a missing fold was stale). Observed keys:
+ * `多远都要在一起|gem` (Deezer `G.E.M.`) vs `多远都要在一起|gem邓紫棋` (CN `G.E.M.邓紫棋`), and Last.fm
+ * `…|邓紫棋` vs `…|gem邓紫棋`. Rule: exact key match as before, OR title halves equal (non-empty) AND
+ * the artist halves are script-run subsets of each other (aliasArtist) — the artist-side mirror of
+ * key()'s bilingual title rule #3. ONLY this pairwise predicate is loosened: key() / songKey /
+ * dedupeBest / groupVariants are deliberately untouched, so search dedupe, similar, picks and the
+ * persisted comment-thread hash (comments.ts) keep their exact identity.
+ *
+ * Caller audit (every non-test call site):
+ *   - player.svelte.ts captureHistory (locate current in the old queue), queueWithAnchor (THE fix
+ *     site: uid, then sameSongKey, else splice to front), the weaveFreshHistory prefix filter
+ *     `!sameSongKey(t, seed)`; NpRelated.svelte self-filter; album page in-queue skip — looser is
+ *     the intended behaviour at all five.
+ *   - fallback.ts + catalog.ts WR-06 adoption — still double-gated by isAcceptableSubstitute.
+ *     Adopting `G.E.M.邓紫棋 | X` for a failed `G.E.M. | X` stub is correct and accepted on purpose
+ *     (candidate order is dedupeBest's, so an alias candidate may win over an exact-artist one —
+ *     same song, fine).
+ *   - variants.ts fetchVariants — made exact-key-first so an alias group cannot shadow the exact one.
+ *
+ * ponytail: an English-only alias like 'Eason Chan' vs '陈奕迅' shares no run and needs an alias
+ * table — not handled.
  */
 export function sameSongKey(a: Track, b: Track): boolean {
 	const ka = key(a);
 	if (!ka || ka === '|') return false;
-	return ka === key(b);
+	const kb = key(b);
+	if (ka === kb) return true;
+	// Safe split: strip() removes every non-letter/number char, so neither half can contain '|' and
+	// every key has exactly one. Splitting the finished key keeps songKey literally untouched.
+	const ia = ka.indexOf('|');
+	const ib = kb.indexOf('|');
+	const title = ka.slice(0, ia);
+	return !!title && title === kb.slice(0, ib) && aliasArtist(ka.slice(ia + 1), kb.slice(ib + 1));
 }
 
 function better(a: Track, b: Track, preferred?: SourceId): Track {
