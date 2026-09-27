@@ -450,20 +450,18 @@
 	<h1>{names.dnArtist(displayArtist)}</h1>
 	<p class="note">{t('artist.derived', { count: songs.length })}</p>
 
-	<!-- kmn: action bar — Favourite / Play (random hit) / Share. Matches the album-page
-	     action-bar visual language (pill buttons, lucide icons). -->
+	<!-- kmn: action bar — Favourite / Play (random hit) / Share. quick-260926-vdp: round icon-only
+	     buttons in the album-page action-bar visual language (34px circles, a 56px primary Play);
+	     the labels live in aria-label + title. -->
 	<div class="actions">
-		<button class="act" class:on={favArtist} aria-label={favArtist ? t('artist.unfavorite') : t('artist.favorite')} onclick={toggleFavourite} use:tapBounce>
-			<Heart size={18} fill={favArtist ? 'currentColor' : 'none'} />
-			<span>{favArtist ? t('artist.unfavorite') : t('artist.favorite')}</span>
+		<button class="act" class:on={favArtist} aria-pressed={favArtist} aria-label={favArtist ? t('artist.unfavorite') : t('artist.favorite')} title={favArtist ? t('artist.unfavorite') : t('artist.favorite')} onclick={toggleFavourite} use:tapBounce>
+			<Heart size={20} fill={favArtist ? 'currentColor' : 'none'} />
 		</button>
-		<button class="act primary" aria-label={t('artist.playArtist')} disabled={loading || !songs.length} onclick={playArtistRandom} use:tapBounce>
-			<Play size={18} fill="currentColor" />
-			<span>{t('artist.playArtist')}</span>
+		<button class="act play" aria-label={t('artist.playArtist')} title={t('artist.playArtist')} disabled={loading || !songs.length} onclick={playArtistRandom} use:tapBounce>
+			<Play size={20} fill="currentColor" />
 		</button>
-		<button class="act" aria-label={t('artist.share')} onclick={shareArtist} use:tapBounce>
-			<Share2 size={18} />
-			<span>{t('artist.share')}</span>
+		<button class="act" aria-label={t('artist.share')} title={t('artist.share')} onclick={shareArtist} use:tapBounce>
+			<Share2 size={20} />
 		</button>
 	</div>
 
@@ -643,15 +641,19 @@
 	.dzstat { color: var(--color-text-muted); font-size: 0.75rem; }
 	.dzstat strong { color: var(--color-text); font-weight: 600; }
 	.dzstats .sk-stat { display: inline-block; width: 64px; height: 13px; }
-	/* kmn: action bar — three pill buttons centered under the hero title/note. Mirrors the
-	   album-page action-bar visual language. */
-	.actions { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; margin: 14px 0 6px; }
+	/* kmn: action bar centered under the hero title/note. quick-260926-vdp: round icon buttons with
+	   the album page's values. The round look is scoped to `.actions` because the "Show more" button
+	   further down also uses `.act` and must stay a text pill. */
+	.actions { display: flex; align-items: center; justify-content: center; gap: 16px; margin: 14px 0 6px; }
 	.act { display: inline-flex; align-items: center; gap: 7px; background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); padding: 9px 16px; border-radius: 999px; font-size: 0.8125rem; cursor: pointer; }
 	.act:hover { background: var(--color-surface); }
 	.act:disabled { opacity: 0.45; cursor: default; }
 	.act.on { color: var(--color-primary); border-color: var(--color-primary); }
-	.act.primary { background: var(--color-primary); color: #fff; border-color: transparent; }
-	.act.primary:hover { filter: brightness(1.06); }
+	.actions .act { display: grid; place-items: center; width: 34px; height: 34px; padding: 0; gap: 0; border-radius: 50%; border-color: transparent; transition: background 0.15s, transform 0.1s; }
+	.actions .act.on { border-color: var(--color-primary); }
+	@media (hover: hover) { .actions .act:active { transform: scale(0.92); } }
+	.actions .act.play { width: 56px; height: 56px; background: var(--color-primary); color: #fff; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4); }
+	.actions .act.play:hover { filter: brightness(1.06); }
 	.bio { text-align: left; margin: 16px 0 0; }
 	.bio h2 { font-size: calc(1.1rem * var(--fs-title, 1)); margin: 0 0 8px; }
 	.bio p { color: var(--color-text-muted); font-size: 0.8125rem; line-height: 1.55; margin: 0; }

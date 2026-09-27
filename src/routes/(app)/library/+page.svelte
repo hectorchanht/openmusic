@@ -378,16 +378,16 @@
      play shows no Play/Shuffle at all rather than dead greyed-out controls. -->
 <div class="actions">
 	{#if tabList.length}
-		<button class="edit-btn" onclick={playAll} use:tapBounce><Play size={16} /></button>
-		<button class="edit-btn" onclick={shuffleAll} use:tapBounce><Shuffle size={16} /></button>
+		<button class="edit-btn" aria-label={t('library.playAll')} title={t('library.playAll')} onclick={playAll} use:tapBounce><Play size={18} /></button>
+		<button class="edit-btn" aria-label={t('nowplaying.shuffle')} title={t('nowplaying.shuffle')} onclick={shuffleAll} use:tapBounce><Shuffle size={18} /></button>
 	{/if}
 	{#if editableTabHasContent}
-		<button class="edit-btn" aria-pressed={editMode} onclick={() => (editMode = !editMode)} use:tapBounce>
-			{#if editMode}<Check size={16} /> {:else}<Pencil size={16} /> {/if}
+		<button class="edit-btn" aria-pressed={editMode} aria-label={editMode ? t('common.done') : t('library.edit')} title={editMode ? t('common.done') : t('library.edit')} onclick={() => (editMode = !editMode)} use:tapBounce>
+			{#if editMode}<Check size={18} />{:else}<Pencil size={18} />{/if}
 		</button>
 	{/if}
 	{#if listMenuHasItems}
-		<button class="edit-btn" aria-label={t('menu.options')} title={t('menu.options')} onclick={() => (listMenuOpen = true)} use:tapBounce><Ellipsis size={16} /></button>
+		<button class="edit-btn" aria-label={t('menu.options')} title={t('menu.options')} onclick={() => (listMenuOpen = true)} use:tapBounce><Ellipsis size={18} /></button>
 	{/if}
 </div>
 
@@ -547,13 +547,15 @@
 <style>
 	.head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 16px 0 12px; flex-wrap: wrap; }
 	.head h1 { font-size: calc(1.4rem * var(--fs-title, 1)); margin: 0; min-width: 0; }
-	.edit-btn { display: inline-flex; align-items: center; gap: 6px; background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); padding: 6px 12px; border-radius: 999px; font-size: 0.8125rem; cursor: pointer; }
+	/* quick-260926-vdp: the action bar is four 34px round icon buttons (album-page values), each
+	   labelled via aria-label + title. `.edit-btn` lives only in `.actions`. */
+	.edit-btn { display: grid; place-items: center; width: 34px; height: 34px; padding: 0; border-radius: 50%; background: var(--color-surface-2); border: 1px solid transparent; color: var(--color-text); cursor: pointer; transition: background 0.15s, transform 0.1s; }
+	@media (hover: hover) { .edit-btn:active { transform: scale(0.92); } }
 	.edit-btn[aria-pressed='true'] { background: var(--color-primary); color: #fff; border-color: transparent; }
-	/* quick-260915-vb9: four 13px pills — Play ~70px, Shuffle ~90px, Edit ~70px, ⋯ ~40px plus 24px
-	   of gaps ≈ 300px, inside a 360px viewport minus page padding, so one line holds. `flex: 0 1 auto`
-	   lets a long translated label shrink rather than push ⋯ off the edge. */
+	/* quick-260915-vb9 / quick-260926-vdp: four 34px circles plus gaps fit any phone width, and a
+	   circle must never shrink or clip, so `flex: none`. */
 	.actions { display: flex; gap: 8px; margin-bottom: 14px; }
-	.actions .edit-btn { flex: 0 1 auto; white-space: nowrap; min-width: 0; overflow: hidden; }
+	.actions .edit-btn { flex: none; }
 	/* fav-artists tiles only — the track rows' copy of this is SongRow's `danger`. */
 	.edit-row { color: #ff7a90; }
 	.edit-row:hover { background: rgba(255, 122, 144, 0.08); }

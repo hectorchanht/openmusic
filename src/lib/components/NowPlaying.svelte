@@ -4,7 +4,7 @@
 	import { fly, fade } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
 	import { goto } from '$app/navigation';
-	import { ChevronDown, MoreVertical, Heart, SkipBack, SkipForward, Play, Pause, Moon } from '@lucide/svelte';
+	import { ChevronDown, MoreVertical, Heart, SkipBack, SkipForward, Play, Pause, Moon, ListMusic, MicVocal, MessageCircle, Sparkles } from '@lucide/svelte';
 	import { player, fmtTime } from '$lib/stores/player.svelte';
 	import { sleepTimer } from '$lib/stores/sleepTimer.svelte';
 	import { settings } from '$lib/stores/settings.svelte';
@@ -1163,23 +1163,27 @@
 		     suppressor (so onclick does not double-fire; it stays for keyboard activation). Related
 		     stays the default at this width (`tab` was unused here, so it becomes the column selector
 		     for free, and a phone-to-desktop resize carries the choice across). -->
+		<!-- quick-260926-vdp: every tab (and inert heading) is a lucide icon; the translated label moved
+		     to aria-label + title (title only on the aria-hidden headings). The comment count is an
+		     overlay pill on the Comments icon. `data-tab` is unchanged, and `.closest()` resolves
+		     through the SVG child, so tap/drag tab switching is untouched. -->
 		{#if wide}
 			<div class="subnav heads" role="group"
 				onpointerdown={gripDown} onpointermove={gripMove} onpointerup={gripUp} onpointercancel={gripUp}>
-				<button aria-hidden="true" tabindex="-1">{t('nowplaying.upNext')}</button>
-				<button aria-hidden="true" tabindex="-1">{t('nowplaying.lyrics')}</button>
+				<button aria-hidden="true" tabindex="-1" title={t('nowplaying.upNext')}><ListMusic size={20} /></button>
+				<button aria-hidden="true" tabindex="-1" title={t('nowplaying.lyrics')}><MicVocal size={20} /></button>
 				<span class="pair">
-					<button data-tab="comments" class:active={tab === 'comments'} onclick={() => selectTab('comments')} use:tapBounce>{t('nowplaying.comments')}{#if commentBadge}<span class="count">{commentBadge}</span>{/if}</button>
-					<button data-tab="related" class:active={tab !== 'comments'} onclick={() => selectTab('related')} use:tapBounce>{t('nowplaying.related')}</button>
+					<button data-tab="comments" aria-label={t('nowplaying.comments')} title={t('nowplaying.comments')} class:active={tab === 'comments'} onclick={() => selectTab('comments')} use:tapBounce><MessageCircle size={20} />{#if commentBadge}<span class="count">{commentBadge}</span>{/if}</button>
+					<button data-tab="related" aria-label={t('nowplaying.related')} title={t('nowplaying.related')} class:active={tab !== 'comments'} onclick={() => selectTab('related')} use:tapBounce><Sparkles size={20} /></button>
 				</span>
 			</div>
 		{:else}
 			<nav class="subnav"
 				onpointerdown={gripDown} onpointermove={gripMove} onpointerup={gripUp} onpointercancel={gripUp}>
-				<button data-tab="queue" class:active={tab === 'queue'} onclick={() => selectTab('queue')} use:tapBounce>{t('nowplaying.upNext')}</button>
-				<button data-tab="lyrics" class:active={tab === 'lyrics'} onclick={() => selectTab('lyrics')} use:tapBounce>{t('nowplaying.lyrics')}</button>
-				<button data-tab="comments" class:active={tab === 'comments'} onclick={() => selectTab('comments')} use:tapBounce>{t('nowplaying.comments')}{#if commentBadge}<span class="count">{commentBadge}</span>{/if}</button>
-				<button data-tab="related" class:active={tab === 'related'} onclick={() => selectTab('related')} use:tapBounce>{t('nowplaying.related')}</button>
+				<button data-tab="queue" aria-label={t('nowplaying.upNext')} title={t('nowplaying.upNext')} class:active={tab === 'queue'} onclick={() => selectTab('queue')} use:tapBounce><ListMusic size={20} /></button>
+				<button data-tab="lyrics" aria-label={t('nowplaying.lyrics')} title={t('nowplaying.lyrics')} class:active={tab === 'lyrics'} onclick={() => selectTab('lyrics')} use:tapBounce><MicVocal size={20} /></button>
+				<button data-tab="comments" aria-label={t('nowplaying.comments')} title={t('nowplaying.comments')} class:active={tab === 'comments'} onclick={() => selectTab('comments')} use:tapBounce><MessageCircle size={20} />{#if commentBadge}<span class="count">{commentBadge}</span>{/if}</button>
+				<button data-tab="related" aria-label={t('nowplaying.related')} title={t('nowplaying.related')} class:active={tab === 'related'} onclick={() => selectTab('related')} use:tapBounce><Sparkles size={20} /></button>
 			</nav>
 		{/if}
 
@@ -1472,9 +1476,9 @@
 	.grip:active { cursor: grabbing; }
 	.handle { width: 44px; height: 5px; border-radius: 999px; background: var(--color-text-muted); opacity: 0.6; margin-top: 15px; }
 	.subnav { display: flex; justify-content: space-around; padding-bottom: 6px; touch-action: none; user-select: none; -webkit-user-select: none; }
-	.subnav button { background: none; border: none; color: var(--color-text-muted); font-size: 0.8125rem; min-height: 40px; padding: 8px 12px; cursor: pointer; border-bottom: 2px solid transparent; }
+	.subnav button { position: relative; display: inline-flex; align-items: center; justify-content: center; background: none; border: none; color: var(--color-text-muted); font-size: 0.8125rem; min-height: 40px; padding: 8px 12px; cursor: pointer; border-bottom: 2px solid transparent; }
 	.subnav button.active { color: var(--color-text); border-bottom-color: var(--color-primary); }
-	.subnav .count { margin-left: 5px; padding: 1px 6px; border-radius: 999px; background: var(--color-surface); color: var(--color-text-muted); font-size: 0.6875rem; font-variant-numeric: tabular-nums; }
+	.subnav .count { position: absolute; top: 2px; right: 0; line-height: 1.2; padding: 1px 6px; border-radius: 999px; background: var(--color-surface); color: var(--color-text-muted); font-size: 0.6875rem; font-variant-numeric: tabular-nums; }
 	/* NP-02: contain over-scroll/bounce to the panel edges so half-open scroll never chains to
 	   the page behind the sheet. NO touch-action: none — the panel keeps its pan-y scroll (the
 	   browser owns vertical scrolling here). iOS <16 lacks overscroll-behavior support, so it is
