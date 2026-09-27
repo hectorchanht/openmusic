@@ -19,6 +19,7 @@
 		type Suggestion
 	} from '$lib/search/autocomplete-logic';
 	import { mapWithConcurrency } from '$lib/services/discovery';
+	import { initialSearch } from '$lib/services/search-url';
 	import { settings } from '$lib/stores/settings.svelte';
 	import { mergeArtistTiles, type ArtistTile } from '$lib/services/artist-tiles';
 	import { player } from '$lib/stores/player.svelte';
@@ -501,7 +502,13 @@
 	// (no refetch) including scroll, after results paint.
 	onMount(async () => {
 		searchHistory.load();
-		if (searchSession.hasPrior) {
+		// quick-260927-dh5: a `/search?q=<term>` link runs <term> on mount (or restores the session
+		// when it already holds that query). The page is READ-ONLY on the URL — typing/submitting never
+		// writes ?q= back, so reload/share-back of a typed search is out of scope.
+		// ponytail: SPA navigation to /search?q=X while already mounted on /search does not remount, so
+		// the new q is ignored — add an afterNavigate hook if an in-app link ever targets /search?q=.
+		const init = initialSearch(location.search, searchSession);
+		if (init.action === 'restore') {
 			q = searchSession.q;
 			results = searchSession.results;
 			page = searchSession.page;
@@ -515,6 +522,12 @@
 			// (the WINDOW scrolls — see the IO root:null below). Pitfall 6.
 			await tick();
 			window.scrollTo(0, searchSession.scrollY);
+		} else if (init.action === 'run') {
+			// quick-260927-dh5: reuse run() (not a new fetch path) so history recording, partial
+			// streaming and the OFFL-03 offline short-circuit match a typed submit. Fire-and-forget,
+			// like the suggestion call sites; a non-empty q keeps D-17 below from stealing focus.
+			q = init.q;
+			run();
 		}
 		// RHX-01 / SRCH-03: mount-time-only focus on an EMPTY query so the mobile keyboard
 		// rises. Evaluated AFTER the hasPrior restore above — a restored prior query makes `q`
