@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onDestroy, onMount, tick } from 'svelte';
-	import { goto } from '$app/navigation';
+	import { afterNavigate, goto } from '$app/navigation';
 	import { searchAll } from '$lib/services/catalog';
 	import { prewarmTrack } from '$lib/services/prewarm';
 	import { dedupeBest, groupVariants } from '$lib/services/dedupe';
@@ -75,6 +75,11 @@
 	// other surface still paints here on first render with no intersection and no network.
 	let loading = $state(false);
 	let searched = $state(false);
+	// quick-260927-e5w: the query the address bar's ?q= names, i.e. the last COMMITTED search (set
+	// beside every syncTabUrl write). The afterNavigate hook's prior. Not `q`, which is the live box
+	// and may hold unsubmitted typing. Not searchSession.q, which is only persisted on settle, so it
+	// lags an in-flight search. Plain field (not $state), like `ac`: nothing renders from it.
+	let committedQ = '';
 	let ac: AbortController | null = null;
 
 	// BUGFIX (search-skeleton-not-showing): the D-01 first-load and load-more skeletons
@@ -208,6 +213,7 @@
 		// quick-260927-dz0: the ONE shared clear point for the X button (clearSearch) and typing
 		// back to empty (onSuggestInput) — strip ?q= so the address bar stops naming a search that
 		// is no longer on screen. An empty value DELETES the param (the url-tab D-5 default rule).
+		committedQ = '';
 		syncTabUrl('q', '', '');
 	}
 
@@ -380,6 +386,7 @@
 		// script-lock rewrite survives. Nothing on /search reads page.url.search (the rail lights by
 		// pathname, dh5 reads location.search), so the stale-page.url concern that put the library
 		// page on goto() does not apply here.
+		committedQ = kw;
 		syncTabUrl('q', kw, '');
 		ac?.abort();
 		moreAc?.abort(); // cancel any in-flight load-more from a previous query
@@ -523,14 +530,15 @@
 		// quick-260927-dh5: a `/search?q=<term>` link runs <term> on mount (or restores the session
 		// when it already holds that query). The mount run re-enters run(), which writes the same
 		// ?q= back (quick-260927-dz0), so a reload keeps re-running it.
-		// ponytail: SPA navigation to /search?q=X while already mounted on /search does not remount, so
-		// the new q is ignored — add an afterNavigate hook if an in-app link ever targets /search?q=.
+		// quick-260927-e5w: a SAME-PAGE navigation (link/goto/popstate to /search?q=…) does not remount,
+		// so the afterNavigate hook below owns that case; this mount run stays the only owner of the first entry.
 		const init = initialSearch(location.search, searchSession);
 		if (init.action === 'restore') {
 			q = searchSession.q;
 			// quick-260927-dz0: a tab-return to bare /search restores the session without run(), so
 			// put its ?q= back here too — the address bar names the query on screen and a reload
 			// re-runs it. On a matching ?q= link this re-writes the same value (harmless).
+			committedQ = searchSession.q;
 			syncTabUrl('q', searchSession.q, '');
 			results = searchSession.results;
 			page = searchSession.page;
@@ -562,6 +570,37 @@
 		if (!q.trim()) {
 			queryInputEl?.focus();
 			inputFocused = true;
+		}
+	});
+
+	// quick-260927-e5w: follow a SAME-PAGE navigation to /search?q=… (an in-app link, goto, or
+	// popstate Back/Forward between two such entries) — the page stays mounted, so onMount never
+	// sees the new ?q=. Registered at component init: afterNavigate cannot be called from onMount.
+	//  - Guard: a mount (first load = 'enter', or arriving from another route) is owned by onMount,
+	//    so the hook acts only when both ends are /search and never double-runs the mount.
+	//  - Only pathname is compared on from/to: our raw replaceState ?q= writes leave the router's
+	//    page.url.search stale relative to location, so to.url.search (the router's fresh target)
+	//    is the only search string read.
+	//  - No loop, no echo guard: every ?q= write on this page (run(), resetResults(), the onMount
+	//    restore, the restore branch here) goes through syncTabUrl = raw history.replaceState, which
+	//    fires neither popstate nor afterNavigate, so the hook never observes its own write. (The
+	//    library page's oc6 appliedSearch guard exists because it writes via goto, which re-fires.)
+	//  - The prior is `committedQ` (the query the bar names), not the box text `q` (typing it and
+	//    then tapping the rail would put the unsubmitted text in ?q=). Not searchSession either: it
+	//    is only persisted on settle, so it lags an in-flight search.
+	afterNavigate(({ from, to, type }) => {
+		if (type === 'enter' || from?.url.pathname !== '/search' || to?.url.pathname !== '/search') return;
+		const init = initialSearch(to.url.search, { hasPrior: !!committedQ, q: committedQ });
+		if (init.action === 'run') {
+			// Same fire-and-forget run() as the mount run: history, partial streaming, OFFL-03, and
+			// the dz0 ?q= write-back all come with it.
+			q = init.q;
+			run();
+		} else if (init.action === 'restore') {
+			// The results on screen already are this query (matching ?q=) or the prior (bare /search,
+			// e.g. the rail link) — only re-assert the dz0 invariant that the bar names the on-screen
+			// query. No run, no reset, no focus move.
+			syncTabUrl('q', committedQ, '');
 		}
 	});
 
