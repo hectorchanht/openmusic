@@ -90,7 +90,8 @@ describe('quick-260919-ebi dead strings', () => {
 	const ABSENT = [
 		'settings.themeDesc',
 		'settings.nowbarLyricsDesc',
-		'settings.showSearchPillDesc'
+		'settings.showSearchPillDesc',
+		'menu.fixLyrics'
 	] as const;
 	const PRESENT = [
 		'settings.optOn',

@@ -1122,7 +1122,7 @@
 		     instrumental's LRC), and until now the user had no way to correct it. The per-source walk
 		     fires on THIS tap only (T-1we-03). `disabled` mirrors the Like / Change-cover rows: a
 		     uid-less stub has no identity to pin against (D-1). -->
-		<button class="mi" disabled={!track.uid} onclick={openLyricsPicker} use:tapBounce><Mic2 size={18} /> {t('menu.fixLyrics')}</button>
+		<button class="mi" disabled={!track.uid} onclick={openLyricsPicker} use:tapBounce><Mic2 size={18} /> {t('menu.changeLyrics')}</button>
 		<!-- quick-260926-qat: lyrics timing toggle. Shown ONLY for the currently playing track that
 		     actually has lyrics — the row it reveals lives in the Now Playing lyrics pane of
 		     player.current, so for any other track it would toggle something the user cannot see.
@@ -1407,7 +1407,7 @@
 	{@const pinnedNow = readLyrics(track)}
 	<button class="scrim" aria-label={t('menu.close')} onclick={closeLyricsPicker}></button>
 	<div class="menu" transition:fly={{ y: 240, duration: 200 }} use:dragClose={{ onclose: closeLyricsPicker }} use:focusTrap>
-		<div class="menu-head row"><span>{t('menu.fixLyrics')}</span><button class="x" aria-label={t('menu.close')} onclick={closeLyricsPicker} use:tapBounce><X size={18} /></button></div>
+		<div class="menu-head row"><span>{t('menu.changeLyrics')}</span><button class="x" aria-label={t('menu.close')} onclick={closeLyricsPicker} use:tapBounce><X size={18} /></button></div>
 		{#if lyricsLoading && !lyricCandidates.length}
 			<div class="cover-wait"><span class="row-spinner motion-always"></span></div>
 		{:else if !lyricCandidates.length}
