@@ -20,6 +20,7 @@
 	} from '$lib/search/autocomplete-logic';
 	import { mapWithConcurrency } from '$lib/services/discovery';
 	import { initialSearch } from '$lib/services/search-url';
+	import { syncTabUrl } from '$lib/services/url-tab';
 	import { settings } from '$lib/stores/settings.svelte';
 	import { mergeArtistTiles, type ArtistTile } from '$lib/services/artist-tiles';
 	import { player } from '$lib/stores/player.svelte';
@@ -204,6 +205,10 @@
 		hasMore = false;
 		page = 1;
 		searched = false;
+		// quick-260927-dz0: the ONE shared clear point for the X button (clearSearch) and typing
+		// back to empty (onSuggestInput) — strip ?q= so the address bar stops naming a search that
+		// is no longer on screen. An empty value DELETES the param (the url-tab D-5 default rule).
+		syncTabUrl('q', '', '');
 	}
 
 	// quick-260711-sm7 (req 1+2): the clear (X) button empties the input and collapses content
@@ -363,6 +368,19 @@
 		// searchAll (which would hang on a dead network and strand a spinner). The inline offline
 		// state renders instead (gated on !online.isOnline in the markup). No redirect (D-09).
 		if (!online.isOnline) return;
+		// quick-260927-dz0: write the committed query to the address bar as ?q=<term>, the write
+		// half of the dh5 deep link — a typed search is now reloadable and shareable. Written only
+		// once a search actually STARTS (past the empty + offline short-circuits), so the URL always
+		// names the query whose results are on screen. Every commit path funnels through here: form
+		// submit, recent-keyword tap, song-suggestion tap, and the dh5 mount run (which harmlessly
+		// re-writes the same normalized q). Typing / the typeahead never writes.
+		// syncTabUrl, not goto()/shallow routing: it is a raw history.replaceState — no history
+		// entry, so Back still leaves /search and the overlay-depth == history-depth invariant holds,
+		// with no router-index desync — built from the LIVE location.href, so the (app) layout's
+		// script-lock rewrite survives. Nothing on /search reads page.url.search (the rail lights by
+		// pathname, dh5 reads location.search), so the stale-page.url concern that put the library
+		// page on goto() does not apply here.
+		syncTabUrl('q', kw, '');
 		ac?.abort();
 		moreAc?.abort(); // cancel any in-flight load-more from a previous query
 		// ql0: committing a search closes the typeahead — cancel a pending debounced fetch,
@@ -503,13 +521,17 @@
 	onMount(async () => {
 		searchHistory.load();
 		// quick-260927-dh5: a `/search?q=<term>` link runs <term> on mount (or restores the session
-		// when it already holds that query). The page is READ-ONLY on the URL — typing/submitting never
-		// writes ?q= back, so reload/share-back of a typed search is out of scope.
+		// when it already holds that query). The mount run re-enters run(), which writes the same
+		// ?q= back (quick-260927-dz0), so a reload keeps re-running it.
 		// ponytail: SPA navigation to /search?q=X while already mounted on /search does not remount, so
 		// the new q is ignored — add an afterNavigate hook if an in-app link ever targets /search?q=.
 		const init = initialSearch(location.search, searchSession);
 		if (init.action === 'restore') {
 			q = searchSession.q;
+			// quick-260927-dz0: a tab-return to bare /search restores the session without run(), so
+			// put its ?q= back here too — the address bar names the query on screen and a reload
+			// re-runs it. On a matching ?q= link this re-writes the same value (harmless).
+			syncTabUrl('q', searchSession.q, '');
 			results = searchSession.results;
 			page = searchSession.page;
 			hasMore = searchSession.hasMore;
