@@ -86,8 +86,12 @@ export function hasLocalLyricOffset(uid: string | null | undefined): boolean {
 const _shared = $state<Record<string, number>>({});
 // Plain, non-reactive guards (house convention): nothing renders them.
 const requested = new Map<string, string>(); // uid -> the lrc its shared offset was requested for
-let voteTimer: ReturnType<typeof setTimeout> | null = null;
-export const VOTE_DEBOUNCE_MS = 4000;
+// quick-260926-wdv: ONE vote per listen. A nudge / slider drag only MARKS the listen as voted; the
+// root layout flushes it when the current track changes or a track ends (flushLyricOffsetVote), so a
+// long slider session costs one POST instead of one per 4 s pause. Plain field (nothing renders it).
+// ponytail: a vote pending when the app is closed mid-song is lost; add a keepalive flush on
+// pagehide if that ever matters (apiFetch would need to pass `keepalive` through).
+let pendingVote: { uid: string; lrc: string } | null = null;
 
 /** Local ?? shared ?? 0. Cheap enough for a $derived that re-runs on track change / offset write. */
 export function getEffectiveLyricOffset(uid: string | null | undefined): number {
@@ -128,22 +132,27 @@ export async function ensureSharedLyricOffset(uid: string, lrc: string | null | 
 }
 
 /**
- * Debounced vote after an explicit realign. Reads the local offset AT FIRE TIME, so a burst of
- * nudges votes once with the final value, and a cleared offset votes nothing.
- *
- * ponytail: a single pending vote — a nudge on a second song within the window drops the first
- * song's vote. Per-uid timers if it ever matters.
+ * Mark this listen for a vote after an explicit realign (quick-260926-wdv). Nothing is sent here:
+ * flushLyricOffsetVote() sends it once, at the end of the song or on a track change, reading the
+ * local offset AT FLUSH TIME — so any amount of nudging votes once with the final value, and a
+ * reset / cleared offset votes nothing.
  */
 export function scheduleLyricOffsetVote(uid: string, lrc: string): void {
 	if (!uid || !lrc) return;
-	if (voteTimer) clearTimeout(voteTimer);
-	voteTimer = setTimeout(async () => {
-		voteTimer = null;
-		const v = readRec()[uid];
-		if (typeof v !== 'number') return;
-		const k = await lyricOffsetKey(uid, lrc);
-		if (k) await submitOffsetVote(k, v);
-	}, VOTE_DEBOUNCE_MS);
+	// A different song's listen is over — send its vote before marking this one.
+	if (pendingVote && pendingVote.uid !== uid) void flushLyricOffsetVote();
+	pendingVote = { uid, lrc };
+}
+
+/** Send the pending vote (the local offset AT FLUSH TIME), then forget it. Never throws. */
+export async function flushLyricOffsetVote(): Promise<void> {
+	const p = pendingVote;
+	pendingVote = null;
+	if (!p) return;
+	const v = readRec()[p.uid];
+	if (typeof v !== 'number') return; // reset / cleared since the nudge: nothing to vote
+	const k = await lyricOffsetKey(p.uid, p.lrc);
+	if (k) await submitOffsetVote(k, v);
 }
 
 /**
@@ -157,10 +166,7 @@ export function scheduleLyricOffsetVote(uid: string, lrc: string): void {
  * The "Synced by listeners" label tells the user which state they are in.
  */
 export function resetLyricOffset(uid: string): void {
-	if (voteTimer) {
-		clearTimeout(voteTimer);
-		voteTimer = null;
-	}
+	pendingVote = null;
 	if (!uid) return;
 	if (typeof readRec()[uid] === 'number') clearLyricOffset(uid);
 	else if (typeof _shared[uid] === 'number') setLyricOffset(uid, 0);
@@ -200,6 +206,5 @@ export function toggleLyricSyncOpen(): void {
 export function __resetSharedLyricOffsets(): void {
 	for (const k of Object.keys(_shared)) delete _shared[k];
 	requested.clear();
-	if (voteTimer) clearTimeout(voteTimer);
-	voteTimer = null;
+	pendingVote = null;
 }

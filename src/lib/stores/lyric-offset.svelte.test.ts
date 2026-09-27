@@ -11,8 +11,8 @@ import {
 	isSharedLyricOffset,
 	ensureSharedLyricOffset,
 	scheduleLyricOffsetVote,
+	flushLyricOffsetVote,
 	resetLyricOffset,
-	VOTE_DEBOUNCE_MS,
 	__resetSharedLyricOffsets,
 	lyricSyncOpen,
 	setLyricSyncOpen,
@@ -209,16 +209,17 @@ describe('lyric-offset store (quick-260926-mis)', () => {
 		expect(f).toHaveBeenCalledTimes(1);
 	});
 
-	it('the vote fires once, VOTE_DEBOUNCE_MS after the last change, with the final local value', async () => {
-		expect(VOTE_DEBOUNCE_MS).toBe(4000);
+	// quick-260926-wdv: one vote per listen — scheduling only marks it; the layout flushes on a track
+	// change / song end.
+	it('scheduling never POSTs by itself; the flush sends ONE vote with the final local value', async () => {
 		const f = sharedFetch();
 		vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
 		setLyricOffset(UID, 2);
 		scheduleLyricOffsetVote(UID, LRC);
-		await vi.advanceTimersByTimeAsync(3999);
+		await vi.advanceTimersByTimeAsync(60_000);
 		await flush();
 		expect(posts(f)).toHaveLength(0);
-		await vi.advanceTimersByTimeAsync(1);
+		await flushLyricOffsetVote();
 		await flush();
 		expect(posts(f)).toHaveLength(1);
 		const body = JSON.parse((posts(f)[0][1] as RequestInit).body as string);
@@ -226,37 +227,48 @@ describe('lyric-offset store (quick-260926-mis)', () => {
 		expect(body.offset).toBe(2);
 	});
 
-	it('a burst of nudges yields ONE vote with the last offset', async () => {
+	it('any amount of nudging yields ONE vote with the last offset; a second flush sends nothing', async () => {
 		const f = sharedFetch();
-		vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-		for (const o of [1, 1.5, 2]) {
+		for (const o of [1, 1.5, 2, -3, 4.2]) {
 			setLyricOffset(UID, o);
 			scheduleLyricOffsetVote(UID, LRC);
-			await vi.advanceTimersByTimeAsync(1000);
 		}
-		await vi.advanceTimersByTimeAsync(VOTE_DEBOUNCE_MS);
+		await flushLyricOffsetVote();
+		await flushLyricOffsetVote();
 		await flush();
 		expect(posts(f)).toHaveLength(1);
-		expect(JSON.parse((posts(f)[0][1] as RequestInit).body as string).offset).toBe(2);
+		expect(JSON.parse((posts(f)[0][1] as RequestInit).body as string).offset).toBe(4.2);
 	});
 
-	it('reset inside the window cancels the vote; a cleared offset at fire time sends nothing', async () => {
+	it('reset cancels the pending vote; a cleared offset at flush time sends nothing', async () => {
 		const f = sharedFetch();
-		vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
 		setLyricOffset(UID, 2);
 		scheduleLyricOffsetVote(UID, LRC);
-		await vi.advanceTimersByTimeAsync(1000);
 		resetLyricOffset(UID);
-		await vi.advanceTimersByTimeAsync(10_000);
+		await flushLyricOffsetVote();
 		await flush();
 		expect(posts(f)).toHaveLength(0);
 
 		setLyricOffset(UID, 2);
 		scheduleLyricOffsetVote(UID, LRC);
 		clearLyricOffset(UID);
-		await vi.advanceTimersByTimeAsync(VOTE_DEBOUNCE_MS);
+		await flushLyricOffsetVote();
 		await flush();
 		expect(posts(f)).toHaveLength(0);
+	});
+
+	it("marking a different song flushes the previous song's vote first", async () => {
+		const f = sharedFetch();
+		setLyricOffset(UID, 2);
+		scheduleLyricOffsetVote(UID, LRC);
+		setLyricOffset('qq:other', -1);
+		scheduleLyricOffsetVote('qq:other', LRC);
+		await flush();
+		expect(posts(f)).toHaveLength(1);
+		expect(JSON.parse((posts(f)[0][1] as RequestInit).body as string).offset).toBe(2);
+		await flushLyricOffsetVote();
+		await flush();
+		expect(posts(f)).toHaveLength(2);
 	});
 
 	it('reset: local → back to shared; shared-only → explicit 0 opt-out; nothing → no-op', async () => {

@@ -8,6 +8,7 @@
 	import { player } from "$lib/stores/player.svelte";
 	import { names } from "$lib/stores/names.svelte";
 	import { deepLinkPath } from "$lib/services/share-arrival";
+	import { flushLyricOffsetVote } from "$lib/stores/lyric-offset.svelte";
 
 	let { children } = $props();
 	let audioEl: HTMLAudioElement;
@@ -38,8 +39,25 @@
 				// Restore the last played track + queue + progress + shuffle/repeat from localStorage so a
 				// reload resumes mid-session. Doesn't autoplay (browser policy); user taps play. Fire-and-forget.
 				void player.restore();
+				// quick-260926-wdv: a song that ENDS is the end of its listen even when the uid does not
+				// change (repeat-one, the last track of the queue) — send its lyric-offset vote now.
+				audioEl.addEventListener("ended", () => void flushLyricOffsetVote());
 			});
 		}
+	});
+
+	// quick-260926-wdv: ONE lyric-offset vote per listen. Nudging / sliding only MARKS the listen
+	// (scheduleLyricOffsetVote); the vote is sent here when the current track changes, so it fires
+	// whether or not Now Playing is open. Reads ONLY player.current?.uid; the flush (a fetch, no
+	// $state writes) and the plain `voteUid` field run untracked, so this cannot self-invalidate
+	// (cf. the attach()/restore() effect above). Same-uid replacements (lrc enrichment) are no-ops.
+	let voteUid: string | undefined;
+	$effect(() => {
+		const uid = player.current?.uid;
+		untrack(() => {
+			if (voteUid !== undefined && uid !== voteUid) void flushLyricOffsetVote();
+			voteUid = uid;
+		});
 	});
 
 	// quick-260723-spk: Spotify / YouTube-Music-style browser-tab title. While a track is current, the

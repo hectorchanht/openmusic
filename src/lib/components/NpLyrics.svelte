@@ -207,8 +207,9 @@
 	});
 	// quick-260926-vur: the slider replaced hold-to-sync (the long-press fought hold-to-peek). Live:
 	// activeLineAt already reads `lyricOffset`, and 'force' turns auto-centre on so the highlighted
-	// line re-centres while dragging. The store normalizes (0.1 s, ±LYRIC_OFFSET_MAX); the 4 s vote
-	// debounce means only the settled value is voted.
+	// line re-centres while dragging. The store normalizes (0.1 s, ±LYRIC_OFFSET_MAX); the vote is only
+	// MARKED here and sent once at the end of the song / track change (quick-260926-wdv), so only the
+	// final value of the listen is voted.
 	function slideOffset(v: number) {
 		const uid = player.current?.uid;
 		if (!uid || !Number.isFinite(v)) return;
