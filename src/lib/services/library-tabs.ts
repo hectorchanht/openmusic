@@ -1,15 +1,19 @@
 // quick-260919-oc6 — the library tab allowlist, its default, and the nav's active-match rule.
 //
 // The allowlist and the 'liked' default used to live ONLY inside `library/+page.svelte`. The
-// desktop rail now carries five `/library?tab=<id>` entries and has to decide which one is lit,
+// desktop rail now carries six `/library?tab=<id>` entries and has to decide which one is lit,
 // which needs the same allowlist and the same default — so they move here ONCE rather than being
 // re-inlined in the layout. Same rung-2 reasoning as url-tab.ts: the dependency the page was
 // avoiding is a RUNES STORE, not a shared helper, so a pure `.ts` is free to hold this.
 //
+// quick-260927-2cy: 'radio' (Your Radio) is a real tab, not a separate /radio route, so the rail
+// lit-state, the pill row, the stored-tab restore and the T-23-10 `?tab=` sanitising all cover it
+// unchanged. It sits LAST, after 'history', because the radio draw is seeded from history.
+//
 // PURE .ts: no runes, no `$app/*`, no DOM. Total functions over a URL, node-testable.
 import { pickTab } from './url-tab';
 
-export type LibraryTab = 'liked' | 'playlists' | 'downloads' | 'fav-artists' | 'history';
+export type LibraryTab = 'liked' | 'playlists' | 'downloads' | 'fav-artists' | 'history' | 'radio';
 
 /** Rail order == the page's pill-row order. */
 export const LIBRARY_TAB_SET: ReadonlySet<LibraryTab> = new Set<LibraryTab>([
@@ -17,7 +21,8 @@ export const LIBRARY_TAB_SET: ReadonlySet<LibraryTab> = new Set<LibraryTab>([
 	'playlists',
 	'downloads',
 	'fav-artists',
-	'history'
+	'history',
+	'radio'
 ]);
 
 /** The D-5 default: `tabHref` strips `?tab=liked` from the canonical URL. */

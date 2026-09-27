@@ -3,7 +3,7 @@
 	import { fly } from 'svelte/transition';
 	import { page } from '$app/state';
 	import { goto, afterNavigate } from '$app/navigation';
-	import { House, Search, Library, Settings, Heart, ListMusic, Download, Users, Clock } from '@lucide/svelte';
+	import { House, Search, Library, Settings, Heart, ListMusic, Download, Users, Clock, Radio } from '@lucide/svelte';
 	import { player, SKIP_REASON_KEY } from '$lib/stores/player.svelte';
 	import { library } from '$lib/stores/library.svelte';
 	import { settings } from '$lib/stores/settings.svelte';
@@ -329,12 +329,15 @@
 	// Reuses the existing `home.settings` string (that gear's aria-label) — no new i18n key.
 	//
 	// quick-260919-oc6: `mobileOnly` is the mirror flag, and it exists because the rail spreads the
-	// Library's five tabs into five destinations. At desktop the generic "Library" entry is
+	// Library's six tabs into six destinations. At desktop the generic "Library" entry is
 	// REPLACED by them, not joined by them: keeping both would light two entries on every library
 	// URL and offer the same destination twice. Reverting is deleting one flag.
-	// The five hrefs ride the EXISTING `?tab=` mechanism the library page already reads/writes
-	// (pickTab/tabHref, `openmusic:library:tab`) — no new nav state, and all five labels are
+	// The six hrefs ride the EXISTING `?tab=` mechanism the library page already reads/writes
+	// (pickTab/tabHref, `openmusic:library:tab`) — no new nav state, and all six labels are
 	// existing TranslationKeys, so no i18n edits.
+	// quick-260927-2cy: the sixth is Your Radio (`?tab=radio`, label `settings.homeSectionRadio`,
+	// the home shelf's own title). It is a real library tab rather than a /radio link so it lights
+	// through the same navActive/LIBRARY_TAB_SET rule as the other five.
 	// Liked's href carries an explicit `?tab=liked` even though D-5 strips that param from the
 	// canonical URL: a plain `/library` means "whatever tab was stored" (that is what the mobile
 	// Library tab and the home links mean), which cannot express "Liked" when the stored tab is
@@ -380,6 +383,7 @@
 		{ href: '/library?tab=downloads', labelKey: 'library.downloads', icon: Download, desktopOnly: true },
 		{ href: '/library?tab=fav-artists', labelKey: 'library.favArtists', icon: Users, desktopOnly: true },
 		{ href: '/library?tab=history', labelKey: 'history.heading', icon: Clock, desktopOnly: true },
+		{ href: '/library?tab=radio', labelKey: 'settings.homeSectionRadio', icon: Radio, desktopOnly: true },
 		{ href: '/settings', labelKey: 'home.settings', icon: Settings, desktopOnly: true }
 	];
 
@@ -489,8 +493,8 @@
 			     match '//', and /search and /library have no child routes.
 			     quick-260919-oc6: that expression is now `navActive` and is unchanged for every
 			     TAB-LESS href — library-tabs.test.ts pins it case by case, which is what makes
-			     "the mobile bar is untouched" checkable rather than asserted. For the five
-			     `?tab=` rail hrefs it ALSO compares the tab, via the same pickTab allowlist the
+			     "the mobile bar is untouched" checkable rather than asserted. For the six
+			     `?tab=` rail hrefs (quick-260927-2cy added radio) it ALSO compares the tab, via the same pickTab allowlist the
 			     library page validates with and the same 'liked' default D-5 omits from the URL,
 			     so exactly one library entry is lit — never zero (canonical /library), never two
 			     (a tampered ?tab= falls back to the default). -->
@@ -715,8 +719,9 @@
 			display: flex;
 		}
 		/* quick-260919-oc6 — the mirror of the rule above, and the only place the flag does
-		   anything: at desktop the generic Library entry steps aside for the five `?tab=` entries
-		   that replace it. Nothing is added to the mobile cascade for this. */
+		   anything: at desktop the generic Library entry steps aside for the six `?tab=` entries
+		   that replace it (quick-260927-2cy: radio is the sixth). Nothing is added to the mobile
+		   cascade for this. */
 		.tab.mobile-only {
 			display: none;
 		}

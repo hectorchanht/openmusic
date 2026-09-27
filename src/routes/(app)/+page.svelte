@@ -1606,11 +1606,14 @@
 <!-- quick-260924-pgu: libraryShelf gives list/grid/pile density, long-press
      TrackMenu (which resolves `resolveByName` stubs on demand, same as album rows), and
      use:lazyCover on-view cover resolution for stubs whose Last.fm/Deezer image was missing.
-     quick-260927-1fx: the header opens /radio, the same buildRadio draw in full rows; it used to fall
-     back to /library?tab=history only because no radio page existed. -->
+     quick-260927-1fx: the header opens the same buildRadio draw in full rows; it used to fall back to
+     /library?tab=history only because no radio page existed.
+     quick-260927-2cy: that page is now the Library's Radio tab (/library?tab=radio) — the one-day-old
+     /radio route was folded in so the desktop rail's one-entry-per-tab model and the mobile Library
+     tab both light correctly. -->
 {#snippet radioBlock()}
 	{#if radioShelf.length}
-		{@render titleNav(t('settings.homeSectionRadio'), '/radio')}
+		{@render titleNav(t('settings.homeSectionRadio'), '/library?tab=radio')}
 		{@render libraryShelf(radioShelf, densityOf('radio'), 'home-discovery')}
 	{/if}
 {/snippet}

@@ -12,23 +12,25 @@ import {
 // function over (URL, href): no DOM, no runes, no $app.
 const u = (href: string) => new URL(href);
 
-/** The five rail hrefs, in rail order. */
+/** The six rail hrefs, in rail order (quick-260927-2cy added radio, last). */
 const TABBED = [
 	'/library?tab=liked',
 	'/library?tab=playlists',
 	'/library?tab=downloads',
 	'/library?tab=fav-artists',
-	'/library?tab=history'
+	'/library?tab=history',
+	'/library?tab=radio'
 ];
 
 describe('the shared allowlist + default', () => {
-	it('lists the five library tabs', () => {
+	it('lists the six library tabs', () => {
 		expect([...LIBRARY_TAB_SET]).toEqual([
 			'liked',
 			'playlists',
 			'downloads',
 			'fav-artists',
-			'history'
+			'history',
+			'radio'
 		] satisfies LibraryTab[]);
 	});
 
@@ -86,11 +88,17 @@ describe('navActive — a tabbed href also compares ?tab= through pickTab', () =
 		expect(navActive(u('https://x/search?tab=liked'), '/library?tab=liked')).toBe(false);
 	});
 
-	it('lights EXACTLY ONE of the five rail entries for any library URL', () => {
+	it('lights radio only on ?tab=radio, and History not there (quick-260927-2cy)', () => {
+		expect(navActive(u('https://x/library?tab=radio'), '/library?tab=radio')).toBe(true);
+		expect(navActive(u('https://x/library?tab=radio'), '/library?tab=history')).toBe(false);
+	});
+
+	it('lights EXACTLY ONE of the six rail entries for any library URL', () => {
 		for (const href of [
 			'https://x/library',
 			'https://x/library?tab=liked',
 			'https://x/library?tab=history',
+			'https://x/library?tab=radio',
 			'https://x/library?tab=zzz'
 		]) {
 			const lit = TABBED.filter((t) => navActive(u(href), t));
