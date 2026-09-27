@@ -1432,10 +1432,13 @@
 					</div>
 					<!-- quick-260926-vdp: dragClose arms in its own `pointerdown` on the `.menu` node and only
 					     checks the `.menu`'s scrollTop, so a scroll gesture inside this inner box would start a
-					     sheet drag whenever the sheet itself is at the top. Stopping the bubble here means a
-					     finger inside the box only ever scrolls the box; the header, footer and the rest of the
-					     sheet still drag-close as before. role+aria-label = the NpLyrics precedent. -->
-					<div class="lyr-body" role="group" aria-label={t('nowplaying.lyrics')} onpointerdown={(e) => e.stopPropagation()}>{text}</div>
+					     sheet drag whenever the sheet itself is at the top. `data-no-drag` makes dragClose skip
+					     a pointerdown that starts inside the box, so a finger there only ever scrolls it; the
+					     header, footer and the rest of the sheet still drag-close as before. (A child
+					     `onpointerdown` stopPropagation does NOT work: Svelte 5 delegates it to the app root,
+					     after dragClose's native listener has already armed — measured in E2E.)
+					     role+aria-label = the NpLyrics precedent. -->
+					<div class="lyr-body" role="group" aria-label={t('nowplaying.lyrics')} data-no-drag>{text}</div>
 					<button class="mi" onclick={() => pickLyrics(c.lrc)} use:tapBounce><Mic2 size={18} /> {t('menu.useTheseLyrics')}</button>
 				</div>
 			{/each}

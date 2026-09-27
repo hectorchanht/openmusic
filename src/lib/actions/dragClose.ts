@@ -23,6 +23,8 @@ import { createVelocityTracker } from '$lib/gestures/velocity';
 //    DOWN — otherwise the gesture is left to the browser to scroll the list. With `none` the
 //    sheet could never be scrolled: every vertical swipe was eaten as a drag-to-close.
 //    overscroll-behavior:contain stops the scroll from chaining to the page behind.
+//  - OPT-OUT (quick-260926-vdp): a pointerdown inside any `[data-no-drag]` descendant never starts a
+//    drag — for inner scrollers whose own scroll must win over the sheet's close gesture.
 //  - Reactive `update(opts)` swaps onclose / toggles `enabled`. `enabled:false` makes
 //    the action inert (no drag). destroy() removes listeners + resets inline styles.
 export interface DragCloseOpts {
@@ -60,6 +62,11 @@ export const dragClose: Action<HTMLElement, DragCloseOpts> = (node, opts) => {
 
 	function down(e: PointerEvent) {
 		if (!enabled) return;
+		// quick-260926-vdp: an INNER scroller (the lyrics picker's full-lyrics box) opts out with
+		// `data-no-drag`, so pulling down inside it scrolls the box instead of dragging the sheet shut.
+		// Checked HERE rather than via stopPropagation in the child: Svelte 5 delegates `onpointerdown`
+		// to the app root, so a child handler runs AFTER this native listener — too late to stop it.
+		if ((e.target as Element | null)?.closest?.('[data-no-drag]')) return;
 		dragging = true;
 		captured = false;
 		startY = e.clientY;
