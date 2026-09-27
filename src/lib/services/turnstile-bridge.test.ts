@@ -79,3 +79,20 @@ describe('bridge page drift guard', () => {
 		);
 	});
 });
+
+describe('NpComments wiring', () => {
+	const svelte = readFileSync('src/lib/components/NpComments.svelte', 'utf-8');
+
+	it('frames the bridge and accepts messages only from its own iframe', () => {
+		expect(svelte).toContain('BRIDGE_PATH');
+		expect(svelte).toContain('parseBridgeMessage(');
+		expect(svelte).toContain('contentWindow');
+		expect(svelte).toContain('BRIDGE_MSG.reset');
+	});
+
+	it('no longer ships the web-only note and never posts to a wildcard', () => {
+		expect(svelte).not.toContain('postOnWeb');
+		expect(svelte).not.toContain("'*'");
+		expect(readFileSync('src/lib/i18n/en.ts', 'utf-8')).not.toContain('comments.postOnWeb');
+	});
+});

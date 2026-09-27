@@ -318,7 +318,6 @@ const zhHans: Dict = {
 	"comments.report": "举报",
 	"comments.reportConfirm": "确认举报",
 	"comments.errVerify": "验证失败，请重试。",
-	"comments.postOnWeb": "请在 openmusic.lol 网页版发表评论",
 	"nowplaying.reorderTrack": "重新排序歌曲",
 	"nowplaying.noQueue": "暂无待播歌曲。",
 	"nowplaying.skippedRetry": "已跳过 — 点击重试",

@@ -15,6 +15,8 @@
 		type CommentErr
 	} from '$lib/services/comments';
 	import { loadTurnstile, TURNSTILE_SITEKEY, type TurnstileApi } from '$lib/services/turnstile-widget';
+	import { apiOrigin } from '$lib/services/api-base';
+	import { BRIDGE_PATH, BRIDGE_MSG, bridgeOrigin, parseBridgeMessage } from '$lib/services/turnstile-bridge';
 
 	// quick-260926-nsz: the Comments pane — one public thread per SONG (every source copy and both
 	// Chinese scripts share it; see commentThreadKey). No props: it reads player.current like the
@@ -25,11 +27,13 @@
 	const NAME_KEY = 'openmusic:comment-name:v1';
 	const TEXT_MAX = 280;
 
-	// ponytail: posting is web-only. The Capacitor WebView's origin is https://localhost and the
-	// production Turnstile hostname allowlist is openmusic.lol only, so a native post could never
-	// verify. Native reads and reports; the composer is replaced by a note. Upgrade path: add
-	// localhost to the widget's domains AND to TURNSTILE_HOSTNAMES (weaker — any local page could
-	// then mint tokens that pass the hostname check).
+	// quick-260926-ot5: native posts through a Turnstile BRIDGE. The Capacitor WebView's origin is
+	// https://localhost, which the production hostname allowlist (openmusic.lol) rejects, so the app
+	// frames https://openmusic.lol/turnstile-bridge.html: the widget renders on the real hostname,
+	// siteverify reports openmusic.lol, and the token comes back over postMessage gated on origin +
+	// source. Rejected: localhost in the prod allowlist (anyone could farm tokens from a local page),
+	// and a real Capacitor server.hostname (new WebView origin = every user's localStorage/IndexedDB
+	// wiped).
 	const native = browser && Capacitor.isNativePlatform();
 
 	function readName(): string {
@@ -62,6 +66,11 @@
 	let reported = $state<string[]>([]);
 	let token = $state(''); // single-use Turnstile token; '' = none yet / spent / expired
 	let tsEl = $state<HTMLElement | null>(null);
+	let bridgeEl = $state<HTMLIFrameElement | null>(null);
+	// Computed once, not reactive. A native build without VITE_API_BASE yields null → no iframe and
+	// Post stays disabled (a dev-only misconfiguration, never the shipped APK).
+	const bridgeHost = native ? bridgeOrigin(apiOrigin()) : null;
+	const bridgeSrc = bridgeHost ? bridgeHost + BRIDGE_PATH : null;
 
 	// Supersede guard — a PLAIN field, deliberately not $state (the player.svelte.ts generation-guard
 	// convention): the effect below must never read state it writes.
@@ -133,6 +142,32 @@
 		};
 	});
 
+	// Native bridge: take token/clear only from OUR iframe at the API origin. Reads no $state
+	// synchronously (bridgeEl is read inside the handler only), so it runs once on mount and cannot
+	// self-invalidate (cf. restore-effect-self-invalidation-loop).
+	$effect(() => {
+		const host = bridgeHost;
+		if (!bridgeSrc || !host) return;
+		const onMsg = (e: MessageEvent) => {
+			if (e.origin !== host || !bridgeEl || e.source !== bridgeEl.contentWindow) return;
+			const m = parseBridgeMessage(e.data);
+			if (!m) return;
+			token = m.type === BRIDGE_MSG.token ? m.token : '';
+		};
+		window.addEventListener('message', onMsg);
+		return () => {
+			window.removeEventListener('message', onMsg);
+			token = '';
+		};
+	});
+
+	// The bridge learns (and remembers) our origin from this hello; it never posts before it.
+	function hello() {
+		const host = bridgeHost;
+		if (!host) return;
+		bridgeEl?.contentWindow?.postMessage({ type: BRIDGE_MSG.hello }, host);
+	}
+
 	async function submit() {
 		const body = text.trim();
 		if (!threadKey || posting || !body || !token) return;
@@ -145,6 +180,7 @@
 		// Tokens are single-use: reset after EVERY attempt, success or failure.
 		token = '';
 		if (ts && widgetId) ts.reset(widgetId);
+		else if (bridgeHost) bridgeEl?.contentWindow?.postMessage({ type: BRIDGE_MSG.reset }, bridgeHost);
 		// Cleared BEFORE the supersede check: a song change mid-post must not leave Post disabled.
 		posting = false;
 		if (commentsFor !== uid) return; // song changed mid-post: the reply belongs to another thread
@@ -175,42 +211,42 @@
 </script>
 
 <div class="cm-pane">
-	{#if native}
-		<p class="muted note">{t('comments.postOnWeb')}</p>
-	{:else}
-		<div class="composer">
-			<input
-				maxlength="24"
-				bind:value={name}
-				placeholder={t('comments.namePlaceholder')}
-				aria-label={t('comments.namePlaceholder')}
-				autocomplete="nickname"
-				disabled={unavailable}
-			/>
-			<textarea
-				maxlength={TEXT_MAX}
-				bind:value={text}
-				placeholder={t('comments.textPlaceholder')}
-				aria-label={t('comments.textPlaceholder')}
-				rows="3"
-				disabled={unavailable}
-			></textarea>
+	<div class="composer">
+		<input
+			maxlength="24"
+			bind:value={name}
+			placeholder={t('comments.namePlaceholder')}
+			aria-label={t('comments.namePlaceholder')}
+			autocomplete="nickname"
+			disabled={unavailable}
+		/>
+		<textarea
+			maxlength={TEXT_MAX}
+			bind:value={text}
+			placeholder={t('comments.textPlaceholder')}
+			aria-label={t('comments.textPlaceholder')}
+			rows="3"
+			disabled={unavailable}
+		></textarea>
+		{#if bridgeSrc}
+			<iframe class="ts-bridge" bind:this={bridgeEl} src={bridgeSrc} title="Cloudflare Turnstile" onload={hello}></iframe>
+		{:else if !native}
 			<div class="ts" bind:this={tsEl}></div>
-			<div class="bar">
-				<!-- text.length, not code points: it counts what maxlength counts, so the number
-				     reaches 0 exactly when the textarea stops accepting input. -->
-				<span class="muted">{t('comments.remaining', { n: TEXT_MAX - text.length })}</span>
-				<button
-					class="post"
-					disabled={!text.trim() || posting || !threadKey || !token || unavailable}
-					onclick={submit}
-					use:tapBounce>{t('comments.post')}</button
-				>
-			</div>
-			{#if err}<p class="err">{t(errKey(err))}</p>{/if}
-			<p class="muted note">{t('comments.publicNote')}</p>
+		{/if}
+		<div class="bar">
+			<!-- text.length, not code points: it counts what maxlength counts, so the number
+			     reaches 0 exactly when the textarea stops accepting input. -->
+			<span class="muted">{t('comments.remaining', { n: TEXT_MAX - text.length })}</span>
+			<button
+				class="post"
+				disabled={!text.trim() || posting || !threadKey || !token || unavailable}
+				onclick={submit}
+				use:tapBounce>{t('comments.post')}</button
+			>
 		</div>
-	{/if}
+		{#if err}<p class="err">{t(errKey(err))}</p>{/if}
+		<p class="muted note">{t('comments.publicNote')}</p>
+	</div>
 
 	{#if unavailable}
 		<p class="empty">{t('comments.unavailable')}</p>
@@ -268,6 +304,8 @@
 	.post:disabled { opacity: 0.5; cursor: default; }
 	.muted { color: var(--color-text-muted); font-size: 0.75rem; }
 	.note { margin: 0; }
+	/* 65px = the flexible widget's fixed height; the interactive challenge renders inside that box. */
+	.ts-bridge { display: block; width: 100%; height: 65px; border: 0; }
 	.err { color: #f66; font-size: 0.8125rem; margin: 0; }
 	.list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
 	.head { display: flex; align-items: center; gap: 8px; }

@@ -300,7 +300,6 @@ const id: Dict = {
 	"comments.report": "Laporkan",
 	"comments.reportConfirm": "Konfirmasi laporan",
 	"comments.errVerify": "Verifikasi gagal — coba lagi.",
-	"comments.postOnWeb": "Kirim komentar tersedia di openmusic.lol",
 	"nowplaying.reorderTrack": "Susun ulang trek",
 	"nowplaying.noQueue": "Belum ada antrian.",
 	"nowplaying.skippedRetry": "Dilewati — ketuk untuk coba lagi",

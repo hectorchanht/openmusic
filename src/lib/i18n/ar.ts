@@ -300,7 +300,6 @@ const ar: Dict = {
 	"comments.report": "إبلاغ",
 	"comments.reportConfirm": "تأكيد الإبلاغ",
 	"comments.errVerify": "فشل التحقق — حاول مرة أخرى.",
-	"comments.postOnWeb": "النشر متاح على openmusic.lol",
 	"nowplaying.reorderTrack": "إعادة ترتيب المسار",
 	"nowplaying.noQueue": "لا يوجد طابور بعد.",
 	"nowplaying.skippedRetry": "تم التخطي — اضغط لإعادة المحاولة",

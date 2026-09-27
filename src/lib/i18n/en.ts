@@ -359,7 +359,6 @@ const en = {
 	"comments.report": "Report",
 	"comments.reportConfirm": "Confirm report",
 	"comments.errVerify": "Verification failed — try again.",
-	"comments.postOnWeb": "Posting is available at openmusic.lol",
 	"nowplaying.reorderTrack": "Reorder track",
 	"nowplaying.noQueue": "No queue yet.",
 	"nowplaying.skippedRetry": "Skipped — tap to retry",

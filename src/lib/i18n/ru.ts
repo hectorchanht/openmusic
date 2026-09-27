@@ -300,7 +300,6 @@ const ru: Dict = {
 	"comments.report": "Пожаловаться",
 	"comments.reportConfirm": "Подтвердить жалобу",
 	"comments.errVerify": "Проверка не пройдена — попробуйте ещё раз.",
-	"comments.postOnWeb": "Публиковать можно на openmusic.lol",
 	"nowplaying.reorderTrack": "Изменить порядок треков",
 	"nowplaying.noQueue": "Очереди пока нет.",
 	"nowplaying.skippedRetry": "Пропущено — нажмите, чтобы повторить",

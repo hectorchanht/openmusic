@@ -300,7 +300,6 @@ const th: Dict = {
 	"comments.report": "รายงาน",
 	"comments.reportConfirm": "ยืนยันการรายงาน",
 	"comments.errVerify": "การยืนยันล้มเหลว — ลองอีกครั้ง",
-	"comments.postOnWeb": "โพสต์ได้ที่ openmusic.lol",
 	"nowplaying.reorderTrack": "เรียงลำดับแทร็กใหม่",
 	"nowplaying.noQueue": "ยังไม่มีคิว",
 	"nowplaying.skippedRetry": "ข้ามแล้ว — แตะเพื่อลองใหม่",

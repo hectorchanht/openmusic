@@ -300,7 +300,6 @@ const fr: Dict = {
 	"comments.report": "Signaler",
 	"comments.reportConfirm": "Confirmer le signalement",
 	"comments.errVerify": "Échec de la vérification — réessayez.",
-	"comments.postOnWeb": "La publication est disponible sur openmusic.lol",
 	"nowplaying.reorderTrack": "Réorganiser la piste",
 	"nowplaying.noQueue": "Pas encore de file d'attente.",
 	"nowplaying.skippedRetry": "Ignorée — appuyez pour réessayer",

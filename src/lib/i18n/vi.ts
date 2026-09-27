@@ -300,7 +300,6 @@ const vi: Dict = {
 	"comments.report": "Báo cáo",
 	"comments.reportConfirm": "Xác nhận báo cáo",
 	"comments.errVerify": "Xác minh thất bại — hãy thử lại.",
-	"comments.postOnWeb": "Có thể đăng bình luận tại openmusic.lol",
 	"nowplaying.reorderTrack": "Sắp xếp lại bản nhạc",
 	"nowplaying.noQueue": "Chưa có hàng đợi.",
 	"nowplaying.skippedRetry": "Đã bỏ qua — chạm để thử lại",
