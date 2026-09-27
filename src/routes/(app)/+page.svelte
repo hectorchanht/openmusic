@@ -1119,11 +1119,11 @@
 
 <header class="topnav">
 	<div class="brand"><Logo size={26} /> openmusic</div>
-	<button class="gear" aria-label={t('home.settings')} onclick={() => goto('/settings')}><Settings size={20} /></button>
+	<button class="gear" aria-label={t('home.settings')} use:tapBounce onclick={() => goto('/settings')}><Settings size={20} /></button>
 </header>
 
 {#if settings.homeShowSearchPill}
-	<button class="searchpill" onclick={() => goto('/search')}>
+	<button class="searchpill" use:tapBounce onclick={() => goto('/search')}>
 		<Search size={16} /> <span>{t('home.searchPill')}</span>
 	</button>
 {/if}
@@ -1133,8 +1133,9 @@
 		<h2>{t('home.topPicks')}</h2>
 		{#if settings.homeShowRandomize}
 			<!-- UI-SPEC §1.7: the chart shelves re-sample locally, so the disabled "Loading…" state is
-			     confined to a visible classic section (the only case that still fetches). -->
-			<button class="more" onclick={() => refresh(true, false, true)} disabled={loading && classicVisible}><RotateCw size={13} /> {loading && classicVisible ? t('home.loadingPicks') : t('home.randomize')}</button>
+			     confined to a visible classic section (the only case that still fetches).
+			     quick-260927-1fx: press bounce + hover dim, like the shelf headings. -->
+			<button class="more" use:tapBounce onclick={() => refresh(true, false, true)} disabled={loading && classicVisible}><RotateCw size={13} /> {loading && classicVisible ? t('home.loadingPicks') : t('home.randomize')}</button>
 		{/if}
 	</div>
 
@@ -1148,7 +1149,7 @@
 			{@render compactSkeletonColumn()}
 		</div>
 	{:else if error}
-		<p class="error">{error} — <button class="retry" onclick={() => refresh(true)}>{t('common.retry')}</button></p>
+		<p class="error">{error} — <button class="retry" use:tapBounce onclick={() => refresh(true)}>{t('common.retry')}</button></p>
 	{:else if useFallback}
 		<!-- D-06 fallback: the random buildDiversePicks grid (real Tracks → tap-to-play). -->
 		<div class="grid">
@@ -1200,9 +1201,11 @@
 
 <!-- D-14: the whole section-title row is one tap target → its destination (chart page /
      library tab / playlist detail). `dest` is built from FIXED in-app paths with any dynamic
-     segment encodeURIComponent-wrapped (T-23-08 — same-origin goto, no open redirect). -->
+     segment encodeURIComponent-wrapped (T-23-08 — same-origin goto, no open redirect).
+     quick-260927-1fx: use:tapBounce with no `only` — the button is a LEAF (label + chevron), so the
+     whole row bouncing moves no other control under the finger (see tapBounce.ts quick-260919-l9e). -->
 {#snippet titleNav(label: string, dest: string)}
-	<button class="subhead-nav" aria-label={`${label}, ${t('home.seeAll')}`} onclick={() => goto(dest)}>
+	<button class="subhead-nav" use:tapBounce aria-label={`${label}, ${t('home.seeAll')}`} onclick={() => goto(dest)}>
 		<span class="subhead-label">{label}</span>
 		<ChevronRight class="subhead-chev" size={18} />
 	</button>
@@ -1664,18 +1667,21 @@
 <style>
 	.topnav { display: flex; align-items: center; justify-content: space-between; padding: 14px 0 10px; }
 	.brand { display: flex; align-items: center; gap: 8px; font-weight: 800; font-size: 1.35rem; }
-	.gear { background: none; border: none; color: var(--color-text); cursor: pointer; width: 38px; height: 38px; display: grid; place-items: center; border-radius: 50%; }
+	.gear { background: none; border: none; color: var(--color-text); cursor: pointer; width: 38px; height: 38px; display: grid; place-items: center; border-radius: 50%; transition: opacity 0.15s ease; }
 	.gear:hover { background: var(--color-surface-2); }
 	.searchpill {
 		width: 100%; text-align: left; background: var(--color-surface-2);
 		border: 1px solid var(--color-border); border-radius: 999px;
 		padding: 11px 16px; color: var(--color-text-muted); font-size: 0.8125rem;
 		display: flex; align-items: center; gap: 8px; cursor: pointer; margin-bottom: 18px;
+		transition: opacity 0.15s ease;
 	}
 	.section .head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 12px; }
 	.section h2 { font-size: calc(1.1rem * var(--fs-title, 1)); margin: 0; }
 	/* D-14: section title is a full-row tap target (title + trailing chevron). Keeps the old
-	   .subhead typography (0.95rem/700); ≥44px touch height; chevron pushed right. */
+	   .subhead typography (0.95rem/700); ≥44px touch height. quick-260927-1fx: the chevron now
+	   trails the title text directly (no margin-left:auto); the button stays full-width, so the tap
+	   target is unchanged, and .subhead-label still ellipsizes a long title with the chevron visible. */
 	/* 39-D-33 superseded by quick-260927-1fx: the static variant is gone. */
 	.subhead-nav {
 		width: 100%;
@@ -1693,10 +1699,15 @@
 		font-size: calc(0.95rem * var(--fs-title, 1));
 		font-weight: 700;
 		cursor: pointer;
+		transition: opacity 0.15s ease;
 	}
 	.subhead-label { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-	.subhead-nav :global(.subhead-chev) { margin-left: auto; flex: none; color: var(--color-text-muted); height: 18px; width: 18px;}
-	@media (hover: hover) { .subhead-nav:hover .subhead-label { color: var(--color-text-muted); } }
+	.subhead-nav :global(.subhead-chev) { flex: none; color: var(--color-text-muted); height: 18px; width: 18px;}
+	/* quick-260927-1fx: hover dim on the whole row (headings, Randomize, Retry, gear, search pill),
+	   behind (hover: hover) so it never latches under a finger on touch (MENU-03 / D-12). */
+	@media (hover: hover) {
+		.subhead-nav:hover, .more:not(:disabled):hover, .retry:hover, .gear:hover, .searchpill:hover { opacity: 0.7; }
+	}
 	/* Compact-row cold-load skeleton (UI-SPEC §2): mirrors the compact pager column shape. */
 	.compact-skel-pager { display: flex; gap: 12px; overflow: hidden; }
 	.compact-skel-col { flex: 0 0 90vw; max-width: 90vw; display: flex; flex-direction: column; gap: 8px; }
@@ -1720,7 +1731,7 @@
 	.more, .retry {
 		background: none; border: 1px solid var(--color-border); color: var(--color-text-muted);
 		padding: 5px 12px; border-radius: 999px; font-size: 0.75rem; cursor: pointer;
-		display: inline-flex; align-items: center; gap: 5px;
+		display: inline-flex; align-items: center; gap: 5px; transition: opacity 0.15s ease;
 	}
 	/* Horizontal scroll row (copied from the artist page .albumrow pattern). */
 	/* quick-260919-et3 (D-8): VERIFIED to need no desktop rule — do not "fix" this. `.album` below
