@@ -112,7 +112,10 @@ export const GET: RequestHandler = async ({ url, request, platform }) => {
 	if (cache) {
 		const hit = await cache.match(cacheReq);
 		// Re-apply CORS for THIS origin (WR-01): the stored copy is CORS-free.
-		if (hit) return jsonResponse(await hit.json(), origin, { ttl: COMMENTS_TTL });
+		// quick-260926-vur: `no-cache` is for the BROWSER cache — it must revalidate (no validator, so a
+		// refetch), or a post -> song change -> return re-serves the pre-post reply for the whole TTL.
+		// The edge TTL lives on the stored copy's own header in the cache.put below.
+		if (hit) return jsonResponse(await hit.json(), origin, { cacheControl: 'no-cache' });
 	}
 
 	const obj = await bucket.get(threadObjectKey(k));
@@ -127,7 +130,7 @@ export const GET: RequestHandler = async ({ url, request, platform }) => {
 			})
 		);
 	}
-	return jsonResponse(body, origin, { ttl: COMMENTS_TTL });
+	return jsonResponse(body, origin, { cacheControl: 'no-cache' });
 };
 
 // ponytail: residual risks, accepted for the MVP. Turnstile stops scripted posting, not human
@@ -229,7 +232,7 @@ export const POST: RequestHandler = async (event) => {
 		return jsonResponse({ ok: false, err: 'conflict' }, origin, { status: 409 });
 	}
 	await bustGet(url, body.k);
-	// No ttl: a write reply is never cacheable.
+	// No cache options: a write reply is never cacheable.
 	return jsonResponse({ ok: true, items: publicItems(next) }, origin);
 };
 
