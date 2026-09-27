@@ -4,7 +4,7 @@
 	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import { Heart, ListMusic, Download, Trash2, Play, Clock, Pencil, Check, Users, ListEnd, ListStart, Shuffle, Ellipsis, X } from '@lucide/svelte';
+	import { Heart, ListMusic, Download, Trash2, Play, Clock, Pencil, Check, Users, ListEnd, ListStart, Shuffle, Ellipsis, X, Radio } from '@lucide/svelte';
 	import { library } from '$lib/stores/library.svelte';
 	import { history } from '$lib/stores/history.svelte';
 	import { player } from '$lib/stores/player.svelte';
@@ -21,6 +21,7 @@
 	import { tick as hapticTick } from '$lib/util/haptics';
 	import SongRow from '$lib/components/SongRow.svelte';
 	import TrackMenu from '$lib/components/TrackMenu.svelte';
+	import RadioList from '$lib/components/RadioList.svelte';
 	import type { Track } from '$lib/sources/types';
 	import type { QueueContext } from '$lib/config/defaults';
 	// quick-260919-2jo: the shared tab-URL mechanism. This page READ `?tab=` (D-13) but never
@@ -37,7 +38,8 @@
 	// rows only — fav-artist tiles and playlist FOLDER rows are not tracks and render no SongRow.
 
 	// quick-260919-oc6: the allowlist and its default now live in $lib/services/library-tabs (the
-	// desktop rail needs the same two to decide which of its five library entries is lit). The
+	// desktop rail needs the same two to decide which of its six library entries is lit —
+	// quick-260927-2cy added radio). The
 	// local names are kept so the ~20 `tab === …` / `VALID_TABS.has` sites below are untouched.
 	type Tab = LibraryTab;
 	const VALID_TABS = LIBRARY_TAB_SET;
@@ -165,7 +167,8 @@
 			writeTabUrl(tab);
 		});
 	});
-	// kyf-followup: active-tab label, so the pill row can shrink to icon-only and fit all 5 tabs.
+	// kyf-followup: active-tab label, so the pill row can shrink to icon-only and fit all 6 tabs
+	// (quick-260927-2cy: radio is the sixth).
 	// quick-260915-vb9: this IS the page heading now — the bottom nav already says "Library", so
 	// repeating it above the tab name was the same word twice on a phone-width screen.
 	const tabLabel = $derived<string>(
@@ -173,6 +176,7 @@
 			: tab === 'playlists' ? t('library.playlists')
 			: tab === 'downloads' ? t('library.downloads')
 			: tab === 'fav-artists' ? t('library.favArtists')
+			: tab === 'radio' ? t('settings.homeSectionRadio')
 			: t('history.heading')
 	);
 
@@ -263,6 +267,10 @@
 			: tab === 'downloads' ? library.downloads
 			: tab === 'history' ? (history.entries as Track[])
 			: tab === 'playlists' ? (detailPlaylist?.tracks ?? [])
+			// quick-260927-2cy: radio is deliberately [] (no Play-all/Shuffle/queue actions and, via
+			// listMenuHasItems, no ⋯/Clear) — its rows are lazy name stubs that must only play
+			// through playStub, never playList → player.play (quick-260924-pgu: a raw stub play
+			// writes a synthetic `similar-` uid into history).
 			: []
 	);
 	/** The ⋯ button hides entirely when every row of its sheet would be hidden. */
@@ -363,7 +371,7 @@
 	<h1>{tabLabel}</h1>
 </header>
 
-<!-- kyf-followup: icon-only pills (text moved to the header sub-label) so all 5 tabs
+<!-- kyf-followup: icon-only pills (text moved to the header sub-label) so all 6 tabs
      fit in a single row at any reasonable viewport width. aria-label preserves the
      accessible name for screen readers + tooltips. -->
 <nav class="tabs">
@@ -372,6 +380,7 @@
 	<button class:active={tab === 'downloads'} aria-pressed={tab === 'downloads'} aria-current={tab === 'downloads' ? 'page' : undefined} aria-label={t('library.downloads')} title={t('library.downloads')} onclick={() => setTab('downloads')} use:tapBounce><Download size={16} /></button>
 	<button class:active={tab === 'fav-artists'} aria-pressed={tab === 'fav-artists'} aria-current={tab === 'fav-artists' ? 'page' : undefined} aria-label={t('library.favArtists')} title={t('library.favArtists')} onclick={() => setTab('fav-artists')} use:tapBounce><Users size={16} /></button>
 	<button class:active={tab === 'history'} aria-pressed={tab === 'history'} aria-current={tab === 'history' ? 'page' : undefined} aria-label={t('history.heading')} title={t('history.heading')} onclick={() => setTab('history')} use:tapBounce><Clock size={16} /></button>
+	<button class:active={tab === 'radio'} aria-pressed={tab === 'radio'} aria-current={tab === 'radio' ? 'page' : undefined} aria-label={t('settings.homeSectionRadio')} title={t('settings.homeSectionRadio')} onclick={() => setTab('radio')} use:tapBounce><Radio size={16} /></button>
 </nav>
 
 <!-- quick-260915-vb9: per-tab action row. Every button is conditional — a tab with nothing to
@@ -499,6 +508,9 @@
 			{/each}
 		</div>
 	{:else}<p class="empty"><Users size={28} /><span>{t('library.noFavArtists')}</span></p>{/if}
+{:else if tab === 'radio'}
+	<!-- quick-260927-2cy: this branch MUST sit before the final else — that else IS History. -->
+	<RadioList onrequestmenu={openMenu} />
 {:else}
 	{#if history.entries.length}
 		<ul class="list">

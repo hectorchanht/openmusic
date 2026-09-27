@@ -1,6 +1,13 @@
 <script lang="ts">
+	// quick-260927-2cy: this component IS the Library's "Your Radio" tab, mounted under
+	// /library?tab=radio only — the one-day-old /radio route was folded in so the desktop rail's
+	// one-entry-per-tab model lights it. Mounting is what makes the build lazy: a Library visit to
+	// any other tab never fetches. Every upstream call is memoised 6 h and quick-260926-lw8's
+	// session seed replays the same draw, so re-mounting on a tab flip costs zero requests.
+	// The host page owns the ONE track menu (its overlay id "trackmenu-menu" is fixed), so a row's menu
+	// request goes up through `onrequestmenu`.
 	import { onMount } from 'svelte';
-	import { ListEnd, ListStart } from '@lucide/svelte';
+	import { ListEnd, ListStart, Radio } from '@lucide/svelte';
 	import { buildRadio } from '$lib/services/radio';
 	import { clampShelfSize } from '$lib/services/home-layout';
 	import { resolveStub } from '$lib/services/discovery';
@@ -9,10 +16,10 @@
 	import { history as playHistory } from '$lib/stores/history.svelte';
 	import { toast } from '$lib/stores/toast.svelte';
 	import { t } from '$lib/i18n';
-	import PageHeader from '$lib/components/PageHeader.svelte';
 	import SongRow from '$lib/components/SongRow.svelte';
-	import TrackMenu from '$lib/components/TrackMenu.svelte';
 	import type { Track } from '$lib/sources/types';
+
+	let { onrequestmenu }: { onrequestmenu: (t: Track) => void } = $props();
 
 	let tracks = $state<Track[]>([]);
 
@@ -25,9 +32,11 @@
 	}
 
 	// quick-260927-1fx: same cap as the home shelf, and quick-260926-lw8's session seed replays the
-	// same draw, so this page IS the "Your Radio" shelf in full rows; every upstream call is memoised
-	// 6 h, so the SPA nav from the shelf title costs zero requests. Empty history → [] → nothing under
-	// the header (the home shelf hides itself the same way; reaching /radio with no history is URL-only).
+	// same draw, so this list IS the "Your Radio" shelf in full rows; every upstream call is memoised
+	// 6 h, so the SPA nav from the shelf title costs zero requests. Empty history → [] → the
+	// history.empty message (quick-260927-2cy: radio is seeded from history, so that is the true cause).
+	// Both loads stay: no layout loads history, and this child's onMount fires BEFORE the library
+	// page's own history.load(), so a cold /library?tab=radio would otherwise see no entries.
 	onMount(() => {
 		settings.load(); // both idempotent — the home does the same
 		playHistory.load();
@@ -54,12 +63,7 @@
 		}
 		player.setListQueue(tracks, 'home-discovery');
 	}
-
-	let menuTrack = $state<Track | null>(null);
-	let menuOpen = $state(false);
 </script>
-
-<PageHeader title={t('settings.homeSectionRadio')} backLabel={t('common.back')} />
 
 {#snippet skeletonRows(count: number, label: string)}
 	<li class="skel-wrap" aria-label={label}>
@@ -78,7 +82,7 @@
 
 {#if showSkeleton}
 	<ul class="list">{@render skeletonRows(12, t('settings.homeSectionRadio'))}</ul>
-{:else if tracks.length > 0}
+{:else if tracks.length}
 	<ul class="list">
 		{#each tracks as tr (tr.uid)}
 			<!-- `resolve` is the album-tracklist seam (quick-260919-l9e): a nameStub's uid is truthy
@@ -92,18 +96,12 @@
 					track={tr}
 					resolve={() => resolveStub(tr.artist, tr.title).catch(() => null)}
 					onplay={() => play(tr)}
-					onrequestmenu={() => {
-						menuTrack = tr;
-						menuOpen = true;
-					}}
+					onrequestmenu={() => onrequestmenu(tr)}
 				/>
 			</li>
 		{/each}
 	</ul>
-{/if}
-
-<!-- TrackMenu resolves `resolveByName` stubs itself (same as the home's radio tiles). -->
-<TrackMenu track={menuTrack} open={menuOpen} onclose={() => (menuOpen = false)} />
+{:else}<p class="empty"><Radio size={28} /><span>{t('history.empty')}</span></p>{/if}
 
 <style>
 	.list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
@@ -122,6 +120,7 @@
 	}
 	.art { width: 48px; height: 48px; border-radius: 8px; background-size: cover; background-position: center; flex: none; }
 	.meta { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+	.empty { display: flex; flex-direction: column; align-items: center; gap: 10px; color: var(--color-text-muted); padding: 48px 16px; text-align: center; font-size: 0.875rem; }
 	.skel-wrap { display: flex; flex-direction: column; gap: 6px; list-style: none; }
 	.skel { pointer-events: none; background: none; }
 	.skel .art { background: rgba(255, 255, 255, 0.11); }
