@@ -151,11 +151,12 @@ describe('GET /api/comments — public', () => {
 		expect(b.status).toBe(503);
 	});
 
-	it('no object → cacheable {ok, items:[]}, read from exactly comments/<k>.json', async () => {
+	it('no object → {ok, items:[]} (edge copy cacheable, client reply no-cache), read from exactly comments/<k>.json', async () => {
 		const bucket = fakeBucket();
 		const res = await callGET(fakeEvent('GET', { search: { k: K }, env: env(bucket) }));
 		expect(res.status).toBe(200);
-		expect(res.headers.get('Cache-Control')).toBe('public, max-age=60');
+		// quick-260926-vur: the BROWSER must not reuse a pre-post thread; the edge TTL lives on the put.
+		expect(res.headers.get('Cache-Control')).toBe('no-cache');
 		expect(await res.json()).toEqual({ ok: true, items: [] });
 		expect(bucket.get).toHaveBeenCalledTimes(1);
 		expect(bucket.get).toHaveBeenCalledWith(OBJ_KEY);
@@ -179,6 +180,7 @@ describe('GET /api/comments — public', () => {
 		const res = await callGET(fakeEvent('GET', { search: { k: K }, env: env(bucket) }));
 		expect(res.status).toBe(200);
 		expect(res.headers.get('Access-Control-Allow-Origin')).toBe('https://openmusic.lol');
+		expect(res.headers.get('Cache-Control')).toBe('no-cache');
 		expect(bucket.get).not.toHaveBeenCalled();
 	});
 
@@ -187,6 +189,8 @@ describe('GET /api/comments — public', () => {
 		await callGET(fakeEvent('GET', { search: { k: K }, env: env(fakeBucket()) }));
 		expect(cache.put).toHaveBeenCalledTimes(1);
 		expect(cache.put.mock.calls[0][0].url).toBe(`https://openmusic.lol/api/comments?k=${K}`);
+		// The stored edge copy keeps its TTL (T-vur-01: R2 read volume unchanged).
+		expect(cache.put.mock.calls[0][1].headers.get('Cache-Control')).toBe('public, max-age=60');
 	});
 });
 

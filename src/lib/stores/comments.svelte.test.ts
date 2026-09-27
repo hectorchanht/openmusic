@@ -89,6 +89,28 @@ describe('comments store', () => {
 		expect(comments.badge).toBe('2');
 	});
 
+	// quick-260926-vur: post -> song change -> return must show the new comment. The store re-fetches
+	// on the way back (the uid dedupe resets on a change); what used to serve the pre-post thread was
+	// the BROWSER HTTP cache honouring the GET's max-age, fixed server-side with `no-cache`.
+	it('a posted comment is refetched after a song change and back', async () => {
+		let thread = [item('a')];
+		const fetchMock = vi.fn(async (..._a: unknown[]) => json({ ok: true, items: thread }));
+		vi.stubGlobal('fetch', fetchMock);
+		comments.load(A);
+		await vi.waitFor(() => expect(comments.loading).toBe(false));
+		expect(comments.items.map((i) => i.id)).toEqual(['a']);
+		thread = [item('new'), item('a')]; // the server now holds the post
+		comments.replace(thread); // the post reply
+		expect(comments.items.map((i) => i.id)).toEqual(['new', 'a']);
+		comments.load(B);
+		await vi.waitFor(() => expect(comments.loading).toBe(false));
+		comments.load(A);
+		await vi.waitFor(() => expect(comments.loading).toBe(false));
+		expect(gets(fetchMock)).toHaveLength(3); // A, B, A
+		expect(comments.uid).toBe(A.uid);
+		expect(comments.items.map((i) => i.id)).toEqual(['new', 'a']);
+	});
+
 	it('report hides locally, drops the count and POSTs the report', async () => {
 		const fetchMock = vi.fn(async (..._a: unknown[]) => json({ ok: true, items: [item('a'), item('b')] }));
 		vi.stubGlobal('fetch', fetchMock);

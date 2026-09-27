@@ -127,11 +127,12 @@ describe('GET /api/lyric-offset', () => {
 		expect(b.status).toBe(503);
 	});
 
-	it('no object → cacheable {ok, offset:null, n:0}, read from exactly lyric-offset/<k>.json', async () => {
+	it('no object → {ok, offset:null, n:0} (edge copy cacheable, client reply no-cache), read from exactly lyric-offset/<k>.json', async () => {
 		const bucket = fakeBucket();
 		const res = await callGET(fakeEvent('GET', { search: { k: K }, env: env(bucket) }));
 		expect(res.status).toBe(200);
-		expect(res.headers.get('Cache-Control')).toBe('public, max-age=300');
+		// quick-260926-vur: the BROWSER must revalidate; the edge TTL lives on the stored copy.
+		expect(res.headers.get('Cache-Control')).toBe('no-cache');
 		expect(await res.json()).toEqual({ ok: true, offset: null, n: 0 });
 		expect(bucket.get).toHaveBeenCalledTimes(1);
 		expect(bucket.get).toHaveBeenCalledWith(OBJ_KEY);
@@ -155,6 +156,7 @@ describe('GET /api/lyric-offset', () => {
 		expect(res.status).toBe(200);
 		expect(await res.json()).toEqual({ ok: true, offset: 3, n: 4 });
 		expect(res.headers.get('Access-Control-Allow-Origin')).toBe('https://openmusic.lol');
+		expect(res.headers.get('Cache-Control')).toBe('no-cache');
 		expect(bucket.get).not.toHaveBeenCalled();
 	});
 
@@ -163,8 +165,10 @@ describe('GET /api/lyric-offset', () => {
 		const bucket = fakeBucket();
 		await callGET(fakeEvent('GET', { search: { k: K }, env: env(bucket) }));
 		expect(cache.put).toHaveBeenCalledTimes(1);
-		const [req] = cache.put.mock.calls[0];
+		const [req, stored] = cache.put.mock.calls[0];
 		expect(req.url).toBe(`https://openmusic.lol/api/lyric-offset?k=${K}`);
+		// The stored edge copy keeps its TTL (T-vur-01: R2 read volume unchanged).
+		expect(stored.headers.get('Cache-Control')).toBe('public, max-age=300');
 	});
 });
 
