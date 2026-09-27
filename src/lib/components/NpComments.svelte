@@ -29,7 +29,7 @@
 
 	// quick-260926-ot5: native posts through a Turnstile BRIDGE. The Capacitor WebView's origin is
 	// https://localhost, which the production hostname allowlist (openmusic.lol) rejects, so the app
-	// frames https://openmusic.lol/turnstile-bridge.html: the widget renders on the real hostname,
+	// frames https://openmusic.lol/turnstile-bridge: the widget renders on the real hostname,
 	// siteverify reports openmusic.lol, and the token comes back over postMessage gated on origin +
 	// source. Rejected: localhost in the prod allowlist (anyone could farm tokens from a local page),
 	// and a real Capacitor server.hostname (new WebView origin = every user's localStorage/IndexedDB

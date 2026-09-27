@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { BRIDGE_PATH, BRIDGE_MSG, bridgeOrigin, parseBridgeMessage } from '$lib/services/turnstile-bridge';
+import { BRIDGE_PAGE_HTML, BRIDGE_ACTION } from '$lib/proxy/turnstile-bridge-page';
+import { GET } from '../../routes/turnstile-bridge/+server';
 import { TURNSTILE_SITEKEY } from '$lib/services/turnstile-widget';
 // Test-only import: the client parser hard-codes the cap so no proxy code enters the bundle.
 import { TOKEN_MAX } from '$lib/proxy/comments';
@@ -46,24 +48,26 @@ describe('bridgeOrigin', () => {
 		expect(bridgeOrigin('not a url')).toBeNull();
 	});
 
-	it('BRIDGE_PATH is the static bridge page', () => {
-		expect(BRIDGE_PATH).toBe('/turnstile-bridge.html');
+	it('BRIDGE_PATH is the bridge route (not a .html — Pages 308s those to a 404)', () => {
+		expect(BRIDGE_PATH).toBe('/turnstile-bridge');
 	});
 });
 
-// Drift guard: the standalone html cannot import, so its constants are pinned here.
-describe('bridge page drift guard', () => {
-	const html = readFileSync('static/turnstile-bridge.html', 'utf-8');
+// quick-260926-ot5: the bridge is served by src/routes/turnstile-bridge/+server.ts from a page built
+// out of the app's own constants; these pin what the page and its headers must contain.
+describe('bridge page + route', () => {
+	const html = BRIDGE_PAGE_HTML;
 
 	it('uses the app sitekey and the server action', () => {
 		expect(html).toContain(TURNSTILE_SITEKEY);
-		expect(html).toMatch(/action['"]?\s*:\s*['"]comment['"]/);
+		expect(BRIDGE_ACTION).toBe('comment');
+		expect(html).toContain(`action: "comment"`);
 		expect(html).toContain('render=explicit');
 	});
 
 	it('allowlists both WebView origins and speaks every protocol message', () => {
-		expect(html).toContain('https://localhost');
-		expect(html).toContain('capacitor://localhost');
+		expect(html).toContain('"https://localhost"');
+		expect(html).toContain('"capacitor://localhost"');
 		for (const v of Object.values(BRIDGE_MSG)) expect(html).toContain(v);
 	});
 
@@ -72,11 +76,14 @@ describe('bridge page drift guard', () => {
 		expect(html).not.toContain('"*"');
 	});
 
-	it('_headers restricts framing of the bridge to the WebView origins', () => {
-		const headers = readFileSync('_headers', 'utf-8');
-		expect(headers).toMatch(
-			/^\/turnstile-bridge\.html\n(?:[ \t]+.*\n)*?[ \t]+Content-Security-Policy:\s*frame-ancestors https:\/\/localhost capacitor:\/\/localhost/m
-		);
+	it('GET /turnstile-bridge serves the page with frame-ancestors limited to the WebView origins', async () => {
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const res = await GET({} as any);
+		expect(res.status).toBe(200);
+		expect(res.headers.get('content-type')).toContain('text/html');
+		expect(res.headers.get('Content-Security-Policy')).toBe('frame-ancestors https://localhost capacitor://localhost');
+		expect(res.headers.get('X-Robots-Tag')).toBe('noindex');
+		expect(await res.text()).toBe(BRIDGE_PAGE_HTML);
 	});
 });
 
