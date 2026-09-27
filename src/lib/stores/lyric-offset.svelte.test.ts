@@ -13,7 +13,11 @@ import {
 	scheduleLyricOffsetVote,
 	resetLyricOffset,
 	VOTE_DEBOUNCE_MS,
-	__resetSharedLyricOffsets
+	__resetSharedLyricOffsets,
+	lyricSyncOpen,
+	setLyricSyncOpen,
+	toggleLyricSyncOpen,
+	lyricSyncRequest
 } from './lyric-offset.svelte';
 
 // quick-260926-mis — the per-uid lyric timing offset store, over a MemStorage stub (node, no jsdom).
@@ -273,5 +277,60 @@ describe('lyric-offset store (quick-260926-mis)', () => {
 		resetLyricOffset('qq:none');
 		expect(lyricOffsetVersion()).toBe(before);
 		expect(JSON.parse(store.getItem(KEY) as string)).toEqual({ [UID]: 0 });
+	});
+
+	// Nested so it reuses the MemStorage beforeEach. The flag is module state shared across tests, so
+	// the request counter is always read RELATIVELY (r before, r / r + 1 after), never absolutely.
+	describe('lyric timing row flag (quick-260926-qat)', () => {
+		it('closed after setLyricSyncOpen(false); the request counter is a number', () => {
+			setLyricSyncOpen(false);
+			expect(lyricSyncOpen()).toBe(false);
+			expect(typeof lyricSyncRequest()).toBe('number');
+		});
+
+		it('toggle from closed opens and bumps the request counter by exactly 1', () => {
+			setLyricSyncOpen(false);
+			const r = lyricSyncRequest();
+			toggleLyricSyncOpen();
+			expect(lyricSyncOpen()).toBe(true);
+			expect(lyricSyncRequest()).toBe(r + 1);
+		});
+
+		it('toggle from open closes and never requests a tab switch', () => {
+			setLyricSyncOpen(true);
+			const r = lyricSyncRequest();
+			toggleLyricSyncOpen();
+			expect(lyricSyncOpen()).toBe(false);
+			expect(lyricSyncRequest()).toBe(r);
+		});
+
+		it('every open request bumps the counter even when already open; a redundant close does not', () => {
+			setLyricSyncOpen(true);
+			let r = lyricSyncRequest();
+			setLyricSyncOpen(true);
+			expect(lyricSyncOpen()).toBe(true);
+			expect(lyricSyncRequest()).toBe(r + 1);
+			setLyricSyncOpen(false);
+			r = lyricSyncRequest();
+			setLyricSyncOpen(false);
+			expect(lyricSyncOpen()).toBe(false);
+			expect(lyricSyncRequest()).toBe(r);
+		});
+
+		it('never touches localStorage', () => {
+			const spy = vi.spyOn(store, 'setItem');
+			toggleLyricSyncOpen();
+			toggleLyricSyncOpen();
+			setLyricSyncOpen(true);
+			setLyricSyncOpen(false);
+			expect(spy).not.toHaveBeenCalled();
+			expect(store.getItem(KEY)).toBeNull();
+		});
+
+		it('offsets are independent of the flag', () => {
+			setLyricOffset(UID, 2);
+			setLyricSyncOpen(false);
+			expect(getEffectiveLyricOffset(UID)).toBe(2);
+		});
 	});
 });
