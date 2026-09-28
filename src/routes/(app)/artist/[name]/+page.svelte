@@ -532,8 +532,8 @@
 		<h2 class="albums-head">
 			<a class="" href={names.artistHref(name) + '/albums'}>
 				{t('artist.albums')}
-				<ChevronRight size={18}/>
 				<span class="count">{shelfAlbums.length}</span>
+				<ChevronRight size={18}/>
 			</a>
 			<!-- quick-260831-qkx: the shelf is albums+EPs only; the full discography (every record
 			     type, filterable) lives on its own page so nothing is hidden, just de-noised. -->
@@ -585,7 +585,7 @@
 					<li>
 						<SongRow
 							{track}
-							index={i}
+							// index={i}
 							onplay={() => { player.setListQueue(songs, 'artist'); player.play(track, { fresh: true }); }}
 							onrequestmenu={() => { menuTrack = track; menuOpen = true; }}
 						/>
@@ -686,7 +686,7 @@
 	.al-name { font-size: calc(0.75rem * var(--fs-title, 1)); font-weight: 600; color: var(--color-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 	.al-name.center { text-align: center; }
 	.al-count { font-size: calc(0.6875rem * var(--fs-artist, 1)); color: var(--color-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-	.count { color: var(--color-text-muted); font-size: 0.75rem; font-weight: 400; padding: 1px 6px; border-radius: 999px; background: var(--color-surface); color: var(--color-text-muted); font-size: 0.6875rem; }
+	.count { color: var(--color-text-muted); font-size: 0.75rem; font-weight: 400; padding: 1px 4px; margin-left: 8px; border-radius: 999px; background: var(--color-surface); color: var(--color-text-muted); font-size: 0.6875rem; }
 	/* Marquee animation lives globally in app.css (transform-based .marquee-inner). The
 	   .al-name / .al-count clips above + the use:marquee action + inner .marquee-inner span
 	   in the markup are the only per-file pieces — the global rule animates them. */
