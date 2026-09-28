@@ -1419,7 +1419,7 @@
 	.times { display: flex; justify-content: space-between; font-size: 0.6875rem; color: var(--color-text-muted); margin-top: 4px; font-variant-numeric: tabular-nums; }
 	/* quick-260910-tqw: the bottom margin glides with the .cover/.meta reflow (byte-identical
 	   0.32s curve) instead of hitching at t=0; see .np.reflow .transport above. */
-	.transport { display: flex; align-items: center; justify-content: space-between; margin: 0px 8px 0; transition: margin 0.32s cubic-bezier(.22,1,.36,1); }
+	.transport { display: flex; align-items: center; justify-content: space-between; margin: 0px 4px 0; transition: margin 0.32s cubic-bezier(.22,1,.36,1); }
 	.t { background: none; border: none; color: var(--color-text); cursor: pointer; opacity: 0.85; display: grid; place-items: center; }
 	.t.on { color: var(--color-primary); opacity: 1; }
 	/* quick-260919-0mw: size the shared DownloadControl to its five `.t` siblings — it ships a 40×40
