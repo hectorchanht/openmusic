@@ -524,15 +524,8 @@
 		}
 	}
 	.opt {
-		position: relative;
-		flex: none;
-		width: 44px;
-		height: 44px;
-		display: grid;
-		place-items: center;
 		background: none;
 		border: none;
-		border-radius: var(--radius-full);
 		color: var(--color-text-muted);
 		cursor: pointer;
 	}
