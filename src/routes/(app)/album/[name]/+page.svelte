@@ -634,17 +634,16 @@
 	{/if}
 	<h1>{names.dnTitle(name)}</h1>
 	{#if albumArtist}<p class="artist">{names.dnArtist(albumArtist)}</p>{/if}
-	<p class="note">{t('album.tracklistNote', { count: tracks.length })}</p>
 
 	<!-- Last.fm album info (D-01c). Rendered only when present; degrades silently. -->
-	{#if enrichLoading}
+	<!-- {#if enrichLoading}
 		<p class="info" aria-hidden="true"><span class="sk sk-info"></span></p>
 	{:else if enrich?.listeners != null || enrich?.playcount != null}
 		<p class="info">
 			{#if enrich?.listeners != null}<span>{t('lastfm.listeners')}: {numFmt.format(enrich.listeners)}</span>{/if}
 			{#if enrich?.playcount != null}<span>{t('lastfm.playcount')}: {numFmt.format(enrich.playcount)}</span>{/if}
 		</p>
-	{/if}
+	{/if} -->
 
 	<!-- Deezer album info (ENRICH-04, D-14): release date / label / genres / track count /
 	     duration / fans, beside the Last.fm enrichment. Shape-matched skeleton while resolving
@@ -656,12 +655,12 @@
 		</div>
 	{:else if merged.releaseDate || merged.label || merged.genres.length || merged.tracks != null || merged.duration != null || merged.deezerFans != null}
 		<div class="dzinfo">
-			{#if merged.releaseDate}<span class="dzrow"><b>{t('deezer.released')}</b> {merged.releaseDate}</span>{/if}
-			{#if merged.label}<span class="dzrow label"><b>{t('deezer.label')}</b> <span class="lbl" use:marquee><span class="marquee-inner">{merged.label}</span></span></span>{/if}
-			{#if merged.genres.length}<span class="dzrow"><b>{t('deezer.genres')}</b> {merged.genres.join(', ')}</span>{/if}
 			{#if merged.tracks != null}<span class="dzrow"><b>{t('deezer.tracks')}</b> {merged.tracks}</span>{/if}
+			{#if merged.releaseDate}<span class="dzrow"><b>{t('deezer.released')}</b> {merged.releaseDate}</span>{/if}
+			{#if merged.genres.length}<span class="dzrow"><b>{t('deezer.genres')}</b> {merged.genres.join(', ')}</span>{/if}
 			{#if merged.duration != null}<span class="dzrow"><b>{t('deezer.duration')}</b> {fmtDuration(merged.duration)}</span>{/if}
-			{#if merged.deezerFans != null}<span class="dzrow"><b>{t('deezer.fans')}</b> {numFmt.format(merged.deezerFans)}</span>{/if}
+			{#if merged.label}<span class="dzrow label"><b>{t('deezer.label')}</b> <span class="lbl" use:marquee><span class="marquee-inner">{merged.label}</span></span></span>{/if}
+			<!-- {#if merged.deezerFans != null}<span class="dzrow"><b>{t('deezer.fans')}</b> {numFmt.format(merged.deezerFans)}</span>{/if} -->
 		</div>
 	{/if}
 </div>
@@ -692,13 +691,13 @@
 	     clicked button greys out while its action runs — other buttons stay live. Heart
 	     fill state reflects albumLiked (derived from resolvedCache + library.liked). -->
 	<div class="album-actions">
-		<button class="act" aria-label={t('menu.download')} disabled={busyAction === 'download'} onclick={downloadAlbum} use:tapBounce><Download size={20} /></button>
+		<!-- <button class="act" aria-label={t('menu.download')} disabled={busyAction === 'download'} onclick={downloadAlbum} use:tapBounce><Download size={20} /></button> -->
+		<button class="act" aria-label={albumLiked ? t('menu.liked') : t('menu.like')} disabled={busyAction === 'like'} onclick={likeAlbum} use:tapBounce><Heart size={20} fill={albumLiked ? 'currentColor' : 'none'} /></button>
 		<button class="act" aria-label={t('menu.addToPlaylist')} disabled={busyAction === 'addToPlaylist'} onclick={() => (pickerOpen = true)} use:tapBounce><ListPlus size={20} /></button>
 		<button class="act play" aria-label={t('nowplaying.playPause')} disabled={busyAction === 'play'} onclick={playAlbum} use:tapBounce><Play size={20} /></button>
 			<!-- quick-260919-alb: append the whole album to the end of the queue. ListEnd is the same icon
 			     the row swipe-right (add-to-queue) reveal uses, so the two surfaces read as one action. -->
 			<button class="act" aria-label={t('menu.addToQueue')} onclick={queueAlbum} use:tapBounce><ListEnd size={20} /></button>
-		<button class="act" aria-label={albumLiked ? t('menu.liked') : t('menu.like')} disabled={busyAction === 'like'} onclick={likeAlbum} use:tapBounce><Heart size={20} fill={albumLiked ? 'currentColor' : 'none'} /></button>
 		<button class="act" aria-label={t('menu.share')} disabled={busyAction === 'share'} onclick={shareAlbum} use:tapBounce><Share2 size={20} /></button>
 	</div>
 	<ul class="list">
@@ -769,14 +768,14 @@
 <style>
 	/* `position: relative` went with the absolutely-positioned .back (quick-260919-hdr) — the
 	   chevron is in-flow above the hero now, like every other page. */
-	.hero { padding: 14px 0 18px; text-align: center; }
-	.cover { width: 160px; height: 160px; border-radius: 12px; margin: 8px auto 12px; background-size: cover; background-position: center; box-shadow: 0 12px 34px rgba(0,0,0,0.5); }
+	.hero { padding: 0 0 12px; text-align: center; }
+	.cover { width: 160px; height: 160px; border-radius: 12px; margin: 4px auto; background-size: cover; background-position: center; box-shadow: 0 12px 34px rgba(0,0,0,0.5); }
 	.hero h1 { font-size: calc(1.5rem * var(--fs-title, 1)); margin: 0; }
 	.artist { color: var(--color-text); font-size: calc(0.875rem * var(--fs-artist, 1)); margin: 4px 0 0; opacity: 0.85; }
 	.note { color: var(--color-text-muted); font-size: 0.75rem; margin-top: 4px; }
 	.info { color: var(--color-text-muted); font-size: 0.75rem; margin-top: 6px; display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
 	/* Deezer album info (ENRICH-04) — release/label/genres/tracks/duration/fans rows. */
-	.dzinfo { color: var(--color-text-muted); font-size: 0.75rem; margin-top: 8px; display: flex; gap: 6px 16px; justify-content: center; flex-wrap: wrap; max-width: 520px; margin-left: auto; margin-right: auto; }
+	.dzinfo { color: var(--color-text-muted); font-size: 0.75rem; margin-top: 8px; display: flex; gap: 6px 16px; justify-content: center; flex-wrap: wrap; }
 	.dzrow { display: inline-flex; align-items: baseline; gap: 5px; min-width: 0; }
 	.dzrow b { color: var(--color-text); font-weight: 600; }
 	.dzrow.label { max-width: 220px; }

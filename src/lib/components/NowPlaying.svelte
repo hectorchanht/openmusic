@@ -1419,7 +1419,7 @@
 	.times { display: flex; justify-content: space-between; font-size: 0.6875rem; color: var(--color-text-muted); margin-top: 4px; font-variant-numeric: tabular-nums; }
 	/* quick-260910-tqw: the bottom margin glides with the .cover/.meta reflow (byte-identical
 	   0.32s curve) instead of hitching at t=0; see .np.reflow .transport above. */
-	.transport { display: flex; align-items: center; justify-content: space-between; margin: 10px 4px 0; transition: margin 0.32s cubic-bezier(.22,1,.36,1); }
+	.transport { display: flex; align-items: center; justify-content: space-between; margin: 0px 8px 0; transition: margin 0.32s cubic-bezier(.22,1,.36,1); }
 	.t { background: none; border: none; color: var(--color-text); cursor: pointer; opacity: 0.85; display: grid; place-items: center; }
 	.t.on { color: var(--color-primary); opacity: 1; }
 	/* quick-260919-0mw: size the shared DownloadControl to its five `.t` siblings — it ships a 40×40
@@ -1442,7 +1442,7 @@
     inset: 0;
     z-index: 5;
     background: var(--color-bg);
-    padding: 4px 0px env(safe-area-inset-bottom);
+    padding: -8px 0px env(safe-area-inset-bottom);
 		/* margin-top: 68px; */
 	}
 
@@ -1474,7 +1474,7 @@
 	}
 	.grip { display: flex; justify-content: center; padding: 0px; cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; }
 	.grip:active { cursor: grabbing; }
-	.handle { width: 44px; height: 5px; border-radius: 999px; background: var(--color-text-muted); opacity: 0.6; margin-top: 15px; }
+	.handle { width: 44px; height: 5px; border-radius: 999px; background: var(--color-text-muted); opacity: 0.6; margin-top: 8px; }
 	.subnav { display: flex; justify-content: space-around; padding-bottom: 6px; touch-action: none; user-select: none; -webkit-user-select: none; }
 	.subnav button { position: relative; display: inline-flex; align-items: center; justify-content: center; background: none; border: none; color: var(--color-text-muted); font-size: 0.8125rem; min-height: 40px; padding: 8px 12px; cursor: pointer; border-bottom: 2px solid transparent; }
 	.subnav button.active { color: var(--color-text); border-bottom-color: var(--color-primary); }

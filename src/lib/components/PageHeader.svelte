@@ -79,7 +79,7 @@
 		     strict `>`), so the short titles are unaffected. -->
 		<div class="titles">
 			<h1 use:marquee><span class="marquee-inner">{title}</span></h1>
-			{#if subtitle}<p class="sub">{subtitle}</p>{/if}
+			{#if subtitle}<span class="sub">{subtitle}</span>{/if}
 		</div>
 	{/if}
 	{#if trailing}{@render trailing()}{/if}
@@ -99,6 +99,10 @@
 	.titles {
 		flex: 1;
 		min-width: 0;
+		flex-direction: row;
+		display: flex;
+		align-items: center;
+		gap: 8px;
 	}
 	/* min-width:0 + overflow:hidden so use:marquee measures a REAL overflow and can scroll it. */
 	.head h1 {

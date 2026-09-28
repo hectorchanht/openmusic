@@ -5,7 +5,7 @@
 	// Not a true artist catalog — an approximation from cross-source search.
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
-	import { Heart, Play, Share2 } from '@lucide/svelte';
+	import { ChevronDown, ChevronRight, Heart, Play, Share2 } from '@lucide/svelte';
 	import { searchAll } from '$lib/services/catalog';
 	import { dedupeBest } from '$lib/services/dedupe';
 	import { settings } from '$lib/stores/settings.svelte';
@@ -448,7 +448,7 @@
 	     the route name. names.dnArtist still runs so the existing translation layer is unchanged
 	     for every non-MB artist. -->
 	<h1>{names.dnArtist(displayArtist)}</h1>
-	<p class="note">{t('artist.derived', { count: songs.length })}</p>
+	<!-- <p class="note">{t('artist.derived', { count: songs.length })}</p> -->
 
 	<!-- kmn: action bar — Favourite / Play (random hit) / Share. quick-260926-vdp: round icon-only
 	     buttons in the album-page action-bar visual language (34px circles, a 56px primary Play);
@@ -468,7 +468,7 @@
 	<!-- Deezer info (ENRICH-04, D-14): fan count + album/discography count, beside the Last.fm
 	     enrichment. Shape-matched skeleton while resolving (D-17); silently absent on a miss
 	     (`dz` settles to null → neither stat renders). Counts sit side-by-side, source-labeled. -->
-	{#if dzLoading}
+	<!-- {#if dzLoading}
 		<div class="dzstats" aria-hidden="true">
 			<span class="sk sk-stat"></span>
 			<span class="sk sk-stat"></span>
@@ -478,7 +478,7 @@
 			{#if merged.deezerFans != null}<span class="dzstat"><strong>{numFmt.format(merged.deezerFans)}</strong> {t('deezer.fans')}</span>{/if}
 			{#if merged.albums != null}<span class="dzstat"><strong>{numFmt.format(merged.albums)}</strong> {t('deezer.albums')}</span>{/if}
 		</div>
-	{/if}
+	{/if} -->
 
 	{#if enrich?.tags?.length}
 		<div class="herotags"><TagChips tags={enrich.tags} /></div>
@@ -496,9 +496,9 @@
 		</section>
 	{:else if enrich?.bio && enrich?.bioUrl && names.dnBio(enrich.bio) && names.dnBio(enrich.bio).length}
 		<section class="bio">
-			<h2>{t('lastfm.about')}</h2>
+			<h2><a class="" href={enrich.bioUrl} target="_blank" rel="noopener noreferrer">{t('lastfm.about')}<ChevronRight size={18}/></a></h2>
 			<p>{names.dnBio(enrich.bio)}</p>
-			<a class="readmore" href={enrich.bioUrl} target="_blank" rel="noopener noreferrer">{t('lastfm.readMore')}</a>
+			<!-- <a class="readmore" href={enrich.bioUrl} target="_blank" rel="noopener noreferrer">{t('lastfm.readMore')}</a> -->
 		</section>
 	{/if}
 </div>
@@ -530,10 +530,14 @@
 {:else if shelfAlbums.length}
 	<section>
 		<h2 class="albums-head">
-			{t('artist.albums')}
+			<a class="" href={names.artistHref(name) + '/albums'}>
+				{t('artist.albums')}
+				<ChevronRight size={18}/>
+				<span class="count">{shelfAlbums.length}</span>
+			</a>
 			<!-- quick-260831-qkx: the shelf is albums+EPs only; the full discography (every record
 			     type, filterable) lives on its own page so nothing is hidden, just de-noised. -->
-			<a class="see-all" href={names.artistHref(name) + '/albums'}>{t('artist.seeAllAlbums')}</a>
+			<!-- <a class="see-all" href={names.artistHref(name) + '/albums'}>{t('artist.seeAllAlbums')}</a> -->
 		</h2>
 		<div class="albumrow" use:dragScroll>
 			{#each shelfAlbums as al (al.mbid ?? al.id ?? al.name)}
@@ -569,7 +573,7 @@
 	<!-- Offline with nothing loaded: the inline offline state above covers it, so the empty
 	     hit-songs section is suppressed (no duplicate dead screen — D-10). -->
 	<section>
-		<h2>{t('artist.hitSongs')}</h2>
+		<h2>{t('artist.hitSongs')}<span class="count">{songs.length}</span></h2>
 		{#if songs.length}
 			<ul class="list">
 				{#each songs.slice(0, shown) as track, i (track.uid)}
@@ -594,7 +598,7 @@
 			{#if loadingMoreSongs}
 				<div class="more"><p class="muted">{t('search.loadingMore')}</p></div>
 			{:else if songs.length > shown || hasMoreSongs}
-				<div class="more"><button class="act" use:tapBounce onclick={loadMoreSongs}>{t('artist.showMore')}</button></div>
+				<div class="more"><button class="act" use:tapBounce onclick={loadMoreSongs}>{t('artist.showMore')}<ChevronDown size={18}/></button></div>
 			{/if}
 		{:else}<p class="muted">{t('artist.noSongs', { name: names.dnArtist(name) })}</p>{/if}
 	</section>
@@ -631,11 +635,11 @@
 
 
 <style>
-	.hero { padding: 14px 0 18px; text-align: center; }
-	.herocover { width: 150px; height: 150px; border-radius: 50%; margin: 8px auto 12px; background-size: cover; background-position: center; box-shadow: 0 12px 34px rgba(0,0,0,0.5); }
+	.hero { padding: 0px; text-align: center; }
+	.herocover { width: 160px; height: 160px; border-radius: 50%; margin: 4px auto; background-size: cover; background-position: center; box-shadow: 0 12px 34px rgba(0,0,0,0.5); }
 	.hero h1 { font-size: calc(1.7rem * var(--fs-title, 1)); margin: 0; }
 	.note { color: var(--color-text-muted); font-size: 0.75rem; margin-top: 4px; }
-	.herotags { display: flex; justify-content: center; margin-top: 8px; }
+	.herotags { display: flex; justify-content: center; margin: 4px; }
 	/* Deezer info stats (ENRICH-04) — fan/album counts under the hero, source-labeled. */
 	.dzstats { display: flex; justify-content: center; gap: 18px; margin-top: 10px; flex-wrap: wrap; }
 	.dzstat { color: var(--color-text-muted); font-size: 0.75rem; }
@@ -644,8 +648,8 @@
 	/* kmn: action bar centered under the hero title/note. quick-260926-vdp: round icon buttons with
 	   the album page's values. The round look is scoped to `.actions` because the "Show more" button
 	   further down also uses `.act` and must stay a text pill. */
-	.actions { display: flex; align-items: center; justify-content: center; gap: 16px; margin: 14px 0 6px; }
-	.act { display: inline-flex; align-items: center; gap: 7px; background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); padding: 9px 16px; border-radius: 999px; font-size: 0.8125rem; cursor: pointer; }
+	.actions { display: flex; align-items: center; justify-content: center; gap: 16px; margin: 8px 0; }
+	.act { display: inline-flex; align-items: center; gap: 8px; background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); padding: 9px 16px; border-radius: 999px; font-size: 0.8125rem; cursor: pointer; }
 	.act:hover { background: var(--color-surface); }
 	.act:disabled { opacity: 0.45; cursor: default; }
 	.act.on { color: var(--color-primary); border-color: var(--color-primary); }
@@ -654,8 +658,8 @@
 	@media (hover: hover) { .actions .act:active { transform: scale(0.92); } }
 	.actions .act.play { width: 56px; height: 56px; background: var(--color-primary); color: #fff; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4); }
 	.actions .act.play:hover { filter: brightness(1.06); }
-	.bio { text-align: left; margin: 16px 0 0; }
-	.bio h2 { font-size: calc(1.1rem * var(--fs-title, 1)); margin: 0 0 8px; }
+	.bio { text-align: left; margin: 0 0; }
+	.bio h2 { font-size: calc(1.1rem * var(--fs-title, 1)); margin: 0;  display: flex; align-items: center; }
 	.bio p { color: var(--color-text-muted); font-size: 0.8125rem; line-height: 1.55; margin: 0; }
 	.readmore { display: inline-block; margin-top: 8px; color: var(--color-primary); font-size: 0.8125rem; }
 	section { margin: 18px 0; }
@@ -665,7 +669,7 @@
 	   sample, but not guaranteed); a failed image layer simply does not paint, so the gradient shows
 	   through instead of a blank tile. No probe request needed to know whether art exists. */
 	/* quick-260831-qkx: the Albums heading now carries a "See all" link to the full discography. */
-	.albums-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+	.albums-head a { display: flex; align-items: center; justify-content: start; width: fit-content; }
 	.see-all { font-size: 0.8rem; font-weight: 600; color: var(--color-primary); text-decoration: none; white-space: nowrap; }
 	.see-all:active { opacity: 0.6; }
 	.albumrow { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 4px; }
@@ -682,6 +686,7 @@
 	.al-name { font-size: calc(0.75rem * var(--fs-title, 1)); font-weight: 600; color: var(--color-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 	.al-name.center { text-align: center; }
 	.al-count { font-size: calc(0.6875rem * var(--fs-artist, 1)); color: var(--color-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.count { color: var(--color-text-muted); font-size: 0.75rem; font-weight: 400; padding: 1px 6px; border-radius: 999px; background: var(--color-surface); color: var(--color-text-muted); font-size: 0.6875rem; }
 	/* Marquee animation lives globally in app.css (transform-based .marquee-inner). The
 	   .al-name / .al-count clips above + the use:marquee action + inner .marquee-inner span
 	   in the markup are the only per-file pieces — the global rule animates them. */
