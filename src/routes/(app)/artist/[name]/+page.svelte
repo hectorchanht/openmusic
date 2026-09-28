@@ -561,7 +561,7 @@
 			{#each Array(8) as _, i (i)}
 				<li>
 					<span class="row" aria-hidden="true">
-						<span class="sk sk-rank"></span>
+						<!-- <span class="sk sk-rank"></span> -->
 						<span class="art sk"></span>
 						<span class="meta"><span class="sk sk-rtitle"></span><span class="sk sk-rsub"></span></span>
 					</span>
