@@ -658,7 +658,7 @@
 	@media (hover: hover) { .actions .act:active { transform: scale(0.92); } }
 	.actions .act.play { width: 56px; height: 56px; background: var(--color-primary); color: #fff; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4); }
 	.actions .act.play:hover { filter: brightness(1.06); }
-	.bio { text-align: left; margin: 0 0; }
+	.bio { text-align: left; margin: 18px 0; }
 	.bio h2 { font-size: calc(1.1rem * var(--fs-title, 1)); margin: 0;  display: flex; align-items: center; }
 	.bio p { color: var(--color-text-muted); font-size: 0.8125rem; line-height: 1.55; margin: 0; }
 	.readmore { display: inline-block; margin-top: 8px; color: var(--color-primary); font-size: 0.8125rem; }
