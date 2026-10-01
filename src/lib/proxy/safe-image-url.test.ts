@@ -5,7 +5,8 @@ import {
 	LASTFM_IMAGE_HOSTS,
 	APPLE_IMAGE_HOSTS,
 	KKBOX_IMAGE_HOSTS,
-	YOUTUBE_IMAGE_HOSTS
+	YOUTUBE_IMAGE_HOSTS,
+	COVER_PICK_IMAGE_HOSTS
 } from './safe-image-url';
 
 // This guard had FOUR copies across the Deezer and Last.fm routes and NO test. It is a security
@@ -115,5 +116,46 @@ describe('safeImageUrl — chart image hosts (39-D-01)', () => {
 
 	it('rejects http even on an allowed chart host', () => {
 		expect(safeImageUrl('http://i.kfs.io/a.jpg', KKBOX_IMAGE_HOSTS)).toBeNull();
+	});
+});
+
+describe('COVER_PICK_IMAGE_HOSTS (Phase 40 D-18)', () => {
+	it('accepts the new CN cover hosts', () => {
+		for (const url of [
+			'https://y.gtimg.cn/music/photo_new/T002R500x500M000x.jpg',
+			'https://img4.kuwo.cn/star/albumcover/x.jpg',
+			'https://p3.music.126.net/x.jpg',
+			'https://api.qijieya.cn/meting/?type=pic&id=1'
+		]) {
+			expect(safeImageUrl(url, COVER_PICK_IMAGE_HOSTS)).toBe(url);
+		}
+	});
+
+	it('still accepts every existing cover host family (composed, not replaced)', () => {
+		for (const url of [
+			'https://e-cdns-images.dzcdn.net/x.jpg',
+			'https://is1-ssl.mzstatic.com/x.jpg',
+			'https://i.ytimg.com/x.jpg',
+			'https://lastfm.freetls.fastly.net/i/u/x.jpg',
+			'https://i.kfs.io/x.jpg'
+		]) {
+			expect(safeImageUrl(url, COVER_PICK_IMAGE_HOSTS)).toBe(url);
+		}
+	});
+
+	it('rejects suffix spoofs, http, attribute injection, foreign hosts and junk', () => {
+		for (const url of [
+			'https://img4.kuwo.cn.evil.example/x.jpg',
+			'https://evilkuwo.cn/x.jpg',
+			'https://kuwo.cn/x.jpg',
+			'https://evilmusic.126.net/x.jpg',
+			'http://y.gtimg.cn/x.jpg',
+			'https://y.gtimg.cn/x.jpg"onerror="1',
+			'https://example.com/x.jpg',
+			''
+		]) {
+			expect(safeImageUrl(url, COVER_PICK_IMAGE_HOSTS)).toBeNull();
+		}
+		for (const junk of [null, undefined]) expect(safeImageUrl(junk, COVER_PICK_IMAGE_HOSTS)).toBeNull();
 	});
 });
