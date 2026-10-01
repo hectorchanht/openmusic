@@ -95,7 +95,7 @@ Full observed evidence: `.planning/phases/30-carrier-free-share-links-type-artis
 ### Prior phase (Phase 27 — YouTube Music Source, v1.4) — COMPLETE + E2E-VERIFIED
 
 Phase 27 complete (27-01..04). E2E-verified against LIVE YouTube via the dev-server routes: /api/ytmusic/search 200 (rows+videoId), /api/ytmusic/lyrics 200 (1513c + attribution), /api/ytmusic/stream 206 audio/mp4 + Range (playback) and 200 full-file (download). pnpm check clean, 1320 tests green. E2E caught + fixed a prod-breaking bug (quick-270715 / commit 29c1c7d): stream route exported non-HTTP-verb functions, illegal in SvelteKit +server.ts → 500; helpers moved to $lib/proxy/ytmusic.ts.
-Last activity: 2026-10-01 - Completed quick task 260930-uy0: album shuffle-play button
+Last activity: 2026-10-01 - Completed quick task 260930-vjp: album download two-stage pipeline
 Remaining human UAT: real-device <audio> playback+seek + download-to-disk; deployed-Worker player+googlevideo same-IP egress + bot-challenge under load (T-27-03-OP). Account/library sync = separate legal-gated milestone (spike 008).
 
 ## Performance Metrics
@@ -454,6 +454,7 @@ Recent decisions affecting current work:
 
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
+| 260930-vjp | Album download pipeline: 3-wide resolve (3.5s spaced) into 8-wide transfer | 2026-10-01 | d2c4ea09 | [260930-vjp-album-download-two-stage-pipeline-resolv](./quick/260930-vjp-album-download-two-stage-pipeline-resolv/) |
 | 260930-uy0 | Album header Shuffle-play button balances the action row | 2026-10-01 | ce2e377c | [260930-uy0-balance-header-action-icons-around-play-](./quick/260930-uy0-balance-header-action-icons-around-play-/) |
 | 260930-uia | Downloads never route to YT Music + 3-wide album download with per-row progress | 2026-10-01 | 964b534f | [260930-uia-downloads-never-ytmusic-parallel-album-d](./quick/260930-uia-downloads-never-ytmusic-parallel-album-d/) |
 | 260605-wq1 | Sketch-001 variant C home shell + search, wired to data layer; deployed to openmusic.pages.dev | 2026-06-05 | 0684b67 | [260605-wq1-implement-sketch-001-variant-c-home-shel](./quick/260605-wq1-implement-sketch-001-variant-c-home-shel/) |
