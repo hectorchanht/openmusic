@@ -182,6 +182,11 @@ export async function downloadTrack(
 		// exact memory bloat capacitor-blob-writer exists to avoid. Native ytmusic downloads are a
 		// future item, not part of that task.
 		const resp = await fetch(r.audioUrl);
+		// 40-03 (album E2E): fetch() does not reject on an HTTP error, and the ytmusic stream proxy's
+		// googlevideo 403 has an EMPTY body typed audio/mp4 — so this used to persist + save a 0-byte
+		// file and report 'saved' (an album showed "Saved 10 of 10" with five empty entries). A non-2xx
+		// is a failed download; an empty body is checked after the read below.
+		if (!resp.ok) return 'failed';
 		// quick-260913-omi: read the body through a reader instead of `resp.blob()` so the Download
 		// row can show REAL progress. Same one fetch, same one pass over the bytes — progress is a
 		// side effect of the read we were already doing. Without a Content-Length the helper falls
@@ -196,6 +201,7 @@ export async function downloadTrack(
 			(fraction) => library.setDownloadProgress(track.uid, fraction),
 			{ type: audioMimeForUrl(r.audioUrl, resp.headers?.get?.('content-type')) }
 		);
+		if (!rawBlob.size) return 'failed';
 
 		// DL-FILE-01 (D-05/D-06/D-07): controlled, translated filename `{artist} - {song}.{ext}`. The
 		// caller-free display-name translation (names.dn*, synchronous cached-or-raw) is applied here;

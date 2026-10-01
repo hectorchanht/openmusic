@@ -308,6 +308,17 @@ describe('downloadTrack — no-audio', () => {
 });
 
 describe('downloadTrack — failure paths (DL-BUG-01: never window.open, never throw)', () => {
+	// 40-03: the ytmusic stream proxy's googlevideo 403 answers with an EMPTY audio/mp4 body.
+	it('returns "failed" and persists/saves nothing on a non-2xx or an empty body', async () => {
+		mocks.ensureTrackDetails.mockResolvedValue(mk({ audioUrl: 'https://cdn.example.com/x.mp3' }));
+		vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 403, blob: async () => new Blob([]) })));
+		expect(await downloadTrack(mk({ audioUrl: null, detailsLoaded: false }))).toBe('failed');
+		stubFetch(new Blob([]));
+		expect(await downloadTrack(mk({ audioUrl: null, detailsLoaded: false }))).toBe('failed');
+		expect(mocks.put).not.toHaveBeenCalled();
+		expect(mocks.saveBlobToDisk).not.toHaveBeenCalled();
+	});
+
 	it('returns "failed" and NEVER calls window.open when the fetch rejects', async () => {
 		mocks.ensureTrackDetails.mockResolvedValue(mk({ audioUrl: 'https://cdn.example.com/x.mp3' }));
 		stubFetchReject();
