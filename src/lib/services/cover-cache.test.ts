@@ -16,7 +16,14 @@ import {
 	clearCoverCache,
 	getPinnedCover,
 	setPinnedCover,
-	removePinnedCover
+	removePinnedCover,
+	getCrowdCoverByUid,
+	setCrowdCoverByUid,
+	removeCrowdCoverByUid,
+	getCrowdCoverByName,
+	setCrowdCoverByName,
+	removeCrowdCoverByName,
+	getCrowdCover
 } from './cover-cache';
 import { matchKey } from './match-key';
 
@@ -818,5 +825,95 @@ describe('cover-cache — parsed-record memo (debug page-switch-lag-tap-dead)', 
 		store.setItem = ok;
 		expect(getCachedCover('C', 'D')).toBeNull(); // disk wins
 		expect(getCachedCover('A', 'B')).toBe('https://a/x.jpg');
+	});
+});
+
+describe('crowd: family (Phase 40 D-14)', () => {
+	let store: MemStorage;
+	const originalLocalStorage = (globalThis as { localStorage?: Storage }).localStorage;
+	const T0 = 1_700_000_000_000;
+	const TTL_MS = 14 * 24 * 60 * 60 * 1000;
+	const URL_U = 'https://y.gtimg.cn/x.jpg';
+	const URL_N = 'https://y.gtimg.cn/n.jpg';
+
+	beforeEach(() => {
+		store = new MemStorage();
+		Object.defineProperty(globalThis, 'localStorage', {
+			value: store,
+			configurable: true,
+			writable: true
+		});
+		vi.useFakeTimers();
+		vi.setSystemTime(T0);
+	});
+	afterEach(() => {
+		vi.useRealTimers();
+		Object.defineProperty(globalThis, 'localStorage', {
+			value: originalLocalStorage,
+			configurable: true,
+			writable: true
+		});
+	});
+
+	it('uid entry round-trips and is disjoint from the uid layer and the pin', () => {
+		setCrowdCoverByUid('qq:1', URL_U);
+		expect(getCrowdCoverByUid('qq:1')).toBe(URL_U);
+		expect(getCachedCoverByUid('qq:1')).toBeNull();
+		expect(getPinnedCover('qq:1')).toBeNull();
+		expect(JSON.parse(store.getItem(CACHE_KEY) as string)).toHaveProperty(['crowd:uid:qq:1']);
+	});
+
+	it('an empty uid is a no-op on write and a miss on read', () => {
+		setCrowdCoverByUid('', URL_U);
+		expect(store.getItem(CACHE_KEY)).toBeNull();
+		expect(getCrowdCoverByUid('')).toBeNull();
+	});
+
+	it('a non-https url is refused', () => {
+		setCrowdCoverByUid('qq:1', 'http://x');
+		setCrowdCoverByName('A', 'T', 'http://x');
+		expect(store.getItem(CACHE_KEY)).toBeNull();
+	});
+
+	it('name entry round-trips with matchKey folding and is disjoint from the name layer', () => {
+		setCrowdCoverByName('A', 'T', URL_N);
+		expect(getCrowdCoverByName('a', 't')).toBe(URL_N);
+		expect(getCachedCover('A', 'T')).toBeNull();
+	});
+
+	it('getCrowdCover reads uid first, then name, else null', () => {
+		expect(getCrowdCover('qq:1', 'A', 'T')).toBeNull();
+		setCrowdCoverByName('A', 'T', URL_N);
+		expect(getCrowdCover('qq:1', 'A', 'T')).toBe(URL_N);
+		setCrowdCoverByUid('qq:1', URL_U);
+		expect(getCrowdCover('qq:1', 'A', 'T')).toBe(URL_U);
+		expect(getCrowdCover('', 'A', 'T')).toBe(URL_N);
+	});
+
+	it('removers evict exactly their entry', () => {
+		setCrowdCoverByUid('qq:1', URL_U);
+		setCrowdCoverByName('A', 'T', URL_N);
+		setCachedCoverByUid('qq:1', 'https://auto/u.jpg');
+		removeCrowdCoverByUid('qq:1');
+		expect(getCrowdCoverByUid('qq:1')).toBeNull();
+		expect(getCrowdCoverByName('A', 'T')).toBe(URL_N);
+		removeCrowdCoverByName('A', 'T');
+		expect(getCrowdCoverByName('A', 'T')).toBeNull();
+		expect(getCachedCoverByUid('qq:1')).toBe('https://auto/u.jpg');
+	});
+
+	it('clearCoverCache wipes crowd entries', () => {
+		setCrowdCoverByUid('qq:1', URL_U);
+		setCrowdCoverByName('A', 'T', URL_N);
+		clearCoverCache();
+		expect(getCrowdCover('qq:1', 'A', 'T')).toBeNull();
+	});
+
+	it('crowd entries expire with the shared TTL', () => {
+		setCrowdCoverByUid('qq:1', URL_U);
+		setCrowdCoverByName('A', 'T', URL_N);
+		vi.setSystemTime(T0 + TTL_MS + 1);
+		expect(getCrowdCoverByUid('qq:1')).toBeNull();
+		expect(getCrowdCoverByName('A', 'T')).toBeNull();
 	});
 });
