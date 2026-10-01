@@ -385,7 +385,7 @@
 			/>
 		{/if}
 	{/each}
-	<button class="opt" aria-label={t('menu.options')} onclick={onrequestmenu}>
+	<button class="ract" aria-label={t('menu.options')} onclick={onrequestmenu}>
 		<MoreVertical size={18} />
 	</button>
 </div>
@@ -539,12 +539,6 @@
 		.ract:hover {
 			background: var(--color-surface);
 		}
-	}
-	.opt {
-		background: none;
-		border: none;
-		color: var(--color-text-muted);
-		cursor: pointer;
 	}
 	@media (hover: hover) {
 		.opt:hover {
