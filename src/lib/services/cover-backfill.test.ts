@@ -6,6 +6,7 @@ import {
 	resolveShareCover,
 	collectCoverCandidates,
 	__resetCoverMissCache,
+	__resetQqCoverGate,
 	__resetShareCoverMemo
 } from './cover-backfill';
 import { coverToken } from './share';
@@ -124,6 +125,9 @@ beforeEach(() => {
 	// The negative-miss cache is module-scoped + session-lived — reset it so a miss recorded in one
 	// test can't skip the re-search another test expects (many tests reuse the same X/Y key).
 	__resetCoverMissCache();
+	// 40-WR-06: the QQ cover tier's health gate is module-scoped too — a failure streak in one test
+	// must not gate the tier in the next.
+	__resetQqCoverGate();
 	// Same reasoning for the share-card memo: module-scoped + session-lived, so a hit recorded in one
 	// test would otherwise short-circuit the tier calls another test expects to observe.
 	__resetShareCoverMemo();
@@ -444,6 +448,39 @@ describe('QQ cover tier (Phase 40 D-08)', () => {
 		expect(await resolveCoverForTrack(t())).toBe(DZ);
 		expect(qqResolve()).not.toHaveBeenCalled();
 		expect(deezerSpy).toHaveBeenCalledTimes(1);
+	});
+
+	// 40-WR-06: a tang outage must not hold governor slots on every iTunes miss.
+	it('three consecutive qq detail failures trip the gate: the next miss skips the QQ tier entirely', async () => {
+		vi.spyOn(itunes, 'itunesSongCover').mockResolvedValue(null);
+		vi.spyOn(deezer, 'deezerSongCover').mockResolvedValue(DZ);
+		mockSearch({ qq: [mk('qq', 'q1', { artist: 'Jay Chou', title: 'Qing Hua Ci' })] });
+		qqResolve().mockRejectedValue(new Error('qq detail error (invalid response)'));
+		for (let i = 0; i < 3; i++) {
+			__resetCoverMissCache();
+			expect(await resolveCoverForTrack(mk('netease', `g${i}`, { artist: 'A', title: `T${i}` }))).toBe(DZ);
+		}
+		expect(qqResolve()).toHaveBeenCalledTimes(3);
+		const before = qqCalls().length;
+		expect(await resolveCoverForTrack(mk('netease', 'g9', { artist: 'A', title: 'T9' }))).toBe(DZ);
+		expect(qqCalls()).toHaveLength(before); // gated: no qq search
+		expect(qqResolve()).toHaveBeenCalledTimes(3); // and no detail
+	});
+
+	it('a caller abort is a supersede, not a failure: it never trips the gate', async () => {
+		vi.spyOn(itunes, 'itunesSongCover').mockResolvedValue(null);
+		vi.spyOn(deezer, 'deezerSongCover').mockResolvedValue(DZ);
+		mockSearch({ qq: [mk('qq', 'q1', { artist: 'Jay Chou', title: 'Qing Hua Ci' })] });
+		for (let i = 0; i < 3; i++) {
+			const ac = new AbortController();
+			qqResolve().mockImplementationOnce(async () => {
+				ac.abort();
+				throw new DOMException('Aborted', 'AbortError');
+			});
+			await resolveCoverForTrack(mk('netease', `a${i}`, { artist: 'A', title: `U${i}` }), ac.signal);
+		}
+		mockQqDetail(QQ);
+		expect(await resolveCoverForTrack(mk('netease', 'a9', { artist: 'A', title: 'U9' }))).toBe(QQ);
 	});
 
 	it('iTunes + QQ + Deezer miss → other CN with { qq: false, ytmusic: false }', async () => {

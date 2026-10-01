@@ -12,7 +12,8 @@
 //  - TRACK: iTunes → QQ → Deezer → other CN → YouTube Music (Phase 40 D-08, amended).
 //    Phase 40 D-08: QQ art leads the CJK catalog the user cares about, so QQ became its OWN tier,
 //    aimed via onlySource('qq') exactly like the YTM tier. QQ search rows carry `cover:null`
-//    (qq.ts search), so the tier costs a search + ONE qq detail (~1.7s, 2 edge requests); the user
+//    (qq.ts search), so the tier costs a search + a qq detail resolve (~1.7s; up to 3 governed
+//    requests, as the detail tries tang then /api/qq/detail — 40-WR-06) and is health-gated; the user
 //    therefore kept iTunes FIRST (zero edge cost) and put QQ second. "Other CN" now EXCLUDES qq
 //    (already tried) and ytmusic: the old `searchAll(..., {})` tier could pick a ytmusic row through
 //    dedupeBest, which was one way YTM thumbnails leaked into Now Playing and every list. The HQ
@@ -55,9 +56,10 @@
 //
 // RATE-LIMIT / COST REASONING (Phase 40 D-08; supersedes quick-260920-nyq, which itself superseded
 // the quick-260919-0mw note that tier-1 was an InnerTube POST through /api/ytmusic/search): tier-1
-// is a direct CORS-open iTunes GET that never touches our edge. QQ (search + one detail), Deezer,
-// other CN and YTM fire ONLY on a miss, so the deep chain runs rarely; the QQ tier adds at most 2
-// edge requests per iTunes miss and none when its search is empty. Dropping qq + ytmusic from the
+// is a direct CORS-open iTunes GET that never touches our edge. QQ (search + detail), Deezer,
+// other CN and YTM fire ONLY on a miss, so the deep chain runs rarely; the QQ tier adds at most 3
+// governed requests per iTunes miss (40-WR-06: search, tang detail, /api/qq/detail fallback), none
+// when its search is empty, and none at all while its health gate is tripped. Dropping qq + ytmusic from the
 // other-CN fan-out also saves a second qq search and an InnerTube POST per miss. Everything is
 // bounded by the SAME machinery as before and needs NO new throttle: the CAP=6 in-flight pool below,
 // the 5-minute negative-miss cache, the skip-already-cached gate, and — for the tiers that go through
@@ -103,6 +105,8 @@ import { mapWithConcurrency } from '$lib/services/discovery';
 import { deezerSongCover, deezerArtistCover, deezerSearchTopN } from '$lib/services/deezer';
 import { itunesSongCover, itunesArtistCover } from '$lib/services/itunes-cover';
 import { onlySource, SOURCES } from '$lib/sources/registry';
+import { createHealthGate } from '$lib/services/source-health';
+import { combinedSignal } from '$lib/services/abort-signal';
 import type { Track } from '$lib/sources/types';
 import { hasHttpsScheme, isYtmCoverUrl } from './url-safety';
 
@@ -224,28 +228,56 @@ async function ytmusicSongCover(
 /**
  * The QQ cover tier (Phase 40 D-08), shaped like ytmusicSongCover but with one extra hop: QQ search
  * rows carry `cover:null` (qq.ts search), and the art only exists on the DETAIL body (`album_pic`,
- * https-upgraded inside qq.ts resolve). So the tier costs a qq-only search + ONE detail (~1.7s, 2
- * edge requests) and runs only on an iTunes miss — the user's D-08 amendment put iTunes first
- * because it costs our edge nothing.
+ * https-upgraded inside qq.ts resolve). So the tier costs a qq-only search + a detail resolve — and
+ * 40-WR-06: that resolve (fetchQqDetail) tries the direct tang hop and then the /api/qq/detail
+ * fallback, so a miss is up to THREE governed requests, not two. It runs only on an iTunes miss —
+ * the user's D-08 amendment put iTunes first because it costs our edge nothing.
  *
  * The qq adapter resolve is called on a COPY of the row: it mutates the track in place, and the row
  * may be shared with the searchAll cache. It deliberately bypasses `ensureTrackDetails`, whose
  * /api/resolve edge-cache semantics are about playback, not art.
  *
- * ponytail: no health gate on this tier — the 5-min negative-miss cache + the CAP=6 pool bound it.
- * Upgrade path: `createHealthGate('qq')` from services/source-health.ts if tang outages start
- * starving the tier.
+ * 40-WR-06: GATED + DEADLINED. On every iTunes miss (the common CJK case) a tang outage would
+ * otherwise let the CAP=6 backfill pool hold most of the 8 apiFetch slots for the 25 s timeout and
+ * starve the playback resolve (the api-fetch-flood freeze class). `qqCoverGate` skips the tier after
+ * DEFAULT_THRESHOLD consecutive failures for one window; QQ_COVER_TIMEOUT_MS bounds each attempt. A
+ * caller abort is a supersede, never a failure. Its own gate, not playback's: art failures must not
+ * gate qq playback.
  */
+const qqCoverGate = createHealthGate();
+const QQ_COVER_TIMEOUT_MS = 4_000;
+
+/** TEST-ONLY: clear the QQ cover tier's health gate so it cannot leak across tests. */
+export function __resetQqCoverGate(): void {
+	qqCoverGate.__reset();
+}
+
 async function qqSongCover(
 	artist: string,
 	title: string,
 	signal?: AbortSignal
 ): Promise<string | null> {
-	const r = await searchAll(`${artist} ${title}`, 1, onlySource('qq'), signal);
-	const row = dedupeBest(r.interleaved, settings.preferredSource)[0];
-	if (!row || signal?.aborted) return null;
-	const d = await SOURCES.qq.resolve({ ...row }, signal ?? new AbortController().signal);
-	return d.cover ?? null;
+	if (qqCoverGate.isGated()) return null;
+	const s = combinedSignal(QQ_COVER_TIMEOUT_MS, signal);
+	try {
+		const r = await searchAll(`${artist} ${title}`, 1, onlySource('qq'), s);
+		if (signal?.aborted) return null;
+		if (s.aborted || r.perSource.some((p) => p.status !== 'ok')) {
+			qqCoverGate.recordFail();
+			return null;
+		}
+		const row = dedupeBest(r.interleaved, settings.preferredSource)[0];
+		if (!row) {
+			qqCoverGate.recordOk(); // a healthy search that simply has no such song
+			return null;
+		}
+		const d = await SOURCES.qq.resolve({ ...row }, s);
+		qqCoverGate.recordOk();
+		return d.cover ?? null;
+	} catch (e) {
+		if (!signal?.aborted) qqCoverGate.recordFail(); // timeout / detail error — not a supersede
+		throw e; // tier() maps it to a miss
+	}
 }
 
 /**
@@ -275,7 +307,7 @@ async function resolveTrackChain(
 		let cover = await tier(() => itunesSongCover(artist, title, signal));
 		if (signal?.aborted) return null;
 
-		// Tier 2 — QQ (fires only on an iTunes miss; search + one detail, Phase 40 D-08).
+		// Tier 2 — QQ (fires only on an iTunes miss; search + detail resolve, health-gated, 40-WR-06).
 		if (!cover) {
 			cover = await tier(() => qqSongCover(artist, title, signal));
 			if (signal?.aborted) return null;
