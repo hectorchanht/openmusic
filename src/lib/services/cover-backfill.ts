@@ -102,7 +102,7 @@ import { deezerSongCover, deezerArtistCover, deezerSearchTopN } from '$lib/servi
 import { itunesSongCover, itunesArtistCover } from '$lib/services/itunes-cover';
 import { onlySource, SOURCES } from '$lib/sources/registry';
 import type { Track } from '$lib/sources/types';
-import { hasHttpsScheme } from './url-safety';
+import { hasHttpsScheme, isYtmCoverUrl } from './url-safety';
 
 /** A cover-needing row — callers pass DiscoveryTrack rows (artist tiles are excluded). */
 export interface CoverNeed {
@@ -317,8 +317,9 @@ async function resolveTrackChain(
  * `tier()` never-throw wrapper + hasHttpsScheme guard, NOT a new fetch ladder.
  * Returns the first SOLID https URL or null on a total miss. NEVER throws.
  *
- * On a SOLID hit it writes the {artist,title} name layer always, and the uid layer ONLY when the
- * track carries a real uid (D-13 two-layer):
+ * On a SOLID hit it writes the uid layer ONLY when the track carries a real uid, and the
+ * {artist,title} name layer unless the winner is a YTM thumbnail on a uid-bearing track (D-13
+ * two-layer; Phase 40 D-11b):
  *   setCachedCoverByUid(track.uid, url)  AND  setCachedCover(track.artist, track.title, url).
  * An EMPTY uid (synthetic discovery stub from charts/tags, charts/countries) MUST NOT write the uid
  * layer: that layer is a shared flat record keyed by `'uid:' + uid`, so an empty uid would store
@@ -336,7 +337,10 @@ export async function resolveCoverForTrack(
 		// Only a real uid writes the shared uid layer — an empty stub uid would collapse every row
 		// onto one slot (charts-tags-same-cover fix). The name layer is always per-song-safe.
 		if (track.uid) setCachedCoverByUid(track.uid, cover);
-		setCachedCover(track.artist, track.title, cover);
+		// Phase 40 D-11b: YTM art is per-uid only, so it cannot leak onto other sources' copies of
+		// the song. A uid-less stub has ONLY the name layer, so it still writes there — gating it
+		// too would re-fan the whole chain on every visit (RESEARCH Pitfall 10).
+		if (!track.uid || !isYtmCoverUrl(cover)) setCachedCover(track.artist, track.title, cover);
 		return cover;
 	}
 	return null;
