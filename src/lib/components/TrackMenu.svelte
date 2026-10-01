@@ -40,7 +40,7 @@
 	// aria-checked>). No `type="checkbox"` exists anywhere in src, so the Remove-download confirm
 	// borrows this rather than hand-rolling one.
 	import SettingToggle from '$lib/components/SettingToggle.svelte';
-	import { canDownloadFrom, downloadTrack } from '$lib/services/download-track';
+	import { canDownloadFrom, downloadTrack, probeForDownload } from '$lib/services/download-track';
 	// quick-260915-26g: the shared probe + the shared label formatter. TrackMenu cannot mount
 	// DownloadControl (its Check state is blob-backed and its rows are full-width text buttons, not
 	// 40x40 icons), so it consumes the same SERVICE instead — one implementation, two surfaces.
@@ -679,6 +679,13 @@
 	// downloadQuality='lossless' a menu open costs prewarm + the probe's resolve + one HEAD; at
 	// auto/320/128 the probe reuses the freshly-resolved track and issues only the HEAD. Re-opening the
 	// same menu costs nothing (the service memoises per uid|quality).
+	//
+	// quick-260930-x3q: for a ytmusic song the label describes the first non-ytmusic DONOR — the same
+	// `donorProbes` order `downloadTrack` walks and the same `uid|downloadQuality` memo, so the file the
+	// tap saves is the file the label described; no donor → `dlMeta` null → plain "Download". Cost stays
+	// menu-open-only: one TTL-memoised `fetchVariants` plus sequential donor probes until the first hit,
+	// which REPLACES the old YTM lookup + YTM stream HEAD. List rows never pass `probe` (SongRow's own
+	// comment), so nothing fires per visible row (api-fetch-flood freeze).
 	let dlProbe = $state<DownloadProbe | null>(null);
 	let dlProbing = $state(false);
 	$effect(() => {
@@ -698,7 +705,7 @@
 		// untrack: probeDownload reads settings/player internally and those reads would otherwise
 		// re-invalidate this effect (the restore-effect self-invalidation loop). Same discipline as the
 		// blobPresent effect above; the cleanup aborts on close so no stale label lands on the next song.
-		untrack(() => probeDownload(target, ac.signal)).then((p) => {
+		untrack(() => probeForDownload(target, ac.signal)).then((p) => {
 			if (!ac.signal.aborted) {
 				dlProbe = p;
 				dlProbing = false;
@@ -761,7 +768,8 @@
 		const ac = new AbortController();
 		dlPickAc = ac;
 		const target = track;
-		dlPickProbes = dlProbe?.track?.uid === target.uid ? { [target.uid]: dlProbe } : {};
+		// quick-260930-x3q: a donor probe seeds the DONOR's row (its uid is the donor's), not the YTM row.
+		dlPickProbes = dlProbe?.track ? { [dlProbe.track.uid]: dlProbe } : {};
 		// quick-260930-uia: never offer a YouTube Music row — downloads never route to YT Music. A
 		// ytmusic own-track shows only donor rows; an empty list falls into `versions.empty`.
 		dlPickList = versionsIncludingOwn(target, []).filter((v) => canDownloadFrom(v.source));

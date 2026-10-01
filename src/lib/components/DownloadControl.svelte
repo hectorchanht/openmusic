@@ -40,10 +40,10 @@
 	import { toast } from '$lib/stores/toast.svelte';
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { t } from '$lib/i18n';
-	import { downloadTrack } from '$lib/services/download-track';
+	import { downloadTrack, probeForDownload } from '$lib/services/download-track';
 	import DownloadRing from '$lib/components/DownloadRing.svelte';
 	import { downloadState } from '$lib/components/download-state';
-	import { probeDownload, formatDownloadMeta, type DownloadProbe } from '$lib/services/download-probe';
+	import { formatDownloadMeta, type DownloadProbe } from '$lib/services/download-probe';
 	import type { Track } from '$lib/sources/types';
 
 	let {
@@ -111,7 +111,8 @@
 		}
 		const ac = new AbortController();
 		probing = true;
-		untrack(() => probeDownload(target, ac.signal)).then((p) => {
+		// quick-260930-x3q: a ytmusic song is labelled from its download donor, never a YTM stream.
+		untrack(() => probeForDownload(target, ac.signal)).then((p) => {
 			if (!ac.signal.aborted) {
 				probed = p;
 				probing = false;
