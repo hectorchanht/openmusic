@@ -52,3 +52,11 @@ Resolved debug sessions. Used by `gsd-debugger` to surface known-pattern hypothe
 - **Files changed:** src/lib/stores/library.svelte.ts, src/lib/stores/library.svelte.test.ts, src/lib/components/SongRow.svelte, src/lib/components/DownloadControl.svelte, src/routes/(app)/album/[name]/+page.svelte
 ---
 
+
+## album-rows-miss-liked-downloaded-on-load — stub rows show idle icon + empty heart on first load for an already downloaded/liked song
+- **Date:** 2026-10-01
+- **Error patterns:** album row, download tick missing on load, like button not filled, filled heart only after like/unlike, stub row, nameStub, resolvedStubs, stubTrack, isDownloaded false, isLiked false, fresh load, reload, home shelf, charts
+- **Root cause:** Every stub row (album `nameStub`, home-shelf / charts stubs) keys like + download state on `real?.uid`, whose last rung is `library.stubTrack` — a plain read of `resolvedStubs`, a SESSION-ONLY map written only by a resolve. On a fresh load it is empty, so `actUid` fell back to the synthetic `${src}:similar-…` uid → `isDownloaded`/`isLiked` false although `library.downloads`/`liked` held the song under its real uid. A like tap resolved (network) → `rememberStub` → the row re-keyed → tick + heart appeared.
+- **Fix:** `library.stubTrack` gains a second rung: match the stub by song identity against the persisted lists with no network — `songIndex` ($derived, `songKey` title half → Track[], downloads first then liked, re-keyed on `foldRev`), exact `songKey` then the `sameSongKey` artist alias via the new `sameSongStrings` raw-string export in dedupe.ts. `warmFold` also warms on CJK liked/downloaded entries (called from `save()`). No component changed — SongRow / album page / DownloadControl / RowBadges inherit it. 7 failing-first tests; CDP E2E: idle+unliked → TICK + filled heart on first render (incl. 繁/简), Like acts on the real uid with zero fetches.
+- **Files changed:** src/lib/stores/library.svelte.ts, src/lib/stores/library.svelte.test.ts, src/lib/services/dedupe.ts, src/lib/services/dedupe.test.ts
+---
