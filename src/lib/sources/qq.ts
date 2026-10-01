@@ -187,11 +187,32 @@ function pickTier(d: QQDetailItem, quality?: DefaultQuality): BestPlayUrl {
 }
 
 /**
+ * quick-260930-x3q: tang's per-IP limiter answer (`请求过于频繁`). Typed so the album download can
+ * back off on it; every other caller (play, prefetch, fallback) sees an ordinary rejection and its
+ * existing cross-source path runs unchanged. Deliberately NO sleep-and-retry in the adapter: on the
+ * click-to-play path a 3 s wait is strictly worse than the player's runFallback. And NO health gate:
+ * the limiter is a per-IP burst, not an outage — a gate would hide a healthy source for its window.
+ */
+export class QqRateLimitedError extends Error {
+	override name = 'QqRateLimitedError';
+}
+
+/** instanceof OR name, so a cross-realm / mocked instance still matches. */
+export function isQqRateLimited(e: unknown): boolean {
+	return e instanceof QqRateLimitedError || (e instanceof Error && e.name === 'QqRateLimitedError');
+}
+
+const RATE_LIMIT_MARK = '请求过于频繁';
+// The same marker as JSON \u escapes, in case tang ever escapes non-ASCII in its body.
+const RATE_LIMIT_MARK_ESCAPED = /\\u8bf7\\u6c42\\u8fc7\\u4e8e\\u9891\\u7e41/i;
+
+/**
  * One detail attempt against `url`. NEVER throws — a rejection, a non-JSON body, or an upstream
  * "unknown mid" body (200 + every field null) all map to `null` so the caller can decide whether to
- * fall through. The PUBLIC `resolve` keeps its throw contract; this is the internal sentinel layer.
+ * fall through. A rate-limit body maps to the `'rate-limited'` sentinel. The PUBLIC `resolve` keeps
+ * its throw contract; this is the internal sentinel layer.
  */
-async function tryQqDetail(url: string, signal: AbortSignal): Promise<QQDetailItem | null> {
+async function tryQqDetail(url: string, signal: AbortSignal): Promise<QQDetailItem | null | 'rate-limited'> {
 	try {
 		// 32-D-12 / research Q4 — this init must stay `{ signal }` and nothing else. Adding a header
 		// turns the direct GET into a preflighted request (measured 1.016s, which would hand back
@@ -201,7 +222,12 @@ async function tryQqDetail(url: string, signal: AbortSignal): Promise<QQDetailIt
 		// request hard-fails CORS — and it does send Set-Cookie, which is exactly the thing that
 		// invites someone to "fix" it that way.
 		const res = await apiFetch(url, { signal });
-		const d = (await res.json()) as QQDetailItem | null;
+		const text = await res.text();
+		// quick-260930-x3q: matched as a SUBSTRING of the raw text, not a parsed field — the limited
+		// reply's shape is not pinned down, and a substring is shape-agnostic. It only ever becomes a
+		// typed throw in resolve (detailsLoaded stays false, nothing is cached).
+		if (text.includes(RATE_LIMIT_MARK) || RATE_LIMIT_MARK_ESCAPED.test(text)) return 'rate-limited';
+		const d = JSON.parse(text) as QQDetailItem | null;
 		return d && typeof d === 'object' && d.song_mid ? d : null;
 	} catch {
 		// Network error, timeout, open circuit, caller-abort, or a non-JSON 200 (`mid=` empty
@@ -231,20 +257,27 @@ async function tryQqDetail(url: string, signal: AbortSignal): Promise<QQDetailIt
  * accepted — `<audio src>` already points straight at isure6.stream.qqmusic.qq.com on every play,
  * so this adds a hostname, not a new category of exposure.
  */
-async function fetchQqDetail(mid: string, signal: AbortSignal): Promise<QQDetailItem | null> {
+async function fetchQqDetail(
+	mid: string,
+	signal: AbortSignal
+): Promise<QQDetailItem | null | 'rate-limited'> {
 	// The upstream URL is built by the PROXY adapter so the tang host lives in exactly one place
 	// (proxy/qq.ts) — a pure buildUrl call, the same client→proxy direction resolve-edge.ts uses.
 	// `mid` is encoded by URLSearchParams/URL here (T-32-15) rather than by hand, which is the
 	// same guarantee without the double-encoding risk of doing both.
 	const direct = qqProxy.buildUrl('detail', new URLSearchParams({ mid }), undefined);
 	const fromDirect = await tryQqDetail(direct, signal);
-	if (fromDirect) return fromDirect;
+	if (fromDirect && fromDirect !== 'rate-limited') return fromDirect;
 
 	// Superseded mid-flight → do not spend a second hop on a result nobody wants.
 	if (signal.aborted) return null;
 
-	// ONE fallback hop, same params through our own proxy (encodeURIComponent — V5 ingress).
-	return tryQqDetail(`/api/qq/detail?type=json&mid=${encodeURIComponent(mid)}`, signal);
+	// ONE fallback hop, same params through our own proxy (encodeURIComponent — V5 ingress). A
+	// rate-limited direct answer still takes it: in prod it leaves from the edge IP, a different
+	// limiter bucket (quick-260930-x3q).
+	const fromProxy = await tryQqDetail(`/api/qq/detail?type=json&mid=${encodeURIComponent(mid)}`, signal);
+	if (fromProxy && fromProxy !== 'rate-limited') return fromProxy;
+	return fromDirect === 'rate-limited' || fromProxy === 'rate-limited' ? 'rate-limited' : null;
 }
 
 export const qq: SourceAdapter = {
@@ -336,6 +369,7 @@ export const qq: SourceAdapter = {
 			// throw — and crucially we do NOT reach the detailsLoaded=true line below. The upstream
 			// answers 200 with an ALL-NULL body for an unknown mid (and `vip` is populated even
 			// then), so `song_mid` is the only reliable liveness discriminator — never res.ok.
+			if (d === 'rate-limited') throw new QqRateLimitedError('qq detail rate-limited (请求过于频繁)');
 			if (!d || typeof d !== 'object' || !d.song_mid) {
 				throw new Error('qq detail error (invalid response)');
 			}
