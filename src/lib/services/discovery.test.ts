@@ -11,6 +11,7 @@ import {
 } from './discovery';
 import * as catalog from './catalog';
 import * as nameRescue from './name-rescue';
+import { warmScript } from './zh-convert';
 import { makeUid, type SourceId, type Track } from '$lib/sources/types';
 
 // resolveStub (Phase 9, D-03) is the LOAD-BEARING transform: a Last.fm {artist,title}
@@ -654,5 +655,26 @@ describe('curated discovery sets', () => {
 		// Names, not codes: 'United States' (not 'US'), so no 2-letter entries.
 		expect(DISCOVERY_COUNTRIES).toContain('United States');
 		expect(DISCOVERY_COUNTRIES.every((c) => c.length > 2)).toBe(true);
+	});
+});
+
+// debug album-zip-duplicate-songs — the live 陳奕迅 "rice & shine" case. For a Traditional stub the
+// searchAll rows carry the right song in qq/netease (Simplified) AND joox (Traditional) plus joox's
+// junk artist-popular rows (明年今日/富士山下). With the t2s dict warm, dedupeBest merges the Trad joox
+// row with the Simplified qq row (qq wins by SOURCE_RANK); scoreMatch then had to score that
+// Simplified survivor 0 against the Traditional query, so the junk row (4) won and six different
+// album tracks resolved to the same joox 明年今日. One searchAll: the right row is already there.
+describe('resolveStub — Traditional stub vs Simplified rows (debug album-zip-duplicate-songs)', () => {
+	it('resolves the Simplified qq row, never the junk same-artist Traditional row; searchAll 1', async () => {
+		await warmScript('zh-Hans');
+		const junk = mk('joox', 'ZD7DF66B0C90DD', '陳奕迅', { title: '明年今日' });
+		const right = mk('qq', 'right', '陈奕迅', { title: '愚人快乐' });
+		const rightTrad = mk('joox', 'rightTrad', '陳奕迅', { title: '愚人快樂' });
+		const search = vi
+			.spyOn(catalog, 'searchAll')
+			.mockResolvedValue(result([junk, mk('joox', 'f', '陳奕迅', { title: '富士山下' }), right, rightTrad]));
+
+		expect((await resolveStub('陳奕迅', '愚人快樂'))?.uid).toBe(right.uid);
+		expect(search).toHaveBeenCalledTimes(1);
 	});
 });

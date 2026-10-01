@@ -78,8 +78,12 @@ function isQualifierTail(tail: string): boolean {
  * PER CHARACTER, not per line: the t2s phrase table also swaps regional VOCABULARY
  * (緊急聯絡人 → 紧急联系人, 國際孤獨等級 → 国际孤独级别), which is a different title, not a
  * spelling fold — one char at a time can only hit the char table, so it maps script alone.
+ *
+ * Exported (debug album-zip-duplicate-songs) so score-match.ts folds with the SAME function key()
+ * uses: ranking and identity must agree on script, or a merged group's Simplified survivor scores
+ * 0 against a Traditional query and loses to junk.
  */
-function foldScript(s: string): string {
+export function foldScript(s: string): string {
 	if (!HAN.test(s)) return s; // Latin-only never touches the converter (no dict download)
 	let out = '';
 	for (const c of s) {

@@ -8,6 +8,7 @@ import {
 	ARTIST_FREQ_BOOST
 } from './score-match';
 import { computeSetContext } from './score-context';
+import { warmScript } from './zh-convert';
 import { makeUid, type SourceId, type Track } from '$lib/sources/types';
 
 // scoreMatch (Phase 10, LFSRC-03 / D-02) is the PURE re-ranking term Task 2 wires into
@@ -332,5 +333,26 @@ describe('scoreMatch — determinism + numeric safety', () => {
 		expect(typeof a).toBe('number');
 		expect(Number.isNaN(a)).toBe(false);
 		expect(a).not.toBeNull();
+	});
+});
+
+// debug album-zip-duplicate-songs: ranking must agree with the identity dedupe applies. dedupeBest's
+// key() folds Traditional→Simplified (quick-260926-n0r), so for a Traditional stub the group survivor
+// is usually the Simplified qq/netease row — which a script-blind scoreMatch scored 0, letting a junk
+// same-artist Traditional row (artist match 3 + token 1 = 4) win and 6 album tracks resolve to one
+// joox 明年今日. The t2s dict is warmed explicitly: cold, the fold degrades to identity (unchanged).
+describe('scoreMatch — Traditional/Simplified script fold (debug album-zip-duplicate-songs)', () => {
+	it('LIVE CASE: a Simplified exact row beats a junk same-artist Traditional row for a Traditional query', async () => {
+		await warmScript('zh-Hans');
+		const query = { artist: '陳奕迅', title: '愚人快樂' };
+		const right = mk('qq', 'r', '陈奕迅', { title: '愚人快乐' });
+		const junk = mk('joox', 'j', '陳奕迅', { title: '明年今日' });
+		expect(scoreMatch(query, right)).toBe(10);
+		expect(scoreMatch(query, right)).toBeGreaterThan(scoreMatch(query, junk));
+	});
+
+	it('a Traditional candidate still scores exact against a Simplified query (symmetric)', async () => {
+		await warmScript('zh-Hans');
+		expect(scoreMatch({ artist: '陈奕迅', title: '对面' }, mk('joox', 't', '陳奕迅', { title: '對面' }))).toBe(10);
 	});
 });

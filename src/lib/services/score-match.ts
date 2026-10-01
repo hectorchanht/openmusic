@@ -7,13 +7,14 @@
 // candidates so a CLEAN title outranks a variant of the same song, while a candidate whose
 // normalized artist+title (via matchKey) matches the query closely outranks a loose one.
 //
-// PURE + import-light (only matchKey + the Track type): no $state, no $app/*, no I/O,
+// PURE + import-light (matchKey, dedupe's foldScript + the Track type): no $state, no $app/*, no I/O,
 // no source/quality/preferredSource logic (that is dedupeBest's job — Task 2 keeps it as
 // the final tie-break). node-Vitest-testable like match-key.ts / dedupe.ts.
 //
 // Score = similarity(query, candidate) − variantPenalty(query, candidate). Higher = better.
 // It NEVER returns null/NaN and NEVER applies a threshold (D-03 — scoring only re-orders).
 import { matchKey } from '$lib/services/match-key';
+import { foldScript } from '$lib/services/dedupe';
 import type { Track } from '$lib/sources/types';
 import type { SetContext } from '$lib/services/score-context';
 
@@ -111,8 +112,14 @@ function tokens(component: string): string[] {
  * unrelated one. Deterministic, never negative.
  */
 function similarity(query: { artist: string; title: string }, candidate: Track): number {
-	const qKey = matchKey(query.artist, query.title);
-	const cKey = matchKey(candidate.artist, candidate.title);
+	// debug album-zip-duplicate-songs: fold BOTH sides Traditional→Simplified before keying. dedupeBest's
+	// key() has folded since quick-260926-n0r, so for a Traditional stub (MusicBrainz album rows) the
+	// merged group's survivor is the Simplified qq/netease row — which this script-blind compare scored
+	// 0 while a junk same-artist Traditional row (joox's artist-popular filler) scored 4 and won: six
+	// different album tracks resolved to one joox 明年今日. Same per-char fold as key(), so ranking and
+	// identity agree; cold dict → identity (the pre-fix numbers), warm → script-insensitive.
+	const qKey = matchKey(foldScript(query.artist), foldScript(query.title));
+	const cKey = matchKey(foldScript(candidate.artist), foldScript(candidate.title));
 	if (qKey === cKey) return SIM_EXACT;
 
 	const [qArtist, qTitle] = qKey.split('|');

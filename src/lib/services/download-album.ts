@@ -83,6 +83,11 @@ export async function downloadAlbum(
 		const used = new Set<string>();
 		const addEntry = (filename: string, blob: Blob) =>
 			entries.push({ name: `${folder}/${uniqueName(filename, used)}`, blob });
+		// debug album-zip-duplicate-songs: one audio identity, one entry. Six album stubs once resolved to
+		// the SAME joox row (a script-blind scoreMatch, fixed at its root), and the zip held eight identical
+		// 明年今日 files. The resolver can never be trusted to make an album's uids distinct, so a uid that
+		// already produced an entry (or a native move) is skipped here — it counts as not saved.
+		const seenUids = new Set<string>();
 
 		for (const [i, tr] of tracks.entries()) {
 			try {
@@ -90,6 +95,8 @@ export async function downloadAlbum(
 			} catch {
 				// a broken progress callback must not abort the album (36-D-19).
 			}
+			if (seenUids.has(tr.uid)) continue;
+			seenUids.add(tr.uid);
 			try {
 				const held = library.downloads.find((d) => d.uid === tr.uid || sameSongKey(d, tr));
 				if (held && (await blobStore.has(held.uid))) {

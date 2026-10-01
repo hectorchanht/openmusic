@@ -298,3 +298,25 @@ describe('downloadAlbum — failure isolation (40-D-06)', () => {
 		expect(buildZipSpy).not.toHaveBeenCalled();
 	});
 });
+
+// debug album-zip-duplicate-songs: six album stubs once resolved to ONE joox row, and the zip held
+// eight identical 20 MB 明年今日 files. The resolver is fixed upstream (score-match fold); this guard is
+// the album flow's own promise — one audio identity, one entry — so a future resolver slip can never
+// again fill a zip or an album folder with copies of one song.
+describe('downloadAlbum — identical audio identity is saved once (debug album-zip-duplicate-songs)', () => {
+	it('web: a uid that already produced an entry is skipped, not zipped again', async () => {
+		const dup = mk(1, { title: 'Song2' });
+		const res = await downloadAlbum([mk(1), dup, mk(3)], META);
+		expect(res).toEqual({ saved: 2, total: 3 });
+		expect(mocks.downloadTrack).toHaveBeenCalledTimes(2);
+		const entries = buildZipSpy.mock.calls[0][0] as zipStore.ZipEntry[];
+		expect(entries.map((e) => e.name)).toEqual(['Artist - Album/Artist - Song1.m4a', 'Artist - Album/Artist - Song3.m4a']);
+	});
+
+	it('native: the duplicate uid is not downloaded a second time either', async () => {
+		mocks.native = true;
+		const res = await downloadAlbum([mk(1), mk(1), mk(2)], META);
+		expect(res).toEqual({ saved: 2, total: 3 });
+		expect(mocks.downloadTrack).toHaveBeenCalledTimes(2);
+	});
+});
