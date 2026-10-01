@@ -7,7 +7,7 @@
 	import { page } from '$app/state';
 	import { untrack } from 'svelte';
 	import { fly } from 'svelte/transition';
-	import { Play, Download, ListPlus, Heart, Share2, Plus, X } from '@lucide/svelte';
+	import { Play, Download, ListPlus, Heart, Share2, Plus, X, Shuffle } from '@lucide/svelte';
 	import { player } from '$lib/stores/player.svelte';
 	import { library } from '$lib/stores/library.svelte';
 	import { names } from '$lib/stores/names.svelte';
@@ -27,6 +27,7 @@
 	import { resolveStub } from '$lib/services/discovery';
 	import { nameStub } from '$lib/services/similar';
 	import { sameSongKey } from '$lib/services/dedupe';
+	import { shuffle } from '$lib/services/shuffle';
 	import { downloadAlbum as downloadAlbumTracks } from '$lib/services/download-album';
 	import { enrichAlbum, getAlbumTracklist, type EnrichResult } from '$lib/services/lastfm';
 	import { deezerAlbum, deezerAlbumTracks, type DeezerAlbumInfo } from '$lib/services/deezer';
@@ -315,7 +316,8 @@
 	// ii6: `albumBusy: boolean` → `busyAction: AlbumAction | null`. Each handler sets/clears
 	// only its own id, so an in-flight Download doesn't disable Like — only THIS button
 	// re-fires are suppressed (double-fire protection retained). Other buttons stay live.
-	type AlbumAction = 'play' | 'download' | 'like' | 'addToPlaylist' | 'share';
+	// quick-260930-uy0: 'shuffle' so the Shuffle-play button greys out only itself.
+	type AlbumAction = 'play' | 'shuffle' | 'download' | 'like' | 'addToPlaylist' | 'share';
 	let busyAction = $state<AlbumAction | null>(null);
 	let pickerOpen = $state(false);
 
@@ -391,24 +393,39 @@
 	// queueWithAnchor finds it by UID. Without that the anchor falls through to the sameSongKey path,
 	// which has to match the album tracklist's metadata against the source's — and on a miss it
 	// front-splices current AND leaves that track's own stub in the list as a duplicate.
-	function albumQueue(at = -1, real: Track | null = null): Track[] {
-		return tracks
+	// quick-260930-uy0: `list` defaults to the album order; Shuffle passes its shuffled copy.
+	function albumQueue(at = -1, real: Track | null = null, list: AlbumStub[] = tracks): Track[] {
+		return list
 			.map((s, i) => (i === at && real ? real : nameStub(s.artist, s.title)))
 			.filter((tr): tr is Track => tr !== null);
 	}
 
 	// Play the whole album: play track 1 instantly (optimistic now-bar) and install the rest of the
 	// album as Up Next in the same tick, in album order, so it plays straight through.
-	async function playAlbum() {
-		if (!tracks.length || busyAction === 'play') return;
-		busyAction = 'play';
+	// quick-260930-uy0: the body is shared with Shuffle via startAlbum(list) — Play passes the album
+	// order, Shuffle a shuffled copy; everything else (sameList, album art, anchor) is identical.
+	function playAlbum() {
+		return startAlbum(tracks, 'play');
+	}
+
+	// quick-260930-uy0: play the album shuffled — a shuffled COPY of the tracklist, the same precedent
+	// as the library tab's `shuffleAll` (quick-260915-vb9). NOT player.toggleShuffle(): that only
+	// reorders the tail after current and is a no-op when shuffle is already on, so the result would
+	// depend on prior state.
+	function shuffleAlbum() {
+		return startAlbum(shuffle(tracks), 'shuffle');
+	}
+
+	async function startAlbum(list: AlbumStub[], action: 'play' | 'shuffle') {
+		if (!list.length || busyAction === action) return;
+		busyAction = action;
 		try {
 			// quick-260919-alb: `sameList` (quick-260915-vb9) — pressing Play ON a list is an explicit
 			// "this list IS my Up Next", so the fresh-play tail must not regenerate over the install
 			// below. It matters only for a user who overrode album -> generated (UPNEXT_DEFAULTS pins
 			// album to 'same-list'): the old code's regenerate was discarded by the ~10s install's
 			// queueGen bump, and installing in the same tick instead would have let regenerate win.
-			const first = await player.playStub(tracks[0].artist, tracks[0].title, heroImg, 'album', {
+			const first = await player.playStub(list[0].artist, list[0].title, heroImg, 'album', {
 				sameList: true
 			});
 			if (!first) {
@@ -428,7 +445,7 @@
 			// thumbnail). quick-260919-alb: `heroImg` is now read at TAP time rather than ~10s later, so
 			// an enrich still in flight leaves the queue carrying no album art (accepted — the enrich
 			// effect fires on mount, long before a tap, and the optimistic now-bar reads the same value).
-			player.setListQueue(albumQueue(0, first), 'album', heroImg);
+			player.setListQueue(albumQueue(0, first, list), 'album', heroImg);
 		} finally {
 			busyAction = null;
 		}
@@ -696,9 +713,11 @@
 		<button class="act" aria-label={albumLiked ? t('menu.liked') : t('menu.like')} disabled={busyAction === 'like'} onclick={likeAlbum} use:tapBounce><Heart size={20} fill={albumLiked ? 'currentColor' : 'none'} /></button>
 		<button class="act" aria-label={t('menu.addToPlaylist')} disabled={busyAction === 'addToPlaylist'} onclick={() => (pickerOpen = true)} use:tapBounce><ListPlus size={20} /></button>
 		<button class="act play" aria-label={t('nowplaying.playPause')} disabled={busyAction === 'play'} onclick={playAlbum} use:tapBounce><Play size={20} /></button>
-			<!-- quick-260919-alb: append the whole album to the end of the queue. ListEnd is the same icon
-			     the row swipe-right (add-to-queue) reveal uses, so the two surfaces read as one action. -->
-			<button class="act" aria-label={t('menu.addToQueue')} onclick={queueAlbum} use:tapBounce><ListEnd size={20} /></button>
+		<!-- quick-260930-uy0: Shuffle-play right of Play balances the row 3 | PLAY | 3. -->
+		<button class="act" aria-label={t('nowplaying.shuffle')} disabled={busyAction === 'shuffle'} onclick={shuffleAlbum} use:tapBounce><Shuffle size={20} /></button>
+		<!-- quick-260919-alb: append the whole album to the end of the queue. ListEnd is the same icon
+		     the row swipe-right (add-to-queue) reveal uses, so the two surfaces read as one action. -->
+		<button class="act" aria-label={t('menu.addToQueue')} onclick={queueAlbum} use:tapBounce><ListEnd size={20} /></button>
 		<button class="act" aria-label={t('menu.share')} disabled={busyAction === 'share'} onclick={shareAlbum} use:tapBounce><Share2 size={20} /></button>
 	</div>
 	<ul class="list">
@@ -825,7 +844,9 @@
 	.meta .sk-rsub { display: block; width: 45%; height: 11px; }
 
 	/* ---- album-level action toolbar (between hero + tracklist) ---- */
-	.album-actions { display: flex; align-items: center; justify-content: center; gap: 16px; margin: 2px 0 20px; }
+	/* quick-260930-uy0: 7 buttons = 260px + 6 gaps; 16px gaps overflow a 343px (375px) content box,
+	   12px fits. clamp keeps 16px from ~500px up. */
+	.album-actions { display: flex; align-items: center; justify-content: center; gap: clamp(12px, 3.2vw, 16px); margin: 2px 0 20px; }
 	.act { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; background: var(--color-surface-2); border: 1px solid transparent; color: var(--color-text); cursor: pointer; transition: background 0.15s, transform 0.1s; }
 	.act:hover { background: var(--color-surface); }
 	/* MENU-03 / D-12: hover-capable devices only — avoids the held-finger latch on touch
