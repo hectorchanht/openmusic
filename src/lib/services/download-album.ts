@@ -31,18 +31,23 @@
 //     slow resolve or one slow CDN body no longer holds a slot the rest of the album needs (the old
 //     single 3-wide pool took 155 s for 10 songs, mostly a 1-busy tail). Stage 1 shares the apiFetch
 //     governor (MAX_CONCURRENT_REQUESTS=8, api fetch-flood-freeze) with playback; stage 2 is raw CDN
-//     fetches outside that governor. Resolve GRANTS also start RESOLVE_SPACING_MS apart: the qq detail
-//     host (tang, called direct from the listener's IP) rate-limits like a token bucket — a burst of
-//     ~7, then ~1 call per 3 s — and answers `请求过于频繁` (no url → 'no-audio'). Measured: an
-//     unpaced album fired 11 detail calls in 4 s, the last 4 limited (songs 8-10 lost, and the
-//     user's own mid-download playback resolve with them); 16 calls ~1.8 s apart stayed clean. The
-//     old pool never hit it because each worker's ~50 s body spaced its resolves out. Pacing at the
-//     refill rate keeps the bucket's burst free for playback; the bodies still run 8-wide.
+//     fetches outside that governor.
 //     Rows show the busy ring from the moment the album starts (queued is busy); the progress fraction
 //     appears once bytes flow (`setDownloadProgress`).
 //
-// ponytail: one global resolve pace for every source because tang is the hot one; pace per host if
-// another source needs a different rate. 8 lossless bodies can sit in heap at once (~400 MB worst case); lower TRANSFER_POOL or
+//   quick-260930-x3q: the qq detail host (tang, called direct from the listener's IP) rate-limits like
+//     a token bucket — a burst of ~7, then ~1 call per 3 s — and answers `请求过于频繁`. Measured: an
+//     unpaced album fired 11 detail calls in 4 s and the last 4 were limited; 16 calls ~1.8 s apart
+//     stayed clean. That used to be handled by spacing EVERY resolve grant 3.5 s apart, which slowed
+//     an unlimited album for nothing. Now it is adaptive: resolves run at full speed (RESOLVE_POOL
+//     only), and a song whose resolve comes back 'rate-limited' (or 'no-audio') first tries another
+//     non-ytmusic source at the download tier (`downloadFromDonor`, the same donor walk the ytmusic
+//     path uses). Only a STILL-rate-limited song backs off (RETRY_BACKOFF_MS — 3 s first, the
+//     measured refill interval) and retries. A 'no-audio' song is not retried: it simply has no audio.
+//     The sleeps sit outside both gates, so a sleeping song holds no slot.
+//
+// ponytail: 3 retries max, one donor pass; add per-host backoff state if a second limited host
+// appears. 8 lossless bodies can sit in heap at once (~400 MB worst case); lower TRANSFER_POOL or
 // stream to IndexedDB if that bites.
 
 import type { Track } from '$lib/sources/types';
@@ -51,7 +56,7 @@ import { library } from '$lib/stores/library.svelte';
 import { names } from '$lib/stores/names.svelte';
 import { blobStore } from '$lib/services/blob-store';
 import { saveBlobToDisk } from '$lib/services/download-save';
-import { downloadTrack, type StageGate } from '$lib/services/download-track';
+import { downloadFromDonor, downloadTrack, type StageGate } from '$lib/services/download-track';
 import { sameSongKey } from '$lib/services/dedupe';
 import { buildZip, type ZipEntry } from '$lib/services/zip-store';
 import {
@@ -63,33 +68,24 @@ import {
 } from '$lib/services/download-filename';
 
 const RESOLVE_POOL = 3;
-const RESOLVE_SPACING_MS = 3500;
 const TRANSFER_POOL = 8;
+const RETRY_BACKOFF_MS = [3000, 6000, 12000];
 
-/**
- * A FIFO semaphore of `n` slots whose grants start at least `spacingMs` apart. Each grant's release
- * is idempotent so a double call cannot leak a slot.
- */
-function gate(n: number, spacingMs = 0): StageGate {
+/** A FIFO semaphore of `n` slots. Each grant's release is idempotent so a double call cannot leak a slot. */
+function gate(n: number): StageGate {
 	let free = n;
-	let nextAt = 0;
 	const waiting: (() => void)[] = [];
 	return () =>
 		new Promise((grant) => {
 			const go = () => {
 				let done = false;
-				const release = () => {
+				grant(() => {
 					if (done) return;
 					done = true;
 					const next = waiting.shift();
 					if (next) next();
 					else free++;
-				};
-				const now = Date.now();
-				const wait = Math.max(0, nextAt - now);
-				nextAt = now + wait + spacingMs;
-				if (wait) setTimeout(() => grant(release), wait);
-				else grant(release);
+				});
 			};
 			if (free > 0) {
 				free--;
@@ -145,7 +141,7 @@ export async function downloadAlbum(
 		// quick-260930-uia: one slot per album position, filled as songs complete in any order, then
 		// zipped in index order so `uniqueName`'s `(2)` suffixing stays deterministic in album order.
 		const slots: ({ filename: string; blob: Blob } | null)[] = new Array(total).fill(null);
-		const stages = { resolve: gate(RESOLVE_POOL, RESOLVE_SPACING_MS), transfer: gate(TRANSFER_POOL) };
+		const stages = { resolve: gate(RESOLVE_POOL), transfer: gate(TRANSFER_POOL) };
 
 		const one = async (i: number, tr: Track) => {
 			// Claimed SYNCHRONOUSLY before any await, so two songs can never both take one uid — and
@@ -177,15 +173,33 @@ export async function downloadAlbum(
 				// interleaved MULTI-SOURCE search ordering, not a position on a record.
 				// `meta.artist || undefined` because the album artist is '' on a deep link, and undefined
 				// lets downloadTrack fall back to the track's own artist (D-12's grouping default).
-				const res = await downloadTrack(tr, {
+				// One options object for the first try, the donor pass and every retry.
+				const dl = {
 					persist: true,
 					save: false,
 					trackNumber: String(i + 1),
 					albumArtist: meta.artist || undefined,
 					...(native && dir ? { dir } : {}),
-					onSaved: native ? undefined : (uid, filename, blob) => (got = { uid, filename, blob }),
+					onSaved: native
+						? undefined
+						: (uid: string, filename: string, blob: Blob) => (got = { uid, filename, blob }),
 					stages
-				});
+				};
+				let res = await downloadTrack(tr, dl);
+				// quick-260930-x3q: donor first (another non-ytmusic source at the download tier), then a
+				// bounded backoff retry for a song that is still rate-limited. See the header.
+				const limited = res === 'rate-limited';
+				if (limited || res === 'no-audio') {
+					res = await downloadFromDonor(tr, dl, { exclude: [tr.source], requireTier: true });
+				}
+				if (limited) {
+					for (const ms of RETRY_BACKOFF_MS) {
+						if (res === 'saved' || res === 'failed') break;
+						await new Promise((r) => setTimeout(r, ms));
+						res = await downloadTrack(tr, dl);
+						if (res !== 'rate-limited') break;
+					}
+				}
 				if (res !== 'saved') return;
 				if (native) {
 					saved++;

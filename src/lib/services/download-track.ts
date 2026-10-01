@@ -43,10 +43,15 @@ import { albumTag, tagAudioBlob } from '$lib/services/audio-tags';
 import { resolveArtworkDataUrl } from '$lib/services/media-artwork';
 import { logAction } from '$lib/stores/actionLog.svelte';
 import { fetchVariants, versionsIncludingOwn } from '$lib/services/variants';
-import { probeDownload } from '$lib/services/download-probe';
+import { probeDownload, type DownloadProbe } from '$lib/services/download-probe';
+import { isQqRateLimited } from '$lib/sources/qq';
 
-/** 'saved' = blob fetched + saved to disk; 'no-audio' = nothing to download; 'failed' = fetch/save error. */
-export type DownloadResult = 'saved' | 'no-audio' | 'failed';
+/**
+ * 'saved' = blob fetched + saved to disk; 'no-audio' = nothing to download; 'failed' = fetch/save
+ * error; 'rate-limited' (quick-260930-x3q) = the resolve hit qq's 请求过于频繁 limiter, so the album
+ * loop can try a donor and back off instead of writing the song off as audio-less.
+ */
+export type DownloadResult = 'saved' | 'no-audio' | 'failed' | 'rate-limited';
 
 const YTMUSIC = 'ytmusic';
 
@@ -138,6 +143,7 @@ async function downloadOne(track: Track, opts?: DownloadOpts): Promise<DownloadR
 	// the `finally` so EVERY exit (saved / no-audio / failed / any throw) clears the spinner exactly once.
 	library.beginDownload(track.uid);
 	let release: (() => void) | undefined;
+	let rateLimited = false;
 	try {
 		let r: Track;
 		// D-18: READ-ONLY snapshot of the playing track. We never write back to player.current.
@@ -192,7 +198,10 @@ async function downloadOne(track: Track, opts?: DownloadOpts): Promise<DownloadR
 				{ ...track, detailsLoaded: false, audioUrl: null, lrc: null },
 				undefined,
 				settings.downloadQuality
-			).catch(() => track);
+			).catch((e: unknown) => {
+				rateLimited = isQqRateLimited(e);
+				return track;
+			});
 			release?.();
 			release = undefined;
 		}
@@ -200,7 +209,7 @@ async function downloadOne(track: Track, opts?: DownloadOpts): Promise<DownloadR
 		// Runs BEFORE the fetch so a later fetch/save failure still leaves the song in the list (it
 		// re-streams on tap) — this is what makes DL-BUG-01's "keep in library" guarantee hold.
 		library.addDownload(r);
-		if (!r.audioUrl) return 'no-audio';
+		if (!r.audioUrl) return rateLimited ? 'rate-limited' : 'no-audio';
 
 		// RAW fetch (not apiFetch — fetch→apiFetch audit): a MEDIA download-to-blob of the resolved
 		// audio stream. audioUrl is often an ABSOLUTE CDN URL (qq/kuwo/joox) — apiFetch would corrupt it —
@@ -382,38 +391,59 @@ async function withGate<T>(gate: StageGate | undefined, work: () => Promise<T>):
 }
 
 /**
- * Download ONE song (see `downloadOne` for the full contract — same signature, same sentinels).
- *
- * quick-260930-uia: a ytmusic song is NEVER resolved or fetched as ytmusic. Its audio comes from
- * another source — the "Download from…" contract (quick-260916-0d9 `audioFrom`): the donor's resolved
- * audio saved under THIS song's identity. Donors come from the picker's own lookup (fetchVariants +
- * versionsIncludingOwn, one row per source, ytmusic rows dropped) and are resolved through the
- * picker's probeDownload, one at a time. No donor → 'no-audio'; every donor failed → 'failed'. Moved
- * here from the album loop (40-03) so the single, picker, album and background-repair paths all
- * inherit it. Every non-ytmusic caller goes straight to `downloadOne` — zero behaviour change.
- * Cross-source fallback and resolveNameStub already exclude ytmusic (isAutoResolveEligible), so a
- * resolve can only land on ytmusic when the track itself is ytmusic — which never resolves here.
+ * The donor walk (quick-260930-uia, shared since quick-260930-x3q): one `fetchVariants` lookup,
+ * `versionsIncludingOwn` order (one row per source), ytmusic and `exclude`d sources dropped, then each
+ * row probed at the DOWNLOAD tier one at a time, yielding only probes that found audio. Sequential by
+ * construction — one probe in flight. Never throws: any failure just ends the walk.
  */
-export async function downloadTrack(track: Track, opts?: DownloadOpts): Promise<DownloadResult> {
-	if (canDownloadFrom(track.source)) return downloadOne(track, opts);
+export async function* donorProbes(
+	track: Track,
+	o: { signal?: AbortSignal; gate?: StageGate; exclude?: SourceId[] } = {}
+): AsyncGenerator<DownloadProbe> {
+	const exclude = o.exclude ?? [];
+	try {
+		const variants = await withGate(o.gate, () => fetchVariants(track, o.signal));
+		const donors = versionsIncludingOwn(track, variants).filter(
+			(v) => canDownloadFrom(v.source) && !exclude.includes(v.source)
+		);
+		for (const donor of donors) {
+			if (o.signal?.aborted) return;
+			const p = await withGate(o.gate, () => probeDownload(donor, o.signal));
+			if (p.track?.audioUrl) yield p;
+		}
+	} catch {
+		// never-throws: a failed lookup or probe ends the walk.
+	}
+}
+
+/**
+ * Save THIS song with another source's audio (`audioFrom`, quick-260916-0d9) — the ytmusic download
+ * path, and since quick-260930-x3q the album loop's fallback for a rate-limited / audio-less song.
+ * `exclude` drops sources already tried; `requireTier` skips a donor below `settings.downloadQuality`
+ * (`currentQualityMeets` is the one definition of "meets the tier"). No donor → 'no-audio'; every
+ * donor failed → 'failed'. D-17 never-throws.
+ */
+export async function downloadFromDonor(
+	track: Track,
+	opts?: DownloadOpts,
+	o: { exclude?: SourceId[]; requireTier?: boolean } = {}
+): Promise<DownloadResult> {
 	try {
 		// DL-STATE-01: the row ring spins through the donor lookup too.
 		library.beginDownload(track.uid);
 		try {
 			// quick-260930-vjp: the donor lookup + each probe is resolve-stage work; released before
 			// downloadOne takes its transfer slot.
-			const variants = await withGate(opts?.stages?.resolve, () => fetchVariants(track));
-			const donors = versionsIncludingOwn(track, variants).filter((v) => canDownloadFrom(v.source));
 			let failed = false;
-			for (const donor of donors) {
-				// downloadOne's `finally` cleared the spinner after the previous donor; re-arm it
-				// (idempotent Set add) so the ring keeps spinning through this donor's probe.
-				library.beginDownload(track.uid);
-				const p = await withGate(opts?.stages?.resolve, () => probeDownload(donor));
-				if (!p.track?.audioUrl) continue;
+			for await (const p of donorProbes(track, { gate: opts?.stages?.resolve, exclude: o.exclude })) {
+				if (!p.track) continue;
+				if (o.requireTier && !currentQualityMeets(p.track.quality, settings.downloadQuality)) continue;
 				const res = await downloadOne(track, { ...opts, audioFrom: p.track });
 				if (res === 'saved') return 'saved';
 				if (res === 'failed') failed = true;
+				// downloadOne's `finally` cleared the spinner; re-arm it (idempotent Set add) so the ring
+				// keeps spinning through the next donor's probe.
+				library.beginDownload(track.uid);
 			}
 			return failed ? 'failed' : 'no-audio';
 		} finally {
@@ -423,4 +453,30 @@ export async function downloadTrack(track: Track, opts?: DownloadOpts): Promise<
 		// D-17 NEVER-THROWS.
 		return 'failed';
 	}
+}
+
+/**
+ * What a Download label should describe: the song's own download-tier probe, or for a ytmusic song
+ * the FIRST donor `downloadTrack` would use (same walk, same `uid|downloadQuality` memo) — so the file
+ * the tap saves is the file the label described. No donor → the all-null probe (plain "Download").
+ */
+export async function probeForDownload(track: Track, signal?: AbortSignal): Promise<DownloadProbe> {
+	if (canDownloadFrom(track.source)) return probeDownload(track, signal);
+	for await (const p of donorProbes(track, { signal })) return p;
+	return { container: null, qualityLabel: null, bytes: null, track: null };
+}
+
+/**
+ * Download ONE song (see `downloadOne` for the full contract — same signature, same sentinels).
+ *
+ * quick-260930-uia: a ytmusic song is NEVER resolved or fetched as ytmusic. Its audio comes from
+ * another source via `downloadFromDonor` — the "Download from…" contract (quick-260916-0d9
+ * `audioFrom`): the donor's resolved audio saved under THIS song's identity, no source excluded and
+ * no tier filter. Moved here from the album loop (40-03) so the single, picker, album and
+ * background-repair paths all inherit it. Every non-ytmusic caller goes straight to `downloadOne`.
+ * Cross-source fallback and resolveNameStub already exclude ytmusic (isAutoResolveEligible), so a
+ * resolve can only land on ytmusic when the track itself is ytmusic — which never resolves here.
+ */
+export async function downloadTrack(track: Track, opts?: DownloadOpts): Promise<DownloadResult> {
+	return canDownloadFrom(track.source) ? downloadOne(track, opts) : downloadFromDonor(track, opts);
 }
