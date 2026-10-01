@@ -74,6 +74,9 @@ export function currentQualityMeets(curQuality: string | null, want: DefaultQual
 	return (curQuality ?? '').toLowerCase() === 'lossless';
 }
 
+/** quick-260930-vjp: acquire a pipeline slot; resolves with its release fn. */
+export type StageGate = () => Promise<() => void>;
+
 /**
  * Download ONE song: resolve→addDownload→fetch→(persist)→save. Isolation-safe, never-throws,
  * never-navigates. `opts.persist` defaults TRUE; `persist:false` skips `blobStore.put` (no offline
@@ -119,6 +122,12 @@ type DownloadOpts = {
 	audioFrom?: Track;
 	dir?: string;
 	onSaved?: (uid: string, filename: string, blob: Blob) => void;
+	// quick-260930-vjp: two-stage pipeline gates, passed ONLY by the album download. `resolve` brackets
+	// the link lookup (ensureTrackDetails / fetchVariants / probeDownload — apiFetch, shared with
+	// playback); `transfer` brackets the raw audio fetch → tag → persist/save. A resolve slot is always
+	// released before a transfer slot is requested (no hold-and-wait, so the two gates cannot
+	// deadlock), and the transfer slot is released in the `finally`. Omitted = no gating, unchanged.
+	stages?: { resolve: StageGate; transfer: StageGate };
 };
 
 async function downloadOne(track: Track, opts?: DownloadOpts): Promise<DownloadResult> {
@@ -128,6 +137,7 @@ async function downloadOne(track: Track, opts?: DownloadOpts): Promise<DownloadR
 	// DL-STATE-01: bracket the per-uid spinner. beginDownload BEFORE the first await; endDownload in
 	// the `finally` so EVERY exit (saved / no-audio / failed / any throw) clears the spinner exactly once.
 	library.beginDownload(track.uid);
+	let release: (() => void) | undefined;
 	try {
 		let r: Track;
 		// D-18: READ-ONLY snapshot of the playing track. We never write back to player.current.
@@ -177,11 +187,14 @@ async function downloadOne(track: Track, opts?: DownloadOpts): Promise<DownloadR
 			// temporary settings swap that races concurrent playback resolves. Force a fresh resolve by
 			// clearing cached details on a COPY (the caller's queue track is left untouched). `.catch`
 			// degrades a resolve failure to the original stub (never-throws).
+			release = await opts?.stages?.resolve();
 			r = await ensureTrackDetails(
 				{ ...track, detailsLoaded: false, audioUrl: null, lrc: null },
 				undefined,
 				settings.downloadQuality
 			).catch(() => track);
+			release?.();
+			release = undefined;
 		}
 		// Intended download effect: reference the song in the LIBRARY downloads list (NOT player state).
 		// Runs BEFORE the fetch so a later fetch/save failure still leaves the song in the list (it
@@ -198,6 +211,7 @@ async function downloadOne(track: Track, opts?: DownloadOpts): Promise<DownloadR
 		// hands a ytmusic track or a ytmusic `audioFrom` here (see `canDownloadFrom`). Deliberately NOT
 		// routed through CapacitorHttp — it returns binary as base64, the exact memory bloat
 		// capacitor-blob-writer exists to avoid.
+		release = await opts?.stages?.transfer();
 		const resp = await fetch(r.audioUrl);
 		// 40-03 (album E2E): fetch() does not reject on an HTTP error, and the ytmusic stream proxy's
 		// googlevideo 403 has an EMPTY body typed audio/mp4 — so this used to persist + save a 0-byte
@@ -351,8 +365,19 @@ async function downloadOne(track: Track, opts?: DownloadOpts): Promise<DownloadR
 		// toast.downloadFailedKeptInLibrary.
 		return 'failed';
 	} finally {
+		release?.();
 		// DL-STATE-01: clear the per-uid spinner on every exit path.
 		library.endDownload(track.uid);
+	}
+}
+
+/** Run `work` inside one `gate` slot (no gate = run ungated), releasing on every exit. */
+async function withGate<T>(gate: StageGate | undefined, work: () => Promise<T>): Promise<T> {
+	const release = await gate?.();
+	try {
+		return await work();
+	} finally {
+		release?.();
 	}
 }
 
@@ -375,13 +400,16 @@ export async function downloadTrack(track: Track, opts?: DownloadOpts): Promise<
 		// DL-STATE-01: the row ring spins through the donor lookup too.
 		library.beginDownload(track.uid);
 		try {
-			const donors = versionsIncludingOwn(track, await fetchVariants(track)).filter((v) => canDownloadFrom(v.source));
+			// quick-260930-vjp: the donor lookup + each probe is resolve-stage work; released before
+			// downloadOne takes its transfer slot.
+			const variants = await withGate(opts?.stages?.resolve, () => fetchVariants(track));
+			const donors = versionsIncludingOwn(track, variants).filter((v) => canDownloadFrom(v.source));
 			let failed = false;
 			for (const donor of donors) {
 				// downloadOne's `finally` cleared the spinner after the previous donor; re-arm it
 				// (idempotent Set add) so the ring keeps spinning through this donor's probe.
 				library.beginDownload(track.uid);
-				const p = await probeDownload(donor);
+				const p = await withGate(opts?.stages?.resolve, () => probeDownload(donor));
 				if (!p.track?.audioUrl) continue;
 				const res = await downloadOne(track, { ...opts, audioFrom: p.track });
 				if (res === 'saved') return 'saved';
