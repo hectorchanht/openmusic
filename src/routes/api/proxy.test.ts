@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { jooxProxy } from '$lib/proxy/joox';
 import type { Env } from '$lib/proxy/proxy-types';
-import { GET } from './[source]/[...path]/+server';
+import { GET, HEAD } from './[source]/[...path]/+server';
 import { handle } from '../../hooks.server';
 
 // The real JOOX token value (from legacy/index.html:2165) must NEVER appear in any
@@ -347,5 +347,126 @@ describe('hooks.server handle() — single CORS seam for all /api/* (D-02)', () 
 		const res = await handle({ event, resolve: resolveStub } as any);
 		expect(res.headers.get('access-control-allow-origin')).toBeNull();
 		expect(resolveStub).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe('/api/[source]/[...path] — HEAD answers size/type without pulling the body (quick-261001-0hr)', () => {
+	const ORIGIN = 'https://openmusic.lol';
+	function fakeEvent(source: string, path: string, search: Record<string, string>, env?: Env) {
+		const url = new URL(`https://openmusic.lol/api/${source}/${path}`);
+		for (const [k, v] of Object.entries(search)) url.searchParams.set(k, v);
+		return {
+			params: { source, path },
+			url,
+			platform: env ? { env } : undefined,
+			request: new Request(url, { method: 'HEAD', headers: { origin: ORIGIN } })
+		};
+	}
+
+	it('upstream supports HEAD → one HEAD request, headers forwarded, null body', async () => {
+		const methods: (string | undefined)[] = [];
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+				methods.push(init?.method);
+				return new Response(null, {
+					status: 200,
+					headers: { 'content-length': '12345678', 'content-type': 'audio/mpeg', 'accept-ranges': 'bytes' }
+				});
+			})
+		);
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const res = await HEAD(fakeEvent('netease', 'url', { id: '65800' }) as any);
+		expect(res.status).toBe(200);
+		expect(res.body).toBeNull();
+		expect(res.headers.get('content-length')).toBe('12345678');
+		expect(res.headers.get('content-type')).toBe('audio/mpeg');
+		expect(res.headers.get('accept-ranges')).toBe('bytes');
+		expect(res.headers.get('access-control-allow-origin')).toBe(ORIGIN);
+		expect(methods).toEqual(['HEAD']);
+	});
+
+	it('upstream refuses HEAD → Range fallback, size from content-range, body cancelled (never read)', async () => {
+		let cancelled = false;
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+				if (init?.method === 'HEAD') return new Response(null, { status: 405 });
+				expect(new Headers(init?.headers).get('range')).toBe('bytes=0-0');
+				const body = new ReadableStream({
+					pull() {
+						/* never enqueue, never close */
+						return new Promise(() => {});
+					},
+					cancel() {
+						cancelled = true;
+					}
+				});
+				return new Response(body, {
+					status: 206,
+					headers: { 'content-range': 'bytes 0-0/98765', 'content-type': 'audio/flac' }
+				});
+			})
+		);
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const res = await HEAD(fakeEvent('netease', 'url', { id: '1' }) as any);
+		expect(res.status).toBe(200);
+		expect(res.body).toBeNull();
+		expect(res.headers.get('content-length')).toBe('98765');
+		expect(res.headers.get('content-type')).toBe('audio/flac');
+		expect(res.headers.get('accept-ranges')).toBe('bytes');
+		expect(cancelled).toBe(true);
+	});
+
+	it('neither probe yields a size → 200, null body, NO content-length, content-type kept', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+				if (init?.method === 'HEAD') return new Response(null, { status: 405 });
+				return new Response('hello', { status: 200, headers: { 'content-type': 'text/plain' } });
+			})
+		);
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const res = await HEAD(fakeEvent('netease', 'url', { id: '1' }) as any);
+		expect(res.status).toBe(200);
+		expect(res.body).toBeNull();
+		expect(res.headers.get('content-length')).toBeNull();
+		expect(res.headers.get('content-type')).toBe('text/plain');
+	});
+
+	it('shares GET validation: unknown source 404, buildUrl throw 400, no upstream fetch', async () => {
+		const fetchSpy = vi.fn(async () => new Response(null, { status: 200 }));
+		vi.stubGlobal('fetch', fetchSpy);
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const unknown = await HEAD(fakeEvent('nope', 'url', {}) as any);
+		expect(unknown.status).toBe(404);
+		expect(unknown.headers.get('access-control-allow-origin')).toBe(ORIGIN);
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const bad = await HEAD(fakeEvent('netease', 'detail', {}) as any);
+		expect(bad.status).toBe(400);
+		expect(fetchSpy).not.toHaveBeenCalled();
+	});
+
+	it('forwards only the allow-listed headers — a token-bearing upstream header never leaks (T-0hr-01)', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async (input: RequestInfo | URL) =>
+				new Response(null, {
+					status: 200,
+					headers: {
+						'content-length': '1000',
+						'content-type': 'audio/mpeg',
+						'x-upstream-location': String(input)
+					}
+				})
+			)
+		);
+		const res = await HEAD(
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			fakeEvent('joox', 'detail', { msg: 'x', n: '1' }, { JOOX_TOKEN: FAKE_TOKEN }) as any
+		);
+		const headerBlob = JSON.stringify([...res.headers.entries()]);
+		expect(headerBlob).not.toContain(FAKE_TOKEN);
+		expect(res.headers.get('content-length')).toBe('1000');
 	});
 });
