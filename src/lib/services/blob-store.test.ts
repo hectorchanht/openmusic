@@ -80,11 +80,16 @@ const writeInPlace = vi.fn(
 );
 const scanAudio = vi.fn();
 const requestReadAudio = vi.fn();
+// 40-D-05: move an app-owned public row into an album sub-folder.
+const moveInMusic = vi.fn((_opts: { uri: string; subPath: string }) =>
+	Promise.resolve({ uri: 'content://media/external/audio/media/42' })
+);
 vi.mock('./media-store', () => ({
 	MediaStoreSaver: {
 		saveToMusic: (opts: unknown) => saveToMusic(opts as never),
 		writeInPlace: (opts: unknown) => writeInPlace(opts as never),
 		deleteFromMusic: (opts: unknown) => deleteFromMusic(opts as never),
+		moveInMusic: (opts: unknown) => moveInMusic(opts as never),
 		// Phase 34 scan bridge — unused by blob-store, declared so the factory stays complete.
 		scanAudio: (opts: unknown) => scanAudio(opts as never),
 		requestReadAudio: () => requestReadAudio()
@@ -130,7 +135,9 @@ import {
 	getStoredName,
 	setStoredName,
 	overwriteDeviceFile,
-	replayPendingDeviceWrites
+	replayPendingDeviceWrites,
+	getStoredDir,
+	moveToDir
 } from './blob-store';
 
 beforeEach(() => {
@@ -148,6 +155,7 @@ beforeEach(() => {
 	saveToMusic.mockReset().mockResolvedValue({ uri: 'content://media/external/audio/media/42' });
 	deleteFromMusic.mockReset().mockResolvedValue(undefined);
 	writeInPlace.mockReset().mockResolvedValue(undefined);
+	moveInMusic.mockReset().mockResolvedValue({ uri: 'content://media/external/audio/media/42' });
 	installLocalStorageShim();
 });
 
@@ -1144,5 +1152,80 @@ describe('blob-store — replayPendingDeviceWrites (quick-260919-ejm, rungs 9-10
 
 	it('is exported on the blobStore namespace (overwriteDeviceFile only — replay stays a free function)', () => {
 		expect(blobStore.overwriteDeviceFile).toBe(overwriteDeviceFile);
+	});
+});
+
+describe('Phase 40 album dir (D-01/D-02/D-05)', () => {
+	beforeEach(() => isNativePlatform.mockReturnValue(true));
+
+	it('put with opts.dir sends subPath and records the sticky dir', async () => {
+		await put('qq:1', new Blob(['a']), 'A - S.m4a', { dir: 'A/B' });
+		expect(saveToMusic.mock.calls[0][0]).toMatchObject({ fileName: 'A - S.m4a', subPath: 'A/B' });
+		expect(localStorage.getItem('openmusic-blob-dir:qq:1')).toBe('A/B');
+	});
+
+	it('a later dir-less re-put reuses the sticky dir (retag / repair never un-file — Pitfall 1)', async () => {
+		await put('qq:1', new Blob(['a']), 'A - S.m4a', { dir: 'A/B' });
+		await put('qq:1', new Blob(['a']), 'A - S.m4a');
+		expect(saveToMusic).toHaveBeenCalledTimes(2);
+		expect(saveToMusic.mock.calls[1][0]).toMatchObject({ subPath: 'A/B' });
+	});
+
+	it('a dir-less put with no stored dir carries NO subPath key (singles stay flat — D-02)', async () => {
+		await put('qq:2', new Blob(['a']), 'A - S.m4a');
+		expect(saveToMusic.mock.calls[0][0]).not.toHaveProperty('subPath');
+	});
+
+	it('getStoredDir re-sanitizes on read: a tampered value reads as absent', () => {
+		localStorage.setItem('openmusic-blob-dir:qq:3', '../x');
+		expect(getStoredDir('qq:3')).toBeNull();
+		localStorage.setItem('openmusic-blob-dir:qq:3', 'a/b/c');
+		expect(getStoredDir('qq:3')).toBeNull();
+		localStorage.setItem('openmusic-blob-dir:qq:3', '周杰倫/葉惠美');
+		expect(getStoredDir('qq:3')).toBe('周杰倫/葉惠美');
+	});
+
+	it('del clears the dir index', async () => {
+		localStorage.setItem('openmusic-blob-dir:qq:4', 'A/B');
+		await del('qq:4');
+		expect(localStorage.getItem('openmusic-blob-dir:qq:4')).toBeNull();
+	});
+
+	it('moveToDir refuses a device uid without touching the bridge', async () => {
+		await expect(moveToDir('device:123', 'A/B')).resolves.toBe(false);
+		expect(moveInMusic).not.toHaveBeenCalled();
+	});
+
+	it('moveToDir with no stored URI resolves false (nothing public to move)', async () => {
+		await expect(moveToDir('qq:5', 'A/B')).resolves.toBe(false);
+		expect(moveInMusic).not.toHaveBeenCalled();
+	});
+
+	it('moveToDir moves, then stores the RETURNED uri and the dir', async () => {
+		localStorage.setItem('openmusic-blob-uri:qq:6', 'file:///sdcard/Music/OpenMusic/s.m4a');
+		moveInMusic.mockResolvedValueOnce({ uri: 'file:///sdcard/Music/OpenMusic/A/B/s.m4a' });
+		await expect(moveToDir('qq:6', 'A/B')).resolves.toBe(true);
+		expect(moveInMusic).toHaveBeenCalledWith({ uri: 'file:///sdcard/Music/OpenMusic/s.m4a', subPath: 'A/B' });
+		expect(localStorage.getItem('openmusic-blob-uri:qq:6')).toBe('file:///sdcard/Music/OpenMusic/A/B/s.m4a');
+		expect(getStoredDir('qq:6')).toBe('A/B');
+	});
+
+	it('moveToDir is a no-op true when already in that dir (re-run guard — Pitfall 9)', async () => {
+		localStorage.setItem('openmusic-blob-uri:qq:7', 'content://media/external/audio/media/7');
+		localStorage.setItem('openmusic-blob-dir:qq:7', 'A/B');
+		await expect(moveToDir('qq:7', 'A/B')).resolves.toBe(true);
+		expect(moveInMusic).not.toHaveBeenCalled();
+	});
+
+	it('moveToDir resolves false (never throws) when the plugin rejects', async () => {
+		localStorage.setItem('openmusic-blob-uri:qq:8', 'content://media/external/audio/media/8');
+		moveInMusic.mockRejectedValueOnce(new Error('io:move'));
+		await expect(moveToDir('qq:8', 'A/B')).resolves.toBe(false);
+		expect(getStoredDir('qq:8')).toBeNull();
+	});
+
+	it('is exported on the blobStore namespace', () => {
+		expect(blobStore.moveToDir).toBe(moveToDir);
+		expect(blobStore.getStoredDir).toBe(getStoredDir);
 	});
 });
