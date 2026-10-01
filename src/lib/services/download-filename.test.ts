@@ -10,6 +10,9 @@ import {
 	extFromAudioUrl,
 	buildDownloadFilename,
 	sanitizeFilename,
+	sanitizePathSegment,
+	albumDir,
+	albumFolder,
 	MAX_FILENAME_BASE
 } from './download-filename';
 
@@ -139,5 +142,54 @@ describe('audioMimeForUrl — derive an honest media type (quick-260913-tmi)', (
 		for (const junk of ['', 'text/html', 'application/x-www-form-urlencoded', 'application/octet-stream', 'video/mp4']) {
 			expect(audioMimeForUrl('https://cdn.example/a.flac', junk).startsWith('audio/'), junk).toBe(true);
 		}
+	});
+});
+
+// 40-D-01 / 40-D-03: `<Artist>/<Album>` path segments for the native subPath and the zip root folder.
+// Upstream metadata becomes a filesystem path, so traversal/control chars must never survive and the
+// segment is byte-capped (Linux/Android cap a NAME at 255 bytes; CJK is 3 bytes/char).
+describe('Phase 40 path segments (D-01 / D-03)', () => {
+	it('collapses dot-only and blank segments to empty', () => {
+		expect(sanitizePathSegment('..')).toBe('');
+		expect(sanitizePathSegment('.')).toBe('');
+		expect(sanitizePathSegment('  ')).toBe('');
+		expect(sanitizePathSegment(null as unknown as string)).toBe('');
+	});
+
+	it('leaves no path separator', () => {
+		const out = sanitizePathSegment('A/B\\C');
+		expect(out).not.toContain('/');
+		expect(out).not.toContain('\\');
+	});
+
+	it('strips control characters', () => {
+		expect(sanitizePathSegment('x\u0000y\u001f')).toBe('xy');
+	});
+
+	it('strips leading/trailing dots and spaces and collapses whitespace', () => {
+		expect(sanitizePathSegment(' .hidden. ')).toBe('hidden');
+		expect(sanitizePathSegment('a    b')).toBe('a b');
+	});
+
+	it('caps at 180 UTF-8 bytes on a code-point boundary', () => {
+		const out = sanitizePathSegment('葉'.repeat(100));
+		expect(new TextEncoder().encode(out).length).toBeLessThanOrEqual(180);
+		expect(out).toBe('葉'.repeat(60));
+		const emoji = sanitizePathSegment('😀'.repeat(60));
+		expect(new TextEncoder().encode(emoji).length).toBeLessThanOrEqual(180);
+		expect(emoji).toBe('😀'.repeat(45));
+	});
+
+	it('albumDir joins surviving segments with /', () => {
+		expect(albumDir('周杰倫', '葉惠美')).toBe('周杰倫/葉惠美');
+		expect(albumDir('', '葉惠美')).toBe('葉惠美');
+		expect(albumDir('..', '..')).toBe('');
+		expect(albumDir('../..', 'x')).not.toContain('..' + '/');
+	});
+
+	it('albumFolder names the zip root and filename stem', () => {
+		expect(albumFolder('周杰倫', '葉惠美')).toBe('周杰倫 - 葉惠美');
+		expect(albumFolder('', 'X')).toBe('X');
+		expect(albumFolder('', '')).toBe('OpenMusic');
 	});
 });
