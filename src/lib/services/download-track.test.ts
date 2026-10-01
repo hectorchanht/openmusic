@@ -61,7 +61,7 @@ const mocks = vi.hoisted(() => ({
 	// (neither is ever reached for a non-ytmusic track).
 	fetchVariants: vi.fn(async (_t: Track): Promise<Track[]> => []),
 	probeDownload: vi.fn(async (t: Track) => ({
-		container: null,
+		container: null as string | null,
 		qualityLabel: null,
 		bytes: null,
 		track: { ...t, audioUrl: `https://cdn.example/${t.uid}.m4a` } as Track | null
@@ -1319,7 +1319,7 @@ describe("downloadFromDonor — prefer: 'tier' (quick-261001-0p9)", () => {
 		vi.stubGlobal('fetch', f);
 		return f;
 	}
-	const OPTS = { exclude: ['qq'], prefer: 'tier' } as const;
+	const OPTS: { exclude: Track['source'][]; prefer: 'tier' } = { exclude: ['qq'], prefer: 'tier' };
 
 	beforeEach(() => {
 		for (const k of Object.keys(EXT)) delete EXT[k];

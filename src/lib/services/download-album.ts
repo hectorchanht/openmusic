@@ -46,7 +46,15 @@
 //     measured refill interval) and retries. A 'no-audio' song is not retried: it simply has no audio.
 //     The sleeps sit outside both gates, so a sleeping song holds no slot.
 //
-// ponytail: 3 retries max, one donor pass; add per-host backoff state if a second limited host
+//   quick-261001-0p9: the order is now wait FIRST, donor second. A 'rate-limited' song retries qq
+//     (RETRY_BACKOFF_MS 3/6/9/12 s, 30 s cap), and only a song still limited after that — or a
+//     'no-audio' one, which skips the wait — goes to `downloadFromDonor` with `prefer: 'tier'`: a
+//     donor at the same quality AND format as the download tier first, else the best other
+//     non-ytmusic donor so the album still finishes. Why: tang refills in ~3 s, so donor-first handed
+//     a FLAC-tier song an instant mp3 from netease for a blip; qq's own file after a short wait, or
+//     a like-for-like file, beats that downgrade. 'failed' still takes no retry and no donor.
+//
+// ponytail: 4 retries / 30 s cap, one donor walk; add per-host backoff state if a second limited host
 // appears. 8 lossless bodies can sit in heap at once (~400 MB worst case); lower TRANSFER_POOL or
 // stream to IndexedDB if that bites.
 
@@ -69,7 +77,7 @@ import {
 
 const RESOLVE_POOL = 3;
 const TRANSFER_POOL = 8;
-const RETRY_BACKOFF_MS = [3000, 6000, 12000];
+const RETRY_BACKOFF_MS = [3000, 6000, 9000, 12000];
 
 /** A FIFO semaphore of `n` slots. Each grant's release is idempotent so a double call cannot leak a slot. */
 function gate(n: number): StageGate {
@@ -186,19 +194,19 @@ export async function downloadAlbum(
 					stages
 				};
 				let res = await downloadTrack(tr, dl);
-				// quick-260930-x3q: donor first (another non-ytmusic source at the download tier), then a
-				// bounded backoff retry for a song that is still rate-limited. See the header.
-				const limited = res === 'rate-limited';
-				if (limited || res === 'no-audio') {
-					res = await downloadFromDonor(tr, dl, { exclude: [tr.source], requireTier: true });
-				}
-				if (limited) {
+				// quick-261001-0p9: wait for qq first (bounded backoff, 30 s total), THEN one donor walk —
+				// same tier+format first, best otherwise (ordered inside downloadFromDonor). The sleep is a
+				// bare timer outside both gates (downloadOne takes and releases the resolve slot itself),
+				// so a waiting song holds no slot. 'no-audio' skips the wait. See the header.
+				if (res === 'rate-limited') {
 					for (const ms of RETRY_BACKOFF_MS) {
-						if (res === 'saved' || res === 'failed') break;
 						await new Promise((r) => setTimeout(r, ms));
 						res = await downloadTrack(tr, dl);
 						if (res !== 'rate-limited') break;
 					}
+				}
+				if (res === 'rate-limited' || res === 'no-audio') {
+					res = await downloadFromDonor(tr, dl, { exclude: [tr.source], prefer: 'tier' });
 				}
 				if (res !== 'saved') return;
 				if (native) {
