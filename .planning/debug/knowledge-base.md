@@ -28,3 +28,11 @@ Resolved debug sessions. Used by `gsd-debugger` to surface known-pattern hypothe
 - **Files changed:** src/lib/services/upnext-scroll.ts, src/lib/services/upnext-scroll.test.ts, src/lib/components/NowPlaying.svelte, src/lib/components/NpUpNext.svelte
 ---
 
+
+## album-zip-duplicate-songs — album Download-all zip held 8 identical copies of one song (陳奕迅 明年今日) for 8 different tracks
+- **Date:** 2026-10-01
+- **Error patterns:** album download, zip, duplicate songs, same file, (2)…(8), identical size, 明年今日, 富士山下, joox, resolveStub, resolveAllCached, Traditional, Simplified, 繁體, MusicBrainz tracklist, wrong song resolved, same artist different title, scoreMatch, dedupeBest, foldScript
+- **Root cause:** `scoreMatch` compared Traditional vs Simplified script literally while `dedupeBest`'s `key()` folds Trad→Simp (quick-260926-n0r). For a Traditional album stub the merged group's survivor is the Simplified qq/netease row (scored 0 vs the Traditional query); joox's same-artist filler rows (明年今日) scored 4 and won; `preferEligible` settles a CJK query on any candidate so the t2s retry never fired. Six stubs → one joox uid → eight identical zip entries. Intermittent: cold t2s dict = no fold = correct.
+- **Fix:** `score-match.ts` `similarity()` folds both sides through dedupe's exported `foldScript` before `matchKey`; `download-album.ts` adds a `seenUids` guard (one audio identity → one entry / move). Failing-first tests in score-match, discovery (reproduces the live uid) and download-album.
+- **Files changed:** src/lib/services/score-match.ts, src/lib/services/dedupe.ts, src/lib/services/download-album.ts, src/lib/services/score-match.test.ts, src/lib/services/discovery.test.ts, src/lib/services/download-album.test.ts
+---
