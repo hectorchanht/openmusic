@@ -20,9 +20,14 @@
 //
 //   40-D-06: a failed song is skipped, never aborts the album; progress still advances.
 //
-// ponytail: sequential, not concurrent. The per-song resolve already fans <=4 wide inside the page's
-// resolveAllCached; parallel downloads on top would compose caps (the api fetch-flood freeze root
-// cause). Parallelize only behind the apiFetch governor if album downloads prove too slow.
+//   quick-260930-uia: a ytmusic song is handed to `downloadTrack` like any other — the "never route
+//     to YT Music" donor rule lives in download-track.ts (`canDownloadFrom`), so this loop has no
+//     donor lookup of its own. `onProgress(n, total)` counts COMPLETED songs (saved, failed or
+//     skipped), and zip entries are assembled in album order after the pool drains.
+//
+// ponytail: POOL=3 workers; the apiFetch governor (MAX_CONCURRENT_REQUESTS=8, api fetch-flood-freeze)
+// still bounds the resolve/probe calls, and the audio bodies are raw fetches that never shared that
+// pool. Raise POOL only with a measurement.
 
 import type { Track } from '$lib/sources/types';
 import { Capacitor } from '@capacitor/core';
@@ -30,9 +35,7 @@ import { library } from '$lib/stores/library.svelte';
 import { names } from '$lib/stores/names.svelte';
 import { blobStore } from '$lib/services/blob-store';
 import { saveBlobToDisk } from '$lib/services/download-save';
-import { downloadTrack, type DownloadResult } from '$lib/services/download-track';
-import { fetchVariants, versionsIncludingOwn } from '$lib/services/variants';
-import { probeDownload } from '$lib/services/download-probe';
+import { downloadTrack } from '$lib/services/download-track';
 import { sameSongKey } from '$lib/services/dedupe';
 import { buildZip, type ZipEntry } from '$lib/services/zip-store';
 import {
@@ -43,7 +46,7 @@ import {
 	sanitizeFilename
 } from '$lib/services/download-filename';
 
-const YTMUSIC = 'ytmusic';
+const POOL = 3;
 
 /** `a.mp3` → `a (2).mp3` → `a (3).mp3` for a name already used inside this zip. */
 function uniqueName(name: string, used: Set<string>): string {
@@ -89,13 +92,13 @@ export async function downloadAlbum(
 		// already produced an entry (or a native move) is skipped here — it counts as not saved.
 		const seenUids = new Set<string>();
 
-		for (const [i, tr] of tracks.entries()) {
-			try {
-				onProgress?.(i + 1, total);
-			} catch {
-				// a broken progress callback must not abort the album (36-D-19).
-			}
-			if (seenUids.has(tr.uid)) continue;
+		// quick-260930-uia: one slot per album position, filled as songs complete in any order, then
+		// zipped in index order so `uniqueName`'s `(2)` suffixing stays deterministic in album order.
+		const slots: ({ filename: string; blob: Blob } | null)[] = new Array(total).fill(null);
+
+		const one = async (i: number, tr: Track) => {
+			// Claimed SYNCHRONOUSLY before any await, so two workers can never both take one uid.
+			if (seenUids.has(tr.uid)) return;
 			seenUids.add(tr.uid);
 			try {
 				const held = library.downloads.find((d) => d.uid === tr.uid || sameSongKey(d, tr));
@@ -104,14 +107,14 @@ export async function downloadAlbum(
 						// "saved, not moved" when this resolves false or rejects: the file stays flat.
 						await blobStore.moveToDir(held.uid, dir).catch(() => false);
 						saved++;
-						continue;
+						return;
 					}
 					const blob = await blobStore.get(held.uid);
 					// An empty held blob (an old 403 download saved 0 bytes) falls through to a re-download.
 					if (blob?.size) {
-						addEntry(heldFilename(held), blob);
+						slots[i] = { filename: heldFilename(held), blob };
 						saved++;
-						continue;
+						return;
 					}
 				}
 
@@ -122,35 +125,15 @@ export async function downloadAlbum(
 				// interleaved MULTI-SOURCE search ordering, not a position on a record.
 				// `meta.artist || undefined` because the album artist is '' on a deep link, and undefined
 				// lets downloadTrack fall back to the track's own artist (D-12's grouping default).
-				const attempt = (audioFrom?: Track) =>
-					downloadTrack(tr, {
-						persist: true,
-						save: false,
-						trackNumber: String(i + 1),
-						albumArtist: meta.artist || undefined,
-						...(native && dir ? { dir } : {}),
-						...(audioFrom ? { audioFrom } : {}),
-						onSaved: native ? undefined : (uid, filename, blob) => (got = { uid, filename, blob })
-					});
-				let res: DownloadResult = 'failed';
-				// 40-03: a ytmusic file cannot be fetched by the album path (web: the stream proxy's
-				// googlevideo 403; native: the direct googlevideo url has no CORS header), so a ytmusic
-				// song takes its audio from another source first — the "Download from…" contract
-				// (quick-260916-0d9 `audioFrom`): the donor's resolved audio saved under THIS song's
-				// identity. Donors come from the picker's own lookup (fetchVariants + versionsIncludingOwn,
-				// one row per source) and are resolved through the picker's probeDownload, one at a time.
-				// The ytmusic file itself is tried last, for when no other source has the song.
-				if (tr.source === YTMUSIC) {
-					const donors = versionsIncludingOwn(tr, await fetchVariants(tr)).filter((v) => v.source !== YTMUSIC);
-					for (const donor of donors) {
-						const p = await probeDownload(donor);
-						if (!p.track?.audioUrl) continue;
-						res = await attempt(p.track);
-						if (res === 'saved') break;
-					}
-				}
-				if (res !== 'saved') res = await attempt();
-				if (res !== 'saved') continue;
+				const res = await downloadTrack(tr, {
+					persist: true,
+					save: false,
+					trackNumber: String(i + 1),
+					albumArtist: meta.artist || undefined,
+					...(native && dir ? { dir } : {}),
+					onSaved: native ? undefined : (uid, filename, blob) => (got = { uid, filename, blob })
+				});
+				if (res !== 'saved') return;
 				if (native) {
 					saved++;
 				} else if (got) {
@@ -159,13 +142,29 @@ export async function downloadAlbum(
 					// would otherwise sit whole in memory until the zip is built).
 					// A failed put can leave an older/empty stored blob, so only a non-empty one wins.
 					const stored = await blobStore.get(g.uid);
-					addEntry(g.filename, stored?.size ? stored : g.blob);
+					slots[i] = { filename: g.filename, blob: stored?.size ? stored : g.blob };
 					saved++;
 				}
 			} catch {
 				// 40-D-06: skip this song, keep going.
 			}
-		}
+		};
+
+		let next = 0;
+		let done = 0;
+		const worker = async () => {
+			for (let i = next++; i < total; i = next++) {
+				await one(i, tracks[i]);
+				done++;
+				try {
+					onProgress?.(done, total);
+				} catch {
+					// a broken progress callback must not abort the album (36-D-19).
+				}
+			}
+		};
+		await Promise.all(Array.from({ length: Math.min(POOL, total || 1) }, worker));
+		for (const slot of slots) if (slot) addEntry(slot.filename, slot.blob);
 
 		if (!native && entries.length) {
 			const zip = await buildZip(entries);
