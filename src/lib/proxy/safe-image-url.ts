@@ -83,3 +83,37 @@ export const YOUTUBE_IMAGE_HOSTS: ImageHostAllowlist = {
 	exact: ['i.ytimg.com', 'yt3.ggpht.com'],
 	suffix: ['.googleusercontent.com']
 };
+
+// Phase 40 D-18: CN cover hosts, needed so a crowd-voted cover from a CN source can be stored.
+//  - QQ: `album_pic` on y.gtimg.cn (tang returns http; qq.ts https-upgrades it before display).
+//  - Netease: the meting `pic` redirector on api.qijieya.cn, which 302s to p1-p4.music.126.net.
+//    Residual (RESEARCH A6): a third-party redirector could serve any image if compromised — the
+//    same exposure every netease row render already has.
+//  - Kuwo: img1-img4.kuwo.cn.
+// Apexes not permitted; the leading dots keep `evilkuwo.cn` / `kuwo.cn.evil.example` out.
+/** CN source art: QQ, netease (direct + meting redirector) and kuwo. */
+export const CN_IMAGE_HOSTS: ImageHostAllowlist = {
+	exact: ['y.gtimg.cn', 'api.qijieya.cn'],
+	suffix: [
+		'.kuwo.cn',
+		'.music.126.net'
+	]
+};
+
+const COVER_PICK_SOURCES = [
+	DEEZER_IMAGE_HOSTS,
+	LASTFM_IMAGE_HOSTS,
+	APPLE_IMAGE_HOSTS,
+	KKBOX_IMAGE_HOSTS,
+	YOUTUBE_IMAGE_HOSTS,
+	CN_IMAGE_HOSTS
+];
+
+/**
+ * Phase 40 D-18: every host a cover can come from, for /api/cover-pick votes. COMPOSED from the
+ * per-source lists so a host added to one family reaches the vote screen without a second edit.
+ */
+export const COVER_PICK_IMAGE_HOSTS: ImageHostAllowlist = {
+	exact: COVER_PICK_SOURCES.flatMap((h) => h.exact ?? []),
+	suffix: COVER_PICK_SOURCES.flatMap((h) => h.suffix)
+};
