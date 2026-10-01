@@ -2,6 +2,9 @@
 //
 // - fetchWithRetry: bounded retry on 429/5xx using the NATIVE AbortSignal.timeout
 //   (RESEARCH "Don't Hand-Roll" — do NOT hand-roll setTimeout + AbortController).
+//   ONE exception: fetchWithHeadDeadline below. AbortSignal.timeout cannot be disarmed once the
+//   headers arrive, so it also cut every streamed media body at the deadline — netease /url audio
+//   truncated at exactly 8.00 s (quick-260930-vjp deferred item #1, fixed quick-260930-x3q).
 // - corsHeaders: CORS scoped to the OWN origin. NEVER emits Access-Control-Allow-Origin: *
 //   — combined with the JOOX token that would make us an open music/CORS relay
 //   (Anti-Patterns line 341, Security V4, threat T-01-02).
@@ -84,6 +87,32 @@ export async function fetchWithRetry(
 		}
 	}
 	throw lastErr instanceof Error ? lastErr : new Error('fetchWithRetry: request failed');
+}
+
+const MEDIA_CONTENT_TYPE = /^(audio|video)\/|^application\/octet-stream/i;
+
+/**
+ * fetchWithRetry under a deadline that covers the HEADERS only for a media body (quick-260930-x3q).
+ * A media response (audio/video/octet-stream) is returned with the timer cleared, so its body
+ * streams with no wall-clock cap — Workers bill CPU, not wall time, and a client abort closes the
+ * stream. Any other body (detail/lrc/search JSON) keeps the timer armed, so the whole response
+ * stays bounded by `ms` exactly as before. Media is decided by response content-type, not by path.
+ */
+export async function fetchWithHeadDeadline(
+	url: string,
+	ms: number,
+	retries = 2
+): Promise<Response> {
+	const ctrl = new AbortController();
+	const timer = setTimeout(() => ctrl.abort(), ms);
+	try {
+		const res = await fetchWithRetry(url, { signal: ctrl.signal }, retries);
+		if (MEDIA_CONTENT_TYPE.test(res.headers.get('content-type') ?? '')) clearTimeout(timer);
+		return res;
+	} catch (err) {
+		clearTimeout(timer);
+		throw err;
+	}
 }
 
 /**

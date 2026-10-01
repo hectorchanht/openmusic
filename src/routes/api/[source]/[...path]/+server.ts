@@ -3,7 +3,7 @@
 // One catch-all route fronts all four sources. It validates params.source against the
 // PROXIES registry (404 unknown — threat T-01-01 / Security V5), builds the real
 // upstream URL via the per-source ProxyAdapter (JOOX injects its token from
-// platform.env here, never on the client — T-01-04), fetches with a native timeout +
+// platform.env here, never on the client — T-01-04), fetches with a head deadline +
 // bounded retry, and forwards the upstream body with CORS scoped to the own origin
 // (never `*` — T-01-02).
 //
@@ -14,7 +14,7 @@
 // or lyric URL is ever frozen (the stale-URL bug class — T-2os-03).
 import type { RequestHandler } from './$types';
 import { PROXIES } from '$lib/proxy/proxy-registry';
-import { fetchWithRetry, corsHeaders } from '$lib/proxy/http';
+import { fetchWithHeadDeadline, corsHeaders } from '$lib/proxy/http';
 import { edgeCache } from '$lib/proxy/edge-cache';
 import type { Env } from '$lib/proxy/proxy-types';
 import type { SourceId } from '$lib/sources/types';
@@ -88,7 +88,9 @@ export const GET: RequestHandler = async ({ params, url, platform, request }) =>
 		}
 	}
 
-	const res = await fetchWithRetry(upstream, { signal: AbortSignal.timeout(8000) }, 2);
+	// quick-260930-x3q: 8 s covers the headers only for a media body (netease /url audio streams
+	// for longer than that); JSON bodies keep the whole-response 8 s bound.
+	const res = await fetchWithHeadDeadline(upstream, 8000, 2);
 
 	if (cacheable && res.status === 200 && cache && cacheReq) {
 		// Search bodies are small JSON — buffer once, use the same buffer for both the cache
