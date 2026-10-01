@@ -23,7 +23,7 @@ import { MediaStoreSaver } from './media-store';
 import { isDeviceUid, deviceContentUri } from './device-track';
 // quick-260919-3j1 (D-6): the SAME cap the metadata editor's typed name is already held to. PURE,
 // import-free module — no cycle, nothing reactive.
-import { MAX_FILENAME_BASE } from './download-filename';
+import { MAX_FILENAME_BASE, sanitizePathSegment } from './download-filename';
 
 const DB_NAME = 'openmusic-blobs';
 const STORE = 'tracks';
@@ -166,6 +166,57 @@ export function setStoredName(uid: string, base: string): void {
 function clearStoredName(uid: string): void {
 	try {
 		if (typeof localStorage !== 'undefined') localStorage.removeItem(nameIndexKey(uid));
+	} catch {
+		// ignore.
+	}
+}
+
+// --- 40-D-01 / 40-D-02: THE PER-UID STICKY ALBUM FOLDER ---------------------------------------
+//
+// WHY. `nativePut` deletes the previous public row and re-saves (36-D-19). retag.ts, TrackMenu
+// `writeTagsForGesture` (cover-pin tag sync), the player's lyric auto-embed and the 31-D-12
+// background repair all call `put` WITHOUT a dir — without this index each one would silently move
+// an album song back to flat `Music/OpenMusic/` (40 Pitfall 1). Only the album path sets it
+// (`put(..., { dir })` / `moveToDir`), so singles stay flat (40-D-02).
+//
+// T-40-02-01: the value goes straight to Kotlin RELATIVE_PATH, so it is re-validated on READ (the
+// T-3j1-01 precedent): at most 2 segments, each already a `sanitizePathSegment` fixed point. A
+// hand-edited `../x` reads as absent (flat), never as a path. Same posture as the indexes above.
+
+/** localStorage key for the album sub-folder (`Artist/Album`) recorded for `uid`. */
+function dirIndexKey(uid: string): string {
+	return `openmusic-blob-dir:${uid}`;
+}
+
+/** A dir that is 1-2 already-sanitized segments, or null. */
+function cleanDir(raw: string | null | undefined): string | null {
+	if (!raw) return null;
+	const segs = raw.split('/');
+	if (segs.length > 2 || segs.some((seg) => !seg || sanitizePathSegment(seg) !== seg)) return null;
+	return raw;
+}
+
+/** The album sub-folder recorded for `uid`, re-validated, or null (flat). Never throws. */
+export function getStoredDir(uid: string): string | null {
+	if (!uid) return null;
+	try {
+		return typeof localStorage !== 'undefined' ? cleanDir(localStorage.getItem(dirIndexKey(uid))) : null;
+	} catch {
+		return null;
+	}
+}
+
+function setStoredDir(uid: string, dir: string): void {
+	try {
+		if (typeof localStorage !== 'undefined') localStorage.setItem(dirIndexKey(uid), dir);
+	} catch {
+		// ignore — best-effort, like the URI / name indexes.
+	}
+}
+
+function clearStoredDir(uid: string): void {
+	try {
+		if (typeof localStorage !== 'undefined') localStorage.removeItem(dirIndexKey(uid));
 	} catch {
 		// ignore.
 	}
@@ -439,7 +490,7 @@ export async function overwriteDeviceFile(uid: string, blob: Blob, meta: DeviceW
 	return 'ok';
 }
 
-async function nativePut(uid: string, blob: Blob, filename?: string): Promise<boolean> {
+async function nativePut(uid: string, blob: Blob, filename?: string, opts?: { dir?: string }): Promise<boolean> {
 	// Step 1 — app-private offline copy (the get() read source) via capacitor-blob-writer, which
 	// streams the Blob straight to disk (NO base64 round-trip). This copy is what get() serves
 	// playback from, so its success/failure IS the put() result.
@@ -475,8 +526,17 @@ async function nativePut(uid: string, blob: Blob, filename?: string): Promise<bo
 		// name when the caller threads one through put() (TrackMenu supplies it via the new 3rd arg).
 		// When absent (album / legacy callers) fall back to nativeFileName(uid) = `<uid>.mp3` so those
 		// paths are byte-for-byte unchanged. The app-private copy above stays uid-keyed regardless (D-04).
-		const { uri } = await MediaStoreSaver.saveToMusic({ fileName: filename ?? nativeFileName(uid), sourcePath });
+		// 40-D-01 / 40-D-02: an explicit album dir, else the sticky one (Pitfall 1), else flat — the
+		// conditional spread keeps a flat save's call shape byte-identical (no `subPath` key at all).
+		const newDir = cleanDir(opts?.dir);
+		const dir = newDir ?? getStoredDir(uid);
+		const { uri } = await MediaStoreSaver.saveToMusic({
+			fileName: filename ?? nativeFileName(uid),
+			sourcePath,
+			...(dir ? { subPath: dir } : {})
+		});
 		if (uri) setStoredUri(uid, uri);
+		if (newDir) setStoredDir(uid, newDir);
 	} catch {
 		// public copy is visibility-only — best-effort; the offline copy already landed (WR-01).
 	}
@@ -723,10 +783,14 @@ function txStore(db: IDBDatabase, mode: IDBTransactionMode): IDBObjectStore {
  * PUBLIC native (MediaStore) write only — it is threaded to the Kotlin bridge when supplied and
  * falls back to `<uid>.mp3` when absent (album/legacy callers). The web (IndexedDB) branch ignores
  * it entirely: the browser download anchor names the saved file, and the IDB record is uid-keyed.
+ *
+ * 40-D-01: `opts.dir` (`Artist/Album`, from `albumDir`) files the PUBLIC native copy into
+ * `Music/OpenMusic/<dir>/` and is remembered per uid, so later dir-less re-puts stay in it. Web
+ * ignores it.
  */
-export async function put(uid: string, blob: Blob, filename?: string): Promise<boolean> {
+export async function put(uid: string, blob: Blob, filename?: string, opts?: { dir?: string }): Promise<boolean> {
 	if (!uid) return false;
-	if (Capacitor.isNativePlatform()) return nativePut(uid, blob, filename);
+	if (Capacitor.isNativePlatform()) return nativePut(uid, blob, filename, opts);
 	const db = await openDb();
 	if (!db) return false;
 	return new Promise<boolean>((resolve) => {
@@ -842,6 +906,8 @@ export async function del(uid: string): Promise<void> {
 	// fork on purpose — nativeDel's device-uid early return would otherwise skip it, leaving an entry
 	// that outlives its file and could name the NEXT thing stored under that uid.
 	clearStoredName(uid);
+	// 40-D-01: the album folder dies with the file too, for the same reason.
+	clearStoredDir(uid);
 	if (Capacitor.isNativePlatform()) return nativeDel(uid);
 	const db = await openDb();
 	if (!db) return;
@@ -870,5 +936,44 @@ export function linkPublicUri(uid: string, uri: string): void {
 	setStoredUri(uid, uri);
 }
 
+/**
+ * 40-D-05: move an already-downloaded song's public `Music/OpenMusic/` copy into `<dir>/` (a single
+ * joining its album folder) and record the result. Resolves true when it is in `dir` afterwards,
+ * false when it was not moved ("saved, not moved" — the file stays where it was). Never throws.
+ *
+ * Device uids are refused first (34 Pitfall 1, T-40-02-02): the app never moves a file it does not
+ * own. Web has no public file (the album path reuses the blob for the zip). A re-run into the SAME
+ * dir is a no-op true (40 Pitfall 9: MediaStore same-name behaviour on update is undocumented).
+ */
+export async function moveToDir(uid: string, dir: string): Promise<boolean> {
+	if (!uid || isDeviceUid(uid)) return false;
+	if (!Capacitor.isNativePlatform()) return false;
+	const target = cleanDir(dir);
+	if (!target) return false;
+	if (getStoredDir(uid) === target) return true;
+	const uri = getStoredUri(uid);
+	if (!uri) return false;
+	try {
+		const { uri: newUri } = await MediaStoreSaver.moveInMusic({ uri, subPath: target });
+		// API <=28 renames the file, so the file:// URI changes; API 29+ returns the same one.
+		if (newUri) setStoredUri(uid, newUri);
+		setStoredDir(uid, target);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
 /** Bundled namespace export so callers can `import { blobStore } from '$lib/services/blob-store'`. */
-export const blobStore = { put, get, has, stat, del, linkPublicUri, getStoredName, overwriteDeviceFile };
+export const blobStore = {
+	put,
+	get,
+	has,
+	stat,
+	del,
+	linkPublicUri,
+	getStoredName,
+	getStoredDir,
+	moveToDir,
+	overwriteDeviceFile
+};
