@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { makeUid, type SourceId, type Track } from '$lib/sources/types';
+import { matchKey } from '$lib/services/match-key';
 
 // FIX-A: player.playStub is the optimistic resolve-on-tap path. A discovery tile is a
 // Last.fm {artist,title} stub (NOT a Track), so it must be resolved via resolveStub
@@ -76,9 +77,19 @@ vi.mock('$lib/services/cover-cache', async (importOriginal) => {
 		...actual,
 		getCachedCoverByUid: vi.fn(() => null),
 		getCachedCover: vi.fn(() => null),
-		getPinnedCover: vi.fn((): string | null => null)
+		getPinnedCover: vi.fn((): string | null => null),
+		// Phase 40: call-through wrapper — the crowd family is driven through the REAL localStorage
+		// record, so a writeCrowdCover in the store is visible to the very next getCrowdCover read.
+		getCrowdCover: vi.fn(actual.getCrowdCover)
 	};
 });
+// Phase 40 D-16: the crowd cover pick client. Default: no keys → no fetch, so every other suite stays
+// network-silent.
+vi.mock('$lib/services/cover-pick-shared', () => ({
+	coverPickKeys: vi.fn(async (): Promise<{ u: string | null; n: string | null } | null> => null),
+	fetchCoverPick: vi.fn(async (): Promise<{ u: string | null; n: string | null } | null> => null),
+	submitCoverPick: vi.fn(async () => {})
+}));
 vi.mock('$lib/services/cover-backfill', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('$lib/services/cover-backfill')>();
 	// resolveCoverForTrack is the only per-play cover fetch left (the HQ upgrade was removed in
@@ -98,7 +109,10 @@ vi.mock('$lib/stores/cover-version.svelte', async (importOriginal) => {
 	return {
 		...actual,
 		removeCoverBoth: vi.fn(actual.removeCoverBoth),
-		unpinCover: vi.fn(actual.unpinCover)
+		unpinCover: vi.fn(actual.unpinCover),
+		writeCrowdCover: vi.fn(actual.writeCrowdCover),
+		removeCrowdCover: vi.fn(actual.removeCrowdCover),
+		writeCoverBoth: vi.fn(actual.writeCoverBoth)
 	};
 });
 // 26-09 (Gap 2): spy on logAction so regenerate()'s `upnext.source` formation-source event is
@@ -147,10 +161,19 @@ import {
 	getCachedCover,
 	getPinnedCover,
 	uidCoverCacheKey,
-	coverCacheKey
+	coverCacheKey,
+	setCrowdCoverByUid,
+	setCrowdCoverByName
 } from '$lib/services/cover-cache';
+import { coverPickKeys, fetchCoverPick, submitCoverPick } from '$lib/services/cover-pick-shared';
 import { resolveCoverForTrack } from '$lib/services/cover-backfill';
-import { removeCoverBoth, unpinCover } from '$lib/stores/cover-version.svelte';
+import {
+	removeCoverBoth,
+	unpinCover,
+	writeCrowdCover,
+	removeCrowdCover,
+	writeCoverBoth
+} from '$lib/stores/cover-version.svelte';
 import { logAction } from '$lib/stores/actionLog.svelte';
 import { syncFileTags } from '$lib/services/file-tag-sync';
 import {
@@ -8236,5 +8259,212 @@ describe('player.toggle — a seated but UNARMED current re-plays through play()
 		player.toggle();
 		expect(el.play).toHaveBeenCalledTimes(1); // resumes the restored src at its saved position
 		expect(player.play).not.toHaveBeenCalled(); // no re-drive that would drop the position
+	});
+});
+
+describe('Phase 40 crowd cover (D-14 / D-16 / D-19)', () => {
+	const CROWD = 'https://e-cdns-images.dzcdn.net/images/cover/crowd/500x500.jpg';
+	const KEYS = { u: 'a'.repeat(32), n: 'b'.repeat(32) };
+	const mockKeys = vi.mocked(coverPickKeys);
+	const mockFetchPick = vi.mocked(fetchCoverPick);
+	const mockSubmitPick = vi.mocked(submitCoverPick);
+	const mockWriteCrowd = vi.mocked(writeCrowdCover);
+	const mockRemoveCrowd = vi.mocked(removeCrowdCover);
+	const mockWriteBoth = vi.mocked(writeCoverBoth);
+	let images: Array<{ src: string; onload: (() => void) | null; onerror: (() => void) | null }>;
+
+	const rc = () => (player as unknown as { resolvedCover: string | null }).resolvedCover;
+	const resolvedOf = (t: Track) => ({ ...mk(t.source, t.songid, t.artist, t.title), cover: t.cover });
+
+	beforeEach(() => {
+		(player.play as unknown as { mockRestore(): void }).mockRestore?.();
+		mockEnsure.mockReset();
+		mockUidCover.mockReset().mockReturnValue(null);
+		mockNameCover.mockReset().mockReturnValue(null);
+		mockResolveCover.mockReset().mockResolvedValue(null);
+		mockGetPinned.mockReset().mockReturnValue(null);
+		mockKeys.mockReset().mockResolvedValue(KEYS);
+		mockFetchPick.mockReset().mockResolvedValue(null);
+		mockSubmitPick.mockClear();
+		mockWriteCrowd.mockClear();
+		mockRemoveCrowd.mockClear();
+		mockWriteBoth.mockClear();
+		mockRemoveCoverBoth.mockClear();
+		mockApiFetch.mockClear();
+		localStorage.clear();
+		player.current = null;
+		player.queue = [];
+		player.error = null;
+		player.loading = false;
+		(player as unknown as { resolvedCover: string | null }).resolvedCover = null;
+		(player as unknown as { attachedCover: unknown }).attachedCover = null;
+		(player as unknown as { healProbed: Set<string> }).healProbed.clear();
+		(player as unknown as { crowdRequested: Set<string> }).crowdRequested.clear();
+		(player as unknown as { adoptedCoverUid: string | null }).adoptedCoverUid = null;
+		images = [];
+		vi.stubGlobal(
+			'Image',
+			vi.fn(function (this: Record<string, unknown>) {
+				const img = { src: '', onload: null, onerror: null, decoding: '', referrerPolicy: '' };
+				images.push(img);
+				return img;
+			})
+		);
+		vi.stubGlobal('navigator', {
+			onLine: true,
+			mediaSession: {
+				metadata: null,
+				playbackState: 'none',
+				setPositionState: () => {},
+				setActionHandler: () => {}
+			}
+		});
+		vi.stubGlobal('MediaMetadata', FakeMediaMetadata);
+		coverMetadataSink = [];
+		player.attach(makeFakeAudio() as unknown as HTMLAudioElement);
+		vi.spyOn(library, 'isDownloaded').mockReturnValue(false);
+		vi.spyOn(library, 'adoptCover').mockImplementation(() => {});
+	});
+
+	afterEach(() => {
+		localStorage.clear(); // no crowd entry leaks into a later suite
+		vi.unstubAllGlobals();
+		vi.stubGlobal('localStorage', localStorageMock); // re-establish the module-level stub
+		mockKeys.mockReset().mockResolvedValue(null); // back to the network-silent default
+	});
+
+	it('seed: the crowd pick outranks the album-attached cover (D-14a)', () => {
+		const t = { ...stub('qq', 'C1', 'Artist', 'Song'), cover: 'https://src/inline.jpg' };
+		(player as unknown as { attachedCover: unknown }).attachedCover = {
+			url: 'https://album/attached.jpg',
+			keys: new Set([matchKey('Artist', 'Song')])
+		};
+		setCrowdCoverByUid(t.uid, CROWD);
+		mockEnsure.mockReturnValue(new Promise(() => {}));
+		void player.play(t);
+		expect(rc()).toBe(CROWD);
+	});
+
+	it('seed: a pin beats the crowd pick (D-14)', () => {
+		const t = { ...stub('qq', 'C2', 'Artist', 'Song'), cover: 'https://src/inline.jpg' };
+		setCrowdCoverByUid(t.uid, CROWD);
+		mockGetPinned.mockReturnValue('https://pin/chosen.jpg');
+		mockEnsure.mockReturnValue(new Promise(() => {}));
+		void player.play(t);
+		expect(rc()).toBe('https://pin/chosen.jpg');
+	});
+
+	it('seed: with no chosen cover the inline cover still beats the auto cache (unchanged)', () => {
+		const t = { ...stub('qq', 'C3', 'Artist', 'Song'), cover: 'https://src/inline.jpg' };
+		mockUidCover.mockReturnValue('https://cache/auto.jpg');
+		mockEnsure.mockReturnValue(new Promise(() => {}));
+		void player.play(t);
+		expect(rc()).toBe('https://src/inline.jpg');
+	});
+
+	it('Site A: a crowd-seeded cover is never written to the auto layers', () => {
+		const t = stub('qq', 'C4', 'Artist', 'Song');
+		setCrowdCoverByName('Artist', 'Song', CROWD); // name-key crowd hit (cross-uid)
+		mockEnsure.mockReturnValue(new Promise(() => {}));
+		void player.play(t);
+		expect(rc()).toBe(CROWD);
+		expect(mockWriteBoth).not.toHaveBeenCalled();
+	});
+
+	it('crowdCoverAsync: one fetch after play, winner cached + adopted + fresh media metadata', async () => {
+		const t = { ...stub('qq', 'C5', 'Artist', 'Song'), cover: 'https://src/inline.jpg' };
+		mockEnsure.mockResolvedValue(resolvedOf(t));
+		mockFetchPick.mockResolvedValue({ u: CROWD, n: null });
+		await player.play(t);
+		await flush();
+		expect(mockKeys).toHaveBeenCalledWith(t.uid, 'Artist', 'Song');
+		expect(mockFetchPick).toHaveBeenCalledTimes(1);
+		expect(mockFetchPick).toHaveBeenCalledWith(KEYS);
+		expect(mockWriteCrowd).toHaveBeenCalledWith(t.uid, 'Artist', 'Song', { u: CROWD, n: null });
+		expect(rc()).toBe(CROWD); // replaced the inline cover — a human choice (D-14 vs D-09)
+		const md = coverMetadataSink[coverMetadataSink.length - 1];
+		expect((md.artwork as Array<{ src: string }>).some((a) => a.src === CROWD)).toBe(true);
+		expect(mockWriteBoth).not.toHaveBeenCalledWith(t.uid, 'Artist', 'Song', CROWD);
+		expect(mockSubmitPick).not.toHaveBeenCalled(); // the player never votes (D-15)
+	});
+
+	it('crowdCoverAsync: a replay of the same uid in the session does not fetch again', async () => {
+		const t = stub('qq', 'C6', 'Artist', 'Song');
+		mockEnsure.mockResolvedValue(resolvedOf(t));
+		await player.play(t);
+		await flush();
+		await player.play(t);
+		await flush();
+		expect(mockFetchPick).toHaveBeenCalledTimes(1);
+	});
+
+	it('crowdCoverAsync: pinned and device: uids never fetch; null keys never fetch', async () => {
+		const pinned = stub('qq', 'C7', 'Artist', 'Song');
+		mockGetPinned.mockReturnValue('https://pin/chosen.jpg');
+		mockEnsure.mockResolvedValue(resolvedOf(pinned));
+		await player.play(pinned);
+		await flush();
+		expect(mockKeys).not.toHaveBeenCalled();
+
+		mockGetPinned.mockReturnValue(null);
+		const dev = { ...stub('qq', 'C8', 'Artist', 'Song'), uid: deviceUid('42') };
+		mockEnsure.mockResolvedValue({ ...resolvedOf(dev), uid: dev.uid });
+		await player.play(dev);
+		await flush();
+		expect(mockKeys).not.toHaveBeenCalled();
+
+		mockKeys.mockResolvedValue(null);
+		const noKeys = stub('qq', 'C9', '', '');
+		mockEnsure.mockResolvedValue(resolvedOf(noKeys));
+		await player.play(noKeys);
+		await flush();
+		expect(mockKeys).toHaveBeenCalledTimes(1);
+		expect(mockFetchPick).not.toHaveBeenCalled();
+	});
+
+	it('crowdCoverAsync: a superseded generation writes and adopts nothing', async () => {
+		const a = stub('qq', 'C10', 'Artist', 'Song');
+		const b = stub('qq', 'C11', 'Other', 'Tune');
+		const pick = deferred<{ u: string | null; n: string | null } | null>();
+		mockFetchPick.mockReturnValueOnce(pick.promise);
+		mockEnsure.mockResolvedValueOnce(resolvedOf(a)).mockReturnValueOnce(new Promise(() => {}));
+		await player.play(a);
+		await flush();
+		void player.play(b); // bumps playGen
+		pick.resolve({ u: CROWD, n: null });
+		await flush();
+		expect(mockWriteCrowd).not.toHaveBeenCalled();
+		expect(rc()).not.toBe(CROWD);
+	});
+
+	it('adoptCover: refuses a non-crowd url when a crowd pick exists; adopts the crowd url without writeCoverBoth', () => {
+		const cur = mk('qq', 'C12', 'Artist', 'Song');
+		player.current = cur;
+		(player as unknown as { resolvedCover: string | null }).resolvedCover = 'https://src/old.jpg';
+		setCrowdCoverByUid(cur.uid, CROWD);
+
+		player.adoptCover(cur.uid, 'https://lastfm.freetls.fastly.net/i/u/300x300/other.jpg');
+		expect(rc()).toBe('https://src/old.jpg');
+
+		player.adoptCover(cur.uid, CROWD);
+		expect(rc()).toBe(CROWD);
+		expect(mockWriteBoth).not.toHaveBeenCalled();
+	});
+
+	it('healCover: a dead crowd url is evicted locally and never reaches the server (D-19)', async () => {
+		const t = mk('qq', 'C13', 'Artist', 'Song');
+		player.current = t;
+		(player as unknown as { resolvedCover: string | null }).resolvedCover = CROWD;
+		setCrowdCoverByUid(t.uid, CROWD);
+		mockResolveCover.mockResolvedValue('https://cdn/fresh.jpg');
+
+		const p = player.healCover(t.uid);
+		images[images.length - 1].onerror?.();
+		await p;
+
+		expect(mockRemoveCrowd).toHaveBeenCalledWith(t.uid, 'Artist', 'Song');
+		expect(mockSubmitPick).not.toHaveBeenCalled();
+		expect(mockApiFetch).not.toHaveBeenCalled();
+		expect(rc()).toBe('https://cdn/fresh.jpg'); // the chain re-resolved
 	});
 });
