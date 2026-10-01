@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: YTMusic-Powered Up-Next
-status: ready_for_verification
-stopped_at: Completed 39-10-PLAN.md
-last_updated: "2026-09-26T04:16:44.523Z"
-last_activity: 2026-09-26
+status: verifying
+stopped_at: Phase 40 context gathered
+last_updated: "2026-10-01T00:25:01.397Z"
+last_activity: "2026-09-27 - Completed quick task 260927-e5w: search page follows in-app navigation to /search?q= while mounted"
 progress:
-  total_phases: 18
+  total_phases: 19
   completed_phases: 9
   total_plans: 103
   completed_plans: 92
-  percent: 50
+  percent: 47
 ---
 
 # Project State
@@ -626,8 +626,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-26T04:16:38.103Z
-Stopped at: Completed 39-10-PLAN.md
+Last session: 2026-10-01T00:25:01.385Z
+Stopped at: Phase 40 context gathered
 Resume: run 32-08-PLAN.md (device checkpoints). **32-07 closed VALIDATION #6 and the v2 half of #3, and BLOCKED two v3 walks — 32-08 must pick them up.** PROVEN LIVE on the deployed workerd edge (https://openmusic.lol, which is already running 32-04): cold GET `{"hit":false}` -> warm GET `{"hit":true}` with a qq `songid`, NO `url` field, `avail.qq:"ok"`; 9/9 warm hits across the YVR and SEA PoPs; POST bust `{"busted":true}` -> miss -> unattended re-fill -> hit (the 32-D-10a repair path works); `Cache-Control: no-store` on every route response (31-D-09 intact). BLOCKED, carry to 32-08: the two 32-D-20 v3 url-layer walks — (1) stale-url -> refresh, (2) bust -> miss -> mid-only -> url-warm — because v3 is on `main` but NOT deployed (the live entries carry no `url` keys, while v3's fill emits explicit nulls), and no preview server could be started here. Exact commands are in 32-07-SUMMARY.md § Task 2; run `pnpm build && pnpm preview` (NOT `pnpm dev` — `edgeCache()` returns null there) or `pnpm run deploy` (NEVER bare `pnpm deploy`). Expect every warm entry to miss once on the v2->v3 key rollover; that is by design. Folded todo `edge-resolve-cache-returns-miss.md` RESOLVED and moved to completed/ — root cause was the probe using `?artist=&title=` when the route has only ever read `a`/`t`, so it hit the `if (!a && !t)` zero-touch short-circuit and never consulted the cache. Still outstanding from Phase 30, unchanged: install `android/app/build/outputs/apk/debug/app-debug.apk` on an Android device, open `/song/Olivia-Dean/Man-I-Need` (proven to return a real 30,840 B JPEG from production), confirm the cover renders rather than a broken image, then kill the network and confirm the gradient fallback appears. That single check closes 30-06 and Phase 30. Do NOT run `/gsd:verify-work` for Phase 30 until it is approved — OG-PAGE-01 terminates in it. Optional, non-blocking leftovers: iMessage/Slack cards, and real 24h cache TTL/eviction.
 
 ## Deferred Items
