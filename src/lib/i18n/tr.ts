@@ -402,6 +402,8 @@ const tr: Dict = {
 	"toast.removedFromQueue": "Sıradan kaldırıldı",
 	"toast.undo": "Geri al",
 	"toast.preparingDownload": "İndirmeye hazırlanıyor…",
+	"toast.albumProgress": "{total} şarkıdan {n}. indiriliyor…",
+	"toast.albumSaved": "{total} şarkıdan {saved} tanesi kaydedildi",
 	"toast.noAudio": "Ses mevcut değil",
 	"toast.skipped": "Çalınamadı · {title} — {reason}",
 	"toast.skippedMany": "{count} şarkı atlandı — {reason}",

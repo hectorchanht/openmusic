@@ -473,6 +473,8 @@ const en = {
 	"toast.removedFromQueue": "Removed from queue",
 	"toast.undo": "Undo",
 	"toast.preparingDownload": "Preparing download…",
+	"toast.albumProgress": "Downloading {n} of {total}…",
+	"toast.albumSaved": "Saved {saved} of {total}",
 	"toast.noAudio": "No audio available",
 	"toast.skipped": "Couldn't play · {title} — {reason}",
 	"toast.skippedMany": "{count} songs skipped — {reason}",

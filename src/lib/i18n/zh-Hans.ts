@@ -428,6 +428,8 @@ const zhHans: Dict = {
 	"toast.removedFromQueue": "已从待播列表移除",
 	"toast.undo": "撤销",
 	"toast.preparingDownload": "正在准备下载…",
+	"toast.albumProgress": "正在下载第 {n} 首，共 {total} 首…",
+	"toast.albumSaved": "已保存 {saved} / {total}",
 	"toast.noAudio": "没有可用的音频",
 	"toast.skipped": "无法播放 · {title} — {reason}",
 	"toast.skippedMany": "已跳过 {count} 首歌曲 — {reason}",

@@ -402,6 +402,8 @@ const fr: Dict = {
 	"toast.removedFromQueue": "Retiré de la file d'attente",
 	"toast.undo": "Annuler",
 	"toast.preparingDownload": "Préparation du téléchargement…",
+	"toast.albumProgress": "Téléchargement {n} sur {total}…",
+	"toast.albumSaved": "{saved} sur {total} enregistrés",
 	"toast.noAudio": "Aucun son disponible",
 	"toast.skipped": "Lecture impossible · {title} — {reason}",
 	"toast.skippedMany": "{count} titres ignorés — {reason}",

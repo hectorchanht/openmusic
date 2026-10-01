@@ -402,6 +402,8 @@ const th: Dict = {
 	"toast.removedFromQueue": "ลบออกจากคิวแล้ว",
 	"toast.undo": "เลิกทำ",
 	"toast.preparingDownload": "กำลังเตรียมการดาวน์โหลด...",
+	"toast.albumProgress": "กำลังดาวน์โหลด {n} จาก {total}…",
+	"toast.albumSaved": "บันทึกแล้ว {saved} จาก {total}",
 	"toast.noAudio": "ไม่มีเสียง",
 	"toast.skipped": "เล่นไม่ได้ · {title} — {reason}",
 	"toast.skippedMany": "ข้ามไปแล้ว {count} เพลง — {reason}",

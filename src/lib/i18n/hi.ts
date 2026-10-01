@@ -402,6 +402,8 @@ const hi: Dict = {
 	"toast.removedFromQueue": "कतार से हटाया गया",
 	"toast.undo": "पूर्ववत करें",
 	"toast.preparingDownload": "डाउनलोड की तैयारी की जा रही है...",
+	"toast.albumProgress": "{total} में से {n} डाउनलोड हो रहा है…",
+	"toast.albumSaved": "{total} में से {saved} सहेजे गए",
 	"toast.noAudio": "कोई ऑडियो उपलब्ध नहीं है",
 	"toast.skipped": "नहीं चला सके · {title} — {reason}",
 	"toast.skippedMany": "{count} गाने छोड़े गए — {reason}",

@@ -402,6 +402,8 @@ const de: Dict = {
 	"toast.removedFromQueue": "Aus der Warteschlange entfernt",
 	"toast.undo": "Rückgängig",
 	"toast.preparingDownload": "Download wird vorbereitet…",
+	"toast.albumProgress": "Lade {n} von {total} herunter…",
+	"toast.albumSaved": "{saved} von {total} gespeichert",
 	"toast.noAudio": "Kein Ton verfügbar",
 	"toast.skipped": "Konnte nicht abgespielt werden · {title} — {reason}",
 	"toast.skippedMany": "{count} Titel übersprungen — {reason}",

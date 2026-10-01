@@ -27,7 +27,7 @@
 	import { resolveStub } from '$lib/services/discovery';
 	import { nameStub } from '$lib/services/similar';
 	import { sameSongKey } from '$lib/services/dedupe';
-	import { downloadTrack } from '$lib/services/download-track';
+	import { downloadAlbum as downloadAlbumTracks } from '$lib/services/download-album';
 	import { enrichAlbum, getAlbumTracklist, type EnrichResult } from '$lib/services/lastfm';
 	import { deezerAlbum, deezerAlbumTracks, type DeezerAlbumInfo } from '$lib/services/deezer';
 	import { mbTracks } from '$lib/services/musicbrainz';
@@ -442,44 +442,35 @@
 		hapticTick();
 	}
 
-	// Download the album → resolve all + route EACH track through the SHARED downloadTrack (29-03)
-	// with persist:false, staggered so the browser doesn't dedupe simultaneous anchor saves.
+	// Download the album → resolve all + hand the list to the shared album orchestrator
+	// (services/download-album.ts), which routes EACH track through the SHARED downloadTrack (29-03).
 	// DL-BUG-01: the old inline fetch → anchor → new-tab-stream fallback is DELETED — downloadTrack
 	// owns save now and NEVER navigates to a media page on failure (a failed track just stays in the
 	// library Downloads list, re-streams on tap). DL-FILE-01: the translated `{artist} - {title}.ext`
-	// filename path applies. LIMITATION (persist:false, RESEARCH Open Q2 / 29-CONTEXT): album downloads
-	// intentionally do NOT create an offline blob / native public-folder copy this phase — only the
-	// human filename + the bug fix apply; the native Download/openmusic placement is out of scope for
-	// the album bulk path. hvu: the pre-29 implementation only added to library; the real file save
-	// (via download-save.ts anchor seam) is what downloadTrack now performs per track.
-	// 36-03 consequence of that same persist:false: skipping blobStore.put also skips the native
-	// public-folder write, so an album download still produces NO `Music/OpenMusic/` file and the
-	// device music player never sees these (now correctly numbered) tags for the album case —
-	// pre-existing Phase 29 behaviour, flagged for the roadmap backlog, deliberately not changed here.
+	// filename path applies. hvu: the pre-29 implementation only added to library.
+	// 36-03: the track numbers written into the tags are the album positions (see download-album.ts).
+	// 40-D-04: album downloads now PERSIST like single songs — offline copy in library Downloads, and
+	// on native the public write lands under `Music/OpenMusic/<Artist>/<Album>/` (40-D-01). On web the
+	// songs are saved as ONE zip whose filename names the album (40-D-03). The old persist:false path
+	// was why an album download never produced a `Music/OpenMusic/` file. The folder names are the
+	// DISPLAY-language names (the same dnArtist/dnTitle pair the share sheet uses) — what the user sees.
 	async function downloadAlbum() {
 		if (!tracks.length || busyAction === 'download') return;
 		busyAction = 'download';
 		globalToast.show(t('toast.preparingDownload'));
 		try {
 			const resolved = await resolveAllCached();
-			let saved = 0;
-			for (const [i, tr] of resolved.entries()) {
-				// 36-D-11 / 36-D-12: `i + 1` over THIS page's `resolved` list is the real album order —
-				// the tracklist comes from Deezer / MusicBrainz / Last.fm in album order, making this the
-				// ONLY legitimate track-number source in the app. `tr.displayIndex` is forbidden here: it
-				// is interleaved MULTI-SOURCE search ordering, not a position on a record.
-				// `albumArtist || undefined` because the $derived is '' on a deep link, and undefined lets
-				// downloadTrack fall back to the track's own artist (D-12's grouping default).
-				const res = await downloadTrack(tr, {
-					persist: false,
-					trackNumber: String(i + 1),
-					albumArtist: albumArtist || undefined
-				});
-				if (res === 'saved') saved++;
-				// Stagger so browser doesn't squash concurrent downloads / hit per-origin caps.
-				await new Promise((r) => setTimeout(r, 250));
+			if (!resolved.length) {
+				globalToast.show(t('album.unplayable'));
+				return;
 			}
-			globalToast.show(saved > 0 ? t('toast.downloaded') : resolved.length ? t('toast.noAudio') : t('album.unplayable'));
+			// 40-D-06: count up while running, then the real saved count (failed songs are skipped).
+			const { saved, total } = await downloadAlbumTracks(
+				resolved,
+				{ artist: names.dnArtist(albumArtist), album: names.dnTitle(name) },
+				(n, total) => globalToast.show(t('toast.albumProgress', { n, total }))
+			);
+			globalToast.show(t('toast.albumSaved', { saved, total }));
 		} finally {
 			busyAction = null;
 		}
@@ -691,7 +682,7 @@
 	     clicked button greys out while its action runs — other buttons stay live. Heart
 	     fill state reflects albumLiked (derived from resolvedCache + library.liked). -->
 	<div class="album-actions">
-		<!-- <button class="act" aria-label={t('menu.download')} disabled={busyAction === 'download'} onclick={downloadAlbum} use:tapBounce><Download size={20} /></button> -->
+		<button class="act" aria-label={t('menu.download')} disabled={busyAction === 'download'} onclick={downloadAlbum} use:tapBounce><Download size={20} /></button>
 		<button class="act" aria-label={albumLiked ? t('menu.liked') : t('menu.like')} disabled={busyAction === 'like'} onclick={likeAlbum} use:tapBounce><Heart size={20} fill={albumLiked ? 'currentColor' : 'none'} /></button>
 		<button class="act" aria-label={t('menu.addToPlaylist')} disabled={busyAction === 'addToPlaylist'} onclick={() => (pickerOpen = true)} use:tapBounce><ListPlus size={20} /></button>
 		<button class="act play" aria-label={t('nowplaying.playPause')} disabled={busyAction === 'play'} onclick={playAlbum} use:tapBounce><Play size={20} /></button>

@@ -402,6 +402,8 @@ const ru: Dict = {
 	"toast.removedFromQueue": "Удалено из очереди",
 	"toast.undo": "Отменить",
 	"toast.preparingDownload": "Подготовка загрузки…",
+	"toast.albumProgress": "Загрузка {n} из {total}…",
+	"toast.albumSaved": "Сохранено {saved} из {total}",
 	"toast.noAudio": "Звук недоступен",
 	"toast.skipped": "Не удалось воспроизвести · {title} — {reason}",
 	"toast.skippedMany": "Пропущено треков: {count} — {reason}",

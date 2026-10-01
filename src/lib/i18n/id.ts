@@ -402,6 +402,8 @@ const id: Dict = {
 	"toast.removedFromQueue": "Dihapus dari antrean",
 	"toast.undo": "Urungkan",
 	"toast.preparingDownload": "Mempersiapkan pengunduhan…",
+	"toast.albumProgress": "Mengunduh {n} dari {total}…",
+	"toast.albumSaved": "Disimpan {saved} dari {total}",
 	"toast.noAudio": "Tidak ada audio yang tersedia",
 	"toast.skipped": "Tidak dapat memutar · {title} — {reason}",
 	"toast.skippedMany": "{count} lagu dilewati — {reason}",

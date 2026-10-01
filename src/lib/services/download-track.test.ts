@@ -433,12 +433,13 @@ describe('downloadTrack — import contract (node compile safety + DL-BUG-01)', 
 		expect(src).not.toContain('displayIndex');
 	});
 
-	it('the album page supplies a real 1-based album position, never displayIndex', () => {
-		const page = readFileSync(new URL('../../routes/(app)/album/[name]/+page.svelte', import.meta.url), 'utf8');
-		const start = page.indexOf('async function downloadAlbum()');
+	// 40-03: the album loop moved out of the page into services/download-album.ts.
+	it('the album download supplies a real 1-based album position, never displayIndex', () => {
+		const page = readFileSync(new URL('./download-album.ts', import.meta.url), 'utf8');
+		const start = page.indexOf('export async function downloadAlbum(');
 		expect(start).toBeGreaterThan(-1);
-		// Function-level close brace: the first `\n\t}` after the opening line.
-		const end = page.indexOf('\n\t}', start);
+		// Function-level close brace: the first top-level `\n}` after the opening line.
+		const end = page.indexOf('\n}', start);
 		expect(end).toBeGreaterThan(start);
 		const body = stripComments(page.slice(start, end));
 		expect(body).toContain('trackNumber: String(i + 1)');

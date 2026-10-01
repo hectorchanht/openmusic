@@ -402,6 +402,8 @@ const vi: Dict = {
 	"toast.removedFromQueue": "Đã xóa khỏi hàng đợi",
 	"toast.undo": "Hoàn tác",
 	"toast.preparingDownload": "Đang chuẩn bị tải xuống…",
+	"toast.albumProgress": "Đang tải {n} trên {total}…",
+	"toast.albumSaved": "Đã lưu {saved} trên {total}",
 	"toast.noAudio": "Không có âm thanh",
 	"toast.skipped": "Không thể phát · {title} — {reason}",
 	"toast.skippedMany": "Đã bỏ qua {count} bài hát — {reason}",

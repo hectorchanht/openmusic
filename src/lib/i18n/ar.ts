@@ -402,6 +402,8 @@ const ar: Dict = {
 	"toast.removedFromQueue": "تمت الإزالة من قائمة الانتظار",
 	"toast.undo": "تراجع",
 	"toast.preparingDownload": "جارٍ التحضير للتنزيل…",
+	"toast.albumProgress": "جارٍ تنزيل {n} من {total}…",
+	"toast.albumSaved": "تم حفظ {saved} من {total}",
 	"toast.noAudio": "لا يوجد صوت متاح",
 	"toast.skipped": "تعذّر التشغيل · {title} — {reason}",
 	"toast.skippedMany": "تم تخطي {count} أغنية — {reason}",
