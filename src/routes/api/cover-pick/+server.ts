@@ -106,11 +106,11 @@ export const GET: RequestHandler = async ({ url, request, platform }) => {
 	return jsonResponse(body, origin, { cacheControl: 'no-cache' });
 };
 
-// ponytail: the D-18a per-IP throttle bounds write floods and one address's reach, but IP rotation
-// (sybil votes) is NOT closed, and an allowlisted host can still carry a user-uploaded image (e.g.
-// googleusercontent, Last.fm /i/u/). A local pin always beats the crowd on the client, so the blast
-// radius is a wrong default one pick fixes. Upgrade path: a quorum, Turnstile, or a Cloudflare
-// rate-limiting rule on POST /api/cover-pick.
+// 40-WR-01: nothing a lone voter casts is published — consensus needs PICK_AGREE_MIN distinct voters
+// (IPv6 counted per /64), and the vote screen is an exact-host list (40-CR-01).
+// ponytail: the D-18a throttle bounds write floods, but voters on several networks can still reach
+// the quorum together. Upgrade path: a higher quorum, Turnstile, or a Cloudflare rate-limiting rule
+// on POST /api/cover-pick.
 export const POST: RequestHandler = async (event) => {
 	const { url, request, platform } = event;
 	const origin = request.headers.get('origin');

@@ -152,7 +152,11 @@ describe('GET /api/cover-pick', () => {
 
 	it('?u&n reads both records and returns each consensus; never exposes votes or ids', async () => {
 		const bucket = fakeBucket();
-		bucket.store.set(U_KEY, { text: JSON.stringify({ v: 1, votes: { x: { u: URL_QQ, t: 1 } } }), etag: 's1' });
+		// 40-WR-01: two agreeing voters — the quorum a published pick needs.
+		bucket.store.set(U_KEY, {
+			text: JSON.stringify({ v: 1, votes: { x: { u: URL_QQ, t: 1 }, y: { u: URL_QQ, t: 2 } } }),
+			etag: 's1'
+		});
 		const res = await callGET(fakeEvent('GET', { search: { u: K1, n: K2 }, env: env(bucket) }));
 		const text = await res.text();
 		expect(JSON.parse(text)).toEqual({ ok: true, u: URL_QQ, n: null });
@@ -307,7 +311,8 @@ describe('POST /api/cover-pick — accepted votes', () => {
 		expect(res.status).toBe(200);
 		expect(res.headers.get('Cache-Control')).toBeNull();
 		const text = await res.text();
-		expect(JSON.parse(text)).toEqual({ ok: true, u: URL_QQ, n: URL_QQ });
+		// 40-WR-01: a lone vote is stored but not published.
+		expect(JSON.parse(text)).toEqual({ ok: true, u: null, n: null });
 
 		const thKey = `cover-pick-throttle/${await throttleVoterId('1.2.3.4')}.json`;
 		expect(bucket.put.mock.calls.map((c) => c[0])).toEqual([thKey, U_KEY, N_KEY]);
@@ -340,7 +345,7 @@ describe('POST /api/cover-pick — accepted votes', () => {
 		const cache = stubCaches();
 		const bucket = fakeBucket();
 		const res = await callPOST(fakeEvent('POST', { body: vote({ n: K2 }), env: env(bucket) }));
-		expect(await res.json()).toEqual({ ok: true, u: null, n: URL_QQ });
+		expect(await res.json()).toEqual({ ok: true, u: null, n: null }); // 40-WR-01: lone vote, unpublished
 		expect(bucket.store.has(U_KEY)).toBe(false);
 		expect(bucket.store.has(N_KEY)).toBe(true);
 		expect(cache.delete.mock.calls[0][0].url).toBe(`${EDGE}?n=${K2}`);
@@ -367,7 +372,8 @@ describe('POST /api/cover-pick — accepted votes', () => {
 			vi.advanceTimersByTime(PICK_MIN_GAP_MS);
 			const DZ = 'https://e-cdns-images.dzcdn.net/x.jpg';
 			const res = await callPOST(fakeEvent('POST', { body: vote({ u: K1, url: DZ }), env: env(bucket) }));
-			expect(await res.json()).toEqual({ ok: true, u: DZ, n: null });
+			expect(await res.json()).toEqual({ ok: true, u: null, n: null }); // 40-WR-01: still one voter
+			expect((Object.values(JSON.parse(bucket.store.get(U_KEY)!.text).votes) as { u: string }[])[0].u).toBe(DZ);
 			const last = bucket.put.mock.calls.at(-1)!;
 			expect(last[0]).toBe(U_KEY);
 			expect(last[2]).toEqual({ httpMetadata: { contentType: 'application/json' }, onlyIf: { etagMatches: etag } });
@@ -375,6 +381,17 @@ describe('POST /api/cover-pick — accepted votes', () => {
 		} finally {
 			vi.useRealTimers();
 		}
+	});
+
+	// 40-WR-01: the quorum — a second DISTINCT voter publishes; a second address in the same /64 does not.
+	it('a second distinct voter publishes; the same IPv6 /64 counts once', async () => {
+		const bucket = fakeBucket();
+		const a = await callPOST(fakeEvent('POST', { body: vote({ u: K1 }), env: env(bucket), ip: '2001:db8:0:1::1' }));
+		expect(await a.json()).toEqual({ ok: true, u: null, n: null });
+		const b = await callPOST(fakeEvent('POST', { body: vote({ u: K1 }), env: env(bucket), ip: '2001:db8:0:1::2' }));
+		expect(b.status).toBe(429); // same /64 → same throttle bucket
+		const c = await callPOST(fakeEvent('POST', { body: vote({ u: K1 }), env: env(bucket), ip: '2.2.2.2' }));
+		expect(await c.json()).toEqual({ ok: true, u: URL_QQ, n: null });
 	});
 
 	it('distinct ips: most votes wins', async () => {

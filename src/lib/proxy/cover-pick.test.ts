@@ -15,6 +15,7 @@ import {
 	applyVote,
 	consensus,
 	voterId,
+	voterAddress,
 	throttleVoterId,
 	parseThrottle,
 	checkThrottle,
@@ -22,6 +23,7 @@ import {
 	MAX_VOTES,
 	PICK_MIN_GAP_MS,
 	PICK_DAILY_MAX,
+	PICK_AGREE_MIN,
 	type PickRecord
 } from './cover-pick';
 
@@ -169,11 +171,38 @@ describe('consensus (D-17)', () => {
 		expect(consensus(rec({ a: { u: QQ, t: 9 }, b: { u: QQ, t: 1 }, c: { u: DZ, t: 10 } }))).toBe(QQ);
 	});
 	it('a tie goes to the most recent vote', () => {
-		expect(consensus(rec({ a: { u: QQ, t: 1 }, b: { u: DZ, t: 5 } }))).toBe(DZ);
-		expect(consensus(rec({ a: { u: QQ, t: 5 }, b: { u: DZ, t: 1 } }))).toBe(QQ);
+		expect(
+			consensus(rec({ a: { u: QQ, t: 1 }, b: { u: QQ, t: 2 }, c: { u: DZ, t: 3 }, d: { u: DZ, t: 5 } }))
+		).toBe(DZ);
+		expect(
+			consensus(rec({ a: { u: QQ, t: 5 }, b: { u: QQ, t: 2 }, c: { u: DZ, t: 3 }, d: { u: DZ, t: 1 } }))
+		).toBe(QQ);
 	});
-	it('one vote applies (no quorum)', () => {
-		expect(consensus(rec({ a: { u: QQ, t: 1 } }))).toBe(QQ);
+	// 40-WR-01: a lone vote is stored but never published.
+	it(`publishes only at PICK_AGREE_MIN (${PICK_AGREE_MIN}) agreeing voters`, () => {
+		expect(PICK_AGREE_MIN).toBe(2);
+		expect(consensus(rec({ a: { u: QQ, t: 1 } }))).toBeNull();
+		expect(consensus(rec({ a: { u: QQ, t: 1 }, b: { u: DZ, t: 5 } }))).toBeNull();
+		expect(consensus(rec({ a: { u: QQ, t: 1 }, b: { u: QQ, t: 2 } }))).toBe(QQ);
+	});
+});
+
+describe('voterAddress (40-WR-01)', () => {
+	it('IPv4 and dotted forms pass through', () => {
+		expect(voterAddress('1.2.3.4')).toBe('1.2.3.4');
+		expect(voterAddress('::ffff:1.2.3.4')).toBe('::ffff:1.2.3.4');
+	});
+	it('IPv6 collapses to its /64, compressed or not', () => {
+		const want = '2001:db8:0:1::/64';
+		for (const ip of ['2001:db8:0:1::1', '2001:db8:0:1:aaaa:bbbb:cccc:dddd', '2001:0DB8:0000:0001::ff', '2001:db8:0:1::'])
+			expect(voterAddress(ip)).toBe(want);
+		expect(voterAddress('2001:db8::1')).toBe('2001:db8:0:0::/64');
+		expect(voterAddress('::1')).toBe('0:0:0:0::/64');
+		expect(voterAddress('2001:db8:0:2::1')).not.toBe(want);
+	});
+	it('one /64 is one voter and one throttle bucket', async () => {
+		expect(await voterId('2001:db8:0:1::1', K1)).toBe(await voterId('2001:db8:0:1::2', K1));
+		expect(await throttleVoterId('2001:db8:0:1::1')).toBe(await throttleVoterId('2001:db8:0:1::2'));
 	});
 });
 

@@ -10,9 +10,13 @@
 // Consensus rule (D-17): most votes wins, one vote per voter, a re-vote replaces (D-19), a tie goes to
 // the most recent vote.
 //
-// ponytail: no quorum — one vote publishes a cover. Bounded by the host allowlist (D-18), the per-IP
-// throttle (D-18a) and the fact that a local pin always wins on the client. Upgrade path: a quorum
-// like lyric-offset's AGREE_MIN, or HMAC-peppered voter ids so IP rotation costs more.
+// 40-WR-01: a QUORUM gates publication — the winner needs PICK_AGREE_MIN distinct voters agreeing.
+// A lone vote is stored (it counts once a second voter agrees) but never published, so one POST can
+// no longer set a song's cover for every listener. The voter's OWN local pin still applies to them
+// at once (TrackMenu pinCover). Voter identity is the IPv6 /64 (voterAddress), not the full address,
+// so one host rotating through its prefix is one voter, for the throttle too.
+// ponytail: 2 voters from 2 networks still publish. Upgrade path: a higher quorum, Turnstile, or
+// HMAC-peppered voter ids.
 
 import { safeImageUrl, COVER_PICK_IMAGE_HOSTS } from './safe-image-url';
 import type { Throttle } from './comments';
@@ -32,6 +36,8 @@ export const COVER_PICK_TTL = 300;
 /** D-18a: own limits, looser than comments (a pick is one tap, not typed text). */
 export const PICK_MIN_GAP_MS = 10_000;
 export const PICK_DAILY_MAX = 60;
+/** 40-WR-01: distinct agreeing voters a url needs before `consensus` publishes it. */
+export const PICK_AGREE_MIN = 2;
 
 export type PickVote = { u: string; t: number };
 export type PickRecord = { v: 1; votes: Record<string, PickVote> };
@@ -183,7 +189,10 @@ export function applyVote(rec: PickRecord, voter: string, url: string, now: numb
 	return { v: 1, votes: Object.fromEntries(entries.slice(0, MAX_VOTES)) };
 }
 
-/** D-17: the url with the most votes; a tie goes to the url holding the most recent vote. Never the votes. */
+/**
+ * D-17: the url with the most votes; a tie goes to the url holding the most recent vote. Never the
+ * votes. 40-WR-01: null until that url has PICK_AGREE_MIN votes (one per voter, so distinct voters).
+ */
 export function consensus(rec: PickRecord): string | null {
 	const tally = new Map<string, { n: number; maxT: number }>();
 	for (const { u, t } of Object.values(rec.votes)) {
@@ -198,7 +207,24 @@ export function consensus(rec: PickRecord): string | null {
 			top = s;
 		}
 	}
-	return best;
+	return top.n >= PICK_AGREE_MIN ? best : null;
+}
+
+/**
+ * 40-WR-01: the address a voter is identified by. IPv4 (and IPv4-mapped / dotted forms) as-is; IPv6
+ * collapsed to its /64, because one subscriber holds a whole /64 (or more) and could otherwise mint
+ * a fresh voter — and a fresh throttle bucket — per address. Pure, never-throw.
+ */
+export function voterAddress(ip: string): string {
+	if (!ip.includes(':') || ip.includes('.')) return ip;
+	const [head, tail] = ip.toLowerCase().split('::');
+	const h = head ? head.split(':') : [];
+	const t = tail ? tail.split(':') : [];
+	const full = tail === undefined ? h : [...h, ...Array(Math.max(0, 8 - h.length - t.length)).fill('0'), ...t];
+	return full
+		.slice(0, 4)
+		.map((x) => (x.replace(/^0+(?=.)/, '') || '0'))
+		.join(':') + '::/64';
 }
 
 async function hex16(s: string): Promise<string> {
@@ -211,7 +237,7 @@ async function hex16(s: string): Promise<string> {
  * across songs; the raw IP is never stored or returned.
  */
 export function voterId(ip: string, k: string): Promise<string> {
-	return hex16(`${ip}|${k}`);
+	return hex16(`${voterAddress(ip)}|${k}`);
 }
 
 /**
@@ -220,7 +246,7 @@ export function voterId(ip: string, k: string): Promise<string> {
  * if the private bucket ever leaked; no hash ever leaves the edge.
  */
 export function throttleVoterId(ip: string): Promise<string> {
-	return hex16(`${ip}|cover-pick`);
+	return hex16(`${voterAddress(ip)}|cover-pick`);
 }
 
 /** D-18a: PICK_MIN_GAP_MS between votes and PICK_DAILY_MAX per UTC day, per address. */
