@@ -45,6 +45,8 @@
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { t } from '$lib/i18n';
 	import { downloadTrack, probeForDownload } from '$lib/services/download-track';
+	import { downloadLabel } from '$lib/services/download-label';
+	import { names } from '$lib/stores/names.svelte';
 	import DownloadRing from '$lib/components/DownloadRing.svelte';
 	import { downloadState } from '$lib/components/download-state';
 	import { formatDownloadMeta, type DownloadProbe } from '$lib/services/download-probe';
@@ -131,9 +133,15 @@
 	const meta = $derived(probed ? formatDownloadMeta(probed) : null);
 	const dlLabel = $derived(meta ? `${t('menu.download')} · ${meta}` : t('menu.download'));
 
+	// Display-language `artist - title` (a song title passes its OWN artist to dnTitle).
+	const labelFor = (s: Track) => downloadLabel(names.dnArtist(s.artist), names.dnTitle(s.title, s.artist));
+
 	async function run() {
 		if (isDownloaded || isDownloading) return;
-		toast.show(t('toast.preparingDownload'));
+		// quick-261001-grb: name the song when we already hold it; an album stub row only has a
+		// `resolve` closure, so it starts generic and the result toast carries the label.
+		const known = resolved ?? track;
+		toast.show(known ? t('toast.downloading', { label: labelFor(known) }) : t('toast.preparingDownload'));
 		localBusy = true;
 		try {
 			let target: Track | null = resolved ?? track ?? null;
@@ -151,12 +159,13 @@
 			const picked = probed?.track && probed.track.uid === target.uid ? probed.track : target;
 			// DL-BUG-01: downloadTrack never navigates; it returns a sentinel the UI localizes here.
 			const res = await downloadTrack(picked, { persist });
+			const label = labelFor(target);
 			toast.show(
 				res === 'saved'
-					? t('toast.downloaded')
+					? t('toast.downloaded', { label })
 					: res === 'no-audio'
-						? t('toast.noAudio')
-						: t('toast.downloadFailedKeptInLibrary')
+						? t('toast.noAudioFor', { label })
+						: t('toast.downloadFailedKeptInLibrary', { label })
 			);
 		} finally {
 			localBusy = false;

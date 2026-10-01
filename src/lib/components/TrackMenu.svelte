@@ -41,6 +41,7 @@
 	// borrows this rather than hand-rolling one.
 	import SettingToggle from '$lib/components/SettingToggle.svelte';
 	import { canDownloadFrom, downloadTrack, probeForDownload } from '$lib/services/download-track';
+	import { downloadLabel } from '$lib/services/download-label';
 	// quick-260915-26g: the shared probe + the shared label formatter. TrackMenu cannot mount
 	// DownloadControl (its Check state is blob-backed and its rows are full-width text buttons, not
 	// 40x40 icons), so it consumes the same SERVICE instead — one implementation, two surfaces.
@@ -556,7 +557,9 @@
 	async function startDownload() {
 		if (!track) return;
 		if (library.downloading.has(track.uid)) return; // D-03 equivalent: a second tap while busy is a no-op
-		toast.show(t('toast.preparingDownload'));
+		// quick-261001-grb: label by the ORIGINAL track (the identity, quick-260916-0d9), display-language.
+		const label = downloadLabel(names.dnArtist(track.artist), names.dnTitle(track.title, track.artist));
+		toast.show(t('toast.downloading', { label }));
 		// quick-260915-26g: the label and the file must agree. The probe already resolved this song AT
 		// settings.downloadQuality, so pass that Track back in — downloadTrack's reuseInput branch then
 		// saves the exact file the row just measured instead of re-resolving a third time.
@@ -564,10 +567,10 @@
 		const res = await downloadTrack(picked);
 		toast.show(
 			res === 'saved'
-				? t('toast.downloaded')
+				? t('toast.downloaded', { label })
 				: res === 'no-audio'
-					? t('toast.noAudio')
-					: t('toast.downloadFailedKeptInLibrary')
+					? t('toast.noAudioFor', { label })
+					: t('toast.downloadFailedKeptInLibrary', { label })
 		);
 		// The Check state is blob-backed (see `blobPresent`), so re-probe rather than assume: 'saved'
 		// only means the anchor click fired, which is true even when the user cancels the save dialog.
@@ -807,15 +810,17 @@
 		const p = dlPickProbes[v.uid];
 		if (!p?.track?.audioUrl) return; // the row is disabled in that state anyway
 		if (library.downloading.has(track.uid)) return; // D-03 equivalent: a second tap while busy is a no-op
+		// quick-261001-grb: label by the ORIGINAL track (the identity, quick-260916-0d9), display-language.
+		const label = downloadLabel(names.dnArtist(track.artist), names.dnTitle(track.title, track.artist));
 		closeDownloadPicker();
-		toast.show(t('toast.preparingDownload'));
+		toast.show(t('toast.downloading', { label }));
 		const res = await downloadTrack(track, { audioFrom: p.track });
 		toast.show(
 			res === 'saved'
-				? t('toast.downloaded')
+				? t('toast.downloaded', { label })
 				: res === 'no-audio'
-					? t('toast.noAudio')
-					: t('toast.downloadFailedKeptInLibrary')
+					? t('toast.noAudioFor', { label })
+					: t('toast.downloadFailedKeptInLibrary', { label })
 		);
 		// D-12: the menu itself stays open \u2014 the Download row reflects downloading/downloaded inline.
 		await probeBlob();

@@ -29,6 +29,7 @@
 	import { sameSongKey } from '$lib/services/dedupe';
 	import { shuffle } from '$lib/services/shuffle';
 	import { downloadAlbum as downloadAlbumTracks } from '$lib/services/download-album';
+	import { downloadLabel } from '$lib/services/download-label';
 	import { enrichAlbum, getAlbumTracklist, type EnrichResult } from '$lib/services/lastfm';
 	import { deezerAlbum, deezerAlbumTracks, type DeezerAlbumInfo } from '$lib/services/deezer';
 	import { mbTracks } from '$lib/services/musicbrainz';
@@ -490,7 +491,10 @@
 	async function downloadAlbum() {
 		const key = albumKey;
 		if (!tracks.length || !library.beginAlbumJob(key)) return;
-		globalToast.show(t('toast.preparingDownload'));
+		const artist = names.dnArtist(albumArtist);
+		const album = names.dnTitle(name);
+		const label = downloadLabel(artist, album); // quick-261001-grb: the toast names the album in flight
+		globalToast.show(t('toast.downloading', { label }));
 		try {
 			const resolved = await resolveAll();
 			if (!resolved.length) {
@@ -500,10 +504,10 @@
 			// 40-D-06: count up while running, then the real saved count (failed songs are skipped).
 			const { saved, total } = await downloadAlbumTracks(
 				resolved,
-				{ artist: names.dnArtist(albumArtist), album: names.dnTitle(name) },
-				(n, total) => globalToast.show(t('toast.albumProgress', { n, total }))
+				{ artist, album },
+				(n, total) => globalToast.show(t('toast.albumProgress', { label, n, total }))
 			);
-			globalToast.show(t('toast.albumSaved', { saved, total }));
+			globalToast.show(t('toast.albumSaved', { label, saved, total }));
 		} finally {
 			library.endAlbumJob(key);
 		}
