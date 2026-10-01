@@ -177,7 +177,12 @@
 	let resolvedTrack = $state<Track | null>(null);
 	/** The uid every state read keys on: the resolved one once we have it, else the row's own. */
 	// quick-260930-uia: `real` folds in the host's `resolved` Track (see the prop doc).
-	const real = $derived(resolvedTrack ?? resolved ?? null);
+	// debug download-state-lost-on-page-return: last rung is the STORE's stub memory — a stub this
+	// row (or a whole-album action, or an earlier visit) already resolved keeps its real uid across a
+	// remount, so the ring / tick for a download still running under that uid shows at once.
+	const real = $derived(
+		resolvedTrack ?? resolved ?? (resolve ? library.stubTrack(track.artist, track.title) : null)
+	);
 	const actUid = $derived(real?.uid ?? track.uid);
 	const liked = $derived(library.isLiked(actUid));
 	/** In-flight guard, THIS row THIS action (Download's lives in DownloadControl's localBusy). */
@@ -270,6 +275,9 @@
 		if (gen !== rowGen) return null; // superseded: this row is now a different song, or gone
 		if (!hasRealIdentity(r)) return null;
 		resolvedTrack = r;
+		// debug download-state-lost-on-page-return: the store remembers it too, so the NEXT mount of
+		// this list keys the row on the same real uid (see `real`).
+		library.rememberStub(track.artist, track.title, r);
 		return r;
 	}
 

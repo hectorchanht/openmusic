@@ -78,6 +78,10 @@
 	// Per-instance in-flight flag: covers the album-stub resolve→download window (whose uid isn't in
 	// library.downloading yet) AND the instant before downloadTrack's synchronous beginDownload lands.
 	// Local-only so it never spins another row (isolation).
+	// debug download-state-lost-on-page-return: a MIRROR, never the source of truth — once a uid
+	// exists the ring is `library.downloading.has(uid)`, and `uid` itself comes from the store's stub
+	// memory via the host row (`resolved`), so a remount shows a running download's ring at once.
+	// Only the pre-uid resolve window is lost on remount, by design.
 	let localBusy = $state(false);
 
 	const uid = $derived(resolved?.uid ?? track?.uid ?? '');

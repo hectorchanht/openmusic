@@ -35,6 +35,7 @@
 	import { mergeEnrichAlbum } from '$lib/services/enrich-merge';
 	import { marquee } from '$lib/actions/marquee';
 	import PageHeader from '$lib/components/PageHeader.svelte';
+	import DownloadRing from '$lib/components/DownloadRing.svelte';
 	import SongRow from '$lib/components/SongRow.svelte';
 	import TrackMenu from '$lib/components/TrackMenu.svelte';
 	import PageOg from '$lib/components/PageOg.svelte';
@@ -65,6 +66,9 @@
 	// over dzid — it is the source with the ORIGINAL-SCRIPT tracklist (最伟大的作品 / 说好不哭 /
 	// 不爱我就拉倒 …, where the Deezer path returns English titles).
 	const albumMbid = $derived(page.url.searchParams.get('mbid') ?? '');
+	// The tracklist key — and (debug download-state-lost-on-page-return) the key the STORE tracks
+	// this album's "Download all" job under, so a remounted page finds the job it started.
+	const albumKey = $derived(`${name}|${albumArtist}|${albumDzId}|${albumMbid}`);
 
 	let tracks = $state<AlbumStub[]>([]);
 	let loading = $state(true);
@@ -125,7 +129,7 @@
 		const artist = albumArtist;
 		const dzid = albumDzId;
 		const mbid = albumMbid;
-		const key = `${n}|${artist}|${dzid}|${mbid}`;
+		const key = albumKey;
 		// OFFL-03 / D-10: SHORT-CIRCUIT when offline — never fire getAlbumTracklist (which would
 		// hang and strand the tracklist skeleton). Clear `loading` so the inline offline state shows
 		// instead of a stuck spinner. No redirect (D-09). Resumes on the next online visit.
@@ -140,11 +144,10 @@
 			loadedFor = key;
 			tracks = [];
 			// WR-08: SvelteKit reuses this component instance across same-route param navigation
-			// (history back/forward between two albums). Without these resets, resolveAllCached()
-			// short-circuits on the PREVIOUS album's resolved tracks — Like/Download/Add-to-playlist
-			// would act on the wrong album and albumLiked would render the stale heart state.
-			resolvedCache = null;
-			resolvedRows = [];
+			// (history back/forward between two albums), so the per-action busy flag is reset here.
+			// debug download-state-lost-on-page-return: the resolved rows and the download job no
+			// longer need a reset — both are read from the store BY ALBUM / BY STUB (`resolvedRows`,
+			// `albumDownloading`), so another album's state can never bleed into this one.
 			busyAction = null;
 			if (!artist && !dzid && !mbid) {
 				// Deep link with neither ?artist= nor ?dzid= — nothing to query. Render the
@@ -317,18 +320,22 @@
 	// only its own id, so an in-flight Download doesn't disable Like — only THIS button
 	// re-fires are suppressed (double-fire protection retained). Other buttons stay live.
 	// quick-260930-uy0: 'shuffle' so the Shuffle-play button greys out only itself.
-	type AlbumAction = 'play' | 'shuffle' | 'download' | 'like' | 'addToPlaylist' | 'share';
+	// debug download-state-lost-on-page-return: 'download' is NOT here on purpose — an album download
+	// outlives this page, so its busy state lives in `library.albumJobs` (see `albumDownloading`),
+	// never in component $state. Nothing that survives navigation may be keyed on `busyAction`.
+	type AlbumAction = 'play' | 'shuffle' | 'like' | 'addToPlaylist' | 'share';
 	let busyAction = $state<AlbumAction | null>(null);
 	let pickerOpen = $state(false);
 
-	// Resolved-track cache (ii6). Populated by `resolveAllCached` and reused across like/heart-state
-	// computations so the album-like heart reflects the post-action state without re-resolving
-	// every render. `null` = not yet resolved; outline-heart is the safe default.
-	let resolvedCache = $state<Track[] | null>(null);
-	// quick-260930-uia: the SAME resolve, index-aligned to `tracks` (null = no match), handed to each
-	// SongRow as `resolved` so its DownloadControl keys on the real uid — that is what lights each
-	// row's own ring while "Download all" runs on the resolved uids.
-	let resolvedRows = $state<(Track | null)[]>([]);
+	// quick-260930-uia: the resolved Track per row, index-aligned to `tracks` (null = not resolved /
+	// no match), handed to each SongRow as `resolved` so its DownloadControl keys on the real uid —
+	// that is what lights each row's own ring while "Download all" runs on the resolved uids.
+	// debug download-state-lost-on-page-return: a DERIVED read of the store's stub memory, not page
+	// $state — a remounted page maps every row to its real uid in the first render, so the rings of
+	// a download still running show live, and `resolveAll` below only re-tries what is not known.
+	const resolvedRows = $derived(tracks.map((s) => library.stubTrack(s.artist, s.title)));
+	/** This album's "Download all" is in flight (resolve → download → zip) — the header's busy source. */
+	const albumDownloading = $derived(library.albumJobs.has(albumKey));
 
 	// Long-press TrackMenu (ii6 #4): album rows are STUBS, so we resolve on long-press, then
 	// open the menu against the real Track. `menuLoading` shows the TrackMenu skeleton while
@@ -351,36 +358,32 @@
 	}
 
 	// Resolve EVERY stub to a Track, order-preserved, max 4 concurrent searchAll fan-outs.
+	// debug download-state-lost-on-page-return: every hit goes to `library.rememberStub` — the memory
+	// `resolvedRows` and SongRow read — and a stub the store already knows (a row tap, an earlier
+	// whole-album action, a previous visit) is not resolved again. That replaces the old page-local
+	// `resolvedCache`: a second action is as instant, a transient miss is re-tried, and the mapping
+	// is keyed by stub so a resolve landing after navigating away can never label another album's rows.
 	async function resolveAll(): Promise<Track[]> {
 		const list = tracks;
-		const out: (Track | null)[] = new Array(tracks.length).fill(null);
+		const out: (Track | null)[] = list.map((s) => library.stubTrack(s.artist, s.title));
 		let next = 0;
 		const worker = async () => {
-			for (let i = next++; i < tracks.length; i = next++) {
-				out[i] = await resolveStub(tracks[i].artist, tracks[i].title).catch(() => null);
+			for (let i = next++; i < list.length; i = next++) {
+				if (out[i]) continue;
+				const tr = await resolveStub(list[i].artist, list[i].title).catch(() => null);
+				out[i] = tr;
+				if (tr) library.rememberStub(list[i].artist, list[i].title, tr);
 			}
 		};
-		await Promise.all(Array.from({ length: Math.min(4, tracks.length || 1) }, worker));
-		// quick-260930-uia: keep the index alignment the filter below drops — but only for the album
-		// this resolve started on (a resolve that lands after navigating away must not hand the new
-		// album's rows another album's songs).
-		if (tracks === list) resolvedRows = out;
+		await Promise.all(Array.from({ length: Math.min(4, list.length || 1) }, worker));
 		return out.filter((t): t is Track => t !== null);
 	}
-	/** Resolve and cache, so the second action / heart-state read is instant. */
-	async function resolveAllCached(): Promise<Track[]> {
-		if (resolvedCache && resolvedCache.length) return resolvedCache;
-		const r = await resolveAll();
-		resolvedCache = r;
-		return r;
-	}
 
-	// Album-like state (ii6 #5): "all resolved tracks are liked". Initially `resolvedCache` is
-	// null → derived returns false → outline heart. After likeAlbum() resolves + likes, the
-	// cache is set + library.liked mutates → derived recomputes to true → filled heart.
-	// Tapping again unlikes → recomputes to false → outline. Matches the user-reported flow.
+	// Album-like state (ii6 #5): "all resolved tracks are liked". Nothing resolved yet → false →
+	// outline heart. After likeAlbum() resolves + likes, the store memory + library.liked mutate →
+	// derived recomputes to true → filled heart. Tapping again unlikes → false → outline.
 	const albumLiked = $derived(
-		!!resolvedCache && resolvedCache.length > 0 && resolvedCache.every((tr) => library.isLiked(tr.uid))
+		resolvedRows.some(Boolean) && resolvedRows.every((tr) => !tr || library.isLiked(tr.uid))
 	);
 
 	// quick-260919-alb: the album tracklist as LAZY name-only Tracks — the SAME `resolveByName` stub
@@ -481,12 +484,15 @@
 	// songs are saved as ONE zip whose filename names the album (40-D-03). The old persist:false path
 	// was why an album download never produced a `Music/OpenMusic/` file. The folder names are the
 	// DISPLAY-language names (the same dnArtist/dnTitle pair the share sheet uses) — what the user sees.
+	// debug download-state-lost-on-page-return: the job is CLAIMED IN THE STORE (claim-once per album
+	// key), not in `busyAction` — this closure keeps running after the page unmounts, and the
+	// remounted page reads the same key for its header, so a tap while it runs is a no-op there too.
 	async function downloadAlbum() {
-		if (!tracks.length || busyAction === 'download') return;
-		busyAction = 'download';
+		const key = albumKey;
+		if (!tracks.length || !library.beginAlbumJob(key)) return;
 		globalToast.show(t('toast.preparingDownload'));
 		try {
-			const resolved = await resolveAllCached();
+			const resolved = await resolveAll();
 			if (!resolved.length) {
 				globalToast.show(t('album.unplayable'));
 				return;
@@ -499,7 +505,7 @@
 			);
 			globalToast.show(t('toast.albumSaved', { saved, total }));
 		} finally {
-			busyAction = null;
+			library.endAlbumJob(key);
 		}
 	}
 
@@ -512,7 +518,7 @@
 		busyAction = 'like';
 		globalToast.show(t('toast.preparingDownload'));
 		try {
-			const resolved = await resolveAllCached();
+			const resolved = await resolveAll();
 			if (!resolved.length) {
 				globalToast.show(t('album.unplayable'));
 				return;
@@ -604,7 +610,7 @@
 		busyAction = 'addToPlaylist';
 		globalToast.show(t('toast.preparingDownload'));
 		try {
-			const resolved = await resolveAllCached();
+			const resolved = await resolveAll();
 			for (const tr of resolved) library.addToPlaylist(id, tr);
 			globalToast.show(resolved.length ? t('toast.addedToPlaylist') : t('album.unplayable'));
 		} finally {
@@ -707,9 +713,14 @@
 {:else if tracks.length}
 	<!-- Album-level actions. ii6: PER-BUTTON disable (busyAction === id) so only the
 	     clicked button greys out while its action runs — other buttons stay live. Heart
-	     fill state reflects albumLiked (derived from resolvedCache + library.liked). -->
+	     fill state reflects albumLiked (derived from the store's stub memory + library.liked). -->
 	<div class="album-actions">
-		<button class="act" aria-label={t('menu.download')} disabled={busyAction === 'download'} onclick={downloadAlbum} use:tapBounce><Download size={20} /></button>
+		<!-- debug download-state-lost-on-page-return: busy = the STORE's album job (survives leaving and
+		     coming back), shown with the same DownloadRing the rows use so "still downloading" reads the
+		     same everywhere. -->
+		<button class="act" aria-label={t('menu.download')} aria-busy={albumDownloading} disabled={albumDownloading} onclick={downloadAlbum} use:tapBounce>
+			{#if albumDownloading}<DownloadRing><Download size={20} /></DownloadRing>{:else}<Download size={20} />{/if}
+		</button>
 		<!-- <button class="act" aria-label={albumLiked ? t('menu.liked') : t('menu.like')} disabled={busyAction === 'like'} onclick={likeAlbum} use:tapBounce><Heart size={20} fill={albumLiked ? 'currentColor' : 'none'} /></button> -->
 		<button class="act" aria-label={t('nowplaying.shuffle')} disabled={busyAction === 'shuffle'} onclick={shuffleAlbum} use:tapBounce><Shuffle size={20} /></button>
 		<!-- <button class="act" aria-label={t('menu.addToPlaylist')} disabled={busyAction === 'addToPlaylist'} onclick={() => (pickerOpen = true)} use:tapBounce><ListPlus size={20} /></button> -->

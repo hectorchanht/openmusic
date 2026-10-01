@@ -312,6 +312,38 @@ class Library {
 		this.downloadProgress = rest;
 	}
 
+	// ---- state that must OUTLIVE a page (debug download-state-lost-on-page-return) -------------
+	// A download runs on `downloading` under the RESOLVED uid, but the album page used to key its
+	// header busy flag and every row's uid on component $state — gone on remount, so after a round
+	// trip the rows fell back to the nameStub uid (never in the Set), the header re-enabled, and a
+	// second tap started a duplicate album job. These two live here so a page only ever MIRRORS them.
+	/** Album "Download all" jobs in flight, keyed by the album page's own tracklist key. Claim-once
+	 *  (see beginAlbumJob) — the header button's busy source and the duplicate-job guard. */
+	albumJobs = $state<Set<string>>(new Set());
+	/** {artist,title} stub → the Track it resolved to, keyed by matchKey. A stub row (album, shelf,
+	 *  chart) keys its download / like state on this uid, so a remounted list lights the live ring or
+	 *  tick at once instead of the stub's idle icon. Session-only cache; a miss is never stored. */
+	resolvedStubs = $state<Record<string, Track>>({});
+	/** Claim an album job. False when one is already running for this key (a second tap is a no-op). */
+	beginAlbumJob(key: string): boolean {
+		if (this.albumJobs.has(key)) return false;
+		this.albumJobs = new Set(this.albumJobs).add(key);
+		return true;
+	}
+	/** Release an album job (run in the orchestrator's `finally`). Absent key is a no-op. */
+	endAlbumJob(key: string) {
+		if (!this.albumJobs.has(key)) return;
+		const next = new Set(this.albumJobs);
+		next.delete(key);
+		this.albumJobs = next;
+	}
+	rememberStub(artist: string, title: string, tr: Track) {
+		this.resolvedStubs = { ...this.resolvedStubs, [matchKey(artist, title)]: tr };
+	}
+	stubTrack(artist: string, title: string): Track | null {
+		return this.resolvedStubs[matchKey(artist, title)] ?? null;
+	}
+
 	isDownloaded(uid: string): boolean {
 		return this.downloads.some((t) => t.uid === uid);
 	}

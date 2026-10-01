@@ -176,6 +176,59 @@ describe('library.downloading (per-uid in-flight set, D-10)', () => {
 	});
 });
 
+// debug download-state-lost-on-page-return: state a download needs that used to live in component
+// $state and died with the page — the album "Download all" job (header busy + duplicate guard) and
+// the stub → resolved-Track memory (what maps an album row to the REAL uid `library.downloading`
+// holds). Both transient, both copy-on-write so runes re-render.
+describe('library album jobs + stub memory (debug download-state-lost-on-page-return)', () => {
+	beforeEach(() => {
+		library.albumJobs = new Set();
+		library.resolvedStubs = {};
+		library.downloads = [];
+		memStore.clear();
+	});
+
+	it('beginAlbumJob claims the key once; a second claim while running is refused', () => {
+		const before = library.albumJobs;
+		expect(library.beginAlbumJob('rice|陳奕迅|0|mb')).toBe(true);
+		expect(library.albumJobs.has('rice|陳奕迅|0|mb')).toBe(true);
+		expect(library.albumJobs).not.toBe(before); // reassigned, not mutated in place
+		expect(library.beginAlbumJob('rice|陳奕迅|0|mb')).toBe(false); // duplicate job = no-op
+		expect(library.beginAlbumJob('other|x|0|')).toBe(true); // another album is independent
+	});
+
+	it('endAlbumJob releases only its own key; absent key is a no-op; the key can be claimed again', () => {
+		library.beginAlbumJob('a');
+		library.beginAlbumJob('b');
+		library.endAlbumJob('a');
+		expect(library.albumJobs.has('a')).toBe(false);
+		expect(library.albumJobs.has('b')).toBe(true);
+		expect(() => library.endAlbumJob('zzz')).not.toThrow();
+		expect(library.beginAlbumJob('a')).toBe(true);
+	});
+
+	it('rememberStub / stubTrack: a resolved stub is readable by its {artist,title} key (matchKey-folded)', () => {
+		const tr = mk({ uid: 'qq:002KvLx4425LV7', artist: '陳奕迅', title: '可以了' });
+		expect(library.stubTrack('陳奕迅', '可以了')).toBeNull();
+		const before = library.resolvedStubs;
+		library.rememberStub('陳奕迅', '可以了', tr);
+		expect(library.resolvedStubs).not.toBe(before);
+		expect(library.stubTrack('陳奕迅', '可以了')?.uid).toBe('qq:002KvLx4425LV7');
+		// matchKey folds case / whitespace, so a row rendered from the same stub always finds it.
+		expect(library.stubTrack(' 陳奕迅 ', '可以了 ')?.uid).toBe('qq:002KvLx4425LV7');
+		expect(library.stubTrack('陳奕迅', '陰天快樂')).toBeNull();
+	});
+
+	it('both are transient — never written to the persisted payload', () => {
+		library.beginAlbumJob('a');
+		library.rememberStub('A', 'T', mk({ uid: 'qq:1' }));
+		library.addDownload(mk({ uid: 'netease-1' }));
+		const payload = JSON.parse(localStorage.getItem('openmusic:library:v1') as string) as Record<string, unknown>;
+		expect('albumJobs' in payload).toBe(false);
+		expect('resolvedStubs' in payload).toBe(false);
+	});
+});
+
 // 34-D-06: a device: entry whose file was missing at last play is MARKED, not removed — the user
 // sees why it will not play and can re-import (D-08: removal only ever inside an explicit import).
 // setDownloads is that import's single wholesale write: add / drop / refresh in one persisted pass.
