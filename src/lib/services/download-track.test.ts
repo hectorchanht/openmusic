@@ -1101,3 +1101,101 @@ describe('downloadTrack — never routes to YT Music (quick-260930-uia)', () => 
 		expect(src).not.toContain('probeDownload');
 	});
 });
+
+// quick-260930-vjp: the album pipelines downloads in two stages — RESOLVE (link lookup, shares the
+// apiFetch governor with playback) and TRANSFER (raw audio fetch → tag → persist/save). `stages` is
+// the opt-in gate contract: acquire → release. A resolve slot is always released before a transfer
+// slot is requested (no hold-and-wait), and the transfer slot is released on EVERY exit.
+describe('downloadTrack — stages gates (quick-260930-vjp)', () => {
+	function gateOf(name: string, log: string[]) {
+		return vi.fn(async () => {
+			log.push(`${name}:in`);
+			return () => {
+				log.push(`${name}:out`);
+			};
+		});
+	}
+	function setup() {
+		const log: string[] = [];
+		const stages = { resolve: gateOf('resolve', log), transfer: gateOf('transfer', log) };
+		return { log, stages };
+	}
+	function stubFetchLog(log: string[], ok = true) {
+		const f = vi.fn(async (_url: string) => {
+			log.push('fetch');
+			return { ok, blob: async () => new Blob(ok ? ['a'] : []) };
+		});
+		vi.stubGlobal('fetch', f);
+		return f;
+	}
+
+	it('brackets ensureTrackDetails with resolve and the fetch→save block with transfer', async () => {
+		const { log, stages } = setup();
+		mocks.ensureTrackDetails.mockImplementation(async () => {
+			log.push('ensure');
+			return mk({ uid: 'netease-1' });
+		});
+		stubFetchLog(log);
+		const res = await downloadTrack(mk({ audioUrl: null, detailsLoaded: false }), { stages });
+		expect(res).toBe('saved');
+		expect(log).toEqual(['resolve:in', 'ensure', 'resolve:out', 'transfer:in', 'fetch', 'transfer:out']);
+	});
+
+	it('releases the transfer slot on a non-2xx (acquire count == release count)', async () => {
+		const { log, stages } = setup();
+		mocks.ensureTrackDetails.mockResolvedValue(mk({ uid: 'netease-1' }));
+		stubFetchLog(log, false);
+		expect(await downloadTrack(mk({ audioUrl: null, detailsLoaded: false }), { stages })).toBe('failed');
+		const ins = log.filter((e) => e.endsWith(':in')).length;
+		const outs = log.filter((e) => e.endsWith(':out')).length;
+		expect(ins).toBe(2);
+		expect(outs).toBe(ins);
+	});
+
+	it('releases the transfer slot when the fetch throws', async () => {
+		const { log, stages } = setup();
+		mocks.ensureTrackDetails.mockResolvedValue(mk({ uid: 'netease-1' }));
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () => {
+				throw new Error('down');
+			})
+		);
+		expect(await downloadTrack(mk({ audioUrl: null, detailsLoaded: false }), { stages })).toBe('failed');
+		expect(log).toEqual(['resolve:in', 'resolve:out', 'transfer:in', 'transfer:out']);
+	});
+
+	it('a reusable input track skips the resolve gate but still takes the transfer gate', async () => {
+		const { log, stages } = setup();
+		stubFetchLog(log);
+		expect(await downloadTrack(mk(), { stages })).toBe('saved');
+		expect(stages.resolve).not.toHaveBeenCalled();
+		expect(log).toEqual(['transfer:in', 'fetch', 'transfer:out']);
+	});
+
+	it('ytmusic donor path: fetchVariants + probe under resolve, released before the donor transfer', async () => {
+		const { log, stages } = setup();
+		mocks.fetchVariants.mockImplementation(async () => {
+			log.push('variants');
+			return [mk({ uid: 'qq:9', source: 'qq', songid: '9', audioUrl: null })];
+		});
+		mocks.probeDownload.mockImplementation(async (t: Track) => {
+			log.push('probe');
+			return { container: null, qualityLabel: null, bytes: null, track: { ...t, audioUrl: 'https://cdn.example/q.m4a' } };
+		});
+		stubFetchLog(log);
+		const yt = mk({ uid: 'ytmusic:abc', source: 'ytmusic', songid: 'abc', audioUrl: null, detailsLoaded: false });
+		expect(await downloadTrack(yt, { stages })).toBe('saved');
+		expect(log).toEqual([
+			'resolve:in',
+			'variants',
+			'resolve:out',
+			'resolve:in',
+			'probe',
+			'resolve:out',
+			'transfer:in',
+			'fetch',
+			'transfer:out'
+		]);
+	});
+});
