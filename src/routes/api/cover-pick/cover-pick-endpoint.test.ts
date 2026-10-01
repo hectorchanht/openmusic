@@ -18,6 +18,10 @@ const U_KEY = `cover-pick/u/${K1}.json`;
 const N_KEY = `cover-pick/n/${K2}.json`;
 const URL_QQ = 'https://y.gtimg.cn/music/photo_new/x.jpg';
 const BASE = 'https://openmusic.lol/api/cover-pick';
+// The edge-cache key lives OFF the public GET URL: adapter-cloudflare's worker answers any GET whose
+// own URL is in caches.default straight from the cache, before hooks.server.ts adds CORS, so a public
+// key would ship a CORS-less reply the APK WebView (https://localhost) cannot read.
+const EDGE = 'https://openmusic.lol/api/cover-pick/__edge';
 
 type PutOpts = { httpMetadata?: unknown; onlyIf?: { etagMatches?: string; etagDoesNotMatch?: string } };
 
@@ -175,13 +179,33 @@ describe('GET /api/cover-pick', () => {
 		await callGET(fakeEvent('GET', { search: { u: K1, n: K2 }, env: env(bucket) }));
 		expect(cache.put).toHaveBeenCalledTimes(1);
 		const [req, stored] = cache.put.mock.calls[0];
-		expect(req.url).toBe(`${BASE}?u=${K1}&n=${K2}`);
+		expect(req.url).toBe(`${EDGE}?u=${K1}&n=${K2}`);
 		expect(stored.headers.get('Cache-Control')).toBe('public, max-age=300');
+	});
+
+	it('the edge-cache key is never the public GET URL the adapter worker would serve without CORS', async () => {
+		const cache = stubCaches();
+		const bucket = fakeBucket();
+		await callGET(fakeEvent('GET', { search: { u: K1, n: K2 }, env: env(bucket) }));
+		const [req] = cache.put.mock.calls[0];
+		expect(new URL(req.url).pathname).not.toBe('/api/cover-pick');
+		expect(cache.store.has(`${BASE}?u=${K1}&n=${K2}`)).toBe(false);
+	});
+
+	it('a repeat GET from the APK origin (https://localhost) is a cache hit that carries CORS', async () => {
+		const cache = stubCaches();
+		const bucket = fakeBucket();
+		const apk = { headers: { origin: 'https://localhost' } };
+		await callGET(fakeEvent('GET', { search: { u: K1 }, env: env(bucket), ...apk }));
+		const res = await callGET(fakeEvent('GET', { search: { u: K1 }, env: env(bucket), ...apk }));
+		expect(cache.match).toHaveBeenCalledTimes(2);
+		expect(bucket.get).toHaveBeenCalledTimes(1); // the second one was the hit
+		expect(res.headers.get('Access-Control-Allow-Origin')).toBe('https://localhost');
 	});
 
 	it('an edge-cache hit is served without touching R2', async () => {
 		const cache = stubCaches();
-		cache.store.set(`${BASE}?u=${K1}`, JSON.stringify({ ok: true, u: URL_QQ, n: null }));
+		cache.store.set(`${EDGE}?u=${K1}`, JSON.stringify({ ok: true, u: URL_QQ, n: null }));
 		const bucket = fakeBucket();
 		const res = await callGET(fakeEvent('GET', { search: { u: K1 }, env: env(bucket) }));
 		expect(await res.json()).toEqual({ ok: true, u: URL_QQ, n: null });
@@ -309,7 +333,7 @@ describe('POST /api/cover-pick — accepted votes', () => {
 		const bucket = fakeBucket();
 		await callPOST(fakeEvent('POST', { body: vote({ u: K1, n: K2 }), env: env(bucket) }));
 		expect(cache.delete).toHaveBeenCalledTimes(1);
-		expect(cache.delete.mock.calls[0][0].url).toBe(`${BASE}?u=${K1}&n=${K2}`);
+		expect(cache.delete.mock.calls[0][0].url).toBe(`${EDGE}?u=${K1}&n=${K2}`);
 	});
 
 	it('n only → only the n record is written; the bust key is ?n=<K2>', async () => {
@@ -319,7 +343,7 @@ describe('POST /api/cover-pick — accepted votes', () => {
 		expect(await res.json()).toEqual({ ok: true, u: null, n: URL_QQ });
 		expect(bucket.store.has(U_KEY)).toBe(false);
 		expect(bucket.store.has(N_KEY)).toBe(true);
-		expect(cache.delete.mock.calls[0][0].url).toBe(`${BASE}?n=${K2}`);
+		expect(cache.delete.mock.calls[0][0].url).toBe(`${EDGE}?n=${K2}`);
 	});
 
 	it('a second vote from the same ip inside PICK_MIN_GAP_MS → 429 slow-down, no record written', async () => {
