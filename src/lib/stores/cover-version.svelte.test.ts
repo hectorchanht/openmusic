@@ -95,3 +95,30 @@ describe('bumpCoverVersion coalescing (quick-260704-45c)', () => {
 		expect(coverVersion()).toBe(2);
 	});
 });
+
+// Phase 40 D-11b: a YT Music thumbnail is per-uid art — written to the uid layer only, never the
+// shared {artist,title} name layer that bridges every source's copy of the song.
+describe('writeCoverBoth YTM uid-only gate (Phase 40 D-11b)', () => {
+	beforeEach(() => {
+		memStore.clear();
+		vi.stubGlobal('localStorage', localStorageMock);
+		vi.stubGlobal('requestAnimationFrame', undefined);
+	});
+
+	it('a YTM-host url writes the uid layer only and still bumps the version', async () => {
+		const { writeCoverBoth, coverVersion } = await import('./cover-version.svelte');
+		const { getCachedCoverByUid, getCachedCover } = await import('$lib/services/cover-cache');
+		writeCoverBoth('qq:1', 'A', 'T', 'https://i.ytimg.com/x.jpg');
+		expect(getCachedCoverByUid('qq:1')).toBe('https://i.ytimg.com/x.jpg');
+		expect(getCachedCover('A', 'T')).toBeNull();
+		expect(coverVersion()).toBe(1);
+	});
+
+	it('a Deezer url writes both layers (unchanged)', async () => {
+		const { writeCoverBoth } = await import('./cover-version.svelte');
+		const { getCachedCoverByUid, getCachedCover } = await import('$lib/services/cover-cache');
+		writeCoverBoth('qq:1', 'A', 'T', 'https://e-cdns-images.dzcdn.net/x.jpg');
+		expect(getCachedCoverByUid('qq:1')).toBe('https://e-cdns-images.dzcdn.net/x.jpg');
+		expect(getCachedCover('A', 'T')).toBe('https://e-cdns-images.dzcdn.net/x.jpg');
+	});
+});

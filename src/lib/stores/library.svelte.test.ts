@@ -14,6 +14,7 @@ const { blobDel } = vi.hoisted(() => ({ blobDel: vi.fn(async () => {}) }));
 vi.mock('$lib/services/blob-store', () => ({ blobStore: { del: blobDel } }));
 import { library } from './library.svelte';
 import { warmScript } from '$lib/services/zh-convert';
+import { getCachedCover } from '$lib/services/cover-cache';
 import type { Track } from '$lib/sources/types';
 
 const memStore = new Map<string, string>();
@@ -81,6 +82,23 @@ describe('library.adoptCover (cover-chain)', () => {
 		library.liked = [mk({ uid: 'qq-2', artist: ' g.e.m. 邓紫棋 ', title: '多远都要在一起' })];
 		library.adoptCover(mk({ uid: 'netease-1', cover: 'https://img/c.jpg' }));
 		expect(library.liked[0].cover).toBe('https://img/c.jpg');
+	});
+
+	// Phase 40 D-11b: a YT Music thumbnail is per-uid art — the record is filled, the shared name
+	// layer is NOT, so it cannot repaint other sources' copies of the song.
+	it('a YTM-host cover fills the record but never the shared name layer (D-11b)', () => {
+		memStore.clear();
+		library.liked = [mk({ uid: 'netease-1', artist: 'YA', title: 'YT' })];
+		library.adoptCover(mk({ uid: 'netease-1', artist: 'YA', title: 'YT', cover: 'https://i.ytimg.com/vi/x/hq.jpg' }));
+		expect(library.liked[0].cover).toBe('https://i.ytimg.com/vi/x/hq.jpg');
+		expect(getCachedCover('YA', 'YT')).toBeNull();
+	});
+
+	it('a Deezer cover IS written to the shared name layer (unchanged)', () => {
+		memStore.clear();
+		library.liked = [mk({ uid: 'netease-1', artist: 'DA', title: 'DT' })];
+		library.adoptCover(mk({ uid: 'netease-1', artist: 'DA', title: 'DT', cover: 'https://e-cdns-images.dzcdn.net/x.jpg' }));
+		expect(getCachedCover('DA', 'DT')).toBe('https://e-cdns-images.dzcdn.net/x.jpg');
 	});
 });
 
