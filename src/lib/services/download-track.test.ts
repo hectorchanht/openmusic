@@ -56,7 +56,16 @@ const mocks = vi.hoisted(() => ({
 		async (blob: Blob, _f: unknown, _a?: unknown): Promise<TagOutcomeLike> => ({ blob, result: 'tagged', format: 'm4a' })
 	),
 	resolveArtworkDataUrl: vi.fn(async (_q: unknown): Promise<string | null> => null),
-	logAction: vi.fn((_ev: string, _d?: Record<string, unknown>) => {})
+	logAction: vi.fn((_ev: string, _d?: Record<string, unknown>) => {}),
+	// quick-260930-uia: the ytmusic donor lookup. Defaults keep every non-ytmusic test untouched
+	// (neither is ever reached for a non-ytmusic track).
+	fetchVariants: vi.fn(async (_t: Track): Promise<Track[]> => []),
+	probeDownload: vi.fn(async (t: Track) => ({
+		container: null,
+		qualityLabel: null,
+		bytes: null,
+		track: { ...t, audioUrl: `https://cdn.example/${t.uid}.m4a` } as Track | null
+	}))
 }));
 
 vi.mock('$lib/stores/library.svelte', () => ({ library: mocks.library }));
@@ -77,6 +86,12 @@ vi.mock('$lib/services/audio-tags', async (orig) => ({
 }));
 vi.mock('$lib/services/media-artwork', () => ({ resolveArtworkDataUrl: mocks.resolveArtworkDataUrl }));
 vi.mock('$lib/stores/actionLog.svelte', () => ({ logAction: mocks.logAction }));
+// quick-260930-uia: variants.ts stays REAL for versionsIncludingOwn (pure); only the lookup is stubbed.
+vi.mock('$lib/services/variants', async (orig) => ({
+	...(await orig<typeof import('$lib/services/variants')>()),
+	fetchVariants: mocks.fetchVariants
+}));
+vi.mock('$lib/services/download-probe', () => ({ probeDownload: mocks.probeDownload }));
 
 import { downloadTrack, type DownloadResult } from './download-track';
 
@@ -140,6 +155,13 @@ beforeEach(() => {
 	mocks.tagAudioBlob.mockReset().mockImplementation(async (blob: Blob) => ({ blob, result: 'tagged', format: 'm4a' }));
 	mocks.resolveArtworkDataUrl.mockReset().mockResolvedValue(null);
 	mocks.logAction.mockReset();
+	mocks.fetchVariants.mockReset().mockImplementation(async () => []);
+	mocks.probeDownload.mockReset().mockImplementation(async (t: Track) => ({
+		container: null,
+		qualityLabel: null,
+		bytes: null,
+		track: { ...t, audioUrl: `https://cdn.example/${t.uid}.m4a` } as Track | null
+	}));
 	windowOpen = vi.fn();
 	vi.stubGlobal('window', { open: windowOpen });
 });
@@ -1000,5 +1022,82 @@ describe('Phase 40 album opts (D-04)', () => {
 		const res = await downloadTrack(mk({ audioUrl: null, detailsLoaded: false }), { save: false, onSaved });
 		expect(res).toBe('failed');
 		expect(onSaved).not.toHaveBeenCalled();
+	});
+});
+
+// quick-260930-uia: "downloading a song should never route to YT Music". A ytmusic audio file cannot
+// be fetched by any download path (web: googlevideo 403 through the stream proxy; native: no CORS on
+// the direct url), so the ONE rule lives here and every caller (TrackMenu single, Download from…,
+// album, background repair) inherits it.
+describe('downloadTrack — never routes to YT Music (quick-260930-uia)', () => {
+	const yt = () => mk({ uid: 'ytmusic:abc', source: 'ytmusic', songid: 'abc', audioUrl: null, detailsLoaded: false });
+	const ytOther = () => mk({ uid: 'ytmusic:def', source: 'ytmusic', songid: 'def', audioUrl: null });
+	const qq = () => mk({ uid: 'qq:9', source: 'qq', songid: '9', audioUrl: null });
+	const kuwo = () => mk({ uid: 'kuwo:5', source: 'kuwo', songid: '5', audioUrl: null });
+
+	/** fetch stub answering per url: `bad` urls get `{ ok:false }`, the rest bytes. */
+	function stubFetchBy(bad: string[] = []) {
+		const f = vi.fn(async (url: string) =>
+			bad.includes(url) ? { ok: false, blob: async () => new Blob([]) } : { ok: true, blob: async () => new Blob(['a']) }
+		);
+		vi.stubGlobal('fetch', f);
+		return f;
+	}
+
+	it('saves a ytmusic song with a non-ytmusic donor audio, never resolving or fetching ytmusic', async () => {
+		mocks.fetchVariants.mockImplementation(async () => [ytOther(), qq(), kuwo()]);
+		const f = stubFetchBy();
+		const res = await downloadTrack(yt());
+		expect(res).toBe('saved');
+		expect(mocks.ensureTrackDetails).not.toHaveBeenCalled();
+		expect(f).toHaveBeenCalledTimes(1);
+		expect(f).toHaveBeenCalledWith('https://cdn.example/qq:9.m4a');
+		expect(mocks.put.mock.calls[0][0]).toBe('ytmusic:abc');
+		expect(mocks.probeDownload).not.toHaveBeenCalledWith(expect.objectContaining({ source: 'ytmusic' }));
+	});
+
+	it('tries the next donor when one fails, in versionsIncludingOwn order', async () => {
+		mocks.fetchVariants.mockImplementation(async () => [qq(), kuwo()]);
+		const f = stubFetchBy(['https://cdn.example/qq:9.m4a']);
+		expect(await downloadTrack(yt())).toBe('saved');
+		expect(f.mock.calls.map((c) => c[0])).toEqual(['https://cdn.example/qq:9.m4a', 'https://cdn.example/kuwo:5.m4a']);
+	});
+
+	it("no donor → 'no-audio', nothing fetched or recorded, spinner bracketed once", async () => {
+		const f = stubFetchBy();
+		expect(await downloadTrack(yt())).toBe('no-audio');
+		expect(f).not.toHaveBeenCalled();
+		expect(mocks.library.addDownload).not.toHaveBeenCalled();
+		expect(mocks.library.beginDownload).toHaveBeenCalledTimes(1);
+		expect(mocks.library.endDownload).toHaveBeenCalledTimes(1);
+	});
+
+	it("every donor failing → 'failed', not 'no-audio'", async () => {
+		mocks.fetchVariants.mockImplementation(async () => [qq(), kuwo()]);
+		stubFetchBy(['https://cdn.example/qq:9.m4a', 'https://cdn.example/kuwo:5.m4a']);
+		expect(await downloadTrack(yt())).toBe('failed');
+	});
+
+	it("refuses a ytmusic audioFrom (the picker can't route to YT Music either)", async () => {
+		const f = stubFetchBy();
+		const res = await downloadTrack(mk({ uid: 'qq:1', source: 'qq' }), {
+			audioFrom: mk({ uid: 'ytmusic:abc', source: 'ytmusic', audioUrl: 'https://googlevideo/x' })
+		});
+		expect(res).toBe('no-audio');
+		expect(f).not.toHaveBeenCalled();
+	});
+
+	it('a non-ytmusic song never looks up donors', async () => {
+		mocks.ensureTrackDetails.mockResolvedValue(mk({ uid: 'qq:1', source: 'qq' }));
+		stubFetchBy();
+		expect(await downloadTrack(mk({ uid: 'qq:1', source: 'qq', audioUrl: null, detailsLoaded: false }))).toBe('saved');
+		expect(mocks.fetchVariants).not.toHaveBeenCalled();
+		expect(mocks.probeDownload).not.toHaveBeenCalled();
+	});
+
+	it('the album loop owns no donor lookup of its own (the rule lives here)', () => {
+		const src = stripComments(readFileSync(new URL('./download-album.ts', import.meta.url), 'utf8'));
+		expect(src).not.toContain('fetchVariants');
+		expect(src).not.toContain('probeDownload');
 	});
 });
