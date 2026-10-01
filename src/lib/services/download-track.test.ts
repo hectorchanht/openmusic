@@ -93,7 +93,14 @@ vi.mock('$lib/services/variants', async (orig) => ({
 }));
 vi.mock('$lib/services/download-probe', () => ({ probeDownload: mocks.probeDownload }));
 
-import { downloadTrack, downloadFromDonor, probeForDownload, type DownloadResult } from './download-track';
+import {
+	downloadTrack,
+	downloadFromDonor,
+	donorMatchesTier,
+	donorRank,
+	probeForDownload,
+	type DownloadResult
+} from './download-track';
 import { QqRateLimitedError } from '$lib/sources/qq';
 
 // A full Track (cast so optional source-specific extras can be omitted).
@@ -1236,20 +1243,12 @@ describe('downloadTrack — rate-limited + downloadFromDonor (quick-260930-x3q)'
 	it('excludes the named source and never probes ytmusic; saves the donor audio under the ORIGINAL uid', async () => {
 		mocks.fetchVariants.mockImplementation(async () => [qqT({ uid: 'qq:10', songid: '10' }), neteaseT(), ytT()]);
 		const f = stubFetchBy();
-		expect(await downloadFromDonor(qqT(), {}, { exclude: ['qq'], requireTier: true })).toBe('saved');
+		expect(await downloadFromDonor(qqT(), {}, { exclude: ['qq'], prefer: 'tier' })).toBe('saved');
 		expect(mocks.probeDownload).toHaveBeenCalledTimes(1);
 		expect(mocks.probeDownload.mock.calls[0][0].source).toBe('netease');
 		expect(f).toHaveBeenCalledWith('https://cdn.example/netease:7.m4a');
 		expect(mocks.put.mock.calls[0][0]).toBe('qq:9');
 		expect(mocks.ensureTrackDetails).not.toHaveBeenCalled();
-	});
-
-	it("requireTier under 'lossless' skips a 320 donor and takes a lossless one", async () => {
-		mocks.settings.downloadQuality = 'lossless';
-		mocks.fetchVariants.mockImplementation(async () => [neteaseT({ quality: '320' }), kuwoT({ quality: 'lossless' })]);
-		const f = stubFetchBy();
-		expect(await downloadFromDonor(qqT(), {}, { exclude: ['qq'], requireTier: true })).toBe('saved');
-		expect(f.mock.calls.map((c) => c[0])).toEqual(['https://cdn.example/kuwo:5.m4a']);
 	});
 
 	it("no eligible donor → 'no-audio'", async () => {
@@ -1265,6 +1264,121 @@ describe('downloadTrack — rate-limited + downloadFromDonor (quick-260930-x3q)'
 		expect(await downloadFromDonor(qqT(), {}, { exclude: ['qq'] })).toBe('saved');
 		stubFetchBy(['https://cdn.example/netease:7.m4a', 'https://cdn.example/kuwo:5.m4a']);
 		expect(await downloadFromDonor(qqT(), {}, { exclude: ['qq'] })).toBe('failed');
+	});
+});
+
+// quick-261001-0p9: after qq's wait runs out, a donor at the SAME quality tier AND format class as the
+// download tier wins ("qq FLAC → another source's FLAC, not an mp3"); with no match the best-ranked
+// other donor is the last resort so the album still finishes.
+describe('donorMatchesTier / donorRank (quick-261001-0p9)', () => {
+	const p = (container: string | null, quality: string | null) => ({ container, quality });
+
+	it('matches by band AND format class', () => {
+		expect(donorMatchesTier(p('flac', 'lossless'), 'lossless')).toBe(true);
+		expect(donorMatchesTier(p('mp3', '320k'), 'lossless')).toBe(false);
+		expect(donorMatchesTier(p('mp3', 'hq'), '320')).toBe(true);
+		expect(donorMatchesTier(p('mp3', '320k'), '320')).toBe(true);
+		expect(donorMatchesTier(p('flac', 'lossless'), '320')).toBe(false);
+		expect(donorMatchesTier(p('mp3', 'standard'), '128')).toBe(true);
+		expect(donorMatchesTier(p(null, 'lossless'), 'lossless')).toBe(true);
+		expect(donorMatchesTier(p('m4a', null), '320')).toBe(false);
+	});
+
+	it('ranks lossless 3, 320 2, 128 1, unknown 0 — container beats the tag', () => {
+		expect(donorRank(p('flac', null))).toBe(3);
+		expect(donorRank(p(null, 'lossless'))).toBe(3);
+		expect(donorRank(p('mp3', '320k'))).toBe(2);
+		expect(donorRank(p(null, 'hq'))).toBe(2);
+		expect(donorRank(p('mp3', '128'))).toBe(1);
+		expect(donorRank(p(null, 'standard'))).toBe(1);
+		expect(donorRank(p(null, 'low'))).toBe(1);
+		expect(donorRank(p(null, null))).toBe(0);
+		expect(donorRank(p('wav', '128'))).toBe(3);
+	});
+});
+
+describe("downloadFromDonor — prefer: 'tier' (quick-261001-0p9)", () => {
+	const qqT = () => mk({ uid: 'qq:9', source: 'qq', songid: '9', audioUrl: null, detailsLoaded: false });
+	const v = (source: Track['source'], id: string, quality: string) =>
+		mk({ uid: `${source}:${id}`, source, songid: id, audioUrl: null, quality });
+	// The probe reports the donor's container from its file extension, like the real probe.
+	const EXT: Record<string, string> = {};
+	const url = (uid: string) => `https://cdn.example/${uid}.${EXT[uid]}`;
+	function probeByExt() {
+		mocks.probeDownload.mockImplementation(async (t: Track) => ({
+			container: EXT[t.uid] ?? null,
+			qualityLabel: null,
+			bytes: null,
+			track: { ...t, audioUrl: url(t.uid) } as Track | null
+		}));
+	}
+	function stubFetchBy(bad: string[] = []) {
+		const f = vi.fn(async (u: string) =>
+			bad.includes(u) ? { ok: false, blob: async () => new Blob([]) } : { ok: true, blob: async () => new Blob(['a']) }
+		);
+		vi.stubGlobal('fetch', f);
+		return f;
+	}
+	const OPTS = { exclude: ['qq'], prefer: 'tier' } as const;
+
+	beforeEach(() => {
+		for (const k of Object.keys(EXT)) delete EXT[k];
+		Object.assign(EXT, { 'netease:7': 'mp3', 'kuwo:5': 'flac', 'joox:3': 'mp3' });
+		probeByExt();
+	});
+
+	it("'lossless': the FLAC match wins even though the mp3 donor walks first", async () => {
+		mocks.settings.downloadQuality = 'lossless';
+		mocks.fetchVariants.mockImplementation(async () => [v('netease', '7', '320k'), v('kuwo', '5', 'lossless')]);
+		const f = stubFetchBy();
+		expect(await downloadFromDonor(qqT(), {}, OPTS)).toBe('saved');
+		expect(f.mock.calls.map((c) => c[0])).toEqual([url('kuwo:5')]);
+		expect(mocks.put.mock.calls[0][0]).toBe('qq:9');
+	});
+
+	it("'lossless' with no match: best rank first (netease 320 over joox 128), then the next", async () => {
+		mocks.settings.downloadQuality = 'lossless';
+		mocks.fetchVariants.mockImplementation(async () => [v('joox', '3', '128'), v('netease', '7', '320k')]);
+		const f = stubFetchBy([url('netease:7')]);
+		expect(await downloadFromDonor(qqT(), {}, OPTS)).toBe('saved');
+		expect(f.mock.calls.map((c) => c[0])).toEqual([url('netease:7'), url('joox:3')]);
+	});
+
+	it("'320': the mp3 match is taken the moment it is seen; the earlier FLAC is never fetched", async () => {
+		mocks.settings.downloadQuality = '320';
+		mocks.fetchVariants.mockImplementation(async () => [v('kuwo', '5', 'lossless'), v('netease', '7', '320k')]);
+		const f = stubFetchBy();
+		expect(await downloadFromDonor(qqT(), {}, OPTS)).toBe('saved');
+		expect(f.mock.calls.map((c) => c[0])).toEqual([url('netease:7')]);
+	});
+
+	it('a failing match falls through to the ranked rest', async () => {
+		mocks.settings.downloadQuality = 'lossless';
+		mocks.fetchVariants.mockImplementation(async () => [v('netease', '7', '320k'), v('kuwo', '5', 'lossless')]);
+		const f = stubFetchBy([url('kuwo:5')]);
+		expect(await downloadFromDonor(qqT(), {}, OPTS)).toBe('saved');
+		expect(f.mock.calls.map((c) => c[0])).toEqual([url('kuwo:5'), url('netease:7')]);
+	});
+
+	it("every donor fails → 'failed'; no eligible donor → 'no-audio'; ytmusic never probed", async () => {
+		mocks.fetchVariants.mockImplementation(async () => [v('netease', '7', '320k'), v('kuwo', '5', 'lossless')]);
+		stubFetchBy([url('netease:7'), url('kuwo:5')]);
+		expect(await downloadFromDonor(qqT(), {}, OPTS)).toBe('failed');
+		mocks.probeDownload.mockClear();
+		mocks.fetchVariants.mockImplementation(async () => [v('qq', '10', 'lossless'), v('ytmusic', 'z', 'lossless')]);
+		const f = stubFetchBy();
+		expect(await downloadFromDonor(qqT(), {}, OPTS)).toBe('no-audio');
+		expect(f).not.toHaveBeenCalled();
+		expect(mocks.probeDownload).not.toHaveBeenCalled();
+	});
+
+	it('no options (the ytmusic path) still takes the first donor in walk order', async () => {
+		mocks.settings.downloadQuality = 'lossless';
+		mocks.fetchVariants.mockImplementation(async () => [v('netease', '7', '320k'), v('kuwo', '5', 'lossless')]);
+		const f = stubFetchBy();
+		const yt = mk({ uid: 'ytmusic:z', source: 'ytmusic', songid: 'z', audioUrl: null });
+		expect(await downloadFromDonor(yt, {})).toBe('saved');
+		expect(f.mock.calls.map((c) => c[0])).toEqual([url('netease:7')]);
 	});
 });
 
