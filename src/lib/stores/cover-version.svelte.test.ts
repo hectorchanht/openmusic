@@ -122,3 +122,79 @@ describe('writeCoverBoth YTM uid-only gate (Phase 40 D-11b)', () => {
 		expect(getCachedCover('A', 'T')).toBe('https://e-cdns-images.dzcdn.net/x.jpg');
 	});
 });
+
+// Phase 40 D-14 / D-19: the crowd-shared cover pick. Precedence pin > crowd uid > crowd name, and the
+// crowd rung outranks the auto-resolved uid/name layers in readCoverByUidOrName.
+describe('crowd layer (Phase 40 D-14 / D-19)', () => {
+	const PIN = 'https://y.gtimg.cn/pin.jpg';
+	const CU = 'https://y.gtimg.cn/cu.jpg';
+	const CN = 'https://y.gtimg.cn/cn.jpg';
+	const AUTO = 'https://e-cdns-images.dzcdn.net/auto.jpg';
+
+	beforeEach(() => {
+		memStore.clear();
+		vi.stubGlobal('localStorage', localStorageMock);
+		vi.stubGlobal('requestAnimationFrame', undefined);
+	});
+
+	it('readChosenCover: pin > crowd uid > crowd name > null', async () => {
+		const { readChosenCover } = await import('./cover-version.svelte');
+		const cc = await import('$lib/services/cover-cache');
+		expect(readChosenCover('qq:1', 'A', 'T')).toBeNull();
+		cc.setCrowdCoverByName('A', 'T', CN);
+		expect(readChosenCover('qq:1', 'A', 'T')).toBe(CN);
+		cc.setCrowdCoverByUid('qq:1', CU);
+		expect(readChosenCover('qq:1', 'A', 'T')).toBe(CU);
+		cc.setPinnedCover('qq:1', PIN);
+		expect(readChosenCover('qq:1', 'A', 'T')).toBe(PIN);
+	});
+
+	it('readCoverByUidOrName: the crowd pick outranks the auto layers; unchanged without one', async () => {
+		const { readCoverByUidOrName } = await import('./cover-version.svelte');
+		const cc = await import('$lib/services/cover-cache');
+		cc.setCachedCoverByUid('qq:1', AUTO);
+		cc.setCachedCover('A', 'T', AUTO);
+		expect(readCoverByUidOrName('qq:1', 'A', 'T')).toBe(AUTO);
+		cc.setCrowdCoverByName('A', 'T', CN);
+		expect(readCoverByUidOrName('qq:1', 'A', 'T')).toBe(CN);
+	});
+
+	it('writeCrowdCover writes only the crowd family and bumps', async () => {
+		const { writeCrowdCover, coverVersion } = await import('./cover-version.svelte');
+		const cc = await import('$lib/services/cover-cache');
+		writeCrowdCover('qq:1', 'A', 'T', { u: CU, n: CN });
+		expect(cc.getCrowdCoverByUid('qq:1')).toBe(CU);
+		expect(cc.getCrowdCoverByName('A', 'T')).toBe(CN);
+		expect(cc.getCachedCoverByUid('qq:1')).toBeNull();
+		expect(cc.getCachedCover('A', 'T')).toBeNull();
+		expect(cc.getPinnedCover('qq:1')).toBeNull();
+		expect(coverVersion()).toBe(1);
+	});
+
+	it('writeCrowdCover skips a null u and ignores a non-https value', async () => {
+		const { writeCrowdCover, coverVersion } = await import('./cover-version.svelte');
+		const cc = await import('$lib/services/cover-cache');
+		writeCrowdCover('qq:1', 'A', 'T', { u: null, n: CN });
+		expect(cc.getCrowdCoverByUid('qq:1')).toBeNull();
+		expect(cc.getCrowdCoverByName('A', 'T')).toBe(CN);
+		expect(coverVersion()).toBe(1);
+		writeCrowdCover('qq:2', 'B', 'U', { u: 'http://x/a.jpg', n: 'http://x/b.jpg' });
+		expect(cc.getCrowdCover('qq:2', 'B', 'U')).toBeNull();
+		expect(coverVersion()).toBe(1); // nothing written → no bump
+	});
+
+	it('removeCrowdCover evicts both crowd entries and bumps', async () => {
+		const { writeCrowdCover, removeCrowdCover, coverVersion } = await import('./cover-version.svelte');
+		const cc = await import('$lib/services/cover-cache');
+		writeCrowdCover('qq:1', 'A', 'T', { u: CU, n: CN });
+		removeCrowdCover('qq:1', 'A', 'T');
+		expect(cc.getCrowdCover('qq:1', 'A', 'T')).toBeNull();
+		expect(coverVersion()).toBe(2);
+	});
+
+	it('D-19: the module has no network path (no apiFetch / cover-pick-shared import)', async () => {
+		const { readFileSync } = await import('node:fs');
+		const src = readFileSync(new URL('./cover-version.svelte.ts', import.meta.url), 'utf8');
+		expect(src).not.toMatch(/apiFetch|cover-pick-shared/);
+	});
+});
