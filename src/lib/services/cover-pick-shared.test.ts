@@ -35,7 +35,7 @@ describe('coverPickKeys', () => {
 			expect((await coverPickKeys('qq:2', '周杰伦', t))?.n).not.toBe(studio?.n);
 		}
 		// …while case / space / punctuation still fold, as before
-		expect((await coverPickKeys('qq:2', 'a b', 'T!'))?.n).toBe((await coverPickKeys('qq:1', 'A', 'T'))?.n);
+		expect((await coverPickKeys('qq:2', ' a ', 'T!'))?.n).toBe((await coverPickKeys('qq:1', 'A', 'T'))?.n);
 	});
 	it('is deterministic', async () => {
 		expect(await coverPickKeys('qq:1', 'A', 'T')).toEqual(await coverPickKeys('qq:1', 'A', 'T'));

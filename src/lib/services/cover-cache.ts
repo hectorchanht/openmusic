@@ -39,10 +39,10 @@
 //   - The `v1` CACHE_KEY is deliberately PRESERVED (NOT bumped to v2): bumping would cold-flush
 //     every user's cache — the exact re-resolve storm this change avoids.
 //
-// Phase 40 D-14 adds a FOURTH family, `crowd:uid:<uid>` / `crowd:name:<matchKey>` — the cached
+// Phase 40 D-14 adds a FOURTH family, `crowd:uid:<uid>` / `crowd:name:<versionedMatchKey>` — the cached
 // crowd-shared cover pick (see CROWD PICKS below). Same record, same TTL / cap / clear semantics.
 
-import { matchKey } from './match-key';
+import { matchKey, versionedMatchKey } from './match-key';
 // quick-260915-w4f: the shared https predicate guards what setPinnedCover is allowed to persist.
 import { hasHttpsScheme } from './url-safety';
 
@@ -420,7 +420,9 @@ function crowdUidKey(uid: string): string {
 	return 'crowd:uid:' + uid;
 }
 function crowdNameKey(artist: string, title: string): string {
-	return 'crowd:name:' + coverCacheKey(artist, title);
+	// versionedMatchKey (40-08 checkpoint): a live/remix cut keeps its own crowd entry; it must match
+	// the `n` hash coverPickKeys sends. The auto name layer (coverCacheKey) keeps matchKey's folding.
+	return 'crowd:name:' + versionedMatchKey(artist, title);
 }
 
 /** The crowd pick for an exact uid, or null. Empty uid is always a miss (EMPTY-UID guard). */

@@ -3,7 +3,7 @@
 // never an error in the render tree. The consensus rule lives server-side in $lib/proxy/cover-pick.
 
 import { apiFetch } from '$lib/services/api-base';
-import { matchKey } from '$lib/services/match-key';
+import { versionedMatchKey } from '$lib/services/match-key';
 import { isDeviceUid } from '$lib/services/device-track';
 import { pickQuery } from '$lib/proxy/cover-pick';
 import { safeImageUrl, COVER_PICK_IMAGE_HOSTS } from '$lib/proxy/safe-image-url';
@@ -26,7 +26,8 @@ async function sha256hex32(s: string): Promise<string> {
 export async function coverPickKeys(uid: string, artist: string, title: string): Promise<CoverPickKeys | null> {
 	if (typeof crypto === 'undefined' || !crypto.subtle) return null;
 	try {
-		const mk = matchKey(artist, title);
+		// versionedMatchKey, not matchKey: a "(Live)" cut keeps its own crowd pick (40-08 checkpoint).
+		const mk = versionedMatchKey(artist, title);
 		const u = uid && !isDeviceUid(uid) ? await sha256hex32(`u\n${uid}`) : null;
 		const n = mk !== '|' ? await sha256hex32(`n\n${mk}`) : null;
 		return u || n ? { u, n } : null;

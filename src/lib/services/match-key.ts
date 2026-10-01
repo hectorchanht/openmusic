@@ -38,3 +38,15 @@ export function norm(s: string): string {
 export function matchKey(artist: string, title: string): string {
 	return `${norm(artist)}|${norm(title)}`;
 }
+
+/**
+ * Phase 40 (user decision at the 40-08 checkpoint): like matchKey but KEEPS version markers —
+ * "晴天 (Live)", "Song - Remix", "[Acoustic]" each stay distinct from the studio title. Only case,
+ * whitespace and punctuation fold. Used ONLY by the crowd-shared cover pick (its `n` hash and the
+ * local `crowd:name:` entry), because a listener's cover choice for a live cut must not repaint the
+ * studio recording. matchKey itself and the auto name cache layer are untouched.
+ */
+export function versionedMatchKey(artist: string, title: string): string {
+	const fold = (s: string) => (s || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+	return `${fold(artist)}|${fold(title)}`;
+}
