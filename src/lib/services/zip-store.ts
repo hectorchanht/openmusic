@@ -77,7 +77,7 @@ export async function buildZip(entries: ZipEntry[]): Promise<Blob | null> {
 
 	const { time, date } = dosDateTime(new Date());
 	const parts: BlobPart[] = [];
-	const central: Uint8Array[] = [];
+	const central: Uint8Array<ArrayBuffer>[] = [];
 	let offset = 0;
 
 	for (let i = 0; i < entries.length; i++) {
