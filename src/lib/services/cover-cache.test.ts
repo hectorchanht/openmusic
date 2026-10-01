@@ -897,6 +897,13 @@ describe('crowd: family (Phase 40 D-14)', () => {
 		expect(getCrowdCover('', 'A', 'T')).toBe(URL_N);
 	});
 
+	// 40-WR-04: a local file's own art outranks any crowd pick — never for a device: uid.
+	it('getCrowdCover is null for a device: uid even when a name pick exists', () => {
+		setCrowdCoverByName('A', 'T', URL_N);
+		setCrowdCoverByUid('device:42', URL_U);
+		expect(getCrowdCover('device:42', 'A', 'T')).toBeNull();
+	});
+
 	it('removers evict exactly their entry', () => {
 		setCrowdCoverByUid('qq:1', URL_U);
 		setCrowdCoverByName('A', 'T', URL_N);

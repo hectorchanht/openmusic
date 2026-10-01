@@ -45,6 +45,7 @@
 import { matchKey, versionedMatchKey } from './match-key';
 // quick-260915-w4f: the shared https predicate guards what setPinnedCover is allowed to persist.
 import { hasHttpsScheme } from './url-safety';
+import { isDeviceUid } from './device-track';
 
 const CACHE_KEY = 'openmusic:cover-cache:v1';
 
@@ -457,8 +458,14 @@ export function removeCrowdCoverByName(artist: string, title: string): void {
 	removeKey(crowdNameKey(artist, title));
 }
 
-/** Crowd read order: exact uid first, then the name key. */
+/**
+ * Crowd read order: exact uid first, then the name key.
+ * 40-WR-04: never for a `device:` uid — a local file's own embedded art outranks any crowd pick
+ * (37-D-02), and the retag sweep must not embed an anonymous vote into the user's own files. Guarded
+ * HERE, the one shared read, so every caller (play/restore seeds, displayCover, readChosenCover) inherits it.
+ */
 export function getCrowdCover(uid: string, artist: string, title: string): string | null {
+	if (isDeviceUid(uid)) return null;
 	return getCrowdCoverByUid(uid) ?? getCrowdCoverByName(artist, title);
 }
 
