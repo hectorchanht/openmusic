@@ -985,8 +985,9 @@ describe('TrackMenu activeCover — quick-260920-oj8 one cover reader', () => {
 
 	it('keeps the pin first and track.cover last', () => {
 		// RED under: reordering the rungs — a user's explicit pin must outrank every resolver, and the
-		// stub's own art stays the last resort before the gradient.
-		const pin = ladder.indexOf('readPinnedCover(');
+		// stub's own art stays the last resort before the gradient. Phase 40 D-14: the leading rung is
+		// readChosenCover (pin ?? crowd pick), so the picker pre-selects the crowd choice too.
+		const pin = ladder.indexOf('readChosenCover(');
 		const playing = ladder.indexOf('player.displayCover');
 		const cached = ladder.indexOf('readCoverByUidOrName(');
 		const seeded = ladder.indexOf('track.cover');

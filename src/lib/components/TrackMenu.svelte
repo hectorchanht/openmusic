@@ -59,7 +59,9 @@
 	import { songShareUrl, coverToken } from '$lib/services/share';
 	// quick-260809-3uo: the share card now carries the cover the user is looking at — read from the
 	// SAME shared reactive cache every other surface reads, plus the retained iTunes id.
-	import { readCoverByUidOrName, readPinnedCover, pinCover } from '$lib/stores/cover-version.svelte';
+	import { readCoverByUidOrName, readChosenCover, pinCover } from '$lib/stores/cover-version.svelte';
+	// Phase 40 D-15: the crowd-shared cover vote — sent ONLY from the picker tap below.
+	import { coverPickKeys, submitCoverPick } from '$lib/services/cover-pick-shared';
 	// quick-260915-w4f: the ENUMERATE-ALL cover collector. Imported for the picker only — it runs
 	// alongside resolveTrackChain, never inside it, and fires ONLY on the Change-cover tap (Q1).
 	// quick-260920-l82: the share-card carrier chain now lives beside the display chain in
@@ -158,14 +160,15 @@
 
 	// The cover the user is CURRENTLY looking at for this track. Hoisted out of doShare (it needed the
 	// identical expression) so the picker can tick the active tile and the share card can carry it —
-	// one precedence chain, two consumers. Widest authority first: the user's pin, then the hero's own
+	// one precedence chain, two consumers. Widest authority first: the user's pin (or, Phase 40 D-14, the
+	// crowd-shared pick — readChosenCover is pin ?? crowd, so the picker pre-selects it), then the hero's own
 	// cover when this IS the playing song, then the shared cache every list row reads, then the stub's art.
 	//
 	// 🔴 The cache lookup MUST use the RAW track.artist / track.title, NOT the display-language strings
 	// (see doShare's note below) — the name layer is matchKey'd on raw CATALOG metadata.
 	const activeCover = $derived(
 		track
-			? (readPinnedCover(track.uid) ??
+			? (readChosenCover(track.uid, track.artist, track.title) ??
 					// quick-260920-oj8 — closes the quick-260920-nyq deferred item. This rung was
 					// `player.resolvedCover`, the OLD precedence: nyq made the hero / Nowbar / OS card paint
 					// from the shared cache first, so for the playing song this ladder could tick a picker
@@ -347,6 +350,10 @@
 		if (!track?.uid) return;
 		pinCover(track.uid, url);
 		player.adoptCover(track.uid, url);
+		// Phase 40 D-15: this explicit tap is the ONLY place a cover vote leaves the device — auto-resolved
+		// covers never vote. Fire-and-forget (never awaited, never toasted: submitCoverPick swallows every
+		// failure), with the RAW artist/title (the server keys on catalog metadata, not names.dn*).
+		void coverPickKeys(track.uid, track.artist, track.title).then((k) => k && submitCoverPick(k, url));
 		toast.show(t('toast.coverPinned'));
 		// quick-260919-3j1 (F1 / D-1): and, when this app holds an offline copy, put the art in the
 		// FILE. The pin above is what makes the choice permanent IN THE APP; a pin lives in
