@@ -21,14 +21,7 @@ const mocks = vi.hoisted(() => ({
 		moveToDir: vi.fn(async (_uid: string, _dir: string) => true),
 		getStoredName: vi.fn((_uid: string): string | null => null)
 	},
-	saveBlobToDisk: vi.fn((_b: Blob, _f: string) => true),
-	fetchVariants: vi.fn(async (_t: Track): Promise<Track[]> => []),
-	probeDownload: vi.fn(async (t: Track) => ({
-		container: null,
-		qualityLabel: null,
-		bytes: null,
-		track: { ...t, audioUrl: `https://cdn.example/${t.uid}.m4a` } as Track | null
-	}))
+	saveBlobToDisk: vi.fn((_b: Blob, _f: string) => true)
 }));
 
 vi.mock('@capacitor/core', () => ({ Capacitor: { isNativePlatform: () => mocks.native } }));
@@ -37,12 +30,6 @@ vi.mock('$lib/stores/names.svelte', () => ({ names: mocks.names }));
 vi.mock('$lib/services/download-track', () => ({ downloadTrack: mocks.downloadTrack }));
 vi.mock('$lib/services/blob-store', () => ({ blobStore: mocks.blob }));
 vi.mock('$lib/services/download-save', () => ({ saveBlobToDisk: mocks.saveBlobToDisk }));
-// variants.ts stays REAL for versionsIncludingOwn (pure); only the network lookup is stubbed.
-vi.mock('$lib/services/variants', async (orig) => ({
-	...(await orig<typeof import('$lib/services/variants')>()),
-	fetchVariants: mocks.fetchVariants
-}));
-vi.mock('$lib/services/download-probe', () => ({ probeDownload: mocks.probeDownload }));
 
 import { downloadAlbum } from './download-album';
 
@@ -85,7 +72,6 @@ beforeEach(() => {
 	mocks.blob.moveToDir.mockImplementation(async () => true);
 	mocks.blob.getStoredName.mockImplementation(() => null);
 	mocks.saveBlobToDisk.mockImplementation(() => true);
-	mocks.fetchVariants.mockImplementation(async () => []);
 	savedImpl();
 	buildZipSpy?.mockRestore();
 	buildZipSpy = vi.spyOn(zipStore, 'buildZip');
@@ -220,55 +206,119 @@ describe('downloadAlbum — web zip (40-D-03)', () => {
 	});
 });
 
-describe('downloadAlbum — ytmusic donor fallback (40-03)', () => {
-	const yt = mk(1, { uid: 'ytmusic:abc', source: 'ytmusic', songid: 'abc' });
-	const ytOther = mk(1, { uid: 'ytmusic:def', source: 'ytmusic', songid: 'def' });
-	const qq = mk(1, { uid: 'qq:9', songid: '9', audioUrl: null });
-	const kuwo = mk(1, { uid: 'kuwo:5', source: 'kuwo', songid: '5', audioUrl: null });
-
-	it('saves a ytmusic song with a non-ytmusic donor audio under the ytmusic identity', async () => {
+// quick-260930-uia: the ytmusic donor rule moved into the shared downloadTrack, so every download
+// path inherits it. The album loop hands a ytmusic song over like any other.
+describe('downloadAlbum — ytmusic goes through the shared rule (quick-260930-uia)', () => {
+	it('hands a ytmusic song to downloadTrack ONCE, with no audioFrom of its own', async () => {
 		mocks.native = true;
-		mocks.fetchVariants.mockImplementation(async () => [ytOther, qq, kuwo]);
+		const yt = mk(1, { uid: 'ytmusic:abc', source: 'ytmusic', songid: 'abc' });
 		const res = await downloadAlbum([yt], META);
 		expect(res).toEqual({ saved: 1, total: 1 });
 		expect(mocks.downloadTrack).toHaveBeenCalledTimes(1);
-		const [own, opts] = mocks.downloadTrack.mock.calls[0] as [Track, { audioFrom?: Track; dir?: string }];
-		expect(own.uid).toBe('ytmusic:abc');
-		expect(opts.audioFrom?.uid).toBe('qq:9');
-		expect(opts.audioFrom?.audioUrl).toBe('https://cdn.example/qq:9.m4a');
-		expect(opts.dir).toBe('Artist/Album');
-		expect(mocks.probeDownload).not.toHaveBeenCalledWith(expect.objectContaining({ source: 'ytmusic' }));
-	});
-
-	it('tries the next donor when one fails, and the ytmusic file only when every donor failed', async () => {
-		mocks.native = true;
-		mocks.fetchVariants.mockImplementation(async () => [qq, kuwo]);
-		mocks.downloadTrack.mockImplementation(async () => 'failed');
-		const res = await downloadAlbum([yt], META);
-		expect(res.saved).toBe(0);
-		const froms = mocks.downloadTrack.mock.calls.map((c) => (c[1] as { audioFrom?: Track }).audioFrom?.uid);
-		expect(froms).toEqual(['qq:9', 'kuwo:5', undefined]);
-	});
-
-	it('falls back to the ytmusic file itself when no other source has the song', async () => {
-		mocks.native = true;
-		const res = await downloadAlbum([yt], META);
-		expect(res.saved).toBe(1);
-		expect(mocks.downloadTrack).toHaveBeenCalledTimes(1);
+		expect(mocks.downloadTrack.mock.calls[0][0]).toBe(yt);
 		expect(mocks.downloadTrack.mock.calls[0][1]).not.toHaveProperty('audioFrom');
 	});
 
-	it('never looks up donors for a non-ytmusic song', async () => {
-		await downloadAlbum([mk(1)], META);
-		expect(mocks.fetchVariants).not.toHaveBeenCalled();
+	it("a 'no-audio' ytmusic song is skipped, the album keeps going", async () => {
+		mocks.native = true;
+		mocks.downloadTrack.mockImplementation(async (tr: Track) => (tr.source === 'ytmusic' ? 'no-audio' : 'saved'));
+		const res = await downloadAlbum([mk(1, { uid: 'ytmusic:abc', source: 'ytmusic' }), mk(2)], META);
+		expect(res).toEqual({ saved: 1, total: 2 });
+	});
+});
+
+// quick-260930-uia: 3-wide pool, album order preserved, progress counts completions.
+describe('downloadAlbum — 3-wide pool (quick-260930-uia)', () => {
+	/** downloadTrack stub returning a deferred per call; tracks in-flight count. */
+	function deferredImpl() {
+		const pending: { tr: Track; settle: (r: string) => void }[] = [];
+		const state = { inFlight: 0, max: 0 };
+		mocks.downloadTrack.mockImplementation(
+			(tr: Track, opts: { onSaved?: (u: string, f: string, b: Blob) => void }) =>
+				new Promise<string>((resolve) => {
+					state.inFlight++;
+					state.max = Math.max(state.max, state.inFlight);
+					pending.push({
+						tr,
+						settle: (r) => {
+							if (r === 'saved') opts.onSaved?.(tr.uid, `${tr.artist} - ${tr.title}.m4a`, new Blob([tr.uid]));
+							state.inFlight--;
+							resolve(r);
+						}
+					});
+				})
+		);
+		return { pending, state };
+	}
+	const flush = () => new Promise((r) => setTimeout(r, 0));
+	const seven = () => [1, 2, 3, 4, 5, 6, 7].map((n) => mk(n));
+
+	it('runs at most 3 songs at once, and starts the 4th only after one settles', async () => {
+		mocks.native = true;
+		const { pending, state } = deferredImpl();
+		const run = downloadAlbum(seven(), META);
+		await flush();
+		expect(mocks.downloadTrack).toHaveBeenCalledTimes(3);
+		pending[1].settle('saved');
+		await flush();
+		expect(mocks.downloadTrack).toHaveBeenCalledTimes(4);
+		for (let i = 0; i < 7; i++) {
+			await flush();
+			pending.filter((p) => p !== pending[1]).forEach((p) => p.settle('saved'));
+		}
+		expect(await run).toEqual({ saved: 7, total: 7 });
+		expect(mocks.downloadTrack).toHaveBeenCalledTimes(7);
+		expect(state.max).toBe(3);
 	});
 
-	it('web: the donor-filled song lands in the zip under the ytmusic song name', async () => {
-		mocks.fetchVariants.mockImplementation(async () => [qq]);
-		const res = await downloadAlbum([yt], META);
-		expect(res.saved).toBe(1);
+	it('reverse completion still yields album-ordered zip entries and track numbers', async () => {
+		const { pending } = deferredImpl();
+		const run = downloadAlbum(seven(), META);
+		const done = new Set<number>();
+		for (let round = 0; round < 10; round++) {
+			await flush();
+			// settle whatever is in flight, newest first
+			for (let i = pending.length - 1; i >= 0; i--) {
+				if (done.has(i)) continue;
+				done.add(i);
+				pending[i].settle('saved');
+			}
+		}
+		expect((await run).saved).toBe(7);
 		const entries = buildZipSpy.mock.calls[0][0] as zipStore.ZipEntry[];
-		expect(entries.map((e) => e.name)).toEqual(['Artist - Album/Artist - Song1.m4a']);
+		expect(entries.map((e) => e.name)).toEqual(
+			[1, 2, 3, 4, 5, 6, 7].map((n) => `Artist - Album/Artist - Song${n}.m4a`)
+		);
+		for (const c of mocks.downloadTrack.mock.calls) {
+			const tr = c[0] as Track;
+			expect((c[1] as { trackNumber: string }).trackNumber).toBe(tr.songid);
+		}
+	});
+
+	it('progress counts completions — never ahead of the settled downloads, failures and skips included', async () => {
+		mocks.native = true;
+		const { pending } = deferredImpl();
+		let settled = 0;
+		const progress: [number, number][] = [];
+		const tracks = seven();
+		tracks[4] = mk(1); // seenUids duplicate of song 1 → skipped, still counted
+		const run = downloadAlbum(tracks, META, (n, t) => {
+			expect(n).toBeLessThanOrEqual(settled + 1); // the skip settles without a downloadTrack call
+			progress.push([n, t]);
+		});
+		const done = new Set<number>();
+		for (let round = 0; round < 10; round++) {
+			await flush();
+			pending.forEach((p, i) => {
+				if (done.has(i)) return;
+				done.add(i);
+				settled++;
+				p.settle(i === 2 ? 'failed' : 'saved');
+			});
+		}
+		const res = await run;
+		expect(res).toEqual({ saved: 5, total: 7 });
+		expect(progress).toEqual([1, 2, 3, 4, 5, 6, 7].map((n) => [n, 7]));
 	});
 });
 
