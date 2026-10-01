@@ -673,6 +673,38 @@ describe('resolveCoverForTrack — shared single-item resolve helper (Plan 21-02
 	});
 });
 
+describe('resolveCoverForTrack — YTM winners stay off the name layer (Phase 40 D-11b)', () => {
+	const YTM = 'https://lh3.googleusercontent.com/ytm-win.jpg';
+	const ytmOnly = () => {
+		vi.spyOn(itunes, 'itunesSongCover').mockResolvedValue(null);
+		vi.spyOn(deezer, 'deezerSongCover').mockResolvedValue(null);
+		mockSearch({ ytm: [mk('ytmusic', 'y', { cover: YTM })] });
+	};
+
+	it('a YTM-host winner with a real uid writes the uid layer ONLY', async () => {
+		ytmOnly();
+		const t = mk('kuwo', 'k1', { artist: 'Jay Chou', title: 'Qing Hua Ci' });
+		expect(await resolveCoverForTrack(t)).toBe(YTM);
+		expect(getCachedCoverByUid('kuwo:k1')).toBe(YTM);
+		expect(getCachedCover('Jay Chou', 'Qing Hua Ci')).toBeNull();
+	});
+
+	it('a YTM-host winner for an EMPTY-uid stub still writes the name layer (its only layer)', async () => {
+		ytmOnly();
+		const stub = mk('netease', 'ignored', { uid: '', artist: 'Jay Chou', title: 'Qing Hua Ci' });
+		expect(await resolveCoverForTrack(stub)).toBe(YTM);
+		expect(getCachedCover('Jay Chou', 'Qing Hua Ci')).toBe(YTM);
+	});
+
+	it('a non-YTM winner writes both layers (unchanged)', async () => {
+		vi.spyOn(itunes, 'itunesSongCover').mockResolvedValue('https://is1-ssl.mzstatic.com/w.jpg');
+		const t = mk('kuwo', 'k2', { artist: 'A', title: 'B' });
+		expect(await resolveCoverForTrack(t)).toBe('https://is1-ssl.mzstatic.com/w.jpg');
+		expect(getCachedCoverByUid('kuwo:k2')).toBe('https://is1-ssl.mzstatic.com/w.jpg');
+		expect(getCachedCover('A', 'B')).toBe('https://is1-ssl.mzstatic.com/w.jpg');
+	});
+});
+
 describe('resolveHqCover — iTunes → Deezer HQ upgrade (no YTM, no CN) (quick-260920-nyq)', () => {
 	const IT = 'https://is1-ssl.mzstatic.com/hq-600x600bb.jpg';
 	const YTM = 'https://lh3.googleusercontent.com/hq.jpg';
