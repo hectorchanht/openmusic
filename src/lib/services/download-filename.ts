@@ -78,10 +78,61 @@ export function sanitizeFilename(name: string): string {
 	return String(name ?? '').replace(/[/\\?%*:|"<>]/g, '_');
 }
 
+// 40-D-01 / 40-D-03: Linux/Android cap a single NAME at 255 BYTES and CJK is 3 bytes per char, so a
+// path segment is capped in UTF-8 bytes (not chars), leaving headroom under 255.
+const MAX_PATH_SEGMENT_BYTES = 180;
+// Control chars (C0 + DEL). Not a second reserved-char sanitizer: those stay in `sanitizeFilename`
+// alone (T-30x-01).
+const CONTROL_CHARS = /[\u0000-\u001f\u007f]/g;
+const EDGE_DOTS_SPACES = /^[. ]+|[. ]+$/g;
+
+/**
+ * 40-D-01 / 40-D-03: one `<Artist>` or `<Album>` path segment — a MediaStore RELATIVE_PATH level on
+ * native and a ZIP folder name on web (upstream metadata → filesystem path, T-40-01-01). Pipeline:
+ * the ONE sanitizer (no `/` `\` survive) → strip control chars → collapse whitespace → trim → strip
+ * leading/trailing dots and spaces (`.`/`..` become '') → truncate by code point to
+ * MAX_PATH_SEGMENT_BYTES. Returns '' when nothing survives; callers then DROP that path level.
+ */
+export function sanitizePathSegment(raw: string): string {
+	const s = sanitizeFilename(String(raw ?? ''))
+		.replace(CONTROL_CHARS, '')
+		.replace(/\s+/g, ' ')
+		.trim()
+		.replace(EDGE_DOTS_SPACES, '');
+	const enc = new TextEncoder();
+	if (enc.encode(s).length <= MAX_PATH_SEGMENT_BYTES) return s;
+	let out = '';
+	let bytes = 0;
+	for (const ch of s) {
+		const n = enc.encode(ch).length;
+		if (bytes + n > MAX_PATH_SEGMENT_BYTES) break;
+		out += ch;
+		bytes += n;
+	}
+	// A cut can expose a trailing dot/space again.
+	return out.replace(EDGE_DOTS_SPACES, '');
+}
+
+/** 40-D-01: the native `subPath` — `Artist/Album`, `Album`, or '' (flat). At most 2 levels. */
+export function albumDir(artist: string, album: string): string {
+	return [sanitizePathSegment(artist), sanitizePathSegment(album)].filter(Boolean).join('/');
+}
+
+/**
+ * 40-D-03: the zip ROOT folder AND the zip filename stem (the filename names the album) —
+ * `Artist - Album`, else whichever survives, else 'OpenMusic'. Callers append `.zip`.
+ */
+export function albumFolder(artist: string, album: string): string {
+	const a = sanitizePathSegment(artist);
+	const b = sanitizePathSegment(album);
+	return a && b ? `${a} - ${b}` : a || b || 'OpenMusic';
+}
+
 /**
  * quick-260919-30x: the cap on a USER-TYPED base name, applied before the extension is appended.
- * Android's filename limit is 255 BYTES, and a CJK name is 3 bytes per character — 120 characters
- * is comfortably inside it with room left for `.flac`.
+ * Android's filename limit is 255 BYTES, and a CJK name is 3 bytes per character — so 120 CJK
+ * characters is 360 bytes, NOT inside the limit. Left as a char cap for the editor;
+ * path segments use the byte cap MAX_PATH_SEGMENT_BYTES above instead.
  */
 export const MAX_FILENAME_BASE = 120;
 
