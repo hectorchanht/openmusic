@@ -3,7 +3,12 @@
 //
 // Format per PKWARE APPNOTE.TXT: local file header (4.3.7), central directory header (4.3.12), end of
 // central directory record (4.3.16); general-purpose flag bit 11 = UTF-8 names (4.4.4), so CJK entry
-// names round-trip; DOS time/date (4.4.6); CRC-32 (4.4.7). Method 0 (stored): audio is already
+// names round-trip; DOS time/date (4.4.6); CRC-32 (4.4.7). Every header also carries the Info-ZIP
+// Unicode Path extra field (4.6.9, id 0x7075): Apple's /usr/bin/unzip ignores bit 11 and mangles CJK
+// names into "Illegal byte sequence". 0x7075 alone does NOT fix that build (it has no UNICODE_SUPPORT):
+// the mangling is unzip's CP437→native translation, which it applies only to entries "made by" MS-DOS.
+// So the central header also says "made by Unix" (with a 0644 regular-file mode, which a Unix-made
+// entry needs or it extracts with no permissions); unzip then takes the UTF-8 bytes verbatim (40-03 UAT). Method 0 (stored): audio is already
 // compressed, so deflate would cost CPU for ~0% gain and the format collapses to three fixed headers.
 //
 // Bytes are never copied: each entry's Blob is a PART of the output Blob (IndexedDB-backed blobs stay
@@ -28,6 +33,12 @@ const CENTRAL_HEADER = 46;
 const EOCD = 22;
 const FLAG_UTF8 = 0x0800;
 const VERSION = 20;
+const MADE_BY_UNIX = (3 << 8) | VERSION;
+/** Unix `-rw-r--r--` regular file, in the high 16 bits of the external attributes. */
+const UNIX_FILE_ATTRS = (0o100644 << 16) >>> 0;
+const UNICODE_PATH = 0x7075;
+/** 0x7075 field: id(2) + size(2) + version(1) + name CRC-32(4), then the UTF-8 name. */
+const UNICODE_PATH_FIXED = 9;
 
 const TABLE = new Uint32Array(256);
 for (let n = 0; n < 256; n++) {
@@ -71,7 +82,7 @@ export async function buildZip(entries: ZipEntry[]): Promise<Blob | null> {
 	const names = entries.map((e) => enc.encode(e.name));
 	let total = EOCD;
 	for (let i = 0; i < entries.length; i++) {
-		total += LOCAL_HEADER + CENTRAL_HEADER + 2 * names[i].length + entries[i].blob.size;
+		total += LOCAL_HEADER + CENTRAL_HEADER + 4 * names[i].length + 2 * UNICODE_PATH_FIXED + entries[i].blob.size;
 	}
 	if (total > MAX_U32) return null;
 
@@ -84,8 +95,17 @@ export async function buildZip(entries: ZipEntry[]): Promise<Blob | null> {
 		const { blob } = entries[i];
 		const name = names[i];
 		const crc = await blobCrc(blob);
+		// The header name is already UTF-8, so the Unicode Path name is the same bytes and its CRC is
+		// over exactly the header's filename field (what the reader checks it against).
+		const extra = new Uint8Array(UNICODE_PATH_FIXED + name.length);
+		const x = new DataView(extra.buffer);
+		x.setUint16(0, UNICODE_PATH, true);
+		x.setUint16(2, 5 + name.length, true);
+		x.setUint8(4, 1);
+		x.setUint32(5, crc32(name), true);
+		extra.set(name, UNICODE_PATH_FIXED);
 
-		const lh = new Uint8Array(LOCAL_HEADER + name.length);
+		const lh = new Uint8Array(LOCAL_HEADER + name.length + extra.length);
 		const l = new DataView(lh.buffer);
 		l.setUint32(0, 0x04034b50, true);
 		l.setUint16(4, VERSION, true);
@@ -97,14 +117,15 @@ export async function buildZip(entries: ZipEntry[]): Promise<Blob | null> {
 		l.setUint32(18, blob.size, true);
 		l.setUint32(22, blob.size, true);
 		l.setUint16(26, name.length, true);
-		l.setUint16(28, 0, true);
+		l.setUint16(28, extra.length, true);
 		lh.set(name, LOCAL_HEADER);
+		lh.set(extra, LOCAL_HEADER + name.length);
 		parts.push(lh, blob);
 
-		const ch = new Uint8Array(CENTRAL_HEADER + name.length);
+		const ch = new Uint8Array(CENTRAL_HEADER + name.length + extra.length);
 		const c = new DataView(ch.buffer);
 		c.setUint32(0, 0x02014b50, true);
-		c.setUint16(4, VERSION, true);
+		c.setUint16(4, MADE_BY_UNIX, true);
 		c.setUint16(6, VERSION, true);
 		c.setUint16(8, FLAG_UTF8, true);
 		c.setUint16(10, 0, true);
@@ -114,9 +135,12 @@ export async function buildZip(entries: ZipEntry[]): Promise<Blob | null> {
 		c.setUint32(20, blob.size, true);
 		c.setUint32(24, blob.size, true);
 		c.setUint16(28, name.length, true);
-		// 30 extra len, 32 comment len, 34 disk start, 36 internal attrs, 38 external attrs: all 0.
+		c.setUint16(30, extra.length, true);
+		// 32 comment len, 34 disk start, 36 internal attrs: all 0.
+		c.setUint32(38, UNIX_FILE_ATTRS, true);
 		c.setUint32(42, offset, true);
 		ch.set(name, CENTRAL_HEADER);
+		ch.set(extra, CENTRAL_HEADER + name.length);
 		central.push(ch);
 
 		offset += lh.length + blob.size;

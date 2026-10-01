@@ -40,6 +40,15 @@ describe('zip-store — buildZip (40-D-03)', () => {
 		expect(z!.type).toBe('application/zip');
 		const buf = new Uint8Array(await z!.arrayBuffer());
 		const v = new DataView(buf.buffer);
+		// 40-03: Info-ZIP Unicode Path extra field (0x7075) — id, size, version 1, CRC-32 of the
+		// header's filename bytes, then the UTF-8 name. Apple's /usr/bin/unzip needs it for CJK names.
+		const expectUnicodePath = (at: number, nameBytes: Uint8Array) => {
+			expect(v.getUint16(at, true)).toBe(0x7075);
+			expect(v.getUint16(at + 2, true)).toBe(5 + nameBytes.length);
+			expect(v.getUint8(at + 4)).toBe(1);
+			expect(v.getUint32(at + 5, true)).toBe(crc32(nameBytes));
+			expect(buf.slice(at + 9, at + 9 + nameBytes.length)).toEqual(nameBytes);
+		};
 
 		// EOCD is the last 22 bytes (no comment).
 		const eocd = buf.length - 22;
@@ -59,13 +68,18 @@ describe('zip-store — buildZip (40-D-03)', () => {
 			const nameBytes = enc.encode(entries[i].name);
 			// Central header.
 			expect(v.getUint32(cd, true)).toBe(0x02014b50);
+			// "made by" Unix 2.0 + a 0644 file mode: Apple's unzip skips its CP437 name translation.
+			expect(v.getUint16(cd + 4, true)).toBe(0x0314);
+			expect(v.getUint32(cd + 38, true)).toBe(0x81a40000);
 			expect(v.getUint16(cd + 8, true)).toBe(0x0800);
 			expect(v.getUint16(cd + 10, true)).toBe(0);
 			expect(v.getUint32(cd + 16, true)).toBe(crc32(body));
 			expect(v.getUint32(cd + 20, true)).toBe(body.length);
 			expect(v.getUint32(cd + 24, true)).toBe(body.length);
 			expect(v.getUint16(cd + 28, true)).toBe(nameBytes.length);
+			expect(v.getUint16(cd + 30, true)).toBe(9 + nameBytes.length);
 			expect(buf.slice(cd + 46, cd + 46 + nameBytes.length)).toEqual(nameBytes);
+			expectUnicodePath(cd + 46 + nameBytes.length, nameBytes);
 			const lh = v.getUint32(cd + 42, true);
 
 			// Local header it points at.
@@ -77,12 +91,13 @@ describe('zip-store — buildZip (40-D-03)', () => {
 			expect(v.getUint32(lh + 18, true)).toBe(body.length);
 			expect(v.getUint32(lh + 22, true)).toBe(body.length);
 			expect(v.getUint16(lh + 26, true)).toBe(nameBytes.length);
-			expect(v.getUint16(lh + 28, true)).toBe(0);
+			expect(v.getUint16(lh + 28, true)).toBe(9 + nameBytes.length);
 			expect(buf.slice(lh + 30, lh + 30 + nameBytes.length)).toEqual(nameBytes);
-			const data = lh + 30 + nameBytes.length;
+			expectUnicodePath(lh + 30 + nameBytes.length, nameBytes);
+			const data = lh + 30 + nameBytes.length + 9 + nameBytes.length;
 			expect(buf.slice(data, data + body.length)).toEqual(body);
 
-			cd += 46 + nameBytes.length;
+			cd += 46 + 2 * nameBytes.length + 9;
 		}
 		expect(cd).toBe(eocd);
 	});
