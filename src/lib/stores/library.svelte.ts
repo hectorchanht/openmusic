@@ -4,7 +4,7 @@
 import { browser } from '$app/environment';
 import { blobStore } from '$lib/services/blob-store';
 import { setCachedCover } from '$lib/services/cover-cache';
-import { hasHttpsScheme } from '$lib/services/url-safety';
+import { hasHttpsScheme, isYtmCoverUrl } from '$lib/services/url-safety';
 import { matchKey } from '$lib/services/match-key';
 import { isChineseLine, t2sConvertLineSync, warmScript } from '$lib/services/zh-convert';
 import type { Track } from '$lib/sources/types';
@@ -151,7 +151,9 @@ class Library {
 		// media-card-shows-app-icon: the shared name-layer cache is https-only everywhere else
 		// (T-0bb-01 — writeCoverBoth / resolveCoverForTrack). This was the ONE ungated writer, so an
 		// http source cover poisoned the cache and re-seeded player.resolvedCover on every replay.
-		if (hasHttpsScheme(cover)) setCachedCover(src.artist, src.title, cover);
+		// Phase 40 D-11b: a YT Music thumbnail is per-uid art — the record keeps it, but it never
+		// enters the shared name layer, where it would repaint other sources' copies of the song.
+		if (hasHttpsScheme(cover) && !isYtmCoverUrl(cover)) setCachedCover(src.artist, src.title, cover);
 	}
 
 	/**

@@ -10,6 +10,8 @@
 // The normalized name key (matchKey, via getCachedCover) is the cross-surface bridge: a homepage stub and
 // the now-playing track can carry different uids for the same song, so the name layer is what makes reuse
 // work. Read order is uid-first → name → null (LOCKED decision; mirrors cover-cache/lazyCover D-13).
+// writeCoverBoth writes both layers EXCEPT for a YT Music thumbnail, which stays uid-only (Phase 40
+// D-11b) so the bridge cannot carry one ytmusic copy's art onto every other source's copy.
 //
 // SSR-safety: this module imports only pure functions + runes; it touches NO browser globals at module
 // top level (the underlying cover-cache setters already guard localStorage in try/catch). No $effect, no
@@ -27,6 +29,7 @@ import {
 	setPinnedCover,
 	removePinnedCover
 } from '$lib/services/cover-cache';
+import { isYtmCoverUrl } from '$lib/services/url-safety';
 
 // Module-scoped reactive counter. Held in a small object because top-level `$state` reassignment must be
 // on a `$state` rune target; callers CALL coverVersion() inside a $derived/template to take the dependency
@@ -150,10 +153,15 @@ export function readArtistCover(artist: string): string | null {
  * The canonical BOTH-layers writer (LOCKED decision #1): write the uid layer AND the name layer, then bump
  * the global signal so the pair-with-write invariant lives in ONE place. Callers use this instead of two
  * separate setters + a manual bump. The underlying setters no-op on empty/whitespace and never throw.
+ *
+ * Phase 40 D-11b: a YT Music thumbnail is per-uid art, so it writes the uid layer ONLY. The shared
+ * {artist,title} name layer bridges every source's copy of a song, which is exactly how one ytmusic
+ * thumbnail used to repaint the qq/kuwo/netease copies. Site A / Site B / `player.adoptCover` all route
+ * through this one writer, so this is the only gate the player needs.
  */
 export function writeCoverBoth(uid: string, artist: string, title: string, url: string): void {
 	setCachedCoverByUid(uid, url);
-	setCachedCover(artist, title, url);
+	if (!isYtmCoverUrl(url)) setCachedCover(artist, title, url);
 	bumpCoverVersion();
 }
 
