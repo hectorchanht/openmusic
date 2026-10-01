@@ -28,7 +28,8 @@
 	// cellBg carousel needs (it puts tk.cover ahead of everything, so a pin would otherwise lose).
 	// quick-260920-nyq: readCoverByUidOrName dropped — the hero's cache read moved into the store's
 	// displayCover getter, so this file no longer reads the cache for the CURRENT track directly.
-	import { readPinnedCover } from '$lib/stores/cover-version.svelte';
+	// Phase 40 D-14: readChosenCover (pin, then crowd pick) replaces readPinnedCover as the display rung.
+	import { readChosenCover } from '$lib/stores/cover-version.svelte';
 	// quick-260919-0mw: the ONE shared tri-state download affordance. It already owns the idle /
 	// downloading / downloaded / unavailable states, the shared downloadTrack path, its own toasts,
 	// its own t() keys and tapBounce — so this is a mount, never a re-implementation.
@@ -389,7 +390,7 @@
 	// url() use the same value (they previously restated the same expression twice).
 	const cellBg = (tk: Track | null) => {
 		if (!tk) return 'none';
-		const u = readPinnedCover(tk.uid) ?? resolvedCovers[tk.uid] ?? tk.cover;
+		const u = readChosenCover(tk.uid, tk.artist, tk.title) ?? resolvedCovers[tk.uid] ?? tk.cover;
 		// quick-260920-nyq: gradient UNDER the image here too — see the hero comment below.
 		return u ? `url(${u}), ${fallbackCover(tk)}` : fallbackCover(tk);
 	};

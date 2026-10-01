@@ -11,7 +11,7 @@
 	import { longpress } from '$lib/actions/longpress';
 	import { swipeAction } from '$lib/actions/swipeAction';
 	import { tapBounce } from '$lib/actions/tapBounce';
-	import { readCoverByUidOrName, readPinnedCover, bumpCoverVersion } from '$lib/stores/cover-version.svelte';
+	import { readCoverByUidOrName, readChosenCover, bumpCoverVersion } from '$lib/stores/cover-version.svelte';
 	import { backfillCovers } from '$lib/services/cover-backfill';
 	import { upNextCoverNeeds, UPNEXT_COVER_MAX } from '$lib/services/upnext-covers';
 	import { pickRowCover } from '$lib/services/row-cover';
@@ -164,8 +164,9 @@
 				     a reactive READ, never a fetch. NO `use:lazyCover` on these rows: per-row chains
 				     here were the observed /api/deezer/search flood (T-26-10-01) and that rule still
 				     holds. The coverless rows are filled by the ONE capped, tab-gated backfillCovers
-				     effect above. Must sit directly under the {#each} ({@const} is block-child only). -->
-				{@const rArt = pickRowCover(readPinnedCover(track.uid), resolvedCovers[track.uid], track.cover, readCoverByUidOrName(track.uid, track.artist, track.title))}
+				     effect above. Must sit directly under the {#each} ({@const} is block-child only).
+				     Phase 40 D-14: rung 0 is readChosenCover — the pin, then the crowd pick. -->
+				{@const rArt = pickRowCover(readChosenCover(track.uid, track.artist, track.title), resolvedCovers[track.uid], track.cover, readCoverByUidOrName(track.uid, track.artist, track.title))}
 				<!-- quick-260625-pzs-02: reveal layers sit BEHIND the row; the row translateX
 				     (use:swipeAction) slides to expose them. Right-drag → queue, left-drag → play
 				     next. aria-hidden (the same actions stay reachable via the long-press menu). -->

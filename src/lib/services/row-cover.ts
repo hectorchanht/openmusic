@@ -12,8 +12,10 @@
 //      (quick-260915-w4f). It leads because the whole point of a pin is that no resolver
 //      preference applies any more — and in particular it must beat rung 2 (`track.cover`), which
 //      is exactly where the first-solid-wins chain's wrong answer usually sits. Like rung 3 it is
-//      passed IN (as `readPinnedCover(uid)`) so the CALL SITE takes the `coverVersion()` dependency
-//      and this module stays a pure, node-testable `.ts`.
+//      passed IN so the CALL SITE takes the `coverVersion()` dependency and this module stays a
+//      pure, node-testable `.ts`.
+//      Phase 40 D-14: the call site now passes the CHOSEN cover — the pin, then the crowd-shared
+//      pick — as `readChosenCover(uid, artist, title)`. A pin still beats the crowd.
 //   1. `resolved` — the surface's component-local lazyCover / carousel map. Kept FIRST so a D-15
 //      repaired URL (lazyCover probed `track.cover`, found it dead, re-resolved) still beats the
 //      broken `track.cover` sitting in rung 2.

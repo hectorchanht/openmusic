@@ -7,7 +7,7 @@
 	import { t } from '$lib/i18n';
 	import { longpress } from '$lib/actions/longpress';
 	import { swipeAction } from '$lib/actions/swipeAction';
-	import { readCoverByUidOrName, readPinnedCover, bumpCoverVersion } from '$lib/stores/cover-version.svelte';
+	import { readCoverByUidOrName, readChosenCover, bumpCoverVersion } from '$lib/stores/cover-version.svelte';
 	import { backfillCovers } from '$lib/services/cover-backfill';
 	import { upNextCoverNeeds, UPNEXT_COVER_MAX } from '$lib/services/upnext-covers';
 	import { upNextScrollKey } from '$lib/services/upnext-scroll';
@@ -219,8 +219,9 @@
 			{@const skipped = player.isUnplayable(track.uid) || reason !== null}
 			<!-- quick-260910-q5a: the tile's three-rung cover read (see the Gap 3 block below).
 			     quick-260910-qwt: now the SHARED pickRowCover — the identical read every other row
-			     surface uses (resolved → track.cover → shared cache). Behaviour is unchanged here. -->
-			{@const qArt = pickRowCover(readPinnedCover(track.uid), resolvedCovers[track.uid], track.cover, readCoverByUidOrName(track.uid, track.artist, track.title))}
+			     surface uses (resolved → track.cover → shared cache). Behaviour is unchanged here.
+			     Phase 40 D-14: rung 0 is readChosenCover — the pin, then the crowd pick. -->
+			{@const qArt = pickRowCover(readChosenCover(track.uid, track.artist, track.title), resolvedCovers[track.uid], track.cover, readCoverByUidOrName(track.uid, track.artist, track.title))}
 			<li
 				class:lifted={i === dragFrom}
 				class:over={i === dragOver && i !== dragFrom}

@@ -22,7 +22,7 @@
 	import { lazyCover } from '$lib/actions/lazyCover';
 	// quick-260910-qwt: the shared row cover read (resolved → cover → the shared cache).
 	import { pickRowCover } from '$lib/services/row-cover';
-	import { readCoverByUidOrName, readPinnedCover } from '$lib/stores/cover-version.svelte';
+	import { readCoverByUidOrName, readChosenCover } from '$lib/stores/cover-version.svelte';
 	import { marquee } from '$lib/actions/marquee';
 	import { player } from '$lib/stores/player.svelte';
 	import RowBadges from '$lib/components/RowBadges.svelte';
@@ -79,7 +79,8 @@
 		pickRowCover(
 			// quick-260915-w4f rung 0: the user's pinned cover. Like rung 3 it needs an identity, so a
 			// uid-less discovery stub (track == null) keeps exactly the old host-provided behaviour.
-			track ? readPinnedCover(track.uid) : null,
+			// Phase 40 D-14: pin, then the crowd pick.
+			track ? readChosenCover(track.uid, track.artist, track.title) : null,
 			resolvedCover ?? undefined,
 			cover,
 			track ? readCoverByUidOrName(track.uid, track.artist, track.title) : null
