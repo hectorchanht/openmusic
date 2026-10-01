@@ -45,6 +45,7 @@ import { logAction } from '$lib/stores/actionLog.svelte';
 import { fetchVariants, versionsIncludingOwn } from '$lib/services/variants';
 import { probeDownload, type DownloadProbe } from '$lib/services/download-probe';
 import { isQqRateLimited } from '$lib/sources/qq';
+import { effectiveQuality } from '$lib/sources/quality';
 
 /**
  * 'saved' = blob fetched + saved to disk; 'no-audio' = nothing to download; 'failed' = fetch/save
@@ -77,6 +78,33 @@ export function currentQualityMeets(curQuality: string | null, want: DefaultQual
 	if (want === 'auto' || want === '320' || want === '128') return true;
 	// want === 'lossless'
 	return (curQuality ?? '').toLowerCase() === 'lossless';
+}
+
+// quick-261001-0p9: how good a donor's file is, for the album loop's after-the-wait donor pick.
+// Container evidence (from the probe's content-type / URL) beats the per-source quality TAG, whose
+// vocabulary differs by source (qq 'lossless'|'hq'|'standard'|'low', netease/kuwo 'lossless'|'320k'),
+// so the tag is matched by regex band, never by equality.
+const LOSSLESS_CONTAINERS = new Set(['flac', 'wav']);
+type DonorFile = { container: string | null; quality: string | null };
+
+export function donorRank(p: DonorFile): 0 | 1 | 2 | 3 {
+	if (p.container && LOSSLESS_CONTAINERS.has(p.container)) return 3;
+	const q = p.quality ?? '';
+	if (/lossless|flac|sq|hi-?res|无损/i.test(q)) return 3;
+	if (/320|hq/i.test(q)) return 2;
+	if (/128|160|192|standard|low/i.test(q)) return 1;
+	return 0;
+}
+
+// quick-261001-0p9: is this donor the SAME quality tier AND format class as the download tier? The
+// user's rule: "qq FLAC → another source's FLAC, not an mp3" — so a FLAC is not a match for a 320
+// (mp3) tier either. An unknown container falls back to the band alone.
+export function donorMatchesTier(p: DonorFile, want: DefaultQuality): boolean {
+	const tier = effectiveQuality(want);
+	const wanted = tier === 'lossless' ? 3 : tier === '320' ? 2 : 1;
+	if (donorRank(p) !== wanted) return false;
+	if (p.container === null) return true;
+	return LOSSLESS_CONTAINERS.has(p.container) === (tier === 'lossless');
 }
 
 /** quick-260930-vjp: acquire a pipeline slot; resolves with its release fn. */
@@ -419,32 +447,47 @@ export async function* donorProbes(
 /**
  * Save THIS song with another source's audio (`audioFrom`, quick-260916-0d9) — the ytmusic download
  * path, and since quick-260930-x3q the album loop's fallback for a rate-limited / audio-less song.
- * `exclude` drops sources already tried; `requireTier` skips a donor below `settings.downloadQuality`
- * (`currentQualityMeets` is the one definition of "meets the tier"). No donor → 'no-audio'; every
- * donor failed → 'failed'. D-17 never-throws.
+ * `exclude` drops sources already tried. Without `prefer` the first donor in walk order wins (the
+ * ytmusic path — must match `probeForDownload`'s label). `prefer: 'tier'` (quick-261001-0p9, the
+ * album's after-the-qq-wait fallback): still ONE walk — a donor matching the download tier's quality
+ * AND format (`donorMatchesTier`) is tried the moment it is seen; the rest are collected and, if no
+ * match saved, tried best-first by `donorRank` (stable on ties) so the album still finishes.
+ * No donor → 'no-audio'; every donor failed → 'failed'. D-17 never-throws.
  */
 export async function downloadFromDonor(
 	track: Track,
 	opts?: DownloadOpts,
-	o: { exclude?: SourceId[]; requireTier?: boolean } = {}
+	o: { exclude?: SourceId[]; prefer?: 'tier' } = {}
 ): Promise<DownloadResult> {
 	try {
 		// DL-STATE-01: the row ring spins through the donor lookup too.
 		library.beginDownload(track.uid);
 		try {
-			// quick-260930-vjp: the donor lookup + each probe is resolve-stage work; released before
-			// downloadOne takes its transfer slot.
 			let failed = false;
-			for await (const p of donorProbes(track, { gate: opts?.stages?.resolve, exclude: o.exclude })) {
-				if (!p.track) continue;
-				if (o.requireTier && !currentQualityMeets(p.track.quality, settings.downloadQuality)) continue;
-				const res = await downloadOne(track, { ...opts, audioFrom: p.track });
-				if (res === 'saved') return 'saved';
+			const attempt = async (donor: Track): Promise<boolean> => {
+				const res = await downloadOne(track, { ...opts, audioFrom: donor });
+				if (res === 'saved') return true;
 				if (res === 'failed') failed = true;
 				// downloadOne's `finally` cleared the spinner; re-arm it (idempotent Set add) so the ring
 				// keeps spinning through the next donor's probe.
 				library.beginDownload(track.uid);
+				return false;
+			};
+			// quick-261001-0p9: non-matching donors wait here until the walk ends without a save.
+			const rest: { donor: Track; rank: number }[] = [];
+			// quick-260930-vjp: the donor lookup + each probe is resolve-stage work; released before
+			// downloadOne takes its transfer slot.
+			for await (const p of donorProbes(track, { gate: opts?.stages?.resolve, exclude: o.exclude })) {
+				if (!p.track) continue;
+				const file = { container: p.container, quality: p.track.quality };
+				if (o.prefer === 'tier' && !donorMatchesTier(file, settings.downloadQuality)) {
+					rest.push({ donor: p.track, rank: donorRank(file) });
+					continue;
+				}
+				if (await attempt(p.track)) return 'saved';
 			}
+			// Array#sort is stable, so equal ranks keep walk order.
+			for (const r of rest.sort((a, b) => b.rank - a.rank)) if (await attempt(r.donor)) return 'saved';
 			return failed ? 'failed' : 'no-audio';
 		} finally {
 			library.endDownload(track.uid);
