@@ -544,3 +544,13 @@ Plans:
 - [x] 39-08-PLAN.md — Per-shelf placeholders + planned-aware reveal budget / skeleton (wave 4)
 - [x] 39-09-PLAN.md — One-time layout switch for existing users, classic hidden by default, Clear-picks fix (wave 4)
 - [x] 39-10-PLAN.md — /settings/home redesign: sections list with source lines, Charts group, Classic accordion (wave 4)
+
+### Phase 40: Album download-all + cover re-rank + cloud-shared cover pick: (1) album page download button currently fails and is hidden — make it download every song of the album into an OpenMusic/<album> folder on the user's device; (2) rank QQ and iTunes cover resolvers highest, demote YT Music covers (too many); (3) store the selected cover in the cloud and auto-choose it for all users, like the shared lyrics/lyric-offset store
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 39
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 40 to break down)
