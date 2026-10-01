@@ -43,6 +43,11 @@ import java.io.OutputStream
  *    DIRECTORY_MUSIC) + MediaScannerConnection; WRITE_EXTERNAL_STORAGE is declared in the manifest
  *    with maxSdkVersion="28" (a no-op on modern Android — T-999.1-18 mitigation).
  *
+ * 40-D-01 / 40-D-05: `saveToMusic` takes an optional `subPath` (`<Artist>/<Album>`, max 2 segments,
+ * re-validated by `safeSubPath`) so an album download files into `Music/OpenMusic/<Artist>/<Album>/`;
+ * omitted = flat (40-D-02). `moveInMusic` relocates an app-owned row into such a sub-folder (API 29+
+ * RELATIVE_PATH update keeps the content URI; API <=28 renames the file, so the file:// URI changes).
+ *
  * Both `saveToMusic` and `deleteFromMusic` wrap their bodies in try/catch -> call.reject(message);
  * the TS side maps a reject to the blob-store never-throws sentinel (put->false / del->void), so a
  * failed public-Music write degrades to CDN playback and never crashes the player (T-999.1-19).
@@ -73,7 +78,29 @@ import java.io.OutputStream
 )
 class MediaStoreSaverPlugin : Plugin() {
 
-    private val relativePath = "${Environment.DIRECTORY_MUSIC}/OpenMusic/"
+    /**
+     * 40-D-01: RELATIVE_PATH for the public collection, optionally under a `<Artist>/<Album>` sub-folder.
+     * `sub` must already have passed `safeSubPath`.
+     */
+    private fun relPath(sub: String?) =
+        "${Environment.DIRECTORY_MUSIC}/OpenMusic/" + (sub?.let { "$it/" } ?: "")
+
+    /**
+     * 40-D-01: defense-in-depth re-validation of the JS-side `sanitizePathSegment` output before it
+     * becomes a RELATIVE_PATH / file path (T-29-01-01 RELATIVE_PATH escape, T-40-02-01). null/blank =
+     * flat (40-D-02). Throws on more than 2 segments, a blank / `.` / `..` segment, a backslash, or
+     * any control char.
+     */
+    private fun safeSubPath(raw: String?): String? {
+        if (raw.isNullOrBlank()) return null
+        val segs = raw.split('/')
+        if (segs.size > 2 || segs.any { seg ->
+                seg.isBlank() || seg == "." || seg == ".." || seg.contains('\\') ||
+                    seg.any { c -> c.code < 0x20 }
+            }
+        ) throw IllegalArgumentException("bad subPath")
+        return segs.joinToString("/")
+    }
 
     /** Infer an audio MIME type from the file extension; default audio/mpeg. */
     private fun mimeForFileName(fileName: String): String {
@@ -147,6 +174,13 @@ class MediaStoreSaverPlugin : Plugin() {
             call.reject("sourcePath is required")
             return
         }
+        // 40-D-01: optional album sub-folder, validated before anything is written.
+        val subPath = try {
+            safeSubPath(call.getString("subPath"))
+        } catch (e: IllegalArgumentException) {
+            call.reject("bad-subpath")
+            return
+        }
 
         // CR-03: the legacy (API <=28) branch writes to public external storage, which requires the
         // WRITE_EXTERNAL_STORAGE runtime grant. Request it at call time before writing; on API 29+
@@ -158,7 +192,7 @@ class MediaStoreSaverPlugin : Plugin() {
             return
         }
 
-        performSave(call, fileName, sourcePath)
+        performSave(call, fileName, sourcePath, subPath)
     }
 
     @PermissionCallback
@@ -173,10 +207,17 @@ class MediaStoreSaverPlugin : Plugin() {
             call.reject("fileName and sourcePath are required")
             return
         }
-        performSave(call, fileName, sourcePath)
+        // 40 Pitfall 2: re-read subPath too, or an API 24-28 album save lands flat after the prompt.
+        val subPath = try {
+            safeSubPath(call.getString("subPath"))
+        } catch (e: IllegalArgumentException) {
+            call.reject("bad-subpath")
+            return
+        }
+        performSave(call, fileName, sourcePath, subPath)
     }
 
-    private fun performSave(call: PluginCall, fileName: String, sourcePath: String) {
+    private fun performSave(call: PluginCall, fileName: String, sourcePath: String, sub: String?) {
         try {
             val mime = mimeForFileName(fileName)
             val input = openSource(sourcePath)
@@ -194,7 +235,7 @@ class MediaStoreSaverPlugin : Plugin() {
                 val values = ContentValues().apply {
                     put(MediaStore.Audio.Media.DISPLAY_NAME, fileName)
                     put(MediaStore.Audio.Media.MIME_TYPE, mime)
-                    put(MediaStore.Audio.Media.RELATIVE_PATH, relativePath)
+                    put(MediaStore.Audio.Media.RELATIVE_PATH, relPath(sub))
                     put(MediaStore.Audio.Media.IS_PENDING, 1)
                 }
                 val uri: Uri = resolver.insert(collection, values)
@@ -220,7 +261,7 @@ class MediaStoreSaverPlugin : Plugin() {
                 @Suppress("DEPRECATION")
                 val musicDir =
                     Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC)
-                val targetDir = File(musicDir, "OpenMusic")
+                val targetDir = File(musicDir, "OpenMusic" + (sub?.let { "/$it" } ?: ""))
                 if (!targetDir.exists()) targetDir.mkdirs()
                 val outFile = File(targetDir, fileName)
                 streamCopy(input, outFile.outputStream())
@@ -266,6 +307,102 @@ class MediaStoreSaverPlugin : Plugin() {
         } catch (e: Exception) {
             // Not-found / any failure swallowed into resolve — parity with del() never-throws.
             call.resolve()
+        }
+    }
+
+    /**
+     * 40-D-05: move an app-owned public row into `Music/OpenMusic/<subPath>/` (an already-downloaded
+     * single joining its album folder). API 29+ updates RELATIVE_PATH (own rows need no permission)
+     * and resolves the SAME content URI; API <=28 renames the file and resolves a NEW file:// URI.
+     * Unlike delete, a move REJECTS ("io:move" / "bad-subpath") so the TS side can count the song as
+     * "saved, not moved" and leave it where it is (40 Pitfall 9). A row the app does not own throws
+     * SecurityException on update, which lands in the reject (T-40-02-02).
+     */
+    @PluginMethod
+    fun moveInMusic(call: PluginCall) {
+        val uriString = call.getString("uri")
+        if (uriString.isNullOrBlank()) {
+            call.reject("uri is required")
+            return
+        }
+        val sub = try {
+            safeSubPath(call.getString("subPath"))
+        } catch (e: IllegalArgumentException) {
+            null
+        }
+        if (sub == null) {
+            call.reject("bad-subpath")
+            return
+        }
+        val uri = Uri.parse(uriString)
+        if (uri.scheme == "file" && Build.VERSION.SDK_INT < Build.VERSION_CODES.Q &&
+            getPermissionState("publicMusic") != PermissionState.GRANTED
+        ) {
+            requestPermissionForAlias("publicMusic", call, "movePermsCallback")
+            return
+        }
+        performMove(call, uri, sub)
+    }
+
+    @PermissionCallback
+    private fun movePermsCallback(call: PluginCall) {
+        if (getPermissionState("publicMusic") != PermissionState.GRANTED) {
+            call.reject("WRITE_EXTERNAL_STORAGE permission denied")
+            return
+        }
+        val uriString = call.getString("uri")
+        val sub = try {
+            safeSubPath(call.getString("subPath"))
+        } catch (e: IllegalArgumentException) {
+            null
+        }
+        if (uriString.isNullOrBlank() || sub == null) {
+            call.reject("bad-subpath")
+            return
+        }
+        performMove(call, Uri.parse(uriString), sub)
+    }
+
+    private fun performMove(call: PluginCall, uri: Uri, sub: String) {
+        try {
+            when (uri.scheme) {
+                "content" -> {
+                    val values = ContentValues().apply {
+                        put(MediaStore.Audio.Media.RELATIVE_PATH, relPath(sub))
+                    }
+                    val rows = context.contentResolver.update(uri, values, null, null)
+                    if (rows > 0) call.resolve(JSObject().put("uri", uri.toString()))
+                    else call.reject("io:move")
+                }
+                "file" -> {
+                    val path = uri.path
+                    if (path == null) {
+                        call.reject("io:move")
+                        return
+                    }
+                    val oldFile = File(path)
+                    @Suppress("DEPRECATION")
+                    val musicDir =
+                        Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC)
+                    val targetDir = File(musicDir, "OpenMusic/$sub").apply { mkdirs() }
+                    val newFile = File(targetDir, oldFile.name)
+                    if (oldFile.renameTo(newFile)) {
+                        MediaScannerConnection.scanFile(
+                            context,
+                            arrayOf(oldFile.absolutePath, newFile.absolutePath),
+                            null,
+                            null
+                        )
+                        call.resolve(JSObject().put("uri", Uri.fromFile(newFile).toString()))
+                    } else {
+                        call.reject("io:move")
+                    }
+                }
+                else -> call.reject("io:move")
+            }
+        } catch (e: Exception) {
+            // SecurityException (not our row) / IOException / anything else -> "saved, not moved".
+            call.reject("io:move")
         }
     }
 

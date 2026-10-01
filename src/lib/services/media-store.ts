@@ -31,8 +31,11 @@ export interface MediaStoreSaverPlugin {
 	 * Kotlin side STREAMS the source file into the MediaStore entry in chunks — no bytes cross the JS
 	 * bridge, eliminating the whole-blob base64 round-trip OOM/ANR risk for large lossless files
 	 * (WR-02). Resolves the content URI of the created entry; rejects on any MediaStore failure.
+	 *
+	 * subPath: optional `Artist/Album` (max 2 sanitized segments) under Music/OpenMusic/ — 40-D-01;
+	 * omitted = flat (40-D-02). Kotlin re-validates it and rejects `bad-subpath`.
 	 */
-	saveToMusic(opts: { fileName: string; sourcePath: string }): Promise<{ uri: string }>;
+	saveToMusic(opts: { fileName: string; sourcePath: string; subPath?: string }): Promise<{ uri: string }>;
 	/**
 	 * quick-260919-ejm — THE ONE WRITE CAPABILITY THIS APP HAS AGAINST A FILE IT DOES NOT OWN.
 	 *
@@ -75,6 +78,14 @@ export interface MediaStoreSaverPlugin {
 	 * Resolves even when the entry is already absent (the plugin swallows not-found).
 	 */
 	deleteFromMusic(opts: { uri: string }): Promise<void>;
+	/**
+	 * 40-D-05: move an entry this app created (the `uri` `saveToMusic` returned) into
+	 * `Music/OpenMusic/<subPath>/`. API 29+ updates RELATIVE_PATH and resolves the SAME content URI;
+	 * API <=28 renames the file and resolves a NEW `file://` URI, so the caller must store the
+	 * returned uri. A reject (`io:move` / `bad-subpath`) means "saved, not moved": the caller leaves
+	 * the file where it is.
+	 */
+	moveInMusic(opts: { uri: string; subPath: string }): Promise<{ uri: string }>;
 	/**
 	 * 34-D-14: request READ_MEDIA_AUDIO (API 33+) / READ_EXTERNAL_STORAGE (API 29-32) at tap time.
 	 * Resolves a state; it rejects only on an internal error, and the import store (Plan 34-07) maps
