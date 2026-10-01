@@ -35,7 +35,7 @@ export function isAllowedOrigin(origin: string | null): origin is string {
 export function corsHeaders(origin: string | null): Record<string, string> {
 	const headers: Record<string, string> = {
 		Vary: 'Origin',
-		'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+		'Access-Control-Allow-Methods': 'GET, HEAD, POST, OPTIONS',
 		// `Authorization` is NOT a CORS-safelisted request header, so the Capacitor WebView
 		// (https://localhost → https://openmusic.lol, cross-origin) preflights any bearer POST and
 		// fails it unless the header is advertised here (T-33-06). Allow-Headers only says which
@@ -113,6 +113,53 @@ export async function fetchWithHeadDeadline(
 		clearTimeout(timer);
 		throw err;
 	}
+}
+
+function sizeOf(raw: string | null | undefined): number | null {
+	const n = raw && /^\d+$/.test(raw) ? Number(raw) : NaN;
+	return Number.isSafeInteger(n) && n > 0 ? n : null;
+}
+
+/**
+ * Bodiless size/type probe of an upstream media URL — what the catch-all answers a client HEAD with
+ * (quick-261001-0hr). Ladder: upstream HEAD → `Range: bytes=0-0` with the body CANCELLED unread.
+ * The invariant: no audio body is ever pulled, so a HEAD can never turn into a second full stream.
+ *
+ * Deliberately plain `AbortSignal.timeout(ms)` via fetchWithRetry, NOT fetchWithHeadDeadline: that
+ * helper exists to DISARM its timer so a media body can stream; a HEAD never streams, so the whole
+ * exchange stays bounded by `ms`. `retries = 1` keeps a flaky upstream at ≤2 attempts per step.
+ *
+ * Returns an ALLOW-LIST of headers only (content-length / content-type / accept-ranges) — upstream
+ * headers are never spread, since a `location`/`set-cookie` could echo the JOOX-token URL (T-01-04).
+ * content-length is emitted only for a finite positive integer (never '0' / 'NaN' — T-0hr-04).
+ * Status is 200 whenever either step answered (a HEAD describes the full resource, so 206 → 200).
+ */
+export async function upstreamHead(
+	url: string,
+	ms: number
+): Promise<{ status: number; headers: Record<string, string> }> {
+	const head = await fetchWithRetry(url, { method: 'HEAD', signal: AbortSignal.timeout(ms) }, 1);
+	void head.body?.cancel().catch(() => {}); // a HEAD has none — unless the upstream misbehaves
+	let size = head.ok ? sizeOf(head.headers.get('content-length')) : null;
+	let range: Response | null = null;
+	if (size == null) {
+		range = await fetchWithRetry(url, { headers: { Range: 'bytes=0-0' }, signal: AbortSignal.timeout(ms) }, 1);
+		// THE invariant: never read the body. One byte was asked for, but an upstream that ignores
+		// Range would otherwise stream the whole file.
+		void range.body?.cancel().catch(() => {});
+		size = sizeOf(range.headers.get('content-range')?.match(/\/(\d+)$/)?.[1]);
+	}
+	const headers: Record<string, string> = {};
+	if (size != null) headers['content-length'] = String(size);
+	const ct = (head.ok ? head.headers.get('content-type') : null) ?? range?.headers.get('content-type');
+	if (ct) headers['content-type'] = ct;
+	const ar =
+		head.headers.get('accept-ranges') ??
+		range?.headers.get('accept-ranges') ??
+		(range?.status === 206 ? 'bytes' : null);
+	if (ar) headers['accept-ranges'] = ar;
+	const ok = head.ok || !!range?.ok;
+	return { status: ok ? 200 : (range ?? head).status, headers };
 }
 
 /**

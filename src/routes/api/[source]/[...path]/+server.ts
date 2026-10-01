@@ -12,9 +12,14 @@
 // CORS re-applied per request on a hit — WR-01). `url`/`detail`/`lrc` remain the
 // UNCHANGED streaming passthrough (no cache read/write) so no expiring playable-audio
 // or lyric URL is ever frozen (the stale-URL bug class — T-2os-03).
-import type { RequestHandler } from './$types';
+//
+// HEAD (quick-261001-0hr) is answered EXPLICITLY, never via SvelteKit's GET fallback: that fallback
+// ran GET, which started streaming the whole audio body before any header left, so download-probe's
+// HEAD-first size probe timed out at 8 s on every netease donor lookup (quick-260930-x3q deferred
+// item 1). HEAD shares GET's validation through resolveUpstream so the two verbs cannot drift.
+import type { RequestEvent, RequestHandler } from './$types';
 import { PROXIES } from '$lib/proxy/proxy-registry';
-import { fetchWithHeadDeadline, corsHeaders } from '$lib/proxy/http';
+import { fetchWithHeadDeadline, corsHeaders, upstreamHead } from '$lib/proxy/http';
 import { edgeCache } from '$lib/proxy/edge-cache';
 import type { Env } from '$lib/proxy/proxy-types';
 import type { SourceId } from '$lib/sources/types';
@@ -32,7 +37,14 @@ function isKnownSource(source: string): source is SourceId {
 // edgeCache() (caches.default narrowing + `typeof caches` dev guard) is shared from
 // $lib/proxy/edge-cache (quick-260713-mqv). Cache key stays the own-origin Request below.
 
-export const GET: RequestHandler = async ({ params, url, platform, request }) => {
+// Module-private (NOT exported — a +server.ts may only export verbs; a stray export 500s at request
+// time): the shared GET/HEAD prologue. Returns the upstream URL, or the error Response to send.
+function resolveUpstream({
+	params,
+	url,
+	platform,
+	request
+}: RequestEvent): { upstream: string; origin: string | null } | Response {
 	const origin = request.headers.get('origin');
 
 	if (!isKnownSource(params.source)) {
@@ -48,15 +60,21 @@ export const GET: RequestHandler = async ({ params, url, platform, request }) =>
 	// platform?.env is the verified Cloudflare-adapter path for bindings/secrets.
 	const env = platform?.env as Env | undefined;
 
-	let upstream: string;
 	try {
-		upstream = proxy.buildUrl(params.path ?? '', url.searchParams, env);
+		return { upstream: proxy.buildUrl(params.path ?? '', url.searchParams, env), origin };
 	} catch (err) {
 		return new Response(`bad request: ${err instanceof Error ? err.message : 'invalid path'}`, {
 			status: 400,
 			headers: corsHeaders(origin)
 		});
 	}
+}
+
+export const GET: RequestHandler = async (event) => {
+	const { params, url } = event;
+	const resolved = resolveUpstream(event);
+	if (resolved instanceof Response) return resolved;
+	const { upstream, origin } = resolved;
 
 	// Normalize the path exactly as the adapters do so the route agrees with them on what
 	// "search" is. `search` is the ONLY cacheable segment across all four sources (netease/
@@ -125,6 +143,29 @@ export const GET: RequestHandler = async ({ params, url, platform, request }) =>
 			'content-type': res.headers.get('content-type') ?? 'application/json'
 		}
 	});
+};
+
+// HEAD — size/type only, body ALWAYS null; the upstream body is never pulled (upstreamHead).
+// Expose-Headers matters for the Capacitor WebView (https://localhost → openmusic.lol is
+// cross-origin, and Content-Length / Accept-Ranges are not readable there otherwise).
+export const HEAD: RequestHandler = async (event) => {
+	const resolved = resolveUpstream(event);
+	if (resolved instanceof Response) return new Response(null, { status: resolved.status, headers: resolved.headers });
+	const { upstream, origin } = resolved;
+	try {
+		const r = await upstreamHead(upstream, 8000);
+		return new Response(null, {
+			status: r.status,
+			headers: {
+				...corsHeaders(origin),
+				...r.headers,
+				'Access-Control-Expose-Headers': 'Content-Length, Content-Type, Accept-Ranges'
+			}
+		});
+	} catch {
+		// Upstream timeout / network failure — a gateway timeout, still CORS-scoped.
+		return new Response(null, { status: 504, headers: corsHeaders(origin) });
+	}
 };
 
 // CORS preflight — scoped to the own origin via corsHeaders (never `*`).
