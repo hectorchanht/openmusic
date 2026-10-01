@@ -93,14 +93,15 @@ export async function downloadAlbum(
 						// "saved, not moved" when this resolves false or rejects: the file stays flat.
 						await blobStore.moveToDir(held.uid, dir).catch(() => false);
 						saved++;
-					} else {
-						const blob = await blobStore.get(held.uid);
-						if (blob) {
-							addEntry(heldFilename(held), blob);
-							saved++;
-						}
+						continue;
 					}
-					continue;
+					const blob = await blobStore.get(held.uid);
+					// An empty held blob (an old 403 download saved 0 bytes) falls through to a re-download.
+					if (blob?.size) {
+						addEntry(heldFilename(held), blob);
+						saved++;
+						continue;
+					}
 				}
 
 				let got: { uid: string; filename: string; blob: Blob } | null = null;
@@ -125,7 +126,9 @@ export async function downloadAlbum(
 					const g: { uid: string; filename: string; blob: Blob } = got;
 					// Prefer the IndexedDB-backed handle over the in-heap blob (Pitfall 6: a lossless album
 					// would otherwise sit whole in memory until the zip is built).
-					addEntry(g.filename, (await blobStore.get(g.uid)) ?? g.blob);
+					// A failed put can leave an older/empty stored blob, so only a non-empty one wins.
+					const stored = await blobStore.get(g.uid);
+					addEntry(g.filename, stored?.size ? stored : g.blob);
 					saved++;
 				}
 			} catch {

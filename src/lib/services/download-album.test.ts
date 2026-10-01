@@ -177,6 +177,17 @@ describe('downloadAlbum — web zip (40-D-03)', () => {
 		expect(await entries[0].blob.text()).toBe('held');
 	});
 
+	it('re-downloads a held single whose stored blob is empty', async () => {
+		mocks.library.downloads = [mk(1)];
+		mocks.blob.has.mockImplementation(async () => true);
+		mocks.blob.get.mockImplementation(async () => new Blob([]));
+		const res = await downloadAlbum([mk(1)], META);
+		expect(mocks.downloadTrack).toHaveBeenCalledTimes(1);
+		expect(res.saved).toBe(1);
+		const entries = buildZipSpy.mock.calls[0][0] as zipStore.ZipEntry[];
+		expect(await entries[0].blob.text()).toBe('qq:1');
+	});
+
 	it('suffixes duplicate entry names with (2) before the extension', async () => {
 		const res = await downloadAlbum([mk(1), mk(2, { title: 'Song1' })], META);
 		expect(res.saved).toBe(2);
