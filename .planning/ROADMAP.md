@@ -553,12 +553,23 @@ Plans:
 **Plans:** 9 plans
 
 Plans:
+**Wave 1**
+
 - [ ] 40-01-PLAN.md — Store-only ZIP writer + path-segment helpers (D-01, D-03)
-- [ ] 40-02-PLAN.md — Kotlin subPath/moveInMusic, blob-store sticky dir + moveToDir, download-track dir/onSaved (D-01, D-02, D-04, D-05)
-- [ ] 40-03-PLAN.md — download-album.ts orchestrator, i18n toasts, album page + un-commented button, device/web checkpoint (D-03..D-07)
 - [ ] 40-04-PLAN.md — Cover chain iTunes → QQ → Deezer → other CN → YTM, picker reorder, isYtmCoverUrl (D-08, D-10, D-11, D-11b, D-12)
-- [ ] 40-05-PLAN.md — Delete the HQ upgrade; YTM uid-only gates in writeCoverBoth + library.adoptCover (D-09, D-11a, D-11b)
 - [ ] 40-06-PLAN.md — /api/cover-pick GET+POST on DIAG R2, CN allowlist, consensus + per-IP throttle (D-13, D-17, D-18, D-18a, D-19)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 40-02-PLAN.md — Kotlin subPath/moveInMusic, blob-store sticky dir + moveToDir, download-track dir/onSaved (D-01, D-02, D-04, D-05)
+- [ ] 40-05-PLAN.md — Delete the HQ upgrade; YTM uid-only gates in writeCoverBoth + library.adoptCover (D-09, D-11a, D-11b)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 40-03-PLAN.md — download-album.ts orchestrator, i18n toasts, album page + un-commented button, device/web checkpoint (D-03..D-07)
 - [ ] 40-07-PLAN.md — Client cover-pick-shared, crowd: cache family, readChosenCover/writeCrowdCover (D-13, D-14, D-16, D-19)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 40-08-PLAN.md — Player crowd wiring (seed, fetch-once, adoptCover, healCover) + TrackMenu vote, two-voter checkpoint (D-14, D-14a, D-15, D-16, D-19)
 - [ ] 40-09-PLAN.md — Row/hero/home/downloads surfaces read pin ?? crowd first (D-14, D-16)
