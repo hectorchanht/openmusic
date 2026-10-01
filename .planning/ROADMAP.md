@@ -550,7 +550,7 @@ Plans:
 **Goal:** The album Download button downloads every song into `Music/OpenMusic/<Artist>/<Album>/` on Android (one `<Artist> - <Album>.zip` on web), QQ and iTunes covers outrank YT Music in the auto chain and picker with the HQ upgrade removed, and a Change-cover pick is stored as a cloud vote on the DIAG R2 bucket and auto-applied for every user (pin > crowd > inline > chain).
 **Requirements**: decision-based — D-01..D-19 (+ D-08 amended, D-11a, D-11b, D-14a, D-18a) in 40-CONTEXT.md
 **Depends on:** Phase 39
-**Plans:** 8/9 plans executed
+**Plans:** 9/9 plans complete
 
 Plans:
 **Wave 1**
@@ -572,4 +572,4 @@ Plans:
 **Wave 4** *(blocked on Wave 3 completion)*
 
 - [x] 40-08-PLAN.md — Player crowd wiring (seed, fetch-once, adoptCover, healCover) + TrackMenu vote, two-voter checkpoint (D-14, D-14a, D-15, D-16, D-19)
-- [ ] 40-09-PLAN.md — Row/hero/home/downloads surfaces read pin ?? crowd first (D-14, D-16)
+- [x] 40-09-PLAN.md — Row/hero/home/downloads surfaces read pin ?? crowd first (D-14, D-16)

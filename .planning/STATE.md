@@ -4,14 +4,14 @@ milestone: v1.5
 milestone_name: YTMusic-Powered Up-Next
 status: executing
 stopped_at: Phase 40 context gathered
-last_updated: "2026-10-01T03:00:12.793Z"
+last_updated: "2026-10-01T03:04:26.217Z"
 last_activity: 2026-10-01
 progress:
   total_phases: 19
-  completed_phases: 9
+  completed_phases: 10
   total_plans: 112
-  completed_plans: 100
-  percent: 47
+  completed_plans: 101
+  percent: 53
 ---
 
 # Project State
@@ -222,6 +222,7 @@ Remaining human UAT: real-device <audio> playback+seek + download-to-disk; deplo
 | Phase 40 P03 | 45min | 3 tasks | 22 files |
 | Phase 40 P07 | 5min | 3 tasks | 6 files |
 | Phase 40 P08 | 35min | 3 tasks | 12 files |
+| Phase 40 P09 | 6min | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -419,6 +420,7 @@ Recent decisions affecting current work:
 - [Phase 40]: 40-07: crowd cover picks are a cache family (crowd:uid/crowd:name) sharing TTL/LRU/clear; readChosenCover = pin > crowd is rung 0 of readCoverByUidOrName
 - [Phase 40]: 40-08: /api/cover-pick edge-caches under /api/cover-pick/__edge (adapter-cloudflare serves public-URL cache hits CORS-less, breaking the APK)
 - [Phase 40]: 40-08: crowd cover name key uses versionedMatchKey so (Live)/Remix versions keep their own pick; Traditional/Simplified folding deferred
+- [Phase 40]: 40-09: every display surface reads readChosenCover (pin then crowd) at rung 0; readPinnedCover no longer used by components
 
 ### Pending Todos
 
@@ -646,7 +648,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-10-01T03:00:07.403Z
+Last session: 2026-10-01T03:04:22.049Z
 Stopped at: Phase 40 context gathered
 Resume: run 32-08-PLAN.md (device checkpoints). **32-07 closed VALIDATION #6 and the v2 half of #3, and BLOCKED two v3 walks — 32-08 must pick them up.** PROVEN LIVE on the deployed workerd edge (https://openmusic.lol, which is already running 32-04): cold GET `{"hit":false}` -> warm GET `{"hit":true}` with a qq `songid`, NO `url` field, `avail.qq:"ok"`; 9/9 warm hits across the YVR and SEA PoPs; POST bust `{"busted":true}` -> miss -> unattended re-fill -> hit (the 32-D-10a repair path works); `Cache-Control: no-store` on every route response (31-D-09 intact). BLOCKED, carry to 32-08: the two 32-D-20 v3 url-layer walks — (1) stale-url -> refresh, (2) bust -> miss -> mid-only -> url-warm — because v3 is on `main` but NOT deployed (the live entries carry no `url` keys, while v3's fill emits explicit nulls), and no preview server could be started here. Exact commands are in 32-07-SUMMARY.md § Task 2; run `pnpm build && pnpm preview` (NOT `pnpm dev` — `edgeCache()` returns null there) or `pnpm run deploy` (NEVER bare `pnpm deploy`). Expect every warm entry to miss once on the v2->v3 key rollover; that is by design. Folded todo `edge-resolve-cache-returns-miss.md` RESOLVED and moved to completed/ — root cause was the probe using `?artist=&title=` when the route has only ever read `a`/`t`, so it hit the `if (!a && !t)` zero-touch short-circuit and never consulted the cache. Still outstanding from Phase 30, unchanged: install `android/app/build/outputs/apk/debug/app-debug.apk` on an Android device, open `/song/Olivia-Dean/Man-I-Need` (proven to return a real 30,840 B JPEG from production), confirm the cover renders rather than a broken image, then kill the network and confirm the gradient fallback appears. That single check closes 30-06 and Phase 30. Do NOT run `/gsd:verify-work` for Phase 30 until it is approved — OG-PAGE-01 terminates in it. Optional, non-blocking leftovers: iMessage/Slack cards, and real 24h cache TTL/eviction.
 
