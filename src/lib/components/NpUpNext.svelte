@@ -79,7 +79,7 @@
 	// bumpCoverVersion` repaints the tiles but cannot re-trigger the effect that started the fill.
 	//
 	// PIZ GUARD (quick-260910-piz): `upNextCoverNeeds` skips any row with an https `track.cover`, so
-	// an album-installed queue is never even submitted; `backfillCovers` writes the NAME cache layer
+	// an album-installed queue is never even submitted; `backfillCovers` writes the cover cache layers
 	// only and never touches `track.cover` / `attachedCover`.
 	$effect(() => {
 		if (!open) return;

@@ -91,6 +91,7 @@ import { dedupeBest } from '$lib/services/dedupe';
 import { settings } from '$lib/stores/settings.svelte';
 import {
 	getCachedCover,
+	getCachedCoverByUid,
 	setCachedCover,
 	setCachedCoverByUid,
 	coverCacheKey,
@@ -109,6 +110,12 @@ import { hasHttpsScheme, isYtmCoverUrl } from './url-safety';
 export interface CoverNeed {
 	artist: string;
 	title: string;
+	/**
+	 * 40-WR-03: the row's uid when the caller has one (Up Next / Related). With it, a YT Music winner
+	 * is cached by uid ONLY (D-11b) instead of on the shared name layer. Uid-less home stubs omit it
+	 * and keep the name-layer write (Pitfall 10).
+	 */
+	uid?: string;
 }
 
 export interface BackfillOpts {
@@ -439,8 +446,10 @@ export async function backfillCovers(items: CoverNeed[], opts: BackfillOpts = {}
 		if (seen.has(key)) continue; // de-dupe identical rows across shelves
 		seen.add(key);
 		if (getCachedCover(artist, title)) continue; // already cached
+		// 40-WR-03: a uid-only (YTM) hit lives off the name layer — still a hit, don't re-resolve it.
+		if (it.uid && getCachedCoverByUid(it.uid)) continue;
 		if (recentlyMissed(key)) continue; // searched recently, no cover found — don't re-fan the fan-out
-		remaining.push({ artist, title });
+		remaining.push(it.uid ? { artist, title, uid: it.uid } : { artist, title });
 	}
 
 	// (2) Cap the total fan-out for a cold visit.
@@ -455,7 +464,10 @@ export async function backfillCovers(items: CoverNeed[], opts: BackfillOpts = {}
 		if (signal?.aborted) return; // abort ≠ miss — never poison the negative cache on a supersede
 		const key = coverCacheKey(item.artist, item.title);
 		if (hasHttpsScheme(cover)) {
-			setCachedCover(item.artist, item.title, cover);
+			// 40-WR-03 / D-11b: the same rule as resolveCoverForTrack — a YTM winner is cached by uid
+			// ONLY, so it cannot leak onto the qq/kuwo/netease copy of the song via the name layer.
+			if (item.uid) setCachedCoverByUid(item.uid, cover);
+			if (!item.uid || !isYtmCoverUrl(cover)) setCachedCover(item.artist, item.title, cover);
 			markHit(key);
 			onResolved?.(key, cover);
 		} else {

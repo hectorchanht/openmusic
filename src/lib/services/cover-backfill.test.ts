@@ -704,6 +704,33 @@ describe('resolveCoverForTrack — YTM winners stay off the name layer (Phase 40
 	});
 });
 
+// 40-WR-03: backfillCovers applies the SAME D-11b rule when the caller carries a uid.
+describe('backfillCovers — YTM winners stay off the name layer when a uid is carried (40-WR-03)', () => {
+	const YTM = 'https://lh3.googleusercontent.com/ytm-bf.jpg';
+	const ytmOnly = () => {
+		vi.spyOn(itunes, 'itunesSongCover').mockResolvedValue(null);
+		vi.spyOn(deezer, 'deezerSongCover').mockResolvedValue(null);
+		mockSearch({ ytm: [mk('ytmusic', 'y', { cover: YTM })] });
+	};
+
+	it('a uid-bearing need writes the uid layer ONLY for a YTM winner, and a re-run skips it', async () => {
+		ytmOnly();
+		await backfillCovers([{ artist: 'Jay Chou', title: 'Dao Xiang', uid: 'kuwo:k9' }]);
+		expect(getCachedCoverByUid('kuwo:k9')).toBe(YTM);
+		expect(getCachedCover('Jay Chou', 'Dao Xiang')).toBeNull();
+		const chain = vi.spyOn(itunes, 'itunesSongCover');
+		chain.mockClear();
+		await backfillCovers([{ artist: 'Jay Chou', title: 'Dao Xiang', uid: 'kuwo:k9' }]);
+		expect(chain).not.toHaveBeenCalled();
+	});
+
+	it('a uid-less need keeps the name-layer write (Pitfall 10)', async () => {
+		ytmOnly();
+		await backfillCovers([{ artist: 'Jay Chou', title: 'Dao Xiang 2' }]);
+		expect(getCachedCover('Jay Chou', 'Dao Xiang 2')).toBe(YTM);
+	});
+});
+
 // Plan 26-02, Task 3 — the click-to-play cover fan-out PROOF (T-26-02-01 DoS mitigation). Spike 003
 // measured the Deezer+iTunes tiers + a 7-source CN searchAll per COVERLESS tile as a large share of a
 // play's /api calls; kuwo returns a usable cover inline on 38/38, so ~all plays need zero cover network

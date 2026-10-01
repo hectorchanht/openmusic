@@ -49,7 +49,7 @@ export const UPNEXT_COVER_MAX = 20;
  * that started the fill (cf. `restore-effect-self-invalidation-loop`, T-q5a-03).
  */
 export function upNextCoverNeeds(
-	list: ReadonlyArray<Pick<Track, 'artist' | 'title' | 'cover'>>,
+	list: ReadonlyArray<Pick<Track, 'artist' | 'title' | 'cover'> & { uid?: string }>,
 	max: number = UPNEXT_COVER_MAX
 ): CoverNeed[] {
 	const seen = new Set<string>();
@@ -62,7 +62,8 @@ export function upNextCoverNeeds(
 		const key = matchKey(artist, title);
 		if (seen.has(key)) continue;
 		seen.add(key);
-		needs.push({ artist, title });
+		// 40-WR-03: carry the uid so backfillCovers keeps a YTM winner off the name layer (D-11b).
+		needs.push(t.uid ? { artist, title, uid: t.uid } : { artist, title });
 	}
 	return needs.slice(0, Math.max(0, max));
 }
