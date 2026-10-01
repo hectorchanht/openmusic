@@ -143,6 +143,7 @@
 			// short-circuits on the PREVIOUS album's resolved tracks — Like/Download/Add-to-playlist
 			// would act on the wrong album and albumLiked would render the stale heart state.
 			resolvedCache = null;
+			resolvedRows = [];
 			busyAction = null;
 			if (!artist && !dzid && !mbid) {
 				// Deep link with neither ?artist= nor ?dzid= — nothing to query. Render the
@@ -322,6 +323,10 @@
 	// computations so the album-like heart reflects the post-action state without re-resolving
 	// every render. `null` = not yet resolved; outline-heart is the safe default.
 	let resolvedCache = $state<Track[] | null>(null);
+	// quick-260930-uia: the SAME resolve, index-aligned to `tracks` (null = no match), handed to each
+	// SongRow as `resolved` so its DownloadControl keys on the real uid — that is what lights each
+	// row's own ring while "Download all" runs on the resolved uids.
+	let resolvedRows = $state<(Track | null)[]>([]);
 
 	// Long-press TrackMenu (ii6 #4): album rows are STUBS, so we resolve on long-press, then
 	// open the menu against the real Track. `menuLoading` shows the TrackMenu skeleton while
@@ -345,6 +350,7 @@
 
 	// Resolve EVERY stub to a Track, order-preserved, max 4 concurrent searchAll fan-outs.
 	async function resolveAll(): Promise<Track[]> {
+		const list = tracks;
 		const out: (Track | null)[] = new Array(tracks.length).fill(null);
 		let next = 0;
 		const worker = async () => {
@@ -353,6 +359,10 @@
 			}
 		};
 		await Promise.all(Array.from({ length: Math.min(4, tracks.length || 1) }, worker));
+		// quick-260930-uia: keep the index alignment the filter below drops — but only for the album
+		// this resolve started on (a resolve that lands after navigating away must not hand the new
+		// album's rows another album's songs).
+		if (tracks === list) resolvedRows = out;
 		return out.filter((t): t is Track => t !== null);
 	}
 	/** Resolve and cache, so the second action / heart-state read is instant. */
@@ -723,6 +733,7 @@
 							lazy={false}
 							persist={false}
 							resolve={() => resolveStub(track.artist, track.title).catch(() => null)}
+							resolved={resolvedRows[i] ?? null}
 							onplay={() => playStub(track, i)}
 							onrequestmenu={() => openMenu(track)}
 							swipe={{ onSwipeRight: () => swipeQueue(track), onSwipeLeft: () => swipeNext(track) }}

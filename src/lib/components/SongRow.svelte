@@ -116,6 +116,11 @@
 		 *  network on a render path), at most once per row — the result is cached and shared by both
 		 *  buttons. It must never throw; return null for "no playable match". */
 		resolve?: (() => Promise<Track | null>) | null;
+		/** quick-260930-uia: the page's already-resolved Track for a stub row, so download/like state
+		 *  keys on the real uid before the user taps (the album page passes it once its batch resolve
+		 *  lands, which is what lets each row's ring light during "Download all"). The row still
+		 *  DISPLAYS `track`. A row-local resolve (`resolvedTrack`) wins over it. */
+		resolved?: Track | null;
 		/** Forwarded verbatim to DownloadControl. The album tracklist passes false (album downloads
 		 *  stay OUT of the offline blob / native public folder — 29-CONTEXT Open Q2); everything
 		 *  else takes the default. */
@@ -149,6 +154,7 @@
 		grip = false,
 		actions = undefined,
 		resolve = null,
+		resolved = null,
 		persist = true,
 		subtitle = undefined,
 		cover = undefined,
@@ -170,7 +176,9 @@
 	// so the Like button and the Download button share ONE resolve instead of running two.
 	let resolvedTrack = $state<Track | null>(null);
 	/** The uid every state read keys on: the resolved one once we have it, else the row's own. */
-	const actUid = $derived(resolvedTrack?.uid ?? track.uid);
+	// quick-260930-uia: `real` folds in the host's `resolved` Track (see the prop doc).
+	const real = $derived(resolvedTrack ?? resolved ?? null);
+	const actUid = $derived(real?.uid ?? track.uid);
 	const liked = $derived(library.isLiked(actUid));
 	/** In-flight guard, THIS row THIS action (Download's lives in DownloadControl's localBusy). */
 	let likeBusy = $state(false);
@@ -278,7 +286,7 @@
 	async function toggleLike() {
 		if (likeBusy) return; // second tap during a multi-second resolve: no-op, not a double-toggle
 		const gen = rowGen;
-		const plan = rowActionTarget(track, resolvedTrack, !!resolve);
+		const plan = rowActionTarget(track, real, !!resolve);
 		let target = plan.kind === 'act' ? plan.track : null;
 		if (plan.kind === 'resolve') {
 			likeBusy = true;
@@ -363,7 +371,7 @@
 			     truthy synthetic uid would make it try to download an unresolvable song. Once either
 			     button has resolved, the real Track goes down instead and the resolve is not repeated. -->
 			<DownloadControl
-				track={resolvedTrack ?? (resolve ? null : track)}
+				track={real ?? (resolve ? null : track)}
 				resolve={resolve ? runResolve : null}
 				{persist}
 			/>
