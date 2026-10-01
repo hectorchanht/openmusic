@@ -140,6 +140,32 @@ describe('library.downloading (per-uid in-flight set, D-10)', () => {
 		expect(library.downloading.size).toBe(1);
 	});
 
+	// debug album-row-tick-before-file-done: brackets NEST. The album loop holds one outer bracket per
+	// song (start → final outcome) while downloadOne / downloadFromDonor bracket each attempt inside
+	// it; with a plain Set the inner `finally` dropped the uid mid-album (tick during the qq backoff).
+	it('nested begin/end: the uid stays in flight until the LAST endDownload (refcount)', () => {
+		library.beginDownload('qq:1');
+		library.beginDownload('qq:1');
+		library.endDownload('qq:1');
+		expect(library.downloading.has('qq:1')).toBe(true);
+		library.endDownload('qq:1');
+		expect(library.downloading.has('qq:1')).toBe(false);
+		// an extra end never goes negative: the next bracket is a fresh 1 → 0
+		library.endDownload('qq:1');
+		library.beginDownload('qq:1');
+		library.endDownload('qq:1');
+		expect(library.downloading.has('qq:1')).toBe(false);
+	});
+
+	it('an inner endDownload clears the progress fraction while the outer bracket keeps the ring', () => {
+		library.beginDownload('qq:1');
+		library.beginDownload('qq:1');
+		library.setDownloadProgress('qq:1', 0.6);
+		library.endDownload('qq:1');
+		expect(library.downloadProgress['qq:1']).toBeUndefined();
+		expect(library.downloading.has('qq:1')).toBe(true);
+	});
+
 	it('is transient — never written to the persisted localStorage payload', () => {
 		library.beginDownload('netease-1');
 		library.addDownload(mk({ uid: 'netease-1' })); // a persisting write happens WHILE in-flight

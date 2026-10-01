@@ -8,7 +8,12 @@ import * as zipStore from './zip-store';
 
 const mocks = vi.hoisted(() => ({
 	native: false,
-	library: { downloads: [] as Track[] },
+	library: {
+		downloads: [] as Track[],
+		// debug album-row-tick-before-file-done: the album holds ONE outer bracket per song.
+		beginDownload: vi.fn((_uid: string) => {}),
+		endDownload: vi.fn((_uid: string) => {})
+	},
 	names: {
 		dnArtist: (s: string) => s,
 		dnTitle: (s: string) => s
@@ -619,5 +624,48 @@ describe('downloadAlbum — wait for qq first, then donors (quick-261001-0p9)', 
 			await flush(5);
 		}
 		expect(await run).toEqual({ saved: 5, total: 5 });
+	});
+});
+
+// debug album-row-tick-before-file-done: a row's tick is `isDownloaded && !downloading`, and
+// downloadOne's `finally` closes its own bracket after EVERY attempt — so without an OUTER bracket the
+// qq backoff sleeps (3/6/9/12 s) and the hop into the donor walk showed a tick on a song with no
+// file yet. The loop now brackets each song from its start to its final outcome; library.downloading
+// is refcounted so the inner brackets nest inside it.
+describe('downloadAlbum — one outer bracket per song, start → final outcome (debug album-row-tick-before-file-done)', () => {
+	beforeEach(() => vi.useFakeTimers());
+	afterEach(() => vi.useRealTimers());
+	const flush = (n = 5) => vi.advanceTimersByTimeAsync(n * 1000);
+	const ends = (uid: string) => mocks.library.endDownload.mock.calls.filter((c) => c[0] === uid);
+
+	it('begins every song synchronously at start; a rate-limited song stays bracketed through its sleeps and donor walk', async () => {
+		mocks.native = true;
+		mocks.downloadTrack.mockImplementation(async (tr: Track) => (tr.uid === 'qq:2' ? 'rate-limited' : 'saved'));
+		let donorResolve!: (r: string) => void;
+		mocks.downloadFromDonor.mockImplementation(() => new Promise<string>((r) => (donorResolve = r)));
+		const run = downloadAlbum([mk(1), mk(2), mk(3)], META);
+		// synchronous: all three rows busy before any await settles
+		expect(mocks.library.beginDownload.mock.calls.map((c) => c[0])).toEqual(['qq:1', 'qq:2', 'qq:3']);
+		await flush(1); // song 2 inside its first 3 s sleep
+		expect(ends('qq:1')).toHaveLength(1);
+		expect(ends('qq:2')).toHaveLength(0);
+		await flush(40); // all retries spent → donor walk pending
+		expect(mocks.downloadFromDonor).toHaveBeenCalledTimes(1);
+		expect(ends('qq:2')).toHaveLength(0);
+		donorResolve('no-audio');
+		await flush(0);
+		expect(await run).toEqual({ saved: 2, total: 3 });
+		expect(ends('qq:2')).toHaveLength(1);
+		expect(mocks.library.beginDownload).toHaveBeenCalledTimes(3);
+		expect(mocks.library.endDownload).toHaveBeenCalledTimes(3);
+	});
+
+	it('a held single and a duplicate uid are balanced too (held: one bracket; duplicate: none)', async () => {
+		mocks.native = true;
+		mocks.library.downloads = [mk(1)];
+		mocks.blob.has.mockImplementation(async (uid: string) => uid === 'qq:1');
+		await downloadAlbum([mk(1), mk(2), mk(2)], META);
+		expect(mocks.library.beginDownload.mock.calls.map((c) => c[0])).toEqual(['qq:1', 'qq:2']);
+		expect(mocks.library.endDownload.mock.calls.map((c) => c[0]).sort()).toEqual(['qq:1', 'qq:2']);
 	});
 });

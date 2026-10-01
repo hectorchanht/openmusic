@@ -23,7 +23,10 @@ const mocks = vi.hoisted(() => ({
 		beginDownload: vi.fn((_uid: string) => {}),
 		endDownload: vi.fn((_uid: string) => {}),
 		addDownload: vi.fn((_t: unknown) => {}),
-		isDownloaded: vi.fn((_uid: string) => false)
+		isDownloaded: vi.fn((_uid: string) => false),
+		// debug album-row-tick-before-file-done: a non-saved outcome marks the file-less entry.
+		markUnavailable: vi.fn((_uid: string) => {}),
+		clearUnavailable: vi.fn((_uid?: string) => {})
 	},
 	// player is READ-ONLY from the service — `current` / `playGen` here get throwing setters in the
 	// isolation test to prove the service never writes them. `resolvedCover` joins them for the
@@ -147,6 +150,8 @@ beforeEach(() => {
 	mocks.library.endDownload.mockReset();
 	mocks.library.addDownload.mockReset();
 	mocks.library.isDownloaded.mockReset().mockReturnValue(false);
+	mocks.library.markUnavailable.mockReset();
+	mocks.library.clearUnavailable.mockReset();
 	// reset player as PLAIN writable data props (the isolation test swaps in throwing accessors).
 	Object.defineProperty(mocks.player, 'current', { configurable: true, writable: true, value: null });
 	Object.defineProperty(mocks.player, 'playGen', { configurable: true, writable: true, value: 0 });
@@ -1419,5 +1424,74 @@ describe('probeForDownload (quick-260930-x3q)', () => {
 			expect(src).toContain('probeForDownload(target');
 			expect(src).not.toContain('probeDownload(target');
 		}
+	});
+});
+
+// debug album-row-tick-before-file-done: the row tick is `isDownloaded && !downloading`, and
+// addDownload runs PRE-fetch (DL-BUG-01) — so an attempt that ends without a file must leave a
+// non-tick mark behind (`unavailable`, the existing "entry without a file" state), set BEFORE the
+// bracket closes so no render ever sees "downloaded, idle, unmarked". A save clears the mark. Nested
+// brackets are refcounted in the library now, so downloadFromDonor's hand-rolled re-arm is gone and
+// every beginDownload has exactly one endDownload.
+describe('downloadTrack — a file-less outcome is marked unavailable (debug album-row-tick-before-file-done)', () => {
+	const order = (f: ReturnType<typeof vi.fn>) => f.mock.invocationCallOrder[0] ?? Infinity;
+
+	it("'failed' after addDownload → markUnavailable BEFORE endDownload, no clearUnavailable", async () => {
+		mocks.library.isDownloaded.mockReturnValue(true);
+		mocks.ensureTrackDetails.mockResolvedValue(mk());
+		stubFetchReject();
+		expect(await downloadTrack(mk())).toBe('failed');
+		expect(mocks.library.markUnavailable).toHaveBeenCalledWith('netease-1');
+		expect(mocks.library.clearUnavailable).not.toHaveBeenCalled();
+		expect(order(mocks.library.markUnavailable)).toBeLessThan(order(mocks.library.endDownload));
+	});
+
+	it("'no-audio' and 'rate-limited' are marked too — the entry has no file", async () => {
+		mocks.library.isDownloaded.mockReturnValue(true);
+		mocks.ensureTrackDetails.mockResolvedValue(mk({ audioUrl: null }));
+		stubFetch(new Blob(['x']));
+		expect(await downloadTrack(mk({ audioUrl: null, detailsLoaded: false }))).toBe('no-audio');
+		expect(mocks.library.markUnavailable).toHaveBeenCalledTimes(1);
+		mocks.ensureTrackDetails.mockRejectedValue(new QqRateLimitedError('limited'));
+		expect(await downloadTrack(mk({ uid: 'qq:9', source: 'qq', audioUrl: null, detailsLoaded: false }))).toBe('rate-limited');
+		expect(mocks.library.markUnavailable).toHaveBeenLastCalledWith('qq:9');
+	});
+
+	it("'saved' clears the mark and never sets it", async () => {
+		mocks.library.isDownloaded.mockReturnValue(true);
+		mocks.ensureTrackDetails.mockResolvedValue(mk());
+		stubFetch(new Blob(['abc']));
+		expect(await downloadTrack(mk())).toBe('saved');
+		expect(mocks.library.clearUnavailable).toHaveBeenCalledWith('netease-1');
+		expect(mocks.library.markUnavailable).not.toHaveBeenCalled();
+		expect(order(mocks.library.clearUnavailable)).toBeLessThan(order(mocks.library.endDownload));
+	});
+
+	it('a song not in the library (ytmusic donor refusal before addDownload) is never marked', async () => {
+		const yt = mk({ uid: 'ytmusic:z', source: 'ytmusic' });
+		expect(await downloadTrack(mk(), { audioFrom: yt })).toBe('no-audio');
+		expect(mocks.library.markUnavailable).not.toHaveBeenCalled();
+		expect(mocks.library.clearUnavailable).not.toHaveBeenCalled();
+	});
+
+	it('downloadFromDonor: every beginDownload has ONE endDownload (no re-arm), outer end is last', async () => {
+		const qq = mk({ uid: 'qq:9', source: 'qq', songid: '9', audioUrl: null, detailsLoaded: false });
+		mocks.fetchVariants.mockImplementation(async () => [
+			mk({ uid: 'netease:7', source: 'netease', songid: '7', audioUrl: null }),
+			mk({ uid: 'kuwo:5', source: 'kuwo', songid: '5', audioUrl: null })
+		]);
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async (url: string) =>
+				url.includes('netease') ? { ok: false, blob: async () => new Blob([]) } : { ok: true, blob: async () => new Blob(['a']) }
+			)
+		);
+		expect(await downloadFromDonor(qq, {}, { exclude: ['qq'] })).toBe('saved');
+		// outer + two inner attempts
+		expect(mocks.library.beginDownload).toHaveBeenCalledTimes(3);
+		expect(mocks.library.endDownload).toHaveBeenCalledTimes(3);
+		expect(Math.max(...mocks.library.endDownload.mock.invocationCallOrder)).toBeGreaterThan(
+			Math.max(...mocks.put.mock.invocationCallOrder)
+		);
 	});
 });

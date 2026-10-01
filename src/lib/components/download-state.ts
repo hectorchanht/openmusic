@@ -5,7 +5,9 @@
 // WHY THIS EXISTS: `library.isDownloaded(uid)` is NOT a "finished" signal. `downloadTrack` calls
 // `library.addDownload` BEFORE the fetch, deliberately, so a failed save still leaves the song in
 // the library (DL-BUG-01). The ONLY finished signal is `library.endDownload` in downloadTrack's
-// `finally` — i.e. the uid leaving `library.downloading`. So `downloading` is the stronger, more
+// `finally` — i.e. the uid leaving `library.downloading` (debug album-row-tick-before-file-done:
+// after its OUTERMOST bracket, since the set is refcounted and an album holds one per song; a
+// finish WITHOUT a file is marked `unavailable` there too). So `downloading` is the stronger, more
 // specific state and MUST be tested before `downloaded`. DownloadControl had the branches the other
 // way round, which made its DownloadRing unreachable during a real download (the tick showed the
 // instant the resolve landed); TrackMenu tests `downloading` first and its bar works — proof the

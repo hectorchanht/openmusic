@@ -44,9 +44,12 @@ class Library {
 	 *  runes graph re-renders; one uid's transition never touches another's. */
 	downloading = $state<Set<string>>(new Set());
 	/** 34-D-06: uids whose bytes could not be read at last play. SET by the player's two device seams
-	 *  — the offline-miss branch (blobStore.get returned nothing) and the corrupt-blob branch — and by
-	 *  nothing else. CLEARED by the next explicit import (setDownloads prunes it / clearUnavailable),
-	 *  or by removing the entry outright. READ by RowBadges / DownloadControl through isUnavailable()
+	 *  — the offline-miss branch (blobStore.get returned nothing) and the corrupt-blob branch — and
+	 *  (debug album-row-tick-before-file-done) by downloadOne when an attempt ends WITHOUT a file
+	 *  ('failed' / 'no-audio' / 'rate-limited'), since addDownload already listed the song (DL-BUG-01)
+	 *  and the tick must never stand for a file that is not there. CLEARED by the next explicit
+	 *  import (setDownloads prunes it / clearUnavailable), by a later 'saved' attempt, or by removing
+	 *  the entry outright. READ by RowBadges / DownloadControl through isUnavailable()
 	 *  (UI-SPEC Contract 8) to swap the downloaded tick for the alert glyph. Unlike `downloading` above
 	 *  this IS persisted (see LibShape) — a file the OS lost is still lost after a relaunch. Reassigned
 	 *  copy-on-write (the beginDownload idiom) so the runes graph re-renders. */
@@ -262,23 +265,38 @@ class Library {
 	}
 
 	// ---- downloading (D-10, transient per-uid in-flight state) -----------------------------
+	/** debug album-row-tick-before-file-done: brackets NEST. The album loop holds one OUTER bracket
+	 *  per song (start → final outcome) while downloadOne / downloadFromDonor bracket each attempt
+	 *  inside it, so the uid must stay in `downloading` until the LAST endDownload — a plain Set
+	 *  dropped it after the first inner `finally` (tick during the qq backoff). Plain field, not
+	 *  `$state`: the UI reads the Set, never the counts (the internal-guard convention). */
+	private downloadDepth = new Map<string, number>();
 	/** Mark a uid as mid-download. Reassign a NEW Set so runes re-render (parity with
-	 *  TrackMenu `inFlight`); NOT persisted (transient runtime state). */
+	 *  TrackMenu `inFlight`); NOT persisted (transient runtime state). Nested calls refcount. */
 	beginDownload(uid: string) {
+		// A uid not in the Set starts at 1 whatever the map says (a test / reset may replace the Set).
+		this.downloadDepth.set(uid, this.downloading.has(uid) ? (this.downloadDepth.get(uid) ?? 1) + 1 : 1);
 		this.downloading = new Set(this.downloading).add(uid);
 		// quick-260913-omi: drop any residue from a previous attempt so a retry starts indeterminate
 		// rather than resuming the failed run's bar at 60%.
 		if (uid in this.downloadProgress) this.clearDownloadProgress(uid);
 	}
-	/** Clear a uid's in-flight flag. Copy → delete → reassign; absent uid is a no-op. Never
-	 *  touches another uid's state (isolation) and never persists. */
+	/** Clear a uid's in-flight flag once every nested bracket has ended. Copy → delete → reassign;
+	 *  absent uid is a no-op. Never touches another uid's state (isolation) and never persists. */
 	endDownload(uid: string) {
+		// quick-260913-omi: endDownload runs in downloadTrack's `finally`, so EVERY exit path — saved,
+		// no-audio, failed, throw — leaves no progress residue behind. Cleared on EVERY end, even a
+		// nested one: the attempt whose bytes fed the bar is over, so the outer ring goes indeterminate.
+		this.clearDownloadProgress(uid);
+		const depth = (this.downloadDepth.get(uid) ?? 1) - 1;
+		if (depth > 0 && this.downloading.has(uid)) {
+			this.downloadDepth.set(uid, depth);
+			return;
+		}
+		this.downloadDepth.delete(uid);
 		const next = new Set(this.downloading);
 		next.delete(uid);
 		this.downloading = next;
-		// quick-260913-omi: endDownload runs in downloadTrack's `finally`, so EVERY exit path — saved,
-		// no-audio, failed, throw — leaves no progress residue behind.
-		this.clearDownloadProgress(uid);
 	}
 	/** quick-260913-omi: record a uid's 0..1 download progress. Copy-on-write reassign (the
 	 *  `downloading` idiom) — cheap because readBlobWithProgress only calls this once per whole
@@ -345,6 +363,8 @@ class Library {
 		if (uid === undefined) {
 			this.unavailable = new Set();
 		} else {
+			// debug album-row-tick-before-file-done: every 'saved' download calls this; no mark = no write.
+			if (!this.unavailable.has(uid)) return;
 			const next = new Set(this.unavailable);
 			next.delete(uid);
 			this.unavailable = next;

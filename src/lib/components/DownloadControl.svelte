@@ -13,6 +13,10 @@
 	//                 helper) — isDownloaded is true from addDownload onward, which runs PRE-fetch by
 	//                 design (DL-BUG-01), so a downloading song is also "downloaded" and the tick
 	//                 would otherwise hide the ring for the whole transfer.
+	//                 debug album-row-tick-before-file-done: the uid leaves library.downloading only
+	//                 when its OUTERMOST bracket ends (refcounted) — an album song stays busy through
+	//                 the qq backoff sleeps and the donor walk — and a non-saved outcome lands in
+	//                 `unavailable`, so the tick means "the file is really saved".
 	//   downloaded  → Check icon, greyed, disabled           (library.isDownloaded(uid))
 	//   unavailable → CircleAlert, #ff7a90, non-interactive (library.isUnavailable — 34-D-06; re-import
 	//                 is the fix, one tap away in Settings → Downloads; the badge does not try to be

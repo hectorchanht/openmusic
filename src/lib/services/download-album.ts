@@ -156,6 +156,12 @@ export async function downloadAlbum(
 			// `tracks.map` calls this in index order, so the first occurrence wins.
 			if (seenUids.has(tr.uid)) return;
 			seenUids.add(tr.uid);
+			// debug album-row-tick-before-file-done: ONE outer bracket per song, from here to its final
+			// outcome. downloadTrack / downloadFromDonor bracket each ATTEMPT and close it in their
+			// `finally`, so without this the backoff sleeps below and the hop into the donor walk left the
+			// uid "downloaded, not downloading" = a tick on a song with no file yet. library.downloading
+			// is refcounted, so the inner brackets nest inside this one.
+			library.beginDownload(tr.uid);
 			try {
 				const held = library.downloads.find((d) => d.uid === tr.uid || sameSongKey(d, tr));
 				if (held && (await blobStore.has(held.uid))) {
@@ -222,6 +228,8 @@ export async function downloadAlbum(
 				}
 			} catch {
 				// 40-D-06: skip this song, keep going.
+			} finally {
+				library.endDownload(tr.uid);
 			}
 		};
 

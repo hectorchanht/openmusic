@@ -169,7 +169,29 @@ async function downloadOne(track: Track, opts?: DownloadOpts): Promise<DownloadR
 	if (opts?.audioFrom && !canDownloadFrom(opts.audioFrom.source)) return 'no-audio';
 	// DL-STATE-01: bracket the per-uid spinner. beginDownload BEFORE the first await; endDownload in
 	// the `finally` so EVERY exit (saved / no-audio / failed / any throw) clears the spinner exactly once.
+	// Nested inside an album's outer bracket this is a refcount step (library.downloadDepth).
 	library.beginDownload(track.uid);
+	let res: DownloadResult = 'failed';
+	try {
+		res = await runDownload(track, opts); // never throws (D-17)
+		return res;
+	} finally {
+		// debug album-row-tick-before-file-done: the row tick is `isDownloaded && !downloading`, and
+		// addDownload ran PRE-fetch (DL-BUG-01) — so an attempt that ends WITHOUT a file must leave the
+		// existing "entry without a file" mark (34-D-06 `unavailable`, the alert glyph) rather than the
+		// tick, and a save must lift it. Marked BEFORE endDownload so no render sees "downloaded, idle,
+		// unmarked". Guarded on isDownloaded: a refusal that never reached addDownload marks nothing.
+		if (library.isDownloaded(track.uid)) {
+			if (res === 'saved') library.clearUnavailable(track.uid);
+			else library.markUnavailable(track.uid);
+		}
+		// DL-STATE-01: clear the per-uid spinner on every exit path.
+		library.endDownload(track.uid);
+	}
+}
+
+/** The body of `downloadOne` — resolve → addDownload → fetch → tag → persist → save. */
+async function runDownload(track: Track, opts?: DownloadOpts): Promise<DownloadResult> {
 	let release: (() => void) | undefined;
 	let rateLimited = false;
 	try {
@@ -403,8 +425,6 @@ async function downloadOne(track: Track, opts?: DownloadOpts): Promise<DownloadR
 		return 'failed';
 	} finally {
 		release?.();
-		// DL-STATE-01: clear the per-uid spinner on every exit path.
-		library.endDownload(track.uid);
 	}
 }
 
@@ -460,7 +480,9 @@ export async function downloadFromDonor(
 	o: { exclude?: SourceId[]; prefer?: 'tier' } = {}
 ): Promise<DownloadResult> {
 	try {
-		// DL-STATE-01: the row ring spins through the donor lookup too.
+		// DL-STATE-01: the row ring spins through the donor lookup too. debug album-row-tick-before-
+		// file-done: library.downloading is refcounted now, so each inner downloadOne bracket nests
+		// inside this one — the old per-attempt re-arm is gone.
 		library.beginDownload(track.uid);
 		try {
 			let failed = false;
@@ -468,9 +490,6 @@ export async function downloadFromDonor(
 				const res = await downloadOne(track, { ...opts, audioFrom: donor });
 				if (res === 'saved') return true;
 				if (res === 'failed') failed = true;
-				// downloadOne's `finally` cleared the spinner; re-arm it (idempotent Set add) so the ring
-				// keeps spinning through the next donor's probe.
-				library.beginDownload(track.uid);
 				return false;
 			};
 			// quick-261001-0p9: non-matching donors wait here until the walk ends without a save.
