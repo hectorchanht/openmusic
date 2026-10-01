@@ -710,11 +710,11 @@
 	     fill state reflects albumLiked (derived from resolvedCache + library.liked). -->
 	<div class="album-actions">
 		<button class="act" aria-label={t('menu.download')} disabled={busyAction === 'download'} onclick={downloadAlbum} use:tapBounce><Download size={20} /></button>
-		<button class="act" aria-label={albumLiked ? t('menu.liked') : t('menu.like')} disabled={busyAction === 'like'} onclick={likeAlbum} use:tapBounce><Heart size={20} fill={albumLiked ? 'currentColor' : 'none'} /></button>
-		<button class="act" aria-label={t('menu.addToPlaylist')} disabled={busyAction === 'addToPlaylist'} onclick={() => (pickerOpen = true)} use:tapBounce><ListPlus size={20} /></button>
+		<!-- <button class="act" aria-label={albumLiked ? t('menu.liked') : t('menu.like')} disabled={busyAction === 'like'} onclick={likeAlbum} use:tapBounce><Heart size={20} fill={albumLiked ? 'currentColor' : 'none'} /></button> -->
+		<button class="act" aria-label={t('nowplaying.shuffle')} disabled={busyAction === 'shuffle'} onclick={shuffleAlbum} use:tapBounce><Shuffle size={20} /></button>
+		<!-- <button class="act" aria-label={t('menu.addToPlaylist')} disabled={busyAction === 'addToPlaylist'} onclick={() => (pickerOpen = true)} use:tapBounce><ListPlus size={20} /></button> -->
 		<button class="act play" aria-label={t('nowplaying.playPause')} disabled={busyAction === 'play'} onclick={playAlbum} use:tapBounce><Play size={20} /></button>
 		<!-- quick-260930-uy0: Shuffle-play right of Play balances the row 3 | PLAY | 3. -->
-		<button class="act" aria-label={t('nowplaying.shuffle')} disabled={busyAction === 'shuffle'} onclick={shuffleAlbum} use:tapBounce><Shuffle size={20} /></button>
 		<!-- quick-260919-alb: append the whole album to the end of the queue. ListEnd is the same icon
 		     the row swipe-right (add-to-queue) reveal uses, so the two surfaces read as one action. -->
 		<button class="act" aria-label={t('menu.addToQueue')} onclick={queueAlbum} use:tapBounce><ListEnd size={20} /></button>
