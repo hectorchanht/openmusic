@@ -13,6 +13,11 @@
 // writeCoverBoth writes both layers EXCEPT for a YT Music thumbnail, which stays uid-only (Phase 40
 // D-11b) so the bridge cannot carry one ytmusic copy's art onto every other source's copy.
 //
+// Phase 40 D-14: the CHOSEN cover (readChosenCover) sits above all of that — the user's own pin, then
+// the crowd-shared pick other listeners voted for. Crowd picks live in their own `crowd:` cache family
+// and are written only by writeCrowdCover, never by the auto writers. Nothing in this module talks to
+// the network; evicting a crowd pick is local only (D-19).
+//
 // SSR-safety: this module imports only pure functions + runes; it touches NO browser globals at module
 // top level (the underlying cover-cache setters already guard localStorage in try/catch). No $effect, no
 // DOM access here — the runes compile fine under SvelteKit SSR because this is a `.svelte.ts` file.
@@ -27,9 +32,14 @@ import {
 	removeCachedCover,
 	getPinnedCover,
 	setPinnedCover,
-	removePinnedCover
+	removePinnedCover,
+	getCrowdCover,
+	setCrowdCoverByUid,
+	setCrowdCoverByName,
+	removeCrowdCoverByUid,
+	removeCrowdCoverByName
 } from '$lib/services/cover-cache';
-import { isYtmCoverUrl } from '$lib/services/url-safety';
+import { isYtmCoverUrl, hasHttpsScheme } from '$lib/services/url-safety';
 
 // Module-scoped reactive counter. Held in a small object because top-level `$state` reassignment must be
 // on a `$state` rune target; callers CALL coverVersion() inside a $derived/template to take the dependency
@@ -99,7 +109,52 @@ export function readCoverByUidOrName(uid: string, artist: string, title: string)
 	// quick-260915-w4f: read order is now PIN → uid → name → null. A pin is the user's explicit
 	// choice in the TrackMenu cover picker, so it outranks anything a resolver cached. It lives in
 	// its own storage key (see cover-cache.ts PIN_KEY) and getPinnedCover already no-ops an empty uid.
-	return getPinnedCover(uid) ?? (uid ? getCachedCoverByUid(uid) : null) ?? getCachedCover(artist, title);
+	// Phase 40 D-14: rung 0 is now readChosenCover (pin → crowd pick), still ahead of the auto layers.
+	return readChosenCover(uid, artist, title) ?? (uid ? getCachedCoverByUid(uid) : null) ?? getCachedCover(artist, title);
+}
+
+/**
+ * Phase 40 D-14: the reactive CHOSEN cover — my pin, else the crowd pick (exact uid, then name), else
+ * null. The full ladder is my pin > crowd pick > inline cover > auto chain; this is rung 0 for every
+ * surface. Use it where a cover is DISPLAYED; keep readPinnedCover where the UI asks "is this pinned?".
+ */
+export function readChosenCover(uid: string, artist: string, title: string): string | null {
+	coverVersion(); // reactive dependency — recompute when a pin or crowd pick lands
+	return getPinnedCover(uid) ?? getCrowdCover(uid, artist, title);
+}
+
+/**
+ * Phase 40 D-14: cache a crowd pick fetched from the server — `u` under the exact uid, `n` under the
+ * name key — then bump. Non-https values are ignored (the fetch already re-screened them against the
+ * vote host allowlist). Never writes the auto uid/name layers: chosen art must not leak into the cache
+ * the resolvers own, for the same reason pins never do.
+ */
+export function writeCrowdCover(
+	uid: string,
+	artist: string,
+	title: string,
+	pick: { u: string | null; n: string | null }
+): void {
+	let wrote = false;
+	if (uid && hasHttpsScheme(pick.u)) {
+		setCrowdCoverByUid(uid, pick.u);
+		wrote = true;
+	}
+	if (hasHttpsScheme(pick.n)) {
+		setCrowdCoverByName(artist, title, pick.n);
+		wrote = true;
+	}
+	if (wrote) bumpCoverVersion();
+}
+
+/**
+ * Phase 40 D-19: evict the cached crowd pick (both keys) + bump. LOCAL ONLY — resetting a pin or
+ * healing a dead URL never withdraws anyone's vote on the server.
+ */
+export function removeCrowdCover(uid: string, artist: string, title: string): void {
+	removeCrowdCoverByUid(uid);
+	removeCrowdCoverByName(artist, title);
+	bumpCoverVersion();
 }
 
 /**
