@@ -6,6 +6,7 @@ import { blobStore } from '$lib/services/blob-store';
 import { setCachedCover } from '$lib/services/cover-cache';
 import { hasHttpsScheme, isYtmCoverUrl } from '$lib/services/url-safety';
 import { matchKey } from '$lib/services/match-key';
+import { sameSongStrings, songKey } from '$lib/services/dedupe';
 import { isChineseLine, t2sConvertLineSync, warmScript } from '$lib/services/zh-convert';
 import type { Track } from '$lib/sources/types';
 
@@ -92,6 +93,9 @@ class Library {
 
 	private save() {
 		if (!browser) return;
+		// debug album-rows-miss-liked-downloaded-on-load: a first Chinese like / download warms the fold
+		// (load() covers hydration; this covers a Latin library that gains its first CJK song live).
+		this.warmFold();
 		try {
 			localStorage.setItem(
 				KEY,
@@ -257,7 +261,18 @@ class Library {
 	/** quick-260926-hze: warm the t2s fold dict ONCE when any favourite is Chinese, then bump
 	 *  foldRev. Latched → one build, one bump, no retry storm; warmScript never rejects. */
 	private warmFold(): void {
-		if (this.foldWarmed || !this.favArtists.some((n) => isChineseLine(n))) return;
+		// debug album-rows-miss-liked-downloaded-on-load: a Chinese liked / downloaded entry needs the
+		// fold too — stubTrack's identity match (songIndex) keys 繁 vs 简 through it, and foldRev is
+		// what re-keys the index once the dict lands. Latched, so the scan runs once per cold session.
+		if (
+			this.foldWarmed ||
+			!(
+				this.favArtists.some((n) => isChineseLine(n)) ||
+				this.downloads.some((t) => isChineseLine(`${t.artist} ${t.title}`)) ||
+				this.liked.some((t) => isChineseLine(`${t.artist} ${t.title}`))
+			)
+		)
+			return;
 		this.foldWarmed = true;
 		void warmScript('zh-Hans').then(() => {
 			this.foldRev++;
@@ -340,8 +355,45 @@ class Library {
 	rememberStub(artist: string, title: string, tr: Track) {
 		this.resolvedStubs = { ...this.resolvedStubs, [matchKey(artist, title)]: tr };
 	}
+	/** debug album-rows-miss-liked-downloaded-on-load: the PERSISTED lists indexed by their songKey
+	 *  title half (繁/简-folded), downloads FIRST so a song held in both lists resolves to the one uid
+	 *  the tick keys on — tick and heart then agree. Rebuilt when a list changes or the t2s dict
+	 *  lands (foldRev: a first render may have keyed cold). A stub that slipped into `liked` has no
+	 *  real identity to offer (hasRealIdentity) and is skipped. */
+	private songIndex = $derived.by(() => {
+		void this.foldRev;
+		const m = new Map<string, Track[]>();
+		for (const t of [...this.downloads, ...this.liked]) {
+			if (!t.uid || t.resolveByName === true) continue;
+			const k = songKey(t.artist, t.title);
+			const title = k.slice(0, k.indexOf('|'));
+			if (!title) continue;
+			const bucket = m.get(title);
+			if (bucket) bucket.push(t);
+			else m.set(title, [t]);
+		}
+		return m;
+	});
+	/** The Track a {artist,title} stub row keys its like / download state on: this session's resolve
+	 *  memory first, else the persisted library entry for the same song.
+	 *
+	 *  debug album-rows-miss-liked-downloaded-on-load: `resolvedStubs` is session-only, so on a fresh
+	 *  load every album / shelf / chart row of an already-downloaded + liked song showed the idle icon
+	 *  and an empty heart until a like tap resolved it (network) and rememberStub re-keyed the row.
+	 *  The library already holds that song under its real uid — match it by identity instead:
+	 *  exact songKey first, then the sameSongKey artist alias (G.E.M. vs G.E.M.邓紫棋, quick-260927-2wt),
+	 *  over the title-half bucket so a page of rows costs O(rows), never rows × library. No network. */
 	stubTrack(artist: string, title: string): Track | null {
-		return this.resolvedStubs[matchKey(artist, title)] ?? null;
+		const known = this.resolvedStubs[matchKey(artist, title)];
+		if (known) return known;
+		const k = songKey(artist, title);
+		const bucket = this.songIndex.get(k.slice(0, k.indexOf('|')));
+		if (!bucket) return null;
+		return (
+			bucket.find((t) => songKey(t.artist, t.title) === k) ??
+			bucket.find((t) => sameSongStrings(artist, title, t.artist, t.title)) ??
+			null
+		);
 	}
 
 	isDownloaded(uid: string): boolean {

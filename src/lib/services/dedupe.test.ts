@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeAll } from 'vitest';
-import { dedupeBest, groupVariants, collapseVariants, variantTag, sameSongKey } from './dedupe';
+import { dedupeBest, groupVariants, collapseVariants, variantTag, sameSongKey, sameSongStrings } from './dedupe';
 import { warmScript } from './zh-convert';
 import { makeUid, type SourceId, type Track } from '$lib/sources/types';
 
@@ -338,6 +338,14 @@ describe('sameSongKey — bilingual artist alias (quick-260927-2wt)', () => {
 		expect(s(T_SIMP, '', T_SIMP, '')).toBe(true);
 		// two unrelated artists, same title
 		expect(s(T_SIMP, 'Adele', T_SIMP, 'G.E.M.邓紫棋')).toBe(false);
+	});
+
+	// debug album-rows-miss-liked-downloaded-on-load: the raw-string form library.stubTrack uses to
+	// match an {artist,title} stub row against a persisted entry — same predicate, no Track needed.
+	it('sameSongStrings is the raw-string form of sameSongKey', () => {
+		expect(sameSongStrings('G.E.M.', T_TRAD, 'G.E.M.邓紫棋', T_SIMP)).toBe(true);
+		expect(sameSongStrings('G.E.M.', T_SIMP, 'G.E.M.邓紫棋', '泡沫')).toBe(false);
+		expect(sameSongStrings('', '', 'G.E.M.', T_SIMP)).toBe(false);
 	});
 
 	it('key() is NOT loosened: dedupeBest / groupVariants keep the pair as 2 rows', () => {

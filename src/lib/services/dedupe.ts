@@ -217,9 +217,18 @@ function aliasArtist(x: string, y: string): boolean {
  * table — not handled.
  */
 export function sameSongKey(a: Track, b: Track): boolean {
-	const ka = key(a);
+	return sameSongStrings(a.artist, a.title, b.artist, b.title);
+}
+
+/**
+ * debug album-rows-miss-liked-downloaded-on-load: sameSongKey over RAW strings, so a caller holding
+ * only an {artist,title} stub (an album / shelf / chart row) can test it against a persisted Track
+ * without minting a fake Track. sameSongKey delegates here — ONE predicate, zero behaviour change.
+ */
+export function sameSongStrings(aArtist: string, aTitle: string, bArtist: string, bTitle: string): boolean {
+	const ka = songKey(aArtist, aTitle);
 	if (!ka || ka === '|') return false;
-	const kb = key(b);
+	const kb = songKey(bArtist, bTitle);
 	if (ka === kb) return true;
 	// Safe split: strip() removes every non-letter/number char, so neither half can contain '|' and
 	// every key has exactly one. Splitting the finished key keeps songKey literally untouched.

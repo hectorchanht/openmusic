@@ -229,6 +229,64 @@ describe('library album jobs + stub memory (debug download-state-lost-on-page-re
 	});
 });
 
+// debug album-rows-miss-liked-downloaded-on-load: `resolvedStubs` is session-only, so on a FRESH load
+// an album / shelf / chart stub row had no uid to key on and showed an idle icon + empty heart for a
+// song the persisted library already held (tick + filled heart appeared only after a like tap resolved
+// the stub). stubTrack now falls back to the persisted library entry by song IDENTITY — songKey
+// (繁/简-folded) + the sameSongKey artist alias — with no network.
+describe('library stubTrack falls back to a persisted entry by identity (debug album-rows-miss-liked-downloaded-on-load)', () => {
+	beforeEach(async () => {
+		library.resolvedStubs = {};
+		library.downloads = [];
+		library.liked = [];
+		library.playlists = [];
+		library.favArtists = [];
+		memStore.clear();
+		await warmScript('zh-Hans');
+	});
+
+	it('a downloaded song is found by its {artist,title} with NO rememberStub', () => {
+		library.addDownload(mk({ uid: 'qq:002KvLx4425LV7', artist: '陳奕迅', title: '可以了' }));
+		expect(library.resolvedStubs).toEqual({});
+		expect(library.stubTrack('陳奕迅', '可以了')?.uid).toBe('qq:002KvLx4425LV7');
+		expect(library.isDownloaded(library.stubTrack('陳奕迅', '可以了')!.uid)).toBe(true);
+	});
+
+	it('a liked-only song is found too, and a miss stays null', () => {
+		library.toggleLike(mk({ uid: 'netease:7', artist: '陳奕迅', title: '陰天快樂' }));
+		expect(library.stubTrack('陳奕迅', '陰天快樂')?.uid).toBe('netease:7');
+		expect(library.stubTrack('陳奕迅', '可以了')).toBeNull();
+	});
+
+	it('matches across 繁/简 and the artist alias (an MB tracklist row vs what a CN source stored)', () => {
+		library.addDownload(mk({ uid: 'qq:simp', artist: '陈奕迅', title: '阴天快乐' }));
+		library.addDownload(mk({ uid: 'qq:gem', artist: 'G.E.M.邓紫棋', title: '多远都要在一起' }));
+		expect(library.stubTrack('陳奕迅', '陰天快樂')?.uid).toBe('qq:simp');
+		expect(library.stubTrack('G.E.M.', '多遠都要在一起')?.uid).toBe('qq:gem');
+		// A different same-artist song must not borrow the entry.
+		expect(library.stubTrack('陳奕迅', '可以了')).toBeNull();
+	});
+
+	it('downloaded wins over liked when both hold the song under different uids, so tick + heart key on ONE uid', () => {
+		library.toggleLike(mk({ uid: 'netease:like', artist: '陳奕迅', title: '可以了' }));
+		library.addDownload(mk({ uid: 'qq:dl', artist: '陳奕迅', title: '可以了' }));
+		expect(library.stubTrack('陳奕迅', '可以了')?.uid).toBe('qq:dl');
+	});
+
+	it('the session memory (rememberStub) still wins over the library fallback', () => {
+		library.addDownload(mk({ uid: 'qq:dl', artist: '陳奕迅', title: '可以了' }));
+		library.rememberStub('陳奕迅', '可以了', mk({ uid: 'kuwo:resolved', artist: '陳奕迅', title: '可以了' }));
+		expect(library.stubTrack('陳奕迅', '可以了')?.uid).toBe('kuwo:resolved');
+	});
+
+	it('a removed download stops matching (the fallback reads the live lists)', () => {
+		library.addDownload(mk({ uid: 'qq:dl', artist: '陳奕迅', title: '可以了' }));
+		expect(library.stubTrack('陳奕迅', '可以了')?.uid).toBe('qq:dl');
+		library.removeDownload('qq:dl', { deleteFile: false }); // keep the blobDel mock untouched for later blocks
+		expect(library.stubTrack('陳奕迅', '可以了')).toBeNull();
+	});
+});
+
 // 34-D-06: a device: entry whose file was missing at last play is MARKED, not removed — the user
 // sees why it will not play and can re-import (D-08: removal only ever inside an explicit import).
 // setDownloads is that import's single wholesale write: add / drop / refresh in one persisted pass.
