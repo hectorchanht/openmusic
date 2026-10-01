@@ -16,7 +16,8 @@
 //    therefore kept iTunes FIRST (zero edge cost) and put QQ second. "Other CN" now EXCLUDES qq
 //    (already tried) and ytmusic: the old `searchAll(..., {})` tier could pick a ytmusic row through
 //    dedupeBest, which was one way YTM thumbnails leaked into Now Playing and every list. The HQ
-//    upgrade (resolveHqCover) is slated for removal together with its player caller (D-11a).
+//    upgrade (the old post-paint iTunes → Deezer replacement) was removed in Phase 40 D-11a —
+//    inline covers are never replaced automatically.
 //    - Tier 1 iTunes (itunesSongCover — no-auth, CORS-open DIRECT fetch to itunes.apple.com that
 //      never touches our edge, soft-limited). FIRST because it is both the fastest hop and the
 //      largest artwork in the chain (1200px).
@@ -347,58 +348,10 @@ export async function resolveCoverForTrack(
 }
 
 /**
- * HQ cover UPGRADE (Plan 26-02, COVER-01) — the bounded, short counterpart to resolveCoverForTrack.
- * This is NOT the miss-recovery chain: it issues iTunes and, only on an iTunes miss, Deezer, and
- * NEVER touches YouTube Music or the CN `searchAll` tier. Purpose: a track that already painted from
- * its inline source cover (kuwo `pic` / qq `album_pic` / netease `pic`) can lazily, post-paint, pick
- * up higher-quality album art — the single OPTIONAL cover step in the click-to-play ~3-call budget.
- *
- * quick-260919-0mw: was `resolveDeezerHQ`, a single Deezer tier; it became YTM → Deezer.
- * quick-260920-nyq: YTM is REMOVED from the upgrade entirely, and iTunes leads. An "HQ upgrade" must
- * never replace a larger cover with a smaller one, and a YTM thumbnail's pixel size is NOT knowable
- * from its URL contract (`bestThumb` takes the largest LISTED size, which is a 120x120 search-shelf
- * image and often a channel AVATAR). Observed live on the hero: lastfm-300 → yt3-120 → lastfm-300,
- * with the 120px url written into the SHARED name cache layer. The lazy correct answer to "never
- * downgrade" is to not offer that tier as an upgrade at all, rather than to add a size oracle.
- *
- * T-26-02-01 IS PRESERVED: still bounded to the now-playing track by its caller, still at most 2
- * calls, still NEVER a per-tile fan-out and never the 7-source CN searchAll. The ONE change to that
- * guard's wording is that iTunes is now ALLOWED here — it is a direct CORS-open GET that never
- * touches our edge, i.e. cheaper than the YTM InnerTube POST it replaces.
- *
- * Reuses the SAME never-throw `tier()` wrapper + https guard as resolveTrackChain, so the
- * https-only render/cache guard (T-0bb-01 / T-26-02-02) lives in exactly one place. On a SOLID https hit
- * it writes the cache with the SAME posture as resolveCoverForTrack — the uid layer ONLY for a real uid
- * (an empty stub uid would collapse every row onto the shared `'uid:'` slot) plus the always-safe name
- * layer. The reactive `coverVersion()` bump is the CALLER's job (mirrors resolveCoverForTrack, which the
- * player's resolveCoverAsync/healCover follow with a separate bumpCoverVersion) so cover-backfill.ts
- * stays a pure `.ts` (no runes wrapper imported here). Never throws; honors an AbortSignal.
- */
-export async function resolveHqCover(
-	track: Track,
-	signal?: AbortSignal
-): Promise<string | null> {
-	if (signal?.aborted) return null;
-	// TWO TIERS — iTunes, then Deezer on a miss. YTM + CN are NEVER issued (upgrade, not a chain).
-	let cover = await tier(() => itunesSongCover(track.artist ?? '', track.title ?? '', signal));
-	if (signal?.aborted) return null;
-	if (!cover) {
-		cover = await tier(() => deezerSongCover(track.artist ?? '', track.title ?? '', signal));
-		if (signal?.aborted) return null;
-	}
-	if (hasHttpsScheme(cover)) {
-		// Mirror resolveCoverForTrack's write posture: real-uid uid layer + always-safe name layer.
-		if (track.uid) setCachedCoverByUid(track.uid, cover);
-		setCachedCover(track.artist, track.title, cover);
-		return cover;
-	}
-	return null;
-}
-
-/**
- * SHARE-CARD CARRIER chain (quick-260920-l82, generalises quick-260920-kn4) — the THIRD sibling of
- * resolveCoverForTrack (miss-recovery: iTunes → Deezer → CN → YTM, WRITES the cache) and
- * resolveHqCover (upgrade: iTunes → Deezer, WRITES the cache). Same `tier()` never-throw wrapper and
+ * SHARE-CARD CARRIER chain (quick-260920-l82, generalises quick-260920-kn4) — the sibling of
+ * resolveCoverForTrack (miss-recovery chain, WRITES the cache). It used to sit beside an HQ upgrade
+ * as well; that upgrade was removed in Phase 40 D-11a — inline covers are never replaced
+ * automatically. Same `tier()` never-throw wrapper and
  * the same `hasHttpsScheme` guard (T-0bb-01) — this is NOT a new fetch ladder, only a different
  * tier subset for a different question: "which cover can the share link actually CARRY?"
  *
@@ -584,7 +537,8 @@ export async function backfillArtistCovers(
 // cover the resolvers know, labelled by where it came from, so the user can choose. That is a
 // different shape of work (parallel, enumerate-all) from the chain (sequential, stop-at-first), so
 // it lives ALONGSIDE the chain and never inside it — the click-to-play fast path pays nothing for
-// this feature and resolveTrackChain / resolveCoverForTrack / resolveHqCover are unchanged.
+// this feature and resolveTrackChain / resolveCoverForTrack are unchanged. (The HQ upgrade was
+// removed in Phase 40 D-11a — inline covers are never replaced automatically.)
 //
 // It is called ONLY from the picker's tap handler, never on menu open — the same opt-in posture as
 // the Play-from-source variant fan-out (T-26-10-02). Every candidate passes the https guard

@@ -42,7 +42,7 @@ import {
 // quick-260915-w4f: getPinnedCover is the USER'S explicit cover choice. It leads every cover seed
 // in this store, and (uniquely) it is removed only by healCover's failed probe — never by a resolver.
 import { getCachedCoverByUid, getCachedCover, getPinnedCover } from '$lib/services/cover-cache';
-import { resolveCoverForTrack, resolveHqCover } from '$lib/services/cover-backfill';
+import { resolveCoverForTrack } from '$lib/services/cover-backfill';
 import { matchKey } from '$lib/services/match-key';
 // quick-260615-hep: feed every displayed now-playing cover into the shared cache (both layers) +
 // bump the global reactive signal so other surfaces (homepage tiles) reuse the art and repaint live.
@@ -406,7 +406,8 @@ class Player {
 	 * `resolvedCover` keeps its two jobs: the SYNCHRONOUS seed on play() entry (the optimistic stub
 	 * paints before anything is in the cache) and the final fallback (`pendingTrack` with
 	 * `current === null` has no uid to read by). It stays the WRITE seam — adoptCover /
-	 * upgradeCoverAsync / healCover are untouched; this inverts the READ only.
+	 * resolveCoverAsync / healCover are untouched; this inverts the READ only. (The HQ upgrade that
+	 * also wrote it was removed in Phase 40 D-11a.)
 	 *
 	 * Pin precedence is INHERITED from readCoverByUidOrName (PIN → uid → name, quick-260915-w4f), not
 	 * re-implemented here. That read calls coverVersion(), so anything binding this getter repaints on
@@ -504,8 +505,9 @@ class Player {
 	private healProbed = new Set<string>();
 
 	/** quick-260809-38i: the uid whose cover a SURFACE verified and handed to adoptCover. Read only by
-	 *  upgradeCoverAsync, so a slow Deezer HQ upgrade fired at play() time cannot land AFTER an adopted
-	 *  (onload-verified, strictly-larger) cover and silently downgrade it. Cleared at play() entry — a
+	 *  resolveCoverAsync, so a slow full-chain resolve fired at play() time cannot land AFTER an adopted
+	 *  (onload-verified) cover and silently replace it. It used to guard the HQ upgrade, which was
+	 *  removed in Phase 40 D-11a. Cleared at play() entry — a
 	 *  genuine track change invalidates the prior adoption. Plain field: an internal supersedence flag
 	 *  the UI never reads reactively (same posture as healProbed/playGen). */
 	private adoptedCoverUid: string | null = null;
@@ -4001,10 +4003,10 @@ class Player {
 
 	/**
 	 * The post-src COVER tail of play(), extracted verbatim from it (CLAUDE.md flags this store as a
-	 * god object and asks for cohesive slices to be pulled out as the store thin-calls them). Two
-	 * MUTUALLY EXCLUSIVE branches — a coverless track gets the full tier chain, a track that already
-	 * painted from an inline source cover gets at most one Deezer HQ upgrade — and keeping them in one
-	 * method is what keeps them exclusive. Non-blocking: playback never waits on either.
+	 * god object and asks for cohesive slices to be pulled out as the store thin-calls them). ONE
+	 * branch: a coverless track gets the full tier chain. A track that already painted from an inline
+	 * cover keeps it — the HQ upgrade branch was removed in Phase 40 D-11a. Non-blocking: playback
+	 * never waits on it.
 	 */
 	private postPlayCover(resolved: Track, myGen: number): void {
 		// COVER-01 / D-09: the playing track still has NO art (sync read missed AND the resolve
@@ -4014,9 +4016,9 @@ class Player {
 		// not (D-12). Non-blocking: playback never waits on it (T-21-07 accept).
 		// media-card-shows-app-icon: the gate is SCHEME-based, not truthiness-based. A non-https
 		// cover is truthy, so `!this.resolvedCover` skipped this full-chain resolve — while the
-		// `else if` below rejects it on hasHttpsScheme, so such a track fell through BOTH branches
-		// and kept a cover that can never reach the OS media card (buildArtwork's https gate emits
-		// /favicon.svg). That was the QQ bug; e17ce39 fixed it at the qq.ts source, this fixes the
+		// (since removed) HQ-upgrade branch rejected it on hasHttpsScheme, so such a track fell
+		// through BOTH branches and kept a cover that can never reach the OS media card
+		// (buildArtwork's https gate emits /favicon.svg). That was the QQ bug; e17ce39 fixed it at the qq.ts source, this fixes the
 		// gate that let it starve. kuwo/netease still commit `pic` raw — covered here for free.
 		// 37-D-02: RENDERABLE, not cacheable. A `data:` cover extracted from a local file's own tags
 		// IS art the hero, the nowbar and the media card all paint, so the full Deezer→iTunes→CN chain
@@ -4024,28 +4026,11 @@ class Player {
 		// everything below that writes to or probes the localStorage cover cache deliberately keeps
 		// hasHttpsScheme (a `data:` URL in that cache silently kills all cover caching).
 		if (!isRenderableCover(this.resolvedCover)) void this.resolveCoverAsync(resolved, myGen);
-		// COVER-01 (Plan 26-02): the now-playing track ALREADY painted from a SOLID inline source
-		// cover (kuwo pic / qq album_pic / netease pic — the click-to-play hot path with NO cover
-		// network call). Fire a BOUNDED, LAZY, post-paint Deezer HQ UPGRADE off the audio critical
-		// path: at most ONE Deezer call for the CURRENT now-playing track only (never a per-tile
-		// fan-out — T-26-02-01), generation-guarded, never awaited. `else if` keeps it mutually
-		// exclusive with the full-chain miss path above — a track is EITHER coverless (full chain)
-		// OR has an inline cover (single Deezer upgrade), never both.
-		// quick-260831-t2g: an ATTACHED cover (album art, discovery tile art) is already the
-		// right image, so skip the Deezer HQ upgrade for it — that call is the remaining
-		// per-play cover fetch, and on an album it would also let siblings drift apart. Tracks
-		// whose cover came from the SOURCE inline (a kuwo/qq thumbnail) still get upgraded.
-		// 37-D-02: this gate stays https-ONLY on purpose. An embedded cover is the file's own truth
-		// (the locked "embedded first" decision), so it is never "upgraded" to a Deezer image — and
-		// upgradeCoverAsync's result is cacheable, which a `data:` URL is not.
-		// quick-260915-w4f: a PINNED cover is never HQ-upgraded. The Deezer upgrade is a resolver
-		// PREFERENCE, and the whole point of a pin is that preferences stop applying to this song.
-		else if (
-			hasHttpsScheme(this.resolvedCover) &&
-			!this.attachedCoverFor(resolved) &&
-			!getPinnedCover(resolved.uid)
-		)
-			void this.upgradeCoverAsync(resolved, myGen);
+		// Phase 40 D-11a / D-09: a track that painted from an inline cover (kuwo/qq/netease pic, a
+		// ytmusic thumbnail, album art) KEEPS it — no automatic upgrade exists any more. The old
+		// post-paint iTunes → Deezer "HQ upgrade" (Plan 26-02, quick-260831-t2g, quick-260920-nyq)
+		// silently replaced user-visible art and could downgrade it. The crowd pick is the only
+		// post-paint replacement and it is a human choice.
 	}
 
 	/**
@@ -4119,6 +4104,9 @@ class Player {
 			url = null; // resolveCoverForTrack never throws, but stay defensive — never reject.
 		}
 		if (myGen !== this.playGen) return; // a newer play() superseded — discard the stale art (T-21-06)
+		// quick-260809-38i: a surface already adopted an onload-VERIFIED cover for this track; a late
+		// chain result must not replace it.
+		if (this.adoptedCoverUid === resolved.uid) return;
 		if (!url) return; // total miss — keep the seeded gradient + favicon (D-12)
 		this.resolvedCover = url;
 		// quick-260615-hep Site C: resolveCoverForTrack already wrote BOTH cache layers internally — do NOT
@@ -4137,25 +4125,6 @@ class Player {
 		}
 	}
 
-	/**
-	 * Bounded, lazy HQ cover UPGRADE for the now-playing track (Plan 26-02, COVER-01). The
-	 * counterpart to resolveCoverAsync (which fires ONLY when resolvedCover is NULL — a coverless miss):
-	 * this fires ONLY when the track ALREADY painted from a SOLID inline source cover (kuwo pic / qq
-	 * album_pic / netease pic), to lazily pick up higher-quality album art post-paint. It is the
-	 * single OPTIONAL cover step in the click-to-play ~3-call budget:
-	 *   - issues the iTunes tier and, only on an iTunes miss, Deezer (resolveHqCover — no YTM, no CN
-	 *     searchAll → still NO per-tile fan-out). Worst case 2 calls, common case 1. quick-260920-nyq
-	 *     dropped the YTM tier from the upgrade: a 120px search-shelf thumbnail (often a channel
-	 *     avatar) is not an upgrade over 500-1000px album art, and its size is not knowable from the
-	 *     URL, so the tier is not offered here at all.
-	 *   - fires at most ONCE per play for the CURRENT now-playing track only (never inside a queue loop),
-	 *   - is generation-guarded by the captured myGen (bails the instant a newer play() supersedes),
-	 *   - is never awaited on the audio critical path (playback never waits on it — T-21-07 accept).
-	 * On a SOLID upgrade that DIFFERS from the current cover: set resolvedCover, bump the reactive signal
-	 * (resolveHqCover already wrote BOTH cache layers — mirror resolveCoverAsync Site C, do NOT double-
-	 * write), and re-fire a FRESH MediaMetadata so the OS lock screen repaints. A miss / same-URL result /
-	 * a supersede leaves the inline cover standing (never a downgrade, never a broken image).
-	 */
 	/** The caller-attached cover for THIS song, or null. Song-keyed so it survives a cross-source
 	 *  fallback that replays the same song under a different uid (quick-260831-t2g).
 	 *  quick-260910-piz: set MEMBERSHIP, not a single key — every song of the installed list matches. */
@@ -4163,35 +4132,6 @@ class Player {
 		const a = this.attachedCover;
 		if (!a) return null;
 		return a.keys.has(matchKey(track.artist, track.title)) ? a.url : null;
-	}
-
-	private async upgradeCoverAsync(resolved: Track, myGen: number) {
-		let url: string | null = null;
-		try {
-			url = await resolveHqCover(resolved);
-		} catch {
-			url = null; // resolveHqCover never throws, but stay defensive — never reject.
-		}
-		if (myGen !== this.playGen) return; // a newer play() superseded — keep the current art (T-21-06)
-		// quick-260809-38i: a surface already adopted an onload-VERIFIED cover for this exact track, so a
-		// late HQ result must not overwrite it (a bigger byte count is not a better match). Fires
-		// at play() time and adoption is almost always later, so this only closes the reverse race.
-		if (this.adoptedCoverUid === resolved.uid) return;
-		if (!hasHttpsScheme(url) || url === this.resolvedCover) return; // miss / no change → inline cover stands
-		this.resolvedCover = url;
-		// resolveHqCover already wrote BOTH cache layers — only bump the reactive signal (mirror Site C).
-		bumpCoverVersion();
-		const ms = this.ms;
-		if (ms) {
-			// A FRESH MediaMetadata so the OS repaints the lock-screen art (never an in-place mutate).
-			ms.metadata = makeMetadata({
-				title: names.dnTitle(resolved.title, resolved.artist),
-				artist: names.dnArtist(resolved.artist),
-				album: resolved.album,
-				artwork: buildArtwork(this.displayCover)
-			});
-			ms.playbackState = playbackStateFor(!!this.current, this.playing);
-		}
 	}
 
 	/**
@@ -4232,7 +4172,7 @@ class Player {
 	 *      healCover step 1: the caller's uid IS the identity, not a captured generation).
 	 *   2. httpsOnly — never cache/paint a non-https or empty value (T-0bb-01).
 	 *   3. same-url — idempotent: no re-write, no version bump, no metadata churn.
-	 * Then: set the one field, flag the uid so a late upgradeCoverAsync cannot downgrade it, write BOTH
+	 * Then: set the one field, flag the uid so a late resolveCoverAsync cannot replace it, write BOTH
 	 * cache layers via writeCoverBoth (which bumps the reactive signal ITSELF — do NOT also call
 	 * bumpCoverVersion, that is the Site C double-write), and re-fire a FRESH MediaMetadata (never an
 	 * in-place artwork mutate, A2/Pitfall 4). Never throws — it is called from an <img> onload handler.

@@ -41,7 +41,8 @@ const DATA_IMAGE_RE = /^data:image\/[a-z0-9.+-]+;base64,/i;
  *   shape of the `media-card-shows-app-icon` bug, where a truthy-but-not-https cover fell through
  *   both branches and could never reach the media card.
  * - `hasHttpsScheme` = CACHEABLE / PROBE-ABLE. It deliberately stays the predicate at
- *   `writeCoverBoth` call sites, `library.adoptCover`, `upgradeCoverAsync` and `healCover`. The
+ *   `writeCoverBoth` call sites, `library.adoptCover` and `healCover` (the HQ upgrade that was also
+ *   on this list was removed in Phase 40 D-11a). The
  *   cover cache is localStorage sized for ~80-150-byte entries with no scheme or length guard in its
  *   writer and a swallowed QuotaExceededError — one ~100 KB `data:` URL in there silently kills ALL
  *   cover caching. A local file's embedded art also cannot 404, so it is not a heal/probe target.

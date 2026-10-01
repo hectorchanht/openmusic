@@ -81,12 +81,11 @@ vi.mock('$lib/services/cover-cache', async (importOriginal) => {
 });
 vi.mock('$lib/services/cover-backfill', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('$lib/services/cover-backfill')>();
-	// quick-260831-t2g: resolveHqCover is the post-paint upgrade call — the remaining per-play
-	// cover fetch. Mocked so the tests can assert it is NOT made for an attached cover.
+	// resolveCoverForTrack is the only per-play cover fetch left (the HQ upgrade was removed in
+	// Phase 40 D-11a). Mocked so the tests can assert when it is and is NOT made.
 	return {
 		...actual,
-		resolveCoverForTrack: vi.fn(async () => null),
-		resolveHqCover: vi.fn(async () => null)
+		resolveCoverForTrack: vi.fn(async () => null)
 	};
 });
 // quick-260704-20e: spy on the BOTH-layers evictor so healCover's dead-probe eviction is observable.
@@ -150,7 +149,7 @@ import {
 	uidCoverCacheKey,
 	coverCacheKey
 } from '$lib/services/cover-cache';
-import { resolveCoverForTrack, resolveHqCover } from '$lib/services/cover-backfill';
+import { resolveCoverForTrack } from '$lib/services/cover-backfill';
 import { removeCoverBoth, unpinCover } from '$lib/stores/cover-version.svelte';
 import { logAction } from '$lib/stores/actionLog.svelte';
 import { syncFileTags } from '$lib/services/file-tag-sync';
@@ -167,9 +166,8 @@ const mockDownloadTrack = vi.mocked(downloadTrack);
 const mockSimilar = vi.mocked(buildSimilarQueue);
 const mockPicks = vi.mocked(buildDiversePicks);
 const mockUidCover = vi.mocked(getCachedCoverByUid);
-// quick-260831-t2g: the two cover-fetch paths — the full tier chain and the HQ upgrade.
+// quick-260831-t2g: the full tier chain — the only cover-fetch path (Phase 40 D-11a removed the HQ upgrade).
 const mockCoverResolve = vi.mocked(resolveCoverForTrack);
-const mockHqCover = vi.mocked(resolveHqCover);
 const mockNameCover = vi.mocked(getCachedCover);
 const mockResolveCover = vi.mocked(resolveCoverForTrack);
 const mockRemoveCoverBoth = vi.mocked(removeCoverBoth);
@@ -433,7 +431,6 @@ describe('player.playStub — attached cover skips cover fetching (quick-260831-
 		(player.play as unknown as { mockRestore(): void }).mockRestore?.();
 		mockEnsure.mockReset();
 		mockCoverResolve.mockReset().mockResolvedValue(null);
-		mockHqCover.mockReset().mockResolvedValue(null);
 		mockUidCover.mockReset().mockReturnValue(null);
 		player.current = null;
 		player.queue = [];
@@ -458,19 +455,9 @@ describe('player.playStub — attached cover skips cover fetching (quick-260831-
 		expect(mockCoverResolve).not.toHaveBeenCalled();
 	});
 
-	it('does NOT spend the Deezer HQ upgrade call on an attached cover', async () => {
-		const bare = { ...mk('kuwo', 'K2', 'Coldplay', 'Spies'), cover: null, audioUrl: 'https://cdn/k2.mp3' };
-		mockResolve.mockResolvedValue(bare);
-		mockEnsure.mockImplementation(async (t: Track) => t);
-
-		await player.playStub('Coldplay', 'Spies', 'https://img/album.jpg', 'album');
-		await flush();
-
-		expect(mockHqCover).not.toHaveBeenCalled();
-	});
-
-	it('STILL upgrades a track whose cover came from the source inline (quality preserved)', async () => {
-		// No caller cover — the source supplied its own thumbnail, which may well be low quality.
+	it('Phase 40 D-09 / D-11a: a SOLID inline source cover is KEPT — no cover network call at all', async () => {
+		// No caller cover — the source supplied its own thumbnail. It used to be "HQ upgraded"; now
+		// an inline cover is never replaced automatically.
 		const withInline = {
 			...mk('kuwo', 'K3', 'Coldplay', 'Sparks'),
 			cover: 'https://kuwo/thumb.jpg',
@@ -482,7 +469,35 @@ describe('player.playStub — attached cover skips cover fetching (quick-260831-
 		await player.playStub('Coldplay', 'Sparks', null, 'album');
 		await flush();
 
-		expect(mockHqCover).toHaveBeenCalled();
+		expect(mockCoverResolve).not.toHaveBeenCalled();
+		expect(player.resolvedCover).toBe('https://kuwo/thumb.jpg');
+	});
+
+	it('Phase 40 D-09: a ytmusic track keeps its OWN i.ytimg.com thumbnail', async () => {
+		const ytm = {
+			...mk('ytmusic', 'Y1', 'Coldplay', 'Viva'),
+			cover: 'https://i.ytimg.com/vi/abc/hqdefault.jpg',
+			audioUrl: 'https://cdn/y1.m4a'
+		};
+		mockResolve.mockResolvedValue(ytm);
+		mockEnsure.mockImplementation(async (t: Track) => t);
+
+		await player.playStub('Coldplay', 'Viva', null, 'album');
+		await flush();
+
+		expect(mockCoverResolve).not.toHaveBeenCalled();
+		expect(player.resolvedCover).toBe('https://i.ytimg.com/vi/abc/hqdefault.jpg');
+	});
+
+	it('a COVERLESS track still runs the full chain exactly once (miss path unchanged)', async () => {
+		const bare = { ...mk('joox', 'J1', 'Coldplay', 'Fix'), cover: null, audioUrl: 'https://cdn/j1.mp3' };
+		mockResolve.mockResolvedValue(bare);
+		mockEnsure.mockImplementation(async (t: Track) => t);
+
+		await player.playStub('Coldplay', 'Fix', null, 'album');
+		await flush();
+
+		expect(mockCoverResolve).toHaveBeenCalledTimes(1);
 	});
 
 	it('album siblings all end up on the SAME cover — the reported inconsistency', async () => {
@@ -562,7 +577,6 @@ describe('album-scoped attached cover — every track, every advance (quick-2609
 		(player.play as unknown as { mockRestore(): void }).mockRestore?.();
 		mockEnsure.mockReset();
 		mockCoverResolve.mockReset().mockResolvedValue(null);
-		mockHqCover.mockReset().mockResolvedValue(null);
 		mockUidCover.mockReset().mockReturnValue(null);
 		player.current = null;
 		player.queue = [];
@@ -613,9 +627,8 @@ describe('album-scoped attached cover — every track, every advance (quick-2609
 		expect(player.current?.uid).toBe(tracks[2].uid);
 		expect(player.current?.cover).toBe(A);
 		expect(player.resolvedCover).toBe(A);
-		// Zero cover network: neither the full tier chain nor the Deezer HQ upgrade runs.
+		// Zero cover network: the full tier chain does not run.
 		expect(mockCoverResolve).not.toHaveBeenCalled();
-		expect(mockHqCover).not.toHaveBeenCalled();
 	});
 
 	it('a DIFFERENT album replaces the attachment — never the previous album art', async () => {
@@ -7334,7 +7347,6 @@ describe('cover pin (quick-260915-w4f)', () => {
 		mockUidCover.mockReset().mockReturnValue(null);
 		mockNameCover.mockReset().mockReturnValue(null);
 		mockResolveCover.mockReset().mockResolvedValue(null);
-		mockHqCover.mockReset().mockResolvedValue(null);
 		mockRemoveCoverBoth.mockClear();
 		mockUnpinCover.mockClear();
 		mockGetPinned.mockReset().mockReturnValue(null); // unpinned by default — no leak into other suites
@@ -7403,7 +7415,7 @@ describe('cover pin (quick-260915-w4f)', () => {
 		expect(rawCover(coverCacheKey('Artist', 'Song'))).toBe('https://src/s.jpg');
 	});
 
-	it('a pinned uid never fires the Deezer HQ upgrade (a pin outranks resolver preference)', async () => {
+	it('a pinned uid keeps the PIN after play resolves — no cover call (Phase 40 D-11a)', async () => {
 		mockGetPinned.mockReturnValue(PIN);
 		const t = { ...stub('netease', 'P4', 'Artist', 'Song'), cover: 'https://src/s.jpg' };
 		mockEnsure.mockResolvedValue({
@@ -7413,11 +7425,11 @@ describe('cover pin (quick-260915-w4f)', () => {
 		});
 		await player.play(t);
 		await flush();
-		expect(mockHqCover).not.toHaveBeenCalled();
+		expect(mockResolveCover).not.toHaveBeenCalled();
 		expect(rc()).toBe(PIN);
 	});
 
-	it('an UNPINNED track with an https inline cover still gets the HQ upgrade (gate unchanged)', async () => {
+	it('an UNPINNED track with an https inline cover keeps it — no automatic upgrade (Phase 40 D-11a)', async () => {
 		const t = { ...stub('netease', 'P5', 'Artist', 'Song'), cover: 'https://src/s.jpg' };
 		mockEnsure.mockResolvedValue({
 			...mk('netease', 'P5', 'Artist', 'Song'),
@@ -7426,7 +7438,8 @@ describe('cover pin (quick-260915-w4f)', () => {
 		});
 		await player.play(t);
 		await flush();
-		expect(mockHqCover).toHaveBeenCalled();
+		expect(mockResolveCover).not.toHaveBeenCalled();
+		expect(rc()).toBe('https://src/s.jpg');
 	});
 
 	it('adoptCover REFUSES a non-pin url when the uid is pinned (Last.fm swap cannot displace a pin)', () => {
