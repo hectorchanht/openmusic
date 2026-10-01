@@ -27,7 +27,7 @@
 //     ANY tag failure (unknown container, oversize, art miss, library throw) saves the ORIGINAL
 //     bytes and the result is still 'saved'. Never 'failed' for a file that landed and plays.
 
-import type { Track } from '$lib/sources/types';
+import type { SourceId, Track } from '$lib/sources/types';
 import { library } from '$lib/stores/library.svelte';
 import { player } from '$lib/stores/player.svelte';
 import { readCoverByUidOrName } from '$lib/stores/cover-version.svelte';
@@ -42,9 +42,24 @@ import { audioMimeForUrl, buildDownloadFilename, extFromAudioUrl } from '$lib/se
 import { albumTag, tagAudioBlob } from '$lib/services/audio-tags';
 import { resolveArtworkDataUrl } from '$lib/services/media-artwork';
 import { logAction } from '$lib/stores/actionLog.svelte';
+import { fetchVariants, versionsIncludingOwn } from '$lib/services/variants';
+import { probeDownload } from '$lib/services/download-probe';
 
 /** 'saved' = blob fetched + saved to disk; 'no-audio' = nothing to download; 'failed' = fetch/save error. */
 export type DownloadResult = 'saved' | 'no-audio' | 'failed';
+
+const YTMUSIC = 'ytmusic';
+
+/**
+ * quick-260930-uia — the user rule "downloading a song should never route to YT Music", consulted by
+ * every download affordance (this module's donor loop + audioFrom refusal, TrackMenu's "Download
+ * from…" rows). A ytmusic file cannot be fetched by any download path: on web the stream proxy's
+ * googlevideo byte fetch 403s, on native the direct googlevideo url sends no CORS header. A named
+ * user rule, so a literal — NOT the auto-resolve-floor flag (`isAutoResolveEligible`).
+ */
+export function canDownloadFrom(source: SourceId): boolean {
+	return source !== YTMUSIC;
+}
 
 // quick-260625-pzs-04: does the currently-playing track's already-resolved quality satisfy the
 // requested DOWNLOAD tier? If so we reuse its URL instead of forcing a second concurrent resolve of
@@ -96,18 +111,20 @@ export function currentQualityMeets(curQuality: string | null, want: DefaultQual
  * that went stale (sheet left open past the 15-min TTL) is NOT re-checked here: it fails at `fetch`
  * → 'failed' → the existing "kept in Library" degrade, the same as any other CDN refusal.
  */
-export async function downloadTrack(
-	track: Track,
-	opts?: {
-		persist?: boolean;
-		save?: boolean;
-		trackNumber?: string;
-		albumArtist?: string;
-		audioFrom?: Track;
-		dir?: string;
-		onSaved?: (uid: string, filename: string, blob: Blob) => void;
-	}
-): Promise<DownloadResult> {
+type DownloadOpts = {
+	persist?: boolean;
+	save?: boolean;
+	trackNumber?: string;
+	albumArtist?: string;
+	audioFrom?: Track;
+	dir?: string;
+	onSaved?: (uid: string, filename: string, blob: Blob) => void;
+};
+
+async function downloadOne(track: Track, opts?: DownloadOpts): Promise<DownloadResult> {
+	// quick-260930-uia: picker refusal — the belt to TrackMenu's `canDownloadFrom` row filter. A
+	// ytmusic donor is never fetched, whoever handed it in.
+	if (opts?.audioFrom && !canDownloadFrom(opts.audioFrom.source)) return 'no-audio';
 	// DL-STATE-01: bracket the per-uid spinner. beginDownload BEFORE the first await; endDownload in
 	// the `finally` so EVERY exit (saved / no-audio / failed / any throw) clears the spinner exactly once.
 	library.beginDownload(track.uid);
@@ -175,12 +192,12 @@ export async function downloadTrack(
 		// RAW fetch (not apiFetch — fetch→apiFetch audit): a MEDIA download-to-blob of the resolved
 		// audio stream. audioUrl is often an ABSOLUTE CDN URL (qq/kuwo/joox) — apiFetch would corrupt it —
 		// and a full-file body must not be routed through the JSON governor's dedup/cap.
-		// quick-260915-3ng: on NATIVE a ytmusic audioUrl is now a DIRECT googlevideo url, which sends no
-		// access-control-allow-origin — so this fetch() CORS-fails in the WebView. That is no regression:
-		// ytmusic downloads are already broken today because the /api/ytmusic/stream proxy 403s in
-		// production. Deliberately NOT routed through CapacitorHttp — it returns binary as base64, the
-		// exact memory bloat capacitor-blob-writer exists to avoid. Native ytmusic downloads are a
-		// future item, not part of that task.
+		// quick-260915-3ng: on NATIVE a ytmusic audioUrl is a DIRECT googlevideo url, which sends no
+		// access-control-allow-origin — so this fetch() would CORS-fail in the WebView (and the web
+		// /api/ytmusic/stream proxy 403s). quick-260930-uia: unreachable now — `downloadTrack` never
+		// hands a ytmusic track or a ytmusic `audioFrom` here (see `canDownloadFrom`). Deliberately NOT
+		// routed through CapacitorHttp — it returns binary as base64, the exact memory bloat
+		// capacitor-blob-writer exists to avoid.
 		const resp = await fetch(r.audioUrl);
 		// 40-03 (album E2E): fetch() does not reject on an HTTP error, and the ytmusic stream proxy's
 		// googlevideo 403 has an EMPTY body typed audio/mp4 — so this used to persist + save a 0-byte
@@ -336,5 +353,46 @@ export async function downloadTrack(
 	} finally {
 		// DL-STATE-01: clear the per-uid spinner on every exit path.
 		library.endDownload(track.uid);
+	}
+}
+
+/**
+ * Download ONE song (see `downloadOne` for the full contract — same signature, same sentinels).
+ *
+ * quick-260930-uia: a ytmusic song is NEVER resolved or fetched as ytmusic. Its audio comes from
+ * another source — the "Download from…" contract (quick-260916-0d9 `audioFrom`): the donor's resolved
+ * audio saved under THIS song's identity. Donors come from the picker's own lookup (fetchVariants +
+ * versionsIncludingOwn, one row per source, ytmusic rows dropped) and are resolved through the
+ * picker's probeDownload, one at a time. No donor → 'no-audio'; every donor failed → 'failed'. Moved
+ * here from the album loop (40-03) so the single, picker, album and background-repair paths all
+ * inherit it. Every non-ytmusic caller goes straight to `downloadOne` — zero behaviour change.
+ * Cross-source fallback and resolveNameStub already exclude ytmusic (isAutoResolveEligible), so a
+ * resolve can only land on ytmusic when the track itself is ytmusic — which never resolves here.
+ */
+export async function downloadTrack(track: Track, opts?: DownloadOpts): Promise<DownloadResult> {
+	if (canDownloadFrom(track.source)) return downloadOne(track, opts);
+	try {
+		// DL-STATE-01: the row ring spins through the donor lookup too.
+		library.beginDownload(track.uid);
+		try {
+			const donors = versionsIncludingOwn(track, await fetchVariants(track)).filter((v) => canDownloadFrom(v.source));
+			let failed = false;
+			for (const donor of donors) {
+				// downloadOne's `finally` cleared the spinner after the previous donor; re-arm it
+				// (idempotent Set add) so the ring keeps spinning through this donor's probe.
+				library.beginDownload(track.uid);
+				const p = await probeDownload(donor);
+				if (!p.track?.audioUrl) continue;
+				const res = await downloadOne(track, { ...opts, audioFrom: p.track });
+				if (res === 'saved') return 'saved';
+				if (res === 'failed') failed = true;
+			}
+			return failed ? 'failed' : 'no-audio';
+		} finally {
+			library.endDownload(track.uid);
+		}
+	} catch {
+		// D-17 NEVER-THROWS.
+		return 'failed';
 	}
 }

@@ -40,7 +40,7 @@
 	// aria-checked>). No `type="checkbox"` exists anywhere in src, so the Remove-download confirm
 	// borrows this rather than hand-rolling one.
 	import SettingToggle from '$lib/components/SettingToggle.svelte';
-	import { downloadTrack } from '$lib/services/download-track';
+	import { canDownloadFrom, downloadTrack } from '$lib/services/download-track';
 	// quick-260915-26g: the shared probe + the shared label formatter. TrackMenu cannot mount
 	// DownloadControl (its Check state is blob-backed and its rows are full-width text buttons, not
 	// 40x40 icons), so it consumes the same SERVICE instead — one implementation, two surfaces.
@@ -762,12 +762,14 @@
 		dlPickAc = ac;
 		const target = track;
 		dlPickProbes = dlProbe?.track?.uid === target.uid ? { [target.uid]: dlProbe } : {};
-		dlPickList = versionsIncludingOwn(target, []);
+		// quick-260930-uia: never offer a YouTube Music row — downloads never route to YT Music. A
+		// ytmusic own-track shows only donor rows; an empty list falls into `versions.empty`.
+		dlPickList = versionsIncludingOwn(target, []).filter((v) => canDownloadFrom(v.source));
 		dlPickLoading = true;
 		dlPickOpen = true;
 		const found = await fetchVariants(target, ac.signal);
 		if (gen !== dlPickGen || ac.signal.aborted) return; // superseded / cancelled
-		dlPickList = versionsIncludingOwn(target, found);
+		dlPickList = versionsIncludingOwn(target, found).filter((v) => canDownloadFrom(v.source));
 		dlPickLoading = false;
 		// Per-item write INSIDE fn so each row fills the instant its own probe lands, rather than the
 		// whole sheet unblanking at the end. untrack: probeDownload reads settings/player internally
