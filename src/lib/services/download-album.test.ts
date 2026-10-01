@@ -227,8 +227,8 @@ describe('downloadAlbum — ytmusic goes through the shared rule (quick-260930-u
 	});
 });
 
-// quick-260930-uia: 3-wide pool, album order preserved, progress counts completions.
-describe('downloadAlbum — 3-wide pool (quick-260930-uia)', () => {
+// quick-260930-uia: album order preserved, progress counts completions, whatever order songs finish in.
+describe('downloadAlbum — album order + completion progress (quick-260930-uia)', () => {
 	/** downloadTrack stub returning a deferred per call; tracks in-flight count. */
 	function deferredImpl() {
 		const pending: { tr: Track; settle: (r: string) => void }[] = [];
@@ -252,24 +252,6 @@ describe('downloadAlbum — 3-wide pool (quick-260930-uia)', () => {
 	}
 	const flush = () => new Promise((r) => setTimeout(r, 0));
 	const seven = () => [1, 2, 3, 4, 5, 6, 7].map((n) => mk(n));
-
-	it('runs at most 3 songs at once, and starts the 4th only after one settles', async () => {
-		mocks.native = true;
-		const { pending, state } = deferredImpl();
-		const run = downloadAlbum(seven(), META);
-		await flush();
-		expect(mocks.downloadTrack).toHaveBeenCalledTimes(3);
-		pending[1].settle('saved');
-		await flush();
-		expect(mocks.downloadTrack).toHaveBeenCalledTimes(4);
-		for (let i = 0; i < 7; i++) {
-			await flush();
-			pending.filter((p) => p !== pending[1]).forEach((p) => p.settle('saved'));
-		}
-		expect(await run).toEqual({ saved: 7, total: 7 });
-		expect(mocks.downloadTrack).toHaveBeenCalledTimes(7);
-		expect(state.max).toBe(3);
-	});
 
 	it('reverse completion still yields album-ordered zip entries and track numbers', async () => {
 		const { pending } = deferredImpl();
@@ -319,6 +301,123 @@ describe('downloadAlbum — 3-wide pool (quick-260930-uia)', () => {
 		const res = await run;
 		expect(res).toEqual({ saved: 5, total: 7 });
 		expect(progress).toEqual([1, 2, 3, 4, 5, 6, 7].map((n) => [n, 7]));
+	});
+});
+
+// quick-260930-vjp: every song enters a two-stage pipeline at once — RESOLVE (link lookup, max 3,
+// shares the apiFetch governor with playback) feeding TRANSFER (raw audio body + tag + persist, max 8).
+// The stub mimics downloadTrack's gate contract: acquire resolve → park → release → acquire transfer →
+// park → onSaved → release. Each park is a per-uid gate the test opens.
+describe('downloadAlbum — two-stage pipeline (quick-260930-vjp)', () => {
+	type Gate = () => Promise<() => void>;
+	type Opts = { stages: { resolve: Gate; transfer: Gate }; onSaved?: (u: string, f: string, b: Blob) => void };
+	function stagedImpl() {
+		const parks = new Map<string, { p: Promise<void>; open: () => void }>();
+		const park = (key: string) => {
+			let e = parks.get(key);
+			if (!e) {
+				let open!: () => void;
+				const p = new Promise<void>((r) => (open = r));
+				e = { p, open };
+				parks.set(key, e);
+			}
+			return e;
+		};
+		const state = { resolveGrants: 0, transferGrants: 0, resolving: 0, transferring: 0, maxResolve: 0, maxTransfer: 0 };
+		mocks.downloadTrack.mockImplementation(async (tr: Track, opts: Opts) => {
+			const free = await opts.stages.resolve();
+			state.resolveGrants++;
+			state.maxResolve = Math.max(state.maxResolve, ++state.resolving);
+			await park(`r:${tr.uid}`).p;
+			state.resolving--;
+			free();
+			const freeT = await opts.stages.transfer();
+			state.transferGrants++;
+			state.maxTransfer = Math.max(state.maxTransfer, ++state.transferring);
+			await park(`t:${tr.uid}`).p;
+			opts.onSaved?.(tr.uid, `${tr.artist} - ${tr.title}.m4a`, new Blob([tr.uid]));
+			state.transferring--;
+			freeT();
+			return 'saved';
+		});
+		const open = (stage: 'r' | 't', uids: string[]) => uids.forEach((u) => park(`${stage}:${u}`).open());
+		return { state, open };
+	}
+	const flush = async (n = 5) => {
+		for (let i = 0; i < n; i++) await new Promise((r) => setTimeout(r, 0));
+	};
+	const songs = (n: number) => Array.from({ length: n }, (_, i) => mk(i + 1));
+	const uids = (tracks: Track[]) => tracks.map((t) => t.uid);
+
+	it('hands every song to downloadTrack up front, with stages gates beside the existing opts', async () => {
+		mocks.native = true;
+		const { open } = stagedImpl();
+		const tracks = songs(10);
+		const run = downloadAlbum(tracks, META);
+		await flush(1);
+		expect(mocks.downloadTrack).toHaveBeenCalledTimes(10);
+		expect(mocks.downloadTrack.mock.calls[0][1]).toMatchObject({
+			persist: true,
+			save: false,
+			trackNumber: '1',
+			stages: { resolve: expect.any(Function), transfer: expect.any(Function) }
+		});
+		open('r', uids(tracks));
+		open('t', uids(tracks));
+		expect(await run).toEqual({ saved: 10, total: 10 });
+	});
+
+	it('grants at most 3 resolve slots; releasing one grants the 4th', async () => {
+		mocks.native = true;
+		const { state, open } = stagedImpl();
+		const tracks = songs(10);
+		const run = downloadAlbum(tracks, META);
+		await flush();
+		expect(state.resolveGrants).toBe(3);
+		open('r', ['qq:1']);
+		await flush();
+		expect(state.resolveGrants).toBe(4);
+		open('r', uids(tracks));
+		open('t', uids(tracks));
+		expect(await run).toEqual({ saved: 10, total: 10 });
+		expect(state.maxResolve).toBe(3);
+	});
+
+	it('grants at most 8 transfer slots; releasing one grants the 9th', async () => {
+		mocks.native = true;
+		const { state, open } = stagedImpl();
+		const tracks = songs(10);
+		open('r', uids(tracks));
+		const run = downloadAlbum(tracks, META);
+		await flush(20);
+		expect(state.transferGrants).toBe(8);
+		open('t', ['qq:1']);
+		await flush();
+		expect(state.transferGrants).toBe(9);
+		open('t', uids(tracks));
+		expect(await run).toEqual({ saved: 10, total: 10 });
+		expect(state.maxTransfer).toBe(8);
+	});
+
+	it('a slow resolve does not block the rest of the album', async () => {
+		mocks.native = true;
+		const { open } = stagedImpl();
+		const tracks = songs(7);
+		const rest = uids(tracks).slice(1);
+		open('r', rest);
+		open('t', rest);
+		const progress: [number, number][] = [];
+		let settled = false;
+		const run = downloadAlbum(tracks, META, (n, t) => progress.push([n, t])).then((r) => {
+			settled = true;
+			return r;
+		});
+		await flush(20);
+		expect(progress.at(-1)).toEqual([6, 7]);
+		expect(settled).toBe(false);
+		open('r', ['qq:1']);
+		open('t', ['qq:1']);
+		expect(await run).toEqual({ saved: 7, total: 7 });
 	});
 });
 
