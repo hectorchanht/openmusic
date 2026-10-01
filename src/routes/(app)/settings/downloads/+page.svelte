@@ -32,7 +32,7 @@
 	import { isDeviceUid } from '$lib/services/device-track';
 	// quick-260919-3j1: the sweep's cover was the PERSISTED Track.cover — not the user's pin and not
 	// the shared reactive cache. See the ladder in the entry loop below.
-	import { readPinnedCover, readCoverByUidOrName } from '$lib/stores/cover-version.svelte';
+	import { readChosenCover, readCoverByUidOrName } from '$lib/stores/cover-version.svelte';
 	import { retagDownloads, type RetagEntry } from '$lib/services/retag';
 	import { deviceImport } from '$lib/stores/device-import.svelte';
 	import { readExclusions, unexcludeUid } from '$lib/services/import-exclusions';
@@ -174,7 +174,8 @@
 				title: names.dnTitle(d.title, d.artist),
 				artist: names.dnArtist(d.artist),
 				album: names.zhLock(d.album),
-				cover: readPinnedCover(d.uid) ?? readCoverByUidOrName(d.uid, d.artist, d.title) ?? d.cover,
+				// Phase 40 D-14: pin, then the crowd pick, ahead of the auto cache.
+				cover: readChosenCover(d.uid, d.artist, d.title) ?? readCoverByUidOrName(d.uid, d.artist, d.title) ?? d.cover,
 				// quick-260919-3j1 (F3): the sweep carries the PINNED LRC too. `?? undefined` so an
 				// absent pin is OMISSION — `tagAudioBlob` runs a setter only for a truthy field, so the
 				// file's own lyrics are preserved; `RetagEntry.lyrics` has no clear verb, by design.

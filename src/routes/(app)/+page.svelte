@@ -64,7 +64,8 @@
 		readCoverByUidOrName,
 		// quick-260915-w4f: the user's pinned cover. These home reads put track.cover FIRST, so a pin
 		// folded only into the cache read would lose on every one of them.
-		readPinnedCover,
+		// Phase 40 D-14: readChosenCover — the pin, then the crowd pick — replaces readPinnedCover.
+		readChosenCover,
 		readCoverByName,
 		readArtistCover,
 		bumpCoverVersion
@@ -1038,7 +1039,7 @@
 		// quick-260615-hep: library rows carry a full Track (uid present) → read uid-first then name,
 		// through the global reactive signal so a cover resolved elsewhere repaints this row live.
 		// quick-260915-w4f: a pin outranks the inline source cover (rung 0).
-		return readPinnedCover(track.uid) ?? track.cover ?? readCoverByUidOrName(track.uid, track.artist, track.title);
+		return readChosenCover(track.uid, track.artist, track.title) ?? track.cover ?? readCoverByUidOrName(track.uid, track.artist, track.title);
 	}
 
 	onMount(() => {
@@ -1156,7 +1157,7 @@
 			{#each fallbackSongs as track (track.uid)}
 				<!-- quick-260915-w4f: a pin outranks the tile's inline cover. {@const} must be the immediate
 				     child of the {#each}, not of the <button>. -->
-				{@const art = readPinnedCover(track.uid) ?? track.cover}
+				{@const art = readChosenCover(track.uid, track.artist, track.title) ?? track.cover}
 				<button class="tile" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); menuTrack = track; menuOpen = true; }} onclick={() => { player.setQueue(fallbackSongs, 'home-discovery'); player.play(track, { fresh: true }); }}>
 					<div class="art" style:background-image={art ? `url(${art})` : fallbackCover(track.uid)}></div>
 					{#if track.qualityLabel || track.quality}<span class="q">{track.qualityLabel ?? track.quality}</span>{/if}
@@ -1531,7 +1532,7 @@
 {#snippet librarySongRow(track: Track, ctx: QueueContext)}
 	<!-- quick-260615-hep: uid-first reactive read; lazyCover resolves-on-view (writes both cache layers
 	     internally) and bumps the global signal so this reactive rowCover recomputes + the <img> paints. -->
-	{@const rowCover = readPinnedCover(track.uid) ?? track.cover ?? readCoverByUidOrName(track.uid, track.artist, track.title)}
+	{@const rowCover = readChosenCover(track.uid, track.artist, track.title) ?? track.cover ?? readCoverByUidOrName(track.uid, track.artist, track.title)}
 	<button class="album" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); menuTrack = track; menuOpen = true; }} onclick={() => playLibraryTrack(track, ctx)}>
 		<span class="al-cover" use:lazyCover={{ track, onResolved: () => bumpCoverVersion() }} style:background-image={rowCover ? `url(${rowCover})` : fallbackCover(track.uid)}>
 			{#if rowCover}<img class="al-cover-img" src={rowCover} loading="lazy" alt="" onerror={hideOnError} />{/if}
