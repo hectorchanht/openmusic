@@ -21,7 +21,14 @@ const mocks = vi.hoisted(() => ({
 		moveToDir: vi.fn(async (_uid: string, _dir: string) => true),
 		getStoredName: vi.fn((_uid: string): string | null => null)
 	},
-	saveBlobToDisk: vi.fn((_b: Blob, _f: string) => true)
+	saveBlobToDisk: vi.fn((_b: Blob, _f: string) => true),
+	fetchVariants: vi.fn(async (_t: Track): Promise<Track[]> => []),
+	probeDownload: vi.fn(async (t: Track) => ({
+		container: null,
+		qualityLabel: null,
+		bytes: null,
+		track: { ...t, audioUrl: `https://cdn.example/${t.uid}.m4a` } as Track | null
+	}))
 }));
 
 vi.mock('@capacitor/core', () => ({ Capacitor: { isNativePlatform: () => mocks.native } }));
@@ -30,6 +37,12 @@ vi.mock('$lib/stores/names.svelte', () => ({ names: mocks.names }));
 vi.mock('$lib/services/download-track', () => ({ downloadTrack: mocks.downloadTrack }));
 vi.mock('$lib/services/blob-store', () => ({ blobStore: mocks.blob }));
 vi.mock('$lib/services/download-save', () => ({ saveBlobToDisk: mocks.saveBlobToDisk }));
+// variants.ts stays REAL for versionsIncludingOwn (pure); only the network lookup is stubbed.
+vi.mock('$lib/services/variants', async (orig) => ({
+	...(await orig<typeof import('$lib/services/variants')>()),
+	fetchVariants: mocks.fetchVariants
+}));
+vi.mock('$lib/services/download-probe', () => ({ probeDownload: mocks.probeDownload }));
 
 import { downloadAlbum } from './download-album';
 
@@ -72,6 +85,7 @@ beforeEach(() => {
 	mocks.blob.moveToDir.mockImplementation(async () => true);
 	mocks.blob.getStoredName.mockImplementation(() => null);
 	mocks.saveBlobToDisk.mockImplementation(() => true);
+	mocks.fetchVariants.mockImplementation(async () => []);
 	savedImpl();
 	buildZipSpy?.mockRestore();
 	buildZipSpy = vi.spyOn(zipStore, 'buildZip');
@@ -203,6 +217,58 @@ describe('downloadAlbum — web zip (40-D-03)', () => {
 		expect((await downloadAlbum([mk(1)], META)).saved).toBe(0);
 		mocks.saveBlobToDisk.mockImplementation(() => false);
 		expect((await downloadAlbum([mk(1)], META)).saved).toBe(0);
+	});
+});
+
+describe('downloadAlbum — ytmusic donor fallback (40-03)', () => {
+	const yt = mk(1, { uid: 'ytmusic:abc', source: 'ytmusic', songid: 'abc' });
+	const ytOther = mk(1, { uid: 'ytmusic:def', source: 'ytmusic', songid: 'def' });
+	const qq = mk(1, { uid: 'qq:9', songid: '9', audioUrl: null });
+	const kuwo = mk(1, { uid: 'kuwo:5', source: 'kuwo', songid: '5', audioUrl: null });
+
+	it('saves a ytmusic song with a non-ytmusic donor audio under the ytmusic identity', async () => {
+		mocks.native = true;
+		mocks.fetchVariants.mockImplementation(async () => [ytOther, qq, kuwo]);
+		const res = await downloadAlbum([yt], META);
+		expect(res).toEqual({ saved: 1, total: 1 });
+		expect(mocks.downloadTrack).toHaveBeenCalledTimes(1);
+		const [own, opts] = mocks.downloadTrack.mock.calls[0] as [Track, { audioFrom?: Track; dir?: string }];
+		expect(own.uid).toBe('ytmusic:abc');
+		expect(opts.audioFrom?.uid).toBe('qq:9');
+		expect(opts.audioFrom?.audioUrl).toBe('https://cdn.example/qq:9.m4a');
+		expect(opts.dir).toBe('Artist/Album');
+		expect(mocks.probeDownload).not.toHaveBeenCalledWith(expect.objectContaining({ source: 'ytmusic' }));
+	});
+
+	it('tries the next donor when one fails, and the ytmusic file only when every donor failed', async () => {
+		mocks.native = true;
+		mocks.fetchVariants.mockImplementation(async () => [qq, kuwo]);
+		mocks.downloadTrack.mockImplementation(async () => 'failed');
+		const res = await downloadAlbum([yt], META);
+		expect(res.saved).toBe(0);
+		const froms = mocks.downloadTrack.mock.calls.map((c) => (c[1] as { audioFrom?: Track }).audioFrom?.uid);
+		expect(froms).toEqual(['qq:9', 'kuwo:5', undefined]);
+	});
+
+	it('falls back to the ytmusic file itself when no other source has the song', async () => {
+		mocks.native = true;
+		const res = await downloadAlbum([yt], META);
+		expect(res.saved).toBe(1);
+		expect(mocks.downloadTrack).toHaveBeenCalledTimes(1);
+		expect(mocks.downloadTrack.mock.calls[0][1]).not.toHaveProperty('audioFrom');
+	});
+
+	it('never looks up donors for a non-ytmusic song', async () => {
+		await downloadAlbum([mk(1)], META);
+		expect(mocks.fetchVariants).not.toHaveBeenCalled();
+	});
+
+	it('web: the donor-filled song lands in the zip under the ytmusic song name', async () => {
+		mocks.fetchVariants.mockImplementation(async () => [qq]);
+		const res = await downloadAlbum([yt], META);
+		expect(res.saved).toBe(1);
+		const entries = buildZipSpy.mock.calls[0][0] as zipStore.ZipEntry[];
+		expect(entries.map((e) => e.name)).toEqual(['Artist - Album/Artist - Song1.m4a']);
 	});
 });
 

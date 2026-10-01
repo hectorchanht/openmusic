@@ -30,7 +30,9 @@ import { library } from '$lib/stores/library.svelte';
 import { names } from '$lib/stores/names.svelte';
 import { blobStore } from '$lib/services/blob-store';
 import { saveBlobToDisk } from '$lib/services/download-save';
-import { downloadTrack } from '$lib/services/download-track';
+import { downloadTrack, type DownloadResult } from '$lib/services/download-track';
+import { fetchVariants, versionsIncludingOwn } from '$lib/services/variants';
+import { probeDownload } from '$lib/services/download-probe';
 import { sameSongKey } from '$lib/services/dedupe';
 import { buildZip, type ZipEntry } from '$lib/services/zip-store';
 import {
@@ -40,6 +42,8 @@ import {
 	extFromAudioUrl,
 	sanitizeFilename
 } from '$lib/services/download-filename';
+
+const YTMUSIC = 'ytmusic';
 
 /** `a.mp3` → `a (2).mp3` → `a (3).mp3` for a name already used inside this zip. */
 function uniqueName(name: string, used: Set<string>): string {
@@ -111,14 +115,34 @@ export async function downloadAlbum(
 				// interleaved MULTI-SOURCE search ordering, not a position on a record.
 				// `meta.artist || undefined` because the album artist is '' on a deep link, and undefined
 				// lets downloadTrack fall back to the track's own artist (D-12's grouping default).
-				const res = await downloadTrack(tr, {
-					persist: true,
-					save: false,
-					trackNumber: String(i + 1),
-					albumArtist: meta.artist || undefined,
-					...(native && dir ? { dir } : {}),
-					onSaved: native ? undefined : (uid, filename, blob) => (got = { uid, filename, blob })
-				});
+				const attempt = (audioFrom?: Track) =>
+					downloadTrack(tr, {
+						persist: true,
+						save: false,
+						trackNumber: String(i + 1),
+						albumArtist: meta.artist || undefined,
+						...(native && dir ? { dir } : {}),
+						...(audioFrom ? { audioFrom } : {}),
+						onSaved: native ? undefined : (uid, filename, blob) => (got = { uid, filename, blob })
+					});
+				let res: DownloadResult = 'failed';
+				// 40-03: a ytmusic file cannot be fetched by the album path (web: the stream proxy's
+				// googlevideo 403; native: the direct googlevideo url has no CORS header), so a ytmusic
+				// song takes its audio from another source first — the "Download from…" contract
+				// (quick-260916-0d9 `audioFrom`): the donor's resolved audio saved under THIS song's
+				// identity. Donors come from the picker's own lookup (fetchVariants + versionsIncludingOwn,
+				// one row per source) and are resolved through the picker's probeDownload, one at a time.
+				// The ytmusic file itself is tried last, for when no other source has the song.
+				if (tr.source === YTMUSIC) {
+					const donors = versionsIncludingOwn(tr, await fetchVariants(tr)).filter((v) => v.source !== YTMUSIC);
+					for (const donor of donors) {
+						const p = await probeDownload(donor);
+						if (!p.track?.audioUrl) continue;
+						res = await attempt(p.track);
+						if (res === 'saved') break;
+					}
+				}
+				if (res !== 'saved') res = await attempt();
 				if (res !== 'saved') continue;
 				if (native) {
 					saved++;
