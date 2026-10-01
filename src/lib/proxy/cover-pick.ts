@@ -1,7 +1,7 @@
 // cover-pick — pure helpers behind /api/cover-pick (Phase 40 D-13 / D-17 / D-18 / D-18a / D-19):
 // a crowd-shared cover per song, decided by vote count over listener picks.
 //
-// Same posture as lyric-offset.ts: no I/O, no HTTP status knowledge, never-throw screens that return
+// Same posture as lyric-offset.ts: no I/O (one exception: resolveNeteasePic, 40-CR-01), no HTTP status knowledge, never-throw screens that return
 // a sentinel. The route turns sentinels into 4xx.
 //
 // Two lookup keys per song (D-13), each a 32-hex hash the client computes: `u` (exact uid) and `n`
@@ -127,8 +127,51 @@ export function parseVoteBody(text: string): (PickKeys & { url: string }) | null
 	const n = key(raw.n);
 	if (u === false || n === false || (!u && !n)) return null;
 	if (typeof raw.url !== 'string' || raw.url.length > MAX_URL_CHARS) return null;
-	const url = safeImageUrl(raw.url, COVER_PICK_IMAGE_HOSTS);
+	// 40-CR-01: a netease redirector url passes HERE only in its exact shape; the route resolves it to
+	// its music.126.net target (resolveNeteasePic) before anything is stored.
+	const url = safeImageUrl(raw.url, COVER_PICK_IMAGE_HOSTS) ?? neteasePicRedirect(raw.url);
 	return url ? { u, n, url } : null;
+}
+
+/**
+ * 40-CR-01: the meting netease cover redirector every netease search row carries as `cover`
+ * (`https://api.qijieya.cn/meting/?server=netease&type=pic&id=<digits>`). Matched by EXACT shape —
+ * host, path and the three params, nothing else — never by host alone, because the host is a
+ * third-party redirector and must never be stored or published. Returns the normalized href or null.
+ */
+export function neteasePicRedirect(raw: string): string | null {
+	if (/[)\s"'\\(]/.test(raw)) return null;
+	try {
+		const u = new URL(raw);
+		const p = u.searchParams;
+		const shape =
+			u.protocol === 'https:' &&
+			u.hostname === 'api.qijieya.cn' &&
+			u.pathname === '/meting/' &&
+			[...p.keys()].sort().join(',') === 'id,server,type' &&
+			p.get('server') === 'netease' &&
+			p.get('type') === 'pic' &&
+			/^\d{1,24}$/.test(p.get('id') ?? '');
+		return shape ? u.href : null;
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * 40-CR-01: follow the redirector ONE hop (`redirect: 'manual'`, body never read) and screen the
+ * `Location` against the vote allowlist, so what is stored is the resolved `*.music.126.net` url.
+ * Never-throw: any failure (timeout, no redirect, a target off the allowlist) is null. The ONE piece
+ * of I/O in this module; `fetchFn` is injectable for tests.
+ */
+export async function resolveNeteasePic(redirector: string, fetchFn: typeof fetch = fetch): Promise<string | null> {
+	try {
+		const res = await fetchFn(redirector, { redirect: 'manual', signal: AbortSignal.timeout(4_000) });
+		const loc = res.status >= 300 && res.status < 400 ? res.headers.get('location') : null;
+		return loc ? safeImageUrl(new URL(loc, redirector).href, COVER_PICK_IMAGE_HOSTS) : null;
+	} catch {
+		return null;
+	}
 }
 
 /** Pure: a NEW record with `voter`'s vote set (a re-vote replaces, D-19), capped to the MAX_VOTES newest. */

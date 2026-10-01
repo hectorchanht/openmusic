@@ -10,6 +10,8 @@ import {
 	emptyRecord,
 	parseRecord,
 	parseVoteBody,
+	neteasePicRedirect,
+	resolveNeteasePic,
 	applyVote,
 	consensus,
 	voterId,
@@ -85,6 +87,42 @@ describe('parseVoteBody', () => {
 	});
 	it('stores the normalized href safeImageUrl approved', () => {
 		expect(parseVoteBody(JSON.stringify({ u: K1, url: 'https://Y.GTIMG.CN/x.jpg' }))?.url).toBe(QQ);
+	});
+});
+
+// 40-CR-01: the netease redirector is accepted only in its exact shape and only to be RESOLVED.
+describe('neteasePicRedirect / resolveNeteasePic', () => {
+	const RED = 'https://api.qijieya.cn/meting/?server=netease&type=pic&id=109951173569626660';
+	const TARGET = 'https://p3.music.126.net/F0fTkmBTVykCa2o7Vgu1rQ==/109951173569626660.jpg?param=300y300';
+	const redirect = (status: number, location: string | null) =>
+		(async () => new Response(null, { status, headers: location ? { location } : {} })) as unknown as typeof fetch;
+
+	it('matches the exact redirector shape only', () => {
+		expect(neteasePicRedirect(RED)).toBe(RED);
+		expect(parseVoteBody(JSON.stringify({ u: K1, url: RED }))?.url).toBe(RED);
+		for (const bad of [
+			'http://api.qijieya.cn/meting/?server=netease&type=pic&id=1',
+			'https://api.qijieya.cn/meting/?server=netease&type=url&id=1',
+			'https://api.qijieya.cn/meting/?server=tencent&type=pic&id=1',
+			'https://api.qijieya.cn/meting/?server=netease&type=pic&id=1&u=https://evil.example',
+			'https://api.qijieya.cn/other/?server=netease&type=pic&id=1',
+			'https://api.qijieya.cn/meting/?server=netease&type=pic&id=abc',
+			'https://evil.example/meting/?server=netease&type=pic&id=1'
+		]) {
+			expect(neteasePicRedirect(bad)).toBeNull();
+		}
+	});
+	it('resolves to the music.126.net target', async () => {
+		expect(await resolveNeteasePic(RED, redirect(302, TARGET))).toBe(TARGET);
+	});
+	it('null when the target is off the allowlist, there is no redirect, or fetch throws', async () => {
+		expect(await resolveNeteasePic(RED, redirect(302, 'https://evil.example/x.jpg'))).toBeNull();
+		expect(await resolveNeteasePic(RED, redirect(200, null))).toBeNull();
+		expect(await resolveNeteasePic(RED, redirect(302, null))).toBeNull();
+		const boom = (async () => {
+			throw new Error('net');
+		}) as unknown as typeof fetch;
+		expect(await resolveNeteasePic(RED, boom)).toBeNull();
 	});
 });
 

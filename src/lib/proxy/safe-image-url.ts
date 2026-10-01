@@ -84,36 +84,37 @@ export const YOUTUBE_IMAGE_HOSTS: ImageHostAllowlist = {
 	suffix: ['.googleusercontent.com']
 };
 
-// Phase 40 D-18: CN cover hosts, needed so a crowd-voted cover from a CN source can be stored.
-//  - QQ: `album_pic` on y.gtimg.cn (tang returns http; qq.ts https-upgrades it before display).
-//  - Netease: the meting `pic` redirector on api.qijieya.cn, which 302s to p1-p4.music.126.net.
-//    Residual (RESEARCH A6): a third-party redirector could serve any image if compromised — the
-//    same exposure every netease row render already has.
-//  - Kuwo: img1-img4.kuwo.cn.
-// Apexes not permitted; the leading dots keep `evilkuwo.cn` / `kuwo.cn.evil.example` out.
-/** CN source art: QQ, netease (direct + meting redirector) and kuwo. */
-export const CN_IMAGE_HOSTS: ImageHostAllowlist = {
-	exact: ['y.gtimg.cn', 'api.qijieya.cn'],
-	suffix: [
-		'.kuwo.cn',
-		'.music.126.net'
-	]
-};
-
-const COVER_PICK_SOURCES = [
-	DEEZER_IMAGE_HOSTS,
-	LASTFM_IMAGE_HOSTS,
-	APPLE_IMAGE_HOSTS,
-	KKBOX_IMAGE_HOSTS,
-	YOUTUBE_IMAGE_HOSTS,
-	CN_IMAGE_HOSTS
-];
-
-/**
- * Phase 40 D-18: every host a cover can come from, for /api/cover-pick votes. COMPOSED from the
- * per-source lists so a host added to one family reaches the vote screen without a second edit.
- */
+// Phase 40 D-18, hardened by 40-CR-01: the /api/cover-pick VOTE screen.
+//
+// Votes are untrusted, anonymous INPUT, so this list is NOT composed from the per-source RESPONSE
+// allowlists above. Those screen urls a trusted upstream body hands us; reused here they let one
+// vote publish `https://attacker.global.ssl.fastly.net/x.jpg` (any Fastly customer) or a
+// third-party redirector to every listener — an IP/UA beacon on an attacker origin. So: exact hosts
+// of the cover CDNs the "Change cover" picker actually shows, plus dot-anchored suffixes ONLY where
+// the whole zone is the CDN's own first-party image shards. NO `.fastly.net`, NO
+// `.googleusercontent.com`, NO `api.qijieya.cn` (a netease redirector url is resolved server-side to
+// its `*.music.126.net` target before the vote is stored — see cover-pick.ts).
+//  - iTunes: is1-ssl…is5-ssl.mzstatic.com shards (Apple's own zone).
+//  - Deezer: cdn-images / e-cdns-images.dzcdn.net.
+//  - QQ: y.gtimg.cn. Kuwo: img1-img4.kuwo.cn. Netease: p1-p4.music.126.net (Netease's own zone).
+//  - YT Music: yt3/lh3.googleusercontent.com + i.ytimg.com, exact. Residual: lh3 also serves
+//    user-uploaded Google content, but on a Google origin (no attacker-run server, no IP beacon) and
+//    the WR-01 quorum still has to agree on it.
+//  - Last.fm: lastfm.freetls.fastly.net, the ONE Fastly host its art uses.
+/** Phase 40 D-18 / 40-CR-01: hosts a crowd-voted cover may live on. Exact first, first-party zones only. */
 export const COVER_PICK_IMAGE_HOSTS: ImageHostAllowlist = {
-	exact: COVER_PICK_SOURCES.flatMap((h) => h.exact ?? []),
-	suffix: COVER_PICK_SOURCES.flatMap((h) => h.suffix)
+	exact: [
+		'cdn-images.dzcdn.net',
+		'e-cdns-images.dzcdn.net',
+		'y.gtimg.cn',
+		'img1.kuwo.cn',
+		'img2.kuwo.cn',
+		'img3.kuwo.cn',
+		'img4.kuwo.cn',
+		'yt3.googleusercontent.com',
+		'lh3.googleusercontent.com',
+		'i.ytimg.com',
+		'lastfm.freetls.fastly.net'
+	],
+	suffix: ['.mzstatic.com', '.music.126.net']
 };

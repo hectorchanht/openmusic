@@ -119,27 +119,37 @@ describe('safeImageUrl — chart image hosts (39-D-01)', () => {
 	});
 });
 
-describe('COVER_PICK_IMAGE_HOSTS (Phase 40 D-18)', () => {
-	it('accepts the new CN cover hosts', () => {
+describe('COVER_PICK_IMAGE_HOSTS (Phase 40 D-18, 40-CR-01)', () => {
+	it('accepts the cover CDNs the picker actually shows', () => {
 		for (const url of [
 			'https://y.gtimg.cn/music/photo_new/T002R500x500M000x.jpg',
 			'https://img4.kuwo.cn/star/albumcover/x.jpg',
 			'https://p3.music.126.net/x.jpg',
-			'https://api.qijieya.cn/meting/?type=pic&id=1'
+			'https://e-cdns-images.dzcdn.net/x.jpg',
+			'https://cdn-images.dzcdn.net/x.jpg',
+			'https://is1-ssl.mzstatic.com/x.jpg',
+			'https://i.ytimg.com/x.jpg',
+			'https://yt3.googleusercontent.com/x=w544-h544',
+			'https://lh3.googleusercontent.com/x=w544-h544',
+			'https://lastfm.freetls.fastly.net/i/u/x.jpg'
 		]) {
 			expect(safeImageUrl(url, COVER_PICK_IMAGE_HOSTS)).toBe(url);
 		}
 	});
 
-	it('still accepts every existing cover host family (composed, not replaced)', () => {
+	// 40-CR-01: votes are untrusted input — customer-wide zones and redirectors must never pass.
+	it('rejects attacker-ownable zones and the third-party redirector', () => {
 		for (const url of [
-			'https://e-cdns-images.dzcdn.net/x.jpg',
-			'https://is1-ssl.mzstatic.com/x.jpg',
-			'https://i.ytimg.com/x.jpg',
-			'https://lastfm.freetls.fastly.net/i/u/x.jpg',
+			'https://attacker.global.ssl.fastly.net/x.jpg',
+			'https://evil.fastly.net/x.jpg',
+			'https://sites.googleusercontent.com/x.jpg',
+			'https://doc-0s-docs.googleusercontent.com/x.jpg',
+			'https://api.qijieya.cn/meting/?type=pic&id=1',
+			'https://img9.kuwo.cn/x.jpg',
+			'https://x.dzcdn.net/x.jpg',
 			'https://i.kfs.io/x.jpg'
 		]) {
-			expect(safeImageUrl(url, COVER_PICK_IMAGE_HOSTS)).toBe(url);
+			expect(safeImageUrl(url, COVER_PICK_IMAGE_HOSTS)).toBeNull();
 		}
 	});
 

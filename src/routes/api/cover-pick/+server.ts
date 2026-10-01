@@ -23,6 +23,8 @@ import {
 	pickThrottleKey,
 	pickCacheUrl,
 	parseVoteBody,
+	neteasePicRedirect,
+	resolveNeteasePic,
 	parseRecord,
 	emptyRecord,
 	applyVote,
@@ -160,13 +162,19 @@ export const POST: RequestHandler = async (event) => {
 	});
 	if (!thPut) return jsonResponse({ ok: false, err: 'slow-down' }, origin, { status: 429 });
 
+	// 40-CR-01: a netease redirector url is never stored — resolve it to its music.126.net target
+	// (re-screened against the vote allowlist). AFTER the throttle, so a vote flood cannot turn this
+	// route into a fetch amplifier against the redirector.
+	const pickUrl = neteasePicRedirect(vote.url) ? await resolveNeteasePic(vote.url) : vote.url;
+	if (!pickUrl) return jsonResponse({ ok: false, err: 'invalid' }, origin, { status: 400 });
+
 	// D-13: each present key in fixed u-then-n order. On a 409 the throttle slot is already spent —
 	// accepted, the next pick after the gap works.
 	const result: { u: string | null; n: string | null } = { u: null, n: null };
 	for (const kind of ['u', 'n'] as const) {
 		const k = vote[kind];
 		if (!k) continue;
-		const c = await castVote(bucket, kind, k, ip, vote.url);
+		const c = await castVote(bucket, kind, k, ip, pickUrl);
 		if (c === false) return jsonResponse({ ok: false, err: 'conflict' }, origin, { status: 409 });
 		result[kind] = c;
 	}

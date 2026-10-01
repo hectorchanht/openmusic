@@ -386,6 +386,24 @@ describe('POST /api/cover-pick — accepted votes', () => {
 		expect(await res.json()).toEqual({ ok: true, u: URL_QQ, n: null });
 	});
 
+	// 40-CR-01: the netease redirector is never stored — only its resolved music.126.net target.
+	it('a netease redirector vote stores the resolved music.126.net url; an unresolvable one → 400', async () => {
+		const RED = 'https://api.qijieya.cn/meting/?server=netease&type=pic&id=109951173569626660';
+		const TARGET = 'https://p3.music.126.net/F0fTkmBTVykCa2o7Vgu1rQ==/109951173569626660.jpg?param=300y300';
+		vi.stubGlobal('fetch', vi.fn(async () => new Response(null, { status: 302, headers: { location: TARGET } })));
+		const bucket = fakeBucket();
+		const ok = await callPOST(fakeEvent('POST', { body: vote({ u: K1, url: RED }), env: env(bucket) }));
+		expect(ok.status).toBe(200);
+		const stored = Object.values(JSON.parse(bucket.store.get(U_KEY)!.text).votes) as { u: string }[];
+		expect(stored.map((v) => v.u)).toEqual([TARGET]);
+
+		vi.stubGlobal('fetch', vi.fn(async () => new Response(null, { status: 302, headers: { location: 'https://evil.example/x.jpg' } })));
+		const bucket2 = fakeBucket();
+		const bad = await callPOST(fakeEvent('POST', { body: vote({ u: K1, url: RED }), env: env(bucket2), ip: '9.9.9.9' }));
+		expect(bad.status).toBe(400);
+		expect(bucket2.store.has(U_KEY)).toBe(false);
+	});
+
 	it('a lost throttle race → 429, no vote record written', async () => {
 		const bucket = conflictBucket();
 		const res = await callPOST(fakeEvent('POST', { body: vote({ u: K1 }), env: env(bucket) }));
