@@ -32,7 +32,8 @@ produces no public file at all (documented as a known Phase 29/36 limitation in 
 - **D-02:** Single-song downloads are UNCHANGED — they stay flat in `Music/OpenMusic/`. Existing files are
   never re-filed.
 - **D-03:** Web/PWA: one `.zip` per album (a browser cannot create folders); unzipping yields an
-  `<Artist> - <Album>/` (or `<Album>/`) folder of the tagged files. One save prompt instead of one per song.
+  folder of the tagged files. **The zip FILENAME names the album** (e.g. `<Artist> - <Album>.zip`, sanitized;
+  user, 2026-09-30). One save prompt instead of one per song.
   Store-only zip (no compression needed for audio) — prefer a small hand-written writer over a new npm
   dependency (project has NO third-party runtime deps; see CLAUDE.md).
 - **D-04:** Album downloads keep the offline copy — `persist:true`, same as single songs. They appear in
@@ -48,7 +49,10 @@ produces no public file at all (documented as a known Phase 29/36 limitation in 
 - **D-07:** Un-comment the album download button once it works.
 
 ### Cover rank
-- **D-08:** New automatic chain (`resolveTrackChain` in `src/lib/services/cover-backfill.ts`, the single
+- **D-08 (AMENDED post-research, 2026-09-30):** chain is **iTunes → QQ → Deezer → other CN → YTM** — QQ search
+  returns `cover:null` (`qq.ts:291`), so a QQ tier costs search + detail (~1.7s, 2 edge requests); user chose
+  iTunes first (zero edge cost) with QQ second. Original text follows for history.
+- **D-08 (original):** New automatic chain (`resolveTrackChain` in `src/lib/services/cover-backfill.ts`, the single
   source of truth for every consumer): **QQ → iTunes → Deezer → other CN → YTM**. QQ becomes its OWN tier 1
   (aimed via `onlySource('qq')`, same shape as the existing `ytmusicSongCover`). "Other CN" excludes BOTH
   qq (already tried) and ytmusic — today's `searchAll(..., {})` CN tier can pick a ytmusic row via
@@ -56,8 +60,13 @@ produces no public file at all (documented as a known Phase 29/36 limitation in 
 - **D-09:** A track's OWN inline cover is kept — including a ytmusic-sourced track's own YTM thumbnail.
   The chain only applies where a cover must be resolved. (User: "ytmusic sourced track should keep its own
   thumbnail.")
+- **D-10 note:** the picker keeps QQ before iTunes (its tiers fan out in parallel, so the D-08 cost reason does not apply).
 - **D-10:** Change-cover picker grid order (`collectCoverCandidates`): current cover, QQ, iTunes, Deezer,
   other CN, YTM. Remove ytmusic (and qq) from the CN tier so each source appears exactly once.
+- **D-11a (post-research):** REMOVE the HQ cover upgrade entirely (`upgradeCoverAsync` in `postPlayCover`,
+  `player.svelte.ts` ~L4009, and its `resolveHqCover` caller path). Inline covers are never replaced automatically.
+- **D-11b (post-research):** YT Music thumbnails are cached by uid ONLY — never written to the name layer — so a
+  YTM cover no longer leaks onto the qq/kuwo/netease copy of the same song.
 - **D-11:** Update the HQ-upgrade path and the module-header rank comments in `cover-backfill.ts` to match;
   keep the `quick-260920-nyq` history comments, add a Phase 40 decision ref.
 - **D-12:** CHECK `share-carrier-grammar` before reordering: the `?ci=` share carrier is a closed host tag
@@ -82,6 +91,8 @@ produces no public file at all (documented as a known Phase 29/36 limitation in 
 - **D-18:** Only https URLs on known cover hosts are accepted — reuse `src/lib/proxy/safe-image-url.ts`.
   Existing allowlists cover Deezer, Apple (`.mzstatic.com`), YouTube, Last.fm, KKBOX; a CN allowlist
   (QQ `y.gtimg.cn`, kuwo, netease `music.126.net`, etc.) must be ADDED. Validate server-side on POST.
+- **D-18a (post-research):** Per-IP vote throttle on the POST route, reusing the comments route's throttle pattern.
+- **D-14a (post-research):** the crowd pick also outranks the album-attached cover in the play seed (follows D-14).
 - **D-19:** Re-picking replaces my vote. No withdraw/undo endpoint; resetting a local pin does not touch the
   cloud vote.
 
