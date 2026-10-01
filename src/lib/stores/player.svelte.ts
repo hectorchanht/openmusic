@@ -41,7 +41,10 @@ import {
 } from '$lib/services/native-media-session';
 // quick-260915-w4f: getPinnedCover is the USER'S explicit cover choice. It leads every cover seed
 // in this store, and (uniquely) it is removed only by healCover's failed probe — never by a resolver.
-import { getCachedCoverByUid, getCachedCover, getPinnedCover } from '$lib/services/cover-cache';
+import { getCachedCoverByUid, getCachedCover, getPinnedCover, getCrowdCover } from '$lib/services/cover-cache';
+// Phase 40 D-14 / D-16: the crowd-shared cover pick — keys + the one GET per played song. The player
+// only READS the crowd (D-15: the TrackMenu picker tap is the only voter).
+import { coverPickKeys, fetchCoverPick } from '$lib/services/cover-pick-shared';
 import { resolveCoverForTrack } from '$lib/services/cover-backfill';
 import { matchKey } from '$lib/services/match-key';
 // quick-260615-hep: feed every displayed now-playing cover into the shared cache (both layers) +
@@ -57,7 +60,9 @@ import {
 	bumpCoverVersion,
 	removeCoverBoth,
 	readCoverByUidOrName,
-	unpinCover
+	unpinCover,
+	writeCrowdCover,
+	removeCrowdCover
 } from '$lib/stores/cover-version.svelte';
 // quick-260704-3ov: the pure serialize/parse codec was extracted out of this god-object into
 // a colocated, node-tested module (the "runes store thinly wraps a pure helper" precedent).
@@ -511,6 +516,10 @@ class Player {
 	 *  genuine track change invalidates the prior adoption. Plain field: an internal supersedence flag
 	 *  the UI never reads reactively (same posture as healProbed/playGen). */
 	private adoptedCoverUid: string | null = null;
+	/** Phase 40 D-16: uids whose crowd cover pick was already requested this session — one GET per
+	 *  played song. Plain field (nothing renders it). ponytail: grows by one uid per distinct song
+	 *  played and lives for the app session; cap it if sessions ever play many thousands of songs. */
+	private crowdRequested = new Set<string>();
 
 	/** Monotonic queue generation (WR-06): bumped by every explicit setQueue() so an in-flight
 	 * regenerate() (network-bound, seconds) can detect that the caller has since installed an
@@ -641,8 +650,11 @@ class Player {
 		// media metadata from the restored track so title/artist are present the moment playback resumes.
 		// quick-260915-w4f: the pin leads here too — a reload/PWA reopen must come back showing the
 		// cover the user chose, not the source thumbnail on target.cover.
+		// Phase 40 D-14 / Open Q5: a crowd pick ALREADY in the local cache is read here too (no fetch —
+		// the lookup runs on play only, D-16).
 		this.resolvedCover =
 			getPinnedCover(target.uid) ??
+			getCrowdCover(target.uid, target.artist, target.title) ??
 			target.cover ??
 			getCachedCoverByUid(target.uid) ??
 			getCachedCover(target.artist, target.title) ??
@@ -775,8 +787,10 @@ class Player {
 		// uid cache → name cache) so the hero/nowbar paint a known cover immediately, THEN write the
 		// media metadata so the OS card has title/artist the moment the user taps play —
 		// cover-hero-mediacard-missing, and quick-260915-w4f for why the pin leads the chain.
+		// Phase 40 D-14: a locally cached crowd pick ranks right behind the pin (read only, no fetch).
 		this.resolvedCover =
 			getPinnedCover(track.uid) ??
+			getCrowdCover(track.uid, track.artist, track.title) ??
 			track.cover ??
 			getCachedCoverByUid(track.uid) ??
 			getCachedCover(track.artist, track.title) ??
@@ -3630,8 +3644,12 @@ class Player {
 		// art, not whatever thumbnail a source returned"; a pin is the user saying "THIS song, THIS art",
 		// which is a stronger statement than either. It is also why the pin has to be read here and not
 		// only through the cache read below — track.cover sits ahead of the cache.
+		// Phase 40 D-14 / D-14a: the CROWD pick (a human choice shared by other listeners) sits right
+		// behind the pin and AHEAD of the attached album cover and the inline art. RESEARCH A7 trade-off,
+		// accepted by the user: an album page can show one song's crowd pick instead of uniform album art.
 		this.resolvedCover =
 			getPinnedCover(track.uid) ??
+			getCrowdCover(track.uid, track.artist, track.title) ??
 			this.attachedCoverFor(track) ??
 			track.cover ??
 			getCachedCoverByUid(track.uid) ??
@@ -3644,7 +3662,12 @@ class Player {
 		// {artist,title} name layer, which would push this one song's chosen art onto every same-named
 		// uid (covers, live versions, other sources) — the exact leak the separate pin store exists to
 		// prevent. The pin store IS the persistence; nothing else needs to learn it.
-		if (hasHttpsScheme(this.resolvedCover) && !getPinnedCover(track.uid))
+		// Phase 40 D-14: same for a crowd-chosen seed — chosen art must not leak into the auto name layer.
+		if (
+			hasHttpsScheme(this.resolvedCover) &&
+			!getPinnedCover(track.uid) &&
+			!getCrowdCover(track.uid, track.artist, track.title)
+		)
 			writeCoverBoth(track.uid, track.artist, track.title, this.resolvedCover);
 		// cover-hero-mediacard-missing (Issue 2): populate the OS media card title/artist IMMEDIATELY
 		// from the stub — BEFORE the async ensureTrackDetails resolve — so the card never shows the bare
@@ -4005,8 +4028,9 @@ class Player {
 	 * The post-src COVER tail of play(), extracted verbatim from it (CLAUDE.md flags this store as a
 	 * god object and asks for cohesive slices to be pulled out as the store thin-calls them). ONE
 	 * branch: a coverless track gets the full tier chain. A track that already painted from an inline
-	 * cover keeps it — the HQ upgrade branch was removed in Phase 40 D-11a. Non-blocking: playback
-	 * never waits on it.
+	 * cover keeps it — the HQ upgrade branch was removed in Phase 40 D-11a. Then `crowdCoverAsync`
+	 * looks up the crowd-shared pick (Phase 40 D-16, once per song per session). Non-blocking:
+	 * playback never waits on either.
 	 */
 	private postPlayCover(resolved: Track, myGen: number): void {
 		// COVER-01 / D-09: the playing track still has NO art (sync read missed AND the resolve
@@ -4031,6 +4055,36 @@ class Player {
 		// post-paint iTunes → Deezer "HQ upgrade" (Plan 26-02, quick-260831-t2g, quick-260920-nyq)
 		// silently replaced user-visible art and could downgrade it. The crowd pick is the only
 		// post-paint replacement and it is a human choice.
+		// Phase 40 D-14 vs D-09: runs whether or not the track has inline art — a crowd pick may
+		// replace an inline/ytmusic thumbnail precisely because a person chose it.
+		void this.crowdCoverAsync(resolved, myGen);
+	}
+
+	/**
+	 * Phase 40 D-14 / D-16: fetch the crowd-shared cover pick for the playing song — ONE GET per played
+	 * song per session (edge-cached 300 s server-side), never per row. Skipped for device: uids (no
+	 * cross-user identity) and pinned songs (the pin wins anyway). A winner is cached in the crowd
+	 * family and adopted through adoptCover, which refreshes resolvedCover AND re-fires the OS media
+	 * card (memory: hero-mediacard-cover-resolvedcover-asymmetry). Generation-guarded (T-21-06).
+	 */
+	private async crowdCoverAsync(resolved: Track, myGen: number): Promise<void> {
+		const { uid, artist, title } = resolved;
+		if (isDeviceUid(uid) || getPinnedCover(uid) || this.crowdRequested.has(uid)) return;
+		this.crowdRequested.add(uid);
+		const keys = await coverPickKeys(uid, artist, title);
+		if (!keys) return;
+		let pick: Awaited<ReturnType<typeof fetchCoverPick>> = null;
+		try {
+			pick = await fetchCoverPick(keys);
+		} catch {
+			pick = null; // never-throw already, but stay defensive
+		}
+		if (myGen !== this.playGen) return; // a newer play() superseded — discard (T-21-06)
+		if (!pick) return;
+		writeCrowdCover(uid, artist, title, pick);
+		// Read back through the same uid → name order adoptCover's `chosen` uses, so the two agree.
+		const winner = getCrowdCover(uid, artist, title);
+		if (winner) this.adoptCover(uid, winner);
 	}
 
 	/**
@@ -4182,20 +4236,22 @@ class Player {
 			const cur = this.current;
 			if (!cur || cur.uid !== uid) return; // (1) no track / superseded — discard
 			if (!hasHttpsScheme(url)) return; // (2) not a cacheable, renderable URL
-			// quick-260915-w4f (4): when the song is PINNED, the pin is the only URL this seam accepts.
+			// quick-260915-w4f (4): when the song is PINNED or crowd-chosen (Phase 40 D-14), that chosen
+			// url (pin ?? crowd) is the only URL this seam accepts.
 			// A Last.fm hi-res swap / any other "better cover" discovery must not displace the user's
 			// choice. The pin url itself IS allowed through — that is how the cover picker makes the
 			// hero, the Nowbar and the OS media card adopt a fresh pin instantly (Q5): this method is
 			// already THE seam for exactly that, so it is reused rather than duplicated.
-			const pinned = getPinnedCover(uid);
-			if (pinned && url !== pinned) return;
+			const chosen = getPinnedCover(uid) ?? getCrowdCover(uid, cur.artist, cur.title);
+			if (chosen && url !== chosen) return;
 			if (url === this.resolvedCover) return; // (3) already showing it — nothing to do
 			this.resolvedCover = url;
 			this.adoptedCoverUid = uid;
 			// Writes uid + name layers AND bumps the reactive signal, so every sibling surface for this
-			// song (up-next rows, search tiles, backfill) repaints with the same art. SKIPPED for a pin:
-			// pinCover already bumped, and the name layer must never carry a pin (see play()'s Site A).
-			if (!pinned) writeCoverBoth(uid, cur.artist, cur.title, url);
+			// song (up-next rows, search tiles, backfill) repaints with the same art. SKIPPED for a chosen
+			// url: pinCover / writeCrowdCover already bumped, and the auto layers must never carry chosen
+			// art (see play()'s Site A).
+			if (!chosen) writeCoverBoth(uid, cur.artist, cur.title, url);
 			const ms = this.ms;
 			if (ms) {
 				ms.metadata = makeMetadata({
@@ -4296,6 +4352,9 @@ class Player {
 			// it would repaint a black hero on every replay forever (the exact bug 20e fixed). So drop it
 			// BEFORE the eviction + re-resolve below, and let the normal chain find fresh art.
 			if (getPinnedCover(uid) === url) unpinCover(uid);
+			// Phase 40 D-19 / Pitfall 11: a dead CROWD url is evicted LOCALLY only — the cloud vote is
+			// never withdrawn (no server call). The chain below then re-resolves.
+			if (getCrowdCover(uid, artist, title) === url) removeCrowdCover(uid, artist, title);
 			// Evict BOTH cache layers (empty-uid safe — removeCoverBoth skips the shared 'uid:' slot for
 			// an empty uid) so the stale dead cover is dropped before the re-resolve re-caches.
 			removeCoverBoth(uid, artist, title);
