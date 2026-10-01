@@ -48,7 +48,7 @@ const mocks = vi.hoisted(() => ({
 		zhLock: vi.fn((s: string) => s)
 	},
 	ensureTrackDetails: vi.fn(async (_t: Track, _s?: unknown, _q?: unknown) => _t),
-	put: vi.fn(async (_uid: string, _blob: Blob, _filename?: string) => true),
+	put: vi.fn(async (_uid: string, _blob: Blob, _filename?: string, _opts?: { dir?: string }) => true),
 	saveBlobToDisk: vi.fn((_blob: Blob, _filename: string) => true),
 	// 36-03: the tag seam. Default = a no-op passthrough reporting success, so every PRE-EXISTING
 	// test above still asserts on the fetched blob's own identity/type.
@@ -930,5 +930,63 @@ describe('downloadTrack — audioFrom donor url under the original identity (qui
 		mocks.tagAudioBlob.mockClear();
 		await downloadTrack(mk({ uid: 'netease-1', lrc: 'own' }), { audioFrom: mk({ ...donor(), lrc: '[00:01.00]x' }) });
 		expect((mocks.tagAudioBlob.mock.calls[0][1] as { lyrics?: string }).lyrics).toBe('own');
+	});
+});
+
+describe('Phase 40 album opts (D-04)', () => {
+	const go = () => mocks.ensureTrackDetails.mockResolvedValue(mk({ audioUrl: 'https://cdn.example.com/x.m4a' }));
+
+	it('persist + save:false + dir threads { dir } into blobStore.put and clicks no anchor', async () => {
+		go();
+		stubFetch(new Blob(['a']));
+		const res = await downloadTrack(mk({ audioUrl: null, detailsLoaded: false }), {
+			persist: true,
+			save: false,
+			dir: 'A/B'
+		});
+		expect(res).toBe('saved');
+		expect(mocks.put).toHaveBeenCalledWith('netease-1', expect.any(Blob), 'Artist - Song.m4a', { dir: 'A/B' });
+		expect(mocks.saveBlobToDisk).not.toHaveBeenCalled();
+	});
+
+	it('no dir keeps the exact 3-arg put call shape', async () => {
+		go();
+		stubFetch(new Blob(['a']));
+		await downloadTrack(mk({ audioUrl: null, detailsLoaded: false }), { persist: true });
+		expect(mocks.put.mock.calls[0]).toHaveLength(3);
+	});
+
+	it('fires onSaved(uid, filename, blob) once before resolving "saved"', async () => {
+		go();
+		stubFetch(new Blob(['a']));
+		const onSaved = vi.fn();
+		const res = await downloadTrack(mk({ audioUrl: null, detailsLoaded: false }), { save: false, onSaved });
+		expect(res).toBe('saved');
+		expect(onSaved).toHaveBeenCalledTimes(1);
+		expect(onSaved).toHaveBeenCalledWith('netease-1', 'Artist - Song.m4a', mocks.put.mock.calls[0][1]);
+		// fired inside the bracket, i.e. before the spinner cleared
+		expect(onSaved.mock.invocationCallOrder[0]).toBeLessThan(
+			mocks.library.endDownload.mock.invocationCallOrder[0]
+		);
+	});
+
+	it('a throwing onSaved does not change the result', async () => {
+		go();
+		stubFetch(new Blob(['a']));
+		const onSaved = vi.fn(() => {
+			throw new Error('boom');
+		});
+		await expect(
+			downloadTrack(mk({ audioUrl: null, detailsLoaded: false }), { save: false, onSaved })
+		).resolves.toBe('saved');
+	});
+
+	it('onSaved is not fired when the fetch fails', async () => {
+		go();
+		stubFetchReject();
+		const onSaved = vi.fn();
+		const res = await downloadTrack(mk({ audioUrl: null, detailsLoaded: false }), { save: false, onSaved });
+		expect(res).toBe('failed');
+		expect(onSaved).not.toHaveBeenCalled();
 	});
 });
