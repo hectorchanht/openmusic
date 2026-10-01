@@ -61,6 +61,18 @@ export function pickQuery(keys: PickKeys): string {
 	return [keys.u ? `u=${keys.u}` : '', keys.n ? `n=${keys.n}` : ''].filter(Boolean).join('&');
 }
 
+/**
+ * The edge-cache URL for a GET reply. Deliberately NOT the public `/api/cover-pick?…` URL:
+ * adapter-cloudflare's worker answers any GET whose own URL sits in `caches.default` straight from
+ * the cache, BEFORE the route and hooks.server.ts run, so the stored copy (no CORS, `max-age=300`)
+ * would reach the APK WebView (https://localhost, cross-origin) unreadable. Off-path, only the route's
+ * own `cache.match` finds it and it re-applies CORS. Shared by the GET and the post-vote bust so both
+ * build a byte-identical key.
+ */
+export function pickCacheUrl(origin: string, keys: PickKeys): string {
+	return `${origin}/api/cover-pick/__edge?${pickQuery(keys)}`;
+}
+
 export function emptyRecord(): PickRecord {
 	return { v: 1, votes: {} };
 }

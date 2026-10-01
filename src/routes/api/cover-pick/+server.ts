@@ -21,7 +21,7 @@ import {
 	isPickKey,
 	pickObjectKey,
 	pickThrottleKey,
-	pickQuery,
+	pickCacheUrl,
 	parseVoteBody,
 	parseRecord,
 	emptyRecord,
@@ -77,7 +77,8 @@ export const GET: RequestHandler = async ({ url, request, platform }) => {
 	if (!bucket) return jsonResponse({ ok: false, err: 'unconfigured' }, origin, { status: 503 });
 
 	const cache = edgeCache();
-	const cacheReq = ownOriginCacheKey(url);
+	// Off the public URL (pickCacheUrl) so the adapter worker can never serve it without CORS.
+	const cacheReq = ownOriginCacheKey(pickCacheUrl(url.origin, { u, n }));
 	if (cache) {
 		const hit = await cache.match(cacheReq);
 		// Re-apply CORS for THIS origin: the stored copy is CORS-free. `no-cache` is for the BROWSER
@@ -170,11 +171,9 @@ export const POST: RequestHandler = async (event) => {
 		result[kind] = c;
 	}
 
-	// Bust this PoP's cached GET (repair-on-encounter, not a global purge). `pickQuery` is the same
-	// builder the client uses, so this is byte-identical to the GET's own cache key.
-	const getUrl = new URL(url);
-	getUrl.search = pickQuery({ u: vote.u, n: vote.n });
-	await edgeCache()?.delete(ownOriginCacheKey(getUrl));
+	// Bust this PoP's cached GET (repair-on-encounter, not a global purge). `pickCacheUrl` is the
+	// GET's own key builder, so this is byte-identical to what the GET cached.
+	await edgeCache()?.delete(ownOriginCacheKey(pickCacheUrl(url.origin, { u: vote.u, n: vote.n })));
 	// No cache options: a write reply is never cacheable.
 	return jsonResponse({ ok: true, ...result }, origin);
 };
