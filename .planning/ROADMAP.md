@@ -550,7 +550,7 @@ Plans:
 **Goal:** The album Download button downloads every song into `Music/OpenMusic/<Artist>/<Album>/` on Android (one `<Artist> - <Album>.zip` on web), QQ and iTunes covers outrank YT Music in the auto chain and picker with the HQ upgrade removed, and a Change-cover pick is stored as a cloud vote on the DIAG R2 bucket and auto-applied for every user (pin > crowd > inline > chain).
 **Requirements**: decision-based — D-01..D-19 (+ D-08 amended, D-11a, D-11b, D-14a, D-18a) in 40-CONTEXT.md
 **Depends on:** Phase 39
-**Plans:** 4/9 plans executed
+**Plans:** 5/9 plans executed
 
 Plans:
 **Wave 1**
@@ -562,7 +562,7 @@ Plans:
 **Wave 2** *(blocked on Wave 1 completion)*
 
 - [x] 40-02-PLAN.md — Kotlin subPath/moveInMusic, blob-store sticky dir + moveToDir, download-track dir/onSaved (D-01, D-02, D-04, D-05)
-- [ ] 40-05-PLAN.md — Delete the HQ upgrade; YTM uid-only gates in writeCoverBoth + library.adoptCover (D-09, D-11a, D-11b)
+- [x] 40-05-PLAN.md — Delete the HQ upgrade; YTM uid-only gates in writeCoverBoth + library.adoptCover (D-09, D-11a, D-11b)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
