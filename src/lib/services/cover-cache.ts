@@ -38,6 +38,9 @@
 //     next write rewrites them as `{u,t}` (lazy upgrade). No re-resolve storm.
 //   - The `v1` CACHE_KEY is deliberately PRESERVED (NOT bumped to v2): bumping would cold-flush
 //     every user's cache — the exact re-resolve storm this change avoids.
+//
+// Phase 40 D-14 adds a FOURTH family, `crowd:uid:<uid>` / `crowd:name:<matchKey>` — the cached
+// crowd-shared cover pick (see CROWD PICKS below). Same record, same TTL / cap / clear semantics.
 
 import { matchKey } from './match-key';
 // quick-260915-w4f: the shared https predicate guards what setPinnedCover is allowed to persist.
@@ -402,6 +405,59 @@ export function removeCachedCover(artist: string, title: string): void {
  */
 export function removeCachedArtistCover(artist: string): void {
 	removeKey(artistCoverCacheKey(artist));
+}
+
+// ── CROWD PICKS (Phase 40 D-14 / D-19) ──────────────────────────────────────────────────────────
+// The cover OTHER listeners voted for (/api/cover-pick), cached locally per song. Two keys mirror
+// the two vote keys: `crowd:uid:<uid>` (exact song) and `crowd:name:<matchKey>` (same-named songs).
+// A matchKey never contains `:` (norm strips it), and `crowd:` is a new prefix, so this family is
+// disjoint from the `uid:` / `<matchKey>` / `artist:` / `itunes:` families — a crowd pick never
+// reads as an auto-resolved cover and vice versa. Unlike a pin it IS a cache: it shares the TTL,
+// the write-time-LRU cap and clearCoverCache (the server is the source of truth; a miss refetches).
+// D-19: evicting an entry is local only — nothing here talks to the server.
+
+function crowdUidKey(uid: string): string {
+	return 'crowd:uid:' + uid;
+}
+function crowdNameKey(artist: string, title: string): string {
+	return 'crowd:name:' + coverCacheKey(artist, title);
+}
+
+/** The crowd pick for an exact uid, or null. Empty uid is always a miss (EMPTY-UID guard). */
+export function getCrowdCoverByUid(uid: string): string | null {
+	return uid ? readKey(crowdUidKey(uid)) : null;
+}
+
+/** Cache the crowd pick for `uid`. No-op on an empty uid or a non-https url. Never throws. */
+export function setCrowdCoverByUid(uid: string, url: string): void {
+	if (!uid || !hasHttpsScheme(url)) return;
+	writeKey(crowdUidKey(uid), url);
+}
+
+/** Evict the crowd pick for `uid` (local only, D-19). Never throws. */
+export function removeCrowdCoverByUid(uid: string): void {
+	if (uid) removeKey(crowdUidKey(uid));
+}
+
+/** The crowd pick for an {artist,title} name, or null. */
+export function getCrowdCoverByName(artist: string, title: string): string | null {
+	return readKey(crowdNameKey(artist, title));
+}
+
+/** Cache the crowd pick for an {artist,title} name. No-op on a non-https url. Never throws. */
+export function setCrowdCoverByName(artist: string, title: string, url: string): void {
+	if (!hasHttpsScheme(url)) return;
+	writeKey(crowdNameKey(artist, title), url);
+}
+
+/** Evict the crowd pick for an {artist,title} name (local only, D-19). Never throws. */
+export function removeCrowdCoverByName(artist: string, title: string): void {
+	removeKey(crowdNameKey(artist, title));
+}
+
+/** Crowd read order: exact uid first, then the name key. */
+export function getCrowdCover(uid: string, artist: string, title: string): string | null {
+	return getCrowdCoverByUid(uid) ?? getCrowdCoverByName(artist, title);
 }
 
 // ── USER COVER PINS (quick-260915-w4f) ──────────────────────────────────────────────────────────
