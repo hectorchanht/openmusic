@@ -61,9 +61,15 @@ export function currentQualityMeets(curQuality: string | null, want: DefaultQual
 
 /**
  * Download ONE song: resolve→addDownload→fetch→(persist)→save. Isolation-safe, never-throws,
- * never-navigates. `opts.persist` defaults TRUE; `persist:false` (the album bulk path) skips
- * `blobStore.put` — matching album's current behavior (no offline blob / no native public copy) —
- * while addDownload + saveBlobToDisk + begin/end still run.
+ * never-navigates. `opts.persist` defaults TRUE; `persist:false` skips `blobStore.put` (no offline
+ * blob, no native public copy) while addDownload + saveBlobToDisk + begin/end still run — for a
+ * caller that only wants a browser save.
+ *
+ * 40-D-04: the album path uses `persist:true, save:false, dir` instead, so the offline blob AND the
+ * native public write both happen (`persist:false` was why album downloads never reached
+ * `Music/OpenMusic/`). `opts.dir` (`Artist/Album`) is threaded into `blobStore.put` to file the public
+ * copy into its album folder (40-D-01); `opts.onSaved(uid, filename, blob)` hands the persisted blob
+ * back to the caller (the web zip) without a second read.
  *
  * 31-D-12: `opts.save` also defaults TRUE; `save:false` is the SILENT background repair mode — the
  * offline blob is re-persisted and the library record refreshed, but no `<a download>` click fires.
@@ -92,7 +98,15 @@ export function currentQualityMeets(curQuality: string | null, want: DefaultQual
  */
 export async function downloadTrack(
 	track: Track,
-	opts?: { persist?: boolean; save?: boolean; trackNumber?: string; albumArtist?: string; audioFrom?: Track }
+	opts?: {
+		persist?: boolean;
+		save?: boolean;
+		trackNumber?: string;
+		albumArtist?: string;
+		audioFrom?: Track;
+		dir?: string;
+		onSaved?: (uid: string, filename: string, blob: Blob) => void;
+	}
 ): Promise<DownloadResult> {
 	// DL-STATE-01: bracket the per-uid spinner. beginDownload BEFORE the first await; endDownload in
 	// the `finally` so EVERY exit (saved / no-audio / failed / any throw) clears the spinner exactly once.
@@ -287,9 +301,17 @@ export async function downloadTrack(
 
 		// Offline cache (kyf): persist the SAME blob keyed by uid so a later player.play() of this uid
 		// streams from the local blob instead of the CDN. The filename is threaded to the native public
-		// (MediaStore) write. Skipped for the album bulk path (persist:false). Never throws.
+		// (MediaStore) write. Skipped when persist:false. Never throws. 40-D-01: the album dir is a 4th
+		// arg ONLY when set, so every dir-less call keeps its exact 3-arg shape.
 		if (opts?.persist !== false) {
-			await blobStore.put(r.uid, blob, filename);
+			if (opts?.dir) await blobStore.put(r.uid, blob, filename, { dir: opts.dir });
+			else await blobStore.put(r.uid, blob, filename);
+		}
+		// 40-D-04: hand the saved blob to the caller (album zip collection) before any early return.
+		try {
+			opts?.onSaved?.(r.uid, filename, blob);
+		} catch {
+			// a broken callback must not fail the download (36-D-19 posture).
 		}
 
 		// 31-D-12: silent background repair — the offline blob (and the library record) are refreshed
