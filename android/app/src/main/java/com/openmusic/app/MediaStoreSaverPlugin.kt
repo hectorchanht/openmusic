@@ -380,12 +380,32 @@ class MediaStoreSaverPlugin : Plugin() {
                         call.reject("io:move")
                         return
                     }
-                    val oldFile = File(path)
                     @Suppress("DEPRECATION")
                     val musicDir =
                         Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC)
-                    val targetDir = File(musicDir, "OpenMusic/$sub").apply { mkdirs() }
-                    val newFile = File(targetDir, oldFile.name)
+                    // 40-WR-05: the source path comes from the JS bridge, so it is re-checked like
+                    // subPath — only a file under Music/OpenMusic/ (one this app wrote) may move;
+                    // canonicalFile resolves `..` and symlinks before the prefix test.
+                    val root = File(musicDir, "OpenMusic").canonicalFile
+                    val oldFile = File(path).canonicalFile
+                    if (!oldFile.isFile || !oldFile.path.startsWith(root.path + File.separator)) {
+                        call.reject("io:move")
+                        return
+                    }
+                    val targetDir = File(root, sub)
+                    val newFile = File(targetDir, oldFile.name).canonicalFile
+                    if (newFile == oldFile) { // already filed there — a no-op move, not a clobber
+                        call.resolve(JSObject().put("uri", Uri.fromFile(newFile).toString()))
+                        return
+                    }
+                    // 40-WR-05: rename(2) silently REPLACES an existing target — another download at
+                    // the same <Artist>/<Album>/<name> would be destroyed. Never clobber: "saved, not moved".
+                    // The target is re-checked under root too (a symlinked album dir must not escape it).
+                    if (newFile.exists() || !newFile.path.startsWith(root.path + File.separator)) {
+                        call.reject("io:move")
+                        return
+                    }
+                    targetDir.mkdirs()
                     if (oldFile.renameTo(newFile)) {
                         MediaScannerConnection.scanFile(
                             context,
