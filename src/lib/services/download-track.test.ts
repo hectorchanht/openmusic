@@ -93,7 +93,7 @@ vi.mock('$lib/services/variants', async (orig) => ({
 }));
 vi.mock('$lib/services/download-probe', () => ({ probeDownload: mocks.probeDownload }));
 
-import { downloadTrack, downloadFromDonor, type DownloadResult } from './download-track';
+import { downloadTrack, downloadFromDonor, probeForDownload, type DownloadResult } from './download-track';
 import { QqRateLimitedError } from '$lib/sources/qq';
 
 // A full Track (cast so optional source-specific extras can be omitted).
@@ -1265,5 +1265,45 @@ describe('downloadTrack — rate-limited + downloadFromDonor (quick-260930-x3q)'
 		expect(await downloadFromDonor(qqT(), {}, { exclude: ['qq'] })).toBe('saved');
 		stubFetchBy(['https://cdn.example/netease:7.m4a', 'https://cdn.example/kuwo:5.m4a']);
 		expect(await downloadFromDonor(qqT(), {}, { exclude: ['qq'] })).toBe('failed');
+	});
+});
+
+// quick-260930-x3q: the Download label for a ytmusic song describes the DONOR file the tap will save
+// (same donor walk + memo downloadTrack uses), or nothing when no other source has the song.
+describe('probeForDownload (quick-260930-x3q)', () => {
+	const yt = () => mk({ uid: 'ytmusic:abc', source: 'ytmusic', songid: 'abc', audioUrl: null });
+
+	it('ytmusic: probes the first non-ytmusic donor only and returns its probe', async () => {
+		mocks.fetchVariants.mockImplementation(async () => [
+			mk({ uid: 'qq:9', source: 'qq', songid: '9', audioUrl: null }),
+			mk({ uid: 'ytmusic:def', source: 'ytmusic', songid: 'def', audioUrl: null })
+		]);
+		const p = await probeForDownload(yt());
+		expect(mocks.probeDownload).toHaveBeenCalledTimes(1);
+		expect(mocks.probeDownload.mock.calls[0][0].uid).toBe('qq:9');
+		expect(p.track?.uid).toBe('qq:9');
+	});
+
+	it('ytmusic with no donor: the all-null probe, nothing probed', async () => {
+		const p = await probeForDownload(yt());
+		expect(p).toEqual({ container: null, qualityLabel: null, bytes: null, track: null });
+		expect(mocks.probeDownload).not.toHaveBeenCalled();
+	});
+
+	it('non-ytmusic: delegates straight to probeDownload, no variants lookup', async () => {
+		const t = mk({ uid: 'qq:1', source: 'qq' });
+		const ac = new AbortController();
+		await probeForDownload(t, ac.signal);
+		expect(mocks.probeDownload).toHaveBeenCalledTimes(1);
+		expect(mocks.probeDownload).toHaveBeenCalledWith(t, ac.signal);
+		expect(mocks.fetchVariants).not.toHaveBeenCalled();
+	});
+
+	it('TrackMenu and DownloadControl label from probeForDownload, not probeDownload', () => {
+		for (const f of ['TrackMenu.svelte', 'DownloadControl.svelte']) {
+			const src = readFileSync(new URL(`../components/${f}`, import.meta.url), 'utf8');
+			expect(src).toContain('probeForDownload(target');
+			expect(src).not.toContain('probeDownload(target');
+		}
 	});
 });
