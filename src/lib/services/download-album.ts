@@ -23,11 +23,20 @@
 //   quick-260930-uia: a ytmusic song is handed to `downloadTrack` like any other — the "never route
 //     to YT Music" donor rule lives in download-track.ts (`canDownloadFrom`), so this loop has no
 //     donor lookup of its own. `onProgress(n, total)` counts COMPLETED songs (saved, failed or
-//     skipped), and zip entries are assembled in album order after the pool drains.
+//     skipped), and zip entries are assembled in album order after every song settles.
 //
-// ponytail: POOL=3 workers; the apiFetch governor (MAX_CONCURRENT_REQUESTS=8, api fetch-flood-freeze)
-// still bounds the resolve/probe calls, and the audio bodies are raw fetches that never shared that
-// pool. Raise POOL only with a measurement.
+//   quick-260930-vjp: two-stage pipeline. Every song enters at once and passes two gates handed to
+//     `downloadTrack` as `stages`: RESOLVE (link lookup, RESOLVE_POOL=3) feeds TRANSFER (raw audio body
+//     → tag → persist, TRANSFER_POOL=8). A song moves to stage 2 the moment its link resolves, so one
+//     slow resolve or one slow CDN body no longer holds a slot the rest of the album needs (the old
+//     single 3-wide pool took 155 s for 10 songs, mostly a 1-busy tail). Stage 1 shares the apiFetch
+//     governor (MAX_CONCURRENT_REQUESTS=8, api fetch-flood-freeze) with playback, so 3 leaves headroom
+//     for a song the user starts meanwhile; stage 2 is raw CDN fetches outside that governor.
+//     Rows show the busy ring from the moment the album starts (queued is busy); the progress fraction
+//     appears once bytes flow (`setDownloadProgress`).
+//
+// ponytail: 8 lossless bodies can sit in heap at once (~400 MB worst case); lower TRANSFER_POOL or
+// stream to IndexedDB if that bites.
 
 import type { Track } from '$lib/sources/types';
 import { Capacitor } from '@capacitor/core';
@@ -35,7 +44,7 @@ import { library } from '$lib/stores/library.svelte';
 import { names } from '$lib/stores/names.svelte';
 import { blobStore } from '$lib/services/blob-store';
 import { saveBlobToDisk } from '$lib/services/download-save';
-import { downloadTrack } from '$lib/services/download-track';
+import { downloadTrack, type StageGate } from '$lib/services/download-track';
 import { sameSongKey } from '$lib/services/dedupe';
 import { buildZip, type ZipEntry } from '$lib/services/zip-store';
 import {
@@ -46,7 +55,31 @@ import {
 	sanitizeFilename
 } from '$lib/services/download-filename';
 
-const POOL = 3;
+const RESOLVE_POOL = 3;
+const TRANSFER_POOL = 8;
+
+/** A FIFO semaphore of `n` slots. Each grant's release is idempotent so a double call cannot leak a slot. */
+function gate(n: number): StageGate {
+	let free = n;
+	const waiting: (() => void)[] = [];
+	return () =>
+		new Promise((grant) => {
+			const go = () => {
+				let done = false;
+				grant(() => {
+					if (done) return;
+					done = true;
+					const next = waiting.shift();
+					if (next) next();
+					else free++;
+				});
+			};
+			if (free > 0) {
+				free--;
+				go();
+			} else waiting.push(go);
+		});
+}
 
 /** `a.mp3` → `a (2).mp3` → `a (3).mp3` for a name already used inside this zip. */
 function uniqueName(name: string, used: Set<string>): string {
@@ -95,9 +128,11 @@ export async function downloadAlbum(
 		// quick-260930-uia: one slot per album position, filled as songs complete in any order, then
 		// zipped in index order so `uniqueName`'s `(2)` suffixing stays deterministic in album order.
 		const slots: ({ filename: string; blob: Blob } | null)[] = new Array(total).fill(null);
+		const stages = { resolve: gate(RESOLVE_POOL), transfer: gate(TRANSFER_POOL) };
 
 		const one = async (i: number, tr: Track) => {
-			// Claimed SYNCHRONOUSLY before any await, so two workers can never both take one uid.
+			// Claimed SYNCHRONOUSLY before any await, so two songs can never both take one uid — and
+			// `tracks.map` calls this in index order, so the first occurrence wins.
 			if (seenUids.has(tr.uid)) return;
 			seenUids.add(tr.uid);
 			try {
@@ -131,7 +166,8 @@ export async function downloadAlbum(
 					trackNumber: String(i + 1),
 					albumArtist: meta.artist || undefined,
 					...(native && dir ? { dir } : {}),
-					onSaved: native ? undefined : (uid, filename, blob) => (got = { uid, filename, blob })
+					onSaved: native ? undefined : (uid, filename, blob) => (got = { uid, filename, blob }),
+					stages
 				});
 				if (res !== 'saved') return;
 				if (native) {
@@ -150,20 +186,19 @@ export async function downloadAlbum(
 			}
 		};
 
-		let next = 0;
 		let done = 0;
-		const worker = async () => {
-			for (let i = next++; i < total; i = next++) {
-				await one(i, tracks[i]);
-				done++;
-				try {
-					onProgress?.(done, total);
-				} catch {
-					// a broken progress callback must not abort the album (36-D-19).
-				}
-			}
-		};
-		await Promise.all(Array.from({ length: Math.min(POOL, total || 1) }, worker));
+		await Promise.all(
+			tracks.map((tr, i) =>
+				one(i, tr).then(() => {
+					done++;
+					try {
+						onProgress?.(done, total);
+					} catch {
+						// a broken progress callback must not abort the album (36-D-19).
+					}
+				})
+			)
+		);
 		for (const slot of slots) if (slot) addEntry(slot.filename, slot.blob);
 
 		if (!native && entries.length) {
