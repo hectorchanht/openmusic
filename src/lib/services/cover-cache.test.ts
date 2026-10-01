@@ -881,6 +881,13 @@ describe('crowd: family (Phase 40 D-14)', () => {
 		expect(getCachedCover('A', 'T')).toBeNull();
 	});
 
+	it('a live/remix version keeps its OWN crowd name entry (never the studio one)', () => {
+		setCrowdCoverByName('周杰伦', '晴天', URL_N);
+		expect(getCrowdCoverByName('周杰伦', '晴天 (Live)')).toBeNull();
+		expect(getCrowdCoverByName('周杰伦', '晴天 - Remix')).toBeNull();
+		expect(getCrowdCoverByName('周杰伦', ' 晴天 ')).toBe(URL_N);
+	});
+
 	it('getCrowdCover reads uid first, then name, else null', () => {
 		expect(getCrowdCover('qq:1', 'A', 'T')).toBeNull();
 		setCrowdCoverByName('A', 'T', URL_N);

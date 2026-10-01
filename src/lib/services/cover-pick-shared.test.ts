@@ -29,6 +29,14 @@ describe('coverPickKeys', () => {
 		expect(k?.u).toMatch(/^[0-9a-f]{32}$/);
 		expect(k?.n).toMatch(/^[0-9a-f]{32}$/);
 	});
+	it('keeps a version marker distinguishing: "晴天 (Live)" never shares the studio n key', async () => {
+		const studio = await coverPickKeys('qq:1', '周杰伦', '晴天');
+		for (const t of ['晴天 (Live)', '晴天（Live）', '晴天 - Live', '晴天 (Remix)', '晴天 [Acoustic]']) {
+			expect((await coverPickKeys('qq:2', '周杰伦', t))?.n).not.toBe(studio?.n);
+		}
+		// …while case / space / punctuation still fold, as before
+		expect((await coverPickKeys('qq:2', 'a b', 'T!'))?.n).toBe((await coverPickKeys('qq:1', 'A', 'T'))?.n);
+	});
 	it('is deterministic', async () => {
 		expect(await coverPickKeys('qq:1', 'A', 'T')).toEqual(await coverPickKeys('qq:1', 'A', 'T'));
 	});
