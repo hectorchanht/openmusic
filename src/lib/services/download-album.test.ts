@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Track } from '$lib/sources/types';
 import * as zipStore from './zip-store';
 
@@ -305,7 +305,8 @@ describe('downloadAlbum — album order + completion progress (quick-260930-uia)
 });
 
 // quick-260930-vjp: every song enters a two-stage pipeline at once — RESOLVE (link lookup, max 3,
-// shares the apiFetch governor with playback) feeding TRANSFER (raw audio body + tag + persist, max 8).
+// grants 3.5 s apart: shares the apiFetch governor with playback and stays under the qq detail host's
+// rate limit) feeding TRANSFER (raw audio body + tag + persist, max 8). Fake timers drive the pacing.
 // The stub mimics downloadTrack's gate contract: acquire resolve → park → release → acquire transfer →
 // park → onSaved → release. Each park is a per-uid gate the test opens.
 describe('downloadAlbum — two-stage pipeline (quick-260930-vjp)', () => {
@@ -343,9 +344,10 @@ describe('downloadAlbum — two-stage pipeline (quick-260930-vjp)', () => {
 		const open = (stage: 'r' | 't', uids: string[]) => uids.forEach((u) => park(`${stage}:${u}`).open());
 		return { state, open };
 	}
-	const flush = async (n = 5) => {
-		for (let i = 0; i < n; i++) await new Promise((r) => setTimeout(r, 0));
-	};
+	beforeEach(() => vi.useFakeTimers());
+	afterEach(() => vi.useRealTimers());
+	/** Let `n` seconds of fake time pass, settling microtasks in between. */
+	const flush = (n = 5) => vi.advanceTimersByTimeAsync(n * 1000);
 	const songs = (n: number) => Array.from({ length: n }, (_, i) => mk(i + 1));
 	const uids = (tracks: Track[]) => tracks.map((t) => t.uid);
 
@@ -364,6 +366,7 @@ describe('downloadAlbum — two-stage pipeline (quick-260930-vjp)', () => {
 		});
 		open('r', uids(tracks));
 		open('t', uids(tracks));
+		await flush(60);
 		expect(await run).toEqual({ saved: 10, total: 10 });
 	});
 
@@ -372,13 +375,14 @@ describe('downloadAlbum — two-stage pipeline (quick-260930-vjp)', () => {
 		const { state, open } = stagedImpl();
 		const tracks = songs(10);
 		const run = downloadAlbum(tracks, META);
-		await flush();
+		await flush(30); // well past the pacing: the pool, not the spacing, holds it at 3
 		expect(state.resolveGrants).toBe(3);
 		open('r', ['qq:1']);
 		await flush();
 		expect(state.resolveGrants).toBe(4);
 		open('r', uids(tracks));
 		open('t', uids(tracks));
+		await flush(60);
 		expect(await run).toEqual({ saved: 10, total: 10 });
 		expect(state.maxResolve).toBe(3);
 	});
@@ -389,14 +393,34 @@ describe('downloadAlbum — two-stage pipeline (quick-260930-vjp)', () => {
 		const tracks = songs(10);
 		open('r', uids(tracks));
 		const run = downloadAlbum(tracks, META);
-		await flush(20);
+		await flush(60);
 		expect(state.transferGrants).toBe(8);
 		open('t', ['qq:1']);
 		await flush();
 		expect(state.transferGrants).toBe(9);
 		open('t', uids(tracks));
+		await flush(60);
 		expect(await run).toEqual({ saved: 10, total: 10 });
 		expect(state.maxTransfer).toBe(8);
+	});
+
+	it('starts resolve grants at least 3.5 s apart, even with free slots', async () => {
+		mocks.native = true;
+		const grants: number[] = [];
+		const tracks = songs(4);
+		const start = Date.now();
+		mocks.downloadTrack.mockImplementation(async (_tr: Track, opts: Opts) => {
+			const free = await opts.stages.resolve();
+			grants.push(Date.now() - start);
+			free();
+			return 'saved';
+		});
+		const run = downloadAlbum(tracks, META);
+		await flush(4);
+		expect(grants).toEqual([0, 3500]);
+		await flush(10);
+		expect(grants).toEqual([0, 3500, 7000, 10500]);
+		expect(await run).toEqual({ saved: 4, total: 4 });
 	});
 
 	it('a slow resolve does not block the rest of the album', async () => {
@@ -412,11 +436,12 @@ describe('downloadAlbum — two-stage pipeline (quick-260930-vjp)', () => {
 			settled = true;
 			return r;
 		});
-		await flush(20);
+		await flush(60);
 		expect(progress.at(-1)).toEqual([6, 7]);
 		expect(settled).toBe(false);
 		open('r', ['qq:1']);
 		open('t', ['qq:1']);
+		await flush(60);
 		expect(await run).toEqual({ saved: 7, total: 7 });
 	});
 });

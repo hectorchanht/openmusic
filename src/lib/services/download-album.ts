@@ -30,12 +30,19 @@
 //     → tag → persist, TRANSFER_POOL=8). A song moves to stage 2 the moment its link resolves, so one
 //     slow resolve or one slow CDN body no longer holds a slot the rest of the album needs (the old
 //     single 3-wide pool took 155 s for 10 songs, mostly a 1-busy tail). Stage 1 shares the apiFetch
-//     governor (MAX_CONCURRENT_REQUESTS=8, api fetch-flood-freeze) with playback, so 3 leaves headroom
-//     for a song the user starts meanwhile; stage 2 is raw CDN fetches outside that governor.
+//     governor (MAX_CONCURRENT_REQUESTS=8, api fetch-flood-freeze) with playback; stage 2 is raw CDN
+//     fetches outside that governor. Resolve GRANTS also start RESOLVE_SPACING_MS apart: the qq detail
+//     host (tang, called direct from the listener's IP) rate-limits like a token bucket — a burst of
+//     ~7, then ~1 call per 3 s — and answers `请求过于频繁` (no url → 'no-audio'). Measured: an
+//     unpaced album fired 11 detail calls in 4 s, the last 4 limited (songs 8-10 lost, and the
+//     user's own mid-download playback resolve with them); 16 calls ~1.8 s apart stayed clean. The
+//     old pool never hit it because each worker's ~50 s body spaced its resolves out. Pacing at the
+//     refill rate keeps the bucket's burst free for playback; the bodies still run 8-wide.
 //     Rows show the busy ring from the moment the album starts (queued is busy); the progress fraction
 //     appears once bytes flow (`setDownloadProgress`).
 //
-// ponytail: 8 lossless bodies can sit in heap at once (~400 MB worst case); lower TRANSFER_POOL or
+// ponytail: one global resolve pace for every source because tang is the hot one; pace per host if
+// another source needs a different rate. 8 lossless bodies can sit in heap at once (~400 MB worst case); lower TRANSFER_POOL or
 // stream to IndexedDB if that bites.
 
 import type { Track } from '$lib/sources/types';
@@ -56,23 +63,33 @@ import {
 } from '$lib/services/download-filename';
 
 const RESOLVE_POOL = 3;
+const RESOLVE_SPACING_MS = 3500;
 const TRANSFER_POOL = 8;
 
-/** A FIFO semaphore of `n` slots. Each grant's release is idempotent so a double call cannot leak a slot. */
-function gate(n: number): StageGate {
+/**
+ * A FIFO semaphore of `n` slots whose grants start at least `spacingMs` apart. Each grant's release
+ * is idempotent so a double call cannot leak a slot.
+ */
+function gate(n: number, spacingMs = 0): StageGate {
 	let free = n;
+	let nextAt = 0;
 	const waiting: (() => void)[] = [];
 	return () =>
 		new Promise((grant) => {
 			const go = () => {
 				let done = false;
-				grant(() => {
+				const release = () => {
 					if (done) return;
 					done = true;
 					const next = waiting.shift();
 					if (next) next();
 					else free++;
-				});
+				};
+				const now = Date.now();
+				const wait = Math.max(0, nextAt - now);
+				nextAt = now + wait + spacingMs;
+				if (wait) setTimeout(() => grant(release), wait);
+				else grant(release);
 			};
 			if (free > 0) {
 				free--;
@@ -128,7 +145,7 @@ export async function downloadAlbum(
 		// quick-260930-uia: one slot per album position, filled as songs complete in any order, then
 		// zipped in index order so `uniqueName`'s `(2)` suffixing stays deterministic in album order.
 		const slots: ({ filename: string; blob: Blob } | null)[] = new Array(total).fill(null);
-		const stages = { resolve: gate(RESOLVE_POOL), transfer: gate(TRANSFER_POOL) };
+		const stages = { resolve: gate(RESOLVE_POOL, RESOLVE_SPACING_MS), transfer: gate(TRANSFER_POOL) };
 
 		const one = async (i: number, tr: Track) => {
 			// Claimed SYNCHRONOUSLY before any await, so two songs can never both take one uid — and
