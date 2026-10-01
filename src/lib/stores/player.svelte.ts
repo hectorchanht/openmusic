@@ -4079,9 +4079,17 @@ class Player {
 		} catch {
 			pick = null; // never-throw already, but stay defensive
 		}
-		if (myGen !== this.playGen) return; // a newer play() superseded — discard (T-21-06)
-		if (!pick) return;
+		// 40-WR-02: a null is a TRANSIENT miss (503, open circuit breaker, timeout) — un-mark the uid so
+		// a later play this session retries, instead of losing the crowd pick until restart.
+		if (!pick) {
+			this.crowdRequested.delete(uid);
+			return;
+		}
+		// 40-WR-02: the cache write is identity-keyed (uid + name), so it is correct whatever is playing
+		// now — caching BEFORE the gen check means a quick skip no longer throws the result away. Only
+		// the ADOPTION below is generation-gated (T-21-06).
 		writeCrowdCover(uid, artist, title, pick);
+		if (myGen !== this.playGen) return; // a newer play() superseded — cached, not adopted
 		// Read back through the same uid → name order adoptCover's `chosen` uses, so the two agree.
 		const winner = getCrowdCover(uid, artist, title);
 		if (winner) this.adoptCover(uid, winner);

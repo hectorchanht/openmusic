@@ -8391,11 +8391,25 @@ describe('Phase 40 crowd cover (D-14 / D-16 / D-19)', () => {
 	it('crowdCoverAsync: a replay of the same uid in the session does not fetch again', async () => {
 		const t = stub('qq', 'C6', 'Artist', 'Song');
 		mockEnsure.mockResolvedValue(resolvedOf(t));
+		mockFetchPick.mockResolvedValue({ u: null, n: null }); // an answered "no pick" is final
 		await player.play(t);
 		await flush();
 		await player.play(t);
 		await flush();
 		expect(mockFetchPick).toHaveBeenCalledTimes(1);
+	});
+
+	// 40-WR-02: a null (503 / circuit open / timeout) is transient — the next play retries.
+	it('crowdCoverAsync: a failed lookup (null) is retried on the next play of that uid', async () => {
+		const t = stub('qq', 'C6b', 'Artist', 'Song');
+		mockEnsure.mockResolvedValue(resolvedOf(t));
+		await player.play(t); // default mock → null
+		await flush();
+		mockFetchPick.mockResolvedValue({ u: CROWD, n: null });
+		await player.play(t);
+		await flush();
+		expect(mockFetchPick).toHaveBeenCalledTimes(2);
+		expect(rc()).toBe(CROWD);
 	});
 
 	it('crowdCoverAsync: pinned and device: uids never fetch; null keys never fetch', async () => {
@@ -8422,7 +8436,8 @@ describe('Phase 40 crowd cover (D-14 / D-16 / D-19)', () => {
 		expect(mockFetchPick).not.toHaveBeenCalled();
 	});
 
-	it('crowdCoverAsync: a superseded generation writes and adopts nothing', async () => {
+	// 40-WR-02: the identity-keyed cache write survives a quick skip; only adoption is gen-gated.
+	it('crowdCoverAsync: a superseded generation caches the pick but adopts nothing', async () => {
 		const a = stub('qq', 'C10', 'Artist', 'Song');
 		const b = stub('qq', 'C11', 'Other', 'Tune');
 		const pick = deferred<{ u: string | null; n: string | null } | null>();
@@ -8433,7 +8448,7 @@ describe('Phase 40 crowd cover (D-14 / D-16 / D-19)', () => {
 		void player.play(b); // bumps playGen
 		pick.resolve({ u: CROWD, n: null });
 		await flush();
-		expect(mockWriteCrowd).not.toHaveBeenCalled();
+		expect(mockWriteCrowd).toHaveBeenCalledWith(a.uid, 'Artist', 'Song', { u: CROWD, n: null });
 		expect(rc()).not.toBe(CROWD);
 	});
 
