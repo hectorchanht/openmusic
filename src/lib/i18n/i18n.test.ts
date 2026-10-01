@@ -63,6 +63,29 @@ describe('dictionaries', () => {
 		}
 	});
 
+	it('quick-261001-grb: every download toast carries {label} (and its counters) in every locale', () => {
+		// The parity test proves the key EXISTS; it stays green if a locale drops the placeholder,
+		// which would render a nameless toast (or a literal "{label}" — interpolate leaves unknown
+		// tokens intact). This pins the token itself.
+		const LABELLED = [
+			'toast.downloading',
+			'toast.albumProgress',
+			'toast.albumSaved',
+			'toast.downloaded',
+			'toast.downloadFailedKeptInLibrary',
+			'toast.noAudioFor'
+		] as const;
+		for (const lang of Object.keys(dicts) as Array<keyof typeof dicts>) {
+			for (const key of LABELLED) {
+				expect(dicts[lang][key], `${lang}.${key} must contain {label}`).toContain('{label}');
+			}
+			expect(dicts[lang]['toast.albumProgress'], `${lang} albumProgress {n}`).toContain('{n}');
+			expect(dicts[lang]['toast.albumProgress'], `${lang} albumProgress {total}`).toContain('{total}');
+			expect(dicts[lang]['toast.albumSaved'], `${lang} albumSaved {saved}`).toContain('{saved}');
+			expect(dicts[lang]['toast.albumSaved'], `${lang} albumSaved {total}`).toContain('{total}');
+		}
+	});
+
 	it('has no blank values in any locale (all 15 locales)', () => {
 		for (const lang of Object.keys(dicts) as Array<keyof typeof dicts>) {
 			for (const [key, val] of Object.entries(dicts[lang])) {
