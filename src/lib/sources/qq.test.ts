@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { qq } from './qq';
+import { qq, isQqRateLimited, QqRateLimitedError } from './qq';
 import type { Track } from './types';
 import { settings } from '$lib/stores/settings.svelte';
 import { __resetGovernor } from '$lib/services/api-base';
@@ -413,6 +413,37 @@ describe('qq.resolve', () => {
 		await expect(qq.resolve(track, ac.signal)).rejects.toThrow(/invalid response/);
 		// CRITICAL: detailsLoaded must remain false so a later play retries (legacy:2392-2395).
 		expect(track.detailsLoaded).toBe(false);
+	});
+
+	// quick-260930-x3q: tang's per-IP limiter answers 200 with 请求过于频繁. That must surface as a
+	// typed rate-limited error (album download backs off on it), never as detailsLoaded=true.
+	const LIMITED = { code: -1, msg: '请求过于频繁，请稍后再试' };
+
+	it('throws QqRateLimitedError when BOTH hops answer 请求过于频繁 (quick-260930-x3q)', async () => {
+		const spy = mockFetchQueue([LIMITED, LIMITED]);
+		vi.stubGlobal('fetch', spy);
+		const track = stubTrack();
+		const err = await qq.resolve(track, ac.signal).catch((e: unknown) => e);
+		expect(isQqRateLimited(err)).toBe(true);
+		expect(err).toBeInstanceOf(QqRateLimitedError);
+		expect(spy).toHaveBeenCalledTimes(2);
+		expect(track.detailsLoaded).toBe(false);
+		expect(track.audioUrl).toBeNull();
+	});
+
+	it('a limited direct hop still takes the proxy hop and resolves normally (quick-260930-x3q)', async () => {
+		settings.defaultQuality = 'lossless';
+		vi.stubGlobal('fetch', mockFetchQueue([LIMITED, detailFixture]));
+		const out = await qq.resolve(stubTrack(), ac.signal);
+		expect(out.audioUrl).toBe(upgraded(detailFixture.song_play_url_sq));
+		expect(out.detailsLoaded).toBe(true);
+	});
+
+	it('an ordinary invalid body is NOT rate-limited (quick-260930-x3q)', async () => {
+		vi.stubGlobal('fetch', mockFetchOnce({ song_title: 'oops', song_play_url: 'x.mp3' }));
+		const err = await qq.resolve(stubTrack(), ac.signal).catch((e: unknown) => e);
+		expect(err).toBeInstanceOf(Error);
+		expect(isQqRateLimited(err)).toBe(false);
 	});
 
 	// retry semantics when the track has no usable mid at all.

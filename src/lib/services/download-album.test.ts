@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
 		dnTitle: (s: string) => s
 	},
 	downloadTrack: vi.fn(),
+	downloadFromDonor: vi.fn(),
 	blob: {
 		put: vi.fn(async () => true),
 		get: vi.fn(async (_uid: string): Promise<Blob | null> => null),
@@ -27,7 +28,10 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@capacitor/core', () => ({ Capacitor: { isNativePlatform: () => mocks.native } }));
 vi.mock('$lib/stores/library.svelte', () => ({ library: mocks.library }));
 vi.mock('$lib/stores/names.svelte', () => ({ names: mocks.names }));
-vi.mock('$lib/services/download-track', () => ({ downloadTrack: mocks.downloadTrack }));
+vi.mock('$lib/services/download-track', () => ({
+	downloadTrack: mocks.downloadTrack,
+	downloadFromDonor: mocks.downloadFromDonor
+}));
 vi.mock('$lib/services/blob-store', () => ({ blobStore: mocks.blob }));
 vi.mock('$lib/services/download-save', () => ({ saveBlobToDisk: mocks.saveBlobToDisk }));
 
@@ -73,6 +77,7 @@ beforeEach(() => {
 	mocks.blob.getStoredName.mockImplementation(() => null);
 	mocks.saveBlobToDisk.mockImplementation(() => true);
 	savedImpl();
+	mocks.downloadFromDonor.mockImplementation(async () => 'no-audio');
 	buildZipSpy?.mockRestore();
 	buildZipSpy = vi.spyOn(zipStore, 'buildZip');
 });
@@ -404,22 +409,30 @@ describe('downloadAlbum — two-stage pipeline (quick-260930-vjp)', () => {
 		expect(state.maxTransfer).toBe(8);
 	});
 
-	it('starts resolve grants at least 3.5 s apart, even with free slots', async () => {
+	// quick-260930-x3q: the fixed 3.5 s grant spacing is gone — the rate limiter is handled adaptively.
+	it('starts resolves at full speed: 3 grants at once, the 4th only after a release', async () => {
 		mocks.native = true;
-		const grants: number[] = [];
 		const tracks = songs(4);
 		const start = Date.now();
-		mocks.downloadTrack.mockImplementation(async (_tr: Track, opts: Opts) => {
+		const grants: number[] = [];
+		const holds = new Map<string, () => void>();
+		mocks.downloadTrack.mockImplementation(async (tr: Track, opts: Opts) => {
 			const free = await opts.stages.resolve();
 			grants.push(Date.now() - start);
+			await new Promise<void>((r) => holds.set(tr.uid, r));
 			free();
 			return 'saved';
 		});
 		const run = downloadAlbum(tracks, META);
-		await flush(4);
-		expect(grants).toEqual([0, 3500]);
-		await flush(10);
-		expect(grants).toEqual([0, 3500, 7000, 10500]);
+		await flush(0);
+		expect(grants).toEqual([0, 0, 0]);
+		await flush(30); // no spacing timer either: nothing moves until a slot frees
+		expect(grants).toEqual([0, 0, 0]);
+		holds.get('qq:1')!();
+		await flush(0);
+		expect(grants).toEqual([0, 0, 0, 30000]);
+		for (const r of holds.values()) r();
+		await flush(1);
 		expect(await run).toEqual({ saved: 4, total: 4 });
 	});
 
@@ -492,5 +505,117 @@ describe('downloadAlbum — identical audio identity is saved once (debug album-
 		const res = await downloadAlbum([mk(1), mk(1), mk(2)], META);
 		expect(res).toEqual({ saved: 2, total: 3 });
 		expect(mocks.downloadTrack).toHaveBeenCalledTimes(2);
+	});
+});
+
+// quick-260930-x3q: tang's 请求过于频繁 → 'rate-limited'. A rate-limited or no-audio song first tries
+// another non-ytmusic source at the download tier; only a still-rate-limited song backs off and retries.
+describe('downloadAlbum — adaptive rate-limit handling (quick-260930-x3q)', () => {
+	beforeEach(() => vi.useFakeTimers());
+	afterEach(() => vi.useRealTimers());
+	const flush = (n = 5) => vi.advanceTimersByTimeAsync(n * 1000);
+	const DONOR_OPTS = { exclude: ['qq'], requireTier: true };
+
+	it('a rate-limited song saved by the donor pass counts saved and is NOT retried', async () => {
+		mocks.native = true;
+		mocks.downloadTrack.mockImplementation(async (tr: Track) => (tr.uid === 'qq:2' ? 'rate-limited' : 'saved'));
+		mocks.downloadFromDonor.mockImplementation(async () => 'saved');
+		const run = downloadAlbum([mk(1), mk(2), mk(3)], META);
+		await flush(30);
+		expect(await run).toEqual({ saved: 3, total: 3 });
+		expect(mocks.downloadFromDonor).toHaveBeenCalledTimes(1);
+		const [tr, opts, o] = mocks.downloadFromDonor.mock.calls[0];
+		expect((tr as Track).uid).toBe('qq:2');
+		expect(opts).toMatchObject({
+			persist: true,
+			save: false,
+			trackNumber: '2',
+			stages: { resolve: expect.any(Function), transfer: expect.any(Function) }
+		});
+		expect(o).toEqual(DONOR_OPTS);
+		// the donor got the SAME options object downloadTrack did
+		const first = mocks.downloadTrack.mock.calls.find((c) => (c[0] as Track).uid === 'qq:2')!;
+		expect(opts).toBe(first[1]);
+		expect(mocks.downloadTrack.mock.calls.filter((c) => (c[0] as Track).uid === 'qq:2')).toHaveLength(1);
+	});
+
+	it('no donor → retries downloadTrack after 3 s, 6 s, 12 s, then gives up; the album completes', async () => {
+		mocks.native = true;
+		const start = Date.now();
+		const at: number[] = [];
+		mocks.downloadTrack.mockImplementation(async (tr: Track) => {
+			if (tr.uid !== 'qq:2') return 'saved';
+			at.push(Date.now() - start);
+			return 'rate-limited';
+		});
+		const run = downloadAlbum([mk(1), mk(2), mk(3)], META);
+		await flush(30);
+		expect(await run).toEqual({ saved: 2, total: 3 });
+		expect(at).toEqual([0, 3000, 9000, 21000]);
+		expect(mocks.downloadFromDonor).toHaveBeenCalledTimes(1);
+	});
+
+	it('stops retrying as soon as a retry is not rate-limited', async () => {
+		mocks.native = true;
+		const start = Date.now();
+		const at: number[] = [];
+		mocks.downloadTrack.mockImplementation(async (tr: Track) => {
+			if (tr.uid !== 'qq:2') return 'saved';
+			at.push(Date.now() - start);
+			return at.length < 3 ? 'rate-limited' : 'saved';
+		});
+		const run = downloadAlbum([mk(1), mk(2)], META);
+		await flush(30);
+		expect(await run).toEqual({ saved: 2, total: 2 });
+		expect(at).toEqual([0, 3000, 9000]);
+	});
+
+	it("'no-audio' (not rate-limited) tries the donor once but never backs off", async () => {
+		mocks.native = true;
+		mocks.downloadTrack.mockImplementation(async (tr: Track) => (tr.uid === 'qq:2' ? 'no-audio' : 'saved'));
+		const run = downloadAlbum([mk(1), mk(2)], META);
+		await flush(30);
+		expect(await run).toEqual({ saved: 1, total: 2 });
+		expect(mocks.downloadFromDonor).toHaveBeenCalledTimes(1);
+		expect(mocks.downloadFromDonor.mock.calls[0][2]).toEqual(DONOR_OPTS);
+		expect(mocks.downloadTrack).toHaveBeenCalledTimes(2);
+	});
+
+	it("'failed' takes no donor pass and no retry", async () => {
+		mocks.native = true;
+		mocks.downloadTrack.mockImplementation(async (tr: Track) => (tr.uid === 'qq:2' ? 'failed' : 'saved'));
+		expect(await downloadAlbum([mk(1), mk(2)], META)).toEqual({ saved: 1, total: 2 });
+		expect(mocks.downloadFromDonor).not.toHaveBeenCalled();
+	});
+
+	it('a backoff sleep holds no resolve slot — three other songs resolve meanwhile', async () => {
+		mocks.native = true;
+		type Gate = () => Promise<() => void>;
+		const holds = new Map<string, () => void>();
+		let resolving = 0;
+		let maxDuringSleep = 0;
+		let song2Calls = 0;
+		mocks.downloadTrack.mockImplementation(async (tr: Track, opts: { stages: { resolve: Gate } }) => {
+			const free = await opts.stages.resolve();
+			if (tr.uid === 'qq:2' && song2Calls++ === 0) {
+				free();
+				return 'rate-limited';
+			}
+			resolving++;
+			await new Promise<void>((r) => holds.set(tr.uid, r));
+			resolving--;
+			free();
+			return 'saved';
+		});
+		const run = downloadAlbum([mk(1), mk(2), mk(3), mk(4), mk(5)], META);
+		await flush(1); // song 2 is inside its 3 s sleep
+		maxDuringSleep = resolving;
+		expect(song2Calls).toBe(1);
+		expect(maxDuringSleep).toBe(3);
+		for (let k = 0; k < 6; k++) {
+			for (const r of holds.values()) r();
+			await flush(5);
+		}
+		expect(await run).toEqual({ saved: 5, total: 5 });
 	});
 });

@@ -93,7 +93,8 @@ vi.mock('$lib/services/variants', async (orig) => ({
 }));
 vi.mock('$lib/services/download-probe', () => ({ probeDownload: mocks.probeDownload }));
 
-import { downloadTrack, type DownloadResult } from './download-track';
+import { downloadTrack, downloadFromDonor, type DownloadResult } from './download-track';
+import { QqRateLimitedError } from '$lib/sources/qq';
 
 // A full Track (cast so optional source-specific extras can be omitted).
 const mk = (over: Partial<Track> = {}): Track =>
@@ -1197,5 +1198,72 @@ describe('downloadTrack — stages gates (quick-260930-vjp)', () => {
 			'fetch',
 			'transfer:out'
 		]);
+	});
+});
+
+// quick-260930-x3q: tang's 请求过于频繁 surfaces as a distinct 'rate-limited' result, and the donor
+// walk the ytmusic path uses is shared with the album's rate-limit fallback (downloadFromDonor).
+describe('downloadTrack — rate-limited + downloadFromDonor (quick-260930-x3q)', () => {
+	const qqT = (over: Partial<Track> = {}) =>
+		mk({ uid: 'qq:9', source: 'qq', songid: '9', audioUrl: null, detailsLoaded: false, ...over });
+	const neteaseT = (over: Partial<Track> = {}) =>
+		mk({ uid: 'netease:7', source: 'netease', songid: '7', audioUrl: null, ...over });
+	const kuwoT = (over: Partial<Track> = {}) => mk({ uid: 'kuwo:5', source: 'kuwo', songid: '5', audioUrl: null, ...over });
+	const ytT = () => mk({ uid: 'ytmusic:z', source: 'ytmusic', songid: 'z', audioUrl: null });
+
+	function stubFetchBy(bad: string[] = []) {
+		const f = vi.fn(async (url: string) =>
+			bad.includes(url) ? { ok: false, blob: async () => new Blob([]) } : { ok: true, blob: async () => new Blob(['a']) }
+		);
+		vi.stubGlobal('fetch', f);
+		return f;
+	}
+
+	it("a QqRateLimitedError resolve → 'rate-limited', never fetches, still kept in the library", async () => {
+		mocks.ensureTrackDetails.mockRejectedValue(new QqRateLimitedError('limited'));
+		const f = stubFetchBy();
+		expect(await downloadTrack(qqT())).toBe('rate-limited');
+		expect(f).not.toHaveBeenCalled();
+		expect(mocks.library.addDownload).toHaveBeenCalledTimes(1);
+	});
+
+	it("an ordinary resolve rejection is still 'no-audio'", async () => {
+		mocks.ensureTrackDetails.mockRejectedValue(new Error('qq detail error (invalid response)'));
+		stubFetchBy();
+		expect(await downloadTrack(qqT())).toBe('no-audio');
+	});
+
+	it('excludes the named source and never probes ytmusic; saves the donor audio under the ORIGINAL uid', async () => {
+		mocks.fetchVariants.mockImplementation(async () => [qqT({ uid: 'qq:10', songid: '10' }), neteaseT(), ytT()]);
+		const f = stubFetchBy();
+		expect(await downloadFromDonor(qqT(), {}, { exclude: ['qq'], requireTier: true })).toBe('saved');
+		expect(mocks.probeDownload).toHaveBeenCalledTimes(1);
+		expect(mocks.probeDownload.mock.calls[0][0].source).toBe('netease');
+		expect(f).toHaveBeenCalledWith('https://cdn.example/netease:7.m4a');
+		expect(mocks.put.mock.calls[0][0]).toBe('qq:9');
+		expect(mocks.ensureTrackDetails).not.toHaveBeenCalled();
+	});
+
+	it("requireTier under 'lossless' skips a 320 donor and takes a lossless one", async () => {
+		mocks.settings.downloadQuality = 'lossless';
+		mocks.fetchVariants.mockImplementation(async () => [neteaseT({ quality: '320' }), kuwoT({ quality: 'lossless' })]);
+		const f = stubFetchBy();
+		expect(await downloadFromDonor(qqT(), {}, { exclude: ['qq'], requireTier: true })).toBe('saved');
+		expect(f.mock.calls.map((c) => c[0])).toEqual(['https://cdn.example/kuwo:5.m4a']);
+	});
+
+	it("no eligible donor → 'no-audio'", async () => {
+		mocks.fetchVariants.mockImplementation(async () => [qqT({ uid: 'qq:10' }), ytT()]);
+		const f = stubFetchBy();
+		expect(await downloadFromDonor(qqT(), {}, { exclude: ['qq'] })).toBe('no-audio');
+		expect(f).not.toHaveBeenCalled();
+	});
+
+	it("a failing donor tries the next; 'failed' only when every donor failed", async () => {
+		mocks.fetchVariants.mockImplementation(async () => [neteaseT(), kuwoT()]);
+		stubFetchBy(['https://cdn.example/netease:7.m4a']);
+		expect(await downloadFromDonor(qqT(), {}, { exclude: ['qq'] })).toBe('saved');
+		stubFetchBy(['https://cdn.example/netease:7.m4a', 'https://cdn.example/kuwo:5.m4a']);
+		expect(await downloadFromDonor(qqT(), {}, { exclude: ['qq'] })).toBe('failed');
 	});
 });
