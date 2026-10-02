@@ -28,7 +28,12 @@ const config = {
 		// D-03 / Pitfall 1: the Capacitor native (adapter-static) shell serves its own
 		// files, so SvelteKit must NOT auto-register the web service worker there.
 		// Web (Cloudflare) build keeps register: true.
-		serviceWorker: { register: !native }
+		serviceWorker: { register: !native },
+		// psi-render-blocking-css: PSI flagged the shell's 7 <link rel=stylesheet> chunks
+		// (~55 KB raw / 18 KB gz, ~1.2 s on Slow 4G) as render-blocking. Inline every
+		// route stylesheet into the initial HTML instead; client-side navigation still
+		// fetches (and caches) the same chunks as files.
+		inlineStyleThreshold: Infinity
 	}
 };
 
