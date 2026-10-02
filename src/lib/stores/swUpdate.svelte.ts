@@ -37,9 +37,20 @@ class SwUpdate {
 		if (!('serviceWorker' in navigator)) return () => {};
 		this.started = true;
 
+		// debug home-mobile-lcp-simulated-31s: `controllerchange` ALSO fires on the FIRST-EVER install —
+		// a cold visit has no controller, the new SW activates at once (nothing to wait on) and its
+		// `clients.claim()` takes the open page. Reloading there threw away every cold load ~3.7 s in
+		// (after the ~160-asset precache), flashed the page, and made Lighthouse count the whole first
+		// load as pre-LCP (31 s simulated LCP on a 0.2 s text paint). Only a control TRANSFER — a
+		// controller already existed, i.e. the user tapped Reload (applyUpdate) — reloads.
+		let hadController = !!navigator.serviceWorker.controller;
 		const onControllerChange = () => {
-			// The waiting SW just took control (only ever after applyUpdate()). Reload once
-			// so the page runs the fresh bundle + matching hashed assets.
+			if (!hadController) {
+				hadController = true; // first install claimed us; a later real update still reloads
+				return;
+			}
+			// The waiting SW just took control (after applyUpdate()). Reload once so the page runs
+			// the fresh bundle + matching hashed assets.
 			if (this.refreshing) return;
 			this.refreshing = true;
 			location.reload();
