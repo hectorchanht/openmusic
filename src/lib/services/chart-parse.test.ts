@@ -45,8 +45,13 @@ describe('resizeMzstatic', () => {
 		expect(resizeMzstatic('https://is1-ssl.mzstatic.com/image/thumb/a/100x100bb.jpg')).toBe(
 			'https://is1-ssl.mzstatic.com/image/thumb/a/600x600bb.jpg'
 		);
+	});
+
+	// psi-home-163mb-payload-lcp: the legacy genre feed sends `bb.png`; the extension selects Apple's
+	// output format, and a 600px PNG is ~7.6x the jpg. The rewrite must force `.jpg`.
+	it('forces .jpg output for a .png feed label (never a lossless 600px PNG)', () => {
 		expect(resizeMzstatic('https://is1-ssl.mzstatic.com/image/thumb/a/170x170bb.png')).toBe(
-			'https://is1-ssl.mzstatic.com/image/thumb/a/600x600bb.png'
+			'https://is1-ssl.mzstatic.com/image/thumb/a/600x600bb.jpg'
 		);
 	});
 
@@ -200,7 +205,7 @@ describe('parseItunesGenreFeed', () => {
 		for (const t of items) {
 			expect(t.artist).not.toBe('');
 			expect(t.title).not.toBe('');
-			expect(t.image).toMatch(/\/600x600bb\.(png|jpg)$/);
+			expect(t.image).toMatch(/\/600x600bb\.jpg$/); // psi-home-163mb-payload-lcp: never .png
 		}
 	});
 

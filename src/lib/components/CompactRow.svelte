@@ -99,17 +99,28 @@
 		const h = (s.split('').reduce((a, c) => a + c.charCodeAt(0), 0) * 47) % 360;
 		return `linear-gradient(145deg, hsl(${h} 55% 32%), hsl(${(h + 40) % 360} 55% 18%))`;
 	}
+
+	// psi-home-163mb-payload-lcp: the cover is a lazy <img> OVER the gradient, not a CSS
+	// background-image. A CSS background is never lazy-loaded, and CompactPager mounts every
+	// column of every shelf, so each row's cover fetched on mount — 358 cross-origin images for
+	// one phone viewport, before a single scroll. `loading="lazy"` defers the off-screen columns
+	// and the shelves below the fold; the gradient underneath is what shows until it lands (and
+	// on a 404, via onerror — the same pattern as .al-cover + .al-cover-img on the home page).
+	function hideOnError(e: Event) {
+		(e.currentTarget as HTMLImageElement).style.display = 'none';
+	}
 </script>
+
+{#snippet artImg()}
+	{#if effectiveCover}<img class="art-img" src={effectiveCover} loading="lazy" alt="" onerror={hideOnError} />{/if}
+{/snippet}
 
 {#if variant === 'artist'}
 	<!-- quick-260910-qjv: artist tap feedback, parity with song rows -->
 	<!-- quick-260919-et3: `is-artist` exists for ONE CSS rule (see .crow.is-artist below) — this
 	     button is the pager column's direct child, where .crow's `flex: 1` grows it vertically. -->
 	<button class="crow is-artist" use:tapBounce onclick={() => onopen?.()}>
-		<span
-			class="art round"
-			style:background-image={effectiveCover ? `url(${effectiveCover})` : fallbackGradient(seed)}
-		></span>
+		<span class="art round" style:background-image={fallbackGradient(seed)}>{@render artImg()}</span>
 		<span class="meta">
 			<span class="r-title" use:marquee><span class="marquee-inner">{title}</span></span>
 		</span>
@@ -118,10 +129,7 @@
 	<!-- 39-D-35: same direct-child-of-the-pager-column situation as the artist row, so it reuses
 	     `is-artist` for the one flex rule (quick-260919-et3). -->
 	<button class="crow is-artist" use:tapBounce onclick={() => onopen?.()}>
-		<span
-			class="art"
-			style:background-image={effectiveCover ? `url(${effectiveCover})` : fallbackGradient(seed)}
-		></span>
+		<span class="art" style:background-image={fallbackGradient(seed)}>{@render artImg()}</span>
 		<span class="meta">
 			<span class="r-title" use:marquee><span class="marquee-inner">{title}</span></span>
 			<span class="r-sub" use:marquee><span class="marquee-inner">{subtitle}</span></span>
@@ -145,13 +153,10 @@
 				<span
 					class="art"
 					use:lazyCover={{ track, onResolved: (_uid, url) => (resolvedCover = url) }}
-					style:background-image={effectiveCover ? `url(${effectiveCover})` : fallbackGradient(seed)}
-				></span>
+					style:background-image={fallbackGradient(seed)}>{@render artImg()}</span
+				>
 			{:else}
-				<span
-					class="art"
-					style:background-image={effectiveCover ? `url(${effectiveCover})` : fallbackGradient(seed)}
-				></span>
+				<span class="art" style:background-image={fallbackGradient(seed)}>{@render artImg()}</span>
 			{/if}
 			<span class="meta">
 				<span class="r-title" use:marquee><span class="marquee-inner">{title}</span></span>
@@ -229,9 +234,20 @@
 		background-position: center;
 		background-color: var(--color-surface-2);
 		flex: none;
+		/* psi-home-163mb-payload-lcp: the lazy .art-img overlay is positioned against this box. */
+		position: relative;
+		overflow: hidden;
 	}
 	.art.round {
 		border-radius: var(--radius-full);
+	}
+	.art-img {
+		position: absolute;
+		inset: 0;
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+		border-radius: inherit;
 	}
 	.meta {
 		flex: 1;

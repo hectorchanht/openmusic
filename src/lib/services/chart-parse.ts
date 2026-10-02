@@ -52,10 +52,15 @@ function isObject(v: unknown): v is object {
 // 39-D-02: Apple RSS sends artworkUrl100 …/100x100bb.jpg and the legacy iTunes feed …/170x170bb.png.
 // One regex serves both — upgradeArtwork() in itunes-cover.ts only swaps the literal '100x100bb',
 // which is why this is a new helper and not a reuse.
-/** Rewrite an mzstatic `/NxNbb.` size segment to `/{px}x{px}bb.`; null for a missing url. */
+//
+// psi-home-163mb-payload-lcp: the trailing extension is Apple's OUTPUT format selector, not the
+// asset's own type. Keeping the genre feed's `.png` produced a LOSSLESS 600px PNG per tile —
+// measured 339,970 B vs 44,834 B for the same asset as `600x600bb.jpg` — and ~90 such tiles made
+// ~46 MB of a cold home load. Always emit `.jpg`, whatever the feed sent.
+/** Rewrite an mzstatic `/NxNbb.<ext>` segment to `/{px}x{px}bb.jpg`; null for a missing url. */
 export function resizeMzstatic(url: string | null | undefined, px = 600): string | null {
 	if (!url) return null;
-	return url.replace(/\/\d+x\d+bb\./, `/${px}x${px}bb.`);
+	return url.replace(/\/\d+x\d+bb\.\w+/, `/${px}x${px}bb.jpg`);
 }
 
 /** Upsize a googleusercontent `=w180-h180-l90-rj` thumbnail to 544px; any other url is returned as-is. */

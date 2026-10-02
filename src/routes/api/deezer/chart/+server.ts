@@ -81,7 +81,11 @@ function reshapeChart(data: DeezerChartResponse, limit: number): DeezerChart {
 		.map((t) => ({
 			artist: (t.artist?.name ?? '').trim(),
 			title: (t.title ?? '').trim(),
-			image: safeImageUrl(t.album?.cover_xl ?? t.album?.cover_big ?? t.album?.cover_medium),
+			// psi-home-163mb-payload-lcp: `cover_big` (500px, ~72 KB) first, not `cover_xl` (1000px,
+			// ~208 KB) — a chart tile is ≤130 css px and the same URL seeds the now-playing hero, where
+			// 500px matches the KKBOX (500) / kuwo (600) / Apple (600) tiers it sits beside. ~150 xl
+			// covers were ~18 MB of a cold home load. The `d:` share token is size-independent.
+			image: safeImageUrl(t.album?.cover_big ?? t.album?.cover_xl ?? t.album?.cover_medium),
 			mbid: null as null
 		}))
 		.filter((t) => t.artist && t.title);
@@ -89,7 +93,7 @@ function reshapeChart(data: DeezerChartResponse, limit: number): DeezerChart {
 		.slice(0, limit)
 		.map((a) => ({
 			name: (a.name ?? '').trim(),
-			image: safeImageUrl(a.picture_xl ?? a.picture_big),
+			image: safeImageUrl(a.picture_big ?? a.picture_xl),
 			mbid: null as null
 		}))
 		.filter((a) => a.name);
