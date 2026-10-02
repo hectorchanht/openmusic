@@ -53,6 +53,7 @@
 	} from '$lib/services/home-charts';
 	import { fetchChartPool } from '$lib/services/charts';
 	import type { ChartAlbum } from '$lib/services/chart-parse';
+	import { resizeMzstatic } from '$lib/services/chart-parse';
 	import { settings } from '$lib/stores/settings.svelte';
 	import { deezerChart } from '$lib/services/deezer';
 	import { backfillCovers, backfillArtistCovers } from '$lib/services/cover-backfill';
@@ -1039,7 +1040,11 @@
 		// quick-260615-hep: library rows carry a full Track (uid present) → read uid-first then name,
 		// through the global reactive signal so a cover resolved elsewhere repaints this row live.
 		// quick-260915-w4f: a pin outranks the inline source cover (rung 0).
-		return readChosenCover(track.uid, track.artist, track.title) ?? track.cover ?? readCoverByUidOrName(track.uid, track.artist, track.title);
+		// psi-home-163mb-payload-lcp follow-up: the cache holds the HERO-sized iTunes cover
+		// (upgradeArtwork → 1200x1200bb, ~330 KB); these shelf tiles are ≤ ~140 CSS px, so ask
+		// mzstatic for the 600px jpg (~45–100 KB) — the same size the chart shelves use. Non-mzstatic
+		// URLs (Deezer, CN, YTM) carry no `NxNbb.` segment and pass through unchanged.
+		return resizeMzstatic(readChosenCover(track.uid, track.artist, track.title) ?? track.cover ?? readCoverByUidOrName(track.uid, track.artist, track.title));
 	}
 
 	onMount(() => {
@@ -1532,9 +1537,11 @@
 {#snippet librarySongRow(track: Track, ctx: QueueContext)}
 	<!-- quick-260615-hep: uid-first reactive read; lazyCover resolves-on-view (writes both cache layers
 	     internally) and bumps the global signal so this reactive rowCover recomputes + the <img> paints. -->
-	{@const rowCover = readChosenCover(track.uid, track.artist, track.title) ?? track.cover ?? readCoverByUidOrName(track.uid, track.artist, track.title)}
+	{@const rowCover = libraryRowCover(track)}
 	<button class="album" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); menuTrack = track; menuOpen = true; }} onclick={() => playLibraryTrack(track, ctx)}>
-		<span class="al-cover" use:lazyCover={{ track, onResolved: () => bumpCoverVersion() }} style:background-image={rowCover ? `url(${rowCover})` : fallbackCover(track.uid)}>
+		<!-- psi-home-163mb-payload-lcp follow-up: gradient-only background; the lazy <img> paints the
+		     cover (a CSS url() background is never lazy, so every off-screen pile cover loaded eagerly). -->
+		<span class="al-cover" use:lazyCover={{ track, onResolved: () => bumpCoverVersion() }} style:background-image={fallbackCover(track.uid)}>
 			{#if rowCover}<img class="al-cover-img" src={rowCover} loading="lazy" alt="" onerror={hideOnError} />{/if}
 		</span>
 		<span class="al-name" use:marquee><span class="marquee-inner">{names.dnTitle(track.title, track.artist)}</span></span>
