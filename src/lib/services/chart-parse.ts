@@ -282,7 +282,7 @@ export function parseItunesGenreFeed(
 				return {
 					artist: str(e['im:artist']?.label),
 					title: str(e['im:name']?.label),
-					image: img(resizeMzstatic(url(last?.label))), // 170x170bb.png → 600x600bb.png
+					image: img(resizeMzstatic(url(last?.label))), // 170x170bb.png → 600x600bb.jpg (psi-home-163mb-payload-lcp)
 					mbid: null
 				};
 			})
