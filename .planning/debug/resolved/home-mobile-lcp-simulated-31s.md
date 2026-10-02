@@ -1,5 +1,5 @@
 ---
-status: awaiting_human_verify
+status: resolved
 trigger: "Home mobile LCP: Lighthouse simulated LCP 31.5 s on prod after cover/CSS fixes; observed LCP is text at ~0.84 s. Find what the simulated LCP depends on and cut it."
 created: 2026-10-02
 updated: 2026-10-02
@@ -61,3 +61,8 @@ DATA_END
 
 - Residual simulated LCP ≈ 6 s locally is the SPA floor: ~600 KB / 75 JS chunks must download + evaluate (4x CPU) before the first shelf text; the LCP element is the first CompactRow title (`SPAN.r-title`, size 4743 > brand 2990), which additionally waits on one `/api/charts` round-trip. Cutting it means shrinking the initial JS graph (player god object, 149 chunks on the route) — a separate effort, not a one-line fix.
 - `static.cloudflareinsights.com/beacon.min.js` + its `/cdn-cgi/rum` XHR/preflights land before LCP in every run; product decision whether to keep it.
+
+## Prod verification (2026-10-02, build 1790973430833)
+
+- Lighthouse 13.5 mobile vs prod, 2 runs: document requests 2 → 1 (no self-reload), requests 383 → 202/210, TBT 50–60 ms, score 0.65/0.66, FCP 4.0 s, simulated LCP 16.2 s / 7.9 s (was 31.5 s).
+- LCP still high-variance: depends on how much of the initial graph (75 first-party JS chunks + early cover images + CF RUM beacon) starts before the observed LCP (~1.0–1.7 s). That is the "SPA floor" follow-up above, not this bug.
