@@ -454,6 +454,7 @@ Recent decisions affecting current work:
 
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
+| fast | Add static/llms.txt (robots.txt already 200 on prod; PSI fetch failure was PSI-side) | 2026-10-02 | 126d6f85 | — |
 | 261001-grb | Download toasts name artist - album n/total or artist - song | 2026-10-01 | e4e61559 | [261001-grb-download-toast-shows-artist-album-n-of-n](./quick/261001-grb-download-toast-shows-artist-album-n-of-n/) |
 | 261001-0p9 | QQ rate limit: wait for qq first (≤30s), then same tier+format donor, then best donor | 2026-10-01 | 12262976 | [261001-0p9-qq-rate-limit-wait-first-then-same-quali](./quick/261001-0p9-qq-rate-limit-wait-first-then-same-quali/) |
 | 261001-0hr | Proxy answers HEAD for media without pulling the body (netease probe 15s+ → 1.6–6.6s) | 2026-10-01 | 987203f2 | [261001-0hr-proxy-answers-head-for-media-without-pul](./quick/261001-0hr-proxy-answers-head-for-media-without-pul/) |
