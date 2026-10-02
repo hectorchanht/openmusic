@@ -573,3 +573,13 @@ Plans:
 
 - [x] 40-08-PLAN.md — Player crowd wiring (seed, fetch-once, adoptCover, healCover) + TrackMenu vote, two-voter checkpoint (D-14, D-14a, D-15, D-16, D-19)
 - [x] 40-09-PLAN.md — Row/hero/home/downloads surfaces read pin ?? crowd first (D-14, D-16)
+
+### Phase 41: Cut up-front home-page JavaScript for faster mobile LCP
+
+**Goal:** A cold mobile visit to the home page paints its first song titles fast: Lighthouse mobile (simulated Slow 4G) LCP reliably < 4 s and FCP < 2.5 s on prod, with no UX regression (playback/restore, background audio, shelves still fill progressively). Baseline 2026-10-02 (after the cover/CSS/SW-reload fixes): ~75 first-party JS chunks (~600 KB) plus ~20 cover images and iTunes lookups start before the first title paints; simulated LCP 7.9–16.2 s, FCP 4.0 s, score 65–66, TBT 50–60 ms. Levers: shrink the initial route's JS graph (lazy-load non-first-paint modules — NowPlaying, player internals, sheets/menus, inactive i18n dictionaries; fewer chunks / shallower import waterfall) and defer below-the-fold cover images + iTunes cover lookups until after first paint. Evidence: `.planning/debug/resolved/home-mobile-lcp-simulated-31s.md`, `.planning/debug/resolved/psi-home-163mb-payload-lcp.md`.
+**Requirements**: TBD
+**Depends on:** Nothing (independent of Phase 40)
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 41 to break down)
