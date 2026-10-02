@@ -454,6 +454,7 @@ Recent decisions affecting current work:
 
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
+| fast | 600px iTunes covers on home library shelves (was 1200px hero size) | 2026-10-02 | 262b3db9 | — |
 | fast | Inline route CSS (kit.inlineStyleThreshold) to drop PSI render-blocking stylesheets | 2026-10-02 | a873bdae | — |
 | fast | Add static/llms.txt (robots.txt already 200 on prod; PSI fetch failure was PSI-side) | 2026-10-02 | 126d6f85 | — |
 | 261001-grb | Download toasts name artist - album n/total or artist - song | 2026-10-01 | e4e61559 | [261001-grb-download-toast-shows-artist-album-n-of-n](./quick/261001-grb-download-toast-shows-artist-album-n-of-n/) |
