@@ -62,7 +62,7 @@ export const CHART_CLIENT_TTL_S = 1800;
 export const UPSTREAM_TIMEOUT_MS = 5000;
 
 /**
- * YouTube Charts client version. PINNED like ANDROID_VR_VERSION in ytmusic-innertube.ts: '2.0'
+ * YouTube Charts client version. PINNED like PLAYER_CLIENT_VERSION in ytmusic-innertube.ts: '2.0'
  * works, '0.1' → 404 (spike 011). A 404 from charts.youtube.com here = bump this.
  */
 export const YT_CHARTS_CLIENT_VERSION = '2.0';

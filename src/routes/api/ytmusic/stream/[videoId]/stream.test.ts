@@ -4,7 +4,14 @@ import { fileURLToPath } from 'node:url';
 import { GET as streamGet, OPTIONS as streamOptions } from './+server';
 // selectAudioFormat + isPlayable moved to the shared proxy module (SvelteKit +server.ts forbids
 // non-HTTP-verb exports — quick-270715).
-import { selectAudioFormat, isPlayable, PLAYER_URL, SEARCH_URL } from '$lib/proxy/ytmusic';
+import {
+	selectAudioFormat,
+	isPlayable,
+	PLAYER_URL,
+	SEARCH_URL,
+	PLAYER_CLIENT_VERSION,
+	PLAYER_UA
+} from '$lib/proxy/ytmusic';
 import fixture from './__fixtures__/player-response.json';
 
 // The itag-140 (AAC-LC / mp4) direct url and the itag-251 (Opus/webm) url from the OK fixture.
@@ -63,7 +70,7 @@ describe('isPlayable — playabilityStatus gate', () => {
 	});
 });
 
-// ─── Task 2: the byte-proxy route (ANDROID_VR player → googlevideo relay) ────────────────────
+// ─── Task 2: the byte-proxy route (VISIONOS player → googlevideo relay) ────────────────────
 
 const ORIGIN = 'https://openmusic.lol';
 const FULL_BODY = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]); // stand-in AAC file for the download path
@@ -151,7 +158,7 @@ afterEach(() => {
 	vi.restoreAllMocks();
 });
 
-describe('GET /api/ytmusic/stream/:videoId — ANDROID_VR player → googlevideo byte-proxy', () => {
+describe('GET /api/ytmusic/stream/:videoId — VISIONOS player → googlevideo byte-proxy', () => {
 	it('a ranged request forwards Range upstream and returns 206 with range headers + audio/mp4', async () => {
 		const h = stubFetch([OK]);
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -226,8 +233,8 @@ describe('GET /api/ytmusic/stream/:videoId — ANDROID_VR player → googlevideo
 		expect(h.spy).not.toHaveBeenCalled();
 	});
 
-	// Wire-level guard for the ANDROID_VR_VERSION pin in +server.ts (see its ROTTING VERSION PIN comment).
-	it('the player POST sends one consistent ANDROID_VR clientVersion in body + UA, with visitorData (rotting pin guard, quick-260915-30m)', async () => {
+	// Wire-level guard for the PLAYER_CLIENT_VERSION pin (see the ROTTING PIN comment in ytmusic-innertube.ts).
+	it('the player POST sends the VISIONOS client + the shared UA, with visitorData (rotting pin guard, quick-260915-30m)', async () => {
 		const h = stubFetch([OK]);
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		await streamGet(ev('vid123') as any);
@@ -237,14 +244,11 @@ describe('GET /api/ytmusic/stream/:videoId — ANDROID_VR player → googlevideo
 		const init = call![1] as RequestInit;
 		const client = JSON.parse(init.body as string).context.client;
 
-		expect(client.clientName).toBe('ANDROID_VR');
-		// Deliberately pins NO literal version — this test must not rot at the next bump. It asserts only
-		// that the body and the UA agree, which is what a two-place edit silently broke.
-		const ua = new Headers((init.headers ?? {}) as HeadersInit).get('user-agent') ?? '';
-		const uaVersion = /oculus\/(\S+) /.exec(ua)?.[1];
-		expect(typeof client.clientVersion).toBe('string');
-		expect(client.clientVersion.length).toBeGreaterThan(0);
-		expect(client.clientVersion).toBe(uaVersion);
+		// ANDROID_VR now needs a GVS PoToken (only ~1 MB served) — guard against a silent revert.
+		expect(client.clientName).toBe('VISIONOS');
+		// Deliberately pins NO literal version — this test must not rot at the next bump.
+		expect(client.clientVersion).toBe(PLAYER_CLIENT_VERSION);
+		expect(new Headers((init.headers ?? {}) as HeadersInit).get('user-agent')).toBe(PLAYER_UA);
 		// visitorData stays mandatory — a current clientVersion without it is still LOGIN_REQUIRED.
 		expect(typeof client.visitorData).toBe('string');
 		expect(client.visitorData.length).toBeGreaterThan(0);

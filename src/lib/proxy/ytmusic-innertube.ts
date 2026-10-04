@@ -73,32 +73,33 @@ export const INNERTUBE_HEADERS: Record<string, string> = {
 	referer: 'https://music.youtube.com/'
 };
 
-// ANDROID_VR client (spike 006 — the ONLY context that returns playabilityStatus OK from a
-// datacenter IP once a visitorData token is attached). UA must match the VR client or the gate re-fires.
-// ROTTING VERSION PIN (quick-260915-30m) — the ONE place the ANDROID_VR client version lives (the UA
-// string and androidVrPlayerBody() both read it, so the two pins can no longer drift apart). YouTube
-// gates STALE ANDROID_VR clientVersions with `playabilityStatus.status === 'LOGIN_REQUIRED'` ("Sign in
-// to confirm you're not a bot") and zero adaptiveFormats, so isPlayable() is false on BOTH the initial
-// player call and the visitorData-refresh retry → the stream route hard-502s → the client's
-// cross-source fallback trips and EVERY ytmusic track is silently skipped (diag symptom:
-// `resolve.ok hasUrl:true` → `src.set` → `audio.error hasPlayed:false` → advance, never `playing`).
-// THE FIX WHEN IT ROTS AGAIN: bump this to a current ANDROID_VR release. The prior 1.60.x pin died
-// 2026-09; 1.65.10 verified OK (22 adaptiveFormats, itag-140 direct url serving 206 audio/mp4).
-// Isolation-tested: the version ALONE flips LOGIN_REQUIRED→OK; UA/osName/osVersion are irrelevant;
-// visitorData stays MANDATORY (no visitorData → LOGIN_REQUIRED even on 1.65.10).
-// quick-260915-3ng: the native resolver (src/lib/services/ytmusic-native.ts) reads this SAME
-// constant, so bumping it here fixes BOTH the edge route and the APK in one edit.
-export const ANDROID_VR_VERSION = '1.65.10';
-export const ANDROID_VR_UA = `com.google.android.apps.youtube.vr.oculus/${ANDROID_VR_VERSION} (Linux; U; Android 12; Quest 3) gzip`;
+// PLAYER CLIENT = VISIONOS (fast 2026-10-04; was ANDROID_VR since spike 006). YouTube now enforces a
+// GVS PoToken on ANDROID_VR 1.65.10 (yt-dlp: "since 2026.08.17, ALL formats are 403'd"): the player
+// still says OK, but googlevideo serves only the first ~1.07 MB of itag 140 — a bare GET or the
+// `Range: bytes=0-` that <audio> sends is 403, so every ytmusic track failed → cross-source fallback
+// (ytmusic is off the auto-resolve floor) → "not found on any source". Bumping ANDROID_VR past 1.65
+// returns SABR-only streams, so it is a dead end. VISIONOS is yt-dlp's default JS-less client: no
+// PoToken, no signature cipher, direct itag-140 url serving the FULL file (verified 2026-10-04: 206
+// for `bytes=0-`, 200 for a bare GET, from a residential IP; bytes are not UA-bound).
+// visitorData stays MANDATORY (no visitorData → LOGIN_REQUIRED on VISIONOS too).
+// ROTTING PIN (quick-260915-30m): the ONE place the player client lives — the edge stream route AND
+// the native resolver (src/lib/services/ytmusic-native.ts) both read it, so one edit fixes both.
+// THE FIX WHEN IT ROTS AGAIN: check yt-dlp's INNERTUBE_CLIENTS / _DEFAULT_JSLESS_CLIENTS
+// (yt_dlp/extractor/youtube/_base.py + _video.py) for the current no-PoToken, no-JS-player client.
+export const PLAYER_CLIENT_VERSION = '1.02';
+export const PLAYER_UA =
+	'Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15';
 
-/** Build the fixed ANDROID_VR player body. videoId goes ONLY here (no open relay). visitorData is
+/** Build the fixed VISIONOS player body. videoId goes ONLY here (no open relay). visitorData is
  *  omitted when null so we never send `"visitorData":null` (which the upstream would reject). */
-export function androidVrPlayerBody(videoId: string, visitorData: string | null) {
+export function playerBody(videoId: string, visitorData: string | null) {
 	const client: Record<string, unknown> = {
-		clientName: 'ANDROID_VR',
-		clientVersion: ANDROID_VR_VERSION,
-		androidSdkVersion: 32,
-		deviceModel: 'Quest 3',
+		clientName: 'VISIONOS',
+		clientVersion: PLAYER_CLIENT_VERSION,
+		deviceMake: 'Apple',
+		deviceModel: 'RealityDevice17,1',
+		osName: 'visionOS',
+		osVersion: '26.5.23O471',
 		hl: 'en',
 		gl: 'US'
 	};

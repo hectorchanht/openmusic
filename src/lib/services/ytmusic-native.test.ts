@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { SEARCH_URL, PLAYER_URL, ANDROID_VR_UA } from '$lib/proxy/ytmusic-innertube';
+import { SEARCH_URL, PLAYER_URL, PLAYER_UA, PLAYER_CLIENT_VERSION } from '$lib/proxy/ytmusic-innertube';
 
 // quick-260915-3ng: node-only tests over a MOCKED @capacitor/core — NO live network, no device.
 // Mock shape mirrors the house precedent in blob-store.test.ts.
@@ -85,16 +85,16 @@ describe('nativeResolveStreamUrl — on-device InnerTube hops via CapacitorHttp 
 		expect(urlsPosted()).toEqual([SEARCH_URL, PLAYER_URL]);
 	});
 
-	it('sends the ANDROID_VR UA + the InnerTube origin, with body clientVersion agreeing with the UA', async () => {
+	it('sends the player-client UA + the InnerTube origin, with the VISIONOS client in the body', async () => {
 		stubPost([OK_PLAYER]);
 		await nativeResolveStreamUrl('vid2', live());
 
 		const call = playerCall();
-		expect(call.headers?.['user-agent']).toBe(ANDROID_VR_UA);
+		expect(call.headers?.['user-agent']).toBe(PLAYER_UA);
 		expect(call.headers?.origin).toBe('https://music.youtube.com');
-		// Same posture as the edge route's rotting-pin guard: pin no literal version, only agreement.
-		const uaVersion = /oculus\/(\S+) /.exec(ANDROID_VR_UA)?.[1];
-		expect(call.data?.context?.client?.clientVersion).toBe(uaVersion);
+		// Same posture as the edge route's rotting-pin guard: pin no literal version, only the one constant.
+		expect(call.data?.context?.client?.clientName).toBe('VISIONOS');
+		expect(call.data?.context?.client?.clientVersion).toBe(PLAYER_CLIENT_VERSION);
 		expect(call.data?.context?.client?.visitorData).toBe('VD-1');
 		expect(call.data?.videoId).toBe('vid2');
 	});

@@ -1,7 +1,7 @@
 // YouTube Music STREAM byte-proxy (Plan 27-03, YT-PLAY-01 / YT-DOWNLOAD-01) — THE WALL (spike 006).
 //
-// GET /api/ytmusic/stream/:videoId — the money route. It POSTs the InnerTube ANDROID_VR `player`
-// endpoint (clientVersion ANDROID_VR_VERSION + a cached anonymous visitorData token) edge-side, selects itag 140
+// GET /api/ytmusic/stream/:videoId — the money route. It POSTs the InnerTube VISIONOS `player`
+// endpoint (clientVersion PLAYER_CLIENT_VERSION + a cached anonymous visitorData token) edge-side, selects itag 140
 // (AAC-LC/mp4, the codec iOS Safari <audio> plays — NOT Opus/webm itag 251), then fetches the
 // IP-locked googlevideo URL **within the same Worker invocation** and streams the bytes back with
 // Range passthrough — exactly the audius stream pattern, plus the "call player first" step.
@@ -23,7 +23,7 @@
 //  - DoS (T-27-03-03): the media byte-fetch uses the RAW edge fetch (fetchWithRetry) with
 //    AbortSignal.timeout + retries=1 (audius posture) — NEVER the client fetch governor (api-base),
 //    so a long-lived media stream cannot hold (and deadlock) a client concurrency slot.
-//  - bot gate (T-27-03-04): ANDROID_VR + cached visitorData clears the gate anonymously;
+//  - bot gate (T-27-03-04): VISIONOS + cached visitorData clears the gate anonymously;
 //    refresh-once-then-502 avoids hammering a challenging upstream (never hang).
 import type { RequestHandler } from './$types';
 import { corsHeaders, fetchWithRetry } from '$lib/proxy/http';
@@ -31,29 +31,29 @@ import { corsHeaders, fetchWithRetry } from '$lib/proxy/http';
 // only permits HTTP-verb (or `_`-prefixed) exports, so a top-level `export function` in this route
 // throws `Invalid export` at request time (quick-270715 — caught by E2E, missed by the fixture unit
 // test which imported the module directly).
-// ANDROID_VR_UA + androidVrPlayerBody (and the ROTTING VERSION PIN they read) now live in
+// PLAYER_UA + playerBody (and the ROTTING VERSION PIN they read) now live in
 // $lib/proxy/ytmusic-innertube.ts — shared verbatim with the native on-device resolver
 // (src/lib/services/ytmusic-native.ts) so one bump fixes both (quick-260915-3ng). Imported here via
 // the $lib/proxy/ytmusic re-export.
 import {
-	androidVrPlayerBody,
+	playerBody,
 	getVisitorData,
 	innerTubePost,
 	isPlayable,
 	selectAudioFormat,
-	ANDROID_VR_UA,
+	PLAYER_UA,
 	PLAYER_URL
 } from '$lib/proxy/ytmusic';
 
 const PLAYER_TIMEOUT_MS = 15000; // player JSON hop
 const MEDIA_TIMEOUT_MS = 15000; // googlevideo bytes are heavier than JSON (audius posture)
 
-/** POST the ANDROID_VR player. Returns the parsed JSON, or null on an upstream throw (so the caller
+/** POST the VISIONOS player. Returns the parsed JSON, or null on an upstream throw (so the caller
  *  can gate on isPlayable and refresh/502 rather than crash). */
 async function callPlayer(videoId: string, visitorData: string | null): Promise<unknown> {
 	try {
-		return await innerTubePost(PLAYER_URL, androidVrPlayerBody(videoId, visitorData), {
-			headers: { 'user-agent': ANDROID_VR_UA },
+		return await innerTubePost(PLAYER_URL, playerBody(videoId, visitorData), {
+			headers: { 'user-agent': PLAYER_UA },
 			signal: AbortSignal.timeout(PLAYER_TIMEOUT_MS)
 		});
 	} catch {
@@ -66,7 +66,7 @@ export const GET: RequestHandler = async ({ params, request }) => {
 	const videoId = (params.videoId ?? '').trim();
 	if (!videoId) return new Response('missing videoId', { status: 400, headers: corsHeaders(origin) });
 
-	// 1. ANDROID_VR player POST with the cached anonymous visitorData.
+	// 1. VISIONOS player POST with the cached anonymous visitorData.
 	let json = await callPlayer(videoId, await getVisitorData());
 
 	// 2. Bot gate / expiry → refresh visitorData ONCE and retry the player POST once. Never hang.

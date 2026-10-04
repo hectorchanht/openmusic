@@ -23,11 +23,11 @@
 // Capacitor.isNativePlatform(). It does not re-check.
 import { CapacitorHttp } from '@capacitor/core';
 import {
-	androidVrPlayerBody,
+	playerBody,
 	extractVisitorData,
 	isPlayable,
 	selectAudioFormat,
-	ANDROID_VR_UA,
+	PLAYER_UA,
 	INNERTUBE_HEADERS,
 	PLAYER_URL,
 	SEARCH_URL,
@@ -91,11 +91,11 @@ async function getVisitorData(refresh: boolean): Promise<string | null> {
 	return vd;
 }
 
-/** POST the ANDROID_VR player. videoId goes ONLY into the fixed body (no open relay, T-3ng-02). */
+/** POST the VISIONOS player. videoId goes ONLY into the fixed body (no open relay, T-3ng-02). */
 function callPlayer(videoId: string, visitorData: string | null): Promise<unknown> {
-	return post(PLAYER_URL, androidVrPlayerBody(videoId, visitorData), {
+	return post(PLAYER_URL, playerBody(videoId, visitorData), {
 		...INNERTUBE_HEADERS,
-		'user-agent': ANDROID_VR_UA
+		'user-agent': PLAYER_UA
 	});
 }
 
