@@ -1,5 +1,5 @@
 ---
-status: awaiting_human_verify
+status: resolved
 trigger: "kuwo source down in prod: /api/kuwo/search → 526 (Invalid SSL cert). Upstream kw-api.cenguigui.cn cert expired (notAfter Apr 14 2026, issuer GTS WR1). Kuwo is PRIMARY resolver (kuwo→qq→netease→joox). Tasks: (1) re-probe cert state; (2) measure player behaviour when kuwo fails — fast fallback or timeout wait? (player.svelte.ts fallback path / Activity log); (3) fix: why createHealthGate (source-health.ts, used for netease+kuwo) didn't trip; put kuwo behind it properly and/or find second kuwo upstream. Don't push to main without asking."
 created: 2026-10-04
 updated: 2026-10-04
@@ -66,6 +66,11 @@ reasoning_checkpoint:
 - hypothesis: the resolve floor / fallback walk need an explicit `kuwoHealth.isGated()` check to skip kuwo
   evidence: every speculative path (resolveNameStub, tryFallback, lyricWalk, collectLyricCandidates, the fan-out) reaches kuwo ONLY through `kuwo.search`, which already returns `[]` in <1ms while gated → the walk `continue`s with zero network. The only ungated path is `kuwo.resolve` of an existing kuwo-source track — the direct request the documented rule protects. No code needed.
   timestamp: 2026-10-04
+
+## Prod Verification
+
+- 2026-10-04: deployed bundle `_app/immutable/chunks/De4mEHSy.js` contains the `kuwoJson` seam (`kuwo: HTTP`). Live E2E on openmusic.lol: search 晴天 → 1 kuwo 526 + a concurrent burst of 6 (all passed `isGated()` before any failure returned — first-window cost is bounded by fan-out width, parallel so no added latency); next full search 青花瓷 + its 6 sub-searches → ZERO `/api/kuwo/*` requests. Gate holds in prod.
+- Follow-up (separate task): musicdl (CharlesPikachu) kuwo chain — `musicapi.haitangw.net` and `music.nxinxz.com` return full-length 320k kuwo CDN URLs (car-*.kuwo.cn) for paid songs; xcloudv 404; mobi.kuwo.cn convert_url2 unusable.
 
 ## Resolution
 
