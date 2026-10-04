@@ -455,6 +455,8 @@ Recent decisions affecting current work:
 
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
+| fast | YT Music player client ANDROID_VR → VISIONOS (ANDROID_VR now PoToken-gated: only ~1 MB served → every ytmusic track skipped) | 2026-10-04 | 5acc875c | — |
+| fast | Toast: full-width rounded card (left:50%+translateX capped width at 50vw → 6-line circle) | 2026-10-04 | 0597ac6a | — |
 | fast | 600px iTunes covers on home library shelves (was 1200px hero size) | 2026-10-02 | 262b3db9 | — |
 | fast | Inline route CSS (kit.inlineStyleThreshold) to drop PSI render-blocking stylesheets | 2026-10-02 | a873bdae | — |
 | fast | Add static/llms.txt (robots.txt already 200 on prod; PSI fetch failure was PSI-side) | 2026-10-02 | 126d6f85 | — |
