@@ -2,7 +2,7 @@
 // (quick-261004-n1i). Pure and fetch-injectable (`fetchImpl`, the turnstile.ts convention) so the
 // resolver walk is unit-testable call by call; the two +server.ts routes are thin verb-only callers.
 //
-// WHY A DEDICATED ROUTE PAIR (quick-261004-n1i), replacing the old kuwoProxy passthrough adapter:
+// WHY A DEDICATED ROUTE PAIR (quick-261004-n1i), replacing the old catch-all passthrough adapter:
 //  - the old single upstream `kw-api.cenguigui.cn` is dead BEYOND its expired cert — with the cert
 //    ignored it answers 200 with a 0-byte body, so there is nothing left to point the passthrough at;
 //  - kuwo's own `antiserver.kuwo.cn` convert_url / `mobi.kuwo.cn` endpoints serve 11 s PREVIEW clips

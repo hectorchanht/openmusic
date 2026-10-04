@@ -2,7 +2,7 @@
 //
 // WHY: kuwo's full-length audio comes from free third-party resolvers (src/lib/proxy/kuwo.ts
 // KUWO_AUDIO_RESOLVERS) that musicdl curates in its kuwo source. When that list changes — a
-// resolver dies, a new one appears — ours silently rots: the old kw-api upstream was dead for
+// resolver dies, a new one appears — ours silently rots: the previous cenguigui upstream was dead for
 // months before anyone noticed. This script diffs the HOSTNAMES in musicdl's kuwo.py against a
 // committed snapshot (scripts/musicdl-kuwo-hosts.json) so a change surfaces as a review PR.
 //
