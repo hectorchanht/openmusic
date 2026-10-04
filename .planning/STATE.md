@@ -5,7 +5,7 @@ milestone_name: YTMusic-Powered Up-Next
 status: executing
 stopped_at: Phase 40 context gathered
 last_updated: "2026-10-01T03:04:26.217Z"
-last_activity: 2026-10-01
+last_activity: 2026-10-04
 progress:
   total_phases: 19
   completed_phases: 10
@@ -95,7 +95,7 @@ Full observed evidence: `.planning/phases/30-carrier-free-share-links-type-artis
 ### Prior phase (Phase 27 — YouTube Music Source, v1.4) — COMPLETE + E2E-VERIFIED
 
 Phase 27 complete (27-01..04). E2E-verified against LIVE YouTube via the dev-server routes: /api/ytmusic/search 200 (rows+videoId), /api/ytmusic/lyrics 200 (1513c + attribution), /api/ytmusic/stream 206 audio/mp4 + Range (playback) and 200 full-file (download). pnpm check clean, 1320 tests green. E2E caught + fixed a prod-breaking bug (quick-270715 / commit 29c1c7d): stream route exported non-HTTP-verb functions, illegal in SvelteKit +server.ts → 500; helpers moved to $lib/proxy/ytmusic.ts.
-Last activity: 2026-10-01 - Completed quick task 261001-grb: labelled download toasts
+Last activity: 2026-10-04 - Completed quick task 261004-n1i: kuwo restored via musicdl resolver chain + weekly watcher PR
 Remaining human UAT: real-device <audio> playback+seek + download-to-disk; deployed-Worker player+googlevideo same-IP egress + bot-challenge under load (T-27-03-OP). Account/library sync = separate legal-gated milestone (spike 008).
 
 ## Performance Metrics
@@ -455,6 +455,7 @@ Recent decisions affecting current work:
 
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
+| 261004-n1i | Restore kuwo: search.kuwo.cn + musicdl resolver chain (haitangw→nxinxz, full-length, *.kuwo.cn allowlist) on a dedicated edge route; 320k level token; health probes on new hosts; weekly musicdl watcher opens a review PR | 2026-10-04 | 7acca1a5 | [261004-n1i-restore-kuwo-musicdl-resolver-chain](./quick/261004-n1i-restore-kuwo-musicdl-resolver-chain/) |
 | fast | YT Music player client ANDROID_VR → VISIONOS (ANDROID_VR now PoToken-gated: only ~1 MB served → every ytmusic track skipped) | 2026-10-04 | 5acc875c | — |
 | fast | Toast: full-width rounded card (left:50%+translateX capped width at 50vw → 6-line circle) | 2026-10-04 | 0597ac6a | — |
 | fast | 600px iTunes covers on home library shelves (was 1200px hero size) | 2026-10-02 | 262b3db9 | — |
