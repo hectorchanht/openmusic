@@ -75,7 +75,8 @@ describe('check tables', () => {
 			'musicbrainz.org',
 			'coverartarchive.org',
 			'ws.audioscrobbler.com',
-			'kw-api.cenguigui.cn'
+			'search.kuwo.cn',
+			'musicapi.haitangw.net'
 		]) {
 			expect(hosts).toContain(h);
 		}
@@ -129,6 +130,20 @@ describe('payload assertions actually discriminate', () => {
 		expect(byId['netease/search'](JSON.stringify([{ name: 'Yellow', artist: 'Coldplay' }]))).toBe(true);
 		expect(byId['qq/search'](JSON.stringify([]))).toBe(false);
 		expect(byId['qq/search'](JSON.stringify([{ song_title: 'Yellow', song_mid: 'x' }]))).toBe(true);
+	});
+
+	// quick-261004-n1i: the OLD cenguigui `{code:200,data:[]}` shape must not pass the new probe.
+	it('kuwo/search requires a non-empty r.s abslist of MUSICRID rows', () => {
+		expect(byId['kuwo/search']('{"abslist":[]}')).toBe(false);
+		expect(byId['kuwo/search']('{"code":200,"data":[]}')).toBe(false);
+		expect(byId['kuwo/search']('{"abslist":[{"MUSICRID":"MUSIC_1"}]}')).toBe(true);
+	});
+
+	it('kuwo/resolve requires an https *.kuwo.cn url', () => {
+		const body = (url: string) => JSON.stringify({ code: 200, data: { url } });
+		expect(byId['kuwo/resolve'](body('http://car-er.kuwo.cn/a.mp3'))).toBe(false);
+		expect(byId['kuwo/resolve'](body('https://evil.com/a.mp3'))).toBe(false);
+		expect(byId['kuwo/resolve'](body('https://car-er.kuwo.cn/a.mp3'))).toBe(true);
 	});
 
 	it('lastfm rejects the empty-artists shape a missing LASTFM_KEY produces', () => {

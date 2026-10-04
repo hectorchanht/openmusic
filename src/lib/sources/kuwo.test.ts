@@ -127,12 +127,11 @@ describe('kuwo.resolve', () => {
 		expect(calledUrl).toContain('level=zp');
 	});
 
-	// 32-D-02 NEW: under the shipped 'auto' default with NO connection signal (node here;
-	// iOS Safari + desktop Chrome in production) effectiveQuality resolves '320' — and kuwo
-	// has NO distinct 320 rung, so it stays on level=zp. That honesty gap is PRE-EXISTING and
-	// is what `settings.defaultQualityNote` already discloses; it is deliberately NOT "fixed"
-	// here. What matters for gate #2 is that the literal 'auto' never reaches the level pick.
-	it("requests level=zp when defaultQuality is 'auto' with no connection signal", async () => {
+	// 32-D-02: under the shipped 'auto' default with NO connection signal (node here; iOS Safari +
+	// desktop Chrome in production) effectiveQuality resolves '320'. quick-261004-n1i CLOSED the
+	// old honesty gap — kuwo now has a real 320 rung (resolver level=exhigh), so 'auto' asks for
+	// 320k instead of silently pulling lossless FLAC. The literal 'auto' still never reaches the pick.
+	it("requests level=320k when defaultQuality is 'auto' with no connection signal", async () => {
 		settings.defaultQuality = 'auto';
 		const spy = mockFetchOnce(detailFixture);
 		vi.stubGlobal('fetch', spy);
@@ -140,9 +139,21 @@ describe('kuwo.resolve', () => {
 		await kuwo.resolve(stubTrack(), ac.signal);
 
 		const calledUrl = String(spy.mock.calls[0][0]);
-		expect(calledUrl).toContain('level=zp');
-		expect(calledUrl).not.toContain('level=128k');
+		expect(calledUrl).toContain('level=320k');
+		expect(calledUrl).not.toContain('level=zp');
 		expect(calledUrl).not.toContain('auto');
+	});
+
+	it("requests level=320k when defaultQuality is '320'", async () => {
+		settings.defaultQuality = '320';
+		const spy = mockFetchOnce(detailFixture);
+		vi.stubGlobal('fetch', spy);
+
+		await kuwo.resolve(stubTrack(), ac.signal);
+
+		const calledUrl = String(spy.mock.calls[0][0]);
+		expect(calledUrl).toContain('level=320k');
+		expect(calledUrl).not.toContain('level=zp');
 	});
 
 	// D-03 NEW: the '128' default requests level=128k (best-effort A1 token) not zp.

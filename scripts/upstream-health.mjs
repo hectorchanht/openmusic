@@ -1,6 +1,6 @@
 // Upstream health check (quick-260831-sh9).
 //
-// WHY THIS EXISTS: on 2026-08-31 we found that kuwo's upstream (kw-api.cenguigui.cn) had been
+// WHY THIS EXISTS: on 2026-08-31 we found that kuwo's then-upstream (the cenguigui kuwo API) had been
 // serving an EXPIRED TLS certificate since 2026-04-14 — Cloudflare had been returning 526 for
 // every /api/kuwo/* request for four and a half months and nobody noticed. Because kuwo was the
 // registry's primary source, that silently emptied the similar-song fallbacks and collapsed
@@ -21,7 +21,9 @@
 // when something is actually broken for users:
 //   critical — no fallback covers it; playback or the whole album/cover layer degrades.
 //   degraded — a documented fallback absorbs it (quality drops, nothing breaks).
-// kuwo is 'degraded' precisely BECAUSE it is already dead and demoted off the resolve floor; a
+// kuwo is 'degraded' because qq/netease sit above it in the resolve floor (#3), so its loss is
+// absorbed. quick-261004-n1i moved it off that dead cenguigui host onto search.kuwo.cn + the
+// musicdl resolver chain (haitangw primary), and these probes now watch those hosts. A
 // permanently-red check trains people to ignore the whole report, which is how this started.
 //
 // Run: node scripts/upstream-health.mjs [--origin https://openmusic.lol] [--warn-days 30]
@@ -54,7 +56,12 @@ export const CERT_CHECKS = /** @type {CertCheck[]} */ ([
 	{ host: 'musicbrainz.org', severity: 'degraded', why: 'CJK identity + original-script albums; falls back to Deezer' },
 	{ host: 'coverartarchive.org', severity: 'degraded', why: 'MusicBrainz album art; falls back to the gradient' },
 	{ host: 'ws.audioscrobbler.com', severity: 'degraded', why: 'Last.fm similar/enrich; falls back to Deezer' },
-	{ host: 'kw-api.cenguigui.cn', severity: 'degraded', why: 'kuwo — DEAD since 2026-04-14, demoted off the resolve floor' }
+	{ host: 'search.kuwo.cn', severity: 'degraded', why: 'kuwo search — resolve floor #3; qq/netease cover a miss' },
+	{
+		host: 'musicapi.haitangw.net',
+		severity: 'degraded',
+		why: 'kuwo audio PRIMARY resolver (musicdl chain); music.nxinxz.com is the http-only second'
+	}
 ]);
 
 /** Parse a JSON body, returning null instead of throwing.
@@ -140,11 +147,21 @@ export const PAYLOAD_CHECKS = /** @type {PayloadCheck[]} */ ([
 	{
 		id: 'kuwo/search',
 		severity: 'degraded',
-		path: 'https://kw-api.cenguigui.cn/?name=Coldplay&page=1&limit=5',
-		expects: 'a {code:200,data:[]} search body — EXPECTED TO FAIL until the cert is renewed',
+		path: 'https://search.kuwo.cn/r.s?all=Coldplay&ft=music&rformat=json&encoding=utf8&rn=5&pn=0&vipver=1&client=kt&cluster=0&mobi=1',
+		expects: 'an abslist carrying MUSICRID rows',
 		assert: (b) => {
 			const d = json(b);
-			return d?.code === 200 && Array.isArray(d?.data);
+			return Array.isArray(d?.abslist) && d.abslist.length > 0 && typeof d.abslist[0]?.MUSICRID === 'string';
+		}
+	},
+	{
+		id: 'kuwo/resolve',
+		severity: 'degraded',
+		path: 'https://musicapi.haitangw.net/music/kw.php?id=228908&level=standard&type=json',
+		expects: 'code 200 and an https *.kuwo.cn audio url — proves the full-length resolver is alive',
+		assert: (b) => {
+			const d = json(b);
+			return d?.code == 200 && /^https:\/\/[a-z0-9-]+\.kuwo\.cn\//.test(String(d?.data?.url ?? ''));
 		}
 	}
 ]);

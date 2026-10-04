@@ -3,7 +3,9 @@
 // 01-02 touches NO shared code (DATA-04).
 //
 // Differences from the monolith (intentional, mirroring netease.ts):
-//   - calls the SAME-ORIGIN proxy /api/kuwo/... instead of kw-api.cenguigui.cn directly
+//   - calls the SAME-ORIGIN proxy /api/kuwo/... — since quick-261004-n1i a dedicated edge route pair
+//     over the official search.kuwo.cn search + the musicdl resolver chain for audio (it replaced
+//     the dead kw-api.cenguigui.cn), answering the same legacy shapes this adapter reads
 //   - emits the canonical COLON-form uid `kuwo:<rid>` (D-10), not the hyphen form
 //   - on contract drift (code!==200 or missing data) search THROWS so catalog's
 //     Promise.allSettled records a typed per-source error, instead of the monolith's
@@ -17,7 +19,7 @@ import { kuwoHealth } from '../services/kuwo-health';
 import { settings, type DefaultQuality } from '$lib/stores/settings.svelte';
 import { effectiveQuality } from './quality';
 
-// Kuwo search row shape from the kw-api endpoint (fields we read).
+// Kuwo search row shape from /api/kuwo/search (fields we read).
 interface KuwoSearchItem {
 	rid?: string | number;
 	name?: string;
@@ -131,16 +133,14 @@ export const kuwo: SourceAdapter = {
 	},
 
 	async resolve(track: Track, signal: AbortSignal, quality?: DefaultQuality): Promise<Track> {
-		// D-03: `zp` = 臻品/lossless (legacy:2399). When the user pref is the 128–160k
-		// band, request a lower level token (`128k`) instead. The proxy forwards any
-		// `level` (`searchParams.get('level') || 'zp'`), so NO proxy edit is needed.
-		// BEST-EFFORT (A1): the cenguigui kw-api's non-`zp` token is undocumented in-repo;
-		// if the upstream ignores/rejects `128k`, Kuwo stays at whatever tier it returns
-		// (acceptable per the honest defaultQualityNote).
+		// D-03, revised by quick-261004-n1i: the edge maps 128k→standard (128k mp3), 320k→exhigh (320k mp3) and
+		// zp/anything else→lossless (flac). Before this a '320' pref — including cellular 'auto' —
+		// got lossless FLAC, because the old upstream had no 320 token.
 		// WR-07: an explicit per-call quality (download path) wins over the streaming pref.
 		// 32-D-02: resolve the pref through the ONE 'auto' seam FIRST — the literal 'auto'
 		// must never reach a tier pick, or a metered connection silently gets the top rung.
-		const level = effectiveQuality(quality ?? settings.defaultQuality) === '128' ? '128k' : 'zp';
+		const eq = effectiveQuality(quality ?? settings.defaultQuality);
+		const level = eq === '128' ? '128k' : eq === '320' ? '320k' : 'zp';
 		const path = `/api/kuwo/detail?id=${encodeURIComponent(track.songid)}&type=song&level=${encodeURIComponent(level)}&format=json`;
 
 		// Deliberately NOT gated: `resolve` is only reached for a track the user (or the queue) has
@@ -152,7 +152,7 @@ export const kuwo: SourceAdapter = {
 		// detail fetcher that already threw, kept verbatim.
 		if (!j || j.code !== 200 || !j.data) {
 			kuwoHealth.recordFail();
-			throw new Error('kuwo kw-api detail failed');
+			throw new Error('kuwo detail failed');
 		}
 		kuwoHealth.recordOk();
 

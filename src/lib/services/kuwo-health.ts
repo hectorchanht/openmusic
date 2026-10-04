@@ -1,4 +1,4 @@
-// kuwo-health — the health gate for the kuwo upstream (`kw-api.cenguigui.cn`).
+// kuwo-health — the health gate for the kuwo upstreams (search.kuwo.cn + the musicdl resolver chain, quick-261004-n1i).
 //
 // WHY (measured 2026-09-12): the upstream serves an INVALID TLS CERTIFICATE, so Cloudflare returns
 // **526 for every request, persistently, at ~1.0s each**:
@@ -19,7 +19,8 @@
 // comment claimed "apiFetch throws on a 526" — it does NOT, apiFetch RESOLVES the 526 Response and
 // `res.json()` on its text/plain body threw before any recordFail(). The gate therefore never
 // tripped in prod. kuwo.ts now funnels both calls through one `kuwoJson()` seam that counts every
-// one of those shapes.
+// one of those shapes. The gate is unchanged by the quick-261004-n1i upstream swap — a resolver-chain
+// exhaustion is a 502 from our own route and counts exactly like the old 526 did.
 //
 // The gate auto-probes once per window, so kuwo returns the moment the upstream is fixed — nothing
 // here needs changing when it recovers.
