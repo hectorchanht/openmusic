@@ -1,0 +1,70 @@
+# Weekly musicdl kuwo resolver watch (quick-261004-n1i).
+#
+# WHY: kuwo's full-length audio comes from free third-party resolvers that musicdl curates in its
+# kuwo source (src/lib/proxy/kuwo.ts KUWO_AUDIO_RESOLVERS). When musicdl's list changes, ours
+# silently rots — kuwo's previous upstream was dead for months before anyone noticed (see
+# upstream-health.yml). This job diffs the hostnames in musicdl's kuwo.py against the committed
+# snapshot scripts/musicdl-kuwo-hosts.json and, ONLY when they changed, opens a PR for review.
+#
+# It never edits resolver code and never pushes main (a push to main auto-deploys prod): it pushes a
+# musicdl-watch/<date> branch carrying the snapshot update alone, and a human merges or closes it.
+# GitHub Issues are disabled on this repo, so the PR is the signal. A GITHUB_TOKEN-authored PR
+# triggers no other workflows — fine, nothing needs to run on it.
+#
+# The diff logic lives in scripts/musicdl-watch.mjs; its pure parts are unit-tested in
+# src/lib/health/musicdl-watch.test.ts.
+name: musicdl kuwo watch
+
+on:
+  schedule:
+    # 06:45 UTC every Monday. Off the hour, like upstream-health.
+    - cron: '45 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Scoped to this job only: the token can push a branch and open a PR, nothing else. Branch
+    # protection on main is untouched because this job never pushes main.
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      # No install step: the script is dependency-free (node:fs + global fetch).
+      - name: Compare resolver hosts
+        run: node scripts/musicdl-watch.mjs --write --body-out musicdl-watch.md
+
+      - name: Open review PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- scripts/musicdl-kuwo-hosts.json; then
+            echo "unchanged"
+            exit 0
+          fi
+          BR="musicdl-watch/$(date -u +%Y%m%d)"
+          if [ "$(gh pr list --head "$BR" --state open --json number --jq length)" != "0" ]; then
+            echo "PR already open for $BR"
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git switch -c "$BR"
+          # By path only — musicdl-watch.md is the PR body, never a commit.
+          git add scripts/musicdl-kuwo-hosts.json
+          git commit -m 'chore(musicdl-watch): kuwo resolver hosts changed upstream'
+          git push -u origin "$BR"
+          gh pr create --base main --head "$BR" \
+            --title 'musicdl kuwo resolver hosts changed — review' \
+            --body-file musicdl-watch.md

@@ -1,0 +1,16 @@
+{
+	"source": "https://raw.githubusercontent.com/CharlesPikachu/musicdl/master/musicdl/modules/sources/kuwo.py",
+	"hosts": [
+		"apione.apibyte.cn",
+		"kw.006lp.ccwu.cc",
+		"lxmusicapi.onrender.com",
+		"m.kuwo.cn",
+		"mobi.kuwo.cn",
+		"music-api.gdstudio.xyz",
+		"music.nxinxz.com",
+		"music.xcloudv.top",
+		"musicapi.haitangw.net",
+		"newlyric.kuwo.cn",
+		"www.kuwo.cn"
+	]
+}
