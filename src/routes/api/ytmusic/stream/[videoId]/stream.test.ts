@@ -99,8 +99,9 @@ function ev(videoId: string, opts: { range?: string; origin?: string | null } = 
  * body. Records the fetched URLs + the media request init so the test can assert Range passthrough
  * and that ONLY the adaptiveFormats url is fetched (no open relay).
  */
-function stubFetch(players: unknown[]) {
+function stubFetch(players: unknown[], opts: { media403s?: number } = {}) {
 	let playerIdx = 0;
+	let media403s = opts.media403s ?? 0;
 	const urls: string[] = [];
 	let mediaUrl: string | null = null;
 	let mediaInit: RequestInit | undefined;
@@ -119,7 +120,26 @@ function stubFetch(players: unknown[]) {
 		if (url.includes('googlevideo.com')) {
 			mediaUrl = url;
 			mediaInit = init;
+			if (media403s > 0) {
+				media403s--;
+				// The edge IP-lock refusal: gzip text with a content-length that would not match the body.
+				return new Response('Forbidden', {
+					status: 403,
+					headers: { 'content-type': 'text/plain', 'content-length': '999' }
+				});
+			}
 			const h = new Headers((init?.headers ?? {}) as HeadersInit);
+			if (h.get('range') === 'bytes=0-') {
+				return new Response(FULL_BODY, {
+					status: 206,
+					headers: {
+						'content-type': 'application/octet-stream',
+						'accept-ranges': 'bytes',
+						'content-range': `bytes 0-${FULL_BODY.byteLength - 1}/${FULL_BODY.byteLength}`,
+						'content-length': String(FULL_BODY.byteLength)
+					}
+				});
+			}
 			if (h.has('range')) {
 				return new Response(PARTIAL_BODY, {
 					status: 206,
@@ -175,16 +195,40 @@ describe('GET /api/ytmusic/stream/:videoId — VISIONOS player → googlevideo b
 		expect(new Uint8Array(await res.arrayBuffer())).toEqual(PARTIAL_BODY);
 	});
 
-	it('a non-ranged GET returns 200 with the full body (download path) as audio/mp4', async () => {
+	it('a non-ranged GET asks upstream for bytes=0- and answers 200 with the full body (download path)', async () => {
 		const h = stubFetch([OK]);
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		const res = await streamGet(ev('vid123') as any);
 
 		expect(res.status).toBe(200);
 		expect(res.headers.get('content-type')).toBe('audio/mp4');
-		expect(h.mediaRangeHeader()).toBeNull(); // no Range forwarded on a plain GET
+		// googlevideo throttles a range-less GET to a trickle; bytes=0- is served at full speed.
+		expect(h.mediaRangeHeader()).toBe('bytes=0-');
+		expect(res.headers.get('content-range')).toBeNull(); // a whole-file answer, not a partial
 		expect(h.mediaUrl()).toBe(ITAG_140_URL);
 		expect(new Uint8Array(await res.arrayBuffer())).toEqual(FULL_BODY);
+	});
+
+	it('a googlevideo 403 (edge IP-lock) re-calls the player for a fresh url and streams', async () => {
+		const h = stubFetch([OK], { media403s: 1 });
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const res = await streamGet(ev('vid123', { range: 'bytes=0-3' }) as any);
+
+		expect(res.status).toBe(206);
+		expect(h.playerCalls()).toBe(2);
+		expect(new Uint8Array(await res.arrayBuffer())).toEqual(PARTIAL_BODY);
+	});
+
+	it('a persistent 403 gives up after 3 urls with an EMPTY body + our headers (no upstream length relayed)', async () => {
+		const h = stubFetch([OK], { media403s: 99 });
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const res = await streamGet(ev('vid123', { range: 'bytes=0-' }) as any);
+
+		expect(res.status).toBe(403);
+		expect(h.playerCalls()).toBe(3);
+		expect(res.headers.get('content-length')).toBeNull();
+		expect(res.headers.get('access-control-allow-origin')).toBe(ORIGIN);
+		expect((await res.arrayBuffer()).byteLength).toBe(0);
 	});
 
 	it('a first-call LOGIN_REQUIRED triggers exactly ONE visitorData refresh + player retry, then streams', async () => {

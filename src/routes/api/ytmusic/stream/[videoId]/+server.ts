@@ -46,7 +46,14 @@ import {
 } from '$lib/proxy/ytmusic';
 
 const PLAYER_TIMEOUT_MS = 15000; // player JSON hop
-const MEDIA_TIMEOUT_MS = 15000; // googlevideo bytes are heavier than JSON (audius posture)
+// HEADERS-only deadline for the googlevideo hop: the timer is cleared once headers arrive, so the
+// body streams uncapped (the quick-260930-x3q posture — Workers bill CPU, not wall time). The old
+// whole-request AbortSignal.timeout(15 s) cut every range-less download at ~470 KB.
+const MEDIA_HEAD_TIMEOUT_MS = 15000;
+// googlevideo 403s ~1 in 6 edge byte fetches (sampled on prod 2026-10-04) even though the player said
+// OK — the url is IP-locked and a Worker's subrequests do not always leave from the same IP. A fresh
+// player call gets a fresh url, so retry the whole player→bytes hop on a 403.
+const URL_ATTEMPTS = 3;
 
 /** POST the VISIONOS player. Returns the parsed JSON, or null on an upstream throw (so the caller
  *  can gate on isPlayable and refresh/502 rather than crash). */
@@ -61,63 +68,84 @@ async function callPlayer(videoId: string, visitorData: string | null): Promise<
 	}
 }
 
+/** One googlevideo byte fetch with a HEADERS-only deadline (see MEDIA_HEAD_TIMEOUT_MS). RAW edge
+ *  fetch (fetchWithRetry) — NEVER the client fetch governor (api-base): a long-lived media stream
+ *  must not hold a governor slot (T-27-03-03). */
+async function fetchMedia(url: string, headers: Record<string, string>): Promise<Response> {
+	const ctrl = new AbortController();
+	const timer = setTimeout(() => ctrl.abort(), MEDIA_HEAD_TIMEOUT_MS);
+	try {
+		return await fetchWithRetry(url, { redirect: 'follow', signal: ctrl.signal, headers }, 1);
+	} finally {
+		clearTimeout(timer);
+	}
+}
+
 export const GET: RequestHandler = async ({ params, request }) => {
 	const origin = request.headers.get('origin');
 	const videoId = (params.videoId ?? '').trim();
 	if (!videoId) return new Response('missing videoId', { status: 400, headers: corsHeaders(origin) });
 
-	// 1. VISIONOS player POST with the cached anonymous visitorData.
-	let json = await callPlayer(videoId, await getVisitorData());
-
-	// 2. Bot gate / expiry → refresh visitorData ONCE and retry the player POST once. Never hang.
-	if (!isPlayable(json)) {
-		json = await callPlayer(videoId, await getVisitorData(true));
-		if (!isPlayable(json)) {
-			// Still not OK → 502 so the client's cross-source fallback engages.
-			return new Response('ytmusic: player not OK', { status: 502, headers: corsHeaders(origin) });
-		}
-	}
-
-	// 3. Select the itag-140 AAC direct url (no cipher/throttle). null → 502.
-	const streamUrl = selectAudioFormat(json);
-	if (!streamUrl) {
-		return new Response('ytmusic: no playable AAC format', {
-			status: 502,
-			headers: corsHeaders(origin)
-		});
-	}
-
-	// 4. Proxy the googlevideo bytes in the SAME invocation (IP-lock). RAW edge fetch (fetchWithRetry)
-	//    — NEVER the client fetch governor (api-base): a long-lived media stream must not hold a
-	//    governor slot (T-27-03-03). We fetch ONLY the adaptiveFormats url selected above — never a
-	//    client-supplied URL (no open relay, T-27-03-01).
-	const upstreamHeaders: Record<string, string> = {};
+	// googlevideo throttles a range-less GET to a trickle but serves `Range: bytes=0-` at full speed, so
+	// a range-less request (the download path) asks upstream for bytes=0- and answers the client a
+	// plain 200 below. A client Range (<audio> seeking) is forwarded verbatim.
 	const range = request.headers.get('range');
-	if (range) upstreamHeaders['Range'] = range; // forward Range so googlevideo serves a 206
+	const upstreamHeaders: Record<string, string> = { Range: range ?? 'bytes=0-' };
 
-	try {
-		const res = await fetchWithRetry(
-			streamUrl,
-			{ redirect: 'follow', signal: AbortSignal.timeout(MEDIA_TIMEOUT_MS), headers: upstreamHeaders },
-			1
-		);
-		// itag 140 is always AAC/mp4 — set the content-type explicitly (the download flow + <audio> rely
-		// on it). Propagate range headers only when present so 206 + <audio> seeking work end-to-end.
-		const outHeaders: Record<string, string> = {
-			...corsHeaders(origin),
-			'content-type': 'audio/mp4'
-		};
-		const acceptRanges = res.headers.get('accept-ranges');
-		if (acceptRanges != null) outHeaders['Accept-Ranges'] = acceptRanges;
-		const contentRange = res.headers.get('content-range');
-		if (contentRange != null) outHeaders['Content-Range'] = contentRange;
-		const contentLength = res.headers.get('content-length');
-		if (contentLength != null) outHeaders['Content-Length'] = contentLength;
+	let res: Response | null = null;
+	for (let attempt = 0; attempt < URL_ATTEMPTS; attempt++) {
+		// 1. VISIONOS player POST with the cached anonymous visitorData.
+		let json = await callPlayer(videoId, await getVisitorData());
 
-		return new Response(res.body, { status: res.status, headers: outHeaders });
-	} catch {
-		return new Response('ytmusic: upstream error', { status: 502, headers: corsHeaders(origin) });
+		// 2. Bot gate / expiry → refresh visitorData ONCE and retry the player POST once. Never hang.
+		if (!isPlayable(json)) {
+			json = await callPlayer(videoId, await getVisitorData(true));
+			if (!isPlayable(json)) {
+				// Still not OK → 502 so the client's cross-source fallback engages.
+				return new Response('ytmusic: player not OK', { status: 502, headers: corsHeaders(origin) });
+			}
+		}
+
+		// 3. Select the itag-140 AAC direct url (no cipher/throttle). null → 502.
+		const streamUrl = selectAudioFormat(json);
+		if (!streamUrl) {
+			return new Response('ytmusic: no playable AAC format', {
+				status: 502,
+				headers: corsHeaders(origin)
+			});
+		}
+
+		// 4. Proxy the googlevideo bytes in the SAME invocation (IP-lock). We fetch ONLY the
+		//    adaptiveFormats url selected above — never a client-supplied URL (no open relay, T-27-03-01).
+		try {
+			res = await fetchMedia(streamUrl, upstreamHeaders);
+		} catch {
+			return new Response('ytmusic: upstream error', { status: 502, headers: corsHeaders(origin) });
+		}
+		if (res.status !== 403) break;
+		await res.body?.cancel().catch(() => {});
 	}
+	if (!res) return new Response('ytmusic: upstream error', { status: 502, headers: corsHeaders(origin) });
+
+	// itag 140 is always AAC/mp4 — set the content-type explicitly (the download flow + <audio> rely on it).
+	const outHeaders: Record<string, string> = { ...corsHeaders(origin), 'content-type': 'audio/mp4' };
+	if (!res.ok) {
+		// Upstream error bodies are DROPPED, never relayed: Workers decompress a gzip body but keep the
+		// upstream content-length, and that length/body mismatch reached users as Cloudflare's own
+		// `error code: 502` (no CORS headers). An empty body with our headers is what the client expects.
+		await res.body?.cancel().catch(() => {});
+		return new Response(null, { status: res.status, headers: outHeaders });
+	}
+	const acceptRanges = res.headers.get('accept-ranges');
+	if (acceptRanges != null) outHeaders['Accept-Ranges'] = acceptRanges;
+	const contentLength = res.headers.get('content-length');
+	if (contentLength != null) outHeaders['Content-Length'] = contentLength;
+	// No client Range → the client asked for the whole file: answer 200 without range headers, even
+	// though upstream answered our synthesized bytes=0- with a 206.
+	if (!range) return new Response(res.body, { status: 200, headers: outHeaders });
+	const contentRange = res.headers.get('content-range');
+	if (contentRange != null) outHeaders['Content-Range'] = contentRange;
+	return new Response(res.body, { status: res.status, headers: outHeaders });
 };
 
 export const OPTIONS: RequestHandler = ({ request }) => {
