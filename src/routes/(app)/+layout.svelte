@@ -629,10 +629,16 @@
 	/* Never-stop feedback pill. Mirrors the +page.svelte .toast shape (fixed top, pill, dark
 	   backdrop) but layout-level + z above the nowbar (z:20) / tabbar (z:21). The sticky variant
 	   uses a row so the message and Retry button sit side by side; it wraps on narrow widths. */
+	/* fast 2026-10-04: centred via left/right + auto margins, NOT `left:50%; translateX(-50%)` —
+	   that capped the shrink-to-fit width at 50vw, so a long skip message wrapped to ~6 lines and the
+	   999px radius turned it into a circle with text spilling past the curve. Rounded rect, not pill:
+	   one line still reads as a pill, multi-line stays a clean card. */
 	.notice-toast {
 		position: fixed;
-		left: 50%;
-		transform: translateX(-50%);
+		left: 12px;
+		right: 12px;
+		margin-inline: auto;
+		width: fit-content;
 		top: calc(env(safe-area-inset-top, 0px) + 14px);
 		z-index: 90;
 		max-width: min(92vw, 520px);
@@ -642,7 +648,7 @@
 		background: #000;
 		color: #fff;
 		padding: 10px 16px;
-		border-radius: 999px;
+		border-radius: 18px;
 		font-size: 0.8125rem;
 		box-shadow: var(--shadow-lg);
 	}

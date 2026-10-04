@@ -16,7 +16,8 @@
 {#if toast.msg}<div class="toast" role="status" aria-live="polite" transition:fly={{ y: -20, duration: 180 }}><span class="msg">{toast.msg}</span>{#if toast.action}<button type="button" class="act" onclick={() => toast.act()} use:tapBounce>{toast.action.label}</button>{/if}</div>{/if}
 
 <style>
-	.toast { position: fixed; left: 50%; transform: translateX(-50%); top: calc(env(safe-area-inset-top, 0px) + 14px); z-index: 90; background: #000; color: #fff; padding: 10px 16px; border-radius: 999px; font-size: 0.8125rem; box-shadow: var(--shadow-lg); border-color: darkgrey; display: flex; align-items: center; gap: 12px; max-width: min(92vw, 520px); }
+	/* fast 2026-10-04: left/right + auto margins, not left:50%+translateX — that capped the width at 50vw (see +layout .notice-toast). */
+	.toast { position: fixed; left: 12px; right: 12px; margin-inline: auto; width: fit-content; top: calc(env(safe-area-inset-top, 0px) + 14px); z-index: 90; background: #000; color: #fff; padding: 10px 16px; border-radius: 18px; font-size: 0.8125rem; box-shadow: var(--shadow-lg); border-color: darkgrey; display: flex; align-items: center; gap: 12px; max-width: min(92vw, 520px); }
 	/* quick-261001-grb: download toasts now carry CJK artist/album names — one line + ellipsis
 	   instead of a wrapping pill (the pill's max-width bounds it on a 375px phone). */
 	.toast .msg { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
