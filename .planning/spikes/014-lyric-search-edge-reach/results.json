@@ -1,0 +1,1306 @@
+{
+	"ranAt": "2026-10-04T21:37:10.249Z",
+	"trace": {
+		"ip": "2a06:98c0:3600::103",
+		"colo": "SEA",
+		"http": "http/1.1",
+		"loc": "CA"
+	},
+	"summary": {
+		"a:netease-1006": {
+			"edgeExact5": 12,
+			"localExact5_full": 94,
+			"empty": 30,
+			"errors": 0,
+			"statuses": [
+				"200/200",
+				"200/-462"
+			]
+		},
+		"b:qq-type7": {
+			"edgeExact5": 100,
+			"localExact5_full": 88,
+			"empty": 0,
+			"errors": 0,
+			"statuses": [
+				"200/0/0"
+			]
+		},
+		"c:ytm-top(direct)": {
+			"edgeExact5": 79,
+			"localExact5_full": 79,
+			"empty": 0,
+			"errors": 0,
+			"statuses": [
+				"200"
+			]
+		},
+		"d:genius": {
+			"edgeExact5": 94,
+			"localExact5_full": 94,
+			"empty": 1,
+			"errors": 0,
+			"statuses": [
+				"200"
+			]
+		}
+	},
+	"bursts": {
+		"a:netease-1006": {
+			"ok": 0,
+			"n": 15,
+			"statuses": [
+				"200/-462"
+			],
+			"p50ms": 211
+		},
+		"b:qq-type7": {
+			"ok": 15,
+			"n": 15,
+			"statuses": [
+				"200/0/0"
+			],
+			"p50ms": 401
+		},
+		"c:ytm-top(direct)": {
+			"ok": 15,
+			"n": 15,
+			"statuses": [
+				"200"
+			],
+			"p50ms": 412
+		},
+		"d:genius": {
+			"ok": 15,
+			"n": 15,
+			"statuses": [
+				"200"
+			],
+			"p50ms": 218
+		}
+	},
+	"cors": [
+		{
+			"name": "netease cloudsearch",
+			"preflight": 200,
+			"preflightAcao": null,
+			"getAcao": null
+		},
+		{
+			"name": "qq musicu (POST)",
+			"preflight": 200,
+			"preflightAcao": null,
+			"getAcao": null
+		},
+		{
+			"name": "qq musicu (GET ?data=)",
+			"preflight": 200,
+			"preflightAcao": null,
+			"getAcao": null
+		},
+		{
+			"name": "genius search/lyric",
+			"preflight": 204,
+			"preflightAcao": null,
+			"getAcao": null
+		},
+		{
+			"name": "ytm search (POST)",
+			"preflight": 403,
+			"preflightAcao": null,
+			"getAcao": null
+		}
+	],
+	"rows": [
+		{
+			"song": "富士山下 / 陳奕迅",
+			"seg": "canto",
+			"line": "p35",
+			"t": {
+				"a:netease-1006": {
+					"exact": 1,
+					"title": 1,
+					"ms": 1242,
+					"status": "200/200",
+					"n": 5
+				},
+				"b:qq-type7": {
+					"exact": 1,
+					"title": 1,
+					"ms": 1689,
+					"status": "200/0/0",
+					"n": 5
+				},
+				"c:ytm-top(direct)": {
+					"exact": 1,
+					"title": 1,
+					"ms": 374,
+					"status": 200,
+					"n": 5
+				},
+				"d:genius": {
+					"exact": 1,
+					"title": 1,
+					"ms": 284,
+					"status": 200,
+					"n": 1
+				}
+			}
+		},
+		{
+			"song": "富士山下 / 陳奕迅",
+			"seg": "canto",
+			"line": "p65",
+			"t": {
+				"a:netease-1006": {
+					"exact": 1,
+					"title": 1,
+					"ms": 302,
+					"status": "200/200",
+					"n": 5
+				},
+				"b:qq-type7": {
+					"exact": 1,
+					"title": 1,
+					"ms": 355,
+					"status": "200/0/0",
+					"n": 5
+				},
+				"c:ytm-top(direct)": {
+					"exact": 2,
+					"title": 1,
+					"ms": 346,
+					"status": 200,
+					"n": 5
+				},
+				"d:genius": {
+					"exact": 1,
+					"title": 1,
+					"ms": 168,
+					"status": 200,
+					"n": 1
+				}
+			}
+		},
+		{
+			"song": "海闊天空 / Beyond",
+			"seg": "canto",
+			"line": "p35",
+			"t": {
+				"a:netease-1006": {
+					"exact": 1,
+					"title": 1,
+					"ms": 288,
+					"status": "200/200",
+					"n": 5
+				},
+				"b:qq-type7": {
+					"exact": 1,
+					"title": 1,
+					"ms": 358,
+					"status": "200/0/0",
+					"n": 5
+				},
+				"c:ytm-top(direct)": {
+					"exact": 1,
+					"title": 1,
+					"ms": 460,
+					"status": 200,
+					"n": 5
+				},
+				"d:genius": {
+					"exact": 1,
+					"title": 1,
+					"ms": 352,
+					"status": 200,
+					"n": 3
+				}
+			}
+		},
+		{
+			"song": "海闊天空 / Beyond",
+			"seg": "canto",
+			"line": "p65",
+			"t": {
+				"a:netease-1006": {
+					"exact": 1,
+					"title": 1,
+					"ms": 694,
+					"status": "200/200",
+					"n": 5
+				},
+				"b:qq-type7": {
+					"exact": 1,
+					"title": 1,
+					"ms": 400,
+					"status": "200/0/0",
+					"n": 5
+				},
+				"c:ytm-top(direct)": {
+					"exact": 1,
+					"title": 1,
+					"ms": 389,
+					"status": 200,
+					"n": 5
+				},
+				"d:genius": {
+					"exact": null,
+					"title": 1,
+					"ms": 285,
+					"status": 200,
+					"n": 4
+				}
+			}
+		},
+		{
+			"song": "囍帖街 / 謝安琪",
+			"seg": "canto",
+			"line": "p35",
+			"t": {
+				"a:netease-1006": {
+					"exact": null,
+					"title": null,
+					"ms": 619,
+					"status": "200/-462",
+					"n": 0
+				},
+				"b:qq-type7": {
+					"exact": 1,
+					"title": 1,
+					"ms": 377,
+					"status": "200/0/0",
+					"n": 5
+				},
+				"c:ytm-top(direct)": {
+					"exact": null,
+					"title": 1,
+					"ms": 448,
+					"status": 200,
+					"n": 5
+				},
+				"d:genius": {
+					"exact": 1,
+					"title": 1,
+					"ms": 378,
+					"status": 200,
+					"n": 5
+				}
+			}
+		},
+		{
+			"song": "囍帖街 / 謝安琪",
+			"seg": "canto",
+			"line": "p65",
+			"t": {
+				"a:netease-1006": {
+					"exact": null,
+					"title": null,
+					"ms": 216,
+					"status": "200/-462",
+					"n": 0
+				},
+				"b:qq-type7": {
+					"exact": 1,
+					"title": 1,
+					"ms": 916,
+					"status": "200/0/0",
+					"n": 5
+				},
+				"c:ytm-top(direct)": {
+					"exact": 5,
+					"title": 1,
+					"ms": 409,
+					"status": 200,
+					"n": 5
+				},
+				"d:genius": {
+					"exact": 1,
+					"title": 1,
+					"ms": 205,
+					"status": 200,
+					"n": 4
+				}
+			}
+		},
+		{
+			"song": "少女的祈禱 / 楊千嬅",
+			"seg": "canto",
+			"line": "p35",
+			"t": {
+				"a:netease-1006": {
+					"exact": null,
+					"title": null,
+					"ms": 611,
+					"status": "200/-462",
+					"n": 0
+				},
+				"b:qq-type7": {
+					"exact": 1,
+					"title": 1,
+					"ms": 321,
+					"status": "200/0/0",
+					"n": 5
+				},
+				"c:ytm-top(direct)": {
+					"exact": 3,
+					"title": 1,
+					"ms": 350,
+					"status": 200,
+					"n": 5
+				},
+				"d:genius": {
+					"exact": 3,
+					"title": 1,
+					"ms": 379,
+					"status": 200,
+					"n": 3
+				}
+			}
+		},
+		{
+			"song": "少女的祈禱 / 楊千嬅",
+			"seg": "canto",
+			"line": "p65",
+			"t": {
+				"a:netease-1006": {
+					"exact": null,
+					"title": null,
+					"ms": 219,
+					"status": "200/-462",
+					"n": 0
+				},
+				"b:qq-type7": {
+					"exact": 1,
+					"title": 1,
+					"ms": 319,
+					"status": "200/0/0",
+					"n": 5
+				},
+				"c:ytm-top(direct)": {
+					"exact": null,
+					"title": 1,
+					"ms": 410,
+					"status": 200,
+					"n": 5
+				},
+				"d:genius": {
+					"exact": 3,
+					"title": 1,
+					"ms": 311,
+					"status": 200,
+					"n": 3
+				}
+			}
+		},
+		{
+			"song": "稻香 / 周杰倫",
+			"seg": "mando",
+			"line": "p35",
+			"t": {
+				"a:netease-1006": {
+					"exact": null,
+					"title": null,
+					"ms": 212,
+					"status": "200/-462",
+					"n": 0
+				},
+				"b:qq-type7": {
+					"exact": 1,
+					"title": 1,
+					"ms": 330,
+					"status": "200/0/0",
+					"n": 5
+				},
+				"c:ytm-top(direct)": {
+					"exact": 5,
+					"title": 1,
+					"ms": 405,
+					"status": 200,
+					"n": 5
+				},
+				"d:genius": {
+					"exact": 1,
+					"title": 1,
+					"ms": 172,
+					"status": 200,
+					"n": 3
+				}
+			}
+		},
+		{
+			"song": "稻香 / 周杰倫",
+			"seg": "mando",
+			"line": "p65",
+			"t": {
+				"a:netease-1006": {
+					"exact": null,
+					"title": null,
+					"ms": 215,
+					"status": "200/-462",
+					"n": 0
+				},
+				"b:qq-type7": {
+					"exact": 1,
+					"title": 1,
+					"ms": 464,
+					"status": "200/0/0",
+					"n": 5
+				},
+				"c:ytm-top(direct)": {
+					"exact": 1,
+					"title": 1,
+					"ms": 347,
+					"status": 200,
+					"n": 5
+				},
+				"d:genius": {
+					"exact": 1,
+					"title": 1,
+					"ms": 467,
+					"status": 200,
+					"n": 4
+				}
+			}
+		},
+		{
+			"song": "倔強 / 五月天",
+			"seg": "mando",
+			"line": "p35",
+			"t": {
+				"a:netease-1006": {
+					"exact": null,
+					"title": null,
+					"ms": 214,
+					"status": "200/-462",
+					"n": 0
+				},
+				"b:qq-type7": {
+					"exact": 1,
+					"title": 1,
+					"ms": 415,
+					"status": "200/0/0",
+					"n": 5
+				},
+				"c:ytm-top(direct)": {
+					"exact": 2,
+					"title": 1,
+					"ms": 418,
+					"status": 200,
+					"n": 5
+				},
+				"d:genius": {
+					"exact": 1,
+					"title": 1,
+					"ms": 251,
+					"status": 200,
+					"n": 5
+				}
+			}
+		},
+		{
+			"song": "倔強 / 五月天",
+			"seg": "mando",
+			"line": "p65",
+			"t": {
+				"a:netease-1006": {
+					"exact": null,
+					"title": null,
+					"ms": 214,
+					"status": "200/-462",
+					"n": 0
+				},
+				"b:qq-type7": {
+					"exact": 1,
+					"title": 1,
+					"ms": 601,
+					"status": "200/0/0",
+					"n": 5
+				},
+				"c:ytm-top(direct)": {
+					"exact": 1,
+					"title": 1,
+					"ms": 451,
+					"status": 200,
+					"n": 5
+				},
+				"d:genius": {
+					"exact": 1,
+					"title": 1,
+					"ms": 262,
+					"status": 200,
+					"n": 1
+				}
+			}
+		},
+		{
+			"song": "江南 / 林俊傑",
+			"seg": "mando",
+			"line": "p35",
+			"t": {
+				"a:netease-1006": {
+					"exact": null,
+					"title": null,
+					"ms": 213,
+					"status": "200/-462",
+					"n": 0
+				},
+				"b:qq-type7": {
+					"exact": 1,
+					"title": 1,
+					"ms": 370,
+					"status": "200/0/0",
+					"n": 5
+				},
+				"c:ytm-top(direct)": {
+					"exact": 1,
+					"title": 1,
+					"ms": 476,
+					"status": 200,
+					"n": 5
+				},
+				"d:genius": {
+					"exact": 1,
+					"title": 1,
+					"ms": 483,
+					"status": 200,
+					"n": 4
+				}
+			}
+		},
+		{
+			"song": "江南 / 林俊傑",
+			"seg": "mando",
+			"line": "p65",
+			"t": {
+				"a:netease-1006": {
+					"exact": null,
+					"title": null,
+					"ms": 216,
+					"status": "200/-462",
+					"n": 0
+				},
+				"b:qq-type7": {
+					"exact": 1,
+					"title": 1,
+					"ms": 407,
+					"status": "200/0/0",
+					"n": 5
+				},
+				"c:ytm-top(direct)": {
+					"exact": 1,
+					"title": 1,
+					"ms": 462,
+					"status": 200,
+					"n": 5
+				},
+				"d:genius": {
+					"exact": 1,
+					"title": 1,
+					"ms": 470,
+					"status": 200,
+					"n": 4
+				}
+			}
+		},
+		{
+			"song": "消愁 / 毛不易",
+			"seg": "mando",
+			"line": "p35",
+			"t": {
+				"a:netease-1006": {
+					"exact": null,
+					"title": null,
+					"ms": 222,
+					"status": "200/-462",
+					"n": 0
+				},
+				"b:qq-type7": {
+					"exact": 1,
+					"title": 1,
+					"ms": 348,
+					"status": "200/0/0",
+					"n": 5
+				},
+				"c:ytm-top(direct)": {
+					"exact": 1,
+					"title": 1,
+					"ms": 372,
+					"status": 200,
+					"n": 5
+				},
+				"d:genius": {
+					"exact": null,
+					"title": null,
+					"ms": 306,
+					"status": 200,
+					"n": 0
+				}
+			}
+		},
+		{
+			"song": "消愁 / 毛不易",
+			"seg": "mando",
+			"line": "p65",
+			"t": {
+				"a:netease-1006": {
+					"exact": null,
+					"title": null,
+					"ms": 214,
+					"status": "200/-462",
+					"n": 0
+				},
+				"b:qq-type7": {
+					"exact": 1,
+					"title": 1,
+					"ms": 412,
+					"status": "200/0/0",
+					"n": 5
+				},
+				"c:ytm-top(direct)": {
+					"exact": 4,
+					"title": 2,
+					"ms": 486,
+					"status": 200,
+					"n": 5
+				},
+				"d:genius": {
+					"exact": 1,
+					"title": 1,
+					"ms": 450,
+					"status": 200,
+					"n": 4
+				}
+			}
+		},
+		{
+			"song": "光年之外 / 鄧紫棋",
+			"seg": "mando",
+			"line": "p35",
+			"t": {
+				"a:netease-1006": {
+					"exact": null,
+					"title": null,
+					"ms": 212,
+					"status": "200/-462",
+					"n": 0
+				},
+				"b:qq-type7": {
+					"exact": 3,
+					"title": 1,
+					"ms": 375,
+					"status": "200/0/0",
+					"n": 5
+				},
+				"c:ytm-top(direct)": {
+					"exact": 1,
+					"title": 1,
+					"ms": 413,
+					"status": 200,
+					"n": 5
+				},
+				"d:genius": {
+					"exact": 1,
+					"title": 1,
+					"ms": 174,
+					"status": 200,
+					"n": 3
+				}
+			}
+		},
+		{
+			"song": "光年之外 / 鄧紫棋",
+			"seg": "mando",
+			"line": "p65",
+			"t": {
+				"a:netease-1006": {
+					"exact": null,
+					"title": null,
+					"ms": 212,
+					"status": "200/-462",
+					"n": 0
+				},
+				"b:qq-type7": {
+					"exact": 1,
+					"title": 1,
+					"ms": 348,
+					"status": "200/0/0",
+					"n": 5
+				},
+				"c:ytm-top(direct)": {
+					"exact": null,
+					"title": 1,
+					"ms": 503,
+					"status": 200,
+					"n": 5
+				},
+				"d:genius": {
+					"exact": 1,
+					"title": 1,
+					"ms": 383,
+					"status": 200,
+					"n": 3
+				}
+			}
+		},
+		{
+			"song": "Bohemian Rhapsody / Queen",
+			"seg": "en",
+			"line": "p35",
+			"t": {
+				"a:netease-1006": {
+					"exact": null,
+					"title": null,
+					"ms": 213,
+					"status": "200/-462",
+					"n": 0
+				},
+				"b:qq-type7": {
+					"exact": 1,
+					"title": 1,
+					"ms": 362,
+					"status": "200/0/0",
+					"n": 5
+				},
+				"c:ytm-top(direct)": {
+					"exact": 1,
+					"title": 1,
+					"ms": 558,
+					"status": 200,
+					"n": 5
+				},
+				"d:genius": {
+					"exact": 1,
+					"title": 1,
+					"ms": 562,
+					"status": 200,
+					"n": 5
+				}
+			}
+		},
+		{
+			"song": "Bohemian Rhapsody / Queen",
+			"seg": "en",
+			"line": "p65",
+			"t": {
+				"a:netease-1006": {
+					"exact": null,
+					"title": null,
+					"ms": 212,
+					"status": "200/-462",
+					"n": 0
+				},
+				"b:qq-type7": {
+					"exact": 1,
+					"title": 1,
+					"ms": 380,
+					"status": "200/0/0",
+					"n": 5
+				},
+				"c:ytm-top(direct)": {
+					"exact": 2,
+					"title": 1,
+					"ms": 624,
+					"status": 200,
+					"n": 5
+				},
+				"d:genius": {
+					"exact": 1,
+					"title": 1,
+					"ms": 485,
+					"status": 200,
+					"n": 5
+				}
+			}
+		},
+		{
+			"song": "Someone Like You / Adele",
+			"seg": "en",
+			"line": "p35",
+			"t": {
+				"a:netease-1006": {
+					"exact": null,
+					"title": null,
+					"ms": 215,
+					"status": "200/-462",
+					"n": 0
+				},
+				"b:qq-type7": {
+					"exact": 1,
+					"title": 1,
+					"ms": 363,
+					"status": "200/0/0",
+					"n": 5
+				},
+				"c:ytm-top(direct)": {
+					"exact": 1,
+					"title": 1,
+					"ms": 500,
+					"status": 200,
+					"n": 5
+				},
+				"d:genius": {
+					"exact": 1,
+					"title": 1,
+					"ms": 487,
+					"status": 200,
+					"n": 5
+				}
+			}
+		},
+		{
+			"song": "Someone Like You / Adele",
+			"seg": "en",
+			"line": "p65",
+			"t": {
+				"a:netease-1006": {
+					"exact": null,
+					"title": null,
+					"ms": 212,
+					"status": "200/-462",
+					"n": 0
+				},
+				"b:qq-type7": {
+					"exact": 1,
+					"title": 1,
+					"ms": 363,
+					"status": "200/0/0",
+					"n": 5
+				},
+				"c:ytm-top(direct)": {
+					"exact": 4,
+					"title": 2,
+					"ms": 529,
+					"status": 200,
+					"n": 5
+				},
+				"d:genius": {
+					"exact": 1,
+					"title": 1,
+					"ms": 402,
+					"status": 200,
+					"n": 5
+				}
+			}
+		},
+		{
+			"song": "Shape of You / Ed Sheeran",
+			"seg": "en",
+			"line": "p35",
+			"t": {
+				"a:netease-1006": {
+					"exact": null,
+					"title": null,
+					"ms": 211,
+					"status": "200/-462",
+					"n": 0
+				},
+				"b:qq-type7": {
+					"exact": 1,
+					"title": 1,
+					"ms": 461,
+					"status": "200/0/0",
+					"n": 5
+				},
+				"c:ytm-top(direct)": {
+					"exact": 3,
+					"title": 1,
+					"ms": 467,
+					"status": 200,
+					"n": 5
+				},
+				"d:genius": {
+					"exact": 1,
+					"title": 1,
+					"ms": 316,
+					"status": 200,
+					"n": 5
+				}
+			}
+		},
+		{
+			"song": "Shape of You / Ed Sheeran",
+			"seg": "en",
+			"line": "p65",
+			"t": {
+				"a:netease-1006": {
+					"exact": null,
+					"title": null,
+					"ms": 216,
+					"status": "200/-462",
+					"n": 0
+				},
+				"b:qq-type7": {
+					"exact": 1,
+					"title": 1,
+					"ms": 390,
+					"status": "200/0/0",
+					"n": 5
+				},
+				"c:ytm-top(direct)": {
+					"exact": null,
+					"title": null,
+					"ms": 519,
+					"status": 200,
+					"n": 5
+				},
+				"d:genius": {
+					"exact": 1,
+					"title": 1,
+					"ms": 306,
+					"status": 200,
+					"n": 5
+				}
+			}
+		},
+		{
+			"song": "Love Story / Taylor Swift",
+			"seg": "en",
+			"line": "p35",
+			"t": {
+				"a:netease-1006": {
+					"exact": null,
+					"title": null,
+					"ms": 211,
+					"status": "200/-462",
+					"n": 0
+				},
+				"b:qq-type7": {
+					"exact": 1,
+					"title": 1,
+					"ms": 372,
+					"status": "200/0/0",
+					"n": 5
+				},
+				"c:ytm-top(direct)": {
+					"exact": 1,
+					"title": 1,
+					"ms": 483,
+					"status": 200,
+					"n": 5
+				},
+				"d:genius": {
+					"exact": 1,
+					"title": 1,
+					"ms": 322,
+					"status": 200,
+					"n": 5
+				}
+			}
+		},
+		{
+			"song": "Love Story / Taylor Swift",
+			"seg": "en",
+			"line": "p65",
+			"t": {
+				"a:netease-1006": {
+					"exact": null,
+					"title": null,
+					"ms": 211,
+					"status": "200/-462",
+					"n": 0
+				},
+				"b:qq-type7": {
+					"exact": 1,
+					"title": 1,
+					"ms": 393,
+					"status": "200/0/0",
+					"n": 5
+				},
+				"c:ytm-top(direct)": {
+					"exact": null,
+					"title": 1,
+					"ms": 448,
+					"status": 200,
+					"n": 5
+				},
+				"d:genius": {
+					"exact": 1,
+					"title": 1,
+					"ms": 434,
+					"status": 200,
+					"n": 5
+				}
+			}
+		},
+		{
+			"song": "Lemon / 米津玄師",
+			"seg": "jp",
+			"line": "p35",
+			"t": {
+				"a:netease-1006": {
+					"exact": null,
+					"title": null,
+					"ms": 211,
+					"status": "200/-462",
+					"n": 0
+				},
+				"b:qq-type7": {
+					"exact": 1,
+					"title": 1,
+					"ms": 409,
+					"status": "200/0/0",
+					"n": 5
+				},
+				"c:ytm-top(direct)": {
+					"exact": 1,
+					"title": 1,
+					"ms": 432,
+					"status": 200,
+					"n": 5
+				},
+				"d:genius": {
+					"exact": 1,
+					"title": 1,
+					"ms": 418,
+					"status": 200,
+					"n": 5
+				}
+			}
+		},
+		{
+			"song": "Lemon / 米津玄師",
+			"seg": "jp",
+			"line": "p65",
+			"t": {
+				"a:netease-1006": {
+					"exact": null,
+					"title": null,
+					"ms": 214,
+					"status": "200/-462",
+					"n": 0
+				},
+				"b:qq-type7": {
+					"exact": 1,
+					"title": 1,
+					"ms": 349,
+					"status": "200/0/0",
+					"n": 5
+				},
+				"c:ytm-top(direct)": {
+					"exact": null,
+					"title": null,
+					"ms": 557,
+					"status": 200,
+					"n": 5
+				},
+				"d:genius": {
+					"exact": 1,
+					"title": 1,
+					"ms": 294,
+					"status": 200,
+					"n": 5
+				}
+			}
+		},
+		{
+			"song": "夜に駆ける / YOASOBI",
+			"seg": "jp",
+			"line": "p35",
+			"t": {
+				"a:netease-1006": {
+					"exact": null,
+					"title": null,
+					"ms": 213,
+					"status": "200/-462",
+					"n": 0
+				},
+				"b:qq-type7": {
+					"exact": 1,
+					"title": 1,
+					"ms": 389,
+					"status": "200/0/0",
+					"n": 5
+				},
+				"c:ytm-top(direct)": {
+					"exact": 1,
+					"title": 1,
+					"ms": 506,
+					"status": 200,
+					"n": 5
+				},
+				"d:genius": {
+					"exact": 1,
+					"title": 1,
+					"ms": 278,
+					"status": 200,
+					"n": 4
+				}
+			}
+		},
+		{
+			"song": "夜に駆ける / YOASOBI",
+			"seg": "jp",
+			"line": "p65",
+			"t": {
+				"a:netease-1006": {
+					"exact": null,
+					"title": null,
+					"ms": 211,
+					"status": "200/-462",
+					"n": 0
+				},
+				"b:qq-type7": {
+					"exact": 1,
+					"title": 1,
+					"ms": 378,
+					"status": "200/0/0",
+					"n": 5
+				},
+				"c:ytm-top(direct)": {
+					"exact": 1,
+					"title": 1,
+					"ms": 335,
+					"status": 200,
+					"n": 5
+				},
+				"d:genius": {
+					"exact": 1,
+					"title": 1,
+					"ms": 282,
+					"status": 200,
+					"n": 5
+				}
+			}
+		},
+		{
+			"song": "밤편지 / IU",
+			"seg": "kr",
+			"line": "p35",
+			"t": {
+				"a:netease-1006": {
+					"exact": null,
+					"title": null,
+					"ms": 213,
+					"status": "200/-462",
+					"n": 0
+				},
+				"b:qq-type7": {
+					"exact": 1,
+					"title": 1,
+					"ms": 332,
+					"status": "200/0/0",
+					"n": 5
+				},
+				"c:ytm-top(direct)": {
+					"exact": 1,
+					"title": 1,
+					"ms": 614,
+					"status": 200,
+					"n": 5
+				},
+				"d:genius": {
+					"exact": 1,
+					"title": 1,
+					"ms": 317,
+					"status": 200,
+					"n": 5
+				}
+			}
+		},
+		{
+			"song": "밤편지 / IU",
+			"seg": "kr",
+			"line": "p65",
+			"t": {
+				"a:netease-1006": {
+					"exact": null,
+					"title": null,
+					"ms": 213,
+					"status": "200/-462",
+					"n": 0
+				},
+				"b:qq-type7": {
+					"exact": 1,
+					"title": 1,
+					"ms": 332,
+					"status": "200/0/0",
+					"n": 5
+				},
+				"c:ytm-top(direct)": {
+					"exact": 1,
+					"title": 1,
+					"ms": 467,
+					"status": 200,
+					"n": 5
+				},
+				"d:genius": {
+					"exact": 1,
+					"title": 1,
+					"ms": 449,
+					"status": 200,
+					"n": 4
+				}
+			}
+		},
+		{
+			"song": "Dynamite / BTS",
+			"seg": "kr",
+			"line": "p35",
+			"t": {
+				"a:netease-1006": {
+					"exact": null,
+					"title": null,
+					"ms": 214,
+					"status": "200/-462",
+					"n": 0
+				},
+				"b:qq-type7": {
+					"exact": 1,
+					"title": 1,
+					"ms": 369,
+					"status": "200/0/0",
+					"n": 5
+				},
+				"c:ytm-top(direct)": {
+					"exact": null,
+					"title": 3,
+					"ms": 445,
+					"status": 200,
+					"n": 5
+				},
+				"d:genius": {
+					"exact": 1,
+					"title": 1,
+					"ms": 594,
+					"status": 200,
+					"n": 5
+				}
+			}
+		},
+		{
+			"song": "Dynamite / BTS",
+			"seg": "kr",
+			"line": "p65",
+			"t": {
+				"a:netease-1006": {
+					"exact": null,
+					"title": null,
+					"ms": 213,
+					"status": "200/-462",
+					"n": 0
+				},
+				"b:qq-type7": {
+					"exact": 1,
+					"title": 1,
+					"ms": 323,
+					"status": "200/0/0",
+					"n": 5
+				},
+				"c:ytm-top(direct)": {
+					"exact": 1,
+					"title": 1,
+					"ms": 379,
+					"status": 200,
+					"n": 5
+				},
+				"d:genius": {
+					"exact": 3,
+					"title": 1,
+					"ms": 425,
+					"status": 200,
+					"n": 5
+				}
+			}
+		}
+	]
+}

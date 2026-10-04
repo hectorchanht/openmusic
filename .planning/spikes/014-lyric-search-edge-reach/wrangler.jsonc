@@ -1,0 +1,9 @@
+{
+	// Throwaway probe Worker for spike 014. Runs ONLY via `wrangler dev --remote` (an edge preview
+	// session) — never `wrangler deploy`ed. Account = the one local wrangler is logged into (user-approved
+	// 2026-10-04): F147259@gmail.com. 011 used 0b9e5c70…, which this login cannot reach.
+	"name": "openmusic-spike-014-lyric-edge",
+	"main": "worker.js",
+	"compatibility_date": "2026-06-05",
+	"account_id": "f1868a071996e836eae6da2b65f37929"
+}
