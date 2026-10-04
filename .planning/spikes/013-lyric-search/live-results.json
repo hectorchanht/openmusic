@@ -1,0 +1,20 @@
+{
+	"note": "013e-live: today's app (/search on dev :4321, 2026-10-04), lyric line picked IN-PAGE from LRCLIB and submitted to the real search form. Ranks + category codes only, no text. top8 codes: E = original (title+artist), T = right title other artist (cover), V = lyric-video upload (title >40 chars) containing the song title, v = same without it, O = other.",
+	"results": [
+		{ "song": "富士山下", "pos": 0.35, "rows": 51, "exactRank": 34, "titleRank": 1, "top8": "VTTVTvOO", "vidsInTop10": 3 },
+		{ "song": "富士山下", "pos": 0.65, "rows": 64, "exactRank": 33, "titleRank": 1, "top8": "TTTOTTTT", "vidsInTop10": 0 },
+		{ "song": "海闊天空", "pos": 0.35, "rows": 68, "exactRank": 2, "titleRank": 1, "top8": "TEOOOOOO", "vidsInTop10": 0 },
+		{ "song": "海闊天空", "pos": 0.65, "rows": 62, "exactRank": 4, "titleRank": 4, "top8": "OOOEOOTT", "vidsInTop10": 0 },
+		{ "song": "稻香", "pos": 0.35, "rows": 70, "exactRank": 40, "titleRank": 1, "top8": "VVTOTTTT", "vidsInTop10": 2 },
+		{ "song": "稻香", "pos": 0.65, "rows": 58, "exactRank": 34, "titleRank": 4, "top8": "OOOTTOTT", "vidsInTop10": 0 },
+		{ "song": "消愁", "pos": 0.35, "rows": 64, "exactRank": 43, "titleRank": 1, "top8": "TVVVVTTO", "vidsInTop10": 4 },
+		{ "song": "消愁", "pos": 0.65, "rows": 74, "exactRank": 37, "titleRank": 2, "top8": "OTOOOOOO", "vidsInTop10": 0 },
+		{ "song": "Shape of You", "pos": 0.35, "rows": 83, "exactRank": 3, "titleRank": 3, "top8": "OvEOOOOT", "vidsInTop10": 1 },
+		{ "song": "Shape of You", "pos": 0.65, "rows": 95, "exactRank": 47, "titleRank": 47, "top8": "OOOOOOOO", "vidsInTop10": 0 },
+		{ "song": "Lemon", "pos": 0.35, "rows": 68, "exactRank": 41, "titleRank": 2, "top8": "OTOOTOTT", "vidsInTop10": 0 },
+		{ "song": "Lemon", "pos": 0.65, "rows": 76, "exactRank": 10, "titleRank": 10, "top8": "OOOOOOOO", "vidsInTop10": 0 },
+		{ "song": "밤편지", "pos": 0.35, "rows": 71, "exactRank": 3, "titleRank": 3, "top8": "OOEOOOOO", "vidsInTop10": 0 },
+		{ "song": "밤편지", "pos": 0.65, "rows": 64, "exactRank": 2, "titleRank": 2, "top8": "OEEOOOOT", "vidsInTop10": 0 }
+	],
+	"summary": { "n": 14, "exactAt1": 0, "exactTop5": 5, "medianExactRank": 33.5, "queriesWithLyricVideosInTop10": 4 }
+}

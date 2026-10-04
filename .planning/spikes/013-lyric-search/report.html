@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Lyric Search Spike</title>
+<style>
+	:root { --bg: #fafaf9; --fg: #1c1917; --muted: #78716c; --line: #e7e5e4; --card: #fff; --hit: #15803d; --hitbg: #dcfce7; --miss: #b91c1c; --accent: #4f46e5; }
+	@media (prefers-color-scheme: dark) { :root { --bg: #0c0a09; --fg: #f5f5f4; --muted: #a8a29e; --line: #292524; --card: #1c1917; --hit: #4ade80; --hitbg: #14532d; --miss: #f87171; --accent: #818cf8; } }
+	* { box-sizing: border-box; }
+	body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.45 system-ui, -apple-system, 'PingFang TC', 'Noto Sans CJK TC', sans-serif; }
+	main { max-width: 1200px; margin: 0 auto; padding: 24px 16px 64px; }
+	h1 { font-size: 22px; margin: 0 0 4px; } h2 { font-size: 17px; margin: 32px 0 8px; }
+	p.sub { color: var(--muted); margin: 0 0 16px; }
+	.try { display: flex; gap: 8px; flex-wrap: wrap; }
+	textarea { flex: 1 1 420px; min-height: 64px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); color: var(--fg); font: inherit; resize: vertical; }
+	button { padding: 10px 18px; border: 0; border-radius: 10px; background: var(--accent); color: #fff; font: inherit; font-weight: 600; cursor: pointer; align-self: flex-start; }
+	button:disabled { opacity: .5; cursor: progress; }
+	.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px; margin-top: 14px; }
+	.col { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; min-width: 0; }
+	.col h3 { font-size: 13px; margin: 0 0 6px; display: flex; justify-content: space-between; gap: 8px; }
+	.col h3 span { color: var(--muted); font-weight: 400; }
+	.col ol { margin: 0; padding-left: 18px; } .col li { margin: 3px 0; overflow-wrap: anywhere; }
+	.col li small { color: var(--muted); }
+	.empty { color: var(--miss); font-size: 13px; }
+	.scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
+	table { border-collapse: collapse; width: 100%; font-size: 13px; font-variant-numeric: tabular-nums; }
+	th, td { padding: 6px 9px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
+	th:first-child, td:first-child { text-align: left; position: sticky; left: 0; background: var(--card); }
+	th { color: var(--muted); font-weight: 600; }
+	td.c { text-align: center; }
+	.h { background: var(--hitbg); color: var(--hit); font-weight: 600; }
+	.m { color: var(--muted); }
+	.legend { color: var(--muted); font-size: 13px; margin: 6px 0 0; }
+</style>
+</head>
+<body>
+<main>
+	<h1>Lyric search: which upstream finds the song?</h1>
+	<p class="sub">Spike 013. Paste any lyric fragment; every candidate upstream answers side by side (top 5). Nothing you type is logged.</p>
+
+	<div class="try">
+		<textarea id="q" placeholder="Paste a lyric line or fragment, in any language…"></textarea>
+		<button id="go">Search</button>
+	</div>
+	<div class="grid" id="out"></div>
+
+	<h2>Scored run</h2>
+	<p class="sub" id="meta">Loading results.json…</p>
+	<div class="scroll"><table id="sum"></table></div>
+	<p class="legend">ex@1 / ex@5 = right title AND artist at rank 1 / in top 5. ti@5 = right title in top 5 (covers by other singers count). Segments show ex@5.</p>
+	<h2>Per query (rank of the exact hit, · = miss)</h2>
+	<div class="scroll"><table id="rows"></table></div>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+
+async function go() {
+	const q = $('q').value.trim();
+	if (!q) return;
+	$('go').disabled = true;
+	$('out').innerHTML = '<p class="sub">Querying every upstream…</p>';
+	try {
+		const r = await fetch('/probe?q=' + encodeURIComponent(q)).then((x) => x.json());
+		$('out').innerHTML = Object.entries(r).map(([k, v]) => `
+			<div class="col"><h3>${esc(k)} <span>${v.ms} ms · ${esc(v.status)}</span></h3>
+			${v.rows.length ? '<ol>' + v.rows.map((x) => `<li>${esc(x.title)} <small>— ${esc(x.artist)}</small></li>`).join('') + '</ol>' : `<div class="empty">no rows${v.err ? ' · ' + esc(v.err) : ''}</div>`}
+			</div>`).join('');
+	} catch (e) {
+		$('out').innerHTML = `<p class="empty">${esc(e.message)}</p>`;
+	} finally { $('go').disabled = false; }
+}
+$('go').onclick = go;
+$('q').addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) go(); });
+
+fetch('/results.json').then((r) => r.json()).then((d) => {
+	const segs = Object.keys(Object.values(d.summary)[0].bySeg);
+	$('meta').textContent = `Run ${d.ranAt} · ${d.results.length} queries · lyric lines from ${d.lyricSource}` + (d.lyricMiss.length ? ` · no lyrics for: ${d.lyricMiss.join(', ')}` : '');
+	const cell = (v, good) => `<td class="${v != null && v >= good ? 'h' : ''}">${v ?? '-'}</td>`;
+	$('sum').innerHTML = `<tr><th>target</th><th>ex@1</th><th>ex@5</th><th>ti@5</th>${segs.map((s) => `<th>${s}</th>`).join('')}<th>full</th><th>frag</th><th>alt-script</th><th>p50 ms</th><th>errors</th><th>empty</th><th>CORS</th></tr>` +
+		Object.entries(d.summary).map(([k, s]) => `<tr><td>${esc(k)}</td>${cell(s.exact1, 60)}${cell(s.exact5, 70)}${cell(s.title5, 70)}${segs.map((g) => cell(s.bySeg[g].exact5, 70)).join('')}${['full', 'frag', 'alt-script'].map((v) => cell(s.byVariant[v].exact5, 70)).join('')}<td>${s.medianMs}</td><td>${s.errors}</td><td>${s.emptyRows}</td><td class="c">${esc(s.acao ?? '—')}</td></tr>`).join('');
+	const ks = Object.keys(d.summary);
+	$('rows').innerHTML = `<tr><th>song</th><th>seg</th><th>line</th><th>variant</th><th>len</th>${ks.map((k) => `<th>${esc(k.split(':')[1])}</th>`).join('')}</tr>` +
+		d.results.map((r) => `<tr><td>${esc(r.song)}</td><td>${r.seg}</td><td>${r.line}</td><td>${r.variant}</td><td>${r.qlen}</td>${ks.map((k) => { const x = r.t[k]; return `<td class="c ${x.exact ? 'h' : 'm'}">${x.exact ?? (x.title ? 't' + x.title : '·')}</td>`; }).join('')}</tr>`).join('');
+}).catch(() => { $('meta').textContent = 'results.json not found yet — run node harness.mjs'; });
+</script>
+</body>
+</html>

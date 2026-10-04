@@ -26,8 +26,38 @@ with sources that reflect what is actually hot per region: Apple Music RSS (song
 (HK/TW songs + new releases), YouTube Charts (tracks + artists). Spike 011 answers whether each is
 reachable from the Cloudflare Workers edge, which is where the proxy runs.
 
+## Idea — Session 4 (2026-10-04): search by lyrics
+Let a user paste a lyric fragment (any language — Cantonese/Mandarin/English/J/K) into search and find
+the song. Today's `/api/*` search proxies are third-party keyword wrappers (Meting/tang/cenguigui/apicx)
+with no lyric mode, so lyric search needs an upstream that indexes lyric TEXT: Netease official
+`cloudsearch` type=1006, QQ `musicu.fcg` search_type=7, YouTube Music free-text, or Genius. Spike 013
+compares them on the same runtime-derived lyric lines; 014 checks the winners from Cloudflare Workers
+egress (where the proxy runs).
+
 ## Requirements
 Design decisions that emerged; non-negotiable for the real build. Updated as spikes progress.
+
+- **[013 method] No lyric text is ever written to disk or chat.** Test queries are lines pulled at RUNTIME
+  from LRCLIB `plainLyrics` (a neutral DB — kuwo was the plan but is down); results record song + line
+  position + variant + hit rank only. Live-app checks pick the line IN-PAGE and return ranks/category codes.
+- **[013] Lyric search is a ranking problem first.** Today's keyword proxies (qq-tang, netease-Meting, joox)
+  already match lyric text (union 100%), yet the live app shows the original at #1 in 0/14 queries (median
+  rank 33.5): `scoreMatch`'s `shortTitleBoost` rewards titles as LONG as the query, so lyric-video uploads
+  and versioned covers win. **A lyric search must keep the upstream's order — never re-rank it with `scoreMatch`.**
+- **[013/014] Primary lyric source = QQ `musicu.fcg` `search_type: 7` via a NEW edge route** (POST, no auth).
+  97% at rank 1 from Workers egress. Rows map 1:1 to `qq:<mid>` stubs (musicu `mid` == tang `song_mid`) that
+  the existing qq adapter resolves; rows also carry album, duration and album mid → free cover
+  (`y.gtimg.cn/music/photo_new/T002R300x300M000{albumMid}.jpg`). Send `title artist` (not the lyric) as the
+  detail `msg`.
+- **[013] QQ throttle = HTTP 200 + `req.code 2001` + empty list.** Treat 2001 as a retryable throttle, never
+  as "no results" (seen at ~2 req/s from one residential IP; not seen from the edge in 34 + 15 calls).
+- **[014] Fallback = Genius `search/lyric`** (94% @5 at the edge, strong on CJK) — metadata only, so resolve
+  the `{title, artist}` like an Up-Next item (kuwo-first policy, single-source).
+- **[013/014] Out:** Netease official `cloudsearch` (edge → `-462` anti-bot after ~4 calls; no Jay Chou),
+  YouTube Music free text (58–65%, partial lines 35%, lyric-video uploads), browser-direct calls (none of
+  the candidates sends CORS headers).
+- **[013] PRODUCTION BUG surfaced: kuwo is down** — `kw-api.cenguigui.cn` cert expired 2026-04-14, prod
+  `/api/kuwo/*` → 526. kuwo is the primary resolver ([001]/[004]). Spun off as its own task; not part of the spike.
 
 - **[001] Reorder the resolve/fallback chain to `kuwo → qq → netease → joox → (fivesing/audius/jamendo)`.**
   Today netease is the registry-default primary but is empirically the least reliable of the CN-4
@@ -132,3 +162,5 @@ Design decisions that emerged; non-negotiable for the real build. Updated as spi
 | 010 | cn-album-upstream | standard | Given a CJK artist name in ANY script, when resolved against a keyless upstream, then ONE canonical artist identity + exhaustive original-script albums + ordered tracklists | ✅ VALIDATED — **MusicBrainz**. 陳奕迅 **72 albums vs Deezer's 5**; 周杰倫 titles in Chinese (最偉大的作品, not "Greatest Works Of Art"). Surprise: 陳奕迅/陈奕迅/Eason Chan AND 周傑倫/周杰伦 each collapse to ONE mbid at score 100 → the "3 artist pages" merge needs NO heuristic. Constraint: ~1 req/s → 503 (detectable, retryable); edge-cache 24h. Cover Art Archive fills MB's artwork gap | musicbrainz, cjk, albums, artist-identity, deezer, upstream |
 | 011 | edge-chart-sources | comparison | Given Cloudflare Workers egress, when Apple Music RSS / KKBOX kma / YouTube Charts are fetched for HK/TW/JP/US/KR, then each returns a current parseable chart with serving covers and survives a 15× burst | ✅ VALIDATED — **all three GO** (011a Apple ✓, 011b KKBOX ✓, 011c YouTube ✓): 2 colos (YVR/PDX), ~250 subrequests, zero blocks/WAF/429. Apple ~2% 15 s hangs → timeout + serve-stale; KKBOX freshest (median top-20 age 25 d) but hk/tw/sg only; YT 100 tracks + 100 artists w/ videoIds, weekly. Surprise: the "lag" is Last.fm audience skew + all-time ranking, not just staleness | charts, home, edge, apple-rss, kkbox, youtube-charts, freshness |
 | 012 | genre-charts | comparison | Given 011's sources lack genre, when legacy iTunes RSS genre feeds / Deezer genre charts / KKBOX categories are probed (Mac, edge, browser), then each genre shelf has a current, genre-correct source reachable where the app fetches it | ✅ VALIDATED — regional genres = **legacy iTunes RSS, client-side only** (edge 403/429: itunes.apple.com rate-limits the shared Workers IP; CORS `*` in browser, 84–100% on-genre, median age 18–85 d); Western genres = **Deezer `/chart/{id}`** at the edge (8/8, distinct, current); HK language rows = KKBOX 320/297/390. Landmine: bogus iTunes genre id returns the overall chart with 200; HK storefront Western/J-Pop genres are stale purchase charts | charts, home, genre, itunes-rss, deezer, kkbox, cors |
+| 013 | lyric-search | comparison | Given a lyric line (17 songs, canto/mando/en/jp/kr; full · partial · other-script), when sent to Netease 1006 / QQ type 7 / YTMusic / Genius / today's proxies, then title+artist in top 5 | ✅ VALIDATED — upstreams fine (Genius 94%, Netease 90%, QQ 89%; today's proxies union 100%); **live app buries it (median rank 33.5) via `shortTitleBoost`** → lyric mode must keep upstream order. QQ throttle = 200 + `req.code 2001`; kuwo down (expired cert) | search, lyrics, qq, netease, genius, ytmusic, ranking, scorematch |
+| 014 | lyric-search-edge-reach | standard | Given the 013 candidates, when called from Workers egress (+ 15× burst, + CORS check), then each works without blocks | ✅ VALIDATED — **QQ type 7: 100% @5 / 97% @1 at the edge**, Genius 94%; **Netease official blocked (`-462` after 4 calls)**; no candidate allows browser-direct (no CORS) → new edge route(s) | search, lyrics, edge, workers, qq, genius, netease, cors |
