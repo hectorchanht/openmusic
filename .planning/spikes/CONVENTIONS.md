@@ -23,6 +23,12 @@ the question requires otherwise.
   `cdn-cgi/trace` probe to record the egress IP + colo. Split probes into suites so one invocation stays
   under the free-plan 50-subrequest cap. The colo is the one nearest this machine (North America) — HKG
   cannot be observed this way; say so in the verdict.
+  **Account update (014, 2026-10-04):** local wrangler is now logged into `F147259@gmail.com's Account`
+  (`f1868a071996e836eae6da2b65f37929`); `0b9e5c70…` returns `Authentication error [code: 10000]` on
+  `edge-preview`. The user approved the logged-in account for preview-only runs — confirm again before reuse.
+- **Edge worker imports the local targets module** (014): put request+parse in one `targets.mjs`, import it
+  from the harness, a local page server AND the edge `worker.js` (wrangler bundles it), so local and edge
+  issue byte-identical requests. Read env via `globalThis.process?.env` so it loads in workerd.
 
 ## Structure
 - `.planning/spikes/NNN-name/harness.mjs` + `results.json`. Add `report.html` for matrix-shaped results.
@@ -46,6 +52,20 @@ the question requires otherwise.
 - **Never complete an auth/OAuth flow in a spike** — probe endpoint reachability + gating only (device-code
   initiation yields a code but authenticates nobody; unauth browse proves the target + that data is gated).
 
+- **Copyrighted text never touches disk or chat (013/014).** When the test input is copyrighted (lyrics),
+  derive it at RUNTIME from a neutral source (LRCLIB `plainLyrics`) inside the harness or the page, and record
+  only identity + position + length + ranks. Live-app checks pick the input in-page and return category
+  codes, never row text (row titles can embed lyrics — lyric-video uploads do).
+- **Live in-page runs on :4321 must be resumable (013).** Another session's worktree under
+  `.claude/worktrees/` regenerating `.svelte-kit/tsconfig.json` (and writes under `.planning/`) make Vite
+  force-reload the app; persist progress in `sessionStorage`, re-inject the runner after a reload, and keep
+  repo writes out of the run window. Hidden-pane timers are throttled — budget ~1 query/min.
+- **Paste-to-compare page for comparison spikes (013):** `server.mjs` (node:http, no deps) serving
+  `report.html` + `/probe?q=` over the shared targets, plus the scored matrix from `results.json`. Start it via
+  a temporary launch.json entry.
+
 ## Tools & Libraries
 - Node 22 native `fetch`, `AbortSignal.timeout`, `URLSearchParams`, `node:fs` — nothing else.
 - In-app browser MCP tools (`navigate` / `computer` / `javascript_tool` / `read_network_requests`) for live audits.
+- `tongwen-dict/dist/{t2s,s2t}-char.min.json` loaded as plain JSON maps for Traditional⇄Simplified in Node
+  (`tongwen-core`'s ESM uses directory imports and only resolves under a bundler).
