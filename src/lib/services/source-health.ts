@@ -19,7 +19,10 @@
 //    edge/SSR-safe (the app SSRs on Cloudflare). Never throws.
 //
 // "Failure" is deliberately defined by the CALLER, because it differs per source: netease's failure
-// is a VALID-but-empty array (a dry spell), kuwo's is a thrown 526. The gate only counts.
+// is a VALID-but-empty array (a dry spell), kuwo's is any non-well-formed answer (a fetch reject, a
+// RESOLVED 526, a non-JSON body, code!==200 — see kuwo.ts `kuwoJson`). The gate only counts. The
+// corollary (debug kuwo-upstream-dead-gate-never-trips): a caller that mis-defines its failure
+// shape has a gate that never trips — test the gate with the REAL response, not a mock reject.
 
 /** Consecutive failures that trip the gate. Small so a real outage is caught fast, but >1 so a
  *  single fluke never gates a healthy upstream. */

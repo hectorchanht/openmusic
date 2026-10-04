@@ -48,6 +48,33 @@ interface KuwoDetailResponse {
 	data?: KuwoDetailItem;
 }
 
+/**
+ * debug kuwo-upstream-dead-gate-never-trips: the ONE seam both kuwo calls go through. The fetch,
+ * the HTTP-status check and the JSON parse all sit inside ONE try, so EVERY failure shape the proxy
+ * can hand back counts against the gate:
+ *   - a network reject / timeout / open circuit breaker (apiFetch throws);
+ *   - a non-ok status — Cloudflare RESOLVES a 526 with a text/plain body, it does not throw, so
+ *     `res.ok` is the only place a dead-cert upstream is visible;
+ *   - a non-JSON body (the upstream itself now serves 200 / text/html / 0 bytes even with the cert
+ *     ignored).
+ * The gate shipped in cda5220f wrapped only the first of those and parsed the body OUTSIDE its try,
+ * so `recordFail()` was unreachable for the real prod failure and the gate never tripped in three
+ * weeks of a dead upstream (dev hid it: node rejects the cert, so the local proxy returns a JSON 500
+ * that DID reach the drift branch). A caller abort is a supersede, not an outage — rethrown
+ * uncounted. The contract checks + `recordOk()` stay at the call sites: only a WELL-FORMED body
+ * proves the upstream is alive.
+ */
+async function kuwoJson<T>(path: string, signal: AbortSignal): Promise<T> {
+	try {
+		const res = await apiFetch(path, { signal });
+		if (!res.ok) throw new Error(`kuwo: HTTP ${res.status}`);
+		return (await res.json()) as T;
+	} catch (err) {
+		if (!signal.aborted) kuwoHealth.recordFail();
+		throw err;
+	}
+}
+
 export const kuwo: SourceAdapter = {
 	id: 'kuwo',
 	label: '酷我音乐',
@@ -65,16 +92,9 @@ export const kuwo: SourceAdapter = {
 		// every search. The gate re-probes itself once per window, so recovery is automatic.
 		if (kuwoHealth.isGated()) return [];
 
-		let res: Response;
-		try {
-			res = await apiFetch(path, { signal });
-		} catch (err) {
-			// A 526/5xx/network failure is a real outage signal — count it, then rethrow so the
-			// fan-out records a typed per-source error exactly as before (DATA-03).
-			if (!signal.aborted) kuwoHealth.recordFail();
-			throw err;
-		}
-		const json = (await res.json()) as KuwoSearchResponse | null;
+		// A 526/5xx/non-JSON/network failure is a real outage signal — kuwoJson counts it, then
+		// rethrows so the fan-out records a typed per-source error exactly as before (DATA-03).
+		const json = await kuwoJson<KuwoSearchResponse | null>(path, signal);
 
 		// Contract-drift guard (legacy:2129 returned 0; we THROW so the fan-out records a
 		// typed per-source error rather than silently dropping the source).
@@ -126,15 +146,8 @@ export const kuwo: SourceAdapter = {
 		// Deliberately NOT gated: `resolve` is only reached for a track the user (or the queue) has
 		// already chosen, so short-circuiting it would turn a gated window into an unplayable track.
 		// The gate exists to stop SPECULATIVE calls (search / the fallback walk), not to refuse a
-		// direct request. Failures are still recorded so the search gate learns from them.
-		let res: Response;
-		try {
-			res = await apiFetch(path, { signal });
-		} catch (err) {
-			if (!signal.aborted) kuwoHealth.recordFail();
-			throw err;
-		}
-		const j = (await res.json()) as KuwoDetailResponse | null;
+		// direct request. Failures are still recorded (kuwoJson) so the search gate learns from them.
+		const j = await kuwoJson<KuwoDetailResponse | null>(path, signal);
 		// Preserve the legacy throw on code!==200 / missing data (legacy:2402) — the one
 		// detail fetcher that already threw, kept verbatim.
 		if (!j || j.code !== 200 || !j.data) {

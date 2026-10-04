@@ -5,8 +5,30 @@ import { settings } from '$lib/stores/settings.svelte';
 import searchFixture from './__fixtures__/kuwo.search.json';
 import detailFixture from './__fixtures__/kuwo.detail.json';
 import { kuwoHealth } from '$lib/services/kuwo-health';
+import { DEFAULT_THRESHOLD } from '$lib/services/source-health';
 
 const ac = new AbortController();
+
+function stubTrack(overrides: Partial<Track> = {}): Track {
+	return {
+		uid: 'kuwo:158395650',
+		source: 'kuwo',
+		songid: '158395650',
+		title: '晴天',
+		artist: '周杰伦',
+		album: '叶惠美',
+		cover: null,
+		audioUrl: null,
+		lrc: null,
+		lrcUrl: null,
+		detailsLoaded: false,
+		quality: null,
+		qualityLabel: null,
+		keyword: '周杰伦',
+		displayIndex: 1,
+		...overrides
+	};
+}
 
 function mockFetchOnce(body: unknown, contentType = 'application/json') {
 	return vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => {
@@ -81,27 +103,6 @@ describe('kuwo.resolve', () => {
 		settings.defaultQuality = prevQuality;
 	});
 
-	function stubTrack(overrides: Partial<Track> = {}): Track {
-		return {
-			uid: 'kuwo:158395650',
-			source: 'kuwo',
-			songid: '158395650',
-			title: '晴天',
-			artist: '周杰伦',
-			album: '叶惠美',
-			cover: null,
-			audioUrl: null,
-			lrc: null,
-			lrcUrl: null,
-			detailsLoaded: false,
-			quality: null,
-			qualityLabel: null,
-			keyword: '周杰伦',
-			displayIndex: 1,
-			...overrides
-		};
-	}
-
 	// Test 3 (resolve): sets audioUrl, inline lrc, lrcUrl=null, quality via inferQualityFromUrl.
 	it('sets audioUrl + inline lrc + quality (level=zp lossless) and marks loaded', async () => {
 		settings.defaultQuality = 'lossless'; // pin: requests level=zp
@@ -175,38 +176,85 @@ describe('kuwo.resolve', () => {
 });
 
 // kuwo-health. MEASURED 2026-09-12: kw-api.cenguigui.cn serves an invalid TLS certificate, so
-// Cloudflare returns 526 for every request, persistently, at ~1.0s each. kuwo is FIRST in the
-// resolve floor (kuwo-first, RESOLVE-01), so while it is down every cold resolve and every
-// cross-source fallback walk spends its first second on a source that cannot succeed. The gate
-// removes those calls — it adds none.
+// Cloudflare returns 526 for every request, persistently, at ~1.0s each. The gate removes those
+// calls — it adds none.
+//
+// debug kuwo-upstream-dead-gate-never-trips (2026-10-04): the gate shipped in cda5220f NEVER TRIPPED
+// in prod for three weeks. Its test mocked fetch to THROW, but Cloudflare RESOLVES a 526 — a
+// text/plain Response — and `res.json()` on that body threw OUTSIDE the adapter's try, so
+// recordFail() was unreachable. Every failure mock below is therefore the REAL shape prod hands the
+// adapter (a resolved non-JSON Response), never a reject, so this file cannot pass again against an
+// adapter that only counts rejections.
 describe('kuwo health gate', () => {
-	function failingFetch() {
+	/** What prod actually hands the adapter: Cloudflare's own 526 page — text/plain, not JSON. */
+	function cloudflare526() {
+		return vi.fn(
+			async () =>
+				new Response('error code: 526', {
+					status: 526,
+					headers: { 'content-type': 'text/plain; charset=UTF-8' }
+				})
+		);
+	}
+	/** What the upstream serves DIRECTLY today (cert aside): 200, text/html, zero bytes. */
+	function emptyHtml200() {
+		return vi.fn(
+			async () => new Response('', { status: 200, headers: { 'content-type': 'text/html' } })
+		);
+	}
+	function neverCalled() {
 		return vi.fn(async () => {
-			throw new Error('526');
+			throw new Error('should not be called');
 		});
 	}
 
-	it('short-circuits search once the upstream has failed enough times', async () => {
-		vi.stubGlobal('fetch', failingFetch());
+	it('trips after DEFAULT_THRESHOLD resolved 526 responses and short-circuits search', async () => {
+		const net = cloudflare526();
+		vi.stubGlobal('fetch', net);
 
-		// Three real attempts, each rejecting the way a 526 does.
-		for (let i = 0; i < 3; i++) {
+		// Real attempts, each RESOLVING a 526 the way Cloudflare does — never a reject.
+		for (let i = 0; i < DEFAULT_THRESHOLD; i++) {
 			await expect(kuwo.search('x', 1, ac.signal)).rejects.toThrow();
 		}
+		expect(net).toHaveBeenCalledTimes(DEFAULT_THRESHOLD);
+		expect(kuwoHealth.isGated()).toBe(true);
 
 		// Gated now: the next search must return [] WITHOUT touching the network.
-		const spy = vi.fn(async () => {
-			throw new Error('should not be called');
-		});
+		const spy = neverCalled();
 		vi.stubGlobal('fetch', spy);
-
 		await expect(kuwo.search('x', 1, ac.signal)).resolves.toEqual([]);
 		expect(spy).not.toHaveBeenCalled();
 	});
 
+	it('counts a 200 with a non-JSON (empty) body as a failure too', async () => {
+		vi.stubGlobal('fetch', emptyHtml200());
+		for (let i = 0; i < DEFAULT_THRESHOLD; i++) {
+			await expect(kuwo.search('x', 1, ac.signal)).rejects.toThrow();
+		}
+		expect(kuwoHealth.isGated()).toBe(true);
+	});
+
+	it('resolve 526s feed the SAME gate, so search learns from a dead detail endpoint', async () => {
+		vi.stubGlobal('fetch', cloudflare526());
+		for (let i = 0; i < DEFAULT_THRESHOLD; i++) {
+			await expect(kuwo.resolve(stubTrack(), ac.signal)).rejects.toThrow();
+		}
+		expect(kuwoHealth.isGated()).toBe(true);
+	});
+
+	it('a caller abort is a supersede, not an outage — never counted', async () => {
+		const aborted = new AbortController();
+		aborted.abort();
+		vi.stubGlobal('fetch', cloudflare526());
+		for (let i = 0; i < DEFAULT_THRESHOLD + 1; i++) {
+			await expect(kuwo.search('x', 1, aborted.signal)).rejects.toThrow();
+		}
+		expect(kuwoHealth.isGated()).toBe(false);
+	});
+
 	it('a healthy search clears the gate immediately', async () => {
-		vi.stubGlobal('fetch', failingFetch());
-		for (let i = 0; i < 3; i++) {
+		vi.stubGlobal('fetch', cloudflare526());
+		for (let i = 0; i < DEFAULT_THRESHOLD; i++) {
 			await expect(kuwo.search('x', 1, ac.signal)).rejects.toThrow();
 		}
 
@@ -230,10 +278,7 @@ describe('kuwo health gate', () => {
 		const spy = mockFetchOnce(detailFixture);
 		vi.stubGlobal('fetch', spy);
 
-		await kuwo.resolve(
-			{ songid: '123', source: 'kuwo' } as unknown as Track,
-			ac.signal
-		);
+		await kuwo.resolve(stubTrack({ songid: '123' }), ac.signal);
 
 		expect(spy).toHaveBeenCalled();
 	});

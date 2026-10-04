@@ -7,16 +7,22 @@
 //     kuwo try2: 526  1.06s
 //     curl https://kw-api.cenguigui.cn/  -> exit 60 (SSL certificate problem)
 //
-// kuwo is FIRST in the resolve floor (kuwo-first, RESOLVE-01), so while it is down EVERY cold
-// resolve and EVERY cross-source fallback walk spends its first second on a source that cannot
-// succeed. Gating it removes that second outright — this ADDS no requests, it removes them.
+// kuwo sits in the resolve floor (#3 since the 2026-08-31 demotion in registry.ts — qq→netease→
+// kuwo→joox), so while it is down every speculative walk that reaches it (search fan-out, name-stub
+// resolve, cross-source fallback, lyric walk) spends ~1s on a source that cannot succeed, and a
+// THROWN kuwo.search also marks the whole fan-out un-cacheable (catalog.searchAll stores only an
+// all-`ok` result). Gating it returns `[]` instead — zero requests AND a cacheable fan-out.
 //
-// Unlike netease (whose failure is a valid-but-empty array), kuwo signals failure by THROWING —
-// both `search` and `resolve` already throw on a non-200 body, and apiFetch throws on a 526. So the
-// adapter records a failure from its catch path and an ok from the success path.
+// Unlike netease (whose failure is a valid-but-empty array), kuwo's failure is ANY response that is
+// not a well-formed JSON body: a fetch reject, a non-ok status, a non-JSON body, or a body with
+// code!==200. debug kuwo-upstream-dead-gate-never-trips (2026-10-04): the first version of this
+// comment claimed "apiFetch throws on a 526" — it does NOT, apiFetch RESOLVES the 526 Response and
+// `res.json()` on its text/plain body threw before any recordFail(). The gate therefore never
+// tripped in prod. kuwo.ts now funnels both calls through one `kuwoJson()` seam that counts every
+// one of those shapes.
 //
-// The gate auto-probes once per window, so kuwo returns the moment the cert is fixed — nothing here
-// needs changing when it recovers.
+// The gate auto-probes once per window, so kuwo returns the moment the upstream is fixed — nothing
+// here needs changing when it recovers.
 import { createHealthGate } from './source-health';
 
 export const kuwoHealth = createHealthGate();
