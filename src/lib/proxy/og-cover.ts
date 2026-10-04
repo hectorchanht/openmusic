@@ -62,10 +62,10 @@
 //             /api/og asks for 600x600bb (Pitfall 6: 1200 is 332 KB, at the edge of WhatsApp's
 //             budget). entity=musicArtist carries NO artwork, so type=artist uses the artist's
 //             top ALBUM cover (entity=album&attribute=artistTerm) — itunes-cover.ts:28-31.
-//  - kuwo     1 subrequest, NOT 2: the SEARCH body already carries the cover in data[n].pic
-//             (exactly the field sources/kuwo.ts:82 reads), so no /detail call is needed.
-//             { code: 200, data: [{ rid, pic: 'https://img4.kuwo.cn/…/600/….jpg' }] } —
-//             103,674 bytes measured, already the right size class. Hosts img1/img4.kuwo.cn.
+//  - kuwo     1 subrequest, NOT 2: the SEARCH body already carries the cover, so no /detail call
+//             is needed. quick-261004-n1i: the search is now the official search.kuwo.cn/r.s, and
+//             the cover comes from each row's web_albumpic_short → img2.kuwo.cn/star/albumcover/500/…
+//             via the shared mapSearch ($lib/proxy/kuwo.ts). Still *.kuwo.cn.
 //
 // SECURITY: the input is TEXT, never a URL (T-24-08 — /api/og accepts no URL parameter at all,
 // a strictly TIGHTER posture than the old `?c=` carrier), encodeURIComponent'd into fixed
@@ -75,7 +75,7 @@
 // self/upstream DoS surface (T-wv8-04).
 import { fetchDeezerCover, safeDeezerImageUrl } from '$lib/proxy/deezer-cover';
 import { fetchWithRetry } from '$lib/proxy/http';
-import { kuwoProxy } from '$lib/proxy/kuwo';
+import { buildKuwoSearchUrl, mapSearch } from '$lib/proxy/kuwo';
 import { buildItunesSearchUrl, upgradeArtwork } from '$lib/services/itunes-cover';
 import { isChineseLine, t2sConvertLines } from '$lib/services/zh-convert';
 
@@ -474,23 +474,19 @@ const kuwoTier: Tier = async (type, artist, title, deadline) => {
 	const term = tierTerm(type, artist, title);
 	if (!term) return { kind: 'miss' };
 	try {
-		// buildUrl THROWS on an unsupported path, so it lives inside the never-throw try. Calling it
-		// directly (rather than fetching our own /api/kuwo/search) avoids a self-origin hop that
-		// would double the subrequest count and re-enter the Worker.
-		const upstream = kuwoProxy.buildUrl(
-			'search',
-			new URLSearchParams({ name: term, limit: '1' }),
-			undefined
-		);
+		// Building the upstream url directly (rather than fetching our own /api/kuwo/search) avoids a
+		// self-origin hop that would double the subrequest count and re-enter the Worker.
+		const upstream = buildKuwoSearchUrl(term, 1, 1);
 		// RAW fetch (not apiFetch — fetch→apiFetch audit): edge-side fetch of the upstream kuwo API.
 		const res = await fetchWithRetry(upstream, { signal: tierSignal(TIER_MS.kuwo, deadline) }, 0);
 		if (!res.ok) return { kind: 'error' };
-		const body = (await res.json()) as { code?: number; data?: { pic?: string }[] } | null;
-		// Contract-drift guard, inheriting sources/kuwo.ts:62-68's posture — but as an ERROR rather
-		// than a throw, so drift is never negative-cached.
-		if (!body || body.code !== 200 || !Array.isArray(body.data)) return { kind: 'error' };
-		if (body.data.length === 0) return { kind: 'miss' }; // clean "no such song" → cacheable
-		const url = safeKuwoImageUrl(body.data[0]?.pic);
+		// res.json() parses r.s's text/plain body fine — Response.json ignores the content-type.
+		const rows = mapSearch(await res.json());
+		// Contract drift (no abslist array) is an ERROR rather than a miss, so it is never
+		// negative-cached (quick-261004-n1i keeps the posture the old code:200 guard had).
+		if (rows === null) return { kind: 'error' };
+		if (rows.length === 0) return { kind: 'miss' }; // clean "no such song" → cacheable
+		const url = safeKuwoImageUrl(rows[0].pic);
 		return url ? { kind: 'hit', url } : { kind: 'miss' };
 	} catch {
 		return { kind: 'error' };

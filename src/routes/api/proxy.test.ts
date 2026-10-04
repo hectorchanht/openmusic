@@ -229,9 +229,9 @@ describe('/api/[source]/[...path] — search edge cache (CONCERNS perf #1)', () 
 		vi.stubGlobal('caches', cache);
 
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		const res1 = await GET(fakeEvent('kuwo', 'search', { key: 'x' }) as any);
+		const res1 = await GET(fakeEvent('netease', 'search', { key: 'x' }) as any);
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		await GET(fakeEvent('kuwo', 'search', { key: 'x' }) as any);
+		await GET(fakeEvent('netease', 'search', { key: 'x' }) as any);
 
 		expect(res1.status).toBe(500);
 		expect(cache.put).not.toHaveBeenCalled(); // transient error never frozen

@@ -22,8 +22,8 @@ import { GET, OPTIONS } from './+server';
 //    no-match is a CLEAN 200 { data: [], total: 0 }. Image host *.dzcdn.net.
 //  - iTunes: GET itunes.apple.com/search?term=&entity=&limit=1 → { results:[{artworkUrl100}] };
 //    host *.mzstatic.com; the 100x100bb token is swapped to 600x600bb (101 KB, not 332 KB).
-//  - kuwo: ONE subrequest — the SEARCH body already carries `pic` (sources/kuwo.ts:82);
-//    { code: 200, data: [{ pic: 'https://img4.kuwo.cn/…/600/…' }] }. Host *.kuwo.cn.
+//  - kuwo: ONE subrequest — the search.kuwo.cn/r.s body already carries the cover
+//    (abslist[n].web_albumpic_short → img2.kuwo.cn/…/500/…, quick-261004-n1i). Host *.kuwo.cn.
 //
 // Every case runs with `platform: undefined` — that is a real assertion: all three tiers are
 // keyless, so /api/og reads NO secret and needs no Env. fetch is stubbed (no live network) and
@@ -43,7 +43,7 @@ const DZ_COVER = 'https://cdn-images.dzcdn.net/images/cover/abc/500x500-000000-8
 const DZ_PICTURE = 'https://cdn-images.dzcdn.net/images/artist/def/500x500-000000-80-0-0.jpg';
 const IT_ART_100 = 'https://is1-ssl.mzstatic.com/image/thumb/Music/aa/bb/cc/100x100bb.jpg';
 const IT_ART_600 = 'https://is1-ssl.mzstatic.com/image/thumb/Music/aa/bb/cc/600x600bb.jpg';
-const KW_PIC = 'https://img4.kuwo.cn/star/albumcover/600/s4s0/93/1794217775.jpg';
+const KW_PIC = 'https://img2.kuwo.cn/star/albumcover/500/s4s0/93/1794217775.jpg';
 
 const DZ_HIT = JSON.stringify({
 	data: [{ album: { cover_big: DZ_COVER }, artist: { picture_big: DZ_PICTURE } }],
@@ -52,8 +52,12 @@ const DZ_HIT = JSON.stringify({
 const DZ_MISS = JSON.stringify({ data: [], total: 0 });
 const IT_HIT = JSON.stringify({ results: [{ artworkUrl100: IT_ART_100 }] });
 const IT_MISS = JSON.stringify({ results: [] });
-const KW_HIT = JSON.stringify({ code: 200, msg: '单曲搜索成功', data: [{ rid: 440613, pic: KW_PIC }] });
-const KW_MISS = JSON.stringify({ code: 200, msg: '单曲搜索成功', data: [] });
+const KW_HIT = JSON.stringify({
+	abslist: [
+		{ MUSICRID: 'MUSIC_440613', SONGNAME: '稻香', ARTIST: '周杰伦', web_albumpic_short: '120/s4s0/93/1794217775.jpg' }
+	]
+});
+const KW_MISS = JSON.stringify({ abslist: [] });
 
 /** 'THROW' = network failure, 'NOTOK' = non-ok status; anything else is a 200 JSON body. */
 type TierReply = string | 'THROW' | 'NOTOK';
@@ -125,8 +129,8 @@ describe('og-cover — tier order (Deezer → iTunes → kuwo, sequential)', () 
 		const out = await resolveCoverTiered('song', '周杰倫', '稻香', fresh());
 		expect(out).toBe(KW_PIC);
 		expect(calls).toHaveLength(3);
-		expect(calls[2]).toContain('kw-api.cenguigui.cn');
-		expect(calls[2]).toContain('limit=1');
+		expect(calls[2]).toContain('search.kuwo.cn');
+		expect(calls[2]).toContain('rn=1');
 		// kuwo is ONE subrequest — no /detail follow-up (the search body already carries `pic`).
 		expect(calls.filter((c) => c.includes('type=song'))).toHaveLength(0);
 	});
@@ -574,7 +578,7 @@ describe('og-cover — Last.fm tier (key-gated, song only) — quick-260809-38i'
 		expect(calls[0]).toContain('audioscrobbler');
 		expect(calls[1]).toContain('api.deezer.com');
 		expect(calls[2]).toContain('itunes.apple.com');
-		expect(calls[3]).toContain('kw-api.cenguigui.cn');
+		expect(calls[3]).toContain('search.kuwo.cn');
 	});
 
 	it('a GREY-STAR placeholder is a MISS, never a hit (ENRICH-02 / D-04 guardrail 2)', async () => {
@@ -710,7 +714,7 @@ function stubRoute(replies: {
 			u.includes('ws.audioscrobbler.com') ||
 			u.includes('api.deezer.com') ||
 			u.includes('itunes.apple.com') ||
-			u.includes('kw-api')
+			u.includes('search.kuwo.cn')
 		) {
 			const reply = u.includes('ws.audioscrobbler.com')
 				? replies.lf
@@ -931,7 +935,7 @@ describe('/api/og — two caches.default layers, both keyed own-origin', () => {
 			expect(key).toContain('openmusic.lol/api/og');
 			expect(key).not.toContain('api.deezer.com');
 			expect(key).not.toContain('itunes.apple.com');
-			expect(key).not.toContain('kw-api');
+			expect(key).not.toContain('search.kuwo.cn');
 			expect(key).not.toContain('cdn-images.dzcdn.net');
 		}
 	});

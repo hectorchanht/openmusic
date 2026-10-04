@@ -1,7 +1,7 @@
 // Same-origin metadata proxy (DATA-02).
 //
-// One catch-all route fronts all four sources. It validates params.source against the
-// PROXIES registry (404 unknown — threat T-01-01 / Security V5), builds the real
+// One catch-all route fronts all three catch-all sources (netease/qq/joox). It validates
+// params.source against the PROXIES registry (404 unknown — threat T-01-01 / Security V5), builds the real
 // upstream URL via the per-source ProxyAdapter (JOOX injects its token from
 // platform.env here, never on the client — T-01-04), fetches with a head deadline +
 // bounded retry, and forwards the upstream body with CORS scoped to the own origin
@@ -77,8 +77,8 @@ export const GET: RequestHandler = async (event) => {
 	const { upstream, origin } = resolved;
 
 	// Normalize the path exactly as the adapters do so the route agrees with them on what
-	// "search" is. `search` is the ONLY cacheable segment across all four sources (netease/
-	// qq/kuwo/joox); `url`/`detail`/`lrc` (and anything else) always take the passthrough.
+	// "search" is. `search` is the ONLY cacheable segment across all three catch-all sources
+	// (netease/qq/joox); `url`/`detail`/`lrc` (and anything else) always take the passthrough.
 	const type = (params.path || 'search').replace(/^\/+|\/+$/g, '');
 	const cacheable = type === 'search';
 
