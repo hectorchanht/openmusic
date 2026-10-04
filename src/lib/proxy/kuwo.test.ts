@@ -59,6 +59,15 @@ describe('mapSearch', () => {
 		expect(mapSearch({ abslist: [{ ...row, SONGNAME: undefined }] })?.[0].name).toBe('ignored');
 	});
 
+	it('strips the -《…》 tie-in tail but keeps version tags and plain hyphens', () => {
+		const name = (SONGNAME: string) => mapSearch({ abslist: [{ ...row, SONGNAME }] })?.[0].name;
+		expect(name('富士山下-《爱情转移》粤语版')).toBe('富士山下');
+		expect(name('十年-《明年今日》国语版|《隐婚男女》电影插曲')).toBe('十年');
+		expect(name('富士山下 (深情版)')).toBe('富士山下 (深情版)');
+		expect(name('D-Day')).toBe('D-Day');
+		expect(name('《追》')).toBe('《追》'); // tail-only title keeps its raw name rather than blanking
+	});
+
 	it('decodes exactly the six HTML entities kuwo emits, once', () => {
 		const out = mapSearch({
 			abslist: [

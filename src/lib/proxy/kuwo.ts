@@ -103,6 +103,16 @@ const decodeEntities = (s: string): string =>
 const text = (v: unknown): string => (typeof v === 'string' ? decodeEntities(v).trim() : '');
 const textOrNull = (v: unknown): string | null => text(v) || null;
 
+// quick-261004-n1i: r.s SONGNAME carries a tie-in tail — '富士山下-《爱情转移》粤语版',
+// '十年-《明年今日》国语版|《隐婚男女》电影插曲'. songKey() keeps it, so sameSongStrings() said a
+// kuwo row and the qq/netease '富士山下' were DIFFERENT songs (no dedupe, no name-matched fallback).
+// Cut only at `-《` — a plain hyphen ('D-Day') and version tags ('(深情版)') are real title. A title
+// that is ONLY the tail keeps its raw name (same rule as chart-parse.ts 39-D-03 keys).
+const songTitle = (v: unknown): string => {
+	const t = text(v);
+	return t.replace(/\s*-\s*《.*$/, '') || t;
+};
+
 /**
  * `web_albumpic_short` ("120/s3s94/93/211513640.jpg") → the 500px album cover. The leading size
  * segment is dropped and the rest is appended to a FIXED img2.kuwo.cn base, so only a strict path
@@ -136,7 +146,7 @@ export function mapSearch(body: unknown): KuwoSearchRow[] | null {
 		if (!/^\d+$/.test(rid)) continue;
 		rows.push({
 			rid,
-			name: text(r?.SONGNAME) || text(r?.NAME),
+			name: songTitle(r?.SONGNAME) || songTitle(r?.NAME),
 			artist: text(r?.ARTIST),
 			album: text(r?.ALBUM),
 			pic: coverFromShort(r?.web_albumpic_short)
