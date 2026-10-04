@@ -8,7 +8,7 @@ A mobile-first web music player that searches and streams tracks aggregated acro
 
 👉 **Live:** <https://openmusic.lol>
 
-> Ground-up rebuild of the data layer from [`CharlesPikachu/musicsquare`](https://github.com/CharlesPikachu/musicsquare) into a SvelteKit mobile app. The original single-file desktop player lives in the `upstream` remote / git history (it was the porting reference for the source adapters).
+> Ground-up rebuild of the data layer from [`CharlesPikachu/musicsquare`](https://github.com/CharlesPikachu/musicsquare) into a SvelteKit mobile app. The original single-file desktop player lives in the `upstream` remote / git history (it was the porting reference for the source adapters). The source list and several API conventions (e.g. 5sing search parameters) were informed by [`CharlesPikachu/musicdl`](https://github.com/CharlesPikachu/musicdl), used as a reference.
 
 ---
 
@@ -151,4 +151,4 @@ static/                 # favicon.svg, icon-maskable.svg, og.svg, manifest.webma
 
 ## License
 
-See [LICENSE](LICENSE). Upstream: [CharlesPikachu/musicsquare](https://github.com/CharlesPikachu/musicsquare).
+See [LICENSE](LICENSE). Upstream: [CharlesPikachu/musicsquare](https://github.com/CharlesPikachu/musicsquare). Reference: [CharlesPikachu/musicdl](https://github.com/CharlesPikachu/musicdl).
