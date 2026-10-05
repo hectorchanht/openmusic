@@ -455,6 +455,7 @@ Recent decisions affecting current work:
 
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
+| fast | Player load-retry: `loadRetries` registry flag (ytmusic = 2) re-attaches a fresh src before cross-source fallback — edge bot gate is per request | 2026-10-04 | 0be89f92 | — |
 | 261004-o9t | Allow YT Music downloads (rule lifted 2026-10-04): APK fetches googlevideo directly via CapacitorHttp (Range bytes=0-), web via the edge proxy retried 3x; picker shows the YTM row; saved as .m4a | 2026-10-04 | 8785392c | [261004-o9t-allow-yt-music-downloads](./quick/261004-o9t-allow-yt-music-downloads/) |
 | fast | settings-persist tests follow the rowActions [] default from 11fdfb5a (6 failures on main) | 2026-10-04 | 63731403 | — |
 | fast | Health probe kuwo/resolve HEADs the audio url, flags ~11 s preview-sized clips (≥80% of full 128k length) | 2026-10-04 | 4ec218dd | — |
