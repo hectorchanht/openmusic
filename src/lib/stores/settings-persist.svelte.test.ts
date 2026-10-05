@@ -88,13 +88,14 @@ describe('settings persistence round-trip — shareIncludeTitle (quick-260808-vz
 describe('settings persistence round-trip — rowActions (quick-260919-l9e)', () => {
 	beforeEach(() => memStore.clear());
 
-	// quick-260925-vtg reversed quick-260920-kxz's [] default back to both on, Download first
-	// (the user's exported settings). The persisted-list cases below are UNCHANGED — only the
+	// quick-260925-vtg reversed quick-260920-kxz's [] default back to both on; 11fdfb5a (2026-10-04,
+	// "rowActions remove like, download") returned it to [] — a fresh install gets NO inline row
+	// buttons (the ⋮ menu is unconditional). The persisted-list cases below are UNCHANGED — only the
 	// "what does a fresh install get" assertions move.
-	it("defaults to ['download', 'like'] when nothing is persisted (quick-260925-vtg)", async () => {
+	it('defaults to [] when nothing is persisted (11fdfb5a)', async () => {
 		const settings = await freshSettings();
 		settings.load();
-		expect(settings.rowActions).toEqual(['download', 'like']);
+		expect(settings.rowActions).toEqual([]);
 	});
 
 	it('a persisted subset wins on load', async () => {
@@ -122,12 +123,12 @@ describe('settings persistence round-trip — rowActions (quick-260919-l9e)', ()
 
 	// T-l9e-01 (tampering): localStorage is user/extension-writable.
 	it.each([['like'], [null], [{}], [7]])(
-		"a corrupt non-array (%p) falls back to the default (['download', 'like'], quick-260925-vtg)",
+		'a corrupt non-array (%p) falls back to the default ([], 11fdfb5a)',
 		async (bad) => {
 			memStore.set(KEY, JSON.stringify({ appLang: 'en', rowActions: bad }));
 			const settings = await freshSettings();
 			settings.load();
-			expect(settings.rowActions).toEqual(['download', 'like']);
+			expect(settings.rowActions).toEqual([]);
 		}
 	);
 
@@ -145,16 +146,16 @@ describe('settings persistence round-trip — rowActions (quick-260919-l9e)', ()
 		expect(JSON.parse(localStorage.getItem(KEY) as string).rowActions).toEqual(['download']);
 	});
 
-	// quick-260925-vtg reversed kxz back to both on: the starting value must differ from the new
-	// ['download', 'like'] default, or the case would pass trivially without ever proving that
-	// reset touched the field — so it starts from [].
-	it('resetAppearance() reverts the field AND the persisted blob (quick-260925-vtg)', async () => {
+	// The starting value must differ from the [] default (11fdfb5a), or the case would pass trivially
+	// without ever proving that reset touched the field — so it now starts from the OLD
+	// ['download', 'like'] default (quick-260925-vtg started from [] for the same reason).
+	it('resetAppearance() reverts the field AND the persisted blob (11fdfb5a)', async () => {
 		const settings = await freshSettings();
-		settings.rowActions = [];
+		settings.rowActions = ['download', 'like'];
 		settings.save();
 		settings.resetAppearance();
-		expect(settings.rowActions).toEqual(['download', 'like']);
-		expect(JSON.parse(localStorage.getItem(KEY) as string).rowActions).toEqual(['download', 'like']);
+		expect(settings.rowActions).toEqual([]);
+		expect(JSON.parse(localStorage.getItem(KEY) as string).rowActions).toEqual([]);
 	});
 });
 
