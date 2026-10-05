@@ -162,9 +162,26 @@ export const PAYLOAD_CHECKS = /** @type {PayloadCheck[]} */ ([
 		assert: (b) => {
 			const d = json(b);
 			return d?.code == 200 && /^https:\/\/[a-z0-9-]+\.kuwo\.cn\//.test(String(d?.data?.url ?? ''));
-		}
+		},
+		// A valid url is not proof of a FULL song: kuwo's official endpoint answers this exact shape
+		// with an ~11 s preview (~180 KB), and the never-stop guard cannot catch that — the clip plays
+		// fine, then ends. HEAD the url and require ≥80% of the full 128k length of the reference
+		// track (晴天, 269 s). See quick-261004-n1i / debug kuwo-upstream-dead-gate-never-trips.
+		verify: (b, fetchImpl = fetch) => verifyKuwoFullLength(json(b)?.data?.url, fetchImpl)
 	}
 ]);
+
+/** Reference track for kuwo/resolve: 晴天 (228908) is 269 s; level=standard is 128 kbps. */
+export const KUWO_MIN_BYTES = Math.floor(((269 * 128000) / 8) * 0.8);
+
+/** HEAD a resolved kuwo audio url → { ok, detail }. ok only when it is at least KUWO_MIN_BYTES. */
+export async function verifyKuwoFullLength(url, fetchImpl = fetch) {
+	const res = await fetchImpl(String(url), { method: 'HEAD', signal: AbortSignal.timeout(15000) });
+	const bytes = Number(res.headers.get('content-length') || 0);
+	return res.ok && bytes >= KUWO_MIN_BYTES
+		? { ok: true, detail: `payload ok, full length (${bytes} bytes)` }
+		: { ok: false, detail: `PREVIEW-SIZED audio: ${bytes} bytes < ${KUWO_MIN_BYTES} (http ${res.status}) — resolver serving clips?` };
+}
 
 /**
  * Days until `host`'s TLS certificate expires.
@@ -292,12 +309,13 @@ async function main() {
 					continue;
 				}
 				const body = await res.text();
-				ok = res.ok && p.assert(body);
-				detail = res.ok
-					? ok
-						? 'payload ok'
-						: `200 but assertion FAILED — expected ${p.expects}`
-					: `http ${res.status}`;
+				let pass = res.ok && p.assert(body);
+				let verdict = pass ? 'payload ok' : `200 but assertion FAILED — expected ${p.expects}`;
+				// Optional async second stage (only kuwo/resolve today), run only on a passing body.
+				// `ok` is assigned AFTER it, so a verify that throws leaves the check failed, not green.
+				if (pass && p.verify) ({ ok: pass, detail: verdict } = await p.verify(body));
+				ok = pass;
+				detail = res.ok ? verdict : `http ${res.status}`;
 			} catch (e) {
 				detail = e instanceof Error ? e.message : String(e);
 			}

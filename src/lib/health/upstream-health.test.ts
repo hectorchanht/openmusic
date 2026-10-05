@@ -6,7 +6,9 @@ import {
 	PAYLOAD_CHECKS,
 	exitCodeFor,
 	resolvePath,
-	parseArgs
+	parseArgs,
+	verifyKuwoFullLength,
+	KUWO_MIN_BYTES
 } from '../../../scripts/upstream-health.mjs';
 
 // quick-260831-sh9. This check exists because kuwo's upstream served an expired certificate for
@@ -144,6 +146,16 @@ describe('payload assertions actually discriminate', () => {
 		expect(byId['kuwo/resolve'](body('http://car-er.kuwo.cn/a.mp3'))).toBe(false);
 		expect(byId['kuwo/resolve'](body('https://evil.com/a.mp3'))).toBe(false);
 		expect(byId['kuwo/resolve'](body('https://car-er.kuwo.cn/a.mp3'))).toBe(true);
+	});
+
+	it('kuwo/resolve verify flags a preview-sized clip and passes a full-length song', async () => {
+		const head = (bytes: number, status = 200) =>
+			(async () => new Response(null, { status, headers: { 'content-length': String(bytes) } })) as unknown as typeof fetch;
+		// ~11 s official-endpoint preview (181 521 B, measured 2026-10-04) vs the real 128k file (4 317 292 B).
+		expect((await verifyKuwoFullLength('https://car-er.kuwo.cn/a.mp3', head(181521))).ok).toBe(false);
+		expect((await verifyKuwoFullLength('https://car-er.kuwo.cn/a.mp3', head(4317292))).ok).toBe(true);
+		expect((await verifyKuwoFullLength('https://car-er.kuwo.cn/a.mp3', head(4317292, 403))).ok).toBe(false);
+		expect(KUWO_MIN_BYTES).toBeLessThan(4317292);
 	});
 
 	it('lastfm rejects the empty-artists shape a missing LASTFM_KEY produces', () => {
