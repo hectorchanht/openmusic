@@ -95,7 +95,7 @@ Full observed evidence: `.planning/phases/30-carrier-free-share-links-type-artis
 ### Prior phase (Phase 27 — YouTube Music Source, v1.4) — COMPLETE + E2E-VERIFIED
 
 Phase 27 complete (27-01..04). E2E-verified against LIVE YouTube via the dev-server routes: /api/ytmusic/search 200 (rows+videoId), /api/ytmusic/lyrics 200 (1513c + attribution), /api/ytmusic/stream 206 audio/mp4 + Range (playback) and 200 full-file (download). pnpm check clean, 1320 tests green. E2E caught + fixed a prod-breaking bug (quick-270715 / commit 29c1c7d): stream route exported non-HTTP-verb functions, illegal in SvelteKit +server.ts → 500; helpers moved to $lib/proxy/ytmusic.ts.
-Last activity: 2026-10-04 - Completed quick task 261004-n1i: kuwo restored via musicdl resolver chain + weekly watcher PR
+Last activity: 2026-10-04 - Completed quick task 261004-o9t: Allow YT Music downloads
 Remaining human UAT: real-device <audio> playback+seek + download-to-disk; deployed-Worker player+googlevideo same-IP egress + bot-challenge under load (T-27-03-OP). Account/library sync = separate legal-gated milestone (spike 008).
 
 ## Performance Metrics
@@ -455,6 +455,7 @@ Recent decisions affecting current work:
 
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
+| 261004-o9t | Allow YT Music downloads (rule lifted 2026-10-04): APK fetches googlevideo directly via CapacitorHttp (Range bytes=0-), web via the edge proxy retried 3x; picker shows the YTM row; saved as .m4a | 2026-10-04 | 8785392c | [261004-o9t-allow-yt-music-downloads](./quick/261004-o9t-allow-yt-music-downloads/) |
 | fast | settings-persist tests follow the rowActions [] default from 11fdfb5a (6 failures on main) | 2026-10-04 | 63731403 | — |
 | fast | Health probe kuwo/resolve HEADs the audio url, flags ~11 s preview-sized clips (≥80% of full 128k length) | 2026-10-04 | 4ec218dd | — |
 | 261004-n1i | Restore kuwo: search.kuwo.cn + musicdl resolver chain (haitangw→nxinxz, full-length, *.kuwo.cn allowlist) on a dedicated edge route; 320k level token; health probes on new hosts; weekly musicdl watcher opens a review PR | 2026-10-04 | 7acca1a5 | [261004-n1i-restore-kuwo-musicdl-resolver-chain](./quick/261004-n1i-restore-kuwo-musicdl-resolver-chain/) |
