@@ -281,7 +281,7 @@ class Library {
 
 	// ---- downloading (D-10, transient per-uid in-flight state) -----------------------------
 	/** debug album-row-tick-before-file-done: brackets NEST. The album loop holds one OUTER bracket
-	 *  per song (start → final outcome) while downloadOne / downloadFromDonor bracket each attempt
+	 *  per song (start → final outcome) while downloadTrack / downloadFromDonor bracket each attempt
 	 *  inside it, so the uid must stay in `downloading` until the LAST endDownload — a plain Set
 	 *  dropped it after the first inner `finally` (tick during the qq backoff). Plain field, not
 	 *  `$state`: the UI reads the Set, never the counts (the internal-guard convention). */

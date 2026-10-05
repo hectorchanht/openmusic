@@ -3,13 +3,13 @@ import { SEARCH_URL, PLAYER_URL, PLAYER_UA, PLAYER_CLIENT_VERSION } from '$lib/p
 
 // quick-260915-3ng: node-only tests over a MOCKED @capacitor/core — NO live network, no device.
 // Mock shape mirrors the house precedent in blob-store.test.ts.
-const mocks = vi.hoisted(() => ({ post: vi.fn() }));
+const mocks = vi.hoisted(() => ({ post: vi.fn(), get: vi.fn() }));
 vi.mock('@capacitor/core', () => ({
-	CapacitorHttp: { post: (o: unknown) => mocks.post(o) },
+	CapacitorHttp: { post: (o: unknown) => mocks.post(o), get: (o: unknown) => mocks.get(o) },
 	Capacitor: { isNativePlatform: () => true }
 }));
 
-import { nativeResolveStreamUrl, __resetNativeVisitorCache } from './ytmusic-native';
+import { nativeResolveStreamUrl, nativeFetchStreamBlob, __resetNativeVisitorCache } from './ytmusic-native';
 
 const DIRECT_URL = 'https://rr1---sn-x.googlevideo.com/videoplayback?itag=140&sparams=ip';
 
@@ -69,6 +69,7 @@ const playerCall = (n = 0) =>
 
 beforeEach(() => {
 	mocks.post.mockReset();
+	mocks.get.mockReset();
 	__resetNativeVisitorCache();
 });
 
@@ -176,5 +177,45 @@ describe('nativeResolveStreamUrl — on-device InnerTube hops via CapacitorHttp 
 		mocks.post.mockResolvedValue({ status: 200, data: '{not json', headers: {}, url: '' });
 
 		expect(await nativeResolveStreamUrl('vid12', live())).toBeNull();
+	});
+});
+
+describe('nativeFetchStreamBlob — on-device googlevideo byte fetch (quick-261004-o9t)', () => {
+	interface GetOpts {
+		url: string;
+		headers?: Record<string, string>;
+		responseType?: string;
+	}
+
+	it('206 + base64 body → an audio/mp4 Blob; one GET with Range bytes=0- and responseType blob', async () => {
+		mocks.get.mockResolvedValue({ status: 206, data: 'YWJj', headers: {}, url: DIRECT_URL });
+
+		const blob = await nativeFetchStreamBlob(DIRECT_URL);
+
+		expect(blob?.size).toBe(3);
+		expect(blob?.type).toBe('audio/mp4');
+		expect(await blob?.text()).toBe('abc');
+		expect(mocks.get).toHaveBeenCalledTimes(1);
+		const o = mocks.get.mock.calls[0][0] as GetOpts;
+		expect(o.url).toBe(DIRECT_URL);
+		expect(o.headers?.Range).toBe('bytes=0-');
+		expect(o.responseType).toBe('blob');
+	});
+
+	it('a 403 → null', async () => {
+		mocks.get.mockResolvedValue({ status: 403, data: '', headers: {}, url: DIRECT_URL });
+		expect(await nativeFetchStreamBlob(DIRECT_URL)).toBeNull();
+	});
+
+	it('a bridge rejection → null, never throws', async () => {
+		mocks.get.mockRejectedValue(new Error('bridge down'));
+		await expect(nativeFetchStreamBlob(DIRECT_URL)).resolves.toBeNull();
+	});
+
+	it('a 200 with an empty or non-string body → null', async () => {
+		mocks.get.mockResolvedValue({ status: 200, data: '', headers: {}, url: DIRECT_URL });
+		expect(await nativeFetchStreamBlob(DIRECT_URL)).toBeNull();
+		mocks.get.mockResolvedValue({ status: 200, data: { not: 'a string' }, headers: {}, url: DIRECT_URL });
+		expect(await nativeFetchStreamBlob(DIRECT_URL)).toBeNull();
 	});
 });

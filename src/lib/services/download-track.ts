@@ -27,6 +27,7 @@
 //     ANY tag failure (unknown container, oversize, art miss, library throw) saves the ORIGINAL
 //     bytes and the result is still 'saved'. Never 'failed' for a file that landed and plays.
 
+import { Capacitor } from '@capacitor/core';
 import type { SourceId, Track } from '$lib/sources/types';
 import { library } from '$lib/stores/library.svelte';
 import { player } from '$lib/stores/player.svelte';
@@ -44,6 +45,7 @@ import { resolveArtworkDataUrl } from '$lib/services/media-artwork';
 import { logAction } from '$lib/stores/actionLog.svelte';
 import { fetchVariants, versionsIncludingOwn } from '$lib/services/variants';
 import { probeDownload, type DownloadProbe } from '$lib/services/download-probe';
+import { nativeFetchStreamBlob } from '$lib/services/ytmusic-native';
 import { isQqRateLimited } from '$lib/sources/qq';
 import { effectiveQuality } from '$lib/sources/quality';
 
@@ -54,17 +56,44 @@ import { effectiveQuality } from '$lib/sources/quality';
  */
 export type DownloadResult = 'saved' | 'no-audio' | 'failed' | 'rate-limited';
 
-const YTMUSIC = 'ytmusic';
+// quick-261004-o9t — the quick-260930-uia "no YT Music downloads" rule is LIFTED (user,
+// 2026-10-04): the VISIONOS client switch (5acc875c) + the stream-proxy fixes (38961cce) made the full
+// itag-140 file fetchable. A ytmusic song now resolves and downloads its OWN audio like any source;
+// the two ytmusic specifics live in `runDownload` (native direct fetch, proxy retry) and key off the
+// resolved URL, not the source — so a ytmusic `audioFrom` donor gets them too.
+
+// quick-261004-o9t: a DIRECT googlevideo url (native resolve — IP-locked to the phone, no CORS header).
+function isGooglevideoUrl(url: string): boolean {
+	try {
+		return new URL(url).hostname.endsWith('.googlevideo.com');
+	} catch {
+		return false;
+	}
+}
+// quick-261004-o9t: our own edge byte-proxy (web resolve, or the native resolver's fallback).
+const isYtmusicProxyUrl = (url: string): boolean => url.includes('/api/ytmusic/stream/');
+
+// quick-261004-o9t: YouTube bot-gates Cloudflare egress IPs PER INVOCATION — ~25–50% of proxy requests
+// answer 502 'player not OK' / 403 (prod-sampled 2026-10-04). A NEW request may land on an un-gated IP,
+// so the client retries the whole request; an in-Worker retry stays on the gated invocation and cannot.
+const YTMUSIC_FETCH_ATTEMPTS = 3;
 
 /**
- * quick-260930-uia — the user rule "downloading a song should never route to YT Music", consulted by
- * every download affordance (this module's donor loop + audioFrom refusal, TrackMenu's "Download
- * from…" rows). A ytmusic file cannot be fetched by any download path: on web the stream proxy's
- * googlevideo byte fetch 403s, on native the direct googlevideo url sends no CORS header. A named
- * user rule, so a literal — NOT the auto-resolve-floor flag (`isAutoResolveEligible`).
+ * quick-261004-o9t: `fetch(url)` up to `attempts` times, no delay (the gate is per egress IP, not
+ * time-based). An ok response returns at once; a non-ok one only on the LAST attempt; a rejection —
+ * on the APK the proxy is cross-origin, and Cloudflare's masked 502 carries no CORS headers, so
+ * fetch() REJECTS instead of answering non-ok — is rethrown only on the last attempt.
+ * `attempts === 1` is exactly a single `fetch(url)`.
  */
-export function canDownloadFrom(source: SourceId): boolean {
-	return source !== YTMUSIC;
+async function fetchRetrying(url: string, attempts: number): Promise<Response> {
+	for (let i = 1; ; i++) {
+		try {
+			const resp = await fetch(url);
+			if (resp.ok || i >= attempts) return resp;
+		} catch (e) {
+			if (i >= attempts) throw e;
+		}
+	}
 }
 
 // quick-260625-pzs-04: does the currently-playing track's already-resolved quality satisfy the
@@ -110,6 +139,22 @@ export function donorMatchesTier(p: DonorFile, want: DefaultQuality): boolean {
 /** quick-260930-vjp: acquire a pipeline slot; resolves with its release fn. */
 export type StageGate = () => Promise<() => void>;
 
+type DownloadOpts = {
+	persist?: boolean;
+	save?: boolean;
+	trackNumber?: string;
+	albumArtist?: string;
+	audioFrom?: Track;
+	dir?: string;
+	onSaved?: (uid: string, filename: string, blob: Blob) => void;
+	// quick-260930-vjp: two-stage pipeline gates, passed ONLY by the album download. `resolve` brackets
+	// the link lookup (ensureTrackDetails / fetchVariants / probeDownload — apiFetch, shared with
+	// playback); `transfer` brackets the raw audio fetch → tag → persist/save. A resolve slot is always
+	// released before a transfer slot is requested (no hold-and-wait, so the two gates cannot
+	// deadlock), and the transfer slot is released in the `finally`. Omitted = no gating, unchanged.
+	stages?: { resolve: StageGate; transfer: StageGate };
+};
+
 /**
  * Download ONE song: resolve→addDownload→fetch→(persist)→save. Isolation-safe, never-throws,
  * never-navigates. `opts.persist` defaults TRUE; `persist:false` skips `blobStore.put` (no offline
@@ -147,26 +192,7 @@ export type StageGate = () => Promise<() => void>;
  * that went stale (sheet left open past the 15-min TTL) is NOT re-checked here: it fails at `fetch`
  * → 'failed' → the existing "kept in Library" degrade, the same as any other CDN refusal.
  */
-type DownloadOpts = {
-	persist?: boolean;
-	save?: boolean;
-	trackNumber?: string;
-	albumArtist?: string;
-	audioFrom?: Track;
-	dir?: string;
-	onSaved?: (uid: string, filename: string, blob: Blob) => void;
-	// quick-260930-vjp: two-stage pipeline gates, passed ONLY by the album download. `resolve` brackets
-	// the link lookup (ensureTrackDetails / fetchVariants / probeDownload — apiFetch, shared with
-	// playback); `transfer` brackets the raw audio fetch → tag → persist/save. A resolve slot is always
-	// released before a transfer slot is requested (no hold-and-wait, so the two gates cannot
-	// deadlock), and the transfer slot is released in the `finally`. Omitted = no gating, unchanged.
-	stages?: { resolve: StageGate; transfer: StageGate };
-};
-
-async function downloadOne(track: Track, opts?: DownloadOpts): Promise<DownloadResult> {
-	// quick-260930-uia: picker refusal — the belt to TrackMenu's `canDownloadFrom` row filter. A
-	// ytmusic donor is never fetched, whoever handed it in.
-	if (opts?.audioFrom && !canDownloadFrom(opts.audioFrom.source)) return 'no-audio';
+export async function downloadTrack(track: Track, opts?: DownloadOpts): Promise<DownloadResult> {
 	// DL-STATE-01: bracket the per-uid spinner. beginDownload BEFORE the first await; endDownload in
 	// the `finally` so EVERY exit (saved / no-audio / failed / any throw) clears the spinner exactly once.
 	// Nested inside an album's outer bracket this is a refcount step (library.downloadDepth).
@@ -180,7 +206,7 @@ async function downloadOne(track: Track, opts?: DownloadOpts): Promise<DownloadR
 		// addDownload ran PRE-fetch (DL-BUG-01) — so an attempt that ends WITHOUT a file must leave the
 		// existing "entry without a file" mark (34-D-06 `unavailable`, the alert glyph) rather than the
 		// tick, and a save must lift it. Marked BEFORE endDownload so no render sees "downloaded, idle,
-		// unmarked". Guarded on isDownloaded: a refusal that never reached addDownload marks nothing.
+		// unmarked". Guarded on isDownloaded: an exit that never reached addDownload marks nothing.
 		if (library.isDownloaded(track.uid)) {
 			if (res === 'saved') library.clearUnavailable(track.uid);
 			else library.markUnavailable(track.uid);
@@ -190,7 +216,7 @@ async function downloadOne(track: Track, opts?: DownloadOpts): Promise<DownloadR
 	}
 }
 
-/** The body of `downloadOne` — resolve → addDownload → fetch → tag → persist → save. */
+/** The body of `downloadTrack` — resolve → addDownload → fetch → tag → persist → save. */
 async function runDownload(track: Track, opts?: DownloadOpts): Promise<DownloadResult> {
 	let release: (() => void) | undefined;
 	let rateLimited = false;
@@ -264,33 +290,46 @@ async function runDownload(track: Track, opts?: DownloadOpts): Promise<DownloadR
 		// RAW fetch (not apiFetch — fetch→apiFetch audit): a MEDIA download-to-blob of the resolved
 		// audio stream. audioUrl is often an ABSOLUTE CDN URL (qq/kuwo/joox) — apiFetch would corrupt it —
 		// and a full-file body must not be routed through the JSON governor's dedup/cap.
-		// quick-260915-3ng: on NATIVE a ytmusic audioUrl is a DIRECT googlevideo url, which sends no
-		// access-control-allow-origin — so this fetch() would CORS-fail in the WebView (and the web
-		// /api/ytmusic/stream proxy 403s). quick-260930-uia: unreachable now — `downloadTrack` never
-		// hands a ytmusic track or a ytmusic `audioFrom` here (see `canDownloadFrom`). Deliberately NOT
-		// routed through CapacitorHttp — it returns binary as base64, the exact memory bloat
-		// capacitor-blob-writer exists to avoid.
-		release = await opts?.stages?.transfer();
-		const resp = await fetch(r.audioUrl);
-		// 40-03 (album E2E): fetch() does not reject on an HTTP error, and the ytmusic stream proxy's
-		// googlevideo 403 has an EMPTY body typed audio/mp4 — so this used to persist + save a 0-byte
-		// file and report 'saved' (an album showed "Saved 10 of 10" with five empty entries). A non-2xx
-		// is a failed download; an empty body is checked after the read below.
-		if (!resp.ok) return 'failed';
-		// quick-260913-omi: read the body through a reader instead of `resp.blob()` so the Download
-		// row can show REAL progress. Same one fetch, same one pass over the bytes — progress is a
-		// side effect of the read we were already doing. Without a Content-Length the helper falls
-		// back to `resp.blob()` and reports nothing, so the row keeps its indeterminate spinner.
 		//
-		// quick-260913-tmi: the type is derived from the audio URL, NOT from the response header — the
-		// qq CDN serves audio as `application/x-www-form-urlencoded`, and `resp.blob()` was stamping
-		// that onto the saved file and the offline copy. Threaded in so the streaming path builds the
-		// Blob with the right type from the start rather than re-wrapping tens of MB afterwards.
-		const rawBlob = await readBlobWithProgress(
-			resp,
-			(fraction) => library.setDownloadProgress(track.uid, fraction),
-			{ type: audioMimeForUrl(r.audioUrl, resp.headers?.get?.('content-type')) }
-		);
+		// quick-261004-o9t — the two ytmusic specifics (the quick-260930-uia "never ytmusic" rule is
+		// lifted, see the module note above `isGooglevideoUrl`):
+		//   - NATIVE + a direct googlevideo url: the url is IP-locked to THIS phone and googlevideo sends
+		//     no access-control-allow-origin, so a WebView fetch() CORS-fails. The phone fetches it over
+		//     CapacitorHttp (`nativeFetchStreamBlob`). The old base64 warning here was about 50 MB FLACs;
+		//     a 3–5 MB AAC is fine (the helper's ponytail line names the ceiling). No proxy fallback: the
+		//     resolver already fell back to the proxy url when it could not sign a direct one, so a dead
+		//     direct fetch is 'failed' → the existing "kept in Library" degrade.
+		//   - the stream proxy url: plain fetch, retried up to YTMUSIC_FETCH_ATTEMPTS (per-invocation
+		//     egress-IP bot gate). Every other url is one fetch, as before.
+		const ytKind = isGooglevideoUrl(r.audioUrl) ? 'direct' : isYtmusicProxyUrl(r.audioUrl) ? 'proxy' : null;
+		release = await opts?.stages?.transfer();
+		let rawBlob: Blob;
+		if (Capacitor.isNativePlatform() && ytKind === 'direct') {
+			const b = await nativeFetchStreamBlob(r.audioUrl);
+			if (!b) return 'failed';
+			rawBlob = b;
+		} else {
+			const resp = await fetchRetrying(r.audioUrl, ytKind ? YTMUSIC_FETCH_ATTEMPTS : 1);
+			// 40-03 (album E2E): fetch() does not reject on an HTTP error, and the ytmusic stream proxy's
+			// googlevideo 403 has an EMPTY body typed audio/mp4 — so this used to persist + save a 0-byte
+			// file and report 'saved' (an album showed "Saved 10 of 10" with five empty entries). A non-2xx
+			// is a failed download; an empty body is checked after the read below.
+			if (!resp.ok) return 'failed';
+			// quick-260913-omi: read the body through a reader instead of `resp.blob()` so the Download
+			// row can show REAL progress. Same one fetch, same one pass over the bytes — progress is a
+			// side effect of the read we were already doing. Without a Content-Length the helper falls
+			// back to `resp.blob()` and reports nothing, so the row keeps its indeterminate spinner.
+			//
+			// quick-260913-tmi: the type is derived from the audio URL, NOT from the response header — the
+			// qq CDN serves audio as `application/x-www-form-urlencoded`, and `resp.blob()` was stamping
+			// that onto the saved file and the offline copy. Threaded in so the streaming path builds the
+			// Blob with the right type from the start rather than re-wrapping tens of MB afterwards.
+			rawBlob = await readBlobWithProgress(
+				resp,
+				(fraction) => library.setDownloadProgress(track.uid, fraction),
+				{ type: audioMimeForUrl(r.audioUrl, resp.headers?.get?.('content-type')) }
+			);
+		}
 		if (!rawBlob.size) return 'failed';
 
 		// DL-FILE-01 (D-05/D-06/D-07): controlled, translated filename `{artist} - {song}.{ext}`. The
@@ -303,7 +342,9 @@ async function runDownload(track: Track, opts?: DownloadOpts): Promise<DownloadR
 		const dnTitle = names.dnTitle(r.title, r.artist);
 		// FILENAME ONLY. `extFromAudioUrl` is NOT the container dispatch key — its 'mp3' default would
 		// route a FLAC into ID3. The codec sniffs the actual bytes instead (RESEARCH Pitfall 3).
-		const ext = extFromAudioUrl(r.audioUrl);
+		// quick-261004-o9t: itag 140 is AAC/mp4 and neither ytmusic url carries an extension, so
+		// extFromAudioUrl would default to `.mp3` (ytmusic.ts resolve() stamps the true tier the same way).
+		const ext = ytKind ? 'm4a' : extFromAudioUrl(r.audioUrl);
 		const filename = buildDownloadFilename(dnArtist, dnTitle, ext);
 
 		// 36-D-13 / 36-D-14: embed the cover the app itself displays, through the existing artwork
@@ -439,8 +480,9 @@ async function withGate<T>(gate: StageGate | undefined, work: () => Promise<T>):
 }
 
 /**
- * The donor walk (quick-260930-uia, shared since quick-260930-x3q): one `fetchVariants` lookup,
- * `versionsIncludingOwn` order (one row per source), ytmusic and `exclude`d sources dropped, then each
+ * The donor walk (shared since quick-260930-x3q): one `fetchVariants` lookup,
+ * `versionsIncludingOwn` order (one row per source), `exclude`d sources dropped (quick-261004-o9t:
+ * ytmusic may be a donor now), then each
  * row probed at the DOWNLOAD tier one at a time, yielding only probes that found audio. Sequential by
  * construction — one probe in flight. Never throws: any failure just ends the walk.
  */
@@ -451,9 +493,7 @@ export async function* donorProbes(
 	const exclude = o.exclude ?? [];
 	try {
 		const variants = await withGate(o.gate, () => fetchVariants(track, o.signal));
-		const donors = versionsIncludingOwn(track, variants).filter(
-			(v) => canDownloadFrom(v.source) && !exclude.includes(v.source)
-		);
+		const donors = versionsIncludingOwn(track, variants).filter((v) => !exclude.includes(v.source));
 		for (const donor of donors) {
 			if (o.signal?.aborted) return;
 			const p = await withGate(o.gate, () => probeDownload(donor, o.signal));
@@ -465,10 +505,10 @@ export async function* donorProbes(
 }
 
 /**
- * Save THIS song with another source's audio (`audioFrom`, quick-260916-0d9) — the ytmusic download
- * path, and since quick-260930-x3q the album loop's fallback for a rate-limited / audio-less song.
- * `exclude` drops sources already tried. Without `prefer` the first donor in walk order wins (the
- * ytmusic path — must match `probeForDownload`'s label). `prefer: 'tier'` (quick-261001-0p9, the
+ * Save THIS song with another source's audio (the picker's `audioFrom` contract, quick-260916-0d9) —
+ * the album loop's fallback for a rate-limited / audio-less song (quick-260930-x3q, quick-261001-0p9).
+ * `exclude` drops sources already tried. Without `prefer` the first donor in walk order wins.
+ * `prefer: 'tier'` (quick-261001-0p9, the
  * album's after-the-qq-wait fallback): still ONE walk — a donor matching the download tier's quality
  * AND format (`donorMatchesTier`) is tried the moment it is seen; the rest are collected and, if no
  * match saved, tried best-first by `donorRank` (stable on ties) so the album still finishes.
@@ -481,13 +521,13 @@ export async function downloadFromDonor(
 ): Promise<DownloadResult> {
 	try {
 		// DL-STATE-01: the row ring spins through the donor lookup too. debug album-row-tick-before-
-		// file-done: library.downloading is refcounted now, so each inner downloadOne bracket nests
+		// file-done: library.downloading is refcounted now, so each inner downloadTrack bracket nests
 		// inside this one — the old per-attempt re-arm is gone.
 		library.beginDownload(track.uid);
 		try {
 			let failed = false;
 			const attempt = async (donor: Track): Promise<boolean> => {
-				const res = await downloadOne(track, { ...opts, audioFrom: donor });
+				const res = await downloadTrack(track, { ...opts, audioFrom: donor });
 				if (res === 'saved') return true;
 				if (res === 'failed') failed = true;
 				return false;
@@ -495,7 +535,7 @@ export async function downloadFromDonor(
 			// quick-261001-0p9: non-matching donors wait here until the walk ends without a save.
 			const rest: { donor: Track; rank: number }[] = [];
 			// quick-260930-vjp: the donor lookup + each probe is resolve-stage work; released before
-			// downloadOne takes its transfer slot.
+			// downloadTrack takes its transfer slot.
 			for await (const p of donorProbes(track, { gate: opts?.stages?.resolve, exclude: o.exclude })) {
 				if (!p.track) continue;
 				const file = { container: p.container, quality: p.track.quality };
@@ -515,30 +555,4 @@ export async function downloadFromDonor(
 		// D-17 NEVER-THROWS.
 		return 'failed';
 	}
-}
-
-/**
- * What a Download label should describe: the song's own download-tier probe, or for a ytmusic song
- * the FIRST donor `downloadTrack` would use (same walk, same `uid|downloadQuality` memo) — so the file
- * the tap saves is the file the label described. No donor → the all-null probe (plain "Download").
- */
-export async function probeForDownload(track: Track, signal?: AbortSignal): Promise<DownloadProbe> {
-	if (canDownloadFrom(track.source)) return probeDownload(track, signal);
-	for await (const p of donorProbes(track, { signal })) return p;
-	return { container: null, qualityLabel: null, bytes: null, track: null };
-}
-
-/**
- * Download ONE song (see `downloadOne` for the full contract — same signature, same sentinels).
- *
- * quick-260930-uia: a ytmusic song is NEVER resolved or fetched as ytmusic. Its audio comes from
- * another source via `downloadFromDonor` — the "Download from…" contract (quick-260916-0d9
- * `audioFrom`): the donor's resolved audio saved under THIS song's identity, no source excluded and
- * no tier filter. Moved here from the album loop (40-03) so the single, picker, album and
- * background-repair paths all inherit it. Every non-ytmusic caller goes straight to `downloadOne`.
- * Cross-source fallback and resolveNameStub already exclude ytmusic (isAutoResolveEligible), so a
- * resolve can only land on ytmusic when the track itself is ytmusic — which never resolves here.
- */
-export async function downloadTrack(track: Track, opts?: DownloadOpts): Promise<DownloadResult> {
-	return canDownloadFrom(track.source) ? downloadOne(track, opts) : downloadFromDonor(track, opts);
 }

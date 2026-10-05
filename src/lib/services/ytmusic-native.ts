@@ -15,12 +15,13 @@
 // ZERO auth: anonymous visitorData token only. No OAuth, no cookie, no PoToken, no account. Account /
 // library sync remains a separate legal-gated milestone (spike 008).
 //
-// DELIBERATE: CapacitorHttp is called EXPLICITLY at this ONE site. The global CapacitorHttp
-// fetch/XHR patch in capacitor.config.ts is NOT enabled — turning it on would silently reroute every
-// request in the app through the native bridge.
+// DELIBERATE: CapacitorHttp is called EXPLICITLY in this ONE module (the InnerTube POSTs and the
+// googlevideo byte GET below). The global CapacitorHttp fetch/XHR patch in capacitor.config.ts is NOT
+// enabled — turning it on would silently reroute every request in the app through the native bridge.
 //
-// This module is native-only by CALLER CONTRACT: src/lib/sources/ytmusic.ts guards the call with
-// Capacitor.isNativePlatform(). It does not re-check.
+// This module is native-only by CALLER CONTRACT: src/lib/sources/ytmusic.ts guards the resolve with
+// Capacitor.isNativePlatform(), and download-track.ts guards the byte fetch the same way (quick-261004-o9t).
+// It does not re-check.
 import { CapacitorHttp } from '@capacitor/core';
 import {
 	playerBody,
@@ -42,6 +43,9 @@ const VISITOR_TTL_MS = 6 * 60 * 60 * 1000; // ~6h
 // Per-hop ceiling (mirrors the stream route's PLAYER_TIMEOUT_MS) so a hung upstream cannot hang
 // resolve() — HttpOptions exposes no AbortSignal, so this timeout IS the only hard stop.
 const HOP_TIMEOUT_MS = 15000;
+// quick-261004-o9t: the byte GET's read ceiling. A 3–5 MB itag-140 body on cellular outlives the
+// JSON-hop ceiling above, so the download gets its own.
+const BYTES_TIMEOUT_MS = 90_000;
 
 /** One InnerTube POST over the native bridge. NEVER throws: a rejected bridge call, a non-2xx status
  *  or an unparseable body all return null. `data` arrives pre-parsed when the upstream sets a json
@@ -69,6 +73,42 @@ async function post(
 			}
 		}
 		return res.data;
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * quick-261004-o9t — download a DIRECT googlevideo url's bytes ON THE PHONE. Null on any failure
+ * (bridge rejection, non-2xx, empty / non-string body, bad base64); NEVER throws.
+ *
+ * - WHY the phone: the url is IP-locked to the device that made the player call (header), so only
+ *   this device can fetch it.
+ * - WHY CapacitorHttp: googlevideo sends no access-control-allow-origin, so WebView fetch() CORS-
+ *   fails. A media element is exempt from CORS; fetch() is not.
+ * - WHY `Range: bytes=0-`: googlevideo trickles a range-less GET; bytes=0- answers 206 with the
+ *   whole file at full speed (same trick as the stream proxy route).
+ *
+ * Typed audio/mp4 unconditionally: itag 140 is always AAC/mp4, and googlevideo's content-type is not
+ * trusted for the type (audioMimeForUrl's posture). No progress events on this path — the row keeps
+ * its indeterminate spinner.
+ *
+ * ponytail: the bridge returns the body as base64 held in memory (~1.4× the file) — fine for 3–5 MB
+ * AAC; switch to @capacitor/file-transfer streaming if ytmusic ever serves bigger files.
+ */
+export async function nativeFetchStreamBlob(url: string): Promise<Blob | null> {
+	try {
+		const res = await CapacitorHttp.get({
+			url,
+			headers: { Range: 'bytes=0-' },
+			responseType: 'blob',
+			connectTimeout: HOP_TIMEOUT_MS,
+			readTimeout: BYTES_TIMEOUT_MS
+		});
+		if (!(res.status >= 200 && res.status < 300)) return null;
+		if (typeof res.data !== 'string' || !res.data) return null;
+		const bytes = Uint8Array.from(atob(res.data), (c) => c.charCodeAt(0));
+		return new Blob([bytes], { type: 'audio/mp4' });
 	} catch {
 		return null;
 	}

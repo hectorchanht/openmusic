@@ -60,15 +60,18 @@ const mocks = vi.hoisted(() => ({
 	),
 	resolveArtworkDataUrl: vi.fn(async (_q: unknown): Promise<string | null> => null),
 	logAction: vi.fn((_ev: string, _d?: Record<string, unknown>) => {}),
-	// quick-260930-uia: the ytmusic donor lookup. Defaults keep every non-ytmusic test untouched
-	// (neither is ever reached for a non-ytmusic track).
+	// The donor walk (downloadFromDonor — the album rate-limit fallback). Defaults keep every
+	// single-song test untouched (neither is ever reached by a plain downloadTrack).
 	fetchVariants: vi.fn(async (_t: Track): Promise<Track[]> => []),
 	probeDownload: vi.fn(async (t: Track) => ({
 		container: null as string | null,
 		qualityLabel: null,
 		bytes: null,
 		track: { ...t, audioUrl: `https://cdn.example/${t.uid}.m4a` } as Track | null
-	}))
+	})),
+	// quick-261004-o9t: the native googlevideo byte fetch. `native` drives Capacitor.isNativePlatform().
+	native: false,
+	nativeFetchStreamBlob: vi.fn(async (_u: string): Promise<Blob | null> => new Blob(['yt'], { type: 'audio/mp4' }))
 }));
 
 vi.mock('$lib/stores/library.svelte', () => ({ library: mocks.library }));
@@ -89,19 +92,20 @@ vi.mock('$lib/services/audio-tags', async (orig) => ({
 }));
 vi.mock('$lib/services/media-artwork', () => ({ resolveArtworkDataUrl: mocks.resolveArtworkDataUrl }));
 vi.mock('$lib/stores/actionLog.svelte', () => ({ logAction: mocks.logAction }));
-// quick-260930-uia: variants.ts stays REAL for versionsIncludingOwn (pure); only the lookup is stubbed.
+// variants.ts stays REAL for versionsIncludingOwn (pure); only the lookup is stubbed.
 vi.mock('$lib/services/variants', async (orig) => ({
 	...(await orig<typeof import('$lib/services/variants')>()),
 	fetchVariants: mocks.fetchVariants
 }));
 vi.mock('$lib/services/download-probe', () => ({ probeDownload: mocks.probeDownload }));
+vi.mock('@capacitor/core', () => ({ Capacitor: { isNativePlatform: () => mocks.native } }));
+vi.mock('$lib/services/ytmusic-native', () => ({ nativeFetchStreamBlob: mocks.nativeFetchStreamBlob }));
 
 import {
 	downloadTrack,
 	downloadFromDonor,
 	donorMatchesTier,
 	donorRank,
-	probeForDownload,
 	type DownloadResult
 } from './download-track';
 import { QqRateLimitedError } from '$lib/sources/qq';
@@ -175,6 +179,8 @@ beforeEach(() => {
 		bytes: null,
 		track: { ...t, audioUrl: `https://cdn.example/${t.uid}.m4a` } as Track | null
 	}));
+	mocks.native = false;
+	mocks.nativeFetchStreamBlob.mockReset().mockImplementation(async () => new Blob(['yt'], { type: 'audio/mp4' }));
 	windowOpen = vi.fn();
 	vi.stubGlobal('window', { open: windowOpen });
 });
@@ -1038,77 +1044,134 @@ describe('Phase 40 album opts (D-04)', () => {
 	});
 });
 
-// quick-260930-uia: "downloading a song should never route to YT Music". A ytmusic audio file cannot
-// be fetched by any download path (web: googlevideo 403 through the stream proxy; native: no CORS on
-// the direct url), so the ONE rule lives here and every caller (TrackMenu single, Download from…,
-// album, background repair) inherits it.
-describe('downloadTrack — never routes to YT Music (quick-260930-uia)', () => {
-	const yt = () => mk({ uid: 'ytmusic:abc', source: 'ytmusic', songid: 'abc', audioUrl: null, detailsLoaded: false });
-	const ytOther = () => mk({ uid: 'ytmusic:def', source: 'ytmusic', songid: 'def', audioUrl: null });
-	const qq = () => mk({ uid: 'qq:9', source: 'qq', songid: '9', audioUrl: null });
-	const kuwo = () => mk({ uid: 'kuwo:5', source: 'kuwo', songid: '5', audioUrl: null });
-
-	/** fetch stub answering per url: `bad` urls get `{ ok:false }`, the rest bytes. */
-	function stubFetchBy(bad: string[] = []) {
-		const f = vi.fn(async (url: string) =>
-			bad.includes(url) ? { ok: false, blob: async () => new Blob([]) } : { ok: true, blob: async () => new Blob(['a']) }
-		);
+// quick-261004-o9t: the quick-260930-uia rule "downloads never route to YT Music" is LIFTED (user,
+// 2026-10-04). A ytmusic song resolves at the download tier and fetches its OWN url like any source.
+// The two ytmusic specifics key off the URL: on native a direct googlevideo url is fetched on the
+// phone over CapacitorHttp (nativeFetchStreamBlob — WebView fetch() would CORS-fail); the stream
+// proxy url is retried up to 3 attempts (YouTube bot-gates Cloudflare egress IPs per invocation).
+describe('downloadTrack — YT Music downloads its own audio (quick-261004-o9t)', () => {
+	const PROXY_URL = 'https://openmusic.lol/api/ytmusic/stream/abc';
+	const DIRECT_URL = 'https://rr1---sn-x.googlevideo.com/videoplayback?itag=140&sparams=ip';
+	const yt = () =>
+		mk({ uid: 'ytmusic:abc', source: 'ytmusic', songid: 'abc', audioUrl: null, detailsLoaded: false, quality: null });
+	const resolvedYt = (audioUrl: string) =>
+		mk({ uid: 'ytmusic:abc', source: 'ytmusic', songid: 'abc', audioUrl, quality: '128k' });
+	const BAD = { ok: false, status: 502, blob: async () => new Blob([]) };
+	const GOOD = { ok: true, blob: async () => new Blob(['a']) };
+	/** fetch stub: `fails` non-ok (or rejected) answers first, then bytes. */
+	function stubFlaky(fails: number, mode: 'non-ok' | 'reject' = 'non-ok') {
+		const f = vi.fn();
+		for (let i = 0; i < fails; i++) {
+			if (mode === 'reject') f.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+			else f.mockResolvedValueOnce(BAD);
+		}
+		f.mockResolvedValue(GOOD);
 		vi.stubGlobal('fetch', f);
 		return f;
 	}
+	const filename = () => mocks.saveBlobToDisk.mock.calls[0][1];
 
-	it('saves a ytmusic song with a non-ytmusic donor audio, never resolving or fetching ytmusic', async () => {
-		mocks.fetchVariants.mockImplementation(async () => [ytOther(), qq(), kuwo()]);
-		const f = stubFetchBy();
-		const res = await downloadTrack(yt());
-		expect(res).toBe('saved');
-		expect(mocks.ensureTrackDetails).not.toHaveBeenCalled();
-		expect(f).toHaveBeenCalledTimes(1);
-		expect(f).toHaveBeenCalledWith('https://cdn.example/qq:9.m4a');
-		expect(mocks.put.mock.calls[0][0]).toBe('ytmusic:abc');
-		expect(mocks.probeDownload).not.toHaveBeenCalledWith(expect.objectContaining({ source: 'ytmusic' }));
-	});
-
-	it('tries the next donor when one fails, in versionsIncludingOwn order', async () => {
-		mocks.fetchVariants.mockImplementation(async () => [qq(), kuwo()]);
-		const f = stubFetchBy(['https://cdn.example/qq:9.m4a']);
+	it('web: resolves at the download tier and saves its own proxy audio as .m4a — no donor walk', async () => {
+		mocks.ensureTrackDetails.mockResolvedValue(resolvedYt(PROXY_URL));
+		const f = stubFlaky(0);
 		expect(await downloadTrack(yt())).toBe('saved');
-		expect(f.mock.calls.map((c) => c[0])).toEqual(['https://cdn.example/qq:9.m4a', 'https://cdn.example/kuwo:5.m4a']);
+		expect(mocks.ensureTrackDetails).toHaveBeenCalledTimes(1);
+		expect(mocks.ensureTrackDetails.mock.calls[0][2]).toBe(mocks.settings.downloadQuality);
+		expect(mocks.fetchVariants).not.toHaveBeenCalled();
+		expect(mocks.probeDownload).not.toHaveBeenCalled();
+		expect(f).toHaveBeenCalledTimes(1);
+		expect(f).toHaveBeenCalledWith(PROXY_URL);
+		expect(mocks.put.mock.calls[0][0]).toBe('ytmusic:abc');
+		expect(filename()).toMatch(/\.m4a$/);
+		expect(mocks.nativeFetchStreamBlob).not.toHaveBeenCalled();
 	});
 
-	it("no donor → 'no-audio', nothing fetched or recorded, spinner bracketed once", async () => {
-		const f = stubFetchBy();
-		expect(await downloadTrack(yt())).toBe('no-audio');
-		expect(f).not.toHaveBeenCalled();
-		expect(mocks.library.addDownload).not.toHaveBeenCalled();
-		expect(mocks.library.beginDownload).toHaveBeenCalledTimes(1);
-		expect(mocks.library.endDownload).toHaveBeenCalledTimes(1);
+	it('proxy: a non-ok answer is retried — 502, 502, ok → saved after 3 fetches of the same url', async () => {
+		mocks.ensureTrackDetails.mockResolvedValue(resolvedYt(PROXY_URL));
+		const f = stubFlaky(2);
+		expect(await downloadTrack(yt())).toBe('saved');
+		expect(f).toHaveBeenCalledTimes(3);
+		expect(f.mock.calls.map((c) => c[0])).toEqual([PROXY_URL, PROXY_URL, PROXY_URL]);
 	});
 
-	it("every donor failing → 'failed', not 'no-audio'", async () => {
-		mocks.fetchVariants.mockImplementation(async () => [qq(), kuwo()]);
-		stubFetchBy(['https://cdn.example/qq:9.m4a', 'https://cdn.example/kuwo:5.m4a']);
+	it('proxy: a rejected fetch is retried too (a masked 502 has no CORS headers on the APK)', async () => {
+		mocks.ensureTrackDetails.mockResolvedValue(resolvedYt(PROXY_URL));
+		const f = stubFlaky(2, 'reject');
+		expect(await downloadTrack(yt())).toBe('saved');
+		expect(f).toHaveBeenCalledTimes(3);
+	});
+
+	it("proxy: three non-ok answers → 'failed' after exactly 3 fetches, nothing persisted or saved", async () => {
+		mocks.ensureTrackDetails.mockResolvedValue(resolvedYt(PROXY_URL));
+		const f = vi.fn().mockResolvedValue(BAD);
+		vi.stubGlobal('fetch', f);
 		expect(await downloadTrack(yt())).toBe('failed');
+		expect(f).toHaveBeenCalledTimes(3);
+		expect(mocks.put).not.toHaveBeenCalled();
+		expect(mocks.saveBlobToDisk).not.toHaveBeenCalled();
+		expect(mocks.library.markUnavailable).not.toHaveBeenCalled();
 	});
 
-	it("refuses a ytmusic audioFrom (the picker can't route to YT Music either)", async () => {
-		const f = stubFetchBy();
-		const res = await downloadTrack(mk({ uid: 'qq:1', source: 'qq' }), {
-			audioFrom: mk({ uid: 'ytmusic:abc', source: 'ytmusic', audioUrl: 'https://googlevideo/x' })
-		});
-		expect(res).toBe('no-audio');
+	it('a non-ytmusic CDN non-ok is NOT retried — one fetch, failed', async () => {
+		mocks.ensureTrackDetails.mockResolvedValue(mk());
+		const f = vi.fn().mockResolvedValue({ ok: false, status: 403, blob: async () => new Blob([]) });
+		vi.stubGlobal('fetch', f);
+		expect(await downloadTrack(mk({ audioUrl: null, detailsLoaded: false }))).toBe('failed');
+		expect(f).toHaveBeenCalledTimes(1);
+	});
+
+	it('native + googlevideo url: fetched on the phone via nativeFetchStreamBlob, never window fetch', async () => {
+		mocks.native = true;
+		mocks.ensureTrackDetails.mockResolvedValue(resolvedYt(DIRECT_URL));
+		const f = stubFlaky(0);
+		expect(await downloadTrack(yt())).toBe('saved');
+		expect(mocks.nativeFetchStreamBlob).toHaveBeenCalledTimes(1);
+		expect(mocks.nativeFetchStreamBlob).toHaveBeenCalledWith(DIRECT_URL);
 		expect(f).not.toHaveBeenCalled();
+		expect(mocks.put.mock.calls[0][1].type).toBe('audio/mp4');
+		expect(filename()).toMatch(/\.m4a$/);
+	});
+
+	it("native + googlevideo url: a null helper result → 'failed', no proxy fallback, nothing persisted", async () => {
+		mocks.native = true;
+		mocks.nativeFetchStreamBlob.mockResolvedValue(null);
+		mocks.ensureTrackDetails.mockResolvedValue(resolvedYt(DIRECT_URL));
+		const f = stubFlaky(0);
+		expect(await downloadTrack(yt())).toBe('failed');
+		expect(f).not.toHaveBeenCalled();
+		expect(mocks.put).not.toHaveBeenCalled();
+	});
+
+	it('native + proxy url (the resolver fell back): plain fetch with the retry, no native helper', async () => {
+		mocks.native = true;
+		mocks.ensureTrackDetails.mockResolvedValue(resolvedYt(PROXY_URL));
+		const f = stubFlaky(1);
+		expect(await downloadTrack(yt())).toBe('saved');
+		expect(f).toHaveBeenCalledTimes(2);
+		expect(mocks.nativeFetchStreamBlob).not.toHaveBeenCalled();
+	});
+
+	it('a ytmusic audioFrom donor is accepted and saved under the ORIGINAL uid', async () => {
+		const f = stubFlaky(0);
+		const res = await downloadTrack(mk({ uid: 'qq:1', source: 'qq' }), {
+			audioFrom: mk({ uid: 'ytmusic:abc', source: 'ytmusic', audioUrl: PROXY_URL, quality: '128k' })
+		});
+		expect(res).toBe('saved');
+		expect(f).toHaveBeenCalledWith(PROXY_URL);
+		expect(mocks.put.mock.calls[0][0]).toBe('qq:1');
+		expect(mocks.ensureTrackDetails).not.toHaveBeenCalled();
+		expect(filename()).toMatch(/\.m4a$/);
 	});
 
 	it('a non-ytmusic song never looks up donors', async () => {
 		mocks.ensureTrackDetails.mockResolvedValue(mk({ uid: 'qq:1', source: 'qq' }));
-		stubFetchBy();
+		stubFlaky(0);
 		expect(await downloadTrack(mk({ uid: 'qq:1', source: 'qq', audioUrl: null, detailsLoaded: false }))).toBe('saved');
 		expect(mocks.fetchVariants).not.toHaveBeenCalled();
 		expect(mocks.probeDownload).not.toHaveBeenCalled();
 	});
 
-	it('the album loop owns no donor lookup of its own (the rule lives here)', () => {
+	it('the album loop owns no donor lookup of its own (the donor walk is the album rate-limit fallback only)', () => {
 		const src = stripComments(readFileSync(new URL('./download-album.ts', import.meta.url), 'utf8'));
 		expect(src).not.toContain('fetchVariants');
 		expect(src).not.toContain('probeDownload');
@@ -1185,36 +1248,10 @@ describe('downloadTrack — stages gates (quick-260930-vjp)', () => {
 		expect(stages.resolve).not.toHaveBeenCalled();
 		expect(log).toEqual(['transfer:in', 'fetch', 'transfer:out']);
 	});
-
-	it('ytmusic donor path: fetchVariants + probe under resolve, released before the donor transfer', async () => {
-		const { log, stages } = setup();
-		mocks.fetchVariants.mockImplementation(async () => {
-			log.push('variants');
-			return [mk({ uid: 'qq:9', source: 'qq', songid: '9', audioUrl: null })];
-		});
-		mocks.probeDownload.mockImplementation(async (t: Track) => {
-			log.push('probe');
-			return { container: null, qualityLabel: null, bytes: null, track: { ...t, audioUrl: 'https://cdn.example/q.m4a' } };
-		});
-		stubFetchLog(log);
-		const yt = mk({ uid: 'ytmusic:abc', source: 'ytmusic', songid: 'abc', audioUrl: null, detailsLoaded: false });
-		expect(await downloadTrack(yt, { stages })).toBe('saved');
-		expect(log).toEqual([
-			'resolve:in',
-			'variants',
-			'resolve:out',
-			'resolve:in',
-			'probe',
-			'resolve:out',
-			'transfer:in',
-			'fetch',
-			'transfer:out'
-		]);
-	});
 });
 
-// quick-260930-x3q: tang's 请求过于频繁 surfaces as a distinct 'rate-limited' result, and the donor
-// walk the ytmusic path uses is shared with the album's rate-limit fallback (downloadFromDonor).
+// quick-260930-x3q: tang's 请求过于频繁 surfaces as a distinct 'rate-limited' result, and the album's
+// rate-limit fallback walks the shared donor list (downloadFromDonor).
 describe('downloadTrack — rate-limited + downloadFromDonor (quick-260930-x3q)', () => {
 	const qqT = (over: Partial<Track> = {}) =>
 		mk({ uid: 'qq:9', source: 'qq', songid: '9', audioUrl: null, detailsLoaded: false, ...over });
@@ -1245,7 +1282,7 @@ describe('downloadTrack — rate-limited + downloadFromDonor (quick-260930-x3q)'
 		expect(await downloadTrack(qqT())).toBe('no-audio');
 	});
 
-	it('excludes the named source and never probes ytmusic; saves the donor audio under the ORIGINAL uid', async () => {
+	it('excludes the named source; saves the first tier-matching donor under the ORIGINAL uid', async () => {
 		mocks.fetchVariants.mockImplementation(async () => [qqT({ uid: 'qq:10', songid: '10' }), neteaseT(), ytT()]);
 		const f = stubFetchBy();
 		expect(await downloadFromDonor(qqT(), {}, { exclude: ['qq'], prefer: 'tier' })).toBe('saved');
@@ -1257,7 +1294,7 @@ describe('downloadTrack — rate-limited + downloadFromDonor (quick-260930-x3q)'
 	});
 
 	it("no eligible donor → 'no-audio'", async () => {
-		mocks.fetchVariants.mockImplementation(async () => [qqT({ uid: 'qq:10' }), ytT()]);
+		mocks.fetchVariants.mockImplementation(async () => [qqT({ uid: 'qq:10' })]);
 		const f = stubFetchBy();
 		expect(await downloadFromDonor(qqT(), {}, { exclude: ['qq'] })).toBe('no-audio');
 		expect(f).not.toHaveBeenCalled();
@@ -1365,65 +1402,39 @@ describe("downloadFromDonor — prefer: 'tier' (quick-261001-0p9)", () => {
 		expect(f.mock.calls.map((c) => c[0])).toEqual([url('kuwo:5'), url('netease:7')]);
 	});
 
-	it("every donor fails → 'failed'; no eligible donor → 'no-audio'; ytmusic never probed", async () => {
+	it("every donor fails → 'failed'", async () => {
 		mocks.fetchVariants.mockImplementation(async () => [v('netease', '7', '320k'), v('kuwo', '5', 'lossless')]);
 		stubFetchBy([url('netease:7'), url('kuwo:5')]);
 		expect(await downloadFromDonor(qqT(), {}, OPTS)).toBe('failed');
-		mocks.probeDownload.mockClear();
-		mocks.fetchVariants.mockImplementation(async () => [v('qq', '10', 'lossless'), v('ytmusic', 'z', 'lossless')]);
+	});
+
+	it("no eligible donor → 'no-audio' (the sole candidate is the excluded source)", async () => {
+		mocks.fetchVariants.mockImplementation(async () => [v('qq', '10', 'lossless')]);
 		const f = stubFetchBy();
 		expect(await downloadFromDonor(qqT(), {}, OPTS)).toBe('no-audio');
 		expect(f).not.toHaveBeenCalled();
 		expect(mocks.probeDownload).not.toHaveBeenCalled();
 	});
 
-	it('no options (the ytmusic path) still takes the first donor in walk order', async () => {
+	// quick-261004-o9t: ytmusic is no longer filtered out of the donor walk.
+	it('a ytmusic donor is walked like any other', async () => {
+		mocks.settings.downloadQuality = 'lossless';
+		EXT['ytmusic:z'] = 'm4a';
+		mocks.fetchVariants.mockImplementation(async () => [v('ytmusic', 'z', '128k')]);
+		const f = stubFetchBy();
+		expect(await downloadFromDonor(qqT(), {}, OPTS)).toBe('saved');
+		expect(f.mock.calls.map((c) => c[0])).toEqual([url('ytmusic:z')]);
+		expect(mocks.put.mock.calls[0][0]).toBe('qq:9');
+	});
+
+	// quick-261004-o9t: was a ytmusic track with no options; ytmusic's own row is walked now, so the
+	// "no prefer" contract is pinned on a qq track with its own source excluded (the real call shape).
+	it('no prefer still takes the first donor in walk order, not the tier match', async () => {
 		mocks.settings.downloadQuality = 'lossless';
 		mocks.fetchVariants.mockImplementation(async () => [v('netease', '7', '320k'), v('kuwo', '5', 'lossless')]);
 		const f = stubFetchBy();
-		const yt = mk({ uid: 'ytmusic:z', source: 'ytmusic', songid: 'z', audioUrl: null });
-		expect(await downloadFromDonor(yt, {})).toBe('saved');
+		expect(await downloadFromDonor(qqT(), {}, { exclude: ['qq'] })).toBe('saved');
 		expect(f.mock.calls.map((c) => c[0])).toEqual([url('netease:7')]);
-	});
-});
-
-// quick-260930-x3q: the Download label for a ytmusic song describes the DONOR file the tap will save
-// (same donor walk + memo downloadTrack uses), or nothing when no other source has the song.
-describe('probeForDownload (quick-260930-x3q)', () => {
-	const yt = () => mk({ uid: 'ytmusic:abc', source: 'ytmusic', songid: 'abc', audioUrl: null });
-
-	it('ytmusic: probes the first non-ytmusic donor only and returns its probe', async () => {
-		mocks.fetchVariants.mockImplementation(async () => [
-			mk({ uid: 'qq:9', source: 'qq', songid: '9', audioUrl: null }),
-			mk({ uid: 'ytmusic:def', source: 'ytmusic', songid: 'def', audioUrl: null })
-		]);
-		const p = await probeForDownload(yt());
-		expect(mocks.probeDownload).toHaveBeenCalledTimes(1);
-		expect(mocks.probeDownload.mock.calls[0][0].uid).toBe('qq:9');
-		expect(p.track?.uid).toBe('qq:9');
-	});
-
-	it('ytmusic with no donor: the all-null probe, nothing probed', async () => {
-		const p = await probeForDownload(yt());
-		expect(p).toEqual({ container: null, qualityLabel: null, bytes: null, track: null });
-		expect(mocks.probeDownload).not.toHaveBeenCalled();
-	});
-
-	it('non-ytmusic: delegates straight to probeDownload, no variants lookup', async () => {
-		const t = mk({ uid: 'qq:1', source: 'qq' });
-		const ac = new AbortController();
-		await probeForDownload(t, ac.signal);
-		expect(mocks.probeDownload).toHaveBeenCalledTimes(1);
-		expect(mocks.probeDownload).toHaveBeenCalledWith(t, ac.signal);
-		expect(mocks.fetchVariants).not.toHaveBeenCalled();
-	});
-
-	it('TrackMenu and DownloadControl label from probeForDownload, not probeDownload', () => {
-		for (const f of ['TrackMenu.svelte', 'DownloadControl.svelte']) {
-			const src = readFileSync(new URL(`../components/${f}`, import.meta.url), 'utf8');
-			expect(src).toContain('probeForDownload(target');
-			expect(src).not.toContain('probeDownload(target');
-		}
 	});
 });
 
@@ -1467,9 +1478,17 @@ describe('downloadTrack — a file-less outcome is marked unavailable (debug alb
 		expect(order(mocks.library.clearUnavailable)).toBeLessThan(order(mocks.library.endDownload));
 	});
 
-	it('a song not in the library (ytmusic donor refusal before addDownload) is never marked', async () => {
-		const yt = mk({ uid: 'ytmusic:z', source: 'ytmusic' });
-		expect(await downloadTrack(mk(), { audioFrom: yt })).toBe('no-audio');
+	it('a song not in the library (a throwing resolve gate before addDownload) is never marked', async () => {
+		// isDownloaded mirrors addDownload, so the guard — not the default stub — is what is exercised.
+		mocks.library.isDownloaded.mockImplementation(() => mocks.library.addDownload.mock.calls.length > 0);
+		const stages = {
+			resolve: vi.fn(async (): Promise<() => void> => {
+				throw new Error('gate down');
+			}),
+			transfer: vi.fn(async () => () => {})
+		};
+		expect(await downloadTrack(mk({ audioUrl: null, detailsLoaded: false }), { stages })).toBe('failed');
+		expect(mocks.library.addDownload).not.toHaveBeenCalled();
 		expect(mocks.library.markUnavailable).not.toHaveBeenCalled();
 		expect(mocks.library.clearUnavailable).not.toHaveBeenCalled();
 	});
