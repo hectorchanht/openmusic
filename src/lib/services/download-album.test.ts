@@ -216,9 +216,9 @@ describe('downloadAlbum — web zip (40-D-03)', () => {
 	});
 });
 
-// quick-260930-uia: the ytmusic donor rule moved into the shared downloadTrack, so every download
-// path inherits it. The album loop hands a ytmusic song over like any other.
-describe('downloadAlbum — ytmusic goes through the shared rule (quick-260930-uia)', () => {
+// quick-261004-o9t: the ytmusic rule moved into the shared downloadTrack (quick-260930-uia) and was
+// then lifted — the loop still hands a ytmusic song over ONCE with no audioFrom, like any source.
+describe('downloadAlbum — ytmusic is handed to downloadTrack like any source (quick-261004-o9t)', () => {
 	it('hands a ytmusic song to downloadTrack ONCE, with no audioFrom of its own', async () => {
 		mocks.native = true;
 		const yt = mk(1, { uid: 'ytmusic:abc', source: 'ytmusic', songid: 'abc' });
@@ -628,7 +628,7 @@ describe('downloadAlbum — wait for qq first, then donors (quick-261001-0p9)', 
 });
 
 // debug album-row-tick-before-file-done: a row's tick is `isDownloaded && !downloading`, and
-// downloadOne's `finally` closes its own bracket after EVERY attempt — so without an OUTER bracket the
+// downloadTrack's `finally` closes its own bracket after EVERY attempt — so without an OUTER bracket the
 // qq backoff sleeps (3/6/9/12 s) and the hop into the donor walk showed a tick on a song with no
 // file yet. The loop now brackets each song from its start to its final outcome; library.downloading
 // is refcounted so the inner brackets nest inside it.

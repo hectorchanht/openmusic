@@ -20,10 +20,12 @@
 //
 //   40-D-06: a failed song is skipped, never aborts the album; progress still advances.
 //
-//   quick-260930-uia: a ytmusic song is handed to `downloadTrack` like any other — the "never route
-//     to YT Music" donor rule lives in download-track.ts (`canDownloadFrom`), so this loop has no
-//     donor lookup of its own. `onProgress(n, total)` counts COMPLETED songs (saved, failed or
-//     skipped), and zip entries are assembled in album order after every song settles.
+//   quick-261004-o9t: a ytmusic song is handed to `downloadTrack` like any other and now downloads its
+//     OWN audio (native direct / stream proxy with retry, both inside download-track.ts — the
+//     quick-260930-uia donor rule is lifted). This loop still has no donor lookup of its own.
+//
+//   quick-260930-uia: `onProgress(n, total)` counts COMPLETED songs (saved, failed or skipped), and
+//     zip entries are assembled in album order after every song settles.
 //
 //   quick-260930-vjp: two-stage pipeline. Every song enters at once and passes two gates handed to
 //     `downloadTrack` as `stages`: RESOLVE (link lookup, RESOLVE_POOL=3) feeds TRANSFER (raw audio body
@@ -41,16 +43,16 @@
 //     stayed clean. That used to be handled by spacing EVERY resolve grant 3.5 s apart, which slowed
 //     an unlimited album for nothing. Now it is adaptive: resolves run at full speed (RESOLVE_POOL
 //     only), and a song whose resolve comes back 'rate-limited' (or 'no-audio') first tries another
-//     non-ytmusic source at the download tier (`downloadFromDonor`, the same donor walk the ytmusic
-//     path uses). Only a STILL-rate-limited song backs off (RETRY_BACKOFF_MS — 3 s first, the
-//     measured refill interval) and retries. A 'no-audio' song is not retried: it simply has no audio.
+//     source at the download tier (`downloadFromDonor`, the shared donor walk). Only a STILL-rate-
+//     limited song backs off (RETRY_BACKOFF_MS — 3 s first, the measured refill interval) and retries.
+//     A 'no-audio' song is not retried: it simply has no audio.
 //     The sleeps sit outside both gates, so a sleeping song holds no slot.
 //
 //   quick-261001-0p9: the order is now wait FIRST, donor second. A 'rate-limited' song retries qq
 //     (RETRY_BACKOFF_MS 3/6/9/12 s, 30 s cap), and only a song still limited after that — or a
 //     'no-audio' one, which skips the wait — goes to `downloadFromDonor` with `prefer: 'tier'`: a
 //     donor at the same quality AND format as the download tier first, else the best other
-//     non-ytmusic donor so the album still finishes. Why: tang refills in ~3 s, so donor-first handed
+//     donor so the album still finishes. Why: tang refills in ~3 s, so donor-first handed
 //     a FLAC-tier song an instant mp3 from netease for a blip; qq's own file after a short wait, or
 //     a like-for-like file, beats that downgrade. 'failed' still takes no retry and no donor.
 //
@@ -202,7 +204,7 @@ export async function downloadAlbum(
 				let res = await downloadTrack(tr, dl);
 				// quick-261001-0p9: wait for qq first (bounded backoff, 30 s total), THEN one donor walk —
 				// same tier+format first, best otherwise (ordered inside downloadFromDonor). The sleep is a
-				// bare timer outside both gates (downloadOne takes and releases the resolve slot itself),
+				// bare timer outside both gates (downloadTrack takes and releases the resolve slot itself),
 				// so a waiting song holds no slot. 'no-audio' skips the wait. See the header.
 				if (res === 'rate-limited') {
 					for (const ms of RETRY_BACKOFF_MS) {

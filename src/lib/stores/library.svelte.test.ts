@@ -141,7 +141,7 @@ describe('library.downloading (per-uid in-flight set, D-10)', () => {
 	});
 
 	// debug album-row-tick-before-file-done: brackets NEST. The album loop holds one outer bracket per
-	// song (start → final outcome) while downloadOne / downloadFromDonor bracket each attempt inside
+	// song (start → final outcome) while downloadTrack / downloadFromDonor bracket each attempt inside
 	// it; with a plain Set the inner `finally` dropped the uid mid-album (tick during the qq backoff).
 	it('nested begin/end: the uid stays in flight until the LAST endDownload (refcount)', () => {
 		library.beginDownload('qq:1');

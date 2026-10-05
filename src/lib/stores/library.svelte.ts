@@ -46,7 +46,7 @@ class Library {
 	downloading = $state<Set<string>>(new Set());
 	/** 34-D-06: uids whose bytes could not be read at last play. SET by the player's two device seams
 	 *  — the offline-miss branch (blobStore.get returned nothing) and the corrupt-blob branch — and
-	 *  (debug album-row-tick-before-file-done) by downloadOne when an attempt ends WITHOUT a file
+	 *  (debug album-row-tick-before-file-done) by downloadTrack when an attempt ends WITHOUT a file
 	 *  ('failed' / 'no-audio' / 'rate-limited'), since addDownload already listed the song (DL-BUG-01)
 	 *  and the tick must never stand for a file that is not there. CLEARED by the next explicit
 	 *  import (setDownloads prunes it / clearUnavailable), by a later 'saved' attempt, or by removing
