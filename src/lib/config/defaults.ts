@@ -79,7 +79,7 @@ export const APPEARANCE_DEFAULTS = {
 	 *  unconditional, so every action stays reachable. An existing user's persisted `[]` still
 	 *  survives load() (Array.isArray guard, asserted in settings-persist).
 	 *  WR-10: this literal lives HERE and nowhere else. */
-	rowActions: ['download', 'like'] as readonly RowAction[]
+	rowActions: [] as readonly RowAction[]
 } as const;
 
 // ---- Translation -----------------------------------------------------------------------
