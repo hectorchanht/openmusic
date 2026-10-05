@@ -587,7 +587,7 @@ Plans:
 ### Phase 42: YouTube video + embed playback: Now Playing Video toggle (any song, YT search match), web embed fallback when the edge audio proxy fails
 
 **Goal:** Any song can be watched as its YouTube video from Now Playing, streamed straight from YouTube to the user's own IP (no edge proxy), and a YT Music track whose edge audio proxy fails on web plays through the embed instead of being skipped.
-**Requirements**: VID-01..VID-05 (see 42-CONTEXT.md)
+**Requirements**: VID-01..VID-09 (see 42-CONTEXT.md)
 **Depends on:** Nothing (independent of 40/41; builds on the 2026-10-04 VISIONOS + loadRetries work)
 **Plans:** 0 plans
 

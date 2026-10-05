@@ -62,6 +62,29 @@ third-party resolvers (Invidious/Piped/cobalt), proxying video bytes through the
   the APK uses the WebView embed (check Referer / error 152/153 on origin https://localhost) or
   device-side HLS from `hlsManifestUrl` in a `<video>` element.
 
+### Post-research decisions (2026-10-04, user via AskUserQuestion — LOCKED)
+- **VID-04 resolved:** a full background/lock-screen fix is IMPOSSIBLE and must be stated in the plan
+  (YouTube developer policy 2026-09-14 forbids background embed playback; WebKit + Chromium pause hidden
+  audible video; YT background play is Premium-only on mobile web since 2026-01). Implement the best
+  achievable: whenever the embed stops being visible (video toggled off, Now Playing collapsed, page
+  hidden/locked) capture its position, destroy() it, and hand playback back to the app's `<audio>` at
+  that position (lock-screen capable). Never auto-return to the embed on foreground.
+- **VID-06 — Art tracks:** a YT Music Songs-shelf result whose `musicVideoType` is an art track (ATV,
+  static album art) searches for the real music video (same title+artist search as CN songs); fall back
+  to its own videoId only if nothing matches. (Amends VID-02's "YT tracks use their own videoId" for
+  art tracks only; OMV/UGC/official-source YT tracks keep their own videoId.)
+- **VID-07 — Auto-expand for VID-03:** the web fallback expands Now Playing and shows the embed in the
+  cover slot (the only policy-compliant autoplay: ≥200×200, >50% visible). Once per song, foreground
+  only; if the embed fails, the existing runFallback chain continues. iOS needs the user's tap on
+  YouTube's own play button (no scripted sound) — accepted.
+- **VID-08 — Position sync:** sync the embed start / audio hand-back position only when the video and
+  song durations match within ±8 s; otherwise the video starts at 0 and audio resumes where it paused.
+- **VID-09 — YouTube terms:** add links to YouTube's Terms of Service and Google's Privacy Policy in
+  Settings → About (YouTube API Services terms disclosure). i18n in all 16 locales.
+- **Defaults accepted from research:** video mode ends when the track changes; match titles WITHOUT
+  `norm()` (it strips 【…】 where CN MV titles carry the song name); exclude ATV rows when searching
+  for a video; one search per tap, cached under `openmusic:<domain>:v1`.
+
 ### Claude's Discretion
 - Component structure (a child of NowPlaying, not more lines in the ~2000-line NowPlaying.svelte —
   see CLAUDE.md anti-patterns), store shape, i18n keys (all 16 locales, double quotes), loading/error
