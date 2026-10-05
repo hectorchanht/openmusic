@@ -46,6 +46,8 @@ import tls from 'node:tls';
  * @property {string} path      absolute URL, or a /api/... path resolved against --origin
  * @property {(body: string) => boolean} assert
  * @property {string} expects   human description of what `assert` requires
+ * @property {(body: string, fetchImpl?: typeof fetch) => Promise<{ok: boolean, detail: string}>} [verify]
+ *   optional async second stage, run only when `assert` passed (kuwo/resolve full-length HEAD)
  */
 
 /** Hosts whose certificate expiry we track. */
@@ -174,7 +176,12 @@ export const PAYLOAD_CHECKS = /** @type {PayloadCheck[]} */ ([
 /** Reference track for kuwo/resolve: 晴天 (228908) is 269 s; level=standard is 128 kbps. */
 export const KUWO_MIN_BYTES = Math.floor(((269 * 128000) / 8) * 0.8);
 
-/** HEAD a resolved kuwo audio url → { ok, detail }. ok only when it is at least KUWO_MIN_BYTES. */
+/**
+ * HEAD a resolved kuwo audio url → { ok, detail }. ok only when it is at least KUWO_MIN_BYTES.
+ * @param {unknown} url
+ * @param {typeof fetch} [fetchImpl]
+ * @returns {Promise<{ok: boolean, detail: string}>}
+ */
 export async function verifyKuwoFullLength(url, fetchImpl = fetch) {
 	const res = await fetchImpl(String(url), { method: 'HEAD', signal: AbortSignal.timeout(15000) });
 	const bytes = Number(res.headers.get('content-length') || 0);
