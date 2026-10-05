@@ -455,6 +455,7 @@ Recent decisions affecting current work:
 
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
+| fast | Health probe kuwo/resolve HEADs the audio url, flags ~11 s preview-sized clips (≥80% of full 128k length) | 2026-10-04 | 4ec218dd | — |
 | 261004-n1i | Restore kuwo: search.kuwo.cn + musicdl resolver chain (haitangw→nxinxz, full-length, *.kuwo.cn allowlist) on a dedicated edge route; 320k level token; health probes on new hosts; weekly musicdl watcher opens a review PR | 2026-10-04 | 7acca1a5 | [261004-n1i-restore-kuwo-musicdl-resolver-chain](./quick/261004-n1i-restore-kuwo-musicdl-resolver-chain/) |
 | fast | YT Music player client ANDROID_VR → VISIONOS (ANDROID_VR now PoToken-gated: only ~1 MB served → every ytmusic track skipped) | 2026-10-04 | 5acc875c | — |
 | fast | Toast: full-width rounded card (left:50%+translateX capped width at 50vw → 6-line circle) | 2026-10-04 | 0597ac6a | — |
