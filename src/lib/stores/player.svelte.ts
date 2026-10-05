@@ -100,6 +100,7 @@ import { names } from '$lib/stores/names.svelte';
 // playback, NEVER on the timeupdate firehose.
 import { logAction } from '$lib/stores/actionLog.svelte';
 import type { SourceId, Track } from '$lib/sources/types';
+import { loadRetriesFor } from '$lib/sources/registry';
 // Type-only import (WR-03): lets `notice.msg` / `error` be a real TranslationKey so a host can
 // `t(n.msg)` and the token is guaranteed to exist in every dictionary. No runtime UI dependency —
 // the store still emits raw, host-rendered data (D-03); this just type-checks the token keys.
@@ -358,6 +359,9 @@ class Player {
 	 * cross-source fallback + advance (SKIP), per the never-stop spec. Reset to 0 on a real `playing`, a
 	 * new src (play()), and recoverFromStop. */
 	private reresolveBurst = 0;
+	/** fast 2026-10-04: initial-load re-attaches spent on the current src (the `loadRetries` registry
+	 *  budget). Plain field like reresolveBurst; reset by a real `playing`, a new play() and the ceilings. */
+	private loadRetryBurst = 0;
 	/** Skip-burst batch counter (D-02): how many skips have collapsed into the current notice. Reset
 	 *  by the debounce window below. Plain field — not reactive. */
 	private skipBurst = 0;
@@ -2293,6 +2297,7 @@ class Player {
 			this.stallRecheckOnVisible = false;
 			this.errorBurst = 0;
 			this.reresolveBurst = 0; // RERESOLVE-LOOP GUARD: real audio = the same-src re-resolve recovered.
+			this.loadRetryBurst = 0; // loadRetries: real audio = the load retry worked.
 			this.rapidErrorBurst = 0; // RAPID-FIRE BRAKE (debug-nowbar-freeze-reresolve-loop): output = the storm ended.
 			this.lastAudioErrorAt = 0;
 			// Over-aggressive-skip fix: this track actually produced audio — drop any accumulated
@@ -2511,6 +2516,7 @@ class Player {
 				this.errorBurst = 0;
 				this.rapidErrorBurst = 0;
 				this.reresolveBurst = 0;
+				this.loadRetryBurst = 0;
 				// D-12: never-stop wins over explicit repeat — break a repeat-one loop on a failing track.
 				if (this.repeatMode === 'one') {
 					this.repeatMode = 'off';
@@ -2697,6 +2703,25 @@ class Player {
 				logAction('reresolve.cap', { uid: this.current?.uid, n: this.reresolveBurst });
 				// fall through (foreground only) — the single in-place recovery failed; SKIP via the
 				// cross-source runFallback/advance below.
+			}
+			// LOAD RETRY (fast 2026-10-04, `loadRetries` registry flag): a source whose failures are
+			// per-REQUEST, not per-song, gets a bounded fresh re-attach when its track errors BEFORE
+			// producing audio. ytmusic is the case: YouTube bot-gates Cloudflare egress per invocation, a new
+			// request may land on an un-gated IP, and with no fallback target one gated request used to end
+			// the song as "not found on any source". Bounded by the registry budget (2), reset by `playing` /
+			// play() / the ceilings, and the ~1 s gated round trip keeps it clear of the rapid-fire brake;
+			// the errorBurst FAILURE_CAP above still backstops it. FOREGROUND ONLY, for the BG-SKIP-FIRST
+			// reason: a hidden WebView freezes reresolveCurrent's network re-resolve.
+			if (
+				!this.hasPlayedSinceSrc &&
+				this.current &&
+				!(typeof document !== 'undefined' && document.hidden) &&
+				this.loadRetryBurst < loadRetriesFor(this.current.source)
+			) {
+				this.loadRetryBurst++;
+				logAction('load.retry', { uid: this.current.uid, n: this.loadRetryBurst });
+				void this.reresolveCurrent();
+				return;
 			}
 			// Cross-source fallback (gte / SRC-FB-01): rather than surface the error immediately,
 			// try the same {artist,title} on the remaining enabled sources. Only after every
@@ -3598,6 +3623,7 @@ class Player {
 		// supplies the AudioContext-unlock gesture, and every later auto-advance just keeps it running.
 		this.keepAliveOn();
 		this.reresolveBurst = 0; // RERESOLVE-LOOP GUARD: a genuine new play() gives the track a fresh re-resolve budget.
+		this.loadRetryBurst = 0; // loadRetries: a new play() gets a fresh initial-load retry budget.
 		// RAPID-FIRE BRAKE (debug-nowbar-freeze-reresolve-loop): a genuine new play() starts a fresh
 		// synchronous-storm budget — the first error on a new src must never count as "rapid" (0 = no
 		// prior error this src). errorBurst is deliberately NOT reset here (CR-01: it must survive
@@ -4976,6 +5002,7 @@ class Player {
 		this.errorBurst = 0;
 		this.rapidErrorBurst = 0;
 		this.reresolveBurst = 0;
+		this.loadRetryBurst = 0;
 		this.loading = false;
 		this.playing = false;
 		// Cut every out-of-band /api/* fetch source dead so the STOP genuinely stops the spam.

@@ -413,6 +413,7 @@ beforeEach(() => {
 	burst.reresolveBurst = 0;
 	burst.rapidErrorBurst = 0;
 	burst.lastAudioErrorAt = 0;
+	(player as unknown as { loadRetryBurst: number }).loadRetryBurst = 0; // per-src load-retry budget
 	// debug-nowbar-frozen-audius-spam: the cross-track systemic-failure skip counter is session-scoped
 	// too (reset by a real `playing` / recoverFromStop). Reset it (and the legacy consecutiveFailures)
 	// so a leaked count from a prior storm/ceiling test can't falsely trip the SYSTEMIC STOP.
@@ -6313,6 +6314,83 @@ describe('player resilience — single post-playback re-resolve then skip (debug
 
 		expect(fallbackSpy).not.toHaveBeenCalled(); // never fell through — each transient recovered
 		expect(reresolveSpy.mock.calls.length).toBeGreaterThan(RERESOLVE_CAP); // re-resolved every time
+	});
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// fast 2026-10-04 (loadRetries): a source flagged `loadRetries` (ytmusic) gets N fresh re-attaches when
+// it errors BEFORE producing audio, before cross-source fallback. YouTube bot-gates Cloudflare egress
+// PER INVOCATION, so a new request may land on an un-gated IP — and ytmusic has no fallback target, so
+// without this one gated request ended the song as "not found on any source". Foreground only.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('player resilience — load-retry for flaky-edge sources (loadRetries)', () => {
+	type Internals = {
+		hasPlayedSinceSrc: boolean;
+		lastSeekAt: number;
+		loadRetryBurst: number;
+		reresolveCurrent(): Promise<void>;
+		runFallback(t: Track): Promise<void>;
+	};
+	const internals = () => player as unknown as Internals;
+
+	beforeEach(() => vi.useFakeTimers());
+	afterEach(() => vi.useRealTimers());
+
+	function attachLoadErroring(source: SourceId) {
+		const el = makeFakeAudio();
+		el.src = 'https://edge/stream';
+		player.current = mk(source, 'lr0', 'A', 'LoadErr');
+		player.queue = [player.current];
+		player.attach(el as unknown as HTMLAudioElement);
+		internals().hasPlayedSinceSrc = false; // never produced audio — an initial-load failure
+		internals().lastSeekAt = 0; // NOT the seek-window reresolve path
+		const re = vi.spyOn(internals(), 'reresolveCurrent').mockResolvedValue(undefined);
+		const fb = vi.spyOn(internals(), 'runFallback').mockResolvedValue(undefined);
+		return { el, re, fb };
+	}
+	// Space errors like a real gated edge request (~1 s) so the 400 ms rapid-fire brake never fires.
+	const fireSpaced = (el: ReturnType<typeof makeFakeAudio>, n: number) => {
+		for (let i = 0; i < n; i++) {
+			el.fire('error');
+			vi.advanceTimersByTime(1000);
+		}
+	};
+
+	it('a ytmusic load error re-attaches up to 2 times, then fails over', () => {
+		const { el, re, fb } = attachLoadErroring('ytmusic');
+		fireSpaced(el, 3);
+		expect(re).toHaveBeenCalledTimes(2);
+		expect(fb).toHaveBeenCalledTimes(1);
+		re.mockRestore();
+		fb.mockRestore();
+	});
+
+	it('a source without loadRetries fails over on the first load error (unchanged)', () => {
+		const { el, re, fb } = attachLoadErroring('netease');
+		fireSpaced(el, 1);
+		expect(re).not.toHaveBeenCalled();
+		expect(fb).toHaveBeenCalledTimes(1);
+		re.mockRestore();
+		fb.mockRestore();
+	});
+
+	it('a real `playing` refunds the load-retry budget', () => {
+		const { el, re, fb } = attachLoadErroring('ytmusic');
+		fireSpaced(el, 1);
+		el.fire('playing');
+		expect(internals().loadRetryBurst).toBe(0);
+		re.mockRestore();
+		fb.mockRestore();
+	});
+
+	it('hidden tab: no load-retry (a hidden WebView freezes mid re-resolve) — fails over directly', () => {
+		vi.stubGlobal('document', { hidden: true, addEventListener() {} });
+		const { el, re, fb } = attachLoadErroring('ytmusic');
+		fireSpaced(el, 1);
+		expect(re).not.toHaveBeenCalled();
+		expect(fb).toHaveBeenCalledTimes(1);
+		re.mockRestore();
+		fb.mockRestore();
 	});
 });
 

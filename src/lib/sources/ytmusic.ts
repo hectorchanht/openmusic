@@ -220,6 +220,10 @@ export const ytmusic: SourceAdapter = {
 	// cross-source-failover target for a non-ytmusic track. See the SourceAdapter.autoResolveEligible
 	// doc; the failover / name-stub code that honors this flag lands in Plan 27-04.
 	autoResolveEligible: false,
+	// YouTube bot-gates Cloudflare egress PER INVOCATION (~25-50% of /api/ytmusic/stream requests come
+	// back 502 "player not OK" — measured 2026-10-04), and a new request may land on an un-gated IP. With
+	// no fallback target (above), one gated request used to end the song as "not found on any source".
+	loadRetries: 2,
 
 	async search(keyword: string, page: number, signal: AbortSignal): Promise<Track[]> {
 		// Single song shelf, no reliable pagination (the audius rule) — page>1 is a no-op with no

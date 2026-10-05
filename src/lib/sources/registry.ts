@@ -94,3 +94,9 @@ export function onlySource(id: SourceId): Partial<Record<SourceId, boolean>> {
 export function isAutoResolveEligible(id: SourceId): boolean {
 	return SOURCES[id].autoResolveEligible !== false;
 }
+
+/** The player's initial-load retry budget for this source (`SourceAdapter.loadRetries`, default 0).
+ *  Reads the registry flag so the player never names a source. */
+export function loadRetriesFor(id: SourceId): number {
+	return SOURCES[id]?.loadRetries ?? 0;
+}

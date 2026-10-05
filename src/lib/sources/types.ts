@@ -117,6 +117,11 @@ export interface SourceAdapter {
 	 *  other; only the reverse (a mainstream track failing over TO ytmusic) is barred. The flag is
 	 *  DECLARED here in Plan 27-01; the failover / name-stub code that HONORS it lands in Plan 27-04. */
 	autoResolveEligible?: boolean;
+	/** How many times the player re-attaches a FRESH src when this source's track errors BEFORE
+	 *  producing audio, before handing it to cross-source fallback. `undefined` = 0 (fail over at once —
+	 *  right for region locks, where a retry just re-fetches the same refusal). Set only for a source
+	 *  whose failures are per-REQUEST, not per-song (ytmusic: the edge is bot-gated per invocation). */
+	loadRetries?: number;
 	search(keyword: string, page: number, signal: AbortSignal): Promise<Track[]>;
 	/** Lazy resolution: audioUrl + lrc + quality + detailsLoaded.
 	 *  `quality` (WR-07): an explicit per-call quality tier — used by the download path to
