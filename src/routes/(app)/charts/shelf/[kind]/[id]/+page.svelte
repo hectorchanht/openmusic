@@ -20,6 +20,8 @@
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { marquee } from '$lib/actions/marquee';
 	import { shouldRun } from '$lib/actions/inflightGuard';
+	import { growOnScroll } from '$lib/actions/growOnScroll';
+	import { LIST_GROW_PAGE, hasMore, nextVisibleCount } from '$lib/services/list-grow';
 	import { player } from '$lib/stores/player.svelte';
 	import { settings } from '$lib/stores/settings.svelte';
 	import { names } from '$lib/stores/names.svelte';
@@ -58,6 +60,20 @@
 	});
 
 	let pool = $state<ChartPool>({ kind: 'songs', items: [] });
+
+	// Auto-grow: the pool is fully fetched up front (up to POOL_CAP = 50 rows) but only the first
+	// page paints; a sentinel at the list end appends one more page each time it scrolls into
+	// view (use:growOnScroll), until the pool is exhausted. Growth is render-only — zero requests.
+	let visibleCount = $state(LIST_GROW_PAGE);
+	const canGrowMore = $derived(hasMore(visibleCount, pool.items.length));
+	function grow() {
+		visibleCount = nextVisibleCount(visibleCount, pool.items.length);
+	}
+	// The union-typed pool.items narrows per branch through the kind check, so each list iterates
+	// a correctly typed visible slice.
+	const visibleSongs = $derived(pool.kind === 'songs' ? pool.items.slice(0, visibleCount) : []);
+	const visibleArtists = $derived(pool.kind === 'artists' ? pool.items.slice(0, visibleCount) : []);
+	const visibleAlbums = $derived(pool.kind === 'albums' ? pool.items.slice(0, visibleCount) : []);
 
 	const SKELETON_MIN_MS = 280;
 	let showSkeleton = $state(true);
@@ -155,6 +171,7 @@
 		const group = tasks; // track the dependency (kind / id)
 		const gen = ++fetchGen;
 		showSkeleton = true;
+		visibleCount = LIST_GROW_PAGE; // a new shelf starts grown from the first page again
 		const startedAt = Date.now();
 		if (!group.length) {
 			pool = { kind: 'songs', items: [] };
@@ -193,7 +210,7 @@
 	<ul class="list">{@render skeletonRows(12, title)}</ul>
 {:else if pool.kind === 'songs' && pool.items.length}
 	<ul class="list">
-		{#each pool.items as it (rowKey(it))}
+		{#each visibleSongs as it (rowKey(it))}
 			<!-- Same DiscoveryTrack stub rows as charts/tags (quick-260919-l9e): every interaction
 			     resolves first, and `resolve` lets the inline Like/Download key off the RESOLVED uid. -->
 			{@const stub = stubTrack(it)}
@@ -213,7 +230,7 @@
 {:else if pool.kind === 'artists' && pool.items.length}
 	<!-- Round-avatar rows, tap → /artist/{name}; no swipe, no ⋮ (an artist is not a track, D-09). -->
 	<ul class="list">
-		{#each pool.items as a (a.name)}
+		{#each visibleArtists as a (a.name)}
 			{@const img = a.image ?? readArtistCover(a.name)}
 			<li>
 				<button class="row" use:tapBounce onclick={() => goto(names.artistHref(a.name))}>
@@ -229,7 +246,7 @@
 	<!-- 39-D-36 + quick-260926-hze parity with the home tile: the name-only album page via
 	     chartAlbumHref, through names.lockUrl. No long-press (an album has no song to resolve, UI-14). -->
 	<ul class="list">
-		{#each pool.items as a (a.artist + ' ' + a.name)}
+		{#each visibleAlbums as a (a.artist + ' ' + a.name)}
 			<li>
 				<button class="row" use:tapBounce onclick={() => goto(names.lockUrl(chartAlbumHref(a)))}>
 					<span class="art" style:background-image={a.image ? `url(${a.image})` : coverGradient(a.artist + a.name)}></span>
@@ -241,6 +258,12 @@
 			</li>
 		{/each}
 	</ul>
+{/if}
+
+<!-- Auto-grow sentinel: invisible, at the list end. When it scrolls near the viewport the action
+     asks for one more page until the pool is exhausted; growth is render-only (zero requests). -->
+{#if !showSkeleton && canGrowMore}
+	<div class="grow-sentinel" aria-hidden="true" use:growOnScroll={{ enabled: canGrowMore, onGrow: grow }}></div>
 {/if}
 
 <TrackMenu track={menuTrack} open={menuOpen} loading={menuLoading} onclose={() => (menuOpen = false)} />
@@ -289,4 +312,7 @@
 		position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
 		overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
 	}
+	/* Auto-grow sentinel: takes no space, paints nothing — the IntersectionObserver only needs
+	   a box to watch at the end of the list. */
+	.grow-sentinel { height: 1px; }
 </style>

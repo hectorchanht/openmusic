@@ -698,7 +698,6 @@
 		{#each Array(10) as _, i (i)}
 			<li>
 				<span class="row" aria-hidden="true">
-					<span class="sk sk-rank"></span>
 					<span class="art sk"></span>
 					<span class="meta"><span class="sk sk-rtitle"></span><span class="sk sk-rsub"></span></span>
 				</span>
@@ -753,6 +752,10 @@
 						     now-bar and albumQueue(i, real) slot-substitutes in the same tick. `lazy={false}`
 						     because every row on an album legitimately shares the one album cover, so N
 						     per-row resolve chains would buy nothing; `cover={heroImg}` is that shared art.
+						     No `index` prop: the album tracklist renders WITHOUT the rank number (user call
+						     2026-10-06) — SongRow's `{#if index != null}` guard then skips the `.rank` span
+						     entirely, so no gap is left behind. `i` is still the queue/album index for
+						     playStub and resolvedRows.
 						     quick-260919-l9e: the D-11 album-row DownloadControl that used to sit OUTSIDE
 						     this row is now INSIDE it — SongRow takes the very same `resolve` + `persist`
 						     pair and hands them straight to the same component, so the control is
@@ -762,7 +765,6 @@
 						     resolving would persist an unplayable `similar-` uid. -->
 						<SongRow
 							track={rowTrack}
-							index={i}
 							cover={heroImg}
 							lazy={false}
 							persist={false}
@@ -844,9 +846,10 @@
 	.reveal-queue { left: 0; color: var(--color-text-muted); }
 	.reveal-next { right: 0; color: var(--color-text-muted); }
 	/* quick-260919-l9e: the real tracklist row is SongRow.svelte now (its styles travelled with
-	   it). `.row` / `.rank` / `.art` / `.meta` are KEPT because the 10-row loading skeleton above
-	   still renders `<span class="row">` with them and the .sk-* bars. The interactive-only rules
-	   (:hover, .r-title, .r-sub) went with the markup. */
+	   it). `.row` / `.art` / `.meta` are KEPT because the 10-row loading skeleton above still
+	   renders `<span class="row">` with them and the .sk-* bars. The rank number is gone from both
+	   the rows and the skeleton (user call 2026-10-06), so `.sk-rank` went with it. The
+	   interactive-only rules (:hover, .r-title, .r-sub) went with the markup. */
 	.row { width: 100%; text-align: left; background: var(--color-bg); position: relative; z-index: 1; border: none; padding: 6px; border-radius: 8px; display: flex; align-items: center; gap: 12px; color: var(--color-text); }
 	.art { width: 44px; height: 44px; border-radius: 6px; background-size: cover; background-position: center; flex: none; }
 	.meta { display: flex; flex-direction: column; min-width: 0; flex: 1; }
@@ -854,7 +857,6 @@
 	/* ---- loading skeletons (global .sk in app.css supplies the grey + shimmer; these size the
 	   blocks to match the real content) ---- */
 	.info .sk-info { display: inline-block; width: 150px; height: 12px; }
-	.sk-rank { width: 14px; height: 12px; flex: none; border-radius: 3px; }
 	.meta .sk-rtitle { display: block; width: 80%; height: 13px; margin-bottom: 7px; }
 	.meta .sk-rsub { display: block; width: 45%; height: 11px; }
 
