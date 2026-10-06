@@ -1412,7 +1412,10 @@
 				<div class="gi-split">
 					<button class="gi" aria-label={`${dlLabel} · ${t('menu.downloadHoldHint')}`} title={t('menu.downloadHoldHint')} onclick={startDownload} onlongpress={openDownloadPicker} use:longpress use:tapBounce>
 						<Download size={22} /><span class="gi-label">{t('menu.download')}</span>
-						{#if dlProbing}<span class="gi-sub skel" aria-hidden="true"></span>{:else if dlMeta}<span class="gi-sub">{dlMeta}</span>{/if}
+						<!-- User 2026-10-06: the long-press hint is VISIBLE, not just title/aria-label —
+						     idle (no probe yet) shows "Hold to choose source and format" so users learn the
+						     hold opens the all-sources picker; the probed `FLAC · 17.9 MB` replaces it. -->
+						{#if dlProbing}<span class="gi-sub skel" aria-hidden="true"></span>{:else if dlMeta}<span class="gi-sub">{dlMeta}</span>{:else}<span class="gi-sub gi-hint">{t('menu.downloadHoldHint')}</span>{/if}
 					</button>
 					<button type="button" class="gi-caret" aria-label={t('menu.downloadFrom')} title={t('menu.downloadFrom')} onclick={openDownloadPicker} use:tapBounce><ChevronDown size={14} /></button>
 				</div>
@@ -1884,7 +1887,17 @@
 	/* Download split: the caret is a corner sibling — a <button> cannot nest inside the cell
 	   <button>, so it rides absolute at the cell's top-right (the list row's `.mi-split` idiom,
 	   shrunk to a corner target). Long-press on the cell still opens the same sheet. */
-	.gi-split { position: relative; }
+	.gi-split {
+		position: relative;
+		/* User 2026-10-06: the download cell's text widens the whole column it's in — the wrapper
+		   demands max-content width so the grid track grows to fit e.g. `FLAC · 17.9 MB` instead of
+		   ellipsizing it (matters at large app text sizes / narrow phones). */
+		min-width: max-content;
+	}
+	/* ...but the wrapping hold-hint must not blow the column out: while it shows, the column keeps
+	   its normal 1fr share and the hint wraps inside it. */
+	.gi-split:has(.gi-hint) { min-width: 0; }
+	.gi-hint { white-space: normal; }
 	.gi-split .gi { width: 100%; }
 	.gi-caret {
 		position: absolute; top: 0; right: 0; display: grid; place-items: center;
