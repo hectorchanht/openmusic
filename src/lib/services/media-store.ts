@@ -18,8 +18,9 @@
 // columns only, and playback of an imported file goes through `Capacitor.convertFileSrc(contentUri)`
 // + fetch in blob-store.ts.
 
-import { registerPlugin } from '@capacitor/core';
+import { registerPlugin, Capacitor } from '@capacitor/core';
 import type { ScanRow } from './device-track';
+import { deviceContentUri } from './device-track';
 
 /** Outcome of the 34-D-14 tap-time audio-read permission request. */
 export type ReadAudioState = 'granted' | 'denied' | 'denied-permanently' | 'unsupported';
@@ -74,6 +75,20 @@ export interface MediaStoreSaverPlugin {
 		album?: string;
 	}): Promise<void>;
 	/**
+	 * 2026-10-06: ONE system consent dialog for MANY files.
+	 *
+	 * `writeInPlace` asks per file — a 460-song retag of imported files meant a system "Allow
+	 * OpenMusic to modify this audio file?" dialog per file. This batches them: `uris` are the
+	 * `content://media/...` URIs (from `deviceContentUri(uid)`), and Android shows a single
+	 * "Allow OpenMusic to modify N audio files?" dialog. One tap instead of hundreds.
+	 *
+	 * Resolves `{ granted: true }` on Allow, `{ granted: false }` on deny/dismiss, on API < 29,
+	 * or when there is nothing to ask for. Never rejects — the caller treats `false` as "skip the
+	 * device files", not as an error. The grant covers subsequent `writeInPlace` calls for these
+	 * URIs; the per-file consent rung stays as the safety net for files added after the batch.
+	 */
+	requestBatchWriteConsent(opts: { uris: string[] }): Promise<{ granted: boolean }>;
+	/**
 	 * Delete the MediaStore entry previously created by `saveToMusic` (the `uri` it returned).
 	 * Resolves even when the entry is already absent (the plugin swallows not-found).
 	 */
@@ -111,3 +126,25 @@ export interface MediaStoreSaverPlugin {
 }
 
 export const MediaStoreSaver = registerPlugin<MediaStoreSaverPlugin>('MediaStoreSaver');
+
+/**
+ * 2026-10-06: ask ONCE for write access to many imported files.
+ *
+ * Takes device uids (`device:…`), maps them to their MediaStore URIs, and fires the single batch
+ * consent dialog. Returns true when the user allowed (or there was nothing to ask — web build,
+ * empty list, or all URIs unresolvable). Returns false on deny/dismiss or bridge failure.
+ *
+ * Call this BEFORE a bulk device-file rewrite (the retag queue) so the per-file consent rung never
+ * fires mid-loop. A `false` means "do not enqueue the device files" — not "ask per file".
+ */
+export async function requestDeviceWriteConsent(uids: string[]): Promise<boolean> {
+	if (!Capacitor.isNativePlatform()) return true;
+	const uris = uids.map((u) => deviceContentUri(u)).filter((u): u is string => !!u);
+	if (uris.length === 0) return true;
+	try {
+		const r = await MediaStoreSaver.requestBatchWriteConsent({ uris });
+		return !!r?.granted;
+	} catch {
+		return false;
+	}
+}

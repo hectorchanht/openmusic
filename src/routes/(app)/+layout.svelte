@@ -16,6 +16,7 @@
 	import { navActive, shouldInterceptNavClick } from '$lib/services/library-tabs';
 	import { overlays } from '$lib/stores/overlays.svelte';
 	import { deviceImport } from '$lib/stores/device-import.svelte';
+	import { retagQueue } from '$lib/stores/retag-queue.svelte';
 	import { toast } from '$lib/stores/toast.svelte';
 	import { t, ensureLocale, type TranslationKey } from '$lib/i18n';
 	import { tapBounce } from '$lib/actions/tapBounce';
@@ -204,6 +205,10 @@
 		// render instead of painting Simplified and flipping to Traditional (the marquee flash).
 		// No-op for non-Traditional targets — keeps the ~72 KB dict out of non-Hant paths (D-03).
 		names.warm();
+
+		// 2026-10-06: resume a retag queue left over from a previous session. Fire-and-forget —
+		// the queue persists its own progress and drains in the background; a no-op when empty.
+		retagQueue.resume();
 
 		// w87: default landing-tab redirect. onMount is client-only (SSR-safe) and runs ONCE,
 		// so a later manual nav back to '/' never re-triggers. Guards (all must hold):

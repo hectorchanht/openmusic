@@ -6,8 +6,11 @@
 // Music/OpenMusic/ copy), so retro-tagging needs no new plumbing and no Kotlin — just a loop.
 //
 // THE THREE RULES THIS MODULE ENFORCES:
-//   36-D-17 opt-in only. Nothing here runs on a timer, on mount, or in the background. The page
-//           calls `retagDownloads` from a tap handler, after a confirm, and nowhere else.
+//   36-D-17 opt-in only. NOTHING enqueues itself: the queue is filled from a tap handler, after a
+//           confirm, and nowhere else — no timer, no silent mount pass. (2026-10-06, Hector: once
+//           enqueued, the job DOES run in the background and resumes on every app start until the
+//           queue is empty — see $lib/stores/retag-queue. The opt-in is the ENQUEUE, not the
+//           execution.)
 //   36-D-18 scope = the app's OWN downloads it still holds a copy of. The caller passes the
 //           entries (it has already intersected the downloads list with `blobStore.has`); this
 //           module never enumerates anything itself and never touches a file it was not handed.
@@ -228,7 +231,10 @@ export async function retagOne(entry: RetagEntry): Promise<RetagItemResult> {
 /**
  * Retag every entry, one at a time, reporting progress after each. Never rejects.
  *
- * Call this ONLY from a user gesture (36-D-17).
+ * LEGACY entry point — the background queue (`$lib/stores/retag-queue`) drives `retagOne` directly,
+ * not this function (it needs the per-file checkpointing the queue does itself). Kept for its tests
+ * and any external caller; new code should enqueue via `retagQueue.enqueue` so the job persists and
+ * resumes. (36-D-17: the opt-in is the enqueue, after a confirm.)
  */
 export async function retagDownloads(
 	entries: RetagEntry[],

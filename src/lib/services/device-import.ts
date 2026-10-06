@@ -22,6 +22,7 @@
 
 import type { Track } from '$lib/sources/types';
 import { deviceUid, isDeviceUid, rowToTrack, type ScanRow } from './device-track';
+import { isNonSongFile } from './non-song';
 import { extOf, parseFilename, type ImportRules } from './device-filename';
 import { matchKey } from './match-key';
 
@@ -60,6 +61,8 @@ export interface ImportSummary {
 	/** quick-260919-30x: files the user marked "don't import again". Its OWN line in the summary —
 	 *  folding it into skippedRule would report the user's explicit choice as a preset's doing. */
 	skippedExcluded: number;
+	/** 2026-10-06: voice notes, recordings, WhatsApp audio — filtered by the built-in non-song list. */
+	skippedNonSong: number;
 	/** The floor in force — UI-SPEC's skipTooShort line carries the actual `{seconds}`. */
 	minSeconds: number;
 	/** false → the D-07 drop pass did NOT run (cancelled or failed scan). */
@@ -80,6 +83,7 @@ export function emptySummary(rules: ImportRules): ImportSummary {
 		skippedRule: 0,
 		skippedOutside: 0,
 		skippedExcluded: 0,
+		skippedNonSong: 0,
 		minSeconds: rules?.minSeconds ?? 0,
 		complete: true,
 		patternFellBack: false
@@ -89,7 +93,7 @@ export function emptySummary(rules: ImportRules): ImportSummary {
 export type RowVerdict =
 	| { kind: 'import'; track: Track }
 	| { kind: 'relink'; uid: string; uri: string }
-	| { kind: 'skip'; reason: 'short' | 'ext' | 'rule' | 'outside' | 'excluded' };
+	| { kind: 'skip'; reason: 'short' | 'ext' | 'rule' | 'outside' | 'excluded' | 'nonsong' };
 
 /** quick-260919-30x / D-10: the default for `classifyRow`'s optional 5th argument. Module-level and
  *  frozen so every existing call site keeps today's behaviour without allocating a set per row. */
@@ -144,6 +148,11 @@ export function classifyRow(
 	if (rules.minSeconds > 0 && row.durationMs > 0 && row.durationMs < rules.minSeconds * 1000) {
 		return { kind: 'skip', reason: 'short' };
 	}
+
+	// 2026-10-06, Hector: built-in non-song exclusion — voice notes, call recordings, WhatsApp
+	// audio. These are never songs, so they are filtered before the user's own skipRules (which
+	// stay as the fallback for anything personal). Matched against name+folder like the rules.
+	if (isNonSongFile(row.displayName, row.relativePath)) return { kind: 'skip', reason: 'nonsong' };
 
 	// D-12: one phrase per rule, matched case-insensitively against the NAME and the FOLDER, because
 	// "voice memo" is as often a directory as a filename.
@@ -254,6 +263,7 @@ export function syncDevice(
 			else if (verdict.reason === 'ext') summary.skippedExt++;
 			else if (verdict.reason === 'rule') summary.skippedRule++;
 			else if (verdict.reason === 'excluded') summary.skippedExcluded++;
+			else if (verdict.reason === 'nonsong') summary.skippedNonSong++;
 			else summary.skippedOutside++;
 			continue;
 		}

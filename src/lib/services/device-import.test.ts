@@ -141,8 +141,8 @@ describe('classifyRow', () => {
 	// ── D-12: skip phrases ────────────────────────────────────────────────────────────────────────
 	it('skips on a phrase in the display name, case-insensitively', () => {
 		const v = classifyRow(
-			row({ displayName: 'My Voice Memo 3.mp3' }),
-			rules({ skipRules: ['voice memo'] }),
+			row({ displayName: 'My Interview 3.mp3' }),
+			rules({ skipRules: ['interview'] }),
 			NONE,
 			null
 		);
@@ -151,8 +151,8 @@ describe('classifyRow', () => {
 
 	it('skips on a phrase in the folder path too', () => {
 		const v = classifyRow(
-			row({ relativePath: 'Download/Voice Memo/' }),
-			rules({ skipRules: ['voice memo'] }),
+			row({ relativePath: 'Download/Interviews/' }),
+			rules({ skipRules: ['interview'] }),
 			NONE,
 			null
 		);
@@ -163,14 +163,33 @@ describe('classifyRow', () => {
 		expect(classifyRow(row(), rules({ skipRules: [] }), NONE, null).kind).toBe('import');
 	});
 
+	// ── 2026-10-06: built-in non-song exclusion (Hector) ─────────────────────────────────────────
+	it('skips WhatsApp voice notes and recordings without a user rule', () => {
+		const r = rules({ skipRules: [] });
+		expect(classifyRow(row({ displayName: 'PTT-20261006-WA0001.m4a' }), r, NONE, null)).toEqual({
+			kind: 'skip',
+			reason: 'nonsong'
+		});
+		expect(classifyRow(row({ displayName: 'AUD-20261006-WA0001.mp3' }), r, NONE, null)).toEqual({
+			kind: 'skip',
+			reason: 'nonsong'
+		});
+		expect(classifyRow(row({ displayName: 'Recording 001.m4a' }), r, NONE, null)).toEqual({
+			kind: 'skip',
+			reason: 'nonsong'
+		});
+		// A real song is untouched by the built-in list.
+		expect(classifyRow(row({ displayName: 'Adele - Hello.mp3' }), r, NONE, null).kind).toBe('import');
+	});
+
 	// ── filter order: a row failing several is counted ONCE, under the first ──────────────────────
 	it('applies filters in the order outside → ext → short → rule', () => {
 		const bad = {
-			displayName: 'Voice Memo.opus',
+			displayName: 'Interview.opus',
 			durationMs: 1_000,
 			relativePath: 'Ringtones/'
 		};
-		const r = rules({ minSeconds: 30, skipRules: ['voice memo'] });
+		const r = rules({ minSeconds: 30, skipRules: ['interview'] });
 		expect(classifyRow(row(bad), r, NONE, null)).toEqual({ kind: 'skip', reason: 'outside' });
 		expect(classifyRow(row({ ...bad, relativePath: 'Music/' }), r, NONE, null)).toEqual({
 			kind: 'skip',
@@ -178,7 +197,7 @@ describe('classifyRow', () => {
 		});
 		expect(
 			classifyRow(
-				row({ ...bad, relativePath: 'Music/', displayName: 'Voice Memo.mp3' }),
+				row({ ...bad, relativePath: 'Music/', displayName: 'Interview.mp3' }),
 				r,
 				NONE,
 				null
@@ -186,7 +205,7 @@ describe('classifyRow', () => {
 		).toEqual({ kind: 'skip', reason: 'short' });
 		expect(
 			classifyRow(
-				row({ ...bad, relativePath: 'Music/', displayName: 'Voice Memo.mp3', durationMs: 300_000 }),
+				row({ ...bad, relativePath: 'Music/', displayName: 'Interview.mp3', durationMs: 300_000 }),
 				r,
 				NONE,
 				null
@@ -205,7 +224,7 @@ describe('classifyRow', () => {
 	it('an explicit mark OUTRANKS a generic rule — counted once, as "excluded"', () => {
 		// The row fails minSeconds AND a skip rule AND is marked. One row, one verdict, and the
 		// verdict the user chose by hand wins over the ones a preset inferred.
-		const r = rules({ minSeconds: 30, skipRules: ['voice memo'] });
+		const r = rules({ minSeconds: 30, skipRules: ['interview'] });
 		expect(
 			classifyRow(
 				row({ id: '7', displayName: 'Voice Memo.mp3', durationMs: 1_000 }),
@@ -320,6 +339,7 @@ describe('emptySummary', () => {
 			skippedRule: 0,
 			skippedOutside: 0,
 			skippedExcluded: 0,
+			skippedNonSong: 0,
 			minSeconds: 45,
 			complete: true,
 			patternFellBack: false
@@ -406,10 +426,10 @@ describe('syncDevice', () => {
 				row({ id: '1', relativePath: 'Ringtones/' }),
 				row({ id: '2', displayName: 'x.opus' }),
 				row({ id: '3', durationMs: 1_000 }),
-				row({ id: '4', displayName: 'Voice Memo.mp3' })
+				row({ id: '4', displayName: 'Interview.mp3' })
 			],
 			true,
-			{ minSeconds: 30, skipRules: ['voice memo'] }
+			{ minSeconds: 30, skipRules: ['interview'] }
 		);
 		expect(plan.summary.skippedOutside).toBe(1);
 		expect(plan.summary.skippedExt).toBe(1);
@@ -498,7 +518,7 @@ describe('syncDevice', () => {
 			row({ id: '1', relativePath: 'Ringtones/' }),
 			row({ id: '2', displayName: 'x.opus' }),
 			row({ id: '3', durationMs: 1_000 }),
-			row({ id: '4', displayName: 'Voice Memo.mp3' }),
+			row({ id: '4', displayName: 'Interview.mp3' }),
 			row({ id: '5' }),
 			row({ id: '6', displayName: 'Daft Punk - Da Funk.mp3' }),
 			row({ id: '6', displayName: 'Daft Punk - Da Funk.mp3' }) // paging overlap — not unique
@@ -517,7 +537,8 @@ describe('syncDevice', () => {
 			s.skippedExt +
 			s.skippedRule +
 			s.skippedOutside +
-			s.skippedExcluded;
+			s.skippedExcluded +
+			s.skippedNonSong;
 		expect(s.skippedExcluded).toBe(1);
 		expect(total).toBe(6); // 7 rows, one a paging duplicate
 	});

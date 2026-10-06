@@ -462,6 +462,12 @@ class MediaStoreSaverPlugin : Plugin() {
     /** quick-260919-ejm: callbackId of the `writeInPlace` call parked on the consent dialog. */
     private var pendingWriteCallbackId: String? = null
 
+    /** 2026-10-06 batch consent: callbackId of the `requestBatchWriteConsent` call parked on the
+     *  batch dialog. Mutually exclusive with `pendingWriteCallbackId` in practice — the batch is
+     *  asked BEFORE any per-file write runs — but the result handler checks this one first so a
+     *  stray overlap resolves instead of hanging. */
+    private var pendingBatchCallbackId: String? = null
+
     override fun load() {
         // quick-260919-ejm: registration MUST happen before the host activity is STARTED, which is
         // what `load()` guarantees and a lazy first-use registration would not. Wrapped because a
@@ -633,8 +639,87 @@ class MediaStoreSaverPlugin : Plugin() {
         call.resolve()
     }
 
+    /**
+     * 2026-10-06: ONE system consent dialog for MANY files.
+     *
+     * WHY. `writeInPlace` asks per file: a 460-song retag meant a "Allow OpenMusic to modify this
+     * audio file?" dialog per imported file. `MediaStore.createWriteRequest` takes a COLLECTION of
+     * URIs and the system shows a single "Allow OpenMusic to modify N audio files?" dialog — one
+     * tap instead of hundreds. The user asked for "no dialog / auto-allow": auto-dismissing a
+     * system security dialog is impossible by Android design (that would defeat it), and skipping
+     * consent for files the app does not own is not a thing Android offers — this batching is the
+     * legitimate fix.
+     *
+     * Params: `uris` (JSArray of strings). Every entry must be a `content://media/...` URI — the
+     * same T-ejm-01 discipline as `writeInPlace` rung 1; anything else rejects the whole call.
+     * Resolves `{ granted: true }` when the user allowed, `{ granted: false }` on deny/dismiss, on
+     * API < 30, when the launcher is unavailable, or when there is nothing to ask for (empty list
+     * resolves granted — no dialog needed). Never rejects: the caller treats `false` as "skip the
+     * device files", not as an error.
+     *
+     * The grant covers subsequent `writeInPlace` calls for these URIs, so the per-file consent rung
+     * in `performWriteInPlace` stops firing for them. It stays as the safety net for files added
+     * after the batch (e.g. the metadata editor's single-file save).
+     */
+    @PluginMethod
+    fun requestBatchWriteConsent(call: PluginCall) {
+        val urisJson = call.getArray("uris")
+        val uris = mutableListOf<Uri>()
+        if (urisJson != null) {
+            for (i in 0 until urisJson.length()) {
+                val s = urisJson.optString(i)
+                val uri = if (s.isNullOrBlank()) null else Uri.parse(s)
+                if (uri == null || uri.scheme != "content" || uri.authority != "media") {
+                    call.reject("precheck:not a media uri")
+                    return
+                }
+                uris.add(uri)
+            }
+        }
+        if (uris.isEmpty()) {
+            call.resolve(JSObject().put("granted", true))
+            return
+        }
+        // `MediaStore.createWriteRequest` is API 30 (R). API 29 has no batch write-request API —
+        // the per-file `writeInPlace` consent stays the honest fallback there.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            call.resolve(JSObject().put("granted", false))
+            return
+        }
+        val sender = try {
+            MediaStore.createWriteRequest(context.contentResolver, uris).intentSender
+        } catch (t: Exception) {
+            null
+        }
+        val launcher = writeConsentLauncher
+        if (sender == null || launcher == null) {
+            call.resolve(JSObject().put("granted", false))
+            return
+        }
+        try {
+            bridge.saveCall(call)
+            pendingBatchCallbackId = call.callbackId
+            launcher.launch(IntentSenderRequest.Builder(sender).build())
+        } catch (t: Exception) {
+            pendingBatchCallbackId = null
+            bridge.releaseCall(call)
+            call.resolve(JSObject().put("granted", false))
+        }
+    }
+
     /** quick-260919-ejm: the consent dialog's answer. RESULT_OK retries the write exactly once. */
     private fun onWriteConsentResult(result: ActivityResult) {
+        // 2026-10-06 batch path first: a batch dialog was showing, not a single-write one.
+        val batchId = pendingBatchCallbackId
+        if (batchId != null) {
+            pendingBatchCallbackId = null
+            val call = bridge.getSavedCall(batchId)
+            if (call != null) {
+                bridge.releaseCall(call)
+                call.resolve(JSObject().put("granted", result.resultCode == Activity.RESULT_OK))
+            }
+            return
+        }
         val id = pendingWriteCallbackId
         pendingWriteCallbackId = null
         val call = if (id != null) bridge.getSavedCall(id) else null

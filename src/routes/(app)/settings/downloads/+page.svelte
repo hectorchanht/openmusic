@@ -21,7 +21,8 @@
 		ListFilter,
 		ListX,
 		Regex,
-		EyeOff
+		EyeOff,
+		ListMusic
 	} from '@lucide/svelte';
 	import { settings } from '$lib/stores/settings.svelte';
 	import { library } from '$lib/stores/library.svelte';
@@ -33,7 +34,10 @@
 	// quick-260919-3j1: the sweep's cover was the PERSISTED Track.cover — not the user's pin and not
 	// the shared reactive cache. See the ladder in the entry loop below.
 	import { readChosenCover, readCoverByUidOrName } from '$lib/stores/cover-version.svelte';
-	import { retagDownloads, type RetagEntry } from '$lib/services/retag';
+	import { type RetagEntry, type RetagReport } from '$lib/services/retag';
+	import { retagQueue } from '$lib/stores/retag-queue.svelte';
+	import { requestDeviceWriteConsent } from '$lib/services/media-store';
+	import { hasTaggableMeta } from '$lib/services/non-song';
 	import { deviceImport } from '$lib/stores/device-import.svelte';
 	import { readExclusions, unexcludeUid } from '$lib/services/import-exclusions';
 	// quick-260919-3j1: the PURE pin read, not the `.svelte.ts` reactive wrapper — this is an onMount
@@ -54,8 +58,13 @@
 
 	let msg = $state('');
 	let eligible = $state<RetagEntry[]>([]);
-	let busy = $state(false);
-	let progress = $state<{ done: number; total: number } | null>(null);
+	// Progress lives in the retag-queue STORE, not page-local state: navigating away must not
+	// cancel the job, coming back must re-attach to it, and a queue resumed on boot must render
+	// here (same contract as the device-import scan above).
+	const busy = $derived(retagQueue.phase === 'running');
+	const progress = $derived(
+		retagQueue.phase === 'running' ? { done: retagQueue.done, total: retagQueue.total } : null
+	);
 
 	// 34-UI-SPEC contract 7: the FIRST UI-layer native gate in the app (every other isNativePlatform
 	// call lives in $lib/services/* or the player). Read in onMount rather than at module scope so it
@@ -184,7 +193,10 @@
 				lyrics: getPinnedLyrics(d.uid) ?? d.lrc ?? undefined
 			});
 		}
-		eligible = out;
+		// 2026-10-06, Hector: "only tag songs that we have meta info of". A device file with no real
+		// title (or a non-song filename stem like PTT-/Recording) is skipped — retagging it would
+		// stamp junk tags onto a voice note. App downloads always carry catalog metadata.
+		eligible = out.filter((e) => hasTaggableMeta(e));
 	});
 
 	// quick-260919-ejm: how many of the files about to be rewritten are the USER'S OWN. Note there
@@ -197,8 +209,9 @@
 	function flash(m: string) { msg = m; setTimeout(() => (msg = ''), 2600); }
 
 	// 36-D-17: opt-in ONLY. This runs from a tap, after a confirm naming the count, and from nowhere
-	// else — no onMount call, no $effect, no background pass. Retag rewrites files the user already
-	// has, so it never happens without them asking for it.
+	// else. The opt-in is the ENQUEUE — after that the persistent queue drains in the background and
+	// resumes on every app start until empty (2026-10-06, Hector). Retag rewrites files the user
+	// already has, so it never starts without them asking for it.
 	// 36-D-19: the per-file isolation lives in retag.ts; this page only reports what came back, and
 	// the report is the truth (tagged vs skipped), not an optimistic "done".
 	async function retag() {
@@ -215,15 +228,36 @@
 				? `${t('settings.retagConfirm', { count: eligible.length })}\n\n${t('settings.retagImported', { count: importedCount })}`
 				: t('settings.retagConfirm', { count: eligible.length });
 		if (!confirm(ask)) return;
-		busy = true;
-		try {
-			const r = await retagDownloads(eligible, (done, total) => (progress = { done, total }));
-			flash(t('settings.retagDone', { tagged: r.tagged, total: r.total, skipped: r.total - r.tagged }));
-		} finally {
-			busy = false;
-			progress = null;
+		// 2026-10-06: ONE system "Allow OpenMusic to modify N audio files?" dialog for all imported
+		// files, up front — instead of one dialog per file stalling the background loop. A deny is
+		// "skip the device files", not "ask per file": re-showing hundreds of dialogs after an
+		// explicit no would be hostile.
+		const deviceUids = eligible.filter((e) => isDeviceUid(e.uid)).map((e) => e.uid);
+		let list = eligible;
+		if (deviceUids.length > 0) {
+			const granted = await requestDeviceWriteConsent(deviceUids);
+			if (!granted) {
+				list = eligible.filter((e) => !isDeviceUid(e.uid));
+				if (list.length === 0) { flash(t('settings.retagDenied')); return; }
+				flash(t('settings.retagDeniedPartial', { count: deviceUids.length }));
+			}
 		}
+		// Enqueue — the background runner takes it from here, persisting progress so a killed app
+		// resumes on the next start. Lyrics ride each entry (built in onMount above), so the offline
+		// files get lyrics written too.
+		retagQueue.enqueue(list);
 	}
+
+	// Completion flash. The queue may finish while this page is mounted, or it may have finished
+	// earlier (background run / resumed on boot) — either way the report is shown once, when seen.
+	let seenReport = $state<RetagReport | null>(null);
+	$effect(() => {
+		const r = retagQueue.lastReport;
+		if (r && r !== seenReport) {
+			seenReport = r;
+			flash(t('settings.retagDone', { tagged: r.tagged, total: r.total, skipped: r.total - r.tagged }));
+		}
+	});
 </script>
 
 <svelte:head><title>{t('settings.title')}</title></svelte:head>
@@ -308,6 +342,7 @@
 					     explicit choice as a skip RULE would misattribute it. Same zero-renders-nothing
 					     contract as every sibling. -->
 					{#if s.skippedExcluded > 0}<span class="hint">{t('import.skipExcluded', { count: s.skippedExcluded })}</span>{/if}
+					{#if s.skippedNonSong > 0}<span class="hint">{t('import.skipNonSong', { count: s.skippedNonSong })}</span>{/if}
 					<!-- Last, and the only line in the error colour: it is the only one describing a loss. -->
 					{#if s.removed > 0}<span class="hint removed">{t('import.summaryRemoved', { count: s.removed })}</span>{/if}
 				</div>
@@ -431,6 +466,24 @@
 	</button>
 	<p class="hint">{t('settings.retagDownloadsDesc')}</p>
 	{#if progress}<p class="muted">{t('settings.retagProgress', { done: progress.done, total: progress.total })}</p>{/if}
+	{#if eligible.length > 0}
+		<!-- 2026-10-06, Hector: show WHAT will be retagged — song name, artist, cover — before the
+		     user commits. A <details> so 460 rows don't dominate the page; the list scrolls. -->
+		<details class="advanced">
+			<summary use:tapBounce><ListMusic size={15} aria-hidden="true" /> {t('settings.retagList', { count: eligible.length })}</summary>
+			<ul class="retag-list">
+				{#each eligible as e (e.uid)}
+					<li>
+						{#if e.cover}<img src={e.cover} alt="" loading="lazy" width="40" height="40" />{/if}
+						<span class="t">
+							<strong>{e.title}</strong>
+							<span class="a">{e.artist}{#if e.album} · {e.album}{/if}</span>
+						</span>
+					</li>
+				{/each}
+			</ul>
+		</details>
+	{/if}
 </section>
 
 <!-- quick-260919-30x — the recovery list for "Don't import again". It is the MITIGATION for D-3's
@@ -515,5 +568,13 @@
 	.advanced.nested { margin: 12px 0 0; }
 	.lbl { display: flex; justify-content: space-between; font-size: 0.875rem; margin-bottom: 6px; }
 	input[type='range'] { width: 100%; accent-color: var(--color-primary); }
+	/* 2026-10-06: the retag song preview list — cover + title/artist, scrollable. */
+	.retag-list { list-style: none; margin: 8px 0 0; padding: 0; max-height: 320px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+	.retag-list li { display: flex; align-items: center; gap: 10px; padding: 6px 4px; }
+	.retag-list img { width: 40px; height: 40px; border-radius: 6px; object-fit: cover; flex: none; background: var(--color-surface-2); }
+	.retag-list .t { min-width: 0; display: flex; flex-direction: column; }
+	.retag-list .t strong { font-size: 0.875rem; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.retag-list .t .a { font-size: 0.75rem; color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 	.chip:focus-visible, .row-toggle:focus-visible, .advanced summary:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
 </style>
