@@ -33,6 +33,7 @@
 	import { enrichAlbum, getAlbumTracklist, type EnrichResult } from '$lib/services/lastfm';
 	import { deezerAlbum, deezerAlbumTracks, type DeezerAlbumInfo } from '$lib/services/deezer';
 	import { mbTracks } from '$lib/services/musicbrainz';
+	import { hasCjk, lookupChineseName } from '$lib/services/name-rescue';
 	import { mergeEnrichAlbum } from '$lib/services/enrich-merge';
 	import { marquee } from '$lib/actions/marquee';
 	import PageHeader from '$lib/components/PageHeader.svelte';
@@ -101,6 +102,9 @@
 	let dz = $state<DeezerAlbumInfo | null>(null);
 	let dzFor = '';
 	let dzLoading = $state(false);
+	// Proactive name-rescue guard (see the rescue effect below) — plain let like the other
+	// per-effect keys (house convention: internal guards are non-reactive).
+	let rescuedFor = '';
 	const merged = $derived(mergeEnrichAlbum(enrich, dz));
 
 	// Prefer the best-quality enrichment cover (Deezer hi-res > Last.fm art, via the merge).
@@ -240,6 +244,44 @@
 					if (dzFor === key) dzLoading = false;
 				});
 		}
+	});
+
+	// SEPARATE name-rescue effect (wa7 display follow-up). Proactively verifies the Chinese
+	// {artist, title} for CJK-free track rows right after the tracklist loads.
+	//
+	// WHY: shelves/charts/album pages often carry the LABEL's English name for a Chinese song
+	// ("Like The Snow — Gareth.T"). The wa7 rescue (name-rescue.ts) already verifies the real
+	// Chinese pair, but only ON TAP (resolveStub) — so a fresh tracklist shows English until every
+	// row is tapped once, and the CN catalogs resolve these songs far more reliably by their
+	// Chinese names. Running the same verified lookup eagerly fixes both: a hit writes the
+	// rescue cache (resolveStub reads it first → better future resolves) AND fires onRescueHit →
+	// names.recordAlias → rev++ → the rows repaint with the Chinese names, no tap needed.
+	//
+	// BOUNDS (same shape as the enrichment effects above): own `rescuedFor` key + race guard,
+	// OFFL-03 offline short-circuit, CJK-free rows only (an mbid tracklist is already
+	// original-script), 3-way fan-out. lookupChineseName is never-throw and cached (hit 30 d,
+	// miss 1 d), so a revisit costs zero lookups and a superseded album stops burning them.
+	$effect(() => {
+		const list = tracks;
+		const key = albumKey;
+		if (!online.isOnline) return;
+		if (!list.length || rescuedFor === key) return;
+		rescuedFor = key;
+		const latin = list.filter((t) => !hasCjk(t.title) && !hasCjk(t.artist));
+		if (!latin.length) return;
+		void (async () => {
+			const queue = [...latin];
+			await Promise.all(
+				Array.from({ length: 3 }, async () => {
+					for (;;) {
+						if (rescuedFor !== key) return; // superseded — stop burning lookups
+						const t = queue.shift();
+						if (!t) return;
+						await lookupChineseName(t.artist, t.title);
+					}
+				})
+			);
+		})();
 	});
 
 	// Resolve-on-tap (D-05/D-03) — now OPTIMISTIC (FIX-A). Delegate to player.playStub so the
