@@ -51,7 +51,7 @@
 	// as CompactRow's trailing ⋮ does not.
 	//
 	// D-2 — WIDTH: THE TITLE GIVES. Every control here is fixed-width (rank 18, art 44, each inline
-	// action 36, the menu 44) and `.meta` is the only flexible box, so it absorbs 100% of the
+	// action 36, the menu 28 — quick-261006-smb) and `.meta` is the only flexible box, so it absorbs 100% of the
 	// squeeze. At 360px with both buttons on, `.meta` gets ~130px — which a CJK title overruns. That
 	// is exactly what use:marquee exists for, so the two lines SCROLL rather than sit clipped.
 	// Nothing else shrinks, nothing wraps, no responsive hiding, no row-height change.
@@ -391,7 +391,10 @@
 			/>
 		{/if}
 	{/each}
-	<button class="ract" aria-label={t('menu.options')} onclick={onrequestmenu}>
+	<!-- D-5: the passive badge stands down for whichever state this row draws a live control for.
+	     quick-261006-smb: the trailing ⋮ is icon-only chrome, so it carries the slim `.menu`
+	     variant (28px hit box, 8px back to `.meta`) instead of the full 36px `.ract`. -->
+	<button class="ract menu" aria-label={t('menu.options')} onclick={onrequestmenu}>
 		<MoreVertical size={18} />
 	</button>
 </div>
@@ -514,8 +517,7 @@
 	}
 	/* The inline actions keep their pointer events (they are siblings of .hit, not children, so
 	   tapping one never fires the row's click — no stopPropagation needed). 36px, not
-	   DownloadControl's own 40, so TWO of them still cost less than one ⋮: the menu keeps the full
-	   44px because it is the always-reachable control. */
+	   DownloadControl's own 40, so TWO of them still cost less than one ⋮. */
 	.ract {
 		position: relative;
 		flex: none;
@@ -532,6 +534,13 @@
 	}
 	.ract.on {
 		color: var(--color-primary);
+	}
+	/* quick-261006-smb: the trailing ⋮ is icon-only chrome (no label needed), so its hit box is
+	   slimmed to 28px — still ≥ the WCAG 2.2 target-size minimum of 24px — handing 8px back to
+	   `.meta`, the row's only flexible box (D-2), so long titles truncate less on 360px rows.
+	   Height stays 36px for touch comfort; the 18px icon stays centred via grid. */
+	.ract.menu {
+		width: 28px;
 	}
 	/* DownloadControl owns its own markup (it swaps between a <button> and three <span> states),
 	   so its 40x40 default is re-sized to the 36px row action from here. `position: relative` is
