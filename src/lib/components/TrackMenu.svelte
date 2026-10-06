@@ -1037,72 +1037,17 @@
 				{/key}
 			</button>
 			<!-- User call 2026-10-06: the header is a row — text on the left, a COMPACT icon
-			     cluster pinned at the top-right (Like, Download, then Close at the very
-			     corner). A vertical strip was tried first but its 3×44px stack pushed the
-			     menu to full-screen; the horizontal cluster keeps the header to one 44px row.
+			     User 2026-10-06: header keeps ONLY Close (X) at the top-right corner — the
+			     Like/Download header icons are removed (they now live in the grid's first
+			     row; the header icons were shortening the song title/artist).
 			     Order in the DOM is visual order (left to right).
-			     User call 2026-10-06 (menu-first-row): Like and Download are ALSO grid items
-			     2–3 of the first row below (ungated) — the header cluster stays exactly as
-			     it was (D-09/je8/et3 duplication stands). -->
+			     User arrange-like-this 2026-10-06: Like and Download are grid items R1C3/R1C4
+			     (ungated) — the header duplication is retired. -->
 			<div class="head-actions">
-				<!-- D-09 AMENDED by quick-260913-je8: the header accent slot is DOWNLOAD now, not Like.
-				     D-09's "Like is the sole header accent AND the mid-list Like row is removed" no
-				     longer holds — Like is back as a text row below; the rest of D-09 (two-row marquee
-				     header, explicit Close affordance) stands unchanged.
-				     Download is DELIBERATELY duplicated (header icon + list row): both call the SAME
-				     gated('download', doDownload) and read the SAME tri-state sources (inFlight +
-				     library.downloading / isDownloaded), so the two can never disagree (D-11/D-12). -->
-				<!-- 34 (RESEARCH bites #10/#11, UI-SPEC Contract 8): Download is HIDDEN for device:
-				     entries — downloading a file already on this phone is nonsense. This is a NEW
-				     visibility condition.
-				     quick-260920-kia: Contract 8's SHARE half is SUPERSEDED — Share is unconditional;
-				     see the Share row's note below for why the "local uid in the URL" premise no longer
-				     holds. The `!isDevice` fork below gates DOWNLOAD ONLY.
-				     track-menu-gate.ts (isGatedReady/shouldStartResolve) is resolve TIMING and is
-				     deliberately not extended. -->
-				<!-- quick-260919-et3: Like as a header icon, BEFORE Download. Duplicated with the Like
-				     text row below on exactly the precedent D-09/je8 set for Download (header icon +
-				     list row): both call the same like() and read the same `liked` derived, so the two
-				     can never disagree. NOT wrapped in the !isDevice guard — that guard exists because
-				     downloading a file already on this phone is nonsense, which says nothing about
-				     liking an imported song. Same `!track.uid` disable as the row: a name-stub has no
-				     identity to like yet. -->
-				<button
-					class="hd-btn"
-					class:accent={liked}
-					aria-pressed={liked}
-					disabled={!track.uid}
-					aria-label={liked ? t('menu.liked') : t('menu.like')}
-					title={liked ? t('menu.liked') : t('menu.like')}
-					onclick={like}
-					use:tapBounce
-				>
-					<Heart size={20} fill={liked ? 'currentColor' : 'none'} />
-				</button>
-				{#if !isDevice}
-					{#if library.downloading.has(track.uid)}
-						<!-- quick-260919-dlring: same shared ring as the list row below and as every
-						     DownloadControl — determinate when downloadProgress has a fraction for this
-						     uid, spinning when it does not. The 20px glyph sizes it, so the header's
-						     44×44 measured slot is unchanged. -->
-						{@const hdFrac = library.downloadProgress[track.uid]}
-						<button
-							class="hd-btn dl-busy"
-							disabled
-							aria-busy="true"
-							aria-label={hdFrac === undefined
-								? t('menu.preparing')
-								: `${t('menu.download')} ${Math.round(hdFrac * 100)}%`}
-						>
-							<DownloadRing value={hdFrac}><Download size={20} /></DownloadRing>
-						</button>
-					{:else if blobPresent === true}
-						<button class="hd-btn" disabled aria-disabled="true" aria-label={t('menu.downloaded')}><Check size={20} /></button>
-					{:else}
-						<!-- quick-260915-26g: icon-only slot, so the probed detail rides the label/tooltip. -->
-						<button class="hd-btn" aria-label={dlLabel} title={dlLabel} onclick={startDownload} use:tapBounce><Download size={20} /></button>
-					{/if}
-				{/if}
+				<!-- User 2026-10-06: header keeps ONLY the Close (X) at top-right. Like and
+				     Download icons REMOVED from the header — they now live in the grid's
+				     first row (R1C3/R1C4) and the header icons were shortening the song
+				     title/artist. The D-09/je8/et3 duplication is retired. -->
 				<!-- Explicit Close affordance at the top-right corner (scrim/drag also close).
 				     It ONLY flips state via close() → the $effect cleanup is the SOLE
 				     overlays.dismiss caller, so scrim/X/drag/back all converge on one dismiss
@@ -1650,7 +1595,6 @@
 	   same idea — and declared, not merely applied: `class:accent` with no matching rule is the
 	   exact defect quick-260919-0mw found on the Shuffle row, where an active state had rendered
 	   pixel-identical to inactive since ii6. */
-	.hd-btn.accent { color: var(--color-primary); }
 	.mi { width: 100%; display: flex; align-items: center; gap: 12px; background: none; border: none; color: var(--color-text); font-size: 0.9375rem; padding: 12px; border-radius: 10px; cursor: pointer; text-align: left; }
 	.mi:hover { background: var(--color-surface); }
 	.mi:disabled { opacity: 0.4; cursor: default; }
@@ -1774,8 +1718,8 @@
 	/* omi's other call, kept by quick-260919-dlring: a disabled control is dimmed to 0.4, but the
 	   busy download is disabled only because it is BUSY, and at 0.4 the bar/percentage/ring are hard
 	   to read. The header button keeps the rule (it is the SAME state); the grid cell carries its
-	   own `.gi.dl-busy:disabled` with the grid styles. quick-261006-grd deleted the `.mi` half. */
-	.hd-btn.dl-busy:disabled { opacity: 1; }
+	   own `.gi.dl-busy:disabled` with the grid styles. quick-261006-grd deleted the `.mi` half.
+	   User 2026-10-06: header Download icon removed — this rule is retired. */
 	/* MENU-01 inline resolve spinner — neutral (NOT accent), sits in the leading 18px icon box so
 	   the row width does not shift. quick-260809-mvz: keeps rotating under BOTH reduce-motion gates
 	   (markup carries `.motion-always`, app.css's escape hatch) — a frozen spinner reads as a hung
