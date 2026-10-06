@@ -1002,8 +1002,10 @@
 {#if open && track}
 	<button class="scrim" aria-label={t('menu.closeMenu')} onclick={close}></button>
 	<div class="menu" transition:fly={{ y: 240, duration: 200 }} use:dragClose={{ onclose: close }} use:focusTrap>
-		<!-- D-08/D-09/D-10: two-row marquee header (song/artist, display-only) + a top-right
-		     Like+Close cluster. Replaces the old single ellipsised `{title} · {artist}` line.
+		<!-- D-08/D-09/D-10: two-row marquee header (song/artist, display-only) + a vertical
+		     top-right icon strip (Close / Like / Download, top to bottom). Replaces the old
+		     single ellipsised `{title} · {artist}` line, and (user call 2026-10-06) the
+		     full-width icon row that sat under the text.
 		     {#key track.uid} remounts the clips on a stub→resolved reassignment so use:marquee
 		     re-measures the wider resolved text (NowPlaying analog; Pitfall 2). The keyframe is
 		     GLOBAL in app.css (Pitfall 4) — the component styles only the clip wrappers. -->
@@ -1034,7 +1036,15 @@
 					<span class="hd-artist" use:marquee><span class="marquee-inner">{names.dnArtist(track.artist)}</span></span>
 				{/key}
 			</button>
+			<!-- User call 2026-10-06: the header is a row — text on the left, a VERTICAL icon
+			     strip pinned at the top-right (Close at the very top corner, then Like, then
+			     Download). The old full-width icon row below the text is gone, so the header
+			     takes less space. Order in the DOM is visual order (top to bottom). -->
 			<div class="head-actions">
+				<!-- Explicit Close affordance (scrim/drag also close). It ONLY flips state via
+				     close() → the $effect cleanup is the SOLE overlays.dismiss caller, so
+				     scrim/X/drag/back all converge on one dismiss path (overlay invariant; D-09). -->
+				<button class="hd-btn" aria-label={t('menu.closeMenu')} onclick={close} use:tapBounce><X size={20} /></button>
 				<!-- D-09 AMENDED by quick-260913-je8: the header accent slot is DOWNLOAD now, not Like.
 				     D-09's "Like is the sole header accent AND the mid-list Like row is removed" no
 				     longer holds — Like is back as a text row below; the rest of D-09 (two-row marquee
@@ -1093,10 +1103,6 @@
 						<button class="hd-btn" aria-label={dlLabel} title={dlLabel} onclick={startDownload} use:tapBounce><Download size={20} /></button>
 					{/if}
 				{/if}
-				<!-- NEW explicit Close affordance (today close is scrim/drag only). It ONLY flips
-				     state via close() → the $effect cleanup is the SOLE overlays.dismiss caller, so
-				     scrim/X/drag/back all converge on one dismiss path (overlay invariant; D-09). -->
-				<button class="hd-btn" aria-label={t('menu.closeMenu')} onclick={close} use:tapBounce><X size={20} /></button>
 			</div>
 		</div>
 		{#if loading && !track.title}
@@ -1563,7 +1569,10 @@
 	   quick-261006-hdrtxt: the cluster moves BELOW the text. The title and the artist each get a
 	   full-width line now (no more side-by-side squeeze against the icons) — the header is a
 	   column: text block on top, icon row beneath, both stretched. */
-	.sheet-head { display: flex; flex-direction: column; align-items: stretch; gap: 2px; padding: 8px 10px; }
+	/* User call 2026-10-06: header is a ROW — the text block (title + artist, marquee)
+	   takes the left, a vertical icon strip (Close / Like / Download) pins at the top-right.
+	   The old full-width icon row under the text is gone. */
+	.sheet-head { display: flex; flex-direction: row; align-items: flex-start; gap: 8px; padding: 8px 10px; }
 	/* quick-260919-dlring: `.head-text` is a <button> now (Go to artist). Every declaration past the
 	   original `flex`/`min-width` pair is a UA reset — the box must stay pixel-identical to the div it
 	   replaced, so no padding, no border, no UA font, and text-align: left instead of the button
@@ -1571,9 +1580,12 @@
 	   would shrink-wrap). Deliberately NO `:disabled` opacity: with no artist to visit this button is
 	   inert, and inert must look like the plain text block it used to be, not like a greyed control. */
 	.head-text {
-		/* quick-261006-hdrtxt: full-width text block (the column's first row) — the title and
-		   artist each own their line, so the marquee clips only scroll on genuinely long names. */
-		width: 100%;
+		/* quick-261006-hdrtxt: full-width text block — the title and artist each own their
+		   line, so the marquee clips only scroll on genuinely long names.
+		   User call 2026-10-06: in the row header this is the flexible box (flex:1 +
+		   min-width:0) so the marquee spans measure a REAL overflow against the space left
+		   by the icon strip. */
+		flex: 1;
 		min-width: 0;
 		display: block;
 		appearance: none;
@@ -1591,10 +1603,9 @@
 	   button above) — everything else is unchanged from when they were <div>s. */
 	.hd-title { display: block; font-size: calc(0.9375rem * var(--fs-title, 1)); font-weight: 600; color: var(--color-text); line-height: 1.25; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-width: 0; max-width: 100%; }
 	.hd-artist { display: block; font-size: calc(0.8125rem * var(--fs-artist, 1)); font-weight: 400; color: var(--color-text-muted); line-height: 1.25; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-width: 0; max-width: 100%; }
-	/* quick-261006-hdrtxt: the icon row sits UNDER the text now (the column's second row),
-	   left-aligned — Like / Download / Close keep their 44px targets, just no longer squeeze
-	   the title and artist. */
-	.head-actions { display: flex; align-items: center; gap: 2px; }
+	/* User call 2026-10-06: vertical icon strip at the top-right (Close / Like /
+	   Download top to bottom). flex:none so it never squeezes the marquee text. */
+	.head-actions { display: flex; flex-direction: column; align-items: center; gap: 2px; flex: none; }
 	.hd-btn { min-width: 44px; min-height: 44px; display: grid; place-items: center; background: none; border: none; border-radius: 10px; color: var(--color-text); cursor: pointer; }
 	.hd-btn:hover { background: var(--color-surface); }
 	.hd-btn:disabled { opacity: 0.4; cursor: default; }
