@@ -8,7 +8,6 @@
 	import { library } from '$lib/stores/library.svelte';
 	import { names } from '$lib/stores/names.svelte';
 	import { overlays } from '$lib/stores/overlays.svelte';
-	import { settings } from '$lib/stores/settings.svelte';
 	import { dragClose } from '$lib/actions/dragClose';
 	// quick-260916-0d9: the Download row's SECOND gesture. Q4 — longpress and the parent sheet's
 	// dragClose are mutually exclusive by the SAME 8px threshold: any move >8px cancels the longpress
@@ -901,28 +900,18 @@
 		// 38-D-08: the 4th arg is the song IDENTITY (uid/source/songid) — a direct detail resolve, not a
 		// name search. Args 1-2 stay display names (OG-ZH-01); share.ts skips device:/non-decodable ids.
 		const url = songShareUrl({ title: dTitle, artist: dArtist }, shareCover, recallItunesId(shareCover), track);
+		// User call 2026-10-06: the menu's Share button copies the link straight to the device
+		// clipboard, ready to paste — the native share sheet is gone from this path. (Side
+		// benefit, and why this is strictly better for CJK links: clipboard.writeText takes the
+		// raw string verbatim, so the quick-260808-vkd `text`-not-`url` percent-encoding trap in
+		// the Web Share API never applies here. The shareIncludeTitle setting stays alive for the
+		// album page's share sheet.)
 		try {
-			const nav = navigator as Navigator & { share?: (d: ShareData) => Promise<void> };
-			// quick-260808-vkd — the link rides `text`, NOT `url`. DO NOT "fix" this back.
-			// The Web Share API spec URL-PARSES `ShareData.url` and re-serializes it, and the WHATWG
-			// URL serializer percent-encodes every path code point above U+007E — so a `url` member
-			// silently undoes encodePathSegment's raw-CJK output (quick-260807-vl1) at the very last
-			// step, and `喺呢到大` reaches the recipient as `%E5%96%BA…`. `ShareData.text` is NOT
-			// parsed; it is passed through verbatim. Nothing is lost by the swap: WhatsApp / iMessage
-			// / Slack auto-linkify a bare URL inside shared text and still fetch its OG card.
-			// Sending BOTH is not an option — many targets concatenate `text` and `url`, which would
-			// put the link in the message twice (once readable, once encoded), worse than the bug.
-			// quick-260808-vzu — the title line is now OPT-IN (settings.shareIncludeTitle, default
-			// OFF). Concatenating targets (WhatsApp) render `title` and `text` as two separate lines,
-			// so an unconditional title showed `Song • Artist` above the link and then AGAIN inside
-			// the OG card the link unfurls into. It is a SETTING, not a deletion — some users want the
-			// context inline, so the old behavior is one toggle away in Settings → General. Tradeoff
-			// when OFF: targets that use `title` as a subject line (email, some Slack surfaces) get a
-			// barer share. No placeholder title in the OFF branch — the Web Share spec needs at least
-			// one of title/text/url, and `{ text: url }` satisfies it.
-			if (nav.share) await nav.share(settings.shareIncludeTitle ? { title: `${dTitle} • ${dArtist}`, text: url } : { text: url });
-			else { await navigator.clipboard.writeText(url); toast.show(t('toast.shareCopied')); }
-		} catch { /* cancelled */ }
+			await navigator.clipboard.writeText(url);
+			toast.show(t('toast.shareCopied'));
+		} catch {
+			/* clipboard unavailable (permissions / insecure context) — nothing was copied */
+		}
 	}
 	// Gated run callback (D-02): the gate already resolved the track, so just open the detail sheet
 	// with the resolved object (audioUrl/quality rows populated). The menu stays open behind the
