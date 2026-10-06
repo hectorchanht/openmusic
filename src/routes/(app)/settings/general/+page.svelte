@@ -3,7 +3,7 @@
 	import { goto } from '$app/navigation';
 	// quick-260919-ebi: theme / accent / reduce-motion moved General → Appearance, so the Palette,
 	// Sun, Moon and Zap icons left with them.
-	import { Globe, Share2 } from '@lucide/svelte';
+	import { Globe, Share2, RotateCcw } from '@lucide/svelte';
 	import { settings } from '$lib/stores/settings.svelte';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import SettingToggle from '$lib/components/SettingToggle.svelte';
@@ -42,7 +42,9 @@
 
 <PageHeader title={t('settings.groupGeneral')} backLabel={t('settings.backToSettings')} onback={() => goto('/settings')}>
 	{#snippet trailing()}
-		<button class="reset" onclick={() => { if (confirm(t('settings.resetConfirm'))) { settings.resetGeneral(); } }} use:tapBounce>{t('settings.resetGroup')}</button>
+		<!-- quick-261006-ico: icon-only reset (icon-first UI pass) — the existing resetGroup
+		     string doubles as the aria-label + title, so no new i18n key. -->
+		<button class="reset" onclick={() => { if (confirm(t('settings.resetConfirm'))) { settings.resetGeneral(); } }} use:tapBounce aria-label={t('settings.resetGroup')} title={t('settings.resetGroup')}><RotateCcw size={16} /></button>
 	{/snippet}
 </PageHeader>
 
@@ -74,7 +76,8 @@
 </section>
 
 <style>
-	.reset { background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text-muted); padding: 6px 12px; border-radius: 999px; font-size: 0.75rem; cursor: pointer; }
+	/* quick-261006-ico: icon-only reset — 40px ghost circle. */
+	.reset { background: none; border: 1px solid var(--color-border); color: var(--color-text-muted); width: 40px; height: 40px; padding: 0; border-radius: 50%; cursor: pointer; display: inline-grid; place-items: center; flex: none; }
 	.reset:hover { color: var(--color-text); }
 	section { margin: 18px 0; }
 	/* quick-260919-ebi: `position: relative` anchors the inline (i)'s description panel to the

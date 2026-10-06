@@ -686,8 +686,10 @@
 		<div class="suggest-head">
 			<span class="suggest-title">{t('search.recent')}</span>
 			<!-- quick-260711-sm7 (req 4): clear-all now behind a native confirm. -->
-			<button type="button" class="suggest-clear" onmousedown={(e) => e.preventDefault()} onclick={() => { if (confirm(t('search.confirmClearAll'))) searchHistory.clear(); }} use:tapBounce>
-				{t('search.clear')}
+			<!-- quick-261006-ico: icon-only Clear history (icon-first UI pass) — Trash2, labelled
+			     via aria-label + title. -->
+			<button type="button" class="suggest-clear" onmousedown={(e) => e.preventDefault()} onclick={() => { if (confirm(t('search.confirmClearAll'))) searchHistory.clear(); }} use:tapBounce aria-label={t('search.clear')} title={t('search.clear')}>
+				<Trash2 size={16} />
 			</button>
 		</div>
 		<ul class="list">
@@ -940,9 +942,11 @@
 		display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;
 	}
 	.suggest-title { font-size: 0.75rem; font-weight: 700; color: var(--color-text-muted); letter-spacing: 0.02em; }
+	/* quick-261006-ico: icon-only clear-history — 40px ghost circle, Trash2. */
 	.suggest-clear {
-		background: none; border: none; color: var(--color-primary); font-size: 0.75rem; font-weight: 600;
-		cursor: pointer; padding: 4px 6px; border-radius: 8px;
+		background: none; border: none; color: var(--color-text-muted);
+		cursor: pointer; width: 40px; height: 40px; padding: 0; border-radius: 50%;
+		display: inline-grid; place-items: center;
 	}
 	.suggest-clear:hover { background: var(--color-surface); }
 	.suggest-row { padding: 10px 8px; }

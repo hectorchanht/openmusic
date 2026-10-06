@@ -1144,7 +1144,10 @@
 			<!-- UI-SPEC §1.7: the chart shelves re-sample locally, so the disabled "Loading…" state is
 			     confined to a visible classic section (the only case that still fetches).
 			     quick-260927-1fx: press bounce + hover dim, like the shelf headings. -->
-			<button class="more" use:tapBounce onclick={() => refresh(true, false, true)} disabled={loading && classicVisible}><RotateCw size={13} /> {loading && classicVisible ? t('home.loadingPicks') : t('home.randomize')}</button>
+			<!-- quick-261006-ico: icon-only Randomize (icon-first UI pass) — the glyph spins while a
+			     refresh is in flight, so the loading state stays visible without any text. Labelled
+			     via aria-label + title. -->
+			<button class="more" class:spinning={loading && classicVisible} use:tapBounce onclick={() => refresh(true, false, true)} disabled={loading && classicVisible} aria-label={t('home.randomize')} title={t('home.randomize')}><RotateCw size={16} /></button>
 		{/if}
 	</div>
 
@@ -1158,7 +1161,8 @@
 			{@render compactSkeletonColumn()}
 		</div>
 	{:else if error}
-		<p class="error">{error} — <button class="retry" use:tapBounce onclick={() => refresh(true)}>{t('common.retry')}</button></p>
+		<!-- quick-261006-ico: icon-only Retry (icon-first UI pass), labelled via aria-label + title. -->
+		<p class="error">{error} <button class="retry" use:tapBounce onclick={() => refresh(true)} aria-label={t('common.retry')} title={t('common.retry')}><RotateCw size={16} /></button></p>
 	{:else if useFallback}
 		<!-- D-06 fallback: the random buildDiversePicks grid (real Tracks → tap-to-play). -->
 		<div class="grid">
@@ -1690,7 +1694,9 @@
 		display: flex; align-items: center; gap: 8px; cursor: pointer; margin-bottom: 18px;
 		transition: opacity 0.15s ease;
 	}
-	.section .head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 12px; }
+	/* quick-261006-ico: center (was baseline) — the Randomize slot is an icon-only circle now,
+	   and baseline alignment sat it oddly low next to the h2. */
+	.section .head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
 	.section h2 { font-size: calc(1.1rem * var(--fs-title, 1)); margin: 0; }
 	/* D-14: section title is a full-row tap target (title + trailing chevron). Keeps the old
 	   .subhead typography (0.95rem/700); ≥44px touch height. quick-260927-1fx: the chevron now
@@ -1742,11 +1748,19 @@
 	.section.compact .ph-tile { flex-basis: calc(96px * var(--cover-scale, 1)); }
 	.section.compact .ph-cover { width: calc(96px * var(--cover-scale, 1)); height: calc(96px * var(--cover-scale, 1)); }
 	.ph-cell { aspect-ratio: 1 / 1; border-radius: var(--radius-md); }
+	/* quick-261006-ico: icon-only ghost circles (40px targets) — the Randomize / Retry labels
+	   now live in aria-label + title. The Randomize glyph spins while a refresh is in flight. */
 	.more, .retry {
 		background: none; border: 1px solid var(--color-border); color: var(--color-text-muted);
-		padding: 5px 12px; border-radius: 999px; font-size: 0.75rem; cursor: pointer;
-		display: inline-flex; align-items: center; gap: 5px; transition: opacity 0.15s ease;
+		width: 40px; height: 40px; padding: 0; border-radius: 50%; cursor: pointer;
+		display: inline-grid; place-items: center; transition: opacity 0.15s ease;
+		vertical-align: middle;
 	}
+	.more:disabled { opacity: 0.55; cursor: default; }
+	/* :global(svg) — the svg is rendered by the Lucide component, same idiom as
+	   `.subhead-nav :global(.subhead-chev)` below. */
+	.more.spinning :global(svg) { animation: ico-rot 1s linear infinite; }
+	@keyframes ico-rot { to { transform: rotate(360deg); } }
 	/* Horizontal scroll row (copied from the artist page .albumrow pattern). */
 	/* quick-260919-et3 (D-8): VERIFIED to need no desktop rule — do not "fix" this. `.album` below
 	   is a fixed 130px flex basis, so a container that is 1900px instead of 390px simply fits ~13

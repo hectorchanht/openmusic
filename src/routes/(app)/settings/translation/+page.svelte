@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
-	import { ChevronDown, Languages, Replace } from '@lucide/svelte';
+	import { ChevronDown, Languages, Replace, RotateCcw } from '@lucide/svelte';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import SettingToggle from '$lib/components/SettingToggle.svelte';
 	import SettingPicker from '$lib/components/SettingPicker.svelte';
@@ -172,7 +172,8 @@
 
 <PageHeader title={t('settings.groupTranslation')} backLabel={t('settings.backToSettings')} onback={() => goto('/settings')}>
 	{#snippet trailing()}
-		<button class="reset" onclick={() => { if (confirm(t('settings.resetConfirm'))) { settings.resetTranslation(); } }} use:tapBounce>{t('settings.resetGroup')}</button>
+		<!-- quick-261006-ico: icon-only reset (icon-first UI pass) — resetGroup doubles as aria-label + title. -->
+		<button class="reset" onclick={() => { if (confirm(t('settings.resetConfirm'))) { settings.resetTranslation(); } }} use:tapBounce aria-label={t('settings.resetGroup')} title={t('settings.resetGroup')}><RotateCcw size={16} /></button>
 	{/snippet}
 </PageHeader>
 
@@ -330,7 +331,8 @@
 </section>
 
 <style>
-	.reset { background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text-muted); padding: 6px 12px; border-radius: 999px; font-size: 0.75rem; cursor: pointer; }
+	/* quick-261006-ico: icon-only reset — 40px ghost circle. */
+	.reset { background: none; border: 1px solid var(--color-border); color: var(--color-text-muted); width: 40px; height: 40px; padding: 0; border-radius: 50%; cursor: pointer; display: inline-grid; place-items: center; flex: none; }
 	.reset:hover { color: var(--color-text); }
 	section { margin: 18px 0; }
 	/* quick-260919-ebi: `position: relative` on every title that carries an inline (i) — it anchors

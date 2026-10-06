@@ -13,6 +13,7 @@
         Palette,
         Zap,
         Mic2,
+        RotateCcw,
     } from "@lucide/svelte";
     import {
         settings,
@@ -166,7 +167,10 @@
                     settings.resetAppearance();
                 }
             }}
-            use:tapBounce>{t("settings.resetGroup")}</button
+            use:tapBounce
+            aria-label={t("settings.resetGroup")}
+            title={t("settings.resetGroup")}
+            ><RotateCcw size={16} /></button
         >
     {/snippet}
 </PageHeader>
@@ -400,14 +404,19 @@
 </section>
 
 <style>
+    /* quick-261006-ico: icon-only reset — 40px ghost circle. */
     .reset {
-        background: var(--color-surface-2);
+        background: none;
         border: 1px solid var(--color-border);
         color: var(--color-text-muted);
-        padding: 6px 12px;
-        border-radius: 999px;
-        font-size: 0.75rem;
+        width: 40px;
+        height: 40px;
+        padding: 0;
+        border-radius: 50%;
         cursor: pointer;
+        display: inline-grid;
+        place-items: center;
+        flex: none;
     }
     .reset:hover {
         color: var(--color-text);
