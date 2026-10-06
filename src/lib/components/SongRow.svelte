@@ -74,6 +74,7 @@
 	import { marquee } from '$lib/actions/marquee';
 	import { swipeAction, type SwipeActionOpts } from '$lib/actions/swipeAction';
 	import { pickRowCover } from '$lib/services/row-cover';
+	import { sizedCover, ROW_COVER_PX } from '$lib/services/cover-size';
 	import { readCoverByUidOrName, readChosenCover } from '$lib/stores/cover-version.svelte';
 	import { coverGradient } from '$lib/services/cover-gradient';
 	import { player } from '$lib/stores/player.svelte';
@@ -210,14 +211,19 @@
 	// shared reactive cache. A reactive READ, not a fetch — use:lazyCover below is the only network.
 	let resolvedCover = $state<string | null>(null);
 	const art = $derived(
-		pickRowCover(
-			// Phase 40 D-14: rung 0 is the CHOSEN cover — pin, then the crowd pick.
-			readChosenCover(track.uid, track.artist, track.title),
-			resolvedCover ?? undefined,
-			// `cover ?? track.cover` would let an explicit `null` fall THROUGH to track.cover, which
-			// is the opposite of what passing null means. Only an OMITTED prop defaults.
-			cover === undefined ? track.cover : cover,
-			readCoverByUidOrName(track.uid, track.artist, track.title)
+		// quick-261006-o9u: rows paint at 36–56px — render the 200px variant of the cached
+		// master (render-only; the cache keeps the master for the hero / pins / share).
+		sizedCover(
+			pickRowCover(
+				// Phase 40 D-14: rung 0 is the CHOSEN cover — pin, then the crowd pick.
+				readChosenCover(track.uid, track.artist, track.title),
+				resolvedCover ?? undefined,
+				// `cover ?? track.cover` would let an explicit `null` fall THROUGH to track.cover, which
+				// is the opposite of what passing null means. Only an OMITTED prop defaults.
+				cover === undefined ? track.cover : cover,
+				readCoverByUidOrName(track.uid, track.artist, track.title)
+			),
+			ROW_COVER_PX
 		)
 	);
 	// The row's IDENTITY as a VALUE, not as an object reference. A $derived that recomputes to an

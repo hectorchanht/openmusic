@@ -69,6 +69,9 @@
 	// cover-backfill.ts — this component no longer calls a cover tier directly (CLAUDE.md "Shared
 	// Primitives — import these, never re-inline them"). `resolveShareCover` also owns the session memo.
 	import { collectCoverCandidates, resolveShareCover, type CoverCandidate } from '$lib/services/cover-backfill';
+	// quick-261006-o9u: picker tiles are ~120px — render the 200px variant of each candidate.
+	// The PIN keeps the full candidate URL (c.url); only the <img> src is downsized.
+	import { sizedCover, ROW_COVER_PX } from '$lib/services/cover-size';
 	// quick-260919-1we: the lyrics picker's ENUMERATE-ALL collector + the pin read/write pair. Same
 	// posture as the cover picker one line up — the parallel walk fires ONLY on the Fix-lyrics tap
 	// (T-1we-03), never on menu open. `readLyrics` is D-4's single read (pin → track.lrc → null).
@@ -1410,7 +1413,7 @@
 			<div class="cover-grid">
 				{#each coverCandidates as c (c.url)}
 					<button class="cand" class:on={c.url === activeCover} aria-pressed={c.url === activeCover} onclick={() => pickCover(c.url)} use:tapBounce>
-						<img src={c.url} alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" />
+						<img src={sizedCover(c.url, ROW_COVER_PX) ?? ''} alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" />
 						<span class="src">{c.source === 'deezer' ? 'Deezer' : c.source === 'itunes' ? 'iTunes' : c.source}</span>
 						{#if c.url === activeCover}<span class="tick"><Check size={14} /></span>{/if}
 					</button>

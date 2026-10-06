@@ -12,6 +12,7 @@
 	import { upNextCoverNeeds, UPNEXT_COVER_MAX } from '$lib/services/upnext-covers';
 	import { upNextScrollKey } from '$lib/services/upnext-scroll';
 	import { pickRowCover } from '$lib/services/row-cover';
+	import { sizedCover, ROW_COVER_PX } from '$lib/services/cover-size';
 	import { coverGradient } from '$lib/services/cover-gradient';
 	import { tick as hapticTick } from '$lib/util/haptics';
 	import RowBadges from '$lib/components/RowBadges.svelte';
@@ -221,7 +222,7 @@
 			     quick-260910-qwt: now the SHARED pickRowCover — the identical read every other row
 			     surface uses (resolved → track.cover → shared cache). Behaviour is unchanged here.
 			     Phase 40 D-14: rung 0 is readChosenCover — the pin, then the crowd pick. -->
-			{@const qArt = pickRowCover(readChosenCover(track.uid, track.artist, track.title), resolvedCovers[track.uid], track.cover, readCoverByUidOrName(track.uid, track.artist, track.title))}
+			{@const qArt = sizedCover(pickRowCover(readChosenCover(track.uid, track.artist, track.title), resolvedCovers[track.uid], track.cover, readCoverByUidOrName(track.uid, track.artist, track.title)), ROW_COVER_PX)}
 			<li
 				class:lifted={i === dragFrom}
 				class:over={i === dragOver && i !== dragFrom}

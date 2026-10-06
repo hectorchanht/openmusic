@@ -15,6 +15,7 @@
 	import { backfillCovers } from '$lib/services/cover-backfill';
 	import { upNextCoverNeeds, UPNEXT_COVER_MAX } from '$lib/services/upnext-covers';
 	import { pickRowCover } from '$lib/services/row-cover';
+	import { sizedCover, ROW_COVER_PX } from '$lib/services/cover-size';
 	import { coverGradient } from '$lib/services/cover-gradient';
 	import { tick as hapticTick } from '$lib/util/haptics';
 	import RowBadges from '$lib/components/RowBadges.svelte';
@@ -166,7 +167,7 @@
 				     holds. The coverless rows are filled by the ONE capped, tab-gated backfillCovers
 				     effect above. Must sit directly under the {#each} ({@const} is block-child only).
 				     Phase 40 D-14: rung 0 is readChosenCover — the pin, then the crowd pick. -->
-				{@const rArt = pickRowCover(readChosenCover(track.uid, track.artist, track.title), resolvedCovers[track.uid], track.cover, readCoverByUidOrName(track.uid, track.artist, track.title))}
+				{@const rArt = sizedCover(pickRowCover(readChosenCover(track.uid, track.artist, track.title), resolvedCovers[track.uid], track.cover, readCoverByUidOrName(track.uid, track.artist, track.title)), ROW_COVER_PX)}
 				<!-- quick-260625-pzs-02: reveal layers sit BEHIND the row; the row translateX
 				     (use:swipeAction) slides to expose them. Right-drag → queue, left-drag → play
 				     next. aria-hidden (the same actions stay reachable via the long-press menu). -->
