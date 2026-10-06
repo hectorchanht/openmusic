@@ -328,6 +328,7 @@ const tr: Dict = {
 	"menu.liked": "Beğendim",
 	"menu.addToPlaylist": "Çalma listesine ekle",
 	"menu.goToAlbum": "Albüme git",
+	"menu.customize": "Menüyü özelleştir",
 	"menu.goToArtist": "Sanatçıya git",
 	"menu.share": "Paylaş",
 	"menu.detail": "Detay",

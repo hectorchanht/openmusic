@@ -391,6 +391,7 @@ const en = {
 	"menu.liked": "Liked",
 	"menu.addToPlaylist": "Add to playlist",
 	"menu.goToAlbum": "Go to album",
+	"menu.customize": "Customize menu",
 	"menu.goToArtist": "Go to artist",
 	"menu.share": "Share",
 	"menu.detail": "Detail",

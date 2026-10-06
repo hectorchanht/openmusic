@@ -328,6 +328,7 @@ const vi: Dict = {
 	"menu.liked": "Đã thích",
 	"menu.addToPlaylist": "Thêm vào danh sách phát",
 	"menu.goToAlbum": "Đi tới anbom",
+	"menu.customize": "Tùy chỉnh menu",
 	"menu.goToArtist": "Tới nghệ sĩ",
 	"menu.share": "Chia sẻ",
 	"menu.detail": "Chi tiết",

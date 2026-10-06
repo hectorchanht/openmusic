@@ -350,6 +350,7 @@ const zhHans: Dict = {
 	"menu.liked": "已收藏",
 	"menu.addToPlaylist": "加入播放列表",
 	"menu.goToAlbum": "前往专辑",
+	"menu.customize": "自定义菜单",
 	"menu.goToArtist": "前往歌手",
 	"menu.share": "分享",
 	"menu.detail": "详细信息",

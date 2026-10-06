@@ -328,6 +328,7 @@ const ru: Dict = {
 	"menu.liked": "Понравилось",
 	"menu.addToPlaylist": "Добавить в плейлист",
 	"menu.goToAlbum": "Перейти в альбом",
+	"menu.customize": "Настроить меню",
 	"menu.goToArtist": "Перейти к исполнителю",
 	"menu.share": "Поделиться",
 	"menu.detail": "Деталь",

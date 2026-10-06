@@ -328,6 +328,7 @@ const id: Dict = {
 	"menu.liked": "Menyukai",
 	"menu.addToPlaylist": "Tambahkan ke daftar putar",
 	"menu.goToAlbum": "Buka album",
+	"menu.customize": "Sesuaikan menu",
 	"menu.goToArtist": "Pergi ke artis",
 	"menu.share": "Bagikan",
 	"menu.detail": "Detil",

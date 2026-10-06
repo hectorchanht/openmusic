@@ -328,6 +328,7 @@ const hi: Dict = {
 	"menu.liked": "पसंद आया",
 	"menu.addToPlaylist": "प्लेलिस्ट में जोड़ें",
 	"menu.goToAlbum": "एल्बम पर जाएँ",
+	"menu.customize": "मेनू कस्टमाइज़ करें",
 	"menu.goToArtist": "कलाकार के पास जाओ",
 	"menu.share": "साझा करें",
 	"menu.detail": "विवरण",

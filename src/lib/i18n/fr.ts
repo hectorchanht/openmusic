@@ -328,6 +328,7 @@ const fr: Dict = {
 	"menu.liked": "J'ai aimé",
 	"menu.addToPlaylist": "Ajouter à la playlist",
 	"menu.goToAlbum": "Aller à l'album",
+	"menu.customize": "Personnaliser le menu",
 	"menu.goToArtist": "Aller à l'artiste",
 	"menu.share": "Partager",
 	"menu.detail": "Détail",

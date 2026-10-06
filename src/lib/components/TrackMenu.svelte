@@ -2,7 +2,7 @@
 	import { tick, untrack } from 'svelte';
 	import { fly } from 'svelte/transition';
 	import { goto } from '$app/navigation';
-	import { ListStart, ListEnd, Download, Check, Heart, ListPlus, User, Share2, Info, X, Plus, Shuffle, Repeat, Repeat1, Trash2, Moon, Sparkles, Layers, Image as ImageIcon, ChevronDown, Tags, Mic2, EyeOff, Timer } from '@lucide/svelte';
+	import { ListStart, ListEnd, Download, Check, Heart, ListPlus, User, Share2, Info, X, Plus, Shuffle, Repeat, Repeat1, Trash2, Moon, Sparkles, Layers, Image as ImageIcon, ChevronDown, Tags, Mic2, EyeOff, Timer, Pencil, Disc3 } from '@lucide/svelte';
 	import { player } from '$lib/stores/player.svelte';
 	import { sleepTimer } from '$lib/stores/sleepTimer.svelte';
 	import { library } from '$lib/stores/library.svelte';
@@ -21,6 +21,14 @@
 	import { tick as hapticTick } from '$lib/util/haptics';
 	import { isGatedReady, shouldStartResolve } from './track-menu-gate';
 	import { t } from '$lib/i18n';
+	import type { TranslationKey } from '$lib/i18n';
+	import type { Component } from 'svelte';
+	import { flip } from 'svelte/animate';
+	import { settings } from '$lib/stores/settings.svelte';
+	// quick-261006-mnu: the customizable menu's action catalog + order normalizer. PURE —
+	// settings.svelte.ts (a LEAF store) is its other consumer; this component never imports
+	// the store THROUGH here.
+	import { MENU_ACTIONS, type MenuActionId } from '$lib/services/track-menu-order';
 	import { ensureTrackDetails, collectLyricCandidates, type LyricCandidate } from '$lib/services/catalog';
 	import { prewarmTrack } from '$lib/services/prewarm';
 	// Gap 4 (26-10): the LAZY on-demand cross-source variant fetch (26-08) fed to the Play-from-source
@@ -109,6 +117,220 @@
 	// an empty param is not a page. Gates the header text control below; gotoArtist() re-checks it so
 	// the `menu.goToArtist` row cannot route there either.
 	const hasArtist = $derived(!!track && track.artist.trim() !== '');
+	// quick-261006-mnu: is there an album worth navigating TO? Mirrors hasArtist above — a
+	// stub with an empty album gets no Go-to-album cell at all (canShow), and gotoAlbum()
+	// re-checks so no caller can route to `/album/` with an empty name.
+	const hasAlbum = $derived(!!track && track.album.trim() !== '');
+	const nonCurrent = $derived(track ? track.uid !== player.current?.uid : true);
+
+	// quick-261006-mnu — THE MENU'S VISIBILITY GATES, one place. Each predicate preserves
+	// TODAY's `{#if}` gate exactly (playNext keeps its `.gi-blank` placeholder for the
+	// current track inside its own snippet); the download predicate folds the old
+	// `{#if !isDevice}` tri-state gate together with the non-current gate that wrapped the
+	// noImport/removeDownload pair. The live grid renders
+	// `settings.trackMenuOrder.filter(canShow)` row-major, 4 columns.
+	function canShow(id: MenuActionId): boolean {
+		switch (id) {
+			case 'download':
+				return !isDevice || (isDevice && nonCurrent);
+			case 'addQueue':
+				return nonCurrent;
+			case 'lyricsTiming':
+				return !!track && player.current?.uid === track.uid && !!readLyrics(player.current);
+			case 'editTags':
+				return !!blobPresent;
+			case 'repeat':
+				return !!player.current;
+			case 'shuffleQueue':
+			case 'clearQueue':
+				return player.queue.length > 1;
+			case 'goToAlbum':
+				return hasAlbum;
+			default:
+				// remix, playNext, like, versions, changeCover, changeLyrics, addToPlaylist,
+				// sleepTimer, goToArtist, share, detail — unconditional (as today).
+				return true;
+		}
+	}
+	const visibleIds = $derived(settings.trackMenuOrder.filter(canShow));
+
+	// quick-261006-mnu — the edit grid's static cells: icon + micro label per action. The
+	// label keys are the actions' OWN existing keys (no new i18n); the icons are the same
+	// components the live cells use, so the preview reads as the menu it configures
+	// (the RowActionsConfig precedent).
+	const EDIT_META: Record<MenuActionId, { icon: Component; label: TranslationKey }> = {
+		remix: { icon: Sparkles, label: 'menu.remix' },
+		playNext: { icon: ListStart, label: 'menu.playNext' },
+		download: { icon: Download, label: 'menu.download' },
+		like: { icon: Heart, label: 'menu.like' },
+		addQueue: { icon: ListEnd, label: 'menu.addToQueue' },
+		versions: { icon: Layers, label: 'menu.versions' },
+		changeCover: { icon: ImageIcon, label: 'menu.changeCover' },
+		changeLyrics: { icon: Mic2, label: 'menu.changeLyrics' },
+		lyricsTiming: { icon: Timer, label: 'menu.lyricsTiming' },
+		editTags: { icon: Tags, label: 'menu.editTags' },
+		addToPlaylist: { icon: ListPlus, label: 'menu.addToPlaylist' },
+		repeat: { icon: Repeat, label: 'nowplaying.repeat' },
+		shuffleQueue: { icon: Shuffle, label: 'menu.shuffleQueue' },
+		clearQueue: { icon: Trash2, label: 'menu.clearQueue' },
+		sleepTimer: { icon: Moon, label: 'menu.sleepTimer' },
+		goToArtist: { icon: User, label: 'menu.goToArtist' },
+		goToAlbum: { icon: Disc3, label: 'menu.goToAlbum' },
+		share: { icon: Share2, label: 'menu.share' },
+		detail: { icon: Info, label: 'menu.detail' }
+	};
+
+	// quick-261006-mnu — EDIT MODE. `editing` is per-open component state (reset in close()).
+	// `editOrder` is a LOCAL snapshot of settings.trackMenuOrder taken on entry: taps commit
+	// straight through to settings, drags live-reorder the snapshot and commit on drop — so
+	// cancelling mid-drag can never leave a half-applied order, and the live grid never
+	// repaints under the user's finger.
+	let editing = $state(false);
+	let editOrder = $state<MenuActionId[]>([]);
+	function enterEdit() {
+		editOrder = [...settings.trackMenuOrder];
+		editing = true;
+	}
+	function commitEdit() {
+		settings.trackMenuOrder = [...editOrder];
+		settings.save();
+	}
+	function exitEdit() {
+		// A drag still in flight (Done tapped with a second finger) commits rather than
+		// dropping the reorder the user just performed.
+		if (mDragFrom >= 0 && mDragMoved) commitEdit();
+		mDragFrom = -1;
+		mDragDx = 0;
+		mDragDy = 0;
+		editing = false;
+	}
+	// Enabled (in the user's order) first, then the switched-off remainder dimmed — the
+	// RowActionsConfig shape: an off action keeps a stable, visible place to be switched
+	// back on from, without a second persisted order for things that do not render.
+	const editIds = $derived([...editOrder, ...MENU_ACTIONS.filter((a) => !editOrder.includes(a))]);
+
+	// ---- Edit-grid pointer drag-to-reorder (quick-261006-mnu) ---------------------------
+	// The RowActionsConfig idiom, turned 2D: custom pointer events, NOT native HTML5
+	// drag-and-drop (unusable on touch). The cell is both the drag handle and the toggle,
+	// disambiguated the swipeAction WR-01 way — a gesture that never passes SLOP is a TAP
+	// and the click stands; one that does is a DRAG and the trailing click is suppressed.
+	// Enabled cells are a CONTIGUOUS PREFIX of the grid (editIds), so the drop target is an
+	// insertion index into editOrder: nearest enabled-cell center excluding the dragged one
+	// (its own transformed rect would win its own contest), with a past-the-end rule so the
+	// last slot is reachable.
+	const MNU_SLOP = 6;
+	let editGridEl = $state<HTMLElement | null>(null);
+	let mDragFrom = $state(-1); // index within editOrder while dragging (-1 = idle)
+	let mDragDx = $state(0);
+	let mDragDy = $state(0);
+	// Plain fields, NOT $state — nothing reads them reactively, and the click suppressor
+	// must be readable from the click handler that fires immediately after pointerup.
+	let mDragStartX = 0;
+	let mDragStartY = 0;
+	let mDragMoved = false;
+	let mSuppressClick = false;
+
+	/** Insertion index into editOrder AFTER removing the dragged item (0..n-1). */
+	function mTargetIndex(x: number, y: number): number {
+		if (!editGridEl) return mDragFrom;
+		const cells = editGridEl.querySelectorAll<HTMLElement>('.edit-cell.on');
+		const n = cells.length;
+		if (n === 0) return 0;
+		// Past-the-end: the pointer is clearly beyond the final enabled slot in reading
+		// order → append. (Without this the last slot is unreachable — nearest-center
+		// alone always resolves to the last cell itself.)
+		let lastIdx = n - 1;
+		if (lastIdx === mDragFrom) lastIdx--;
+		if (lastIdx >= 0) {
+			const r = cells[lastIdx].getBoundingClientRect();
+			if ((x > r.left + r.width / 2 && y > r.top) || y > r.bottom) return n - 1;
+		}
+		let best = mDragFrom;
+		let bestD = Infinity;
+		for (let i = 0; i < n; i++) {
+			if (i === mDragFrom) continue;
+			const r = cells[i].getBoundingClientRect();
+			const dx = x - (r.left + r.width / 2);
+			const dy = y - (r.top + r.height / 2);
+			const d = dx * dx + dy * dy;
+			if (d < bestD) {
+				bestD = d;
+				best = i;
+			}
+		}
+		// `best` is a pre-removal index; convert to the post-removal insertion index.
+		return best > mDragFrom ? best - 1 : best;
+	}
+
+	function mDown(e: PointerEvent, id: MenuActionId) {
+		const i = editOrder.indexOf(id);
+		if (i < 0) return; // a dimmed cell is not draggable — its tap re-adds it instead
+		mDragFrom = i;
+		mDragDx = 0;
+		mDragDy = 0;
+		mDragStartX = e.clientX;
+		mDragStartY = e.clientY;
+		mDragMoved = false;
+		(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+	}
+	function mMove(e: PointerEvent) {
+		if (mDragFrom < 0) return;
+		const dx = e.clientX - mDragStartX;
+		const dy = e.clientY - mDragStartY;
+		if (!mDragMoved && Math.hypot(dx, dy) < MNU_SLOP) return; // still a tap
+		mDragMoved = true;
+		mDragDx = dx;
+		mDragDy = dy;
+		const over = mTargetIndex(e.clientX, e.clientY);
+		if (over !== mDragFrom && over >= 0) {
+			const next = [...editOrder];
+			const [moved] = next.splice(mDragFrom, 1);
+			next.splice(over, 0, moved);
+			editOrder = next;
+			mDragFrom = over;
+		}
+	}
+	function mUp() {
+		if (mDragFrom < 0) return;
+		if (mDragMoved) {
+			mSuppressClick = true; // WR-01: the trailing click must not also toggle the cell
+			commitEdit();
+		}
+		mDragFrom = -1;
+		mDragDx = 0;
+		mDragDy = 0;
+	}
+	function mClick(id: MenuActionId) {
+		if (mSuppressClick) {
+			mSuppressClick = false;
+			return;
+		}
+		const i = editOrder.indexOf(id);
+		editOrder = i >= 0 ? editOrder.filter((x) => x !== id) : [...editOrder, id];
+		commitEdit();
+	}
+	/** Keyboard parity (the RowActionsConfig rule): arrows move, Enter/Space toggles via
+	 *  the native click. Up/Down jump a full grid row (±4); Left/Right step one. */
+	function mKey(e: KeyboardEvent, id: MenuActionId) {
+		const step = e.key === 'ArrowLeft' ? -1 : e.key === 'ArrowRight' ? 1 : e.key === 'ArrowUp' ? -4 : e.key === 'ArrowDown' ? 4 : 0;
+		if (!step) return;
+		e.preventDefault(); // otherwise the arrow scrolls the sheet instead
+		const i = editOrder.indexOf(id);
+		if (i < 0) return;
+		const j = Math.min(Math.max(i + step, 0), editOrder.length - 1);
+		if (j === i) return;
+		const next = [...editOrder];
+		const [moved] = next.splice(i, 1);
+		next.splice(j, 0, moved);
+		editOrder = next;
+		commitEdit();
+		// The {#each} is keyed, so Svelte MOVES the button's node rather than recreating
+		// it — and re-inserting a focused element drops focus to <body> in Chrome. Re-focus
+		// by identity so a keyboard user can keep moving the same cell.
+		void tick().then(() => {
+			editGridEl?.querySelector<HTMLElement>(`[data-id="${id}"]`)?.focus();
+		});
+	}
 
 	// Gap 4 (26-10): a lazily-fed VersionPicker reachable from the long-press menu — "Play from
 	// source". A queued/played song carries only its own source, so the cross-source variants are
@@ -293,6 +515,13 @@
 	});
 
 	function close() {
+		// quick-261006-mnu: edit mode is per-open — the grid unmounts with the menu, so a
+		// half-finished customize never leaks into the next open. (Taps and drops commit to
+		// settings immediately; only a mid-drag reorder is dropped here.)
+		editing = false;
+		mDragFrom = -1;
+		mDragDx = 0;
+		mDragDy = 0;
 		pickerOpen = false;
 		tagsOpen = false; // quick-260919-1eh: reset alongside the other sheet flags
 		rmOpen = false; // quick-260919-vrq: same — a confirm must never outlive the menu that raised it
@@ -526,6 +755,19 @@
 		// searchAll / Last.fm are script-blind (quick-260926-hl9).
 		if (!track || !hasArtist) return;
 		const dest = names.artistHref(track.artist);
+		overlays.navigateAway(() => goto(dest));
+	}
+	// quick-261006-mnu — Go to album. Mirrors gotoArtist exactly: same navigateAway single
+	// dismiss path, same script-lock rule — `names.zhLock` (re-script only), NEVER the
+	// display-language dn* strings (quick-260926-hl9). The album route keys off
+	// params.name + ?artist= (the discography albumHref shape).
+	function gotoAlbum() {
+		if (!track || !hasAlbum) return;
+		const dest =
+			'/album/' +
+			encodeURIComponent(names.zhLock(track.album)) +
+			'?artist=' +
+			encodeURIComponent(names.zhLock(track.artist));
 		overlays.navigateAway(() => goto(dest));
 	}
 
@@ -1001,7 +1243,11 @@
 
 {#if open && track}
 	<button class="scrim" aria-label={t('menu.closeMenu')} onclick={close}></button>
-	<div class="menu" transition:fly={{ y: 240, duration: 200 }} use:dragClose={{ onclose: close }} use:focusTrap>
+	<!-- quick-261006-mnu: dragClose is disabled while editing — a reorder drag starts with a
+	     downward-ish finger move on a cell, which the sheet would otherwise read as a close
+	     drag (DRAG_START is 8px, same as the reorder SLOP scale). The action's update() swaps
+	     `enabled` reactively, so no remount is needed. -->
+	<div class="menu" transition:fly={{ y: 240, duration: 200 }} use:dragClose={{ onclose: close, enabled: !editing }} use:focusTrap>
 		<!-- D-08/D-09/D-10: two-row marquee header (song/artist, display-only) + a compact
 		     top-right icon cluster (Like / Download / Close, left to right). Replaces the old
 		     single ellipsised `{title} · {artist}` line, and (user call 2026-10-06) the
@@ -1044,6 +1290,14 @@
 			     User arrange-like-this 2026-10-06: Like and Download are grid items R1C3/R1C4
 			     (ungated) — the header duplication is retired. -->
 			<div class="head-actions">
+				<!-- quick-261006-mnu: the customize affordance — icon-only (the house icon-first
+				     rule), a Pencil that swaps to a Check while editing. It does NOT close the
+				     menu; the X keeps the corner slot and the single dismiss path (D-09). -->
+				{#if editing}
+					<button class="hd-btn" aria-label={t('common.done')} title={t('common.done')} onclick={exitEdit} use:tapBounce><Check size={20} /></button>
+				{:else}
+					<button class="hd-btn" aria-label={t('menu.customize')} title={t('menu.customize')} onclick={enterEdit} use:tapBounce><Pencil size={20} /></button>
+				{/if}
 				<!-- User 2026-10-06: header keeps ONLY the Close (X) at top-right. Like and
 				     Download icons REMOVED from the header — they now live in the grid's
 				     first row (R1C3/R1C4) and the header icons were shortening the song
@@ -1074,255 +1328,241 @@
 		     (full-width row) to `.gi` (grid cell). The picker sub-sheets below (playlist /
 		     lyrics / download / remove-download) keep `.mi` — they are separate sheets, not
 		     this grid.
-		     User call 2026-10-06 (menu-first-row): DOM order CHANGED — first row is now
-		     Remix | Like | Download (Like + Download ungated AND kept in the header cluster,
-		     D-09/je8/et3 duplication stands); LyricsTiming / Add to playlist / Detail each
-		     moved one slot earlier so the other cells shift down exactly one row; the menu
-		     stays 4 rows. Every handler and every {#if} condition is otherwise unchanged. -->
-		<div class="acts">
-		<!-- User arrange-like-this 2026-10-06: exact 4x4 grid, filled row-major (橫行填滿):
-		     R1: Remix | (Blank)/PlayNext | Download | Like
-		     R2: Play from... | Change cover | Change lyrics | Adjust lyrics...
-		     R3: Repeat | Shuffle queue | Clear queue | Add to playlist
-		     R4: Sleep timer | Go to artist | Share | Detail
-		     (Blank) is a placeholder cell for the current track; PlayNext fills it for
-		     other tracks. Like/Download grid cells are UNGATED and stay in the header
-		     cluster too (D-09/je8/et3). Cross (X) stays top-right in the header. -->
-		<!-- Remix: GATED (needs audioUrl to play the seed) — Sparkles + the inline spinner.
-		     User arrange-like-this 2026-10-06: R1C1. -->
-		<button class="gi" aria-busy={inFlight.has('remix')} aria-label={inFlight.has('remix') ? t('menu.preparing') : undefined} onclick={() => gated('remix', doRemix)} use:tapBounce>
-			{#if inFlight.has('remix')}<span class="row-spinner motion-always"></span>{:else}<Sparkles size={22} />{/if}<span class="gi-label">{t('menu.remix')}</span>
-		</button>
-		<!-- User arrange-like-this 2026-10-06: R1C2 — Play next for a non-current track,
-		     else the (Blank) placeholder cell. -->
-		{#if track && track.uid !== player.current?.uid}
-			<button class="gi" onclick={playNext} use:tapBounce><ListStart size={22} /><span class="gi-label">{t('menu.playNext')}</span></button>
-		{:else}
-			<span class="gi-blank" aria-hidden="true"></span>
-		{/if}
-		<!-- User arrange-like-this 2026-10-06: Download is R1C3.
-		     UNGATED (was: non-current tracks only). Duplicated with the header download icon
-		     on the D-09/je8 precedent (both call the same startDownload() and read the same
-		     tri-state sources). The remove-download / don't-import row stays in the not-current
-		     gate below (they are inverse states of one thing).
-		     Download: tri-state (D-11/D-12). Already downloaded → Check + greyed disabled ("Downloaded").
-		     The busy state reads BOTH the gated stub-resolve (inFlight) AND the shared per-uid
-		     library.downloading set, so the cell shows its progress whether or not this menu
-		     stays open (D-12). Supersedes 094de89/73a9c6c ("grid item 3 after Play next / Add to queue"). -->
-		<!-- Hidden for device: entries — see the header fork's note. -->
-		{#if !isDevice}
-		{#if library.downloading.has(track.uid)}
-			<!-- quick-260913-omi: real byte progress, not a decorative animation. `downloadProgress`
-			     is absent until the first bytes land (and stays absent for a response with no
-			     Content-Length), and THAT is the indeterminate state.
-			     quick-260919-dlring REVERTED here (and ONLY here): omi's full-width ::after tint is the
-			     indicator for this row again. The ring stays in every other download affordance —
-			     DownloadControl and this menu's own header button — but inside the menu's LIST content
-			     the bar already spans the row and the `.count` already prints the exact figure, so a
-			     ring beside them is a third rendering of one number. The glyph is therefore STATIC in
-			     both states: no ring, no spinner. It is the same Download glyph the idle row shows, so
-			     the icon box never empties and the label never shifts — it just stops being a second
-			     busy indicator. The indeterminate state keeps a bar too (a sliding one, below) rather
-			     than a spinner, so the bar is the row's ONLY progress channel in both states. -->
-			{@const frac = library.downloadProgress[track.uid]}
-			<button
-				class="gi dl-busy dl-progress"
-				class:dl-indeterminate={frac === undefined}
-				class:motion-always={frac === undefined}
-				style:--dl={frac ?? 0}
-				aria-busy="true"
-				disabled
-				aria-label={frac === undefined
-					? t('menu.preparing')
-					: `${t('menu.download')} ${Math.round(frac * 100)}%`}
-			>
-				<Download size={22} />
-				<span class="gi-label">{t('menu.download')}</span>
-				{#if frac !== undefined}<span class="gi-sub">{Math.round(frac * 100)}%</span>{/if}
+		     quick-261006-mnu: every cell is a {#snippet} over the track. The live grid renders
+		     `visibleIds` — settings.trackMenuOrder filtered by canShow() — row-major through the
+		     snippet record below, so the user's own drag-to-reorder / tap-to-hide arrangement IS
+		     the menu. The old fixed R1C1-style placement comments are retired with it; each
+		     snippet keeps its original markup, handlers and inner conditions verbatim. -->
+		<!-- Remix: GATED (needs audioUrl to play the seed) — Sparkles + the inline spinner. -->
+		{#snippet cellRemix(tr: Track)}
+			<button class="gi" aria-busy={inFlight.has('remix')} aria-label={inFlight.has('remix') ? t('menu.preparing') : undefined} onclick={() => gated('remix', doRemix)} use:tapBounce>
+				{#if inFlight.has('remix')}<span class="row-spinner motion-always"></span>{:else}<Sparkles size={22} />{/if}<span class="gi-label">{t('menu.remix')}</span>
 			</button>
-		{:else if blobPresent === true}
-			<!-- quick-260919-3j1 (F2): the SAME `.count` slot the Download row's probed `FLAC · 38.2 MB`
-			     label and the download percentage already occupy — no new layout rule, no new key
-			     (formatDownloadMeta composes source tokens + unit symbols). This is the parity the
-			     user asked for: a song that is NOT downloaded says what it would be, a song that IS
-			     downloaded says what it is. -->
-			<button class="gi" disabled aria-disabled="true">
-				<Check size={22} /><span class="gi-label">{t('menu.downloaded')}</span>
-				{#if localMeta}<span class="gi-sub">{localMeta}</span>{/if}
-			</button>
-		{:else}
-			<!-- quick-260915-26g: the probed format/size reuses the SAME `.count` slot the download
-			     percentage already occupies, so it needs no new layout rule. The skeleton is aria-hidden
-			     and the button keeps its `menu.download` name — no new i18n key for either. -->
-			<!-- quick-260916-0d9: ONE tap is byte-for-byte the old behaviour; a ~450ms HOLD opens the
-			     "Download from…" sheet instead. The trailing native click a hold produces is eaten by
-			     longpress's DOCUMENT-capture suppressor (quick-260913-p2k moved it to document
-			     precisely so a sheet mounted under the finger is covered), so `onclick={startDownload}`
-			     does NOT also fire — verified in longpress.ts, not assumed. The parent sheet's
-			     dragClose cannot fire either: it needs rawDy > 8px, the same distance that cancels the
-			     longpress timer. The hold hint on title/aria-label makes it discoverable.
-			     quick-260919-vrq: the caret is no longer a decorative hint — it is a SIBLING BUTTON
-			     that opens the same “Download from…” sheet on a PLAIN TAP. A <button> cannot nest a
-			     <button>, so making the caret tappable forces the row to split in two. Its accessible
-			     name reuses `menu.downloadFrom` deliberately: that string names exactly the sheet it
-			     opens, so the caret needs no new key. Splitting the row does NOT weaken the hold:
-			     longpress.ts attaches its one-shot click suppressor on DOCUMENT in the CAPTURE phase,
-			     i.e. target-agnostic, so a hold's trailing click is eaten wherever it lands — the main
-			     button, the caret, or the sheet that just mounted under the finger (read in
-			     longpress.ts `clickCapture`, not assumed). -->
-			<!-- quick-261006-grd: same two-sibling shape as the list row's `.mi-split` — the
-			     caret is a real control that cannot nest inside the cell <button>, so it rides as a
-			     corner sibling. Long-press on the cell still opens the same sheet. -->
-			<div class="gi-split">
-				<button class="gi" aria-label={`${dlLabel} · ${t('menu.downloadHoldHint')}`} title={t('menu.downloadHoldHint')} onclick={startDownload} onlongpress={openDownloadPicker} use:longpress use:tapBounce>
-					<Download size={22} /><span class="gi-label">{t('menu.download')}</span>
-					{#if dlProbing}<span class="gi-sub skel" aria-hidden="true"></span>{:else if dlMeta}<span class="gi-sub">{dlMeta}</span>{/if}
+		{/snippet}
+		<!-- Play next for a non-current track, else the (Blank) placeholder cell. -->
+		{#snippet cellPlayNext(tr: Track)}
+			{#if nonCurrent}
+				<button class="gi" onclick={playNext} use:tapBounce><ListStart size={22} /><span class="gi-label">{t('menu.playNext')}</span></button>
+			{:else}
+				<!-- User arrange-like-this 2026-10-06: the (Blank) cell for the current track.
+				     Same footprint as a .gi cell, no hover, no content — aria-hidden. -->
+				<span class="gi-blank" aria-hidden="true"></span>
+			{/if}
+		{/snippet}
+		<!-- quick-261006-mnu — the download slot is ONE adaptive cell: the Download tri-state,
+		     Remove-download and Don't-import are inverse states of one thing (mutually exclusive
+		     by structure: if / else-if, never both), so they share a single grid slot instead of
+		     answering "can I download this?" in two places. Every face keeps its original markup,
+		     handler and gate; only the nesting changed. One deliberate preservation: a CURRENT
+		     track with a stale downloads-list row but no blob still shows the idle face (as
+		     today) — the disabled Check is reserved for blobPresent === true. -->
+		{#snippet cellDownload(tr: Track)}
+			{#if isDevice}
+				{#if nonCurrent}
+					<!-- quick-260919-30x: Don't import again — the mirror image of remove-download,
+					     for a file the USER owns (`device:`). Unchanged markup/handler. -->
+					<button class="gi" onclick={noImport} use:tapBounce><EyeOff size={22} /><span class="gi-label">{t('menu.noImport')}</span></button>
+				{/if}
+			{:else if library.downloading.has(tr.uid)}
+				<!-- quick-260913-omi: real byte progress, not a decorative animation. `downloadProgress`
+				     is absent until the first bytes land (and stays absent for a response with no
+				     Content-Length), and THAT is the indeterminate state. The glyph is STATIC in
+				     both states (no ring, no spinner) — the bottom-edge bar is the row's ONLY
+				     progress channel. -->
+				{@const frac = library.downloadProgress[tr.uid]}
+				<button
+					class="gi dl-busy dl-progress"
+					class:dl-indeterminate={frac === undefined}
+					class:motion-always={frac === undefined}
+					style:--dl={frac ?? 0}
+					aria-busy="true"
+					disabled
+					aria-label={frac === undefined
+						? t('menu.preparing')
+						: `${t('menu.download')} ${Math.round(frac * 100)}%`}
+				>
+					<Download size={22} />
+					<span class="gi-label">{t('menu.download')}</span>
+					{#if frac !== undefined}<span class="gi-sub">{Math.round(frac * 100)}%</span>{/if}
 				</button>
-				<button type="button" class="gi-caret" aria-label={t('menu.downloadFrom')} title={t('menu.downloadFrom')} onclick={openDownloadPicker} use:tapBounce><ChevronDown size={14} /></button>
-			</div>
-		{/if}
-		{/if}
-		<!-- User arrange-like-this 2026-10-06: Like is R1C4.
-		     UNGATED (was: non-current tracks only). Duplicated with the header heart icon
-		     on the D-09/je8/et3 precedent (both call the same like() + `liked` derived). -->
+			{:else if nonCurrent && (blobPresent === true || library.isDownloaded(tr.uid))}
+				<!-- quick-261006-mnu: the remove-download face now carries the localMeta sub-label
+				     (F2 parity — a song that IS downloaded says what it is, in the same slot the
+				     probed `FLAC · 38.2 MB` label occupies). localMeta is null for a list-only row. -->
+				<button class="gi" onclick={openRemoveDownload} use:tapBounce><Trash2 size={22} /><span class="gi-label">{t('menu.removeDownload')}</span>{#if localMeta}<span class="gi-sub">{localMeta}</span>{/if}</button>
+			{:else if blobPresent === true}
+				<!-- quick-260919-3j1 (F2): a song that IS downloaded says what it is — the SAME
+				     `.gi-sub` slot the probed label and the download percentage occupy. -->
+				<button class="gi" disabled aria-disabled="true">
+					<Check size={22} /><span class="gi-label">{t('menu.downloaded')}</span>
+					{#if localMeta}<span class="gi-sub">{localMeta}</span>{/if}
+				</button>
+			{:else}
+				<!-- quick-261006-grd: same two-sibling shape as the list row's `.mi-split` — the
+				     caret is a real control that cannot nest inside the cell <button>, so it rides as a
+				     corner sibling. Long-press on the cell still opens the same sheet.
+				     quick-260915-26g: the probed format/size reuses the SAME `.gi-sub` slot the download
+				     percentage already occupies, so it needs no new layout rule. The skeleton is aria-hidden
+				     and the button keeps its `menu.download` name — no new i18n key for either.
+				     quick-260916-0d9: ONE tap is byte-for-byte the old behaviour; a ~450ms HOLD opens the
+				     "Download from…" sheet instead. The trailing native click a hold produces is eaten by
+				     longpress's DOCUMENT-capture suppressor, so `onclick={startDownload}` does NOT also
+				     fire. The parent sheet's dragClose cannot fire either: it needs rawDy > 8px, the same
+				     distance that cancels the longpress timer. -->
+				<div class="gi-split">
+					<button class="gi" aria-label={`${dlLabel} · ${t('menu.downloadHoldHint')}`} title={t('menu.downloadHoldHint')} onclick={startDownload} onlongpress={openDownloadPicker} use:longpress use:tapBounce>
+						<Download size={22} /><span class="gi-label">{t('menu.download')}</span>
+						{#if dlProbing}<span class="gi-sub skel" aria-hidden="true"></span>{:else if dlMeta}<span class="gi-sub">{dlMeta}</span>{/if}
+					</button>
+					<button type="button" class="gi-caret" aria-label={t('menu.downloadFrom')} title={t('menu.downloadFrom')} onclick={openDownloadPicker} use:tapBounce><ChevronDown size={14} /></button>
+				</div>
+			{/if}
+		{/snippet}
 		<!-- like-state-wrong-track-menu: a name-stub (uid:'') has no identity to like yet; the row waits for
 		     the host page's resolve to swap in the real Track rather than firing a no-op + wrong toast. -->
-		<button class="gi" class:on={liked} aria-pressed={liked} disabled={!track.uid} onclick={like} use:tapBounce>
-			<Heart size={22} fill={liked ? 'currentColor' : 'none'} /><span class="gi-label">{liked ? t('menu.liked') : t('menu.like')}</span>
-		</button>
-		{#if track && track.uid !== player.current?.uid}
-		<!-- User arrange-like-this 2026-10-06: AddQueue sits at R2C1 for non-current
-		     tracks (after Like), then the remove-download / don't-import inverse states. -->
+		{#snippet cellLike(tr: Track)}
+			<button class="gi" class:on={liked} aria-pressed={liked} disabled={!tr.uid} onclick={like} use:tapBounce>
+				<Heart size={22} fill={liked ? 'currentColor' : 'none'} /><span class="gi-label">{liked ? t('menu.liked') : t('menu.like')}</span>
+			</button>
+		{/snippet}
+		{#snippet cellAddQueue(tr: Track)}
 			<button class="gi" onclick={addQueue} use:tapBounce><ListEnd size={22} /><span class="gi-label">{t('menu.addToQueue')}</span></button>
-		<!-- quick-260919-30x: Don't import again. The mirror image of the row above — that one is for
-		     a file the APP owns, this one is for a file the USER owns, so they sit together.
-		     `{#if isDevice}` and ONLY isDevice: for an app-downloaded song `removeDownload` already
-		     deletes both copies the app itself created (the app-private file and the public
-		     Music/OpenMusic/ entry, 999.1-D-11), so no file survives for a scan to find — an
-		     exclusion recorded against it would be dead state forever and the label would be a lie,
-		     since no scan ever imports an app download under its own uid.
-		     For a device: uid nothing on disk is touched at all — see noImport() above.
-
-		     quick-260919-vrq AMENDS BOTH HALVES OF THAT. (1) "Nothing exposes removal for an app
-		     download" is no longer true — the `{:else if}` below IS that removal, behind a confirm
-		     sheet. (2) The dead-state argument held only while removal ALWAYS destroyed both copies;
-		     it stops holding the moment the user can KEEP the file, because a surviving Music/OpenMusic
-		     copy is exactly what a later scan can re-import. (It comes back under a NEW `device:` uid,
-		     so a uid-keyed mark is not a guaranteed block either — see confirmRemoveDownload.) The
-		     two rows stay mutually exclusive, now by STRUCTURE: if / else-if, never both.
-
-		     quick-260919-vrq (placement): this pair sits directly BELOW the Download row rather
-		     than up beside Edit metadata. Remove-download is the inverse of the row above it and
-		     the two are mutually exclusive states of one thing, so reading them apart made the
-		     menu answer "can I download this?" in two separate places.
-
-		     THE GATE, "is there something to remove": EITHER thing removeDownload clears — an offline
-		     copy (`blobPresent === true`, the blob-backed truth of quick-260913-jq4) OR a downloads-list
-		     row (`library.isDownloaded`, which can be true with NO blob at all: addDownload runs before
-		     the fetch, and the web `<a download>` save reports success on a cancelled dialog).
-		     `blobPresent` alone would leave that stale row unremovable from here; `isDownloaded` alone
-		     would hide the row for a blob whose list entry was lost. `=== true` and not merely truthy,
-		     so the row cannot flash in during the `null` pre-probe tick. `!isDevice` is implied. -->
-		{#if isDevice}
-			<button class="gi" onclick={noImport} use:tapBounce><EyeOff size={22} /><span class="gi-label">{t('menu.noImport')}</span></button>
-		{:else if blobPresent === true || library.isDownloaded(track.uid)}
-			<button class="gi" onclick={openRemoveDownload} use:tapBounce><Trash2 size={22} /><span class="gi-label">{t('menu.removeDownload')}</span></button>
-		{/if}
-		{/if}
-
-<!-- quick-260926-qat: lyrics timing toggle. Shown ONLY for the currently playing track that
+		{/snippet}
+		<!-- Gap 4 (26-10): Play from source — opens a lazily-fed VersionPicker. The variant fetch fires
+		     ONLY on THIS tap (openVersions), never on menu open (opt-in; T-26-10-02). Shown for every
+		     track (variants discovered on demand; the picker's loading/empty states cover a single-source
+		     song). Available for the current track too (switch the playing source). -->
+		{#snippet cellVersions(tr: Track)}
+			<button class="gi" onclick={openVersions} use:tapBounce><Layers size={22} /><span class="gi-label">{t('menu.versions')}</span></button>
+		{/snippet}
+		<!-- quick-260915-w4f: Change cover. The cover chain is first-solid-wins and sometimes wins wrong
+		     (wrong album, live-version art, a low-res CN thumbnail); this lets the user override it once,
+		     per song, permanently. The candidate fan-out fires on THIS tap only (Q1). `disabled` mirrors
+		     the Like row: a uid-less stub has no identity to pin against. -->
+		{#snippet cellChangeCover(tr: Track)}
+			<button class="gi" disabled={!tr.uid} onclick={openCoverPicker} use:tapBounce><ImageIcon size={22} /><span class="gi-label">{t('menu.changeCover')}</span></button>
+		{/snippet}
+		<!-- quick-260919-1we: Fix lyrics. Same story as Change cover one line up, for the lyric chain:
+		     it is first-source-wins and sometimes wins wrong (wrong song, wrong language, an
+		     instrumental's LRC), and until now the user had no way to correct it. The per-source walk
+		     fires on THIS tap only (T-1we-03). `disabled` mirrors the Like / Change-cover rows: a
+		     uid-less stub has no identity to pin against (D-1). -->
+		{#snippet cellChangeLyrics(tr: Track)}
+			<button class="gi" disabled={!tr.uid} onclick={openLyricsPicker} use:tapBounce><Mic2 size={22} /><span class="gi-label">{t('menu.changeLyrics')}</span></button>
+		{/snippet}
+		<!-- quick-260926-qat: lyrics timing toggle. Shown ONLY for the currently playing track that
 		     actually has lyrics — the row it reveals lives in the Now Playing lyrics pane of
 		     player.current, so for any other track it would toggle something the user cannot see.
 		     readLyrics(player.current) is D-4's single read (pin → track.lrc → null) and takes the
 		     lyricVersion dependency, so a Fix-lyrics pick that lands lyrics makes this row appear live.
 		     Repeat-row idiom (class:on + aria-pressed + swapping label): the menu closes on tap, so the
 		     label must show the state before the tap. -->
-		{#if player.current?.uid === track.uid && readLyrics(player.current)}
+		{#snippet cellLyricsTiming(tr: Track)}
 			<button class="gi" class:on={lyricSyncOpen()} aria-pressed={lyricSyncOpen()} onclick={toggleLyricsTiming} use:tapBounce><Timer size={22} /><span class="gi-label">{lyricSyncOpen() ? t('menu.lyricsTimingHide') : t('menu.lyricsTiming')}</span></button>
-		{/if}
-		<!-- Gap 4 (26-10): Play from source — opens a lazily-fed VersionPicker. The variant fetch fires
-		     ONLY on THIS tap (openVersions), never on menu open (opt-in; T-26-10-02). Shown for every
-		     track (variants discovered on demand; the picker's loading/empty states cover a single-source
-		     song). Available for the current track too (switch the playing source). -->
-		<button class="gi" onclick={openVersions} use:tapBounce><Layers size={22} /><span class="gi-label">{t('menu.versions')}</span></button>
-		<!-- quick-260915-w4f: Change cover. The cover chain is first-solid-wins and sometimes wins wrong
-		     (wrong album, live-version art, a low-res CN thumbnail); this lets the user override it once,
-		     per song, permanently. The candidate fan-out fires on THIS tap only (Q1). `disabled` mirrors
-		     the Like row: a uid-less stub has no identity to pin against. -->
-		<button class="gi" disabled={!track.uid} onclick={openCoverPicker} use:tapBounce><ImageIcon size={22} /><span class="gi-label">{t('menu.changeCover')}</span></button>
-		<!-- quick-260919-1we: Fix lyrics. Same story as Change cover one line up, for the lyric chain:
-		     it is first-source-wins and sometimes wins wrong (wrong song, wrong language, an
-		     instrumental's LRC), and until now the user had no way to correct it. The per-source walk
-		     fires on THIS tap only (T-1we-03). `disabled` mirrors the Like / Change-cover rows: a
-		     uid-less stub has no identity to pin against (D-1). -->
-		<button class="gi" disabled={!track.uid} onclick={openLyricsPicker} use:tapBounce><Mic2 size={22} /><span class="gi-label">{t('menu.changeLyrics')}</span></button>
-
+		{/snippet}
 		<!-- quick-260919-1eh: Edit metadata. Shown ONLY for a file the app actually holds bytes for.
 		     `blobPresent` is the blob-backed probe, NOT library.isDownloaded — quick-260913-jq4
 		     explains why the reference list lies (it is populated BEFORE the fetch, and the web save
 		     is an <a download> click that reports success even when the user cancels the dialog), so
-		     the list happily says "Downloaded" with nothing stored anywhere.
-
-		     quick-260919-ejm: the `!isDevice` half is GONE. It was the UI mirror of a service refusal
-		     that no longer exists — `retagOne` now routes an imported uid to the authorised in-place
-		     rewrite (`overwriteDeviceFile`) instead of to `blobStore.put`, so the duplicate-file
-		     hazard that justified hiding this row is avoided by routing rather than by hiding.
-		     `blobPresent` is true for an imported file because `blobStore.has` reads the user's file
-		     in place (34-D-05), which is exactly the right meaning here: there are bytes to edit. -->
-		{#if blobPresent}
+		     the list happily says "Downloaded" with nothing stored anywhere. -->
+		{#snippet cellEditTags(tr: Track)}
 			<button class="gi" onclick={() => (tagsOpen = true)} use:tapBounce><Tags size={22} /><span class="gi-label">{t('menu.editTags')}</span></button>
-		{/if}
-		<button class="gi" onclick={() => { pickerOpen = true; }} use:tapBounce><ListPlus size={22} /><span class="gi-label">{t('menu.addToPlaylist')}</span></button>
+		{/snippet}
+		{#snippet cellAddToPlaylist(tr: Track)}
+			<button class="gi" onclick={() => { pickerOpen = true; }} use:tapBounce><ListPlus size={22} /><span class="gi-label">{t('menu.addToPlaylist')}</span></button>
+		{/snippet}
 		<!-- quick-260919-0mw (correction): Repeat, relocated from the NowPlaying transport row.
 		     Deliberately OUTSIDE the queue.length > 1 gate that wraps Shuffle: shuffling a
 		     one-track queue is a no-op, but repeat-ONE on a one-track queue is the single most
 		     obvious reason to reach for repeat at all. Gated on player.current instead — there has
 		     to be something playing for a repeat mode to mean anything.
 		     PLAY-10 / D-10: repeat is BINARY here (off ↔ one), not the three-state off/one/all
-		     cycle it is in most players — player.cycleRepeat() has no 'all' branch. So this row is
-		     the same two-state shape as the Shuffle row above it and needs no extra affordance.
-		     State legibility, three ways, because the menu CLOSES on tap and a kebab row is read
-		     from a cold start every time (unlike the button, which sat in the user's eyeline):
-		       1. class:on — the shared active-row highlight. NOTE it had no CSS rule at all until
-		          this change (see .mi.on in the style block): the Shuffle row has carried the class
-		          since ii6 while rendering identically on and off. Adding the rule there rather
-		          than a repeat-only class fixes both rows at once.
-		       2. icon swap — Repeat1 (the glyph with the 1) when repeat-one is armed, exactly the
-		          swap the transport button did.
-		       3. the LABEL swaps to "Repeat one" — the decisive one, and free: both nowplaying.*
-		          keys already exist in all 15 dictionaries from the button this replaces, so no new
-		          key was minted. Highlight-alone would be ambiguous in a list where several rows
-		          can be highlighted at once. -->
-		{#if player.current}
+		     cycle it is in most players — player.cycleRepeat() has no 'all' branch. State
+		     legibility, three ways: class:on + icon swap (Repeat1 when repeat-one is armed) +
+		     the LABEL swapping to "Repeat one" — the menu CLOSES on tap, so the label must show
+		     the state before the tap. -->
+		{#snippet cellRepeat(tr: Track)}
 			<button class="gi" class:on={player.repeatMode !== 'off'} aria-pressed={player.repeatMode !== 'off'} onclick={cycleRepeatMode} use:tapBounce>
 				{#if player.repeatMode === 'one'}<Repeat1 size={22} />{:else}<Repeat size={22} />{/if}<span class="gi-label">{player.repeatMode === 'one' ? t('nowplaying.repeatModeOne') : t('nowplaying.repeat')}</span>
 			</button>
-		{/if}
-		{#if player.queue.length > 1}
+		{/snippet}
+		<!-- ii6: Shuffle moved off the NowPlaying transport row into the menu. Shown only when
+		     there's a queue to shuffle (otherwise the action would be a no-op). -->
+		{#snippet cellShuffleQueue(tr: Track)}
 			<button class="gi" class:on={player.shuffle} onclick={shuffleQueue} use:tapBounce><Shuffle size={22} /><span class="gi-label">{t('menu.shuffleQueue')}</span></button>
+		{/snippet}
+		<!-- GLN-5: clear-queue relocated here from the NowPlaying subnav. Clearing a queue that is just
+		     [current] is a no-op, so the item is gated to queue.length > 1 in canShow. -->
+		{#snippet cellClearQueue(tr: Track)}
 			<button class="gi" onclick={clearQueue} use:tapBounce><Trash2 size={22} /><span class="gi-label">{t('menu.clearQueue')}</span></button>
-		{/if}
-<!-- Detail: GATED — resolves details to populate the detail sheet's audioUrl/quality rows. -->
-		<button class="gi" aria-busy={inFlight.has('detail')} aria-label={inFlight.has('detail') ? t('menu.preparing') : undefined} onclick={() => gated('detail', doDetail)} use:tapBounce>
-			{#if inFlight.has('detail')}<span class="row-spinner motion-always"></span>{:else}<Info size={22} />{/if}<span class="gi-label">{t('menu.detail')}</span>
-		</button>
+		{/snippet}
 		<!-- Opens the GLOBAL SleepTimerSheet (mounted in the app layout) — not a local sub-sheet
 		     here, so the timer indicator is reachable from the nowbar + now-playing too (D-08). -->
-		<button class="gi" onclick={() => { close(); tick().then(() => (sleepTimer.sheetOpen = true)); }} use:tapBounce><Moon size={22} /><span class="gi-label">{t('menu.sleepTimer')}</span></button>
-		<button class="gi" onclick={gotoArtist} use:tapBounce><User size={22} /><span class="gi-label">{t('menu.goToArtist')}</span></button>
+		{#snippet cellSleepTimer(tr: Track)}
+			<button class="gi" onclick={() => { close(); tick().then(() => (sleepTimer.sheetOpen = true)); }} use:tapBounce><Moon size={22} /><span class="gi-label">{t('menu.sleepTimer')}</span></button>
+		{/snippet}
+		{#snippet cellGoToArtist(tr: Track)}
+			<button class="gi" onclick={gotoArtist} use:tapBounce><User size={22} /><span class="gi-label">{t('menu.goToArtist')}</span></button>
+		{/snippet}
+		<!-- quick-261006-mnu: Go to album — the menu finally answers "which album is this from",
+		     grouped after Go to artist. Hidden when the track carries no album (canShow/hasAlbum);
+		     gotoAlbum() re-guards, and the route takes the script-locked names like gotoArtist. -->
+		{#snippet cellGoToAlbum(tr: Track)}
+			<button class="gi" onclick={gotoAlbum} use:tapBounce><Disc3 size={22} /><span class="gi-label">{t('menu.goToAlbum')}</span></button>
+		{/snippet}
 		<!-- quick-260920-kia: Share is UNCONDITIONAL — UI-SPEC Contract 8's `!isDevice` guard on
-		     Share (see the header fork's note) is SUPERSEDED. Its rationale ("a share link to a file
-		     only on this phone is nonsense, and would emit a URL carrying a local uid") was wrong
-		     about the mechanism: songShareUrl() emits a NAME-based /song/{artist}/{title} catalog
+		     Share is SUPERSEDED. songShareUrl() emits a NAME-based /song/{artist}/{title} catalog
 		     link, and share.ts uidCarrier() returns null for isDeviceUid() (38-D-08), so an imported
-		     local track shares a valid catalog link and no device: uid ever reaches the URL. Sharing
-		     an imported song therefore means what sharing any other song means: "here is this song".
-		     NO runtime guard is added in doShare() — the device skip already lives at the one place
-		     every caller routes through (share.ts), pinned by share.test.ts "a `device:` uid carries
-		     NOTHING". Do not reintroduce a device guard here. -->
-		<button class="gi" onclick={doShare} use:tapBounce><Share2 size={22} /><span class="gi-label">{t('menu.share')}</span></button>
-
-		</div><!-- /quick-261006-grd .acts grid -->
+		     local track shares a valid catalog link and no device: uid ever reaches the URL.
+		     Do not reintroduce a device guard here. -->
+		{#snippet cellShare(tr: Track)}
+			<button class="gi" onclick={doShare} use:tapBounce><Share2 size={22} /><span class="gi-label">{t('menu.share')}</span></button>
+		{/snippet}
+		<!-- Detail: GATED — resolves details to populate the detail sheet's audioUrl/quality rows. -->
+		{#snippet cellDetail(tr: Track)}
+			<button class="gi" aria-busy={inFlight.has('detail')} aria-label={inFlight.has('detail') ? t('menu.preparing') : undefined} onclick={() => gated('detail', doDetail)} use:tapBounce>
+				{#if inFlight.has('detail')}<span class="row-spinner motion-always"></span>{:else}<Info size={22} />{/if}<span class="gi-label">{t('menu.detail')}</span>
+			</button>
+		{/snippet}
+		{#if editing}
+			<!-- quick-261006-mnu — EDIT MODE replaces the live grid: every catalog action as a
+			     static cell (enabled first in the user's order, then the hidden remainder dimmed).
+			     Drag an enabled cell to reorder (pointer events, touch-friendly); tap to hide /
+			     re-add; arrow keys move, Enter/Space toggles. dragClose is disabled while editing
+			     (see the menu node above) so a reorder gesture can never dismiss the sheet. -->
+			<div class="acts edit" bind:this={editGridEl}>
+				{#each editIds as id, i (id)}
+					{@const on = editOrder.includes(id)}
+					{@const Icon = EDIT_META[id].icon}
+					{@const draggingThis = i === mDragFrom}
+					<button
+						class="gi edit-cell"
+						class:on={on}
+						class:off={!on}
+						class:lifted={draggingThis}
+						data-id={id}
+						aria-pressed={on}
+						aria-label={t(EDIT_META[id].label)}
+						title={t(EDIT_META[id].label)}
+						style:transform={draggingThis && (mDragDx || mDragDy) ? `translate(${mDragDx}px, ${mDragDy}px)` : undefined}
+						onpointerdown={(e) => mDown(e, id)}
+						onpointermove={mMove}
+						onpointerup={mUp}
+						onpointercancel={mUp}
+						onclick={() => mClick(id)}
+						onkeydown={(e) => mKey(e, id)}
+						animate:flip={{ duration: draggingThis || settings.reduceMotion ? 0 : 180 }}
+					><Icon size={22} /><span class="gi-label">{t(EDIT_META[id].label)}</span></button>
+				{/each}
+			</div>
+		{:else}
+			<div class="acts">
+				{#each visibleIds as id (id)}
+					{@const cellSnippets = { remix: cellRemix, playNext: cellPlayNext, download: cellDownload, like: cellLike, addQueue: cellAddQueue, versions: cellVersions, changeCover: cellChangeCover, changeLyrics: cellChangeLyrics, lyricsTiming: cellLyricsTiming, editTags: cellEditTags, addToPlaylist: cellAddToPlaylist, repeat: cellRepeat, shuffleQueue: cellShuffleQueue, clearQueue: cellClearQueue, sleepTimer: cellSleepTimer, goToArtist: cellGoToArtist, goToAlbum: cellGoToAlbum, share: cellShare, detail: cellDetail }}
+					{@render cellSnippets[id](track)}
+				{/each}
+			</div><!-- /quick-261006-grd .acts grid -->
+		{/if}
 	</div>
 {/if}
 
@@ -1652,6 +1892,17 @@
 		color: var(--color-text-muted); cursor: pointer;
 	}
 	@media (hover: hover) { .gi-caret:hover { background: var(--color-surface); color: var(--color-text); } }
+	/* quick-261006-mnu — EDIT MODE. Cells are 2D drag targets: `touch-action: none` so the
+	   finger owns the gesture (the sheet's dragClose is disabled while editing, and the grid
+	   is short enough to need no scroll). A dragged cell follows 1:1 with no transition
+	   (direct manipulation, not decoration); the OTHERS glide aside via animate:flip,
+	   duration 0 under reduceMotion. Dimmed cells are tappable to re-add — they keep a
+	   stable, visible place to come back from (the RowActionsConfig shape). */
+	.edit-cell { touch-action: none; cursor: grab; }
+	.edit-cell.off { opacity: 0.45; }
+	.edit-cell.off .gi-label { color: var(--color-text-muted); }
+	.edit-cell.lifted { opacity: 0.9; z-index: 2; cursor: grabbing; }
+	.edit-cell:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
 	/* Grid progress: a thin determinate bar along the cell's bottom edge. The list row's
 	   full-bleed ::after tint would swallow a 72px cell, so the bar lives at the bottom instead.
 	   The indeterminate slide reuses the same dl-slide keyframes (translateX %, layout-free). */

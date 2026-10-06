@@ -21,6 +21,9 @@ import {
 // applyTheme() to derive --color-primary-hover from the chosen accent (UX-07 root-cause fix).
 import { darken } from '$lib/services/color';
 import { CHART_REGIONS, HOME_LAYOUT_VERSION, clampShelfSize, migrateDensity, migrateHomeLayout, type ChartRegion, type HomeDensity, type HomeLandingTab, type HomeSectionId } from '$lib/services/home-layout';
+// quick-261006-mnu: pure catalog + order normalizer for the customizable TrackMenu grid.
+// PURE (imports nothing from stores) — the LEAF invariant holds, same as home-layout above.
+import { MENU_ACTIONS, normalizeMenuOrder, type MenuActionId } from '$lib/services/track-menu-order';
 
 export type LyricsLang =
 	| 'off'
@@ -195,6 +198,11 @@ class Settings {
 	 *  a set. A per-surface `actions` prop overrides it (Up Next must not grow a Download button
 	 *  just because this is on); undefined means "follow the user". */
 	rowActions = $state<RowAction[]>([...APPEARANCE_DEFAULTS.rowActions]);
+	/** quick-261006-mnu: the TrackMenu grid's visible actions, IN ORDER. The array IS the
+	 *  layout (row-major, 4 columns) — reordering it reorders the grid. Actions the user hid
+	 *  are simply absent; normalizeMenuOrder re-appends any missing catalog ids on load, so a
+	 *  future new action can never vanish silently for existing users. */
+	trackMenuOrder = $state<MenuActionId[]>([...MENU_ACTIONS]);
 	// 32-D-02 (SUPERSEDES D-03's "default to the 128–160k band" rationale): the default is
 	// now 'auto' — lossless on a positively-identified unmetered connection, '320' otherwise.
 	// Every source ladder (QQ/JOOX/Kuwo) resolves this pref through ONE seam,
@@ -355,6 +363,10 @@ class Settings {
 							(x, i, a): x is RowAction => ROW_ACTIONS.includes(x as RowAction) && a.indexOf(x) === i
 						)
 					: [...APPEARANCE_DEFAULTS.rowActions];
+				// quick-261006-mnu: same T-l9e-01 posture as rowActions above — localStorage is
+				// user/extension-writable. normalizeMenuOrder keeps known ids in saved order,
+				// drops unknowns/dupes, and appends missing catalog ids (forward-compat).
+				this.trackMenuOrder = normalizeMenuOrder(v.trackMenuOrder);
 				this.translateMode = (v.translateMode as TranslateMode) ?? TRANSLATION_DEFAULTS.translateMode;
 				// quick-260919-2jo / T-2jo-02: VALIDATED against the union, not cast. A tampered or
 				// stale `openmusic:settings:v1` must never hand a garbage token to lockScriptSync's
@@ -526,6 +538,7 @@ class Settings {
 					coverScale: this.coverScale,
 					homeGridCols: this.homeGridCols,
 					rowActions: this.rowActions,
+					trackMenuOrder: this.trackMenuOrder,
 					translateMode: this.translateMode,
 					zhScript: this.zhScript,
 					lyricsHideParenTranslation: this.lyricsHideParenTranslation,

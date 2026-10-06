@@ -328,6 +328,7 @@ const th: Dict = {
 	"menu.liked": "ชอบ",
 	"menu.addToPlaylist": "เพิ่มลงในเพลย์ลิสต์",
 	"menu.goToAlbum": "ไปที่อัลบั้ม",
+	"menu.customize": "ปรับแต่งเมนู",
 	"menu.goToArtist": "ไปหาศิลปิน",
 	"menu.share": "แบ่งปัน",
 	"menu.detail": "รายละเอียด",
