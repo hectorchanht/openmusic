@@ -100,6 +100,11 @@
 	}
 	.head.bare {
 		margin-bottom: 0;
+		/* The chevron-only variant has no .titles flex spacer, so trailing controls (the
+		   settings gear) would hug the chevron at the left — space-between keeps them at the
+		   row's right end instead (gear top-right on every page, user call 2026-10-06). A lone
+		   chevron is unaffected: a single flex item still sits at the start. */
+		justify-content: space-between;
 	}
 	/* The only flexible box, so a trailing control keeps its full width and the title gives. */
 	.titles {
