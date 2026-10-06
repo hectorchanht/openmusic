@@ -142,13 +142,16 @@
 				<button class="mi" onclick={() => pick(v)} use:tapBounce>
 					<span class="ver-meta">
 						<span class="ver-title">
-							<!-- quick-261006-sdf: the source pill leads the row — this sheet's whole
-							     job is the per-source choice, so source identity is the first thing
-							     the eye lands on. flex:none so the title's ellipsis absorbs the squeeze. -->
-							<span class="src">{sourceLabel(v)}</span>
 							<span class="ver-name" use:marquee><span class="marquee-inner">{names.dnTitle(v.title, v.artist)}</span></span>
 						</span>
-						{#if vt}<span class="ver-tag">{tagLabel(vt)}</span>{/if}
+						<!-- quick-261006-tag: the source pill lives in the TAG ROW with the version
+						     tag — never in the title line, where it stole width from the song name.
+						     The row always renders (the source pill is unconditional); the version
+						     tag joins it only when the title carries one. -->
+						<span class="tag-row">
+							<span class="src">{sourceLabel(v)}</span>
+							{#if vt}<span class="ver-tag">{tagLabel(vt)}</span>{/if}
+						</span>
 						<span class="ver-sub">{versionSub(v)}</span>
 					</span>
 				</button>
@@ -180,9 +183,12 @@
 	}
 	.mi:hover { background: var(--color-surface); }
 	.ver-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-	/* Title row is a flex line so the (Live)/(Demo) tag pill stays visible while the name ellipsizes. */
-	.ver-title { font-size: 0.875rem; font-weight: 600; color: var(--color-text); display: flex; align-items: center; gap: 6px; min-width: 0; }
+	/* Title row: the name gets the full width — the source pill was evicted to .tag-row
+	   (quick-261006-tag) so long titles never lose space to it. */
+	.ver-title { font-size: 0.875rem; font-weight: 600; color: var(--color-text); min-width: 0; }
 	.ver-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+	/* Tag row: source pill + version tag side by side under the title. */
+	.tag-row { display: flex; align-items: center; gap: 6px; margin-top: 3px; }
 	/* quick-261006-sdf: the source pill — the row's identity in this sheet. Primary-tinted (not
 	   muted like .ver-tag) because it is the decision the user is here to make. The text itself is
 	   re-scripted by `names.zhLock` (tongwentang script lock, like all page content), so no locale
