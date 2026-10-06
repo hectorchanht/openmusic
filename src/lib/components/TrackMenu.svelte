@@ -1462,7 +1462,9 @@
 				{@const text = parseLyrics(c.lrc).map((l) => l.text.trim()).filter(Boolean).join('\n')}
 				<div class="lyr-card" class:on={current}>
 					<div class="lyr-head">
-						<span class="dl-src">{SOURCES[c.source]?.label ?? c.source}</span>
+						<!-- quick-261006-zh: source labels ride the tongwentang script lock like all
+						     page content (names.zhLock — re-script only, no /api/translate). -->
+						<span class="dl-src">{names.zhLock(SOURCES[c.source]?.label ?? c.source)}</span>
 						{#if current}<span class="lyr-cur"><Check size={14} /> {t('menu.currentLyrics')}</span>{/if}
 					</div>
 					<!-- quick-260926-vdp: dragClose arms in its own `pointerdown` on the `.menu` node and only
@@ -1501,7 +1503,8 @@
 			{@const unavailable = p !== undefined && !p.track?.audioUrl}
 			<button class="mi" disabled={unavailable} aria-disabled={unavailable} onclick={() => pickDownload(v)} use:tapBounce>
 				<Download size={18} />
-				<span class="dl-src">{SOURCES[v.source]?.label ?? v.source}</span>
+				<!-- quick-261006-zh: source labels ride the tongwentang script lock like all page content. -->
+				<span class="dl-src">{names.zhLock(SOURCES[v.source]?.label ?? v.source)}</span>
 				{#if p === undefined}<span class="count skel" aria-hidden="true"></span>
 				{:else if unavailable}<span class="count">{t('menu.downloadUnavailable')}</span>
 				{:else if meta}<span class="count">{meta}</span>{/if}

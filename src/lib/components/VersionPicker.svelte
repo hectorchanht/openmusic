@@ -78,8 +78,12 @@
 	// because the whole point of "Play from source" is choosing WHICH source plays. The
 	// adapter label (网易云音乐 / QQ 音乐 / …) is the identity; duration rides the sub line so
 	// same-title variants from different sources read apart at a glance.
+	// quick-261006-zh: the label rides `names.zhLock` — the tongwentang (同文堂) script lock every
+	// other page content goes through — so a zh-Hant user sees 網易雲音樂, not the Simplified
+	// source string. No /api/translate round trip (brand names are never translated, only
+	// re-scripted), and 'off' returns the label byte-for-byte.
 	function sourceLabel(v: Track): string {
-		return SOURCES[v.source]?.label ?? v.source;
+		return names.zhLock(SOURCES[v.source]?.label ?? v.source);
 	}
 	/** seconds → "m:ss" for the sub line. null when the source did not report a duration
 	 *  (Track.duration is optional — never fabricate one). */
@@ -180,8 +184,9 @@
 	.ver-title { font-size: 0.875rem; font-weight: 600; color: var(--color-text); display: flex; align-items: center; gap: 6px; min-width: 0; }
 	.ver-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 	/* quick-261006-sdf: the source pill — the row's identity in this sheet. Primary-tinted (not
-	   muted like .ver-tag) because it is the decision the user is here to make. Brand labels are
-	   never translated (i18n-free by design), so no locale key is minted for them. */
+	   muted like .ver-tag) because it is the decision the user is here to make. The text itself is
+	   re-scripted by `names.zhLock` (tongwentang script lock, like all page content), so no locale
+	   key is minted for the brand labels. */
 	.src {
 		flex: 0 0 auto; font-size: 0.625rem; font-weight: 700; letter-spacing: 0.02em; white-space: nowrap;
 		color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 14%, transparent);

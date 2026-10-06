@@ -9,6 +9,7 @@
 	import type { UpnextMode, QueueContext } from '$lib/config/defaults';
 	import { SOURCES } from '$lib/sources/registry';
 	import type { SourceId } from '$lib/sources/types';
+	import { names } from '$lib/stores/names.svelte';
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { t, type TranslationKey } from '$lib/i18n';
 
@@ -297,7 +298,8 @@
 	<summary><Sliders size={15} /> {t('settings.sourcesAdvanced')}<SettingHint label={t('settings.sourcesAdvanced')} text={t('settings.sourcesAdvancedNote')} /></summary>
 	<div class="chips">
 		{#each Object.values(SOURCES) as adapter (adapter.id)}
-			<button class="chip" class:on={sourceEnabled(adapter.id)} onclick={() => toggleSource(adapter.id)} use:tapBounce>{adapter.label}</button>
+			<!-- quick-261006-zh: source labels ride the tongwentang script lock like all page content. -->
+			<button class="chip" class:on={sourceEnabled(adapter.id)} onclick={() => toggleSource(adapter.id)} use:tapBounce>{names.zhLock(adapter.label)}</button>
 		{/each}
 	</div>
 </details>
