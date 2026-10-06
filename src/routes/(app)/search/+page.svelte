@@ -37,6 +37,8 @@
 	import TrackMenu from '$lib/components/TrackMenu.svelte';
 	import VersionPicker from '$lib/components/VersionPicker.svelte';
 	import SettingsGear from '$lib/components/SettingsGear.svelte';
+	import ConfirmModal from '$lib/components/ConfirmModal.svelte';
+	// User 2026-10-06 (audit): replace native confirm() with in-app ConfirmModal for consistency.
 	import type { Track } from '$lib/sources/types';
 
 	// UX-04 / D-03/D-04 swipe-right = queue, swipe-left = play next: the handlers moved INTO
@@ -235,13 +237,21 @@
 		queryInputEl?.focus();
 	}
 
-	// quick-260711-sm7 (req 3): remove a single recent keyword, gated by a native confirm —
+	// quick-260711-sm7 (req 3): remove a single recent keyword, gated by ConfirmModal —
 	// the app-wide destructive-action idiom (mirrors settings/data clearLibraryConfirm).
+	// User 2026-10-06 (audit): was native confirm(), now in-app ConfirmModal.
+	let removeRecentOpen = $state(false);
+	let removeRecentQuery = $state('');
 	function removeRecent(query: string) {
-		if (confirm(t('search.confirmRemoveRecent', { q: query }))) {
-			searchHistory.remove(query);
-		}
+		removeRecentQuery = query;
+		removeRecentOpen = true;
 	}
+	function confirmRemoveRecent() {
+		searchHistory.remove(removeRecentQuery);
+		removeRecentOpen = false;
+	}
+
+	let clearAllOpen = $state(false);
 
 	// kyf + ljl-followup: artist tiles row above the song list. Every UNIQUE artist that
 	// appears in the result set becomes a tile (no count threshold, no name-match filter, no
@@ -685,10 +695,11 @@
 	<div class="suggest">
 		<div class="suggest-head">
 			<span class="suggest-title">{t('search.recent')}</span>
-			<!-- quick-260711-sm7 (req 4): clear-all now behind a native confirm. -->
+			<!-- quick-260711-sm7 (req 4): clear-all now behind ConfirmModal (was native confirm).
+			     User 2026-10-06 (audit): consistency with settings pages. -->
 			<!-- quick-261006-ico: icon-only Clear history (icon-first UI pass) — Trash2, labelled
 			     via aria-label + title. -->
-			<button type="button" class="suggest-clear" onmousedown={(e) => e.preventDefault()} onclick={() => { if (confirm(t('search.confirmClearAll'))) searchHistory.clear(); }} use:tapBounce aria-label={t('search.clear')} title={t('search.clear')}>
+			<button type="button" class="suggest-clear" onmousedown={(e) => e.preventDefault()} onclick={() => (clearAllOpen = true)} use:tapBounce aria-label={t('search.clear')} title={t('search.clear')}>
 				<Trash2 size={16} />
 			</button>
 		</div>
@@ -873,6 +884,24 @@
 
 <TrackMenu track={menuTrack} open={menuOpen} onclose={() => (menuOpen = false)} />
 
+<!-- User 2026-10-06 (audit): in-app confirms replacing native confirm(). -->
+<ConfirmModal
+	open={removeRecentOpen}
+	title={t('search.confirmRemoveRecent', { q: removeRecentQuery })}
+	body={t('search.confirmRemoveRecent', { q: removeRecentQuery })}
+	confirmLabel={t('search.clear')}
+	onconfirm={confirmRemoveRecent}
+	onclose={() => (removeRecentOpen = false)}
+/>
+<ConfirmModal
+	open={clearAllOpen}
+	title={t('search.clear')}
+	body={t('search.confirmClearAll')}
+	confirmLabel={t('search.clear')}
+	onconfirm={() => { searchHistory.clear(); clearAllOpen = false; }}
+	onclose={() => (clearAllOpen = false)}
+/>
+
 <!-- VERSIONS-01: ONE VersionPicker mount (mirrors the single TrackMenu mount), driven by
      pickerVersions/pickerOpen. onpick plays the chosen source's EXACT variant; default row tap
      is unchanged (still plays the deduped winner). -->
@@ -894,23 +923,26 @@
 	.input-wrap { position: relative; flex: 1; min-width: 0; display: flex; }
 	.bar input {
 		flex: 1; min-width: 0; background: var(--color-surface-2); border: 1px solid var(--color-border);
-		color: var(--color-text); border-radius: 999px; padding: 12px; font-size: 0.9375rem; outline: none; height: 40px;
+		color: var(--color-text); border-radius: 999px; padding: 12px; font-size: 0.9375rem; outline: none; height: 44px;
 	}
+	/* User 2026-10-06 (audit): 40px -> 44px for minimum touch target. */
 	.bar input:focus { border-color: var(--color-primary); }
 	/* quick-260711-sm7: clear (X) button — full input-height grid-centred (NO translateY, so the
 	   use:tapBounce scale keyframe can't displace it). Shown only when the input has text. */
 	.clear-input {
-		position: absolute; right: 0px; top: 0; bottom: 0; width: 34px;
+		position: absolute; right: 0px; top: 0; bottom: 0; width: 44px;
 		display: grid; place-items: center; background: none; border: none; padding: 0;
 		color: var(--color-text-muted); cursor: pointer;
 		background: transparent !important;
 	}
+	/* User 2026-10-06 (audit): 34px -> 44px width for minimum touch target. */
 	@media (hover: hover) { .clear-input:hover { color: var(--color-text); } }
 	.bar button {
 		background: var(--color-primary); border: none; color: #fff; border-radius: 999px;
-		width: 40px; height: 40px; font-weight: 700; cursor: pointer;
+		width: 44px; height: 44px; font-weight: 700; cursor: pointer;
 		display: inline-flex; align-items: center; justify-content: center;
 	}
+	/* User 2026-10-06 (audit): 40px -> 44px for minimum touch target. */
 	.bar button[disabled] { opacity: 0.8; cursor: default; }
 	.spin { display: inline-flex; animation: spin 0.7s linear infinite; }
 	@keyframes spin { to { transform: rotate(360deg); } }

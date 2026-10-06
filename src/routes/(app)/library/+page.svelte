@@ -22,6 +22,8 @@
 	import SongRow from '$lib/components/SongRow.svelte';
 	import TrackMenu from '$lib/components/TrackMenu.svelte';
 	import RadioList from '$lib/components/RadioList.svelte';
+	import ConfirmModal from '$lib/components/ConfirmModal.svelte';
+	// User 2026-10-06 (audit): replace native confirm() with in-app ConfirmModal.
 	import SettingsGear from '$lib/components/SettingsGear.svelte';
 	import type { Track } from '$lib/sources/types';
 	import type { QueueContext } from '$lib/config/defaults';
@@ -183,13 +185,14 @@
 
 	// kyf: per-name lazy-loaded avatars for the fav-artists tab. Cached in a Map so a
 	// tab-flip re-render doesn't refire the network.
+	// User 2026-10-06 (audit): was a boolean one-shot — a newly-favorited artist after the
+	// first load never got a cover. Now a Set of loaded names; only unloaded names are fetched.
 	let favCovers = $state<Record<string, string | null>>({});
-	let favCoversLoaded = false;
+	let favCoversLoaded = $state(new Set<string>());
 	async function loadFavCovers() {
-		if (favCoversLoaded) return;
-		favCoversLoaded = true;
-		const names = library.favArtists;
+		const names = library.favArtists.filter((nm) => !favCoversLoaded.has(nm));
 		if (!names.length) return;
+		for (const nm of names) favCoversLoaded.add(nm);
 		const covered = await mapWithConcurrency(names, 4, async (nm) => {
 			const lf = await enrichArtist(nm).catch(() => null);
 			const img = lf?.lastfmArt ?? (await deezerArtistCover(nm).catch(() => null));
@@ -283,9 +286,13 @@
 	 * for that and lives in Settings → Data). confirm() is the house pattern for a destructive tap
 	 * (settings/data/+page.svelte; Capacitor 8 renders it as a native AlertDialog), so a single
 	 * mis-tap can never empty a list.
+	 * User 2026-10-06 (audit): was native confirm(), now in-app ConfirmModal.
 	 */
+	let clearListOpen = $state(false);
 	function clearCurrentList() {
-		if (!confirm(t('library.clearListConfirm', { name: detailPlaylist?.name ?? tabLabel }))) return;
+		clearListOpen = true;
+	}
+	function confirmClearList() {
 		if (tab === 'liked') library.clearLiked();
 		else if (tab === 'downloads') library.clearDownloads();
 		else if (tab === 'fav-artists') library.clearFavArtists();
@@ -293,13 +300,19 @@
 		else if (detailPlaylist) library.clearPlaylistTracks(detailPlaylist.id);
 		editMode = false; // nothing left to edit
 		listMenuOpen = false;
+		clearListOpen = false;
 	}
+	let deletePlaylistOpen = $state(false);
 	function deleteDetailPlaylist() {
 		if (!detailPlaylist) return;
-		if (!confirm(t('library.deletePlaylistConfirm', { name: detailPlaylist.name }))) return;
+		deletePlaylistOpen = true;
+	}
+	function confirmDeletePlaylist() {
+		if (!detailPlaylist) return;
 		library.deletePlaylist(detailPlaylist.id);
 		detailPlaylistId = null; // the detail view's subject is gone — fall back to all playlists
 		listMenuOpen = false;
+		deletePlaylistOpen = false;
 	}
 	// quick-260915-vb9: whole-list queue actions. addToQueue/playNext each persist per call — fine
 	// at library sizes. ponytail: N persists, batch if a 1000-song list ever measures slow.
@@ -559,6 +572,24 @@
 
 <TrackMenu track={menuTrack} open={menuOpen} onclose={() => (menuOpen = false)} />
 
+<!-- User 2026-10-06 (audit): in-app confirms replacing native confirm(). -->
+<ConfirmModal
+	open={clearListOpen}
+	title={t('library.clearListConfirm', { name: detailPlaylist?.name ?? tabLabel })}
+	body={t('library.clearListConfirm', { name: detailPlaylist?.name ?? tabLabel })}
+	confirmLabel={t('library.clearList')}
+	onconfirm={confirmClearList}
+	onclose={() => (clearListOpen = false)}
+/>
+<ConfirmModal
+	open={deletePlaylistOpen}
+	title={t('library.deletePlaylistConfirm', { name: detailPlaylist?.name ?? '' })}
+	body={t('library.deletePlaylistConfirm', { name: detailPlaylist?.name ?? '' })}
+	confirmLabel={t('library.deletePlaylist')}
+	onconfirm={confirmDeletePlaylist}
+	onclose={() => (deletePlaylistOpen = false)}
+/>
+
 <style>
 	.head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 16px 0 12px; flex-wrap: wrap; }
 	.head h1 { font-size: calc(1.4rem * var(--fs-title, 1)); margin: 0; min-width: 0; }
@@ -576,7 +607,8 @@
 	.edit-row { color: #ff7a90; }
 	.edit-row:hover { background: rgba(255, 122, 144, 0.08); }
 	.tabs { display: flex; gap: 8px; margin-bottom: 14px; }
-	.tabs button { flex: 1; display: inline-flex; align-items: center; justify-content: center; background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text-muted); padding: 10px 0; border-radius: 999px; cursor: pointer; min-width: 0; }
+	.tabs button { flex: 1; display: inline-flex; align-items: center; justify-content: center; background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text-muted); padding: 14px 0; border-radius: 999px; cursor: pointer; min-width: 0; }
+	/* User 2026-10-06 (audit): 10px -> 14px padding for 44px minimum touch target. */
 	.tabs button.active { background: var(--color-primary); color: #fff; border-color: transparent; }
 	.list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 	/* D-11 used to lay out the swipe-wrap beside a trailing DownloadControl. quick-260919-l9e
@@ -603,7 +635,8 @@
 	.pl-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
 	.pl-head h2 { font-size: 1rem; margin: 0; }
 	.count { color: var(--color-text-muted); font-size: 0.75rem; font-weight: 400; }
-	.del { background: none; border: none; color: var(--color-text-muted); cursor: pointer; display: grid; place-items: center; padding: 6px; }
+	.del { background: none; border: none; color: var(--color-text-muted); cursor: pointer; display: grid; place-items: center; padding: 6px; min-width: 44px; min-height: 44px; }
+	/* User 2026-10-06 (audit): 28px -> 44px minimum touch target (destructive action needs accuracy). */
 	.empty { display: flex; flex-direction: column; align-items: center; gap: 10px; color: var(--color-text-muted); padding: 48px 16px; text-align: center; font-size: 0.875rem; }
 	.empty-sm { color: var(--color-text-muted); font-size: 0.8125rem; padding: 4px 8px; }
 	.note { color: var(--color-text-muted); font-size: 0.6875rem; margin-top: 12px; }

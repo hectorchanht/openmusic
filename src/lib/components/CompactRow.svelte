@@ -119,7 +119,7 @@ import { sizedCover, ROW_COVER_PX } from '$lib/services/cover-size';
 </script>
 
 {#snippet artImg()}
-	{#if effectiveCover}<img class="art-img" src={effectiveCover} loading="lazy" alt="" onerror={hideOnError} />{/if}
+	{#if effectiveCover}<img class="art-img" src={effectiveCover} loading="lazy" decoding="async" alt="" onerror={hideOnError} />{/if}
 {/snippet}
 
 {#if variant === 'artist'}
