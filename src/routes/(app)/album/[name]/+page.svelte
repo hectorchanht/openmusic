@@ -387,7 +387,15 @@
 	let menuOpen = $state(false);
 	let menuLoading = $state(false);
 	async function openMenu(stub: AlbumStub) {
-		menuTrack = null;
+		// User 2026-10-06: menu must open INSTANTLY — pass a stub Track (uid:'') so the
+		// menu renders immediately with title/artist; the resolve fills in the real
+		// Track behind the already-open menu (spinners show for loading cells).
+		// Setting menuTrack=null here would block {#if open && track} until resolve done.
+		menuTrack = {
+			uid: '', source: 'netease', songid: '', title: stub.title, artist: stub.artist, album: '',
+			cover: null, audioUrl: null, lrc: null, lrcUrl: null, detailsLoaded: false,
+			quality: null, qualityLabel: null, keyword: '', displayIndex: 0
+		} as Track;
 		menuLoading = true;
 		menuOpen = true;
 		try {
