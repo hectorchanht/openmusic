@@ -12,6 +12,7 @@
 	import { HOME_CACHE_KEY, LEGACY_HOME_CACHE_KEYS } from '$lib/services/home-charts';
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { t } from '$lib/i18n';
+	import ConfirmModal from '$lib/components/ConfirmModal.svelte';
 	import { applyEnvelope, backupFilename, buildEnvelope, hasUndoSnapshot, serializeEnvelope, storageKeys, undoImport, validateEnvelope } from '$lib/backup/backup-logic';
 	import { exportBackup } from '$lib/services/backup-io';
 	import { findMissing, sweepMissing } from '$lib/backup/sweep';
@@ -167,7 +168,16 @@
 	function clearNameCache() { names.clearCache(); flash(t('settings.nameCacheCleared')); }
 	function clearCovers() { clearCoverCache(); flash(t('settings.coverCacheCleared')); }
 	function clearSearchHistory() { try { localStorage.removeItem(SEARCH_HISTORY_KEY); } catch { /* */ } flash(t('settings.searchHistoryCleared')); }
-	function resetAppearance() { settings.resetAppearance(); flash(t('settings.appearanceReset')); }
+	function resetAppearance() {
+		// User call 2026-10-06: reset opens an in-app confirm modal (not the native
+		// window.confirm).
+		resetOpen = true;
+	}
+	let resetOpen = $state(false);
+	function doResetAppearance() {
+		settings.resetAppearance();
+		flash(t('settings.appearanceReset'));
+	}
 	function clearLibrary() {
 		if (confirm(t('settings.clearLibraryConfirm'))) {
 			library.clearAll();
@@ -180,6 +190,15 @@
 <svelte:head><title>{t('settings.title')}</title></svelte:head>
 
 <PageHeader title={t('settings.data')} backLabel={t('settings.backToSettings')} onback={() => goto('/settings')} />
+
+<ConfirmModal
+	open={resetOpen}
+	title={t('settings.resetAppearance')}
+	body={t('settings.resetAppearanceDesc')}
+	confirmLabel={t('settings.resetGroup')}
+	onconfirm={doResetAppearance}
+	onclose={() => (resetOpen = false)}
+/>
 
 <section>
 	<p class="muted">{t('settings.dataCounts', { liked: counts.liked, playlists: counts.playlists, downloads: counts.downloads })}</p>

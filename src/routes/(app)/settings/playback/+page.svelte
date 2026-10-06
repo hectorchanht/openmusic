@@ -12,8 +12,13 @@
 	import { names } from '$lib/stores/names.svelte';
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { t, type TranslationKey } from '$lib/i18n';
+	import ConfirmModal from '$lib/components/ConfirmModal.svelte';
 
 	onMount(() => settings.load());
+
+	// User call 2026-10-06: the reset button opens an in-app confirm modal (not the
+	// native window.confirm).
+	let resetOpen = $state(false);
 
 	// Quality tokens (320k/128k) are literal; Auto/Lossless are chrome.
 	const qualities: { v: DefaultQuality; key?: string; literal?: string }[] = [
@@ -99,9 +104,18 @@
 <PageHeader title={t('settings.groupPlayback')} backLabel={t('settings.backToSettings')} onback={() => goto('/settings')}>
 	{#snippet trailing()}
 		<!-- quick-261006-ico: icon-only reset (icon-first UI pass) — resetGroup doubles as aria-label + title. -->
-		<button class="reset" onclick={() => { if (confirm(t('settings.resetConfirm'))) { settings.resetPlayback(); } }} use:tapBounce aria-label={t('settings.resetGroup')} title={t('settings.resetGroup')}><RotateCcw size={16} /></button>
+		<button class="reset" onclick={() => (resetOpen = true)} use:tapBounce aria-label={t('settings.resetGroup')} title={t('settings.resetGroup')}><RotateCcw size={16} /></button>
 	{/snippet}
 </PageHeader>
+
+<ConfirmModal
+	open={resetOpen}
+	title={t('settings.resetGroup')}
+	body={t('settings.resetConfirm')}
+	confirmLabel={t('settings.resetGroup')}
+	onconfirm={() => settings.resetPlayback()}
+	onclose={() => (resetOpen = false)}
+/>
 
 <section>
 	<h2><Music size={15} /> {t('settings.defaultQuality')}<SettingHint label={t('settings.defaultQuality')} text={t('settings.defaultQualityNote')} /></h2>

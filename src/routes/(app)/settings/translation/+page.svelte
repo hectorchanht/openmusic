@@ -9,8 +9,13 @@
 	import { settings, type LyricsLang, type SourceLang, type TranslateMode, type ZhScriptSetting } from '$lib/stores/settings.svelte';
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { t, type TranslationKey } from '$lib/i18n';
+	import ConfirmModal from '$lib/components/ConfirmModal.svelte';
 
 	onMount(() => settings.load());
+
+	// User call 2026-10-06: the reset button opens an in-app confirm modal (not the
+	// native window.confirm).
+	let resetOpen = $state(false);
 
 	// `off` + 'auto' are chrome (label resolved in template via t()); language endonyms literal.
 	// ju0: 'auto' added as a 17th option in all per-part pickers (was bio-only). At resolve
@@ -173,9 +178,18 @@
 <PageHeader title={t('settings.groupTranslation')} backLabel={t('settings.backToSettings')} onback={() => goto('/settings')}>
 	{#snippet trailing()}
 		<!-- quick-261006-ico: icon-only reset (icon-first UI pass) — resetGroup doubles as aria-label + title. -->
-		<button class="reset" onclick={() => { if (confirm(t('settings.resetConfirm'))) { settings.resetTranslation(); } }} use:tapBounce aria-label={t('settings.resetGroup')} title={t('settings.resetGroup')}><RotateCcw size={16} /></button>
+		<button class="reset" onclick={() => (resetOpen = true)} use:tapBounce aria-label={t('settings.resetGroup')} title={t('settings.resetGroup')}><RotateCcw size={16} /></button>
 	{/snippet}
 </PageHeader>
+
+<ConfirmModal
+	open={resetOpen}
+	title={t('settings.resetGroup')}
+	body={t('settings.resetConfirm')}
+	confirmLabel={t('settings.resetGroup')}
+	onconfirm={() => settings.resetTranslation()}
+	onclose={() => (resetOpen = false)}
+/>
 
 <!-- quick-260919-ebi (F3): the translate-mode mocks use NEUTRAL BLOCK TEXT, not a real bilingual
      pair, and that is a deliberate call. Any real sample would have to pick an original language

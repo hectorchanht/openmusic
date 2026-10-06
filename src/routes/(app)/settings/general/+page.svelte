@@ -10,8 +10,13 @@
 	import SettingHint from '$lib/components/SettingHint.svelte';
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { t, ensureLocale, type AppLang } from '$lib/i18n';
+	import ConfirmModal from '$lib/components/ConfirmModal.svelte';
 
 	onMount(() => settings.load());
+
+	// User call 2026-10-06: the reset button opens an in-app confirm modal (not the
+	// native window.confirm).
+	let resetOpen = $state(false);
 
 	// App-language endonyms render literally (NOT through t()).
 	const appLangs: { v: AppLang; label: string }[] = [
@@ -44,9 +49,18 @@
 	{#snippet trailing()}
 		<!-- quick-261006-ico: icon-only reset (icon-first UI pass) — the existing resetGroup
 		     string doubles as the aria-label + title, so no new i18n key. -->
-		<button class="reset" onclick={() => { if (confirm(t('settings.resetConfirm'))) { settings.resetGeneral(); } }} use:tapBounce aria-label={t('settings.resetGroup')} title={t('settings.resetGroup')}><RotateCcw size={16} /></button>
+		<button class="reset" onclick={() => (resetOpen = true)} use:tapBounce aria-label={t('settings.resetGroup')} title={t('settings.resetGroup')}><RotateCcw size={16} /></button>
 	{/snippet}
 </PageHeader>
+
+<ConfirmModal
+	open={resetOpen}
+	title={t('settings.resetGroup')}
+	body={t('settings.resetConfirm')}
+	confirmLabel={t('settings.resetGroup')}
+	onconfirm={() => settings.resetGeneral()}
+	onclose={() => (resetOpen = false)}
+/>
 
 <section>
 	<h2><Globe size={15} /> {t('settings.appLanguage')}<SettingHint label={t('settings.appLanguage')} text={t('settings.appLanguageDesc')} /></h2>

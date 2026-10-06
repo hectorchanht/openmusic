@@ -40,8 +40,13 @@
     import NpPreviewEditor from "$lib/components/NpPreviewEditor.svelte";
     import { tapBounce } from "$lib/actions/tapBounce";
     import { t } from "$lib/i18n";
+    import ConfirmModal from "$lib/components/ConfirmModal.svelte";
 
     onMount(() => settings.load());
+
+    // User call 2026-10-06: the reset button opens an in-app confirm modal (not the
+    // native window.confirm).
+    let resetOpen = $state(false);
 
     // D-12: each slider's demo reads "example {name}" from the actual current/last-played track —
     // title-type sliders show the song name, artist-type sliders the artist name. Static fallback
@@ -162,11 +167,7 @@
     {#snippet trailing()}
         <button
             class="reset"
-            onclick={() => {
-                if (confirm(t("settings.resetConfirm"))) {
-                    settings.resetAppearance();
-                }
-            }}
+            onclick={() => (resetOpen = true)}
             use:tapBounce
             aria-label={t("settings.resetGroup")}
             title={t("settings.resetGroup")}
@@ -174,6 +175,15 @@
         >
     {/snippet}
 </PageHeader>
+
+<ConfirmModal
+    open={resetOpen}
+    title={t("settings.resetGroup")}
+    body={t("settings.resetConfirm")}
+    confirmLabel={t("settings.resetGroup")}
+    onconfirm={() => settings.resetAppearance()}
+    onclose={() => (resetOpen = false)}
+/>
 
 <!-- quick-260919-ebi: Theme / Accent colour / Motion moved here from /settings/general — a page
      literally named Appearance that did not contain dark mode was the single worst findability bug

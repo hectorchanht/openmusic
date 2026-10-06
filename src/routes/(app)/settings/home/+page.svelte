@@ -50,8 +50,13 @@
 	import { chipReorder } from '$lib/actions/chipReorder';
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { t, type TranslationKey } from '$lib/i18n';
+	import ConfirmModal from '$lib/components/ConfirmModal.svelte';
 
 	onMount(() => settings.load());
+
+	// User call 2026-10-06: the reset button opens an in-app confirm modal (not the
+	// native window.confirm).
+	let resetOpen = $state(false);
 
 	// Section id → i18n label key. Iterate the RESOLVED order so a corrupt saved order still
 	// renders (resolveSectionOrder drops unknown ids + appends missing known ones).
@@ -300,9 +305,18 @@
 <PageHeader title={t('settings.groupHome')} backLabel={t('settings.backToSettings')} onback={() => goto('/settings')}>
 	{#snippet trailing()}
 		<!-- quick-261006-ico: icon-only reset (icon-first UI pass) — resetGroup doubles as aria-label + title. -->
-		<button class="reset" onclick={() => { if (confirm(t('settings.resetConfirm'))) { settings.resetHome(); } }} aria-label={t('settings.resetGroup')} title={t('settings.resetGroup')}><RotateCcw size={16} /></button>
+		<button class="reset" onclick={() => (resetOpen = true)} aria-label={t('settings.resetGroup')} title={t('settings.resetGroup')}><RotateCcw size={16} /></button>
 	{/snippet}
 </PageHeader>
+
+<ConfirmModal
+	open={resetOpen}
+	title={t('settings.resetGroup')}
+	body={t('settings.resetConfirm')}
+	confirmLabel={t('settings.resetGroup')}
+	onconfirm={() => settings.resetHome()}
+	onclose={() => (resetOpen = false)}
+/>
 
 <!-- quick-260919-ebi (F3): the Home preview mocks, all built from the shared .mock-* primitives
      in SettingPicker — CSS/SVG only, theme tokens only, so they are correct in dark AND light
