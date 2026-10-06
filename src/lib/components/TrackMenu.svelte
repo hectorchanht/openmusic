@@ -31,6 +31,7 @@
 	import { mapWithConcurrency } from '$lib/services/discovery';
 	import { SOURCES } from '$lib/sources/registry';
 	import VersionPicker from '$lib/components/VersionPicker.svelte';
+	import DownloadRing from '$lib/components/DownloadRing.svelte';
 	// quick-260919-1eh: the tag-edit sheet. Same co-mount arrangement as VersionPicker above — it
 	// owns its own overlay lifecycle under a DISTINCT overlayId.
 	import MetadataEditor from '$lib/components/MetadataEditor.svelte';
@@ -1001,22 +1002,22 @@
 {#if open && track}
 	<button class="scrim" aria-label={t('menu.closeMenu')} onclick={close}></button>
 	<div class="menu" transition:fly={{ y: 240, duration: 200 }} use:dragClose={{ onclose: close }} use:focusTrap>
-		<!-- D-08/D-09/D-10: two-row marquee header (song/artist, display-only) + a Close
-		     affordance at the top-right corner. Replaces the old single ellipsised
-		     `{title} · {artist}` line, and (user call 2026-10-06) the full-width icon row
-		     that sat under the text. Like and Download left the header for grid items 2–3
-		     of the first row below (user call 2026-10-06, menu-first-row).
+		<!-- D-08/D-09/D-10: two-row marquee header (song/artist, display-only) + a compact
+		     top-right icon cluster (Like / Download / Close, left to right). Replaces the old
+		     single ellipsised `{title} · {artist}` line, and (user call 2026-10-06) the
+		     full-width icon row that sat under the text.
 		     {#key track.uid} remounts the clips on a stub→resolved reassignment so use:marquee
 		     re-measures the wider resolved text (NowPlaying analog; Pitfall 2). The keyframe is
 		     GLOBAL in app.css (Pitfall 4) — the component styles only the clip wrappers. -->
 		<div class="sheet-head">
 			<!-- quick-260919-dlring: the header text block IS the Go-to-artist control. It routes
 			     through the SAME gotoArtist() as the `menu.goToArtist` cell below — one route-building
-			     path, one overlays.navigateAway() dismissal, so the two can never disagree. Note gotoArtist()
+			     path, one overlays.navigateAway() dismissal, so the two can never disagree (the same
+			     one-path principle as the D-09/je8 header-icon + grid-cell duplication). Note gotoArtist()
 			     navigates with the RAW track.artist through the script lock only (names.artistHref,
 			     quick-260926-hl9); names.dnArtist is display-only and must never reach the route.
-			     A <button> that is a SIBLING of .head-actions, never a wrapper around it — the Close
-			     button must not end up nested inside a button. The two clip elements
+			     A <button> that is a SIBLING of .head-actions, never a wrapper around it — the Like /
+			     Download / Close buttons must not end up nested inside a button. The two clip elements
 			     are <span>s (not <div>s) so the button's phrasing-only content model holds; `use:marquee`
 			     is untouched and the CSS gives them back `display: block`, so the two-row shape and the
 			     header height are byte-identical to the div version.
@@ -1035,15 +1036,73 @@
 					<span class="hd-artist" use:marquee><span class="marquee-inner">{names.dnArtist(track.artist)}</span></span>
 				{/key}
 			</button>
-			<!-- User call 2026-10-06 (menu-first-row): Like and Download LEFT the header —
-			     they are grid items 2–3 of the first row below now (always visible, even for
-			     the current track). This SUPERSEDES the D-09/je8/et3 header-icon duplication
-			     (header icon + grid cell, "the two can never disagree"): one Like and one
-			     Download now, both in the grid, both calling the same like()/startDownload()
-			     and reading the same `liked` / tri-state sources the header buttons read.
-			     The header keeps ONLY the Close affordance, so the title/artist text gets the
-			     full header width instead of truncating beside a 3-icon cluster. -->
+			<!-- User call 2026-10-06: the header is a row — text on the left, a COMPACT icon
+			     cluster pinned at the top-right (Like, Download, then Close at the very
+			     corner). A vertical strip was tried first but its 3×44px stack pushed the
+			     menu to full-screen; the horizontal cluster keeps the header to one 44px row.
+			     Order in the DOM is visual order (left to right).
+			     User call 2026-10-06 (menu-first-row): Like and Download are ALSO grid items
+			     2–3 of the first row below (ungated) — the header cluster stays exactly as
+			     it was (D-09/je8/et3 duplication stands). -->
 			<div class="head-actions">
+				<!-- D-09 AMENDED by quick-260913-je8: the header accent slot is DOWNLOAD now, not Like.
+				     D-09's "Like is the sole header accent AND the mid-list Like row is removed" no
+				     longer holds — Like is back as a text row below; the rest of D-09 (two-row marquee
+				     header, explicit Close affordance) stands unchanged.
+				     Download is DELIBERATELY duplicated (header icon + list row): both call the SAME
+				     gated('download', doDownload) and read the SAME tri-state sources (inFlight +
+				     library.downloading / isDownloaded), so the two can never disagree (D-11/D-12). -->
+				<!-- 34 (RESEARCH bites #10/#11, UI-SPEC Contract 8): Download is HIDDEN for device:
+				     entries — downloading a file already on this phone is nonsense. This is a NEW
+				     visibility condition.
+				     quick-260920-kia: Contract 8's SHARE half is SUPERSEDED — Share is unconditional;
+				     see the Share row's note below for why the "local uid in the URL" premise no longer
+				     holds. The `!isDevice` fork below gates DOWNLOAD ONLY.
+				     track-menu-gate.ts (isGatedReady/shouldStartResolve) is resolve TIMING and is
+				     deliberately not extended. -->
+				<!-- quick-260919-et3: Like as a header icon, BEFORE Download. Duplicated with the Like
+				     text row below on exactly the precedent D-09/je8 set for Download (header icon +
+				     list row): both call the same like() and read the same `liked` derived, so the two
+				     can never disagree. NOT wrapped in the !isDevice guard — that guard exists because
+				     downloading a file already on this phone is nonsense, which says nothing about
+				     liking an imported song. Same `!track.uid` disable as the row: a name-stub has no
+				     identity to like yet. -->
+				<button
+					class="hd-btn"
+					class:accent={liked}
+					aria-pressed={liked}
+					disabled={!track.uid}
+					aria-label={liked ? t('menu.liked') : t('menu.like')}
+					title={liked ? t('menu.liked') : t('menu.like')}
+					onclick={like}
+					use:tapBounce
+				>
+					<Heart size={20} fill={liked ? 'currentColor' : 'none'} />
+				</button>
+				{#if !isDevice}
+					{#if library.downloading.has(track.uid)}
+						<!-- quick-260919-dlring: same shared ring as the list row below and as every
+						     DownloadControl — determinate when downloadProgress has a fraction for this
+						     uid, spinning when it does not. The 20px glyph sizes it, so the header's
+						     44×44 measured slot is unchanged. -->
+						{@const hdFrac = library.downloadProgress[track.uid]}
+						<button
+							class="hd-btn dl-busy"
+							disabled
+							aria-busy="true"
+							aria-label={hdFrac === undefined
+								? t('menu.preparing')
+								: `${t('menu.download')} ${Math.round(hdFrac * 100)}%`}
+						>
+							<DownloadRing value={hdFrac}><Download size={20} /></DownloadRing>
+						</button>
+					{:else if blobPresent === true}
+						<button class="hd-btn" disabled aria-disabled="true" aria-label={t('menu.downloaded')}><Check size={20} /></button>
+					{:else}
+						<!-- quick-260915-26g: icon-only slot, so the probed detail rides the label/tooltip. -->
+						<button class="hd-btn" aria-label={dlLabel} title={dlLabel} onclick={startDownload} use:tapBounce><Download size={20} /></button>
+					{/if}
+				{/if}
 				<!-- Explicit Close affordance at the top-right corner (scrim/drag also close).
 				     It ONLY flips state via close() → the $effect cleanup is the SOLE
 				     overlays.dismiss caller, so scrim/X/drag/back all converge on one dismiss
@@ -1071,36 +1130,41 @@
 		     lyrics / download / remove-download) keep `.mi` — they are separate sheets, not
 		     this grid.
 		     User call 2026-10-06 (menu-first-row): DOM order CHANGED — first row is now
-		     Remix | Like | Download (Like + Download ungated, moved from the header cluster);
-		     LyricsTiming / Add to playlist / Detail each moved one slot earlier so the other
-		     cells shift down exactly one row; the menu stays 4 rows. Every handler and every
-		     {#if} condition is otherwise unchanged. -->
+		     Remix | Like | Download (Like + Download ungated AND kept in the header cluster,
+		     D-09/je8/et3 duplication stands); LyricsTiming / Add to playlist / Detail each
+		     moved one slot earlier so the other cells shift down exactly one row; the menu
+		     stays 4 rows. Every handler and every {#if} condition is otherwise unchanged. -->
 		<div class="acts">
 		<!-- User call 2026-10-06 (menu-first-row): first row = Remix | Like | Download.
-		     Like and Download moved here from the header cluster and are UNGATED — visible
-		     for the current track too, where the old gate hid them (the user's screenshot
-		     case). Everything below shifts down one row; the menu stays 4 rows. -->
-<!-- Remix: GATED (needs audioUrl to play the seed) — Sparkles + the inline spinner.
-		     Sits in the queue-actions cluster after Play next / Add to queue (D-07). -->
+		     Like and Download are grid items 2–3 here AND stay in the header cluster —
+		     the D-09/je8/et3 duplication stands (header icon + grid cell, "the two can
+		     never disagree"). The grid cells are UNGATED — visible for the current track
+		     too, where the old gate hid them (the user's screenshot case). Everything
+		     below shifts down one row; the menu stays 4 rows. -->
+		<!-- Remix: GATED (needs audioUrl to play the seed) — Sparkles + the inline spinner.
+		     User call 2026-10-06 (menu-first-row): FIRST-ROW anchor (was in the queue-actions
+		     cluster after Play next / Add to queue, D-07). -->
 		<button class="gi" aria-busy={inFlight.has('remix')} aria-label={inFlight.has('remix') ? t('menu.preparing') : undefined} onclick={() => gated('remix', doRemix)} use:tapBounce>
 			{#if inFlight.has('remix')}<span class="row-spinner motion-always"></span>{:else}<Sparkles size={22} />{/if}<span class="gi-label">{t('menu.remix')}</span>
 		</button>
-<!-- User call 2026-10-06: Like is grid item 4 (after Download) —
-		     the most-tapped actions sit in the first row. Duplicated with the header heart
-		     icon on the D-09/je8 precedent (both call the same like() + `liked` derived).
-		     .mi.accent carries the liked tint so this needs no new CSS and no new i18n keys. -->
+		<!-- User call 2026-10-06 (menu-first-row): Like is grid item 2 (after Remix) —
+		     UNGATED (was: non-current tracks only). Duplicated with the header heart icon
+		     on the D-09/je8/et3 precedent (both call the same like() + `liked` derived).
+		     Supersedes 094de89/73a9c6c ("Like is grid item 4, after Download"). -->
 		<!-- like-state-wrong-track-menu: a name-stub (uid:'') has no identity to like yet; the row waits for
 		     the host page's resolve to swap in the real Track rather than firing a no-op + wrong toast. -->
 		<button class="gi" class:on={liked} aria-pressed={liked} disabled={!track.uid} onclick={like} use:tapBounce>
 			<Heart size={22} fill={liked ? 'currentColor' : 'none'} /><span class="gi-label">{liked ? t('menu.liked') : t('menu.like')}</span>
 		</button>
-<!-- User call 2026-10-06: Download is grid item 3 (after Play next / Add to queue) —
-		     the most-tapped actions sit in the first row. The remove-download / don't-import
-		     row stays directly under it (they are inverse states of one thing).
+		<!-- User call 2026-10-06 (menu-first-row): Download is grid item 3 (after Like) —
+		     UNGATED (was: non-current tracks only). Duplicated with the header download icon
+		     on the D-09/je8 precedent (both call the same startDownload() and read the same
+		     tri-state sources). The remove-download / don't-import row stays in the not-current
+		     gate below (they are inverse states of one thing).
 		     Download: tri-state (D-11/D-12). Already downloaded → Check + greyed disabled ("Downloaded").
-		     Otherwise GATED — resolve-then-act at settings.downloadQuality via downloadTrack. The busy
-		     state reads BOTH the gated stub-resolve (inFlight) AND the shared per-uid library.downloading
-		     set, so the row shows its spinner whether or not this menu stays open (D-12). -->
+		     The busy state reads BOTH the gated stub-resolve (inFlight) AND the shared per-uid
+		     library.downloading set, so the cell shows its progress whether or not this menu
+		     stays open (D-12). Supersedes 094de89/73a9c6c ("grid item 3 after Play next / Add to queue"). -->
 		<!-- Hidden for device: entries — see the header fork's note. -->
 		{#if !isDevice}
 		{#if library.downloading.has(track.uid)}
@@ -1109,7 +1173,7 @@
 			     Content-Length), and THAT is the indeterminate state.
 			     quick-260919-dlring REVERTED here (and ONLY here): omi's full-width ::after tint is the
 			     indicator for this row again. The ring stays in every other download affordance —
-			     DownloadControl — but inside the menu's LIST content
+			     DownloadControl and this menu's own header button — but inside the menu's LIST content
 			     the bar already spans the row and the `.count` already prints the exact figure, so a
 			     ring beside them is a third rendering of one number. The glyph is therefore STATIC in
 			     both states: no ring, no spinner. It is the same Download glyph the idle row shows, so
@@ -1572,10 +1636,13 @@
 	.hd-btn { min-width: 44px; min-height: 44px; display: grid; place-items: center; background: none; border: none; border-radius: 10px; color: var(--color-text); cursor: pointer; }
 	.hd-btn:hover { background: var(--color-surface); }
 	.hd-btn:disabled { opacity: 0.4; cursor: default; }
-	/* quick-260919-et3's `.hd-btn.accent` rule is GONE with the header Heart (user call
-	   2026-10-06, menu-first-row): Like lives in the grid now, tinted by `.gi.on`. The
-	   history: je8 had removed `.hd-btn.liked` when the header slot became Download; et3
-	   re-added the tint as `.accent` to match `.mi.accent`. Both superseded. */
+	/* quick-260919-et3: the header Heart is back (before Download), so the liked tint needs a rule
+	   here again. je8 had removed `.hd-btn.liked` when the header slot became Download. Named
+	   `.accent` to match `.mi.accent` on the list row rather than reviving a second name for the
+	   same idea — and declared, not merely applied: `class:accent` with no matching rule is the
+	   exact defect quick-260919-0mw found on the Shuffle row, where an active state had rendered
+	   pixel-identical to inactive since ii6. */
+	.hd-btn.accent { color: var(--color-primary); }
 	.mi { width: 100%; display: flex; align-items: center; gap: 12px; background: none; border: none; color: var(--color-text); font-size: 0.9375rem; padding: 12px; border-radius: 10px; cursor: pointer; text-align: left; }
 	.mi:hover { background: var(--color-surface); }
 	.mi:disabled { opacity: 0.4; cursor: default; }
@@ -1694,10 +1761,10 @@
 		100% { transform: translateX(313%); }
 	}
 	/* omi's other call, kept by quick-260919-dlring: a disabled control is dimmed to 0.4, but the
-	   busy download is disabled only because it is BUSY, and at 0.4 the bar/percentage are hard
-	   to read. The grid cell carries `.gi.dl-busy:disabled` with the grid styles (the header
-	   button's `.hd-btn.dl-busy:disabled` half left with the header Download, user call
-	   2026-10-06 menu-first-row). quick-261006-grd deleted the `.mi` half. */
+	   busy download is disabled only because it is BUSY, and at 0.4 the bar/percentage/ring are hard
+	   to read. The header button keeps the rule (it is the SAME state); the grid cell carries its
+	   own `.gi.dl-busy:disabled` with the grid styles. quick-261006-grd deleted the `.mi` half. */
+	.hd-btn.dl-busy:disabled { opacity: 1; }
 	/* MENU-01 inline resolve spinner — neutral (NOT accent), sits in the leading 18px icon box so
 	   the row width does not shift. quick-260809-mvz: keeps rotating under BOTH reduce-motion gates
 	   (markup carries `.motion-always`, app.css's escape hatch) — a frozen spinner reads as a hung
