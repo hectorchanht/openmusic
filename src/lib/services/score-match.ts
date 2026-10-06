@@ -13,8 +13,14 @@
 //
 // Score = similarity(query, candidate) − variantPenalty(query, candidate). Higher = better.
 // It NEVER returns null/NaN and NEVER applies a threshold (D-03 — scoring only re-orders).
+//
+// quick-261006-lyr: in LYRIC MODE (ctx.lyricMode — the query reads as a pasted lyric line, see
+// score-context.ts LYRIC-01/02) the formula gains two set-relative terms: a consensus boost for
+// candidates whose canonical title matches the set's elected consensus title, and a full
+// query-title-credit zero-out for a candidate whose canonical title IS the query (a pasted-lyric
+// mistitle, not the song). Both are ctx-gated; the 2-arg resolveStub path is byte-identical.
 import { matchKey } from '$lib/services/match-key';
-import { foldScript } from '$lib/services/dedupe';
+import { foldScript, titleKey } from '$lib/services/dedupe';
 import type { Track } from '$lib/sources/types';
 import type { SetContext } from '$lib/services/score-context';
 
@@ -31,6 +37,7 @@ export const VARIANT_KEYWORDS: string[] = [
 	'live',
 	'instrumental',
 	'remix',
+	'r&b', // quick-261006-lyr: an R&B rearrangement is a version marker like remix版 — the latin word-boundary rule fires it inside "木紋 (R&B版)" (\b between b and 版) without matching inside longer words
 	'sped up',
 	'speed up',
 	'slowed',
@@ -99,6 +106,19 @@ const SIM_SUBSTR = SHORT_TITLE_BOOST_MAX + ARTIST_FREQ_BOOST + 1; // = 6
  *  more than that guarantees NO boost combination lifts a sub-60s clip above a clean full
  *  track (D-04 penalty-dominance). Not an independently-chosen magnitude. */
 export const PREVIEW_PENALTY = SIM_EXACT + SHORT_TITLE_BOOST_MAX + ARTIST_FREQ_BOOST + 1;
+
+// --- Lyric-query tuning (quick-261006-lyr, LYRIC-03) -----------------------------------------
+/**
+ * Flat reward for a candidate whose title-only canonical key (titleKey) equals the result set's
+ * lyric consensus (score-context.ts LYRIC-02). PICKED, not derived: added to the original's own
+ * modest lyric-mode base (short-title proximity, ~2-3), the total must clear the best
+ * NON-consensus row a lyric query can realistically produce — shortTitleBoost (≤
+ * SHORT_TITLE_BOOST_MAX) + artistFrequencyBoost (ARTIST_FREQ_BOOST) = 5 — while staying far
+ * below SIM_EXACT (10) so a genuine exact title/artist match outside lyric mode is never
+ * outranked by it. Lyric mode is the ONLY path that awards it (ctx.lyricMode), so normal
+ * title/artist searches are byte-identical.
+ */
+const LYRIC_CONSENSUS_BOOST = 4;
 
 /** Split a matchKey component into latin word tokens for graded partial overlap. */
 function tokens(component: string): string[] {
@@ -242,26 +262,62 @@ function artistFrequencyBoost(candidate: Track, ctx: SetContext): number {
 }
 
 /**
+ * quick-261006-lyr LYRIC-03: in lyric mode, a candidate whose canonical title IS the query is a
+ * pasted-lyric mislabel (an uploader titled a cover/clip with the lyric line), NOT the song the
+ * lyric belongs to — the set's consensus title names that song instead. True only when the
+ * lyric reading is SET-VALIDATED: a real consensus exists and differs from this title. (When
+ * the query is a genuine long title, the consensus IS that title and nothing demotes.)
+ */
+function isMislabeledLyricTitle(
+	query: { artist: string; title: string },
+	candidate: Track,
+	ctx: SetContext
+): boolean {
+	if (!ctx.lyricMode || !ctx.lyricConsensus) return false;
+	const qk = titleKey(query.title);
+	const ck = titleKey(candidate.title);
+	return !!qk && qk === ck && ck !== ctx.lyricConsensus;
+}
+
+/**
+ * quick-261006-lyr LYRIC-02: flat reward when the candidate's title-only canonical key matches
+ * the lyric consensus — the song the lyric-matching upstreams agree on. 0 unless lyric mode is
+ * on and a consensus was elected.
+ */
+function lyricConsensusBoost(candidate: Track, ctx: SetContext): number {
+	if (!ctx.lyricMode || !ctx.lyricConsensus) return 0;
+	return titleKey(candidate.title) === ctx.lyricConsensus ? LYRIC_CONSENSUS_BOOST : 0;
+}
+
+/**
  * Pure best-match score for one candidate against a {artist, title} query.
  * Higher = better. Base score = similarity − variantPenalty (UNCHANGED for 2-arg callers —
  * resolveStub / tryFallback see byte-identical values). When the optional `ctx` is supplied
  * (Phase 21 search page) the set-relative short-title + cross-source-artist boosts are added,
  * and the 試聽 sub-60s penalty is subtracted whenever the candidate carries a known sub-clip
- * duration (the penalty does NOT require ctx — it fires off duration alone). Never null/NaN,
- * no threshold, no source/quality logic (dedupeBest owns that).
+ * duration (the penalty does NOT require ctx — it fires off duration alone). quick-261006-lyr:
+ * in lyric mode (ctx.lyricMode) a pasted-lyric mistitle earns NO query-title credit at all —
+ * no similarity, no substring containment, no short-title proximity — while consensus members
+ * gain LYRIC_CONSENSUS_BOOST; the variant/試聽 penalties and artist-frequency boost still apply
+ * to every row. Never null/NaN, no threshold, no source/quality logic (dedupeBest owns that).
  */
 export function scoreMatch(
 	query: { artist: string; title: string },
 	candidate: Track,
 	ctx?: SetContext
 ): number {
-	let score = similarity(query, candidate) - variantPenalty(query, candidate);
+	// LYRIC-03: the mistitle check needs the set-validated consensus, so it lives behind ctx.
+	const mislabeled = !!ctx && isMislabeledLyricTitle(query, candidate, ctx);
+	let score = (mislabeled ? 0 : similarity(query, candidate)) - variantPenalty(query, candidate);
 	// 試聽 penalty fires off duration alone (D-04) — independent of ctx.
 	score -= previewPenalty(candidate);
 	// Set-relative boosts require the per-set summary; absent ctx the 2-arg behavior is unchanged.
 	if (ctx) {
-		score += shortTitleBoost(candidate, ctx);
+		// LYRIC-03: a pasted-lyric title's length "proximity" to the query IS the mislabel —
+		// it must not earn shortTitleBoost either.
+		if (!mislabeled) score += shortTitleBoost(candidate, ctx);
 		score += artistFrequencyBoost(candidate, ctx);
+		score += lyricConsensusBoost(candidate, ctx);
 	}
 	return score;
 }

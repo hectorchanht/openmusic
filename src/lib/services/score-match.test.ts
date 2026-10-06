@@ -356,3 +356,102 @@ describe('scoreMatch — Traditional/Simplified script fold (debug album-zip-dup
 		expect(scoreMatch({ artist: '陈奕迅', title: '对面' }, mk('joox', 't', '陳奕迅', { title: '對面' }))).toBe(10);
 	});
 });
+
+// quick-261006-lyr: the user's live case — searching the lyric 如果一手鋸開枯樹木 (a line from
+// Denise Ho's 木紋). Upstreams return a mistitled upload (netease titled the track with the lyric
+// itself), lyric-matched covers (qq/kuwo), and the original (ytmusic "木紋 - Mu Wen" / HOCC).
+// Lyric mode must rank the ORIGINAL first and sink the mistitle last.
+describe('scoreMatch — lyric-query ranking (quick-261006-lyr)', () => {
+	const LYRIC = '如果一手鋸開枯樹木';
+	async function lyricCtx() {
+		await warmScript('zh-Hans');
+		const rows = [
+			mk('netease', 'mis', '南木碎碎唱', { title: LYRIC }),
+			mk('ytmusic', 'orig', 'HOCC', { title: '木紋 - Mu Wen' }),
+			mk('qq', 'cov', '邓千荧', { title: '木纹' }),
+			mk('joox', 'rb', 'Edz造夢赫茲', { title: '木紋 (R&B版)' }),
+			mk('ytmusic', 'other', '何韻詩', { title: '當我知道' })
+		];
+		return { rows, ctx: computeSetContext(rows, LYRIC) };
+	}
+
+	it('ranks the original song first and the pasted-lyric mistitle last', async () => {
+		const { rows, ctx } = await lyricCtx();
+		expect(ctx.lyricMode).toBe(true);
+		expect(ctx.lyricConsensus).toBe('木纹');
+		const q = { artist: LYRIC, title: LYRIC };
+		const scored = rows.map((t) => ({ t, s: scoreMatch(q, t, ctx) }));
+		const byScore = [...scored].sort((a, b) => b.s - a.s);
+		expect(byScore[0].t.title).toBe('木紋 - Mu Wen');
+		expect(byScore[byScore.length - 1].t.title).toBe(LYRIC);
+	});
+
+	it('the mistitle earns zero query-title credit (no similarity, no substring, no short-title boost)', async () => {
+		const { rows, ctx } = await lyricCtx();
+		const q = { artist: LYRIC, title: LYRIC };
+		const mistitle = rows[0];
+		expect(scoreMatch(q, mistitle, ctx)).toBe(0);
+		// …while the 2-arg resolveStub path is byte-identical (still earns its exact-title credit)
+		expect(scoreMatch(q, mistitle)).toBeGreaterThan(0);
+	});
+
+	it('variant covers of the consensus song rank below its clean cuts', async () => {
+		const { rows, ctx } = await lyricCtx();
+		const q = { artist: LYRIC, title: LYRIC };
+		const clean = scoreMatch(q, rows[2], ctx); // 木纹 / 邓千荧
+		const rb = scoreMatch(q, rows[3], ctx); // 木紋 (R&B版)
+		expect(clean).toBeGreaterThan(rb);
+	});
+
+	it('a genuine long title keeps its exact-match credit (consensus validates it)', async () => {
+		await warmScript('zh-Hans');
+		// 妳的名字我的姓氏 is a real 8-char CJK title: lyric mode engages, but the consensus IS
+		// the title, so the exact match must NOT be demoted — it keeps similarity + short-title
+		// + artist-frequency + consensus credit (14), far above a non-consensus row.
+		const query = '妳的名字我的姓氏';
+		const rows = [
+			mk('qq', '1', '張學友', { title: query }),
+			mk('netease', '2', '張學友', { title: query }),
+			mk('kuwo', '3', '某某', { title: '吻別' })
+		];
+		const ctx = computeSetContext(rows, query);
+		expect(ctx.lyricMode).toBe(true);
+		expect(ctx.lyricConsensus).not.toBeNull();
+		const q = { artist: query, title: query };
+		expect(scoreMatch(q, rows[0], ctx)).toBeGreaterThan(10);
+		expect(scoreMatch(q, rows[0], ctx)).toBeGreaterThan(scoreMatch(q, rows[2], ctx));
+	});
+
+	it('a short title search is completely untouched by lyric mode', async () => {
+		await warmScript('zh-Hans');
+		const rows = [
+			mk('netease', '1', '周杰倫', { title: '稻香' }),
+			mk('qq', '2', '周杰倫', { title: '稻香' }),
+			mk('kuwo', '3', '某某', { title: '稻香' })
+		];
+		const ctx = computeSetContext(rows, '稻香');
+		expect(ctx.lyricMode).toBe(false);
+		expect(ctx.lyricConsensus).toBeNull();
+		const q = { artist: '稻香', title: '稻香' };
+		// exact title match keeps its full credit (5 similarity + 3 short-title + 2 artist-freq)
+		expect(scoreMatch(q, rows[0], ctx)).toBe(10);
+		expect(scoreMatch(q, rows[0], ctx)).toBeGreaterThan(scoreMatch(q, rows[2], ctx));
+	});
+});
+
+describe('scoreMatch — R&B version marker (quick-261006-lyr)', () => {
+	it('penalizes a (R&B版) title like any other version marker', () => {
+		const query = { artist: 'X', title: '木紋' };
+		const clean = mk('netease', 'clean', 'X', { title: '木紋' });
+		const rb = mk('qq', 'rb', 'X', { title: '木紋 (R&B版)' });
+		expect(scoreMatch(query, clean)).toBeGreaterThan(scoreMatch(query, rb));
+	});
+
+	it('does NOT penalize R&B when the query asked for it', () => {
+		const query = { artist: 'X', title: '木紋 R&B版' };
+		const rb = mk('qq', 'rb', 'X', { title: '木紋 (R&B版)' });
+		expect(scoreMatch(query, rb)).toBeGreaterThanOrEqual(0);
+		const plain = mk('netease', 'plain', 'X', { title: '木紋' });
+		expect(scoreMatch(query, rb)).toBeGreaterThanOrEqual(scoreMatch(query, plain));
+	});
+});

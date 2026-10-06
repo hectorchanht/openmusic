@@ -170,6 +170,22 @@ export function songKey(artistIn: string, titleIn: string): string {
 }
 
 /**
+ * quick-261006-lyr: the TITLE-ONLY half of songKey — same script-folding, bracket-dropping and
+ * translation-stripping, but WITHOUT the artist (the "<own artist> - <title>" prefix rule needs an
+ * artist, so it is skipped: a title-only key never drops a leading "<x> - "). Exported so the
+ * lyric-query ranking (score-context's consensus + score-match's mislabel check) counts "the same
+ * song title" across DIFFERENT artists — songKey would keep every cover on its own key. Splits on
+ * the single '|' exactly like sameSongStrings does (strip() removes every non-letter/number char,
+ * so neither half can contain one). Same cold-dict caveat as songKey: only compare keys computed
+ * within one call.
+ */
+export function titleKey(titleIn: string): string {
+	const k = songKey('', titleIn || '');
+	const i = k.indexOf('|');
+	return i < 0 ? k : k.slice(0, i);
+}
+
+/**
  * quick-260927-2wt: two already-stripped, lowercased artist key halves name the same act when one
  * side's script runs are ALL present in the other's (`[gem]` ⊂ `[gem, 邓紫棋]`, `[邓紫棋]` ⊂ `[gem, 邓紫棋]`).
  * Runs compare WHOLE (array includes, never substring), so `a` vs `alin` and `jay` vs `jaychou`
