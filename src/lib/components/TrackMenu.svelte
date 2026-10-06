@@ -1570,8 +1570,11 @@
 	.x { background: none; border: none; color: var(--color-text); cursor: pointer; display: grid; place-items: center; }
 	/* D-08/D-09/D-10: two-row marquee header + top-right action/Close cluster (quick-260913-je8:
 	   the action slot is Download, was Like). Left text column flexes (min-width:0 so the clips can
-	   shrink-and-ellipsis); right cluster is fixed-width. */
-	.sheet-head { display: flex; align-items: center; gap: 12px; padding: 8px 10px; }
+	   shrink-and-ellipsis); right cluster is fixed-width.
+	   quick-261006-hdrtxt: the cluster moves BELOW the text. The title and the artist each get a
+	   full-width line now (no more side-by-side squeeze against the icons) — the header is a
+	   column: text block on top, icon row beneath, both stretched. */
+	.sheet-head { display: flex; flex-direction: column; align-items: stretch; gap: 2px; padding: 8px 10px; }
 	/* quick-260919-dlring: `.head-text` is a <button> now (Go to artist). Every declaration past the
 	   original `flex`/`min-width` pair is a UA reset — the box must stay pixel-identical to the div it
 	   replaced, so no padding, no border, no UA font, and text-align: left instead of the button
@@ -1579,7 +1582,9 @@
 	   would shrink-wrap). Deliberately NO `:disabled` opacity: with no artist to visit this button is
 	   inert, and inert must look like the plain text block it used to be, not like a greyed control. */
 	.head-text {
-		flex: 1;
+		/* quick-261006-hdrtxt: full-width text block (the column's first row) — the title and
+		   artist each own their line, so the marquee clips only scroll on genuinely long names. */
+		width: 100%;
 		min-width: 0;
 		display: block;
 		appearance: none;
@@ -1597,7 +1602,10 @@
 	   button above) — everything else is unchanged from when they were <div>s. */
 	.hd-title { display: block; font-size: calc(0.9375rem * var(--fs-title, 1)); font-weight: 600; color: var(--color-text); line-height: 1.25; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-width: 0; max-width: 100%; }
 	.hd-artist { display: block; font-size: calc(0.8125rem * var(--fs-artist, 1)); font-weight: 400; color: var(--color-text-muted); line-height: 1.25; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-width: 0; max-width: 100%; }
-	.head-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 18px; }
+	/* quick-261006-hdrtxt: the icon row sits UNDER the text now (the column's second row),
+	   left-aligned — Like / Download / Close keep their 44px targets, just no longer squeeze
+	   the title and artist. */
+	.head-actions { display: flex; align-items: center; gap: 2px; }
 	.hd-btn { min-width: 44px; min-height: 44px; display: grid; place-items: center; background: none; border: none; border-radius: 10px; color: var(--color-text); cursor: pointer; }
 	.hd-btn:hover { background: var(--color-surface); }
 	.hd-btn:disabled { opacity: 0.4; cursor: default; }
