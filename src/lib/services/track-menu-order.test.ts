@@ -1,5 +1,15 @@
 import { describe, it, expect } from 'vitest';
-import { MENU_ACTIONS, normalizeMenuOrder, type MenuActionId } from './track-menu-order';
+import { MENU_ACTIONS, MENU_GRID_SLOTS, normalizeMenuOrder, type MenuActionId } from './track-menu-order';
+
+describe('MENU_GRID_SLOTS', () => {
+	it('is 16 — the menu is always a 4x4 icon grid (user 2026-10-06)', () => {
+		expect(MENU_GRID_SLOTS).toBe(16);
+	});
+
+	it('is smaller than the catalog — the live grid caps, extras stay in the edit pool', () => {
+		expect(MENU_GRID_SLOTS).toBeLessThan(MENU_ACTIONS.length);
+	});
+});
 
 describe('MENU_ACTIONS', () => {
 	it('is the 19-id catalog in the documented default order', () => {

@@ -56,6 +56,11 @@ export const MENU_ACTIONS: readonly MenuActionId[] = [
 	'detail'
 ] as const;
 
+// quick-261006-44g — the menu is ALWAYS a 4x4 icon grid (user 2026-10-06). The live grid
+// renders at most this many cells: the user's enabled-and-visible actions in their order,
+// extras silently stay in the edit pool. 16 = 4 columns x 4 rows, no dangling 5th row.
+export const MENU_GRID_SLOTS = 16;
+
 const KNOWN = new Set<string>(MENU_ACTIONS);
 
 /**

@@ -28,7 +28,7 @@
 	// quick-261006-mnu: the customizable menu's action catalog + order normalizer. PURE —
 	// settings.svelte.ts (a LEAF store) is its other consumer; this component never imports
 	// the store THROUGH here.
-	import { MENU_ACTIONS, type MenuActionId } from '$lib/services/track-menu-order';
+	import { MENU_ACTIONS, MENU_GRID_SLOTS, type MenuActionId } from '$lib/services/track-menu-order';
 	import { ensureTrackDetails, collectLyricCandidates, type LyricCandidate } from '$lib/services/catalog';
 	import { prewarmTrack } from '$lib/services/prewarm';
 	// Gap 4 (26-10): the LAZY on-demand cross-source variant fetch (26-08) fed to the Play-from-source
@@ -117,18 +117,15 @@
 	// an empty param is not a page. Gates the header text control below; gotoArtist() re-checks it so
 	// the `menu.goToArtist` row cannot route there either.
 	const hasArtist = $derived(!!track && track.artist.trim() !== '');
-	// quick-261006-mnu: is there an album worth navigating TO? Mirrors hasArtist above — a
-	// stub with an empty album gets no Go-to-album cell at all (canShow), and gotoAlbum()
-	// re-checks so no caller can route to `/album/` with an empty name.
-	const hasAlbum = $derived(!!track && track.album.trim() !== '');
 	const nonCurrent = $derived(track ? track.uid !== player.current?.uid : true);
 
 	// quick-261006-mnu — THE MENU'S VISIBILITY GATES, one place. Each predicate preserves
-	// TODAY's `{#if}` gate exactly (playNext keeps its `.gi-blank` placeholder for the
-	// current track inside its own snippet); the download predicate folds the old
+	// TODAY's `{#if}` gate exactly; the download predicate folds the old
 	// `{#if !isDevice}` tri-state gate together with the non-current gate that wrapped the
 	// noImport/removeDownload pair. The live grid renders
-	// `settings.trackMenuOrder.filter(canShow)` row-major, 4 columns.
+	// `settings.trackMenuOrder.filter(canShow)` row-major, 4 columns, capped at
+	// MENU_GRID_SLOTS (quick-261006-44g: the menu is ALWAYS a 4x4 grid — no blank
+	// placeholders, no dangling 5th row; extras stay in the edit pool).
 	function canShow(id: MenuActionId): boolean {
 		switch (id) {
 			case 'download':
@@ -144,15 +141,17 @@
 			case 'shuffleQueue':
 			case 'clearQueue':
 				return player.queue.length > 1;
-			case 'goToAlbum':
-				return hasAlbum;
 			default:
 				// remix, playNext, like, versions, changeCover, changeLyrics, addToPlaylist,
-				// sleepTimer, goToArtist, share, detail — unconditional (as today).
+				// sleepTimer, goToArtist, goToAlbum, share, detail — unconditional.
+				// quick-261006-44g: goToAlbum lost its hasAlbum gate (user 2026-10-06 — some
+				// songs showed it, some didn't). It always renders now; gotoAlbum() resolves
+				// details first when the stub carries no album and toasts only when there is
+				// still nothing to navigate to.
 				return true;
 		}
 	}
-	const visibleIds = $derived(settings.trackMenuOrder.filter(canShow));
+	const visibleIds = $derived(settings.trackMenuOrder.filter(canShow).slice(0, MENU_GRID_SLOTS));
 
 	// quick-261006-mnu — the edit grid's static cells: icon + micro label per action. The
 	// label keys are the actions' OWN existing keys (no new i18n); the icons are the same
@@ -306,6 +305,13 @@
 			return;
 		}
 		const i = editOrder.indexOf(id);
+		// quick-261006-44g: the live grid holds exactly MENU_GRID_SLOTS cells (always 4x4),
+		// so the editor refuses a 17th enable — the action stays in the dimmed pool until
+		// the user hides something else. Disabling is always allowed.
+		if (i < 0 && editOrder.length >= MENU_GRID_SLOTS) {
+			toast.show(t('menu.gridFull'));
+			return;
+		}
 		editOrder = i >= 0 ? editOrder.filter((x) => x !== id) : [...editOrder, id];
 		commitEdit();
 	}
@@ -757,18 +763,28 @@
 		const dest = names.artistHref(track.artist);
 		overlays.navigateAway(() => goto(dest));
 	}
-	// quick-261006-mnu — Go to album. Mirrors gotoArtist exactly: same navigateAway single
-	// dismiss path, same script-lock rule — `names.zhLock` (re-script only), NEVER the
-	// display-language dn* strings (quick-260926-hl9). The album route keys off
-	// params.name + ?artist= (the discography albumHref shape).
+	// quick-261006-44g — Go to album is UNCONDITIONAL in the grid now (user 2026-10-06:
+	// some songs showed the cell, some didn't — the 4x4 grid must not come and go).
+	// Mirrors gotoArtist: same navigateAway single dismiss path, same script-lock rule —
+	// `names.zhLock` (re-script only), NEVER the display-language dn* strings
+	// (quick-260926-hl9). The album route keys off params.name + ?artist= (the
+	// discography albumHref shape). The album name usually arrives with the resolved
+	// track; for a stub without one, gated() resolves details first (the Detail/Remix
+	// resolve-then-act idiom) and only toasts when there is still nothing to go to.
 	function gotoAlbum() {
-		if (!track || !hasAlbum) return;
-		const dest =
-			'/album/' +
-			encodeURIComponent(names.zhLock(track.album)) +
-			'?artist=' +
-			encodeURIComponent(names.zhLock(track.artist));
-		overlays.navigateAway(() => goto(dest));
+		gated('goToAlbum', (rt) => {
+			const album = rt.album.trim();
+			if (!album) {
+				toast.show(t('toast.noAlbum'));
+				return;
+			}
+			const dest =
+				'/album/' +
+				encodeURIComponent(names.zhLock(album)) +
+				'?artist=' +
+				encodeURIComponent(names.zhLock(rt.artist));
+			overlays.navigateAway(() => goto(dest));
+		});
 	}
 
 	// Gated run callback (D-02): invoked by gated('download', …) with the resolved track. Thin delegate
@@ -1339,14 +1355,13 @@
 				{#if inFlight.has('remix')}<span class="row-spinner motion-always"></span>{:else}<Sparkles size={22} />{/if}<span class="gi-label">{t('menu.remix')}</span>
 			</button>
 		{/snippet}
-		<!-- Play next for a non-current track, else the (Blank) placeholder cell. -->
+		<!-- Play next — non-current tracks only. quick-261006-44g: the old `.gi-blank`
+	     placeholder for the current track is GONE (user 2026-10-06 — the menu is always
+	     a 4x4 grid, no blank cells); the action simply doesn't render, like the other
+	     gated actions (addQueue / lyricsTiming / editTags). -->
 		{#snippet cellPlayNext(tr: Track)}
 			{#if nonCurrent}
 				<button class="gi" onclick={playNext} use:tapBounce><ListStart size={22} /><span class="gi-label">{t('menu.playNext')}</span></button>
-			{:else}
-				<!-- User arrange-like-this 2026-10-06: the (Blank) cell for the current track.
-				     Same footprint as a .gi cell, no hover, no content — aria-hidden. -->
-				<span class="gi-blank" aria-hidden="true"></span>
 			{/if}
 		{/snippet}
 		<!-- quick-261006-mnu — the download slot is ONE adaptive cell: the Download tri-state,
@@ -1508,10 +1523,14 @@
 			<button class="gi" onclick={gotoArtist} use:tapBounce><User size={22} /><span class="gi-label">{t('menu.goToArtist')}</span></button>
 		{/snippet}
 		<!-- quick-261006-mnu: Go to album — the menu finally answers "which album is this from",
-		     grouped after Go to artist. Hidden when the track carries no album (canShow/hasAlbum);
-		     gotoAlbum() re-guards, and the route takes the script-locked names like gotoArtist. -->
+		     grouped after Go to artist. quick-261006-44g: always rendered now (the 4x4 grid
+		     must not come and go); gotoAlbum() resolves details first when the stub carries
+		     no album and toasts only when there is still nothing to navigate to. The route
+		     takes the script-locked names like gotoArtist. -->
 		{#snippet cellGoToAlbum(tr: Track)}
-			<button class="gi" onclick={gotoAlbum} use:tapBounce><Disc3 size={22} /><span class="gi-label">{t('menu.goToAlbum')}</span></button>
+			<button class="gi" aria-busy={inFlight.has('goToAlbum')} aria-label={inFlight.has('goToAlbum') ? t('menu.preparing') : undefined} onclick={gotoAlbum} use:tapBounce>
+				{#if inFlight.has('goToAlbum')}<span class="row-spinner motion-always"></span>{:else}<Disc3 size={22} />{/if}<span class="gi-label">{t('menu.goToAlbum')}</span>
+			</button>
 		{/snippet}
 		<!-- quick-260920-kia: Share is UNCONDITIONAL — UI-SPEC Contract 8's `!isDevice` guard on
 		     Share is SUPERSEDED. songShareUrl() emits a NAME-based /song/{artist}/{title} catalog
@@ -1864,7 +1883,7 @@
 	.gi.on { color: var(--color-primary); }
 	/* User arrange-like-this 2026-10-06: the (Blank) R1C2 cell for the current track.
 	   Same footprint as a .gi cell, no hover, no content — aria-hidden. */
-	.gi-blank { min-height: 78px; padding: 12px 4px 8px; }
+	/* (quick-261006-44g: .gi-blank deleted — no blank placeholder cells any more.) */
 	/* The icon slot is a fixed 22px box: the 16px Remix/Detail spinner swap must never shift the
 	   label, so the spinner is centred in the same 22px by its margin. (A `.gi > svg` rule would
 	   do the same for the icons, but svelte-check cannot see through the lucide components to
