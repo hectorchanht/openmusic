@@ -1002,8 +1002,8 @@
 {#if open && track}
 	<button class="scrim" aria-label={t('menu.closeMenu')} onclick={close}></button>
 	<div class="menu" transition:fly={{ y: 240, duration: 200 }} use:dragClose={{ onclose: close }} use:focusTrap>
-		<!-- D-08/D-09/D-10: two-row marquee header (song/artist, display-only) + a vertical
-		     top-right icon strip (Close / Like / Download, top to bottom). Replaces the old
+		<!-- D-08/D-09/D-10: two-row marquee header (song/artist, display-only) + a compact
+		     top-right icon cluster (Like / Download / Close, left to right). Replaces the old
 		     single ellipsised `{title} · {artist}` line, and (user call 2026-10-06) the
 		     full-width icon row that sat under the text.
 		     {#key track.uid} remounts the clips on a stub→resolved reassignment so use:marquee
@@ -1036,15 +1036,12 @@
 					<span class="hd-artist" use:marquee><span class="marquee-inner">{names.dnArtist(track.artist)}</span></span>
 				{/key}
 			</button>
-			<!-- User call 2026-10-06: the header is a row — text on the left, a VERTICAL icon
-			     strip pinned at the top-right (Close at the very top corner, then Like, then
-			     Download). The old full-width icon row below the text is gone, so the header
-			     takes less space. Order in the DOM is visual order (top to bottom). -->
+			<!-- User call 2026-10-06: the header is a row — text on the left, a COMPACT icon
+			     cluster pinned at the top-right (Like, Download, then Close at the very
+			     corner). A vertical strip was tried first but its 3×44px stack pushed the
+			     menu to full-screen; the horizontal cluster keeps the header to one 44px row.
+			     Order in the DOM is visual order (left to right). -->
 			<div class="head-actions">
-				<!-- Explicit Close affordance (scrim/drag also close). It ONLY flips state via
-				     close() → the $effect cleanup is the SOLE overlays.dismiss caller, so
-				     scrim/X/drag/back all converge on one dismiss path (overlay invariant; D-09). -->
-				<button class="hd-btn" aria-label={t('menu.closeMenu')} onclick={close} use:tapBounce><X size={20} /></button>
 				<!-- D-09 AMENDED by quick-260913-je8: the header accent slot is DOWNLOAD now, not Like.
 				     D-09's "Like is the sole header accent AND the mid-list Like row is removed" no
 				     longer holds — Like is back as a text row below; the rest of D-09 (two-row marquee
@@ -1103,6 +1100,11 @@
 						<button class="hd-btn" aria-label={dlLabel} title={dlLabel} onclick={startDownload} use:tapBounce><Download size={20} /></button>
 					{/if}
 				{/if}
+				<!-- Explicit Close affordance at the top-right corner (scrim/drag also close).
+				     It ONLY flips state via close() → the $effect cleanup is the SOLE
+				     overlays.dismiss caller, so scrim/X/drag/back all converge on one dismiss
+				     path (overlay invariant; D-09). Last in the row = the corner slot. -->
+				<button class="hd-btn" aria-label={t('menu.closeMenu')} onclick={close} use:tapBounce><X size={20} /></button>
 			</div>
 		</div>
 		{#if loading && !track.title}
@@ -1128,83 +1130,19 @@
 		{#if track && track.uid !== player.current?.uid}
 			<button class="gi" onclick={playNext} use:tapBounce><ListStart size={22} /><span class="gi-label">{t('menu.playNext')}</span></button>
 			<button class="gi" onclick={addQueue} use:tapBounce><ListEnd size={22} /><span class="gi-label">{t('menu.addToQueue')}</span></button>
-		{/if}
-		<!-- Remix: GATED (needs audioUrl to play the seed) — Sparkles + the inline spinner.
-		     Sits in the queue-actions cluster after Play next / Add to queue (D-07). -->
-		<button class="gi" aria-busy={inFlight.has('remix')} aria-label={inFlight.has('remix') ? t('menu.preparing') : undefined} onclick={() => gated('remix', doRemix)} use:tapBounce>
-			{#if inFlight.has('remix')}<span class="row-spinner motion-always"></span>{:else}<Sparkles size={22} />{/if}<span class="gi-label">{t('menu.remix')}</span>
+		<!-- User call 2026-10-06: Like is grid item 3 (after Play next / Add to queue) —
+		     the most-tapped actions sit in the first row. Duplicated with the header heart
+		     icon on the D-09/je8 precedent (both call the same like() + `liked` derived).
+		     .mi.accent carries the liked tint so this needs no new CSS and no new i18n keys. -->
+		<!-- like-state-wrong-track-menu: a name-stub (uid:'') has no identity to like yet; the row waits for
+		     the host page's resolve to swap in the real Track rather than firing a no-op + wrong toast. -->
+		<button class="gi" class:on={liked} aria-pressed={liked} disabled={!track.uid} onclick={like} use:tapBounce>
+			<Heart size={22} fill={liked ? 'currentColor' : 'none'} /><span class="gi-label">{liked ? t('menu.liked') : t('menu.like')}</span>
 		</button>
-		<!-- Gap 4 (26-10): Play from source — opens a lazily-fed VersionPicker. The variant fetch fires
-		     ONLY on THIS tap (openVersions), never on menu open (opt-in; T-26-10-02). Shown for every
-		     track (variants discovered on demand; the picker's loading/empty states cover a single-source
-		     song). Available for the current track too (switch the playing source). -->
-		<button class="gi" onclick={openVersions} use:tapBounce><Layers size={22} /><span class="gi-label">{t('menu.versions')}</span></button>
-		<!-- quick-260915-w4f: Change cover. The cover chain is first-solid-wins and sometimes wins wrong
-		     (wrong album, live-version art, a low-res CN thumbnail); this lets the user override it once,
-		     per song, permanently. The candidate fan-out fires on THIS tap only (Q1). `disabled` mirrors
-		     the Like row: a uid-less stub has no identity to pin against. -->
-		<button class="gi" disabled={!track.uid} onclick={openCoverPicker} use:tapBounce><ImageIcon size={22} /><span class="gi-label">{t('menu.changeCover')}</span></button>
-		<!-- quick-260919-1we: Fix lyrics. Same story as Change cover one line up, for the lyric chain:
-		     it is first-source-wins and sometimes wins wrong (wrong song, wrong language, an
-		     instrumental's LRC), and until now the user had no way to correct it. The per-source walk
-		     fires on THIS tap only (T-1we-03). `disabled` mirrors the Like / Change-cover rows: a
-		     uid-less stub has no identity to pin against (D-1). -->
-		<button class="gi" disabled={!track.uid} onclick={openLyricsPicker} use:tapBounce><Mic2 size={22} /><span class="gi-label">{t('menu.changeLyrics')}</span></button>
-		<!-- quick-260926-qat: lyrics timing toggle. Shown ONLY for the currently playing track that
-		     actually has lyrics — the row it reveals lives in the Now Playing lyrics pane of
-		     player.current, so for any other track it would toggle something the user cannot see.
-		     readLyrics(player.current) is D-4's single read (pin → track.lrc → null) and takes the
-		     lyricVersion dependency, so a Fix-lyrics pick that lands lyrics makes this row appear live.
-		     Repeat-row idiom (class:on + aria-pressed + swapping label): the menu closes on tap, so the
-		     label must show the state before the tap. -->
-		{#if player.current?.uid === track.uid && readLyrics(player.current)}
-			<button class="gi" class:on={lyricSyncOpen()} aria-pressed={lyricSyncOpen()} onclick={toggleLyricsTiming} use:tapBounce><Timer size={22} /><span class="gi-label">{lyricSyncOpen() ? t('menu.lyricsTimingHide') : t('menu.lyricsTiming')}</span></button>
-		{/if}
-		<!-- quick-260919-1eh: Edit metadata. Shown ONLY for a file the app actually holds bytes for.
-		     `blobPresent` is the blob-backed probe, NOT library.isDownloaded — quick-260913-jq4
-		     explains why the reference list lies (it is populated BEFORE the fetch, and the web save
-		     is an <a download> click that reports success even when the user cancels the dialog), so
-		     the list happily says "Downloaded" with nothing stored anywhere.
-
-		     quick-260919-ejm: the `!isDevice` half is GONE. It was the UI mirror of a service refusal
-		     that no longer exists — `retagOne` now routes an imported uid to the authorised in-place
-		     rewrite (`overwriteDeviceFile`) instead of to `blobStore.put`, so the duplicate-file
-		     hazard that justified hiding this row is avoided by routing rather than by hiding.
-		     `blobPresent` is true for an imported file because `blobStore.has` reads the user's file
-		     in place (34-D-05), which is exactly the right meaning here: there are bytes to edit. -->
-		{#if blobPresent}
-			<button class="gi" onclick={() => (tagsOpen = true)} use:tapBounce><Tags size={22} /><span class="gi-label">{t('menu.editTags')}</span></button>
-		{/if}
-		<!-- quick-260919-0mw (correction): Repeat, relocated from the NowPlaying transport row.
-		     Deliberately OUTSIDE the queue.length > 1 gate that wraps Shuffle: shuffling a
-		     one-track queue is a no-op, but repeat-ONE on a one-track queue is the single most
-		     obvious reason to reach for repeat at all. Gated on player.current instead — there has
-		     to be something playing for a repeat mode to mean anything.
-		     PLAY-10 / D-10: repeat is BINARY here (off ↔ one), not the three-state off/one/all
-		     cycle it is in most players — player.cycleRepeat() has no 'all' branch. So this row is
-		     the same two-state shape as the Shuffle row above it and needs no extra affordance.
-		     State legibility, three ways, because the menu CLOSES on tap and a kebab row is read
-		     from a cold start every time (unlike the button, which sat in the user's eyeline):
-		       1. class:on — the shared active-row highlight. NOTE it had no CSS rule at all until
-		          this change (see .mi.on in the style block): the Shuffle row has carried the class
-		          since ii6 while rendering identically on and off. Adding the rule there rather
-		          than a repeat-only class fixes both rows at once.
-		       2. icon swap — Repeat1 (the glyph with the 1) when repeat-one is armed, exactly the
-		          swap the transport button did.
-		       3. the LABEL swaps to "Repeat one" — the decisive one, and free: both nowplaying.*
-		          keys already exist in all 15 dictionaries from the button this replaces, so no new
-		          key was minted. Highlight-alone would be ambiguous in a list where several rows
-		          can be highlighted at once. -->
-		{#if player.current}
-			<button class="gi" class:on={player.repeatMode !== 'off'} aria-pressed={player.repeatMode !== 'off'} onclick={cycleRepeatMode} use:tapBounce>
-				{#if player.repeatMode === 'one'}<Repeat1 size={22} />{:else}<Repeat size={22} />{/if}<span class="gi-label">{player.repeatMode === 'one' ? t('nowplaying.repeatModeOne') : t('nowplaying.repeat')}</span>
-			</button>
-		{/if}
-		{#if player.queue.length > 1}
-			<button class="gi" class:on={player.shuffle} onclick={shuffleQueue} use:tapBounce><Shuffle size={22} /><span class="gi-label">{t('menu.shuffleQueue')}</span></button>
-			<button class="gi" onclick={clearQueue} use:tapBounce><Trash2 size={22} /><span class="gi-label">{t('menu.clearQueue')}</span></button>
-		{/if}
-		<!-- Download: tri-state (D-11/D-12). Already downloaded → Check + greyed disabled ("Downloaded").
+		<!-- User call 2026-10-06: Download is grid item 4 (after Like) — the most-tapped
+		     actions sit in the first row. The remove-download / don't-import row below stays
+		     directly under it (they are inverse states of one thing).
+		     Download: tri-state (D-11/D-12). Already downloaded → Check + greyed disabled ("Downloaded").
 		     Otherwise GATED — resolve-then-act at settings.downloadQuality via downloadTrack. The busy
 		     state reads BOTH the gated stub-resolve (inFlight) AND the shared per-uid library.downloading
 		     set, so the row shows its spinner whether or not this menu stays open (D-12). -->
@@ -1315,15 +1253,82 @@
 		{:else if blobPresent === true || library.isDownloaded(track.uid)}
 			<button class="gi" onclick={openRemoveDownload} use:tapBounce><Trash2 size={22} /><span class="gi-label">{t('menu.removeDownload')}</span></button>
 		{/if}
-		<!-- quick-260913-je8: the mid-list Like row is RESTORED (D-09 had removed it when Like owned
-		     the header accent slot — the header is Download now, so the only Like affordance has to
-		     live here). Same like() + `liked` derived as before; .mi.accent carries the liked tint so
-		     this needs no new CSS and no new i18n keys. -->
-		<!-- like-state-wrong-track-menu: a name-stub (uid:'') has no identity to like yet; the row waits for
-		     the host page's resolve to swap in the real Track rather than firing a no-op + wrong toast. -->
-		<button class="gi" class:on={liked} aria-pressed={liked} disabled={!track.uid} onclick={like} use:tapBounce>
-			<Heart size={22} fill={liked ? 'currentColor' : 'none'} /><span class="gi-label">{liked ? t('menu.liked') : t('menu.like')}</span>
+		{/if}
+		<!-- Remix: GATED (needs audioUrl to play the seed) — Sparkles + the inline spinner.
+		     Sits in the queue-actions cluster after Play next / Add to queue (D-07). -->
+		<button class="gi" aria-busy={inFlight.has('remix')} aria-label={inFlight.has('remix') ? t('menu.preparing') : undefined} onclick={() => gated('remix', doRemix)} use:tapBounce>
+			{#if inFlight.has('remix')}<span class="row-spinner motion-always"></span>{:else}<Sparkles size={22} />{/if}<span class="gi-label">{t('menu.remix')}</span>
 		</button>
+		<!-- Gap 4 (26-10): Play from source — opens a lazily-fed VersionPicker. The variant fetch fires
+		     ONLY on THIS tap (openVersions), never on menu open (opt-in; T-26-10-02). Shown for every
+		     track (variants discovered on demand; the picker's loading/empty states cover a single-source
+		     song). Available for the current track too (switch the playing source). -->
+		<button class="gi" onclick={openVersions} use:tapBounce><Layers size={22} /><span class="gi-label">{t('menu.versions')}</span></button>
+		<!-- quick-260915-w4f: Change cover. The cover chain is first-solid-wins and sometimes wins wrong
+		     (wrong album, live-version art, a low-res CN thumbnail); this lets the user override it once,
+		     per song, permanently. The candidate fan-out fires on THIS tap only (Q1). `disabled` mirrors
+		     the Like row: a uid-less stub has no identity to pin against. -->
+		<button class="gi" disabled={!track.uid} onclick={openCoverPicker} use:tapBounce><ImageIcon size={22} /><span class="gi-label">{t('menu.changeCover')}</span></button>
+		<!-- quick-260919-1we: Fix lyrics. Same story as Change cover one line up, for the lyric chain:
+		     it is first-source-wins and sometimes wins wrong (wrong song, wrong language, an
+		     instrumental's LRC), and until now the user had no way to correct it. The per-source walk
+		     fires on THIS tap only (T-1we-03). `disabled` mirrors the Like / Change-cover rows: a
+		     uid-less stub has no identity to pin against (D-1). -->
+		<button class="gi" disabled={!track.uid} onclick={openLyricsPicker} use:tapBounce><Mic2 size={22} /><span class="gi-label">{t('menu.changeLyrics')}</span></button>
+		<!-- quick-260926-qat: lyrics timing toggle. Shown ONLY for the currently playing track that
+		     actually has lyrics — the row it reveals lives in the Now Playing lyrics pane of
+		     player.current, so for any other track it would toggle something the user cannot see.
+		     readLyrics(player.current) is D-4's single read (pin → track.lrc → null) and takes the
+		     lyricVersion dependency, so a Fix-lyrics pick that lands lyrics makes this row appear live.
+		     Repeat-row idiom (class:on + aria-pressed + swapping label): the menu closes on tap, so the
+		     label must show the state before the tap. -->
+		{#if player.current?.uid === track.uid && readLyrics(player.current)}
+			<button class="gi" class:on={lyricSyncOpen()} aria-pressed={lyricSyncOpen()} onclick={toggleLyricsTiming} use:tapBounce><Timer size={22} /><span class="gi-label">{lyricSyncOpen() ? t('menu.lyricsTimingHide') : t('menu.lyricsTiming')}</span></button>
+		{/if}
+		<!-- quick-260919-1eh: Edit metadata. Shown ONLY for a file the app actually holds bytes for.
+		     `blobPresent` is the blob-backed probe, NOT library.isDownloaded — quick-260913-jq4
+		     explains why the reference list lies (it is populated BEFORE the fetch, and the web save
+		     is an <a download> click that reports success even when the user cancels the dialog), so
+		     the list happily says "Downloaded" with nothing stored anywhere.
+
+		     quick-260919-ejm: the `!isDevice` half is GONE. It was the UI mirror of a service refusal
+		     that no longer exists — `retagOne` now routes an imported uid to the authorised in-place
+		     rewrite (`overwriteDeviceFile`) instead of to `blobStore.put`, so the duplicate-file
+		     hazard that justified hiding this row is avoided by routing rather than by hiding.
+		     `blobPresent` is true for an imported file because `blobStore.has` reads the user's file
+		     in place (34-D-05), which is exactly the right meaning here: there are bytes to edit. -->
+		{#if blobPresent}
+			<button class="gi" onclick={() => (tagsOpen = true)} use:tapBounce><Tags size={22} /><span class="gi-label">{t('menu.editTags')}</span></button>
+		{/if}
+		<!-- quick-260919-0mw (correction): Repeat, relocated from the NowPlaying transport row.
+		     Deliberately OUTSIDE the queue.length > 1 gate that wraps Shuffle: shuffling a
+		     one-track queue is a no-op, but repeat-ONE on a one-track queue is the single most
+		     obvious reason to reach for repeat at all. Gated on player.current instead — there has
+		     to be something playing for a repeat mode to mean anything.
+		     PLAY-10 / D-10: repeat is BINARY here (off ↔ one), not the three-state off/one/all
+		     cycle it is in most players — player.cycleRepeat() has no 'all' branch. So this row is
+		     the same two-state shape as the Shuffle row above it and needs no extra affordance.
+		     State legibility, three ways, because the menu CLOSES on tap and a kebab row is read
+		     from a cold start every time (unlike the button, which sat in the user's eyeline):
+		       1. class:on — the shared active-row highlight. NOTE it had no CSS rule at all until
+		          this change (see .mi.on in the style block): the Shuffle row has carried the class
+		          since ii6 while rendering identically on and off. Adding the rule there rather
+		          than a repeat-only class fixes both rows at once.
+		       2. icon swap — Repeat1 (the glyph with the 1) when repeat-one is armed, exactly the
+		          swap the transport button did.
+		       3. the LABEL swaps to "Repeat one" — the decisive one, and free: both nowplaying.*
+		          keys already exist in all 15 dictionaries from the button this replaces, so no new
+		          key was minted. Highlight-alone would be ambiguous in a list where several rows
+		          can be highlighted at once. -->
+		{#if player.current}
+			<button class="gi" class:on={player.repeatMode !== 'off'} aria-pressed={player.repeatMode !== 'off'} onclick={cycleRepeatMode} use:tapBounce>
+				{#if player.repeatMode === 'one'}<Repeat1 size={22} />{:else}<Repeat size={22} />{/if}<span class="gi-label">{player.repeatMode === 'one' ? t('nowplaying.repeatModeOne') : t('nowplaying.repeat')}</span>
+			</button>
+		{/if}
+		{#if player.queue.length > 1}
+			<button class="gi" class:on={player.shuffle} onclick={shuffleQueue} use:tapBounce><Shuffle size={22} /><span class="gi-label">{t('menu.shuffleQueue')}</span></button>
+			<button class="gi" onclick={clearQueue} use:tapBounce><Trash2 size={22} /><span class="gi-label">{t('menu.clearQueue')}</span></button>
+		{/if}
 		<button class="gi" onclick={() => { pickerOpen = true; }} use:tapBounce><ListPlus size={22} /><span class="gi-label">{t('menu.addToPlaylist')}</span></button>
 		<!-- Opens the GLOBAL SleepTimerSheet (mounted in the app layout) — not a local sub-sheet
 		     here, so the timer indicator is reachable from the nowbar + now-playing too (D-08). -->
@@ -1570,8 +1575,8 @@
 	   full-width line now (no more side-by-side squeeze against the icons) — the header is a
 	   column: text block on top, icon row beneath, both stretched. */
 	/* User call 2026-10-06: header is a ROW — the text block (title + artist, marquee)
-	   takes the left, a vertical icon strip (Close / Like / Download) pins at the top-right.
-	   The old full-width icon row under the text is gone. */
+	   takes the left, a compact icon cluster (Like / Download / Close) pins at the
+	   top-right. The old full-width icon row under the text is gone. */
 	.sheet-head { display: flex; flex-direction: row; align-items: flex-start; gap: 8px; padding: 8px 10px; }
 	/* quick-260919-dlring: `.head-text` is a <button> now (Go to artist). Every declaration past the
 	   original `flex`/`min-width` pair is a UA reset — the box must stay pixel-identical to the div it
@@ -1603,9 +1608,11 @@
 	   button above) — everything else is unchanged from when they were <div>s. */
 	.hd-title { display: block; font-size: calc(0.9375rem * var(--fs-title, 1)); font-weight: 600; color: var(--color-text); line-height: 1.25; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-width: 0; max-width: 100%; }
 	.hd-artist { display: block; font-size: calc(0.8125rem * var(--fs-artist, 1)); font-weight: 400; color: var(--color-text-muted); line-height: 1.25; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-width: 0; max-width: 100%; }
-	/* User call 2026-10-06: vertical icon strip at the top-right (Close / Like /
-	   Download top to bottom). flex:none so it never squeezes the marquee text. */
-	.head-actions { display: flex; flex-direction: column; align-items: center; gap: 2px; flex: none; }
+	/* User call 2026-10-06: compact icon cluster at the top-right (Like, Download,
+	   Close left to right — Close owns the corner slot). One 44px row, never a vertical
+	   strip (a 3×44px stack pushed the menu to full-screen). flex:none so it never
+	   squeezes the marquee text. */
+	.head-actions { display: flex; flex-direction: row; align-items: center; gap: 2px; flex: none; }
 	.hd-btn { min-width: 44px; min-height: 44px; display: grid; place-items: center; background: none; border: none; border-radius: 10px; color: var(--color-text); cursor: pointer; }
 	.hd-btn:hover { background: var(--color-surface); }
 	.hd-btn:disabled { opacity: 0.4; cursor: default; }
