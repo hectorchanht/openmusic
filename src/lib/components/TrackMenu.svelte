@@ -1130,18 +1130,9 @@
 		{#if track && track.uid !== player.current?.uid}
 			<button class="gi" onclick={playNext} use:tapBounce><ListStart size={22} /><span class="gi-label">{t('menu.playNext')}</span></button>
 			<button class="gi" onclick={addQueue} use:tapBounce><ListEnd size={22} /><span class="gi-label">{t('menu.addToQueue')}</span></button>
-		<!-- User call 2026-10-06: Like is grid item 3 (after Play next / Add to queue) —
-		     the most-tapped actions sit in the first row. Duplicated with the header heart
-		     icon on the D-09/je8 precedent (both call the same like() + `liked` derived).
-		     .mi.accent carries the liked tint so this needs no new CSS and no new i18n keys. -->
-		<!-- like-state-wrong-track-menu: a name-stub (uid:'') has no identity to like yet; the row waits for
-		     the host page's resolve to swap in the real Track rather than firing a no-op + wrong toast. -->
-		<button class="gi" class:on={liked} aria-pressed={liked} disabled={!track.uid} onclick={like} use:tapBounce>
-			<Heart size={22} fill={liked ? 'currentColor' : 'none'} /><span class="gi-label">{liked ? t('menu.liked') : t('menu.like')}</span>
-		</button>
-		<!-- User call 2026-10-06: Download is grid item 4 (after Like) — the most-tapped
-		     actions sit in the first row. The remove-download / don't-import row below stays
-		     directly under it (they are inverse states of one thing).
+		<!-- User call 2026-10-06: Download is grid item 3 (after Play next / Add to queue) —
+		     the most-tapped actions sit in the first row. The remove-download / don't-import
+		     row stays directly under it (they are inverse states of one thing).
 		     Download: tri-state (D-11/D-12). Already downloaded → Check + greyed disabled ("Downloaded").
 		     Otherwise GATED — resolve-then-act at settings.downloadQuality via downloadTrack. The busy
 		     state reads BOTH the gated stub-resolve (inFlight) AND the shared per-uid library.downloading
@@ -1219,6 +1210,15 @@
 			</div>
 		{/if}
 		{/if}
+		<!-- User call 2026-10-06: Like is grid item 4 (after Download) —
+		     the most-tapped actions sit in the first row. Duplicated with the header heart
+		     icon on the D-09/je8 precedent (both call the same like() + `liked` derived).
+		     .mi.accent carries the liked tint so this needs no new CSS and no new i18n keys. -->
+		<!-- like-state-wrong-track-menu: a name-stub (uid:'') has no identity to like yet; the row waits for
+		     the host page's resolve to swap in the real Track rather than firing a no-op + wrong toast. -->
+		<button class="gi" class:on={liked} aria-pressed={liked} disabled={!track.uid} onclick={like} use:tapBounce>
+			<Heart size={22} fill={liked ? 'currentColor' : 'none'} /><span class="gi-label">{liked ? t('menu.liked') : t('menu.like')}</span>
+		</button>
 		<!-- quick-260919-30x: Don't import again. The mirror image of the row above — that one is for
 		     a file the APP owns, this one is for a file the USER owns, so they sit together.
 		     `{#if isDevice}` and ONLY isDevice: for an app-downloaded song `removeDownload` already
