@@ -1,10 +1,20 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll, vi } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 // Import ONLY the PURE exports — NOT `t` (it reads `$state` via settings, which the
 // node Vitest project can't compile). These helpers are fully deterministic.
-import { lookupKey, interpolate, detectAppLang, dicts } from './index';
+// quick-261006-i18n: dictionaries are lazy now — `dicts` is populated once via
+// loadAllLocales() in beforeAll, so the parity/no-blank suites keep asserting all
+// 15 locales without pulling them into the app bundle.
+import { lookupKey, interpolate, detectAppLang, loadAllLocales } from './index';
+import type { AppLang, Dict } from './index';
+
+let dicts: Record<AppLang, Dict>;
+
+beforeAll(async () => {
+	dicts = await loadAllLocales();
+});
 
 describe('lookupKey', () => {
 	it('returns the value for the requested locale', () => {
@@ -40,6 +50,46 @@ describe('interpolate', () => {
 
 	it('returns the string unchanged when no params are given', () => {
 		expect(interpolate('plain string')).toBe('plain string');
+	});
+});
+
+describe('quick-261006-i18n lazy locales', () => {
+	it('getDict serves en synchronously before any chunk loads', async () => {
+		const { getDict } = await import('./index');
+		expect(getDict('en')['nav.home']).toBe('Home');
+	});
+
+	it('ensureLocale loads a locale on demand and lookupKey uses it', async () => {
+		const { ensureLocale } = await import('./index');
+		await ensureLocale('es');
+		expect(lookupKey('nav.home', 'es')).not.toBe('Home');
+		expect(lookupKey('nav.home', 'es')).toBe(dicts['es']['nav.home']);
+	});
+
+	it('concurrent ensureLocale calls share one import (fresh module state)', async () => {
+		// The top-level beforeAll already loaded every locale into the shared module
+		// instance, so re-import fresh to observe the inflight-dedup path.
+		vi.resetModules();
+		const fresh = await import('./index');
+		const a = fresh.ensureLocale('fr');
+		const b = fresh.ensureLocale('fr');
+		expect(a).toBe(b); // same inflight promise — one chunk fetch
+		await a;
+		await expect(fresh.ensureLocale('fr')).resolves.toBeUndefined(); // cached — no second import
+	});
+
+	it('ensureLocale never throws, even for a chunk that cannot load', async () => {
+		const { ensureLocale } = await import('./index');
+		// 'en' has no loader — resolves immediately instead of throwing.
+		await expect(ensureLocale('en')).resolves.toBeUndefined();
+	});
+
+	it('loadAllLocales returns all 15 locales', async () => {
+		const { loadAllLocales } = await import('./index');
+		const table = await loadAllLocales();
+		expect(Object.keys(table).sort()).toEqual(
+			['ar', 'de', 'en', 'es', 'fr', 'hi', 'id', 'it', 'pt', 'ru', 'th', 'tr', 'vi', 'zh-Hans', 'zh-Hant'].sort()
+		);
 	});
 });
 

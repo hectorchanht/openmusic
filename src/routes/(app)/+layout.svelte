@@ -17,7 +17,7 @@
 	import { overlays } from '$lib/stores/overlays.svelte';
 	import { deviceImport } from '$lib/stores/device-import.svelte';
 	import { toast } from '$lib/stores/toast.svelte';
-	import { t, type TranslationKey } from '$lib/i18n';
+	import { t, ensureLocale, type TranslationKey } from '$lib/i18n';
 	import { tapBounce } from '$lib/actions/tapBounce';
 	// quick-260919-npfix (Fix 2): the pure Space / left / right -> transport mapping. All of the
 	// "may I steal this key?" branching lives there so it is node-testable; this file keeps only
@@ -193,6 +193,11 @@
 	onMount(() => {
 		library.load();
 		settings.load();
+
+		// quick-261006-i18n: fetch the active locale's dictionary chunk now (`en` is
+		// already in the bundle). Fire-and-forget — t() serves the en fallback until
+		// it lands, then repaints via dictSignal.
+		void ensureLocale(settings.appLang);
 
 		// quick-260712-et3: warm the offline zh-Hans→zh-Hant s2t dict at boot when the user's
 		// content target is Traditional, so display names convert synchronously on their first

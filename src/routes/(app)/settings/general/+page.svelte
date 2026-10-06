@@ -9,7 +9,7 @@
 	import SettingToggle from '$lib/components/SettingToggle.svelte';
 	import SettingHint from '$lib/components/SettingHint.svelte';
 	import { tapBounce } from '$lib/actions/tapBounce';
-	import { t, type AppLang } from '$lib/i18n';
+	import { t, ensureLocale, type AppLang } from '$lib/i18n';
 
 	onMount(() => settings.load());
 
@@ -32,7 +32,9 @@
 		{ v: 'th', label: 'ไทย' }
 	];
 
-	function setAppLang(v: AppLang) { settings.appLang = v; settings.save(); }
+	// quick-261006-i18n: fetch the newly-selected locale's chunk now; t() falls back
+	// to en until it lands, then repaints via dictSignal.
+	function setAppLang(v: AppLang) { settings.appLang = v; settings.save(); void ensureLocale(v); }
 	function toggleShareTitle() { settings.shareIncludeTitle = !settings.shareIncludeTitle; settings.save(); }
 </script>
 

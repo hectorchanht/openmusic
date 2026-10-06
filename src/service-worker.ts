@@ -21,7 +21,15 @@ const CACHE = cacheNameFor(version); // `cache-${version}` — rotates per deplo
 // never download a song. Excluded here; the runtime fetch branch below still caches it on first use,
 // since it is a same-origin basic 200. If a future build stops emitting a .wasm, the filter is simply
 // a no-op — correct in both worlds.
-const ASSETS = [...build, ...files].filter((p) => !p.endsWith('.wasm'));
+//
+// quick-261006-i18n: same treatment for the lazy locale-dictionary chunks
+// (`chunks/locale-<lang>.<hash>.js`, named by the localeChunkNames vite plugin).
+// ensureLocale() fetches them on demand; precaching all 14 (~600 KB) on every
+// install/deploy would undo the lazy-load saving. The runtime fetch branch below
+// caches whichever locale the user actually loads, so offline keeps working after
+// first use.
+const LOCALE_CHUNK_RE = /\/chunks\/locale-(?:zh-Hant|zh-Hans|es|fr|de|pt|it|ru|tr|ar|hi|id|vi|th|shared)\.[^/]+\.js$/;
+const ASSETS = [...build, ...files].filter((p) => !p.endsWith('.wasm') && !LOCALE_CHUNK_RE.test(p));
 
 // install — precache the app shell into the version-keyed cache.
 sw.addEventListener('install', (event) => {

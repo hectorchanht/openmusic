@@ -150,8 +150,13 @@ describe('shared settings rows (quick-260919-ebi F2)', () => {
 	});
 
 	it('settings.themeDesc is gone from ALL 15 dictionaries (the two cards replaced it)', () => {
+		// quick-261006-i18n: dict-signal.svelte.ts is the lazy-locale reactive signal,
+		// not a dictionary — exclude it alongside the other non-dictionary modules.
 		const files = readdirSync('src/lib/i18n').filter(
-			(f) => f.endsWith('.ts') && !['index.ts', 'detect.ts'].includes(f) && !f.endsWith('.test.ts')
+			(f) =>
+				f.endsWith('.ts') &&
+				!['index.ts', 'detect.ts', 'dict-signal.svelte.ts'].includes(f) &&
+				!f.endsWith('.test.ts')
 		);
 		expect(files).toHaveLength(15);
 		for (const f of files) {
