@@ -1183,8 +1183,15 @@ class Player {
 	 * elapse the walk is aborted and the song is SKIPPED — deliberately WITHOUT burning the
 	 * consecutive-failure budget, because "we ran out of time" is NOT "this song failed everywhere",
 	 * and miscounting it would march toward the FAILURE_CAP loop-guard STOP. Never STOP, always SKIP
-	 * (the standing policy — see `nowbar-freeze-reresolve-loop`). */
-	private static FALLBACK_BUDGET_MS = 8000;
+	 * (the standing policy — see `nowbar-freeze-reresolve-loop`).
+	 *
+	 * quick-261006-kiri: raised 8s → 20s. Measured 2026-10-06: a SINGLE source rung (searchAll +
+	 * ensureTrackDetails) takes 5–10s on the CN sources (netease 2.7s search + 7.6s resolve incl.
+	 * lyric walk; kuwo 6.3s; joox 6.0s), so the 8s budget was aborting the walk BEFORE the first
+	 * source even finished — a QQ VIP track with no playable URL ("a kiridiculous distance": 3
+	 * tracks) never got its netease/kuwo fallback, and the user saw the song skipped as "failed".
+	 * 20s covers a healthy 2–3 source walk; the abort-then-skip semantics are unchanged. */
+	private static FALLBACK_BUDGET_MS = 20000;
 	/**
 	 * 37-D-03: deadline on the device lyric walk. Lyrics are decoration — audio is already playing
 	 * from the local file — but the walk is up to ~5 single-source rungs and each apiFetch carries a

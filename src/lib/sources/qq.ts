@@ -393,7 +393,16 @@ export const qq: SourceAdapter = {
 
 			// 播放链接（按优先级挑一个）(legacy:2364-2366). WR-07: per-call quality wins.
 			const best = pickBestPlayUrl(d, quality);
-			track.audioUrl = best.url || track.audioUrl;
+			// quick-261006-kiri: a VIP/region-locked detail body can carry full metadata with
+			// ZERO playable tiers (every song_play_url_* empty). Returning "success" here used to
+			// stamp detailsLoaded=true on a track with no audioUrl, which made player.play() hit
+			// its silent `else { return; }` — the user tapped and nothing happened, no fallback, no
+			// notice. Throw instead: the catch below keeps detailsLoaded=false (retryable) and the
+			// caller routes into the cross-source fallback like any other resolve failure.
+			if (!best.url) {
+				throw new Error('qq detail error (no playable url)');
+			}
+			track.audioUrl = best.url;
 
 			// 歌词 — inline from the detail body (legacy:2369). quick-260629-nyl Task 3: the live tang
 			// detail still carries `song_lyric` (timestamped LRC) + `lyric` (plain) for popular tracks,
