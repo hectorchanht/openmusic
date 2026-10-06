@@ -1236,7 +1236,7 @@
 	<!-- quick-260910-qjv: artist tap feedback, parity with song rows -->
 	<button class="tile artist-tile" use:tapBounce onclick={() => goto(names.artistHref(name))}>
 		<div class="art round" style:background-image={fallbackCover(name)}>
-			{#if cover}<img class="al-cover-img" src={cover} loading="lazy" alt="" onerror={hideOnError} />{/if}
+			{#if cover}<img class="al-cover-img" src={cover} loading="lazy" decoding="async" alt="" onerror={hideOnError} />{/if}
 		</div>
 		<div class="artist-name" use:marquee><span class="marquee-inner">{names.dnArtist(name)}</span></div>
 	</button>
@@ -1330,7 +1330,7 @@
 				{@const artistCover = tileCover({ image: a.image, mbid: a.mbid, artistName: a.name })}
 				<button class="album" use:tapBounce onclick={() => goto(names.artistHref(a.name))}>
 					<span class="al-cover round" style:background-image={fallbackCover(a.name)}>
-						{#if artistCover}<img class="al-cover-img" src={artistCover} loading="lazy" alt="" onerror={hideOnError} />{/if}
+						{#if artistCover}<img class="al-cover-img" src={artistCover} loading="lazy" decoding="async" alt="" onerror={hideOnError} />{/if}
 					</span>
 					<span class="al-name center" use:marquee><span class="marquee-inner">{names.dnArtist(a.name)}</span></span>
 				</button>
@@ -1367,7 +1367,7 @@
 			{#snippet row(item: DiscoveryTrack)}
 				<button class="tile" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); tileMenu(item); }} onclick={() => playStub(item, coverOnPlay ? item.image : null)}>
 					<div class="art" style:background-image={fallbackCover(item.artist + item.title)}></div>
-					{#if tileCover(item)}<img class="al-cover-img" src={tileCover(item)} loading="lazy" alt="" onerror={hideOnError} />{/if}
+					{#if tileCover(item)}<img class="al-cover-img" src={tileCover(item)} loading="lazy" decoding="async" alt="" onerror={hideOnError} />{/if}
 					<div class="scrim"></div>
 					<div class="label">
 						<div class="t-title">{names.dnTitle(item.title, item.artist)}</div>
@@ -1383,7 +1383,7 @@
 				     reactive signal (NOT use:lazyCover, which needs a Track); no synthetic uid stub. -->
 				<button class="album" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); tileMenu(item); }} onclick={() => playStub(item, coverOnPlay ? item.image : null)}>
 					<span class="al-cover" style:background-image={fallbackCover(item.artist + item.title)}>
-						{#if tileCover(item)}<img class="al-cover-img" src={tileCover(item)} loading="lazy" alt="" onerror={hideOnError} />{/if}
+						{#if tileCover(item)}<img class="al-cover-img" src={tileCover(item)} loading="lazy" decoding="async" alt="" onerror={hideOnError} />{/if}
 					</span>
 					<span class="al-name" use:marquee><span class="marquee-inner">{names.dnTitle(item.title, item.artist)}</span></span>
 					<span class="al-count" use:marquee><span class="marquee-inner">{names.dnArtist(item.artist)}</span></span>
@@ -1478,7 +1478,7 @@
 			{#snippet row(a: ChartAlbum)}
 				<button class="tile" use:tapBounce onclick={() => goto(names.lockUrl(chartAlbumHref(a)))}>
 					<div class="art" style:background-image={fallbackCover(a.artist + a.name)}></div>
-					{#if a.image}<img class="al-cover-img" src={a.image} loading="lazy" alt="" onerror={hideOnError} />{/if}
+					{#if a.image}<img class="al-cover-img" src={a.image} loading="lazy" decoding="async" alt="" onerror={hideOnError} />{/if}
 					<div class="scrim"></div>
 					<div class="label">
 						<div class="t-title">{names.dnTitle(a.name)}</div>
@@ -1492,7 +1492,7 @@
 			{#each items as a (a.artist + ' ' + a.name)}
 				<button class="album" use:tapBounce onclick={() => goto(names.lockUrl(chartAlbumHref(a)))}>
 					<span class="al-cover" style:background-image={fallbackCover(a.artist + a.name)}>
-						{#if a.image}<img class="al-cover-img" src={a.image} loading="lazy" alt="" onerror={hideOnError} />{/if}
+						{#if a.image}<img class="al-cover-img" src={a.image} loading="lazy" decoding="async" alt="" onerror={hideOnError} />{/if}
 					</span>
 					<span class="al-name" use:marquee><span class="marquee-inner">{names.dnTitle(a.name)}</span></span>
 					<span class="al-count" use:marquee><span class="marquee-inner">{names.dnArtist(a.artist)}</span></span>
@@ -1549,7 +1549,7 @@
 		<!-- psi-home-163mb-payload-lcp follow-up: gradient-only background; the lazy <img> paints the
 		     cover (a CSS url() background is never lazy, so every off-screen pile cover loaded eagerly). -->
 		<span class="al-cover" use:lazyCover={{ track, onResolved: () => bumpCoverVersion() }} style:background-image={fallbackCover(track.uid)}>
-			{#if rowCover}<img class="al-cover-img" src={rowCover} loading="lazy" alt="" onerror={hideOnError} />{/if}
+			{#if rowCover}<img class="al-cover-img" src={rowCover} loading="lazy" decoding="async" alt="" onerror={hideOnError} />{/if}
 		</span>
 		<span class="al-name" use:marquee><span class="marquee-inner">{names.dnTitle(track.title, track.artist)}</span></span>
 		<span class="al-count" use:marquee><span class="marquee-inner">{names.dnArtist(track.artist)}</span></span>
@@ -1660,7 +1660,7 @@
 					{@const artistCover = tileCover({ image: null, mbid: null, artistName: a.name })}
 					<button class="album" use:tapBounce onclick={() => goto(names.artistHref(a.name))}>
 						<span class="al-cover round" style:background-image={fallbackCover(a.name)}>
-							{#if artistCover}<img class="al-cover-img" src={artistCover} loading="lazy" alt="" onerror={hideOnError} />{/if}
+							{#if artistCover}<img class="al-cover-img" src={artistCover} loading="lazy" decoding="async" alt="" onerror={hideOnError} />{/if}
 						</span>
 						<span class="al-name center" use:marquee><span class="marquee-inner">{names.dnArtist(a.name)}</span></span>
 					</button>

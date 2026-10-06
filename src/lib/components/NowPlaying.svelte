@@ -1048,7 +1048,7 @@
 			keeps use:marquee + the in:/out:fade crossfade; names are joined by an INERT ` · `
 			separator span (not a link). When there is a single name (the common case) exactly one
 			link renders with no separator — visually unchanged from before. -->
-			<div class="artist" use:marquee in:fade={{ duration: xfadeMs }} out:fade={{ duration: xfadeMs }}><span class="marquee-inner">{#each artistNames as name, i (name + i)}{#if i > 0}<span class="artist-sep" aria-hidden="true"> · </span>{/if}<button class="artist-link" use:tapBounce onclick={() => openArtistName(name)}>{names.dnArtist(name)}</button>{/each}</span>
+			<div class="artist" use:marquee in:fade={{ duration: xfadeMs }} out:fade={{ duration: xfadeMs }}><span class="marquee-inner">{#each artistNames as name, i (name + i)}{#if i > 0}<span class="artist-sep" aria-hidden="true"> · </span>{/if}<button class="artist-link" use:tapBounce onclick={() => openArtistName(name)} aria-label={`${t('menu.goToArtist')}: ${name}`}>{names.dnArtist(name)}</button>{/each}</span>
 				
 			<!-- quick-260831-k5y: opt-in quality tag. OUTSIDE the {#key} block on purpose — the value
 					lands asynchronously after ensureTrackDetails, so it repaints in place rather than
@@ -1316,8 +1316,9 @@
 	   The markup carries `.motion-always` (app.css's escape hatch) so the app's reduce-motion setting
 	   cannot freeze it, and the OS-pref 2.2s slowdown is gone so it runs at one speed everywhere. */
 	.bar { display: flex; align-items: center; justify-content: space-between; }
-	.icon { background: none; border: none; color: var(--color-text); cursor: pointer; width: 38px; height: 38px; display: grid; place-items: center; border-radius: 50%; }
+	.icon { background: none; border: none; color: var(--color-text); cursor: pointer; width: 44px; height: 44px; display: grid; place-items: center; border-radius: 50%; }
 	.icon:hover { background: var(--color-surface-2); }
+	/* User 2026-10-06 (audit): 38px -> 44px to meet the 44px minimum touch target (HIG/WCAG 2.5.8). */
 	/* The .np-top wrapper carries the drag-down gesture (slop-thresholded so clicks still
 	   fire). touch-action: pan-x leaves horizontal scrolling intact (none here, but
 	   defensive) while letting our pointer handlers own vertical motion. */
@@ -1404,7 +1405,9 @@
 	.artist { display: flex; width: 100%; justify-content: space-between; align-items: center; background: transparent; border: none; padding: 1px; border-radius: none; color: var(--color-text); font-size: calc(1rem * var(--fs-np-artist, 1)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 	/* quick-260625-pzs-01: per-artist tappable link inside the .artist row. Carries the underline +
 	   pointer the old single .artist button had; the inert separator is non-interactive. */
-	.artist-link { background: none; border: none; padding: 0; color: inherit; font: inherit; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+	.artist-link { background: none; border: none; padding: 12px 4px; margin: -12px -4px; color: inherit; font: inherit; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+	/* User 2026-10-06 (audit): padding expands the tap target to 44px height without changing
+	   layout (negative margin compensates); aria-label on the button gives screen readers context. */
 	.artist-sep { color: var(--color-text-muted); text-decoration: none; cursor: default; }
 	/* quick-260831-k5y: small muted pill under the artist row. Sized off the NP artist scale so
 	   it tracks the appearance settings, and always smaller than the artist line it sits below. */
@@ -1421,8 +1424,9 @@
 	/* quick-260910-tqw: the bottom margin glides with the .cover/.meta reflow (byte-identical
 	   0.32s curve) instead of hitching at t=0; see .np.reflow .transport above. */
 	.transport { display: flex; align-items: center; justify-content: space-between; margin: 0px 4px 0; transition: margin 0.32s cubic-bezier(.22,1,.36,1); }
-	.t { background: none; border: none; color: var(--color-text); cursor: pointer; opacity: 0.85; display: grid; place-items: center; }
+	.t { background: none; border: none; color: var(--color-text); cursor: pointer; opacity: 0.85; display: grid; place-items: center; min-width: 44px; min-height: 44px; }
 	.t.on { color: var(--color-primary); opacity: 1; }
+	/* User 2026-10-06 (audit): min 44px guarantees the touch target floor even if an icon fails. */
 	/* quick-260919-0mw: size the shared DownloadControl to its five `.t` siblings — it ships a 40×40
 	   list-row footprint with an 18px glyph and a muted colour, none of which match this row. The
 	   override lives HERE (scoped under .t-dl, :global to cross the child's style scope) rather than
