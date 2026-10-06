@@ -13,10 +13,20 @@ import type { Plugin } from 'vite';
 // never runs generateBundle.
 function localeChunkNames(): Plugin {
 	const LOCALE_RE = /src\/lib\/i18n\/(zh-Hant|zh-Hans|es|fr|de|pt|it|ru|tr|ar|hi|id|vi|th)\.ts$/;
+	let isSsr = false;
 	return {
 		name: 'openmusic-locale-chunk-names',
 		apply: 'build',
+		configResolved(config) {
+			isSsr = !!config.build.ssr;
+		},
 		generateBundle(_options, bundle) {
+			// quick-261006-i18n-fix: NEVER rename SSR chunks. The server build rewrites
+			// dynamic import()s to literal relative paths (./zh-Hant.js) at transform
+			// time; renaming the emitted file in generateBundle orphans those specifiers
+			// and wrangler's Pages Functions bundling fails to resolve them (14 errors).
+			// Client chunks stay as proper Rollup chunk references, so renaming is safe.
+			if (isSsr) return;
 			for (const chunk of Object.values(bundle)) {
 				if (chunk.type !== 'chunk' || !chunk.isDynamicEntry) continue;
 				const locales = chunk.moduleIds
