@@ -430,7 +430,7 @@
 	<PageOg og={data.og} />
 {/if}
 
-<PageHeader backLabel={t('common.back')} />
+<PageHeader backLabel={t('common.back')} showSettings />
 
 <!-- quick-260919-hdr: the chevron left this hero for the shared PageHeader, so the hero is a
      plain <div> now — two <header> elements on one page, one of them holding only a back button,

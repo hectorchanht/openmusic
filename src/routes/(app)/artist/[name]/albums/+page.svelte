@@ -76,7 +76,7 @@
 
 <svelte:head><title>{names.dnArtist(name)} — {t('artist.discography')}</title></svelte:head>
 
-<PageHeader title={names.dnArtist(name)} subtitle={t('artist.discography')} backLabel={t('common.back')} />
+<PageHeader title={names.dnArtist(name)} subtitle={t('artist.discography')} backLabel={t('common.back')} showSettings />
 
 <div class="chips" role="tablist">
 	{#each FILTERS as f (f.id)}

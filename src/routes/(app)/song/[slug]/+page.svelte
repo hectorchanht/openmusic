@@ -25,6 +25,7 @@
 	import { browser } from '$app/environment';
 	import { onMount } from 'svelte';
 	import PageOg from '$lib/components/PageOg.svelte';
+	import SettingsGear from '$lib/components/SettingsGear.svelte';
 	import type { PageData } from './$types';
 	// `import type` is ERASED at compile time, so this pulls nothing from share-arrival (and its
 	// player-store graph) into SSR. The VALUE import stays lazy inside onMount.
@@ -200,7 +201,9 @@
 
 <PageOg og={data.og} />
 
-<section class="song-share">
+	<!-- quick-261006-gear: settings gear at the top-right corner (every page). -->
+	<div class="share-top"><SettingsGear /></div>
+	<section class="song-share">
 	{#if data.og.image && !coverFailed}
 		<!-- Decorative: the title + artist are rendered as text immediately below. no-referrer matches
 		     the app's <audio> posture for third-party CDN media. -->
@@ -238,6 +241,8 @@
 </section>
 
 <style>
+	/* quick-261006-gear: the settings gear's row on share pages — right-aligned, in flow. */
+	.share-top { display: flex; justify-content: flex-end; padding-top: 8px; }
 	.song-share {
 		display: flex;
 		flex-direction: column;

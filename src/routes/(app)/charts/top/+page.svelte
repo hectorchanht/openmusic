@@ -199,7 +199,7 @@
 	});
 </script>
 
-<PageHeader title={t('charts.topTitle')} backLabel={t('common.back')} />
+<PageHeader title={t('charts.topTitle')} backLabel={t('common.back')} showSettings />
 
 <!-- Songs / Artists toggle (UI-SPEC §7.1 — aria-pressed reflects the active toggle). -->
 <div class="tabs">

@@ -43,6 +43,7 @@
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { marquee } from '$lib/actions/marquee';
 	import { t } from '$lib/i18n';
+	import SettingsGear from '$lib/components/SettingsGear.svelte';
 
 	interface Props {
 		/** The h1. Omit for a chevron-only header (the album/artist heroes, whose title belongs to
@@ -57,9 +58,13 @@
 		/** Trailing control(s) on the title row — the settings "Reset to default" button. It must
 		 *  bring its own `use:tapBounce` (D-3). */
 		trailing?: Snippet;
+		/** quick-261006-gear: render the shared settings gear at the row's right end (after any
+		 *  `trailing` control). Opt-in per page — /settings/* never passes it (a gear linking to
+		 *  the page you are already on is dead UI). */
+		showSettings?: boolean;
 	}
 
-	let { title, subtitle, backLabel, onback, trailing }: Props = $props();
+	let { title, subtitle, backLabel, onback, trailing, showSettings }: Props = $props();
 </script>
 
 <!-- `bare` = a chevron-only header (album/artist). Its bottom margin collapses, because the hero
@@ -83,6 +88,7 @@
 		</div>
 	{/if}
 	{#if trailing}{@render trailing()}{/if}
+	{#if showSettings}<SettingsGear />{/if}
 </header>
 
 <style>

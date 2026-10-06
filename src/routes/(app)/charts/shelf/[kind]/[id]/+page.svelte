@@ -189,7 +189,7 @@
 	});
 </script>
 
-<PageHeader {title} backLabel={t('common.back')} />
+<PageHeader {title} backLabel={t('common.back')} showSettings />
 
 {#snippet skeletonRows(count: number, label: string)}
 	<li class="skel-wrap" aria-label={label}>

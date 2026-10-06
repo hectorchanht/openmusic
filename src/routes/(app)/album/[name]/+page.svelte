@@ -650,6 +650,7 @@
 <PageHeader
 	backLabel={t('album.back')}
 	onback={() => goto(albumArtist ? names.artistHref(albumArtist) : '/')}
+	showSettings
 />
 
 <div class="hero">

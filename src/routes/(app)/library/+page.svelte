@@ -22,6 +22,7 @@
 	import SongRow from '$lib/components/SongRow.svelte';
 	import TrackMenu from '$lib/components/TrackMenu.svelte';
 	import RadioList from '$lib/components/RadioList.svelte';
+	import SettingsGear from '$lib/components/SettingsGear.svelte';
 	import type { Track } from '$lib/sources/types';
 	import type { QueueContext } from '$lib/config/defaults';
 	// quick-260919-2jo: the shared tab-URL mechanism. This page READ `?tab=` (D-13) but never
@@ -367,8 +368,10 @@
 
 <!-- quick-260915-vb9: the heading is the active tab's label alone. Edit moved to the action row
      below; the history-only Clear button became the sheet's per-tab "Clear all" row. -->
+<!-- quick-261006-gear: settings gear at the top-right corner (every page). -->
 <header class="head">
 	<h1>{tabLabel}</h1>
+	<SettingsGear />
 </header>
 
 <!-- kyf-followup: icon-only pills (text moved to the header sub-label) so all 6 tabs
@@ -559,15 +562,16 @@
 <style>
 	.head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 16px 0 12px; flex-wrap: wrap; }
 	.head h1 { font-size: calc(1.4rem * var(--fs-title, 1)); margin: 0; min-width: 0; }
-	/* quick-260926-vdp: the action bar is four 34px round icon buttons (album-page values), each
+	/* quick-261006-actrow: the action bar is the page's SECOND row (below the tab pills) and it
+	   now stretches across the FULL row width on every library tab — each button grows equally
+	   (`flex: 1` on `.actions .edit-btn`), so whether 2 or 4 buttons render they always span the
+	   row. Pills, not circles: a circle cannot stretch. 44px touch height, icon grid-centred,
 	   labelled via aria-label + title. `.edit-btn` lives only in `.actions`. */
-	.edit-btn { display: grid; place-items: center; width: 34px; height: 34px; padding: 0; border-radius: 50%; background: var(--color-surface-2); border: 1px solid transparent; color: var(--color-text); cursor: pointer; transition: background 0.15s, transform 0.1s; }
+	.edit-btn { display: grid; place-items: center; min-width: 44px; height: 44px; padding: 0; border-radius: 12px; background: var(--color-surface-2); border: 1px solid transparent; color: var(--color-text); cursor: pointer; transition: background 0.15s, transform 0.1s; }
 	@media (hover: hover) { .edit-btn:active { transform: scale(0.92); } }
 	.edit-btn[aria-pressed='true'] { background: var(--color-primary); color: #fff; border-color: transparent; }
-	/* quick-260915-vb9 / quick-260926-vdp: four 34px circles plus gaps fit any phone width, and a
-	   circle must never shrink or clip, so `flex: none`. */
 	.actions { display: flex; gap: 8px; margin-bottom: 14px; }
-	.actions .edit-btn { flex: none; }
+	.actions .edit-btn { flex: 1 1 0; min-width: 0; }
 	/* fav-artists tiles only — the track rows' copy of this is SongRow's `danger`. */
 	.edit-row { color: #ff7a90; }
 	.edit-row:hover { background: rgba(255, 122, 144, 0.08); }

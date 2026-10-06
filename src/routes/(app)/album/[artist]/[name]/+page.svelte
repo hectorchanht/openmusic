@@ -24,6 +24,7 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import PageOg from '$lib/components/PageOg.svelte';
+	import SettingsGear from '$lib/components/SettingsGear.svelte';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -68,7 +69,9 @@
 
 <PageOg og={data.og} />
 
-<section class="album-share">
+	<!-- quick-261006-gear: settings gear at the top-right corner (every page). -->
+	<div class="share-top"><SettingsGear /></div>
+	<section class="album-share">
 	<h1 class="title">{shownName}</h1>
 	{#if shownArtist}
 		<p class="artist">{shownArtist}</p>
@@ -77,6 +80,8 @@
 </section>
 
 <style>
+	/* quick-261006-gear: the settings gear's row on share pages — right-aligned, in flow. */
+	.share-top { display: flex; justify-content: flex-end; padding-top: 8px; }
 	.album-share {
 		display: flex;
 		flex-direction: column;

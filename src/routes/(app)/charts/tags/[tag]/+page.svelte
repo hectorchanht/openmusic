@@ -141,7 +141,7 @@
 	});
 </script>
 
-<PageHeader title={t('charts.tagTitle', { tag })} backLabel={t('common.back')} />
+<PageHeader title={t('charts.tagTitle', { tag })} backLabel={t('common.back')} showSettings />
 
 {#snippet skeletonRows(count: number, label: string)}
 	<li class="skel-wrap" aria-label={label}>

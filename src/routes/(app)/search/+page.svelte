@@ -36,6 +36,7 @@
 	import SongRow from '$lib/components/SongRow.svelte';
 	import TrackMenu from '$lib/components/TrackMenu.svelte';
 	import VersionPicker from '$lib/components/VersionPicker.svelte';
+	import SettingsGear from '$lib/components/SettingsGear.svelte';
 	import type { Track } from '$lib/sources/types';
 
 	// UX-04 / D-03/D-04 swipe-right = queue, swipe-left = play next: the handlers moved INTO
@@ -631,7 +632,8 @@
 	});
 </script>
 
-<header class="head"><h1>{t('search.title')}</h1></header>
+<!-- quick-261006-gear: settings gear at the top-right corner (every page). -->
+<header class="head"><h1>{t('search.title')}</h1><SettingsGear /></header>
 
 <form class="bar" onsubmit={run}>
 	<div class="input-wrap">
@@ -881,7 +883,10 @@
 />
 
 <style>
-	.head h1 { font-size: calc(1.4rem * var(--fs-title, 1)); margin: 16px 0 12px; }
+	/* quick-261006-gear: flex row so the settings gear sits at the top-right corner. The
+	   16px/12px vertical rhythm moves from the h1 to the row so the gear aligns with it. */
+	.head { display: flex; align-items: center; justify-content: space-between; margin: 16px 0 12px; }
+	.head h1 { font-size: calc(1.4rem * var(--fs-title, 1)); margin: 0; }
 	.bar { display: flex; gap: 8px; margin-bottom: 8px;}
 	/* quick-260711-sm7: relative container so the clear (X) can sit inside the input's right edge. */
 	.input-wrap { position: relative; flex: 1; min-width: 0; display: flex; }
