@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeAll } from 'vitest';
-import { dedupeBest, groupVariants, collapseVariants, variantTag, sameSongKey, sameSongStrings } from './dedupe';
+import { dedupeBest, groupVariants, collapseVariants, variantTag, sameSongKey, sameSongStrings, rankByArtistExactness } from './dedupe';
 import { warmScript } from './zh-convert';
 import { makeUid, type SourceId, type Track } from '$lib/sources/types';
 
@@ -358,6 +358,66 @@ describe('sameSongKey — bilingual artist alias (quick-260927-2wt)', () => {
 		const list = [mk('qq', 'q9', '泡沫', 'G.E.M.'), mk('netease', 'n2', '光年之外', 'G.E.M.'), mk('joox', 's1', T_TRAD, 'G.E.M.')];
 		const anchor = mk('qq', 'q1', T_SIMP, 'G.E.M.邓紫棋');
 		expect(dedupeBest(list).findIndex((t) => sameSongKey(t, anchor))).toBe(2);
+	});
+});
+
+// quick-261006-aex: rankByArtistExactness — the artist page's hit songs are search hits, so a
+// fuzzy upstream can outrank the artist's own songs. Tiers: 0 exact, 1 collaboration/alias,
+// 2 everything else (kept, demoted). Stable within a tier.
+describe('rankByArtistExactness — hit songs prioritize artist-name exactness', () => {
+	beforeAll(async () => {
+		await warmScript('zh-Hans');
+	});
+	const artists = (ts: Track[]) => ts.map((t) => t.artist);
+	it('puts the exact artist first, demoting fuzzy lookalikes', () => {
+		const tracks = [
+			mk('qq', 'q1', 'Hara Kiri', 'Hara Kiri'),
+			mk('qq', 'q2', 'ne.kurili', 'Карина Полякова'),
+			mk('qq', 'q3', '20 Questions', 'Kiri T')
+		];
+		expect(artists(rankByArtistExactness(tracks, 'Kiri T'))).toEqual(['Kiri T', 'Hara Kiri', 'Карина Полякова']);
+	});
+	it('is case/punct/space-insensitive for the exact tier', () => {
+		const tracks = [mk('qq', 'q1', 'a', 'Hara Kiri'), mk('qq', 'q2', 'b', 'kiri t'), mk('qq', 'q3', 'c', 'Kiri T.')];
+		expect(artists(rankByArtistExactness(tracks, 'Kiri T'))).toEqual(['kiri t', 'Kiri T.', 'Hara Kiri']);
+	});
+	it('drops feat. tails before comparing', () => {
+		const tracks = [mk('qq', 'q1', 'a', 'Hara Kiri'), mk('qq', 'q2', 'b', 'Kiri T (feat. MC)')];
+		expect(artists(rankByArtistExactness(tracks, 'Kiri T'))[0]).toBe('Kiri T (feat. MC)');
+	});
+	it('ranks collaborations tier 1 via whole-run subset, not substring', () => {
+		const tracks = [
+			mk('qq', 'q1', 'Shield', 'Hara Kiri'),
+			mk('qq', 'q2', '世一', 'MC 張天賦/Kiri T'),
+			mk('qq', 'q3', '20 Questions', 'Kiri T')
+		];
+		// "Hara Kiri" merely CONTAINS "kiri" as a substring — whole runs don't subset-match,
+		// so it stays tier 2 while the real collaboration lands tier 1.
+		expect(artists(rankByArtistExactness(tracks, 'Kiri T'))).toEqual([
+			'Kiri T',
+			'MC 張天賦/Kiri T',
+			'Hara Kiri'
+		]);
+	});
+	it('folds Traditional/Simplified for the exact tier', () => {
+		const tracks = [mk('qq', 'q1', 'a', 'Hara Kiri'), mk('qq', 'q2', 'b', '张天赋')];
+		expect(artists(rankByArtistExactness(tracks, '張天賦'))[0]).toBe('张天赋');
+	});
+	it('is stable within a tier and never drops rows', () => {
+		const tracks = [
+			mk('qq', 'q1', 'b-song', 'Kiri T'),
+			mk('qq', 'q2', 'junk', 'Someone Else'),
+			mk('qq', 'q3', 'a-song', 'Kiri T'),
+			mk('qq', 'q4', 'no-artist', '')
+		];
+		const ranked = rankByArtistExactness(tracks, 'Kiri T');
+		expect(ranked).toHaveLength(4);
+		expect(ranked.map((t) => t.title)).toEqual(['b-song', 'a-song', 'junk', 'no-artist']);
+		expect(tracks[0].title).toBe('b-song'); // input not mutated
+	});
+	it('blank page artist proves nothing — everything stays in relevance order', () => {
+		const tracks = [mk('qq', 'q1', 'b', 'Kiri T'), mk('qq', 'q2', 'a', 'Hara Kiri')];
+		expect(artists(rankByArtistExactness(tracks, ''))).toEqual(['Kiri T', 'Hara Kiri']);
 	});
 });
 

@@ -7,7 +7,7 @@
 	import { goto } from '$app/navigation';
 	import { ChevronDown, ChevronRight, Heart, Play, Share2 } from '@lucide/svelte';
 	import { searchAll } from '$lib/services/catalog';
-	import { dedupeBest } from '$lib/services/dedupe';
+	import { dedupeBest, rankByArtistExactness } from '$lib/services/dedupe';
 	import { settings } from '$lib/stores/settings.svelte';
 	import { entityCardUrl } from '$lib/services/share';
 	import { player } from '$lib/stores/player.svelte';
@@ -258,7 +258,10 @@
 			hasMoreSongs = true;
 			loadingMoreSongs = false; // a stale in-flight page won't clear this (loadedFor guard)
 			searchAll(n, 1)
-				.then((r) => (songs = dedupeBest(r.interleaved, settings.preferredSource)))
+				// quick-261006-aex: searchAll ranks by relevance, so a fuzzy upstream ("Hara Kiri"
+				// on Kiri T's page) can outrank the artist's own songs — re-rank by artist-name
+				// exactness after dedupe (stable: relevance order kept within each tier).
+				.then((r) => (songs = rankByArtistExactness(dedupeBest(r.interleaved, settings.preferredSource), n)))
 				.catch(() => (songs = []))
 				.finally(() => (loading = false));
 		}
@@ -286,7 +289,9 @@
 				if (merged.length <= songs.length) {
 					hasMoreSongs = false; // sources exhausted: the deeper page added nothing new
 				} else {
-					songs = merged; // cumulative superset REPLACES the list
+					// quick-261006-aex: the deeper page is also relevance-ranked — keep the
+					// artist-exactness order over the cumulative superset.
+					songs = rankByArtistExactness(merged, n); // cumulative superset REPLACES the list
 					songsPage = next;
 					shown += SONGS_PAGE_SIZE;
 				}
