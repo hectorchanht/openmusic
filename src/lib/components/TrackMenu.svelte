@@ -1123,32 +1123,38 @@
 		{/if}
 		<!-- D-01: the action list ALWAYS renders (no `loading` gate around the buttons — `loading`
 		     now only drives the header-only skeleton above). Gated rows (Download / Detail / Remix)
-		     are tappable on a stub and resolve-then-act with an inline spinner (D-02/D-03). -->
+		     are tappable on a stub and resolve-then-act with an inline spinner (D-02/D-03).
+		     quick-261006-grd: the list is now an ICON GRID — 4 columns, icon + 2-line micro label per
+		     cell (the iOS-share-sheet idiom). DOM order, every handler, and every {#if} condition are
+		     UNCHANGED; only the presentation class moves from `.mi` (full-width row) to `.gi` (grid
+		     cell). The picker sub-sheets below (playlist / lyrics / download / remove-download) keep
+		     `.mi` — they are separate sheets, not this grid. -->
+		<div class="acts">
 		{#if track && track.uid !== player.current?.uid}
-			<button class="mi" onclick={playNext} use:tapBounce><ListStart size={18} /> {t('menu.playNext')}</button>
-			<button class="mi" onclick={addQueue} use:tapBounce><ListEnd size={18} /> {t('menu.addToQueue')}</button>
+			<button class="gi" onclick={playNext} use:tapBounce><ListStart size={22} /><span class="gi-label">{t('menu.playNext')}</span></button>
+			<button class="gi" onclick={addQueue} use:tapBounce><ListEnd size={22} /><span class="gi-label">{t('menu.addToQueue')}</span></button>
 		{/if}
 		<!-- Remix: GATED (needs audioUrl to play the seed) — Sparkles + the inline spinner.
 		     Sits in the queue-actions cluster after Play next / Add to queue (D-07). -->
-		<button class="mi" aria-busy={inFlight.has('remix')} aria-label={inFlight.has('remix') ? t('menu.preparing') : undefined} onclick={() => gated('remix', doRemix)} use:tapBounce>
-			{#if inFlight.has('remix')}<span class="row-spinner motion-always"></span>{:else}<Sparkles size={18} />{/if} {t('menu.remix')}
+		<button class="gi" aria-busy={inFlight.has('remix')} aria-label={inFlight.has('remix') ? t('menu.preparing') : undefined} onclick={() => gated('remix', doRemix)} use:tapBounce>
+			{#if inFlight.has('remix')}<span class="row-spinner motion-always"></span>{:else}<Sparkles size={22} />{/if}<span class="gi-label">{t('menu.remix')}</span>
 		</button>
 		<!-- Gap 4 (26-10): Play from source — opens a lazily-fed VersionPicker. The variant fetch fires
 		     ONLY on THIS tap (openVersions), never on menu open (opt-in; T-26-10-02). Shown for every
 		     track (variants discovered on demand; the picker's loading/empty states cover a single-source
 		     song). Available for the current track too (switch the playing source). -->
-		<button class="mi" onclick={openVersions} use:tapBounce><Layers size={18} /> {t('menu.versions')}</button>
+		<button class="gi" onclick={openVersions} use:tapBounce><Layers size={22} /><span class="gi-label">{t('menu.versions')}</span></button>
 		<!-- quick-260915-w4f: Change cover. The cover chain is first-solid-wins and sometimes wins wrong
 		     (wrong album, live-version art, a low-res CN thumbnail); this lets the user override it once,
 		     per song, permanently. The candidate fan-out fires on THIS tap only (Q1). `disabled` mirrors
 		     the Like row: a uid-less stub has no identity to pin against. -->
-		<button class="mi" disabled={!track.uid} onclick={openCoverPicker} use:tapBounce><ImageIcon size={18} /> {t('menu.changeCover')}</button>
+		<button class="gi" disabled={!track.uid} onclick={openCoverPicker} use:tapBounce><ImageIcon size={22} /><span class="gi-label">{t('menu.changeCover')}</span></button>
 		<!-- quick-260919-1we: Fix lyrics. Same story as Change cover one line up, for the lyric chain:
 		     it is first-source-wins and sometimes wins wrong (wrong song, wrong language, an
 		     instrumental's LRC), and until now the user had no way to correct it. The per-source walk
 		     fires on THIS tap only (T-1we-03). `disabled` mirrors the Like / Change-cover rows: a
 		     uid-less stub has no identity to pin against (D-1). -->
-		<button class="mi" disabled={!track.uid} onclick={openLyricsPicker} use:tapBounce><Mic2 size={18} /> {t('menu.changeLyrics')}</button>
+		<button class="gi" disabled={!track.uid} onclick={openLyricsPicker} use:tapBounce><Mic2 size={22} /><span class="gi-label">{t('menu.changeLyrics')}</span></button>
 		<!-- quick-260926-qat: lyrics timing toggle. Shown ONLY for the currently playing track that
 		     actually has lyrics — the row it reveals lives in the Now Playing lyrics pane of
 		     player.current, so for any other track it would toggle something the user cannot see.
@@ -1157,7 +1163,7 @@
 		     Repeat-row idiom (class:on + aria-pressed + swapping label): the menu closes on tap, so the
 		     label must show the state before the tap. -->
 		{#if player.current?.uid === track.uid && readLyrics(player.current)}
-			<button class="mi" class:on={lyricSyncOpen()} aria-pressed={lyricSyncOpen()} onclick={toggleLyricsTiming} use:tapBounce><Timer size={18} /> {lyricSyncOpen() ? t('menu.lyricsTimingHide') : t('menu.lyricsTiming')}</button>
+			<button class="gi" class:on={lyricSyncOpen()} aria-pressed={lyricSyncOpen()} onclick={toggleLyricsTiming} use:tapBounce><Timer size={22} /><span class="gi-label">{lyricSyncOpen() ? t('menu.lyricsTimingHide') : t('menu.lyricsTiming')}</span></button>
 		{/if}
 		<!-- quick-260919-1eh: Edit metadata. Shown ONLY for a file the app actually holds bytes for.
 		     `blobPresent` is the blob-backed probe, NOT library.isDownloaded — quick-260913-jq4
@@ -1172,7 +1178,7 @@
 		     `blobPresent` is true for an imported file because `blobStore.has` reads the user's file
 		     in place (34-D-05), which is exactly the right meaning here: there are bytes to edit. -->
 		{#if blobPresent}
-			<button class="mi" onclick={() => (tagsOpen = true)} use:tapBounce><Tags size={18} /> {t('menu.editTags')}</button>
+			<button class="gi" onclick={() => (tagsOpen = true)} use:tapBounce><Tags size={22} /><span class="gi-label">{t('menu.editTags')}</span></button>
 		{/if}
 		<!-- quick-260919-0mw (correction): Repeat, relocated from the NowPlaying transport row.
 		     Deliberately OUTSIDE the queue.length > 1 gate that wraps Shuffle: shuffling a
@@ -1195,14 +1201,13 @@
 		          key was minted. Highlight-alone would be ambiguous in a list where several rows
 		          can be highlighted at once. -->
 		{#if player.current}
-			<button class="mi" class:on={player.repeatMode !== 'off'} aria-pressed={player.repeatMode !== 'off'} onclick={cycleRepeatMode} use:tapBounce>
-				{#if player.repeatMode === 'one'}<Repeat1 size={18} />{:else}<Repeat size={18} />{/if}
-				{player.repeatMode === 'one' ? t('nowplaying.repeatModeOne') : t('nowplaying.repeat')}
+			<button class="gi" class:on={player.repeatMode !== 'off'} aria-pressed={player.repeatMode !== 'off'} onclick={cycleRepeatMode} use:tapBounce>
+				{#if player.repeatMode === 'one'}<Repeat1 size={22} />{:else}<Repeat size={22} />{/if}<span class="gi-label">{player.repeatMode === 'one' ? t('nowplaying.repeatModeOne') : t('nowplaying.repeat')}</span>
 			</button>
 		{/if}
 		{#if player.queue.length > 1}
-			<button class="mi" class:on={player.shuffle} onclick={shuffleQueue} use:tapBounce><Shuffle size={18} /> {t('menu.shuffleQueue')}</button>
-			<button class="mi" onclick={clearQueue} use:tapBounce><Trash2 size={18} /> {t('menu.clearQueue')}</button>
+			<button class="gi" class:on={player.shuffle} onclick={shuffleQueue} use:tapBounce><Shuffle size={22} /><span class="gi-label">{t('menu.shuffleQueue')}</span></button>
+			<button class="gi" onclick={clearQueue} use:tapBounce><Trash2 size={22} /><span class="gi-label">{t('menu.clearQueue')}</span></button>
 		{/if}
 		<!-- Download: tri-state (D-11/D-12). Already downloaded → Check + greyed disabled ("Downloaded").
 		     Otherwise GATED — resolve-then-act at settings.downloadQuality via downloadTrack. The busy
@@ -1225,7 +1230,7 @@
 			     than a spinner, so the bar is the row's ONLY progress channel in both states. -->
 			{@const frac = library.downloadProgress[track.uid]}
 			<button
-				class="mi dl-busy dl-progress"
+				class="gi dl-busy dl-progress"
 				class:dl-indeterminate={frac === undefined}
 				class:motion-always={frac === undefined}
 				style:--dl={frac ?? 0}
@@ -1235,9 +1240,9 @@
 					? t('menu.preparing')
 					: `${t('menu.download')} ${Math.round(frac * 100)}%`}
 			>
-				<Download size={18} />
-				{t('menu.download')}
-				{#if frac !== undefined}<span class="count">{Math.round(frac * 100)}%</span>{/if}
+				<Download size={22} />
+				<span class="gi-label">{t('menu.download')}</span>
+				{#if frac !== undefined}<span class="gi-sub">{Math.round(frac * 100)}%</span>{/if}
 			</button>
 		{:else if blobPresent === true}
 			<!-- quick-260919-3j1 (F2): the SAME `.count` slot the Download row's probed `FLAC · 38.2 MB`
@@ -1245,9 +1250,9 @@
 			     (formatDownloadMeta composes source tokens + unit symbols). This is the parity the
 			     user asked for: a song that is NOT downloaded says what it would be, a song that IS
 			     downloaded says what it is. -->
-			<button class="mi" disabled aria-disabled="true">
-				<Check size={18} /> {t('menu.downloaded')}
-				{#if localMeta}<span class="count">{localMeta}</span>{/if}
+			<button class="gi" disabled aria-disabled="true">
+				<Check size={22} /><span class="gi-label">{t('menu.downloaded')}</span>
+				{#if localMeta}<span class="gi-sub">{localMeta}</span>{/if}
 			</button>
 		{:else}
 			<!-- quick-260915-26g: the probed format/size reuses the SAME `.count` slot the download
@@ -1269,12 +1274,15 @@
 			     i.e. target-agnostic, so a hold's trailing click is eaten wherever it lands — the main
 			     button, the caret, or the sheet that just mounted under the finger (read in
 			     longpress.ts `clickCapture`, not assumed). -->
-			<div class="mi-split">
-				<button class="mi" aria-label={`${dlLabel} · ${t('menu.downloadHoldHint')}`} title={t('menu.downloadHoldHint')} onclick={startDownload} onlongpress={openDownloadPicker} use:longpress use:tapBounce>
-					<Download size={18} /> {t('menu.download')}
-					{#if dlProbing}<span class="count skel" aria-hidden="true"></span>{:else if dlMeta}<span class="count">{dlMeta}</span>{/if}
+			<!-- quick-261006-grd: same two-sibling shape as the list row's `.mi-split` — the
+			     caret is a real control that cannot nest inside the cell <button>, so it rides as a
+			     corner sibling. Long-press on the cell still opens the same sheet. -->
+			<div class="gi-split">
+				<button class="gi" aria-label={`${dlLabel} · ${t('menu.downloadHoldHint')}`} title={t('menu.downloadHoldHint')} onclick={startDownload} onlongpress={openDownloadPicker} use:longpress use:tapBounce>
+					<Download size={22} /><span class="gi-label">{t('menu.download')}</span>
+					{#if dlProbing}<span class="gi-sub skel" aria-hidden="true"></span>{:else if dlMeta}<span class="gi-sub">{dlMeta}</span>{/if}
 				</button>
-				<button type="button" class="mi-caret" aria-label={t('menu.downloadFrom')} title={t('menu.downloadFrom')} onclick={openDownloadPicker} use:tapBounce><ChevronDown size={14} /></button>
+				<button type="button" class="gi-caret" aria-label={t('menu.downloadFrom')} title={t('menu.downloadFrom')} onclick={openDownloadPicker} use:tapBounce><ChevronDown size={14} /></button>
 			</div>
 		{/if}
 		{/if}
@@ -1308,9 +1316,9 @@
 		     would hide the row for a blob whose list entry was lost. `=== true` and not merely truthy,
 		     so the row cannot flash in during the `null` pre-probe tick. `!isDevice` is implied. -->
 		{#if isDevice}
-			<button class="mi" onclick={noImport} use:tapBounce><EyeOff size={18} /> {t('menu.noImport')}</button>
+			<button class="gi" onclick={noImport} use:tapBounce><EyeOff size={22} /><span class="gi-label">{t('menu.noImport')}</span></button>
 		{:else if blobPresent === true || library.isDownloaded(track.uid)}
-			<button class="mi" onclick={openRemoveDownload} use:tapBounce><Trash2 size={18} /> {t('menu.removeDownload')}</button>
+			<button class="gi" onclick={openRemoveDownload} use:tapBounce><Trash2 size={22} /><span class="gi-label">{t('menu.removeDownload')}</span></button>
 		{/if}
 		<!-- quick-260913-je8: the mid-list Like row is RESTORED (D-09 had removed it when Like owned
 		     the header accent slot — the header is Download now, so the only Like affordance has to
@@ -1318,14 +1326,14 @@
 		     this needs no new CSS and no new i18n keys. -->
 		<!-- like-state-wrong-track-menu: a name-stub (uid:'') has no identity to like yet; the row waits for
 		     the host page's resolve to swap in the real Track rather than firing a no-op + wrong toast. -->
-		<button class="mi" class:accent={liked} aria-pressed={liked} disabled={!track.uid} onclick={like} use:tapBounce>
-			<Heart size={18} fill={liked ? 'currentColor' : 'none'} /> {liked ? t('menu.liked') : t('menu.like')}
+		<button class="gi" class:on={liked} aria-pressed={liked} disabled={!track.uid} onclick={like} use:tapBounce>
+			<Heart size={22} fill={liked ? 'currentColor' : 'none'} /><span class="gi-label">{liked ? t('menu.liked') : t('menu.like')}</span>
 		</button>
-		<button class="mi" onclick={() => { pickerOpen = true; }} use:tapBounce><ListPlus size={18} /> {t('menu.addToPlaylist')}</button>
+		<button class="gi" onclick={() => { pickerOpen = true; }} use:tapBounce><ListPlus size={22} /><span class="gi-label">{t('menu.addToPlaylist')}</span></button>
 		<!-- Opens the GLOBAL SleepTimerSheet (mounted in the app layout) — not a local sub-sheet
 		     here, so the timer indicator is reachable from the nowbar + now-playing too (D-08). -->
-		<button class="mi" onclick={() => { close(); tick().then(() => (sleepTimer.sheetOpen = true)); }} use:tapBounce><Moon size={18} /> {t('menu.sleepTimer')}</button>
-		<button class="mi" onclick={gotoArtist} use:tapBounce><User size={18} /> {t('menu.goToArtist')}</button>
+		<button class="gi" onclick={() => { close(); tick().then(() => (sleepTimer.sheetOpen = true)); }} use:tapBounce><Moon size={22} /><span class="gi-label">{t('menu.sleepTimer')}</span></button>
+		<button class="gi" onclick={gotoArtist} use:tapBounce><User size={22} /><span class="gi-label">{t('menu.goToArtist')}</span></button>
 		<!-- quick-260920-kia: Share is UNCONDITIONAL — UI-SPEC Contract 8's `!isDevice` guard on
 		     Share (see the header fork's note) is SUPERSEDED. Its rationale ("a share link to a file
 		     only on this phone is nonsense, and would emit a URL carrying a local uid") was wrong
@@ -1336,11 +1344,12 @@
 		     NO runtime guard is added in doShare() — the device skip already lives at the one place
 		     every caller routes through (share.ts), pinned by share.test.ts "a `device:` uid carries
 		     NOTHING". Do not reintroduce a device guard here. -->
-		<button class="mi" onclick={doShare} use:tapBounce><Share2 size={18} /> {t('menu.share')}</button>
+		<button class="gi" onclick={doShare} use:tapBounce><Share2 size={22} /><span class="gi-label">{t('menu.share')}</span></button>
 		<!-- Detail: GATED — resolves details to populate the detail sheet's audioUrl/quality rows. -->
-		<button class="mi" aria-busy={inFlight.has('detail')} aria-label={inFlight.has('detail') ? t('menu.preparing') : undefined} onclick={() => gated('detail', doDetail)} use:tapBounce>
-			{#if inFlight.has('detail')}<span class="row-spinner motion-always"></span>{:else}<Info size={18} />{/if} {t('menu.detail')}
+		<button class="gi" aria-busy={inFlight.has('detail')} aria-label={inFlight.has('detail') ? t('menu.preparing') : undefined} onclick={() => gated('detail', doDetail)} use:tapBounce>
+			{#if inFlight.has('detail')}<span class="row-spinner motion-always"></span>{:else}<Info size={22} />{/if}<span class="gi-label">{t('menu.detail')}</span>
 		</button>
+		</div><!-- /quick-261006-grd .acts grid -->
 	</div>
 {/if}
 
@@ -1600,13 +1609,71 @@
 	.mi:hover { background: var(--color-surface); }
 	.mi:disabled { opacity: 0.4; cursor: default; }
 	.mi.accent { color: var(--color-primary); }
-	/* quick-260919-0mw (correction): the ACTIVE-state rule for a toggle row. `class:on` was already
+	/* quick-260919-0mw (correction): the ACTIVE-state rule for a toggle. `class:on` was already
 	   in the markup on the Shuffle row (ii6) but NO rule ever matched it, so shuffle-on and
-	   shuffle-off rendered pixel-identical. Relocating Repeat here needed a real active state, and
-	   the fix belongs on the shared `.on`, not on a repeat-only class - one rule, and the Shuffle
-	   row above it starts showing the state it has been claiming to show all along. Same declaration
-	   as `.accent` because it is the same idea: this row is not neutral right now. */
-	.mi.on { color: var(--color-primary); }
+	   shuffle-off rendered pixel-identical. quick-261006-grd moved the rule to `.gi.on` (the grid
+	   cell) — same declaration, same idea: this cell is not neutral right now. */
+	/* quick-261006-grd: the icon grid. 4 columns — the sheet caps at 680px, so cells grow on
+	   desktop and sit at ~72px on a 360px phone. `.mi` above is untouched: the picker sub-sheets
+	   (playlist / lyrics / download / remove-download) are still list rows. */
+	.acts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px; padding: 4px 2px 8px; }
+	/* Grid cell: icon over a 2-line micro label. min-height keeps rows even when some labels wrap
+	   and others don't; the icon box is a fixed 24px so the spinner swap (Remix/Detail) never
+	   shifts the label. */
+	.gi {
+		position: relative; display: flex; flex-direction: column; align-items: center;
+		justify-content: flex-start; gap: 6px; min-height: 78px; padding: 12px 4px 8px;
+		background: none; border: none; border-radius: 12px; color: var(--color-text);
+		cursor: pointer; text-align: center; -webkit-tap-highlight-color: transparent;
+	}
+	@media (hover: hover) { .gi:hover { background: var(--color-surface); } }
+	.gi:disabled { opacity: 0.4; cursor: default; }
+	.gi.on { color: var(--color-primary); }
+	/* The icon slot is a fixed 22px box: the 16px Remix/Detail spinner swap must never shift the
+	   label, so the spinner is centred in the same 22px by its margin. (A `.gi > svg` rule would
+	   do the same for the icons, but svelte-check cannot see through the lucide components to
+	   their rendered <svg> and would flag it unused — the size={22} prop already fixes them.) */
+	.gi > .row-spinner { flex: none; margin: 3px; }
+	.gi-label {
+		font-size: 0.625rem; line-height: 1.3; color: var(--color-text-muted);
+		display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+		max-width: 100%; overflow-wrap: break-word;
+	}
+	.gi.on .gi-label { color: var(--color-primary); }
+	/* Meta under the label (download quality/size, progress %) — tabular-nums so the climbing
+	   percentage doesn't jitter the cell. Never animated: the bar below owns the motion. */
+	.gi-sub {
+		font-size: 0.5625rem; line-height: 1.2; color: var(--color-text-muted);
+		font-variant-numeric: tabular-nums; max-width: 100%;
+		white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+	}
+	.gi-sub.skel { display: inline-block; width: 44px; height: 9px; border-radius: var(--radius-full); background: var(--color-surface); }
+	/* Download split: the caret is a corner sibling — a <button> cannot nest inside the cell
+	   <button>, so it rides absolute at the cell's top-right (the list row's `.mi-split` idiom,
+	   shrunk to a corner target). Long-press on the cell still opens the same sheet. */
+	.gi-split { position: relative; }
+	.gi-split .gi { width: 100%; }
+	.gi-caret {
+		position: absolute; top: 0; right: 0; display: grid; place-items: center;
+		width: 30px; height: 30px; background: none; border: none; border-radius: 8px;
+		color: var(--color-text-muted); cursor: pointer;
+	}
+	@media (hover: hover) { .gi-caret:hover { background: var(--color-surface); color: var(--color-text); } }
+	/* Grid progress: a thin determinate bar along the cell's bottom edge. The list row's
+	   full-bleed ::after tint would swallow a 72px cell, so the bar lives at the bottom instead.
+	   The indeterminate slide reuses the same dl-slide keyframes (translateX %, layout-free). */
+	.gi.dl-progress { overflow: hidden; }
+	.gi.dl-progress::after {
+		content: ''; position: absolute; left: 0; bottom: 0; height: 3px;
+		width: calc(var(--dl, 0) * 100%); background: var(--color-primary);
+		transition: width 120ms linear; pointer-events: none;
+	}
+	.gi.dl-indeterminate::after {
+		width: 32%; transition: none; animation: dl-slide 1.4s ease-in-out infinite;
+	}
+	/* The busy cell is disabled-but-working: keep it undimmed like the list row's `.dl-busy`
+	   (at 0.4 the bar and percentage are hard to read). */
+	.gi.dl-busy:disabled { opacity: 1; }
 	/* quick-260919-vrq — the remove-download confirm's body copy + button pair. `.hint` and `.actions`
 	   are taken VERBATIM from MetadataEditor.svelte (its footer is the same shape: a paragraph of
 	   explanation over a Cancel/commit pair), so the two sheets read identically; noted here because
@@ -1635,57 +1702,30 @@
 	.lyr-cur { display: inline-flex; align-items: center; gap: 4px; flex: none; color: var(--color-primary); font-size: 0.75rem; white-space: nowrap; }
 	.lyr-body { max-height: 12rem; overflow-y: auto; overscroll-behavior: contain; padding: 4px 12px 8px; font-size: 0.875rem; line-height: 1.5; white-space: pre-line; color: var(--color-text); }
 	.dl-wait { display: flex; align-items: center; gap: 10px; color: var(--color-text-muted); font-size: 0.8125rem; padding: 10px 12px; margin: 0; }
-	/* quick-260919-vrq: the Download row is now TWO sibling buttons in a flex wrapper (a tappable
-	   caret cannot live inside a <button>). The caret's two old decoration-only rules went with it —
-	   the glyph is a real control now, so it no longer needs a rule to fake a right-edge position.
-	   `.mi` declares `width: 100%`, which as a flex item would size it off the wrapper rather than
-	   the free space, so `flex: 1` + `min-width: 0` is what actually lets it take the row and lets
-	   its label ellipsise. `.count`'s own `margin-left: auto` still pushes the meta to the main
-	   button's right edge, so the icon/label/meta rhythm is unchanged. The caret repeats `.mi`'s
-	   12px vertical padding so the row height is identical, with 14px horizontal for a ~42px target. */
-	.mi-split { display: flex; align-items: center; }
-	.mi-split .mi { flex: 1; min-width: 0; }
-	.mi-caret { flex: none; display: flex; align-items: center; background: none; border: none; color: var(--color-text-muted); padding: 12px 14px; border-radius: 10px; cursor: pointer; }
-	.mi-caret:hover { background: var(--color-surface); }
+	/* quick-260919-vrq: the Download row's TWO-sibling-buttons shape — DELETED by
+	   quick-261006-grd, which moved it to the grid cell's `.gi-split` corner caret (declared with
+	   the grid styles above). */
 	/* quick-260913-omi: download progress fill, RESTORED by quick-260919-dlring's row revert. `--dl`
-	   is the 0..1 fraction, set inline per render. An ::after at 18% opacity sits UNDER the label
-	   without needing a stacking context — the tint is light enough that the text and icon stay fully
-	   legible through it. The width transition is deliberately un-tagged (no .motion-always) so
-	   app.css's reduce-motion rule kills it. */
-	.mi.dl-progress { position: relative; overflow: hidden; }
-	.mi.dl-progress::after {
-		content: '';
-		position: absolute;
-		inset: 0 auto 0 0;
-		width: calc(var(--dl, 0) * 100%);
-		background: var(--color-primary);
-		opacity: 0.18;
-		transition: width 120ms linear;
-		pointer-events: none;
-	}
+	   is the 0..1 fraction, set inline per render. quick-261006-grd: the list-row variant is deleted
+	   with `.mi-split` above; the grid cell's bottom-edge bar (`.gi.dl-progress`) is declared with
+	   the grid styles. */
 	/* Indeterminate (no Content-Length, or no bytes yet): omi parked a SPINNER here, but the row's
 	   glyph is no longer allowed to indicate anything, so the bar covers this state instead — a
 	   fixed-width tint sliding across the row, the standard indeterminate idiom. `transform` is used
 	   (not `left`) so it never triggers layout, and `--dl` is ignored while this class is on.
 	   The markup pairs this class with `.motion-always`, app.css's escape hatch, for the same reason
 	   the spinner carried it: a frozen indeterminate bar reads as 32% progress, i.e. a lie. The
-	   DETERMINATE row stays un-tagged, so its width transition is still killed by reduce-motion. */
-	.mi.dl-indeterminate::after {
-		width: 32%;
-		transition: none;
-		animation: dl-slide 1.4s ease-in-out infinite;
-	}
+	   DETERMINATE row stays un-tagged, so its width transition is still killed by reduce-motion.
+	   quick-261006-grd: the list-row ::after is deleted with `.mi-split` above; the grid cell
+	   (`.gi.dl-indeterminate::after`) reuses these same `dl-slide` keyframes for its bottom bar. */
 	@keyframes dl-slide {
 		0% { transform: translateX(-100%); }
 		100% { transform: translateX(313%); }
 	}
-	/* omi's other call, kept by quick-260919-dlring: a disabled row is dimmed to 0.4, but this one is
-	   disabled only because it is BUSY, and at 0.4 the bar and the percentage are hard to read.
-	   `.dl-busy` covers the indeterminate case too — an undimmed bar is the point of the state.
-	   The header button joins the same rule: it is the SAME state, and at 0.4 its ring read as an
-	   already-greyed Downloaded tick. Its OTHER disabled states (the Check) stay dimmed — the class
-	   is on the busy fork only. */
-	.mi.dl-busy:disabled,
+	/* omi's other call, kept by quick-260919-dlring: a disabled control is dimmed to 0.4, but the
+	   busy download is disabled only because it is BUSY, and at 0.4 the bar/percentage/ring are hard
+	   to read. The header button keeps the rule (it is the SAME state); the grid cell carries its
+	   own `.gi.dl-busy:disabled` with the grid styles. quick-261006-grd deleted the `.mi` half. */
 	.hd-btn.dl-busy:disabled { opacity: 1; }
 	/* MENU-01 inline resolve spinner — neutral (NOT accent), sits in the leading 18px icon box so
 	   the row width does not shift. quick-260809-mvz: keeps rotating under BOTH reduce-motion gates
