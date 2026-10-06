@@ -26,6 +26,7 @@
 	import { marquee } from '$lib/actions/marquee';
 	import { t } from '$lib/i18n';
 	import { collapseVariants, variantTag, type VersionTag } from '$lib/services/dedupe';
+	import { SOURCES } from '$lib/sources/registry';
 	import type { Track } from '$lib/sources/types';
 
 	let {
@@ -73,13 +74,32 @@
 			default: return vt.text;
 		}
 	}
+	// quick-261006-sdf: the sheet IS the source diff — every row must identify its source,
+	// because the whole point of "Play from source" is choosing WHICH source plays. The
+	// adapter label (网易云音乐 / QQ 音乐 / …) is the identity; duration rides the sub line so
+	// same-title variants from different sources read apart at a glance.
+	function sourceLabel(v: Track): string {
+		return SOURCES[v.source]?.label ?? v.source;
+	}
+	/** seconds → "m:ss" for the sub line. null when the source did not report a duration
+	 *  (Track.duration is optional — never fabricate one). */
+	function fmtDuration(sec: number | undefined): string | null {
+		if (sec == null || !isFinite(sec) || sec <= 0) return null;
+		const m = Math.floor(sec / 60);
+		const s = Math.floor(sec % 60);
+		return `${m}:${String(s).padStart(2, '0')}`;
+	}
 	// Gap 5 subtitle: album is the primary distinguisher when present (so two versions read apart),
 	// else fall back to the quality label. Artist stays the lead so the row still identifies the song.
+	// quick-261006-sdf: duration appended when known — it is often THE visible difference between
+	// two sources' copies of the "same" song (live cut vs studio, intro skit present or not).
 	function versionSub(v: Track): string {
 		const artist = names.dnArtist(v.artist);
-		return v.album && v.album.trim()
+		const base = v.album && v.album.trim()
 			? `${artist} · ${names.dnTitle(v.album)}`
 			: `${artist} · ${qualityLabel(v)}`;
+		const d = fmtDuration(v.duration);
+		return d ? `${base} · ${d}` : base;
 	}
 
 	function pick(v: Track) {
@@ -118,6 +138,10 @@
 				<button class="mi" onclick={() => pick(v)} use:tapBounce>
 					<span class="ver-meta">
 						<span class="ver-title">
+							<!-- quick-261006-sdf: the source pill leads the row — this sheet's whole
+							     job is the per-source choice, so source identity is the first thing
+							     the eye lands on. flex:none so the title's ellipsis absorbs the squeeze. -->
+							<span class="src">{sourceLabel(v)}</span>
 							<span class="ver-name" use:marquee><span class="marquee-inner">{names.dnTitle(v.title, v.artist)}</span></span>
 						</span>
 						{#if vt}<span class="ver-tag">{tagLabel(vt)}</span>{/if}
@@ -155,6 +179,14 @@
 	/* Title row is a flex line so the (Live)/(Demo) tag pill stays visible while the name ellipsizes. */
 	.ver-title { font-size: 0.875rem; font-weight: 600; color: var(--color-text); display: flex; align-items: center; gap: 6px; min-width: 0; }
 	.ver-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+	/* quick-261006-sdf: the source pill — the row's identity in this sheet. Primary-tinted (not
+	   muted like .ver-tag) because it is the decision the user is here to make. Brand labels are
+	   never translated (i18n-free by design), so no locale key is minted for them. */
+	.src {
+		flex: 0 0 auto; font-size: 0.625rem; font-weight: 700; letter-spacing: 0.02em; white-space: nowrap;
+		color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 14%, transparent);
+		padding: 1px 7px; border-radius: 6px; width: fit-content;
+	}
 	/* Gap 5 version tag — a muted pill next to the title, consistent weight with .src but subdued. */
 	.ver-tag {
 		flex: 0 0 auto; font-size: 0.625rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em;
