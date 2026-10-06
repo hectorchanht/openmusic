@@ -20,14 +20,16 @@
 //    upgrade (the old post-paint iTunes → Deezer replacement) was removed in Phase 40 D-11a —
 //    inline covers are never replaced automatically.
 //    - Tier 1 iTunes (itunesSongCover — no-auth, CORS-open DIRECT fetch to itunes.apple.com that
-//      never touches our edge, soft-limited). FIRST because it is both the fastest hop and the
-//      largest artwork in the chain (1200px).
+//      never touches our edge, soft-limited). FIRST because it is the fastest hop; quick-261006-o9t
+//      asks for the 400px display variant (was the 1200px default, ~330 KB per cover) — plenty for
+//      every inline surface including the hero.
 //    - Tier 2 QQ (qqSongCover — qq-only searchAll, then the qq adapter resolve on a COPY of the best row
 //      to read `album_pic`). Fires ONLY on an iTunes miss; skips the detail call when the search
 //      returns no row.
 //    - Tier 3 Deezer (deezerSongCover via the own-origin /api/deezer/search proxy — no key, no env
-//      var, edge-cached, CORS-blocked direct so proxied). cover_xl is 1000px and the tier is
-//      reliable. Fires ONLY on an iTunes+QQ miss.
+//      var, edge-cached, CORS-blocked direct so proxied). quick-261006-o9t prefers the cover_big
+//      500px rung (~73 KB measured) over cover_xl 1000px (~208 KB); the tier stays reliable.
+//      Fires ONLY on an iTunes+QQ miss.
 //    - Tier 4 other CN (searchAll with qq + ytmusic explicitly off → dedupeBest[0].cover — the
 //      SAME resolver resolveStub / picks / similar use; NO new endpoint, NO rate limit). Carries the
 //      netease/kuwo/joox long tail the tiers above miss. CAA-by-mbid stays a tileCover-level step.
@@ -102,8 +104,8 @@ import {
 	artistCoverCacheKey
 } from '$lib/services/cover-cache';
 import { mapWithConcurrency } from '$lib/services/discovery';
-import { deezerSongCover, deezerArtistCover, deezerSearchTopN } from '$lib/services/deezer';
-import { itunesSongCover, itunesArtistCover } from '$lib/services/itunes-cover';
+import { deezerSongCover, deezerArtistCover, deezerSearchTopN, downsizeDeezerCover } from '$lib/services/deezer';
+import { itunesSongCover, itunesArtistCover, DISPLAY_ARTWORK_SIZE } from '$lib/services/itunes-cover';
 import { onlySource, SOURCES } from '$lib/sources/registry';
 import { createHealthGate } from '$lib/services/source-health';
 import { combinedSignal } from '$lib/services/abort-signal';
@@ -302,9 +304,11 @@ async function resolveTrackChain(
 ): Promise<string | null> {
 	if (signal?.aborted) return null;
 	try {
-		// Tier 1 — iTunes (PRIMARY: fastest hop, largest artwork, zero edge cost). A SOLID hit is
-		// used as-is; no later tier is issued.
-		let cover = await tier(() => itunesSongCover(artist, title, signal));
+		// Tier 1 — iTunes (PRIMARY: fastest hop, zero edge cost). quick-261006-o9t: asks for the
+		// 400px display variant (DISPLAY_ARTWORK_SIZE) instead of the historic 1200x1200bb (~330 KB
+		// per cover) — a 400px image is plenty for every inline surface including the hero, and the
+		// bytes are several-fold smaller. A SOLID hit is used as-is; no later tier is issued.
+		let cover = await tier(() => itunesSongCover(artist, title, signal, DISPLAY_ARTWORK_SIZE));
 		if (signal?.aborted) return null;
 
 		// Tier 2 — QQ (fires only on an iTunes miss; search + detail resolve, health-gated, 40-WR-06).
@@ -313,9 +317,11 @@ async function resolveTrackChain(
 			if (signal?.aborted) return null;
 		}
 
-		// Tier 3 — Deezer (fires only on an iTunes+QQ miss).
+		// Tier 3 — Deezer (fires only on an iTunes+QQ miss). quick-261006-o9t: prefers the 500px
+		// cover_big rung (~73 KB measured) over the historic cover_xl 1000px (~208 KB) — same art,
+		// far fewer bytes, still plenty for every inline surface.
 		if (!cover) {
-			cover = await tier(() => deezerSongCover(artist, title, signal));
+			cover = await tier(() => deezerSongCover(artist, title, signal, 'big'));
 			if (signal?.aborted) return null;
 		}
 
@@ -351,7 +357,7 @@ async function resolveTrackChain(
 /**
  * Single-item cover resolve helper (Plan 21-02, COVER-02) — the seam Plans 03/04/05 consume.
  *
- * Runs the SAME iTunes(1200) → QQ → Deezer → other CN → YTM tier chain as backfillCovers (Phase 40
+ * Runs the SAME iTunes(400px display) → QQ → Deezer(500px) → other CN → YTM tier chain as backfillCovers (Phase 40
  * D-08; was iTunes → Deezer → CN → YTM per quick-260920-nyq, and YTM → iTunes → Deezer → CN per
  * quick-260919-0mw) via resolveTrackChain — reusing the shared
  * `tier()` never-throw wrapper + hasHttpsScheme guard, NOT a new fetch ladder.
@@ -442,6 +448,10 @@ export async function resolveShareCover(
 		const hit = shareCoverMemo.get(track.uid);
 		if (hit) return hit;
 	}
+	// quick-261006-o9t: the carrier DELIBERATELY keeps the historic sizes (1200px iTunes /
+	// cover_xl Deezer) — a carrier URL is only ever id/md5-tokenized into `i:<id>` / `d:<md5>`,
+	// never rendered as bytes, so the display-size saving does not apply and byte-identical
+	// URLs keep the token pipeline untouched.
 	let cover = await tier(() => itunesSongCover(track.artist ?? '', track.title ?? '', signal));
 	if (signal?.aborted) return null;
 	if (!cover) {
@@ -550,13 +560,15 @@ export async function backfillArtistCovers(
 	async function resolveOneArtist(name: string): Promise<void> {
 		if (signal?.aborted) return;
 		try {
-			// Tier 1 — Deezer artist picture.
-			let url = await tier(() => deezerArtistCover(name, signal));
+			// Tier 1 — Deezer artist picture (quick-261006-o9t: 500px display rung, ~73 KB, same
+			// art as the historic 1000px ~208 KB).
+			let url = await tier(() => deezerArtistCover(name, signal, 'big'));
 			if (signal?.aborted) return;
 
-			// Tier 2 — iTunes artist-image proxy (fires only on a Deezer miss).
+			// Tier 2 — iTunes artist-image proxy (fires only on a Deezer miss; 400px display
+			// variant, quick-261006-o9t).
 			if (!url) {
-				url = await tier(() => itunesArtistCover(name, signal));
+				url = await tier(() => itunesArtistCover(name, signal, DISPLAY_ARTWORK_SIZE));
 				if (signal?.aborted) return;
 			}
 
@@ -668,14 +680,18 @@ export async function collectCoverCandidates(
 			return r.interleaved.map((t) => ({ url: t.cover ?? '', source: 'ytmusic' }));
 		}),
 		safe(async () => {
-			const url = await itunesSongCover(artist, title, signal);
+			// quick-261006-o9t: the picker grid shows small tiles, so the 400px display variant —
+			// not the 1200px default — is plenty.
+			const url = await itunesSongCover(artist, title, signal, DISPLAY_ARTWORK_SIZE);
 			// iTunes exposes only its top hit through this service (fetchTopArtwork is private), so
 			// this tier contributes at most one candidate. Deferred: a multi-hit iTunes tier.
 			return url ? [{ url, source: 'itunes' }] : [];
 		}),
 		safe(async () =>
+			// quick-261006-o9t: picker tiles are small — downsize the cover_xl URLs one rung
+			// (1000 → 500px) before offering them.
 			(await deezerSearchTopN(term, 5, signal)).map((h) => ({
-				url: h.cover ?? '',
+				url: downsizeDeezerCover(h.cover) ?? '',
 				source: 'deezer'
 			}))
 		),

@@ -36,6 +36,17 @@ import { combinedSignal as combineWithTimeout } from './abort-signal';
 const ITUNES_SEARCH = 'https://itunes.apple.com/search';
 const FETCH_TIMEOUT_MS = 6000;
 
+/**
+ * quick-261006-o9t (cover-bandwidth): the artwork size every INLINE display surface
+ * (tiles, rows, the Now Playing hero) asks for. The chain's historic default was
+ * 1200x1200bb (~330 KB per cover measured); a 400px image is plenty for the largest
+ * display surface (the hero is ≤ ~390 CSS px wide on a phone) and cuts the bytes
+ * several-fold. The share carrier keeps the 1200 default (it is id-tokenized, never
+ * rendered) and /api/og keeps its own OG_ARTWORK_SIZE (600) — neither is a display
+ * surface, so they do not follow this constant.
+ */
+export const DISPLAY_ARTWORK_SIZE = '400x400bb';
+
 /** This module's calls all share one deadline — bind it once so every call site stays
  *  `combinedSignal(signal)` and the timeout is named in exactly one place. */
 const combinedSignal = (caller?: AbortSignal) => combineWithTimeout(FETCH_TIMEOUT_MS, caller);
@@ -160,11 +171,15 @@ export function recallItunesId(coverUrl: string | null | undefined): string | nu
  */
 
 /**
- * Bounded, never-throws GET → parsed top result's artworkUrl100, upgraded to 600x600.
+ * Bounded, never-throws GET → parsed top result's artworkUrl100, upgraded to `size`.
  * Returns null on: already-aborted caller signal, non-ok response, empty results, missing
  * artworkUrl100, malformed JSON, abort/timeout, or any thrown error.
  */
-async function fetchTopArtwork(url: string, signal?: AbortSignal): Promise<string | null> {
+async function fetchTopArtwork(
+	url: string,
+	signal?: AbortSignal,
+	size = '1200x1200bb'
+): Promise<string | null> {
 	if (signal?.aborted) return null;
 	try {
 		// RAW fetch (not apiFetch — fetch→apiFetch audit): `url` is an ABSOLUTE cross-origin
@@ -173,8 +188,10 @@ async function fetchTopArtwork(url: string, signal?: AbortSignal): Promise<strin
 		if (!res.ok) return null;
 		const data = (await res.json()) as ItunesResponse;
 		const top = data?.results?.[0];
-		const art = upgradeArtwork(top?.artworkUrl100);
+		const art = upgradeArtwork(top?.artworkUrl100, size);
 		// quick-260809-3uo: retain the numeric id beside the URL — the ONE moment both are in hand.
+		// The retention keys on the SIZE-INDEPENDENT artwork key (itunesArtworkKey), so a 400px
+		// display cover and the 1200px carrier share one id entry (quick-261006-o9t).
 		rememberItunesId(art, top);
 		return art;
 	} catch {
@@ -186,29 +203,35 @@ async function fetchTopArtwork(url: string, signal?: AbortSignal): Promise<strin
 /**
  * Resolve a song cover via iTunes Search (entity=song) for `${artist} ${title}`.
  * Returns the upgraded artwork URL or null on any miss/abort/throw (never throws).
+ * `size` selects the artwork variant; the default keeps the historic 1200x1200bb byte-identical
+ * for the share carrier (id-tokenized, never rendered), while inline display surfaces pass
+ * DISPLAY_ARTWORK_SIZE (quick-261006-o9t).
  */
 export async function itunesSongCover(
 	artist: string,
 	title: string,
-	signal?: AbortSignal
+	signal?: AbortSignal,
+	size = '1200x1200bb'
 ): Promise<string | null> {
 	if (signal?.aborted) return null;
 	const term = `${artist ?? ''} ${title ?? ''}`.trim();
 	if (!term) return null;
-	return fetchTopArtwork(buildItunesSearchUrl(term, 'song'), signal);
+	return fetchTopArtwork(buildItunesSearchUrl(term, 'song'), signal, size);
 }
 
 /**
  * Resolve an artist image via iTunes Search. The musicArtist entity carries no artwork, so this
  * uses the artist's top ALBUM cover (entity=album&attribute=artistTerm&limit=1) as the standard
  * artist-image proxy. Returns the upgraded artwork URL or null on any miss/abort/throw.
+ * `size` selects the artwork variant (same default contract as itunesSongCover).
  */
 export async function itunesArtistCover(
 	artist: string,
-	signal?: AbortSignal
+	signal?: AbortSignal,
+	size = '1200x1200bb'
 ): Promise<string | null> {
 	if (signal?.aborted) return null;
 	const term = (artist ?? '').trim();
 	if (!term) return null;
-	return fetchTopArtwork(buildItunesSearchUrl(term, 'album', 'artistTerm'), signal);
+	return fetchTopArtwork(buildItunesSearchUrl(term, 'album', 'artistTerm'), signal, size);
 }

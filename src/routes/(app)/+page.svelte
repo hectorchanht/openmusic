@@ -1040,11 +1040,13 @@
 		// quick-260615-hep: library rows carry a full Track (uid present) → read uid-first then name,
 		// through the global reactive signal so a cover resolved elsewhere repaints this row live.
 		// quick-260915-w4f: a pin outranks the inline source cover (rung 0).
-		// psi-home-163mb-payload-lcp follow-up: the cache holds the HERO-sized iTunes cover
-		// (upgradeArtwork → 1200x1200bb, ~330 KB); these shelf tiles are ≤ ~140 CSS px, so ask
-		// mzstatic for the 600px jpg (~45–100 KB) — the same size the chart shelves use. Non-mzstatic
-		// URLs (Deezer, CN, YTM) carry no `NxNbb.` segment and pass through unchanged.
-		return resizeMzstatic(readChosenCover(track.uid, track.artist, track.title) ?? track.cover ?? readCoverByUidOrName(track.uid, track.artist, track.title));
+		// psi-home-163mb-payload-lcp follow-up: the cache USED to hold the HERO-sized iTunes cover
+		// (upgradeArtwork → 1200x1200bb, ~330 KB); these shelf tiles are ≤ ~140 CSS px, so mzstatic
+		// URLs were resized to 600px (~45–100 KB). quick-261006-o9t: the resolver now STORES the
+		// 400px display variant, so ask for 400 here — resizing an already-400px URL to 600 would
+		// just re-up it and undo the saving. Non-mzstatic URLs (Deezer, CN, YTM) carry no `NxNbb.`
+		// segment and pass through unchanged.
+		return resizeMzstatic(readChosenCover(track.uid, track.artist, track.title) ?? track.cover ?? readCoverByUidOrName(track.uid, track.artist, track.title), 400);
 	}
 
 	onMount(() => {

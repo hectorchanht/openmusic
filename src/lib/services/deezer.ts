@@ -160,23 +160,45 @@ async function fetchDeezerOrThrow(term: string, signal?: AbortSignal): Promise<D
 }
 
 /**
+ * quick-261006-o9t (cover-bandwidth): downsize a Deezer cover URL one rung, client-side.
+ * Deezer serves every cover in several baked sizes selected by the `<WxH>-` token in the
+ * path (`…/images/cover/<md5>/1000x1000-000000-80-0-0.jpg`); swapping the token asks the CDN
+ * for the smaller file with no extra request and no proxy change (~208 KB → ~73 KB measured
+ * for the same art, §C.13). DEFENSIVE like upgradeArtwork: only swaps when the `1000x1000-`
+ * token is present, otherwise returns the URL unchanged. Empty / blank → null.
+ */
+export function downsizeDeezerCover(url: string | null | undefined): string | null {
+	const clean = (url ?? '').trim();
+	if (!clean) return null;
+	return clean.includes('1000x1000-') ? clean.replace('1000x1000-', '500x500-') : clean;
+}
+
+/**
  * Resolve a song album cover via the Deezer proxy for `${artist} ${title}`. Returns the cover
  * URL or null on any miss/abort/throw (never throws). Only a SUCCESSFUL response is cached
  * (a genuine `{ cover: null }` answer included); a transient failure rejects inside cached()
  * and is mapped to null outside, so the next call retries (WR-03 / T-17-13).
+ *
+ * `prefer` selects the size rung: `'xl'` (default) keeps the historic cover_xl-first 1000px
+ * byte-identical for the share carrier; `'big'` downsizes to the 500px variant for inline
+ * display surfaces (quick-261006-o9t). The cache key carries the rung so the two never read
+ * each other's bytes — `'xl'` keeps the legacy key.
  */
 export async function deezerSongCover(
 	artist: string,
 	title: string,
-	signal?: AbortSignal
+	signal?: AbortSignal,
+	prefer: 'xl' | 'big' = 'xl'
 ): Promise<string | null> {
 	if (signal?.aborted) return null;
 	const term = `${artist ?? ''} ${title ?? ''}`.trim();
 	if (!term) return null;
 	// k3y client cache: memo the resolved cover so repeat lookups skip the edge round-trip.
-	return cached(`dz:cover:song:${term}`, TTL_COVER, async () => {
+	const key = prefer === 'big' ? `dz:cover:song:500:${term}` : `dz:cover:song:${term}`;
+	return cached(key, TTL_COVER, async () => {
 		const result = await fetchDeezerOrThrow(term, signal);
-		return result?.cover ?? null;
+		const cover = result?.cover ?? null;
+		return prefer === 'big' ? downsizeDeezerCover(cover) : cover;
 	}).catch(() => null);
 }
 
@@ -184,18 +206,22 @@ export async function deezerSongCover(
  * Resolve an artist picture via the Deezer proxy for the artist name. Returns the artist
  * picture URL or null on any miss/abort/throw (never throws). Deezer (unlike Last.fm)
  * carries a real artist picture, so this is the artist-tile cover source. Transient
- * failures are never cached (WR-03 / T-17-13).
+ * failures are never cached (WR-03 / T-17-13). `prefer` selects the size rung (same
+ * contract as deezerSongCover).
  */
 export async function deezerArtistCover(
 	artist: string,
-	signal?: AbortSignal
+	signal?: AbortSignal,
+	prefer: 'xl' | 'big' = 'xl'
 ): Promise<string | null> {
 	if (signal?.aborted) return null;
 	const term = (artist ?? '').trim();
 	if (!term) return null;
-	return cached(`dz:cover:artist:${term}`, TTL_COVER, async () => {
+	const key = prefer === 'big' ? `dz:cover:artist:500:${term}` : `dz:cover:artist:${term}`;
+	return cached(key, TTL_COVER, async () => {
 		const result = await fetchDeezerOrThrow(term, signal);
-		return result?.artistPicture ?? null;
+		const pic = result?.artistPicture ?? null;
+		return prefer === 'big' ? downsizeDeezerCover(pic) : pic;
 	}).catch(() => null);
 }
 

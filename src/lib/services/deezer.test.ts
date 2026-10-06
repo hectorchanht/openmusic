@@ -5,7 +5,8 @@ import {
 	deezerArtistCover,
 	deezerArtist,
 	deezerAlbum,
-	deezerArtistAlbums
+	deezerArtistAlbums,
+	downsizeDeezerCover
 } from './deezer';
 import { __clearSearchCache } from './ttl-cache';
 
@@ -468,5 +469,75 @@ describe('deezerArtistAlbums — resolve an artist album list (with nb_tracks) v
 		await expect(deezerArtistAlbums('Flaky Artist')).resolves.toEqual([]);
 		await expect(deezerArtistAlbums('Flaky Artist')).resolves.toEqual(ARTIST_ALBUMS.data);
 		expect(fetchMock).toHaveBeenCalledTimes(2); // second call hit the network (no pinned [])
+	});
+});
+
+describe('downsizeDeezerCover — 1000x1000- → 500x500- (quick-261006-o9t)', () => {
+	it('rewrites the 1000x1000- size token to 500x500-', () => {
+		expect(downsizeDeezerCover(COVER)).toBe(
+			'https://cdn-images.dzcdn.net/images/cover/abc/500x500-000000-80-0-0.jpg'
+		);
+	});
+
+	it('rewrites artist-picture URLs too (same token shape)', () => {
+		expect(downsizeDeezerCover(PIC)).toBe(
+			'https://cdn-images.dzcdn.net/images/artist/def/500x500-000000-80-0-0.jpg'
+		);
+	});
+
+	it('returns the URL unchanged when the 1000x1000- token is absent', () => {
+		const u = 'https://cdn-images.dzcdn.net/images/cover/abc/500x500-000000-80-0-0.jpg';
+		expect(downsizeDeezerCover(u)).toBe(u);
+	});
+
+	it('returns null for empty / whitespace / null / undefined', () => {
+		expect(downsizeDeezerCover('')).toBeNull();
+		expect(downsizeDeezerCover('   ')).toBeNull();
+		expect(downsizeDeezerCover(null)).toBeNull();
+		expect(downsizeDeezerCover(undefined)).toBeNull();
+	});
+});
+
+describe("deezerSongCover prefer — 'xl' vs 'big' (quick-261006-o9t)", () => {
+	it("default ('xl') keeps the historic 1000px URL byte-identical", async () => {
+		vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ cover: COVER, artistPicture: PIC })));
+		await expect(deezerSongCover('Jay Chou', 'Simple Love')).resolves.toBe(COVER);
+	});
+
+	it("'big' returns the 500px variant", async () => {
+		vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ cover: COVER, artistPicture: PIC })));
+		await expect(deezerSongCover('Jay Chou', 'Simple Love', undefined, 'big')).resolves.toBe(
+			'https://cdn-images.dzcdn.net/images/cover/abc/500x500-000000-80-0-0.jpg'
+		);
+	});
+
+	it("'big' and 'xl' do not read each other's cache entries", async () => {
+		const fetchMock = vi.fn(async () => jsonResponse({ cover: COVER, artistPicture: PIC }));
+		vi.stubGlobal('fetch', fetchMock);
+		// Same term, different rungs → two network calls (distinct cache keys), distinct sizes.
+		const xl = await deezerSongCover('Cache Split', 'Song', undefined, 'xl');
+		const big = await deezerSongCover('Cache Split', 'Song', undefined, 'big');
+		expect(xl).toBe(COVER);
+		expect(big).toContain('500x500-');
+		expect(fetchMock).toHaveBeenCalledTimes(2);
+	});
+
+	it("'big' maps a null cover to null (never throws)", async () => {
+		vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ cover: null, artistPicture: null })));
+		await expect(deezerSongCover('X', 'Y', undefined, 'big')).resolves.toBeNull();
+	});
+});
+
+describe("deezerArtistCover prefer — 'xl' vs 'big' (quick-261006-o9t)", () => {
+	it("'big' returns the 500px artist-picture variant", async () => {
+		vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ cover: COVER, artistPicture: PIC })));
+		await expect(deezerArtistCover('Jay Chou', undefined, 'big')).resolves.toBe(
+			'https://cdn-images.dzcdn.net/images/artist/def/500x500-000000-80-0-0.jpg'
+		);
+	});
+
+	it("default ('xl') keeps the historic 1000px URL byte-identical", async () => {
+		vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ cover: COVER, artistPicture: PIC })));
+		await expect(deezerArtistCover('Jay Chou')).resolves.toBe(PIC);
 	});
 });

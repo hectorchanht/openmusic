@@ -163,8 +163,9 @@ describe('backfillCovers — iTunes → QQ → Deezer → CN → YTM track chain
 			onResolved: (k, u) => resolved.push([k, u])
 		});
 
-		// iTunes receives the caller's signal (undefined here — no signal supplied).
-		expect(itunesSpy).toHaveBeenCalledWith('Drake', 'Hotline Bling', undefined);
+		// iTunes receives the caller's signal (undefined here — no signal supplied) plus the
+		// quick-261006-o9t display size (400px, not the 1200 default).
+		expect(itunesSpy).toHaveBeenCalledWith('Drake', 'Hotline Bling', undefined, '400x400bb');
 		expect(deezerSpy).not.toHaveBeenCalled(); // iTunes hit → no Deezer
 		// quick-260920-nyq: the tier-1 hit now short-circuits BEFORE either searchAll tier, so the
 		// common case issues ZERO CN and ZERO YTM searches — not one, as it did under YTM-first.
@@ -187,7 +188,8 @@ describe('backfillCovers — iTunes → QQ → Deezer → CN → YTM track chain
 		});
 
 		expect(itunesSpy).toHaveBeenCalled();
-		expect(deezerSpy).toHaveBeenCalledWith('Adele', 'Hello', undefined);
+		// quick-261006-o9t: the Deezer tier asks for the 500px 'big' rung, not cover_xl.
+		expect(deezerSpy).toHaveBeenCalledWith('Adele', 'Hello', undefined, 'big');
 		// Phase 40 D-08: the qq search ran (tier 2) and found no row, so no detail call was made.
 		expect(searchSpy).toHaveBeenCalledTimes(1);
 		expect(qqCalls()).toHaveLength(1);
@@ -542,7 +544,8 @@ describe('backfillArtistCovers — Deezer → iTunes artist chain (quick-260607-
 		const resolved: Array<[string, string]> = [];
 		await backfillArtistCovers(['Taylor Swift'], { onResolved: (k, u) => resolved.push([k, u]) });
 
-		expect(deezerSpy).toHaveBeenCalledWith('Taylor Swift', undefined);
+		// quick-261006-o9t: the artist Deezer tier asks for the 500px 'big' rung.
+		expect(deezerSpy).toHaveBeenCalledWith('Taylor Swift', undefined, 'big');
 		expect(itunesSpy).not.toHaveBeenCalled();
 		expect(getCachedArtistCover('Taylor Swift')).toBe('https://cdn-images.dzcdn.net/artist.jpg');
 		expect(resolved).toHaveLength(1);
@@ -560,8 +563,9 @@ describe('backfillArtistCovers — Deezer → iTunes artist chain (quick-260607-
 		await backfillArtistCovers(['周杰倫'], { onResolved: (k, u) => resolved.push([k, u]) });
 
 		expect(deezerSpy).toHaveBeenCalled();
-		// iTunes artist resolver receives the caller's signal (undefined here — none supplied).
-		expect(itunesSpy).toHaveBeenCalledWith('周杰倫', undefined);
+		// iTunes artist resolver receives the caller's signal (undefined here — none supplied)
+		// plus the quick-261006-o9t display size (400px).
+		expect(itunesSpy).toHaveBeenCalledWith('周杰倫', undefined, '400x400bb');
 		expect(getCachedArtistCover('周杰倫')).toBe('https://is1-ssl.mzstatic.com/it-artist.jpg');
 		expect(resolved).toHaveLength(1);
 		expect(resolved[0][0]).toBe(artistCoverCacheKey('周杰倫'));

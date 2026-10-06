@@ -5,7 +5,8 @@ import {
 	itunesSongCover,
 	itunesArtistCover,
 	itunesArtworkKey,
-	recallItunesId
+	recallItunesId,
+	DISPLAY_ARTWORK_SIZE
 } from './itunes-cover';
 
 // itunes-cover (quick-260606-v7k) is the no-auth, CORS-open Western-catalog + artist
@@ -306,5 +307,56 @@ describe('itunes id retention (quick-260809-3uo)', () => {
 		);
 		expect(await itunesSongCover('陳柏宇', '你瞞我瞞')).toBe(QUIN_1200);
 		expect(recallItunesId(QUIN_1200)).toBeNull();
+	});
+});
+
+describe('artwork size param (quick-261006-o9t, cover-bandwidth)', () => {
+	const ART100 = 'https://is1-ssl.mzstatic.com/image/thumb/abc/100x100bb.jpg';
+
+	it('DISPLAY_ARTWORK_SIZE is the 400px display variant', () => {
+		expect(DISPLAY_ARTWORK_SIZE).toBe('400x400bb');
+	});
+
+	it('itunesSongCover defaults to the historic 1200x1200bb (share carrier contract)', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () => jsonResponse({ results: [{ artworkUrl100: ART100 }] }))
+		);
+		await expect(itunesSongCover('A', 'B')).resolves.toBe(
+			'https://is1-ssl.mzstatic.com/image/thumb/abc/1200x1200bb.jpg'
+		);
+	});
+
+	it('itunesSongCover with DISPLAY_ARTWORK_SIZE returns the 400px variant', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () => jsonResponse({ results: [{ artworkUrl100: ART100 }] }))
+		);
+		await expect(itunesSongCover('A', 'B', undefined, DISPLAY_ARTWORK_SIZE)).resolves.toBe(
+			'https://is1-ssl.mzstatic.com/image/thumb/abc/400x400bb.jpg'
+		);
+	});
+
+	it('itunesArtistCover with DISPLAY_ARTWORK_SIZE returns the 400px variant', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () => jsonResponse({ results: [{ artworkUrl100: ART100 }] }))
+		);
+		await expect(itunesArtistCover('Adele', undefined, DISPLAY_ARTWORK_SIZE)).resolves.toBe(
+			'https://is1-ssl.mzstatic.com/image/thumb/abc/400x400bb.jpg'
+		);
+	});
+
+	it('a custom size flows through upgradeArtwork unchanged', () => {
+		expect(upgradeArtwork(ART100, '600x600bb')).toBe(
+			'https://is1-ssl.mzstatic.com/image/thumb/abc/600x600bb.jpg'
+		);
+	});
+
+	it('the size-independent artwork key is identical across size variants (id retention)', () => {
+		const k400 = itunesArtworkKey('https://is1-ssl.mzstatic.com/image/thumb/abc/400x400bb.jpg');
+		const k1200 = itunesArtworkKey('https://is1-ssl.mzstatic.com/image/thumb/abc/1200x1200bb.jpg');
+		expect(k400).toBeTruthy();
+		expect(k400).toBe(k1200);
 	});
 });
