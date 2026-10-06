@@ -1135,17 +1135,27 @@
 		     moved one slot earlier so the other cells shift down exactly one row; the menu
 		     stays 4 rows. Every handler and every {#if} condition is otherwise unchanged. -->
 		<div class="acts">
-		<!-- User call 2026-10-06 (menu-first-row): first row = Remix | Like | Download.
-		     Like and Download are grid items 2–3 here AND stay in the header cluster —
-		     the D-09/je8/et3 duplication stands (header icon + grid cell, "the two can
-		     never disagree"). The grid cells are UNGATED — visible for the current track
-		     too, where the old gate hid them (the user's screenshot case). Everything
-		     below shifts down one row; the menu stays 4 rows. -->
+		<!-- User arrange-like-this 2026-10-06: exact 4x4 grid, filled row-major (橫行填滿):
+		     R1: Remix | (Blank)/PlayNext | Download | Like
+		     R2: Play from... | Change cover | Change lyrics | Adjust lyrics...
+		     R3: Repeat | Shuffle queue | Clear queue | Add to playlist
+		     R4: Sleep timer | Go to artist | Share | Detail
+		     (Blank) is a placeholder cell for the current track; PlayNext fills it for
+		     other tracks. Like/Download grid cells are UNGATED and stay in the header
+		     cluster too (D-09/je8/et3). Cross (X) stays top-right in the header. -->
+		<!-- Remix: GATED (needs audioUrl to play the seed) — Sparkles + the inline spinner.
+		     User arrange-like-this 2026-10-06: R1C1. -->
+		<button class="gi" aria-busy={inFlight.has('remix')} aria-label={inFlight.has('remix') ? t('menu.preparing') : undefined} onclick={() => gated('remix', doRemix)} use:tapBounce>
+			{#if inFlight.has('remix')}<span class="row-spinner motion-always"></span>{:else}<Sparkles size={22} />{/if}<span class="gi-label">{t('menu.remix')}</span>
+		</button>
+		<!-- User arrange-like-this 2026-10-06: R1C2 — Play next for a non-current track,
+		     else the (Blank) placeholder cell. -->
 		{#if track && track.uid !== player.current?.uid}
 			<button class="gi" onclick={playNext} use:tapBounce><ListStart size={22} /><span class="gi-label">{t('menu.playNext')}</span></button>
-			<button class="gi" onclick={addQueue} use:tapBounce><ListEnd size={22} /><span class="gi-label">{t('menu.addToQueue')}</span></button>
+		{:else}
+			<span class="gi-blank" aria-hidden="true"></span>
 		{/if}
-		<!-- User call 2026-10-06: Download is grid item 3 (after Play next / Add to queue) —
+		<!-- User arrange-like-this 2026-10-06: Download is R1C3.
 		     UNGATED (was: non-current tracks only). Duplicated with the header download icon
 		     on the D-09/je8 precedent (both call the same startDownload() and read the same
 		     tri-state sources). The remove-download / don't-import row stays in the not-current
@@ -1227,22 +1237,18 @@
 			</div>
 		{/if}
 		{/if}
-		<!-- User call 2026-10-06: Like is grid item 4 (after Download) —
+		<!-- User arrange-like-this 2026-10-06: Like is R1C4.
 		     UNGATED (was: non-current tracks only). Duplicated with the header heart icon
-		     on the D-09/je8/et3 precedent (both call the same like() + `liked` derived).
-		     Supersedes 094de89/73a9c6c ("Like is grid item 4, after Download"). -->
+		     on the D-09/je8/et3 precedent (both call the same like() + `liked` derived). -->
 		<!-- like-state-wrong-track-menu: a name-stub (uid:'') has no identity to like yet; the row waits for
 		     the host page's resolve to swap in the real Track rather than firing a no-op + wrong toast. -->
 		<button class="gi" class:on={liked} aria-pressed={liked} disabled={!track.uid} onclick={like} use:tapBounce>
 			<Heart size={22} fill={liked ? 'currentColor' : 'none'} /><span class="gi-label">{liked ? t('menu.liked') : t('menu.like')}</span>
 		</button>
-		<!-- Remix: GATED (needs audioUrl to play the seed) — Sparkles + the inline spinner.
-		     User call 2026-10-06 (menu-first-row): FIRST-ROW anchor (was in the queue-actions
-		     cluster after Play next / Add to queue, D-07). -->
-		<button class="gi" aria-busy={inFlight.has('remix')} aria-label={inFlight.has('remix') ? t('menu.preparing') : undefined} onclick={() => gated('remix', doRemix)} use:tapBounce>
-			{#if inFlight.has('remix')}<span class="row-spinner motion-always"></span>{:else}<Sparkles size={22} />{/if}<span class="gi-label">{t('menu.remix')}</span>
-		</button>
 		{#if track && track.uid !== player.current?.uid}
+		<!-- User arrange-like-this 2026-10-06: AddQueue sits at R2C1 for non-current
+		     tracks (after Like), then the remove-download / don't-import inverse states. -->
+			<button class="gi" onclick={addQueue} use:tapBounce><ListEnd size={22} /><span class="gi-label">{t('menu.addToQueue')}</span></button>
 		<!-- quick-260919-30x: Don't import again. The mirror image of the row above — that one is for
 		     a file the APP owns, this one is for a file the USER owns, so they sit together.
 		     `{#if isDevice}` and ONLY isDevice: for an app-downloaded song `removeDownload` already
@@ -1669,6 +1675,9 @@
 	@media (hover: hover) { .gi:hover { background: var(--color-surface); } }
 	.gi:disabled { opacity: 0.4; cursor: default; }
 	.gi.on { color: var(--color-primary); }
+	/* User arrange-like-this 2026-10-06: the (Blank) R1C2 cell for the current track.
+	   Same footprint as a .gi cell, no hover, no content — aria-hidden. */
+	.gi-blank { min-height: 78px; padding: 12px 4px 8px; }
 	/* The icon slot is a fixed 22px box: the 16px Remix/Detail spinner swap must never shift the
 	   label, so the spinner is centred in the same 22px by its margin. (A `.gi > svg` rule would
 	   do the same for the icons, but svelte-check cannot see through the lucide components to
