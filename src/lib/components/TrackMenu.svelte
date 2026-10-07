@@ -132,6 +132,11 @@
 				return !isDevice || (isDevice && nonCurrent);
 			case 'addQueue':
 				return nonCurrent;
+			// quick-261006-44s: playNext lives HERE now, not as an empty render inside its
+			// snippet — the old inner {#if} consumed a grid slot while rendering nothing for
+			// the current track (15 visible cells instead of 16). The gate is identical.
+			case 'playNext':
+				return nonCurrent;
 			case 'lyricsTiming':
 				return !!track && player.current?.uid === track.uid && !!readLyrics(player.current);
 			case 'editTags':
@@ -1374,14 +1379,11 @@
 				{#if inFlight.has('remix')}<span class="row-spinner motion-always"></span>{:else}<Sparkles size={22} />{/if}<span class="gi-label">{t('menu.remix')}</span>
 			</button>
 		{/snippet}
-		<!-- Play next — non-current tracks only. quick-261006-44g: the old `.gi-blank`
-	     placeholder for the current track is GONE (user 2026-10-06 — the menu is always
-	     a 4x4 grid, no blank cells); the action simply doesn't render, like the other
-	     gated actions (addQueue / lyricsTiming / editTags). -->
+		<!-- Play next — non-current tracks only. quick-261006-44s: the gate lives in
+	     canShow now (the old inner {#if} consumed a grid slot while rendering nothing
+	     for the current track — 15 visible cells instead of 16). -->
 		{#snippet cellPlayNext(tr: Track)}
-			{#if nonCurrent}
-				<button class="gi" onclick={playNext} use:tapBounce><ListStart size={22} /><span class="gi-label">{t('menu.playNext')}</span></button>
-			{/if}
+			<button class="gi" onclick={playNext} use:tapBounce><ListStart size={22} /><span class="gi-label">{t('menu.playNext')}</span></button>
 		{/snippet}
 		<!-- quick-261006-mnu — the download slot is ONE adaptive cell: the Download tri-state,
 		     Remove-download and Don't-import are inverse states of one thing (mutually exclusive
