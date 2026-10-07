@@ -361,6 +361,9 @@ const zhHant: Dict = {
 	"menu.goToArtist": "前往歌手",
 	"menu.share": "分享",
 	"menu.detail": "詳細資料",
+	"menu.startRadio": "開始電台",
+	"menu.viewComments": "留言",
+	"menu.viewRelated": "相關歌曲",
 	"menu.newPlaylist": "新增播放清單…",
 	"menu.newPlaylistPrompt": "新播放清單名稱",
 	"menu.closeMenu": "關閉選單",
@@ -433,6 +436,8 @@ const zhHant: Dict = {
 	// --- toasts ---
 	"toast.playingNext": "下一首播放",
 	"toast.addedToQueue": "已加入待播清單",
+	"toast.radioEmpty": "搵唔到相似歌曲",
+	"toast.radioStarted": "電台已開始",
 	"toast.sharedPlaying": "正在播放分享的歌曲 · 待播清單保留不變",
 	"toast.removedFromQueue": "已從待播清單移除",
 	"toast.undo": "復原",

@@ -2,7 +2,7 @@
 	import { tick, untrack } from 'svelte';
 	import { fly } from 'svelte/transition';
 	import { goto } from '$app/navigation';
-	import { ListStart, ListEnd, Download, Check, Heart, ListPlus, User, Share2, Info, X, Plus, Shuffle, Repeat, Repeat1, Trash2, Moon, Sparkles, Layers, Image as ImageIcon, ChevronDown, Tags, Mic2, EyeOff, Timer, Pencil, Disc3 } from '@lucide/svelte';
+	import { ListStart, ListEnd, Download, Check, Heart, ListPlus, User, Share2, Info, X, Plus, Shuffle, Repeat, Repeat1, Trash2, Moon, Sparkles, Layers, Image as ImageIcon, ChevronDown, Tags, Mic2, EyeOff, Timer, Pencil, Disc3, Radio, MessageCircle, ListMusic } from '@lucide/svelte';
 	import { player } from '$lib/stores/player.svelte';
 	import { sleepTimer } from '$lib/stores/sleepTimer.svelte';
 	import { library } from '$lib/stores/library.svelte';
@@ -29,6 +29,8 @@
 	// settings.svelte.ts (a LEAF store) is its other consumer; this component never imports
 	// the store THROUGH here.
 	import { MENU_ACTIONS, MENU_GRID_SLOTS, type MenuActionId } from '$lib/services/track-menu-order';
+	import { buildSimilarQueue } from '$lib/services/similar';
+	import { requestNpTab } from '$lib/stores/np-tab.svelte';
 	import { ensureTrackDetails, collectLyricCandidates, type LyricCandidate } from '$lib/services/catalog';
 	import { prewarmTrack } from '$lib/services/prewarm';
 	// Gap 4 (26-10): the LAZY on-demand cross-source variant fetch (26-08) fed to the Play-from-source
@@ -139,6 +141,12 @@
 				return nonCurrent;
 			case 'lyricsTiming':
 				return !!track && player.current?.uid === track.uid && !!readLyrics(player.current);
+			// quick-261006-44u: the Comments / Related panes are NowPlaying tabs bound to the
+			// CURRENT track (the comments store + NowPlaying's load trigger are current-track
+			// scoped), so these shortcuts only make sense — and only appear — for it.
+			case 'viewComments':
+			case 'viewRelated':
+				return !!track && player.current?.uid === track.uid;
 			case 'editTags':
 				return !!blobPresent;
 			case 'repeat':
@@ -148,7 +156,7 @@
 				return player.queue.length > 1;
 			default:
 				// remix, playNext, like, versions, changeCover, changeLyrics, addToPlaylist,
-				// sleepTimer, goToArtist, goToAlbum, share, detail — unconditional.
+				// startRadio, sleepTimer, goToArtist, goToAlbum, share, detail — unconditional.
 				// quick-261006-44g: goToAlbum lost its hasAlbum gate (user 2026-10-06 — some
 				// songs showed it, some didn't). It always renders now; gotoAlbum() resolves
 				// details first when the stub carries no album and toasts only when there is
@@ -181,9 +189,12 @@
 		download: { icon: Download, label: 'menu.download' },
 		like: { icon: Heart, label: 'menu.like' },
 		addQueue: { icon: ListEnd, label: 'menu.addToQueue' },
+		startRadio: { icon: Radio, label: 'menu.startRadio' },
 		versions: { icon: Layers, label: 'menu.versions' },
 		changeCover: { icon: ImageIcon, label: 'menu.changeCover' },
 		changeLyrics: { icon: Mic2, label: 'menu.changeLyrics' },
+		viewComments: { icon: MessageCircle, label: 'menu.viewComments' },
+		viewRelated: { icon: ListMusic, label: 'menu.viewRelated' },
 		lyricsTiming: { icon: Timer, label: 'menu.lyricsTiming' },
 		editTags: { icon: Tags, label: 'menu.editTags' },
 		addToPlaylist: { icon: ListPlus, label: 'menu.addToPlaylist' },
@@ -212,15 +223,6 @@
 	function commitEdit() {
 		settings.trackMenuOrder = [...editOrder];
 		settings.save();
-	}
-	function exitEdit() {
-		// A drag still in flight (Done tapped with a second finger) commits rather than
-		// dropping the reorder the user just performed.
-		if (mDragFrom >= 0 && mDragMoved) commitEdit();
-		mDragFrom = -1;
-		mDragDx = 0;
-		mDragDy = 0;
-		editing = false;
 	}
 	// Enabled (in the user's order) first, then the switched-off remainder dimmed — the
 	// RowActionsConfig shape: an off action keeps a stable, visible place to be switched
@@ -323,13 +325,11 @@
 			mSuppressClick = false;
 			return;
 		}
-		// quick-261006-44r: the customize cell is the edit-mode EXIT — with the header
-		// pencil retired it is the only way back in, so it can never be hidden or
-		// toggled. (It is also excluded from drag handling: fixed slot.)
-		if (id === 'customize') {
-			exitEdit();
-			return;
-		}
+		// quick-261006-44v (user 2026-10-06): the customize cell is INERT in edit mode —
+		// no Done button. It can never be hidden or toggled (it's the only way back
+		// into edit mode), and it's excluded from drag handling (fixed slot). The user
+		// finishes by closing the menu (X / scrim / back) — taps and drops commit live.
+		if (id === 'customize') return;
 		const i = editOrder.indexOf(id);
 		// quick-261006-44t (user 2026-10-06): NO cap on enabling — the user can enable and
 		// reorder more than 16 actions freely; the live grid simply renders the first 16
@@ -343,8 +343,8 @@
 		const step = e.key === 'ArrowLeft' ? -1 : e.key === 'ArrowRight' ? 1 : e.key === 'ArrowUp' ? -4 : e.key === 'ArrowDown' ? 4 : 0;
 		if (!step) return;
 		e.preventDefault(); // otherwise the arrow scrolls the sheet instead
-		// quick-261006-44r: the Done button holds a fixed slot — arrows never move it
-		// (Enter/Space still activates it via the native click → mClick → exitEdit).
+		// quick-261006-44v: the customize cell is inert in edit mode (no Done button) —
+		// arrows never move it and Enter/Space does nothing (no onclick).
 		if (id === 'customize') return;
 		const i = editOrder.indexOf(id);
 		if (i < 0) return;
@@ -746,6 +746,28 @@
 	}
 	function playNext() { if (track) { player.playNext(track); toast.show(t('toast.playingNext')); } close(); }
 	function addQueue() { if (track) { hapticTick(); player.addToQueue(track); toast.show(t('toast.addedToQueue')); } close(); }
+	// quick-261006-44u: song radio — buildSimilarQueue seeds a similar-songs station from this
+	// track (Last.fm getSimilar primary, Deezer radio / similar-artists fallbacks, never
+	// throws). Mirrors the home's playRadioTrack: resolve-and-play the seed first, then
+	// anchor the similar list behind it as the queue. Empty station → toast, no-op.
+	async function startRadio() {
+		if (!track) { close(); return; }
+		hapticTick();
+		const tr = track;
+		let similar: Track[] = [];
+		try { similar = await buildSimilarQueue(tr); } catch { similar = []; }
+		if (!similar.length) { toast.show(t('toast.radioEmpty')); close(); return; }
+		const played = await player.playStub(tr.artist, tr.title, tr.cover, 'radio');
+		if (!played) { if (player.pendingTrack == null) toast.show(t('home.unplayable')); close(); return; }
+		player.setListQueue([tr, ...similar], 'radio');
+		toast.show(t('toast.radioStarted'));
+		close();
+	}
+	// quick-261006-44u: NowPlaying-tab shortcuts (current track only — see canShow).
+	// The menu closes first; requestNpTab flips NowPlaying to the tab (selectTab also
+	// half-opens the sheet when closed on narrow layouts).
+	function viewComments() { hapticTick(); requestNpTab('comments'); close(); }
+	function viewRelated() { hapticTick(); requestNpTab('related'); close(); }
 	// ii6: Shuffle moved off the NowPlaying transport row into the menu. Shown only when
 	// there's a queue to shuffle (otherwise the action would be a no-op).
 	function shuffleQueue() { player.toggleShuffle(); close(); }
@@ -1463,6 +1485,9 @@
 		{#snippet cellAddQueue(tr: Track)}
 			<button class="gi" onclick={addQueue} use:tapBounce><ListEnd size={22} /><span class="gi-label">{t('menu.addToQueue')}</span></button>
 		{/snippet}
+		{#snippet cellStartRadio(tr: Track)}
+			<button class="gi" onclick={startRadio} use:tapBounce><Radio size={22} /><span class="gi-label">{t('menu.startRadio')}</span></button>
+		{/snippet}
 		<!-- Gap 4 (26-10): Play from source — opens a lazily-fed VersionPicker. The variant fetch fires
 		     ONLY on THIS tap (openVersions), never on menu open (opt-in; T-26-10-02). Shown for every
 		     track (variants discovered on demand; the picker's loading/empty states cover a single-source
@@ -1484,6 +1509,12 @@
 		     uid-less stub has no identity to pin against (D-1). -->
 		{#snippet cellChangeLyrics(tr: Track)}
 			<button class="gi" disabled={!tr.uid} onclick={openLyricsPicker} use:tapBounce><Mic2 size={22} /><span class="gi-label">{t('menu.changeLyrics')}</span></button>
+		{/snippet}
+		{#snippet cellViewComments(tr: Track)}
+			<button class="gi" onclick={viewComments} use:tapBounce><MessageCircle size={22} /><span class="gi-label">{t('menu.viewComments')}</span></button>
+		{/snippet}
+		{#snippet cellViewRelated(tr: Track)}
+			<button class="gi" onclick={viewRelated} use:tapBounce><ListMusic size={22} /><span class="gi-label">{t('menu.viewRelated')}</span></button>
 		{/snippet}
 		<!-- quick-260926-qat: lyrics timing toggle. Shown ONLY for the currently playing track that
 		     actually has lyrics — the row it reveals lives in the Now Playing lyrics pane of
@@ -1575,44 +1606,49 @@
 			<!-- quick-261006-mnu — EDIT MODE replaces the live grid: every catalog action as a
 			     static cell (enabled first in the user's order, then the hidden remainder dimmed).
 			     Drag an enabled cell to reorder (pointer events, touch-friendly); tap to hide /
-			     re-add; arrow keys move, Enter/Space toggles. dragClose is disabled while editing
-			     (see the menu node above) so a reorder gesture can never dismiss the sheet. -->
+			     re-add; arrow keys move, Enter/Space toggles. The customize cell is inert here
+			     (quick-261006-44v: no Done button — closing the menu via X / scrim / back
+			     auto-applies, since taps and drops commit live). dragClose is disabled while
+			     editing (see the menu node above) so a reorder gesture can never dismiss
+			     the sheet. -->
 			<div class="acts edit" bind:this={editGridEl}>
 				{#each editIds as id, i (id)}
 					{@const on = editOrder.includes(id)}
 					{@const Icon = EDIT_META[id].icon}
 					{@const draggingThis = i === mDragFrom}
-					{@const isDone = id === 'customize'}
-					<!-- quick-261006-44r: in edit mode the customize slot becomes the Done button
-					     (the header pencil is retired). Fixed slot — not draggable, not toggleable;
-					     tap / Enter / Space exits via mClick → exitEdit. It keeps .edit-cell.on so
-					     the drag math for the other cells stays consistent. Single button element
-					     (conditional attrs) because animate:flip requires the only child of the
-					     keyed each. -->
+					{@const isCustomize = id === 'customize'}
+					<!-- quick-261006-44v (user 2026-10-06): no Done button — the customize cell
+					     stays a pencil and is INERT in edit mode (not draggable, not toggleable,
+					     not keyboard-movable; it keeps .edit-cell.on so the drag math for the
+					     other cells stays consistent). The user finishes by closing the menu
+					     (X / scrim / back) — taps and drops already commit live, so closing
+					     auto-applies. Single button element (conditional attrs) because
+					     animate:flip requires the only child of the keyed each. -->
 					<button
 						class="gi edit-cell"
-						class:on={isDone || on}
-						class:off={!isDone && !on}
+						class:on
+						class:off={!on}
 						class:lifted={draggingThis}
 						data-id={id}
-						aria-pressed={isDone ? undefined : on}
-						aria-label={isDone ? t('common.done') : t(EDIT_META[id].label)}
-						title={isDone ? t('common.done') : t(EDIT_META[id].label)}
+						disabled={isCustomize}
+						aria-pressed={isCustomize ? undefined : on}
+						aria-label={t(EDIT_META[id].label)}
+						title={t(EDIT_META[id].label)}
 						style:transform={draggingThis && (mDragDx || mDragDy) ? `translate(${mDragDx}px, ${mDragDy}px)` : undefined}
-						onpointerdown={isDone ? undefined : (e) => mDown(e, id)}
-						onpointermove={isDone ? undefined : mMove}
-						onpointerup={isDone ? undefined : mUp}
-						onpointercancel={isDone ? undefined : mUp}
-						onclick={() => mClick(id)}
-						onkeydown={(e) => mKey(e, id)}
+						onpointerdown={isCustomize ? undefined : (e) => mDown(e, id)}
+						onpointermove={isCustomize ? undefined : mMove}
+						onpointerup={isCustomize ? undefined : mUp}
+						onpointercancel={isCustomize ? undefined : mUp}
+						onclick={isCustomize ? undefined : () => mClick(id)}
+						onkeydown={isCustomize ? undefined : (e) => mKey(e, id)}
 						animate:flip={{ duration: draggingThis || settings.reduceMotion ? 0 : 180 }}
-					>{#if isDone}<Check size={22} />{:else}<Icon size={22} />{/if}<span class="gi-label">{isDone ? t('common.done') : t(EDIT_META[id].label)}</span></button>
+					><Icon size={22} /><span class="gi-label">{t(EDIT_META[id].label)}</span></button>
 				{/each}
 			</div>
 		{:else}
 			<div class="acts">
 				{#each visibleIds as id (id)}
-					{@const cellSnippets = { remix: cellRemix, playNext: cellPlayNext, download: cellDownload, like: cellLike, addQueue: cellAddQueue, versions: cellVersions, changeCover: cellChangeCover, changeLyrics: cellChangeLyrics, lyricsTiming: cellLyricsTiming, editTags: cellEditTags, addToPlaylist: cellAddToPlaylist, customize: cellCustomize, repeat: cellRepeat, shuffleQueue: cellShuffleQueue, clearQueue: cellClearQueue, sleepTimer: cellSleepTimer, goToArtist: cellGoToArtist, goToAlbum: cellGoToAlbum, share: cellShare, detail: cellDetail }}
+					{@const cellSnippets = { remix: cellRemix, playNext: cellPlayNext, download: cellDownload, like: cellLike, addQueue: cellAddQueue, startRadio: cellStartRadio, versions: cellVersions, changeCover: cellChangeCover, changeLyrics: cellChangeLyrics, viewComments: cellViewComments, viewRelated: cellViewRelated, lyricsTiming: cellLyricsTiming, editTags: cellEditTags, addToPlaylist: cellAddToPlaylist, customize: cellCustomize, repeat: cellRepeat, shuffleQueue: cellShuffleQueue, clearQueue: cellClearQueue, sleepTimer: cellSleepTimer, goToArtist: cellGoToArtist, goToAlbum: cellGoToAlbum, share: cellShare, detail: cellDetail }}
 					{@render cellSnippets[id](track)}
 				{/each}
 			</div><!-- /quick-261006-grd .acts grid -->

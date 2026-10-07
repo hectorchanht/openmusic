@@ -13,6 +13,7 @@
 	import { overlays } from '$lib/stores/overlays.svelte';
 	// quick-260926-qat: the lyrics timing row's "bring into view" counter (see the effect below).
 	import { lyricSyncRequest } from '$lib/stores/lyric-offset.svelte';
+	import { npTabRequest, npTabTarget } from '$lib/stores/np-tab.svelte';
 	import { t, tMaybeKey } from '$lib/i18n';
 	// Gap 4 (26-10): the LAZY on-demand cross-source variant fetch (26-08) fed to the per-row
 	// version picker — fired ONLY on a trigger tap, never on list render (T-26-10-02).
@@ -73,6 +74,11 @@
 	// this component was unmounted (menu opened from the Nowbar / a list row) is not replayed on the
 	// next expand; `tab` already defaults to 'lyrics' on mount, so the row is on screen anyway.
 	let seenSyncReq = lyricSyncRequest();
+
+	// quick-261006-44u: same snapshot discipline for the track menu's View-comments /
+	// View-related tab requests (np-tab.svelte.ts). `tab` defaults to 'lyrics' on mount,
+	// so a request raised while unmounted is stale by definition — never replay it.
+	let seenNpTabReq = npTabRequest();
 
 	// quick-260919-np3 — the desktop three-up breakpoint.
 	//
@@ -616,6 +622,20 @@
 		if (n === seenSyncReq) return;
 		seenSyncReq = n;
 		untrack(() => { if (!wide) selectTab('lyrics'); });
+	});
+	// quick-261006-44u: the track menu's View-comments / View-related actions raise a tab
+	// request through np-tab.svelte.ts, then close. Reads ONLY the request counter; the
+	// target and everything else are read inside untrack so this can never re-run on its
+	// own writes. Unlike the lyrics request this is NOT skipped at wide layout: there
+	// selectTab('comments' | 'related') flips the right-hand Comments | Related column,
+	// which is exactly the requested pane (and selectTab half-opens the sheet when closed
+	// on narrow layouts).
+	$effect(() => {
+		const n = npTabRequest();
+		if (n === seenNpTabReq) return;
+		seenNpTabReq = n;
+		const target = npTabTarget();
+		untrack(() => { if (target) selectTab(target); });
 	});
 	// The uid guard hides the previous song's count between a background track change and its load.
 	const commentBadge = $derived(
@@ -1431,7 +1451,7 @@
 	   list-row footprint with an 18px glyph and a muted colour, none of which match this row. The
 	   override lives HERE (scoped under .t-dl, :global to cross the child's style scope) rather than
 	   in DownloadControl.svelte, because five list-row call sites depend on its current look. */
-	.t-dl { display: grid; place-items: center; padding: 0 6px; }
+	.t-dl { display: grid; place-items: center; padding: 0 6px; min-width: 44px; min-height: 44px; /* match .t so the play button stays exactly centered */ }
 	.t-dl :global(.dc) { width: auto; height: auto; color: var(--color-text); opacity: 0.85; }
 	.t-dl :global(.dc svg) { width: 20px; height: 20px; }
 	.t-dl :global(button.dc:hover) { background: none; color: var(--color-text); }

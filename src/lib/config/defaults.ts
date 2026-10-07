@@ -163,6 +163,9 @@ export type QueueContext =
 	// Phase 19 (QUEUE-04 / D-06): an explicit Remix forces genre-generation regardless of the
 	// user's global up-next setting. effectiveUpnextMode('remix') early-returns 'generated'.
 	| 'remix'
+	// quick-261006-44u: the track menu's Start-radio action — a similar-songs station seeded
+	// from one track. Falls through to the global up-next mode like every non-album context.
+	| 'radio'
 	| null;
 export const UPNEXT_DEFAULTS = {
 	/** Global default sourcing mode — roadmap-locked to 'generated'. */

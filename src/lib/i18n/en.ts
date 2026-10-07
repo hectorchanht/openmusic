@@ -402,6 +402,9 @@ const en = {
 	"menu.goToArtist": "Go to artist",
 	"menu.share": "Share",
 	"menu.detail": "Detail",
+	"menu.startRadio": "Start radio",
+	"menu.viewComments": "Comments",
+	"menu.viewRelated": "Related",
 	"menu.newPlaylist": "New playlist…",
 	"menu.newPlaylistPrompt": "New playlist name",
 	"menu.closeMenu": "Close menu",
@@ -476,6 +479,8 @@ const en = {
 	// --- toasts ---
 	"toast.playingNext": "Playing next",
 	"toast.addedToQueue": "Added to queue",
+	"toast.radioEmpty": "No similar songs found",
+	"toast.radioStarted": "Radio started",
 	// 38-D-20: a share arrival changes the music WITHOUT a player tap, so — unlike a Related-row tap
 	// — it announces itself and reassures that the queue survived.
 	"toast.sharedPlaying": "Playing shared song · your queue is kept",

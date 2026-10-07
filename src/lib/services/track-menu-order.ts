@@ -18,9 +18,12 @@ export type MenuActionId =
 	| 'download'
 	| 'like'
 	| 'addQueue'
+	| 'startRadio'
 	| 'versions'
 	| 'changeCover'
 	| 'changeLyrics'
+	| 'viewComments'
+	| 'viewRelated'
 	| 'lyricsTiming'
 	| 'editTags'
 	| 'addToPlaylist'
@@ -36,27 +39,38 @@ export type MenuActionId =
 
 /** The full action catalog, in default (shipping) order. Also the settings default. */
 export const MENU_ACTIONS: readonly MenuActionId[] = [
+	// quick-261006-44v (user 2026-10-06): the default IS his own arrangement (screenshot
+	// 2026-10-06 — Remix / Go to artist / Downloaded / Liked / Play from source /
+	// Change cover / Change lyrics / Adjust lyrics / Edit metadata / Add to playlist /
+	// Sleep timer / Clear queue / Customize menu / Detail / Go to album / Share).
 	'remix',
-	'playNext',
+	'goToArtist',
 	'download',
 	'like',
-	'addQueue',
 	'versions',
 	'changeCover',
 	'changeLyrics',
 	'lyricsTiming',
 	'editTags',
 	'addToPlaylist',
-	// quick-261006-44r (user 2026-10-06): the edit affordance is a grid cell now, sitting
-	// in repeat's old slot; repeat moves to the back. The header pencil is retired.
-	'customize',
-	'shuffleQueue',
-	'clearQueue',
 	'sleepTimer',
-	'goToArtist',
+	'clearQueue',
+	// quick-261006-44r (user 2026-10-06): the edit affordance is a grid cell now; the
+	// header pencil is retired.
+	'customize',
+	'detail',
 	'goToAlbum',
 	'share',
-	'detail',
+	// quick-261006-44u (user 2026-10-06): the three new actions sit right after the
+	// default 16 — enabled and one drag away from the visible grid.
+	'startRadio',
+	'viewComments',
+	'viewRelated',
+	// The remainder of the catalog, in a stable order.
+	'playNext',
+	'addQueue',
+	'shuffleQueue',
+	// quick-261006-44r: repeat moved to the back (user 2026-10-06)
 	'repeat'
 ] as const;
 
@@ -95,8 +109,13 @@ export function normalizeMenuOrder(saved: unknown): MenuActionId[] {
 			kept.push('repeat');
 		}
 	}
+	// quick-261006-44u: any other missing catalog ids (new actions for pre-existing
+	// users) insert at their catalog positions — not appended at the end — so they
+	// land inside the visible grid instead of piling up invisibly beyond the 16 slots.
 	for (const id of MENU_ACTIONS) {
-		if (!kept.includes(id)) kept.push(id);
+		if (!kept.includes(id)) {
+			kept.splice(Math.min(MENU_ACTIONS.indexOf(id), kept.length), 0, id);
+		}
 	}
 	return kept;
 }
