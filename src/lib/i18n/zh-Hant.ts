@@ -361,6 +361,7 @@ const zhHant: Dict = {
 	"menu.goToArtist": "前往歌手",
 	"menu.share": "分享",
 	"menu.detail": "詳細資料",
+	"menu.downloadSource": "下載來源",
 	"menu.startRadio": "開始電台",
 	"menu.viewComments": "留言",
 	"menu.viewRelated": "相關歌曲",

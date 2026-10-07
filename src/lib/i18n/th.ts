@@ -339,6 +339,7 @@ const th: Dict = {
 	"menu.goToArtist": "ไปหาศิลปิน",
 	"menu.share": "แบ่งปัน",
 	"menu.detail": "รายละเอียด",
+	"menu.downloadSource": "Download source",
 	"menu.startRadio": "Start radio",
 	"menu.viewComments": "Comments",
 	"menu.viewRelated": "Related",

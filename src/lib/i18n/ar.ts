@@ -339,6 +339,7 @@ const ar: Dict = {
 	"menu.goToArtist": "انتقل إلى الفنان",
 	"menu.share": "شارك",
 	"menu.detail": "التفاصيل",
+	"menu.downloadSource": "Download source",
 	"menu.startRadio": "Start radio",
 	"menu.viewComments": "Comments",
 	"menu.viewRelated": "Related",

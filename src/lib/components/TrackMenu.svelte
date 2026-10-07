@@ -2,7 +2,7 @@
 	import { tick, untrack } from 'svelte';
 	import { fly } from 'svelte/transition';
 	import { goto } from '$app/navigation';
-	import { ListStart, ListEnd, Download, Check, Heart, ListPlus, User, Share2, Info, X, Plus, Shuffle, Repeat, Repeat1, Trash2, Moon, Sparkles, Layers, Image as ImageIcon, ChevronDown, Tags, Mic2, EyeOff, Timer, Pencil, Disc3, Radio, MessageCircle, ListMusic } from '@lucide/svelte';
+	import { ListStart, ListEnd, Download, Check, Heart, ListPlus, User, Share2, Info, X, Plus, Shuffle, Repeat, Repeat1, Trash2, Moon, Sparkles, Layers, Image as ImageIcon, ChevronDown, Tags, Mic2, EyeOff, Timer, Pencil, Disc3, Radio, MessageCircle, ListMusic, ArrowDownToLine } from '@lucide/svelte';
 	import { player } from '$lib/stores/player.svelte';
 	import { sleepTimer } from '$lib/stores/sleepTimer.svelte';
 	import { library } from '$lib/stores/library.svelte';
@@ -132,6 +132,10 @@
 		switch (id) {
 			case 'download':
 				return !isDevice || (isDevice && nonCurrent);
+			// quick-261006-44w: the "Download from…" picker as its own item — same gate
+			// as the download button (the picker itself also bails for device tracks).
+			case 'downloadSource':
+				return !isDevice || (isDevice && nonCurrent);
 			case 'addQueue':
 				return nonCurrent;
 			// quick-261006-44s: playNext lives HERE now, not as an empty render inside its
@@ -206,7 +210,8 @@
 		goToArtist: { icon: User, label: 'menu.goToArtist' },
 		goToAlbum: { icon: Disc3, label: 'menu.goToAlbum' },
 		share: { icon: Share2, label: 'menu.share' },
-		detail: { icon: Info, label: 'menu.detail' }
+		detail: { icon: Info, label: 'menu.detail' },
+		downloadSource: { icon: ArrowDownToLine, label: 'menu.downloadSource' }
 	};
 
 	// quick-261006-mnu — EDIT MODE. `editing` is per-open component state (reset in close()).
@@ -1466,10 +1471,11 @@
 				<div class="gi-split">
 					<button class="gi" aria-label={`${dlLabel} · ${t('menu.downloadHoldHint')}`} title={t('menu.downloadHoldHint')} onclick={startDownload} onlongpress={openDownloadPicker} use:longpress use:tapBounce>
 						<Download size={22} /><span class="gi-label">{t('menu.download')}</span>
-						<!-- User 2026-10-06: the long-press hint is VISIBLE, not just title/aria-label —
-						     idle (no probe yet) shows "Hold to choose source and format" so users learn the
-						     hold opens the all-sources picker; the probed `FLAC · 17.9 MB` replaces it. -->
-						{#if dlProbing}<span class="gi-sub skel" aria-hidden="true"></span>{:else if dlMeta}<span class="gi-sub">{dlMeta}</span>{:else}<span class="gi-sub gi-hint">{t('menu.downloadHoldHint')}</span>{/if}
+						<!-- quick-261006-44w (user 2026-10-06): the visible long-press hint is retired —
+						     "Download from…" is now its own menu item at the end. The hold gesture
+						     itself stays (onlongpress → openDownloadPicker). Idle shows no sub-label;
+						     the probed `FLAC · 17.9 MB` still replaces it once known. -->
+						{#if dlProbing}<span class="gi-sub skel" aria-hidden="true"></span>{:else if dlMeta}<span class="gi-sub">{dlMeta}</span>{/if}
 					</button>
 					<button type="button" class="gi-caret" aria-label={t('menu.downloadFrom')} title={t('menu.downloadFrom')} onclick={openDownloadPicker} use:tapBounce><ChevronDown size={14} /></button>
 				</div>
@@ -1602,6 +1608,12 @@
 				{#if inFlight.has('detail')}<span class="row-spinner motion-always"></span>{:else}<Info size={22} />{/if}<span class="gi-label">{t('menu.detail')}</span>
 			</button>
 		{/snippet}
+		<!-- quick-261006-44w (user 2026-10-06): "Download from…" as a first-class menu item
+		     at the end — opens the same all-sources picker as the download button's
+		     long-press (openDownloadPicker). -->
+		{#snippet cellDownloadSource(tr: Track)}
+			<button class="gi" onclick={openDownloadPicker} use:tapBounce><ArrowDownToLine size={22} /><span class="gi-label">{t('menu.downloadSource')}</span></button>
+		{/snippet}
 		{#if editing}
 			<!-- quick-261006-mnu — EDIT MODE replaces the live grid: every catalog action as a
 			     static cell (enabled first in the user's order, then the hidden remainder dimmed).
@@ -1648,7 +1660,7 @@
 		{:else}
 			<div class="acts">
 				{#each visibleIds as id (id)}
-					{@const cellSnippets = { remix: cellRemix, playNext: cellPlayNext, download: cellDownload, like: cellLike, addQueue: cellAddQueue, startRadio: cellStartRadio, versions: cellVersions, changeCover: cellChangeCover, changeLyrics: cellChangeLyrics, viewComments: cellViewComments, viewRelated: cellViewRelated, lyricsTiming: cellLyricsTiming, editTags: cellEditTags, addToPlaylist: cellAddToPlaylist, customize: cellCustomize, repeat: cellRepeat, shuffleQueue: cellShuffleQueue, clearQueue: cellClearQueue, sleepTimer: cellSleepTimer, goToArtist: cellGoToArtist, goToAlbum: cellGoToAlbum, share: cellShare, detail: cellDetail }}
+					{@const cellSnippets = { remix: cellRemix, playNext: cellPlayNext, download: cellDownload, like: cellLike, addQueue: cellAddQueue, startRadio: cellStartRadio, versions: cellVersions, changeCover: cellChangeCover, changeLyrics: cellChangeLyrics, viewComments: cellViewComments, viewRelated: cellViewRelated, lyricsTiming: cellLyricsTiming, editTags: cellEditTags, addToPlaylist: cellAddToPlaylist, customize: cellCustomize, repeat: cellRepeat, shuffleQueue: cellShuffleQueue, clearQueue: cellClearQueue, sleepTimer: cellSleepTimer, goToArtist: cellGoToArtist, goToAlbum: cellGoToAlbum, share: cellShare, detail: cellDetail, downloadSource: cellDownloadSource }}
 					{@render cellSnippets[id](track)}
 				{/each}
 			</div><!-- /quick-261006-grd .acts grid -->
@@ -1981,10 +1993,6 @@
 		   ellipsizing it (matters at large app text sizes / narrow phones). */
 		min-width: max-content;
 	}
-	/* ...but the wrapping hold-hint must not blow the column out: while it shows, the column keeps
-	   its normal 1fr share and the hint wraps inside it. */
-	.gi-split:has(.gi-hint) { min-width: 0; }
-	.gi-hint { white-space: normal; }
 	.gi-split .gi { width: 100%; }
 	.gi-caret {
 		position: absolute; top: 0; right: 0; display: grid; place-items: center;

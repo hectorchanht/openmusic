@@ -339,6 +339,7 @@ const ru: Dict = {
 	"menu.goToArtist": "Перейти к исполнителю",
 	"menu.share": "Поделиться",
 	"menu.detail": "Деталь",
+	"menu.downloadSource": "Download source",
 	"menu.startRadio": "Start radio",
 	"menu.viewComments": "Comments",
 	"menu.viewRelated": "Related",

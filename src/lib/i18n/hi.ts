@@ -339,6 +339,7 @@ const hi: Dict = {
 	"menu.goToArtist": "कलाकार के पास जाओ",
 	"menu.share": "साझा करें",
 	"menu.detail": "विवरण",
+	"menu.downloadSource": "Download source",
 	"menu.startRadio": "Start radio",
 	"menu.viewComments": "Comments",
 	"menu.viewRelated": "Related",

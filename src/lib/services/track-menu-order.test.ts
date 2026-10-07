@@ -41,7 +41,9 @@ describe('MENU_ACTIONS', () => {
 			'addQueue',
 			'shuffleQueue',
 			// quick-261006-44r: repeat moved to the back (user 2026-10-06)
-			'repeat'
+			'repeat',
+			// quick-261006-44w: "Download from…" as its own item at the very end
+			'downloadSource'
 		]);
 	});
 
@@ -91,7 +93,7 @@ describe('normalizeMenuOrder', () => {
 	});
 
 	// quick-261006-44r: the customize/repeat rearrangement migrates existing saved orders.
-	// quick-261006-44u/v: new actions insert at their catalog positions.
+	// quick-261006-44u/v/w: new actions insert at their catalog positions.
 	it('migrates a pre-customize order: customize takes repeat\'s old slot, repeat to the back, new actions at catalog positions', () => {
 		const oldOrder: MenuActionId[] = [
 			'remix', 'playNext', 'download', 'like', 'addQueue', 'versions',
@@ -100,15 +102,16 @@ describe('normalizeMenuOrder', () => {
 			'goToAlbum', 'share', 'detail'
 		];
 		const out = normalizeMenuOrder(oldOrder);
-		expect(out).toHaveLength(23);
+		expect(out).toHaveLength(24);
 		expect(out[11]).toBe('customize'); // repeat's old slot
-		expect(out[out.length - 1]).toBe('repeat'); // repeat to the back
 		expect(out[16]).toBe('startRadio');
 		expect(out[17]).toBe('viewComments');
 		expect(out[18]).toBe('viewRelated');
+		expect(out[out.length - 2]).toBe('repeat');
+		expect(out[out.length - 1]).toBe('downloadSource'); // the very end
 		// everything else keeps its saved relative order
 		expect(out.indexOf('shuffleQueue')).toBe(12);
-		expect(new Set(out).size).toBe(23);
+		expect(new Set(out).size).toBe(24);
 	});
 
 	it('does not re-migrate an order that already has customize', () => {
@@ -126,15 +129,16 @@ describe('normalizeMenuOrder', () => {
 	it('inserts new actions at catalog positions for a user-reordered full order', () => {
 		// A user on the 20-action catalog who moved 'share' to the front.
 		const twenty = [...MENU_ACTIONS].filter(
-			(id) => id !== 'startRadio' && id !== 'viewComments' && id !== 'viewRelated'
+			(id) => id !== 'startRadio' && id !== 'viewComments' && id !== 'viewRelated' && id !== 'downloadSource'
 		) as MenuActionId[];
 		const saved = ['share', ...twenty.filter((id) => id !== 'share')] as MenuActionId[];
 		const out = normalizeMenuOrder(saved);
-		expect(out).toHaveLength(23);
+		expect(out).toHaveLength(24);
 		expect(out[0]).toBe('share'); // the user's own arrangement is respected
 		expect(out).toContain('startRadio');
 		expect(out).toContain('viewComments');
 		expect(out).toContain('viewRelated');
-		expect(new Set(out).size).toBe(23);
+		expect(out).toContain('downloadSource');
+		expect(new Set(out).size).toBe(24);
 	});
 });

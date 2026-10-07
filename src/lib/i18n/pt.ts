@@ -339,6 +339,7 @@ const pt: Dict = {
 	"menu.goToArtist": "Ir para o artista",
 	"menu.share": "Compartilhar",
 	"menu.detail": "Detalhe",
+	"menu.downloadSource": "Download source",
 	"menu.startRadio": "Start radio",
 	"menu.viewComments": "Comments",
 	"menu.viewRelated": "Related",

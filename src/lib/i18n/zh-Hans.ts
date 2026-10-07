@@ -361,6 +361,7 @@ const zhHans: Dict = {
 	"menu.goToArtist": "前往歌手",
 	"menu.share": "分享",
 	"menu.detail": "详细信息",
+	"menu.downloadSource": "下载来源",
 	"menu.startRadio": "开始电台",
 	"menu.viewComments": "留言",
 	"menu.viewRelated": "相关歌曲",

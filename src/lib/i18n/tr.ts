@@ -339,6 +339,7 @@ const tr: Dict = {
 	"menu.goToArtist": "Sanatçıya git",
 	"menu.share": "Paylaş",
 	"menu.detail": "Detay",
+	"menu.downloadSource": "Download source",
 	"menu.startRadio": "Start radio",
 	"menu.viewComments": "Comments",
 	"menu.viewRelated": "Related",

@@ -402,6 +402,7 @@ const en = {
 	"menu.goToArtist": "Go to artist",
 	"menu.share": "Share",
 	"menu.detail": "Detail",
+	"menu.downloadSource": "Download source",
 	"menu.startRadio": "Start radio",
 	"menu.viewComments": "Comments",
 	"menu.viewRelated": "Related",

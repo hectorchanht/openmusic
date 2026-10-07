@@ -339,6 +339,7 @@ const vi: Dict = {
 	"menu.goToArtist": "Tới nghệ sĩ",
 	"menu.share": "Chia sẻ",
 	"menu.detail": "Chi tiết",
+	"menu.downloadSource": "Download source",
 	"menu.startRadio": "Start radio",
 	"menu.viewComments": "Comments",
 	"menu.viewRelated": "Related",

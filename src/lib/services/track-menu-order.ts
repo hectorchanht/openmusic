@@ -35,7 +35,8 @@ export type MenuActionId =
 	| 'goToArtist'
 	| 'goToAlbum'
 	| 'share'
-	| 'detail';
+	| 'detail'
+	| 'downloadSource';
 
 /** The full action catalog, in default (shipping) order. Also the settings default. */
 export const MENU_ACTIONS: readonly MenuActionId[] = [
@@ -71,7 +72,11 @@ export const MENU_ACTIONS: readonly MenuActionId[] = [
 	'addQueue',
 	'shuffleQueue',
 	// quick-261006-44r: repeat moved to the back (user 2026-10-06)
-	'repeat'
+	'repeat',
+	// quick-261006-44w (user 2026-10-06): "Download from…" as its own menu item at the
+	// very end — same sheet as the download button's long-press. The button's visible
+	// hold-hint is retired (the gesture itself stays).
+	'downloadSource'
 ] as const;
 
 // quick-261006-44g — the menu is ALWAYS a 4x4 icon grid (user 2026-10-06). The live grid
