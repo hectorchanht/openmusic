@@ -24,6 +24,7 @@ export type MenuActionId =
 	| 'lyricsTiming'
 	| 'editTags'
 	| 'addToPlaylist'
+	| 'customize'
 	| 'repeat'
 	| 'shuffleQueue'
 	| 'clearQueue'
@@ -46,14 +47,17 @@ export const MENU_ACTIONS: readonly MenuActionId[] = [
 	'lyricsTiming',
 	'editTags',
 	'addToPlaylist',
-	'repeat',
+	// quick-261006-44r (user 2026-10-06): the edit affordance is a grid cell now, sitting
+	// in repeat's old slot; repeat moves to the back. The header pencil is retired.
+	'customize',
 	'shuffleQueue',
 	'clearQueue',
 	'sleepTimer',
 	'goToArtist',
 	'goToAlbum',
 	'share',
-	'detail'
+	'detail',
+	'repeat'
 ] as const;
 
 // quick-261006-44g — the menu is ALWAYS a 4x4 icon grid (user 2026-10-06). The live grid
@@ -67,6 +71,12 @@ const KNOWN = new Set<string>(MENU_ACTIONS);
  * Normalize a persisted trackMenuOrder: keep known ids in saved order, drop unknowns
  * and duplicates, append any missing catalog ids at the end in catalog order.
  * A non-array (or anything else unexpected) yields a full catalog copy.
+ *
+ * quick-261006-44r: 'customize' is new in the catalog — a saved order from before this
+ * change lacks it. Mirror the new default arrangement for those users: the edit
+ * affordance takes repeat's old slot and repeat moves to the back, so an existing
+ * user gets exactly the arrangement the user asked for instead of finding the pencil
+ * appended invisibly beyond the 16-slot cap.
  */
 export function normalizeMenuOrder(saved: unknown): MenuActionId[] {
 	const kept: MenuActionId[] = [];
@@ -75,6 +85,14 @@ export function normalizeMenuOrder(saved: unknown): MenuActionId[] {
 			if (typeof x === 'string' && KNOWN.has(x) && !kept.includes(x as MenuActionId)) {
 				kept.push(x as MenuActionId);
 			}
+		}
+	}
+	if (!kept.includes('customize')) {
+		const ri = kept.indexOf('repeat');
+		if (ri >= 0) {
+			kept.splice(ri, 1);
+			kept.splice(ri, 0, 'customize');
+			kept.push('repeat');
 		}
 	}
 	for (const id of MENU_ACTIONS) {

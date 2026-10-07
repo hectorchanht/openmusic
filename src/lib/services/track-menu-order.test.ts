@@ -12,7 +12,7 @@ describe('MENU_GRID_SLOTS', () => {
 });
 
 describe('MENU_ACTIONS', () => {
-	it('is the 19-id catalog in the documented default order', () => {
+	it('is the 20-id catalog in the documented default order', () => {
 		expect([...MENU_ACTIONS]).toEqual([
 			'remix',
 			'playNext',
@@ -25,14 +25,17 @@ describe('MENU_ACTIONS', () => {
 			'lyricsTiming',
 			'editTags',
 			'addToPlaylist',
-			'repeat',
+			// quick-261006-44r: the edit affordance is a grid cell in repeat's old slot
+			'customize',
 			'shuffleQueue',
 			'clearQueue',
 			'sleepTimer',
 			'goToArtist',
 			'goToAlbum',
 			'share',
-			'detail'
+			'detail',
+			// quick-261006-44r: repeat moved to the back (user 2026-10-06)
+			'repeat'
 		]);
 	});
 
@@ -81,5 +84,33 @@ describe('normalizeMenuOrder', () => {
 
 	it('a saved empty array regrows to the full catalog', () => {
 		expect(normalizeMenuOrder([])).toEqual([...MENU_ACTIONS]);
+	});
+
+	// quick-261006-44r: the customize/repeat rearrangement migrates existing saved orders.
+	it('migrates a pre-customize order: customize takes repeat\'s old slot, repeat goes to the back', () => {
+		const oldOrder: MenuActionId[] = [
+			'remix', 'playNext', 'download', 'like', 'addQueue', 'versions',
+			'changeCover', 'changeLyrics', 'lyricsTiming', 'editTags', 'addToPlaylist',
+			'repeat', 'shuffleQueue', 'clearQueue', 'sleepTimer', 'goToArtist',
+			'goToAlbum', 'share', 'detail'
+		];
+		const out = normalizeMenuOrder(oldOrder);
+		expect(out).toHaveLength(20);
+		expect(out[11]).toBe('customize');
+		expect(out[out.length - 1]).toBe('repeat');
+		expect(out.indexOf('shuffleQueue')).toBe(12); // everything else keeps its place
+		expect(new Set(out).size).toBe(20);
+	});
+
+	it('does not re-migrate an order that already has customize', () => {
+		const current = [...MENU_ACTIONS];
+		expect(normalizeMenuOrder(current)).toEqual(current);
+	});
+
+	it('a pre-customize order missing repeat still gains customize via the catalog append', () => {
+		const out = normalizeMenuOrder(['like', 'share']);
+		expect(out).toContain('customize');
+		expect(out).toContain('repeat');
+		expect(out.indexOf('customize')).toBeLessThan(out.indexOf('repeat'));
 	});
 });

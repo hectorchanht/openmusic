@@ -151,7 +151,20 @@
 				return true;
 		}
 	}
-	const visibleIds = $derived(settings.trackMenuOrder.filter(canShow).slice(0, MENU_GRID_SLOTS));
+	// quick-261006-44r: the customize cell is PINNED visible — with the header pencil
+	// retired it is the only way into edit mode, so it can never be capped out or
+	// hidden. It keeps its ordered position inside the first 16; if the user drags it
+	// beyond the cap it is pulled into the last visible slot instead (no edit-mode
+	// trap). canShow('customize') is unconditionally true.
+	const visibleIds = $derived.by(() => {
+		const vis = settings.trackMenuOrder.filter(canShow);
+		const ci = vis.indexOf('customize');
+		if (ci >= MENU_GRID_SLOTS) {
+			vis.splice(ci, 1);
+			vis.push('customize');
+		}
+		return vis.slice(0, MENU_GRID_SLOTS);
+	});
 
 	// quick-261006-mnu — the edit grid's static cells: icon + micro label per action. The
 	// label keys are the actions' OWN existing keys (no new i18n); the icons are the same
@@ -169,6 +182,7 @@
 		lyricsTiming: { icon: Timer, label: 'menu.lyricsTiming' },
 		editTags: { icon: Tags, label: 'menu.editTags' },
 		addToPlaylist: { icon: ListPlus, label: 'menu.addToPlaylist' },
+		customize: { icon: Pencil, label: 'menu.customize' },
 		repeat: { icon: Repeat, label: 'nowplaying.repeat' },
 		shuffleQueue: { icon: Shuffle, label: 'menu.shuffleQueue' },
 		clearQueue: { icon: Trash2, label: 'menu.clearQueue' },
@@ -304,6 +318,13 @@
 			mSuppressClick = false;
 			return;
 		}
+		// quick-261006-44r: the customize cell is the edit-mode EXIT — with the header
+		// pencil retired it is the only way back in, so it can never be hidden or
+		// toggled. (It is also excluded from drag handling: fixed slot.)
+		if (id === 'customize') {
+			exitEdit();
+			return;
+		}
 		const i = editOrder.indexOf(id);
 		// quick-261006-44g: the live grid holds exactly MENU_GRID_SLOTS cells (always 4x4),
 		// so the editor refuses a 17th enable — the action stays in the dimmed pool until
@@ -321,6 +342,9 @@
 		const step = e.key === 'ArrowLeft' ? -1 : e.key === 'ArrowRight' ? 1 : e.key === 'ArrowUp' ? -4 : e.key === 'ArrowDown' ? 4 : 0;
 		if (!step) return;
 		e.preventDefault(); // otherwise the arrow scrolls the sheet instead
+		// quick-261006-44r: the Done button holds a fixed slot — arrows never move it
+		// (Enter/Space still activates it via the native click → mClick → exitEdit).
+		if (id === 'customize') return;
 		const i = editOrder.indexOf(id);
 		if (i < 0) return;
 		const j = Math.min(Math.max(i + step, 0), editOrder.length - 1);
@@ -1306,14 +1330,9 @@
 			     User arrange-like-this 2026-10-06: Like and Download are grid items R1C3/R1C4
 			     (ungated) — the header duplication is retired. -->
 			<div class="head-actions">
-				<!-- quick-261006-mnu: the customize affordance — icon-only (the house icon-first
-				     rule), a Pencil that swaps to a Check while editing. It does NOT close the
-				     menu; the X keeps the corner slot and the single dismiss path (D-09). -->
-				{#if editing}
-					<button class="hd-btn" aria-label={t('common.done')} title={t('common.done')} onclick={exitEdit} use:tapBounce><Check size={20} /></button>
-				{:else}
-					<button class="hd-btn" aria-label={t('menu.customize')} title={t('menu.customize')} onclick={enterEdit} use:tapBounce><Pencil size={20} /></button>
-				{/if}
+				<!-- quick-261006-44r: the header pencil/check is RETIRED (user 2026-10-06) — the
+				     customize affordance is a grid cell now (repeat's old slot), and in edit mode
+				     that same slot becomes the Done button. Header keeps ONLY Close (X). -->
 				<!-- User 2026-10-06: header keeps ONLY the Close (X) at top-right. Like and
 				     Download icons REMOVED from the header — they now live in the grid's
 				     first row (R1C3/R1C4) and the header icons were shortening the song
@@ -1489,6 +1508,14 @@
 		{#snippet cellAddToPlaylist(tr: Track)}
 			<button class="gi" onclick={() => { pickerOpen = true; }} use:tapBounce><ListPlus size={22} /><span class="gi-label">{t('menu.addToPlaylist')}</span></button>
 		{/snippet}
+		<!-- quick-261006-44r: the edit affordance is a GRID CELL now (user 2026-10-06 — it
+		     takes repeat's old slot; repeat moves to the back). The header pencil is retired,
+		     so this cell is the ONLY way into edit mode — it is pinned visible (see
+		     visibleIds) and can never be hidden. Tapping enters edit mode; in edit mode the
+		     same slot becomes the Done button (rendered in the edit grid below). -->
+		{#snippet cellCustomize(tr: Track)}
+			<button class="gi" aria-label={t('menu.customize')} onclick={enterEdit} use:tapBounce><Pencil size={22} /><span class="gi-label">{t('menu.customize')}</span></button>
+		{/snippet}
 		<!-- quick-260919-0mw (correction): Repeat, relocated from the NowPlaying transport row.
 		     Deliberately OUTSIDE the queue.length > 1 gate that wraps Shuffle: shuffling a
 		     one-track queue is a no-op, but repeat-ONE on a one-track queue is the single most
@@ -1557,30 +1584,37 @@
 					{@const on = editOrder.includes(id)}
 					{@const Icon = EDIT_META[id].icon}
 					{@const draggingThis = i === mDragFrom}
+					{@const isDone = id === 'customize'}
+					<!-- quick-261006-44r: in edit mode the customize slot becomes the Done button
+					     (the header pencil is retired). Fixed slot — not draggable, not toggleable;
+					     tap / Enter / Space exits via mClick → exitEdit. It keeps .edit-cell.on so
+					     the drag math for the other cells stays consistent. Single button element
+					     (conditional attrs) because animate:flip requires the only child of the
+					     keyed each. -->
 					<button
 						class="gi edit-cell"
-						class:on={on}
-						class:off={!on}
+						class:on={isDone || on}
+						class:off={!isDone && !on}
 						class:lifted={draggingThis}
 						data-id={id}
-						aria-pressed={on}
-						aria-label={t(EDIT_META[id].label)}
-						title={t(EDIT_META[id].label)}
+						aria-pressed={isDone ? undefined : on}
+						aria-label={isDone ? t('common.done') : t(EDIT_META[id].label)}
+						title={isDone ? t('common.done') : t(EDIT_META[id].label)}
 						style:transform={draggingThis && (mDragDx || mDragDy) ? `translate(${mDragDx}px, ${mDragDy}px)` : undefined}
-						onpointerdown={(e) => mDown(e, id)}
-						onpointermove={mMove}
-						onpointerup={mUp}
-						onpointercancel={mUp}
+						onpointerdown={isDone ? undefined : (e) => mDown(e, id)}
+						onpointermove={isDone ? undefined : mMove}
+						onpointerup={isDone ? undefined : mUp}
+						onpointercancel={isDone ? undefined : mUp}
 						onclick={() => mClick(id)}
 						onkeydown={(e) => mKey(e, id)}
 						animate:flip={{ duration: draggingThis || settings.reduceMotion ? 0 : 180 }}
-					><Icon size={22} /><span class="gi-label">{t(EDIT_META[id].label)}</span></button>
+					>{#if isDone}<Check size={22} />{:else}<Icon size={22} />{/if}<span class="gi-label">{isDone ? t('common.done') : t(EDIT_META[id].label)}</span></button>
 				{/each}
 			</div>
 		{:else}
 			<div class="acts">
 				{#each visibleIds as id (id)}
-					{@const cellSnippets = { remix: cellRemix, playNext: cellPlayNext, download: cellDownload, like: cellLike, addQueue: cellAddQueue, versions: cellVersions, changeCover: cellChangeCover, changeLyrics: cellChangeLyrics, lyricsTiming: cellLyricsTiming, editTags: cellEditTags, addToPlaylist: cellAddToPlaylist, repeat: cellRepeat, shuffleQueue: cellShuffleQueue, clearQueue: cellClearQueue, sleepTimer: cellSleepTimer, goToArtist: cellGoToArtist, goToAlbum: cellGoToAlbum, share: cellShare, detail: cellDetail }}
+					{@const cellSnippets = { remix: cellRemix, playNext: cellPlayNext, download: cellDownload, like: cellLike, addQueue: cellAddQueue, versions: cellVersions, changeCover: cellChangeCover, changeLyrics: cellChangeLyrics, lyricsTiming: cellLyricsTiming, editTags: cellEditTags, addToPlaylist: cellAddToPlaylist, customize: cellCustomize, repeat: cellRepeat, shuffleQueue: cellShuffleQueue, clearQueue: cellClearQueue, sleepTimer: cellSleepTimer, goToArtist: cellGoToArtist, goToAlbum: cellGoToAlbum, share: cellShare, detail: cellDetail }}
 					{@render cellSnippets[id](track)}
 				{/each}
 			</div><!-- /quick-261006-grd .acts grid -->
