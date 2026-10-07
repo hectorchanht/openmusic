@@ -9,24 +9,26 @@
 
 	onMount(() => settings.load());
 
-	const CONTACT = 'zephyr9709@anglernook.com';
+	const CONTACT = 'hello@openmusic.lol';
 	const REPO = 'https://github.com/hectorchanht/openmusic';
 	const TAGLIB = 'https://github.com/taglib/taglib';
 
 	// What the app does today (literal — brand/credits text, not part of the translated UI chrome).
 	const features = [
-		'Search + stream across Netease, QQ, Kuwo & JOOX, plus 5sing, Jamendo & Audius — all searched by default, each toggleable in Settings → Playback',
-		'Home discovery — the Deezer top-hits & top-artists chart plus Last.fm genre & region shelves you can pick, reorder & hide',
-		'Tap-to-play that re-resolves the best match across the enabled sources',
+		'Search + stream across Netease, QQ, Kuwo, JOOX, 5sing, Jamendo, Audius & YouTube Music — all searched by default, each toggleable in Settings → Playback',
+		'Home discovery — Deezer top-hits & top-artists charts plus Last.fm genre & region shelves you can pick, reorder & hide',
+		'Tap-to-play that re-resolves the best match across the enabled sources; a failing source quietly hands off to another',
 		'Real album & artist art via Deezer → iTunes → CN fallback',
-		'Synced lyrics + per-part translation (artist / title / lyrics) across 15 UI languages',
-		'Favorites, playlists, listen history & downloads',
-		'Installable PWA with background audio & media-session controls',
+		'Synced lyrics that scroll with the song + per-part translation (artist / title / lyrics) across 15 UI languages',
+		'Favorites, playlists, listen history & offline downloads',
+		'Sleep timer with a gentle fade-out, background audio & lock-screen controls',
+		'Song comments + crowd-sourced cover picks — vote for better artwork',
+		'Installable PWA, plus an Android app (same app in a Capacitor shell)',
 		// 36-D-01: TagLib is dual-licensed LGPL-2.1 / MPL-1.1 — weak copyleft, so shipping it
 		// obliges us to give notice. The npm tarball ships only the MIT wrapper LICENSE and omits
 		// TagLib's own COPYING.LGPL/COPYING.MPL, so this line + the licence link below are the notice.
 		// We consume the prebuilt wasm unmodified, so there is no contribute-back obligation.
-		'Downloaded songs are tagged (title, artist, album, cover) via TagLib — compiled to WebAssembly, used unmodified under its LGPL-2.1 / MPL-1.1 dual licence'
+		'Downloaded songs are tagged (title, artist, album, cover, lyrics) via TagLib — compiled to WebAssembly, used unmodified under its LGPL-2.1 / MPL-1.1 dual licence'
 	];
 </script>
 

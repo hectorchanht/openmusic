@@ -157,6 +157,8 @@ musicsquare's source adapters showed the way for the first Chinese sources.
 [musicdl](https://github.com/CharlesPikachu/musicdl) was the reference for the source list and
 several API conventions. Thank you, CharlesPikachu!
 
+Built as a public fork, it was detached into this standalone repository in October 2026.
+
 YouTube Music playback leans on [yt-dlp](https://github.com/yt-dlp/yt-dlp)'s map of YouTube's
 InnerTube clients: which ones need a PO token, which need the JS player, and which one works this
 month. When YouTube changes the rules, that's where we look first. Thank you, yt-dlp maintainers!
