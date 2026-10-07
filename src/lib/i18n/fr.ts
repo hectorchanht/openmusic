@@ -432,6 +432,7 @@ const fr: Dict = {
 	"toast.retry": "Réessayer",
 	"toast.offlineNoDownloads": "Vous êtes hors ligne — aucun titre téléchargé à lire",
 	"toast.downloaded": "Téléchargé · {label}",
+	"toast.downloadAlreadyThisQuality": "Already at this quality · {label}",
 	"toast.openedAudio": "Audio ouvert · ajouté à la bibliothèque",
 	"toast.downloadFailedKeptInLibrary": "Échec de l'enregistrement · {label} — conservé dans la bibliothèque",
 	"toast.downloadCorrupted": "Téléchargement corrompu · lecture en streaming",

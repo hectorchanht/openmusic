@@ -432,6 +432,7 @@ const tr: Dict = {
 	"toast.retry": "Yeniden dene",
 	"toast.offlineNoDownloads": "Çevrimdışısın — çalınacak indirilmiş şarkı yok",
 	"toast.downloaded": "İndirildi · {label}",
+	"toast.downloadAlreadyThisQuality": "Already at this quality · {label}",
 	"toast.openedAudio": "Açılan ses · Kitaplığa eklendi",
 	"toast.downloadFailedKeptInLibrary": "Kaydedilemedi · {label} — Kitaplıkta tutuldu",
 	"toast.downloadCorrupted": "İndirilen dosya bozuk · bunun yerine akış",

@@ -432,6 +432,7 @@ const ar: Dict = {
 	"toast.retry": "إعادة المحاولة",
 	"toast.offlineNoDownloads": "أنت غير متصل — لا توجد أغانٍ مُنزّلة للتشغيل",
 	"toast.downloaded": "تم التنزيل · {label}",
+	"toast.downloadAlreadyThisQuality": "Already at this quality · {label}",
 	"toast.openedAudio": "تم فتح الصوت · تمت إضافته إلى المكتبة",
 	"toast.downloadFailedKeptInLibrary": "تعذّر الحفظ · {label} — تم الاحتفاظ به في المكتبة",
 	"toast.downloadCorrupted": "الملف الذي تم تنزيله تالف · يتم البث بدلاً من ذلك",

@@ -432,6 +432,7 @@ const ru: Dict = {
 	"toast.retry": "Повторить",
 	"toast.offlineNoDownloads": "Вы офлайн — нет загруженных треков для воспроизведения",
 	"toast.downloaded": "Скачано · {label}",
+	"toast.downloadAlreadyThisQuality": "Already at this quality · {label}",
 	"toast.openedAudio": "Открытый аудио · добавлен в библиотеку",
 	"toast.downloadFailedKeptInLibrary": "Не удалось сохранить · {label} — осталось в библиотеке",
 	"toast.downloadCorrupted": "Загруженный файл повреждён · воспроизведение из сети",

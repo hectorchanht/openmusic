@@ -432,6 +432,7 @@ const id: Dict = {
 	"toast.retry": "Coba lagi",
 	"toast.offlineNoDownloads": "Anda offline — tidak ada lagu yang diunduh untuk diputar",
 	"toast.downloaded": "Diunduh · {label}",
+	"toast.downloadAlreadyThisQuality": "Already at this quality · {label}",
 	"toast.openedAudio": "Audio yang dibuka · ditambahkan ke Perpustakaan",
 	"toast.downloadFailedKeptInLibrary": "Tidak dapat menyimpan · {label} — tetap di Perpustakaan",
 	"toast.downloadCorrupted": "Unduhan rusak · streaming sebagai gantinya",

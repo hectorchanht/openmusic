@@ -57,6 +57,19 @@ import { effectiveQuality } from '$lib/sources/quality';
  */
 export type DownloadResult = 'saved' | 'no-audio' | 'failed' | 'rate-limited';
 
+/**
+ * quick-261007-abq2 — pure decision: the picked source's probed file is ALREADY the on-disk
+ * file (same byte count) → skip the re-download, just repair the record's quality metadata.
+ * A null on either side (CDN with no content-length, or no stat) NEVER skips — the caller
+ * falls through to the normal replace path.
+ */
+export function pickedFileAlreadyOnDisk(
+	probeBytes: number | null,
+	fileBytes: number | null
+): boolean {
+	return probeBytes != null && fileBytes != null && probeBytes === fileBytes;
+}
+
 // quick-261004-o9t — the quick-260930-uia "no YT Music downloads" rule is LIFTED (user,
 // 2026-10-04): the VISIONOS client switch (5acc875c) + the stream-proxy fixes (38961cce) made the full
 // itag-140 file fetchable. A ytmusic song now resolves and downloads its OWN audio like any source;

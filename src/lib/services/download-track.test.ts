@@ -108,6 +108,7 @@ import {
 	downloadFromDonor,
 	donorMatchesTier,
 	donorRank,
+	pickedFileAlreadyOnDisk,
 	type DownloadResult
 } from './download-track';
 import { QqRateLimitedError } from '$lib/sources/qq';
@@ -1048,6 +1049,30 @@ describe('downloadTrack — replace refreshes quality metadata (quick-261007-abq
 
 		expect(res).toBe('saved');
 		expect(mocks.library.updateDownloadQuality).not.toHaveBeenCalled();
+	});
+});
+
+// quick-261007-abq2 — the picked source's file is already on disk (same byte count) → skip the
+// re-download; the null-guard is the whole point (a CDN with no content-length must never skip).
+describe('pickedFileAlreadyOnDisk — replace skip decision (quick-261007-abq2)', () => {
+	it('same byte count → skip', () => {
+		expect(pickedFileAlreadyOnDisk(9876543, 9876543)).toBe(true);
+	});
+
+	it('different byte count → do not skip', () => {
+		expect(pickedFileAlreadyOnDisk(9876543, 1234567)).toBe(false);
+	});
+
+	it('null probe bytes (no content-length) → do not skip', () => {
+		expect(pickedFileAlreadyOnDisk(null, 9876543)).toBe(false);
+	});
+
+	it('null file bytes (no stat) → do not skip', () => {
+		expect(pickedFileAlreadyOnDisk(9876543, null)).toBe(false);
+	});
+
+	it('both null → do not skip', () => {
+		expect(pickedFileAlreadyOnDisk(null, null)).toBe(false);
 	});
 });
 

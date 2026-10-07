@@ -432,6 +432,7 @@ const vi: Dict = {
 	"toast.retry": "Thử lại",
 	"toast.offlineNoDownloads": "Bạn đang ngoại tuyến — không có bài hát đã tải để phát",
 	"toast.downloaded": "Đã tải xuống · {label}",
+	"toast.downloadAlreadyThisQuality": "Already at this quality · {label}",
 	"toast.openedAudio": "Đã mở âm thanh · đã thêm vào Thư viện",
 	"toast.downloadFailedKeptInLibrary": "Không thể lưu · {label} — vẫn giữ trong Thư viện",
 	"toast.downloadCorrupted": "Tệp đã tải bị hỏng · phát trực tuyến thay thế",

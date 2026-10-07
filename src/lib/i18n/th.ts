@@ -432,6 +432,7 @@ const th: Dict = {
 	"toast.retry": "ลองอีกครั้ง",
 	"toast.offlineNoDownloads": "คุณออฟไลน์อยู่ — ไม่มีเพลงที่ดาวน์โหลดไว้ให้เล่น",
 	"toast.downloaded": "ดาวน์โหลดแล้ว · {label}",
+	"toast.downloadAlreadyThisQuality": "Already at this quality · {label}",
 	"toast.openedAudio": "เปิดเสียง · เพิ่มลงในห้องสมุดแล้ว",
 	"toast.downloadFailedKeptInLibrary": "บันทึกไม่สำเร็จ · {label} — เก็บไว้ในไลบรารี",
 	"toast.downloadCorrupted": "ไฟล์ที่ดาวน์โหลดเสียหาย · เล่นแบบสตรีมแทน",

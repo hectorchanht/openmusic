@@ -503,6 +503,7 @@ const en = {
 	"toast.retry": "Retry",
 	"toast.offlineNoDownloads": "You're offline — no downloaded songs to play",
 	"toast.downloaded": "Downloaded · {label}",
+	"toast.downloadAlreadyThisQuality": "Already at this quality · {label}",
 	"toast.openedAudio": "Opened audio · added to Library",
 	"toast.downloadFailedKeptInLibrary": "Couldn't save · {label} — kept in Library",
 	"toast.downloadCorrupted": "Download was corrupted · streaming instead",

@@ -458,6 +458,7 @@ const zhHant: Dict = {
 	"toast.retry": "重試",
 	"toast.offlineNoDownloads": "你目前離線 — 沒有已下載的歌曲可播放",
 	"toast.downloaded": "已下載 · {label}",
+	"toast.downloadAlreadyThisQuality": "已經係呢個音質 · {label}",
 	"toast.openedAudio": "已開啟音訊 · 已加入音樂庫",
 	"toast.downloadFailedKeptInLibrary": "無法儲存 · {label} — 已保留在音樂庫",
 	"toast.downloadCorrupted": "下載檔案已損毀 · 改為線上播放",

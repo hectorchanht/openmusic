@@ -432,6 +432,7 @@ const es: Dict = {
 	"toast.retry": "Reintentar",
 	"toast.offlineNoDownloads": "Estás sin conexión — no hay canciones descargadas para reproducir",
 	"toast.downloaded": "Descargado · {label}",
+	"toast.downloadAlreadyThisQuality": "Already at this quality · {label}",
 	"toast.openedAudio": "Audio abierto · añadido a la biblioteca",
 	"toast.downloadFailedKeptInLibrary": "No se pudo guardar · {label} — se mantiene en la biblioteca",
 	"toast.downloadCorrupted": "La descarga estaba dañada · reproduciendo en línea",

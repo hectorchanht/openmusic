@@ -49,7 +49,7 @@
 	// aria-checked>). No `type="checkbox"` exists anywhere in src, so the Remove-download confirm
 	// borrows this rather than hand-rolling one.
 	import SettingToggle from '$lib/components/SettingToggle.svelte';
-	import { downloadTrack } from '$lib/services/download-track';
+	import { downloadTrack, pickedFileAlreadyOnDisk } from '$lib/services/download-track';
 	import { downloadLabel } from '$lib/services/download-label';
 	// quick-260915-26g: the shared probe + the shared label formatter. TrackMenu cannot mount
 	// DownloadControl (its Check state is blob-backed and its rows are full-width text buttons, not
@@ -1125,6 +1125,25 @@
 		if (library.downloading.has(track.uid)) return; // D-03 equivalent: a second tap while busy is a no-op
 		// quick-261001-grb: label by the ORIGINAL track (the identity, quick-260916-0d9), display-language.
 		const label = downloadLabel(names.dnArtist(track.artist), names.dnTitle(track.title, track.artist));
+		// quick-261007-abq2: the picked source's file may ALREADY be the on-disk file — a replace done
+		// before the auto quality-refresh (quick-261007-abq) left the bytes right but the record's
+		// quality label stale ("std" with the 320k file size). Same byte count = same file: skip the
+		// re-download and just repair the record's quality metadata from the probe. A null byte count
+		// (CDN with no content-length) falls through to the normal replace path — never a wrong skip.
+		if (library.isDownloaded(track.uid)) {
+			const st = await blobStore.stat(track.uid).catch(() => null);
+			if (pickedFileAlreadyOnDisk(p.bytes, st?.bytes ?? null)) {
+				library.updateDownloadQuality(track.uid, {
+					quality: p.track.quality,
+					qualityLabel: p.track.qualityLabel
+				});
+				closeDownloadPicker();
+				toast.show(t('toast.downloadAlreadyThisQuality', { label }));
+				// D-12: the menu itself stays open — the Download row reflects the repaired label inline.
+				await probeBlob();
+				return;
+			}
+		}
 		closeDownloadPicker();
 		toast.show(t('toast.downloading', { label }));
 		const res = await downloadTrack(track, { audioFrom: p.track });
