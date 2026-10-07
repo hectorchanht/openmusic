@@ -336,7 +336,6 @@ const it: Dict = {
 	"menu.addToPlaylist": "Aggiungi alla playlist",
 	"menu.goToAlbum": "Vai all'album",
 	"menu.customize": "Personalizza il menu",
-	"menu.gridFull": "The menu holds 16 actions — hide one to add another",
 	"menu.goToArtist": "Vai all'artista",
 	"menu.share": "Condividi",
 	"menu.detail": "Dettaglio",

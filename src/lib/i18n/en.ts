@@ -399,7 +399,6 @@ const en = {
 	"menu.addToPlaylist": "Add to playlist",
 	"menu.goToAlbum": "Go to album",
 	"menu.customize": "Customize menu",
-	"menu.gridFull": "The menu holds 16 actions — hide one to add another",
 	"menu.goToArtist": "Go to artist",
 	"menu.share": "Share",
 	"menu.detail": "Detail",

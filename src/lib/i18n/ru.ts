@@ -336,7 +336,6 @@ const ru: Dict = {
 	"menu.addToPlaylist": "Добавить в плейлист",
 	"menu.goToAlbum": "Перейти в альбом",
 	"menu.customize": "Настроить меню",
-	"menu.gridFull": "The menu holds 16 actions — hide one to add another",
 	"menu.goToArtist": "Перейти к исполнителю",
 	"menu.share": "Поделиться",
 	"menu.detail": "Деталь",

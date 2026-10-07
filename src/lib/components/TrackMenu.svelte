@@ -331,13 +331,9 @@
 			return;
 		}
 		const i = editOrder.indexOf(id);
-		// quick-261006-44g: the live grid holds exactly MENU_GRID_SLOTS cells (always 4x4),
-		// so the editor refuses a 17th enable — the action stays in the dimmed pool until
-		// the user hides something else. Disabling is always allowed.
-		if (i < 0 && editOrder.length >= MENU_GRID_SLOTS) {
-			toast.show(t('menu.gridFull'));
-			return;
-		}
+		// quick-261006-44t (user 2026-10-06): NO cap on enabling — the user can enable and
+		// reorder more than 16 actions freely; the live grid simply renders the first 16
+		// (see visibleIds). The Done button never counts against anyone's 16.
 		editOrder = i >= 0 ? editOrder.filter((x) => x !== id) : [...editOrder, id];
 		commitEdit();
 	}

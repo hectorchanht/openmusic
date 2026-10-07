@@ -336,7 +336,6 @@ const th: Dict = {
 	"menu.addToPlaylist": "เพิ่มลงในเพลย์ลิสต์",
 	"menu.goToAlbum": "ไปที่อัลบั้ม",
 	"menu.customize": "ปรับแต่งเมนู",
-	"menu.gridFull": "The menu holds 16 actions — hide one to add another",
 	"menu.goToArtist": "ไปหาศิลปิน",
 	"menu.share": "แบ่งปัน",
 	"menu.detail": "รายละเอียด",

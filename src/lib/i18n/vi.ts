@@ -336,7 +336,6 @@ const vi: Dict = {
 	"menu.addToPlaylist": "Thêm vào danh sách phát",
 	"menu.goToAlbum": "Đi tới anbom",
 	"menu.customize": "Tùy chỉnh menu",
-	"menu.gridFull": "The menu holds 16 actions — hide one to add another",
 	"menu.goToArtist": "Tới nghệ sĩ",
 	"menu.share": "Chia sẻ",
 	"menu.detail": "Chi tiết",
