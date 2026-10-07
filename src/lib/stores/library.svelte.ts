@@ -406,6 +406,22 @@ class Library {
 		}
 	}
 	/**
+	 * quick-261007-abq — "auto best quality": refresh a download record's quality
+	 * metadata after a REPLACE (downloadTrack with `audioFrom` on an already-downloaded
+	 * uid, e.g. TrackMenu "Download from…" on a downloaded song). `addDownload` is
+	 * deliberately a no-op for an existing uid (identity preservation, quick-260916-0d9),
+	 * so without this the record — and everything derived from it (player.current's
+	 * quality tag, the Detail sheet) — keeps describing the OLD file after the bytes
+	 * were swapped for a better one. Only quality fields are patched; uid / source /
+	 * songid identity is never touched.
+	 */
+	updateDownloadQuality(uid: string, q: { quality?: string | null; qualityLabel?: string | null }) {
+		const i = this.downloads.findIndex((t) => t.uid === uid);
+		if (i < 0) return;
+		this.downloads = this.downloads.map((t, j) => (j === i ? { ...t, ...q } : t));
+		this.save();
+	}
+	/**
 	 * 34-D-06 NOTE: this method is the EXPLICIT removal path (library/+page.svelte:162 edit-mode swipe
 	 * + the import's own drop lane via setDownloads). It is deliberately NOT guarded for device uids —
 	 * the user may remove an imported entry on purpose; the file itself is protected by blobStore.del's

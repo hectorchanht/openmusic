@@ -198,11 +198,27 @@ export async function downloadTrack(track: Track, opts?: DownloadOpts): Promise<
 	// the `finally` so EVERY exit (saved / no-audio / failed / any throw) clears the spinner exactly once.
 	// Nested inside an album's outer bracket this is a refcount step (library.downloadDepth).
 	library.beginDownload(track.uid);
+	// quick-261007-abq: snapshot BEFORE runDownload — a REPLACE (audioFrom on an already-downloaded
+	// uid, e.g. TrackMenu "Download from…" on a downloaded song) must refresh the record's quality
+	// metadata on success. addDownload inside runDownload is a no-op for existing uids (identity
+	// preservation, quick-260916-0d9), so without this the record — and everything derived from it
+	// (player.current's quality tag, the Detail sheet) — keeps describing the OLD file after the user
+	// deliberately swapped in a better one. Read here, not after: runDownload never removes the row.
+	const wasDownloaded = library.isDownloaded(track.uid);
 	let res: DownloadResult = 'failed';
 	try {
 		res = await runDownload(track, opts); // never throws (D-17)
 		return res;
 	} finally {
+		// quick-261007-abq: "auto best quality" — the bytes above are the donor's, so the record
+		// must describe the donor's file, automatically. Gated on audioFrom: a plain re-download
+		// carries no new quality information (background repair re-saves identical bytes).
+		if (res === 'saved' && wasDownloaded && opts?.audioFrom) {
+			library.updateDownloadQuality(track.uid, {
+				quality: opts.audioFrom.quality,
+				qualityLabel: opts.audioFrom.qualityLabel
+			});
+		}
 		// debug album-row-tick-before-file-done: the row tick is `isDownloaded && !downloading`, and
 		// addDownload ran PRE-fetch (DL-BUG-01) — so an attempt that ends WITHOUT a file must leave the
 		// existing "entry without a file" mark (34-D-06 `unavailable`, the alert glyph) rather than the

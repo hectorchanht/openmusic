@@ -23,6 +23,8 @@ const mocks = vi.hoisted(() => ({
 		beginDownload: vi.fn((_uid: string) => {}),
 		endDownload: vi.fn((_uid: string) => {}),
 		addDownload: vi.fn((_t: unknown) => {}),
+		// quick-261007-abq: quality-metadata refresh after a replace download.
+		updateDownloadQuality: vi.fn((_uid: string, _q: unknown) => {}),
 		isDownloaded: vi.fn((_uid: string) => false),
 		// debug album-row-tick-before-file-done: a non-saved outcome marks the file-less entry.
 		markUnavailable: vi.fn((_uid: string) => {}),
@@ -153,6 +155,7 @@ beforeEach(() => {
 	mocks.library.beginDownload.mockReset();
 	mocks.library.endDownload.mockReset();
 	mocks.library.addDownload.mockReset();
+	mocks.library.updateDownloadQuality.mockReset();
 	mocks.library.isDownloaded.mockReset().mockReturnValue(false);
 	mocks.library.markUnavailable.mockReset();
 	mocks.library.clearUnavailable.mockReset();
@@ -983,6 +986,68 @@ describe('downloadTrack — audioFrom donor url under the original identity (qui
 		mocks.tagAudioBlob.mockClear();
 		await downloadTrack(mk({ uid: 'netease-1', lrc: 'own' }), { audioFrom: mk({ ...donor(), lrc: '[00:01.00]x' }) });
 		expect((mocks.tagAudioBlob.mock.calls[0][1] as { lyrics?: string }).lyrics).toBe('own');
+	});
+});
+
+// quick-261007-abq — "auto best quality": a REPLACE (audioFrom on an already-downloaded uid) must
+// refresh the download record's quality metadata on success, because addDownload is a no-op for an
+// existing uid and the record would otherwise keep describing the OLD file (NowPlaying quality tag,
+// Detail sheet) after the user deliberately swapped in a better one.
+describe('downloadTrack — replace refreshes quality metadata (quick-261007-abq)', () => {
+	const donor320 = () =>
+		mk({
+			uid: 'kuwo-77',
+			source: 'kuwo',
+			songid: '77',
+			audioUrl: 'https://cdn.kuwo.example/x.mp3',
+			quality: '320k',
+			qualityLabel: '320kbps',
+			resolvedAt: Date.now()
+		});
+
+	it('refreshes quality metadata when a downloaded song is replaced via audioFrom', async () => {
+		mocks.library.isDownloaded.mockReturnValue(true);
+		stubFetch(new Blob(['a']));
+
+		const res = await downloadTrack(mk({ uid: 'netease-1', quality: 'std', qualityLabel: 'STD' }), {
+			audioFrom: donor320()
+		});
+
+		expect(res).toBe('saved');
+		expect(mocks.library.updateDownloadQuality).toHaveBeenCalledWith('netease-1', {
+			quality: '320k',
+			qualityLabel: '320kbps'
+		});
+	});
+
+	it('does NOT refresh on a first download (nothing stale to fix)', async () => {
+		stubFetch(new Blob(['a']));
+
+		const res = await downloadTrack(mk({ uid: 'netease-1' }), { audioFrom: donor320() });
+
+		expect(res).toBe('saved');
+		expect(mocks.library.updateDownloadQuality).not.toHaveBeenCalled();
+	});
+
+	it('does NOT refresh when the replace fails (the old file is untouched)', async () => {
+		mocks.library.isDownloaded.mockReturnValue(true);
+		stubFetchReject();
+
+		const res = await downloadTrack(mk({ uid: 'netease-1' }), { audioFrom: donor320() });
+
+		expect(res).not.toBe('saved');
+		expect(mocks.library.updateDownloadQuality).not.toHaveBeenCalled();
+	});
+
+	it('does NOT refresh on a plain re-download without a donor (no new quality info)', async () => {
+		mocks.library.isDownloaded.mockReturnValue(true);
+		mocks.ensureTrackDetails.mockResolvedValue(mk({ audioUrl: 'https://cdn.example.com/x.mp3' }));
+		stubFetch(new Blob(['a']));
+
+		const res = await downloadTrack(mk({ uid: 'netease-1' }));
+
+		expect(res).toBe('saved');
+		expect(mocks.library.updateDownloadQuality).not.toHaveBeenCalled();
 	});
 });
 
