@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { audius } from './audius';
 import type { Track } from './types';
+import { __resetDirectUrlCache } from '../services/direct-url-cache';
 
 const ac = new AbortController();
 
@@ -29,9 +30,13 @@ const sampleRow = {
 
 beforeEach(() => {
 	vi.restoreAllMocks();
+	// quick-261006-r2: the client-side direct-URL cache is module state — reset it so a cached
+	// resolve from one case cannot short-circuit another's stubbed /api/stream-url.
+	__resetDirectUrlCache();
 });
 afterEach(() => {
 	vi.restoreAllMocks();
+	__resetDirectUrlCache();
 });
 
 describe('audius.search', () => {

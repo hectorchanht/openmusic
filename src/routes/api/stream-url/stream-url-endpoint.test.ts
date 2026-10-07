@@ -84,22 +84,24 @@ describe('GET /api/stream-url', () => {
 		expect(res.status).toBe(400);
 	});
 
-	it('502s when the upstream does not redirect (no Location header)', async () => {
+	it('503s when the upstream does not redirect (no Location header)', async () => {
 		stubUpstream(200, null);
 
 		const res = await GET(fakeGet({ source: 'netease', id: '123' }) as never);
 		const body = (await res.json()) as { error?: string };
 
-		expect(res.status).toBe(502);
+		// Never 502/504: Cloudflare's edge replaces the body AND headers of any 502/504 with
+		// its own text page — 503 carries the JSON error through intact.
+		expect(res.status).toBe(503);
 		expect(body.error).toBe('no redirect');
 	});
 
-	it('502s when the upstream fetch throws', async () => {
+	it('503s when the upstream fetch throws', async () => {
 		stubUpstream(500, null, { throws: true });
 
 		const res = await GET(fakeGet({ source: 'audius', id: '999' }) as never);
 
-		expect(res.status).toBe(502);
+		expect(res.status).toBe(503);
 	});
 
 	it('never caches: no-store on success', async () => {

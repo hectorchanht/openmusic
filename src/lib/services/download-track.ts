@@ -43,6 +43,7 @@ import { audioMimeForUrl, buildDownloadFilename, extFromAudioUrl } from '$lib/se
 import { albumTag, tagAudioBlob } from '$lib/services/audio-tags';
 import { resolveArtworkDataUrl } from '$lib/services/media-artwork';
 import { logAction } from '$lib/stores/actionLog.svelte';
+import { reportDeadDirectUrl } from '$lib/services/direct-url-cache';
 import { fetchVariants, versionsIncludingOwn } from '$lib/services/variants';
 import { probeDownload, type DownloadProbe } from '$lib/services/download-probe';
 import { nativeFetchStreamBlob } from '$lib/services/ytmusic-native';
@@ -315,26 +316,65 @@ async function runDownload(track: Track, opts?: DownloadOpts): Promise<DownloadR
 			if (!b) return 'failed';
 			rawBlob = b;
 		} else {
-			const resp = await fetchRetrying(dlUrl, ytKind ? YTMUSIC_FETCH_ATTEMPTS : 1);
-			// 40-03 (album E2E): fetch() does not reject on an HTTP error, and the ytmusic stream proxy's
-			// googlevideo 403 has an EMPTY body typed audio/mp4 — so this used to persist + save a 0-byte
-			// file and report 'saved' (an album showed "Saved 10 of 10" with five empty entries). A non-2xx
-			// is a failed download; an empty body is checked after the read below.
-			if (!resp.ok) return 'failed';
-			// quick-260913-omi: read the body through a reader instead of `resp.blob()` so the Download
-			// row can show REAL progress. Same one fetch, same one pass over the bytes — progress is a
-			// side effect of the read we were already doing. Without a Content-Length the helper falls
-			// back to `resp.blob()` and reports nothing, so the row keeps its indeterminate spinner.
-			//
-			// quick-260913-tmi: the type is derived from the audio URL, NOT from the response header — the
-			// qq CDN serves audio as `application/x-www-form-urlencoded`, and `resp.blob()` was stamping
-			// that onto the saved file and the offline copy. Threaded in so the streaming path builds the
-			// Blob with the right type from the start rather than re-wrapping tens of MB afterwards.
-			rawBlob = await readBlobWithProgress(
-				resp,
-				(fraction) => library.setDownloadProgress(track.uid, fraction),
-				{ type: audioMimeForUrl(dlUrl, resp.headers?.get?.('content-type')) }
-			);
+			const reportProgress = (fraction: number) => library.setDownloadProgress(track.uid, fraction);
+			// quick-261006-r2 — DIRECT-FIRST DOWNLOADS. netease/audius carry BOTH a direct CDN
+			// `audioUrl` (CORS-open — verified live on m801.music.126.net and the Audius validator
+			// CDN) and a `proxyUrl`. Bytes can skip our edge the same way playback does, so try the
+			// direct URL first with exactly ONE attempt; on ANY failure (non-ok, throw, or an empty
+			// body) fall through to the proxied fetch below, which is byte-for-byte untouched. The
+			// source allowlist is deliberate: ytmusic legs (ytKind) keep their IP-locked / bot-gated
+			// posture exactly as-is, and every other source's audioUrl was already direct (no
+			// proxyUrl → directUrl null → unchanged behavior).
+			const directUrl =
+				ytKind === null &&
+				(r.source === 'netease' || r.source === 'audius') &&
+				r.proxyUrl != null &&
+				r.proxyUrl !== r.audioUrl
+					? r.audioUrl
+					: null;
+			let directBlob: Blob | null = null;
+			if (directUrl) {
+				try {
+					const directResp = await fetch(directUrl);
+					if (directResp.ok) {
+						const b = await readBlobWithProgress(directResp, reportProgress, {
+							type: audioMimeForUrl(directUrl, directResp.headers?.get?.('content-type'))
+						});
+						if (b.size) directBlob = b;
+					}
+				} catch {
+					// Direct unavailable — the proxied fetch below is the fallback (never 'failed' here).
+				}
+			}
+			if (!directBlob) {
+				// The direct URL died (or there was none): report it so the client-side resolve cache
+				// never re-serves it to playback, then run the ORIGINAL proxied path. D-18 holds —
+				// this is a read of a dead URL, not player state — and the fallback chain below is
+				// unchanged.
+				if (directUrl) reportDeadDirectUrl(directUrl);
+				const resp = await fetchRetrying(dlUrl, ytKind ? YTMUSIC_FETCH_ATTEMPTS : 1);
+				// 40-03 (album E2E): fetch() does not reject on an HTTP error, and the ytmusic stream proxy's
+				// googlevideo 403 has an EMPTY body typed audio/mp4 — so this used to persist + save a 0-byte
+				// file and report 'saved' (an album showed "Saved 10 of 10" with five empty entries). A non-2xx
+				// is a failed download; an empty body is checked after the read below.
+				if (!resp.ok) return 'failed';
+				// quick-260913-omi: read the body through a reader instead of `resp.blob()` so the Download
+				// row can show REAL progress. Same one fetch, same one pass over the bytes — progress is a
+				// side effect of the read we were already doing. Without a Content-Length the helper falls
+				// back to `resp.blob()` and reports nothing, so the row keeps its indeterminate spinner.
+				//
+				// quick-260913-tmi: the type is derived from the audio URL, NOT from the response header — the
+				// qq CDN serves audio as `application/x-www-form-urlencoded`, and `resp.blob()` was stamping
+				// that onto the saved file and the offline copy. Threaded in so the streaming path builds the
+				// Blob with the right type from the start rather than re-wrapping tens of MB afterwards.
+				rawBlob = await readBlobWithProgress(
+					resp,
+					reportProgress,
+					{ type: audioMimeForUrl(dlUrl, resp.headers?.get?.('content-type')) }
+				);
+			} else {
+				rawBlob = directBlob;
+			}
 		}
 		if (!rawBlob.size) return 'failed';
 

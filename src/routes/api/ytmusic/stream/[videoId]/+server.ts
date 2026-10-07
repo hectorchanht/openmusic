@@ -24,7 +24,7 @@
 //    AbortSignal.timeout + retries=1 (audius posture) — NEVER the client fetch governor (api-base),
 //    so a long-lived media stream cannot hold (and deadlock) a client concurrency slot.
 //  - bot gate (T-27-03-04): VISIONOS + cached visitorData clears the gate anonymously;
-//    refresh-once-then-502 avoids hammering a challenging upstream (never hang).
+//    refresh-once-then-503 avoids hammering a challenging upstream (never hang).
 import type { RequestHandler } from './$types';
 import { corsHeaders, fetchWithRetry } from '$lib/proxy/http';
 // selectAudioFormat + isPlayable live in the shared proxy module, NOT here: SvelteKit `+server.ts`
@@ -56,10 +56,15 @@ const MEDIA_HEAD_TIMEOUT_MS = 15000;
 const URL_ATTEMPTS = 3;
 
 /** POST the VISIONOS player. Returns the parsed JSON, or null on an upstream throw (so the caller
- *  can gate on isPlayable and refresh/502 rather than crash). */
-async function callPlayer(videoId: string, visitorData: string | null): Promise<unknown> {
+ *  can gate on isPlayable and refresh/503 rather than crash).
+ *
+ *  quick-261006-r2: `visitorData` arrives as a PROMISE and is awaited INSIDE the try. The old shape
+ *  (`callPlayer(videoId, await getVisitorData())`) evaluated the await while building the arguments
+ *  — OUTSIDE this try/catch — so a getVisitorData() throw was a real uncaught crash (a platform 502),
+ *  not the graceful null this docstring promises. */
+async function callPlayer(videoId: string, visitorData: Promise<string | null>): Promise<unknown> {
 	try {
-		return await innerTubePost(PLAYER_URL, playerBody(videoId, visitorData), {
+		return await innerTubePost(PLAYER_URL, playerBody(videoId, await visitorData), {
 			headers: { 'user-agent': PLAYER_UA },
 			signal: AbortSignal.timeout(PLAYER_TIMEOUT_MS)
 		});
@@ -94,23 +99,27 @@ export const GET: RequestHandler = async ({ params, request }) => {
 
 	let res: Response | null = null;
 	for (let attempt = 0; attempt < URL_ATTEMPTS; attempt++) {
-		// 1. VISIONOS player POST with the cached anonymous visitorData.
-		let json = await callPlayer(videoId, await getVisitorData());
+		// 1. VISIONOS player POST with the cached anonymous visitorData. The promise goes IN —
+		// the await lives inside callPlayer's try, so a visitorData throw is a graceful null,
+		// not an uncaught crash (quick-261006-r2).
+		let json = await callPlayer(videoId, getVisitorData());
 
 		// 2. Bot gate / expiry → refresh visitorData ONCE and retry the player POST once. Never hang.
 		if (!isPlayable(json)) {
-			json = await callPlayer(videoId, await getVisitorData(true));
+			json = await callPlayer(videoId, getVisitorData(true));
 			if (!isPlayable(json)) {
-				// Still not OK → 502 so the client's cross-source fallback engages.
-				return new Response('ytmusic: player not OK', { status: 502, headers: corsHeaders(origin) });
+				// Still not OK → 503 so the client's cross-source fallback engages. Never 502/504:
+				// Cloudflare's edge replaces the body AND headers of any 502/504 with its own text
+				// page — the client would never see our error (same rule as /api/stream-url).
+				return new Response('ytmusic: player not OK', { status: 503, headers: corsHeaders(origin) });
 			}
 		}
 
-		// 3. Select the itag-140 AAC direct url (no cipher/throttle). null → 502.
+		// 3. Select the itag-140 AAC direct url (no cipher/throttle). null → 503.
 		const streamUrl = selectAudioFormat(json);
 		if (!streamUrl) {
 			return new Response('ytmusic: no playable AAC format', {
-				status: 502,
+				status: 503,
 				headers: corsHeaders(origin)
 			});
 		}
@@ -120,12 +129,12 @@ export const GET: RequestHandler = async ({ params, request }) => {
 		try {
 			res = await fetchMedia(streamUrl, upstreamHeaders);
 		} catch {
-			return new Response('ytmusic: upstream error', { status: 502, headers: corsHeaders(origin) });
+			return new Response('ytmusic: upstream error', { status: 503, headers: corsHeaders(origin) });
 		}
 		if (res.status !== 403) break;
 		await res.body?.cancel().catch(() => {});
 	}
-	if (!res) return new Response('ytmusic: upstream error', { status: 502, headers: corsHeaders(origin) });
+	if (!res) return new Response('ytmusic: upstream error', { status: 503, headers: corsHeaders(origin) });
 
 	// itag 140 is always AAC/mp4 — set the content-type explicitly (the download flow + <audio> rely on it).
 	const outHeaders: Record<string, string> = { ...corsHeaders(origin), 'content-type': 'audio/mp4' };
@@ -133,8 +142,12 @@ export const GET: RequestHandler = async ({ params, request }) => {
 		// Upstream error bodies are DROPPED, never relayed: Workers decompress a gzip body but keep the
 		// upstream content-length, and that length/body mismatch reached users as Cloudflare's own
 		// `error code: 502` (no CORS headers). An empty body with our headers is what the client expects.
+		// A 502/504 from upstream must NOT be relayed verbatim either: the edge would replace the
+		// body AND headers of our response with its own text page — map them to 503 (passes through
+		// intact; the client's ≥500 handling is identical).
 		await res.body?.cancel().catch(() => {});
-		return new Response(null, { status: res.status, headers: outHeaders });
+		const status = res.status === 502 || res.status === 504 ? 503 : res.status;
+		return new Response(null, { status, headers: outHeaders });
 	}
 	const acceptRanges = res.headers.get('accept-ranges');
 	if (acceptRanges != null) outHeaders['Accept-Ranges'] = acceptRanges;

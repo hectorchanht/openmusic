@@ -56,7 +56,10 @@ export const GET: RequestHandler = async ({ params, request }) => {
 
 		return new Response(res.body, { status: res.status, headers: outHeaders });
 	} catch {
-		return new Response('upstream error', { status: 502, headers: corsHeaders(origin) });
+		// Edge-502 rule (see /api/stream-url): Cloudflare's edge replaces the body AND headers of
+		// any 502/504 with its own text page — 503 passes through intact and the client treats any
+		// ≥500 as "upstream didn't cooperate" anyway.
+		return new Response('upstream error', { status: 503, headers: corsHeaders(origin) });
 	}
 };
 

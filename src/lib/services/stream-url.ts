@@ -9,6 +9,7 @@
 // error the UI should surface; the adapter falls back to its proxy URL and the player
 // treats it as proxy-first for this resolve.
 import { apiFetch } from './api-base';
+import { getCachedDirectUrl, setCachedDirectUrl } from './direct-url-cache';
 
 /** Sources with a direct-playable final-URL hop behind /api/stream-url. */
 export type DirectSource = 'netease' | 'audius';
@@ -18,6 +19,11 @@ export async function fetchDirectStreamUrl(
 	id: string,
 	signal: AbortSignal
 ): Promise<string | null> {
+	// quick-261006-r2: client-side memo — replaying or seeking back within the 10-min TTL skips
+	// the /api/stream-url round-trip. Miss/expiry falls through to the resolve below as before;
+	// failures are never cached, so a transient failure cannot pin the track.
+	const cached = getCachedDirectUrl(source, id);
+	if (cached) return cached;
 	try {
 		// GOVERNED (fetch→apiFetch audit): our own-origin JSON path goes through apiFetch
 		// (dedup + concurrency cap + circuit breaker) like every other /api/* call.
@@ -29,7 +35,9 @@ export async function fetchDirectStreamUrl(
 		const url = typeof json.url === 'string' ? json.url : '';
 		// Belt-and-braces: the edge already forces https; never hand <audio> an http:// URL
 		// (mixed content) or a non-URL string.
-		return url.startsWith('https://') ? url : null;
+		if (!url.startsWith('https://')) return null;
+		setCachedDirectUrl(source, id, url); // successes only
+		return url;
 	} catch {
 		return null;
 	}

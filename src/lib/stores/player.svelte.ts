@@ -24,6 +24,7 @@ import { hasFreshAudioUrl, isTrackReady } from '$lib/services/track-ready';
 import { preconnectForSource, noteAudioOrigin } from '$lib/services/preconnect';
 import { tryFallback } from '$lib/services/fallback';
 import { reportDeadUrl } from '$lib/services/resolve-cache-client';
+import { reportDeadDirectUrl } from '$lib/services/direct-url-cache';
 import { buildDiversePicks } from '$lib/services/picks';
 import { buildSimilarQueue } from '$lib/services/similar';
 import { buildOfflineQueue } from '$lib/services/downloads-queue';
@@ -2654,6 +2655,10 @@ class Player {
 			// no strike, no skip, no await — recovery continues into the seek / hasPlayedSinceSrc /
 			// cross-source chain below EXACTLY as before, which is what makes "keep playing" true.
 			reportDeadUrl(this.audio?.src ?? '');
+			// quick-261006-r2: same repair for the CLIENT direct-url cache (stream-url.ts). Also
+			// unconditional and self-gating — a src the cache never served is a no-op — so a dead
+			// direct URL can never be re-served by a later re-resolve of the same track.
+			reportDeadDirectUrl(this.audio?.src ?? '');
 
 			// lw9-followup: if the error fires WITHIN the seek window, the user just clicked the
 			// progress bar — but the audio element may not be able to honor the seek because the

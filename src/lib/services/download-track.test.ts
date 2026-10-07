@@ -1514,3 +1514,129 @@ describe('downloadTrack — a file-less outcome is marked unavailable (debug alb
 		);
 	});
 });
+
+describe('downloadTrack — direct-first downloads (quick-261006-r2)', () => {
+	const DIRECT = 'https://m801.music.126.net/song.mp3?id=1';
+	const PROXY = 'https://openmusic.lol/api/netease/url?id=1';
+	const directTrack = (over: Partial<Track> = {}) =>
+		mk({ audioUrl: DIRECT, proxyUrl: PROXY, detailsLoaded: true, resolvedAt: Date.now(), ...over });
+
+	it('fetches the direct CDN URL first and saves its bytes (one fetch, no proxy)', async () => {
+		const f = vi.fn(async (url: string) => {
+			expect(url).toBe(DIRECT);
+			return { ok: true, blob: async () => new Blob(['direct-bytes']) };
+		});
+		vi.stubGlobal('fetch', f);
+
+		expect(await downloadTrack(directTrack())).toBe('saved');
+		expect(f).toHaveBeenCalledTimes(1);
+		expect(f).toHaveBeenCalledWith(DIRECT);
+		// the persisted blob is the DIRECT bytes, typed from the direct URL's container
+		const [, putBlob] = mocks.put.mock.calls[0];
+		expect((putBlob as Blob).size).toBe('direct-bytes'.length);
+		expect((putBlob as Blob).type).toBe('audio/mpeg');
+		expect(windowOpen).not.toHaveBeenCalled();
+	});
+
+	it('falls back to the proxy when the direct fetch answers non-ok', async () => {
+		const f = vi.fn(async (url: string) =>
+			url === DIRECT
+				? { ok: false, status: 403, blob: async () => new Blob([]) }
+				: { ok: true, blob: async () => new Blob(['proxy-bytes']) }
+		);
+		vi.stubGlobal('fetch', f);
+
+		expect(await downloadTrack(directTrack())).toBe('saved');
+		expect(f).toHaveBeenCalledTimes(2);
+		expect(f.mock.calls[0][0]).toBe(DIRECT); // direct tried FIRST
+		expect(f.mock.calls[1][0]).toBe(PROXY); // …then the existing proxied path
+		const [, putBlob] = mocks.put.mock.calls[0];
+		expect((putBlob as Blob).size).toBe('proxy-bytes'.length);
+	});
+
+	it('falls back to the proxy when the direct fetch throws', async () => {
+		const f = vi.fn(async (url: string) => {
+			if (url === DIRECT) throw new Error('CORS refused');
+			return { ok: true, blob: async () => new Blob(['proxy-bytes']) };
+		});
+		vi.stubGlobal('fetch', f);
+
+		expect(await downloadTrack(directTrack())).toBe('saved');
+		expect(f).toHaveBeenCalledTimes(2);
+		expect(f.mock.calls[1][0]).toBe(PROXY);
+	});
+
+	it('falls back to the proxy when the direct body is empty (40-03 guard)', async () => {
+		const f = vi.fn(async (url: string) =>
+			url === DIRECT
+				? { ok: true, blob: async () => new Blob([]) } // ok but 0 bytes — not a file
+				: { ok: true, blob: async () => new Blob(['proxy-bytes']) }
+		);
+		vi.stubGlobal('fetch', f);
+
+		expect(await downloadTrack(directTrack())).toBe('saved');
+		expect(f).toHaveBeenCalledTimes(2);
+		const [, putBlob] = mocks.put.mock.calls[0];
+		expect((putBlob as Blob).size).toBe('proxy-bytes'.length);
+	});
+
+	it('never-throws when BOTH direct and proxy fail (D-17)', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () => {
+				throw new Error('network down');
+			})
+		);
+
+		expect(await downloadTrack(directTrack())).toBe('failed');
+		expect(windowOpen).not.toHaveBeenCalled(); // DL-BUG-01
+	});
+
+	it('no double fetch when audioUrl already IS the proxy (direct resolve failed earlier)', async () => {
+		const f = vi.fn(async () => ({ ok: true, blob: async () => new Blob(['proxy-bytes']) }));
+		vi.stubGlobal('fetch', f);
+
+		expect(await downloadTrack(directTrack({ audioUrl: PROXY }))).toBe('saved');
+		expect(f).toHaveBeenCalledTimes(1);
+		expect(f).toHaveBeenCalledWith(PROXY);
+	});
+
+	it('ytmusic legs are untouched: no direct attempt, single proxy fetch', async () => {
+		const YT_PROXY = 'https://openmusic.lol/api/ytmusic/stream/vid1';
+		const f = vi.fn(async (url: string) => {
+			expect(url).toBe(YT_PROXY);
+			return { ok: true, blob: async () => new Blob(['yt-bytes']) };
+		});
+		vi.stubGlobal('fetch', f);
+		mocks.native = false;
+
+		const res = await downloadTrack(
+			directTrack({
+				uid: 'ytmusic:1',
+				source: 'ytmusic',
+				audioUrl: 'https://rr1---sn.googlevideo.com/videoplayback?x=1',
+				proxyUrl: YT_PROXY
+			})
+		);
+		expect(res).toBe('saved');
+		expect(f).toHaveBeenCalledTimes(1);
+	});
+
+	it('reports the dead direct URL so playback never re-serves it', async () => {
+		const { getCachedDirectUrl, setCachedDirectUrl, __resetDirectUrlCache } =
+			await import('./direct-url-cache');
+		__resetDirectUrlCache();
+		setCachedDirectUrl('netease', '1', DIRECT);
+		const f = vi.fn(async (url: string) =>
+			url === DIRECT
+				? { ok: false, status: 403, blob: async () => new Blob([]) }
+				: { ok: true, blob: async () => new Blob(['proxy-bytes']) }
+		);
+		vi.stubGlobal('fetch', f);
+
+		expect(await downloadTrack(directTrack())).toBe('saved');
+		// the download leg proved this URL dead — the client resolve cache must not serve it again
+		expect(getCachedDirectUrl('netease', '1')).toBeNull();
+		__resetDirectUrlCache();
+	});
+});

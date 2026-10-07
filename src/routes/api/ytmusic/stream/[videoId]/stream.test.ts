@@ -247,23 +247,25 @@ describe('GET /api/ytmusic/stream/:videoId — VISIONOS player → googlevideo b
 		expect(refreshBetween).toBe(true);
 	});
 
-	it('a persistent non-OK returns 502 after exactly one retry (client fallback engages, no media fetch)', async () => {
+	it('a persistent non-OK returns 503 after exactly one retry (client fallback engages, no media fetch)', async () => {
 		const h = stubFetch([fixture.loginRequired, fixture.loginRequired]);
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		const res = await streamGet(ev('vid123') as any);
 
-		expect(res.status).toBe(502);
+		// Never 502/504: the edge would replace the body AND headers of a 502/504 with its own
+		// text page — 503 carries the error through intact.
+		expect(res.status).toBe(503);
 		expect(h.playerCalls()).toBe(2); // one refresh + retry, then give up
 		expect(h.mediaUrl()).toBeNull(); // never fetched googlevideo bytes
 		expect(res.headers.get('access-control-allow-origin')).toBe(ORIGIN);
 	});
 
-	it('an OK player with no playable AAC format (ciphered-only) returns 502 without a media fetch', async () => {
+	it('an OK player with no playable AAC format (ciphered-only) returns 503 without a media fetch', async () => {
 		const h = stubFetch([fixture.cipheredOnly]);
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		const res = await streamGet(ev('vid123') as any);
 
-		expect(res.status).toBe(502);
+		expect(res.status).toBe(503);
 		expect(h.playerCalls()).toBe(1); // status was OK → no refresh/retry
 		expect(h.mediaUrl()).toBeNull();
 	});

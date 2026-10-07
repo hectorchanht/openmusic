@@ -58,13 +58,16 @@ export const GET: RequestHandler = async ({ url, request }) => {
 		);
 		await upstream.body?.cancel().catch(() => {});
 		const location = upstream.headers.get('location');
-		if (!location) return jsonResult({ error: 'no redirect' }, origin, 502);
+		// Never 502/504: Cloudflare's edge replaces the body AND headers of any 502/504 from a
+		// Pages Function with its own "error code: 502" text page, so the JSON error would never
+		// reach the client. 503 passes through intact and fits "upstream didn't cooperate".
+		if (!location) return jsonResult({ error: 'no redirect' }, origin, 503);
 		// Mixed-content guard: Meting answers http:// — an https page must not attach it.
 		const final = location.startsWith('http://') ? `https://${location.slice(7)}` : location;
-		if (!final.startsWith('https://')) return jsonResult({ error: 'not https' }, origin, 502);
+		if (!final.startsWith('https://')) return jsonResult({ error: 'not https' }, origin, 503);
 		return jsonResult({ url: final }, origin);
 	} catch {
-		return jsonResult({ error: 'upstream failed' }, origin, 502);
+		return jsonResult({ error: 'upstream failed' }, origin, 503);
 	}
 };
 

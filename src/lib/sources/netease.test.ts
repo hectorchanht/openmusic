@@ -4,6 +4,7 @@ import type { Track } from './types';
 import fixture from './__fixtures__/netease.search.json';
 import { neteaseHealth, DRY_THRESHOLD } from '../services/netease-health';
 import { __resetGovernor } from '../services/api-base';
+import { __resetDirectUrlCache } from '../services/direct-url-cache';
 
 const ac = new AbortController();
 
@@ -22,11 +23,15 @@ beforeEach(() => {
 	// prior case that trips the gate would otherwise short-circuit a later search to []).
 	neteaseHealth.__reset();
 	__resetGovernor();
+	// quick-261006-r2: the client-side direct-URL cache is module state too — a prior case's
+	// cached resolve would otherwise short-circuit a later case's stubbed /api/stream-url.
+	__resetDirectUrlCache();
 });
 afterEach(() => {
 	vi.restoreAllMocks();
 	neteaseHealth.__reset();
 	__resetGovernor();
+	__resetDirectUrlCache();
 });
 
 describe('netease.search (fixture-backed)', () => {
