@@ -1447,12 +1447,19 @@
 			{:else if nonCurrent && (blobPresent === true || library.isDownloaded(tr.uid))}
 				<!-- quick-261006-mnu: the remove-download face now carries the localMeta sub-label
 				     (F2 parity — a song that IS downloaded says what it is, in the same slot the
-				     probed `FLAC · 38.2 MB` label occupies). localMeta is null for a list-only row. -->
-				<button class="gi" onclick={openRemoveDownload} use:tapBounce><Trash2 size={22} /><span class="gi-label">{t('menu.removeDownload')}</span>{#if localMeta}<span class="gi-sub">{localMeta}</span>{/if}</button>
+				     probed `FLAC · 38.2 MB` label occupies). localMeta is null for a list-only row.
+				     quick-261007-rpl (user): a downloaded song CAN switch source — long-press opens
+				     the same "Download from…" sheet as the idle face; picking a source replaces the
+				     file (downloadTrack → blobStore.put overwrites, native deletes the old public
+				     copy first per 36-D-19). Tap still opens the remove sheet. -->
+				<button class="gi" aria-label={`${t('menu.removeDownload')} · ${t('menu.downloadHoldHint')}`} title={t('menu.downloadHoldHint')} onclick={openRemoveDownload} onlongpress={openDownloadPicker} use:longpress use:tapBounce><Trash2 size={22} /><span class="gi-label">{t('menu.removeDownload')}</span>{#if localMeta}<span class="gi-sub">{localMeta}</span>{/if}</button>
 			{:else if blobPresent === true}
 				<!-- quick-260919-3j1 (F2): a song that IS downloaded says what it is — the SAME
-				     `.gi-sub` slot the probed label and the download percentage occupy. -->
-				<button class="gi" disabled aria-disabled="true">
+				     `.gi-sub` slot the probed label and the download percentage occupy.
+				     quick-261007-rpl (user): long-press switches source here too (same sheet as the
+				     idle face). The button is no longer `disabled` so the hold gesture can fire;
+				     tap stays a no-op — the file is already there. -->
+				<button class="gi" aria-label={`${t('menu.downloaded')} · ${t('menu.downloadHoldHint')}`} title={t('menu.downloadHoldHint')} onlongpress={openDownloadPicker} use:longpress use:tapBounce>
 					<Check size={22} /><span class="gi-label">{t('menu.downloaded')}</span>
 					{#if localMeta}<span class="gi-sub">{localMeta}</span>{/if}
 				</button>
