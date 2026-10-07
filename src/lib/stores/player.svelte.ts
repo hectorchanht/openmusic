@@ -188,7 +188,13 @@ export const SKIP_REASON_KEY: Record<SkipReason, TranslationKey> = {
  *  - 'download-blob'  — a LIBRARY download read back from blobStore (evictable + re-downloadable)
  *  - 'prebuffer-blob' — a transient prebufferNext() blob (NOT a download — never touch library state)
  */
-type SrcKind = 'url' | 'download-blob' | 'prebuffer-blob';
+/**
+ * Provenance of the URL currently attached to <audio> (31-D-12: kind travels WITH the url).
+ * 'url' = own-origin/proxied network URL (the pre-direct-first meaning, kept); 'direct-url' =
+ * direct-first CDN URL (the primary path that never touches our bytes) — the audio.error
+ * handler routes a 'direct-url' failure to the track's proxyUrl BEFORE cross-source fallback.
+ */
+type SrcKind = 'url' | 'direct-url' | 'download-blob' | 'prebuffer-blob';
 
 /**
  * quick-260910-omt: the receipt `removeFromQueue` hands back so a caller (the Up-Next swipe-left
@@ -731,7 +737,7 @@ class Player {
 			// 31-D-12: record provenance for the audio.error handler. restore() deliberately keeps its
 			// DIRECT assign (it is not routed through driveSrc) — routing it would newly subject a boot
 			// restore to the re-drive brake, a behaviour change in the freeze-sensitive core.
-			this.lastSrcKind = offlineBlob ? 'download-blob' : 'url';
+			this.lastSrcKind = offlineBlob ? 'download-blob' : this.srcKindFor(resolved);
 			// debug-share-card-play-dead-replay: the RESOLVED uid, not target's — a name stub (share
 			// carrier, Radio/Up-Next tile) resolves to a different uid, and recording the stub's would make
 			// the first resume re-drive the src through play() instead of simply resuming.
@@ -859,7 +865,7 @@ class Player {
 			// assign, deliberately NOT routed through driveSrc — it is a one-shot INITIAL arm, not a
 			// recovery re-attach, and routing it would newly subject a share arrival to the re-drive
 			// brake (nowbar-freeze-reresolve-loop) in the freeze-sensitive core.
-			this.lastSrcKind = offlineBlob ? 'download-blob' : 'url';
+			this.lastSrcKind = offlineBlob ? 'download-blob' : this.srcKindFor(resolved);
 			this.armedUid = resolved.uid; // debug-share-card-play-dead-replay: resolved, not the stub (see restore())
 			audio.src = src;
 			// 38-D-14: warm-up stops HERE, at the src assign. No forced element reload, no preload
@@ -895,7 +901,7 @@ class Player {
 		// SAME song, and lyrics are a stable per-song attribute — nulling them made the now-playing
 		// lyrics view (derived from player.current.lrc) wipe whenever a URL refresh fired (e.g. the
 		// download fetch saturating the shared CDN), and the best-effort re-fetch could fail.
-		const stub: Track = { ...current, detailsLoaded: false, audioUrl: null };
+		const stub: Track = { ...current, detailsLoaded: false, audioUrl: null, proxyUrl: null };
 		try {
 			const resolved = await ensureTrackDetails(stub);
 			if (myGen !== this.playGen) return; // newer play() superseded
@@ -908,7 +914,9 @@ class Player {
 				this.cachedBlobUrl = null;
 			}
 			let src: string = resolved.audioUrl;
-			let kind: SrcKind = 'url'; // 31-D-12 provenance, threaded into driveSrc below
+			// Direct-first provenance: a re-resolved direct CDN URL records 'direct-url' so a
+			// later audio.error can fall back to the proxy; a proxy URL keeps 'url'.
+			let kind: SrcKind = this.srcKindFor(resolved); // 31-D-12 provenance, threaded into driveSrc below
 			if (library.isDownloaded(resolved.uid)) {
 				const blob = await blobStore.get(resolved.uid).catch(() => null);
 				if (myGen !== this.playGen) return; // WR-02: a newer play() landed mid-IDB-read
@@ -1922,6 +1930,18 @@ class Player {
 	 * the attach — a caller cannot set the src here and forget the flag, and a braked bail (which
 	 * never touches audio.src) correctly leaves the previous src's provenance intact.
 	 */
+	/**
+	 * Direct-first provenance for a driveSrc attach: when the track carries a distinct proxy
+	 * fallback URL and the URL being attached is the direct CDN one, record 'direct-url' so
+	 * the audio.error handler can route a direct failure to the proxy BEFORE cross-source
+	 * fallback. Otherwise 'url' (the pre-direct-first meaning — proxy/own-origin network URL).
+	 */
+	private srcKindFor(track: Track): SrcKind {
+		return track.proxyUrl && track.audioUrl && track.audioUrl !== track.proxyUrl
+			? 'direct-url'
+			: 'url';
+	}
+
 	private driveSrc(uid: string, url: string, kind: SrcKind = 'url'): boolean {
 		if (!this.audio) return false;
 		const now = Date.now();
@@ -2565,7 +2585,9 @@ class Player {
 			// fail to decode are a DEFINITIVE "these bytes are bad" signal, so they should not burn the
 			// seek-recovery or one-shot in-place-reresolve budgets those branches meter).
 			const badBytes = this.lastSrcKind;
-			if (badBytes !== 'url') {
+			// Blob-only: a 'direct-url' (or 'url') failure is a NETWORK failure and must take
+			// the ordinary recovery chain below — only real blob bytes get the self-repair.
+			if (badBytes === 'download-blob' || badBytes === 'prebuffer-blob') {
 				// Whatever happens below, the next attach decides its own provenance; clear it now so a
 				// repeat error on the network re-stream takes the ordinary path.
 				this.lastSrcKind = 'url';
@@ -2729,6 +2751,34 @@ class Player {
 				logAction('load.retry', { uid: this.current.uid, n: this.loadRetryBurst });
 				void this.reresolveCurrent();
 				return;
+			}
+			// DIRECT-FIRST PROXY FALLBACK: the errored src was the direct CDN URL and this
+			// source keeps a proxied route. Try it BEFORE cross-source fallback — zero listener
+			// compromise: the primary path never touches our bytes; this fires only when direct
+			// fails (hotlink block, missing referer). lastSrcKind is the single-shot guard: the
+			// re-drive below records 'url', so a second error falls through to runFallback.
+			// FOREGROUND ONLY (BG-SKIP-FIRST): a hidden WebView freezes network re-resolves.
+			const cur = this.current;
+			const proxyUrl = cur?.proxyUrl;
+			if (
+				this.lastSrcKind === 'direct-url' &&
+				cur &&
+				proxyUrl &&
+				!(typeof document !== 'undefined' && document.hidden)
+			) {
+				const myGen = this.playGen;
+				logAction('proxy.fallback', { uid: cur.uid });
+				// Resume where the direct stream died — a restart at 0:00 would be the compromise
+				// this design refuses. pendingSeek is picked up by the loadedmetadata listener
+				// (the same slot reresolveCurrent uses).
+				this.pendingSeek = this.currentTime > 0 ? this.currentTime : null;
+				// SINGLE AUTHORITY: re-attach through the braked setter so a proxy that also
+				// fails cannot spin (the brake + the errorBurst ceiling above bound it).
+				if (this.driveSrc(cur.uid, proxyUrl, 'url')) {
+					if (myGen === this.playGen) void this.audio?.play().catch(() => {});
+					return;
+				}
+				// driveSrc braked → fall through to cross-source fallback below.
 			}
 			// Cross-source fallback (gte / SRC-FB-01): rather than surface the error immediately,
 			// try the same {artist,title} on the remaining enabled sources. Only after every
@@ -3979,7 +4029,9 @@ class Player {
 					this.cachedBlobUrl = null;
 				}
 				let src: string = resolved.audioUrl;
-				let kind: SrcKind = 'url'; // 31-D-12 provenance, threaded into driveSrc below
+				// Direct-first provenance: a direct CDN URL records 'direct-url' so a later
+				// audio.error can fall back to the proxy; a proxy URL keeps 'url'.
+				let kind: SrcKind = this.srcKindFor(resolved); // 31-D-12 provenance, threaded into driveSrc below
 				if (library.isDownloaded(resolved.uid)) {
 					const blob = await blobStore.get(resolved.uid).catch(() => null);
 					if (myGen !== this.playGen) return; // CR-02: superseded mid-IDB-read — discard

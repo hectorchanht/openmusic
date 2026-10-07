@@ -13,6 +13,7 @@ import type { SourceAdapter, Track } from './types';
 import { makeUid } from './types';
 import { inferQualityFromUrl } from '../services/lrc';
 import { apiUrl, apiFetch } from '../services/api-base';
+import { fetchDirectStreamUrl } from '../services/stream-url';
 import { neteaseHealth } from '../services/netease-health';
 
 // Netease search row shape from the Meting proxy (fields we read).
@@ -137,10 +138,21 @@ export const netease: SourceAdapter = {
 			// proxy-path build below run. Same for the lyric url.
 			if (isUpstreamMeting(track.audioUrl)) track.audioUrl = null;
 			if (isUpstreamMeting(track.lrcUrl)) track.lrcUrl = null;
-			if (!track.audioUrl) {
-				// Pitfall 3: this URL is consumed directly by <audio>.src, so it MUST be
-				// absolute in the native APK (apiUrl() prepends the base; no-op on web).
-				track.audioUrl = apiUrl(`/api/netease/url?id=${encodeURIComponent(track.songid)}`);
+			// The proxy path is deterministic — (re)build it whenever missing. It doubles as
+			// the direct-first FALLBACK the player's proxy step drives when the CDN URL fails.
+			// Pitfall 3: this URL is consumed directly by <audio>.src, so it MUST be
+			// absolute in the native APK (apiUrl() prepends the base; no-op on web).
+			const proxy =
+				track.proxyUrl ?? apiUrl(`/api/netease/url?id=${encodeURIComponent(track.songid)}`);
+			track.proxyUrl = proxy;
+			// Direct-first UPGRADE: whenever audioUrl is missing OR is still the proxy path
+			// (search-time stamp, or a previous direct-fetch failure), try the direct CDN URL —
+			// one sub-second JSON hop via /api/stream-url (the edge follows the Meting 307
+			// server-side and never pipes bytes). A direct URL already in hand is reused as-is
+			// (cheap path — no extra hop). Any failure keeps the proxy path: the listener
+			// never sees the difference.
+			if (!track.audioUrl || track.audioUrl === proxy) {
+				track.audioUrl = (await fetchDirectStreamUrl('netease', track.songid, signal)) ?? proxy;
 			}
 			if (!track.lrcUrl) {
 				// Pitfall 3: lrcUrl is fetched as-is below — must be absolute on native too.

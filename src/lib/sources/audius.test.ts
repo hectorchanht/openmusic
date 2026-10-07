@@ -126,10 +126,22 @@ describe('audius.resolve', () => {
 	}
 
 	it('sets audioUrl to own-origin /api/audius/stream/<songid>, tags quality, marks loaded', async () => {
+		// Direct fetch fails (non-JSON body) → proxy path kept, zero listener impact.
+		vi.stubGlobal('fetch', mockFetchOnce('not-json', 'text/plain'));
 		const out = await audius.resolve(stubTrack(), ac.signal);
 		expect(out.audioUrl).toMatch(/\/api\/audius\/stream\/EJQkAER$/);
+		expect(out.proxyUrl).toMatch(/\/api\/audius\/stream\/EJQkAER$/);
 		expect(out.quality).not.toBeNull();
 		expect(out.qualityLabel).not.toBeNull();
+		expect(out.detailsLoaded).toBe(true);
+	});
+
+	it('direct-first: stamps the signed GCS URL as audioUrl and keeps the proxy as proxyUrl', async () => {
+		const direct = 'https://storage.googleapis.com/audius-files/x.mp3?sig=abc';
+		vi.stubGlobal('fetch', mockFetchOnce({ url: direct }));
+		const out = await audius.resolve(stubTrack(), ac.signal);
+		expect(out.audioUrl).toBe(direct);
+		expect(out.proxyUrl).toMatch(/\/api\/audius\/stream\/EJQkAER$/);
 		expect(out.detailsLoaded).toBe(true);
 	});
 

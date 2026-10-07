@@ -209,6 +209,61 @@ describe('netease.resolve', () => {
 		const out = await netease.resolve(stubTrack(), ac.signal);
 		expect(out.lrc).toBe(lrcText);
 	});
+	describe('netease.resolve direct-first', () => {
+		const DIRECT = 'https://m8.music.126.net/song.mp3?id=509781655';
+		/** Route-aware stub: /api/stream-url answers JSON, the lrc path answers LRC text. */
+		function stubRouted(streamUrlBody: unknown, streamUrlStatus = 200) {
+			return vi.fn(async (input: RequestInfo | URL) => {
+				const u = String(input);
+				if (u.includes('/api/stream-url')) {
+					return new Response(JSON.stringify(streamUrlBody), {
+						status: streamUrlStatus,
+						headers: { 'content-type': 'application/json' }
+					});
+				}
+				return new Response('[00:01.00]x', { status: 200, headers: { 'content-type': 'text/plain' } });
+			});
+		}
+
+		it('stamps the direct CDN URL as audioUrl and keeps the proxy path as proxyUrl', async () => {
+			vi.stubGlobal('fetch', stubRouted({ url: DIRECT }));
+
+			const out = await netease.resolve(stubTrack(), ac.signal);
+
+			expect(out.audioUrl).toBe(DIRECT);
+			expect(out.proxyUrl).toBe('/api/netease/url?id=509781655');
+		});
+
+		it('upgrades a search-stamped proxy audioUrl to the direct URL', async () => {
+			vi.stubGlobal('fetch', stubRouted({ url: DIRECT }));
+
+			const track = stubTrack();
+			track.audioUrl = '/api/netease/url?id=509781655';
+
+			const out = await netease.resolve(track, ac.signal);
+
+			expect(out.audioUrl).toBe(DIRECT);
+			expect(out.proxyUrl).toBe('/api/netease/url?id=509781655');
+		});
+
+		it('keeps the proxy path as audioUrl when the direct fetch fails (zero listener impact)', async () => {
+			vi.stubGlobal('fetch', stubRouted({ error: 'upstream failed' }, 502));
+
+			const out = await netease.resolve(stubTrack(), ac.signal);
+
+			expect(out.audioUrl).toBe('/api/netease/url?id=509781655');
+			expect(out.proxyUrl).toBe('/api/netease/url?id=509781655');
+		});
+
+		it('rejects a non-https direct URL and keeps the proxy path', async () => {
+			vi.stubGlobal('fetch', stubRouted({ url: 'http://m8.music.126.net/song.mp3' }));
+
+			const out = await netease.resolve(stubTrack(), ac.signal);
+
+			expect(out.audioUrl).toBe('/api/netease/url?id=509781655');
+		});
+	});
+
 });
 
 describe('netease extractLrcFromBody / extractLrcFromJson (shape-tolerant, never-throw)', () => {

@@ -251,6 +251,7 @@ async function runDownload(track: Track, opts?: DownloadOpts): Promise<DownloadR
 			r = {
 				...track,
 				audioUrl: d.audioUrl,
+				proxyUrl: d.proxyUrl,
 				quality: d.quality,
 				qualityLabel: d.qualityLabel,
 				resolvedAt: d.resolvedAt,
@@ -286,6 +287,11 @@ async function runDownload(track: Track, opts?: DownloadOpts): Promise<DownloadR
 		// re-streams on tap) — this is what makes DL-BUG-01's "keep in library" guarantee hold.
 		library.addDownload(r);
 		if (!r.audioUrl) return rateLimited ? 'rate-limited' : 'no-audio';
+		// Direct-first playback moved the primary `audioUrl` to the CDN, but DOWNLOADS keep
+		// the exact pre-change behavior: the proxied URL when one exists (its CORS posture is
+		// known-good for a byte fetch, and the server never touches download bytes — tagging
+		// is 100% client-side). For sources without a proxyUrl this is just audioUrl.
+		const dlUrl = r.proxyUrl ?? r.audioUrl;
 
 		// RAW fetch (not apiFetch — fetch→apiFetch audit): a MEDIA download-to-blob of the resolved
 		// audio stream. audioUrl is often an ABSOLUTE CDN URL (qq/kuwo/joox) — apiFetch would corrupt it —
@@ -301,15 +307,15 @@ async function runDownload(track: Track, opts?: DownloadOpts): Promise<DownloadR
 		//     direct fetch is 'failed' → the existing "kept in Library" degrade.
 		//   - the stream proxy url: plain fetch, retried up to YTMUSIC_FETCH_ATTEMPTS (per-invocation
 		//     egress-IP bot gate). Every other url is one fetch, as before.
-		const ytKind = isGooglevideoUrl(r.audioUrl) ? 'direct' : isYtmusicProxyUrl(r.audioUrl) ? 'proxy' : null;
+		const ytKind = isGooglevideoUrl(dlUrl) ? 'direct' : isYtmusicProxyUrl(dlUrl) ? 'proxy' : null;
 		release = await opts?.stages?.transfer();
 		let rawBlob: Blob;
 		if (Capacitor.isNativePlatform() && ytKind === 'direct') {
-			const b = await nativeFetchStreamBlob(r.audioUrl);
+			const b = await nativeFetchStreamBlob(dlUrl);
 			if (!b) return 'failed';
 			rawBlob = b;
 		} else {
-			const resp = await fetchRetrying(r.audioUrl, ytKind ? YTMUSIC_FETCH_ATTEMPTS : 1);
+			const resp = await fetchRetrying(dlUrl, ytKind ? YTMUSIC_FETCH_ATTEMPTS : 1);
 			// 40-03 (album E2E): fetch() does not reject on an HTTP error, and the ytmusic stream proxy's
 			// googlevideo 403 has an EMPTY body typed audio/mp4 — so this used to persist + save a 0-byte
 			// file and report 'saved' (an album showed "Saved 10 of 10" with five empty entries). A non-2xx
@@ -327,7 +333,7 @@ async function runDownload(track: Track, opts?: DownloadOpts): Promise<DownloadR
 			rawBlob = await readBlobWithProgress(
 				resp,
 				(fraction) => library.setDownloadProgress(track.uid, fraction),
-				{ type: audioMimeForUrl(r.audioUrl, resp.headers?.get?.('content-type')) }
+				{ type: audioMimeForUrl(dlUrl, resp.headers?.get?.('content-type')) }
 			);
 		}
 		if (!rawBlob.size) return 'failed';
@@ -344,7 +350,7 @@ async function runDownload(track: Track, opts?: DownloadOpts): Promise<DownloadR
 		// route a FLAC into ID3. The codec sniffs the actual bytes instead (RESEARCH Pitfall 3).
 		// quick-261004-o9t: itag 140 is AAC/mp4 and neither ytmusic url carries an extension, so
 		// extFromAudioUrl would default to `.mp3` (ytmusic.ts resolve() stamps the true tier the same way).
-		const ext = ytKind ? 'm4a' : extFromAudioUrl(r.audioUrl);
+		const ext = ytKind ? 'm4a' : extFromAudioUrl(dlUrl);
 		const filename = buildDownloadFilename(dnArtist, dnTitle, ext);
 
 		// 36-D-13 / 36-D-14: embed the cover the app itself displays, through the existing artwork

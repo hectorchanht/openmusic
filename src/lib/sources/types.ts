@@ -35,6 +35,13 @@ export interface Track {
 	cover: string | null;
 	/** null until resolve() populates it (Netease provides it at search time). */
 	audioUrl: string | null;
+	/** Direct-first playback fallback: the own-origin PROXIED playback URL
+	 *  (e.g. /api/netease/url?id=…, /api/audius/stream/<id>), kept for the client's
+	 *  proxy-fallback step when the direct CDN URL in `audioUrl` fails. Set only by
+	 *  adapters whose primary `audioUrl` is a direct upstream URL (netease, audius);
+	 *  undefined elsewhere. Signed/expiring like `audioUrl`, so deliberately ABSENT
+	 *  from the serializeTrack whitelist — a restored track re-resolves regardless. */
+	proxyUrl?: string | null;
 	/** null until resolved (JOOX has it at search time; Netease resolves via lrcUrl). */
 	lrc: string | null;
 	/** Netease only — separate URL fetched in resolve(). */

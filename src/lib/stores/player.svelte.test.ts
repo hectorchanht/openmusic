@@ -2848,6 +2848,78 @@ describe('player resilience — loop-guard + skip-on-failure (PLAY-07/08)', () =
 	});
 });
 
+describe('player direct-first — proxy fallback on direct-url error', () => {
+	function attachForegroundDirect(current: Track, rest: Track[]) {
+		vi.stubGlobal('document', { hidden: false, addEventListener() {} });
+		vi.stubGlobal('navigator', { onLine: true });
+		const el = makeFakeAudio();
+		player.queue = [current, ...rest];
+		player.current = current;
+		player.attach(el as unknown as HTMLAudioElement);
+		return el;
+	}
+	type DirectInternals = {
+		hasPlayedSinceSrc: boolean;
+		lastSeekAt: number;
+		lastSrcKind: string;
+		runFallback(f: Track): Promise<void>;
+	};
+	const directInternals = () => player as unknown as DirectInternals;
+
+	it('a direct-url error re-drives the proxy URL (kind url) before cross-source fallback', () => {
+		const cur = mk('netease', 'd1', 'A', 'Direct Fail');
+		cur.audioUrl = 'https://m8.music.126.net/direct.mp3';
+		cur.proxyUrl = '/api/netease/url?id=d1';
+		const el = attachForegroundDirect(cur, [mk('qq', 'd2', 'B', 'Next')]);
+		const st = directInternals();
+		st.lastSrcKind = 'direct-url';
+		st.hasPlayedSinceSrc = false;
+		st.lastSeekAt = 0;
+		const fb = vi.spyOn(st, 'runFallback').mockResolvedValue(undefined);
+
+		el.fire('error');
+
+		expect(el.src).toBe('/api/netease/url?id=d1');
+		expect(st.lastSrcKind).toBe('url');
+		expect(fb).not.toHaveBeenCalled();
+	});
+
+	it('a second error on the proxy URL falls through to cross-source fallback (single-shot)', () => {
+		const cur = mk('netease', 'd1', 'A', 'Direct Fail');
+		cur.audioUrl = 'https://m8.music.126.net/direct.mp3';
+		cur.proxyUrl = '/api/netease/url?id=d1';
+		const el = attachForegroundDirect(cur, [mk('qq', 'd2', 'B', 'Next')]);
+		const st = directInternals();
+		st.lastSrcKind = 'direct-url';
+		st.hasPlayedSinceSrc = false;
+		st.lastSeekAt = 0;
+		const fb = vi.spyOn(st, 'runFallback').mockResolvedValue(undefined);
+
+		el.fire('error'); // → proxy re-drive
+		expect(el.src).toBe('/api/netease/url?id=d1');
+		el.fire('error'); // proxy also dead → cross-source
+
+		expect(fb).toHaveBeenCalledTimes(1);
+		expect(fb).toHaveBeenCalledWith(cur);
+	});
+
+	it('no proxyUrl → a direct-url error goes straight to cross-source fallback', () => {
+		const cur = mk('kuwo', 'd1', 'A', 'No Proxy');
+		cur.audioUrl = 'https://cdn.example.com/direct.mp3';
+		// proxyUrl undefined — a source with no proxied route.
+		const el = attachForegroundDirect(cur, [mk('qq', 'd2', 'B', 'Next')]);
+		const st = directInternals();
+		st.lastSrcKind = 'direct-url';
+		st.hasPlayedSinceSrc = false;
+		st.lastSeekAt = 0;
+		const fb = vi.spyOn(st, 'runFallback').mockResolvedValue(undefined);
+
+		el.fire('error');
+
+		expect(fb).toHaveBeenCalledTimes(1);
+	});
+});
+
 describe('player resilience — stall watchdog (PLAY-07 / D-13/D-14)', () => {
 	// armStall/disarmStall are private; drive them directly + observe via a runFallback spy.
 	const armStall = () => (player as unknown as { armStall(): void })['armStall']();

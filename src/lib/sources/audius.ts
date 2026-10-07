@@ -14,6 +14,7 @@ import type { SourceAdapter, Track } from './types';
 import { makeUid } from './types';
 import { inferQualityFromUrl } from '../services/lrc';
 import { apiFetch, apiUrl } from '../services/api-base';
+import { fetchDirectStreamUrl } from '../services/stream-url';
 
 // Upstream `data[]` row shape — only the fields we read; all optional (untrusted JSON).
 interface AudiusRow {
@@ -77,11 +78,20 @@ export const audius: SourceAdapter = {
 	},
 
 	async resolve(track: Track, signal: AbortSignal): Promise<Track> {
-		// No JSON hop — the stream URL is deterministic from the id, so there is nothing to abort.
-		void signal;
 		if (!track.songid) throw new Error('audius: missing songid on resolve');
+		// The proxy path is deterministic — (re)build it whenever missing. It doubles as
+		// the direct-first FALLBACK the player's proxy step drives when the CDN URL fails.
 		// Own-origin proxy path; apiUrl prefixes VITE_API_BASE on native, returns it unchanged on web.
-		track.audioUrl = apiUrl('/api/audius/stream/' + encodeURIComponent(track.songid));
+		const proxy = track.proxyUrl ?? apiUrl('/api/audius/stream/' + encodeURIComponent(track.songid));
+		track.proxyUrl = proxy;
+		// Direct-first UPGRADE: the stream URL is deterministic from the id, but the FINAL
+		// CDN URL needs the edge to follow the 302 (one JSON hop via /api/stream-url — the
+		// edge returns the signed GCS URL, never pipes bytes). Upgrade whenever audioUrl is
+		// missing or still on the proxy path; reuse a direct URL already in hand. Any failure
+		// keeps the proxy path: the listener never sees the difference.
+		if (!track.audioUrl || track.audioUrl === proxy) {
+			track.audioUrl = (await fetchDirectStreamUrl('audius', track.songid, signal)) ?? proxy;
+		}
 		// No file extension → inferQualityFromUrl falls back to its default tag (acceptable).
 		const q = inferQualityFromUrl(track.audioUrl);
 		track.quality = q.tag;
