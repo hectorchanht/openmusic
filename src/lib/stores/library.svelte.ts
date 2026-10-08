@@ -5,7 +5,8 @@ import { browser } from '$app/environment';
 import { blobStore } from '$lib/services/blob-store';
 import { setCachedCover } from '$lib/services/cover-cache';
 import { hasHttpsScheme, isYtmCoverUrl } from '$lib/services/url-safety';
-import { matchKey } from '$lib/services/match-key';
+import { matchKey, versionedMatchKey } from '$lib/services/match-key';
+import { isDeviceUid } from '$lib/services/device-track';
 import { sameSongStrings, songKey } from '$lib/services/dedupe';
 import { isChineseLine, t2sConvertLineSync, warmScript } from '$lib/services/zh-convert';
 import type { Track } from '$lib/sources/types';
@@ -433,6 +434,26 @@ class Library {
 		const rec = this.downloads.find((d) => d.uid === uid);
 		if (!rec || (rec.quality == null && rec.qualityLabel == null)) return null;
 		return { quality: rec.quality, qualityLabel: rec.qualityLabel };
+	}
+	/**
+	 * quick-261008-dl1 — "the download file must be used to play all the time".
+	 * Resolve the download record for a track: exact uid first, then the same song
+	 * downloaded under another source's uid. Identity is versionedMatchKey (same VERSION —
+	 * live/remix/acoustic stay distinct, so a live cut never plays the studio file).
+	 * Returns the record's uid (the blob-store key), or null when there is no downloaded
+	 * copy. Device imports are exact-uid only — their playback path is URI-based, not
+	 * blob-based, so a catalog tap must not resolve to a device file here.
+	 */
+	downloadUidFor(track: Track): string | null {
+		if (!track?.uid) return null;
+		if (this.isDownloaded(track.uid)) return track.uid;
+		if (isDeviceUid(track.uid)) return null;
+		const key = versionedMatchKey(track.artist ?? '', track.title ?? '');
+		if (!key || key === '|') return null;
+		const rec = this.downloads.find(
+			(d) => !isDeviceUid(d.uid) && versionedMatchKey(d.artist ?? '', d.title ?? '') === key
+		);
+		return rec ? rec.uid : null;
 	}
 	/**
 	 * 34-D-06 NOTE: this method is the EXPLICIT removal path (library/+page.svelte:162 edit-mode swipe

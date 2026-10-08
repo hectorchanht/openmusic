@@ -692,8 +692,11 @@ class Player {
 			// the user would see the player stuck).
 			let resolved: Track = target;
 			let offlineBlob: Blob | null = null;
-			if (library.isDownloaded(target.uid)) {
-				offlineBlob = await blobStore.get(target.uid).catch(() => null);
+			// quick-261008-dl1: resolve the download via downloadUidFor (exact uid, or the same
+			// song under another source's uid) — a downloaded copy always wins over streaming.
+			const dlUid = library.downloadUidFor(target);
+			if (dlUid) {
+				offlineBlob = await blobStore.get(dlUid).catch(() => null);
 				if (gen !== this.playGen) {
 					superseded = true;
 					return;
@@ -824,10 +827,13 @@ class Player {
 		try {
 			// Offline-first, exactly as restore(): a recipient who already downloaded this song gets
 			// the blob and never touches the network.
+			// quick-261008-dl1: resolve via downloadUidFor (exact uid, or the same song under
+			// another source's uid) — a downloaded copy always wins over streaming.
 			let resolved: Track = track;
 			let offlineBlob: Blob | null = null;
-			if (library.isDownloaded(track.uid)) {
-				offlineBlob = await blobStore.get(track.uid).catch(() => null);
+			const adlUid = library.downloadUidFor(track);
+			if (adlUid) {
+				offlineBlob = await blobStore.get(adlUid).catch(() => null);
 				if (gen !== this.armGen || playGenAtStart !== this.playGen) {
 					superseded = true;
 					return null;
@@ -927,11 +933,16 @@ class Player {
 			// Direct-first provenance: a re-resolved direct CDN URL records 'direct-url' so a
 			// later audio.error can fall back to the proxy; a proxy URL keeps 'url'.
 			let kind: SrcKind = this.srcKindFor(resolved); // 31-D-12 provenance, threaded into driveSrc below
-			if (library.isDownloaded(resolved.uid)) {
-				const blob = await blobStore.get(resolved.uid).catch(() => null);
+			// quick-261008-dl1: a downloaded copy (exact uid or same song, other source) always
+			// wins over the re-resolved stream URL. The WR-02 gen re-check stays AFTER the blob
+			// await even on a null blob — a newer play() in that window must not get its src
+			// clobbered by this stale re-resolve.
+			const rdlUid = library.downloadUidFor(resolved);
+			if (rdlUid) {
+				const rblob = await blobStore.get(rdlUid).catch(() => null);
 				if (myGen !== this.playGen) return; // WR-02: a newer play() landed mid-IDB-read
-				if (blob) {
-					this.cachedBlobUrl = URL.createObjectURL(blob);
+				if (rblob) {
+					this.cachedBlobUrl = URL.createObjectURL(rblob);
 					src = this.cachedBlobUrl;
 					kind = 'download-blob';
 				}
@@ -1117,10 +1128,14 @@ class Player {
 	 * replace, or a pre-abq record — so the record wins for quality display. Returns the input
 	 * unchanged when there is no record or the record carries no quality info (never blanks a
 	 * good label). Pure, never throws.
+	 * quick-261008-dl1: resolves through library.downloadUidFor, so a track played under another
+	 * source's uid still reports its downloaded copy's quality.
 	 */
 	private applyDownloadQuality(t: Track): Track {
 		try {
-			const q = library.qualityForDownload(t.uid);
+			const dlUid = library.downloadUidFor(t);
+			if (!dlUid) return t;
+			const q = library.qualityForDownload(dlUid);
 			if (!q) return t;
 			if (t.quality === q.quality && t.qualityLabel === q.qualityLabel) return t;
 			return { ...t, ...q };
@@ -3515,7 +3530,9 @@ class Player {
 		const url = track.audioUrl;
 		if (!url) return;
 		if (typeof fetch === 'undefined' || typeof URL === 'undefined' || !URL.createObjectURL) return;
-		if (library.isDownloaded(track.uid)) return; // offline-blob branch already serves this locally
+		// quick-261008-dl1: a downloaded copy (exact uid or same song, other source) is served
+		// locally — never prebuffer a stream for it.
+		if (library.downloadUidFor(track)) return; // offline-blob branch already serves this locally
 		if (this.prebufferedUid === track.uid) return; // already buffered OR already attempted (flood fix)
 		// Supersede any prior in-flight prebuffer for a DIFFERENT next track, then CLAIM this uid BEFORE
 		// the await — so a failed fetch below is never retried (the f7c2580 bug set this only on 200-OK).
@@ -3815,109 +3832,117 @@ class Player {
 			// blob *is* the audio — no need to fetch a fresh URL just to ignore it again on
 			// the route-to-blob branch below. Lets the player work with NO network when a
 			// song was downloaded earlier.
-			if (library.isDownloaded(track.uid)) {
-				const offlineBlob = await blobStore.get(track.uid).catch(() => null);
+			// quick-261008-dl1: resolve via downloadUidFor (exact uid, or the same song under
+			// another source's uid) — a downloaded copy always wins over streaming.
+			const tdlUid = library.downloadUidFor(track);
+			let offlineBlob: Blob | null = null;
+			if (tdlUid) {
+				offlineBlob = await blobStore.get(tdlUid).catch(() => null);
 				if (myGen !== this.playGen) return; // CR-02: superseded mid-IDB-read — discard
-				// ─── 34-D-06 (the ONE player seam D-05 could not cover) ──────────────────────────────────
-				// blobStore.get answers "give me the bytes" for both kinds of download, but only the player
-				// knows the read came back empty. For a `device:` uid that means the USER'S OWN file is gone
-				// (deleted, SD card pulled) — not an evictable app blob. Mark it so RowBadges /
-				// DownloadControl swap to the alert glyph, say why inline (the Nowbar renders player.error),
-				// and hand off to the existing never-stop skip so a downloads queue keeps advancing. The
-				// entry is NEVER removed here — D-07/D-08: only the next explicit import may drop it.
-				// Without this branch we would fall through to ensureTrackDetails (guarded — returns the
-				// track url-less) → runFallback (barred in tryFallback) → a generic "couldn't play": honest,
-				// but it would not tell the user their file is missing or leave any mark behind.
-				if (!offlineBlob && isDeviceUid(track.uid)) {
-					library.markUnavailable(track.uid);
-					logAction('device.missing', { uid: track.uid });
-					this.loading = false;
-					this.error = 'toast.fileMissing';
-					this.clearMedia();
-					this.handleTotalFailure(track, 'load-error'); // quick-260926-l69: the file is gone
-					return;
+			}
+			// ─── 34-D-06 (the ONE player seam D-05 could not cover) ──────────────────────────────────
+			// blobStore.get answers "give me the bytes" for both kinds of download, but only the player
+			// knows the read came back empty. For a `device:` uid that means the USER'S OWN file is gone
+			// (deleted, SD card pulled) — not an evictable app blob. Mark it so RowBadges /
+			// DownloadControl swap to the alert glyph, say why inline (the Nowbar renders player.error),
+			// and hand off to the existing never-stop skip so a downloads queue keeps advancing. The
+			// entry is NEVER removed here — D-07/D-08: only the next explicit import may drop it.
+			// Without this branch we would fall through to ensureTrackDetails (guarded — returns the
+			// track url-less) → runFallback (barred in tryFallback) → a generic "couldn't play": honest,
+			// but it would not tell the user their file is missing or leave any mark behind.
+			// quick-261008-dl1: the isDownloaded gate keeps this device-only — a catalog track
+			// that merely failed a cross-source blob lookup must fall through to streaming.
+			if (!offlineBlob && isDeviceUid(track.uid) && library.isDownloaded(track.uid)) {
+				library.markUnavailable(track.uid);
+				logAction('device.missing', { uid: track.uid });
+				this.loading = false;
+				this.error = 'toast.fileMissing';
+				this.clearMedia();
+				this.handleTotalFailure(track, 'load-error'); // quick-260926-l69: the file is gone
+				return;
+			}
+			if (offlineBlob && this.audio) {
+				if (this.cachedBlobUrl) {
+					URL.revokeObjectURL(this.cachedBlobUrl);
 				}
-				if (offlineBlob && this.audio) {
-					if (this.cachedBlobUrl) {
-						URL.revokeObjectURL(this.cachedBlobUrl);
-					}
-					this.cachedBlobUrl = URL.createObjectURL(offlineBlob);
-					// Held as a local as well: this is the track handed to the enrichment + the shared
-					// post-play queue tail at the end of the branch, and `this.current` can be
-					// reassigned by either of them.
-					const localTrack: Track = { ...track, detailsLoaded: true };
-					this.current = localTrack;
-					this.persist();
-					const ms = this.ms;
-					if (ms) {
-						ms.metadata = makeMetadata({
-							title: names.dnTitle(track.title, track.artist),
-							artist: names.dnArtist(track.artist),
-							album: track.album,
-							artwork: buildArtwork(this.displayCover)
-						});
-						ms.playbackState = 'playing';
-					}
-					// Initial-load arming point (D-13): a NEW src for this track. Reset the played
-					// flag + arm the stall watchdog so a silent no-audio start routes into failover.
-					this.hasPlayedSinceSrc = false;
-					// RELAX-PREFETCH: a NEW src — re-arm the one-shot delayed prefetch gate so the
-					// timeupdate listener fires prefetchNext ~5s into THIS track's playback.
-					this.prefetchArmedForSrc = false;
-					// Next-song-current-but-paused fix: a NEW src clears any prior autoplay-retry arm.
-					this.autoplayRetryArmed = false;
-					// A NEW src cancels any pending resume timer from the prior track and clears a stale
-					// deliberate-pause flag so the next pause is judged on this src's own merits.
-					this.disarmResume();
-					this.deliberatePause = false;
-					this.lastSrcKind = 'download-blob'; // 31-D-12 (direct assign — see restore()'s note)
-					this.armedUid = track.uid; // debug-share-card-play-dead-replay
-					this.audio.src = this.cachedBlobUrl;
-					this.armStall();
-					// quick-260627-huo (HUO-PREFETCH): EAGER one-shot prefetch of the immediate-next at
-					// src-set — independent of the ~5s timeupdate gate — so a SHORT track or a FAST skip
-					// still has its next song pre-resolved + probe-verified before it ends (gapless,
-					// non-stop advance). Fired AFTER the src is attached so prefetchNext's indexOf(current)
-					// sees the correct current track. Arming prefetchArmedForSrc=true makes the timeupdate
-					// gate (the long-track backstop) a no-op for this src — single walk per src (T-huo-03).
-					// Best-effort + fire-and-forget (gen-guarded by prefetch's own seedUid/abort); NOT
-					// gated on the `playing` event (memory: that froze iOS — reverted).
-					this.prefetchArmedForSrc = true;
-					void this.prefetchNext();
-					// D-06: a rejected play() is intentionally surfaced to the stall/failure path,
-					// not swallowed — if play() rejects (iOS gesture loss) and no `play` event
-					// follows, the armed watchdog above routes into runFallback. .catch only prevents
-					// an unhandled rejection.
-					let rejected = false;
-					await this.audio.play().catch(() => {
-						rejected = true; // capture the autoplay rejection — see arm below
+				this.cachedBlobUrl = URL.createObjectURL(offlineBlob);
+				// Held as a local as well: this is the track handed to the enrichment + the shared
+				// post-play queue tail at the end of the branch, and `this.current` can be
+				// reassigned by either of them.
+				// quick-261008-dl1: a cross-source match plays another record's file — report that
+				// record's quality, not the tapped stub's.
+				const localTrack: Track = { ...track, detailsLoaded: true };
+				this.current = this.applyDownloadQuality(localTrack);
+				this.persist();
+				const ms = this.ms;
+				if (ms) {
+					ms.metadata = makeMetadata({
+						title: names.dnTitle(track.title, track.artist),
+						artist: names.dnArtist(track.artist),
+						album: track.album,
+						artwork: buildArtwork(this.displayCover)
 					});
-					// Next-song-current-but-paused fix (offline-blob path): same autoplay-rejection retry
-					// as the network path — a non-fresh advance into a downloaded next track can still be
-					// autoplay-blocked on mobile. Arm the single gen-guarded re-play when bytes are present.
-					if (rejected && !opts?.fresh && this.audio.paused) {
-						this.autoplayRetryArmed = true;
-						this.maybeRetryAutoplay(myGen);
-					}
-					this.loading = false;
-					// 37-D-01: this branch used to `return` here after a bare primeNext(), which sat 225
-					// lines ABOVE the cover chain and the fresh-play up-next branch. So EVERY
-					// offline-served track — an imported `device:` file or a song the user downloaded —
-					// silently lost its cover, its lyrics and its generated up-next. That one return was
-					// the whole bug; these two calls are the whole fix.
-					//
-					// The fall-through is deliberately UNCONDITIONAL — no isDeviceUid gate. An ordinary
-					// download hits the same return and loses the same two features, and a device-only
-					// gate would re-create the two-code-paths asymmetry behind four prior cover-surface
-					// bugs. The cover chain is NOT fired here: enrichFromLocalFile decides after reading
-					// the file's own tags, because the file may already carry the art (37-D-04).
-					//
-					// PLAY-09 / D-15 is preserved: primeNext() is reached through BOTH branches of
-					// postPlayQueue, so the downloaded-queue prefetch this used to do still happens.
-					void this.enrichFromLocalFile(localTrack, offlineBlob, myGen);
-					this.postPlayQueue(localTrack, opts);
-					return;
+					ms.playbackState = 'playing';
 				}
+				// Initial-load arming point (D-13): a NEW src for this track. Reset the played
+				// flag + arm the stall watchdog so a silent no-audio start routes into failover.
+				this.hasPlayedSinceSrc = false;
+				// RELAX-PREFETCH: a NEW src — re-arm the one-shot delayed prefetch gate so the
+				// timeupdate listener fires prefetchNext ~5s into THIS track's playback.
+				this.prefetchArmedForSrc = false;
+				// Next-song-current-but-paused fix: a NEW src clears any prior autoplay-retry arm.
+				this.autoplayRetryArmed = false;
+				// A NEW src cancels any pending resume timer from the prior track and clears a stale
+				// deliberate-pause flag so the next pause is judged on this src's own merits.
+				this.disarmResume();
+				this.deliberatePause = false;
+				this.lastSrcKind = 'download-blob'; // 31-D-12 (direct assign — see restore()'s note)
+				this.armedUid = track.uid; // debug-share-card-play-dead-replay
+				this.audio.src = this.cachedBlobUrl;
+				this.armStall();
+				// quick-260627-huo (HUO-PREFETCH): EAGER one-shot prefetch of the immediate-next at
+				// src-set — independent of the ~5s timeupdate gate — so a SHORT track or a FAST skip
+				// still has its next song pre-resolved + probe-verified before it ends (gapless,
+				// non-stop advance). Fired AFTER the src is attached so prefetchNext's indexOf(current)
+				// sees the correct current track. Arming prefetchArmedForSrc=true makes the timeupdate
+				// gate (the long-track backstop) a no-op for this src — single walk per src (T-huo-03).
+				// Best-effort + fire-and-forget (gen-guarded by prefetch's own seedUid/abort); NOT
+				// gated on the `playing` event (memory: that froze iOS — reverted).
+				this.prefetchArmedForSrc = true;
+				void this.prefetchNext();
+				// D-06: a rejected play() is intentionally surfaced to the stall/failure path,
+				// not swallowed — if play() rejects (iOS gesture loss) and no `play` event
+				// follows, the armed watchdog above routes into runFallback. .catch only prevents
+				// an unhandled rejection.
+				let rejected = false;
+				await this.audio.play().catch(() => {
+					rejected = true; // capture the autoplay rejection — see arm below
+				});
+				// Next-song-current-but-paused fix (offline-blob path): same autoplay-rejection retry
+				// as the network path — a non-fresh advance into a downloaded next track can still be
+				// autoplay-blocked on mobile. Arm the single gen-guarded re-play when bytes are present.
+				if (rejected && !opts?.fresh && this.audio.paused) {
+					this.autoplayRetryArmed = true;
+					this.maybeRetryAutoplay(myGen);
+				}
+				this.loading = false;
+				// 37-D-01: this branch used to `return` here after a bare primeNext(), which sat 225
+				// lines ABOVE the cover chain and the fresh-play up-next branch. So EVERY
+				// offline-served track — an imported `device:` file or a song the user downloaded —
+				// silently lost its cover, its lyrics and its generated up-next. That one return was
+				// the whole bug; these two calls are the whole fix.
+				//
+				// The fall-through is deliberately UNCONDITIONAL — no isDeviceUid gate. An ordinary
+				// download hits the same return and loses the same two features, and a device-only
+				// gate would re-create the two-code-paths asymmetry behind four prior cover-surface
+				// bugs. The cover chain is NOT fired here: enrichFromLocalFile decides after reading
+				// the file's own tags, because the file may already carry the art (37-D-04).
+				//
+				// PLAY-09 / D-15 is preserved: primeNext() is reached through BOTH branches of
+				// postPlayQueue, so the downloaded-queue prefetch this used to do still happens.
+				void this.enrichFromLocalFile(localTrack, offlineBlob, myGen);
+				this.postPlayQueue(localTrack, opts);
+				return;
 			}
 			// RESOLVE-PHASE WATCHDOG (26-06 / gap-1 BLOCKER, RESOLVE-02). The click-to-play network resolve
 			// used to run with NO signal + NO timeout — a stalled upstream (qijieya/qq flake) sat in
@@ -4064,11 +4089,15 @@ class Player {
 				// Direct-first provenance: a direct CDN URL records 'direct-url' so a later
 				// audio.error can fall back to the proxy; a proxy URL keeps 'url'.
 				let kind: SrcKind = this.srcKindFor(resolved); // 31-D-12 provenance, threaded into driveSrc below
-				if (library.isDownloaded(resolved.uid)) {
-					const blob = await blobStore.get(resolved.uid).catch(() => null);
+				// quick-261008-dl1: a downloaded copy (exact uid or same song, other source) always
+				// wins over the resolved stream URL. The CR-02 gen re-check stays AFTER the blob
+				// await even on a null blob.
+				const fdlUid = library.downloadUidFor(resolved);
+				if (fdlUid) {
+					const fblob = await blobStore.get(fdlUid).catch(() => null);
 					if (myGen !== this.playGen) return; // CR-02: superseded mid-IDB-read — discard
-					if (blob) {
-						this.cachedBlobUrl = URL.createObjectURL(blob);
+					if (fblob) {
+						this.cachedBlobUrl = URL.createObjectURL(fblob);
 						src = this.cachedBlobUrl;
 						kind = 'download-blob';
 					}

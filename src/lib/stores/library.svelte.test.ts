@@ -745,3 +745,50 @@ describe('library.updateDownloadQuality + qualityForDownload (quick-261007-abq)'
 		expect(library.qualityForDownload('qq:1')).toBeNull();
 	});
 });
+
+// quick-261008-dl1 — "the download file must be used to play all the time".
+// downloadUidFor resolves the download record for a track: exact uid first, then the same
+// song (same VERSION) downloaded under another source's uid.
+describe('library.downloadUidFor (quick-261008-dl1)', () => {
+	beforeEach(() => {
+		library.downloads = [];
+		memStore.clear();
+	});
+
+	it('exact uid wins', () => {
+		library.downloads = [mk({ uid: 'qq:1', artist: '周杰倫', title: '晴天' })];
+		expect(library.downloadUidFor(mk({ uid: 'qq:1', artist: '周杰倫', title: '晴天' }))).toBe('qq:1');
+	});
+
+	it('same song under another source uid resolves (cross-source play uses the file)', () => {
+		library.downloads = [mk({ uid: 'qq:1', artist: '周杰倫', title: '晴天' })];
+		expect(library.downloadUidFor(mk({ uid: 'kuwo:9', artist: '周杰倫', title: '晴天' }))).toBe('qq:1');
+	});
+
+	it('version markers stay distinct — a live cut never plays the studio file', () => {
+		library.downloads = [mk({ uid: 'qq:1', artist: '周杰倫', title: '晴天' })];
+		expect(library.downloadUidFor(mk({ uid: 'kuwo:9', artist: '周杰倫', title: '晴天 (Live)' }))).toBeNull();
+	});
+
+	it('returns null when nothing is downloaded', () => {
+		expect(library.downloadUidFor(mk({ uid: 'kuwo:9', artist: '周杰倫', title: '晴天' }))).toBeNull();
+	});
+
+	it('returns null for a blank identity (never matches everything)', () => {
+		library.downloads = [mk({ uid: 'qq:1', artist: '', title: '' })];
+		expect(library.downloadUidFor(mk({ uid: 'kuwo:9', artist: '', title: '' }))).toBeNull();
+	});
+
+	it('device: tracks are exact-uid only — a catalog tap never resolves to a device file', () => {
+		library.downloads = [mk({ uid: 'device:abc', source: 'device', artist: '周杰倫', title: '晴天' })];
+		expect(library.downloadUidFor(mk({ uid: 'kuwo:9', artist: '周杰倫', title: '晴天' }))).toBeNull();
+		expect(library.downloadUidFor(mk({ uid: 'device:abc', artist: '周杰倫', title: '晴天' }))).toBe(
+			'device:abc'
+		);
+	});
+
+	it('punctuation/case folds — "晴天 " matches "晴天"', () => {
+		library.downloads = [mk({ uid: 'qq:1', artist: '周杰倫', title: '晴天' })];
+		expect(library.downloadUidFor(mk({ uid: 'kuwo:9', artist: '周杰倫', title: '晴天 ' }))).toBe('qq:1');
+	});
+});

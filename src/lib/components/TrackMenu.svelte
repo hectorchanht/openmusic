@@ -1248,8 +1248,11 @@
 	// quick-261007-abq3: for a downloaded song the record describes the FILE on disk — a fresh
 	// re-resolve reports the source's current streaming tier (e.g. QQ STD) instead of the file the
 	// user actually holds, so the record's quality wins here too.
+	// quick-261008-dl1: resolve through downloadUidFor — a track opened under another source's
+	// uid still reports its downloaded copy's quality.
 	function doDetail(resolved: Track) {
-		const q = library.qualityForDownload(resolved.uid);
+		const dlUid = library.downloadUidFor(resolved);
+		const q = dlUid ? library.qualityForDownload(dlUid) : null;
 		detailTrack = q ? { ...resolved, ...q } : resolved;
 	}
 	// Remix (QUEUE-04 / D-04..D-07): play the seed first, then seed a force-generated up-next from
