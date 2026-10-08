@@ -4,7 +4,7 @@
 import { browser } from '$app/environment';
 import { blobStore } from '$lib/services/blob-store';
 import { setCachedCover } from '$lib/services/cover-cache';
-import { hasHttpsScheme, isYtmCoverUrl } from '$lib/services/url-safety';
+import { hasHttpsScheme } from '$lib/services/url-safety';
 import { matchKey, versionedMatchKey } from '$lib/services/match-key';
 import { isDeviceUid } from '$lib/services/device-track';
 import { sameSongStrings, songKey } from '$lib/services/dedupe';
@@ -160,10 +160,9 @@ class Library {
 		// media-card-shows-app-icon: the shared name-layer cache is https-only everywhere else
 		// (T-0bb-01 — writeCoverBoth / resolveCoverForTrack). This was the ONE ungated writer, so an
 		// http source cover poisoned the cache and re-seeded player.resolvedCover on every replay.
-		// Phase 40 D-11b (restored quick-261008-cov2): a YT Music thumbnail is per-uid art — the
-		// record keeps it, but it never enters the shared name layer, where it would repaint other
-		// sources' copies of the song.
-		if (hasHttpsScheme(cover) && !isYtmCoverUrl(cover)) setCachedCover(src.artist, src.title, cover);
+		// quick-261008-cov1: the Phase 40 D-11b YT Music name-layer exclusion is retired by the
+		// same directive — a shown YTM thumbnail now bridges every source's copy like any cover.
+		if (hasHttpsScheme(cover)) setCachedCover(src.artist, src.title, cover);
 	}
 
 	/**
@@ -179,15 +178,11 @@ class Library {
 	 * the shared cache, so leaving a stale entry cover would keep painting the old art next to the
 	 * hero's new one. An inline `data:` cover (downscaled embedded art) is fine here — save()
 	 * strips data: URLs at the serialization boundary, so persistence never bloats.
-	 *
-	 * quick-261008-cov2 / D-11b: a YT Music thumbnail matches on uid ONLY — it is per-copy art, so
-	 * the {artist,title} widening must not push it onto other sources' entries.
 	 */
 	fillEntryCovers(uid: string, artist: string, title: string, cover: string): void {
 		if (!cover) return;
 		const key = matchKey(artist, title);
-		const ytm = isYtmCoverUrl(cover);
-		const same = (t: Track) => t.uid === uid || (!ytm && matchKey(t.artist, t.title) === key);
+		const same = (t: Track) => t.uid === uid || matchKey(t.artist, t.title) === key;
 		let changed = false;
 		const fill = (t: Track) => {
 			if (same(t) && t.cover !== cover) {
