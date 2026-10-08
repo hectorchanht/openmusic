@@ -90,6 +90,15 @@ describe('serializeTrack — whitelist', () => {
 		expect('tags' in out).toBe(false);
 		expect('bio' in out).toBe(false);
 	});
+
+	// quick-261008-audit: an inline `data:` cover (cov1's downscaled embedded art) is stripped —
+	// persisting ~10 KB data: URLs bloats openmusic:player:v1 and the Settings backup.
+	it('strips an inline data: cover to null, keeps https covers', () => {
+		expect(serializeTrack(mk({ cover: 'data:image/jpeg;base64,/9j/AAAA' })).cover).toBeNull();
+		expect(serializeTrack(mk({ cover: 'https://cdn/cover.jpg' })).cover).toBe(
+			'https://cdn/cover.jpg'
+		);
+	});
 });
 
 describe('serializePlayerState — byte shape', () => {

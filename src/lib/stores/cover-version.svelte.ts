@@ -214,9 +214,13 @@ export function readArtistCover(artist: string): string | null {
  * the shared {artist,title} name layer like every other cover, so every source's copy of the song
  * shows the same art the player is showing. The user's pin (rung 0, readChosenCover) remains the
  * escape hatch when that art is wrong for a copy.
+ *
+ * quick-261008-audit: the uid layer is written ONLY for a truthy uid — the charts-tags-same-cover
+ * guard (an empty stub uid would otherwise write the SHARED `'uid:'` slot, one slot for every
+ * distinct charts/tags/countries stub row). Mirrors removeCoverBoth.
  */
 export function writeCoverBoth(uid: string, artist: string, title: string, url: string): void {
-	setCachedCoverByUid(uid, url);
+	if (uid) setCachedCoverByUid(uid, url);
 	setCachedCover(artist, title, url);
 	bumpCoverVersion();
 }

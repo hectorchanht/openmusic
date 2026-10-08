@@ -396,6 +396,7 @@ describe('cover-cache — per-entry removers (quick-260630-ey2)', () => {
 // private) with a comment so a future value change forces a conscious test update.
 const TTL_MS = 14 * 24 * 60 * 60 * 1000; // 14 days — MUST mirror cover-cache.ts TTL_MS
 const MAX_ENTRIES = 2000; // MUST mirror cover-cache.ts MAX_ENTRIES
+const MAX_INLINE_ENTRIES = 100; // MUST mirror cover-cache.ts MAX_INLINE_ENTRIES
 
 describe('cover-cache — TTL expiry, LRU cap, legacy grandfathering (quick-260704-2xq)', () => {
 	let store: MemStorage;
@@ -474,6 +475,35 @@ describe('cover-cache — TTL expiry, LRU cap, legacy grandfathering (quick-2607
 		// The record is trimmed at/under the cap.
 		const rec = JSON.parse(store.getItem(CACHE_KEY) as string) as Record<string, unknown>;
 		expect(Object.keys(rec).length).toBeLessThanOrEqual(MAX_ENTRIES);
+	});
+
+	// (c2) Inline sub-cap (quick-261008-audit): `data:` entries are ~10–20 KB each, so they get
+	// their own tight oldest-first cap — the count-based MAX_ENTRIES cannot bound them, and an
+	// unbounded inline pile would blow the ~5 MB quota and silently stop ALL cover caching.
+	it('writing past MAX_INLINE_ENTRIES evicts the oldest data: entries first, keeps https entries', () => {
+		const overflow = 3;
+		for (let i = 0; i < MAX_INLINE_ENTRIES + overflow; i++) {
+			vi.setSystemTime(T0 + i);
+			setCachedCoverByUid(`dl:${i}`, `data:image/jpeg;base64,${i}`);
+		}
+		// A regular https entry written in the middle must NOT be evicted by inline pressure.
+		vi.setSystemTime(T0 + MAX_INLINE_ENTRIES + overflow);
+		setCachedCoverByUid('qq:keep', 'https://cdn.example/keep.jpg');
+		// The oldest inline entries (0..overflow-1) were evicted first.
+		for (let i = 0; i < overflow; i++) {
+			expect(getCachedCoverByUid(`dl:${i}`)).toBeNull();
+		}
+		// Newest inline entries + the https entry survive.
+		expect(getCachedCoverByUid(`dl:${MAX_INLINE_ENTRIES + overflow - 1}`)).toBe(
+			`data:image/jpeg;base64,${MAX_INLINE_ENTRIES + overflow - 1}`
+		);
+		expect(getCachedCoverByUid('qq:keep')).toBe('https://cdn.example/keep.jpg');
+		// The inline population is at/under its cap.
+		const rec = JSON.parse(store.getItem(CACHE_KEY) as string) as Record<string, { u: string }>;
+		const inlines = Object.values(rec).filter(
+			(v) => typeof v === 'object' && v !== null && v.u.startsWith('data:')
+		);
+		expect(inlines.length).toBeLessThanOrEqual(MAX_INLINE_ENTRIES);
 	});
 
 	// (d) Legacy grandfathering: a bare-string value is a valid, TTL-EXEMPT hit even far past TTL.

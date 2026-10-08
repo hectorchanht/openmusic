@@ -145,6 +145,13 @@ describe('lyric-offset store (quick-260926-mis)', () => {
 	const flush = async () => {
 		for (let i = 0; i < 20; i++) await new Promise((r) => setImmediate(r));
 	};
+	// quick-261008-audit: scheduleLyricOffsetVote fires flushLyricOffsetVote WITHOUT awaiting it
+	// (production must not block the UI on a network POST), so a fixed tick count flakes under
+	// load. Poll until the expected POSTs land instead — resolves as soon as they do, bounded.
+	const flushUntilPosts = async (f: ReturnType<typeof vi.fn>, count: number) => {
+		for (let i = 0; i < 500 && posts(f).length < count; i++)
+			await new Promise((r) => setImmediate(r));
+	};
 	const posts = (f: ReturnType<typeof vi.fn>) =>
 		f.mock.calls.filter((c) => (c[1] as RequestInit | undefined)?.method === 'POST');
 
@@ -263,7 +270,7 @@ describe('lyric-offset store (quick-260926-mis)', () => {
 		scheduleLyricOffsetVote(UID, LRC);
 		setLyricOffset('qq:other', -1);
 		scheduleLyricOffsetVote('qq:other', LRC);
-		await flush();
+		await flushUntilPosts(f, 1);
 		expect(posts(f)).toHaveLength(1);
 		expect(JSON.parse((posts(f)[0][1] as RequestInit).body as string).offset).toBe(2);
 		await flushLyricOffsetVote();

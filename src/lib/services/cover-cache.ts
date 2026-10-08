@@ -62,7 +62,13 @@ const TTL_MS = 14 * 24 * 60 * 60 * 1000; // 14 days
 // is well under the ~5 MB localStorage budget (a few hundred KB) while comfortably covering an
 // active user's browsed catalogue; the cap exists to bound worst-case unbounded growth, not to
 // be tight.
+//
+// quick-261008-audit: INLINE sub-cap. cov1 writes downscaled embedded art as ~10–20 KB `data:`
+// URLs into this same record — the count-based MAX_ENTRIES cannot bound those (2000 × 15 KB would
+// blow the quota, and the swallowed QuotaExceededError would then silently stop ALL cover caching).
+// Inline entries get their own tight oldest-first cap so their worst case stays ~2 MB.
 const MAX_ENTRIES = 2000;
+const MAX_INLINE_ENTRIES = 100;
 
 /**
  * Effective write-time for eviction ordering. A valid `{u,t}` entry uses its `t`; a legacy
@@ -257,6 +263,18 @@ function writeKey(key: string, url: string): void {
 	try {
 		const rec = readRecord();
 		rec[key] = { u: clean, t: Date.now() }; // lazy upgrade: always the new timestamped shape
+		// quick-261008-audit: bound the heavy inline (`data:`) entries separately — oldest first.
+		// The just-written entry carries the newest `t`, so it is never the eviction victim.
+		if (clean.startsWith('data:')) {
+			const inlines = Object.entries(rec)
+				.filter(([, v]) => typeof v === 'object' && v !== null && typeof (v as { u?: unknown }).u === 'string' && ((v as { u: string }).u.startsWith('data:')))
+				.sort((a, b) => entryTime(a[1]) - entryTime(b[1]));
+			let i = 0;
+			while (inlines.length - i > MAX_INLINE_ENTRIES) {
+				delete rec[inlines[i][0]];
+				i++;
+			}
+		}
 		if (Object.keys(rec).length > MAX_ENTRIES) {
 			// Evict oldest-write-first: sort by ascending effective-t, drop from the front until
 			// at/under the cap. O(n log n) on an infrequent write path — clear and correct.

@@ -121,6 +121,17 @@ describe('writeCoverBoth writes both layers for every cover (D-11b retired)', ()
 		expect(getCachedCoverByUid('qq:1')).toBe('https://e-cdns-images.dzcdn.net/x.jpg');
 		expect(getCachedCover('A', 'T')).toBe('https://e-cdns-images.dzcdn.net/x.jpg');
 	});
+
+	// quick-261008-audit: an empty stub uid must NOT write the shared 'uid:' slot (the
+	// charts-tags-same-cover guard) — the name layer still writes, and the version still bumps.
+	it('an empty uid writes the name layer only, never the shared uid slot', async () => {
+		const { writeCoverBoth, coverVersion } = await import('./cover-version.svelte');
+		const { getCachedCoverByUid, getCachedCover } = await import('$lib/services/cover-cache');
+		writeCoverBoth('', 'A', 'T', 'https://e-cdns-images.dzcdn.net/x.jpg');
+		expect(getCachedCoverByUid('')).toBeNull();
+		expect(getCachedCover('A', 'T')).toBe('https://e-cdns-images.dzcdn.net/x.jpg');
+		expect(coverVersion()).toBe(1);
+	});
 });
 
 // Phase 40 D-14 / D-19: the crowd-shared cover pick. Precedence pin > crowd uid > crowd name, and the

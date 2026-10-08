@@ -54,7 +54,13 @@ export interface PlayerSnapshot {
 /** Strip volatile fields (audioUrl / lrc / lrcUrl / detailsLoaded) before persisting a
  *  Track to localStorage — they expire and must be re-resolved on the next load. Mirrors
  *  the legacy serializeTrack whitelist + the history-entry shape. Returns ONLY the 11
- *  whitelist fields; Last.fm / source-specific extras are intentionally absent. */
+ *  whitelist fields; Last.fm / source-specific extras are intentionally absent.
+ *
+ *  quick-261008-audit: an inline `data:` cover (cov1's downscaled embedded art) is stripped
+ *  like library.save() does — persisting ~10 KB data: URLs would bloat `openmusic:player:v1`
+ *  and the Settings backup (which serializes localStorage verbatim). On restore the shared
+ *  cover cache re-supplies the art; the hero re-resolves full-res on play.
+ */
 export function serializeTrack(t: Track): Partial<Track> {
 	return {
 		uid: t.uid,
@@ -63,7 +69,7 @@ export function serializeTrack(t: Track): Partial<Track> {
 		title: t.title,
 		artist: t.artist,
 		album: t.album,
-		cover: t.cover,
+		cover: t.cover && t.cover.startsWith('data:') ? null : t.cover,
 		quality: t.quality,
 		qualityLabel: t.qualityLabel,
 		keyword: t.keyword,

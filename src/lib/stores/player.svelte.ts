@@ -569,6 +569,13 @@ class Player {
 	 *  written by seekFraction() when the user seeks while metadata is still loading. Cleared
 	 *  once applied, or when a successful in-range seek lands. */
 	private pendingSeek: number | null = null;
+	/**
+	 * quick-261008-audit: the uid pendingSeek was armed for. The loadedmetadata listener applies a
+	 * pending seek ONLY when the current track still matches — otherwise a restored position (or a
+	 * reresolve's preserved position) would land on a NEWLY TAPPED song whose metadata arrives
+	 * later, starting it mid-track. Set alongside pendingSeek; cleared with it.
+	 */
+	private pendingSeekUid: string | null = null;
 	/** Same idea as pendingSeek but holds a FRACTION [0,1] when the user seeks before metadata
 	 *  loads (we don't know the absolute seconds yet). Wins over pendingSeek if both are set
 	 *  (user intent supersedes restored progress). */
@@ -675,7 +682,7 @@ class Player {
 			getPinnedCover(target.uid) ??
 			getCrowdCover(target.uid, target.artist, target.title) ??
 			target.cover ??
-			getCachedCoverByUid(target.uid) ??
+			(target.uid ? getCachedCoverByUid(target.uid) : null) ??
 			getCachedCover(target.artist, target.title) ??
 			null;
 		this.syncMetadata();
@@ -749,7 +756,10 @@ class Player {
 			// Mark the saved seek-time as PENDING so the single loadedmetadata listener (added
 			// in attach()) applies it once metadata loads. seekFraction() owns the same pending
 			// slot — if the user manually seeks before metadata lands, their target wins.
+			// Bound to this track's uid: a tap on a DIFFERENT song before metadata lands must NOT
+			// inherit the restored position (quick-261008-audit).
 			this.pendingSeek = seek > 0 ? seek : null;
+			this.pendingSeekUid = this.pendingSeek != null ? (this.current?.uid ?? null) : null;
 			// 31-D-12: record provenance for the audio.error handler. restore() deliberately keeps its
 			// DIRECT assign (it is not routed through driveSrc) — routing it would newly subject a boot
 			// restore to the re-drive brake, a behaviour change in the freeze-sensitive core.
@@ -764,6 +774,7 @@ class Player {
 			if (Number.isFinite(audio.duration) && audio.duration > 0 && this.pendingSeek != null) {
 				audio.currentTime = Math.min(this.pendingSeek, audio.duration);
 				this.pendingSeek = null;
+				this.pendingSeekUid = null;
 			}
 		} catch {
 			// re-resolve failed — track stays in `current`; toggle() sees it is not armed and routes the
@@ -818,7 +829,7 @@ class Player {
 			getPinnedCover(track.uid) ??
 			getCrowdCover(track.uid, track.artist, track.title) ??
 			track.cover ??
-			getCachedCoverByUid(track.uid) ??
+			(track.uid ? getCachedCoverByUid(track.uid) : null) ??
 			getCachedCover(track.artist, track.title) ??
 			null;
 		this.syncMetadata();
@@ -951,6 +962,7 @@ class Player {
 				}
 			}
 			this.pendingSeek = desiredSeek;
+			this.pendingSeekUid = desiredSeek != null ? current.uid : null;
 			// NOT an initial-load arming point (D-14): reresolveCurrent is a seek-recovery re-attach
 			// of the SAME track after a stale-URL error, not a fresh play. Arming the stall watchdog
 			// here would double-count a seek recovery as a load failure, so we deliberately do not.
@@ -962,6 +974,7 @@ class Player {
 			if (Number.isFinite(audio.duration) && audio.duration > 0 && desiredSeek != null) {
 				audio.currentTime = Math.min(desiredSeek, audio.duration);
 				this.pendingSeek = null;
+				this.pendingSeekUid = null;
 			}
 			void audio.play().catch(() => {
 				/* autoplay restriction — user can tap play (seek-recovery, not a load stall) */
@@ -1157,6 +1170,19 @@ class Player {
 			if (found.lrc && !cur.lrc) this.current = { ...cur, lrc: found.lrc };
 			// quick-260915-w4f: a local file's embedded art is the DEFAULT truth for a device track, but
 			// an explicit pin is still the user's — so it yields.
+			// 37-D-05: QUERY-ONLY. MediaStore maps an untagged file's artist to '', which degenerates
+			// every name-based lookup — the file's own tags can recover it. This local is what the
+			// fallbacks below are asked with; `this.current` is deliberately NOT renamed, because a
+			// re-import carries only `cover` across (device-import syncDevice) and a persisted
+			// recovered name would be silently blanked by the next scan.
+			// quick-261008-audit: build it BEFORE the art block — the cov1 cache write below must use
+			// the RECOVERED identity, or an untagged file's art lands under matchKey('', title):
+			// invisible to same-song lookups and colliding across artists' untagged same-title files.
+			const q: Track = {
+				...cur,
+				artist: found.artist || cur.artist,
+				title: found.title || cur.title
+			};
 			if (found.art && !getPinnedCover(uid)) {
 				// The full-res `data:` URL stays MEMORY-ONLY, and that is a hard constraint, not a
 				// preference: writeCoverBoth / setCachedCover have no scheme and no length guard, the
@@ -1179,20 +1205,10 @@ class Player {
 				const still = this.current;
 				if (!still || still.uid !== uid) return;
 				if (small) {
-					writeCoverBoth(uid, track.artist, track.title, small);
-					library.fillEntryCovers(uid, track.artist, track.title, small);
+					writeCoverBoth(uid, q.artist, q.title, small);
+					library.fillEntryCovers(uid, q.artist, q.title, small);
 				}
 			}
-			// 37-D-05: QUERY-ONLY. MediaStore maps an untagged file's artist to '', which degenerates
-			// every name-based lookup — the file's own tags can recover it. This local is what the
-			// fallbacks below are asked with; `this.current` is deliberately NOT renamed, because a
-			// re-import carries only `cover` across (device-import syncDevice) and a persisted
-			// recovered name would be silently blanked by the next scan.
-			const q: Track = {
-				...cur,
-				artist: found.artist || cur.artist,
-				title: found.title || cur.title
-			};
 			// Only for what the file did not supply. postPlayCover's own renderable gate additionally
 			// skips the chain when an https cover was already seeded from the cache.
 			if (!found.art) this.postPlayCover(q, myGen);
@@ -2274,6 +2290,10 @@ class Player {
 		// eviction / tab freeze can never persist a stale currentTime → "restores to 0". On a bfcache
 		// restore (pageshow persisted) the audio element is live but the UI state may be stale, so
 		// re-sync currentTime/playing from the element — without autoplaying (browser policy).
+		// quick-261008-audit note: these document/window listeners would stack on a second
+		// attach() call. Deliberately NOT guarded: the root layout calls attach() once per <audio>
+		// mount (its only effect dep), and the test suite exercises multi-attach re-registration —
+		// a guard breaks that contract. Documented as latent, not fixed.
 		if (typeof document !== 'undefined') {
 			document.addEventListener('visibilitychange', () => {
 				logAction('visibility', { hidden: document.hidden });
@@ -2507,9 +2527,15 @@ class Player {
 					el.currentTime = this.pendingSeekFrac * el.duration;
 					this.pendingSeekFrac = null;
 					this.pendingSeek = null;
+					this.pendingSeekUid = null;
 				} else if (this.pendingSeek != null) {
-					el.currentTime = Math.min(this.pendingSeek, el.duration);
+					// quick-261008-audit: only the track the seek was armed for may consume it. A
+					// different song tapped meanwhile starts at 0 — the stale value is dropped.
+					if (this.pendingSeekUid === this.current?.uid) {
+						el.currentTime = Math.min(this.pendingSeek, el.duration);
+					}
 					this.pendingSeek = null;
+					this.pendingSeekUid = null;
 				}
 			}
 			this.syncPosition(el);
@@ -2876,7 +2902,7 @@ class Player {
 		// (T-kyf-01) — the same discipline the pure safePositionState enforces.
 		const ms = this.ms;
 		if (!ms) return;
-		ms.setActionHandler('play', () => this.audio?.play().catch(() => {}));
+		ms.setActionHandler('play', () => this.resumeAudio());
 		// EXTERNAL-PAUSE SELF-HEAL: an OS/lock-screen pause is INTENTIONAL — route through pauseAudio()
 		// so the `pause` listener honours it instead of re-playing the track.
 		ms.setActionHandler('pause', () => this.pauseAudio());
@@ -3726,6 +3752,11 @@ class Player {
 		opts?: { fresh?: boolean; fromFallback?: boolean; context?: QueueContext; sameList?: boolean }
 	) {
 		logAction('play', { uid: track.uid, source: track.source, fresh: !!opts?.fresh });
+		// quick-261008-audit: a user play is a NEW intent — a pending dry-grow retry belongs to the
+		// old queue tail's episode. Clear it now (not just on `playing`): a slow-resolving tap would
+		// otherwise be skipped past when the 5s timer fires mid-resolve.
+		this.dryGrowRetries = 0;
+		this.clearDryGrowTimer();
 		// quick-260831-sp9: adopt the surface that started this play, WITHOUT touching the queue.
 		//
 		// The home shelves (liked / downloads / history / playlists) call play({fresh:true}) directly
@@ -3802,7 +3833,7 @@ class Player {
 			getCrowdCover(track.uid, track.artist, track.title) ??
 			this.attachedCoverFor(track) ??
 			track.cover ??
-			getCachedCoverByUid(track.uid) ??
+			(track.uid ? getCachedCoverByUid(track.uid) : null) ??
 			getCachedCover(track.artist, track.title) ??
 			null;
 		// quick-260615-hep Site A: write the displayed cover (incl. the track.cover path) into BOTH cache
@@ -4546,6 +4577,10 @@ class Player {
 			//     NOT double-write (mirror resolveCoverAsync Site C); just bump so other tiles repaint.
 			if (hasHttpsScheme(fresh)) {
 				this.resolvedCover = fresh;
+				// quick-261008-audit: the shown cover wins everywhere — push the healed art onto the
+				// library entries too, or liked/download rows keep the dead URL at rung 2 until
+				// their own lazyCover probe repairs them one by one.
+				library.fillEntryCovers(uid, artist, title, fresh);
 				bumpCoverVersion();
 			}
 		} catch {
@@ -4760,6 +4795,21 @@ class Player {
 	}
 
 	/**
+	 * quick-261008-audit: the PLAY half of toggle(), shared with the Media Session `play` handler.
+	 * A bare audio.play() on a seated-but-unarmed track (boot restore whose re-resolve failed or has
+	 * not landed) fires `play` with nothing loaded and leaves `playing` stale-true — the exact bug
+	 * toggle()'s guard was written for. Media keys / headset buttons must get the same guard.
+	 */
+	private resumeAudio() {
+		if (!this.audio || !this.audio.paused) return;
+		if (this.current && this.armedUid !== this.current.uid) {
+			void this.play(this.current, { fresh: false });
+			return;
+		}
+		this.audio.play().catch(() => {});
+	}
+
+	/**
 	 * PLAY-RESILIENCE: first queue index strictly after `from` whose track is NOT confirmed-unplayable
 	 * (prefetchNext's probe walk records dead uids in unplayableUids). Returns -1 if every entry ahead
 	 * is known-dead or there is nothing ahead. This is what next()/track-end advance use so playback
@@ -4855,6 +4905,11 @@ class Player {
 
 	next() {
 		this.abortFade(); // D-05: a skip gesture during a fade aborts the sleep stop
+		// quick-261008-audit: drop a pending dry-grow retry — a manual skip is a NEW intent, and a
+		// stale 5s retry must not advance away from the just-tapped song. The counter is left alone:
+		// handleDryGrow's own timer calls next() too (after nulling the timer, so this is a no-op
+		// there), and resetting it would break the bounded-retry budget.
+		this.clearDryGrowTimer();
 		const i = this.indexOf(this.current);
 		const j = this.nextAdvanceIndex(i);
 		if (j >= 0) {
@@ -4868,7 +4923,12 @@ class Player {
 		// stall): only when sources are truly dry does ensureAhead add nothing and the reactive
 		// never-stop chain owns the genuine stop.
 		logAction('grow.request');
+		// quick-261008-audit: generation-guard the continuation. ensureAhead is async; a user
+		// play()/next()/prev() landing mid-grow bumps playGen, and without this check the stale
+		// .then would advanceTo() past the just-tapped song (tap A, hear the song after A).
+		const growGen = this.playGen;
 		void this.ensureAhead().then(() => {
+			if (growGen !== this.playGen) return; // superseded — the newer play owns the queue now
 			const k = this.indexOf(this.current);
 			const n = this.nextAdvanceIndex(k);
 			if (n >= 0) {
