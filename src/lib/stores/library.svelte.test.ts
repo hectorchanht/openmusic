@@ -703,3 +703,45 @@ describe('quick-260926-hze self-warming favourite fold', () => {
 		await vi.waitFor(() => expect(rev(fresh)).toBe(1));
 	});
 });
+
+// quick-261007-abq/abq3 — the download record's quality fields are the truth about the file on
+// disk. updateDownloadQuality patches ONLY quality fields (uid/source/songid identity untouched);
+// qualityForDownload exposes the pair for display surfaces (player.current, Detail sheet).
+describe('library.updateDownloadQuality + qualityForDownload (quick-261007-abq)', () => {
+	beforeEach(() => {
+		library.downloads = [];
+		memStore.clear();
+	});
+
+	it('updateDownloadQuality patches quality fields and preserves identity', () => {
+		library.downloads = [mk({ uid: 'qq:1', source: 'qq', songid: '1', quality: 'standard', qualityLabel: 'STD' })];
+		library.updateDownloadQuality('qq:1', { quality: 'lossless', qualityLabel: 'LOSSLESS' });
+		const rec = library.downloads[0];
+		expect(rec.quality).toBe('lossless');
+		expect(rec.qualityLabel).toBe('LOSSLESS');
+		expect(rec.uid).toBe('qq:1');
+		expect(rec.source).toBe('qq');
+		expect(rec.songid).toBe('1');
+	});
+
+	it('updateDownloadQuality is a no-op for an unknown uid', () => {
+		library.downloads = [mk({ uid: 'qq:1', quality: 'standard' })];
+		expect(() => library.updateDownloadQuality('qq:9', { quality: 'lossless' })).not.toThrow();
+		expect(library.downloads[0].quality).toBe('standard');
+	});
+
+	it('qualityForDownload returns the record pair for a downloaded uid', () => {
+		library.downloads = [mk({ uid: 'qq:1', quality: 'lossless', qualityLabel: 'LOSSLESS' })];
+		expect(library.qualityForDownload('qq:1')).toEqual({ quality: 'lossless', qualityLabel: 'LOSSLESS' });
+	});
+
+	it('qualityForDownload returns null for an unknown uid', () => {
+		library.downloads = [mk({ uid: 'qq:1', quality: 'lossless' })];
+		expect(library.qualityForDownload('qq:9')).toBeNull();
+	});
+
+	it('qualityForDownload returns null when the record carries no quality info (never blanks a good label)', () => {
+		library.downloads = [mk({ uid: 'qq:1', quality: null, qualityLabel: null })];
+		expect(library.qualityForDownload('qq:1')).toBeNull();
+	});
+});

@@ -1245,8 +1245,12 @@
 	// Gated run callback (D-02): the gate already resolved the track, so just open the detail sheet
 	// with the resolved object (audioUrl/quality rows populated). The menu stays open behind the
 	// detail sub-sheet (its own overlay entry), matching the prior behavior.
+	// quick-261007-abq3: for a downloaded song the record describes the FILE on disk — a fresh
+	// re-resolve reports the source's current streaming tier (e.g. QQ STD) instead of the file the
+	// user actually holds, so the record's quality wins here too.
 	function doDetail(resolved: Track) {
-		detailTrack = resolved;
+		const q = library.qualityForDownload(resolved.uid);
+		detailTrack = q ? { ...resolved, ...q } : resolved;
 	}
 	// Remix (QUEUE-04 / D-04..D-07): play the seed first, then seed a force-generated up-next from
 	// it via the existing fresh-play regenerate path — NO new queue mechanism. setQueue([seed],

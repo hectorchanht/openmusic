@@ -422,6 +422,19 @@ class Library {
 		this.save();
 	}
 	/**
+	 * quick-261007-abq3 — the download record's quality fields describe the FILE on disk
+	 * (abq/abq2 keep them accurate across replaces). Returns the record's quality pair for a
+	 * downloaded uid, else null. Surfaces that display a downloaded song's quality
+	 * (player.current, the Detail sheet) prefer this over a track object that may carry a
+	 * stale pre-replace quality (persisted restore snapshot, queue/search object, or a fresh
+	 * re-resolve reporting the source's streaming tier instead of the file).
+	 */
+	qualityForDownload(uid: string): { quality: string | null; qualityLabel: string | null } | null {
+		const rec = this.downloads.find((d) => d.uid === uid);
+		if (!rec || (rec.quality == null && rec.qualityLabel == null)) return null;
+		return { quality: rec.quality, qualityLabel: rec.qualityLabel };
+	}
+	/**
 	 * 34-D-06 NOTE: this method is the EXPLICIT removal path (library/+page.svelte:162 edit-mode swipe
 	 * + the import's own drop lane via setDownloads). It is deliberately NOT guarded for device uids —
 	 * the user may remove an imported entry on purpose; the file itself is protected by blobStore.del's

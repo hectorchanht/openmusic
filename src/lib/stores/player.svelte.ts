@@ -644,7 +644,12 @@ class Player {
 		this.queue = parsed.queue;
 		this.shuffle = parsed.shuffle;
 		this.repeatMode = parsed.repeatMode;
-		this.current = target;
+		// quick-261007-abq3: the persisted snapshot can carry a STALE quality (saved before a
+		// replace, or before abq existed). The download record is the truth about the file on
+		// disk — refresh from it. library.load() is idempotent; restore() runs before the app
+		// layout's load() call, so ensure it here.
+		library.load();
+		this.current = this.applyDownloadQuality(target);
 		// quick-260712-hm9: guarantee a NON-NULL Up-Next anchor for the restored run. restore() never
 		// calls play(), so before this the anchor stayed null on every reload/PWA reopen — and a null
 		// anchor makes NowPlaying's clamp fall back to the CURRENT index (ci-fallback), so each just-
@@ -708,7 +713,11 @@ class Player {
 				if (resolved.lrcUnresolved && !resolved.lrc) this.backfillLyrics(resolved);
 			} else {
 				const localTrack: Track = { ...target, detailsLoaded: true };
-				this.current = localTrack;
+				// quick-261007-abq3: the download record is the truth about the FILE on disk
+				// (abq/abq2 keep its quality fields accurate across replaces). `target` can carry
+				// a STALE quality — a queue/search object resolved before a replace, or a pre-abq
+				// record — so the record wins for quality display. Audio still comes from the blob.
+				this.current = this.applyDownloadQuality(localTrack);
 				// Restored a downloaded track from its blob (no network resolve) — enrich off the
 				// critical path so the now-playing lyrics view isn't empty (the persisted shape strips
 				// lrc/lrcUrl) and the hero/media card get the file's own cover. A PWA reopen gets the
@@ -1101,6 +1110,24 @@ class Player {
 	 * — those are reresolveCurrent's inputs, and a local file has no url to re-resolve. Same shape as
 	 * backfillLyrics, which is the template for every off-critical-path patch in this store.
 	 */
+	/**
+	 * quick-261007-abq3 — for a downloaded uid, the download record's quality fields describe the
+	 * FILE on disk (abq/abq2 keep them accurate across replaces). The passed track can carry a
+	 * STALE quality — the persisted restore snapshot, a queue/search object resolved before a
+	 * replace, or a pre-abq record — so the record wins for quality display. Returns the input
+	 * unchanged when there is no record or the record carries no quality info (never blanks a
+	 * good label). Pure, never throws.
+	 */
+	private applyDownloadQuality(t: Track): Track {
+		try {
+			const q = library.qualityForDownload(t.uid);
+			if (!q) return t;
+			if (t.quality === q.quality && t.qualityLabel === q.qualityLabel) return t;
+			return { ...t, ...q };
+		} catch {
+			return t;
+		}
+	}
 	private async enrichFromLocalFile(track: Track, blob: Blob, myGen: number): Promise<void> {
 		try {
 			const uid = track.uid;
