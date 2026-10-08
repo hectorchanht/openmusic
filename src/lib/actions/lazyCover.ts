@@ -7,7 +7,7 @@ import {
 } from '$lib/services/cover-cache';
 import { resolveCoverForTrack } from '$lib/services/cover-backfill';
 import { removeCoverBoth, bumpCoverVersion } from '$lib/stores/cover-version.svelte';
-import { hasHttpsScheme } from '$lib/services/url-safety';
+import { hasHttpsScheme, isRenderableCover } from '$lib/services/url-safety';
 
 // use:lazyCover — resolve a track-row cover ONLY when the row scrolls into view (COVER-02).
 //
@@ -114,6 +114,20 @@ async function resolveCoverForRow(track: Track, onResolved: (uid: string, url: s
 		// and later visits still catch it. This is the intended cost of skipping the warm-row probe.
 		const byUid = track.uid ? getCachedCoverByUid(track.uid) : null;
 		const cached = byUid ?? getCachedCover(track.artist, track.title);
+		// quick-261008-cov1: an INLINE (data:) cover is terminal wherever it sits — the track's own
+		// or the cache's. It is the file's embedded front cover, already the shown art: paint it and
+		// return with no probe (it cannot 404) and no chain (a re-resolve would displace it at rung 1
+		// with a different image, breaking the shown-everywhere invariant). The https arms below are
+		// untouched — D-15 probe-then-repair still applies to source covers.
+		const inline = isRenderableCover(track.cover) && !hasHttpsScheme(track.cover)
+			? track.cover
+			: isRenderableCover(cached) && !hasHttpsScheme(cached)
+				? cached
+				: null;
+		if (inline) {
+			onResolved(track.uid, inline);
+			return;
+		}
 		if (hasHttpsScheme(cached)) {
 			const age = coverAgeByUidOrName(track.uid, track.artist, track.title);
 			if (age !== null && age < FRESH_MS) {

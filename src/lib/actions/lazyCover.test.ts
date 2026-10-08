@@ -429,6 +429,35 @@ describe('lazyCover — IntersectionObserver + Image probe + cache-first resolve
 		// Image undefined → probe returns false → repair path runs the chain.
 		expect(resolveCoverForTrack).toHaveBeenCalledTimes(1);
 	});
+
+	// quick-261008-cov1: an INLINE (data:) cover is terminal — the file's embedded front cover,
+	// already the shown art. No probe (it cannot 404), no chain (a re-resolve would displace it
+	// at rung 1 with a different image).
+	it('an inline data: track cover paints immediately — no probe, no chain', async () => {
+		const inline = 'data:image/jpeg;base64,/9j/AAAA';
+		const onResolved = vi.fn();
+		const track = mkTrack({ cover: inline });
+		const { io } = await mount({ track, onResolved });
+
+		io.trigger(true);
+		await flush();
+		expect(resolveCoverForTrack).not.toHaveBeenCalled();
+		expect(onResolved).toHaveBeenCalledWith(track.uid, inline);
+	});
+
+	it('an inline data: CACHED cover is terminal too — no chain even when track.cover is empty', async () => {
+		const inline = 'data:image/jpeg;base64,/9j/AAAA';
+		getCachedCoverByUid.mockReturnValue(null);
+		getCachedCover.mockReturnValue(inline);
+		const onResolved = vi.fn();
+		const track = mkTrack({ cover: null });
+		const { io } = await mount({ track, onResolved });
+
+		io.trigger(true);
+		await flush();
+		expect(resolveCoverForTrack).not.toHaveBeenCalled();
+		expect(onResolved).toHaveBeenCalledWith(track.uid, inline);
+	});
 });
 
 // inFlightKey — the empty-uid stub de-dupe key. Pins the anti-collision invariant the prior literal

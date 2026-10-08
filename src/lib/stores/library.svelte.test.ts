@@ -1,6 +1,7 @@
 // Cover-chain (library.adoptCover) — a cover fetched once at play time must be shared
-// with every same-song library entry (uid OR normalized {artist,title} identity match),
-// without churning entries that already carry art.
+// with every same-song library entry (uid OR normalized {artist,title} identity match).
+// quick-261008-cov1: the shown cover OVERWRITES — entries carrying stale art are updated so
+// every place the song appears shows the same cover.
 // Plus: library.downloading (D-10) — the reactive per-uid in-flight download set.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 // DL-STATE-01: the `downloading` transient set test asserts it is NEVER persisted, which
@@ -66,16 +67,35 @@ describe('library.adoptCover (cover-chain)', () => {
 		expect(library.playlists[0].tracks[1].cover).toBeNull();
 	});
 
-	it('never overwrites an existing cover and no-ops on a coverless source track', () => {
+	it('overwrites a stale existing cover with the freshly shown one (quick-261008-cov1)', () => {
 		library.liked = [mk({ uid: 'netease-1', cover: 'https://img/original.jpg' })];
 		const before = library.liked[0];
 
 		library.adoptCover(mk({ uid: 'netease-1', cover: 'https://img/other.jpg' }));
-		expect(library.liked[0].cover).toBe('https://img/original.jpg');
-		expect(library.liked[0]).toBe(before); // untouched reference — no churn
+		expect(library.liked[0].cover).toBe('https://img/other.jpg');
+		expect(library.liked[0]).toBe(before); // same reference — mutated in place, not rebuilt
 
 		library.adoptCover(mk({ uid: 'netease-1', cover: null }));
-		expect(library.liked[0].cover).toBe('https://img/original.jpg');
+		expect(library.liked[0].cover).toBe('https://img/other.jpg'); // coverless source is a no-op
+	});
+
+	it('fillEntryCovers is the same in-place seam adoptCover uses (player.adoptCover reuses it)', () => {
+		library.liked = [mk({ uid: 'qq-9', source: 'qq', cover: 'https://img/stale.jpg' })];
+		library.fillEntryCovers('netease-1', 'G.E.M. 邓紫棋', '多远都要在一起', 'https://img/shown.jpg');
+		expect(library.liked[0].cover).toBe('https://img/shown.jpg'); // same song, other source uid
+	});
+
+	it('save() strips inline data: covers at the serialization boundary (persistence guard)', () => {
+		const small = 'data:image/jpeg;base64,/9j/AAAA';
+		library.liked = [mk({ uid: 'netease-1', cover: small })];
+		library.fillEntryCovers('netease-1', 'G.E.M. 邓紫棋', '多远都要在一起', 'https://img/shown.jpg');
+		// live entry keeps the shown https cover…
+		expect(library.liked[0].cover).toBe('https://img/shown.jpg');
+		library.fillEntryCovers('netease-1', 'G.E.M. 邓紫棋', '多远都要在一起', small);
+		expect(library.liked[0].cover).toBe(small); // …and an inline cover is fine live…
+		const raw = memStore.get('openmusic:library:v1') as string;
+		const saved = JSON.parse(raw).liked[0];
+		expect(saved.cover).toBeNull(); // …but never persisted
 	});
 
 	it('matches identity case/whitespace-insensitively via matchKey', () => {
@@ -84,14 +104,14 @@ describe('library.adoptCover (cover-chain)', () => {
 		expect(library.liked[0].cover).toBe('https://img/c.jpg');
 	});
 
-	// Phase 40 D-11b: a YT Music thumbnail is per-uid art — the record is filled, the shared name
-	// layer is NOT, so it cannot repaint other sources' copies of the song.
-	it('a YTM-host cover fills the record but never the shared name layer (D-11b)', () => {
+	// quick-261008-cov1: the D-11b YTM uid-only carve-out is retired — a shown YTM thumbnail
+	// now writes the shared name layer like every other cover (shown cover shows everywhere).
+	it('a YTM-host cover fills the record AND the shared name layer', () => {
 		memStore.clear();
 		library.liked = [mk({ uid: 'netease-1', artist: 'YA', title: 'YT' })];
 		library.adoptCover(mk({ uid: 'netease-1', artist: 'YA', title: 'YT', cover: 'https://i.ytimg.com/vi/x/hq.jpg' }));
 		expect(library.liked[0].cover).toBe('https://i.ytimg.com/vi/x/hq.jpg');
-		expect(getCachedCover('YA', 'YT')).toBeNull();
+		expect(getCachedCover('YA', 'YT')).toBe('https://i.ytimg.com/vi/x/hq.jpg');
 	});
 
 	it('a Deezer cover IS written to the shared name layer (unchanged)', () => {

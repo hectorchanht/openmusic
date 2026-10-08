@@ -10,8 +10,8 @@
 // The normalized name key (matchKey, via getCachedCover) is the cross-surface bridge: a homepage stub and
 // the now-playing track can carry different uids for the same song, so the name layer is what makes reuse
 // work. Read order is uid-first → name → null (LOCKED decision; mirrors cover-cache/lazyCover D-13).
-// writeCoverBoth writes both layers EXCEPT for a YT Music thumbnail, which stays uid-only (Phase 40
-// D-11b) so the bridge cannot carry one ytmusic copy's art onto every other source's copy.
+// writeCoverBoth writes both layers for every cover — quick-261008-cov1 retired the Phase 40 D-11b
+// YT Music uid-only carve-out per Hector's 2026-10-08 directive (shown cover shows everywhere).
 //
 // Phase 40 D-14: the CHOSEN cover (readChosenCover) sits above all of that — the user's own pin, then
 // the crowd-shared pick other listeners voted for. Crowd picks live in their own `crowd:` cache family
@@ -39,7 +39,7 @@ import {
 	removeCrowdCoverByUid,
 	removeCrowdCoverByName
 } from '$lib/services/cover-cache';
-import { isYtmCoverUrl, hasHttpsScheme } from '$lib/services/url-safety';
+import { hasHttpsScheme } from '$lib/services/url-safety';
 
 // Module-scoped reactive counter. Held in a small object because top-level `$state` reassignment must be
 // on a `$state` rune target; callers CALL coverVersion() inside a $derived/template to take the dependency
@@ -209,14 +209,15 @@ export function readArtistCover(artist: string): string | null {
  * the global signal so the pair-with-write invariant lives in ONE place. Callers use this instead of two
  * separate setters + a manual bump. The underlying setters no-op on empty/whitespace and never throw.
  *
- * Phase 40 D-11b: a YT Music thumbnail is per-uid art, so it writes the uid layer ONLY. The shared
- * {artist,title} name layer bridges every source's copy of a song, which is exactly how one ytmusic
- * thumbnail used to repaint the qq/kuwo/netease copies. Site A / Site B / `player.adoptCover` all route
- * through this one writer, so this is the only gate the player needs.
+ * quick-261008-cov1: Hector's 2026-10-08 directive — a fetched-and-shown cover shows EVERYWHERE the
+ * song appears — RETIRES the Phase 40 D-11b YT Music uid-only carve-out. A YTM thumbnail now writes
+ * the shared {artist,title} name layer like every other cover, so every source's copy of the song
+ * shows the same art the player is showing. The user's pin (rung 0, readChosenCover) remains the
+ * escape hatch when that art is wrong for a copy.
  */
 export function writeCoverBoth(uid: string, artist: string, title: string, url: string): void {
 	setCachedCoverByUid(uid, url);
-	if (!isYtmCoverUrl(url)) setCachedCover(artist, title, url);
+	setCachedCover(artist, title, url);
 	bumpCoverVersion();
 }
 

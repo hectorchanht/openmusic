@@ -19,6 +19,9 @@ import { Capacitor } from '@capacitor/core';
 import { ensureTrackDetails, lyricByName, evictSearch } from '$lib/services/catalog';
 // 37-02: the memoised, never-throws read of an offline blob's OWN embedded LRC + front cover.
 import { localEnrichment } from '$lib/services/local-tags';
+// quick-261008-cov1: downscale an embedded `data:` front cover to a quota-safe copy for the
+// shared cover cache, so a fetched-and-shown cover shows everywhere the song appears.
+import { downscaleCoverImage } from '$lib/services/embed-cover';
 import { combinedSignal } from '$lib/services/abort-signal';
 import { hasFreshAudioUrl, isTrackReady } from '$lib/services/track-ready';
 import { preconnectForSource, noteAudioOrigin } from '$lib/services/preconnect';
@@ -1155,15 +1158,30 @@ class Player {
 			// quick-260915-w4f: a local file's embedded art is the DEFAULT truth for a device track, but
 			// an explicit pin is still the user's — so it yields.
 			if (found.art && !getPinnedCover(uid)) {
-				// MEMORY-ONLY, and that is a hard constraint, not a preference: writeCoverBoth /
-				// setCachedCover have no scheme and no length guard, the cover cache is localStorage
-				// sized for ~80-150-byte https entries, and its writer swallows QuotaExceededError — so
-				// ONE ~400 KB `data:` URL in there silently stops all cover caching for the session.
-				// resolvedCover is not persisted either (player-persist never reads it). syncMetadata
-				// builds a FRESH MediaMetadata through buildArtwork, which passes a `data:` cover to the
-				// OS card as a single entry; no bumpCoverVersion, because nothing SHARED changed.
+				// The full-res `data:` URL stays MEMORY-ONLY, and that is a hard constraint, not a
+				// preference: writeCoverBoth / setCachedCover have no scheme and no length guard, the
+				// cover cache is localStorage sized for ~80-150-byte https entries, and its writer
+				// swallows QuotaExceededError — so ONE ~400 KB `data:` URL in there silently stops all
+				// cover caching for the session. resolvedCover is not persisted either (player-persist
+				// never reads it). syncMetadata builds a FRESH MediaMetadata through buildArtwork, which
+				// passes a `data:` cover to the OS card as a single entry.
 				this.resolvedCover = found.art;
 				this.syncMetadata();
+				// quick-261008-cov1 (Hector 2026-10-08 directive: a fetched-and-shown cover shows
+				// EVERYWHERE the song appears): this embedded front cover is now SHOWING on the hero,
+				// the nowbar and the media card — so propagate a quota-safe DOWNSCALED copy
+				// (~10 KB JPEG) to the shared uid + name cache layers. Every row for this song repaints
+				// with the same art through the coverVersion() signal instead of its gradient, and the
+				// hero keeps the full-res memory-only copy. Generation-guarded: a newer play()
+				// superseding mid-downscale discards, exactly like the enrichment above.
+				const small = await downscaleCoverImage(found.art).catch(() => null);
+				if (myGen !== this.playGen) return;
+				const still = this.current;
+				if (!still || still.uid !== uid) return;
+				if (small) {
+					writeCoverBoth(uid, track.artist, track.title, small);
+					library.fillEntryCovers(uid, track.artist, track.title, small);
+				}
 			}
 			// 37-D-05: QUERY-ONLY. MediaStore maps an untagged file's artist to '', which degenerates
 			// every name-based lookup — the file's own tags can recover it. This local is what the
@@ -4405,7 +4423,14 @@ class Player {
 			// song (up-next rows, search tiles, backfill) repaints with the same art. SKIPPED for a chosen
 			// url: pinCover / writeCrowdCover already bumped, and the auto layers must never carry chosen
 			// art (see play()'s Site A).
-			if (!chosen) writeCoverBoth(uid, cur.artist, cur.title, url);
+			// quick-261008-cov1: library entries for this song adopt the shown cover too (in place —
+			// rows read rung 2 ahead of the cache, so a stale entry cover would keep painting the old
+			// art next to the hero's new one). Skipped for chosen urls for the same D-14 reason: a
+			// crowd pick must not leak into the auto layers, and a pin is per-uid user intent.
+			if (!chosen) {
+				writeCoverBoth(uid, cur.artist, cur.title, url);
+				library.fillEntryCovers(uid, cur.artist, cur.title, url);
+			}
 			const ms = this.ms;
 			if (ms) {
 				ms.metadata = makeMetadata({

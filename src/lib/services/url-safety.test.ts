@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 // PURE module — no runes, no $app/environment — so the node Vitest project compiles it.
-import { hasHttpsScheme, isRenderableCover, isYtmCoverUrl } from './url-safety';
+import { hasHttpsScheme, isRenderableCover } from './url-safety';
 
 // 37-D-02. TWO predicates, deliberately: `hasHttpsScheme` means CACHEABLE / PROBE-ABLE (the
 // localStorage cover cache is sized for ~100-byte https entries and must never receive a `data:`
@@ -49,22 +49,3 @@ describe('isRenderableCover — the DISPLAYABLE predicate (37-D-02)', () => {
 	});
 });
 
-// Phase 40 D-11b: YT Music art is cached by uid ONLY. The predicate is HOST-based, so a non-ytmusic
-// track that adopted a YTM URL is caught too.
-describe('isYtmCoverUrl — the YTM-host predicate (Phase 40 D-11b)', () => {
-	it('accepts the YouTube image hosts over https', () => {
-		expect(isYtmCoverUrl('https://i.ytimg.com/vi/x/hqdefault.jpg')).toBe(true);
-		expect(isYtmCoverUrl('https://lh3.googleusercontent.com/abc')).toBe(true);
-		expect(isYtmCoverUrl('https://yt3.ggpht.com/x')).toBe(true);
-	});
-
-	it('rejects other hosts, http, empty and lookalike hosts', () => {
-		expect(isYtmCoverUrl('https://e-cdns-images.dzcdn.net/x.jpg')).toBe(false);
-		expect(isYtmCoverUrl('https://y.gtimg.cn/x.jpg')).toBe(false);
-		expect(isYtmCoverUrl('http://i.ytimg.com/x')).toBe(false);
-		expect(isYtmCoverUrl(null)).toBe(false);
-		expect(isYtmCoverUrl(undefined)).toBe(false);
-		expect(isYtmCoverUrl('')).toBe(false);
-		expect(isYtmCoverUrl('https://i.ytimg.com.evil.example/x')).toBe(false);
-	});
-});

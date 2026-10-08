@@ -4,7 +4,7 @@
 import { browser } from '$app/environment';
 import { blobStore } from '$lib/services/blob-store';
 import { setCachedCover } from '$lib/services/cover-cache';
-import { hasHttpsScheme, isYtmCoverUrl } from '$lib/services/url-safety';
+import { hasHttpsScheme } from '$lib/services/url-safety';
 import { matchKey, versionedMatchKey } from '$lib/services/match-key';
 import { isDeviceUid } from '$lib/services/device-track';
 import { sameSongStrings, songKey } from '$lib/services/dedupe';
@@ -12,6 +12,18 @@ import { isChineseLine, t2sConvertLineSync, warmScript } from '$lib/services/zh-
 import type { Track } from '$lib/sources/types';
 
 const KEY = 'openmusic:library:v1';
+
+/**
+ * quick-261008-cov1: persistence guard for inline (`data:`) covers. A downscaled embedded cover
+ * may sit on a LIVE entry's `cover` (so rows paint it at rung 2), but persisting a ~10 KB data:
+ * URL per entry would bloat `openmusic:library:v1` — and the settings backup, which serializes
+ * localStorage verbatim — until setItem starts throwing and the WHOLE save is lost. Strip inline
+ * covers at the serialization boundary only: the live $state keeps them, and after a reload the
+ * shared cover cache (uid + name layers, 14-day TTL) re-supplies them at rung 3.
+ */
+function stripInlineCover(t: Track): Track {
+	return t.cover && t.cover.startsWith('data:') ? { ...t, cover: null } : t;
+}
 
 export interface Playlist {
 	id: string;
@@ -101,9 +113,9 @@ class Library {
 			localStorage.setItem(
 				KEY,
 				JSON.stringify({
-					liked: this.liked,
-					playlists: this.playlists,
-					downloads: this.downloads,
+					liked: this.liked.map(stripInlineCover),
+					playlists: this.playlists.map((p) => ({ ...p, tracks: p.tracks.map(stripInlineCover) })),
+					downloads: this.downloads.map(stripInlineCover),
 					favArtists: this.favArtists,
 					unavailable: [...this.unavailable]
 				})
@@ -129,25 +141,51 @@ class Library {
 
 	/**
 	 * Cover-chain: share a freshly-fetched cover with every same-song entry.
-	 * The player calls this after a resolve lands a cover. Fills the cover on all
+	 * The player calls this after a resolve lands a cover. Sets the cover on all
 	 * liked / playlist / download entries matching the track's uid OR its normalized
 	 * {artist,title} identity (matchKey — same song stored under another source uid),
 	 * then stows it in the cover-cache so cover-less tiles on other surfaces can read
-	 * it back synchronously. Only EMPTY covers are filled — an entry already showing
-	 * art is never churned (no way to tell a "better" URL from a different one).
+	 * it back synchronously.
+	 *
+	 * quick-261008-cov1 (Hector 2026-10-08 directive: a fetched-and-shown cover shows
+	 * EVERYWHERE the song appears): the shown cover OVERWRITES — an entry already carrying
+	 * art is updated, not left churning a stale image while the hero shows the new one. The
+	 * in-place fill itself lives in fillEntryCovers so player.adoptCover (hi-res swap /
+	 * tier-chain winner) can reuse the same seam without duplicating the matching rules.
 	 */
 	adoptCover(src: Track) {
 		const cover = src.cover;
 		if (!cover) return;
-		const key = matchKey(src.artist, src.title);
-		const same = (t: Track) => t.uid === src.uid || matchKey(t.artist, t.title) === key;
-		// Mutate the $state proxies IN PLACE (not {...t, cover} rebuilds): home shelves
-		// (likedShelf/downloadsShelf) hold snapshot copies of these references, so an
-		// immutable rebuild would update the store but leave already-rendered tiles
-		// stale until reload. Fine-grained proxy mutation reaches every copy live.
+		this.fillEntryCovers(src.uid, src.artist, src.title, cover);
+		// media-card-shows-app-icon: the shared name-layer cache is https-only everywhere else
+		// (T-0bb-01 — writeCoverBoth / resolveCoverForTrack). This was the ONE ungated writer, so an
+		// http source cover poisoned the cache and re-seeded player.resolvedCover on every replay.
+		// quick-261008-cov1: the Phase 40 D-11b YT Music name-layer exclusion is retired by the
+		// same directive — a shown YTM thumbnail now bridges every source's copy like any cover.
+		if (hasHttpsScheme(cover)) setCachedCover(src.artist, src.title, cover);
+	}
+
+	/**
+	 * quick-261008-cov1: the in-place entry-cover sync extracted from adoptCover.
+	 *
+	 * Sets `cover` on every liked / download / playlist-track entry matching `uid` OR the
+	 * normalized {artist,title} identity — MUTATING the $state proxies in place (not {...t, cover}
+	 * rebuilds): home shelves (likedShelf/downloadsShelf) hold snapshot copies of these references,
+	 * so an immutable rebuild would update the store but leave already-rendered tiles stale until
+	 * reload. Fine-grained proxy mutation reaches every copy live.
+	 *
+	 * The shown cover wins over whatever the entry carried: rows read rung 2 (track.cover) ahead of
+	 * the shared cache, so leaving a stale entry cover would keep painting the old art next to the
+	 * hero's new one. An inline `data:` cover (downscaled embedded art) is fine here — save()
+	 * strips data: URLs at the serialization boundary, so persistence never bloats.
+	 */
+	fillEntryCovers(uid: string, artist: string, title: string, cover: string): void {
+		if (!cover) return;
+		const key = matchKey(artist, title);
+		const same = (t: Track) => t.uid === uid || matchKey(t.artist, t.title) === key;
 		let changed = false;
 		const fill = (t: Track) => {
-			if (!t.cover && same(t)) {
+			if (same(t) && t.cover !== cover) {
 				t.cover = cover;
 				changed = true;
 			}
@@ -156,12 +194,6 @@ class Library {
 		this.downloads.forEach(fill);
 		this.playlists.forEach((p) => p.tracks.forEach(fill));
 		if (changed) this.save();
-		// media-card-shows-app-icon: the shared name-layer cache is https-only everywhere else
-		// (T-0bb-01 — writeCoverBoth / resolveCoverForTrack). This was the ONE ungated writer, so an
-		// http source cover poisoned the cache and re-seeded player.resolvedCover on every replay.
-		// Phase 40 D-11b: a YT Music thumbnail is per-uid art — the record keeps it, but it never
-		// enters the shared name layer, where it would repaint other sources' copies of the song.
-		if (hasHttpsScheme(cover) && !isYtmCoverUrl(cover)) setCachedCover(src.artist, src.title, cover);
 	}
 
 	/**
