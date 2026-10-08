@@ -551,7 +551,24 @@
 	/* Rules panel (contracts 5/6). `.chip.on`, `.row-toggle` and `.sw` are the settings idiom,
 	   copied verbatim from /settings/playback. Free-text inputs are NEW to this app — no
 	   `type="text"` or `<textarea>` existed anywhere in src/, so UI-SPEC sets their shape. */
-	.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+	/* quick-261007-hscroll: chip strips scroll horizontally (never wrap, never clip) —
+	   same pattern as the realufo.org chip rows: overflow-x + hidden scrollbar. */
+	.chips {
+		display: flex;
+		gap: 8px;
+		overflow-x: auto;
+		scrollbar-width: none;
+		-ms-overflow-style: none;
+		padding-bottom: 4px;
+	}
+	.chips::-webkit-scrollbar {
+		display: none;
+		width: 0;
+	}
+	.chips > .chip {
+		flex: none;
+		white-space: nowrap;
+	}
 	.chip.on { background: var(--color-primary); color: #fff; border-color: transparent; }
 	.row-toggle { width: 100%; display: flex; align-items: center; justify-content: space-between; background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); padding: 13px 14px; border-radius: 12px; font-size: 0.875rem; cursor: pointer; margin: 8px 0 0; }
 	.sw { width: 40px; height: 22px; border-radius: 999px; background: var(--color-border); position: relative; transition: background 0.15s ease; flex: none; }

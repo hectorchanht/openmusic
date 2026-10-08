@@ -328,7 +328,24 @@
 	   SettingHint's description panel, which is scoped and cannot set this on its host. */
 	section h2 { display: flex; align-items: center; gap: 6px; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--color-text-muted); margin: 0 0 10px; position: relative; }
 	.muted { color: var(--color-text-muted); font-size: 0.75rem; margin: 8px 0 0; display: flex; align-items: center; gap: 4px;}
-	.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+	/* quick-261007-hscroll: chip strips scroll horizontally (never wrap, never clip) —
+	   same pattern as the realufo.org chip rows: overflow-x + hidden scrollbar. */
+	.chips {
+		display: flex;
+		gap: 8px;
+		overflow-x: auto;
+		scrollbar-width: none;
+		-ms-overflow-style: none;
+		padding-bottom: 4px;
+	}
+	.chips::-webkit-scrollbar {
+		display: none;
+		width: 0;
+	}
+	.chips > .chip {
+		flex: none;
+		white-space: nowrap;
+	}
 	.chip { background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); padding: 8px 14px; border-radius: 999px; font-size: 0.8125rem; cursor: pointer; }
 	.chip.on { background: var(--color-primary); color: #fff; border-color: transparent; }
 	/* quick-260919-ebi: the .seg CSS moved into SettingPicker.svelte; .row-toggle/.sw went with the

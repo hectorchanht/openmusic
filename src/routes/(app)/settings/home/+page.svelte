@@ -646,11 +646,32 @@
 	.classic-rows { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 	/* D-07: compact/comfortable per-section density segment — a small two-button segmented
 	   control. The active option carries aria-pressed + the accent fill. */
-	.density-seg { display: inline-flex; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 999px; padding: 2px; gap: 2px; flex: none; }
-	.dseg-btn { background: none; border: none; color: var(--color-text-muted); padding: 5px 10px; border-radius: 999px; font-size: 0.6875rem; cursor: pointer; white-space: nowrap; }
+	/* quick-261007-hscroll: same scroll treatment as .seg (SettingPicker) — never clips. */
+	.density-seg { display: inline-flex; max-width: 100%; overflow-x: auto; scrollbar-width: none; -ms-overflow-style: none; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 999px; padding: 2px; gap: 2px; flex: none; }
+	.density-seg::-webkit-scrollbar { display: none; width: 0; }
+	.dseg-btn { background: none; border: none; color: var(--color-text-muted); padding: 5px 10px; border-radius: 999px; font-size: 0.6875rem; cursor: pointer; white-space: nowrap; flex: none; }
 	.dseg-btn.on { background: var(--color-primary); color: #fff; }
 	/* Chips (multiselect) */
-	.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+	/* quick-261007-hscroll: chip strips scroll horizontally (never wrap, never clip) —
+	   same pattern as the realufo.org chip rows: overflow-x + hidden scrollbar.
+	   Drag-reorder still works: chips keep `touch-action: none`, so a gesture starting ON a
+	   chip reorders it while a swipe starting in a gap scrolls the strip. */
+	.chips {
+		display: flex;
+		gap: 8px;
+		overflow-x: auto;
+		scrollbar-width: none;
+		-ms-overflow-style: none;
+		padding-bottom: 4px;
+	}
+	.chips::-webkit-scrollbar {
+		display: none;
+		width: 0;
+	}
+	.chips > .chip {
+		flex: none;
+		white-space: nowrap;
+	}
 	.chip { background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); padding: 8px 14px; border-radius: 999px; font-size: 0.8125rem; cursor: pointer; }
 	.chip.on { background: var(--color-primary); color: #fff; border-color: transparent; }
 	/* Selected chips are draggable to reorder — own the touch gesture so a drag reorders

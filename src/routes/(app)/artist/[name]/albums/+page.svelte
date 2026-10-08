@@ -119,7 +119,9 @@
 {/if}
 
 <style>
-	.chips { display: flex; gap: 8px; padding: 10px 4px 4px; overflow-x: auto; }
+	/* quick-261007-hscroll: hide the scrollbar — same idiom as .artist-tiles on /search. */
+	.chips { display: flex; gap: 8px; padding: 10px 4px 4px; overflow-x: auto; scrollbar-width: none; -ms-overflow-style: none; }
+	.chips::-webkit-scrollbar { display: none; width: 0; }
 	.chip { flex: 0 0 auto; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--color-border); background: none; color: var(--color-text-muted); font-size: 0.8rem; font-weight: 600; cursor: pointer; white-space: nowrap; }
 	.chip.on { background: var(--color-primary); border-color: var(--color-primary); color: #fff; }
 

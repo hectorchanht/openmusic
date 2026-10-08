@@ -97,7 +97,24 @@
 	/* quick-260919-ebi: `position: relative` anchors the inline (i)'s description panel to the
 	   heading — SettingHint is scoped and cannot set this on its host. */
 	section h2 { display: flex; align-items: center; gap: 6px; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--color-text-muted); margin: 0 0 10px; position: relative; }
-	.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+	/* quick-261007-hscroll: chip strips scroll horizontally (never wrap, never clip) —
+	   same pattern as the realufo.org chip rows: overflow-x + hidden scrollbar. */
+	.chips {
+		display: flex;
+		gap: 8px;
+		overflow-x: auto;
+		scrollbar-width: none;
+		-ms-overflow-style: none;
+		padding-bottom: 4px;
+	}
+	.chips::-webkit-scrollbar {
+		display: none;
+		width: 0;
+	}
+	.chips > .chip {
+		flex: none;
+		white-space: nowrap;
+	}
 	.chip { background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); padding: 8px 14px; border-radius: 999px; font-size: 0.8125rem; cursor: pointer; }
 	.chip.on { background: var(--color-primary); color: #fff; border-color: transparent; }
 	/* quick-260919-ebi: .seg / .swatches / .swatch left with the theme + accent controls; the

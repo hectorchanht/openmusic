@@ -90,13 +90,24 @@
 
 <style>
 	/* ---- variant='seg' — carried VERBATIM from translation/+page.svelte ------------------- */
+	/* quick-261007-hscroll: the seg scrolls horizontally (never clips, never squeezes) —
+	   same pattern as the realufo.org chip rows: overflow-x + hidden scrollbar, options
+	   flex:none + nowrap. `max-width: 100%` bounds the inline-flex box to its container. */
 	.seg {
 		display: inline-flex;
+		max-width: 100%;
+		overflow-x: auto;
+		scrollbar-width: none;
+		-ms-overflow-style: none;
 		background: var(--color-surface-2);
 		border: 1px solid var(--color-border);
 		border-radius: 999px;
 		padding: 3px;
 		gap: 3px;
+	}
+	.seg::-webkit-scrollbar {
+		display: none;
+		width: 0;
 	}
 	.seg.disabled {
 		opacity: 0.5;
@@ -112,6 +123,8 @@
 		display: inline-flex;
 		align-items: center;
 		gap: 6px;
+		flex: none;
+		white-space: nowrap;
 	}
 	.seg button.on {
 		background: var(--color-primary);
