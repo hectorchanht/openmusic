@@ -15,6 +15,8 @@
 // link is handed to other apps. Folding it into this looser predicate would silently weaken it, so
 // it deliberately stays separate. Same-looking is not same.
 
+import { safeImageUrl, YOUTUBE_IMAGE_HOSTS } from '$lib/proxy/safe-image-url';
+
 /**
  * True when `url` is a string whose scheme is https.
  *
@@ -51,5 +53,20 @@ const DATA_IMAGE_RE = /^data:image\/[a-z0-9.+-]+;base64,/i;
  */
 export function isRenderableCover(url: string | null | undefined): url is string {
 	return hasHttpsScheme(url) || (typeof url === 'string' && DATA_IMAGE_RE.test(url));
+}
+
+/**
+ * Phase 40 D-11b (RESTORED quick-261008-cov2 per Hector 2026-10-08: a YTM thumbnail must not
+ * become the everywhere-cover): true when `url` is a YouTube Music thumbnail (i.ytimg.com,
+ * yt3.ggpht.com, *.googleusercontent.com over https).
+ *
+ * YTM art is cached by uid ONLY — never on the shared name layer — so a 120px thumbnail (often a
+ * channel avatar) cannot leak onto the qq/kuwo/netease copy of the same song. HOST-based on purpose,
+ * not `track.source === 'ytmusic'`: a non-ytmusic track that ADOPTED a YTM URL is caught too. This
+ * is the one predicate every name-layer writer consults. `safe-image-url` is a pure module (charts.ts
+ * already imports it client-side), so this file stays dependency-free.
+ */
+export function isYtmCoverUrl(url: string | null | undefined): boolean {
+	return hasHttpsScheme(url) && safeImageUrl(url, YOUTUBE_IMAGE_HOSTS) !== null;
 }
 

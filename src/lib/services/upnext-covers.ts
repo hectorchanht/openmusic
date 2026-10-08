@@ -62,8 +62,7 @@ export function upNextCoverNeeds(
 		const key = matchKey(artist, title);
 		if (seen.has(key)) continue;
 		seen.add(key);
-		// 40-WR-03: carry the uid so backfillCovers also writes the per-uid layer (the D-11b
-		// YTM name-layer exclusion was retired by quick-261008-cov1 — every winner writes both).
+		// 40-WR-03: carry the uid so backfillCovers keeps a YTM winner off the name layer (D-11b).
 		needs.push(t.uid ? { artist, title, uid: t.uid } : { artist, title });
 	}
 	return needs.slice(0, Math.max(0, max));

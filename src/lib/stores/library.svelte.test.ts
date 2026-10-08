@@ -104,14 +104,27 @@ describe('library.adoptCover (cover-chain)', () => {
 		expect(library.liked[0].cover).toBe('https://img/c.jpg');
 	});
 
-	// quick-261008-cov1: the D-11b YTM uid-only carve-out is retired — a shown YTM thumbnail
-	// now writes the shared name layer like every other cover (shown cover shows everywhere).
-	it('a YTM-host cover fills the record AND the shared name layer', () => {
+	// Phase 40 D-11b (restored quick-261008-cov2): a YT Music thumbnail is per-uid art — the
+	// record is filled, the shared name layer is NOT, so it cannot repaint other sources' copies
+	// of the song.
+	it('a YTM-host cover fills the record but never the shared name layer (D-11b)', () => {
 		memStore.clear();
 		library.liked = [mk({ uid: 'netease-1', artist: 'YA', title: 'YT' })];
 		library.adoptCover(mk({ uid: 'netease-1', artist: 'YA', title: 'YT', cover: 'https://i.ytimg.com/vi/x/hq.jpg' }));
 		expect(library.liked[0].cover).toBe('https://i.ytimg.com/vi/x/hq.jpg');
-		expect(getCachedCover('YA', 'YT')).toBe('https://i.ytimg.com/vi/x/hq.jpg');
+		expect(getCachedCover('YA', 'YT')).toBeNull();
+	});
+
+	// quick-261008-cov2: the widened {artist,title} match must not push a YTM thumbnail onto
+	// other sources' entries — only the played uid's own records are updated.
+	it('fillEntryCovers matches uid-only for a YTM cover (no widening onto other copies)', () => {
+		library.liked = [
+			mk({ uid: 'ytmusic:1', source: 'ytmusic', artist: 'YA', title: 'YT', cover: null }),
+			mk({ uid: 'qq:9', source: 'qq', artist: 'YA', title: 'YT', cover: 'https://img/real.jpg' })
+		];
+		library.fillEntryCovers('ytmusic:1', 'YA', 'YT', 'https://i.ytimg.com/vi/x/hq.jpg');
+		expect(library.liked[0].cover).toBe('https://i.ytimg.com/vi/x/hq.jpg'); // played copy
+		expect(library.liked[1].cover).toBe('https://img/real.jpg'); // other copy untouched
 	});
 
 	it('a Deezer cover IS written to the shared name layer (unchanged)', () => {

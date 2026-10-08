@@ -96,21 +96,22 @@ describe('bumpCoverVersion coalescing (quick-260704-45c)', () => {
 	});
 });
 
-// quick-261008-cov1: the Phase 40 D-11b YT Music uid-only carve-out is retired — a shown cover
-// (YTM thumbnail included) writes BOTH layers so every source's copy shows the same art.
-describe('writeCoverBoth writes both layers for every cover (D-11b retired)', () => {
+// Phase 40 D-11b (restored quick-261008-cov2): a YT Music thumbnail is per-uid art — written to
+// the uid layer only, never the shared {artist,title} name layer that bridges every source's
+// copy of the song.
+describe('writeCoverBoth YTM uid-only gate (Phase 40 D-11b)', () => {
 	beforeEach(() => {
 		memStore.clear();
 		vi.stubGlobal('localStorage', localStorageMock);
 		vi.stubGlobal('requestAnimationFrame', undefined);
 	});
 
-	it('a YTM-host url writes the uid layer AND the shared name layer, and bumps the version', async () => {
+	it('a YTM-host url writes the uid layer only and still bumps the version', async () => {
 		const { writeCoverBoth, coverVersion } = await import('./cover-version.svelte');
 		const { getCachedCoverByUid, getCachedCover } = await import('$lib/services/cover-cache');
 		writeCoverBoth('qq:1', 'A', 'T', 'https://i.ytimg.com/x.jpg');
 		expect(getCachedCoverByUid('qq:1')).toBe('https://i.ytimg.com/x.jpg');
-		expect(getCachedCover('A', 'T')).toBe('https://i.ytimg.com/x.jpg');
+		expect(getCachedCover('A', 'T')).toBeNull();
 		expect(coverVersion()).toBe(1);
 	});
 

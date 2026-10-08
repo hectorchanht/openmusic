@@ -713,9 +713,7 @@ describe('resolveCoverForTrack — shared single-item resolve helper (Plan 21-02
 	});
 });
 
-// quick-261008-cov1: the Phase 40 D-11b YTM uid-only carve-out is retired — a YTM winner now
-// writes the shared name layer like every other cover (shown cover shows everywhere).
-describe('resolveCoverForTrack — YTM winners write both layers (D-11b retired)', () => {
+describe('resolveCoverForTrack — YTM winners stay off the name layer (Phase 40 D-11b)', () => {
 	const YTM = 'https://lh3.googleusercontent.com/ytm-win.jpg';
 	const ytmOnly = () => {
 		vi.spyOn(itunes, 'itunesSongCover').mockResolvedValue(null);
@@ -723,12 +721,12 @@ describe('resolveCoverForTrack — YTM winners write both layers (D-11b retired)
 		mockSearch({ ytm: [mk('ytmusic', 'y', { cover: YTM })] });
 	};
 
-	it('a YTM-host winner with a real uid writes the uid layer AND the name layer', async () => {
+	it('a YTM-host winner with a real uid writes the uid layer ONLY', async () => {
 		ytmOnly();
 		const t = mk('kuwo', 'k1', { artist: 'Jay Chou', title: 'Qing Hua Ci' });
 		expect(await resolveCoverForTrack(t)).toBe(YTM);
 		expect(getCachedCoverByUid('kuwo:k1')).toBe(YTM);
-		expect(getCachedCover('Jay Chou', 'Qing Hua Ci')).toBe(YTM);
+		expect(getCachedCover('Jay Chou', 'Qing Hua Ci')).toBeNull();
 	});
 
 	it('a YTM-host winner for an EMPTY-uid stub still writes the name layer (its only layer)', async () => {
@@ -747,9 +745,8 @@ describe('resolveCoverForTrack — YTM winners write both layers (D-11b retired)
 	});
 });
 
-// quick-261008-cov1: 40-WR-03's D-11b rule is retired with it — a uid-bearing need writes both
-// layers for a YTM winner like every other cover.
-describe('backfillCovers — YTM winners write both layers when a uid is carried (D-11b retired)', () => {
+// 40-WR-03: backfillCovers applies the SAME D-11b rule when the caller carries a uid.
+describe('backfillCovers — YTM winners stay off the name layer when a uid is carried (40-WR-03)', () => {
 	const YTM = 'https://lh3.googleusercontent.com/ytm-bf.jpg';
 	const ytmOnly = () => {
 		vi.spyOn(itunes, 'itunesSongCover').mockResolvedValue(null);
@@ -757,11 +754,11 @@ describe('backfillCovers — YTM winners write both layers when a uid is carried
 		mockSearch({ ytm: [mk('ytmusic', 'y', { cover: YTM })] });
 	};
 
-	it('a uid-bearing need writes the uid layer AND the name layer for a YTM winner, and a re-run skips it', async () => {
+	it('a uid-bearing need writes the uid layer ONLY for a YTM winner, and a re-run skips it', async () => {
 		ytmOnly();
 		await backfillCovers([{ artist: 'Jay Chou', title: 'Dao Xiang', uid: 'kuwo:k9' }]);
 		expect(getCachedCoverByUid('kuwo:k9')).toBe(YTM);
-		expect(getCachedCover('Jay Chou', 'Dao Xiang')).toBe(YTM);
+		expect(getCachedCover('Jay Chou', 'Dao Xiang')).toBeNull();
 		const chain = vi.spyOn(itunes, 'itunesSongCover');
 		chain.mockClear();
 		await backfillCovers([{ artist: 'Jay Chou', title: 'Dao Xiang', uid: 'kuwo:k9' }]);

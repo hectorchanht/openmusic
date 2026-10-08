@@ -38,8 +38,9 @@
 //      than album art — on a Google host (yt3/lh3.googleusercontent.com, i.ytimg.com) that CN-facing
 //      users routinely cannot load (see .planning/debug/ytmusic-cover-blank-hero.md). It is kept as
 //      the last fall-through because it does cover indie/CJK long-tail catalog nothing above it
-//      carries. quick-261008-cov1: the D-11b YTM uid-only carve-out is retired — a YTM winner now
-//      writes the shared name layer like every other cover (shown cover shows everywhere).
+//      carries. A YTM winner is cached by uid ONLY, never on the shared name layer (Phase 40 D-11b,
+//      restored quick-261008-cov2 per Hector 2026-10-08 — a YTM thumbnail must not become the
+//      everywhere-cover).
 //    HISTORY — quick-260920-nyq REORDER (partial revert of quick-260919-0mw's YTM-first, which was
 //    itself a reorder of Deezer → iTunes → CN). The user delegated the RANK to us, to be decided on
 //    FETCH SPEED and PICTURE SIZE: iTunes → Deezer → CN → YTM. CN was the slowest tier (~2.7s
@@ -111,7 +112,7 @@ import { onlySource, SOURCES } from '$lib/sources/registry';
 import { createHealthGate } from '$lib/services/source-health';
 import { combinedSignal } from '$lib/services/abort-signal';
 import type { Track } from '$lib/sources/types';
-import { hasHttpsScheme } from './url-safety';
+import { hasHttpsScheme, isYtmCoverUrl } from './url-safety';
 
 /** A cover-needing row — callers pass DiscoveryTrack rows (artist tiles are excluded). */
 export interface CoverNeed {
@@ -365,7 +366,8 @@ async function resolveTrackChain(
  * Returns the first SOLID https URL or null on a total miss. NEVER throws.
  *
  * On a SOLID hit it writes the uid layer ONLY when the track carries a real uid, and the
- * {artist,title} name layer unconditionally (D-13 two-layer):
+ * {artist,title} name layer unless the winner is a YTM thumbnail on a uid-bearing track (D-13
+ * two-layer; Phase 40 D-11b, restored quick-261008-cov2):
  *   setCachedCoverByUid(track.uid, url)  AND  setCachedCover(track.artist, track.title, url).
  * An EMPTY uid (synthetic discovery stub from charts/tags, charts/countries) MUST NOT write the uid
  * layer: that layer is a shared flat record keyed by `'uid:' + uid`, so an empty uid would store
@@ -373,10 +375,6 @@ async function resolveTrackChain(
  * for ALL rows (the charts-tags-same-cover bug). The name layer is keyed by {artist,title} and
  * stays per-song, so an empty-uid stub still caches correctly under its own identity.
  * On a miss / non-https result nothing is cached (the caller keeps the gradient — T-0bb-01).
- *
- * quick-261008-cov1: the Phase 40 D-11b YTM name-layer exclusion is retired — Hector's 2026-10-08
- * directive (a fetched-and-shown cover shows everywhere the song appears) covers backfilled art
- * too: a YTM winner now writes the name layer like every other cover.
  */
 export async function resolveCoverForTrack(
 	track: Track,
@@ -387,7 +385,10 @@ export async function resolveCoverForTrack(
 		// Only a real uid writes the shared uid layer — an empty stub uid would collapse every row
 		// onto one slot (charts-tags-same-cover fix). The name layer is always per-song-safe.
 		if (track.uid) setCachedCoverByUid(track.uid, cover);
-		setCachedCover(track.artist, track.title, cover);
+		// Phase 40 D-11b: YTM art is per-uid only, so it cannot leak onto other sources' copies of
+		// the song. A uid-less stub has ONLY the name layer, so it still writes there — gating it
+		// too would re-fan the whole chain on every visit (RESEARCH Pitfall 10).
+		if (!track.uid || !isYtmCoverUrl(cover)) setCachedCover(track.artist, track.title, cover);
 		return cover;
 	}
 	return null;
@@ -507,10 +508,11 @@ export async function backfillCovers(items: CoverNeed[], opts: BackfillOpts = {}
 		if (signal?.aborted) return; // abort ≠ miss — never poison the negative cache on a supersede
 		const key = coverCacheKey(item.artist, item.title);
 		if (hasHttpsScheme(cover)) {
-			// quick-261008-cov1: D-11b retired — a YTM winner writes the name layer like every other
-			// cover (shown cover shows everywhere the song appears).
+			// 40-WR-03 / D-11b (restored quick-261008-cov2): the same rule as resolveCoverForTrack —
+			// a YTM winner is cached by uid ONLY, so it cannot leak onto the qq/kuwo/netease copy of
+			// the song via the name layer.
 			if (item.uid) setCachedCoverByUid(item.uid, cover);
-			setCachedCover(item.artist, item.title, cover);
+			if (!item.uid || !isYtmCoverUrl(cover)) setCachedCover(item.artist, item.title, cover);
 			markHit(key);
 			onResolved?.(key, cover);
 		} else {
