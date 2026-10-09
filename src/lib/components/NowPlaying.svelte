@@ -34,6 +34,7 @@
 	// downloading / downloaded / unavailable states, the shared downloadTrack path, its own toasts,
 	// its own t() keys and tapBounce — so this is a mount, never a re-implementation.
 	import DownloadControl from '$lib/components/DownloadControl.svelte';
+	import KeyTip from '$lib/components/KeyTip.svelte';
 	import { marquee } from '$lib/actions/marquee';
 	import { coverSwipe } from '$lib/actions/coverSwipe';
 	import { scrub } from '$lib/actions/scrub';
@@ -1067,7 +1068,7 @@
 
 	<div class="prog">
 		<div
-			class="scrubber"
+			class="scrubber tip-host"
 			class:scrubbing
 			style:--scrub-frac={displayFrac}
 			role="slider"
@@ -1079,6 +1080,9 @@
 			onkeydown={seekKey}
 			use:scrub={{ onSeek: onScrubCommit, onPreview: onScrubPreview, onScrubEnd }}
 		>
+			<!-- quick-261008-keytip: focused arrows seek ±5s here; Shift+arrows seek ±5s globally
+			     (transport-keys.ts) — both badges, exactly those bindings, no invented keys. -->
+			<KeyTip label={t('nowplaying.seek')} keys={['← →', 'Shift ← →']} />
 			<div class="scrub-fill"></div>
 			<div class="scrub-knob"></div>
 		</div>
@@ -1101,15 +1105,20 @@
 	{/if}
 
 	<div class="transport" bind:this={transportEl}>
+		<!-- quick-261008-keytip: hover key-tips on the three transport buttons. Badge strings are
+		     transport-keys.ts verbatim (Space / ← / →); the labels reuse each button's own
+		     aria-label t() key so no new i18n keys are needed. Hover-only via app.css
+		     `@media (hover: hover)` — nothing changes on touch. -->
 		<button class="t" class:on={currentLiked} aria-pressed={currentLiked} aria-label={currentLiked ? t('menu.liked') : t('menu.like')} onclick={toggleCurrentLike} use:tapBounce><Heart size={20} fill={currentLiked ? 'currentColor' : 'none'} /></button>
-		<button class="t" aria-label={t('nowplaying.previous')} onclick={() => player.prev()} use:tapBounce><SkipBack size={26} /></button>
-		<button class="play" aria-label={t('nowplaying.playPause')} onclick={() => player.toggle()} use:tapBounce>
+		<button class="t tip-host" aria-label={t('nowplaying.previous')} onclick={() => player.prev()} use:tapBounce><SkipBack size={26} /><KeyTip label={t('nowplaying.previous')} keys={['←']} /></button>
+		<button class="play tip-host" aria-label={t('nowplaying.playPause')} onclick={() => player.toggle()} use:tapBounce>
+			<KeyTip label={t('nowplaying.playPause')} keys={['Space']} />
 			<span class="play-glyph" class:is-playing={player.playing} aria-hidden="true">
 				<span class="pg pg-play"><Play size={26} /></span>
 				<span class="pg pg-pause"><Pause size={26} /></span>
 			</span>
 		</button>
-		<button class="t" aria-label={t('nowplaying.next')} onclick={() => player.next()} use:tapBounce><SkipForward size={26} /></button>
+		<button class="t tip-host" aria-label={t('nowplaying.next')} onclick={() => player.next()} use:tapBounce><SkipForward size={26} /><KeyTip label={t('nowplaying.next')} keys={['→']} /></button>
 		<!-- quick-260919-0mw (correction) — the download control takes REPEAT's slot. The original ask
 		     was "replace the shuffle button with download", but ii6 had already moved Shuffle into the
 		     TrackMenu kebab, so the first pass appended Download as a sixth item instead of replacing
