@@ -169,3 +169,8 @@ Built with [GSD](https://github.com/glamboyosa/gsd); the roadmap lives in
 ## 📄 License
 
 Apache License 2.0. See [LICENSE](LICENSE).
+
+## Contact
+
+- hello@openmusic.lol
+- support@openmusic.lol
