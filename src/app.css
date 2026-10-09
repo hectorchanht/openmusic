@@ -300,3 +300,87 @@ button, a, [role="button"] { -webkit-tap-highlight-color: transparent; }
 		transition: none;
 	}
 }
+
+/* ---- Global key-tip (quick-261008-keytip) ----------------------------------------------------
+   Hover tooltip for transport/playback controls: the control's label + its keyboard-shortcut
+   key(s) in <kbd> badges (YouTube-style). The bubble is the aria-hidden <span class="ktip">
+   rendered by components/KeyTip.svelte as a DIRECT child of the control; the control carries
+   .tip-host so the bubble anchors to it. Labels always reuse the control's own aria-label t()
+   string — no new i18n keys, so i18n.test.ts parity is unaffected. Badge strings must match
+   services/transport-keys.ts exactly (Space / ← / → / Shift+← →); that module is the single
+   source of truth and defines no single-letter shortcuts.
+   REVEAL IS HOVER-ONLY, gated behind (hover: hover): on touch there is no hover, and a touch
+   browser's emulated :hover would otherwise leave the bubble stuck after a tap — the same gate
+   SettingHint uses for its description panel (MENU-03 / D-12). :focus-visible is the
+   keyboard-user equivalent and reveals it too (ungated — keyboard focus is never emulated).
+   pointer-events:none everywhere so the bubble can never eat the control's own tap/click.
+   Placement: .ktip floats above the control (NowPlaying transport + scrubber — the sheet has
+   headroom); .ktip-left floats left of it, vertically centered (Nowbar — the bar is
+   overflow:hidden with ~12px of headroom, so a top bubble would clip; leftwards is open bar). */
+.tip-host {
+	position: relative;
+}
+.ktip {
+	position: absolute;
+	left: 50%;
+	bottom: calc(100% + 10px);
+	transform: translateX(-50%) translateY(4px);
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	padding: 6px 10px;
+	background: var(--color-surface-2);
+	border: 1px solid var(--color-border);
+	border-radius: 10px;
+	box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+	white-space: nowrap;
+	font-size: 0.75rem;
+	color: var(--color-text);
+	pointer-events: none;
+	z-index: 50;
+	opacity: 0;
+	visibility: hidden;
+	transition:
+		opacity var(--dur-quick) var(--ease-out-quint),
+		transform var(--dur-quick) var(--ease-out-quint),
+		visibility 0s linear var(--dur-quick);
+}
+/* Left placement: to the control's left, vertically centered. */
+.ktip-left {
+	left: auto;
+	right: calc(100% + 10px);
+	bottom: auto;
+	top: 50%;
+	transform: translateY(-50%) translateX(4px);
+}
+.ktip kbd {
+	font: inherit;
+	font-size: 0.6875rem;
+	padding: 2px 7px;
+	border: 1px solid var(--color-border);
+	border-bottom-width: 2px;
+	border-radius: 6px;
+	background: var(--color-bg);
+	color: var(--color-text-muted);
+	white-space: nowrap;
+}
+/* Hover-capable pointers get the tip on hover; keyboard users on focus-visible. The reveal
+   drops the visibility delay so it shows immediately, and the rest translate re-arms. */
+@media (hover: hover) {
+	.tip-host:hover > .ktip,
+	.tip-host:focus-visible > .ktip {
+		opacity: 1;
+		visibility: visible;
+		transition-delay: 0s;
+		transform: translateX(-50%) translateY(0);
+	}
+	.tip-host:hover > .ktip-left,
+	.tip-host:focus-visible > .ktip-left {
+		transform: translateY(-50%) translateX(0);
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.ktip {
+		transition: none;
+	}
+}

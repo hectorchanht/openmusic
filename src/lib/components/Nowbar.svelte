@@ -25,6 +25,7 @@
     import { sleepTimer } from "$lib/stores/sleepTimer.svelte";
     import { coverSwipe } from "$lib/actions/coverSwipe";
     import { tapBounce } from "$lib/actions/tapBounce";
+    import KeyTip from "$lib/components/KeyTip.svelte";
     import { t, tMaybeKey } from "$lib/i18n";
     import { marquee } from "$lib/actions/marquee";
     // quick-260919-1we (F2): the docked mini player's lyric line. parseLRC + the SHARED active-line
@@ -216,11 +217,15 @@
         >
     {:else}
         <button
-            class="np-btn"
+            class="np-btn tip-host"
             aria-label={t("nowbar.playPause")}
             onclick={() => player.toggle()}
             use:tapBounce
         >
+            <!-- quick-261008-keytip: left placement — the bar is overflow:hidden with ~12px of
+                 headroom, so a top bubble would clip; leftwards is open bar. This snippet is
+                 shared by the mobile button and the desktop cluster, so both get the tip. -->
+            <KeyTip label={t("nowbar.playPause")} keys={["Space"]} placement="left" />
             <span
                 class="play-glyph"
                 class:is-playing={player.playing}
@@ -410,17 +415,17 @@
                  exists once, not once per breakpoint. -->
             <div class="np-transport">
                 <button
-                    class="np-t"
+                    class="np-t tip-host"
                     aria-label={t("nowplaying.previous")}
                     onclick={() => player.prev()}
-                    use:tapBounce><SkipBack size={20} /></button
+                    use:tapBounce><SkipBack size={20} /><KeyTip label={t("nowplaying.previous")} keys={["←"]} placement="left" /></button
                 >
                 {@render playControl()}
                 <button
-                    class="np-t"
+                    class="np-t tip-host"
                     aria-label={t("nowplaying.next")}
                     onclick={() => player.next()}
-                    use:tapBounce><SkipForward size={20} /></button
+                    use:tapBounce><SkipForward size={20} /><KeyTip label={t("nowplaying.next")} keys={["→"]} placement="left" /></button
                 >
             </div>
         {:else}

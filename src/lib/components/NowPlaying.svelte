@@ -13,7 +13,6 @@
 	import { overlays } from '$lib/stores/overlays.svelte';
 	// quick-260926-qat: the lyrics timing row's "bring into view" counter (see the effect below).
 	import { lyricSyncRequest } from '$lib/stores/lyric-offset.svelte';
-	import { npTabRequest, npTabTarget } from '$lib/stores/np-tab.svelte';
 	import { t, tMaybeKey } from '$lib/i18n';
 	// Gap 4 (26-10): the LAZY on-demand cross-source variant fetch (26-08) fed to the per-row
 	// version picker — fired ONLY on a trigger tap, never on list render (T-26-10-02).
@@ -35,6 +34,7 @@
 	// downloading / downloaded / unavailable states, the shared downloadTrack path, its own toasts,
 	// its own t() keys and tapBounce — so this is a mount, never a re-implementation.
 	import DownloadControl from '$lib/components/DownloadControl.svelte';
+	import KeyTip from '$lib/components/KeyTip.svelte';
 	import { marquee } from '$lib/actions/marquee';
 	import { coverSwipe } from '$lib/actions/coverSwipe';
 	import { scrub } from '$lib/actions/scrub';
@@ -74,11 +74,6 @@
 	// this component was unmounted (menu opened from the Nowbar / a list row) is not replayed on the
 	// next expand; `tab` already defaults to 'lyrics' on mount, so the row is on screen anyway.
 	let seenSyncReq = lyricSyncRequest();
-
-	// quick-261006-44u: same snapshot discipline for the track menu's View-comments /
-	// View-related tab requests (np-tab.svelte.ts). `tab` defaults to 'lyrics' on mount,
-	// so a request raised while unmounted is stale by definition — never replay it.
-	let seenNpTabReq = npTabRequest();
 
 	// quick-260919-np3 — the desktop three-up breakpoint.
 	//
@@ -623,20 +618,6 @@
 		seenSyncReq = n;
 		untrack(() => { if (!wide) selectTab('lyrics'); });
 	});
-	// quick-261006-44u: the track menu's View-comments / View-related actions raise a tab
-	// request through np-tab.svelte.ts, then close. Reads ONLY the request counter; the
-	// target and everything else are read inside untrack so this can never re-run on its
-	// own writes. Unlike the lyrics request this is NOT skipped at wide layout: there
-	// selectTab('comments' | 'related') flips the right-hand Comments | Related column,
-	// which is exactly the requested pane (and selectTab half-opens the sheet when closed
-	// on narrow layouts).
-	$effect(() => {
-		const n = npTabRequest();
-		if (n === seenNpTabReq) return;
-		seenNpTabReq = n;
-		const target = npTabTarget();
-		untrack(() => { if (target) selectTab(target); });
-	});
 	// The uid guard hides the previous song's count between a background track change and its load.
 	const commentBadge = $derived(
 		player.current && comments.uid === player.current.uid ? comments.badge : null
@@ -1068,7 +1049,7 @@
 			keeps use:marquee + the in:/out:fade crossfade; names are joined by an INERT ` · `
 			separator span (not a link). When there is a single name (the common case) exactly one
 			link renders with no separator — visually unchanged from before. -->
-			<div class="artist" use:marquee in:fade={{ duration: xfadeMs }} out:fade={{ duration: xfadeMs }}><span class="marquee-inner">{#each artistNames as name, i (name + i)}{#if i > 0}<span class="artist-sep" aria-hidden="true"> · </span>{/if}<button class="artist-link" use:tapBounce onclick={() => openArtistName(name)} aria-label={`${t('menu.goToArtist')}: ${name}`}>{names.dnArtist(name)}</button>{/each}</span>
+			<div class="artist" use:marquee in:fade={{ duration: xfadeMs }} out:fade={{ duration: xfadeMs }}><span class="marquee-inner">{#each artistNames as name, i (name + i)}{#if i > 0}<span class="artist-sep" aria-hidden="true"> · </span>{/if}<button class="artist-link" use:tapBounce onclick={() => openArtistName(name)}>{names.dnArtist(name)}</button>{/each}</span>
 				
 			<!-- quick-260831-k5y: opt-in quality tag. OUTSIDE the {#key} block on purpose — the value
 					lands asynchronously after ensureTrackDetails, so it repaints in place rather than
@@ -1087,7 +1068,7 @@
 
 	<div class="prog">
 		<div
-			class="scrubber"
+			class="scrubber tip-host"
 			class:scrubbing
 			style:--scrub-frac={displayFrac}
 			role="slider"
@@ -1099,6 +1080,9 @@
 			onkeydown={seekKey}
 			use:scrub={{ onSeek: onScrubCommit, onPreview: onScrubPreview, onScrubEnd }}
 		>
+			<!-- quick-261008-keytip: focused arrows seek ±5s here; Shift+arrows seek ±5s globally
+			     (transport-keys.ts) — both badges, exactly those bindings, no invented keys. -->
+			<KeyTip label={t('nowplaying.seek')} keys={['← →', 'Shift ← →']} />
 			<div class="scrub-fill"></div>
 			<div class="scrub-knob"></div>
 		</div>
@@ -1121,15 +1105,20 @@
 	{/if}
 
 	<div class="transport" bind:this={transportEl}>
+		<!-- quick-261008-keytip: hover key-tips on the three transport buttons. Badge strings are
+		     transport-keys.ts verbatim (Space / ← / →); the labels reuse each button's own
+		     aria-label t() key so no new i18n keys are needed. Hover-only via app.css
+		     `@media (hover: hover)` — nothing changes on touch. -->
 		<button class="t" class:on={currentLiked} aria-pressed={currentLiked} aria-label={currentLiked ? t('menu.liked') : t('menu.like')} onclick={toggleCurrentLike} use:tapBounce><Heart size={20} fill={currentLiked ? 'currentColor' : 'none'} /></button>
-		<button class="t" aria-label={t('nowplaying.previous')} onclick={() => player.prev()} use:tapBounce><SkipBack size={26} /></button>
-		<button class="play" aria-label={t('nowplaying.playPause')} onclick={() => player.toggle()} use:tapBounce>
+		<button class="t tip-host" aria-label={t('nowplaying.previous')} onclick={() => player.prev()} use:tapBounce><SkipBack size={26} /><KeyTip label={t('nowplaying.previous')} keys={['←']} /></button>
+		<button class="play tip-host" aria-label={t('nowplaying.playPause')} onclick={() => player.toggle()} use:tapBounce>
+			<KeyTip label={t('nowplaying.playPause')} keys={['Space']} />
 			<span class="play-glyph" class:is-playing={player.playing} aria-hidden="true">
 				<span class="pg pg-play"><Play size={26} /></span>
 				<span class="pg pg-pause"><Pause size={26} /></span>
 			</span>
 		</button>
-		<button class="t" aria-label={t('nowplaying.next')} onclick={() => player.next()} use:tapBounce><SkipForward size={26} /></button>
+		<button class="t tip-host" aria-label={t('nowplaying.next')} onclick={() => player.next()} use:tapBounce><SkipForward size={26} /><KeyTip label={t('nowplaying.next')} keys={['→']} /></button>
 		<!-- quick-260919-0mw (correction) — the download control takes REPEAT's slot. The original ask
 		     was "replace the shuffle button with download", but ii6 had already moved Shuffle into the
 		     TrackMenu kebab, so the first pass appended Download as a sixth item instead of replacing
@@ -1336,9 +1325,8 @@
 	   The markup carries `.motion-always` (app.css's escape hatch) so the app's reduce-motion setting
 	   cannot freeze it, and the OS-pref 2.2s slowdown is gone so it runs at one speed everywhere. */
 	.bar { display: flex; align-items: center; justify-content: space-between; }
-	.icon { background: none; border: none; color: var(--color-text); cursor: pointer; width: 44px; height: 44px; display: grid; place-items: center; border-radius: 50%; }
+	.icon { background: none; border: none; color: var(--color-text); cursor: pointer; width: 38px; height: 38px; display: grid; place-items: center; border-radius: 50%; }
 	.icon:hover { background: var(--color-surface-2); }
-	/* User 2026-10-06 (audit): 38px -> 44px to meet the 44px minimum touch target (HIG/WCAG 2.5.8). */
 	/* The .np-top wrapper carries the drag-down gesture (slop-thresholded so clicks still
 	   fire). touch-action: pan-x leaves horizontal scrolling intact (none here, but
 	   defensive) while letting our pointer handlers own vertical motion. */
@@ -1425,9 +1413,7 @@
 	.artist { display: flex; width: 100%; justify-content: space-between; align-items: center; background: transparent; border: none; padding: 1px; border-radius: none; color: var(--color-text); font-size: calc(1rem * var(--fs-np-artist, 1)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 	/* quick-260625-pzs-01: per-artist tappable link inside the .artist row. Carries the underline +
 	   pointer the old single .artist button had; the inert separator is non-interactive. */
-	.artist-link { background: none; border: none; padding: 12px 4px; margin: -12px -4px; color: inherit; font: inherit; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
-	/* User 2026-10-06 (audit): padding expands the tap target to 44px height without changing
-	   layout (negative margin compensates); aria-label on the button gives screen readers context. */
+	.artist-link { background: none; border: none; padding: 0; color: inherit; font: inherit; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
 	.artist-sep { color: var(--color-text-muted); text-decoration: none; cursor: default; }
 	/* quick-260831-k5y: small muted pill under the artist row. Sized off the NP artist scale so
 	   it tracks the appearance settings, and always smaller than the artist line it sits below. */
@@ -1444,14 +1430,13 @@
 	/* quick-260910-tqw: the bottom margin glides with the .cover/.meta reflow (byte-identical
 	   0.32s curve) instead of hitching at t=0; see .np.reflow .transport above. */
 	.transport { display: flex; align-items: center; justify-content: space-between; margin: 0px 4px 0; transition: margin 0.32s cubic-bezier(.22,1,.36,1); }
-	.t { background: none; border: none; color: var(--color-text); cursor: pointer; opacity: 0.85; display: grid; place-items: center; min-width: 44px; min-height: 44px; }
+	.t { background: none; border: none; color: var(--color-text); cursor: pointer; opacity: 0.85; display: grid; place-items: center; }
 	.t.on { color: var(--color-primary); opacity: 1; }
-	/* User 2026-10-06 (audit): min 44px guarantees the touch target floor even if an icon fails. */
 	/* quick-260919-0mw: size the shared DownloadControl to its five `.t` siblings — it ships a 40×40
 	   list-row footprint with an 18px glyph and a muted colour, none of which match this row. The
 	   override lives HERE (scoped under .t-dl, :global to cross the child's style scope) rather than
 	   in DownloadControl.svelte, because five list-row call sites depend on its current look. */
-	.t-dl { display: grid; place-items: center; padding: 0 6px; min-width: 44px; min-height: 44px; /* match .t so the play button stays exactly centered */ }
+	.t-dl { display: grid; place-items: center; padding: 0 6px; }
 	.t-dl :global(.dc) { width: auto; height: auto; color: var(--color-text); opacity: 0.85; }
 	.t-dl :global(.dc svg) { width: 20px; height: 20px; }
 	.t-dl :global(button.dc:hover) { background: none; color: var(--color-text); }
