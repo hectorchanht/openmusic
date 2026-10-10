@@ -158,8 +158,8 @@
 	// SongRow with the markup it fed — it was per-row state that no other shelf on this page
 	// touches. The album / related shelves keep their own `fallbackCoverSeed` chain, untouched.
 
-	// kmn: action-bar state. Heart fills when artist is in library.favArtists; play picks a
-	// random hit + queues all songs from this artist; share uses Web Share API.
+	// kmn: action-bar state. Heart fills when artist is in library.favArtists; header Play
+	// starts the top-ranked song + queues the whole ranked list in order; share uses Web Share API.
 	// quick-260926-hl9: this read went through names.zhLock so a cold deep link, whose first favKey
 	// ran before t2s was warm, repainted once the lock dict landed.
 	// quick-260926-hze: library now repaints ITSELF via foldRev (it warms the fold whenever a
@@ -174,19 +174,14 @@
 		toast.show(was ? t('toast.artistUnfavorited') : t('toast.artistFavorited'));
 	}
 
-	function playArtistRandom() {
+	// quick-261015-artistplay (app-wide Play rule): header Play starts the top-ranked song
+	// instantly and installs the whole ranked list as Up Next in order — replaces the old
+	// random-pick-first behavior. `sameList` keeps the install through the fresh-play tail.
+	// Row taps keep their per-song semantics (generate similar-songs Up Next).
+	function playArtist() {
 		if (!rankedSongs.length) return;
-		const pickIdx = Math.floor(Math.random() * rankedSongs.length);
-		const picked = rankedSongs[pickIdx];
-		// Queue order = picked first, then the rest shuffled — same intent as the
-		// shuffle button on a playlist. player.play() handles ensureAhead growth.
-		const rest = rankedSongs.filter((_, i) => i !== pickIdx);
-		for (let i = rest.length - 1; i > 0; i--) {
-			const j = Math.floor(Math.random() * (i + 1));
-			[rest[i], rest[j]] = [rest[j], rest[i]];
-		}
-		player.setQueue([picked, ...rest], 'artist');
-		void player.play(picked, { fresh: true });
+		player.setListQueue(rankedSongs, 'artist');
+		void player.play(rankedSongs[0], { fresh: true, sameList: true });
 	}
 
 	async function shareArtist() {
@@ -487,7 +482,7 @@
 		<button class="act" class:on={favArtist} aria-pressed={favArtist} aria-label={favArtist ? t('artist.unfavorite') : t('artist.favorite')} title={favArtist ? t('artist.unfavorite') : t('artist.favorite')} onclick={toggleFavourite} use:tapBounce>
 			<Heart size={20} fill={favArtist ? 'currentColor' : 'none'} />
 		</button>
-		<button class="act play" aria-label={t('artist.playArtist')} title={t('artist.playArtist')} disabled={loading || !rankedSongs.length} onclick={playArtistRandom} use:tapBounce>
+		<button class="act play" aria-label={t('artist.playArtist')} title={t('artist.playArtist')} disabled={loading || !rankedSongs.length} onclick={playArtist} use:tapBounce>
 			<Play size={20} fill="currentColor" />
 		</button>
 		<button class="act" aria-label={t('artist.share')} title={t('artist.share')} onclick={shareArtist} use:tapBounce>
