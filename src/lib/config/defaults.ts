@@ -176,6 +176,11 @@ export type QueueContext =
 	// quick-261010-cpop: the free 2026 廣東歌年選 pack page. Falls through to the global
 	// up-next mode like the other discovery contexts.
 	| 'cantopop-2026'
+	// quick-261010-soy3: the other 2026 regional packs.
+	| 'mandopop-2026'
+	| 'kpop-2026'
+	| 'jpop-2026'
+	| 'western-2026'
 	| null;
 export const UPNEXT_DEFAULTS = {
 	/** Global default sourcing mode — roadmap-locked to 'generated'. */

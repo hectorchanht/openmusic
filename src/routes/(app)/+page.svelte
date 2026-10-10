@@ -6,7 +6,6 @@
 	import { Search, Settings, RotateCw, ChevronRight } from '@lucide/svelte';
 	import Logo from '$lib/components/Logo.svelte';
 	import ShelfChevrons from '$lib/components/ShelfChevrons.svelte';
-	import SponsoredStrip from '$lib/components/SponsoredStrip.svelte';
 	import { buildDiversePicks } from '$lib/services/picks';
 	import { buildRadio, reseedRadio } from '$lib/services/radio';
 	import type { QueueContext } from '$lib/config/defaults';
@@ -56,6 +55,11 @@
 	import type { ChartAlbum } from '$lib/services/chart-parse';
 	// quick-261010-soy: the curated Songs of the Year shelf (v1: Cantopop 2026 pack).
 	import { CANTOPOP_2026 } from '$lib/data/cantopop-2026';
+	// quick-261010-soy3: the other regional packs.
+	import { MANDOPOP_2026 } from '$lib/data/mandopop-2026';
+	import { KPOP_2026 } from '$lib/data/kpop-2026';
+	import { JPOP_2026 } from '$lib/data/jpop-2026';
+	import { WESTERN_2026 } from '$lib/data/western-2026';
 	// quick-261006-o9u: shelf tiles now go through sizedCover (mzstatic + dzcdn) instead of
 	// resizeMzstatic alone — the resolver stores 400px/500px masters and tiles paint ≤ ~140px.
 	import { sizedCover, TILE_COVER_PX } from '$lib/services/cover-size';
@@ -171,6 +175,14 @@
 		image: null,
 		mbid: null
 	}));
+	// quick-261010-soy3: the 5 regional packs for the hub shelf.
+	const soyRegions = [
+		{ id: 'cantopop-2026', title: '廣東歌', count: CANTOPOP_2026.length, href: '/charts/cantopop-2026' },
+		{ id: 'mandopop-2026', title: '國語', count: MANDOPOP_2026.length, href: '/charts/mandopop-2026' },
+		{ id: 'kpop-2026', title: 'K-pop', count: KPOP_2026.length, href: '/charts/kpop-2026' },
+		{ id: 'jpop-2026', title: 'J-pop', count: JPOP_2026.length, href: '/charts/jpop-2026' },
+		{ id: 'western-2026', title: '西洋', count: WESTERN_2026.length, href: '/charts/western-2026' }
+	];
 	// D-06: when LASTFM_KEY is absent or every shelf is empty, fall back to the random
 	// buildDiversePicks grid so the home page is never blank signed-out / no-key.
 	let useFallback = $state(false);
@@ -1142,11 +1154,6 @@
 	<button class="gear" aria-label={t('home.settings')} use:tapBounce onclick={() => goto('/settings')}><Settings size={20} /></button>
 </header>
 
-<!-- quick-261010-spon: the Dawn "Sponsored" strip — first content block under the
-     app header. Tip jar + referral links; tippers can ×-dismiss it (localStorage,
-     honor system). -->
-<SponsoredStrip />
-
 {#if settings.homeShowSearchPill}
 	<button class="searchpill" use:tapBounce onclick={() => goto('/search')}>
 		<Search size={16} /> <span>{t('home.searchPill')}</span>
@@ -1426,8 +1433,15 @@
 {/snippet}
 
 {#snippet songsOfYearBlock()}
-	{@render titleNav(t('home.songsOfYear'), '/charts/cantopop-2026')}
-	{@render discoveryShelf(songsOfYearTracks, densityOf('songs-of-year'))}
+	{@render titleNav(t('home.songsOfYear'), '/charts/songs-of-year')}
+	<div class="soy-regions">
+		{#each soyRegions as r (r.id)}
+			<button type="button" class="soy-card" onclick={() => goto(r.href)} use:tapBounce>
+				<span class="soy-title">{r.title}</span>
+				<span class="soy-count">{r.count} 首</span>
+			</button>
+		{/each}
+	</div>
 {/snippet}
 
 <!-- Chart shelves (UI-SPEC §1.1): each renders NOTHING — no header — while its sampled pool is
@@ -1848,4 +1862,17 @@
 	@media (min-width: 1024px) {
 		.grid { grid-template-columns: repeat(auto-fill, minmax(calc(150px * var(--cover-scale, 1)), 1fr)); }
 	}
+	/* quick-261010-soy3: Songs of the Year region hub cards. */
+	.soy-regions {
+		display: flex; gap: 12px; overflow-x: auto; padding: 4px 16px 16px;
+		scrollbar-width: none;
+	}
+	.soy-regions::-webkit-scrollbar { display: none; }
+	.soy-card {
+		flex: 0 0 auto; display: flex; flex-direction: column; align-items: center; gap: 6px;
+		padding: 20px 24px; border-radius: 12px; border: 1px solid var(--color-border);
+		background: var(--color-surface); cursor: pointer; min-width: 120px;
+	}
+	.soy-title { font-size: 1.1rem; font-weight: 700; }
+	.soy-count { font-size: 0.8rem; color: var(--color-text-muted); }
 </style>
