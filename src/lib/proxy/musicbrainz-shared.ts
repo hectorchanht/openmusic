@@ -83,6 +83,25 @@ export async function mbFetch<T>(url: string, attempts = 3): Promise<T | null> {
 }
 
 /**
+ * Reduce an artist/recording-credit name to its comparable core (quick-261009-ewf).
+ *
+ * Used for NAME-EQUALITY checks: "is this the same artist as that string?" Punctuation,
+ * spacing, casing, the `&amp;` entity, the standalone word "and" ("Earth Wind and Fire"
+ * vs "Earth, Wind & Fire"), and diacritics ("Beyonce" vs "Beyoncé") must not defeat the
+ * match — what matters is that the NAME is the same artist. Shared by the artist-identity
+ * route and the recording-artists route so both layers compare identically.
+ */
+export function canonicalKey(name: string): string {
+	return (name ?? '')
+		.replace(/&amp;/gi, '&')
+		.replace(/\band\b/giu, ' ')
+		.normalize('NFD')
+		.replace(/\p{M}/gu, '')
+		.toLowerCase()
+		.replace(/[^\p{L}\p{N}]/gu, '');
+}
+
+/**
  * Normalize a MusicBrainz alias locale to the app's language tag.
  * MB uses underscored, sometimes region-qualified tags (`zh_Hant`, `zh_Hans_CN`); the app uses
  * `zh-Hant` / `zh-Hans` / `en`. Returns the hyphenated form, region suffix dropped beyond the

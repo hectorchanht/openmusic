@@ -44,6 +44,7 @@
 	import { toast } from '$lib/stores/toast.svelte';
 	import { tick as hapticTick } from '$lib/util/haptics';
 	import { splitArtists } from '$lib/util/artist-split';
+	import { resolveArtistNames } from '$lib/services/artist-names';
 	import TrackMenu from '$lib/components/TrackMenu.svelte';
 	import VersionPicker from '$lib/components/VersionPicker.svelte';
 	import Nowbar from '$lib/components/Nowbar.svelte';
@@ -414,7 +415,26 @@
 	// openArtist navigation, parameterised by the per-name string (T-pzs-04: encodeURIComponent the
 	// name exactly as before — the /artist/[name] route decodeURIComponent's the param; since
 	// quick-260926-hl9 names.artistHref does the encode, after the script lock).
-	const artistNames = $derived(splitArtists(player.current?.artist ?? ''));
+	// quick-261009-ewf: the FULL string is searched on MusicBrainz FIRST — "Earth, Wind & Fire"
+	// is one legal group name and must not render as three artists — and when the full string
+	// is NOT a known artist, the RECORDING's own artist credits are consulted (title + artist).
+	// resolveArtistNames() paints the synchronous split instantly (today's behavior, no empty
+	// flash) and refines it once the lookups resolve; the cancelled flag is the standard
+	// generation guard so a stale lookup can never overwrite a newer track's names. Both
+	// artist AND title are read so the effect re-runs when either changes.
+	let artistNames = $state<string[]>([]);
+	$effect(() => {
+		const raw = player.current?.artist ?? '';
+		const title = player.current?.title ?? '';
+		artistNames = splitArtists(raw);
+		let cancelled = false;
+		resolveArtistNames(raw, title).then((names) => {
+			if (!cancelled) artistNames = names;
+		});
+		return () => {
+			cancelled = true;
+		};
+	});
 	// quick-260831-k5y: the resolved track's quality tag (FLAC / 320 / …), shown under the
 	// title/artist when settings.showQualityTag is on. `qualityLabel` is the source's own
 	// wording and wins; `quality` is the raw tier. Null for a stub that has not resolved yet
