@@ -1510,8 +1510,12 @@
 	   row so ellipsis/marquee keep measuring correctly (marquee re-measures on box-width
 	   change via ResizeObserver). .meta is align-items:flex-start, so the row needs width:100%. */
 	.title-row { display: flex; align-items: center; gap: 10px; width: 100%; }
-	.title-row > .title { flex: 1 1 auto; min-width: 0; }
-	.title-row .np-vol { flex: none; margin-left: auto; display: flex; align-items: center; gap: 6px; }
+	/* quick-261010-soy8: the title's black bg was stretching full-width (flex:1 grew it).
+	   flex:0 stops the grow so the bg hugs the text; shrink still allows ellipsis. */
+	.title-row > .title { flex: 0 1 auto; min-width: 0; }
+	.title-row .np-vol { flex: none; margin-left: auto; display: flex; align-items: center; gap: 6px;
+		/* quick-261010-soy8: visible bg for the volume control. */
+		background: rgba(0, 0, 0, 0.55); padding: 6px 10px; border-radius: 999px; }
 	.np-volbtn { background: none; border: none; color: var(--color-text); width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; cursor: pointer; opacity: 0.85; transition: background 0.12s ease, transform 0.12s ease; }
 	.np-volbtn:hover { background: rgba(255, 255, 255, 0.1); opacity: 1; }
 	.np-volbtn:active { transform: scale(0.92); }
