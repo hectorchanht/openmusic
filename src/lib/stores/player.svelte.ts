@@ -105,6 +105,9 @@ import { names } from '$lib/stores/names.svelte';
 import { logAction } from '$lib/stores/actionLog.svelte';
 import type { SourceId, Track } from '$lib/sources/types';
 import { loadRetriesFor } from '$lib/sources/registry';
+// ANALYTICS: anonymous play-count ping on first real audio output — fire-and-forget,
+// no PII, no IP stored server-side.
+import { trackPlayStart } from '$lib/analytics';
 // Type-only import (WR-03): lets `notice.msg` / `error` be a real TranslationKey so a host can
 // `t(n.msg)` and the token is guaranteed to exist in every dictionary. No runtime UI dependency —
 // the store still emits raw, host-rendered data (D-03); this just type-checks the token keys.
@@ -2377,7 +2380,12 @@ class Player {
 			logAction('playing', { uid: this.current?.uid, ms: this.srcSetAt ? Date.now() - this.srcSetAt : -1 });
 			// `playing` is the event that means audio is ACTUALLY producing output (CR-01).
 			// D-13/D-14: mark the src as having played + disarm the initial-load stall watchdog.
+			// ANALYTICS: exactly one play event per track load — the first real audio output.
+			// Pause/resume and mid-track re-resolves keep the flag true, so they never
+			// double-count. Fire-and-forget; a failed ping never touches playback.
+			const firstAudiblePlay = !this.hasPlayedSinceSrc;
 			this.hasPlayedSinceSrc = true;
+			if (firstAudiblePlay && this.current) trackPlayStart(this.current);
 			this.disarmStall();
 			// Next-song-current-but-paused fix: real audio started — the autoplay-retry arm is moot.
 			this.autoplayRetryArmed = false;

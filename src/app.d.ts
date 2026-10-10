@@ -24,6 +24,10 @@ declare global {
 				// Server-only bearer tokens — `wrangler pages secret put`, never a VITE_ var.
 				DIAG_UPLOAD_TOKEN?: string;
 				DIAG_READ_TOKEN?: string;
+				// ANALYTICS (2026-10-10): anonymous play-count store — D1 binding
+				// `openmusic-analytics`, wired in wrangler.jsonc d1_databases. The
+				// endpoint degrades to { ok:false } when absent (local dev / tests).
+				ANALYTICS_DB?: D1Database;
 			};
 			// 31-D-06: the Cloudflare ExecutionContext. `waitUntil()` keeps the Worker alive for a
 			// background job AFTER the response has already been sent — the /api/resolve edge-cache

@@ -31,5 +31,17 @@
 			"binding": "DIAG",
 			"bucket_name": "openmusic-diag"
 		}
+	],
+	// ANALYTICS (2026-10-10): anonymous play-count store. Holds ONLY play events
+	// (anon random id + song id/title/artist/source + device/OS/platform/version/
+	// locale/country + server timestamp); no IPs, no accounts. Written by
+	// POST /api/analytics/play via the ANALYTICS_DB binding. Same wrangler.jsonc
+	// pattern as the DIAG R2 binding above — applied by `wrangler pages deploy`.
+	"d1_databases": [
+		{
+			"binding": "ANALYTICS_DB",
+			"database_name": "openmusic-analytics",
+			"database_id": "0c644f30-410a-4658-b184-9582077750e6"
+		}
 	]
 }
