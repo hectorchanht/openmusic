@@ -50,7 +50,6 @@
 <PageHeader backLabel={t('common.back')} showSettings />
 
 <header class="hero">
-	<span class="free-badge">免費 FREE</span>
 	<h1>{t('home.songsOfYear')}</h1>
 	{#if year === DEFAULT_YEAR}
 		<p class="sub">2026 · 5 regions</p>
@@ -120,11 +119,6 @@
 
 <style>
 	.hero { padding: 24px 16px 8px; text-align: center; }
-	.free-badge {
-		display: inline-block; padding: 3px 12px; border-radius: 999px;
-		background: var(--color-primary); color: #fff; font-size: 0.72rem;
-		font-weight: 700; letter-spacing: 0.08em; margin-bottom: 10px;
-	}
 	.hero h1 { font-size: calc(1.6rem * var(--fs-title, 1)); margin: 0; }
 	.sub { color: var(--color-text-muted); font-size: 0.85rem; margin: 6px 0 0; }
 	.years {

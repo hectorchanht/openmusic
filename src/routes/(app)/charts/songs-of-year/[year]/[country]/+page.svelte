@@ -167,8 +167,7 @@
 	</header>
 {:else}
 	<header class="hero">
-		<span class="free-badge">免費 FREE</span>
-		<h1>{country} · {yearNum}</h1>
+			<h1>{country} · {yearNum}</h1>
 		<p class="sub">{t('soy.yearEndSub')} · {songs.length} {t('pack.songs')}</p>
 		<div class="actions">
 			<button
@@ -229,17 +228,6 @@
 	.hero {
 		padding: 24px 16px 8px;
 		text-align: center;
-	}
-	.free-badge {
-		display: inline-block;
-		padding: 3px 12px;
-		border-radius: 999px;
-		background: var(--color-primary);
-		color: #fff;
-		font-size: 0.72rem;
-		font-weight: 700;
-		letter-spacing: 0.08em;
-		margin-bottom: 10px;
 	}
 	.hero h1 {
 		font-size: calc(1.6rem * var(--fs-title, 1));
