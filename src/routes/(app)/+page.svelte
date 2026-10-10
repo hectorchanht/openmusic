@@ -177,12 +177,14 @@
 		mbid: null
 	}));
 	// quick-261010-soy3: the 5 regional packs for the hub shelf.
-	const soyRegions: { id: string; titleKey: TranslationKey; count: number; href: string }[] = [
-		{ id: 'cantopop-2026', titleKey: 'region.cantopop', count: CANTOPOP_2026.length, href: '/charts/cantopop-2026' },
-		{ id: 'mandopop-2026', titleKey: 'region.mandopop', count: MANDOPOP_2026.length, href: '/charts/mandopop-2026' },
-		{ id: 'kpop-2026', titleKey: 'region.kpop', count: KPOP_2026.length, href: '/charts/kpop-2026' },
-		{ id: 'jpop-2026', titleKey: 'region.jpop', count: JPOP_2026.length, href: '/charts/jpop-2026' },
-		{ id: 'western-2026', titleKey: 'region.western', count: WESTERN_2026.length, href: '/charts/western-2026' }
+	// quick-261010-soy11: flag artwork per region (static/img/soy/*.png, bundled).
+	// Western is US+UK side-by-side — it is a language market, not one country.
+	const soyRegions: { id: string; titleKey: TranslationKey; count: number; href: string; img: string }[] = [
+		{ id: 'cantopop-2026', titleKey: 'region.cantopop', count: CANTOPOP_2026.length, href: '/charts/cantopop-2026', img: '/img/soy/cantopop.png' },
+		{ id: 'mandopop-2026', titleKey: 'region.mandopop', count: MANDOPOP_2026.length, href: '/charts/mandopop-2026', img: '/img/soy/mandopop.png' },
+		{ id: 'kpop-2026', titleKey: 'region.kpop', count: KPOP_2026.length, href: '/charts/kpop-2026', img: '/img/soy/kpop.png' },
+		{ id: 'jpop-2026', titleKey: 'region.jpop', count: JPOP_2026.length, href: '/charts/jpop-2026', img: '/img/soy/jpop.png' },
+		{ id: 'western-2026', titleKey: 'region.western', count: WESTERN_2026.length, href: '/charts/western-2026', img: '/img/soy/western.png' }
 	];
 	// D-06: when LASTFM_KEY is absent or every shelf is empty, fall back to the random
 	// buildDiversePicks grid so the home page is never blank signed-out / no-key.
@@ -1442,9 +1444,12 @@
 	{@render titleNav(t('home.songsOfYear'), '/charts/songs-of-year')}
 	<div class="soy-regions">
 		{#each soyRegions as r (r.id)}
-			<button type="button" class="soy-card" onclick={() => goto(r.href)} use:tapBounce>
-				<span class="soy-title">{t(r.titleKey)}</span>
-				<span class="soy-count">{r.count} {t('pack.songs')}</span>
+			<button type="button" class="soy-card" onclick={() => goto(r.href)} use:tapBounce aria-label={t(r.titleKey)}>
+				<img class="soy-flag" src={r.img} alt="" draggable="false" />
+				<span class="soy-label">
+					<span class="soy-title">{t(r.titleKey)}</span>
+					<span class="soy-count">{r.count} {t('pack.songs')}</span>
+				</span>
 			</button>
 		{/each}
 	</div>
@@ -1875,10 +1880,22 @@
 	}
 	.soy-regions::-webkit-scrollbar { display: none; }
 	.soy-card {
-		flex: 0 0 auto; display: flex; flex-direction: column; align-items: center; gap: 6px;
-		padding: 20px 24px; border-radius: 12px; border: 1px solid var(--color-border);
-		background: var(--color-surface); cursor: pointer; min-width: 120px;
+		flex: 0 0 auto; position: relative; overflow: hidden;
+		width: 168px; aspect-ratio: 16 / 10; padding: 0;
+		border-radius: 12px; border: 1px solid var(--color-border);
+		background: var(--color-surface); cursor: pointer;
 	}
-	.soy-title { font-size: 1.1rem; font-weight: 700; }
-	.soy-count { font-size: 0.8rem; color: var(--color-text-muted); }
+	.soy-flag {
+		position: absolute; inset: 0; width: 100%; height: 100%;
+		object-fit: cover; pointer-events: none;
+	}
+	.soy-label {
+		position: absolute; left: 0; right: 0; bottom: 0;
+		display: flex; flex-direction: column; gap: 2px;
+		padding: 20px 10px 8px; text-align: left;
+		background: linear-gradient(to top, rgba(0, 0, 0, 0.78), transparent);
+		pointer-events: none;
+	}
+	.soy-title { font-size: 0.95rem; font-weight: 700; color: #fff; }
+	.soy-count { font-size: 0.75rem; color: rgba(255, 255, 255, 0.85); }
 </style>
