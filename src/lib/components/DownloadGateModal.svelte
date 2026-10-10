@@ -50,28 +50,38 @@
 <style>
 	.scrim {
 		position: fixed; inset: 0; background: rgba(0, 0, 0, 0.6); z-index: 60;
-		display: flex; align-items: center; justify-content: center; padding: 24px;
+		display: flex; align-items: center; justify-content: center; padding: 20px;
+		/* Ensure the scrim itself never causes overflow on small screens. */
+		box-sizing: border-box;
 	}
 	.sheet {
-		background: var(--color-bg); border-radius: 16px; padding: 28px 24px;
-		max-width: 380px; width: 100%; text-align: center;
+		background: var(--color-bg); border-radius: 16px; padding: 24px 20px;
+		/* quick-261010-soy6: must stay smaller than the viewport on phones —
+		   the 380px max was overflowing ~390px screens. */
+		width: calc(100vw - 56px);
+		max-width: 340px;
+		max-height: calc(100vh - 80px);
+		max-height: calc(100dvh - 80px);
+		overflow-y: auto;
+		box-sizing: border-box;
+		text-align: center;
 	}
 	.icon {
 		display: inline-flex; align-items: center; justify-content: center;
-		width: 56px; height: 56px; border-radius: 50%;
-		background: var(--color-primary); color: #fff; margin-bottom: 12px;
+		width: 48px; height: 48px; border-radius: 50%;
+		background: var(--color-primary); color: #fff; margin-bottom: 10px;
 	}
-	.sheet h2 { margin: 0 0 8px; font-size: 1.2rem; }
-	.sheet p { margin: 0 0 16px; color: var(--color-text-muted); font-size: 0.9rem; line-height: 1.5; }
+	.sheet h2 { margin: 0 0 8px; font-size: 1.15rem; }
+	.sheet p { margin: 0 0 14px; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5; }
 	.steps {
-		text-align: left; margin: 0 0 20px; padding-left: 20px;
-		color: var(--color-text); font-size: 0.88rem; line-height: 1.7;
+		text-align: left; margin: 0 0 16px; padding-left: 20px;
+		color: var(--color-text); font-size: 0.83rem; line-height: 1.6;
 	}
-	.steps li { margin-bottom: 4px; }
+	.steps li { margin-bottom: 3px; }
 	.steps li::marker { color: var(--color-primary); font-weight: 700; }
-	.row { display: flex; gap: 12px; margin-bottom: 12px; }
+	.row { display: flex; gap: 10px; margin-bottom: 10px; }
 	.btn {
-		flex: 1; padding: 12px; border-radius: 10px; font-size: 0.95rem;
+		flex: 1; padding: 11px; border-radius: 10px; font-size: 0.9rem;
 		font-weight: 600; cursor: pointer; border: none;
 	}
 	.btn.ghost {
