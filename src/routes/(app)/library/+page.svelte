@@ -431,10 +431,11 @@
 						     Trash-instead-of-Play trailing glyph. The row's own inline Download button
 						     (settings.rowActions) replaces the sibling DownloadControl that used to sit
 						     outside the swipe-wrap — one download affordance per row, not two. -->
+						<!-- quick-261010-sar: the artist-name rule, app-wide — SMART-resolved artist name. -->
 						<SongRow
 							{track}
 							danger={editMode}
-							subtitle={names.dnArtist(track.artist)}
+							smartArtist
 							onplay={() => rowAction(track, library.liked)}
 							onrequestmenu={() => openMenu(track)}
 						/>
@@ -470,10 +471,11 @@
 									<span class="reveal reveal-next" aria-hidden="true"><ListStart size={20} /></span>
 									<!-- The shared row (see the liked list above). rowAction carries pl.id so
 									     a bulk-edit tap removes from THIS playlist. -->
+									<!-- quick-261010-sar: the artist-name rule, app-wide — SMART-resolved artist name. -->
 									<SongRow
 										{track}
 										danger={editMode}
-										subtitle={names.dnArtist(track.artist)}
+							smartArtist
 										onplay={() => rowAction(track, pl.tracks, pl.id)}
 										onrequestmenu={() => openMenu(track)}
 									/>
@@ -496,10 +498,11 @@
 						<!-- The shared row (see the liked list above). On THIS tab the inline Download
 						     button renders its greyed "downloaded" state, which is what the sibling
 						     control used to show. -->
+						<!-- quick-261010-sar: the artist-name rule, app-wide — SMART-resolved artist name. -->
 						<SongRow
 							{track}
 							danger={editMode}
-							subtitle={names.dnArtist(track.artist)}
+							smartArtist
 							onplay={() => rowAction(track, library.downloads)}
 							onrequestmenu={() => openMenu(track)}
 						/>
@@ -538,9 +541,10 @@
 						<span class="reveal reveal-next" aria-hidden="true"><ListStart size={20} /></span>
 						<!-- The shared row (see the liked list above). History is deliberately NOT
 						     bulk-editable (it has its own Clear all), so no `danger` here. -->
+						<!-- quick-261010-sar: the artist-name rule, app-wide — SMART-resolved artist name. -->
 						<SongRow
 							{track}
-							subtitle={names.dnArtist(track.artist)}
+							smartArtist
 							onplay={() => playEntry(track)}
 							onrequestmenu={() => openMenu(track)}
 						/>

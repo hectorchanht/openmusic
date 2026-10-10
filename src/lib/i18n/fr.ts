@@ -171,6 +171,8 @@ const fr: Dict = {
 	"settings.rowButtonsDesc": "Choisissez les boutons affichés à côté d’un morceau dans les listes, et dans quel ordre. Faites glisser pour déplacer, appuyez pour désactiver. Le menu ⋮ est toujours là : tout reste accessible même si vous les désactivez tous.",
 	"settings.rowButtonOn": "{name} — affiché, position {pos} sur {total}. Appuyez sur Entrée pour le masquer, ou sur les flèches gauche et droite pour le déplacer.",
 	"settings.rowButtonOff": "{name} — masqué. Appuyez sur Entrée pour l’afficher.",
+	"settings.rowMenuButtonOn": "Bouton de menu — affiché. Appuyez sur Entrée pour le masquer.",
+	"settings.rowMenuButtonOff": "Bouton de menu — masqué. Appuyez sur Entrée pour l’afficher.",
 	"settings.fontSizeApp": "Taille du texte de l’appli",
 	"settings.fontSizeAppDesc": "Met à l’échelle tout le texte de l’appli d’un coup. Les tailles Lignes de morceaux et Lecture en cours ci-dessous se multiplient par-dessus.",
 	"settings.songRowEditor": "Lignes de morceaux",

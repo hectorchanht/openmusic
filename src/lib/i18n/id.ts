@@ -171,6 +171,8 @@ const id: Dict = {
 	"settings.rowButtonsDesc": "Pilih tombol mana yang muncul di samping lagu dalam daftar, dan urutannya. Seret untuk memindahkan, ketuk untuk mematikan. Menu ⋮ selalu ada, jadi semuanya tetap terjangkau walau semua tombol ini dimatikan.",
 	"settings.rowButtonOn": "{name} — tampil, posisi {pos} dari {total}. Tekan Enter untuk menyembunyikannya, atau tombol panah kiri dan kanan untuk memindahkannya.",
 	"settings.rowButtonOff": "{name} — tersembunyi. Tekan Enter untuk menampilkannya.",
+	"settings.rowMenuButtonOn": "Tombol menu — ditampilkan. Tekan Enter untuk menyembunyikan.",
+	"settings.rowMenuButtonOff": "Tombol menu — disembunyikan. Tekan Enter untuk menampilkan.",
 	"settings.fontSizeApp": "Ukuran teks aplikasi",
 	"settings.fontSizeAppDesc": "Mengubah ukuran semua teks di aplikasi sekaligus. Ukuran Baris lagu dan Sedang diputar di bawah dikalikan di atas ini.",
 	"settings.songRowEditor": "Baris lagu",

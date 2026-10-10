@@ -88,6 +88,8 @@
 	import RowBadges from '$lib/components/RowBadges.svelte';
 	import DownloadControl from '$lib/components/DownloadControl.svelte';
 	import DownloadRing from '$lib/components/DownloadRing.svelte';
+	import { splitArtists } from '$lib/util/artist-split';
+	import { resolveArtistNames } from '$lib/services/artist-names';
 
 	interface Props {
 		/** The song. `uid = ${source}:${songid}` is IDENTITY (makeUid). */
@@ -128,6 +130,15 @@
 		persist?: boolean;
 		/** Second line. Default `names.dnArtist(track.album || track.artist)`. */
 		subtitle?: string;
+		/** quick-261010-sar: SMART artist subtitle (opt-in per surface). When true, the second
+		 *  line shows the track's ARTIST — resolved through the same smart pipeline as the Now
+		 *  Playing artist line (quick-261009-ewf): the synchronous split paints instantly, then
+		 *  an async pass (MusicBrainz identity → recording credits → split fallback) auto-updates
+		 *  it, so a row whose source mislabels the artist self-corrects instead of sitting wrong.
+		 *  The artist page sets this: its rows were showing `track.album` ("COMPOSITION", "原創",
+		 *  the single title), which reads as a wrong ARTIST name under the SongRow convention.
+		 *  Default false — every other surface keeps today's album-first subtitle byte-identical. */
+		smartArtist?: boolean;
 		/** A host-known cover → rung 2 of pickRowCover. OMIT and it defaults to `track.cover`, the
 		 *  song's own source art, which is what every list surface passed here by hand. Pass an
 		 *  explicit value only to override that (the album tracklist passes the album hero, whose
@@ -158,6 +169,7 @@
 		resolved = null,
 		persist = true,
 		subtitle = undefined,
+		smartArtist = false,
 		cover = undefined,
 		active = undefined,
 		lazy = true,
@@ -167,7 +179,32 @@
 	// The prop FORCES; the setting is the fallback. Order is load-bearing — `acts` IS the
 	// left-to-right layout, so `['download','like']` really does put the download button first.
 	const acts = $derived(actions ?? settings.rowActions);
-	const sub = $derived(subtitle ?? names.dnArtist(track.album || track.artist));
+	// quick-261010-sar: the smart-artist subtitle state. Null until the effect below paints the
+	// synchronous split (today's behavior); the effect then refines via resolveArtistNames —
+	// the NowPlaying auto-update pattern, verbatim. Runs ONLY when the host opts in
+	// (smartArtist), so every other surface pays nothing.
+	let smartNames = $state<string[] | null>(null);
+	$effect(() => {
+		if (!smartArtist) return;
+		const a = track.artist ?? '';
+		const t = track.title ?? '';
+		smartNames = splitArtists(a);
+		let cancelled = false;
+		void resolveArtistNames(a, t).then((ns) => {
+			if (!cancelled) smartNames = ns;
+		});
+		return () => {
+			cancelled = true;
+		};
+	});
+	// No empty-subtitle flash: before the effect first runs, paint the synchronous split of the
+	// current track (a $derived read of the prop is reactive — no state_referenced_locally).
+	const smartSub = $derived(
+		!smartArtist
+			? ''
+			: (smartNames ?? splitArtists(track.artist ?? '')).map((n) => names.dnArtist(n)).join(' · ')
+	);
+	const sub = $derived(subtitle ?? (smartArtist ? smartSub : names.dnArtist(track.album || track.artist)));
 	const isActive = $derived(active ?? player.current?.uid === track.uid);
 
 	// RESOLVE-ON-TAP state (quick-260919-l9e). A stub row has no uid to key liked/downloaded state
@@ -297,6 +334,15 @@
 	// a `resolve` in hand the row resolves on tap and then likes the REAL Track — never the stub,
 	// whose uid is TRUTHY on an album row (`${source}:similar-${matchKey}`) and would otherwise be
 	// persisted into the liked list as an unplayable entry. `rowActionTarget` owns that decision.
+	// quick-261010-rcm: right-click == long-press on a row. The longpress action already
+	// swallows the native context menu on .hit; this opens the same TrackMenu a hold would.
+	// Shared by onlongpress + oncontextmenu so the two gestures can never drift apart.
+	function openRowMenu(e: Event) {
+		(e.currentTarget as HTMLElement)?.blur();
+		hapticTick();
+		onrequestmenu();
+	}
+
 	async function toggleLike() {
 		if (likeBusy) return; // second tap during a multi-second resolve: no-op, not a double-toggle
 		const gen = rowGen;
@@ -336,11 +382,8 @@
 		class="hit"
 		aria-label={`${names.dnTitle(track.title, track.artist)} — ${sub}`}
 		use:longpress
-		onlongpress={(e) => {
-			(e.currentTarget as HTMLElement)?.blur();
-			hapticTick();
-			onrequestmenu();
-		}}
+		onlongpress={openRowMenu}
+		oncontextmenu={openRowMenu}
 		onclick={onplay}
 	></button>
 	{#if grip}<span class="grip" aria-hidden="true"><GripVertical size={16} /></span>{/if}
@@ -393,10 +436,14 @@
 	{/each}
 	<!-- D-5: the passive badge stands down for whichever state this row draws a live control for.
 	     quick-261006-smb: the trailing ⋮ is icon-only chrome, so it carries the slim `.menu`
-	     variant (28px hit box, 8px back to `.meta`) instead of the full 36px `.ract`. -->
-	<button class="ract menu" aria-label={t('menu.options')} onclick={onrequestmenu}>
-		<MoreVertical size={18} />
-	</button>
+	     variant (28px hit box, 8px back to `.meta`) instead of the full 36px `.ract`.
+	     quick-261010-sar: hidden when the user switches it off in Settings → Appearance → Song
+	     rows (settings.showRowMenu) — long-press / right-click still opens the menu. -->
+	{#if settings.showRowMenu}
+		<button class="ract menu" aria-label={t('menu.options')} onclick={onrequestmenu}>
+			<MoreVertical size={18} />
+		</button>
+	{/if}
 </div>
 
 <style>

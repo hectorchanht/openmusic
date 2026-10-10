@@ -75,11 +75,18 @@ export const APPEARANCE_DEFAULTS = {
 	 *  quick-260925-vtg supersedes quick-260920-kxz (which had flipped the default to neither
 	 *  on): a fresh row shows Download then Like — the user's own exported settings adopted as
 	 *  the defaults. Either can still be switched off from the Song rows editor in Settings →
-	 *  Appearance, and an empty row stays safe because the ⋮ menu is NOT in this list and is
-	 *  unconditional, so every action stays reachable. An existing user's persisted `[]` still
+	 *  Appearance, and an empty row stays safe because the ⋮ menu opens on long-press (touch) /
+	 *  right-click (desktop, quick-261010), so every action stays reachable even with the ⋮ hidden
+	 *  via `showRowMenu`. An existing user's persisted `[]` still
 	 *  survives load() (Array.isArray guard, asserted in settings-persist).
 	 *  WR-10: this literal lives HERE and nowhere else. */
-	rowActions: [] as readonly RowAction[]
+	rowActions: [] as readonly RowAction[],
+	/** quick-261010-sar: the song row's trailing ⋮ menu button. Default ON (today's behavior).
+	 *  quick-260919-l9e made it unconditional so a row could never become a dead end; that
+	 *  rationale is superseded — long-press (touch) and right-click (desktop, quick-261010-rcm)
+	 *  both open the same TrackMenu, so hiding the ⋮ loses no action. Toggled from the Song
+	 *  rows editor in Settings → Appearance, where the replica's ⋮ IS the switch. */
+	showRowMenu: true
 } as const;
 
 // ---- Translation -----------------------------------------------------------------------

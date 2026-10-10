@@ -171,6 +171,8 @@ const vi: Dict = {
 	"settings.rowButtonsDesc": "Chọn những nút xuất hiện bên cạnh bài hát trong danh sách, và theo thứ tự nào. Kéo để di chuyển, chạm để tắt. Menu ⋮ luôn có mặt, nên mọi thứ vẫn trong tầm tay ngay cả khi tắt hết các nút này.",
 	"settings.rowButtonOn": "{name} — đang hiện, vị trí {pos} trên {total}. Nhấn Enter để ẩn, hoặc phím mũi tên trái và phải để di chuyển.",
 	"settings.rowButtonOff": "{name} — đang ẩn. Nhấn Enter để hiện.",
+	"settings.rowMenuButtonOn": "Nút menu — đang hiển thị. Nhấn Enter để ẩn.",
+	"settings.rowMenuButtonOff": "Nút menu — đang ẩn. Nhấn Enter để hiện.",
 	"settings.fontSizeApp": "Cỡ chữ trong ứng dụng",
 	"settings.fontSizeAppDesc": "Thay đổi cỡ của toàn bộ chữ trong ứng dụng cùng lúc. Các cỡ ở Hàng bài hát và Đang phát bên dưới sẽ nhân thêm trên cỡ này.",
 	"settings.songRowEditor": "Hàng bài hát",

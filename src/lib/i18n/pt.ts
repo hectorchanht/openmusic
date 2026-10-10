@@ -171,6 +171,8 @@ const pt: Dict = {
 	"settings.rowButtonsDesc": "Escolha quais botões aparecem ao lado de uma música nas listas, e em que ordem. Arraste um para movê-lo, toque para desligá-lo. O menu ⋮ está sempre lá, então tudo continua acessível mesmo com todos desligados.",
 	"settings.rowButtonOn": "{name} — visível, posição {pos} de {total}. Pressione Enter para ocultá-lo, ou as setas esquerda e direita para movê-lo.",
 	"settings.rowButtonOff": "{name} — oculto. Pressione Enter para mostrá-lo.",
+	"settings.rowMenuButtonOn": "Botão de menu — visível. Prima Enter para ocultar.",
+	"settings.rowMenuButtonOff": "Botão de menu — oculto. Prima Enter para mostrar.",
 	"settings.fontSizeApp": "Tamanho do texto do app",
 	"settings.fontSizeAppDesc": "Redimensiona todo o texto do app de uma vez. Os tamanhos de Linhas de músicas e Tocando agora abaixo se multiplicam sobre este.",
 	"settings.songRowEditor": "Linhas de músicas",

@@ -171,6 +171,8 @@ const tr: Dict = {
 	"settings.rowButtonsDesc": "Listelerde bir şarkının yanında hangi düğmelerin, hangi sırayla görüneceğini seçin. Taşımak için sürükleyin, kapatmak için dokunun. ⋮ menüsü her zaman orada, bu yüzden hepsini kapatsanız bile her şeye erişebilirsiniz.",
 	"settings.rowButtonOn": "{name} — görünür, {total} içinde {pos}. sırada. Gizlemek için Enter’a, taşımak için sol ve sağ ok tuşlarına basın.",
 	"settings.rowButtonOff": "{name} — gizli. Göstermek için Enter’a basın.",
+	"settings.rowMenuButtonOn": "Menü düğmesi — gösteriliyor. Gizlemek için Enter’a basın.",
+	"settings.rowMenuButtonOff": "Menü düğmesi — gizli. Göstermek için Enter’a basın.",
 	"settings.fontSizeApp": "Uygulama yazı boyutu",
 	"settings.fontSizeAppDesc": "Uygulamadaki tüm yazıyı tek seferde ölçekler. Aşağıdaki Şarkı satırları ve Şimdi çalıyor boyutları bunun üzerine çarpılır.",
 	"settings.songRowEditor": "Şarkı satırları",

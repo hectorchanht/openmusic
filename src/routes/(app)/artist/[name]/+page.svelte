@@ -613,8 +613,13 @@
 					     displayIndex, ORDERING only. The queue is still the FULL loaded `rankedSongs`,
 					     not the render window (quick-260831-rjo). -->
 					<li>
+						<!-- quick-261010-sar: smartArtist — the row's second line is the SMART-resolved
+						     artist name (auto-updating, same pipeline as Now Playing), not the album.
+						     The album-first default read as a wrong ARTIST name here ("COMPOSITION",
+						     "原創", the single title under the SongRow convention). -->
 						<SongRow
 							{track}
+							smartArtist
 							// index={i}
 							onplay={() => { player.setListQueue(rankedSongs, 'artist'); player.play(track, { fresh: true }); }}
 							onrequestmenu={() => { menuTrack = track; menuOpen = true; }}

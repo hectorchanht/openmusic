@@ -247,11 +247,24 @@
 			{#if a === 'like'}<Heart size={18} fill={on ? 'currentColor' : 'none'} />{:else}<Download size={18} />{/if}
 		</button>
 	{/each}
-	<!-- The ⋮ is FIXED: not toggleable, not reorderable, and shown here precisely so the user can
-	     SEE that it is always there — which is what makes switching everything else off safe. -->
-	<span class="cfg-opt" aria-label={t('menu.options')} title={t('menu.options')}>
+	<!-- quick-261010-sar: the ⋮ IS the showRowMenu switch — tap it to hide/show the menu button
+	     on real rows (the preview is the effect, per this component's contract). Off keeps a dimmed
+	     placeholder, the off-slot idiom, so it can be switched back on from the same place.
+	     A row whose ⋮ is hidden still opens the menu on long-press (touch) / right-click. -->
+	<button
+		type="button"
+		class="cfg-opt"
+		class:off={!settings.showRowMenu}
+		aria-pressed={settings.showRowMenu}
+		aria-label={t(settings.showRowMenu ? 'settings.rowMenuButtonOn' : 'settings.rowMenuButtonOff')}
+		title={t('menu.options')}
+		onclick={() => {
+			settings.showRowMenu = !settings.showRowMenu;
+			settings.save();
+		}}
+	>
 		<MoreVertical size={18} />
-	</span>
+	</button>
 </div>
 
 <style>
@@ -395,5 +408,19 @@
 		display: grid;
 		place-items: center;
 		color: var(--color-text-muted);
+		/* Now a real toggle button: reset the native chrome, keep the replica geometry. */
+		padding: 0;
+		border: 0;
+		border-radius: var(--radius-full);
+		background: none;
+		cursor: pointer;
+	}
+	/* The off-slot idiom: hidden but still here, dimmed, so it can be switched back on. */
+	.cfg-opt.off {
+		opacity: 0.4;
+	}
+	.cfg-opt:focus-visible {
+		outline: 2px solid var(--color-primary);
+		outline-offset: 2px;
 	}
 </style>

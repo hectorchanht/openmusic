@@ -171,6 +171,8 @@ const es: Dict = {
 	"settings.rowButtonsDesc": "Elige qué botones aparecen junto a una canción en las listas y en qué orden. Arrastra uno para moverlo o tócalo para desactivarlo. El menú ⋮ siempre está, así que todo sigue siendo accesible aunque los desactives todos.",
 	"settings.rowButtonOn": "{name}: visible, posición {pos} de {total}. Pulsa Intro para ocultarlo, o las flechas izquierda y derecha para moverlo.",
 	"settings.rowButtonOff": "{name}: oculto. Pulsa Intro para mostrarlo.",
+	"settings.rowMenuButtonOn": "Botón de menú — visible. Pulsa Intro para ocultarlo.",
+	"settings.rowMenuButtonOff": "Botón de menú — oculto. Pulsa Intro para mostrarlo.",
 	"settings.fontSizeApp": "Tamaño del texto de la app",
 	"settings.fontSizeAppDesc": "Escala todo el texto de la app a la vez. Los tamaños de Filas de canciones y Reproduciendo de abajo se multiplican sobre este.",
 	"settings.songRowEditor": "Filas de canciones",

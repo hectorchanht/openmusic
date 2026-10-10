@@ -171,6 +171,8 @@ const de: Dict = {
 	"settings.rowButtonsDesc": "Lege fest, welche Schaltflächen in Listen neben einem Song erscheinen und in welcher Reihenfolge. Zum Verschieben ziehen, zum Ausschalten antippen. Das ⋮-Menü ist immer da, sodass alles erreichbar bleibt, selbst wenn du alle ausschaltest.",
 	"settings.rowButtonOn": "{name} — sichtbar, Position {pos} von {total}. Enter drücken zum Ausblenden, Pfeiltasten links und rechts zum Verschieben.",
 	"settings.rowButtonOff": "{name} — ausgeblendet. Enter drücken zum Einblenden.",
+	"settings.rowMenuButtonOn": "Menütaste — angezeigt. Enter drücken zum Ausblenden.",
+	"settings.rowMenuButtonOff": "Menütaste — ausgeblendet. Enter drücken zum Anzeigen.",
 	"settings.fontSizeApp": "App-Textgröße",
 	"settings.fontSizeAppDesc": "Skaliert den gesamten Text der App auf einmal. Die Größen für Songzeilen und Wiedergabe unten multiplizieren sich obendrauf.",
 	"settings.songRowEditor": "Songzeilen",

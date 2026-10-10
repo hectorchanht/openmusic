@@ -171,6 +171,8 @@ const it: Dict = {
 	"settings.rowButtonsDesc": "Scegli quali pulsanti compaiono accanto a un brano negli elenchi, e in che ordine. Trascinane uno per spostarlo, toccalo per disattivarlo. Il menu ⋮ c’è sempre, quindi tutto resta raggiungibile anche disattivandoli tutti.",
 	"settings.rowButtonOn": "{name} — visibile, posizione {pos} di {total}. Premi Invio per nasconderlo, o le frecce sinistra e destra per spostarlo.",
 	"settings.rowButtonOff": "{name} — nascosto. Premi Invio per mostrarlo.",
+	"settings.rowMenuButtonOn": "Pulsante menu — visibile. Premi Invio per nasconderlo.",
+	"settings.rowMenuButtonOff": "Pulsante menu — nascosto. Premi Invio per mostrarlo.",
 	"settings.fontSizeApp": "Dimensione del testo dell’app",
 	"settings.fontSizeAppDesc": "Ridimensiona tutto il testo dell’app in una volta. Le dimensioni di Righe dei brani e In riproduzione qui sotto si moltiplicano su questa.",
 	"settings.songRowEditor": "Righe dei brani",

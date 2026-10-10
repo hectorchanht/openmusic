@@ -171,6 +171,8 @@ const ar: Dict = {
 	"settings.rowButtonsDesc": "اختر الأزرار التي تظهر بجانب الأغنية في القوائم وترتيبها. اسحب زرًا لنقله، أو انقر عليه لإيقافه. قائمة ⋮ موجودة دائمًا، لذا يظل كل شيء في المتناول حتى لو أوقفت هذه الأزرار كلها.",
 	"settings.rowButtonOn": "{name} — ظاهر، الموضع {pos} من {total}. اضغط Enter لإخفائه، أو مفتاحي السهم الأيسر والأيمن لنقله.",
 	"settings.rowButtonOff": "{name} — مخفي. اضغط Enter لإظهاره.",
+	"settings.rowMenuButtonOn": "زر القائمة — ظاهر. اضغط Enter لإخفائه.",
+	"settings.rowMenuButtonOff": "زر القائمة — مخفي. اضغط Enter لإظهاره.",
 	"settings.fontSizeApp": "حجم نص التطبيق",
 	"settings.fontSizeAppDesc": "يغيّر حجم كل النصوص في التطبيق دفعة واحدة. تُضرب أحجام صفوف الأغاني وقيد التشغيل أدناه فوق هذا الحجم.",
 	"settings.songRowEditor": "صفوف الأغاني",

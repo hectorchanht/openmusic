@@ -112,8 +112,11 @@ export type ZhScriptSetting = 'off' | 'zh-Hant' | 'zh-Hans';
 
 /**
  * quick-260919-l9e: the inline buttons a song row can show beside a song, BESIDES the ⋮ menu.
- * The ⋮ is deliberately NOT a member — it always renders, which is what makes "none of them"
- * a safe choice rather than a dead-end row.
+ * The ⋮ is deliberately NOT a member — it has its own `showRowMenu` boolean (quick-261010-sar),
+ * because "always renders" stopped being true once long-press/right-click could open the menu.
+ * With the ⋮ hidden AND no inline buttons, a row's actions still stay reachable via hold (touch)
+ * or right-click (desktop) — which is what makes "none of them" a safe choice rather than a
+ * dead-end row.
  */
 export type RowAction = 'like' | 'download';
 /** The canonical set AND the default left-to-right order. The settings control iterates this to
@@ -198,6 +201,8 @@ class Settings {
 	 *  a set. A per-surface `actions` prop overrides it (Up Next must not grow a Download button
 	 *  just because this is on); undefined means "follow the user". */
 	rowActions = $state<RowAction[]>([...APPEARANCE_DEFAULTS.rowActions]);
+	/** quick-261010-sar: whether song rows render the trailing ⋮ menu button. Default true. */
+	showRowMenu = $state<boolean>(APPEARANCE_DEFAULTS.showRowMenu);
 	/** quick-261006-mnu: the TrackMenu grid's visible actions, IN ORDER. The array IS the
 	 *  layout (row-major, 4 columns) — reordering it reorders the grid. Actions the user hid
 	 *  are simply absent; normalizeMenuOrder re-appends any missing catalog ids on load, so a
@@ -363,6 +368,10 @@ class Settings {
 							(x, i, a): x is RowAction => ROW_ACTIONS.includes(x as RowAction) && a.indexOf(x) === i
 						)
 					: [...APPEARANCE_DEFAULTS.rowActions];
+				// quick-261010-sar: the ⋮ toggle. Same tamper posture as the booleans below —
+				// only an explicit boolean wins, anything else falls back to the default.
+				this.showRowMenu =
+					typeof v.showRowMenu === 'boolean' ? v.showRowMenu : APPEARANCE_DEFAULTS.showRowMenu;
 				// quick-261006-mnu: same T-l9e-01 posture as rowActions above — localStorage is
 				// user/extension-writable. normalizeMenuOrder keeps known ids in saved order,
 				// drops unknowns/dupes, and appends missing catalog ids (forward-compat).
@@ -538,6 +547,7 @@ class Settings {
 					coverScale: this.coverScale,
 					homeGridCols: this.homeGridCols,
 					rowActions: this.rowActions,
+					showRowMenu: this.showRowMenu,
 					trackMenuOrder: this.trackMenuOrder,
 					translateMode: this.translateMode,
 					zhScript: this.zhScript,
@@ -629,6 +639,7 @@ class Settings {
 		this.fontScaleNpArtist = d.fontScaleNpArtist;
 		this.coverScale = d.coverScale;
 		this.rowActions = [...d.rowActions];
+		this.showRowMenu = d.showRowMenu;
 		this.save();
 	}
 

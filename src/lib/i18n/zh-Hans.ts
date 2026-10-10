@@ -184,6 +184,8 @@ const zhHans: Dict = {
 	"settings.rowButtonsDesc": "选择列表中歌曲旁边显示哪些按钮，以及排列顺序。拖动可调整位置，点按可关闭。⋮ 菜单始终存在，因此即使全部关闭，所有操作仍可触及。",
 	"settings.rowButtonOn": "{name} — 已显示，第 {pos} 个，共 {total} 个。按 Enter 隐藏，或用左右方向键移动。",
 	"settings.rowButtonOff": "{name} — 已隐藏。按 Enter 显示。",
+	"settings.rowMenuButtonOn": "选单按钮 — 已显示。按 Enter 隐藏。",
+	"settings.rowMenuButtonOff": "选单按钮 — 已隐藏。按 Enter 显示。",
 	"settings.fontSizeApp": "应用文字大小",
 	"settings.fontSizeAppDesc": "一次性缩放应用中的所有文字。下方“歌曲列表”和“正在播放”的大小会在此基础上再相乘。",
 	"settings.songRowEditor": "歌曲列表",
