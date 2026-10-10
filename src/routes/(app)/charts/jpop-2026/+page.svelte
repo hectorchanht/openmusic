@@ -3,7 +3,6 @@
 	// A static curated list; each row is a stub that resolves through the normal multi-source
 	// search on tap (the charts/top stub pattern), so the pack ships no audio of its own.
 	import PageHeader from '$lib/components/PageHeader.svelte';
-	import SoyYearStrip from '$lib/components/SoyYearStrip.svelte';
 	import SongRow from '$lib/components/SongRow.svelte';
 	import TrackMenu from '$lib/components/TrackMenu.svelte';
 	import YearSelector from '$lib/components/YearSelector.svelte';
@@ -119,13 +118,6 @@
 		}
 	}
 
-	// quick-261010-soy9: year selector — this page IS 2026; tapping another year
-	// goes to the songs-of-year hub with that year preselected (?year=).
-	function selectYear(y: string) {
-		if (y === '2026') return;
-		goto(`/charts/songs-of-year?year=${y}`);
-	}
-
 	let menuTrack = $state<Track | null>(null);
 	let menuOpen = $state(false);
 	let menuLoading = $state(false);
@@ -192,8 +184,6 @@
 		</button>
 	</div>
 </header>
-
-<SoyYearStrip active="2026" onselect={selectYear} />
 
 <ul class="list">
 	{#each JPOP_2026 as s (s.artist + s.title)}
