@@ -54,6 +54,8 @@
 				key = '';
 			} else if (data?.reason === 'refunded') {
 				error = 'This purchase was refunded — the sponsored strip stays visible.';
+			} else if (data?.reason === 'error') {
+				error = 'Could not reach Gumroad for verification — try again in a moment.';
 			} else {
 				error = 'Invalid license key. Find it in your Gumroad receipt email (it looks like 8XXXXXXX-8XXXXXXX-8XXXXXXX-8XXXXXXX).';
 			}
