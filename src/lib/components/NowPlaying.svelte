@@ -18,6 +18,8 @@
 	// version picker — fired ONLY on a trigger tap, never on list render (T-26-10-02).
 	import { fetchVariants } from '$lib/services/variants';
 	import { enrichTrack } from '$lib/services/lastfm';
+	import { songShareUrl } from '$lib/services/share';
+	import { recallItunesId } from '$lib/services/itunes-cover';
 	import { lazyCover } from '$lib/actions/lazyCover';
 	// cover-hero-mediacard-missing (Issue 1): the reactive cover-cache read helper the up-next rows /
 	// home tiles use — the hero current cell now falls back to it so a cover that lands anywhere for
@@ -441,6 +443,23 @@
 	// AND for a source that reports no tier — both render nothing (never an empty pill).
 	// Same read order as TrackMenu.svelte:429 / VersionPicker.svelte:58.
 	const qualityTag = $derived(player.current?.qualityLabel || player.current?.quality || null);
+	// quick-261010-npurl: the share URL of the current track, built with the EXACT recipe the
+	// Share button copies (display-language names via names.dnTitle/dnArtist, the hero cover's
+	// token via coverToken inside songShareUrl, the identity carrier) — so the URL bar shows
+	// the share URL while NowPlaying is open and the URL is always "true". Reactive on the
+	// track, player.resolvedCover, AND the display language: a track advance, a cover resolving
+	// mid-play, or a language switch repoints the SAME history entry via the replaceUrl effect
+	// below (replaceState — history depth never changes).
+	const npShareUrl = $derived.by(() => {
+		const t = player.current;
+		if (!t) return null;
+		return songShareUrl(
+			{ title: names.dnTitle(t.title, t.artist), artist: names.dnArtist(t.artist) },
+			player.resolvedCover,
+			recallItunesId(player.resolvedCover),
+			t
+		);
+	});
 	// debug page-switch-lag-tap-dead: goto() runs FIRST via overlays.navigateAway(), and the sheet is
 	// collapsed by its close() handler AFTERWARDS with history.back() suppressed. The old order
 	// (`player.collapse(); goto(...)`) closed the sheet but never navigated: the unmount's $effect
@@ -465,8 +484,21 @@
 		// Without untrack this effect would capture that stack as a dependency and RE-RUN
 		// (cleanup-dismiss then re-open, churning history) every time ANY other overlay (e.g.
 		// the track menu) pushes/pops — desyncing history depth so the menu can't be dismissed.
-		untrack(() => overlays.open('nowplaying', () => player.collapse()));
+		// quick-261010-npurl: the pushed entry carries the song's share URL — the URL bar shows
+		// it while NowPlaying is open. Read inside untrack: later track changes repoint the
+		// entry via the replaceUrl effect below, never by re-running this open.
+		const url = untrack(() => npShareUrl);
+		untrack(() => overlays.open('nowplaying', () => player.collapse(), url ?? undefined));
 		return () => untrack(() => overlays.dismiss('nowplaying'));
+	});
+
+	// quick-261010-npurl: keep the URL "true" while open — a track advance, a cover resolving
+	// mid-play, or a display-language switch repoints the SAME history entry (replaceState:
+	// depth unchanged, so Back still closes the overlay in one gesture). No-op when
+	// 'nowplaying' isn't the top entry, so a stale run can never rewrite another entry's URL.
+	$effect(() => {
+		const url = npShareUrl;
+		if (url) untrack(() => overlays.replaceUrl('nowplaying', url));
 	});
 
 	// ---- Keyboard shortcuts — MOVED OUT (quick-260919-npfix, Fix 2).

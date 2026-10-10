@@ -13,13 +13,17 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const back = vi.fn();
 const pushState = vi.fn();
+const replaceState = vi.fn();
 
 beforeEach(() => {
 	vi.resetModules();
 	back.mockClear();
 	pushState.mockClear();
+	replaceState.mockClear();
 	vi.stubGlobal('window', { addEventListener: vi.fn(), removeEventListener: vi.fn() });
-	vi.stubGlobal('history', { back, pushState });
+	// quick-261010-npurl: sameOriginHref() resolves against location at call time.
+	vi.stubGlobal('location', { href: 'https://openmusic.lol/', origin: 'https://openmusic.lol' });
+	vi.stubGlobal('history', { back, pushState, replaceState });
 });
 
 afterEach(() => {
@@ -68,5 +72,69 @@ describe('overlays: outbound navigation vs history.back()', () => {
 
 		expect(order).toEqual(['goto', 'trackmenu-menu', 'nowplaying']);
 		expect(back).not.toHaveBeenCalled();
+	});
+});
+
+describe('overlays: display URL on the pushed entry (quick-261010-npurl)', () => {
+	const SONG = 'https://openmusic.lol/song/lee-jun/meng-ban';
+	const SONG2 = 'https://openmusic.lol/song/jay-chou/qing-hua-ci';
+
+	it('open(id, close, url) pushes the entry with the given same-origin URL', async () => {
+		const { overlays } = await import('./overlays.svelte');
+		overlays.open('nowplaying', () => {}, SONG);
+		expect(pushState).toHaveBeenCalledTimes(1);
+		expect(pushState).toHaveBeenCalledWith({ gsdOverlay: 'nowplaying' }, '', SONG);
+		expect(overlays.depth).toBe(1);
+	});
+
+	it('open() with a cross-origin URL falls back to the same-URL dummy entry', async () => {
+		const { overlays } = await import('./overlays.svelte');
+		overlays.open('nowplaying', () => {}, 'https://evil.example/song/a/b');
+		expect(pushState).toHaveBeenCalledTimes(1);
+		expect(pushState).toHaveBeenCalledWith({ gsdOverlay: 'nowplaying' }, '', undefined);
+		expect(overlays.depth).toBe(1);
+	});
+
+	it('open() without a URL keeps the old dummy-entry behavior', async () => {
+		const { overlays } = await import('./overlays.svelte');
+		overlays.open('trackmenu-menu', () => {});
+		expect(pushState).toHaveBeenCalledWith({ gsdOverlay: 'trackmenu-menu' }, '', undefined);
+	});
+
+	it('replaceUrl() repoints the top entry without touching history depth', async () => {
+		const { overlays } = await import('./overlays.svelte');
+		overlays.open('nowplaying', () => {}, SONG);
+		overlays.replaceUrl('nowplaying', SONG2);
+		expect(replaceState).toHaveBeenCalledTimes(1);
+		expect(replaceState).toHaveBeenCalledWith({ gsdOverlay: 'nowplaying' }, '', SONG2);
+		expect(pushState).toHaveBeenCalledTimes(1); // no extra push — depth still 1
+		expect(overlays.depth).toBe(1);
+	});
+
+	it('replaceUrl() no-ops when the id is not the top entry', async () => {
+		const { overlays } = await import('./overlays.svelte');
+		overlays.open('nowplaying', () => {}, SONG);
+		overlays.open('trackmenu-menu', () => {});
+		overlays.replaceUrl('nowplaying', SONG2); // buried under the menu — must not rewrite
+		expect(replaceState).not.toHaveBeenCalled();
+	});
+
+	it('replaceUrl() no-ops on an empty stack and on cross-origin URLs', async () => {
+		const { overlays } = await import('./overlays.svelte');
+		overlays.replaceUrl('nowplaying', SONG);
+		expect(replaceState).not.toHaveBeenCalled();
+		overlays.open('nowplaying', () => {}, SONG);
+		overlays.replaceUrl('nowplaying', 'https://evil.example/x');
+		expect(replaceState).not.toHaveBeenCalled();
+	});
+
+	it('dismiss() after a URL-carrying open still pops exactly one history entry', async () => {
+		const { overlays } = await import('./overlays.svelte');
+		const close = vi.fn();
+		overlays.open('nowplaying', close, SONG);
+		overlays.dismiss('nowplaying');
+		expect(back).toHaveBeenCalledTimes(1);
+		expect(close).not.toHaveBeenCalled();
+		expect(overlays.depth).toBe(0);
 	});
 });

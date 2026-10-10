@@ -27,6 +27,23 @@ interface OverlayEntry {
 
 const HAS_WINDOW = typeof window !== 'undefined';
 
+/**
+ * quick-261010-npurl: resolve `url` against the current location and return its href ONLY
+ * when it is same-origin — history.pushState/replaceState THROW on cross-origin URLs.
+ * Absolute share URLs are same-origin on the web build; inside the Capacitor WebView the
+ * share builder emits the public origin (openmusic.lol) while location.origin is
+ * https://localhost, so this returns null there and callers keep the dummy entry.
+ * Never throws (a share-URL builder must not break overlay open).
+ */
+function sameOriginHref(url: string): string | null {
+	try {
+		const u = new URL(url, location.href);
+		return u.origin === location.origin ? u.href : null;
+	} catch {
+		return null;
+	}
+}
+
 class Overlays {
 	/** Stack of open overlays, top = last. $state so a depth readout could react if needed. */
 	private stack = $state<OverlayEntry[]>([]);
@@ -55,8 +72,13 @@ class Overlays {
 	 * Register an open overlay. Idempotent: if `id` is already the top, do nothing
 	 * (rapid re-open won't push duplicate history states). Pushes one history state
 	 * so the OS/browser Back gesture has something to pop.
+	 *
+	 * quick-261010-npurl: `url` is an OPTIONAL display URL for the pushed entry —
+	 * NowPlaying passes the current song's share URL so the URL bar is always "true"
+	 * while it is open. Same-origin only (pushState throws cross-origin); a
+	 * cross-origin or unparseable value falls back to the same-URL dummy entry.
 	 */
-	open(id: string, close: () => void) {
+	open(id: string, close: () => void, url?: string) {
 		if (this.isTop(id)) return;
 		// If it exists deeper in the stack (shouldn't normally happen), drop the stale one.
 		if (this.has(id)) this.stack = this.stack.filter((e) => e.id !== id);
@@ -70,10 +92,44 @@ class Overlays {
 			// plain Back target that goto() can cleanly replace. SvelteKit warns about raw
 			// pushState, but our usage is narrow (a dummy Back sentinel, popped via history.back
 			// on dismiss or replaced via goto on an outbound nav) and works correctly.
-			history.pushState({ gsdOverlay: id }, '');
+			//
+			// quick-261010-npurl: popping back to the entry UNDERNEATH this one is still safe
+			// with a real URL on the entry — SvelteKit's popstate handler only navigates for
+			// entries carrying its own HISTORY_INDEX state; our raw states hit its else-branch,
+			// which merely update_url()s the $page store without re-running loads or
+			// destroying components. And popping to a SvelteKit entry underneath is a no-op:
+			// its history_index still equals SvelteKit's current_history_index (raw pushes
+			// don't move it), so the handler returns early.
+			const target = url ? sameOriginHref(url) : null;
+			try {
+				history.pushState({ gsdOverlay: id }, '', target ?? undefined);
+			} catch {
+				// A URL problem must never break overlay open — degrade to the dummy entry.
+				history.pushState({ gsdOverlay: id }, '');
+			}
 			pushed = true;
 		}
 		this.stack = [...this.stack, { id, close, pushed }];
+	}
+
+	/**
+	 * quick-261010-npurl: repoint the TOP overlay entry's URL WITHOUT touching history
+	 * depth (a replaceState, not a push). NowPlaying calls this when the track, the
+	 * resolved cover, or the display language changes while it is open, so the URL bar
+	 * stays "true". No-op unless `id` is the current top entry and it pushed a state —
+	 * a stale or unmounted caller can never rewrite another entry's URL.
+	 */
+	replaceUrl(id: string, url: string) {
+		if (!HAS_WINDOW || !this.isTop(id)) return;
+		const top = this.stack[this.stack.length - 1];
+		if (!top.pushed) return;
+		const target = sameOriginHref(url);
+		if (!target) return;
+		try {
+			history.replaceState({ gsdOverlay: id }, '', target);
+		} catch {
+			/* a URL problem must never break the playback UI */
+		}
 	}
 
 	/** Pop the top entry and run its close handler. Invoked by the popstate listener. */
@@ -97,7 +153,9 @@ class Overlays {
 		// During an outbound navigateAway() we do NOT history.back(): the destination route has
 		// just been pushed and the hosts are unmounting under it; a back() here would pop that
 		// destination right back off (the "Go to artist snaps home" over-pop). The leftover raw
-		// Back entry is harmless — backing into it lands on the origin URL with an empty stack.
+		// Back entry is harmless — backing into it lands on the origin URL (or the song URL, if
+		// the entry carried quick-261010-npurl's display URL) with an empty stack, so the
+		// popstate listener simply no-ops.
 		if (entry.pushed && HAS_WINDOW && !this.navigating) {
 			this.popping = true;
 			history.back();
