@@ -5,6 +5,7 @@
 	import { page } from '$app/state';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import { getDiscographyPack, fetchAlbumTracklist, resolvePackTracks, type PackAlbum } from '$lib/services/discography-pack';
+	import { resolveStub } from '$lib/services/discovery';
 	import { names } from '$lib/stores/names.svelte';
 	import { t } from '$lib/i18n';
 	import { tapBounce } from '$lib/actions/tapBounce';
@@ -62,19 +63,20 @@
 	}
 
 	// quick-261010-disco2: Play album-by-album (in discography order), or shuffle all.
-	// Fetches each album's tracklist, resolves the stubs, then installs the queue.
+	// quick-261010-disco3: play the FIRST playable song ASAP — fetch all tracklists
+	// (metadata, fast), resolve + play one song immediately, then resolve the rest
+	// in the background and expand the queue.
 	async function playAll(shuffle = false) {
 		if (playing || !albums.length) return;
 		playing = true;
 		try {
-			// Fetch tracklists album-by-album (4 concurrent to stay polite).
+			// 1. Fetch all album tracklists in parallel (metadata only — fast).
 			const stubs: { artist: string; title: string }[] = [];
 			let ai = 0;
 			async function albumWorker() {
 				while (ai < albums.length) {
 					const idx = ai++;
 					const tracks = await fetchAlbumTracklist(albums[idx], artistName);
-					// Preserve album order: write into a per-album slot.
 					(albums[idx] as PackAlbum).tracks = tracks;
 				}
 			}
@@ -86,19 +88,31 @@
 				toast.show(t('home.unplayable'));
 				return;
 			}
-			const resolved = await resolvePackTracks(stubs);
-			if (!resolved.length) {
+			// 2. Resolve ONE song and play it immediately.
+			const firstIdx = shuffle ? Math.floor(Math.random() * stubs.length) : 0;
+			const firstStub = stubs[firstIdx];
+			const firstTrack = await resolveStub(firstStub.artist, firstStub.title).catch(() => null);
+			if (!firstTrack) {
 				toast.show(t('home.unplayable'));
 				return;
 			}
-			if (shuffle) {
-				for (let i = resolved.length - 1; i > 0; i--) {
-					const j = Math.floor(Math.random() * (i + 1));
-					[resolved[i], resolved[j]] = [resolved[j], resolved[i]];
+			player.setQueue([firstTrack], 'discography-pack');
+			await player.play(firstTrack, { context: 'discography-pack' });
+			// 3. Resolve the rest in the background, then expand the queue.
+			const remaining = stubs.filter((_, i) => i !== firstIdx);
+			void resolvePackTracks(remaining).then((rest) => {
+				if (!rest.length) return;
+				let queue = [firstTrack, ...rest];
+				if (shuffle) {
+					const tail = queue.slice(1);
+					for (let i = tail.length - 1; i > 0; i--) {
+						const j = Math.floor(Math.random() * (i + 1));
+						[tail[i], tail[j]] = [tail[j], tail[i]];
+					}
+					queue = [queue[0], ...tail];
 				}
-			}
-			player.setQueue(resolved, 'discography-pack');
-			await player.play(resolved[0], { context: 'discography-pack' });
+				player.setQueue(queue, 'discography-pack');
+			});
 		} finally {
 			playing = false;
 		}
