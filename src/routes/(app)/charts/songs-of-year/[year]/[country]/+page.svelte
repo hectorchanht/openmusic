@@ -227,7 +227,7 @@
 			<li>
 				<SongRow
 					track={stubTrack(s)}
-					index={i + 1}
+					index={i}
 					smartArtist
 					resolve={() => resolveStub(s.artist, s.title).catch(() => null)}
 					onplay={() => play(s)}
