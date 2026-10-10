@@ -4,6 +4,7 @@
 	// 2026 = the five curated region packs; 2000–2025 = per-country year-end charts.
 	// Countries without verified data show a "coming soon" state — never fabricated songs.
 	import PageHeader from '$lib/components/PageHeader.svelte';
+	import SoyYearStrip from '$lib/components/SoyYearStrip.svelte';
 	import { t, type TranslationKey } from '$lib/i18n';
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { goto } from '$app/navigation';
@@ -58,20 +59,8 @@
 	{/if}
 </header>
 
-<!-- Year selector — horizontal pill strip, URL updates in time via syncTabUrl. -->
-<nav class="years" aria-label="year">
-	{#each SOY_YEARS as y (y)}
-		<button
-			type="button"
-			class="ypill"
-			class:active={String(y) === year}
-			onclick={() => selectYear(String(y))}
-			use:tapBounce
-		>
-			{y}
-		</button>
-	{/each}
-</nav>
+<!-- Year selector — shared strip; URL updates in time via syncTabUrl in selectYear. -->
+<SoyYearStrip active={year} onselect={selectYear} />
 
 {#if year === DEFAULT_YEAR}
 	<ul class="packs">
@@ -121,19 +110,6 @@
 	.hero { padding: 24px 16px 8px; text-align: center; }
 	.hero h1 { font-size: calc(1.6rem * var(--fs-title, 1)); margin: 0; }
 	.sub { color: var(--color-text-muted); font-size: 0.85rem; margin: 6px 0 0; }
-	.years {
-		display: flex; gap: 8px; overflow-x: auto; padding: 12px 16px 4px;
-		scrollbar-width: none;
-	}
-	.years::-webkit-scrollbar { display: none; }
-	.ypill {
-		flex: 0 0 auto; padding: 8px 16px; border-radius: 999px;
-		border: 1px solid var(--color-border); background: var(--color-surface);
-		color: var(--color-text); font-size: 0.9rem; font-weight: 600; cursor: pointer;
-	}
-	.ypill.active {
-		background: var(--color-primary); border-color: var(--color-primary); color: #fff;
-	}
 	.packs { list-style: none; margin: 16px 0 0; padding: 0 16px 32px; display: grid; gap: 12px; }
 	.pack {
 		display: flex; align-items: center; justify-content: space-between; width: 100%;

@@ -6,6 +6,7 @@
 	// plus index={rank} since a year-end chart's rank is the point.
 	import { page } from '$app/state';
 	import PageHeader from '$lib/components/PageHeader.svelte';
+	import SoyYearStrip from '$lib/components/SoyYearStrip.svelte';
 	import SongRow from '$lib/components/SongRow.svelte';
 	import TrackMenu from '$lib/components/TrackMenu.svelte';
 	import type { PackSong } from '$lib/data/cantopop-2026';
@@ -34,6 +35,13 @@
 			return raw;
 		}
 	});
+
+	// quick-261010-soy9: year selector — tapping another year goes to the hub
+	// with that year preselected; 2026 shows the curated region packs there.
+	function selectYear(y: string) {
+		if (Number(y) === yearNum) return;
+		goto(y === '2026' ? '/charts/songs-of-year' : `/charts/songs-of-year?year=${y}`);
+	}
 
 	const valid = $derived(soyHasData(yearNum, country));
 
@@ -172,6 +180,8 @@
 </script>
 
 <PageHeader backLabel={t('common.back')} showSettings />
+
+<SoyYearStrip active={String(yearNum)} onselect={selectYear} />
 
 {#if !valid || loadFailed}
 	<header class="hero">
