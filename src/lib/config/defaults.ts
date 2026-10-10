@@ -173,6 +173,9 @@ export type QueueContext =
 	// quick-261006-44u: the track menu's Start-radio action — a similar-songs station seeded
 	// from one track. Falls through to the global up-next mode like every non-album context.
 	| 'radio'
+	// quick-261010-cpop: the free 2026 廣東歌年選 pack page. Falls through to the global
+	// up-next mode like the other discovery contexts.
+	| 'cantopop-2026'
 	| null;
 export const UPNEXT_DEFAULTS = {
 	/** Global default sourcing mode — roadmap-locked to 'generated'. */
