@@ -4,7 +4,7 @@
 	import { fly, fade } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
 	import { goto } from '$app/navigation';
-	import { ChevronDown, MoreVertical, Heart, SkipBack, SkipForward, Play, Pause, Moon, ListMusic, MicVocal, MessageCircle, Sparkles } from '@lucide/svelte';
+	import { ChevronDown, MoreVertical, Heart, SkipBack, SkipForward, Play, Pause, Moon, ListMusic, MicVocal, MessageCircle, Sparkles, VolumeX, Volume1, Volume2 } from '@lucide/svelte';
 	import { player, fmtTime } from '$lib/stores/player.svelte';
 	import { sleepTimer } from '$lib/stores/sleepTimer.svelte';
 	import { settings } from '$lib/stores/settings.svelte';
@@ -460,6 +460,21 @@
 			t
 		);
 	});
+	// quick-261010-npvol: desktop volume gate — the SAME (min-width:1024px)+(hover:hover) DOM
+	// gate as the Nowbar's desktop bar (quick-260919-et3). iOS ignores audio.volume entirely,
+	// so a slider on a touch surface is a dead control; a width-only query would also fire on
+	// a landscape tablet. Touch devices get no volume node in the DOM at all.
+	let volDesktop = $state(false);
+	$effect(() => {
+		const mq = window.matchMedia('(min-width: 1024px) and (hover: hover)');
+		volDesktop = mq.matches;
+		const onChange = () => (volDesktop = mq.matches);
+		mq.addEventListener('change', onChange);
+		return () => mq.removeEventListener('change', onChange);
+	});
+	// Mute-button state mirrors the Nowbar's: muted OR dragged-to-zero both read as silent,
+	// and clicking it always restores sound (toggleMute + setVolume's unmute-on-raise).
+	const silent = $derived(player.muted || player.volume === 0);
 	// debug page-switch-lag-tap-dead: goto() runs FIRST via overlays.navigateAway(), and the sheet is
 	// collapsed by its close() handler AFTERWARDS with history.back() suppressed. The old order
 	// (`player.collapse(); goto(...)`) closed the sheet but never navigated: the unmount's $effect
@@ -1094,8 +1109,36 @@
 		     the artist + NowPlaying drift onto one system). Genre/tag chips intentionally hidden
 		     (quick-260607-f4y). -->
 		{#key player.current?.uid}
-			<div class="title" use:marquee in:fade={{ duration: xfadeMs }} out:fade={{ duration: xfadeMs }}>
-				<span class="marquee-inner">{player.current ? names.dnTitle(player.current.title, player.current.artist) : ''}</span>
+			<!-- quick-261010-npvol: the title row — the song name shares its row with the desktop
+			     volume control at the end, above the quality tag. -->
+			<div class="title-row">
+				<div class="title" use:marquee in:fade={{ duration: xfadeMs }} out:fade={{ duration: xfadeMs }}>
+					<span class="marquee-inner">{player.current ? names.dnTitle(player.current.title, player.current.artist) : ''}</span>
+				</div>
+				{#if volDesktop}
+					<!-- Desktop volume: mute button + native range, mirroring the Nowbar's .np-vol
+					     (quick-260919-et3). Native input = keyboard/screen-reader support for free. -->
+					<div class="np-vol">
+						<button
+							class="np-volbtn"
+							aria-label={t(silent ? "nowbar.unmute" : "nowbar.mute")}
+							onclick={() => player.toggleMute()}
+							use:tapBounce
+						>
+							{#if silent}<VolumeX size={18} />{:else if player.volume < 0.5}<Volume1 size={18} />{:else}<Volume2 size={18} />{/if}
+						</button>
+						<input
+							class="np-volrange"
+							type="range"
+							min="0"
+							max="1"
+							step="0.01"
+							aria-label={t("nowbar.volume")}
+							value={player.muted ? 0 : player.volume}
+							oninput={(e) => player.setVolume(e.currentTarget.valueAsNumber)}
+						/>
+					</div>
+				{/if}
 			</div>
 			<!-- quick-260625-pzs-01: one tappable link PER artist name (split on connectors). The row
 			keeps use:marquee + the in:/out:fade crossfade; names are joined by an INERT ` · `
@@ -1462,6 +1505,22 @@
 	   --fs-artist used by list pages). The base sizes diverge enough that one shared slider
 	   couldn't both raise the list rows AND keep NP balanced; two sliders solve it. */
 	.title { display: inline-block; max-width: 100%; vertical-align: bottom; background: var(--color-bg); color: var(--color-text); padding: 1px; border-radius: none; font-size: calc(1.5rem * var(--fs-np-title, 1)); font-weight: 800; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	/* quick-261010-npvol: the title row — song name + desktop volume at the end, above the
+	   quality tag. .title keeps its marquee: flex:1 + min-width:0 lets it shrink inside the
+	   row so ellipsis/marquee keep measuring correctly (marquee re-measures on box-width
+	   change via ResizeObserver). .meta is align-items:flex-start, so the row needs width:100%. */
+	.title-row { display: flex; align-items: center; gap: 10px; width: 100%; }
+	.title-row > .title { flex: 1 1 auto; min-width: 0; }
+	.title-row .np-vol { flex: none; margin-left: auto; display: flex; align-items: center; gap: 6px; }
+	.np-volbtn { background: none; border: none; color: var(--color-text); width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; cursor: pointer; opacity: 0.85; transition: background 0.12s ease, transform 0.12s ease; }
+	.np-volbtn:hover { background: rgba(255, 255, 255, 0.1); opacity: 1; }
+	.np-volbtn:active { transform: scale(0.92); }
+	/* appearance:none + explicit track/thumb: the two vendors disagree about everything else;
+	   the element stays a native range input, so keyboard arrows, Home/End and pointer
+	   capture keep working for free (same recipe as the Nowbar's .np-volrange). */
+	.np-volrange { -webkit-appearance: none; appearance: none; width: 90px; height: 4px; border-radius: 999px; background: rgba(255, 255, 255, 0.25); cursor: pointer; }
+	.np-volrange::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 12px; height: 12px; border-radius: 50%; background: var(--color-text); cursor: pointer; }
+	.np-volrange::-moz-range-thumb { width: 12px; height: 12px; border: none; border-radius: 50%; background: var(--color-text); cursor: pointer; }
 	.artist { display: flex; width: 100%; justify-content: space-between; align-items: center; background: transparent; border: none; padding: 1px; border-radius: none; color: var(--color-text); font-size: calc(1rem * var(--fs-np-artist, 1)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 	/* quick-260625-pzs-01: per-artist tappable link inside the .artist row. Carries the underline +
 	   pointer the old single .artist button had; the inert separator is non-interactive. */
