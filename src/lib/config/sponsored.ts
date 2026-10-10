@@ -11,6 +11,14 @@ export const TIP_JAR_URL = 'https://dawnlimited.gumroad.com/l/openmusic-tip';
 // keys from the tip jar's receipts are verified against this product.
 export const GUMROAD_PRODUCT_PERMALINK = 'openmusic-tip';
 
+// ADMIN UNLOCK (Hector 2026-10-10: "generate me an admin license key to unlock
+// all app"): the master key's SHA-256, NOT the plaintext — this repo is public
+// and the key was delivered to Hector in chat only. /api/sponsored/verify
+// accepts either a valid Gumroad tip-jar key OR an input whose SHA-256 matches
+// this hash. Stakes are low (it only hides the sponsored strip), so hash-in-code
+// is proportionate; brute-forcing a 32-char key from its hash is infeasible.
+export const ADMIN_KEY_SHA256 = '67d2d8519b0160af28a8d8f6c3cc97d810fda37161d2b10b1359d480c4ecad77';
+
 // localStorage flag hiding the strip once a tip-jar license key verifies.
 export const SPONSORED_HIDE_KEY = 'dawn_sponsored_hidden';
 

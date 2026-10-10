@@ -16,7 +16,7 @@
 
 import type { RequestHandler } from './$types';
 import { jsonResponse, isAllowedOrigin } from '$lib/proxy/http';
-import { GUMROAD_PRODUCT_PERMALINK } from '$lib/config/sponsored';
+import { GUMROAD_PRODUCT_PERMALINK, ADMIN_KEY_SHA256 } from '$lib/config/sponsored';
 
 const GUMROAD_VERIFY_URL = 'https://api.gumroad.com/v2/licenses/verify';
 const MAX_BODY_BYTES = 1024;
@@ -60,10 +60,22 @@ export const POST: RequestHandler = async ({ request }) => {
 	}
 	if (!licenseKey) return jsonResponse({ ok: false, reason: 'invalid' }, origin, { status: 400 });
 
-	// The Gumroad v2 license-verify call: form-encoded, product permalink + key.
-	// Bounded by a 10s timeout — Gumroad can be slow (~20s observed), and an
-	// unbounded subrequest would hang until the edge platform kills the worker
-	// (surfacing as a bare 502 instead of our { ok:false } JSON).
+	// ADMIN UNLOCK: a master key whose SHA-256 matches the hash in
+	// $lib/config/sponsored.ts verifies without touching Gumroad (Hector's own
+	// key, delivered to him in chat; plaintext never stored). Checked first so
+	// his unlock never depends on Gumroad's availability.
+	try {
+		const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(licenseKey));
+		const hex = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
+		if (hex === ADMIN_KEY_SHA256) return jsonResponse({ ok: true, admin: true }, origin);
+	} catch {
+		/* subtle-crypto unavailable — fall through to the Gumroad check */
+	}
+
+	// NOTE: upstream/transport failures answer HTTP 200 (not 502/503) with
+	// { ok:false } — Cloudflare's edge rewrites 502/503 bodies from Pages into
+	// its own bare error page, which would hide our JSON reason. The client only
+	// reads data.ok, so 200 + ok:false is the honest, observable shape.
 	let gv: GumroadVerify;
 	try {
 		const res = await fetch(GUMROAD_VERIFY_URL, {
@@ -75,10 +87,10 @@ export const POST: RequestHandler = async ({ request }) => {
 			}),
 			signal: AbortSignal.timeout(10_000)
 		});
-		if (!res.ok) return jsonResponse({ ok: false, reason: 'error' }, origin, { status: 502 });
+		if (!res.ok) return jsonResponse({ ok: false, reason: 'error' }, origin);
 		gv = (await res.json()) as GumroadVerify;
 	} catch {
-		return jsonResponse({ ok: false, reason: 'error' }, origin, { status: 502 });
+		return jsonResponse({ ok: false, reason: 'error' }, origin);
 	}
 
 	// Shape guard: never treat a weird upstream reply as a verified key.
