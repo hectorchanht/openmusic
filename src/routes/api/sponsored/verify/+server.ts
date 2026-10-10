@@ -61,6 +61,9 @@ export const POST: RequestHandler = async ({ request }) => {
 	if (!licenseKey) return jsonResponse({ ok: false, reason: 'invalid' }, origin, { status: 400 });
 
 	// The Gumroad v2 license-verify call: form-encoded, product permalink + key.
+	// Bounded by a 10s timeout — Gumroad can be slow (~20s observed), and an
+	// unbounded subrequest would hang until the edge platform kills the worker
+	// (surfacing as a bare 502 instead of our { ok:false } JSON).
 	let gv: GumroadVerify;
 	try {
 		const res = await fetch(GUMROAD_VERIFY_URL, {
@@ -69,7 +72,8 @@ export const POST: RequestHandler = async ({ request }) => {
 			body: new URLSearchParams({
 				product_permalink: GUMROAD_PRODUCT_PERMALINK,
 				license_key: licenseKey
-			})
+			}),
+			signal: AbortSignal.timeout(10_000)
 		});
 		if (!res.ok) return jsonResponse({ ok: false, reason: 'error' }, origin, { status: 502 });
 		gv = (await res.json()) as GumroadVerify;
