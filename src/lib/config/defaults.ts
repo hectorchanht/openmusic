@@ -183,6 +183,8 @@ export type QueueContext =
 	| 'western-2026'
 	// quick-261010-disco2: the dynamic discography pack (album-by-album play).
 	| 'discography-pack'
+	// quick-261010-soy5: the dynamic Songs-of-the-Year pack pages ([year]/[country]).
+	| 'songs-of-year'
 	| null;
 export const UPNEXT_DEFAULTS = {
 	/** Global default sourcing mode — roadmap-locked to 'generated'. */

@@ -51,6 +51,7 @@ const zhHant: Dict = {
 	"pack.title.kpop": "2026 K-pop 年選",
 	"pack.title.mandopop": "2026 國語年選",
 	"pack.title.cantopop": "2026 廣東歌年選",
+	"soy.yearEndSub": "Billboard 年終百大 Top 50",
 	"region.western": "西洋",
 	"region.jpop": "J-pop",
 	"region.kpop": "K-pop",

@@ -46,6 +46,7 @@ const th: Dict = {
 	"pack.title.kpop": "2026 K-pop Hits",
 	"pack.title.mandopop": "2026 Mandopop Hits",
 	"pack.title.cantopop": "2026 Cantopop Hits",
+	"soy.yearEndSub": "Billboard Year-End Hot 100 Top 50",
 	"region.western": "Western",
 	"region.jpop": "J-pop",
 	"region.kpop": "K-pop",
