@@ -399,9 +399,48 @@ describe('rankByArtistExactness — hit songs prioritize artist-name exactness',
 			'Hara Kiri'
 		]);
 	});
-	it('folds Traditional/Simplified for the exact tier', () => {
-		const tracks = [mk('qq', 'q1', 'a', 'Hara Kiri'), mk('qq', 'q2', 'b', '张天赋')];
-		expect(artists(rankByArtistExactness(tracks, '張天賦'))[0]).toBe('张天赋');
+	it('folds Traditional/Simplified for tier 1, below script-exact tier 0', () => {
+		// quick-261010-exact: a folded-only match is no longer "exact" — 姜涛 (a mainland folk
+		// singer) must not outrank Keung To's own tracks on the 姜濤 page. It still outranks a
+		// total stranger (tier 2).
+		const tracks = [
+			mk('qq', 'q1', 'a', 'Hara Kiri'),
+			mk('qq', 'q2', 'b', '张天赋'),
+			mk('qq', 'q3', 'c', '張天賦')
+		];
+		expect(artists(rankByArtistExactness(tracks, '張天賦'))).toEqual(['張天賦', '张天赋', 'Hara Kiri']);
+	});
+	it('puts the exact artist first, demoting a same-folded different person (姜濤 vs 姜涛)', () => {
+		// The reported case: ytmusic/fivesing credit the mainland folk singer 姜涛, joox credits
+		// the real 姜濤, qq/netease credit "Keung To 姜涛". Aliases come from the page's
+		// MusicBrainz identity ({en:'Keung To', zh-Hant:'姜濤', zh-Hans:'姜涛'}).
+		const aliases = ['Keung To', '姜涛', '姜濤'];
+		const tracks = [
+			mk('ytmusic', 'y1', '三顾', '姜涛'), // mainland singer — folded twin, tier 1
+			mk('joox', 'j1', '你要倔強', '姜濤'), // script-exact — tier 0
+			mk('fivesing', 'f1', '农民', '姜涛'), // mainland singer — tier 1
+			mk('qq', 'q1', '蒙着嘴说爱你', 'Keung To 姜涛'), // distinctive alias — tier 0
+			mk('kuwo', 'k1', '常回家看看', '江涛'), // different person entirely — tier 2
+			mk('netease', 'n1', '流星雨', '李幸倪/Keung To 姜涛') // duet via alias — tier 0
+		];
+		expect(artists(rankByArtistExactness(tracks, '姜濤', aliases))).toEqual([
+			'姜濤',
+			'Keung To 姜涛',
+			'李幸倪/Keung To 姜涛',
+			'姜涛',
+			'姜涛',
+			'江涛'
+		]);
+	});
+	it('the script-twin alias alone never promotes (it names a different person here)', () => {
+		// Only the folded twin is known — the mainland singer's tracks must stay tier 1,
+		// never tier 0.
+		const tracks = [mk('ytmusic', 'y1', '三顾', '姜涛'), mk('joox', 'j1', '你要倔強', '姜濤')];
+		expect(artists(rankByArtistExactness(tracks, '姜濤', ['姜涛']))).toEqual(['姜濤', '姜涛']);
+	});
+	it('without aliases the ranking degrades to the folded behaviour', () => {
+		const tracks = [mk('ytmusic', 'y1', '三顾', '姜涛'), mk('joox', 'j1', '你要倔強', '姜濤')];
+		expect(artists(rankByArtistExactness(tracks, '姜濤'))).toEqual(['姜濤', '姜涛']);
 	});
 	it('is stable within a tier and never drops rows', () => {
 		const tracks = [

@@ -43,17 +43,31 @@ function norm(s: string): string {
  * `nb_fan` wins. Ties and missing `nb_fan` fall back to the upstream order, so the behaviour for a
  * single-hit response is identical to the old `data[0]`.
  *
+ * quick-261010-exact: `aliases` are the artist's OTHER known names (MusicBrainz identity — e.g.
+ * "Keung To" for 姜濤). A hit matching ANY of them counts as exact. This fixes the CJK impostor
+ * case: Deezer's search for 姜濤 returns a 13-fan exact-spelled profile (whose picture is Gin Lee,
+ * the 沈慧雯 duet artwork) alongside the real "Keung To" profile (128 fans, real photo). With only
+ * the query string as the exactness reference the impostor was unbeatable; with the alias in the
+ * exact set, both hits are exact and fan count decides. The Coldplay-tribute guard is unchanged:
+ * a non-exact hit still never beats an exact one.
+ *
  * Returns the chosen hit's id, or null when the list has nothing usable.
  */
-export function pickBestArtistId(hits: DeezerArtistHit[], query: string): string | null {
-	const wanted = norm(query ?? '');
+export function pickBestArtistId(
+	hits: DeezerArtistHit[],
+	query: string,
+	aliases: string[] = []
+): string | null {
+	const wanted = new Set(
+		[query, ...(aliases ?? [])].map((s) => norm(s ?? '')).filter((s) => s.length > 0)
+	);
 	let best: DeezerArtistHit | null = null;
 	let bestExact = false;
 	let bestFans = -1;
 
 	for (const h of hits ?? []) {
 		if (h?.id === undefined || h?.id === null) continue;
-		const exact = wanted.length > 0 && norm(h.name ?? '') === wanted;
+		const exact = wanted.size > 0 && wanted.has(norm(h.name ?? ''));
 		const fans = typeof h.nb_fan === 'number' && Number.isFinite(h.nb_fan) ? h.nb_fan : 0;
 		// Exact-match group dominates; inside a group, more fans wins. Strict > keeps upstream
 		// order for ties, so a single-hit list behaves exactly like the old data[0] read.

@@ -62,6 +62,15 @@ interface DzArtist {
 export const GET: RequestHandler = async ({ url, request }) => {
 	const origin = request.headers.get('origin');
 	const name = (url.searchParams.get('name') ?? url.searchParams.get('artist') ?? '').trim();
+	// quick-261010-exact: the caller's known name variants for this artist (MusicBrainz identity,
+	// repeated `alias` params). They widen pickBestArtistId's "exact" set so a romanized Deezer
+	// profile ("Keung To", 128 fans, real photo) can beat an exact-spelled CJK impostor profile
+	// ("姜濤", 13 fans, Gin Lee's picture). The full URL (aliases included) is the edge-cache key,
+	// so aliased lookups never read the pre-fix unaliased entry.
+	const aliases = url.searchParams
+		.getAll('alias')
+		.map((a) => a.trim())
+		.filter(Boolean);
 	if (!name) return jsonResult(EMPTY, origin); // empty shape, no long cache
 
 	// Cache key = own-origin request (T-wv8-06 — never the upstream URL).
@@ -91,7 +100,7 @@ export const GET: RequestHandler = async ({ url, request }) => {
 		// instead of id 892 (18,367,520), which is exactly what the artist page was rendering.
 		const searchUrl = `${DEEZER_ARTIST_SEARCH}?q=${encodeURIComponent(name)}&limit=${DEEZER_ARTIST_SEARCH_LIMIT}`;
 		const searchRes = await fetchWithRetry(searchUrl, { signal: AbortSignal.timeout(8000) }, 2);
-		const id = pickBestArtistId(((await searchRes.json()) as DzSearchResp)?.data ?? [], name);
+		const id = pickBestArtistId(((await searchRes.json()) as DzSearchResp)?.data ?? [], name, aliases);
 		// Miss → empty shape, do NOT long-cache (T-17-13: negative TTL is worse UX).
 		if (id === null) return jsonResult(EMPTY, origin);
 

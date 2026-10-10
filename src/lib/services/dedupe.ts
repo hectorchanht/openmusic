@@ -366,16 +366,26 @@ export function collapseVariants(tracks: Track[]): Track[] {
  * page's artist. searchAll(artistName) returns relevance-ranked cross-source hits, so a fuzzy
  * upstream can outrank the artist's own songs ("Hara Kiri" on Kiri T's page, or a same-title
  * song by a stranger entirely). Tiers, STABLE (original relevance order kept within a tier):
- *   0 — the track's artist IS the page artist (script-folded, case/punct-insensitive, feat.
- *       tails dropped): "Kiri T", "kiri t", "Kiri T (feat. MC)".
- *   1 — collaboration / alias: the page artist's script runs are all present in the track's
- *       ("MC 張天賦/Kiri T", "G.E.M. 邓紫棋" for page "G.E.M."). Runs compare WHOLE (the
- *       aliasArtist idiom), so "Hara Kiri" does NOT tier-1 for "Kiri T".
+ *   0 — the track's artist IS the page artist: SCRIPT-EXACT (case/punct-insensitive, feat.
+ *       tails dropped, NO Traditional→Simplified folding), or it carries a DISTINCTIVE alias
+ *       whole-run — a known name variant whose folded form differs from the page name's.
+ *   1 — collaboration / folded alias: the old tier 0+1 (script-folded equality, or the page
+ *       artist's script runs all present in the track's — "MC 張天賦/Kiri T", "G.E.M. 邓紫棋"
+ *       for page "G.E.M."). Runs compare WHOLE (the aliasArtist idiom), so "Hara Kiri" does
+ *       NOT tier-1 for "Kiri T".
  *   2 — everything else. Kept, not removed — the page is still a search approximation, and a
  *       demoted row beats a missing one when the catalog is thin.
  * A blank page artist (or blank track artist) can prove nothing → tier 2.
+ *
+ * quick-261010-exact — WHY tier 0 is script-exact and alias-aware: script-folding made 姜濤
+ * (Keung To) and 姜涛 (a mainland folk singer of the same folded name) the SAME string, so the
+ * mainland singer's ytmusic/fivesing songs sat in tier 0, interleaved with — and outranking —
+ * Keung To's own "Keung To 姜涛" credits (folded-equal but longer, so tier 1). `aliases` is the
+ * page's MusicBrainz name variants; only DISTINCTIVE ones (folded form ≠ the page name's folded
+ * form — "Keung To", not the script twin 姜涛) can promote a track on their own, because the
+ * script twin names a different person here and no string test can tell them apart.
  */
-export function rankByArtistExactness(tracks: Track[], artist: string): Track[] {
+export function rankByArtistExactness(tracks: Track[], artist: string, aliases: string[] = []): Track[] {
 	// Per-run normalization: script-fold (Traditional → Simplified per char) + lowercase, then
 	// strip punctuation/space WITHIN each run. Runs are split first so "kiri t" stays two tokens
 	// for the subset test instead of collapsing to one ("kirit" would never subset-match).
@@ -383,14 +393,40 @@ export function rankByArtistExactness(tracks: Track[], artist: string): Track[] 
 		(foldScript(s || '').toLowerCase().match(SCRIPT_RUNS) ?? [])
 			.map((r) => r.replace(/[^\p{L}\p{N}]+/gu, ''))
 			.filter(Boolean);
+	// Script-EXACT runs: identical normalization WITHOUT the Traditional→Simplified fold, so
+	// 姜濤 and 姜涛 stay different people for tier 0. No t2s dependency either.
+	const exactRunsOf = (s: string): string[] =>
+		((s || '').toLowerCase().match(SCRIPT_RUNS) ?? [])
+			.map((r) => r.replace(/[^\p{L}\p{N}]+/gu, ''))
+			.filter(Boolean);
 	// "X feat. Y" / "X (feat. Y)" names the same act as X for ranking purposes.
 	const dropFeat = (s: string): string =>
 		s.replace(/\s*\(?\b(?:feat|ft)\.?\b[^)]*\)?\s*$/i, '').trim();
 	const want = runsOf(dropFeat(artist));
+	const wantExact = exactRunsOf(dropFeat(artist));
+	const wantFoldedKey = want.join(' ');
+	// Distinctive aliases: known variants that are NOT just the page name in another script.
+	// The folded-equality test excludes the script twin (姜涛 for page 姜濤) — it cannot
+	// distinguish the two people, so it must not promote on its own.
+	const distinctive = (aliases ?? [])
+		.map((a) => ({ exact: exactRunsOf(dropFeat(a)), foldedKey: runsOf(dropFeat(a)).join(' ') }))
+		.filter((a) => a.exact.length > 0 && a.foldedKey !== wantFoldedKey)
+		.map((a) => a.exact);
 	const tier = (t: Track): number => {
 		const runs = runsOf(dropFeat(t.artist));
 		if (!want.length || !runs.length) return 2;
-		if (runs.length === want.length && runs.every((r, i) => r === want[i])) return 0;
+		const runsExact = exactRunsOf(dropFeat(t.artist));
+		// Tier 0 — script-exact, or carries a distinctive alias whole-run ("Keung To 姜涛",
+		// the "李幸倪/Keung To 姜涛" duet). Whole runs, so "Hara Kiri" still can't tier-0.
+		if (
+			(wantExact.length > 0 &&
+				runsExact.length === wantExact.length &&
+				runsExact.every((r, i) => r === wantExact[i])) ||
+			distinctive.some((d) => d.every((r) => runsExact.includes(r)))
+		)
+			return 0;
+		// Tier 1 — folded equality or whole-run subset (collabs / folded aliases), as before.
+		if (runs.length === want.length && runs.every((r, i) => r === want[i])) return 1;
 		const [small, big] = want.length <= runs.length ? [want, runs] : [runs, want];
 		if (small.every((r) => big.includes(r))) return 1;
 		return 2;

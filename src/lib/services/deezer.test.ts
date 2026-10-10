@@ -218,6 +218,24 @@ describe('deezerArtist — resolve artist info via the own-origin proxy', () => 
 		expect(params.get('name')).toBe('A&B Band');
 	});
 
+	it('forwards aliases as repeated `alias` params (quick-261010-exact)', async () => {
+		const fetchMock = vi.fn(async (_url: string) => jsonResponse(ARTIST_INFO));
+		vi.stubGlobal('fetch', fetchMock);
+		await deezerArtist('姜濤', undefined, ['Keung To', '姜涛']);
+		const called = String(fetchMock.mock.calls[0][0]);
+		const params = new URLSearchParams(called.split('?')[1]);
+		expect(params.get('name')).toBe('姜濤');
+		expect(params.getAll('alias')).toEqual(['Keung To', '姜涛']);
+	});
+
+	it('omits the alias params entirely when no aliases are given', async () => {
+		const fetchMock = vi.fn(async (_url: string) => jsonResponse(ARTIST_INFO));
+		vi.stubGlobal('fetch', fetchMock);
+		await deezerArtist('Daft Punk Aliasless');
+		const called = String(fetchMock.mock.calls[0][0]);
+		expect(new URLSearchParams(called.split('?')[1]).getAll('alias')).toEqual([]);
+	});
+
 	it('returns null on an empty name (no fetch)', async () => {
 		const fetchMock = vi.fn(async () => jsonResponse(ARTIST_INFO));
 		vi.stubGlobal('fetch', fetchMock);

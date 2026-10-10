@@ -78,3 +78,43 @@ describe('pickBestArtistId — the namesake-shell bug', () => {
 		expect(DEEZER_ARTIST_SEARCH_LIMIT).toBeGreaterThanOrEqual(5);
 	});
 });
+
+// quick-261010-exact: the CJK impostor case. Deezer's search/artist?q=姜濤 (measured 2026-10-10)
+// returns TWO profiles: a 13-fan exact-spelled "姜濤" (picture = Gin Lee's 沈慧雯 duet artwork)
+// and the real "Keung To" (128 fans, real photo). Without aliases the impostor is unbeatable.
+const KEUNG_TO_HITS = [
+	{ id: 150054092, name: '姜濤', nb_fan: 13 }, // impostor, exact-spelled
+	{ id: 126889862, name: 'Keung To', nb_fan: 128 } // the real artist, romanized profile
+];
+
+describe('pickBestArtistId — MusicBrainz alias variants count as exact', () => {
+	it('picks the real Keung To profile once the romanized alias is known', () => {
+		expect(pickBestArtistId(KEUNG_TO_HITS, '姜濤', ['Keung To', '姜涛', '姜濤'])).toBe('126889862');
+	});
+
+	it('without aliases the exact-spelled impostor still wins (documents the bug shape)', () => {
+		expect(pickBestArtistId(KEUNG_TO_HITS, '姜濤')).toBe('150054092');
+	});
+
+	it('alias matching is case- and punctuation-insensitive like the query match', () => {
+		const hits = [
+			{ id: 1, name: 'KEUNG-TO', nb_fan: 5 },
+			{ id: 2, name: 'Keung To', nb_fan: 50 }
+		];
+		expect(pickBestArtistId(hits, '姜濤', ['keung to'])).toBe('2');
+	});
+
+	it('a non-exact hit still never beats an exact one, even with aliases in play', () => {
+		// The Coldplay-tribute guard must survive the alias widening: "Coldplay Metal Tribute"
+		// (6166 fans) must not hijack the query just because aliases exist.
+		const hits = [
+			{ id: 316813311, name: 'Coldplay', nb_fan: 91 },
+			{ id: 4581886, name: 'Coldplay Metal Tribute', nb_fan: 6166 }
+		];
+		expect(pickBestArtistId(hits, 'Coldplay', ['Chris Martin'])).toBe('316813311');
+	});
+
+	it('an empty alias list behaves exactly like the two-arg call', () => {
+		expect(pickBestArtistId(KEUNG_TO_HITS, '姜濤', [])).toBe(pickBestArtistId(KEUNG_TO_HITS, '姜濤'));
+	});
+});

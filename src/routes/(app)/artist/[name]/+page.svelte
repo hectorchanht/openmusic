@@ -27,8 +27,8 @@
 	import { getSimilarArtists } from '$lib/services/similar';
 	import { deezerArtistCover, deezerArtist, type DeezerArtistInfo } from '$lib/services/deezer';
 	import { filterByType, typeLabelKey, releaseYear, albumHref, fallbackCoverSeed, type DiscographyEntry } from '$lib/services/discography';
-	import { loadDiscography } from '$lib/services/discography-source';
-	import { pickLocaleName } from '$lib/services/musicbrainz';
+	import { loadDiscography, isCjkName } from '$lib/services/discography-source';
+	import { pickLocaleName, mbArtist } from '$lib/services/musicbrainz';
 	import { mergeEnrichArtist } from '$lib/services/enrich-merge';
 	import { mapWithConcurrency } from '$lib/services/discovery';
 	import PageOg from '$lib/components/PageOg.svelte';
@@ -60,7 +60,8 @@
 	// that window exhausts the loaded set. searchAll(kw, page) returns a CUMULATIVE SUPERSET, so
 	// a deeper page REPLACES `songs` — never concatenate (duplicate uids would break the keyed
 	// {#each}). Playback semantics are unchanged: the row tap still calls
-	// player.setListQueue(songs, 'artist'), which queues the FULL loaded set, not the render window.
+	// player.setListQueue(rankedSongs, 'artist'), which queues the FULL loaded set (in
+	// exact-artist-first order), not the render window.
 	const SONGS_PAGE_SIZE = 30;
 	let shown = $state(SONGS_PAGE_SIZE);
 	let songsPage = $state(1);
@@ -121,6 +122,16 @@
 			: name
 	);
 
+	// quick-261010-exact: exact-artist-first hit-song ranking. `songs` stays the LOADED list
+	// (searchAll relevance order); `rankedSongs` is the display/queue order — tier 0 is a
+	// script-EXACT artist match or a track carrying a DISTINCTIVE MusicBrainz alias
+	// ("Keung To" for 姜濤), so the mainland folk singer 姜涛's same-folded-name tracks no
+	// longer interleave with Keung To's own above them. mbNames lands async via the albums
+	// effect (CJK artists); before that the folded ranking applies — progressive enhancement,
+	// no extra fetch (the dz effect below warms the same mb:artist cache key).
+	const mbAliases = $derived(Object.values(mbNames));
+	const rankedSongs = $derived(rankByArtistExactness(songs, name, mbAliases));
+
 	// "More like this" shelf (quick-260607-jip). getSimilarArtists() chains Last.fm → Deezer
 	// (jau-added fallback) → same-artist. Each related artist gets its avatar via Deezer's
 	// artist-picture endpoint (4 in-flight cap; never throws). Race-guarded on `name`.
@@ -164,12 +175,12 @@
 	}
 
 	function playArtistRandom() {
-		if (!songs.length) return;
-		const pickIdx = Math.floor(Math.random() * songs.length);
-		const picked = songs[pickIdx];
+		if (!rankedSongs.length) return;
+		const pickIdx = Math.floor(Math.random() * rankedSongs.length);
+		const picked = rankedSongs[pickIdx];
 		// Queue order = picked first, then the rest shuffled — same intent as the
 		// shuffle button on a playlist. player.play() handles ensureAhead growth.
-		const rest = songs.filter((_, i) => i !== pickIdx);
+		const rest = rankedSongs.filter((_, i) => i !== pickIdx);
 		for (let i = rest.length - 1; i > 0; i--) {
 			const j = Math.floor(Math.random() * (i + 1));
 			[rest[i], rest[j]] = [rest[j], rest[i]];
@@ -229,7 +240,7 @@
 		}
 	}
 
-	const hero = $derived(songs.find((t) => t.cover)?.cover ?? null);
+	const hero = $derived(rankedSongs.find((t) => t.cover)?.cover ?? null);
 	// Prefer the best-quality enrichment image (Deezer hi-res > Last.fm art, via the merge)
 	// ONLY when present; otherwise keep the derived cover so a real hero NEVER regresses to a
 	// placeholder (ENRICH-02/D-15 override D-03).
@@ -258,10 +269,10 @@
 			hasMoreSongs = true;
 			loadingMoreSongs = false; // a stale in-flight page won't clear this (loadedFor guard)
 			searchAll(n, 1)
-				// quick-261006-aex: searchAll ranks by relevance, so a fuzzy upstream ("Hara Kiri"
-				// on Kiri T's page) can outrank the artist's own songs — re-rank by artist-name
-				// exactness after dedupe (stable: relevance order kept within each tier).
-				.then((r) => (songs = rankByArtistExactness(dedupeBest(r.interleaved, settings.preferredSource), n)))
+				// quick-261010-exact: the exact-artist-first re-rank now lives in the `rankedSongs`
+				// $derived (MusicBrainz aliases feed it once the identity lands), so the loaded
+				// list stays in searchAll relevance order here.
+				.then((r) => (songs = dedupeBest(r.interleaved, settings.preferredSource)))
 				.catch(() => (songs = []))
 				.finally(() => (loading = false));
 		}
@@ -289,9 +300,9 @@
 				if (merged.length <= songs.length) {
 					hasMoreSongs = false; // sources exhausted: the deeper page added nothing new
 				} else {
-					// quick-261006-aex: the deeper page is also relevance-ranked — keep the
-					// artist-exactness order over the cumulative superset.
-					songs = rankByArtistExactness(merged, n); // cumulative superset REPLACES the list
+					// quick-261010-exact: the cumulative superset REPLACES the loaded list; the
+					// `rankedSongs` $derived re-applies the exact-artist-first order on top.
+					songs = merged; // cumulative superset REPLACES the list
 					songsPage = next;
 					shown += SONGS_PAGE_SIZE;
 				}
@@ -416,13 +427,27 @@
 			dzFor = n;
 			dz = null;
 			dzLoading = true;
-			void deezerArtist(n)
-				.then((r) => {
+			void (async () => {
+				try {
+					// quick-261010-exact: CJK artists resolve the MusicBrainz identity FIRST so the
+					// Deezer pick treats every known name variant as "exact". Without this, the
+					// search for 姜濤 picks the exact-spelled 13-fan impostor profile (whose picture
+					// is Gin Lee's 沈慧雯 duet artwork) over the real "Keung To" profile (128 fans,
+					// real photo). mbArtist is client-cached (24h), so the albums effect's later
+					// loadDiscography call reuses it for free; a miss/throw → no aliases → the
+					// pre-fix behaviour exactly.
+					let aliases: string[] = [];
+					if (isCjkName(n)) {
+						const identity = await mbArtist(n).catch(() => null);
+						if (dzFor !== n) return; // superseded while the identity resolved
+						aliases = Object.values(identity?.names ?? {});
+					}
+					const r = await deezerArtist(n, undefined, aliases);
 					if (dzFor === n) dz = r; // race guard — discard if name changed
-				})
-				.finally(() => {
+				} finally {
 					if (dzFor === n) dzLoading = false;
-				});
+				}
+			})();
 		}
 	});
 
@@ -462,7 +487,7 @@
 		<button class="act" class:on={favArtist} aria-pressed={favArtist} aria-label={favArtist ? t('artist.unfavorite') : t('artist.favorite')} title={favArtist ? t('artist.unfavorite') : t('artist.favorite')} onclick={toggleFavourite} use:tapBounce>
 			<Heart size={20} fill={favArtist ? 'currentColor' : 'none'} />
 		</button>
-		<button class="act play" aria-label={t('artist.playArtist')} title={t('artist.playArtist')} disabled={loading || !songs.length} onclick={playArtistRandom} use:tapBounce>
+		<button class="act play" aria-label={t('artist.playArtist')} title={t('artist.playArtist')} disabled={loading || !rankedSongs.length} onclick={playArtistRandom} use:tapBounce>
 			<Play size={20} fill="currentColor" />
 		</button>
 		<button class="act" aria-label={t('artist.share')} title={t('artist.share')} onclick={shareArtist} use:tapBounce>
@@ -508,7 +533,7 @@
 	{/if}
 </div>
 
-{#if !online.isOnline && !songs.length}
+{#if !online.isOnline && !rankedSongs.length}
 	<!-- OFFL-03 inline offline state: artist discovery needs the network — the effects above
 	     short-circuit when offline (no stuck skeletons). Promote Downloads/Library; no redirect
 	     (D-09). Shown only when there's nothing already loaded to interact with. -->
@@ -574,24 +599,24 @@
 			{/each}
 		</ul>
 	</section>
-{:else if online.isOnline || songs.length}
+{:else if online.isOnline || rankedSongs.length}
 	<!-- Offline with nothing loaded: the inline offline state above covers it, so the empty
 	     hit-songs section is suppressed (no duplicate dead screen — D-10). -->
 	<section>
-		<h2>{t('artist.hitSongs')}<span class="count">{songs.length}</span></h2>
-		{#if songs.length}
+		<h2>{t('artist.hitSongs')}<span class="count">{rankedSongs.length}</span></h2>
+		{#if rankedSongs.length}
 			<ul class="list">
-				{#each songs.slice(0, shown) as track, i (track.uid)}
+				{#each rankedSongs.slice(0, shown) as track, i (track.uid)}
 					<!-- quick-260919-l9e: the shared row. Swipe is omitted ON PURPOSE — this page wants
 					     exactly the app convention (right = queue, left = play next), which now lives
 					     inside the component. The key stays `track.uid` (IDENTITY); `index` is the
-					     displayIndex, ORDERING only. The queue is still the FULL loaded `songs`, not the
-					     render window (quick-260831-rjo). -->
+					     displayIndex, ORDERING only. The queue is still the FULL loaded `rankedSongs`,
+					     not the render window (quick-260831-rjo). -->
 					<li>
 						<SongRow
 							{track}
 							// index={i}
-							onplay={() => { player.setListQueue(songs, 'artist'); player.play(track, { fresh: true }); }}
+							onplay={() => { player.setListQueue(rankedSongs, 'artist'); player.play(track, { fresh: true }); }}
 							onrequestmenu={() => { menuTrack = track; menuOpen = true; }}
 						/>
 					</li>
@@ -602,7 +627,7 @@
 			     are exhausted AND everything loaded is on screen. -->
 			{#if loadingMoreSongs}
 				<div class="more"><p class="muted">{t('search.loadingMore')}</p></div>
-			{:else if songs.length > shown || hasMoreSongs}
+			{:else if rankedSongs.length > shown || hasMoreSongs}
 				<div class="more"><button class="act" use:tapBounce onclick={loadMoreSongs}>{t('artist.showMore')}<ChevronDown size={18}/></button></div>
 			{/if}
 		{:else}<p class="muted">{t('artist.noSongs', { name: names.dnArtist(name) })}</p>{/if}

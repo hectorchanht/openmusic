@@ -337,19 +337,30 @@ export interface DeezerAlbumInfo {
  * Resolve Deezer artist info (hi-res picture, fan count, album count) via the OWN-ORIGIN proxy.
  * Returns null on already-aborted signal / empty name / non-ok / abort / throw (never throws) —
  * a null leaves the artist-page Deezer section silently absent (D-14).
+ *
+ * quick-261010-exact: `aliases` are the artist's other known names (MusicBrainz identity). They
+ * are forwarded as repeated `alias` params so the proxy's pickBestArtistId counts a hit on ANY
+ * variant as exact — without this, Deezer's search for 姜濤 picks the 13-fan exact-spelled
+ * impostor (Gin Lee's picture) over the real "Keung To" profile (128 fans). The alias list joins
+ * the client cache key, which ALSO busts the pre-fix `dz:artist:<name>` entries that had pinned
+ * the impostor for the 7-day TTL.
  */
 export async function deezerArtist(
 	name: string,
-	signal?: AbortSignal
+	signal?: AbortSignal,
+	aliases: string[] = []
 ): Promise<DeezerArtistInfo | null> {
 	if (signal?.aborted) return null;
 	const clean = (name ?? '').trim();
 	if (!clean) return null;
+	const aliasList = (aliases ?? []).map((a) => (a ?? '').trim()).filter(Boolean);
 	// WR-03 / T-17-13: a timeout/abort/non-ok must NOT pin "no artist info" for 7 days —
 	// the failure rejects inside cached() (never stored) and maps to null OUTSIDE the cache,
 	// so the next visit retries instead of hiding the Deezer section all session.
-	return cached(`dz:artist:${clean}`, TTL_ARTIST, async () => {
-		const url = `${ARTIST_PATH}?${new URLSearchParams({ name: clean }).toString()}`;
+	return cached(`dz:artist:${clean}|${aliasList.join('|')}`, TTL_ARTIST, async () => {
+		const params = new URLSearchParams({ name: clean });
+		for (const a of aliasList) params.append('alias', a);
+		const url = `${ARTIST_PATH}?${params.toString()}`;
 		const res = await apiFetch(url, { signal: combinedSignal(signal) }); // governed; abort/timeout REJECT
 		if (!res.ok) throw new Error(String(res.status));
 		return (await res.json()) as DeezerArtistInfo;
