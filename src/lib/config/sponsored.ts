@@ -22,6 +22,12 @@ export const ADMIN_KEY_SHA256 = '67d2d8519b0160af28a8d8f6c3cc97d810fda37161d2b10
 // localStorage flag hiding the strip once a tip-jar license key verifies.
 export const SPONSORED_HIDE_KEY = 'dawn_sponsored_hidden';
 
+// localStorage slot for the user's own verified tip-jar license key, persisted
+// after a successful verify so the Settings input pre-fills on return and the
+// key can be copied for reuse on another device/app. Only ever sent to
+// /api/sponsored/verify on explicit Verify clicks — never auto-submitted.
+export const TIP_LICENSE_KEY = 'dawn_tip_license_key';
+
 export const WISE_URL = 'https://wise.com/invite/dic/hotungc3';
 export const COINBASE_URL = 'https://advanced.coinbase.com/join/F95MLKD?src=referral-link';
 export const BINANCE_URL = 'https://www.binance.com/activity/referral-entry/CPA?ref=CPA_0027L6WVRQ';
