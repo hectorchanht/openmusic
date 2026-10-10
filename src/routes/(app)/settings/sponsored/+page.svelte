@@ -1,14 +1,16 @@
 <script lang="ts">
-	// Settings → Sponsored strip (HIDE RULE V2, Hector 2026-10-10; key-persistence
-	// refinement 2026-10-10): the honor-system × is gone. A tipper enters the
-	// license key from their Gumroad tip receipt; POST /api/sponsored/verify
-	// checks it against Gumroad (product permalink openmusic-tip, no token needed)
-	// and rejects refunded/chargebacked purchases. A verified key sets
-	// localStorage dawn_sponsored_hidden=1 (strip renders nothing) AND persists
-	// the key itself as dawn_tip_license_key so the input pre-fills on return and
-	// can be copied for reuse on another device/app. "Show again" clears only the
-	// hidden flag — the stored key stays. The stored key is never sent anywhere
-	// except /api/sponsored/verify on explicit Verify clicks.
+	// Settings → Supporter (SUPPORTER CHOICE MODEL, Hector 2026-10-10): a tipper
+	// enters the license key from their Gumroad tip receipt; POST
+	// /api/sponsored/verify checks it against Gumroad (product permalink
+	// openmusic-tip, no token needed) and rejects refunded/chargebacked
+	// purchases. A verified key sets localStorage dawn_supporter=1 (the seed for
+	// future feature unlocks via isSupporter()) AND persists the key itself as
+	// dawn_tip_license_key so the input pre-fills on return and can be copied
+	// for reuse on another device/app. Verifying does NOT hide the strip — the
+	// supporter chooses that with the "Hide sponsored strip" toggle, which sets
+	// or clears dawn_sponsored_hidden and takes effect immediately. The stored
+	// key is never sent anywhere except /api/sponsored/verify on explicit
+	// Verify clicks.
 	//
 	// Labels are English literals (the strip itself is English-only too); only the
 	// settings-index group row needed i18n keys (settings.groupSponsored[Desc]).
@@ -19,9 +21,10 @@
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { apiFetch } from '$lib/services/api-base';
 	import { t } from '$lib/i18n';
-	import { SPONSORED_HIDE_KEY, TIP_LICENSE_KEY } from '$lib/config/sponsored';
+	import { SPONSORED_HIDE_KEY, SUPPORTER_KEY, TIP_LICENSE_KEY } from '$lib/config/sponsored';
 
-	let hidden = $state(false);
+	let supporter = $state(false);
+	let hideStrip = $state(false);
 	let key = $state('');
 	let verifying = $state(false);
 	let error = $state<string | null>(null);
@@ -29,8 +32,9 @@
 
 	onMount(() => {
 		try {
-			hidden = localStorage.getItem(SPONSORED_HIDE_KEY) === '1';
-			// Pre-fill from the previously verified key (kept across "Show again").
+			supporter = localStorage.getItem(SUPPORTER_KEY) === '1';
+			hideStrip = localStorage.getItem(SPONSORED_HIDE_KEY) === '1';
+			// Pre-fill from the previously verified key.
 			const stored = localStorage.getItem(TIP_LICENSE_KEY);
 			if (stored) key = stored;
 		} catch {
@@ -38,7 +42,8 @@
 		}
 	});
 
-	// Verify the key server-side; only a verified, non-refunded purchase hides.
+	// Verify the key server-side; a verified key marks supporter status and is
+	// persisted — it does NOT auto-hide the strip.
 	async function verify() {
 		const licenseKey = key.trim();
 		if (!licenseKey || verifying) return;
@@ -53,16 +58,16 @@
 			const data = (await res.json()) as { ok?: boolean; reason?: string };
 			if (data?.ok) {
 				try {
-					localStorage.setItem(SPONSORED_HIDE_KEY, '1');
+					localStorage.setItem(SUPPORTER_KEY, '1');
 					// Persist the key itself so it pre-fills next time and can be
 					// copied for reuse. Only sent to /api/sponsored/verify above.
 					localStorage.setItem(TIP_LICENSE_KEY, licenseKey);
 				} catch {
-					/* storage unavailable — the strip stays visible next launch */
+					/* storage unavailable — supporter status won't persist */
 				}
-				hidden = true;
+				supporter = true;
 			} else if (data?.reason === 'refunded') {
-				error = 'This purchase was refunded — the sponsored strip stays visible.';
+				error = 'This purchase was refunded — your supporter status stays off.';
 			} else if (data?.reason === 'error') {
 				error = 'Could not reach Gumroad for verification — try again in a moment.';
 			} else {
@@ -75,15 +80,18 @@
 		}
 	}
 
-	function showAgain() {
+	// The supporter's explicit choice: hide (or re-show) the sponsored strip.
+	function toggleHideStrip(checked: boolean) {
 		try {
-			// Clear only the hidden flag — the stored key stays so the input
-			// comes pre-filled and the user can re-verify in one click.
-			localStorage.removeItem(SPONSORED_HIDE_KEY);
+			if (checked) {
+				localStorage.setItem(SPONSORED_HIDE_KEY, '1');
+			} else {
+				localStorage.removeItem(SPONSORED_HIDE_KEY);
+			}
 		} catch {
 			/* ignore */
 		}
-		hidden = false;
+		hideStrip = checked;
 	}
 
 	async function copyKey() {
@@ -116,15 +124,25 @@
 	}
 </script>
 
-<svelte:head><title>{t('settings.groupSponsored')} · {t('settings.title')}</title></svelte:head>
+<svelte:head><title>Supporter · {t('settings.title')}</title></svelte:head>
 
-<PageHeader title={t('settings.groupSponsored')} backLabel={t('settings.backToSettings')} onback={() => goto('/settings')} />
+<PageHeader title="Supporter" backLabel={t('settings.backToSettings')} onback={() => goto('/settings')} />
 
 <section>
-	{#if hidden}
-		<!-- Verified state: strip hidden, reversible; stored key shown for copying. -->
+	{#if supporter}
+		<!-- Verified state: supporter badge + hide-strip toggle + stored key. -->
 		<div class="card ok">
-			<p class="msg"><HandCoins size={18} /> The sponsored strip is hidden. Thanks for tipping! ☕</p>
+			<p class="msg"><HandCoins size={18} /> ☕ You're a supporter — thanks for tipping!</p>
+			<label class="switch">
+				<input
+					type="checkbox"
+					checked={hideStrip}
+					onchange={(e) => toggleHideStrip(e.currentTarget.checked)}
+				/>
+				<span class="track"><span class="thumb"></span></span>
+				<span class="switch-label">Hide sponsored strip</span>
+			</label>
+			<p class="hint">Supporters can hide the strip anytime.</p>
 			<label class="lbl" for="spon-key-saved">Your license key</label>
 			<div class="keyrow">
 				<input id="spon-key-saved" class="txt mono" type="text" value={key} readonly aria-readonly="true" tabindex={-1} />
@@ -133,12 +151,11 @@
 				</button>
 			</div>
 			{#if copied}<p class="copied" role="status">Copied — paste it on another device or in another app.</p>{/if}
-			<button class="btn ghost" use:tapBounce onclick={showAgain}>Show the strip again</button>
 		</div>
 	{:else}
 		<!-- Unverified state: enter the Gumroad license key from the tip receipt. -->
 		<div class="card">
-			<p class="msg">Tipped? Enter the license key from your tip receipt to hide the sponsored strip on the home page.</p>
+			<p class="msg">Tipped? Enter the license key from your tip receipt to unlock your supporter status.</p>
 			<label class="lbl" for="spon-key">Gumroad license key</label>
 			<div class="keyrow">
 				<input
@@ -163,7 +180,7 @@
 				<p class="err" role="alert">{error}</p>
 			{/if}
 			<button class="btn" use:tapBounce onclick={() => void verify()} disabled={verifying || !key.trim()}>
-				{verifying ? 'Verifying…' : 'Verify & hide the strip'}
+				{verifying ? 'Verifying…' : 'Verify key'}
 			</button>
 			<p class="hint">The key is in the receipt email Gumroad sent after your tip. Keys generated per purchase from 2026-10-10 — earlier tips may not have one yet.</p>
 		</div>
@@ -186,7 +203,7 @@
 	.txt.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 	.txt:disabled { opacity: 0.6; }
 	.err { color: #e5484d; font-size: 0.8125rem; margin: 8px 0 0; }
-	.keyrow { display: flex; gap: 8px; align-items: stretch; }
+	.keyrow { display: flex; gap: 8px; align-items: stretch; margin-top: 12px; }
 	.keyrow .txt { flex: 1; min-width: 0; }
 	.btn.icon { width: 44px; min-height: 44px; margin-top: 0; padding: 0; flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; }
 	.copied { color: var(--color-text-muted); font-size: 0.75rem; margin: 6px 0 0; }
@@ -196,6 +213,14 @@
 		font-size: 0.9375rem; font-weight: 700; cursor: pointer;
 	}
 	.btn:disabled { opacity: 0.5; cursor: default; }
-	.btn.ghost { background: transparent; color: var(--color-text); border: 1px solid var(--color-border); }
 	.hint { margin: 12px 0 0; font-size: 0.75rem; line-height: 1.5; color: var(--color-text-muted); }
+	/* Hide-strip toggle: plain checkbox styled as a switch (no extra a11y burden). */
+	.switch { display: flex; align-items: center; gap: 12px; cursor: pointer; padding: 4px 0; }
+	.switch input { position: absolute; opacity: 0; width: 0; height: 0; margin: 0; }
+	.track { width: 46px; height: 26px; border-radius: 999px; background: var(--color-border); position: relative; transition: background 0.2s; flex: 0 0 auto; }
+	.thumb { position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: #fff; transition: transform 0.2s; }
+	.switch input:checked + .track { background: var(--color-primary); }
+	.switch input:checked + .track .thumb { transform: translateX(20px); }
+	.switch input:focus-visible + .track { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+	.switch-label { font-size: 0.9375rem; font-weight: 700; color: var(--color-text); }
 </style>

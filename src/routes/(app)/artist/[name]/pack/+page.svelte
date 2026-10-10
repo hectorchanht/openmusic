@@ -11,6 +11,7 @@
 	import { Download, BookOpen, Play, Shuffle } from '@lucide/svelte';
 	import { goto } from '$app/navigation';
 	import DownloadGateModal from '$lib/components/DownloadGateModal.svelte';
+	import { isSupporter } from '$lib/config/sponsored';
 
 	const artistName = $derived(decodeURIComponent(page.params.name ?? ''));
 
@@ -41,14 +42,9 @@
 		return years[0] === years[years.length - 1] ? years[0] : `${years[0]} – ${years[years.length - 1]}`;
 	});
 
-	/** Tip-jar supporter check (Gumroad license V2 flow sets dawn_sponsored_hidden=1). */
-	function isSupporter(): boolean {
-		try {
-			return localStorage.getItem('dawn_sponsored_hidden') === '1';
-		} catch {
-			return false;
-		}
-	}
+	// SUPPORTER CHOICE MODEL (Hector 2026-10-10): the tip-jar supporter flag is
+	// dawn_supporter=1 (isSupporter()); the strip-hide flag no longer implies
+	// supporter status. Bulk "Download all" stays the supporter unlock.
 
 	function downloadAll() {
 		if (!isSupporter()) {

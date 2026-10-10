@@ -4,12 +4,14 @@
 	// $lib/config/sponsored.ts; an empty URL renders nothing, and pasting a real
 	// link there makes the button appear automatically.
 	//
-	// HIDE RULE V2 (Hector 2026-10-10): the honor-system × is gone. Hiding is
-	// earned in Settings → Sponsored strip by verifying the Gumroad license key
-	// from the tip receipt; that flow sets localStorage dawn_sponsored_hidden=1.
-	// This component only READS the flag — when it is set the strip renders
-	// nothing at all. localStorage is touched ONLY in onMount (never during
-	// SSR/prerender) and always inside try/catch (private mode).
+	// HIDE RULE V2 (Hector 2026-10-10; supporter-choice model 2026-10-10): the
+	// honor-system × is gone and auto-hide-on-verify is gone too. Verifying a
+	// tip-jar key only sets localStorage dawn_supporter=1; hiding is the
+	// supporter's explicit choice via the Settings → Supporter toggle, which
+	// sets localStorage dawn_sponsored_hidden=1. This component only READS that
+	// flag — supporter status alone never hides the strip. localStorage is
+	// touched ONLY in onMount (never during SSR/prerender) and always inside
+	// try/catch (private mode).
 	import { onMount } from 'svelte';
 	import {
 		TIP_JAR_URL,

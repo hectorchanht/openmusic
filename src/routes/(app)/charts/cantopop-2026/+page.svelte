@@ -15,6 +15,7 @@
 	import { downloadAlbum as downloadPackTracks } from '$lib/services/download-album';
 	import { goto } from '$app/navigation';
 	import DownloadGateModal from '$lib/components/DownloadGateModal.svelte';
+	import { isSupporter } from '$lib/config/sponsored';
 	import type { Track } from '$lib/sources/types';
 
 	function stubTrack(s: PackSong): Track {
@@ -59,12 +60,10 @@
 	let downloading = $state(false);
 	let gateOpen = $state(false);
 	async function downloadAll() {
-		try {
-			if (localStorage.getItem('dawn_sponsored_hidden') !== '1') {
-				gateOpen = true;
-				return;
-			}
-		} catch {
+		// SUPPORTER CHOICE MODEL (Hector 2026-10-10): the tip-jar supporter
+		// flag is dawn_supporter=1 (isSupporter()); the strip-hide flag no
+		// longer implies supporter status.
+		if (!isSupporter()) {
 			gateOpen = true;
 			return;
 		}

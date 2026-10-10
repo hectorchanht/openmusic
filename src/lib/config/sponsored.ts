@@ -19,7 +19,15 @@ export const GUMROAD_PRODUCT_PERMALINK = 'openmusic-tip';
 // is proportionate; brute-forcing a 32-char key from its hash is infeasible.
 export const ADMIN_KEY_SHA256 = '67d2d8519b0160af28a8d8f6c3cc97d810fda37161d2b10b1359d480c4ecad77';
 
-// localStorage flag hiding the strip once a tip-jar license key verifies.
+// SUPPORTER CHOICE MODEL (Hector 2026-10-10): verifying a tip-jar license key
+// sets dawn_supporter=1 and persists the key itself. It does NOT hide the strip.
+// Hiding stays a user choice via SPONSORED_HIDE_KEY (Settings → Supporter toggle).
+// Marking supporter status is also the seed for future feature unlocks (gate via
+// isSupporter()).
+export const SUPPORTER_KEY = 'dawn_supporter';
+
+// localStorage flag hiding the strip — set ONLY by the user's explicit toggle
+// on the Settings → Supporter page (never auto-set on verify).
 export const SPONSORED_HIDE_KEY = 'dawn_sponsored_hidden';
 
 // localStorage slot for the user's own verified tip-jar license key, persisted
@@ -61,4 +69,19 @@ export function hasAnySponsorLink(): boolean {
 		KOINLY_URL,
 		AIRWALLEX_URL
 	].some(hasLink);
+}
+
+/**
+ * SSR-safe check for verified-supporter status — the future feature-gating
+ * hook (nothing gated yet). True only in the browser when a tip-jar key has
+ * verified successfully (localStorage dawn_supporter === "1").
+ */
+export function isSupporter(): boolean {
+	if (typeof localStorage === 'undefined') return false;
+	try {
+		return localStorage.getItem(SUPPORTER_KEY) === '1';
+	} catch {
+		/* storage unavailable (private mode) — treat as non-supporter */
+		return false;
+	}
 }
