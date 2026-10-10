@@ -15,6 +15,7 @@
 	import { Play, Shuffle, Download } from '@lucide/svelte';
 	import { downloadAlbum as downloadPackTracks } from '$lib/services/download-album';
 	import { goto } from '$app/navigation';
+	import DownloadGateModal from '$lib/components/DownloadGateModal.svelte';
 	import type { Track } from '$lib/sources/types';
 
 	function stubTrack(s: PackSong): Track {
@@ -56,14 +57,15 @@
 	}
 	// quick-261010-soy4: Download all — tip-jar supporters only (same gate as discography pack).
 	let downloading = $state(false);
+	let gateOpen = $state(false);
 	async function downloadAll() {
 		try {
 			if (localStorage.getItem('dawn_sponsored_hidden') !== '1') {
-				goto('/settings');
+				gateOpen = true;
 				return;
 			}
 		} catch {
-			goto('/settings');
+			gateOpen = true;
 			return;
 		}
 		if (downloading) return;
@@ -175,6 +177,7 @@
 
 <TrackMenu track={menuTrack} open={menuOpen} loading={menuLoading} onclose={() => (menuOpen = false)} />
 
+<DownloadGateModal bind:open={gateOpen} />
 <style>
 	.hero {
 		padding: 24px 16px 8px;

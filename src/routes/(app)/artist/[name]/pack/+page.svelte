@@ -10,12 +10,14 @@
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { Download, BookOpen, Play, Shuffle } from '@lucide/svelte';
 	import { goto } from '$app/navigation';
+	import DownloadGateModal from '$lib/components/DownloadGateModal.svelte';
 
 	const artistName = $derived(decodeURIComponent(page.params.name ?? ''));
 
 	let albums = $state<PackAlbum[]>([]);
 	let loading = $state(true);
 	let linerOpen = $state(false);
+	let gateOpen = $state(false);
 
 	$effect(() => {
 		const n = artistName;
@@ -50,8 +52,7 @@
 
 	function downloadAll() {
 		if (!isSupporter()) {
-			// TODO: show the tip-jar prompt modal (link to tip jar + license entry).
-			goto('/settings');
+			gateOpen = true;
 			return;
 		}
 		// TODO: bulk download implementation (album-by-album tracklist → resolve → zip).
@@ -120,6 +121,7 @@
 	</div>
 {/if}
 
+<DownloadGateModal bind:open={gateOpen} />
 <style>
 	.hero { padding: 24px 16px 8px; text-align: center; }
 	.hero h1 { font-size: calc(1.6rem * var(--fs-title, 1)); margin: 0; }
