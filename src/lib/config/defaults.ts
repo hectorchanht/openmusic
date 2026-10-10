@@ -181,6 +181,8 @@ export type QueueContext =
 	| 'kpop-2026'
 	| 'jpop-2026'
 	| 'western-2026'
+	// quick-261010-disco2: the dynamic discography pack (album-by-album play).
+	| 'discography-pack'
 	| null;
 export const UPNEXT_DEFAULTS = {
 	/** Global default sourcing mode — roadmap-locked to 'generated'. */

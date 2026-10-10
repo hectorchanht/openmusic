@@ -4,14 +4,15 @@
 	// gated for tip-jar supporters (Gumroad license verification, V2 flow).
 	import { page } from '$app/state';
 	import PageHeader from '$lib/components/PageHeader.svelte';
-	import { getDiscographyPack, type PackAlbum } from '$lib/services/discography-pack';
+	import { getDiscographyPack, fetchAlbumTracklist, resolvePackTracks, type PackAlbum } from '$lib/services/discography-pack';
 	import { names } from '$lib/stores/names.svelte';
 	import { t } from '$lib/i18n';
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { Download, BookOpen, Play, Shuffle } from '@lucide/svelte';
 	import { goto } from '$app/navigation';
 	import DownloadGateModal from '$lib/components/DownloadGateModal.svelte';
-	import { isSupporter } from '$lib/config/sponsored';
+	import { player } from '$lib/stores/player.svelte';
+	import { toast } from '$lib/stores/toast.svelte';
 
 	const artistName = $derived(decodeURIComponent(page.params.name ?? ''));
 
@@ -19,6 +20,7 @@
 	let loading = $state(true);
 	let linerOpen = $state(false);
 	let gateOpen = $state(false);
+	let playing = $state(false);
 
 	$effect(() => {
 		const n = artistName;
@@ -42,9 +44,14 @@
 		return years[0] === years[years.length - 1] ? years[0] : `${years[0]} – ${years[years.length - 1]}`;
 	});
 
-	// SUPPORTER CHOICE MODEL (Hector 2026-10-10): the tip-jar supporter flag is
-	// dawn_supporter=1 (isSupporter()); the strip-hide flag no longer implies
-	// supporter status. Bulk "Download all" stays the supporter unlock.
+	/** Tip-jar supporter check (Gumroad license V2 flow sets dawn_sponsored_hidden=1). */
+	function isSupporter(): boolean {
+		try {
+			return localStorage.getItem('dawn_sponsored_hidden') === '1';
+		} catch {
+			return false;
+		}
+	}
 
 	function downloadAll() {
 		if (!isSupporter()) {
@@ -52,6 +59,49 @@
 			return;
 		}
 		// TODO: bulk download implementation (album-by-album tracklist → resolve → zip).
+	}
+
+	// quick-261010-disco2: Play album-by-album (in discography order), or shuffle all.
+	// Fetches each album's tracklist, resolves the stubs, then installs the queue.
+	async function playAll(shuffle = false) {
+		if (playing || !albums.length) return;
+		playing = true;
+		try {
+			// Fetch tracklists album-by-album (4 concurrent to stay polite).
+			const stubs: { artist: string; title: string }[] = [];
+			let ai = 0;
+			async function albumWorker() {
+				while (ai < albums.length) {
+					const idx = ai++;
+					const tracks = await fetchAlbumTracklist(albums[idx], artistName);
+					// Preserve album order: write into a per-album slot.
+					(albums[idx] as PackAlbum).tracks = tracks;
+				}
+			}
+			await Promise.all([albumWorker(), albumWorker(), albumWorker(), albumWorker()]);
+			for (const a of albums) {
+				if (a.tracks) stubs.push(...a.tracks);
+			}
+			if (!stubs.length) {
+				toast.show(t('home.unplayable'));
+				return;
+			}
+			const resolved = await resolvePackTracks(stubs);
+			if (!resolved.length) {
+				toast.show(t('home.unplayable'));
+				return;
+			}
+			if (shuffle) {
+				for (let i = resolved.length - 1; i > 0; i--) {
+					const j = Math.floor(Math.random() * (i + 1));
+					[resolved[i], resolved[j]] = [resolved[j], resolved[i]];
+				}
+			}
+			player.setQueue(resolved, 'discography-pack');
+			await player.play(resolved[0], { context: 'discography-pack' });
+		} finally {
+			playing = false;
+		}
 	}
 </script>
 
@@ -64,10 +114,10 @@
 		<button type="button" class="act" aria-label="Liner notes" title="Liner notes" onclick={() => (linerOpen = true)} use:tapBounce>
 			<BookOpen size={20} />
 		</button>
-		<button type="button" class="act play" aria-label={t('pack.play')} title={t('pack.play')} use:tapBounce>
+		<button type="button" class="act play" aria-label={t('pack.play')} title={t('pack.play')} onclick={() => playAll(false)} disabled={playing} use:tapBounce>
 			<Play size={22} fill="currentColor" />
 		</button>
-		<button type="button" class="act" aria-label={t('pack.shuffle')} title={t('pack.shuffle')} use:tapBounce>
+		<button type="button" class="act" aria-label={t('pack.shuffle')} title={t('pack.shuffle')} onclick={() => playAll(true)} disabled={playing} use:tapBounce>
 			<Shuffle size={20} />
 		</button>
 		<button

@@ -4,6 +4,9 @@
 import { loadDiscography } from '$lib/services/discography-source';
 import type { DiscographyEntry } from '$lib/services/discography';
 import { resolveStub } from '$lib/services/discovery';
+import { getAlbumTracklist } from '$lib/services/lastfm';
+import { deezerAlbumTracks } from '$lib/services/deezer';
+import { mbTracks } from '$lib/services/musicbrainz';
 import type { Track } from '$lib/sources/types';
 
 export interface PackAlbum extends DiscographyEntry {
@@ -22,10 +25,30 @@ export async function getDiscographyPack(artistName: string): Promise<PackAlbum[
 	return albums.map((e: DiscographyEntry) => ({ ...e, tracks: null }));
 }
 
-/** Fetch the tracklist for one album (Deezer id → MusicBrainz → Last.fm, like the album page). */
-export async function fetchAlbumTracklist(album: PackAlbum, artistName: string): Promise<{ artist: string; title: string }[]> {
-	// TODO: replicate the album page's tracklist fetch (deezer/album-tracks, musicbrainz, lastfm).
-	// v1: return empty; the pack view links to the album page for now.
+/** Fetch the tracklist for one album (MusicBrainz → Deezer id → Last.fm, like the album page). */
+export async function fetchAlbumTracklist(
+	album: PackAlbum,
+	artistName: string
+): Promise<{ artist: string; title: string }[]> {
+	try {
+		// MusicBrainz FIRST when present (CJK artists — original-script tracklist).
+		if (album.mbid) {
+			const rows = await mbTracks(album.mbid, artistName);
+			if (rows.length) return rows.map((tr) => ({ artist: tr.artist, title: tr.title }));
+		}
+		// Deezer id next.
+		if (album.id) {
+			const dzTracks = await deezerAlbumTracks(album.id);
+			if (dzTracks.length) return dzTracks.map((tr) => ({ artist: tr.artist, title: tr.title }));
+		}
+		// Last.fm fallback by name.
+		if (artistName) {
+			const lf = await getAlbumTracklist(album.name, artistName).catch(() => []);
+			return lf;
+		}
+	} catch {
+		// Never throw — a missing tracklist just means that album is skipped.
+	}
 	return [];
 }
 
