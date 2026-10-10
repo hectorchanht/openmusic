@@ -210,7 +210,9 @@
 {:else}
 	<header class="hero">
 			<h1>{country} · {yearNum}</h1>
-		<p class="sub">{t('soy.yearEndSub')} · {songs.length} {t('pack.songs')}</p>
+		<!-- quick-261011-soysub: subtitle names the actual chart (srcInfo from the registry),
+		 not the generic Billboard label — the footer source and header must agree. -->
+		<p class="sub">{srcInfo?.name ?? t('soy.yearEndSub')} · {songs.length} {t('pack.songs')}</p>
 		<div class="actions">
 			<button
 				type="button"
