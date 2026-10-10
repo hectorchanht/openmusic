@@ -11,6 +11,8 @@
 	import type { PackSong } from '$lib/data/cantopop-2026';
 	import { loadSoyYear, soyHasData } from '$lib/data/songs-of-year/registry';
 	import { resolveStub } from '$lib/services/discovery';
+	import { nameStub } from '$lib/services/similar';
+	import { shuffle } from '$lib/services/shuffle';
 	import { player } from '$lib/stores/player.svelte';
 	import { toast } from '$lib/stores/toast.svelte';
 	import { t } from '$lib/i18n';
@@ -86,15 +88,31 @@
 		if (tr === null && player.pendingTrack == null) toast.show(t('home.unplayable'));
 	}
 
+	// Whole-list queue (album-page quick-260919-alb idiom): track 1 plays instantly via
+	// playStub, the rest install as lazy name-only stub tracks (zero network; they resolve
+	// when they reach the front). `sameList` keeps the installed list through the fresh-play tail.
+	function packQueue(list: PackSong[], at = -1, real: Track | null = null): Track[] {
+		return list
+			.map((s, i) => (i === at && real ? real : nameStub(s.artist, s.title)))
+			.filter((tr): tr is Track => tr !== null);
+	}
 	async function playAll() {
-		const s = songs[0];
-		if (!s) return;
-		await play(s);
+		if (!songs.length) return;
+		const first = await player.playStub(songs[0].artist, songs[0].title, undefined, 'songs-of-year', {
+			sameList: true
+		});
+		if (first) player.setListQueue(packQueue(songs, 0, first), 'songs-of-year');
+		else if (player.pendingTrack == null) toast.show(t('home.unplayable'));
 	}
 	async function shufflePlay() {
-		const s = songs[Math.floor(Math.random() * songs.length)];
-		if (!s) return;
-		await play(s);
+		// Shuffle installs the WHOLE pack as Up Next in shuffled order.
+		const shuffled = shuffle(songs);
+		if (!shuffled.length) return;
+		const first = await player.playStub(shuffled[0].artist, shuffled[0].title, undefined, 'songs-of-year', {
+			sameList: true
+		});
+		if (first) player.setListQueue(packQueue(shuffled, 0, first), 'songs-of-year');
+		else if (player.pendingTrack == null) toast.show(t('home.unplayable'));
 	}
 	// Download all — tip-jar supporters only (same gate as the 2026 pack pages).
 	let downloading = $state(false);
