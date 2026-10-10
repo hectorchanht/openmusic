@@ -133,6 +133,8 @@ const vi: Dict = {
 	"settings.groupLastfmDesc": "Scrobbled — sắp ra mắt",
 	"settings.groupDataDesc": "Đếm thư viện, xóa dữ liệu",
 	"settings.groupAboutDesc": "Thông tin bản dựng",
+	"settings.groupSponsored": "Sponsored strip",
+	"settings.groupSponsoredDesc": "Hide it with your tip receipt key",
 	"settings.backToSettings": "Cài đặt",
 
 	// --- activity log (quick-260630-sgw) ---

@@ -133,6 +133,8 @@ const hi: Dict = {
 	"settings.groupLastfmDesc": "स्क्रोब्लिंग - जल्द आ रहा है",
 	"settings.groupDataDesc": "लाइब्रेरी की गिनती, स्पष्ट डेटा",
 	"settings.groupAboutDesc": "जानकारी बनाएँ",
+	"settings.groupSponsored": "Sponsored strip",
+	"settings.groupSponsoredDesc": "Hide it with your tip receipt key",
 	"settings.backToSettings": "सेटिंग्स",
 
 	// --- activity log (quick-260630-sgw) ---

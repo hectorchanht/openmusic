@@ -133,6 +133,8 @@ const th: Dict = {
 	"settings.groupLastfmDesc": "การดิ้นรน - เร็ว ๆ นี้",
 	"settings.groupDataDesc": "จำนวนห้องสมุด ข้อมูลที่ชัดเจน",
 	"settings.groupAboutDesc": "ข้อมูลการสร้าง",
+	"settings.groupSponsored": "Sponsored strip",
+	"settings.groupSponsoredDesc": "Hide it with your tip receipt key",
 	"settings.backToSettings": "การตั้งค่า",
 
 	// --- activity log (quick-260630-sgw) ---

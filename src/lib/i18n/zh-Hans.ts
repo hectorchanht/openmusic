@@ -144,6 +144,8 @@ const zhHans: Dict = {
 	"settings.groupLastfmDesc": "同步记录 — 即将推出",
 	"settings.groupDataDesc": "音乐库统计、清除数据",
 	"settings.groupAboutDesc": "版本信息",
+	"settings.groupSponsored": "赞助横栏",
+	"settings.groupSponsoredDesc": "用打赏收据的授权码隐藏",
 	"settings.backToSettings": "设置",
 
 	// --- activity log (quick-260630-sgw) ---

@@ -144,6 +144,8 @@ const zhHant: Dict = {
 	"settings.groupLastfmDesc": "同步記錄 — 即將推出",
 	"settings.groupDataDesc": "音樂庫統計、清除資料",
 	"settings.groupAboutDesc": "版本資訊",
+	"settings.groupSponsored": "贊助橫欄",
+	"settings.groupSponsoredDesc": "用打賞收據嘅授權碼嚟隱藏",
 	"settings.backToSettings": "設定",
 
 	// --- activity log (quick-260630-sgw) ---

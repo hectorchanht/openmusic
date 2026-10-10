@@ -133,6 +133,8 @@ const tr: Dict = {
 	"settings.groupLastfmDesc": "Scrobbling — çok yakında",
 	"settings.groupDataDesc": "Kütüphane sayıları, verileri temizle",
 	"settings.groupAboutDesc": "Yapı bilgisi",
+	"settings.groupSponsored": "Sponsored strip",
+	"settings.groupSponsoredDesc": "Hide it with your tip receipt key",
 	"settings.backToSettings": "Ayarlar",
 
 	// --- activity log (quick-260630-sgw) ---

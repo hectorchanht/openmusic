@@ -3,7 +3,7 @@
 	import { goto } from '$app/navigation';
 	// quick-260919-ebi: ChevronRight + tapBounce now live inside SettingRow; Radio stays only for
 	// the commented-out Last.fm row below.
-	import { Globe, Type, LayoutGrid, Languages, Music, Radio, HardDriveDownload, Database, ScrollText, Info } from '@lucide/svelte';
+	import { Globe, Type, LayoutGrid, Languages, Music, Radio, HardDriveDownload, Database, ScrollText, Info, HandCoins } from '@lucide/svelte';
 	import { settings } from '$lib/stores/settings.svelte';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import SettingRow from '$lib/components/SettingRow.svelte';
@@ -31,6 +31,8 @@
 		// { href: '/settings/lastfm', icon: Radio, title: 'settings.groupLastfm', desc: 'settings.groupLastfmDesc' },
 		{ href: '/settings/data', icon: Database, title: 'settings.groupData', desc: 'settings.groupDataDesc' },
 		{ href: '/settings/activity', icon: ScrollText, title: 'settings.groupActivity', desc: 'settings.groupActivityDesc' },
+		// quick-261010-spon: V2 hide flow — tippers verify their Gumroad license key here.
+		{ href: '/settings/sponsored', icon: HandCoins, title: 'settings.groupSponsored', desc: 'settings.groupSponsoredDesc' },
 		{ href: '/settings/about', icon: Info, title: 'settings.groupAbout', desc: 'settings.groupAboutDesc' }
 	];
 </script>

@@ -133,6 +133,8 @@ const ru: Dict = {
 	"settings.groupLastfmDesc": "Скробблинг — скоро",
 	"settings.groupDataDesc": "Подсчеты в библиотеке, четкие данные",
 	"settings.groupAboutDesc": "Информация о сборке",
+	"settings.groupSponsored": "Sponsored strip",
+	"settings.groupSponsoredDesc": "Hide it with your tip receipt key",
 	"settings.backToSettings": "Настройки",
 
 	// --- activity log (quick-260630-sgw) ---

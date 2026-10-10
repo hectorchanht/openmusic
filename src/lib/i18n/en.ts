@@ -167,6 +167,8 @@ const en = {
 	"settings.groupLastfmDesc": "Scrobbling — coming soon",
 	"settings.groupDataDesc": "Library counts, clear data",
 	"settings.groupAboutDesc": "Build info",
+	"settings.groupSponsored": "Sponsored strip",
+	"settings.groupSponsoredDesc": "Hide it with your tip receipt key",
 	"settings.backToSettings": "Settings",
 
 	// --- activity log (quick-260630-sgw) ---

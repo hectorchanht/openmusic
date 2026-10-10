@@ -4,11 +4,12 @@
 	// $lib/config/sponsored.ts; an empty URL renders nothing, and pasting a real
 	// link there makes the button appear automatically.
 	//
-	// DISMISS (honor system, not license verification): the trailing × stores
-	// `dawn_sponsored_hidden = "1"` in localStorage and hides the strip
-	// immediately; when the flag is set the strip renders nothing at all. There
-	// is intentionally no restore UI. localStorage is touched ONLY in onMount
-	// (never during SSR/prerender) and always inside try/catch (private mode).
+	// HIDE RULE V2 (Hector 2026-10-10): the honor-system × is gone. Hiding is
+	// earned in Settings → Sponsored strip by verifying the Gumroad license key
+	// from the tip receipt; that flow sets localStorage dawn_sponsored_hidden=1.
+	// This component only READS the flag — when it is set the strip renders
+	// nothing at all. localStorage is touched ONLY in onMount (never during
+	// SSR/prerender) and always inside try/catch (private mode).
 	import { onMount } from 'svelte';
 	import {
 		TIP_JAR_URL,
@@ -18,11 +19,10 @@
 		AIRALO_URL,
 		KOINLY_URL,
 		AIRWALLEX_URL,
+		SPONSORED_HIDE_KEY,
 		hasLink,
 		hasAnySponsorLink
 	} from '$lib/config/sponsored';
-
-	const HIDE_KEY = 'dawn_sponsored_hidden';
 
 	type Slot = {
 		url: string;
@@ -48,20 +48,11 @@
 
 	onMount(() => {
 		try {
-			if (localStorage.getItem(HIDE_KEY) === '1') hidden = true;
+			if (localStorage.getItem(SPONSORED_HIDE_KEY) === '1') hidden = true;
 		} catch {
 			/* storage unavailable (private mode) — keep the strip for this session */
 		}
 	});
-
-	function dismiss() {
-		try {
-			localStorage.setItem(HIDE_KEY, '1');
-		} catch {
-			/* storage unavailable — in-session hide only */
-		}
-		hidden = true;
-	}
 </script>
 
 {#if !hidden && hasAnySponsorLink()}
@@ -80,13 +71,6 @@
 				>{slot.label}</a>
 			{/if}
 		{/each}
-		<button
-			type="button"
-			class="sp-x"
-			onclick={dismiss}
-			title="Tipped? Hide the sponsored strip"
-			aria-label="Hide the sponsored strip"
-		>×</button>
 	</div>
 {/if}
 
@@ -124,17 +108,4 @@
 		text-decoration: none;
 		white-space: nowrap;
 	}
-	/* Subtle × for tippers — honor-system hide, no restore UI. */
-	.sp-x {
-		flex-shrink: 0;
-		background: none;
-		border: none;
-		opacity: 0.45;
-		color: var(--color-text-muted);
-		font-size: 16px;
-		line-height: 1;
-		padding: 4px 6px;
-		cursor: pointer;
-	}
-	.sp-x:hover { opacity: 1; }
 </style>

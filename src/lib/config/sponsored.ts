@@ -6,6 +6,14 @@
 // were empty the strip would render nothing at all (but the tip jar is always set).
 
 export const TIP_JAR_URL = 'https://dawnlimited.gumroad.com/l/openmusic-tip';
+
+// The Gumroad product permalink used by POST /api/sponsored/verify — license
+// keys from the tip jar's receipts are verified against this product.
+export const GUMROAD_PRODUCT_PERMALINK = 'openmusic-tip';
+
+// localStorage flag hiding the strip once a tip-jar license key verifies.
+export const SPONSORED_HIDE_KEY = 'dawn_sponsored_hidden';
+
 export const WISE_URL = 'https://wise.com/invite/dic/hotungc3';
 export const COINBASE_URL = 'https://advanced.coinbase.com/join/F95MLKD?src=referral-link';
 export const BINANCE_URL = 'https://www.binance.com/activity/referral-entry/CPA?ref=CPA_0027L6WVRQ';

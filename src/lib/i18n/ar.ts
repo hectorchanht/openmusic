@@ -133,6 +133,8 @@ const ar: Dict = {
 	"settings.groupLastfmDesc": "التمرير - قريبا",
 	"settings.groupDataDesc": "تعداد المكتبة، مسح البيانات",
 	"settings.groupAboutDesc": "بناء المعلومات",
+	"settings.groupSponsored": "Sponsored strip",
+	"settings.groupSponsoredDesc": "Hide it with your tip receipt key",
 	"settings.backToSettings": "الإعدادات",
 
 	// --- activity log (quick-260630-sgw) ---

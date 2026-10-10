@@ -133,6 +133,8 @@ const pt: Dict = {
 	"settings.groupLastfmDesc": "Scrobbling – em breve",
 	"settings.groupDataDesc": "Contagens de biblioteca, dados claros",
 	"settings.groupAboutDesc": "Informações de construção",
+	"settings.groupSponsored": "Sponsored strip",
+	"settings.groupSponsoredDesc": "Hide it with your tip receipt key",
 	"settings.backToSettings": "Configurações",
 
 	// --- activity log (quick-260630-sgw) ---

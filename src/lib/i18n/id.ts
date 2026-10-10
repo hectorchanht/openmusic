@@ -133,6 +133,8 @@ const id: Dict = {
 	"settings.groupLastfmDesc": "Scrobbling — segera hadir",
 	"settings.groupDataDesc": "Jumlah perpustakaan, hapus data",
 	"settings.groupAboutDesc": "Membangun informasi",
+	"settings.groupSponsored": "Sponsored strip",
+	"settings.groupSponsoredDesc": "Hide it with your tip receipt key",
 	"settings.backToSettings": "Pengaturan",
 
 	// --- activity log (quick-260630-sgw) ---
