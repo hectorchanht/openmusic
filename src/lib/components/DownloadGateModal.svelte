@@ -16,7 +16,7 @@
 	}
 	function goSettings() {
 		open = false;
-		goto('/settings');
+		goto('/settings/sponsored');
 	}
 </script>
 
