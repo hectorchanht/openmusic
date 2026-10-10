@@ -204,6 +204,16 @@
 			? ''
 			: (smartNames ?? splitArtists(track.artist ?? '')).map((n) => names.dnArtist(n)).join(' · ')
 	);
+	// quick-261010-sar2: the album TAG after the smart artist name ("artist · [album]"). Only on
+	// smartArtist rows — the ones whose subtitle IS the artist. Skipped when the album is blank
+	// or is the single itself (album == title), where it would just echo the first line.
+	const albumTag = $derived.by(() => {
+		if (!smartArtist) return '';
+		const a = (track.album ?? '').trim();
+		if (!a) return '';
+		if (a.toLowerCase() === (track.title ?? '').trim().toLowerCase()) return '';
+		return names.dnTitle(a);
+	});
 	const sub = $derived(subtitle ?? (smartArtist ? smartSub : names.dnArtist(track.album || track.artist)));
 	const isActive = $derived(active ?? player.current?.uid === track.uid);
 
@@ -380,7 +390,7 @@
 	     its aria-label is the row's whole readable content, since the visuals below are inert. -->
 	<button
 		class="hit"
-		aria-label={`${names.dnTitle(track.title, track.artist)} — ${sub}`}
+		aria-label={`${names.dnTitle(track.title, track.artist)} — ${sub}${albumTag ? ` · ${albumTag}` : ''}`}
 		use:longpress
 		onlongpress={openRowMenu}
 		oncontextmenu={openRowMenu}
@@ -395,7 +405,7 @@
 	></span>
 	<span class="meta">
 		<span class="r-title" use:marquee><span class="marquee-inner">{names.dnTitle(track.title, track.artist)}</span></span>
-		<span class="r-sub" use:marquee><span class="marquee-inner">{sub}</span></span>
+		<span class="r-sub" use:marquee><span class="marquee-inner">{sub}{#if albumTag}<span class="album-tag">{albumTag}</span>{/if}</span></span>
 	</span>
 	<!-- D-5: the passive badge stands down for whichever state this row draws a live control for. -->
 	<RowBadges uid={actUid} hideLiked={acts.includes('like')} hideDownloaded={acts.includes('download')} />
@@ -561,6 +571,19 @@
 		font-weight: 400;
 		line-height: 1.3;
 		color: var(--color-text-muted);
+	}
+	/* quick-261010-sar2: the album tag after the smart artist name. A real pill, not text, so a
+	   noisy album ("COMPOSITION", "原創") reads as metadata, never as a second artist name. */
+	.album-tag {
+		display: inline-block;
+		margin-left: 6px;
+		padding: 0 7px;
+		border: 1px solid var(--color-border);
+		border-radius: 999px;
+		font-size: 0.85em;
+		line-height: 1.5;
+		white-space: nowrap;
+		vertical-align: 1px;
 	}
 	/* The inline actions keep their pointer events (they are siblings of .hit, not children, so
 	   tapping one never fires the row's click — no stopPropagation needed). 36px, not
