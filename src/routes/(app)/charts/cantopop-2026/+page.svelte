@@ -8,6 +8,7 @@
 	import { CANTOPOP_2026, PACK_META, type PackSong } from '$lib/data/cantopop-2026';
 	import { resolveStub } from '$lib/services/discovery';
 	import { nameStub } from '$lib/services/similar';
+	import { shuffle } from '$lib/services/shuffle';
 	import { player } from '$lib/stores/player.svelte';
 	import { toast } from '$lib/stores/toast.svelte';
 	import { t } from '$lib/i18n';
@@ -44,7 +45,7 @@
 		if (tr === null && player.pendingTrack == null) toast.show(t('home.unplayable'));
 	}
 
-	// quick-261010-soy2: header actions — Play from the top, Shuffle a random pick.
+	// quick-261010-soy2: header actions — Play the whole pack from the top, Shuffle the whole pack.
 	// quick-261015-playall: Play installs the WHOLE pack as Up Next (the album-page
 	// quick-260919-alb idiom) — track 1 plays instantly via playStub, the rest install as
 	// lazy name-only stub tracks (zero network; they resolve when they reach the front).
@@ -64,9 +65,17 @@
 		else if (player.pendingTrack == null) toast.show(t('home.unplayable'));
 	}
 	async function shufflePlay() {
-		const s = CANTOPOP_2026[Math.floor(Math.random() * CANTOPOP_2026.length)];
-		if (!s) return;
-		await play(s);
+		// quick-261015-shuffleall: Shuffle installs the WHOLE pack as Up Next in shuffled
+		// order (the album-page quick-260930-uy0 idiom — Shuffle passes a shuffled COPY).
+		// `sameList` keeps the install through the fresh-play tail; NOT player.toggleShuffle()
+		// (that only reorders the tail and is a no-op when shuffle is already on).
+		const shuffled = shuffle(CANTOPOP_2026);
+		if (!shuffled.length) return;
+		const first = await player.playStub(shuffled[0].artist, shuffled[0].title, undefined, 'cantopop-2026', {
+			sameList: true
+		});
+		if (first) player.setListQueue(packQueue(shuffled, 0, first), 'cantopop-2026');
+		else if (player.pendingTrack == null) toast.show(t('home.unplayable'));
 	}
 
 	// quick-261010-soy4: Download all — tip-jar supporters only (same gate as discography pack).
