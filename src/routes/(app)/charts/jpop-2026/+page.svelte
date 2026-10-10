@@ -8,6 +8,7 @@
 	import { JPOP_2026, PACK_META_JPOP_2026 } from '$lib/data/jpop-2026';
 	import type { PackSong } from '$lib/data/cantopop-2026';
 	import { resolveStub } from '$lib/services/discovery';
+	import { nameStub } from '$lib/services/similar';
 	import { player } from '$lib/stores/player.svelte';
 	import { toast } from '$lib/stores/toast.svelte';
 	import { t } from '$lib/i18n';
@@ -45,11 +46,23 @@
 	}
 
 	// quick-261010-soy2: header actions — Play from the top, Shuffle a random pick.
-	// Stubs can't queue, so both go through playStub (the artist-page playArtistRandom idiom).
+	// quick-261015-playall: Play installs the WHOLE pack as Up Next (the album-page
+	// quick-260919-alb idiom) — track 1 plays instantly via playStub, the rest install as
+	// lazy name-only stub tracks (zero network; they resolve when they reach the front).
+	// `sameList` keeps the installed list through the fresh-play tail.
+	function packQueue(list: PackSong[], at = -1, real: Track | null = null): Track[] {
+		return list
+			.map((s, i) => (i === at && real ? real : nameStub(s.artist, s.title)))
+			.filter((tr): tr is Track => tr !== null);
+	}
 	async function playAll() {
-		const s = JPOP_2026[0];
-		if (!s) return;
-		await play(s);
+		const list = JPOP_2026;
+		if (!list.length) return;
+		const first = await player.playStub(list[0].artist, list[0].title, undefined, 'jpop-2026', {
+			sameList: true
+		});
+		if (first) player.setListQueue(packQueue(list, 0, first), 'jpop-2026');
+		else if (player.pendingTrack == null) toast.show(t('home.unplayable'));
 	}
 	async function shufflePlay() {
 		const s = JPOP_2026[Math.floor(Math.random() * JPOP_2026.length)];
@@ -119,7 +132,6 @@
 <PageHeader backLabel={t('common.back')} showSettings />
 
 <header class="hero">
-	<span class="free-badge">免費 FREE</span>
 	<h1>{t('pack.title.jpop')}</h1>
 	<p class="sub">{PACK_META_JPOP_2026.titleEn} · {JPOP_2026.length} {t('pack.songs')}</p>
 	<p class="desc">{t('pack.desc', { region: t('region.jpop') })}</p>
@@ -181,17 +193,6 @@
 	.hero {
 		padding: 24px 16px 8px;
 		text-align: center;
-	}
-	.free-badge {
-		display: inline-block;
-		padding: 3px 12px;
-		border-radius: 999px;
-		background: var(--color-primary);
-		color: #fff;
-		font-size: 0.72rem;
-		font-weight: 700;
-		letter-spacing: 0.08em;
-		margin-bottom: 10px;
 	}
 	.hero h1 {
 		font-size: calc(1.6rem * var(--fs-title, 1));
