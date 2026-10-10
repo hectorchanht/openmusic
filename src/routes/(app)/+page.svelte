@@ -6,6 +6,7 @@
 	import { Search, Settings, RotateCw, ChevronRight } from '@lucide/svelte';
 	import Logo from '$lib/components/Logo.svelte';
 	import ShelfChevrons from '$lib/components/ShelfChevrons.svelte';
+	import SponsoredStrip from '$lib/components/SponsoredStrip.svelte';
 	import { buildDiversePicks } from '$lib/services/picks';
 	import { buildRadio, reseedRadio } from '$lib/services/radio';
 	import type { QueueContext } from '$lib/config/defaults';
@@ -1153,6 +1154,11 @@
 	<div class="brand"><Logo size={26} /> openmusic</div>
 	<button class="gear" aria-label={t('home.settings')} use:tapBounce onclick={() => goto('/settings')}><Settings size={20} /></button>
 </header>
+
+<!-- quick-261010-spon: the Dawn "Sponsored" strip — first content block under the
+     app header. Tip jar + referral links. Hiding is earned via Settings →
+     Sponsored strip (Gumroad license-key verification, V2). -->
+<SponsoredStrip />
 
 {#if settings.homeShowSearchPill}
 	<button class="searchpill" use:tapBounce onclick={() => goto('/search')}>
