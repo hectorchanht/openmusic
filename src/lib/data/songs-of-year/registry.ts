@@ -3,7 +3,10 @@
 //
 // - SOY_YEARS: 2026 → 2000 (desc, picker order). 2026 is the live year: the five
 //   curated region packs (cantopop/mandopop/kpop/jpop/western-2026) are its content.
-//   2000–2025 are Billboard Year-End Hot 100 (United States) year files.
+//   2000–2025 are multi-country year-end chart files: US (Billboard), Japan (Oricon),
+//   Australia (ARIA), South Korea (Gaon/Circle), UK (Official Charts), Spain (PROMUSICAE).
+//   Each year file also exports SOY_SOURCES_<year> (name + URL per country) for the
+//   pack page footer.
 // - SOY_COUNTRIES: the app's 20 discovery countries (same list as the home country
 //   shelves and /charts/countries/[country]) — imported, not duplicated.
 // - SOY_AVAILABLE[year]: countries with real data for that year. Combos NOT listed
@@ -28,10 +31,25 @@ export const SOY_COUNTRIES: string[] = DISCOVERY_COUNTRIES;
 
 const US = 'United States';
 
-/** Countries with real, verified data for each year. */
+/**
+ * Countries with real, verified data for each year.
+ * - US: Billboard Year-End Hot 100 (2000–2025, Wikipedia).
+ * - Japan: Oricon Yearly Singles Chart (2000–2025, generasia).
+ * - Australia: ARIA End Of Year Singles Chart (2000–2025, aria.com.au).
+ * - South Korea: Gaon (2010–2021) / Circle (2022–2025) yearly digital chart.
+ * - United Kingdom: Official Charts end-of-year (2015–2017, 2019–2025, Wikipedia).
+ * - Spain: PROMUSICAE Top 100 Canciones Anual (2019, 2021, 2023–2025).
+ * Combos NOT listed render a "coming soon" state — never fabricated songs (FACT-CHECK rule).
+ */
 export const SOY_AVAILABLE: Record<number, string[]> = (() => {
 	const m: Record<number, string[]> = { 2026: [] };
-	for (let y = 2025; y >= 2000; y--) m[y] = [US];
+	for (let y = 2025; y >= 2000; y--) {
+		const cs = [US, 'Australia', 'Japan'];
+		if (y >= 2010) cs.push('South Korea');
+		if (y === 2015 || y === 2016 || y === 2017 || (y >= 2019 && y <= 2025)) cs.push('United Kingdom');
+		if (y === 2019 || y === 2021 || y >= 2023) cs.push('Spain');
+		m[y] = cs;
+	}
 	return m;
 })();
 
@@ -49,6 +67,24 @@ export function soyHasData(year: number, country: string): boolean {
 export function loadSoyYear(year: number): Promise<Record<string, PackSong[]>> {
 	const loader = SOY_LOADERS[year];
 	if (!loader) return Promise.reject(new Error(`no songs-of-year data for ${year}`));
+	return loader();
+}
+
+/**
+ * Chart source attribution per (year, country) — rendered in the pack page footer
+ * so every year page shows where its ranking came from.
+ */
+export interface SoySource {
+	/** Display name, e.g. "Billboard Year-End Hot 100". Chart names stay in English as proper nouns. */
+	name: string;
+	/** Exact page URL the ranking was taken from. */
+	url: string;
+}
+
+/** Lazy per-year source loader. Rejects for years with no year file (2026). */
+export function loadSoySources(year: number): Promise<Record<string, SoySource>> {
+	const loader = SOY_SOURCE_LOADERS[year];
+	if (!loader) return Promise.reject(new Error(`no songs-of-year sources for ${year}`));
 	return loader();
 }
 
@@ -81,4 +117,35 @@ const SOY_LOADERS: Record<number, () => Promise<Record<string, PackSong[]>>> = {
 	2023: () => import('./years/2023').then((m) => m.SOY_2023),
 	2024: () => import('./years/2024').then((m) => m.SOY_2024),
 	2025: () => import('./years/2025').then((m) => m.SOY_2025)
+};
+
+// One explicit dynamic import per year (same Vite static pattern as SOY_LOADERS;
+// the module is cached, so this costs no extra fetch when the songs were loaded).
+const SOY_SOURCE_LOADERS: Record<number, () => Promise<Record<string, SoySource>>> = {
+	2000: () => import('./years/2000').then((m) => m.SOY_SOURCES_2000),
+	2001: () => import('./years/2001').then((m) => m.SOY_SOURCES_2001),
+	2002: () => import('./years/2002').then((m) => m.SOY_SOURCES_2002),
+	2003: () => import('./years/2003').then((m) => m.SOY_SOURCES_2003),
+	2004: () => import('./years/2004').then((m) => m.SOY_SOURCES_2004),
+	2005: () => import('./years/2005').then((m) => m.SOY_SOURCES_2005),
+	2006: () => import('./years/2006').then((m) => m.SOY_SOURCES_2006),
+	2007: () => import('./years/2007').then((m) => m.SOY_SOURCES_2007),
+	2008: () => import('./years/2008').then((m) => m.SOY_SOURCES_2008),
+	2009: () => import('./years/2009').then((m) => m.SOY_SOURCES_2009),
+	2010: () => import('./years/2010').then((m) => m.SOY_SOURCES_2010),
+	2011: () => import('./years/2011').then((m) => m.SOY_SOURCES_2011),
+	2012: () => import('./years/2012').then((m) => m.SOY_SOURCES_2012),
+	2013: () => import('./years/2013').then((m) => m.SOY_SOURCES_2013),
+	2014: () => import('./years/2014').then((m) => m.SOY_SOURCES_2014),
+	2015: () => import('./years/2015').then((m) => m.SOY_SOURCES_2015),
+	2016: () => import('./years/2016').then((m) => m.SOY_SOURCES_2016),
+	2017: () => import('./years/2017').then((m) => m.SOY_SOURCES_2017),
+	2018: () => import('./years/2018').then((m) => m.SOY_SOURCES_2018),
+	2019: () => import('./years/2019').then((m) => m.SOY_SOURCES_2019),
+	2020: () => import('./years/2020').then((m) => m.SOY_SOURCES_2020),
+	2021: () => import('./years/2021').then((m) => m.SOY_SOURCES_2021),
+	2022: () => import('./years/2022').then((m) => m.SOY_SOURCES_2022),
+	2023: () => import('./years/2023').then((m) => m.SOY_SOURCES_2023),
+	2024: () => import('./years/2024').then((m) => m.SOY_SOURCES_2024),
+	2025: () => import('./years/2025').then((m) => m.SOY_SOURCES_2025),
 };

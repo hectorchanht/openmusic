@@ -4,7 +4,8 @@ import {
 	SOY_COUNTRIES,
 	SOY_AVAILABLE,
 	soyHasData,
-	loadSoyYear
+	loadSoyYear,
+	loadSoySources
 } from './registry';
 
 describe('songs-of-year registry', () => {
@@ -66,4 +67,61 @@ describe('songs-of-year data files (Billboard Year-End Hot 100)', () => {
 		},
 		30000
 	);
+});
+
+describe('songs-of-year data files (all countries)', () => {
+	it.each(SOY_YEARS.filter((y) => y !== 2026))(
+		'year %i: every available country has clean, rank-ordered entries',
+		async (year) => {
+			const m = await loadSoyYear(year);
+			const countries = SOY_AVAILABLE[year] ?? [];
+			expect(countries.length).toBeGreaterThan(0);
+			for (const c of countries) {
+				const songs = m[c];
+				expect(songs, `${year}/${c}: missing data`).toBeDefined();
+				expect(songs.length).toBeGreaterThan(0);
+				const seen = new Set<string>();
+				let prevRank = 0;
+				songs.forEach((s, i) => {
+					expect(s.artist.trim().length, `${year}/${c} #${i + 1}: empty artist`).toBeGreaterThan(0);
+					expect(s.title.trim().length, `${year}/${c} #${i + 1}: empty title`).toBeGreaterThan(0);
+					// note carries the published rank: "#<rank> <Chart …>". Ranks are
+					// non-decreasing (ties/gaps preserved verbatim, e.g. Oricon 2001 skips #49).
+					const rankMatch = /^#(\d+) /.exec(s.note ?? '');
+					expect(rankMatch, `${year}/${c} #${i + 1}: bad note ${s.note}`).not.toBeNull();
+					const rank = Number(rankMatch![1]);
+					expect(rank, `${year}/${c}: rank went backwards`).toBeGreaterThanOrEqual(prevRank);
+					expect(rank, `${year}/${c}: rank must be positive`).toBeGreaterThan(0);
+					prevRank = rank;
+					const key = `${s.artist} — ${s.title}`;
+					// Known exception: Oricon 2012 counts two editions of Tohoshinki "ANDROID"
+					// as separate year-end rows (#40 and #48) — faithful to the published chart.
+					const knownDup = year === 2012 && c === 'Japan' && key === 'Tohoshinki — ANDROID';
+					expect(seen.has(key) && !knownDup, `${year}/${c} duplicate: ${key}`).toBe(false);
+					seen.add(key);
+					expect(`${s.artist}${s.title}`).not.toMatch(/\[\[|\]\]|\{\{|\}\}|rowspan/);
+				});
+			}
+		},
+		30000
+	);
+});
+
+describe('songs-of-year source attribution', () => {
+	it('loadSoySources covers every available country with name + URL', async () => {
+		for (const year of SOY_YEARS.filter((y) => y !== 2026)) {
+			const sources = await loadSoySources(year);
+			for (const c of SOY_AVAILABLE[year] ?? []) {
+				const s = sources[c];
+				expect(s, `${year}/${c}: missing source`).toBeDefined();
+				expect(s.name.trim().length).toBeGreaterThan(0);
+				expect(s.url).toMatch(/^https?:\/\//);
+			}
+		}
+	});
+
+	it('loadSoySources rejects for years with no year file', async () => {
+		await expect(loadSoySources(2026)).rejects.toThrow();
+		await expect(loadSoySources(1999)).rejects.toThrow();
+	});
 });

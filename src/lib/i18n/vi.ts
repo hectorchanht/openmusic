@@ -29,6 +29,7 @@ const vi: Dict = {
 	"pack.play": "Play",
 	"pack.shuffle": "Shuffle",
 	"pack.songs": "songs",
+	"pack.source": "Nguồn",
 	"pack.chooseYear": "Chọn năm",
 	"pack.desc": "Must-listen {region} picks of the year · Free",
 	"pack.downloadGateHaveKey": "I already have a key",

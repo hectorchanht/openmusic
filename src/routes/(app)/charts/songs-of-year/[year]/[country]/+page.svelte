@@ -10,7 +10,7 @@
 	import SongRow from '$lib/components/SongRow.svelte';
 	import TrackMenu from '$lib/components/TrackMenu.svelte';
 	import type { PackSong } from '$lib/data/cantopop-2026';
-	import { loadSoyYear, soyHasData } from '$lib/data/songs-of-year/registry';
+	import { loadSoyYear, loadSoySources, soyHasData, type SoySource } from '$lib/data/songs-of-year/registry';
 	import { resolveStub } from '$lib/services/discovery';
 	import { nameStub } from '$lib/services/similar';
 	import { shuffle } from '$lib/services/shuffle';
@@ -49,12 +49,15 @@
 
 	let songs = $state<PackSong[]>([]);
 	let loadFailed = $state(false);
+	// quick-261010-soysrc: chart source attribution for the footer (name + URL per dataset).
+	let srcInfo = $state<SoySource | null>(null);
 
 	$effect(() => {
 		const y = yearNum;
 		const c = country;
 		if (!soyHasData(y, c)) {
 			songs = [];
+			srcInfo = null;
 			return;
 		}
 		loadFailed = false;
@@ -67,6 +70,13 @@
 			})
 			.catch(() => {
 				if (!cancelled) loadFailed = true;
+			});
+		loadSoySources(y)
+			.then((s) => {
+				if (!cancelled) srcInfo = s[c] ?? null;
+			})
+			.catch(() => {
+				if (!cancelled) srcInfo = null;
 			});
 		return () => {
 			cancelled = true;
@@ -254,6 +264,13 @@
 	<TrackMenu track={menuTrack} open={menuOpen} loading={menuLoading} onclose={() => (menuOpen = false)} />
 
 	<DownloadGateModal bind:open={gateOpen} />
+
+	<!-- quick-261010-soysrc: chart source attribution — where this page's data came from. -->
+	{#if srcInfo}
+		<footer class="src">
+			{t('pack.source')}: <a href={srcInfo.url} target="_blank" rel="noopener noreferrer">{srcInfo.name}</a>
+		</footer>
+	{/if}
 {/if}
 
 <style>
@@ -318,5 +335,16 @@
 	}
 	.list li {
 		margin: 0;
+	}
+	/* quick-261010-soysrc: muted source-attribution footer. */
+	.src {
+		color: var(--color-text-muted);
+		font-size: 0.72rem;
+		text-align: center;
+		padding: 0 16px 40px;
+	}
+	.src a {
+		color: inherit;
+		text-decoration: underline;
 	}
 </style>

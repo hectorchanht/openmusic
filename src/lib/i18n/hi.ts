@@ -29,6 +29,7 @@ const hi: Dict = {
 	"pack.play": "Play",
 	"pack.shuffle": "Shuffle",
 	"pack.songs": "songs",
+	"pack.source": "स्रोत",
 	"pack.chooseYear": "वर्ष चुनें",
 	"pack.desc": "Must-listen {region} picks of the year · Free",
 	"pack.downloadGateHaveKey": "I already have a key",

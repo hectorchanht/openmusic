@@ -34,6 +34,7 @@ const zhHant: Dict = {
 	"pack.play": "播放",
 	"pack.shuffle": "隨機播放",
 	"pack.songs": "首歌",
+	"pack.source": "資料來源",
 	"pack.chooseYear": "選擇年份",
 	"pack.desc": "今年必聽{region}精選 · 免費",
 	"pack.downloadGateHaveKey": "我已經有授權碼",
