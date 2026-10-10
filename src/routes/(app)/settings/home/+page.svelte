@@ -65,6 +65,8 @@
 		'top-artists': 'settings.homeSectionTopArtists',
 		tags: 'settings.homeSectionTags',
 		countries: 'settings.homeSectionCountries',
+		// quick-261010-soy: the curated Songs of the Year shelf.
+		'songs-of-year': 'settings.homeSectionSongsOfYear',
 		liked: 'settings.homeSectionLiked',
 		downloads: 'settings.homeSectionDownloads',
 		radio: 'settings.homeSectionRadio',
@@ -245,6 +247,8 @@
 			case 'playlists':
 			case 'history':
 				return t('settings.homeSrcLibrary');
+			case 'songs-of-year':
+				return 'OpenMusic';
 		}
 	}
 

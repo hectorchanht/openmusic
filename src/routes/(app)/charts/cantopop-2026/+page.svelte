@@ -10,6 +10,8 @@
 	import { player } from '$lib/stores/player.svelte';
 	import { toast } from '$lib/stores/toast.svelte';
 	import { t } from '$lib/i18n';
+	import { tapBounce } from '$lib/actions/tapBounce';
+	import { Play, Shuffle } from '@lucide/svelte';
 	import type { Track } from '$lib/sources/types';
 
 	function stubTrack(s: PackSong): Track {
@@ -35,6 +37,19 @@
 	async function play(s: PackSong) {
 		const tr = await player.playStub(s.artist, s.title, undefined, 'cantopop-2026');
 		if (tr === null && player.pendingTrack == null) toast.show(t('home.unplayable'));
+	}
+
+	// quick-261010-soy2: header actions — Play from the top, Shuffle a random pick.
+	// Stubs can't queue, so both go through playStub (the artist-page playArtistRandom idiom).
+	async function playAll() {
+		const s = CANTOPOP_2026[0];
+		if (!s) return;
+		await play(s);
+	}
+	async function shufflePlay() {
+		const s = CANTOPOP_2026[Math.floor(Math.random() * CANTOPOP_2026.length)];
+		if (!s) return;
+		await play(s);
 	}
 
 	let menuTrack = $state<Track | null>(null);
@@ -65,14 +80,36 @@
 	<h1>{PACK_META.title}</h1>
 	<p class="sub">{PACK_META.titleEn} · {CANTOPOP_2026.length} 首歌</p>
 	<p class="desc">{PACK_META.description}</p>
+	<!-- quick-261010-soy2: Play / Shuffle action bar (album-page visual language). -->
+	<div class="actions">
+		<button
+			type="button"
+			class="act play"
+			aria-label={t('pack.play')}
+			title={t('pack.play')}
+			onclick={playAll}
+			use:tapBounce
+		>
+			<Play size={22} fill="currentColor" />
+		</button>
+		<button
+			type="button"
+			class="act"
+			aria-label={t('pack.shuffle')}
+			title={t('pack.shuffle')}
+			onclick={shufflePlay}
+			use:tapBounce
+		>
+			<Shuffle size={20} />
+		</button>
+	</div>
 </header>
 
 <ul class="list">
-	{#each CANTOPOP_2026 as s, i (s.artist + s.title)}
+	{#each CANTOPOP_2026 as s (s.artist + s.title)}
 		<li>
 			<SongRow
 				track={stubTrack(s)}
-				index={i}
 				smartArtist
 				resolve={() => resolveStub(s.artist, s.title).catch(() => null)}
 				onplay={() => play(s)}
@@ -113,6 +150,33 @@
 		color: var(--color-text-muted);
 		font-size: 0.8rem;
 		margin: 4px 0 0;
+	}
+	/* quick-261010-soy2: Play / Shuffle action bar (album-page visual language). */
+	.actions {
+		display: flex;
+		justify-content: center;
+		align-items: center;
+		gap: 16px;
+		margin-top: 16px;
+	}
+	.act {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 44px;
+		height: 44px;
+		border-radius: 50%;
+		border: 1px solid var(--color-border);
+		background: var(--color-surface);
+		color: var(--color-text);
+		cursor: pointer;
+	}
+	.act.play {
+		width: 56px;
+		height: 56px;
+		background: var(--color-primary);
+		border-color: var(--color-primary);
+		color: #fff;
 	}
 	.list {
 		list-style: none;

@@ -53,6 +53,8 @@
 	} from '$lib/services/home-charts';
 	import { fetchChartPool } from '$lib/services/charts';
 	import type { ChartAlbum } from '$lib/services/chart-parse';
+	// quick-261010-soy: the curated Songs of the Year shelf (v1: Cantopop 2026 pack).
+	import { CANTOPOP_2026 } from '$lib/data/cantopop-2026';
 	// quick-261006-o9u: shelf tiles now go through sizedCover (mzstatic + dzcdn) instead of
 	// resizeMzstatic alone — the resolver stores 400px/500px masters and tiles paint ≤ ~140px.
 	import { sizedCover, TILE_COVER_PX } from '$lib/services/cover-size';
@@ -160,6 +162,14 @@
 	let topArtists = $state<DiscoveryArtist[]>([]);
 	let tagShelves = $state<Shelf[]>([]);
 	let countryShelves = $state<Shelf[]>([]);
+	// quick-261010-soy: the Songs of the Year shelf — the curated pack as DiscoveryTracks
+	// (no cover/mbid; the shelf's tileCover falls back to the gradient seed).
+	const songsOfYearTracks: DiscoveryTrack[] = CANTOPOP_2026.map((s) => ({
+		artist: s.artist,
+		title: s.title,
+		image: null,
+		mbid: null
+	}));
 	// D-06: when LASTFM_KEY is absent or every shelf is empty, fall back to the random
 	// buildDiversePicks grid so the home page is never blank signed-out / no-key.
 	let useFallback = $state(false);
@@ -1193,6 +1203,7 @@
 				{:else if id === 'top-artists'}{@render topArtistsBlock()}
 				{:else if id === 'tags'}{@render tagsBlock()}
 				{:else if id === 'countries'}{@render countriesBlock()}
+				{:else if id === 'songs-of-year'}{@render songsOfYearBlock()}
 				{:else if id === 'liked'}{@render likedBlock()}
 				{:else if id === 'downloads'}{@render downloadsBlock()}
 				{:else if id === 'fav-artists'}{@render favArtistsBlock()}
@@ -1406,6 +1417,11 @@
 		{@render titleNav(t('home.countryShelf', { country: shelf.label }), '/charts/countries/' + encodeURIComponent(shelf.label))}
 		{@render discoveryShelf(shelf.tracks, densityOf('countries'))}
 	{/each}
+{/snippet}
+
+{#snippet songsOfYearBlock()}
+	{@render titleNav(t('home.songsOfYear'), '/charts/cantopop-2026')}
+	{@render discoveryShelf(songsOfYearTracks, densityOf('songs-of-year'))}
 {/snippet}
 
 <!-- Chart shelves (UI-SPEC §1.1): each renders NOTHING — no header — while its sampled pool is

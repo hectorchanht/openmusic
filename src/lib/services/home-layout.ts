@@ -286,6 +286,9 @@ export const HOME_SECTIONS = [
 	'top-artists',
 	'tags',
 	'countries',
+	// quick-261010-soy: the curated "Songs of the Year" shelf (v1: the free Cantopop 2026 pack).
+	// Placed right after the country shelves per Hector 2026-10-10.
+	'songs-of-year',
 	'fav-artists',
 	'playlists',
 	'history'
@@ -321,6 +324,8 @@ export const DEFAULT_SECTION_ORDER: HomeSectionId[] = [
 	'regions',
 	'tags',
 	'countries',
+	// quick-261010-soy: "Songs of the Year" sits right after the country shelves.
+	'songs-of-year',
 	'fav-artists',
 	'playlists',
 	'history'
