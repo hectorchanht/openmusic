@@ -5,6 +5,7 @@
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import SongRow from '$lib/components/SongRow.svelte';
 	import TrackMenu from '$lib/components/TrackMenu.svelte';
+	import YearSelector from '$lib/components/YearSelector.svelte';
 	import { JPOP_2026, PACK_META_JPOP_2026 } from '$lib/data/jpop-2026';
 	import type { PackSong } from '$lib/data/cantopop-2026';
 	import { resolveStub } from '$lib/services/discovery';
@@ -139,6 +140,9 @@
 </script>
 
 <PageHeader backLabel={t('common.back')} showSettings />
+
+<!-- Year picker: scrollable year pills; other years open the songs-of-year hub route. -->
+<YearSelector region="jpop" year={2026} />
 
 <header class="hero">
 	<h1>{t('pack.title.jpop')}</h1>

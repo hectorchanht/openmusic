@@ -34,6 +34,7 @@ const zhHans: Dict = {
 	"pack.play": "播放",
 	"pack.shuffle": "随机播放",
 	"pack.songs": "首歌",
+	"pack.chooseYear": "选择年份",
 	"pack.desc": "今年必听{region}精选 · 免费",
 	"pack.downloadGateHaveKey": "我已经有授权码",
 	"pack.downloadGateCancel": "取消",
