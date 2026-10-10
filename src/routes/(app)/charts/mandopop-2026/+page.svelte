@@ -12,7 +12,9 @@
 	import { toast } from '$lib/stores/toast.svelte';
 	import { t } from '$lib/i18n';
 	import { tapBounce } from '$lib/actions/tapBounce';
-	import { Play, Shuffle } from '@lucide/svelte';
+	import { Play, Shuffle, Download } from '@lucide/svelte';
+	import { downloadAlbum as downloadPackTracks } from '$lib/services/download-album';
+	import { goto } from '$app/navigation';
 	import type { Track } from '$lib/sources/types';
 
 	function stubTrack(s: PackSong): Track {
@@ -52,6 +54,45 @@
 		if (!s) return;
 		await play(s);
 	}
+	// quick-261010-soy4: Download all — tip-jar supporters only (same gate as discography pack).
+	let downloading = $state(false);
+	async function downloadAll() {
+		try {
+			if (localStorage.getItem('dawn_sponsored_hidden') !== '1') {
+				goto('/settings');
+				return;
+			}
+		} catch {
+			goto('/settings');
+			return;
+		}
+		if (downloading) return;
+		downloading = true;
+		try {
+			const stubs = MANDOPOP_2026.map((s) => ({ artist: s.artist, title: s.title }));
+			const out: (Track | null)[] = new Array(stubs.length).fill(null);
+			let next = 0;
+			async function worker() {
+				while (next < stubs.length) {
+					const i = next++;
+					try {
+						out[i] = await resolveStub(stubs[i].artist, stubs[i].title);
+					} catch {
+						out[i] = null;
+					}
+				}
+			}
+			await Promise.all([worker(), worker(), worker(), worker()]);
+			const resolved = out.filter((tr): tr is Track => tr !== null);
+			if (!resolved.length) {
+				toast.show(t('home.unplayable'));
+				return;
+			}
+			await downloadPackTracks(resolved, { artist: 'OpenMusic', album: t('pack.title.mandopop') });
+		} finally {
+			downloading = false;
+		}
+	}
 
 	let menuTrack = $state<Track | null>(null);
 	let menuOpen = $state(false);
@@ -78,11 +119,23 @@
 
 <header class="hero">
 	<span class="free-badge">免費 FREE</span>
-	<h1>{PACK_META_MANDOPOP_2026.title}</h1>
-	<p class="sub">{PACK_META_MANDOPOP_2026.titleEn} · {MANDOPOP_2026.length} 首歌</p>
-	<p class="desc">{PACK_META_MANDOPOP_2026.description}</p>
+	<h1>{t('pack.title.mandopop')}</h1>
+	<p class="sub">{PACK_META_MANDOPOP_2026.titleEn} · {MANDOPOP_2026.length} {t('pack.songs')}</p>
+	<p class="desc">{t('pack.desc', { region: t('region.mandopop') })}</p>
 	<!-- quick-261010-soy2: Play / Shuffle action bar (album-page visual language). -->
+	<!-- quick-261010-soy4: Download button BEFORE Play (tip-jar supporters only). -->
 	<div class="actions">
+		<button
+			type="button"
+			class="act download"
+			aria-label="Download all"
+			title="Download all"
+			onclick={downloadAll}
+			disabled={downloading}
+			use:tapBounce
+		>
+			<Download size={20} />
+		</button>
 		<button
 			type="button"
 			class="act play"
@@ -178,6 +231,14 @@
 		background: var(--color-primary);
 		border-color: var(--color-primary);
 		color: #fff;
+	}
+	.act.download {
+		border-color: var(--color-primary);
+		color: var(--color-primary);
+	}
+	.act.download:disabled {
+		opacity: 0.5;
+		cursor: wait;
 	}
 	.list {
 		list-style: none;

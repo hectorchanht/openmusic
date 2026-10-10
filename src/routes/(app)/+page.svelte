@@ -90,7 +90,7 @@
 	import { library } from '$lib/stores/library.svelte';
 	import { history as playHistory } from '$lib/stores/history.svelte';
 	import { names } from '$lib/stores/names.svelte';
-	import { t } from '$lib/i18n';
+	import { t, type TranslationKey } from '$lib/i18n';
 	import { longpress } from '$lib/actions/longpress';
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { dragScroll } from '$lib/actions/dragScroll';
@@ -177,12 +177,12 @@
 		mbid: null
 	}));
 	// quick-261010-soy3: the 5 regional packs for the hub shelf.
-	const soyRegions = [
-		{ id: 'cantopop-2026', title: '廣東歌', count: CANTOPOP_2026.length, href: '/charts/cantopop-2026' },
-		{ id: 'mandopop-2026', title: '國語', count: MANDOPOP_2026.length, href: '/charts/mandopop-2026' },
-		{ id: 'kpop-2026', title: 'K-pop', count: KPOP_2026.length, href: '/charts/kpop-2026' },
-		{ id: 'jpop-2026', title: 'J-pop', count: JPOP_2026.length, href: '/charts/jpop-2026' },
-		{ id: 'western-2026', title: '西洋', count: WESTERN_2026.length, href: '/charts/western-2026' }
+	const soyRegions: { id: string; titleKey: TranslationKey; count: number; href: string }[] = [
+		{ id: 'cantopop-2026', titleKey: 'region.cantopop', count: CANTOPOP_2026.length, href: '/charts/cantopop-2026' },
+		{ id: 'mandopop-2026', titleKey: 'region.mandopop', count: MANDOPOP_2026.length, href: '/charts/mandopop-2026' },
+		{ id: 'kpop-2026', titleKey: 'region.kpop', count: KPOP_2026.length, href: '/charts/kpop-2026' },
+		{ id: 'jpop-2026', titleKey: 'region.jpop', count: JPOP_2026.length, href: '/charts/jpop-2026' },
+		{ id: 'western-2026', titleKey: 'region.western', count: WESTERN_2026.length, href: '/charts/western-2026' }
 	];
 	// D-06: when LASTFM_KEY is absent or every shelf is empty, fall back to the random
 	// buildDiversePicks grid so the home page is never blank signed-out / no-key.
@@ -1443,8 +1443,8 @@
 	<div class="soy-regions">
 		{#each soyRegions as r (r.id)}
 			<button type="button" class="soy-card" onclick={() => goto(r.href)} use:tapBounce>
-				<span class="soy-title">{r.title}</span>
-				<span class="soy-count">{r.count} 首</span>
+				<span class="soy-title">{t(r.titleKey)}</span>
+				<span class="soy-count">{r.count} {t('pack.songs')}</span>
 			</button>
 		{/each}
 	</div>

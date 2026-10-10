@@ -1,7 +1,7 @@
 <script lang="ts">
 	// Songs of the Year hub — all regional 2026 packs (Hector 2026-10-10: "Build all popular countries").
 	import PageHeader from '$lib/components/PageHeader.svelte';
-	import { t } from '$lib/i18n';
+	import { t, type TranslationKey } from '$lib/i18n';
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { goto } from '$app/navigation';
 	import { PACK_META as CANTOPOP_META, CANTOPOP_2026 } from '$lib/data/cantopop-2026';
@@ -11,12 +11,12 @@
 	import { PACK_META_WESTERN_2026, WESTERN_2026 } from '$lib/data/western-2026';
 	import { ChevronRight } from '@lucide/svelte';
 
-	const packs = [
-		{ meta: CANTOPOP_META, count: CANTOPOP_2026.length, href: '/charts/cantopop-2026' },
-		{ meta: PACK_META_MANDOPOP_2026, count: MANDOPOP_2026.length, href: '/charts/mandopop-2026' },
-		{ meta: PACK_META_KPOP_2026, count: KPOP_2026.length, href: '/charts/kpop-2026' },
-		{ meta: PACK_META_JPOP_2026, count: JPOP_2026.length, href: '/charts/jpop-2026' },
-		{ meta: PACK_META_WESTERN_2026, count: WESTERN_2026.length, href: '/charts/western-2026' }
+	const packs: { meta: { id: string; titleEn: string }; count: number; href: string; titleKey: TranslationKey }[] = [
+		{ meta: CANTOPOP_META, count: CANTOPOP_2026.length, href: '/charts/cantopop-2026', titleKey: 'pack.title.cantopop' },
+		{ meta: PACK_META_MANDOPOP_2026, count: MANDOPOP_2026.length, href: '/charts/mandopop-2026', titleKey: 'pack.title.mandopop' },
+		{ meta: PACK_META_KPOP_2026, count: KPOP_2026.length, href: '/charts/kpop-2026', titleKey: 'pack.title.kpop' },
+		{ meta: PACK_META_JPOP_2026, count: JPOP_2026.length, href: '/charts/jpop-2026', titleKey: 'pack.title.jpop' },
+		{ meta: PACK_META_WESTERN_2026, count: WESTERN_2026.length, href: '/charts/western-2026', titleKey: 'pack.title.western' }
 	];
 </script>
 
@@ -33,8 +33,8 @@
 		<li>
 			<button type="button" class="pack" onclick={() => goto(p.href)} use:tapBounce>
 				<span class="meta">
-					<span class="title">{p.meta.title}</span>
-					<span class="count">{p.meta.titleEn} · {p.count} 首歌</span>
+					<span class="title">{t(p.titleKey)}</span>
+					<span class="count">{p.meta.titleEn} · {p.count} {t('pack.songs')}</span>
 				</span>
 				<ChevronRight size={20} />
 			</button>
