@@ -7,11 +7,21 @@
 	import { TIP_JAR_URL } from '$lib/config/sponsored';
 	import { goto } from '$app/navigation';
 	import { Heart } from '@lucide/svelte';
+	// quick-261010-posthog: download_gate_shown + tip_jar_opened(location:'download_gate').
+	import { track } from '$lib/posthog';
 
 	let { open = $bindable(false) }: { open: boolean } = $props();
 
+	// quick-261010-posthog: the modal is {#if open}-gated, so this $effect fires
+	// exactly once per false→true transition (Svelte re-runs only when `open`
+	// changes). No PII — the gate is a funnel event, not an identity event.
+	$effect(() => {
+		if (open) track('download_gate_shown', {});
+	});
+
 	function goTip() {
 		open = false;
+		track('tip_jar_opened', { location: 'download_gate' });
 		window.open(TIP_JAR_URL, '_blank', 'noopener');
 	}
 	function goSettings() {

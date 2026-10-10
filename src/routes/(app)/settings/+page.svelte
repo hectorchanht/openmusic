@@ -11,6 +11,8 @@
 	import { t, type TranslationKey } from '$lib/i18n';
 	import type { Component } from 'svelte';
 	import { isSupporter } from '$lib/config/sponsored';
+	// quick-261010-posthog: settings_opened on entering the settings index.
+	import { track } from '$lib/posthog';
 
 	// SUPPORTER CHOICE MODEL (Hector 2026-10-10): verified tippers get a
 	// ☕ Supporter badge on the Supporter row below (SSR-safe — false pre-hydration).
@@ -19,6 +21,7 @@
 	onMount(() => {
 		settings.load();
 		supporter = isSupporter();
+		track('settings_opened', {});
 	});
 
 	// Group rows: order = playback, downloads, appearance, home, translation, general, data,

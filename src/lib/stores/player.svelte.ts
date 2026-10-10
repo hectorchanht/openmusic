@@ -108,6 +108,9 @@ import { loadRetriesFor } from '$lib/sources/registry';
 // ANALYTICS: anonymous play-count ping on first real audio output — fire-and-forget,
 // no PII, no IP stored server-side.
 import { trackPlayStart } from '$lib/analytics';
+// quick-261010-posthog: third-party product analytics (PostHog); complements
+// the D1 ping above. Aliased — `track` alone is too easy to misread.
+import { track as trackPosthog } from '$lib/posthog';
 // Type-only import (WR-03): lets `notice.msg` / `error` be a real TranslationKey so a host can
 // `t(n.msg)` and the token is guaranteed to exist in every dictionary. No runtime UI dependency —
 // the store still emits raw, host-rendered data (D-03); this just type-checks the token keys.
@@ -2385,7 +2388,16 @@ class Player {
 			// double-count. Fire-and-forget; a failed ping never touches playback.
 			const firstAudiblePlay = !this.hasPlayedSinceSrc;
 			this.hasPlayedSinceSrc = true;
-			if (firstAudiblePlay && this.current) trackPlayStart(this.current);
+			if (firstAudiblePlay && this.current) {
+				trackPlayStart(this.current);
+				// quick-261010-posthog: exactly one PostHog `track_played` per real
+				// audio output — same signal as the D1 ping above, song_id/source
+				// only, no PII. analytics.ts stays untouched.
+				trackPosthog('track_played', {
+					song_id: this.current.uid,
+					source: this.current.source ?? ''
+				});
+			}
 			this.disarmStall();
 			// Next-song-current-but-paused fix: real audio started — the autoplay-retry arm is moot.
 			this.autoplayRetryArmed = false;

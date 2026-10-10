@@ -19,6 +19,8 @@
 	import { goto } from '$app/navigation';
 	import DownloadGateModal from '$lib/components/DownloadGateModal.svelte';
 	import { isSupporter } from '$lib/config/sponsored';
+	// quick-261010-posthog: pack_download_started when the supporter bulk-download begins.
+	import { track } from '$lib/posthog';
 	import type { Track } from '$lib/sources/types';
 
 	function stubTrack(s: PackSong): Track {
@@ -92,6 +94,8 @@
 		}
 		if (downloading) return;
 		downloading = true;
+		// quick-261010-posthog: the gate already passed — a real bulk download is starting.
+		track('pack_download_started', { pack: 'cantopop-2026' });
 		try {
 			// Resolve all stubs (4 concurrent), then bulk-download as a zip named for the pack.
 			const stubs = CANTOPOP_2026.map((s) => ({ artist: s.artist, title: s.title }));

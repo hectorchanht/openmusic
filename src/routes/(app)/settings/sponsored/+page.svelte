@@ -22,6 +22,8 @@
 	import { apiFetch } from '$lib/services/api-base';
 	import { t } from '$lib/i18n';
 	import { SPONSORED_HIDE_KEY, SUPPORTER_KEY, TIP_LICENSE_KEY } from '$lib/config/sponsored';
+	// quick-261010-posthog: tip_verified(success[, reason]) + supporter_status_changed.
+	import { track } from '$lib/posthog';
 
 	let supporter = $state(false);
 	let hideStrip = $state(false);
@@ -49,6 +51,10 @@
 		if (!licenseKey || verifying) return;
 		verifying = true;
 		error = null;
+		// quick-261010-posthog: supporter_status_changed fires only on an
+		// actual non-supporter → supporter transition (repeat verifies of an
+		// already-supporter key are not "changes").
+		const wasSupporter = supporter;
 		try {
 			const res = await apiFetch('/api/sponsored/verify', {
 				method: 'POST',
@@ -66,15 +72,21 @@
 					/* storage unavailable — supporter status won't persist */
 				}
 				supporter = true;
+				track('tip_verified', { success: true });
+				if (!wasSupporter) track('supporter_status_changed', { is_supporter: true });
 			} else if (data?.reason === 'refunded') {
 				error = 'This purchase was refunded — your supporter status stays off.';
+				track('tip_verified', { success: false, reason: 'refunded' });
 			} else if (data?.reason === 'error') {
 				error = 'Could not reach Gumroad for verification — try again in a moment.';
+				track('tip_verified', { success: false, reason: 'upstream_error' });
 			} else {
 				error = 'Invalid license key. Find it in your Gumroad receipt email (it looks like 8XXXXXXX-8XXXXXXX-8XXXXXXX-8XXXXXXX).';
+				track('tip_verified', { success: false, reason: 'invalid' });
 			}
 		} catch {
 			error = 'Verification failed — check your connection and try again.';
+			track('tip_verified', { success: false, reason: 'network' });
 		} finally {
 			verifying = false;
 		}

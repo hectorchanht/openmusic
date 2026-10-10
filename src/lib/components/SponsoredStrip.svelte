@@ -25,6 +25,9 @@
 		hasLink,
 		hasAnySponsorLink
 	} from '$lib/config/sponsored';
+	// quick-261010-posthog: tip_jar_opened(location:'sponsored_strip') on the
+	// ☕ Tip jar slot click only (referral slots stay untracked).
+	import { track } from '$lib/posthog';
 
 	type Slot = {
 		url: string;
@@ -70,6 +73,9 @@
 					title={slot.title}
 					style:--sp-bg={slot.bg}
 					style:--sp-fg={slot.fg}
+					onclick={() => {
+						if (slot.url === TIP_JAR_URL) track('tip_jar_opened', { location: 'sponsored_strip' });
+					}}
 				>{slot.label}</a>
 			{/if}
 		{/each}

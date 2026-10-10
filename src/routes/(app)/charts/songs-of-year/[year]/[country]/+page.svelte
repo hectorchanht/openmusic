@@ -23,6 +23,8 @@
 	import { goto } from '$app/navigation';
 	import DownloadGateModal from '$lib/components/DownloadGateModal.svelte';
 	import { isSupporter } from '$lib/config/sponsored';
+	// quick-261010-posthog: pack_download_started when the supporter bulk-download begins.
+	import { track } from '$lib/posthog';
 	import type { Track } from '$lib/sources/types';
 
 	// Defensive param decode (same idiom as charts/countries/[country]).
@@ -132,6 +134,8 @@
 		}
 		if (downloading) return;
 		downloading = true;
+		// quick-261010-posthog: the gate already passed — a real bulk download is starting.
+		track('pack_download_started', { pack: `soy-${yearNum}-${country}` });
 		try {
 			const stubs = songs.map((s) => ({ artist: s.artist, title: s.title }));
 			const out: (Track | null)[] = new Array(stubs.length).fill(null);

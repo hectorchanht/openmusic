@@ -135,6 +135,18 @@
 		})();
 		return () => off?.();
 	});
+
+	// quick-261010-posthog: PostHog product analytics init — browser-only
+	// (dynamic import; the SSR/prerender bundle never executes the SDK), then
+	// the once-per-browser app_first_open. Separate onMount from the deep-link
+	// one above so analytics never interferes with arrival routing.
+	onMount(() => {
+		void (async () => {
+			const { initPosthog, trackFirstOpen } = await import('$lib/posthog');
+			await initPosthog();
+			trackFirstOpen();
+		})();
+	});
 </script>
 
 <svelte:head>
