@@ -3,6 +3,7 @@
 // - Australia: ARIA End Of Year Singles Chart (rank order = published year-end rank).
 // - Japan: Oricon Yearly Singles Chart (rank order = published year-end rank).
 // - United Kingdom: Official Charts Company End of Year Singles Chart (rank order = published year-end rank).
+// - Hong Kong: 香港電台 十大中文金曲獎 (rank order = published 十大中文金曲 rank).
 // Rendered as SongRow stubs; taps resolve through the normal multi-source
 // search (resolveStub), so the pack ships no audio of its own.
 
@@ -16,6 +17,16 @@ export const PACK_META_SOY_1994_US = {
   free: true,
   year: 1994,
   country: 'United States'
+} as const;
+
+export const PACK_META_SOY_1994_HK = {
+  id: 'soy-1994-hk',
+  title: '1994 香港年選',
+  titleEn: 'Hong Kong 1994',
+  description: '香港電台 十大中文金曲獎',
+  free: true,
+  year: 1994,
+  country: 'Hong Kong'
 } as const;
 
 export const SOY_1994: Record<string, PackSong[]> = {
@@ -226,10 +237,24 @@ export const SOY_1994: Record<string, PackSong[]> = {
     { artist: "Crash Test Dummies", title: "Mmm Mmm Mmm Mmm", note: "#48 Official Charts 年終" },
     { artist: "The Prodigy", title: "No Good (Start the Dance)", note: "#49 Official Charts 年終" },
     { artist: "Maxx", title: "Get-A-Way", note: "#50 Official Charts 年終" },
-  ]
+  ],
+  'Hong Kong': [
+    { artist: "張學友", title: "餓狼傳說", note: "#1 十大中文金曲" },
+    { artist: "黎明", title: "那有一天不想你", note: "#2 十大中文金曲" },
+    { artist: "葉蒨文", title: "女人的弱點", note: "#3 十大中文金曲" },
+    { artist: "巫啟賢", title: "心酸的情歌", note: "#4 十大中文金曲" },
+    { artist: "關淑怡", title: "繾綣星光下", note: "#5 十大中文金曲" },
+    { artist: "劉德華", title: "忘情水（國）", note: "#6 十大中文金曲" },
+    { artist: "郭富城", title: "鐵幕誘惑", note: "#7 十大中文金曲" },
+    { artist: "劉德華", title: "誰人知", note: "#8 十大中文金曲" },
+    { artist: "王靖雯", title: "冷戰", note: "#9 十大中文金曲" },
+    { artist: "張學友", title: "來來回回", note: "#10 十大中文金曲" },
+  ],
+
 };
 
 export const SOY_SOURCES_1994: Record<string, { name: string; url: string }> = {
+  'Hong Kong': { name: "香港電台 十大中文金曲獎", url: "https://zh.wikipedia.org/wiki/十大中文金曲頒獎音樂會十大中文金曲獎" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_1994" },
   'Australia': { name: "ARIA End Of Year Singles Chart", url: "https://aria.com.au/charts/1994/singles-chart" },
   'Japan': { name: "Oricon Yearly Singles Chart", url: "https://www.generasia.com/wiki/1994_Oricon_Top_100_Singles" },

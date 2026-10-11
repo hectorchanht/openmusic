@@ -3,6 +3,7 @@
 // - Australia: ARIA End Of Year Singles Chart (rank order = published year-end rank).
 // - Japan: Oricon Yearly Singles Chart (rank order = published year-end rank).
 // - United Kingdom: Official Charts Company End of Year Singles Chart (rank order = published year-end rank).
+// - Hong Kong: 香港電台 十大中文金曲獎 (rank order = published 十大中文金曲 rank).
 // Rendered as SongRow stubs; taps resolve through the normal multi-source
 // search (resolveStub), so the pack ships no audio of its own.
 
@@ -16,6 +17,16 @@ export const PACK_META_SOY_1995_US = {
   free: true,
   year: 1995,
   country: 'United States'
+} as const;
+
+export const PACK_META_SOY_1995_HK = {
+  id: 'soy-1995-hk',
+  title: '1995 香港年選',
+  titleEn: 'Hong Kong 1995',
+  description: '香港電台 十大中文金曲獎',
+  free: true,
+  year: 1995,
+  country: 'Hong Kong'
 } as const;
 
 export const SOY_1995: Record<string, PackSong[]> = {
@@ -226,10 +237,24 @@ export const SOY_1995: Record<string, PackSong[]> = {
     { artist: "Nicki French", title: "Total Eclipse of the Heart", note: "#48 Official Charts 年終" },
     { artist: "Supergrass", title: "Alright / Time", note: "#49 Official Charts 年終" },
     { artist: "Pulp", title: "Mis-Shapes / Sorted for E's & Wizz", note: "#50 Official Charts 年終" },
-  ]
+  ],
+  'Hong Kong': [
+    { artist: "張學友", title: "離開以後", note: "#1 十大中文金曲" },
+    { artist: "黎明", title: "一生最愛就是你", note: "#2 十大中文金曲" },
+    { artist: "鄭秀文", title: "捨不得你", note: "#3 十大中文金曲" },
+    { artist: "李蕙敏", title: "(你沒有)好結果", note: "#4 十大中文金曲" },
+    { artist: "劉德華", title: "真永遠", note: "#5 十大中文金曲" },
+    { artist: "周華健", title: "濃情化不開", note: "#6 十大中文金曲" },
+    { artist: "陳慧嫻", title: "我寂寞", note: "#7 十大中文金曲" },
+    { artist: "郭富城", title: "純真傳說", note: "#8 十大中文金曲" },
+    { artist: "彭羚", title: "如夢初醒", note: "#9 十大中文金曲" },
+    { artist: "張學友", title: "這個冬天不太冷", note: "#10 十大中文金曲" },
+  ],
+
 };
 
 export const SOY_SOURCES_1995: Record<string, { name: string; url: string }> = {
+  'Hong Kong': { name: "香港電台 十大中文金曲獎", url: "https://zh.wikipedia.org/wiki/十大中文金曲頒獎音樂會十大中文金曲獎" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_1995" },
   'Australia': { name: "ARIA End Of Year Singles Chart", url: "https://aria.com.au/charts/1995/singles-chart" },
   'Japan': { name: "Oricon Yearly Singles Chart", url: "https://www.generasia.com/wiki/1995_Oricon_Top_100_Singles" },

@@ -3,6 +3,7 @@
 // - Australia: ARIA End Of Year Singles Chart (rank order = published year-end rank).
 // - Japan: Oricon Yearly Singles Chart (rank order = published year-end rank).
 // - United Kingdom: Official Charts Company End of Year Singles Chart (rank order = published year-end rank).
+// - Hong Kong: 香港電台 十大中文金曲獎 (rank order = published 十大中文金曲 rank).
 // Rendered as SongRow stubs; taps resolve through the normal multi-source
 // search (resolveStub), so the pack ships no audio of its own.
 
@@ -16,6 +17,16 @@ export const PACK_META_SOY_1991_US = {
   free: true,
   year: 1991,
   country: 'United States'
+} as const;
+
+export const PACK_META_SOY_1991_HK = {
+  id: 'soy-1991-hk',
+  title: '1991 香港年選',
+  titleEn: 'Hong Kong 1991',
+  description: '香港電台 十大中文金曲獎',
+  free: true,
+  year: 1991,
+  country: 'Hong Kong'
 } as const;
 
 export const SOY_1991: Record<string, PackSong[]> = {
@@ -226,10 +237,24 @@ export const SOY_1991: Record<string, PackSong[]> = {
     { artist: "Oleta Adams", title: "Get Here", note: "#48 Official Charts 年終" },
     { artist: "Prince、the New Power Generation", title: "Gett Off", note: "#49 Official Charts 年終" },
     { artist: "Guns N' Roses", title: "You Could Be Mine", note: "#50 Official Charts 年終" },
-  ]
+  ],
+  'Hong Kong': [
+    { artist: "林憶蓮", title: "愛上一個不回家的人", note: "#1 十大中文金曲" },
+    { artist: "張學友", title: "每天愛你多一些", note: "#2 十大中文金曲" },
+    { artist: "葉蒨文", title: "秋去秋來", note: "#3 十大中文金曲" },
+    { artist: "黎明", title: "對不起我愛你", note: "#4 十大中文金曲" },
+    { artist: "劉德華", title: "一起走過的日子", note: "#5 十大中文金曲" },
+    { artist: "葉蒨文、杜德偉", title: "信自己", note: "#6 十大中文金曲" },
+    { artist: "Beyond", title: "Amani", note: "#7 十大中文金曲" },
+    { artist: "草蜢", title: "Lonely", note: "#8 十大中文金曲" },
+    { artist: "張學友", title: "一顆不變心", note: "#9 十大中文金曲" },
+    { artist: "劉德華", title: "愛不完", note: "#10 十大中文金曲" },
+  ],
+
 };
 
 export const SOY_SOURCES_1991: Record<string, { name: string; url: string }> = {
+  'Hong Kong': { name: "香港電台 十大中文金曲獎", url: "https://zh.wikipedia.org/wiki/十大中文金曲頒獎音樂會十大中文金曲獎" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_1991" },
   'Australia': { name: "ARIA End Of Year Singles Chart", url: "https://aria.com.au/charts/1991/singles-chart" },
   'Japan': { name: "Oricon Yearly Singles Chart", url: "https://www.generasia.com/wiki/1991_Oricon_Top_100_Singles" },

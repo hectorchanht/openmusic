@@ -3,6 +3,7 @@
 // - Australia: ARIA End Of Year Singles Chart (rank order = published year-end rank).
 // - Japan: Oricon Yearly Singles Chart (rank order = published year-end rank).
 // - United Kingdom: Official Charts Company End of Year Singles Chart (rank order = published year-end rank).
+// - Hong Kong: 香港電台 十大中文金曲獎 (rank order = published 十大中文金曲 rank).
 // Rendered as SongRow stubs; taps resolve through the normal multi-source
 // search (resolveStub), so the pack ships no audio of its own.
 
@@ -16,6 +17,16 @@ export const PACK_META_SOY_1992_US = {
   free: true,
   year: 1992,
   country: 'United States'
+} as const;
+
+export const PACK_META_SOY_1992_HK = {
+  id: 'soy-1992-hk',
+  title: '1992 香港年選',
+  titleEn: 'Hong Kong 1992',
+  description: '香港電台 十大中文金曲獎',
+  free: true,
+  year: 1992,
+  country: 'Hong Kong'
 } as const;
 
 export const SOY_1992: Record<string, PackSong[]> = {
@@ -226,10 +237,24 @@ export const SOY_1992: Record<string, PackSong[]> = {
     { artist: "CeCe Peniston", title: "Finally", note: "#48 Official Charts 年終" },
     { artist: "Undercover", title: "Never Let Her Slip Away", note: "#49 Official Charts 年終" },
     { artist: "Kylie Minogue", title: "Give Me Just a Little More Time", note: "#50 Official Charts 年終" },
-  ]
+  ],
+  'Hong Kong': [
+    { artist: "張學友", title: "暗戀你", note: "#1 十大中文金曲" },
+    { artist: "黎明", title: "但願不只是朋友", note: "#2 十大中文金曲" },
+    { artist: "劉德華", title: "長夜多浪漫", note: "#3 十大中文金曲" },
+    { artist: "郭富城", title: "我為何讓你走", note: "#4 十大中文金曲" },
+    { artist: "葉蒨文", title: "瀟灑走一回", note: "#5 十大中文金曲" },
+    { artist: "陳慧嫻", title: "紅茶館", note: "#6 十大中文金曲" },
+    { artist: "張學友", title: "還是覺得你最好", note: "#7 十大中文金曲" },
+    { artist: "黎明", title: "我的親愛", note: "#8 十大中文金曲" },
+    { artist: "王靖雯", title: "容易受傷的女人", note: "#9 十大中文金曲" },
+    { artist: "劉德華", title: "真我的風采", note: "#10 十大中文金曲" },
+  ],
+
 };
 
 export const SOY_SOURCES_1992: Record<string, { name: string; url: string }> = {
+  'Hong Kong': { name: "香港電台 十大中文金曲獎", url: "https://zh.wikipedia.org/wiki/十大中文金曲頒獎音樂會十大中文金曲獎" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_1992" },
   'Australia': { name: "ARIA End Of Year Singles Chart", url: "https://aria.com.au/charts/1992/singles-chart" },
   'Japan': { name: "Oricon Yearly Singles Chart", url: "https://www.generasia.com/wiki/1992_Oricon_Top_100_Singles" },

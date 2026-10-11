@@ -3,6 +3,7 @@
 // - Australia: ARIA End Of Year Singles Chart (rank order = published year-end rank).
 // - Japan: Oricon Yearly Singles Chart (rank order = published year-end rank).
 // - United Kingdom: Official Charts Company End of Year Singles Chart (rank order = published year-end rank).
+// - Hong Kong: 香港電台 十大中文金曲獎 (rank order = published 十大中文金曲 rank).
 // Rendered as SongRow stubs; taps resolve through the normal multi-source
 // search (resolveStub), so the pack ships no audio of its own.
 
@@ -16,6 +17,16 @@ export const PACK_META_SOY_1997_US = {
   free: true,
   year: 1997,
   country: 'United States'
+} as const;
+
+export const PACK_META_SOY_1997_HK = {
+  id: 'soy-1997-hk',
+  title: '1997 香港年選',
+  titleEn: 'Hong Kong 1997',
+  description: '香港電台 十大中文金曲獎',
+  free: true,
+  year: 1997,
+  country: 'Hong Kong'
 } as const;
 
 export const SOY_1997: Record<string, PackSong[]> = {
@@ -226,10 +237,24 @@ export const SOY_1997: Record<string, PackSong[]> = {
     { artist: "Boyzone", title: "Picture of You", note: "#48 Official Charts 年終" },
     { artist: "Texas", title: "Say What You Want", note: "#49 Official Charts 年終" },
     { artist: "The Rembrandts", title: "I'll Be There for You", note: "#50 Official Charts 年終" },
-  ]
+  ],
+  'Hong Kong': [
+    { artist: "鄭秀文", title: "我們的主題曲", note: "#1 十大中文金曲" },
+    { artist: "郭富城", title: "愛的呼喚", note: "#2 十大中文金曲" },
+    { artist: "張學友", title: "不老的傳說", note: "#3 十大中文金曲" },
+    { artist: "許美靜", title: "明知故犯", note: "#4 十大中文金曲" },
+    { artist: "陳慧琳", title: "星夢情真", note: "#5 十大中文金曲" },
+    { artist: "黎明", title: "只要為我愛一天", note: "#6 十大中文金曲" },
+    { artist: "古巨基", title: "歡樂今宵", note: "#7 十大中文金曲" },
+    { artist: "劉德華", title: "中國人", note: "#8 十大中文金曲" },
+    { artist: "王菲", title: "你快樂所以我快樂", note: "#9 十大中文金曲" },
+    { artist: "張學友", title: "愛是永恆", note: "#10 十大中文金曲" },
+  ],
+
 };
 
 export const SOY_SOURCES_1997: Record<string, { name: string; url: string }> = {
+  'Hong Kong': { name: "香港電台 十大中文金曲獎", url: "https://zh.wikipedia.org/wiki/十大中文金曲頒獎音樂會十大中文金曲獎" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_1997" },
   'Australia': { name: "ARIA End Of Year Singles Chart", url: "https://aria.com.au/charts/1997/singles-chart" },
   'Japan': { name: "Oricon Yearly Singles Chart", url: "https://www.generasia.com/wiki/1997_Oricon_Top_100_Singles" },

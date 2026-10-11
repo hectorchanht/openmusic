@@ -3,6 +3,7 @@
 // - Australia: ARIA End Of Year Singles Chart (rank order = published year-end rank).
 // - Japan: Oricon Yearly Singles Chart (rank order = published year-end rank).
 // - United Kingdom: Official Charts Company End of Year Singles Chart (rank order = published year-end rank).
+// - Hong Kong: 香港電台 十大中文金曲獎 (rank order = published 十大中文金曲 rank).
 // Rendered as SongRow stubs; taps resolve through the normal multi-source
 // search (resolveStub), so the pack ships no audio of its own.
 
@@ -16,6 +17,16 @@ export const PACK_META_SOY_1989_US = {
   free: true,
   year: 1989,
   country: 'United States'
+} as const;
+
+export const PACK_META_SOY_1989_HK = {
+  id: 'soy-1989-hk',
+  title: '1989 香港年選',
+  titleEn: 'Hong Kong 1989',
+  description: '香港電台 十大中文金曲獎',
+  free: true,
+  year: 1989,
+  country: 'Hong Kong'
 } as const;
 
 export const SOY_1989: Record<string, PackSong[]> = {
@@ -226,10 +237,24 @@ export const SOY_1989: Record<string, PackSong[]> = {
     { artist: "Soul II Soul", title: "Get a Life", note: "#48 Official Charts 年終" },
     { artist: "Transvision Vamp", title: "Baby I Don't Care", note: "#49 Official Charts 年終" },
     { artist: "Belinda Carlisle", title: "Leave a Light On", note: "#50 Official Charts 年終" },
-  ]
+  ],
+  'Hong Kong': [
+    { artist: "李克勤", title: "一生不變", note: "#1 十大中文金曲" },
+    { artist: "陳慧嫻", title: "千千闋歌", note: "#2 十大中文金曲" },
+    { artist: "林憶蓮", title: "依然", note: "#3 十大中文金曲" },
+    { artist: "Beyond", title: "真的愛你", note: "#4 十大中文金曲" },
+    { artist: "梅艷芳", title: "淑女", note: "#5 十大中文金曲" },
+    { artist: "張學友", title: "Linda", note: "#6 十大中文金曲" },
+    { artist: "陳慧嫻", title: "夜機", note: "#7 十大中文金曲" },
+    { artist: "王傑", title: "誰明浪子心", note: "#8 十大中文金曲" },
+    { artist: "陳百強", title: "一生何求", note: "#9 十大中文金曲" },
+    { artist: "梅艷芳", title: "夕陽之歌", note: "#10 十大中文金曲" },
+  ],
+
 };
 
 export const SOY_SOURCES_1989: Record<string, { name: string; url: string }> = {
+  'Hong Kong': { name: "香港電台 十大中文金曲獎", url: "https://zh.wikipedia.org/wiki/十大中文金曲頒獎音樂會十大中文金曲獎" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_1989" },
   'Australia': { name: "ARIA End Of Year Singles Chart", url: "https://aria.com.au/charts/1989/singles-chart" },
   'Japan': { name: "Oricon Yearly Singles Chart", url: "https://www.generasia.com/wiki/1989_Oricon_Top_100_Singles" },

@@ -3,6 +3,7 @@
 // - Australia: ARIA End Of Year Singles Chart (rank order = published year-end rank).
 // - Japan: Oricon Yearly Singles Chart (rank order = published year-end rank).
 // - United Kingdom: Official Charts Company End of Year Singles Chart (rank order = published year-end rank).
+// - Hong Kong: 香港電台 十大中文金曲獎 (rank order = published 十大中文金曲 rank).
 // Rendered as SongRow stubs; taps resolve through the normal multi-source
 // search (resolveStub), so the pack ships no audio of its own.
 
@@ -16,6 +17,16 @@ export const PACK_META_SOY_1993_US = {
   free: true,
   year: 1993,
   country: 'United States'
+} as const;
+
+export const PACK_META_SOY_1993_HK = {
+  id: 'soy-1993-hk',
+  title: '1993 香港年選',
+  titleEn: 'Hong Kong 1993',
+  description: '香港電台 十大中文金曲獎',
+  free: true,
+  year: 1993,
+  country: 'Hong Kong'
 } as const;
 
 export const SOY_1993: Record<string, PackSong[]> = {
@@ -226,10 +237,24 @@ export const SOY_1993: Record<string, PackSong[]> = {
     { artist: "Chaka Demus、Pliers", title: "She Don't Let Nobody", note: "#48 Official Charts 年終" },
     { artist: "Take That", title: "Why Can't I Wake Up with You", note: "#49 Official Charts 年終" },
     { artist: "Michael Jackson", title: "Give In to Me", note: "#50 Official Charts 年終" },
-  ]
+  ],
+  'Hong Kong': [
+    { artist: "張學友", title: "祇想一生跟你走", note: "#1 十大中文金曲" },
+    { artist: "劉德華", title: "獨自去偷歡", note: "#2 十大中文金曲" },
+    { artist: "Sada Masashi", title: "永遠寂寞", note: "#3 十大中文金曲" },
+    { artist: "黎明", title: "夏日傾情", note: "#4 十大中文金曲" },
+    { artist: "郭富城", title: "狂野之城", note: "#5 十大中文金曲" },
+    { artist: "張學友", title: "等你回來", note: "#6 十大中文金曲" },
+    { artist: "王靖雯", title: "執迷不悔 (國)", note: "#7 十大中文金曲" },
+    { artist: "Beyond", title: "海闊天空", note: "#8 十大中文金曲" },
+    { artist: "劉德華", title: "謝謝你的愛", note: "#9 十大中文金曲" },
+    { artist: "張學友", title: "你是我今生唯一傳奇", note: "#10 十大中文金曲" },
+  ],
+
 };
 
 export const SOY_SOURCES_1993: Record<string, { name: string; url: string }> = {
+  'Hong Kong': { name: "香港電台 十大中文金曲獎", url: "https://zh.wikipedia.org/wiki/十大中文金曲頒獎音樂會十大中文金曲獎" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_1993" },
   'Australia': { name: "ARIA End Of Year Singles Chart", url: "https://aria.com.au/charts/1993/singles-chart" },
   'Japan': { name: "Oricon Yearly Singles Chart", url: "https://www.generasia.com/wiki/1993_Oricon_Top_100_Singles" },

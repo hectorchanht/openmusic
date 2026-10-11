@@ -1,6 +1,7 @@
 // 1988 年選 — year-end charts (United States、Australia).
 // - United States: Billboard Year-End Hot 100 (rank order = published year-end rank).
 // - Australia: ARIA End Of Year Singles Chart (rank order = published year-end rank).
+// - Hong Kong: 香港電台 十大中文金曲獎 (rank order = published 十大中文金曲 rank).
 // Rendered as SongRow stubs; taps resolve through the normal multi-source
 // search (resolveStub), so the pack ships no audio of its own.
 
@@ -14,6 +15,16 @@ export const PACK_META_SOY_1988_US = {
   free: true,
   year: 1988,
   country: 'United States'
+} as const;
+
+export const PACK_META_SOY_1988_HK = {
+  id: 'soy-1988-hk',
+  title: '1988 香港年選',
+  titleEn: 'Hong Kong 1988',
+  description: '香港電台 十大中文金曲獎',
+  free: true,
+  year: 1988,
+  country: 'Hong Kong'
 } as const;
 
 export const SOY_1988: Record<string, PackSong[]> = {
@@ -120,10 +131,24 @@ export const SOY_1988: Record<string, PackSong[]> = {
     { artist: "James Reyne", title: "Motor's Too Fast", note: "#48 ARIA 年終" },
     { artist: "Poison", title: "Nothin' But A Good Time", note: "#49 ARIA 年終" },
     { artist: "New Order", title: "Blue Monday 1988", note: "#50 ARIA 年終" },
-  ]
+  ],
+  'Hong Kong': [
+    { artist: "Maria Cordero", title: "友誼之光", note: "#1 十大中文金曲" },
+    { artist: "張國榮", title: "無需要太多", note: "#2 十大中文金曲" },
+    { artist: "陳慧嫻", title: "傻女", note: "#3 十大中文金曲" },
+    { artist: "林子祥", title: "真的漢子", note: "#4 十大中文金曲" },
+    { artist: "葉蒨文", title: "祝福", note: "#5 十大中文金曲" },
+    { artist: "溫拿樂隊", title: "千載不變", note: "#6 十大中文金曲" },
+    { artist: "陳百強", title: "煙雨淒迷", note: "#7 十大中文金曲" },
+    { artist: "許冠傑 / 張國榮", title: "沉默是金", note: "#8 十大中文金曲" },
+    { artist: "齊秦", title: "大約在冬季", note: "#9 十大中文金曲" },
+    { artist: "梅艷芳", title: "Stand By Me", note: "#10 十大中文金曲" },
+  ],
+
 };
 
 export const SOY_SOURCES_1988: Record<string, { name: string; url: string }> = {
+  'Hong Kong': { name: "香港電台 十大中文金曲獎", url: "https://zh.wikipedia.org/wiki/十大中文金曲頒獎音樂會十大中文金曲獎" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_1988" },
   'Australia': { name: "ARIA End Of Year Singles Chart", url: "https://aria.com.au/charts/1988/singles-chart" }
 };

@@ -3,6 +3,7 @@
 // - Australia: ARIA End Of Year Singles Chart (rank order = published year-end rank).
 // - Japan: Oricon Yearly Singles Chart (rank order = published year-end rank).
 // - United Kingdom: Official Charts Company End of Year Singles Chart (rank order = published year-end rank).
+// - Hong Kong: 香港電台 十大中文金曲獎 (rank order = published 十大中文金曲 rank).
 // Rendered as SongRow stubs; taps resolve through the normal multi-source
 // search (resolveStub), so the pack ships no audio of its own.
 
@@ -16,6 +17,16 @@ export const PACK_META_SOY_1996_US = {
   free: true,
   year: 1996,
   country: 'United States'
+} as const;
+
+export const PACK_META_SOY_1996_HK = {
+  id: 'soy-1996-hk',
+  title: '1996 香港年選',
+  titleEn: 'Hong Kong 1996',
+  description: '香港電台 十大中文金曲獎',
+  free: true,
+  year: 1996,
+  country: 'Hong Kong'
 } as const;
 
 export const SOY_1996: Record<string, PackSong[]> = {
@@ -226,10 +237,24 @@ export const SOY_1996: Record<string, PackSong[]> = {
     { artist: "Michael Jackson", title: "Earth Song", note: "#48 Official Charts 年終" },
     { artist: "George Michael", title: "Spinning the Wheel", note: "#49 Official Charts 年終" },
     { artist: "Manic Street Preachers", title: "A Design for Life", note: "#50 Official Charts 年終" },
-  ]
+  ],
+  'Hong Kong': [
+    { artist: "黎明", title: "情深說話未曾講", note: "#1 十大中文金曲" },
+    { artist: "彭羚", title: "彷如隔世", note: "#2 十大中文金曲" },
+    { artist: "鄭秀文", title: "放不低", note: "#3 十大中文金曲" },
+    { artist: "鄭伊健", title: "友情歲月", note: "#4 十大中文金曲" },
+    { artist: "湯寶如", title: "感冒", note: "#5 十大中文金曲" },
+    { artist: "劉德華", title: "情未鳥", note: "#6 十大中文金曲" },
+    { artist: "陳慧琳", title: "風花雪", note: "#7 十大中文金曲" },
+    { artist: "郭富城", title: "最激帝國", note: "#8 十大中文金曲" },
+    { artist: "張學友", title: "妳的名字 我的姓氏", note: "#9 十大中文金曲" },
+    { artist: "許志安", title: "男人最痛", note: "#10 十大中文金曲" },
+  ],
+
 };
 
 export const SOY_SOURCES_1996: Record<string, { name: string; url: string }> = {
+  'Hong Kong': { name: "香港電台 十大中文金曲獎", url: "https://zh.wikipedia.org/wiki/十大中文金曲頒獎音樂會十大中文金曲獎" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_1996" },
   'Australia': { name: "ARIA End Of Year Singles Chart", url: "https://aria.com.au/charts/1996/singles-chart" },
   'Japan': { name: "Oricon Yearly Singles Chart", url: "https://www.generasia.com/wiki/1996_Oricon_Top_100_Singles" },
