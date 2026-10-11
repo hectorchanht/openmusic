@@ -63,7 +63,6 @@ export const WESTERN_2026: PackSong[] = [
 	{ artist: "Chris Brown ft. Bryson Tiller", title: "It Depends", note: "R&B電台冠軍" },
 	{ artist: "Edgehill", title: "Doubletake", note: "Alternative電台冠軍" },
 	{ artist: "Tame Impala", title: "Loser", note: "2026專輯單曲" },
-	{ artist: "Dua Lipa", title: "Training Season", note: "2026舞曲單曲" },
 	{ artist: "Bruce Springsteen", title: "Streets of Minneapolis", note: "抗議單曲, 話題作" },
 	{ artist: "Drake", title: "Shabang", note: "2026 rap單曲" },
 	{ artist: "DaBaby", title: "Pop Dat Thang", note: "Rap榜冠軍" },

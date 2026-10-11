@@ -42,7 +42,6 @@ export const CANTOPOP_2026: PackSong[] = [
 	{ artist: "林家謙", title: "冬季限定", note: "四台冠軍歌" },
 	{ artist: "容祖兒", title: "等等等等", note: "三台冠軍歌" },
 	{ artist: "Pandora", title: "時光之灰", note: "三台冠軍歌" },
-	{ artist: "張學友", title: "陽光普照", note: "兩台冠軍，2026復出" },
 	{ artist: "MIRROR", title: "ATTENTION", note: "叱咤+新城雙冠軍" },
 	{ artist: "洪嘉豪", title: "穿波鞋的惡魔", note: "港台+ViuTV冠軍" },
 	{ artist: "陳健安", title: "課題分離", note: "903+新城雙冠軍" },

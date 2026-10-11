@@ -47,7 +47,6 @@ export const MANDOPOP_2026: PackSong[] = [
 	{ artist: "徐佳瑩", title: "燕子", note: "2026新專輯首波單曲" },
 	{ artist: "TRASH", title: "只剩後悔在等待", note: "2026新歌首唱" },
 	{ artist: "溫蒂漫步", title: "秘密", note: "2026新專輯" },
-	{ artist: "持修", title: "一切都是最好的安排", note: "2026未完成新作" },
 	{ artist: "漢堡黃 puppiebelly", title: "Goddess", note: "2026台灣首演新曲" },
 	{ artist: "漢堡黃 puppiebelly、LAWA", title: "青春多美麗", note: "兩岸新人合作" },
 	{ artist: "蔡依林", title: "我超會", note: "Pleasure專輯，陳綺貞詞" },
