@@ -5,6 +5,7 @@
 // - South Korea: Gaon Yearly Digital Chart (rank order = published year-end rank).
 // - United Kingdom: Official Charts Company End of Year Singles Chart (rank order = published year-end rank).
 // - Hong Kong: 叱咤樂壇流行榜頒獎典禮 專業推介．叱咤十大 (rank order = published 叱咤十大 rank).
+// - Taiwan: 中華音樂人交流協會 年度十大單曲 (1997–2021, unranked).
 // Rendered as SongRow stubs; taps resolve through the normal multi-source
 // search (resolveStub), so the pack ships no audio of its own.
 
@@ -28,6 +29,16 @@ export const PACK_META_SOY_2016_HK = {
   free: true,
   year: 2016,
   country: 'Hong Kong'
+} as const;
+
+export const PACK_META_SOY_2016_TW = {
+  id: 'soy-2016-tw',
+  title: '2016 台灣年選',
+  titleEn: 'Taiwan 2016',
+  description: '中華音樂人交流協會 年度十大單曲 (排名不分先後)',
+  free: true,
+  year: 2016,
+  country: 'Taiwan'
 } as const;
 
 export const SOY_2016: Record<string, PackSong[]> = {
@@ -303,10 +314,24 @@ export const SOY_2016: Record<string, PackSong[]> = {
     { artist: "小塵埃", title: "卜卜卜", note: "#9 叱咤十大" },
     { artist: "林奕匡", title: "愛情小品", note: "#10 叱咤十大" },
   ],
+  'Taiwan': [
+    { artist: "艾怡良", title: "我們的總和", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "李英宏", title: "台北直直撞", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "林宥嘉", title: "天真有邪", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "五月天", title: "頑固", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "草東沒有派對", title: "大風吹", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "郭頂", title: "淒美地", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "楊乃文", title: "離心力", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "謝銘祐", title: "彼卡皮箱", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "伍佰", title: "蹦孔", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "徐佳瑩", title: "是日救星", note: "年度十大單曲 (排名不分先後)" },
+  ],
+
 };
 
 /** Chart source attribution for 2016 — rendered in the pack page footer. */
 export const SOY_SOURCES_2016: Record<string, { name: string; url: string }> = {
+  'Taiwan': { name: "中華音樂人交流協會 年度十大單曲", url: "https://zh.wikipedia.org/wiki/中華音樂人交流協會" },
   'Hong Kong': { name: "叱咤樂壇流行榜 專業推介．叱咤十大", url: "https://zh.wikipedia.org/wiki/2016年度叱咤樂壇流行榜頒獎典禮得獎名單" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_2016" },
   'Australia': { name: "ARIA End Of Year Singles Chart", url: "https://aria.com.au/charts/2016/singles-chart" },

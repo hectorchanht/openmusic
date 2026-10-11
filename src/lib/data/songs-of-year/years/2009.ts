@@ -3,6 +3,7 @@
 // - Australia: ARIA End Of Year Singles Chart (rank order = published year-end rank).
 // - Japan: Oricon Yearly Singles Chart (rank order = published year-end rank).
 // - Hong Kong: 叱咤樂壇流行榜頒獎典禮 專業推介．叱咤十大 (rank order = published 叱咤十大 rank).
+// - Taiwan: 中華音樂人交流協會 年度十大單曲 (1997–2021, unranked).
 // Rendered as SongRow stubs; taps resolve through the normal multi-source
 // search (resolveStub), so the pack ships no audio of its own.
 
@@ -26,6 +27,16 @@ export const PACK_META_SOY_2009_HK = {
   free: true,
   year: 2009,
   country: 'Hong Kong'
+} as const;
+
+export const PACK_META_SOY_2009_TW = {
+  id: 'soy-2009-tw',
+  title: '2009 台灣年選',
+  titleEn: 'Taiwan 2009',
+  description: '中華音樂人交流協會 年度十大單曲 (排名不分先後)',
+  free: true,
+  year: 2009,
+  country: 'Taiwan'
 } as const;
 
 export const SOY_2009: Record<string, PackSong[]> = {
@@ -197,10 +208,24 @@ export const SOY_2009: Record<string, PackSong[]> = {
     { artist: "麥浚龍", title: "弱水三千", note: "#9 叱咤十大" },
     { artist: "何韻詩", title: "妮歌", note: "#10 叱咤十大" },
   ],
+  'Taiwan': [
+    { artist: "陳綺貞", title: "太陽", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "陳綺貞", title: "魚", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "陳珊妮/陳怡文", title: "双陳記", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "張懸", title: "南國的孩子", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "徐佳瑩", title: "身騎白馬", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "張惠妹", title: "開門見山", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "張惠妹", title: "掉了", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "范曉萱&100%樂團", title: "主人", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "陳奕迅", title: "床頭燈", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "靜物樂團", title: "我在歐洲，打電話給你", note: "年度十大單曲 (排名不分先後)" },
+  ],
+
 };
 
 /** Chart source attribution for 2009 — rendered in the pack page footer. */
 export const SOY_SOURCES_2009: Record<string, { name: string; url: string }> = {
+  'Taiwan': { name: "中華音樂人交流協會 年度十大單曲", url: "https://zh.wikipedia.org/wiki/中華音樂人交流協會" },
   'Hong Kong': { name: "叱咤樂壇流行榜 專業推介．叱咤十大", url: "https://zh.wikipedia.org/wiki/2009年度叱咤樂壇流行榜頒獎典禮得獎名單" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_2009" },
   'Australia': { name: "ARIA End Of Year Singles Chart", url: "https://aria.com.au/charts/2009/singles-chart" },

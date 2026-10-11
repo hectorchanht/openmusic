@@ -104,12 +104,17 @@ describe('songs-of-year data files (all countries)', () => {
 					expect(s.title.trim().length, `${year}/${c} #${i + 1}: empty title`).toBeGreaterThan(0);
 					// note carries the published rank: "#<rank> <Chart …>". Ranks are
 					// non-decreasing (ties/gaps preserved verbatim, e.g. Oricon 2001 skips #49).
-					const rankMatch = /^#(\d+) /.exec(s.note ?? '');
-					expect(rankMatch, `${year}/${c} #${i + 1}: bad note ${s.note}`).not.toBeNull();
-					const rank = Number(rankMatch![1]);
-					expect(rank, `${year}/${c}: rank went backwards`).toBeGreaterThanOrEqual(prevRank);
-					expect(rank, `${year}/${c}: rank must be positive`).toBeGreaterThan(0);
-					prevRank = rank;
+					// Exception: explicitly unranked packs (note contains "排名不分先後")
+					// are allowed without #N — never fabricate ranks (FACT-CHECK rule).
+					const unranked = (s.note ?? '').includes('排名不分先後');
+					if (!unranked) {
+						const rankMatch = /^#(\d+) /.exec(s.note ?? '');
+						expect(rankMatch, `${year}/${c} #${i + 1}: bad note ${s.note}`).not.toBeNull();
+						const rank = Number(rankMatch![1]);
+						expect(rank, `${year}/${c}: rank went backwards`).toBeGreaterThanOrEqual(prevRank);
+						expect(rank, `${year}/${c}: rank must be positive`).toBeGreaterThan(0);
+						prevRank = rank;
+					}
 					const key = `${s.artist} — ${s.title}`;
 					// Known exceptions: Oricon counts two editions of the same single
 					// as separate year-end rows — faithful to the published chart.

@@ -5,6 +5,7 @@
 // - South Korea: Gaon Yearly Digital Chart (rank order = published year-end rank).
 // - United Kingdom: Official Charts Company End of Year Singles Chart (rank order = published year-end rank).
 // - Hong Kong: 叱咤樂壇流行榜頒獎典禮 專業推介．叱咤十大 (rank order = published 叱咤十大 rank).
+// - Taiwan: 中華音樂人交流協會 年度十大單曲 (1997–2021, unranked).
 // Rendered as SongRow stubs; taps resolve through the normal multi-source
 // search (resolveStub), so the pack ships no audio of its own.
 
@@ -28,6 +29,16 @@ export const PACK_META_SOY_2020_HK = {
   free: true,
   year: 2020,
   country: 'Hong Kong'
+} as const;
+
+export const PACK_META_SOY_2020_TW = {
+  id: 'soy-2020-tw',
+  title: '2020 台灣年選',
+  titleEn: 'Taiwan 2020',
+  description: '中華音樂人交流協會 年度十大單曲 (排名不分先後)',
+  free: true,
+  year: 2020,
+  country: 'Taiwan'
 } as const;
 
 export const SOY_2020: Record<string, PackSong[]> = {
@@ -303,10 +314,24 @@ export const SOY_2020: Record<string, PackSong[]> = {
     { artist: "JUDE", title: "零分", note: "#9 叱咤十大" },
     { artist: "per se Feat.Serrini", title: "粉碎糖果屋", note: "#10 叱咤十大" },
   ],
+  'Taiwan': [
+    { artist: "杜振熙", title: "家常音樂", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "桑布伊", title: "擁抱 maava", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "柯泯薰", title: "拋", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "萬芳", title: "時間梯", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "艾怡良", title: "我這個人", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "告五人", title: "在這座城市遺失了你", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "曹雅雯", title: "鹹汫", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "瘦子 E.SO", title: "CHANGE", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "王菀之", title: "一定都和藝術有關", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "YELLOW 黃宣、9m88", title: "怪天氣", note: "年度十大單曲 (排名不分先後)" },
+  ],
+
 };
 
 /** Chart source attribution for 2020 — rendered in the pack page footer. */
 export const SOY_SOURCES_2020: Record<string, { name: string; url: string }> = {
+  'Taiwan': { name: "中華音樂人交流協會 年度十大單曲", url: "https://zh.wikipedia.org/wiki/中華音樂人交流協會" },
   'Hong Kong': { name: "叱咤樂壇流行榜 專業推介．叱咤十大", url: "https://zh.wikipedia.org/wiki/2020年度叱咤樂壇流行榜頒獎典禮得獎名單" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_2020" },
   'Australia': { name: "ARIA End Of Year Singles Chart", url: "https://aria.com.au/charts/2020/singles-chart" },

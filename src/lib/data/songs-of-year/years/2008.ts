@@ -3,6 +3,7 @@
 // - Australia: ARIA End Of Year Singles Chart (rank order = published year-end rank).
 // - Japan: Oricon Yearly Singles Chart (rank order = published year-end rank).
 // - Hong Kong: 叱咤樂壇流行榜頒獎典禮 專業推介．叱咤十大 (rank order = published 叱咤十大 rank).
+// - Taiwan: 中華音樂人交流協會 年度十大單曲 (1997–2021, unranked).
 // Rendered as SongRow stubs; taps resolve through the normal multi-source
 // search (resolveStub), so the pack ships no audio of its own.
 
@@ -26,6 +27,16 @@ export const PACK_META_SOY_2008_HK = {
   free: true,
   year: 2008,
   country: 'Hong Kong'
+} as const;
+
+export const PACK_META_SOY_2008_TW = {
+  id: 'soy-2008-tw',
+  title: '2008 台灣年選',
+  titleEn: 'Taiwan 2008',
+  description: '中華音樂人交流協會 年度十大單曲 (排名不分先後)',
+  free: true,
+  year: 2008,
+  country: 'Taiwan'
 } as const;
 
 export const SOY_2008: Record<string, PackSong[]> = {
@@ -197,10 +208,24 @@ export const SOY_2008: Record<string, PackSong[]> = {
     { artist: "楊千嬅", title: "撈月亮的人", note: "#9 叱咤十大" },
     { artist: "林海峰", title: "我哋大家", note: "#10 叱咤十大" },
   ],
+  'Taiwan': [
+    { artist: "楊宗緯", title: "洋蔥", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "林宥嘉", title: "眼色", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "盧廣仲", title: "我愛你", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "陳奕迅", title: "不要說話", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "陳奕迅", title: "倒帶人生", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "陳綺貞", title: "失敗者的飛翔", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "周杰倫", title: "魔術先生", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "MC HotDog", title: "差不多先生", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "MC HotDog", title: "海洋", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "五月天", title: "你不是真正的快樂", note: "年度十大單曲 (排名不分先後)" },
+  ],
+
 };
 
 /** Chart source attribution for 2008 — rendered in the pack page footer. */
 export const SOY_SOURCES_2008: Record<string, { name: string; url: string }> = {
+  'Taiwan': { name: "中華音樂人交流協會 年度十大單曲", url: "https://zh.wikipedia.org/wiki/中華音樂人交流協會" },
   'Hong Kong': { name: "叱咤樂壇流行榜 專業推介．叱咤十大", url: "https://zh.wikipedia.org/wiki/2008年度叱咤樂壇流行榜頒獎典禮得獎名單" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_2008" },
   'Australia': { name: "ARIA End Of Year Singles Chart", url: "https://aria.com.au/charts/2008/singles-chart" },

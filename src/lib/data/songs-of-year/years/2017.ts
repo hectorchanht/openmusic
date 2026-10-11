@@ -5,6 +5,7 @@
 // - South Korea: Gaon Yearly Digital Chart (rank order = published year-end rank).
 // - United Kingdom: Official Charts Company End of Year Singles Chart (rank order = published year-end rank).
 // - Hong Kong: 叱咤樂壇流行榜頒獎典禮 專業推介．叱咤十大 (rank order = published 叱咤十大 rank).
+// - Taiwan: 中華音樂人交流協會 年度十大單曲 (1997–2021, unranked).
 // Rendered as SongRow stubs; taps resolve through the normal multi-source
 // search (resolveStub), so the pack ships no audio of its own.
 
@@ -28,6 +29,16 @@ export const PACK_META_SOY_2017_HK = {
   free: true,
   year: 2017,
   country: 'Hong Kong'
+} as const;
+
+export const PACK_META_SOY_2017_TW = {
+  id: 'soy-2017-tw',
+  title: '2017 台灣年選',
+  titleEn: 'Taiwan 2017',
+  description: '中華音樂人交流協會 年度十大單曲 (排名不分先後)',
+  free: true,
+  year: 2017,
+  country: 'Taiwan'
 } as const;
 
 export const SOY_2017: Record<string, PackSong[]> = {
@@ -303,10 +314,24 @@ export const SOY_2017: Record<string, PackSong[]> = {
     { artist: "側 田", title: "不經不覺", note: "#9 叱咤十大" },
     { artist: "吳業坤", title: "傷心到變形", note: "#10 叱咤十大" },
   ],
+  'Taiwan': [
+    { artist: "盧廣仲", title: "魚仔", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "徐佳瑩", title: "言不由衷", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "林俊傑", title: "偉大的渺小", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "吳汶芳", title: "總有一天", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "呂士軒、ØZI、吳卓源、熊仔、B.C.W、Barry、大支", title: "走到飛", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "巴奈", title: "自由", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "陳珊妮、魏如萱", title: "不要不要", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "拍謝少年", title: "契囝", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "林生祥", title: "有無", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "老王樂隊", title: "我還年輕 我還年輕", note: "年度十大單曲 (排名不分先後)" },
+  ],
+
 };
 
 /** Chart source attribution for 2017 — rendered in the pack page footer. */
 export const SOY_SOURCES_2017: Record<string, { name: string; url: string }> = {
+  'Taiwan': { name: "中華音樂人交流協會 年度十大單曲", url: "https://zh.wikipedia.org/wiki/中華音樂人交流協會" },
   'Hong Kong': { name: "叱咤樂壇流行榜 專業推介．叱咤十大", url: "https://zh.wikipedia.org/wiki/2017年度叱咤樂壇流行榜頒獎典禮得獎名單" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_2017" },
   'Australia': { name: "ARIA End Of Year Singles Chart", url: "https://aria.com.au/charts/2017/singles-chart" },

@@ -4,6 +4,7 @@
 // - Japan: Oricon Yearly Singles Chart (rank order = published year-end rank).
 // - South Korea: Gaon Yearly Digital Chart (rank order = published year-end rank).
 // - Hong Kong: 叱咤樂壇流行榜頒獎典禮 專業推介．叱咤十大 (rank order = published 叱咤十大 rank).
+// - Taiwan: 中華音樂人交流協會 年度十大單曲 (1997–2021, unranked).
 // Rendered as SongRow stubs; taps resolve through the normal multi-source
 // search (resolveStub), so the pack ships no audio of its own.
 
@@ -27,6 +28,16 @@ export const PACK_META_SOY_2011_HK = {
   free: true,
   year: 2011,
   country: 'Hong Kong'
+} as const;
+
+export const PACK_META_SOY_2011_TW = {
+  id: 'soy-2011-tw',
+  title: '2011 台灣年選',
+  titleEn: 'Taiwan 2011',
+  description: '中華音樂人交流協會 年度十大單曲 (排名不分先後)',
+  free: true,
+  year: 2011,
+  country: 'Taiwan'
 } as const;
 
 export const SOY_2011: Record<string, PackSong[]> = {
@@ -250,10 +261,24 @@ export const SOY_2011: Record<string, PackSong[]> = {
     { artist: "吳雨霏", title: "我本人", note: "#9 叱咤十大" },
     { artist: "周國賢", title: "陽光燦爛的日子", note: "#10 叱咤十大" },
   ],
+  'Taiwan': [
+    { artist: "張惠妹", title: "都什麼時候了", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "林宥嘉", title: "想自由", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "謝和弦、徐佳瑩", title: "柳樹下", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "陳珊妮", title: "I Love You, John", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "楊宗緯", title: "懷珠", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "田馥甄", title: "請你給我好一點的情敵", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "魏如萱", title: "晚安晚安", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "周杰倫", title: "水手怕水", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "陳奕迅", title: "孤獨患者", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "五月天", title: "諾亞方舟", note: "年度十大單曲 (排名不分先後)" },
+  ],
+
 };
 
 /** Chart source attribution for 2011 — rendered in the pack page footer. */
 export const SOY_SOURCES_2011: Record<string, { name: string; url: string }> = {
+  'Taiwan': { name: "中華音樂人交流協會 年度十大單曲", url: "https://zh.wikipedia.org/wiki/中華音樂人交流協會" },
   'Hong Kong': { name: "叱咤樂壇流行榜 專業推介．叱咤十大", url: "https://zh.wikipedia.org/wiki/2011年度叱咤樂壇流行榜頒獎典禮得獎名單" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_2011" },
   'Australia': { name: "ARIA End Of Year Singles Chart", url: "https://aria.com.au/charts/2011/singles-chart" },

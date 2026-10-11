@@ -4,6 +4,7 @@
 // - Japan: Oricon Yearly Singles Chart (rank order = published year-end rank).
 // - United Kingdom: Official Charts Company End of Year Singles Chart (rank order = published year-end rank).
 // - Hong Kong: 叱咤樂壇流行榜頒獎典禮 專業推介．叱咤十大 (rank order = published 叱咤十大 rank).
+// - Taiwan: 中華音樂人交流協會 年度十大單曲 (1997–2021, unranked).
 // Rendered as SongRow stubs; taps resolve through the normal multi-source
 // search (resolveStub), so the pack ships no audio of its own.
 
@@ -27,6 +28,16 @@ export const PACK_META_SOY_1998_HK = {
   free: true,
   year: 1998,
   country: 'Hong Kong'
+} as const;
+
+export const PACK_META_SOY_1998_TW = {
+  id: 'soy-1998-tw',
+  title: '1998 台灣年選',
+  titleEn: 'Taiwan 1998',
+  description: '中華音樂人交流協會 年度十大單曲 (排名不分先後)',
+  free: true,
+  year: 1998,
+  country: 'Taiwan'
 } as const;
 
 export const SOY_1998: Record<string, PackSong[]> = {
@@ -251,9 +262,23 @@ export const SOY_1998: Record<string, PackSong[]> = {
     { artist: "許志安", title: "愛妳", note: "#10 叱咤十大" },
   ],
 
+  'Taiwan': [
+    { artist: "林曉培", title: "煩", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "王菲", title: "臉", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "王菲", title: "半途而廢", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "那英", title: "征服", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "莫文蔚", title: "愛情", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "伍佰&China Blue", title: "煞到妳", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "王力宏", title: "公轉自轉", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "全方位樂團", title: "給我一槍", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "董事長樂團", title: "攏袂歹勢", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "趙詠華", title: "在沙漠的第七天", note: "年度十大單曲 (排名不分先後)" },
+  ],
+
 };
 
 export const SOY_SOURCES_1998: Record<string, { name: string; url: string }> = {
+  'Taiwan': { name: "中華音樂人交流協會 年度十大單曲", url: "https://zh.wikipedia.org/wiki/中華音樂人交流協會" },
   'Hong Kong': { name: "叱咤樂壇流行榜 專業推介．叱咤十大", url: "https://zh.wikipedia.org/wiki/1998年度叱咤樂壇流行榜頒獎典禮得獎名單" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_1998" },
   'Australia': { name: "ARIA End Of Year Singles Chart", url: "https://aria.com.au/charts/1998/singles-chart" },

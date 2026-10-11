@@ -3,6 +3,7 @@
 // - Australia: ARIA End Of Year Singles Chart (rank order = published year-end rank).
 // - Japan: Oricon Yearly Singles Chart (rank order = published year-end rank).
 // - Hong Kong: 叱咤樂壇流行榜頒獎典禮 專業推介．叱咤十大 (rank order = published 叱咤十大 rank).
+// - Taiwan: 中華音樂人交流協會 年度十大單曲 (1997–2021, unranked).
 // Rendered as SongRow stubs; taps resolve through the normal multi-source
 // search (resolveStub), so the pack ships no audio of its own.
 
@@ -26,6 +27,16 @@ export const PACK_META_SOY_2001_HK = {
   free: true,
   year: 2001,
   country: 'Hong Kong'
+} as const;
+
+export const PACK_META_SOY_2001_TW = {
+  id: 'soy-2001-tw',
+  title: '2001 台灣年選',
+  titleEn: 'Taiwan 2001',
+  description: '中華音樂人交流協會 年度十大單曲 (排名不分先後)',
+  free: true,
+  year: 2001,
+  country: 'Taiwan'
 } as const;
 
 export const SOY_2001: Record<string, PackSong[]> = {
@@ -197,10 +208,24 @@ export const SOY_2001: Record<string, PackSong[]> = {
     { artist: "鄭秀文", title: "終身美麗", note: "#9 叱咤十大" },
     { artist: "陳小春", title: "犯賤", note: "#10 叱咤十大" },
   ],
+  'Taiwan': [
+    { artist: "劉若英", title: "對面男生的房間", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "伍思凱", title: "想念", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "汪峰與鮑家街", title: "媽媽", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "蔡健雅", title: "平凡之歌", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "楊乃文", title: "應該", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "五月天", title: "借問眾神明", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "陳奕迅", title: "愛是懷疑", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "紀曉君", title: "彩虹", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "周杰倫", title: "威廉古堡", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "林憶蓮", title: "紙飛機", note: "年度十大單曲 (排名不分先後)" },
+  ],
+
 };
 
 /** Chart source attribution for 2001 — rendered in the pack page footer. */
 export const SOY_SOURCES_2001: Record<string, { name: string; url: string }> = {
+  'Taiwan': { name: "中華音樂人交流協會 年度十大單曲", url: "https://zh.wikipedia.org/wiki/中華音樂人交流協會" },
   'Hong Kong': { name: "叱咤樂壇流行榜 專業推介．叱咤十大", url: "https://zh.wikipedia.org/wiki/2001年度叱咤樂壇流行榜頒獎典禮得獎名單" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_2001" },
   'Australia': { name: "ARIA End Of Year Singles Chart", url: "https://aria.com.au/charts/2001/singles-chart" },

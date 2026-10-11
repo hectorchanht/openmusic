@@ -4,6 +4,7 @@
 // - Japan: Oricon Yearly Singles Chart (rank order = published year-end rank).
 // - South Korea: Gaon Yearly Digital Chart (rank order = published year-end rank).
 // - Hong Kong: 叱咤樂壇流行榜頒獎典禮 專業推介．叱咤十大 (rank order = published 叱咤十大 rank).
+// - Taiwan: 中華音樂人交流協會 年度十大單曲 (1997–2021, unranked).
 // Rendered as SongRow stubs; taps resolve through the normal multi-source
 // search (resolveStub), so the pack ships no audio of its own.
 
@@ -27,6 +28,16 @@ export const PACK_META_SOY_2018_HK = {
   free: true,
   year: 2018,
   country: 'Hong Kong'
+} as const;
+
+export const PACK_META_SOY_2018_TW = {
+  id: 'soy-2018-tw',
+  title: '2018 台灣年選',
+  titleEn: 'Taiwan 2018',
+  description: '中華音樂人交流協會 年度十大單曲 (排名不分先後)',
+  free: true,
+  year: 2018,
+  country: 'Taiwan'
 } as const;
 
 export const SOY_2018: Record<string, PackSong[]> = {
@@ -250,10 +261,24 @@ export const SOY_2018: Record<string, PackSong[]> = {
     { artist: "陳柏宇", title: "認真如初", note: "#9 叱咤十大" },
     { artist: "王菀之", title: "沉默的士高", note: "#10 叱咤十大" },
   ],
+  'Taiwan': [
+    { artist: "HUSH", title: "對等關係", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "陳奕迅", title: "海裡睡人", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "許茹芸", title: "花粉症", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "李宗盛", title: "新寫的舊歌", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "陳昇", title: "雨晴", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "魏如萱", title: "Don't Cry Don't Cry", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "艾怡良", title: "Forever Young", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "盧廣仲", title: "幾分之幾", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "蔡依林", title: "玫瑰少年", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "陳綺貞", title: "傷害", note: "年度十大單曲 (排名不分先後)" },
+  ],
+
 };
 
 /** Chart source attribution for 2018 — rendered in the pack page footer. */
 export const SOY_SOURCES_2018: Record<string, { name: string; url: string }> = {
+  'Taiwan': { name: "中華音樂人交流協會 年度十大單曲", url: "https://zh.wikipedia.org/wiki/中華音樂人交流協會" },
   'Hong Kong': { name: "叱咤樂壇流行榜 專業推介．叱咤十大", url: "https://zh.wikipedia.org/wiki/2018年度叱咤樂壇流行榜頒獎典禮得獎名單" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_2018" },
   'Australia': { name: "ARIA End Of Year Singles Chart", url: "https://aria.com.au/charts/2018/singles-chart" },

@@ -3,6 +3,7 @@
 // - Australia: ARIA End Of Year Singles Chart (rank order = published year-end rank).
 // - Japan: Oricon Yearly Singles Chart (rank order = published year-end rank).
 // - Hong Kong: 叱咤樂壇流行榜頒獎典禮 專業推介．叱咤十大 (rank order = published 叱咤十大 rank).
+// - Taiwan: 中華音樂人交流協會 年度十大單曲 (1997–2021, unranked).
 // Rendered as SongRow stubs; taps resolve through the normal multi-source
 // search (resolveStub), so the pack ships no audio of its own.
 
@@ -26,6 +27,16 @@ export const PACK_META_SOY_2006_HK = {
   free: true,
   year: 2006,
   country: 'Hong Kong'
+} as const;
+
+export const PACK_META_SOY_2006_TW = {
+  id: 'soy-2006-tw',
+  title: '2006 台灣年選',
+  titleEn: 'Taiwan 2006',
+  description: '中華音樂人交流協會 年度十大單曲 (排名不分先後)',
+  free: true,
+  year: 2006,
+  country: 'Taiwan'
 } as const;
 
 export const SOY_2006: Record<string, PackSong[]> = {
@@ -197,10 +208,24 @@ export const SOY_2006: Record<string, PackSong[]> = {
     { artist: "吳雨霏", title: "愛你變成恨你", note: "#9 叱咤十大" },
     { artist: "謝安琪", title: "愁人節", note: "#10 叱咤十大" },
   ],
+  'Taiwan': [
+    { artist: "張惠妹", title: "我要快樂", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "Suming", title: "巴奈19", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "張懸", title: "寶貝", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "蔡健雅", title: "深信不疑", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "陶喆/蔡依林", title: "今天妳要嫁給我", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "周杰倫", title: "菊花台", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "戴佩妮", title: "一個人的行李", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "黃建為", title: "Over the Way", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "雷光夏", title: "造字的人", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "江蕙", title: "阿公的眠床腳", note: "年度十大單曲 (排名不分先後)" },
+  ],
+
 };
 
 /** Chart source attribution for 2006 — rendered in the pack page footer. */
 export const SOY_SOURCES_2006: Record<string, { name: string; url: string }> = {
+  'Taiwan': { name: "中華音樂人交流協會 年度十大單曲", url: "https://zh.wikipedia.org/wiki/中華音樂人交流協會" },
   'Hong Kong': { name: "叱咤樂壇流行榜 專業推介．叱咤十大", url: "https://zh.wikipedia.org/wiki/2006年度叱咤樂壇流行榜頒獎典禮得獎名單" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_2006" },
   'Australia': { name: "ARIA End Of Year Singles Chart", url: "https://aria.com.au/charts/2006/singles-chart" },

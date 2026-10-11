@@ -3,6 +3,7 @@
 // - Australia: ARIA End Of Year Singles Chart (rank order = published year-end rank).
 // - Japan: Oricon Yearly Singles Chart (rank order = published year-end rank).
 // - Hong Kong: 叱咤樂壇流行榜頒獎典禮 專業推介．叱咤十大 (rank order = published 叱咤十大 rank).
+// - Taiwan: 中華音樂人交流協會 年度十大單曲 (1997–2021, unranked).
 // Rendered as SongRow stubs; taps resolve through the normal multi-source
 // search (resolveStub), so the pack ships no audio of its own.
 
@@ -26,6 +27,16 @@ export const PACK_META_SOY_1999_HK = {
   free: true,
   year: 1999,
   country: 'Hong Kong'
+} as const;
+
+export const PACK_META_SOY_1999_TW = {
+  id: 'soy-1999-tw',
+  title: '1999 台灣年選',
+  titleEn: 'Taiwan 1999',
+  description: '中華音樂人交流協會 年度十大單曲 (排名不分先後)',
+  free: true,
+  year: 1999,
+  country: 'Taiwan'
 } as const;
 
 export const SOY_1999: Record<string, PackSong[]> = {
@@ -198,9 +209,23 @@ export const SOY_1999: Record<string, PackSong[]> = {
     { artist: "謝霆鋒", title: "非走不可", note: "#10 叱咤十大" },
   ],
 
+  'Taiwan': [
+    { artist: "王力宏", title: "流淚手心", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "王菲", title: "百年孤寂", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "范曉萱", title: "我要我們在一起", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "陳珊妮", title: "來不及", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "亂彈", title: "走馬燈", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "蔡健雅", title: "呼吸", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "陶喆", title: "小鎮姑娘", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "莫文蔚", title: "陰天", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "五月天", title: "志明與春嬌", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "楊乃文", title: "我給的愛", note: "年度十大單曲 (排名不分先後)" },
+  ],
+
 };
 
 export const SOY_SOURCES_1999: Record<string, { name: string; url: string }> = {
+  'Taiwan': { name: "中華音樂人交流協會 年度十大單曲", url: "https://zh.wikipedia.org/wiki/中華音樂人交流協會" },
   'Hong Kong': { name: "叱咤樂壇流行榜 專業推介．叱咤十大", url: "https://zh.wikipedia.org/wiki/1999年度叱咤樂壇流行榜頒獎典禮得獎名單" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_1999" },
   'Australia': { name: "ARIA End Of Year Singles Chart", url: "https://aria.com.au/charts/1999/singles-chart" },

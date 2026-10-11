@@ -6,6 +6,7 @@
 // - Spain: PROMUSICAE Top 100 Canciones Anual (rank order = published year-end rank).
 // - United Kingdom: Official Charts Company End of Year Singles Chart (rank order = published year-end rank).
 // - Hong Kong: 叱咤樂壇流行榜頒獎典禮 專業推介．叱咤十大 (rank order = published 叱咤十大 rank).
+// - Taiwan: 中華音樂人交流協會 年度十大單曲 (1997–2021, unranked).
 // Rendered as SongRow stubs; taps resolve through the normal multi-source
 // search (resolveStub), so the pack ships no audio of its own.
 
@@ -29,6 +30,16 @@ export const PACK_META_SOY_2021_HK = {
   free: true,
   year: 2021,
   country: 'Hong Kong'
+} as const;
+
+export const PACK_META_SOY_2021_TW = {
+  id: 'soy-2021-tw',
+  title: '2021 台灣年選',
+  titleEn: 'Taiwan 2021',
+  description: '中華音樂人交流協會 年度十大單曲 (排名不分先後)',
+  free: true,
+  year: 2021,
+  country: 'Taiwan'
 } as const;
 
 export const SOY_2021: Record<string, PackSong[]> = {
@@ -356,10 +367,24 @@ export const SOY_2021: Record<string, PackSong[]> = {
     { artist: "盧瀚霆", title: "Megahit", note: "#9 叱咤十大" },
     { artist: "泳 兒", title: "荊棘海", note: "#10 叱咤十大" },
   ],
+  'Taiwan': [
+    { artist: "魏如萱", title: "奶奶", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "黃連煜、桑布伊", title: "滅人山", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "艾怡良", title: "貪", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "新寶島康樂隊", title: "現實的女性", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "盧廣仲", title: "輕輕", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "ØZI、蛋堡", title: "DEATH TRIP 跑馬燈", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "淺堤", title: "恬恬一下仔", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "珂拉琪", title: "萬千花蕊慈母悲哀", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "黃明志、陳芳語", title: "玻璃心", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "羅思容與孤毛頭樂團", title: "測量", note: "年度十大單曲 (排名不分先後)" },
+  ],
+
 };
 
 /** Chart source attribution for 2021 — rendered in the pack page footer. */
 export const SOY_SOURCES_2021: Record<string, { name: string; url: string }> = {
+  'Taiwan': { name: "中華音樂人交流協會 年度十大單曲", url: "https://zh.wikipedia.org/wiki/中華音樂人交流協會" },
   'Hong Kong': { name: "叱咤樂壇流行榜 專業推介．叱咤十大", url: "https://zh.wikipedia.org/wiki/2021年度叱咤樂壇流行榜頒獎典禮得獎名單" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_2021" },
   'Australia': { name: "ARIA End Of Year Singles Chart", url: "https://aria.com.au/charts/2021/singles-chart" },

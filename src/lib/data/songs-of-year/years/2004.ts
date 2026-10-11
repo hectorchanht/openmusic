@@ -3,6 +3,7 @@
 // - Australia: ARIA End Of Year Singles Chart (rank order = published year-end rank).
 // - Japan: Oricon Yearly Singles Chart (rank order = published year-end rank).
 // - Hong Kong: 叱咤樂壇流行榜頒獎典禮 專業推介．叱咤十大 (rank order = published 叱咤十大 rank).
+// - Taiwan: 中華音樂人交流協會 年度十大單曲 (1997–2021, unranked).
 // Rendered as SongRow stubs; taps resolve through the normal multi-source
 // search (resolveStub), so the pack ships no audio of its own.
 
@@ -26,6 +27,16 @@ export const PACK_META_SOY_2004_HK = {
   free: true,
   year: 2004,
   country: 'Hong Kong'
+} as const;
+
+export const PACK_META_SOY_2004_TW = {
+  id: 'soy-2004-tw',
+  title: '2004 台灣年選',
+  titleEn: 'Taiwan 2004',
+  description: '中華音樂人交流協會 年度十大單曲 (排名不分先後)',
+  free: true,
+  year: 2004,
+  country: 'Taiwan'
 } as const;
 
 export const SOY_2004: Record<string, PackSong[]> = {
@@ -197,10 +208,24 @@ export const SOY_2004: Record<string, PackSong[]> = {
     { artist: "容祖兒", title: "一拍兩散", note: "#9 叱咤十大" },
     { artist: "達明一派", title: "寂寞的人有福了", note: "#10 叱咤十大" },
   ],
+  'Taiwan': [
+    { artist: "拜金小姐", title: "小鳥探戈", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "張艾嘉", title: "短歌", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "F.I.R.飛兒樂團", title: "Lydia", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "自然捲", title: "自然捲", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "旺福", title: "胖妞的怒吼", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "周杰倫", title: "將軍", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "梁靜茹", title: "寧夏", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "孫燕姿", title: "同類", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "五月天", title: "倔強", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "王力宏", title: "心中的日月", note: "年度十大單曲 (排名不分先後)" },
+  ],
+
 };
 
 /** Chart source attribution for 2004 — rendered in the pack page footer. */
 export const SOY_SOURCES_2004: Record<string, { name: string; url: string }> = {
+  'Taiwan': { name: "中華音樂人交流協會 年度十大單曲", url: "https://zh.wikipedia.org/wiki/中華音樂人交流協會" },
   'Hong Kong': { name: "叱咤樂壇流行榜 專業推介．叱咤十大", url: "https://zh.wikipedia.org/wiki/2004年度叱咤樂壇流行榜頒獎典禮得獎名單" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_2004" },
   'Australia': { name: "ARIA End Of Year Singles Chart", url: "https://aria.com.au/charts/2004/singles-chart" },

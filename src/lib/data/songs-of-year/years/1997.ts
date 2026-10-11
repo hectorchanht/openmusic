@@ -4,6 +4,7 @@
 // - Japan: Oricon Yearly Singles Chart (rank order = published year-end rank).
 // - United Kingdom: Official Charts Company End of Year Singles Chart (rank order = published year-end rank).
 // - Hong Kong: 香港電台 十大中文金曲獎 (rank order = published 十大中文金曲 rank).
+// - Taiwan: 中華音樂人交流協會 年度十大單曲 (1997–2021, unranked).
 // Rendered as SongRow stubs; taps resolve through the normal multi-source
 // search (resolveStub), so the pack ships no audio of its own.
 
@@ -27,6 +28,16 @@ export const PACK_META_SOY_1997_HK = {
   free: true,
   year: 1997,
   country: 'Hong Kong'
+} as const;
+
+export const PACK_META_SOY_1997_TW = {
+  id: 'soy-1997-tw',
+  title: '1997 台灣年選',
+  titleEn: 'Taiwan 1997',
+  description: '中華音樂人交流協會 年度十大單曲 (排名不分先後)',
+  free: true,
+  year: 1997,
+  country: 'Taiwan'
 } as const;
 
 export const SOY_1997: Record<string, PackSong[]> = {
@@ -251,9 +262,23 @@ export const SOY_1997: Record<string, PackSong[]> = {
     { artist: "張學友", title: "愛是永恆", note: "#10 十大中文金曲" },
   ],
 
+  'Taiwan': [
+    { artist: "亂彈", title: "良心", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "王菲", title: "你快樂所以我快樂", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "陶喆", title: "沙灘", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "張雨生", title: "河", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "張惠妹", title: "姐妹", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "齊豫", title: "幸福", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "楊乃文", title: "星星堆滿天", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "金門王與李炳輝", title: "流浪到淡水", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "郭子", title: "遊子", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "梁詠琪", title: "短髮", note: "年度十大單曲 (排名不分先後)" },
+  ],
+
 };
 
 export const SOY_SOURCES_1997: Record<string, { name: string; url: string }> = {
+  'Taiwan': { name: "中華音樂人交流協會 年度十大單曲", url: "https://zh.wikipedia.org/wiki/中華音樂人交流協會" },
   'Hong Kong': { name: "香港電台 十大中文金曲獎", url: "https://zh.wikipedia.org/wiki/十大中文金曲頒獎音樂會十大中文金曲獎" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_1997" },
   'Australia': { name: "ARIA End Of Year Singles Chart", url: "https://aria.com.au/charts/1997/singles-chart" },

@@ -3,6 +3,7 @@
 // - Australia: ARIA End Of Year Singles Chart (rank order = published year-end rank).
 // - Japan: Oricon Yearly Singles Chart (rank order = published year-end rank).
 // - Hong Kong: 叱咤樂壇流行榜頒獎典禮 專業推介．叱咤十大 (rank order = published 叱咤十大 rank).
+// - Taiwan: 中華音樂人交流協會 年度十大單曲 (1997–2021, unranked).
 // Rendered as SongRow stubs; taps resolve through the normal multi-source
 // search (resolveStub), so the pack ships no audio of its own.
 
@@ -26,6 +27,16 @@ export const PACK_META_SOY_2002_HK = {
   free: true,
   year: 2002,
   country: 'Hong Kong'
+} as const;
+
+export const PACK_META_SOY_2002_TW = {
+  id: 'soy-2002-tw',
+  title: '2002 台灣年選',
+  titleEn: 'Taiwan 2002',
+  description: '中華音樂人交流協會 年度十大單曲 (排名不分先後)',
+  free: true,
+  year: 2002,
+  country: 'Taiwan'
 } as const;
 
 export const SOY_2002: Record<string, PackSong[]> = {
@@ -197,10 +208,24 @@ export const SOY_2002: Record<string, PackSong[]> = {
     { artist: "何韻詩", title: "再見露絲瑪莉", note: "#9 叱咤十大" },
     { artist: "梁詠琪", title: "高妹正傳", note: "#10 叱咤十大" },
   ],
+  'Taiwan': [
+    { artist: "陳奕迅", title: "想哭", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "孫燕姿", title: "一樣的夏天", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "脫拉庫", title: "衰尾道人", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "齊秦/齊豫", title: "其實都是一樣", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "陳綺貞", title: "小步舞曲", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "陶喆", title: "Dear God", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "Witness/AGOTA", title: "生命要繼續", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "Lisa", title: "Toujours", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "陳建年", title: "姆姆的Blue", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "萬芳", title: "自己照顧自己", note: "年度十大單曲 (排名不分先後)" },
+  ],
+
 };
 
 /** Chart source attribution for 2002 — rendered in the pack page footer. */
 export const SOY_SOURCES_2002: Record<string, { name: string; url: string }> = {
+  'Taiwan': { name: "中華音樂人交流協會 年度十大單曲", url: "https://zh.wikipedia.org/wiki/中華音樂人交流協會" },
   'Hong Kong': { name: "叱咤樂壇流行榜 專業推介．叱咤十大", url: "https://zh.wikipedia.org/wiki/2002年度叱咤樂壇流行榜頒獎典禮得獎名單" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_2002" },
   'Australia': { name: "ARIA End Of Year Singles Chart", url: "https://aria.com.au/charts/2002/singles-chart" },

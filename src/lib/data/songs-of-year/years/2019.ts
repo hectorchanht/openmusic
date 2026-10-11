@@ -6,6 +6,7 @@
 // - Spain: PROMUSICAE Top 100 Canciones Anual (rank order = published year-end rank).
 // - United Kingdom: Official Charts Company End of Year Singles Chart (rank order = published year-end rank).
 // - Hong Kong: 叱咤樂壇流行榜頒獎典禮 專業推介．叱咤十大 (rank order = published 叱咤十大 rank).
+// - Taiwan: 中華音樂人交流協會 年度十大單曲 (1997–2021, unranked).
 // Rendered as SongRow stubs; taps resolve through the normal multi-source
 // search (resolveStub), so the pack ships no audio of its own.
 
@@ -29,6 +30,16 @@ export const PACK_META_SOY_2019_HK = {
   free: true,
   year: 2019,
   country: 'Hong Kong'
+} as const;
+
+export const PACK_META_SOY_2019_TW = {
+  id: 'soy-2019-tw',
+  title: '2019 台灣年選',
+  titleEn: 'Taiwan 2019',
+  description: '中華音樂人交流協會 年度十大單曲 (排名不分先後)',
+  free: true,
+  year: 2019,
+  country: 'Taiwan'
 } as const;
 
 export const SOY_2019: Record<string, PackSong[]> = {
@@ -356,10 +367,24 @@ export const SOY_2019: Record<string, PackSong[]> = {
     { artist: "陳健安", title: "一吻穿越四十六億歲", note: "#9 叱咤十大" },
     { artist: "林欣彤", title: "一秒", note: "#10 叱咤十大" },
   ],
+  'Taiwan': [
+    { artist: "魏如萱", title: "Ophelia", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "滅火器樂團", title: "雙城記", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "余佩真、亂彈阿翔", title: "昏你", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "阿爆", title: "1-10", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "吳青峰", title: "太空人", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "郁可唯", title: "路過人間", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "鄭宜農、陳嫺靜", title: "街仔路雨落袂停", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "陳珊妮、呂士軒", title: "成為一個厲害的普通人", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "岑寧兒", title: "fly", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "鄧紫棋", title: "摩天動物園", note: "年度十大單曲 (排名不分先後)" },
+  ],
+
 };
 
 /** Chart source attribution for 2019 — rendered in the pack page footer. */
 export const SOY_SOURCES_2019: Record<string, { name: string; url: string }> = {
+  'Taiwan': { name: "中華音樂人交流協會 年度十大單曲", url: "https://zh.wikipedia.org/wiki/中華音樂人交流協會" },
   'Hong Kong': { name: "叱咤樂壇流行榜 專業推介．叱咤十大", url: "https://zh.wikipedia.org/wiki/2019年度叱咤樂壇流行榜頒獎典禮得獎名單" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_2019" },
   'Australia': { name: "ARIA End Of Year Singles Chart", url: "https://aria.com.au/charts/2019/singles-chart" },

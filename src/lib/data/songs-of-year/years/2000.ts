@@ -3,6 +3,7 @@
 // - Australia: ARIA End Of Year Singles Chart (rank order = published year-end rank).
 // - Japan: Oricon Yearly Singles Chart (rank order = published year-end rank).
 // - Hong Kong: 叱咤樂壇流行榜頒獎典禮 專業推介．叱咤十大 (rank order = published 叱咤十大 rank).
+// - Taiwan: 中華音樂人交流協會 年度十大單曲 (1997–2021, unranked).
 // Rendered as SongRow stubs; taps resolve through the normal multi-source
 // search (resolveStub), so the pack ships no audio of its own.
 
@@ -26,6 +27,16 @@ export const PACK_META_SOY_2000_HK = {
   free: true,
   year: 2000,
   country: 'Hong Kong'
+} as const;
+
+export const PACK_META_SOY_2000_TW = {
+  id: 'soy-2000-tw',
+  title: '2000 台灣年選',
+  titleEn: 'Taiwan 2000',
+  description: '中華音樂人交流協會 年度十大單曲 (排名不分先後)',
+  free: true,
+  year: 2000,
+  country: 'Taiwan'
 } as const;
 
 export const SOY_2000: Record<string, PackSong[]> = {
@@ -197,10 +208,24 @@ export const SOY_2000: Record<string, PackSong[]> = {
     { artist: "梁漢文", title: "PG家長指引", note: "#9 叱咤十大" },
     { artist: "盧巧音", title: "深藍", note: "#10 叱咤十大" },
   ],
+  'Taiwan': [
+    { artist: "陳綺貞", title: "還是會寂寞", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "孫燕姿", title: "天黑黑", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "丁薇", title: "女孩兒與四重奏", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "五月天", title: "溫柔", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "巴奈", title: "怎麼會這樣", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "莫文蔚", title: "十二樓", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "王菲", title: "笑忘書", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "阿弟仔", title: "掙扎", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "周杰倫", title: "印地安老斑鳩", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "糯米糰", title: "阿魯巴痢疾", note: "年度十大單曲 (排名不分先後)" },
+  ],
+
 };
 
 /** Chart source attribution for 2000 — rendered in the pack page footer. */
 export const SOY_SOURCES_2000: Record<string, { name: string; url: string }> = {
+  'Taiwan': { name: "中華音樂人交流協會 年度十大單曲", url: "https://zh.wikipedia.org/wiki/中華音樂人交流協會" },
   'Hong Kong': { name: "叱咤樂壇流行榜 專業推介．叱咤十大", url: "https://zh.wikipedia.org/wiki/2000年度叱咤樂壇流行榜頒獎典禮得獎名單" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_2000" },
   'Australia': { name: "ARIA End Of Year Singles Chart", url: "https://aria.com.au/charts/2000/singles-chart" },

@@ -3,6 +3,7 @@
 // - Australia: ARIA End Of Year Singles Chart (rank order = published year-end rank).
 // - Japan: Oricon Yearly Singles Chart (rank order = published year-end rank).
 // - Hong Kong: 叱咤樂壇流行榜頒獎典禮 專業推介．叱咤十大 (rank order = published 叱咤十大 rank).
+// - Taiwan: 中華音樂人交流協會 年度十大單曲 (1997–2021, unranked).
 // Rendered as SongRow stubs; taps resolve through the normal multi-source
 // search (resolveStub), so the pack ships no audio of its own.
 
@@ -26,6 +27,16 @@ export const PACK_META_SOY_2005_HK = {
   free: true,
   year: 2005,
   country: 'Hong Kong'
+} as const;
+
+export const PACK_META_SOY_2005_TW = {
+  id: 'soy-2005-tw',
+  title: '2005 台灣年選',
+  titleEn: 'Taiwan 2005',
+  description: '中華音樂人交流協會 年度十大單曲 (排名不分先後)',
+  free: true,
+  year: 2005,
+  country: 'Taiwan'
 } as const;
 
 export const SOY_2005: Record<string, PackSong[]> = {
@@ -197,10 +208,24 @@ export const SOY_2005: Record<string, PackSong[]> = {
     { artist: "麥浚龍", title: "雌雄同體", note: "#9 叱咤十大" },
     { artist: "草 蜢", title: "我們", note: "#10 叱咤十大" },
   ],
+  'Taiwan': [
+    { artist: "陶喆", title: "Susan說", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "伍佰", title: "台灣製造", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "自然捲", title: "風和日麗", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "江美琪", title: "我愛夏卡爾", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "南拳媽媽", title: "牡丹江", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "五月天", title: "知足", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "馬念先/奇哥", title: "和你巧遇在這裡", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "陳綺貞", title: "花的姿態", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "自然捲", title: "修鞋的阿伯", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "陳小霞", title: "暗舞", note: "年度十大單曲 (排名不分先後)" },
+  ],
+
 };
 
 /** Chart source attribution for 2005 — rendered in the pack page footer. */
 export const SOY_SOURCES_2005: Record<string, { name: string; url: string }> = {
+  'Taiwan': { name: "中華音樂人交流協會 年度十大單曲", url: "https://zh.wikipedia.org/wiki/中華音樂人交流協會" },
   'Hong Kong': { name: "叱咤樂壇流行榜 專業推介．叱咤十大", url: "https://zh.wikipedia.org/wiki/2005年度叱咤樂壇流行榜頒獎典禮得獎名單" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_2005" },
   'Australia': { name: "ARIA End Of Year Singles Chart", url: "https://aria.com.au/charts/2005/singles-chart" },

@@ -4,6 +4,7 @@
 // - Japan: Oricon Yearly Singles Chart (rank order = published year-end rank).
 // - South Korea: Gaon Yearly Digital Chart (rank order = published year-end rank).
 // - Hong Kong: 叱咤樂壇流行榜頒獎典禮 專業推介．叱咤十大 (rank order = published 叱咤十大 rank).
+// - Taiwan: 中華音樂人交流協會 年度十大單曲 (1997–2021, unranked).
 // Rendered as SongRow stubs; taps resolve through the normal multi-source
 // search (resolveStub), so the pack ships no audio of its own.
 
@@ -27,6 +28,16 @@ export const PACK_META_SOY_2010_HK = {
   free: true,
   year: 2010,
   country: 'Hong Kong'
+} as const;
+
+export const PACK_META_SOY_2010_TW = {
+  id: 'soy-2010-tw',
+  title: '2010 台灣年選',
+  titleEn: 'Taiwan 2010',
+  description: '中華音樂人交流協會 年度十大單曲 (排名不分先後)',
+  free: true,
+  year: 2010,
+  country: 'Taiwan'
 } as const;
 
 export const SOY_2010: Record<string, PackSong[]> = {
@@ -250,10 +261,24 @@ export const SOY_2010: Record<string, PackSong[]> = {
     { artist: "許志安", title: "忘了．忘不了", note: "#9 叱咤十大" },
     { artist: "楊千嬅", title: "我係我", note: "#10 叱咤十大" },
   ],
+  'Taiwan': [
+    { artist: "嚴爵", title: "困在台北", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "李宗盛", title: "給自己的歌", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "雷光夏", title: "第36個故事", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "魏如萱", title: "我不是數學家", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "猴子飛行員", title: "My Guitar", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "田馥甄", title: "Love！", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "山英", title: "在這城市寫下愛", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "何韻詩", title: "無名", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "周杰倫、洪榮宏", title: "阿爸", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "io樂團", title: "真實", note: "年度十大單曲 (排名不分先後)" },
+  ],
+
 };
 
 /** Chart source attribution for 2010 — rendered in the pack page footer. */
 export const SOY_SOURCES_2010: Record<string, { name: string; url: string }> = {
+  'Taiwan': { name: "中華音樂人交流協會 年度十大單曲", url: "https://zh.wikipedia.org/wiki/中華音樂人交流協會" },
   'Hong Kong': { name: "叱咤樂壇流行榜 專業推介．叱咤十大", url: "https://zh.wikipedia.org/wiki/2010年度叱咤樂壇流行榜頒獎典禮得獎名單" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_2010" },
   'Australia': { name: "ARIA End Of Year Singles Chart", url: "https://aria.com.au/charts/2010/singles-chart" },

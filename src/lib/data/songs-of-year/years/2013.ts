@@ -4,6 +4,7 @@
 // - Japan: Oricon Yearly Singles Chart (rank order = published year-end rank).
 // - South Korea: Gaon Yearly Digital Chart (rank order = published year-end rank).
 // - Hong Kong: 叱咤樂壇流行榜頒獎典禮 專業推介．叱咤十大 (rank order = published 叱咤十大 rank).
+// - Taiwan: 中華音樂人交流協會 年度十大單曲 (1997–2021, unranked).
 // Rendered as SongRow stubs; taps resolve through the normal multi-source
 // search (resolveStub), so the pack ships no audio of its own.
 
@@ -27,6 +28,16 @@ export const PACK_META_SOY_2013_HK = {
   free: true,
   year: 2013,
   country: 'Hong Kong'
+} as const;
+
+export const PACK_META_SOY_2013_TW = {
+  id: 'soy-2013-tw',
+  title: '2013 台灣年選',
+  titleEn: 'Taiwan 2013',
+  description: '中華音樂人交流協會 年度十大單曲 (排名不分先後)',
+  free: true,
+  year: 2013,
+  country: 'Taiwan'
 } as const;
 
 export const SOY_2013: Record<string, PackSong[]> = {
@@ -250,10 +261,24 @@ export const SOY_2013: Record<string, PackSong[]> = {
     { artist: "連詩雅", title: "說一句", note: "#9 叱咤十大" },
     { artist: "鄭 融", title: "非凡人生", note: "#10 叱咤十大" },
   ],
+  'Taiwan': [
+    { artist: "林俊傑、五月天", title: "黑暗騎士", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "李宗盛", title: "山丘", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "陳綺貞", title: "流浪者之歌", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "家家", title: "為你的寂寞唱歌", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "王俊傑", title: "一暝聽江蕙", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "蕭賀碩", title: "Musicians", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "金池", title: "邊愛邊學", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "張震嶽", title: "破吉他", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "蔡健雅", title: "-{十萬毫升淚水}-", note: "年度十大單曲 (排名不分先後)" },
+    { artist: "曲婉婷", title: "我為你歌唱", note: "年度十大單曲 (排名不分先後)" },
+  ],
+
 };
 
 /** Chart source attribution for 2013 — rendered in the pack page footer. */
 export const SOY_SOURCES_2013: Record<string, { name: string; url: string }> = {
+  'Taiwan': { name: "中華音樂人交流協會 年度十大單曲", url: "https://zh.wikipedia.org/wiki/中華音樂人交流協會" },
   'Hong Kong': { name: "叱咤樂壇流行榜 專業推介．叱咤十大", url: "https://zh.wikipedia.org/wiki/2013年度叱咤樂壇流行榜頒獎典禮得獎名單" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_2013" },
   'Australia': { name: "ARIA End Of Year Singles Chart", url: "https://aria.com.au/charts/2013/singles-chart" },
