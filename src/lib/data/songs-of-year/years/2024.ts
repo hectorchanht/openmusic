@@ -5,6 +5,7 @@
 // - South Korea: Circle Yearly Digital Chart (rank order = published year-end rank).
 // - Spain: PROMUSICAE Top 100 Canciones Anual (rank order = published year-end rank).
 // - United Kingdom: Official Charts Company End of Year Singles Chart (rank order = published year-end rank).
+// - Hong Kong: 叱咤樂壇流行榜頒獎典禮 專業推介．叱咤十大 (rank order = published 叱咤十大 rank).
 // Rendered as SongRow stubs; taps resolve through the normal multi-source
 // search (resolveStub), so the pack ships no audio of its own.
 
@@ -18,6 +19,16 @@ export const PACK_META_SOY_2024_US = {
   free: true,
   year: 2024,
   country: 'United States'
+} as const;
+
+export const PACK_META_SOY_2024_HK = {
+  id: 'soy-2024-hk',
+  title: '2024 香港年選',
+  titleEn: 'Hong Kong 2024',
+  description: '叱咤樂壇流行榜 專業推介．叱咤十大',
+  free: true,
+  year: 2024,
+  country: 'Hong Kong'
 } as const;
 
 export const SOY_2024: Record<string, PackSong[]> = {
@@ -323,10 +334,23 @@ export const SOY_2024: Record<string, PackSong[]> = {
     { artist: "Zach Bryan ft. Kacey Musgraves", title: "I Remember Everything", note: "#39 Official Charts 年終" },
     { artist: "Fleetwood Mac", title: "Everywhere", note: "#40 Official Charts 年終" },
   ],
+  'Hong Kong': [
+    { artist: "馮允謙", title: "會再見的", note: "#1 叱咤至尊歌曲" },
+    { artist: "陳凱詠", title: "間歇性休眠", note: "#2 叱咤十大" },
+    { artist: "容祖兒", title: "九秒九", note: "#3 叱咤十大" },
+    { artist: "雲浩影", title: "回憶半分鐘", note: "#4 叱咤十大" },
+    { artist: "Kiri T", title: "至少做一件離譜的事", note: "#5 叱咤十大" },
+    { artist: "林奕匡、黃妍、葉巧琳", title: "藝術 與 科學", note: "#6 叱咤十大" },
+    { artist: "洪嘉豪", title: "黑玻璃", note: "#7 叱咤十大" },
+    { artist: "盧瀚霆", title: "Hey Hey OK!", note: "#8 叱咤十大" },
+    { artist: "陳健安", title: "戀愛腦之死", note: "#9 叱咤十大" },
+    { artist: "MC張天賦", title: "小心碰頭", note: "#10 叱咤十大" },
+  ],
 };
 
 /** Chart source attribution for 2024 — rendered in the pack page footer. */
 export const SOY_SOURCES_2024: Record<string, { name: string; url: string }> = {
+  'Hong Kong': { name: "叱咤樂壇流行榜 專業推介．叱咤十大", url: "https://zh.wikipedia.org/wiki/2024年度叱咤樂壇流行榜頒獎典禮得獎名單" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_2024" },
   'Australia': { name: "ARIA End Of Year Singles Chart", url: "https://aria.com.au/charts/2024/singles-chart" },
   'Japan': { name: "Oricon Yearly Singles Chart", url: "https://www.generasia.com/wiki/2024_Oricon_Top_100_Singles" },

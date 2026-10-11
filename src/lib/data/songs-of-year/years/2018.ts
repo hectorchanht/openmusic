@@ -3,6 +3,7 @@
 // - Australia: ARIA End Of Year Singles Chart (rank order = published year-end rank).
 // - Japan: Oricon Yearly Singles Chart (rank order = published year-end rank).
 // - South Korea: Gaon Yearly Digital Chart (rank order = published year-end rank).
+// - Hong Kong: 叱咤樂壇流行榜頒獎典禮 專業推介．叱咤十大 (rank order = published 叱咤十大 rank).
 // Rendered as SongRow stubs; taps resolve through the normal multi-source
 // search (resolveStub), so the pack ships no audio of its own.
 
@@ -16,6 +17,16 @@ export const PACK_META_SOY_2018_US = {
   free: true,
   year: 2018,
   country: 'United States'
+} as const;
+
+export const PACK_META_SOY_2018_HK = {
+  id: 'soy-2018-hk',
+  title: '2018 香港年選',
+  titleEn: 'Hong Kong 2018',
+  description: '叱咤樂壇流行榜 專業推介．叱咤十大',
+  free: true,
+  year: 2018,
+  country: 'Hong Kong'
 } as const;
 
 export const SOY_2018: Record<string, PackSong[]> = {
@@ -227,10 +238,23 @@ export const SOY_2018: Record<string, PackSong[]> = {
     { artist: "Wanna One", title: "Beautiful", note: "#49 Gaon 年間" },
     { artist: "정승환", title: "눈사람", note: "#50 Gaon 年間" },
   ],
+  'Hong Kong': [
+    { artist: "容祖兒", title: "心之科學", note: "#1 叱咤至尊歌曲" },
+    { artist: "謝安琪", title: "一個女人和浴室", note: "#2 叱咤十大" },
+    { artist: "RubberBand", title: "未來見", note: "#3 叱咤十大" },
+    { artist: "eason and the duo band", title: "可一可再", note: "#4 叱咤十大" },
+    { artist: "張敬軒", title: "天才兒童1985", note: "#5 叱咤十大" },
+    { artist: "周國賢", title: "錢七", note: "#6 叱咤十大" },
+    { artist: "AGA", title: "無期", note: "#7 叱咤十大" },
+    { artist: "周柏豪", title: "老少平安", note: "#8 叱咤十大" },
+    { artist: "陳柏宇", title: "認真如初", note: "#9 叱咤十大" },
+    { artist: "王菀之", title: "沉默的士高", note: "#10 叱咤十大" },
+  ],
 };
 
 /** Chart source attribution for 2018 — rendered in the pack page footer. */
 export const SOY_SOURCES_2018: Record<string, { name: string; url: string }> = {
+  'Hong Kong': { name: "叱咤樂壇流行榜 專業推介．叱咤十大", url: "https://zh.wikipedia.org/wiki/2018年度叱咤樂壇流行榜頒獎典禮得獎名單" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_2018" },
   'Australia': { name: "ARIA End Of Year Singles Chart", url: "https://aria.com.au/charts/2018/singles-chart" },
   'Japan': { name: "Oricon Yearly Singles Chart", url: "https://www.generasia.com/wiki/2018_Oricon_Top_100_Singles" },

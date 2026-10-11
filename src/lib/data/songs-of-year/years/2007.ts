@@ -2,6 +2,7 @@
 // - United States: Billboard Year-End Hot 100 (rank order = published year-end rank).
 // - Australia: ARIA End Of Year Singles Chart (rank order = published year-end rank).
 // - Japan: Oricon Yearly Singles Chart (rank order = published year-end rank).
+// - Hong Kong: 叱咤樂壇流行榜頒獎典禮 專業推介．叱咤十大 (rank order = published 叱咤十大 rank).
 // Rendered as SongRow stubs; taps resolve through the normal multi-source
 // search (resolveStub), so the pack ships no audio of its own.
 
@@ -15,6 +16,16 @@ export const PACK_META_SOY_2007_US = {
   free: true,
   year: 2007,
   country: 'United States'
+} as const;
+
+export const PACK_META_SOY_2007_HK = {
+  id: 'soy-2007-hk',
+  title: '2007 香港年選',
+  titleEn: 'Hong Kong 2007',
+  description: '叱咤樂壇流行榜 專業推介．叱咤十大',
+  free: true,
+  year: 2007,
+  country: 'Hong Kong'
 } as const;
 
 export const SOY_2007: Record<string, PackSong[]> = {
@@ -174,10 +185,23 @@ export const SOY_2007: Record<string, PackSong[]> = {
     { artist: "L'Arc~en~Ciel", title: "SEVENTH HEAVEN", note: "#49 Oricon 年間" },
     { artist: "V6", title: "HONEY BEAT / Boku to Bokura no Ashita", note: "#50 Oricon 年間" },
   ],
+  'Hong Kong': [
+    { artist: "張敬軒", title: "酷愛", note: "#1 叱咤至尊歌曲" },
+    { artist: "陳奕迅", title: "Crying In The Party", note: "#2 叱咤十大" },
+    { artist: "李克勤", title: "花落誰家", note: "#3 叱咤十大" },
+    { artist: "古巨基", title: "愛回家", note: "#4 叱咤十大" },
+    { artist: "何韻詩", title: "木紋", note: "#5 叱咤十大" },
+    { artist: "許志安", title: "前程錦繡", note: "#6 叱咤十大" },
+    { artist: "容祖兒", title: "愛一個上一課", note: "#7 叱咤十大" },
+    { artist: "吳雨霏", title: "逼得太緊", note: "#8 叱咤十大" },
+    { artist: "側 田", title: "男人KTV", note: "#9 叱咤十大" },
+    { artist: "有耳非文", title: "東京鐵塔下gulugulu", note: "#10 叱咤十大" },
+  ],
 };
 
 /** Chart source attribution for 2007 — rendered in the pack page footer. */
 export const SOY_SOURCES_2007: Record<string, { name: string; url: string }> = {
+  'Hong Kong': { name: "叱咤樂壇流行榜 專業推介．叱咤十大", url: "https://zh.wikipedia.org/wiki/2007年度叱咤樂壇流行榜頒獎典禮得獎名單" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_2007" },
   'Australia': { name: "ARIA End Of Year Singles Chart", url: "https://aria.com.au/charts/2007/singles-chart" },
   'Japan': { name: "Oricon Yearly Singles Chart", url: "https://www.generasia.com/wiki/2007_Oricon_Top_100_Singles" },

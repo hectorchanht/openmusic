@@ -2,6 +2,7 @@
 // - United States: Billboard Year-End Hot 100 (rank order = published year-end rank).
 // - Australia: ARIA End Of Year Singles Chart (rank order = published year-end rank).
 // - Japan: Oricon Yearly Singles Chart (rank order = published year-end rank).
+// - Hong Kong: 叱咤樂壇流行榜頒獎典禮 專業推介．叱咤十大 (rank order = published 叱咤十大 rank).
 // Rendered as SongRow stubs; taps resolve through the normal multi-source
 // search (resolveStub), so the pack ships no audio of its own.
 
@@ -15,6 +16,16 @@ export const PACK_META_SOY_2000_US = {
   free: true,
   year: 2000,
   country: 'United States'
+} as const;
+
+export const PACK_META_SOY_2000_HK = {
+  id: 'soy-2000-hk',
+  title: '2000 香港年選',
+  titleEn: 'Hong Kong 2000',
+  description: '叱咤樂壇流行榜 專業推介．叱咤十大',
+  free: true,
+  year: 2000,
+  country: 'Hong Kong'
 } as const;
 
 export const SOY_2000: Record<string, PackSong[]> = {
@@ -174,10 +185,23 @@ export const SOY_2000: Record<string, PackSong[]> = {
     { artist: "Shiina Ringo", title: "Honnou", note: "#49 Oricon 年間" },
     { artist: "GLAY", title: "HAPPINESS -WINTER MIX-", note: "#50 Oricon 年間" },
   ],
+  'Hong Kong': [
+    { artist: "陳奕迅", title: "K歌之王", note: "#1 叱咤至尊歌曲" },
+    { artist: "黃耀明", title: "下一站天國", note: "#2 叱咤十大" },
+    { artist: "許志安", title: "半天假", note: "#3 叱咤十大" },
+    { artist: "張國榮", title: "路過蜻蜓", note: "#4 叱咤十大" },
+    { artist: "LMF", title: "大懶堂", note: "#5 叱咤十大" },
+    { artist: "王 菲", title: "給自己的情書", note: "#6 叱咤十大" },
+    { artist: "楊千嬅", title: "少女的祈禱", note: "#7 叱咤十大" },
+    { artist: "許志安、車婉婉", title: "會過去的", note: "#8 叱咤十大" },
+    { artist: "梁漢文", title: "PG家長指引", note: "#9 叱咤十大" },
+    { artist: "盧巧音", title: "深藍", note: "#10 叱咤十大" },
+  ],
 };
 
 /** Chart source attribution for 2000 — rendered in the pack page footer. */
 export const SOY_SOURCES_2000: Record<string, { name: string; url: string }> = {
+  'Hong Kong': { name: "叱咤樂壇流行榜 專業推介．叱咤十大", url: "https://zh.wikipedia.org/wiki/2000年度叱咤樂壇流行榜頒獎典禮得獎名單" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_2000" },
   'Australia': { name: "ARIA End Of Year Singles Chart", url: "https://aria.com.au/charts/2000/singles-chart" },
   'Japan': { name: "Oricon Yearly Singles Chart", url: "https://www.generasia.com/wiki/2000_Oricon_Top_100_Singles" },

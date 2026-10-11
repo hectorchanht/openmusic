@@ -5,6 +5,7 @@
 // - South Korea: Circle Yearly Digital Chart (rank order = published year-end rank).
 // - Spain: PROMUSICAE Top 100 Canciones Anual (rank order = published year-end rank).
 // - United Kingdom: Official Charts Company End of Year Singles Chart (rank order = published year-end rank).
+// - Hong Kong: 叱咤樂壇流行榜頒獎典禮 專業推介．叱咤十大 (rank order = published 叱咤十大 rank).
 // Rendered as SongRow stubs; taps resolve through the normal multi-source
 // search (resolveStub), so the pack ships no audio of its own.
 
@@ -18,6 +19,16 @@ export const PACK_META_SOY_2025_US = {
   free: true,
   year: 2025,
   country: 'United States'
+} as const;
+
+export const PACK_META_SOY_2025_HK = {
+  id: 'soy-2025-hk',
+  title: '2025 香港年選',
+  titleEn: 'Hong Kong 2025',
+  description: '叱咤樂壇流行榜 專業推介．叱咤十大',
+  free: true,
+  year: 2025,
+  country: 'Hong Kong'
 } as const;
 
 export const SOY_2025: Record<string, PackSong[]> = {
@@ -323,10 +334,23 @@ export const SOY_2025: Record<string, PackSong[]> = {
     { artist: "Ed Sheeran", title: "Azizam", note: "#39 Official Charts 年終" },
     { artist: "MK ft. Chrystal", title: "Dior", note: "#40 Official Charts 年終" },
   ],
+  'Hong Kong': [
+    { artist: "Gareth.T", title: "用背脊唱情歌", note: "#1 叱咤至尊歌曲" },
+    { artist: "謝安琪", title: "50/50", note: "#2 叱咤十大" },
+    { artist: "魏浚笙", title: "白色踢死兔", note: "#3 叱咤十大" },
+    { artist: "泳兒", title: "無糖可樂", note: "#4 叱咤十大" },
+    { artist: "The Hertz", title: "逆旅", note: "#5 叱咤十大" },
+    { artist: "陳柏宇", title: "我所看見的未來", note: "#6 叱咤十大" },
+    { artist: "Dear Jane", title: "你流淚所以我流淚", note: "#7 叱咤十大" },
+    { artist: "馮允謙", title: "吉卜力", note: "#8 叱咤十大" },
+    { artist: "Gin Lee", title: "白夜行", note: "#9 叱咤十大" },
+    { artist: "MC張天賦", title: "懷疑人生", note: "#10 叱咤十大" },
+  ],
 };
 
 /** Chart source attribution for 2025 — rendered in the pack page footer. */
 export const SOY_SOURCES_2025: Record<string, { name: string; url: string }> = {
+  'Hong Kong': { name: "叱咤樂壇流行榜 專業推介．叱咤十大", url: "https://zh.wikipedia.org/wiki/2025年度叱咤樂壇流行榜頒獎典禮得獎名單" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_2025" },
   'Australia': { name: "ARIA End Of Year Singles Chart", url: "https://aria.com.au/charts/2025/singles-chart" },
   'Japan': { name: "Oricon Yearly Singles Chart", url: "https://www.generasia.com/wiki/2025_Oricon_Top_100_Singles" },

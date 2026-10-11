@@ -5,6 +5,7 @@
 // - South Korea: Gaon Yearly Digital Chart (rank order = published year-end rank).
 // - Spain: PROMUSICAE Top 100 Canciones Anual (rank order = published year-end rank).
 // - United Kingdom: Official Charts Company End of Year Singles Chart (rank order = published year-end rank).
+// - Hong Kong: 叱咤樂壇流行榜頒獎典禮 專業推介．叱咤十大 (rank order = published 叱咤十大 rank).
 // Rendered as SongRow stubs; taps resolve through the normal multi-source
 // search (resolveStub), so the pack ships no audio of its own.
 
@@ -18,6 +19,16 @@ export const PACK_META_SOY_2019_US = {
   free: true,
   year: 2019,
   country: 'United States'
+} as const;
+
+export const PACK_META_SOY_2019_HK = {
+  id: 'soy-2019-hk',
+  title: '2019 香港年選',
+  titleEn: 'Hong Kong 2019',
+  description: '叱咤樂壇流行榜 專業推介．叱咤十大',
+  free: true,
+  year: 2019,
+  country: 'Hong Kong'
 } as const;
 
 export const SOY_2019: Record<string, PackSong[]> = {
@@ -333,10 +344,23 @@ export const SOY_2019: Record<string, PackSong[]> = {
     { artist: "Sigala、Becky Hill", title: "Wish You Well", note: "#49 Official Charts 年終" },
     { artist: "Wiley, Stefflon Don、Sean Paul ft. Idris Elba", title: "Boasty", note: "#50 Official Charts 年終" },
   ],
+  'Hong Kong': [
+    { artist: "鄭秀文", title: "我們都是這樣長大的", note: "#1 叱咤至尊歌曲" },
+    { artist: "林二汶", title: "最後的信仰", note: "#2 叱咤十大" },
+    { artist: "Nowhere Boys", title: "致旅途中的我", note: "#3 叱咤十大" },
+    { artist: "黃淑蔓", title: "Dream My Dreams", note: "#4 叱咤十大" },
+    { artist: "林海峰", title: "努力奮鬥加油", note: "#5 叱咤十大" },
+    { artist: "麥浚龍 Feat. 黎明", title: "忘記和記", note: "#6 叱咤十大" },
+    { artist: "許廷鏗", title: "我們與愛的距離", note: "#7 叱咤十大" },
+    { artist: "梁釗峰", title: "28天", note: "#8 叱咤十大" },
+    { artist: "陳健安", title: "一吻穿越四十六億歲", note: "#9 叱咤十大" },
+    { artist: "林欣彤", title: "一秒", note: "#10 叱咤十大" },
+  ],
 };
 
 /** Chart source attribution for 2019 — rendered in the pack page footer. */
 export const SOY_SOURCES_2019: Record<string, { name: string; url: string }> = {
+  'Hong Kong': { name: "叱咤樂壇流行榜 專業推介．叱咤十大", url: "https://zh.wikipedia.org/wiki/2019年度叱咤樂壇流行榜頒獎典禮得獎名單" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_2019" },
   'Australia': { name: "ARIA End Of Year Singles Chart", url: "https://aria.com.au/charts/2019/singles-chart" },
   'Japan': { name: "Oricon Yearly Singles Chart", url: "https://www.generasia.com/wiki/2019_Oricon_Top_100_Singles" },

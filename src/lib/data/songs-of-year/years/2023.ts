@@ -5,6 +5,7 @@
 // - South Korea: Circle Yearly Digital Chart (rank order = published year-end rank).
 // - Spain: PROMUSICAE Top 100 Canciones Anual (rank order = published year-end rank).
 // - United Kingdom: Official Charts Company End of Year Singles Chart (rank order = published year-end rank).
+// - Hong Kong: 叱咤樂壇流行榜頒獎典禮 專業推介．叱咤十大 (rank order = published 叱咤十大 rank).
 // Rendered as SongRow stubs; taps resolve through the normal multi-source
 // search (resolveStub), so the pack ships no audio of its own.
 
@@ -18,6 +19,16 @@ export const PACK_META_SOY_2023_US = {
   free: true,
   year: 2023,
   country: 'United States'
+} as const;
+
+export const PACK_META_SOY_2023_HK = {
+  id: 'soy-2023-hk',
+  title: '2023 香港年選',
+  titleEn: 'Hong Kong 2023',
+  description: '叱咤樂壇流行榜 專業推介．叱咤十大',
+  free: true,
+  year: 2023,
+  country: 'Hong Kong'
 } as const;
 
 export const SOY_2023: Record<string, PackSong[]> = {
@@ -323,10 +334,23 @@ export const SOY_2023: Record<string, PackSong[]> = {
     { artist: "Stephen Sanchez", title: "Until I Found You", note: "#39 Official Charts 年終" },
     { artist: "Vance Joy", title: "Riptide", note: "#40 Official Charts 年終" },
   ],
+  'Hong Kong': [
+    { artist: "張敬軒", title: "隱形遊樂場", note: "#1 叱咤至尊歌曲" },
+    { artist: "Gin Lee", title: "Dum Dum", note: "#2 叱咤十大" },
+    { artist: "陳蕾", title: "伸縮自如的愛", note: "#3 叱咤十大" },
+    { artist: "RubberBand", title: "不如散步", note: "#4 叱咤十大" },
+    { artist: "Lolly Talk", title: "一把火", note: "#5 叱咤十大" },
+    { artist: "姜濤", title: "濤", note: "#6 叱咤十大" },
+    { artist: "陳健安", title: "仍然是那個少年", note: "#7 叱咤十大" },
+    { artist: "MC張天賦", title: "世一", note: "#8 叱咤十大" },
+    { artist: "馮允謙", title: "收到收到", note: "#9 叱咤十大" },
+    { artist: "炎明熹", title: "Little Magic", note: "#10 叱咤十大" },
+  ],
 };
 
 /** Chart source attribution for 2023 — rendered in the pack page footer. */
 export const SOY_SOURCES_2023: Record<string, { name: string; url: string }> = {
+  'Hong Kong': { name: "叱咤樂壇流行榜 專業推介．叱咤十大", url: "https://zh.wikipedia.org/wiki/2023年度叱咤樂壇流行榜頒獎典禮得獎名單" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_2023" },
   'Australia': { name: "ARIA End Of Year Singles Chart", url: "https://aria.com.au/charts/2023/singles-chart" },
   'Japan': { name: "Oricon Yearly Singles Chart", url: "https://www.generasia.com/wiki/2023_Oricon_Top_100_Singles" },

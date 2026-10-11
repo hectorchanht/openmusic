@@ -5,6 +5,7 @@
 // - South Korea: Gaon Yearly Digital Chart (rank order = published year-end rank).
 // - Spain: PROMUSICAE Top 100 Canciones Anual (rank order = published year-end rank).
 // - United Kingdom: Official Charts Company End of Year Singles Chart (rank order = published year-end rank).
+// - Hong Kong: 叱咤樂壇流行榜頒獎典禮 專業推介．叱咤十大 (rank order = published 叱咤十大 rank).
 // Rendered as SongRow stubs; taps resolve through the normal multi-source
 // search (resolveStub), so the pack ships no audio of its own.
 
@@ -18,6 +19,16 @@ export const PACK_META_SOY_2021_US = {
   free: true,
   year: 2021,
   country: 'United States'
+} as const;
+
+export const PACK_META_SOY_2021_HK = {
+  id: 'soy-2021-hk',
+  title: '2021 香港年選',
+  titleEn: 'Hong Kong 2021',
+  description: '叱咤樂壇流行榜 專業推介．叱咤十大',
+  free: true,
+  year: 2021,
+  country: 'Hong Kong'
 } as const;
 
 export const SOY_2021: Record<string, PackSong[]> = {
@@ -333,10 +344,23 @@ export const SOY_2021: Record<string, PackSong[]> = {
     { artist: "Dave ft. Stormzy", title: "Clash", note: "#49 Official Charts 年終" },
     { artist: "Doja Cat", title: "Streets", note: "#50 Official Charts 年終" },
   ],
+  'Hong Kong': [
+    { artist: "RubberBand", title: "Ciao", note: "#1 叱咤至尊歌曲" },
+    { artist: "MIRROR", title: "BOSS", note: "#2 叱咤十大" },
+    { artist: "張敬軒", title: "俏郎君", note: "#3 叱咤十大" },
+    { artist: "鄭 融", title: "多喝水", note: "#4 叱咤十大" },
+    { artist: "林家謙", title: "神奇的糊塗魔藥", note: "#5 叱咤十大" },
+    { artist: "柳應廷", title: "狂人日記", note: "#6 叱咤十大" },
+    { artist: "C AllStar", title: "集合吧！地球保衛隊", note: "#7 叱咤十大" },
+    { artist: "岑寧兒", title: "風的形狀", note: "#8 叱咤十大" },
+    { artist: "盧瀚霆", title: "Megahit", note: "#9 叱咤十大" },
+    { artist: "泳 兒", title: "荊棘海", note: "#10 叱咤十大" },
+  ],
 };
 
 /** Chart source attribution for 2021 — rendered in the pack page footer. */
 export const SOY_SOURCES_2021: Record<string, { name: string; url: string }> = {
+  'Hong Kong': { name: "叱咤樂壇流行榜 專業推介．叱咤十大", url: "https://zh.wikipedia.org/wiki/2021年度叱咤樂壇流行榜頒獎典禮得獎名單" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_2021" },
   'Australia': { name: "ARIA End Of Year Singles Chart", url: "https://aria.com.au/charts/2021/singles-chart" },
   'Japan': { name: "Oricon Yearly Singles Chart", url: "https://www.generasia.com/wiki/2021_Oricon_Top_100_Singles" },

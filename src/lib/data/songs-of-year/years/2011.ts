@@ -3,6 +3,7 @@
 // - Australia: ARIA End Of Year Singles Chart (rank order = published year-end rank).
 // - Japan: Oricon Yearly Singles Chart (rank order = published year-end rank).
 // - South Korea: Gaon Yearly Digital Chart (rank order = published year-end rank).
+// - Hong Kong: 叱咤樂壇流行榜頒獎典禮 專業推介．叱咤十大 (rank order = published 叱咤十大 rank).
 // Rendered as SongRow stubs; taps resolve through the normal multi-source
 // search (resolveStub), so the pack ships no audio of its own.
 
@@ -16,6 +17,16 @@ export const PACK_META_SOY_2011_US = {
   free: true,
   year: 2011,
   country: 'United States'
+} as const;
+
+export const PACK_META_SOY_2011_HK = {
+  id: 'soy-2011-hk',
+  title: '2011 香港年選',
+  titleEn: 'Hong Kong 2011',
+  description: '叱咤樂壇流行榜 專業推介．叱咤十大',
+  free: true,
+  year: 2011,
+  country: 'Hong Kong'
 } as const;
 
 export const SOY_2011: Record<string, PackSong[]> = {
@@ -227,10 +238,23 @@ export const SOY_2011: Record<string, PackSong[]> = {
     { artist: "IU", title: "내 손을 잡아", note: "#49 Gaon 年間" },
     { artist: "임재범", title: "사랑", note: "#50 Gaon 年間" },
   ],
+  'Hong Kong': [
+    { artist: "方大同", title: "好不容易", note: "#1 叱咤至尊歌曲" },
+    { artist: "胡 夏", title: "那些年", note: "#2 叱咤十大" },
+    { artist: "陳奕迅", title: "六月飛霜", note: "#3 叱咤十大" },
+    { artist: "黃貫中", title: "Can't Bring Me Down", note: "#4 叱咤十大" },
+    { artist: "容祖兒", title: "牆紙", note: "#5 叱咤十大" },
+    { artist: "王菀之", title: "末日", note: "#6 叱咤十大" },
+    { artist: "李克勤", title: "天河", note: "#7 叱咤十大" },
+    { artist: "蘇永康", title: "那誰", note: "#8 叱咤十大" },
+    { artist: "吳雨霏", title: "我本人", note: "#9 叱咤十大" },
+    { artist: "周國賢", title: "陽光燦爛的日子", note: "#10 叱咤十大" },
+  ],
 };
 
 /** Chart source attribution for 2011 — rendered in the pack page footer. */
 export const SOY_SOURCES_2011: Record<string, { name: string; url: string }> = {
+  'Hong Kong': { name: "叱咤樂壇流行榜 專業推介．叱咤十大", url: "https://zh.wikipedia.org/wiki/2011年度叱咤樂壇流行榜頒獎典禮得獎名單" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_2011" },
   'Australia': { name: "ARIA End Of Year Singles Chart", url: "https://aria.com.au/charts/2011/singles-chart" },
   'Japan': { name: "Oricon Yearly Singles Chart", url: "https://www.generasia.com/wiki/2011_Oricon_Top_100_Singles" },

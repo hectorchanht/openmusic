@@ -4,6 +4,7 @@
 // - Japan: Oricon Yearly Singles Chart (rank order = published year-end rank).
 // - South Korea: Circle Yearly Digital Chart (rank order = published year-end rank).
 // - United Kingdom: Official Charts Company End of Year Singles Chart (rank order = published year-end rank).
+// - Hong Kong: 叱咤樂壇流行榜頒獎典禮 專業推介．叱咤十大 (rank order = published 叱咤十大 rank).
 // Rendered as SongRow stubs; taps resolve through the normal multi-source
 // search (resolveStub), so the pack ships no audio of its own.
 
@@ -17,6 +18,16 @@ export const PACK_META_SOY_2022_US = {
   free: true,
   year: 2022,
   country: 'United States'
+} as const;
+
+export const PACK_META_SOY_2022_HK = {
+  id: 'soy-2022-hk',
+  title: '2022 香港年選',
+  titleEn: 'Hong Kong 2022',
+  description: '叱咤樂壇流行榜 專業推介．叱咤十大',
+  free: true,
+  year: 2022,
+  country: 'Hong Kong'
 } as const;
 
 export const SOY_2022: Record<string, PackSong[]> = {
@@ -280,10 +291,23 @@ export const SOY_2022: Record<string, PackSong[]> = {
     { artist: "Ed Sheeran", title: "2step", note: "#49 Official Charts 年終" },
     { artist: "Ed Sheeran", title: "Perfect", note: "#50 Official Charts 年終" },
   ],
+  'Hong Kong': [
+    { artist: "林家謙", title: "邊一個發明了ENCORE", note: "#1 叱咤至尊歌曲" },
+    { artist: "MC張天賦", title: "小心地滑", note: "#2 叱咤十大" },
+    { artist: "Dear Jane", title: "到底發生過什麼事", note: "#3 叱咤十大" },
+    { artist: "姜濤", title: "鏡中鏡", note: "#4 叱咤十大" },
+    { artist: "謝安琪", title: "憶年", note: "#5 叱咤十大" },
+    { artist: "陳蕾", title: "下流社會", note: "#6 叱咤十大" },
+    { artist: "陳卓賢", title: "留一天與你喘息", note: "#7 叱咤十大" },
+    { artist: "Gareth.T", title: "笑住喊", note: "#8 叱咤十大" },
+    { artist: "吳林峰、謝芊彤", title: "我也難過的", note: "#9 叱咤十大" },
+    { artist: "馮允謙", title: "Freakin' Nightmare", note: "#10 叱咤十大" },
+  ],
 };
 
 /** Chart source attribution for 2022 — rendered in the pack page footer. */
 export const SOY_SOURCES_2022: Record<string, { name: string; url: string }> = {
+  'Hong Kong': { name: "叱咤樂壇流行榜 專業推介．叱咤十大", url: "https://zh.wikipedia.org/wiki/2022年度叱咤樂壇流行榜頒獎典禮得獎名單" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_2022" },
   'Australia': { name: "ARIA End Of Year Singles Chart", url: "https://aria.com.au/charts/2022/singles-chart" },
   'Japan': { name: "Oricon Yearly Singles Chart", url: "https://www.generasia.com/wiki/2022_Oricon_Top_100_Singles" },

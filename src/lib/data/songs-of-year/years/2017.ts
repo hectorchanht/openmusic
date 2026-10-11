@@ -4,6 +4,7 @@
 // - Japan: Oricon Yearly Singles Chart (rank order = published year-end rank).
 // - South Korea: Gaon Yearly Digital Chart (rank order = published year-end rank).
 // - United Kingdom: Official Charts Company End of Year Singles Chart (rank order = published year-end rank).
+// - Hong Kong: 叱咤樂壇流行榜頒獎典禮 專業推介．叱咤十大 (rank order = published 叱咤十大 rank).
 // Rendered as SongRow stubs; taps resolve through the normal multi-source
 // search (resolveStub), so the pack ships no audio of its own.
 
@@ -17,6 +18,16 @@ export const PACK_META_SOY_2017_US = {
   free: true,
   year: 2017,
   country: 'United States'
+} as const;
+
+export const PACK_META_SOY_2017_HK = {
+  id: 'soy-2017-hk',
+  title: '2017 香港年選',
+  titleEn: 'Hong Kong 2017',
+  description: '叱咤樂壇流行榜 專業推介．叱咤十大',
+  free: true,
+  year: 2017,
+  country: 'Hong Kong'
 } as const;
 
 export const SOY_2017: Record<string, PackSong[]> = {
@@ -280,10 +291,23 @@ export const SOY_2017: Record<string, PackSong[]> = {
     { artist: "Katy Perry、Skip Marley", title: "Chained to the Rhythm", note: "#49 Official Charts 年終" },
     { artist: "Dua Lipa", title: "Be the One", note: "#50 Official Charts 年終" },
   ],
+  'Hong Kong': [
+    { artist: "李克勤", title: "失魂記", note: "#1 叱咤至尊歌曲" },
+    { artist: "許廷鏗", title: "神奇之旅", note: "#2 叱咤十大" },
+    { artist: "Supper Moment", title: "靈感床", note: "#3 叱咤十大" },
+    { artist: "吳雨霏", title: "Come With Me", note: "#4 叱咤十大" },
+    { artist: "ToNick", title: "長相廝守", note: "#5 叱咤十大" },
+    { artist: "AGA", title: "3AM", note: "#6 叱咤十大" },
+    { artist: "Gin Lee", title: "和每天講再見", note: "#7 叱咤十大" },
+    { artist: "at17", title: "Girls Girls Girls", note: "#8 叱咤十大" },
+    { artist: "側 田", title: "不經不覺", note: "#9 叱咤十大" },
+    { artist: "吳業坤", title: "傷心到變形", note: "#10 叱咤十大" },
+  ],
 };
 
 /** Chart source attribution for 2017 — rendered in the pack page footer. */
 export const SOY_SOURCES_2017: Record<string, { name: string; url: string }> = {
+  'Hong Kong': { name: "叱咤樂壇流行榜 專業推介．叱咤十大", url: "https://zh.wikipedia.org/wiki/2017年度叱咤樂壇流行榜頒獎典禮得獎名單" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_2017" },
   'Australia': { name: "ARIA End Of Year Singles Chart", url: "https://aria.com.au/charts/2017/singles-chart" },
   'Japan': { name: "Oricon Yearly Singles Chart", url: "https://www.generasia.com/wiki/2017_Oricon_Top_100_Singles" },

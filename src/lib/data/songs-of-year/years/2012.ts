@@ -3,6 +3,7 @@
 // - Australia: ARIA End Of Year Singles Chart (rank order = published year-end rank).
 // - Japan: Oricon Yearly Singles Chart (rank order = published year-end rank).
 // - South Korea: Gaon Yearly Digital Chart (rank order = published year-end rank).
+// - Hong Kong: 叱咤樂壇流行榜頒獎典禮 專業推介．叱咤十大 (rank order = published 叱咤十大 rank).
 // Rendered as SongRow stubs; taps resolve through the normal multi-source
 // search (resolveStub), so the pack ships no audio of its own.
 
@@ -16,6 +17,16 @@ export const PACK_META_SOY_2012_US = {
   free: true,
   year: 2012,
   country: 'United States'
+} as const;
+
+export const PACK_META_SOY_2012_HK = {
+  id: 'soy-2012-hk',
+  title: '2012 香港年選',
+  titleEn: 'Hong Kong 2012',
+  description: '叱咤樂壇流行榜 專業推介．叱咤十大',
+  free: true,
+  year: 2012,
+  country: 'Hong Kong'
 } as const;
 
 export const SOY_2012: Record<string, PackSong[]> = {
@@ -227,10 +238,23 @@ export const SOY_2012: Record<string, PackSong[]> = {
     { artist: "울랄라세션", title: "아름다운 밤", note: "#49 Gaon 年間" },
     { artist: "Orange Caramel", title: "립스틱 (Lip Stick)", note: "#50 Gaon 年間" },
   ],
+  'Hong Kong': [
+    { artist: "陳奕迅", title: "重口味", note: "#1 叱咤至尊歌曲" },
+    { artist: "許志安", title: "睡火山", note: "#2 叱咤十大" },
+    { artist: "王菀之", title: "留白", note: "#3 叱咤十大" },
+    { artist: "Mr.", title: "昨天", note: "#4 叱咤十大" },
+    { artist: "Dear Jane", title: "Yellow Fever", note: "#5 叱咤十大" },
+    { artist: "劉浩龍", title: "爛命鴛鴦", note: "#6 叱咤十大" },
+    { artist: "陳芳語", title: "愛你", note: "#7 叱咤十大" },
+    { artist: "方大同", title: "千紙鶴", note: "#8 叱咤十大" },
+    { artist: "古巨基", title: "戀無可戀", note: "#9 叱咤十大" },
+    { artist: "草蜢、軟硬", title: "山頂嘅朋友", note: "#10 叱咤十大" },
+  ],
 };
 
 /** Chart source attribution for 2012 — rendered in the pack page footer. */
 export const SOY_SOURCES_2012: Record<string, { name: string; url: string }> = {
+  'Hong Kong': { name: "叱咤樂壇流行榜 專業推介．叱咤十大", url: "https://zh.wikipedia.org/wiki/2012年度叱咤樂壇流行榜頒獎典禮得獎名單" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_2012" },
   'Australia': { name: "ARIA End Of Year Singles Chart", url: "https://aria.com.au/charts/2012/singles-chart" },
   'Japan': { name: "Oricon Yearly Singles Chart", url: "https://www.generasia.com/wiki/2012_Oricon_Top_100_Singles" },

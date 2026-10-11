@@ -2,6 +2,7 @@
 // - United States: Billboard Year-End Hot 100 (rank order = published year-end rank).
 // - Australia: ARIA End Of Year Singles Chart (rank order = published year-end rank).
 // - Japan: Oricon Yearly Singles Chart (rank order = published year-end rank).
+// - Hong Kong: 叱咤樂壇流行榜頒獎典禮 專業推介．叱咤十大 (rank order = published 叱咤十大 rank).
 // Rendered as SongRow stubs; taps resolve through the normal multi-source
 // search (resolveStub), so the pack ships no audio of its own.
 
@@ -15,6 +16,16 @@ export const PACK_META_SOY_2003_US = {
   free: true,
   year: 2003,
   country: 'United States'
+} as const;
+
+export const PACK_META_SOY_2003_HK = {
+  id: 'soy-2003-hk',
+  title: '2003 香港年選',
+  titleEn: 'Hong Kong 2003',
+  description: '叱咤樂壇流行榜 專業推介．叱咤十大',
+  free: true,
+  year: 2003,
+  country: 'Hong Kong'
 } as const;
 
 export const SOY_2003: Record<string, PackSong[]> = {
@@ -174,10 +185,23 @@ export const SOY_2003: Record<string, PackSong[]> = {
     { artist: "ARASHI", title: "Tomadoi Nagara", note: "#49 Oricon 年間" },
     { artist: "GLAY", title: "BEAUTIFUL DREAMER / STREET LIFE", note: "#50 Oricon 年間" },
   ],
+  'Hong Kong': [
+    { artist: "梁漢文", title: "七友", note: "#1 叱咤至尊歌曲" },
+    { artist: "古巨基", title: "必殺技", note: "#2 叱咤十大" },
+    { artist: "陳奕迅", title: "十面埋伏", note: "#3 叱咤十大" },
+    { artist: "李克勤、陳慧琳", title: "愛一個人", note: "#4 叱咤十大" },
+    { artist: "陳小春", title: "獻世", note: "#5 叱咤十大" },
+    { artist: "李克勤", title: "我不會唱歌", note: "#6 叱咤十大" },
+    { artist: "容祖兒", title: "我的驕傲", note: "#7 叱咤十大" },
+    { artist: "盧巧音", title: "落地開花", note: "#8 叱咤十大" },
+    { artist: "黃耀明 ft. 林憶蓮", title: "下落不明", note: "#9 叱咤十大" },
+    { artist: "許志安", title: "一步一生", note: "#10 叱咤十大" },
+  ],
 };
 
 /** Chart source attribution for 2003 — rendered in the pack page footer. */
 export const SOY_SOURCES_2003: Record<string, { name: string; url: string }> = {
+  'Hong Kong': { name: "叱咤樂壇流行榜 專業推介．叱咤十大", url: "https://zh.wikipedia.org/wiki/2003年度叱咤樂壇流行榜頒獎典禮得獎名單" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_2003" },
   'Australia': { name: "ARIA End Of Year Singles Chart", url: "https://aria.com.au/charts/2003/singles-chart" },
   'Japan': { name: "Oricon Yearly Singles Chart", url: "https://www.generasia.com/wiki/2003_Oricon_Top_100_Singles" },

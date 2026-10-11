@@ -4,6 +4,7 @@
 // - Japan: Oricon Yearly Singles Chart (rank order = published year-end rank).
 // - South Korea: Gaon Yearly Digital Chart (rank order = published year-end rank).
 // - United Kingdom: Official Charts Company End of Year Singles Chart (rank order = published year-end rank).
+// - Hong Kong: 叱咤樂壇流行榜頒獎典禮 專業推介．叱咤十大 (rank order = published 叱咤十大 rank).
 // Rendered as SongRow stubs; taps resolve through the normal multi-source
 // search (resolveStub), so the pack ships no audio of its own.
 
@@ -17,6 +18,16 @@ export const PACK_META_SOY_2015_US = {
   free: true,
   year: 2015,
   country: 'United States'
+} as const;
+
+export const PACK_META_SOY_2015_HK = {
+  id: 'soy-2015-hk',
+  title: '2015 香港年選',
+  titleEn: 'Hong Kong 2015',
+  description: '叱咤樂壇流行榜 專業推介．叱咤十大',
+  free: true,
+  year: 2015,
+  country: 'Hong Kong'
 } as const;
 
 export const SOY_2015: Record<string, PackSong[]> = {
@@ -280,10 +291,23 @@ export const SOY_2015: Record<string, PackSong[]> = {
     { artist: "David Zowie", title: "House Every Weekend", note: "#49 Official Charts 年終" },
     { artist: "Alesso ft. Tove Lo", title: "Heroes (We Could Be)", note: "#50 Official Charts 年終" },
   ],
+  'Hong Kong': [
+    { artist: "陳奕迅", title: "無條件", note: "#1 叱咤至尊歌曲" },
+    { artist: "李克勤、容祖兒", title: "世界真細小", note: "#2 叱咤十大" },
+    { artist: "楊千嬅", title: "最好的債", note: "#3 叱咤十大" },
+    { artist: "張敬軒", title: "找對的人", note: "#4 叱咤十大" },
+    { artist: "薛凱琪", title: "所有下雨天", note: "#5 叱咤十大" },
+    { artist: "麥浚龍、謝安琪", title: "羅生門", note: "#6 叱咤十大" },
+    { artist: "RubberBand", title: "挾持", note: "#7 叱咤十大" },
+    { artist: "容祖兒 ft. 林海峰", title: "黃昏點唱機", note: "#8 叱咤十大" },
+    { artist: "林欣彤", title: "我們都是這樣長大的", note: "#9 叱咤十大" },
+    { artist: "Supper Moment", title: "幸福之歌", note: "#10 叱咤十大" },
+  ],
 };
 
 /** Chart source attribution for 2015 — rendered in the pack page footer. */
 export const SOY_SOURCES_2015: Record<string, { name: string; url: string }> = {
+  'Hong Kong': { name: "叱咤樂壇流行榜 專業推介．叱咤十大", url: "https://zh.wikipedia.org/wiki/2015年度叱咤樂壇流行榜頒獎典禮得獎名單" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_2015" },
   'Australia': { name: "ARIA End Of Year Singles Chart", url: "https://aria.com.au/charts/2015/singles-chart" },
   'Japan': { name: "Oricon Yearly Singles Chart", url: "https://www.generasia.com/wiki/2015_Oricon_Top_100_Singles" },

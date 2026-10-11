@@ -3,6 +3,7 @@
 // - Australia: ARIA End Of Year Singles Chart (rank order = published year-end rank).
 // - Japan: Oricon Yearly Singles Chart (rank order = published year-end rank).
 // - South Korea: Gaon Yearly Digital Chart (rank order = published year-end rank).
+// - Hong Kong: 叱咤樂壇流行榜頒獎典禮 專業推介．叱咤十大 (rank order = published 叱咤十大 rank).
 // Rendered as SongRow stubs; taps resolve through the normal multi-source
 // search (resolveStub), so the pack ships no audio of its own.
 
@@ -16,6 +17,16 @@ export const PACK_META_SOY_2010_US = {
   free: true,
   year: 2010,
   country: 'United States'
+} as const;
+
+export const PACK_META_SOY_2010_HK = {
+  id: 'soy-2010-hk',
+  title: '2010 香港年選',
+  titleEn: 'Hong Kong 2010',
+  description: '叱咤樂壇流行榜 專業推介．叱咤十大',
+  free: true,
+  year: 2010,
+  country: 'Hong Kong'
 } as const;
 
 export const SOY_2010: Record<string, PackSong[]> = {
@@ -227,10 +238,23 @@ export const SOY_2010: Record<string, PackSong[]> = {
     { artist: "다비치", title: "난 너에게", note: "#49 Gaon 年間" },
     { artist: "2PM", title: "Without U", note: "#50 Gaon 年間" },
   ],
+  'Hong Kong': [
+    { artist: "RubberBand", title: "SimpleLoveSong", note: "#1 叱咤至尊歌曲" },
+    { artist: "Mr.", title: "黑色狂迷", note: "#2 叱咤十大" },
+    { artist: "謝安琪", title: "脆弱", note: "#3 叱咤十大" },
+    { artist: "容祖兒", title: "桃色冒險", note: "#4 叱咤十大" },
+    { artist: "陳奕迅", title: "陀飛輪", note: "#5 叱咤十大" },
+    { artist: "周柏豪", title: "乞丐王子", note: "#6 叱咤十大" },
+    { artist: "周國賢", title: "有時", note: "#7 叱咤十大" },
+    { artist: "古巨基", title: "時代", note: "#8 叱咤十大" },
+    { artist: "許志安", title: "忘了．忘不了", note: "#9 叱咤十大" },
+    { artist: "楊千嬅", title: "我係我", note: "#10 叱咤十大" },
+  ],
 };
 
 /** Chart source attribution for 2010 — rendered in the pack page footer. */
 export const SOY_SOURCES_2010: Record<string, { name: string; url: string }> = {
+  'Hong Kong': { name: "叱咤樂壇流行榜 專業推介．叱咤十大", url: "https://zh.wikipedia.org/wiki/2010年度叱咤樂壇流行榜頒獎典禮得獎名單" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_2010" },
   'Australia': { name: "ARIA End Of Year Singles Chart", url: "https://aria.com.au/charts/2010/singles-chart" },
   'Japan': { name: "Oricon Yearly Singles Chart", url: "https://www.generasia.com/wiki/2010_Oricon_Top_100_Singles" },

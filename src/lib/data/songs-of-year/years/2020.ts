@@ -4,6 +4,7 @@
 // - Japan: Oricon Yearly Singles Chart (rank order = published year-end rank).
 // - South Korea: Gaon Yearly Digital Chart (rank order = published year-end rank).
 // - United Kingdom: Official Charts Company End of Year Singles Chart (rank order = published year-end rank).
+// - Hong Kong: 叱咤樂壇流行榜頒獎典禮 專業推介．叱咤十大 (rank order = published 叱咤十大 rank).
 // Rendered as SongRow stubs; taps resolve through the normal multi-source
 // search (resolveStub), so the pack ships no audio of its own.
 
@@ -17,6 +18,16 @@ export const PACK_META_SOY_2020_US = {
   free: true,
   year: 2020,
   country: 'United States'
+} as const;
+
+export const PACK_META_SOY_2020_HK = {
+  id: 'soy-2020-hk',
+  title: '2020 香港年選',
+  titleEn: 'Hong Kong 2020',
+  description: '叱咤樂壇流行榜 專業推介．叱咤十大',
+  free: true,
+  year: 2020,
+  country: 'Hong Kong'
 } as const;
 
 export const SOY_2020: Record<string, PackSong[]> = {
@@ -280,10 +291,23 @@ export const SOY_2020: Record<string, PackSong[]> = {
     { artist: "Becky Hill ft. Shift K3Y", title: "Better Off Without You", note: "#49 Official Charts 年終" },
     { artist: "Post Malone", title: "Circles", note: "#50 Official Charts 年終" },
   ],
+  'Hong Kong': [
+    { artist: "莫文蔚", title: "呼吸有害", note: "#1 叱咤至尊歌曲" },
+    { artist: "Dear Jane", title: "銀河修理員", note: "#2 叱咤十大" },
+    { artist: "MIRROR", title: "IGNITED", note: "#3 叱咤十大" },
+    { artist: "許廷鏗", title: "無力感", note: "#4 叱咤十大" },
+    { artist: "馮允謙", title: "地球來的人", note: "#5 叱咤十大" },
+    { artist: "AGA", title: "See You Next Time", note: "#6 叱咤十大" },
+    { artist: "關智斌", title: "暫定", note: "#7 叱咤十大" },
+    { artist: "陳柏宇", title: "感情這回事", note: "#8 叱咤十大" },
+    { artist: "JUDE", title: "零分", note: "#9 叱咤十大" },
+    { artist: "per se Feat.Serrini", title: "粉碎糖果屋", note: "#10 叱咤十大" },
+  ],
 };
 
 /** Chart source attribution for 2020 — rendered in the pack page footer. */
 export const SOY_SOURCES_2020: Record<string, { name: string; url: string }> = {
+  'Hong Kong': { name: "叱咤樂壇流行榜 專業推介．叱咤十大", url: "https://zh.wikipedia.org/wiki/2020年度叱咤樂壇流行榜頒獎典禮得獎名單" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_2020" },
   'Australia': { name: "ARIA End Of Year Singles Chart", url: "https://aria.com.au/charts/2020/singles-chart" },
   'Japan': { name: "Oricon Yearly Singles Chart", url: "https://www.generasia.com/wiki/2020_Oricon_Top_100_Singles" },

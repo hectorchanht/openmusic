@@ -2,6 +2,7 @@
 // - United States: Billboard Year-End Hot 100 (rank order = published year-end rank).
 // - Australia: ARIA End Of Year Singles Chart (rank order = published year-end rank).
 // - Japan: Oricon Yearly Singles Chart (rank order = published year-end rank).
+// - Hong Kong: 叱咤樂壇流行榜頒獎典禮 專業推介．叱咤十大 (rank order = published 叱咤十大 rank).
 // Rendered as SongRow stubs; taps resolve through the normal multi-source
 // search (resolveStub), so the pack ships no audio of its own.
 
@@ -15,6 +16,16 @@ export const PACK_META_SOY_2002_US = {
   free: true,
   year: 2002,
   country: 'United States'
+} as const;
+
+export const PACK_META_SOY_2002_HK = {
+  id: 'soy-2002-hk',
+  title: '2002 香港年選',
+  titleEn: 'Hong Kong 2002',
+  description: '叱咤樂壇流行榜 專業推介．叱咤十大',
+  free: true,
+  year: 2002,
+  country: 'Hong Kong'
 } as const;
 
 export const SOY_2002: Record<string, PackSong[]> = {
@@ -174,10 +185,23 @@ export const SOY_2002: Record<string, PackSong[]> = {
     { artist: "Kinmokusei", title: "Futari no AKABOSHI", note: "#49 Oricon 年間" },
     { artist: "Yuzu", title: "Koi no Kayobi", note: "#50 Oricon 年間" },
   ],
+  'Hong Kong': [
+    { artist: "盧巧音", title: "好心分手", note: "#1 叱咤至尊歌曲" },
+    { artist: "陳奕迅", title: "人來人往", note: "#2 叱咤十大" },
+    { artist: "許志安", title: "女人之苦", note: "#3 叱咤十大" },
+    { artist: "容祖兒", title: "爭氣", note: "#4 叱咤十大" },
+    { artist: "張學友、林憶蓮", title: "日與夜", note: "#5 叱咤十大" },
+    { artist: "陳曉東", title: "劃火柴", note: "#6 叱咤十大" },
+    { artist: "陳小春", title: "不歡而散", note: "#7 叱咤十大" },
+    { artist: "周杰倫", title: "回到過去", note: "#8 叱咤十大" },
+    { artist: "何韻詩", title: "再見露絲瑪莉", note: "#9 叱咤十大" },
+    { artist: "梁詠琪", title: "高妹正傳", note: "#10 叱咤十大" },
+  ],
 };
 
 /** Chart source attribution for 2002 — rendered in the pack page footer. */
 export const SOY_SOURCES_2002: Record<string, { name: string; url: string }> = {
+  'Hong Kong': { name: "叱咤樂壇流行榜 專業推介．叱咤十大", url: "https://zh.wikipedia.org/wiki/2002年度叱咤樂壇流行榜頒獎典禮得獎名單" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_2002" },
   'Australia': { name: "ARIA End Of Year Singles Chart", url: "https://aria.com.au/charts/2002/singles-chart" },
   'Japan': { name: "Oricon Yearly Singles Chart", url: "https://www.generasia.com/wiki/2002_Oricon_Top_100_Singles" },

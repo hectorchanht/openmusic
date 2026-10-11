@@ -2,6 +2,7 @@
 // - United States: Billboard Year-End Hot 100 (rank order = published year-end rank).
 // - Australia: ARIA End Of Year Singles Chart (rank order = published year-end rank).
 // - Japan: Oricon Yearly Singles Chart (rank order = published year-end rank).
+// - Hong Kong: 叱咤樂壇流行榜頒獎典禮 專業推介．叱咤十大 (rank order = published 叱咤十大 rank).
 // Rendered as SongRow stubs; taps resolve through the normal multi-source
 // search (resolveStub), so the pack ships no audio of its own.
 
@@ -15,6 +16,16 @@ export const PACK_META_SOY_2004_US = {
   free: true,
   year: 2004,
   country: 'United States'
+} as const;
+
+export const PACK_META_SOY_2004_HK = {
+  id: 'soy-2004-hk',
+  title: '2004 香港年選',
+  titleEn: 'Hong Kong 2004',
+  description: '叱咤樂壇流行榜 專業推介．叱咤十大',
+  free: true,
+  year: 2004,
+  country: 'Hong Kong'
 } as const;
 
 export const SOY_2004: Record<string, PackSong[]> = {
@@ -174,10 +185,23 @@ export const SOY_2004: Record<string, PackSong[]> = {
     { artist: "Kanjani8", title: "Naniwa Iroha Bushi", note: "#49 Oricon 年間" },
     { artist: "BUMP OF CHICKEN", title: "Only Lonely Glory", note: "#50 Oricon 年間" },
   ],
+  'Hong Kong': [
+    { artist: "許志安 ft. 葉德嫻", title: "美中不足", note: "#1 叱咤至尊歌曲" },
+    { artist: "楊千嬅", title: "小城大事", note: "#2 叱咤十大" },
+    { artist: "李克勤", title: "空中飛人", note: "#3 叱咤十大" },
+    { artist: "張學友", title: "講妳知", note: "#4 叱咤十大" },
+    { artist: "黃耀明", title: "翡翠劇場", note: "#5 叱咤十大" },
+    { artist: "古巨基", title: "大雄", note: "#6 叱咤十大" },
+    { artist: "薛凱琪", title: "奇洛李維斯回信", note: "#7 叱咤十大" },
+    { artist: "陳冠希", title: "香港地", note: "#8 叱咤十大" },
+    { artist: "容祖兒", title: "一拍兩散", note: "#9 叱咤十大" },
+    { artist: "達明一派", title: "寂寞的人有福了", note: "#10 叱咤十大" },
+  ],
 };
 
 /** Chart source attribution for 2004 — rendered in the pack page footer. */
 export const SOY_SOURCES_2004: Record<string, { name: string; url: string }> = {
+  'Hong Kong': { name: "叱咤樂壇流行榜 專業推介．叱咤十大", url: "https://zh.wikipedia.org/wiki/2004年度叱咤樂壇流行榜頒獎典禮得獎名單" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_2004" },
   'Australia': { name: "ARIA End Of Year Singles Chart", url: "https://aria.com.au/charts/2004/singles-chart" },
   'Japan': { name: "Oricon Yearly Singles Chart", url: "https://www.generasia.com/wiki/2004_Oricon_Top_100_Singles" },

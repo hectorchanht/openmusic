@@ -4,6 +4,7 @@
 // - Japan: Oricon Yearly Singles Chart (rank order = published year-end rank).
 // - South Korea: Gaon Yearly Digital Chart (rank order = published year-end rank).
 // - United Kingdom: Official Charts Company End of Year Singles Chart (rank order = published year-end rank).
+// - Hong Kong: 叱咤樂壇流行榜頒獎典禮 專業推介．叱咤十大 (rank order = published 叱咤十大 rank).
 // Rendered as SongRow stubs; taps resolve through the normal multi-source
 // search (resolveStub), so the pack ships no audio of its own.
 
@@ -17,6 +18,16 @@ export const PACK_META_SOY_2016_US = {
   free: true,
   year: 2016,
   country: 'United States'
+} as const;
+
+export const PACK_META_SOY_2016_HK = {
+  id: 'soy-2016-hk',
+  title: '2016 香港年選',
+  titleEn: 'Hong Kong 2016',
+  description: '叱咤樂壇流行榜 專業推介．叱咤十大',
+  free: true,
+  year: 2016,
+  country: 'Hong Kong'
 } as const;
 
 export const SOY_2016: Record<string, PackSong[]> = {
@@ -280,10 +291,23 @@ export const SOY_2016: Record<string, PackSong[]> = {
     { artist: "Ariana Grande ft. Nicki Minaj", title: "Side to Side", note: "#49 Official Charts 年終" },
     { artist: "Sia ft. Kendrick Lamar", title: "The Greatest", note: "#50 Official Charts 年終" },
   ],
+  'Hong Kong': [
+    { artist: "陳奕迅", title: "四季", note: "#1 叱咤至尊歌曲" },
+    { artist: "張敬軒", title: "羅賓", note: "#2 叱咤十大" },
+    { artist: "鄭欣宜", title: "女神", note: "#3 叱咤十大" },
+    { artist: "C AllStar", title: "聲音騷了", note: "#4 叱咤十大" },
+    { artist: "吳業坤", title: "百姓", note: "#5 叱咤十大" },
+    { artist: "許志安", title: "非安全地帶", note: "#6 叱咤十大" },
+    { artist: "方皓玟、RubberBand", title: "終於好天氣", note: "#7 叱咤十大" },
+    { artist: "容祖兒", title: "無人知道雙子座", note: "#8 叱咤十大" },
+    { artist: "小塵埃", title: "卜卜卜", note: "#9 叱咤十大" },
+    { artist: "林奕匡", title: "愛情小品", note: "#10 叱咤十大" },
+  ],
 };
 
 /** Chart source attribution for 2016 — rendered in the pack page footer. */
 export const SOY_SOURCES_2016: Record<string, { name: string; url: string }> = {
+  'Hong Kong': { name: "叱咤樂壇流行榜 專業推介．叱咤十大", url: "https://zh.wikipedia.org/wiki/2016年度叱咤樂壇流行榜頒獎典禮得獎名單" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_2016" },
   'Australia': { name: "ARIA End Of Year Singles Chart", url: "https://aria.com.au/charts/2016/singles-chart" },
   'Japan': { name: "Oricon Yearly Singles Chart", url: "https://www.generasia.com/wiki/2016_Oricon_Top_100_Singles" },

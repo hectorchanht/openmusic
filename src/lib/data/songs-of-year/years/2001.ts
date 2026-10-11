@@ -2,6 +2,7 @@
 // - United States: Billboard Year-End Hot 100 (rank order = published year-end rank).
 // - Australia: ARIA End Of Year Singles Chart (rank order = published year-end rank).
 // - Japan: Oricon Yearly Singles Chart (rank order = published year-end rank).
+// - Hong Kong: 叱咤樂壇流行榜頒獎典禮 專業推介．叱咤十大 (rank order = published 叱咤十大 rank).
 // Rendered as SongRow stubs; taps resolve through the normal multi-source
 // search (resolveStub), so the pack ships no audio of its own.
 
@@ -15,6 +16,16 @@ export const PACK_META_SOY_2001_US = {
   free: true,
   year: 2001,
   country: 'United States'
+} as const;
+
+export const PACK_META_SOY_2001_HK = {
+  id: 'soy-2001-hk',
+  title: '2001 香港年選',
+  titleEn: 'Hong Kong 2001',
+  description: '叱咤樂壇流行榜 專業推介．叱咤十大',
+  free: true,
+  year: 2001,
+  country: 'Hong Kong'
 } as const;
 
 export const SOY_2001: Record<string, PackSong[]> = {
@@ -174,10 +185,23 @@ export const SOY_2001: Record<string, PackSong[]> = {
     { artist: "Hikawa Kiyoshi", title: "Ooi Okkake Otojirou", note: "#50 Oricon 年間" },
     { artist: "Shiina Ringo", title: "Mayonaka wa Junketsu", note: "#51 Oricon 年間" },
   ],
+  'Hong Kong': [
+    { artist: "張學友", title: "有病呻吟", note: "#1 叱咤至尊歌曲" },
+    { artist: "楊千嬅", title: "姊妹", note: "#2 叱咤十大" },
+    { artist: "許志安", title: "爛泥", note: "#3 叱咤十大" },
+    { artist: "劉德華", title: "鴿子情緣", note: "#4 叱咤十大" },
+    { artist: "梁漢文", title: "重新做人", note: "#5 叱咤十大" },
+    { artist: "陳奕迅", title: "Shall We Talk", note: "#6 叱咤十大" },
+    { artist: "陳慧琳", title: "最愛演唱會", note: "#7 叱咤十大" },
+    { artist: "謝霆鋒", title: "潛龍勿用", note: "#8 叱咤十大" },
+    { artist: "鄭秀文", title: "終身美麗", note: "#9 叱咤十大" },
+    { artist: "陳小春", title: "犯賤", note: "#10 叱咤十大" },
+  ],
 };
 
 /** Chart source attribution for 2001 — rendered in the pack page footer. */
 export const SOY_SOURCES_2001: Record<string, { name: string; url: string }> = {
+  'Hong Kong': { name: "叱咤樂壇流行榜 專業推介．叱咤十大", url: "https://zh.wikipedia.org/wiki/2001年度叱咤樂壇流行榜頒獎典禮得獎名單" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_2001" },
   'Australia': { name: "ARIA End Of Year Singles Chart", url: "https://aria.com.au/charts/2001/singles-chart" },
   'Japan': { name: "Oricon Yearly Singles Chart", url: "https://www.generasia.com/wiki/2001_Oricon_Top_100_Singles" },

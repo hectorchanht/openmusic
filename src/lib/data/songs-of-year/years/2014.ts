@@ -3,6 +3,7 @@
 // - Australia: ARIA End Of Year Singles Chart (rank order = published year-end rank).
 // - Japan: Oricon Yearly Singles Chart (rank order = published year-end rank).
 // - South Korea: Gaon Yearly Digital Chart (rank order = published year-end rank).
+// - Hong Kong: 叱咤樂壇流行榜頒獎典禮 專業推介．叱咤十大 (rank order = published 叱咤十大 rank).
 // Rendered as SongRow stubs; taps resolve through the normal multi-source
 // search (resolveStub), so the pack ships no audio of its own.
 
@@ -16,6 +17,16 @@ export const PACK_META_SOY_2014_US = {
   free: true,
   year: 2014,
   country: 'United States'
+} as const;
+
+export const PACK_META_SOY_2014_HK = {
+  id: 'soy-2014-hk',
+  title: '2014 香港年選',
+  titleEn: 'Hong Kong 2014',
+  description: '叱咤樂壇流行榜 專業推介．叱咤十大',
+  free: true,
+  year: 2014,
+  country: 'Hong Kong'
 } as const;
 
 export const SOY_2014: Record<string, PackSong[]> = {
@@ -227,10 +238,23 @@ export const SOY_2014: Record<string, PackSong[]> = {
     { artist: "임창정", title: "흔한 노래", note: "#49 Gaon 年間" },
     { artist: "LOCO", title: "감아 (ft. Crush)", note: "#50 Gaon 年間" },
   ],
+  'Hong Kong': [
+    { artist: "許志安", title: "流淚行勝利道", note: "#1 叱咤至尊歌曲" },
+    { artist: "張敬軒", title: "青春常駐", note: "#2 叱咤十大" },
+    { artist: "AGA", title: "一", note: "#3 叱咤十大" },
+    { artist: "容祖兒", title: "樂觀", note: "#4 叱咤十大" },
+    { artist: "楊千嬅", title: "好不容易遇見愛", note: "#5 叱咤十大" },
+    { artist: "謝安琪", title: "獨家村", note: "#6 叱咤十大" },
+    { artist: "吳雨霏", title: "豔羨", note: "#7 叱咤十大" },
+    { artist: "李克勤", title: "無朋友", note: "#8 叱咤十大" },
+    { artist: "方皓玟", title: "分手總約在雨天", note: "#9 叱咤十大" },
+    { artist: "林奕匡", title: "高山低谷", note: "#10 叱咤十大" },
+  ],
 };
 
 /** Chart source attribution for 2014 — rendered in the pack page footer. */
 export const SOY_SOURCES_2014: Record<string, { name: string; url: string }> = {
+  'Hong Kong': { name: "叱咤樂壇流行榜 專業推介．叱咤十大", url: "https://zh.wikipedia.org/wiki/2014年度叱咤樂壇流行榜頒獎典禮得獎名單" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_2014" },
   'Australia': { name: "ARIA End Of Year Singles Chart", url: "https://aria.com.au/charts/2014/singles-chart" },
   'Japan': { name: "Oricon Yearly Singles Chart", url: "https://www.generasia.com/wiki/2014_Oricon_Top_100_Singles" },

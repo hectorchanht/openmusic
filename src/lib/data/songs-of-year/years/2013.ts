@@ -3,6 +3,7 @@
 // - Australia: ARIA End Of Year Singles Chart (rank order = published year-end rank).
 // - Japan: Oricon Yearly Singles Chart (rank order = published year-end rank).
 // - South Korea: Gaon Yearly Digital Chart (rank order = published year-end rank).
+// - Hong Kong: 叱咤樂壇流行榜頒獎典禮 專業推介．叱咤十大 (rank order = published 叱咤十大 rank).
 // Rendered as SongRow stubs; taps resolve through the normal multi-source
 // search (resolveStub), so the pack ships no audio of its own.
 
@@ -16,6 +17,16 @@ export const PACK_META_SOY_2013_US = {
   free: true,
   year: 2013,
   country: 'United States'
+} as const;
+
+export const PACK_META_SOY_2013_HK = {
+  id: 'soy-2013-hk',
+  title: '2013 香港年選',
+  titleEn: 'Hong Kong 2013',
+  description: '叱咤樂壇流行榜 專業推介．叱咤十大',
+  free: true,
+  year: 2013,
+  country: 'Hong Kong'
 } as const;
 
 export const SOY_2013: Record<string, PackSong[]> = {
@@ -227,10 +238,23 @@ export const SOY_2013: Record<string, PackSong[]> = {
     { artist: "Dynamic Duo", title: "Baaam (ft. Muzie)", note: "#49 Gaon 年間" },
     { artist: "이효리", title: "Bad Girls", note: "#50 Gaon 年間" },
   ],
+  'Hong Kong': [
+    { artist: "陳奕迅", title: "任我行", note: "#1 叱咤至尊歌曲" },
+    { artist: "許志安", title: "情人甲", note: "#2 叱咤十大" },
+    { artist: "許廷鏗", title: "青春頌", note: "#3 叱咤十大" },
+    { artist: "周柏豪", title: "Imperfect", note: "#4 叱咤十大" },
+    { artist: "梁漢文", title: "半邊生命", note: "#5 叱咤十大" },
+    { artist: "李克勤", title: "紙牌屋", note: "#6 叱咤十大" },
+    { artist: "容祖兒", title: "天窗", note: "#7 叱咤十大" },
+    { artist: "吳雨霏", title: "生我的命", note: "#8 叱咤十大" },
+    { artist: "連詩雅", title: "說一句", note: "#9 叱咤十大" },
+    { artist: "鄭 融", title: "非凡人生", note: "#10 叱咤十大" },
+  ],
 };
 
 /** Chart source attribution for 2013 — rendered in the pack page footer. */
 export const SOY_SOURCES_2013: Record<string, { name: string; url: string }> = {
+  'Hong Kong': { name: "叱咤樂壇流行榜 專業推介．叱咤十大", url: "https://zh.wikipedia.org/wiki/2013年度叱咤樂壇流行榜頒獎典禮得獎名單" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_2013" },
   'Australia': { name: "ARIA End Of Year Singles Chart", url: "https://aria.com.au/charts/2013/singles-chart" },
   'Japan': { name: "Oricon Yearly Singles Chart", url: "https://www.generasia.com/wiki/2013_Oricon_Top_100_Singles" },

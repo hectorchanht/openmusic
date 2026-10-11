@@ -2,6 +2,7 @@
 // - United States: Billboard Year-End Hot 100 (rank order = published year-end rank).
 // - Australia: ARIA End Of Year Singles Chart (rank order = published year-end rank).
 // - Japan: Oricon Yearly Singles Chart (rank order = published year-end rank).
+// - Hong Kong: 叱咤樂壇流行榜頒獎典禮 專業推介．叱咤十大 (rank order = published 叱咤十大 rank).
 // Rendered as SongRow stubs; taps resolve through the normal multi-source
 // search (resolveStub), so the pack ships no audio of its own.
 
@@ -15,6 +16,16 @@ export const PACK_META_SOY_2006_US = {
   free: true,
   year: 2006,
   country: 'United States'
+} as const;
+
+export const PACK_META_SOY_2006_HK = {
+  id: 'soy-2006-hk',
+  title: '2006 香港年選',
+  titleEn: 'Hong Kong 2006',
+  description: '叱咤樂壇流行榜 專業推介．叱咤十大',
+  free: true,
+  year: 2006,
+  country: 'Hong Kong'
 } as const;
 
 export const SOY_2006: Record<string, PackSong[]> = {
@@ -174,10 +185,23 @@ export const SOY_2006: Record<string, PackSong[]> = {
     { artist: "ayaka", title: "Mikazuki", note: "#49 Oricon 年間" },
     { artist: "Koda Kumi", title: "you", note: "#50 Oricon 年間" },
   ],
+  'Hong Kong': [
+    { artist: "古巨基", title: "愛得太遲", note: "#1 叱咤至尊歌曲" },
+    { artist: "陳奕迅", title: "富士山下", note: "#2 叱咤十大" },
+    { artist: "容祖兒", title: "華麗邂逅", note: "#3 叱咤十大" },
+    { artist: "軟硬天師", title: "好兄弟", note: "#4 叱咤十大" },
+    { artist: "何韻詩", title: "光明會", note: "#5 叱咤十大" },
+    { artist: "鄭 融", title: "紅綠燈", note: "#6 叱咤十大" },
+    { artist: "薛凱琪", title: "小峽谷之1234", note: "#7 叱咤十大" },
+    { artist: "許志安", title: "大愛", note: "#8 叱咤十大" },
+    { artist: "吳雨霏", title: "愛你變成恨你", note: "#9 叱咤十大" },
+    { artist: "謝安琪", title: "愁人節", note: "#10 叱咤十大" },
+  ],
 };
 
 /** Chart source attribution for 2006 — rendered in the pack page footer. */
 export const SOY_SOURCES_2006: Record<string, { name: string; url: string }> = {
+  'Hong Kong': { name: "叱咤樂壇流行榜 專業推介．叱咤十大", url: "https://zh.wikipedia.org/wiki/2006年度叱咤樂壇流行榜頒獎典禮得獎名單" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_2006" },
   'Australia': { name: "ARIA End Of Year Singles Chart", url: "https://aria.com.au/charts/2006/singles-chart" },
   'Japan': { name: "Oricon Yearly Singles Chart", url: "https://www.generasia.com/wiki/2006_Oricon_Top_100_Singles" },

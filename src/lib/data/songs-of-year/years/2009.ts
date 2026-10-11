@@ -2,6 +2,7 @@
 // - United States: Billboard Year-End Hot 100 (rank order = published year-end rank).
 // - Australia: ARIA End Of Year Singles Chart (rank order = published year-end rank).
 // - Japan: Oricon Yearly Singles Chart (rank order = published year-end rank).
+// - Hong Kong: 叱咤樂壇流行榜頒獎典禮 專業推介．叱咤十大 (rank order = published 叱咤十大 rank).
 // Rendered as SongRow stubs; taps resolve through the normal multi-source
 // search (resolveStub), so the pack ships no audio of its own.
 
@@ -15,6 +16,16 @@ export const PACK_META_SOY_2009_US = {
   free: true,
   year: 2009,
   country: 'United States'
+} as const;
+
+export const PACK_META_SOY_2009_HK = {
+  id: 'soy-2009-hk',
+  title: '2009 香港年選',
+  titleEn: 'Hong Kong 2009',
+  description: '叱咤樂壇流行榜 專業推介．叱咤十大',
+  free: true,
+  year: 2009,
+  country: 'Hong Kong'
 } as const;
 
 export const SOY_2009: Record<string, PackSong[]> = {
@@ -174,10 +185,23 @@ export const SOY_2009: Record<string, PackSong[]> = {
     { artist: "Tohoshinki", title: "Bolero / Kiss the Baby Sky / Wasurenaide", note: "#49 Oricon 年間" },
     { artist: "Hamasaki Ayumi", title: "Sunrise / Sunset ~LOVE is ALL~", note: "#50 Oricon 年間" },
   ],
+  'Hong Kong': [
+    { artist: "陳奕迅", title: "七百年後", note: "#1 叱咤至尊歌曲" },
+    { artist: "RubberBand", title: "阿波羅", note: "#2 叱咤十大" },
+    { artist: "陳柏宇", title: "你瞞我瞞", note: "#3 叱咤十大" },
+    { artist: "張敬軒", title: "Yes & No", note: "#4 叱咤十大" },
+    { artist: "古巨基", title: "地球很危險", note: "#5 叱咤十大" },
+    { artist: "楊千嬅", title: "原來過得很快樂", note: "#6 叱咤十大" },
+    { artist: "鍾舒漫", title: "給自己的信", note: "#7 叱咤十大" },
+    { artist: "謝安琪", title: "年度之歌", note: "#8 叱咤十大" },
+    { artist: "麥浚龍", title: "弱水三千", note: "#9 叱咤十大" },
+    { artist: "何韻詩", title: "妮歌", note: "#10 叱咤十大" },
+  ],
 };
 
 /** Chart source attribution for 2009 — rendered in the pack page footer. */
 export const SOY_SOURCES_2009: Record<string, { name: string; url: string }> = {
+  'Hong Kong': { name: "叱咤樂壇流行榜 專業推介．叱咤十大", url: "https://zh.wikipedia.org/wiki/2009年度叱咤樂壇流行榜頒獎典禮得獎名單" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_2009" },
   'Australia': { name: "ARIA End Of Year Singles Chart", url: "https://aria.com.au/charts/2009/singles-chart" },
   'Japan': { name: "Oricon Yearly Singles Chart", url: "https://www.generasia.com/wiki/2009_Oricon_Top_100_Singles" },

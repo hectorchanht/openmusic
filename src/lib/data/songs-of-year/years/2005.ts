@@ -2,6 +2,7 @@
 // - United States: Billboard Year-End Hot 100 (rank order = published year-end rank).
 // - Australia: ARIA End Of Year Singles Chart (rank order = published year-end rank).
 // - Japan: Oricon Yearly Singles Chart (rank order = published year-end rank).
+// - Hong Kong: 叱咤樂壇流行榜頒獎典禮 專業推介．叱咤十大 (rank order = published 叱咤十大 rank).
 // Rendered as SongRow stubs; taps resolve through the normal multi-source
 // search (resolveStub), so the pack ships no audio of its own.
 
@@ -15,6 +16,16 @@ export const PACK_META_SOY_2005_US = {
   free: true,
   year: 2005,
   country: 'United States'
+} as const;
+
+export const PACK_META_SOY_2005_HK = {
+  id: 'soy-2005-hk',
+  title: '2005 香港年選',
+  titleEn: 'Hong Kong 2005',
+  description: '叱咤樂壇流行榜 專業推介．叱咤十大',
+  free: true,
+  year: 2005,
+  country: 'Hong Kong'
 } as const;
 
 export const SOY_2005: Record<string, PackSong[]> = {
@@ -174,10 +185,23 @@ export const SOY_2005: Record<string, PackSong[]> = {
     { artist: "L'Arc~en~Ciel", title: "Killing Me", note: "#49 Oricon 年間" },
     { artist: "DREAMS COME TRUE", title: "Nando Demo", note: "#50 Oricon 年間" },
   ],
+  'Hong Kong': [
+    { artist: "陳奕迅", title: "夕陽無限好", note: "#1 叱咤至尊歌曲" },
+    { artist: "古巨基", title: "天才與白痴", note: "#2 叱咤十大" },
+    { artist: "林海峰 ft. <br>古巨基、蘇永康、梁漢文、鄭中基", title: "男子組", note: "#3 叱咤十大" },
+    { artist: "劉德華", title: "我得你", note: "#4 叱咤十大" },
+    { artist: "薛凱琪", title: "小黑與我", note: "#5 叱咤十大" },
+    { artist: "楊千嬅", title: "烈女", note: "#6 叱咤十大" },
+    { artist: "李克勤", title: "情非首爾", note: "#7 叱咤十大" },
+    { artist: "鄭中基", title: "無賴", note: "#8 叱咤十大" },
+    { artist: "麥浚龍", title: "雌雄同體", note: "#9 叱咤十大" },
+    { artist: "草 蜢", title: "我們", note: "#10 叱咤十大" },
+  ],
 };
 
 /** Chart source attribution for 2005 — rendered in the pack page footer. */
 export const SOY_SOURCES_2005: Record<string, { name: string; url: string }> = {
+  'Hong Kong': { name: "叱咤樂壇流行榜 專業推介．叱咤十大", url: "https://zh.wikipedia.org/wiki/2005年度叱咤樂壇流行榜頒獎典禮得獎名單" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_2005" },
   'Australia': { name: "ARIA End Of Year Singles Chart", url: "https://aria.com.au/charts/2005/singles-chart" },
   'Japan': { name: "Oricon Yearly Singles Chart", url: "https://www.generasia.com/wiki/2005_Oricon_Top_100_Singles" },

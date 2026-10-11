@@ -2,6 +2,7 @@
 // - United States: Billboard Year-End Hot 100 (rank order = published year-end rank).
 // - Australia: ARIA End Of Year Singles Chart (rank order = published year-end rank).
 // - Japan: Oricon Yearly Singles Chart (rank order = published year-end rank).
+// - Hong Kong: 叱咤樂壇流行榜頒獎典禮 專業推介．叱咤十大 (rank order = published 叱咤十大 rank).
 // Rendered as SongRow stubs; taps resolve through the normal multi-source
 // search (resolveStub), so the pack ships no audio of its own.
 
@@ -15,6 +16,16 @@ export const PACK_META_SOY_2008_US = {
   free: true,
   year: 2008,
   country: 'United States'
+} as const;
+
+export const PACK_META_SOY_2008_HK = {
+  id: 'soy-2008-hk',
+  title: '2008 香港年選',
+  titleEn: 'Hong Kong 2008',
+  description: '叱咤樂壇流行榜 專業推介．叱咤十大',
+  free: true,
+  year: 2008,
+  country: 'Hong Kong'
 } as const;
 
 export const SOY_2008: Record<string, PackSong[]> = {
@@ -174,10 +185,23 @@ export const SOY_2008: Record<string, PackSong[]> = {
     { artist: "SMAP", title: "Kono Toki, Kitto Yume ja Nai", note: "#49 Oricon 年間" },
     { artist: "Shimizu Shota", title: "HOME", note: "#50 Oricon 年間" },
   ],
+  'Hong Kong': [
+    { artist: "謝安琪", title: "囍帖街", note: "#1 叱咤至尊歌曲" },
+    { artist: "方大同", title: "Love Song", note: "#2 叱咤十大" },
+    { artist: "古巨基", title: "下次再見", note: "#3 叱咤十大" },
+    { artist: "容祖兒", title: "跑步機上", note: "#4 叱咤十大" },
+    { artist: "張敬軒", title: "櫻花樹下", note: "#5 叱咤十大" },
+    { artist: "MC Jin", title: "ABC", note: "#6 叱咤十大" },
+    { artist: "陳奕迅", title: "路...一直都在", note: "#7 叱咤十大" },
+    { artist: "農 夫", title: "舉高隻手", note: "#8 叱咤十大" },
+    { artist: "楊千嬅", title: "撈月亮的人", note: "#9 叱咤十大" },
+    { artist: "林海峰", title: "我哋大家", note: "#10 叱咤十大" },
+  ],
 };
 
 /** Chart source attribution for 2008 — rendered in the pack page footer. */
 export const SOY_SOURCES_2008: Record<string, { name: string; url: string }> = {
+  'Hong Kong': { name: "叱咤樂壇流行榜 專業推介．叱咤十大", url: "https://zh.wikipedia.org/wiki/2008年度叱咤樂壇流行榜頒獎典禮得獎名單" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_2008" },
   'Australia': { name: "ARIA End Of Year Singles Chart", url: "https://aria.com.au/charts/2008/singles-chart" },
   'Japan': { name: "Oricon Yearly Singles Chart", url: "https://www.generasia.com/wiki/2008_Oricon_Top_100_Singles" },
