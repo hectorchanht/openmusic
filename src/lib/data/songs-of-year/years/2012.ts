@@ -40,6 +40,26 @@ export const PACK_META_SOY_2012_TW = {
   country: 'Taiwan'
 } as const;
 
+export const PACK_META_SOY_2012_GE = {
+  id: 'soy-2012-ge',
+  title: '2012 Media Control 德國年終單曲榜',
+  titleEn: 'Germany 2012',
+  description: 'Media Control 德國年終單曲榜',
+  free: true,
+  year: 2012,
+  country: 'Germany'
+} as const;
+
+export const PACK_META_SOY_2012_IT = {
+  id: 'soy-2012-it',
+  title: '2012 FIMI 意大利年終單曲榜',
+  titleEn: 'Italy 2012',
+  description: 'FIMI 意大利年終單曲榜',
+  free: true,
+  year: 2012,
+  country: 'Italy'
+} as const;
+
 export const SOY_2012: Record<string, PackSong[]> = {
   'United States': [
     { artist: "Gotye ft. Kimbra", title: "Somebody That I Used to Know", note: "#1 Billboard 年終" },
@@ -274,10 +294,58 @@ export const SOY_2012: Record<string, PackSong[]> = {
     { artist: "A-Lin", title: "-{幸福了然後呢}-", note: "年度十大單曲 (排名不分先後)" },
   ],
 
+  'Germany': [
+    { artist: "Michel Teló", title: "Ai Se Eu Te Pego", note: "#1 Media Control 年終" },
+    { artist: "Die Toten Hosen", title: "Tage wie diese", note: "#2 Media Control 年終" },
+    { artist: "Lykke Li", title: "I Follow Rivers", note: "#3 Media Control 年終" },
+    { artist: "Gotye featuring Kimbra", title: "Somebody That I Used to Know", note: "#4 Media Control 年終" },
+    { artist: "Asaf Avidan & The Mojos (Wankelmut Remix)", title: "One Day / Reckoning Song", note: "#5 Media Control 年終" },
+    { artist: "Carly Rae Jepsen", title: "Call Me Maybe", note: "#6 Media Control 年終" },
+    { artist: "Rihanna", title: "Diamonds", note: "#7 Media Control 年終" },
+    { artist: "PSY", title: "Gangnam Style", note: "#8 Media Control 年終" },
+    { artist: "Loreen", title: "Euphoria", note: "#9 Media Control 年終" },
+    { artist: "Olly Murs featuring Rizzle Kicks", title: "Heart Skips a Beat", note: "#10 Media Control 年終" },
+    { artist: "Alex Clare", title: "Too Close", note: "#11 Media Control 年終" },
+    { artist: "Sean Paul", title: "She Doesn't Mind", note: "#12 Media Control 年終" },
+    { artist: "Of Monsters and Men", title: "Little Talks", note: "#13 Media Control 年終" },
+    { artist: "DJ Antoine featuring The Beat Shakers", title: "Ma Chérie", note: "#14 Media Control 年終" },
+    { artist: "Flo Rida", title: "Whistle", note: "#15 Media Control 年終" },
+    { artist: "Marteria, Yasha & Miss Platnum", title: "Lila Wolken", note: "#16 Media Control 年終" },
+    { artist: "Adele", title: "Skyfall", note: "#17 Media Control 年終" },
+    { artist: "Tacabro", title: "Tacata'", note: "#18 Media Control 年終" },
+    { artist: "Cro", title: "Easy", note: "#19 Media Control 年終" },
+    { artist: "Linkin Park", title: "Burn It Down", note: "#20 Media Control 年終" },
+  ],
+
+  'Italy': [
+    { artist: "Michel Teló", title: "Ai se eu te pego!", note: "#1 FIMI 年終" },
+    { artist: "Gusttavo Lima", title: "Balada", note: "#2 FIMI 年終" },
+    { artist: "Radio Globo", title: "Il pulcino Pio", note: "#3 FIMI 年終" },
+    { artist: "Gotye ft. Kimbra", title: "Somebody That I Used to Know", note: "#4 FIMI 年終" },
+    { artist: "Arisa", title: "La notte", note: "#5 FIMI 年終" },
+    { artist: "DJ Antoine ft. The Beat Shakers", title: "Ma Chérie", note: "#6 FIMI 年終" },
+    { artist: "Carly Rae Jepsen", title: "Call Me Maybe", note: "#7 FIMI 年終" },
+    { artist: "David Guetta ft. Sia", title: "Titanium", note: "#8 FIMI 年終" },
+    { artist: "Asaf Avidan、The Mojos", title: "One Day/Reckoning Song", note: "#9 FIMI 年終" },
+    { artist: "Francesca Michielin", title: "Distratto", note: "#10 FIMI 年終" },
+    { artist: "Adele", title: "Someone like You", note: "#11 FIMI 年終" },
+    { artist: "Maroon 5 ft. Wiz Khalifa", title: "Payphone", note: "#12 FIMI 年終" },
+    { artist: "PSY", title: "Gangnam Style", note: "#13 FIMI 年終" },
+    { artist: "fun. ft. Janelle Monáe", title: "We Are Young", note: "#14 FIMI 年終" },
+    { artist: "Tacabro", title: "Tacatà", note: "#15 FIMI 年終" },
+    { artist: "Modà ft. Jarabe de Palo", title: "Come un pittore", note: "#16 FIMI 年終" },
+    { artist: "Flo Rida", title: "Whistle", note: "#17 FIMI 年終" },
+    { artist: "Train", title: "Drive By", note: "#18 FIMI 年終" },
+    { artist: "Emma", title: "Non è l'inferno", note: "#19 FIMI 年終" },
+    { artist: "Rihanna", title: "Diamonds", note: "#20 FIMI 年終" },
+  ],
+
 };
 
 /** Chart source attribution for 2012 — rendered in the pack page footer. */
 export const SOY_SOURCES_2012: Record<string, { name: string; url: string }> = {
+  'Italy': { name: "FIMI 意大利年終單曲榜", url: "https://www.fimi.it/classifiche.kl#/category:digital" },
+  'Germany': { name: "Media Control 德國年終單曲榜", url: "https://en.wikipedia.org/wiki/List_of_best-selling_singles_by_year_(Germany)" },
   'Taiwan': { name: "中華音樂人交流協會 年度十大單曲", url: "https://zh.wikipedia.org/wiki/中華音樂人交流協會" },
   'Hong Kong': { name: "叱咤樂壇流行榜 專業推介．叱咤十大", url: "https://zh.wikipedia.org/wiki/2012年度叱咤樂壇流行榜頒獎典禮得獎名單" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_2012" },

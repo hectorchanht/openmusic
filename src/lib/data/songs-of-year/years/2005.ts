@@ -39,6 +39,26 @@ export const PACK_META_SOY_2005_TW = {
   country: 'Taiwan'
 } as const;
 
+export const PACK_META_SOY_2005_GE = {
+  id: 'soy-2005-ge',
+  title: '2005 Media Control 德國年終單曲榜',
+  titleEn: 'Germany 2005',
+  description: 'Media Control 德國年終單曲榜',
+  free: true,
+  year: 2005,
+  country: 'Germany'
+} as const;
+
+export const PACK_META_SOY_2005_IT = {
+  id: 'soy-2005-it',
+  title: '2005 FIMI 意大利年終單曲榜',
+  titleEn: 'Italy 2005',
+  description: 'FIMI 意大利年終單曲榜',
+  free: true,
+  year: 2005,
+  country: 'Italy'
+} as const;
+
 export const SOY_2005: Record<string, PackSong[]> = {
   'United States': [
     { artist: "Mariah Carey", title: "We Belong Together", note: "#1 Billboard 年終" },
@@ -221,10 +241,58 @@ export const SOY_2005: Record<string, PackSong[]> = {
     { artist: "陳小霞", title: "暗舞", note: "年度十大單曲 (排名不分先後)" },
   ],
 
+  'Germany': [
+    { artist: "Schnappi", title: "Schnappi, das kleine Krokodil", note: "#1 Media Control 年終" },
+    { artist: "Tokio Hotel", title: "Durch den Monsun", note: "#2 Media Control 年終" },
+    { artist: "Akon", title: "Lonely", note: "#3 Media Control 年終" },
+    { artist: "K.Maro", title: "Femme Like U", note: "#4 Media Control 年終" },
+    { artist: "Söhne Mannheims", title: "Und wenn ein Lied", note: "#5 Media Control 年終" },
+    { artist: "Juanes", title: "La Camisa Negra", note: "#6 Media Control 年終" },
+    { artist: "50 Cent featuring Olivia", title: "Candy Shop", note: "#7 Media Control 年終" },
+    { artist: "Pussycat Dolls featuring Busta Rhymes", title: "Don't Cha", note: "#8 Media Control 年終" },
+    { artist: "Die Firma", title: "Die Eine 2005", note: "#9 Media Control 年終" },
+    { artist: "Ch!pz", title: "Ch!pz in Black", note: "#10 Media Control 年終" },
+    { artist: "Fettes Brot", title: "Emanuela", note: "#11 Media Control 年終" },
+    { artist: "Melanie C", title: "First Day of My Life", note: "#12 Media Control 年終" },
+    { artist: "Linkin Park/Jay-Z", title: "Numb/Encore", note: "#13 Media Control 年終" },
+    { artist: "Nena", title: "Liebe ist", note: "#14 Media Control 年終" },
+    { artist: "Sarah Connor", title: "From Zero to Hero", note: "#15 Media Control 年終" },
+    { artist: "James Blunt", title: "You're Beautiful", note: "#16 Media Control 年終" },
+    { artist: "Robbie Williams", title: "Tripping", note: "#17 Media Control 年終" },
+    { artist: "Madonna", title: "Hung Up", note: "#18 Media Control 年終" },
+    { artist: "Sugababes", title: "Push The Button", note: "#19 Media Control 年終" },
+    { artist: "Joana Zimmer", title: "I Believe (Give a Little Bit...)", note: "#20 Media Control 年終" },
+  ],
+
+  'Italy': [
+    { artist: "Povia", title: "I bambini fanno \"ooh...\"", note: "#1 FIMI 年終" },
+    { artist: "Madonna", title: "Hung Up", note: "#2 FIMI 年終" },
+    { artist: "Sugarfree", title: "Cleptomania", note: "#3 FIMI 年終" },
+    { artist: "Eros Ramazzotti", title: "La nostra vita", note: "#4 FIMI 年終" },
+    { artist: "Elisa", title: "Una poesia anche per te", note: "#5 FIMI 年終" },
+    { artist: "Mattafix", title: "Big City Life", note: "#6 FIMI 年終" },
+    { artist: "Zero Assoluto", title: "Semplicemente", note: "#7 FIMI 年終" },
+    { artist: "Jennifer Lopez", title: "Get Right", note: "#8 FIMI 年終" },
+    { artist: "Nek", title: "Lascia che io sia", note: "#9 FIMI 年終" },
+    { artist: "Depeche Mode", title: "Precious", note: "#10 FIMI 年終" },
+    { artist: "Francesco Renga", title: "Angelo", note: "#11 FIMI 年終" },
+    { artist: "Backstreet Boys", title: "Incomplete", note: "#12 FIMI 年終" },
+    { artist: "Juanes", title: "La camisa negra", note: "#13 FIMI 年終" },
+    { artist: "Gigi D'Alessio", title: "L'amore che non c'è", note: "#14 FIMI 年終" },
+    { artist: "Robbie Williams", title: "Tripping", note: "#15 FIMI 年終" },
+    { artist: "Ben Moody ft. Anastacia", title: "Everything Burns", note: "#16 FIMI 年終" },
+    { artist: "Shakira ft. Alejandro Sanz", title: "La tortura", note: "#17 FIMI 年終" },
+    { artist: "Crazy Frog", title: "Axel F", note: "#18 FIMI 年終" },
+    { artist: "Lee Ryan", title: "Army of Lovers", note: "#19 FIMI 年終" },
+    { artist: "Mario", title: "Let Me Love You", note: "#20 FIMI 年終" },
+  ],
+
 };
 
 /** Chart source attribution for 2005 — rendered in the pack page footer. */
 export const SOY_SOURCES_2005: Record<string, { name: string; url: string }> = {
+  'Italy': { name: "FIMI 意大利年終單曲榜", url: "https://www.fimi.it/classifiche.kl#/category:digital" },
+  'Germany': { name: "Media Control 德國年終單曲榜", url: "https://en.wikipedia.org/wiki/List_of_best-selling_singles_by_year_(Germany)" },
   'Taiwan': { name: "中華音樂人交流協會 年度十大單曲", url: "https://zh.wikipedia.org/wiki/中華音樂人交流協會" },
   'Hong Kong': { name: "叱咤樂壇流行榜 專業推介．叱咤十大", url: "https://zh.wikipedia.org/wiki/2005年度叱咤樂壇流行榜頒獎典禮得獎名單" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_2005" },

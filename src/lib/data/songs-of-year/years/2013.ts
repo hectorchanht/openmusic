@@ -40,6 +40,26 @@ export const PACK_META_SOY_2013_TW = {
   country: 'Taiwan'
 } as const;
 
+export const PACK_META_SOY_2013_GE = {
+  id: 'soy-2013-ge',
+  title: '2013 Media Control 德國年終單曲榜',
+  titleEn: 'Germany 2013',
+  description: 'Media Control 德國年終單曲榜',
+  free: true,
+  year: 2013,
+  country: 'Germany'
+} as const;
+
+export const PACK_META_SOY_2013_IT = {
+  id: 'soy-2013-it',
+  title: '2013 FIMI 意大利年終單曲榜',
+  titleEn: 'Italy 2013',
+  description: 'FIMI 意大利年終單曲榜',
+  free: true,
+  year: 2013,
+  country: 'Italy'
+} as const;
+
 export const SOY_2013: Record<string, PackSong[]> = {
   'United States': [
     { artist: "Macklemore、Ryan Lewis ft. Wanz", title: "Thrift Shop", note: "#1 Billboard 年終" },
@@ -274,10 +294,58 @@ export const SOY_2013: Record<string, PackSong[]> = {
     { artist: "曲婉婷", title: "我為你歌唱", note: "年度十大單曲 (排名不分先後)" },
   ],
 
+  'Germany': [
+    { artist: "Avicii featuring Aloe Blacc", title: "Wake Me Up", note: "#1 Media Control 年終" },
+    { artist: "Robin Thicke featuring T.I. and Pharrell Williams", title: "Blurred Lines", note: "#2 Media Control 年終" },
+    { artist: "will.i.am featuring Britney Spears", title: "Scream & Shout", note: "#3 Media Control 年終" },
+    { artist: "Daft Punk featuring Pharrell Williams", title: "Get Lucky", note: "#4 Media Control 年終" },
+    { artist: "Passenger", title: "Let Her Go", note: "#5 Media Control 年終" },
+    { artist: "Macklemore & Ryan Lewis featuring Ray Dalton", title: "Can't Hold Us", note: "#6 Media Control 年終" },
+    { artist: "Macklemore & Ryan Lewis featuring Wanz", title: "Thrift Shop", note: "#7 Media Control 年終" },
+    { artist: "Capital Cities", title: "Safe and Sound", note: "#8 Media Control 年終" },
+    { artist: "Imagine Dragons", title: "Radioactive", note: "#9 Media Control 年終" },
+    { artist: "Naughty Boy featuring Sam Smith", title: "La La La", note: "#10 Media Control 年終" },
+    { artist: "James Arthur", title: "Impossible", note: "#11 Media Control 年終" },
+    { artist: "Pink featuring Nate Ruess", title: "Just Give Me a Reason", note: "#12 Media Control 年終" },
+    { artist: "Klingande", title: "Jubel", note: "#13 Media Control 年終" },
+    { artist: "The Script featuring will.i.am", title: "Hall of Fame", note: "#14 Media Control 年終" },
+    { artist: "Sido", title: "Bilder im Kopf", note: "#15 Media Control 年終" },
+    { artist: "Justin Timberlake", title: "Mirrors", note: "#16 Media Control 年終" },
+    { artist: "Sportfreunde Stiller", title: "Applaus, Applaus", note: "#17 Media Control 年終" },
+    { artist: "Avicii featuring Dan Tyminski", title: "Hey Brother", note: "#18 Media Control 年終" },
+    { artist: "Icona Pop featuring Charli XCX", title: "I Love It", note: "#19 Media Control 年終" },
+    { artist: "Olly Murs", title: "Dear Darlin'", note: "#20 Media Control 年終" },
+  ],
+
+  'Italy': [
+    { artist: "Daft Punk ft. Pharrell Williams、Nile Rodgers", title: "Get Lucky", note: "#1 FIMI 年終" },
+    { artist: "Avicii", title: "Wake Me Up", note: "#2 FIMI 年終" },
+    { artist: "Marco Mengoni", title: "L'essenziale", note: "#3 FIMI 年終" },
+    { artist: "Robin Thicke ft. T.I.、Pharrell Williams", title: "Blurred Lines", note: "#4 FIMI 年終" },
+    { artist: "P!nk ft. Nate Ruess", title: "Just Give Me a Reason", note: "#5 FIMI 年終" },
+    { artist: "will.i.am ft. Britney Spears", title: "Scream & Shout", note: "#6 FIMI 年終" },
+    { artist: "Lykke Li", title: "I Follow Rivers", note: "#7 FIMI 年終" },
+    { artist: "Imany", title: "You Will Never Know", note: "#8 FIMI 年終" },
+    { artist: "David Guetta ft. Ne-Yo、Akon", title: "Play Hard", note: "#9 FIMI 年終" },
+    { artist: "Bastille", title: "Pompeii", note: "#10 FIMI 年終" },
+    { artist: "Ola", title: "I'm in Love", note: "#11 FIMI 年終" },
+    { artist: "Macklemore、Ryan Lewis ft. Wanz", title: "Thrift Shop", note: "#12 FIMI 年終" },
+    { artist: "Icona Pop ft. Charli XCX", title: "I Love It", note: "#13 FIMI 年終" },
+    { artist: "P!nk", title: "Try", note: "#14 FIMI 年終" },
+    { artist: "Jutty Ranx", title: "I See You", note: "#15 FIMI 年終" },
+    { artist: "Wankelmut、Emma Louise", title: "My Head Is A Jungle", note: "#16 FIMI 年終" },
+    { artist: "Mika、Chiara Galiazzo", title: "Stardust", note: "#17 FIMI 年終" },
+    { artist: "John Newman", title: "Love Me Again", note: "#18 FIMI 年終" },
+    { artist: "Max Gazzè", title: "Sotto casa", note: "#19 FIMI 年終" },
+    { artist: "Passenger", title: "Let Her Go", note: "#20 FIMI 年終" },
+  ],
+
 };
 
 /** Chart source attribution for 2013 — rendered in the pack page footer. */
 export const SOY_SOURCES_2013: Record<string, { name: string; url: string }> = {
+  'Italy': { name: "FIMI 意大利年終單曲榜", url: "https://www.fimi.it/classifiche.kl#/category:digital" },
+  'Germany': { name: "Media Control 德國年終單曲榜", url: "https://en.wikipedia.org/wiki/List_of_best-selling_singles_by_year_(Germany)" },
   'Taiwan': { name: "中華音樂人交流協會 年度十大單曲", url: "https://zh.wikipedia.org/wiki/中華音樂人交流協會" },
   'Hong Kong': { name: "叱咤樂壇流行榜 專業推介．叱咤十大", url: "https://zh.wikipedia.org/wiki/2013年度叱咤樂壇流行榜頒獎典禮得獎名單" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_2013" },

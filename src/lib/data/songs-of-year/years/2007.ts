@@ -39,6 +39,26 @@ export const PACK_META_SOY_2007_TW = {
   country: 'Taiwan'
 } as const;
 
+export const PACK_META_SOY_2007_GE = {
+  id: 'soy-2007-ge',
+  title: '2007 Media Control 德國年終單曲榜',
+  titleEn: 'Germany 2007',
+  description: 'Media Control 德國年終單曲榜',
+  free: true,
+  year: 2007,
+  country: 'Germany'
+} as const;
+
+export const PACK_META_SOY_2007_IT = {
+  id: 'soy-2007-it',
+  title: '2007 FIMI 意大利年終單曲榜',
+  titleEn: 'Italy 2007',
+  description: 'FIMI 意大利年終單曲榜',
+  free: true,
+  year: 2007,
+  country: 'Italy'
+} as const;
+
 export const SOY_2007: Record<string, PackSong[]> = {
   'United States': [
     { artist: "Beyoncé", title: "Irreplaceable", note: "#1 Billboard 年終" },
@@ -221,10 +241,58 @@ export const SOY_2007: Record<string, PackSong[]> = {
     { artist: "方大同", title: "Love Song", note: "年度十大單曲 (排名不分先後)" },
   ],
 
+  'Germany': [
+    { artist: "DJ Ötzi & Nik P.", title: "Ein Stern (...der deinen Namen trägt)", note: "#1 Media Control 年終" },
+    { artist: "Nelly Furtado", title: "All Good Things (Come to an End)", note: "#2 Media Control 年終" },
+    { artist: "Nelly Furtado", title: "Say It Right", note: "#3 Media Control 年終" },
+    { artist: "Ville Valo & Natalia Avelon", title: "Summer Wine", note: "#4 Media Control 年終" },
+    { artist: "Rihanna featuring Jay-Z", title: "Umbrella", note: "#5 Media Control 年終" },
+    { artist: "Ich + Ich", title: "Vom selben Stern", note: "#6 Media Control 年終" },
+    { artist: "Mark Medlock", title: "Now or Never", note: "#7 Media Control 年終" },
+    { artist: "Mark Medlock/Dieter Bohlen", title: "You Can Get It", note: "#8 Media Control 年終" },
+    { artist: "Monrose", title: "Shame", note: "#9 Media Control 年終" },
+    { artist: "Culcha Candela", title: "Hamma!", note: "#10 Media Control 年終" },
+    { artist: "Marquess", title: "Vayamos Compañeros", note: "#11 Media Control 年終" },
+    { artist: "Rihanna", title: "Don't Stop the Music", note: "#12 Media Control 年終" },
+    { artist: "Pink", title: "Dear Mr. President", note: "#13 Media Control 年終" },
+    { artist: "Timbaland featuring Nelly Furtado and Justin Timberlake", title: "Give It to Me", note: "#14 Media Control 年終" },
+    { artist: "Monrose", title: "Hot Summer", note: "#15 Media Control 年終" },
+    { artist: "Timbaland featuring Keri Hilson", title: "The Way I Are", note: "#16 Media Control 年終" },
+    { artist: "James Blunt", title: "1973", note: "#17 Media Control 年終" },
+    { artist: "Sunrise Avenue", title: "Fairytale Gone Bad", note: "#18 Media Control 年終" },
+    { artist: "Silbermond", title: "Das Beste", note: "#19 Media Control 年終" },
+    { artist: "Azad featuring Adel Tawil", title: "Prison Break Anthem (Ich glaub' an dich)", note: "#20 Media Control 年終" },
+  ],
+
+  'Italy': [
+    { artist: "Vasco Rossi", title: "Vasco Extended Play", note: "#1 FIMI 年終" },
+    { artist: "Eros Ramazzotti、Ricky Martin", title: "Non siamo soli", note: "#2 FIMI 年終" },
+    { artist: "Vasco Rossi", title: "The Singles Collection", note: "#3 FIMI 年終" },
+    { artist: "Beyoncé、Shakira", title: "Beautiful Liar", note: "#4 FIMI 年終" },
+    { artist: "Mika", title: "Grace Kelly", note: "#5 FIMI 年終" },
+    { artist: "Paolo Meneguzzi", title: "Musica", note: "#6 FIMI 年終" },
+    { artist: "Mika", title: "Relax, Take It Easy", note: "#7 FIMI 年終" },
+    { artist: "Jennifer Lopez", title: "Qué hiciste", note: "#8 FIMI 年終" },
+    { artist: "Fabrizio Moro", title: "Pensa", note: "#9 FIMI 年終" },
+    { artist: "Avril Lavigne", title: "Girlfriend", note: "#10 FIMI 年終" },
+    { artist: "Rihanna ft. Jay-Z", title: "Umbrella", note: "#11 FIMI 年終" },
+    { artist: "Daniele Silvestri", title: "La paranza", note: "#12 FIMI 年終" },
+    { artist: "U2", title: "Window in the Skies", note: "#13 FIMI 年終" },
+    { artist: "Simone Cristicchi", title: "Ti regalerò una rosa", note: "#14 FIMI 年終" },
+    { artist: "Negramaro", title: "Parlami d'amore", note: "#15 FIMI 年終" },
+    { artist: "Tiziano Ferro", title: "Ti scatterò una foto", note: "#16 FIMI 年終" },
+    { artist: "Michael Bublé", title: "Everything", note: "#17 FIMI 年終" },
+    { artist: "Mattafix", title: "Living Darfur", note: "#18 FIMI 年終" },
+    { artist: "Daniele Battaglia、Brenda", title: "Vorrei dirti che è facile", note: "#19 FIMI 年終" },
+    { artist: "Irene Grandi", title: "Bruci la città", note: "#20 FIMI 年終" },
+  ],
+
 };
 
 /** Chart source attribution for 2007 — rendered in the pack page footer. */
 export const SOY_SOURCES_2007: Record<string, { name: string; url: string }> = {
+  'Italy': { name: "FIMI 意大利年終單曲榜", url: "https://www.fimi.it/classifiche.kl#/category:digital" },
+  'Germany': { name: "Media Control 德國年終單曲榜", url: "https://en.wikipedia.org/wiki/List_of_best-selling_singles_by_year_(Germany)" },
   'Taiwan': { name: "中華音樂人交流協會 年度十大單曲", url: "https://zh.wikipedia.org/wiki/中華音樂人交流協會" },
   'Hong Kong': { name: "叱咤樂壇流行榜 專業推介．叱咤十大", url: "https://zh.wikipedia.org/wiki/2007年度叱咤樂壇流行榜頒獎典禮得獎名單" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_2007" },

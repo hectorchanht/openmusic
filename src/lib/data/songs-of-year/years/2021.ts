@@ -42,6 +42,26 @@ export const PACK_META_SOY_2021_TW = {
   country: 'Taiwan'
 } as const;
 
+export const PACK_META_SOY_2021_FR = {
+  id: 'soy-2021-fr',
+  title: '2021 SNEP 法國年終單曲榜',
+  titleEn: 'France 2021',
+  description: 'SNEP 法國年終單曲榜',
+  free: true,
+  year: 2021,
+  country: 'France'
+} as const;
+
+export const PACK_META_SOY_2021_IT = {
+  id: 'soy-2021-it',
+  title: '2021 FIMI 意大利年終單曲榜',
+  titleEn: 'Italy 2021',
+  description: 'FIMI 意大利年終單曲榜',
+  free: true,
+  year: 2021,
+  country: 'Italy'
+} as const;
+
 export const SOY_2021: Record<string, PackSong[]> = {
   'United States': [
     { artist: "Dua Lipa", title: "Levitating", note: "#1 Billboard 年終" },
@@ -380,10 +400,58 @@ export const SOY_2021: Record<string, PackSong[]> = {
     { artist: "羅思容與孤毛頭樂團", title: "測量", note: "年度十大單曲 (排名不分先後)" },
   ],
 
+  'France': [
+    { artist: "Naps", title: "style=\"text-align:left\" |La Kiffance", note: "#1 SNEP 年終" },
+    { artist: "Soso Maness featuring PLK", title: "style=\"text-align:left\" |Petrouchka", note: "#2 SNEP 年終" },
+    { artist: "Oboy", title: "style=\"text-align:left\" |TDB", note: "#3 SNEP 年終" },
+    { artist: "Kofs, Soso Maness, Elams, Jul, SCH, Naps, Solda, Houari", title: "style=\"text-align:left\" |Bande organisée", note: "#4 SNEP 年終" },
+    { artist: "Lil Nas X", title: "style=\"text-align:left\" |Montero (Call Me by Your Name)", note: "#5 SNEP 年終" },
+    { artist: "The Weeknd", title: "style=\"text-align:left\" |Save Your Tears", note: "#6 SNEP 年終" },
+    { artist: "Tayc", title: "style=\"text-align:left\" |Le Temps", note: "#7 SNEP 年終" },
+    { artist: "Dua Lipa、Angèle", title: "style=\"text-align:left\" |Fever", note: "#8 SNEP 年終" },
+    { artist: "Alonzo featuring Jul、Naps", title: "style=\"text-align:left\" |La Seleçao", note: "#9 SNEP 年終" },
+    { artist: "Booba featuring JSX", title: "style=\"text-align:left\" |Mona Lisa", note: "#10 SNEP 年終" },
+    { artist: "CKay featuring Joeboy、Kuami Eugene", title: "style=\"text-align:left\" |Love Nwantiti", note: "#11 SNEP 年終" },
+    { artist: "Gazo", title: "style=\"text-align:left\" |Haine&Sex", note: "#12 SNEP 年終" },
+    { artist: "Koba LaD featuring Gazo", title: "style=\"text-align:left\" |Daddy Chocolat", note: "#13 SNEP 年終" },
+    { artist: "Ed Sheeran", title: "style=\"text-align:left\" |Bad Habits", note: "#14 SNEP 年終" },
+    { artist: "The Weeknd", title: "style=\"text-align:left\" |Blinding Lights", note: "#15 SNEP 年終" },
+    { artist: "Moha K", title: "style=\"text-align:left\" |Vroum Vroum", note: "#16 SNEP 年終" },
+    { artist: "The Kid Laroi、Justin Bieber", title: "style=\"text-align:left\" |Stay", note: "#17 SNEP 年終" },
+    { artist: "Kore、Ninho", title: "style=\"text-align:left\" |Mon Poto", note: "#18 SNEP 年終" },
+    { artist: "Therapie Taxi", title: "style=\"text-align:left\" |Été 90", note: "#19 SNEP 年終" },
+    { artist: "Dua Lipa featuring DaBaby", title: "style=\"text-align:left\" |Levitating", note: "#20 SNEP 年終" },
+  ],
+
+  'Italy': [
+    { artist: "Sangiovanni", title: "Malibu", note: "#1 FIMI 年終" },
+    { artist: "Blanco、Sfera Ebbasta", title: "Mi fai impazzire", note: "#2 FIMI 年終" },
+    { artist: "Fedez, Achille Lauro、Orietta Berti", title: "Mille", note: "#3 FIMI 年終" },
+    { artist: "Måneskin", title: "Zitti e buoni", note: "#4 FIMI 年終" },
+    { artist: "Mace, Blanco、Salmo", title: "La canzone nostra", note: "#5 FIMI 年終" },
+    { artist: "Blanco", title: "Notti in bianco", note: "#6 FIMI 年終" },
+    { artist: "Colapesce Dimartino", title: "Musica leggerissima", note: "#7 FIMI 年終" },
+    { artist: "Rkomi, Sfera Ebbasta、Junior K", title: "Nuovo Range", note: "#8 FIMI 年終" },
+    { artist: "Sangiovanni", title: "Lady", note: "#9 FIMI 年終" },
+    { artist: "Madame", title: "Voce", note: "#10 FIMI 年終" },
+    { artist: "Rkomi", title: "Partire da te", note: "#11 FIMI 年終" },
+    { artist: "Rocco Hunt、Ana Mena", title: "Un bacio all'improvviso", note: "#12 FIMI 年終" },
+    { artist: "Fred De Palma", title: "Ti raggiungerò", note: "#13 FIMI 年終" },
+    { artist: "AKA 7even", title: "Loca", note: "#14 FIMI 年終" },
+    { artist: "Blanco", title: "Paraocchi", note: "#15 FIMI 年終" },
+    { artist: "Måneskin", title: "I Wanna Be Your Slave", note: "#16 FIMI 年終" },
+    { artist: "Elettra Lamborghini", title: "Pistolero", note: "#17 FIMI 年終" },
+    { artist: "Noemi、Carl Brave", title: "Makumba", note: "#18 FIMI 年終" },
+    { artist: "Pinguini Tattici Nucleari", title: "Scrivile scemo", note: "#19 FIMI 年終" },
+    { artist: "Irama", title: "La genesi del tuo colore", note: "#20 FIMI 年終" },
+  ],
+
 };
 
 /** Chart source attribution for 2021 — rendered in the pack page footer. */
 export const SOY_SOURCES_2021: Record<string, { name: string; url: string }> = {
+  'Italy': { name: "FIMI 意大利年終單曲榜", url: "https://www.fimi.it/classifiche.kl#/category:digital" },
+  'France': { name: "SNEP 法國年終單曲榜", url: "https://www.snepmusique.com/les-tops/le-top-de-lannee/top-singles-annee/" },
   'Taiwan': { name: "中華音樂人交流協會 年度十大單曲", url: "https://zh.wikipedia.org/wiki/中華音樂人交流協會" },
   'Hong Kong': { name: "叱咤樂壇流行榜 專業推介．叱咤十大", url: "https://zh.wikipedia.org/wiki/2021年度叱咤樂壇流行榜頒獎典禮得獎名單" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_2021" },

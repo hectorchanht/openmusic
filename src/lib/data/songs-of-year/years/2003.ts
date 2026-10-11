@@ -39,6 +39,26 @@ export const PACK_META_SOY_2003_TW = {
   country: 'Taiwan'
 } as const;
 
+export const PACK_META_SOY_2003_GE = {
+  id: 'soy-2003-ge',
+  title: '2003 Media Control 德國年終單曲榜',
+  titleEn: 'Germany 2003',
+  description: 'Media Control 德國年終單曲榜',
+  free: true,
+  year: 2003,
+  country: 'Germany'
+} as const;
+
+export const PACK_META_SOY_2003_IT = {
+  id: 'soy-2003-it',
+  title: '2003 FIMI 意大利年終單曲榜',
+  titleEn: 'Italy 2003',
+  description: 'FIMI 意大利年終單曲榜',
+  free: true,
+  year: 2003,
+  country: 'Italy'
+} as const;
+
 export const SOY_2003: Record<string, PackSong[]> = {
   'United States': [
     { artist: "50 Cent", title: "In da Club", note: "#1 Billboard 年終" },
@@ -221,10 +241,58 @@ export const SOY_2003: Record<string, PackSong[]> = {
     { artist: "阿弟仔", title: "平衡", note: "年度十大單曲 (排名不分先後)" },
   ],
 
+  'Germany': [
+    { artist: "Deutschland sucht den Superstar", title: "We Have a Dream", note: "#1 Media Control 年終" },
+    { artist: "Alexander Klaws", title: "Take Me Tonight", note: "#2 Media Control 年終" },
+    { artist: "Yvonne Catterfeld", title: "Für dich", note: "#3 Media Control 年終" },
+    { artist: "RZA featuring Xavier Naidoo", title: "Ich kenne nichts (das so schön ist wie du)", note: "#4 Media Control 年終" },
+    { artist: "t.A.T.u.", title: "All The Things She Said", note: "#5 Media Control 年終" },
+    { artist: "Eminem", title: "Lose Yourself", note: "#6 Media Control 年終" },
+    { artist: "Outlandish", title: "Aïcha", note: "#7 Media Control 年終" },
+    { artist: "The Black Eyed Peas", title: "Where Is The Love?", note: "#8 Media Control 年終" },
+    { artist: "Lumidee featuring Busta Rhymes & Fabolous", title: "Never Leave You (Uh Oooh, Uh Oooh)", note: "#9 Media Control 年終" },
+    { artist: "The Rasmus", title: "In The Shadows", note: "#10 Media Control 年終" },
+    { artist: "Evanescence", title: "Bring Me To Life", note: "#11 Media Control 年終" },
+    { artist: "Dido", title: "White Flag", note: "#12 Media Control 年終" },
+    { artist: "Robbie Williams", title: "Feel", note: "#13 Media Control 年終" },
+    { artist: "Alexander Klaws", title: "Free Like the Wind", note: "#14 Media Control 年終" },
+    { artist: "Sean Paul", title: "Get Busy", note: "#15 Media Control 年終" },
+    { artist: "Daniel Küblböck", title: "You Drive Me Crazy", note: "#16 Media Control 年終" },
+    { artist: "50 Cent", title: "In Da Club", note: "#17 Media Control 年終" },
+    { artist: "Wolfsheim", title: "Kein Zurück", note: "#18 Media Control 年終" },
+    { artist: "Las Kanzler/Die Gerd Show", title: "Der Steuersong", note: "#19 Media Control 年終" },
+    { artist: "Shania Twain", title: "Ka-Ching!", note: "#20 Media Control 年終" },
+  ],
+
+  'Italy': [
+    { artist: "Giorgia", title: "Gocce di memoria", note: "#1 FIMI 年終" },
+    { artist: "Aventura", title: "Obsesión", note: "#2 FIMI 年終" },
+    { artist: "Evanescence", title: "Bring Me to Life", note: "#3 FIMI 年終" },
+    { artist: "Sean Paul", title: "Get Busy", note: "#4 FIMI 年終" },
+    { artist: "Le Vibrazioni", title: "Dedicato a te", note: "#5 FIMI 年終" },
+    { artist: "Elisa", title: "Almeno tu nell'universo", note: "#6 FIMI 年終" },
+    { artist: "Eminem", title: "Lose Yourself", note: "#7 FIMI 年終" },
+    { artist: "Eros Ramazzotti", title: "Un'emozione per sempre", note: "#8 FIMI 年終" },
+    { artist: "Dido", title: "White Flag", note: "#9 FIMI 年終" },
+    { artist: "Panjabi MC", title: "Mundian To Bach Ke", note: "#10 FIMI 年終" },
+    { artist: "Will Young", title: "Light My Fire", note: "#11 FIMI 年終" },
+    { artist: "DJ BoBo", title: "Chihuahua", note: "#12 FIMI 年終" },
+    { artist: "Black Eyed Peas", title: "Where Is the Love?", note: "#13 FIMI 年終" },
+    { artist: "Robbie Williams", title: "Feel", note: "#14 FIMI 年終" },
+    { artist: "DJ Francesco", title: "La canzone del capitano", note: "#15 FIMI 年終" },
+    { artist: "Andrea Cardillo", title: "Ma dai", note: "#16 FIMI 年終" },
+    { artist: "Simply Red", title: "Sunrise", note: "#17 FIMI 年終" },
+    { artist: "Madonna", title: "American Life", note: "#18 FIMI 年終" },
+    { artist: "Lumidee", title: "Never Leave You (Uh Oooh, Uh Oooh)", note: "#19 FIMI 年終" },
+    { artist: "Busta Rhymes、Mariah Carey", title: "I Know What You Want", note: "#20 FIMI 年終" },
+  ],
+
 };
 
 /** Chart source attribution for 2003 — rendered in the pack page footer. */
 export const SOY_SOURCES_2003: Record<string, { name: string; url: string }> = {
+  'Italy': { name: "FIMI 意大利年終單曲榜", url: "https://www.fimi.it/classifiche.kl#/category:digital" },
+  'Germany': { name: "Media Control 德國年終單曲榜", url: "https://en.wikipedia.org/wiki/List_of_best-selling_singles_by_year_(Germany)" },
   'Taiwan': { name: "中華音樂人交流協會 年度十大單曲", url: "https://zh.wikipedia.org/wiki/中華音樂人交流協會" },
   'Hong Kong': { name: "叱咤樂壇流行榜 專業推介．叱咤十大", url: "https://zh.wikipedia.org/wiki/2003年度叱咤樂壇流行榜頒獎典禮得獎名單" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_2003" },

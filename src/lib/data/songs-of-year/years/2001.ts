@@ -39,6 +39,16 @@ export const PACK_META_SOY_2001_TW = {
   country: 'Taiwan'
 } as const;
 
+export const PACK_META_SOY_2001_GE = {
+  id: 'soy-2001-ge',
+  title: '2001 Media Control 德國年終單曲榜',
+  titleEn: 'Germany 2001',
+  description: 'Media Control 德國年終單曲榜',
+  free: true,
+  year: 2001,
+  country: 'Germany'
+} as const;
+
 export const SOY_2001: Record<string, PackSong[]> = {
   'United States': [
     { artist: "Lifehouse", title: "Hanging by a Moment", note: "#1 Billboard 年終" },
@@ -221,10 +231,34 @@ export const SOY_2001: Record<string, PackSong[]> = {
     { artist: "林憶蓮", title: "紙飛機", note: "年度十大單曲 (排名不分先後)" },
   ],
 
+  'Germany': [
+    { artist: "No Angels", title: "Daylight in Your Eyes", note: "#1 Media Control 年終" },
+    { artist: "Enya", title: "Only Time", note: "#2 Media Control 年終" },
+    { artist: "Kylie Minogue", title: "Can't Get You Out of My Head", note: "#3 Media Control 年終" },
+    { artist: "Crazy Town", title: "Butterfly", note: "#4 Media Control 年終" },
+    { artist: "Atomic Kitten", title: "Whole Again", note: "#5 Media Control 年終" },
+    { artist: "Shaggy featuring Rayvon", title: "Angel", note: "#6 Media Control 年終" },
+    { artist: "Safri Duo", title: "Played-A-Live (The Bongo Song)", note: "#7 Media Control 年終" },
+    { artist: "Outkast", title: "Ms. Jackson", note: "#8 Media Control 年終" },
+    { artist: "Uncle Kracker", title: "Follow Me", note: "#9 Media Control 年終" },
+    { artist: "Gorillaz", title: "Clint Eastwood", note: "#10 Media Control 年終" },
+    { artist: "Eminem featuring Dido", title: "Stan", note: "#11 Media Control 年終" },
+    { artist: "Alicia Keys", title: "Fallin'", note: "#12 Media Control 年終" },
+    { artist: "Bro'Sis", title: "I Believe", note: "#13 Media Control 年終" },
+    { artist: "Dante Thomas featuring Pras", title: "Miss California", note: "#14 Media Control 年終" },
+    { artist: "Christina Aguilera, Lil' Kim, Mýa, Pink & Missy Elliott", title: "Lady Marmalade", note: "#15 Media Control 年終" },
+    { artist: "Wheatus", title: "Teenage Dirtbag", note: "#16 Media Control 年終" },
+    { artist: "Sarah Connor", title: "From Sarah with Love", note: "#17 Media Control 年終" },
+    { artist: "Shaggy featuring RikRok", title: "It Wasn't Me", note: "#18 Media Control 年終" },
+    { artist: "Gigi D'Agostino", title: "La Passion", note: "#19 Media Control 年終" },
+    { artist: "Sylver", title: "Turn The Tide", note: "#20 Media Control 年終" },
+  ],
+
 };
 
 /** Chart source attribution for 2001 — rendered in the pack page footer. */
 export const SOY_SOURCES_2001: Record<string, { name: string; url: string }> = {
+  'Germany': { name: "Media Control 德國年終單曲榜", url: "https://en.wikipedia.org/wiki/List_of_best-selling_singles_by_year_(Germany)" },
   'Taiwan': { name: "中華音樂人交流協會 年度十大單曲", url: "https://zh.wikipedia.org/wiki/中華音樂人交流協會" },
   'Hong Kong': { name: "叱咤樂壇流行榜 專業推介．叱咤十大", url: "https://zh.wikipedia.org/wiki/2001年度叱咤樂壇流行榜頒獎典禮得獎名單" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_2001" },

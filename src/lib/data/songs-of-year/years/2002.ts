@@ -39,6 +39,26 @@ export const PACK_META_SOY_2002_TW = {
   country: 'Taiwan'
 } as const;
 
+export const PACK_META_SOY_2002_GE = {
+  id: 'soy-2002-ge',
+  title: '2002 Media Control 德國年終單曲榜',
+  titleEn: 'Germany 2002',
+  description: 'Media Control 德國年終單曲榜',
+  free: true,
+  year: 2002,
+  country: 'Germany'
+} as const;
+
+export const PACK_META_SOY_2002_IT = {
+  id: 'soy-2002-it',
+  title: '2002 FIMI 意大利年終單曲榜',
+  titleEn: 'Italy 2002',
+  description: 'FIMI 意大利年終單曲榜',
+  free: true,
+  year: 2002,
+  country: 'Italy'
+} as const;
+
 export const SOY_2002: Record<string, PackSong[]> = {
   'United States': [
     { artist: "Nickelback", title: "How You Remind Me", note: "#1 Billboard 年終" },
@@ -221,10 +241,58 @@ export const SOY_2002: Record<string, PackSong[]> = {
     { artist: "萬芳", title: "自己照顧自己", note: "年度十大單曲 (排名不分先後)" },
   ],
 
+  'Germany': [
+    { artist: "Las Ketchup", title: "The Ketchup Song (Aserejé)", note: "#1 Media Control 年終" },
+    { artist: "Shakira", title: "Whenever, Wherever", note: "#2 Media Control 年終" },
+    { artist: "Herbert Grönemeyer", title: "Mensch", note: "#3 Media Control 年終" },
+    { artist: "Eminem", title: "Without Me", note: "#4 Media Control 年終" },
+    { artist: "Las Kanzler/Die Gerd-Show", title: "Der Steuersong", note: "#5 Media Control 年終" },
+    { artist: "Ben featuring Gim", title: "Engel", note: "#6 Media Control 年終" },
+    { artist: "Tiziano Ferro", title: "Perdono", note: "#7 Media Control 年終" },
+    { artist: "Shakira", title: "Underneath Your Clothes", note: "#8 Media Control 年終" },
+    { artist: "B3", title: "I.O.I.O.", note: "#9 Media Control 年終" },
+    { artist: "Wonderwall", title: "Just More", note: "#10 Media Control 年終" },
+    { artist: "No Angels", title: "Something About Us", note: "#11 Media Control 年終" },
+    { artist: "Bro'Sis", title: "I Believe", note: "#12 Media Control 年終" },
+    { artist: "Nickelback", title: "How You Remind Me", note: "#13 Media Control 年終" },
+    { artist: "Ozzy Osbourne", title: "Dreamer", note: "#14 Media Control 年終" },
+    { artist: "Nelly featuring Kelly Rowland", title: "Dilemma", note: "#15 Media Control 年終" },
+    { artist: "Pink", title: "Get The Party Started", note: "#16 Media Control 年終" },
+    { artist: "Mad'House", title: "Like A Prayer", note: "#17 Media Control 年終" },
+    { artist: "Scooter", title: "Nessaja", note: "#18 Media Control 年終" },
+    { artist: "Groove Coverage", title: "Moonlight Shadow", note: "#19 Media Control 年終" },
+    { artist: "Robbie Williams & Nicole Kidman", title: "Somethin' Stupid", note: "#20 Media Control 年終" },
+  ],
+
+  'Italy': [
+    { artist: "Las Ketchup", title: "Aserejé", note: "#1 FIMI 年終" },
+    { artist: "Shakira", title: "Whenever, Wherever", note: "#2 FIMI 年終" },
+    { artist: "t.A.T.u.", title: "All the Things She Said", note: "#3 FIMI 年終" },
+    { artist: "Avril Lavigne", title: "Complicated", note: "#4 FIMI 年終" },
+    { artist: "Ligabue", title: "Questa è la mia vita", note: "#5 FIMI 年終" },
+    { artist: "Alizée", title: "Moi... Lolita", note: "#6 FIMI 年終" },
+    { artist: "Madonna", title: "Die Another Day", note: "#7 FIMI 年終" },
+    { artist: "Noir Désir", title: "Le vent nous portera", note: "#8 FIMI 年終" },
+    { artist: "The Calling", title: "Wherever You Will Go", note: "#9 FIMI 年終" },
+    { artist: "U2", title: "Electrical Storm", note: "#10 FIMI 年終" },
+    { artist: "Tiromancino", title: "Per me è importante", note: "#11 FIMI 年終" },
+    { artist: "Eminem", title: "Without Me", note: "#12 FIMI 年終" },
+    { artist: "Red Hot Chili Peppers", title: "By the Way", note: "#13 FIMI 年終" },
+    { artist: "Linus", title: "Accetta il consiglio", note: "#14 FIMI 年終" },
+    { artist: "Holly Valance", title: "Kiss Kiss", note: "#15 FIMI 年終" },
+    { artist: "Marylin Manson", title: "Tainted Love", note: "#16 FIMI 年終" },
+    { artist: "Robbie Williams、Nicole Kidman", title: "Somethin' Stupid", note: "#17 FIMI 年終" },
+    { artist: "Elvis Presley、Junkie XL", title: "A Little Less Conversation", note: "#18 FIMI 年終" },
+    { artist: "George Michael", title: "Freeek!", note: "#19 FIMI 年終" },
+    { artist: "Nek", title: "Sei solo tu", note: "#20 FIMI 年終" },
+  ],
+
 };
 
 /** Chart source attribution for 2002 — rendered in the pack page footer. */
 export const SOY_SOURCES_2002: Record<string, { name: string; url: string }> = {
+  'Italy': { name: "FIMI 意大利年終單曲榜", url: "https://www.fimi.it/classifiche.kl#/category:digital" },
+  'Germany': { name: "Media Control 德國年終單曲榜", url: "https://en.wikipedia.org/wiki/List_of_best-selling_singles_by_year_(Germany)" },
   'Taiwan': { name: "中華音樂人交流協會 年度十大單曲", url: "https://zh.wikipedia.org/wiki/中華音樂人交流協會" },
   'Hong Kong': { name: "叱咤樂壇流行榜 專業推介．叱咤十大", url: "https://zh.wikipedia.org/wiki/2002年度叱咤樂壇流行榜頒獎典禮得獎名單" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_2002" },

@@ -39,6 +39,26 @@ export const PACK_META_SOY_2004_TW = {
   country: 'Taiwan'
 } as const;
 
+export const PACK_META_SOY_2004_GE = {
+  id: 'soy-2004-ge',
+  title: '2004 Media Control 德國年終單曲榜',
+  titleEn: 'Germany 2004',
+  description: 'Media Control 德國年終單曲榜',
+  free: true,
+  year: 2004,
+  country: 'Germany'
+} as const;
+
+export const PACK_META_SOY_2004_IT = {
+  id: 'soy-2004-it',
+  title: '2004 FIMI 意大利年終單曲榜',
+  titleEn: 'Italy 2004',
+  description: 'FIMI 意大利年終單曲榜',
+  free: true,
+  year: 2004,
+  country: 'Italy'
+} as const;
+
 export const SOY_2004: Record<string, PackSong[]> = {
   'United States': [
     { artist: "Usher ft. Lil Jon、Ludacris", title: "Yeah!", note: "#1 Billboard 年終" },
@@ -221,10 +241,58 @@ export const SOY_2004: Record<string, PackSong[]> = {
     { artist: "王力宏", title: "心中的日月", note: "年度十大單曲 (排名不分先後)" },
   ],
 
+  'Germany': [
+    { artist: "O-Zone", title: "Dragostea Din Tei", note: "#1 Media Control 年終" },
+    { artist: "De Randfichten", title: "Lebt denn dr alte Holzmichl noch?", note: "#2 Media Control 年終" },
+    { artist: "Usher featuring Ludacris & Lil Jon", title: "Yeah!", note: "#3 Media Control 年終" },
+    { artist: "Eamon", title: "Fuck It (I Don't Want You Back)", note: "#4 Media Control 年終" },
+    { artist: "Max Mutzke", title: "Can't Wait Until Tonight", note: "#5 Media Control 年終" },
+    { artist: "The Black Eyed Peas", title: "Shut Up!", note: "#6 Media Control 年終" },
+    { artist: "Oomph!", title: "Augen auf!", note: "#7 Media Control 年終" },
+    { artist: "Aventura", title: "Obsesión", note: "#8 Media Control 年終" },
+    { artist: "Haiducii", title: "Dragostea Din Tei", note: "#9 Media Control 年終" },
+    { artist: "Mario Winans featuring Enya & P. Diddy", title: "I Don't Wanna Know", note: "#10 Media Control 年終" },
+    { artist: "Juli", title: "Perfekte Welle", note: "#11 Media Control 年終" },
+    { artist: "Eric Prydz", title: "Call On Me", note: "#12 Media Control 年終" },
+    { artist: "Anastacia", title: "Sick and Tired", note: "#13 Media Control 年終" },
+    { artist: "Michael Andrews featuring Gary Jules", title: "Mad World", note: "#14 Media Control 年終" },
+    { artist: "Limp Bizkit", title: "Behind Blue Eyes", note: "#15 Media Control 年終" },
+    { artist: "Blue Lagoon", title: "Break My Stride", note: "#16 Media Control 年終" },
+    { artist: "Anastacia", title: "Left Outside Alone", note: "#17 Media Control 年終" },
+    { artist: "Stefan Raab featuring Kork, Spucky & Schrotty", title: "Space Taxi", note: "#18 Media Control 年終" },
+    { artist: "Kevin Lyttle", title: "Turn Me On", note: "#19 Media Control 年終" },
+    { artist: "Britney Spears", title: "Everytime", note: "#20 Media Control 年終" },
+  ],
+
+  'Italy': [
+    { artist: "Blue", title: "A chi mi dice", note: "#1 FIMI 年終" },
+    { artist: "Eamon", title: "Fuck It (I Don't Want You Back)", note: "#2 FIMI 年終" },
+    { artist: "Haiducii", title: "Dragostea din tei", note: "#3 FIMI 年終" },
+    { artist: "Anastacia", title: "Left Outside Alone", note: "#4 FIMI 年終" },
+    { artist: "Black Eyed Peas", title: "Shut Up", note: "#5 FIMI 年終" },
+    { artist: "Usher ft. Lil Jon、Ludacris", title: "Yeah!", note: "#6 FIMI 年終" },
+    { artist: "Evanescence", title: "My Immortal", note: "#7 FIMI 年終" },
+    { artist: "Kevin Lyttle", title: "Turn Me On", note: "#8 FIMI 年終" },
+    { artist: "Jamelia", title: "Superstar", note: "#9 FIMI 年終" },
+    { artist: "Britney Spears", title: "Toxic", note: "#10 FIMI 年終" },
+    { artist: "Anastacia", title: "Sick and Tired", note: "#11 FIMI 年終" },
+    { artist: "Maroon 5", title: "This Love", note: "#12 FIMI 年終" },
+    { artist: "Tiziano Ferro、Jamelia", title: "Universal Prayer", note: "#13 FIMI 年終" },
+    { artist: "U2", title: "Vertigo", note: "#14 FIMI 年終" },
+    { artist: "Band Aid 20", title: "Do They Know It's Christmas?", note: "#15 FIMI 年終" },
+    { artist: "Luca Dirisio", title: "Calma e sangue freddo", note: "#16 FIMI 年終" },
+    { artist: "The Rasmus", title: "In the Shadows", note: "#17 FIMI 年終" },
+    { artist: "Paolo Meneguzzi", title: "Guardami negli occhi (prego)", note: "#18 FIMI 年終" },
+    { artist: "Laura Pausini", title: "Resta in ascolto", note: "#19 FIMI 年終" },
+    { artist: "Aventura", title: "Obsesión", note: "#20 FIMI 年終" },
+  ],
+
 };
 
 /** Chart source attribution for 2004 — rendered in the pack page footer. */
 export const SOY_SOURCES_2004: Record<string, { name: string; url: string }> = {
+  'Italy': { name: "FIMI 意大利年終單曲榜", url: "https://www.fimi.it/classifiche.kl#/category:digital" },
+  'Germany': { name: "Media Control 德國年終單曲榜", url: "https://en.wikipedia.org/wiki/List_of_best-selling_singles_by_year_(Germany)" },
   'Taiwan': { name: "中華音樂人交流協會 年度十大單曲", url: "https://zh.wikipedia.org/wiki/中華音樂人交流協會" },
   'Hong Kong': { name: "叱咤樂壇流行榜 專業推介．叱咤十大", url: "https://zh.wikipedia.org/wiki/2004年度叱咤樂壇流行榜頒獎典禮得獎名單" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_2004" },

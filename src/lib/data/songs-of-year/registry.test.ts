@@ -32,7 +32,11 @@ describe('songs-of-year registry', () => {
 	it('soyHasData validates year and country', () => {
 		expect(soyHasData(2024, 'United States')).toBe(true);
 		expect(soyHasData(2000, 'United States')).toBe(true);
-		expect(soyHasData(2024, 'France')).toBe(false); // coming soon, not fabricated
+		expect(soyHasData(2024, 'France')).toBe(true); // SNEP 2016+
+		expect(soyHasData(2024, 'Germany')).toBe(false); // Germany ends 2019
+		expect(soyHasData(2010, 'Germany')).toBe(true); // Media Control 2000–2019
+		expect(soyHasData(2024, 'Italy')).toBe(true); // FIMI 2002+
+		expect(soyHasData(2024, 'Canada')).toBe(false); // no source found
 		expect(soyHasData(2026, 'United States')).toBe(false); // 2026 = curated region packs
 		expect(soyHasData(1999, 'United States')).toBe(true);
 		expect(soyHasData(1946, 'United States')).toBe(true); // earliest Billboard year-end

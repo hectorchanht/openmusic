@@ -31,6 +31,26 @@ export const PACK_META_SOY_2025_HK = {
   country: 'Hong Kong'
 } as const;
 
+export const PACK_META_SOY_2025_FR = {
+  id: 'soy-2025-fr',
+  title: '2025 SNEP 法國年終單曲榜',
+  titleEn: 'France 2025',
+  description: 'SNEP 法國年終單曲榜',
+  free: true,
+  year: 2025,
+  country: 'France'
+} as const;
+
+export const PACK_META_SOY_2025_IT = {
+  id: 'soy-2025-it',
+  title: '2025 FIMI 意大利年終單曲榜',
+  titleEn: 'Italy 2025',
+  description: 'FIMI 意大利年終單曲榜',
+  free: true,
+  year: 2025,
+  country: 'Italy'
+} as const;
+
 export const SOY_2025: Record<string, PackSong[]> = {
   'United States': [
     { artist: "Lady Gaga、Bruno Mars", title: "Die with a Smile", note: "#1 Billboard 年終" },
@@ -346,10 +366,58 @@ export const SOY_2025: Record<string, PackSong[]> = {
     { artist: "Gin Lee", title: "白夜行", note: "#9 叱咤十大" },
     { artist: "MC張天賦", title: "懷疑人生", note: "#10 叱咤十大" },
   ],
+  'France': [
+    { artist: "Gims", title: "Ciel", note: "#1 SNEP 年終" },
+    { artist: "Gims", title: "Ninao", note: "#2 SNEP 年終" },
+    { artist: "Gims、La Mano 1.9", title: "Parisienne", note: "#3 SNEP 年終" },
+    { artist: "Charlotte Cardin", title: "Feel Good", note: "#4 SNEP 年終" },
+    { artist: "Bleu Soleil、Luiza", title: "Soleil bleu", note: "#5 SNEP 年終" },
+    { artist: "Gims", title: "Sois pas timide", note: "#6 SNEP 年終" },
+    { artist: "KeBlack", title: "Mood", note: "#7 SNEP 年終" },
+    { artist: "Rosé、Bruno Mars", title: "APT.", note: "#8 SNEP 年終" },
+    { artist: "SDM", title: "Cartier Santos", note: "#9 SNEP 年終" },
+    { artist: "Hamza", title: "Kyky2Bondy", note: "#10 SNEP 年終" },
+    { artist: "KeBlack、Guy2Bezbar", title: "Melrose Place", note: "#11 SNEP 年終" },
+    { artist: "Gims、Dystinct", title: "Spider", note: "#12 SNEP 年終" },
+    { artist: "Alex Warren", title: "Ordinary", note: "#13 SNEP 年終" },
+    { artist: "Lola Young", title: "Messy", note: "#14 SNEP 年終" },
+    { artist: "Disiz、Theodora", title: "melodrama", note: "#15 SNEP 年終" },
+    { artist: "Gazo", title: "Nanani Nanana", note: "#16 SNEP 年終" },
+    { artist: "KPop Demon Hunters Cast", title: "Golden", note: "#17 SNEP 年終" },
+    { artist: "L2B", title: "Pélican", note: "#18 SNEP 年終" },
+    { artist: "Werenoi、Gims", title: "Piano", note: "#19 SNEP 年終" },
+    { artist: "Booba、SDM", title: "Dolce Camara", note: "#20 SNEP 年終" },
+  ],
+
+  'Italy': [
+    { artist: "Olly、Juli", title: "Balorda nostalgia", note: "#1 FIMI 年終" },
+    { artist: "Giorgia", title: "La cura per me", note: "#2 FIMI 年終" },
+    { artist: "Achille Lauro", title: "Incoscienti giovani", note: "#3 FIMI 年終" },
+    { artist: "Cesare Cremonini", title: "Ora che non ho più te", note: "#4 FIMI 年終" },
+    { artist: "Sfera Ebbasta、Shiva", title: "Neon", note: "#5 FIMI 年終" },
+    { artist: "Olly, Angelina Mango、Juli", title: "Per due come noi", note: "#6 FIMI 年終" },
+    { artist: "W Sound, Beéle、Ovy on the Drums", title: "La plena", note: "#7 FIMI 年終" },
+    { artist: "Alfa", title: "Il filo rosso", note: "#8 FIMI 年終" },
+    { artist: "Alfa、Manu Chao", title: "A me mi piace", note: "#9 FIMI 年終" },
+    { artist: "Bad Bunny", title: "DTMF", note: "#10 FIMI 年終" },
+    { artist: "Olly、Juli", title: "Devastante", note: "#11 FIMI 年終" },
+    { artist: "Olly", title: "Scarabocchi", note: "#12 FIMI 年終" },
+    { artist: "Fedez", title: "Battito", note: "#13 FIMI 年終" },
+    { artist: "Pinguini Tattici Nucleari ft. Max Pezzali", title: "Bottiglie vuote", note: "#14 FIMI 年終" },
+    { artist: "Coma_Cose", title: "Cuoricini", note: "#15 FIMI 年終" },
+    { artist: "Pinguini Tattici Nucleari", title: "Islanda", note: "#16 FIMI 年終" },
+    { artist: "Alex Warren", title: "Ordinary", note: "#17 FIMI 年終" },
+    { artist: "Achille Lauro", title: "Amor", note: "#18 FIMI 年終" },
+    { artist: "Lucio Corsi", title: "Volevo essere un duro", note: "#19 FIMI 年終" },
+    { artist: "Anna", title: "Désolée", note: "#20 FIMI 年終" },
+  ],
+
 };
 
 /** Chart source attribution for 2025 — rendered in the pack page footer. */
 export const SOY_SOURCES_2025: Record<string, { name: string; url: string }> = {
+  'Italy': { name: "FIMI 意大利年終單曲榜", url: "https://www.fimi.it/classifiche.kl#/category:digital" },
+  'France': { name: "SNEP 法國年終單曲榜", url: "https://www.snepmusique.com/les-tops/le-top-de-lannee/top-singles-annee/" },
   'Hong Kong': { name: "叱咤樂壇流行榜 專業推介．叱咤十大", url: "https://zh.wikipedia.org/wiki/2025年度叱咤樂壇流行榜頒獎典禮得獎名單" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_2025" },
   'Australia': { name: "ARIA End Of Year Singles Chart", url: "https://aria.com.au/charts/2025/singles-chart" },

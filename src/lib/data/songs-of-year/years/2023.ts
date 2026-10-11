@@ -31,6 +31,26 @@ export const PACK_META_SOY_2023_HK = {
   country: 'Hong Kong'
 } as const;
 
+export const PACK_META_SOY_2023_FR = {
+  id: 'soy-2023-fr',
+  title: '2023 SNEP 法國年終單曲榜',
+  titleEn: 'France 2023',
+  description: 'SNEP 法國年終單曲榜',
+  free: true,
+  year: 2023,
+  country: 'France'
+} as const;
+
+export const PACK_META_SOY_2023_IT = {
+  id: 'soy-2023-it',
+  title: '2023 FIMI 意大利年終單曲榜',
+  titleEn: 'Italy 2023',
+  description: 'FIMI 意大利年終單曲榜',
+  free: true,
+  year: 2023,
+  country: 'Italy'
+} as const;
+
 export const SOY_2023: Record<string, PackSong[]> = {
   'United States': [
     { artist: "Morgan Wallen", title: "Last Night", note: "#1 Billboard 年終" },
@@ -346,10 +366,58 @@ export const SOY_2023: Record<string, PackSong[]> = {
     { artist: "馮允謙", title: "收到收到", note: "#9 叱咤十大" },
     { artist: "炎明熹", title: "Little Magic", note: "#10 叱咤十大" },
   ],
+  'France': [
+    { artist: "Miley Cyrus", title: "Flowers", note: "#1 SNEP 年終" },
+    { artist: "SDM", title: "Bolide allemand", note: "#2 SNEP 年終" },
+    { artist: "Tiakola", title: "Meuda", note: "#3 SNEP 年終" },
+    { artist: "Gaulois et Ninho", title: "Jolie", note: "#4 SNEP 年終" },
+    { artist: "Rema", title: "Calm Down", note: "#5 SNEP 年終" },
+    { artist: "Jungeli featuring Abou Debeing, Alonzo, LOSSA et Imen Es", title: "Petit génie", note: "#6 SNEP 年終" },
+    { artist: "Heuss l'Enfoiré et Gazo", title: "Saiyan", note: "#7 SNEP 年終" },
+    { artist: "Soolking et Gazo", title: "Casanova", note: "#8 SNEP 年終" },
+    { artist: "Ayra Starr", title: "Rush", note: "#9 SNEP 年終" },
+    { artist: "SDM", title: "Mr. Ocho", note: "#10 SNEP 年終" },
+    { artist: "Zola", title: "Amber", note: "#11 SNEP 年終" },
+    { artist: "Gazo", title: "Die", note: "#12 SNEP 年終" },
+    { artist: "Tom Odell", title: "Another Love", note: "#13 SNEP 年終" },
+    { artist: "Hamza et Damso", title: "Nocif", note: "#14 SNEP 年終" },
+    { artist: "Vacra", title: "Tiki Taka", note: "#15 SNEP 年終" },
+    { artist: "Aya Nakamura", title: "Baby", note: "#16 SNEP 年終" },
+    { artist: "David Guetta et Bebe Rexha", title: "I'm Good (Blue)", note: "#17 SNEP 年終" },
+    { artist: "Louane", title: "Secret", note: "#18 SNEP 年終" },
+    { artist: "Metro Boomin et The Weeknd", title: "style=\"text-align:left\" |Creepin", note: "#19 SNEP 年終" },
+    { artist: "Naps, Ninho et Gazo", title: "C'est carré le S", note: "#20 SNEP 年終" },
+  ],
+
+  'Italy': [
+    { artist: "Lazza", title: "Cenere", note: "#1 FIMI 年終" },
+    { artist: "Marco Mengoni", title: "Due vite", note: "#2 FIMI 年終" },
+    { artist: "Mr. Rain", title: "Supereroi", note: "#3 FIMI 年終" },
+    { artist: "Finesse ft. Shiva, Sfera Ebbasta、Guè", title: "Gelosa", note: "#4 FIMI 年終" },
+    { artist: "Tananai", title: "Tango", note: "#5 FIMI 年終" },
+    { artist: "Ava, Anna、Capo Plaza", title: "Vetri neri", note: "#6 FIMI 年終" },
+    { artist: "Annalisa", title: "Mon Amour", note: "#7 FIMI 年終" },
+    { artist: "The Kolors", title: "Italodisco", note: "#8 FIMI 年終" },
+    { artist: "Bizarrap、Quevedo", title: "Quevedo: Bzrp Music Sessions Vol. 52", note: "#9 FIMI 年終" },
+    { artist: "Geolier", title: "Come vuoi", note: "#10 FIMI 年終" },
+    { artist: "Blanco、Mina", title: "Un briciolo di allegria", note: "#11 FIMI 年終" },
+    { artist: "Fedez, Annalisa、Articolo 31", title: "Disco Paradise", note: "#12 FIMI 年終" },
+    { artist: "Drillionaire ft. Lazza, Blanco, Sfera Ebbasta、Michelangelo", title: "Bon ton", note: "#13 FIMI 年終" },
+    { artist: "Bresh、Shune", title: "Guasto d'amore", note: "#14 FIMI 年終" },
+    { artist: "Pinguini Tattici Nucleari", title: "Rubami la notte", note: "#15 FIMI 年終" },
+    { artist: "Tedua ft. Sfera Ebbasta", title: "Hoe", note: "#16 FIMI 年終" },
+    { artist: "Miley Cyrus", title: "Flowers", note: "#17 FIMI 年終" },
+    { artist: "Alfa", title: "Bellissimissima", note: "#18 FIMI 年終" },
+    { artist: "Angelina Mango", title: "Ci pensiamo domani", note: "#19 FIMI 年終" },
+    { artist: "Madame", title: "Il bene nel male", note: "#20 FIMI 年終" },
+  ],
+
 };
 
 /** Chart source attribution for 2023 — rendered in the pack page footer. */
 export const SOY_SOURCES_2023: Record<string, { name: string; url: string }> = {
+  'Italy': { name: "FIMI 意大利年終單曲榜", url: "https://www.fimi.it/classifiche.kl#/category:digital" },
+  'France': { name: "SNEP 法國年終單曲榜", url: "https://www.snepmusique.com/les-tops/le-top-de-lannee/top-singles-annee/" },
   'Hong Kong': { name: "叱咤樂壇流行榜 專業推介．叱咤十大", url: "https://zh.wikipedia.org/wiki/2023年度叱咤樂壇流行榜頒獎典禮得獎名單" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_2023" },
   'Australia': { name: "ARIA End Of Year Singles Chart", url: "https://aria.com.au/charts/2023/singles-chart" },

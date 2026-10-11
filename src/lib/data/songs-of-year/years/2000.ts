@@ -39,6 +39,16 @@ export const PACK_META_SOY_2000_TW = {
   country: 'Taiwan'
 } as const;
 
+export const PACK_META_SOY_2000_GE = {
+  id: 'soy-2000-ge',
+  title: '2000 Media Control 德國年終單曲榜',
+  titleEn: 'Germany 2000',
+  description: 'Media Control 德國年終單曲榜',
+  free: true,
+  year: 2000,
+  country: 'Germany'
+} as const;
+
 export const SOY_2000: Record<string, PackSong[]> = {
   'United States': [
     { artist: "Faith Hill", title: "Breathe", note: "#1 Billboard 年終" },
@@ -221,10 +231,34 @@ export const SOY_2000: Record<string, PackSong[]> = {
     { artist: "糯米糰", title: "阿魯巴痢疾", note: "年度十大單曲 (排名不分先後)" },
   ],
 
+  'Germany': [
+    { artist: "Anton featuring DJ Ötzi", title: "Anton aus Tirol", note: "#1 Media Control 年終" },
+    { artist: "Rednex", title: "The Spirit of the Hawk", note: "#2 Media Control 年終" },
+    { artist: "ATC", title: "Around the World (La La La La La)", note: "#3 Media Control 年終" },
+    { artist: "Bomfunk MC's", title: "Freestyler", note: "#4 Media Control 年終" },
+    { artist: "Bon Jovi", title: "It's My Life", note: "#5 Media Control 年終" },
+    { artist: "Zlatko<sup>(de)</sup>", title: "Ich vermiss dich... (wie die Hölle)", note: "#6 Media Control 年終" },
+    { artist: "Santana featuring The Product G&B", title: "Maria Maria", note: "#7 Media Control 年終" },
+    { artist: "Zlatko & Jürgen", title: "Großer Bruder", note: "#8 Media Control 年終" },
+    { artist: "Ayman", title: "Mein Stern", note: "#9 Media Control 年終" },
+    { artist: "Britney Spears", title: "Lucky", note: "#10 Media Control 年終" },
+    { artist: "French Affair", title: "My Heart Goes Boom (La Di Da Da)", note: "#11 Media Control 年終" },
+    { artist: "Die 3. Generation", title: "Leb!", note: "#12 Media Control 年終" },
+    { artist: "Reamonn", title: "Supergirl", note: "#13 Media Control 年終" },
+    { artist: "Melanie C", title: "I Turn To You", note: "#14 Media Control 年終" },
+    { artist: "Britney Spears", title: "Oops!... I Did It Again", note: "#15 Media Control 年終" },
+    { artist: "Madonna", title: "American Pie", note: "#16 Media Control 年終" },
+    { artist: "Vengaboys", title: "Shalala Lala", note: "#17 Media Control 年終" },
+    { artist: "Gigi D'Agostino", title: "Bla Bla Bla", note: "#18 Media Control 年終" },
+    { artist: "HIM", title: "Join Me in Death", note: "#19 Media Control 年終" },
+    { artist: "Metallica", title: "Nothing Else Matters (live)", note: "#20 Media Control 年終" },
+  ],
+
 };
 
 /** Chart source attribution for 2000 — rendered in the pack page footer. */
 export const SOY_SOURCES_2000: Record<string, { name: string; url: string }> = {
+  'Germany': { name: "Media Control 德國年終單曲榜", url: "https://en.wikipedia.org/wiki/List_of_best-selling_singles_by_year_(Germany)" },
   'Taiwan': { name: "中華音樂人交流協會 年度十大單曲", url: "https://zh.wikipedia.org/wiki/中華音樂人交流協會" },
   'Hong Kong': { name: "叱咤樂壇流行榜 專業推介．叱咤十大", url: "https://zh.wikipedia.org/wiki/2000年度叱咤樂壇流行榜頒獎典禮得獎名單" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_2000" },

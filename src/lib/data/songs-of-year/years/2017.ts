@@ -41,6 +41,36 @@ export const PACK_META_SOY_2017_TW = {
   country: 'Taiwan'
 } as const;
 
+export const PACK_META_SOY_2017_GE = {
+  id: 'soy-2017-ge',
+  title: '2017 Media Control 德國年終單曲榜',
+  titleEn: 'Germany 2017',
+  description: 'Media Control 德國年終單曲榜',
+  free: true,
+  year: 2017,
+  country: 'Germany'
+} as const;
+
+export const PACK_META_SOY_2017_FR = {
+  id: 'soy-2017-fr',
+  title: '2017 SNEP 法國年終單曲榜',
+  titleEn: 'France 2017',
+  description: 'SNEP 法國年終單曲榜',
+  free: true,
+  year: 2017,
+  country: 'France'
+} as const;
+
+export const PACK_META_SOY_2017_IT = {
+  id: 'soy-2017-it',
+  title: '2017 FIMI 意大利年終單曲榜',
+  titleEn: 'Italy 2017',
+  description: 'FIMI 意大利年終單曲榜',
+  free: true,
+  year: 2017,
+  country: 'Italy'
+} as const;
+
 export const SOY_2017: Record<string, PackSong[]> = {
   'United States': [
     { artist: "Ed Sheeran", title: "Shape of You", note: "#1 Billboard 年終" },
@@ -327,10 +357,82 @@ export const SOY_2017: Record<string, PackSong[]> = {
     { artist: "老王樂隊", title: "我還年輕 我還年輕", note: "年度十大單曲 (排名不分先後)" },
   ],
 
+  'Germany': [
+    { artist: "Ed Sheeran", title: "Shape of You", note: "#1 Media Control 年終" },
+    { artist: "Luis Fonsi featuring Daddy Yankee", title: "Despacito", note: "#2 Media Control 年終" },
+    { artist: "The Chainsmokers and Coldplay", title: "Something Just Like This", note: "#3 Media Control 年終" },
+    { artist: "Imagine Dragons", title: "Thunder", note: "#4 Media Control 年終" },
+    { artist: "Burak Yeter featuring Danelle Sandoval", title: "Tuesday", note: "#5 Media Control 年終" },
+    { artist: "Axwell Λ Ingrosso", title: "More Than You Know", note: "#6 Media Control 年終" },
+    { artist: "Robin Schulz featuring James Blunt", title: "OK", note: "#7 Media Control 年終" },
+    { artist: "Bausa", title: "Was du Liebe nennst", note: "#8 Media Control 年終" },
+    { artist: "French Montana featuring Swae Lee", title: "Unforgettable", note: "#9 Media Control 年終" },
+    { artist: "Ed Sheeran", title: "Galway Girl", note: "#10 Media Control 年終" },
+    { artist: "Jason Derulo featuring Nicki Minaj and Ty Dolla $ign", title: "Swalla", note: "#11 Media Control 年終" },
+    { artist: "Ed Sheeran", title: "Perfect", note: "#12 Media Control 年終" },
+    { artist: "Kygo and Selena Gomez", title: "It Ain't Me", note: "#13 Media Control 年終" },
+    { artist: "Alice Merton", title: "No Roots", note: "#14 Media Control 年終" },
+    { artist: "J Balvin and Willy William", title: "Mi Gente", note: "#15 Media Control 年終" },
+    { artist: "Jonas Blue featuring William Singe", title: "Mama", note: "#16 Media Control 年終" },
+    { artist: "Bonez MC & RAF Camora featuring Maxwell", title: "Ohne mein Team", note: "#17 Media Control 年終" },
+    { artist: "Camila Cabello featuring Young Thug", title: "Havana", note: "#18 Media Control 年終" },
+    { artist: "Shawn Mendes", title: "There's Nothing Holdin' Me Back", note: "#19 Media Control 年終" },
+    { artist: "Jax Jones featuring Raye", title: "You Don't Know Me", note: "#20 Media Control 年終" },
+  ],
+
+  'France': [
+    { artist: "Ed Sheeran", title: "style=\"text-align:left\" |Shape of You", note: "#1 SNEP 年終" },
+    { artist: "Luis Fonsi featuring Daddy Yankee", title: "style=\"text-align:left\" |Despacito", note: "#2 SNEP 年終" },
+    { artist: "Niska", title: "style=\"text-align:left\" |Réseaux", note: "#3 SNEP 年終" },
+    { artist: "Damso", title: "style=\"text-align:left\" |Macarena", note: "#4 SNEP 年終" },
+    { artist: "Lartiste featuring Awa Imani", title: "style=\"text-align:left\" |Chocolat", note: "#5 SNEP 年終" },
+    { artist: "Kalash featuring Damso", title: "style=\"text-align:left\" |Mwaka Moon", note: "#6 SNEP 年終" },
+    { artist: "Rag'n'Bone Man", title: "style=\"text-align:left\" |Human", note: "#7 SNEP 年終" },
+    { artist: "Future", title: "style=\"text-align:left\" |Mask Off", note: "#8 SNEP 年終" },
+    { artist: "Petit Biscuit", title: "style=\"text-align:left\" |Sunset Lover", note: "#9 SNEP 年終" },
+    { artist: "French Montana featuring Swae Lee", title: "style=\"text-align:left\" |Unforgettable", note: "#10 SNEP 年終" },
+    { artist: "Ofenbach", title: "style=\"text-align:left\" |Be Mine", note: "#11 SNEP 年終" },
+    { artist: "The Weeknd featuring Daft Punk", title: "style=\"text-align:left\" |I Feel It Coming", note: "#12 SNEP 年終" },
+    { artist: "Damso", title: "style=\"text-align:left\" |Signaler", note: "#13 SNEP 年終" },
+    { artist: "PNL", title: "style=\"text-align:left\" |Bené", note: "#14 SNEP 年終" },
+    { artist: "Ninho", title: "style=\"text-align:left\" |Mamacita", note: "#15 SNEP 年終" },
+    { artist: "Vianney", title: "style=\"text-align:left\" |Je m'en vais", note: "#16 SNEP 年終" },
+    { artist: "Charlie Puth", title: "style=\"text-align:left\" |Attention", note: "#17 SNEP 年終" },
+    { artist: "Kygo、Selena Gomez", title: "style=\"text-align:left\" |It Ain't Me", note: "#18 SNEP 年終" },
+    { artist: "Clean Bandit featuring Sean Paul、Anne-Marie", title: "style=\"text-align:left\" |Rockabye", note: "#19 SNEP 年終" },
+    { artist: "MHD", title: "style=\"text-align:left\" |Afro Trap Part 7 (La Puissance)", note: "#20 SNEP 年終" },
+  ],
+
+  'Italy': [
+    { artist: "Luis Fonsi ft. Daddy Yankee", title: "Despacito", note: "#1 FIMI 年終" },
+    { artist: "Ed Sheeran", title: "Shape of You", note: "#2 FIMI 年終" },
+    { artist: "J-Ax、Fedez ft. T-Pain", title: "Senza pagare", note: "#3 FIMI 年終" },
+    { artist: "The Chainsmokers、Coldplay", title: "Something Just like This", note: "#4 FIMI 年終" },
+    { artist: "Clean Bandit ft. Sean Paul、Anne-Marie", title: "Rockabye", note: "#5 FIMI 年終" },
+    { artist: "Francesco Gabbani", title: "Occidentali's Karma", note: "#6 FIMI 年終" },
+    { artist: "Enrique Iglesias ft. Descemer Bueno, Zion、Lennox", title: "Súbeme la radio", note: "#7 FIMI 年終" },
+    { artist: "Coez", title: "La musica non c'è", note: "#8 FIMI 年終" },
+    { artist: "Ed Sheeran", title: "Perfect", note: "#9 FIMI 年終" },
+    { artist: "Imagine Dragons", title: "Believer", note: "#10 FIMI 年終" },
+    { artist: "Fabri Fibra ft. Thegiornalisti", title: "Pamplona", note: "#11 FIMI 年終" },
+    { artist: "Imagine Dragons", title: "Thunder", note: "#12 FIMI 年終" },
+    { artist: "Baby K ft. Andrés Dvicio", title: "Voglio ballare con te", note: "#13 FIMI 年終" },
+    { artist: "Ed Sheeran", title: "Galway Girl", note: "#14 FIMI 年終" },
+    { artist: "Clean Bandit ft. Zara Larsson", title: "Symphony", note: "#15 FIMI 年終" },
+    { artist: "Sean Paul ft. Dua Lipa", title: "No Lie", note: "#16 FIMI 年終" },
+    { artist: "J Balvin、Willy William", title: "Mi gente", note: "#17 FIMI 年終" },
+    { artist: "Ghali", title: "Happy Days", note: "#18 FIMI 年終" },
+    { artist: "Fabio Rovazzi ft. Gianni Morandi", title: "Volare", note: "#19 FIMI 年終" },
+    { artist: "Ofenbach", title: "Be Mine", note: "#20 FIMI 年終" },
+  ],
+
 };
 
 /** Chart source attribution for 2017 — rendered in the pack page footer. */
 export const SOY_SOURCES_2017: Record<string, { name: string; url: string }> = {
+  'Italy': { name: "FIMI 意大利年終單曲榜", url: "https://www.fimi.it/classifiche.kl#/category:digital" },
+  'France': { name: "SNEP 法國年終單曲榜", url: "https://www.snepmusique.com/les-tops/le-top-de-lannee/top-singles-annee/" },
+  'Germany': { name: "Media Control 德國年終單曲榜", url: "https://en.wikipedia.org/wiki/List_of_best-selling_singles_by_year_(Germany)" },
   'Taiwan': { name: "中華音樂人交流協會 年度十大單曲", url: "https://zh.wikipedia.org/wiki/中華音樂人交流協會" },
   'Hong Kong': { name: "叱咤樂壇流行榜 專業推介．叱咤十大", url: "https://zh.wikipedia.org/wiki/2017年度叱咤樂壇流行榜頒獎典禮得獎名單" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_2017" },

@@ -39,6 +39,26 @@ export const PACK_META_SOY_2006_TW = {
   country: 'Taiwan'
 } as const;
 
+export const PACK_META_SOY_2006_GE = {
+  id: 'soy-2006-ge',
+  title: '2006 Media Control 德國年終單曲榜',
+  titleEn: 'Germany 2006',
+  description: 'Media Control 德國年終單曲榜',
+  free: true,
+  year: 2006,
+  country: 'Germany'
+} as const;
+
+export const PACK_META_SOY_2006_IT = {
+  id: 'soy-2006-it',
+  title: '2006 FIMI 意大利年終單曲榜',
+  titleEn: 'Italy 2006',
+  description: 'FIMI 意大利年終單曲榜',
+  free: true,
+  year: 2006,
+  country: 'Italy'
+} as const;
+
 export const SOY_2006: Record<string, PackSong[]> = {
   'United States': [
     { artist: "Daniel Powter", title: "Bad Day", note: "#1 Billboard 年終" },
@@ -221,10 +241,58 @@ export const SOY_2006: Record<string, PackSong[]> = {
     { artist: "江蕙", title: "阿公的眠床腳", note: "年度十大單曲 (排名不分先後)" },
   ],
 
+  'Germany': [
+    { artist: "Bob Sinclar presents Goleo VI featuring Gary Pine", title: "Love Generation", note: "#1 Media Control 年終" },
+    { artist: "Texas Lightning", title: "No No Never", note: "#2 Media Control 年終" },
+    { artist: "Shakira featuring Wyclef Jean", title: "Hips Don't Lie", note: "#3 Media Control 年終" },
+    { artist: "Gnarls Barkley", title: "Crazy", note: "#4 Media Control 年終" },
+    { artist: "Sportfreunde Stiller", title: "'54, '74, '90, 2006", note: "#5 Media Control 年終" },
+    { artist: "Herbert Grönemeyer featuring Amadou & Mariam", title: "Zeit, dass sich was dreht", note: "#6 Media Control 年終" },
+    { artist: "Mattafix", title: "Big City Life", note: "#7 Media Control 年終" },
+    { artist: "Silbermond", title: "Das Beste", note: "#8 Media Control 年終" },
+    { artist: "Eros Ramazzotti & Anastacia", title: "I Belong to You (Il Ritmo della Passione)", note: "#9 Media Control 年終" },
+    { artist: "Xavier Naidoo", title: "Dieser Weg", note: "#10 Media Control 年終" },
+    { artist: "Madonna", title: "Hung Up", note: "#11 Media Control 年終" },
+    { artist: "Nelly Furtado", title: "Maneater", note: "#12 Media Control 年終" },
+    { artist: "Tobias Regner", title: "I Still Burn", note: "#13 Media Control 年終" },
+    { artist: "Rihanna", title: "Unfaithful", note: "#14 Media Control 年終" },
+    { artist: "Xavier Naidoo", title: "Danke", note: "#15 Media Control 年終" },
+    { artist: "Rosenstolz", title: "Ich bin ich (wir sind wir)", note: "#16 Media Control 年終" },
+    { artist: "Oliver Pocher", title: "Schwarz und weiß", note: "#17 Media Control 年終" },
+    { artist: "Scissor Sisters", title: "I Don't Feel Like Dancin", note: "#18 Media Control 年終" },
+    { artist: "Kelly Clarkson", title: "Because of You", note: "#19 Media Control 年終" },
+    { artist: "Karmah", title: "Just Be Good To Me", note: "#20 Media Control 年終" },
+  ],
+
+  'Italy': [
+    { artist: "Mary J. Blige ft. U2", title: "One", note: "#1 FIMI 年終" },
+    { artist: "Shakira ft. Wyclef Jean", title: "Hips Don't Lie", note: "#2 FIMI 年終" },
+    { artist: "Gnarls Barkley", title: "Crazy", note: "#3 FIMI 年終" },
+    { artist: "Gianna Nannini", title: "Sei nell'anima", note: "#4 FIMI 年終" },
+    { artist: "Sérgio Mendes、Black Eyed Peas", title: "Mas que nada", note: "#5 FIMI 年終" },
+    { artist: "Scissor Sisters", title: "I Don't Feel Like Dancin'", note: "#6 FIMI 年終" },
+    { artist: "Julieta Venegas", title: "Me voy", note: "#7 FIMI 年終" },
+    { artist: "Elisa、Ligabue", title: "Gli ostacoli del cuore", note: "#8 FIMI 年終" },
+    { artist: "Madonna", title: "Sorry", note: "#9 FIMI 年終" },
+    { artist: "Zero Assoluto", title: "Svegliarsi la mattina", note: "#10 FIMI 年終" },
+    { artist: "Bob Sinclar", title: "World, Hold On (Children of the Sky)", note: "#11 FIMI 年終" },
+    { artist: "Bebe", title: "Malo", note: "#12 FIMI 年終" },
+    { artist: "Red Hot Chili Peppers", title: "Dani California", note: "#13 FIMI 年終" },
+    { artist: "The White Stripes", title: "Seven Nation Army", note: "#14 FIMI 年終" },
+    { artist: "Anastacia、Eros Ramazzotti", title: "I Belong to You (Il ritmo della passione)", note: "#15 FIMI 年終" },
+    { artist: "Rihanna", title: "SOS", note: "#16 FIMI 年終" },
+    { artist: "Tiziano Ferro", title: "Ed ero contentissimo", note: "#17 FIMI 年終" },
+    { artist: "Madonna", title: "Hung Up", note: "#18 FIMI 年終" },
+    { artist: "Black Eyed Peas", title: "Pump It", note: "#19 FIMI 年終" },
+    { artist: "James Morrison", title: "You Give Me Something", note: "#20 FIMI 年終" },
+  ],
+
 };
 
 /** Chart source attribution for 2006 — rendered in the pack page footer. */
 export const SOY_SOURCES_2006: Record<string, { name: string; url: string }> = {
+  'Italy': { name: "FIMI 意大利年終單曲榜", url: "https://www.fimi.it/classifiche.kl#/category:digital" },
+  'Germany': { name: "Media Control 德國年終單曲榜", url: "https://en.wikipedia.org/wiki/List_of_best-selling_singles_by_year_(Germany)" },
   'Taiwan': { name: "中華音樂人交流協會 年度十大單曲", url: "https://zh.wikipedia.org/wiki/中華音樂人交流協會" },
   'Hong Kong': { name: "叱咤樂壇流行榜 專業推介．叱咤十大", url: "https://zh.wikipedia.org/wiki/2006年度叱咤樂壇流行榜頒獎典禮得獎名單" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_2006" },

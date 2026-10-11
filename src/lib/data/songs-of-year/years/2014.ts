@@ -40,6 +40,26 @@ export const PACK_META_SOY_2014_TW = {
   country: 'Taiwan'
 } as const;
 
+export const PACK_META_SOY_2014_GE = {
+  id: 'soy-2014-ge',
+  title: '2014 Media Control 德國年終單曲榜',
+  titleEn: 'Germany 2014',
+  description: 'Media Control 德國年終單曲榜',
+  free: true,
+  year: 2014,
+  country: 'Germany'
+} as const;
+
+export const PACK_META_SOY_2014_IT = {
+  id: 'soy-2014-it',
+  title: '2014 FIMI 意大利年終單曲榜',
+  titleEn: 'Italy 2014',
+  description: 'FIMI 意大利年終單曲榜',
+  free: true,
+  year: 2014,
+  country: 'Italy'
+} as const;
+
 export const SOY_2014: Record<string, PackSong[]> = {
   'United States': [
     { artist: "Pharrell Williams", title: "Happy", note: "#1 Billboard 年終" },
@@ -274,10 +294,58 @@ export const SOY_2014: Record<string, PackSong[]> = {
     { artist: "孫燕姿", title: "克卜勒", note: "年度十大單曲 (排名不分先後)" },
   ],
 
+  'Germany': [
+    { artist: "Helene Fischer", title: "Atemlos durch die Nacht", note: "#1 Media Control 年終" },
+    { artist: "Pharrell Williams", title: "Happy", note: "#2 Media Control 年終" },
+    { artist: "Mr Probz", title: "Waves", note: "#3 Media Control 年終" },
+    { artist: "Andreas Bourani", title: "Auf uns", note: "#4 Media Control 年終" },
+    { artist: "Mark Forster featuring Sido", title: "Au revoir", note: "#5 Media Control 年終" },
+    { artist: "Lilly Wood and the Prick & Robin Schulz", title: "Prayer in C (Robin Schulz Remix)", note: "#6 Media Control 年終" },
+    { artist: "Clean Bandit featuring Jess Glynne", title: "Rather Be", note: "#7 Media Control 年終" },
+    { artist: "Ed Sheeran", title: "I See Fire", note: "#8 Media Control 年終" },
+    { artist: "Cro", title: "Traum", note: "#9 Media Control 年終" },
+    { artist: "OneRepublic", title: "Love Runs Out", note: "#10 Media Control 年終" },
+    { artist: "Katy Perry featuring Juicy J", title: "Dark Horse", note: "#11 Media Control 年終" },
+    { artist: "Meghan Trainor", title: "All About That Bass", note: "#12 Media Control 年終" },
+    { artist: "Marlon Roudette", title: "When the Beat Drops Out", note: "#13 Media Control 年終" },
+    { artist: "David Guetta featuring Sam Martin", title: "Lovers on the Sun", note: "#14 Media Control 年終" },
+    { artist: "George Ezra", title: "Budapest", note: "#15 Media Control 年終" },
+    { artist: "John Legend", title: "All of Me", note: "#16 Media Control 年終" },
+    { artist: "Calvin Harris", title: "Summer", note: "#17 Media Control 年終" },
+    { artist: "Nico & Vinz", title: "Am I Wrong", note: "#18 Media Control 年終" },
+    { artist: "Pitbull featuring Kesha", title: "Timber", note: "#19 Media Control 年終" },
+    { artist: "Kiesza", title: "Hideaway", note: "#20 Media Control 年終" },
+  ],
+
+  'Italy': [
+    { artist: "Enrique Iglesias ft. Sean Paul, Descemer Bueno、Gente de Zona", title: "Bailando", note: "#1 FIMI 年終" },
+    { artist: "Pharrell Williams", title: "Happy", note: "#2 FIMI 年終" },
+    { artist: "Klingande", title: "Jubel", note: "#3 FIMI 年終" },
+    { artist: "Clean Bandit ft. Jess Glynne", title: "Rather Be", note: "#4 FIMI 年終" },
+    { artist: "Coldplay", title: "A Sky Full of Stars", note: "#5 FIMI 年終" },
+    { artist: "Lilly Wood and the Prick ft. Robin Schulz", title: "Prayer in C (Remix)", note: "#6 FIMI 年終" },
+    { artist: "Imagine Dragons", title: "Demons", note: "#7 FIMI 年終" },
+    { artist: "Passenger", title: "Let Her Go", note: "#8 FIMI 年終" },
+    { artist: "Calvin Harris", title: "Summer", note: "#9 FIMI 年終" },
+    { artist: "Mr. Probz ft. Robin Schulz", title: "Waves (Remix)", note: "#10 FIMI 年終" },
+    { artist: "John Legend", title: "All of Me", note: "#11 FIMI 年終" },
+    { artist: "Pitbull ft. Kesha", title: "Timber", note: "#12 FIMI 年終" },
+    { artist: "OneRepublic", title: "Counting Stars", note: "#13 FIMI 年終" },
+    { artist: "Coldplay", title: "Magic", note: "#14 FIMI 年終" },
+    { artist: "Sia", title: "Chandelier", note: "#15 FIMI 年終" },
+    { artist: "Avicii", title: "Hey Brother", note: "#16 FIMI 年終" },
+    { artist: "Katy Perry ft. Juicy J", title: "Dark Horse", note: "#17 FIMI 年終" },
+    { artist: "Milky Chance", title: "Stolen Dance", note: "#18 FIMI 年終" },
+    { artist: "Kiesza", title: "Hideaway", note: "#19 FIMI 年終" },
+    { artist: "George Ezra", title: "Budapest", note: "#20 FIMI 年終" },
+  ],
+
 };
 
 /** Chart source attribution for 2014 — rendered in the pack page footer. */
 export const SOY_SOURCES_2014: Record<string, { name: string; url: string }> = {
+  'Italy': { name: "FIMI 意大利年終單曲榜", url: "https://www.fimi.it/classifiche.kl#/category:digital" },
+  'Germany': { name: "Media Control 德國年終單曲榜", url: "https://en.wikipedia.org/wiki/List_of_best-selling_singles_by_year_(Germany)" },
   'Taiwan': { name: "中華音樂人交流協會 年度十大單曲", url: "https://zh.wikipedia.org/wiki/中華音樂人交流協會" },
   'Hong Kong': { name: "叱咤樂壇流行榜 專業推介．叱咤十大", url: "https://zh.wikipedia.org/wiki/2014年度叱咤樂壇流行榜頒獎典禮得獎名單" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_2014" },

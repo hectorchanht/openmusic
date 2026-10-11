@@ -59,6 +59,9 @@ export const SOY_AVAILABLE: Record<number, string[]> = (() => {
 		if (y === 2019 || y === 2021 || y >= 2023) cs.push('Spain');
 		if (y >= 1988) cs.push('Hong Kong');
 		if (y >= 1997 && y <= 2021) cs.push('Taiwan');
+		if (y >= 2000 && y <= 2019) cs.push('Germany');
+		if (y >= 2016 && y <= 2025) cs.push('France');
+		if (y >= 2002 && y <= 2025) cs.push('Italy');
 		m[y] = cs;
 	}
 	return m;

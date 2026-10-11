@@ -31,6 +31,26 @@ export const PACK_META_SOY_2024_HK = {
   country: 'Hong Kong'
 } as const;
 
+export const PACK_META_SOY_2024_FR = {
+  id: 'soy-2024-fr',
+  title: '2024 SNEP 法國年終單曲榜',
+  titleEn: 'France 2024',
+  description: 'SNEP 法國年終單曲榜',
+  free: true,
+  year: 2024,
+  country: 'France'
+} as const;
+
+export const PACK_META_SOY_2024_IT = {
+  id: 'soy-2024-it',
+  title: '2024 FIMI 意大利年終單曲榜',
+  titleEn: 'Italy 2024',
+  description: 'FIMI 意大利年終單曲榜',
+  free: true,
+  year: 2024,
+  country: 'Italy'
+} as const;
+
 export const SOY_2024: Record<string, PackSong[]> = {
   'United States': [
     { artist: "Teddy Swims", title: "Lose Control", note: "#1 Billboard 年終" },
@@ -346,10 +366,58 @@ export const SOY_2024: Record<string, PackSong[]> = {
     { artist: "陳健安", title: "戀愛腦之死", note: "#9 叱咤十大" },
     { artist: "MC張天賦", title: "小心碰頭", note: "#10 叱咤十大" },
   ],
+  'France': [
+    { artist: "Gims、Dystinct", title: "Spider", note: "#1 SNEP 年終" },
+    { artist: "Jungeli, Abou Debeing, Imen Es, Alonzo、Lossa", title: "Petit génie", note: "#2 SNEP 年終" },
+    { artist: "Carbonne", title: "Imagine", note: "#3 SNEP 年終" },
+    { artist: "Benson Boone", title: "Beautiful Things", note: "#4 SNEP 年終" },
+    { artist: "Gims", title: "Sois pas timide", note: "#5 SNEP 年終" },
+    { artist: "Pierre Garnier", title: "Ceux qu'on était", note: "#6 SNEP 年終" },
+    { artist: "Booba、SDM", title: "Dolce Camara", note: "#7 SNEP 年終" },
+    { artist: "FloyyMenor、Cris MJ", title: "Gata Only", note: "#8 SNEP 年終" },
+    { artist: "Disturbed", title: "The Sound of Silence (Cyril Remix)", note: "#9 SNEP 年終" },
+    { artist: "Dadju、Tayc", title: "I Love You", note: "#10 SNEP 年終" },
+    { artist: "Teddy Swims", title: "Lose Control", note: "#11 SNEP 年終" },
+    { artist: "KeBlack、Franglish", title: "Boucan", note: "#12 SNEP 年終" },
+    { artist: "Gazo、Tiakola", title: "Mami Wata", note: "#13 SNEP 年終" },
+    { artist: "Franglish", title: "Position", note: "#14 SNEP 年終" },
+    { artist: "KeBlack", title: "Aucune attache", note: "#15 SNEP 年終" },
+    { artist: "Favé、Gazo", title: "Flashback", note: "#16 SNEP 年終" },
+    { artist: "Íñigo Quintero", title: "Si No Estás", note: "#17 SNEP 年終" },
+    { artist: "Soolking、Gazo", title: "Casanova", note: "#18 SNEP 年終" },
+    { artist: "Sabrina Carpenter", title: "Espresso", note: "#19 SNEP 年終" },
+    { artist: "KeBlack", title: "Laisse-moi", note: "#20 SNEP 年終" },
+  ],
+
+  'Italy': [
+    { artist: "Mahmood", title: "Tuta gold", note: "#1 FIMI 年終" },
+    { artist: "Rose Villain ft. Guè", title: "Come un tuono", note: "#2 FIMI 年終" },
+    { artist: "Geolier", title: "I p' me, tu p' te", note: "#3 FIMI 年終" },
+    { artist: "Annalisa", title: "Sinceramente", note: "#4 FIMI 年終" },
+    { artist: "Lazza", title: "100 messaggi", note: "#5 FIMI 年終" },
+    { artist: "Tony Effe、Gaia", title: "Sesso e samba", note: "#6 FIMI 年終" },
+    { artist: "Geolier、Ultimo", title: "L'ultima poesia", note: "#7 FIMI 年終" },
+    { artist: "Angelina Mango", title: "La noia", note: "#8 FIMI 年終" },
+    { artist: "Anna", title: "30°C", note: "#9 FIMI 年終" },
+    { artist: "Rose Villain", title: "Click boom!", note: "#10 FIMI 年終" },
+    { artist: "Ghali", title: "Casa mia", note: "#11 FIMI 年終" },
+    { artist: "FloyyMenor, Ozuna、Anitta", title: "Gata Only (Remix)", note: "#12 FIMI 年終" },
+    { artist: "Olly、Juli", title: "Devastante", note: "#13 FIMI 年終" },
+    { artist: "Ghali", title: "Paprika", note: "#14 FIMI 年終" },
+    { artist: "Tananai、Annalisa", title: "Storie brevi", note: "#15 FIMI 年終" },
+    { artist: "Tony Effe", title: "Miu miu", note: "#16 FIMI 年終" },
+    { artist: "Tony Effe, Bresh、Tedua", title: "Dopo le 4", note: "#17 FIMI 年終" },
+    { artist: "The Kolors", title: "Un ragazzo una ragazza", note: "#18 FIMI 年終" },
+    { artist: "Alfa", title: "Vai!", note: "#19 FIMI 年終" },
+    { artist: "Irama", title: "Tu no", note: "#20 FIMI 年終" },
+  ],
+
 };
 
 /** Chart source attribution for 2024 — rendered in the pack page footer. */
 export const SOY_SOURCES_2024: Record<string, { name: string; url: string }> = {
+  'Italy': { name: "FIMI 意大利年終單曲榜", url: "https://www.fimi.it/classifiche.kl#/category:digital" },
+  'France': { name: "SNEP 法國年終單曲榜", url: "https://www.snepmusique.com/les-tops/le-top-de-lannee/top-singles-annee/" },
   'Hong Kong': { name: "叱咤樂壇流行榜 專業推介．叱咤十大", url: "https://zh.wikipedia.org/wiki/2024年度叱咤樂壇流行榜頒獎典禮得獎名單" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_2024" },
   'Australia': { name: "ARIA End Of Year Singles Chart", url: "https://aria.com.au/charts/2024/singles-chart" },

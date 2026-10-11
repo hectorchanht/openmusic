@@ -30,6 +30,26 @@ export const PACK_META_SOY_2022_HK = {
   country: 'Hong Kong'
 } as const;
 
+export const PACK_META_SOY_2022_FR = {
+  id: 'soy-2022-fr',
+  title: '2022 SNEP 法國年終單曲榜',
+  titleEn: 'France 2022',
+  description: 'SNEP 法國年終單曲榜',
+  free: true,
+  year: 2022,
+  country: 'France'
+} as const;
+
+export const PACK_META_SOY_2022_IT = {
+  id: 'soy-2022-it',
+  title: '2022 FIMI 意大利年終單曲榜',
+  titleEn: 'Italy 2022',
+  description: 'FIMI 意大利年終單曲榜',
+  free: true,
+  year: 2022,
+  country: 'Italy'
+} as const;
+
 export const SOY_2022: Record<string, PackSong[]> = {
   'United States': [
     { artist: "Glass Animals", title: "Heat Waves", note: "#1 Billboard 年終" },
@@ -303,10 +323,58 @@ export const SOY_2022: Record<string, PackSong[]> = {
     { artist: "吳林峰、謝芊彤", title: "我也難過的", note: "#9 叱咤十大" },
     { artist: "馮允謙", title: "Freakin' Nightmare", note: "#10 叱咤十大" },
   ],
+  'France': [
+    { artist: "Alonzo featuring Ninho、Naps", title: "style=\"text-align:left\" |Tout va bien", note: "#1 SNEP 年終" },
+    { artist: "Rema", title: "style=\"text-align:left\" |Calm Down", note: "#2 SNEP 年終" },
+    { artist: "Ninho", title: "style=\"text-align:left\" |Jefe", note: "#3 SNEP 年終" },
+    { artist: "Soolking", title: "style=\"text-align:left\" |Suavemente", note: "#4 SNEP 年終" },
+    { artist: "Gazo", title: "style=\"text-align:left\" |Die", note: "#5 SNEP 年終" },
+    { artist: "Timal featuring Gazo", title: "style=\"text-align:left\" |Filtré", note: "#6 SNEP 年終" },
+    { artist: "Yanns", title: "style=\"text-align:left\" |Clic clic pan pan", note: "#7 SNEP 年終" },
+    { artist: "Harry Styles", title: "style=\"text-align:left\" |As It Was", note: "#8 SNEP 年終" },
+    { artist: "Zeg P featuring Hamza、SCH", title: "style=\"text-align:left\" |Fade Up", note: "#9 SNEP 年終" },
+    { artist: "Ninho", title: "style=\"text-align:left\" |VVS", note: "#10 SNEP 年終" },
+    { artist: "Rosalía featuring The Weeknd", title: "style=\"text-align:left\" |La Fama", note: "#11 SNEP 年終" },
+    { artist: "Soolking featuring Niska", title: "style=\"text-align:left\" |Balader", note: "#12 SNEP 年終" },
+    { artist: "Naps featuring Gims", title: "style=\"text-align:left\" |Best Life", note: "#13 SNEP 年終" },
+    { artist: "Koba LaD featuring Naps", title: "style=\"text-align:left\" |Doudou", note: "#14 SNEP 年終" },
+    { artist: "Gayle", title: "style=\"text-align:left\" |ABCDEFU", note: "#15 SNEP 年終" },
+    { artist: "Naps", title: "style=\"text-align:left\" |La Kiffance", note: "#16 SNEP 年終" },
+    { artist: "Angèle featuring Damso", title: "style=\"text-align:left\" |Démons", note: "#17 SNEP 年終" },
+    { artist: "CKay", title: "style=\"text-align:left\" |Emiliana", note: "#18 SNEP 年終" },
+    { artist: "Orelsan", title: "style=\"text-align:left\" |La Quête", note: "#19 SNEP 年終" },
+    { artist: "Jul", title: "style=\"text-align:left\" |J'ai tout su", note: "#20 SNEP 年終" },
+  ],
+
+  'Italy': [
+    { artist: "Mahmood、Blanco", title: "Brividi", note: "#1 FIMI 年終" },
+    { artist: "Rhove", title: "Shakerando", note: "#2 FIMI 年終" },
+    { artist: "Dargen D'Amico", title: "Dove si balla", note: "#3 FIMI 年終" },
+    { artist: "Sangiovanni", title: "Farfalle", note: "#4 FIMI 年終" },
+    { artist: "Rkomi、Elodie", title: "La coda del diavolo", note: "#5 FIMI 年終" },
+    { artist: "Fedez, Tananai、Mara Sattei", title: "La dolce vita", note: "#6 FIMI 年終" },
+    { artist: "Pinguini Tattici Nucleari", title: "Giovani Wannabe", note: "#7 FIMI 年終" },
+    { artist: "Irama ft. Rkomi", title: "5 gocce", note: "#8 FIMI 年終" },
+    { artist: "Tananai", title: "Baby Goddamn", note: "#9 FIMI 年終" },
+    { artist: "La Rappresentante di Lista", title: "Ciao ciao", note: "#10 FIMI 年終" },
+    { artist: "Blanco", title: "Finché non mi seppelliscono", note: "#11 FIMI 年終" },
+    { artist: "Pinguini Tattici Nucleari", title: "Pastello bianco", note: "#12 FIMI 年終" },
+    { artist: "James Hype、Miggy Dela Rosa ft. Lazza", title: "Ferrari (Remix)", note: "#13 FIMI 年終" },
+    { artist: "Jovanotti、Sixpm", title: "I Love You Baby", note: "#14 FIMI 年終" },
+    { artist: "Irama", title: "Ovunque sarai", note: "#15 FIMI 年終" },
+    { artist: "Harry Styles", title: "As It Was", note: "#16 FIMI 年終" },
+    { artist: "Elodie", title: "Bagno a mezzanotte", note: "#17 FIMI 年終" },
+    { artist: "Thasup ft. Lazza、Sfera Ebbasta", title: "s!r!", note: "#18 FIMI 年終" },
+    { artist: "Blanco", title: "Nostalgia", note: "#19 FIMI 年終" },
+    { artist: "Blanco、Sfera Ebbasta", title: "Mi fai impazzire", note: "#20 FIMI 年終" },
+  ],
+
 };
 
 /** Chart source attribution for 2022 — rendered in the pack page footer. */
 export const SOY_SOURCES_2022: Record<string, { name: string; url: string }> = {
+  'Italy': { name: "FIMI 意大利年終單曲榜", url: "https://www.fimi.it/classifiche.kl#/category:digital" },
+  'France': { name: "SNEP 法國年終單曲榜", url: "https://www.snepmusique.com/les-tops/le-top-de-lannee/top-singles-annee/" },
   'Hong Kong': { name: "叱咤樂壇流行榜 專業推介．叱咤十大", url: "https://zh.wikipedia.org/wiki/2022年度叱咤樂壇流行榜頒獎典禮得獎名單" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_2022" },
   'Australia': { name: "ARIA End Of Year Singles Chart", url: "https://aria.com.au/charts/2022/singles-chart" },

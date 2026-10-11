@@ -40,6 +40,26 @@ export const PACK_META_SOY_2011_TW = {
   country: 'Taiwan'
 } as const;
 
+export const PACK_META_SOY_2011_GE = {
+  id: 'soy-2011-ge',
+  title: '2011 Media Control 德國年終單曲榜',
+  titleEn: 'Germany 2011',
+  description: 'Media Control 德國年終單曲榜',
+  free: true,
+  year: 2011,
+  country: 'Germany'
+} as const;
+
+export const PACK_META_SOY_2011_IT = {
+  id: 'soy-2011-it',
+  title: '2011 FIMI 意大利年終單曲榜',
+  titleEn: 'Italy 2011',
+  description: 'FIMI 意大利年終單曲榜',
+  free: true,
+  year: 2011,
+  country: 'Italy'
+} as const;
+
 export const SOY_2011: Record<string, PackSong[]> = {
   'United States': [
     { artist: "Adele", title: "Rolling in the Deep", note: "#1 Billboard 年終" },
@@ -274,10 +294,58 @@ export const SOY_2011: Record<string, PackSong[]> = {
     { artist: "五月天", title: "諾亞方舟", note: "年度十大單曲 (排名不分先後)" },
   ],
 
+  'Germany': [
+    { artist: "Jennifer Lopez featuring Pitbull", title: "On the Floor", note: "#1 Media Control 年終" },
+    { artist: "Alexandra Stan", title: "Mr. Saxobeat", note: "#2 Media Control 年終" },
+    { artist: "Bruno Mars", title: "Grenade", note: "#3 Media Control 年終" },
+    { artist: "Adele", title: "Rolling in the Deep", note: "#4 Media Control 年終" },
+    { artist: "Pietro Lombardi", title: "Call My Name", note: "#5 Media Control 年終" },
+    { artist: "Marlon Roudette", title: "New Age", note: "#6 Media Control 年終" },
+    { artist: "Snoop Dogg versus David Guetta", title: "Sweat", note: "#7 Media Control 年終" },
+    { artist: "LMFAO featuring Lauren Bennett and GoonRock", title: "Party Rock Anthem", note: "#8 Media Control 年終" },
+    { artist: "Pitbull featuring Ne-Yo, Afrojack and Nayer", title: "Give Me Everything", note: "#9 Media Control 年終" },
+    { artist: "Tim Bendzko", title: "Nur noch kurz die Welt retten", note: "#10 Media Control 年終" },
+    { artist: "Sunrise Avenue", title: "Hollywood Hills", note: "#11 Media Control 年終" },
+    { artist: "Lucenzo featuring Don Omar", title: "Danza Kuduro", note: "#12 Media Control 年終" },
+    { artist: "Rihanna featuring Calvin Harris", title: "We Found Love", note: "#13 Media Control 年終" },
+    { artist: "Caro Emerald", title: "A Night Like This", note: "#14 Media Control 年終" },
+    { artist: "Maroon 5 featuring Christina Aguilera", title: "Moves like Jagger", note: "#15 Media Control 年終" },
+    { artist: "Adele", title: "Set Fire to the Rain", note: "#16 Media Control 年終" },
+    { artist: "Lady Gaga", title: "Born This Way", note: "#17 Media Control 年終" },
+    { artist: "Taio Cruz featuring Kylie Minogue", title: "Higher", note: "#18 Media Control 年終" },
+    { artist: "Lana Del Rey", title: "Video Games", note: "#19 Media Control 年終" },
+    { artist: "Jupiter Jones", title: "Still", note: "#20 Media Control 年終" },
+  ],
+
+  'Italy': [
+    { artist: "Adele", title: "Someone like You", note: "#1 FIMI 年終" },
+    { artist: "Alexandra Stan", title: "Mr. Saxobeat", note: "#2 FIMI 年終" },
+    { artist: "Don Omar、Lucenzo", title: "Danza kuduro", note: "#3 FIMI 年終" },
+    { artist: "Jennifer Lopez ft. Pitbull", title: "On the Floor", note: "#4 FIMI 年終" },
+    { artist: "Adele", title: "Rolling in the Deep", note: "#5 FIMI 年終" },
+    { artist: "Vasco Rossi", title: "Eh... già", note: "#6 FIMI 年終" },
+    { artist: "Modà ft. Emma", title: "Arriverà", note: "#7 FIMI 年終" },
+    { artist: "Michel Teló", title: "Ai se eu te pego!", note: "#8 FIMI 年終" },
+    { artist: "Maroon 5 ft. Christina Aguilera", title: "Moves like Jagger", note: "#9 FIMI 年終" },
+    { artist: "Fabri Fibra", title: "Tranne te", note: "#10 FIMI 年終" },
+    { artist: "Maria Gadú", title: "Shimbalaiê", note: "#11 FIMI 年終" },
+    { artist: "Adele", title: "Set Fire to the Rain", note: "#12 FIMI 年終" },
+    { artist: "Jovanotti", title: "Tutto l'amore che ho", note: "#13 FIMI 年終" },
+    { artist: "Pitbull ft. Ne-Yo, Afrojack、Nayer", title: "Give Me Everything", note: "#14 FIMI 年終" },
+    { artist: "Tiziano Ferro", title: "La differenza tra me e te", note: "#15 FIMI 年終" },
+    { artist: "Jovanotti", title: "Il più grande spettacolo dopo il Big Bang", note: "#16 FIMI 年終" },
+    { artist: "Jovanotti", title: "Le tasche piene di sassi", note: "#17 FIMI 年終" },
+    { artist: "LMFAO ft. Lauren Bennett、GoonRock", title: "Party Rock Anthem", note: "#18 FIMI 年終" },
+    { artist: "Coldplay", title: "Paradise", note: "#19 FIMI 年終" },
+    { artist: "Rihanna ft. Calvin Harris", title: "We Found Love", note: "#20 FIMI 年終" },
+  ],
+
 };
 
 /** Chart source attribution for 2011 — rendered in the pack page footer. */
 export const SOY_SOURCES_2011: Record<string, { name: string; url: string }> = {
+  'Italy': { name: "FIMI 意大利年終單曲榜", url: "https://www.fimi.it/classifiche.kl#/category:digital" },
+  'Germany': { name: "Media Control 德國年終單曲榜", url: "https://en.wikipedia.org/wiki/List_of_best-selling_singles_by_year_(Germany)" },
   'Taiwan': { name: "中華音樂人交流協會 年度十大單曲", url: "https://zh.wikipedia.org/wiki/中華音樂人交流協會" },
   'Hong Kong': { name: "叱咤樂壇流行榜 專業推介．叱咤十大", url: "https://zh.wikipedia.org/wiki/2011年度叱咤樂壇流行榜頒獎典禮得獎名單" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_2011" },

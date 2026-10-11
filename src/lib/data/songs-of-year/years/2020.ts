@@ -41,6 +41,26 @@ export const PACK_META_SOY_2020_TW = {
   country: 'Taiwan'
 } as const;
 
+export const PACK_META_SOY_2020_FR = {
+  id: 'soy-2020-fr',
+  title: '2020 SNEP 法國年終單曲榜',
+  titleEn: 'France 2020',
+  description: 'SNEP 法國年終單曲榜',
+  free: true,
+  year: 2020,
+  country: 'France'
+} as const;
+
+export const PACK_META_SOY_2020_IT = {
+  id: 'soy-2020-it',
+  title: '2020 FIMI 意大利年終單曲榜',
+  titleEn: 'Italy 2020',
+  description: 'FIMI 意大利年終單曲榜',
+  free: true,
+  year: 2020,
+  country: 'Italy'
+} as const;
+
 export const SOY_2020: Record<string, PackSong[]> = {
   'United States': [
     { artist: "The Weeknd", title: "Blinding Lights", note: "#1 Billboard 年終" },
@@ -327,10 +347,58 @@ export const SOY_2020: Record<string, PackSong[]> = {
     { artist: "YELLOW 黃宣、9m88", title: "怪天氣", note: "年度十大單曲 (排名不分先後)" },
   ],
 
+  'France': [
+    { artist: "SCH、Kofs、Jul、Naps、Soso Maness、Elams、Solda、Houari", title: "style=\"text-align:left\" |Bande organisée", note: "#1 SNEP 年終" },
+    { artist: "The Weeknd", title: "style=\"text-align:left\" |Blinding Lights", note: "#2 SNEP 年終" },
+    { artist: "Hatik", title: "style=\"text-align:left\" |Angela", note: "#3 SNEP 年終" },
+    { artist: "Tones and I", title: "style=\"text-align:left\" |Dance Monkey", note: "#4 SNEP 年終" },
+    { artist: "Ninho", title: "style=\"text-align:left\" |Lettre à une femme", note: "#5 SNEP 年終" },
+    { artist: "Gradur featuring Heuss l'Enfoiré", title: "style=\"text-align:left\" |Ne reviens pas", note: "#6 SNEP 年終" },
+    { artist: "Bosh", title: "style=\"text-align:left\" |Djomb", note: "#7 SNEP 年終" },
+    { artist: "Saint Jhn", title: "style=\"text-align:left\" |Roses", note: "#8 SNEP 年終" },
+    { artist: "Maes featuring Booba", title: "style=\"text-align:left\" |Blanche", note: "#9 SNEP 年終" },
+    { artist: "Maes featuring Ninho", title: "style=\"text-align:left\" |Distant", note: "#10 SNEP 年終" },
+    { artist: "Dadju、Ninho", title: "style=\"text-align:left\" |Grand bain", note: "#11 SNEP 年終" },
+    { artist: "Maes featuring Jul", title: "style=\"text-align:left\" |Dybala", note: "#12 SNEP 年終" },
+    { artist: "Naps featuring Ninho", title: "style=\"text-align:left\" |6.3", note: "#13 SNEP 年終" },
+    { artist: "Soolking featuring Dadju", title: "style=\"text-align:left\" |Meleğim", note: "#14 SNEP 年終" },
+    { artist: "Heuss l'Enfoiré、Jul", title: "style=\"text-align:left\" |Moulaga", note: "#15 SNEP 年終" },
+    { artist: "Master KG featuring Burna Boy、Nomcebo Zikode", title: "style=\"text-align:left\" |Jerusalema (remix)", note: "#16 SNEP 年終" },
+    { artist: "Karol G、Nicki Minaj", title: "style=\"text-align:left\" |Tusa", note: "#17 SNEP 年終" },
+    { artist: "Aya Nakamura", title: "style=\"text-align:left\" |Jolie Nana", note: "#18 SNEP 年終" },
+    { artist: "Nea", title: "style=\"text-align:left\" |Some Say", note: "#19 SNEP 年終" },
+    { artist: "4Keus featuring Niska", title: "style=\"text-align:left\" |MD", note: "#20 SNEP 年終" },
+  ],
+
+  'Italy': [
+    { artist: "Boomdabash、Alessandra Amoroso", title: "Karaoke", note: "#1 FIMI 年終" },
+    { artist: "Rocco Hunt、Ana Mena", title: "A un passo dalla Luna", note: "#2 FIMI 年終" },
+    { artist: "Irama", title: "Mediterranea", note: "#3 FIMI 年終" },
+    { artist: "Ernia", title: "Superclassico", note: "#4 FIMI 年終" },
+    { artist: "Ghali", title: "Good Times", note: "#5 FIMI 年終" },
+    { artist: "Shablo, Geolier、Sfera Ebbasta", title: "M' manc", note: "#6 FIMI 年終" },
+    { artist: "Purple Disco Machine、Sophie and the Giants", title: "Hypnotized", note: "#7 FIMI 年終" },
+    { artist: "The Weeknd", title: "Blinding Lights", note: "#8 FIMI 年終" },
+    { artist: "Saint Jhn", title: "Roses (Imanbek Remix)", note: "#9 FIMI 年終" },
+    { artist: "Guè, Rose Villain、Luchè", title: "Chico", note: "#10 FIMI 年終" },
+    { artist: "Master KG ft. Burna Boy、Nomcebo Zikode", title: "Jerusalema", note: "#11 FIMI 年終" },
+    { artist: "Topic、A7S", title: "Breaking Me", note: "#12 FIMI 年終" },
+    { artist: "Baby K、Chiara Ferragni", title: "Non mi basta più", note: "#13 FIMI 年終" },
+    { artist: "Black Eyed Peas, Ozuna、J. Rey Soul", title: "Mamacita", note: "#14 FIMI 年終" },
+    { artist: "Fred De Palma ft. Anitta", title: "Paloma", note: "#15 FIMI 年終" },
+    { artist: "Jawsh 685、Jason Derulo", title: "Savage Love (Laxed - Siren Beat)", note: "#16 FIMI 年終" },
+    { artist: "Tones and I", title: "Dance Monkey", note: "#17 FIMI 年終" },
+    { artist: "Fedez、Robert Miles", title: "Bimbi per strada (Children)", note: "#18 FIMI 年終" },
+    { artist: "Thasup", title: "Blun7 a Swishland", note: "#19 FIMI 年終" },
+    { artist: "Emanuele Aloia", title: "Il bacio di Klimt", note: "#20 FIMI 年終" },
+  ],
+
 };
 
 /** Chart source attribution for 2020 — rendered in the pack page footer. */
 export const SOY_SOURCES_2020: Record<string, { name: string; url: string }> = {
+  'Italy': { name: "FIMI 意大利年終單曲榜", url: "https://www.fimi.it/classifiche.kl#/category:digital" },
+  'France': { name: "SNEP 法國年終單曲榜", url: "https://www.snepmusique.com/les-tops/le-top-de-lannee/top-singles-annee/" },
   'Taiwan': { name: "中華音樂人交流協會 年度十大單曲", url: "https://zh.wikipedia.org/wiki/中華音樂人交流協會" },
   'Hong Kong': { name: "叱咤樂壇流行榜 專業推介．叱咤十大", url: "https://zh.wikipedia.org/wiki/2020年度叱咤樂壇流行榜頒獎典禮得獎名單" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_2020" },

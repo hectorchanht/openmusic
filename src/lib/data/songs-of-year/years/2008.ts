@@ -39,6 +39,26 @@ export const PACK_META_SOY_2008_TW = {
   country: 'Taiwan'
 } as const;
 
+export const PACK_META_SOY_2008_GE = {
+  id: 'soy-2008-ge',
+  title: '2008 Media Control 德國年終單曲榜',
+  titleEn: 'Germany 2008',
+  description: 'Media Control 德國年終單曲榜',
+  free: true,
+  year: 2008,
+  country: 'Germany'
+} as const;
+
+export const PACK_META_SOY_2008_IT = {
+  id: 'soy-2008-it',
+  title: '2008 FIMI 意大利年終單曲榜',
+  titleEn: 'Italy 2008',
+  description: 'FIMI 意大利年終單曲榜',
+  free: true,
+  year: 2008,
+  country: 'Italy'
+} as const;
+
 export const SOY_2008: Record<string, PackSong[]> = {
   'United States': [
     { artist: "Flo Rida ft. T-Pain", title: "Low", note: "#1 Billboard 年終" },
@@ -221,10 +241,58 @@ export const SOY_2008: Record<string, PackSong[]> = {
     { artist: "五月天", title: "你不是真正的快樂", note: "年度十大單曲 (排名不分先後)" },
   ],
 
+  'Germany': [
+    { artist: "Timbaland presents OneRepublic", title: "Apologize", note: "#1 Media Control 年終" },
+    { artist: "Leona Lewis", title: "Bleeding Love", note: "#2 Media Control 年終" },
+    { artist: "Kid Rock", title: "All Summer Long", note: "#3 Media Control 年終" },
+    { artist: "Schnuffel", title: "Kuschel Song", note: "#4 Media Control 年終" },
+    { artist: "Katy Perry", title: "I Kissed a Girl", note: "#5 Media Control 年終" },
+    { artist: "Duffy", title: "Mercy", note: "#6 Media Control 年終" },
+    { artist: "Ich + Ich", title: "So soll es bleiben", note: "#7 Media Control 年終" },
+    { artist: "Amy Macdonald", title: "This Is the Life", note: "#8 Media Control 年終" },
+    { artist: "Madonna featuring Justin Timberlake and Timbaland", title: "4 Minutes", note: "#9 Media Control 年終" },
+    { artist: "Gabriella Cilmi", title: "Sweet About Me", note: "#10 Media Control 年終" },
+    { artist: "Stefanie Heinzmann", title: "My Man Is a Mean Man", note: "#11 Media Control 年終" },
+    { artist: "Ich + Ich", title: "Stark", note: "#12 Media Control 年終" },
+    { artist: "Polarkreis 18", title: "Allein, Allein", note: "#13 Media Control 年終" },
+    { artist: "Mark Ronson featuring Amy Winehouse", title: "Valerie", note: "#14 Media Control 年終" },
+    { artist: "Thomas Godoj", title: "Love Is You", note: "#15 Media Control 年終" },
+    { artist: "Pink", title: "So What", note: "#16 Media Control 年終" },
+    { artist: "Guru Josh Project", title: "Infinity 2008", note: "#17 Media Control 年終" },
+    { artist: "Mark Medlock", title: "Summer Love", note: "#18 Media Control 年終" },
+    { artist: "Paul Potts", title: "Nessun dorma", note: "#19 Media Control 年終" },
+    { artist: "Söhne Mannheims", title: "Das hat die Welt noch nicht gesehen", note: "#20 Media Control 年終" },
+  ],
+
+  'Italy': [
+    { artist: "Jovanotti", title: "A te", note: "#1 FIMI 年終" },
+    { artist: "Giusy Ferreri", title: "Non ti scordar mai di me", note: "#2 FIMI 年終" },
+    { artist: "Giusy Ferreri", title: "Novembre", note: "#3 FIMI 年終" },
+    { artist: "Coldplay", title: "Viva la vida", note: "#4 FIMI 年終" },
+    { artist: "Madonna", title: "Give It 2 Me", note: "#5 FIMI 年終" },
+    { artist: "Katy Perry", title: "I Kissed a Girl", note: "#6 FIMI 年終" },
+    { artist: "Madonna ft. Justin Timberlake、Timbaland", title: "4 Minutes", note: "#7 FIMI 年終" },
+    { artist: "Timbaland ft. OneRepublic", title: "Apologize", note: "#8 FIMI 年終" },
+    { artist: "Tiziano Ferro", title: "Alla mia età", note: "#9 FIMI 年終" },
+    { artist: "Vasco Rossi", title: "Il mondo che vorrei", note: "#10 FIMI 年終" },
+    { artist: "Estelle ft. Kanye West", title: "American Boy", note: "#11 FIMI 年終" },
+    { artist: "Luca Butera", title: "Wow! Una star così vera", note: "#12 FIMI 年終" },
+    { artist: "Leona Lewis", title: "Bleeding Love", note: "#13 FIMI 年終" },
+    { artist: "Duffy", title: "Mercy", note: "#14 FIMI 年終" },
+    { artist: "Jason Mraz", title: "I'm Yours", note: "#15 FIMI 年終" },
+    { artist: "Novecento", title: "Cry", note: "#16 FIMI 年終" },
+    { artist: "Leona Lewis", title: "Better in Time", note: "#17 FIMI 年終" },
+    { artist: "Rihanna", title: "Don't Stop the Music", note: "#18 FIMI 年終" },
+    { artist: "Gabriella Cilmi", title: "Sweet About Me", note: "#19 FIMI 年終" },
+    { artist: "Laura Pausini", title: "Invece no", note: "#20 FIMI 年終" },
+  ],
+
 };
 
 /** Chart source attribution for 2008 — rendered in the pack page footer. */
 export const SOY_SOURCES_2008: Record<string, { name: string; url: string }> = {
+  'Italy': { name: "FIMI 意大利年終單曲榜", url: "https://www.fimi.it/classifiche.kl#/category:digital" },
+  'Germany': { name: "Media Control 德國年終單曲榜", url: "https://en.wikipedia.org/wiki/List_of_best-selling_singles_by_year_(Germany)" },
   'Taiwan': { name: "中華音樂人交流協會 年度十大單曲", url: "https://zh.wikipedia.org/wiki/中華音樂人交流協會" },
   'Hong Kong': { name: "叱咤樂壇流行榜 專業推介．叱咤十大", url: "https://zh.wikipedia.org/wiki/2008年度叱咤樂壇流行榜頒獎典禮得獎名單" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_2008" },

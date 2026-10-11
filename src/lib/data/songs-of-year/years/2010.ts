@@ -40,6 +40,26 @@ export const PACK_META_SOY_2010_TW = {
   country: 'Taiwan'
 } as const;
 
+export const PACK_META_SOY_2010_GE = {
+  id: 'soy-2010-ge',
+  title: '2010 Media Control 德國年終單曲榜',
+  titleEn: 'Germany 2010',
+  description: 'Media Control 德國年終單曲榜',
+  free: true,
+  year: 2010,
+  country: 'Germany'
+} as const;
+
+export const PACK_META_SOY_2010_IT = {
+  id: 'soy-2010-it',
+  title: '2010 FIMI 意大利年終單曲榜',
+  titleEn: 'Italy 2010',
+  description: 'FIMI 意大利年終單曲榜',
+  free: true,
+  year: 2010,
+  country: 'Italy'
+} as const;
+
 export const SOY_2010: Record<string, PackSong[]> = {
   'United States': [
     { artist: "Kesha", title: "Tik Tok", note: "#1 Billboard 年終" },
@@ -274,10 +294,58 @@ export const SOY_2010: Record<string, PackSong[]> = {
     { artist: "io樂團", title: "真實", note: "年度十大單曲 (排名不分先後)" },
   ],
 
+  'Germany': [
+    { artist: "Israel Kamakawiwoʻole", title: "Over the Rainbow", note: "#1 Media Control 年終" },
+    { artist: "Shakira featuring Freshlyground", title: "Waka Waka (This Time for Africa)", note: "#2 Media Control 年終" },
+    { artist: "Lena", title: "Satellite", note: "#3 Media Control 年終" },
+    { artist: "Unheilig", title: "Geboren um zu leben", note: "#4 Media Control 年終" },
+    { artist: "Yolanda Be Cool & DCUP", title: "We No Speak Americano", note: "#5 Media Control 年終" },
+    { artist: "K'naan", title: "Wavin' Flag", note: "#6 Media Control 年終" },
+    { artist: "Stromae", title: "Alors on danse", note: "#7 Media Control 年終" },
+    { artist: "Hurts", title: "Wonderful Life", note: "#8 Media Control 年終" },
+    { artist: "Keri Hilson", title: "I Like", note: "#9 Media Control 年終" },
+    { artist: "Kesha", title: "Tik Tok", note: "#10 Media Control 年終" },
+    { artist: "Eminem featuring Rihanna", title: "Love the Way You Lie", note: "#11 Media Control 年終" },
+    { artist: "Madcon", title: "Glow", note: "#12 Media Control 年終" },
+    { artist: "Mehrzad Marashi", title: "Don't Believe", note: "#13 Media Control 年終" },
+    { artist: "Velile & Safri Duo", title: "Helele", note: "#14 Media Control 年終" },
+    { artist: "Edward Maya featuring Vika Jigulina", title: "Stereo Love", note: "#15 Media Control 年終" },
+    { artist: "Empire of the Sun", title: "We Are the People", note: "#16 Media Control 年終" },
+    { artist: "Lady Gaga", title: "Bad Romance", note: "#17 Media Control 年終" },
+    { artist: "Rihanna", title: "Only Girl (In the World)", note: "#18 Media Control 年終" },
+    { artist: "Lady Gaga", title: "Alejandro", note: "#19 Media Control 年終" },
+    { artist: "Katy Perry featuring Snoop Dogg", title: "California Gurls", note: "#20 Media Control 年終" },
+  ],
+
+  'Italy': [
+    { artist: "Shakira ft. Freshlyground", title: "Waka Waka (This Time for Africa)", note: "#1 FIMI 年終" },
+    { artist: "Jovanotti", title: "Baciami ancora", note: "#2 FIMI 年終" },
+    { artist: "Kesha", title: "Tik Tok", note: "#3 FIMI 年終" },
+    { artist: "Lady Gaga", title: "Alejandro", note: "#4 FIMI 年終" },
+    { artist: "Edward Maya、Vika Jigulina", title: "Stereo Love", note: "#5 FIMI 年終" },
+    { artist: "Noemi", title: "Per tutta la vita", note: "#6 FIMI 年終" },
+    { artist: "Stromae", title: "Alors on danse", note: "#7 FIMI 年終" },
+    { artist: "Modà", title: "Sono già solo", note: "#8 FIMI 年終" },
+    { artist: "Lady Gaga", title: "Bad Romance", note: "#9 FIMI 年終" },
+    { artist: "Shakira ft. Dizzee Rascal / El Cata", title: "Loca", note: "#10 FIMI 年終" },
+    { artist: "Valerio Scanu", title: "Per tutte le volte che...", note: "#11 FIMI 年終" },
+    { artist: "Katy Perry ft. Snoop Dogg", title: "California Gurls", note: "#12 FIMI 年終" },
+    { artist: "Train", title: "Hey, Soul Sister", note: "#13 FIMI 年終" },
+    { artist: "Malika Ayane", title: "Ricomincio da qui", note: "#14 FIMI 年終" },
+    { artist: "Cesare Cremonini ft. Jovanotti", title: "Mondo", note: "#15 FIMI 年終" },
+    { artist: "Black Eyed Peas", title: "Meet Me Halfway", note: "#16 FIMI 年終" },
+    { artist: "Ne-Yo", title: "Beautiful Monster", note: "#17 FIMI 年終" },
+    { artist: "Lady Gaga ft. Beyoncé", title: "Telephone", note: "#18 FIMI 年終" },
+    { artist: "Jovanotti", title: "Tutto l'amore che ho", note: "#19 FIMI 年終" },
+    { artist: "Eminem ft. Rihanna", title: "Love the Way You Lie", note: "#20 FIMI 年終" },
+  ],
+
 };
 
 /** Chart source attribution for 2010 — rendered in the pack page footer. */
 export const SOY_SOURCES_2010: Record<string, { name: string; url: string }> = {
+  'Italy': { name: "FIMI 意大利年終單曲榜", url: "https://www.fimi.it/classifiche.kl#/category:digital" },
+  'Germany': { name: "Media Control 德國年終單曲榜", url: "https://en.wikipedia.org/wiki/List_of_best-selling_singles_by_year_(Germany)" },
   'Taiwan': { name: "中華音樂人交流協會 年度十大單曲", url: "https://zh.wikipedia.org/wiki/中華音樂人交流協會" },
   'Hong Kong': { name: "叱咤樂壇流行榜 專業推介．叱咤十大", url: "https://zh.wikipedia.org/wiki/2010年度叱咤樂壇流行榜頒獎典禮得獎名單" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_2010" },

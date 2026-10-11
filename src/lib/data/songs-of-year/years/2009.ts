@@ -39,6 +39,26 @@ export const PACK_META_SOY_2009_TW = {
   country: 'Taiwan'
 } as const;
 
+export const PACK_META_SOY_2009_GE = {
+  id: 'soy-2009-ge',
+  title: '2009 Media Control 德國年終單曲榜',
+  titleEn: 'Germany 2009',
+  description: 'Media Control 德國年終單曲榜',
+  free: true,
+  year: 2009,
+  country: 'Germany'
+} as const;
+
+export const PACK_META_SOY_2009_IT = {
+  id: 'soy-2009-it',
+  title: '2009 FIMI 意大利年終單曲榜',
+  titleEn: 'Italy 2009',
+  description: 'FIMI 意大利年終單曲榜',
+  free: true,
+  year: 2009,
+  country: 'Italy'
+} as const;
+
 export const SOY_2009: Record<string, PackSong[]> = {
   'United States': [
     { artist: "The Black Eyed Peas", title: "Boom Boom Pow", note: "#1 Billboard 年終" },
@@ -221,10 +241,58 @@ export const SOY_2009: Record<string, PackSong[]> = {
     { artist: "靜物樂團", title: "我在歐洲，打電話給你", note: "年度十大單曲 (排名不分先後)" },
   ],
 
+  'Germany': [
+    { artist: "Lady Gaga", title: "Poker Face", note: "#1 Media Control 年終" },
+    { artist: "Emilíana Torrini", title: "Jungle Drum", note: "#2 Media Control 年終" },
+    { artist: "Milow", title: "Ayo Technology", note: "#3 Media Control 年終" },
+    { artist: "Cassandra Steen featuring Adel Tawil", title: "Stadt", note: "#4 Media Control 年終" },
+    { artist: "Mando Diao", title: "Dance with Somebody", note: "#5 Media Control 年終" },
+    { artist: "Razorlight", title: "Wire to Wire", note: "#6 Media Control 年終" },
+    { artist: "Silbermond", title: "Irgendwas bleibt", note: "#7 Media Control 年終" },
+    { artist: "Gossip", title: "Heavy Cross", note: "#8 Media Control 年終" },
+    { artist: "The Black Eyed Peas", title: "I Gotta Feeling", note: "#9 Media Control 年終" },
+    { artist: "David Guetta featuring Kelly Rowland", title: "When Love Takes Over", note: "#10 Media Control 年終" },
+    { artist: "Marit Larsen", title: "If a Song Could Get Me You", note: "#11 Media Control 年終" },
+    { artist: "James Morrison featuring Nelly Furtado", title: "Broken Strings", note: "#12 Media Control 年終" },
+    { artist: "Katy Perry", title: "Hot n Cold", note: "#13 Media Control 年終" },
+    { artist: "David Guetta featuring Akon", title: "Sexy Bitch", note: "#14 Media Control 年終" },
+    { artist: "Polarkreis 18", title: "Allein, Allein", note: "#15 Media Control 年終" },
+    { artist: "Robbie Williams", title: "Bodies", note: "#16 Media Control 年終" },
+    { artist: "Peter Fox", title: "Haus am See", note: "#17 Media Control 年終" },
+    { artist: "Beyoncé", title: "Halo", note: "#18 Media Control 年終" },
+    { artist: "Daniel Schuhmacher", title: "Anything but Love", note: "#19 Media Control 年終" },
+    { artist: "Mark Medlock", title: "Mamacita", note: "#20 Media Control 年終" },
+  ],
+
+  'Italy': [
+    { artist: "Artisti Uniti Per L'Abruzzo", title: "Domani 21/04.2009", note: "#1 FIMI 年終" },
+    { artist: "Arisa", title: "Sincerità", note: "#2 FIMI 年終" },
+    { artist: "Black Eyed Peas", title: "I Gotta Feeling", note: "#3 FIMI 年終" },
+    { artist: "Lady Gaga", title: "Poker Face", note: "#4 FIMI 年終" },
+    { artist: "Tiziano Ferro", title: "Il regalo più grande", note: "#5 FIMI 年終" },
+    { artist: "Noemi ft. Fiorella Mannoia", title: "L'amore si odia", note: "#6 FIMI 年終" },
+    { artist: "Shakira", title: "She Wolf", note: "#7 FIMI 年終" },
+    { artist: "Amy Macdonald", title: "This Is the Life", note: "#8 FIMI 年終" },
+    { artist: "Negramaro", title: "Meraviglioso", note: "#9 FIMI 年終" },
+    { artist: "Malika Ayane", title: "Come foglie", note: "#10 FIMI 年終" },
+    { artist: "Marco Carta", title: "La forza mia", note: "#11 FIMI 年終" },
+    { artist: "Tiziano Ferro", title: "Indietro", note: "#12 FIMI 年終" },
+    { artist: "David Guetta ft. Kelly Rowland", title: "When Love Takes Over", note: "#13 FIMI 年終" },
+    { artist: "Madonna", title: "Celebration", note: "#14 FIMI 年終" },
+    { artist: "A. R. Rahman、Pussycat Dolls", title: "Jai Ho! (You Are My Destiny)", note: "#15 FIMI 年終" },
+    { artist: "Alessandra Amoroso", title: "Immobile", note: "#16 FIMI 年終" },
+    { artist: "Eros Ramazzotti", title: "Parla con me", note: "#17 FIMI 年終" },
+    { artist: "Lady Gaga", title: "Bad Romance", note: "#18 FIMI 年終" },
+    { artist: "Elisa ft. Giuliano Sangiorgi", title: "Ti vorrei sollevare", note: "#19 FIMI 年終" },
+    { artist: "Pitbull", title: "I Know You Want Me (Calle Ocho)", note: "#20 FIMI 年終" },
+  ],
+
 };
 
 /** Chart source attribution for 2009 — rendered in the pack page footer. */
 export const SOY_SOURCES_2009: Record<string, { name: string; url: string }> = {
+  'Italy': { name: "FIMI 意大利年終單曲榜", url: "https://www.fimi.it/classifiche.kl#/category:digital" },
+  'Germany': { name: "Media Control 德國年終單曲榜", url: "https://en.wikipedia.org/wiki/List_of_best-selling_singles_by_year_(Germany)" },
   'Taiwan': { name: "中華音樂人交流協會 年度十大單曲", url: "https://zh.wikipedia.org/wiki/中華音樂人交流協會" },
   'Hong Kong': { name: "叱咤樂壇流行榜 專業推介．叱咤十大", url: "https://zh.wikipedia.org/wiki/2009年度叱咤樂壇流行榜頒獎典禮得獎名單" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_2009" },

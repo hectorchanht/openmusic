@@ -41,6 +41,26 @@ export const PACK_META_SOY_2015_TW = {
   country: 'Taiwan'
 } as const;
 
+export const PACK_META_SOY_2015_GE = {
+  id: 'soy-2015-ge',
+  title: '2015 Media Control 德國年終單曲榜',
+  titleEn: 'Germany 2015',
+  description: 'Media Control 德國年終單曲榜',
+  free: true,
+  year: 2015,
+  country: 'Germany'
+} as const;
+
+export const PACK_META_SOY_2015_IT = {
+  id: 'soy-2015-it',
+  title: '2015 FIMI 意大利年終單曲榜',
+  titleEn: 'Italy 2015',
+  description: 'FIMI 意大利年終單曲榜',
+  free: true,
+  year: 2015,
+  country: 'Italy'
+} as const;
+
 export const SOY_2015: Record<string, PackSong[]> = {
   'United States': [
     { artist: "Mark Ronson ft. Bruno Mars", title: "Uptown Funk", note: "#1 Billboard 年終" },
@@ -327,10 +347,58 @@ export const SOY_2015: Record<string, PackSong[]> = {
     { artist: "彭佳慧", title: "大齡女子", note: "年度十大單曲 (排名不分先後)" },
   ],
 
+  'Germany': [
+    { artist: "OMI", title: "Cheerleader (Felix Jaehn Remix)", note: "#1 Media Control 年終" },
+    { artist: "Lost Frequencies", title: "Are You with Me", note: "#2 Media Control 年終" },
+    { artist: "Felix Jaehn featuring Jasmine Thompson", title: "Ain't Nobody (Loves Me Better)", note: "#3 Media Control 年終" },
+    { artist: "Ellie Goulding", title: "Love Me Like You Do", note: "#4 Media Control 年終" },
+    { artist: "Major Lazer & DJ Snake featuring MØ", title: "Lean On", note: "#5 Media Control 年終" },
+    { artist: "Sido featuring Andreas Bourani", title: "Astronaut", note: "#6 Media Control 年終" },
+    { artist: "Adele", title: "Hello", note: "#7 Media Control 年終" },
+    { artist: "Robin Schulz featuring Francesco Yates", title: "Sugar", note: "#8 Media Control 年終" },
+    { artist: "Wiz Khalifa featuring Charlie Puth", title: "See You Again", note: "#9 Media Control 年終" },
+    { artist: "Kygo featuring Conrad Sewell", title: "Firestone", note: "#10 Media Control 年終" },
+    { artist: "Philipp Dittberner & Marv", title: "Wolke 4", note: "#11 Media Control 年終" },
+    { artist: "Namika", title: "Lieblingsmensch", note: "#12 Media Control 年終" },
+    { artist: "Sarah Connor", title: "Wie schön du bist", note: "#13 Media Control 年終" },
+    { artist: "Lost Frequencies featuring Janieck Devy", title: "Reality", note: "#14 Media Control 年終" },
+    { artist: "Anna Naklab featuring Alle Farben & YOUNOTUS", title: "Supergirl", note: "#15 Media Control 年終" },
+    { artist: "Jason Derulo", title: "Want to Want Me", note: "#16 Media Control 年終" },
+    { artist: "Gestört aber Geil featuring Wincent Weiss", title: "Unter meiner Haut", note: "#17 Media Control 年終" },
+    { artist: "Ed Sheeran", title: "Photograph", note: "#18 Media Control 年終" },
+    { artist: "Robin Schulz featuring Ilsey", title: "Headlights", note: "#19 Media Control 年終" },
+    { artist: "Kygo featuring Parson James", title: "Stole the Show", note: "#20 Media Control 年終" },
+  ],
+
+  'Italy': [
+    { artist: "Baby K ft. Giusy Ferreri", title: "Roma-Bangkok", note: "#1 FIMI 年終" },
+    { artist: "Nicky Jam、Enrique Iglesias", title: "El perdón", note: "#2 FIMI 年終" },
+    { artist: "OMI", title: "Cheerleader (Felix Jaehn Remix)", note: "#3 FIMI 年終" },
+    { artist: "J-Ax ft. Il Cile", title: "Maria Salvador", note: "#4 FIMI 年終" },
+    { artist: "Major Lazer、DJ Snake ft. MØ", title: "Lean On", note: "#5 FIMI 年終" },
+    { artist: "Álvaro Soler", title: "El mismo sol", note: "#6 FIMI 年終" },
+    { artist: "Hozier", title: "Take Me to Church", note: "#7 FIMI 年終" },
+    { artist: "Wiz Khalifa ft. Charlie Puth", title: "See You Again", note: "#8 FIMI 年終" },
+    { artist: "Kygo ft. Conrad Sewell", title: "Firestone", note: "#9 FIMI 年終" },
+    { artist: "Ellie Goulding", title: "Love Me like You Do", note: "#10 FIMI 年終" },
+    { artist: "Mark Ronson ft. Bruno Mars", title: "Uptown Funk", note: "#11 FIMI 年終" },
+    { artist: "Ed Sheeran", title: "Thinking Out Loud", note: "#12 FIMI 年終" },
+    { artist: "Fedez ft. Francesca Michielin", title: "Magnifico", note: "#13 FIMI 年終" },
+    { artist: "Marco Mengoni", title: "Guerriero", note: "#14 FIMI 年終" },
+    { artist: "Jason Derulo", title: "Want to Want Me", note: "#15 FIMI 年終" },
+    { artist: "Enrique Iglesias ft. Sean Paul, Descemer Bueno、Gente de Zona", title: "Bailando", note: "#16 FIMI 年終" },
+    { artist: "Justin Bieber", title: "What Do You Mean?", note: "#17 FIMI 年終" },
+    { artist: "Adele", title: "Hello", note: "#18 FIMI 年終" },
+    { artist: "Lost Frequencies", title: "Are You with Me", note: "#19 FIMI 年終" },
+    { artist: "Fedez ft. Noemi", title: "L'amore eternit", note: "#20 FIMI 年終" },
+  ],
+
 };
 
 /** Chart source attribution for 2015 — rendered in the pack page footer. */
 export const SOY_SOURCES_2015: Record<string, { name: string; url: string }> = {
+  'Italy': { name: "FIMI 意大利年終單曲榜", url: "https://www.fimi.it/classifiche.kl#/category:digital" },
+  'Germany': { name: "Media Control 德國年終單曲榜", url: "https://en.wikipedia.org/wiki/List_of_best-selling_singles_by_year_(Germany)" },
   'Taiwan': { name: "中華音樂人交流協會 年度十大單曲", url: "https://zh.wikipedia.org/wiki/中華音樂人交流協會" },
   'Hong Kong': { name: "叱咤樂壇流行榜 專業推介．叱咤十大", url: "https://zh.wikipedia.org/wiki/2015年度叱咤樂壇流行榜頒獎典禮得獎名單" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_2015" },

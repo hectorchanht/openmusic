@@ -40,6 +40,36 @@ export const PACK_META_SOY_2018_TW = {
   country: 'Taiwan'
 } as const;
 
+export const PACK_META_SOY_2018_GE = {
+  id: 'soy-2018-ge',
+  title: '2018 Media Control 德國年終單曲榜',
+  titleEn: 'Germany 2018',
+  description: 'Media Control 德國年終單曲榜',
+  free: true,
+  year: 2018,
+  country: 'Germany'
+} as const;
+
+export const PACK_META_SOY_2018_FR = {
+  id: 'soy-2018-fr',
+  title: '2018 SNEP 法國年終單曲榜',
+  titleEn: 'France 2018',
+  description: 'SNEP 法國年終單曲榜',
+  free: true,
+  year: 2018,
+  country: 'France'
+} as const;
+
+export const PACK_META_SOY_2018_IT = {
+  id: 'soy-2018-it',
+  title: '2018 FIMI 意大利年終單曲榜',
+  titleEn: 'Italy 2018',
+  description: 'FIMI 意大利年終單曲榜',
+  free: true,
+  year: 2018,
+  country: 'Italy'
+} as const;
+
 export const SOY_2018: Record<string, PackSong[]> = {
   'United States': [
     { artist: "Drake", title: "God's Plan", note: "#1 Billboard 年終" },
@@ -274,10 +304,82 @@ export const SOY_2018: Record<string, PackSong[]> = {
     { artist: "陳綺貞", title: "傷害", note: "年度十大單曲 (排名不分先後)" },
   ],
 
+  'Germany': [
+    { artist: "Dynoro and Gigi D'Agostino", title: "In My Mind", note: "#1 Media Control 年終" },
+    { artist: "Ed Sheeran", title: "Perfect", note: "#2 Media Control 年終" },
+    { artist: "Bausa", title: "Was du Liebe nennst", note: "#3 Media Control 年終" },
+    { artist: "Calvin Harris and Dua Lipa", title: "One Kiss", note: "#4 Media Control 年終" },
+    { artist: "Dennis Lloyd", title: "Nevermind", note: "#5 Media Control 年終" },
+    { artist: "El Profesor", title: "Bella ciao (Hugel Remix)", note: "#6 Media Control 年終" },
+    { artist: "Namika featuring Black M", title: "Je ne parle pas français (Beatgees Remix)", note: "#7 Media Control 年終" },
+    { artist: "Clean Bandit featuring Demi Lovato", title: "Solo", note: "#8 Media Control 年終" },
+    { artist: "Marshmello featuring Anne-Marie", title: "Friends", note: "#9 Media Control 年終" },
+    { artist: "Luis Fonsi and Demi Lovato", title: "Échame la Culpa", note: "#10 Media Control 年終" },
+    { artist: "Olexesh featuring Edin", title: "Magisch", note: "#11 Media Control 年終" },
+    { artist: "Drake", title: "God's Plan", note: "#12 Media Control 年終" },
+    { artist: "Rudimental featuring Jess Glynne, Macklemore and Dan Caplen", title: "These Days", note: "#13 Media Control 年終" },
+    { artist: "Camila Cabello featuring Young Thug", title: "Havana", note: "#14 Media Control 年終" },
+    { artist: "Capital Bra featuring Ufo361", title: "Neymar", note: "#15 Media Control 年終" },
+    { artist: "Bonez MC & RAF Camora", title: "500 PS", note: "#16 Media Control 年終" },
+    { artist: "Eminem featuring Ed Sheeran", title: "River", note: "#17 Media Control 年終" },
+    { artist: "Summer Cem & Bausa", title: "Casanova", note: "#18 Media Control 年終" },
+    { artist: "Nico Santos", title: "Rooftop", note: "#19 Media Control 年終" },
+    { artist: "Loud Luxury featuring Brando", title: "Body", note: "#20 Media Control 年終" },
+  ],
+
+  'France': [
+    { artist: "Lartiste featuring Caroliina", title: "style=\"text-align:left\" |Mafiosa", note: "#1 SNEP 年終" },
+    { artist: "Maître Gims、Vianney", title: "style=\"text-align:left\" |La Même", note: "#2 SNEP 年終" },
+    { artist: "Vald", title: "style=\"text-align:left\" |Désaccordé", note: "#3 SNEP 年終" },
+    { artist: "Aya Nakamura", title: "style=\"text-align:left\" |Djadja", note: "#4 SNEP 年終" },
+    { artist: "Dadju", title: "style=\"text-align:left\" |Bob Marley", note: "#5 SNEP 年終" },
+    { artist: "Drake", title: "style=\"text-align:left\" |God's Plan", note: "#6 SNEP 年終" },
+    { artist: "Vegedream", title: "style=\"text-align:left\" |Ramenez la coupe à la maison", note: "#7 SNEP 年終" },
+    { artist: "Calvin Harris、Dua Lipa", title: "style=\"text-align:left\" |One Kiss", note: "#8 SNEP 年終" },
+    { artist: "Camila Cabello featuring Young Thug", title: "style=\"text-align:left\" |Havana", note: "#9 SNEP 年終" },
+    { artist: "Nicky Jam、J. Balvin", title: "style=\"text-align:left\" |X", note: "#10 SNEP 年終" },
+    { artist: "Dadju", title: "style=\"text-align:left\" |Reine", note: "#11 SNEP 年終" },
+    { artist: "Ed Sheeran", title: "style=\"text-align:left\" |Perfect", note: "#12 SNEP 年終" },
+    { artist: "Marwa Loud", title: "style=\"text-align:left\" |Fallait pas", note: "#13 SNEP 年終" },
+    { artist: "Therapie Taxi featuring Roméo Elvis", title: "style=\"text-align:left\" |Hit Sale", note: "#14 SNEP 年終" },
+    { artist: "Ed Sheeran", title: "style=\"text-align:left\" |Shape of You", note: "#15 SNEP 年終" },
+    { artist: "L'Algérino", title: "style=\"text-align:left\" |Va Bene", note: "#16 SNEP 年終" },
+    { artist: "Dosseh", title: "style=\"text-align:left\" |Habitué", note: "#17 SNEP 年終" },
+    { artist: "Rim'K featuring Ninho", title: "style=\"text-align:left\" |Air Max", note: "#18 SNEP 年終" },
+    { artist: "Kalash featuring Damso", title: "style=\"text-align:left\" |Mwaka Moon", note: "#19 SNEP 年終" },
+    { artist: "Lartiste", title: "style=\"text-align:left\" |Vai et Viens", note: "#20 SNEP 年終" },
+  ],
+
+  'Italy': [
+    { artist: "Takagi、Ketra ft. Giusy Ferreri、Sean Kingston", title: "Amore e capoeira", note: "#1 FIMI 年終" },
+    { artist: "Ed Sheeran", title: "Perfect", note: "#2 FIMI 年終" },
+    { artist: "Sfera Ebbasta ft. Quavo", title: "Cupido", note: "#3 FIMI 年終" },
+    { artist: "Capo Plaza ft. Sfera Ebbasta、DrefGold", title: "Tesla", note: "#4 FIMI 年終" },
+    { artist: "J-Ax、Fedez", title: "Italiana", note: "#5 FIMI 年終" },
+    { artist: "Irama", title: "Nera", note: "#6 FIMI 年終" },
+    { artist: "Álvaro Soler", title: "La cintura", note: "#7 FIMI 年終" },
+    { artist: "Nicky Jam、J Balvin", title: "X", note: "#8 FIMI 年終" },
+    { artist: "Ghali", title: "Cara Italia", note: "#9 FIMI 年終" },
+    { artist: "Baby K", title: "Da zero a cento", note: "#10 FIMI 年終" },
+    { artist: "Måneskin", title: "Torna a casa", note: "#11 FIMI 年終" },
+    { artist: "Carl Brave ft. Francesca Michielin、Fabri Fibra", title: "Fotografia", note: "#12 FIMI 年終" },
+    { artist: "Rudimental ft. Jess Glynne, Macklemore、Dan Caplen", title: "These Days", note: "#13 FIMI 年終" },
+    { artist: "Sfera Ebbasta", title: "Rockstar", note: "#14 FIMI 年終" },
+    { artist: "Gemitaiz ft. Coez", title: "Davide", note: "#15 FIMI 年終" },
+    { artist: "Thegiornalisti", title: "Questa nostra stupida canzone d'amore", note: "#16 FIMI 年終" },
+    { artist: "Thegiornalisti", title: "Felicità puttana", note: "#17 FIMI 年終" },
+    { artist: "Måneskin", title: "Morirò da re", note: "#18 FIMI 年終" },
+    { artist: "Calvin Harris、Dua Lipa", title: "One Kiss", note: "#19 FIMI 年終" },
+    { artist: "Coez", title: "La musica non c'è", note: "#20 FIMI 年終" },
+  ],
+
 };
 
 /** Chart source attribution for 2018 — rendered in the pack page footer. */
 export const SOY_SOURCES_2018: Record<string, { name: string; url: string }> = {
+  'Italy': { name: "FIMI 意大利年終單曲榜", url: "https://www.fimi.it/classifiche.kl#/category:digital" },
+  'France': { name: "SNEP 法國年終單曲榜", url: "https://www.snepmusique.com/les-tops/le-top-de-lannee/top-singles-annee/" },
+  'Germany': { name: "Media Control 德國年終單曲榜", url: "https://en.wikipedia.org/wiki/List_of_best-selling_singles_by_year_(Germany)" },
   'Taiwan': { name: "中華音樂人交流協會 年度十大單曲", url: "https://zh.wikipedia.org/wiki/中華音樂人交流協會" },
   'Hong Kong': { name: "叱咤樂壇流行榜 專業推介．叱咤十大", url: "https://zh.wikipedia.org/wiki/2018年度叱咤樂壇流行榜頒獎典禮得獎名單" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_2018" },
