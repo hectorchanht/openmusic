@@ -22,12 +22,7 @@
 import type { PackSong } from '$lib/data/cantopop-2026';
 import { DISCOVERY_COUNTRIES } from '$lib/services/home-layout';
 
-/** All years the Songs-of-Year section covers, newest first. */
-export const SOY_YEARS: number[] = (() => {
-	const years: number[] = [2026];
-	for (let y = 2025; y >= 1946; y--) years.push(y);
-	return years;
-})();
+
 
 /** Every country the section covers — the app's discovery country list. */
 export const SOY_COUNTRIES: string[] = DISCOVERY_COUNTRIES;
@@ -66,6 +61,21 @@ export const SOY_AVAILABLE: Record<number, string[]> = (() => {
 		m[y] = cs;
 	}
 	return m;
+})();
+
+/** All years the Songs-of-Year section covers, newest first.
+ *  Derived from SOY_AVAILABLE (years that actually have at least one
+ *  country's pack) — never a hardcoded range, so a year with no data
+ *  never renders a pill (Hector 2026-10-11: list must be dynamic to data).
+ *  2026 is the live curated year (five region packs, not SOY_AVAILABLE rows).
+ */
+export const SOY_YEARS: number[] = (() => {
+	const years = Object.keys(SOY_AVAILABLE)
+		.map(Number)
+		.filter((y) => (SOY_AVAILABLE[y] ?? []).length > 0)
+		.sort((a, b) => b - a);
+	if (!years.includes(2026)) years.unshift(2026);
+	return years;
 })();
 
 /** True when year/country has a real pack (validated inputs only). */
