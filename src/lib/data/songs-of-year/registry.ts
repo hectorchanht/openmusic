@@ -6,7 +6,8 @@
 //   1946–2025 are multi-country year-end chart files: US (Billboard, 1946+),
 //   Japan (Oricon, 1989+), Australia (ARIA, 1988+), South Korea (Gaon/Circle, 2010+),
 //   UK (Official Charts, 1971–1987/1989/1991–1998 + 2015–2017/2019–2025),
-//   Spain (PROMUSICAE, 2019/2021/2023–2025).
+//   Spain (PROMUSICAE, 2019/2021/2023–2025),
+//   Hong Kong (叱咤樂壇流行榜 專業推介．叱咤十大, 1998–2025).
 //   Each year file also exports SOY_SOURCES_<year> (name + URL per country) for the
 //   pack page footer.
 // - SOY_COUNTRIES: the app's 20 discovery countries (same list as the home country
@@ -61,7 +62,7 @@ export const SOY_AVAILABLE: Record<number, string[]> = (() => {
 		if (y >= 2010) cs.push('South Korea');
 		if (ukYears.has(y)) cs.push('United Kingdom');
 		if (y === 2019 || y === 2021 || y >= 2023) cs.push('Spain');
-		if (y >= 2000) cs.push('Hong Kong');
+		if (y >= 1998) cs.push('Hong Kong');
 		m[y] = cs;
 	}
 	return m;

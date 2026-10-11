@@ -3,6 +3,7 @@
 // - Australia: ARIA End Of Year Singles Chart (rank order = published year-end rank).
 // - Japan: Oricon Yearly Singles Chart (rank order = published year-end rank).
 // - United Kingdom: Official Charts Company End of Year Singles Chart (rank order = published year-end rank).
+// - Hong Kong: 叱咤樂壇流行榜頒獎典禮 專業推介．叱咤十大 (rank order = published 叱咤十大 rank).
 // Rendered as SongRow stubs; taps resolve through the normal multi-source
 // search (resolveStub), so the pack ships no audio of its own.
 
@@ -16,6 +17,16 @@ export const PACK_META_SOY_1998_US = {
   free: true,
   year: 1998,
   country: 'United States'
+} as const;
+
+export const PACK_META_SOY_1998_HK = {
+  id: 'soy-1998-hk',
+  title: '1998 香港年選',
+  titleEn: 'Hong Kong 1998',
+  description: '叱咤樂壇流行榜 專業推介．叱咤十大',
+  free: true,
+  year: 1998,
+  country: 'Hong Kong'
 } as const;
 
 export const SOY_1998: Record<string, PackSong[]> = {
@@ -226,10 +237,24 @@ export const SOY_1998: Record<string, PackSong[]> = {
     { artist: "Billie", title: "Because We Want To", note: "#48 Official Charts 年終" },
     { artist: "Billie", title: "Girlfriend", note: "#49 Official Charts 年終" },
     { artist: "Busta Rhymes", title: "Turn It Up (Remix)/Fire It Up", note: "#50 Official Charts 年終" },
-  ]
+  ],
+  'Hong Kong': [
+    { artist: "蘇永康", title: "越吻越傷心", note: "#1 叱咤至尊歌曲" },
+    { artist: "王菲", title: "情誡", note: "#2 叱咤十大" },
+    { artist: "黎明", title: "今生不再", note: "#3 叱咤十大" },
+    { artist: "陳小春", title: "神啊 救救我", note: "#4 叱咤十大" },
+    { artist: "劉德華", title: "掛念", note: "#5 叱咤十大" },
+    { artist: "古巨基", title: "有你一天", note: "#6 叱咤十大" },
+    { artist: "陳奕迅", title: "天下無雙", note: "#7 叱咤十大" },
+    { artist: "張學友", title: "釋放自己", note: "#8 叱咤十大" },
+    { artist: "郭富城", title: "一變傾城", note: "#9 叱咤十大" },
+    { artist: "許志安", title: "愛妳", note: "#10 叱咤十大" },
+  ],
+
 };
 
 export const SOY_SOURCES_1998: Record<string, { name: string; url: string }> = {
+  'Hong Kong': { name: "叱咤樂壇流行榜 專業推介．叱咤十大", url: "https://zh.wikipedia.org/wiki/1998年度叱咤樂壇流行榜頒獎典禮得獎名單" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_1998" },
   'Australia': { name: "ARIA End Of Year Singles Chart", url: "https://aria.com.au/charts/1998/singles-chart" },
   'Japan': { name: "Oricon Yearly Singles Chart", url: "https://www.generasia.com/wiki/1998_Oricon_Top_100_Singles" },
