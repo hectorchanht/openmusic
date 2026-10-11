@@ -53,6 +53,7 @@ const en = {
 	"pack.title.mandopop": "2026 Mandopop Hits",
 	"pack.title.cantopop": "2026 Cantopop Hits",
 	"soy.yearEndSub": "Billboard Year-End Hot 100 Top 50",
+	"soy.noData": "No charts for this year yet.",
 	"region.western": "Western",
 	"region.jpop": "J-pop",
 	"region.kpop": "K-pop",

@@ -2,7 +2,8 @@
 	// Songs of the Year hub — every year × every country (Hector 2026-10-10).
 	// Year selector with live URL sync (?year=, the pickTab/syncTabUrl idiom from url-tab.ts):
 	// 2026 = the five curated region packs; 2000–2025 = per-country year-end charts.
-	// Countries without verified data show a "coming soon" state — never fabricated songs.
+	// Only countries with verified data are shown — no "coming soon" placeholders
+	// (Hector 2026-10-11); combos without data simply don't render (FACT-CHECK rule).
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import SoyYearStrip from '$lib/components/SoyYearStrip.svelte';
 	import { t, type TranslationKey } from '$lib/i18n';
@@ -43,6 +44,10 @@
 
 	const yearNum = $derived(Number(year));
 
+	// Only countries with real data for the selected year (Hector 2026-10-11:
+	// hide data-less countries instead of showing "coming soon" placeholders).
+	const availableCountries = $derived(SOY_COUNTRIES.filter((c) => soyHasData(yearNum, c)));
+
 	function openCountryPack(country: string) {
 		goto(`/charts/songs-of-year/${yearNum}/${encodeURIComponent(country)}`);
 	}
@@ -77,33 +82,28 @@
 		{/each}
 	</ul>
 {:else}
-	<ul class="packs">
-		{#each SOY_COUNTRIES as country (country)}
-			{@const has = soyHasData(yearNum, country)}
-			<li>
-				<button
-					type="button"
-					class="pack"
-					class:soon={!has}
-					disabled={!has}
-					onclick={() => openCountryPack(country)}
-					use:tapBounce
-				>
-					<span class="meta">
-						<span class="title">{country} · {yearNum}</span>
-						<span class="count">
-							{#if has}
-								50 {t('pack.songs')} · {t('soy.yearEndSub')}
-							{:else}
-								{t('lastfm.comingSoon')}
-							{/if}
+	{#if availableCountries.length > 0}
+		<ul class="packs">
+			{#each availableCountries as country (country)}
+				<li>
+					<button
+						type="button"
+						class="pack"
+						onclick={() => openCountryPack(country)}
+						use:tapBounce
+					>
+						<span class="meta">
+							<span class="title">{country} · {yearNum}</span>
+							<span class="count">50 {t('pack.songs')} · {t('soy.yearEndSub')}</span>
 						</span>
-					</span>
-					{#if has}<ChevronRight size={20} />{/if}
-				</button>
-			</li>
-		{/each}
-	</ul>
+						<ChevronRight size={20} />
+					</button>
+				</li>
+			{/each}
+		</ul>
+	{:else}
+		<p class="empty">{t('soy.noData')}</p>
+	{/if}
 {/if}
 
 <style>
@@ -120,4 +120,5 @@
 	.meta { display: flex; flex-direction: column; gap: 4px; }
 	.title { font-size: 1.1rem; font-weight: 700; }
 	.count { font-size: 0.85rem; color: var(--color-text-muted); }
+	.empty { text-align: center; color: var(--color-text-muted); padding: 32px 16px; }
 </style>

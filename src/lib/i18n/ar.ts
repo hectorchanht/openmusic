@@ -49,6 +49,7 @@ const ar: Dict = {
 	"pack.title.mandopop": "2026 Mandopop Hits",
 	"pack.title.cantopop": "2026 Cantopop Hits",
 	"soy.yearEndSub": "أفضل 50 أغنية في Billboard لنهاية العام",
+	"soy.noData": "لا توجد قوائم لهذه السنة بعد.",
 	"region.western": "Western",
 	"region.jpop": "J-pop",
 	"region.kpop": "K-pop",
