@@ -38,11 +38,30 @@
 		}
 	});
 
-	// quick-261010-soy9: year selector — tapping another year goes to the hub
-	// with that year preselected; 2026 shows the curated region packs there.
+	// Year selector — stay in the same country: tapping another year jumps
+	// straight to that year's pack for this country (Hector 2026-10-11).
+	// 2026 maps to the curated region packs; years without this country's
+	// data fall back to the hub year view.
+	const PACK_2026: Record<string, string> = {
+		'Hong Kong': '/charts/cantopop-2026',
+		Taiwan: '/charts/mandopop-2026',
+		Japan: '/charts/jpop-2026',
+		'South Korea': '/charts/kpop-2026',
+		'United States': '/charts/western-2026',
+		'United Kingdom': '/charts/western-2026'
+	};
 	function selectYear(y: string) {
-		if (Number(y) === yearNum) return;
-		goto(y === '2026' ? '/charts/songs-of-year' : `/charts/songs-of-year?year=${y}`);
+		const yn = Number(y);
+		if (yn === yearNum) return;
+		if (yn === 2026) {
+			goto(PACK_2026[country] ?? '/charts/songs-of-year');
+			return;
+		}
+		if (soyHasData(yn, country)) {
+			goto(`/charts/songs-of-year/${yn}/${encodeURIComponent(country)}`);
+			return;
+		}
+		goto(`/charts/songs-of-year?year=${y}`);
 	}
 
 	const valid = $derived(soyHasData(yearNum, country));
@@ -210,9 +229,7 @@
 {:else}
 	<header class="hero">
 			<h1>{country} · {yearNum}</h1>
-		<!-- quick-261011-soysub: subtitle names the actual chart (srcInfo from the registry),
-		 not the generic Billboard label — the footer source and header must agree. -->
-		<p class="sub">{srcInfo?.name ?? t('soy.yearEndSub')} · {songs.length} {t('pack.songs')}</p>
+		<p class="sub">{t('soy.yearEndSub')} · {songs.length} {t('pack.songs')}</p>
 		<div class="actions">
 			<button
 				type="button"
