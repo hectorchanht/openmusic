@@ -1,9 +1,14 @@
 # Tag-triggered Android release pipeline (Plan 999.1-05 / D-07, D-08, D-09).
 #
-# Pushing a `v*` tag to the origin repo builds the native SvelteKit SPA, syncs the
+# Pushing a `v*` tag MANUALLY to the origin repo builds the native SvelteKit SPA, syncs the
 # Capacitor Android project, builds + signs a release APK with the CONSISTENT release
 # keystore stored in repo secrets (the Obtainium update trust anchor), and publishes
 # the signed APK as a GitHub Release asset for Obtainium-based updates.
+#
+# NOTE (quick-261014-autover): per-push versions are now automatic — android-main.yml
+# claims v1.7, v1.8, ... itself on every push to main. Tags it creates are pushed with
+# GITHUB_TOKEN, which does NOT trigger new workflow runs, so this pipeline stays silent
+# for automation. Keep this file for manual tag pushes (backward compatible).
 #
 # Versioning (Pitfall 5 — never downgrade-blocked):
 #   versionName  = ${GITHUB_REF_NAME#v}  (v1.3 -> 1.3.0, v1.3.1 -> 1.3.1; semver, tag-derived)

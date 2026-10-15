@@ -1,29 +1,32 @@
-# Push-to-main rolling release, published as the GitHub "Latest" release.
+# Push-to-main versioned release, published as the GitHub "Latest" release.
 #
-# On every push to main: builds the native SvelteKit SPA, syncs Capacitor, builds
-# + signs a RELEASE APK with the consistent release keystore (same signing identity
-# as android-release.yml — Obtainium's update trust anchor), then publishes it as a
-# NEW GitHub release with a UNIQUE tag per build (`rolling-<run number>`). The old
-# scheme recreated a single `latest` release+tag in place — the tag never changed, so
-# Obtainium never reported an update. Unique tags are the whole point (quick-261014-obtainium).
+# On every push to main (quick-261014-autover): claims the next version — max existing
+# v* tag +1 (v1.6 -> v1.7) — creates the tag, builds the native SvelteKit SPA, syncs
+# Capacitor, builds + signs a RELEASE APK with the consistent release keystore (same
+# signing identity as android-release.yml — Obtainium's update trust anchor), and
+# publishes it as a GitHub Release. Every update ships as a NEW v* tag, which is what
+# makes Obtainium report an update per push.
+#
+# Versioning (Pitfall 5 — never downgrade-blocked): each push bumps MINOR off the highest
+# v* tag (v1.6 -> v1.7), matching the repo's own release history. versionName = tag + `.0`
+# (v1.7 -> 1.7.0); versionCode = MAJOR*10000 + MINOR*100 — the same WR-07 encoding as
+# android-release.yml, monotonic across ascending versions (v1.6=10600 < v1.7=10700) and
+# above every run-number versionCode the old rolling scheme ever shipped, so no
+# downgrade-block on update. MINOR rolls over at 99 (the encoding limit).
+#
+# Tag mechanics: the tag is pushed with GITHUB_TOKEN, which does NOT trigger new workflow
+# runs — so android-release.yml's `push: tags: v*` trigger stays silent for automation
+# (a manually-pushed v* tag still builds through it — backward compatible). If the
+# build/sign fails, the claimed tag is rolled back so it can't dangle tag-less.
 #
 # 2026-09-26 (user decision): published with `--latest`, not `--prerelease`, so every
-# main build is the repo's "Latest" release and the Releases page / latest-download
-# links point at it. A v* stable release (android-release.yml) takes the Latest badge
-# only until the next push to main.
+# build is the repo's "Latest" release and the Releases page / latest-download links
+# point at it.
 #
-# Retention: each run prunes rolling-* releases older than the newest 10 (tags go with
-# them via --cleanup-tag). APK assets are ~5MB each; 10 is plenty of rollback room.
-#
-# Channel note: this is the bleeding-edge channel. android-release.yml (v* tags) is the
-# stable channel. Both sign with the SAME keystore, so both are Obtainium-updatable —
-# point Obtainium at ONE channel, not both.
-#
-# versionCode = GITHUB_RUN_NUMBER (monotonic per workflow file). Renaming/recreating
-# THIS file resets the counter and downgrade-blocks the rolling channel — do not rename it.
-# The stable channel encodes versionCode from the semver tag instead (rename-proof); these
-# two schemes are NOT comparable, which is why you must pick one channel per install.
-name: Android Main (rolling latest)
+# Channel note: the per-push version IS the channel now — there is no separate rolling
+# vs stable distinction. Point Obtainium at this repo's releases and every push arrives
+# as v1.7, v1.8, ...
+name: Android Main (versioned release)
 
 on:
   push:
@@ -63,15 +66,65 @@ jobs:
       - name: Sync Capacitor Android project
         run: npx cap sync android
 
-      - name: Derive versionName/versionCode
+      # Derive + claim the next version (quick-261014-autover): every main push ships as
+      # v<major>.<minor>.<patch>, continuing from the highest existing v* tag (robust to a
+      # manually-pushed tag: max() sees it and we go one past it). The tag is created + pushed
+      # HERE, before the build, so versionName/versionCode baked into the APK always match the
+      # release tag. A tag pushed with GITHUB_TOKEN does NOT trigger new workflow runs, so the
+      # v* trigger on android-release.yml stays silent for automation (manual tag pushes still
+      # build through it — backward compatible).
+      #
+      # versionCode = MAJOR*10000 + MINOR*100 + PATCH — the Pitfall-5/WR-07 scheme from
+      # android-release.yml, monotonic across ascending versions (v1.6=10600 < v1.7=10700) and
+      # above every rolling-run-number versionCode the old scheme ever shipped, so no
+            # Derive + claim the next version (quick-261014-autover): every main push ships as
+      # v<major>.<minor> — the repo's own convention (v1.3 -> v1.4 -> v1.5 -> v1.6, all minor
+      # bumps). Takes the highest existing v* tag (two- or three-part; three-part compares
+      # correctly) and bumps MINOR. Robust to a manually-pushed tag: max() sees it and we go
+      # one past it. The tag is created + pushed HERE, before the build, so the versionName /
+      # versionCode baked into the APK always match the release tag. A tag pushed with
+      # GITHUB_TOKEN does NOT trigger new workflow runs, so android-release.yml's
+      # `push: tags: v*` trigger stays silent for automation (a manually-pushed v* tag still
+      # builds through it — backward compatible).
+      #
+      # versionCode = MAJOR*10000 + MINOR*100 (+0 patch) — the Pitfall-5/WR-07 scheme from
+      # android-release.yml, monotonic across ascending versions (v1.6=10600 < v1.7=10700) and
+      # above every run-number versionCode the old rolling scheme ever shipped, so no
+      # downgrade-block on update. MINOR rolls over at 99 (the encoding limit).
+      - name: Derive version and claim tag
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           SHORT_SHA="${GITHUB_SHA::7}"
-          VERSION_CODE="$GITHUB_RUN_NUMBER"
-          VERSION_NAME="0.0.0-main.${GITHUB_RUN_NUMBER}+${SHORT_SHA}"
-          echo "VERSION_NAME=$VERSION_NAME" >> "$GITHUB_ENV"
-          echo "VERSION_CODE=$VERSION_CODE" >> "$GITHUB_ENV"
           echo "SHORT_SHA=$SHORT_SHA" >> "$GITHUB_ENV"
+          # Highest v* tag, numerically compared (v1.10 sorts past v1.9). Output MAJOR.MINOR.
+          LAST_MM=$(gh api "repos/$GITHUB_REPOSITORY/tags?per_page=100" \
+            --jq '[.[].name | select(test("^v[0-9]+\\.[0-9]+(\\.[0-9]+)?$")) | sub("^v";"") | split(".") | map(tonumber) | . + [0,0,0] | .[0:3]] | sort | last // empty | .[0:2] | join(".")')
+          if [ -z "$LAST_MM" ]; then
+            echo "::error::no v* semver tag found and no fallback configured" >&2
+            exit 1
+          fi
+          MAJOR="${LAST_MM%%.*}"; MINOR="${LAST_MM#*.}"
+          MINOR=$((MINOR + 1))
+          if [ "$MINOR" -gt 99 ]; then MAJOR=$((MAJOR + 1)); MINOR=0; fi
+          TAG="v$MAJOR.$MINOR"
+          while git ls-remote --tags origin "refs/tags/$TAG" | grep -q .; do
+            MINOR=$((MINOR + 1))  # taken mid-flight (a manual tag push) — go one past it
+            if [ "$MINOR" -gt 99 ]; then MAJOR=$((MAJOR + 1)); MINOR=0; fi
+            TAG="v$MAJOR.$MINOR"
+          done
+          git tag "$TAG" "$GITHUB_SHA"
+          git push origin "$TAG"
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+          echo "VERSION_NAME=$MAJOR.$MINOR.0" >> "$GITHUB_ENV"
+          echo "VERSION_CODE=$((MAJOR * 10000 + MINOR * 100))" >> "$GITHUB_ENV"
+          echo "claimed $TAG at $SHORT_SHA"
+
+      - name: Roll back version tag if build failed
+        if: failure()
+        run: |
+          git push origin ":refs/tags/${{ env.TAG }}" || true
 
       - name: Assemble release APK
         run: |
@@ -115,30 +168,25 @@ jobs:
           "$BUILD_TOOLS/apksigner" verify "$SIGNED"
           rm -f "$KEYSTORE"
 
-      # Rolling publish (quick-261014-obtainium): every main build gets its OWN tag
-      # (`rolling-<run number>`, the same monotonic counter as versionCode) so Obtainium
-      # sees a new release per update. The new release takes the Latest badge (--latest),
-      # so the README's releases/latest/download link keeps pointing at the newest build.
-      # One-time migration: drop the pre-unique-tag `latest` release+tag so it doesn't sit
-      # frozen at an old commit (idempotent). A re-run of the same workflow run recreates
-      # its own tag idempotently. Retention: keep the newest 10 rolling-* releases.
+      # Publish the claimed version (quick-261014-autover). The tag was created pre-build;
+      # this only creates the release. --latest moves the Latest badge (and the README's
+      # releases/latest/download link) to the new version. Migration (idempotent): drop the
+      # pre-versioned rolling artifacts — the frozen `latest` release and any `rolling-*`
+      # releases — so they don't linger in the releases list.
       # gh ships on the runner; GH_TOKEN scopes it to this repo.
-      - name: Publish rolling release (unique tag)
+      - name: Publish versioned release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          TAG="rolling-$GITHUB_RUN_NUMBER"
-          gh release delete latest --cleanup-tag --yes || true
-          gh release delete "$TAG" --cleanup-tag --yes || true
-          gh release create "$TAG" \
+          gh release create "${{ env.TAG }}" \
             android/app/build/outputs/apk/release/openmusic-main.apk \
             --latest \
             --target "$GITHUB_SHA" \
-            --title "OpenMusic (main $SHORT_SHA)" \
-            --notes "Rolling build #$GITHUB_RUN_NUMBER from main @ $SHORT_SHA (versionCode $VERSION_CODE). Bleeding-edge — signed with the release keystore."
-          gh release list --json tagName --limit 100 \
-            --jq '.[].tagName | select(startswith("rolling-"))' \
-          | sed 's/^rolling-//' | sort -n | head -n -10 | while read -r n; do
-              gh release delete "rolling-$n" --cleanup-tag --yes || true
-            done
+            --title "OpenMusic ${{ env.TAG }}" \
+            --notes "Automatic build from main @ $SHORT_SHA (versionCode $VERSION_CODE). Bleeding-edge — signed with the release keystore."
+          gh release delete latest --cleanup-tag --yes || true
+          for t in $(gh release list --json tagName --limit 100 \
+              --jq '.[].tagName | select(startswith("rolling-"))'); do
+            gh release delete "$t" --cleanup-tag --yes || true
+          done
