@@ -183,7 +183,7 @@ jobs:
             android/app/build/outputs/apk/release/openmusic-main.apk \
             --latest \
             --target "$GITHUB_SHA" \
-            --title "OpenMusic ${{ env.TAG }}" \
+            --title "${{ env.TAG }}" \
             --notes "Automatic build from main @ $SHORT_SHA (versionCode $VERSION_CODE). Bleeding-edge — signed with the release keystore."
           gh release delete latest --cleanup-tag --yes || true
           for t in $(gh release list --json tagName --limit 100 \
