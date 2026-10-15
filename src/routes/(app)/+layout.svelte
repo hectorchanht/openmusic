@@ -34,6 +34,7 @@
 	import NowPlaying from '$lib/components/NowPlaying.svelte';
 	import Nowbar from '$lib/components/Nowbar.svelte';
 	import SleepTimerSheet from '$lib/components/SleepTimerSheet.svelte';
+	import SupporterSheet from '$lib/components/SupporterSheet.svelte';
 	import ToastHost from '$lib/components/ToastHost.svelte';
 
 	let { children } = $props();
@@ -450,6 +451,10 @@
 	<!-- Sleep-timer sheet: mounted ONCE, UNGATED — reachable from the nowbar (collapsed) AND the
 	     expanded now-playing. Driven by the shared sleepTimer.sheetOpen flag (TIMER-01). -->
 	<SleepTimerSheet />
+
+	<!-- Donor wall (2026-10-14 donor-wall-ui): mounted ONCE, UNGATED — opened from the
+	     album "Download all" gate and the Settings support card via support.sheetOpen. -->
+	<SupporterSheet />
 
 	<!-- Single global toast host (D-15): mounted ONCE here so every page shares it. Pages call
 	     toast.show(msg); this is the only place the message is rendered. -->

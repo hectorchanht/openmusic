@@ -678,6 +678,24 @@ const es: Dict = {
 	"import.fileTypesNote": "Solo se importan los archivos con estas extensiones.",
 	"import.skipRules": "Reglas de omisión",
 	"import.skipRulesNote": "Una palabra o frase por línea. Un archivo se omite cuando su nombre o su carpeta contiene alguna de ellas.",
+	// --- support (donor wall, 2026-10-14 donor-wall-ui) ---
+	"support.title": "Support OpenMusic",
+	"support.tagline": "Keep the music free, sell the convenience.",
+	"support.body": "Streaming is free, forever. Your support keeps the servers running and the music coming.",
+	"support.perkTitle": "Supporter perks",
+	"support.tier1Name": "One-time · $3",
+	"support.tier1Desc": "One-tap album ZIP downloads",
+	"support.tier2Name": "Monthly · $2",
+	"support.tier2Desc": "Album ZIP downloads on every album",
+	"support.tier3Name": "Monthly · $5",
+	"support.tier3Desc": "Everything, plus request priority",
+	"support.donateKofi": "Donate on Ko-fi",
+	"support.sponsorGithub": "Sponsor on GitHub",
+	"support.comingSoon": "Coming soon",
+	"support.alreadySupported": "Already supported? Verify your email",
+	"support.checkEmail": "Verify",
+	"support.downloadAlbum": "Album download · supporters"
+
 };
 
 export default es;

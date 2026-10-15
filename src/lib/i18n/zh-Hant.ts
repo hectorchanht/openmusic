@@ -710,6 +710,24 @@ const zhHant: Dict = {
 	"import.fileTypesNote": "只匯入這些副檔名的檔案。",
 	"import.skipRules": "略過規則",
 	"import.skipRulesNote": "每行一個字詞或片語。檔名或資料夾名稱包含其中任一個時就會略過。",
+	// --- support (donor wall, 2026-10-14 donor-wall-ui) ---
+	"support.title": "支持 OpenMusic",
+	"support.tagline": "Keep the music free, sell the convenience.",
+	"support.body": "串流永遠免費。你的支持讓伺服器繼續運作，音樂不斷。",
+	"support.perkTitle": "支持者特權",
+	"support.tier1Name": "單次 · $3",
+	"support.tier1Desc": "一鍵下載專輯 ZIP",
+	"support.tier2Name": "每月 · $2",
+	"support.tier2Desc": "所有專輯 ZIP 任下載",
+	"support.tier3Name": "每月 · $5",
+	"support.tier3Desc": "全部特權，再加許願優先",
+	"support.donateKofi": "在 Ko-fi 捐助",
+	"support.sponsorGithub": "在 GitHub 贊助",
+	"support.comingSoon": "即將推出",
+	"support.alreadySupported": "已經支持過？驗證你的電郵",
+	"support.checkEmail": "驗證",
+	"support.downloadAlbum": "專輯下載 · 支持者限定"
+
 };
 
 export default zhHant;

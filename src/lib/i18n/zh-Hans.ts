@@ -710,6 +710,24 @@ const zhHans: Dict = {
 	"import.fileTypesNote": "只导入这些扩展名的文件。",
 	"import.skipRules": "跳过规则",
 	"import.skipRulesNote": "每行一个词或短语。文件名或文件夹名包含其中任意一个时会被跳过。",
+	// --- support (donor wall, 2026-10-14 donor-wall-ui) ---
+	"support.title": "支持 OpenMusic",
+	"support.tagline": "Keep the music free, sell the convenience.",
+	"support.body": "流媒体永远免费。你的支持让服务器继续运行，音乐不断。",
+	"support.perkTitle": "支持者特权",
+	"support.tier1Name": "单次 · $3",
+	"support.tier1Desc": "一键下载专辑 ZIP",
+	"support.tier2Name": "每月 · $2",
+	"support.tier2Desc": "所有专辑 ZIP 任下载",
+	"support.tier3Name": "每月 · $5",
+	"support.tier3Desc": "全部特权，再加许愿优先",
+	"support.donateKofi": "在 Ko-fi 捐助",
+	"support.sponsorGithub": "在 GitHub 赞助",
+	"support.comingSoon": "即将推出",
+	"support.alreadySupported": "已经支持过？验证你的邮箱",
+	"support.checkEmail": "验证",
+	"support.downloadAlbum": "专辑下载 · 支持者限定"
+
 };
 
 export default zhHans;

@@ -725,6 +725,24 @@ const en = {
 	"import.fileTypesNote": "Only files with these extensions are imported.",
 	"import.skipRules": "Skip rules",
 	"import.skipRulesNote": "One word or phrase per line. A file is skipped when its name or folder contains any of them.",
+
+	// --- support (donor wall, 2026-10-14 donor-wall-ui) ---
+	"support.title": "Support OpenMusic",
+	"support.tagline": "Keep the music free, sell the convenience.",
+	"support.body": "Streaming is free, forever. Your support keeps the servers running and the music coming.",
+	"support.perkTitle": "Supporter perks",
+	"support.tier1Name": "One-time · $3",
+	"support.tier1Desc": "One-tap album ZIP downloads",
+	"support.tier2Name": "Monthly · $2",
+	"support.tier2Desc": "Album ZIP downloads on every album",
+	"support.tier3Name": "Monthly · $5",
+	"support.tier3Desc": "Everything, plus request priority",
+	"support.donateKofi": "Donate on Ko-fi",
+	"support.sponsorGithub": "Sponsor on GitHub",
+	"support.comingSoon": "Coming soon",
+	"support.alreadySupported": "Already supported? Verify your email",
+	"support.checkEmail": "Verify",
+	"support.downloadAlbum": "Album download · supporters"
 } as const;
 
 export default en;

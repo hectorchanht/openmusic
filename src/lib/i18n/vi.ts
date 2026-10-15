@@ -678,6 +678,24 @@ const vi: Dict = {
 	"import.fileTypesNote": "Chỉ nhập những tệp có các phần mở rộng này.",
 	"import.skipRules": "Quy tắc bỏ qua",
 	"import.skipRulesNote": "Mỗi dòng một từ hoặc cụm từ. Tệp sẽ bị bỏ qua khi tên tệp hoặc thư mục chứa bất kỳ từ nào trong đó.",
+	// --- support (donor wall, 2026-10-14 donor-wall-ui) ---
+	"support.title": "Support OpenMusic",
+	"support.tagline": "Keep the music free, sell the convenience.",
+	"support.body": "Streaming is free, forever. Your support keeps the servers running and the music coming.",
+	"support.perkTitle": "Supporter perks",
+	"support.tier1Name": "One-time · $3",
+	"support.tier1Desc": "One-tap album ZIP downloads",
+	"support.tier2Name": "Monthly · $2",
+	"support.tier2Desc": "Album ZIP downloads on every album",
+	"support.tier3Name": "Monthly · $5",
+	"support.tier3Desc": "Everything, plus request priority",
+	"support.donateKofi": "Donate on Ko-fi",
+	"support.sponsorGithub": "Sponsor on GitHub",
+	"support.comingSoon": "Coming soon",
+	"support.alreadySupported": "Already supported? Verify your email",
+	"support.checkEmail": "Verify",
+	"support.downloadAlbum": "Album download · supporters"
+
 };
 
 export default vi;

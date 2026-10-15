@@ -678,6 +678,24 @@ const hi: Dict = {
 	"import.fileTypesNote": "केवल इन एक्सटेंशन वाली फ़ाइलें आयात होती हैं।",
 	"import.skipRules": "स्किप नियम",
 	"import.skipRulesNote": "हर पंक्ति में एक शब्द या वाक्यांश। जिस फ़ाइल के नाम या फ़ोल्डर में इनमें से कोई हो, उसे छोड़ दिया जाता है।",
+	// --- support (donor wall, 2026-10-14 donor-wall-ui) ---
+	"support.title": "Support OpenMusic",
+	"support.tagline": "Keep the music free, sell the convenience.",
+	"support.body": "Streaming is free, forever. Your support keeps the servers running and the music coming.",
+	"support.perkTitle": "Supporter perks",
+	"support.tier1Name": "One-time · $3",
+	"support.tier1Desc": "One-tap album ZIP downloads",
+	"support.tier2Name": "Monthly · $2",
+	"support.tier2Desc": "Album ZIP downloads on every album",
+	"support.tier3Name": "Monthly · $5",
+	"support.tier3Desc": "Everything, plus request priority",
+	"support.donateKofi": "Donate on Ko-fi",
+	"support.sponsorGithub": "Sponsor on GitHub",
+	"support.comingSoon": "Coming soon",
+	"support.alreadySupported": "Already supported? Verify your email",
+	"support.checkEmail": "Verify",
+	"support.downloadAlbum": "Album download · supporters"
+
 };
 
 export default hi;
