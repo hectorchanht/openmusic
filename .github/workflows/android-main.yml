@@ -2,15 +2,18 @@
 #
 # On every push to main: builds the native SvelteKit SPA, syncs Capacitor, builds
 # + signs a RELEASE APK with the consistent release keystore (same signing identity
-# as android-release.yml — Obtainium's update trust anchor), then republishes it to a
-# single rolling GitHub release tagged `latest`. The old `latest` release+tag is
-# deleted and recreated at the current commit each run, so there is always exactly one
-# rolling release sitting at HEAD.
+# as android-release.yml — Obtainium's update trust anchor), then publishes it as a
+# NEW GitHub release with a UNIQUE tag per build (`rolling-<run number>`). The old
+# scheme recreated a single `latest` release+tag in place — the tag never changed, so
+# Obtainium never reported an update. Unique tags are the whole point (quick-261014-obtainium).
 #
 # 2026-09-26 (user decision): published with `--latest`, not `--prerelease`, so every
 # main build is the repo's "Latest" release and the Releases page / latest-download
 # links point at it. A v* stable release (android-release.yml) takes the Latest badge
 # only until the next push to main.
+#
+# Retention: each run prunes rolling-* releases older than the newest 10 (tags go with
+# them via --cleanup-tag). APK assets are ~5MB each; 10 is plenty of rollback room.
 #
 # Channel note: this is the bleeding-edge channel. android-release.yml (v* tags) is the
 # stable channel. Both sign with the SAME keystore, so both are Obtainium-updatable —
@@ -112,17 +115,30 @@ jobs:
           "$BUILD_TOOLS/apksigner" verify "$SIGNED"
           rm -f "$KEYSTORE"
 
-      # Rolling publish: nuke the previous `latest` release+tag, recreate at this commit.
+      # Rolling publish (quick-261014-obtainium): every main build gets its OWN tag
+      # (`rolling-<run number>`, the same monotonic counter as versionCode) so Obtainium
+      # sees a new release per update. The new release takes the Latest badge (--latest),
+      # so the README's releases/latest/download link keeps pointing at the newest build.
+      # One-time migration: drop the pre-unique-tag `latest` release+tag so it doesn't sit
+      # frozen at an old commit (idempotent). A re-run of the same workflow run recreates
+      # its own tag idempotently. Retention: keep the newest 10 rolling-* releases.
       # gh ships on the runner; GH_TOKEN scopes it to this repo.
-      - name: Publish rolling latest release
+      - name: Publish rolling release (unique tag)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          TAG="rolling-$GITHUB_RUN_NUMBER"
           gh release delete latest --cleanup-tag --yes || true
-          gh release create latest \
+          gh release delete "$TAG" --cleanup-tag --yes || true
+          gh release create "$TAG" \
             android/app/build/outputs/apk/release/openmusic-main.apk \
             --latest \
             --target "$GITHUB_SHA" \
             --title "OpenMusic (main $SHORT_SHA)" \
-            --notes "Rolling build from main @ $SHORT_SHA (versionCode $VERSION_CODE). Bleeding-edge — signed with the release keystore."
+            --notes "Rolling build #$GITHUB_RUN_NUMBER from main @ $SHORT_SHA (versionCode $VERSION_CODE). Bleeding-edge — signed with the release keystore."
+          gh release list --json tagName --limit 100 \
+            --jq '.[].tagName | select(startswith("rolling-"))' \
+          | sed 's/^rolling-//' | sort -n | head -n -10 | while read -r n; do
+              gh release delete "rolling-$n" --cleanup-tag --yes || true
+            done
