@@ -1032,6 +1032,58 @@ describe('collectLyricCandidates — every source with an LRC (quick-260919-1we)
 		expect(search.kuwo).toHaveBeenCalledOnce();
 		expect(kuwoResolve).toHaveBeenCalledOnce();
 	});
+
+	it('quick-261014-lyrnotitle: title-only fallback when the with-artist pass is dry (fan cover)', async () => {
+		const search = silenceAllSearches();
+		// First pass ("FanSinger Rain") matches nothing; the title-only retry finds the
+		// original recording's lyrics under a different artist name.
+		const titleMatch = mk('kuwo', 'k1', 1, { artist: 'Jay', title: 'Rain', lrc: '[00:01]kw' });
+		search.kuwo!.mockResolvedValueOnce([]).mockResolvedValue([titleMatch]);
+
+		const out = await collectLyricCandidates('FanSinger', 'Rain', new AbortController().signal);
+
+		expect(out).toEqual([{ source: 'kuwo', lrc: '[00:01]kw' }]);
+		expect(search.kuwo).toHaveBeenCalledTimes(2);
+	});
+
+	it('quick-261014-lyrnotitle: no second pass when the with-artist pass already hit', async () => {
+		const search = silenceAllSearches();
+		search.kuwo!.mockResolvedValue([
+			mk('kuwo', 'k1', 1, { artist: 'Jay', title: 'Rain', lrc: '[00:01]kw' })
+		]);
+
+		const out = await collectLyricCandidates('Jay', 'Rain', new AbortController().signal);
+
+		expect(out).toEqual([{ source: 'kuwo', lrc: '[00:01]kw' }]);
+		for (const id of Object.keys(SOURCES) as SourceId[]) {
+			if (LYRICLESS.includes(id)) continue;
+			expect(search[id]).toHaveBeenCalledOnce();
+		}
+	});
+
+	it('quick-261014-lyrnotitle: no fallback when the artist is already blank', async () => {
+		const search = silenceAllSearches();
+
+		const out = await collectLyricCandidates('', 'Rain', new AbortController().signal);
+
+		expect(out).toEqual([]);
+		for (const id of Object.keys(SOURCES) as SourceId[]) {
+			if (LYRICLESS.includes(id)) continue;
+			expect(search[id]).toHaveBeenCalledOnce();
+		}
+	});
+
+	it('quick-261014-lyrnotitle: the fallback still requires a TITLE match', async () => {
+		const search = silenceAllSearches();
+		// The retry must not adopt a same-artist different-song lyric: title mismatch filters out.
+		const wrongTitle = mk('kuwo', 'k1', 1, { artist: 'Jay', title: 'Thunder', lrc: '[00:01]kw' });
+		search.kuwo!.mockResolvedValueOnce([]).mockResolvedValue([wrongTitle]);
+
+		const out = await collectLyricCandidates('FanSinger', 'Rain', new AbortController().signal);
+
+		expect(out).toEqual([]);
+		expect(search.kuwo).toHaveBeenCalledTimes(2);
+	});
 });
 
 // Phase 31 (31-D-08 / 31-D-06) + phase 32 (32-D-10 / 32-D-10b / 32-D-11): ensureTrackDetails reads

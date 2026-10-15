@@ -634,13 +634,21 @@ async function lyricFromSource(
 	query: string,
 	wantKey: string,
 	q: { artist: string; title: string },
-	signal: AbortSignal
+	signal: AbortSignal,
+	// quick-261014-lyrnotitle: when true, identity is TITLE-ONLY — the candidate's artist is
+	// ignored both in the match-key filter and (via q.artist === '') in scoreMatch. Only the
+	// picker's title-only fallback pass sets this; the walk keeps the strict artist+title gate.
+	titleOnly = false
 ): Promise<string | null> {
 	try {
 		const sr = await searchAll(query, 1, onlySource(src), signal);
 		if (signal.aborted) return null;
 		const best = sr.interleaved
-			.filter((c) => matchKey(c.artist || '', c.title || '') === wantKey)
+			.filter((c) =>
+				titleOnly
+					? matchKey('', c.title || '') === wantKey
+					: matchKey(c.artist || '', c.title || '') === wantKey
+			)
 			.sort((a, b) => scoreMatch(q, b) - scoreMatch(q, a))[0];
 		if (!best) return null;
 		// Use an inline lrc (qq/kuwo return it in the detail body) or resolve this ONE candidate.
@@ -709,27 +717,43 @@ export async function collectLyricCandidates(
 	try {
 		if (!artist && !title) return [];
 		if (signal.aborted) return [];
-		const query = `${artist} ${title}`.trim();
-		const wantKey = matchKey(artist, title);
-		const q = { artist, title };
 		const order = getEnabledAdapters({})
 			.map((a) => a.id)
 			.filter((id) => !LYRICLESS_SOURCES.has(id));
 
-		// Per-source never-throw, mirroring collectCoverCandidates' `safe()`: one source throwing or
-		// timing out still yields the others' candidates.
-		const safe = async (src: SourceId): Promise<LyricCandidate | null> => {
-			try {
-				const lrc = await lyricFromSource(src, query, wantKey, q, signal);
-				return lrc ? { source: src, lrc } : null;
-			} catch {
-				return null;
-			}
+		// One pass of the identical per-source step, parameterized — the title-only fallback below
+		// reuses the exact same matching algorithm (no second implementation to drift).
+		const runPass = async (
+			passArtist: string,
+			titleOnly: boolean
+		): Promise<LyricCandidate[]> => {
+			const query = `${passArtist} ${title}`.trim();
+			const wantKey = titleOnly ? matchKey('', title) : matchKey(passArtist, title);
+			const q = { artist: passArtist, title };
+			// Per-source never-throw, mirroring collectCoverCandidates' `safe()`: one source
+			// throwing or timing out still yields the others' candidates.
+			const safe = async (src: SourceId): Promise<LyricCandidate | null> => {
+				try {
+					const lrc = await lyricFromSource(src, query, wantKey, q, signal, titleOnly);
+					return lrc ? { source: src, lrc } : null;
+				} catch {
+					return null;
+				}
+			};
+			const hits = await Promise.all(order.map(safe));
+			// Registry order preserved: Promise.all resolves positionally, so filtering keeps the order.
+			return hits.filter((h): h is LyricCandidate => h !== null);
 		};
 
-		const hits = await Promise.all(order.map(safe));
-		// Registry order preserved: Promise.all resolves positionally, so filtering keeps the order.
-		return hits.filter((h): h is LyricCandidate => h !== null);
+		const withArtist = await runPass(artist, false);
+		if (withArtist.length > 0) return withArtist;
+		// quick-261014-lyrnotitle: fan covers carry the FAN's name as artist, so no lyric source
+		// matches "artist title" and the picker comes back empty. Fall back to a title-only pass —
+		// the original recording's lyrics are what the user wants to pick from. Strictly AFTER an
+		// empty first pass (a title-only match is looser and must never outrank an exact
+		// artist+title hit), and only when there is a title to search with.
+		if (!artist.trim() || !title.trim() || signal.aborted) return [];
+		return runPass('', true);
 	} catch {
 		return [];
 	}
