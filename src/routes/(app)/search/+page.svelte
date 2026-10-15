@@ -865,6 +865,7 @@
 					<SongRow
 						track={t}
 						smartArtist
+						showAlbumTag={false}
 						onplay={() => { player.setListQueue(results, 'search'); player.play(t, { fresh: true }); }}
 						onrequestmenu={() => { menuTrack = t; menuOpen = true; }}
 					/>

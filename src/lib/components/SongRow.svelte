@@ -139,6 +139,10 @@
 		 *  the single title), which reads as a wrong ARTIST name under the SongRow convention.
 		 *  Default false — every other surface keeps today's album-first subtitle byte-identical. */
 		smartArtist?: boolean;
+		/** quick-261014-notag: `false` hides the album tag after the smart artist name. The
+		 *  search page sets it — the tag is noise next to the artist there. Default true:
+		 *  artist/charts/library rows keep the album disambiguation. */
+		showAlbumTag?: boolean;
 		/** A host-known cover → rung 2 of pickRowCover. OMIT and it defaults to `track.cover`, the
 		 *  song's own source art, which is what every list surface passed here by hand. Pass an
 		 *  explicit value only to override that (the album tracklist passes the album hero, whose
@@ -170,6 +174,7 @@
 		persist = true,
 		subtitle = undefined,
 		smartArtist = false,
+		showAlbumTag = true,
 		cover = undefined,
 		active = undefined,
 		lazy = true,
@@ -207,8 +212,9 @@
 	// quick-261010-sar2: the album TAG after the smart artist name ("artist · [album]"). Only on
 	// smartArtist rows — the ones whose subtitle IS the artist. Skipped when the album is blank
 	// or is the single itself (album == title), where it would just echo the first line.
+	// quick-261014-notag: showAlbumTag=false (search page) suppresses it outright.
 	const albumTag = $derived.by(() => {
-		if (!smartArtist) return '';
+		if (!smartArtist || !showAlbumTag) return '';
 		const a = (track.album ?? '').trim();
 		if (!a) return '';
 		if (a.toLowerCase() === (track.title ?? '').trim().toLowerCase()) return '';
