@@ -24,6 +24,8 @@ import { localEnrichment } from '$lib/services/local-tags';
 import { downscaleCoverImage } from '$lib/services/embed-cover';
 import { combinedSignal } from '$lib/services/abort-signal';
 import { hasFreshAudioUrl, isTrackReady } from '$lib/services/track-ready';
+import { watchAudioRouteLoss } from '$lib/services/audio-route';
+import type { AudioRouteWatcher } from '$lib/services/audio-route';
 import { preconnectForSource, noteAudioOrigin } from '$lib/services/preconnect';
 import { tryFallback } from '$lib/services/fallback';
 import { reportDeadUrl } from '$lib/services/resolve-cache-client';
@@ -1342,8 +1344,9 @@ class Player {
 	 * but ONLY for an UNEXPECTED pause: the track must have actually played (hasPlayedSinceSrc), there
 	 * must be time remaining (not at/near end), and the pause must NOT have been deliberate.
 	 *
-	 * `deliberatePause` is set true by the FOUR sanctioned pause sources (user toggle, MediaSession
-	 * pause action, sleep-timer finishExpiry, offline handleOffline) via `pauseAudio()` immediately
+	 * `deliberatePause` is set true by the FIVE sanctioned pause sources (user toggle, MediaSession
+	 * pause action, sleep-timer finishExpiry, offline handleOffline, audio-route loss
+	 * pauseForRouteLoss) via `pauseAudio()` immediately
 	 * before they call `audio.pause()`, and consumed (read+reset) inside the `pause` listener. Any
 	 * pause that arrives WITHOUT this flag is treated as external and self-healed. Plain field —
 	 * internal, never reactive.
@@ -1395,6 +1398,12 @@ class Player {
 	muted = $state(false);
 
 	private audio: HTMLAudioElement | null = null;
+	/**
+	 * quick-261014-routefix: audio-output route-loss watcher (native becoming-noisy broadcast +
+	 * web devicechange shrink detector), started in attach(). Plain field — lifecycle handle,
+	 * never reactive.
+	 */
+	private routeWatch: AudioRouteWatcher | null = null;
 	private growing = false;
 	private growPromise: Promise<void> | null = null;
 	/**
@@ -2080,17 +2089,38 @@ class Player {
 	}
 
 	/**
-	 * EXTERNAL-PAUSE SELF-HEAL: the ONE sanctioned way to pause the element. Sets `deliberatePause`
-	 * so the `pause` listener knows this stop was intentional (user / MediaSession / sleep-timer /
-	 * offline) and must NOT be self-healed. Every code path that pauses on purpose calls this instead
-	 * of `audio.pause()` directly. A pause that arrives WITHOUT this flag is treated as external
-	 * (Android audio-focus loss / background throttle) and re-played by the listener.
+	 * SANCTIONED PAUSE (quick-261014-routefix): the ONE sanctioned way to pause the element.
+	 * Sets `deliberatePause` so the `pause` listener knows this stop was intentional (user /
+	 * MediaSession / sleep-timer / offline / audio-route loss) and treats it as such — no load-stall
+	 * retry, no auto-resume, the queue simply waits for the next user tap. (The old external-pause
+	 * self-heal that re-played non-deliberate pauses was removed in SIMPLIFY
+	 * debug-midplay-stall-background because it fought external audio-focus holders.) Every code
+	 * path that pauses on purpose calls this instead of `audio.pause()` directly.
 	 */
 	private pauseAudio() {
 		this.deliberatePause = true;
 		this.disarmResume(); // an intentional pause cancels any pending external-pause resume
 		this.keepAliveOff(); // a deliberate stop releases the background keep-alive (bg-resolve-gap-stall)
 		this.audio?.pause();
+	}
+
+	/**
+	 * AUDIO-ROUTE LOSS (quick-261014-routefix): earphones unplugged / BT headset disconnected.
+	 * The FIFTH sanctioned pause source — a DELIBERATE pause via pauseAudio(), so the `pause`
+	 * listener treats it as intentional (no stall retry, no self-heal, no auto-resume; the queue
+	 * waits for the next user tap instead of blasting out of the phone speaker).
+	 *
+	 * Guarded to a no-op unless audio is actually audible: setting `deliberatePause` without an
+	 * element `pause` event to consume it would leave a STALE true flag, and recoverLoadStall()
+	 * reads that flag as "user paused — respect it", which would wrongly suppress a later
+	 * load-stall rescue. When nothing is playing there is nothing to pause, so we simply return.
+	 */
+	pauseForRouteLoss() {
+		if (!browser) return;
+		const el = this.audio;
+		if (!el || el.paused || !this.playing) return; // nothing audible — never set a stale deliberate flag
+		logAction('route-loss.pause');
+		this.pauseAudio();
 	}
 
 	/** Cancel a pending external-pause resume (new src / real playing / deliberate pause / ended). */
@@ -2359,10 +2389,18 @@ class Player {
 				this.playing = !this.audio.paused;
 			});
 		}
-		// SIMPLIFY (debug-midplay-stall-background): the headphone-unplug `devicechange` listener was
-		// removed along with the external-pause self-heal it fed. We no longer force-resume any pause, so
-		// there is nothing to suppress on an unplug — the browser's own "becoming noisy" pause is simply
-		// respected (which is the desired behavior anyway: audio stays paused when headphones are pulled).
+		// quick-261014-routefix: AUDIO-ROUTE LOSS detection. The old SIMPLIFY
+		// (debug-midplay-stall-background) devicechange listener was removed along with the
+		// external-pause self-heal it fed — but the browser's own "becoming noisy" pause turned out
+		// NOT to fire on the user's phone (unplugging earphones kept playing out of the speaker), and
+		// Android exposes only a single "Default" audiooutput to `enumerateDevices()`, so no web API
+		// could see the route change. Detection is back, in service form
+		// ($lib/services/audio-route.ts): the APK forwards Android's ACTION_AUDIO_BECOMING_NOISY
+		// via the hand-written AudioRoute plugin, and web platforms get a `devicechange` strict-shrink
+		// detector. Both arms land in pauseForRouteLoss() — a DELIBERATE pause (not a resume-suppress),
+		// so playback stays paused until the user taps play again.
+		this.routeWatch?.stop();
+		this.routeWatch = watchAudioRouteLoss(() => this.pauseForRouteLoss());
 		el.addEventListener('play', () => {
 			// `play` fires the instant `paused` flips false (inside audio.play(), at
 			// readyState HAVE_NOTHING — before a single byte loads). It is a UI-STATE signal

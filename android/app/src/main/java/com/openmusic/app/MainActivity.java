@@ -13,10 +13,15 @@ import com.getcapacitor.BridgeActivity;
 public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
-        // Register the hand-written local MediaStore plugin (D-11 public-music-mediastore;
-        // no npm/git dependency — T-999.1-07 mitigation) BEFORE super.onCreate so the bridge
-        // picks it up when it initializes the WebView (Capacitor 8 registration mechanism).
+        // Register the hand-written local plugins (no npm/git dependency — T-999.1-07
+        // mitigation) BEFORE super.onCreate so the bridge picks them up when it initializes
+        // the WebView (Capacitor 8 registration mechanism).
+        // - MediaStoreSaver (D-11 public-music-mediastore): public Music/ write + scan.
+        // - AudioRoute (quick-261014-routefix): ACTION_AUDIO_BECOMING_NOISY -> web layer, so
+        //   unplugging earphones / disconnecting BT pauses playback (the WebView itself does
+        //   not pause the <audio> element on output-route loss).
         registerPlugin(MediaStoreSaverPlugin.class);
+        registerPlugin(AudioRoutePlugin.class);
         super.onCreate(savedInstanceState);
         applyStatusBarInset();
     }
