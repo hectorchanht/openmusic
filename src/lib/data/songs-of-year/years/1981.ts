@@ -1,6 +1,7 @@
-// 1981 年選 — year-end charts (United States、United Kingdom).
+// 1981 年選 — year-end charts (United States、United Kingdom、Hong Kong).
 // - United States: Billboard Year-End Hot 100 (rank order = published year-end rank).
 // - United Kingdom: Official Charts Company End of Year Singles Chart (rank order = published year-end rank).
+// - Hong Kong: 香港電台 十大中文金曲獎 (rank order = published 十大中文金曲 rank).
 // Rendered as SongRow stubs; taps resolve through the normal multi-source
 // search (resolveStub), so the pack ships no audio of its own.
 
@@ -14,6 +15,16 @@ export const PACK_META_SOY_1981_US = {
   free: true,
   year: 1981,
   country: 'United States'
+} as const;
+
+export const PACK_META_SOY_1981_HK = {
+  id: 'soy-1981-hk',
+  title: '1981 香港年選',
+  titleEn: 'Hong Kong 1981',
+  description: '香港電台 十大中文金曲獎',
+  free: true,
+  year: 1981,
+  country: 'Hong Kong'
 } as const;
 
 export const SOY_1981: Record<string, PackSong[]> = {
@@ -120,10 +131,24 @@ export const SOY_1981: Record<string, PackSong[]> = {
     { artist: "Diana Ross、Lionel Richie", title: "Endless Love", note: "#48 Official Charts 年終" },
     { artist: "Toyah", title: "Four from Toyah (EP)", note: "#49 Official Charts 年終" },
     { artist: "Earth, Wind、Fire", title: "Let's Groove", note: "#50 Official Charts 年終" },
-  ]
+  ],
+  'Hong Kong': [
+    { artist: "鄭少秋", title: "做人愛自由", note: "#1 十大中文金曲第1位" },
+    { artist: "許冠傑", title: "印象", note: "#2 十大中文金曲第2位" },
+    { artist: "蔡楓華", title: "倩影", note: "#3 十大中文金曲第3位" },
+    { artist: "羅文", title: "紅棉", note: "#4 十大中文金曲第4位" },
+    { artist: "關正傑", title: "一點燭光", note: "#5 十大中文金曲第5位" },
+    { artist: "譚詠麟", title: "想將來", note: "#6 十大中文金曲第6位" },
+    { artist: "雷安娜", title: "舊夢不須記", note: "#7 十大中文金曲第7位" },
+    { artist: "甄妮", title: "東方之珠", note: "#8 十大中文金曲第8位" },
+    { artist: "關正傑", title: "醉紅塵", note: "#9 十大中文金曲第9位" },
+    { artist: "林子祥", title: "活色生香", note: "#10 十大中文金曲第10位" },
+  ],
+
 };
 
 export const SOY_SOURCES_1981: Record<string, { name: string; url: string }> = {
+  'Hong Kong': { name: "香港電台 十大中文金曲獎", url: "https://zh.wikipedia.org/wiki/十大中文金曲頒獎音樂會十大中文金曲獎" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_1981" },
   'United Kingdom': { name: "Official Charts Company End of Year Singles Chart", url: "https://en.wikipedia.org/wiki/1981_in_British_music" }
 };

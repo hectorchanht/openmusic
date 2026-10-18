@@ -1,6 +1,7 @@
-// 1986 年選 — year-end charts (United States、United Kingdom).
+// 1986 年選 — year-end charts (United States、United Kingdom、Hong Kong).
 // - United States: Billboard Year-End Hot 100 (rank order = published year-end rank).
 // - United Kingdom: Official Charts Company End of Year Singles Chart (rank order = published year-end rank).
+// - Hong Kong: 香港電台 十大中文金曲獎 (rank order = published 十大中文金曲 rank).
 // Rendered as SongRow stubs; taps resolve through the normal multi-source
 // search (resolveStub), so the pack ships no audio of its own.
 
@@ -14,6 +15,16 @@ export const PACK_META_SOY_1986_US = {
   free: true,
   year: 1986,
   country: 'United States'
+} as const;
+
+export const PACK_META_SOY_1986_HK = {
+  id: 'soy-1986-hk',
+  title: '1986 香港年選',
+  titleEn: 'Hong Kong 1986',
+  description: '香港電台 十大中文金曲獎',
+  free: true,
+  year: 1986,
+  country: 'Hong Kong'
 } as const;
 
 export const SOY_1986: Record<string, PackSong[]> = {
@@ -120,10 +131,24 @@ export const SOY_1986: Record<string, PackSong[]> = {
     { artist: "Eurythmics", title: "Thorn in My Side", note: "#48 Official Charts 年終" },
     { artist: "Dire Straits", title: "Walk of Life", note: "#49 Official Charts 年終" },
     { artist: "Madonna", title: "Borderline", note: "#50 Official Charts 年終" },
-  ]
+  ],
+  'Hong Kong': [
+    { artist: "羅文", title: "幾許風雨", note: "#1 十大中文金曲第1首" },
+    { artist: "陳百強", title: "凝望", note: "#2 十大中文金曲第2首" },
+    { artist: "梅艷芳", title: "愛將", note: "#3 十大中文金曲第3首" },
+    { artist: "許冠傑", title: "心思思", note: "#4 十大中文金曲第4首" },
+    { artist: "譚詠麟", title: "無言感激", note: "#5 十大中文金曲第5首" },
+    { artist: "譚詠麟", title: "朋友", note: "#6 十大中文金曲第6首" },
+    { artist: "張學友", title: "月半彎", note: "#7 十大中文金曲第7首" },
+    { artist: "甄妮", title: "海上花", note: "#8 十大中文金曲第8首" },
+    { artist: "林子祥", title: "阿Lam日記", note: "#9 十大中文金曲第9首" },
+    { artist: "張國榮", title: "當年情", note: "#10 十大中文金曲第10首" },
+  ],
+
 };
 
 export const SOY_SOURCES_1986: Record<string, { name: string; url: string }> = {
+  'Hong Kong': { name: "香港電台 十大中文金曲獎", url: "https://zh.wikipedia.org/wiki/十大中文金曲頒獎音樂會十大中文金曲獎" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_1986" },
   'United Kingdom': { name: "Official Charts Company End of Year Singles Chart", url: "https://en.wikipedia.org/wiki/1986_in_British_music" }
 };

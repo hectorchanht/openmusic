@@ -1,6 +1,7 @@
-// 1983 年選 — year-end charts (United States、United Kingdom).
+// 1983 年選 — year-end charts (United States、United Kingdom、Hong Kong).
 // - United States: Billboard Year-End Hot 100 (rank order = published year-end rank).
 // - United Kingdom: Official Charts Company End of Year Singles Chart (rank order = published year-end rank).
+// - Hong Kong: 香港電台 十大中文金曲獎 (rank order = published 十大中文金曲 rank).
 // Rendered as SongRow stubs; taps resolve through the normal multi-source
 // search (resolveStub), so the pack ships no audio of its own.
 
@@ -14,6 +15,16 @@ export const PACK_META_SOY_1983_US = {
   free: true,
   year: 1983,
   country: 'United States'
+} as const;
+
+export const PACK_META_SOY_1983_HK = {
+  id: 'soy-1983-hk',
+  title: '1983 香港年選',
+  titleEn: 'Hong Kong 1983',
+  description: '香港電台 十大中文金曲獎',
+  free: true,
+  year: 1983,
+  country: 'Hong Kong'
 } as const;
 
 export const SOY_1983: Record<string, PackSong[]> = {
@@ -120,10 +131,24 @@ export const SOY_1983: Record<string, PackSong[]> = {
     { artist: "Culture Club", title: "Victims", note: "#48 Official Charts 年終" },
     { artist: "Elton John", title: "I'm Still Standing", note: "#49 Official Charts 年終" },
     { artist: "The Rock Steady Crew", title: "(Hey You) The Rock Steady Crew", note: "#50 Official Charts 年終" },
-  ]
+  ],
+  'Hong Kong': [
+    { artist: "梅艷芳", title: "赤的疑惑", note: "#1 十大中文金曲第1首" },
+    { artist: "譚詠麟", title: "遲來的春天", note: "#2 十大中文金曲第2首" },
+    { artist: "張德蘭", title: "情義兩心堅", note: "#3 十大中文金曲第3首" },
+    { artist: "蔡楓華", title: "何必曾相識", note: "#4 十大中文金曲第4首" },
+    { artist: "關正傑、黃露儀", title: "常在我心間", note: "#5 十大中文金曲第5首" },
+    { artist: "蔡琴", title: "你的眼神", note: "#6 十大中文金曲第6首" },
+    { artist: "陳百強", title: "偏偏喜歡你", note: "#7 十大中文金曲第7首" },
+    { artist: "鍾鎮濤", title: "要是有緣", note: "#8 十大中文金曲第8首" },
+    { artist: "徐小鳳", title: "隨想曲", note: "#9 十大中文金曲第9首" },
+    { artist: "羅文、甄妮", title: "世間始終你好", note: "#10 十大中文金曲第10首" },
+  ],
+
 };
 
 export const SOY_SOURCES_1983: Record<string, { name: string; url: string }> = {
+  'Hong Kong': { name: "香港電台 十大中文金曲獎", url: "https://zh.wikipedia.org/wiki/十大中文金曲頒獎音樂會十大中文金曲獎" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_1983" },
   'United Kingdom': { name: "Official Charts Company End of Year Singles Chart", url: "https://en.wikipedia.org/wiki/1983_in_British_music" }
 };
