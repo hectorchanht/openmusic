@@ -46,6 +46,12 @@
 		onVersions: (track: Track) => void;
 	} = $props();
 
+	// quick-261019-qkh: index of the currently-playing row WITHIN `rows`. Rows above it
+	// (i < currentRowIdx) are already played — rendered dimmed via `is-played`, still fully
+	// interactive (a tap replays via the existing non-fresh play). -1 when current isn't in the
+	// list; the anchor/clamp keeps it in, so that only happens transiently.
+	const currentRowIdx = $derived(rows.findIndex((t) => t.uid === player.current?.uid));
+
 	// quick-260910-q5a / quick-260910-qwt — POST-PAINT cover fill for THIS pane's rows.
 	//
 	// WHY GATED ON `open`: nothing is fetched until the user actually opens the sheet, so the
@@ -226,6 +232,7 @@
 			<li
 				class:lifted={i === dragFrom}
 				class:over={i === dragOver && i !== dragFrom}
+				class:is-played={currentRowIdx >= 0 && i < currentRowIdx}
 				style:transform={i === dragFrom && rowDragY ? `translateY(${rowDragY}px)` : undefined}
 			>
 				<!-- Gap 4 (26-10): per-row version-picker trigger, still the single lazy fetchVariants
@@ -332,6 +339,10 @@
 	.q-swipe .q-row.playing { background: linear-gradient(rgba(124,92,255,0.15), rgba(124,92,255,0.15)) var(--color-bg); }
 	/* Queue rows: play-button + far-right grip side by side. */
 	.list li { display: flex; align-items: center; gap: 2px; }
+	/* quick-261019-qkh: already-played rows sit above the current one — dim them so the eye
+	   lands on the playing row. Placed BEFORE the drag states below so a lifted/dragged row
+	   (equal specificity, later in the sheet) still wins while dragging. */
+	.list li.is-played { opacity: 0.45; }
 	.q-row { flex: 1; min-width: 0; }
 	/* quick-260629-nyl Task 1: Up-Next rows lay the lazy album-art thumbnail to the LEFT of a
 	   min-width:0 text column so the title/artist still stack and ellipsis as before. The art dims

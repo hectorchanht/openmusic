@@ -5965,7 +5965,7 @@ describe('player.upNextAnchorUid — Up-Next list anchor (quick-260618-lsw)', ()
 		expect(slice.some((t) => t.uid === a.uid)).toBe(true);
 	});
 
-	it('Test 2 — a fresh play resets the anchor to the new clicked song (LSW-02)', async () => {
+	it('Test 2 — a fresh play anchors at the WOVEN head so played history stays visible (LSW-02 / quick-261019-qkh)', async () => {
 		const a = mk('netease', 'lb1', 'A', 'First');
 		const b = mk('qq', 'lb2', 'B', 'Second');
 		const c = mk('kuwo', 'lb3', 'C', 'Clicked');
@@ -5978,14 +5978,21 @@ describe('player.upNextAnchorUid — Up-Next list anchor (quick-260618-lsw)', ()
 		// anchor write executes.
 		(player.play as unknown as ReturnType<typeof vi.fn>).mockRestore();
 
+		// The real tap flow: the surface installs its list first (setListQueue captures [a] as
+		// pendingHistory), then the fresh play weaves it back in front of the seed.
+		player.setListQueue([c], 'search');
 		await player.play(c, { fresh: true });
 		await flush();
 
-		expect(player.upNextAnchorUid).toBe(c.uid); // the clicked song is the anchor → first row
-		// And the anchor IS the slice start: its live index equals indexOf(c) in the woven queue.
+		// The anchor is the woven HEAD (oldest kept history), NOT the clicked song — the Up-Next
+		// list renders [a, c] with the played song visible ABOVE current instead of being cut.
+		expect(player.upNextAnchorUid).toBe(a.uid);
 		const anchorIdx = player.queue.findIndex((t) => t.uid === player.upNextAnchorUid);
 		const cIdx = player.queue.findIndex((t) => t.uid === c.uid);
-		expect(anchorIdx).toBe(cIdx);
+		expect(anchorIdx).toBe(0);
+		expect(cIdx).toBeGreaterThan(anchorIdx);
+		// The view slice from the anchor includes BOTH the played song and the current one.
+		expect(player.queue.slice(anchorIdx).map((t) => t.uid)).toEqual([a.uid, c.uid]);
 	});
 
 	it('Test 3 — anchor survives reorder/removal; a missing anchor clamps to ci (LSW-03)', () => {

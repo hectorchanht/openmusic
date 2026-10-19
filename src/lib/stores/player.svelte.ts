@@ -507,7 +507,12 @@ class Player {
 	 *  quick-260712-hm9: now PERSISTED (via serializePlayerState's `upNextAnchorUid` envelope field)
 	 *  and re-seeded on restore() — a null anchor made NowPlaying's clamp fall back to the live current
 	 *  index (LSW-03 ci-fallback), which silently discarded played songs on a resumed/restored session.
-	 *  NowPlaying's clamp still falls back to the live current index if this is EVER null/absent. */
+	 *  NowPlaying's clamp still falls back to the live current index if this is EVER null/absent.
+	 *  quick-261019-qkh: on a fresh play the anchor is now the WOVEN queue's HEAD (the oldest kept
+	 *  history entry — or the clicked song itself when there is no history), NOT the clicked song.
+	 *  The visible list is [...history, current, ...tail]: played songs stay in view above (dimmed),
+	 *  the highlight marks current, and the pane scrolls to it. Set AFTER weaveFreshHistory so the
+	 *  head uid is definitely present in this.queue. */
 	upNextAnchorUid = $state<string | null>(null);
 
 	/** Shuffle on: toggling true randomizes queue tail (current pinned). Off = no auto-shuffle on
@@ -4372,10 +4377,13 @@ class Player {
 			// discards (WR-06). THEN build the tail per the effective up-next mode.
 			this.weaveFreshHistory(resolved);
 			// quick-260618-lsw (LSW-02 / LSW-01): a fresh click anchors the Up-Next list at the
-			// clicked song so it is the FIRST row. Set AFTER weaveFreshHistory installs the woven
-			// queue so the anchor uid is definitely present in this.queue. Auto-advance (the non-fresh
-			// else branch below) leaves this put so the just-played song stays in the list.
-			this.upNextAnchorUid = resolved.uid;
+			// WOVEN queue's head — the oldest kept history entry (or the clicked song itself when
+			// there is no history) — so previously played songs stay visible above the current
+			// row instead of the list being cut to start at the clicked song. quick-261019-qkh.
+			// Set AFTER weaveFreshHistory installs the woven queue so the head uid is definitely
+			// present in this.queue. Auto-advance (the non-fresh else branch below) leaves this
+			// put so the pointer advances without dropping history.
+			this.upNextAnchorUid = this.queue[0]?.uid ?? resolved.uid;
 			// quick-260915-vb9: an explicit "play this whole list" caller (opts.sameList) pins the
 			// same-list branch — the list it just installed IS the Up-Next the user asked for, so the
 			// context's default 'generated' mode must not throw it away. Row taps pass nothing and
