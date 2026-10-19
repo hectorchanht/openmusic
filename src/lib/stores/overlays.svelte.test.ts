@@ -73,6 +73,42 @@ describe('overlays: outbound navigation vs history.back()', () => {
 		expect(order).toEqual(['goto', 'trackmenu-menu', 'nowplaying']);
 		expect(back).not.toHaveBeenCalled();
 	});
+
+	it('two synchronous dismisses (picker pick → closePicker() + close menu) swallow both echoes; nowplaying survives (quick-261019-ovl)', async () => {
+		const { overlays } = await import('./overlays.svelte');
+		const closeNp = vi.fn();
+		const teardown = overlays.init();
+		const onpop = vi
+			.mocked(window.addEventListener)
+			.mock.calls.find((c) => (c[0] as string) === 'popstate')![1] as () => void;
+
+		overlays.open('nowplaying', closeNp);
+		overlays.open('trackmenu-menu', () => {});
+		overlays.open('trackmenu-cover', () => {});
+		expect(overlays.depth).toBe(3);
+
+		// TrackMenu.pickCover(): closeCoverPicker() flips coverOpen, then close() flips
+		// menuOpen — both $effect cleanups dismiss in the SAME tick, so two history.back()
+		// calls are issued back-to-back.
+		overlays.dismiss('trackmenu-cover');
+		overlays.dismiss('trackmenu-menu');
+		expect(back).toHaveBeenCalledTimes(2);
+		expect(overlays.depth).toBe(1);
+
+		// Both backs produce exactly one popstate echo each; both must be swallowed 1:1.
+		// The old boolean `popping` swallowed only the first and the stray echo
+		// closeTop()'d 'nowplaying' → the sheet collapsed on every menu-action pick.
+		onpop();
+		onpop();
+		expect(closeNp).not.toHaveBeenCalled();
+		expect(overlays.depth).toBe(1);
+
+		// A genuine OS/browser Back afterwards still closes the top overlay.
+		onpop();
+		expect(closeNp).toHaveBeenCalledTimes(1);
+		expect(overlays.depth).toBe(0);
+		teardown();
+	});
 });
 
 describe('overlays: display URL on the pushed entry (quick-261010-npurl)', () => {
