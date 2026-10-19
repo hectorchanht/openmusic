@@ -4,7 +4,7 @@
 	// and the [year]/[country] pack pages all render this same component so the year
 	// selector looks and behaves identically everywhere. The HOST owns selection state:
 	// the hub syncs ?year= via pickTab/syncTabUrl; pack pages goto the hub for other years.
-	import { SOY_YEARS } from '$lib/data/songs-of-year/registry';
+	import { SOY_YEARS, SOY_AVAILABLE } from '$lib/data/songs-of-year/registry';
 	import { tapBounce } from '$lib/actions/tapBounce';
 
 	interface Props {
@@ -12,12 +12,30 @@
 		active: string;
 		/** Called with the tapped year string. */
 		onselect: (year: string) => void;
+		/**
+		 * When set, only years with this country's verified data get a pill
+		 * (Hector 2026-10-18: pills must be dynamic to available data).
+		 * Omit for the hub (all years stay).
+		 */
+		country?: string;
 	}
-	let { active, onselect }: Props = $props();
+	let { active, onselect, country }: Props = $props();
+
+	// The active year and the live 2026 year are always kept so the current
+	// selection never vanishes and the 2026 pack stays one tap away.
+	const years = $derived(
+		SOY_YEARS.filter(
+			(y) =>
+				y === 2026 ||
+				String(y) === active ||
+				!country ||
+				(SOY_AVAILABLE[y] ?? []).includes(country)
+		)
+	);
 </script>
 
 <nav class="years" aria-label="year">
-	{#each SOY_YEARS as y (y)}
+	{#each years as y (y)}
 		<button
 			type="button"
 			class="ypill"

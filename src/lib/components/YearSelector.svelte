@@ -6,11 +6,12 @@
 	// songs-of-year hub's own year strip.
 	//
 	// The page's own year is the active chip (aria-current). Every other year
-	// links to the real songs-of-year route for the region's country — combos
-	// without verified data render the hub's "coming soon" state, never a dead link.
+	// links to the real songs-of-year route for the region's country.
+	// Only years with this region's country data get a pill (Hector 2026-10-18:
+	// pills must be dynamic to available data, not the full 1946–2026 range).
 	import { t } from '$lib/i18n';
-	import { SOY_YEARS } from '$lib/data/songs-of-year/registry';
-	import { chartYearHref, type ChartRegion } from '$lib/data/chart-years';
+	import { SOY_YEARS, SOY_AVAILABLE } from '$lib/data/songs-of-year/registry';
+	import { chartYearHref, CHART_REGION_COUNTRY, type ChartRegion } from '$lib/data/chart-years';
 
 	interface Props {
 		region: ChartRegion;
@@ -18,10 +19,17 @@
 	}
 
 	let { region, year }: Props = $props();
+
+	// Years with verified data for this region's country. The page's own year
+	// is always kept — it's the live curated pack, not a SOY_AVAILABLE row.
+	const country = CHART_REGION_COUNTRY[region];
+	const years = $derived(
+		SOY_YEARS.filter((y) => y === year || (SOY_AVAILABLE[y] ?? []).includes(country))
+	);
 </script>
 
 <nav class="years" aria-label={t('pack.chooseYear')}>
-	{#each SOY_YEARS as y (y)}
+	{#each years as y (y)}
 		{#if y === year}
 			<span class="ypill active" aria-current="page">{y}</span>
 		{:else}

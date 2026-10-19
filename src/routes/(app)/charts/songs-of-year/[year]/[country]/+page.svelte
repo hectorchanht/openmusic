@@ -214,7 +214,7 @@
 
 <PageHeader backLabel={t('common.back')} showSettings />
 
-<SoyYearStrip active={String(yearNum)} onselect={selectYear} />
+<SoyYearStrip active={String(yearNum)} onselect={selectYear} country={country} />
 
 {#if !valid || loadFailed}
 	<header class="hero">
