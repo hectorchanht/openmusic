@@ -3857,6 +3857,9 @@ class Player {
 		this.pendingKey = '';
 		this.error = null;
 		this.loading = true;
+		// quick-261019-cov: captured BEFORE the reassignment below — the play() cover seed needs
+		// the PREVIOUS track to decide whether a null seed may clear the current cover.
+		const prevTrack = this.current;
 		this.current = track;
 		// STALE-FLAG FIX (background-autoadvance-stall follow-up): reset hasPlayedSinceSrc the MOMENT we
 		// commit to the new current track — NOT later at src-set (which happens only after the async
@@ -3891,7 +3894,7 @@ class Player {
 		// Phase 40 D-14 / D-14a: the CROWD pick (a human choice shared by other listeners) sits right
 		// behind the pin and AHEAD of the attached album cover and the inline art. RESEARCH A7 trade-off,
 		// accepted by the user: an album page can show one song's crowd pick instead of uniform album art.
-		this.resolvedCover =
+		const coverSeed =
 			getPinnedCover(track.uid) ??
 			getCrowdCover(track.uid, track.artist, track.title) ??
 			this.attachedCoverFor(track) ??
@@ -3899,6 +3902,24 @@ class Player {
 			(track.uid ? getCachedCoverByUid(track.uid) : null) ??
 			getCachedCover(track.artist, track.title) ??
 			null;
+		// quick-261019-cov: REJECT a null/gradient replacement. A cover-less re-entry for the SAME
+		// song — runFallback's play(swap) after the first source fails, or a same-song re-tap —
+		// re-runs this seed with a stub whose cover chain is empty; blanking resolvedCover there is
+		// exactly the "cover degrades to gradient after play starts" report (the good art the user
+		// is already looking at gets wiped). So a null/empty seed keeps the existing cover when the
+		// incoming track is the same song we already hold art for (same uid, or same matchKey
+		// identity across a cross-source fallback swap). A genuine track change still re-seeds and
+		// clears stale art as before — '' counts as a miss here, like pickRowCover's rungs.
+		if (coverSeed) {
+			this.resolvedCover = coverSeed;
+		} else {
+			const sameSong =
+				!!prevTrack &&
+				(prevTrack.uid === track.uid ||
+					matchKey(prevTrack.artist, prevTrack.title) === matchKey(track.artist, track.title));
+			// sameSong: keep this.resolvedCover as-is — the null/empty seed is rejected.
+			if (!sameSong) this.resolvedCover = null; // explicit: stale art cleared on track change
+		}
 		// quick-260615-hep Site A: write the displayed cover (incl. the track.cover path) into BOTH cache
 		// layers + bump so other surfaces reuse it and repaint live. https-only (T-0bb-01); writeCoverBoth
 		// no-ops on empty/non-https — harmless even before the myGen guards' discard points (real art only).
