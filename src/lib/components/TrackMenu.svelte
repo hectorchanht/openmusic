@@ -1259,12 +1259,27 @@
 	// it via the existing fresh-play regenerate path — NO new queue mechanism. setQueue([seed],
 	// 'remix') records the 'remix' QueueContext (effectiveUpnextMode('remix') === 'generated', from
 	// 19-01); play(seed,{fresh:true}) → regenerate → dedupeBest([seed, ...manualEntries, ...auto])
-	// preserves manual pins (D-05) and discards the prior generated tail. Gated → seed has audioUrl.
+	// preserves manual pins (D-05) and discards the prior generated tail. The seed arrives via
+	// gated() (network tracks — guarantees an audioUrl) or via onRemixTap's download fast-path
+	// (downloaded tracks — played as-is from the local blob by play()'s offline-first branch).
 	function doRemix(seed: Track) {
 		toast.show(t('toast.remixing'));
 		player.setQueue([seed], 'remix');
 		void player.play(seed, { fresh: true });
 		close();
+	}
+	// quick-261019-rmx: a DOWNLOADED song plays from its local blob — play() is offline-first
+	// (library.isDownloaded → blobStore, no network resolve needed). Routing it through gated()
+	// would first demand a fresh network audioUrl: when that resolve fails the menu toasts
+	// "no audio" and doRemix never runs, even though the song is sitting on the device. So
+	// downloads skip the gate and play the seed as-is through the normal play path; the fresh
+	// play then regenerates the up-next list exactly like the network path. That's it.
+	function onRemixTap() {
+		if (track && library.isDownloaded(track.uid)) {
+			doRemix(track);
+			return;
+		}
+		gated('remix', doRemix);
 	}
 	function addToPlaylist(id: string) { if (track) library.addToPlaylist(id, track); pickerOpen = false; toast.show(t('toast.addedToPlaylist')); }
 	function newPlaylist() {
@@ -1424,7 +1439,7 @@
 		     snippet keeps its original markup, handlers and inner conditions verbatim. -->
 		<!-- Remix: GATED (needs audioUrl to play the seed) — Sparkles + the inline spinner. -->
 		{#snippet cellRemix(tr: Track)}
-			<button class="gi" aria-busy={inFlight.has('remix')} aria-label={inFlight.has('remix') ? t('menu.preparing') : undefined} onclick={() => gated('remix', doRemix)} use:tapBounce>
+			<button class="gi" aria-busy={inFlight.has('remix')} aria-label={inFlight.has('remix') ? t('menu.preparing') : undefined} onclick={onRemixTap} use:tapBounce>
 				{#if inFlight.has('remix')}<span class="row-spinner motion-always"></span>{:else}<Sparkles size={22} />{/if}<span class="gi-label">{t('menu.remix')}</span>
 			</button>
 		{/snippet}
