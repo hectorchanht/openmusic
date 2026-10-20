@@ -232,6 +232,14 @@ class Player {
 	current = $state<Track | null>(null);
 	playing = $state(false);
 	loading = $state(false);
+	/**
+	 * quick-261019-lyrspin: true while a lyric backfill walk is in flight for the current
+	 * track (see backfillLyrics). The lyric pane shows a spinner instead of "no lyrics"
+	 * during this window. The play-path resolve (lyrics arriving with the track) is already
+	 * covered by `loading`; this covers the AFTER-play backfill for offline-blob / edge-cache
+	 * tracks that land lyric-less.
+	 */
+	lyricsFetching = $state(false);
 	error = $state<string | null>(null);
 
 	/**
@@ -1027,6 +1035,9 @@ class Player {
 		if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
 		const uid = track.uid;
 		const myGen = this.playGen;
+		// quick-261019-lyrspin: signal the fetch window AFTER the offline bail above, so an
+		// offline track never shows the spinner (the honest degrade stands).
+		this.lyricsFetching = true;
 		// 37-D-03: a `device:` uid cannot use the ensureTrackDetails path at all — catalog.ts returns a
 		// device track untouched (34-D-01, deliberately ABOVE the isTrackReady staleness check, because
 		// a local file has no TTL and must never be judged stale). So the call this branch replaces was
@@ -1039,11 +1050,17 @@ class Player {
 				.then((lrc) => {
 					if (myGen !== this.playGen) return; // track changed mid-walk — discard
 					if (this.current?.uid !== uid) return; // current moved on — discard
+					// quick-261019-lyrspin: the walk settled FOR the live track — close the
+					// fetch window even when no source had lyrics (the pane then shows no-lyrics).
+					this.lyricsFetching = false;
 					if (!lrc) return; // no source had lyrics for this name — leave as-is
 					this.current = { ...this.current, lrc };
 					this.embedLyricsIntoFile(uid, lrc); // quick-260919-3j1 (F3)
 				})
 				.catch(() => {
+					// quick-261019-lyrspin: same guard as the .then — a discarded walk must not
+					// clear the new track's own fetch signal.
+					if (myGen === this.playGen && this.current?.uid === uid) this.lyricsFetching = false;
 					/* lyric backfill is best-effort — audio already plays from the local file */
 				});
 			return;
@@ -1052,11 +1069,16 @@ class Player {
 			.then((resolved) => {
 				if (myGen !== this.playGen) return; // track changed mid-fetch — discard
 				if (this.current?.uid !== uid) return; // current moved on — discard
+				// quick-261019-lyrspin: see the device branch above — close the fetch window
+				// even when the resolve produced no lyrics.
+				this.lyricsFetching = false;
 				if (!resolved.lrc) return; // resolve produced no lyrics — leave as-is
 				this.current = { ...this.current, lrc: resolved.lrc, lrcUrl: resolved.lrcUrl };
 				this.embedLyricsIntoFile(uid, resolved.lrc); // quick-260919-3j1 (F3)
 			})
 			.catch(() => {
+				// quick-261019-lyrspin: same guard as the .then — see the device branch.
+				if (myGen === this.playGen && this.current?.uid === uid) this.lyricsFetching = false;
 				/* lyric backfill is best-effort — audio already plays from the blob */
 			});
 	}
@@ -3944,6 +3966,10 @@ class Player {
 		// fallback continuation — the fallback IS the continuation of the user's original intent
 		// and must not invalidate itself.
 		if (!opts?.fromFallback) this.playGen++;
+		// quick-261019-lyrspin: a new play takes over — drop any stale backfill signal; the new
+		// track's own backfill (if it needs one) re-asserts it. Fallback continuations pass
+		// through here too (fromFallback), so a swap never inherits the old track's spinner.
+		this.lyricsFetching = false;
 		// CR-02: snapshot the generation right after the (conditional) bump and re-check it after
 		// EVERY await below before writing current / audio.src / Media Session. A fallback
 		// continuation inherits the value it was started under (it deliberately does not bump),

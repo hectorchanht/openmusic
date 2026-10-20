@@ -73,6 +73,10 @@
 			return src ? splitParenLines(reorderPairs(parseLyrics(src))) : [];
 		})()
 	);
+	// quick-261019-lyrspin: while the track is still resolving (player.loading) or a lyric
+	// backfill walk is in flight for it (player.lyricsFetching), an empty pane means "not yet",
+	// not "none" — the template shows the spinner instead of the no-lyrics line.
+	const lyricsPending = $derived(player.loading || player.lyricsFetching);
 	// When multiple lyric lines share a timestamp (common in CN LRCs that ship the original
 	// + an inline translation as two consecutive entries at the same time, plus our own
 	// splitParenLines parent + paren clauses), ALL of them are simultaneously active for
@@ -510,7 +514,7 @@
 			{/if}
 		{/each}
 	</div>
-{:else}<p class="empty">{t('nowplaying.noLyrics')}</p>{/if}
+{:else if lyricsPending}<p class="empty" aria-busy="true"><span class="row-spinner motion-always"></span></p>{:else}<p class="empty">{t('nowplaying.noLyrics')}</p>{/if}
 
 <style>
 	/* quick-260919-np3: the lyrics SUBSET of NowPlaying.svelte's old panel CSS, moved verbatim with
@@ -536,6 +540,11 @@
 	.lyrics .tr.active { color: var(--color-text); text-shadow: 0 0 0.5px currentColor, 0 0 0.5px currentColor; }
 	.tr-hint { text-align: center; font-size: 0.6875rem; color: var(--color-primary); margin: 0 0 6px; }
 	.empty { color: var(--color-text-muted); font-size: 0.875rem; text-align: center; padding: 24px; }
+	/* quick-261019-lyrspin: the fetching spinner — same ring as TrackMenu/VersionPicker's
+	   .row-spinner, scoped here (Svelte scopes styles per component). Inline-block so the
+	   width/height apply inside the centred <p>. */
+	.empty .row-spinner { display: inline-block; vertical-align: middle; width: 18px; height: 18px; border: 2px solid var(--color-text-muted); border-top-color: transparent; border-radius: 50%; animation: spin 0.7s linear infinite; }
+	@keyframes spin { to { transform: rotate(360deg); } }
 	/* quick-260926-mis: quiet offset row. In normal flow above `.lyrics`, so it shifts every line by the
 	   same amount and anchorActiveLine (live rects) still lands exactly. Opaque --color-bg (what .np /
 	   .sheet paint) keeps it legible over lyrics scrolling beneath it. */
