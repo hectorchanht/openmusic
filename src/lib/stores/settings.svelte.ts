@@ -622,7 +622,7 @@ class Settings {
 		r.style.setProperty('--color-primary', this.accent);
 		// UX-07 ROOT-CAUSE FIX: the hover var was pinned at #6a48f0 in app.css and never set at
 		// runtime, so hover surfaces (buttons/tabs/chips) ignored the chosen accent. Derive it from
-		// the accent — ~12% darken matches today's #7c5cff → #6a48f0 relationship (A3).
+		// the accent — ~12% darken matches today's #0abab5 → #09a49f relationship (A3).
 		r.style.setProperty('--color-primary-hover', darken(this.accent, 0.12));
 		// Appearance scales (fnp) — multipliers off the per-rule base sizes. 100% → 1 (no change).
 		// quick-260920-kxz: the ROOT multiplier — app.css turns it into
@@ -764,4 +764,5 @@ export function effectiveTarget(target: 'auto' | LyricsLang): LyricsLang {
 	return target === 'auto' ? (settings.appLang as LyricsLang) : target;
 }
 
-export const ACCENT_PRESETS = ['#7c5cff', '#1db954', '#ff0033', '#00c2b8', '#ff8a00', '#ff4d6d'];
+// tiffany-261020: Tiffany blue first (the default); teal #00c2b8 dropped — visually redundant next to #0abab5.
+export const ACCENT_PRESETS = ['#0abab5', '#7c5cff', '#1db954', '#ff0033', '#ff8a00', '#ff4d6d'];

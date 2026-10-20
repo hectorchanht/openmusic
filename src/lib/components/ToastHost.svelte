@@ -22,5 +22,5 @@
 	   instead of a wrapping pill (the pill's max-width bounds it on a 375px phone). */
 	.toast .msg { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 	/* Copied from +layout.svelte's .notice-toast .retry (the never-stop pill's button). */
-	.toast .act { flex: none; background: var(--color-primary, #7c5cff); color: #fff; border: none; border-radius: 999px; padding: 8px 14px; font-size: 0.8125rem; font-weight: 600; cursor: pointer; min-height: 32px; }
+	.toast .act { flex: none; background: var(--color-primary, #0abab5); color: #fff; border: none; border-radius: 999px; padding: 8px 14px; font-size: 0.8125rem; font-weight: 600; cursor: pointer; min-height: 32px; }
 </style>

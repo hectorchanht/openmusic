@@ -26,9 +26,9 @@ import type { LyricsLang, SourceLang, TranslateMode, DefaultQuality, DefaultSour
 
 /** The accent-color hex used when the user hasn't picked one. Pulled out so the General
  *  reset can restore it without importing from settings.svelte.ts (circular).
- *  quick-260925-vtg: teal — the user's own exported settings adopted as the defaults (was
- *  #7c5cff). #00c2b8 is already an ACCENT_PRESETS entry, so the picker highlights it. */
-export const DEFAULT_ACCENT = '#00c2b8';
+ *  tiffany-261020: Tiffany blue (#0abab5, Pantone 1837C) — replaces the purple/teal era.
+ *  It is ACCENT_PRESETS[0], so the picker highlights it. */
+export const DEFAULT_ACCENT = '#0abab5';
 
 // ---- General ---------------------------------------------------------------------------
 // First-visit detection lives in settings.load() (browser-language auto-detect). Reset reverts

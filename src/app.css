@@ -1,4 +1,4 @@
-/* openmusic — global theme (sketch-001 variant C: dark + violet) */
+/* openmusic — global theme (dark + tiffany) */
 :root {
   --color-bg: #0b0b0f;
   --color-surface: #16161d;
@@ -6,13 +6,13 @@
   --color-border: #888888;
   --color-text: #f4f4f6;
   --color-text-muted: #a0a0ad;
-  --color-primary: #00c2b8; /* quick-260925-vtg: matches DEFAULT_ACCENT; applyTheme() overrides at runtime */
-  --color-primary-hover: #00aba2; /* quick-260925-vtg: darken(DEFAULT_ACCENT, 0.12) */
+  --color-primary: #0abab5; /* tiffany-261020: matches DEFAULT_ACCENT; applyTheme() overrides at runtime */
+  --color-primary-hover: #09a49f; /* tiffany-261020: darken(DEFAULT_ACCENT, 0.12) */
 
   --src-netease: #c20c0c;
   --src-qq: #1db954;
   --src-kuwo: #ffcb1f;
-  --src-joox: #00c2b8;
+  --src-joox: #07827e; /* tiffany-261020: darkened so the JOOX chip stays distinct from the tiffany accent */
   --src-fivesing: #ff5959; /* Kugou UGC — opt-in (quick-260607-hvu) */
   --src-jamendo: #ff7700;  /* CC indie — opt-in (quick-260607-ixw) */
 

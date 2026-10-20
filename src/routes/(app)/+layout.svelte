@@ -637,7 +637,7 @@
 	.update-msg { min-width: 0; }
 	.update-btn {
 		flex: none;
-		background: var(--color-primary, #7c5cff);
+		background: var(--color-primary, #0abab5);
 		color: #fff;
 		border: none;
 		border-radius: 999px;
@@ -683,7 +683,7 @@
 	}
 	.notice-toast .retry {
 		flex: none;
-		background: var(--color-primary, #7c5cff);
+		background: var(--color-primary, #0abab5);
 		color: #fff;
 		border: none;
 		border-radius: 999px;
