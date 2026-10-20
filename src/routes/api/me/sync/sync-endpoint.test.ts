@@ -13,6 +13,7 @@ function fakeDb() {
 	const users = new Map<string, { id: string; email: string }>();
 	const sessions = new Map<string, { user_id: string; expires_at: number }>();
 	const sync = new Map<string, { data: string; updated_at: number }>();
+	const keyRows = new Map<string, { data: string; updated_at: number }>();
 	const prepare = (sql: string) => {
 		let args: unknown[] = [];
 		const stmt = {
@@ -32,8 +33,24 @@ function fakeDb() {
 				}
 				return null;
 			},
+			async all() {
+				if (sql.startsWith('SELECT key AS k, data, updated_at FROM user_sync_keys')) {
+					const out: { k: string; data: string; updated_at: number }[] = [];
+					for (const [k, v] of keyRows) {
+						const [uid, key] = k.split('|');
+						if (uid === (args[0] as string)) out.push({ k: key, data: v.data, updated_at: v.updated_at });
+					}
+					return { results: out };
+				}
+				return { results: [] };
+			},
 			async run() {
-				if (sql.startsWith('INSERT INTO user_sync')) {
+				if (sql.startsWith('INSERT INTO user_sync_keys')) {
+					const [uid, key, data, updated_at] = args as [string, string, string, number];
+					keyRows.set(uid + '|' + key, { data, updated_at });
+				} else if (sql.startsWith('DELETE FROM user_sync_keys')) {
+					keyRows.delete((args[0] as string) + '|' + (args[1] as string));
+				} else if (sql.startsWith('INSERT INTO user_sync')) {
 					sync.set(args[0] as string, { data: args[1] as string, updated_at: args[2] as number });
 				}
 				return { success: true };
@@ -41,8 +58,12 @@ function fakeDb() {
 		};
 		return stmt;
 	};
+	const batch = async (stmts: { run(): Promise<unknown> }[]) => {
+		for (const s of stmts) await s.run();
+		return [];
+	};
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	return { db: { prepare } as any, users, sessions, sync };
+	return { db: { prepare, batch } as any, users, sessions, sync, keyRows };
 }
 
 type Db = ReturnType<typeof fakeDb>;
@@ -140,8 +161,9 @@ describe('PUT /api/me/sync', () => {
 		env2.keys['openmusic:settings:v1'] = { theme: 'dark' };
 		const put2 = await callPUT(fakeEvent('PUT', { body: JSON.stringify({ envelope: env2 }), env }));
 		expect(put2.status).toBe(200);
-		const stored = JSON.parse(f.sync.get('u1')!.data) as ReturnType<typeof validEnvelope>;
-		expect(stored.keys['openmusic:settings:v1']).toEqual({ theme: 'dark' });
+		// quick-261020-incsync: storage is per-key rows now, not one envelope blob.
+		const stored = JSON.parse(f.keyRows.get('u1|openmusic:settings:v1')!.data);
+		expect(stored).toEqual({ theme: 'dark' });
 	});
 
 	it('a foreign Origin → 403; a non-JSON type → 415', async () => {

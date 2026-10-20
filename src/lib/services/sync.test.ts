@@ -5,7 +5,14 @@
 
 import { describe, expect, it } from 'vitest';
 import { BACKUP_EXACT_KEYS } from '$lib/backup/backup-logic';
-import { SYNC_META_KEY, hashSyncedKeys, readSyncMeta, writeSyncMeta } from './sync';
+import {
+	SYNC_META_KEY,
+	diffSyncKeys,
+	hashEachKey,
+	hashSyncedKeys,
+	readSyncMeta,
+	writeSyncMeta
+} from './sync';
 
 function mapStore(initial: Record<string, string> = {}) {
 	const m = new Map(Object.entries(initial));
@@ -52,14 +59,42 @@ describe('hashSyncedKeys', () => {
 describe('sync meta', () => {
 	it('round-trips through the store under SYNC_META_KEY', () => {
 		const store = mapStore();
-		writeSyncMeta(store, { updatedAt: 123, hash: 'abc' });
+		writeSyncMeta(store, { updatedAt: 123, hashes: { a: 'x', b: 'y' } });
 		expect(store.m.has(SYNC_META_KEY)).toBe(true);
-		expect(readSyncMeta(store)).toEqual({ updatedAt: 123, hash: 'abc' });
+		expect(readSyncMeta(store)).toEqual({ updatedAt: 123, hashes: { a: 'x', b: 'y' } });
 	});
 
 	it('absent or corrupt meta → null (treated as never synced)', () => {
 		expect(readSyncMeta(mapStore())).toBeNull();
 		expect(readSyncMeta(mapStore({ [SYNC_META_KEY]: 'not json' }))).toBeNull();
-		expect(readSyncMeta(mapStore({ [SYNC_META_KEY]: '{"updatedAt":"x","hash":1}' }))).toBeNull();
+		expect(readSyncMeta(mapStore({ [SYNC_META_KEY]: '{"updatedAt":"x","hashes":1}' }))).toBeNull();
+	});
+
+	it('migrates the old aggregate-hash meta to empty per-key hashes (one full re-push)', () => {
+		const store = mapStore({ [SYNC_META_KEY]: '{"updatedAt":123,"hash":"abc"}' });
+		expect(readSyncMeta(store)).toEqual({ updatedAt: 123, hashes: {} });
+	});
+});
+
+describe('diffSyncKeys (quick-261020-incsync)', () => {
+	const keys = { s: { theme: 'dark' }, h: [1, 2] };
+	const hashes = hashEachKey(keys);
+	it('returns null when nothing changed (zero network)', () => {
+		expect(diffSyncKeys(keys, hashes, { updatedAt: 1, hashes })).toBeNull();
+	});
+	it('returns only the changed key', () => {
+		const k2 = { ...keys, h: [1, 2, 3] };
+		const h2 = hashEachKey(k2);
+		expect(diffSyncKeys(k2, h2, { updatedAt: 1, hashes })).toEqual({ h: [1, 2, 3] });
+	});
+	it('returns null tombstone for a key the client no longer carries', () => {
+		const k2 = { s: keys.s };
+		const h2 = hashEachKey(k2);
+		expect(diffSyncKeys(k2, h2, { updatedAt: 1, hashes })).toEqual({ h: null });
+	});
+	it('treats an unknown key as changed', () => {
+		const k2 = { ...keys, n: {} };
+		const h2 = hashEachKey(k2);
+		expect(diffSyncKeys(k2, h2, { updatedAt: 1, hashes })).toEqual({ n: {} });
 	});
 });

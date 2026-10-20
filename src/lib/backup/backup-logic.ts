@@ -130,10 +130,12 @@ export function storageKeys(store: Pick<Storage, 'length' | 'key'>): string[] {
  * demand, `keyword`/`songMid`/per-source ids are resolve inputs, not state). Uploading
  * that every 30s over a marginal uplink 504'd ~1 in 3 sync pushes.
  *
- * The sync keeps IDENTITY + display fields only. A restored library is just stubs — the
- * player already re-resolves stubs on demand (ensureTrackDetails) and covers via the
- * cover chain, so it behaves exactly like fresh search results. `cover` stays (tiny,
- * and library rows render it immediately); everything heavy or ephemeral is dropped.
+ * The sync keeps IDENTITY + display fields + the tiny per-source resolve extras (qq's
+ * resolve reads qqId/songMid — catalog.ts:433; joox/qq search keys are the same class).
+ * A restored library is just stubs — the player already re-resolves stubs on demand
+ * (ensureTrackDetails) and covers via the cover chain, so it behaves exactly like fresh
+ * search results. `cover` stays (tiny, and library rows render it immediately);
+ * everything heavy or ephemeral is dropped.
  */
 const SYNC_TRACK_FIELDS = [
 	'uid',
@@ -144,7 +146,13 @@ const SYNC_TRACK_FIELDS = [
 	'album',
 	'cover',
 	'quality',
-	'duration'
+	'duration',
+	// Resolve extras (a few KB total; dropping them would force a cold re-lookup per track).
+	'songMid',
+	'qqId',
+	'qqSearchKey',
+	'jooxSongMid',
+	'jooxSongId'
 ] as const;
 
 export function slimTrackForSync(t: unknown): unknown {
@@ -243,6 +251,19 @@ function shapeOk(key: string, v: unknown): boolean {
 	}
 	if (key === HISTORY_KEY || key === SEARCH_HISTORY_KEY) return Array.isArray(v);
 	if (key === SETTINGS_KEY) return isPlainObject(v);
+	return false;
+}
+
+/**
+ * quick-261020-incsync — per-key incremental sync. The server accepts PARTIAL key sets
+ * (only what changed) and can no longer run validateEnvelope over a whole envelope, so
+ * each pushed key is validated on its own. The accept set mirrors validateEnvelope
+ * exactly: the four exact keys via shapeOk, the name-tr prefix family via isStringRecord.
+ * Anything else (player state, diag tokens, unknown domains) is refused.
+ */
+export function validateSyncKey(key: string, value: unknown): boolean {
+	if ((BACKUP_EXACT_KEYS as readonly string[]).includes(key)) return shapeOk(key, value);
+	if (key.startsWith(NAME_TR_PREFIX)) return isStringRecord(value);
 	return false;
 }
 

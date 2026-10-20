@@ -405,17 +405,17 @@ describe('slimTrackForSync', () => {
 		cover: 'https://x/y.jpg',
 		quality: '320k',
 		duration: 240,
+		songMid: 'MID-9',
 		lrc: '[00:01]...lyrics...',
 		lrcUrl: 'https://x/lrc',
 		audioUrl: 'https://x/a.mp3',
 		proxyUrl: 'https://openmusic.lol/api/x',
 		keyword: '晴天 周杰倫',
-		songMid: 'abc',
 		detailsLoaded: true,
 		qualityLabel: 'HQ',
 		displayIndex: 3
 	};
-	it('keeps identity + display fields', () => {
+	it('keeps identity + display fields + resolve extras', () => {
 		expect(slimTrackForSync(full)).toEqual({
 			uid: 'kuwo:9',
 			source: 'kuwo',
@@ -425,12 +425,13 @@ describe('slimTrackForSync', () => {
 			album: '葉惠美',
 			cover: 'https://x/y.jpg',
 			quality: '320k',
-			duration: 240
+			duration: 240,
+			songMid: 'MID-9'
 		});
 	});
-	it('drops lrc text, ephemeral urls and resolve inputs', () => {
+	it('drops lrc text, ephemeral urls and derivable fields', () => {
 		const slim = slimTrackForSync(full) as Record<string, unknown>;
-		for (const f of ['lrc', 'lrcUrl', 'audioUrl', 'proxyUrl', 'keyword', 'songMid', 'detailsLoaded', 'qualityLabel', 'displayIndex']) {
+		for (const f of ['lrc', 'lrcUrl', 'audioUrl', 'proxyUrl', 'keyword', 'detailsLoaded', 'qualityLabel', 'displayIndex']) {
 			expect(slim[f]).toBeUndefined();
 		}
 	});

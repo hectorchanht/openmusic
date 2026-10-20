@@ -1,9 +1,11 @@
 // Cross-device sync engine (quick-261020-acct) — browser-guarded, never-throw.
 //
 // The server stores ONE backup envelope per user (PUT/GET /api/me/sync); this engine keeps
-// the local copy and the server copy converged with LAST-WRITE-WINS by server `updatedAt`:
-//   - local differs from the last synced hash → PUSH the local envelope (a change here is
-//     the newest write by definition — it just happened);
+// the local copy and the server copy converged with LAST-WRITE-WINS per key by server
+// `updatedAt`:
+//   - any local key differs from the meta's per-key hash → PUSH only those keys (null =
+//     delete a key the client no longer carries); a change here is the newest write by
+//     definition — it just happened. Clean keys never leave the device (quick-261020-incsync).
 //   - local is clean and the server is ahead of our meta → validate + applyEnvelope +
 //     location.reload() (35-D-13: every store re-runs load() cold; never a live re-hydrate);
 //   - server has nothing → PUSH the local envelope as the baseline.
@@ -63,8 +65,9 @@ export type SyncStatus = 'idle' | 'syncing' | 'synced' | 'error';
 export interface SyncMeta {
 	/** Server `updatedAt` (epoch ms) of the envelope we last pushed or pulled. 0 = none yet. */
 	updatedAt: number;
-	/** hashSyncedKeys() of the local synced key set at that moment. */
-	hash: string;
+	/** quick-261020-incsync: per-key hashes — only changed keys are pushed, never the
+	 *  whole envelope. Replaces the old aggregate `hash` (see readSyncMeta migration). */
+	hashes: Record<string, string>;
 }
 
 /** Injected seams — the auth store supplies these; tests supply fakes. */
@@ -189,14 +192,35 @@ export function hashSyncedKeys(
 	return cyrb53(`selection=${JSON.stringify(items)}\n${acc}`);
 }
 
+/**
+ * quick-261020-incsync — per-key change hashes over the FILTERED envelope (what would
+ * actually be pushed: slimmed + picker-filtered). A key whose hash differs from the meta
+ * is pushed; a key in the meta but absent here (cleared data, deselected family) is
+ * pushed as null so the server deletes that row. Clean keys never leave the device.
+ */
+export function hashEachKey(keys: Record<string, unknown>): Record<string, string> {
+	const out: Record<string, string> = {};
+	for (const [k, v] of Object.entries(keys)) {
+		out[k] = cyrb53(`${k}=${JSON.stringify(v) ?? ''}`);
+	}
+	return out;
+}
+
 /** PURE-ish read of the sync meta; absent / corrupt → null (treated as "never synced"). */
 export function readSyncMeta(store: Pick<Storage, 'getItem'>): SyncMeta | null {
 	try {
 		const raw = store.getItem(SYNC_META_KEY);
 		if (!raw) return null;
-		const v = JSON.parse(raw) as Partial<SyncMeta>;
-		if (typeof v.updatedAt !== 'number' || typeof v.hash !== 'string') return null;
-		return { updatedAt: v.updatedAt, hash: v.hash };
+		const v = JSON.parse(raw) as Partial<SyncMeta> & { hash?: unknown };
+		if (typeof v.updatedAt !== 'number') return null;
+		if (v.hashes != null && typeof v.hashes === 'object' && !Array.isArray(v.hashes)) {
+			return { updatedAt: v.updatedAt, hashes: v.hashes as Record<string, string> };
+		}
+		// quick-261020-incsync migration: the old aggregate-hash meta carries no per-key
+		// state — start with empty hashes so the next tick pushes every key once, then
+		// goes incremental.
+		if (typeof v.hash === 'string') return { updatedAt: v.updatedAt, hashes: {} };
+		return null;
 	} catch {
 		return null;
 	}
@@ -225,8 +249,10 @@ function localItems(): SyncItems {
 	return readSyncItems(localRead);
 }
 
-function localHash(): string {
-	return hashSyncedKeys(localRead, storageKeys(localStorage), localItems());
+/** The filtered envelope's keys + their per-key hashes (what a push would carry). */
+function localEnvelopeHashes(): { keys: Record<string, unknown>; hashes: Record<string, string> } {
+	const keys = localEnvelope().keys as Record<string, unknown>;
+	return { keys, hashes: hashEachKey(keys) };
 }
 
 /** Build the full envelope, then filter to the selection — the cloud copy carries ONLY
@@ -235,14 +261,23 @@ function localEnvelope(): BackupEnvelope {
 	return filterEnvelopeKeys(buildEnvelope(localRead, storageKeys(localStorage)), localItems());
 }
 
-/** PUSH the local envelope; on success the meta is re-anchored to the server's updatedAt. */
-async function pushNow(hooks: SyncHooks, hash: string, keepalive = false): Promise<boolean> {
+/**
+ * PUSH only the changed keys (quick-261020-incsync); on success the meta's per-key
+ * hashes are re-anchored to the server's updatedAt. `changed` maps key → value, or
+ * key → null to delete a key the client no longer carries.
+ */
+async function pushNow(
+	hooks: SyncHooks,
+	changed: Record<string, unknown>,
+	hashes: Record<string, string>,
+	keepalive = false
+): Promise<boolean> {
 	hooks.setStatus('syncing');
 	try {
 		const res = await hooks.request('/api/me/sync', {
 			method: 'PUT',
 			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify({ envelope: localEnvelope() }),
+			body: JSON.stringify({ keys: changed }),
 			keepalive
 		});
 		if (!res.ok) {
@@ -250,7 +285,13 @@ async function pushNow(hooks: SyncHooks, hash: string, keepalive = false): Promi
 			return false;
 		}
 		const body = (await res.json().catch(() => null)) as { updatedAt?: number } | null;
-		writeSyncMeta(localStorage, { updatedAt: body?.updatedAt ?? Date.now(), hash });
+		const meta = readSyncMeta(localStorage) ?? { updatedAt: 0, hashes: {} };
+		for (const k of Object.keys(changed)) {
+			if (changed[k] === null) delete meta.hashes[k];
+			else meta.hashes[k] = hashes[k];
+		}
+		meta.updatedAt = body?.updatedAt ?? Date.now();
+		writeSyncMeta(localStorage, meta);
 		hooks.setStatus('synced');
 		hooks.setLastSyncedAt(Date.now());
 		return true;
@@ -261,17 +302,38 @@ async function pushNow(hooks: SyncHooks, hash: string, keepalive = false): Promi
 }
 
 /**
+ * Diff the filtered envelope against the meta's per-key hashes. Returns null when
+ * nothing changed (zero network), else the partial key set to push (null = delete).
+ */
+export function diffSyncKeys(
+	keys: Record<string, unknown>,
+	hashes: Record<string, string>,
+	meta: SyncMeta
+): Record<string, unknown> | null {
+	const changed: Record<string, unknown> = {};
+	for (const [k, h] of Object.entries(hashes)) {
+		if (meta.hashes[k] !== h) changed[k] = keys[k];
+	}
+	for (const k of Object.keys(meta.hashes)) {
+		if (!(k in hashes)) changed[k] = null;
+	}
+	return Object.keys(changed).length > 0 ? changed : null;
+}
+
+/**
  * One convergence pass (see the header for the decision table). Never throws; failures land
  * on the 'error' status and the next tick (or "Sync now") retries.
  */
 export async function syncOnce(hooks: SyncHooks): Promise<void> {
 	if (!browser || !hooks.isSignedIn()) return;
-	const hash = localHash();
-	const meta = readSyncMeta(localStorage) ?? { updatedAt: 0, hash: '' };
+	const { keys, hashes } = localEnvelopeHashes();
+	const meta = readSyncMeta(localStorage) ?? { updatedAt: 0, hashes: {} };
 
-	// Local moved since the last sync → this device holds the newest write.
-	if (hash !== meta.hash) {
-		await pushNow(hooks, hash);
+	// quick-261020-incsync: push ONLY the keys that changed (null when clean = zero
+	// network). A changed key here is the newest write by definition — it just happened.
+	const changed = diffSyncKeys(keys, hashes, meta);
+	if (changed) {
+		await pushNow(hooks, changed, hashes);
 		return;
 	}
 
@@ -293,8 +355,8 @@ export async function syncOnce(hooks: SyncHooks): Promise<void> {
 		return;
 	}
 	if (body.envelope == null) {
-		// Signed in but the server has never seen this account → baseline push.
-		await pushNow(hooks, hash);
+		// Signed in but the server has never seen this account → baseline push of every key.
+		await pushNow(hooks, keys, hashes);
 		return;
 	}
 	const serverAt = body.updatedAt ?? 0;
@@ -322,7 +384,7 @@ export async function syncOnce(hooks: SyncHooks): Promise<void> {
 		}
 		// Anchor the meta to the PULLED state BEFORE the reload, or the post-reload tick
 		// would see server > meta and apply the same envelope forever.
-		writeSyncMeta(localStorage, { updatedAt: serverAt, hash: localHash() });
+		writeSyncMeta(localStorage, { updatedAt: serverAt, hashes: localEnvelopeHashes().hashes });
 		hooks.setLastSyncedAt(Date.now());
 		hooks.setStatus('synced');
 		// 35-D-13: a FULL reload so every store re-runs load() on a cold path.
@@ -367,10 +429,11 @@ export function startSyncEngine(hooks: SyncHooks): { stop: () => void; syncNow: 
 		// Fire-and-forget by necessity (the page is going away): push only when dirty, and
 		// with keepalive so the request outlives the unload.
 		if (!hooks.isSignedIn()) return;
-		const meta = readSyncMeta(localStorage);
-		const hash = localHash();
-		if (meta && hash === meta.hash) return;
-		void pushNow(hooks, hash, true);
+		const meta = readSyncMeta(localStorage) ?? { updatedAt: 0, hashes: {} };
+		const { keys, hashes } = localEnvelopeHashes();
+		const changed = diffSyncKeys(keys, hashes, meta);
+		if (!changed) return;
+		void pushNow(hooks, changed, hashes, true);
 	};
 
 	document.addEventListener('visibilitychange', onVisibility);
