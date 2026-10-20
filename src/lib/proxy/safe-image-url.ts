@@ -69,6 +69,11 @@ export const APPLE_IMAGE_HOSTS: ImageHostAllowlist = {
 	suffix: ['.mzstatic.com']
 };
 
+/** Kuwo art: img1–img4.kuwo.cn shards. Apex not permitted (as before). */
+export const KUWO_IMAGE_HOSTS: ImageHostAllowlist = {
+	suffix: ['.kuwo.cn']
+};
+
 /** KKBOX art: every cover is i.kfs.io/…/fit/500x500.jpg. Exact host only, so neither `kfs.io` nor `notkfs.io` passes. */
 export const KKBOX_IMAGE_HOSTS: ImageHostAllowlist = {
 	exact: ['i.kfs.io'],

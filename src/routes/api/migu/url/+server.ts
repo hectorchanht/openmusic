@@ -30,7 +30,7 @@
 // The response reports the tone ACTUALLY delivered (`tone`) so quality labels never
 // overclaim: leg 2 asked for SQ still delivers (and reports) PQ or HQ.
 import type { RequestHandler } from './$types';
-import { fetchWithRetry, corsHeaders, jsonResponse } from '$lib/proxy/http';
+import { fetchWithRetry, jsonResponse, corsPreflight } from '$lib/proxy/http';
 
 const MG_V21 = 'https://c.musicapp.migu.cn/MIGUM2.0/v2.1/content/listen-url';
 const MG_PC = 'https://app.c.nf.migu.cn/MIGUM3.0/strategy/pc/listen/v1.0';
@@ -165,6 +165,4 @@ export const GET: RequestHandler = async ({ url, request }) => {
 	return jsonPassthrough({ url: null }, origin);
 };
 
-export const OPTIONS: RequestHandler = ({ request }) => {
-	return new Response(null, { status: 204, headers: corsHeaders(request.headers.get('origin')) });
-};
+export const OPTIONS: RequestHandler = ({ request }) => corsPreflight(request);

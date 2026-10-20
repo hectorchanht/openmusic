@@ -19,7 +19,7 @@
 // 31-D-07: no new Cloudflare binding, no new secret, no new package — `caches.default` only,
 // reached through the single `edgeCache()` guard (never a second `typeof caches`).
 import type { RequestHandler } from './$types';
-import { corsHeaders, jsonResponse } from '$lib/proxy/http';
+import { corsHeaders, jsonResponse, corsPreflight } from '$lib/proxy/http';
 import { edgeCache } from '$lib/proxy/edge-cache';
 import {
 	capTerm,
@@ -155,6 +155,4 @@ export const POST: RequestHandler = async ({ url, request }) => {
 // CORS preflight — scoped to the own origin via corsHeaders (never `*`, T-wv8-02). hooks.server.ts
 // already answers /api/* preflights before routing; this is belt-and-braces parity with the
 // sibling routes (deezer/search, og).
-export const OPTIONS: RequestHandler = ({ request }) => {
-	return new Response(null, { status: 204, headers: corsHeaders(request.headers.get('origin')) });
-};
+export const OPTIONS: RequestHandler = ({ request }) => corsPreflight(request);

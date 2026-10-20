@@ -14,7 +14,7 @@
 // host is a fixed constant. T-17-13: cache ONLY a successful reshape with a bounded TTL — a hard
 // miss returns the empty shape WITHOUT a long TTL. T-17-10: every upstream field optional + null-safe.
 import type { RequestHandler } from './$types';
-import { fetchWithRetry, corsHeaders, jsonResponse } from '$lib/proxy/http';
+import { fetchWithRetry, corsHeaders, jsonResponse, corsPreflight } from '$lib/proxy/http';
 import { edgeCache } from '$lib/proxy/edge-cache';
 
 const DEEZER_ALBUM_SEARCH = 'https://api.deezer.com/search/album';
@@ -145,6 +145,4 @@ export const GET: RequestHandler = async ({ url, request }) => {
 	}
 };
 
-export const OPTIONS: RequestHandler = ({ request }) => {
-	return new Response(null, { status: 204, headers: corsHeaders(request.headers.get('origin')) });
-};
+export const OPTIONS: RequestHandler = ({ request }) => corsPreflight(request);

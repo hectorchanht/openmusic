@@ -8,8 +8,8 @@
 // Passthrough only: the client adapter does the reshape + <em> stripping (mirrors the
 // fivesing search route's division of labour). No secrets, no signed state.
 import type { RequestHandler } from './$types';
-import { fetchWithRetry, corsHeaders, jsonResponse } from '$lib/proxy/http';
-import { edgeCache } from '$lib/proxy/edge-cache';
+import { fetchWithRetry, jsonResponse, corsPreflight } from '$lib/proxy/http';
+import { cachedUpstreamJson } from '$lib/proxy/edge-cache';
 
 const KG_SEARCH = 'https://songsearch.kugou.com/song_search_v2';
 const TTL = 3600; // 1h — catalogue search results are stable enough (fivesing idiom)
@@ -37,38 +37,23 @@ export const GET: RequestHandler = async ({ url, request }) => {
 		`&page=${page}&pagesize=${pagesize}` +
 		'&userid=-1&clientver=&platform=WebFilter&tag=em&filter=2&iscorrection=1&privilege_filter=0';
 
-	const cache = edgeCache();
-	const cacheReq = new Request(url.toString());
-
-	if (cache) {
-		const hit = await cache.match(cacheReq);
-		if (hit) {
-			const cached = await hit.json();
-			return jsonPassthrough(cached, origin, TTL);
+	// quick-261020-batch2: the edge-cache → upstream → cache-put → passthrough spine moved to
+	// cachedUpstreamJson ($lib/proxy/edge-cache); the route keeps its guard + upstream.
+	const empty = { status: 1, data: { lists: [] } };
+	return cachedUpstreamJson({
+		origin,
+		url,
+		ttl: TTL,
+		empty,
+		fetchUpstream: async () => {
+			const res = await fetchWithRetry(
+				upstream,
+				{ signal: AbortSignal.timeout(8000), headers: { 'User-Agent': MOBILE_UA } },
+				2
+			);
+			return res.json();
 		}
-	}
-
-	try {
-		const res = await fetchWithRetry(
-			upstream,
-			{ signal: AbortSignal.timeout(8000), headers: { 'User-Agent': MOBILE_UA } },
-			2
-		);
-		const body = await res.json();
-		if (cache) {
-			const cached = new Response(JSON.stringify(body), {
-				status: 200,
-				headers: { 'content-type': 'application/json', 'Cache-Control': `public, max-age=${TTL}` }
-			});
-			await cache.put(cacheReq, cached);
-		}
-		return jsonPassthrough(body, origin, TTL);
-	} catch {
-		// Upstream error → empty list (NO cache write — next retry can succeed).
-		return jsonPassthrough({ status: 1, data: { lists: [] } }, origin);
-	}
+	});
 };
 
-export const OPTIONS: RequestHandler = ({ request }) => {
-	return new Response(null, { status: 204, headers: corsHeaders(request.headers.get('origin')) });
-};
+export const OPTIONS: RequestHandler = ({ request }) => corsPreflight(request);

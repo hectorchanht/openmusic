@@ -10,8 +10,8 @@
 //
 // No API key, no signing — archive.org's API is public by design.
 import type { RequestHandler } from './$types';
-import { fetchWithRetry, corsHeaders, jsonResponse } from '$lib/proxy/http';
-import { edgeCache } from '$lib/proxy/edge-cache';
+import { fetchWithRetry, jsonResponse, corsPreflight } from '$lib/proxy/http';
+import { cachedUpstreamJson } from '$lib/proxy/edge-cache';
 import { buildArchiveQuery, pickPlayableFiles, type IaFile, type ArchiveRow } from '$lib/proxy/archive';
 
 const TTL = 3600; // 1h (search-route idiom)
@@ -87,49 +87,35 @@ export const GET: RequestHandler = async ({ url, request }) => {
 
 	const page = Math.min(50, Math.max(1, Number(url.searchParams.get('page')) || 1));
 
-	const cache = edgeCache();
-	const cacheReq = new Request(url.toString());
-	if (cache) {
-		const hit = await cache.match(cacheReq);
-		if (hit) {
-			const cached = await hit.json();
-			return jsonPassthrough(cached, origin, TTL);
+	// quick-261020-batch2: the edge-cache → upstream → cache-put → passthrough spine moved to
+	// cachedUpstreamJson ($lib/proxy/edge-cache); the route keeps its guard + query build.
+	return cachedUpstreamJson({
+		origin,
+		url,
+		ttl: TTL,
+		empty: EMPTY,
+		fetchUpstream: async () => {
+			const q = buildArchiveQuery(keyword);
+			const fl = ['identifier', 'title', 'creator', 'year', 'downloads']
+				.map((f) => `&fl[]=${f}`)
+				.join('');
+			const upstream =
+				`https://archive.org/advancedsearch.php?q=${encodeURIComponent(q)}${fl}` +
+				`&sort[]=downloads+desc&rows=${ITEMS_PER_PAGE}&page=${page}&output=json`;
+			const res = await fetchWithRetry(
+				upstream,
+				{ signal: AbortSignal.timeout(8000), headers: { 'User-Agent': ARCHIVE_UA } },
+				2
+			);
+			const body = (await res.json()) as IaSearchBody | null;
+			const docs = body?.response?.docs;
+			// Malformed upstream body → the empty page, UNCACHED (the helper's catch path —
+			// same as a fetch error: no cache write so the next retry can succeed).
+			if (!Array.isArray(docs)) throw new Error('archive: search response has no docs array');
+			const perItem = await Promise.all(docs.map((d) => itemRows(d)));
+			return { rows: perItem.flat() };
 		}
-	}
-
-	try {
-		const q = buildArchiveQuery(keyword);
-		const fl = ['identifier', 'title', 'creator', 'year', 'downloads']
-			.map((f) => `&fl[]=${f}`)
-			.join('');
-		const upstream =
-			`https://archive.org/advancedsearch.php?q=${encodeURIComponent(q)}${fl}` +
-			`&sort[]=downloads+desc&rows=${ITEMS_PER_PAGE}&page=${page}&output=json`;
-		const res = await fetchWithRetry(
-			upstream,
-			{ signal: AbortSignal.timeout(8000), headers: { 'User-Agent': ARCHIVE_UA } },
-			2
-		);
-		const body = (await res.json()) as IaSearchBody | null;
-		const docs = body?.response?.docs;
-		if (!Array.isArray(docs)) return jsonPassthrough(EMPTY, origin);
-
-		const perItem = await Promise.all(docs.map((d) => itemRows(d)));
-		const out = { rows: perItem.flat() };
-		if (cache) {
-			const cached = new Response(JSON.stringify(out), {
-				status: 200,
-				headers: { 'content-type': 'application/json', 'Cache-Control': `public, max-age=${TTL}` }
-			});
-			await cache.put(cacheReq, cached);
-		}
-		return jsonPassthrough(out, origin, TTL);
-	} catch {
-		// Upstream error → empty page (NO cache write — next retry can succeed).
-		return jsonPassthrough(EMPTY, origin);
-	}
+	});
 };
 
-export const OPTIONS: RequestHandler = ({ request }) => {
-	return new Response(null, { status: 204, headers: corsHeaders(request.headers.get('origin')) });
-};
+export const OPTIONS: RequestHandler = ({ request }) => corsPreflight(request);

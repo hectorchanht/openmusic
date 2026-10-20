@@ -20,7 +20,7 @@
 // LICENSE: the resolver URLs and their query params come from musicdl's kuwo source list
 // (github.com/CharlesPikachu/musicdl, PolyForm Noncommercial). They are used as FACTS only — no
 // musicdl code is copied. scripts/musicdl-watch.mjs watches that list for host changes.
-import { safeImageUrl, type ImageHostAllowlist } from './safe-image-url';
+import { safeImageUrl, KUWO_IMAGE_HOSTS } from './safe-image-url';
 
 /** Resolver quality rungs: lossless → .flac, exhigh → 320k mp3, standard → 128k mp3. */
 export type KuwoLevel = 'lossless' | 'exhigh' | 'standard';
@@ -44,9 +44,9 @@ const KUWO_COVER_BASE = 'https://img2.kuwo.cn/star/albumcover/500/';
 const UPSTREAM_MS = 6000;
 const SEARCH_MS = 8000;
 
-// Same guard as og-cover's safeKuwoImageUrl, but a local allowlist object: importing og-cover here
-// would create an import cycle (og-cover imports this module).
-const KUWO_IMAGE_HOSTS: ImageHostAllowlist = { suffix: ['.kuwo.cn'] };
+// quick-261020-batch2: the kuwo host allowlist moved to the canonical $lib/proxy/safe-image-url
+// export (same value as the local had — importing og-cover here would still be a cycle, but
+// safe-image-url is cycle-free).
 
 const resolverAt =
 	(base: string) =>

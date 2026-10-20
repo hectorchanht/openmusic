@@ -15,7 +15,7 @@
 // service layer (buildSimilarQueue) falls back to the artist-hop and playback is never
 // blocked. CORS is scoped to the own origin via corsHeaders (never `*`, T-26-03-04).
 import type { RequestHandler } from './$types';
-import { fetchWithRetry, corsHeaders } from '$lib/proxy/http';
+import { fetchWithRetry, corsHeaders, corsPreflight } from '$lib/proxy/http';
 import { edgeCache, ownOriginCacheKey } from '$lib/proxy/edge-cache';
 import type { Env } from '$lib/proxy/proxy-types';
 
@@ -206,6 +206,4 @@ export const GET: RequestHandler = async ({ url, platform, request }) => {
 };
 
 // CORS preflight — scoped to the own origin via corsHeaders (never `*`, T-26-03-04).
-export const OPTIONS: RequestHandler = ({ request }) => {
-	return new Response(null, { status: 204, headers: corsHeaders(request.headers.get('origin')) });
-};
+export const OPTIONS: RequestHandler = ({ request }) => corsPreflight(request);

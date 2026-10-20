@@ -10,7 +10,7 @@
 // so the service layer falls back to same-artist search and playback is never blocked.
 // CORS is scoped to the own origin via corsHeaders (never `*`).
 import type { RequestHandler } from './$types';
-import { fetchWithRetry, corsHeaders } from '$lib/proxy/http';
+import { fetchWithRetry, corsHeaders, corsPreflight } from '$lib/proxy/http';
 import { edgeCache, ownOriginCacheKey } from '$lib/proxy/edge-cache';
 import type { Env } from '$lib/proxy/proxy-types';
 
@@ -117,6 +117,4 @@ export const GET: RequestHandler = async ({ url, platform, request }) => {
 };
 
 // CORS preflight — scoped to the own origin via corsHeaders (never `*`).
-export const OPTIONS: RequestHandler = ({ request }) => {
-	return new Response(null, { status: 204, headers: corsHeaders(request.headers.get('origin')) });
-};
+export const OPTIONS: RequestHandler = ({ request }) => corsPreflight(request);

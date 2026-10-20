@@ -9,7 +9,7 @@
 // The 10-min edge cache matches the CDN urls' signed lifetime comfortably and
 // amortizes repeat plays; `url: null` = gone / region-locked / no audio track.
 import type { RequestHandler } from './$types';
-import { corsHeaders, jsonResponse } from '$lib/proxy/http';
+import { jsonResponse, corsPreflight } from '$lib/proxy/http';
 import { edgeCache } from '$lib/proxy/edge-cache';
 import { biliResolveDashAudio } from '$lib/proxy/bilibili';
 
@@ -52,6 +52,4 @@ export const GET: RequestHandler = async ({ url, request }) => {
 	}
 };
 
-export const OPTIONS: RequestHandler = ({ request }) => {
-	return new Response(null, { status: 204, headers: corsHeaders(request.headers.get('origin')) });
-};
+export const OPTIONS: RequestHandler = ({ request }) => corsPreflight(request);

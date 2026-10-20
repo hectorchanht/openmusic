@@ -19,7 +19,7 @@
 // item 1). HEAD shares GET's validation through resolveUpstream so the two verbs cannot drift.
 import type { RequestEvent, RequestHandler } from './$types';
 import { PROXIES } from '$lib/proxy/proxy-registry';
-import { fetchWithHeadDeadline, corsHeaders, upstreamHead } from '$lib/proxy/http';
+import { fetchWithHeadDeadline, corsHeaders, upstreamHead, corsPreflight } from '$lib/proxy/http';
 import { edgeCache } from '$lib/proxy/edge-cache';
 import type { Env } from '$lib/proxy/proxy-types';
 import type { SourceId } from '$lib/sources/types';
@@ -169,6 +169,4 @@ export const HEAD: RequestHandler = async (event) => {
 };
 
 // CORS preflight — scoped to the own origin via corsHeaders (never `*`).
-export const OPTIONS: RequestHandler = ({ request }) => {
-	return new Response(null, { status: 204, headers: corsHeaders(request.headers.get('origin')) });
-};
+export const OPTIONS: RequestHandler = ({ request }) => corsPreflight(request);

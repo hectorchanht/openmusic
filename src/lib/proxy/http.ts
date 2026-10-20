@@ -60,6 +60,13 @@ export function corsHeaders(origin: string | null): Record<string, string> {
 	return headers;
 }
 
+// quick-261020-batch2: the byte-identical 204 preflight responder, previously copy-pasted into
+// 41 route files. Same headers as corsHeaders(origin) — the method/header lists only say what an
+// ALREADY allow-listed origin may do; they grant nothing to a foreign origin (T-33-10).
+export function corsPreflight(request: Request): Response {
+	return new Response(null, { status: 204, headers: corsHeaders(request.headers.get('origin')) });
+}
+
 const RETRYABLE_STATUS = new Set([429, 500, 502, 503, 504]);
 
 /**

@@ -15,13 +15,11 @@
 // TTL 1h: Jamendo's catalogue moves slowly; an hourly refresh is plenty.
 import type { RequestHandler } from './$types';
 import type { Env } from '$lib/proxy/proxy-types';
-import { fetchWithRetry, corsHeaders, jsonResponse } from '$lib/proxy/http';
-import { edgeCache } from '$lib/proxy/edge-cache';
+import { fetchWithRetry, jsonResponse, corsPreflight } from '$lib/proxy/http';
+import { cachedUpstreamJson } from '$lib/proxy/edge-cache';
 
 const JM_BASE = 'https://api.jamendo.com/v3.0/tracks/';
 const TTL = 3600; // 1h — search metadata is stable enough
-
-// edgeCache() shared from $lib/proxy/edge-cache (quick-260713-mqv).
 
 // Shared JSON responder (src/lib/proxy/http.ts).
 const jsonPassthrough = (body: unknown, origin: string | null, ttl?: number): Response =>
@@ -53,36 +51,19 @@ export const GET: RequestHandler = async ({ url, request, platform }) => {
 		`&search=${encodeURIComponent(search)}` +
 		`&audioformat=mp32&limit=${limit}&offset=${offset}`;
 
-	// k3y: edge cache key = own-origin Request (never the upstream URL — the client_id must
-	// never reach the cache key surface). Guarded for the dev runtime (no Cache API).
-	const cache = edgeCache();
-	const cacheReq = new Request(url.toString());
-
-	if (cache) {
-		const hit = await cache.match(cacheReq);
-		if (hit) {
-			const cached = await hit.json();
-			return jsonPassthrough(cached, origin, TTL);
+	// quick-261020-batch2: the edge-cache → upstream → cache-put → passthrough spine moved to
+	// cachedUpstreamJson ($lib/proxy/edge-cache); the route keeps its guards + upstream.
+	const empty = { headers: { status: 'success', code: 0 }, results: [] };
+	return cachedUpstreamJson({
+		origin,
+		url,
+		ttl: TTL,
+		empty,
+		fetchUpstream: async () => {
+			const res = await fetchWithRetry(upstream, { signal: AbortSignal.timeout(8000) }, 2);
+			return res.json();
 		}
-	}
-
-	try {
-		const res = await fetchWithRetry(upstream, { signal: AbortSignal.timeout(8000) }, 2);
-		const body = await res.json();
-		if (cache) {
-			const cached = new Response(JSON.stringify(body), {
-				status: 200,
-				headers: { 'content-type': 'application/json', 'Cache-Control': `public, max-age=${TTL}` }
-			});
-			await cache.put(cacheReq, cached);
-		}
-		return jsonPassthrough(body, origin, TTL);
-	} catch {
-		// Upstream error → empty (NO cache write so the next retry can succeed).
-		return jsonPassthrough({ headers: { status: 'success', code: 0 }, results: [] }, origin);
-	}
+	});
 };
 
-export const OPTIONS: RequestHandler = ({ request }) => {
-	return new Response(null, { status: 204, headers: corsHeaders(request.headers.get('origin')) });
-};
+export const OPTIONS: RequestHandler = ({ request }) => corsPreflight(request);

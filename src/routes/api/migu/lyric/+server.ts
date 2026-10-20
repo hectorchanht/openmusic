@@ -8,7 +8,7 @@
 // already holds — contentId + copyrightId — and survives serializeTrack's whitelist.)
 // Any failure → { lrc: null }: lyrics are best-effort everywhere in this app.
 import type { RequestHandler } from './$types';
-import { fetchWithRetry, corsHeaders, jsonResponse } from '$lib/proxy/http';
+import { fetchWithRetry, jsonResponse, corsPreflight } from '$lib/proxy/http';
 import { edgeCache } from '$lib/proxy/edge-cache';
 
 const MG_PC = 'https://app.c.nf.migu.cn/MIGUM3.0/strategy/pc/listen/v1.0';
@@ -83,6 +83,4 @@ export const GET: RequestHandler = async ({ url, request }) => {
 	}
 };
 
-export const OPTIONS: RequestHandler = ({ request }) => {
-	return new Response(null, { status: 204, headers: corsHeaders(request.headers.get('origin')) });
-};
+export const OPTIONS: RequestHandler = ({ request }) => corsPreflight(request);

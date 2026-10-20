@@ -11,7 +11,7 @@
 // the module directly (`svelte-server-endpoint-only-verb-exports`). Every helper therefore lives
 // in $lib/proxy/charts.ts. `jsonResult` below is private (non-exported), matching deezer/chart.
 import type { RequestHandler } from './$types';
-import { corsHeaders, jsonResponse } from '$lib/proxy/http';
+import { jsonResponse, corsPreflight } from '$lib/proxy/http';
 import { edgeCache } from '$lib/proxy/edge-cache';
 import {
 	validateChartQuery,
@@ -41,6 +41,4 @@ export const GET: RequestHandler = async ({ url, request, platform }) => {
 	return jsonResult({ items }, origin, items.length ? CHART_CLIENT_TTL_S : undefined);
 };
 
-export const OPTIONS: RequestHandler = ({ request }) => {
-	return new Response(null, { status: 204, headers: corsHeaders(request.headers.get('origin')) });
-};
+export const OPTIONS: RequestHandler = ({ request }) => corsPreflight(request);

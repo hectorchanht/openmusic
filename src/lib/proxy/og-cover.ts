@@ -75,6 +75,12 @@
 // self/upstream DoS surface (T-wv8-04).
 import { fetchDeezerCover, safeDeezerImageUrl } from '$lib/proxy/deezer-cover';
 import { fetchWithRetry } from '$lib/proxy/http';
+import {
+	safeImageUrl,
+	APPLE_IMAGE_HOSTS,
+	KUWO_IMAGE_HOSTS,
+	LASTFM_IMAGE_HOSTS
+} from '$lib/proxy/safe-image-url';
 import { buildKuwoSearchUrl, mapSearch } from '$lib/proxy/kuwo';
 import { buildItunesSearchUrl, upgradeArtwork } from '$lib/services/itunes-cover';
 import { isChineseLine, t2sConvertLines } from '$lib/services/zh-convert';
@@ -141,16 +147,9 @@ function tierSignal(ms: number, deadline: AbortSignal): AbortSignal {
  * check, and vice versa. Never throws; null/''/unparseable → null.
  */
 export function safeItunesImageUrl(raw: string | null | undefined): string | null {
-	if (!raw) return null;
-	if (/[)\s"'\\(]/.test(raw)) return null; // CSS url() + attribute breakers
-	try {
-		const u = new URL(raw);
-		if (u.protocol !== 'https:') return null;
-		const host = u.hostname.toLowerCase();
-		return host.endsWith('.mzstatic.com') ? u.href : null;
-	} catch {
-		return null;
-	}
+	// quick-261020-batch2: thin wrapper over the canonical safeImageUrl(raw, APPLE_IMAGE_HOSTS)
+	// — byte-identical behavior. Kept as a named export: og-endpoint.test.ts exercises it directly.
+	return safeImageUrl(raw, APPLE_IMAGE_HOSTS);
 }
 
 /**
@@ -159,16 +158,8 @@ export function safeItunesImageUrl(raw: string | null | undefined): string | nul
  * and img4.kuwo.cn, so the suffix check is `.kuwo.cn`. Never throws.
  */
 export function safeKuwoImageUrl(raw: string | null | undefined): string | null {
-	if (!raw) return null;
-	if (/[)\s"'\\(]/.test(raw)) return null;
-	try {
-		const u = new URL(raw);
-		if (u.protocol !== 'https:') return null;
-		const host = u.hostname.toLowerCase();
-		return host.endsWith('.kuwo.cn') ? u.href : null;
-	} catch {
-		return null;
-	}
+	// quick-261020-batch2: thin wrapper over the canonical safeImageUrl(raw, KUWO_IMAGE_HOSTS).
+	return safeImageUrl(raw, KUWO_IMAGE_HOSTS);
 }
 
 /**
@@ -188,18 +179,10 @@ const LASTFM_GREY_STAR = '2a96cbd8b46e442fc41c2b86b821562f';
  * picker, so no future caller can route around the placeholder guard. Never throws.
  */
 export function safeLastfmImageUrl(raw: string | null | undefined): string | null {
-	if (!raw) return null;
-	if (/[)\s"'\\(]/.test(raw)) return null; // CSS url() + attribute breakers
-	if (raw.includes(LASTFM_GREY_STAR)) return null; // ENRICH-02: never the placeholder
-	try {
-		const u = new URL(raw);
-		if (u.protocol !== 'https:') return null;
-		const host = u.hostname.toLowerCase();
-		const ok = host === 'last.fm' || host.endsWith('.last.fm') || host.endsWith('.fastly.net');
-		return ok ? u.href : null;
-	} catch {
-		return null;
-	}
+	// quick-261020-batch2: thin wrapper over the canonical safeImageUrl(raw, LASTFM_IMAGE_HOSTS);
+	// the grey-star placeholder reject stays as the 1-line pre-check (it is a real 200 image).
+	if (raw?.includes(LASTFM_GREY_STAR)) return null; // ENRICH-02: never the placeholder
+	return safeImageUrl(raw, LASTFM_IMAGE_HOSTS);
 }
 
 // =============================================================================================

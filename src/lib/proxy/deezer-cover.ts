@@ -27,6 +27,7 @@
 //  - Measured cover bytes for one cover: cover_xl 208,487 · cover_big 72,650 · 264px 26,011
 //    (§C.13) — the reason `prefer` exists below.
 import { fetchWithRetry } from '$lib/proxy/http';
+import { safeImageUrl, DEEZER_IMAGE_HOSTS } from '$lib/proxy/safe-image-url';
 
 const DEEZER_SEARCH = 'https://api.deezer.com/search';
 
@@ -66,32 +67,18 @@ export interface DeezerHit {
  * an mzstatic/kuwo URL past this check (and vice versa for the iTunes/kuwo siblings).
  */
 export function safeDeezerImageUrl(raw: string | null | undefined): string | null {
-	if (!raw) return null;
-	if (/[)\s"'\\(]/.test(raw)) return null; // CSS url() + attribute breakers
-	try {
-		const u = new URL(raw);
-		if (u.protocol !== 'https:') return null;
-		const host = u.hostname.toLowerCase();
-		const ok = host === 'cdn-images.dzcdn.net' || host.endsWith('.dzcdn.net');
-		return ok ? u.href : null;
-	} catch {
-		return null;
-	}
+	// quick-261020-batch2: thin wrapper over the canonical safeImageUrl(raw, DEEZER_IMAGE_HOSTS)
+	// — byte-identical behavior (the old `host === 'cdn-images.dzcdn.net'` check was redundant:
+	// that host already ends with '.dzcdn.net'). Kept as a named export: deezer-cover.test.ts
+	// exercises it directly.
+	return safeImageUrl(raw, DEEZER_IMAGE_HOSTS);
 }
 
 /** Safe preview URL — only https + on a cdnt-preview.dzcdn.net (the 30s mp3 host). */
 export function safeDeezerPreviewUrl(raw: string | null | undefined): string | null {
-	if (!raw) return null;
-	if (/[)\s"'\\(]/.test(raw)) return null;
-	try {
-		const u = new URL(raw);
-		if (u.protocol !== 'https:') return null;
-		const host = u.hostname.toLowerCase();
-		const ok = host.endsWith('.dzcdn.net');
-		return ok ? u.href : null;
-	} catch {
-		return null;
-	}
+	// quick-261020-batch2: same collapse as safeDeezerImageUrl — DEEZER_IMAGE_HOSTS' suffix
+	// covers the preview host; behavior unchanged.
+	return safeImageUrl(raw, DEEZER_IMAGE_HOSTS);
 }
 
 // ---- Deezer response sub-shapes (only the fields we read; all optional — untrusted JSON). ----

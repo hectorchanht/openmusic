@@ -13,7 +13,7 @@
 // request bodies (POST-to-fixed-URL, no open relay). The WEB_REMIX key lives only in those URLs
 // (server -> upstream) and is never echoed to a response body. CORS allowlisted (never '*').
 import type { RequestHandler } from './$types';
-import { corsHeaders, jsonResponse } from '$lib/proxy/http';
+import { corsHeaders, jsonResponse, corsPreflight } from '$lib/proxy/http';
 import { edgeCache, ownOriginCacheKey } from '$lib/proxy/edge-cache';
 import {
 	innerTubePost,
@@ -80,6 +80,4 @@ export const GET: RequestHandler = async ({ url, request }) => {
 	}
 };
 
-export const OPTIONS: RequestHandler = ({ request }) => {
-	return new Response(null, { status: 204, headers: corsHeaders(request.headers.get('origin')) });
-};
+export const OPTIONS: RequestHandler = ({ request }) => corsPreflight(request);

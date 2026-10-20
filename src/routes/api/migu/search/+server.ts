@@ -7,8 +7,8 @@
 // VIP filter + quality pick run on (see src/lib/sources/migu.ts). Passthrough only —
 // reshaping lives in the client adapter (fivesing-route division of labour).
 import type { RequestHandler } from './$types';
-import { fetchWithRetry, corsHeaders, jsonResponse } from '$lib/proxy/http';
-import { edgeCache } from '$lib/proxy/edge-cache';
+import { fetchWithRetry, jsonResponse, corsPreflight } from '$lib/proxy/http';
+import { cachedUpstreamJson } from '$lib/proxy/edge-cache';
 
 const MG_SEARCH = 'https://pd.musicapp.migu.cn/MIGUM2.0/v1.0/content/search_all.do';
 const TTL = 3600; // 1h — catalogue search results are stable enough (fivesing idiom)
@@ -35,40 +35,25 @@ export const GET: RequestHandler = async ({ url, request }) => {
 		`${MG_SEARCH}?ua=Android_migu&version=5.0.1&text=${encodeURIComponent(keyword)}` +
 		`&pageNo=${page}&pageSize=${pagesize}&searchSwitch=${encodeURIComponent(SEARCH_SWITCH)}`;
 
-	const cache = edgeCache();
-	const cacheReq = new Request(url.toString());
-	if (cache) {
-		const hit = await cache.match(cacheReq);
-		if (hit) {
-			const cached = await hit.json();
-			return jsonPassthrough(cached, origin, TTL);
+	// quick-261020-batch2: the edge-cache → upstream → cache-put → passthrough spine moved to
+	// cachedUpstreamJson ($lib/proxy/edge-cache); the route keeps its guard + upstream.
+	return cachedUpstreamJson({
+		origin,
+		url,
+		ttl: TTL,
+		empty: EMPTY,
+		fetchUpstream: async () => {
+			const res = await fetchWithRetry(
+				upstream,
+				{
+					signal: AbortSignal.timeout(8000),
+					headers: { 'User-Agent': ANDROID_UA, Referer: 'http://music.migu.cn/' }
+				},
+				2
+			);
+			return res.json();
 		}
-	}
-
-	try {
-		const res = await fetchWithRetry(
-			upstream,
-			{
-				signal: AbortSignal.timeout(8000),
-				headers: { 'User-Agent': ANDROID_UA, Referer: 'http://music.migu.cn/' }
-			},
-			2
-		);
-		const body = await res.json();
-		if (cache) {
-			const cached = new Response(JSON.stringify(body), {
-				status: 200,
-				headers: { 'content-type': 'application/json', 'Cache-Control': `public, max-age=${TTL}` }
-			});
-			await cache.put(cacheReq, cached);
-		}
-		return jsonPassthrough(body, origin, TTL);
-	} catch {
-		// Upstream error → empty list (NO cache write — next retry can succeed).
-		return jsonPassthrough(EMPTY, origin);
-	}
+	});
 };
 
-export const OPTIONS: RequestHandler = ({ request }) => {
-	return new Response(null, { status: 204, headers: corsHeaders(request.headers.get('origin')) });
-};
+export const OPTIONS: RequestHandler = ({ request }) => corsPreflight(request);

@@ -9,7 +9,7 @@
 // Lyrics are immutable per song, hence the 24h edge cache (search metadata gets 1h).
 // Any failure → { lrc: null }: lyrics are best-effort everywhere in this app.
 import type { RequestHandler } from './$types';
-import { fetchWithRetry, corsHeaders, jsonResponse } from '$lib/proxy/http';
+import { fetchWithRetry, jsonResponse, corsPreflight } from '$lib/proxy/http';
 import { edgeCache } from '$lib/proxy/edge-cache';
 
 const KRC_SEARCH = 'https://krcs.kugou.com/search';
@@ -93,6 +93,4 @@ export const GET: RequestHandler = async ({ url, request }) => {
 	}
 };
 
-export const OPTIONS: RequestHandler = ({ request }) => {
-	return new Response(null, { status: 204, headers: corsHeaders(request.headers.get('origin')) });
-};
+export const OPTIONS: RequestHandler = ({ request }) => corsPreflight(request);

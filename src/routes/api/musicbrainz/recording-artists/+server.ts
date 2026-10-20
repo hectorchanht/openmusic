@@ -21,7 +21,7 @@
 // miss is NOT cached — a 503-exhausted retry looks identical to a miss and must not be
 // pinned for a day.
 import type { RequestHandler } from './$types';
-import { corsHeaders, jsonResponse } from '$lib/proxy/http';
+import { jsonResponse, corsPreflight } from '$lib/proxy/http';
 import { edgeCache } from '$lib/proxy/edge-cache';
 import { MB_WS, mbFetch, isMbid, canonicalKey } from '$lib/proxy/musicbrainz-shared';
 
@@ -59,8 +59,7 @@ const EMPTY: MbRecordingArtists = { artists: [] };
 const jsonResult = (body: unknown, origin: string | null, ttl?: number): Response =>
 	jsonResponse(body, origin, { ttl });
 
-export const OPTIONS: RequestHandler = ({ request }) =>
-	new Response(null, { status: 204, headers: corsHeaders(request.headers.get('origin')) });
+export const OPTIONS: RequestHandler = ({ request }) => corsPreflight(request);
 
 /**
  * Strip Lucene-quoting hazards from a query term. The title/artist are interpolated

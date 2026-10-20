@@ -16,7 +16,7 @@
 // The per-isolate memo (10 min) keeps seeks from re-running the resolve chain;
 // a CDN 403 (stale signed url) triggers exactly ONE fresh resolve + retry.
 import type { RequestHandler } from './$types';
-import { corsHeaders } from '$lib/proxy/http';
+import { corsHeaders, corsPreflight } from '$lib/proxy/http';
 import { biliResolveDashAudio, isBiliCdnUrl, BILI_UA, type BiliDashAudio } from '$lib/proxy/bilibili';
 
 const BVID_RE = /^BV[0-9A-Za-z]{10}$/;
@@ -82,6 +82,4 @@ export const GET: RequestHandler = async ({ url, request }) => {
 	return new Response(res.body, { status: res.status, headers });
 };
 
-export const OPTIONS: RequestHandler = ({ request }) => {
-	return new Response(null, { status: 204, headers: corsHeaders(request.headers.get('origin')) });
-};
+export const OPTIONS: RequestHandler = ({ request }) => corsPreflight(request);

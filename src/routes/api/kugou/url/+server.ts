@@ -25,7 +25,7 @@
 // fallback (SRC-FB-01) takes the song over, exactly like a region-blocked QQ track.
 import type { RequestHandler } from './$types';
 import { createHash } from 'node:crypto';
-import { fetchWithRetry, corsHeaders, jsonResponse } from '$lib/proxy/http';
+import { fetchWithRetry, jsonResponse, corsPreflight } from '$lib/proxy/http';
 
 const KG_SONGINFO = 'https://m.kugou.com/app/i/getSongInfo.php';
 const KG_PRIVILEGE = 'http://media.store.kugou.com/v1/get_res_privilege';
@@ -195,6 +195,4 @@ export const GET: RequestHandler = async ({ url, request }) => {
 	return jsonPassthrough({ url: null }, origin);
 };
 
-export const OPTIONS: RequestHandler = ({ request }) => {
-	return new Response(null, { status: 204, headers: corsHeaders(request.headers.get('origin')) });
-};
+export const OPTIONS: RequestHandler = ({ request }) => corsPreflight(request);

@@ -26,7 +26,7 @@
 //  - bot gate (T-27-03-04): VISIONOS + cached visitorData clears the gate anonymously;
 //    refresh-once-then-503 avoids hammering a challenging upstream (never hang).
 import type { RequestHandler } from './$types';
-import { corsHeaders, fetchWithRetry } from '$lib/proxy/http';
+import { corsHeaders, fetchWithRetry, corsPreflight } from '$lib/proxy/http';
 // selectAudioFormat + isPlayable live in the shared proxy module, NOT here: SvelteKit `+server.ts`
 // only permits HTTP-verb (or `_`-prefixed) exports, so a top-level `export function` in this route
 // throws `Invalid export` at request time (quick-270715 — caught by E2E, missed by the fixture unit
@@ -161,6 +161,4 @@ export const GET: RequestHandler = async ({ params, request }) => {
 	return new Response(res.body, { status: res.status, headers: outHeaders });
 };
 
-export const OPTIONS: RequestHandler = ({ request }) => {
-	return new Response(null, { status: 204, headers: corsHeaders(request.headers.get('origin')) });
-};
+export const OPTIONS: RequestHandler = ({ request }) => corsPreflight(request);

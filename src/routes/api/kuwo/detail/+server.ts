@@ -4,7 +4,7 @@
 // a non-200 against the kuwo health gate. NEVER cached — resolver urls are signed and expiring.
 // `type` / `format` are accepted and ignored (the legacy client still sends them). Verb exports only.
 import type { RequestHandler } from './$types';
-import { corsHeaders, jsonResponse } from '$lib/proxy/http';
+import { jsonResponse, corsPreflight } from '$lib/proxy/http';
 import { fetchKuwoDetail } from '$lib/proxy/kuwo';
 
 export const GET: RequestHandler = async ({ url, request }) => {
@@ -16,6 +16,4 @@ export const GET: RequestHandler = async ({ url, request }) => {
 	return jsonResponse(body, origin, { status, cacheControl: 'no-store' });
 };
 
-export const OPTIONS: RequestHandler = ({ request }) => {
-	return new Response(null, { status: 204, headers: corsHeaders(request.headers.get('origin')) });
-};
+export const OPTIONS: RequestHandler = ({ request }) => corsPreflight(request);

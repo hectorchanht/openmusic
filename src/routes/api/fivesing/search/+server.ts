@@ -10,8 +10,8 @@
 // faster than catalogue covers, so an hour is the right tradeoff between freshness and
 // hammering the upstream on every repeat search.
 import type { RequestHandler } from './$types';
-import { fetchWithRetry, corsHeaders, jsonResponse } from '$lib/proxy/http';
-import { edgeCache } from '$lib/proxy/edge-cache';
+import { fetchWithRetry, jsonResponse, corsPreflight } from '$lib/proxy/http';
+import { cachedUpstreamJson } from '$lib/proxy/edge-cache';
 
 // Upstream host. `https://` returns a TLS cert mismatch (cert is for a different hostname,
 // verified 2026-06-07 via curl); the upstream serves the API over plain http only. Cloudflare
@@ -19,8 +19,6 @@ import { edgeCache } from '$lib/proxy/edge-cache';
 // CLIENT still talks to this route over its own-origin https — no mixed-content surface.
 const FS_SEARCH = 'http://search.5sing.kugou.com/home/json';
 const TTL = 3600; // 1h
-
-// edgeCache() shared from $lib/proxy/edge-cache (quick-260713-mqv).
 
 // Shared JSON responder (src/lib/proxy/http.ts).
 const jsonPassthrough = (body: unknown, origin: string | null, ttl?: number): Response =>
@@ -41,34 +39,18 @@ export const GET: RequestHandler = async ({ url, request }) => {
 		`${FS_SEARCH}?keyword=${encodeURIComponent(keyword)}` +
 		`&sort=1&page=${page}&pagesize=${pagesize}`;
 
-	const cache = edgeCache();
-	const cacheReq = new Request(url.toString());
-
-	if (cache) {
-		const hit = await cache.match(cacheReq);
-		if (hit) {
-			const cached = await hit.json();
-			return jsonPassthrough(cached, origin, TTL);
+	// quick-261020-batch2: the edge-cache → upstream → cache-put → passthrough spine moved to
+	// cachedUpstreamJson ($lib/proxy/edge-cache); the route keeps only its param guard + upstream.
+	return cachedUpstreamJson({
+		origin,
+		url,
+		ttl: TTL,
+		empty: { list: [] },
+		fetchUpstream: async () => {
+			const res = await fetchWithRetry(upstream, { signal: AbortSignal.timeout(8000) }, 2);
+			return res.json();
 		}
-	}
-
-	try {
-		const res = await fetchWithRetry(upstream, { signal: AbortSignal.timeout(8000) }, 2);
-		const body = await res.json();
-		if (cache) {
-			const cached = new Response(JSON.stringify(body), {
-				status: 200,
-				headers: { 'content-type': 'application/json', 'Cache-Control': `public, max-age=${TTL}` }
-			});
-			await cache.put(cacheReq, cached);
-		}
-		return jsonPassthrough(body, origin, TTL);
-	} catch {
-		// Upstream error → empty list (NO cache write — next retry can succeed).
-		return jsonPassthrough({ list: [] }, origin);
-	}
+	});
 };
 
-export const OPTIONS: RequestHandler = ({ request }) => {
-	return new Response(null, { status: 204, headers: corsHeaders(request.headers.get('origin')) });
-};
+export const OPTIONS: RequestHandler = ({ request }) => corsPreflight(request);
