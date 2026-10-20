@@ -363,6 +363,129 @@ export async function getUserFromRequest(request: Request, db: D1Database): Prom
 export type SendMagicLinkResult = { ok: true } | { ok: false; reason: 'send-failed' };
 
 /**
+ * quick-261020-code — the 6-digit sign-in code (the native-APK path: typed into the app,
+ * no browser needed). Link and code are TWO CREDENTIALS FOR ONE LOGIN INTENT: either
+ * consumes it — both single-use, 15-minute expiry, and burning one invalidates the other.
+ */
+export const CODE_RE = /^[0-9]{6}$/;
+
+/** A code dies after this many wrong guesses (per code_hash row, in D1). */
+export const MAX_CODE_ATTEMPTS = 5;
+
+/** quick-261020-code — verify-code rate limit: guesses per email per 10 minutes. */
+export const VERIFY_CODE_RATE_MAX = 10;
+export const VERIFY_CODE_RATE_WINDOW_MS = 10 * 60 * 1000;
+
+/**
+ * Crypto-random 6-digit code (100000–999999), rejection-sampled off a full uint32 —
+ * no modulo bias (900000 divides 2^32 with a remainder, so the tail is re-drawn).
+ */
+export function randomCode(): string {
+	const b = new Uint32Array(1);
+	const range = 900000;
+	const limit = 4294967296 - (4294967296 % range);
+	do {
+		crypto.getRandomValues(b);
+	} while (b[0] >= limit);
+	return String(100000 + (b[0] % range));
+}
+
+/**
+ * Constant-time string equality for credential-hash comparison — a naive `===` leaks
+ * the matching prefix length through timing (an oracle for guessing the code hash).
+ */
+export function timingSafeEqual(a: string, b: string): boolean {
+	if (a.length !== b.length) return false;
+	let diff = 0;
+	for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+	return diff === 0;
+}
+
+/**
+ * quick-261020-code — issue the app's own session for an email: upsert the user row by
+ * email (so Google + magic-link + code sign-ins for one address are ONE user), mint a
+ * 30-day session token, store SHA-256('session:'+token). Shared by /api/auth/verify,
+ * /api/auth/verify-code and /api/auth/google — the success contract is byte-identical
+ * everywhere: { user, token, scheme } + the httpOnly cookie the route sets itself.
+ */
+export async function issueSessionForEmail(
+	db: D1Database,
+	email: string
+): Promise<{ user: AccountUser; token: string }> {
+	let user = await db
+		.prepare('SELECT id, email FROM users WHERE email = ?')
+		.bind(email)
+		.first<{ id: string; email: string }>();
+	if (!user) {
+		const id = crypto.randomUUID();
+		await db.prepare('INSERT INTO users (id, email) VALUES (?, ?)').bind(id, email).run();
+		user = { id, email };
+	}
+	const token = randomToken(32);
+	const hash = await sha256hex('session:' + token);
+	await db
+		.prepare('INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)')
+		.bind(hash, user.id, Date.now() + SESSION_TTL_MS)
+		.run();
+	return { user, token };
+}
+
+/** Minimal HTML-escape — the footer interpolates the recipient address (user input). */
+function escapeHtml(s: string): string {
+	return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+/**
+ * quick-261020-code — the formal branded sign-in email (Hector's design): branded header,
+ * "Hi there,", a TEAL CTA BUTTON (a real table button, not a colored text link — bulletproof
+ * for mail clients), a divider, "Or enter this code in the app:" with the code BIG in a
+ * box (monospace + letter-spacing + user-select:all, prominent enough that Gmail offers
+ * its own "Copy code" chip), and a formal footer. HTML + plain-text fallback.
+ */
+export function buildSignInEmail(
+	link: string,
+	code: string,
+	toEmail: string
+): { subject: string; html: string; text: string } {
+	const safeEmail = escapeHtml(toEmail);
+	const html = `<!doctype html><html><body style="margin:0;padding:0;background-color:#0a0a0a;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+<div style="max-width:480px;margin:0 auto;padding:32px 24px;">
+<div style="text-align:center;margin-bottom:24px;">
+<span style="font-size:22px;font-weight:700;color:#ffffff;letter-spacing:0.5px;">OpenMusic</span>
+</div>
+<div style="background-color:#141414;border:1px solid #2a2a2a;border-radius:16px;padding:32px 28px;">
+<p style="color:#ffffff;font-size:16px;margin:0 0 16px;">Hi there,</p>
+<p style="color:#b3b3b3;font-size:14px;line-height:1.6;margin:0 0 24px;">Tap the button below to sign in to OpenMusic. The link expires in 15 minutes and can only be used once.</p>
+<table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:0 auto 8px;"><tr><td style="border-radius:999px;background-color:#00c2b8;">
+<a href="${link}" style="display:inline-block;padding:14px 36px;font-size:16px;font-weight:600;color:#ffffff;text-decoration:none;border-radius:999px;">Sign in to OpenMusic</a>
+</td></tr></table>
+<div style="border-top:1px solid #2a2a2a;margin:28px 0;"></div>
+<p style="color:#b3b3b3;font-size:14px;line-height:1.6;margin:0 0 12px;">Or enter this code in the app:</p>
+<div style="background-color:#0a0a0a;border:1px dashed #00c2b8;border-radius:12px;padding:20px;text-align:center;margin:0 0 8px;">
+<span style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:36px;font-weight:700;letter-spacing:12px;color:#ffffff;user-select:all;">${code}</span>
+</div>
+<p style="color:#737373;font-size:12px;margin:0;">The code expires in 15 minutes and stops working after 5 wrong tries.</p>
+</div>
+<p style="color:#737373;font-size:12px;line-height:1.6;text-align:center;margin:24px 0 8px;">This message was sent to ${safeEmail} at your request.</p>
+<p style="color:#525252;font-size:12px;text-align:center;margin:0;">OpenMusic &middot; Dawn Studio &middot; openmusic.lol</p>
+</div>
+</body></html>`;
+	const text = `Hi there,
+
+Sign in to OpenMusic (the link expires in 15 minutes and can only be used once):
+${link}
+
+Or enter this code in the app: ${code}
+The code expires in 15 minutes and stops working after 5 wrong tries.
+
+This message was sent to ${toEmail} at your request.
+OpenMusic · Dawn Studio · openmusic.lol`;
+	// The email carries BOTH credentials now — the subject names the code (the prominent,
+	// Gmail-copy-chip credential) while the link rides inside as the click path.
+	return { subject: 'Your OpenMusic sign-in code', html, text };
+}
+
+/**
  * Send the magic-link email via Resend. `apiKey` is env.RESEND_API_KEY — the ROUTE checks it
  * first and fails closed with 500 before a token row exists, so this helper only ever runs
  * with a key. Any non-2xx (or a network rejection) maps to { ok:false, reason:'send-failed' }.
@@ -375,9 +498,11 @@ export async function sendMagicLinkEmail(
 	apiKey: string,
 	from: string,
 	to: string,
-	link: string
+	link: string,
+	code: string
 ): Promise<SendMagicLinkResult> {
 	try {
+		const { subject, html, text } = buildSignInEmail(link, code, to);
 		// RAW fetch (not apiFetch — fetch→apiFetch audit): SERVER-SIDE (Cloudflare edge) call
 		// to the Resend API. apiFetch is the CLIENT seam and must not run edge-side.
 		const res = await fetch('https://api.resend.com/emails', {
@@ -388,13 +513,7 @@ export async function sendMagicLinkEmail(
 				'User-Agent':
 					'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
 			},
-			body: JSON.stringify({
-				from,
-				to,
-				subject: 'Your OpenMusic sign-in link',
-				html: `<p>Click the link below to sign in to OpenMusic. It expires in 15 minutes and can only be used once.</p><p><a href="${link}">Sign in to OpenMusic</a></p><p>If you didn't request this, just ignore this email.</p>`,
-				text: `Sign in to OpenMusic (expires in 15 minutes, single use): ${link}`
-			})
+			body: JSON.stringify({ from, to, subject, html, text })
 		});
 		if (!res.ok) {
 			// Drain so the connection can be reused; the body is never logged (it may echo the

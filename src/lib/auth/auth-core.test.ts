@@ -10,12 +10,14 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import type { GoogleJwk } from './auth-core';
 import {
 	GOOGLE_WEB_CLIENT_ID,
+	MAX_CODE_ATTEMPTS,
 	SESSION_COOKIE_NAME,
 	TOKEN_RE,
 	NATIVE_APP_SCHEME,
 	__resetGoogleCerts,
 	buildAuthCallbackUrl,
 	buildSessionCookie,
+	buildSignInEmail,
 	diagLine,
 	clearSessionCookie,
 	getAuthToken,
@@ -25,9 +27,11 @@ import {
 	isAllowedScheme,
 	isValidEmail,
 	parseAuthCallbackUrl,
+	randomCode,
 	randomToken,
 	rateLimit,
 	sha256hex,
+	timingSafeEqual,
 	verifyGoogleIdToken
 } from './auth-core';
 
@@ -452,5 +456,72 @@ describe('verifyGoogleIdToken (quick-261020-google)', () => {
 	it('never throws on garbage input', async () => {
 		await expect(verifyGoogleIdToken('', { fetchCerts })).resolves.toBeDefined();
 		await expect(verifyGoogleIdToken('...', { fetchCerts })).resolves.toBeDefined();
+	});
+});
+
+describe('6-digit code — quick-261020-code', () => {
+	it('randomCode emits 6 digits in 100000–999999', () => {
+		for (let i = 0; i < 200; i++) {
+			const c = randomCode();
+			expect(c).toMatch(/^[0-9]{6}$/);
+			const n = Number(c);
+			expect(n).toBeGreaterThanOrEqual(100000);
+			expect(n).toBeLessThanOrEqual(999999);
+		}
+	});
+
+	it('timingSafeEqual compares without a prefix oracle', () => {
+		expect(timingSafeEqual('abc', 'abc')).toBe(true);
+		expect(timingSafeEqual('abc', 'abd')).toBe(false);
+		expect(timingSafeEqual('abc', 'ab')).toBe(false);
+		expect(timingSafeEqual('', '')).toBe(true);
+	});
+
+	it('MAX_CODE_ATTEMPTS is 5', () => {
+		expect(MAX_CODE_ATTEMPTS).toBe(5);
+	});
+});
+
+describe('buildSignInEmail — formal branded template (quick-261020-code)', () => {
+	const link = 'https://openmusic.lol/auth/magic?token=' + 'a'.repeat(64);
+	const code = '482913';
+	const to = 'user@example.com';
+	const { subject, html, text } = buildSignInEmail(link, code, to);
+
+	it('names the code in the subject', () => {
+		expect(subject).toContain('sign-in code');
+	});
+
+	it('renders a real teal CTA button (not a bare text link)', () => {
+		expect(html).toContain('Sign in to OpenMusic</a>');
+		expect(html).toContain('#00c2b8'); // app-theme teal
+		expect(html).toContain(`href="${link}"`);
+	});
+
+	it('shows the code big and prominent in its own box', () => {
+		expect(html).toContain(code);
+		// the code sits alone in a selectable span — Gmail copy-chip friendly
+		expect(html).toMatch(/<span[^>]*>482913<\/span>/);
+		expect(html).toContain('user-select:all');
+	});
+
+	it('carries the formal footer with the recipient address', () => {
+		expect(html).toContain(`This message was sent to ${to} at your request.`);
+		expect(html).toContain('OpenMusic');
+		expect(html).toContain('Dawn Studio');
+		expect(html).toContain('openmusic.lol');
+	});
+
+	it('HTML-escapes the recipient address in the footer', () => {
+		const evil = buildSignInEmail(link, code, 'a<b>@x.com');
+		expect(evil.html).not.toContain('a<b>@x.com');
+		expect(evil.html).toContain('a&lt;b&gt;@x.com');
+	});
+
+	it('plain-text fallback carries link, code and footer', () => {
+		expect(text).toContain(link);
+		expect(text).toContain(code);
+		expect(text).toContain(`This message was sent to ${to} at your request.`);
+		expect(text).toContain('OpenMusic · Dawn Studio · openmusic.lol');
 	});
 });

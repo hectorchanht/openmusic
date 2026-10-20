@@ -60,6 +60,11 @@
 	// A TranslationKey (not raw text) — the store→UI one-way rule.
 	let errorKey = $state<TranslationKey | null>(null);
 	let signOutOpen = $state(false);
+	// quick-261020-code — the 6-digit code entry shown after the link is sent (the
+	// native-APK path: typed into the app, no browser needed).
+	let code = $state('');
+	let verifying = $state(false);
+	let codeErrorKey = $state<TranslationKey | null>(null);
 	// quick-261020-google — Google sign-in state (separate from the magic-link errorKey).
 	let googleLoading = $state(false);
 	let googleError = $state(false);
@@ -92,6 +97,31 @@
 			sent = true;
 			rememberEmail(email.trim().toLowerCase());
 		}
+	}
+
+	/**
+	 * quick-261020-code — verify the 6-digit code. The store returns a closed union;
+	 * each maps to an account.* key (the store→UI one-way rule). On success auth.user
+	 * is set and the page re-renders into the signed-in section.
+	 */
+	async function submitCode() {
+		if (verifying) return;
+		verifying = true;
+		codeErrorKey = null;
+		const res = await auth.verifyCode(email, code);
+		verifying = false;
+		if (res === 'ok') {
+			code = '';
+			return;
+		}
+		codeErrorKey =
+			res === 'too-many-attempts'
+				? 'account.codeTooManyAttempts'
+				: res === 'rate-limited'
+					? 'account.rateLimited'
+					: res === 'network'
+						? 'account.errNetwork'
+						: 'account.codeInvalid';
 	}
 
 	/**
@@ -205,6 +235,8 @@
 		await auth.logout();
 		sent = false;
 		email = '';
+		code = '';
+		codeErrorKey = null;
 	}
 </script>
 
@@ -264,6 +296,38 @@
 			{/if}
 			{#if sent}
 				<p class="sent">{t('account.linkSent')}</p>
+				<!-- quick-261020-code — the 6-digit code from the same email, typed into the
+				     app (the native-APK path — no browser). Digits only, paste-friendly:
+				     inputmode numeric + autocomplete one-time-code; submitting is via the
+				     Verify button or Enter. -->
+				<form
+					class="codeform"
+					onsubmit={(e) => {
+						e.preventDefault();
+						void submitCode();
+					}}
+				>
+					<label class="field">
+						<span>{t('account.codeLabel')}</span>
+						<input
+							type="text"
+							inputmode="numeric"
+							pattern="[0-9]*"
+							autocomplete="one-time-code"
+							maxlength={6}
+							placeholder="123456"
+							bind:value={code}
+							oninput={() => (code = code.replace(/[^0-9]/g, '').slice(0, 6))}
+							disabled={verifying}
+						/>
+					</label>
+					{#if codeErrorKey}
+						<p class="error">{t(codeErrorKey)}</p>
+					{/if}
+					<button class="send" type="submit" disabled={verifying || code.length !== 6} use:tapBounce>
+						{verifying ? t('account.verifying') : t('account.verifyCode')}
+					</button>
+				</form>
 			{:else}
 				<form
 					onsubmit={(e) => {
@@ -360,6 +424,11 @@
 	/* quick-261020-realerr — the raw diagnostic: muted, monospace, wraps. Technical on
 	   purpose — it's a log line for diagnosis, not user copy. */
 	.diag { color: var(--color-text-muted); font-family: ui-monospace, monospace; font-size: 0.6875rem; line-height: 1.5; margin: -6px 0 12px; overflow-wrap: anywhere; opacity: 0.85; }
+	/* quick-261020-code — the 6-digit code form under the link-sent notice. The input
+	   is digits-only and centered with wide letter-spacing so the code reads as one
+	   block; the Verify button reuses the .send style. */
+	.codeform { margin-top: 12px; }
+	.codeform .field input { text-align: center; font-size: 1.5rem; letter-spacing: 0.5em; text-indent: 0.5em; font-family: ui-monospace, monospace; font-weight: 700; }
 	.send { width: 100%; background: var(--color-primary); color: #fff; border: none; border-radius: 999px; padding: 12px 20px; font-size: 0.9375rem; font-weight: 600; cursor: pointer; }
 	.send:disabled { opacity: 0.55; cursor: default; }
 	/* quick-261020-google — the divider + second sign-in path. */

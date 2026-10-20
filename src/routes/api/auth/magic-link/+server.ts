@@ -30,6 +30,7 @@ import {
 	clientIp,
 	isAllowedScheme,
 	isValidEmail,
+	randomCode,
 	randomToken,
 	rateLimit,
 	sendMagicLinkEmail,
@@ -108,13 +109,18 @@ export const POST: RequestHandler = async (event) => {
 
 	const token = randomToken(32);
 	const tokenHash = await sha256hex('magic:' + token);
+	// quick-261020-code — the SECOND credential for this intent: a 6-digit code for the
+	// native-APK path (typed into the app, no browser). Stored as SHA-256('code:'+code);
+	// the raw code only ever exists in the email. Either credential burns the intent.
+	const code = randomCode();
+	const codeHash = await sha256hex('code:' + code);
 	await db
-		.prepare('INSERT INTO magic_tokens (token_hash, email, expires_at, scheme) VALUES (?, ?, ?, ?)')
-		.bind(tokenHash, email, Date.now() + MAGIC_LINK_TTL_MS, scheme ?? null)
+		.prepare('INSERT INTO magic_tokens (token_hash, email, expires_at, scheme, code_hash) VALUES (?, ?, ?, ?, ?)')
+		.bind(tokenHash, email, Date.now() + MAGIC_LINK_TTL_MS, scheme ?? null, codeHash)
 		.run();
 
 	const link = `${new URL(request.url).origin}/auth/magic?token=${token}`;
-	const sent = await sendMagicLinkEmail(apiKey, env?.MAGIC_LINK_FROM || DEFAULT_MAGIC_LINK_FROM, email, link);
+	const sent = await sendMagicLinkEmail(apiKey, env?.MAGIC_LINK_FROM || DEFAULT_MAGIC_LINK_FROM, email, link, code);
 	if (!sent.ok) {
 		// The email never left — the token must not stay redeemable.
 		await db.prepare('DELETE FROM magic_tokens WHERE token_hash = ?').bind(tokenHash).run();

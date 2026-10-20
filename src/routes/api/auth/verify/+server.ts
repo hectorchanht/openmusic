@@ -19,7 +19,7 @@
 import type { RequestHandler } from './$types';
 import type { Env } from '$lib/proxy/proxy-types';
 import { corsHeaders, jsonResponse, isAllowedOrigin } from '$lib/proxy/http';
-import { SESSION_TTL_MS, TOKEN_RE, buildSessionCookie, randomToken, sha256hex } from '$lib/auth/auth-core';
+import { TOKEN_RE, buildSessionCookie, issueSessionForEmail, sha256hex } from '$lib/auth/auth-core';
 
 const MAX_BODY_BYTES = 1024;
 
@@ -64,24 +64,11 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 	if (!row || row.used || row.expires_at < Date.now()) {
 		return jsonResponse({ ok: false, err: 'invalid-token' }, origin, { status: 400 });
 	}
+	// Burning the link burns the code too (same row, used=1) — two credentials, one intent.
 	await db.prepare('UPDATE magic_tokens SET used = 1 WHERE token_hash = ?').bind(hash).run();
 
-	let user = await db
-		.prepare('SELECT id, email FROM users WHERE email = ?')
-		.bind(row.email)
-		.first<{ id: string; email: string }>();
-	if (!user) {
-		const id = crypto.randomUUID();
-		await db.prepare('INSERT INTO users (id, email) VALUES (?, ?)').bind(id, row.email).run();
-		user = { id, email: row.email };
-	}
-
-	const sessionToken = randomToken(32);
-	const sessionHash = await sha256hex('session:' + sessionToken);
-	await db
-		.prepare('INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)')
-		.bind(sessionHash, user.id, Date.now() + SESSION_TTL_MS)
-		.run();
+	// Session issuance is the shared helper — byte-identical to verify-code and google.
+	const { user, token: sessionToken } = await issueSessionForEmail(db, row.email);
 
 	// jsonResponse() has no extra-header passthrough, and this route MUST set Set-Cookie —
 	// so the Response is built here with the same corsHeaders() seam (never `*`).

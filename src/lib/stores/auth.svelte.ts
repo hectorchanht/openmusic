@@ -31,6 +31,18 @@ const TOKEN_KEY = 'openmusic:auth-token:v1';
 export type RequestLinkResult = 'ok' | 'invalid-email' | 'invalid-scheme' | 'rate-limited' | 'not-configured' | 'send-failed' | 'network' | 'error';
 
 /**
+ * quick-261020-code — verifyCode outcomes. The store stays i18n-free; the Account page
+ * maps each to an `account.*` key (same pattern as requestLinkErrorKey).
+ */
+export type VerifyCodeResult =
+	| 'ok'
+	| 'invalid' // malformed email/code shape — client-side, never sent
+	| 'invalid-code' // wrong / expired / unknown — one refusal, no oracle
+	| 'too-many-attempts' // 5 wrong guesses on this code
+	| 'rate-limited'
+	| 'network';
+
+/**
  * What the /auth/magic page needs after the redeem POST: whether it worked, the scheme
  * the token was minted with (null for a plain web request), and — when the scheme is
  * present — the session bearer token the deep-link handoff carries to the app.
@@ -278,6 +290,39 @@ class Auth {
 			return { ok: true, scheme: null, token: bearer };
 		} catch {
 			return failed;
+		}
+	}
+
+	/**
+	 * quick-261020-code — verify the 6-digit code from the sign-in email (the native-APK
+	 * path: typed into the app, no browser). Same post-login path as verify() and
+	 * signInWithGoogle() — the only difference is the credential presented. Never throws.
+	 */
+	async verifyCode(email: string, code: string): Promise<VerifyCodeResult> {
+		if (!browser) return 'network';
+		const cleanEmail = email.trim().toLowerCase();
+		if (!isValidEmail(cleanEmail) || !/^[0-9]{6}$/.test(code.trim())) return 'invalid';
+		try {
+			const res = await this.authedFetch('/api/auth/verify-code', {
+				method: 'POST',
+				body: JSON.stringify({ email: cleanEmail, code: code.trim() }),
+				priorityLane: true // quick-261020-authprio: auth-critical, never queued / fast-rejected
+			});
+			if (res.status === 429) return 'rate-limited';
+			if (!res.ok) {
+				const err = (await res.json().catch(() => null)) as { err?: string } | null;
+				return err?.err === 'too-many-attempts' ? 'too-many-attempts' : 'invalid-code';
+			}
+			const body = (await res.json().catch(() => null)) as {
+				user: AccountUser;
+				token: string | null;
+			} | null;
+			if (!body?.user) return 'invalid-code';
+			const bearer = typeof body.token === 'string' ? body.token : null;
+			this.establishSession(body.user, bearer);
+			return 'ok';
+		} catch {
+			return 'network';
 		}
 	}
 

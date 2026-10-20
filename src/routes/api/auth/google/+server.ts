@@ -17,12 +17,10 @@ import type { RequestHandler } from './$types';
 import type { Env } from '$lib/proxy/proxy-types';
 import { corsHeaders, jsonResponse, isAllowedOrigin } from '$lib/proxy/http';
 import {
-	SESSION_TTL_MS,
 	buildSessionCookie,
 	clientIp,
-	randomToken,
+	issueSessionForEmail,
 	rateLimit,
-	sha256hex,
 	verifyGoogleIdToken
 } from '$lib/auth/auth-core';
 
@@ -83,24 +81,9 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 		return jsonResponse({ ok: false, err: 'rate-limited' }, origin, { status: 429 });
 	}
 
-	// Upsert by email — byte-identical to the verify route, so Google + magic-link share
-	// the user row (and the sync envelope that hangs off it).
-	let user = await db
-		.prepare('SELECT id, email FROM users WHERE email = ?')
-		.bind(verified.email)
-		.first<{ id: string; email: string }>();
-	if (!user) {
-		const id = crypto.randomUUID();
-		await db.prepare('INSERT INTO users (id, email) VALUES (?, ?)').bind(id, verified.email).run();
-		user = { id, email: verified.email };
-	}
-
-	const sessionToken = randomToken(32);
-	const sessionHash = await sha256hex('session:' + sessionToken);
-	await db
-		.prepare('INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)')
-		.bind(sessionHash, user.id, Date.now() + SESSION_TTL_MS)
-		.run();
+	// Upsert by email + session via the shared helper — byte-identical to the verify
+	// route, so Google + magic-link + code share the user row (and the sync envelope).
+	const { user, token: sessionToken } = await issueSessionForEmail(db, verified.email);
 
 	// jsonResponse() has no extra-header passthrough, and this route MUST set Set-Cookie —
 	// so the Response is built here with the same corsHeaders() seam (never `*`).
