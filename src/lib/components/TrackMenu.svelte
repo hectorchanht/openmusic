@@ -196,7 +196,7 @@
 		startRadio: { icon: Radio, label: 'menu.startRadio' },
 		versions: { icon: Layers, label: 'menu.versions' },
 		changeCover: { icon: ImageIcon, label: 'menu.changeCover' },
-		changeLyrics: { icon: Mic2, label: 'menu.changeLyrics' },
+		changeLyrics: { icon: Mic2, label: 'menu.fixLyrics' },
 		viewComments: { icon: MessageCircle, label: 'menu.viewComments' },
 		viewRelated: { icon: ListMusic, label: 'menu.viewRelated' },
 		lyricsTiming: { icon: Timer, label: 'menu.lyricsTiming' },
@@ -210,8 +210,8 @@
 		goToArtist: { icon: User, label: 'menu.goToArtist' },
 		goToAlbum: { icon: Disc3, label: 'menu.goToAlbum' },
 		share: { icon: Share2, label: 'menu.share' },
-		detail: { icon: Info, label: 'menu.detail' },
-		downloadSource: { icon: ArrowDownToLine, label: 'menu.downloadSource' }
+		detail: { icon: Info, label: 'menu.details' },
+		downloadSource: { icon: ArrowDownToLine, label: 'menu.downloadFromSource' }
 	};
 
 	// quick-261006-mnu — EDIT MODE. `editing` is per-open component state (reset in close()).
@@ -1603,7 +1603,7 @@
 		     fires on THIS tap only (T-1we-03). `disabled` mirrors the Like / Change-cover rows: a
 		     uid-less stub has no identity to pin against (D-1). -->
 		{#snippet cellChangeLyrics(tr: Track)}
-			<button class="gi" disabled={!tr.uid} onclick={openLyricsPicker} use:tapBounce><Mic2 size={22} /><span class="gi-label">{t('menu.changeLyrics')}</span></button>
+			<button class="gi" disabled={!tr.uid} onclick={openLyricsPicker} use:tapBounce><Mic2 size={22} /><span class="gi-label">{t('menu.fixLyrics')}</span></button>
 		{/snippet}
 		{#snippet cellViewComments(tr: Track)}
 			<button class="gi" onclick={viewComments} use:tapBounce><MessageCircle size={22} /><span class="gi-label">{t('menu.viewComments')}</span></button>
@@ -1694,14 +1694,14 @@
 		<!-- Detail: GATED — resolves details to populate the detail sheet's audioUrl/quality rows. -->
 		{#snippet cellDetail(tr: Track)}
 			<button class="gi" aria-busy={inFlight.has('detail')} aria-label={inFlight.has('detail') ? t('menu.preparing') : undefined} onclick={onDetailTap} use:tapBounce>
-				{#if inFlight.has('detail')}<span class="row-spinner motion-always"></span>{:else}<Info size={22} />{/if}<span class="gi-label">{t('menu.detail')}</span>
+				{#if inFlight.has('detail')}<span class="row-spinner motion-always"></span>{:else}<Info size={22} />{/if}<span class="gi-label">{t('menu.details')}</span>
 			</button>
 		{/snippet}
 		<!-- quick-261006-44w (user 2026-10-06): "Download from…" as a first-class menu item
 		     at the end — opens the same all-sources picker as the download button's
 		     long-press (openDownloadPicker). -->
 		{#snippet cellDownloadSource(tr: Track)}
-			<button class="gi" onclick={openDownloadPicker} use:tapBounce><ArrowDownToLine size={22} /><span class="gi-label">{t('menu.downloadSource')}</span></button>
+			<button class="gi" onclick={openDownloadPicker} use:tapBounce><ArrowDownToLine size={22} /><span class="gi-label">{t('menu.downloadFromSource')}</span></button>
 		{/snippet}
 		{#if editing}
 			<!-- quick-261006-mnu — EDIT MODE replaces the live grid: every catalog action as a
@@ -1848,7 +1848,7 @@
 	{@const pinnedNow = readLyrics(track)}
 	<button class="scrim" aria-label={t('menu.close')} onclick={closeLyricsPicker}></button>
 	<div class="menu" transition:fly={{ y: 240, duration: 200 }} use:dragClose={{ onclose: closeLyricsPicker }} use:focusTrap>
-		<div class="menu-head row"><span>{t('menu.changeLyrics')}</span><button class="x" aria-label={t('menu.close')} onclick={closeLyricsPicker} use:tapBounce><X size={18} /></button></div>
+		<div class="menu-head row"><span>{t('menu.fixLyrics')}</span><button class="x" aria-label={t('menu.close')} onclick={closeLyricsPicker} use:tapBounce><X size={18} /></button></div>
 		{#if lyricsLoading && !lyricCandidates.length}
 			<div class="cover-wait"><span class="row-spinner motion-always"></span></div>
 		{:else if !lyricCandidates.length}

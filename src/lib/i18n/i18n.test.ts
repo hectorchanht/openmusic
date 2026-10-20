@@ -164,7 +164,12 @@ describe('quick-260919-ebi dead strings', () => {
 		'settings.themeDesc',
 		'settings.nowbarLyricsDesc',
 		'settings.showSearchPillDesc',
-		'menu.fixLyrics'
+		// quick-261019-nam: menu.fixLyrics was deleted by quick-260919-ebi, then REINTRODUCED by
+		// the label audit (Change lyrics → Fix lyrics) — so it leaves ABSENT and menu.changeLyrics
+		// joins it. menu.detail/menu.downloadSource are NOT added: the substring reference check
+		// would false-positive on menu.detailAudioUrl/menu.detailNotResolved.
+		'menu.changeLyrics',
+		'menu.downloadSource'
 	] as const;
 	const PRESENT = [
 		'settings.optOn',
