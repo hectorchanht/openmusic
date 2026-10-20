@@ -49,6 +49,13 @@ export function corsHeaders(origin: string | null): Record<string, string> {
 	};
 	if (isAllowedOrigin(origin)) {
 		headers['Access-Control-Allow-Origin'] = origin;
+		// quick-261020-corscred — the missing piece that broke APK sign-in: the native
+		// WebView sends credentials:'include' on auth calls, and without
+		// Access-Control-Allow-Credentials the browser drops the actual request right
+		// after a 204 preflight (production symptom: instant "TypeError: Failed to fetch"
+		// @~100ms, the POST never leaving the phone, preflight 204s in the edge logs).
+		// Only ever paired with an explicit allow-listed origin — never with `*`.
+		headers['Access-Control-Allow-Credentials'] = 'true';
 	}
 	return headers;
 }

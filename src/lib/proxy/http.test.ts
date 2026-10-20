@@ -34,6 +34,19 @@ describe('corsHeaders (T-01-02 — never an open relay)', () => {
 		expect(Object.values(h)).not.toContain('*');
 	});
 
+	// quick-261020-corscred — the native WebView sends credentials:'include' on auth calls:
+	// without Allow-Credentials the browser drops the actual request right after a 204
+	// preflight (instant TypeError: Failed to fetch, POST never leaves the phone).
+	it('sends Access-Control-Allow-Credentials for an allow-listed origin', () => {
+		expect(corsHeaders('https://localhost')['Access-Control-Allow-Credentials']).toBe('true');
+		expect(corsHeaders('https://openmusic.lol')['Access-Control-Allow-Credentials']).toBe('true');
+	});
+
+	it('sends NO Access-Control-Allow-Credentials for a disallowed origin or null', () => {
+		expect(corsHeaders('https://evil.example.com')['Access-Control-Allow-Credentials']).toBeUndefined();
+		expect(corsHeaders(null)['Access-Control-Allow-Credentials']).toBeUndefined();
+	});
+
 	it('advertises Authorization in Allow-Headers without widening origin trust (T-33-06/T-33-10)', () => {
 		// https://localhost is the Capacitor WebView origin that preflights the bearer POST.
 		const allowed = corsHeaders('https://localhost')['Access-Control-Allow-Headers']
