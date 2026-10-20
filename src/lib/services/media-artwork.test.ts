@@ -3,7 +3,8 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
 	resolveArtworkDataUrl,
 	bytesToBase64,
-	MAX_ART_BYTES
+	MAX_ART_BYTES,
+	OG_MAX_ATTEMPTS
 } from './media-artwork';
 
 /**
@@ -143,22 +144,42 @@ describe('resolveArtworkDataUrl (native crash guard)', () => {
 		expect(fetchSpy).not.toHaveBeenCalled();
 	});
 
-	it('never returns a remote URL for any outcome (the crash-shaped invariant)', async () => {
-		for (const stub of [
-			async () => imageResponse(PNG),
-			async () => new Response('x', { status: 500 }),
-			async () => {
+	// media-card-noart-261019: the og leg retries now, so each failure-shaped stub below runs
+	// its own bounded attempt loop (~3 s of backoff) — one `it` per stub keeps every test inside
+	// the default 5 s timeout instead of stacking all three loops in a single test.
+	it('never returns a remote URL when the cover fetch succeeds', async () => {
+		vi.stubGlobal('fetch', vi.fn(async () => imageResponse(PNG)));
+		const out = await resolveArtworkDataUrl({
+			cover: 'https://cdn.example.com/a.jpg',
+			title: 'T',
+			artist: 'A'
+		});
+		expect(out === null || out.startsWith('data:')).toBe(true);
+	});
+
+	it('never returns a remote URL when every fetch 500s', async () => {
+		vi.stubGlobal('fetch', vi.fn(async () => new Response('x', { status: 500 })));
+		const out = await resolveArtworkDataUrl({
+			cover: 'https://cdn.example.com/a.jpg',
+			title: 'T',
+			artist: 'A'
+		});
+		expect(out === null || out.startsWith('data:')).toBe(true);
+	});
+
+	it('never returns a remote URL when every fetch throws', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () => {
 				throw new TypeError('Failed to fetch');
-			}
-		]) {
-			vi.stubGlobal('fetch', vi.fn(stub));
-			const out = await resolveArtworkDataUrl({
-				cover: 'https://cdn.example.com/a.jpg',
-				title: 'T',
-				artist: 'A'
-			});
-			expect(out === null || out.startsWith('data:')).toBe(true);
-		}
+			})
+		);
+		const out = await resolveArtworkDataUrl({
+			cover: 'https://cdn.example.com/a.jpg',
+			title: 'T',
+			artist: 'A'
+		});
+		expect(out === null || out.startsWith('data:')).toBe(true);
 	});
 });
 
@@ -186,6 +207,90 @@ describe('resolveArtworkDataUrl — a marked /api/og fallback is NOT a cover', (
 		vi.stubGlobal(
 			'fetch',
 			vi.fn(async () => imageResponse(PNG, 'image/jpeg', { 'x-og-fallback': '1' }))
+		);
+		await expect(
+			resolveArtworkDataUrl({ cover: 'https://cdn.example.com/a.jpg', title: 'T', artist: 'A' })
+		).resolves.toBeNull();
+	});
+});
+
+// media-card-noart-261019 — the /api/og leg is flaky by design: its edge tier chain and image
+// hop run retries=0 on a crawler budget, and production-probed 2026-10-19 two identical
+// requests seconds apart flip-flopped between the fallback card and a real 146 KB cover. One
+// transient miss used to clear the OS media-card artwork for the whole track; the og leg now
+// retries bounded before accepting the miss.
+describe('resolveArtworkDataUrl — /api/og retry (media-card-noart-261019)', () => {
+	it('retries after a fallback-marked response and returns the cover when it lands', async () => {
+		const expected = `data:image/jpeg;base64,${Buffer.from(PNG).toString('base64')}`;
+		let calls = 0;
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () => {
+				calls++;
+				// First attempt: the transient branded-card answer; second: the real cover.
+				return calls === 1
+					? imageResponse(PNG, 'image/jpeg', { 'x-og-fallback': '1' })
+					: imageResponse(PNG, 'image/jpeg');
+			})
+		);
+		await expect(
+			resolveArtworkDataUrl({ cover: null, title: '有誰共鳴 (Live)', artist: '張國榮' })
+		).resolves.toBe(expected);
+		expect(calls).toBe(2);
+	});
+
+	it('gives up after OG_MAX_ATTEMPTS marked fallbacks and returns null', async () => {
+		const fetchSpy = vi.fn(async () =>
+			imageResponse(PNG, 'image/jpeg', { 'x-og-fallback': '1' })
+		);
+		vi.stubGlobal('fetch', fetchSpy);
+		await expect(
+			resolveArtworkDataUrl({ cover: null, title: 'T', artist: 'A' })
+		).resolves.toBeNull();
+		expect(fetchSpy).toHaveBeenCalledTimes(OG_MAX_ATTEMPTS);
+	});
+
+	it('does not retry the direct cover leg — one CORS failure goes straight to /api/og', async () => {
+		const fetchSpy = vi.fn(async (input: unknown) => {
+			if (String(input).includes('y.gtimg.cn')) throw new TypeError('Failed to fetch');
+			return imageResponse(PNG, 'image/png');
+		});
+		vi.stubGlobal('fetch', fetchSpy);
+		const out = await resolveArtworkDataUrl({
+			cover: 'https://y.gtimg.cn/music/photo_new/T002R300x300M000.jpg',
+			title: 'T',
+			artist: 'A'
+		});
+		expect(out).toBe(`data:image/png;base64,${Buffer.from(PNG).toString('base64')}`);
+		const urls = fetchSpy.mock.calls.map((c) => String(c[0]));
+		expect(urls.filter((u) => u.includes('y.gtimg.cn'))).toHaveLength(1);
+		expect(urls.filter((u) => u.includes('/api/og?'))).toHaveLength(1);
+	});
+
+	it('aborts the retry loop when isCancelled flips true mid-loop', async () => {
+		let cancelled = false;
+		const fetchSpy = vi.fn(async () => {
+			// The track changed while the first attempt was in flight — the loop must stop here
+			// instead of burning the remaining attempts (and their sleeps) on a stale track.
+			cancelled = true;
+			return imageResponse(PNG, 'image/jpeg', { 'x-og-fallback': '1' });
+		});
+		vi.stubGlobal('fetch', fetchSpy);
+		await expect(
+			resolveArtworkDataUrl(
+				{ cover: null, title: 'T', artist: 'A' },
+				{ isCancelled: () => cancelled }
+			)
+		).resolves.toBeNull();
+		expect(fetchSpy).toHaveBeenCalledTimes(1);
+	});
+
+	it('never rejects when every attempt throws (never-throws contract survives the loop)', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () => {
+				throw new TypeError('Failed to fetch');
+			})
 		);
 		await expect(
 			resolveArtworkDataUrl({ cover: 'https://cdn.example.com/a.jpg', title: 'T', artist: 'A' })

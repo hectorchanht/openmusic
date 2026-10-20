@@ -94,11 +94,17 @@ export function createNativeMediaSession(): PlayerMediaSession {
 				const gen = ++artGen;
 				const first = Array.from(value.artwork ?? [])[0];
 				void (async () => {
-					const dataUrl = await resolveArtworkDataUrl({
-						cover: first?.src ?? null,
-						title: value.title ?? '',
-						artist: value.artist ?? ''
-					});
+					const dataUrl = await resolveArtworkDataUrl(
+						{
+							cover: first?.src ?? null,
+							title: value.title ?? '',
+							artist: value.artist ?? ''
+						},
+						// media-card-noart-261019: abort the /api/og retry loop when a newer
+						// metadata write superseded this one — the gen check below would drop
+						// the result anyway, so don't burn attempts (and their sleeps) on it.
+						{ isCancelled: () => gen !== artGen }
+					);
 					// A newer metadata write superseded this one — drop the stale artwork.
 					if (gen !== artGen) return;
 					fire(
