@@ -21,6 +21,7 @@ const EXPECTED_KEYS: SourceId[] = [
 	'fivesing',
 	'jamendo',
 	'audius',
+	'archive',
 	'bilibili',
 	'ytmusic'
 ];
@@ -35,7 +36,8 @@ describe('SOURCES registry (DATA-04 — single enumeration point)', () => {
 	// quick-261020-kugo: kugou inserted after joox (mainstream, resolve-floor eligible).
 	// quick-261020-migu: migu inserted after kugou (mainstream, resolve-floor eligible).
 	// quick-261020-bili: bilibili sits just before ytmusic (search-only); ytmusic stays last.
-	it('enumerates exactly qq,netease,kuwo,joox,kugou,migu,fivesing,jamendo,audius,bilibili,ytmusic (qq-first floor; ytmusic last)', () => {
+	// quick-261020-arch: archive sits just before bilibili (off-floor legal catalog).
+	it('enumerates exactly qq,netease,kuwo,joox,kugou,migu,fivesing,jamendo,audius,archive,bilibili,ytmusic (qq-first floor; ytmusic last)', () => {
 		expect(Object.keys(SOURCES)).toEqual(EXPECTED_KEYS);
 	});
 
@@ -82,6 +84,7 @@ describe('getEnabledAdapters', () => {
 			fivesing: false,
 			jamendo: false,
 			audius: false,
+			archive: false,
 			bilibili: false,
 			ytmusic: false
 		});
@@ -172,9 +175,18 @@ describe('isAutoResolveEligible (quick-260926-c69)', () => {
 		expect(SOURCES.bilibili.enabledByDefault).toBe(true);
 	});
 
+	// quick-261020-arch: archive is a legal-catalog source — searchable, off the floor.
+	it('archive is off the auto-resolve floor (legal catalog)', () => {
+		expect(isAutoResolveEligible('archive')).toBe(false);
+		expect(SOURCES.archive.autoResolveEligible).toBe(false);
+		expect(SOURCES.archive.enabledByDefault).toBe(true);
+	});
+
 	it('every other source is eligible (undefined flag = eligible)', () => {
 		for (const id of Object.keys(SOURCES) as SourceId[]) {
-			if (id !== 'ytmusic' && id !== 'bilibili') expect(isAutoResolveEligible(id)).toBe(true);
+			if (id !== 'ytmusic' && id !== 'bilibili' && id !== 'archive') {
+				expect(isAutoResolveEligible(id)).toBe(true);
+			}
 		}
 	});
 });

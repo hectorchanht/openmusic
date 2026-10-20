@@ -11,6 +11,7 @@ import { migu } from './migu';
 import { fivesing } from './fivesing';
 import { jamendo } from './jamendo';
 import { audius } from './audius';
+import { archive } from './archive';
 import { bilibili } from './bilibili';
 import { ytmusic } from './ytmusic';
 import { settings } from '$lib/stores/settings.svelte';
@@ -50,7 +51,9 @@ import { settings } from '$lib/stores/settings.svelte';
 // quick-261020-migu: migu follows kugou, same mainstream posture (floor-eligible).
 // quick-261020-bili: bilibili is appended just before ytmusic — search-only
 // (autoResolveEligible: false), and ytmusic keeps the load-bearing LAST seat.
-export const SOURCES: Record<SourceId, SourceAdapter> = { qq, netease, kuwo, joox, kugou, migu, fivesing, jamendo, audius, bilibili, ytmusic };
+// quick-261020-arch: archive sits with the other off-floor legal catalogs
+// (autoResolveEligible: false), just ahead of bilibili.
+export const SOURCES: Record<SourceId, SourceAdapter> = { qq, netease, kuwo, joox, kugou, migu, fivesing, jamendo, audius, archive, bilibili, ytmusic };
 
 /**
  * The enabled adapters for a search fan-out. Precedence (highest first):

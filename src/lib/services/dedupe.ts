@@ -35,7 +35,7 @@ import { t2sConvertLineSync, warmT2S } from '$lib/services/zh-convert';
 // title/album metadata is what the user sees. Identity is unaffected — it stays uid-based
 // (`makeUid`), and this rank never decides identity, only which of two same-song rows survives.
 // Cross-ref: the roadmap's pending "netease upstream health-gate" item already suspected this rank-4.
-const SOURCE_RANK: Record<SourceId, number> = { netease: 3, qq: 4, kuwo: 2, joox: 1, kugou: 1, migu: 1, fivesing: 0, jamendo: -1, audius: -1, bilibili: -1, ytmusic: -1 };
+const SOURCE_RANK: Record<SourceId, number> = { netease: 3, qq: 4, kuwo: 2, joox: 1, kugou: 1, migu: 1, fivesing: 0, jamendo: -1, audius: -1, archive: -1, bilibili: -1, ytmusic: -1 };
 
 /** Higher = better. Reads qualityLabel/quality strings (often null pre-resolve). */
 function qualityRank(t: Track): number {
