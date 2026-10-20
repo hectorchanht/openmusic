@@ -52,7 +52,7 @@ import { getCachedCoverByUid, getCachedCover, getPinnedCover, getCrowdCover } fr
 // Phase 40 D-14 / D-16: the crowd-shared cover pick — keys + the one GET per played song. The player
 // only READS the crowd (D-15: the TrackMenu picker tap is the only voter).
 import { coverPickKeys, fetchCoverPick } from '$lib/services/cover-pick-shared';
-import { resolveCoverForTrack } from '$lib/services/cover-backfill';
+import { resolveCoverForTrack, collectCoverCandidates } from '$lib/services/cover-backfill';
 import { matchKey } from '$lib/services/match-key';
 // quick-260615-hep: feed every displayed now-playing cover into the shared cache (both layers) +
 // bump the global reactive signal so other surfaces (homepage tiles) reuse the art and repaint live.
@@ -1364,6 +1364,14 @@ class Player {
 	 *  which reset currentTime to 0 (visible to user as "seek restarted the song"). */
 	private lastSeekAt = 0;
 	private static SEEK_ERROR_WINDOW_MS = 1500;
+
+	/**
+	 * quick-261020-hcvr: upper bound for a cover probe Image. A CDN that hangs (neither onload nor
+	 * onerror) used to stall healCover at step (5) forever — a stall now counts as dead and the
+	 * heal proceeds. Long enough for a slow-but-alive CDN; the one-shot guard keeps a false
+	 * negative from looping (worst case: one unnecessary re-resolve per uid+url).
+	 */
+	private static HEAL_PROBE_TIMEOUT_MS = 8000;
 
 	/**
 	 * Initial-load stall watchdog (PLAY-07 / D-13, D-14). A freshly started track whose src was
@@ -4612,21 +4620,62 @@ class Player {
 	 * as broken → repair). SSR guard: when Image is undefined resolve false. Never rejects. Private
 	 * 12-line twin of lazyCover's probeImage (quick-260704-20e) so the heal does NOT cross the action
 	 * boundary; mirrors the exact idiom preloadNextCover already uses (decoding/referrerPolicy).
+	 * quick-261020-hcvr: TIME-BOUNDED — a hanging URL resolves false after timeoutMs instead of
+	 * stalling the caller forever.
 	 */
-	private probeCover(url: string): Promise<boolean> {
+	private probeCover(url: string, timeoutMs = Player.HEAL_PROBE_TIMEOUT_MS): Promise<boolean> {
 		if (typeof Image === 'undefined') return Promise.resolve(false);
 		return new Promise<boolean>((resolve) => {
+			let done = false;
+			const finish = (v: boolean) => {
+				if (done) return;
+				done = true;
+				clearTimeout(timer);
+				resolve(v);
+			};
+			const timer = setTimeout(() => finish(false), timeoutMs);
 			try {
 				const img = new Image();
 				img.decoding = 'async';
 				img.referrerPolicy = 'no-referrer';
-				img.onload = () => resolve(true);
-				img.onerror = () => resolve(false);
+				img.onload = () => finish(true);
+				img.onerror = () => finish(false);
 				img.src = url;
 			} catch {
-				resolve(false);
+				finish(false);
 			}
 		});
+	}
+
+	/**
+	 * quick-261020-hcvr: candidate fan-out fallback for healCover — the last resort when the shared
+	 * tier chain misses or re-offers the dead URL. Collects the full Change-cover candidate list
+	 * (own → QQ → iTunes → Deezer → other CN → YTM), re-orders iTunes FIRST — the user: "iTunes
+	 * usually have the best and accurate cover" — drops the known-dead URL, and probe-VERIFIES
+	 * every remaining candidate in parallel (each bounded by the probe timeout). Returns the first
+	 * iTunes candidate that loads, else the first live candidate of any source, else null. Never
+	 * throws; supersedence is the caller's gen check.
+	 */
+	private async firstLiveHealCandidate(track: Track, deadUrl: string): Promise<string | null> {
+		try {
+			const cands = await collectCoverCandidates(track);
+			// Stable sort: iTunes leads, every other tier keeps its dialog order.
+			const ordered = cands
+				.filter((c) => hasHttpsScheme(c.url) && c.url !== deadUrl)
+				.sort((a, b) => (b.source === 'itunes' ? 1 : 0) - (a.source === 'itunes' ? 1 : 0));
+			if (!ordered.length) return null;
+			const lives = await Promise.all(
+				ordered.map(async (c) => ({
+					url: c.url,
+					source: c.source,
+					alive: await this.probeCover(c.url)
+				}))
+			);
+			const live = lives.filter((r) => r.alive);
+			return live.find((r) => r.source === 'itunes')?.url ?? live[0]?.url ?? null;
+		} catch {
+			return null;
+		}
 	}
 
 	/**
@@ -4755,9 +4804,12 @@ class Player {
 		try {
 			// (1) The effect passes the uid it observed; a mismatch means the track already changed — bail.
 			if (!this.current || this.current.uid !== uid) return;
-			// (2) A null/gradient cover is the resolveCoverAsync MISSING path, not here; a non-https value
-			//     is not a probe target. Only a present https URL can be "dead but painted".
-			const url = this.resolvedCover;
+			// (2) quick-261020-hcvr: probe the ACTUALLY PAINTED cover. displayCover is what the hero /
+			// Nowbar / OS media card render (pin → uid → name → resolvedCover, quick-260920-nyq); probing
+			// resolvedCover alone missed the case where the painted URL came from a cache layer it does
+			// not hold. A null/gradient cover is the resolveCoverAsync MISSING path, not here; a
+			// non-https value is not a probe target. Only a present https URL can be "dead but painted".
+			const url = this.displayCover;
 			if (!hasHttpsScheme(url)) return;
 			// (3) One-shot per uid+url (mirror lazyCover's `done`): probe AT MOST once so an errored
 			//     background paint can never re-trigger an infinite re-probe loop (T-20e-02). Add BEFORE probing.
@@ -4784,20 +4836,42 @@ class Player {
 			// Evict BOTH cache layers (empty-uid safe — removeCoverBoth skips the shared 'uid:' slot for
 			// an empty uid) so the stale dead cover is dropped before the re-resolve re-caches.
 			removeCoverBoth(uid, artist, title);
-			// (7) Re-resolve via the SHARED tier chain (Deezer→iTunes→CN; never throws; writes both cache
-			//     layers internally on a SOLID hit). Re-check the gen AFTER the await → discard a stale heal.
+			// (7) Re-resolve via the SHARED tier chain (never throws; writes both cache layers
+			//     internally on a SOLID hit). Re-check the gen AFTER the await → discard a stale heal.
 			const fresh = await resolveCoverForTrack(this.current);
 			if (myGen !== this.playGen) return;
-			// (8) Commit ONLY a SOLID https result (T-20e-01). A null/miss keeps the gradient — never
-			//     re-commit the dead url (D-12). resolveCoverForTrack already wrote both cache layers — do
-			//     NOT double-write (mirror resolveCoverAsync Site C); just bump so other tiles repaint.
-			if (hasHttpsScheme(fresh)) {
-				this.resolvedCover = fresh;
+			// (8) quick-261020-hcvr: commit ONLY a VERIFIED-REAL cover. The chain has no load check,
+			// and its CN tier can re-offer the EXACT url that just failed its probe (every upper tier
+			// misses → dedupeBest returns the same netease cover) — committing that re-broke the hero
+			// and the one-shot guard then blocked every later heal (the "broken cover forever" report).
+			// So a same-as-dead or probe-dead chain hit is NOT committed; it falls through to the
+			// candidate fan-out, which tries the Change-cover dialog's full list — iTunes FIRST
+			// (user: "iTunes usually have the best and accurate cover") — and takes the first
+			// candidate that actually LOADS. resolveCoverForTrack already wrote both cache layers on a
+			// chain hit — do NOT double-write that path (mirror resolveCoverAsync Site C); the
+			// candidate path writes via writeCoverBoth. A total miss evicts anything the chain
+			// re-cached and keeps the gradient — never re-commit the dead url (D-12).
+			let pick: string | null = null;
+			let chainWrote = false;
+			if (hasHttpsScheme(fresh) && fresh !== url && (await this.probeCover(fresh))) {
+				pick = fresh;
+				chainWrote = true;
+			} else {
+				pick = await this.firstLiveHealCandidate(this.current, url);
+				if (myGen !== this.playGen) return;
+			}
+			if (hasHttpsScheme(pick)) {
+				this.resolvedCover = pick;
+				if (!chainWrote) writeCoverBoth(uid, artist, title, pick);
 				// quick-261008-audit: the shown cover wins everywhere — push the healed art onto the
 				// library entries too, or liked/download rows keep the dead URL at rung 2 until
 				// their own lazyCover probe repairs them one by one.
-				library.fillEntryCovers(uid, artist, title, fresh);
+				library.fillEntryCovers(uid, artist, title, pick);
 				bumpCoverVersion();
+			} else {
+				// Total miss: evict anything the chain re-cached (it writes on a hit even when the
+				// hit IS the dead url) so the dead art cannot be re-read from the cache.
+				removeCoverBoth(uid, artist, title);
 			}
 		} catch {
 			// Best-effort — a failure leaves the gradient (never a broken image, never throws).

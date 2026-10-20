@@ -94,9 +94,12 @@ vi.mock('$lib/services/cover-backfill', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('$lib/services/cover-backfill')>();
 	// resolveCoverForTrack is the only per-play cover fetch left (the HQ upgrade was removed in
 	// Phase 40 D-11a). Mocked so the tests can assert when it is and is NOT made.
+	// quick-261020-hcvr: collectCoverCandidates is healCover's fan-out fallback — mocked to [] so
+	// only the suites that drive it opt in (no other suite calls it).
 	return {
 		...actual,
-		resolveCoverForTrack: vi.fn(async () => null)
+		resolveCoverForTrack: vi.fn(async () => null),
+		collectCoverCandidates: vi.fn(async () => [])
 	};
 });
 // quick-260704-20e: spy on the BOTH-layers evictor so healCover's dead-probe eviction is observable.
@@ -166,7 +169,7 @@ import {
 	setCrowdCoverByName
 } from '$lib/services/cover-cache';
 import { coverPickKeys, fetchCoverPick, submitCoverPick } from '$lib/services/cover-pick-shared';
-import { resolveCoverForTrack } from '$lib/services/cover-backfill';
+import { resolveCoverForTrack, collectCoverCandidates } from '$lib/services/cover-backfill';
 import {
 	removeCoverBoth,
 	unpinCover,
@@ -193,6 +196,7 @@ const mockUidCover = vi.mocked(getCachedCoverByUid);
 const mockCoverResolve = vi.mocked(resolveCoverForTrack);
 const mockNameCover = vi.mocked(getCachedCover);
 const mockResolveCover = vi.mocked(resolveCoverForTrack);
+const mockCandidates = vi.mocked(collectCoverCandidates);
 const mockRemoveCoverBoth = vi.mocked(removeCoverBoth);
 // quick-260915-w4f: the user's pinned cover + the one path that removes it.
 const mockGetPinned = vi.mocked(getPinnedCover);
@@ -3705,6 +3709,7 @@ describe('player.healCover — dead current-cover self-heal (quick-260704-20e)',
 		mockUidCover.mockReset().mockReturnValue(null);
 		mockNameCover.mockReset().mockReturnValue(null);
 		mockResolveCover.mockReset().mockResolvedValue(null);
+		mockCandidates.mockReset().mockResolvedValue([]);
 		mockRemoveCoverBoth.mockClear();
 		player.current = null;
 		player.queue = [];
@@ -3745,8 +3750,10 @@ describe('player.healCover — dead current-cover self-heal (quick-260704-20e)',
 		mockResolveCover.mockResolvedValue('https://cdn/fresh.jpg');
 
 		const p = player.healCover(t.uid);
-		await flush(); // probe Image constructed; its onerror is armed
+		await flush(); // dead-url probe Image constructed; its onerror is armed
 		fireProbe(false); // dead url
+		await flush(); // chain settles → fresh-url verification probe constructed
+		fireProbe(true); // chain hit loads → verified real, committed
 		await p;
 		await flush();
 
@@ -3820,6 +3827,8 @@ describe('player.healCover — dead current-cover self-heal (quick-260704-20e)',
 		const p1 = player.healCover(t.uid);
 		await flush();
 		fireProbe(false);
+		await flush(); // chain settles → fresh5 verification probe constructed
+		fireProbe(true); // fresh5 loads → verified, committed
 		await p1;
 		await flush();
 
@@ -3842,6 +3851,77 @@ describe('player.healCover — dead current-cover self-heal (quick-260704-20e)',
 		expect(images.length).toBe(probesBeforeThird); // no new probe for the already-probed uid+url
 		// The dead-url re-resolve fired exactly once (the fresh-url probe loaded → never re-resolved).
 		expect(mockResolveCover.mock.calls.length).toBe(resolveCallsAfterFirst);
+	});
+
+	it('Test 6 — chain re-offering the SAME dead url is not recommitted: iTunes candidate wins (quick-261020-hcvr)', async () => {
+		// The reported "broken cover forever": every upper tier misses, so the CN tier's dedupeBest
+		// re-offers the exact dead url. The old code committed it unverified and the one-shot guard
+		// then blocked every later heal. Now the fan-out runs and the iTunes candidate — verified
+		// live — wins (user: "iTunes usually have the best and accurate cover").
+		const t = mk('netease', 'H6b', 'Artist6', 'Song6');
+		setCurrent(t, 'https://cdn/dead6.jpg');
+		mockResolveCover.mockResolvedValue('https://cdn/dead6.jpg'); // chain re-offers the dead url
+		mockCandidates.mockResolvedValue([
+			{ url: 'https://qq/pink.jpg', source: 'qq' },
+			{ url: 'https://itunes/made.jpg', source: 'itunes' },
+			{ url: 'https://deezer/made.jpg', source: 'deezer' }
+		]);
+
+		const p = player.healCover(t.uid);
+		await flush();
+		fireProbe(false); // painted url dead → evict + chain (re-offers dead) → fan-out
+		await flush(); // 3 candidate probes constructed, iTunes first after the hcvr re-order
+		const n = images.length;
+		images[n - 3].onload?.(); // itunes loads
+		images[n - 2].onerror?.(); // qq dead
+		images[n - 1].onerror?.(); // deezer dead
+		await p;
+		await flush();
+
+		expect(rc()).toBe('https://itunes/made.jpg');
+		expect(rc()).not.toBe('https://cdn/dead6.jpg'); // the dead url is never recommitted
+		expect(mockRemoveCoverBoth).toHaveBeenCalledWith(t.uid, 'Artist6', 'Song6');
+	});
+
+	it('Test 7 — chain hit that fails its verification probe falls through to candidates (quick-261020-hcvr)', async () => {
+		const t = mk('kuwo', 'H7b', 'Artist7', 'Song7');
+		setCurrent(t, 'https://cdn/dead7.jpg');
+		mockResolveCover.mockResolvedValue('https://cdn/chain-dead.jpg'); // solid https, but unloadable
+		mockCandidates.mockResolvedValue([{ url: 'https://deezer/live7.jpg', source: 'deezer' }]);
+
+		const p = player.healCover(t.uid);
+		await flush();
+		fireProbe(false); // painted url dead
+		await flush(); // chain-hit verification probe constructed
+		fireProbe(false); // chain hit is dead too → fan-out
+		await flush(); // candidate probe constructed
+		fireProbe(true); // candidate alive → committed
+		await p;
+		await flush();
+
+		expect(rc()).toBe('https://deezer/live7.jpg');
+	});
+
+	it('Test 8 — probes the PAINTED cover: a dead pin heals even when resolvedCover is alive (quick-261020-hcvr)', async () => {
+		// displayCover (pin → uid → name → resolvedCover) is what the hero paints; the old code
+		// probed resolvedCover alone, so a dead pin over a live resolvedCover never healed.
+		const t = mk('qq', 'H8b', 'Artist8', 'Song8');
+		mockGetPinned.mockReturnValue('https://cdn/pin-dead.jpg'); // painted via the pin layer
+		setCurrent(t, 'https://cdn/alive8.jpg'); // ...while resolvedCover holds a live url
+		mockResolveCover.mockResolvedValue('https://cdn/fresh8.jpg');
+
+		const p = player.healCover(t.uid);
+		await flush();
+		expect(images[images.length - 1].src).toBe('https://cdn/pin-dead.jpg'); // probes the pin
+		fireProbe(false); // pin dead → the Q2 override drops it
+		await flush(); // fresh-url verification probe constructed
+		fireProbe(true);
+		await p;
+		await flush();
+
+		expect(mockUnpinCover).toHaveBeenCalledWith(t.uid);
+		expect(rc()).toBe('https://cdn/fresh8.jpg');
+		mockGetPinned.mockReturnValue(null); // restore the file-wide default
 	});
 
 	it('bails when the passed uid no longer matches the current track (track already changed)', async () => {
@@ -7668,6 +7748,7 @@ describe('cover pin (quick-260915-w4f)', () => {
 		mockNameCover.mockReset().mockReturnValue(null);
 		mockResolveCover.mockReset().mockResolvedValue(null);
 		mockRemoveCoverBoth.mockClear();
+		mockCandidates.mockReset().mockResolvedValue([]);
 		mockUnpinCover.mockClear();
 		mockGetPinned.mockReset().mockReturnValue(null); // unpinned by default — no leak into other suites
 		localStorage.clear();
@@ -7801,6 +7882,8 @@ describe('cover pin (quick-260915-w4f)', () => {
 		const p = player.healCover(t.uid);
 		await flush();
 		fireProbe(false); // the pinned URL is dead
+		await flush(); // chain settles → fresh-url verification probe constructed
+		fireProbe(true); // fresh loads → verified real, committed
 		await p;
 		await flush();
 
@@ -7827,19 +7910,24 @@ describe('cover pin (quick-260915-w4f)', () => {
 	});
 
 	it('healCover does NOT unpin when the dead url is not the pin (a different displayed cover died)', async () => {
+		// quick-261020-hcvr: the pin leads displayCover, so a dead NON-pin painted url only exists
+		// with no pin set — the heal then repairs without touching any pin.
 		const t = mk('netease', 'PA', 'Artist', 'Song');
 		player.current = t;
 		(player as unknown as { resolvedCover: string | null }).resolvedCover = 'https://cdn/other-dead.jpg';
-		mockGetPinned.mockReturnValue(PIN);
+		mockGetPinned.mockReturnValue(null);
 		mockResolveCover.mockResolvedValue('https://cdn/fresh.jpg');
 
 		const p = player.healCover(t.uid);
 		await flush();
 		fireProbe(false);
+		await flush(); // fresh-url verification probe constructed
+		fireProbe(true);
 		await p;
 		await flush();
 
 		expect(mockUnpinCover).not.toHaveBeenCalled();
+		expect(rc()).toBe('https://cdn/fresh.jpg');
 	});
 
 	it('restore() seeds resolvedCover from the PIN, ahead of the persisted target.cover', async () => {
@@ -8579,6 +8667,7 @@ describe('Phase 40 crowd cover (D-14 / D-16 / D-19)', () => {
 		mockUidCover.mockReset().mockReturnValue(null);
 		mockNameCover.mockReset().mockReturnValue(null);
 		mockResolveCover.mockReset().mockResolvedValue(null);
+		mockCandidates.mockReset().mockResolvedValue([]);
 		mockGetPinned.mockReset().mockReturnValue(null);
 		mockKeys.mockReset().mockResolvedValue(KEYS);
 		mockFetchPick.mockReset().mockResolvedValue(null);
@@ -8771,7 +8860,9 @@ describe('Phase 40 crowd cover (D-14 / D-16 / D-19)', () => {
 		mockResolveCover.mockResolvedValue('https://cdn/fresh.jpg');
 
 		const p = player.healCover(t.uid);
-		images[images.length - 1].onerror?.();
+		images[images.length - 1].onerror?.(); // the crowd url is dead
+		await flush(); // chain settles → fresh-url verification probe constructed
+		images[images.length - 1].onload?.(); // fresh loads → verified real
 		await p;
 
 		expect(mockRemoveCrowd).toHaveBeenCalledWith(t.uid, 'Artist', 'Song');
