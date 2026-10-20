@@ -45,6 +45,7 @@
 
 	const id = $props.id();
 	let open = $state(false);
+	let host: HTMLSpanElement | undefined = $state();
 
 	function toggle(e: MouseEvent) {
 		// A hint can sit inside a <summary> (Playback → Advanced sources). Without this, the click
@@ -52,9 +53,29 @@
 		e.stopPropagation();
 		open = !open;
 	}
+
+	// quick-261020-hintdismiss — an open panel closes when the user taps/clicks ANYWHERE
+	// outside it (Hector: "the tooltip should be hidden if user click somewhere else"), or
+	// presses Escape. Capture-phase pointerdown so a tap that ALSO toggles another hint
+	// still dismisses this one first; the button's own tap is inside `host` and unaffected.
+	$effect(() => {
+		if (!open) return;
+		const onDown = (e: PointerEvent) => {
+			if (host && !host.contains(e.target as Node)) open = false;
+		};
+		const onKey = (e: KeyboardEvent) => {
+			if (e.key === 'Escape') open = false;
+		};
+		document.addEventListener('pointerdown', onDown, true);
+		document.addEventListener('keydown', onKey);
+		return () => {
+			document.removeEventListener('pointerdown', onDown, true);
+			document.removeEventListener('keydown', onKey);
+		};
+	});
 </script>
 
-<span class="hint">
+<span class="hint" bind:this={host}>
 	<button
 		class="info"
 		type="button"

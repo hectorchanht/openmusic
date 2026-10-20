@@ -352,3 +352,88 @@ describe('apiFetch — circuit breaker (debug-nowbar-frozen-audius-spam round 2)
 		}
 	});
 });
+
+describe('apiFetch — priority lane (quick-261020-authprio)', () => {
+	// Trip the breaker the same way the existing suite does: THRESHOLD failing GETs.
+	async function tripBreaker(): Promise<ReturnType<typeof vi.fn>> {
+		vi.stubEnv('VITE_API_BASE', '');
+		const netFail = vi.fn(async () => {
+			throw new TypeError('network error');
+		});
+		vi.stubGlobal('fetch', netFail as unknown as typeof fetch);
+		const calls = Array.from({ length: CIRCUIT_FAILURE_THRESHOLD }, (_, i) =>
+			apiFetch(`/api/x?i=${i}`).catch(() => null)
+		);
+		await Promise.all(calls);
+		return netFail;
+	}
+
+	it('a priority request BYPASSES an open breaker (auth is never fast-rejected)', async () => {
+		const netFail = await tripBreaker();
+		const callsAtTrip = netFail.mock.calls.length;
+
+		// Breaker is OPEN: a normal request is fast-rejected without touching fetch…
+		await apiFetch('/api/blocked').catch(() => null);
+		expect(netFail.mock.calls.length).toBe(callsAtTrip);
+
+		// …but the priority lane goes straight through to a working fetch.
+		const ok = vi.fn(async () => new Response('{}', { status: 200 }));
+		vi.stubGlobal('fetch', ok);
+		const resp = await apiFetch('/api/auth/magic-link', { method: 'POST', priority: true });
+		expect(resp.status).toBe(200);
+		expect(ok).toHaveBeenCalledTimes(1);
+	});
+
+	it('a priority request does NOT wait on the FIFO concurrency queue', async () => {
+		vi.stubEnv('VITE_API_BASE', '');
+		const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+			if (String(input).includes('/api/hung')) return new Promise<Response>(() => {});
+			return new Response('{}', { status: 200 });
+		});
+		vi.stubGlobal('fetch', fetchImpl as unknown as typeof fetch);
+
+		// Occupy every concurrency slot with hung GETs (unique URLs — no dedupe).
+		const hung = Array.from({ length: MAX_CONCURRENT_REQUESTS }, (_, i) =>
+			apiFetch(`/api/hung?i=${i}`).catch(() => null)
+		);
+		await Promise.resolve(); // let the 8 acquire their slots
+		expect(fetchImpl.mock.calls.length).toBe(MAX_CONCURRENT_REQUESTS);
+
+		// The priority request must NOT queue behind them.
+		const resp = await apiFetch('/api/auth/session', { priority: true });
+		expect(resp.status).toBe(200);
+		expect(fetchImpl.mock.calls.length).toBe(MAX_CONCURRENT_REQUESTS + 1);
+		// The 8 hung promises never settle — __resetGovernor() in afterEach frees their slots.
+	});
+
+	it('a priority outcome still feeds breaker classification (a downed /api/* trips it for the rest)', async () => {
+		vi.stubEnv('VITE_API_BASE', '');
+		const down = vi.fn(async () => new Response('{}', { status: 500 }));
+		vi.stubGlobal('fetch', down as unknown as typeof fetch);
+		const calls = Array.from({ length: CIRCUIT_FAILURE_THRESHOLD }, (_, i) =>
+			apiFetch(`/api/auth?i=${i}`, { priority: true }).catch(() => null)
+		);
+		await Promise.all(calls);
+
+		// THRESHOLD priority-500s tripped the breaker: a NORMAL request is now fast-rejected.
+		let rejected = false;
+		await apiFetch('/api/blocked').catch(() => {
+			rejected = true;
+		});
+		expect(rejected).toBe(true);
+		expect(down.mock.calls.length).toBe(CIRCUIT_FAILURE_THRESHOLD);
+	});
+
+	it('priority GETs are NOT deduped (each is its own call)', async () => {
+		vi.stubEnv('VITE_API_BASE', '');
+		const ok = vi.fn(async () => new Response('{}', { status: 200 }));
+		vi.stubGlobal('fetch', ok);
+		const [a, b] = await Promise.all([
+			apiFetch('/api/auth/session', { priority: true }),
+			apiFetch('/api/auth/session', { priority: true })
+		]);
+		expect(a.status).toBe(200);
+		expect(b.status).toBe(200);
+		expect(ok).toHaveBeenCalledTimes(2);
+	});
+});

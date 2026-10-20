@@ -253,14 +253,66 @@ async function governedFetch(url: string, init: RequestInit | undefined): Promis
 }
 
 /**
+ * Per-call options for {@link apiFetch}, beyond RequestInit.
+ */
+export interface ApiFetchInit extends RequestInit {
+	/**
+	 * quick-261020-authprio — the PRIORITY lane for user-initiated critical requests
+	 * (sign-in, session probe). A priority request skips the circuit-breaker gate AND the
+	 * FIFO concurrency queue: it must never be fast-rejected or starved by background
+	 * floods (the production case: tapping "Email me a sign-in link" while cover-search
+	 * churn had the breaker open / the queue full → instant "Couldn't reach the server").
+	 * Timeout governance still applies, and the outcome still feeds the breaker
+	 * classification, so a genuinely downed /api/* still trips the breaker for everyone
+	 * else. Never deduped. Reserved for auth — background callers stay governed.
+	 */
+	priority?: boolean;
+}
+
+/**
+ * The priority lane: governedFetch minus the circuit gate and the concurrency queue.
+ * Same timeout + caller-abort wiring, same breaker classification, no waiting, no
+ * fast-reject. One raw fetch — never routed through apiFetch (no recursion).
+ */
+async function priorityFetch(url: string, init: RequestInit | undefined): Promise<Response> {
+	const timeout = new AbortController();
+	const timer = setTimeout(() => timeout.abort(), REQUEST_TIMEOUT_MS);
+	const caller = init?.signal ?? null;
+	const onCallerAbort = () => timeout.abort();
+	if (caller) {
+		if (caller.aborted) timeout.abort();
+		else caller.addEventListener('abort', onCallerAbort);
+	}
+	try {
+		const resp = await fetch(url, { ...(init ?? {}), signal: timeout.signal });
+		if (resp.status >= 500 || resp.status === 429) recordFailure();
+		else recordSuccess();
+		return resp;
+	} catch (err) {
+		// A caller-abort is an expected healthy cancel — neutral, like governedFetch.
+		if (!caller?.aborted) recordFailure();
+		throw err;
+	} finally {
+		clearTimeout(timer);
+		if (caller) caller.removeEventListener('abort', onCallerAbort);
+	}
+}
+
+/**
  * `fetch` through the API-base seam: resolves `path` via {@link apiUrl}, then routes the request
  * through the outbound governor (dedupe + concurrency cap + timeout — see the block above). The
  * resolved-URL and same-origin/native-base behavior is unchanged; only the request GOVERNANCE is
  * added, so callers keep the native `fetch` return/error contract (a superseded caller's promise
  * still rejects with an AbortError when its signal fires).
+ *
+ * Pass `{ priority: true }` for user-initiated critical requests (auth) — see {@link ApiFetchInit}.
  */
-export function apiFetch(path: string, init?: RequestInit): Promise<Response> {
+export function apiFetch(path: string, init?: ApiFetchInit): Promise<Response> {
 	const url = apiUrl(path);
+	if (init?.priority) {
+		const { priority: _dropped, ...rest } = init;
+		return priorityFetch(url, rest);
+	}
 	const method = (init?.method ?? 'GET').toUpperCase();
 
 	// Only idempotent, body-less GETs are deduped — a POST/PUT/bodied request is a distinct

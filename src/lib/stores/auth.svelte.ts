@@ -64,8 +64,11 @@ class Auth {
 	/**
 	 * One authed fetch through the api-base seam: credentials:'include' for the web cookie,
 	 * the bearer header on native, JSON content-type whenever a body is present.
+	 * Pass `priority: true` for the auth-critical calls (session probe, magic-link, verify,
+	 * logout) — quick-261020-authprio: they must never be fast-rejected or starved by the
+	 * governor's circuit breaker / FIFO queue.
 	 */
-	private authedFetch(path: string, init: RequestInit = {}): Promise<Response> {
+	private authedFetch(path: string, init: RequestInit & { priority?: boolean } = {}): Promise<Response> {
 		const headers = new Headers(init.headers);
 		if (init.body != null && !headers.has('content-type')) {
 			headers.set('content-type', 'application/json');
@@ -91,7 +94,7 @@ class Auth {
 					this.bearer = null;
 				}
 			}
-			const res = await this.authedFetch('/api/auth/session');
+			const res = await this.authedFetch('/api/auth/session', { priority: true });
 			const body = (await res.json().catch(() => null)) as { user: AccountUser | null } | null;
 			this.user = body?.user ?? null;
 			// A native token the server no longer knows is dead weight — drop it so the next
@@ -139,7 +142,8 @@ class Auth {
 				const res = await this.authedFetch('/api/auth/magic-link', {
 					method: 'POST',
 					body: JSON.stringify({ email: clean, ...(opts?.scheme ? { scheme: opts.scheme } : {}) }),
-					signal: AbortSignal.timeout(15_000)
+					signal: AbortSignal.timeout(15_000),
+					priority: true // quick-261020-authprio: never queued / fast-rejected
 				});
 				if (res.ok) return 'ok';
 				const err = ((await res.json().catch(() => null)) as { err?: string } | null)?.err;
@@ -169,7 +173,8 @@ class Auth {
 		try {
 			const res = await this.authedFetch('/api/auth/verify', {
 				method: 'POST',
-				body: JSON.stringify({ token })
+				body: JSON.stringify({ token }),
+				priority: true // quick-261020-authprio
 			});
 			if (!res.ok) return failed;
 			const body = (await res.json().catch(() => null)) as {
@@ -221,7 +226,7 @@ class Auth {
 			/* quota — the in-memory bearer still covers this session */
 		}
 		try {
-			const res = await this.authedFetch('/api/auth/session');
+			const res = await this.authedFetch('/api/auth/session', { priority: true });
 			const body = (await res.json().catch(() => null)) as { user: AccountUser | null } | null;
 			this.user = body?.user ?? null;
 		} catch {
@@ -248,7 +253,7 @@ class Auth {
 		this.engine?.stop();
 		this.engine = null;
 		try {
-			await this.authedFetch('/api/auth/logout', { method: 'POST' });
+			await this.authedFetch('/api/auth/logout', { method: 'POST', priority: true });
 		} catch {
 			/* unreachable server — the local sign-out below still applies */
 		}
