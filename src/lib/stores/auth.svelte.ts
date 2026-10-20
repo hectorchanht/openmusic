@@ -18,7 +18,7 @@
 import { browser } from '$app/environment';
 import { Capacitor } from '@capacitor/core';
 import { apiFetch } from '$lib/services/api-base';
-import { TOKEN_RE, isValidEmail, type AccountUser } from '$lib/auth/auth-core';
+import { TOKEN_RE, diagLine, isValidEmail, type AccountUser } from '$lib/auth/auth-core';
 import { startSyncEngine, type SyncStatus } from '$lib/services/sync';
 
 /** localStorage key for the NATIVE bearer token. Web never writes it (cookie only). */
@@ -54,6 +54,12 @@ class Auth {
 	syncStatus = $state<SyncStatus>('idle');
 	/** Epoch ms of the last successful sync pass, or null. */
 	lastSyncedAt = $state<number | null>(null);
+	/**
+	 * quick-261020-realerr — raw diagnostic from the last requestLink network failure
+	 * (per-attempt name/message/elapsed + the differential probe). The Account page shows
+	 * it under the friendly error; Hector asked for the real error, not a paraphrase.
+	 */
+	lastLinkDiag = $state<string | null>(null);
 
 	// PLAIN fields (house rule: state the UI never reads reactively stays non-$state).
 	/** Native bearer token; null on web, where the cookie is the credential. */
@@ -134,7 +140,10 @@ class Auth {
 		if (!browser) return 'error';
 		const clean = email.trim().toLowerCase();
 		if (!isValidEmail(clean)) return 'invalid-email';
+		this.lastLinkDiag = null;
+		const diagParts: string[] = [];
 		for (let attempt = 0; attempt < 2; attempt++) {
+			const t0 = Date.now();
 			try {
 				// AbortSignal.timeout is the native timeout — never hand-rolled (the fetch
 				// helpers carry the same convention). A hung edge call strands the form
@@ -153,12 +162,37 @@ class Auth {
 				if (err === 'not-configured') return 'not-configured';
 				if (err === 'send-failed') return 'send-failed';
 				return 'error';
-			} catch {
+			} catch (e) {
+				// quick-261020-realerr (Hector: "why don't you show the real error message?") —
+				// capture the RAW failure per attempt (see diagLine in auth-core).
+				diagParts.push(diagLine(e, attempt, Date.now() - t0));
 				if (attempt === 0) continue; // retry once, on network failure only
+				this.lastLinkDiag = diagParts.join(' | ') + (await this.probeDiag());
 				return 'network';
 			}
 		}
 		return 'network'; // unreachable — every loop path returns above
+	}
+
+	/**
+	 * quick-261020-realerr — differential probe after a failed requestLink: can the phone
+	 * reach the API AT ALL? A priority GET /api/auth/session (no preflight, trivial D1
+	 * read) answers it. Probe reachable + POST failed → the POST itself is the problem
+	 * (preflight / timeout); probe failed too → the phone↔server path is down.
+	 */
+	private async probeDiag(): Promise<string> {
+		const t0 = Date.now();
+		try {
+			const res = await this.authedFetch('/api/auth/session', {
+				priority: true,
+				signal: AbortSignal.timeout(8_000)
+			});
+			return ` || probe: HTTP ${res.status} @${Date.now() - t0}ms`;
+		} catch (e) {
+			const name = e instanceof Error ? e.name : 'Unknown';
+			const msg = e instanceof Error ? e.message : String(e);
+			return ` || probe: ${name}: ${msg || '(no message)'} @${Date.now() - t0}ms`;
+		}
 	}
 
 	/** Sign-in step 2 (called by the /auth/magic page): redeem the token from the email

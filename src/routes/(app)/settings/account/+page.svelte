@@ -157,6 +157,12 @@
 						     response, so a blind retry can double-send. -->
 						{#if errorKey === 'account.errNetwork'}
 							<p class="hint net">{t('account.errNetworkHint')}</p>
+							<!-- quick-261020-realerr (Hector: "why don't you show the real error
+							     message?") — the RAW failure, not a paraphrase: per-attempt
+							     name/message/elapsed plus the differential server probe. -->
+							{#if auth.lastLinkDiag}
+								<p class="diag">{auth.lastLinkDiag}</p>
+							{/if}
 						{/if}
 					{/if}
 					<button class="send" type="submit" disabled={sending} use:tapBounce>
@@ -198,6 +204,9 @@
 	.field input { background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: 10px; color: var(--color-text); padding: 12px 14px; font-size: 1rem; width: 100%; box-sizing: border-box; }
 	.field input:focus { outline: 2px solid var(--color-primary); outline-offset: 0; border-color: transparent; }
 	.error { color: #ff5d73; font-size: 0.8125rem; margin: 0 0 12px; }
+	/* quick-261020-realerr — the raw diagnostic: muted, monospace, wraps. Technical on
+	   purpose — it's a log line for diagnosis, not user copy. */
+	.diag { color: var(--color-text-muted); font-family: ui-monospace, monospace; font-size: 0.6875rem; line-height: 1.5; margin: -6px 0 12px; overflow-wrap: anywhere; opacity: 0.85; }
 	.send { width: 100%; background: var(--color-primary); color: #fff; border: none; border-radius: 999px; padding: 12px 20px; font-size: 0.9375rem; font-weight: 600; cursor: pointer; }
 	.send:disabled { opacity: 0.55; cursor: default; }
 </style>

@@ -13,6 +13,7 @@ import {
 	NATIVE_APP_SCHEME,
 	buildAuthCallbackUrl,
 	buildSessionCookie,
+	diagLine,
 	clearSessionCookie,
 	getAuthToken,
 	getBearerToken,
@@ -274,5 +275,26 @@ describe('deep-link handoff — quick-261020-deeplink', () => {
 		it('accepts a case-variant scheme — the URL parser lowercases it, same as the OS intent filter', () => {
 			expect(parseAuthCallbackUrl(`OPENMUSIC://auth/callback?token=${token}`)).toBe(token);
 		});
+	});
+});
+
+describe('diagLine (quick-261020-realerr)', () => {
+	it('formats a real Error as "attempt N: Name: message @Xms"', () => {
+		const err = new TypeError('Failed to fetch');
+		expect(diagLine(err, 0, 230)).toBe('attempt 1: TypeError: Failed to fetch @230ms');
+	});
+
+	it('marks a hung request by its ~15s AbortError elapsed', () => {
+		const err = new DOMException('signal timed out', 'AbortError');
+		expect(diagLine(err, 1, 15012)).toBe('attempt 2: AbortError: signal timed out @15012ms');
+	});
+
+	it('never emits an empty message (falls back to "(no message)")', () => {
+		expect(diagLine(new Error(), 0, 5)).toBe('attempt 1: Error: (no message) @5ms');
+	});
+
+	it('handles non-Error throws without crashing', () => {
+		expect(diagLine('string boom', 0, 12)).toBe('attempt 1: Unknown: string boom @12ms');
+		expect(diagLine(undefined, 0, 1)).toBe('attempt 1: Unknown: undefined @1ms');
 	});
 });

@@ -60,6 +60,19 @@ export function isAllowedScheme(scheme: unknown): scheme is string {
 }
 
 /**
+ * quick-261020-realerr — one raw diagnostic line for a failed request attempt
+ * (Hector: "why don't you show the real error message?"). Pure so the store and the
+ * tests share it: `attempt 1: TypeError: Failed to fetch @230ms`. A 15s AbortError
+ * means the request hung; an instant TypeError means the phone never reached the
+ * server (DNS/TCP/TLS/CORS-preflight).
+ */
+export function diagLine(thrown: unknown, attempt: number, elapsedMs: number): string {
+	const name = thrown instanceof Error ? thrown.name : 'Unknown';
+	const msg = thrown instanceof Error ? thrown.message : String(thrown);
+	return `attempt ${attempt + 1}: ${name}: ${msg || '(no message)'} @${elapsedMs}ms`;
+}
+
+/**
  * The deep-link URL the /auth/magic page offers after a scheme-tagged redeem:
  * `openmusic://auth/callback?token=<64-hex bearer>`. The bearer is the 30-day SESSION
  * token (the same value the verify response carries); the magic token is single-use and
