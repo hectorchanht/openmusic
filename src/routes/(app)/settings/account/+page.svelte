@@ -17,7 +17,7 @@
 	import type { Component } from 'svelte';
 	import { auth } from '$lib/stores/auth.svelte';
 	import { settings } from '$lib/stores/settings.svelte';
-	import { NATIVE_APP_SCHEME } from '$lib/auth/auth-core';
+	import { NATIVE_APP_SCHEME, GOOGLE_WEB_CLIENT_ID } from '$lib/auth/auth-core';
 	import { requestLinkErrorKey } from '$lib/auth/request-link-keys';
 	import type { SyncItems } from '$lib/config/defaults';
 	import PageHeader from '$lib/components/PageHeader.svelte';
@@ -42,6 +42,9 @@
 		} catch {
 			/* storage unavailable — no recent emails, non-fatal */
 		}
+		// quick-261020-google — web only: the Google Identity Services button. The APK
+		// uses the Play-Services plugin instead (nativeGoogleSignIn below).
+		if (!isNative) void initGis();
 	});
 
 	/** Device-local recent emails for one-tap fill (Hector 2026-10-20: "one click to fill
@@ -57,6 +60,11 @@
 	// A TranslationKey (not raw text) — the store→UI one-way rule.
 	let errorKey = $state<TranslationKey | null>(null);
 	let signOutOpen = $state(false);
+	// quick-261020-google — Google sign-in state (separate from the magic-link errorKey).
+	let googleLoading = $state(false);
+	let googleError = $state(false);
+	let gisButtonHost: HTMLDivElement | undefined = $state();
+	let gisReady = $state(false);
 
 	/** Remember a successfully-sent email (most-recent-first, deduped, capped). */
 	function rememberEmail(clean: string) {
@@ -83,6 +91,91 @@
 		if (errorKey === null) {
 			sent = true;
 			rememberEmail(email.trim().toLowerCase());
+		}
+	}
+
+	/**
+	 * quick-261020-google — web: render the Google Identity Services button. The GIS
+	 * script is loaded lazily (never in the APK) and the button lives in gisButtonHost.
+	 * The callback credential is a JWT idToken with aud = the web client — the server
+	 * verifies it exactly like a native token. A GIS load failure is silent: the magic
+	 * link still works.
+	 */
+	async function initGis() {
+		if (gisReady || !browser) return;
+		try {
+			await loadGisScript();
+			const g = window.google?.accounts?.id;
+			if (!g || !gisButtonHost) return;
+			g.initialize({
+				client_id: GOOGLE_WEB_CLIENT_ID,
+				callback: (resp) => void onGoogleCredential(resp?.credential)
+			});
+			g.renderButton(gisButtonHost, {
+				theme: 'filled_black',
+				size: 'large',
+				width: 300,
+				text: 'signin_with'
+			});
+			gisReady = true;
+		} catch {
+			/* GIS unavailable — magic link remains */
+		}
+	}
+
+	function loadGisScript(): Promise<void> {
+		return new Promise((resolve, reject) => {
+			if (document.querySelector('script[src="https://accounts.google.com/gsi/client"]')) {
+				resolve();
+				return;
+			}
+			const s = document.createElement('script');
+			s.src = 'https://accounts.google.com/gsi/client';
+			s.async = true;
+			s.defer = true;
+			s.onload = () => resolve();
+			s.onerror = () => reject(new Error('gis-load'));
+			document.head.appendChild(s);
+		});
+	}
+
+	/** Shared landing for the GIS callback AND the native plugin: one idToken in. */
+	async function onGoogleCredential(credential: string | undefined) {
+		googleError = false;
+		if (!credential) {
+			googleError = true;
+			return;
+		}
+		googleLoading = true;
+		try {
+			const res = await auth.signInWithGoogle(credential);
+			// Success: auth.user is set → the page re-renders into the signed-in section
+			// (and the sync engine's first pass pulls the account's envelope).
+			if (!res.ok) googleError = true;
+		} finally {
+			googleLoading = false;
+		}
+	}
+
+	/**
+	 * quick-261020-google — native: Play-Services Google Sign-In, NO Firebase. The
+	 * plugin mints an ID token with aud = the web client (see the GoogleAuth block in
+	 * capacitor.config.ts), so the server verifies it exactly like a GIS credential.
+	 * Dynamic import keeps the plugin out of the web bundle.
+	 */
+	async function nativeGoogleSignIn() {
+		if (googleLoading) return;
+		googleError = false;
+		googleLoading = true;
+		try {
+			const { GoogleAuth } = await import('@codetrix-studio/capacitor-google-auth');
+			const user = await GoogleAuth.signIn();
+			// A cancelled account chooser lands here too — one quiet error line, no drama.
+			await onGoogleCredential(user?.authentication?.idToken);
+		} catch {
+			googleError = true;
+		} finally {
+			googleLoading = false;
 		}
 	}
 
@@ -208,6 +301,23 @@
 					</button>
 				</form>
 			{/if}
+			<!-- quick-261020-google — the second sign-in path, next to the magic link. The
+			     two coexist: magic link for email-first, Google for one-tap. -->
+			<div class="or"><span>{t('account.googleOr')}</span></div>
+			{#if isNative}
+				<button class="google" onclick={() => void nativeGoogleSignIn()} disabled={googleLoading} use:tapBounce>
+					<svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.1H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.9 1.2 8 3l5.7-5.7C34.5 6.1 29.5 4 24 4 13 4 4 13 4 24s9 20 20 20 20-9 20-20c0-1.3-.1-2.6-.4-3.9z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.9 1.2 8 3l5.7-5.7C34.5 6.1 29.5 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.1H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C41 35.4 44 30.2 44 24c0-1.3-.1-2.6-.4-3.9z"/></svg>
+					{googleLoading ? t('account.googleSigningIn') : t('account.googleSignIn')}
+				</button>
+			{:else}
+				<div class="gis" bind:this={gisButtonHost}></div>
+				{#if googleLoading}
+					<p class="hint">{t('account.googleSigningIn')}</p>
+				{/if}
+			{/if}
+			{#if googleError}
+				<p class="error">{t('account.errGoogle')}</p>
+			{/if}
 		</section>
 	{/if}
 
@@ -252,4 +362,10 @@
 	.diag { color: var(--color-text-muted); font-family: ui-monospace, monospace; font-size: 0.6875rem; line-height: 1.5; margin: -6px 0 12px; overflow-wrap: anywhere; opacity: 0.85; }
 	.send { width: 100%; background: var(--color-primary); color: #fff; border: none; border-radius: 999px; padding: 12px 20px; font-size: 0.9375rem; font-weight: 600; cursor: pointer; }
 	.send:disabled { opacity: 0.55; cursor: default; }
+	/* quick-261020-google — the divider + second sign-in path. */
+	.or { display: flex; align-items: center; gap: 10px; margin: 16px 0 12px; color: var(--color-text-muted); font-size: 0.75rem; }
+	.or::before, .or::after { content: ''; flex: 1; height: 1px; background: var(--color-border); }
+	.google { width: 100%; background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); border-radius: 999px; padding: 12px 20px; font-size: 0.9375rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 10px; }
+	.google:disabled { opacity: 0.55; cursor: default; }
+	.gis { display: flex; justify-content: center; margin: 0 0 4px; min-height: 44px; }
 </style>

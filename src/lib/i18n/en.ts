@@ -243,6 +243,10 @@ const en = {
 	"account.openInAppTitle": "You're signed in",
 	"account.openInAppDesc": "Tap the button below to finish signing in to the app.",
 	"account.nativeSignInHint": "Tap the link in your email, then tap “Open in OpenMusic” to finish signing in.",
+	"account.googleOr": "or",
+	"account.googleSignIn": "Sign in with Google",
+	"account.googleSigningIn": "Signing in with Google…",
+	"account.errGoogle": "Google sign-in failed. Please try again.",
 	"account.invalidScheme": "This sign-in request isn't supported — please update the app and try again.",
 	"settings.backToSettings": "Settings",
 

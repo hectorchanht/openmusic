@@ -209,6 +209,10 @@ const es: Dict = {
 	"account.openInAppTitle": "Sesión iniciada",
 	"account.openInAppDesc": "Toca el botón para terminar de iniciar sesión en la app.",
 	"account.nativeSignInHint": "Toca el enlace de tu correo y luego “Abrir en OpenMusic” para completar el inicio de sesión.",
+	"account.googleOr": "o",
+	"account.googleSignIn": "Iniciar sesión con Google",
+	"account.googleSigningIn": "Iniciando sesión con Google…",
+	"account.errGoogle": "Error al iniciar sesión con Google. Inténtalo de nuevo.",
 	"account.invalidScheme": "Esta solicitud de inicio de sesión no es compatible — actualiza la app e inténtalo de nuevo.",
 	"settings.backToSettings": "Configuración",
 

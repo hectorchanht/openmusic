@@ -209,6 +209,10 @@ const fr: Dict = {
 	"account.openInAppTitle": "Vous êtes connecté",
 	"account.openInAppDesc": "Touchez le bouton ci-dessous pour terminer la connexion dans l'application.",
 	"account.nativeSignInHint": "Touchez le lien dans votre e-mail, puis « Ouvrir dans OpenMusic » pour terminer la connexion.",
+	"account.googleOr": "ou",
+	"account.googleSignIn": "Se connecter avec Google",
+	"account.googleSigningIn": "Connexion avec Google…",
+	"account.errGoogle": "Échec de la connexion Google. Veuillez réessayer.",
 	"account.invalidScheme": "Cette demande de connexion n'est pas prise en charge — mettez l'application à jour et réessayez.",
 	"settings.backToSettings": "Paramètres",
 

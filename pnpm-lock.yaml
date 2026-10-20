@@ -28,6 +28,9 @@ dependencies:
   '@capacitor/status-bar':
     specifier: ^8.0.4
     version: 8.0.4(@capacitor/core@8.5.2)
+  '@codetrix-studio/capacitor-google-auth':
+    specifier: 3.3.6
+    version: 3.3.6(@capacitor/core@8.5.2)
   '@jofr/capacitor-media-session':
     specifier: 4.0.0
     version: 4.0.0(@capacitor/core@8.5.2)
@@ -769,6 +772,14 @@ packages:
     transitivePeerDependencies:
       - supports-color
     dev: true
+
+  /@codetrix-studio/capacitor-google-auth@3.3.6(@capacitor/core@8.5.2):
+    resolution: {integrity: sha512-SiMjYq5O2rWzEdKrmu3VZQ2nmFdq6LUXPzsNbjs4Ri6WTJVCtzp1HI12t4Dcwi5YoSw8g94Iyi3Can8msj57QA==}
+    peerDependencies:
+      '@capacitor/core': ^5.0.0
+    dependencies:
+      '@capacitor/core': 8.5.2
+    dev: false
 
   /@isaacs/fs-minipass@4.0.1:
     resolution: {integrity: sha512-wgm9Ehl2jpeqP3zw/7mo3kRHFp5MEDhqAdwy1fTGkHAwnkGOVsgpvQhL8B5n1qlb01jV3n/bI0ZfZp5lWA1k4w==}

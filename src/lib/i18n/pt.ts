@@ -209,6 +209,10 @@ const pt: Dict = {
 	"account.openInAppTitle": "Sessão iniciada",
 	"account.openInAppDesc": "Toque no botão abaixo para concluir o login no app.",
 	"account.nativeSignInHint": "Toque no link do seu e-mail e depois em “Abrir no OpenMusic” para concluir o login.",
+	"account.googleOr": "ou",
+	"account.googleSignIn": "Entrar com o Google",
+	"account.googleSigningIn": "Entrando com o Google…",
+	"account.errGoogle": "Falha no login com o Google. Tente novamente.",
 	"account.invalidScheme": "Esta solicitação de login não é suportada — atualize o app e tente novamente.",
 	"settings.backToSettings": "Configurações",
 

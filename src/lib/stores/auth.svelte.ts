@@ -219,20 +219,63 @@ class Auth {
 			if (!body?.user) return failed;
 			const scheme = typeof body.scheme === 'string' ? body.scheme : null;
 			const bearer = typeof body.token === 'string' ? body.token : null;
-			this.user = body.user;
-			this.ready = true;
-			// Native ONLY: persist the bearer (see header). On web the token in this body is
-			// ignored on purpose — the httpOnly cookie is already set and JS must not hold it.
-			if (Capacitor.isNativePlatform() && bearer) {
-				this.bearer = bearer;
-				try {
-					localStorage.setItem(TOKEN_KEY, JSON.stringify({ token: bearer }));
-				} catch {
-					/* quota — the in-memory bearer still covers this session */
-				}
-			}
-			this.startEngine();
+			this.establishSession(body.user, bearer);
 			return { ok: true, scheme, token: bearer };
+		} catch {
+			return failed;
+		}
+	}
+
+	/**
+	 * The post-login path verify() and signInWithGoogle() share: set the user, persist the
+	 * native bearer (web ignores it — the httpOnly cookie is already set and JS must not
+	 * hold the token), and start the sync engine (its first pass pulls the account's
+	 * envelope, so a fresh device converges on its own data).
+	 */
+	private establishSession(user: AccountUser, bearer: string | null): void {
+		this.user = user;
+		this.ready = true;
+		// Native ONLY: persist the bearer (see header). On web the token in this body is
+		// ignored on purpose — the httpOnly cookie is already set and JS must not hold it.
+		if (Capacitor.isNativePlatform() && bearer) {
+			this.bearer = bearer;
+			try {
+				localStorage.setItem(TOKEN_KEY, JSON.stringify({ token: bearer }));
+			} catch {
+				/* quota — the in-memory bearer still covers this session */
+			}
+		}
+		this.startEngine();
+	}
+
+	/**
+	 * quick-261020-google — Google sign-in: exchange a Google ID token for the app's own
+	 * session. The token comes from the web's Google Identity Services button or the APK's
+	 * Play-Services sign-in (NO Firebase either way); the server verifies the JWT and
+	 * upserts by email, so a same-email Google + magic-link sign-in is ONE user. Session
+	 * establishment is byte-identical to verify() — the only difference is the credential
+	 * presented. Returns VerifyResult (scheme is always null here; token is the native
+	 * bearer seam). Never throws.
+	 */
+	async signInWithGoogle(idToken: string): Promise<VerifyResult> {
+		const failed: VerifyResult = { ok: false, scheme: null, token: null };
+		if (!browser || !idToken) return failed;
+		try {
+			const res = await this.authedFetch('/api/auth/google', {
+				method: 'POST',
+				body: JSON.stringify({ idToken }),
+				priority: true // quick-261020-authprio: auth-critical, never queued / fast-rejected
+			});
+			if (!res.ok) return failed;
+			const body = (await res.json().catch(() => null)) as {
+				user: AccountUser;
+				token: string;
+				scheme?: string | null;
+			} | null;
+			if (!body?.user) return failed;
+			const bearer = typeof body.token === 'string' ? body.token : null;
+			this.establishSession(body.user, bearer);
+			return { ok: true, scheme: null, token: bearer };
 		} catch {
 			return failed;
 		}
@@ -300,6 +343,16 @@ class Auth {
 				localStorage.removeItem(TOKEN_KEY);
 			} catch {
 				/* ignore */
+			}
+			// quick-261020-google — also release the Play-Services identity so the next
+			// "Sign in with Google" re-prompts the account chooser instead of silently
+			// reusing the previous Google account. Best-effort: our own sign-out above
+			// already applied. Dynamic import keeps the plugin out of the web bundle.
+			try {
+				const { GoogleAuth } = await import('@codetrix-studio/capacitor-google-auth');
+				await GoogleAuth.signOut();
+			} catch {
+				/* plugin missing or already signed out — nothing to release */
 			}
 		}
 	}

@@ -209,6 +209,10 @@ const ru: Dict = {
 	"account.openInAppTitle": "Вы вошли",
 	"account.openInAppDesc": "Нажмите кнопку ниже, чтобы завершить вход в приложение.",
 	"account.nativeSignInHint": "Нажмите ссылку в письме, затем «Открыть в OpenMusic», чтобы завершить вход.",
+	"account.googleOr": "или",
+	"account.googleSignIn": "Войти через Google",
+	"account.googleSigningIn": "Вход через Google…",
+	"account.errGoogle": "Не удалось войти через Google. Попробуйте ещё раз.",
 	"account.invalidScheme": "Этот запрос на вход не поддерживается — обновите приложение и попробуйте снова.",
 	"settings.backToSettings": "Настройки",
 

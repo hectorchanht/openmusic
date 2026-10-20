@@ -220,6 +220,10 @@ const zhHant: Dict = {
 	"account.openInAppTitle": "你已經登入",
 	"account.openInAppDesc": "撳下面個掣，完成 app 登入。",
 	"account.nativeSignInHint": "撳 email 入面條 link，之後撳「Open in OpenMusic」完成登入。",
+	"account.googleOr": "或",
+	"account.googleSignIn": "使用 Google 登入",
+	"account.googleSigningIn": "正在使用 Google 登入…",
+	"account.errGoogle": "Google 登入失敗，請再試一次。",
 	"account.invalidScheme": "呢個登入要求唔支援 — 請更新 app 再試。",
 	"settings.backToSettings": "設定",
 

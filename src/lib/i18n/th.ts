@@ -209,6 +209,10 @@ const th: Dict = {
 	"account.openInAppTitle": "เข้าสู่ระบบแล้ว",
 	"account.openInAppDesc": "แตะปุ่มด้านล่างเพื่อเข้าสู่ระบบในแอปให้เสร็จสมบูรณ์",
 	"account.nativeSignInHint": "แตะลิงก์ในอีเมลของคุณ จากนั้นแตะ “เปิดใน OpenMusic” เพื่อเข้าสู่ระบบให้เสร็จสมบูรณ์",
+	"account.googleOr": "หรือ",
+	"account.googleSignIn": "ลงชื่อเข้าใช้ด้วย Google",
+	"account.googleSigningIn": "กำลังลงชื่อเข้าใช้ด้วย Google…",
+	"account.errGoogle": "ลงชื่อเข้าใช้ด้วย Google ไม่สำเร็จ โปรดลองอีกครั้ง",
 	"account.invalidScheme": "ไม่รองรับคำขอเข้าสู่ระบบนี้ — โปรดอัปเดตแอปแล้วลองอีกครั้ง",
 	"settings.backToSettings": "การตั้งค่า",
 

@@ -209,6 +209,10 @@ const id: Dict = {
 	"account.openInAppTitle": "Kamu sudah masuk",
 	"account.openInAppDesc": "Ketuk tombol di bawah untuk menyelesaikan masuk di aplikasi.",
 	"account.nativeSignInHint": "Ketuk tautan di email kamu, lalu ketuk “Buka di OpenMusic” untuk menyelesaikan masuk.",
+	"account.googleOr": "atau",
+	"account.googleSignIn": "Masuk dengan Google",
+	"account.googleSigningIn": "Masuk dengan Google…",
+	"account.errGoogle": "Gagal masuk dengan Google. Silakan coba lagi.",
 	"account.invalidScheme": "Permintaan masuk ini tidak didukung — perbarui aplikasi dan coba lagi.",
 	"settings.backToSettings": "Pengaturan",
 

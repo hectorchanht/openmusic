@@ -209,6 +209,10 @@ const de: Dict = {
 	"account.openInAppTitle": "Angemeldet",
 	"account.openInAppDesc": "Tippe auf die Schaltfläche unten, um die Anmeldung in der App abzuschließen.",
 	"account.nativeSignInHint": "Tippe auf den Link in deiner E-Mail und dann auf „In OpenMusic öffnen“, um die Anmeldung abzuschließen.",
+	"account.googleOr": "oder",
+	"account.googleSignIn": "Mit Google anmelden",
+	"account.googleSigningIn": "Melde dich mit Google an…",
+	"account.errGoogle": "Google-Anmeldung fehlgeschlagen. Bitte versuch es erneut.",
 	"account.invalidScheme": "Diese Anmeldeanfrage wird nicht unterstützt — bitte aktualisiere die App und versuche es erneut.",
 	"settings.backToSettings": "Einstellungen",
 

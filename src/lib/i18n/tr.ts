@@ -209,6 +209,10 @@ const tr: Dict = {
 	"account.openInAppTitle": "Giriş yapıldı",
 	"account.openInAppDesc": "Uygulamada oturum açmayı tamamlamak için aşağıdaki düğmeye dokun.",
 	"account.nativeSignInHint": "E-postandaki bağlantıya dokun, ardından oturum açmayı tamamlamak için “OpenMusic'te aç”a dokun.",
+	"account.googleOr": "veya",
+	"account.googleSignIn": "Google ile giriş yap",
+	"account.googleSigningIn": "Google ile giriş yapılıyor…",
+	"account.errGoogle": "Google ile giriş başarısız oldu. Lütfen tekrar deneyin.",
 	"account.invalidScheme": "Bu oturum açma isteği desteklenmiyor — lütfen uygulamayı güncelleyip tekrar dene.",
 	"settings.backToSettings": "Ayarlar",
 

@@ -209,6 +209,10 @@ const it: Dict = {
 	"account.openInAppTitle": "Accesso effettuato",
 	"account.openInAppDesc": "Tocca il pulsante qui sotto per completare l'accesso nell'app.",
 	"account.nativeSignInHint": "Tocca il link nella tua email, poi “Apri in OpenMusic” per completare l'accesso.",
+	"account.googleOr": "o",
+	"account.googleSignIn": "Accedi con Google",
+	"account.googleSigningIn": "Accesso con Google in corso…",
+	"account.errGoogle": "Accesso con Google non riuscito. Riprova.",
 	"account.invalidScheme": "Questa richiesta di accesso non è supportata — aggiorna l'app e riprova.",
 	"settings.backToSettings": "Impostazioni",
 

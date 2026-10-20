@@ -209,6 +209,10 @@ const ar: Dict = {
 	"account.openInAppTitle": "تم تسجيل الدخول",
 	"account.openInAppDesc": "اضغط الزر أدناه لإتمام تسجيل الدخول في التطبيق.",
 	"account.nativeSignInHint": "اضغط الرابط في بريدك الإلكتروني، ثم اضغط “فتح في OpenMusic” لإتمام تسجيل الدخول.",
+	"account.googleOr": "أو",
+	"account.googleSignIn": "تسجيل الدخول باستخدام Google",
+	"account.googleSigningIn": "جارٍ تسجيل الدخول باستخدام Google…",
+	"account.errGoogle": "فشل تسجيل الدخول باستخدام Google. حاول مرة أخرى.",
 	"account.invalidScheme": "طلب تسجيل الدخول هذا غير مدعوم — يرجى تحديث التطبيق والمحاولة مرة أخرى.",
 	"settings.backToSettings": "الإعدادات",
 

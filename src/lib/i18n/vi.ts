@@ -209,6 +209,10 @@ const vi: Dict = {
 	"account.openInAppTitle": "Đã đăng nhập",
 	"account.openInAppDesc": "Chạm vào nút bên dưới để hoàn tất đăng nhập trong ứng dụng.",
 	"account.nativeSignInHint": "Chạm vào liên kết trong email của bạn, sau đó chạm “Mở trong OpenMusic” để hoàn tất đăng nhập.",
+	"account.googleOr": "hoặc",
+	"account.googleSignIn": "Đăng nhập bằng Google",
+	"account.googleSigningIn": "Đang đăng nhập bằng Google…",
+	"account.errGoogle": "Đăng nhập bằng Google thất bại. Vui lòng thử lại.",
 	"account.invalidScheme": "Yêu cầu đăng nhập này không được hỗ trợ — vui lòng cập nhật ứng dụng và thử lại.",
 	"settings.backToSettings": "Cài đặt",
 

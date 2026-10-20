@@ -6,11 +6,13 @@
 // it proves the module's logic, not D1's SQL engine (the route tests drive the same fake
 // through the real handlers).
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+	GOOGLE_WEB_CLIENT_ID,
 	SESSION_COOKIE_NAME,
 	TOKEN_RE,
 	NATIVE_APP_SCHEME,
+	__resetGoogleCerts,
 	buildAuthCallbackUrl,
 	buildSessionCookie,
 	diagLine,
@@ -24,7 +26,8 @@ import {
 	parseAuthCallbackUrl,
 	randomToken,
 	rateLimit,
-	sha256hex
+	sha256hex,
+	verifyGoogleIdToken
 } from './auth-core';
 
 // --- in-memory D1 stand-in (rate_limits + sessions + users only) -----------------------
@@ -296,5 +299,157 @@ describe('diagLine (quick-261020-realerr)', () => {
 	it('handles non-Error throws without crashing', () => {
 		expect(diagLine('string boom', 0, 12)).toBe('attempt 1: Unknown: string boom @12ms');
 		expect(diagLine(undefined, 0, 1)).toBe('attempt 1: Unknown: undefined @1ms');
+	});
+});
+
+describe('verifyGoogleIdToken (quick-261020-google)', () => {
+	// A real 2048-bit RSA pair minted once per file — the JWKS below is genuinely
+	// signature-checked by verifyGoogleIdToken, not stubbed around.
+	let keyPair: CryptoKeyPair;
+	let jwk: JsonWebKey;
+	const KID = 'test-kid-1';
+
+	const b64url = (s: string) => Buffer.from(s, 'utf8').toString('base64url');
+	const b64urlBytes = (b: Uint8Array) => Buffer.from(b).toString('base64url');
+
+	beforeAll(async () => {
+		keyPair = await crypto.subtle.generateKey(
+			{
+				name: 'RSASSA-PKCS1-v1_5',
+				modulusLength: 2048,
+				publicExponent: new Uint8Array([1, 0, 1]),
+				hash: 'SHA-256'
+			},
+			true,
+			['sign', 'verify']
+		);
+		jwk = { ...(await crypto.subtle.exportKey('jwk', keyPair.publicKey)), kid: KID };
+	});
+
+	afterEach(() => {
+		__resetGoogleCerts();
+	});
+
+	const fetchCerts = async () => ({ keys: [jwk] });
+
+	function claims(over: Record<string, unknown> = {}) {
+		const nowSec = Math.floor(Date.now() / 1000);
+		return {
+			iss: 'accounts.google.com',
+			aud: GOOGLE_WEB_CLIENT_ID,
+			exp: nowSec + 3600,
+			iat: nowSec,
+			email: 'Tester@Example.com',
+			email_verified: true,
+			sub: '12345',
+			...over
+		};
+	}
+
+	async function mint(
+		payload: Record<string, unknown>,
+		header: Record<string, unknown> = { alg: 'RS256', kid: KID, typ: 'JWT' },
+		signer: CryptoKey = keyPair.privateKey
+	): Promise<string> {
+		const hb = b64url(JSON.stringify(header));
+		const pb = b64url(JSON.stringify(payload));
+		const data = new TextEncoder().encode(hb + '.' + pb);
+		const sig = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', signer, data);
+		return `${hb}.${pb}.${b64urlBytes(new Uint8Array(sig))}`;
+	}
+
+	it('accepts a well-formed Google token and lowercases the email', async () => {
+		const res = await verifyGoogleIdToken(await mint(claims()), { fetchCerts });
+		expect(res).toEqual({ ok: true, email: 'tester@example.com' });
+	});
+
+	it('accepts the https:// issuer variant too', async () => {
+		const res = await verifyGoogleIdToken(await mint(claims({ iss: 'https://accounts.google.com' })), {
+			fetchCerts
+		});
+		expect(res.ok).toBe(true);
+	});
+
+	it('rejects a wrong aud', async () => {
+		const res = await verifyGoogleIdToken(await mint(claims({ aud: 'evil.apps.googleusercontent.com' })), {
+			fetchCerts
+		});
+		expect(res).toEqual({ ok: false, reason: 'bad-aud' });
+	});
+
+	it('rejects an expired token', async () => {
+		const past = Math.floor(Date.now() / 1000) - 10;
+		const res = await verifyGoogleIdToken(await mint(claims({ exp: past })), { fetchCerts });
+		expect(res).toEqual({ ok: false, reason: 'expired' });
+	});
+
+	it('rejects a wrong iss', async () => {
+		const res = await verifyGoogleIdToken(await mint(claims({ iss: 'evil.example.com' })), { fetchCerts });
+		expect(res).toEqual({ ok: false, reason: 'bad-iss' });
+	});
+
+	it('rejects email_verified !== true (a string "true" is not enough)', async () => {
+		const res = await verifyGoogleIdToken(await mint(claims({ email_verified: 'true' })), { fetchCerts });
+		expect(res).toEqual({ ok: false, reason: 'email-unverified' });
+	});
+
+	it('rejects a tampered payload (bad signature)', async () => {
+		const good = await mint(claims());
+		const [h, p, s] = good.split('.');
+		const evil = JSON.parse(Buffer.from(p, 'base64url').toString('utf8'));
+		evil.email = 'attacker@example.com';
+		const tampered = `${h}.${b64url(JSON.stringify(evil))}.${s}`;
+		const res = await verifyGoogleIdToken(tampered, { fetchCerts });
+		expect(res).toEqual({ ok: false, reason: 'bad-signature' });
+	});
+
+	it('rejects a token signed by an unknown key', async () => {
+		const other = await crypto.subtle.generateKey(
+			{ name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' },
+			true,
+			['sign', 'verify']
+		);
+		const res = await verifyGoogleIdToken(await mint(claims(), { alg: 'RS256', kid: KID, typ: 'JWT' }, other.privateKey), {
+			fetchCerts
+		});
+		expect(res).toEqual({ ok: false, reason: 'bad-signature' });
+	});
+
+	it('rejects an unknown kid', async () => {
+		const res = await verifyGoogleIdToken(await mint(claims(), { alg: 'RS256', kid: 'nope' }), { fetchCerts });
+		expect(res).toEqual({ ok: false, reason: 'unknown-kid' });
+	});
+
+	it('rejects alg=none', async () => {
+		const c = claims();
+		const hb = b64url(JSON.stringify({ alg: 'none', kid: KID }));
+		const pb = b64url(JSON.stringify(c));
+		const res = await verifyGoogleIdToken(`${hb}.${pb}.anysig`, { fetchCerts });
+		expect(res).toEqual({ ok: false, reason: 'bad-alg' });
+	});
+
+	it('rejects malformed tokens', async () => {
+		for (const bad of ['', 'abc', 'a.b', 'a.b.c.d', '....']) {
+			expect(await verifyGoogleIdToken(bad, { fetchCerts })).toEqual({ ok: false, reason: 'malformed' });
+		}
+	});
+
+	it('rejects a non-email email claim', async () => {
+		const res = await verifyGoogleIdToken(await mint(claims({ email: 'not-an-email' })), { fetchCerts });
+		expect(res).toEqual({ ok: false, reason: 'bad-email' });
+	});
+
+	it('reports certs-unavailable when the JWKS fetch fails', async () => {
+		const res = await verifyGoogleIdToken(await mint(claims()), {
+			fetchCerts: async () => {
+				throw new Error('down');
+			}
+		});
+		expect(res).toEqual({ ok: false, reason: 'certs-unavailable' });
+	});
+
+	it('never throws on garbage input', async () => {
+		await expect(verifyGoogleIdToken('', { fetchCerts })).resolves.toBeDefined();
+		await expect(verifyGoogleIdToken('...', { fetchCerts })).resolves.toBeDefined();
 	});
 });

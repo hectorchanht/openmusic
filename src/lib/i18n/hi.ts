@@ -209,6 +209,10 @@ const hi: Dict = {
 	"account.openInAppTitle": "आप साइन इन हो गए हैं",
 	"account.openInAppDesc": "ऐप में साइन-इन पूरा करने के लिए नीचे दिया बटन दबाएं।",
 	"account.nativeSignInHint": "अपने ईमेल में लिंक दबाएं, फिर साइन-इन पूरा करने के लिए “OpenMusic में खोलें” दबाएं।",
+	"account.googleOr": "या",
+	"account.googleSignIn": "Google से साइन इन करें",
+	"account.googleSigningIn": "Google से साइन इन हो रहा है…",
+	"account.errGoogle": "Google साइन-इन विफल रहा। कृपया पुनः प्रयास करें।",
 	"account.invalidScheme": "यह साइन-इन अनुरोध समर्थित नहीं है — कृपया ऐप अपडेट करके फिर से प्रयास करें।",
 	"settings.backToSettings": "सेटिंग्स",
 
