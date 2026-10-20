@@ -147,11 +147,14 @@
 	.item:hover { background: var(--color-surface); }
 	.item.danger { color: #ff7a90; }
 	.empty { color: var(--color-text-muted); font-size: 0.8125rem; text-align: center; margin: 32px 0; }
-	.log { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; max-height: calc(100dvh - var(--tabbar-h) - 180px); overflow-y: auto; background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: 12px; }
-	.row { display: flex; gap: 8px; align-items: baseline; padding: 6px 10px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.6875rem; line-height: 1.4; border-bottom: 1px solid var(--color-border); white-space: nowrap; }
+	.log { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; max-height: calc(100dvh - var(--tabbar-h) - 180px); overflow: auto; background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: 12px; }
+	/* quick-261020-logscroll — rows size to their content (Hector: "make the log table x
+	   scrollable so the rest can be seen"): short rows still fill the width, long payloads
+	   extend the row and the list scrolls horizontally instead of ellipsis-truncating. */
+	.row { display: flex; gap: 8px; align-items: baseline; padding: 6px 10px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.6875rem; line-height: 1.4; border-bottom: 1px solid var(--color-border); white-space: nowrap; width: max-content; min-width: 100%; box-sizing: border-box; }
 	.row:last-child { border-bottom: none; }
 	.ts { color: var(--color-text-muted); flex: none; }
 	.ev { color: var(--color-text); font-weight: 600; flex: none; }
 	.n { color: var(--color-accent, #ffb454); font-weight: 600; flex: none; }
-	.d { color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; }
+	.d { color: var(--color-text-muted); }
 </style>
