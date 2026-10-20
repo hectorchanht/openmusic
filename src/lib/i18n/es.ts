@@ -205,6 +205,11 @@ const es: Dict = {
 	"account.syncSearchHistoryDesc": "Tus búsquedas recientes.",
 	"account.syncNameTr": "Caché de nombres",
 	"account.syncNameTrDesc": "Traducciones en caché de artistas y canciones.",
+	"account.openInApp": "Abrir en OpenMusic",
+	"account.openInAppTitle": "Sesión iniciada",
+	"account.openInAppDesc": "Toca el botón para terminar de iniciar sesión en la app.",
+	"account.nativeSignInHint": "Toca el enlace de tu correo y luego “Abrir en OpenMusic” para completar el inicio de sesión.",
+	"account.invalidScheme": "Esta solicitud de inicio de sesión no es compatible — actualiza la app e inténtalo de nuevo.",
 	"settings.backToSettings": "Configuración",
 
 	// --- activity log (quick-260630-sgw) ---

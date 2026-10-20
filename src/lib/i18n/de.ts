@@ -205,6 +205,11 @@ const de: Dict = {
 	"account.syncSearchHistoryDesc": "Deine letzten Suchanfragen.",
 	"account.syncNameTr": "Namens-Cache",
 	"account.syncNameTrDesc": "Zwischengespeicherte Übersetzungen von Künstler- und Songnamen.",
+	"account.openInApp": "In OpenMusic öffnen",
+	"account.openInAppTitle": "Angemeldet",
+	"account.openInAppDesc": "Tippe auf die Schaltfläche unten, um die Anmeldung in der App abzuschließen.",
+	"account.nativeSignInHint": "Tippe auf den Link in deiner E-Mail und dann auf „In OpenMusic öffnen“, um die Anmeldung abzuschließen.",
+	"account.invalidScheme": "Diese Anmeldeanfrage wird nicht unterstützt — bitte aktualisiere die App und versuche es erneut.",
 	"settings.backToSettings": "Einstellungen",
 
 	// --- activity log (quick-260630-sgw) ---

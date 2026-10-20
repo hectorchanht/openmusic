@@ -205,6 +205,11 @@ const fr: Dict = {
 	"account.syncSearchHistoryDesc": "Tes recherches récentes.",
 	"account.syncNameTr": "Cache des noms",
 	"account.syncNameTrDesc": "Traductions en cache des noms d'artistes et de titres.",
+	"account.openInApp": "Ouvrir dans OpenMusic",
+	"account.openInAppTitle": "Vous êtes connecté",
+	"account.openInAppDesc": "Touchez le bouton ci-dessous pour terminer la connexion dans l'application.",
+	"account.nativeSignInHint": "Touchez le lien dans votre e-mail, puis « Ouvrir dans OpenMusic » pour terminer la connexion.",
+	"account.invalidScheme": "Cette demande de connexion n'est pas prise en charge — mettez l'application à jour et réessayez.",
 	"settings.backToSettings": "Paramètres",
 
 	// --- activity log (quick-260630-sgw) ---

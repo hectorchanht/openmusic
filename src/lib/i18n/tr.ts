@@ -205,6 +205,11 @@ const tr: Dict = {
 	"account.syncSearchHistoryDesc": "Son aramaların.",
 	"account.syncNameTr": "Ad önbelleği",
 	"account.syncNameTrDesc": "Sanatçı ve şarkı adlarının önbelleğe alınmış çevirileri.",
+	"account.openInApp": "OpenMusic'te aç",
+	"account.openInAppTitle": "Giriş yapıldı",
+	"account.openInAppDesc": "Uygulamada oturum açmayı tamamlamak için aşağıdaki düğmeye dokun.",
+	"account.nativeSignInHint": "E-postandaki bağlantıya dokun, ardından oturum açmayı tamamlamak için “OpenMusic'te aç”a dokun.",
+	"account.invalidScheme": "Bu oturum açma isteği desteklenmiyor — lütfen uygulamayı güncelleyip tekrar dene.",
 	"settings.backToSettings": "Ayarlar",
 
 	// --- activity log (quick-260630-sgw) ---

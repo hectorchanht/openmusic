@@ -13,6 +13,7 @@
 //   2. non-JSON content type → 415 (a cross-origin page cannot send JSON without preflight);
 //   3. no ACCOUNTS_DB binding → 503 (fail closed);
 //   4. malformed body / email → 400;
+//   5. `scheme` present but not the app's own (exact 'openmusic://') → 400 (quick-261020-deeplink);
 //   5. D1 fixed-window rate limits: 3 per email / 10 min, 10 per IP / 10 min → 429;
 //   6. no RESEND_API_KEY → 500 'not-configured' — checked BEFORE the token insert so a
 //      misconfigured deploy never leaves orphan token rows (fail CLOSED).
@@ -27,6 +28,7 @@ import {
 	MAGIC_LINK_TTL_MS,
 	DEFAULT_MAGIC_LINK_FROM,
 	clientIp,
+	isAllowedScheme,
 	isValidEmail,
 	randomToken,
 	rateLimit,
@@ -73,6 +75,14 @@ export const POST: RequestHandler = async (event) => {
 		return jsonResponse({ ok: false, err: 'invalid-email' }, origin, { status: 400 });
 	}
 
+	// quick-261020-deeplink: optional native-handoff scheme. STRICT allowlist — exact
+	// 'openmusic://' only. Stored on the token row; the /auth/magic page offers the "Open
+	// in OpenMusic" handoff when the redeemed token carried one.
+	const scheme = (body as { scheme?: unknown })?.scheme;
+	if (scheme !== undefined && !isAllowedScheme(scheme)) {
+		return jsonResponse({ ok: false, err: 'invalid-scheme' }, origin, { status: 400 });
+	}
+
 	// Rate limits BEFORE any token row or email exists. The IP comes from getClientAddress
 	// (adapter-cloudflare) with the CF-Connecting-IP header as fallback — a write with no
 	// attributable address still lands in the shared 'unknown' bucket, never unrated.
@@ -99,8 +109,8 @@ export const POST: RequestHandler = async (event) => {
 	const token = randomToken(32);
 	const tokenHash = await sha256hex('magic:' + token);
 	await db
-		.prepare('INSERT INTO magic_tokens (token_hash, email, expires_at) VALUES (?, ?, ?)')
-		.bind(tokenHash, email, Date.now() + MAGIC_LINK_TTL_MS)
+		.prepare('INSERT INTO magic_tokens (token_hash, email, expires_at, scheme) VALUES (?, ?, ?, ?)')
+		.bind(tokenHash, email, Date.now() + MAGIC_LINK_TTL_MS, scheme ?? null)
 		.run();
 
 	const link = `${new URL(request.url).origin}/auth/magic?token=${token}`;

@@ -10,6 +10,9 @@
 //   - `token` in the JSON body — the NATIVE seam only. The Capacitor WebView cannot rely on
 //     a cookie for the deployed origin, so the native client persists this value and sends
 //     it back as `Authorization: Bearer <token>` (see $lib/auth/auth-core.ts header).
+//   - `scheme` in the JSON body when the redeemed magic token carried one (quick-261020-deeplink):
+//     the /auth/magic page renders the "Open in OpenMusic" deep-link button with it, since
+//     the system browser that burned the token cannot hand the session to the app itself.
 //
 // THIS FILE MAY EXPORT ONLY HTTP-VERB HANDLERS. Helpers live in $lib/auth/auth-core.ts.
 
@@ -54,9 +57,9 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 
 	const hash = await sha256hex('magic:' + token);
 	const row = await db
-		.prepare('SELECT email, expires_at, used FROM magic_tokens WHERE token_hash = ?')
+		.prepare('SELECT email, expires_at, used, scheme FROM magic_tokens WHERE token_hash = ?')
 		.bind(hash)
-		.first<{ email: string; expires_at: number; used: number }>();
+		.first<{ email: string; expires_at: number; used: number; scheme: string | null }>();
 	// One refusal for unknown / used / expired — never say which (no oracle for guessing).
 	if (!row || row.used || row.expires_at < Date.now()) {
 		return jsonResponse({ ok: false, err: 'invalid-token' }, origin, { status: 400 });
@@ -82,7 +85,10 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 
 	// jsonResponse() has no extra-header passthrough, and this route MUST set Set-Cookie —
 	// so the Response is built here with the same corsHeaders() seam (never `*`).
-	return new Response(JSON.stringify({ user: { id: user.id, email: user.email }, token: sessionToken }), {
+	// `scheme` rides along only when the token was minted with one (null otherwise).
+	return new Response(
+		JSON.stringify({ user: { id: user.id, email: user.email }, token: sessionToken, scheme: row.scheme ?? null }),
+		{
 		status: 200,
 		headers: {
 			...corsHeaders(origin),

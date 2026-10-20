@@ -205,6 +205,11 @@ const hi: Dict = {
 	"account.syncSearchHistoryDesc": "आपकी हाल की खोजें।",
 	"account.syncNameTr": "नाम कैश",
 	"account.syncNameTrDesc": "कलाकार और गानों के नामों के सहेजे अनुवाद।",
+	"account.openInApp": "OpenMusic में खोलें",
+	"account.openInAppTitle": "आप साइन इन हो गए हैं",
+	"account.openInAppDesc": "ऐप में साइन-इन पूरा करने के लिए नीचे दिया बटन दबाएं।",
+	"account.nativeSignInHint": "अपने ईमेल में लिंक दबाएं, फिर साइन-इन पूरा करने के लिए “OpenMusic में खोलें” दबाएं।",
+	"account.invalidScheme": "यह साइन-इन अनुरोध समर्थित नहीं है — कृपया ऐप अपडेट करके फिर से प्रयास करें।",
 	"settings.backToSettings": "सेटिंग्स",
 
 	// --- activity log (quick-260630-sgw) ---

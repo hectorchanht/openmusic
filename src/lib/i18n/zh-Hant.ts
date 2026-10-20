@@ -216,6 +216,11 @@ const zhHant: Dict = {
 	"account.syncSearchHistoryDesc": "你最近嘅搜尋。",
 	"account.syncNameTr": "名稱快取",
 	"account.syncNameTrDesc": "藝人同歌名嘅翻譯快取。",
+	"account.openInApp": "喺 OpenMusic 開啟",
+	"account.openInAppTitle": "你已經登入",
+	"account.openInAppDesc": "撳下面個掣，完成 app 登入。",
+	"account.nativeSignInHint": "撳 email 入面條 link，之後撳「Open in OpenMusic」完成登入。",
+	"account.invalidScheme": "呢個登入要求唔支援 — 請更新 app 再試。",
 	"settings.backToSettings": "設定",
 
 	// --- activity log (quick-260630-sgw) ---

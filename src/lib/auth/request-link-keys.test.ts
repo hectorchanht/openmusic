@@ -9,6 +9,8 @@ describe('requestLinkErrorKey', () => {
 	it('maps every outcome to its account.* key', () => {
 		expect(requestLinkErrorKey('ok')).toBe(null);
 		expect(requestLinkErrorKey('invalid-email')).toBe('account.invalidEmail');
+		// quick-261020-deeplink: the scheme the client sent was not the app's own.
+		expect(requestLinkErrorKey('invalid-scheme')).toBe('account.invalidScheme');
 		expect(requestLinkErrorKey('rate-limited')).toBe('account.rateLimited');
 		expect(requestLinkErrorKey('not-configured')).toBe('account.notConfigured');
 		expect(requestLinkErrorKey('send-failed')).toBe('account.sendFailed');

@@ -18,6 +18,8 @@ interface MagicRow {
 	email: string;
 	expires_at: number;
 	used: number;
+	// quick-261020-deeplink: the native-handoff scheme the token was minted with (null = web).
+	scheme: string | null;
 }
 interface RateRow {
 	count: number;
@@ -41,7 +43,9 @@ function fakeDb() {
 				if (sql.startsWith('SELECT count, window_start FROM rate_limits')) {
 					return rates.get(args[0] as string) ?? null;
 				}
-				if (sql.startsWith('SELECT email, expires_at, used FROM magic_tokens')) {
+				// quick-261020-deeplink: the route now SELECTs the scheme column too; the
+				// widened prefix matches both the old and the new statement shape.
+				if (sql.startsWith('SELECT email, expires_at, used')) {
 					return magic.get(args[0] as string) ?? null;
 				}
 				if (sql.startsWith('SELECT id, email FROM users WHERE email')) {
@@ -62,7 +66,12 @@ function fakeDb() {
 					const r = rates.get(args[0] as string);
 					if (r) r.count += 1;
 				} else if (sql.startsWith('INSERT INTO magic_tokens')) {
-					magic.set(args[0] as string, { email: args[1] as string, expires_at: args[2] as number, used: 0 });
+					magic.set(args[0] as string, {
+						email: args[1] as string,
+						expires_at: args[2] as number,
+						used: 0,
+						scheme: (args[3] as string | null) ?? null
+					});
 				} else if (sql.startsWith('DELETE FROM magic_tokens')) {
 					magic.delete(args[0] as string);
 				} else if (sql.startsWith('UPDATE magic_tokens SET used = 1')) {
@@ -203,6 +212,34 @@ describe('POST /api/auth/magic-link', () => {
 		expect([...f.magic.keys()]).not.toContain(m![1]);
 	});
 
+	// quick-261020-deeplink: the app's own scheme is accepted and stored on the token row.
+	it("scheme 'openmusic://' → 200 and the scheme lands on the token row", async () => {
+		const send = stubResend();
+		const f = fakeDb();
+		const res = await callMagic(fakeEvent({ body: JSON.stringify({ email: 'a@b.co', scheme: 'openmusic://' }), env: env(f) }));
+		expect(res.status).toBe(200);
+		expect(await res.json()).toEqual({ ok: true });
+		expect(f.magic.size).toBe(1);
+		const [[, row]] = [...f.magic.entries()];
+		expect(row.scheme).toBe('openmusic://');
+		expect(send).toHaveBeenCalledTimes(1);
+	});
+
+	// quick-261020-deeplink: the allowlist is EXACT — javascript:, https:, lookalikes and
+	// non-strings are all refused before anything is stored or sent.
+	it.each(['javascript:alert(1)', 'https://', 'openmusic:', 'openmusic://evil', 'OpenMusic://', '', null])(
+		'scheme %p → 400 invalid-scheme, nothing stored, no send',
+		async (scheme) => {
+			const send = stubResend();
+			const f = fakeDb();
+			const res = await callMagic(fakeEvent({ body: JSON.stringify({ email: 'a@b.co', scheme }), env: env(f) }));
+			expect(res.status).toBe(400);
+			expect(await res.json()).toEqual({ ok: false, err: 'invalid-scheme' });
+			expect(f.magic.size).toBe(0);
+			expect(send).not.toHaveBeenCalled();
+		}
+	);
+
 	it('a failed send deletes the minted token and answers 500 send-failed', async () => {
 		stubResend(500);
 		const f = fakeDb();
@@ -226,9 +263,11 @@ describe('POST /api/auth/magic-link', () => {
 });
 
 /** Drive a full sign-in: request a link, extract the emailed token, verify it. */
-async function signIn(f: Db, email = 'a@b.co') {
+// quick-261020-deeplink: optional `scheme` passes through the magic-link step, so the
+// verify step can assert it rides the response.
+async function signIn(f: Db, email = 'a@b.co', scheme?: string) {
 	const send = stubResend();
-	await callMagic(fakeEvent({ body: JSON.stringify({ email }), env: env(f) }));
+	await callMagic(fakeEvent({ body: JSON.stringify({ email, ...(scheme ? { scheme } : {}) }), env: env(f) }));
 	const payload = JSON.parse((send.mock.calls[0] as unknown as [string, RequestInit])[1].body as string) as { text: string };
 	const token = payload.text.match(/token=([0-9a-f]{64})/)![1];
 	const res = await callVerify(fakeEvent({ body: JSON.stringify({ token }), env: env(f), path: '/api/auth/verify' }));
@@ -251,7 +290,7 @@ describe('POST /api/auth/verify', () => {
 	it('an expired token → 400', async () => {
 		const f = fakeDb();
 		const token = 'a'.repeat(64);
-		f.magic.set(await sha256hex('magic:' + token), { email: 'a@b.co', expires_at: Date.now() - 1, used: 0 });
+		f.magic.set(await sha256hex('magic:' + token), { email: 'a@b.co', expires_at: Date.now() - 1, used: 0, scheme: null });
 		const res = await callVerify(fakeEvent({ body: JSON.stringify({ token }), env: env(f), path: '/api/auth/verify' }));
 		expect(res.status).toBe(400);
 	});
@@ -278,6 +317,26 @@ describe('POST /api/auth/verify', () => {
 		);
 		expect(again.status).toBe(400);
 		expect(f.sessions.size).toBe(1);
+	});
+
+	// quick-261020-deeplink: the scheme minted with the token rides the verify response
+	// so the /auth/magic page can build the "Open in OpenMusic" handoff; a plain web
+	// token answers scheme:null and the page takes the old goto path.
+	it('a scheme-tagged token redeems with the scheme + bearer in the body', async () => {
+		const f = fakeDb();
+		const { res } = await signIn(f, 'a@b.co', 'openmusic://');
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as { scheme: string | null; token: string };
+		expect(body.scheme).toBe('openmusic://');
+		expect(body.token).toMatch(/^[0-9a-f]{64}$/);
+	});
+
+	it('a plain (web) token redeems with scheme:null', async () => {
+		const f = fakeDb();
+		const { res } = await signIn(f);
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as { scheme: string | null };
+		expect(body.scheme).toBeNull();
 	});
 
 	it('a second sign-in for the same email reuses the user row', async () => {

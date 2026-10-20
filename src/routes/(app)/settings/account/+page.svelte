@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
+	import { Capacitor } from '@capacitor/core';
 	import {
 		CircleUserRound,
 		History,
@@ -15,6 +17,7 @@
 	import type { Component } from 'svelte';
 	import { auth } from '$lib/stores/auth.svelte';
 	import { settings } from '$lib/stores/settings.svelte';
+	import { NATIVE_APP_SCHEME } from '$lib/auth/auth-core';
 	import { requestLinkErrorKey } from '$lib/auth/request-link-keys';
 	import type { SyncItems } from '$lib/config/defaults';
 	import PageHeader from '$lib/components/PageHeader.svelte';
@@ -41,11 +44,16 @@
 	let errorKey = $state<TranslationKey | null>(null);
 	let signOutOpen = $state(false);
 
+	// quick-261020-deeplink: the APK passes the app scheme so the emailed link's verify
+	// page can offer the "Open in OpenMusic" handoff — the system browser's cookie can
+	// never reach the WebView. Web flow is byte-identical to before (no scheme field).
+	const isNative = browser && Capacitor.isNativePlatform();
+
 	async function sendLink() {
 		if (sending) return;
 		sending = true;
 		errorKey = null;
-		errorKey = requestLinkErrorKey(await auth.requestLink(email));
+		errorKey = requestLinkErrorKey(await auth.requestLink(email, isNative ? { scheme: NATIVE_APP_SCHEME } : undefined));
 		sending = false;
 		if (errorKey === null) sent = true;
 	}
@@ -120,7 +128,9 @@
 	{:else}
 		<section>
 			<h2><Mail size={15} /> {t('account.signInTitle')}</h2>
-			<p class="hint">{t('account.signInDesc')}</p>
+			<!-- quick-261020-deeplink: the native flow ends with a tap on the emailed link
+			     and then on "Open in OpenMusic" — the page says so up front. -->
+			<p class="hint">{isNative ? t('account.nativeSignInHint') : t('account.signInDesc')}</p>
 			{#if sent}
 				<p class="sent">{t('account.linkSent')}</p>
 			{:else}

@@ -205,6 +205,11 @@ const ar: Dict = {
 	"account.syncSearchHistoryDesc": "عمليات البحث الأخيرة.",
 	"account.syncNameTr": "ذاكرة الأسماء",
 	"account.syncNameTrDesc": "ترجمات مخزّنة لأسماء الفنانين والأغاني.",
+	"account.openInApp": "فتح في OpenMusic",
+	"account.openInAppTitle": "تم تسجيل الدخول",
+	"account.openInAppDesc": "اضغط الزر أدناه لإتمام تسجيل الدخول في التطبيق.",
+	"account.nativeSignInHint": "اضغط الرابط في بريدك الإلكتروني، ثم اضغط “فتح في OpenMusic” لإتمام تسجيل الدخول.",
+	"account.invalidScheme": "طلب تسجيل الدخول هذا غير مدعوم — يرجى تحديث التطبيق والمحاولة مرة أخرى.",
 	"settings.backToSettings": "الإعدادات",
 
 	// --- activity log (quick-260630-sgw) ---

@@ -239,6 +239,11 @@ const en = {
 	"account.syncSearchHistoryDesc": "Your recent searches.",
 	"account.syncNameTr": "Name cache",
 	"account.syncNameTrDesc": "Cached translations of artist and song names.",
+	"account.openInApp": "Open in OpenMusic",
+	"account.openInAppTitle": "You're signed in",
+	"account.openInAppDesc": "Tap the button below to finish signing in to the app.",
+	"account.nativeSignInHint": "Tap the link in your email, then tap “Open in OpenMusic” to finish signing in.",
+	"account.invalidScheme": "This sign-in request isn't supported — please update the app and try again.",
 	"settings.backToSettings": "Settings",
 
 	// --- activity log (quick-260630-sgw) ---

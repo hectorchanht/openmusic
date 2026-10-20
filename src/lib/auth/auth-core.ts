@@ -43,6 +43,55 @@ export const TOKEN_RE = /^[0-9a-f]{64}$/;
 /** Default `From:` when env.MAGIC_LINK_FROM is unset (sender domain openmusic.lol). */
 export const DEFAULT_MAGIC_LINK_FROM = 'OpenMusic <login@openmusic.lol>';
 
+/**
+ * quick-261020-deeplink — the app's own deep-link scheme. The /api/auth/magic-link route
+ * accepts it as an optional `scheme` body field (STRICT allowlist: exact match only — never
+ * `javascript:`, never `https:`, never a lookalike), stores it on the magic-token row, and
+ * the /auth/magic page offers an "Open in OpenMusic" handoff when the redeemed token
+ * carried one. The value keeps the `://` suffix because the server and the client both
+ * build absolute callback URLs from it; the Android manifest claims it as
+ * `android:scheme="openmusic"` (manifest form drops the suffix).
+ */
+export const NATIVE_APP_SCHEME = 'openmusic://';
+
+/** Exact-match allowlist for the magic-link `scheme` field — see NATIVE_APP_SCHEME. */
+export function isAllowedScheme(scheme: unknown): scheme is string {
+	return scheme === NATIVE_APP_SCHEME;
+}
+
+/**
+ * The deep-link URL the /auth/magic page offers after a scheme-tagged redeem:
+ * `openmusic://auth/callback?token=<64-hex bearer>`. The bearer is the 30-day SESSION
+ * token (the same value the verify response carries); the magic token is single-use and
+ * already burned by the time this URL is built, so re-tapping the button is harmless.
+ */
+export function buildAuthCallbackUrl(scheme: string, bearerToken: string): string {
+	return `${scheme}auth/callback?token=${encodeURIComponent(bearerToken)}`;
+}
+
+/**
+ * Parse an incoming deep link into the auth-callback bearer token, or null.
+ *
+ * T-38-02 twin of deepLinkPath(): the OS's manifest filter is not our gate — a hostile
+ * app can hand the activity any VIEW intent, so the payload is re-checked here before it
+ * can become a credential: exact `openmusic:` scheme, exact `auth` host, exact `/callback`
+ * path, and a token that passes TOKEN_RE. Anything else is junk, never a credential.
+ */
+export function parseAuthCallbackUrl(raw: string | null | undefined): string | null {
+	if (!raw) return null;
+	try {
+		const u = new URL(raw);
+		if (u.protocol !== 'openmusic:') return null;
+		if (u.hostname.toLowerCase() !== 'auth') return null;
+		if (u.pathname !== '/callback') return null;
+		const token = u.searchParams.get('token') ?? '';
+		return TOKEN_RE.test(token) ? token : null;
+	} catch {
+		// Not a URL — junk or an attack, never a credential.
+		return null;
+	}
+}
+
 /** 64 lowercase hex chars from `bytes` random bytes (32 ⇒ the 64-hex token shape). */
 export function randomToken(bytes = 32): string {
 	const b = crypto.getRandomValues(new Uint8Array(bytes));

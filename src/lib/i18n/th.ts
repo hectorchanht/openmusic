@@ -205,6 +205,11 @@ const th: Dict = {
 	"account.syncSearchHistoryDesc": "การค้นหาล่าสุดของคุณ",
 	"account.syncNameTr": "แคชชื่อ",
 	"account.syncNameTrDesc": "คำแปลที่บันทึกไว้ของชื่อศิลปินและเพลง",
+	"account.openInApp": "เปิดใน OpenMusic",
+	"account.openInAppTitle": "เข้าสู่ระบบแล้ว",
+	"account.openInAppDesc": "แตะปุ่มด้านล่างเพื่อเข้าสู่ระบบในแอปให้เสร็จสมบูรณ์",
+	"account.nativeSignInHint": "แตะลิงก์ในอีเมลของคุณ จากนั้นแตะ “เปิดใน OpenMusic” เพื่อเข้าสู่ระบบให้เสร็จสมบูรณ์",
+	"account.invalidScheme": "ไม่รองรับคำขอเข้าสู่ระบบนี้ — โปรดอัปเดตแอปแล้วลองอีกครั้ง",
 	"settings.backToSettings": "การตั้งค่า",
 
 	// --- activity log (quick-260630-sgw) ---

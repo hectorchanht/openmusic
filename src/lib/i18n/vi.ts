@@ -205,6 +205,11 @@ const vi: Dict = {
 	"account.syncSearchHistoryDesc": "Các tìm kiếm gần đây của bạn.",
 	"account.syncNameTr": "Bộ nhớ tên",
 	"account.syncNameTrDesc": "Bản dịch đã lưu của tên nghệ sĩ và bài hát.",
+	"account.openInApp": "Mở trong OpenMusic",
+	"account.openInAppTitle": "Đã đăng nhập",
+	"account.openInAppDesc": "Chạm vào nút bên dưới để hoàn tất đăng nhập trong ứng dụng.",
+	"account.nativeSignInHint": "Chạm vào liên kết trong email của bạn, sau đó chạm “Mở trong OpenMusic” để hoàn tất đăng nhập.",
+	"account.invalidScheme": "Yêu cầu đăng nhập này không được hỗ trợ — vui lòng cập nhật ứng dụng và thử lại.",
 	"settings.backToSettings": "Cài đặt",
 
 	// --- activity log (quick-260630-sgw) ---

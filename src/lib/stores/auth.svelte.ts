@@ -18,7 +18,7 @@
 import { browser } from '$app/environment';
 import { Capacitor } from '@capacitor/core';
 import { apiFetch } from '$lib/services/api-base';
-import { isValidEmail, type AccountUser } from '$lib/auth/auth-core';
+import { TOKEN_RE, isValidEmail, type AccountUser } from '$lib/auth/auth-core';
 import { startSyncEngine, type SyncStatus } from '$lib/services/sync';
 
 /** localStorage key for the NATIVE bearer token. Web never writes it (cookie only). */
@@ -28,7 +28,21 @@ const TOKEN_KEY = 'openmusic:auth-token:v1';
  *  quick-261020-sync: 'network' is its own member now (the 2026-10-20 APK report showed a
  *  generic "Something went wrong" while the server HAD created the token and Resend HAD
  *  sent the mail — every failure class gets its own message from here on). */
-export type RequestLinkResult = 'ok' | 'invalid-email' | 'rate-limited' | 'not-configured' | 'send-failed' | 'network' | 'error';
+export type RequestLinkResult = 'ok' | 'invalid-email' | 'invalid-scheme' | 'rate-limited' | 'not-configured' | 'send-failed' | 'network' | 'error';
+
+/**
+ * What the /auth/magic page needs after the redeem POST: whether it worked, the scheme
+ * the token was minted with (null for a plain web request), and — when the scheme is
+ * present — the session bearer token the deep-link handoff carries to the app.
+ * quick-261020-deeplink.
+ */
+export interface VerifyResult {
+	ok: boolean;
+	/** The scheme the magic token was minted with, or null. */
+	scheme: string | null;
+	/** The 30-day session bearer token, or null when !ok. */
+	token: string | null;
+}
 
 class Auth {
 	/** The signed-in user, or null. Read one-way by the UI. */
@@ -106,7 +120,14 @@ class Auth {
 	 *  the server already decided, and a blind retry could re-send the mail the first
 	 *  attempt already queued (the production case this fixes: the token existed and the
 	 *  mail was sent, but the client showed "Something went wrong"). */
-	async requestLink(email: string): Promise<RequestLinkResult> {
+	/**
+	 * quick-261020-deeplink — `opts.scheme` is the NATIVE handoff only: the APK passes
+	 * NATIVE_APP_SCHEME ('openmusic://') so the /auth/magic page offers the "Open in
+	 * OpenMusic" button after the system browser burns the token. The server re-validates
+	 * it against the strict allowlist (exact match), so a stale client can only ever get
+	 * an 'invalid-scheme' refusal, never a crafted URL.
+	 */
+	async requestLink(email: string, opts?: { scheme?: string }): Promise<RequestLinkResult> {
 		if (!browser) return 'error';
 		const clean = email.trim().toLowerCase();
 		if (!isValidEmail(clean)) return 'invalid-email';
@@ -117,13 +138,14 @@ class Auth {
 				// forever otherwise; a timeout reports as a NETWORK failure like any other.
 				const res = await this.authedFetch('/api/auth/magic-link', {
 					method: 'POST',
-					body: JSON.stringify({ email: clean }),
+					body: JSON.stringify({ email: clean, ...(opts?.scheme ? { scheme: opts.scheme } : {}) }),
 					signal: AbortSignal.timeout(15_000)
 				});
 				if (res.ok) return 'ok';
 				const err = ((await res.json().catch(() => null)) as { err?: string } | null)?.err;
 				if (err === 'rate-limited') return 'rate-limited';
 				if (err === 'invalid-email') return 'invalid-email';
+				if (err === 'invalid-scheme') return 'invalid-scheme';
 				if (err === 'not-configured') return 'not-configured';
 				if (err === 'send-failed') return 'send-failed';
 				return 'error';
@@ -137,34 +159,87 @@ class Auth {
 
 	/** Sign-in step 2 (called by the /auth/magic page): redeem the token from the email
 	 *  link. On success the user is set and the sync engine starts (its first pass pulls
-	 *  the account's envelope, so a fresh device converges on its own data). */
-	async verify(token: string): Promise<boolean> {
-		if (!browser) return false;
+	 *  the account's envelope, so a fresh device converges on its own data).
+	 *
+	 *  quick-261020-deeplink: now returns the full VerifyResult — the page needs the
+	 *  scheme + bearer to build the deep-link handoff button for scheme-tagged tokens. */
+	async verify(token: string): Promise<VerifyResult> {
+		const failed: VerifyResult = { ok: false, scheme: null, token: null };
+		if (!browser) return failed;
 		try {
 			const res = await this.authedFetch('/api/auth/verify', {
 				method: 'POST',
 				body: JSON.stringify({ token })
 			});
-			if (!res.ok) return false;
-			const body = (await res.json().catch(() => null)) as { user: AccountUser; token: string } | null;
-			if (!body?.user) return false;
+			if (!res.ok) return failed;
+			const body = (await res.json().catch(() => null)) as {
+				user: AccountUser;
+				token: string;
+				scheme?: string | null;
+			} | null;
+			if (!body?.user) return failed;
+			const scheme = typeof body.scheme === 'string' ? body.scheme : null;
+			const bearer = typeof body.token === 'string' ? body.token : null;
 			this.user = body.user;
 			this.ready = true;
 			// Native ONLY: persist the bearer (see header). On web the token in this body is
 			// ignored on purpose — the httpOnly cookie is already set and JS must not hold it.
-			if (Capacitor.isNativePlatform() && typeof body.token === 'string' && body.token) {
-				this.bearer = body.token;
+			if (Capacitor.isNativePlatform() && bearer) {
+				this.bearer = bearer;
 				try {
-					localStorage.setItem(TOKEN_KEY, JSON.stringify({ token: body.token }));
+					localStorage.setItem(TOKEN_KEY, JSON.stringify({ token: bearer }));
 				} catch {
 					/* quota — the in-memory bearer still covers this session */
 				}
 			}
 			this.startEngine();
-			return true;
+			return { ok: true, scheme, token: bearer };
 		} catch {
-			return false;
+			return failed;
 		}
+	}
+
+	/**
+	 * quick-261020-deeplink — adopt the session bearer that crossed on the deep link
+	 * (`openmusic://auth/callback?token=…`), after the system browser burned the magic
+	 * token. Called from the root layout's appUrlOpen / getLaunchUrl handler — the ONLY
+	 * path a credential may enter the app outside /auth/magic.
+	 *
+	 * The intent payload is attacker-reachable (T-38-02 twin), so the 64-hex screen is the
+	 * gate here too; a session the server no longer knows just leaves user null and the
+	 * stored bearer is dropped like the boot probe's stale-token path. Idempotent — a
+	 * duplicate delivery re-probes, it never re-burns anything (the bearer is multi-use).
+	 * Never throws.
+	 */
+	async adoptNativeToken(token: string): Promise<boolean> {
+		if (!browser || !Capacitor.isNativePlatform()) return false;
+		if (!TOKEN_RE.test(token)) return false;
+		this.bearer = token;
+		try {
+			localStorage.setItem(TOKEN_KEY, JSON.stringify({ token }));
+		} catch {
+			/* quota — the in-memory bearer still covers this session */
+		}
+		try {
+			const res = await this.authedFetch('/api/auth/session');
+			const body = (await res.json().catch(() => null)) as { user: AccountUser | null } | null;
+			this.user = body?.user ?? null;
+		} catch {
+			this.user = null;
+		}
+		// A bearer the server doesn't know is dead weight — drop it, same as load()'s
+		// stale-token path, so the next sign-in starts clean.
+		if (!this.user) {
+			this.bearer = null;
+			try {
+				localStorage.removeItem(TOKEN_KEY);
+			} catch {
+				/* ignore */
+			}
+		}
+		this.ready = true;
+		if (this.user) this.startEngine();
+		return this.user !== null;
 	}
 
 	/** Sign out: stop the engine, delete the server session, drop every local credential.

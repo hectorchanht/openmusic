@@ -205,6 +205,11 @@ const ru: Dict = {
 	"account.syncSearchHistoryDesc": "Твои недавние запросы.",
 	"account.syncNameTr": "Кэш имён",
 	"account.syncNameTrDesc": "Сохранённые переводы имён артистов и песен.",
+	"account.openInApp": "Открыть в OpenMusic",
+	"account.openInAppTitle": "Вы вошли",
+	"account.openInAppDesc": "Нажмите кнопку ниже, чтобы завершить вход в приложение.",
+	"account.nativeSignInHint": "Нажмите ссылку в письме, затем «Открыть в OpenMusic», чтобы завершить вход.",
+	"account.invalidScheme": "Этот запрос на вход не поддерживается — обновите приложение и попробуйте снова.",
 	"settings.backToSettings": "Настройки",
 
 	// --- activity log (quick-260630-sgw) ---

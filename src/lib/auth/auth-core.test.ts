@@ -10,13 +10,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
 	SESSION_COOKIE_NAME,
 	TOKEN_RE,
+	NATIVE_APP_SCHEME,
+	buildAuthCallbackUrl,
 	buildSessionCookie,
 	clearSessionCookie,
 	getAuthToken,
 	getBearerToken,
 	getSessionTokenFromCookie,
 	getUserFromRequest,
+	isAllowedScheme,
 	isValidEmail,
+	parseAuthCallbackUrl,
 	randomToken,
 	rateLimit,
 	sha256hex
@@ -202,5 +206,73 @@ describe('getUserFromRequest', () => {
 		sessions.set(await sha256hex('session:' + token), { user_id: 'u1', expires_at: T0 - 1 });
 		expect(await getUserFromRequest(req({ cookie: `${SESSION_COOKIE_NAME}=${token}` }), db)).toBeNull();
 		expect(await getUserFromRequest(req(), db)).toBeNull();
+	});
+});
+
+describe('deep-link handoff — quick-261020-deeplink', () => {
+	describe('isAllowedScheme', () => {
+		it('accepts exactly the app scheme', () => {
+			expect(isAllowedScheme('openmusic://')).toBe(true);
+			expect(isAllowedScheme(NATIVE_APP_SCHEME)).toBe(true);
+		});
+
+		it('rejects everything else — javascript:, https:, lookalikes, non-strings', () => {
+			for (const bad of [
+				'javascript:alert(1)',
+				'https://',
+				'https://openmusic.lol',
+				'openmusic:',
+				'openmusic://evil',
+				'OpenMusic://',
+				'OPENMUSIC://',
+				' openmusic://',
+				'openmusic:// ',
+				'',
+				null,
+				undefined,
+				42,
+				{}
+			]) {
+				expect(isAllowedScheme(bad)).toBe(false);
+			}
+		});
+	});
+
+	describe('buildAuthCallbackUrl', () => {
+		it('builds the exact appUrlOpen URL the manifest filter claims', () => {
+			const token = 'a'.repeat(64);
+			expect(buildAuthCallbackUrl('openmusic://', token)).toBe(`openmusic://auth/callback?token=${token}`);
+		});
+	});
+
+	describe('parseAuthCallbackUrl', () => {
+		const token = 'b'.repeat(64);
+		const good = `openmusic://auth/callback?token=${token}`;
+
+		it('parses a well-formed callback into the bearer token', () => {
+			expect(parseAuthCallbackUrl(good)).toBe(token);
+		});
+
+		it('rejects wrong scheme, wrong host, wrong path, bad token, junk', () => {
+			expect(parseAuthCallbackUrl(`https://openmusic.lol/auth/callback?token=${token}`)).toBeNull(); // web URL, not a deep link
+			expect(parseAuthCallbackUrl(`javascript:alert(1)//auth/callback?token=${token}`)).toBeNull();
+			expect(parseAuthCallbackUrl(`openmusic://evil/callback?token=${token}`)).toBeNull();
+			expect(parseAuthCallbackUrl(`openmusic://auth/other?token=${token}`)).toBeNull();
+			expect(parseAuthCallbackUrl(`openmusic://auth/callback`)).toBeNull(); // no token
+			expect(parseAuthCallbackUrl(`openmusic://auth/callback?token=short`)).toBeNull(); // fails TOKEN_RE
+			expect(parseAuthCallbackUrl(`openmusic://auth/callback?token=${'B'.repeat(64)}`)).toBeNull(); // uppercase hex
+			expect(parseAuthCallbackUrl('not a url')).toBeNull();
+			expect(parseAuthCallbackUrl('')).toBeNull();
+			expect(parseAuthCallbackUrl(null)).toBeNull();
+			expect(parseAuthCallbackUrl(undefined)).toBeNull();
+		});
+
+		it('round-trips buildAuthCallbackUrl', () => {
+			expect(parseAuthCallbackUrl(buildAuthCallbackUrl(NATIVE_APP_SCHEME, token))).toBe(token);
+		});
+
+		it('accepts a case-variant scheme — the URL parser lowercases it, same as the OS intent filter', () => {
+			expect(parseAuthCallbackUrl(`OPENMUSIC://auth/callback?token=${token}`)).toBe(token);
+		});
 	});
 });

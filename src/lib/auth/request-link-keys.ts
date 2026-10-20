@@ -19,6 +19,10 @@ export function requestLinkErrorKey(result: RequestLinkResult): TranslationKey |
 			return null;
 		case 'invalid-email':
 			return 'account.invalidEmail';
+		// quick-261020-deeplink: only reachable when the client sent a scheme that is not
+		// the app's own (stale client, crafted request) — the allowlist refused it.
+		case 'invalid-scheme':
+			return 'account.invalidScheme';
 		case 'rate-limited':
 			return 'account.rateLimited';
 		case 'not-configured':

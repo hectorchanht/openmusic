@@ -205,6 +205,11 @@ const id: Dict = {
 	"account.syncSearchHistoryDesc": "Pencarian terakhirmu.",
 	"account.syncNameTr": "Cache nama",
 	"account.syncNameTrDesc": "Terjemahan tersimpan dari nama artis dan lagu.",
+	"account.openInApp": "Buka di OpenMusic",
+	"account.openInAppTitle": "Kamu sudah masuk",
+	"account.openInAppDesc": "Ketuk tombol di bawah untuk menyelesaikan masuk di aplikasi.",
+	"account.nativeSignInHint": "Ketuk tautan di email kamu, lalu ketuk “Buka di OpenMusic” untuk menyelesaikan masuk.",
+	"account.invalidScheme": "Permintaan masuk ini tidak didukung — perbarui aplikasi dan coba lagi.",
 	"settings.backToSettings": "Pengaturan",
 
 	// --- activity log (quick-260630-sgw) ---
