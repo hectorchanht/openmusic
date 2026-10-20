@@ -906,6 +906,9 @@
 		// saves the exact file the row just measured instead of re-resolving a third time.
 		const picked = dlProbe?.track && dlProbe.track.uid === track.uid ? dlProbe.track : track;
 		const res = await downloadTrack(picked);
+		// quick-261020-hqswitch: if THIS song is the one playing and the saved file is a
+		// higher tier than the stream, the player hot-swaps to the local file in place.
+		if (res === 'saved') void player.adoptDownloadedCurrent(track.uid);
 		toast.show(
 			res === 'saved'
 				? t('toast.downloaded', { label })
@@ -1176,6 +1179,9 @@
 		closeDownloadPicker();
 		toast.show(t('toast.downloading', { label }));
 		const res = await downloadTrack(track, { audioFrom: p.track });
+		// quick-261020-hqswitch: a picked higher-tier version of the PLAYING song swaps
+		// the live stream to the downloaded file (the picker's raison d'être).
+		if (res === 'saved') void player.adoptDownloadedCurrent(track.uid);
 		toast.show(
 			res === 'saved'
 				? t('toast.downloaded', { label })

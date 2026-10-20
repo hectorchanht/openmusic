@@ -33,6 +33,7 @@ import { reportDeadDirectUrl } from '$lib/services/direct-url-cache';
 import { buildDiversePicks } from '$lib/services/picks';
 import { buildSimilarQueue } from '$lib/services/similar';
 import { buildOfflineQueue } from '$lib/services/downloads-queue';
+import { shouldAdoptDownloaded } from '$lib/services/download-upgrade';
 import { dedupeBest, sameSongKey } from '$lib/services/dedupe';
 import { overPrebufferCeiling } from '$lib/services/prebuffer-ceiling';
 import {
@@ -1003,6 +1004,108 @@ class Player {
 		} catch {
 			/* re-resolve failed — leave audio in current state */
 		}
+	}
+
+	/** quick-261020-hqswitch — ADOPT A FRESHLY-DOWNLOADED UPGRADE for the loaded track.
+	 *  The user is streaming this song at a lower tier and just downloaded it at a
+	 *  higher one (TrackMenu's Download row / "Download from…" pick / DownloadControl);
+	 *  the caller invokes this AFTER downloadTrack returns 'saved', and when the pure
+	 *  gate (shouldAdoptDownloaded) agrees, the loaded src hot-swaps to the downloaded
+	 *  local file — same position, same play/pause state, queue untouched — instead of
+	 *  waiting for the next play() to take the offline-blob branch.
+	 *
+	 *  Shape-twin of reresolveCurrent above (same-track re-attach): playGen snapshot +
+	 *  re-check after the await, position preserved via pendingSeek, re-attach through
+	 *  the braked driveSrc with provenance 'download-blob'. Deliberate differences:
+	 *   - NO re-resolve and NO playGen bump — nothing about the user's intent changed;
+	 *     a newer play() superseding us is not an error, it is the bail condition, and
+	 *     it is SAFE: any fresh play() of this uid takes the offline-blob branch and
+	 *     lands on the new file by itself.
+	 *   - play() is re-issued ONLY if the element was playing — a paused track swaps
+	 *     silently so the eventual resume uses the better file at the same position.
+	 *   - NOT a stall-arming point either (D-14, same as reresolveCurrent): a local
+	 *     blob loads or errors, and the error path already owns corrupt-blob recovery
+	 *     (evict + re-stream) via the 'download-blob' provenance.
+	 *  D-18 stays intact: download-track never calls this — the UI callers orchestrate,
+	 *  so the download path still never touches player state. Never throws; returns
+	 *  whether the swap happened. A failed/no-op adopt leaves the current stream
+	 *  playing exactly as it was (the src is only assigned at driveSrc, after every
+	 *  fallible step has succeeded). */
+	async adoptDownloadedCurrent(uid: string): Promise<boolean> {
+		if (!browser) return false;
+		const audio = this.audio;
+		const cur = this.current;
+		if (!audio || !cur) return false;
+		// The download record is the authority on the saved file's tier (abq3); the
+		// loaded track's own tag is what is ACTUALLY streaming (for a previously
+		// downloaded track it is the OLD record's tier, snapshotted at play time —
+		// exactly the "before" this upgrade compares against).
+		const rec = library.qualityForDownload(uid);
+		const pos = audio.currentTime || 0;
+		const remaining =
+			Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration - pos : null;
+		if (
+			!shouldAdoptDownloaded({
+				currentUid: cur.uid,
+				downloadedUid: uid,
+				currentQuality: cur.quality ?? cur.qualityLabel ?? null,
+				downloadedQuality: rec?.quality ?? rec?.qualityLabel ?? null,
+				remainingSec: remaining
+			})
+		)
+			return false;
+		const myGen = this.playGen;
+		const wasPlaying = !audio.paused;
+		const blob = await blobStore.get(uid).catch(() => null);
+		if (!blob) return false; // record without bytes — nothing to swap to
+		// WR-02 posture: re-check supersedence AFTER the await, and that the element +
+		// track we snapshotted are still the live ones (a detach/remount or a track
+		// change mid-read makes this adopt stale, not wrong — just drop it).
+		if (myGen !== this.playGen) return false;
+		if (this.audio !== audio || this.current?.uid !== uid) return false;
+		// Create the new object URL BEFORE touching the old one: if driveSrc's brake
+		// trips, the still-attached src must keep a live URL (the halt owns recovery
+		// from there, and it pauses rather than re-driving).
+		const newUrl = URL.createObjectURL(blob);
+		const oldUrl = this.cachedBlobUrl;
+		this.pendingSeek = pos > 0 ? pos : null;
+		this.pendingSeekUid = this.pendingSeek != null ? uid : null;
+		if (!this.driveSrc(uid, newUrl, 'download-blob')) {
+			URL.revokeObjectURL(newUrl);
+			this.pendingSeek = null;
+			this.pendingSeekUid = null;
+			return false;
+		}
+		this.cachedBlobUrl = newUrl;
+		if (oldUrl && oldUrl !== newUrl) URL.revokeObjectURL(oldUrl);
+		// Synchronous seek when the (old) duration is known; else the loadedmetadata
+		// listener applies pendingSeek when the blob's metadata lands. Clamp: a
+		// different encode of the same song can run ~1s shorter.
+		if (Number.isFinite(audio.duration) && audio.duration > 0 && pos > 0) {
+			audio.currentTime = Math.min(pos, audio.duration);
+			this.pendingSeek = null;
+			this.pendingSeekUid = null;
+		}
+		this.currentTime = pos;
+		// Refresh the loaded track (and its queue entry) from the record so the
+		// quality the UI shows is the file now playing, and persist the snapshot.
+		const upgraded = this.applyDownloadQuality(cur);
+		if (upgraded !== cur) {
+			this.current = upgraded;
+			const qi = this.indexOf(cur);
+			if (qi >= 0) this.queue[qi] = upgraded;
+			this.persist();
+		}
+		logAction('download.adopt', { uid, from: cur.quality, to: upgraded.quality });
+		// A src change leaves the element paused; resume ONLY if it was playing
+		// (reresolveCurrent plays unconditionally because it is a seek recovery —
+		// here a deliberate pause must survive the swap).
+		if (wasPlaying) {
+			void audio.play().catch(() => {
+				/* autoplay restriction — the stream stays loaded; the user can tap play */
+			});
+		}
+		return true;
 	}
 
 	/** Best-effort lyric backfill for every path that lands a PLAYABLE track with NO lyric resolve:

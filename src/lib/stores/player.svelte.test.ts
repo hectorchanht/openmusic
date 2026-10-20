@@ -3926,6 +3926,146 @@ describe('player.reresolveCurrent — gen guard after the blob await (WR-02)', (
 	});
 });
 
+describe('player.adoptDownloadedCurrent — hot-swap to a downloaded upgrade (quick-261020-hqswitch)', () => {
+	// The user streams a song at a standard tier, downloads the SAME song at 320k, and the
+	// loaded src must swap to the local file in place: same position, same play/pause
+	// state, queue untouched. The decision gate is the pure shouldAdoptDownloaded; these
+	// tests drive the store side (blob read, gen guard, driveSrc re-attach, quality refresh).
+	let el: ReturnType<typeof makeFakeAudio>;
+	const createObjSpy = vi.fn(() => 'blob:adopted');
+	const revokeSpy = vi.fn();
+
+	beforeEach(() => {
+		mockBlobGet.mockReset();
+		el = makeFakeAudio();
+		player.attach(el as unknown as HTMLAudioElement);
+		vi.stubGlobal('URL', {
+			createObjectURL: createObjSpy,
+			revokeObjectURL: revokeSpy
+		} as unknown as typeof URL);
+		createObjSpy.mockClear();
+		revokeSpy.mockClear();
+		library.downloads = [];
+		// The re-drive brake + held blob URL are session state on the singleton — reset so a
+		// prior suite's drive can't make this suite's single swap look like a storm.
+		const drv = player as unknown as {
+			lastDriveUid: string | null;
+			lastDriveAt: number;
+			driveBurst: number;
+			cachedBlobUrl: string | null;
+		};
+		drv.lastDriveUid = null;
+		drv.lastDriveAt = 0;
+		drv.driveBurst = 0;
+		drv.cachedBlobUrl = null;
+	});
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
+		library.downloads = [];
+	});
+
+	/** Seat `cur` as the loaded streaming track and (optionally) its download record. */
+	function seat(streamingQuality: string | null, recordQuality: string | null): Track {
+		const cur: Track = {
+			...mk('netease', 'hq1', 'Artist', 'Song'),
+			quality: streamingQuality,
+			qualityLabel: streamingQuality
+		};
+		player.current = cur;
+		player.queue = [cur];
+		library.downloads =
+			recordQuality == null
+				? []
+				: [{ ...cur, quality: recordQuality, qualityLabel: recordQuality }];
+		el.src = 'https://cdn.example.com/stream.mp3';
+		return cur;
+	}
+
+	it('swaps to the downloaded blob, preserving position + playing state, and refreshes quality', async () => {
+		const cur = seat('standard', '320k');
+		el.paused = false; // playing
+		el.currentTime = 42;
+		el.duration = 200;
+		mockBlobGet.mockResolvedValue(new Blob(['hq-bytes']));
+
+		const ok = await player.adoptDownloadedCurrent(cur.uid);
+
+		expect(ok).toBe(true);
+		expect(mockBlobGet).toHaveBeenCalledWith(cur.uid);
+		expect(el.src).toBe('blob:adopted');
+		expect(el.currentTime).toBe(42); // position preserved via the clamped immediate seek
+		expect(el.play).toHaveBeenCalled(); // was playing → resumed on the new src
+		expect(player.current?.quality).toBe('320k'); // UI quality now describes the file playing
+		expect(player.queue[0].quality).toBe('320k');
+	});
+
+	it('swaps while paused WITHOUT resuming (the resume will use the better file)', async () => {
+		const cur = seat('standard', 'lossless');
+		el.paused = true;
+		el.currentTime = 7;
+		el.duration = 100;
+		mockBlobGet.mockResolvedValue(new Blob(['flac-bytes']));
+
+		const ok = await player.adoptDownloadedCurrent(cur.uid);
+
+		expect(ok).toBe(true);
+		expect(el.src).toBe('blob:adopted');
+		expect(el.currentTime).toBe(7);
+		expect(el.play).not.toHaveBeenCalled();
+	});
+
+	it('no-ops for a download of a DIFFERENT track (never reads the blob)', async () => {
+		seat('standard', '320k');
+		const ok = await player.adoptDownloadedCurrent('qq:other');
+		expect(ok).toBe(false);
+		expect(mockBlobGet).not.toHaveBeenCalled();
+		expect(el.src).toBe('https://cdn.example.com/stream.mp3');
+	});
+
+	it('no-ops when the saved tier is not higher than the stream (gate runs before any read)', async () => {
+		const cur = seat('320k', '320k');
+		const ok = await player.adoptDownloadedCurrent(cur.uid);
+		expect(ok).toBe(false);
+		expect(mockBlobGet).not.toHaveBeenCalled();
+		expect(el.src).toBe('https://cdn.example.com/stream.mp3');
+	});
+
+	it('no-ops near the end of the track (remaining < 2s — the next play takes the blob anyway)', async () => {
+		const cur = seat('standard', '320k');
+		el.currentTime = 99;
+		el.duration = 100;
+		const ok = await player.adoptDownloadedCurrent(cur.uid);
+		expect(ok).toBe(false);
+		expect(mockBlobGet).not.toHaveBeenCalled();
+	});
+
+	it('no-ops when the record exists but the blob bytes are gone', async () => {
+		const cur = seat('standard', '320k');
+		mockBlobGet.mockResolvedValue(null);
+		const ok = await player.adoptDownloadedCurrent(cur.uid);
+		expect(ok).toBe(false);
+		expect(el.src).toBe('https://cdn.example.com/stream.mp3');
+	});
+
+	it('a newer play() landing during the blob read discards the swap (gen guard)', async () => {
+		const cur = seat('standard', '320k');
+		el.paused = false;
+		const dBlob = deferred<Blob | null>();
+		mockBlobGet.mockReturnValue(dBlob.promise);
+
+		const p = player.adoptDownloadedCurrent(cur.uid);
+		await flush(); // run up to the awaited blobStore.get
+		(player as unknown as { playGen: number }).playGen++; // a newer play() superseded
+		dBlob.resolve(new Blob(['hq-bytes']));
+		const ok = await p;
+
+		expect(ok).toBe(false);
+		expect(el.src).toBe('https://cdn.example.com/stream.mp3'); // not clobbered
+		expect(createObjSpy).not.toHaveBeenCalled();
+	});
+});
+
 describe('player.queueContext — context-threaded setQueue/playStub (Phase 17 QUEUE-03)', () => {
 	// These use the global beforeEach's MOCKED play() — we only assert queueContext + that play
 	// is handed the resolved track. setQueue is a synchronous field set, no real <audio> needed.
