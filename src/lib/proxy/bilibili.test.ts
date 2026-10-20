@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { md5Hex, biliSign, isBiliCdnUrl } from './bilibili';
+import { md5Hex, biliSign, isBiliCdnUrl, extractAllV2VideoRows } from './bilibili';
 
 // quick-261020-bili: the WBI signature stack is hand-rolled (WebCrypto has no MD5 and
 // the repo adds no runtime deps), so its vectors are pinned against INDEPENDENT
@@ -44,6 +44,43 @@ describe('biliSign', () => {
 		vi.spyOn(Date, 'now').mockReturnValue(1700000000000);
 		const qs = biliSign({ keyword: "a!b'c(d)e*f" }, 'ea1db124af3c7062474693fa704f4ff8');
 		expect(qs).toContain('keyword=abcdef');
+	});
+});
+
+describe('extractAllV2VideoRows (search/all/v2 normalization)', () => {
+	// Grouped shape captured live 2026-10-20 (groups trimmed to the essentials).
+	const grouped = {
+		code: 0,
+		data: {
+			result: [
+				{ result_type: 'tips', data: [] },
+				{ result_type: 'bili_user', data: [{ uname: 'VV音乐局' }] },
+				{
+					result_type: 'video',
+					data: [
+						{ bvid: 'BV1BZbSzZEGT', title: 'x<em class="keyword">晴天</em>', author: 'VV音乐局', duration: '4:30' },
+						{ bvid: 'BV1k1Gcz9ETR', title: 'y', author: '如歌如梦', duration: '4:30' }
+					]
+				}
+			]
+		}
+	};
+
+	it('extracts ONLY the video group into the WBI-shaped envelope', () => {
+		const out = extractAllV2VideoRows(grouped);
+		expect(out?.code).toBe(0);
+		expect(out?.data.result.length).toBe(2);
+		expect((out?.data.result[0] as { bvid: string }).bvid).toBe('BV1BZbSzZEGT');
+	});
+
+	it('returns null for a v_voucher risk-control body', () => {
+		expect(extractAllV2VideoRows({ code: 0, data: { v_voucher: 'voucher_abc' } })).toBeNull();
+	});
+
+	it('returns null on drift (no groups / nonzero code / null body)', () => {
+		expect(extractAllV2VideoRows({ code: -101, data: {} })).toBeNull();
+		expect(extractAllV2VideoRows({ code: 0, data: { result: [] } })).toBeNull();
+		expect(extractAllV2VideoRows(null)).toBeNull();
 	});
 });
 

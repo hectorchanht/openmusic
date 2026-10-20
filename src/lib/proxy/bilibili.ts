@@ -7,7 +7,13 @@
 //   - WBI keys come from `x/web-interface/nav` — anonymously the call reports
 //     code -101 (not logged in) but `data.wbi_img` is still served. The mixin key is
 //     the standard permutation of img_key+sub_key, first 32 chars.
-//   - Signed `x/web-interface/wbi/search/type` answers code 0 with NO cookie.
+//   - Signed `x/web-interface/wbi/search/type` answers code 0 with NO cookie —
+//     WHEN bilibili's risk control lets it: it intermittently returns a
+//     `v_voucher` challenge body instead, and nav itself is served an HTML
+//     block page from some egresses (observed from Cloudflare edge IPs, which
+//     starved search entirely in the first deploy). The unsigned
+//     `x/web-interface/search/all/v2` endpoint proved far hardier — see
+//     biliSearch for the two-leg order and the normalization.
 //   - `x/player/pagelist` (unsigned) yields the cid for a bvid's first part.
 //   - `x/player/playurl` must be UNSIGNED + carry a `buvid3` cookie + a bilibili
 //     Referer; the WBI-signed variant is answered with an HTML block page instead.
@@ -149,18 +155,65 @@ export function biliSign(params: Record<string, string | number>, mixin: string)
 
 // ---- Search -------------------------------------------------------------------------------
 
-/** Signed video search (search_type=video). Returns the raw upstream body. */
+interface AllV2Body {
+	code?: number;
+	data?: {
+		v_voucher?: string;
+		result?: Array<{ result_type?: string; data?: unknown[] }>;
+	};
+}
+
+/**
+ * Pull the video rows out of a search/all/v2 body, NORMALIZED to the WBI search
+ * shape ({ code: 0, data: { result: rows } }) the client adapter reads. Returns
+ * null when the body is a risk-control voucher or carries no video group.
+ */
+export function extractAllV2VideoRows(body: unknown): { code: number; data: { result: unknown[] } } | null {
+	const b = body as AllV2Body | null;
+	if (!b || b.code !== 0 || !b.data || b.data.v_voucher) return null;
+	const groups = b.data.result;
+	if (!Array.isArray(groups)) return null;
+	const video = groups.find((g) => g && g.result_type === 'video');
+	if (!video || !Array.isArray(video.data)) return null;
+	return { code: 0, data: { result: video.data } };
+}
+
+/**
+ * Search, two legs (order matters — live evidence 2026-10-20):
+ *   1. `x/web-interface/search/all/v2` — UNSIGNED, no nav dependency. It kept
+ *      answering full result pages while the WBI endpoint was returning
+ *      `v_voucher` risk-control bodies for the same egress, and it does not need
+ *      the nav call that bilibili serves an HTML block page to from some
+ *      egresses (which is what starved the first deployed version: mixin fetch
+ *      threw → empty results at the edge while VM-local calls worked).
+ *   2. WBI-signed `x/web-interface/wbi/search/type` — the canonical endpoint
+ *      (music-lib's), kept as fallback for when all/v2 is the gated one; risk
+ *      state fluctuates per endpoint and per egress.
+ * The return is always the WBI-shaped envelope (leg 1 normalized, leg 2 raw).
+ */
 export async function biliSearch(keyword: string, page: number, pageSize: number): Promise<unknown> {
+	if (!buvid3) buvid3 = fabricateBuvid3();
+	try {
+		const res = await fetchWithRetry(
+			`https://api.bilibili.com/x/web-interface/search/all/v2?keyword=${encodeURIComponent(keyword)}&page=${page}`,
+			{
+				signal: AbortSignal.timeout(8000),
+				headers: { 'User-Agent': BILI_UA, Referer: BILI_REFERER, Cookie: `buvid3=${buvid3}` }
+			},
+			1
+		);
+		const normalized = extractAllV2VideoRows(await res.json());
+		if (normalized && normalized.data.result.length > 0) return normalized;
+	} catch {
+		// leg 1 transport/parse failure → leg 2 still gets its chance
+	}
 	const mixin = await biliMixinKey();
-	const qs = biliSign(
-		{ search_type: 'video', keyword, page, page_size: pageSize },
-		mixin
-	);
+	const qs = biliSign({ search_type: 'video', keyword, page, page_size: pageSize }, mixin);
 	const res = await fetchWithRetry(
 		`https://api.bilibili.com/x/web-interface/wbi/search/type?${qs}`,
 		{
 			signal: AbortSignal.timeout(8000),
-			headers: { 'User-Agent': BILI_UA, Referer: BILI_REFERER }
+			headers: { 'User-Agent': BILI_UA, Referer: BILI_REFERER, Cookie: `buvid3=${buvid3}` }
 		},
 		1
 	);
