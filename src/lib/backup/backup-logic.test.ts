@@ -20,6 +20,8 @@ import {
 	buildEnvelope,
 	hasUndoSnapshot,
 	serializeEnvelope,
+	slimLibraryForSync,
+	slimTrackForSync,
 	storageKeys,
 	undoImport,
 	validateEnvelope,
@@ -387,5 +389,79 @@ const _shape: BackupEnvelope = { app: BACKUP_MAGIC, format: BACKUP_FORMAT, expor
 describe('envelope contract', () => {
 	it('exposes the BackupEnvelope interface downstream plans import', () => {
 		expect(_shape.app).toBe(BACKUP_MAGIC);
+	});
+});
+
+// quick-261020-slimsync: the library payload was 1.7MB (lrc lyrics text = 75% of it) and
+// 504'd ~1 in 3 sync pushes over a marginal uplink. Sync keeps identity+display only.
+describe('slimTrackForSync', () => {
+	const full = {
+		uid: 'kuwo:9',
+		source: 'kuwo',
+		songid: '9',
+		title: '晴天',
+		artist: '周杰倫',
+		album: '葉惠美',
+		cover: 'https://x/y.jpg',
+		quality: '320k',
+		duration: 240,
+		lrc: '[00:01]...lyrics...',
+		lrcUrl: 'https://x/lrc',
+		audioUrl: 'https://x/a.mp3',
+		proxyUrl: 'https://openmusic.lol/api/x',
+		keyword: '晴天 周杰倫',
+		songMid: 'abc',
+		detailsLoaded: true,
+		qualityLabel: 'HQ',
+		displayIndex: 3
+	};
+	it('keeps identity + display fields', () => {
+		expect(slimTrackForSync(full)).toEqual({
+			uid: 'kuwo:9',
+			source: 'kuwo',
+			songid: '9',
+			title: '晴天',
+			artist: '周杰倫',
+			album: '葉惠美',
+			cover: 'https://x/y.jpg',
+			quality: '320k',
+			duration: 240
+		});
+	});
+	it('drops lrc text, ephemeral urls and resolve inputs', () => {
+		const slim = slimTrackForSync(full) as Record<string, unknown>;
+		for (const f of ['lrc', 'lrcUrl', 'audioUrl', 'proxyUrl', 'keyword', 'songMid', 'detailsLoaded', 'qualityLabel', 'displayIndex']) {
+			expect(slim[f]).toBeUndefined();
+		}
+	});
+	it('passes non-objects through untouched', () => {
+		expect(slimTrackForSync(null)).toBeNull();
+		expect(slimTrackForSync('x')).toBe('x');
+	});
+});
+
+describe('slimLibraryForSync', () => {
+	it('slims liked/downloads and nested playlist tracks, passes the rest through', () => {
+		const t = { uid: 'kuwo:9', title: '晴天', lrc: 'lyrics', audioUrl: 'https://x' };
+		const lib = {
+			liked: [t],
+			downloads: [t],
+			playlists: [{ name: 'p', tracks: [t] }],
+			favArtists: ['周杰倫'],
+			unavailable: []
+		};
+		const out = slimLibraryForSync(lib) as Record<string, any>;
+		expect(out.liked[0]).toEqual({ uid: 'kuwo:9', title: '晴天' });
+		expect(out.downloads[0]).toEqual({ uid: 'kuwo:9', title: '晴天' });
+		expect(out.playlists[0].tracks[0]).toEqual({ uid: 'kuwo:9', title: '晴天' });
+		expect(out.favArtists).toEqual(['周杰倫']);
+	});
+	it('buildEnvelope slims the library key on export', () => {
+		const lib = { liked: [{ uid: 'kuwo:9', title: '晴天', lrc: 'lyrics' }], downloads: [] };
+		const read = (k: string) => (k === LIBRARY_KEY ? JSON.stringify(lib) : null);
+		const env = buildEnvelope(read, [LIBRARY_KEY]);
+		const out = (env.keys[LIBRARY_KEY] as any).liked[0];
+		expect(out.lrc).toBeUndefined();
+		expect(out.title).toBe('晴天');
 	});
 });

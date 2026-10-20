@@ -124,6 +124,55 @@ export function storageKeys(store: Pick<Storage, 'length' | 'key'>): string[] {
 }
 
 /**
+ * quick-261020-slimsync — the synced library ballooned to ~1.7MB because every track
+ * carried its full resolved payload: `lrc` (whole lyrics text) alone was 75% of it, plus
+ * ephemeral/derivable fields (`audioUrl`/`proxyUrl` expire, `lrc`/`lrcUrl` re-fetch on
+ * demand, `keyword`/`songMid`/per-source ids are resolve inputs, not state). Uploading
+ * that every 30s over a marginal uplink 504'd ~1 in 3 sync pushes.
+ *
+ * The sync keeps IDENTITY + display fields only. A restored library is just stubs — the
+ * player already re-resolves stubs on demand (ensureTrackDetails) and covers via the
+ * cover chain, so it behaves exactly like fresh search results. `cover` stays (tiny,
+ * and library rows render it immediately); everything heavy or ephemeral is dropped.
+ */
+const SYNC_TRACK_FIELDS = [
+	'uid',
+	'source',
+	'songid',
+	'title',
+	'artist',
+	'album',
+	'cover',
+	'quality',
+	'duration'
+] as const;
+
+export function slimTrackForSync(t: unknown): unknown {
+	if (!isPlainObject(t)) return t;
+	const out: Record<string, unknown> = {};
+	for (const f of SYNC_TRACK_FIELDS) {
+		if (t[f] !== undefined) out[f] = t[f];
+	}
+	return out;
+}
+
+/** PURE: slim every track array inside a library payload (liked/downloads, plus tracks nested in playlists). */
+export function slimLibraryForSync(lib: unknown): unknown {
+	if (!isPlainObject(lib)) return lib;
+	const out: Record<string, unknown> = { ...lib };
+	for (const field of ['liked', 'downloads']) {
+		if (Array.isArray(out[field])) out[field] = (out[field] as unknown[]).map(slimTrackForSync);
+	}
+	if (Array.isArray(out['playlists'])) {
+		out['playlists'] = (out['playlists'] as unknown[]).map((p) => {
+			if (!isPlainObject(p) || !Array.isArray(p['tracks'])) return p;
+			return { ...p, tracks: (p['tracks'] as unknown[]).map(slimTrackForSync) };
+		});
+	}
+	return out;
+}
+
+/**
  * Build the export payload. SYNCHRONOUS on purpose: the web export runs inside the click
  * handler, and iOS Safari discards the user gesture across an await (35-RESEARCH Pitfall 5).
  *
@@ -144,7 +193,12 @@ export function buildEnvelope(read: (k: string) => string | null, allKeys: reado
 		}
 		if (raw == null) continue;
 		try {
-			keys[k] = JSON.parse(raw);
+			let parsed: unknown = JSON.parse(raw);
+			// quick-261020-slimsync: the library key carries full resolved tracks (lrc text
+			// was 75% of a 1.7MB payload); slim to identity+display fields before export so
+			// neither sync pushes nor manual backups haul lyrics/ephemeral URLs.
+			if (k === LIBRARY_KEY) parsed = slimLibraryForSync(parsed);
+			keys[k] = parsed;
 		} catch {
 			/* corrupt local value — skip this key, never abort the export */
 		}

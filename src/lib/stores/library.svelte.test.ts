@@ -800,7 +800,10 @@ describe('library.downloadUidFor (quick-261008-dl1)', () => {
 	});
 
 	it('device: tracks are exact-uid only — a catalog tap never resolves to a device file', () => {
-		library.downloads = [mk({ uid: 'device:abc', source: 'device', artist: '周杰倫', title: '晴天' })];
+		// 34-D-01: 'device' is an identity namespace, deliberately NOT a SourceId — the
+		// device-ness lives in the uid ('device:abc', matched by isDeviceUid), so the
+		// source field keeps a valid SourceId here.
+		library.downloads = [mk({ uid: 'device:abc', artist: '周杰倫', title: '晴天' })];
 		expect(library.downloadUidFor(mk({ uid: 'kuwo:9', artist: '周杰倫', title: '晴天' }))).toBeNull();
 		expect(library.downloadUidFor(mk({ uid: 'device:abc', artist: '周杰倫', title: '晴天' }))).toBe(
 			'device:abc'
