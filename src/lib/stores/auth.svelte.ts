@@ -24,8 +24,11 @@ import { startSyncEngine, type SyncStatus } from '$lib/services/sync';
 /** localStorage key for the NATIVE bearer token. Web never writes it (cookie only). */
 const TOKEN_KEY = 'openmusic:auth-token:v1';
 
-/** requestLink outcomes — the Account page maps each to an `account.*` i18n key. */
-export type RequestLinkResult = 'ok' | 'invalid-email' | 'rate-limited' | 'not-configured' | 'send-failed' | 'error';
+/** requestLink outcomes — the Account page maps each to an `account.*` i18n key.
+ *  quick-261020-sync: 'network' is its own member now (the 2026-10-20 APK report showed a
+ *  generic "Something went wrong" while the server HAD created the token and Resend HAD
+ *  sent the mail — every failure class gets its own message from here on). */
+export type RequestLinkResult = 'ok' | 'invalid-email' | 'rate-limited' | 'not-configured' | 'send-failed' | 'network' | 'error';
 
 class Auth {
 	/** The signed-in user, or null. Read one-way by the UI. */
@@ -95,26 +98,41 @@ class Auth {
 	}
 
 	/** Sign-in step 1: ask the server to email a magic link. Returns a status union the
-	 *  page localizes; never throws. */
+	 *  page localizes; never throws.
+	 *
+	 *  quick-261020-sync — honest errors, one retry: a NETWORK failure (fetch threw,
+	 *  timeout, DNS) retries ONCE (2 attempts total) before reporting 'network', so a
+	 *  flaky first attempt doesn't burn the flow. A 4xx/5xx from the server NEVER retries —
+	 *  the server already decided, and a blind retry could re-send the mail the first
+	 *  attempt already queued (the production case this fixes: the token existed and the
+	 *  mail was sent, but the client showed "Something went wrong"). */
 	async requestLink(email: string): Promise<RequestLinkResult> {
 		if (!browser) return 'error';
 		const clean = email.trim().toLowerCase();
 		if (!isValidEmail(clean)) return 'invalid-email';
-		try {
-			const res = await this.authedFetch('/api/auth/magic-link', {
-				method: 'POST',
-				body: JSON.stringify({ email: clean })
-			});
-			if (res.ok) return 'ok';
-			const err = ((await res.json().catch(() => null)) as { err?: string } | null)?.err;
-			if (err === 'rate-limited') return 'rate-limited';
-			if (err === 'invalid-email') return 'invalid-email';
-			if (err === 'not-configured') return 'not-configured';
-			if (err === 'send-failed') return 'send-failed';
-			return 'error';
-		} catch {
-			return 'error';
+		for (let attempt = 0; attempt < 2; attempt++) {
+			try {
+				// AbortSignal.timeout is the native timeout — never hand-rolled (the fetch
+				// helpers carry the same convention). A hung edge call strands the form
+				// forever otherwise; a timeout reports as a NETWORK failure like any other.
+				const res = await this.authedFetch('/api/auth/magic-link', {
+					method: 'POST',
+					body: JSON.stringify({ email: clean }),
+					signal: AbortSignal.timeout(15_000)
+				});
+				if (res.ok) return 'ok';
+				const err = ((await res.json().catch(() => null)) as { err?: string } | null)?.err;
+				if (err === 'rate-limited') return 'rate-limited';
+				if (err === 'invalid-email') return 'invalid-email';
+				if (err === 'not-configured') return 'not-configured';
+				if (err === 'send-failed') return 'send-failed';
+				return 'error';
+			} catch {
+				if (attempt === 0) continue; // retry once, on network failure only
+				return 'network';
+			}
 		}
+		return 'network'; // unreachable — every loop path returns above
 	}
 
 	/** Sign-in step 2 (called by the /auth/magic page): redeem the token from the email

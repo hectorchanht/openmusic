@@ -489,3 +489,79 @@ describe('settings persistence — zhScript survives load (quick-260925-vtg)', (
 		expect((await loadWith({ zhScript: 'bogus' })).zhScript).toBe('zh-Hant');
 	});
 });
+
+describe('settings persistence round-trip — syncItems (quick-261020-sync)', () => {
+	beforeEach(() => memStore.clear());
+
+	it('a pre-picker blob (no syncItems) loads all-true', async () => {
+		memStore.set(KEY, JSON.stringify({ appLang: 'en' }));
+		const settings = await freshSettings();
+		settings.load();
+		expect(settings.syncItems).toEqual({
+			settings: true,
+			library: true,
+			history: true,
+			searchHistory: true,
+			nameTr: true
+		});
+	});
+
+	it('honours persisted booleans per key and falls back per key on tampering', async () => {
+		memStore.set(
+			KEY,
+			JSON.stringify({
+				appLang: 'en',
+				syncItems: { settings: false, library: true, history: 'yes', searchHistory: 0, nameTr: null, extra: true }
+			})
+		);
+		const settings = await freshSettings();
+		settings.load();
+		expect(settings.syncItems).toEqual({
+			settings: false,
+			library: true,
+			history: true,
+			searchHistory: true,
+			nameTr: true
+		});
+	});
+
+	it('a non-object syncItems falls back to all-true', async () => {
+		memStore.set(KEY, JSON.stringify({ appLang: 'en', syncItems: ['settings'] }));
+		const settings = await freshSettings();
+		settings.load();
+		expect(settings.syncItems).toEqual({
+			settings: true,
+			library: true,
+			history: true,
+			searchHistory: true,
+			nameTr: true
+		});
+	});
+
+	it('round-trips through save()', async () => {
+		const settings = await freshSettings();
+		settings.load();
+		settings.syncItems = { ...settings.syncItems, library: false };
+		settings.save();
+		const blob = JSON.parse(memStore.get(KEY) as string) as { syncItems: unknown };
+		expect(blob.syncItems).toEqual({
+			settings: true,
+			library: false,
+			history: true,
+			searchHistory: true,
+			nameTr: true
+		});
+	});
+
+	it('reset-group methods never touch syncItems', async () => {
+		const settings = await freshSettings();
+		settings.load();
+		settings.syncItems = { ...settings.syncItems, library: false };
+		settings.resetAppearance();
+		settings.resetGeneral();
+		settings.resetTranslation();
+		settings.resetPlayback();
+		settings.resetHome();
+		expect(settings.syncItems.library).toBe(false);
+	});
+});

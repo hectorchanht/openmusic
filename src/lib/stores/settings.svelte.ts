@@ -14,8 +14,10 @@ import {
 	PLAYBACK_DEFAULTS,
 	UPNEXT_DEFAULTS,
 	HOME_DEFAULTS,
+	SYNC_DEFAULTS,
 	type UpnextMode,
-	type QueueContext
+	type QueueContext,
+	type SyncItems
 } from '$lib/config/defaults';
 // Pure util (no DOM/browser/store imports) — settings stays a LEAF store. Used by
 // applyTheme() to derive --color-primary-hover from the chosen accent (UX-07 root-cause fix).
@@ -273,6 +275,10 @@ class Settings {
 	homeShowSearchPill = $state<boolean>(HOME_DEFAULTS.homeShowSearchPill);
 	/** Show the Randomize button on home (default TRUE = today). */
 	homeShowRandomize = $state<boolean>(HOME_DEFAULTS.homeShowRandomize);
+	// quick-261020-sync: ACCOUNT-level cross-device sync item selection. Lives inside the
+	// settings blob so the choice follows the user, but is NOT in the DEFAULTS aggregate —
+	// no reset-group method may touch it (resetAppearance/resetGeneral/… are unchanged).
+	syncItems = $state<SyncItems>({ ...SYNC_DEFAULTS.items });
 	/** 39-D-40: persisted home-layout version. A PLAIN field, not $state: the UI never reads it —
 	 *  it only gates the one-time layout migration in load() and is written by save(). */
 	homeLayoutVersion: number = HOME_DEFAULTS.homeLayoutVersion;
@@ -502,6 +508,25 @@ class Settings {
 				// an ABSENT field to false and HIDE the chrome for a returning user (regression).
 				this.homeShowSearchPill = v.homeShowSearchPill ?? HOME_DEFAULTS.homeShowSearchPill;
 				this.homeShowRandomize = v.homeShowRandomize ?? HOME_DEFAULTS.homeShowRandomize;
+				// quick-261020-sync: per-key BOOLEAN guards — localStorage is user/extension
+				// writable, so anything that is not an explicit boolean falls back to the
+				// default (same posture as the booleans above). An absent `syncItems` blob
+				// (pre-picker installs) reads all-true; unknown extra keys are dropped.
+				this.syncItems = (() => {
+					const s = v.syncItems;
+					const d = SYNC_DEFAULTS.items;
+					if (!s || typeof s !== 'object' || Array.isArray(s)) return { ...d };
+					// TS narrows `s` to the SyncItems field type — the cast passes through
+					// `unknown` (never `as any`) because localStorage is external data.
+					const r = s as unknown as Record<string, unknown>;
+					return {
+						settings: typeof r.settings === 'boolean' ? r.settings : d.settings,
+						library: typeof r.library === 'boolean' ? r.library : d.library,
+						history: typeof r.history === 'boolean' ? r.history : d.history,
+						searchHistory: typeof r.searchHistory === 'boolean' ? r.searchHistory : d.searchHistory,
+						nameTr: typeof r.nameTr === 'boolean' ? r.nameTr : d.nameTr
+					} satisfies SyncItems;
+				})();
 			} else {
 				// Truly first visit (nothing saved yet): auto-detect UI language once.
 				this.appLang = detectAppLang(navigator.language);
@@ -577,7 +602,11 @@ class Settings {
 					homeSectionDensity: this.homeSectionDensity,
 					homeShowSearchPill: this.homeShowSearchPill,
 					homeShowRandomize: this.homeShowRandomize,
-					homeLayoutVersion: this.homeLayoutVersion
+					homeLayoutVersion: this.homeLayoutVersion,
+					// quick-261020-sync: the selection itself travels in the blob (account-level —
+					// follows the user). It is NOT in the DEFAULTS aggregate and no reset-group
+					// method writes it; the sync engine filters the envelope by it instead.
+					syncItems: this.syncItems
 				})
 			);
 		} catch {

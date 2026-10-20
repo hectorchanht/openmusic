@@ -11,6 +11,12 @@
 // what buildEnvelope reads), and the change hash covers exactly that set, so a cover-cache
 // write can never trigger a sync.
 //
+// quick-261020-sync — the sync-item PICKER: settings.syncItems (SYNC_DEFAULTS in
+// $lib/config/defaults) selects which of the five families travels. The engine reads the
+// selection from the settings blob through the `read` closure (never the settings runes
+// singleton), filters push AND pull by it (filterEnvelopeKeys), and folds it into the
+// change hash so a pure toggle counts as dirty and pushes immediately.
+//
 // The engine knows NOTHING about the auth store: the store injects `SyncHooks` (an authed
 // fetch, a signed-in probe, and two status sinks). That keeps the dependency one-way
 // (auth → sync) and the engine's decision helpers below pure + node-testable.
@@ -20,14 +26,24 @@
 
 import { browser } from '$app/environment';
 import {
-	BACKUP_EXACT_KEYS,
+	LIBRARY_KEY,
 	NAME_TR_PREFIX,
+	SETTINGS_KEY,
 	applyEnvelope,
 	buildEnvelope,
 	storageKeys,
 	validateEnvelope,
 	type BackupEnvelope
 } from '$lib/backup/backup-logic';
+// HISTORY_KEY / SEARCH_HISTORY_KEY are NOT re-exported by backup-logic — both live in
+// already-pure modules the node test project imports without globals.
+import { HISTORY_KEY } from '$lib/history/history-logic';
+import { SEARCH_HISTORY_KEY } from '$lib/search/search-history-logic';
+// quick-261020-sync: SYNC_DEFAULTS is a pure value module (defaults.ts has no runtime
+// imports from any store — only type imports + pure value modules), so the engine can
+// read the selection straight from the settings blob without importing the settings
+// runes singleton (the node Vitest project can't compile runes).
+import { SYNC_DEFAULTS, type SyncItems } from '$lib/config/defaults';
 
 /** localStorage key for the sync bookkeeping: { updatedAt: server ms, hash: last synced }. */
 export const SYNC_META_KEY = 'openmusic:sync:v1';
@@ -71,15 +87,100 @@ function cyrb53(str: string, seed = 0): string {
 }
 
 /**
- * PURE: hash of exactly the key set that syncs — the four exact keys + the name-tr prefix
- * family present in `allKeys`. `read` is injected (the engine passes a localStorage
- * getItem closure, the tests pass a Map lookup), mirroring buildEnvelope's seam.
+ * quick-261020-sync: the sync-item PICKER. The selection lives in the settings blob
+ * (settings.syncItems, SYNC_DEFAULTS in $lib/config/defaults) and the engine reads it
+ * through the injected `read` closure — it never imports the settings runes singleton
+ * (the node Vitest project can't compile runes; see the defaults.ts import note above).
  */
-export function hashSyncedKeys(read: (k: string) => string | null, allKeys: readonly string[]): string {
-	const wanted = [...BACKUP_EXACT_KEYS, ...allKeys.filter((k) => k.startsWith(NAME_TR_PREFIX))];
+
+/** PURE: the exact localStorage key list the current selection allows to travel. */
+export function selectedWantedKeys(items: SyncItems, allKeys: readonly string[]): string[] {
+	const out: string[] = [];
+	if (items.settings) out.push(SETTINGS_KEY);
+	if (items.library) out.push(LIBRARY_KEY);
+	if (items.history) out.push(HISTORY_KEY);
+	if (items.searchHistory) out.push(SEARCH_HISTORY_KEY);
+	if (items.nameTr) out.push(...allKeys.filter((k) => k.startsWith(NAME_TR_PREFIX)));
+	return out;
+}
+
+/**
+ * PURE: read the picker selection from the settings blob through `read`. A missing /
+ * corrupt / tampered blob falls back PER-KEY to SYNC_DEFAULTS — never throws.
+ */
+export function readSyncItems(read: (k: string) => string | null): SyncItems {
+	const def = { ...SYNC_DEFAULTS.items };
+	let raw: string | null = null;
+	try {
+		raw = read(SETTINGS_KEY);
+	} catch {
+		return def;
+	}
+	if (raw == null) return def;
+	try {
+		const v = JSON.parse(raw) as { syncItems?: unknown };
+		const s = v.syncItems;
+		if (s == null || typeof s !== 'object' || Array.isArray(s)) return def;
+		const r = s as Record<string, unknown>;
+		return {
+			settings: typeof r.settings === 'boolean' ? r.settings : def.settings,
+			library: typeof r.library === 'boolean' ? r.library : def.library,
+			history: typeof r.history === 'boolean' ? r.history : def.history,
+			searchHistory: typeof r.searchHistory === 'boolean' ? r.searchHistory : def.searchHistory,
+			nameTr: typeof r.nameTr === 'boolean' ? r.nameTr : def.nameTr
+		};
+	} catch {
+		return def;
+	}
+}
+
+/**
+ * PURE: drop every key the selection excludes from an envelope.
+ *  - PUSH side: the cloud copy becomes EXACTLY the selected keys. Unchecking a family
+ *    DELETES it from the server on the next push (last-write-wins): the PUT upserts the
+ *    whole filtered envelope, so the family is gone for every device — a deliberate,
+ *    visible choice, documented here so no one "fixes" it back into a merge.
+ *  - PULL side: filter the server envelope BEFORE validateEnvelope, so a deselected
+ *    family is never applied to the local store (the local copy is kept untouched).
+ *  NOTE (cross-device): if device A unchecks `library` and pushes, device B (still
+ *  checked) pulls an envelope without it. B's apply does not restore it — B converges
+ *  to the family-less state; any later local library change on B pushes it back up.
+ */
+export function filterEnvelopeKeys(env: BackupEnvelope, items: SyncItems): BackupEnvelope {
+	const allowExact = new Set<string>();
+	if (items.settings) allowExact.add(SETTINGS_KEY);
+	if (items.library) allowExact.add(LIBRARY_KEY);
+	if (items.history) allowExact.add(HISTORY_KEY);
+	if (items.searchHistory) allowExact.add(SEARCH_HISTORY_KEY);
+	const keys: Record<string, unknown> = {};
+	for (const [k, v] of Object.entries(env.keys)) {
+		if (k.startsWith(NAME_TR_PREFIX)) {
+			if (items.nameTr) keys[k] = v;
+		} else if (allowExact.has(k)) {
+			keys[k] = v;
+		}
+		// Dropped silently: an unselected family, or a foreign/unknown key the validator
+		// would drop anyway.
+	}
+	return { ...env, keys };
+}
+
+/**
+ * PURE: hash of exactly the key set the selection allows to sync — the four exact keys
+ * + the name-tr prefix family present in `allKeys`, each gated by the picker.
+ * The SELECTION itself is folded into the hash: a pure toggle changes no payload but
+ * MUST still count as dirty, or the push carrying the new selection never fires.
+ * `items` defaults to all-on, so the two-arg call shape (and the existing tests) keeps
+ * meaning "everything", as before the picker existed.
+ */
+export function hashSyncedKeys(
+	read: (k: string) => string | null,
+	allKeys: readonly string[],
+	items: SyncItems = { ...SYNC_DEFAULTS.items }
+): string {
 	let acc = '';
-	for (const k of wanted) acc += `${k}=${read(k) ?? ''}\n`;
-	return cyrb53(acc);
+	for (const k of selectedWantedKeys(items, allKeys)) acc += `${k}=${read(k) ?? ''}\n`;
+	return cyrb53(`selection=${JSON.stringify(items)}\n${acc}`);
 }
 
 /** PURE-ish read of the sync meta; absent / corrupt → null (treated as "never synced"). */
@@ -112,12 +213,20 @@ function localRead(k: string): string | null {
 	}
 }
 
-function localHash(): string {
-	return hashSyncedKeys(localRead, storageKeys(localStorage));
+/** The live picker selection, read from the settings blob on every pass — a toggle
+ *  takes effect on the very next tick without restarting the engine. */
+function localItems(): SyncItems {
+	return readSyncItems(localRead);
 }
 
+function localHash(): string {
+	return hashSyncedKeys(localRead, storageKeys(localStorage), localItems());
+}
+
+/** Build the full envelope, then filter to the selection — the cloud copy carries ONLY
+ *  what the user checked (filterEnvelopeKeys documents the uncheck-drops-it semantics). */
 function localEnvelope(): BackupEnvelope {
-	return buildEnvelope(localRead, storageKeys(localStorage));
+	return filterEnvelopeKeys(buildEnvelope(localRead, storageKeys(localStorage)), localItems());
 }
 
 /** PUSH the local envelope; on success the meta is re-anchored to the server's updatedAt. */
@@ -186,7 +295,9 @@ export async function syncOnce(hooks: SyncHooks): Promise<void> {
 	if (serverAt > meta.updatedAt) {
 		// Another device is ahead. Validate through the ONE validator before any byte of it
 		// reaches localStorage (the server validates too — defence in depth, not trust).
-		const verdict = validateEnvelope(JSON.stringify(body.envelope));
+		// quick-261020-sync: the server envelope is filtered to the local picker selection
+		// FIRST — a deselected family is never applied to the local store.
+		const verdict = validateEnvelope(JSON.stringify(filterEnvelopeKeys(body.envelope as BackupEnvelope, localItems())));
 		if (!verdict.ok) {
 			hooks.setStatus('error');
 			return;

@@ -245,6 +245,36 @@ export const HOME_DEFAULTS = {
 } as const;
 
 /** All groups in one place — used to drive the reset-group helpers. */
+// quick-261020-sync: SYNC_DEFAULTS is DELIBERATELY not a member — the sync-item
+// selection is ACCOUNT-level (it follows the user across devices inside the settings
+// blob), and no "Reset this group" button may ever touch it.
+
+/**
+ * quick-261020-sync: which data families travel in the cross-device sync envelope.
+ * One member per envelope key family in $lib/backup/backup-logic.ts (SETTINGS_KEY,
+ * LIBRARY_KEY, HISTORY_KEY, SEARCH_HISTORY_KEY, NAME_TR_PREFIX). The sync ENGINE reads
+ * this through the settings blob and filters push/pull to the selected set; unchecking
+ * a family drops it from the cloud copy on the next push (last-write-wins).
+ */
+export interface SyncItems {
+	settings: boolean;
+	library: boolean;
+	history: boolean;
+	searchHistory: boolean;
+	nameTr: boolean;
+}
+
+export const SYNC_DEFAULTS = {
+	/** Everything syncs on a fresh account — an unchecked item is an explicit choice. */
+	items: {
+		settings: true,
+		library: true,
+		history: true,
+		searchHistory: true,
+		nameTr: true
+	} satisfies SyncItems
+};
+
 export const DEFAULTS = {
 	general: GENERAL_DEFAULTS,
 	appearance: APPEARANCE_DEFAULTS,
