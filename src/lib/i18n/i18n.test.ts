@@ -95,7 +95,7 @@ describe('quick-261006-i18n lazy locales', () => {
 
 describe('dictionaries', () => {
 	// Phase 19 (Pitfall 5 / Wave 0): the parity + no-blank checks iterate ALL 15 locales (was
-	// only en/zh-Hant/zh-Hans) so a key added only to en — e.g. the new menu.remix / toast.remixing
+	// only en/zh-Hant/zh-Hans) so a key added only to en — e.g. the new menu.autoplay / toast.autoplaying
 	// / menu.preparing — fails CI in every locale that is missing it, self-enforcing parity for
 	// this phase AND all future ones.
 	it('every locale exposes a key set IDENTICAL to en (all 15 locales)', () => {
@@ -107,7 +107,7 @@ describe('dictionaries', () => {
 
 	it('the Phase-19 keys are present in every locale', () => {
 		for (const lang of Object.keys(dicts) as Array<keyof typeof dicts>) {
-			for (const key of ['menu.remix', 'toast.remixing', 'menu.preparing'] as const) {
+			for (const key of ['menu.autoplay', 'toast.autoplaying', 'menu.preparing'] as const) {
 				expect(dicts[lang][key], `${lang}.${key} should exist`).toBeTruthy();
 			}
 		}

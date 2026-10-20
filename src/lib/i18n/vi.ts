@@ -392,7 +392,7 @@ const vi: Dict = {
 	"menu.detailNotResolved": "(chưa giải quyết)",
 	"menu.detailUnknown": "không rõ",
 	"menu.sleepTimer": "Hẹn giờ tắt",
-	"menu.remix": "Phối lại",
+	"menu.autoplay": "Tự động phát",
 	"menu.preparing": "Đang chuẩn bị…",
 
 	// --- version picker (Phase 26-04, VERSIONS-01) ---
@@ -479,7 +479,7 @@ const vi: Dict = {
 	"toast.downloadRemoved": "Đã xoá bản tải xuống. Bài hát vẫn nằm trong thư viện của bạn.",
 	"toast.noImportUndone": "Đã cho phép lại — tệp sẽ quay lại ở lần nhập tới",
 	"toast.unliked": "Đã bỏ thích",
-	"toast.remixing": "Đang phối lại từ bài hát này",
+	"toast.autoplaying": "Đang tự động phát từ bài hát này",
 	"toast.artistFavorited": "Đã thêm vào nghệ sĩ yêu thích",
 	"toast.artistUnfavorited": "Đã xoá khỏi nghệ sĩ yêu thích",
 	"settings.sourcesAdvanced": "Nâng cao — Nguồn",

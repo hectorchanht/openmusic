@@ -392,7 +392,7 @@ const pt: Dict = {
 	"menu.detailNotResolved": "(não resolvido)",
 	"menu.detailUnknown": "desconhecido",
 	"menu.sleepTimer": "Temporizador",
-	"menu.remix": "Remix",
+	"menu.autoplay": "Reprodução automática",
 	"menu.preparing": "Preparando…",
 
 	// --- version picker (Phase 26-04, VERSIONS-01) ---
@@ -479,7 +479,7 @@ const pt: Dict = {
 	"toast.downloadRemoved": "Transferência removida. A música continua na tua biblioteca.",
 	"toast.noImportUndone": "Permitido novamente — volta na próxima importação",
 	"toast.unliked": "Removido dos favoritos",
-	"toast.remixing": "Remixando a partir desta música",
+	"toast.autoplaying": "Reprodução automática a partir desta música",
 	"toast.artistFavorited": "Adicionado aos artistas favoritos",
 	"toast.artistUnfavorited": "Removido dos artistas favoritos",
 	"settings.sourcesAdvanced": "Avançado — Fontes",

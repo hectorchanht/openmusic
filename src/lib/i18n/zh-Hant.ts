@@ -414,7 +414,7 @@ const zhHant: Dict = {
 	"menu.detailNotResolved": "（尚未解析）",
 	"menu.detailUnknown": "未知",
 	"menu.sleepTimer": "睡眠定時器",
-	"menu.remix": "重新混音",
+	"menu.autoplay": "自動播放",
 	"menu.preparing": "準備中…",
 
 	// --- version picker (Phase 26-04, VERSIONS-01) ---
@@ -505,7 +505,7 @@ const zhHant: Dict = {
 	"toast.downloadRemoved": "已移除下載。歌曲仍留在你的音樂庫中。",
 	"toast.noImportUndone": "已重新允許 — 下次匯入時會回來",
 	"toast.unliked": "已取消收藏",
-	"toast.remixing": "正在以這首歌重新混音",
+	"toast.autoplaying": "正在以這首歌自動播放",
 	"toast.artistFavorited": "已加入收藏的歌手",
 	"toast.artistUnfavorited": "已從收藏的歌手中移除",
 	"settings.sourcesAdvanced": "進階 — 音樂來源",

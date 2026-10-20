@@ -455,7 +455,7 @@ const en = {
 	"menu.detailNotResolved": "(not resolved)",
 	"menu.detailUnknown": "unknown",
 	"menu.sleepTimer": "Sleep timer",
-	"menu.remix": "Remix",
+	"menu.autoplay": "Autoplay",
 	"menu.preparing": "Preparing…",
 
 	// --- version picker (Phase 26-04, VERSIONS-01) — pick which source's variant plays ---
@@ -550,7 +550,7 @@ const en = {
 	"toast.downloadRemoved": "Download removed. The song stays in your library.",
 	"toast.noImportUndone": "Allowed again — it'll come back on the next import",
 	"toast.unliked": "Removed from liked",
-	"toast.remixing": "Remixing from this song",
+	"toast.autoplaying": "Autoplaying from this song",
 	"toast.artistFavorited": "Added to favourite artists",
 	"toast.artistUnfavorited": "Removed from favourite artists",
 	"settings.sourcesAdvanced": "Advanced — Sources",

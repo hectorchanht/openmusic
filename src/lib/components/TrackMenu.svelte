@@ -188,7 +188,7 @@
 	// components the live cells use, so the preview reads as the menu it configures
 	// (the RowActionsConfig precedent).
 	const EDIT_META: Record<MenuActionId, { icon: Component; label: TranslationKey }> = {
-		remix: { icon: Sparkles, label: 'menu.remix' },
+		remix: { icon: Sparkles, label: 'menu.autoplay' },
 		playNext: { icon: ListStart, label: 'menu.playNext' },
 		download: { icon: Download, label: 'menu.download' },
 		like: { icon: Heart, label: 'menu.like' },
@@ -1263,7 +1263,7 @@
 	// gated() (network tracks — guarantees an audioUrl) or via onRemixTap's download fast-path
 	// (downloaded tracks — played as-is from the local blob by play()'s offline-first branch).
 	function doRemix(seed: Track) {
-		toast.show(t('toast.remixing'));
+		toast.show(t('toast.autoplaying'));
 		player.setQueue([seed], 'remix');
 		void player.play(seed, { fresh: true });
 		close();
@@ -1440,7 +1440,7 @@
 		<!-- Remix: GATED (needs audioUrl to play the seed) — Sparkles + the inline spinner. -->
 		{#snippet cellRemix(tr: Track)}
 			<button class="gi" aria-busy={inFlight.has('remix')} aria-label={inFlight.has('remix') ? t('menu.preparing') : undefined} onclick={onRemixTap} use:tapBounce>
-				{#if inFlight.has('remix')}<span class="row-spinner motion-always"></span>{:else}<Sparkles size={22} />{/if}<span class="gi-label">{t('menu.remix')}</span>
+				{#if inFlight.has('remix')}<span class="row-spinner motion-always"></span>{:else}<Sparkles size={22} />{/if}<span class="gi-label">{t('menu.autoplay')}</span>
 			</button>
 		{/snippet}
 		<!-- Play next — non-current tracks only. quick-261006-44s: the gate lives in

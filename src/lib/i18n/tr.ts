@@ -392,7 +392,7 @@ const tr: Dict = {
 	"menu.detailNotResolved": "(çözülmedi)",
 	"menu.detailUnknown": "bilinmiyor",
 	"menu.sleepTimer": "Uyku zamanlayıcısı",
-	"menu.remix": "Remix",
+	"menu.autoplay": "Otomatik oynatma",
 	"menu.preparing": "Hazırlanıyor…",
 
 	// --- version picker (Phase 26-04, VERSIONS-01) ---
@@ -479,7 +479,7 @@ const tr: Dict = {
 	"toast.downloadRemoved": "İndirme kaldırıldı. Şarkı kitaplığında kalır.",
 	"toast.noImportUndone": "Yeniden izin verildi — sonraki içe aktarmada geri gelecek",
 	"toast.unliked": "Beğenilenlerden kaldırıldı",
-	"toast.remixing": "Bu şarkıdan remix yapılıyor",
+	"toast.autoplaying": "Bu şarkıdan otomatik oynatılıyor",
 	"toast.artistFavorited": "Favori sanatçılara eklendi",
 	"toast.artistUnfavorited": "Favori sanatçılardan kaldırıldı",
 	"settings.sourcesAdvanced": "Gelişmiş — Kaynaklar",

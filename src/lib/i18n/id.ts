@@ -392,7 +392,7 @@ const id: Dict = {
 	"menu.detailNotResolved": "(tidak terselesaikan)",
 	"menu.detailUnknown": "tidak diketahui",
 	"menu.sleepTimer": "Timer tidur",
-	"menu.remix": "Remix",
+	"menu.autoplay": "Putar otomatis",
 	"menu.preparing": "Menyiapkan…",
 
 	// --- version picker (Phase 26-04, VERSIONS-01) ---
@@ -479,7 +479,7 @@ const id: Dict = {
 	"toast.downloadRemoved": "Unduhan dihapus. Lagu tetap ada di pustaka kamu.",
 	"toast.noImportUndone": "Diizinkan lagi — akan kembali pada impor berikutnya",
 	"toast.unliked": "Dihapus dari disukai",
-	"toast.remixing": "Membuat remix dari lagu ini",
+	"toast.autoplaying": "Memutar otomatis dari lagu ini",
 	"toast.artistFavorited": "Ditambahkan ke artis favorit",
 	"toast.artistUnfavorited": "Dihapus dari artis favorit",
 	"settings.sourcesAdvanced": "Lanjutan — Sumber",

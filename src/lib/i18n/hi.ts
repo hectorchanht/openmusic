@@ -392,7 +392,7 @@ const hi: Dict = {
 	"menu.detailNotResolved": "(समाधान नहीं हुआ)",
 	"menu.detailUnknown": "अज्ञात",
 	"menu.sleepTimer": "स्लीप टाइमर",
-	"menu.remix": "रीमिक्स",
+	"menu.autoplay": "ऑटोप्ले",
 	"menu.preparing": "तैयार किया जा रहा है…",
 
 	// --- version picker (Phase 26-04, VERSIONS-01) ---
@@ -479,7 +479,7 @@ const hi: Dict = {
 	"toast.downloadRemoved": "डाउनलोड हटा दिया गया। गाना आपकी लाइब्रेरी में बना रहता है।",
 	"toast.noImportUndone": "फिर से अनुमति दी — अगले आयात में वापस आ जाएगी",
 	"toast.unliked": "पसंद से हटाया",
-	"toast.remixing": "इस गाने से रीमिक्स बना रहे हैं",
+	"toast.autoplaying": "इस गाने से ऑटोप्ले चल रहा है",
 	"toast.artistFavorited": "पसंदीदा कलाकारों में जोड़ा गया",
 	"toast.artistUnfavorited": "पसंदीदा कलाकारों से हटा दिया गया",
 	"settings.sourcesAdvanced": "उन्नत — स्रोत",

@@ -392,7 +392,7 @@ const ar: Dict = {
 	"menu.detailNotResolved": "(لم يتم حلها)",
 	"menu.detailUnknown": "غير معروف",
 	"menu.sleepTimer": "مؤقت النوم",
-	"menu.remix": "ريمكس",
+	"menu.autoplay": "تشغيل تلقائي",
 	"menu.preparing": "جارٍ التحضير…",
 
 	// --- version picker (Phase 26-04, VERSIONS-01) ---
@@ -479,7 +479,7 @@ const ar: Dict = {
 	"toast.downloadRemoved": "تمت إزالة التنزيل. تبقى الأغنية في مكتبتك.",
 	"toast.noImportUndone": "تم السماح به مجددًا — سيعود في الاستيراد التالي",
 	"toast.unliked": "تمت الإزالة من المفضلة",
-	"toast.remixing": "جارٍ عمل ريمكس من هذه الأغنية",
+	"toast.autoplaying": "جارٍ التشغيل التلقائي من هذه الأغنية",
 	"toast.artistFavorited": "تمت الإضافة إلى الفنانين المفضلين",
 	"toast.artistUnfavorited": "تمت الإزالة من الفنانين المفضلين",
 	"settings.sourcesAdvanced": "متقدم — المصادر",

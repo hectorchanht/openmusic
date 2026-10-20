@@ -392,7 +392,7 @@ const th: Dict = {
 	"menu.detailNotResolved": "(ไม่ได้รับการแก้ไข)",
 	"menu.detailUnknown": "ไม่ทราบ",
 	"menu.sleepTimer": "ตั้งเวลาปิด",
-	"menu.remix": "รีมิกซ์",
+	"menu.autoplay": "เล่นอัตโนมัติ",
 	"menu.preparing": "กำลังเตรียม…",
 
 	// --- version picker (Phase 26-04, VERSIONS-01) ---
@@ -479,7 +479,7 @@ const th: Dict = {
 	"toast.downloadRemoved": "นำดาวน์โหลดออกแล้ว เพลงยังอยู่ในคลังของคุณ",
 	"toast.noImportUndone": "อนุญาตอีกครั้งแล้ว — จะกลับมาในการนำเข้าครั้งถัดไป",
 	"toast.unliked": "เลิกถูกใจแล้ว",
-	"toast.remixing": "กำลังรีมิกซ์จากเพลงนี้",
+	"toast.autoplaying": "กำลังเล่นอัตโนมัติจากเพลงนี้",
 	"toast.artistFavorited": "เพิ่มในศิลปินที่ชื่นชอบแล้ว",
 	"toast.artistUnfavorited": "ลบออกจากศิลปินที่ชื่นชอบแล้ว",
 	"settings.sourcesAdvanced": "ขั้นสูง — แหล่งที่มา",

@@ -392,7 +392,7 @@ const ru: Dict = {
 	"menu.detailNotResolved": "(не решено)",
 	"menu.detailUnknown": "неизвестно",
 	"menu.sleepTimer": "Таймер сна",
-	"menu.remix": "Ремикс",
+	"menu.autoplay": "Автовоспроизведение",
 	"menu.preparing": "Подготовка…",
 
 	// --- version picker (Phase 26-04, VERSIONS-01) ---
@@ -479,7 +479,7 @@ const ru: Dict = {
 	"toast.downloadRemoved": "Загрузка удалена. Трек остаётся в твоей медиатеке.",
 	"toast.noImportUndone": "Снова разрешён — вернётся при следующем импорте",
 	"toast.unliked": "Удалено из избранного",
-	"toast.remixing": "Создаём ремикс из этой песни",
+	"toast.autoplaying": "Автовоспроизведение этой песни",
 	"toast.artistFavorited": "Добавлено в любимых исполнителей",
 	"toast.artistUnfavorited": "Удалено из любимых исполнителей",
 	"settings.sourcesAdvanced": "Дополнительно — Источники",
