@@ -3,6 +3,7 @@
 // the render tree. The consensus rule itself lives server-side in $lib/proxy/lyric-offset.
 
 import { apiFetch } from '$lib/services/api-base';
+import { sha256hexN } from '$lib/auth/auth-core';
 import { normalizeLyricOffset } from '$lib/services/lrc';
 
 /**
@@ -16,8 +17,8 @@ import { normalizeLyricOffset } from '$lib/services/lrc';
 export async function lyricOffsetKey(uid: string, lrc: string): Promise<string | null> {
 	if (!uid || !lrc || typeof crypto === 'undefined' || !crypto.subtle) return null;
 	try {
-		const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${uid}\n${lrc}`));
-		return Array.from(new Uint8Array(buf).slice(0, 16), (b) => b.toString(16).padStart(2, '0')).join('');
+		// quick-261020-batch4: canonical truncated-hash helper (was an inline digest+hex loop).
+		return await sha256hexN(`${uid}\n${lrc}`, 32);
 	} catch {
 		return null;
 	}

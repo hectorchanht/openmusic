@@ -3,6 +3,7 @@
 // never an error in the render tree. The consensus rule lives server-side in $lib/proxy/cover-pick.
 
 import { apiFetch } from '$lib/services/api-base';
+import { sha256hexN } from '$lib/auth/auth-core';
 import { versionedMatchKey } from '$lib/services/match-key';
 import { isDeviceUid } from '$lib/services/device-track';
 import { pickQuery } from '$lib/proxy/cover-pick';
@@ -12,8 +13,8 @@ import { safeImageUrl, COVER_PICK_IMAGE_HOSTS } from '$lib/proxy/safe-image-url'
 export type CoverPickKeys = { u: string | null; n: string | null };
 
 async function sha256hex32(s: string): Promise<string> {
-	const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
-	return Array.from(new Uint8Array(buf).slice(0, 16), (b) => b.toString(16).padStart(2, '0')).join('');
+	// quick-261020-batch4: canonical truncated-hash helper (was an inline digest+hex loop).
+	return sha256hexN(s, 32);
 }
 
 /**

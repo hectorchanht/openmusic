@@ -8,6 +8,8 @@
 // distinct reporters, and a maintainer delete behind DIAG_READ_TOKEN. Posting is additionally gated
 // by Cloudflare Turnstile in the route (see $lib/proxy/turnstile).
 
+import { sha256hexN } from '$lib/auth/auth-core';
+
 /**
  * A post body is `{"k","name","text","token"}`: the Turnstile token alone can be 2048 chars, the
  * text up to 280 code points (<= 1120 UTF-8 bytes), the name <= 96 bytes. 4 KiB covers the worst
@@ -224,6 +226,6 @@ export function checkThrottle(th: Throttle | null, now: number): { ok: true; nex
  * path: HMAC with a secret pepper.
  */
 export async function voterId(ip: string): Promise<string> {
-	const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${ip}|comments`));
-	return Array.from(new Uint8Array(buf).slice(0, 8), (b) => b.toString(16).padStart(2, '0')).join('');
+	// quick-261020-batch4: canonical truncated-hash helper (was an inline digest+hex loop).
+	return sha256hexN(`${ip}|comments`, 16);
 }

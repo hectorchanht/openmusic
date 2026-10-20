@@ -52,23 +52,10 @@ const TTL_RELATED = 6 * 60 * 60 * 1000;
 // Phase 17 — artist/album info is stable (mirror TTL_COVER's 7d posture).
 const TTL_ARTIST = 7 * 24 * 60 * 60 * 1000;
 
-/** The proxy's client-facing reshape (mirrors the +server.ts DeezerCover interface). */
-interface DeezerCover {
-	cover: string | null;
-	artistPicture: string | null;
-	/** Top-N reshaped hits when the proxy was called with `&limit=N>1` (quick-260607-jau). */
-	results?: DeezerHit[];
-}
-
-/** One reshaped Deezer search hit (jau). Mirrors the +server.ts DeezerHit interface. */
-export interface DeezerHit {
-	id: string;
-	title: string;
-	artist: string;
-	album: string;
-	cover: string | null;
-	preview: string | null;
-}
+/** quick-261020-batch4: single-homed — these mirrored the proxy's interfaces (drift-prone by
+ *  admission). The canonical declarations live in $lib/proxy/deezer-cover; this module re-exports
+ *  DeezerHit (imported by autocomplete + search page) and uses DeezerCover internally. */
+export type { DeezerCover, DeezerHit } from '$lib/proxy/deezer-cover';
 
 /** Chart item shapes (mirror the /api/deezer/chart +server.ts reshape + lastfm Discovery* shapes). */
 export interface DeezerChartTrack {

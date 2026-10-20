@@ -1,5 +1,6 @@
 // Edge networking helpers for the /api/* metadata proxy.
 //
+import type { Env } from './proxy-types';
 // - fetchWithRetry: bounded retry on 429/5xx using the NATIVE AbortSignal.timeout
 //   (RESEARCH "Don't Hand-Roll" — do NOT hand-roll setTimeout + AbortController).
 //   ONE exception: fetchWithHeadDeadline below. AbortSignal.timeout cannot be disarmed once the
@@ -65,6 +66,37 @@ export function corsHeaders(origin: string | null): Record<string, string> {
 // ALREADY allow-listed origin may do; they grant nothing to a foreign origin (T-33-10).
 export function corsPreflight(request: Request): Response {
 	return new Response(null, { status: 204, headers: corsHeaders(request.headers.get('origin')) });
+}
+
+/**
+ * quick-261020-batch4: shared drive-by guard prelude for the /api/auth/* POST routes
+ * (magic-link, verify-code, verify, google) — previously a verbatim ~14-line copy in each:
+ * origin allow-list check → 415 content-type gate → ACCOUNTS_DB access.
+ * Returns the extracted values, or a ready-to-return error Response. Callers:
+ *   const g = await guardJsonPost(event);
+ *   if (g instanceof Response) return g;
+ *   const { request, origin, env, db } = g;
+ * NOTE: cover-pick / lyric-offset POSTs are DELIBERATELY not on this guard — they refuse an
+ * absent Origin too and read the DIAG binding, not ACCOUNTS_DB.
+ */
+export async function guardJsonPost(event: {
+	request: Request;
+	platform?: { env?: Env };
+}): Promise<
+	{ request: Request; origin: string | null; env: Env | undefined; db: D1Database } | Response
+> {
+	const { request, platform } = event;
+	const origin = request.headers.get('origin');
+	const env = platform?.env as Env | undefined;
+	if (origin !== null && !isAllowedOrigin(origin)) {
+		return jsonResponse({ ok: false, err: 'forbidden-origin' }, origin, { status: 403 });
+	}
+	if (!(request.headers.get('content-type') ?? '').toLowerCase().startsWith('application/json')) {
+		return jsonResponse({ ok: false, err: 'unsupported-type' }, origin, { status: 415 });
+	}
+	const db = env?.ACCOUNTS_DB;
+	if (!db) return jsonResponse({ ok: false, err: 'unconfigured' }, origin, { status: 503 });
+	return { request, origin, env, db };
 }
 
 const RETRYABLE_STATUS = new Set([429, 500, 502, 503, 504]);

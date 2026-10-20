@@ -310,7 +310,7 @@
 </section>
 
 <!-- ii6: Advanced > Sources — tucked behind a <details> accordion so the Playback tab
-	   stays speed/quality-first. Lets a user opt INTO 5sing (enabledByDefault:false). -->
+	   stays speed/quality-first. Per-source enable/disable chips (5sing ships enabled by default). -->
 <details class="advanced">
 	<summary><Sliders size={15} /> {t('settings.sourcesAdvanced')}<SettingHint label={t('settings.sourcesAdvanced')} text={t('settings.sourcesAdvancedNote')} /></summary>
 	<div class="chips">

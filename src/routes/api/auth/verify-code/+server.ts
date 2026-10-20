@@ -21,8 +21,7 @@
 // THIS FILE MAY EXPORT ONLY HTTP-VERB HANDLERS. Helpers live in $lib/auth/auth-core.ts.
 
 import type { RequestHandler } from './$types';
-import type { Env } from '$lib/proxy/proxy-types';
-import { corsHeaders, jsonResponse, isAllowedOrigin } from '$lib/proxy/http';
+import { corsHeaders, jsonResponse, guardJsonPost } from '$lib/proxy/http';
 import {
 	CODE_RE,
 	MAX_CODE_ATTEMPTS,
@@ -40,19 +39,11 @@ import {
 const MAX_BODY_BYTES = 1024;
 
 export const POST: RequestHandler = async (event) => {
-	const { request, platform } = event;
-	const origin = request.headers.get('origin');
-	const env = platform?.env as Env | undefined;
-
+	// quick-261020-batch4: shared drive-by guard prelude (guardJsonPost in $lib/proxy/http).
 	// Same drive-by guards as /api/auth/verify (quick-260926-mzn).
-	if (origin !== null && !isAllowedOrigin(origin)) {
-		return jsonResponse({ ok: false, err: 'forbidden-origin' }, origin, { status: 403 });
-	}
-	if (!(request.headers.get('content-type') ?? '').toLowerCase().startsWith('application/json')) {
-		return jsonResponse({ ok: false, err: 'unsupported-type' }, origin, { status: 415 });
-	}
-	const db = env?.ACCOUNTS_DB;
-	if (!db) return jsonResponse({ ok: false, err: 'unconfigured' }, origin, { status: 503 });
+	const g = await guardJsonPost(event);
+	if (g instanceof Response) return g;
+	const { request, origin, db } = g;
 
 	if (Number(request.headers.get('content-length') ?? '0') > MAX_BODY_BYTES) {
 		return jsonResponse({ ok: false, err: 'too-large' }, origin, { status: 413 });

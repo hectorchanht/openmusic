@@ -255,6 +255,14 @@ export async function sha256hex(s: string): Promise<string> {
 	return [...new Uint8Array(d)].map((x) => x.toString(16).padStart(2, '0')).join('');
 }
 
+/** First `n` lowercase hex chars of SHA-256(s) — the truncated-hash idiom previously
+ *  copy-pasted (digest + byte→hex loop + slice) across cover-pick, lyric-offset, comments
+ *  and cover-pick-shared. (Hex encoding is per-byte, so truncating the hex string equals
+ *  truncating the digest bytes first.) */
+export async function sha256hexN(s: string, n: number): Promise<string> {
+	return (await sha256hex(s)).slice(0, n);
+}
+
 /** Deliberately the Clipbin regex — broad on purpose; deliverability is Resend's problem,
  *  and a stricter screen here would lock out real addresses (plus-tags, IDN domains…). */
 export function isValidEmail(email: string): boolean {

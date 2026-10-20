@@ -125,8 +125,9 @@ export function currentQualityMeets(curQuality: string | null, want: DefaultQual
 
 // quick-261001-0p9: how good a donor's file is, for the album loop's after-the-wait donor pick.
 // Container evidence (from the probe's content-type / URL) beats the per-source quality TAG, whose
-// vocabulary differs by source (qq 'lossless'|'hq'|'standard'|'low', netease/kuwo 'lossless'|'320k'),
-// so the tag is matched by regex band, never by equality.
+// vocabulary differs by source (qq 'lossless'|'hq'|'standard'|'low', netease/kuwo 'lossless'|'320k',
+// bilibili '128k'|'192k'|'64k', kugou/joox '<bitrate>k'), so the tag is matched by regex band,
+// never by equality.
 const LOSSLESS_CONTAINERS = new Set(['flac', 'wav']);
 type DonorFile = { container: string | null; quality: string | null };
 

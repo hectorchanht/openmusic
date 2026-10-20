@@ -27,7 +27,8 @@ import type { SourceId, Track } from '$lib/sources/types';
  * kuwo default. This function names NO source itself — reorder the registry to change the floor.
  *
  * OFF-THE-HOT-PATH EXCLUSION (Plan 27-04, YT-RESILIENCE-01): a source flagged
- * `autoResolveEligible === false` (ytmusic — adversarial + IP-locked upstream, 27-CONTEXT) is NEVER
+ * `autoResolveEligible === false` (e.g. ytmusic — adversarial + IP-locked upstream, 27-CONTEXT;
+ * archive and bilibili are also flagged) is NEVER
  * offered as a failover TARGET for a track it did not originate. The filter reads the REGISTRY FLAG,
  * not a literal id, so the "names NO source itself" invariant holds. Note this bars only the reverse
  * direction: a FAILED ytmusic track still falls FORWARD to the unchanged kuwo→qq→netease→joox floor
@@ -46,8 +47,8 @@ export function fallbackOrder(
 	const enabled = getEnabledAdapters({}).map((a) => a.id);
 	const remaining = enabled.filter(
 		// Plan 27-04: drop the failed source, every already-attempted source, AND every source flagged
-		// off the auto-resolve floor (autoResolveEligible === false → ytmusic) so it can never become a
-		// failover target. Registry-flag-driven — no source named here.
+		// off the auto-resolve floor (autoResolveEligible === false → ytmusic/archive/bilibili) so none
+		// can ever become a failover target. Registry-flag-driven — no source named here.
 		// quick-260926-c69: predicate hoisted to registry.ts isAutoResolveEligible, behaviour identical.
 		(s) => s !== failed && !attempted?.has(s) && isAutoResolveEligible(s)
 	);
