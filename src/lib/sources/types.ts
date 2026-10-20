@@ -24,6 +24,7 @@ export type SourceId =
 	| 'fivesing'
 	| 'jamendo'
 	| 'audius'
+	| 'bilibili'
 	| 'ytmusic';
 
 export interface Track {

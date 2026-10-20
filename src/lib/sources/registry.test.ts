@@ -21,6 +21,7 @@ const EXPECTED_KEYS: SourceId[] = [
 	'fivesing',
 	'jamendo',
 	'audius',
+	'bilibili',
 	'ytmusic'
 ];
 
@@ -33,7 +34,8 @@ describe('SOURCES registry (DATA-04 — single enumeration point)', () => {
 	// (searchable, off the resolve floor).
 	// quick-261020-kugo: kugou inserted after joox (mainstream, resolve-floor eligible).
 	// quick-261020-migu: migu inserted after kugou (mainstream, resolve-floor eligible).
-	it('enumerates exactly qq,netease,kuwo,joox,kugou,migu,fivesing,jamendo,audius,ytmusic (qq-first floor; ytmusic last)', () => {
+	// quick-261020-bili: bilibili sits just before ytmusic (search-only); ytmusic stays last.
+	it('enumerates exactly qq,netease,kuwo,joox,kugou,migu,fivesing,jamendo,audius,bilibili,ytmusic (qq-first floor; ytmusic last)', () => {
 		expect(Object.keys(SOURCES)).toEqual(EXPECTED_KEYS);
 	});
 
@@ -80,6 +82,7 @@ describe('getEnabledAdapters', () => {
 			fivesing: false,
 			jamendo: false,
 			audius: false,
+			bilibili: false,
 			ytmusic: false
 		});
 		expect(onlyNetease.map((a) => a.id)).toEqual(['netease']);
@@ -162,9 +165,16 @@ describe('isAutoResolveEligible (quick-260926-c69)', () => {
 		expect(isAutoResolveEligible('ytmusic')).toBe(false);
 	});
 
+	// quick-261020-bili: bilibili is search-only — off the floor like ytmusic.
+	it('bilibili is off the auto-resolve floor (search-only)', () => {
+		expect(isAutoResolveEligible('bilibili')).toBe(false);
+		expect(SOURCES.bilibili.autoResolveEligible).toBe(false);
+		expect(SOURCES.bilibili.enabledByDefault).toBe(true);
+	});
+
 	it('every other source is eligible (undefined flag = eligible)', () => {
 		for (const id of Object.keys(SOURCES) as SourceId[]) {
-			if (id !== 'ytmusic') expect(isAutoResolveEligible(id)).toBe(true);
+			if (id !== 'ytmusic' && id !== 'bilibili') expect(isAutoResolveEligible(id)).toBe(true);
 		}
 	});
 });

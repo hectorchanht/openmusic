@@ -11,6 +11,7 @@ import { migu } from './migu';
 import { fivesing } from './fivesing';
 import { jamendo } from './jamendo';
 import { audius } from './audius';
+import { bilibili } from './bilibili';
 import { ytmusic } from './ytmusic';
 import { settings } from '$lib/stores/settings.svelte';
 
@@ -47,7 +48,9 @@ import { settings } from '$lib/stores/settings.svelte';
 // (autoResolveEligible stays undefined = on the resolve floor), but the proven
 // qq→netease→kuwo→joox floor order is untouched ahead of it.
 // quick-261020-migu: migu follows kugou, same mainstream posture (floor-eligible).
-export const SOURCES: Record<SourceId, SourceAdapter> = { qq, netease, kuwo, joox, kugou, migu, fivesing, jamendo, audius, ytmusic };
+// quick-261020-bili: bilibili is appended just before ytmusic — search-only
+// (autoResolveEligible: false), and ytmusic keeps the load-bearing LAST seat.
+export const SOURCES: Record<SourceId, SourceAdapter> = { qq, netease, kuwo, joox, kugou, migu, fivesing, jamendo, audius, bilibili, ytmusic };
 
 /**
  * The enabled adapters for a search fan-out. Precedence (highest first):
