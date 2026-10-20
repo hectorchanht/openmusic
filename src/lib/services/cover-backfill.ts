@@ -526,6 +526,11 @@ export async function backfillCovers(items: CoverNeed[], opts: BackfillOpts = {}
 
 	// (3) resolveOne: run the SHARED iTunes → QQ → Deezer → CN → YTM chain (resolveTrackChain — same tier()
 	//     never-throw + https guard); cache + notify only a SOLID https cover (quick-260607-0bb).
+	// quick-261020-batch3 (C10): the chain hit is committed on hasHttpsScheme ALONE, without a
+	// liveness probe — accepted deliberately. Probing every backfilled tile would double the cold-
+	// visit image load (~270 tiles), and the <24h staleness window is already the accepted trade-off
+	// (T-4fr-02, documented in lazyCover): rows self-heal via aged-entry probes, the now-playing
+	// surface via healCover. A dead backfill write can therefore paint for up to 24h on tiles.
 	async function resolveOne(item: CoverNeed): Promise<void> {
 		if (signal?.aborted) return;
 		const cover = await resolveTrackChain(item.artist, item.title, signal);

@@ -9,6 +9,7 @@ import { resolveCoverForTrack } from '$lib/services/cover-backfill';
 import { removeCoverBoth, bumpCoverVersion } from '$lib/stores/cover-version.svelte';
 import { hasHttpsScheme, isRenderableCover } from '$lib/services/url-safety';
 import { markCoverUrlDead, unmarkCoverUrlDead } from '$lib/services/dead-cover-urls';
+import { probeCoverImage } from '$lib/services/cover-probe';
 
 // use:lazyCover — resolve a track-row cover ONLY when the row scrolls into view (COVER-02).
 //
@@ -139,7 +140,7 @@ async function resolveCoverForRow(track: Track, onResolved: (uid: string, url: s
 				onResolved(track.uid, cached); // confirmed-fresh → paint now, SKIP the probe (zero image)
 				return;
 			}
-			const keep = await probeImage(cached);
+			const keep = await probeCoverImage(cached);
 			if (keep) {
 				unmarkCoverUrlDead(cached); // proven alive — a stale dead mark must not hide it
 				onResolved(track.uid, cached); // fast path preserved — healthy cache, zero network
@@ -154,7 +155,7 @@ async function resolveCoverForRow(track: Track, onResolved: (uid: string, url: s
 
 		// (2) An existing non-empty https cover → probe it; keep on load, repair on error (D-15).
 		if (hasHttpsScheme(track.cover)) {
-			const keep = await probeImage(track.cover);
+			const keep = await probeCoverImage(track.cover);
 			if (keep) {
 				unmarkCoverUrlDead(track.cover); // proven alive — clear any stale dead mark
 				onResolved(track.uid, track.cover);
@@ -182,9 +183,20 @@ async function resolveCoverForRow(track: Track, onResolved: (uid: string, url: s
 			// collapse into ONE increment via the rAF latch (quick-260704-45c) — do NOT edit the home page.
 			// Only this branch bumps: a cache HIT / a kept probe adds nothing new to the cache, and a null
 			// result cached nothing at all.
+			// quick-261020-batch3 (C6): VERIFY-BEFORE-COMMIT — mirror healCover step 8. The chain's
+			// CN tier can re-offer the exact URL that just failed its probe (every upper tier misses
+			// → dedupeBest returns the same netease cover); committing it unprobed re-broke the row,
+			// and the one-shot inFlight meant it was never re-probed ("broken cover forever").
+			// A dead chain hit is marked (so it can't shadow live art) and its cache write evicted.
 			if (hasHttpsScheme(url)) {
-				bumpCoverVersion();
-				onResolved(track.uid, url);
+				if (await probeCoverImage(url)) {
+					unmarkCoverUrlDead(url); // proven alive — clear any stale dead mark
+					bumpCoverVersion();
+					onResolved(track.uid, url);
+				} else {
+					markCoverUrlDead(url);
+					removeCoverBoth(track.uid, track.artist, track.title);
+				}
 			}
 		} finally {
 			inFlight.delete(key);
@@ -193,67 +205,3 @@ async function resolveCoverForRow(track: Track, onResolved: (uid: string, url: s
 		// Best-effort — a failure leaves the gradient (never a broken image, never throws).
 	}
 }
-
-/**
- * Probe a cover URL with new Image(). Resolves true if it loads (keep it), false on error (treat as
- * broken → repair). SSR guard: when Image is undefined, resolve false so the chain repairs it via
- * the (also-guarded) network path. Never rejects.
- */
-function probeImage(url: string): Promise<boolean> {
-	if (typeof Image === 'undefined') return Promise.resolve(false);
-	return new Promise<boolean>((resolve) => {
-		try {
-			const img = new Image();
-			img.decoding = 'async';
-			img.referrerPolicy = 'no-referrer';
-			img.onload = () => resolve(true);
-			img.onerror = () => resolve(false);
-			img.src = url;
-		} catch {
-			resolve(false);
-		}
-	});
-}
-
-export const lazyCover: Action<HTMLElement, LazyCoverParam> = (node, param) => {
-	let current = param;
-	let done = false; // one-shot: a row resolves at most once
-
-	// SSR / no-IO guard, and the explicit `enabled: false` opt-out — the action is a no-op (the
-	// caller keeps whatever cover it has). Checked BEFORE the observer is built so a disabled row
-	// costs no IntersectionObserver at all, not just no fetch.
-	if (typeof IntersectionObserver === 'undefined' || param.enabled === false) {
-		return {
-			update(next: LazyCoverParam) {
-				current = next;
-			},
-			destroy() {
-				/* nothing observed — no-op */
-			}
-		};
-	}
-
-	const io = new IntersectionObserver(
-		(entries) => {
-			if (done) return;
-			if (entries[0]?.isIntersecting) {
-				done = true;
-				io.unobserve(node); // fire at most once — stop observing after the first intersection
-				void resolveCoverForRow(current.track, current.onResolved);
-			}
-		},
-		// rootMargin 200px: prefetch slightly before the row is truly on-screen for a smoother scroll
-		// (discretion — tighter than the search sentinel's 400px since covers are cheaper than a page).
-		{ root: null, rootMargin: '200px 0px' }
-	);
-	io.observe(node);
-
-	return {
-		update(next: LazyCoverParam) {
-			current = next;
-		},
-		destroy() {
-			io.disconnect();
-		}
-	};
-};

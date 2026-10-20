@@ -146,7 +146,11 @@ export interface SourceAdapter {
 	 *  `quality` (WR-07): an explicit per-call quality tier — used by the download path to
 	 *  request settings.downloadQuality WITHOUT mutating the global streaming default (the old
 	 *  temporary-swap pattern raced concurrent playback resolves and could be persisted by any
-	 *  mid-window save()). Absent → the adapter reads settings.defaultQuality as before. */
+	 *  mid-window save()). Honored ONLY by adapters whose upstream offers selectable tiers
+	 *  (qq, kuwo, joox, kugou, migu — via effectiveQuality(quality ?? settings.defaultQuality)).
+	 *  Single-tier adapters (fivesing, jamendo, audius, archive) and adapters with no tier
+	 *  selection (netease, bilibili, ytmusic) ignore the param; their `quality` FIELD (set at
+	 *  resolve time from the actual stream) still feeds dedupe/download ranking. */
 	resolve(track: Track, signal: AbortSignal, quality?: DefaultQuality): Promise<Track>;
 }
 

@@ -54,6 +54,7 @@ import { getCachedCoverByUid, getCachedCover, getPinnedCover, getCrowdCover } fr
 import { coverPickKeys, fetchCoverPick } from '$lib/services/cover-pick-shared';
 import { resolveCoverForTrack, collectCoverCandidates } from '$lib/services/cover-backfill';
 import { markCoverUrlDead, unmarkCoverUrlDead } from '$lib/services/dead-cover-urls';
+import { probeCoverImage } from '$lib/services/cover-probe';
 import { matchKey } from '$lib/services/match-key';
 // quick-260615-hep: feed every displayed now-playing cover into the shared cache (both layers) +
 // bump the global reactive signal so other surfaces (homepage tiles) reuse the art and repaint live.
@@ -4618,34 +4619,13 @@ class Player {
 
 	/**
 	 * Probe a cover URL with new Image() — resolve true if it LOADS (keep it), false on error (treat
-	 * as broken → repair). SSR guard: when Image is undefined resolve false. Never rejects. Private
-	 * 12-line twin of lazyCover's probeImage (quick-260704-20e) so the heal does NOT cross the action
-	 * boundary; mirrors the exact idiom preloadNextCover already uses (decoding/referrerPolicy).
-	 * quick-261020-hcvr: TIME-BOUNDED — a hanging URL resolves false after timeoutMs instead of
-	 * stalling the caller forever.
+	 * as broken → repair). SSR guard: when Image is undefined resolve false. Never rejects.
+	 * quick-261020-batch3: delegates to the shared probeCoverImage ($lib/services/cover-probe) —
+	 * the former 25-line twin of lazyCover's probeImage now lives in one place (still time-bounded
+	 * via timeoutMs, default HEAL_PROBE_TIMEOUT_MS).
 	 */
 	private probeCover(url: string, timeoutMs = Player.HEAL_PROBE_TIMEOUT_MS): Promise<boolean> {
-		if (typeof Image === 'undefined') return Promise.resolve(false);
-		return new Promise<boolean>((resolve) => {
-			let done = false;
-			const finish = (v: boolean) => {
-				if (done) return;
-				done = true;
-				clearTimeout(timer);
-				resolve(v);
-			};
-			const timer = setTimeout(() => finish(false), timeoutMs);
-			try {
-				const img = new Image();
-				img.decoding = 'async';
-				img.referrerPolicy = 'no-referrer';
-				img.onload = () => finish(true);
-				img.onerror = () => finish(false);
-				img.src = url;
-			} catch {
-				finish(false);
-			}
-		});
+		return probeCoverImage(url, timeoutMs);
 	}
 
 	/**

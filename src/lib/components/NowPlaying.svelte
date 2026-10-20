@@ -21,6 +21,8 @@
 	import { songShareUrl } from '$lib/services/share';
 	import { recallItunesId } from '$lib/services/itunes-cover';
 	import { lazyCover } from '$lib/actions/lazyCover';
+	import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
+	import { hasHttpsScheme } from '$lib/services/url-safety';
 	// cover-hero-mediacard-missing (Issue 1): the reactive cover-cache read helper the up-next rows /
 	// home tiles use — the hero current cell now falls back to it so a cover that lands anywhere for
 	// the current song repaints the hero live (one resolved cover reused EVERYWHERE, cached).
@@ -286,7 +288,13 @@
 		src.onload = () => {
 			if (player.current?.uid === forTrack.uid) adopt(src.naturalWidth);
 		};
-		src.onerror = () => adopt(0); // source cover broken → Last.fm art beats nothing
+		// quick-261020-batch3 (C9): a broken source cover is dead-URL evidence — mark it so it
+		// can't shadow live art at pickRowCover's seeded rung (previously every track change
+		// re-probed the same dead URL). https-gated: inline (data:) covers never fail this way.
+		src.onerror = () => {
+			if (forTrack.cover && hasHttpsScheme(forTrack.cover)) markCoverUrlDead(forTrack.cover);
+			adopt(0); // source cover broken → Last.fm art beats nothing
+		};
 		src.src = forTrack.cover;
 	}
 
