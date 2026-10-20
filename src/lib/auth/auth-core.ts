@@ -461,10 +461,10 @@ export function buildSignInEmail(
 </td></tr></table>
 <div style="border-top:1px solid #2a2a2a;margin:28px 0;"></div>
 <p style="color:#b3b3b3;font-size:14px;line-height:1.6;margin:0 0 12px;">Or enter this code in the app:</p>
-<div style="background-color:#0a0a0a;border:1px dashed #00c2b8;border-radius:12px;padding:20px;text-align:center;margin:0 0 8px;">
-<span style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:36px;font-weight:700;letter-spacing:12px;color:#ffffff;user-select:all;">${code}</span>
+<div style="background-color:#0a0a0a;border:1px dashed #00c2b8;border-radius:12px;padding:20px 12px;text-align:center;margin:0 0 8px;">
+<span style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:28px;font-weight:700;letter-spacing:6px;text-indent:6px;color:#ffffff;user-select:all;-webkit-user-select:all;white-space:nowrap;">${code}</span>
 </div>
-<p style="color:#737373;font-size:12px;margin:0;">The code expires in 15 minutes and stops working after 5 wrong tries.</p>
+<p style="color:#737373;font-size:12px;margin:0;">The code expires in 15 minutes and stops working after 5 wrong tries. Long-press the code to copy it.</p>
 </div>
 <p style="color:#737373;font-size:12px;line-height:1.6;text-align:center;margin:24px 0 8px;">This message was sent to ${safeEmail} at your request.</p>
 <p style="color:#525252;font-size:12px;text-align:center;margin:0;">OpenMusic &middot; Dawn Studio &middot; openmusic.lol</p>
@@ -480,8 +480,8 @@ The code expires in 15 minutes and stops working after 5 wrong tries.
 
 This message was sent to ${toEmail} at your request.
 OpenMusic · Dawn Studio · openmusic.lol`;
-	// The email carries BOTH credentials now — the subject names the code (the prominent,
-	// Gmail-copy-chip credential) while the link rides inside as the click path.
+	// The email carries BOTH credentials — the subject names the code (the prominent,
+	// long-press-to-copy credential) while the link rides inside as the click path.
 	return { subject: 'Your OpenMusic sign-in code', html, text };
 }
 

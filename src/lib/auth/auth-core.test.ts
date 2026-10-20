@@ -498,11 +498,14 @@ describe('buildSignInEmail — formal branded template (quick-261020-code)', () 
 		expect(html).toContain(`href="${link}"`);
 	});
 
-	it('shows the code big and prominent in its own box', () => {
+	it('shows the code in its own box, one line, long-press to copy', () => {
 		expect(html).toContain(code);
-		// the code sits alone in a selectable span — Gmail copy-chip friendly
+		// the code sits alone in a selectable span — email clients strip all JS, so there
+		// is no real copy button; user-select:all + the hint is the whole story
 		expect(html).toMatch(/<span[^>]*>482913<\/span>/);
 		expect(html).toContain('user-select:all');
+		expect(html).toContain('white-space:nowrap');
+		expect(html).toContain('Long-press the code to copy it.');
 	});
 
 	it('carries the formal footer with the recipient address', () => {
