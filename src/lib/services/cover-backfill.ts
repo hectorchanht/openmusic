@@ -110,6 +110,7 @@ import { itunesSongCover, itunesArtistCover, DISPLAY_ARTWORK_SIZE } from '$lib/s
 import { onlySource, SOURCES } from '$lib/sources/registry';
 import { createHealthGate } from '$lib/services/source-health';
 import { combinedSignal } from '$lib/services/abort-signal';
+import { t2sConvertLines, isChineseLine } from '$lib/services/zh-convert';
 import type { Track } from '$lib/sources/types';
 import { hasHttpsScheme } from './url-safety';
 
@@ -298,6 +299,26 @@ async function qqSongCover(
  * Editing this one function moves every consumer — resolveCoverForTrack, backfillCovers.resolveOne,
  * lazyCover, the player's resolveCoverAsync and healCover all route through here.
  */
+/**
+ * quick-261020-covsync — the SEARCH-side script fold for the chain below. The CN catalogs index
+ * the SIMPLIFIED name (proven for /api/og by quick-260807-vl1: a Traditional query missed every
+ * tier 3/3, the t2s output hit 4/4), and the same holds client-side — a Traditional query
+ * (在這裡等你， from a pack stub / Last.fm chart) misses iTunes/deezer search AND scores as a
+ * different song against Simplified rows in dedupeBest. So the tiers SEARCH with the t2s-folded
+ * pair while callers keep WRITING the cache under the caller's own identity (resolveCoverForTrack
+ * writes track.artist/title verbatim) — plus cover-cache's alias key bridges the two scripts on
+ * the read side. Per-field gate: only Chinese-detected fields convert (a kana/hangul field is
+ * Japanese/Korean, never folded); t2sConvertLines never throws → identity on any failure.
+ * Deliberately scoped to resolveTrackChain: resolveShareCover's subset must NOT follow (its
+ * documented divergence), and the artist chain is name-keyed by the artist layer instead.
+ * Exported for a direct unit test of the fold + per-field gate.
+ */
+export async function coverSearchTerms(artist: string, title: string): Promise<[string, string]> {
+	if (!isChineseLine(artist) && !isChineseLine(title)) return [artist, title];
+	const [a2, t2] = await t2sConvertLines([artist, title]);
+	return [isChineseLine(artist) ? a2 : artist, isChineseLine(title) ? t2 : title];
+}
+
 async function resolveTrackChain(
 	artist: string,
 	title: string,
@@ -305,16 +326,20 @@ async function resolveTrackChain(
 ): Promise<string | null> {
 	if (signal?.aborted) return null;
 	try {
+		// quick-261020-covsync: search with the Simplified fold (see coverSearchTerms); the
+		// caller's identity stays what gets cached by the caller-side writers.
+		const [qArtist, qTitle] = await coverSearchTerms(artist, title);
+		if (signal?.aborted) return null;
 		// Tier 1 — iTunes (PRIMARY: fastest hop, zero edge cost). quick-261006-o9t: asks for the
 		// 400px display variant (DISPLAY_ARTWORK_SIZE) instead of the historic 1200x1200bb (~330 KB
 		// per cover) — a 400px image is plenty for every inline surface including the hero, and the
 		// bytes are several-fold smaller. A SOLID hit is used as-is; no later tier is issued.
-		let cover = await tier(() => itunesSongCover(artist, title, signal, DISPLAY_ARTWORK_SIZE));
+		let cover = await tier(() => itunesSongCover(qArtist, qTitle, signal, DISPLAY_ARTWORK_SIZE));
 		if (signal?.aborted) return null;
 
 		// Tier 2 — QQ (fires only on an iTunes miss; search + detail resolve, health-gated, 40-WR-06).
 		if (!cover) {
-			cover = await tier(() => qqSongCover(artist, title, signal));
+			cover = await tier(() => qqSongCover(qArtist, qTitle, signal));
 			if (signal?.aborted) return null;
 		}
 
@@ -322,7 +347,7 @@ async function resolveTrackChain(
 		// cover_big rung (~73 KB measured) over the historic cover_xl 1000px (~208 KB) — same art,
 		// far fewer bytes, still plenty for every inline surface.
 		if (!cover) {
-			cover = await tier(() => deezerSongCover(artist, title, signal, 'big'));
+			cover = await tier(() => deezerSongCover(qArtist, qTitle, signal, 'big'));
 			if (signal?.aborted) return null;
 		}
 
@@ -335,7 +360,7 @@ async function resolveTrackChain(
 				// beats user prefs) — qq was already tried, and dedupeBest could otherwise pick a
 				// ytmusic row; it also saves a second qq search + an InnerTube POST per miss. Cost: the
 				// searchAll cache key no longer matches resolveStub's `{}` key — accepted.
-				const r = await searchAll(`${artist} ${title}`, 1, { qq: false, ytmusic: false }, signal);
+				const r = await searchAll(`${qArtist} ${qTitle}`, 1, { qq: false, ytmusic: false }, signal);
 				return dedupeBest(r.interleaved, settings.preferredSource)[0]?.cover ?? null;
 			});
 			if (signal?.aborted) return null;
@@ -344,7 +369,7 @@ async function resolveTrackChain(
 		// Tier 5 — YouTube Music (fires only when every tier above missed — a 120px thumbnail on a
 		// host many users cannot reach is a last resort, not a lead; quick-260920-nyq).
 		if (!cover) {
-			cover = await tier(() => ytmusicSongCover(artist, title, signal));
+			cover = await tier(() => ytmusicSongCover(qArtist, qTitle, signal));
 			if (signal?.aborted) return null;
 		}
 

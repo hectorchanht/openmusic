@@ -46,6 +46,19 @@ import { matchKey, versionedMatchKey } from './match-key';
 // quick-260915-w4f: the shared https predicate guards what setPinnedCover is allowed to persist.
 import { hasHttpsScheme } from './url-safety';
 import { isDeviceUid } from './device-track';
+// quick-261020-covsync: the script bridge. cover-cache's {artist,title} name layer is the
+// cross-surface bridge (a stub and the played track carry different uids), but matchKey
+// folds case/punct ONLY — a Traditional-script stub (在這裡等你， the pack/mandopop lists,
+// Last.fm geo charts) and the Simplified-script track resolveStub actually plays (在这里等你 —
+// QQ/netease index the Simplified name) land on DIFFERENT keys, so a cover resolved at play
+// time could never repaint the row (Hector 2026-10-20: mandopop-2026 在這裡等你 row dark forever
+// while the hero/nowbar showed the art). The name layer now ALSO reads/writes a t2s-folded
+// alias key (per-field, Chinese-only, tongwen phrase tables). The exact key ALWAYS leads and
+// writes land on BOTH, so a Traditional reader finds the Simplified writer's cover and vice
+// versa. This module stays pure: the fold is the SYNCHRONOUS handle (null until the lazy dict
+// warms — alias is best-effort, never a failure), and zh-convert only imports $lib/i18n/detect
+// (no cycle: nothing in the detect chain imports cover-cache).
+import { t2sConvertLineSync, isChineseLine } from './zh-convert';
 
 const CACHE_KEY = 'openmusic:cover-cache:v1';
 
@@ -124,6 +137,33 @@ export function artistCoverCacheKey(artist: string): string {
  */
 export function uidCoverCacheKey(uid: string): string {
 	return 'uid:' + uid;
+}
+
+/**
+ * quick-261020-covsync — the script-folded alias of a track's name key, or null when there is
+ * none. Folds each field Traditional→Simplified (tongwen phrase tables via zh-convert) ONLY
+ * when the field is Chinese-detected (the kana/hangul-first classifier inside isChineseLine
+ * keeps Japanese kanji out), then keys via the SAME matchKey the exact side uses. Returns null
+ * when the folded key equals the exact key (already-Simplified input, non-CJK input) or when
+ * the lazy t2s dict is not yet warm (alias is best-effort — the exact key is always written).
+ *
+ * Per-field folding: a mixed "Accusefive" artist (Latin, skipped) + a Chinese title still gets
+ * a usable alias, and a partially-unfoldable pair never aliases to something unrelated.
+ */
+export function aliasCoverCacheKey(artist: string, title: string): string | null {
+	const fa = isChineseLine(artist) ? (t2sConvertLineSync(artist) ?? artist) : artist;
+	const ft = isChineseLine(title) ? (t2sConvertLineSync(title) ?? title) : title;
+	const exact = matchKey(artist, title);
+	const folded = matchKey(fa, ft);
+	return folded === exact ? null : folded;
+}
+
+/** The script-folded alias of an ARTIST-only cover key, or null (mirrors aliasCoverCacheKey). */
+export function aliasArtistCoverCacheKey(artist: string): string | null {
+	const fa = isChineseLine(artist) ? (t2sConvertLineSync(artist) ?? artist) : artist;
+	const exact = artistCoverCacheKey(artist);
+	const folded = 'artist:' + matchKey(fa, '');
+	return folded === exact ? null : folded;
 }
 
 /**
@@ -238,7 +278,14 @@ function readRecord(): Record<string, CoverEntry | string> {
  * unavailable storage. Pure read — never throws (mirrors +page.svelte loadCache).
  */
 export function getCachedCover(artist: string, title: string): string | null {
-	return readKey(coverCacheKey(artist, title));
+	// quick-261020-covsync: exact key first (the LOCKED read order is unchanged), then the
+	// script-folded alias — a Simplified-key write from the played track answers a Traditional
+	// stub's read even when nothing ever wrote the stub's own key. Alias consulted ONLY on an
+	// exact miss, so the common warm path pays one extra lang-detect fold at most.
+	const hit = readKey(coverCacheKey(artist, title));
+	if (hit !== null) return hit;
+	const alias = aliasCoverCacheKey(artist, title);
+	return alias ? readKey(alias) : null;
 }
 
 /**
@@ -297,7 +344,12 @@ function writeKey(key: string, url: string): void {
  * Persists across calls within the same storage.
  */
 export function setCachedCover(artist: string, title: string, url: string): void {
+	// quick-261020-covsync: the exact key is always written; the script-folded alias rides along
+	// whenever it exists, so the other script's identity reads the same art without a second
+	// resolve (same timestamps, same TTL, same eviction — both entries are first-class).
 	writeKey(coverCacheKey(artist, title), url);
+	const alias = aliasCoverCacheKey(artist, title);
+	if (alias) writeKey(alias, url);
 }
 
 /**
@@ -305,7 +357,11 @@ export function setCachedCover(artist: string, title: string, url: string): void
  * unavailable storage. Pure read — never throws. Disjoint from the track lookup.
  */
 export function getCachedArtistCover(artist: string): string | null {
-	return readKey(artistCoverCacheKey(artist));
+	// quick-261020-covsync: exact key first, then the script-folded alias (as the track layer).
+	const hit = readKey(artistCoverCacheKey(artist));
+	if (hit !== null) return hit;
+	const alias = aliasArtistCoverCacheKey(artist);
+	return alias ? readKey(alias) : null;
 }
 
 /**
@@ -314,6 +370,8 @@ export function getCachedArtistCover(artist: string): string | null {
  */
 export function setCachedArtistCover(artist: string, url: string): void {
 	writeKey(artistCoverCacheKey(artist), url);
+	const alias = aliasArtistCoverCacheKey(artist); // quick-261020-covsync: alias rides along.
+	if (alias) writeKey(alias, url);
 }
 
 /**
@@ -376,7 +434,13 @@ export function coverAgeByUidOrName(uid: string, artist: string, title: string):
 		const byUid = ageFromEntry(rec[uidCoverCacheKey(uid)]); // uid-first (only for a real uid)
 		if (byUid !== null) return byUid;
 	}
-	return ageFromEntry(rec[coverCacheKey(artist, title)]); // name-layer fallback (or null)
+	// quick-261020-covsync: the name layer answers through the script alias too (mirrors
+	// getCachedCover), so a Simplified-key entry's freshness is visible to a Traditional row —
+	// without this the age reads null, lazyCover probes a healthy alias hit every session.
+	const byName = ageFromEntry(rec[coverCacheKey(artist, title)]); // name layer, exact
+	if (byName !== null) return byName;
+	const alias = aliasCoverCacheKey(artist, title);
+	return alias ? ageFromEntry(rec[alias]) : null;
 }
 
 /**
@@ -415,6 +479,11 @@ export function removeCachedCoverByUid(uid: string): void {
  */
 export function removeCachedCover(artist: string, title: string): void {
 	removeKey(coverCacheKey(artist, title));
+	// quick-261020-covsync: evict the script alias too, or a dead URL evicted from one script's
+	// key would keep serving under the other's (the self-heal probe loop would never converge:
+	// lazyCover reads through the alias, healCover evicts only the exact key it seeded from).
+	const alias = aliasCoverCacheKey(artist, title);
+	if (alias) removeKey(alias);
 }
 
 /**
@@ -424,6 +493,8 @@ export function removeCachedCover(artist: string, title: string): void {
  */
 export function removeCachedArtistCover(artist: string): void {
 	removeKey(artistCoverCacheKey(artist));
+	const alias = aliasArtistCoverCacheKey(artist); // quick-261020-covsync: evict the alias too.
+	if (alias) removeKey(alias);
 }
 
 // ── CROWD PICKS (Phase 40 D-14 / D-19) ──────────────────────────────────────────────────────────

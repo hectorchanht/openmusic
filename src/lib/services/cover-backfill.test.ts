@@ -4,6 +4,7 @@ import {
 	backfillArtistCovers,
 	resolveCoverForTrack,
 	resolveShareCover,
+	coverSearchTerms,
 	collectCoverCandidates,
 	__resetCoverMissCache,
 	__resetQqCoverGate,
@@ -1084,5 +1085,41 @@ describe('resolveShareCover — share-card carrier chain (quick-260920-l82)', ()
 		expect(await resolveShareCover(stub)).toBe(ITUNES);
 		expect(await resolveShareCover(stub)).toBe(ITUNES);
 		expect(itunesSpy).toHaveBeenCalledTimes(2);
+	});
+});
+
+// quick-261020-covsync — the chain SEARCHES in Simplified (the CN catalogs' script) while the
+// cache keeps the caller's identity. The tiers are mocked; only the query terms + the cache key
+// are under test. The tongwen dict loads natively under Vitest (as in zh-convert.test.ts).
+describe('cover chain script fold (quick-261020-covsync)', () => {
+	const ITUNES = 'https://is1-ssl.mzstatic.com/image/thumb/X/600x600bb.jpg';
+
+	beforeEach(() => {
+		localStorage.clear();
+		__resetCoverMissCache();
+	});
+
+	it('coverSearchTerms folds Traditional → Simplified per Chinese field', async () => {
+		expect(await coverSearchTerms('告五人', '在這裡等你')).toEqual(['告五人', '在这里等你']);
+		expect(await coverSearchTerms('周杰倫', '止戰之殤')).toEqual(['周杰伦', '止战之殇']);
+	});
+
+	it('coverSearchTerms leaves non-Chinese fields untouched', async () => {
+		expect(await coverSearchTerms('Adele', 'Hello')).toEqual(['Adele', 'Hello']);
+		// A kana-bearing (Japanese) field is never folded even beside a Chinese one.
+		const [a, t] = await coverSearchTerms('告五人', 'ここで待ってる');
+		expect(a).toBe('告五人');
+		expect(t).toBe('ここで待ってる');
+	});
+
+	it('the chain queries tiers with the Simplified pair but caches under the caller identity', async () => {
+		const itunesSpy = vi.spyOn(itunes, 'itunesSongCover').mockResolvedValue(ITUNES);
+		const tr = mk('netease', 'x', { uid: '', artist: '告五人', title: '在這裡等你' });
+		expect(await resolveCoverForTrack(tr)).toBe(ITUNES);
+		expect(itunesSpy).toHaveBeenCalledWith('告五人', '在这里等你', undefined, expect.anything());
+		// Written under the STUB's Traditional identity (the row's own key)…
+		expect(getCachedCover('告五人', '在這裡等你')).toBe(ITUNES);
+		// …and readable under the Simplified identity too (the cache alias).
+		expect(getCachedCover('告五人', '在这里等你')).toBe(ITUNES);
 	});
 });
