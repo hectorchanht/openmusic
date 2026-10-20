@@ -35,7 +35,11 @@ export function isAllowedOrigin(origin: string | null): origin is string {
 export function corsHeaders(origin: string | null): Record<string, string> {
 	const headers: Record<string, string> = {
 		Vary: 'Origin',
-		'Access-Control-Allow-Methods': 'GET, HEAD, POST, OPTIONS',
+		// quick-261020-acct: PUT joins the list for PUT /api/me/sync (cross-device envelope
+		// upsert) — the native WebView PUTs cross-origin and would fail preflight without it.
+		// Same T-33-10 posture as Allow-Headers below: the method list only says what an
+		// ALREADY allow-listed origin may do; it grants nothing to a foreign origin.
+		'Access-Control-Allow-Methods': 'GET, HEAD, POST, PUT, OPTIONS',
 		// `Authorization` is NOT a CORS-safelisted request header, so the Capacitor WebView
 		// (https://localhost → https://openmusic.lol, cross-origin) preflights any bearer POST and
 		// fails it unless the header is advertised here (T-33-06). Allow-Headers only says which

@@ -7,6 +7,7 @@
 	import { player, SKIP_REASON_KEY } from '$lib/stores/player.svelte';
 	import { library } from '$lib/stores/library.svelte';
 	import { settings } from '$lib/stores/settings.svelte';
+	import { auth } from '$lib/stores/auth.svelte';
 	import { names } from '$lib/stores/names.svelte';
 	import { warmScript } from '$lib/services/zh-convert';
 	import { online } from '$lib/stores/online.svelte';
@@ -195,6 +196,11 @@
 	onMount(() => {
 		library.load();
 		settings.load();
+
+		// quick-261020-acct: probe the account session (cookie on web, bearer on native) and,
+		// when signed in, start the cross-device sync engine. Fire-and-forget: auth must never
+		// block the shell, and anonymous use stays exactly as before (the engine no-ops).
+		void auth.load();
 
 		// quick-261006-i18n: fetch the active locale's dictionary chunk now (`en` is
 		// already in the bundle). Fire-and-forget — t() serves the en fallback until

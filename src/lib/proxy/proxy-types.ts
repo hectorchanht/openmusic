@@ -65,6 +65,20 @@ export interface Env {
 	// so it is a `var` in wrangler.jsonc ("openmusic.lol"); `.dev.vars` adds localhost for dev.
 	// Empty/absent ⇒ posting answers 503, same as a missing secret.
 	TURNSTILE_HOSTNAMES?: string;
+	// quick-261020-acct: D1 binding for magic-link auth + cross-device sync — database
+	// `openmusic-accounts` (see wrangler.jsonc). Holds PII (emails) + token hashes, so it is
+	// deliberately separate from the no-PII ANALYTICS_DB. ABSENT under `vite dev` and in unit
+	// tests is a SUPPORTED state: the /api/auth/* routes answer logged-out and
+	// /api/me/sync answers 503 rather than throwing.
+	ACCOUNTS_DB?: D1Database;
+	// quick-261020-acct: Resend API key the /api/auth/magic-link route sends the sign-in
+	// email with. Server-side only — set via `wrangler pages secret put RESEND_API_KEY`,
+	// NEVER echoed to the client (same threat class as JOOX_TOKEN). Absent ⇒ the route
+	// FAILS CLOSED with 500 'not-configured' BEFORE minting a token (no orphan rows).
+	RESEND_API_KEY?: string;
+	// quick-261020-acct: OPTIONAL `From:` for the magic-link email. Absent ⇒ the route uses
+	// `OpenMusic <login@openmusic.lol>` (DEFAULT_MAGIC_LINK_FROM in $lib/auth/auth-core).
+	MAGIC_LINK_FROM?: string;
 }
 
 export interface ProxyAdapter {

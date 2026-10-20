@@ -3,7 +3,7 @@
 	import { goto } from '$app/navigation';
 	// quick-260919-ebi: ChevronRight + tapBounce now live inside SettingRow; Radio stays only for
 	// the commented-out Last.fm row below.
-	import { Globe, Type, LayoutGrid, Languages, Music, Radio, HardDriveDownload, Database, ScrollText, Info, HandCoins, Heart, ChevronRight } from '@lucide/svelte';
+	import { Globe, Type, LayoutGrid, Languages, Music, Radio, HardDriveDownload, Database, ScrollText, Info, HandCoins, Heart, ChevronRight, CircleUserRound } from '@lucide/svelte';
 	import { settings } from '$lib/stores/settings.svelte';
 	import { support } from '$lib/stores/support.svelte';
 	import PageHeader from '$lib/components/PageHeader.svelte';
@@ -25,8 +25,10 @@
 		track('settings_opened', {});
 	});
 
-	// Group rows: order = playback, downloads, appearance, home, translation, general, data,
-	// activity, about (2026-10-06, Hector: most-used first).
+	// Group rows: order = account, playback, downloads, appearance, home, translation, general,
+	// data, activity, about (2026-10-06, Hector: most-used first).
+	// quick-261020-acct: Account goes FIRST — sign-in gates cross-device sync, and a signed-out
+	// user landing in Settings is most likely looking for exactly this row.
 	// (Listen history moved to the Library page → /library "History" tab.)
 	// 34 (UI-SPEC contract 7) asked for the Downloads row to be HIDDEN on web, on the grounds that a
 	// row leading to a capability the web build can never have is a lie in the navigation. That no
@@ -34,6 +36,7 @@
 	// would orphan a working feature. The native gate lives in the page body instead — device import
 	// shows one honest line there on web, and retag stays reachable.
 	const groups: { href: string; icon: Component; title: TranslationKey; desc: TranslationKey; badge?: boolean }[] = [
+		{ href: '/settings/account', icon: CircleUserRound, title: 'settings.groupAccount', desc: 'settings.groupAccountDesc' },
 		{ href: '/settings/playback', icon: Music, title: 'settings.groupPlayback', desc: 'settings.groupPlaybackDesc' },
 		{ href: '/settings/downloads', icon: HardDriveDownload, title: 'settings.groupDownloads', desc: 'settings.groupDownloadsDesc' },
 		{ href: '/settings/appearance', icon: Type, title: 'settings.groupAppearance', desc: 'settings.groupAppearanceDesc' },
