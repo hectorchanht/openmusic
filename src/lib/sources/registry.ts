@@ -6,6 +6,7 @@ import { netease } from './netease';
 import { qq } from './qq';
 import { kuwo } from './kuwo';
 import { joox } from './joox';
+import { kugou } from './kugou';
 import { fivesing } from './fivesing';
 import { jamendo } from './jamendo';
 import { audius } from './audius';
@@ -41,7 +42,10 @@ import { settings } from '$lib/stores/settings.svelte';
 // track (mirrors how audius/jamendo are searchable-but-off-the-hot-path). That flag is unaffected by
 // the 2026-08-31 reorder above — the resolve floor is now qq→netease→kuwo→joox; the code that honors
 // the flag lands in Plan 27-04.
-export const SOURCES: Record<SourceId, SourceAdapter> = { qq, netease, kuwo, joox, fivesing, jamendo, audius, ytmusic };
+// quick-261020-kugo: kugou takes the seat AFTER joox — it is a full mainstream catalog
+// (autoResolveEligible stays undefined = on the resolve floor), but the proven
+// qq→netease→kuwo→joox floor order is untouched ahead of it.
+export const SOURCES: Record<SourceId, SourceAdapter> = { qq, netease, kuwo, joox, kugou, fivesing, jamendo, audius, ytmusic };
 
 /**
  * The enabled adapters for a search fan-out. Precedence (highest first):

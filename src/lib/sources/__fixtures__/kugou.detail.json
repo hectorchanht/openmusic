@@ -1,0 +1,18 @@
+{
+ "url": "https://sharefs.kugou.com/202610201534/bb8a7a01ebd2788d04d637f94c232371/v3/8267b85e29d936ae8ffba797f64d5b0a/yp/full/ap1000_us0_pi409_s4248680496.mp3",
+ "backup_url": [
+  "https://sharefs.tx.kugou.com/202610201534/a3e568447dcbfc41de768d06e53637a3/v3/8267b85e29d936ae8ffba797f64d5b0a/yp/full/ap1000_us0_pi409_s4248680496.mp3"
+ ],
+ "bitRate": 128,
+ "extName": "mp3",
+ "fileSize": 3374808,
+ "timeLength": 210,
+ "album_img": "http://imge.kugou.com/stdmusic/{size}/20240909/20240909174104251546.jpg",
+ "songName": "理想三旬",
+ "author_name": "陈鸿宇",
+ "errcode": 0,
+ "error": "",
+ "privilege": 8,
+ "pay_type": 0,
+ "hash": "8267B85E29D936AE8FFBA797F64D5B0A"
+}

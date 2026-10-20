@@ -19,6 +19,7 @@ export type SourceId =
 	| 'qq'
 	| 'kuwo'
 	| 'joox'
+	| 'kugou'
 	| 'fivesing'
 	| 'jamendo'
 	| 'audius'
@@ -83,6 +84,14 @@ export interface Track {
 	 *  Identity-critical: songid is NOT unique across songtypes, so the uid folds songtype
 	 *  into the songid via `${songtype}-${songid}` (hvu Pitfall, mirrors JOOX Pitfall 4). */
 	fivesingSongType?: 'fc' | 'bz' | 'yc';
+	/** Kugou (quick-261020-kugo) — OPTIONAL quality-ladder extras. Identity is the 128k
+	 *  FileHash in `songid` alone (serializeTrack drops extras, so a restored track must
+	 *  resolve from songid only); these hashes merely widen the resolve ladder, and
+	 *  `kugouAlbumId` disambiguates the getSongInfo call. */
+	kugouAlbumId?: string;
+	kugouHqHash?: string; // 320k mp3 file hash
+	kugouSqHash?: string; // FLAC file hash
+	kugouResHash?: string; // hi-res file hash
 
 	// --- Last.fm enrichment (Phase 8, additive/optional) — never overwrites source data ---
 	tags?: string[]; // top-5 display tags
