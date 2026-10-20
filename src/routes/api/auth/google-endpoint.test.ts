@@ -8,6 +8,7 @@
 // check (Hector taps the Google button in the APK / web).
 
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import type { GoogleJwk } from '$lib/auth/auth-core';
 import {
 	GOOGLE_CERTS_URL,
 	GOOGLE_WEB_CLIENT_ID,
@@ -93,7 +94,7 @@ const callGoogle = (e: ReturnType<typeof fakeEvent>) => googlePOST(e as any);
 // --- real RSA keypair + JWT minter (mirrors auth-core.test.ts) --------------------------
 
 let keyPair: CryptoKeyPair;
-let jwk: JsonWebKey;
+let jwk: GoogleJwk;
 const KID = 'route-test-kid';
 
 const b64url = (s: string) => Buffer.from(s, 'utf8').toString('base64url');

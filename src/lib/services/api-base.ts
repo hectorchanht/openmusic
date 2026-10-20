@@ -265,8 +265,13 @@ export interface ApiFetchInit extends RequestInit {
 	 * Timeout governance still applies, and the outcome still feeds the breaker
 	 * classification, so a genuinely downed /api/* still trips the breaker for everyone
 	 * else. Never deduped. Reserved for auth — background callers stay governed.
+	 *
+	 * Named `priorityLane` (not `priority`): lib.dom's RequestInit already declares
+	 * `priority?: RequestPriority` (the fetch scheduling hint), and redeclaring it as
+	 * boolean makes the interface incorrectly extend RequestInit. No caller uses the
+	 * fetch-standard hint — apiFetch strips this flag before delegating to fetch.
 	 */
-	priority?: boolean;
+	priorityLane?: boolean;
 }
 
 /**
@@ -305,12 +310,12 @@ async function priorityFetch(url: string, init: RequestInit | undefined): Promis
  * added, so callers keep the native `fetch` return/error contract (a superseded caller's promise
  * still rejects with an AbortError when its signal fires).
  *
- * Pass `{ priority: true }` for user-initiated critical requests (auth) — see {@link ApiFetchInit}.
+ * Pass `{ priorityLane: true }` for user-initiated critical requests (auth) — see {@link ApiFetchInit}.
  */
 export function apiFetch(path: string, init?: ApiFetchInit): Promise<Response> {
 	const url = apiUrl(path);
-	if (init?.priority) {
-		const { priority: _dropped, ...rest } = init;
+	if (init?.priorityLane) {
+		const { priorityLane: _dropped, ...rest } = init;
 		return priorityFetch(url, rest);
 	}
 	const method = (init?.method ?? 'GET').toUpperCase();

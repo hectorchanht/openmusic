@@ -379,7 +379,7 @@ describe('apiFetch — priority lane (quick-261020-authprio)', () => {
 		// …but the priority lane goes straight through to a working fetch.
 		const ok = vi.fn(async () => new Response('{}', { status: 200 }));
 		vi.stubGlobal('fetch', ok);
-		const resp = await apiFetch('/api/auth/magic-link', { method: 'POST', priority: true });
+		const resp = await apiFetch('/api/auth/magic-link', { method: 'POST', priorityLane: true });
 		expect(resp.status).toBe(200);
 		expect(ok).toHaveBeenCalledTimes(1);
 	});
@@ -400,7 +400,7 @@ describe('apiFetch — priority lane (quick-261020-authprio)', () => {
 		expect(fetchImpl.mock.calls.length).toBe(MAX_CONCURRENT_REQUESTS);
 
 		// The priority request must NOT queue behind them.
-		const resp = await apiFetch('/api/auth/session', { priority: true });
+		const resp = await apiFetch('/api/auth/session', { priorityLane: true });
 		expect(resp.status).toBe(200);
 		expect(fetchImpl.mock.calls.length).toBe(MAX_CONCURRENT_REQUESTS + 1);
 		// The 8 hung promises never settle — __resetGovernor() in afterEach frees their slots.
@@ -411,7 +411,7 @@ describe('apiFetch — priority lane (quick-261020-authprio)', () => {
 		const down = vi.fn(async () => new Response('{}', { status: 500 }));
 		vi.stubGlobal('fetch', down as unknown as typeof fetch);
 		const calls = Array.from({ length: CIRCUIT_FAILURE_THRESHOLD }, (_, i) =>
-			apiFetch(`/api/auth?i=${i}`, { priority: true }).catch(() => null)
+			apiFetch(`/api/auth?i=${i}`, { priorityLane: true }).catch(() => null)
 		);
 		await Promise.all(calls);
 
@@ -429,8 +429,8 @@ describe('apiFetch — priority lane (quick-261020-authprio)', () => {
 		const ok = vi.fn(async () => new Response('{}', { status: 200 }));
 		vi.stubGlobal('fetch', ok);
 		const [a, b] = await Promise.all([
-			apiFetch('/api/auth/session', { priority: true }),
-			apiFetch('/api/auth/session', { priority: true })
+			apiFetch('/api/auth/session', { priorityLane: true }),
+			apiFetch('/api/auth/session', { priorityLane: true })
 		]);
 		expect(a.status).toBe(200);
 		expect(b.status).toBe(200);

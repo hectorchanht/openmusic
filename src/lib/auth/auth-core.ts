@@ -85,18 +85,28 @@ const GOOGLE_ID_TOKEN_ALG = 'RS256';
 /** How long fetched Google certs are trusted (module scope; the edge isolate reuses it). */
 const GOOGLE_CERTS_TTL_MS = 60 * 60 * 1000;
 
-interface GoogleJwks {
-	keys: JsonWebKey[];
+/**
+ * A Google JWKS key. TS 5.9's lib.dom JsonWebKey omits `kid` (RFC 7517 §4.5), but
+ * Google's certs always carry it and kid-matching is how the verifying key is
+ * selected — so the Google key type re-adds it instead of casting at every use.
+ * quick-261020-google
+ */
+export interface GoogleJwk extends JsonWebKey {
+	kid?: string;
 }
 
-let cachedCerts: { keys: JsonWebKey[]; fetchedAt: number } | null = null;
+interface GoogleJwks {
+	keys: GoogleJwk[];
+}
+
+let cachedCerts: { keys: GoogleJwk[]; fetchedAt: number } | null = null;
 
 /** TEST-ONLY: drop the cached Google certs so tests control the JWKS deterministically. */
 export function __resetGoogleCerts(): void {
 	cachedCerts = null;
 }
 
-function base64UrlDecode(s: string): Uint8Array {
+function base64UrlDecode(s: string): Uint8Array<ArrayBuffer> {
 	const b64 = s.replace(/-/g, '+').replace(/_/g, '/');
 	const padded = b64 + '='.repeat((4 - (b64.length % 4)) % 4);
 	const bin = atob(padded);
@@ -105,7 +115,7 @@ function base64UrlDecode(s: string): Uint8Array {
 	return out;
 }
 
-async function getGoogleCerts(fetchImpl: typeof fetch): Promise<JsonWebKey[]> {
+async function getGoogleCerts(fetchImpl: typeof fetch): Promise<GoogleJwk[]> {
 	const now = Date.now();
 	if (cachedCerts && now - cachedCerts.fetchedAt < GOOGLE_CERTS_TTL_MS) return cachedCerts.keys;
 	const res = await fetchImpl(GOOGLE_CERTS_URL);
@@ -148,7 +158,7 @@ export async function verifyGoogleIdToken(
 	if (header.alg !== GOOGLE_ID_TOKEN_ALG) return { ok: false, reason: 'bad-alg' };
 	if (typeof header.kid !== 'string' || header.kid.length === 0) return { ok: false, reason: 'unknown-kid' };
 
-	let keys: JsonWebKey[];
+	let keys: GoogleJwk[];
 	try {
 		keys = opts?.fetchCerts ? (await opts.fetchCerts()).keys : await getGoogleCerts(fetch);
 	} catch {

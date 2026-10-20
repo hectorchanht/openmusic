@@ -7,6 +7,7 @@
 // through the real handlers).
 
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { GoogleJwk } from './auth-core';
 import {
 	GOOGLE_WEB_CLIENT_ID,
 	SESSION_COOKIE_NAME,
@@ -306,7 +307,7 @@ describe('verifyGoogleIdToken (quick-261020-google)', () => {
 	// A real 2048-bit RSA pair minted once per file — the JWKS below is genuinely
 	// signature-checked by verifyGoogleIdToken, not stubbed around.
 	let keyPair: CryptoKeyPair;
-	let jwk: JsonWebKey;
+	let jwk: GoogleJwk;
 	const KID = 'test-kid-1';
 
 	const b64url = (s: string) => Buffer.from(s, 'utf8').toString('base64url');
