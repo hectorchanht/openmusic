@@ -488,14 +488,19 @@ describe('buildSignInEmail — formal branded template (quick-261020-code)', () 
 	const to = 'user@example.com';
 	const { subject, html, text } = buildSignInEmail(link, code, to);
 
-	it('names the code in the subject', () => {
-		expect(subject).toContain('sign-in code');
+	it('subject carries the code, Meta-style (Gmail Copy-code detector mirror)', () => {
+		expect(subject).toBe(`Use code ${code} to sign in to OpenMusic`);
 	});
 
-	it('renders a real teal CTA button (not a bare text link)', () => {
+	it('body leads with the code in Meta phrasing, link rides below', () => {
+		expect(html).toContain('by entering the following code');
+		expect(html).toContain('Sign-in code');
+		// the magic-link CTA is still there, after the code
 		expect(html).toContain('Sign in to OpenMusic</a>');
 		expect(html).toContain('#00c2b8'); // app-theme teal
 		expect(html).toContain(`href="${link}"`);
+		// code comes before the link in the body
+		expect(html.indexOf(code)).toBeLessThan(html.indexOf(link));
 	});
 
 	it('shows the code in its own box, one line, long-press to copy', () => {

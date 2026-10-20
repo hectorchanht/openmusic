@@ -448,6 +448,11 @@ export function buildSignInEmail(
 	toEmail: string
 ): { subject: string; html: string; text: string } {
 	const safeEmail = escapeHtml(toEmail);
+	// quick-261020-metafmt: mirror Meta's OTP email shape so Gmail's "Copy code" detector
+	// fires — the CODE IS IN THE SUBJECT ("Use code 316001 to log in"), the body leads
+	// with the code ("entering the following code" + a "Sign-in code" label), and the
+	// magic link rides below as the secondary path. (Whether Gmail shows its pill is
+	// still its own detector's call — this is the closest sender-side mirror.)
 	const html = `<!doctype html><html><body style="margin:0;padding:0;background-color:#0a0a0a;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
 <div style="max-width:480px;margin:0 auto;padding:32px 24px;">
 <div style="text-align:center;margin-bottom:24px;">
@@ -455,16 +460,18 @@ export function buildSignInEmail(
 </div>
 <div style="background-color:#141414;border:1px solid #2a2a2a;border-radius:16px;padding:32px 28px;">
 <p style="color:#ffffff;font-size:16px;margin:0 0 16px;">Hi there,</p>
-<p style="color:#b3b3b3;font-size:14px;line-height:1.6;margin:0 0 24px;">Tap the button below to sign in to OpenMusic. The link expires in 15 minutes and can only be used once.</p>
-<table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:0 auto 8px;"><tr><td style="border-radius:999px;background-color:#00c2b8;">
-<a href="${link}" style="display:inline-block;padding:14px 36px;font-size:16px;font-weight:600;color:#ffffff;text-decoration:none;border-radius:999px;">Sign in to OpenMusic</a>
-</td></tr></table>
-<div style="border-top:1px solid #2a2a2a;margin:28px 0;"></div>
-<p style="color:#b3b3b3;font-size:14px;line-height:1.6;margin:0 0 12px;">Or enter this code in the app:</p>
+<p style="color:#b3b3b3;font-size:14px;line-height:1.6;margin:0 0 12px;">You can sign in to OpenMusic by entering the following code.</p>
+<p style="color:#b3b3b3;font-size:14px;margin:0 0 8px;">Sign-in code</p>
 <div style="background-color:#0a0a0a;border:1px dashed #00c2b8;border-radius:12px;padding:20px 12px;text-align:center;margin:0 0 8px;">
 <span style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:28px;font-weight:700;letter-spacing:6px;text-indent:6px;color:#ffffff;user-select:all;-webkit-user-select:all;white-space:nowrap;">${code}</span>
 </div>
-<p style="color:#737373;font-size:12px;margin:0;">The code expires in 15 minutes and stops working after 5 wrong tries. Long-press the code to copy it.</p>
+<p style="color:#737373;font-size:12px;margin:0 0 24px;">The code expires in 15 minutes and stops working after 5 wrong tries. Long-press the code to copy it.</p>
+<div style="border-top:1px solid #2a2a2a;margin:0 0 24px;"></div>
+<p style="color:#b3b3b3;font-size:14px;line-height:1.6;margin:0 0 16px;">Or tap the button below to sign in instantly.</p>
+<table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:0 auto 8px;"><tr><td style="border-radius:999px;background-color:#00c2b8;">
+<a href="${link}" style="display:inline-block;padding:14px 36px;font-size:16px;font-weight:600;color:#ffffff;text-decoration:none;border-radius:999px;">Sign in to OpenMusic</a>
+</td></tr></table>
+<p style="color:#737373;font-size:12px;margin:16px 0 0;">The link expires in 15 minutes and can only be used once.</p>
 </div>
 <p style="color:#737373;font-size:12px;line-height:1.6;text-align:center;margin:24px 0 8px;">This message was sent to ${safeEmail} at your request.</p>
 <p style="color:#525252;font-size:12px;text-align:center;margin:0;">OpenMusic &middot; Dawn Studio &middot; openmusic.lol</p>
@@ -472,17 +479,20 @@ export function buildSignInEmail(
 </body></html>`;
 	const text = `Hi there,
 
-Sign in to OpenMusic (the link expires in 15 minutes and can only be used once):
-${link}
+You can sign in to OpenMusic by entering the following code.
 
-Or enter this code in the app: ${code}
+Sign-in code: ${code}
+
 The code expires in 15 minutes and stops working after 5 wrong tries.
+
+Or sign in instantly with this link (expires in 15 minutes, one-time use):
+${link}
 
 This message was sent to ${toEmail} at your request.
 OpenMusic · Dawn Studio · openmusic.lol`;
-	// The email carries BOTH credentials — the subject names the code (the prominent,
-	// long-press-to-copy credential) while the link rides inside as the click path.
-	return { subject: 'Your OpenMusic sign-in code', html, text };
+	// The email carries BOTH credentials — the code leads (subject + body, Gmail "Copy
+	// code" detector mirror) while the link rides below as the instant path.
+	return { subject: `Use code ${code} to sign in to OpenMusic`, html, text };
 }
 
 /**
