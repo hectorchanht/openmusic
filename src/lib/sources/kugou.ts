@@ -27,7 +27,7 @@
 
 import type { SourceAdapter, Track } from './types';
 import { makeUid } from './types';
-import { inferQualityFromUrl } from '../services/lrc';
+import { inferQualityFromUrl, type QualityInfo } from '../services/lrc';
 import { apiFetch } from '../services/api-base';
 import { pickByQualityPref, effectiveQuality } from './quality';
 import { settings, type DefaultQuality } from '$lib/stores/settings.svelte';
@@ -79,7 +79,7 @@ function rowTitle(it: KgSearchItem): string {
 }
 
 /** Quality tag/label from the RESOLVED bitrate the url route reports back. */
-function qualityFromBitRate(bitRate: number | undefined, url: string): { tag: string; label: string } {
+function qualityFromBitRate(bitRate: number | undefined, url: string): QualityInfo {
 	if (!bitRate || bitRate <= 0) return inferQualityFromUrl(url);
 	if (bitRate >= 800) return { tag: 'lossless', label: 'FLAC' };
 	if (bitRate >= 256) return { tag: '320k', label: '320K' };
