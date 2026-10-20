@@ -48,8 +48,14 @@ import { SYNC_DEFAULTS, type SyncItems } from '$lib/config/defaults';
 /** localStorage key for the sync bookkeeping: { updatedAt: server ms, hash: last synced }. */
 export const SYNC_META_KEY = 'openmusic:sync:v1';
 
-/** Background convergence cadence while the app is open. */
-export const SYNC_INTERVAL_MS = 30_000;
+/**
+ * Background convergence cadence while the app is open. quick-261020-syncfreq: was 30s —
+ * with history dirtying on every played song that meant an upload every 30s during active
+ * listening. The tick is hash-gated (clean = zero network), so this is only the *detection*
+ * cadence; 5 min is plenty, and visibilitychange→hidden + beforeunload push dirty state
+ * promptly when the user leaves.
+ */
+export const SYNC_INTERVAL_MS = 300_000;
 
 /** What the auth store renders (Settings → Account). The engine is the only writer. */
 export type SyncStatus = 'idle' | 'syncing' | 'synced' | 'error';
@@ -329,8 +335,10 @@ export async function syncOnce(hooks: SyncHooks): Promise<void> {
 
 /**
  * Start the background engine: an immediate pass, then every SYNC_INTERVAL_MS, on
- * visibilitychange→visible, and a keepalive push on beforeunload when the local state is
- * dirty (so closing the tab cannot strand a change the interval had not reached yet).
+ * visibilitychange (hidden pushes dirty state promptly — mobile beforeunload is
+ * unreliable; visible re-checks for a server-ahead pull), and a keepalive push on
+ * beforeunload when the local state is dirty (so closing the tab cannot strand a change
+ * the interval had not reached yet).
  * Returns the engine handle; stop() removes every listener and the timer.
  */
 export function startSyncEngine(hooks: SyncHooks): { stop: () => void; syncNow: () => Promise<void> } {
@@ -351,7 +359,9 @@ export function startSyncEngine(hooks: SyncHooks): { stop: () => void; syncNow: 
 	};
 
 	const onVisibility = () => {
-		if (document.visibilityState === 'visible') void tick();
+		// quick-261020-syncfreq: tick on hidden too — mobile beforeunload often never fires,
+		// so backgrounding is the reliable moment to push dirty state promptly.
+		void tick();
 	};
 	const onBeforeUnload = () => {
 		// Fire-and-forget by necessity (the page is going away): push only when dirty, and
