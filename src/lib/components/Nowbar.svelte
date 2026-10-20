@@ -198,6 +198,20 @@
     // quick-260920-nyq: computed ONCE — the truthiness test and the url() previously restated the
     // same expression twice (the same defect quick-260915-w4f fixed in NowPlaying's cellBg).
     const npCover = $derived(player.displayCover ?? np?.cover);
+
+    // quick-261020-batch1 (C2): self-heal a DEAD painted cover while listening with the Nowbar
+    // alone — NowPlaying's twin $effect only runs when the sheet is mounted, so a dead cover
+    // painted on the docked bar was never probed, marked, or repaired. Same deps (uid +
+    // displayCover) and the same fire-and-forget call; the store's healProbed one-shot guard +
+    // playGen guard make firing from both surfaces safe (the 'embed' variant inside NowPlaying
+    // double-fires — the second call is a no-op).
+    $effect(() => {
+        const uid = player.current?.uid;
+        const cover = player.displayCover; // reactive dep — re-run when the displayed cover changes
+        if (!uid) return; // no current track
+        if (!cover) return; // true miss → gradient; nothing to probe
+        void player.healCover(uid); // fire-and-forget; the one-shot guard lives in the store
+    });
     function handleOpen() {
         if (onOpen) onOpen();
         else player.expand();

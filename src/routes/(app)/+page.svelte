@@ -69,6 +69,7 @@
 	import { backfillCovers, backfillArtistCovers } from '$lib/services/cover-backfill';
 	import { lazyCover } from '$lib/actions/lazyCover';
 import { pickRowCover } from '$lib/services/row-cover';
+import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 	// quick-260615-hep: read covers through the GLOBAL reactive signal so a cover landing anywhere
 	// (now-playing, lazyCover, backfill) repaints homepage tiles live; read uid-first for Track rows.
 	import {
@@ -367,19 +368,41 @@ import { pickRowCover } from '$lib/services/row-cover';
 		artistName?: string;
 	}): string | null {
 		coverVersion(); // reactive dependency on the GLOBAL signal: recompute when a cover lands anywhere
-		if (item.image) return item.image;
+		// quick-261020-dcvr (batch1 C1): delegate the tier ladder to the shared pickRowCover — the
+		// tile's Last.fm image is the seeded rung (a probe-dead image is skipped INSIDE pickRowCover,
+		// so it can no longer shadow the backfilled cache), and the backfilled name-key read is the
+		// cached rung. Render order is now cached-first, matching libraryRowCover's latest-wins
+		// read (Hector's 2026-10-20 "same song, same cover everywhere" directive). Pin rung is null:
+		// DiscoveryTrack carries NO uid, and pins are track-scoped.
 		// NOTE: the CAA-by-mbid tier was REMOVED here — coverartarchive.org image loads are
 		// blocked by the browser's Opaque Response Blocking (net::ERR_BLOCKED_BY_ORB), so a CAA
 		// URL always renders broken AND shadowed the working Deezer/CN backfilled cover for any
 		// item that carried an mbid (the runtime root cause of "most tiles are color blocks").
 		// DiscoveryTrack carries NO uid → name-key only (the cross-surface bridge); reactive readers.
-		if (item.artist && item.title) return readCoverByName(item.artist, item.title);
-		if (item.artistName) return readArtistCover(item.artistName);
-		return null;
+		return pickRowCover(
+			null, // no pin read on discovery tiles (no uid; pins stay track-scoped)
+			undefined, // no host-explicit cover on discovery tiles
+			undefined, // no component-local resolved result (backfill only bumps here)
+			item.image, // seeded Last.fm image — dead-skipped inside pickRowCover
+			item.artist && item.title
+				? readCoverByName(item.artist, item.title)
+				: item.artistName
+					? readArtistCover(item.artistName)
+					: null
+		);
 	}
 	// Hide a cover <img> on load error so the gradient underneath shows (no broken-image icon).
+	// quick-261020-dcvr (batch1 C1): an <img> load error is the same dead-URL evidence as an
+	// Image() probe — mark the failed src dead so pickRowCover's seeded dead-skip stops shadowing
+	// the backfilled cache, then bump the global cover signal so tiles and rows re-render with the
+	// healed art. Session-scoped: a wrong mark costs at most one session, and a later passing
+	// probe unmarks. Terminates: each re-render dead-skips one more URL, and an unchanged src
+	// never reloads (no error refire, no loop).
 	function hideOnError(e: Event) {
-		(e.currentTarget as HTMLImageElement).style.display = 'none';
+		const img = e.currentTarget as HTMLImageElement;
+		if (img.src) markCoverUrlDead(img.src);
+		img.style.display = 'none';
+		bumpCoverVersion();
 	}
 
 	// quick-260615-hep: the local coverVer was replaced by the GLOBAL coverVersion() signal (see the

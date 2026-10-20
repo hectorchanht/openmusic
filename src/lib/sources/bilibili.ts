@@ -26,7 +26,7 @@
 
 import type { SourceAdapter, Track} from './types';
 import { makeUid} from './types';
-import { apiFetch} from '../services/api-base';
+import { apiFetch, apiUrl} from '../services/api-base';
 
 // ---- Upstream JSON shapes (only fields we read; all optional — untrusted) ----------------
 
@@ -127,7 +127,10 @@ throw new Error('bilibili: no playable audio stream (gone or region-locked)');
 }
 // NOT json.url: the raw bilivideo CDN url 403s in <audio> (Referer gate).
 // The stream route re-resolves server-side and injects the Referer.
-track.audioUrl = `/api/bilibili/stream?bvid=${encodeURIComponent(bvid)}`;
+// Pitfall 3: this URL is consumed directly by <audio>.src, so it MUST be
+// absolute in the native APK (apiUrl() prepends the base; no-op on web) —
+// the same pattern netease/audius use for their own-origin stream urls.
+track.audioUrl = apiUrl(`/api/bilibili/stream?bvid=${encodeURIComponent(bvid)}`);
 const q = qualityFromBandwidth(json.bandwidth);
 track.quality = q.tag;
 track.qualityLabel = q.label;
