@@ -762,7 +762,19 @@
 		let similar: Track[] = [];
 		try { similar = await buildSimilarQueue(tr); } catch { similar = []; }
 		if (!similar.length) { toast.show(t('toast.radioEmpty')); close(); return; }
-		const played = await player.playStub(tr.artist, tr.title, tr.cover, 'radio');
+		// quick-261019-mau: a DOWNLOADED seed plays from its local blob — playStub() would
+		// re-resolve it from the network (slow, and a null miss when offline kills the whole
+		// radio even though the song is on the device). Play the seed as-is through the normal
+		// play path instead (the remix download fast-path, quick-261019-rmx), then build the
+		// station around it exactly like the network path below.
+		let played: Track | null;
+		if (library.isDownloaded(tr.uid)) {
+			player.setQueue([tr], 'radio');
+			void player.play(tr, { fresh: true });
+			played = tr;
+		} else {
+			played = await player.playStub(tr.artist, tr.title, tr.cover, 'radio');
+		}
 		if (!played) { if (player.pendingTrack == null) toast.show(t('home.unplayable')); close(); return; }
 		player.setListQueue([tr, ...similar], 'radio');
 		toast.show(t('toast.radioStarted'));
@@ -824,6 +836,19 @@
 	// track; for a stub without one, gated() resolves details first (the Detail/Remix
 	// resolve-then-act idiom) and only toasts when there is still nothing to go to.
 	function gotoAlbum() {
+		// quick-261019-mau: the album NAME is all this action needs — a track that already
+		// carries one (downloads always do) navigates directly instead of demanding a network
+		// resolve first, which would toast "no audio" on failure for an action that needs no
+		// audio at all. Only a stub without an album name still goes through the gate.
+		if (track && track.album.trim()) {
+			const dest =
+				'/album/' +
+				encodeURIComponent(names.zhLock(track.album.trim())) +
+				'?artist=' +
+				encodeURIComponent(names.zhLock(track.artist));
+			overlays.navigateAway(() => goto(dest));
+			return;
+		}
 		gated('goToAlbum', (rt) => {
 			const album = rt.album.trim();
 			if (!album) {
@@ -839,7 +864,8 @@
 		});
 	}
 
-	// Gated run callback (D-02): invoked by gated('download', …) with the resolved track. Thin delegate
+	// startDownload's save path (was a gated('download', …) run callback pre-jq4; quick-260913-jq4
+	// de-gated it — downloadTrack does its own resolve at settings.downloadQuality). Thin delegate
 	// to the SHARED downloadTrack (29-03) — the ONE isolation-safe, never-throws, never-navigates save
 	// path. The bespoke fetch → offline-blob → save-picker → anchor → new-tab-stream fallback that used
 	// to live here is DELETED (DL-BUG-01: a failed save can no longer open a media page); its logic
@@ -854,8 +880,11 @@
 	// D-12: we deliberately do NOT onclose() first — the Download row reflects its per-uid state
 	// (library.downloading / isDownloaded) inline whether or not the menu stays open. The result
 	// sentinel is localized to a toast here (the service is i18n-free by contract).
-	// quick-260913-jq4: Download DOES NOT go through gated() any more (D-02 still stands for Remix
-	// and Detail — they genuinely need a resolved audioUrl in hand before they can run).
+	// quick-260913-jq4: Download DOES NOT go through gated() any more (D-02 still stands for
+	// Detail and Go-to-album — they genuinely need resolved metadata in hand before they can
+	// run; quick-261019-rmx/mau: Autoplay skips the gate for downloaded tracks, and Detail/Go-to-album
+	// take a download fast-path that opens with the track's known metadata instead of demanding
+	// a network audioUrl first).
 	//
 	// gated() pre-resolved the stub and then vetoed on `!resolved.audioUrl` with toast.noAudio
 	// BEFORE doDownload ever ran. That veto was both redundant and wrong here:
@@ -1255,6 +1284,18 @@
 		const q = dlUid ? library.qualityForDownload(dlUid) : null;
 		detailTrack = q ? { ...resolved, ...q } : resolved;
 	}
+	// quick-261019-mau: a DOWNLOADED track's metadata is already known (the library row, plus
+	// the download quality doDetail merges in) — gated()'s network resolve is unnecessary, and
+	// when it fails the menu toasts "no audio" and the sheet never opens, for a sheet that
+	// already renders a graceful "not resolved" for a missing audioUrl. Open it with the
+	// track as-is.
+	function onDetailTap() {
+		if (track && library.isDownloaded(track.uid)) {
+			doDetail(track);
+			return;
+		}
+		gated('detail', doDetail);
+	}
 	// Remix (QUEUE-04 / D-04..D-07): play the seed first, then seed a force-generated up-next from
 	// it via the existing fresh-play regenerate path — NO new queue mechanism. setQueue([seed],
 	// 'remix') records the 'remix' QueueContext (effectiveUpnextMode('remix') === 'generated', from
@@ -1652,7 +1693,7 @@
 		{/snippet}
 		<!-- Detail: GATED — resolves details to populate the detail sheet's audioUrl/quality rows. -->
 		{#snippet cellDetail(tr: Track)}
-			<button class="gi" aria-busy={inFlight.has('detail')} aria-label={inFlight.has('detail') ? t('menu.preparing') : undefined} onclick={() => gated('detail', doDetail)} use:tapBounce>
+			<button class="gi" aria-busy={inFlight.has('detail')} aria-label={inFlight.has('detail') ? t('menu.preparing') : undefined} onclick={onDetailTap} use:tapBounce>
 				{#if inFlight.has('detail')}<span class="row-spinner motion-always"></span>{:else}<Info size={22} />{/if}<span class="gi-label">{t('menu.detail')}</span>
 			</button>
 		{/snippet}
