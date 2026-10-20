@@ -20,6 +20,7 @@ export type SourceId =
 	| 'kuwo'
 	| 'joox'
 	| 'kugou'
+	| 'migu'
 	| 'fivesing'
 	| 'jamendo'
 	| 'audius'

@@ -17,6 +17,7 @@ const EXPECTED_KEYS: SourceId[] = [
 	'kuwo',
 	'joox',
 	'kugou',
+	'migu',
 	'fivesing',
 	'jamendo',
 	'audius',
@@ -31,7 +32,8 @@ describe('SOURCES registry (DATA-04 — single enumeration point)', () => {
 	// 27-01: ytmusic (YouTube Music) appended LAST, enabledByDefault:true but autoResolveEligible:false
 	// (searchable, off the resolve floor).
 	// quick-261020-kugo: kugou inserted after joox (mainstream, resolve-floor eligible).
-	it('enumerates exactly qq,netease,kuwo,joox,kugou,fivesing,jamendo,audius,ytmusic (qq-first floor; ytmusic last)', () => {
+	// quick-261020-migu: migu inserted after kugou (mainstream, resolve-floor eligible).
+	it('enumerates exactly qq,netease,kuwo,joox,kugou,migu,fivesing,jamendo,audius,ytmusic (qq-first floor; ytmusic last)', () => {
 		expect(Object.keys(SOURCES)).toEqual(EXPECTED_KEYS);
 	});
 
@@ -74,6 +76,7 @@ describe('getEnabledAdapters', () => {
 			kuwo: false,
 			joox: false,
 			kugou: false,
+			migu: false,
 			fivesing: false,
 			jamendo: false,
 			audius: false,
@@ -109,7 +112,7 @@ describe('ytmusic registry placement (27-01, YT-SRC-01)', () => {
 
 	it('mainstream sources stay auto-resolve eligible (undefined flag)', () => {
 		// The kuwo→qq→netease→joox resolve floor must NOT be flagged off — only ytmusic is.
-		for (const id of ['kuwo', 'qq', 'netease', 'joox', 'kugou'] as SourceId[]) {
+		for (const id of ['kuwo', 'qq', 'netease', 'joox', 'kugou', 'migu'] as SourceId[]) {
 			expect(SOURCES[id].autoResolveEligible).toBeUndefined();
 		}
 	});

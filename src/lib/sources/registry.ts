@@ -7,6 +7,7 @@ import { qq } from './qq';
 import { kuwo } from './kuwo';
 import { joox } from './joox';
 import { kugou } from './kugou';
+import { migu } from './migu';
 import { fivesing } from './fivesing';
 import { jamendo } from './jamendo';
 import { audius } from './audius';
@@ -45,7 +46,8 @@ import { settings } from '$lib/stores/settings.svelte';
 // quick-261020-kugo: kugou takes the seat AFTER joox — it is a full mainstream catalog
 // (autoResolveEligible stays undefined = on the resolve floor), but the proven
 // qq→netease→kuwo→joox floor order is untouched ahead of it.
-export const SOURCES: Record<SourceId, SourceAdapter> = { qq, netease, kuwo, joox, kugou, fivesing, jamendo, audius, ytmusic };
+// quick-261020-migu: migu follows kugou, same mainstream posture (floor-eligible).
+export const SOURCES: Record<SourceId, SourceAdapter> = { qq, netease, kuwo, joox, kugou, migu, fivesing, jamendo, audius, ytmusic };
 
 /**
  * The enabled adapters for a search fan-out. Precedence (highest first):
