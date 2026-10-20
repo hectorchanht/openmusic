@@ -33,6 +33,8 @@
 		{ v: 'netease', literal: 'NetEase' },
 		{ v: 'qq', literal: 'QQ' },
 		{ v: 'kuwo', literal: 'Kuwo' },
+		{ v: 'kugou', literal: 'Kugou' },
+		{ v: 'migu', literal: 'Migu' },
 		{ v: 'joox', literal: 'JOOX' }
 	];
 

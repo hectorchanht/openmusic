@@ -5,7 +5,7 @@
 <h1 align="center">openmusic 🎧</h1>
 
 <p align="center">
-  <b>One search box. Eight music catalogs. Zero tab-hopping.</b><br>
+  <b>One search box. Twelve music catalogs. Zero tab-hopping.</b><br>
   Tap a song, it plays. Lock your phone, it keeps playing.
 </p>
 
@@ -19,7 +19,7 @@
 
 ## ✨ The 30-second tour
 
-🔎 **Search everything at once.** NetEase, QQ, Kuwo, JOOX, 5sing, Jamendo, Audius and YouTube Music,
+🔎 **Search everything at once.** NetEase, QQ, Kuwo, Kugou, Migu, JOOX, 5sing, Jamendo, Audius, Internet Archive, Bilibili and YouTube Music,
 all in one go. Duplicates get merged, and the best-quality copy wins.
 
 🏠 **A home that knows what's hot.** Deezer's top hits, Last.fm shelves by genre and country,
@@ -51,9 +51,11 @@ Italiano, Русский, Türkçe, العربية, हिन्दी, Bahasa I
 
 | Source | What you'll find | How we reach it |
 |---|---|---|
-| NetEase · QQ · Kuwo · JOOX | The big Chinese platforms | Unofficial third-party APIs |
+| NetEase · QQ · Kuwo · Kugou · Migu · JOOX | The big Chinese platforms | Unofficial third-party APIs |
 | 5sing | Fan covers and backing tracks | Unofficial |
+| Bilibili | Fan uploads, live clips, covers | Unofficial (search-only) |
 | Jamendo | Creative Commons indie | Open catalog |
+| Internet Archive | Live recordings, netlabel releases, Creative Commons | Open archive |
 | Audius | Indie and electronic on a decentralized network | Open network |
 | YouTube Music | A bit of everything | Anonymous, no account (and never used for downloads) |
 
