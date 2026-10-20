@@ -57,7 +57,7 @@
 	// quick-260919-3j1 (F2): `localFileMeta` is the SIBLING of probeDownload — same module, same
 	// formatter, opposite question. probeDownload asks the CDN "what WOULD I get"; localFileMeta
 	// reads the bytes on the device and answers "what DO I have", with no network at all.
-	import { probeDownload, localFileMeta, formatDownloadMeta, type DownloadProbe } from '$lib/services/download-probe';
+	import { probeDownload, localFileMeta, formatDownloadMeta, isLosslessContainer, type DownloadProbe } from '$lib/services/download-probe';
 	// quick-260913-jq4: the Check state is backed by the offline copy, not the downloads list.
 	import { blobStore } from '$lib/services/blob-store';
 	// quick-260919-3j1: the app-wide SERIALIZER in front of retagOne — the ONE tag-write path
@@ -410,12 +410,15 @@
 	// the same opt-in way (T-26-10-02 posture), except the trigger is a LONG-PRESS on the Download row
 	// rather than a row of its own: one tap must keep doing exactly what it does today.
 	// `dlPickProbes` is uid → probe; ABSENT means still probing (skeleton), a probe whose `track` is
-	// null means that source refused (disabled "Unavailable" row). dlPickGen / dlPickAc are PLAIN
+	// null means that source refused (disabled "Unavailable" row). `dlPickExtra` is the sibling map
+	// for the quick-261020-dl320 second row: uid → the 320k-tier probe of a source whose main probe
+	// landed lossless, rendered as its own row under the source's row. dlPickGen / dlPickAc are PLAIN
 	// fields — supersedence guards the UI never reads reactively (house convention).
 	let dlPickOpen = $state(false);
 	let dlPickLoading = $state(false);
 	let dlPickList = $state<Track[]>([]);
 	let dlPickProbes = $state<Record<string, DownloadProbe | undefined>>({});
+	let dlPickExtra = $state<Record<string, DownloadProbe | undefined>>({});
 	let dlPickGen = 0;
 	let dlPickAc: AbortController | null = null;
 
@@ -1118,6 +1121,7 @@
 		// quick-261004-o9t: `dlProbe` is the song's OWN probe for every source now (ytmusic included), so
 		// this seeds the song's own row by its uid.
 		dlPickProbes = dlProbe?.track ? { [dlProbe.track.uid]: dlProbe } : {};
+		dlPickExtra = {};
 		// quick-261004-o9t: the YouTube Music row is offered again (own track or donor) — the
 		// quick-260930-uia filter left with the rule it enforced.
 		dlPickList = versionsIncludingOwn(target, []);
@@ -1131,12 +1135,30 @@
 		// whole sheet unblanking at the end. untrack: probeDownload reads settings/player internally
 		// and this runs inside a user handler, not an effect \u2014 the guard matches the dlProbe effect's.
 		await mapWithConcurrency(
-			dlPickList.filter((v) => !(v.uid in dlPickProbes)),
+			dlPickList,
 			2,
 			async (v) => {
-				const p = await untrack(() => probeDownload(v, ac.signal));
-				if (gen !== dlPickGen || ac.signal.aborted) return;
-				dlPickProbes = { ...dlPickProbes, [v.uid]: p };
+				// The own-source row arrives pre-seeded (the zero-network seed above); every other row
+				// probes at the download tier first. Sequential per item, so the 2-in-flight cap the
+				// api-fetch-flood-freeze rule demands still holds.
+				let p = dlPickProbes[v.uid];
+				if (!p) {
+					p = await untrack(() => probeDownload(v, ac.signal));
+					if (gen !== dlPickGen || ac.signal.aborted) return;
+					dlPickProbes = { ...dlPickProbes, [v.uid]: p };
+				}
+				// quick-261020-dl320: a lossless probe proves this source HAS a full quality ladder —
+				// FLAC sits at its top, so the 320k rung below is near-certainly present too. Probe it
+				// as a second, cheaper row for the same source. Only stored when the probe lands a REAL
+				// 320k file: a ladder that falls through to its own FLAC at the 320 tier must not
+				// produce a duplicate row.
+				if (p?.track?.audioUrl && isLosslessContainer(p.container) && !(v.uid in dlPickExtra)) {
+					const p320 = await untrack(() => probeDownload(v, ac.signal, '320'));
+					if (gen !== dlPickGen || ac.signal.aborted) return;
+					if (p320?.track?.audioUrl && !isLosslessContainer(p320.container)) {
+						dlPickExtra = { ...dlPickExtra, [v.uid]: p320 };
+					}
+				}
 			}
 		);
 	}
@@ -1150,9 +1172,11 @@
 	// `library.isDownloaded(track.uid)` true and `player.play(track)` take the offline-blob branch and
 	// play the source the user actually chose. It also skips the re-resolve, so the bytes saved are the
 	// bytes the row promised (never a larger re-resolved file \u2014 the 52 MB-FLAC-on-cellular incident).
-	async function pickDownload(v: Track) {
+	// quick-261020-dl320: the sheet's second (320k) row passes its own probe — the tapped row's
+	// MEASURED audio is what downloadTrack saves, so the label and the bytes always agree.
+	async function pickDownload(v: Track, probe?: DownloadProbe) {
 		if (!track) return;
-		const p = dlPickProbes[v.uid];
+		const p = probe ?? dlPickProbes[v.uid];
 		if (!p?.track?.audioUrl) return; // the row is disabled in that state anyway
 		if (library.downloading.has(track.uid)) return; // D-03 equivalent: a second tap while busy is a no-op
 		// quick-261001-grb: label by the ORIGINAL track (the identity, quick-260916-0d9), display-language.
@@ -1919,6 +1943,17 @@
 				{:else if unavailable}<span class="count">{t('menu.downloadUnavailable')}</span>
 				{:else if meta}<span class="count">{meta}</span>{/if}
 			</button>
+			<!-- quick-261020-dl320: the cheaper second row — this source's real 320k file, probed only
+			     because the main row proved the ladder exists. Tapping it downloads the 320k file. -->
+			{@const p320 = dlPickExtra[v.uid]}
+			{#if p320?.track?.audioUrl}
+				{@const meta320 = formatDownloadMeta(p320)}
+				<button class="mi" onclick={() => pickDownload(v, p320)} use:tapBounce>
+					<Download size={18} />
+					<span class="dl-src">{names.zhLock(SOURCES[v.source]?.label ?? v.source)}</span>
+					{#if meta320}<span class="count">{meta320}</span>{/if}
+				</button>
+			{/if}
 		{/each}
 		{#if dlPickLoading}
 			<p class="dl-wait" aria-busy="true"><span class="row-spinner motion-always"></span>{t('versions.loading')}</p>

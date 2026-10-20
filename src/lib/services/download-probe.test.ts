@@ -59,6 +59,7 @@ import {
 	containerFromUrl,
 	containerFromContentType,
 	containerFromMagic,
+	isLosslessContainer,
 	localFileMeta,
 	__resetDownloadProbe
 } from './download-probe';
@@ -366,6 +367,52 @@ describe('probeDownload — memo per uid|downloadQuality', () => {
 
 		await probeDownload(mk({ audioUrl: null, detailsLoaded: false }));
 		expect(mocks.ensureTrackDetails).toHaveBeenCalledTimes(2);
+	});
+});
+
+describe('probeDownload — explicit tier override (quick-261020-dl320)', () => {
+	it('resolves at the passed tier, not settings.downloadQuality', async () => {
+		mocks.ensureTrackDetails.mockResolvedValue(mk({ audioUrl: 'https://cdn.example.com/a.mp3' }));
+		stubFetchSeq(resp({ headers: { 'content-length': '8000000', 'content-type': 'audio/mpeg' } }));
+
+		await probeDownload(mk({ audioUrl: null, detailsLoaded: false }), undefined, '320');
+
+		expect(mocks.ensureTrackDetails).toHaveBeenCalledTimes(1);
+		expect(mocks.ensureTrackDetails.mock.calls[0][2]).toBe('320');
+	});
+
+	it('memoises per uid|tier — the same uid at two tiers costs two probes', async () => {
+		mocks.ensureTrackDetails.mockResolvedValue(mk({ audioUrl: 'https://cdn.example.com/a.flac' }));
+		stubFetchSeq(resp({ headers: { 'content-length': '1000', 'content-type': 'audio/flac' } }));
+
+		await probeDownload(mk({ audioUrl: null, detailsLoaded: false }));
+		await probeDownload(mk({ audioUrl: null, detailsLoaded: false }), undefined, '320');
+
+		expect(mocks.ensureTrackDetails).toHaveBeenCalledTimes(2);
+		expect(mocks.ensureTrackDetails.mock.calls[0][2]).toBe('lossless');
+		expect(mocks.ensureTrackDetails.mock.calls[1][2]).toBe('320');
+	});
+
+	it('a repeat explicit-tier call is a memo hit', async () => {
+		mocks.ensureTrackDetails.mockResolvedValue(mk({ audioUrl: 'https://cdn.example.com/a.mp3' }));
+		stubFetchSeq(resp({ headers: { 'content-length': '1000', 'content-type': 'audio/mpeg' } }));
+
+		const first = await probeDownload(mk({ audioUrl: null, detailsLoaded: false }), undefined, '320');
+		const second = await probeDownload(mk({ audioUrl: null, detailsLoaded: false }), undefined, '320');
+
+		expect(second).toEqual(first);
+		expect(mocks.ensureTrackDetails).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe('isLosslessContainer', () => {
+	it('is true for flac and wav, false for lossy containers and null', () => {
+		expect(isLosslessContainer('flac')).toBe(true);
+		expect(isLosslessContainer('wav')).toBe(true);
+		expect(isLosslessContainer('mp3')).toBe(false);
+		expect(isLosslessContainer('m4a')).toBe(false);
+		expect(isLosslessContainer(null)).toBe(false);
+		expect(isLosslessContainer(undefined)).toBe(false);
 	});
 });
 

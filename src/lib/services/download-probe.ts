@@ -33,6 +33,7 @@
 //     url extension counts; anything else omits the format rather than inventing one.
 
 import type { Track } from '$lib/sources/types';
+import type { DefaultQuality } from '$lib/stores/settings.svelte';
 import { ensureTrackDetails } from '$lib/services/catalog';
 import { hasFreshAudioUrl } from '$lib/services/track-ready';
 import { combinedSignal } from '$lib/services/abort-signal';
@@ -180,6 +181,17 @@ export async function localFileMeta(track: Track): Promise<DownloadProbe> {
 const LOSSLESS_EXT = new Set(['flac', 'wav']);
 
 /**
+ * quick-261020-dl320: a probe that landed on a lossless container means the source HAS a full
+ * quality ladder — FLAC sits at its top, so the 320k tier below it is near-certainly present too.
+ * The "Download from…" sheet uses this to decide whether a second, cheaper 320k row for the same
+ * source is worth probing. Containers are normalised lowercase at creation (containerFromUrl /
+ * EXT_BY_MIME / containerFromMagic), so this matches exactly.
+ */
+export function isLosslessContainer(container: string | null | undefined): boolean {
+	return container != null && LOSSLESS_EXT.has(container);
+}
+
+/**
  * The one label string, shared by every download surface: `FLAC · 38.2 MB`, `320K · 8.1 MB`, or
  * whichever half survived. Null when nothing is known — the caller then renders today's plain
  * `Download`. Composed from source-emitted tokens + unit symbols, so it needs no i18n key.
@@ -244,13 +256,19 @@ async function measure(url: string, signal?: AbortSignal): Promise<{ bytes: numb
 }
 
 /**
- * Probe what a download of `track` would actually produce, at the user's CURRENT download tier.
- * Never rejects. Memoised per `uid|downloadQuality`; a total miss is deliberately NOT memoised so
- * re-opening retries a transient CDN refusal.
+ * Probe what a download of `track` would actually produce, at the user's CURRENT download tier —
+ * or at `want` when the caller passes one (quick-261020-dl320: the "Download from…" sheet probes
+ * the 320k tier of a source whose lossless probe proved the ladder exists). Never rejects.
+ * Memoised per `uid|tier`; a total miss is deliberately NOT memoised so re-opening retries a
+ * transient CDN refusal.
  */
-export async function probeDownload(track: Track, signal?: AbortSignal): Promise<DownloadProbe> {
-	const want = settings.downloadQuality;
-	const key = `${track.uid}|${want}`;
+export async function probeDownload(
+	track: Track,
+	signal?: AbortSignal,
+	want?: DefaultQuality
+): Promise<DownloadProbe> {
+	const tier = want ?? settings.downloadQuality;
+	const key = `${track.uid}|${tier}`;
 	const hit = memo.get(key);
 	if (hit) return hit;
 	if (signal?.aborted) return none();
@@ -259,18 +277,18 @@ export async function probeDownload(track: Track, signal?: AbortSignal): Promise
 	// already resolved at (or above) this tier buys nothing and adds CDN load. COPIES only.
 	let r: Track | null = null;
 	const cur = player.current; // D-18: READ-ONLY
-	if (cur && cur.uid === track.uid && hasFreshAudioUrl(cur) && currentQualityMeets(cur.quality, want)) {
+	if (cur && cur.uid === track.uid && hasFreshAudioUrl(cur) && currentQualityMeets(cur.quality, tier)) {
 		r = { ...cur };
-	} else if (hasFreshAudioUrl(track) && currentQualityMeets(track.quality, want)) {
+	} else if (hasFreshAudioUrl(track) && currentQualityMeets(track.quality, tier)) {
 		r = { ...track };
 	} else {
 		try {
-			// Force a fresh resolve on a COPY at the DOWNLOAD tier (WR-07: threaded per-call, never a
+			// Force a fresh resolve on a COPY at the tier (WR-07: threaded per-call, never a
 			// temporary settings swap that would race concurrent playback resolves).
 			r = await ensureTrackDetails(
 				{ ...track, detailsLoaded: false, audioUrl: null, lrc: null },
 				combinedSignal(PROBE_TIMEOUT_MS, signal),
-				want
+				tier
 			);
 		} catch {
 			return none();
