@@ -167,7 +167,7 @@
 				     holds. The coverless rows are filled by the ONE capped, tab-gated backfillCovers
 				     effect above. Must sit directly under the {#each} ({@const} is block-child only).
 				     Phase 40 D-14: rung 0 is readChosenCover — the pin, then the crowd pick. -->
-				{@const rArt = sizedCover(pickRowCover(readChosenCover(track.uid, track.artist, track.title), resolvedCovers[track.uid], track.cover, readCoverByUidOrName(track.uid, track.artist, track.title)), ROW_COVER_PX)}
+				{@const rArt = sizedCover(pickRowCover(readChosenCover(track.uid, track.artist, track.title), undefined, resolvedCovers[track.uid], track.cover, readCoverByUidOrName(track.uid, track.artist, track.title)), ROW_COVER_PX)}
 				<!-- quick-260625-pzs-02: reveal layers sit BEHIND the row; the row translateX
 				     (use:swipeAction) slides to expose them. Right-drag → queue, left-drag → play
 				     next. aria-hidden (the same actions stay reachable via the long-press menu). -->

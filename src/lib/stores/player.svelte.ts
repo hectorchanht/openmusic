@@ -446,7 +446,7 @@ class Player {
 	 * resolveCoverAsync / healCover are untouched; this inverts the READ only. (The HQ upgrade that
 	 * also wrote it was removed in Phase 40 D-11a.)
 	 *
-	 * Pin precedence is INHERITED from readCoverByUidOrName (PIN → uid → name, quick-260915-w4f), not
+	 * Pin precedence is INHERITED from readCoverByUidOrName (PIN → name → uid, quick-260915-w4f), not
 	 * re-implemented here. That read calls coverVersion(), so anything binding this getter repaints on
 	 * every cover write, pin and eviction.
 	 *
@@ -705,8 +705,8 @@ class Player {
 			getPinnedCover(target.uid) ??
 			getCrowdCover(target.uid, target.artist, target.title) ??
 			target.cover ??
-			(target.uid ? getCachedCoverByUid(target.uid) : null) ??
 			getCachedCover(target.artist, target.title) ??
+			(target.uid ? getCachedCoverByUid(target.uid) : null) ??
 			null;
 		this.syncMetadata();
 		this.loading = true;
@@ -852,8 +852,8 @@ class Player {
 			getPinnedCover(track.uid) ??
 			getCrowdCover(track.uid, track.artist, track.title) ??
 			track.cover ??
-			(track.uid ? getCachedCoverByUid(track.uid) : null) ??
 			getCachedCover(track.artist, track.title) ??
+			(track.uid ? getCachedCoverByUid(track.uid) : null) ??
 			null;
 		this.syncMetadata();
 		this.loading = true;
@@ -4033,8 +4033,8 @@ class Player {
 			getCrowdCover(track.uid, track.artist, track.title) ??
 			this.attachedCoverFor(track) ??
 			track.cover ??
-			(track.uid ? getCachedCoverByUid(track.uid) : null) ??
 			getCachedCover(track.artist, track.title) ??
+			(track.uid ? getCachedCoverByUid(track.uid) : null) ??
 			null;
 		// quick-261019-cov: REJECT a null/gradient replacement. A cover-less re-entry for the SAME
 		// song — runFallback's play(swap) after the first source fails, or a same-song re-tap —

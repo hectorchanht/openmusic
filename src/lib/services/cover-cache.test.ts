@@ -589,11 +589,11 @@ describe('cover-cache — TTL expiry, LRU cap, legacy grandfathering (quick-2607
 
 // coverAgeByUidOrName — the pure freshness reader lazyCover uses to decide whether a WARM cache HIT
 // is fresh enough to paint WITHOUT the new Image() self-heal probe (quick-260704-4fr, backlog #8).
-// It mirrors the URL readers' uid-first → name read order + the SAME 14-day TTL guard, honors the
-// empty-uid guard (an empty uid never reads the shared 'uid:' slot), and returns the RAW age in ms
-// (Date.now() - t) for the first fresh {u,t} hit — null for miss / legacy-bare-string / expired. Like
-// the 2xq block, fake timers are scoped HERE only; TTL_MS is pinned locally with the "MUST mirror"
-// comment (the module constant is private).
+// It mirrors the URL readers' name-first → uid read order (quick-261020-latest) + the SAME 14-day
+// TTL guard, honors the empty-uid guard (an empty uid never reads the shared 'uid:' slot), and
+// returns the RAW age in ms (Date.now() - t) for the first fresh {u,t} hit — null for miss /
+// legacy-bare-string / expired. Like the 2xq block, fake timers are scoped HERE only; TTL_MS is
+// pinned locally with the "MUST mirror" comment (the module constant is private).
 const TTL_MS_4FR = 14 * 24 * 60 * 60 * 1000; // 14 days — MUST mirror cover-cache.ts TTL_MS
 
 describe('cover-cache — coverAgeByUidOrName freshness reader (quick-260704-4fr)', () => {
@@ -657,15 +657,16 @@ describe('cover-cache — coverAgeByUidOrName freshness reader (quick-260704-4fr
 		expect(coverAgeByUidOrName('', 'A', 'B')).toBeNull();
 	});
 
-	// (E-i) uid-first → name order: with BOTH a fresh uid entry and a fresh name entry at different
-	// write-times, the UID age wins.
-	it('uid-first order: the uid age wins when both a uid and a name entry are fresh', () => {
+	// (E-i) name-first → uid order (quick-261020-latest): with BOTH a fresh uid entry and a fresh
+	// name entry at different write-times, the NAME age wins — the age must describe the entry the
+	// read will actually return (the name layer holds the latest write for the song).
+	it('name-first order: the name age wins when both a uid and a name entry are fresh', () => {
 		setCachedCoverByUid('netease:12345', 'https://cdn.example/by-uid.jpg'); // written at T0
 		vi.setSystemTime(T0 + 10_000);
 		setCachedCover('Jay Chou', 'Dao Xiang', 'https://cdn.example/by-name.jpg'); // written at T0+10s
 		vi.setSystemTime(T0 + 30_000);
-		// uid age = 30_000 (T0), name age = 20_000 (T0+10s) — the uid layer is consulted FIRST and wins.
-		expect(coverAgeByUidOrName('netease:12345', 'Jay Chou', 'Dao Xiang')).toBe(30_000);
+		// name age = 20_000 (T0+10s), uid age = 30_000 (T0) — the name layer is consulted FIRST and wins.
+		expect(coverAgeByUidOrName('netease:12345', 'Jay Chou', 'Dao Xiang')).toBe(20_000);
 	});
 
 	// (E-ii) uid absent → the name age is returned (name-layer fallback).

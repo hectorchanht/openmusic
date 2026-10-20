@@ -243,7 +243,7 @@ describe('lazyCover — IntersectionObserver + Image probe + cache-first resolve
 		await flush();
 		expect(isCoverUrlDead('https://dead.example/seed.jpg')).toBe(true);
 		// ...and the row read now falls through to the cache rung.
-		expect(pickRowCover(null, undefined, 'https://dead.example/seed.jpg', 'https://cached.example/live.jpg')).toBe(
+		expect(pickRowCover(null, undefined, undefined, 'https://dead.example/seed.jpg', 'https://cached.example/live.jpg')).toBe(
 			'https://cached.example/live.jpg'
 		);
 	});
@@ -262,7 +262,10 @@ describe('lazyCover — IntersectionObserver + Image probe + cache-first resolve
 		expect(onResolved).toHaveBeenCalledWith(track.uid, 'https://flaky.example/c.jpg');
 	});
 
-	it('reads the cache uid-first and skips the network on a cache hit', async () => {
+	it('reads the cache name-first (latest write wins) and skips the network on a cache hit', async () => {
+		// quick-261020-latest: the name layer holds the latest write for the song, so it outranks
+		// a stale per-uid entry — the same song shows the same cover everywhere.
+		getCachedCover.mockReturnValue('https://cache.example/by-name.jpg');
 		getCachedCoverByUid.mockReturnValue('https://cache.example/by-uid.jpg');
 		const onResolved = vi.fn();
 		const track = mkTrack({ cover: 'https://good.example/cover.jpg' });
@@ -270,9 +273,9 @@ describe('lazyCover — IntersectionObserver + Image probe + cache-first resolve
 
 		io.trigger(true);
 		await flush();
-		expect(getCachedCoverByUid).toHaveBeenCalledWith(track.uid);
+		expect(getCachedCover).toHaveBeenCalledWith(track.artist, track.title);
 		expect(resolveCoverForTrack).not.toHaveBeenCalled(); // cache hit → no network
-		expect(onResolved).toHaveBeenCalledWith(track.uid, 'https://cache.example/by-uid.jpg');
+		expect(onResolved).toHaveBeenCalledWith(track.uid, 'https://cache.example/by-name.jpg');
 		expect(removeCoverBoth).not.toHaveBeenCalled(); // good probe → no eviction
 		// quick-260910-qwt: a HIT is already in the shared cache — nothing new landed, so no signal.
 		expect(bumpCoverVersion).not.toHaveBeenCalled();

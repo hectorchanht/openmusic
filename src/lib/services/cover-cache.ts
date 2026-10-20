@@ -430,17 +430,18 @@ function ageFromEntry(v: CoverEntry | string | undefined): number | null {
  */
 export function coverAgeByUidOrName(uid: string, artist: string, title: string): number | null {
 	const rec = readRecord(); // ONE read — never throws
-	if (uid) {
-		const byUid = ageFromEntry(rec[uidCoverCacheKey(uid)]); // uid-first (only for a real uid)
-		if (byUid !== null) return byUid;
-	}
+	// quick-261020-latest: name-first, mirroring the readers — the age must describe the entry the
+	// read will actually return (the name layer holds the latest write for the song).
+	const byName = ageFromEntry(rec[coverCacheKey(artist, title)]); // name layer, exact
+	if (byName !== null) return byName;
 	// quick-261020-covsync: the name layer answers through the script alias too (mirrors
 	// getCachedCover), so a Simplified-key entry's freshness is visible to a Traditional row —
 	// without this the age reads null, lazyCover probes a healthy alias hit every session.
-	const byName = ageFromEntry(rec[coverCacheKey(artist, title)]); // name layer, exact
-	if (byName !== null) return byName;
 	const alias = aliasCoverCacheKey(artist, title);
-	return alias ? ageFromEntry(rec[alias]) : null;
+	const byAlias = alias ? ageFromEntry(rec[alias]) : null;
+	if (byAlias !== null) return byAlias;
+	if (uid) return ageFromEntry(rec[uidCoverCacheKey(uid)]); // uid fallback (only for a real uid)
+	return null;
 }
 
 /**

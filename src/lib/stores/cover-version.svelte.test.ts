@@ -170,6 +170,18 @@ describe('crowd layer (Phase 40 D-14 / D-19)', () => {
 		expect(readCoverByUidOrName('qq:1', 'A', 'T')).toBe(CN);
 	});
 
+	// quick-261020-latest: the name layer holds the latest write for the song, so it outranks a
+	// stale per-uid entry — the same song shows the same (latest) cover on every surface.
+	it('readCoverByUidOrName: name-first — the latest write wins over a stale uid entry', async () => {
+		const { readCoverByUidOrName } = await import('./cover-version.svelte');
+		const cc = await import('$lib/services/cover-cache');
+		cc.setCachedCoverByUid('qq:1', 'https://cdn.example/stale-uid.jpg');
+		cc.setCachedCover('A', 'T', 'https://cdn.example/latest-name.jpg');
+		expect(readCoverByUidOrName('qq:1', 'A', 'T')).toBe('https://cdn.example/latest-name.jpg');
+		// uid layer survives as the fallback when the name layer misses
+		expect(readCoverByUidOrName('qq:1', 'A', 'Other')).toBe('https://cdn.example/stale-uid.jpg');
+	});
+
 	it('writeCrowdCover writes only the crowd family and bumps', async () => {
 		const { writeCrowdCover, coverVersion } = await import('./cover-version.svelte');
 		const cc = await import('$lib/services/cover-cache');

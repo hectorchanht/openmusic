@@ -143,10 +143,12 @@
 		 *  search page sets it — the tag is noise next to the artist there. Default true:
 		 *  artist/charts/library rows keep the album disambiguation. */
 		showAlbumTag?: boolean;
-		/** A host-known cover → rung 2 of pickRowCover. OMIT and it defaults to `track.cover`, the
-		 *  song's own source art, which is what every list surface passed here by hand. Pass an
-		 *  explicit value only to override that (the album tracklist passes the album hero, whose
-		 *  stub rows carry no source cover of their own). `null` forces the rung empty. */
+		/** A host-known cover → rung 1 (`explicit`) of pickRowCover. OMIT and the song's own source
+		 *  art (`track.cover`) is the implicit seed at rung 4; pass an explicit value only to override
+		 *  that (the album tracklist passes the album hero, whose stub rows carry no source cover of
+		 *  their own). `null` forces the explicit rung empty (and suppresses the track.cover seed).
+		 *  quick-261020-latest: explicit is its own rung ABOVE the cache — a host's deliberate art
+		 *  must never lose to an auto-resolved one. */
 		cover?: string | null;
 		/** Highlight. Default: this is the currently-playing track. */
 		active?: boolean;
@@ -258,9 +260,10 @@
 	// on `resolveByName` (which nameStub sets) precisely because the uid test cannot.
 	const gradientSeed = $derived(track.uid || `${track.artist} ${track.title}`);
 
-	// The shared three-rung row cover read (quick-260910-qwt + quick-260915-w4f rung 0): the user's
-	// PINNED cover, then this row's own lazyCover result, then a host-provided cover, then the
-	// shared reactive cache. A reactive READ, not a fetch — use:lazyCover below is the only network.
+	// The shared row cover read (quick-260910-qwt + quick-260915-w4f rung 0 + quick-261020-latest):
+	// the user's PINNED cover, then a host-provided explicit cover, then the shared reactive cache
+	// (name-first = latest write wins everywhere), then this row's own lazyCover result, then the
+	// track's implicit source art. A reactive READ, not a fetch — use:lazyCover below is the only network.
 	let resolvedCover = $state<string | null>(null);
 	const art = $derived(
 		// quick-261006-o9u: rows paint at 36–56px — render the 200px variant of the cached
@@ -269,10 +272,11 @@
 			pickRowCover(
 				// Phase 40 D-14: rung 0 is the CHOSEN cover — pin, then the crowd pick.
 				readChosenCover(track.uid, track.artist, track.title),
+				// Host-provided explicit cover (album art). `?? undefined`: an omitted prop misses
+				// the rung; an explicit `null` also suppresses the track.cover seed below.
+				cover ?? undefined,
 				resolvedCover ?? undefined,
-				// `cover ?? track.cover` would let an explicit `null` fall THROUGH to track.cover, which
-				// is the opposite of what passing null means. Only an OMITTED prop defaults.
-				cover === undefined ? track.cover : cover,
+				cover === null ? null : track.cover,
 				readCoverByUidOrName(track.uid, track.artist, track.title)
 			),
 			ROW_COVER_PX

@@ -228,7 +228,7 @@
 			     quick-260910-qwt: now the SHARED pickRowCover — the identical read every other row
 			     surface uses (resolved → track.cover → shared cache). Behaviour is unchanged here.
 			     Phase 40 D-14: rung 0 is readChosenCover — the pin, then the crowd pick. -->
-			{@const qArt = sizedCover(pickRowCover(readChosenCover(track.uid, track.artist, track.title), resolvedCovers[track.uid], track.cover, readCoverByUidOrName(track.uid, track.artist, track.title)), ROW_COVER_PX)}
+			{@const qArt = sizedCover(pickRowCover(readChosenCover(track.uid, track.artist, track.title), undefined, resolvedCovers[track.uid], track.cover, readCoverByUidOrName(track.uid, track.artist, track.title)), ROW_COVER_PX)}
 			<li
 				class:lifted={i === dragFrom}
 				class:over={i === dragOver && i !== dragFrom}

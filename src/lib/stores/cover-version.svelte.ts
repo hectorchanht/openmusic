@@ -9,7 +9,12 @@
 //
 // The normalized name key (matchKey, via getCachedCover) is the cross-surface bridge: a homepage stub and
 // the now-playing track can carry different uids for the same song, so the name layer is what makes reuse
-// work. Read order is uid-first → name → null (LOCKED decision; mirrors cover-cache/lazyCover D-13).
+// work. Read order is name-first → uid → null (quick-261020-latest): EVERY writer persists the same URL to
+// both layers, so the name layer always holds the LATEST cover written for the song — Hector's 2026-10-20
+// directive ("same song, same cover everywhere, showing the latest one"). The uid layer survives only as
+// the fallback for entries written before the name layer existed. This completes quick-261008-cov1's
+// intent (a fetched-and-shown cover shows everywhere the song appears), which the old uid-first read
+// defeated whenever a uid carried an older entry than the name.
 // writeCoverBoth writes both layers for every cover — quick-261008-cov1 retired the Phase 40 D-11b
 // YT Music uid-only carve-out per Hector's 2026-10-08 directive (shown cover shows everywhere).
 //
@@ -93,8 +98,14 @@ export function bumpCoverVersion(): void {
 }
 
 /**
- * Reactive read of a Track cover, uid-first then name (LOCKED read order). Depends on coverVersion() so it
+ * Reactive read of a Track cover, name-first then uid. Depends on coverVersion() so it
  * recomputes the instant any cover lands anywhere. Returns null on a total miss (caller falls back to gradient).
+ *
+ * quick-261020-latest: the name layer is read FIRST because every writer persists the same URL to
+ * both layers — so the name entry is always the LATEST cover written for the song, whatever the
+ * uid. Hector's 2026-10-20 directive: the same song shows the same cover everywhere, the latest
+ * one. (The old uid-first order let a stale per-uid entry shadow the newer name art: the "row
+ * shows A while the nowbar shows B" report.) The uid layer remains as the fallback.
  */
 export function readCoverByUidOrName(uid: string, artist: string, title: string): string | null {
 	coverVersion(); // reactive dependency — recompute when any cover lands
@@ -106,11 +117,12 @@ export function readCoverByUidOrName(uid: string, artist: string, title: string)
 	// is the rung-3 authority on EVERY row surface (row-cover.ts `pickRowCover`), it must hold on the
 	// read side too. An empty uid reads only the per-song {artist,title} name layer.
 	//
-	// quick-260915-w4f: read order is now PIN → uid → name → null. A pin is the user's explicit
+	// quick-260915-w4f: read order is now PIN → name → uid → null. A pin is the user's explicit
 	// choice in the TrackMenu cover picker, so it outranks anything a resolver cached. It lives in
 	// its own storage key (see cover-cache.ts PIN_KEY) and getPinnedCover already no-ops an empty uid.
 	// Phase 40 D-14: rung 0 is now readChosenCover (pin → crowd pick), still ahead of the auto layers.
-	return readChosenCover(uid, artist, title) ?? (uid ? getCachedCoverByUid(uid) : null) ?? getCachedCover(artist, title);
+	// quick-261020-latest: name before uid — the name layer holds the latest write for the song.
+	return readChosenCover(uid, artist, title) ?? getCachedCover(artist, title) ?? (uid ? getCachedCoverByUid(uid) : null);
 }
 
 /**

@@ -3341,13 +3341,13 @@ describe('player.resolvedCover — single-field artwork guarantee (COVER-01 / D-
 		expect(rc()).toBe('https://cdn/has-cover.jpg');
 	});
 
-	it('falls back to the uid-cache hit when track.cover is null (uid BEFORE name)', () => {
+	it('falls back to the name-cache hit when track.cover is null (name BEFORE uid — latest wins)', () => {
 		mockUidCover.mockReturnValue('https://cdn/uid-cached.jpg');
 		mockNameCover.mockReturnValue('https://cdn/name-cached.jpg');
 		const t = { ...stub('netease', 'B', 'Artist', 'Song'), cover: null };
 		mockEnsure.mockReturnValue(new Promise(() => {}));
 		void player.play(t);
-		expect(rc()).toBe('https://cdn/uid-cached.jpg'); // uid layer wins over name layer (D-13)
+		expect(rc()).toBe('https://cdn/name-cached.jpg'); // name layer wins: it holds the latest write (quick-261020-latest)
 	});
 
 	it('falls back to the name-cache hit when track.cover and uid-cache both miss', () => {

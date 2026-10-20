@@ -7,63 +7,80 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { pickRowCover } from '$lib/services/row-cover';
 import { markCoverUrlDead, __resetDeadCoverUrls } from '$lib/services/dead-cover-urls';
 
+// 5-arg order: (pinned, explicit, resolved, seeded, cached).
 describe('pickRowCover', () => {
-	it('reads resolved -> seeded -> cached -> null', () => {
-		expect(pickRowCover(null, 'https://resolved', 'https://seeded', 'https://cached')).toBe('https://resolved');
-		expect(pickRowCover(null, undefined, 'https://seeded', 'https://cached')).toBe('https://seeded');
-		expect(pickRowCover(null, undefined, null, 'https://cached')).toBe('https://cached');
-		expect(pickRowCover(null, undefined, null, null)).toBeNull();
+	beforeEach(__resetDeadCoverUrls);
+
+	it('reads pinned -> explicit -> cached -> resolved -> seeded -> null', () => {
+		expect(pickRowCover('https://pin', 'https://exp', 'https://res', 'https://seed', 'https://cache')).toBe('https://pin');
+		expect(pickRowCover(null, 'https://exp', 'https://res', 'https://seed', 'https://cache')).toBe('https://exp');
+		expect(pickRowCover(null, null, 'https://res', 'https://seed', 'https://cache')).toBe('https://cache');
+		expect(pickRowCover(null, null, null, 'https://seed', 'https://cache')).toBe('https://cache');
+		expect(pickRowCover(null, null, null, 'https://seed', null)).toBe('https://seed');
+		expect(pickRowCover(null, null, null, null, null)).toBeNull();
 	});
 
 	it('treats an empty string as a miss at every rung', () => {
-		expect(pickRowCover('', '', 'https://a', null)).toBe('https://a');
-		expect(pickRowCover('', '', '', 'https://c')).toBe('https://c');
-		expect(pickRowCover('', '', '', '')).toBeNull();
+		expect(pickRowCover('', '', '', 'https://a', null)).toBe('https://a');
+		expect(pickRowCover('', '', '', '', 'https://c')).toBe('https://c');
+		expect(pickRowCover('', '', '', '', '')).toBeNull();
 	});
 
-	it('keeps the seeded album cover ahead of the cache (quick-260910-piz)', () => {
-		expect(pickRowCover(null, undefined, 'https://album', 'https://deezer')).toBe('https://album');
+	it('keeps the EXPLICIT album cover ahead of the cache (quick-260910-piz)', () => {
+		expect(pickRowCover(null, 'https://album', undefined, 'https://seed', 'https://deezer')).toBe('https://album');
 	});
 
-	// quick-260915-w4f: rung 0. The pin must beat `seeded` (track.cover) specifically — that is the
-	// rung the first-solid-wins chain's wrong answer usually sits in, and the reason a pin folded only
+	// quick-261020-latest: the shared cache (name-first = latest write) outranks the row's own
+	// older one-shot result AND the implicit seeded art — the same song shows the same latest
+	// cover everywhere.
+	it('the cache beats a stale row-local resolved URL and a live seeded URL', () => {
+		// stale resolved: another surface wrote a newer cover since this row resolved
+		expect(pickRowCover(null, null, 'https://stale.example/a.jpg', 'https://seed', 'https://cache.example/b.jpg')).toBe(
+			'https://cache.example/b.jpg'
+		);
+		// live seeded: the track's own source art loses to the latest cached art
+		expect(pickRowCover(null, null, null, 'https://seed.example/live.jpg', 'https://cache.example/latest.jpg')).toBe(
+			'https://cache.example/latest.jpg'
+		);
+	});
+
+	// quick-260915-w4f: rung 0. The pin must beat everything — that is the rung the
+	// first-solid-wins chain's wrong answer usually sits in, and the reason a pin folded only
 	// into the cache read would look broken on every list surface.
-	it('puts the user pin ahead of resolved AND seeded (quick-260915-w4f)', () => {
-		expect(pickRowCover('https://pin', 'https://resolved', 'https://seeded', 'https://cached')).toBe('https://pin');
-		expect(pickRowCover('https://pin', undefined, 'https://album', null)).toBe('https://pin');
+	it('puts the user pin ahead of every other rung (quick-260915-w4f)', () => {
+		expect(pickRowCover('https://pin', 'https://exp', 'https://res', 'https://seed', 'https://cache')).toBe('https://pin');
 		// An unpinned uid (null / '' / undefined) leaves the existing order untouched.
-		expect(pickRowCover(undefined, 'https://resolved', 'https://seeded', null)).toBe('https://resolved');
-		expect(pickRowCover('', undefined, 'https://seeded', null)).toBe('https://seeded');
+		expect(pickRowCover(undefined, null, 'https://res', 'https://seed', null)).toBe('https://res');
+		expect(pickRowCover('', null, undefined, 'https://seed', null)).toBe('https://seed');
 	});
 
 	// quick-261020-dcvr: a seeded URL proven dead by an Image() probe must not shadow the live
 	// cache rung — the row fell to gradient while the nowbar showed the healed art.
 	describe('dead seeded-URL skip', () => {
-		beforeEach(__resetDeadCoverUrls);
-
 		it('skips a dead seeded URL so the live cache shows through', () => {
 			markCoverUrlDead('https://dead.example/seed.jpg');
-			expect(pickRowCover(null, undefined, 'https://dead.example/seed.jpg', 'https://cached.example/live.jpg')).toBe(
+			expect(pickRowCover(null, null, null, 'https://dead.example/seed.jpg', 'https://cached.example/live.jpg')).toBe(
 				'https://cached.example/live.jpg'
-			);
-		});
-
-		it('a live seeded URL keeps its rung ahead of the cache', () => {
-			expect(pickRowCover(null, undefined, 'https://live.example/seed.jpg', 'https://cached.example/other.jpg')).toBe(
-				'https://live.example/seed.jpg'
 			);
 		});
 
 		it('never skips a dead-marked pin — dropping a user choice is healCover\u2019s job, not the read\u2019s', () => {
 			markCoverUrlDead('https://dead.example/pin.jpg');
-			expect(pickRowCover('https://dead.example/pin.jpg', undefined, 'https://s', 'https://c')).toBe(
+			expect(pickRowCover('https://dead.example/pin.jpg', null, null, 'https://s', 'https://c')).toBe(
 				'https://dead.example/pin.jpg'
+			);
+		});
+
+		it('never skips a dead-marked explicit host cover', () => {
+			markCoverUrlDead('https://dead.example/album.jpg');
+			expect(pickRowCover(null, 'https://dead.example/album.jpg', null, 'https://s', 'https://c')).toBe(
+				'https://dead.example/album.jpg'
 			);
 		});
 
 		it('falls to gradient when the dead seeded URL is the only candidate', () => {
 			markCoverUrlDead('https://dead.example/only.jpg');
-			expect(pickRowCover(null, undefined, 'https://dead.example/only.jpg', null)).toBeNull();
+			expect(pickRowCover(null, null, null, 'https://dead.example/only.jpg', null)).toBeNull();
 		});
 	});
 });

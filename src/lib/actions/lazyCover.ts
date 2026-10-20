@@ -14,8 +14,9 @@ import { markCoverUrlDead, unmarkCoverUrlDead } from '$lib/services/dead-cover-u
 //
 // WHY (Phase 21): a search / list surface renders dozens of rows; eagerly resolving every cover
 // would fan out a network storm and refetch the same song on every re-render. This action defers
-// the resolve to first intersection, reads the two-layer cache first (uid → name, D-13), repairs a
-// broken existing cover via an Image() probe (D-15), and reuses the SHARED single-item tier chain
+// the resolve to first intersection, reads the two-layer cache first (name → uid — the name layer
+// holds the latest write for the song, quick-261020-latest), repairs a broken existing cover via
+// an Image() probe (D-15), and reuses the SHARED single-item tier chain
 // (resolveCoverForTrack — Deezer→iTunes→CN, never a new resolver). It fires AT MOST ONCE per row
 // (unobserve-after-first + one-shot done flag), de-dupes concurrent resolves for the same uid via a
 // module-level in-flight Set (Pitfall 5), and disconnects the observer on destroy (T-21-05 DoS).
@@ -97,8 +98,11 @@ export function inFlightKey(track: Track): string {
  */
 async function resolveCoverForRow(track: Track, onResolved: (uid: string, url: string) => void) {
 	try {
-		// (1) Cache-first — uid layer (only for a real uid), then the {artist,title} name layer (D-13).
-		// An empty uid must NOT read the shared 'uid:' slot (charts-tags fix).
+		// (1) Cache-first — the {artist,title} name layer, then the uid layer (only for a real uid).
+		// quick-261020-latest: NAME FIRST — every writer persists the same URL to both layers, so the
+		// name entry is always the latest cover written for the song (Hector's 2026-10-20 "same song,
+		// same cover everywhere, latest" directive). Probing the latest is what keeps every surface in
+		// lockstep. An empty uid must NOT read the shared 'uid:' slot (charts-tags fix).
 		//
 		// CONFIRMED-FRESH FAST PATH (quick-260704-4fr, backlog #8): if the hitting entry's write-time
 		// confirms it is fresh (age != null && age < FRESH_MS), PAINT IT IMMEDIATELY with ZERO new
@@ -113,8 +117,8 @@ async function resolveCoverForRow(track: Track, onResolved: (uid: string, url: s
 		// ACCEPTED TRADE-OFF (T-4fr-02): a fresh entry whose CDN url dies WITHIN the FRESH_MS window will
 		// not self-heal via lazyCover until it ages past FRESH_MS — but player.healCover (now-playing)
 		// and later visits still catch it. This is the intended cost of skipping the warm-row probe.
-		const byUid = track.uid ? getCachedCoverByUid(track.uid) : null;
-		const cached = byUid ?? getCachedCover(track.artist, track.title);
+		const cached =
+			getCachedCover(track.artist, track.title) ?? (track.uid ? getCachedCoverByUid(track.uid) : null);
 		// quick-261008-cov1: an INLINE (data:) cover is terminal wherever it sits — the track's own
 		// or the cache's. It is the file's embedded front cover, already the shown art: paint it and
 		// return with no probe (it cannot 404) and no chain (a re-resolve would displace it at rung 1

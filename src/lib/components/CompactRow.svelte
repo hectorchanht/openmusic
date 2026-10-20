@@ -82,12 +82,16 @@ import { sizedCover, ROW_COVER_PX } from '$lib/services/cover-size';
 		// the master for the hero / pins / share.
 		sizedCover(
 			pickRowCover(
-				// quick-260915-w4f rung 0: the user's pinned cover. Like rung 3 it needs an identity, so a
+				// quick-260915-w4f rung 0: the user's pinned cover. Like the cache rung it needs an identity, so a
 				// uid-less discovery stub (track == null) keeps exactly the old host-provided behaviour.
 				// Phase 40 D-14: pin, then the crowd pick.
+				// quick-261020-latest: the host `cover` prop is the explicit rung (above the cache);
+				// the row's own lazyCover result now ranks below the shared cache so a newer
+				// cross-surface write wins everywhere.
 				track ? readChosenCover(track.uid, track.artist, track.title) : null,
+				cover ?? undefined,
 				resolvedCover ?? undefined,
-				cover,
+				null,
 				track ? readCoverByUidOrName(track.uid, track.artist, track.title) : null
 			),
 			ROW_COVER_PX
