@@ -171,6 +171,11 @@ import {
 import { coverPickKeys, fetchCoverPick, submitCoverPick } from '$lib/services/cover-pick-shared';
 import { resolveCoverForTrack, collectCoverCandidates } from '$lib/services/cover-backfill';
 import {
+	markCoverUrlDead,
+	isCoverUrlDead,
+	__resetDeadCoverUrls
+} from '$lib/services/dead-cover-urls';
+import {
 	removeCoverBoth,
 	unpinCover,
 	writeCrowdCover,
@@ -3710,6 +3715,7 @@ describe('player.healCover — dead current-cover self-heal (quick-260704-20e)',
 		mockNameCover.mockReset().mockReturnValue(null);
 		mockResolveCover.mockReset().mockResolvedValue(null);
 		mockCandidates.mockReset().mockResolvedValue([]);
+		__resetDeadCoverUrls();
 		mockRemoveCoverBoth.mockClear();
 		player.current = null;
 		player.queue = [];
@@ -3922,6 +3928,35 @@ describe('player.healCover — dead current-cover self-heal (quick-260704-20e)',
 		expect(mockUnpinCover).toHaveBeenCalledWith(t.uid);
 		expect(rc()).toBe('https://cdn/fresh8.jpg');
 		mockGetPinned.mockReturnValue(null); // restore the file-wide default
+	});
+
+	it('Test 9 — marks the dead painted URL so rows stop shadowing live cache art (quick-261020-dcvr)', async () => {
+		const t = mk('netease', 'H9b', 'Artist9', 'Song9');
+		setCurrent(t, 'https://cdn/dead9.jpg');
+		mockResolveCover.mockResolvedValue(null); // chain misses too — total miss
+
+		const p = player.healCover(t.uid);
+		await flush();
+		fireProbe(false); // painted url dead → evict → chain miss → fan-out (empty) → gradient
+		await p;
+		await flush();
+
+		expect(isCoverUrlDead('https://cdn/dead9.jpg')).toBe(true);
+	});
+
+	it('Test 10 — a URL that proves alive is unmarked (quick-261020-dcvr)', async () => {
+		const t = mk('netease', 'HAb', 'ArtistA', 'SongA');
+		markCoverUrlDead('https://cdn/flaky-a.jpg');
+		setCurrent(t, 'https://cdn/flaky-a.jpg');
+
+		const p = player.healCover(t.uid);
+		await flush();
+		fireProbe(true); // alive → nothing to heal, dead mark cleared
+		await p;
+		await flush();
+
+		expect(isCoverUrlDead('https://cdn/flaky-a.jpg')).toBe(false);
+		expect(rc()).toBe('https://cdn/flaky-a.jpg');
 	});
 
 	it('bails when the passed uid no longer matches the current track (track already changed)', async () => {
@@ -7749,6 +7784,7 @@ describe('cover pin (quick-260915-w4f)', () => {
 		mockResolveCover.mockReset().mockResolvedValue(null);
 		mockRemoveCoverBoth.mockClear();
 		mockCandidates.mockReset().mockResolvedValue([]);
+		__resetDeadCoverUrls();
 		mockUnpinCover.mockClear();
 		mockGetPinned.mockReset().mockReturnValue(null); // unpinned by default — no leak into other suites
 		localStorage.clear();
@@ -8668,6 +8704,7 @@ describe('Phase 40 crowd cover (D-14 / D-16 / D-19)', () => {
 		mockNameCover.mockReset().mockReturnValue(null);
 		mockResolveCover.mockReset().mockResolvedValue(null);
 		mockCandidates.mockReset().mockResolvedValue([]);
+		__resetDeadCoverUrls();
 		mockGetPinned.mockReset().mockReturnValue(null);
 		mockKeys.mockReset().mockResolvedValue(KEYS);
 		mockFetchPick.mockReset().mockResolvedValue(null);

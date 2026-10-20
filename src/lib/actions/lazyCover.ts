@@ -8,6 +8,7 @@ import {
 import { resolveCoverForTrack } from '$lib/services/cover-backfill';
 import { removeCoverBoth, bumpCoverVersion } from '$lib/stores/cover-version.svelte';
 import { hasHttpsScheme, isRenderableCover } from '$lib/services/url-safety';
+import { markCoverUrlDead, unmarkCoverUrlDead } from '$lib/services/dead-cover-urls';
 
 // use:lazyCover — resolve a track-row cover ONLY when the row scrolls into view (COVER-02).
 //
@@ -136,10 +137,14 @@ async function resolveCoverForRow(track: Track, onResolved: (uid: string, url: s
 			}
 			const keep = await probeImage(cached);
 			if (keep) {
+				unmarkCoverUrlDead(cached); // proven alive — a stale dead mark must not hide it
 				onResolved(track.uid, cached); // fast path preserved — healthy cache, zero network
 				return;
 			}
-			// Dead cached url → evict BOTH layers + bump, then fall through to re-resolve (self-heal).
+			// Dead cached url → mark it dead, evict BOTH layers + bump, then fall through to
+			// re-resolve (self-heal). The mark keeps the dead URL from shadowing the fresh art at
+			// pickRowCover rung 2 on rows whose track.cover carries the same URL (quick-261020-dcvr).
+			markCoverUrlDead(cached);
 			removeCoverBoth(track.uid, track.artist, track.title);
 		}
 
@@ -147,10 +152,13 @@ async function resolveCoverForRow(track: Track, onResolved: (uid: string, url: s
 		if (hasHttpsScheme(track.cover)) {
 			const keep = await probeImage(track.cover);
 			if (keep) {
+				unmarkCoverUrlDead(track.cover); // proven alive — clear any stale dead mark
 				onResolved(track.uid, track.cover);
 				return;
 			}
-			// onerror → fall through to the chain (broken-URL repair).
+			// onerror → mark it dead (quick-261020-dcvr) so it can never shadow the re-resolved
+			// art at pickRowCover rung 2, then fall through to the chain (broken-URL repair).
+			markCoverUrlDead(track.cover);
 		}
 
 		// (3) Empty / broken / cache-miss → run the shared tier chain (de-duped per uid, or per

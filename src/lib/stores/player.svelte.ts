@@ -53,6 +53,7 @@ import { getCachedCoverByUid, getCachedCover, getPinnedCover, getCrowdCover } fr
 // only READS the crowd (D-15: the TrackMenu picker tap is the only voter).
 import { coverPickKeys, fetchCoverPick } from '$lib/services/cover-pick-shared';
 import { resolveCoverForTrack, collectCoverCandidates } from '$lib/services/cover-backfill';
+import { markCoverUrlDead, unmarkCoverUrlDead } from '$lib/services/dead-cover-urls';
 import { matchKey } from '$lib/services/match-key';
 // quick-260615-hep: feed every displayed now-playing cover into the shared cache (both layers) +
 // bump the global reactive signal so other surfaces (homepage tiles) reuse the art and repaint live.
@@ -4665,11 +4666,14 @@ class Player {
 				.sort((a, b) => (b.source === 'itunes' ? 1 : 0) - (a.source === 'itunes' ? 1 : 0));
 			if (!ordered.length) return null;
 			const lives = await Promise.all(
-				ordered.map(async (c) => ({
-					url: c.url,
-					source: c.source,
-					alive: await this.probeCover(c.url)
-				}))
+				ordered.map(async (c) => {
+					const alive = await this.probeCover(c.url);
+					// quick-261020-dcvr: proven-dead candidates must never shadow live art on a row;
+					// a live one clears any stale dead mark.
+					if (alive) unmarkCoverUrlDead(c.url);
+					else markCoverUrlDead(c.url);
+					return { url: c.url, source: c.source, alive };
+				})
 			);
 			const live = lives.filter((r) => r.alive);
 			return live.find((r) => r.source === 'itunes')?.url ?? live[0]?.url ?? null;
@@ -4820,8 +4824,14 @@ class Player {
 			const myGen = this.playGen;
 			const { artist, title } = this.current;
 			// (5) Probe the displayed cover. TRUE (loads fine) → do nothing, the zero-network fast path.
+			// quick-261020-dcvr: record the verdict — a dead painted URL must never shadow live
+			// cache art on a row again; a live one clears any stale dead mark.
 			const alive = await this.probeCover(url);
-			if (alive) return;
+			if (alive) {
+				unmarkCoverUrlDead(url);
+				return;
+			}
+			markCoverUrlDead(url);
 			// (6) Dead url. Bail if a newer play() superseded this heal mid-probe (T-20e-03).
 			if (myGen !== this.playGen) return;
 			// quick-260915-w4f (Q2) — THE ONE CASE THAT OVERRIDES A PIN, and it is deliberately narrow:
@@ -4853,10 +4863,17 @@ class Player {
 			// re-cached and keeps the gradient — never re-commit the dead url (D-12).
 			let pick: string | null = null;
 			let chainWrote = false;
-			if (hasHttpsScheme(fresh) && fresh !== url && (await this.probeCover(fresh))) {
-				pick = fresh;
-				chainWrote = true;
-			} else {
+			if (hasHttpsScheme(fresh) && fresh !== url) {
+				if (await this.probeCover(fresh)) {
+					unmarkCoverUrlDead(fresh);
+					pick = fresh;
+					chainWrote = true;
+				} else {
+					// quick-261020-dcvr: proven dead — never let it shadow live art on a row.
+					markCoverUrlDead(fresh);
+				}
+			}
+			if (!pick) {
 				pick = await this.firstLiveHealCandidate(this.current, url);
 				if (myGen !== this.playGen) return;
 			}

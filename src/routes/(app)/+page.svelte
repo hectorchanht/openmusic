@@ -68,6 +68,7 @@
 	import { deezerChart } from '$lib/services/deezer';
 	import { backfillCovers, backfillArtistCovers } from '$lib/services/cover-backfill';
 	import { lazyCover } from '$lib/actions/lazyCover';
+import { isCoverUrlDead } from '$lib/services/dead-cover-urls';
 	// quick-260615-hep: read covers through the GLOBAL reactive signal so a cover landing anywhere
 	// (now-playing, lazyCover, backfill) repaints homepage tiles live; read uid-first for Track rows.
 	import {
@@ -1067,13 +1068,17 @@
 	function libraryRowCover(track: Track): string | null {
 		// quick-260615-hep: library rows carry a full Track (uid present) → read uid-first then name,
 		// through the global reactive signal so a cover resolved elsewhere repaints this row live.
+		// quick-261020-dcvr: a track.cover proven dead by an Image() probe must not shadow the live
+		// cache — skip it so the healed art shows through (same rule as pickRowCover rung 2).
 		// psi-home-163mb-payload-lcp follow-up: the cache USED to hold the HERO-sized iTunes cover
 		// (upgradeArtwork → 1200x1200bb, ~330 KB); these shelf tiles are ≤ ~140 CSS px, so mzstatic
 		// URLs were resized to 600px (~45–100 KB). quick-261006-o9t: the resolver now STORES the
 		// 400px display variant; quick-261006-o9u: sizedCover downsizes mzstatic AND dzcdn masters
 		// to the 400px tile target at render (render-only — the cache keeps the master). Non-mzstatic/
 		// non-dzcdn URLs (QQ, netease, YTM, Last.fm) carry no size token and pass through unchanged.
-		return sizedCover(readChosenCover(track.uid, track.artist, track.title) ?? track.cover ?? readCoverByUidOrName(track.uid, track.artist, track.title), TILE_COVER_PX);
+		// quick-261020-dcvr: `seeded` local — a dead track.cover must not shadow the live cache.
+		const seeded = isCoverUrlDead(track.cover) ? null : track.cover;
+		return sizedCover(readChosenCover(track.uid, track.artist, track.title) ?? seeded ?? readCoverByUidOrName(track.uid, track.artist, track.title), TILE_COVER_PX);
 	}
 
 	onMount(() => {

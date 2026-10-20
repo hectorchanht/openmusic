@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { makeUid, type SourceId, type Track } from '$lib/sources/types';
+import { pickRowCover } from '$lib/services/row-cover';
+import {
+	isCoverUrlDead,
+	markCoverUrlDead,
+	__resetDeadCoverUrls
+} from '$lib/services/dead-cover-urls';
 
 // lazyCover (Phase 21, COVER-02) resolves a track-row cover ONLY on first scroll-into-view. These
 // tests pin the six behaviors: fire-once (unobserve-after-first + done flag), in-flight de-dupe for
@@ -124,6 +130,7 @@ beforeEach(() => {
 	MockIO.instances = [];
 	imageInstances.length = 0;
 	imageBehavior = 'load';
+	__resetDeadCoverUrls();
 	getCachedCoverByUid.mockReturnValue(null);
 	getCachedCover.mockReturnValue(null);
 	// Default the freshness reader to null so the 13 pre-existing tests keep the current probe path
@@ -221,6 +228,38 @@ describe('lazyCover — IntersectionObserver + Image probe + cache-first resolve
 		await flush();
 		expect(resolveCoverForTrack).toHaveBeenCalledTimes(1);
 		expect(onResolved).toHaveBeenCalledWith(track.uid, 'https://resolved.example/c.jpg');
+	});
+
+	// quick-261020-dcvr: a dead seeded URL must not shadow live cache art on the row — the probe
+	// verdict is recorded so pickRowCover can skip it.
+	it('marks a dead track.cover so rows stop shadowing live cache art', async () => {
+		imageBehavior = 'error';
+		resolveCoverForTrack.mockResolvedValue(null); // chain misses — nothing to repair with
+		const track = mkTrack({ cover: 'https://dead.example/seed.jpg' });
+		const { io } = await mount({ track, onResolved: vi.fn() });
+
+		io.trigger(true);
+		await flush();
+		await flush();
+		expect(isCoverUrlDead('https://dead.example/seed.jpg')).toBe(true);
+		// ...and the row read now falls through to the cache rung.
+		expect(pickRowCover(null, undefined, 'https://dead.example/seed.jpg', 'https://cached.example/live.jpg')).toBe(
+			'https://cached.example/live.jpg'
+		);
+	});
+
+	it('unmarks a track.cover that proves alive (a transient blip self-corrects)', async () => {
+		markCoverUrlDead('https://flaky.example/c.jpg');
+		imageBehavior = 'load';
+		const onResolved = vi.fn();
+		const track = mkTrack({ cover: 'https://flaky.example/c.jpg' });
+		const { io } = await mount({ track, onResolved });
+
+		io.trigger(true);
+		await flush();
+		await flush();
+		expect(isCoverUrlDead('https://flaky.example/c.jpg')).toBe(false);
+		expect(onResolved).toHaveBeenCalledWith(track.uid, 'https://flaky.example/c.jpg');
 	});
 
 	it('reads the cache uid-first and skips the network on a cache hit', async () => {

@@ -3,8 +3,9 @@
 // helper is now the read-order authority for search, library, artist, CompactRow, Up Next and
 // Related, so its tests live beside it. No localStorage stub needed — the module is cache-free
 // (the caller passes the cache read IN; see row-cover.ts).
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { pickRowCover } from '$lib/services/row-cover';
+import { markCoverUrlDead, __resetDeadCoverUrls } from '$lib/services/dead-cover-urls';
 
 describe('pickRowCover', () => {
 	it('reads resolved -> seeded -> cached -> null', () => {
@@ -33,5 +34,36 @@ describe('pickRowCover', () => {
 		// An unpinned uid (null / '' / undefined) leaves the existing order untouched.
 		expect(pickRowCover(undefined, 'https://resolved', 'https://seeded', null)).toBe('https://resolved');
 		expect(pickRowCover('', undefined, 'https://seeded', null)).toBe('https://seeded');
+	});
+
+	// quick-261020-dcvr: a seeded URL proven dead by an Image() probe must not shadow the live
+	// cache rung — the row fell to gradient while the nowbar showed the healed art.
+	describe('dead seeded-URL skip', () => {
+		beforeEach(__resetDeadCoverUrls);
+
+		it('skips a dead seeded URL so the live cache shows through', () => {
+			markCoverUrlDead('https://dead.example/seed.jpg');
+			expect(pickRowCover(null, undefined, 'https://dead.example/seed.jpg', 'https://cached.example/live.jpg')).toBe(
+				'https://cached.example/live.jpg'
+			);
+		});
+
+		it('a live seeded URL keeps its rung ahead of the cache', () => {
+			expect(pickRowCover(null, undefined, 'https://live.example/seed.jpg', 'https://cached.example/other.jpg')).toBe(
+				'https://live.example/seed.jpg'
+			);
+		});
+
+		it('never skips a dead-marked pin — dropping a user choice is healCover\u2019s job, not the read\u2019s', () => {
+			markCoverUrlDead('https://dead.example/pin.jpg');
+			expect(pickRowCover('https://dead.example/pin.jpg', undefined, 'https://s', 'https://c')).toBe(
+				'https://dead.example/pin.jpg'
+			);
+		});
+
+		it('falls to gradient when the dead seeded URL is the only candidate', () => {
+			markCoverUrlDead('https://dead.example/only.jpg');
+			expect(pickRowCover(null, undefined, 'https://dead.example/only.jpg', null)).toBeNull();
+		});
 	});
 });
