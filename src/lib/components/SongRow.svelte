@@ -10,7 +10,7 @@
 	// shelves, which had a live layout regression hours before this was written, and re-expressing
 	// it would put that surface inside the blast radius of a brand-new component for zero visible
 	// gain. CONVERGENCE CONDITION: once >=3 surfaces run on SongRow, re-express CompactRow's
-	// `variant='track'` branch as <SongRow index={null} actions={[]}> at the 40x40 art scale.
+	// `variant='track'` branch as <SongRow actions={[]}> at the 40x40 art scale.
 	// `variant='artist'` (round avatar, one line, no menu) is NEVER unified — D-4, and CLAUDE.md
 	// already records that the item-type difference is real.
 	//
@@ -50,9 +50,11 @@
 	// so displaces its own rim by ~1px instead of its width. `.opt` deliberately has none, exactly
 	// as CompactRow's trailing ⋮ does not.
 	//
-	// D-2 — WIDTH: THE TITLE GIVES. Every control here is fixed-width (rank 18, art 44, each inline
+	// D-2 — WIDTH: THE TITLE GIVES. Every control here is fixed-width (art 44, each inline
 	// action 36, the menu 28 — quick-261006-smb) and `.meta` is the only flexible box, so it absorbs 100% of the
-	// squeeze. At 360px with both buttons on, `.meta` gets ~130px — which a CJK title overruns. That
+	// squeeze. quick-261020-norank: the rank column (18px) is GONE — Hector: no page shows song
+	// numbering, the number's width belongs to the title/artist. There is deliberately NO `index`
+	// prop any more, so a future surface cannot re-add numbers by passing one. At 360px with both buttons on, `.meta` gets ~130px — which a CJK title overruns. That
 	// is exactly what use:marquee exists for, so the two lines SCROLL rather than sit clipped.
 	// Nothing else shrinks, nothing wraps, no responsive hiding, no row-height change.
 	//
@@ -94,8 +96,6 @@
 	interface Props {
 		/** The song. `uid = ${source}:${songid}` is IDENTITY (makeUid). */
 		track: Track;
-		/** displayIndex — ORDERING ONLY, never identity. null/omitted = no rank column. */
-		index?: number | null;
 		/** REQUIRED. Tap-to-play. Each surface installs its OWN queue here. */
 		onplay: () => void;
 		/** REQUIRED. Long-press or the ⋮. The HOST owns TrackMenu state (the CompactRow contract). */
@@ -163,7 +163,6 @@
 
 	let {
 		track,
-		index = null,
 		onplay,
 		onrequestmenu,
 		swipe = undefined,
@@ -403,7 +402,6 @@
 		onclick={onplay}
 	></button>
 	{#if grip}<span class="grip" aria-hidden="true"><GripVertical size={16} /></span>{/if}
-	{#if index != null}<span class="rank">{index + 1}</span>{/if}
 	<span
 		class="art"
 		use:lazyCover={{ track, enabled: lazy, onResolved: (_uid, url) => (resolvedCover = url) }}
@@ -522,7 +520,6 @@
 	/* Inert visuals: `pointer-events: none` so they never swallow a tap meant for .hit, and
 	   `position: relative` so they still paint ABOVE it. */
 	.grip,
-	.rank,
 	.art,
 	.meta,
 	.srow :global(.row-badges) {
@@ -533,13 +530,6 @@
 		flex: none;
 		display: grid;
 		place-items: center;
-		color: var(--color-text-muted);
-	}
-	.rank {
-		flex: none;
-		width: 18px;
-		text-align: center;
-		font-size: 0.75rem;
 		color: var(--color-text-muted);
 	}
 	.art {

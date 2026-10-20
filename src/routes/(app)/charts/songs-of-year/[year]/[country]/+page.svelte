@@ -2,8 +2,8 @@
 	// Songs of the Year pack page — /charts/songs-of-year/[year]/[country].
 	// Data comes from the songs-of-year registry (lazy per-year import); combos without
 	// verified data render a "coming soon" state, never fabricated songs.
-	// Row pattern mirrors the static 2026 pack pages (stubTrack + resolveStub + SongRow),
-	// plus index={rank} since a year-end chart's rank is the point.
+	// Row pattern mirrors the static 2026 pack pages (stubTrack + resolveStub + SongRow).
+	// No rank numbers (quick-261020-norank — Hector: numbering eats title width on every page).
 	import { page } from '$app/state';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import SoyYearStrip from '$lib/components/SoyYearStrip.svelte';
@@ -21,9 +21,7 @@
 	import { Play, Shuffle, Download } from '@lucide/svelte';
 	import { downloadAlbum as downloadPackTracks } from '$lib/services/download-album';
 	import { goto } from '$app/navigation';
-	import DownloadGateModal from '$lib/components/DownloadGateModal.svelte';
-	import { isSupporter } from '$lib/config/sponsored';
-	// quick-261010-posthog: pack_download_started when the supporter bulk-download begins.
+	// quick-261010-posthog: pack_download_started when the bulk download begins.
 	import { track } from '$lib/posthog';
 	import type { Track } from '$lib/sources/types';
 
@@ -153,14 +151,9 @@
 		if (first) player.setListQueue(packQueue(shuffled, 0, first), 'songs-of-year');
 		else if (player.pendingTrack == null) toast.show(t('home.unplayable'));
 	}
-	// Download all — tip-jar supporters only (same gate as the 2026 pack pages).
+	// Download all — free for everyone (quick-261020-nogate: Hector cancelled the tip gate).
 	let downloading = $state(false);
-	let gateOpen = $state(false);
 	async function downloadAll() {
-		if (!isSupporter()) {
-			gateOpen = true;
-			return;
-		}
 		if (downloading) return;
 		downloading = true;
 		// quick-261010-posthog: the gate already passed — a real bulk download is starting.
@@ -266,11 +259,10 @@
 	</header>
 
 	<ul class="list">
-		{#each songs as s, i (s.artist + s.title)}
+		{#each songs as s (s.artist + s.title)}
 			<li>
 				<SongRow
 					track={stubTrack(s)}
-					index={i}
 					smartArtist
 					resolve={() => resolveStub(s.artist, s.title).catch(() => null)}
 					onplay={() => play(s)}
@@ -281,8 +273,6 @@
 	</ul>
 
 	<TrackMenu track={menuTrack} open={menuOpen} loading={menuLoading} onclose={() => (menuOpen = false)} />
-
-	<DownloadGateModal bind:open={gateOpen} />
 
 	<!-- quick-261010-soysrc: chart source attribution — where this page's data came from. -->
 	{#if srcInfo}

@@ -1,7 +1,6 @@
 <script lang="ts">
 	// Discography Pack — dynamic complete discography for ANY artist (Hector 2026-10-10).
-	// Reuses the artist page's loadDiscography (MusicBrainz for CJK). The "Download all" is
-	// gated for tip-jar supporters (Gumroad license verification, V2 flow).
+	// Reuses the artist page's loadDiscography (MusicBrainz for CJK).
 	import { page } from '$app/state';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import { getDiscographyPack, fetchAlbumTracklist, resolvePackTracks, type PackAlbum } from '$lib/services/discography-pack';
@@ -11,7 +10,6 @@
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { Download, BookOpen, Play, Shuffle } from '@lucide/svelte';
 	import { goto } from '$app/navigation';
-	import DownloadGateModal from '$lib/components/DownloadGateModal.svelte';
 	import { player } from '$lib/stores/player.svelte';
 	import { toast } from '$lib/stores/toast.svelte';
 
@@ -20,7 +18,6 @@
 	let albums = $state<PackAlbum[]>([]);
 	let loading = $state(true);
 	let linerOpen = $state(false);
-	let gateOpen = $state(false);
 	let playing = $state(false);
 
 	$effect(() => {
@@ -45,20 +42,8 @@
 		return years[0] === years[years.length - 1] ? years[0] : `${years[0]} – ${years[years.length - 1]}`;
 	});
 
-	/** Tip-jar supporter check (Gumroad license V2 flow sets dawn_sponsored_hidden=1). */
-	function isSupporter(): boolean {
-		try {
-			return localStorage.getItem('dawn_sponsored_hidden') === '1';
-		} catch {
-			return false;
-		}
-	}
-
 	function downloadAll() {
-		if (!isSupporter()) {
-			gateOpen = true;
-			return;
-		}
+		// quick-261020-nogate: the tip gate is cancelled (Hector) — nothing blocks here any more.
 		// TODO: bulk download implementation (album-by-album tracklist → resolve → zip).
 	}
 
@@ -181,7 +166,6 @@
 	</div>
 {/if}
 
-<DownloadGateModal bind:open={gateOpen} />
 <style>
 	.hero { padding: 24px 16px 8px; text-align: center; }
 	.hero h1 { font-size: calc(1.6rem * var(--fs-title, 1)); margin: 0; }

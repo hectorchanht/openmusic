@@ -29,7 +29,6 @@
 	import { sameSongKey } from '$lib/services/dedupe';
 	import { shuffle } from '$lib/services/shuffle';
 	import { downloadAlbum as downloadAlbumTracks } from '$lib/services/download-album';
-	import { support } from '$lib/stores/support.svelte';
 	import { downloadLabel } from '$lib/services/download-label';
 	import { enrichAlbum, getAlbumTracklist, type EnrichResult } from '$lib/services/lastfm';
 	import { deezerAlbum, deezerAlbumTracks, type DeezerAlbumInfo } from '$lib/services/deezer';
@@ -564,14 +563,12 @@
 		}
 	}
 
-	// donor-wall-ui 2026-10-14: album ZIP downloads are the SUPPORTER perk ("keep the
-	// music free, sell the convenience"). Tapping Download while not a supporter opens
-	// the donor wall; a verified supporter runs the real download. Single-song
-	// downloads elsewhere are untouched — only the album "Download all" is gated.
-	// `isSupporter` is always false in the UI-only phase, so every tap opens the wall.
+	// quick-261020-nogate: album downloads are FREE for everyone — Hector cancelled the
+	// supporter gate (was donor-wall-ui 2026-10-14: "Download all" opened the donor wall
+	// for non-supporters). The tap now runs the real download directly; the voluntary
+	// Support surface in Settings is untouched.
 	function onDownloadTap() {
-		if (support.isSupporter) void downloadAlbum();
-		else support.openSheet();
+		void downloadAlbum();
 	}
 
 	// Like the album → resolve all + apply idempotent like-all (gte: AskUserQuestion):
@@ -783,11 +780,9 @@
 		<!-- debug download-state-lost-on-page-return: busy = the STORE's album job (survives leaving and
 		     coming back), shown with the same DownloadRing the rows use so "still downloading" reads the
 		     same everywhere. -->
-		<!-- donor-wall-ui 2026-10-14: the gated album download — the supporter dot marks
-		     it as a perk; the tap opens the donor wall until the user is verified. -->
-		<button class="act gated" aria-label={t('support.downloadAlbum')} aria-busy={albumDownloading} disabled={albumDownloading} onclick={onDownloadTap} use:tapBounce>
+		<!-- quick-261020-nogate: the album download — free for everyone now, no supporter dot. -->
+		<button class="act" aria-label={t('support.downloadAlbum')} aria-busy={albumDownloading} disabled={albumDownloading} onclick={onDownloadTap} use:tapBounce>
 			{#if albumDownloading}<DownloadRing><Download size={20} /></DownloadRing>{:else}<Download size={20} />{/if}
-			{#if !support.isSupporter}<span class="sup-dot" aria-hidden="true"></span>{/if}
 		</button>
 		<!-- <button class="act" aria-label={albumLiked ? t('menu.liked') : t('menu.like')} disabled={busyAction === 'like'} onclick={likeAlbum} use:tapBounce><Heart size={20} fill={albumLiked ? 'currentColor' : 'none'} /></button> -->
 		<button class="act" aria-label={t('nowplaying.shuffle')} disabled={busyAction === 'shuffle'} onclick={shuffleAlbum} use:tapBounce><Shuffle size={20} /></button>
@@ -936,10 +931,6 @@
 	@media (hover: hover) { .act:active { transform: scale(0.92); } }
 	.act:disabled { opacity: 0.4; cursor: default; }
 	.act.play { width: 56px; height: 56px; background: var(--color-primary); border-color: transparent; color: #fff; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4); }
-	/* donor-wall-ui 2026-10-14: the gated album-download button carries a supporter dot
-	   (accent dot, top-right) so it reads as a perk, not a plain download. */
-	.act.gated { position: relative; }
-	.sup-dot { position: absolute; top: 2px; right: 2px; width: 8px; height: 8px; border-radius: var(--radius-full); background: var(--color-primary); }
 	/* ---- add-to-playlist picker (mirrors the track menu sheet) ---- */
 	.scrim { position: fixed; inset: 0; z-index: 80; background: rgba(0, 0, 0, 0.45); border: none; }
 	.picker { position: fixed; left: 12px; right: 12px; bottom: 16px; z-index: 81; background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: 16px; padding: 8px; max-width: 680px; margin: 0 auto; box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.5); max-height: 70vh; overflow-y: auto; }

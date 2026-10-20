@@ -606,9 +606,8 @@
 				{#each rankedSongs.slice(0, shown) as track, i (track.uid)}
 					<!-- quick-260919-l9e: the shared row. Swipe is omitted ON PURPOSE — this page wants
 					     exactly the app convention (right = queue, left = play next), which now lives
-					     inside the component. The key stays `track.uid` (IDENTITY); `index` is the
-					     displayIndex, ORDERING only. The queue is still the FULL loaded `rankedSongs`,
-					     not the render window (quick-260831-rjo). -->
+					     inside the component. The key stays `track.uid` (IDENTITY). The queue is
+					     still the FULL loaded `rankedSongs`, not the render window (quick-260831-rjo). -->
 					<li>
 						<!-- quick-261010-sar: smartArtist — the row's second line is the SMART-resolved
 						     artist name (auto-updating, same pipeline as Now Playing), not the album.
@@ -617,7 +616,6 @@
 						<SongRow
 							{track}
 							smartArtist
-							// index={i}
 							onplay={() => { player.setListQueue(rankedSongs, 'artist'); player.play(track, { fresh: true }); }}
 							onrequestmenu={() => { menuTrack = track; menuOpen = true; }}
 						/>

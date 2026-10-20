@@ -18,8 +18,6 @@
 	import { Play, Shuffle, Download } from '@lucide/svelte';
 	import { downloadAlbum as downloadPackTracks } from '$lib/services/download-album';
 	import { goto } from '$app/navigation';
-	import DownloadGateModal from '$lib/components/DownloadGateModal.svelte';
-	import { isSupporter } from '$lib/config/sponsored';
 	// quick-261010-posthog: pack_download_started when the supporter bulk-download begins.
 	import { track } from '$lib/posthog';
 	import type { Track } from '$lib/sources/types';
@@ -81,20 +79,12 @@
 		if (first) player.setListQueue(packQueue(shuffled, 0, first), 'jpop-2026');
 		else if (player.pendingTrack == null) toast.show(t('home.unplayable'));
 	}
-	// quick-261010-soy4: Download all — tip-jar supporters only (same gate as discography pack).
+	// Download all — free for everyone (quick-261020-nogate: Hector cancelled the tip gate).
 	let downloading = $state(false);
-	let gateOpen = $state(false);
 	async function downloadAll() {
-		// SUPPORTER CHOICE MODEL (Hector 2026-10-10): the tip-jar supporter
-		// flag is dawn_supporter=1 (isSupporter()); the strip-hide flag no
-		// longer implies supporter status.
-		if (!isSupporter()) {
-			gateOpen = true;
-			return;
-		}
 		if (downloading) return;
 		downloading = true;
-		// quick-261010-posthog: the gate already passed — a real bulk download is starting.
+		// quick-261010-posthog: a real bulk download is starting.
 		track('pack_download_started', { pack: 'jpop-2026' });
 		try {
 			const stubs = JPOP_2026.map((s) => ({ artist: s.artist, title: s.title }));
@@ -204,8 +194,6 @@
 </ul>
 
 <TrackMenu track={menuTrack} open={menuOpen} loading={menuLoading} onclose={() => (menuOpen = false)} />
-
-<DownloadGateModal bind:open={gateOpen} />
 <style>
 	.hero {
 		padding: 24px 16px 8px;
