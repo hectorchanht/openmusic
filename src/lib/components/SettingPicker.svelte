@@ -239,6 +239,12 @@
 	.mock :global(.mock-text.dim) {
 		color: var(--color-text-muted);
 	}
+	/* quick-261020-lyr10: strikethrough for hidden preview mockups. */
+	.mock :global(.mock-text.strike) {
+		color: var(--color-text-muted);
+		text-decoration: line-through;
+		opacity: 0.6;
+	}
 	/* A cover tile. */
 	.mock :global(.mock-tile) {
 		display: block;

@@ -340,9 +340,10 @@ class Names {
 	 *    the lock gets the last word rather than us arbitrating.
 	 */
 	private resolve(text: string, target: string, whitelist: readonly string[]): string {
-		// quick-261020-lyr5 (user): Chinese Script (zhScript) is for LYRICS ONLY.
-		// Artist/title names must NOT go through applyLock — return the translation as-is.
-		return this.resolveTranslated(text, target, whitelist);
+		// quick-261020-lyr11: resolve() is only called when the target is ON (dnArtist/dnTitle
+		// gate on 'off' first), so applyLock here is correct — the zhScript conversion applies
+		// to translated artist/title names.
+		return this.applyLock(this.resolveTranslated(text, target, whitelist));
 	}
 
 	/**
@@ -434,24 +435,33 @@ class Names {
 	/** Artist name → artistLang + artistSkip. ju0: `'auto'` resolves to settings.appLang.
 	 * quick-260925-x8o: a rescued single-performer Chinese artist wins while the lock is on. */
 	dnArtist(text: string): string {
+		// quick-261020-lyr11 (user): dnArtist goes through zhScript ONLY when the
+		// Translation Targets → Artist translation is ON. If OFF, return the ORIGINAL
+		// text as-is — do NOT use the (translated) alias.
+		const target = effectiveTarget(settings.artistLang);
+		if (target === 'off') {
+			return text;
+		}
 		const a = this.aliasArtist(text);
-		// quick-261020-lyr5 (user): Chinese Script (zhScript, the Translation page setting) is
-		// for LYRICS only — it must NOT translate/convert artist names. Return the alias
-		// as-is without applyLock.
 		return a !== null
-			? a
-			: this.resolve(text, effectiveTarget(settings.artistLang), settings.artistSkip);
+			? this.applyLock(a)
+			: this.resolve(text, target, settings.artistSkip);
 	}
 
 	/** Song / album title → titleLang + titleSkip. ju0: `'auto'` resolves to settings.appLang.
 	 * quick-260925-x8o: `artist` is the SAME track's raw artist — it keys the rescued Chinese title
 	 * ("Coral Sea" alone must never become 珊瑚海). Album/artist-name callers must NOT pass one. */
 	dnTitle(text: string, artist?: string): string {
+		// quick-261020-lyr11 (user): dnTitle goes through zhScript ONLY when the
+		// Translation Targets → Title translation is ON. If OFF, return ORIGINAL as-is.
+		const target = effectiveTarget(settings.titleLang);
+		if (target === 'off') {
+			return text;
+		}
 		const a = this.aliasTitle(text, artist);
-		// quick-261020-lyr5 (user): Chinese Script (zhScript) is for LYRICS only — not titles.
 		return a !== null
-			? a
-			: this.resolve(text, effectiveTarget(settings.titleLang), settings.titleSkip);
+			? this.applyLock(a)
+			: this.resolve(text, target, settings.titleSkip);
 	}
 
 	/** Last.fm tag → lastfmLang + lastfmSkip. ju0: `'auto'` resolves to settings.appLang. */

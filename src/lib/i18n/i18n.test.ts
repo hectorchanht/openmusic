@@ -175,7 +175,7 @@ describe('quick-260919-ebi dead strings', () => {
 		'settings.optOn',
 		'settings.appearanceMotion',
 		'settings.aboutSetting',
-		'settings.translateModeOffNote',
+		'settings.translateModeNote',
 		'settings.translateModeOnNote',
 		'settings.autoExpandDesc',
 		'settings.showQualityTagDesc',

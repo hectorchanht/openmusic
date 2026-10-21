@@ -220,6 +220,33 @@
 		</span>
 	</span>
 {/snippet}
+<!-- quick-261020-lyr10 (user): visual previews for the Hide toggles. -->
+{#snippet hideLinesShow()}
+	<span class="mock-chrome" style:justify-content="center">
+		<span class="mock-col" style:gap="4px">
+			<span class="mock-text">Already folding it for you</span>
+			<span class="mock-text dim">早已為你準備好一切</span>
+		</span>
+	</span>
+{/snippet}
+{#snippet hideLinesHide()}
+	<span class="mock-chrome" style:justify-content="center">
+		<span class="mock-col" style:gap="4px">
+			<span class="mock-text">Already folding it for you</span>
+			<span class="mock-text strike">早已為你準備好一切</span>
+		</span>
+	</span>
+{/snippet}
+{#snippet hideParenShow()}
+	<span class="mock-chrome" style:justify-content="center">
+		<span class="mock-text">Already folding it for you <span class="mock-text dim">(早已為你準備好一切)</span></span>
+	</span>
+{/snippet}
+{#snippet hideParenHide()}
+	<span class="mock-chrome" style:justify-content="center">
+		<span class="mock-text">Already folding it for you <span class="mock-text strike">(早已為你準備好一切)</span></span>
+	</span>
+{/snippet}
 
 <!-- 0. Chinese script lock (quick-260919-2jo) — sits ABOVE everything else because it governs the
      names and titles the sections below then translate: the lock is applied LAST and has the last
@@ -300,22 +327,36 @@
 {/if}
 
 <!-- quick-261020-lyr9 (user): the two Hide parenthesised toggles are ALWAYS visible,
-     not gated on Lyrics translation. -->
+     not gated on Lyrics translation.
+     quick-261020-lyr10 (user): visual pickers with mockup previews, better names. -->
 <hr class="div" />
 
 <section>
-	<SettingToggle
-		label={t('settings.lyricsHideParenTranslation')}
-		checked={settings.lyricsHideParenTranslation}
-		onchange={() => { settings.lyricsHideParenTranslation = !settings.lyricsHideParenTranslation; settings.save(); }}
-		hint={t('settings.lyricsHideParenTranslationNote')}
+	<h2><Languages size={15} /> {t('settings.embeddedTranslations')}</h2>
+	<SettingPicker
+		variant="preview"
+		label={t('settings.embeddedTranslations')}
+		options={[
+			{ v: 'show', label: t('settings.optShow'), preview: hideLinesShow },
+			{ v: 'hide', label: t('settings.optHide'), preview: hideLinesHide }
+		]}
+		value={settings.lyricsHideParenLines ? 'hide' : 'show'}
+		onpick={(v) => { settings.lyricsHideParenLines = v === 'hide'; settings.save(); }}
 	/>
-	<SettingToggle
-		label={t('settings.lyricsHideParenLines')}
-		checked={settings.lyricsHideParenLines}
-		onchange={() => { settings.lyricsHideParenLines = !settings.lyricsHideParenLines; settings.save(); }}
-		hint={t('settings.lyricsHideParenLinesNote')}
+	<p class="muted">{t('settings.embeddedTranslationsNote')}</p>
+
+	<h2 style="margin-top: 16px"><Languages size={15} /> {t('settings.inlineTranslations')}</h2>
+	<SettingPicker
+		variant="preview"
+		label={t('settings.inlineTranslations')}
+		options={[
+			{ v: 'show', label: t('settings.optShow'), preview: hideParenShow },
+			{ v: 'hide', label: t('settings.optHide'), preview: hideParenHide }
+		]}
+		value={settings.lyricsHideParenTranslation ? 'hide' : 'show'}
+		onpick={(v) => { settings.lyricsHideParenTranslation = v === 'hide'; settings.save(); }}
 	/>
+	<p class="muted">{t('settings.inlineTranslationsNote')}</p>
 </section>
 
 <hr class="div" />
