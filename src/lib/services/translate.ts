@@ -189,6 +189,16 @@ async function resolveZhHant(lines: string[]): Promise<TranslateResult> {
 			out[orig] = api.out[j];
 			flags[orig] = api.flags[j];
 		});
+		// Workers AI (m2m100) returns Simplified-leaning Chinese — normalize genuinely-translated
+		// API output to Traditional via the offline converter (quick-261020-wai). Echoes/fallbacks
+		// (flag false) are left untouched.
+		const normIdx = apiIdx.filter((_, j) => api.flags[j]);
+		if (normIdx.length) {
+			const normalized = await s2tConvertLines(normIdx.map((i) => out[i]));
+			normIdx.forEach((orig, j) => {
+				out[orig] = normalized[j];
+			});
+		}
 	}
 
 	// Same completeness rule as the API path: every NON-BLANK line must be flagged. An incomplete

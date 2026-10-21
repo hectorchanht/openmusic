@@ -1,7 +1,8 @@
 // Lyrics / name translation proxy (NEW feature endpoint — not part of the music data layer).
 // POST { lines: string[], to: LyricsLang } -> { translated: string[], flags: boolean[] }.
 // Server-side runs an ordered provider cascade (D-05) — Azure Translator → DeepL Free →
-// keyless unofficial-Google — advancing on transport error / non-2xx / rate-limit / echo, so
+// Cloudflare Workers AI (m2m100-1.2b, quick-261020-wai, $5/day budget guard) → keyless
+// unofficial-Google — advancing on transport error / non-2xx / rate-limit / echo, so
 // a single flaky upstream no longer drops the batch. Provider keys are OPTIONAL and edge-only
 // (D-06): an absent key skips that tier and the cascade falls through, ending at keyless
 // Google. It batches the lines in chunked requests and falls back to the originals on total
@@ -211,14 +212,87 @@ const googleTranslate: Provider = async (text, appTo) => {
 	}
 };
 
-// Ordered cascade: tries providers in [Azure, DeepL, Google] order and returns the FIRST
-// GENUINE translation. A provider is "failed" (advance to next) when it returns null (transport
-// error / non-2xx / rate-limit / absent key / unsupported lang), OR when a MULTI-SEGMENT source
-// (a sentinel-joined batch) comes back as a single segment (echo-mode — the existing segments<=1
-// heuristic), OR when the output equals the input verbatim (pure echo). If every provider fails,
-// returns null so the caller's per-line fallback still runs. Providers run SEQUENTIALLY per
-// chunk (advance-on-failure, NOT a parallel fan-out across providers — T-25c-03).
-const PROVIDERS: Provider[] = [azureTranslate, deeplTranslate, googleTranslate];
+// TIER — Cloudflare Workers AI (m2m100-1.2b, quick-261020-wai). Runs on Cloudflare's own
+// GPUs via the Workers AI binding (`AI` — add in dashboard: Pages → openmusic → Settings →
+// Functions → Bindings → Add → Workers AI, name `AI`). No API keys, no egress blocks.
+//
+// COST GUARD (Hector: "$5 limit"): billed in Neurons — 10K/day free, then $0.011/1K neurons.
+// $5 ≈ 454K neurons. We track per-call `usage.neurons` (the API reports it) in a per-isolate
+// daily counter and DISABLE the tier for the UTC day once DAILY_BUDGET_NEURONS is reached.
+// Best-effort (per-isolate, not global) — but at current volume (~hundreds of neurons/day)
+// the $5 cap is unreachable; the guard is a safety net, not a throttle.
+//
+// NOTE: m2m100 outputs Simplified-leaning Chinese for target_lang "chinese". The CLIENT
+// normalizes to the requested script (s2t/t2s in translate.ts) — the server returns raw.
+const AI_MODEL = '@cf/meta/m2m100-1.2b';
+const DAILY_BUDGET_NEURONS = 450_000; // ≈ $4.95 — Hector's $5 cap
+let aiNeuronsUsed = 0;
+let aiBudgetDay = '';
+function aiBudgetOk(): boolean {
+	const day = new Date().toISOString().slice(0, 10); // UTC day
+	if (day !== aiBudgetDay) {
+		aiBudgetDay = day;
+		aiNeuronsUsed = 0;
+	}
+	return aiNeuronsUsed < DAILY_BUDGET_NEURONS;
+}
+// m2m100 language names (the API takes English names, not codes).
+const AI_LANG_NAMES: Record<string, string> = {
+	'zh-Hant': 'chinese',
+	'zh-Hans': 'chinese',
+	en: 'english',
+	ja: 'japanese',
+	ko: 'korean',
+	es: 'spanish',
+	fr: 'french',
+	de: 'german',
+	pt: 'portuguese',
+	ru: 'russian',
+	ar: 'arabic',
+	hi: 'hindi',
+	id: 'indonesian',
+	it: 'italian',
+	vi: 'vietnamese',
+	th: 'thai',
+	tr: 'turkish'
+};
+const workersAiTranslate: Provider = async (text, appTo, env) => {
+	const ai = (env as Record<string, unknown> | undefined)?.AI as
+		| { run: (model: string, input: Record<string, string>) => Promise<unknown> }
+		| undefined;
+	if (!ai || !aiBudgetOk()) return null; // no binding, or $5 cap hit → advance
+	const target = AI_LANG_NAMES[appTo];
+	if (!target) return null;
+	// m2m100 needs an explicit source_lang — minimal script-based guess.
+	let source = 'english';
+	if (/[぀-ゟ゠-ヿ]/.test(text)) source = 'japanese';
+	else if (/[가-힣]/.test(text)) source = 'korean';
+	else if (/[一-鿿]/.test(text)) source = 'chinese';
+	if (source === target) return null;
+	try {
+		const out = (await ai.run(AI_MODEL, {
+			text,
+			source_lang: source,
+			target_lang: target
+		})) as { translated_text?: string; usage?: { neurons?: number } };
+		if (typeof out?.usage?.neurons === 'number') aiNeuronsUsed += out.usage.neurons;
+		const translated = out?.translated_text;
+		if (typeof translated !== 'string' || !translated) return null;
+		return { text: translated, segments: translated.split(SENTINEL_RE).length };
+	} catch {
+		return null;
+	}
+};
+
+// Ordered cascade: tries providers in [Azure, DeepL, WorkersAI, Google] order and returns the
+// FIRST GENUINE translation. A provider is "failed" (advance to next) when it returns null
+// (transport error / non-2xx / rate-limit / absent key / unsupported lang / budget cap), OR when
+// a MULTI-SEGMENT source (a sentinel-joined batch) comes back as a single segment (echo-mode —
+// the existing segments<=1 heuristic), OR when the output equals the input verbatim (pure
+// echo). If every provider fails, returns null so the caller's per-line fallback still runs.
+// Providers run SEQUENTIALLY per chunk (advance-on-failure, NOT a parallel fan-out across
+// providers — T-25c-03).
+const PROVIDERS: Provider[] = [azureTranslate, deeplTranslate, workersAiTranslate, googleTranslate];
 async function cascade(text: string, appTo: string, env: Env | undefined): Promise<GResult | null> {
 	// The segment-count echo heuristic only applies to a joined batch (carries sentinels): a
 	// single short line legitimately translates to ONE segment and must not be rejected as echo.
