@@ -40,43 +40,36 @@ export type MenuActionId =
 
 /** The full action catalog, in default (shipping) order. Also the settings default. */
 export const MENU_ACTIONS: readonly MenuActionId[] = [
-	// quick-261006-44v (user 2026-10-06): the default IS his own arrangement (screenshot
-	// 2026-10-06 — Remix / Go to artist / Downloaded / Liked / Play from source /
-	// Change cover / Change lyrics / Adjust lyrics / Edit metadata / Add to playlist /
-	// Sleep timer / Clear queue / Customize menu / Detail / Go to album / Share).
+	// quick-261021-menu2 (user 2026-10-21):
+	// Group 1: remix (autoplay), share, download, like.
+	// Group 2: versions (play from source), changeCover, changeLyrics, goToArtist, goToAlbum.
+	// Group 3: customize, downloadSource, repeat, addToPlaylist.
+	// Group 4: detail, sleepTimer, editTags, playNext.
 	'remix',
-	'goToArtist',
+	'share',
 	'download',
 	'like',
 	'versions',
 	'changeCover',
 	'changeLyrics',
-	'lyricsTiming',
-	'editTags',
-	'addToPlaylist',
-	'sleepTimer',
-	'clearQueue',
-	// quick-261006-44r (user 2026-10-06): the edit affordance is a grid cell now; the
-	// header pencil is retired.
-	'customize',
-	'detail',
+	'goToArtist',
 	'goToAlbum',
-	'share',
-	// quick-261006-44u (user 2026-10-06): the three new actions sit right after the
-	// default 16 — enabled and one drag away from the visible grid.
+	'customize',
+	'downloadSource',
+	'repeat',
+	'addToPlaylist',
+	'detail',
+	'sleepTimer',
+	'editTags',
+	'playNext',
+	// The remainder of the catalog, in a stable order.
+	'addQueue',
 	'startRadio',
 	'viewComments',
 	'viewRelated',
-	// The remainder of the catalog, in a stable order.
-	'playNext',
-	'addQueue',
 	'shuffleQueue',
-	// quick-261006-44r: repeat moved to the back (user 2026-10-06)
-	'repeat',
-	// quick-261006-44w (user 2026-10-06): "Download from…" as its own menu item at the
-	// very end — same sheet as the download button's long-press. The button's visible
-	// hold-hint is retired (the gesture itself stays).
-	'downloadSource'
+	'clearQueue',
+	'lyricsTiming'
 ] as const;
 
 // quick-261006-44g — the menu is ALWAYS a 4x4 icon grid (user 2026-10-06). The live grid
@@ -122,10 +115,10 @@ export function normalizeMenuOrder(saved: unknown): MenuActionId[] {
 			kept.splice(Math.min(MENU_ACTIONS.indexOf(id), kept.length), 0, id);
 		}
 	}
-	// quick-261020-menu1 (user): download is ALWAYS 3rd, like is ALWAYS 4th — first row,
-	// last two columns (top right). Enforce on the normalized order so the arrangement is
-	// identical everywhere the menu is triggered, regardless of saved customization.
-	for (const [id, pos] of [['download', 2], ['like', 3]] as const) {
+	// quick-261021-menu2 (user): Group 1 is ALWAYS remix, share, download, like in that
+	// order — enforce on the normalized order so the arrangement is identical everywhere
+	// the menu is triggered, regardless of saved customization.
+	for (const [id, pos] of [['remix', 0], ['share', 1], ['download', 2], ['like', 3]] as const) {
 		const i = kept.indexOf(id);
 		if (i >= 0) kept.splice(i, 1);
 		kept.splice(pos, 0, id);

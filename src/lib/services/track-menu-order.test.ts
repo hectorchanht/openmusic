@@ -14,36 +14,36 @@ describe('MENU_GRID_SLOTS', () => {
 describe('MENU_ACTIONS', () => {
 	it('is the 23-id catalog in the documented default order', () => {
 		expect([...MENU_ACTIONS]).toEqual([
-			// quick-261006-44v: the default IS the user's own arrangement (screenshot 2026-10-06)
+			// quick-261021-menu2: regrouped by user 2026-10-21
+			// Group 1: remix (autoplay), share, download, like
 			'remix',
-			'goToArtist',
+			'share',
 			'download',
 			'like',
+			// Group 2: versions, changeCover, changeLyrics, goToArtist, goToAlbum
 			'versions',
 			'changeCover',
 			'changeLyrics',
-			'lyricsTiming',
-			'editTags',
-			'addToPlaylist',
-			'sleepTimer',
-			'clearQueue',
-			// quick-261006-44r: the edit affordance is a grid cell; the header pencil is retired
-			'customize',
-			'detail',
+			'goToArtist',
 			'goToAlbum',
-			'share',
-			// quick-261006-44u: the three new actions, enabled and one drag from the visible grid
+			// Group 3: customize, downloadSource, repeat, addToPlaylist
+			'customize',
+			'downloadSource',
+			'repeat',
+			'addToPlaylist',
+			// Group 4: detail, sleepTimer, editTags, playNext
+			'detail',
+			'sleepTimer',
+			'editTags',
+			'playNext',
+			// the remainder of the catalog, in a stable order
+			'addQueue',
 			'startRadio',
 			'viewComments',
 			'viewRelated',
-			// the remainder of the catalog, in a stable order
-			'playNext',
-			'addQueue',
 			'shuffleQueue',
-			// quick-261006-44r: repeat moved to the back (user 2026-10-06)
-			'repeat',
-			// quick-261006-44w: "Download from…" as its own item at the very end
-			'downloadSource'
+			'clearQueue',
+			'lyricsTiming'
 		]);
 	});
 
@@ -53,16 +53,20 @@ describe('MENU_ACTIONS', () => {
 });
 
 describe('normalizeMenuOrder', () => {
-	it('keeps a complete saved order as-is except download/like pinned (user reordered)', () => {
-		// quick-261020-menu1: download is ALWAYS 3rd, like ALWAYS 4th — the saved order
-		// is preserved except those two are moved to their pinned slots.
+	it('keeps a complete saved order as-is except Group 1 pinned (user reordered)', () => {
+		// quick-261021-menu2: Group 1 (remix, share, download, like) is ALWAYS first
+		// in that order — the saved order is preserved except those four are moved
+		// to their pinned slots.
 		const saved = [...MENU_ACTIONS].reverse() as MenuActionId[];
 		const out = normalizeMenuOrder(saved);
+		expect(out[0]).toBe('remix');
+		expect(out[1]).toBe('share');
 		expect(out[2]).toBe('download');
 		expect(out[3]).toBe('like');
 		// All other ids preserved in their saved relative order.
-		const restSaved = saved.filter((id) => id !== 'download' && id !== 'like');
-		const restOut = out.filter((id) => id !== 'download' && id !== 'like');
+		const pinned = new Set(['remix', 'share', 'download', 'like']);
+		const restSaved = saved.filter((id) => !pinned.has(id));
+		const restOut = out.filter((id) => !pinned.has(id));
 		expect(restOut).toEqual(restSaved);
 	});
 
@@ -70,14 +74,16 @@ describe('normalizeMenuOrder', () => {
 		const out = normalizeMenuOrder(['like', 'nuke-the-app', 'share', 42]);
 		expect(out).not.toContain('nuke-the-app');
 		expect(out).not.toContain(42);
-		expect(out.indexOf('like')).toBeLessThan(out.indexOf('share'));
+		// Group 1 pinned: share (1) < like (3)
+		expect(out.indexOf('share')).toBeLessThan(out.indexOf('like'));
 	});
 
 	it('dedupes, keeping the first occurrence', () => {
 		const out = normalizeMenuOrder(['like', 'share', 'like']);
 		expect(out.filter((x) => x === 'like')).toHaveLength(1);
 		// the kept ids hold their relative saved order under the catalog-position fill
-		expect(out.indexOf('like')).toBeLessThan(out.indexOf('share'));
+		// (Group 1 pinned: share < like)
+		expect(out.indexOf('share')).toBeLessThan(out.indexOf('like'));
 	});
 
 	// quick-261006-44u: missing ids insert at their CATALOG positions (not appended),
@@ -102,6 +108,7 @@ describe('normalizeMenuOrder', () => {
 
 	// quick-261006-44r: the customize/repeat rearrangement migrates existing saved orders.
 	// quick-261006-44u/v/w: new actions insert at their catalog positions.
+	// quick-261021-menu2: Group 1 (remix, share, download, like) is pinned to 0-3.
 	it('migrates a pre-customize order: customize takes repeat\'s old slot, repeat to the back, new actions at catalog positions', () => {
 		const oldOrder: MenuActionId[] = [
 			'remix', 'playNext', 'download', 'like', 'addQueue', 'versions',
@@ -111,14 +118,16 @@ describe('normalizeMenuOrder', () => {
 		];
 		const out = normalizeMenuOrder(oldOrder);
 		expect(out).toHaveLength(24);
-		expect(out[11]).toBe('customize'); // repeat's old slot
-		expect(out[16]).toBe('startRadio');
-		expect(out[17]).toBe('viewComments');
-		expect(out[18]).toBe('viewRelated');
-		expect(out[out.length - 2]).toBe('repeat');
-		expect(out[out.length - 1]).toBe('downloadSource'); // the very end
-		// everything else keeps its saved relative order
-		expect(out.indexOf('shuffleQueue')).toBe(12);
+		// Group 1 pinned
+		expect(out[0]).toBe('remix');
+		expect(out[1]).toBe('share');
+		expect(out[2]).toBe('download');
+		expect(out[3]).toBe('like');
+		expect(out[13]).toBe('customize');
+		expect(out[19]).toBe('startRadio');
+		expect(out[20]).toBe('viewComments');
+		expect(out[21]).toBe('viewRelated');
+		expect(out[out.length - 1]).toBe('repeat');
 		expect(new Set(out).size).toBe(24);
 	});
 
@@ -142,7 +151,12 @@ describe('normalizeMenuOrder', () => {
 		const saved = ['share', ...twenty.filter((id) => id !== 'share')] as MenuActionId[];
 		const out = normalizeMenuOrder(saved);
 		expect(out).toHaveLength(24);
-		expect(out[0]).toBe('share'); // the user's own arrangement is respected
+		// quick-261021-menu2: Group 1 (remix, share, download, like) is pinned — user's
+		// arrangement is respected for the rest, but Group 1 always leads.
+		expect(out[0]).toBe('remix');
+		expect(out[1]).toBe('share');
+		expect(out[2]).toBe('download');
+		expect(out[3]).toBe('like');
 		expect(out).toContain('startRadio');
 		expect(out).toContain('viewComments');
 		expect(out).toContain('viewRelated');
