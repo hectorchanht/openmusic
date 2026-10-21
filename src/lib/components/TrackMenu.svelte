@@ -2,7 +2,7 @@
 	import { tick, untrack } from 'svelte';
 	import { fly } from 'svelte/transition';
 	import { goto } from '$app/navigation';
-	import { ListStart, ListEnd, Download, Check, Heart, ListPlus, User, Share2, Info, X, Plus, Shuffle, Repeat, Repeat1, Trash2, Moon, Sparkles, Layers, Image as ImageIcon, ChevronDown, Tags, Mic2, EyeOff, Timer, Pencil, Disc3, Radio, MessageCircle, ListMusic, ArrowDownToLine } from '@lucide/svelte';
+	import { ListStart, ListEnd, Download, Check, Heart, ListPlus, User, Share2, Info, X, Plus, Shuffle, Repeat, Repeat1, Trash2, Moon, Sparkles, Layers, Image as ImageIcon, ChevronDown, Tags, Mic2, EyeOff, Timer, Pencil, Disc3, Radio, MessageCircle, ListMusic, ArrowDownToLine, RotateCcw } from '@lucide/svelte';
 	import { player } from '$lib/stores/player.svelte';
 	import { sleepTimer } from '$lib/stores/sleepTimer.svelte';
 	import { library } from '$lib/stores/library.svelte';
@@ -228,6 +228,17 @@
 	function commitEdit() {
 		settings.trackMenuOrder = [...editOrder];
 		settings.save();
+	}
+	// quick-261021-menu4 (user): explicit Done — exits edit mode (commits via the live
+	// commit-on-tap/drop, so no separate save needed).
+	function exitEdit() {
+		commitEdit();
+		editing = false;
+	}
+	// quick-261021-menu4 (user): Reset — restores the shipping default order.
+	function resetMenuOrder() {
+		editOrder = [...MENU_ACTIONS];
+		commitEdit();
 	}
 	// Enabled (in the user's order) first, then the switched-off remainder dimmed — the
 	// RowActionsConfig shape: an off action keeps a stable, visible place to be switched
@@ -1741,7 +1752,14 @@
 			     (quick-261006-44v: no Done button — closing the menu via X / scrim / back
 			     auto-applies, since taps and drops commit live). dragClose is disabled while
 			     editing (see the menu node above) so a reorder gesture can never dismiss
-			     the sheet. -->
+			     the sheet.
+			     quick-261021-menu4 (user): explicit Reset + Done buttons in a fixed header —
+			     users need to SEE where to exit and reset, not guess X/scrim. -->
+			<div class="menu-head row">
+				<button class="hd-btn" onclick={resetMenuOrder} use:tapBounce><RotateCcw size={18} /><span>{t('menu.resetMenu')}</span></button>
+				<span class="menu-title">{t('menu.customize')}</span>
+				<button class="hd-btn primary" onclick={exitEdit} use:tapBounce><Check size={18} /><span>{t('menu.done')}</span></button>
+			</div>
 			<div class="acts edit" bind:this={editGridEl}>
 				{#each editIds as id, i (id)}
 					{@const on = editOrder.includes(id)}
@@ -1946,6 +1964,9 @@
 		{#if pinnedNow !== (track.lrc ?? null)}
 			<button class="mi" onclick={resetLyrics} use:tapBounce><Sparkles size={18} /> {t('menu.lyricsAuto')}</button>
 		{/if}
+		<!-- quick-261021-menu2 (user): lyrics timing is a toggle INSIDE the Fix lyrics picker,
+		     not a separate menu item. -->
+		<button class="mi" class:on={lyricSyncOpen()} aria-pressed={lyricSyncOpen()} onclick={toggleLyricSyncOpen} use:tapBounce><Timer size={18} /> {lyricSyncOpen() ? t('menu.lyricsTimingHide') : t('menu.lyricsTiming')}</button>
 	</div>
 {/if}
 
@@ -2040,6 +2061,11 @@
 	.menu-head { font-size: calc(0.8125rem * var(--fs-title, 1)); color: var(--color-text-muted); padding: 8px 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 	.menu-head.row { display: flex; align-items: center; justify-content: space-between; }
 	.x { background: none; border: none; color: var(--color-text); cursor: pointer; display: grid; place-items: center; }
+	/* quick-261021-menu4: edit-mode header buttons — Reset (left) and Done (right),
+	   always visible so users know where to exit and reset. */
+	.hd-btn { display: inline-flex; align-items: center; gap: 6px; background: none; border: 1px solid var(--color-border, #444); border-radius: 8px; color: var(--color-text); padding: 6px 12px; font-size: 0.8125rem; cursor: pointer; }
+	.hd-btn.primary { background: var(--color-accent, #1db954); border-color: var(--color-accent, #1db954); color: #fff; }
+	.menu-title { font-weight: 600; color: var(--color-text); }
 	/* D-08/D-09/D-10: two-row marquee header + top-right action/Close cluster (quick-260913-je8:
 	   the action slot is Download, was Like). Left text column flexes (min-width:0 so the clips can
 	   shrink-and-ellipsis); right cluster is fixed-width.

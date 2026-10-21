@@ -456,6 +456,8 @@ const zhHant: Dict = {
 	"menu.addToPlaylist": "加入播放清單",
 	"menu.goToAlbum": "前往專輯",
 	"menu.customize": "自訂選單",
+	"menu.resetMenu": "重設選單",
+	"menu.done": "完成",
 	"menu.goToArtist": "前往歌手",
 	"menu.share": "分享",
 	"menu.details": "詳細資料",

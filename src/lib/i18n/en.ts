@@ -497,6 +497,8 @@ const en = {
 	"menu.addToPlaylist": "Add to playlist",
 	"menu.goToAlbum": "Go to album",
 	"menu.customize": "Customize menu",
+	"menu.resetMenu": "Reset menu",
+	"menu.done": "Done",
 	"menu.goToArtist": "Go to artist",
 	"menu.share": "Share",
 	"menu.details": "Details",

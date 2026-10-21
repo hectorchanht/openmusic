@@ -37,13 +37,13 @@ describe('MENU_ACTIONS', () => {
 			'editTags',
 			'playNext',
 			// the remainder of the catalog, in a stable order
+			// quick-261021-menu3: lyricsTiming removed — now a toggle in the Fix lyrics picker
 			'addQueue',
 			'startRadio',
 			'viewComments',
 			'viewRelated',
 			'shuffleQueue',
-			'clearQueue',
-			'lyricsTiming'
+			'clearQueue'
 		]);
 	});
 
@@ -106,29 +106,20 @@ describe('normalizeMenuOrder', () => {
 		expect(normalizeMenuOrder([])).toEqual([...MENU_ACTIONS]);
 	});
 
-	// quick-261006-44r: the customize/repeat rearrangement migrates existing saved orders.
-	// quick-261006-44u/v/w: new actions insert at their catalog positions.
-	// quick-261021-menu2: Group 1 (remix, share, download, like) is pinned to 0-3.
-	it('migrates a pre-customize order: customize takes repeat\'s old slot, repeat to the back, new actions at catalog positions', () => {
-		const oldOrder: MenuActionId[] = [
+	// quick-261021-menu3: any saved order containing the removed 'lyricsTiming' triggers
+	// a full reset to the new default (one-time migration).
+	it('migrates a pre-customize order: full reset to new default when lyricsTiming present', () => {
+		const oldOrder = [
 			'remix', 'playNext', 'download', 'like', 'addQueue', 'versions',
 			'changeCover', 'changeLyrics', 'lyricsTiming', 'editTags', 'addToPlaylist',
 			'repeat', 'shuffleQueue', 'clearQueue', 'sleepTimer', 'goToArtist',
 			'goToAlbum', 'share', 'detail'
 		];
 		const out = normalizeMenuOrder(oldOrder);
-		expect(out).toHaveLength(24);
-		// Group 1 pinned
-		expect(out[0]).toBe('remix');
-		expect(out[1]).toBe('share');
-		expect(out[2]).toBe('download');
-		expect(out[3]).toBe('like');
-		expect(out[13]).toBe('customize');
-		expect(out[19]).toBe('startRadio');
-		expect(out[20]).toBe('viewComments');
-		expect(out[21]).toBe('viewRelated');
-		expect(out[out.length - 1]).toBe('repeat');
-		expect(new Set(out).size).toBe(24);
+		// Full reset to the new MENU_ACTIONS default
+		expect(out).toEqual([...MENU_ACTIONS]);
+		expect(out).toHaveLength(23);
+		expect(new Set(out).size).toBe(23);
 	});
 
 	it('does not re-migrate an order that already has customize', () => {
@@ -150,7 +141,7 @@ describe('normalizeMenuOrder', () => {
 		) as MenuActionId[];
 		const saved = ['share', ...twenty.filter((id) => id !== 'share')] as MenuActionId[];
 		const out = normalizeMenuOrder(saved);
-		expect(out).toHaveLength(24);
+		expect(out).toHaveLength(23);
 		// quick-261021-menu2: Group 1 (remix, share, download, like) is pinned — user's
 		// arrangement is respected for the rest, but Group 1 always leads.
 		expect(out[0]).toBe('remix');
@@ -161,6 +152,6 @@ describe('normalizeMenuOrder', () => {
 		expect(out).toContain('viewComments');
 		expect(out).toContain('viewRelated');
 		expect(out).toContain('downloadSource');
-		expect(new Set(out).size).toBe(24);
+		expect(new Set(out).size).toBe(23);
 	});
 });

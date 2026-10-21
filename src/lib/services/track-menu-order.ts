@@ -24,7 +24,6 @@ export type MenuActionId =
 	| 'changeLyrics'
 	| 'viewComments'
 	| 'viewRelated'
-	| 'lyricsTiming'
 	| 'editTags'
 	| 'addToPlaylist'
 	| 'customize'
@@ -45,6 +44,9 @@ export const MENU_ACTIONS: readonly MenuActionId[] = [
 	// Group 2: versions (play from source), changeCover, changeLyrics, goToArtist, goToAlbum.
 	// Group 3: customize, downloadSource, repeat, addToPlaylist.
 	// Group 4: detail, sleepTimer, editTags, playNext.
+	// quick-261021-menu3: lyricsTiming REMOVED from catalog — it's now a toggle inside
+	// the Fix lyrics picker, not a standalone menu item. Existing saved orders drop it
+	// as unknown via normalizeMenuOrder.
 	'remix',
 	'share',
 	'download',
@@ -68,8 +70,7 @@ export const MENU_ACTIONS: readonly MenuActionId[] = [
 	'viewComments',
 	'viewRelated',
 	'shuffleQueue',
-	'clearQueue',
-	'lyricsTiming'
+	'clearQueue'
 ] as const;
 
 // quick-261006-44g — the menu is ALWAYS a 4x4 icon grid (user 2026-10-06). The live grid
@@ -91,6 +92,12 @@ const KNOWN = new Set<string>(MENU_ACTIONS);
  * appended invisibly beyond the 16-slot cap.
  */
 export function normalizeMenuOrder(saved: unknown): MenuActionId[] {
+	// quick-261021-menu3 (user): one-time migration — any saved order containing the
+	// removed 'lyricsTiming' is from the old layout. Reset the whole order to the new
+	// default instead of trying to preserve a stale arrangement.
+	if (Array.isArray(saved) && saved.includes('lyricsTiming')) {
+		return [...MENU_ACTIONS];
+	}
 	const kept: MenuActionId[] = [];
 	if (Array.isArray(saved)) {
 		for (const x of saved) {
