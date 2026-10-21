@@ -333,13 +333,13 @@ async function resolveTrackChain(
 
 		// quick-261021-cov3 (user): PARALLEL + PRIORITISED race, not sequential tiers.
 		// All cover sources launch at once; the highest-priority valid cover wins.
-		// Priority (user-verified accuracy): JOOX/Migu (most accurate) > iTunes (fast, Western)
-		// > QQ (Chinese) > Deezer > YTM (last resort).
+		// Priority (user 2026-10-21): iTunes / JOOX / Migu 》 rest.
 		// A 300ms priority window lets a slower accurate source beat a faster inaccurate one.
 		const PRIORITY_WINDOW_MS = 300;
 		const results = new Map<string, string>();
 
 		const tasks: Array<{ key: string; fn: () => Promise<string | null> }> = [
+			{ key: 'itunes', fn: () => tier(() => itunesSongCover(qArtist, qTitle, signal, DISPLAY_ARTWORK_SIZE)) },
 			{
 				key: 'joox-migu',
 				fn: async () => {
@@ -355,13 +355,12 @@ async function resolveTrackChain(
 					return dedupeBest(tracks, settings.preferredSource)[0]?.cover ?? null;
 				}
 			},
-			{ key: 'itunes', fn: () => tier(() => itunesSongCover(qArtist, qTitle, signal, DISPLAY_ARTWORK_SIZE)) },
 			{ key: 'qq', fn: () => tier(() => qqSongCover(qArtist, qTitle, signal)) },
 			{ key: 'deezer', fn: () => tier(() => deezerSongCover(qArtist, qTitle, signal, 'big')) },
 			{ key: 'ytmusic', fn: () => tier(() => ytmusicSongCover(qArtist, qTitle, signal)) },
 		];
 
-		const priorityOrder = ['joox-migu', 'itunes', 'qq', 'deezer', 'ytmusic'];
+		const priorityOrder = ['itunes', 'joox-migu', 'qq', 'deezer', 'ytmusic'];
 
 		await new Promise<void>((resolve) => {
 			let remaining = tasks.length;
