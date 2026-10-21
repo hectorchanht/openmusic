@@ -2,7 +2,7 @@
 	import { tick, untrack } from 'svelte';
 	import { fly } from 'svelte/transition';
 	import { goto } from '$app/navigation';
-	import { ListStart, ListEnd, Download, Check, Heart, ListPlus, User, Share2, Info, X, Plus, Shuffle, Repeat, Repeat1, Trash2, Moon, Sparkles, Layers, Image as ImageIcon, ChevronDown, Tags, Mic2, EyeOff, Timer, Pencil, Disc3, Radio, MessageCircle, ListMusic, ArrowDownToLine, RotateCcw } from '@lucide/svelte';
+	import { ListStart, ListEnd, Download, Check, Heart, ListPlus, User, Share2, Info, X, Plus, Shuffle, Repeat, Repeat1, Trash2, Moon, Sparkles, Layers, Image as ImageIcon, ChevronDown, Tags, Mic2, EyeOff, Pencil, Disc3, Radio, MessageCircle, ListMusic, ArrowDownToLine, RotateCcw } from '@lucide/svelte';
 	import { player } from '$lib/stores/player.svelte';
 	import { sleepTimer } from '$lib/stores/sleepTimer.svelte';
 	import { library } from '$lib/stores/library.svelte';
@@ -42,6 +42,7 @@
 	import { SOURCES } from '$lib/sources/registry';
 	import VersionPicker from '$lib/components/VersionPicker.svelte';
 	import DownloadRing from '$lib/components/DownloadRing.svelte';
+	import LyricsTimingToggle from '$lib/components/LyricsTimingToggle.svelte';
 	// quick-260919-1eh: the tag-edit sheet. Same co-mount arrangement as VersionPicker above — it
 	// owns its own overlay lifecycle under a DISTINCT overlayId.
 	import MetadataEditor from '$lib/components/MetadataEditor.svelte';
@@ -85,7 +86,7 @@
 	// posture as the cover picker one line up — the parallel walk fires ONLY on the Fix-lyrics tap
 	// (T-1we-03), never on menu open. `readLyrics` is D-4's single read (pin → track.lrc → null).
 	import { readLyrics, pinLyrics, unpinLyrics } from '$lib/stores/lyric-pins.svelte';
-	import { lyricSyncOpen, toggleLyricSyncOpen } from '$lib/stores/lyric-offset.svelte';
+	// quick-261021-menu7: lyric-offset imports moved to LyricsTimingToggle.svelte (shared component).
 	import { parseLyrics } from '$lib/stores/lyric-script.svelte';
 	import { combinedSignal } from '$lib/services/abort-signal';
 	import { recallItunesId } from '$lib/services/itunes-cover';
@@ -199,7 +200,7 @@
 		changeLyrics: { icon: Mic2, label: 'menu.fixLyrics' },
 		viewComments: { icon: MessageCircle, label: 'menu.viewComments' },
 		viewRelated: { icon: ListMusic, label: 'menu.viewRelated' },
-		lyricsTiming: { icon: Timer, label: 'menu.lyricsTiming' },
+		// quick-261021-menu7: lyricsTiming removed from EDIT_META — no longer a menu item.
 		editTags: { icon: Tags, label: 'menu.editTags' },
 		addToPlaylist: { icon: ListPlus, label: 'menu.addToPlaylist' },
 		customize: { icon: Pencil, label: 'menu.customize' },
@@ -813,7 +814,8 @@
 	// [current] is a no-op, so the item is gated to queue.length > 1 in the template.
 	function clearQueue() { player.clearQueue(); close(); }
 	// quick-260926-qat: show / hide the lyrics pane's timing row, then close (Repeat-row shape).
-	function toggleLyricsTiming() { toggleLyricSyncOpen(); close(); }
+	// quick-261021-menu7: toggleLyricsTiming REMOVED — the standalone menu item is gone.
+	// Use the shared LyricsTimingToggle component instead.
 	function like() {
 		if (!track) return;
 		hapticTick();
@@ -1656,12 +1658,9 @@
 		     actually has lyrics — the row it reveals lives in the Now Playing lyrics pane of
 		     player.current, so for any other track it would toggle something the user cannot see.
 		     readLyrics(player.current) is D-4's single read (pin → track.lrc → null) and takes the
-		     lyricVersion dependency, so a Fix-lyrics pick that lands lyrics makes this row appear live.
-		     Repeat-row idiom (class:on + aria-pressed + swapping label): the menu closes on tap, so the
-		     label must show the state before the tap. -->
-		{#snippet cellLyricsTiming(tr: Track)}
-			<button class="gi" class:on={lyricSyncOpen()} aria-pressed={lyricSyncOpen()} onclick={toggleLyricsTiming} use:tapBounce><Timer size={22} /><span class="gi-label">{lyricSyncOpen() ? t('menu.lyricsTimingHide') : t('menu.lyricsTiming')}</span></button>
-		{/snippet}
+		<!-- quick-261021-menu7: cellLyricsTiming REMOVED — the standalone menu item is gone.
+		     The shared LyricsTimingToggle component (in the Fix lyrics picker) is the only
+		     UI for this now. -->
 		<!-- quick-260919-1eh: Edit metadata. Shown ONLY for a file the app actually holds bytes for.
 		     `blobPresent` is the blob-backed probe, NOT library.isDownloaded — quick-260913-jq4
 		     explains why the reference list lies (it is populated BEFORE the fetch, and the web save
@@ -1962,9 +1961,9 @@
 		{#if pinnedNow !== (track.lrc ?? null)}
 			<button class="mi" onclick={resetLyrics} use:tapBounce><Sparkles size={18} /> {t('menu.lyricsAuto')}</button>
 		{/if}
-		<!-- quick-261021-menu2 (user): lyrics timing is a toggle INSIDE the Fix lyrics picker,
-		     not a separate menu item. -->
-		<button class="mi" class:on={lyricSyncOpen()} aria-pressed={lyricSyncOpen()} onclick={toggleLyricSyncOpen} use:tapBounce><Timer size={18} /> {lyricSyncOpen() ? t('menu.lyricsTimingHide') : t('menu.lyricsTiming')}</button>
+		<!-- quick-261021-menu7 (user): shared LyricsTimingToggle — same component reused
+		     everywhere the toggle appears, not a duplicate button. -->
+		<LyricsTimingToggle />
 	</div>
 {/if}
 
