@@ -435,15 +435,14 @@ class Names {
 	/** Artist name → artistLang + artistSkip. ju0: `'auto'` resolves to settings.appLang.
 	 * quick-260925-x8o: a rescued single-performer Chinese artist wins while the lock is on. */
 	dnArtist(text: string): string {
-		// quick-261020-lyr11 (user): dnArtist goes through zhScript ONLY when the
-		// Translation Targets → Artist translation is ON. If OFF, return the ORIGINAL
-		// text as-is — do NOT use the (translated) alias.
-		// quick-261020-lyr12 (user): Translation target OVERSHADOWS Chinese script.
-		// The alias is Chinese — only use it when target is Chinese (zh-Hant/zh-Hans).
-		// For other targets (e.g. Japanese), skip the alias and translate to target.
+		// quick-261020-lyr11/12 (user):
+		// - Translation target OFF → no TRANSLATION, but Chinese Script (zhScript) STILL
+		//   applies: Simplified → Traditional conversion for Chinese text. English untouched.
+		// - Target ON + Chinese → use Chinese alias + script lock.
+		// - Target ON + other language → skip Chinese alias, translate to target.
 		const target = effectiveTarget(settings.artistLang);
 		if (target === 'off') {
-			return text;
+			return this.applyLock(text);
 		}
 		const isChineseTarget = target === 'zh-Hant' || target === 'zh-Hans';
 		const a = isChineseTarget ? this.aliasArtist(text) : null;
@@ -456,13 +455,11 @@ class Names {
 	 * quick-260925-x8o: `artist` is the SAME track's raw artist — it keys the rescued Chinese title
 	 * ("Coral Sea" alone must never become 珊瑚海). Album/artist-name callers must NOT pass one. */
 	dnTitle(text: string, artist?: string): string {
-		// quick-261020-lyr11 (user): dnTitle goes through zhScript ONLY when the
-		// Translation Targets → Title translation is ON. If OFF, return ORIGINAL as-is.
-		// quick-261020-lyr12 (user): Translation target OVERSHADOWS Chinese script —
-		// only use the Chinese alias when target is Chinese.
+		// quick-261020-lyr11/12 (user): same as dnArtist — OFF means no translation,
+		// but zhScript conversion still applies to Chinese text.
 		const target = effectiveTarget(settings.titleLang);
 		if (target === 'off') {
-			return text;
+			return this.applyLock(text);
 		}
 		const isChineseTarget = target === 'zh-Hant' || target === 'zh-Hans';
 		const a = isChineseTarget ? this.aliasTitle(text, artist) : null;
