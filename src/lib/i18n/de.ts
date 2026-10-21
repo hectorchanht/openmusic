@@ -108,6 +108,12 @@ const de: Dict = {
 	"settings.lyricsHideParenTranslationNote": "Wenn eine Liedzeile eine (geklammerte) Phrase enthält — oft eine eingebettete Übersetzung — wird sie in eine eigene Zeile gesetzt und ihre weitere Übersetzung ausgeblendet.",
 	"settings.lyricsHideParenLines": "Geklammerte Zeilen ausblenden",
 	"settings.lyricsHideParenLinesNote": "Die geklammerte Phrase selbst aus dem Songtext entfernen — nur die Originalzeile bleibt sichtbar.",
+	"settings.embeddedTranslations": "Embedded translation lines",
+	"settings.embeddedTranslationsNote": "Lyrics files often include translations as separate lines. Hide them to show originals only.",
+	"settings.inlineTranslations": "Inline (parenthesised) translations",
+	"settings.inlineTranslationsNote": "When a line has its translation in (parentheses), hide the bracketed part.",
+	"settings.optShow": "Show",
+	"settings.optHide": "Hide",
 	"settings.defaultQuality": "Standard-Songqualität",
 	"settings.defaultQualityNote": "Best-Effort – nicht alle Quellen geben die Bitrate an; beeinflusst die Auswahl, soweit bekannt.",
 	"settings.downloadQuality": "Download-Qualität",
@@ -753,8 +759,20 @@ const de: Dict = {
 	"support.comingSoon": "Coming soon",
 	"support.alreadySupported": "Already supported? Verify your email",
 	"support.checkEmail": "Verify",
-	"support.downloadAlbum": "Album download · supporters"
-
+	"support.downloadAlbum": "Album download · supporters",
+	"menu.detailCoverUrl": "Cover URL",
+	"menu.detailSongId": "Song ID",
+	"menu.detailDuration": "Duration",
+	"menu.detailLyrics": "Lyrics",
+	"menu.detailLyricsUrl": "Lyrics URL",
+	"menu.detailProxyUrl": "Proxy URL",
+	"menu.detailResolvedAt": "Resolved At",
+	"menu.detailSourceId": "Source ID",
+	"menu.detailPaywall": "Paywall",
+	"menu.detailTags": "Tags",
+	"menu.detailKeyword": "Keyword",
+	"menu.detailHasLyrics": "yes",
+	"menu.detailNoLyrics": "no",
 };
 
 export default de;

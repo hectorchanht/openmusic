@@ -117,6 +117,12 @@ const zhHans: Dict = {
 	"settings.lyricsHideParenTranslationNote": "当歌词中含有（括号）短语（通常是嵌入的翻译），将其拆到独立行并隐藏其再翻译。",
 	"settings.lyricsHideParenLines": "隐藏括号中的歌词",
 	"settings.lyricsHideParenLinesNote": "从歌词中去除括号中的部分,只保留原始行。",
+	"settings.embeddedTranslations": "Embedded translation lines",
+	"settings.embeddedTranslationsNote": "Lyrics files often include translations as separate lines. Hide them to show originals only.",
+	"settings.inlineTranslations": "Inline (parenthesised) translations",
+	"settings.inlineTranslationsNote": "When a line has its translation in (parentheses), hide the bracketed part.",
+	"settings.optShow": "Show",
+	"settings.optHide": "Hide",
 	"settings.defaultQuality": "默认音质",
 	"settings.defaultQualityNote": "尽力而为 — 并非所有来源都提供比特率；在已知时会优先选择。",
 	"settings.downloadQuality": "下载音质",
@@ -785,8 +791,20 @@ const zhHans: Dict = {
 	"support.comingSoon": "即将推出",
 	"support.alreadySupported": "已经支持过？验证你的邮箱",
 	"support.checkEmail": "验证",
-	"support.downloadAlbum": "专辑下载 · 支持者限定"
-
+	"support.downloadAlbum": "专辑下载 · 支持者限定",
+	"menu.detailCoverUrl": "Cover URL",
+	"menu.detailSongId": "Song ID",
+	"menu.detailDuration": "Duration",
+	"menu.detailLyrics": "Lyrics",
+	"menu.detailLyricsUrl": "Lyrics URL",
+	"menu.detailProxyUrl": "Proxy URL",
+	"menu.detailResolvedAt": "Resolved At",
+	"menu.detailSourceId": "Source ID",
+	"menu.detailPaywall": "Paywall",
+	"menu.detailTags": "Tags",
+	"menu.detailKeyword": "Keyword",
+	"menu.detailHasLyrics": "yes",
+	"menu.detailNoLyrics": "no",
 };
 
 export default zhHans;

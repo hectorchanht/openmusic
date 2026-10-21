@@ -108,6 +108,12 @@ const ar: Dict = {
 	"settings.lyricsHideParenTranslationNote": "عندما يحتوي سطر الكلمات على عبارة بين أقواس — غالباً ترجمة مدمجة — اعرضها في سطر منفصل وأخفِ ترجمتها الإضافية.",
 	"settings.lyricsHideParenLines": "إخفاء الأسطر بين الأقواس",
 	"settings.lyricsHideParenLinesNote": "إسقاط العبارة بين الأقواس نفسها من الكلمات — يظهر السطر الأصلي فقط.",
+	"settings.embeddedTranslations": "Embedded translation lines",
+	"settings.embeddedTranslationsNote": "Lyrics files often include translations as separate lines. Hide them to show originals only.",
+	"settings.inlineTranslations": "Inline (parenthesised) translations",
+	"settings.inlineTranslationsNote": "When a line has its translation in (parentheses), hide the bracketed part.",
+	"settings.optShow": "Show",
+	"settings.optHide": "Hide",
 	"settings.defaultQuality": "جودة الأغنية الافتراضية",
 	"settings.defaultQualityNote": "أفضل الجهود — لا تكشف جميع المصادر معدل البت؛ اختيار التحيزات حيثما كان معروفا.",
 	"settings.downloadQuality": "جودة التنزيل",
@@ -753,8 +759,20 @@ const ar: Dict = {
 	"support.comingSoon": "Coming soon",
 	"support.alreadySupported": "Already supported? Verify your email",
 	"support.checkEmail": "Verify",
-	"support.downloadAlbum": "Album download · supporters"
-
+	"support.downloadAlbum": "Album download · supporters",
+	"menu.detailCoverUrl": "Cover URL",
+	"menu.detailSongId": "Song ID",
+	"menu.detailDuration": "Duration",
+	"menu.detailLyrics": "Lyrics",
+	"menu.detailLyricsUrl": "Lyrics URL",
+	"menu.detailProxyUrl": "Proxy URL",
+	"menu.detailResolvedAt": "Resolved At",
+	"menu.detailSourceId": "Source ID",
+	"menu.detailPaywall": "Paywall",
+	"menu.detailTags": "Tags",
+	"menu.detailKeyword": "Keyword",
+	"menu.detailHasLyrics": "yes",
+	"menu.detailNoLyrics": "no",
 };
 
 export default ar;
