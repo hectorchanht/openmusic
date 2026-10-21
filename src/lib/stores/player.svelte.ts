@@ -53,7 +53,15 @@ import { getCachedCoverByUid, getCachedCover, getPinnedCover, getCrowdCover } fr
 // only READS the crowd (D-15: the TrackMenu picker tap is the only voter).
 import { coverPickKeys, fetchCoverPick } from '$lib/services/cover-pick-shared';
 import { resolveCoverForTrack } from '$lib/services/cover-backfill';
+import { itunesSongCover, DISPLAY_ARTWORK_SIZE } from '$lib/services/itunes-cover';
 import { matchKey } from '$lib/services/match-key';
+
+// quick-261020-itn1: Netease covers via the meting pic proxy (see lazyCover.ts). Shared predicate
+// so the player and lazyCover agree on what "a Netease cover" means.
+const NETEASE_PIC_RE = /api\.qijieya\.cn\/meting\/\?server=netease&type=pic/;
+function isNeteaseCover(url: string | null | undefined): boolean {
+	return !!url && NETEASE_PIC_RE.test(url);
+}
 // quick-260615-hep: feed every displayed now-playing cover into the shared cache (both layers) +
 // bump the global reactive signal so other surfaces (homepage tiles) reuse the art and repaint live.
 // quick-260704-20e: removeCoverBoth evicts a DEAD current cover before healCover re-resolves it.
@@ -4458,6 +4466,11 @@ class Player {
 		// everything below that writes to or probes the localStorage cover cache deliberately keeps
 		// hasHttpsScheme (a `data:` URL in that cache silently kills all cover caching).
 		if (!isRenderableCover(this.resolvedCover)) void this.resolveCoverAsync(resolved, myGen);
+		// quick-261020-itn1: Hector 2026-10-20 — a Netease cover never wins outright. If the seeded
+		// cover is a Netease meting-pic URL, try iTunes in the background and replace on any hit.
+		// (Overrides the Phase 40 D-11a "no automatic upgrade" rule for Netease only; iTunes miss
+		// keeps the Netease art.)
+		else if (isNeteaseCover(this.resolvedCover)) void this.preferItunesOverNetease(resolved, myGen);
 		// Phase 40 D-11a / D-09: a track that painted from an inline cover (kuwo/qq/netease pic, a
 		// ytmusic thumbnail, album art) KEEPS it — no automatic upgrade exists any more. The old
 		// post-paint iTunes → Deezer "HQ upgrade" (Plan 26-02, quick-260831-t2g, quick-260920-nyq)
@@ -4569,6 +4582,42 @@ class Player {
 	 * On a miss (or a supersede) nothing is written: the gradient + /favicon.svg stand (D-12). This
 	 * runs off the audio critical path; playback never waits on it (T-21-07 accept).
 	 */
+	/**
+	 * quick-261020-itn1: Netease → iTunes preference for the NOW-PLAYING hero. The seeded cover is
+	 * a Netease meting-pic URL (often a placeholder); try iTunes in the background and swap on any
+	 * hit. Generation-guarded like resolveCoverAsync; never throws; iTunes miss keeps the Netease art.
+	 */
+	private async preferItunesOverNetease(resolved: Track, myGen: number) {
+		let url: string | null = null;
+		try {
+			url = await itunesSongCover(
+				resolved.artist ?? '',
+				resolved.title ?? '',
+				undefined,
+				DISPLAY_ARTWORK_SIZE
+			);
+		} catch {
+			url = null;
+		}
+		if (myGen !== this.playGen) return;
+		if (this.adoptedCoverUid === resolved.uid) return;
+		if (!url || !hasHttpsScheme(url)) return;
+		this.resolvedCover = url;
+		bumpCoverVersion();
+		const ms = this.ms;
+		if (ms) {
+			try {
+				ms.metadata = new MediaMetadata({
+					title: resolved.title ?? '',
+					artist: resolved.artist ?? '',
+					artwork: [{ src: url, sizes: '400x400', type: 'image/jpeg' }]
+				});
+			} catch {
+				// MediaSession is best-effort
+			}
+		}
+	}
+
 	private async resolveCoverAsync(resolved: Track, myGen: number) {
 		let url: string | null = null;
 		try {
