@@ -160,6 +160,10 @@ const VARIANT_KEYWORDS = [
 
 function hasVariantKeyword(text: string): boolean {
 	const t = (text || '').toLowerCase();
+	// quick-261020-dj1: DJ versions with a DJ name between DJ and 版 — e.g. "DJ 阿樂版",
+	// "DJ LUX 煜版", "1.1x DJ 慢搖版" — slip past the literal 'DJ版' substring. Match DJ
+	// followed by optional spaces/CJK chars then 版.
+	if (/dj[\s\w\u4e00-\u9fff]*版/i.test(text || '')) return true;
 	return VARIANT_KEYWORDS.some((kw) => {
 		// CJK keywords: substring match. Latin: word-boundary match.
 		if (/[\u4e00-\u9fff]/.test(kw)) return t.includes(kw.toLowerCase());

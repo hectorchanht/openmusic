@@ -111,6 +111,25 @@ describe('partitionOfficial', () => {
 		]);
 	});
 
+	// quick-261020-dj1: DJ name between DJ and 版 — "DJ 阿樂版", "DJ LUX 煜版" etc.
+	it('catches DJ versions with a DJ name (DJ 阿樂版 / DJ LUX 煜版)', () => {
+		const { official, variants } = partitionOfficial(
+			[
+				mk('記憶棉'),
+				mk('記憶棉 (DJ 阿樂版)'),
+				mk('記憶棉 (DJ LUX 煜版)'),
+				mk('記憶棉 (1.1x DJ 慢搖版)')
+			],
+			'記憶棉'
+		);
+		expect(official.map((t) => t.title)).toEqual(['記憶棉']);
+		expect(variants.map((t) => t.title)).toEqual([
+			'記憶棉 (DJ 阿樂版)',
+			'記憶棉 (DJ LUX 煜版)',
+			'記憶棉 (1.1x DJ 慢搖版)'
+		]);
+	});
+
 	it('bypasses the partition when the query asks for a variant', () => {
 		const cands = [mk('給我一首歌的時間'), mk('給我一首歌的時間 (伴奏)')];
 		const { official, variants } = partitionOfficial(cands, '給我一首歌的時間 伴奏');
