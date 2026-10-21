@@ -33,9 +33,10 @@
     // NowPlaying pane shows, including a user's Fix-lyrics pick (D-4).
     // quick-260919-2jo: `parseLyrics`, NOT the raw `parseLRC` — the one lyric seam that applies the
     // Chinese script lock (and repaints live when it is flipped). Same signature, same output shape.
-    import { activeLineAt, splitParenLines } from "$lib/services/lrc";
+    import { activeLineAt } from "$lib/services/lrc";
     import { parseLyrics } from "$lib/stores/lyric-script.svelte";
     import { readLyrics } from "$lib/stores/lyric-pins.svelte";
+    import { splitParenLines, reorderPairs } from "$lib/services/lrc";
     // quick-260926-mzn: the EFFECTIVE offset (local ?? listeners' consensus ?? 0), same as the pane.
     import { getEffectiveLyricOffset, ensureSharedLyricOffset, lyricOffsetVersion } from "$lib/stores/lyric-offset.svelte";
 
@@ -82,13 +83,21 @@
     //    This derived depends on the lyric STRING, not on currentTime, so it costs one pass over the
     //    LRC per TRACK — not per tick. quick-260919-2jo: the script conversion rides INSIDE that same
     //    once-per-track pass (parseLyrics), so the per-tick scan below still walks plain strings.
-    //    quick-261020-cjk: splitParenLines + the Hide-parenthesised-lines setting, mirroring the
-    //    NowPlaying pane — a parenthesised translation the pane hides must not surface here either.
-    //    (reorderPairs stays out: it only orders adjacent original/translation pairs for the pane's
-    //    two-row layout; the time-based scan below does not care about sibling order.)
+    // quick-261020-lyr1: SAME pipeline as NpLyrics — splitParenLines(reorderPairs(parseLyrics))
+    // so the Nowbar's line obeys the same translation settings (Hide parenthesised
+    // translations/lines). The visible-lines filter mirrors NpLyrics's render guard.
     const lyricLines = $derived.by(() => {
-        const split = splitParenLines(parseLyrics(readLyrics(player.current)));
-        return settings.lyricsHideParenLines ? split.filter((l) => !l.fromParen) : split;
+        const src = readLyrics(player.current);
+        if (!src) return [];
+        const all = splitParenLines(reorderPairs(parseLyrics(src)));
+        // Filter hidden lines (same as NpLyrics's {#if} guards):
+        // - lyricsHideParenLines ON → hide the entire paren line
+        // - lyricsHideParenTranslation ON → hide paren translation lines (show parent instead)
+        return all.filter((l) => {
+            if (l.fromParen && settings.lyricsHideParenLines) return false;
+            if (l.fromParen && settings.lyricsHideParenTranslation) return false;
+            return true;
+        });
     });
     // quick-260926-mis: same offset as the pane, same function, so the two surfaces cannot drift.
     const lyricOffset = $derived(getEffectiveLyricOffset(player.current?.uid));
@@ -205,20 +214,6 @@
     // quick-260920-nyq: computed ONCE — the truthiness test and the url() previously restated the
     // same expression twice (the same defect quick-260915-w4f fixed in NowPlaying's cellBg).
     const npCover = $derived(player.displayCover ?? np?.cover);
-
-    // quick-261020-batch1 (C2): self-heal a DEAD painted cover while listening with the Nowbar
-    // alone — NowPlaying's twin $effect only runs when the sheet is mounted, so a dead cover
-    // painted on the docked bar was never probed, marked, or repaired. Same deps (uid +
-    // displayCover) and the same fire-and-forget call; the store's healProbed one-shot guard +
-    // playGen guard make firing from both surfaces safe (the 'embed' variant inside NowPlaying
-    // double-fires — the second call is a no-op).
-    $effect(() => {
-        const uid = player.current?.uid;
-        const cover = player.displayCover; // reactive dep — re-run when the displayed cover changes
-        if (!uid) return; // no current track
-        if (!cover) return; // true miss → gradient; nothing to probe
-        void player.healCover(uid); // fire-and-forget; the one-shot guard lives in the store
-    });
     function handleOpen() {
         if (onOpen) onOpen();
         else player.expand();
