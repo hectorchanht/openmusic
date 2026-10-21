@@ -216,25 +216,26 @@ const googleTranslate: Provider = async (text, appTo) => {
 // GPUs via the Workers AI binding (`AI` — add in dashboard: Pages → openmusic → Settings →
 // Functions → Bindings → Add → Workers AI, name `AI`). No API keys, no egress blocks.
 //
-// COST GUARD (Hector: "$5 limit"): billed in Neurons — 10K/day free, then $0.011/1K neurons.
-// $5 ≈ 454K neurons. We track per-call `usage.neurons` (the API reports it) in a per-isolate
-// daily counter and DISABLE the tier for the UTC day once DAILY_BUDGET_NEURONS is reached.
-// Best-effort (per-isolate, not global) — but at current volume (~hundreds of neurons/day)
-// the $5 cap is unreachable; the guard is a safety net, not a throttle.
+// COST GUARD (Hector: "$5 limit per month"): billed in Neurons — 10K/day free, then
+// $0.011/1K neurons. $5/mo ≈ 454K neurons/mo. We track per-call `usage.neurons` (the API
+// reports it) in a per-isolate monthly counter and DISABLE the tier for the UTC month once
+// MONTHLY_BUDGET_NEURONS is reached. Best-effort (per-isolate, not global) — but at current
+// volume (~hundreds of neurons/day ≈ ~10K/month) the $5 cap is unreachable; the guard is a
+// safety net, not a throttle.
 //
 // NOTE: m2m100 outputs Simplified-leaning Chinese for target_lang "chinese". The CLIENT
 // normalizes to the requested script (s2t/t2s in translate.ts) — the server returns raw.
 const AI_MODEL = '@cf/meta/m2m100-1.2b';
-const DAILY_BUDGET_NEURONS = 450_000; // ≈ $4.95 — Hector's $5 cap
+const MONTHLY_BUDGET_NEURONS = 450_000; // ≈ $4.95/mo — Hector's $5/month cap
 let aiNeuronsUsed = 0;
-let aiBudgetDay = '';
+let aiBudgetMonth = '';
 function aiBudgetOk(): boolean {
-	const day = new Date().toISOString().slice(0, 10); // UTC day
-	if (day !== aiBudgetDay) {
-		aiBudgetDay = day;
+	const month = new Date().toISOString().slice(0, 7); // UTC month (YYYY-MM)
+	if (month !== aiBudgetMonth) {
+		aiBudgetMonth = month;
 		aiNeuronsUsed = 0;
 	}
-	return aiNeuronsUsed < DAILY_BUDGET_NEURONS;
+	return aiNeuronsUsed < MONTHLY_BUDGET_NEURONS;
 }
 // m2m100 language names (the API takes English names, not codes).
 const AI_LANG_NAMES: Record<string, string> = {
