@@ -11,7 +11,12 @@
 	import { Download, BookOpen, Play, Shuffle } from '@lucide/svelte';
 	import { goto } from '$app/navigation';
 	import { player } from '$lib/stores/player.svelte';
-	import { toast } from '$lib/stores/toast.svelte';
+	import { toast as globalToast } from '$lib/stores/toast.svelte';
+	import { library } from '$lib/stores/library.svelte';
+	import { downloadAlbum as downloadAlbumTracks } from '$lib/services/download-album';
+	import { downloadLabel } from '$lib/services/download-label';
+	import DownloadControl from '$lib/components/DownloadControl.svelte';
+	import { nameStub } from '$lib/services/similar';
 
 	const artistName = $derived(decodeURIComponent(page.params.name ?? ''));
 
@@ -44,7 +49,76 @@
 
 	function downloadAll() {
 		// quick-261020-nogate: the tip gate is cancelled (Hector) — nothing blocks here any more.
-		// TODO: bulk download implementation (album-by-album tracklist → resolve → zip).
+		void doDownloadAll();
+	}
+
+	let downloading = $state(false);
+
+	// quick-261020-packdl: per-album expandable tracklists with per-song download indicators.
+	// Keyed by album index; each holds its fetched stubs (null = not fetched yet).
+	let expanded = $state<Set<number>>(new Set());
+	let albumTracks = $state<Map<number, { artist: string; title: string }[]>>(new Map());
+	let loadingTracks = $state<Set<number>>(new Set());
+
+	async function toggleAlbum(i: number) {
+		if (expanded.has(i)) {
+			expanded.delete(i);
+			expanded = new Set(expanded);
+			return;
+		}
+		expanded.add(i);
+		expanded = new Set(expanded);
+		if (albumTracks.has(i)) return; // already fetched
+		const album = albums[i];
+		if (!album) return;
+		loadingTracks.add(i);
+		loadingTracks = new Set(loadingTracks);
+		try {
+			const stubs = await fetchAlbumTracklist(album, artistName);
+			albumTracks.set(i, stubs);
+			albumTracks = new Map(albumTracks);
+		} finally {
+			loadingTracks.delete(i);
+			loadingTracks = new Set(loadingTracks);
+		}
+	}
+
+	// Bulk download: album-by-album tracklist → resolve → download.
+	// Each album is a separate library job (keyed by artist+album) so the album page
+	// shows the same in-flight state if the user navigates there mid-download.
+	async function doDownloadAll() {
+		if (downloading || !albums.length) return;
+		downloading = true;
+		const artist = names.dnArtist(artistName);
+		let totalSaved = 0;
+		let totalTracks = 0;
+		try {
+			for (const album of albums) {
+				const albumName = names.dnTitle(album.name);
+				const key = `${artist}::${albumName}`;
+				if (!library.beginAlbumJob(key)) continue; // already downloading elsewhere
+				const label = downloadLabel(artist, albumName);
+				try {
+					globalToast.show(t('toast.downloading', { label }));
+					const stubs = await fetchAlbumTracklist(album, artistName);
+					if (!stubs.length) continue;
+					const resolved = await resolvePackTracks(stubs);
+					if (!resolved.length) continue;
+					const { saved, total } = await downloadAlbumTracks(
+						resolved,
+						{ artist, album: albumName },
+						(n, total) => globalToast.show(t('toast.albumProgress', { label, n, total }))
+					);
+					totalSaved += saved;
+					totalTracks += total;
+				} finally {
+					library.endAlbumJob(key);
+				}
+			}
+			globalToast.show(t('toast.albumSaved', { label: artist, saved: totalSaved, total: totalTracks }));
+		} finally {
+			downloading = false;
+		}
 	}
 
 	// quick-261010-disco2: Play album-by-album (in discography order), or shuffle all.
@@ -70,7 +144,7 @@
 				if (a.tracks) stubs.push(...a.tracks);
 			}
 			if (!stubs.length) {
-				toast.show(t('home.unplayable'));
+				globalToast.show(t('home.unplayable'));
 				return;
 			}
 			// 2. Resolve ONE song and play it immediately.
@@ -78,7 +152,7 @@
 			const firstStub = stubs[firstIdx];
 			const firstTrack = await resolveStub(firstStub.artist, firstStub.title).catch(() => null);
 			if (!firstTrack) {
-				toast.show(t('home.unplayable'));
+				globalToast.show(t('home.unplayable'));
 				return;
 			}
 			player.setQueue([firstTrack], 'discography-pack');
@@ -123,11 +197,13 @@
 			type="button"
 			class="act download"
 			aria-label="Download all"
-			title="Download all (tip-jar supporters)"
+			aria-busy={downloading}
+			disabled={downloading}
+			title="Download all"
 			onclick={downloadAll}
 			use:tapBounce
 		>
-			<Download size={20} />
+			{#if downloading}<span class="row-spinner motion-always"></span>{:else}<Download size={20} />{/if}
 		</button>
 	</div>
 </header>
@@ -136,19 +212,46 @@
 	<p class="loading">{t('common.loading')}</p>
 {:else}
 	<ul class="albums">
-		{#each albums as a (a.mbid ?? a.id ?? a.name)}
+		{#each albums as a, i (a.mbid ?? a.id ?? a.name)}
 			<li>
-				<button type="button" class="album" onclick={() => goto(`/album/${encodeURIComponent(a.name)}?artist=${encodeURIComponent(artistName)}${a.mbid ? `&mbid=${a.mbid}` : ''}${a.id ? `&dzid=${a.id}` : ''}`)} use:tapBounce>
-					{#if a.image}
-						<img src={a.image} alt="" loading="lazy" />
-					{:else}
-						<span class="noimg" aria-hidden="true">{a.name.slice(0, 1)}</span>
-					{/if}
-					<span class="meta">
-						<span class="title">{names.dnTitle(a.name)}</span>
-						<span class="year">{(a.releaseDate ?? '').slice(0, 4)}{a.type ? ` · ${a.type}` : ''}</span>
-					</span>
-				</button>
+				<div class="album-row">
+					<button type="button" class="album" onclick={() => goto(`/album/${encodeURIComponent(a.name)}?artist=${encodeURIComponent(artistName)}${a.mbid ? `&mbid=${a.mbid}` : ''}${a.id ? `&dzid=${a.id}` : ''}`)} use:tapBounce>
+						{#if a.image}
+							<img src={a.image} alt="" loading="lazy" />
+						{:else}
+							<span class="noimg" aria-hidden="true">{a.name.slice(0, 1)}</span>
+						{/if}
+						<span class="meta">
+							<span class="title">{names.dnTitle(a.name)}</span>
+							<span class="year">{(a.releaseDate ?? '').slice(0, 4)}{a.type ? ` · ${a.type}` : ''}</span>
+						</span>
+					</button>
+					<button type="button" class="expand" aria-label={expanded.has(i) ? 'Collapse' : 'Expand'} aria-expanded={expanded.has(i)} onclick={() => toggleAlbum(i)} use:tapBounce>
+						<span class="chev" class:open={expanded.has(i)}>›</span>
+					</button>
+				</div>
+				{#if expanded.has(i)}
+					<div class="tracklist">
+						{#if loadingTracks.has(i)}
+							<p class="muted">Loading…</p>
+						{:else if albumTracks.get(i)?.length}
+							<ul>
+								{#each albumTracks.get(i) ?? [] as stub, j (j)}
+									{@const stubTrack = nameStub(stub.artist, stub.title, a.image)}
+									<li class="track-row">
+										<span class="t-num">{j + 1}</span>
+										<span class="t-title">{names.dnTitle(stub.title)}</span>
+										{#if stubTrack}
+											<DownloadControl track={stubTrack} />
+										{/if}
+									</li>
+								{/each}
+							</ul>
+						{:else}
+							<p class="muted">No tracklist available.</p>
+						{/if}
+					</div>
+				{/if}
 			</li>
 		{/each}
 	</ul>
@@ -208,4 +311,22 @@
 		margin-top: 16px; padding: 10px 24px; border-radius: 8px;
 		background: var(--color-primary); color: #fff; border: none; cursor: pointer;
 	}
+	/* quick-261020-packdl: expandable per-album tracklist with per-song download indicators */
+	.album-row { display: flex; align-items: stretch; gap: 4px; }
+	.album-row .album { flex: 1; min-width: 0; }
+	.expand {
+		flex: none; width: 44px; display: flex; align-items: center; justify-content: center;
+		background: none; border: none; color: var(--color-text-muted); cursor: pointer;
+	}
+	.chev { display: inline-block; font-size: 1.6rem; line-height: 1; transition: transform 0.2s; }
+	.chev.open { transform: rotate(90deg); }
+	.tracklist { padding: 4px 0 12px 56px; }
+	.tracklist ul { list-style: none; margin: 0; padding: 0; }
+	.track-row {
+		display: flex; align-items: center; gap: 10px;
+		padding: 8px 0; border-bottom: 1px solid var(--color-border);
+		font-size: 0.9rem;
+	}
+	.t-num { flex: none; width: 24px; color: var(--color-text-muted); font-size: 0.8rem; text-align: right; }
+	.t-title { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 </style>
