@@ -433,8 +433,11 @@ class Names {
 	 * quick-260925-x8o: a rescued single-performer Chinese artist wins while the lock is on. */
 	dnArtist(text: string): string {
 		const a = this.aliasArtist(text);
+		// quick-261020-lyr5 (user): Chinese Script (zhScript, the Translation page setting) is
+		// for LYRICS only — it must NOT translate/convert artist names. Return the alias
+		// as-is without applyLock.
 		return a !== null
-			? this.applyLock(a)
+			? a
 			: this.resolve(text, effectiveTarget(settings.artistLang), settings.artistSkip);
 	}
 
@@ -443,8 +446,9 @@ class Names {
 	 * ("Coral Sea" alone must never become 珊瑚海). Album/artist-name callers must NOT pass one. */
 	dnTitle(text: string, artist?: string): string {
 		const a = this.aliasTitle(text, artist);
+		// quick-261020-lyr5 (user): Chinese Script (zhScript) is for LYRICS only — not titles.
 		return a !== null
-			? this.applyLock(a)
+			? a
 			: this.resolve(text, effectiveTarget(settings.titleLang), settings.titleSkip);
 	}
 
