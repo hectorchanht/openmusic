@@ -436,6 +436,7 @@ const tr: Dict = {
 	"menu.customize": "Menüyü özelleştir",
 	"menu.resetMenu": "Menüyü sıfırla",
 	"menu.done": "Bitti",
+	"menu.hiddenItems": "Gizli — göstermek için yukarı sürükle",
 	"menu.goToArtist": "Sanatçıya git",
 	"menu.share": "Paylaş",
 	"menu.details": "Detaylar",

@@ -436,6 +436,7 @@ const fr: Dict = {
 	"menu.customize": "Personnaliser le menu",
 	"menu.resetMenu": "Réinitialiser le menu",
 	"menu.done": "Terminé",
+	"menu.hiddenItems": "Masqué — glisser pour afficher",
 	"menu.goToArtist": "Aller à l'artiste",
 	"menu.share": "Partager",
 	"menu.details": "Détails",

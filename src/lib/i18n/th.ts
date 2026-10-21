@@ -436,6 +436,7 @@ const th: Dict = {
 	"menu.customize": "ปรับแต่งเมนู",
 	"menu.resetMenu": "รีเซ็ตเมนู",
 	"menu.done": "เสร็จ",
+	"menu.hiddenItems": "ซ่อน — ลากขึ้นเพื่อแสดง",
 	"menu.goToArtist": "ไปหาศิลปิน",
 	"menu.share": "แบ่งปัน",
 	"menu.details": "รายละเอียด",

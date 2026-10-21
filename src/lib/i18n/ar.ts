@@ -436,6 +436,7 @@ const ar: Dict = {
 	"menu.customize": "تخصيص القائمة",
 	"menu.resetMenu": "إعادة تعيين القائمة",
 	"menu.done": "تم",
+	"menu.hiddenItems": "مخفي — اسحب لأعلى للعرض",
 	"menu.goToArtist": "انتقل إلى الفنان",
 	"menu.share": "شارك",
 	"menu.details": "التفاصيل",

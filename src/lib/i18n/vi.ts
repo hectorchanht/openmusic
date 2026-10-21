@@ -436,6 +436,7 @@ const vi: Dict = {
 	"menu.customize": "Tùy chỉnh menu",
 	"menu.resetMenu": "Đặt lại menu",
 	"menu.done": "Xong",
+	"menu.hiddenItems": "Ẩn — kéo lên để hiện",
 	"menu.goToArtist": "Tới nghệ sĩ",
 	"menu.share": "Chia sẻ",
 	"menu.details": "Chi tiết",

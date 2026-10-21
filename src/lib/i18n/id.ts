@@ -436,6 +436,7 @@ const id: Dict = {
 	"menu.customize": "Sesuaikan menu",
 	"menu.resetMenu": "Atur ulang menu",
 	"menu.done": "Selesai",
+	"menu.hiddenItems": "Tersembunyi — seret ke atas",
 	"menu.goToArtist": "Pergi ke artis",
 	"menu.share": "Bagikan",
 	"menu.details": "Detail",

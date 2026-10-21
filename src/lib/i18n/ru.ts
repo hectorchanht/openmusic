@@ -436,6 +436,7 @@ const ru: Dict = {
 	"menu.customize": "Настроить меню",
 	"menu.resetMenu": "Сбросить меню",
 	"menu.done": "Готово",
+	"menu.hiddenItems": "Скрыто — перетащите вверх",
 	"menu.goToArtist": "Перейти к исполнителю",
 	"menu.share": "Поделиться",
 	"menu.details": "Детали",

@@ -436,6 +436,7 @@ const hi: Dict = {
 	"menu.customize": "मेनू कस्टमाइज़ करें",
 	"menu.resetMenu": "मेनू रीसेट करें",
 	"menu.done": "हो गया",
+	"menu.hiddenItems": "छिपा हुआ — दिखाने के लिए ऊपर खींचें",
 	"menu.goToArtist": "कलाकार के पास जाओ",
 	"menu.share": "साझा करें",
 	"menu.details": "विवरण",
