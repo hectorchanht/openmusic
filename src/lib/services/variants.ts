@@ -14,6 +14,12 @@ import type { Track } from '$lib/sources/types';
 import { searchAll } from './catalog';
 import { collapseVariants, groupVariants, sameSongKey, songKey } from './dedupe';
 
+// quick-261021-cache1 (user): in-memory memo for fetchVariants.
+// The data (cross-source variants) doesn't change frequently, so cache by track UID.
+// searchAll has its own TTL cache, but the menu needs instant open — this skips even the
+// cache-key computation and grouping on repeat opens.
+const variantsMemo = new Map<string, Track[]>();
+
 /**
  * Fetch the cross-source variants of ONE song on demand.
  *
@@ -25,8 +31,15 @@ import { collapseVariants, groupVariants, sameSongKey, songKey } from './dedupe'
  *
  * The returned list is variant rows suitable for VersionPicker: length > 1 means a real
  * cross-source choice; length ≤ 1 lets the caller decide whether to surface the control.
+ *
+ * quick-261021-cache1: results are memoized by track UID — repeat opens are instant.
  */
 export async function fetchVariants(track: Track, signal?: AbortSignal): Promise<Track[]> {
+	// Memo hit — instant.
+	const memoKey = track.uid;
+	if (memoKey && variantsMemo.has(memoKey)) {
+		return variantsMemo.get(memoKey)!;
+	}
 	const query = `${track.artist ?? ''} ${track.title ?? ''}`.trim();
 	if (!query) return [];
 	try {
@@ -45,9 +58,15 @@ export async function fetchVariants(track: Track, signal?: AbortSignal): Promise
 		// to return []).
 		const groups = groupVariants(result.interleaved);
 		const exact = groups.get(songKey(track.artist ?? '', track.title ?? ''));
-		if (exact) return exact;
+		if (exact) {
+			if (memoKey) variantsMemo.set(memoKey, exact);
+			return exact;
+		}
 		for (const variants of groups.values()) {
-			if (variants.some((v) => sameSongKey(v, track))) return variants;
+			if (variants.some((v) => sameSongKey(v, track))) {
+				if (memoKey) variantsMemo.set(memoKey, variants);
+				return variants;
+			}
 		}
 		return [];
 	} catch {

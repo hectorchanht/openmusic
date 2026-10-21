@@ -114,6 +114,10 @@ import { t2sConvertLines, isChineseLine } from '$lib/services/zh-convert';
 import type { Track } from '$lib/sources/types';
 import { hasHttpsScheme } from './url-safety';
 
+// quick-261021-cache1 (user): in-memory memo for collectCoverCandidates.
+// Cover candidates don't change frequently — repeat picker opens are instant.
+const coverCandidatesMemo = new Map<string, CoverCandidate[]>();
+
 /** A cover-needing row — callers pass DiscoveryTrack rows (artist tiles are excluded). */
 export interface CoverNeed {
 	artist: string;
@@ -692,6 +696,11 @@ export async function collectCoverCandidates(
 	signal?: AbortSignal
 ): Promise<CoverCandidate[]> {
 	if (signal?.aborted) return [];
+	// quick-261021-cache1 (user): memoize cover candidates by UID — repeat opens instant.
+	const memoKey = track.uid;
+	if (memoKey && coverCandidatesMemo.has(memoKey)) {
+		return coverCandidatesMemo.get(memoKey)!;
+	}
 	const artist = track.artist ?? '';
 	const title = track.title ?? '';
 	const term = `${artist} ${title}`.trim();
@@ -776,5 +785,7 @@ export async function collectCoverCandidates(
 		out.push(c);
 		if (out.length >= MAX_CANDIDATES) break;
 	}
+	// quick-261021-cache1: memoize for instant repeat opens.
+	if (memoKey) coverCandidatesMemo.set(memoKey, out);
 	return out;
 }

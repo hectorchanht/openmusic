@@ -711,7 +711,10 @@ export interface LyricCandidate {
  *
  * Returns [] on an empty artist AND title, on an already-aborted signal, and on a total miss.
  * Preserves `getEnabledAdapters({})` registry order in the returned array. Never throws.
+ *
+ * quick-261021-cache1 (user): memoized by artist|title — repeat opens instant.
  */
+const lyricCandidatesMemo = new Map<string, LyricCandidate[]>();
 export async function collectLyricCandidates(
 	artist: string,
 	title: string,
@@ -720,6 +723,11 @@ export async function collectLyricCandidates(
 	try {
 		if (!artist && !title) return [];
 		if (signal.aborted) return [];
+		// quick-261021-cache1: memo hit — instant.
+		const memoKey = `${artist}|${title}`.toLowerCase();
+		if (lyricCandidatesMemo.has(memoKey)) {
+			return lyricCandidatesMemo.get(memoKey)!;
+		}
 		const order = getEnabledAdapters({})
 			.map((a) => a.id)
 			.filter((id) => !LYRICLESS_SOURCES.has(id));
@@ -749,14 +757,19 @@ export async function collectLyricCandidates(
 		};
 
 		const withArtist = await runPass(artist, false);
-		if (withArtist.length > 0) return withArtist;
+		if (withArtist.length > 0) {
+			lyricCandidatesMemo.set(memoKey, withArtist);
+			return withArtist;
+		}
 		// quick-261014-lyrnotitle: fan covers carry the FAN's name as artist, so no lyric source
 		// matches "artist title" and the picker comes back empty. Fall back to a title-only pass —
 		// the original recording's lyrics are what the user wants to pick from. Strictly AFTER an
 		// empty first pass (a title-only match is looser and must never outrank an exact
 		// artist+title hit), and only when there is a title to search with.
 		if (!artist.trim() || !title.trim() || signal.aborted) return [];
-		return runPass('', true);
+		const titleOnly = await runPass('', true);
+		if (titleOnly.length > 0) lyricCandidatesMemo.set(memoKey, titleOnly);
+		return titleOnly;
 	} catch {
 		return [];
 	}
