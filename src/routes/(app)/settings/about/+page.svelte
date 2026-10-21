@@ -16,7 +16,7 @@
 
 	// What the app does today (literal — brand/credits text, not part of the translated UI chrome).
 	const features = [
-		'Search + stream across Netease, QQ, Kuwo, Kugou, Migu, JOOX, 5sing, Bilibili, Jamendo, Audius, Internet Archive & YouTube Music — all searched by default, each toggleable in Settings → Playback',
+		'Search + stream across Netease, QQ, Kuwo, Kugou, Migu, JOOX, 5sing, Bilibili, Jamendo, Audius, Internet Archive & YouTube Music — plus independent second pipes for Netease (GD音乐台) and Kuwo （溯音）; all searched by default, each toggleable in Settings → Playback',
 		'Home discovery — Deezer top-hits & top-artists charts plus Last.fm genre & region shelves you can pick, reorder & hide',
 		'Tap-to-play that re-resolves the best match across the enabled sources; a failing source quietly hands off to another',
 		'Real album & artist art via Deezer → iTunes → CN fallback',

@@ -52,6 +52,7 @@ Italiano, Русский, Türkçe, العربية, हिन्दी, Bahasa I
 | Source | What you'll find | How we reach it |
 |---|---|---|
 | NetEase · QQ · Kuwo · Kugou · Migu · JOOX | The big Chinese platforms | Unofficial third-party APIs |
+| 溯音 · GD音乐台 | Second independent pipes for Kuwo & Netease (different backends, same catalogs) | Unofficial third-party APIs |
 | 5sing | Fan covers and backing tracks | Unofficial |
 | Bilibili | Fan uploads, live clips, covers | Unofficial (search-only) |
 | Jamendo | Creative Commons indie | Open catalog |
