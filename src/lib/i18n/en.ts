@@ -134,7 +134,7 @@ const en = {
 	"settings.skipLanguages": "Skip these source languages",
 	"settings.skipLanguagesNote": "Text already in a checked language is left untranslated.",
 	"settings.translateMode": "Translate mode",
-	"settings.translateModeOffNote": "Affects lyrics only. Pick a lyrics language above to enable.",
+	"settings.translateModeNote": "Controls how the lyric file's embedded translations are shown.",
 	"settings.translateModeOnNote": "Lyrics only.",
 	"settings.lyricsHideParenTranslation": "Hide parenthesised translations",
 	"settings.lyricsHideParenTranslationNote": "When a lyric line contains a (parenthesised) clause — often an embedded translation — split it to its own line and hide its further translation.",

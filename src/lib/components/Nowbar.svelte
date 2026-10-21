@@ -93,11 +93,17 @@
         // Filter hidden lines (same as NpLyrics's {#if} guards):
         // - lyricsHideParenLines ON → hide the entire paren/translation line
         // - lyricsHideParenTranslation ON → hide paren/translation lines (show parent instead)
+        // - translateMode === 'replace' → hide original when translation sibling exists
         // quick-261020-lyr2: also catches isTranslation (separate-line translations).
-        return all.filter((l) => {
+        // quick-261020-lyr4: Replace mode for embedded translations.
+        return all.filter((l, i) => {
             const isTr = l.fromParen || l.isTranslation;
             if (isTr && settings.lyricsHideParenLines) return false;
             if (isTr && settings.lyricsHideParenTranslation) return false;
+            if (settings.translateMode === 'replace' && !isTr) {
+                const hasTrSibling = all.some((o, j) => j !== i && o.time === l.time && (o.fromParen || o.isTranslation));
+                if (hasTrSibling) return false;
+            }
             return true;
         });
     });

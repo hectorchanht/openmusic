@@ -492,8 +492,13 @@
 	<div class="lyrics" role="group" aria-label={t('nowplaying.lyrics')} bind:this={lyricsEl} onpointerdown={lyricsPointerDown} ontouchstart={lyricsTouch} ontouchend={lyricsTouch} ontouchcancel={lyricsTouch} onwheel={() => dispatch({ type: 'wheel' })}>
 		{#each lines as l, i (i)}
 			{@const isHiddenParen = (l.fromParen || l.isTranslation) && settings.lyricsHideParenLines}
-			{#if !isHiddenParen}
-				{@const hideTrForLine = (l.fromParen || l.isTranslation) && settings.lyricsHideParenTranslation}
+			{@const isTr = l.fromParen || l.isTranslation}
+			<!-- quick-261020-lyr4: Replace mode for EMBEDDED translations — hide the original
+			     when a translation sibling shares its timestamp. The translation line itself
+			     (isTr) always shows in Replace mode. -->
+			{@const hideForReplace = settings.translateMode === 'replace' && !isTr && lines.some((o, j) => j !== i && o.time === l.time && (o.fromParen || o.isTranslation))}
+			{#if !isHiddenParen && !hideForReplace}
+				{@const hideTrForLine = isTr && settings.lyricsHideParenTranslation}
 				<!-- D-01: every lyric line is a tap target that seeks to its timestamp. The line stays a
 				     semantic <p> so the anchor $effect's `querySelectorAll('p')[idx]` scroll-centering, the
 				     `.lyrics p` centring/active/paren CSS, and the activeTime↔translated[i] index alignment

@@ -246,14 +246,11 @@
 		]}
 		value={settings.translateMode}
 		onpick={setMode}
-		disabled={settings.lyricsLang === 'off'}
 	/>
-	<!-- The OFF note is NOT the prose a preview replaces: it explains why the control above is
-	     DISABLED, which no mockup of the enabled states can say. It stays on screen, unhidden,
-	     because a disabled control with no visible reason is the confusing case. -->
-	{#if settings.lyricsLang === 'off'}
-		<p class="muted">{t('settings.translateModeOffNote')}</p>
-	{/if}
+	<!-- quick-261020-lyr3 (user): LYRICS TRANSLATE MODE controls the LRC's EMBEDDED
+	     translations — not API translations — so it is NOT gated on lyricsLang.
+	     The mode is always selectable; it shapes how embedded translation lines render. -->
+	<p class="muted">{t('settings.translateModeNote')}</p>
 
 	<!-- quick-260919-ebi (F2): the one shared boolean row — inset + switch + accent edge. These two
 	     keep their prose: a before/after lyric pair would need a representative bilingual sample
