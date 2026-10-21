@@ -57,7 +57,13 @@ jobs:
         run: corepack enable && pnpm install --frozen-lockfile
 
       - name: Build native SPA
-        run: BUILD_TARGET=native VITE_API_BASE=https://openmusic.lol pnpm build
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          # Normalize MAJOR.MINOR → MAJOR.MINOR.0 for display consistency
+          if printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+$'; then
+            VERSION="${VERSION}.0"
+          fi
+          BUILD_TARGET=native VITE_API_BASE=https://openmusic.lol VITE_APP_VERSION="$VERSION" pnpm build
 
       - name: Sync Capacitor Android project
         run: npx cap sync android

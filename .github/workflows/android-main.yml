@@ -60,37 +60,6 @@ jobs:
       - name: Install dependencies (pinned pnpm, frozen lockfile)
         run: corepack enable && pnpm install --frozen-lockfile
 
-      - name: Build native SPA
-        run: BUILD_TARGET=native VITE_API_BASE=https://openmusic.lol pnpm build
-
-      - name: Sync Capacitor Android project
-        run: npx cap sync android
-
-      # Derive + claim the next version (quick-261014-autover): every main push ships as
-      # v<major>.<minor>.<patch>, continuing from the highest existing v* tag (robust to a
-      # manually-pushed tag: max() sees it and we go one past it). The tag is created + pushed
-      # HERE, before the build, so versionName/versionCode baked into the APK always match the
-      # release tag. A tag pushed with GITHUB_TOKEN does NOT trigger new workflow runs, so the
-      # v* trigger on android-release.yml stays silent for automation (manual tag pushes still
-      # build through it — backward compatible).
-      #
-      # versionCode = MAJOR*10000 + MINOR*100 + PATCH — the Pitfall-5/WR-07 scheme from
-      # android-release.yml, monotonic across ascending versions (v1.6=10600 < v1.7=10700) and
-      # above every rolling-run-number versionCode the old scheme ever shipped, so no
-            # Derive + claim the next version (quick-261014-autover): every main push ships as
-      # v<major>.<minor> — the repo's own convention (v1.3 -> v1.4 -> v1.5 -> v1.6, all minor
-      # bumps). Takes the highest existing v* tag (two- or three-part; three-part compares
-      # correctly) and bumps MINOR. Robust to a manually-pushed tag: max() sees it and we go
-      # one past it. The tag is created + pushed HERE, before the build, so the versionName /
-      # versionCode baked into the APK always match the release tag. A tag pushed with
-      # GITHUB_TOKEN does NOT trigger new workflow runs, so android-release.yml's
-      # `push: tags: v*` trigger stays silent for automation (a manually-pushed v* tag still
-      # builds through it — backward compatible).
-      #
-      # versionCode = MAJOR*10000 + MINOR*100 (+0 patch) — the Pitfall-5/WR-07 scheme from
-      # android-release.yml, monotonic across ascending versions (v1.6=10600 < v1.7=10700) and
-      # above every run-number versionCode the old rolling scheme ever shipped, so no
-      # downgrade-block on update. MINOR rolls over at 99 (the encoding limit).
       - name: Derive version and claim tag
         env:
           GH_TOKEN: ${{ github.token }}
@@ -121,6 +90,37 @@ jobs:
           echo "VERSION_CODE=$((MAJOR * 10000 + MINOR * 100))" >> "$GITHUB_ENV"
           echo "claimed $TAG at $SHORT_SHA"
 
+      - name: Build native SPA
+        run: BUILD_TARGET=native VITE_API_BASE=https://openmusic.lol VITE_APP_VERSION="$VERSION_NAME" pnpm build
+
+      - name: Sync Capacitor Android project
+        run: npx cap sync android
+
+      # Derive + claim the next version (quick-261014-autover): every main push ships as
+      # v<major>.<minor>.<patch>, continuing from the highest existing v* tag (robust to a
+      # manually-pushed tag: max() sees it and we go one past it). The tag is created + pushed
+      # HERE, before the build, so versionName/versionCode baked into the APK always match the
+      # release tag. A tag pushed with GITHUB_TOKEN does NOT trigger new workflow runs, so the
+      # v* trigger on android-release.yml stays silent for automation (manual tag pushes still
+      # build through it — backward compatible).
+      #
+      # versionCode = MAJOR*10000 + MINOR*100 + PATCH — the Pitfall-5/WR-07 scheme from
+      # android-release.yml, monotonic across ascending versions (v1.6=10600 < v1.7=10700) and
+      # above every rolling-run-number versionCode the old scheme ever shipped, so no
+            # Derive + claim the next version (quick-261014-autover): every main push ships as
+      # v<major>.<minor> — the repo's own convention (v1.3 -> v1.4 -> v1.5 -> v1.6, all minor
+      # bumps). Takes the highest existing v* tag (two- or three-part; three-part compares
+      # correctly) and bumps MINOR. Robust to a manually-pushed tag: max() sees it and we go
+      # one past it. The tag is created + pushed HERE, before the build, so the versionName /
+      # versionCode baked into the APK always match the release tag. A tag pushed with
+      # GITHUB_TOKEN does NOT trigger new workflow runs, so android-release.yml's
+      # `push: tags: v*` trigger stays silent for automation (a manually-pushed v* tag still
+      # builds through it — backward compatible).
+      #
+      # versionCode = MAJOR*10000 + MINOR*100 (+0 patch) — the Pitfall-5/WR-07 scheme from
+      # android-release.yml, monotonic across ascending versions (v1.6=10600 < v1.7=10700) and
+      # above every run-number versionCode the old rolling scheme ever shipped, so no
+      # downgrade-block on update. MINOR rolls over at 99 (the encoding limit).
       - name: Roll back version tag if build failed
         if: failure()
         run: |
