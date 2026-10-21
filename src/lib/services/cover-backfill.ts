@@ -350,7 +350,9 @@ async function resolveTrackChain(
 					// CN tier, but prefer JOOX/Migu covers specifically (user: most accurate).
 					const r = await searchAll(`${qArtist} ${qTitle}`, 3, { qq: false, ytmusic: false }, signal);
 					if (signal?.aborted) return null;
-					const tracks = r.interleaved;
+					// quick-261021-cov5 (user): gdnetease + suyin seldom have good covers —
+					// exclude them from auto-resolve too, not just the picker.
+					const tracks = r.interleaved.filter((t) => t.source !== 'gdnetease' && t.source !== 'suyin');
 					// Prefer JOOX, then Migu, then dedupeBest's pick.
 					const joox = tracks.find((t) => t.source === 'joox' && t.cover);
 					if (joox?.cover) return joox.cover;
