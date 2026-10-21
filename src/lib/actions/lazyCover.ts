@@ -205,3 +205,52 @@ async function resolveCoverForRow(track: Track, onResolved: (uid: string, url: s
 		// Best-effort — a failure leaves the gradient (never a broken image, never throws).
 	}
 }
+
+// quick-261020-lzc: RESTORED the `lazyCover` action export. Tonight's batch3 (9d01ad3)
+// deleted it along with the local `probeImage` helper it was collapsing — but four call
+// sites (`use:lazyCover` in +page, CompactRow, and two more) plus lazyCover.test.ts still
+// import it, so the vite build failed with MISSING_EXPORT and the APK pipeline went red.
+// The body is byte-identical to the 9d01ad3^ version; the probe path it calls
+// (`resolveCoverForRow`) already uses the shared `probeCoverImage`, so nothing else changes.
+export const lazyCover: Action<HTMLElement, LazyCoverParam> = (node, param) => {
+	let current = param;
+	let done = false; // one-shot: a row resolves at most once
+
+	// SSR / no-IO guard, and the explicit `enabled: false` opt-out — the action is a no-op (the
+	// caller keeps whatever cover it has). Checked BEFORE the observer is built so a disabled row
+	// costs no IntersectionObserver at all, not just no fetch.
+	if (typeof IntersectionObserver === 'undefined' || param.enabled === false) {
+		return {
+			update(next: LazyCoverParam) {
+				current = next;
+			},
+			destroy() {
+				/* nothing observed — no-op */
+			}
+		};
+	}
+
+	const io = new IntersectionObserver(
+		(entries) => {
+			if (done) return;
+			if (entries[0]?.isIntersecting) {
+				done = true;
+				io.unobserve(node); // fire at most once — stop observing after the first intersection
+				void resolveCoverForRow(current.track, current.onResolved);
+			}
+		},
+		// rootMargin 200px: prefetch slightly before the row is truly on-screen for a smoother scroll
+		// (discretion — tighter than the search sentinel's 400px since covers are cheaper than a page).
+		{ root: null, rootMargin: '200px 0px' }
+	);
+	io.observe(node);
+
+	return {
+		update(next: LazyCoverParam) {
+			current = next;
+		},
+		destroy() {
+			io.disconnect();
+		}
+	};
+};
