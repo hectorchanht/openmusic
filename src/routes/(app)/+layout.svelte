@@ -197,6 +197,16 @@
 		library.load();
 		settings.load();
 
+		// quick-261021-zh1 (user): backend matching ALWAYS normalizes to Simplified (zhs).
+		// Warm the T2S/S2T dicts at startup so foldScript() never hits the cold-dict
+		// fallback (which returns the original string and causes 周杰倫 vs 周杰伦 mismatches
+		// in sameSongKey/findOfficial). Display layer (applyLock) uses the user's zhScript
+		// setting separately — backend is zhs-only, display is user-choice.
+		void import('$lib/services/zh-convert').then((m) => {
+			m.warmT2S();
+			m.warmS2T();
+		});
+
 		// quick-261020-acct: probe the account session (cookie on web, bearer on native) and,
 		// when signed in, start the cross-device sync engine. Fire-and-forget: auth must never
 		// block the shell, and anonymous use stays exactly as before (the engine no-ops).
@@ -637,7 +647,7 @@
 	.update-msg { min-width: 0; }
 	.update-btn {
 		flex: none;
-		background: var(--color-primary, #0abab5);
+		background: var(--color-primary, #7c5cff);
 		color: #fff;
 		border: none;
 		border-radius: 999px;
@@ -683,7 +693,7 @@
 	}
 	.notice-toast .retry {
 		flex: none;
-		background: var(--color-primary, #0abab5);
+		background: var(--color-primary, #7c5cff);
 		color: #fff;
 		border: none;
 		border-radius: 999px;
