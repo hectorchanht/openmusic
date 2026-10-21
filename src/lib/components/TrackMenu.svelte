@@ -1835,7 +1835,33 @@
 			<dt>{t('menu.detailFile')}</dt><dd>{localMeta ?? t('menu.detailUnknown')}</dd>
 			<dt>{t('menu.detailSource')}</dt><dd>{detailTrack.source}</dd>
 			<dt>{t('menu.detailUid')}</dt><dd class="mono">{detailTrack.uid}</dd>
+			<dt>{t('menu.detailSongId')}</dt><dd class="mono">{detailTrack.songid || '—'}</dd>
+			{#if detailTrack.songMid || detailTrack.jooxSongMid || detailTrack.qqId || detailTrack.jooxSongId}
+				<dt>{t('menu.detailSourceId')}</dt><dd class="mono break">{detailTrack.songMid || detailTrack.jooxSongMid || detailTrack.qqId || detailTrack.jooxSongId}</dd>
+			{/if}
+			{#if detailTrack.duration}
+				<dt>{t('menu.detailDuration')}</dt><dd class="mono">{Math.floor(detailTrack.duration / 60)}:{String(Math.floor(detailTrack.duration % 60)).padStart(2, '0')}</dd>
+			{/if}
+			<dt>{t('menu.detailLyrics')}</dt><dd>{detailTrack.lrc ? t('menu.detailHasLyrics') : t('menu.detailNoLyrics')}</dd>
+			{#if detailTrack.lrcUrl}
+				<dt>{t('menu.detailLyricsUrl')}</dt><dd class="mono break">{detailTrack.lrcUrl}</dd>
+			{/if}
+			{#if detailTrack.pay}
+				<dt>{t('menu.detailPaywall')}</dt><dd class="mono">{detailTrack.pay}</dd>
+			{/if}
+			{#if detailTrack.tags?.length}
+				<dt>{t('menu.detailTags')}</dt><dd>{detailTrack.tags.join(', ')}</dd>
+			{/if}
+			{#if detailTrack.keyword}
+				<dt>{t('menu.detailKeyword')}</dt><dd class="mono break">{detailTrack.keyword}</dd>
+			{/if}
+			{#if detailTrack.resolvedAt}
+				<dt>{t('menu.detailResolvedAt')}</dt><dd class="mono">{new Date(detailTrack.resolvedAt).toLocaleString()}</dd>
+			{/if}
 			<dt>{t('menu.detailAudioUrl')}</dt><dd class="mono break">{detailTrack.audioUrl || t('menu.detailNotResolved')}</dd>
+			{#if detailTrack.proxyUrl}
+				<dt>{t('menu.detailProxyUrl')}</dt><dd class="mono break">{detailTrack.proxyUrl}</dd>
+			{/if}
 			<dt>{t('menu.detailCoverUrl')}</dt><dd class="mono break">{detailTrack.cover || t('menu.detailNotResolved')}</dd>
 		</dl>
 	</div>
