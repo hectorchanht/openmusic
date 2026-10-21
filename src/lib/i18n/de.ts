@@ -434,6 +434,8 @@ const de: Dict = {
 	"menu.addToPlaylist": "Zur Playlist hinzufügen",
 	"menu.goToAlbum": "Gehe zum Album",
 	"menu.customize": "Menü anpassen",
+	"menu.resetMenu": "Menü zurücksetzen",
+	"menu.done": "Fertig",
 	"menu.goToArtist": "Gehe zum Künstler",
 	"menu.share": "Teilen",
 	"menu.details": "Details",

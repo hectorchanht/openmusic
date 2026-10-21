@@ -434,6 +434,8 @@ const ar: Dict = {
 	"menu.addToPlaylist": "أضف إلى قائمة التشغيل",
 	"menu.goToAlbum": "انتقل إلى الألبوم",
 	"menu.customize": "تخصيص القائمة",
+	"menu.resetMenu": "إعادة تعيين القائمة",
+	"menu.done": "تم",
 	"menu.goToArtist": "انتقل إلى الفنان",
 	"menu.share": "شارك",
 	"menu.details": "التفاصيل",
