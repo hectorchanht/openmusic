@@ -1,50 +1,54 @@
 <!-- quick-261021-menu7 (user): shared lyrics-timing toggle — used in the Fix lyrics
      picker (TrackMenu) and anywhere else the toggle is needed. Single source of truth
-     for the "show/hide lyrics timing" affordance; all same-function UI reuses this. -->
+     for the "show/hide lyrics timing" affordance.
+     quick-261021-menu9 (user): looks like the settings page — uses SettingPicker with
+     visual preview mockups, same as the translation settings toggles. -->
 <script lang="ts">
 	import { lyricSyncOpen, toggleLyricSyncOpen } from '$lib/stores/lyric-offset.svelte';
 	import { t } from '$lib/i18n';
-	import { Timer } from '@lucide/svelte';
-	import { tapBounce } from '$lib/actions/tapBounce';
-
-	interface Props {
-		/** Additional class for the button. */
-		class?: string;
-	}
-
-	let { class: klass = '' }: Props = $props();
+	import SettingPicker from '$lib/components/SettingPicker.svelte';
 </script>
 
-<button
-	class="mi lyrics-timing-toggle {klass}"
-	class:on={lyricSyncOpen()}
-	aria-pressed={lyricSyncOpen()}
-	onclick={toggleLyricSyncOpen}
-	use:tapBounce
->
-	<Timer size={18} />
-	{lyricSyncOpen() ? t('menu.lyricsTimingHide') : t('menu.lyricsTiming')}
-</button>
+{#snippet timingShow()}
+	<div class="mock">
+		<div class="mock-text">[00:12.34] Hello world</div>
+		<div class="mock-text dim">[00:15.67] Second line here</div>
+	</div>
+{/snippet}
+
+{#snippet timingHide()}
+	<div class="mock">
+		<div class="mock-text">Hello world</div>
+		<div class="mock-text dim">Second line here</div>
+	</div>
+{/snippet}
+
+<SettingPicker
+	variant="preview"
+	label={t('menu.lyricsTiming')}
+	options={[
+		{ v: 'show', label: t('settings.optShow'), preview: timingShow },
+		{ v: 'hide', label: t('settings.optHide'), preview: timingHide }
+	]}
+	value={lyricSyncOpen() ? 'show' : 'hide'}
+	onpick={(v) => { if ((v === 'show') !== lyricSyncOpen()) toggleLyricSyncOpen(); }}
+/>
 
 <style>
-	.lyrics-timing-toggle {
+	.mock {
 		display: flex;
-		align-items: center;
-		gap: 8px;
-		width: 100%;
-		padding: 12px 16px;
-		background: none;
-		border: none;
-		border-radius: 8px;
+		flex-direction: column;
+		gap: 4px;
+		padding: 8px;
+	}
+	.mock-text {
+		font-size: 0.75rem;
 		color: var(--color-text);
-		font-size: 0.9375rem;
-		cursor: pointer;
-		text-align: left;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
 	}
-	.lyrics-timing-toggle.on {
-		color: var(--color-accent, #1db954);
-	}
-	.lyrics-timing-toggle:active {
-		background: rgba(255, 255, 255, 0.06);
+	.mock-text.dim {
+		opacity: 0.6;
 	}
 </style>

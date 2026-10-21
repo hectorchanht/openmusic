@@ -43,6 +43,7 @@
 	import VersionPicker from '$lib/components/VersionPicker.svelte';
 	import DownloadRing from '$lib/components/DownloadRing.svelte';
 	import LyricsTimingToggle from '$lib/components/LyricsTimingToggle.svelte';
+	import MenuActionButton from '$lib/components/MenuActionButton.svelte';
 	// quick-260919-1eh: the tag-edit sheet. Same co-mount arrangement as VersionPicker above — it
 	// owns its own overlay lifecycle under a DISTINCT overlayId.
 	import MetadataEditor from '$lib/components/MetadataEditor.svelte';
@@ -1807,7 +1808,7 @@
 	<div class="menu" transition:fly={{ y: 240, duration: 200 }} use:dragClose={{ onclose: () => (pickerOpen = false) }} use:focusTrap>
 		<div class="menu-head">{t('menu.addToPlaylist')}</div>
 		{#each library.playlists as pl (pl.id)}
-			<button class="mi" onclick={() => addToPlaylist(pl.id)} use:tapBounce><ListPlus size={18} /> {pl.name} <span class="count">{pl.tracks.length}</span></button>
+			<MenuActionButton icon={ListPlus} onclick={() => addToPlaylist(pl.id)}>{pl.name} <span class="count">{pl.tracks.length}</span></MenuActionButton>
 		{/each}
 		<button class="mi accent" onclick={newPlaylist} use:tapBounce><Plus size={18} /> {t('menu.newPlaylist')}</button>
 	</div>
@@ -1827,7 +1828,7 @@
 		<p class="hint">{t('menu.removeDownloadBody')}</p>
 		<SettingToggle label={t('menu.removeDownloadDeleteFile')} checked={rmDeleteFile} onchange={() => (rmDeleteFile = !rmDeleteFile)} />
 		<div class="actions">
-			<button class="mi" onclick={() => (rmOpen = false)} use:tapBounce>{t('tags.cancel')}</button>
+			<MenuActionButton onclick={() => (rmOpen = false)}>{t('tags.cancel')}</MenuActionButton>
 			<button class="mi danger" onclick={confirmRemoveDownload} use:tapBounce><Trash2 size={18} /> {t('menu.removeDownloadAction')}</button>
 		</div>
 	</div>
@@ -1927,7 +1928,7 @@
 			<p class="cover-none">{t('menu.lyricsPickerNone')}</p>
 			<!-- D-6: Retry is shown ONLY on a dry walk — the one affordance that is not redundant with
 			     re-opening the sheet, because the sheet is already open. -->
-			<button class="mi" onclick={openLyricsPicker} use:tapBounce><Mic2 size={18} /> {t('menu.lyricsRetry')}</button>
+			<MenuActionButton icon={Mic2} onclick={openLyricsPicker}>{t('menu.lyricsRetry')}</MenuActionButton>
 		{:else}
 			{#each lyricCandidates as c (c.source)}
 				<!-- quick-260919-2jo: the preview is script-locked, the CANDIDATE is not. `pickLyrics(c.lrc)`
@@ -1952,14 +1953,14 @@
 					     after dragClose's native listener has already armed — measured in E2E.)
 					     role+aria-label = the NpLyrics precedent. -->
 					<div class="lyr-body" role="group" aria-label={t('nowplaying.lyrics')} data-no-drag>{text}</div>
-					<button class="mi" onclick={() => pickLyrics(c.lrc)} use:tapBounce><Mic2 size={18} /> {t('menu.useTheseLyrics')}</button>
+					<MenuActionButton icon={Mic2} onclick={() => pickLyrics(c.lrc)}>{t('menu.useTheseLyrics')}</MenuActionButton>
 				</div>
 			{/each}
 		{/if}
 		<!-- D-6: Use-automatic is shown ONLY when a pin exists. `readLyrics` leads with the pin and falls
 		     back to track.lrc, so "the read differs from the track's own lrc" IS "a pin exists". -->
 		{#if pinnedNow !== (track.lrc ?? null)}
-			<button class="mi" onclick={resetLyrics} use:tapBounce><Sparkles size={18} /> {t('menu.lyricsAuto')}</button>
+			<MenuActionButton icon={Sparkles} onclick={resetLyrics}>{t('menu.lyricsAuto')}</MenuActionButton>
 		{/if}
 		<!-- quick-261021-menu7 (user): shared LyricsTimingToggle — same component reused
 		     everywhere the toggle appears, not a duplicate button. -->
@@ -1980,24 +1981,22 @@
 			{@const p = dlPickProbes[v.uid]}
 			{@const meta = p ? formatDownloadMeta(p) : null}
 			{@const unavailable = p !== undefined && !p.track?.audioUrl}
-			<button class="mi" disabled={unavailable} aria-disabled={unavailable} onclick={() => pickDownload(v)} use:tapBounce>
-				<Download size={18} />
+			<MenuActionButton icon={Download} disabled={unavailable} onclick={() => pickDownload(v)}>
 				<!-- quick-261006-zh: source labels ride the tongwentang script lock like all page content. -->
 				<span class="dl-src">{names.zhLock(SOURCES[v.source]?.label ?? v.source)}</span>
 				{#if p === undefined}<span class="count skel" aria-hidden="true"></span>
 				{:else if unavailable}<span class="count">{t('menu.downloadUnavailable')}</span>
 				{:else if meta}<span class="count">{meta}</span>{/if}
-			</button>
+			</MenuActionButton>
 			<!-- quick-261020-dl320: the cheaper second row — this source's real 320k file, probed only
 			     because the main row proved the ladder exists. Tapping it downloads the 320k file. -->
 			{@const p320 = dlPickExtra[v.uid]}
 			{#if p320?.track?.audioUrl}
 				{@const meta320 = formatDownloadMeta(p320)}
-				<button class="mi" onclick={() => pickDownload(v, p320)} use:tapBounce>
-					<Download size={18} />
+				<MenuActionButton icon={Download} onclick={() => pickDownload(v, p320)}>
 					<span class="dl-src">{names.zhLock(SOURCES[v.source]?.label ?? v.source)}</span>
 					{#if meta320}<span class="count">{meta320}</span>{/if}
-				</button>
+				</MenuActionButton>
 			{/if}
 		{/each}
 		{#if dlPickLoading}
