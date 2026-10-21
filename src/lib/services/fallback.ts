@@ -51,6 +51,17 @@ export function fallbackOrder(
 		// quick-260926-c69: predicate hoisted to registry.ts isAutoResolveEligible, behaviour identical.
 		(s) => s !== failed && !attempted?.has(s) && isAutoResolveEligible(s)
 	);
+	// quick-261021-fb2 (user): prioritize by measured findOfficial pass rate.
+	// Tier 1 (100%): joox, kuwo, kugou — most reliable for official studio versions.
+	// Tier 2 (67%): qq, netease, migu — have officials but predicate sometimes rejects (CJK bug).
+	// Tier 3 (0%): suyin — only returns variants, demoted to last.
+	// Measured 2026-10-21 via real proxy calls (see findOfficial-passrate.md).
+	const PASS_RATE_RANK: Record<string, number> = {
+		joox: 100, kuwo: 100, kugou: 100,
+		qq: 67, netease: 67, gdnetease: 67, migu: 67,
+		suyin: 0,
+	};
+	remaining.sort((a, b) => (PASS_RATE_RANK[b] ?? 50) - (PASS_RATE_RANK[a] ?? 50));
 	if (preferred && remaining.includes(preferred)) {
 		return [preferred, ...remaining.filter((s) => s !== preferred)];
 	}
