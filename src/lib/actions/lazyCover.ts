@@ -154,8 +154,9 @@ async function resolveCoverForRow(track: Track, onResolved: (uid: string, url: s
 		}
 
 		// (2) An existing non-empty https cover → probe it; keep on load, repair on error (D-15).
-		// quick-261020-itn1: …except a Netease cover, which never wins outright — iTunes is tried
-		// first (same 400px display variant the chain uses) and replaces it on any hit.
+		// quick-261020-itn1 (amended): a Netease meting-pic cover is LAST resort — it never wins
+		// outright. iTunes is tried first; on an iTunes miss the FULL chain runs (QQ → Deezer →
+		// CN → YTM); the Netease URL is kept only when the chain also misses.
 		if (hasHttpsScheme(track.cover)) {
 			if (isNeteaseCover(track.cover)) {
 				const itunes = await itunesSongCover(
@@ -168,7 +169,13 @@ async function resolveCoverForRow(track: Track, onResolved: (uid: string, url: s
 					onResolved(track.uid, itunes);
 					return;
 				}
-				// iTunes miss → fall through to the Netease probe below (kept as fallback).
+				// iTunes miss → run the full chain; Netease is the fallback below.
+				const chained = await resolveCoverForTrack(track);
+				if (hasHttpsScheme(chained)) {
+					onResolved(track.uid, chained);
+					return;
+				}
+				// Chain also missed → probe the Netease URL as last resort.
 			}
 			const keep = await probeImage(track.cover);
 			if (keep) {

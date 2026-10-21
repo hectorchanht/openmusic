@@ -4583,9 +4583,10 @@ class Player {
 	 * runs off the audio critical path; playback never waits on it (T-21-07 accept).
 	 */
 	/**
-	 * quick-261020-itn1: Netease → iTunes preference for the NOW-PLAYING hero. The seeded cover is
-	 * a Netease meting-pic URL (often a placeholder); try iTunes in the background and swap on any
-	 * hit. Generation-guarded like resolveCoverAsync; never throws; iTunes miss keeps the Netease art.
+	 * quick-261020-itn1 (amended): Netease → iTunes preference for the NOW-PLAYING hero. The seeded
+	 * cover is a Netease meting-pic URL (often a placeholder); try iTunes first, then the FULL
+	 * chain (QQ → Deezer → CN → YTM); the Netease art is kept only when everything else misses.
+	 * Generation-guarded like resolveCoverAsync; never throws.
 	 */
 	private async preferItunesOverNetease(resolved: Track, myGen: number) {
 		let url: string | null = null;
@@ -4599,9 +4600,17 @@ class Player {
 		} catch {
 			url = null;
 		}
+		// iTunes miss → run the full chain before falling back to the Netease art.
+		if (!url || !hasHttpsScheme(url)) {
+			try {
+				url = await resolveCoverForTrack(resolved);
+			} catch {
+				url = null;
+			}
+		}
 		if (myGen !== this.playGen) return;
 		if (this.adoptedCoverUid === resolved.uid) return;
-		if (!url || !hasHttpsScheme(url)) return;
+		if (!url || !hasHttpsScheme(url)) return; // total miss — keep the seeded Netease art
 		this.resolvedCover = url;
 		bumpCoverVersion();
 		const ms = this.ms;
