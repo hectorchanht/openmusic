@@ -759,7 +759,11 @@ export async function collectCoverCandidates(
 			// Phase 40 D-10: qq + ytmusic have their own tiers, so each source appears exactly once.
 			const r = await searchAll(term, 1, { qq: false, ytmusic: false }, signal);
 			// Every CN result carries its own `source`, so each source is labelled for free.
-			return r.interleaved.map((t) => ({ url: t.cover ?? '', source: String(t.source) }));
+			// quick-261021-cov5 (user): gdnetease + suyin seldom have good covers — exclude
+			// them from the picker grid entirely.
+			return r.interleaved
+				.filter((t) => t.source !== 'gdnetease' && t.source !== 'suyin')
+				.map((t) => ({ url: t.cover ?? '', source: String(t.source) }));
 		})
 	]);
 

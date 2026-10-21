@@ -1764,31 +1764,25 @@
 					{@const on = editOrder.includes(id)}
 					{@const Icon = EDIT_META[id].icon}
 					{@const draggingThis = i === mDragFrom}
-					{@const isCustomize = id === 'customize'}
-					<!-- quick-261006-44v (user 2026-10-06): no Done button — the customize cell
-					     stays a pencil and is INERT in edit mode (not draggable, not toggleable,
-					     not keyboard-movable; it keeps .edit-cell.on so the drag math for the
-					     other cells stays consistent). The user finishes by closing the menu
-					     (X / scrim / back) — taps and drops already commit live, so closing
-					     auto-applies. Single button element (conditional attrs) because
-					     animate:flip requires the only child of the keyed each. -->
+					<!-- quick-261021-menu6 (user): the customize cell is now draggable like the
+					     others — no longer inert. Single button element because animate:flip
+					     requires the only child of the keyed each. -->
 					<button
 						class="gi edit-cell"
 						class:on
 						class:off={!on}
 						class:lifted={draggingThis}
 						data-id={id}
-						disabled={isCustomize}
-						aria-pressed={isCustomize ? undefined : on}
+						aria-pressed={on}
 						aria-label={t(EDIT_META[id].label)}
 						title={t(EDIT_META[id].label)}
 						style:transform={draggingThis && (mDragDx || mDragDy) ? `translate(${mDragDx}px, ${mDragDy}px)` : undefined}
-						onpointerdown={isCustomize ? undefined : (e) => mDown(e, id)}
-						onpointermove={isCustomize ? undefined : mMove}
-						onpointerup={isCustomize ? undefined : mUp}
-						onpointercancel={isCustomize ? undefined : mUp}
-						onclick={isCustomize ? undefined : () => mClick(id)}
-						onkeydown={isCustomize ? undefined : (e) => mKey(e, id)}
+						onpointerdown={(e) => mDown(e, id)}
+						onpointermove={mMove}
+						onpointerup={mUp}
+						onpointercancel={mUp}
+						onclick={() => mClick(id)}
+						onkeydown={(e) => mKey(e, id)}
 						animate:flip={{ duration: draggingThis || settings.reduceMotion ? 0 : 180 }}
 					><Icon size={22} /><span class="gi-label">{t(EDIT_META[id].label)}</span></button>
 					<!-- quick-261021-menu5 (user): divider after the 16 visible slots — rows 5+
