@@ -52,9 +52,7 @@ import { getCachedCoverByUid, getCachedCover, getPinnedCover, getCrowdCover } fr
 // Phase 40 D-14 / D-16: the crowd-shared cover pick — keys + the one GET per played song. The player
 // only READS the crowd (D-15: the TrackMenu picker tap is the only voter).
 import { coverPickKeys, fetchCoverPick } from '$lib/services/cover-pick-shared';
-import { resolveCoverForTrack, collectCoverCandidates } from '$lib/services/cover-backfill';
-import { markCoverUrlDead, unmarkCoverUrlDead } from '$lib/services/dead-cover-urls';
-import { probeCoverImage } from '$lib/services/cover-probe';
+import { resolveCoverForTrack } from '$lib/services/cover-backfill';
 import { matchKey } from '$lib/services/match-key';
 // quick-260615-hep: feed every displayed now-playing cover into the shared cache (both layers) +
 // bump the global reactive signal so other surfaces (homepage tiles) reuse the art and repaint live.
@@ -447,7 +445,7 @@ class Player {
 	 * resolveCoverAsync / healCover are untouched; this inverts the READ only. (The HQ upgrade that
 	 * also wrote it was removed in Phase 40 D-11a.)
 	 *
-	 * Pin precedence is INHERITED from readCoverByUidOrName (PIN → name → uid, quick-260915-w4f), not
+	 * Pin precedence is INHERITED from readCoverByUidOrName (PIN → uid → name, quick-260915-w4f), not
 	 * re-implemented here. That read calls coverVersion(), so anything binding this getter repaints on
 	 * every cover write, pin and eviction.
 	 *
@@ -706,8 +704,8 @@ class Player {
 			getPinnedCover(target.uid) ??
 			getCrowdCover(target.uid, target.artist, target.title) ??
 			target.cover ??
-			getCachedCover(target.artist, target.title) ??
 			(target.uid ? getCachedCoverByUid(target.uid) : null) ??
+			getCachedCover(target.artist, target.title) ??
 			null;
 		this.syncMetadata();
 		this.loading = true;
@@ -853,8 +851,8 @@ class Player {
 			getPinnedCover(track.uid) ??
 			getCrowdCover(track.uid, track.artist, track.title) ??
 			track.cover ??
-			getCachedCover(track.artist, track.title) ??
 			(track.uid ? getCachedCoverByUid(track.uid) : null) ??
+			getCachedCover(track.artist, track.title) ??
 			null;
 		this.syncMetadata();
 		this.loading = true;
@@ -1366,14 +1364,6 @@ class Player {
 	 *  which reset currentTime to 0 (visible to user as "seek restarted the song"). */
 	private lastSeekAt = 0;
 	private static SEEK_ERROR_WINDOW_MS = 1500;
-
-	/**
-	 * quick-261020-hcvr: upper bound for a cover probe Image. A CDN that hangs (neither onload nor
-	 * onerror) used to stall healCover at step (5) forever — a stall now counts as dead and the
-	 * heal proceeds. Long enough for a slow-but-alive CDN; the one-shot guard keeps a false
-	 * negative from looping (worst case: one unnecessary re-resolve per uid+url).
-	 */
-	private static HEAL_PROBE_TIMEOUT_MS = 8000;
 
 	/**
 	 * Initial-load stall watchdog (PLAY-07 / D-13, D-14). A freshly started track whose src was
@@ -4034,8 +4024,8 @@ class Player {
 			getCrowdCover(track.uid, track.artist, track.title) ??
 			this.attachedCoverFor(track) ??
 			track.cover ??
-			getCachedCover(track.artist, track.title) ??
 			(track.uid ? getCachedCoverByUid(track.uid) : null) ??
+			getCachedCover(track.artist, track.title) ??
 			null;
 		// quick-261019-cov: REJECT a null/gradient replacement. A cover-less re-entry for the SAME
 		// song — runFallback's play(swap) after the first source fails, or a same-song re-tap —
@@ -4619,47 +4609,24 @@ class Player {
 
 	/**
 	 * Probe a cover URL with new Image() — resolve true if it LOADS (keep it), false on error (treat
-	 * as broken → repair). SSR guard: when Image is undefined resolve false. Never rejects.
-	 * quick-261020-batch3: delegates to the shared probeCoverImage ($lib/services/cover-probe) —
-	 * the former 25-line twin of lazyCover's probeImage now lives in one place (still time-bounded
-	 * via timeoutMs, default HEAL_PROBE_TIMEOUT_MS).
+	 * as broken → repair). SSR guard: when Image is undefined resolve false. Never rejects. Private
+	 * 12-line twin of lazyCover's probeImage (quick-260704-20e) so the heal does NOT cross the action
+	 * boundary; mirrors the exact idiom preloadNextCover already uses (decoding/referrerPolicy).
 	 */
-	private probeCover(url: string, timeoutMs = Player.HEAL_PROBE_TIMEOUT_MS): Promise<boolean> {
-		return probeCoverImage(url, timeoutMs);
-	}
-
-	/**
-	 * quick-261020-hcvr: candidate fan-out fallback for healCover — the last resort when the shared
-	 * tier chain misses or re-offers the dead URL. Collects the full Change-cover candidate list
-	 * (own → QQ → iTunes → Deezer → other CN → YTM), re-orders iTunes FIRST — the user: "iTunes
-	 * usually have the best and accurate cover" — drops the known-dead URL, and probe-VERIFIES
-	 * every remaining candidate in parallel (each bounded by the probe timeout). Returns the first
-	 * iTunes candidate that loads, else the first live candidate of any source, else null. Never
-	 * throws; supersedence is the caller's gen check.
-	 */
-	private async firstLiveHealCandidate(track: Track, deadUrl: string): Promise<string | null> {
-		try {
-			const cands = await collectCoverCandidates(track);
-			// Stable sort: iTunes leads, every other tier keeps its dialog order.
-			const ordered = cands
-				.filter((c) => hasHttpsScheme(c.url) && c.url !== deadUrl)
-				.sort((a, b) => (b.source === 'itunes' ? 1 : 0) - (a.source === 'itunes' ? 1 : 0));
-			if (!ordered.length) return null;
-			const lives = await Promise.all(
-				ordered.map(async (c) => {
-					const alive = await this.probeCover(c.url);
-					// quick-261020-dcvr: proven-dead candidates must never shadow live art on a row;
-					// a live one clears any stale dead mark.
-					if (alive) unmarkCoverUrlDead(c.url);
-					else markCoverUrlDead(c.url);
-					return { url: c.url, source: c.source, alive };
-				})
-			);
-			const live = lives.filter((r) => r.alive);
-			return live.find((r) => r.source === 'itunes')?.url ?? live[0]?.url ?? null;
-		} catch {
-			return null;
-		}
+	private probeCover(url: string): Promise<boolean> {
+		if (typeof Image === 'undefined') return Promise.resolve(false);
+		return new Promise<boolean>((resolve) => {
+			try {
+				const img = new Image();
+				img.decoding = 'async';
+				img.referrerPolicy = 'no-referrer';
+				img.onload = () => resolve(true);
+				img.onerror = () => resolve(false);
+				img.src = url;
+			} catch {
+				resolve(false);
+			}
+		});
 	}
 
 	/**
@@ -4788,12 +4755,9 @@ class Player {
 		try {
 			// (1) The effect passes the uid it observed; a mismatch means the track already changed — bail.
 			if (!this.current || this.current.uid !== uid) return;
-			// (2) quick-261020-hcvr: probe the ACTUALLY PAINTED cover. displayCover is what the hero /
-			// Nowbar / OS media card render (pin → uid → name → resolvedCover, quick-260920-nyq); probing
-			// resolvedCover alone missed the case where the painted URL came from a cache layer it does
-			// not hold. A null/gradient cover is the resolveCoverAsync MISSING path, not here; a
-			// non-https value is not a probe target. Only a present https URL can be "dead but painted".
-			const url = this.displayCover;
+			// (2) A null/gradient cover is the resolveCoverAsync MISSING path, not here; a non-https value
+			//     is not a probe target. Only a present https URL can be "dead but painted".
+			const url = this.resolvedCover;
 			if (!hasHttpsScheme(url)) return;
 			// (3) One-shot per uid+url (mirror lazyCover's `done`): probe AT MOST once so an errored
 			//     background paint can never re-trigger an infinite re-probe loop (T-20e-02). Add BEFORE probing.
@@ -4804,14 +4768,8 @@ class Player {
 			const myGen = this.playGen;
 			const { artist, title } = this.current;
 			// (5) Probe the displayed cover. TRUE (loads fine) → do nothing, the zero-network fast path.
-			// quick-261020-dcvr: record the verdict — a dead painted URL must never shadow live
-			// cache art on a row again; a live one clears any stale dead mark.
 			const alive = await this.probeCover(url);
-			if (alive) {
-				unmarkCoverUrlDead(url);
-				return;
-			}
-			markCoverUrlDead(url);
+			if (alive) return;
 			// (6) Dead url. Bail if a newer play() superseded this heal mid-probe (T-20e-03).
 			if (myGen !== this.playGen) return;
 			// quick-260915-w4f (Q2) — THE ONE CASE THAT OVERRIDES A PIN, and it is deliberately narrow:
@@ -4826,49 +4784,20 @@ class Player {
 			// Evict BOTH cache layers (empty-uid safe — removeCoverBoth skips the shared 'uid:' slot for
 			// an empty uid) so the stale dead cover is dropped before the re-resolve re-caches.
 			removeCoverBoth(uid, artist, title);
-			// (7) Re-resolve via the SHARED tier chain (never throws; writes both cache layers
-			//     internally on a SOLID hit). Re-check the gen AFTER the await → discard a stale heal.
+			// (7) Re-resolve via the SHARED tier chain (Deezer→iTunes→CN; never throws; writes both cache
+			//     layers internally on a SOLID hit). Re-check the gen AFTER the await → discard a stale heal.
 			const fresh = await resolveCoverForTrack(this.current);
 			if (myGen !== this.playGen) return;
-			// (8) quick-261020-hcvr: commit ONLY a VERIFIED-REAL cover. The chain has no load check,
-			// and its CN tier can re-offer the EXACT url that just failed its probe (every upper tier
-			// misses → dedupeBest returns the same netease cover) — committing that re-broke the hero
-			// and the one-shot guard then blocked every later heal (the "broken cover forever" report).
-			// So a same-as-dead or probe-dead chain hit is NOT committed; it falls through to the
-			// candidate fan-out, which tries the Change-cover dialog's full list — iTunes FIRST
-			// (user: "iTunes usually have the best and accurate cover") — and takes the first
-			// candidate that actually LOADS. resolveCoverForTrack already wrote both cache layers on a
-			// chain hit — do NOT double-write that path (mirror resolveCoverAsync Site C); the
-			// candidate path writes via writeCoverBoth. A total miss evicts anything the chain
-			// re-cached and keeps the gradient — never re-commit the dead url (D-12).
-			let pick: string | null = null;
-			let chainWrote = false;
-			if (hasHttpsScheme(fresh) && fresh !== url) {
-				if (await this.probeCover(fresh)) {
-					unmarkCoverUrlDead(fresh);
-					pick = fresh;
-					chainWrote = true;
-				} else {
-					// quick-261020-dcvr: proven dead — never let it shadow live art on a row.
-					markCoverUrlDead(fresh);
-				}
-			}
-			if (!pick) {
-				pick = await this.firstLiveHealCandidate(this.current, url);
-				if (myGen !== this.playGen) return;
-			}
-			if (hasHttpsScheme(pick)) {
-				this.resolvedCover = pick;
-				if (!chainWrote) writeCoverBoth(uid, artist, title, pick);
+			// (8) Commit ONLY a SOLID https result (T-20e-01). A null/miss keeps the gradient — never
+			//     re-commit the dead url (D-12). resolveCoverForTrack already wrote both cache layers — do
+			//     NOT double-write (mirror resolveCoverAsync Site C); just bump so other tiles repaint.
+			if (hasHttpsScheme(fresh)) {
+				this.resolvedCover = fresh;
 				// quick-261008-audit: the shown cover wins everywhere — push the healed art onto the
 				// library entries too, or liked/download rows keep the dead URL at rung 2 until
 				// their own lazyCover probe repairs them one by one.
-				library.fillEntryCovers(uid, artist, title, pick);
+				library.fillEntryCovers(uid, artist, title, fresh);
 				bumpCoverVersion();
-			} else {
-				// Total miss: evict anything the chain re-cached (it writes on a hit even when the
-				// hit IS the dead url) so the dead art cannot be re-read from the cache.
-				removeCoverBoth(uid, artist, title);
 			}
 		} catch {
 			// Best-effort — a failure leaves the gradient (never a broken image, never throws).
@@ -5405,6 +5334,13 @@ class Player {
 			}
 			if (swap) {
 				logAction('fallback', { fromSource: failed.source, toSource: swap.source });
+				// quick-261020-cov1: keep the FAILED track's cover on the swap. The swap is
+				// verified the same song (isAcceptableSubstitute gate in tryFallback), but it
+				// comes from a different source with its own artwork — adopting it would make
+				// now-playing show a different cover from the list row the user tapped ("the
+				// cover of same song should have same cover"). Title/artist stay the swap's
+				// own so a variant that slipped the gate remains visible, not hidden.
+				if (failed.cover) swap.cover = failed.cover;
 				// Sync the queue slot too so next()/prev() walk the resolved track.
 				const i = this.indexOf(failed);
 				if (i >= 0) this.queue[i] = swap;

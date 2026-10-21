@@ -60,7 +60,14 @@ import { settings } from '$lib/stores/settings.svelte';
 // quick-261020-gdnt: gdnetease (GD音乐台 Netease via music-api.gdstudio.xyz)
 // sits right after netease — a second independent Netease pipe (via /api proxy,
 // no CORS). Neither disturbs the proven qq→netease→kuwo→joox floor ahead.
-export const SOURCES: Record<SourceId, SourceAdapter> = { qq, netease, gdnetease, kuwo, suyin, joox, kugou, migu, fivesing, jamendo, audius, archive, bilibili, ytmusic };
+// quick-261020-joox1: joox moves to #2 (right after qq). Hector reports JOOX has
+// the best audio quality and the most authentic (non-伴奏/同人) versions —
+// verified 2026-10-20: 給我一首歌的時間 resolves to the 魔杰座 original with a
+// 母带无损 FLAC url (206 audio/x-flac), while qijieya netease returns 同人
+// versions and suyin returns a DJ版 for the same query. Trying JOOX early in
+// the fallback walk means its authentic version wins over other pipes'
+// variant versions.
+export const SOURCES: Record<SourceId, SourceAdapter> = { qq, joox, netease, gdnetease, kuwo, suyin, kugou, migu, fivesing, jamendo, audius, archive, bilibili, ytmusic };
 
 /**
  * The enabled adapters for a search fan-out. Precedence (highest first):

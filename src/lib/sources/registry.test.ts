@@ -13,11 +13,11 @@ import { makeUid, type SourceId } from './types';
 // registry at #3 so restoring it is a one-literal move if the cert is renewed.
 const EXPECTED_KEYS: SourceId[] = [
 	'qq',
+	'joox',
 	'netease',
 	'gdnetease',
 	'kuwo',
 	'suyin',
-	'joox',
 	'kugou',
 	'migu',
 	'fivesing',
