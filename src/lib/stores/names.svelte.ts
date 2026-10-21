@@ -438,11 +438,15 @@ class Names {
 		// quick-261020-lyr11 (user): dnArtist goes through zhScript ONLY when the
 		// Translation Targets → Artist translation is ON. If OFF, return the ORIGINAL
 		// text as-is — do NOT use the (translated) alias.
+		// quick-261020-lyr12 (user): Translation target OVERSHADOWS Chinese script.
+		// The alias is Chinese — only use it when target is Chinese (zh-Hant/zh-Hans).
+		// For other targets (e.g. Japanese), skip the alias and translate to target.
 		const target = effectiveTarget(settings.artistLang);
 		if (target === 'off') {
 			return text;
 		}
-		const a = this.aliasArtist(text);
+		const isChineseTarget = target === 'zh-Hant' || target === 'zh-Hans';
+		const a = isChineseTarget ? this.aliasArtist(text) : null;
 		return a !== null
 			? this.applyLock(a)
 			: this.resolve(text, target, settings.artistSkip);
@@ -454,11 +458,14 @@ class Names {
 	dnTitle(text: string, artist?: string): string {
 		// quick-261020-lyr11 (user): dnTitle goes through zhScript ONLY when the
 		// Translation Targets → Title translation is ON. If OFF, return ORIGINAL as-is.
+		// quick-261020-lyr12 (user): Translation target OVERSHADOWS Chinese script —
+		// only use the Chinese alias when target is Chinese.
 		const target = effectiveTarget(settings.titleLang);
 		if (target === 'off') {
 			return text;
 		}
-		const a = this.aliasTitle(text, artist);
+		const isChineseTarget = target === 'zh-Hant' || target === 'zh-Hans';
+		const a = isChineseTarget ? this.aliasTitle(text, artist) : null;
 		return a !== null
 			? this.applyLock(a)
 			: this.resolve(text, target, settings.titleSkip);
