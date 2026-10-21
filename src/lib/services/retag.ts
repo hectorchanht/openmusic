@@ -72,6 +72,10 @@ export interface RetagEntry {
  *  - `verify-failed`     the tagged bytes did not parse back — never written (Pitfall 10)
  *  - `put-failed`        the write itself failed (disk full, IDB error, or a refused/failed
  *                        in-place rewrite of an imported file)
+ *  - `denied`            quick-261020-rtg: Android refused the in-place write (no batch grant and
+ *                        the per-file consent was denied/dismissed). The file was NOT touched —
+ *                        a separate bucket from `put-failed` so the QUEUE can pause and re-batch
+ *                        consent instead of marching on into the next file's dialog.
  *  - `device-skipped`    quick-260919-ejm: an imported `device:` file on a platform that CANNOT
  *                        write in place — the web build, or Android below API 29. NOT a refusal
  *                        on principle any more; on a capable device an imported file is tagged
@@ -86,13 +90,18 @@ export type RetagItemResult =
 	| 'no-fields'
 	| 'error'
 	| 'verify-failed'
+	| 'denied'
 	| 'put-failed';
 
-/** Truthful batch outcome: `tagged + every skipped bucket === total`. */
+/** Truthful batch outcome: `tagged + every skipped bucket === total`.
+ *
+ * quick-261020-rtg: `denied-batch` is a QUEUE-level bucket, not a per-file one — `retagOne` never
+ * returns it. It counts device entries dropped up front (or mid-run) when the batch consent was
+ * denied, so the report stays truthful about files the batch never attempted. */
 export interface RetagReport {
 	total: number;
 	tagged: number;
-	skipped: Partial<Record<Exclude<RetagItemResult, 'tagged'>, number>>;
+	skipped: Partial<Record<Exclude<RetagItemResult, 'tagged'>, number>> & { 'denied-batch'?: number };
 }
 
 /**
@@ -195,6 +204,11 @@ export async function retagOne(entry: RetagEntry): Promise<RetagItemResult> {
 			// into, so the honest answer is the skipped bucket, not a failure. Everything else that
 			// is not 'ok' left the file either untouched or replayable, and reads as a failed write.
 			if (wrote === 'unsupported') return 'device-skipped';
+			// quick-261020-rtg: a consent denial is terminal for THIS file but recoverable for the
+			// batch — the queue pauses and re-batches consent on it, so it must not collapse into
+			// 'put-failed'. (The metadata editor maps it to its normal failure message; single
+			// call, no loop — its per-file dialog stays legitimate there.)
+			if (wrote === 'denied') return 'denied';
 			if (wrote !== 'ok') return 'put-failed';
 		} else {
 			// The extension comes from the SNIFFED container, not from a URL — the stored Track's

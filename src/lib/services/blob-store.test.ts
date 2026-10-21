@@ -1041,9 +1041,9 @@ describe('blob-store — overwriteDeviceFile reject-code contract (quick-260919-
 		);
 	});
 
-	it('rung 7: a `denied` reject is failed, and clears the journal and the temp', async () => {
+	it('rung 7: a `denied` reject is denied (quick-261020-rtg), and clears the journal and the temp', async () => {
 		writeInPlace.mockRejectedValueOnce(new Error('denied'));
-		await expect(overwriteDeviceFile('device:42', realAudio())).resolves.toBe('failed');
+		await expect(overwriteDeviceFile('device:42', realAudio())).resolves.toBe('denied');
 		expect(pending()).toEqual({});
 		expect(deleteFile).toHaveBeenCalledWith(
 			expect.objectContaining({ path: 'retag-tmp/device_42' })

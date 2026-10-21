@@ -246,8 +246,11 @@ function clearStoredDir(uid: string): void {
 // file. The journal below plus the retained temp file are the recovery: the next `overwriteDeviceFile`
 // or the next Settings -> Downloads visit re-streams the complete temp over it. Named, not hidden.
 
-/** quick-260919-ejm: `'ok'` wrote the file; `'unsupported'` cannot here; `'failed'` did not write. */
-export type DeviceWriteResult = 'ok' | 'unsupported' | 'failed';
+/** quick-260919-ejm: `'ok'` wrote the file; `'unsupported'` cannot here; `'failed'` did not write.
+ * quick-261020-rtg: `'denied'` — Android (or the user) refused write access and NOTHING was
+ * written. A separate discriminant from `'failed'` so the retag queue can re-batch consent
+ * instead of marching on into per-file dialogs. */
+export type DeviceWriteResult = 'ok' | 'unsupported' | 'failed' | 'denied';
 
 /** Optional MediaStore column values + the precondition size, all from the one caller (retagOne). */
 export interface DeviceWriteMeta {
@@ -263,10 +266,12 @@ export interface DeviceWriteMeta {
 // source. Bounded and cleared wholesale on overflow — prewarm.ts's MAX_TRACKED_UIDS idiom: losing
 // an entry costs one un-replayed repair, which is cheaper than an LRU nobody will maintain.
 //
-// ponytail: replay is LAZY — it runs at the top of the next `overwriteDeviceFile` and on the
-// Settings -> Downloads mount, and nowhere else. NO app-boot hook, because a file write in the app
-// shell's mount is exactly the class of automatic write this codebase has spent three tasks keeping
-// out. Upgrade path if device UAT shows a truncated file lingers too long: call
+// ponytail: replay is LAZY — it runs at the top of the next `overwriteDeviceFile`, and nowhere
+// else. NO app-boot hook and (quick-261020-rtg) no Settings -> Downloads mount call either,
+// because a file write in the app shell's mount is exactly the class of automatic write this
+// codebase has spent three tasks keeping out — and an eager replay can pop a per-file system
+// consent dialog with no batch consent in place. The lazy replay always runs behind the retag
+// queue's consent gate. Upgrade path if device UAT shows a truncated file lingers too long: call
 // `replayPendingDeviceWrites()` from the `(app)` layout's existing mount.
 const PENDING_KEY = 'openmusic:retag-pending:v1';
 const MAX_PENDING = 20;
@@ -349,11 +354,14 @@ function rejectCode(e: unknown): 'unsupported' | 'precheck' | 'denied' | 'io' {
 /**
  * Finish any write that was interrupted, from its temp file. Never throws, never rejects.
  *
- * Called at the top of `overwriteDeviceFile` and from the Settings -> Downloads mount. The bridge
- * call carries NO `expectedBytes`: after a partial write the row's size no longer matches the
- * original by definition, so the precondition that protects a FRESH write would block the repair.
- * The completeness check that replaces it is the stat below — the temp must still be exactly the
- * size the journal recorded, or it is not a recovery source and the entry is dropped.
+ * Called at the top of `overwriteDeviceFile` — and ONLY there (quick-261020-rtg: the Settings ->
+ * Downloads mount used to call it eagerly, but an eager replay can pop a per-file system consent
+ * dialog with no batch consent in place, so recovery is lazy-only now, behind the retag queue's
+ * consent gate). The bridge call carries NO `expectedBytes`: after a partial write the row's size
+ * no longer matches the original by definition, so the precondition that protects a FRESH write
+ * would block the repair. The completeness check that replaces it is the stat below — the temp
+ * must still be exactly the size the journal recorded, or it is not a recovery source and the
+ * entry is dropped.
  */
 export async function replayPendingDeviceWrites(): Promise<void> {
 	try {
@@ -479,6 +487,14 @@ export async function overwriteDeviceFile(uid: string, blob: Blob, meta: DeviceW
 		// `denied` all mean nothing was written, so the journal entry and the temp are dead weight
 		// that would replay a write which was correctly refused.
 		const code = rejectCode(e);
+		// quick-261020-rtg: a consent denial is NOT a failed write — it must surface as its own
+		// discriminant so the retag queue can pause and re-batch consent (instead of collapsing
+		// into 'failed' and marching on to the next file's per-file dialog).
+		if (code === 'denied') {
+			clearPending(uid);
+			await deleteTemp(uid);
+			return 'denied';
+		}
 		if (code === 'io') return 'failed';
 		clearPending(uid);
 		await deleteTemp(uid);

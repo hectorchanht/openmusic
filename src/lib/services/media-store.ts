@@ -82,12 +82,17 @@ export interface MediaStoreSaverPlugin {
 	 * `content://media/...` URIs (from `deviceContentUri(uid)`), and Android shows a single
 	 * "Allow OpenMusic to modify N audio files?" dialog. One tap instead of hundreds.
 	 *
-	 * Resolves `{ granted: true }` on Allow, `{ granted: false }` on deny/dismiss, on API < 29,
-	 * or when there is nothing to ask for. Never rejects — the caller treats `false` as "skip the
-	 * device files", not as an error. The grant covers subsequent `writeInPlace` calls for these
-	 * URIs; the per-file consent rung stays as the safety net for files added after the batch.
+	 * quick-261020-rtg: `count` is the JS side's own uri count, and the resolve echoes it back.
+	 * The caller only trusts `granted` when the echoed `count` matches — a bridge that dropped
+	 * the array must not read as consent for the files it never covered.
+	 *
+	 * Resolves `{ granted: true, count }` on Allow, `{ granted: false, count }` on deny/dismiss,
+	 * on API < 30, or when the launcher is unavailable. Rejects `precheck:*` when the array is
+	 * missing/empty or its size disagrees with `count` (fail-loud — the caller treats it as a
+	 * deny). The grant covers subsequent `writeInPlace` calls for these URIs; the per-file
+	 * consent rung stays as the safety net for files added after the batch.
 	 */
-	requestBatchWriteConsent(opts: { uris: string[] }): Promise<{ granted: boolean }>;
+	requestBatchWriteConsent(opts: { uris: string[]; count: number }): Promise<{ granted: boolean; count: number }>;
 	/**
 	 * Delete the MediaStore entry previously created by `saveToMusic` (the `uri` it returned).
 	 * Resolves even when the entry is already absent (the plugin swallows not-found).
@@ -134,6 +139,10 @@ export const MediaStoreSaver = registerPlugin<MediaStoreSaverPlugin>('MediaStore
  * consent dialog. Returns true when the user allowed (or there was nothing to ask — web build,
  * empty list, or all URIs unresolvable). Returns false on deny/dismiss or bridge failure.
  *
+ * quick-261020-rtg: `granted` is only trusted when the echoed `count` matches the sent uri count —
+ * a bridge that dropped the array must not read as consent for the files it never covered (that
+ * mismatch is exactly what produced one per-file dialog per remaining file after an APK update).
+ *
  * Call this BEFORE a bulk device-file rewrite (the retag queue) so the per-file consent rung never
  * fires mid-loop. A `false` means "do not enqueue the device files" — not "ask per file".
  */
@@ -142,8 +151,8 @@ export async function requestDeviceWriteConsent(uids: string[]): Promise<boolean
 	const uris = uids.map((u) => deviceContentUri(u)).filter((u): u is string => !!u);
 	if (uris.length === 0) return true;
 	try {
-		const r = await MediaStoreSaver.requestBatchWriteConsent({ uris });
-		return !!r?.granted;
+		const r = await MediaStoreSaver.requestBatchWriteConsent({ uris, count: uris.length });
+		return !!r?.granted && r?.count === uris.length;
 	} catch {
 		return false;
 	}

@@ -468,6 +468,10 @@ class MediaStoreSaverPlugin : Plugin() {
      *  stray overlap resolves instead of hanging. */
     private var pendingBatchCallbackId: String? = null
 
+    /** quick-261020-rtg: the uri count parked alongside the batch dialog, echoed back in the
+     *  resolve so the JS side can verify the bridge delivered the whole array (fail-loud). */
+    private var pendingBatchCount: Int = 0
+
     override fun load() {
         // quick-260919-ejm: registration MUST happen before the host activity is STARTED, which is
         // what `load()` guarantees and a lazy first-use registration would not. Wrapped because a
@@ -650,12 +654,17 @@ class MediaStoreSaverPlugin : Plugin() {
      * consent for files the app does not own is not a thing Android offers — this batching is the
      * legitimate fix.
      *
-     * Params: `uris` (JSArray of strings). Every entry must be a `content://media/...` URI — the
-     * same T-ejm-01 discipline as `writeInPlace` rung 1; anything else rejects the whole call.
-     * Resolves `{ granted: true }` when the user allowed, `{ granted: false }` on deny/dismiss, on
-     * API < 30, when the launcher is unavailable, or when there is nothing to ask for (empty list
-     * resolves granted — no dialog needed). Never rejects: the caller treats `false` as "skip the
-     * device files", not as an error.
+     * Params: `uris` (JSArray of strings) + `count` (the JS side's uri count). Every entry must
+     * be a `content://media/...` URI — the same T-ejm-01 discipline as `writeInPlace` rung 1;
+     * anything else rejects the whole call. Resolves `{ granted: true, count }` when the user
+     * allowed, `{ granted: false, count }` on deny/dismiss, on API < 30, or when the launcher is
+     * unavailable. quick-261020-rtg: an empty list, a missing array, or `uris.size != count`
+     * REJECTS `precheck:batch-empty` instead of resolving — the old "empty resolves granted"
+     * shortcut read as consent for files the dialog never covered. The JS side always sends
+     * `count` and early-returns on empty itself, so a mismatch is a bridge fault. `count` is
+     * echoed on every resolve so the caller verifies the whole batch arrived. A `precheck:*`
+     * reject means "nothing was asked" — the caller treats it like a deny (skip the device
+     * files), never as a per-file fallback.
      *
      * The grant covers subsequent `writeInPlace` calls for these URIs, so the per-file consent rung
      * in `performWriteInPlace` stops firing for them. It stays as the safety net for files added
@@ -664,6 +673,12 @@ class MediaStoreSaverPlugin : Plugin() {
     @PluginMethod
     fun requestBatchWriteConsent(call: PluginCall) {
         val urisJson = call.getArray("uris")
+        // quick-261020-rtg: FAIL-LOUD batch. The old "empty resolves granted=true" shortcut became
+        // a lie the day a bridge could drop the array — an empty resolve reads as consent for N
+        // files and the per-file rung then fires per file (the 531-dialogs bug). The JS side
+        // always sends `count` and early-returns on an empty list itself, so an empty/short/missing
+        // array here is a bridge fault, never a legitimate "nothing to ask".
+        val count = call.getInt("count") ?: -1
         val uris = mutableListOf<Uri>()
         if (urisJson != null) {
             for (i in 0 until urisJson.length()) {
@@ -676,14 +691,14 @@ class MediaStoreSaverPlugin : Plugin() {
                 uris.add(uri)
             }
         }
-        if (uris.isEmpty()) {
-            call.resolve(JSObject().put("granted", true))
+        if (uris.isEmpty() || uris.size != count) {
+            call.reject("precheck:batch-empty")
             return
         }
         // `MediaStore.createWriteRequest` is API 30 (R). API 29 has no batch write-request API —
         // the per-file `writeInPlace` consent stays the honest fallback there.
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
-            call.resolve(JSObject().put("granted", false))
+            call.resolve(JSObject().put("granted", false).put("count", uris.size))
             return
         }
         val sender = try {
@@ -693,17 +708,19 @@ class MediaStoreSaverPlugin : Plugin() {
         }
         val launcher = writeConsentLauncher
         if (sender == null || launcher == null) {
-            call.resolve(JSObject().put("granted", false))
+            call.resolve(JSObject().put("granted", false).put("count", uris.size))
             return
         }
         try {
             bridge.saveCall(call)
             pendingBatchCallbackId = call.callbackId
+            pendingBatchCount = uris.size
             launcher.launch(IntentSenderRequest.Builder(sender).build())
         } catch (t: Exception) {
             pendingBatchCallbackId = null
+            pendingBatchCount = 0
             bridge.releaseCall(call)
-            call.resolve(JSObject().put("granted", false))
+            call.resolve(JSObject().put("granted", false).put("count", uris.size))
         }
     }
 
@@ -713,10 +730,17 @@ class MediaStoreSaverPlugin : Plugin() {
         val batchId = pendingBatchCallbackId
         if (batchId != null) {
             pendingBatchCallbackId = null
+            // quick-261020-rtg: echo the parked count so the JS side verifies the whole batch.
+            val batchCount = pendingBatchCount
+            pendingBatchCount = 0
             val call = bridge.getSavedCall(batchId)
             if (call != null) {
                 bridge.releaseCall(call)
-                call.resolve(JSObject().put("granted", result.resultCode == Activity.RESULT_OK))
+                call.resolve(
+                    JSObject()
+                        .put("granted", result.resultCode == Activity.RESULT_OK)
+                        .put("count", batchCount)
+                )
             }
             return
         }
