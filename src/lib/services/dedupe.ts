@@ -445,6 +445,10 @@ export function rankByArtistExactness(tracks: Track[], artist: string, aliases: 
 export function dedupeBest(tracks: Track[], preferred?: SourceId): Track[] {
 	const order: string[] = [];
 	const winner = new Map<string, Track>();
+	// quick-261021-cov2 (user): track all variants per key for best-cover picking.
+	// JOOX/Migu have the most accurate covers; prefer theirs during search so the
+	// list shows the right cover on first load (not just after Now Playing self-heal).
+	const variants = new Map<string, Track[]>();
 	for (const t of tracks) {
 		const k = key(t);
 		if (!k || k === '|') {
@@ -456,8 +460,29 @@ export function dedupeBest(tracks: Track[], preferred?: SourceId): Track[] {
 		if (!winner.has(k)) {
 			order.push(k);
 			winner.set(k, t);
+			variants.set(k, [t]);
 		} else {
+			variants.get(k)!.push(t);
 			winner.set(k, better(winner.get(k)!, t, preferred));
+		}
+	}
+	// Pick best cover from variants (JOOX > Migu > others).
+	// quick-261021-cov2: even if winner HAS a cover, prefer JOOX/Migu's — they are
+	// the most accurate. This fixes wrong covers on first load.
+	const COVER_PREF: SourceId[] = ['joox', 'migu', 'qq', 'netease', 'kuwo'];
+	for (const k of order) {
+		const w = winner.get(k);
+		if (!w) continue;
+		const vars = variants.get(k) || [];
+		// If winner is already from a preferred source, keep its cover.
+		const wRank = COVER_PREF.indexOf(w.source);
+		for (const src of COVER_PREF) {
+			if (wRank !== -1 && COVER_PREF.indexOf(src) >= wRank) break;
+			const v = vars.find((t) => t.source === src && t.cover);
+			if (v && v.cover !== w.cover) {
+				winner.set(k, { ...w, cover: v.cover });
+				break;
+			}
 		}
 	}
 	return order.map((k) => winner.get(k)!).filter(Boolean);

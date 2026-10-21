@@ -152,9 +152,9 @@ async function tryOneSource(
 	try {
 		// quick-261021-fb1 (user): limit 1 was too aggressive — a source's top hit is often
 		// a Live/DJ/instrumental variant that findOfficial rejects, marking the source as
-		// failed even though the official studio version is at #2 or #3. Fetch 5 and let
-		// findOfficial pick the right one.
-		const result = await searchAll(query, 5, onlySource(src), signal);
+		// failed even though the official studio version is at #2 or #3. Fetch 8 and let
+		// findOfficial pick the right one. Parallel race keeps it fast.
+		const result = await searchAll(query, 8, onlySource(src), signal);
 		if (signal.aborted) return null;
 		const candidates = dedupeBest(result.interleaved, src);
 		// WR-06: a fuzzy upstream search can return a DIFFERENT song; adopting candidates[0]
