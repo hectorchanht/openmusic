@@ -340,7 +340,9 @@ class Names {
 	 *    the lock gets the last word rather than us arbitrating.
 	 */
 	private resolve(text: string, target: string, whitelist: readonly string[]): string {
-		return this.applyLock(this.resolveTranslated(text, target, whitelist));
+		// quick-261020-lyr5 (user): Chinese Script (zhScript) is for LYRICS ONLY.
+		// Artist/title names must NOT go through applyLock — return the translation as-is.
+		return this.resolveTranslated(text, target, whitelist);
 	}
 
 	/**

@@ -264,35 +264,6 @@
 						<button class="chip" class:on={TARGET[part.key]() === l.v} onclick={() => setTarget(part.key, l.v)} use:tapBounce>{langLabel(l.v)}</button>
 					{/each}
 				</div>
-				<!-- quick-261020-lyr7 (user): LYRICS TRANSLATE MODE lives INSIDE the Lyrics
-				     translation tab (not a separate section). Only shows when Lyrics target is ON. -->
-				{#if part.key === 'lyrics' && TARGET.lyrics() !== 'off'}
-					<div class="modemode">
-						<p class="sublabel"><Replace size={13} /> {t('settings.lyricsTranslateMode')}</p>
-						<SettingPicker
-							variant="preview"
-							label={t('settings.lyricsTranslateMode')}
-							options={[
-								{ ...modeOptions[0], preview: modeReplace },
-								{ ...modeOptions[1], preview: modeBelow }
-							]}
-							value={settings.translateMode}
-							onpick={setMode}
-						/>
-						<SettingToggle
-							label={t('settings.lyricsHideParenTranslation')}
-							checked={settings.lyricsHideParenTranslation}
-							onchange={() => { settings.lyricsHideParenTranslation = !settings.lyricsHideParenTranslation; settings.save(); }}
-							hint={t('settings.lyricsHideParenTranslationNote')}
-						/>
-						<SettingToggle
-							label={t('settings.lyricsHideParenLines')}
-							checked={settings.lyricsHideParenLines}
-							onchange={() => { settings.lyricsHideParenLines = !settings.lyricsHideParenLines; settings.save(); }}
-							hint={t('settings.lyricsHideParenLinesNote')}
-						/>
-					</div>
-				{/if}
 				{#if part.skip}
 					<div class="skip" class:disabled={TARGET[part.key]() === 'off'}>
 						<p class="sublabel">{t('settings.skipLanguages')}<SettingHint label={t('settings.skipLanguages')} text={t('settings.skipLanguagesNote')} /></p>
@@ -306,6 +277,45 @@
 			{/if}
 		{/if}
 	</div>
+</section>
+
+<!-- quick-261020-lyr8 (user): LYRICS TRANSLATE MODE sits BELOW the TRANSLATION TARGETS
+     section (tied to the Lyrics translation tab). Shows only when Lyrics target is ON. -->
+{#if settings.lyricsLang !== 'off'}
+<hr class="div" />
+
+<section>
+	<h2><Replace size={15} /> {t('settings.lyricsTranslateMode')}<SettingHint label={t('settings.lyricsTranslateMode')} text={t('settings.translateModeNote')} /></h2>
+	<SettingPicker
+		variant="preview"
+		label={t('settings.lyricsTranslateMode')}
+		options={[
+			{ ...modeOptions[0], preview: modeReplace },
+			{ ...modeOptions[1], preview: modeBelow }
+		]}
+		value={settings.translateMode}
+		onpick={setMode}
+	/>
+</section>
+{/if}
+
+<!-- quick-261020-lyr9 (user): the two Hide parenthesised toggles are ALWAYS visible,
+     not gated on Lyrics translation. -->
+<hr class="div" />
+
+<section>
+	<SettingToggle
+		label={t('settings.lyricsHideParenTranslation')}
+		checked={settings.lyricsHideParenTranslation}
+		onchange={() => { settings.lyricsHideParenTranslation = !settings.lyricsHideParenTranslation; settings.save(); }}
+		hint={t('settings.lyricsHideParenTranslationNote')}
+	/>
+	<SettingToggle
+		label={t('settings.lyricsHideParenLines')}
+		checked={settings.lyricsHideParenLines}
+		onchange={() => { settings.lyricsHideParenLines = !settings.lyricsHideParenLines; settings.save(); }}
+		hint={t('settings.lyricsHideParenLinesNote')}
+	/>
 </section>
 
 <hr class="div" />
