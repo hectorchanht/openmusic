@@ -226,7 +226,7 @@ const mymemoryTranslate: Provider = async (text, appTo) => {
 	else if (/[一-鿿]/.test(text)) from = 'zh-CN';
 	if (from === to) return null;
 	try {
-		const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${from}|${to}`;
+		const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${from}%7C${to}`;
 		const res = await fetch(url, { signal: AbortSignal.timeout(TIMEOUT_MS) });
 		if (!res.ok) return null;
 		const data = (await res.json()) as {
