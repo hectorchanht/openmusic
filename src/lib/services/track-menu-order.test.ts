@@ -53,9 +53,17 @@ describe('MENU_ACTIONS', () => {
 });
 
 describe('normalizeMenuOrder', () => {
-	it('keeps a complete saved order as-is (user reordered)', () => {
+	it('keeps a complete saved order as-is except download/like pinned (user reordered)', () => {
+		// quick-261020-menu1: download is ALWAYS 3rd, like ALWAYS 4th — the saved order
+		// is preserved except those two are moved to their pinned slots.
 		const saved = [...MENU_ACTIONS].reverse() as MenuActionId[];
-		expect(normalizeMenuOrder(saved)).toEqual(saved);
+		const out = normalizeMenuOrder(saved);
+		expect(out[2]).toBe('download');
+		expect(out[3]).toBe('like');
+		// All other ids preserved in their saved relative order.
+		const restSaved = saved.filter((id) => id !== 'download' && id !== 'like');
+		const restOut = out.filter((id) => id !== 'download' && id !== 'like');
+		expect(restOut).toEqual(restSaved);
 	});
 
 	it('drops unknown ids', () => {

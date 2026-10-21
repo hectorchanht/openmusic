@@ -122,5 +122,13 @@ export function normalizeMenuOrder(saved: unknown): MenuActionId[] {
 			kept.splice(Math.min(MENU_ACTIONS.indexOf(id), kept.length), 0, id);
 		}
 	}
+	// quick-261020-menu1 (user): download is ALWAYS 3rd, like is ALWAYS 4th — first row,
+	// last two columns (top right). Enforce on the normalized order so the arrangement is
+	// identical everywhere the menu is triggered, regardless of saved customization.
+	for (const [id, pos] of [['download', 2], ['like', 3]] as const) {
+		const i = kept.indexOf(id);
+		if (i >= 0) kept.splice(i, 1);
+		kept.splice(pos, 0, id);
+	}
 	return kept;
 }
