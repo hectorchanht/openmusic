@@ -52,6 +52,12 @@ export interface MediaStoreSaverPlugin {
 	 * Blank or absent SKIPS that check — the replay path only, where a partial write means the size
 	 * no longer matches by definition.
 	 *
+	 * quick-261020-rtg: `expectedHash` is the SHA-256 content fingerprint of the ORIGINAL bytes
+	 * (see `contentFingerprint` in blob-store.ts) — the rung-3 tripwire that survives re-encodes
+	 * and size collisions. Same string-surface convention as `expectedBytes`; omitted when
+	 * unavailable, and never carried by the replay path (after a partial write the content differs
+	 * by definition).
+	 *
 	 * `title` / `artist` / `album` update the MediaStore columns best-effort AFTER the bytes land
 	 * (D-8: the phone's music app renders the columns, not the tags). A failed column update still
 	 * resolves — the bytes are already on disk.
@@ -70,6 +76,7 @@ export interface MediaStoreSaverPlugin {
 		uri: string;
 		sourcePath: string;
 		expectedBytes?: string;
+		expectedHash?: string;
 		title?: string;
 		artist?: string;
 		album?: string;

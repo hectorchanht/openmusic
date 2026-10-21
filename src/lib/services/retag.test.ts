@@ -32,7 +32,11 @@ const mocks = vi.hoisted(() => {
 		// the two a uid reaches is the entire contract these tests exist to pin.
 		overwriteDeviceFile: vi.fn(
 			async (_uid: string, _blob: Blob, _meta?: unknown): Promise<'ok' | 'unsupported' | 'failed'> => 'ok'
-		)
+		),
+		// quick-261020-rtg: the content fingerprint retagOne passes as expectedHash. Mocked (the
+		// real sampling contract is pinned in blob-store.test.ts) — these tests pin the WIRING:
+		// called with the ORIGINAL blob, passed through to the bridge meta, omitted when null.
+		contentFingerprint: vi.fn(async (_blob: Blob): Promise<string | null> => 'fp-mock')
 	};
 });
 
@@ -48,7 +52,8 @@ vi.mock('$lib/services/blob-store', () => ({
 	},
 	getStoredName: mocks.getStoredName,
 	setStoredName: mocks.setStoredName,
-	overwriteDeviceFile: mocks.overwriteDeviceFile
+	overwriteDeviceFile: mocks.overwriteDeviceFile,
+	contentFingerprint: mocks.contentFingerprint
 }));
 vi.mock('./blob-store', () => ({
 	blobStore: {
@@ -59,7 +64,8 @@ vi.mock('./blob-store', () => ({
 	},
 	getStoredName: mocks.getStoredName,
 	setStoredName: mocks.setStoredName,
-	overwriteDeviceFile: mocks.overwriteDeviceFile
+	overwriteDeviceFile: mocks.overwriteDeviceFile,
+	contentFingerprint: mocks.contentFingerprint
 }));
 // quick-260919-0mw: spread the REAL module so `albumTag` (a pure string helper retag now calls) is
 // present — only the two codec entry points are stubbed.
@@ -98,6 +104,7 @@ beforeEach(() => {
 	mocks.getStoredName.mockClear();
 	mocks.setStoredName.mockClear();
 	mocks.overwriteDeviceFile.mockReset().mockResolvedValue('ok');
+	mocks.contentFingerprint.mockReset().mockResolvedValue('fp-mock');
 });
 
 describe('retag — per-file isolation (36-D-19)', () => {
@@ -172,7 +179,9 @@ describe('retag — never writes what it should not (36-D-18 scope + Pitfall 10)
 		const report = await retagDownloads([entry(1)]);
 		expect(report).toEqual({ total: 1, tagged: 0, skipped: { 'skipped-size': 1 } });
 		expect(mocks.put).not.toHaveBeenCalled();
-		expect(mocks.readAudioTags).not.toHaveBeenCalled();
+		// quick-261020-rtg: called ONCE — the compare-before-write skip check. The verify round
+		// trip never runs when the codec declines.
+		expect(mocks.readAudioTags).toHaveBeenCalledTimes(1);
 	});
 
 	it('"unknown-container" passes straight through as its own bucket', async () => {
@@ -443,7 +452,9 @@ describe('retag — the device fork (quick-260919-ejm)', () => {
 		expect(await retagOne(dev())).toBe('tagged');
 		expect(mocks.get).toHaveBeenCalledWith('device:4711');
 		expect(mocks.tagAudioBlob).toHaveBeenCalledTimes(1);
-		expect(mocks.readAudioTags).toHaveBeenCalledTimes(1);
+		// quick-261020-rtg: twice now — the compare-before-write skip check, then the
+		// verify-before-write round trip.
+		expect(mocks.readAudioTags).toHaveBeenCalledTimes(2);
 	});
 
 	// THE inverse of the 1eh bug, asserted directly.
@@ -463,7 +474,9 @@ describe('retag — the device fork (quick-260919-ejm)', () => {
 		const [uid, blob, meta] = mocks.overwriteDeviceFile.mock.calls[0];
 		expect(uid).toBe('device:4711');
 		expect(blob).toBe(tagged);
-		expect(meta).toEqual({ title: 'T1', artist: 'A1', album: 'Al1', expectedBytes: 4711 });
+		// quick-261020-rtg: the fingerprint of the ORIGINAL bytes rides alongside the size.
+		expect(mocks.contentFingerprint).toHaveBeenCalledWith(original);
+		expect(meta).toEqual({ title: 'T1', artist: 'A1', album: 'Al1', expectedBytes: 4711, expectedHash: 'fp-mock' });
 	});
 
 	it("'ok' is 'tagged', and it evicts the local-tags memo for that uid", async () => {
@@ -517,11 +530,18 @@ describe('retag — the device fork (quick-260919-ejm)', () => {
 
 	// Ladder rung 2: unparseable bytes never reach a file descriptor.
 	it('rung 2: verify-before-write still gates the device path', async () => {
-		mocks.readAudioTags.mockResolvedValueOnce(null);
+		// quick-261020-rtg: the FIRST readAudioTags call is now the compare-before-write skip
+		// check — the nulls/wrong-titles below target the VERIFY call (second), so each case
+		// opens with a parseable, non-matching first read.
+		mocks.readAudioTags
+			.mockResolvedValueOnce({ title: 'T1', format: 'm4a' }) // skip check: parseable, no match
+			.mockResolvedValueOnce(null); // verify: unparseable
 		expect(await retagOne(dev())).toBe('verify-failed');
 		expect(mocks.overwriteDeviceFile).not.toHaveBeenCalled();
 
-		mocks.readAudioTags.mockResolvedValueOnce({ title: 'something else', format: 'm4a' });
+		mocks.readAudioTags
+			.mockResolvedValueOnce({ title: 'T1', format: 'm4a' })
+			.mockResolvedValueOnce({ title: 'something else', format: 'm4a' });
 		expect(await retagOne(dev())).toBe('verify-failed');
 		expect(mocks.overwriteDeviceFile).not.toHaveBeenCalled();
 	});
@@ -545,5 +565,121 @@ describe('retag — the device fork (quick-260919-ejm)', () => {
 		expect(await retagOne(entry(1))).toBe('tagged');
 		expect(mocks.put.mock.calls[0][2]).toBe('Typed earlier.m4a');
 		expect(mocks.overwriteDeviceFile).not.toHaveBeenCalled();
+	});
+});
+
+// ── quick-261020-rtg: compare before write ─────────────────────────────────────────────
+// "If the song is already fully tagged, no need to touch it." The skip sits above the
+// device/app-download fork, so both branches get it. Field rules under test:
+//   - a field is only compared when the entry would WRITE it (blank title/artist, an omitted
+//     album, absent lyrics, absent cover never block the skip);
+//   - art is presence-checked, never byte-compared;
+//   - an unparseable file (readAudioTags → null) NEVER skips.
+describe('retag — compare before write (quick-261020-rtg)', () => {
+	const fullTags = () => ({
+		title: 'T1',
+		artist: 'A1',
+		album: 'Al1',
+		lyrics: '[00:01.00]la',
+		art: { data: new Uint8Array([9]), mimeType: 'image/jpeg' },
+		format: 'm4a' as const
+	});
+	const tagged = (over: Partial<RetagEntry> = {}) =>
+		entry(1, { lyrics: '[00:01.00]la', cover: 'https://cover/x.jpg', ...over });
+
+	it('already-tagged: every compared field matches → skip, no art fetch, no codec, no write', async () => {
+		mocks.readAudioTags.mockResolvedValue(fullTags());
+		await expect(retagOne(tagged())).resolves.toBe('already-tagged');
+		expect(mocks.resolveArtworkDataUrl).not.toHaveBeenCalled();
+		expect(mocks.tagAudioBlob).not.toHaveBeenCalled();
+		expect(mocks.put).not.toHaveBeenCalled();
+		expect(mocks.overwriteDeviceFile).not.toHaveBeenCalled();
+		expect(mocks.forgetLocalEnrichment).not.toHaveBeenCalled();
+	});
+
+	it('already-tagged on a DEVICE uid too — no bridge call, no consent dialog', async () => {
+		mocks.readAudioTags.mockResolvedValue(fullTags());
+		await expect(retagOne(tagged({ uid: 'device:4711' }))).resolves.toBe('already-tagged');
+		expect(mocks.overwriteDeviceFile).not.toHaveBeenCalled();
+	});
+
+	it('an unparseable file never skips — null proceeds exactly as today', async () => {
+		mocks.readAudioTags
+			.mockResolvedValueOnce(null) // the skip check: cannot parse
+			.mockImplementation(async () => ({ title: 'T1', format: 'm4a' })); // the verify step
+		await expect(retagOne(tagged())).resolves.toBe('tagged');
+		expect(mocks.tagAudioBlob).toHaveBeenCalledTimes(1);
+	});
+
+	it('a title mismatch proceeds', async () => {
+		mocks.readAudioTags.mockResolvedValueOnce({ ...fullTags(), title: 'Old Title' });
+		await expect(retagOne(tagged())).resolves.toBe('tagged');
+		expect(mocks.resolveArtworkDataUrl).toHaveBeenCalledTimes(1);
+	});
+
+	it('an artist mismatch proceeds', async () => {
+		mocks.readAudioTags.mockResolvedValueOnce({ ...fullTags(), artist: 'Old Artist' });
+		await expect(retagOne(tagged())).resolves.toBe('tagged');
+	});
+
+	it('an omitted album does NOT block the skip — "leave the file’s album alone" (36-D-10)', async () => {
+		mocks.readAudioTags.mockResolvedValue({ ...fullTags(), album: 'Whatever Is Already There' });
+		await expect(retagOne(tagged({ album: '' }))).resolves.toBe('already-tagged');
+	});
+
+	it('an album mismatch proceeds when the entry carries an album', async () => {
+		mocks.readAudioTags.mockResolvedValueOnce({ ...fullTags(), album: 'Wrong Album' });
+		await expect(retagOne(tagged())).resolves.toBe('tagged');
+	});
+
+	it('lyrics are compared only when the entry carries them — omission preserves, never blocks', async () => {
+		// Entry has no lyrics; the file's own lyrics stay untouched and must not block the skip.
+		mocks.readAudioTags.mockResolvedValue(fullTags());
+		await expect(retagOne(entry(1, { cover: 'https://cover/x.jpg' }))).resolves.toBe('already-tagged');
+	});
+
+	it('a lyrics mismatch proceeds when the entry carries lyrics', async () => {
+		mocks.readAudioTags.mockResolvedValueOnce({ ...fullTags(), lyrics: '[00:01.00]old' });
+		await expect(retagOne(tagged())).resolves.toBe('tagged');
+	});
+
+	it('art is presence-checked only: entry cover present + file art absent → proceeds', async () => {
+		const { art: _drop, ...noArt } = fullTags();
+		mocks.readAudioTags.mockResolvedValueOnce(noArt);
+		await expect(retagOne(tagged())).resolves.toBe('tagged');
+	});
+
+	it('art absent on the entry never blocks the skip, even when the file has art', async () => {
+		mocks.readAudioTags.mockResolvedValue(fullTags());
+		await expect(retagOne(entry(1, { lyrics: '[00:01.00]la' }))).resolves.toBe('already-tagged');
+	});
+
+	it('the batch still adds up with already-tagged in it', async () => {
+		mocks.readAudioTags.mockResolvedValue(fullTags());
+		const report = await retagDownloads([tagged(), tagged()]);
+		expect(report).toEqual({ total: 2, tagged: 0, skipped: { 'already-tagged': 2 } });
+	});
+});
+
+// ── quick-261020-rtg: the content fingerprint reaches the bridge ─────────────────────────────
+// Wiring only — the sampling contract itself is pinned against node:crypto in blob-store.test.ts.
+describe('retag — expectedHash (quick-261020-rtg)', () => {
+	it('fingerprints the ORIGINAL blob (not the tagged one) and passes it to overwriteDeviceFile', async () => {
+		const original = new Blob(['audio-bytes']);
+		mocks.get.mockResolvedValueOnce(original);
+		await retagOne(entry(1, { uid: 'device:4711' }));
+		expect(mocks.contentFingerprint).toHaveBeenCalledTimes(1);
+		expect(mocks.contentFingerprint).toHaveBeenCalledWith(original);
+		expect(mocks.overwriteDeviceFile).toHaveBeenCalledTimes(1);
+		const meta = mocks.overwriteDeviceFile.mock.calls[0][2] as { expectedHash?: string };
+		expect(meta.expectedHash).toBe('fp-mock');
+	});
+
+	it('omits expectedHash when the digest is unavailable — the size check still applies', async () => {
+		mocks.contentFingerprint.mockResolvedValueOnce(null);
+		await retagOne(entry(1, { uid: 'device:4711' }));
+		const meta = mocks.overwriteDeviceFile.mock.calls[0][2] as { expectedHash?: string };
+		expect(meta.expectedHash).toBeUndefined();
+		expect(meta).not.toHaveProperty('expectedHash');
 	});
 });

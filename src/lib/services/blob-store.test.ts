@@ -73,6 +73,7 @@ const writeInPlace = vi.fn(
 		uri: string;
 		sourcePath: string;
 		expectedBytes?: string;
+		expectedHash?: string;
 		title?: string;
 		artist?: string;
 		album?: string;
@@ -137,7 +138,8 @@ import {
 	overwriteDeviceFile,
 	replayPendingDeviceWrites,
 	getStoredDir,
-	moveToDir
+	moveToDir,
+	contentFingerprint
 } from './blob-store';
 
 beforeEach(() => {
@@ -1006,6 +1008,17 @@ describe('blob-store — overwriteDeviceFile happy path (quick-260919-ejm)', () 
 		expect(writeInPlace.mock.calls[0][0].expectedBytes).toBeUndefined();
 	});
 
+	// quick-261020-rtg: the content fingerprint rides the same string surface as expectedBytes.
+	it('passes expectedHash through when the caller supplies one', async () => {
+		await overwriteDeviceFile('device:42', realAudio(), { expectedHash: 'ab'.repeat(32) });
+		expect(writeInPlace.mock.calls[0][0].expectedHash).toBe('ab'.repeat(32));
+	});
+
+	it('omits expectedHash when the caller has none (never sends the string "undefined")', async () => {
+		await overwriteDeviceFile('device:42', realAudio());
+		expect(writeInPlace.mock.calls[0][0].expectedHash).toBeUndefined();
+	});
+
 	it('records the journal entry BEFORE the bridge call — the death-in-the-gap recovery (rung 9)', async () => {
 		const blob = realAudio();
 		let seen: Record<string, { bytes: number }> = {};
@@ -1041,6 +1054,19 @@ describe('blob-store — overwriteDeviceFile reject-code contract (quick-260919-
 		);
 	});
 
+	it('rung 3b (quick-261020-rtg): a `precheck:target changed` from the HASH tripwire is failed too — same contract as the size tripwire', async () => {
+		// The Kotlin side rejects BEFORE any descriptor is opened, so nothing was written: the
+		// journal entry and the temp are dead weight, exactly like the size-mismatch case above.
+		writeInPlace.mockRejectedValueOnce(new Error('precheck:target changed'));
+		await expect(
+			overwriteDeviceFile('device:42', realAudio(), { expectedHash: 'de'.repeat(32) })
+		).resolves.toBe('failed');
+		expect(pending()).toEqual({});
+		expect(deleteFile).toHaveBeenCalledWith(
+			expect.objectContaining({ path: 'retag-tmp/device_42' })
+		);
+	});
+
 	it('rung 7: a `denied` reject is denied (quick-261020-rtg), and clears the journal and the temp', async () => {
 		writeInPlace.mockRejectedValueOnce(new Error('denied'));
 		await expect(overwriteDeviceFile('device:42', realAudio())).resolves.toBe('denied');
@@ -1069,6 +1095,43 @@ describe('blob-store — overwriteDeviceFile reject-code contract (quick-260919-
 		await expect(overwriteDeviceFile('device:42', blob)).resolves.toBe('failed');
 		expect(pending()).toEqual({ 'device:42': { bytes: blob.size } });
 		expect(deleteFile).not.toHaveBeenCalled();
+	});
+});
+
+describe('blob-store — contentFingerprint (quick-261020-rtg)', () => {
+	it('hashes a small blob WHOLE (<= 131072 bytes)', async () => {
+		const { createHash } = await import('node:crypto');
+		const blob = new Blob(['audio']);
+		const want = createHash('sha256').update(Buffer.from('audio')).digest('hex');
+		await expect(contentFingerprint(blob)).resolves.toBe(want);
+	});
+
+	it('hashes exactly 131072 bytes whole (the boundary)', async () => {
+		const { createHash } = await import('node:crypto');
+		const bytes = new Uint8Array(131072);
+		bytes[0] = 1;
+		bytes[131071] = 2;
+		const want = createHash('sha256').update(bytes).digest('hex');
+		await expect(contentFingerprint(new Blob([bytes]))).resolves.toBe(want);
+	});
+
+	it('hashes first-65536 ++ last-65536 of a large blob (the Kotlin side reads the same ranges)', async () => {
+		const { createHash, randomBytes } = await import('node:crypto');
+		const head = randomBytes(65536);
+		const mid = randomBytes(100000);
+		const tail = randomBytes(65536);
+		const blob = new Blob([head, mid, tail]);
+		const want = createHash('sha256').update(Buffer.concat([head, tail])).digest('hex');
+		await expect(contentFingerprint(blob)).resolves.toBe(want);
+	});
+
+	it('returns null when crypto.subtle is unavailable (the caller omits expectedHash)', async () => {
+		vi.stubGlobal('crypto', undefined);
+		try {
+			await expect(contentFingerprint(new Blob(['x']))).resolves.toBeNull();
+		} finally {
+			vi.unstubAllGlobals();
+		}
 	});
 });
 

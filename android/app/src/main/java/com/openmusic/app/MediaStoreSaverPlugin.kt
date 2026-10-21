@@ -30,6 +30,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
 import java.io.OutputStream
+import java.security.MessageDigest
 
 /**
  * Hand-written, local Capacitor plugin (NO npm/git dependency — T-999.1-07 mitigation) that writes
@@ -439,7 +440,8 @@ class MediaStoreSaverPlugin : Plugin() {
     // opened a descriptor, so the user's file is untouched by construction:
     //   1. not a `content://media/...` uri          -> reject "precheck:not a media uri"
     //   2. API below Q                              -> reject "unsupported:api"
-    //   3. the row's SIZE no longer matches         -> reject "precheck:target changed"
+    //   3. the row's SIZE no longer matches, or its content fingerprint mismatches
+    //                                              -> reject "precheck:target changed"
     //   4. the temp source is missing               -> reject "precheck:source missing"
     //   5. the temp source is zero-length           -> reject "precheck:source empty"
     //   6. no write access / user denies consent    -> reject "denied"
@@ -472,6 +474,14 @@ class MediaStoreSaverPlugin : Plugin() {
      *  resolve so the JS side can verify the bridge delivered the whole array (fail-loud). */
     private var pendingBatchCount: Int = 0
 
+    /**
+     * quick-261020-rtg: the fingerprint sample length and the small-file ceiling. These MUST match
+     * `contentFingerprint` in src/lib/services/blob-store.ts exactly — the SAMPLING CONTRACT is
+     * documented on `fingerprintTarget` below; a drift here fails the check on healthy files.
+     */
+    private val hashSampleLen = 65536L
+    private val hashSmallFileMax = hashSampleLen * 2
+
     override fun load() {
         // quick-260919-ejm: registration MUST happen before the host activity is STARTED, which is
         // what `load()` guarantees and a lazy first-use registration would not. Wrapped because a
@@ -493,7 +503,10 @@ class MediaStoreSaverPlugin : Plugin() {
      * Params are all strings so no `PluginCall` numeric-accessor behaviour has to be guessed across
      * Capacitor versions: `uri`, `sourcePath` (a `file://` temp the app wrote), `expectedBytes`
      * (blank/absent = skip the precondition — the REPLAY path, where the target size no longer
-     * matches by definition), plus optional `title` / `artist` / `album` for the column update.
+     * matches by definition), `expectedHash` (quick-261020-rtg: the JS side's SHA-256 fingerprint of
+     * the ORIGINAL bytes — blank/absent = skip; the replay path never carries it, because after a
+     * partial write the content differs by definition), plus optional `title` / `artist` / `album`
+     * for the column update.
      */
     @PluginMethod
     fun writeInPlace(call: PluginCall) {
@@ -544,6 +557,22 @@ class MediaStoreSaverPlugin : Plugin() {
         if (expected != null) {
             val actual = queryRowSize(resolver, uri)
             if (actual == null || actual != expected) {
+                call.reject("precheck:target changed")
+                return
+            }
+        }
+        // Rung 3b (quick-261020-rtg). Size alone is a weak identity signal: the same song in
+        // different encodes is NOT the same bytes, and two different songs can share a size.
+        // `expectedHash` is the JS side's SHA-256 fingerprint of the ORIGINAL bytes (see the
+        // SAMPLING CONTRACT on `fingerprintTarget`): the target URI is opened READ-ONLY and the
+        // same two sample ranges are hashed here, BEFORE any write descriptor is opened. A
+        // mismatch means the row no longer holds the file the JS side read — "do not touch
+        // anything", the identical contract to the size tripwire above (nothing was written, so
+        // the TS side drops the journal entry and the temp file).
+        val expectedHash = call.getString("expectedHash")?.trim()?.takeIf { it.isNotEmpty() }
+        if (expectedHash != null) {
+            val actualHash = fingerprintTarget(resolver, uri)
+            if (actualHash == null || !actualHash.equals(expectedHash, ignoreCase = true)) {
                 call.reject("precheck:target changed")
                 return
             }
@@ -768,6 +797,69 @@ class MediaStoreSaverPlugin : Plugin() {
                     val idx = c.getColumnIndex(MediaStore.Audio.Media.SIZE)
                     if (idx < 0 || c.isNull(idx)) null else c.getLong(idx)
                 }
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /**
+     * quick-261020-rtg: the content fingerprint — SHA-256 over the SAME two samples the JS side
+     * hashes in `contentFingerprint` (src/lib/services/blob-store.ts).
+     *
+     * SAMPLING CONTRACT — both sides must match exactly, or a healthy file fails the check:
+     *  - SAMPLE_LEN = 65536 bytes; a file of <= 131072 bytes (2 * SAMPLE_LEN) is hashed WHOLE;
+     *  - a larger file: SHA-256(bytes[0..65536) ++ bytes[size-65536..size));
+     *  - the hex digest, lowercase, 64 chars.
+     *
+     * Read through a READ-ONLY input stream (`openInputStream`, never the write descriptor):
+     * nothing destructive may happen before this check passes. Returns null when the target
+     * cannot be read or its size cannot be determined — null is a failed precondition (the
+     * caller rejects), never a match.
+     */
+    private fun fingerprintTarget(resolver: ContentResolver, uri: Uri): String? {
+        return try {
+            val total = queryRowSize(resolver, uri) ?: return null
+            resolver.openInputStream(uri)?.use { input ->
+                val digest = MessageDigest.getInstance("SHA-256")
+                val buf = ByteArray(8192)
+                if (total <= hashSmallFileMax) {
+                    var n: Int
+                    while (input.read(buf).also { n = it } != -1) {
+                        digest.update(buf, 0, n)
+                    }
+                } else {
+                    // First sample: bytes[0..hashSampleLen).
+                    var remaining = hashSampleLen
+                    while (remaining > 0) {
+                        val n = input.read(buf, 0, minOf(buf.size.toLong(), remaining).toInt())
+                        if (n == -1) return null // the file shrank mid-check: not the same bytes
+                        digest.update(buf, 0, n)
+                        remaining -= n
+                    }
+                    // Skip to the start of the last sample: bytes[size-hashSampleLen..size).
+                    // skip() is allowed to return 0 without EOF — read-and-discard covers that.
+                    var toSkip = total - hashSampleLen
+                    while (toSkip > 0) {
+                        val skipped = input.skip(toSkip)
+                        if (skipped > 0) {
+                            toSkip -= skipped
+                        } else {
+                            val n = input.read(buf, 0, minOf(buf.size.toLong(), toSkip).toInt())
+                            if (n == -1) return null
+                            toSkip -= n
+                        }
+                    }
+                    // Last sample.
+                    remaining = hashSampleLen
+                    while (remaining > 0) {
+                        val n = input.read(buf, 0, minOf(buf.size.toLong(), remaining).toInt())
+                        if (n == -1) return null
+                        digest.update(buf, 0, n)
+                        remaining -= n
+                    }
+                }
+                digest.digest().joinToString("") { "%02x".format(it) }
             }
         } catch (e: Exception) {
             null

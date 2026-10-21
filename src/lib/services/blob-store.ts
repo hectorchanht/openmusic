@@ -259,6 +259,47 @@ export interface DeviceWriteMeta {
 	album?: string;
 	/** The ORIGINAL file's size, checked Kotlin-side against the row's current SIZE column. */
 	expectedBytes?: number;
+	/**
+	 * quick-261020-rtg: SHA-256 fingerprint of the ORIGINAL bytes (see `contentFingerprint`) —
+	 * the rung-3 tripwire that survives re-encodes and size collisions. Omitted when the digest
+	 * was unavailable; the Kotlin side skips the check then, exactly like a missing
+	 * `expectedBytes`.
+	 */
+	expectedHash?: string;
+}
+
+/**
+ * quick-261020-rtg — CONTENT FINGERPRINT (rung 3's second tripwire).
+ *
+ * Byte-size alone is a weak identity signal: the same song in different encodes is NOT the same
+ * bytes, and two different songs can share a size. This is SHA-256 over TWO samples — the FIRST
+ * 65536 and the LAST 65536 bytes of the blob (the WHOLE blob when it is smaller than 131072
+ * bytes) — hex-encoded, lowercase. The Kotlin side (`fingerprintTarget` in
+ * MediaStoreSaverPlugin.kt) reads the SAME two sample ranges from the target URI over a
+ * READ-ONLY stream, before any write descriptor is opened, and rejects `precheck:target changed`
+ * on mismatch — the identical contract to the size mismatch: nothing was written, so the caller
+ * drops the journal entry and the temp file.
+ *
+ * SAMPLING CONTRACT — both sides must match exactly, or a healthy file fails the check:
+ *  - SAMPLE_LEN = 65536; a blob of <= 131072 bytes (2 * SAMPLE_LEN) is hashed WHOLE;
+ *  - a larger blob: SHA-256(bytes[0..65536) ++ bytes[size-65536..size));
+ *  - hex digest, lowercase, 64 chars.
+ *
+ * Null when the digest cannot be computed (no `crypto.subtle`, an unsliceable blob) — the
+ * caller omits `expectedHash` and the size tripwire still applies. Never throws.
+ */
+export async function contentFingerprint(blob: Blob): Promise<string | null> {
+	try {
+		if (typeof crypto?.subtle?.digest !== 'function') return null;
+		const SAMPLE_LEN = 65536;
+		const n = blob.size;
+		const sample =
+			n <= SAMPLE_LEN * 2 ? blob : new Blob([blob.slice(0, SAMPLE_LEN), blob.slice(n - SAMPLE_LEN, n)]);
+		const digest = await crypto.subtle.digest('SHA-256', await sample.arrayBuffer());
+		return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
+	} catch {
+		return null;
+	}
 }
 
 // D-2 — THE PENDING-WRITE JOURNAL. A uid is recorded BEFORE the bridge call and cleared after it,
@@ -357,11 +398,11 @@ function rejectCode(e: unknown): 'unsupported' | 'precheck' | 'denied' | 'io' {
  * Called at the top of `overwriteDeviceFile` — and ONLY there (quick-261020-rtg: the Settings ->
  * Downloads mount used to call it eagerly, but an eager replay can pop a per-file system consent
  * dialog with no batch consent in place, so recovery is lazy-only now, behind the retag queue's
- * consent gate). The bridge call carries NO `expectedBytes`: after a partial write the row's size
- * no longer matches the original by definition, so the precondition that protects a FRESH write
- * would block the repair. The completeness check that replaces it is the stat below — the temp
- * must still be exactly the size the journal recorded, or it is not a recovery source and the
- * entry is dropped.
+ * consent gate). The bridge call carries NO `expectedBytes` and NO `expectedHash`: after a partial
+ * write the row's size AND content no longer match the original by definition, so the preconditions
+ * that protect a FRESH write would block the repair. The completeness check that replaces them is
+ * the stat below — the temp must still be exactly the size the journal recorded, or it is not a
+ * recovery source and the entry is dropped.
  */
 export async function replayPendingDeviceWrites(): Promise<void> {
 	try {
@@ -478,6 +519,11 @@ export async function overwriteDeviceFile(uid: string, blob: Blob, meta: DeviceW
 			...(typeof meta.expectedBytes === 'number' && Number.isFinite(meta.expectedBytes)
 				? { expectedBytes: String(meta.expectedBytes) }
 				: {}),
+			// quick-261020-rtg: the content fingerprint of the ORIGINAL bytes (see
+			// `contentFingerprint`). A string already — omitted entirely when the caller has
+			// none, same "undefined"-string discipline as expectedBytes above. The replay path
+			// never carries it (see replayPendingDeviceWrites).
+			...(meta.expectedHash ? { expectedHash: meta.expectedHash } : {}),
 			...(meta.title ? { title: meta.title } : {}),
 			...(meta.artist ? { artist: meta.artist } : {}),
 			...(meta.album ? { album: meta.album } : {})

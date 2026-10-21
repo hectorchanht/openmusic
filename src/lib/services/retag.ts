@@ -31,7 +31,7 @@
 // a possible artwork fetch. The api-fetch-flood history (and the album download loop that followed
 // it) settled this — one at a time, with progress reported per entry.
 
-import { blobStore, getStoredName, setStoredName, overwriteDeviceFile } from './blob-store';
+import { blobStore, getStoredName, setStoredName, overwriteDeviceFile, contentFingerprint } from './blob-store';
 import { albumTag, tagAudioBlob, readAudioTags } from './audio-tags';
 import { resolveArtworkDataUrl } from './media-artwork';
 import { buildDownloadFilename, sanitizeFilename, MAX_FILENAME_BASE } from './download-filename';
@@ -76,6 +76,9 @@ export interface RetagEntry {
  *                        the per-file consent was denied/dismissed). The file was NOT touched —
  *                        a separate bucket from `put-failed` so the QUEUE can pause and re-batch
  *                        consent instead of marching on into the next file's dialog.
+ *  - `already-tagged`    quick-261020-rtg: the file's current tags already match everything this
+ *                        entry would write — nothing was touched (no art fetch, no codec pass, no
+ *                        bridge call, no consent dialog). A skip, not a failure.
  *  - `device-skipped`    quick-260919-ejm: an imported `device:` file on a platform that CANNOT
  *                        write in place — the web build, or Android below API 29. NOT a refusal
  *                        on principle any more; on a capable device an imported file is tagged
@@ -83,6 +86,7 @@ export interface RetagEntry {
  */
 export type RetagItemResult =
 	| 'tagged'
+	| 'already-tagged'
 	| 'missing'
 	| 'device-skipped'
 	| 'skipped-size'
@@ -102,6 +106,38 @@ export interface RetagReport {
 	total: number;
 	tagged: number;
 	skipped: Partial<Record<Exclude<RetagItemResult, 'tagged'>, number>> & { 'denied-batch'?: number };
+}
+
+/**
+ * quick-261020-rtg: COMPARE BEFORE WRITE. True when the blob's CURRENT tags already equal
+ * everything `retagOne` would write for `entry` — "if the song is already fully tagged, no need
+ * to touch it" (Hector). A pure compare: no network, no writes, no consent.
+ *
+ * Comparisons use the NORMALIZED intended values — the exact values the write path below passes
+ * to `tagAudioBlob` — and a field is only compared when it would actually be WRITTEN:
+ *  - title / artist: compared only when the entry carries one (a blank is never written, so it
+ *    can never be a reason to write);
+ *  - album: compared only when `albumTag()` yields a non-empty album — an omitted album means
+ *    "leave the file's album alone" (36-D-10), so an existing album must not block the skip;
+ *  - lyrics: compared only when `entry.lyrics` is non-empty (omission preserves the file's own,
+ *    D-4);
+ *  - art: PRESENCE only, never byte-compared — resolving the intended artwork over the network
+ *    for all 531 files just to compare would defeat the whole skip.
+ *
+ * `readAudioTags` returning null means "could not parse" — never skip an unreadable file; the
+ * caller proceeds exactly as today. Sits ABOVE the device/app-download fork, so both branches
+ * get it.
+ */
+async function isAlreadyTagged(blob: Blob, entry: RetagEntry): Promise<boolean> {
+	const current = await readAudioTags(new Uint8Array(await blob.arrayBuffer()));
+	if (!current) return false;
+	if (entry.title && current.title !== entry.title) return false;
+	if (entry.artist && current.artist !== entry.artist) return false;
+	const wantAlbum = albumTag(entry.album, entry.title);
+	if (wantAlbum && current.album !== wantAlbum) return false;
+	if (entry.lyrics && current.lyrics !== entry.lyrics) return false;
+	if (entry.cover && !current.art?.data?.length) return false;
+	return true;
 }
 
 /**
@@ -141,6 +177,10 @@ export async function retagOne(entry: RetagEntry): Promise<RetagItemResult> {
 	try {
 		const blob = await blobStore.get(entry.uid);
 		if (!blob) return 'missing';
+
+		// quick-261020-rtg: BEFORE the artwork resolve (which can hit the network) — a file that
+		// is already fully tagged costs one tag parse and nothing else.
+		if (await isAlreadyTagged(blob, entry)) return 'already-tagged';
 
 		const art = await resolveArtworkDataUrl({ cover: entry.cover, title: entry.title, artist: entry.artist });
 
@@ -194,11 +234,17 @@ export async function retagOne(entry: RetagEntry): Promise<RetagItemResult> {
 			// guard against a reassigned MediaStore _ID pointing this uid at a DIFFERENT song
 			// (34-D-02). Same `albumTag` the app-download branch uses, so an imported file gets the
 			// identical album normalisation.
+			// quick-261020-rtg: SHA-256 fingerprint of the ORIGINAL bytes (see `contentFingerprint`
+			// in blob-store.ts) — the rung-3 tripwire that survives re-encodes and size collisions.
+			// Omitted entirely when the digest was unavailable; the bridge omits it too and the
+			// size check still applies.
+			const expectedHash = await contentFingerprint(blob);
 			const wrote = await overwriteDeviceFile(entry.uid, out.blob, {
 				title: entry.title,
 				artist: entry.artist,
 				album: albumTag(entry.album, entry.title),
-				expectedBytes: blob.size
+				expectedBytes: blob.size,
+				...(expectedHash ? { expectedHash } : {})
 			});
 			// 'unsupported' is the web build and Android below API 29 — no MediaStore row to write
 			// into, so the honest answer is the skipped bucket, not a failure. Everything else that
