@@ -1556,7 +1556,7 @@
 					<span class="gi-label">{t('menu.download')}</span>
 					{#if frac !== undefined}<span class="gi-sub">{Math.round(frac * 100)}%</span>{/if}
 				</button>
-			{:else if nonCurrent && (blobPresent === true || library.isDownloaded(tr.uid))}
+			{:else if nonCurrent && (blobPresent === true || library.isDownloaded(tr.uid)) && !library.isUnavailable(tr.uid)}
 				<!-- quick-261006-mnu: the remove-download face now carries the localMeta sub-label
 				     (F2 parity — a song that IS downloaded says what it is, in the same slot the
 				     probed `FLAC · 38.2 MB` label occupies). localMeta is null for a list-only row.
