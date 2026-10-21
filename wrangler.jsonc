@@ -54,5 +54,10 @@
 			"database_name": "openmusic-accounts",
 			"database_id": "16b53d6d-5ec1-46b9-97ec-69671b5f42fe"
 		}
-	]
+	],
+	// WORKERS AI (quick-261020-wai): translation backend for /api/translate (m2m100-1.2b).
+	// Bound as `AI`; the server reads it via platform.env.AI. $5/day budget guard in code.
+	"ai": {
+		"binding": "AI"
+	}
 }
