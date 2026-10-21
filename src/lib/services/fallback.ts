@@ -150,7 +150,11 @@ async function tryOneSource(
 	signal: AbortSignal
 ): Promise<Track | null> {
 	try {
-		const result = await searchAll(query, 1, onlySource(src), signal);
+		// quick-261021-fb1 (user): limit 1 was too aggressive — a source's top hit is often
+		// a Live/DJ/instrumental variant that findOfficial rejects, marking the source as
+		// failed even though the official studio version is at #2 or #3. Fetch 5 and let
+		// findOfficial pick the right one.
+		const result = await searchAll(query, 5, onlySource(src), signal);
 		if (signal.aborted) return null;
 		const candidates = dedupeBest(result.interleaved, src);
 		// WR-06: a fuzzy upstream search can return a DIFFERENT song; adopting candidates[0]
