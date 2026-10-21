@@ -1,8 +1,7 @@
 // Lyrics / name translation proxy (NEW feature endpoint — not part of the music data layer).
 // POST { lines: string[], to: LyricsLang } -> { translated: string[], flags: boolean[] }.
 // Server-side runs an ordered provider cascade (D-05) — Azure Translator → DeepL Free →
-// keyless unofficial-Google → keyless MyMemory (quick-261020-cjk) — advancing on transport
-// error / non-2xx / rate-limit / echo, so
+// keyless unofficial-Google — advancing on transport error / non-2xx / rate-limit / echo, so
 // a single flaky upstream no longer drops the batch. Provider keys are OPTIONAL and edge-only
 // (D-06): an absent key skips that tier and the cascade falls through, ending at keyless
 // Google. It batches the lines in chunked requests and falls back to the originals on total
@@ -212,46 +211,14 @@ const googleTranslate: Provider = async (text, appTo) => {
 	}
 };
 
-// TIER 4 — MyMemory (free, keyless, ~50K chars/day anonymous). Last resort when Azure/DeepL/
-// Google all fail or echo. Requires an EXPLICIT source language (no auto-detect), so we do a
-// minimal script-based guess: kana→ja, hangul→ko, Han→zh-CN, else en. Best-effort only:
-// it does NOT transliterate proper nouns (Daniel Caesar stays Daniel Caesar) and its quality
-// trails the paid tiers. Returns null on any failure/quota/error so the cascade just ends.
-const mymemoryTranslate: Provider = async (text, appTo) => {
-	const to = LANG_MAP[appTo]; // zh-Hant→zh-TW etc., same codes MyMemory expects
-	if (!to) return null;
-	let from = 'en';
-	if (/[぀-ゟ゠-ヿ]/.test(text)) from = 'ja';
-	else if (/[가-힣]/.test(text)) from = 'ko';
-	else if (/[一-鿿]/.test(text)) from = 'zh-CN';
-	if (from === to) return null;
-	try {
-		const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${from}%7C${to}`;
-		const res = await fetch(url, { signal: AbortSignal.timeout(TIMEOUT_MS) });
-		if (!res.ok) return null;
-		const data = (await res.json()) as {
-			responseData?: { translatedText?: string };
-			responseStatus?: number;
-		};
-		if (data?.responseStatus !== 200) return null;
-		const out = data?.responseData?.translatedText;
-		if (typeof out !== 'string' || !out) return null;
-		if (out.includes('INVALID SOURCE LANGUAGE') || out.includes('QUERY LENGTH LIMIT')) return null;
-		return { text: out, segments: out.split(SENTINEL_RE).length };
-	} catch {
-		return null;
-	}
-};
-
-// Ordered cascade: tries providers in [Azure, DeepL, Google, MyMemory] order and returns the
-// FIRST GENUINE translation. A provider is "failed" (advance to next) when it returns null
-// (transport error / non-2xx / rate-limit / absent key / unsupported lang), OR when a
-// MULTI-SEGMENT source (a sentinel-joined batch) comes back as a single segment (echo-mode —
-// the existing segments<=1 heuristic), OR when the output equals the input verbatim (pure
-// echo). If every provider fails, returns null so the caller's per-line fallback still runs.
-// Providers run SEQUENTIALLY per chunk (advance-on-failure, NOT a parallel fan-out across
-// providers — T-25c-03).
-const PROVIDERS: Provider[] = [azureTranslate, deeplTranslate, googleTranslate, mymemoryTranslate];
+// Ordered cascade: tries providers in [Azure, DeepL, Google] order and returns the FIRST
+// GENUINE translation. A provider is "failed" (advance to next) when it returns null (transport
+// error / non-2xx / rate-limit / absent key / unsupported lang), OR when a MULTI-SEGMENT source
+// (a sentinel-joined batch) comes back as a single segment (echo-mode — the existing segments<=1
+// heuristic), OR when the output equals the input verbatim (pure echo). If every provider fails,
+// returns null so the caller's per-line fallback still runs. Providers run SEQUENTIALLY per
+// chunk (advance-on-failure, NOT a parallel fan-out across providers — T-25c-03).
+const PROVIDERS: Provider[] = [azureTranslate, deeplTranslate, googleTranslate];
 async function cascade(text: string, appTo: string, env: Env | undefined): Promise<GResult | null> {
 	// The segment-count echo heuristic only applies to a joined batch (carries sentinels): a
 	// single short line legitimately translates to ONE segment and must not be rejected as echo.
