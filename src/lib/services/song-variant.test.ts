@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { variantTagsOf, isAcceptableSubstitute } from './song-variant';
+import { variantTagsOf, isAcceptableSubstitute, partitionOfficial, findOfficial, pickOfficial } from './song-variant';
 
 // The guard exists because sameSongKey CANNOT tell renditions apart: dedupe's key() strips bracketed
 // suffixes, so `告白氣球（純音樂版）` and `告白氣球` are the same key. Without this, a cross-source
@@ -83,5 +83,96 @@ describe('isAcceptableSubstitute — relative, never absolute', () => {
 		expect(isAcceptableSubstitute('告白氣球', '告白氣球（Live）')).toBe(true);
 		expect(isAcceptableSubstitute('Dynamite', 'Dynamite - Live')).toBe(true);
 		expect(isAcceptableSubstitute('Dynamite', 'Dynamite (Remix)')).toBe(true);
+	});
+});
+
+// --- OFFICIAL SONG PRIORITIZER (quick-261020-off1) -------------------------------------------
+// A track is official when its title carries NO variant markers. The prioritizer is a HARD
+// preference: official wins outright; variants are only used when no official exists.
+
+const mk = (title: string) => ({ title, artist: '周杰伦', source: 'joox' as const });
+
+describe('partitionOfficial', () => {
+	it('splits official from 伴奏/live/DJ/cover variants', () => {
+		const { official, variants } = partitionOfficial(
+			[
+				mk('給我一首歌的時間'),
+				mk('給我一首歌的時間 (伴奏)'),
+				mk('給我一首歌的時間 (Live)'),
+				mk('給我一首歌的時間 (DJ版)')
+			],
+			'給我一首歌的時間'
+		);
+		expect(official.map((t) => t.title)).toEqual(['給我一首歌的時間']);
+		expect(variants.map((t) => t.title)).toEqual([
+			'給我一首歌的時間 (伴奏)',
+			'給我一首歌的時間 (Live)',
+			'給我一首歌的時間 (DJ版)'
+		]);
+	});
+
+	it('bypasses the partition when the query asks for a variant', () => {
+		const cands = [mk('給我一首歌的時間'), mk('給我一首歌的時間 (伴奏)')];
+		const { official, variants } = partitionOfficial(cands, '給我一首歌的時間 伴奏');
+		expect(official).toHaveLength(2);
+		expect(variants).toHaveLength(0);
+	});
+
+	it('returns everything as variants when no official exists', () => {
+		const { official, variants } = partitionOfficial(
+			[mk('給我一首歌的時間 (伴奏)'), mk('給我一首歌的時間 (Live)')],
+			'給我一首歌的時間'
+		);
+		expect(official).toHaveLength(0);
+		expect(variants).toHaveLength(2);
+	});
+});
+
+describe('findOfficial', () => {
+	it('prefers the official even when a variant matches first', () => {
+		const cands = [mk('給我一首歌的時間 (伴奏)'), mk('給我一首歌的時間')];
+		const found = findOfficial(cands, '給我一首歌的時間', () => true);
+		expect(found?.title).toBe('給我一首歌的時間');
+	});
+
+	it('falls back to variants when no official matches the predicate', () => {
+		const cands = [mk('給我一首歌的時間 (伴奏)'), mk('青花瓷')];
+		const found = findOfficial(
+			cands,
+			'給我一首歌的時間',
+			(c) => c.title.includes('伴奏')
+		);
+		expect(found?.title).toBe('給我一首歌的時間 (伴奏)');
+	});
+
+	it('returns undefined when nothing matches', () => {
+		expect(findOfficial([mk('青花瓷')], '給我一首歌的時間', () => false)).toBeUndefined();
+	});
+});
+
+describe('pickOfficial', () => {
+	it('picks the best-scoring official, ignoring higher-scoring variants', () => {
+		const cands = [mk('給我一首歌的時間 (伴奏)'), mk('給我一首歌的時間')];
+		// Score fn deliberately favors the 伴奏 — the prioritizer must still pick the official.
+		const picked = pickOfficial(
+			cands,
+			{ artist: '周杰伦', title: '給我一首歌的時間' },
+			(_q, c) => (c.title.includes('伴奏') ? 100 : 1)
+		);
+		expect(picked?.title).toBe('給我一首歌的時間');
+	});
+
+	it('picks the best variant when no official exists', () => {
+		const cands = [mk('給我一首歌的時間 (伴奏)'), mk('給我一首歌的時間 (Live)')];
+		const picked = pickOfficial(
+			cands,
+			{ artist: '周杰伦', title: '給我一首歌的時間' },
+			(_q, c) => (c.title.includes('Live') ? 10 : 1)
+		);
+		expect(picked?.title).toBe('給我一首歌的時間 (Live)');
+	});
+
+	it('returns null for an empty list', () => {
+		expect(pickOfficial([], { artist: 'a', title: 't' }, () => 1)).toBeNull();
 	});
 });

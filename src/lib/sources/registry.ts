@@ -107,6 +107,28 @@ export function onlySource(id: SourceId): Partial<Record<SourceId, boolean>> {
 	return prefs;
 }
 
+// --- SPEED TIERS (quick-261020-speed) ---------------------------------------------------------
+// Tier-1: the 5 sources that cover ~95% of plays (benchmark 2026-10-20, 20 songs):
+// kuwo (85% official, most authentic), qq (65%, primary), joox (50% + FLAC, now #2),
+// netease (60%), suyin (100% hit, fastest resolve at 2.9s).
+// Discovery and fallback search tier-1 first; only if no official version is found do they
+// expand to the full set. This cuts the typical search fan-out from 14 sources to 5
+// (~5s → ~2s) without losing coverage — the tail sources are for obscure/long-tail songs.
+
+export const TIER_1_SOURCES: readonly SourceId[] = ['qq', 'joox', 'kuwo', 'netease', 'suyin'] as const;
+
+/**
+ * A `prefs` object that enables ONLY the tier-1 sources.
+ * Counterpart to onlySource() for the tiered search path.
+ */
+export function tier1Only(): Partial<Record<SourceId, boolean>> {
+	const prefs: Partial<Record<SourceId, boolean>> = {};
+	for (const sourceId of Object.keys(SOURCES) as SourceId[]) {
+		prefs[sourceId] = (TIER_1_SOURCES as readonly string[]).includes(sourceId);
+	}
+	return prefs;
+}
+
 /**
  * The ONE predicate for "may this source be auto-selected to resolve a track it did not
  * originate" — a cross-source failover target (fallback.ts), an Up-Next name-stub resolve

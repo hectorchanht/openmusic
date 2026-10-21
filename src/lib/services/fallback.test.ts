@@ -214,7 +214,9 @@ describe('tryFallback — abort unwinds the walk (FALLBACK_BUDGET_MS contract)',
 
 	it('returns null and stops walking when the signal aborts mid-search', async () => {
 		const ac = new AbortController();
-		// First source: abort while its search is in flight, then reject the way an aborted fetch does.
+		// quick-261020-race1: racing launches all sources in parallel; aborting cancels
+		// every in-flight attempt and the race resolves null. The walk must NOT return
+		// a result after the abort, even if a source would have succeeded.
 		mockSearch.mockImplementation(async () => {
 			ac.abort();
 			throw new Error('aborted');
@@ -225,8 +227,9 @@ describe('tryFallback — abort unwinds the walk (FALLBACK_BUDGET_MS contract)',
 		const out = await tryFallback(failed, undefined, ac.signal);
 
 		expect(out).toBeNull();
-		// The walk must NOT continue through the remaining sources after the abort — one attempt only.
-		expect(mockSearch).toHaveBeenCalledOnce();
+		// Racing: every source in the order is attempted (parallel launch), but none
+		// may produce a result after the abort.
+		expect(mockSearch).toHaveBeenCalled();
 	});
 
 	it('does not even start when handed an already-aborted signal', async () => {

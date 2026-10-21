@@ -64,7 +64,8 @@ describe('resolveStub — Last.fm {artist,title} stub → playable Track', () =>
 		const spy = vi.spyOn(catalog, 'searchAll').mockResolvedValue(result([hit]));
 
 		const out = await resolveStub('周杰伦', '稻香');
-		expect(spy).toHaveBeenCalledWith('周杰伦 稻香', 1);
+		// quick-261020-speed: tiered search — first call is tier-1 only.
+		expect(spy).toHaveBeenCalledWith('周杰伦 稻香', 1, expect.anything());
 		expect(out).not.toBeNull();
 		expect(out?.uid).toBe(hit.uid);
 	});
@@ -160,15 +161,18 @@ describe('resolveStub — t2s rescue-on-miss (quick-260808-urx)', () => {
 		const hit = mk('kuwo', 'hit', '周杰伦', { title: '止战之殇' });
 		const spy = vi
 			.spyOn(catalog, 'searchAll')
-			.mockResolvedValueOnce(result([])) // Traditional query → miss (the production failure)
+			.mockResolvedValueOnce(result([])) // Traditional tier-1 → miss
+			.mockResolvedValueOnce(result([])) // Traditional full → miss (tier-1 had no official)
 			.mockResolvedValueOnce(result([hit])); // Simplified retry → hit
 
 		const out = await resolveStub('周傑倫', '止戰之殤');
 		expect(out?.uid).toBe(hit.uid);
-		expect(spy).toHaveBeenCalledTimes(2);
+		// quick-261020-speed: tiered search = 2 calls per attempt (tier-1 + full on miss).
+		expect(spy).toHaveBeenCalledTimes(3);
 		expect(spy.mock.calls[0][0]).toBe('周傑倫 止戰之殤');
+		expect(spy.mock.calls[1][0]).toBe('周傑倫 止戰之殤');
 		// The production-verified pair from quick-260807-vl1's /api/og probe.
-		expect(spy.mock.calls[1][0]).toBe('周杰伦 止战之殇');
+		expect(spy.mock.calls[2][0]).toBe('周杰伦 止战之殇');
 	});
 
 	it('does NOT retry when the first Chinese query already hits', async () => {
@@ -183,21 +187,27 @@ describe('resolveStub — t2s rescue-on-miss (quick-260808-urx)', () => {
 		const spy = vi.spyOn(catalog, 'searchAll').mockResolvedValue(result([]));
 
 		await expect(resolveStub('Adele', 'Hello')).resolves.toBeNull();
-		expect(spy).toHaveBeenCalledTimes(1);
+		// quick-261020-speed: tiered search = 2 calls (tier-1 + full) on a miss; the t2s
+		// retry itself adds zero (non-Chinese → no retry).
+		expect(spy).toHaveBeenCalledTimes(2);
 	});
 
 	it('does NOT retry an already-Simplified miss (identity conversion → nothing to re-search)', async () => {
 		const spy = vi.spyOn(catalog, 'searchAll').mockResolvedValue(result([]));
 
 		await expect(resolveStub('周杰伦', '止战之殇')).resolves.toBeNull();
-		expect(spy).toHaveBeenCalledTimes(1);
+		// quick-261020-speed: tiered search = 2 calls (tier-1 + full) on a miss; the t2s
+		// retry itself adds zero (already Simplified → nothing to re-search).
+		expect(spy).toHaveBeenCalledTimes(2);
 	});
 
 	it('retries at most ONCE — a miss on the retry returns null, never loops', async () => {
 		const spy = vi.spyOn(catalog, 'searchAll').mockResolvedValue(result([]));
 
 		await expect(resolveStub('周傑倫', '止戰之殤')).resolves.toBeNull();
-		expect(spy).toHaveBeenCalledTimes(2);
+		// quick-261020-speed: tiered search = 2 calls per attempt (tier-1 + full).
+		// Traditional attempt (2) + Simplified retry (2) = 4; never loops beyond the one retry.
+		expect(spy).toHaveBeenCalledTimes(4);
 	});
 
 	it('scores the retry against the CONVERTED query (the terms actually searched)', async () => {
@@ -249,12 +259,13 @@ describe('resolveStub — English/romanized name rescue (quick-260925-wa7)', () 
 		expect(look).toHaveBeenCalledTimes(0);
 	});
 
-	it('English zero-result miss + lookup null → null; searchAll 1, lookup 1 with the ORIGINAL names', async () => {
+	it('English zero-result miss + lookup null → null; searchAll 2, lookup 1 with the ORIGINAL names', async () => {
 		const search = vi.spyOn(catalog, 'searchAll').mockResolvedValue(result([]));
 		const look = vi.spyOn(nameRescue, 'lookupChineseName').mockResolvedValue(null);
 
 		await expect(resolveStub('Eric Chou', 'Zai Ai Ni')).resolves.toBeNull();
-		expect(search).toHaveBeenCalledTimes(1);
+		// quick-261020-speed: tiered search = 2 calls (tier-1 + full) on a miss.
+		expect(search).toHaveBeenCalledTimes(2);
 		expect(look).toHaveBeenCalledTimes(1);
 		expect(look).toHaveBeenCalledWith('Eric Chou', 'Zai Ai Ni');
 	});
@@ -326,11 +337,14 @@ describe('resolveStub — English/romanized name rescue (quick-260925-wa7)', () 
 		const search = vi
 			.spyOn(catalog, 'searchAll')
 			.mockResolvedValueOnce(result([weak]))
+			.mockResolvedValueOnce(result([]))
 			.mockResolvedValueOnce(result([]));
 		vi.spyOn(nameRescue, 'lookupChineseName').mockResolvedValue(zhGrad);
 
 		expect((await resolveStub('Eric Chou', GRAD))?.uid).toBe(weak.uid);
-		expect(search).toHaveBeenCalledTimes(2);
+		// quick-261020-speed: tiered search. Initial tier-1 hits (1 call, no full search).
+		// Re-search: tier-1 miss (1) + full miss (1) = 3 total.
+		expect(search).toHaveBeenCalledTimes(3);
 	});
 
 	it('weak hit + lookup hit + re-search THROWS → resolves (never throws) to the original weak row', async () => {
@@ -344,12 +358,12 @@ describe('resolveStub — English/romanized name rescue (quick-260925-wa7)', () 
 		expect(out?.uid).toBe(weak.uid);
 	});
 
-	it('Japanese miss → null; searchAll 1, lookup 0 (kana gate)', async () => {
+	it('Japanese miss → null; searchAll 2, lookup 0 (kana gate)', async () => {
 		const search = vi.spyOn(catalog, 'searchAll').mockResolvedValue(result([]));
 		const look = vi.spyOn(nameRescue, 'lookupChineseName');
 
 		await expect(resolveStub('YOASOBI', '夜に駆ける')).resolves.toBeNull();
-		expect(search).toHaveBeenCalledTimes(1);
+		expect(search).toHaveBeenCalledTimes(2);
 		expect(look).toHaveBeenCalledTimes(0);
 	});
 
@@ -358,12 +372,14 @@ describe('resolveStub — English/romanized name rescue (quick-260925-wa7)', () 
 		const search = vi
 			.spyOn(catalog, 'searchAll')
 			.mockResolvedValueOnce(result([]))
+			.mockResolvedValueOnce(result([]))
 			.mockResolvedValueOnce(result([hit]));
 		const look = vi.spyOn(nameRescue, 'lookupChineseName');
 
 		expect((await resolveStub('周傑倫', '止戰之殤'))?.uid).toBe(hit.uid);
-		expect(search).toHaveBeenCalledTimes(2);
-		expect(search.mock.calls[1][0]).toBe('周杰伦 止战之殇');
+		// quick-261020-speed: tiered = Traditional tier-1 (1) + Traditional full (2) + Simplified tier-1 hit (3).
+		expect(search).toHaveBeenCalledTimes(3);
+		expect(search.mock.calls[2][0]).toBe('周杰伦 止战之殇');
 		expect(look).toHaveBeenCalledTimes(0);
 	});
 
@@ -372,7 +388,9 @@ describe('resolveStub — English/romanized name rescue (quick-260925-wa7)', () 
 		const look = vi.spyOn(nameRescue, 'lookupChineseName');
 
 		await expect(resolveStub('Jay Chou', '珊瑚海')).resolves.toBeNull();
-		expect(search).toHaveBeenCalledTimes(1);
+		// quick-261020-speed: tiered = 2 calls (tier-1 + full). No t2s retry — '珊瑚海'
+		// is already Simplified, so the conversion is identity and there's nothing to re-search.
+		expect(search).toHaveBeenCalledTimes(2);
 		expect(look).toHaveBeenCalledTimes(0);
 	});
 

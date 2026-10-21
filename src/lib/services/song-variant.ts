@@ -1,4 +1,7 @@
 // SUBSTITUTION VARIANT GUARD — "is this candidate an acceptable stand-in for the song that failed?"
+// OFFICIAL SONG PRIORITIZER lives at the bottom (quick-261020-off1).
+
+import { variantTag } from '$lib/services/dedupe';
 //
 // WHY (user report, debug `slow-cold-start-first-playing`): when a source truly cannot serve a track,
 // the player retries the SAME song on another source so playback never visibly stops. That is the
@@ -125,4 +128,109 @@ export function isAcceptableSubstitute(originalTitle: string, candidateTitle: st
 	const original = variantTagsOf(originalTitle);
 	for (const tag of candidate) if (!original.has(tag)) return false;
 	return true;
+}
+
+// --- OFFICIAL SONG PRIORITIZER (quick-261020-off1) -------------------------------------------
+// A track is OFFICIAL if its title carries NO variant markers — no (伴奏), (Live), (DJ版),
+// (Remix), (Cover), etc. Uses dedupe's broader variantTag (live/acoustic/demo/cover/remix/
+// instrumental/remaster) rather than this module's narrow instrumental/cover-only detector,
+// because "official" means the plain original recording, not just "not karaoke".
+//
+// This is a HARD preference, not a score penalty: when an official version exists among the
+// candidates, it wins outright. Variants are only used when NO official version is available.
+// The query is respected — if the user explicitly asked for a variant (e.g. searched
+// "告白氣球 伴奏"), the partition is bypassed and every candidate stays eligible.
+
+/**
+ * Does this text contain a variant marker ANYWHERE (not just bracketed)?
+ * Used for the query-bypass check: a user typing "告白氣球 DJ版" wants that variant.
+ * Covers the same ground as dedupe's variantTag plus bare keywords (DJ, 伴奏, …)
+ * that variantTag's bracket-only scan would miss.
+ */
+const VARIANT_KEYWORDS = [
+	// CJK
+	'伴奏', '伴唱', '無人聲', '无人声', '去人聲', '去人声', '消音', '卡拉',
+	'翻唱', '現場', '现场', '演唱會', '演唱会', '純音樂', '纯音乐',
+	'DJ版', 'dj版', '加速版', '減速版', '减速版', '重製', '重制', '重錄', '重录',
+	// Latin (word-boundary)
+	'instrumental', 'karaoke', 'ktv', 'offvocal', 'off vocal', 'backing track',
+	'minus one', 'cover', 'live', 'acoustic', 'unplugged', 'remix', 'remaster',
+	'demo', 'dj mix', 'nightcore', 'sped up', 'slowed'
+];
+
+function hasVariantKeyword(text: string): boolean {
+	const t = (text || '').toLowerCase();
+	return VARIANT_KEYWORDS.some((kw) => {
+		// CJK keywords: substring match. Latin: word-boundary match.
+		if (/[\u4e00-\u9fff]/.test(kw)) return t.includes(kw.toLowerCase());
+		return new RegExp(`\\b${kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(text || '');
+	});
+}
+
+/**
+ * Is this title the OFFICIAL (plain original) version? True when it carries no variant
+ * markers — neither dedupe's bracketed variantTag nor a bare variant keyword.
+ */
+export function isOfficialTitle(title: string): boolean {
+	if (variantTag(title)?.key) return false;
+	return !hasVariantKeyword(title);
+}
+
+/**
+ * Split candidates into official (no variant markers) vs variants.
+ * If the query title itself carries a variant marker, the user wants that variant —
+ * return everything as official (no filtering).
+ */
+export function partitionOfficial<T extends { title: string }>(
+	candidates: T[],
+	queryTitle: string
+): { official: T[]; variants: T[] } {
+	// User asked for a variant — do not interfere.
+	if (hasVariantKeyword(queryTitle)) return { official: candidates, variants: [] };
+	const official: T[] = [];
+	const variants: T[] = [];
+	for (const c of candidates) {
+		if (isOfficialTitle(c.title)) official.push(c);
+		else variants.push(c);
+	}
+	return { official, variants };
+}
+
+/**
+ * Find the first candidate matching `pred`, preferring official versions.
+ * Tries the official pool first; only falls back to variants when no official matches.
+ */
+export function findOfficial<T extends { title: string }>(
+	candidates: T[],
+	queryTitle: string,
+	pred: (c: T) => boolean
+): T | undefined {
+	const { official, variants } = partitionOfficial(candidates, queryTitle);
+	return official.find(pred) ?? variants.find(pred);
+}
+
+/**
+ * Pick the highest-scoring candidate via `scoreFn`, preferring official versions.
+ * Scores only the official pool when it is non-empty; the variant pool is scored
+ * only when no official version exists. Within each pool, the standard stable-max
+ * applies (first wins ties).
+ */
+export function pickOfficial<T extends { title: string }>(
+	candidates: T[],
+	query: { artist: string; title: string },
+	scoreFn: (q: { artist: string; title: string }, c: T) => number
+): T | null {
+	const { official, variants } = partitionOfficial(candidates, query.title);
+	const pool = official.length > 0 ? official : variants;
+	if (pool.length === 0) return null;
+	let best = pool[0];
+	let bestScore = scoreFn(query, best);
+	for (let i = 1; i < pool.length; i++) {
+		const s = scoreFn(query, pool[i]);
+		if (s > bestScore) {
+			best = pool[i];
+			bestScore = s;
+		}
+	}
+	return best;
 }

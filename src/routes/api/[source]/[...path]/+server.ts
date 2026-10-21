@@ -19,7 +19,7 @@
 // item 1). HEAD shares GET's validation through resolveUpstream so the two verbs cannot drift.
 import type { RequestEvent, RequestHandler } from './$types';
 import { PROXIES } from '$lib/proxy/proxy-registry';
-import { fetchWithHeadDeadline, corsHeaders, upstreamHead, corsPreflight } from '$lib/proxy/http';
+import { fetchWithHeadDeadline, corsHeaders, upstreamHead } from '$lib/proxy/http';
 import { edgeCache } from '$lib/proxy/edge-cache';
 import type { Env } from '$lib/proxy/proxy-types';
 import type { SourceId } from '$lib/sources/types';
@@ -29,6 +29,11 @@ import type { SourceId } from '$lib/sources/types';
 // 300s still absorbs the keystroke-hot burst + repeat-search traffic that is the bulk of the
 // win. This is intentionally NOT the 86400 the Deezer cover route uses.
 const SEARCH_TTL = 300;
+// quick-261020-speed: DETAIL_TTL for edge-cached detail responses. 600s (10 min) is shorter
+// than typical audio-URL expiry (hours), so a cached detail's URL is almost always still
+// playable. If it IS stale, the app's dead-URL reporting + fallback re-resolves transparently.
+// This makes replaying a song (repeat, skip-back, prefetch-then-play) instant.
+const DETAIL_TTL = 600;
 
 function isKnownSource(source: string): source is SourceId {
 	return Object.prototype.hasOwnProperty.call(PROXIES, source);
@@ -77,10 +82,13 @@ export const GET: RequestHandler = async (event) => {
 	const { upstream, origin } = resolved;
 
 	// Normalize the path exactly as the adapters do so the route agrees with them on what
-	// "search" is. `search` is the ONLY cacheable segment across all three catch-all sources
-	// (netease/qq/joox); `url`/`detail`/`lrc` (and anything else) always take the passthrough.
+	// "search" is. `search` AND `detail` are cacheable (quick-261020-speed): search at 300s,
+	// detail at 600s (shorter than URL expiry; stale URLs self-heal via dead-URL reporting).
+	// `url`/`lrc` (and anything else) always take the passthrough — `url` is the raw audio
+	// redirect/stream, never safe to edge-cache.
 	const type = (params.path || 'search').replace(/^\/+|\/+$/g, '');
-	const cacheable = type === 'search';
+	const cacheable = type === 'search' || type === 'detail';
+	const ttl = type === 'detail' ? DETAIL_TTL : SEARCH_TTL;
 
 	// Cache key = the OWN-ORIGIN request (NEVER the upstream URL as key — T-2os-02 / T-wv8-06
 	// parity; the JOOX-token-bearing upstream URL must never leak into a cache key). Guarded for
@@ -100,7 +108,7 @@ export const GET: RequestHandler = async (event) => {
 				headers: {
 					...corsHeaders(origin),
 					'content-type': hit.headers.get('content-type') ?? 'application/json',
-					'Cache-Control': `public, max-age=${SEARCH_TTL}`
+					'Cache-Control': `public, max-age=${ttl}`
 				}
 			});
 		}
@@ -111,7 +119,7 @@ export const GET: RequestHandler = async (event) => {
 	const res = await fetchWithHeadDeadline(upstream, 8000, 2);
 
 	if (cacheable && res.status === 200 && cache && cacheReq) {
-		// Search bodies are small JSON — buffer once, use the same buffer for both the cache
+		// Search/detail bodies are small JSON — buffer once, use the same buffer for both the cache
 		// put and the response (a Response body is single-use). NEVER cache non-200 (T-2os-04).
 		const buf = await res.arrayBuffer();
 		const contentType = res.headers.get('content-type') ?? 'application/json';
@@ -120,7 +128,7 @@ export const GET: RequestHandler = async (event) => {
 			cacheReq,
 			new Response(buf, {
 				status: 200,
-				headers: { 'content-type': contentType, 'Cache-Control': `public, max-age=${SEARCH_TTL}` }
+				headers: { 'content-type': contentType, 'Cache-Control': `public, max-age=${ttl}` }
 			})
 		);
 		return new Response(buf, {
@@ -169,4 +177,6 @@ export const HEAD: RequestHandler = async (event) => {
 };
 
 // CORS preflight — scoped to the own origin via corsHeaders (never `*`).
-export const OPTIONS: RequestHandler = ({ request }) => corsPreflight(request);
+export const OPTIONS: RequestHandler = ({ request }) => {
+	return new Response(null, { status: 204, headers: corsHeaders(request.headers.get('origin')) });
+};

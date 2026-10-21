@@ -57,7 +57,7 @@ export const netease: SourceAdapter = {
 	async search(keyword: string, page: number, signal: AbortSignal): Promise<Track[]> {
 		// HEALTH-GATE short-circuit (Plan 26-05, NETEASE-01 / T-26-05-01). The qijieya Meting upstream
 		// intermittently returns [] for a RUN of queries then recovers (spikes 001/004). After a run of
-		// drys the gate trips and we SKIP the wasted /api/netease/search for a bounded window so a dead
+		// drys the gate trips and we SKIP the wasted search for a bounded window so a dead
 		// netease neither slows nor strands the search fan-out (the healthy sources still return; the
 		// kuwo-first resolve is unaffected). isGated() auto-opens after GATE_WINDOW_MS for a single probe
 		// whose outcome re-decides — so netease is never hidden permanently (T-26-05-02). Never-throw on
@@ -66,11 +66,15 @@ export const netease: SourceAdapter = {
 
 		// Pagination by limit-multiplication, not a real page param (preserve legacy:1987).
 		const requestLimit = Math.max(1, page || 1) * Math.max(1, 10);
-		const path = `/api/netease/search?id=${encodeURIComponent(keyword)}&limit=${encodeURIComponent(
-			requestLimit
-		)}`;
+		// quick-261020-speed: BROWSER-DIRECT. qijieya sends `Access-Control-Allow-Origin: *`
+		// (verified 2026-10-20), so the search hits the upstream directly, saving the ~1s
+		// /api proxy hop (same 32-D-12 reasoning as tang detail + suyin). The /api/netease
+		// proxy is retained for non-browser contexts.
+		const url =
+			`https://api.qijieya.cn/meting/?server=netease&type=search&id=${encodeURIComponent(keyword)}` +
+			`&limit=${encodeURIComponent(requestLimit)}`;
 
-		const res = await apiFetch(path, { signal });
+		const res = await apiFetch(url, { signal });
 		const json: unknown = await res.json();
 		// Contract-drift guard: Netease must return an array. Throw (not return 0) so the
 		// fan-out records a typed per-source error. NOTE (26-05): a non-array body is genuine DRIFT,

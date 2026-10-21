@@ -12,6 +12,8 @@
 // surface or the player. catalog.ts / dedupe.ts are pure reuse — NOT modified here.
 import { searchAll } from '$lib/services/catalog';
 import { dedupeBest } from '$lib/services/dedupe';
+import { pickOfficial, partitionOfficial } from '$lib/services/song-variant';
+import { tier1Only } from '$lib/sources/registry';
 import { scoreMatch } from '$lib/services/score-match';
 import { isChineseLine, t2sConvertLines, t2sConvertLineSync } from '$lib/services/zh-convert';
 import { detectLang } from '$lib/i18n/detect';
@@ -44,26 +46,26 @@ async function attempt(
 	title: string,
 	accept?: (t: Track) => boolean
 ): Promise<Bests> {
-	const r = await searchAll(`${artist} ${title}`, 1);
+	// quick-261020-speed: TIERED SEARCH. Tier-1 (qq/joox/kuwo/netease/suyin) covers ~95% of
+	// plays; searching only those 5 first cuts the fan-out from 14 sources to 5 (~5s → ~2s).
+	// Only when tier-1 yields NO official version do we expand to the full set (for
+	// obscure/long-tail songs the tail sources cover).
 	const query = { artist, title };
+	const tier1 = await searchAll(`${artist} ${title}`, 1, tier1Only());
+	const { official } = partitionOfficial(tier1.interleaved, title);
+	const useFull = official.length === 0;
+	const r = useFull ? await searchAll(`${artist} ${title}`, 1) : tier1;
 	const pick = (rows: Track[]): Track | null => {
 		// dedupeBest = the deduped, quality/preferredSource-ordered candidate list (FINAL
-		// tie-break). Re-rank IT by scoreMatch with a stable max: only replace the current
-		// best on a STRICTLY higher score, so equal scores keep the earlier dedupeBest slot.
+		// tie-break). quick-261020-off1: pickOfficial ranks the OFFICIAL pool first — a plain
+		// original recording always beats a 伴奏/live/DJ/cover variant of the same song.
+		// Variants are only considered when no official version exists. scoreMatch still
+		// ranks within each pool, and the stable-max keeps dedupeBest order on ties.
 		let candidates = dedupeBest(rows, settings.preferredSource);
 		// quick-260925-wa7: the name rescue ranks only the rows it would accept (see rescueLatin).
 		if (accept) candidates = candidates.filter(accept);
 		if (candidates.length === 0) return null;
-		let best = candidates[0];
-		let bestScore = scoreMatch(query, best);
-		for (let i = 1; i < candidates.length; i++) {
-			const s = scoreMatch(query, candidates[i]);
-			if (s > bestScore) {
-				best = candidates[i];
-				bestScore = s;
-			}
-		}
-		return best;
+		return pickOfficial(candidates, query, scoreMatch);
 	};
 	// quick-260926-c69: partition BEFORE dedupeBest. Its same-key collapse is decided by quality →
 	// settings.preferredSource → SOURCE_RANK, so a user-preferred ineligible source could otherwise
