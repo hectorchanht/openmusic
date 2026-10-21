@@ -17,7 +17,7 @@
 	import { player } from '$lib/stores/player.svelte';
 	import { t } from '$lib/i18n';
 	import { translateLinesEx } from '$lib/services/translate';
-	import { shouldTranslate, detectLang } from '$lib/i18n/detect';
+	import { shouldTranslate } from '$lib/i18n/detect';
 	import { reorderPairs, splitParenLines, lineSeekFraction, activeLineAt, lyricAnchorMetrics, formatLyricOffset, LYRIC_OFFSET_MAX, type LyricLine } from '$lib/services/lrc';
 	// quick-260919-2jo: the Chinese script lock for lyric text. `parseLyrics` replaces `parseLRC`
 	// (the ORIGINAL lines); `lockLyricLines` covers the translation column, which is a SECOND source
@@ -419,18 +419,11 @@
 		translating = true;
 		const sendIdx: number[] = [];
 		const sendText: string[] = [];
-		// quick-261020-cjk: a Chinese-script lyrics target is a SCRIPT control — only CJK source
-		// lines are sent for conversion; non-CJK lyrics (en/ja/ko/...) pass through untranslated
-		// even when not whitelisted. Artist/title/bio keep the full API path (their own callers).
-		const cjkOnly = lang === 'zh-Hant' || lang === 'zh-Hans';
 		for (let i = 0; i < lines.length; i++) {
-			if (!shouldTranslate(lines[i].text, lang, skip)) continue;
-			if (cjkOnly) {
-				const src = detectLang(lines[i].text);
-				if (src !== 'zh-Hant' && src !== 'zh-Hans') continue;
+			if (shouldTranslate(lines[i].text, lang, skip)) {
+				sendIdx.push(i);
+				sendText.push(lines[i].text);
 			}
-			sendIdx.push(i);
-			sendText.push(lines[i].text);
 		}
 		const stitch = (out: string[]) => lines.map((l, i) => {
 			const pos = sendIdx.indexOf(i);
@@ -498,8 +491,9 @@
 	{#if translating}<p class="tr-hint">{t('nowplaying.translating')}</p>{/if}
 	<div class="lyrics" role="group" aria-label={t('nowplaying.lyrics')} bind:this={lyricsEl} onpointerdown={lyricsPointerDown} ontouchstart={lyricsTouch} ontouchend={lyricsTouch} ontouchcancel={lyricsTouch} onwheel={() => dispatch({ type: 'wheel' })}>
 		{#each lines as l, i (i)}
-			{#if !(l.fromParen && settings.lyricsHideParenLines)}
-				{@const hideTrForLine = l.fromParen && settings.lyricsHideParenTranslation}
+			{@const isHiddenParen = (l.fromParen || l.isTranslation) && settings.lyricsHideParenLines}
+			{#if !isHiddenParen}
+				{@const hideTrForLine = (l.fromParen || l.isTranslation) && settings.lyricsHideParenTranslation}
 				<!-- D-01: every lyric line is a tap target that seeks to its timestamp. The line stays a
 				     semantic <p> so the anchor $effect's `querySelectorAll('p')[idx]` scroll-centering, the
 				     `.lyrics p` centring/active/paren CSS, and the activeTime↔translated[i] index alignment

@@ -11,6 +11,11 @@ export interface LyricLine {
 	 *  parent line (the second-language version that came tagged inline). The renderer can
 	 *  hide its translation when settings.lyricsHideParenTranslation is true. */
 	fromParen?: boolean;
+	/** True when this line is a translation on its own line (different script from the
+	 *  song-dominant script, sharing a timestamp with the original). Set by reorderPairs.
+	 *  quick-261020-lyr2: enables Hide parenthesised translations/lines to catch
+	 *  separate-line translations, not just inline brackets. */
+	isTranslation?: boolean;
 }
 
 export interface QualityInfo {
@@ -168,8 +173,13 @@ export function reorderPairs(lines: LyricLine[]): LyricLine[] {
 			continue;
 		}
 		// Move the first original (song-dominant) line to the front; keep all others stable.
+		// quick-261020-lyr2: mark the non-dominant lines as translations so the Hide
+		// parenthesised translations/lines settings can catch separate-line translations.
 		const origIdx = group.findIndex((l) => dominantScript(l.text) === songDominant);
 		const reordered = [group[origIdx], ...group.filter((_, k) => k !== origIdx)];
+		for (let k = 1; k < reordered.length; k++) {
+			reordered[k] = { ...reordered[k], isTranslation: true };
+		}
 		out.push(...reordered);
 	}
 	return out;

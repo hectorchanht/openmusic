@@ -91,11 +91,13 @@
         if (!src) return [];
         const all = splitParenLines(reorderPairs(parseLyrics(src)));
         // Filter hidden lines (same as NpLyrics's {#if} guards):
-        // - lyricsHideParenLines ON → hide the entire paren line
-        // - lyricsHideParenTranslation ON → hide paren translation lines (show parent instead)
+        // - lyricsHideParenLines ON → hide the entire paren/translation line
+        // - lyricsHideParenTranslation ON → hide paren/translation lines (show parent instead)
+        // quick-261020-lyr2: also catches isTranslation (separate-line translations).
         return all.filter((l) => {
-            if (l.fromParen && settings.lyricsHideParenLines) return false;
-            if (l.fromParen && settings.lyricsHideParenTranslation) return false;
+            const isTr = l.fromParen || l.isTranslation;
+            if (isTr && settings.lyricsHideParenLines) return false;
+            if (isTr && settings.lyricsHideParenTranslation) return false;
             return true;
         });
     });
