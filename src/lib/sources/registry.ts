@@ -3,8 +3,10 @@
 // name a source. Adding a source = a new adapter file + one import line here.
 import type { SourceAdapter, SourceId } from './types';
 import { netease } from './netease';
+import { gdnetease } from './gdnetease';
 import { qq } from './qq';
 import { kuwo } from './kuwo';
+import { suyin } from './suyin';
 import { joox } from './joox';
 import { kugou } from './kugou';
 import { migu } from './migu';
@@ -53,7 +55,12 @@ import { settings } from '$lib/stores/settings.svelte';
 // (autoResolveEligible: false), and ytmusic keeps the load-bearing LAST seat.
 // quick-261020-arch: archive sits with the other off-floor legal catalogs
 // (autoResolveEligible: false), just ahead of bilibili.
-export const SOURCES: Record<SourceId, SourceAdapter> = { qq, netease, kuwo, joox, kugou, migu, fivesing, jamendo, audius, archive, bilibili, ytmusic };
+// quick-261020-suyin: suyin （溯音 Kuwo via oiapi.net) sits right after kuwo —
+// a second independent Kuwo pipe (browser-direct, CORS *).
+// quick-261020-gdnt: gdnetease (GD音乐台 Netease via music-api.gdstudio.xyz)
+// sits right after netease — a second independent Netease pipe (via /api proxy,
+// no CORS). Neither disturbs the proven qq→netease→kuwo→joox floor ahead.
+export const SOURCES: Record<SourceId, SourceAdapter> = { qq, netease, gdnetease, kuwo, suyin, joox, kugou, migu, fivesing, jamendo, audius, archive, bilibili, ytmusic };
 
 /**
  * The enabled adapters for a search fan-out. Precedence (highest first):

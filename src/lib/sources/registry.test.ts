@@ -14,7 +14,9 @@ import { makeUid, type SourceId } from './types';
 const EXPECTED_KEYS: SourceId[] = [
 	'qq',
 	'netease',
+	'gdnetease',
 	'kuwo',
+	'suyin',
 	'joox',
 	'kugou',
 	'migu',
@@ -37,6 +39,8 @@ describe('SOURCES registry (DATA-04 — single enumeration point)', () => {
 	// quick-261020-migu: migu inserted after kugou (mainstream, resolve-floor eligible).
 	// quick-261020-bili: bilibili sits just before ytmusic (search-only); ytmusic stays last.
 	// quick-261020-arch: archive sits just before bilibili (off-floor legal catalog).
+	// quick-261020-suyin: suyin (second Kuwo pipe) sits right after kuwo.
+	// quick-261020-gdnt: gdnetease (second Netease pipe) sits right after netease.
 	it('enumerates exactly qq,netease,kuwo,joox,kugou,migu,fivesing,jamendo,audius,archive,bilibili,ytmusic (qq-first floor; ytmusic last)', () => {
 		expect(Object.keys(SOURCES)).toEqual(EXPECTED_KEYS);
 	});
@@ -76,8 +80,10 @@ describe('getEnabledAdapters', () => {
 		// (jamendo + audius + ytmusic default to true, so an incomplete prefs map would let them through).
 		const onlyNetease = getEnabledAdapters({
 			netease: true,
+			gdnetease: false,
 			qq: false,
 			kuwo: false,
+			suyin: false,
 			joox: false,
 			kugou: false,
 			migu: false,
