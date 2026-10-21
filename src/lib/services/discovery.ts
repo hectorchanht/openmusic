@@ -18,6 +18,7 @@ import { scoreMatch } from '$lib/services/score-match';
 import { isChineseLine, t2sConvertLines, t2sConvertLineSync } from '$lib/services/zh-convert';
 import { detectLang } from '$lib/i18n/detect';
 import { isStrongMatch, lookupChineseName, type ZhName } from '$lib/services/name-rescue';
+import { foldScript } from '$lib/services/dedupe';
 import { settings } from '$lib/stores/settings.svelte';
 import { isAutoResolveEligible } from '$lib/sources/registry';
 import type { Track } from '$lib/sources/types';
@@ -100,7 +101,23 @@ export async function preferEligible(query: ZhName, bests: Bests): Promise<Track
 	const { eligible, ineligible } = bests;
 	if (eligible && (await strongFolded(query, eligible))) return eligible;
 	if (ineligible && (await strongFolded(query, ineligible))) return ineligible;
-	return eligible ?? ineligible;
+	// quick-261020-wrong1: NEVER return a weak match with a completely different title —
+	// that plays the wrong song (e.g. 說了再見 → 擱淺). The folded titles must share
+	// significant overlap, otherwise return null and let the caller handle the miss.
+	const fallback = eligible ?? ineligible;
+	if (fallback) {
+		const qTitle = foldScript(query.title || '').toLowerCase().replace(/\s+/g, '');
+		const cTitle = foldScript(fallback.title || '').toLowerCase().replace(/\s+/g, '');
+		// Titles match if one contains the other, or they share >= 50% of the query's chars.
+		const contains = qTitle && cTitle && (qTitle.includes(cTitle) || cTitle.includes(qTitle));
+		if (!contains) {
+			let overlap = 0;
+			const cSet = new Set(cTitle);
+			for (const ch of qTitle) if (cSet.has(ch)) overlap++;
+			if (qTitle.length === 0 || overlap / qTitle.length < 0.5) return null;
+		}
+	}
+	return fallback;
 }
 
 /**

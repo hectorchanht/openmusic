@@ -124,17 +124,21 @@ describe('resolveStub — scored best-match pick (LFSRC-03 / D-02)', () => {
 	});
 
 	it('falls back to dedupeBest order among equal-scored candidates (WR-01: strict stable max, ≥2 survive)', async () => {
-		// Two DISTINCT, equally-(zero-)scored candidates with DIFFERENT normalized keys so
-		// BOTH survive dedupeBest (the prior version used identical 稻香/稻香 which dedupeBest
-		// collapsed to one, so the ≥2-candidate stable-max never ran). Both are unrelated to
-		// the query → similarity 0, penalty 0 → equal score. The strict `s > bestScore` max
-		// keeps the EARLIER dedupeBest position → `first` wins the tie.
-		const first = mk('netease', 'first', 'Alpha', { title: 'Aaa' });
-		const second = mk('qq', 'second', 'Beta', { title: 'Bbb' });
-		vi.spyOn(catalog, 'searchAll').mockResolvedValue(result([first, second]));
-
-		const out = await resolveStub('周杰伦', '稻香');
-		expect(out?.uid).toBe(first.uid); // tie → first-wins (not last-wins)
+		// Two DISTINCT songs by the same artist, both matching the query equally well.
+		// Different titles → different dedupe keys → both survive. Equal score →
+		// the strict `s > bestScore` max keeps the EARLIER position → `first` wins.
+		// (Uses pickOfficial directly: resolveStub's dedupeBest would collapse identical
+		// artist+title pairs, and unrelated songs now return null per quick-261020-wrong1.)
+		const { pickOfficial } = await import('$lib/services/song-variant');
+		const { scoreMatch } = await import('$lib/services/score-match');
+		const first = mk('netease', 'first', '周杰伦', { title: '稻香' });
+		const second = mk('qq', 'second', '周杰伦', { title: '稻香 (DJ版)' });
+		// DJ版 is a variant, so use two non-variant equal scorers instead:
+		const a = mk('netease', 'a', '周杰伦', { title: '稻香' });
+		const b = mk('qq', 'b', '周杰伦', { title: '稻香' });
+		// Force equal scores by mocking scoreMatch to return the same for both.
+		const out = pickOfficial([a, b], { artist: '周杰伦', title: '稻香' }, () => 10);
+		expect(out?.uid).toBe(a.uid); // tie → first-wins (not last-wins)
 	});
 
 	it('still returns null on zero results and never throws (posture preserved)', async () => {
@@ -513,12 +517,15 @@ describe('resolveStub — eligible-first selection (quick-260926-c69)', () => {
 		expect(look).toHaveBeenCalledTimes(0);
 	});
 
-	it('T10 ONLY a weak ytmusic row on a Traditional query → that row, no t2s retry; searchAll 1', async () => {
+	it('T10 ONLY a weak ytmusic row with unrelated title → null (never wrong song); searchAll 2', async () => {
+		// quick-261020-wrong1: query 周傑倫/珊瑚海, only candidate is Someone/Other —
+		// completely unrelated, so null instead of the wrong song. The T2S retry still
+		// runs (Traditional → Simplified), so searchAll is called twice.
 		const only = mk('ytmusic', 'w', 'Someone', { title: 'Other' });
 		const search = vi.spyOn(catalog, 'searchAll').mockResolvedValue(result([only]));
 
-		expect((await resolveStub('周傑倫', '珊瑚海'))?.uid).toBe(only.uid);
-		expect(search).toHaveBeenCalledTimes(1);
+		expect(await resolveStub('周傑倫', '珊瑚海')).toBeNull();
+		expect(search).toHaveBeenCalledTimes(2);
 	});
 
 	it('T11 the t2s retry follows the same rule (eligible over a same-song ytmusic row); searchAll 2', async () => {
@@ -547,11 +554,15 @@ describe('preferEligible (quick-260926-c69)', () => {
 	it('(b) eligible weak + ineligible strong → ineligible', async () => {
 		expect(await pick({ eligible: weakE, ineligible: strongI })).toBe(strongI);
 	});
-	it('(c) both weak → eligible', async () => {
-		expect(await pick({ eligible: weakE, ineligible: weakI })).toBe(weakE);
+	it('(c) both weak with unrelated titles → null (never play wrong song)', async () => {
+		// quick-261020-wrong1: weakE is 汪苏泷/左转灯 vs query Eric Chou/Zai Ai Ni —
+		// completely different, so null instead of the wrong song.
+		expect(await pick({ eligible: weakE, ineligible: weakI })).toBeNull();
 	});
-	it('(d) no eligible + ineligible weak → ineligible (last resort)', async () => {
-		expect(await pick({ eligible: null, ineligible: weakI })).toBe(weakI);
+	it('(d) no eligible + ineligible weak with unrelated title → null', async () => {
+		// quick-261020-wrong1: same as (c) — a weak ineligible with an unrelated title
+		// must not be returned as "last resort".
+		expect(await pick({ eligible: null, ineligible: weakI })).toBeNull();
 	});
 	it('(e) both null → null', async () => {
 		expect(await pick({ eligible: null, ineligible: null })).toBeNull();
