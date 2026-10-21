@@ -458,6 +458,7 @@ const zhHans: Dict = {
 	"menu.customize": "自定义菜单",
 	"menu.resetMenu": "重设菜单",
 	"menu.done": "完成",
+	"menu.hiddenItems": "隐藏 — 拖上去显示",
 	"menu.goToArtist": "前往歌手",
 	"menu.share": "分享",
 	"menu.details": "详细信息",

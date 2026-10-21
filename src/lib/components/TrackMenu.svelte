@@ -1755,10 +1755,9 @@
 			     the sheet.
 			     quick-261021-menu4 (user): explicit Reset + Done buttons in a fixed header —
 			     users need to SEE where to exit and reset, not guess X/scrim. -->
-			<div class="menu-head row">
+			<div class="menu-head row edit-head">
 				<button class="hd-btn" onclick={resetMenuOrder} use:tapBounce><RotateCcw size={18} /><span>{t('menu.resetMenu')}</span></button>
-				<span class="menu-title">{t('menu.customize')}</span>
-				<button class="hd-btn primary" onclick={exitEdit} use:tapBounce><Check size={18} /><span>{t('menu.done')}</span></button>
+				<button class="hd-btn done" onclick={exitEdit} use:tapBounce><Check size={18} /><span>{t('menu.done')}</span></button>
 			</div>
 			<div class="acts edit" bind:this={editGridEl}>
 				{#each editIds as id, i (id)}
@@ -1792,12 +1791,17 @@
 						onkeydown={isCustomize ? undefined : (e) => mKey(e, id)}
 						animate:flip={{ duration: draggingThis || settings.reduceMotion ? 0 : 180 }}
 					><Icon size={22} /><span class="gi-label">{t(EDIT_META[id].label)}</span></button>
+					<!-- quick-261021-menu5 (user): divider after the 16 visible slots — rows 5+
+					     are the hidden pool, still reorderable via drag. -->
+					{#if i === 15}
+						<div class="edit-divider"><span>{t('menu.hiddenItems')}</span></div>
+					{/if}
 				{/each}
 			</div>
 		{:else}
 			<div class="acts">
 				{#each visibleIds as id (id)}
-					{@const cellSnippets = { remix: cellRemix, playNext: cellPlayNext, download: cellDownload, like: cellLike, addQueue: cellAddQueue, startRadio: cellStartRadio, versions: cellVersions, changeCover: cellChangeCover, changeLyrics: cellChangeLyrics, viewComments: cellViewComments, viewRelated: cellViewRelated, lyricsTiming: cellLyricsTiming, editTags: cellEditTags, addToPlaylist: cellAddToPlaylist, customize: cellCustomize, repeat: cellRepeat, shuffleQueue: cellShuffleQueue, clearQueue: cellClearQueue, sleepTimer: cellSleepTimer, goToArtist: cellGoToArtist, goToAlbum: cellGoToAlbum, share: cellShare, detail: cellDetail, downloadSource: cellDownloadSource }}
+					{@const cellSnippets = { remix: cellRemix, playNext: cellPlayNext, download: cellDownload, like: cellLike, addQueue: cellAddQueue, startRadio: cellStartRadio, versions: cellVersions, changeCover: cellChangeCover, changeLyrics: cellChangeLyrics, viewComments: cellViewComments, viewRelated: cellViewRelated, editTags: cellEditTags, addToPlaylist: cellAddToPlaylist, customize: cellCustomize, repeat: cellRepeat, shuffleQueue: cellShuffleQueue, clearQueue: cellClearQueue, sleepTimer: cellSleepTimer, goToArtist: cellGoToArtist, goToAlbum: cellGoToAlbum, share: cellShare, detail: cellDetail, downloadSource: cellDownloadSource }}
 					{@render cellSnippets[id](track)}
 				{/each}
 			</div><!-- /quick-261006-grd .acts grid -->
@@ -2062,10 +2066,15 @@
 	.menu-head.row { display: flex; align-items: center; justify-content: space-between; }
 	.x { background: none; border: none; color: var(--color-text); cursor: pointer; display: grid; place-items: center; }
 	/* quick-261021-menu4: edit-mode header buttons — Reset (left) and Done (right),
-	   always visible so users know where to exit and reset. */
-	.hd-btn { display: inline-flex; align-items: center; gap: 6px; background: none; border: 1px solid var(--color-border, #444); border-radius: 8px; color: var(--color-text); padding: 6px 12px; font-size: 0.8125rem; cursor: pointer; }
-	.hd-btn.primary { background: var(--color-accent, #1db954); border-color: var(--color-accent, #1db954); color: #fff; }
-	.menu-title { font-weight: 600; color: var(--color-text); }
+	   always visible so users know where to exit and reset.
+	   quick-261021-menu5: Done is subtle (not sharp green) — matches the dark theme. */
+	.edit-head { justify-content: space-between; padding: 12px 16px; }
+	.hd-btn { display: inline-flex; align-items: center; gap: 6px; background: none; border: 1px solid var(--color-border, #444); border-radius: 8px; color: var(--color-text); padding: 8px 16px; font-size: 0.875rem; cursor: pointer; }
+	.hd-btn.done { border-color: var(--color-text-muted, #888); color: var(--color-text); }
+	.hd-btn.done:active { background: rgba(255,255,255,0.08); }
+	/* quick-261021-menu5: divider between the 16 visible slots and the hidden pool. */
+	.edit-divider { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; padding: 12px 4px 4px; color: var(--color-text-muted); font-size: 0.75rem; }
+	.edit-divider::before, .edit-divider::after { content: ''; flex: 1; height: 1px; background: var(--color-border, #333); }
 	/* D-08/D-09/D-10: two-row marquee header + top-right action/Close cluster (quick-260913-je8:
 	   the action slot is Download, was Like). Left text column flexes (min-width:0 so the clips can
 	   shrink-and-ellipsis); right cluster is fixed-width.

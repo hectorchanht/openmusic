@@ -499,6 +499,7 @@ const en = {
 	"menu.customize": "Customize menu",
 	"menu.resetMenu": "Reset menu",
 	"menu.done": "Done",
+	"menu.hiddenItems": "Hidden — drag up to show",
 	"menu.goToArtist": "Go to artist",
 	"menu.share": "Share",
 	"menu.details": "Details",
