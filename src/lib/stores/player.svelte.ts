@@ -716,6 +716,27 @@ class Player {
 			getCachedCover(target.artist, target.title) ??
 			null;
 		this.syncMetadata();
+		// quick-261021-cov4 (user): proactive cover self-heal BEFORE first render.
+		// The fallback's winning source (e.g. Migu) may carry a wrong cover; the parallel
+		// cover chain (iTunes/JOOX/Migu priority) finds the right one. Run in background
+		// right at play() time — not waiting for Now Playing to open. Updates resolvedCover
+		// reactively when a better cover lands; superseded if the track changes.
+		if (target.uid) {
+			const healUid = target.uid;
+			const healGen = this.playGen;
+			void (async () => {
+				try {
+					const better = await resolveCoverForTrack(target);
+					// Still the same track and generation? Then adopt the better cover.
+					if (this.playGen !== healGen || !this.current || this.current.uid !== healUid) return;
+					if (better && hasHttpsScheme(better) && better !== this.resolvedCover) {
+						this.resolvedCover = better;
+					}
+				} catch {
+					// Never-throw: a failed heal leaves the existing cover in place.
+				}
+			})();
+		}
 		this.loading = true;
 		// debug-share-card-play-dead-replay: the supersedence guard armTrack already carries. A user
 		// play() landing mid-restore (a share CTA tap, or a cold-start deep link's warm arrival —
