@@ -1836,6 +1836,7 @@
 			<dt>{t('menu.detailSource')}</dt><dd>{detailTrack.source}</dd>
 			<dt>{t('menu.detailUid')}</dt><dd class="mono">{detailTrack.uid}</dd>
 			<dt>{t('menu.detailAudioUrl')}</dt><dd class="mono break">{detailTrack.audioUrl || t('menu.detailNotResolved')}</dd>
+			<dt>{t('menu.detailCoverUrl')}</dt><dd class="mono break">{detailTrack.cover || t('menu.detailNotResolved')}</dd>
 		</dl>
 	</div>
 {/if}
