@@ -233,49 +233,6 @@
 <hr class="div" />
 
 <!-- 1. Lyrics translate mode — how translated lyrics display (replace vs show below). -->
-<!-- quick-261020-lyr6 (user): LYRICS TRANSLATE MODE only shows when TRANSLATION TARGETS →
-     Lyrics translation is ON (lyricsLang !== 'off'). It controls the LRC's embedded
-     translations display. -->
-{#if settings.lyricsLang !== 'off'}
-<section>
-	<!-- The (i) is hidden while the control is disabled: its text describes the two ENABLED states,
-	     and the visible OFF note below already says why nothing here is pickable. -->
-	<h2><Replace size={15} /> {t('settings.lyricsTranslateMode')}<SettingHint label={t('settings.lyricsTranslateMode')} text={t('settings.translateModeOnNote')} /></h2>
-	<!-- quick-260919-ebi (F3): replace-vs-below is a shape on screen, so it is picked by tapping
-	     one of two lyric mockups. -->
-	<SettingPicker
-		variant="preview"
-		label={t('settings.lyricsTranslateMode')}
-		options={[
-			{ ...modeOptions[0], preview: modeReplace },
-			{ ...modeOptions[1], preview: modeBelow }
-		]}
-		value={settings.translateMode}
-		onpick={setMode}
-	/>
-	<p class="muted">{t('settings.translateModeNote')}</p>
-
-	<!-- quick-260919-ebi (F2): the one shared boolean row — inset + switch + accent edge. These two
-	     keep their prose: a before/after lyric pair would need a representative bilingual sample
-	     line, and choosing that line is itself a translation problem. -->
-	<SettingToggle
-		label={t('settings.lyricsHideParenTranslation')}
-		checked={settings.lyricsHideParenTranslation}
-		onchange={() => { settings.lyricsHideParenTranslation = !settings.lyricsHideParenTranslation; settings.save(); }}
-		hint={t('settings.lyricsHideParenTranslationNote')}
-	/>
-
-	<SettingToggle
-		label={t('settings.lyricsHideParenLines')}
-		checked={settings.lyricsHideParenLines}
-		onchange={() => { settings.lyricsHideParenLines = !settings.lyricsHideParenLines; settings.save(); }}
-		hint={t('settings.lyricsHideParenLinesNote')}
-	/>
-</section>
-
-<hr class="div" />
-{/if}
-
 <!-- 2. TRANSLATION TARGETS (quick-261020-lyr6, user): the MAIN translation control.
      Compacted from 5 stacked accordions into TABS — one tab bar, content below.
      Tabs: All | Lyrics | Artist | Title | Bio. -->
@@ -307,6 +264,35 @@
 						<button class="chip" class:on={TARGET[part.key]() === l.v} onclick={() => setTarget(part.key, l.v)} use:tapBounce>{langLabel(l.v)}</button>
 					{/each}
 				</div>
+				<!-- quick-261020-lyr7 (user): LYRICS TRANSLATE MODE lives INSIDE the Lyrics
+				     translation tab (not a separate section). Only shows when Lyrics target is ON. -->
+				{#if part.key === 'lyrics' && TARGET.lyrics() !== 'off'}
+					<div class="modemode">
+						<p class="sublabel"><Replace size={13} /> {t('settings.lyricsTranslateMode')}</p>
+						<SettingPicker
+							variant="preview"
+							label={t('settings.lyricsTranslateMode')}
+							options={[
+								{ ...modeOptions[0], preview: modeReplace },
+								{ ...modeOptions[1], preview: modeBelow }
+							]}
+							value={settings.translateMode}
+							onpick={setMode}
+						/>
+						<SettingToggle
+							label={t('settings.lyricsHideParenTranslation')}
+							checked={settings.lyricsHideParenTranslation}
+							onchange={() => { settings.lyricsHideParenTranslation = !settings.lyricsHideParenTranslation; settings.save(); }}
+							hint={t('settings.lyricsHideParenTranslationNote')}
+						/>
+						<SettingToggle
+							label={t('settings.lyricsHideParenLines')}
+							checked={settings.lyricsHideParenLines}
+							onchange={() => { settings.lyricsHideParenLines = !settings.lyricsHideParenLines; settings.save(); }}
+							hint={t('settings.lyricsHideParenLinesNote')}
+						/>
+					</div>
+				{/if}
 				{#if part.skip}
 					<div class="skip" class:disabled={TARGET[part.key]() === 'off'}>
 						<p class="sublabel">{t('settings.skipLanguages')}<SettingHint label={t('settings.skipLanguages')} text={t('settings.skipLanguagesNote')} /></p>
