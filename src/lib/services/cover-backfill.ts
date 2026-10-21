@@ -330,50 +330,76 @@ async function resolveTrackChain(
 		// caller's identity stays what gets cached by the caller-side writers.
 		const [qArtist, qTitle] = await coverSearchTerms(artist, title);
 		if (signal?.aborted) return null;
-		// Tier 1 — iTunes (PRIMARY: fastest hop, zero edge cost). quick-261006-o9t: asks for the
-		// 400px display variant (DISPLAY_ARTWORK_SIZE) instead of the historic 1200x1200bb (~330 KB
-		// per cover) — a 400px image is plenty for every inline surface including the hero, and the
-		// bytes are several-fold smaller. A SOLID hit is used as-is; no later tier is issued.
-		let cover = await tier(() => itunesSongCover(qArtist, qTitle, signal, DISPLAY_ARTWORK_SIZE));
+
+		// quick-261021-cov3 (user): PARALLEL + PRIORITISED race, not sequential tiers.
+		// All cover sources launch at once; the highest-priority valid cover wins.
+		// Priority (user-verified accuracy): JOOX/Migu (most accurate) > iTunes (fast, Western)
+		// > QQ (Chinese) > Deezer > YTM (last resort).
+		// A 300ms priority window lets a slower accurate source beat a faster inaccurate one.
+		const PRIORITY_WINDOW_MS = 300;
+		const results = new Map<string, string>();
+
+		const tasks: Array<{ key: string; fn: () => Promise<string | null> }> = [
+			{
+				key: 'joox-migu',
+				fn: async () => {
+					// CN tier, but prefer JOOX/Migu covers specifically (user: most accurate).
+					const r = await searchAll(`${qArtist} ${qTitle}`, 3, { qq: false, ytmusic: false }, signal);
+					if (signal?.aborted) return null;
+					const tracks = r.interleaved;
+					// Prefer JOOX, then Migu, then dedupeBest's pick.
+					const joox = tracks.find((t) => t.source === 'joox' && t.cover);
+					if (joox?.cover) return joox.cover;
+					const migu = tracks.find((t) => t.source === 'migu' && t.cover);
+					if (migu?.cover) return migu.cover;
+					return dedupeBest(tracks, settings.preferredSource)[0]?.cover ?? null;
+				}
+			},
+			{ key: 'itunes', fn: () => tier(() => itunesSongCover(qArtist, qTitle, signal, DISPLAY_ARTWORK_SIZE)) },
+			{ key: 'qq', fn: () => tier(() => qqSongCover(qArtist, qTitle, signal)) },
+			{ key: 'deezer', fn: () => tier(() => deezerSongCover(qArtist, qTitle, signal, 'big')) },
+			{ key: 'ytmusic', fn: () => tier(() => ytmusicSongCover(qArtist, qTitle, signal)) },
+		];
+
+		const priorityOrder = ['joox-migu', 'itunes', 'qq', 'deezer', 'ytmusic'];
+
+		await new Promise<void>((resolve) => {
+			let remaining = tasks.length;
+			let done = false;
+			let windowTimer: ReturnType<typeof setTimeout> | null = null;
+			const finish = () => {
+				if (done) return;
+				done = true;
+				if (windowTimer) clearTimeout(windowTimer);
+				resolve();
+			};
+			for (const task of tasks) {
+				task.fn()
+					.then((cover) => {
+						if (done || signal?.aborted) return;
+						if (cover && hasHttpsScheme(cover)) {
+							results.set(task.key, cover);
+							// First valid cover: start priority window for higher-priority sources.
+							if (windowTimer === null) {
+								windowTimer = setTimeout(finish, PRIORITY_WINDOW_MS);
+							}
+						}
+						if (--remaining === 0) finish();
+					})
+					.catch(() => {
+						if (--remaining === 0 && !done) finish();
+					});
+			}
+			signal?.addEventListener('abort', () => finish(), { once: true });
+		});
+
 		if (signal?.aborted) return null;
-
-		// Tier 2 — QQ (fires only on an iTunes miss; search + detail resolve, health-gated, 40-WR-06).
-		if (!cover) {
-			cover = await tier(() => qqSongCover(qArtist, qTitle, signal));
-			if (signal?.aborted) return null;
+		// Pick highest-priority valid cover.
+		for (const key of priorityOrder) {
+			const cover = results.get(key);
+			if (cover && hasHttpsScheme(cover)) return cover;
 		}
-
-		// Tier 3 — Deezer (fires only on an iTunes+QQ miss). quick-261006-o9t: prefers the 500px
-		// cover_big rung (~73 KB measured) over the historic cover_xl 1000px (~208 KB) — same art,
-		// far fewer bytes, still plenty for every inline surface.
-		if (!cover) {
-			cover = await tier(() => deezerSongCover(qArtist, qTitle, signal, 'big'));
-			if (signal?.aborted) return null;
-		}
-
-		// Tier 4 — other CN (fires only on an iTunes+QQ+Deezer miss). Carries the netease/kuwo/joox
-		// long tail the tiers above do not.
-		if (!cover) {
-			cover = await tier(async () => {
-				// WR-01: thread `signal` so the CN fan-out is cancelled on supersede/unmount like the
-				// tiers above. Phase 40 D-08: qq + ytmusic explicitly off (explicit false
-				// beats user prefs) — qq was already tried, and dedupeBest could otherwise pick a
-				// ytmusic row; it also saves a second qq search + an InnerTube POST per miss. Cost: the
-				// searchAll cache key no longer matches resolveStub's `{}` key — accepted.
-				const r = await searchAll(`${qArtist} ${qTitle}`, 1, { qq: false, ytmusic: false }, signal);
-				return dedupeBest(r.interleaved, settings.preferredSource)[0]?.cover ?? null;
-			});
-			if (signal?.aborted) return null;
-		}
-
-		// Tier 5 — YouTube Music (fires only when every tier above missed — a 120px thumbnail on a
-		// host many users cannot reach is a last resort, not a lead; quick-260920-nyq).
-		if (!cover) {
-			cover = await tier(() => ytmusicSongCover(qArtist, qTitle, signal));
-			if (signal?.aborted) return null;
-		}
-
-		return hasHttpsScheme(cover) ? cover : null;
+		return null;
 	} catch {
 		// Backstop — a miss leaves the gradient (never a broken image / never blocks).
 		return null;
@@ -526,11 +552,6 @@ export async function backfillCovers(items: CoverNeed[], opts: BackfillOpts = {}
 
 	// (3) resolveOne: run the SHARED iTunes → QQ → Deezer → CN → YTM chain (resolveTrackChain — same tier()
 	//     never-throw + https guard); cache + notify only a SOLID https cover (quick-260607-0bb).
-	// quick-261020-batch3 (C10): the chain hit is committed on hasHttpsScheme ALONE, without a
-	// liveness probe — accepted deliberately. Probing every backfilled tile would double the cold-
-	// visit image load (~270 tiles), and the <24h staleness window is already the accepted trade-off
-	// (T-4fr-02, documented in lazyCover): rows self-heal via aged-entry probes, the now-playing
-	// surface via healCover. A dead backfill write can therefore paint for up to 24h on tiles.
 	async function resolveOne(item: CoverNeed): Promise<void> {
 		if (signal?.aborted) return;
 		const cover = await resolveTrackChain(item.artist, item.title, signal);

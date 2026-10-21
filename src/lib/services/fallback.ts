@@ -116,8 +116,18 @@ export async function tryFallback(
  * Race N sources in parallel; resolve with the first valid (playable) result.
  * Losers are left to settle (their AbortSignal fires when the winner is picked).
  * Resolves null when every source fails or the outer signal aborts.
+ *
+ * quick-261021-race2 (user): "parallel and race with prioritise".
+ * Pure speed race lets a fast-but-unreliable source (suyin 0%) win over a slower
+ * Tier-1 source (joox 100%) that returns 50ms later. Fix: when the first result
+ * arrives, wait up to PRIORITY_WINDOW_MS for higher-priority sources (earlier in
+ * the `sources` order, which fallbackOrder sorts by pass rate) to also return,
+ * then pick the highest-priority valid result. If none arrive in the window,
+ * the first result wins. Adds at most 300ms in the contested case, zero in the
+ * common case (only one source returns).
  */
-function raceSources<T>(
+const PRIORITY_WINDOW_MS = 300;
+function raceSources<T extends { audioUrl?: string }>(
 	sources: SourceId[],
 	tryFn: (src: SourceId, signal: AbortSignal) => Promise<T | null>,
 	signal?: AbortSignal
@@ -128,24 +138,53 @@ function raceSources<T>(
 		const ac = new AbortController();
 		let remaining = sources.length;
 		let done = false;
-		const finish = (value: T | null) => {
+		// Collect valid results keyed by source; pick highest-priority at the end.
+		const results = new Map<SourceId, T>();
+		const finish = () => {
 			if (done) return;
 			done = true;
-			ac.abort(); // cancel the losers
-			resolve(value);
+			ac.abort();
+			// Pick the valid result from the highest-priority source (earliest in order).
+			for (const src of sources) {
+				const r = results.get(src);
+				if (r && r.audioUrl) {
+					resolve(r);
+					return;
+				}
+			}
+			resolve(null);
 		};
-		const onAbort = () => finish(null);
+		const onAbort = () => {
+			if (!done) {
+				done = true;
+				ac.abort();
+				resolve(null);
+			}
+		};
 		signal?.addEventListener('abort', onAbort, { once: true });
+		let windowTimer: ReturnType<typeof setTimeout> | null = null;
 		for (const src of sources) {
 			tryFn(src, ac.signal)
 				.then((result) => {
-					// A result counts only if it is playable (has audioUrl) — a resolved
-					// stub without audio is not a win, keep racing the rest.
-					if (result && (result as { audioUrl?: string }).audioUrl) finish(result);
-					else if (--remaining === 0) finish(null);
+					if (done) return;
+					if (result && result.audioUrl) {
+						results.set(src, result);
+						// First valid result: start the priority window. Higher-priority
+						// sources get a chance to return before we pick.
+						if (windowTimer === null) {
+							windowTimer = setTimeout(finish, PRIORITY_WINDOW_MS);
+						}
+					}
+					if (--remaining === 0) {
+						if (windowTimer) clearTimeout(windowTimer);
+						finish();
+					}
 				})
 				.catch(() => {
-					if (--remaining === 0) finish(null);
+					if (--remaining === 0 && !done) {
+						if (windowTimer) clearTimeout(windowTimer);
+						finish();
+					}
 				});
 		}
 	});
