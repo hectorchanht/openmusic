@@ -18,6 +18,8 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Set version
+        run: echo "VITE_APP_VERSION=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
       - run: pnpm build
       - run: npx wrangler pages deploy .svelte-kit/cloudflare --project-name openmusic
         env:
