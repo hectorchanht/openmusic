@@ -165,7 +165,7 @@ describe('coverSwipe — horizontal axis-locked prev/next swipe (Phase 20 NP-01/
 		m.fire('pointerup', pe(140, 50, 700));
 		expect(o.onprev).not.toHaveBeenCalled();
 		expect(o.onnext).not.toHaveBeenCalled();
-		expect(m.style.transform).toBe('translateX(0)'); // animated back to rest
+		expect(['', 'translateX(0)']).toContain(m.style.transform ?? ''); // quick-261022-spring: node settles instantly, onSettled clears inline styles
 	});
 
 	it('captures the pointer ONLY in move() after the horizontal commit, never on pointerdown (Pitfall 7)', () => {
@@ -231,7 +231,7 @@ describe('coverSwipe — horizontal axis-locked prev/next swipe (Phase 20 NP-01/
 		m.fire('pointerup', pe(250, 50, 100));
 		expect(o.onprev).not.toHaveBeenCalled();
 		expect(o.onnext).not.toHaveBeenCalled();
-		expect(m.style.transform).toBe('translateX(0)'); // rubber-band always springs back
+		expect(['', 'translateX(0)']).toContain(m.style.transform ?? ''); // quick-261022-spring: rubber-band always springs back (node: instant settle)
 	});
 
 	it('boundary: hasNext:false + hard next (LEFT) flick → onnext NOT called, springs back to translateX(0)', () => {
@@ -243,7 +243,7 @@ describe('coverSwipe — horizontal axis-locked prev/next swipe (Phase 20 NP-01/
 		m.fire('pointerup', pe(100, 50, 100));
 		expect(o.onnext).not.toHaveBeenCalled();
 		expect(o.onprev).not.toHaveBeenCalled();
-		expect(m.style.transform).toBe('translateX(0)'); // rubber-band always springs back
+		expect(['', 'translateX(0)']).toContain(m.style.transform ?? ''); // quick-261022-spring: rubber-band always springs back (node: instant settle)
 	});
 
 	it('a resisted boundary gesture clamps the live translate below the raw dx (rubber-band damping)', () => {

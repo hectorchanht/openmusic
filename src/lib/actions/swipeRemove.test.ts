@@ -110,8 +110,11 @@ describe('swipeRemove — horizontal axis-locked swipe-to-remove (Phase 17 QUEUE
 		m.fire('pointermove', pe(140, 50, 400)); // dx = 40 < threshold, velocity ~0.09 < FLICK_V
 		m.fire('pointerup', pe(140, 50, 700));
 		expect(onremove).not.toHaveBeenCalled();
-		expect(m.style.transform).toBe('translateX(0)'); // animated back to rest
-		expect(m.style.opacity).toBe('1');
+		// quick-261022-spring: the spring settles instantly in node (no rAF) and onSettled clears
+		// the inline styles, so rest is '' — the '' / 'translateX(0)' duality matches the other
+		// resting-state assertions in this file.
+		expect(['', 'translateX(0)']).toContain(m.style.transform ?? '');
+		expect(['', '1']).toContain(m.style.opacity ?? '');
 	});
 
 	it('captures the pointer ONLY in move() after the horizontal commit, never on pointerdown', () => {

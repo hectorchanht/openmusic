@@ -92,7 +92,7 @@ describe('swipeAction — directional full-commit-then-spring-back swipe (Phase 
 		expect(onSwipeRight).toHaveBeenCalledTimes(1);
 		expect(onSwipeLeft).not.toHaveBeenCalled();
 		// ALWAYS springs back — the row is never removed (D-02).
-		expect(m.style.transform).toBe('translateX(0)');
+		expect(['', 'translateX(0)']).toContain(m.style.transform ?? ''); // quick-261022-spring: node settles instantly, onSettled clears inline styles
 	});
 
 	it('left drag past the distance threshold then release commits onSwipeLeft once, then springs back', () => {
@@ -105,7 +105,7 @@ describe('swipeAction — directional full-commit-then-spring-back swipe (Phase 
 		m.fire('pointerup', pe(100, 54, 220));
 		expect(onSwipeLeft).toHaveBeenCalledTimes(1);
 		expect(onSwipeRight).not.toHaveBeenCalled();
-		expect(m.style.transform).toBe('translateX(0)');
+		expect(['', 'translateX(0)']).toContain(m.style.transform ?? ''); // quick-261022-spring: node settles instantly, onSettled clears inline styles
 	});
 
 	it('a fast RIGHT flick past slop but BELOW the distance threshold still commits onSwipeRight', () => {
@@ -144,7 +144,7 @@ describe('swipeAction — directional full-commit-then-spring-back swipe (Phase 
 		m.fire('pointerup', pe(140, 50, 700));
 		expect(onSwipeRight).not.toHaveBeenCalled();
 		expect(onSwipeLeft).not.toHaveBeenCalled();
-		expect(m.style.transform).toBe('translateX(0)'); // animated back to rest
+		expect(['', 'translateX(0)']).toContain(m.style.transform ?? ''); // quick-261022-spring: node settles instantly, onSettled clears inline styles // animated back to rest
 	});
 
 	it('captures the pointer ONLY in move() after the horizontal commit, never on pointerdown', () => {

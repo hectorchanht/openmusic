@@ -1,5 +1,6 @@
 import type { Action } from 'svelte/action';
 import { createVelocityTracker } from '$lib/gestures/velocity';
+import { createSpringSnap } from '$lib/gestures/springSnap';
 
 // use:swipeAction — DIRECTIONAL finger-drag-SIDEWAYS that commits a per-direction callback then
 // ALWAYS springs the row back (Phase 23, UX-04 / D-01/D-02). A verbatim generalization of
@@ -57,6 +58,16 @@ export const swipeAction: Action<HTMLElement, SwipeActionOpts> = (node, opts) =>
 		node.style.transition = '';
 	}
 
+	// quick-261022-spring: the ALWAYS-spring-back (D-02, iOS-Mail full-commit-then-spring-back)
+	// settles with a real damped spring instead of the old fixed 0.28s ease-out. The pump drives
+	// the inline transform every frame; onSettled clears it so the host CSS resting state returns.
+	const snap = createSpringSnap(
+		(v) => {
+			node.style.transform = v === 0 ? '' : `translateX(${v}px)`;
+		},
+		{ onSettled: resetTransform }
+	);
+
 	// WR-01: swallow the trailing click after a COMMITTED horizontal drag. setPointerCapture
 	// retargets the click to this node, and on mouse input a click fires after every
 	// mousedown→mouseup regardless of travel — without this, a committed drag would fire the
@@ -84,6 +95,8 @@ export const swipeAction: Action<HTMLElement, SwipeActionOpts> = (node, opts) =>
 		// Do NOT setPointerCapture here: capturing on pointerdown retargets the trailing click to
 		// THIS node, so a tap on the row never reaches its onclick (tap-to-play "did nothing").
 		// Capture only once an actual horizontal drag begins (in move()).
+		// quick-261022-spring: interrupt an in-flight spring settle so the pump can't fight the finger.
+		snap.cancel();
 		node.style.transition = 'none';
 	}
 
@@ -126,10 +139,9 @@ export const swipeAction: Action<HTMLElement, SwipeActionOpts> = (node, opts) =>
 			if (dx > 0) onSwipeRight?.(); // queue (D-03) — host fires haptics.tick()
 			else onSwipeLeft?.(); // like toggle (D-04) — host fires haptics.tick()
 		}
-		// ALWAYS spring back to rest — the row is NEVER removed (D-02). Re-enable the transition
-		// and animate translateX → 0 regardless of whether we committed.
-		node.style.transition = 'transform 0.28s cubic-bezier(.22,1,.36,1)';
-		node.style.transform = 'translateX(0)';
+		// ALWAYS spring back to rest — the row is NEVER removed (D-02). The shared springSnap
+		// settles with real spring physics (quick-261022-spring) regardless of whether we committed.
+		snap.snap(dx, 0);
 		dx = 0;
 	}
 
@@ -146,6 +158,7 @@ export const swipeAction: Action<HTMLElement, SwipeActionOpts> = (node, opts) =>
 			enabled = next.enabled ?? true;
 		},
 		destroy() {
+			snap.cancel(); // quick-261022-spring: never leave the pump writing to a dead node
 			node.removeEventListener('pointerdown', down);
 			node.removeEventListener('pointermove', move);
 			node.removeEventListener('pointerup', up);

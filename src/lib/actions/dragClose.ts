@@ -1,5 +1,6 @@
 import type { Action } from 'svelte/action';
 import { createVelocityTracker } from '$lib/gestures/velocity';
+import { createSpringSnap } from '$lib/gestures/springSnap';
 
 // use:dragClose — finger-drag-DOWN to dismiss any sheet/modal element.
 // Mirrors NowPlaying's coverDown/coverMove/coverUp live-drag idiom.
@@ -60,6 +61,17 @@ export const dragClose: Action<HTMLElement, DragCloseOpts> = (node, opts) => {
 		node.style.transition = '';
 	}
 
+	// quick-261022-spring: the snap-back settles with a real damped spring (slight overshoot,
+	// Apple-like) instead of the old fixed 0.28s ease-out. The pump drives the inline transform
+	// every frame while transition stays 'none' (set in down()); onSettled clears the inline
+	// styles so the host's CSS resting state is restored.
+	const snap = createSpringSnap(
+		(v) => {
+			node.style.transform = v === 0 ? '' : `translateY(${v}px)`;
+		},
+		{ onSettled: resetTransform }
+	);
+
 	function down(e: PointerEvent) {
 		if (!enabled) return;
 		// quick-260926-vdp: an INNER scroller (the lyrics picker's full-lyrics box) opts out with
@@ -67,6 +79,9 @@ export const dragClose: Action<HTMLElement, DragCloseOpts> = (node, opts) => {
 		// Checked HERE rather than via stopPropagation in the child: Svelte 5 delegates `onpointerdown`
 		// to the app root, so a child handler runs AFTER this native listener — too late to stop it.
 		if ((e.target as Element | null)?.closest?.('[data-no-drag]')) return;
+		// quick-261022-spring: a new press interrupts an in-flight spring settle — otherwise the
+		// pump would keep writing the transform and fight the finger.
+		snap.cancel();
 		dragging = true;
 		captured = false;
 		startY = e.clientY;
@@ -113,9 +128,9 @@ export const dragClose: Action<HTMLElement, DragCloseOpts> = (node, opts) => {
 			resetTransform();
 			onclose();
 		} else {
-			// Snap back: re-enable the transition, animate translateY → 0.
-			node.style.transition = 'transform 0.28s cubic-bezier(.22,1,.36,1)';
-			node.style.transform = 'translateY(0)';
+			// quick-261022-spring: spring snap-back from the live release point. transition
+			// stays 'none' (from down()) while the pump drives frames; onSettled clears it.
+			snap.snap(dy, 0);
 		}
 		dy = 0;
 	}
@@ -132,6 +147,7 @@ export const dragClose: Action<HTMLElement, DragCloseOpts> = (node, opts) => {
 			enabled = next.enabled ?? true;
 		},
 		destroy() {
+			snap.cancel(); // quick-261022-spring: never leave the pump writing to a dead node
 			node.removeEventListener('pointerdown', down);
 			node.removeEventListener('pointermove', move);
 			node.removeEventListener('pointerup', up);

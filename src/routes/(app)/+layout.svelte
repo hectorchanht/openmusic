@@ -21,6 +21,9 @@
 	import { toast } from '$lib/stores/toast.svelte';
 	import { t, ensureLocale, type TranslationKey } from '$lib/i18n';
 	import { tapBounce } from '$lib/actions/tapBounce';
+	// quick-261022-spring: iOS-style rubber-band overscroll on the window scroller (Android /
+	// WebView have no native band — this layers the stretch + spring release on top).
+	import { rubberOverscroll } from '$lib/actions/rubberOverscroll';
 	// quick-260919-npfix (Fix 2): the pure Space / left / right -> transport mapping. All of the
 	// "may I steal this key?" branching lives there so it is node-testable; this file keeps only
 	// the listener.
@@ -436,7 +439,9 @@
 		</div>
 	{/if}
 
-	<main class="content">
+	<!-- quick-261022-spring: rubber-band overscroll lives on the content (not .app) so the
+	     fixed nowbar/tabbar never shift — only the scrolled page stretches. -->
+	<main class="content" use:rubberOverscroll>
 		{@render children()}
 	</main>
 

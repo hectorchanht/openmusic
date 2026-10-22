@@ -1,5 +1,6 @@
 import type { Action } from 'svelte/action';
 import { createVelocityTracker } from '$lib/gestures/velocity';
+import { createSpringSnap } from '$lib/gestures/springSnap';
 
 // use:swipeRemove — finger-drag-SIDEWAYS to remove a row (Phase 17, QUEUE-05 / D-06/D-07).
 // A structural X-axis MIRROR of dragClose.ts, sharing the Up-Next row with the vertical
@@ -52,6 +53,18 @@ export const swipeRemove: Action<HTMLElement, SwipeRemoveOpts> = (node, opts) =>
 		node.style.opacity = '';
 	}
 
+	// quick-261022-spring: the snap-back settles with a real damped spring instead of the old
+	// fixed 0.28s ease-out. The pump drives BOTH translateX and the drag's opacity fade (the
+	// same 1 − |v|/FADE_DISTANCE mapping as the live drag, D-07) every frame; onSettled clears
+	// all three inline styles.
+	const snap = createSpringSnap(
+		(v) => {
+			node.style.transform = `translateX(${v}px)`;
+			node.style.opacity = String(1 - Math.min(1, Math.abs(v) / FADE_DISTANCE));
+		},
+		{ onSettled: resetTransform }
+	);
+
 	// WR-01: swallow the trailing click after a COMMITTED horizontal drag. setPointerCapture
 	// retargets the click to this node, and on mouse input a click fires after every
 	// mousedown→mouseup regardless of travel — without this, a committed drag would remove the
@@ -69,6 +82,8 @@ export const swipeRemove: Action<HTMLElement, SwipeRemoveOpts> = (node, opts) =>
 		// A new gesture starts clean: drop a stale suppressor from a prior committed drag whose
 		// trailing click never fired (touch input suppresses it natively).
 		node.removeEventListener('click', suppressClick, true);
+		// quick-261022-spring: interrupt an in-flight spring settle so the pump can't fight the finger.
+		snap.cancel();
 		dragging = true;
 		captured = false;
 		startX = e.clientX;
@@ -119,10 +134,9 @@ export const swipeRemove: Action<HTMLElement, SwipeRemoveOpts> = (node, opts) =>
 		if (Math.abs(dx) > threshold || (Math.abs(v) > FLICK_V && Math.abs(dx) > SLOP)) {
 			onremove();
 		} else {
-			// Spring back: re-enable transitions, animate translateX → 0 + opacity → 1.
-			node.style.transition = 'transform 0.28s cubic-bezier(.22,1,.36,1), opacity 0.28s';
-			node.style.transform = 'translateX(0)';
-			node.style.opacity = '1';
+			// quick-261022-spring: spring snap-back from the live release point (pump drives
+			// translateX + the fade mapping; onSettled clears the inline styles).
+			snap.snap(dx, 0);
 		}
 		dx = 0;
 	}
@@ -139,6 +153,7 @@ export const swipeRemove: Action<HTMLElement, SwipeRemoveOpts> = (node, opts) =>
 			enabled = next.enabled ?? true;
 		},
 		destroy() {
+			snap.cancel(); // quick-261022-spring: never leave the pump writing to a dead node
 			node.removeEventListener('pointerdown', down);
 			node.removeEventListener('pointermove', move);
 			node.removeEventListener('pointerup', up);
