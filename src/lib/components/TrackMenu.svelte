@@ -1777,6 +1777,7 @@
 						aria-label={t(EDIT_META[id].label)}
 						title={t(EDIT_META[id].label)}
 						style:transform={draggingThis && (mDragDx || mDragDy) ? `translate(${mDragDx}px, ${mDragDy}px)` : undefined}
+						style:order={i < 16 ? 0 : 2}
 						onpointerdown={(e) => mDown(e, id)}
 						onpointermove={mMove}
 						onpointerup={mUp}
@@ -1785,12 +1786,15 @@
 						onkeydown={(e) => mKey(e, id)}
 						animate:flip={{ duration: draggingThis || settings.reduceMotion ? 0 : 180 }}
 					><Icon size={22} /><span class="gi-label">{t(EDIT_META[id].label)}</span></button>
-					<!-- quick-261021-menu5 (user): divider after the 16 visible slots — rows 5+
-					     are the hidden pool, still reorderable via drag. -->
-					{#if i === 15}
-						<div class="edit-divider"><span>{t('menu.hiddenItems')}</span></div>
-					{/if}
 				{/each}
+				<!-- quick-261021-menu5 (user): divider after the 16 visible slots — rows 5+
+				     are the hidden pool, still reorderable via drag. Moved OUT of the keyed
+				     each: animate:flip requires the button to be its only child (Svelte 5
+				     animation_invalid_placement — this broke the Pages build 6x). Placed back
+				     into position via order:1; cells use order 0 (first 16) / 2 (rest). -->
+				{#if editIds.length >= 16}
+					<div class="edit-divider" style="order: 1"><span>{t('menu.hiddenItems')}</span></div>
+				{/if}
 			</div>
 		{:else}
 			<div class="acts">
