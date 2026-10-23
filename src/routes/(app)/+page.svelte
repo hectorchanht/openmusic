@@ -1238,7 +1238,7 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 				<!-- quick-260915-w4f: a pin outranks the tile's inline cover. {@const} must be the immediate
 				     child of the {#each}, not of the <button>. -->
 				{@const art = readChosenCover(track.uid, track.artist, track.title) ?? track.cover}
-				<button class="tile" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); menuTrack = track; menuOpen = true; }} onclick={() => { player.setQueue(fallbackSongs, 'home-discovery'); player.play(track, { fresh: true }); }}>
+				<button class="tile" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); menuTrack = track; menuOpen = true; }} oncontextmenu={(e) => { e.preventDefault(); (e.currentTarget as HTMLElement)?.blur(); menuTrack = track; menuOpen = true; }} onclick={() => { player.setQueue(fallbackSongs, 'home-discovery'); player.play(track, { fresh: true }); }}>
 					<div class="art" style:background-image={art ? `url(${art})` : fallbackCover(track.uid)}></div>
 					{#if track.qualityLabel || track.quality}<span class="q">{track.qualityLabel ?? track.quality}</span>{/if}
 					<div class="scrim"></div>
@@ -1434,7 +1434,7 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 		     capped at 27 by both the slice here and the component (belt-and-braces). -->
 		<HomeGridPager items={items.slice(0, 27)} key={(item) => item.artist + ' ' + item.title}>
 			{#snippet row(item: DiscoveryTrack)}
-				<button class="tile" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); tileMenu(item); }} onclick={() => playStub(item, coverOnPlay ? item.image : null)}>
+				<button class="tile" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); tileMenu(item); }} oncontextmenu={(e) => { e.preventDefault(); (e.currentTarget as HTMLElement)?.blur(); tileMenu(item); }} onclick={() => playStub(item, coverOnPlay ? item.image : null)}>
 					<div class="art" style:background-image={fallbackCover(item.artist + item.title)}></div>
 					{#if tileCover(item)}<img class="al-cover-img" src={tileCover(item)} loading="lazy" decoding="async" alt="" onerror={hideOnError} />{/if}
 					<div class="scrim"></div>
@@ -1450,7 +1450,7 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 			{#each items as item (item.artist + ' ' + item.title)}
 				<!-- DiscoveryTrack carries NO uid → resolve-on-view is via scheduleBackfill + the global
 				     reactive signal (NOT use:lazyCover, which needs a Track); no synthetic uid stub. -->
-				<button class="album" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); tileMenu(item); }} onclick={() => playStub(item, coverOnPlay ? item.image : null)}>
+				<button class="album" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); tileMenu(item); }} oncontextmenu={(e) => { e.preventDefault(); (e.currentTarget as HTMLElement)?.blur(); tileMenu(item); }} onclick={() => playStub(item, coverOnPlay ? item.image : null)}>
 					<span class="al-cover" style:background-image={fallbackCover(item.artist + item.title)}>
 						{#if tileCover(item)}<img class="al-cover-img" src={tileCover(item)} loading="lazy" decoding="async" alt="" onerror={hideOnError} />{/if}
 					</span>
@@ -1629,7 +1629,7 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 	<!-- quick-260615-hep: uid-first reactive read; lazyCover resolves-on-view (writes both cache layers
 	     internally) and bumps the global signal so this reactive rowCover recomputes + the <img> paints. -->
 	{@const rowCover = libraryRowCover(track)}
-	<button class="album" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); menuTrack = track; menuOpen = true; }} onclick={() => playLibraryTrack(track, ctx)}>
+	<button class="album" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); menuTrack = track; menuOpen = true; }} oncontextmenu={(e) => { e.preventDefault(); (e.currentTarget as HTMLElement)?.blur(); menuTrack = track; menuOpen = true; }} onclick={() => playLibraryTrack(track, ctx)}>>
 		<!-- psi-home-163mb-payload-lcp follow-up: gradient-only background; the lazy <img> paints the
 		     cover (a CSS url() background is never lazy, so every off-screen pile cover loaded eagerly). -->
 		<span class="al-cover" use:lazyCover={{ track, onResolved: () => bumpCoverVersion() }} style:background-image={fallbackCover(track.uid)}>
@@ -1663,7 +1663,7 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 		<HomeGridPager items={tracks.slice(0, 27)} key={(track) => track.uid}>
 			{#snippet row(track: Track)}
 				{@const rowCover = libraryRowCover(track)}
-				<button class="tile" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openTrackMenu(track); }} onclick={() => playLibraryTrack(track, ctx)}>
+				<button class="tile" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openTrackMenu(track); }} oncontextmenu={(e) => { e.preventDefault(); (e.currentTarget as HTMLElement)?.blur(); openTrackMenu(track); }} onclick={() => playLibraryTrack(track, ctx)}>
 					<div class="art" use:lazyCover={{ track, onResolved: () => bumpCoverVersion() }} style:background-image={rowCover ? `url(${rowCover})` : fallbackCover(track.uid)}></div>
 					<div class="scrim"></div>
 					<div class="label">

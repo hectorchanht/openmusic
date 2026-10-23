@@ -4,7 +4,9 @@
 	// Three variants:
 	//  - 'track' : 40×40 art (radius 6px) + title/subtitle (both marquee) + a trailing ⋮ option
 	//              button. tap row = play (onplay), tap ⋮ = open menu (onrequestmenu),
-	//              long-press row = open menu (onrequestmenu, via use:longpress).
+	//              long-press row = open menu (onrequestmenu, via use:longpress),
+	//              right-click row = open menu (onrequestmenu, via oncontextmenu —
+	//              quick-261023-rowmenu, desktop parity with the mobile long-press).
 	//  - 'artist': 40×40 ROUND avatar + name only (marquee). tap = open artist (onopen). NO ⋮,
 	//              NO long-press (no meaningful artist menu — D-09).
 	//  - 'album' : 40×40 SQUARE art + title/subtitle (both marquee); the whole row is ONE button
@@ -147,7 +149,17 @@ import { sizedCover, ROW_COVER_PX } from '$lib/services/cover-size';
 		</span>
 	</button>
 {:else}
-	<div class="crow-wrap">
+	<!-- quick-261023-rowmenu: the desktop right-click (contextmenu) opens the SAME track menu
+	     as ⋮ / long-press (onrequestmenu). preventDefault kills the native menu; the handler
+	     sits on the wrapper so a right-click on the row OR the ⋮ button both count. Mobile
+	     long-press is untouched (use:longpress below). -->
+	<div
+		class="crow-wrap"
+		oncontextmenu={(e) => {
+			e.preventDefault();
+			onrequestmenu?.();
+		}}
+	>
 		<button
 			class="crow"
 			class:is-active={track != null && player.current?.uid === track.uid}
