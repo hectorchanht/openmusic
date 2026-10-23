@@ -29,6 +29,7 @@
 
 import { Capacitor } from '@capacitor/core';
 import type { SourceId, Track } from '$lib/sources/types';
+import { trackDownload } from '$lib/analytics';
 import { library } from '$lib/stores/library.svelte';
 import { player } from '$lib/stores/player.svelte';
 import { readCoverByUidOrName } from '$lib/stores/cover-version.svelte';
@@ -527,14 +528,31 @@ async function runDownload(track: Track, opts?: DownloadOpts): Promise<DownloadR
 			// a broken callback must not fail the download (36-D-19 posture).
 		}
 
+		// quick-261023-like-dl: identity-linked download ping, fired at the single point
+		// where the result becomes 'saved' — every caller (TrackMenu startDownload / the
+		// "Download from…" picker, DownloadControl, the album bulk loop) funnels through
+		// here. Fire-and-forget; the ping never affects the download result. Skipped for
+		// silent background repairs (31-D-12): save:false WITHOUT dir is a re-persist the
+		// user never initiated. The album bulk path passes dir (40-D-04) and IS
+		// user-initiated, so it is logged.
+		const pingDownload = () => {
+			if (opts?.save === false && !opts?.dir) return;
+			trackDownload(r, { quality: r.qualityLabel ?? r.quality ?? '', bytes: blob.size });
+		};
+
 		// 31-D-12: silent background repair — the offline blob (and the library record) are refreshed
 		// above, which is the whole point of the re-download; the disk save is skipped so no picker /
 		// download-shelf appears for an action the user never initiated.
-		if (opts?.save === false) return 'saved';
+		if (opts?.save === false) {
+			pingDownload();
+			return 'saved';
+		}
 
 		// Web save via the anchor seam (DL-BUG-01/D-02/D-09): a same-origin blob: <a download> click,
 		// NO save-picker prompt, NO new-tab navigation. Returns false (not a throw) on any DOM failure.
-		return saveBlobToDisk(blob, filename) ? 'saved' : 'failed';
+		const savedToDisk = saveBlobToDisk(blob, filename);
+		if (savedToDisk) pingDownload();
+		return savedToDisk ? 'saved' : 'failed';
 	} catch {
 		// DL-BUG-01 (D-09): a fetch/blob failure returns 'failed' — it NEVER window.open's the raw
 		// stream URL. The song is already in library.downloads and re-streams on tap; the caller shows

@@ -13,6 +13,10 @@ vi.mock('$app/environment', () => ({ browser: true }));
 // than an inference, and removeDownload's existing del() never reaches real IDB/Capacitor here.
 const { blobDel } = vi.hoisted(() => ({ blobDel: vi.fn(async () => {}) }));
 vi.mock('$lib/services/blob-store', () => ({ blobStore: { del: blobDel } }));
+// quick-261023-like-dl: the identity-linked like/unlike ping — mocked so the
+// fire-and-forget fetch never leaves the test process.
+const { trackLikeMock } = vi.hoisted(() => ({ trackLikeMock: vi.fn() }));
+vi.mock('$lib/analytics', () => ({ trackLike: trackLikeMock }));
 import { library } from './library.svelte';
 import { warmScript } from '$lib/services/zh-convert';
 import { getCachedCover } from '$lib/services/cover-cache';
@@ -531,6 +535,23 @@ describe('like-state-wrong-track-menu: uid-less tracks cannot be liked or read a
 		library.toggleLike(mk({ uid: '' }));
 		expect(library.liked).toHaveLength(0);
 		expect(memStore.has('openmusic:library:v1')).toBe(false);
+	});
+
+	it('toggleLike fires the identity-linked ping with the action that happened', () => {
+		trackLikeMock.mockClear();
+		const t = mk({ uid: 'netease:ping1', artist: 'A', title: 'T' });
+		library.toggleLike(t); // like
+		library.toggleLike(t); // unlike
+		expect(trackLikeMock).toHaveBeenCalledTimes(2);
+		expect(trackLikeMock.mock.calls[0][0]).toBe(t);
+		expect(trackLikeMock.mock.calls[0][1]).toBe('like');
+		expect(trackLikeMock.mock.calls[1][1]).toBe('unlike');
+	});
+
+	it('toggleLike on a uid-less stub fires no ping', () => {
+		trackLikeMock.mockClear();
+		library.toggleLike(mk({ uid: '' }));
+		expect(trackLikeMock).not.toHaveBeenCalled();
 	});
 
 	it('load() prunes uid-less entries from an already-poisoned store, keeps real ones', () => {

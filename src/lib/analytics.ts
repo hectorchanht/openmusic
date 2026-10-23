@@ -1,4 +1,4 @@
-// analytics — anonymous play-count ping, client side.
+// analytics — play/like/download pings, client side.
 //
 // getAnonId(): a random UUID persisted in localStorage ('openmusic_anon_id'). No
 // account, no login, no fingerprint — just a stable random id so "N plays" can later
@@ -14,6 +14,12 @@
 // with playback traffic for the outbound governor's concurrency slots, and
 // `keepalive: true` so it can finish even as the page hides. A failed ping is
 // swallowed — analytics must never break playback.
+//
+// trackLike(track, action) / trackDownload(track, extra): the identity-linked pings
+// (quick-261023-like-dl). Same fire-and-forget + keepalive posture, but sent with
+// `credentials: 'include'` so the server can resolve the session to a user_id.
+// Identity is NEVER sent from the client — the server derives it from the session
+// cookie/bearer; a logged-out ping is simply anonymous (user_id NULL server-side).
 
 import { Capacitor } from '@capacitor/core';
 import { apiUrl } from '$lib/services/api-base';
@@ -51,27 +57,62 @@ function clientLocale(): string {
 	}
 }
 
-export function trackPlayStart(track: Pick<Track, 'uid' | 'title' | 'artist' | 'source'>): void {
+type TrackRef = Pick<Track, 'uid' | 'title' | 'artist' | 'source'>;
+
+function baseFields(track: TrackRef): Record<string, unknown> {
+	return {
+		anon_id: getAnonId(),
+		song_id: track.uid,
+		title: track.title ?? '',
+		artist: track.artist ?? '',
+		source: track.source ?? '',
+		platform: clientPlatform(),
+		app_version: import.meta.env.VITE_APP_VERSION ?? '',
+		locale: clientLocale()
+	};
+}
+
+/** Shared fire-and-forget ping. `withCreds` attaches the session (cookie/bearer) so
+ *  the server can resolve identity; the anonymous play ping omits it. Never throws. */
+function ping(path: string, fields: Record<string, unknown>, withCreds: boolean): void {
 	try {
-		const body = JSON.stringify({
-			anon_id: getAnonId(),
-			song_id: track.uid,
-			title: track.title ?? '',
-			artist: track.artist ?? '',
-			source: track.source ?? '',
-			platform: clientPlatform(),
-			app_version: import.meta.env.VITE_APP_VERSION ?? '',
-			locale: clientLocale()
-		});
-		void fetch(apiUrl('/api/analytics/play'), {
+		void fetch(apiUrl(path), {
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
-			body,
-			keepalive: true
+			body: JSON.stringify(fields),
+			keepalive: true,
+			...(withCreds ? { credentials: 'include' as RequestCredentials } : {})
 		}).catch(() => {
 			/* analytics ping failed — ignore */
 		});
 	} catch {
-		/* never break playback for analytics */
+		/* never break the app for analytics */
 	}
+}
+
+export function trackPlayStart(track: TrackRef): void {
+	ping('/api/analytics/play', baseFields(track), false);
+}
+
+/** Identity-linked like/unlike ping (quick-261023-like-dl). The server resolves
+ *  user_id from the session; a logged-out ping is stored anonymous. Never throws. */
+export function trackLike(track: TrackRef, action: 'like' | 'unlike'): void {
+	ping('/api/analytics/like', { ...baseFields(track), action }, true);
+}
+
+/** Identity-linked download ping (quick-261023-like-dl). Fire at the point a
+ *  download result becomes 'saved'. Never throws. */
+export function trackDownload(
+	track: TrackRef,
+	extra?: { quality?: string; bytes?: number }
+): void {
+	ping(
+		'/api/analytics/download',
+		{
+			...baseFields(track),
+			quality: extra?.quality ?? '',
+			bytes: typeof extra?.bytes === 'number' ? extra.bytes : null
+		},
+		true
+	);
 }

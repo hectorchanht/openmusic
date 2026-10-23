@@ -2,6 +2,7 @@
 // "downloads" reference list. Persisted to localStorage `openmusic:library:v1`,
 // SSR-guarded. This is a demo-scoped slice of the planned Phase-3 Library.
 import { browser } from '$app/environment';
+import { trackLike } from '$lib/analytics';
 import { blobStore } from '$lib/services/blob-store';
 import { setCachedCover } from '$lib/services/cover-cache';
 import { hasHttpsScheme } from '$lib/services/url-safety';
@@ -135,8 +136,12 @@ class Library {
 	}
 	toggleLike(t: Track) {
 		if (!t.uid) return; // like-state-wrong-track-menu: nothing to key on — refuse, never poison the list
-		this.liked = this.isLiked(t.uid) ? this.liked.filter((x) => x.uid !== t.uid) : [t, ...this.liked];
+		const wasLiked = this.isLiked(t.uid);
+		this.liked = wasLiked ? this.liked.filter((x) => x.uid !== t.uid) : [t, ...this.liked];
 		this.save();
+		// quick-261023-like-dl: identity-linked like/unlike ping — the single convergence
+		// point for every like UI. Fire-and-forget; never affects the toggle.
+		trackLike(t, wasLiked ? 'unlike' : 'like');
 	}
 
 	/**

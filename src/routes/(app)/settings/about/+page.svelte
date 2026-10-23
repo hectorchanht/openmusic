@@ -28,6 +28,7 @@
 		'Sleep timer with a gentle fade-out, background audio & lock-screen controls',
 		'Song comments + crowd-sourced cover picks — vote for better artwork',
 		'Anonymous play-count analytics — song + device type, OS, platform, app version, language & country; no account, no IP stored',
+		'Like & download analytics — which songs are liked / downloaded; tied to your account when signed in, anonymous device id otherwise; no IP stored',
 		'Installable PWA, plus an Android app (same app in a Capacitor shell)',
 		// 36-D-01: TagLib is dual-licensed LGPL-2.1 / MPL-1.1 — weak copyleft, so shipping it
 		// obliges us to give notice. The npm tarball ships only the MIT wrapper LICENSE and omits
