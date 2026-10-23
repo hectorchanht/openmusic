@@ -790,7 +790,7 @@ const zhHant: Dict = {
 	"support.donateKofi": "在 Ko-fi 捐助",
 	"support.sponsorGithub": "在 GitHub 贊助",
 	"support.comingSoon": "即將推出",
-	"support.downloadAlbum": "專輯下載 · 支持者限定",
+	"support.downloadAlbum": "下載專輯",
 	"menu.detailCoverUrl": "Cover URL",
 	"menu.detailSongId": "Song ID",
 	"menu.detailDuration": "Duration",

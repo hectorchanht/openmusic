@@ -819,7 +819,7 @@ const en = {
 	"support.donateKofi": "Donate on Ko-fi",
 	"support.sponsorGithub": "Sponsor on GitHub",
 	"support.comingSoon": "Coming soon",
-	"support.downloadAlbum": "Album download · supporters"
+	"support.downloadAlbum": "Download album"
 } as const;
 
 export default en;

@@ -758,7 +758,7 @@ const fr: Dict = {
 	"support.donateKofi": "Donate on Ko-fi",
 	"support.sponsorGithub": "Sponsor on GitHub",
 	"support.comingSoon": "Coming soon",
-	"support.downloadAlbum": "Album download · supporters",
+	"support.downloadAlbum": "Download album",
 	"menu.detailCoverUrl": "Cover URL",
 	"menu.detailSongId": "Song ID",
 	"menu.detailDuration": "Duration",
