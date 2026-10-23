@@ -26,8 +26,10 @@ export async function getDiscographyPack(artistName: string): Promise<PackAlbum[
 }
 
 /** Fetch the tracklist for one album (MusicBrainz → Deezer id → Last.fm, like the album page). */
+// quick-261023-discmerge: the param is the base DiscographyEntry (not PackAlbum) — the merged
+// discography page passes entries straight from loadDiscography without wrapping them.
 export async function fetchAlbumTracklist(
-	album: PackAlbum,
+	album: DiscographyEntry,
 	artistName: string
 ): Promise<{ artist: string; title: string }[]> {
 	try {

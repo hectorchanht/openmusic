@@ -560,8 +560,8 @@
 				<span class="count">{shelfAlbums.length}</span>
 				<ChevronRight size={18}/>
 			</a>
-			<!-- quick-261010-disco: the Discography Pack — full discography + liner notes + download-all. -->
-			<a class="pack-link" href={names.artistHref(name) + '/pack'} use:tapBounce>Pack</a>
+			<!-- quick-261023-discmerge: the Pack page is merged into /albums (the single album
+			     entrance) — no separate "Pack" link anymore; the heading link above goes there. -->
 			<!-- quick-260831-qkx: the shelf is albums+EPs only; the full discography (every record
 			     type, filterable) lives on its own page so nothing is hidden, just de-noised. -->
 			<!-- <a class="see-all" href={names.artistHref(name) + '/albums'}>{t('artist.seeAllAlbums')}</a> -->
