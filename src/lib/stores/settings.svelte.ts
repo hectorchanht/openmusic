@@ -19,6 +19,9 @@ import {
 	type QueueContext,
 	type SyncItems
 } from '$lib/config/defaults';
+// quick-261023-perks: pure config module (no store imports) — the LEAF invariant holds.
+// Used only to demote supporter themes when the status is gone.
+import { isSupporter } from '$lib/config/sponsored';
 // Pure util (no DOM/browser/store imports) — settings stays a LEAF store. Used by
 // applyTheme() to derive --color-primary-hover from the chosen accent (UX-07 root-cause fix).
 import { darken } from '$lib/services/color';
@@ -55,8 +58,22 @@ export type TranslateMode = 'replace' | 'below';
 export type DefaultQuality = 'auto' | 'lossless' | '320' | '128';
 export type DefaultSource = 'auto' | SourceId;
 /** UI theme. Light theme overrides surface/text/border tokens via `[data-theme='light']`
- *  in app.css; dark is the default (no data-theme attribute). */
-export type Theme = 'dark' | 'light';
+ *  in app.css; dark is the default (no data-theme attribute).
+ *  quick-261023-perks: 'gold' + 'sakura' are SUPPORTER-EXCLUSIVE themes — warm and
+ *  pink dark variants with their own signature primary (THEME_PRIMARY below). Gated
+ *  by isSupporter(): the appearance page locks them for non-supporters, load()
+ *  demotes a stored supporter theme back to dark when the status is gone, and
+ *  applyTheme() carries the theme-owned primary so the look is complete. */
+export type Theme = 'dark' | 'light' | 'gold' | 'sakura';
+
+/** Supporter-exclusive themes (quick-261023-perks) — never selectable without status. */
+export const SUPPORTER_THEMES: readonly Theme[] = ['gold', 'sakura'];
+
+/** Signature primary per supporter theme (applied instead of the accent pick). */
+export const THEME_PRIMARY: Partial<Record<Theme, string>> = {
+	gold: '#d9a821',
+	sakura: '#ef7fb4'
+};
 
 const KEY = 'openmusic:settings:v1';
 // (WR-10: the accent default lives in defaults.ts as GENERAL_DEFAULTS.accent / DEFAULT_ACCENT —
@@ -414,8 +431,16 @@ class Settings {
 				// string like 'yes' must NOT flip the share payload shape (quick-260808-vzu).
 				this.shareIncludeTitle =
 					typeof v.shareIncludeTitle === 'boolean' ? v.shareIncludeTitle : GENERAL_DEFAULTS.shareIncludeTitle;
-				// Theme is validated against the 2-value union; anything else → the default.
-				this.theme = v.theme === 'light' || v.theme === 'dark' ? v.theme : GENERAL_DEFAULTS.theme;
+				// Theme is validated against the 4-value union; anything else → the default.
+				// quick-261023-perks: a stored supporter theme without supporter status
+				// demotes to dark (status is per-device localStorage — never trust it blind).
+				this.theme =
+					v.theme === 'light' || v.theme === 'dark' || v.theme === 'gold' || v.theme === 'sakura'
+						? v.theme
+						: GENERAL_DEFAULTS.theme;
+				if ((this.theme === 'gold' || this.theme === 'sakura') && !isSupporter()) {
+					this.theme = GENERAL_DEFAULTS.theme;
+				}
 				this.autoExpandOnPlay =
 					typeof v.autoExpandOnPlay === 'boolean' ? v.autoExpandOnPlay : PLAYBACK_DEFAULTS.autoExpandOnPlay;
 				this.showQualityTag =
@@ -619,11 +644,15 @@ class Settings {
 	applyTheme() {
 		if (!browser) return;
 		const r = document.documentElement;
-		r.style.setProperty('--color-primary', this.accent);
+		// quick-261023-perks: supporter themes carry their own signature primary
+		// (THEME_PRIMARY) so the look is complete; the accent pick only drives the
+		// two free themes.
+		const primary = THEME_PRIMARY[this.theme] ?? this.accent;
+		r.style.setProperty('--color-primary', primary);
 		// UX-07 ROOT-CAUSE FIX: the hover var was pinned at #6a48f0 in app.css and never set at
 		// runtime, so hover surfaces (buttons/tabs/chips) ignored the chosen accent. Derive it from
 		// the accent — ~12% darken matches today's #0abab5 → #09a49f relationship (A3).
-		r.style.setProperty('--color-primary-hover', darken(this.accent, 0.12));
+		r.style.setProperty('--color-primary-hover', darken(primary, 0.12));
 		// Appearance scales (fnp) — multipliers off the per-rule base sizes. 100% → 1 (no change).
 		// quick-260920-kxz: the ROOT multiplier — app.css turns it into
 		// `html { font-size: calc(100% * var(--fs-app, 1)) }`, so it moves every rem rule at once
@@ -640,8 +669,10 @@ class Settings {
 		else delete r.dataset.reduceMotion;
 		// Light/dark theme: set `data-theme="light"` for the light token set; remove the attr
 		// for the default dark theme so `:root` rules apply without any extra specificity.
-		if (this.theme === 'light') r.dataset.theme = 'light';
-		else delete r.dataset.theme;
+		// quick-261023-perks: supporter themes set their own data-theme value for the
+		// matching token block in app.css.
+		if (this.theme === 'dark') delete r.dataset.theme;
+		else r.dataset.theme = this.theme;
 	}
 
 	/** Reset the Appearance settings group — theme, accent, reduce-motion, the global + five

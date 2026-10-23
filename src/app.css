@@ -82,6 +82,27 @@
   --color-text-muted: #5a5a66;
 }
 
+/* quick-261023-perks: SUPPORTER-EXCLUSIVE themes. Warm dark (gold) and pink dark
+   (sakura) variants — same token set as light overrides; the signature primary is
+   applied at runtime by settings.applyTheme() from THEME_PRIMARY (it wins over the
+   accent pick while one of these themes is active). */
+:root[data-theme='gold'] {
+  --color-bg: #100c06;
+  --color-surface: #1a140b;
+  --color-surface-2: #241b0e;
+  --color-border: #6b5a2e;
+  --color-text: #f7f0dd;
+  --color-text-muted: #b3a684;
+}
+:root[data-theme='sakura'] {
+  --color-bg: #120b10;
+  --color-surface: #1c1218;
+  --color-surface-2: #261722;
+  --color-border: #6e4a5a;
+  --color-text: #faeef3;
+  --color-text-muted: #bd9fab;
+}
+
 * { box-sizing: border-box; }
 /* quick-260920-kxz: the one place the global text size lands. 100% is the browser's own default
    (16px unless the user changed it in their browser), so 1× is byte-for-byte today's rendering. */

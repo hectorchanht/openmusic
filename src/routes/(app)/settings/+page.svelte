@@ -14,17 +14,20 @@
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { t, ensureLocale, type AppLang, type TranslationKey } from '$lib/i18n';
 	import type { Component } from 'svelte';
-	import { isSupporter } from '$lib/config/sponsored';
+	import { isSupporter, supporterBadge } from '$lib/config/sponsored';
 	// quick-261010-posthog: settings_opened on entering the settings index.
 	import { track } from '$lib/posthog';
 
 	// SUPPORTER CHOICE MODEL (Hector 2026-10-10): verified tippers get a
-	// ☕ Supporter badge on the support card below (SSR-safe — false pre-hydration).
+	// tier badge on the support card below (SSR-safe — false pre-hydration).
+	// quick-261023-perks: the badge renders the stored tier (☕/🥈/🥇).
 	let supporter = $state(false);
+	let tierBadge = $state('');
 
 	onMount(() => {
 		settings.load();
 		supporter = isSupporter();
+		tierBadge = supporterBadge();
 		track('settings_opened', {});
 	});
 
@@ -132,7 +135,7 @@
 <button class="support-card" onclick={() => support.openSheet()} use:tapBounce>
 	<Heart size={22} fill="currentColor" class="sc-heart" />
 	<span class="sc-txt">
-		<span class="sc-title">{t('support.title')}{supporter ? ' ☕' : ''}</span>
+		<span class="sc-title">{t('support.title')}{supporter && tierBadge ? ` ${tierBadge}` : ''}</span>
 		<span class="sc-desc">“{t('support.tagline')}”</span>
 	</span>
 	<ChevronRight size={18} class="sc-chev" />

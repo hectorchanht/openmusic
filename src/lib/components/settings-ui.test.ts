@@ -100,7 +100,10 @@ describe('shared settings rows (quick-260919-ebi F2)', () => {
 		// Both variants: a group with a name, and every option a real <button> with aria-pressed.
 		expect(picker.match(/role="group"/g) ?? []).toHaveLength(2);
 		expect(picker.match(/aria-pressed=\{value === o\.v\}/g) ?? []).toHaveLength(2);
-		expect(picker.match(/aria-label=\{o\.label\}/g) ?? []).toHaveLength(2);
+		// quick-261023-perks: the preview variant's aria-label appends the lock hint
+		// for gated options — the accessible name still starts from o.label.
+		expect(picker.match(/aria-label=\{o\.label\}/g) ?? []).toHaveLength(1);
+		expect(picker).toMatch(/aria-label=\{o\.locked && o\.lockLabel/);
 		// The seg variant is the EXISTING pill row, not a second implementation of it.
 		expect(picker).toMatch(/\.seg button\.on \{[\s\S]*?background: var\(--color-primary\)/);
 		// Mocks never announce themselves; the button's aria-label is the accessible name.

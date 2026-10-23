@@ -28,6 +28,8 @@
 	//   - Mocks are aria-hidden="true"; the option button's aria-label is the accessible name.
 	import type { Component, Snippet } from 'svelte';
 	import { tapBounce } from '$lib/actions/tapBounce';
+	// quick-261023-perks: lock glyph for gated options (supporter themes).
+	import { Lock } from '@lucide/svelte';
 
 	let {
 		options,
@@ -38,7 +40,7 @@
 		disabled = false,
 		iconOnly = false
 	}: {
-		options: { v: V; label: string; icon?: Component<{ size?: number }>; preview?: Snippet }[];
+		options: { v: V; label: string; icon?: Component<{ size?: number }>; preview?: Snippet; locked?: boolean; lockLabel?: string }[];
 		value: V;
 		onpick: (v: V) => void;
 		/** Group accessible name — the setting's own label. */
@@ -56,14 +58,16 @@
 			<button
 				class="card"
 				class:on={value === o.v}
+				class:locked={o.locked}
 				aria-pressed={value === o.v}
-				aria-label={o.label}
+				aria-label={o.locked && o.lockLabel ? `${o.label} — ${o.lockLabel}` : o.label}
 				{disabled}
 				onclick={() => onpick(o.v)}
 				use:tapBounce
 			>
 				<span class="mock" aria-hidden="true">
 					{#if o.preview}{@render o.preview()}{/if}
+					{#if o.locked}<span class="lock"><Lock size={15} /></span>{/if}
 				</span>
 				<span class="cap">{o.label}</span>
 			</button>
@@ -176,6 +180,23 @@
 	}
 	.card.on .cap {
 		color: var(--color-primary);
+	}
+	/* quick-261023-perks: gated option — dimmed with a lock glyph over the preview. */
+	.card.locked {
+		opacity: 0.75;
+	}
+	.card.locked .mock {
+		position: relative;
+	}
+	.lock {
+		position: absolute;
+		inset: 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		color: var(--color-text);
+		background: rgba(0, 0, 0, 0.35);
+		border-radius: var(--radius-sm, 6px);
 	}
 
 	/* ---- the shared mock primitives ------------------------------------------------------

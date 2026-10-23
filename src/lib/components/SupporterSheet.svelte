@@ -27,6 +27,13 @@
 	import { support } from '$lib/stores/support.svelte';
 	import { apiFetch } from '$lib/services/api-base';
 	import { SPONSORED_HIDE_KEY, SUPPORTER_KEY, TIP_LICENSE_KEY } from '$lib/config/sponsored';
+	// quick-261023-perks: tier plumbing (badge + wall render from the stored tier).
+	import {
+		getSupporterTier,
+		setSupporterTier,
+		supporterBadge,
+		type SupporterTier
+	} from '$lib/config/sponsored';
 	import { track } from '$lib/posthog';
 	import { t } from '$lib/i18n';
 
@@ -38,6 +45,8 @@
 
 	// Tip-key verify state (ported verbatim from the old /settings/sponsored page).
 	let supporter = $state(false);
+	// quick-261023-perks: the stored tier (bronze until amounts are readable).
+	let tier = $state<SupporterTier>('bronze');
 	let hideStrip = $state(false);
 	let key = $state('');
 	let verifying = $state(false);
@@ -49,6 +58,7 @@
 	function loadVerifyState() {
 		try {
 			supporter = localStorage.getItem(SUPPORTER_KEY) === '1';
+			tier = getSupporterTier();
 			hideStrip = localStorage.getItem(SPONSORED_HIDE_KEY) === '1';
 			key = localStorage.getItem(TIP_LICENSE_KEY) ?? '';
 		} catch {
@@ -60,6 +70,11 @@
 	}
 
 	onMount(() => support.load());
+
+	// quick-261023-perks: tier display name (explicit map — t() needs a literal key).
+	const tierName = $derived(
+		tier === 'gold' ? t('support.tierGold') : tier === 'silver' ? t('support.tierSilver') : t('support.tierBronze')
+	);
 
 	function close() {
 		support.closeSheet();
@@ -93,7 +108,7 @@
 				headers: { 'content-type': 'application/json' },
 				body: JSON.stringify({ license_key: licenseKey })
 			});
-			const data = (await res.json()) as { ok?: boolean; reason?: string };
+			const data = (await res.json()) as { ok?: boolean; reason?: string; admin?: boolean };
 			if (data?.ok) {
 				try {
 					localStorage.setItem(SUPPORTER_KEY, '1');
@@ -103,6 +118,12 @@
 				} catch {
 					/* storage unavailable — supporter status won't persist */
 				}
+				// quick-261023-perks: Gumroad's keyless verify returns no amount, so a
+				// tip lands on bronze; Hector's admin key lands on gold. Tiers upgrade
+				// automatically once amounts become readable (needs a Gumroad token).
+				const nt: SupporterTier = data?.admin ? 'gold' : 'bronze';
+				setSupporterTier(nt);
+				tier = nt;
 				supporter = true;
 				track('tip_verified', { success: true });
 				if (!wasSupporter) track('supporter_status_changed', { is_supporter: true });
@@ -208,7 +229,7 @@
 		<div class="verify-sect">
 			{#if supporter}
 				<div class="vcard ok">
-					<p class="vmsg"><HandCoins size={18} /> ☕ You're a supporter — thanks for tipping!</p>
+					<p class="vmsg"><HandCoins size={18} /> {supporterBadge()} {tierName} {t('support.supporterThanks')}</p>
 					<label class="switch">
 						<input
 							type="checkbox"
@@ -261,6 +282,21 @@
 				</div>
 			{/if}
 		</div>
+		<!-- quick-261023-perks: donor wall. Privacy-first: there is no server-side
+		     donor list (Gumroad sale lookup needs an access token Hector hasn't
+		     provided), so the wall shows ONLY this device's own verified entry.
+		     No names, no emails — the tier badge is the recognition. -->
+		<div class="wall-sect">
+			<p class="tip-title">{t('support.wallTitle')}</p>
+			{#if supporter}
+				<div class="wall-entry">
+					<span class="wall-badge" aria-hidden="true">{supporterBadge()}</span>
+					<span class="wall-who">{t('support.wallYou')} · {tierName} {t('support.supporter')}</span>
+				</div>
+			{:else}
+				<p class="wall-hint">{t('support.wallJoin')}</p>
+			{/if}
+		</div>
 	</div>
 {/if}
 
@@ -302,4 +338,10 @@
 	.switch input:checked + .track .thumb { transform: translateX(20px); }
 	.switch input:focus-visible + .track { outline: 2px solid var(--color-primary); outline-offset: 2px; }
 	.switch-label { font-size: 0.9375rem; font-weight: 700; color: var(--color-text); }
+	/* quick-261023-perks: donor wall. */
+	.wall-sect { margin-top: 4px; }
+	.wall-entry { display: flex; align-items: center; gap: 10px; margin-top: 10px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 12px; padding: 12px 14px; }
+	.wall-badge { font-size: 1.375rem; line-height: 1; }
+	.wall-who { font-size: 0.875rem; font-weight: 700; color: var(--color-text); }
+	.wall-hint { margin: 8px 4px 0; font-size: 0.8125rem; color: var(--color-text-muted); }
 </style>

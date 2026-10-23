@@ -159,6 +159,10 @@ const en = {
 	"settings.theme": "Theme",
 	"settings.themeDark": "Dark",
 	"settings.themeLight": "Light",
+	"settings.themeGold": "Gold",
+	"settings.themeSakura": "Sakura",
+	"settings.themeLocked": "Supporters only",
+	"settings.accentThemed": "This theme carries its own accent.",
 	"settings.playbackMotion": "Playback & motion",
 	"settings.appearanceMotion": "Motion",
 	"settings.autoExpand": "Auto-expand now-playing on play",
@@ -837,7 +841,15 @@ const en = {
 	"support.donateKofi": "Donate on Ko-fi",
 	"support.sponsorGithub": "Sponsor on GitHub",
 	"support.comingSoon": "Coming soon",
-	"support.downloadAlbum": "Album download · supporters"
+	"support.downloadAlbum": "Album download · supporters",
+	"support.tierBronze": "Bronze",
+	"support.tierSilver": "Silver",
+	"support.tierGold": "Gold",
+	"support.supporter": "supporter",
+	"support.supporterThanks": "supporter — thanks for tipping!",
+	"support.wallTitle": "Supporters",
+	"support.wallYou": "You",
+	"support.wallJoin": "Tip to join the wall.",
 } as const;
 
 export default en;
