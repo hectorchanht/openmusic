@@ -30,6 +30,9 @@
 	import { shuffle } from '$lib/services/shuffle';
 	import { downloadAlbum as downloadAlbumTracks } from '$lib/services/download-album';
 	import { downloadLabel } from '$lib/services/download-label';
+	// quick-261023-bulklock: bulk ZIP downloads are a supporter perk.
+	import { isSupporter } from '$lib/config/sponsored';
+	import { support } from '$lib/stores/support.svelte';
 	import { enrichAlbum, getAlbumTracklist, type EnrichResult } from '$lib/services/lastfm';
 	import { deezerAlbum, deezerAlbumTracks, type DeezerAlbumInfo } from '$lib/services/deezer';
 	import { mbTracks } from '$lib/services/musicbrainz';
@@ -569,11 +572,15 @@
 		}
 	}
 
-	// quick-261020-nogate: album downloads are FREE for everyone — Hector cancelled the
-	// supporter gate (was donor-wall-ui 2026-10-14: "Download all" opened the donor wall
-	// for non-supporters). The tap now runs the real download directly; the voluntary
-	// Support surface in Settings is untouched.
+	// quick-261023-bulklock: bulk ZIP downloads are a supporter perk — per-song
+	// download stays free for everyone. Non-supporters get the tip sheet instead
+	// (re-locks what quick-261020-nogate opened; Hector 2026-10-23).
 	function onDownloadTap() {
+		if (!isSupporter()) {
+			globalToast.show(t('support.bulkLocked'));
+			support.openSheet();
+			return;
+		}
 		void downloadAlbum();
 	}
 

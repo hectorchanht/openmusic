@@ -24,6 +24,9 @@
 	import { library } from '$lib/stores/library.svelte';
 	import { settings } from '$lib/stores/settings.svelte';
 	import { toast as globalToast } from '$lib/stores/toast.svelte';
+	// quick-261023-bulklock: bulk ZIP downloads are a supporter perk.
+	import { isSupporter } from '$lib/config/sponsored';
+	import { support } from '$lib/stores/support.svelte';
 	import { entityCardUrl } from '$lib/services/share';
 	import { nameStub } from '$lib/services/similar';
 	import { sameSongKey } from '$lib/services/dedupe';
@@ -152,8 +155,13 @@
 	// Never throws; a failed album is skipped and the run continues. Web: one zip per album
 	// (the existing 40-D-03 behaviour); native: persists into Music/OpenMusic/<Artist>/<Album>/.
 	async function downloadAll() {
-		// quick-261020-nogate: downloads are FREE for everyone — Hector cancelled the supporter
-		// gate on 2026-10-20 (the album detail page dropped it the same day). No donor wall here.
+		// quick-261023-bulklock: bulk ZIP is a supporter perk (per-song stays free).
+		// Non-supporters get the tip sheet instead.
+		if (!isSupporter()) {
+			globalToast.show(t('support.bulkLocked'));
+			support.openSheet();
+			return;
+		}
 		if (dlRunning || !shown.length) return;
 		const list = shown.slice(); // snapshot — a filter switch mid-run must not mutate the run
 		dlRunning = true;
