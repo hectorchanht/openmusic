@@ -17,8 +17,6 @@
 	import { Play, Shuffle, Download } from '@lucide/svelte';
 	import { downloadAlbum as downloadPackTracks } from '$lib/services/download-album';
 	// quick-261023-bulklock: bulk ZIP downloads are a supporter perk.
-	import { isSupporter } from '$lib/config/sponsored';
-	import { support } from '$lib/stores/support.svelte';
 	import { goto } from '$app/navigation';
 	// quick-261010-posthog: pack_download_started when the supporter bulk-download begins.
 	import { track } from '$lib/posthog';
@@ -82,15 +80,9 @@
 		else if (player.pendingTrack == null) toast.show(t('home.unplayable'));
 	}
 
-	// quick-261023-bulklock: bulk ZIP is a supporter perk (per-song stays free).
-	// Non-supporters get the tip sheet instead.
+	// quick-261023-chartfree: chart packs stay free for everyone (Hector).
 	let downloading = $state(false);
 	async function downloadAll() {
-		if (!isSupporter()) {
-			toast.show(t('support.bulkLocked'));
-			support.openSheet();
-			return;
-		}
 		if (downloading) return;
 		downloading = true;
 		// quick-261010-posthog: a real bulk download is starting.
