@@ -19,7 +19,16 @@ import { browser } from '$app/environment';
 import { Capacitor } from '@capacitor/core';
 import { apiFetch, type ApiFetchInit } from '$lib/services/api-base';
 import { TOKEN_RE, diagLine, isValidEmail, type AccountUser } from '$lib/auth/auth-core';
-import { startSyncEngine, type SyncStatus } from '$lib/services/sync';
+// quick-261023-syncmerge-review: first-sign-in review gate before the engine starts.
+import {
+	checkFirstSync,
+	isReviewPending,
+	resolveFirstSync,
+	startSyncEngine,
+	type SyncHooks,
+	type SyncPreview,
+	type SyncStatus
+} from '$lib/services/sync';
 
 /** localStorage key for the NATIVE bearer token. Web never writes it (cookie only). */
 const TOKEN_KEY = 'openmusic:auth-token:v1';
@@ -72,6 +81,13 @@ class Auth {
 	 * it under the friendly error; Hector asked for the real error, not a paraphrase.
 	 */
 	lastLinkDiag = $state<string | null>(null);
+
+	/**
+	 * quick-261023-syncmerge-review: the first-sync review preview. Non-null while the
+	 * review modal is open — the SyncReviewModal (mounted once in the root layout) reads
+	 * this one-way and the three choice buttons resolve through resolveFirstSyncChoice.
+	 */
+	firstSyncPreview = $state<SyncPreview | null>(null);
 
 	// PLAIN fields (house rule: state the UI never reads reactively stays non-$state).
 	/** Native bearer token; null on web, where the cookie is the credential. */
@@ -129,7 +145,8 @@ class Auth {
 			this.user = null;
 		}
 		this.ready = true;
-		if (this.user) this.startEngine();
+		// quick-261023-syncmerge-review: the review gate runs before the engine.
+		if (this.user) void this.beginSync();
 	}
 
 	/** Sign-in step 1: ask the server to email a magic link. Returns a status union the
@@ -241,8 +258,7 @@ class Auth {
 	/**
 	 * The post-login path verify() and signInWithGoogle() share: set the user, persist the
 	 * native bearer (web ignores it — the httpOnly cookie is already set and JS must not
-	 * hold the token), and start the sync engine (its first pass pulls the account's
-	 * envelope, so a fresh device converges on its own data).
+	 * hold the token), and run the first-sync review gate before the sync engine starts.
 	 */
 	private establishSession(user: AccountUser, bearer: string | null): void {
 		this.user = user;
@@ -257,7 +273,8 @@ class Auth {
 				/* quota — the in-memory bearer still covers this session */
 			}
 		}
-		this.startEngine();
+		// quick-261023-syncmerge-review: the review gate runs before the engine.
+		void this.beginSync();
 	}
 
 	/**
@@ -365,7 +382,8 @@ class Auth {
 			}
 		}
 		this.ready = true;
-		if (this.user) this.startEngine();
+		// quick-261023-syncmerge-review: the review gate runs before the engine.
+		if (this.user) void this.beginSync();
 		return this.user !== null;
 	}
 
@@ -405,18 +423,63 @@ class Auth {
 	/** "Sync now" (Settings → Account): one immediate convergence pass. */
 	async syncNow(): Promise<void> {
 		if (!this.user) return;
-		if (!this.engine) this.startEngine();
+		// quick-261023-syncmerge-review: the review modal owns this flow until resolved.
+		if (isReviewPending()) return;
+		if (!this.engine) await this.beginSync();
 		else await this.engine.syncNow();
 	}
 
-	private startEngine(): void {
-		if (this.engine || !browser) return;
-		this.engine = startSyncEngine({
+	/** The injected hooks the sync engine (and the review gate) run on. */
+	private syncHooks(): SyncHooks {
+		return {
 			request: (path, init) => this.authedFetch(path, init),
 			isSignedIn: () => this.user !== null,
 			setStatus: (s) => (this.syncStatus = s),
 			setLastSyncedAt: (t) => (this.lastSyncedAt = t)
-		});
+		};
+	}
+
+	/**
+	 * quick-261023-syncmerge-review: post-sign-in entry — runs the first-sync review gate
+	 * BEFORE the engine. When this device never synced and both sides hold differing data,
+	 * the preview opens the review modal INSTEAD of starting the engine; the engine starts
+	 * once the user resolves (resolveFirstSyncChoice). Never throws — sign-in must never
+	 * hang on this; on any failure the engine's normal converge covers it.
+	 */
+	private async beginSync(): Promise<void> {
+		if (this.engine || !browser) return;
+		try {
+			const preview = await checkFirstSync(this.syncHooks());
+			if (preview) {
+				this.firstSyncPreview = preview;
+				return;
+			}
+		} catch {
+			/* fall through — start the engine normally */
+		}
+		this.startEngine();
+	}
+
+	/**
+	 * quick-261023-syncmerge-review: the review modal's three buttons land here. Applies
+	 * the choice (resolveFirstSync), closes the modal, and starts the engine. For
+	 * merge/theirs the page reloads inside resolveFirstSync — the post-reload boot finds
+	 * the anchored meta and starts the engine without re-reviewing.
+	 */
+	async resolveFirstSyncChoice(choice: 'merge' | 'mine' | 'theirs'): Promise<void> {
+		if (!browser) return;
+		try {
+			await resolveFirstSync(this.syncHooks(), choice);
+		} catch {
+			/* resolveFirstSync never throws by contract; belt-and-braces */
+		}
+		this.firstSyncPreview = null;
+		this.startEngine();
+	}
+
+	private startEngine(): void {
+		if (this.engine || !browser) return;
+		this.engine = startSyncEngine(this.syncHooks());
 	}
 }
 

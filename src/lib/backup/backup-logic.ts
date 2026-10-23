@@ -164,18 +164,29 @@ export function slimTrackForSync(t: unknown): unknown {
 	return out;
 }
 
-/** PURE: slim every track array inside a library payload (liked/downloads, plus tracks nested in playlists). */
-export function slimLibraryForSync(lib: unknown): unknown {
+/**
+ * PURE: slim every track array inside a library payload (liked + tracks nested in playlists).
+ *
+ * `stripDeviceLocal` (quick-261023-syncmerge) ALSO drops `downloads` + `unavailable`: they
+ * are DEVICE-LOCAL — they describe this device's files ("real and authentic to device
+ * files") and must never travel in a SYNC push. It defaults OFF so the manual
+ * export/import path and the 35-D-09 undo snapshot stay byte-faithful backups (an undo
+ * snapshot that silently dropped downloads could never restore them). The tombstone
+ * `deleted` array is never stripped — it MUST travel, or deletes stop propagating.
+ */
+export function slimLibraryForSync(lib: unknown, stripDeviceLocal = false): unknown {
 	if (!isPlainObject(lib)) return lib;
 	const out: Record<string, unknown> = { ...lib };
-	for (const field of ['liked', 'downloads']) {
-		if (Array.isArray(out[field])) out[field] = (out[field] as unknown[]).map(slimTrackForSync);
-	}
+	if (Array.isArray(out['liked'])) out['liked'] = (out['liked'] as unknown[]).map(slimTrackForSync);
 	if (Array.isArray(out['playlists'])) {
 		out['playlists'] = (out['playlists'] as unknown[]).map((p) => {
 			if (!isPlainObject(p) || !Array.isArray(p['tracks'])) return p;
 			return { ...p, tracks: (p['tracks'] as unknown[]).map(slimTrackForSync) };
 		});
+	}
+	if (stripDeviceLocal) {
+		delete out['downloads'];
+		delete out['unavailable'];
 	}
 	return out;
 }
@@ -188,7 +199,12 @@ export function slimLibraryForSync(lib: unknown): unknown {
  * lookup) — the saveBlobToDisk(doc) precedent. A key that is absent is omitted entirely, and a
  * key whose stored value is corrupt is SKIPPED: a local mess must never abort an export.
  */
-export function buildEnvelope(read: (k: string) => string | null, allKeys: readonly string[], now: Date = new Date()): BackupEnvelope {
+export function buildEnvelope(
+	read: (k: string) => string | null,
+	allKeys: readonly string[],
+	now: Date = new Date(),
+	opts?: { stripDeviceLocal?: boolean }
+): BackupEnvelope {
 	const keys: Record<string, unknown> = {};
 	// 35-D-01: the four exact keys, then the name-tr PREFIX FAMILY enumerated from the store.
 	const wanted = [...BACKUP_EXACT_KEYS, ...allKeys.filter((k) => k.startsWith(NAME_TR_PREFIX))];
@@ -205,7 +221,7 @@ export function buildEnvelope(read: (k: string) => string | null, allKeys: reado
 			// quick-261020-slimsync: the library key carries full resolved tracks (lrc text
 			// was 75% of a 1.7MB payload); slim to identity+display fields before export so
 			// neither sync pushes nor manual backups haul lyrics/ephemeral URLs.
-			if (k === LIBRARY_KEY) parsed = slimLibraryForSync(parsed);
+			if (k === LIBRARY_KEY) parsed = slimLibraryForSync(parsed, opts?.stripDeviceLocal ?? false);
 			keys[k] = parsed;
 		} catch {
 			/* corrupt local value — skip this key, never abort the export */
@@ -235,6 +251,8 @@ function isStringRecord(v: unknown): boolean {
  *    casts the first three with only a `?? []` fallback (Pitfall 7 / T-35-02), so a hostile
  *    `{"liked": 5}` would land in the store and the home shelves would `.map()` over a number.
  *    THIS is the last line of defence for that key.
+ *    quick-261023-syncmerge: `deleted` (the tombstone set) must be an array of strings when
+ *    present — the merge trusts it to suppress, so non-strings are refused outright.
  *  - history / search-history: a bare array, matching parseHistory / parseSearchHistory.
  *  - settings: a non-null, non-array object AND NOTHING MORE. Every field is individually guarded
  *    by settings.load() (WR-10 / T-vzu-01); duplicating ~150 lines of per-field defence here
@@ -247,6 +265,9 @@ function shapeOk(key: string, v: unknown): boolean {
 			const got = v[field];
 			if (got !== undefined && !Array.isArray(got)) return false;
 		}
+		const deleted = v['deleted'];
+		if (deleted !== undefined && (!Array.isArray(deleted) || !deleted.every((x) => typeof x === 'string')))
+			return false;
 		return true;
 	}
 	if (key === HISTORY_KEY || key === SEARCH_HISTORY_KEY) return Array.isArray(v);

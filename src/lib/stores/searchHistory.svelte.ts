@@ -7,6 +7,8 @@
 // in-memory `searchSession` (live result set). This one persists past QUERY STRINGS to
 // drive tappable suggestions.
 import { browser } from '$app/environment';
+import { library } from '$lib/stores/library.svelte';
+import { tombQuery } from '$lib/sync/merge-logic';
 import {
 	SEARCH_HISTORY_KEY,
 	parseSearchHistory,
@@ -39,12 +41,20 @@ class SearchHistory {
 
 	/** Remove a single past query (case-insensitive) — the per-keyword bin action. */
 	remove(query: string) {
+		// quick-261023-syncmerge: tombstone it, or the next merge resurrects it.
+		const folded = query.trim().toLowerCase();
+		if (folded) library.tombstone([tombQuery(folded)]);
 		this.entries = removeQuery(this.entries, query);
 		this.save();
 	}
 
-	/** Wipe search history. */
+	/** Wipe search history — and tombstone every query so the wipe survives the merge. */
 	clear() {
+		const keys = this.entries
+			.map((e) => e.query.trim().toLowerCase())
+			.filter((q) => !!q)
+			.map(tombQuery);
+		if (keys.length > 0) library.tombstone(keys);
 		this.entries = [];
 		this.save();
 	}

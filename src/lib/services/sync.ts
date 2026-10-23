@@ -1,14 +1,19 @@
 // Cross-device sync engine (quick-261020-acct) — browser-guarded, never-throw.
 //
 // The server stores ONE backup envelope per user (PUT/GET /api/me/sync); this engine keeps
-// the local copy and the server copy converged with LAST-WRITE-WINS per key by server
-// `updatedAt`:
+// the local copy and the server copy converged:
 //   - any local key differs from the meta's per-key hash → PUSH only those keys (null =
 //     delete a key the client no longer carries); a change here is the newest write by
 //     definition — it just happened. Clean keys never leave the device (quick-261020-incsync).
-//   - local is clean and the server is ahead of our meta → validate + applyEnvelope +
-//     location.reload() (35-D-13: every store re-runs load() cold; never a live re-hydrate);
+//   - local is clean and the server is ahead of our meta → quick-261023-syncmerge: MERGE
+//     each present family with the local copy (union; tombstones suppress deletes) instead
+//     of replacing, then validate + applyEnvelope + location.reload() (35-D-13: every store
+//     re-runs load() cold; never a live re-hydrate). A family ABSENT from the remote
+//     envelope is delete-wins (the picker's uncheck semantics).
 //   - server has nothing → PUSH the local envelope as the baseline.
+//   - quick-261023-syncmerge-review: on FIRST sign-in, when both sides hold differing data,
+//     the engine stays parked until the user picks Merge / Keep this device / Use cloud in
+//     the review modal (checkFirstSync/resolveFirstSync below) — never an auto-merge.
 // Only the backup key set travels (BACKUP_EXACT_KEYS + the name-tr prefix family — exactly
 // what buildEnvelope reads), and the change hash covers exactly that set, so a cover-cache
 // write can never trigger a sync.
@@ -46,6 +51,11 @@ import { SEARCH_HISTORY_KEY } from '$lib/search/search-history-logic';
 // read the selection straight from the settings blob without importing the settings
 // runes singleton (the node Vitest project can't compile runes).
 import { SYNC_DEFAULTS, type SyncItems } from '$lib/config/defaults';
+// quick-261023-syncmerge: the pull path unions instead of replacing (see merge-logic.ts).
+// quick-261023-syncmerge-review: first-sign-in review gate (checkFirstSync/resolveFirstSync).
+import { mergeEnvelopes, previewHasDiff, previewMerge, type SyncPreview } from '$lib/sync/merge-logic';
+/** Re-exported for the auth store's review-modal state (the type lives in merge-logic). */
+export type { SyncPreview } from '$lib/sync/merge-logic';
 
 /** localStorage key for the sync bookkeeping: { updatedAt: server ms, hash: last synced }. */
 export const SYNC_META_KEY = 'openmusic:sync:v1';
@@ -256,9 +266,14 @@ function localEnvelopeHashes(): { keys: Record<string, unknown>; hashes: Record<
 }
 
 /** Build the full envelope, then filter to the selection — the cloud copy carries ONLY
- *  what the user checked (filterEnvelopeKeys documents the uncheck-drops-it semantics). */
+ *  what the user checked (filterEnvelopeKeys documents the uncheck-drops-it semantics).
+ *  quick-261023-syncmerge: the sync payload strips the device-local downloads/unavailable
+ *  (they describe this device's files and never sync). */
 function localEnvelope(): BackupEnvelope {
-	return filterEnvelopeKeys(buildEnvelope(localRead, storageKeys(localStorage)), localItems());
+	return filterEnvelopeKeys(
+		buildEnvelope(localRead, storageKeys(localStorage), new Date(), { stripDeviceLocal: true }),
+		localItems()
+	);
 }
 
 /**
@@ -321,11 +336,197 @@ export function diffSyncKeys(
 }
 
 /**
+ * quick-261023-syncmerge-review: the first-sign-in review gate.
+ *
+ * On first sign-in, when BOTH this device and the cloud hold data AND they differ, the app
+ * must NOT auto-merge — the user reviews the itemized diff first and picks Merge / Keep
+ * this device / Use cloud data. checkFirstSync returns the preview exactly when ALL hold:
+ * signed in, this device never synced (no meta), the cloud holds an envelope, the device
+ * holds syncable data, and the two differ. Otherwise null — the engine's normal converge
+ * handles it (pure pull when the device is empty, baseline push when the cloud is empty).
+ *
+ * The fetched remote envelope is stashed in localStorage (SYNC_REVIEW_KEY) alongside, so a
+ * reload mid-review neither loses the review nor needs a refetch. resolveFirstSync applies
+ * the user's choice; until then the engine stays parked (syncOnce + beforeunload gate on
+ * isReviewPending). Nothing here throws — a failure must never block sign-in.
+ */
+
+/** Persisted first-sync review state: the remote envelope, stashed at check time. */
+export const SYNC_REVIEW_KEY = 'openmusic:sync-review:v1';
+
+interface ReviewStash {
+	envelope: BackupEnvelope;
+	updatedAt: number;
+}
+
+/** In-memory: a first-sync review is awaiting the user's choice — the engine stays parked. */
+let reviewPending = false;
+
+/** The engine (and the beforeunload push) must not run while the user hasn't chosen. */
+export function isReviewPending(): boolean {
+	if (reviewPending) return true;
+	try {
+		return localStorage.getItem(SYNC_REVIEW_KEY) != null;
+	} catch {
+		return false;
+	}
+}
+
+function readReviewStash(): ReviewStash | null {
+	try {
+		const raw = localStorage.getItem(SYNC_REVIEW_KEY);
+		if (!raw) return null;
+		const v = JSON.parse(raw) as { envelope?: unknown; updatedAt?: unknown };
+		if (v == null || typeof v !== 'object') return null;
+		const env = v.envelope as { keys?: unknown } | null;
+		if (env == null || typeof env !== 'object' || env.keys == null || typeof env.keys !== 'object')
+			return null;
+		if (typeof v.updatedAt !== 'number') return null;
+		return { envelope: v.envelope as BackupEnvelope, updatedAt: v.updatedAt };
+	} catch {
+		return null;
+	}
+}
+
+function writeReviewStash(envelope: BackupEnvelope, updatedAt: number): void {
+	try {
+		localStorage.setItem(SYNC_REVIEW_KEY, JSON.stringify({ envelope, updatedAt, at: Date.now() }));
+	} catch {
+		/* quota — the in-memory flag still gates this session */
+	}
+}
+
+function clearReviewStash(): void {
+	reviewPending = false;
+	try {
+		localStorage.removeItem(SYNC_REVIEW_KEY);
+	} catch {
+		/* ignore */
+	}
+}
+
+/** Fetch + picker-filter + validate the cloud envelope. Null when there is nothing (or on any failure). */
+async function fetchRemoteEnvelope(
+	hooks: SyncHooks
+): Promise<{ envelope: BackupEnvelope; updatedAt: number } | null> {
+	try {
+		const res = await hooks.request('/api/me/sync');
+		if (!res.ok) return null;
+		const body = (await res.json().catch(() => null)) as {
+			envelope: unknown;
+			updatedAt: number | null;
+		} | null;
+		if (!body || body.envelope == null) return null;
+		const verdict = validateEnvelope(
+			JSON.stringify(filterEnvelopeKeys(body.envelope as BackupEnvelope, localItems()))
+		);
+		if (!verdict.ok) return null;
+		return { envelope: verdict.envelope, updatedAt: body.updatedAt ?? 0 };
+	} catch {
+		return null;
+	}
+}
+
+function envelopeKeysEmpty(env: BackupEnvelope): boolean {
+	return Object.keys(env.keys ?? {}).length === 0;
+}
+
+export async function checkFirstSync(hooks: SyncHooks): Promise<SyncPreview | null> {
+	try {
+		if (!browser || !hooks.isSignedIn()) return null;
+		// This device converged before — the normal engine owns every later decision.
+		if (readSyncMeta(localStorage) != null) return null;
+		const stashed = readReviewStash();
+		let remote: { envelope: BackupEnvelope; updatedAt: number } | null = stashed
+			? { envelope: stashed.envelope, updatedAt: stashed.updatedAt }
+			: null;
+		if (!remote) {
+			const fresh = await fetchRemoteEnvelope(hooks);
+			if (!fresh) return null;
+			remote = fresh;
+		}
+		const localEnv = localEnvelope();
+		// The device holds nothing syncable — a plain pull converges; nothing to review.
+		// (Also clears a stale stash, e.g. the user wiped the device mid-review.)
+		if (envelopeKeysEmpty(localEnv)) {
+			clearReviewStash();
+			return null;
+		}
+		const preview = previewMerge(localEnv, remote.envelope);
+		if (!previewHasDiff(preview)) {
+			clearReviewStash();
+			return null;
+		}
+		writeReviewStash(remote.envelope, remote.updatedAt);
+		reviewPending = true;
+		return preview;
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Apply the user's first-sync choice. Returns false when there was nothing pending (the
+ * caller then just starts the engine). 'merge' and 'theirs' end in location.reload() —
+ * code after those branches never runs; the post-reload boot finds the anchored meta and
+ * starts the engine without re-reviewing. Never throws.
+ */
+export async function resolveFirstSync(
+	hooks: SyncHooks,
+	choice: 'merge' | 'mine' | 'theirs'
+): Promise<boolean> {
+	try {
+		const stashed = readReviewStash();
+		if (!stashed || !hooks.isSignedIn()) {
+			clearReviewStash();
+			return false;
+		}
+		const { envelope: remoteEnv, updatedAt: serverAt } = stashed;
+		if (choice === 'mine') {
+			// Local wins: push the whole local envelope over the cloud copy.
+			const { keys, hashes } = localEnvelopeHashes();
+			clearReviewStash();
+			await pushNow(hooks, keys, hashes);
+			return true;
+		}
+		hooks.setStatus('syncing');
+		const merged =
+			choice === 'merge'
+				? mergeEnvelopes(localEnvelope(), remoteEnv, localRead(LIBRARY_KEY))
+				: remoteEnv;
+		let applied: ReturnType<typeof applyEnvelope>;
+		try {
+			applied = applyEnvelope(merged, localStorage, sessionStorage);
+		} catch {
+			hooks.setStatus('error');
+			return true;
+		}
+		clearReviewStash();
+		if (applied !== 'ok') {
+			hooks.setStatus('error');
+			return true;
+		}
+		// Anchor the meta to the adopted state BEFORE the reload (the pull-path idiom).
+		writeSyncMeta(localStorage, { updatedAt: serverAt, hashes: localEnvelopeHashes().hashes });
+		hooks.setLastSyncedAt(Date.now());
+		hooks.setStatus('synced');
+		// 35-D-13: a FULL reload so every store re-runs load() on a cold path.
+		location.reload();
+		return true;
+	} catch {
+		clearReviewStash();
+		return false;
+	}
+}
+
+/**
  * One convergence pass (see the header for the decision table). Never throws; failures land
  * on the 'error' status and the next tick (or "Sync now") retries.
  */
 export async function syncOnce(hooks: SyncHooks): Promise<void> {
 	if (!browser || !hooks.isSignedIn()) return;
+	// quick-261023-syncmerge-review: parked until the user resolves the first-sync review.
+	if (isReviewPending()) return;
 	const { keys, hashes } = localEnvelopeHashes();
 	const meta = readSyncMeta(localStorage) ?? { updatedAt: 0, hashes: {} };
 
@@ -371,9 +572,16 @@ export async function syncOnce(hooks: SyncHooks): Promise<void> {
 			return;
 		}
 		hooks.setStatus('syncing');
+		// quick-261023-syncmerge: MERGE, not replace. Each family present in the remote
+		// envelope unions with the local copy (tombstones suppress deletes); a family
+		// ABSENT from the remote envelope is delete-wins — mergeEnvelopes omits it, so
+		// applyEnvelope clears it locally (the picker's uncheck-deletes-family semantics).
+		// The merge reads the FULL local library blob (localRead, not the slimmed push
+		// envelope) so the device-local downloads/unavailable survive the round trip.
+		const merged = mergeEnvelopes(localEnvelope(), verdict.envelope, localRead(LIBRARY_KEY));
 		let applied: ReturnType<typeof applyEnvelope>;
 		try {
-			applied = applyEnvelope(verdict.envelope, localStorage, sessionStorage);
+			applied = applyEnvelope(merged, localStorage, sessionStorage);
 		} catch {
 			hooks.setStatus('error');
 			return;
@@ -429,6 +637,9 @@ export function startSyncEngine(hooks: SyncHooks): { stop: () => void; syncNow: 
 		// Fire-and-forget by necessity (the page is going away): push only when dirty, and
 		// with keepalive so the request outlives the unload.
 		if (!hooks.isSignedIn()) return;
+		// quick-261023-syncmerge-review: never push while the first-sync review is pending —
+		// that push would clobber the cloud copy before the user has chosen.
+		if (isReviewPending()) return;
 		const meta = readSyncMeta(localStorage) ?? { updatedAt: 0, hashes: {} };
 		const { keys, hashes } = localEnvelopeHashes();
 		const changed = diffSyncKeys(keys, hashes, meta);

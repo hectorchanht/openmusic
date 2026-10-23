@@ -9,6 +9,9 @@
 	import { names } from "$lib/stores/names.svelte";
 	import { deepLinkPath } from "$lib/services/share-arrival";
 	import { flushLyricOffsetVote } from "$lib/stores/lyric-offset.svelte";
+	// quick-261023-syncmerge-review: the first-sync review modal — mounted ONCE here (root,
+	// ungated) so it opens wherever sign-in completes (/auth/magic, settings, APK handoff).
+	import SyncReviewModal from "$lib/components/SyncReviewModal.svelte";
 
 	let { children } = $props();
 	let audioEl: HTMLAudioElement;
@@ -201,3 +204,6 @@
 {@render children()}
 
 <audio bind:this={audioEl} style="display:none"></audio>
+
+<!-- quick-261023-syncmerge-review: first-sync review modal, mounted once, ungated. -->
+<SyncReviewModal />

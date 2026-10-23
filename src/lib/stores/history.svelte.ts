@@ -1,10 +1,15 @@
 // Recently-played history (Svelte 5 runes singleton). WRAPS the pure node-testable
 // logic module (src/lib/history/history-logic.ts) — same separation as t() over the
-// pure i18n helpers. Standalone: imports NOTHING from player/library so the edge is
-// one-way (player imports history, never the reverse → no circular dep). Persisted
-// to localStorage `openmusic:history:v1`, SSR-guarded.
+// pure i18n helpers.
+//
+// quick-261023-syncmerge: imports the library singleton ONE-WAY (library never imports
+// history — no cycle) to record h: tombstones on clear, so a wiped history is not
+// resurrected by another device's copy on the next merge. Persisted to localStorage
+// `openmusic:history:v1`, SSR-guarded.
 import { browser } from '$app/environment';
 import type { Track } from '$lib/sources/types';
+import { library } from '$lib/stores/library.svelte';
+import { tombHistory } from '$lib/sync/merge-logic';
 import {
 	HISTORY_KEY,
 	parseHistory,
@@ -35,8 +40,12 @@ class History {
 		this.save();
 	}
 
-	/** Wipe history. */
+	/** Wipe history — and tombstone every entry so the wipe survives the next merge
+	 *  (quick-261023-syncmerge: a bare [] would be resurrected by another device's copy). */
 	clear() {
+		if (this.entries.length > 0) {
+			library.tombstone(this.entries.map((e) => e.uid).filter((u) => !!u).map(tombHistory));
+		}
 		this.entries = [];
 		this.save();
 	}
