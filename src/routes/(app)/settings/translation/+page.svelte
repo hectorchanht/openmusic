@@ -363,7 +363,7 @@
 
 <section>
 	<h2><Languages size={15} /> {t('settings.appLanguage')}</h2>
-	<button class="link" onclick={() => goto('/settings/general')}>{t('settings.appLanguage')} →</button>
+	<button class="link" onclick={() => goto('/settings')}>{t('settings.appLanguage')} →</button>
 	<p class="muted">{t('settings.groupGeneralDesc')}</p>
 </section>
 
