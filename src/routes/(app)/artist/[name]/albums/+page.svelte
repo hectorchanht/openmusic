@@ -17,13 +17,16 @@
 	// there is one source of truth for "what order" and "what counts as an album".
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
-	import { BookOpen, Download, Play, Shuffle } from '@lucide/svelte';
+	import { Download, ListEnd, Play, Share2, Shuffle } from '@lucide/svelte';
 	import { names } from '$lib/stores/names.svelte';
 	import { online } from '$lib/stores/online.svelte';
 	import { player } from '$lib/stores/player.svelte';
 	import { library } from '$lib/stores/library.svelte';
-	import { support } from '$lib/stores/support.svelte';
+	import { settings } from '$lib/stores/settings.svelte';
 	import { toast as globalToast } from '$lib/stores/toast.svelte';
+	import { entityCardUrl } from '$lib/services/share';
+	import { nameStub } from '$lib/services/similar';
+	import { sameSongKey } from '$lib/services/dedupe';
 	import { t, type TranslationKey } from '$lib/i18n';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import { tapBounce } from '$lib/actions/tapBounce';
@@ -79,7 +82,6 @@
 
 	// ---- pack actions state (quick-261023-discmerge) ----
 	let playing = $state(false);
-	let linerOpen = $state(false);
 	let dlRunning = $state(false);
 	let dlDoneAlbums = $state(0);
 	let dlTotalAlbums = $state(0);
@@ -150,12 +152,8 @@
 	// Never throws; a failed album is skipped and the run continues. Web: one zip per album
 	// (the existing 40-D-03 behaviour); native: persists into Music/OpenMusic/<Artist>/<Album>/.
 	async function downloadAll() {
-		// donor-wall-ui 2026-10-14: bulk download is the SUPPORTER perk, same gate as the
-		// album page — non-supporters get the donor wall, not a dead button.
-		if (!support.isSupporter) {
-			support.openSheet();
-			return;
-		}
+		// quick-261020-nogate: downloads are FREE for everyone — Hector cancelled the supporter
+		// gate on 2026-10-20 (the album detail page dropped it the same day). No donor wall here.
 		if (dlRunning || !shown.length) return;
 		const list = shown.slice(); // snapshot — a filter switch mid-run must not mutate the run
 		dlRunning = true;
@@ -211,6 +209,57 @@
 		}
 	}
 
+	// quick-261023-discbtns: Append all — the filtered list's every track to the END of the
+	// queue, album by album. Mirrors the album page's queueAlbum: LAZY nameStubs (zero network —
+	// each resolves kuwo-first when it reaches the front), sameSongKey dedupe so a re-tap never
+	// doubles the queue.
+	async function appendAll() {
+		if (playing || dlRunning || !shown.length) return;
+		playing = true;
+		try {
+			const list = shown;
+			const stubs: { artist: string; title: string }[] = [];
+			let ai = 0;
+			async function albumWorker() {
+				while (ai < list.length) {
+					const idx = ai++;
+					const tracks = await fetchAlbumTracklist(list[idx], name);
+					stubs.push(...tracks);
+				}
+			}
+			await Promise.all([albumWorker(), albumWorker(), albumWorker(), albumWorker()]);
+			for (const s of stubs) {
+				const tr = nameStub(s.artist, s.title);
+				if (!tr) continue;
+				if (player.queue.some((q) => sameSongKey(q, tr))) continue;
+				player.addToQueue(tr);
+			}
+			globalToast.show(t('toast.addedToQueue'));
+		} finally {
+			playing = false;
+		}
+	}
+
+	// quick-261023-discbtns: Share — the artist entity link (this page IS the artist's
+	// discography). Mirrors the artist page's shareArtist: the link rides ShareData.text
+	// (quick-260808-vkd — `url` would get percent-encoded by the WHATWG serializer),
+	// clipboard fallback with a toast, title line opt-in via settings.shareIncludeTitle.
+	async function shareDiscography() {
+		const dName = names.dnArtist(name);
+		const url = entityCardUrl({ type: 'artist', name: dName });
+		try {
+			const nav = navigator as Navigator & { share?: (d: ShareData) => Promise<void> };
+			if (nav.share)
+				await nav.share(settings.shareIncludeTitle ? { title: dName, text: url } : { text: url });
+			else {
+				await navigator.clipboard.writeText(url);
+				globalToast.show(t('toast.shareCopied'));
+			}
+		} catch {
+			/* user dismissed / clipboard blocked — no toast on cancel */
+		}
+	}
+
 	// quick-260831-re9: source selection now lives in loadDiscography — MusicBrainz for CJK
 	// artists (original-script titles, far deeper coverage), Deezer otherwise, Last.fm last.
 	$effect(() => {
@@ -243,27 +292,32 @@
 <!-- quick-261023-discmerge: the pack hero, merged in — one entrance, all album functions. -->
 <header class="hero">
 	<p class="sub">{t('pack.albumCount', { count: shown.length })}{#if yearRange} · {yearRange}{/if}</p>
+	<!-- quick-261023-discbtns: button order mirrors the album detail page —
+	     download, shuffle, play (bigger), append, share. No liner notes (Hector). -->
 	<div class="actions">
-		<button type="button" class="act" aria-label={t('pack.linerNotes')} title={t('pack.linerNotes')} onclick={() => (linerOpen = true)} use:tapBounce>
-			<BookOpen size={20} />
-		</button>
-		<button type="button" class="act play" aria-label={t('pack.play')} title={t('pack.play')} onclick={() => playAll(false)} disabled={playing || dlRunning} use:tapBounce>
-			<Play size={22} fill="currentColor" />
-		</button>
-		<button type="button" class="act" aria-label={t('pack.shuffle')} title={t('pack.shuffle')} onclick={() => playAll(true)} disabled={playing || dlRunning} use:tapBounce>
-			<Shuffle size={20} />
-		</button>
 		<button
 			type="button"
 			class="act download"
 			aria-label={t('pack.downloadAll')}
 			title={t('pack.downloadAll')}
 			aria-busy={dlRunning}
-			disabled={dlRunning}
+			disabled={dlRunning || playing}
 			onclick={downloadAll}
 			use:tapBounce
 		>
 			<Download size={20} />
+		</button>
+		<button type="button" class="act" aria-label={t('pack.shuffle')} title={t('pack.shuffle')} onclick={() => playAll(true)} disabled={playing || dlRunning} use:tapBounce>
+			<Shuffle size={20} />
+		</button>
+		<button type="button" class="act play" aria-label={t('pack.play')} title={t('pack.play')} onclick={() => playAll(false)} disabled={playing || dlRunning} use:tapBounce>
+			<Play size={22} fill="currentColor" />
+		</button>
+		<button type="button" class="act" aria-label={t('menu.addToQueue')} title={t('menu.addToQueue')} onclick={appendAll} disabled={playing || dlRunning} use:tapBounce>
+			<ListEnd size={20} />
+		</button>
+		<button type="button" class="act" aria-label={t('menu.share')} title={t('menu.share')} onclick={shareDiscography} use:tapBounce>
+			<Share2 size={20} />
 		</button>
 	</div>
 	{#if dlRunning}
@@ -319,18 +373,6 @@
 	</ul>
 {/if}
 
-{#if linerOpen}
-	<div class="scrim" onclick={() => (linerOpen = false)} role="presentation">
-		<div class="sheet" role="dialog" aria-label={t('pack.linerNotes')} onclick={(e) => e.stopPropagation()}>
-			<h2>{t('pack.linerNotes')}</h2>
-			<p><strong>{names.dnArtist(name)}</strong></p>
-			<p>{t('pack.albumCount', { count: shown.length })}{#if yearRange} ({yearRange}){/if}.</p>
-			<p class="muted">{t('pack.linerBody')}</p>
-			<button type="button" class="close" onclick={() => (linerOpen = false)} use:tapBounce>{t('common.done')}</button>
-		</div>
-	</div>
-{/if}
-
 <style>
 	/* quick-261023-discmerge: pack hero — the single entrance's header. */
 	.hero { padding: 12px 16px 4px; text-align: center; }
@@ -365,22 +407,6 @@
 	.dlbar { display: block; height: 3px; border-radius: 2px; background: var(--color-surface-2); overflow: hidden; margin-top: 4px; }
 	.dlfill { display: block; height: 100%; background: var(--color-primary); border-radius: 2px; transition: width 0.2s; }
 	.dltext { font-size: 0.7rem; color: var(--color-primary); font-weight: 600; }
-
-	/* Liner-notes sheet (moved from the pack page). */
-	.scrim {
-		position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 50;
-		display: flex; align-items: flex-end; justify-content: center;
-	}
-	.sheet {
-		background: var(--color-bg); border-radius: 16px 16px 0 0; padding: 24px;
-		max-width: 480px; width: 100%; max-height: 70vh; overflow-y: auto;
-	}
-	.sheet h2 { margin: 0 0 12px; }
-	.muted { color: var(--color-text-muted); font-size: 0.85rem; }
-	.close {
-		margin-top: 16px; padding: 10px 24px; border-radius: 8px;
-		background: var(--color-primary); color: #fff; border: none; cursor: pointer;
-	}
 
 	.sk { display: block; background: var(--color-surface); border-radius: 6px; animation: pulse 1.2s ease-in-out infinite; }
 	.sk-cover { width: 56px; height: 56px; flex: 0 0 auto; }

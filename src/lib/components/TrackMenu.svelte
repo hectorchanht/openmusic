@@ -68,7 +68,7 @@
 	import { syncFileTags } from '$lib/services/file-tag-sync';
 	import type { RetagEntry } from '$lib/services/retag';
 	import { browser } from '$app/environment';
-	import { songShareUrl, coverToken } from '$lib/services/share';
+	import { songShareUrl, coverToken, encodePathSegment } from '$lib/services/share';
 	// quick-260809-3uo: the share card now carries the cover the user is looking at — read from the
 	// SAME shared reactive cache every other surface reads, plus the retained iTunes id.
 	import { readCoverByUidOrName, readChosenCover, pinCover } from '$lib/stores/cover-version.svelte';
@@ -848,8 +848,8 @@
 	// some songs showed the cell, some didn't — the 4x4 grid must not come and go).
 	// Mirrors gotoArtist: same navigateAway single dismiss path, same script-lock rule —
 	// `names.zhLock` (re-script only), NEVER the display-language dn* strings
-	// (quick-260926-hl9). The album route keys off params.name + ?artist= (the
-	// discography albumHref shape). The album name usually arrives with the resolved
+	// (quick-260926-hl9). The album route is the 2-segment /album/{artist}/{name} shape
+	// (quick-261023-albumurl — same as the discography albumHref). The album name usually
 	// track; for a stub without one, gated() resolves details first (the Detail/Remix
 	// resolve-then-act idiom) and only toasts when there is still nothing to go to.
 	function gotoAlbum() {
@@ -872,11 +872,12 @@
 				toast.show(t('toast.noAlbum'));
 				return;
 			}
+			// quick-261023-albumurl: 2-segment album URL (same shape as albumHref).
 			const dest =
 				'/album/' +
-				encodeURIComponent(names.zhLock(album)) +
-				'?artist=' +
-				encodeURIComponent(names.zhLock(rt.artist));
+				encodePathSegment(names.zhLock(rt.artist)) +
+				'/' +
+				encodePathSegment(names.zhLock(album));
 			overlays.navigateAway(() => goto(dest));
 		});
 	}

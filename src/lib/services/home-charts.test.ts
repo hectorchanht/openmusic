@@ -216,16 +216,16 @@ describe('regionLabel / regionListLabel', () => {
 describe('chartAlbumHref', () => {
 	it('strips a " - EP" / " - Single" suffix into the name-only album URL', () => {
 		expect(chartAlbumHref({ name: 'Short n Sweet - EP', artist: 'Sabrina Carpenter', image: null })).toBe(
-			'/album/Short%20n%20Sweet?artist=Sabrina%20Carpenter'
+			'/album/Sabrina-Carpenter/Short-n-Sweet'
 		);
 		expect(chartAlbumHref({ name: 'Espresso - Single', artist: 'Sabrina Carpenter', image: null })).toBe(
-			'/album/Espresso?artist=Sabrina%20Carpenter'
+			'/album/Sabrina-Carpenter/Espresso'
 		);
 	});
 
 	it('leaves a suffix-free name unchanged apart from encoding, with no dzid/mbid', () => {
 		const href = chartAlbumHref({ name: 'GNX', artist: 'Kendrick Lamar', image: 'https://x/y.jpg' });
-		expect(href).toBe('/album/GNX?artist=Kendrick%20Lamar');
+		expect(href).toBe('/album/Kendrick-Lamar/GNX');
 		expect(href).not.toMatch(/&dzid=|&mbid=/);
 	});
 });

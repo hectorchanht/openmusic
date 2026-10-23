@@ -59,7 +59,13 @@
 	// NOT derived from tracks[0] (the stubs have no resolved artist until tap, and the
 	// album.getInfo query NEEDS the artist up front). Absent param (deep link) → '' → the
 	// page still renders the hero + a graceful empty state instead of crashing.
-	const albumArtist = $derived(page.url.searchParams.get('artist') ?? '');
+	// quick-261023-albumurl: on the 2-segment route (/album/{artist}/{name}) the artist rides
+	// path segment 1 — already dash-decoded by that route's loader into `data.artist`
+	// (page.params.artist still carries the raw dashes, so it is NOT read directly). The legacy
+	// `?artist=` carrier keeps working for old links, which still land on this route.
+	const albumArtist = $derived(
+		(data as { artist?: string }).artist || page.url.searchParams.get('artist') || ''
+	);
 	// quick-260831-qkx: the Deezer album id, carried by the artist page / discography page. When
 	// present it is the AUTHORITATIVE tracklist source — `album/{id}/tracks` returns the real
 	// ordered list. Absent (deep link, Last.fm-sourced album) → the old name-keyed Last.fm path.

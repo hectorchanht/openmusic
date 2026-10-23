@@ -132,21 +132,26 @@ describe('typeLabelKey / releaseYear', () => {
 describe('albumHref', () => {
 	it('carries the Deezer id as dzid — this is what fixes "empty inside"', () => {
 		const href = albumHref(e({ id: 301663, name: 'Parachutes' }), 'Coldplay');
-		expect(href).toBe('/album/Parachutes?artist=Coldplay&dzid=301663');
+		expect(href).toBe('/album/Coldplay/Parachutes?dzid=301663');
 	});
 
-	it('omits dzid when there is no id, leaving the pre-existing URL byte-identical', () => {
+	it('omits dzid when there is no id', () => {
 		expect(albumHref(e({ id: null, name: 'Parachutes' }), 'Coldplay')).toBe(
-			'/album/Parachutes?artist=Coldplay'
+			'/album/Coldplay/Parachutes'
 		);
 	});
 
-	it('encodes names and artists that contain URL-significant characters', () => {
+	it('encodes names and artists with the share segment grammar (spaces→dashes, raw CJK)', () => {
 		const href = albumHref(e({ id: 7, name: 'A/B & C' }), '陳奕迅');
-		expect(href).toContain('A%2FB%20%26%20C');
-		expect(href).toContain(encodeURIComponent('陳奕迅'));
+		expect(href).toContain('A%2FB-&-C');
+		expect(href).toContain('陳奕迅');
 		// the encoded name must not introduce a stray separator that breaks the query
 		expect(href.split('?')).toHaveLength(2);
+	});
+
+	it('puts the artist first: /album/{artist}/{name}', () => {
+		const href = albumHref(e({ id: null, name: '科幻小說' }), '法老');
+		expect(href).toBe('/album/法老/科幻小說');
 	});
 });
 
@@ -178,7 +183,7 @@ describe('albumHref — MusicBrainz entries (quick-260831-re9)', () => {
 		);
 		expect(href).toContain('mbid=8770e36c-464b-47ea-9a62-862025d27bf8');
 		expect(href).not.toContain('dzid=');
-		expect(href).toContain(encodeURIComponent('最偉大的作品'));
+		expect(href).toContain('/album/周杰倫/最偉大的作品');
 	});
 
 	it('prefers mbid over dzid if both were somehow set', () => {
@@ -192,7 +197,7 @@ describe('albumHref — MusicBrainz entries (quick-260831-re9)', () => {
 
 	it('still emits dzid for a Deezer entry with no mbid', () => {
 		expect(albumHref(e({ id: 301663, mbid: null, name: 'Parachutes' }), 'Coldplay')).toBe(
-			'/album/Parachutes?artist=Coldplay&dzid=301663'
+			'/album/Coldplay/Parachutes?dzid=301663'
 		);
 	});
 });
