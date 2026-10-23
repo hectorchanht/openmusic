@@ -3,7 +3,7 @@
 	import { goto } from '$app/navigation';
 	// quick-260919-ebi: ChevronRight + tapBounce now live inside SettingRow; Radio stays only for
 	// the commented-out Last.fm row below.
-	import { Globe, Type, LayoutGrid, Languages, Music, Radio, HardDriveDownload, Database, ScrollText, Info, HandCoins, Heart, ChevronRight, CircleUserRound, Share2, RotateCcw } from '@lucide/svelte';
+	import { Globe, Type, LayoutGrid, Languages, Music, Radio, HardDriveDownload, Database, ScrollText, Info, Heart, ChevronRight, CircleUserRound, Share2, RotateCcw } from '@lucide/svelte';
 	import { settings } from '$lib/stores/settings.svelte';
 	import { support } from '$lib/stores/support.svelte';
 	import PageHeader from '$lib/components/PageHeader.svelte';
@@ -19,7 +19,7 @@
 	import { track } from '$lib/posthog';
 
 	// SUPPORTER CHOICE MODEL (Hector 2026-10-10): verified tippers get a
-	// ☕ Supporter badge on the Supporter row below (SSR-safe — false pre-hydration).
+	// ☕ Supporter badge on the support card below (SSR-safe — false pre-hydration).
 	let supporter = $state(false);
 
 	onMount(() => {
@@ -41,7 +41,7 @@
 	// longer holds: Phase 36 shipped RETAG on the same page and it works on web, so hiding the row
 	// would orphan a working feature. The native gate lives in the page body instead — device import
 	// shows one honest line there on web, and retag stays reachable.
-	const groups: { href: string; icon: Component; title: TranslationKey; desc: TranslationKey; badge?: boolean }[] = [
+	const groups: { href: string; icon: Component; title: TranslationKey; desc: TranslationKey }[] = [
 		{ href: '/settings/account', icon: CircleUserRound, title: 'settings.groupAccount', desc: 'settings.groupAccountDesc' },
 		{ href: '/settings/playback', icon: Music, title: 'settings.groupPlayback', desc: 'settings.groupPlaybackDesc' },
 		{ href: '/settings/downloads', icon: HardDriveDownload, title: 'settings.groupDownloads', desc: 'settings.groupDownloadsDesc' },
@@ -51,9 +51,9 @@
 		// { href: '/settings/lastfm', icon: Radio, title: 'settings.groupLastfm', desc: 'settings.groupLastfmDesc' },
 		{ href: '/settings/data', icon: Database, title: 'settings.groupData', desc: 'settings.groupDataDesc' },
 		{ href: '/settings/activity', icon: ScrollText, title: 'settings.groupActivity', desc: 'settings.groupActivityDesc' },
-		// quick-261010-spon: V2 hide flow — tippers verify their Gumroad license key here.
-		// SUPPORTER CHOICE MODEL (2026-10-10): supporters see a ☕ badge on this row.
-		{ href: '/settings/sponsored', icon: HandCoins, title: 'settings.groupSponsored', desc: 'settings.groupSponsoredDesc', badge: true },
+		// quick-261023-support: the /settings/sponsored page is GONE — folded into the
+		// SupporterSheet (tip-key verify + hide-strip toggle). The featured support card
+		// below is now the single Support entry.
 		{ href: '/settings/about', icon: Info, title: 'settings.groupAbout', desc: 'settings.groupAboutDesc' }
 	];
 
@@ -127,11 +127,12 @@
 />
 
 <!-- donor-wall-ui 2026-10-14: featured support card (the donor wall) — sits above the
-     nav rows; opens the SupporterSheet. -->
+     nav rows; opens the SupporterSheet. quick-261023-support: now the SINGLE Support
+     entry (the /settings/sponsored page folded into the sheet). -->
 <button class="support-card" onclick={() => support.openSheet()} use:tapBounce>
 	<Heart size={22} fill="currentColor" class="sc-heart" />
 	<span class="sc-txt">
-		<span class="sc-title">{t('support.title')}</span>
+		<span class="sc-title">{t('support.title')}{supporter ? ' ☕' : ''}</span>
 		<span class="sc-desc">“{t('support.tagline')}”</span>
 	</span>
 	<ChevronRight size={18} class="sc-chev" />
@@ -142,7 +143,7 @@
 		<li>
 			<!-- quick-260919-ebi (F2): every row here LEADS SOMEWHERE, so they are all the raised +
 			     chevron kind. The shared component is now the only place that shape is declared. -->
-			<SettingRow icon={g.icon} label={t(g.title)} desc={t(g.desc)} value={g.badge && supporter ? '☕ Supporter' : undefined} onclick={() => goto(g.href)} />
+			<SettingRow icon={g.icon} label={t(g.title)} desc={t(g.desc)} onclick={() => goto(g.href)} />
 		</li>
 	{/each}
 </ul>
