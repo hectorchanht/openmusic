@@ -201,6 +201,91 @@ afterEach(() => {
 	vi.restoreAllMocks();
 });
 
+/** quick-261024-ytc — a Map-backed `caches.default` fake + an event whose platform.ctx.waitUntil
+ *  CAPTURES its promises so the test can await the background cache fill. */
+function stubEdgeCache() {
+	const store = new Map<string, Response>();
+	const fake = {
+		match: async (req: Request) => store.get(req.url)?.clone(),
+		put: async (req: Request, res: Response) => {
+			store.set(req.url, res.clone());
+		},
+		delete: async (req: Request) => store.delete(req.url)
+	};
+	vi.stubGlobal('caches', { default: fake });
+	return store;
+}
+
+function evp(videoId: string, opts: { range?: string } = {}) {
+	const waited: Promise<unknown>[] = [];
+	const base = ev(videoId, opts);
+	const event = {
+		...base,
+		platform: { ctx: { waitUntil: (p: Promise<unknown>) => void waited.push(p) } }
+	};
+	return { event, waited };
+}
+
+describe('GET /api/ytmusic/stream/:videoId — full-audio edge cache (quick-261024-ytc)', () => {
+	it('a full-coverage play stores the audio; later range + range-less requests are cache hits with NO upstream fetch', async () => {
+		const store = stubEdgeCache();
+		const h = stubFetch([OK]);
+		// First play: <audio>'s opening `bytes=0-` — the stub answers a FULL-coverage 206.
+		const first = evp('vid123', { range: 'bytes=0-' });
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const res1 = await streamGet(first.event as any);
+		expect(res1.status).toBe(206);
+		expect(new Uint8Array(await res1.arrayBuffer())).toEqual(FULL_BODY); // tee'd serve branch intact
+		await Promise.all(first.waited); // background fill lands
+		expect([...store.keys()].some((k) => k.includes('__ytmusic__/audio/vid123'))).toBe(true);
+
+		// Second request — a mid-song seek. A FRESH fetch stub proves zero upstream traffic.
+		const h2 = stubFetch([OK]);
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const res2 = await streamGet(ev('vid123', { range: 'bytes=2-5' }) as any);
+		expect(res2.status).toBe(206);
+		expect(res2.headers.get('x-ytmusic-cache')).toBe('hit');
+		expect(res2.headers.get('content-range')).toBe('bytes 2-5/8');
+		expect(new Uint8Array(await res2.arrayBuffer())).toEqual(FULL_BODY.slice(2, 6));
+		expect(h2.spy).not.toHaveBeenCalled();
+
+		// Range-less (download shape) — also a hit, answered 200 with the whole body.
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const res3 = await streamGet(ev('vid123') as any);
+		expect(res3.status).toBe(200);
+		expect(res3.headers.get('x-ytmusic-cache')).toBe('hit');
+		expect(new Uint8Array(await res3.arrayBuffer())).toEqual(FULL_BODY);
+		expect(h.spy.mock.calls.length).toBeGreaterThan(0); // sanity: the FIRST flow did go upstream
+	});
+
+	it('a PARTIAL range success never populates the cache (no truncated entry can poison later plays)', async () => {
+		const store = stubEdgeCache();
+		stubFetch([OK]);
+		const { event, waited } = evp('vid123', { range: 'bytes=0-3' });
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const res = await streamGet(event as any);
+		expect(res.status).toBe(206);
+		expect(new Uint8Array(await res.arrayBuffer())).toEqual(PARTIAL_BODY);
+		expect(waited).toHaveLength(0); // waitUntil never even scheduled
+		expect([...store.keys()].some((k) => k.includes('__ytmusic__/audio'))).toBe(false);
+	});
+
+	it('an unparseable range on a warm cache falls through to the live flow instead of guessing', async () => {
+		stubEdgeCache();
+		const h = stubFetch([OK]);
+		const first = evp('vid123', { range: 'bytes=0-' });
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		await streamGet(first.event as any);
+		await Promise.all(first.waited);
+		// Multi-range is not provable from a flat buffer slice — the live flow must answer it
+		// (its stub answers any non-`bytes=0-` range with the partial body).
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const res = await streamGet(ev('vid123', { range: 'bytes=0-1,4-5' }) as any);
+		expect(res.headers.get('x-ytmusic-cache')).toBeNull();
+		expect(h.playerCalls()).toBeGreaterThan(1); // went upstream again
+	});
+});
+
 describe('GET /api/ytmusic/stream/:videoId — VISIONOS player → googlevideo byte-proxy', () => {
 	it('a ranged request forwards Range upstream and returns 206 with range headers + audio/mp4', async () => {
 		const h = stubFetch([OK]);

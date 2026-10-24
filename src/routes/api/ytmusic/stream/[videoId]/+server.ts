@@ -27,6 +27,7 @@
 //    bounded fresh-token retries then 503 avoids hammering a challenging upstream (never hang).
 import type { RequestHandler } from './$types';
 import { corsHeaders, fetchWithRetry, corsPreflight } from '$lib/proxy/http';
+import { edgeCache, type EdgeCache } from '$lib/proxy/edge-cache';
 // selectAudioFormat + isPlayable live in the shared proxy module, NOT here: SvelteKit `+server.ts`
 // only permits HTTP-verb (or `_`-prefixed) exports, so a top-level `export function` in this route
 // throws `Invalid export` at request time (quick-270715 — caught by E2E, missed by the fixture unit
@@ -65,6 +66,121 @@ const PLAYER_GATE_ATTEMPTS = 3; // total player calls per media attempt: cached 
 const GATE_DELAY_MS = [250, 500]; // pause before gate retry 1 / 2
 
 const gateDelay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+// quick-261024-ytc — FULL-AUDIO EDGE CACHE. Live follow-up to -ytg: a failing request still took
+// ~2.6-3.1 s (all 3 gate retries exhausted) while successes took ~0.9 s — the gate is the
+// invocation's egress IP, so retries INSIDE one invocation are correlated and only a NEW
+// invocation (or a different egress) decorrelates. A cache hit needs no invocation luck at all:
+// once any request in a PoP lands the full file, every later play / seek / repeat click in that
+// PoP is served from `caches.default` for 6 h (the googlevideo url lifetime; the BYTES do not
+// expire, but 6 h bounds staleness / takedown lag). PoP-local by design — a user's browser
+// sticks to its nearest PoP, so their repeat clicks hit the entry their first success stored.
+const AUDIO_CACHE_TTL_S = 6 * 60 * 60;
+const AUDIO_CACHE_MAX_BYTES = 25 * 1024 * 1024; // itag-140 songs are ~1-15 MB; cap the freak case
+const audioCacheKey = (videoId: string) =>
+	new Request('https://openmusic.lol/__ytmusic__/audio/' + encodeURIComponent(videoId));
+
+/** Parse ONE `bytes=a-b` / `bytes=a-` / `bytes=-n` range against a known total. Anything else
+ *  (multi-range, malformed, out of bounds) → null, and the caller falls through to the live
+ *  upstream flow rather than answering a range it cannot prove correct. */
+function parseSingleRange(header: string, total: number): { start: number; end: number } | null {
+	const m = /^bytes=(\d*)-(\d*)$/.exec(header.trim());
+	if (!m || (m[1] === '' && m[2] === '')) return null;
+	if (m[1] === '') {
+		const n = Number(m[2]);
+		if (!Number.isFinite(n) || n <= 0) return null;
+		return { start: Math.max(0, total - n), end: total - 1 };
+	}
+	const start = Number(m[1]);
+	const end = m[2] === '' ? total - 1 : Math.min(Number(m[2]), total - 1);
+	if (!Number.isFinite(start) || start < 0 || start >= total || start > end) return null;
+	return { start, end };
+}
+
+/** Serve a stream request ENTIRELY from the audio cache, or null on any miss / oddity (the
+ *  caller then runs the normal player→bytes flow). A hit never touches YouTube — the whole point. */
+async function serveFromAudioCache(
+	cache: EdgeCache,
+	videoId: string,
+	range: string | null,
+	origin: string | null
+): Promise<Response | null> {
+	try {
+		const hit = await cache.match(audioCacheKey(videoId));
+		if (!hit) return null;
+		const bytes = new Uint8Array(await hit.arrayBuffer());
+		if (bytes.byteLength === 0) {
+			await cache.delete(audioCacheKey(videoId)).catch(() => false);
+			return null;
+		}
+		const headers: Record<string, string> = {
+			...corsHeaders(origin),
+			'content-type': 'audio/mp4',
+			'Accept-Ranges': 'bytes',
+			'x-ytmusic-cache': 'hit'
+		};
+		if (!range) {
+			headers['Content-Length'] = String(bytes.byteLength);
+			return new Response(bytes, { status: 200, headers });
+		}
+		const r = parseSingleRange(range, bytes.byteLength);
+		if (!r) return null; // unprovable range — let the live flow answer it
+		const slice = bytes.slice(r.start, r.end + 1);
+		headers['Content-Range'] = `bytes ${r.start}-${r.end}/${bytes.byteLength}`;
+		headers['Content-Length'] = String(slice.byteLength);
+		return new Response(slice, { status: 206, headers });
+	} catch {
+		return null; // a cache oddity must never break playback — fall through live
+	}
+}
+
+/**
+ * When an upstream response carries the FULL file, tee its body: one branch serves the client,
+ * the other is stored into the audio cache under `waitUntil` (never delaying playback — the
+ * 31-D-06 pattern). Returns the body the route should serve. Any doubt (partial coverage, no
+ * cache, no ctx, oversize) → the original body, untouched.
+ */
+function storableBody(
+	res: Response,
+	cache: EdgeCache | null,
+	videoId: string,
+	ctx: { waitUntil(p: Promise<unknown>): void } | undefined
+): BodyInit | null {
+	if (!cache || !ctx || !res.body) return res.body;
+	// Full coverage proof: a content-range spanning 0..total-1, or a plain 200 (its
+	// content-length, when present, is verified byte-for-byte in the background reader).
+	let total: number | null = null;
+	const cr = /^bytes (\d+)-(\d+)\/(\d+)$/.exec(res.headers.get('content-range') ?? '');
+	if (cr) {
+		if (Number(cr[1]) !== 0 || Number(cr[2]) !== Number(cr[3]) - 1) return res.body;
+		total = Number(cr[3]);
+	} else if (res.status === 200) {
+		const cl = Number(res.headers.get('content-length') ?? '');
+		total = Number.isFinite(cl) && cl > 0 ? cl : null;
+	} else {
+		return res.body;
+	}
+	if (total !== null && (total <= 0 || total > AUDIO_CACHE_MAX_BYTES)) return res.body;
+	const [serve, copy] = res.body.tee();
+	ctx.waitUntil(
+		(async () => {
+			const buf = await new Response(copy).arrayBuffer();
+			if (buf.byteLength === 0 || buf.byteLength > AUDIO_CACHE_MAX_BYTES) return;
+			if (total !== null && buf.byteLength !== total) return; // truncated — never cache a partial
+			await cache.put(
+				audioCacheKey(videoId),
+				new Response(buf, {
+					status: 200,
+					headers: {
+						'content-type': 'audio/mp4',
+						'Cache-Control': `public, max-age=${AUDIO_CACHE_TTL_S}`
+					}
+				})
+			);
+		})().catch(() => {})
+	);
+	return serve;
+}
 
 /** POST the VISIONOS player. Returns the parsed JSON, or null on an upstream throw (so the caller
  *  can gate on isPlayable and refresh/503 rather than crash).
@@ -112,7 +228,7 @@ async function fetchMedia(url: string, headers: Record<string, string>): Promise
 	}
 }
 
-export const GET: RequestHandler = async ({ params, request }) => {
+export const GET: RequestHandler = async ({ params, request, platform }) => {
 	const origin = request.headers.get('origin');
 	const videoId = (params.videoId ?? '').trim();
 	if (!videoId) return new Response('missing videoId', { status: 400, headers: corsHeaders(origin) });
@@ -122,6 +238,14 @@ export const GET: RequestHandler = async ({ params, request }) => {
 	// plain 200 below. A client Range (<audio> seeking) is forwarded verbatim.
 	const range = request.headers.get('range');
 	const upstreamHeaders: Record<string, string> = { Range: range ?? 'bytes=0-' };
+
+	// quick-261024-ytc: a full-audio cache hit answers with NO player call and NO googlevideo
+	// fetch — immune to the bot gate by construction. Miss / oddity → the live flow below.
+	const cache = edgeCache();
+	if (cache) {
+		const cached = await serveFromAudioCache(cache, videoId, range, origin);
+		if (cached) return cached;
+	}
 
 	let res: Response | null = null;
 	for (let attempt = 0; attempt < URL_ATTEMPTS; attempt++) {
@@ -182,12 +306,15 @@ export const GET: RequestHandler = async ({ params, request }) => {
 	if (acceptRanges != null) outHeaders['Accept-Ranges'] = acceptRanges;
 	const contentLength = res.headers.get('content-length');
 	if (contentLength != null) outHeaders['Content-Length'] = contentLength;
+	// quick-261024-ytc: if this response is the full file, tee a copy into the audio cache in
+	// the background so the NEXT request in this PoP skips the gate entirely.
+	const serveBody = storableBody(res, cache, videoId, platform?.ctx);
 	// No client Range → the client asked for the whole file: answer 200 without range headers, even
 	// though upstream answered our synthesized bytes=0- with a 206.
-	if (!range) return new Response(res.body, { status: 200, headers: outHeaders });
+	if (!range) return new Response(serveBody, { status: 200, headers: outHeaders });
 	const contentRange = res.headers.get('content-range');
 	if (contentRange != null) outHeaders['Content-Range'] = contentRange;
-	return new Response(res.body, { status: res.status, headers: outHeaders });
+	return new Response(serveBody, { status: res.status, headers: outHeaders });
 };
 
 export const OPTIONS: RequestHandler = ({ request }) => corsPreflight(request);
