@@ -13,6 +13,7 @@
 // Falling back to the lowercased raw name when Last.fm has no canonical keeps an unknown artist
 // exactly as it renders today (one tile per distinct spelling) instead of over-merging.
 import { detectLang } from '$lib/i18n/detect';
+import { fuzzyArtistMatchesQuery } from '$lib/services/score-match';
 
 /** One artist tile as the search page renders it. */
 export interface ArtistTile {
@@ -102,4 +103,24 @@ export function mergeArtistTiles(tiles: ArtistTile[], artistLang: string | null 
 	return merged
 		.sort((a, b) => b.trackCount - a.trackCount || a.firstIdx - b.firstIdx)
 		.map(({ firstIdx: _drop, ...tile }) => tile);
+}
+
+/**
+ * quick-261024-cig: stable-partition a tile row so a tile whose artist fuzzy-equals the
+ * whole query leads it. The row's default order is raw track COUNT, which answers "who
+ * has the most rows in this result set" — for an artist-name query that is the wrong
+ * question: uploader / playlist accounts with many loosely-matching rows out-count the
+ * artist the user typed, and the live "cigarette after sex" search put the Cigarettes
+ * After Sex tile FIFTH even while its songs (after the scoreMatch artist-intent fix)
+ * filled the entire top of the song list. Same fuzzy equality as the song ranking
+ * (score-match's fuzzyArtistMatchesQuery — plurals / typos / transpositions, Han exact),
+ * so tile and songs can never disagree about who the query names. Non-matching tiles
+ * keep their exact relative order; no match (or no tokens) returns the input unchanged.
+ */
+export function prioritizeArtistIntent(tiles: ArtistTile[], queryTokens: string[]): ArtistTile[] {
+	if (!queryTokens.length || tiles.length < 2) return tiles;
+	const hits = tiles.filter((t) => fuzzyArtistMatchesQuery(t.name, queryTokens));
+	if (!hits.length || hits.length === tiles.length) return tiles;
+	const hitSet = new Set(hits);
+	return [...hits, ...tiles.filter((t) => !hitSet.has(t))];
 }

@@ -91,6 +91,19 @@ function electLyricConsensus(rows: Track[]): string | null {
 }
 
 /**
+ * quick-261024-cig: the query tokenization SetContext.queryTokens uses, exported so other
+ * query-intent consumers (the search page's artist tiles) split the query IDENTICALLY
+ * instead of growing a second tokenizer.
+ */
+export function tokenizeQuery(query: string): string[] {
+	return (query || '')
+		.trim()
+		.toLowerCase()
+		.split(/[^\p{L}\p{N}]+/u)
+		.filter(Boolean);
+}
+
+/**
  * Fold a result set + query into the cheap summary scoreMatch reads for set-relative boosts.
  * Pure: no I/O, no mutation of inputs. Deterministic.
  */
@@ -114,11 +127,8 @@ export function computeSetContext(rows: Track[], query: string): SetContext {
 		queryLen: trimmed.length,
 		lyricMode,
 		lyricConsensus: lyricMode ? electLyricConsensus(rows) : null,
-		// quick-261024-cig: same split scoreMatch's token helpers use (non letter/digit
-		// runs), so query and candidate artist tokenize identically.
-		queryTokens: trimmed
-			.toLowerCase()
-			.split(/[^\p{L}\p{N}]+/u)
-			.filter(Boolean)
+		// quick-261024-cig: tokenizeQuery — the same split scoreMatch's token helpers use
+		// (non letter/digit runs), so query and candidate artist tokenize identically.
+		queryTokens: tokenizeQuery(trimmed)
 	};
 }

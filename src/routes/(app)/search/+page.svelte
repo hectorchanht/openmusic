@@ -6,7 +6,7 @@
 	import { dedupeBest, groupVariants } from '$lib/services/dedupe';
 	import { dedupeBestWithDeezer } from '$lib/services/dedupe-deezer';
 	import { scoreMatch } from '$lib/services/score-match';
-	import { computeSetContext } from '$lib/services/score-context';
+	import { computeSetContext, tokenizeQuery } from '$lib/services/score-context';
 	// quick-260910-qwt: the shared row cover read (resolved → track.cover → the shared cache).
 	import { enrichArtist } from '$lib/services/lastfm';
 	import { deezerArtistCover, deezerSearchTopN, type DeezerHit } from '$lib/services/deezer';
@@ -22,7 +22,11 @@
 	import { initialSearch } from '$lib/services/search-url';
 	import { syncTabUrl } from '$lib/services/url-tab';
 	import { settings } from '$lib/stores/settings.svelte';
-	import { mergeArtistTiles, type ArtistTile } from '$lib/services/artist-tiles';
+	import {
+		mergeArtistTiles,
+		prioritizeArtistIntent,
+		type ArtistTile
+	} from '$lib/services/artist-tiles';
 	import { player } from '$lib/stores/player.svelte';
 	import { names } from '$lib/stores/names.svelte';
 	import { searchSession } from '$lib/stores/searchSession.svelte';
@@ -281,7 +285,15 @@
 		const sorted = [...groups.values()].sort((a, b) =>
 			b.count - a.count || a.firstIdx - b.firstIdx
 		);
-		return sorted.map((g) => ({ name: g.name, image: null, trackCount: g.count, canonical: null }));
+		const tiles = sorted.map((g) => ({
+			name: g.name,
+			image: null,
+			trackCount: g.count,
+			canonical: null
+		}));
+		// quick-261024-cig: count alone put the queried artist's tile fifth behind
+		// high-row-count uploaders — the artist the query NAMES leads the row.
+		return prioritizeArtistIntent(tiles, tokenizeQuery(query));
 	}
 
 	async function refreshArtistTiles(query: string, rows: Track[]) {
@@ -304,7 +316,12 @@
 		if (artistTilesFor !== tag) return; // race guard — newer query took over
 		// Merge only AFTER enrichment: before it every tile has canonical:null and would group by
 		// its own name, i.e. exactly the unmerged row we paint immediately for zero-latency.
-		artistTiles = mergeArtistTiles(withCovers, settings.artistLang);
+		// quick-261024-cig: the merge re-sorts by count, so re-apply the artist-intent lead
+		// or the merged row would demote the queried artist back behind the uploaders.
+		artistTiles = prioritizeArtistIntent(
+			mergeArtistTiles(withCovers, settings.artistLang),
+			tokenizeQuery(query)
+		);
 	}
 
 	function fallbackArtistCover(name: string): string {
