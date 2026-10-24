@@ -559,8 +559,13 @@ describe('nav.share carries the link in text, not url (quick-260808-vkd)', () =>
 	// OFF). Concatenating targets (WhatsApp) render `title` and `text` as two separate lines, so an
 	// unconditional title duplicated the OG card, which already shows `Song • Artist` beneath the
 	// link. Test 2 below pins that: no ungated object-literal `nav.share({…})` call may come back.
+	//
+	// quick-261024-shr — TrackMenu LEFT this list. By Hector's 2026-10-06 call its Share button
+	// copies the link straight to the clipboard and the native share sheet is gone from that
+	// path (see doShare in TrackMenu.svelte), so it has no nav.share call left to gate. The
+	// stale assertion kept the full suite red for weeks; TrackMenu's clipboard-only shape is
+	// pinned by its own describe below instead — restoring nav.share there would now FAIL.
 	it.each([
-		'src/lib/components/TrackMenu.svelte',
 		'src/routes/(app)/album/[name]/+page.svelte',
 		'src/routes/(app)/artist/[name]/+page.svelte'
 	])('%s gates the nav.share title on the setting and keeps the link in `text`', async (file) => {
@@ -579,6 +584,23 @@ describe('nav.share carries the link in text, not url (quick-260808-vkd)', () =>
 		// many share targets concatenate `text` and `url`, which would put the link in the message
 		// twice, once readable and once percent-encoded, worse than the original bug.
 		expect(src).not.toMatch(/nav\.share\([^)]*[,{]\s*url\s*[,})]/);
+	});
+});
+
+describe('TrackMenu share is clipboard-only (quick-261024-shr)', () => {
+	// Hector's 2026-10-06 call (recorded at doShare in TrackMenu.svelte): the menu's Share
+	// button copies the song link straight to the device clipboard, ready to paste — the
+	// native share sheet is gone from this path. That also makes the vkd percent-encoding
+	// trap structurally impossible here: clipboard.writeText takes the raw string verbatim.
+	// Same source-assertion technique as the describe above (the handler is not exported
+	// and there is no jsdom project). This fails if someone "restores" the share sheet.
+	it('copies the link via clipboard.writeText and never calls nav.share', async () => {
+		const { readFileSync } = await import('node:fs');
+		const src = readFileSync('src/lib/components/TrackMenu.svelte', 'utf8');
+		expect(src).toMatch(/navigator\.clipboard\.writeText\(url\)/);
+		expect(src).toMatch(/toast\.shareCopied/);
+		expect(src).not.toMatch(/nav\.share\(/);
+		expect(src).not.toMatch(/\.share\(settings\.shareIncludeTitle/);
 	});
 });
 
