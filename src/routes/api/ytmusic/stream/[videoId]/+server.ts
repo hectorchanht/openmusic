@@ -24,7 +24,7 @@
 //    AbortSignal.timeout + retries=1 (audius posture) — NEVER the client fetch governor (api-base),
 //    so a long-lived media stream cannot hold (and deadlock) a client concurrency slot.
 //  - bot gate (T-27-03-04): VISIONOS + cached visitorData clears the gate anonymously;
-//    refresh-once-then-503 avoids hammering a challenging upstream (never hang).
+//    bounded fresh-token retries then 503 avoids hammering a challenging upstream (never hang).
 import type { RequestHandler } from './$types';
 import { corsHeaders, fetchWithRetry, corsPreflight } from '$lib/proxy/http';
 // selectAudioFormat + isPlayable live in the shared proxy module, NOT here: SvelteKit `+server.ts`
@@ -40,6 +40,7 @@ import {
 	getVisitorData,
 	innerTubePost,
 	isPlayable,
+	playabilityInfo,
 	selectAudioFormat,
 	PLAYER_UA,
 	PLAYER_URL
@@ -54,6 +55,16 @@ const MEDIA_HEAD_TIMEOUT_MS = 15000;
 // OK — the url is IP-locked and a Worker's subrequests do not always leave from the same IP. A fresh
 // player call gets a fresh url, so retry the whole player→bytes hop on a 403.
 const URL_ATTEMPTS = 3;
+// quick-261024-ytg: the PLAYER call itself is bot-gated per subrequest — ~40% of live stream
+// requests came back `player not OK` (12-request sample 2026-10-24: 5× 503; a second track: 4/8),
+// while the identical VISIONOS call from a residential IP was 10/10 OK. The old shape made ONE
+// cached-token call + ONE refresh and then 503'd — a coin flip per click ("plays on the 2nd/3rd
+// click", per the user report). Each retry below uses a FRESH visitorData (a new subrequest can
+// egress un-gated, same premise as the media-403 retry above), with a short escalating pause.
+const PLAYER_GATE_ATTEMPTS = 3; // total player calls per media attempt: cached token + 2 fresh
+const GATE_DELAY_MS = [250, 500]; // pause before gate retry 1 / 2
+
+const gateDelay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 /** POST the VISIONOS player. Returns the parsed JSON, or null on an upstream throw (so the caller
  *  can gate on isPlayable and refresh/503 rather than crash).
@@ -71,6 +82,21 @@ async function callPlayer(videoId: string, visitorData: Promise<string | null>):
 	} catch {
 		return null;
 	}
+}
+
+/**
+ * quick-261024-ytg — one player call, retried on a non-OK playability with a FRESH visitorData
+ * each time (see PLAYER_GATE_ATTEMPTS). First call uses the cached token (the fast, usually-OK
+ * path — a gated token costs one refresh, not a cold grab per play). Returns the LAST player
+ * response seen, playable or not, so the caller can gate / diagnose on it.
+ */
+async function callPlayerGated(videoId: string): Promise<unknown> {
+	let json = await callPlayer(videoId, getVisitorData());
+	for (let gate = 1; !isPlayable(json) && gate < PLAYER_GATE_ATTEMPTS; gate++) {
+		await gateDelay(GATE_DELAY_MS[gate - 1] ?? 500);
+		json = await callPlayer(videoId, getVisitorData(true));
+	}
+	return json;
 }
 
 /** One googlevideo byte fetch with a HEADERS-only deadline (see MEDIA_HEAD_TIMEOUT_MS). RAW edge
@@ -99,20 +125,23 @@ export const GET: RequestHandler = async ({ params, request }) => {
 
 	let res: Response | null = null;
 	for (let attempt = 0; attempt < URL_ATTEMPTS; attempt++) {
-		// 1. VISIONOS player POST with the cached anonymous visitorData. The promise goes IN —
-		// the await lives inside callPlayer's try, so a visitorData throw is a graceful null,
-		// not an uncaught crash (quick-261006-r2).
-		let json = await callPlayer(videoId, getVisitorData());
-
-		// 2. Bot gate / expiry → refresh visitorData ONCE and retry the player POST once. Never hang.
+		// 1+2. VISIONOS player POST (cached anonymous visitorData), retried on the bot gate with a
+		// fresh token per retry (callPlayerGated, quick-261024-ytg). The visitorData promise goes
+		// IN — the await lives inside callPlayer's try, so a getVisitorData throw is a graceful
+		// null, not an uncaught crash (quick-261006-r2).
+		const json = await callPlayerGated(videoId);
 		if (!isPlayable(json)) {
-			json = await callPlayer(videoId, getVisitorData(true));
-			if (!isPlayable(json)) {
-				// Still not OK → 503 so the client's cross-source fallback engages. Never 502/504:
-				// Cloudflare's edge replaces the body AND headers of any 502/504 with its own text
-				// page — the client would never see our error (same rule as /api/stream-url).
-				return new Response('ytmusic: player not OK', { status: 503, headers: corsHeaders(origin) });
-			}
+			// Still gated after every retry → 503 so the client's cross-source fallback engages.
+			// Never 502/504: Cloudflare's edge replaces the body AND headers of any 502/504 with
+			// its own text page — the client would never see our error (same rule as /api/stream-url).
+			// The playability status/reason ride as headers so the NEXT rot is diagnosable from a
+			// plain curl instead of a guess (they are upstream strings, header-sanitized in
+			// playabilityInfo; visitorData / the signed url are NEVER exposed, T-27-03-02).
+			const info = playabilityInfo(json);
+			const headers: Record<string, string> = { ...corsHeaders(origin) };
+			if (info.status) headers['x-ytmusic-playability'] = info.status;
+			if (info.reason) headers['x-ytmusic-reason'] = info.reason;
+			return new Response('ytmusic: player not OK', { status: 503, headers });
 		}
 
 		// 3. Select the itag-140 AAC direct url (no cipher/throttle). null → 503.

@@ -140,10 +140,27 @@ export interface YtPlayerJson {
 
 /**
  * True only when `playabilityStatus.status === 'OK'`. LOGIN_REQUIRED / UNPLAYABLE / a bot challenge
- * are all false — the caller refreshes visitorData once then gives up. Pure (spike 006).
+ * are all false — the caller retries with a fresh visitorData before giving up (quick-261024-ytg).
+ * Pure (spike 006).
  */
 export function isPlayable(playerJson: unknown): boolean {
 	return (playerJson as YtPlayerJson)?.playabilityStatus?.status === 'OK';
+}
+
+/**
+ * quick-261024-ytg — the playability status + reason of a player response, for DIAGNOSTICS ONLY
+ * (the stream route surfaces them as `x-ytmusic-*` response headers on a 503 so a gated play is
+ * debuggable from the outside instead of a bare "player not OK"). Reason is header-sanitized:
+ * printable ASCII only, single line, ≤120 chars — a reason can never smuggle a second header.
+ * Nulls when the body carries no playabilityStatus at all (a throw / malformed body upstream).
+ */
+export function playabilityInfo(playerJson: unknown): { status: string | null; reason: string | null } {
+	const ps = (playerJson as YtPlayerJson)?.playabilityStatus;
+	const clean = (v: unknown): string | null =>
+		typeof v === 'string' && v.length > 0
+			? v.replace(/[^\x20-\x7E]/g, '?').slice(0, 120)
+			: null;
+	return { status: clean(ps?.status), reason: clean(ps?.reason) };
 }
 
 /**

@@ -7,6 +7,7 @@ import { GET as streamGet, OPTIONS as streamOptions } from './+server';
 import {
 	selectAudioFormat,
 	isPlayable,
+	playabilityInfo,
 	PLAYER_URL,
 	SEARCH_URL,
 	PLAYER_CLIENT_VERSION,
@@ -52,6 +53,28 @@ describe('selectAudioFormat — itag-140 AAC selection (never Opus, never cipher
 	it('returns null for a null / malformed body', () => {
 		expect(selectAudioFormat(null)).toBeNull();
 		expect(selectAudioFormat({})).toBeNull();
+	});
+});
+
+describe('playabilityInfo — diagnostics extraction + header sanitization (quick-261024-ytg)', () => {
+	it('returns status + reason for a gated response', () => {
+		expect(playabilityInfo(fixture.loginRequired).status).toBe('LOGIN_REQUIRED');
+		// The fixture reason carries a curly apostrophe — non-ASCII is flattened for header safety.
+		expect(playabilityInfo(fixture.loginRequired).reason).toBe('Sign in to confirm you?re not a bot');
+	});
+
+	it('returns nulls for an OK-without-reason / malformed body', () => {
+		expect(playabilityInfo(OK)).toEqual({ status: 'OK', reason: null });
+		expect(playabilityInfo(null)).toEqual({ status: null, reason: null });
+		expect(playabilityInfo({})).toEqual({ status: null, reason: null });
+	});
+
+	it('a reason can never smuggle a second header (CR/LF flattened, length capped)', () => {
+		const evil = { playabilityStatus: { status: 'ERROR', reason: 'x\r\nSet-Cookie: pwned' + 'y'.repeat(300) } };
+		const info = playabilityInfo(evil);
+		expect(info.reason).not.toContain('\r');
+		expect(info.reason).not.toContain('\n');
+		expect(info.reason!.length).toBe(120);
 	});
 });
 
@@ -247,7 +270,7 @@ describe('GET /api/ytmusic/stream/:videoId — VISIONOS player → googlevideo b
 		expect(refreshBetween).toBe(true);
 	});
 
-	it('a persistent non-OK returns 503 after exactly one retry (client fallback engages, no media fetch)', async () => {
+	it('a persistent non-OK returns 503 after the full gate budget (client fallback engages, no media fetch)', async () => {
 		const h = stubFetch([fixture.loginRequired, fixture.loginRequired]);
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		const res = await streamGet(ev('vid123') as any);
@@ -255,9 +278,25 @@ describe('GET /api/ytmusic/stream/:videoId — VISIONOS player → googlevideo b
 		// Never 502/504: the edge would replace the body AND headers of a 502/504 with its own
 		// text page — 503 carries the error through intact.
 		expect(res.status).toBe(503);
-		expect(h.playerCalls()).toBe(2); // one refresh + retry, then give up
+		// quick-261024-ytg: cached token + TWO fresh-token retries, then give up (was: one retry —
+		// a ~40% per-call gate made a single retry a coin flip).
+		expect(h.playerCalls()).toBe(3);
 		expect(h.mediaUrl()).toBeNull(); // never fetched googlevideo bytes
 		expect(res.headers.get('access-control-allow-origin')).toBe(ORIGIN);
+		// Diagnostics: the upstream playability rides as headers (the curly apostrophe in the
+		// fixture reason is header-sanitized to '?').
+		expect(res.headers.get('x-ytmusic-playability')).toBe('LOGIN_REQUIRED');
+		expect(res.headers.get('x-ytmusic-reason')).toBe('Sign in to confirm you?re not a bot');
+	});
+
+	it('two gated calls then an OK streams — the gate retry rescues a would-be 503 (quick-261024-ytg)', async () => {
+		const h = stubFetch([fixture.loginRequired, fixture.loginRequired, OK]);
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const res = await streamGet(ev('vid123') as any);
+
+		expect(res.status).toBe(200);
+		expect(h.playerCalls()).toBe(3);
+		expect(h.mediaUrl()).toBe(ITAG_140_URL);
 	});
 
 	it('an OK player with no playable AAC format (ciphered-only) returns 503 without a media fetch', async () => {
