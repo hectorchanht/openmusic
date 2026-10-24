@@ -289,6 +289,142 @@ function lyricConsensusBoost(candidate: Track, ctx: SetContext): number {
 	return titleKey(candidate.title) === ctx.lyricConsensus ? LYRIC_CONSENSUS_BOOST : 0;
 }
 
+// --- Artist-intent tuning (quick-261024-cig) ---------------------------------------------
+/**
+ * Flat reward when the candidate's ARTIST (fuzzy-)equals the WHOLE search query — the user
+ * typed an artist's name, so that artist's songs are the intent, whatever their titles are.
+ * DERIVED, like SIM_SUBSTR / PREVIEW_PENALTY above, to strictly dominate the best stack a
+ * TITLE-collision impostor can earn: a track literally TITLED with the query by an unrelated
+ * artist gets SIM_TITLE (3) + full token overlap (SIM_TOKEN 2) + full short-title proximity
+ * (SHORT_TITLE_BOOST_MAX 3) = 8. The live failure (Hector 2026-10-24): searching the
+ * singular "cigarette after sex", two impostor tracks titled "Cigarette After Sex" (Black
+ * Roses / ELISSAR BENJAMIN, ~8) outranked every real Cigarettes After Sex song (~6, because
+ * `cigarette ≠ cigarettes` earned no artist component at all). +1 breaks the tie, so an
+ * artist-matching row wins even before its own similarity / frequency credit is counted.
+ */
+export const ARTIST_INTENT_BOOST = SIM_TITLE + SIM_TOKEN + SHORT_TITLE_BOOST_MAX + 1; // = 9
+
+const HAN_ANY = /\p{Script=Han}/u;
+
+/**
+ * Damerau–Levenshtein distance (optimal string alignment: one adjacent transposition
+ * counts as ONE edit — "beatels" → "beatles"), the typo metric for token comparison.
+ * Pure DP, O(|a|·|b|); callers only pass single words, so this stays tiny.
+ */
+export function damerauLevenshtein(a: string, b: string): number {
+	const m = a.length;
+	const n = b.length;
+	if (m === 0) return n;
+	if (n === 0) return m;
+	const d: number[][] = Array.from({ length: m + 1 }, (_, i) => {
+		const row = new Array<number>(n + 1).fill(0);
+		row[0] = i;
+		return row;
+	});
+	for (let j = 0; j <= n; j++) d[0][j] = j;
+	for (let i = 1; i <= m; i++) {
+		for (let j = 1; j <= n; j++) {
+			const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+			d[i][j] = Math.min(
+				d[i - 1][j] + 1, // deletion
+				d[i][j - 1] + 1, // insertion
+				d[i - 1][j - 1] + cost // substitution / match
+			);
+			if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) {
+				d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 1); // adjacent transposition
+			}
+		}
+	}
+	return d[m][n];
+}
+
+/**
+ * Allowed edit distance for one Latin token pair, scaled by length: short words are too
+ * easy to collide ("sex" / "six", "art" / "act") so ≤3 chars — and any pair whose shorter
+ * side is < 4 — must be EXACT; 4–6 chars tolerate 1 edit (a plural `s`, a dropped letter,
+ * a transposition); ≥7 tolerates 2 (e.g. "cigarete" → "cigarettes").
+ */
+function tokenEditBudget(q: string, c: string): number {
+	const min = Math.min(q.length, c.length);
+	if (min < 4) return 0;
+	return min >= 7 ? 2 : 1;
+}
+
+/** Tokenize an artist string the same way computeSetContext tokenizes the query. */
+function artistTokens(artist: string): string[] {
+	return (artist || '')
+		.toLowerCase()
+		.replace(/[（(【\[].*?[)）\]】]/g, ' ') // bracketed qualifiers are not part of the name
+		.replace(/\s*\(?\b(?:feat|ft)\.?\b[^)]*\)?\s*$/i, '') // a trailing feat. credit is not the act
+		.split(/[^\p{L}\p{N}]+/u)
+		.filter(Boolean);
+}
+
+/**
+ * quick-261024-cig: does this ARTIST name match the whole query, tolerating ordinary
+ * typing errors? Two routes, either is enough:
+ *   1. Token-by-token, IN ORDER, same token count — every token equal or within its
+ *      length-scaled Damerau–Levenshtein budget (plurals, dropped/doubled letters,
+ *      transpositions), with a TOTAL budget across tokens so a name that is wrong in
+ *      every word does not pass on per-token slack alone.
+ *   2. Joined (spaces removed) comparison — catches spacing errors ("cigarettesafter
+ *      sex", "cigarette aftersex"), where the token counts themselves differ.
+ * Strictness guards, learned from the artist-page exactness work:
+ *   - Han tokens compare EXACTLY (no edit distance, no script fold): one different Han
+ *     character can be a different person (姜涛 ≠ 姜濤), and CJK names are short enough
+ *     that a distance-1 rule would collide constantly.
+ *   - Short Latin tokens (≤3) compare exactly (see tokenEditBudget).
+ *   - Token ORDER matters (route 1 compares pairwise in order) — "After Sex Cigarette"
+ *     is not the band.
+ * Exported for direct unit tests.
+ */
+export function fuzzyArtistMatchesQuery(artist: string, queryTokens: string[]): boolean {
+	if (!queryTokens.length) return false;
+	const cand = artistTokens(artist);
+	if (!cand.length) return false;
+
+	// Route 2 (joined) is checked inside both branches below via this helper: equal joins
+	// are an exact spacing-only difference. Near joins allow ONE edit total — deliberately
+	// stricter than summing the per-token budgets, so this route cannot re-admit a pair the
+	// token route rejected for a short-token difference ("…after sex" vs "…after six" is
+	// distance 2 joined: the plural `s` plus sex→six). Han joins stay exact-only (see the
+	// guard note above), and so do joins shorter than 6 chars.
+	const qJoin = queryTokens.join('');
+	const cJoin = cand.join('');
+	const joinedFuzzy = (): boolean => {
+		if (qJoin === cJoin) return true;
+		if (HAN_ANY.test(qJoin) || HAN_ANY.test(cJoin)) return false;
+		if (Math.min(qJoin.length, cJoin.length) < 6) return false;
+		return damerauLevenshtein(qJoin, cJoin) <= 1;
+	};
+
+	if (cand.length !== queryTokens.length) return joinedFuzzy();
+
+	let totalDist = 0;
+	const totalBudget = Math.max(1, Math.floor(qJoin.length / 6));
+	for (let i = 0; i < cand.length; i++) {
+		const q = queryTokens[i];
+		const c = cand[i];
+		if (q === c) continue;
+		if (HAN_ANY.test(q) || HAN_ANY.test(c)) return joinedFuzzy();
+		const dist = damerauLevenshtein(q, c);
+		if (dist > tokenEditBudget(q, c)) return joinedFuzzy();
+		totalDist += dist;
+		if (totalDist > totalBudget) return joinedFuzzy();
+	}
+	return true;
+}
+
+/**
+ * quick-261024-cig: the artist-intent term. ctx-gated (it needs the whole raw query, which
+ * only the search page's computeSetContext carries) so the 2-arg resolveStub / fallback
+ * callers stay byte-identical, exactly like the other set-relative boosts.
+ */
+function artistIntentBoost(candidate: Track, ctx: SetContext): number {
+	if (!ctx.queryTokens?.length) return 0;
+	return fuzzyArtistMatchesQuery(candidate.artist, ctx.queryTokens) ? ARTIST_INTENT_BOOST : 0;
+}
+
 /**
  * Pure best-match score for one candidate against a {artist, title} query.
  * Higher = better. Base score = similarity − variantPenalty (UNCHANGED for 2-arg callers —
@@ -299,7 +435,9 @@ function lyricConsensusBoost(candidate: Track, ctx: SetContext): number {
  * in lyric mode (ctx.lyricMode) a pasted-lyric mistitle earns NO query-title credit at all —
  * no similarity, no substring containment, no short-title proximity — while consensus members
  * gain LYRIC_CONSENSUS_BOOST; the variant/試聽 penalties and artist-frequency boost still apply
- * to every row. Never null/NaN, no threshold, no source/quality logic (dedupeBest owns that).
+ * to every row. quick-261024-cig: with ctx, a candidate whose artist fuzzy-equals the whole
+ * query also gains ARTIST_INTENT_BOOST. Never null/NaN, no threshold, no source/quality logic
+ * (dedupeBest owns that).
  */
 export function scoreMatch(
 	query: { artist: string; title: string },
@@ -318,6 +456,9 @@ export function scoreMatch(
 		if (!mislabeled) score += shortTitleBoost(candidate, ctx);
 		score += artistFrequencyBoost(candidate, ctx);
 		score += lyricConsensusBoost(candidate, ctx);
+		// quick-261024-cig: an artist-name query lifts that artist's whole catalogue above
+		// title-collision impostors (see ARTIST_INTENT_BOOST).
+		score += artistIntentBoost(candidate, ctx);
 	}
 	return score;
 }

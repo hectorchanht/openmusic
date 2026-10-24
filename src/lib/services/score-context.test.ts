@@ -67,6 +67,24 @@ describe('computeSetContext — cross-source artist map (D-05)', () => {
 	});
 });
 
+describe('computeSetContext — query tokens (quick-261024-cig)', () => {
+	it('splits the trimmed query into lowercased word tokens', () => {
+		expect(computeSetContext([], '  Cigarette After Sex  ').queryTokens).toEqual([
+			'cigarette',
+			'after',
+			'sex'
+		]);
+	});
+
+	it('keeps the original script (no Traditional→Simplified fold)', () => {
+		expect(computeSetContext([], '姜濤').queryTokens).toEqual(['姜濤']);
+	});
+
+	it('an empty query yields no tokens', () => {
+		expect(computeSetContext([], '   ').queryTokens).toEqual([]);
+	});
+});
+
 describe('computeSetContext — lyric mode (quick-261006-lyr LYRIC-01)', () => {
 	it('a query with >= LYRIC_MIN_HAN Han chars engages lyric mode', () => {
 		expect(computeSetContext([], '如果一手鋸開枯樹木').lyricMode).toBe(true); // 9 Han

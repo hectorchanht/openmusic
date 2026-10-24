@@ -37,6 +37,15 @@ export interface SetContext {
 	 * scoreMatch boosts consensus members and demotes the pasted-lyric mislabel (LYRIC-03).
 	 */
 	lyricConsensus: string | null;
+	/**
+	 * quick-261024-cig: the query's word tokens (trimmed, lowercased, punctuation-split,
+	 * NOT script-folded) — scoreMatch's artist-intent term compares a candidate's ARTIST
+	 * against the WHOLE query token by token. Raw (unfolded) on purpose: the fuzzy
+	 * comparison must see the original script, because a Han name that differs by one
+	 * character can be a DIFFERENT artist (姜涛 ≠ 姜濤) — folding would erase exactly the
+	 * distinction the term's Han-exact rule relies on.
+	 */
+	queryTokens: string[];
 }
 
 /** quick-261006-lyr LYRIC-01: Han-char count at/above which a query is lyric-like, not title-like. */
@@ -104,6 +113,12 @@ export function computeSetContext(rows: Track[], query: string): SetContext {
 		artistSources,
 		queryLen: trimmed.length,
 		lyricMode,
-		lyricConsensus: lyricMode ? electLyricConsensus(rows) : null
+		lyricConsensus: lyricMode ? electLyricConsensus(rows) : null,
+		// quick-261024-cig: same split scoreMatch's token helpers use (non letter/digit
+		// runs), so query and candidate artist tokenize identically.
+		queryTokens: trimmed
+			.toLowerCase()
+			.split(/[^\p{L}\p{N}]+/u)
+			.filter(Boolean)
 	};
 }

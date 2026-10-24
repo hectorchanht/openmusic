@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
 	scoreMatch,
+	fuzzyArtistMatchesQuery,
+	damerauLevenshtein,
+	ARTIST_INTENT_BOOST,
 	VARIANT_KEYWORDS,
 	SHORT_CLIP_SEC,
 	PREVIEW_PENALTY,
@@ -436,6 +439,124 @@ describe('scoreMatch — lyric-query ranking (quick-261006-lyr)', () => {
 		// exact title match keeps its full credit (5 similarity + 3 short-title + 2 artist-freq)
 		expect(scoreMatch(q, rows[0], ctx)).toBe(10);
 		expect(scoreMatch(q, rows[0], ctx)).toBeGreaterThan(scoreMatch(q, rows[2], ctx));
+	});
+});
+
+describe('fuzzyArtistMatchesQuery — typo-tolerant artist equality (quick-261024-cig)', () => {
+	it('matches a plural/singular difference (the live failure)', () => {
+		expect(
+			fuzzyArtistMatchesQuery('Cigarettes After Sex', ['cigarette', 'after', 'sex'])
+		).toBe(true);
+	});
+
+	it('matches a doubled-letter misspelling and a dropped-letter misspelling', () => {
+		expect(
+			fuzzyArtistMatchesQuery('Cigarettes After Sex', ['ciggarette', 'after', 'sex'])
+		).toBe(true);
+		expect(
+			fuzzyArtistMatchesQuery('Cigarettes After Sex', ['cigarete', 'after', 'sex'])
+		).toBe(true);
+	});
+
+	it('matches an adjacent transposition (misplaced letters)', () => {
+		expect(fuzzyArtistMatchesQuery('Beatles', ['beatels'])).toBe(true);
+		expect(damerauLevenshtein('beatels', 'beatles')).toBe(1);
+	});
+
+	it('matches through a spacing error (token counts differ)', () => {
+		expect(fuzzyArtistMatchesQuery('Cigarettes After Sex', ['cigarettesafter', 'sex'])).toBe(
+			true
+		);
+		expect(fuzzyArtistMatchesQuery('Cigarettes After Sex', ['cigarette', 'aftersex'])).toBe(
+			true
+		);
+	});
+
+	it('does NOT match when a short token differs (sex ≠ six)', () => {
+		expect(
+			fuzzyArtistMatchesQuery('Cigarettes After Six', ['cigarette', 'after', 'sex'])
+		).toBe(false);
+	});
+
+	it('does NOT match a different word order or an extra word', () => {
+		expect(fuzzyArtistMatchesQuery('After Sex Cigarette', ['cigarette', 'after', 'sex'])).toBe(
+			false
+		);
+		expect(fuzzyArtistMatchesQuery('Cigarettes After Sex Live', ['cigarette', 'after', 'sex'])).toBe(
+			false
+		);
+	});
+
+	it('does NOT fuzzy-match Han names (one different character can be a different artist)', () => {
+		expect(fuzzyArtistMatchesQuery('姜涛', ['姜濤'])).toBe(false);
+		expect(fuzzyArtistMatchesQuery('姜濤', ['姜濤'])).toBe(true);
+	});
+
+	it('ignores a trailing feat. credit on the candidate artist', () => {
+		expect(
+			fuzzyArtistMatchesQuery('Cigarettes After Sex feat. Someone', [
+				'cigarette',
+				'after',
+				'sex'
+			])
+		).toBe(true);
+	});
+});
+
+describe('scoreMatch — artist intent (quick-261024-cig)', () => {
+	// The exact rows from Hector's 2026-10-24 screenshot, searched with the SINGULAR
+	// "cigarette after sex": two impostor tracks TITLED with the query outranked every
+	// genuine Cigarettes After Sex song.
+	const QUERY = 'cigarette after sex';
+	const rows = [
+		mk('netease', 'imp1', 'Black Roses', { title: 'Cigarette After Sex' }),
+		mk('qq', 'imp2', 'ELISSAR BENJAMIN', { title: 'cigarette after sex' }),
+		mk('kuwo', 'real1', 'Cigarettes After Sex', { title: 'Keep on Loving You' }),
+		mk('netease', 'real2', 'Cigarettes After Sex', { title: 'Tejano Blue (Explicit)' }),
+		mk('joox', 'real3', 'Cigarettes After Sex', { title: 'Dreams From Bunker Hill' })
+	];
+	const q = { artist: QUERY, title: QUERY };
+
+	it('ranks every genuine artist track above both title-collision impostors', () => {
+		const ctx = computeSetContext(rows, QUERY);
+		const ranked = [...rows].sort((a, b) => scoreMatch(q, b, ctx) - scoreMatch(q, a, ctx));
+		expect(ranked.slice(0, 3).every((t) => t.artist === 'Cigarettes After Sex')).toBe(true);
+		expect(ranked.slice(3).every((t) => t.artist !== 'Cigarettes After Sex')).toBe(true);
+	});
+
+	it('the boost is exactly ARTIST_INTENT_BOOST over the same row without it', () => {
+		const ctx = computeSetContext(rows, QUERY);
+		const real = rows[2];
+		const stranger = mk('kuwo', 'x', 'Someone Else', { title: real.title });
+		expect(scoreMatch(q, real, ctx) - scoreMatch(q, stranger, ctx)).toBeGreaterThanOrEqual(
+			ARTIST_INTENT_BOOST - ARTIST_FREQ_BOOST // stranger lacks CAS's cross-source frequency too
+		);
+	});
+
+	it('still lifts the artist when the query itself is misspelled', () => {
+		const typo = 'ciggarette after sex';
+		const ctx = computeSetContext(rows, typo);
+		const tq = { artist: typo, title: typo };
+		const ranked = [...rows].sort((a, b) => scoreMatch(tq, b, ctx) - scoreMatch(tq, a, ctx));
+		expect(ranked[0].artist).toBe('Cigarettes After Sex');
+	});
+
+	it('does NOT engage without ctx (2-arg resolve path stays byte-identical)', () => {
+		const real = rows[2];
+		const impostor = rows[0];
+		// No ctx → no artist-intent term: the impostor keeps its old (higher) 2-arg score,
+		// which is exactly why the fix is gated on the search page's ctx.
+		expect(scoreMatch(q, impostor)).toBeGreaterThan(scoreMatch(q, real));
+	});
+
+	it('a pure title search is not hijacked by an unrelated same-named artist', () => {
+		// Query is a TITLE ("Keep on Loving You"); no candidate artist fuzzy-equals it, so
+		// the exact-title CAS track must win on the ordinary terms alone.
+		const title = 'Keep on Loving You';
+		const ctx = computeSetContext(rows, title);
+		const tq = { artist: title, title };
+		const ranked = [...rows].sort((a, b) => scoreMatch(tq, b, ctx) - scoreMatch(tq, a, ctx));
+		expect(ranked[0].title).toBe('Keep on Loving You');
 	});
 });
 
