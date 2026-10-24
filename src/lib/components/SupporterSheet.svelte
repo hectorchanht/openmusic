@@ -6,8 +6,9 @@
 	// The old /settings/sponsored page is FOLDED IN HERE — its two functions live as
 	// sections below the tip CTAs: "Already tipped?" (Gumroad license-key verify, the one
 	// REAL backend leg: POST /api/sponsored/verify) and the "Hide sponsored strip" toggle.
-	// The Ko-fi / GitHub CTAs are the tip rails and stay in the honest "coming soon"
-	// state until Hector pastes his real links (empty constants below = disabled).
+	// The Ko-fi / GitHub "coming soon" CTAs are GONE (2026-10-24, NO-EMPTY-ANCHORS
+	// standing rule: no dead/placeholder links ship). The one real tip rail is the
+	// Gumroad tip jar anchor below; Ko-fi/GitHub return only when real URLs exist.
 	//
 	// Follows the SleepTimerSheet precedent: mounted ONCE in (app)/+layout.svelte, driven by
 	// `support.sheetOpen`, opened from the Settings support card. Same dismiss convergence
@@ -19,14 +20,14 @@
 	import { untrack } from 'svelte';
 	import { onMount } from 'svelte';
 	import { fly } from 'svelte/transition';
-	import { Heart, Coffee, HeartHandshake, HandCoins, Copy, Check } from '@lucide/svelte';
+	import { Heart, HandCoins, Copy, Check } from '@lucide/svelte';
 	import { dragClose } from '$lib/actions/dragClose';
 	import { focusTrap } from '$lib/actions/focusTrap';
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { overlays } from '$lib/stores/overlays.svelte';
 	import { support } from '$lib/stores/support.svelte';
 	import { apiFetch } from '$lib/services/api-base';
-	import { SPONSORED_HIDE_KEY, SUPPORTER_KEY, TIP_LICENSE_KEY } from '$lib/config/sponsored';
+	import { SPONSORED_HIDE_KEY, SUPPORTER_KEY, TIP_LICENSE_KEY, TIP_JAR_URL } from '$lib/config/sponsored';
 	// quick-261023-perks: tier plumbing (badge + wall render from the stored tier).
 	import {
 		getSupporterTier,
@@ -37,12 +38,6 @@
 	import { track } from '$lib/posthog';
 	import { t } from '$lib/i18n';
 
-	// Donation destinations — Hector pastes his real links here; empty = "coming soon".
-	const KOFI_URL = '';
-	const GITHUB_SPONSORS_URL = '';
-	const kofiLive = KOFI_URL.length > 0;
-	const githubLive = GITHUB_SPONSORS_URL.length > 0;
-
 	// Tip-key verify state (ported verbatim from the old /settings/sponsored page).
 	let supporter = $state(false);
 	// quick-261023-perks: the stored tier (bronze until amounts are readable).
@@ -52,6 +47,14 @@
 	let verifying = $state(false);
 	let error = $state<string | null>(null);
 	let copied = $state(false);
+	// Supporters wall opt-in (2026-10-24): sent with the verify POST. Default
+	// OFF — nothing is published unless the tipper ticks the box AND gives a
+	// display name. `wallListed` mirrors the server's `wall: true` answer so
+	// the supporter card can confirm the listing right after verifying.
+	let wallOptIn = $state(false);
+	let wallName = $state('');
+	let wallMessage = $state('');
+	let wallListed = $state(false);
 
 	/** Refresh the verify-section state every time the sheet opens (the key can be
 	 *  verified on another device/session while the sheet stays mounted). */
@@ -67,6 +70,10 @@
 		verifying = false;
 		error = null;
 		copied = false;
+		wallOptIn = false;
+		wallName = '';
+		wallMessage = '';
+		wallListed = false;
 	}
 
 	onMount(() => support.load());
@@ -96,6 +103,12 @@
 	async function verify() {
 		const licenseKey = key.trim();
 		if (!licenseKey || verifying) return;
+		// Wall opt-in needs a name to publish — catch it locally instead of
+		// burning a verify round-trip on a listing that cannot be written.
+		if (wallOptIn && !wallName.trim()) {
+			error = 'Add a display name for the wall, or untick the wall option.';
+			return;
+		}
 		verifying = true;
 		error = null;
 		// quick-261010-posthog: supporter_status_changed fires only on an
@@ -106,9 +119,17 @@
 			const res = await apiFetch('/api/sponsored/verify', {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ license_key: licenseKey })
+				// public_wall is ALWAYS sent (true/false) so a re-verify can also
+				// REMOVE a listing (unticked = explicit opt-out server-side).
+				body: JSON.stringify({
+					license_key: licenseKey,
+					public_wall: wallOptIn,
+					...(wallOptIn
+						? { display_name: wallName.trim(), message: wallMessage.trim() }
+						: {})
+				})
 			});
-			const data = (await res.json()) as { ok?: boolean; reason?: string; admin?: boolean };
+			const data = (await res.json()) as { ok?: boolean; reason?: string; admin?: boolean; wall?: boolean };
 			if (data?.ok) {
 				try {
 					localStorage.setItem(SUPPORTER_KEY, '1');
@@ -124,6 +145,7 @@
 				const nt: SupporterTier = data?.admin ? 'gold' : 'bronze';
 				setSupporterTier(nt);
 				tier = nt;
+				wallListed = data?.wall === true;
 				supporter = true;
 				track('tip_verified', { success: true });
 				if (!wasSupporter) track('supporter_status_changed', { is_supporter: true });
@@ -202,28 +224,19 @@
 		<p class="tip-title">{t('support.tipTitle')}</p>
 		<p class="tip-note">{t('support.tipNote')}</p>
 
-		<div class="ctas">
-			{#if kofiLive}
-				<a class="cta" href={KOFI_URL} target="_blank" rel="noopener" use:tapBounce>
-					<Coffee size={18} /> {t('support.donateKofi')}
-				</a>
-			{:else}
-				<button class="cta soon" disabled>
-					<Coffee size={18} /> {t('support.donateKofi')}
-					<span class="soon-badge">{t('support.comingSoon')}</span>
-				</button>
-			{/if}
-			{#if githubLive}
-				<a class="cta" href={GITHUB_SPONSORS_URL} target="_blank" rel="noopener" use:tapBounce>
-					<HeartHandshake size={18} /> {t('support.sponsorGithub')}
-				</a>
-			{:else}
-				<button class="cta soon" disabled>
-					<HeartHandshake size={18} /> {t('support.sponsorGithub')}
-					<span class="soon-badge">{t('support.comingSoon')}</span>
-				</button>
-			{/if}
-		</div>
+		<!-- The one real tip rail: the Gumroad tip jar (same destination as the
+		     home strip's ☕ Tip jar). Ko-fi / GitHub Sponsors buttons were removed
+		     2026-10-24 — their URLs were empty "coming soon" placeholders. -->
+		<a
+			class="cta"
+			href={TIP_JAR_URL}
+			target="_blank"
+			rel="noopener"
+			use:tapBounce
+			onclick={() => track('tip_jar_opened', { location: 'supporter_sheet' })}
+		>
+			<HandCoins size={18} /> Tip on Gumroad
+		</a>
 
 		<!-- quick-261023-support: the old /settings/sponsored page, folded in. -->
 		<div class="verify-sect">
@@ -248,6 +261,11 @@
 						</button>
 					</div>
 					{#if copied}<p class="vcopied" role="status">Copied — paste it on another device or in another app.</p>{/if}
+					{#if wallListed}
+						<p class="vhint">☕ You're listed on the <a class="wall-link" href="/supporters">Supporters wall</a> — thank you!</p>
+					{:else}
+						<p class="vhint">See who's on the <a class="wall-link" href="/supporters">Supporters wall</a>.</p>
+					{/if}
 				</div>
 			{:else}
 				<div class="vcard">
@@ -272,6 +290,38 @@
 						</button>
 					</div>
 					{#if copied}<p class="vcopied" role="status">Copied.</p>{/if}
+					<!-- Supporters wall opt-in (2026-10-24): OFF by default; the name
+					     and message are published on /supporters only when ticked. -->
+					<label class="switch wallchk">
+						<input type="checkbox" bind:checked={wallOptIn} disabled={verifying} />
+						<span class="track"><span class="thumb"></span></span>
+						<span class="switch-label">Add my name to the public Supporters wall</span>
+					</label>
+					{#if wallOptIn}
+						<label class="vlbl" for="sheet-wall-name">Display name</label>
+						<input
+							id="sheet-wall-name"
+							class="vtxt"
+							type="text"
+							bind:value={wallName}
+							maxlength={40}
+							placeholder="How your name appears on the wall"
+							autocomplete="off"
+							disabled={verifying}
+						/>
+						<label class="vlbl wallmsg-lbl" for="sheet-wall-msg">Message <span class="opt">(optional)</span></label>
+						<input
+							id="sheet-wall-msg"
+							class="vtxt"
+							type="text"
+							bind:value={wallMessage}
+							maxlength={80}
+							placeholder="One short line — thanks, a favourite song, anything kind"
+							autocomplete="off"
+							disabled={verifying}
+						/>
+						<p class="vhint">Only your display name and message are shown — never your key or email. Untick and verify again anytime to remove your listing.</p>
+					{/if}
 					{#if error}
 						<p class="verr" role="alert">{error}</p>
 					{/if}
@@ -296,6 +346,7 @@
 			{:else}
 				<p class="wall-hint">{t('support.wallJoin')}</p>
 			{/if}
+			<p class="wall-hint"><a class="wall-link" href="/supporters">See the public Supporters wall →</a></p>
 		</div>
 	</div>
 {/if}
@@ -309,10 +360,13 @@
 	.body { margin: 8px 4px 0; font-size: 0.875rem; color: var(--color-text-muted); line-height: 1.5; }
 	.tip-title { margin: 16px 4px 0; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--color-text-muted); }
 	.tip-note { margin: 6px 4px 0; font-size: 0.8125rem; color: var(--color-text-muted); }
-	.ctas { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
-	.cta { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; padding: 13px; border-radius: 12px; font-size: 0.9375rem; font-weight: 700; background: var(--color-primary); color: #fff; text-decoration: none; border: none; cursor: pointer; }
-	.cta.soon { background: var(--color-surface); color: var(--color-text-muted); cursor: default; opacity: 0.85; }
-	.soon-badge { font-size: 0.6875rem; font-weight: 700; background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: var(--radius-full); padding: 2px 8px; }
+	.cta { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; margin-top: 12px; padding: 13px; border-radius: 12px; font-size: 0.9375rem; font-weight: 700; background: var(--color-primary); color: #fff; text-decoration: none; border: none; cursor: pointer; box-sizing: border-box; }
+	/* Supporters wall opt-in (2026-10-24). */
+	.wallchk { margin-top: 12px; }
+	.wallchk .switch-label { font-size: 0.875rem; }
+	.wallmsg-lbl { margin-top: 12px; }
+	.vlbl .opt { text-transform: none; letter-spacing: 0; font-weight: 400; }
+	.wall-link { color: var(--color-primary); font-weight: 700; text-decoration: none; }
 	/* Verify section (ported from the old /settings/sponsored page). */
 	.verify-sect { margin-top: 16px; }
 	.vcard { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 12px; padding: 14px; }

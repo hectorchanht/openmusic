@@ -33,6 +33,14 @@ declare global {
 				// d1_databases. Absent ⇒ the auth routes answer logged-out / 503,
 				// never a throw. Mirror of `Env` in $lib/proxy/proxy-types.ts.
 				ACCOUNTS_DB?: D1Database;
+				// SUPPORTERS WALL (2026-10-24): public opt-in wall store — D1 binding
+				// `openmusic-supporters`, wired in wrangler.jsonc d1_databases. Holds
+				// ONLY what a verified tipper chose to publish (display name + short
+				// message), keyed by the SHA-256 of their license key — no raw keys,
+				// no emails, deliberately separate from ACCOUNTS_DB (PII) and
+				// ANALYTICS_DB (anonymous). Absent ⇒ verify still works, the wall
+				// reads empty. Mirror of `Env` in $lib/proxy/proxy-types.ts.
+				SUPPORTERS_DB?: D1Database;
 				// Resend API key for the magic-link email. Server-side only —
 				// `wrangler pages secret put RESEND_API_KEY`, never on the client
 				// bundle (threat parity with JOOX_TOKEN / T-01-04). Absent ⇒ the

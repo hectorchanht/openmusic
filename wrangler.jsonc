@@ -53,6 +53,18 @@
 			"binding": "ACCOUNTS_DB",
 			"database_name": "openmusic-accounts",
 			"database_id": "16b53d6d-5ec1-46b9-97ec-69671b5f42fe"
+		},
+		// SUPPORTERS WALL (2026-10-24): public opt-in wall store. Holds ONLY what a
+		// verified tipper chose to publish (display name + a short message), keyed by
+		// the SHA-256 of their license key — the raw key and any email are NEVER
+		// stored, so this is deliberately a SEPARATE database from both the PII
+		// openmusic-accounts and the anonymous openmusic-analytics. Written by
+		// POST /api/sponsored/verify (only on an explicit public_wall opt-in) and
+		// read by GET /api/sponsored/supporters.
+		{
+			"binding": "SUPPORTERS_DB",
+			"database_name": "openmusic-supporters",
+			"database_id": "ee3b5e33-65af-4aae-852c-1c5423728096"
 		}
 	],
 	// WORKERS AI (quick-261020-wai): translation backend for /api/translate (m2m100-1.2b).

@@ -71,6 +71,14 @@ export interface Env {
 	// tests is a SUPPORTED state: the /api/auth/* routes answer logged-out and
 	// /api/me/sync answers 503 rather than throwing.
 	ACCOUNTS_DB?: D1Database;
+	// SUPPORTERS WALL (2026-10-24): D1 binding for the public opt-in supporters
+	// wall — database `openmusic-supporters` (see wrangler.jsonc). Holds ONLY
+	// what a verified tipper chose to publish (display name + short message),
+	// keyed by the SHA-256 of their license key — no raw keys, no emails, so it
+	// is deliberately separate from both the PII ACCOUNTS_DB and the anonymous
+	// ANALYTICS_DB. ABSENT under `vite dev` and in unit tests is a SUPPORTED
+	// state: verify skips the wall write and the wall endpoint answers empty.
+	SUPPORTERS_DB?: D1Database;
 	// quick-261020-acct: Resend API key the /api/auth/magic-link route sends the sign-in
 	// email with. Server-side only — set via `wrangler pages secret put RESEND_API_KEY`,
 	// NEVER echoed to the client (same threat class as JOOX_TOKEN). Absent ⇒ the route

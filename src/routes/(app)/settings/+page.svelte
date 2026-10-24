@@ -141,6 +141,10 @@
 	<ChevronRight size={18} class="sc-chev" />
 </button>
 
+<!-- Supporters wall (2026-10-24): one quiet real link under the support card —
+     the public /supporters page (opt-in names from verified tippers). -->
+<a class="wall-row" href="/supporters" use:tapBounce>See the Supporters wall →</a>
+
 <ul class="groups">
 	{#each groups as g (g.href)}
 		<li>
@@ -152,6 +156,8 @@
 </ul>
 
 <style>
+	/* Supporters wall link (2026-10-24): quiet, centered, under the support card. */
+	.wall-row { display: block; text-align: center; margin: 8px 0 2px; font-size: 0.8125rem; font-weight: 600; color: var(--color-text-muted); text-decoration: none; }
 	/* quick-260919-ebi: the row CSS (.item/.txt/.g-title/.g-desc/.chev) moved into SettingRow.svelte;
 	   SettingRow owns its own 8px bottom margin, so the list gap is gone. */
 	.groups { list-style: none; margin: 8px 0 0; padding: 0; }
