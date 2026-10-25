@@ -4,7 +4,7 @@
 	import { fly, fade } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
 	import { goto } from '$app/navigation';
-	import { ChevronDown, MoreVertical, Heart, Clapperboard, SkipBack, SkipForward, Play, Pause, Moon, ListMusic, MicVocal, MessageCircle, Sparkles, VolumeX, Volume1, Volume2 } from '@lucide/svelte';
+	import { ChevronDown, MoreVertical, Heart, Clapperboard, Info, SkipBack, SkipForward, Play, Pause, Moon, ListMusic, MicVocal, MessageCircle, Sparkles, VolumeX, Volume1, Volume2 } from '@lucide/svelte';
 	import { player, fmtTime } from '$lib/stores/player.svelte';
 	import { sleepTimer } from '$lib/stores/sleepTimer.svelte';
 	import { settings } from '$lib/stores/settings.svelte';
@@ -42,6 +42,7 @@
 	import { marquee } from '$lib/actions/marquee';
 	import { coverSwipe } from '$lib/actions/coverSwipe';
 import VideoStage from '$lib/components/VideoStage.svelte';
+import NpAbout from '$lib/components/NpAbout.svelte';
 	import { scrub } from '$lib/actions/scrub';
 	import { seekTargetFraction, SEEK_STEP_SECONDS } from '$lib/services/transport-keys';
 	import { tapBounce } from '$lib/actions/tapBounce';
@@ -74,7 +75,7 @@ import VideoStage from '$lib/components/VideoStage.svelte';
 	// >=1280px, where the column is mounted while sheetState stays 'closed'.
 	import { upNextPaneOpen } from '$lib/services/upnext-scroll';
 
-	type Tab = 'queue' | 'lyrics' | 'comments' | 'related';
+	type Tab = 'queue' | 'lyrics' | 'comments' | 'related' | 'about';
 	let tab = $state<Tab>('lyrics');
 	// quick-260926-qat: PLAIN field (nothing renders it). Snapshot at mount so a request raised while
 	// this component was unmounted (menu opened from the Nowbar / a list row) is not replayed on the
@@ -322,6 +323,9 @@ import VideoStage from '$lib/components/VideoStage.svelte';
 	// the cover strip while on. Offered only for ytmusic tracks with videos enabled.
 	let videoOn = $state(false);
 	const canVideo = $derived(settings.videoEnabled && player.current?.source === 'ytmusic');
+	// quick-261024-about: the About tab exists only for ytmusic tracks (it shows the
+	// video's YouTube description — other sources have no such thing to show).
+	const canAbout = $derived(player.current?.source === 'ytmusic');
 
 	// quick-260704-20e: self-heal a DEAD current cover — the counterpart to the neighbor cells'
 	// use:lazyCover. resolvedCover is seeded FIRST from track.cover (a source-CDN thumbnail that
@@ -1308,7 +1312,10 @@ import VideoStage from '$lib/components/VideoStage.svelte';
 				<button aria-hidden="true" tabindex="-1" title={t('nowplaying.lyrics')}><MicVocal size={20} /></button>
 				<span class="pair">
 					<button data-tab="comments" aria-label={t('nowplaying.comments')} title={t('nowplaying.comments')} class:active={tab === 'comments'} onclick={() => selectTab('comments')} use:tapBounce><MessageCircle size={20} />{#if commentBadge}<span class="count">{commentBadge}</span>{/if}</button>
-					<button data-tab="related" aria-label={t('nowplaying.related')} title={t('nowplaying.related')} class:active={tab !== 'comments'} onclick={() => selectTab('related')} use:tapBounce><Sparkles size={20} /></button>
+					<button data-tab="related" aria-label={t('nowplaying.related')} title={t('nowplaying.related')} class:active={tab !== 'comments' && tab !== 'about'} onclick={() => selectTab('related')} use:tapBounce><Sparkles size={20} /></button>
+					{#if canAbout}
+						<button data-tab="about" aria-label={t('nowplaying.about')} title={t('nowplaying.about')} class:active={tab === 'about'} onclick={() => selectTab('about')} use:tapBounce><Info size={20} /></button>
+					{/if}
 				</span>
 			</div>
 		{:else}
@@ -1318,6 +1325,9 @@ import VideoStage from '$lib/components/VideoStage.svelte';
 				<button data-tab="lyrics" aria-label={t('nowplaying.lyrics')} title={t('nowplaying.lyrics')} class:active={tab === 'lyrics'} onclick={() => selectTab('lyrics')} use:tapBounce><MicVocal size={20} /></button>
 				<button data-tab="comments" aria-label={t('nowplaying.comments')} title={t('nowplaying.comments')} class:active={tab === 'comments'} onclick={() => selectTab('comments')} use:tapBounce><MessageCircle size={20} />{#if commentBadge}<span class="count">{commentBadge}</span>{/if}</button>
 				<button data-tab="related" aria-label={t('nowplaying.related')} title={t('nowplaying.related')} class:active={tab === 'related'} onclick={() => selectTab('related')} use:tapBounce><Sparkles size={20} /></button>
+				{#if canAbout}
+					<button data-tab="about" aria-label={t('nowplaying.about')} title={t('nowplaying.about')} class:active={tab === 'about'} onclick={() => selectTab('about')} use:tapBounce><Info size={20} /></button>
+				{/if}
 			</nav>
 		{/if}
 
@@ -1349,6 +1359,9 @@ import VideoStage from '$lib/components/VideoStage.svelte';
 		{#snippet commentsPane()}
 			<NpComments />
 		{/snippet}
+		{#snippet aboutPane()}
+			<NpAbout />
+		{/snippet}
 
 		{#if wide}
 			<!-- >=1280px: Up Next | Lyrics | Related, all three at once. `grid-template-columns:
@@ -1363,13 +1376,14 @@ import VideoStage from '$lib/components/VideoStage.svelte';
 				<div class="panel">{@render lyricsPane()}</div>
 				<!-- quick-260926-nsz: toggling unmounts NpRelated (one searchAll on toggle-back, the
 				     same cost as switching tabs on a phone — accepted). -->
-				<div class="panel">{#if tab === 'comments'}{@render commentsPane()}{:else}{@render relatedPane()}{/if}</div>
+				<div class="panel">{#if tab === 'comments'}{@render commentsPane()}{:else if tab === 'about' && canAbout}{@render aboutPane()}{:else}{@render relatedPane()}{/if}</div>
 			</div>
 		{:else}
 			<div class="panel">
 				{#if tab === 'queue'}{@render upNextPane()}
 				{:else if tab === 'lyrics'}{@render lyricsPane()}
 				{:else if tab === 'comments'}{@render commentsPane()}
+				{:else if tab === 'about' && canAbout}{@render aboutPane()}
 				{:else}{@render relatedPane()}{/if}
 			</div>
 		{/if}
