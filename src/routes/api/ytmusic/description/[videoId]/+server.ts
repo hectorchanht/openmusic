@@ -33,7 +33,15 @@ export const GET: RequestHandler = async ({ params, request, url }) => {
 		}
 	}
 
-	const json = await callPlayerGated(videoId);
+	// quick-261024-about2: a tab open is a rare, user-initiated call — when the gate is
+	// hot, ONE extra resolve round after a beat doubles the decorrelation window for a
+	// few extra player calls (the first live check drew three gated answers in a row
+	// from a cold PoP before one landed). Streams could never afford this; a tab can.
+	let json = await callPlayerGated(videoId);
+	if (!isPlayable(json)) {
+		await new Promise((r) => setTimeout(r, 600));
+		json = await callPlayerGated(videoId);
+	}
 	if (!isPlayable(json)) {
 		const info = playabilityInfo(json);
 		const headers: Record<string, string> = { ...corsHeaders(origin) };

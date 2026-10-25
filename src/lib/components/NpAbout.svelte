@@ -28,9 +28,22 @@
 		forId = id;
 		result = null;
 		const ctrl = new AbortController();
-		void fetchDescription(id, ctrl.signal).then((r) => {
-			if (forId === id) result = r;
-		});
+		// quick-261024-about2: the edge 503s while YouTube's gate is hot, and bursts run
+		// for tens of seconds — auto-retry twice with backoff before settling into the
+		// error state (the manual Retry stays for after that).
+		void (async () => {
+			const delays = [1500, 4000];
+			for (let i = 0; ; i++) {
+				const r = await fetchDescription(id, ctrl.signal);
+				if (ctrl.signal.aborted) return;
+				if (r.kind !== 'error' || i >= delays.length) {
+					if (forId === id) result = r;
+					return;
+				}
+				await new Promise((res) => setTimeout(res, delays[i]));
+				if (ctrl.signal.aborted) return;
+			}
+		})();
 		return () => ctrl.abort();
 	});
 </script>
