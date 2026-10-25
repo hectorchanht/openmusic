@@ -167,7 +167,7 @@ class Settings {
 	upnextMode = $state<UpnextMode>(UPNEXT_DEFAULTS.mode);
 	/** Per-context up-next sourcing overrides (D-01). Absent key → falls back to `upnextMode`.
 	 *  Persisted (load/save) with a defensive parse mirroring `enabledSources`.
-	 *  quick-260831-jtw: seeded from UPNEXT_DEFAULTS.perContext (album + artist → 'same-list'
+	 *  quick-260831-jtw: seeded from UPNEXT_DEFAULTS.perContext (album + artist + ranked packs → 'same-list'
 	 *  since quick-261024-sets) instead of
 	 *  the old bare `{}`, so a fresh install and a post-`resetPlayback()` install agree. WR-10:
 	 *  the literal still lives only in defaults.ts. */
@@ -348,7 +348,7 @@ class Settings {
 				// enabledSources (T-17-01 — malformed → safe defaults); mode validated against the
 				// 2-value union, else the global default.
 				// quick-260831-jtw: MERGE over UPNEXT_DEFAULTS.perContext rather than replacing it,
-				// so an absent key (or a malformed blob) picks up the album/artist → 'same-list' default
+				// so an absent key (or a malformed blob) picks up the album/artist/pack → 'same-list' default
 				// instead of silently falling through to the global 'generated'.
 				// DECISION (quick-260831-jtw) — a persisted per-context value WINS; there is NO
 				// migration. A key can only be in here because the user tapped that segment in

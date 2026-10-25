@@ -76,13 +76,13 @@ describe('settings.effectiveUpnextMode (Phase 17 QUEUE-03)', () => {
 		expect(settings.effectiveUpnextMode('remix')).toBe('generated');
 	});
 
-	it("resetPlayback() restores upnextPerContext to the default perContext (album + artist → 'same-list') and upnextMode to generated", () => {
+	it("resetPlayback() restores upnextPerContext to the default perContext (album + artist + packs → 'same-list') and upnextMode to generated", () => {
 		settings.upnextMode = 'same-list';
 		settings.upnextPerContext = { liked: 'same-list', search: 'same-list' };
 		settings.resetPlayback();
-		// resetPlayback spreads DEFAULTS.upnext.perContext. quick-261024-sets: album AND artist
-		// are the same-list defaults (Hector's app-wide rule; supersedes quick-260831-jtw).
-		expect(settings.upnextPerContext).toEqual({ album: 'same-list', artist: 'same-list' });
+		// resetPlayback spreads DEFAULTS.upnext.perContext. quick-261024-sets + sets3: album,
+		// artist AND the ranked packs are the same-list defaults (Hector's app-wide rule).
+		expect(settings.upnextPerContext).toEqual({ album: 'same-list', artist: 'same-list', 'cantopop-2026': 'same-list', 'mandopop-2026': 'same-list', 'kpop-2026': 'same-list', 'jpop-2026': 'same-list', 'western-2026': 'same-list', 'songs-of-year': 'same-list' });
 		expect(settings.upnextMode).toBe('generated');
 	});
 
@@ -107,25 +107,26 @@ describe('settings.effectiveUpnextMode (Phase 17 QUEUE-03)', () => {
 // quick-260831-jtw — UPNEXT_DEFAULTS.perContext is the ACTUAL seed for upnextPerContext
 // (init + load merge), not just what resetPlayback() spreads, so a fresh install and a
 // post-reset install agree. quick-261024-sets (Hector): the same-list defaults are album
-// AND artist — every other context seeds from the tapped song.
-describe('settings.upnextPerContext seeded default (quick-260831-jtw, quick-261024-sets)', () => {
+// AND artist; quick-261024-sets3 adds the ranked pack pages (tap #4 → next is #5). Every
+// other context seeds from the tapped song.
+describe('settings.upnextPerContext seeded default (quick-260831-jtw, quick-261024-sets3)', () => {
 	beforeEach(() => {
 		settings.upnextMode = UPNEXT_DEFAULTS.mode;
 		settings.upnextPerContext = { ...UPNEXT_DEFAULTS.perContext };
 	});
 
-	it('the default perContext pins album + artist — nothing else', () => {
-		expect(UPNEXT_DEFAULTS.perContext).toEqual({ album: 'same-list', artist: 'same-list' });
+	it('the default perContext pins album + artist + the six ranked pack contexts — nothing else', () => {
+		expect(UPNEXT_DEFAULTS.perContext).toEqual({ album: 'same-list', artist: 'same-list', 'cantopop-2026': 'same-list', 'mandopop-2026': 'same-list', 'kpop-2026': 'same-list', 'jpop-2026': 'same-list', 'western-2026': 'same-list', 'songs-of-year': 'same-list' });
 	});
 
-	it.each(['album', 'artist'] as const)(
+	it.each(['album', 'artist', 'cantopop-2026', 'mandopop-2026', 'kpop-2026', 'jpop-2026', 'western-2026', 'songs-of-year'] as const)(
 		"'%s' keeps its own list ('same-list') under the seeded default",
 		(ctx) => {
 			expect(settings.effectiveUpnextMode(ctx)).toBe('same-list');
 		}
 	);
 
-	it.each(['search', 'liked', 'downloads', 'playlist', 'home-discovery', 'history', 'cantopop-2026', 'songs-of-year'] as const)(
+	it.each(['search', 'liked', 'downloads', 'playlist', 'home-discovery', 'history'] as const)(
 		"'%s' generates similar songs under the seeded default",
 		(ctx) => {
 			expect(settings.effectiveUpnextMode(ctx)).toBe('generated');
@@ -141,16 +142,18 @@ describe('settings.upnextPerContext seeded default (quick-260831-jtw, quick-2610
 			: {})
 	});
 
-	it('an absent persisted map still yields the album+artist defaults (merge, not replace)', () => {
+	it('an absent persisted map still yields the album+artist+pack defaults (merge, not replace)', () => {
 		settings.upnextPerContext = mergeLikeLoad(undefined);
-		expect(settings.upnextPerContext).toEqual({ album: 'same-list', artist: 'same-list' });
+		expect(settings.upnextPerContext).toEqual({ album: 'same-list', artist: 'same-list', 'cantopop-2026': 'same-list', 'mandopop-2026': 'same-list', 'kpop-2026': 'same-list', 'jpop-2026': 'same-list', 'western-2026': 'same-list', 'songs-of-year': 'same-list' });
 		expect(settings.effectiveUpnextMode('album')).toBe('same-list');
 		expect(settings.effectiveUpnextMode('artist')).toBe('same-list');
+		expect(settings.effectiveUpnextMode('cantopop-2026')).toBe('same-list'); // sets3 pack pin
+		expect(settings.effectiveUpnextMode('songs-of-year')).toBe('same-list');
 	});
 
-	it('a malformed (array) persisted map still yields the album+artist defaults', () => {
+	it('a malformed (array) persisted map still yields the album+artist+pack defaults', () => {
 		settings.upnextPerContext = mergeLikeLoad([]);
-		expect(settings.upnextPerContext).toEqual({ album: 'same-list', artist: 'same-list' });
+		expect(settings.upnextPerContext).toEqual({ album: 'same-list', artist: 'same-list', 'cantopop-2026': 'same-list', 'mandopop-2026': 'same-list', 'kpop-2026': 'same-list', 'jpop-2026': 'same-list', 'western-2026': 'same-list', 'songs-of-year': 'same-list' });
 	});
 
 	it('a persisted key WINS over the default — no migration (T2 decision)', () => {

@@ -677,7 +677,7 @@ const zhHant: Dict = {
 	"settings.upnextSourcing": "接下來播放的來源",
 	"settings.upnextSameList": "同一清單",
 	"settings.upnextGenerated": "依曲風生成",
-	"settings.upnextSourcingDesc": "「同一清單」會繼續播放你點嗰首歌所屬清單嘅其餘歌曲；「依曲風生成」會以你點嗰首歌為種子，由相似歌曲開始生成接下來嘅清單。專輯同歌手頁預設用「同一清單」，其他頁面預設用「依曲風生成」。",
+	"settings.upnextSourcingDesc": "「同一清單」會繼續播放你點嗰首歌所屬清單嘅其餘歌曲；「依曲風生成」會以你點嗰首歌為種子，由相似歌曲開始生成接下來嘅清單。專輯、歌手同排行榜精選頁預設用「同一清單」，其他頁面預設用「依曲風生成」。",
 	"settings.ctxSearch": "搜尋",
 	"settings.ctxAlbum": "專輯",
 	"settings.ctxArtist": "歌手",
