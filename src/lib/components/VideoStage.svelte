@@ -11,7 +11,7 @@
 	import { settings } from '$lib/stores/settings.svelte';
 	import { VIDEO_QUALITIES, type VideoQuality } from '$lib/config/defaults';
 	import { t } from '$lib/i18n';
-	import { VideoFeeder, type VideoStageError } from '$lib/services/video-stage';
+	import { VideoFeeder, syncDecision, type VideoStageError } from '$lib/services/video-stage';
 	import { videoAvailability } from '$lib/services/video-availability.svelte';
 
 	let { videoId, onclose }: { videoId: string; onclose: () => void } = $props();
@@ -20,6 +20,7 @@
 	let videoEl = $state<HTMLVideoElement | null>(null);
 	let err = $state<VideoStageError | null>(null);
 	let height = $state(0);
+	let waiting = $state(false);
 	let qualityOpen = $state(false);
 	let scrubbing = $state(false);
 	let scrubValue = $state(0);
@@ -58,20 +59,36 @@
 		if (videoEl) startFeed();
 	});
 
-	// Mirror the master: transport + position (drift > 0.35 s snaps back), 4×/s.
+	// Mirror the master, 4×/s, via the pure syncDecision (quick-261024-vid2): NEVER seek
+	// into unbuffered time (the first live check froze exactly that way — a mid-song open
+	// snapped into the void every tick and the element never played). While the playhead
+	// is ahead of the feed the picture waits; once the buffer covers it, one snap lands
+	// and small drifts are absorbed by a rate nudge instead of repeated seeks.
 	$effect(() => {
 		const tick = setInterval(() => {
 			const v = videoEl;
 			if (!v || err) return;
-			if (player.playing && v.paused && v.readyState >= 2) void v.play().catch(() => {});
-			if (!player.playing && !v.paused) v.pause();
-			if (v.readyState >= 1 && Math.abs(v.currentTime - player.currentTime) > 0.35) {
+			const d = syncDecision({
+				masterTime: player.currentTime,
+				videoTime: v.currentTime,
+				bufferedEnd: feeder?.bufferedEnd() ?? 0,
+				masterPlaying: player.playing
+			});
+			waiting = d.action === 'wait';
+			if (d.action === 'pause' || d.action === 'wait') {
+				if (!v.paused) v.pause();
+				v.playbackRate = 1;
+				return;
+			}
+			if (d.action === 'snap') {
 				try {
 					v.currentTime = player.currentTime;
 				} catch {
 					// not seekable yet — the next tick retries
 				}
 			}
+			v.playbackRate = d.rate;
+			if (v.paused && v.readyState >= 2) void v.play().catch(() => {});
 		}, 250);
 		return () => clearInterval(tick);
 	});
@@ -87,6 +104,12 @@
 
 	async function goFullscreen() {
 		try {
+			// quick-261024-vid2: the button is a TOGGLE — in fullscreen it must exit (the
+			// first live check found tapping it again did nothing).
+			if (document.fullscreenElement) {
+				await document.exitFullscreen();
+				return;
+			}
 			await stageEl?.requestFullscreen();
 			const o = screen.orientation as unknown as { lock?: (x: string) => Promise<void> };
 			await o.lock?.('landscape').catch(() => {});
@@ -127,6 +150,8 @@
 		</div>
 	{:else if height === 0}
 		<div class="v-loading" aria-hidden="true">{t('video.loading')}</div>
+	{:else if waiting}
+		<div class="v-waiting" aria-hidden="true">{t('video.loading')}</div>
 	{/if}
 
 	<div class="v-bar">
@@ -177,6 +202,7 @@
 	.vstage video { width: 100%; height: 100%; object-fit: contain; display: block; }
 	.vstage:fullscreen { border-radius: 0; }
 	.v-loading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #cfcfe0; font-size: 13px; background: rgba(0,0,0,0.35); }
+	.v-waiting { position: absolute; top: 10px; left: 10px; padding: 4px 10px; border-radius: 999px; color: #cfcfe0; font-size: 12px; background: rgba(0,0,0,0.55); }
 	.v-err { position: absolute; inset: 0; display: flex; flex-direction: column; gap: 10px; align-items: center; justify-content: center; text-align: center; padding: 16px; color: #f0eefc; background: rgba(8,6,18,0.82); font-size: 13px; }
 	.v-err p { margin: 0; max-width: 34ch; }
 	.v-err-btns { display: flex; gap: 8px; }

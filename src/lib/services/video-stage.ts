@@ -18,6 +18,34 @@ export interface VideoStageError {
 }
 
 const CHUNK_BYTES = 1024 * 1024;
+
+/**
+ * quick-261024-vid2 — the follower's sync decision, pure for testability. The first live
+ * verification froze the picture: the naive loop snapped `video.currentTime` to the
+ * master every 250 ms even when the target sat OUTSIDE the buffered range (a mid-song
+ * open), so the element seeked into the void forever and never played. Rules now:
+ *  - target ahead of the buffer → 'wait' (never seek into unbuffered time; the feed
+ *    catches up at network speed and a later tick snaps);
+ *  - drift > 0.35 s inside the buffer → 'snap';
+ *  - small drift → keep playing with a rate nudge (1.12 / 0.88) instead of a hard seek;
+ *  - master paused → 'pause'.
+ */
+export type SyncAction = 'snap' | 'play' | 'pause' | 'wait';
+export function syncDecision(input: {
+	masterTime: number;
+	videoTime: number;
+	bufferedEnd: number;
+	masterPlaying: boolean;
+}): { action: SyncAction; rate: number } {
+	const { masterTime, videoTime, bufferedEnd, masterPlaying } = input;
+	if (!masterPlaying) return { action: 'pause', rate: 1 };
+	if (masterTime > bufferedEnd - 0.25) return { action: 'wait', rate: 1 };
+	const drift = masterTime - videoTime;
+	if (Math.abs(drift) > 0.35) return { action: 'snap', rate: 1 };
+	if (drift > 0.12) return { action: 'play', rate: 1.12 };
+	if (drift < -0.12) return { action: 'play', rate: 0.88 };
+	return { action: 'play', rate: 1 };
+}
 const AHEAD_TARGET_S = 30;
 const PUMP_MS = 1000;
 
@@ -97,8 +125,12 @@ export class VideoFeeder {
 		});
 		if (this.stopped) return;
 		this.sb = this.ms.addSourceBuffer(this.mime);
-		await this.append(await first.arrayBuffer());
-		this.nextOffset = range ? range.end + 1 : 0;
+		const firstBuf = await first.arrayBuffer();
+		await this.append(firstBuf);
+		// A range-honouring answer says where we are; a range-IGNORED 200 hands back the
+		// whole file at once — then the appended byte count IS the position (and the total).
+		this.nextOffset = range ? range.end + 1 : firstBuf.byteLength;
+		if (range === null) this.total = firstBuf.byteLength;
 		if (this.total !== null && this.nextOffset >= this.total) return; // whole file already in
 		this.pump = setInterval(() => void this.topUp(), PUMP_MS);
 		void this.topUp();
@@ -127,7 +159,8 @@ export class VideoFeeder {
 		});
 	}
 
-	private bufferedEnd(): number {
+	/** End of the buffered range (the feed is forward-only from 0, so it starts at 0). */
+	bufferedEnd(): number {
 		try {
 			const b = this.video.buffered;
 			return b.length > 0 ? b.end(b.length - 1) : 0;
@@ -172,6 +205,15 @@ export class VideoFeeder {
 				return;
 			}
 			const range = parseContentRange(res.headers.get('content-range'));
+			// Alignment is the feed's integrity: a 200 mid-feed (range ignored → the whole
+			// file again) or a range starting anywhere but nextOffset would append bytes
+			// at the wrong position and corrupt the stream (a frozen frame + a dead media
+			// element is exactly what that looks like). Refuse and surface instead.
+			if ((res.status === 200 && this.nextOffset > 0) || (range !== null && range.start !== this.nextOffset)) {
+				this.cb.onError({ kind: 'network' });
+				this.stop();
+				return;
+			}
 			const buf = await res.arrayBuffer();
 			if (this.stopped) return;
 			await this.append(buf);
