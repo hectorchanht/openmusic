@@ -5,6 +5,7 @@ import {
 	resolveNameStub,
 	lyricByName,
 	collectLyricCandidates,
+	__clearLyricCandidatesCache,
 	__clearSearchCache,
 	evictSearch,
 	SEARCH_STAGGER_MS,
@@ -74,6 +75,9 @@ afterEach(() => {
 	// Clear the D-04 TTL cache so the fan-out spy tests never observe a stale
 	// cached SearchResult from a prior case (they all reuse the keyword 'x', page 1).
 	__clearSearchCache();
+	// quick-261021-cache1: collectLyricCandidates memoizes by artist|title across calls —
+	// reset it too, or one case's candidates leak into every later case reusing a fixture name.
+	__clearLyricCandidatesCache();
 	vi.restoreAllMocks();
 	// 31-D-08: back to a cache MISS for the next case (restoreAllMocks does not reset a vi.fn).
 	readResolveCache.mockReset();
@@ -159,21 +163,21 @@ describe('searchAll (DATA-03 fan-out)', () => {
 		expect(interleaved.map((t) => t.uid)).toEqual(['netease:dup', 'netease:other']);
 	});
 
-	it('interleaves round-robin in registry order (qq→netease→kuwo→joox)', async () => {
+	it('interleaves round-robin in registry order (qq→joox→netease→kuwo)', async () => {
 		vi.spyOn(SOURCES.netease, 'search').mockResolvedValue([mk('netease', 'n1'), mk('netease', 'n2')]);
 		vi.spyOn(SOURCES.qq, 'search').mockResolvedValue([mk('qq', 'q1')]);
 		vi.spyOn(SOURCES.kuwo, 'search').mockResolvedValue([mk('kuwo', 'k1')]);
 		vi.spyOn(SOURCES.joox, 'search').mockResolvedValue([mk('joox', 'j1')]);
 
-		// interleave inherits the registry order. debug/upnext-diverse-fallback-kuwo-dead
-		// (2026-08-31) demoted kuwo from the Phase-26 first seat to #3 (dead upstream: expired
-		// TLS cert → 526 on every call), so the floor is now qq→netease→kuwo→joox.
+		// interleave inherits the registry order (Object.keys(SOURCES)). History: Phase-26
+		// qq-first; 2026-08-31 kuwo demoted (dead upstream); the registry literal has since
+		// settled at qq → joox → netease → … → kuwo among these four tested sources.
 		const { interleaved } = await searchAll('x', 1, ALL);
 		expect(interleaved.map((t) => t.uid)).toEqual([
 			'qq:q1',
+			'joox:j1',
 			'netease:n1',
 			'kuwo:k1',
-			'joox:j1',
 			'netease:n2'
 		]);
 	});
@@ -244,9 +248,10 @@ describe('searchAll (D-04 TTL cache)', () => {
 		const ac = new AbortController();
 		const n = vi.spyOn(SOURCES.netease, 'search').mockResolvedValue([mk('netease', 'n1')]);
 		vi.spyOn(SOURCES.qq, 'search').mockResolvedValue([]);
-		vi.spyOn(SOURCES.kuwo, 'search').mockResolvedValue([]);
-		// joox is last in the stagger, so every other adapter has already run when it aborts.
-		vi.spyOn(SOURCES.joox, 'search')
+		vi.spyOn(SOURCES.joox, 'search').mockResolvedValue([]);
+		// kuwo is last in the stagger (registry order qq → joox → netease → kuwo), so every
+		// other adapter has already run when it aborts.
+		vi.spyOn(SOURCES.kuwo, 'search')
 			.mockImplementationOnce(async () => {
 				ac.abort();
 				return [];
@@ -370,13 +375,13 @@ describe('searchAll (D-06 progressive onPartial)', () => {
 		const { perSource, interleaved } = await searchAll('noop', 1, ALL);
 
 		expect(perSource.map((p) => p.source).sort()).toEqual(['joox', 'kuwo', 'netease', 'qq']);
-		// interleave stays registry-ordered (qq-first since the 2026-08-31 kuwo demotion)
-		// regardless of settle order
+		// interleave stays registry-ordered (qq → joox → netease → kuwo among the tested
+		// four) regardless of settle order
 		expect(interleaved.map((t) => t.uid)).toEqual([
 			'qq:q1',
+			'joox:j1',
 			'netease:n1',
-			'kuwo:k1',
-			'joox:j1'
+			'kuwo:k1'
 		]);
 	});
 
@@ -431,21 +436,21 @@ describe('searchAllUncached inter-source stagger (GAPLESS-PREFETCH)', () => {
 
 			const done = searchAll('staggerkw', 1, ALL);
 			// Let the synchronous fan-out launch + adapter[0]'s 0ms sleep flush.
-			// debug/upnext-diverse-fallback-kuwo-dead (2026-08-31) demoted kuwo to #3, so the
-			// registry is qq-first → adapter[0]=qq, [1]=netease, [2]=kuwo, [3]=joox.
+			// Registry order among the tested four is qq → joox → netease → kuwo, so
+			// adapter[0]=qq, [1]=joox, [2]=netease, [3]=kuwo.
 			await vi.advanceTimersByTimeAsync(0);
 			expect(q).toHaveBeenCalledTimes(1);
-			// adapter[1] (netease) must still be waiting on its SEARCH_STAGGER_MS sleep.
-			expect(n).not.toHaveBeenCalled();
+			// adapter[1] (joox) must still be waiting on its SEARCH_STAGGER_MS sleep.
+			expect(j).not.toHaveBeenCalled();
 
 			await vi.advanceTimersByTimeAsync(SEARCH_STAGGER_MS);
-			expect(n).toHaveBeenCalledTimes(1);
-			// kuwo at 2x, joox at 3x — still pending until their windows pass.
-			expect(k).not.toHaveBeenCalled();
+			expect(j).toHaveBeenCalledTimes(1);
+			// netease at 2x, kuwo at 3x — still pending until their windows pass.
+			expect(n).not.toHaveBeenCalled();
 
 			await vi.advanceTimersByTimeAsync(SEARCH_STAGGER_MS * 2);
+			expect(n).toHaveBeenCalledTimes(1);
 			expect(k).toHaveBeenCalledTimes(1);
-			expect(j).toHaveBeenCalledTimes(1);
 
 			const { perSource, interleaved } = await done;
 			expect(perSource.map((p) => p.source).sort()).toEqual([
@@ -457,9 +462,9 @@ describe('searchAllUncached inter-source stagger (GAPLESS-PREFETCH)', () => {
 			// final membership matches the un-staggered registry-ordered (qq-first) interleave
 			expect(interleaved.map((t) => t.uid)).toEqual([
 				'qq:q1',
+				'joox:j1',
 				'netease:n1',
-				'kuwo:k1',
-				'joox:j1'
+				'kuwo:k1'
 			]);
 		} finally {
 			vi.useRealTimers();

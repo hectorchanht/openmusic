@@ -196,28 +196,49 @@ describe('/api/[source]/[...path] — search edge cache (CONCERNS perf #1)', () 
 		expect(res2.headers.get('cache-control')).toBe('public, max-age=300');
 	});
 
-	it('NEVER caches url/detail/lrc — each call streams from upstream (no cache put)', async () => {
+	it('NEVER caches url/lrc — each call streams from upstream (no cache put)', async () => {
 		const fetchSpy = okFetch();
 		const cache = makeFakeCache();
 		vi.stubGlobal('fetch', fetchSpy);
 		vi.stubGlobal('caches', cache);
 
-		// netease url twice
+		// netease url twice + lrc once — the passthrough types (quick-261020-speed kept
+		// them uncacheable: `url` is the raw audio redirect/stream, never safe to cache).
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		await GET(fakeEvent('netease', 'url', { id: '1' }) as any);
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		await GET(fakeEvent('netease', 'url', { id: '1' }) as any);
-		// joox detail once
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		await GET(fakeEvent('joox', 'detail', { msg: 'x' }, PRIME_ORIGIN, { JOOX_TOKEN: 'TESTTOKEN' }) as any);
+		await GET(fakeEvent('netease', 'lrc', { id: '1' }) as any);
 
 		expect(cache.put).not.toHaveBeenCalled(); // never cached
-		expect(cache.match).not.toHaveBeenCalled(); // never even read the cache for non-search
+		expect(cache.match).not.toHaveBeenCalled(); // never even read the cache for passthrough types
 		expect(fetchSpy).toHaveBeenCalledTimes(3); // every call hits upstream (no cache)
-		// non-search responses carry NO Cache-Control header (byte-identical to today)
+		// passthrough responses carry NO Cache-Control header (byte-identical to today)
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		const res = await GET(fakeEvent('netease', 'url', { id: '2' }) as any);
 		expect(res.headers.get('cache-control')).toBeNull();
+	});
+
+	it('caches a 200 detail result at the DETAIL ttl — a second identical call is served from cache (quick-261020-speed)', async () => {
+		const fetchSpy = okFetch();
+		const cache = makeFakeCache();
+		vi.stubGlobal('fetch', fetchSpy);
+		vi.stubGlobal('caches', cache);
+
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const res1 = await GET(fakeEvent('joox', 'detail', { msg: 'x' }, PRIME_ORIGIN, { JOOX_TOKEN: 'TESTTOKEN' }) as any);
+		const body1 = await res1.text();
+		expect(fetchSpy).toHaveBeenCalledTimes(1);
+		expect(cache.put).toHaveBeenCalledTimes(1);
+		expect(res1.headers.get('cache-control')).toBe('public, max-age=600');
+
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const res2 = await GET(fakeEvent('joox', 'detail', { msg: 'x' }, PRIME_ORIGIN, { JOOX_TOKEN: 'TESTTOKEN' }) as any);
+		const body2 = await res2.text();
+		expect(fetchSpy).toHaveBeenCalledTimes(1); // served from cache — no re-fetch
+		expect(body2).toBe(body1);
+		expect(res2.headers.get('cache-control')).toBe('public, max-age=600');
 	});
 
 	it('does NOT cache a non-200 search response — the next identical call re-fetches upstream', async () => {

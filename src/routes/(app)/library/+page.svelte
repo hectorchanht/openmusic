@@ -336,14 +336,13 @@
 	});
 
 	/**
-	 * quick-260915-vb9: `wholeList` marks the caller as an explicit "play this entire list" button
-	 * (the action row's Play/Shuffle, and each playlist folder's own Play) rather than a row tap.
-	 * It pins player.play's same-list branch so the list the user pressed Play ON is what Up Next
-	 * shows — every library context resolves to the 'generated' up-next mode by default, which
-	 * would otherwise replace the tail with genre-similar songs and drop the list entirely.
-	 * A plain row tap passes nothing and keeps the user's per-context sourcing setting.
+	 * quick-261024-sets (Hector 2026-10-24): the quick-260915-vb9 `wholeList` pin is GONE. Every caller —
+	 * row taps, the action row's Play/Shuffle, each playlist folder's Play — installs the list
+	 * UNPINNED, and the tab context's Up-next sourcing setting decides: 'generated' (default)
+	 * regenerates the tail from the tapped/first song; a user's 'same-list' choice for the
+	 * context keeps the whole list. No surface outside album/artist pins same-list any more.
 	 */
-	function playList(list: Track[], t: Track, opts?: { wholeList?: boolean }) {
+	function playList(list: Track[], t: Track) {
 		// Phase 17 (QUEUE-03): pass the active tab's queue context so per-context sourcing
 		// resolves. 'playlists' tab → the 'playlist' context (singular QueueContext token).
 		// quick-260915-vb9: 'history' added so this one function serves every tab and playEntry
@@ -355,15 +354,16 @@
 		// Set queue+context FIRST, then fresh-play so the per-context up-next mode resolves
 		// (a 'generated' context regenerates up-next from the seed instead of using `list`).
 		player.setListQueue(list, ctx);
-		player.play(t, { fresh: true, sameList: opts?.wholeList });
+		player.play(t, { fresh: true });
 	}
 	// Listen history: replay slice (audioUrl re-resolves on play), moved here from settings.
 	function playEntry(track: Track) {
 		playList(history.entries as Track[], track);
 	}
-	// quick-260915-vb9: the action row's Play — the whole tab, from the top.
+	// The action row's Play — starts the tab from the top; the sourcing setting decides
+	// whether Up Next is the tab itself or generated from that first song (quick-261024-sets).
 	function playAll() {
-		if (tabList.length) playList(tabList, tabList[0], { wholeList: true });
+		if (tabList.length) playList(tabList, tabList[0]);
 	}
 	/**
 	 * quick-260915-vb9: Shuffle installs a Fisher-Yates COPY of the tab as the queue — it does NOT
@@ -373,7 +373,7 @@
 	 */
 	function shuffleAll() {
 		const s = shuffle(tabList);
-		if (s.length) playList(s, s[0], { wholeList: true });
+		if (s.length) playList(s, s[0]);
 	}
 </script>
 
@@ -456,10 +456,10 @@
 					{#if editMode}
 						<button class="del" aria-label={t('library.deletePlaylist')} onclick={() => library.deletePlaylist(pl.id)} use:tapBounce><Trash2 size={16} /></button>
 					{:else if pl.tracks.length}
-						<!-- quick-260915-vb9: a folder's own Play is a whole-list play too, so it gets the
-						     same Up-Next guarantee as the action row's Play (two Play buttons on one page
-						     must not behave differently). -->
-						<button class="del" aria-label={t('library.playAll')} title={t('library.playAll')} onclick={() => playList(pl.tracks, pl.tracks[0], { wholeList: true })} use:tapBounce><Play size={16} /></button>
+						<!-- quick-261024-sets: a folder's own Play goes through the same playList as the action
+						     row's Play (two Play buttons on one page must not behave differently) —
+						     unpinned, so the 'playlist' context's sourcing setting decides Up Next. -->
+						<button class="del" aria-label={t('library.playAll')} title={t('library.playAll')} onclick={() => playList(pl.tracks, pl.tracks[0])} use:tapBounce><Play size={16} /></button>
 					{/if}
 				</div>
 				{#if pl.tracks.length}

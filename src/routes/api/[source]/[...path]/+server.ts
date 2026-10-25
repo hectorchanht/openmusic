@@ -136,7 +136,10 @@ export const GET: RequestHandler = async (event) => {
 			headers: {
 				...corsHeaders(origin),
 				'content-type': contentType,
-				'Cache-Control': `public, max-age=${SEARCH_TTL}`
+				// quick-261024-sets: this used to hard-code SEARCH_TTL even for detail — the
+				// response must carry THIS type's ttl (detail = DETAIL_TTL), like the stored
+				// copy above and the hit path both already do.
+				'Cache-Control': `public, max-age=${ttl}`
 			}
 		});
 	}

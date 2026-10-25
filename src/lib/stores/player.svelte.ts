@@ -52,7 +52,8 @@ import { getCachedCoverByUid, getCachedCover, getPinnedCover, getCrowdCover } fr
 // Phase 40 D-14 / D-16: the crowd-shared cover pick — keys + the one GET per played song. The player
 // only READS the crowd (D-15: the TrackMenu picker tap is the only voter).
 import { coverPickKeys, fetchCoverPick } from '$lib/services/cover-pick-shared';
-import { resolveCoverForTrack } from '$lib/services/cover-backfill';
+import { resolveCoverForTrack, collectCoverCandidates } from '$lib/services/cover-backfill';
+import { markCoverUrlDead, unmarkCoverUrlDead, isCoverUrlDead } from '$lib/services/dead-cover-urls';
 import { itunesSongCover, DISPLAY_ARTWORK_SIZE } from '$lib/services/itunes-cover';
 import { matchKey } from '$lib/services/match-key';
 
@@ -429,7 +430,7 @@ class Player {
 
 	/**
 	 * The ONE cover field every now-playing surface reads (COVER-01 / D-09). Set SYNCHRONOUSLY on
-	 * play() entry from `track.cover ?? uid-cache ?? name-cache ?? null` so the OS + UI get the
+	 * play() entry from `track.cover ?? name-cache ?? uid-cache ?? null` so the OS + UI get the
 	 * best-known art immediately. On a sync miss the Plan-02 single-item resolve helper runs and,
 	 * generation-guarded, sets this + re-fires a FRESH MediaMetadata so the lock screen repaints
 	 * (Pitfall 4). NowPlaying, Nowbar, and buildArtwork(MediaSession) all read this — one field,
@@ -702,7 +703,7 @@ class Player {
 		// cover-hero-mediacard-missing (Issue 2 + Issue 1): the restore path never calls play(), so
 		// without this the OS media card had no metadata on a PWA reopen → it fell back to the bare
 		// app name once the user resumed. Seed the ONE cover field (mirrors play()'s sync seed: track
-		// cover → uid cache → name cache) so the hero/nowbar paint any known cover, THEN write the
+		// cover → name cache → uid cache, quick-261020-latest) so the hero/nowbar paint any known cover, THEN write the
 		// media metadata from the restored track so title/artist are present the moment playback resumes.
 		// quick-260915-w4f: the pin leads here too — a reload/PWA reopen must come back showing the
 		// cover the user chose, not the source thumbnail on target.cover.
@@ -712,8 +713,8 @@ class Player {
 			getPinnedCover(target.uid) ??
 			getCrowdCover(target.uid, target.artist, target.title) ??
 			target.cover ??
-			(target.uid ? getCachedCoverByUid(target.uid) : null) ??
 			getCachedCover(target.artist, target.title) ??
+			(target.uid ? getCachedCoverByUid(target.uid) : null) ??
 			null;
 		this.syncMetadata();
 		// quick-261021-cov4 (user): proactive cover self-heal BEFORE first render.
@@ -872,7 +873,7 @@ class Player {
 		this.spliceAfterCurrent(track);
 		this.current = track;
 		// Seed the ONE cover field before any await (mirrors restore()/play(): pinned → track cover →
-		// uid cache → name cache) so the hero/nowbar paint a known cover immediately, THEN write the
+		// name cache → uid cache, quick-261020-latest) so the hero/nowbar paint a known cover immediately, THEN write the
 		// media metadata so the OS card has title/artist the moment the user taps play —
 		// cover-hero-mediacard-missing, and quick-260915-w4f for why the pin leads the chain.
 		// Phase 40 D-14: a locally cached crowd pick ranks right behind the pin (read only, no fetch).
@@ -880,8 +881,8 @@ class Player {
 			getPinnedCover(track.uid) ??
 			getCrowdCover(track.uid, track.artist, track.title) ??
 			track.cover ??
-			(track.uid ? getCachedCoverByUid(track.uid) : null) ??
 			getCachedCover(track.artist, track.title) ??
+			(track.uid ? getCachedCoverByUid(track.uid) : null) ??
 			null;
 		this.syncMetadata();
 		this.loading = true;
@@ -4035,7 +4036,9 @@ class Player {
 		if (opts?.fresh && !this.attachedCoverFor(track)) this.attachedCover = null;
 		// COVER-01 / D-09: set the ONE cover field SYNCHRONOUSLY from the best-known source so the
 		// nowbar/now-playing surfaces AND the first MediaMetadata write below paint real art with no
-		// flicker. Read order is uid-cache BEFORE name-cache (D-13 two-layer) and BEFORE null; a total
+		// flicker. Read order is name-cache BEFORE uid-cache (quick-261020-latest: the name layer
+		// holds the latest write for the song — the same order readCoverByUidOrName uses) and
+		// BEFORE null; a total
 		// miss leaves null and the async tier chain (further down) takes over. Repointing this on
 		// every entry also clears any stale cover from the prior track.
 		// quick-260831-t2g: an attached cover outranks everything, INCLUDING the source's own inline
@@ -4053,8 +4056,8 @@ class Player {
 			getCrowdCover(track.uid, track.artist, track.title) ??
 			this.attachedCoverFor(track) ??
 			track.cover ??
-			(track.uid ? getCachedCoverByUid(track.uid) : null) ??
 			getCachedCover(track.artist, track.title) ??
+			(track.uid ? getCachedCoverByUid(track.uid) : null) ??
 			null;
 		// quick-261019-cov: REJECT a null/gradient replacement. A cover-less re-entry for the SAME
 		// song — runFallback's play(swap) after the first source fails, or a same-song re-tap —
@@ -4834,9 +4837,12 @@ class Player {
 		try {
 			// (1) The effect passes the uid it observed; a mismatch means the track already changed — bail.
 			if (!this.current || this.current.uid !== uid) return;
-			// (2) A null/gradient cover is the resolveCoverAsync MISSING path, not here; a non-https value
-			//     is not a probe target. Only a present https URL can be "dead but painted".
-			const url = this.resolvedCover;
+			// (2) quick-261020-hcvr: probe the PAINTED cover — displayCover (pin → name cache → uid
+			//     cache → resolvedCover) is what the hero actually shows. The pre-hcvr code probed
+			//     resolvedCover alone, so a dead PIN over a live resolvedCover never healed. A
+			//     null/gradient painted cover is the resolveCoverAsync MISSING path, not here; a
+			//     non-https value is not a probe target. Only a present https URL can be "dead but painted".
+			const url = this.displayCover;
 			if (!hasHttpsScheme(url)) return;
 			// (3) One-shot per uid+url (mirror lazyCover's `done`): probe AT MOST once so an errored
 			//     background paint can never re-trigger an infinite re-probe loop (T-20e-02). Add BEFORE probing.
@@ -4846,10 +4852,18 @@ class Player {
 			// (4) Snapshot the generation + identity off the current track (CR-02 supersedence guard).
 			const myGen = this.playGen;
 			const { artist, title } = this.current;
-			// (5) Probe the displayed cover. TRUE (loads fine) → do nothing, the zero-network fast path.
+			// (5) Probe the painted cover. TRUE (loads fine) → unmark any stale dead flag
+			//     (quick-261020-dcvr: a flaky URL that proves alive is unmarked) and stop — the
+			//     zero-network fast path.
 			const alive = await this.probeCover(url);
-			if (alive) return;
-			// (6) Dead url. Bail if a newer play() superseded this heal mid-probe (T-20e-03).
+			if (alive) {
+				unmarkCoverUrlDead(url);
+				return;
+			}
+			// (6) Dead url. Mark it FIRST (quick-261020-dcvr) so list rows stop letting this URL
+			//     shadow their live cache art while the heal below runs. Bail if a newer play()
+			//     superseded this heal mid-probe (T-20e-03).
+			markCoverUrlDead(url);
 			if (myGen !== this.playGen) return;
 			// quick-260915-w4f (Q2) — THE ONE CASE THAT OVERRIDES A PIN, and it is deliberately narrow:
 			// a FAILED IMAGE LOAD, never a resolver preferring something else. A pin names a URL, not an
@@ -4867,17 +4881,55 @@ class Player {
 			//     layers internally on a SOLID hit). Re-check the gen AFTER the await → discard a stale heal.
 			const fresh = await resolveCoverForTrack(this.current);
 			if (myGen !== this.playGen) return;
-			// (8) Commit ONLY a SOLID https result (T-20e-01). A null/miss keeps the gradient — never
-			//     re-commit the dead url (D-12). resolveCoverForTrack already wrote both cache layers — do
-			//     NOT double-write (mirror resolveCoverAsync Site C); just bump so other tiles repaint.
-			if (hasHttpsScheme(fresh)) {
-				this.resolvedCover = fresh;
-				// quick-261008-audit: the shown cover wins everywhere — push the healed art onto the
-				// library entries too, or liked/download rows keep the dead URL at rung 2 until
-				// their own lazyCover probe repairs them one by one.
-				library.fillEntryCovers(uid, artist, title, fresh);
-				bumpCoverVersion();
+			// (8) quick-261020-hcvr: VERIFY the chain hit before committing. The pre-hcvr code
+			//     committed any solid https result unverified — including the chain re-offering the
+			//     EXACT dead url (the CN tier's dedupeBest echo), which the one-shot guard then
+			//     froze in place forever ("broken cover forever"). A re-offer of the dead url is
+			//     not a hit at all; a different hit must pass its own probe; a hit that fails the
+			//     probe is marked dead too. Only a verified hit commits (T-20e-01) — with the same
+			//     library push + repaint bump as before (the chain already wrote both cache layers;
+			//     do NOT double-write, mirror resolveCoverAsync Site C).
+			if (hasHttpsScheme(fresh) && fresh !== url) {
+				const freshAlive = await this.probeCover(fresh);
+				if (myGen !== this.playGen) return;
+				if (freshAlive) {
+					this.healProbed.add(`${uid}|${fresh}`); // verified alive — never re-probe this pair
+					this.resolvedCover = fresh;
+					// quick-261008-audit: the shown cover wins everywhere — push the healed art onto the
+					// library entries too, or liked/download rows keep the dead URL at rung 2 until
+					// their own lazyCover probe repairs them one by one.
+					library.fillEntryCovers(uid, artist, title, fresh);
+					bumpCoverVersion();
+					return;
+				}
+				markCoverUrlDead(fresh);
 			}
+			// (9) quick-261020-hcvr fan-out: the cover-picker candidates, iTunes FIRST (user:
+			//     "iTunes usually have the best and accurate cover"), the rest in chain order.
+			//     All probes are constructed up front (parallel), and the first VERIFIED-alive
+			//     candidate in priority order wins. A committed candidate is written to both
+			//     cache layers (collectCoverCandidates itself never writes) so rows converge.
+			const candidates = (await collectCoverCandidates(this.current)) ?? [];
+			if (myGen !== this.playGen) return;
+			const ordered = [...candidates].sort(
+				(a, b) => (a.source === 'itunes' ? 0 : 1) - (b.source === 'itunes' ? 0 : 1)
+			);
+			const pool = ordered.filter((c) => hasHttpsScheme(c.url) && c.url !== url && !isCoverUrlDead(c.url));
+			if (pool.length) {
+				const results = await Promise.all(pool.map((c) => this.probeCover(c.url)));
+				if (myGen !== this.playGen) return;
+				const winIdx = results.findIndex(Boolean);
+				if (winIdx >= 0) {
+					const win = pool[winIdx].url;
+					this.healProbed.add(`${uid}|${win}`); // verified alive — never re-probe this pair
+					this.resolvedCover = win;
+					writeCoverBoth(uid, artist, title, win);
+					library.fillEntryCovers(uid, artist, title, win);
+					bumpCoverVersion();
+				}
+			}
+			// Total miss: resolvedCover keeps the dead value and the component paints the
+			// gradient (the dead url is marked, so rows fall through to live cache art).
 		} catch {
 			// Best-effort — a failure leaves the gradient (never a broken image, never throws).
 		}

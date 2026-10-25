@@ -715,6 +715,12 @@ export interface LyricCandidate {
  * quick-261021-cache1 (user): memoized by artist|title — repeat opens instant.
  */
 const lyricCandidatesMemo = new Map<string, LyricCandidate[]>();
+
+/** Test hook (mirrors ttl-cache's __clearSearchCache): the memo is session-scoped by
+ *  design, so suites that re-drive collectLyricCandidates with fixture names must reset it. */
+export function __clearLyricCandidatesCache(): void {
+	lyricCandidatesMemo.clear();
+}
 export async function collectLyricCandidates(
 	artist: string,
 	title: string,

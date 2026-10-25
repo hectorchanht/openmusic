@@ -1069,11 +1069,12 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 		}
 		player.play(track, { fresh: true, context: ctx });
 	}
-	// quick-261024-sets (Hector 2026-10-24): a Your Radio tap now seeds Up Next from the tapped
-	// song ALONE. playStub already installs setQueue([resolved]) and plays it fresh, so WITHOUT
-	// the old quick-260924-pgu `sameList` pin (and without re-installing the shelf via
-	// setListQueue) the fresh-play tail regenerates the tail from that one song instead of
-	// concatenating the remaining radio tiles. Toast gate copied from playStub(item) above
+	// quick-261024-sets (Hector 2026-10-24): the radio shelf installs UNPINNED — the old
+	// quick-260924-pgu `sameList` pin is gone, so the 'home-discovery' Up-next sourcing
+	// setting decides: 'generated' (default) regenerates the tail from the tapped song
+	// instead of concatenating the remaining radio tiles; a user's 'same-list' choice
+	// keeps the shelf. setListQueue after the resolve anchors the now-real `current` into
+	// the shelf by uid-then-sameSongKey. Toast gate copied from playStub(item) above
 	// (null = miss OR supersede; only a miss clears pendingTrack).
 	async function playRadioTrack(track: Track) {
 		const tr = await player.playStub(track.artist, track.title, track.cover, 'home-discovery');
@@ -1081,6 +1082,7 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 			if (player.pendingTrack == null) toast.show(t('home.unplayable'));
 			return;
 		}
+		player.setListQueue(radioShelf, 'home-discovery');
 	}
 	function openTrackMenu(track: Track) {
 		menuTrack = track;

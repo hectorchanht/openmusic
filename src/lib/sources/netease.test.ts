@@ -69,7 +69,7 @@ describe('netease.search (fixture-backed)', () => {
 		expect(first.detailsLoaded).toBe(false);
 	});
 
-	it('hits the same-origin proxy /api/netease/search with id + limit', async () => {
+	it('hits the qijieya Meting upstream DIRECTLY with id + limit (browser-direct, quick-261020-speed)', async () => {
 		const spy = mockFetchOnce(fixture);
 		vi.stubGlobal('fetch', spy);
 
@@ -77,7 +77,9 @@ describe('netease.search (fixture-backed)', () => {
 
 		expect(spy).toHaveBeenCalled();
 		const calledUrl = String(spy.mock.calls[0][0]);
-		expect(calledUrl).toMatch(/^\/api\/netease\/search\?/);
+		// quick-261020-speed: search no longer rides the same-origin /api proxy — qijieya
+		// sends Access-Control-Allow-Origin: *, so the browser calls it directly.
+		expect(calledUrl).toMatch(/^https:\/\/api\.qijieya\.cn\/meting\/\?server=netease&type=search&/);
 		expect(calledUrl).toContain('id=hello');
 		// page=2 → requestLimit = 2 * 10 = 20 (limit-multiplication pagination)
 		expect(calledUrl).toContain('limit=20');

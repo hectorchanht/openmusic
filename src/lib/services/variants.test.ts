@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { fetchVariants, versionsIncludingOwn } from './variants';
+import { fetchVariants, versionsIncludingOwn, __clearVariantsCache } from './variants';
 import * as catalog from './catalog';
 import { __clearSearchCache } from './ttl-cache';
 import { warmScript } from './zh-convert';
@@ -34,11 +34,15 @@ function sr(interleaved: Track[]): catalog.SearchResult {
 
 beforeEach(() => {
 	__clearSearchCache();
+	// quick-261021-cache1: fetchVariants memoizes by uid across calls — reset it too, or
+	// one test's group leaks into every later test that reuses a fixture uid.
+	__clearVariantsCache();
 });
 afterEach(() => {
 	vi.restoreAllMocks();
 	vi.unstubAllGlobals();
 	__clearSearchCache();
+	__clearVariantsCache();
 });
 
 describe('fetchVariants — single on-demand cross-source fan-out', () => {

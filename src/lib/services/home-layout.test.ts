@@ -38,7 +38,7 @@ import {
 // render — they clamp / drop / fall back to defaults. These tests are fully deterministic.
 
 describe('HOME_SECTIONS / DEFAULT_SECTION_ORDER', () => {
-	it('is the seventeen home section ids in canonical order (39-D-08: chart block after radio, classic block after charts)', () => {
+	it('is the eighteen home section ids in canonical order (39-D-08: chart block after radio, classic block after charts; songs-of-year added quick-261010-soy)', () => {
 		expect(HOME_SECTIONS).toEqual([
 			'liked',
 			'downloads',
@@ -54,6 +54,7 @@ describe('HOME_SECTIONS / DEFAULT_SECTION_ORDER', () => {
 			'top-artists',
 			'tags',
 			'countries',
+			'songs-of-year',
 			'fav-artists',
 			'playlists',
 			'history'
@@ -76,15 +77,16 @@ describe('HOME_SECTIONS / DEFAULT_SECTION_ORDER', () => {
 			'regions',
 			'tags',
 			'countries',
+			'songs-of-year',
 			'fav-artists',
 			'playlists',
 			'history'
 		]);
 	});
 
-	it('DEFAULT_SECTION_ORDER is a permutation of all 17 HOME_SECTIONS ids (quick-260925-vtg — resolveSectionOrder returns it verbatim)', () => {
+	it('DEFAULT_SECTION_ORDER is a permutation of all 18 HOME_SECTIONS ids (quick-260925-vtg — resolveSectionOrder returns it verbatim)', () => {
 		expect([...DEFAULT_SECTION_ORDER].sort()).toEqual([...HOME_SECTIONS].sort());
-		expect(new Set(DEFAULT_SECTION_ORDER).size).toBe(17);
+		expect(new Set(DEFAULT_SECTION_ORDER).size).toBe(18);
 	});
 
 	it('DEFAULT_SECTION_ORDER is a distinct array (not the same ref — safe to spread)', () => {
@@ -127,7 +129,7 @@ describe('resolveSectionOrder', () => {
 		expect(resolveSectionOrder(42)).toEqual(DEFAULT_SECTION_ORDER);
 	});
 
-	it('keeps the saved order then appends the 15 missing known ids in canonical order', () => {
+	it('keeps the saved order then appends the 16 missing known ids in canonical order', () => {
 		expect(resolveSectionOrder(['top-hits', 'liked'])).toEqual([
 			'top-hits',
 			'liked',
@@ -144,6 +146,7 @@ describe('resolveSectionOrder', () => {
 			'top-artists',
 			'tags',
 			'countries',
+			'songs-of-year',
 			'fav-artists',
 			'playlists',
 			'history'
@@ -166,6 +169,7 @@ describe('resolveSectionOrder', () => {
 			'top-hits',
 			'top-artists',
 			'countries',
+			'songs-of-year',
 			'fav-artists',
 			'playlists',
 			'history'
@@ -183,6 +187,7 @@ describe('resolveSectionOrder', () => {
 		const order = [
 			'tags',
 			'countries',
+			'songs-of-year',
 			'top-artists',
 			'top-hits',
 			'regions',
@@ -211,7 +216,7 @@ describe('resolveSectionOrder', () => {
 		// 39-D-08: the chart ids are appended too at render time; migrateHomeLayout (39-D-11) is what
 		// moves them up to the old chart block, once, at load.
 		expect(r.slice(0, legacy.length)).toEqual(legacy);
-		expect(r.slice(legacy.length)).toEqual(['radio', ...CHART_SECTIONS, 'fav-artists']);
+		expect(r.slice(legacy.length)).toEqual(['radio', ...CHART_SECTIONS, 'songs-of-year', 'fav-artists']);
 	});
 });
 
@@ -748,11 +753,11 @@ describe('reorderListed (39-D-12)', () => {
 
 	it('every classic id keeps its exact index in the full default order', () => {
 		const full = [...DEFAULT_SECTION_ORDER];
-		const r = reorderListed(full, 0, 12);
+		const r = reorderListed(full, 0, 13);
 		for (const id of CLASSIC_SECTIONS) expect(r.indexOf(id)).toBe(full.indexOf(id));
 		expect([...r].sort()).toEqual([...full].sort());
 		// quick-260925-vtg: the default order now starts with 'radio', which moves to the last
-		// non-classic slot (index 16).
+		// non-classic slot (index 17 since quick-261010-soy added an 18th section).
 		expect(r[r.length - 1]).toBe('radio');
 	});
 

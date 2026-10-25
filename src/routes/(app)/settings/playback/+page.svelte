@@ -65,6 +65,9 @@
 	// effective mode and writes a per-context override, mirroring the setSource handler.
 	// Labels reuse existing surface keys where they exist (liked/playlists/downloads/history/
 	// album) and use the Phase-17 ctx* keys for the rest.
+	// quick-261024-sets (Hector 2026-10-24): the six chart-pack contexts join the list — pack
+	// pages install their pack unpinned now, so their sourcing is governed here like every
+	// other surface; the pack rows reuse the packs' own title keys.
 	const upnextContexts: { ctx: Exclude<QueueContext, null>; key: TranslationKey }[] = [
 		{ ctx: 'liked', key: 'library.liked' },
 		{ ctx: 'search', key: 'settings.ctxSearch' },
@@ -73,7 +76,13 @@
 		{ ctx: 'album', key: 'settings.ctxAlbum' },
 		{ ctx: 'artist', key: 'settings.ctxArtist' },
 		{ ctx: 'home-discovery', key: 'settings.ctxHomeDiscovery' },
-		{ ctx: 'history', key: 'history.heading' }
+		{ ctx: 'history', key: 'history.heading' },
+		{ ctx: 'cantopop-2026', key: 'pack.title.cantopop' },
+		{ ctx: 'mandopop-2026', key: 'pack.title.mandopop' },
+		{ ctx: 'kpop-2026', key: 'pack.title.kpop' },
+		{ ctx: 'jpop-2026', key: 'pack.title.jpop' },
+		{ ctx: 'western-2026', key: 'pack.title.western' },
+		{ ctx: 'songs-of-year', key: 'home.songsOfYear' }
 	];
 	function setUpnext(ctx: Exclude<QueueContext, null>, v: UpnextMode) {
 		settings.upnextPerContext = { ...settings.upnextPerContext, [ctx]: v };
@@ -292,6 +301,9 @@
 			<Radio size={14} />	
 			{t('settings.upnextGenerated')}
 		</span>
+	<!-- quick-261024-sets: visible explainer (Hector) — what the two modes DO and which
+	     surfaces default to which, so the rows below need no guessing. -->
+	<p class="upnext-desc">{t('settings.upnextSourcingDesc')}</p>
 
 	{#each upnextContexts as c (c.ctx)}
 		<div class="upnext-row">
@@ -353,6 +365,7 @@
 	/* quick-260919-ebi: the .seg CSS moved into SettingPicker.svelte; .row-toggle/.sw went with the
 	   three toggle rows the previews replaced. */
 	.sub { display: flex; align-items: center; gap: 6px; font-size: 0.8125rem; font-weight: 600; margin: 16px 0 8px; position: relative; }
+	.upnext-desc { color: var(--color-text-muted); font-size: 0.8125rem; line-height: 1.5; margin: 8px 0 4px; }
 	.upnext-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 0; }
 	.upnext-row .ctx-label { font-size: 0.875rem; color: var(--color-text); }
 	.advanced { margin: 22px 0; padding: 10px 12px; background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: 12px; }

@@ -2,8 +2,9 @@
 // fetchNeteaseDetails (legacy:2268-2308).
 //
 // Differences from the monolith (intentional):
-//   - calls the SAME-ORIGIN proxy /api/netease/... instead of api.qijieya.cn directly
-//     (token-free for Netease, but uniform with the proxy boundary for all sources)
+//   - search is BROWSER-DIRECT to api.qijieya.cn (quick-261020-speed — its ACAO:* makes
+//     the /api proxy hop unnecessary); the returned url/lrc still ride same-origin proxy
+//     URLs, and the /api/netease proxy is retained for non-browser contexts
 //   - emits the canonical COLON-form uid `netease:<songid>` (D-10), not the hyphen form
 //   - pickQueryParam drops `new URL(rawUrl, window.location.href)` — no `window`
 //     server-side; uses an absolute-or-regex parse instead

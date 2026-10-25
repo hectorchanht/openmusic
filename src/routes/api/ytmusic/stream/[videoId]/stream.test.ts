@@ -286,6 +286,45 @@ describe('GET /api/ytmusic/stream/:videoId — full-audio edge cache (quick-2610
 	});
 });
 
+describe('GET /api/ytmusic/stream/:videoId — resolved-URL edge cache (quick-261024-ytu)', () => {
+	it('a partial first play still arms the URL cache; the next play skips the player entirely', async () => {
+		const store = stubEdgeCache();
+		stubFetch([OK]);
+		// A partial range play never fills the AUDIO cache (ytc posture) — but it resolves a
+		// URL, and that URL is exactly what the next invocation needs to dodge the gate.
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const res1 = await streamGet(ev('vid123', { range: 'bytes=0-3' }) as any);
+		expect(res1.status).toBe(206);
+		expect([...store.keys()].some((k) => k.includes('__ytmusic__/url/vid123'))).toBe(true);
+		expect([...store.keys()].some((k) => k.includes('__ytmusic__/audio'))).toBe(false);
+
+		const h2 = stubFetch([OK]);
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const res2 = await streamGet(ev('vid123', { range: 'bytes=0-3' }) as any);
+		expect(res2.status).toBe(206);
+		expect(res2.headers.get('x-ytmusic-urlcache')).toBe('hit');
+		expect(h2.playerCalls()).toBe(0); // NO player call — the gate was never faced
+		expect(new Uint8Array(await res2.arrayBuffer())).toEqual(PARTIAL_BODY);
+	});
+
+	it('a dead cached URL (media non-OK) is invalidated and the live player flow answers', async () => {
+		stubEdgeCache();
+		stubFetch([OK]);
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		await streamGet(ev('vid123', { range: 'bytes=0-3' }) as any); // arms the URL cache
+
+		// The fast path's media fetch 403s (IP-lock drift); the route must NOT serve the
+		// error — it drops the entry and runs the full player → bytes flow instead.
+		const h2 = stubFetch([OK], { media403s: 1 });
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const res = await streamGet(ev('vid123', { range: 'bytes=0-3' }) as any);
+		expect(res.status).toBe(206);
+		expect(res.headers.get('x-ytmusic-urlcache')).toBeNull();
+		expect(h2.playerCalls()).toBe(1); // fell through to a fresh resolve
+		expect(new Uint8Array(await res.arrayBuffer())).toEqual(PARTIAL_BODY);
+	});
+});
+
 describe('GET /api/ytmusic/stream/:videoId — VISIONOS player → googlevideo byte-proxy', () => {
 	it('a ranged request forwards Range upstream and returns 206 with range headers + audio/mp4', async () => {
 		const h = stubFetch([OK]);

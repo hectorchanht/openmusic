@@ -3280,7 +3280,7 @@ describe('player.play — generation guard against stale slow resolves (CR-02)',
 
 describe('player.resolvedCover — single-field artwork guarantee (COVER-01 / D-09)', () => {
 	// resolvedCover is the ONE field that NowPlaying, Nowbar, and MediaSession all read (D-09). On
-	// play() entry it is set SYNCHRONOUSLY from track.cover ?? uid-cache ?? name-cache ?? null; on a
+	// play() entry it is set SYNCHRONOUSLY from track.cover ?? name-cache ?? uid-cache ?? null; on a
 	// total sync miss the Plan-02 single-item resolve helper runs and, generation-guarded, sets it +
 	// re-fires MediaSession metadata via a NEW MediaMetadata object (Pitfall 4). A fake MediaSession
 	// + MediaMetadata global (absent in node) lets us assert the OS-art repaint.

@@ -51,17 +51,19 @@
 			});
 	});
 
-	// Mirrors the home's playRadioTrack. quick-261024-sets (Hector 2026-10-24): no `sameList`
-	// pin and no setListQueue(pool) any more — playStub installs setQueue([resolved]) itself, so
-	// the fresh-play tail generates Up Next from the tapped song alone instead of concatenating
-	// the remaining radio rows. null = miss OR supersede; only a miss clears pendingTrack, so
-	// only a miss toasts.
+	// Mirrors the home's playRadioTrack. quick-261024-sets (Hector 2026-10-24): the radio pool
+	// installs UNPINNED (the quick-260924-pgu `sameList` pin is gone) — the 'home-discovery'
+	// Up-next sourcing setting decides: 'generated' (default) regenerates the tail from the
+	// tapped song instead of concatenating the remaining rows; a user's 'same-list' choice
+	// keeps the pool. null = miss OR supersede; only a miss clears pendingTrack, so only a
+	// miss toasts.
 	async function play(tr: Track) {
 		const resolved = await player.playStub(tr.artist, tr.title, tr.cover, 'home-discovery');
 		if (!resolved) {
 			if (player.pendingTrack == null) toast.show(t('home.unplayable'));
 			return;
 		}
+		player.setListQueue(tracks, 'home-discovery');
 	}
 </script>
 

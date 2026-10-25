@@ -8,8 +8,16 @@
 // stayed a gradient forever. This module fixes (a) by restoring a multi-tier fall-through chain and
 // (b) by lifting the default cap (the home now passes a cap = the full gathered gradient set).
 //
-// MULTI-TIER CHAINS (stop at the first SOLID — non-empty, https — cover):
-//  - TRACK: iTunes → QQ → Deezer → other CN → YouTube Music (Phase 40 D-08, amended).
+// MULTI-TIER CHAINS:
+//  - TRACK: quick-261021-cov3 (user, 2026-10-21) SUPERSEDED the sequential stop-at-first
+//    chain below with a PARALLEL prioritised race in resolveTrackChain: iTunes, the CN
+//    fan-out (JOOX/Migu preferred inside it), QQ, Deezer and YouTube Music ALL launch at
+//    once; a 300ms priority window lets a slower accurate source beat a faster one, and
+//    the winner is picked by priority iTunes > CN(JOOX/Migu) > QQ > Deezer > YTM. The
+//    per-tier notes below remain the record of what each tier IS (endpoint, cost, art
+//    quality) — read "tier N" as "priority N", not "runs only if N-1 missed". The
+//    historical sequential order was: iTunes → QQ → Deezer → other CN → YouTube Music
+//    (Phase 40 D-08, amended).
 //    Phase 40 D-08: QQ art leads the CJK catalog the user cares about, so QQ became its OWN tier,
 //    aimed via onlySource('qq') exactly like the YTM tier. QQ search rows carry `cover:null`
 //    (qq.ts search), so the tier costs a search + a qq detail resolve (~1.7s; up to 3 governed
@@ -117,6 +125,12 @@ import { hasHttpsScheme } from './url-safety';
 // quick-261021-cache1 (user): in-memory memo for collectCoverCandidates.
 // Cover candidates don't change frequently — repeat picker opens are instant.
 const coverCandidatesMemo = new Map<string, CoverCandidate[]>();
+
+/** Test hook (mirrors __resetCoverMissCache): the memo is session-scoped by design, so
+ *  suites that re-drive collectCoverCandidates with fixture uids must reset it. */
+export function __clearCoverCandidatesCache(): void {
+	coverCandidatesMemo.clear();
+}
 
 /** A cover-needing row — callers pass DiscoveryTrack rows (artist tiles are excluded). */
 export interface CoverNeed {
@@ -378,6 +392,13 @@ async function resolveTrackChain(
 				if (windowTimer) clearTimeout(windowTimer);
 				resolve();
 			};
+			// quick-261024-sets: attach the abort listener BEFORE launching the tasks and
+			// honour an already-aborted signal explicitly — addEventListener never fires for
+			// a signal that aborted before the listener attached (e.g. during
+			// coverSearchTerms or a task's synchronous launch), and without this the race
+			// promise could only ever settle when every task settled on its own timeouts.
+			if (signal?.aborted) finish();
+			else signal?.addEventListener('abort', () => finish(), { once: true });
 			for (const task of tasks) {
 				task.fn()
 					.then((cover) => {
@@ -395,7 +416,6 @@ async function resolveTrackChain(
 						if (--remaining === 0 && !done) finish();
 					});
 			}
-			signal?.addEventListener('abort', () => finish(), { once: true });
 		});
 
 		if (signal?.aborted) return null;

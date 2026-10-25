@@ -122,12 +122,15 @@
 
 	async function play(s: PackSong) {
 		const tr = await player.playStub(s.artist, s.title, undefined, 'songs-of-year');
+		// quick-261024-sets: install the pack UNPINNED — the Up-next sourcing setting for
+		// 'songs-of-year' decides between a generated tail (default) and the pack itself.
+		if (tr) player.setListQueue(packQueue(songs), 'songs-of-year');
 		if (tr === null && player.pendingTrack == null) toast.show(t('home.unplayable'));
 	}
 
-	// Whole-list queue (album-page quick-260919-alb idiom): track 1 plays instantly via
-	// playStub, the rest install as lazy name-only stub tracks (zero network; they resolve
-	// when they reach the front). `sameList` keeps the installed list through the fresh-play tail.
+	// The pack installs as lazy name-only stub tracks (zero network; they resolve when
+	// they reach the front). quick-261024-sets (Hector 2026-10-24): installed UNPINNED — no sameList
+	// outside album/artist; the Up-next sourcing setting decides the tail.
 	function packQueue(list: PackSong[], at = -1, real: Track | null = null): Track[] {
 		return list
 			.map((s, i) => (i === at && real ? real : nameStub(s.artist, s.title)))
@@ -135,19 +138,15 @@
 	}
 	async function playAll() {
 		if (!songs.length) return;
-		const first = await player.playStub(songs[0].artist, songs[0].title, undefined, 'songs-of-year', {
-			sameList: true
-		});
+		const first = await player.playStub(songs[0].artist, songs[0].title, undefined, 'songs-of-year');
 		if (first) player.setListQueue(packQueue(songs, 0, first), 'songs-of-year');
 		else if (player.pendingTrack == null) toast.show(t('home.unplayable'));
 	}
 	async function shufflePlay() {
-		// Shuffle installs the WHOLE pack as Up Next in shuffled order.
+		// Shuffle starts from a shuffled copy; the pack installs unpinned (quick-261024-sets).
 		const shuffled = shuffle(songs);
 		if (!shuffled.length) return;
-		const first = await player.playStub(shuffled[0].artist, shuffled[0].title, undefined, 'songs-of-year', {
-			sameList: true
-		});
+		const first = await player.playStub(shuffled[0].artist, shuffled[0].title, undefined, 'songs-of-year');
 		if (first) player.setListQueue(packQueue(shuffled, 0, first), 'songs-of-year');
 		else if (player.pendingTrack == null) toast.show(t('home.unplayable'));
 	}

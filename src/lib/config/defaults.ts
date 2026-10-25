@@ -190,25 +190,27 @@ export const UPNEXT_DEFAULTS = {
 	/** Global default sourcing mode — roadmap-locked to 'generated'. */
 	mode: 'generated' as UpnextMode,
 	/**
-	 * Per-context overrides — ALBUM ONLY. `album` resolves to 'same-list' (a curated, ordered
-	 * collection — users expect "play the rest of the album"); EVERY other context, artist
-	 * included, resolves to the global `mode` ('generated') so a tap anywhere else fills Up-Next
-	 * with similar songs.
+	 * Per-context overrides — ALBUM + ARTIST ONLY. Both resolve to 'same-list' (curated,
+	 * ordered collections — users expect "play the rest of the album / this artist's list");
+	 * EVERY other context resolves to the global `mode` ('generated'), so a tap anywhere else
+	 * seeds Up-Next from the tapped song with similar songs (quick-261024-sets: Hector's
+	 * app-wide rule — "everywhere seed; only same list for album or artist page").
 	 *
-	 * quick-260831-jtw: `artist` used to be pinned to 'same-list' here on the theory that an
-	 * artist page is a curated collection too. It is not — tapping a song on an artist page is
-	 * an ordinary "play this song" tap and should seed genre-similar sourcing like search/home/
-	 * charts/library do. Dropped.
+	 * History: `artist` was pinned, dropped by quick-260831-jtw (an artist tap treated as an
+	 * ordinary "play this song" tap), and is pinned AGAIN by quick-261024-sets on Hector's
+	 * explicit call, which supersedes jtw. The artist page installs its ranked list on row
+	 * taps (setListQueue(…, 'artist')), so this pin is what makes those taps keep the list
+	 * through the fresh-play tail instead of regenerating over it.
 	 *
-	 * Also quick-260831-jtw: this object is now the ACTUAL seed for `settings.upnextPerContext`
-	 * (init + load fallback), not just what `resetPlayback()` spreads. Before, a fresh install
-	 * started at `{}` (album generated) while a post-reset install got album+artist same-list —
-	 * the same app behaving two ways depending on whether the reset button had ever been pressed.
+	 * Also quick-260831-jtw: this object is the ACTUAL seed for `settings.upnextPerContext`
+	 * (init + load fallback), not just what `resetPlayback()` spreads, and load() merges it
+	 * UNDER any persisted per-context choices — so adding the artist pin here reaches existing
+	 * installs automatically unless the user deliberately set the artist segment themselves.
 	 * Wiring it as the seed also stops the album hot path from firing a full regenerate
 	 * (track.getSimilar + a 20-track tail) that `setListQueue(all, 'album')` immediately discards
 	 * via the queueGen guard.
 	 */
-	perContext: { album: 'same-list' } as Partial<Record<Exclude<QueueContext, null>, UpnextMode>>
+	perContext: { album: 'same-list', artist: 'same-list' } as Partial<Record<Exclude<QueueContext, null>, UpnextMode>>
 } as const;
 
 // ---- Home layout -----------------------------------------------------------------------

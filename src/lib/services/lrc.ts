@@ -175,10 +175,14 @@ export function reorderPairs(lines: LyricLine[]): LyricLine[] {
 		// Move the first original (song-dominant) line to the front; keep all others stable.
 		// quick-261020-lyr2: mark the non-dominant lines as translations so the Hide
 		// parenthesised translations/lines settings can catch separate-line translations.
+		// quick-261024-sets: a fromParen line is a clause split OUT of its parent line by
+		// splitParenLines, not a standalone translation line — never mark it. Marking it
+		// also broke pipeline idempotency: splitParenLines(reorderPairs(x)) re-run through
+		// reorderPairs would newly mark the split clause on the second pass.
 		const origIdx = group.findIndex((l) => dominantScript(l.text) === songDominant);
 		const reordered = [group[origIdx], ...group.filter((_, k) => k !== origIdx)];
 		for (let k = 1; k < reordered.length; k++) {
-			reordered[k] = { ...reordered[k], isTranslation: true };
+			if (!reordered[k].fromParen) reordered[k] = { ...reordered[k], isTranslation: true };
 		}
 		out.push(...reordered);
 	}

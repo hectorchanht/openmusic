@@ -6,6 +6,7 @@ import {
 	resolveShareCover,
 	coverSearchTerms,
 	collectCoverCandidates,
+	__clearCoverCandidatesCache,
 	__resetCoverMissCache,
 	__resetQqCoverGate,
 	__resetShareCoverMemo
@@ -26,7 +27,10 @@ import { SOURCES } from '$lib/sources/registry';
 
 // cover-backfill (quick-260607-0bb supersedes wv8; quick-260919-0mw then quick-260920-nyq reordered
 // the TRACK chain). These tests pin the multi-tier chains:
-//   TRACK:  iTunes → QQ → Deezer → other CN → YTM, stop at first SOLID (https, non-empty). Phase 40
+//   TRACK:  quick-261021-cov3 — a PARALLEL prioritised race (all of iTunes / CN / QQ / Deezer /
+//     YTM launch at once; the winner is the highest-priority SOLID cover: iTunes > CN > QQ >
+//     Deezer > YTM). The pre-cov3 sequential chain was iTunes → QQ → Deezer → other CN → YTM,
+//     stop at first SOLID (https, non-empty). Phase 40
 //     D-08 inserted QQ (search + one detail) as tier 2 and took qq + ytmusic out of the CN fan-out.
 //     Before that, quick-260920-nyq
 //     ranks the tiers on FETCH SPEED + PICTURE SIZE: iTunes is a direct CORS-open GET at 1200px,
@@ -132,6 +136,9 @@ beforeEach(() => {
 	// Same reasoning for the share-card memo: module-scoped + session-lived, so a hit recorded in one
 	// test would otherwise short-circuit the tier calls another test expects to observe.
 	__resetShareCoverMemo();
+	// quick-261021-cache1: collectCoverCandidates memoizes by uid across calls — reset it too,
+	// or one test's candidates leak into every later test reusing a fixture uid.
+	__clearCoverCandidatesCache();
 	// Default `searchAll` to a miss so an unmocked test can never reach the real network; tests that
 	// pin a tier re-mock it with mockSearch(). (quick-260920-nyq: after the reorder a chain test that
 	// only cares about iTunes/Deezer usually issues NO searchAll at all — the default now mostly
@@ -150,11 +157,11 @@ afterEach(() => {
 	});
 });
 
-describe('backfillCovers — iTunes → QQ → Deezer → CN → YTM track chain (Phase 40 D-08)', () => {
+describe('backfillCovers — track cover race (Phase 40 D-08 tiers, quick-261021-cov3 parallel priority)', () => {
 	const YTM = 'https://lh3.googleusercontent.com/ytm.jpg';
 	const IT = 'https://is1-ssl.mzstatic.com/it-cover.jpg';
 
-	it('uses the iTunes cover when present and calls NO Deezer and NO searchAll at all (tier-1 short-circuit)', async () => {
+	it('uses the iTunes cover when present — cov3 launches every tier in parallel, iTunes wins on priority', async () => {
 		const searchSpy = mockSearch({ ytm: [mk('ytmusic', 'y', { cover: YTM })] });
 		const itunesSpy = vi.spyOn(itunes, 'itunesSongCover').mockResolvedValue(IT);
 		const deezerSpy = vi.spyOn(deezer, 'deezerSongCover');
@@ -167,16 +174,17 @@ describe('backfillCovers — iTunes → QQ → Deezer → CN → YTM track chain
 		// iTunes receives the caller's signal (undefined here — no signal supplied) plus the
 		// quick-261006-o9t display size (400px, not the 1200 default).
 		expect(itunesSpy).toHaveBeenCalledWith('Drake', 'Hotline Bling', undefined, '400x400bb');
-		expect(deezerSpy).not.toHaveBeenCalled(); // iTunes hit → no Deezer
-		// quick-260920-nyq: the tier-1 hit now short-circuits BEFORE either searchAll tier, so the
-		// common case issues ZERO CN and ZERO YTM searches — not one, as it did under YTM-first.
-		expect(searchSpy).not.toHaveBeenCalled();
+		// quick-261021-cov3: NO short-circuit any more — Deezer and all three searchAll tiers
+		// (CN, qq-only, ytmusic-only) launch too; the iTunes cover wins because it outranks
+		// every other tier's hit (here the YTM hit), not because the others never ran.
+		expect(deezerSpy).toHaveBeenCalled();
+		expect(searchSpy).toHaveBeenCalledTimes(3);
 		expect(getCachedCover('Drake', 'Hotline Bling')).toBe(IT);
 		expect(resolved).toHaveLength(1);
 		expect(resolved[0][1]).toBe(IT);
 	});
 
-	it('falls back to Deezer when iTunes + QQ miss (the only searchAll is the qq-only one — no CN, no YTM)', async () => {
+	it('falls back to Deezer when iTunes + QQ + CN miss (cov3: all tiers launch; Deezer outranks the YTM hit)', async () => {
 		const searchSpy = mockSearch({ ytm: [mk('ytmusic', 'y', { cover: YTM })] });
 		const itunesSpy = vi.spyOn(itunes, 'itunesSongCover').mockResolvedValue(null);
 		const deezerSpy = vi
@@ -191,8 +199,9 @@ describe('backfillCovers — iTunes → QQ → Deezer → CN → YTM track chain
 		expect(itunesSpy).toHaveBeenCalled();
 		// quick-261006-o9t: the Deezer tier asks for the 500px 'big' rung, not cover_xl.
 		expect(deezerSpy).toHaveBeenCalledWith('Adele', 'Hello', undefined, 'big');
-		// Phase 40 D-08: the qq search ran (tier 2) and found no row, so no detail call was made.
-		expect(searchSpy).toHaveBeenCalledTimes(1);
+		// cov3: all three searchAll tiers ran (CN + qq-only + ytmusic-only); the qq search
+		// found no row, so no detail call was made.
+		expect(searchSpy).toHaveBeenCalledTimes(3);
 		expect(qqCalls()).toHaveLength(1);
 		expect(qqResolve()).not.toHaveBeenCalled();
 		expect(getCachedCover('Adele', 'Hello')).toBe('https://cdn-images.dzcdn.net/dz-cover.jpg');
@@ -200,7 +209,7 @@ describe('backfillCovers — iTunes → QQ → Deezer → CN → YTM track chain
 		expect(resolved[0][1]).toBe('https://cdn-images.dzcdn.net/dz-cover.jpg');
 	});
 
-	it('falls back to the CN cover when iTunes + Deezer miss (and does NOT reach the YTM tier)', async () => {
+	it('falls back to the CN cover when iTunes + Deezer miss (cov3: YTM launches too but loses on priority)', async () => {
 		const hit = mk('netease', 'hit', { cover: 'https://cn.example/cn-cover.jpg' });
 		const searchSpy = mockSearch({ cn: [hit], ytm: [mk('ytmusic', 'y', { cover: YTM })] });
 		const itunesSpy = vi.spyOn(itunes, 'itunesSongCover').mockResolvedValue(null);
@@ -215,14 +224,16 @@ describe('backfillCovers — iTunes → QQ → Deezer → CN → YTM track chain
 		expect(deezerSpy).toHaveBeenCalled();
 		// WR-01: the CN tier threads the caller's signal (undefined here) so the fan-out is abortable.
 		// Phase 40 D-08: explicit `qq: false, ytmusic: false` — each of those has its own tier.
+		// quick-261021-cov3: the CN fan-out now asks for page 3 (a deeper pool for the
+		// JOOX/Migu preference pick), and the YTM tier launches in parallel — it just loses.
 		expect(searchSpy).toHaveBeenCalledWith(
 			'Jay Chou Simple Love',
-			1,
+			3,
 			{ qq: false, ytmusic: false },
 			undefined
 		);
 		expect(cnCalls()).toHaveLength(1);
-		expect(ytmCalls()).toHaveLength(0); // CN hit → YTM (tier 4) never runs
+		expect(ytmCalls()).toHaveLength(1); // launched under cov3 — the CN cover outranks its hit
 		// The CJK case the user cares about: qq/netease art wins here precisely because the two
 		// faster tiers above do not carry the song.
 		expect(getCachedCover('Jay Chou', 'Simple Love')).toBe('https://cn.example/cn-cover.jpg');
@@ -303,7 +314,9 @@ describe('backfillCovers — iTunes → QQ → Deezer → CN → YTM track chain
 		__resetCoverMissCache();
 		await backfillCovers([{ artist: 'Later', title: 'Cover' }]);
 		expect(getCachedCover('Later', 'Cover')).toBe('https://cdn-images.dzcdn.net/later.jpg');
-		expect(cnCalls()).toHaveLength(1); // only the first (missing) pass reached the CN tier
+		// cov3: the CN tier launches on BOTH passes (parallel race) — the miss-cache reset
+		// is what re-enabled the second pass at all; that is what this test pins.
+		expect(cnCalls()).toHaveLength(2);
 	});
 
 	it('treats a NON-https cover as a miss and falls through to the next tier', async () => {
@@ -342,8 +355,9 @@ describe('backfillCovers — iTunes → QQ → Deezer → CN → YTM track chain
 
 		await backfillCovers([{ artist: 'X', title: 'Y' }]);
 		expect(deezerSpy).toHaveBeenCalled();
-		// a throw is a miss, not an escalation past Deezer: only the qq tier ran before it.
-		expect(searchSpy).toHaveBeenCalledTimes(1);
+		// a throw is a miss under the tier() wrapper; cov3 launched all three searchAll
+		// tiers in parallel anyway (all missed), and Deezer's hit wins the race.
+		expect(searchSpy).toHaveBeenCalledTimes(3);
 		expect(qqCalls()).toHaveLength(1);
 		expect(getCachedCover('X', 'Y')).toBe('https://cdn-images.dzcdn.net/dz.jpg');
 	});
@@ -356,7 +370,7 @@ describe('backfillCovers — iTunes → QQ → Deezer → CN → YTM track chain
 
 		await backfillCovers([{ artist: 'X', title: 'Y' }]);
 		expect(cnCalls()).toHaveLength(1);
-		expect(ytmCalls()).toHaveLength(0);
+		expect(ytmCalls()).toHaveLength(1); // cov3: launched in parallel (missed — no ytm fixture)
 		expect(getCachedCover('X', 'Y')).toBe('https://cn.example/cn.jpg');
 	});
 
@@ -417,15 +431,19 @@ describe('QQ cover tier (Phase 40 D-08)', () => {
 	const DZ = 'https://cdn-images.dzcdn.net/dz.jpg';
 	const t = () => mk('netease', 'n1', { artist: 'Jay Chou', title: 'Qing Hua Ci' });
 
-	it('an iTunes hit issues NO searchAll and NO qq detail call', async () => {
+	it('an iTunes hit wins the cov3 race — every tier launches, the qq detail runs, iTunes still wins', async () => {
 		vi.spyOn(itunes, 'itunesSongCover').mockResolvedValue('https://is1-ssl.mzstatic.com/x.jpg');
 		mockSearch({ qq: [mk('qq', 'q1')] });
-		await resolveCoverForTrack(t());
-		expect(catalog.searchAll).not.toHaveBeenCalled();
-		expect(qqResolve()).not.toHaveBeenCalled();
+		// Pre-cov3 this pinned the sequential short-circuit (NO searchAll, NO detail call).
+		// cov3 launches all tiers in parallel; the pin that survives is the OUTCOME: the
+		// priority-1 iTunes cover is the result even though the qq tier fully ran (its
+		// default detail returns no cover, so the qq tier itself missed here).
+		expect(await resolveCoverForTrack(t())).toBe('https://is1-ssl.mzstatic.com/x.jpg');
+		expect(catalog.searchAll).toHaveBeenCalledTimes(3);
+		expect(qqResolve()).toHaveBeenCalledTimes(1);
 	});
 
-	it('an iTunes miss + a qq row → ONE detail call on a COPY of the row, its cover wins, Deezer skipped', async () => {
+	it('an iTunes miss + a qq row → ONE detail call on a COPY of the row, its cover wins over Deezer (priority)', async () => {
 		vi.spyOn(itunes, 'itunesSongCover').mockResolvedValue(null);
 		const deezerSpy = vi.spyOn(deezer, 'deezerSongCover').mockResolvedValue(DZ);
 		const row = mk('qq', 'q1', { artist: 'Jay Chou', title: 'Qing Hua Ci' });
@@ -440,7 +458,8 @@ describe('QQ cover tier (Phase 40 D-08)', () => {
 		expect(arg.uid).toBe(row.uid);
 		expect(arg).not.toBe(row); // a COPY — qq resolve mutates its argument in place
 		expect(row.cover).toBeNull();
-		expect(deezerSpy).not.toHaveBeenCalled();
+		// cov3: Deezer DID launch (parallel race) and even hit — QQ outranks it (priority 3 > 4).
+		expect(deezerSpy).toHaveBeenCalledTimes(1);
 	});
 
 	it('an empty qq search skips the detail call and falls through to Deezer', async () => {
@@ -497,18 +516,22 @@ describe('QQ cover tier (Phase 40 D-08)', () => {
 		expect(await resolveCoverForTrack(t())).toBe('https://kuwo.example/k.jpg');
 		expect(cnCalls()).toHaveLength(1);
 		expect(cnCalls()[0][2]).toEqual({ qq: false, ytmusic: false });
-		expect(ytmCalls()).toHaveLength(0);
+		expect(ytmCalls()).toHaveLength(1); // cov3: launched in parallel (missed — no ytm fixture)
 	});
 
-	it('every tier above missing → onlySource(ytmusic) runs LAST', async () => {
+	it('every tier above missing → the YTM cover wins (last priority); searchAll launch order is CN → QQ → YTM', async () => {
 		vi.spyOn(itunes, 'itunesSongCover').mockResolvedValue(null);
 		vi.spyOn(deezer, 'deezerSongCover').mockResolvedValue(null);
 		const YTM = 'https://lh3.googleusercontent.com/last.jpg';
 		mockSearch({ ytm: [mk('ytmusic', 'y', { cover: YTM })] });
 
 		expect(await resolveCoverForTrack(t())).toBe(YTM);
+		// cov3 launches the race tasks in array order — the searchAll tiers fire CN first,
+		// then the qq-only tier, then ytmusic-only (iTunes/Deezer are direct calls, not
+		// searchAll). YTM remains the LAST resort by priority: it wins only because every
+		// higher-priority tier missed.
 		const order = calls().map((c) => (c[2]?.ytmusic ? 'ytm' : c[2]?.qq ? 'qq' : 'cn'));
-		expect(order).toEqual(['qq', 'cn', 'ytm']);
+		expect(order).toEqual(['cn', 'qq', 'ytm']);
 		expect(calls()[2][2]).toEqual(expect.objectContaining({ ytmusic: true, qq: false }));
 	});
 
@@ -649,7 +672,7 @@ describe('resolveCoverForTrack — shared single-item resolve helper (Plan 21-02
 		expect(getCachedCover('Drake', 'Hotline Bling')).toBe('https://is1-ssl.mzstatic.com/it.jpg');
 	});
 
-	it('runs the iTunes → QQ → Deezer → CN → YTM tier order (falls through to Deezer on an iTunes + QQ miss)', async () => {
+	it('cov3 race: Deezer beats the YTM hit on priority when iTunes + QQ + CN miss', async () => {
 		const searchSpy = mockSearch({ ytm: [mk('ytmusic', 'y', { cover: 'https://ytm/x.jpg' })] });
 		const itunesSpy = vi.spyOn(itunes, 'itunesSongCover').mockResolvedValue(null);
 		const deezerSpy = vi
@@ -661,11 +684,12 @@ describe('resolveCoverForTrack — shared single-item resolve helper (Plan 21-02
 		expect(out).toBe('https://cdn-images.dzcdn.net/dz.jpg');
 		expect(itunesSpy).toHaveBeenCalled();
 		expect(deezerSpy).toHaveBeenCalled();
-		// quick-260920-nyq: anything resolving before tier 4 issues ZERO ytmusic searches, so a
-		// Google-hosted 120px thumbnail can never displace the art a faster/larger tier already has.
-		expect(ytmCalls()).toHaveLength(0);
-		expect(cnCalls()).toHaveLength(0); // no CN fan-out either
-		expect(searchSpy).toHaveBeenCalledTimes(1); // only the qq-only tier-2 search
+		// cov3: the YTM and CN tiers DID launch (parallel) — the Google-hosted 120px
+		// thumbnail still cannot displace Deezer's art, now because Deezer outranks YTM
+		// (priority 4 > 5), not because YTM never ran.
+		expect(ytmCalls()).toHaveLength(1);
+		expect(cnCalls()).toHaveLength(1);
+		expect(searchSpy).toHaveBeenCalledTimes(3); // CN + qq-only + ytmusic-only
 	});
 
 	it('returns null on a total miss (chain never throws), caching nothing', async () => {

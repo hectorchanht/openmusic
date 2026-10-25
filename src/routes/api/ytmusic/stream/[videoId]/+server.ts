@@ -80,6 +80,41 @@ const AUDIO_CACHE_MAX_BYTES = 25 * 1024 * 1024; // itag-140 songs are ~1-15 MB; 
 const audioCacheKey = (videoId: string) =>
 	new Request('https://openmusic.lol/__ytmusic__/audio/' + encodeURIComponent(videoId));
 
+// quick-261024-ytu — RESOLVED-URL EDGE CACHE. The -ytc audio cache only fills once a FULL file
+// has crossed a PoP, but an <audio> session is mostly RANGE requests — a track can be played
+// several times in a PoP before any single response covers the whole file, and every one of
+// those invocations still had to survive the gated player call. The resolved googlevideo URL
+// is therefore cached per PoP too: later invocations skip the player entirely and fetch bytes
+// straight from the cached URL. TTL 3 h — half the ~6 h signed-URL lifetime, so an entry
+// expires well before the URL does. The URL is IP-locked to the resolving egress and a PoP's
+// invocations do not always share one, so a cached URL can 403 where a fresh one would work:
+// ANY non-OK media answer on the fast path invalidates the entry and falls through to the
+// normal player flow (the entry is a hint, never a promise). SECURITY (T-27-03-02): the signed
+// URL lives ONLY inside the edge cache — it is never returned to the client; only bytes are.
+const URL_CACHE_TTL_S = 3 * 60 * 60;
+const urlCacheKey = (videoId: string) =>
+	new Request('https://openmusic.lol/__ytmusic__/url/' + encodeURIComponent(videoId));
+// Only plain single-range / range-less requests take the fast path — the same provable shapes
+// the audio cache serves. Anything exotic (multi-range…) runs the full live flow.
+const SINGLE_RANGE_SHAPE = /^bytes=\d*-\d*$/;
+
+/** The cached googlevideo URL for this video, or null. A stored value that is not a plausible
+ *  googlevideo URL is deleted rather than fetched (the cache is a hint, not a trust root). */
+async function readCachedStreamUrl(cache: EdgeCache, videoId: string): Promise<string | null> {
+	try {
+		const hit = await cache.match(urlCacheKey(videoId));
+		if (!hit) return null;
+		const url = (await hit.text()).trim();
+		if (!url.startsWith('https://') || !url.includes('googlevideo.com')) {
+			await cache.delete(urlCacheKey(videoId)).catch(() => false);
+			return null;
+		}
+		return url;
+	} catch {
+		return null;
+	}
+}
+
 /** Parse ONE `bytes=a-b` / `bytes=a-` / `bytes=-n` range against a known total. Anything else
  *  (multi-range, malformed, out of bounds) → null, and the caller falls through to the live
  *  upstream flow rather than answering a range it cannot prove correct. */
@@ -248,7 +283,27 @@ export const GET: RequestHandler = async ({ params, request, platform }) => {
 	}
 
 	let res: Response | null = null;
-	for (let attempt = 0; attempt < URL_ATTEMPTS; attempt++) {
+	let urlCacheHit = false;
+	// quick-261024-ytu: a cached resolved URL lets this invocation skip the gated player call
+	// entirely. Any non-OK media answer invalidates the entry and falls through live.
+	if (cache && (range === null || SINGLE_RANGE_SHAPE.test(range.trim()))) {
+		const cachedUrl = await readCachedStreamUrl(cache, videoId);
+		if (cachedUrl) {
+			try {
+				const mediaRes = await fetchMedia(cachedUrl, upstreamHeaders);
+				if (mediaRes.ok) {
+					res = mediaRes;
+					urlCacheHit = true;
+				} else {
+					await mediaRes.body?.cancel().catch(() => {});
+					await cache.delete(urlCacheKey(videoId)).catch(() => false);
+				}
+			} catch {
+				// network throw — keep the entry (not proof of death), run the live flow
+			}
+		}
+	}
+	for (let attempt = 0; attempt < URL_ATTEMPTS && !urlCacheHit; attempt++) {
 		// 1+2. VISIONOS player POST (cached anonymous visitorData), retried on the bot gate with a
 		// fresh token per retry (callPlayerGated, quick-261024-ytg). The visitorData promise goes
 		// IN — the await lives inside callPlayer's try, so a getVisitorData throw is a graceful
@@ -277,6 +332,25 @@ export const GET: RequestHandler = async ({ params, request, platform }) => {
 			});
 		}
 
+		// quick-261024-ytu: remember the resolved URL for this PoP BEFORE spending the media
+		// fetch, so even a play whose bytes never fully land still arms the fast path for the
+		// next invocation. Inline-awaited (a ~1 KB put, milliseconds) — not waitUntil.
+		if (cache) {
+			try {
+				await cache.put(
+					urlCacheKey(videoId),
+					new Response(streamUrl, {
+						headers: {
+							'content-type': 'text/plain',
+							'Cache-Control': `public, max-age=${URL_CACHE_TTL_S}`
+						}
+					})
+				);
+			} catch {
+				// a cache write failure must never break playback
+			}
+		}
+
 		// 4. Proxy the googlevideo bytes in the SAME invocation (IP-lock). We fetch ONLY the
 		//    adaptiveFormats url selected above — never a client-supplied URL (no open relay, T-27-03-01).
 		try {
@@ -291,6 +365,7 @@ export const GET: RequestHandler = async ({ params, request, platform }) => {
 
 	// itag 140 is always AAC/mp4 — set the content-type explicitly (the download flow + <audio> rely on it).
 	const outHeaders: Record<string, string> = { ...corsHeaders(origin), 'content-type': 'audio/mp4' };
+	if (urlCacheHit) outHeaders['x-ytmusic-urlcache'] = 'hit';
 	if (!res.ok) {
 		// Upstream error bodies are DROPPED, never relayed: Workers decompress a gzip body but keep the
 		// upstream content-length, and that length/body mismatch reached users as Cloudflare's own

@@ -20,6 +20,12 @@ import { collapseVariants, groupVariants, sameSongKey, songKey } from './dedupe'
 // cache-key computation and grouping on repeat opens.
 const variantsMemo = new Map<string, Track[]>();
 
+/** Test hook (mirrors ttl-cache's __clearSearchCache): the memo is session-scoped by
+ *  design, so suites that re-drive fetchVariants with fixture uids must reset it. */
+export function __clearVariantsCache(): void {
+	variantsMemo.clear();
+}
+
 /**
  * Fetch the cross-source variants of ONE song on demand.
  *

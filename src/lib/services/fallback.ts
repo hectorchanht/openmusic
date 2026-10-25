@@ -21,16 +21,19 @@ import type { SourceId, Track } from '$lib/sources/types';
  * song — CR-03); surfaces `preferred` first when set. Pure — exported for testability.
  *
  * ORDER INHERITANCE (POLICY.md / spikes 001+004): the base order is `getEnabledAdapters({})` order,
- * which is the registry SOURCES literal order — now kuwo-first. So with no `preferred` set, failover
- * walks kuwo → qq → netease → joox → (fivesing → jamendo → audius). An explicit user
+ * which is the registry SOURCES literal order — now kuwo-first. quick-261021-fb2 then re-sorts that
+ * base by measured findOfficial pass rate (see PASS_RATE_RANK below; the sort is stable, so registry
+ * order survives inside a tier) — with no `preferred` set, failover walks the pass-rate floor
+ * (tier 1: joox/kuwo/kugou, then tier 2: qq/netease/gdnetease/migu, then the rest). An explicit user
  * `settings.preferredSource`, threaded in as `preferred`, still wins (hoisted first) over the
- * kuwo default. This function names NO source itself — reorder the registry to change the floor.
+ * ranked floor. This function names NO source in its ORDER logic — reorder the registry or the
+ * rank table to change the floor.
  *
  * OFF-THE-HOT-PATH EXCLUSION (Plan 27-04, YT-RESILIENCE-01): a source flagged
  * `autoResolveEligible === false` (ytmusic — adversarial + IP-locked upstream, 27-CONTEXT) is NEVER
  * offered as a failover TARGET for a track it did not originate. The filter reads the REGISTRY FLAG,
  * not a literal id, so the "names NO source itself" invariant holds. Note this bars only the reverse
- * direction: a FAILED ytmusic track still falls FORWARD to the unchanged kuwo→qq→netease→joox floor
+ * direction: a FAILED ytmusic track still falls FORWARD to the unchanged pass-rate floor
  * (ytmusic is the `failed` source there, dropped by the `s !== failed` clause regardless).
  *
  * `attempted` prevents the unbounded A↔B ping-pong where a resolve-but-unplayable source (URL

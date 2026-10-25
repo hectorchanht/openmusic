@@ -364,7 +364,11 @@ describe('names — rescued Chinese name aliases (quick-260925-x8o)', () => {
 
 	it("'zh-Hant' shows the verified pair and never sends it to /api/translate", async () => {
 		seed();
+		// quick-261020-lyr11/12: the alias only applies when the translation TARGET is the
+		// Chinese script too — set all three, not zhScript alone.
 		settingsMock.zhScript = 'zh-Hant';
+		settingsMock.artistLang = 'zh-Hant';
+		settingsMock.titleLang = 'zh-Hant';
 		translateMock.mockResolvedValue({ out: [], flags: [] });
 		const { names } = await import('./names.svelte');
 		await warmLock('zh-Hant');
@@ -380,6 +384,8 @@ describe('names — rescued Chinese name aliases (quick-260925-x8o)', () => {
 	it("'zh-Hans' renders the alias in the selected script", async () => {
 		seed();
 		settingsMock.zhScript = 'zh-Hans';
+		settingsMock.artistLang = 'zh-Hans';
+		settingsMock.titleLang = 'zh-Hans';
 		const { names } = await import('./names.svelte');
 		await warmLock('zh-Hans');
 		expect(names.dnArtist('Jay Chou')).toBe('周杰伦');
@@ -389,6 +395,8 @@ describe('names — rescued Chinese name aliases (quick-260925-x8o)', () => {
 	it('the title alias is keyed by the PAIR — no artist or another artist never aliases', async () => {
 		seed();
 		settingsMock.zhScript = 'zh-Hant';
+		settingsMock.artistLang = 'zh-Hant';
+		settingsMock.titleLang = 'zh-Hant';
 		const { names } = await import('./names.svelte');
 		await warmLock('zh-Hant');
 		expect(names.dnTitle('Coral Sea')).toBe('Coral Sea');
@@ -399,6 +407,8 @@ describe('names — rescued Chinese name aliases (quick-260925-x8o)', () => {
 	it('a cached miss never aliases', async () => {
 		seed();
 		settingsMock.zhScript = 'zh-Hant';
+		settingsMock.artistLang = 'zh-Hant';
+		settingsMock.titleLang = 'zh-Hant';
 		const { names } = await import('./names.svelte');
 		await warmLock('zh-Hant');
 		expect(names.dnTitle('someone like u', 'lullaboy')).toBe('someone like u');
@@ -407,6 +417,8 @@ describe('names — rescued Chinese name aliases (quick-260925-x8o)', () => {
 	it('a multi-performer zh credit aliases the title but never the lone raw artist', async () => {
 		seed();
 		settingsMock.zhScript = 'zh-Hant';
+		settingsMock.artistLang = 'zh-Hant';
+		settingsMock.titleLang = 'zh-Hant';
 		const { names } = await import('./names.svelte');
 		await warmLock('zh-Hant');
 		expect(names.dnTitle('The Actor', 'Joker Xue')).toBe('演員');
@@ -416,6 +428,8 @@ describe('names — rescued Chinese name aliases (quick-260925-x8o)', () => {
 	it('a new rescue write repaints live (rev bump) without a reload', async () => {
 		seed();
 		settingsMock.zhScript = 'zh-Hant';
+		settingsMock.artistLang = 'zh-Hant';
+		settingsMock.titleLang = 'zh-Hant';
 		const { names } = await import('./names.svelte');
 		const { writeRescueCache } = await import('$lib/services/name-rescue');
 		await warmLock('zh-Hant');
@@ -429,6 +443,8 @@ describe('names — rescued Chinese name aliases (quick-260925-x8o)', () => {
 
 	it('a malformed rescue store returns originals and never throws', async () => {
 		settingsMock.zhScript = 'zh-Hant';
+		settingsMock.artistLang = 'zh-Hant';
+		settingsMock.titleLang = 'zh-Hant';
 		for (const raw of ['{not json', JSON.stringify({ 'x|y': 'str', 'a|b': { a: 1, t: 2 } })]) {
 			vi.resetModules();
 			memStore.set(RESCUE_KEY, raw);
@@ -443,6 +459,8 @@ describe('names — rescued Chinese name aliases (quick-260925-x8o)', () => {
 	it('hydrates the alias map with ONE localStorage read per session', async () => {
 		seed();
 		settingsMock.zhScript = 'zh-Hant';
+		settingsMock.artistLang = 'zh-Hant';
+		settingsMock.titleLang = 'zh-Hant';
 		const spy = vi.spyOn(localStorageMock, 'getItem');
 		const { names } = await import('./names.svelte');
 		await warmLock('zh-Hant');
@@ -507,6 +525,8 @@ describe('names — rescued Chinese name aliases (quick-260925-x8o)', () => {
 	it('zhLock takes no artist and never aliases', async () => {
 		seed();
 		settingsMock.zhScript = 'zh-Hant';
+		settingsMock.artistLang = 'zh-Hant';
+		settingsMock.titleLang = 'zh-Hant';
 		const { names } = await import('./names.svelte');
 		await warmLock('zh-Hant');
 		expect(names.zhLock('Coral Sea')).toBe('Coral Sea');
