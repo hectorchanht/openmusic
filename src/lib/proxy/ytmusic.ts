@@ -24,7 +24,11 @@ import {
 	INNERTUBE_HEADERS,
 	SEARCH_URL,
 	WEB_REMIX_CONTEXT,
-	WEB_REMIX_KEY
+	WEB_REMIX_KEY,
+	PLAYER_URL,
+	PLAYER_UA,
+	playerBody,
+	isPlayable
 } from './ytmusic-innertube';
 
 // Re-export every pure primitive so existing importers ('$lib/proxy/ytmusic') need zero edits.
@@ -251,4 +255,72 @@ export function extractLyrics(browseJson: unknown): {
 	};
 	walk(browseJson);
 	return { text, attribution };
+}
+
+// --- Shared gated player resolve (quick-261024-vid1) -------------------------------------
+// Moved out of the audio stream route so the VIDEO route resolves through the exact same
+// gate machinery — one implementation of the bot-gate dance for every media route. The
+// doc-comments travel with the code; their quick-ids are the decision record.
+const PLAYER_TIMEOUT_MS = 15000; // player JSON hop
+// HEADERS-only deadline for the googlevideo hop: the timer is cleared once headers arrive, so
+// the body streams uncapped (the quick-260930-x3q posture — Workers bill CPU, not wall time).
+const MEDIA_HEAD_TIMEOUT_MS = 15000;
+// quick-261024-ytg: the PLAYER call itself is bot-gated per subrequest (~40% LOGIN_REQUIRED
+// from the edge). Each retry uses a FRESH visitorData; quick-261024-ytr races the retries in
+// parallel (see callPlayerGated).
+const PLAYER_GATE_ATTEMPTS = 3; // total player calls per resolve: cached token + 2 fresh
+const GATE_DELAY_MS = [250, 500]; // stagger before parallel gate retry 1 / 2
+const gateDelay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/** POST the VISIONOS player. Returns the parsed JSON, or null on an upstream throw (so the
+ *  caller can gate on isPlayable and refresh/503 rather than crash).
+ *
+ *  quick-261006-r2: `visitorData` arrives as a PROMISE and is awaited INSIDE the try — an
+ *  await while building the arguments would sit outside the try/catch, and a getVisitorData()
+ *  throw would become an uncaught crash instead of the graceful null promised here. */
+export async function callPlayer(videoId: string, visitorData: Promise<string | null>): Promise<unknown> {
+	try {
+		return await innerTubePost(PLAYER_URL, playerBody(videoId, await visitorData), {
+			headers: { 'user-agent': PLAYER_UA },
+			signal: AbortSignal.timeout(PLAYER_TIMEOUT_MS)
+		});
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * quick-261024-ytg — one player call, retried on a non-OK playability with a FRESH
+ * visitorData each time (see PLAYER_GATE_ATTEMPTS). First call uses the cached token (the
+ * fast, usually-OK path). Returns a playable response when one is found, otherwise the LAST
+ * retry's response, so the caller can gate / diagnose on it.
+ *
+ * quick-261024-ytr — the fresh-token retries race in PARALLEL (staggered by GATE_DELAY_MS):
+ * the edge probe that night proved no other InnerTube client survives the edge (ANDROID_VR /
+ * iOS byte-wall at ~1.5 MB, embedded/TV unusable), so VISIONOS stays the only client and the
+ * levers left are decorrelation + latency. First playable response wins.
+ */
+export async function callPlayerGated(videoId: string): Promise<unknown> {
+	const first = await callPlayer(videoId, getVisitorData());
+	if (isPlayable(first)) return first;
+	const retries = await Promise.all(
+		Array.from({ length: PLAYER_GATE_ATTEMPTS - 1 }, async (_, i) => {
+			await gateDelay(GATE_DELAY_MS[i] ?? 500);
+			return callPlayer(videoId, getVisitorData(true));
+		})
+	);
+	return retries.find((j) => isPlayable(j)) ?? retries[retries.length - 1] ?? first;
+}
+
+/** One googlevideo byte fetch with a HEADERS-only deadline (see MEDIA_HEAD_TIMEOUT_MS). RAW
+ *  edge fetch (fetchWithRetry) — NEVER the client fetch governor (api-base): a long-lived
+ *  media stream must not hold a governor slot (T-27-03-03). */
+export async function fetchMedia(url: string, headers: Record<string, string>): Promise<Response> {
+	const ctrl = new AbortController();
+	const timer = setTimeout(() => ctrl.abort(), MEDIA_HEAD_TIMEOUT_MS);
+	try {
+		return await fetchWithRetry(url, { redirect: 'follow', signal: ctrl.signal, headers }, 1);
+	} finally {
+		clearTimeout(timer);
+	}
 }

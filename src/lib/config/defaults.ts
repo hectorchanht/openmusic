@@ -139,6 +139,13 @@ export const PLAYBACK_DEFAULTS = {
 	 *  Now-Playing page. Shown by default per quick-260925-vtg (the user's own exported settings
 	 *  adopted as the defaults); k5y's original "extra chrome" reasoning for OFF is superseded. */
 	showQualityTag: true,
+	/** quick-261024-vid1: the Now Playing MV video layer (ytmusic tracks). ON by default —
+	 *  the layer is inert until the user taps Watch MV, so nobody pays its data cost by
+	 *  accident; the toggle exists so it can be banished entirely (rows stop tagging too). */
+	videoEnabled: true,
+	/** quick-261024-vid1: height cap for the MV layer, shared by Settings and the Now
+	 *  Playing quality menu (one setting, two surfaces). */
+	videoQuality: 720 as VideoQuality,
 	/** quick-260919-1we (D-7): make the docked mini player show the currently-sung lyric line in
 	 *  place of the artist name. OFF by default, for the reason k5y originally gave for
 	 *  showQualityTag (before quick-260925-vtg flipped it): it
@@ -157,6 +164,9 @@ export const PLAYBACK_DEFAULTS = {
 // The types live HERE (not in a store) so both player.svelte.ts and settings.svelte.ts can
 // import them without a circular dependency — defaults.ts is already imported by both.
 export type UpnextMode = 'same-list' | 'generated';
+/** MV video-layer height caps (quick-261024-vid1) — the quality picker's whole domain. */
+export type VideoQuality = 720 | 480 | 360 | 240;
+export const VIDEO_QUALITIES: readonly VideoQuality[] = [720, 480, 360, 240];
 /** quick-261024-sets4 (Hector): the five country chart packs share ONE up-next setting —
  *  "只需要加一個 pack that apply to all country". `PACK_CONTEXTS` is the family the single
  *  'pack' key governs; a queue still carries its specific pack context, and

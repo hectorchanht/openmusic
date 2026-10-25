@@ -26,7 +26,7 @@
 //  - bot gate (T-27-03-04): VISIONOS + cached visitorData clears the gate anonymously;
 //    bounded fresh-token retries then 503 avoids hammering a challenging upstream (never hang).
 import type { RequestHandler } from './$types';
-import { corsHeaders, fetchWithRetry, corsPreflight } from '$lib/proxy/http';
+import { corsHeaders, corsPreflight } from '$lib/proxy/http';
 import { edgeCache, type EdgeCache } from '$lib/proxy/edge-cache';
 // selectAudioFormat + isPlayable live in the shared proxy module, NOT here: SvelteKit `+server.ts`
 // only permits HTTP-verb (or `_`-prefixed) exports, so a top-level `export function` in this route
@@ -37,35 +37,19 @@ import { edgeCache, type EdgeCache } from '$lib/proxy/edge-cache';
 // (src/lib/services/ytmusic-native.ts) so one bump fixes both (quick-260915-3ng). Imported here via
 // the $lib/proxy/ytmusic re-export.
 import {
-	playerBody,
-	getVisitorData,
-	innerTubePost,
+	callPlayerGated,
+	fetchMedia,
 	isPlayable,
 	playabilityInfo,
-	selectAudioFormat,
-	PLAYER_UA,
-	PLAYER_URL
+	selectAudioFormat
 } from '$lib/proxy/ytmusic';
 
-const PLAYER_TIMEOUT_MS = 15000; // player JSON hop
-// HEADERS-only deadline for the googlevideo hop: the timer is cleared once headers arrive, so the
-// body streams uncapped (the quick-260930-x3q posture — Workers bill CPU, not wall time). The old
-// whole-request AbortSignal.timeout(15 s) cut every range-less download at ~470 KB.
-const MEDIA_HEAD_TIMEOUT_MS = 15000;
 // googlevideo 403s ~1 in 6 edge byte fetches (sampled on prod 2026-10-04) even though the player said
 // OK — the url is IP-locked and a Worker's subrequests do not always leave from the same IP. A fresh
 // player call gets a fresh url, so retry the whole player→bytes hop on a 403.
 const URL_ATTEMPTS = 3;
-// quick-261024-ytg: the PLAYER call itself is bot-gated per subrequest — ~40% of live stream
-// requests came back `player not OK` (12-request sample 2026-10-24: 5× 503; a second track: 4/8),
-// while the identical VISIONOS call from a residential IP was 10/10 OK. The old shape made ONE
-// cached-token call + ONE refresh and then 503'd — a coin flip per click ("plays on the 2nd/3rd
-// click", per the user report). Each retry below uses a FRESH visitorData (a new subrequest can
-// egress un-gated, same premise as the media-403 retry above), with a short escalating pause.
-const PLAYER_GATE_ATTEMPTS = 3; // total player calls per media attempt: cached token + 2 fresh
-const GATE_DELAY_MS = [250, 500]; // stagger before parallel gate retry 1 / 2 (quick-261024-ytr)
-
-const gateDelay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+// The gated player resolve (callPlayerGated) + the googlevideo byte fetch (fetchMedia)
+// moved to $lib/proxy/ytmusic in quick-261024-vid1 — the video route shares them verbatim.
 
 // quick-261024-ytc — FULL-AUDIO EDGE CACHE. Live follow-up to -ytg: a failing request still took
 // ~2.6-3.1 s (all 3 gate retries exhausted) while successes took ~0.9 s — the gate is the
@@ -215,65 +199,6 @@ function storableBody(
 		})().catch(() => {})
 	);
 	return serve;
-}
-
-/** POST the VISIONOS player. Returns the parsed JSON, or null on an upstream throw (so the caller
- *  can gate on isPlayable and refresh/503 rather than crash).
- *
- *  quick-261006-r2: `visitorData` arrives as a PROMISE and is awaited INSIDE the try. The old shape
- *  (`callPlayer(videoId, await getVisitorData())`) evaluated the await while building the arguments
- *  — OUTSIDE this try/catch — so a getVisitorData() throw was a real uncaught crash (a platform 502),
- *  not the graceful null this docstring promises. */
-async function callPlayer(videoId: string, visitorData: Promise<string | null>): Promise<unknown> {
-	try {
-		return await innerTubePost(PLAYER_URL, playerBody(videoId, await visitorData), {
-			headers: { 'user-agent': PLAYER_UA },
-			signal: AbortSignal.timeout(PLAYER_TIMEOUT_MS)
-		});
-	} catch {
-		return null;
-	}
-}
-
-/**
- * quick-261024-ytg — one player call, retried on a non-OK playability with a FRESH visitorData
- * each time (see PLAYER_GATE_ATTEMPTS). First call uses the cached token (the fast, usually-OK
- * path — a gated token costs one refresh, not a cold grab per play). Returns a playable
- * response when one is found, otherwise the LAST retry's response, so the caller can gate /
- * diagnose on it.
- *
- * quick-261024-ytr — the fresh-token retries race in PARALLEL (staggered by GATE_DELAY_MS)
- * instead of sequentially. The edge probe that night (scratch worker, 6 strategies x 24
- * samples) proved no other InnerTube client survives the edge — ANDROID_VR / iOS player-OK
- * but byte-wall at ~1.5 MB (GVS PoToken), the embedded/TV clients unusable — so VISIONOS
- * stays the only client and the remaining lever is decorrelation + latency: parallel
- * subrequests can egress differently, and the worst case costs max(delay + call) instead of
- * the sequential sum. Once the first call has failed the full budget is spent either way;
- * the first playable response wins.
- */
-async function callPlayerGated(videoId: string): Promise<unknown> {
-	const first = await callPlayer(videoId, getVisitorData());
-	if (isPlayable(first)) return first;
-	const retries = await Promise.all(
-		Array.from({ length: PLAYER_GATE_ATTEMPTS - 1 }, async (_, i) => {
-			await gateDelay(GATE_DELAY_MS[i] ?? 500);
-			return callPlayer(videoId, getVisitorData(true));
-		})
-	);
-	return retries.find((j) => isPlayable(j)) ?? retries[retries.length - 1] ?? first;
-}
-
-/** One googlevideo byte fetch with a HEADERS-only deadline (see MEDIA_HEAD_TIMEOUT_MS). RAW edge
- *  fetch (fetchWithRetry) — NEVER the client fetch governor (api-base): a long-lived media stream
- *  must not hold a governor slot (T-27-03-03). */
-async function fetchMedia(url: string, headers: Record<string, string>): Promise<Response> {
-	const ctrl = new AbortController();
-	const timer = setTimeout(() => ctrl.abort(), MEDIA_HEAD_TIMEOUT_MS);
-	try {
-		return await fetchWithRetry(url, { redirect: 'follow', signal: ctrl.signal, headers }, 1);
-	} finally {
-		clearTimeout(timer);
-	}
 }
 
 export const GET: RequestHandler = async ({ params, request, platform }) => {

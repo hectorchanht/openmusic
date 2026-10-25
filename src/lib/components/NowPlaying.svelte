@@ -4,7 +4,7 @@
 	import { fly, fade } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
 	import { goto } from '$app/navigation';
-	import { ChevronDown, MoreVertical, Heart, SkipBack, SkipForward, Play, Pause, Moon, ListMusic, MicVocal, MessageCircle, Sparkles, VolumeX, Volume1, Volume2 } from '@lucide/svelte';
+	import { ChevronDown, MoreVertical, Heart, Clapperboard, SkipBack, SkipForward, Play, Pause, Moon, ListMusic, MicVocal, MessageCircle, Sparkles, VolumeX, Volume1, Volume2 } from '@lucide/svelte';
 	import { player, fmtTime } from '$lib/stores/player.svelte';
 	import { sleepTimer } from '$lib/stores/sleepTimer.svelte';
 	import { settings } from '$lib/stores/settings.svelte';
@@ -41,6 +41,7 @@
 	import KeyTip from '$lib/components/KeyTip.svelte';
 	import { marquee } from '$lib/actions/marquee';
 	import { coverSwipe } from '$lib/actions/coverSwipe';
+import VideoStage from '$lib/components/VideoStage.svelte';
 	import { scrub } from '$lib/actions/scrub';
 	import { seekTargetFraction, SEEK_STEP_SECONDS } from '$lib/services/transport-keys';
 	import { tapBounce } from '$lib/actions/tapBounce';
@@ -317,6 +318,10 @@
 	// lockstep with every tile, the Nowbar and the OS media card (all four read player.displayCover).
 	// The `data:` embedded-cover exception lives in the getter. Null (all miss) → gradient (D-12).
 	const effectiveCover = $derived(player.displayCover);
+	// quick-261024-vid1: the MV layer — one-tap toggle in the meta row; the stage replaces
+	// the cover strip while on. Offered only for ytmusic tracks with videos enabled.
+	let videoOn = $state(false);
+	const canVideo = $derived(settings.videoEnabled && player.current?.source === 'ytmusic');
 
 	// quick-260704-20e: self-heal a DEAD current cover — the counterpart to the neighbor cells'
 	// use:lazyCover. resolvedCover is seeded FIRST from track.cover (a source-CDN thumbnail that
@@ -1044,6 +1049,11 @@
 	         coverSwipe arms a one-shot capture-phase click suppressor on the strip (stops the bubble to
 	         `.cover`). NO extra movement guard is added beyond the sheetState check.
 	     Net: |dy|>|dx| past slop → vertical collapse; |dx|>|dy| past slop → carousel; sub-slop → tap. -->
+	{#if videoOn && canVideo}
+		<div class="cover video-cover">
+			<VideoStage videoId={player.current?.songid ?? ''} onclose={() => (videoOn = false)} />
+		</div>
+	{:else}
 	<div
 		class="cover"
 		onclick={tapCoverCollapse}
@@ -1107,6 +1117,7 @@
 			{/if}
 		</div>
 	</div>
+	{/if}
 
 	<div class="meta">
 		<!-- {#key uid}: .title/.artist are single persistent nodes, so the marquee action would
@@ -1164,6 +1175,16 @@
 			</div>
 		{/key}
 	</div>
+
+	{#if canVideo}
+		<!-- quick-261024-vid1: one-tap MV toggle. Lives under the meta block (the transport
+		     row stays exactly five wide by design); the stage's own X closes it too. -->
+		<div class="mv-row">
+			<button class="mv-toggle" class:on={videoOn} aria-pressed={videoOn} onclick={() => (videoOn = !videoOn)} use:tapBounce>
+				<Clapperboard size={14} /> {t('nowplaying.watchVideo')}
+			</button>
+		</div>
+	{/if}
 
 	{#if player.error}
 		<p class="np-error" role="alert">{tMaybeKey(player.error)}</p>
@@ -1436,6 +1457,12 @@
 	.np-top { touch-action: pan-x; }
 	.cover { position: relative; z-index: 1; width: min(72vw, 320px); height: auto; aspect-ratio: 1/1; margin: 4px auto; border-radius: 16px; overflow: hidden; background-size: cover; background-position: center; box-shadow: 0 18px 50px rgba(0,0,0,0.5); cursor: grab; transition: width 0.32s cubic-bezier(.22,1,.36,1), height 0.32s cubic-bezier(.22,1,.36,1), margin 0.32s cubic-bezier(.22,1,.36,1), border-radius 0.32s cubic-bezier(.22,1,.36,1); }
 	.cover:active { cursor: grabbing; }
+	/* quick-261024-vid1: the video stage takes the cover box (black letterbox inside);
+	   the toggle pill sits centred under the meta block. */
+	.video-cover { background: #000; cursor: default; }
+	.mv-row { display: flex; justify-content: center; margin-top: 10px; }
+	.mv-toggle { display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; border-radius: 999px; border: 1px solid var(--color-border); background: transparent; color: var(--color-text); font-size: 13px; cursor: pointer; }
+	.mv-toggle.on { border-color: var(--color-accent, #e5484d); color: var(--color-accent, #e5484d); }
 	/* NP-01 carousel: the rigid strip fills .cover and rests at translateX(0) (current cell visible).
 	   The commit-settle uses the cover-reflow personality (0.32s, same universal curve); coverSwipe
 	   overrides this to `none` while dragging (1:1 finger-follow), then restores it on release so the

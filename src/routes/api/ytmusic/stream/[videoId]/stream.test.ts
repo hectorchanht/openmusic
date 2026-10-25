@@ -6,6 +6,11 @@ import { GET as streamGet, OPTIONS as streamOptions } from './+server';
 // non-HTTP-verb exports — quick-270715).
 import {
 	selectAudioFormat,
+	selectVideoFormat,
+	extractCaptionTracks,
+	pickCaptionTrack,
+	captionsToLrc,
+	extractDescription,
 	isPlayable,
 	playabilityInfo,
 	PLAYER_URL,
@@ -53,6 +58,103 @@ describe('selectAudioFormat — itag-140 AAC selection (never Opus, never cipher
 	it('returns null for a null / malformed body', () => {
 		expect(selectAudioFormat(null)).toBeNull();
 		expect(selectAudioFormat({})).toBeNull();
+	});
+});
+
+describe('selectVideoFormat — avc/mp4 ≤720p pick for the MSE video layer (quick-261024-vid1)', () => {
+	const vf = (itag: number, height: number, mime: string, extra: Record<string, unknown> = {}) => ({
+		itag,
+		height,
+		width: Math.round(height * 1.78),
+		mimeType: mime,
+		bitrate: height * 1500,
+		url: `https://googlevideo.example/v${itag}`,
+		...extra
+	});
+	const AVC = 'video/mp4; codecs="avc1.640028"';
+	const VP9 = 'video/webm; codecs="vp9"';
+	const wrap = (adaptiveFormats: unknown[]) => ({ streamingData: { adaptiveFormats } });
+
+	it('prefers the highest avc rung at or below 720p (720 over 360, capped below 1080)', () => {
+		const pick = selectVideoFormat(wrap([vf(134, 360, AVC), vf(136, 720, AVC), vf(137, 1080, AVC)]));
+		expect(pick?.itag).toBe(136);
+		expect(pick?.height).toBe(720);
+		expect(pick?.mimeType).toBe(AVC); // the client needs the codec string for its SourceBuffer
+	});
+
+	it('never picks vp9/webm, even at a better rung (Safari MSE)', () => {
+		const pick = selectVideoFormat(wrap([vf(247, 720, VP9), vf(134, 360, AVC)]));
+		expect(pick?.itag).toBe(134);
+	});
+
+	it('skips a ciphered format (no direct url) and uses the next rung', () => {
+		const ciphered = vf(136, 720, AVC, { url: undefined, signatureCipher: 's=xyz' });
+		const pick = selectVideoFormat(wrap([ciphered, vf(134, 360, AVC)]));
+		expect(pick?.itag).toBe(134);
+	});
+
+	it('falls back to the smallest avc rung when every rung is above 720p', () => {
+		const pick = selectVideoFormat(wrap([vf(137, 1080, AVC), vf(299, 1080, AVC, { bitrate: 4000000 })]));
+		expect(pick?.height).toBe(1080);
+	});
+
+	it('returns null when only audio or only vp9 formats exist', () => {
+		expect(selectVideoFormat(wrap([vf(140, 0, 'audio/mp4; codecs="mp4a.40.2"')]))).toBeNull();
+		expect(selectVideoFormat(wrap([vf(248, 1080, VP9)]))).toBeNull();
+		expect(selectVideoFormat(null)).toBeNull();
+	});
+});
+
+describe('lyrics fallback helpers — captions + description (quick-261024-lyr)', () => {
+	const TT = 'https://www.youtube.com/api/timedtext?v=x&lang=';
+	const track = (languageCode: string, kind?: string) => ({ baseUrl: TT + languageCode, languageCode, kind });
+
+	it('extractCaptionTracks keeps only real timedtext URLs', () => {
+		const json = {
+			captions: {
+				playerCaptionsTracklistRenderer: {
+					captionTracks: [track('zh-HK'), { baseUrl: 'https://evil.example/x', languageCode: 'en' }, { languageCode: 'en' }]
+				}
+			}
+		};
+		expect(extractCaptionTracks(json)).toHaveLength(1);
+		expect(extractCaptionTracks(null)).toEqual([]);
+	});
+
+	it('pickCaptionTrack: human beats ASR; zh-Hant/HK beats zh-Hans beats en', () => {
+		const tracks = [track('zh-Hans', 'asr'), track('en'), track('zh-HK')];
+		expect(pickCaptionTrack(tracks)?.languageCode).toBe('zh-HK');
+		expect(pickCaptionTrack([track('zh-Hans', 'asr'), track('en', 'asr')])?.languageCode).toBe('zh-Hans');
+		expect(pickCaptionTrack([track('fr'), track('en')])?.languageCode).toBe('en');
+		expect(pickCaptionTrack([])).toBeNull();
+	});
+
+	it('captionsToLrc stamps lines, drops blanks/window events and consecutive ASR duplicates', () => {
+		const json3 = {
+			events: [
+				{ tStartMs: 0 },
+				{ tStartMs: 1050, segs: [{ utf8: '第一句' }] },
+				{ tStartMs: 3000, segs: [{ utf8: '第一句' }] },
+				{ tStartMs: 3200, segs: [{ utf8: '  ' }] },
+				{ tStartMs: 61000, segs: [{ utf8: '第二' }, { utf8: '句\n接住' }] },
+				{ tStartMs: 65000, segs: [{ utf8: '第三句' }] },
+				{ tStartMs: 70000, segs: [{ utf8: '第四句' }] }
+			]
+		};
+		const lrc = captionsToLrc(json3);
+		expect(lrc).toContain('[00:01.05]第一句');
+		expect(lrc).toContain('[01:01.00]第二句 接住');
+		expect(lrc?.split('\n')).toHaveLength(4);
+	});
+
+	it('captionsToLrc returns null below 4 usable lines', () => {
+		expect(captionsToLrc({ events: [{ tStartMs: 0, segs: [{ utf8: 'only' }] }] })).toBeNull();
+		expect(captionsToLrc(null)).toBeNull();
+	});
+
+	it('extractDescription trims and tolerates absence', () => {
+		expect(extractDescription({ videoDetails: { shortDescription: '  abc  ' } })).toBe('abc');
+		expect(extractDescription({})).toBe('');
 	});
 });
 

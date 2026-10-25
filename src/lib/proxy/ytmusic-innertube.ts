@@ -128,6 +128,9 @@ export interface YtAdaptiveFormat {
 	itag?: number;
 	mimeType?: string;
 	bitrate?: number;
+	/** Pixel dimensions — present on video formats, absent on audio (quick-261024-vid1). */
+	width?: number;
+	height?: number;
 	/** Direct googlevideo URL — present for itag 140 (spike 006: no signatureCipher, no n-throttle). */
 	url?: string;
 	/** A ciphered format has this INSTEAD of `url`; we ignore it (we solve no signature cipher). */
@@ -136,6 +139,13 @@ export interface YtAdaptiveFormat {
 export interface YtPlayerJson {
 	playabilityStatus?: { status?: string; reason?: string };
 	streamingData?: { adaptiveFormats?: YtAdaptiveFormat[] };
+	/** quick-261024-lyr: the lyrics-fallback fields (captions + description). */
+	videoDetails?: { shortDescription?: string };
+	captions?: {
+		playerCaptionsTracklistRenderer?: {
+			captionTracks?: { baseUrl?: string; languageCode?: string; kind?: string }[];
+		};
+	};
 }
 
 /**
@@ -191,4 +201,118 @@ export function selectAudioFormat(playerJson: unknown): string | null {
 		.sort((a, b) => (b?.bitrate ?? 0) - (a?.bitrate ?? 0));
 
 	return mp4[0]?.url ?? null;
+}
+
+/** The video pick for the Now Playing video layer (quick-261024-vid1). */
+export interface YtVideoPick {
+	url: string;
+	itag: number;
+	height: number;
+	/** Full mimeType incl. codecs — the client hands it verbatim to `SourceBuffer`. */
+	mimeType: string;
+}
+
+/**
+ * quick-261024-vid1 — pick the video format for the muted MSE video layer. The VISIONOS
+ * player response is DASH-only (verified live 2026-10-24 on 7 MVs: NO progressive itag
+ * 18/22 exists), so the layer must mux a video-only format itself. Policy:
+ *  - direct `url` only (never a ciphered format);
+ *  - `video/mp4` + avc1 ONLY — vp9/av01 break Safari's MSE, and the layer must degrade to
+ *    the cover there, not to a black rectangle;
+ *  - video-only (carries a height; audio formats never do);
+ *  - prefer the highest rung at or below 720p (data + decode sanity), tie-break bitrate;
+ *    if every avc rung is above 720p, take the smallest of them rather than nothing.
+ * Returns the full pick (the client needs the exact codec string for its SourceBuffer).
+ */
+/** One caption track from the player response (quick-261024-lyr). */
+export interface YtCaptionTrack {
+	baseUrl: string;
+	languageCode: string;
+	/** 'asr' for auto-generated; absent for a human-uploaded track. */
+	kind?: string;
+}
+
+/**
+ * quick-261024-lyr — the caption tracks of a player response, validated: the timedtext
+ * URL must be YouTube's own endpoint (the route fetches it — never fetch an arbitrary URL
+ * a response handed us).
+ */
+export function extractCaptionTracks(playerJson: unknown): YtCaptionTrack[] {
+	const tracks = (playerJson as YtPlayerJson)?.captions?.playerCaptionsTracklistRenderer?.captionTracks ?? [];
+	return tracks.filter(
+		(c): c is YtCaptionTrack =>
+			typeof c?.baseUrl === 'string' &&
+			c.baseUrl.startsWith('https://www.youtube.com/api/timedtext') &&
+			typeof c?.languageCode === 'string'
+	);
+}
+
+/**
+ * quick-261024-lyr — which caption track serves as lyrics: a HUMAN track beats ASR at any
+ * language; within a class, Traditional Chinese (Hant/HK/TW) > Simplified > other zh >
+ * English > anything. Null for an empty list.
+ */
+export function pickCaptionTrack(tracks: YtCaptionTrack[]): YtCaptionTrack | null {
+	if (tracks.length === 0) return null;
+	const langRank = (code: string): number => {
+		const c = code.toLowerCase();
+		if (c === 'zh-hant' || c.startsWith('zh-hk') || c.startsWith('zh-tw')) return 0;
+		if (c === 'zh-hans' || c.startsWith('zh-cn') || c.startsWith('zh-sg')) return 1;
+		if (c.startsWith('zh')) return 2;
+		if (c.startsWith('en')) return 3;
+		return 4;
+	};
+	const score = (c: YtCaptionTrack) => (c.kind === 'asr' ? 10 : 0) + langRank(c.languageCode);
+	return [...tracks].sort((a, b) => score(a) - score(b))[0];
+}
+
+/** quick-261024-lyr — the video description (videoDetails.shortDescription), trimmed. */
+export function extractDescription(playerJson: unknown): string {
+	return ((playerJson as YtPlayerJson)?.videoDetails?.shortDescription ?? '').trim();
+}
+
+interface CaptionJson3 {
+	events?: { tStartMs?: number; segs?: { utf8?: string }[] }[];
+}
+
+/**
+ * quick-261024-lyr — timedtext `fmt=json3` → LRC text for the lyrics tab. Events without
+ * segments (window/style definitions) and blank lines drop out; consecutive duplicate
+ * lines collapse (ASR roll-up repeats itself); a `\n` inside an event flattens to a
+ * space. Returns null when fewer than 4 usable lines survive — a track with a couple of
+ * caption fragments is not lyrics, and the caller falls through to the description.
+ */
+export function captionsToLrc(json3: unknown): string | null {
+	const events = (json3 as CaptionJson3)?.events ?? [];
+	const pad = (n: number) => String(n).padStart(2, '0');
+	const lines: string[] = [];
+	for (const e of events) {
+		const text = (e?.segs ?? []).map((seg) => seg?.utf8 ?? '').join('').replace(/\s*\n\s*/g, ' ').trim();
+		if (!text) continue;
+		if (lines.length > 0 && lines[lines.length - 1].endsWith(text)) continue;
+		const ms = typeof e?.tStartMs === 'number' ? e.tStartMs : 0;
+		const stamp = `[${pad(Math.floor(ms / 60000))}:${pad(Math.floor(ms / 1000) % 60)}.${pad(Math.floor(ms / 10) % 100)}]`;
+		lines.push(`${stamp}${text}`);
+	}
+	return lines.length >= 4 ? lines.join('\n') : null;
+}
+
+export function selectVideoFormat(playerJson: unknown, maxHeight = 720): YtVideoPick | null {
+	const formats = (playerJson as YtPlayerJson)?.streamingData?.adaptiveFormats ?? [];
+	const candidates = formats.filter(
+		(f) =>
+			typeof f?.url === 'string' &&
+			f.url.length > 0 &&
+			typeof f?.itag === 'number' &&
+			typeof f?.height === 'number' &&
+			f.height > 0 &&
+			(f?.mimeType ?? '').startsWith('video/mp4') &&
+			(f?.mimeType ?? '').includes('avc1')
+	) as (YtAdaptiveFormat & { url: string; itag: number; height: number })[];
+	if (candidates.length === 0) return null;
+	const byHeightThenBitrate = (a: (typeof candidates)[number], b: (typeof candidates)[number]) =>
+		a.height - b.height || (a.bitrate ?? 0) - (b.bitrate ?? 0);
+	const atOrBelowCap = candidates.filter((f) => f.height <= maxHeight).sort(byHeightThenBitrate);
+	const pick = atOrBelowCap.length > 0 ? atOrBelowCap[atOrBelowCap.length - 1] : candidates.sort(byHeightThenBitrate)[0];
+	return { url: pick.url, itag: pick.itag, height: pick.height, mimeType: pick.mimeType ?? 'video/mp4' };
 }

@@ -1,13 +1,13 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
-	import { Music, Radio, Zap, Maximize2, BadgeCheck, Download, Sliders, ListMusic, SquareActivity, Mic2, RotateCcw } from '@lucide/svelte';
+	import { Music, Radio, Zap, Maximize2, BadgeCheck, Download, Sliders, ListMusic, SquareActivity, Mic2, RotateCcw, Clapperboard, MonitorPlay } from '@lucide/svelte';
 	import { settings, type DefaultQuality, type DefaultSource } from '$lib/stores/settings.svelte';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import SettingPicker from '$lib/components/SettingPicker.svelte';
 	import SettingHint from '$lib/components/SettingHint.svelte';
-	import { PACK_CONTEXTS } from '$lib/config/defaults';
-	import type { UpnextMode, UpnextSettingKey } from '$lib/config/defaults';
+	import { PACK_CONTEXTS, VIDEO_QUALITIES } from '$lib/config/defaults';
+	import type { UpnextMode, UpnextSettingKey, VideoQuality } from '$lib/config/defaults';
 	import { SOURCES } from '$lib/sources/registry';
 	import type { SourceId } from '$lib/sources/types';
 	import { names } from '$lib/stores/names.svelte';
@@ -42,6 +42,13 @@
 	function setQuality(v: DefaultQuality) { settings.defaultQuality = v; settings.save(); }
 	function setDownloadQuality(v: DefaultQuality) { settings.downloadQuality = v; settings.save(); }
 	function setSource(v: DefaultSource) { settings.defaultSource = v; settings.save(); }
+	// quick-261024-vid1: the MV layer — master switch + height cap. The NP quality menu
+	// writes settings.videoQuality too (one setting, two surfaces).
+	function toggleVideos(v: 'off' | 'on') { settings.videoEnabled = v === 'on'; settings.save(); }
+	function setVideoQuality(v: string) {
+		const n = Number(v);
+		if ((VIDEO_QUALITIES as readonly number[]).includes(n)) { settings.videoQuality = n as VideoQuality; settings.save(); }
+	}
 	// quick-260919-ebi: the preview picker hands back the PICKED state ('off'|'on'), so tapping the
 	// card that is already selected must be a no-op — a bare `!x` flip would toggle it off again.
 	function toggleExpand(v: 'off' | 'on') { settings.autoExpandOnPlay = v === 'on'; settings.save(); }
@@ -115,6 +122,8 @@
 	]);
 	/** A boolean setting rendered as a two-card preview picker: 'off' | 'on' <-> false | true. */
 	const boolValue = (b: boolean) => (b ? 'on' : 'off');
+	// quick-261024-vid1: MV height caps — numerals need no i18n.
+	const videoQualityOptions = VIDEO_QUALITIES.map((q) => ({ v: String(q), label: `${q}p` }));
 </script>
 
 <svelte:head><title>{t('settings.title')}</title></svelte:head>
@@ -148,6 +157,16 @@
 	<!-- quick-260919-ebi: kept beside defaultQuality (not moved to Downloads) precisely so the two
 	     read as an identical control the user can compare. Same reason it gets no preview. -->
 	<SettingPicker label={t('settings.downloadQuality')} options={qualityOptions} value={settings.downloadQuality} onpick={setDownloadQuality} />
+</section>
+
+<section>
+	<h2><Clapperboard size={15} /> {t('settings.musicVideos')}<SettingHint label={t('settings.musicVideos')} text={t('settings.musicVideosDesc')} /></h2>
+	<SettingPicker label={t('settings.musicVideos')} options={offOn} value={boolValue(settings.videoEnabled)} onpick={toggleVideos} />
+</section>
+
+<section>
+	<h2><MonitorPlay size={15} /> {t('settings.videoQuality')}</h2>
+	<SettingPicker label={t('settings.videoQuality')} options={videoQualityOptions} value={String(settings.videoQuality)} onpick={setVideoQuality} />
 </section>
 
 <section>

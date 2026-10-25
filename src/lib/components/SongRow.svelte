@@ -79,6 +79,7 @@
 	import { sizedCover, ROW_COVER_PX } from '$lib/services/cover-size';
 	import { readCoverByUidOrName, readChosenCover } from '$lib/stores/cover-version.svelte';
 	import { coverGradient } from '$lib/services/cover-gradient';
+import { videoAvailability } from '$lib/services/video-availability.svelte';
 	import { player } from '$lib/stores/player.svelte';
 	import { library } from '$lib/stores/library.svelte';
 	import { names } from '$lib/stores/names.svelte';
@@ -220,6 +221,11 @@
 		return names.dnTitle(a);
 	});
 	const sub = $derived(subtitle ?? (smartArtist ? smartSub : names.dnArtist(track.album || track.artist)));
+	// quick-261024-vid1: the MV tag — ytmusic rows are watchable unless a past resolve
+	// proved otherwise (videoAvailability) or the user disabled videos in Settings.
+	const mvTag = $derived(
+		track.source === 'ytmusic' && settings.videoEnabled && videoAvailability.showsTag(track.songid)
+	);
 	const isActive = $derived(active ?? player.current?.uid === track.uid);
 
 	// RESOLVE-ON-TAP state (quick-260919-l9e). A stub row has no uid to key liked/downloaded state
@@ -409,7 +415,7 @@
 	></span>
 	<span class="meta">
 		<span class="r-title" use:marquee><span class="marquee-inner">{names.dnTitle(track.title, track.artist)}</span></span>
-		<span class="r-sub" use:marquee><span class="marquee-inner">{sub}{#if albumTag}<span class="album-tag">{albumTag}</span>{/if}</span></span>
+		<span class="r-sub" use:marquee><span class="marquee-inner">{sub}{#if albumTag}<span class="album-tag">{albumTag}</span>{/if}{#if mvTag}<span class="mv-tag">MV</span>{/if}</span></span>
 	</span>
 	<!-- D-5: the passive badge stands down for whichever state this row draws a live control for. -->
 	<RowBadges uid={actUid} hideLiked={acts.includes('like')} hideDownloaded={acts.includes('download')} />
@@ -583,6 +589,22 @@
 		border: 1px solid var(--color-border);
 		border-radius: 999px;
 		font-size: 0.85em;
+		line-height: 1.5;
+		white-space: nowrap;
+		vertical-align: 1px;
+	}
+	/* quick-261024-vid1: the MV tag — same pill family as .album-tag, accent-tinted so it
+	   reads as "watchable", not metadata. */
+	.mv-tag {
+		display: inline-block;
+		margin-left: 6px;
+		padding: 0 6px;
+		border: 1px solid var(--color-accent, #e5484d);
+		color: var(--color-accent, #e5484d);
+		border-radius: 999px;
+		font-size: 0.8em;
+		font-weight: 600;
+		letter-spacing: 0.04em;
 		line-height: 1.5;
 		white-space: nowrap;
 		vertical-align: 1px;

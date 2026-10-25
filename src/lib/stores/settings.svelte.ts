@@ -14,10 +14,12 @@ import {
 	PLAYBACK_DEFAULTS,
 	UPNEXT_DEFAULTS,
 	PACK_CONTEXTS,
+	VIDEO_QUALITIES,
 	HOME_DEFAULTS,
 	SYNC_DEFAULTS,
 	type UpnextMode,
 	type UpnextSettingKey,
+	type VideoQuality,
 	type QueueContext,
 	type SyncItems
 } from '$lib/config/defaults';
@@ -252,6 +254,10 @@ class Settings {
 	/** quick-260831-k5y: render the resolved track's quality tag on the Now-Playing page.
 	 *  Default lives in PLAYBACK_DEFAULTS.showQualityTag (ON since quick-260925-vtg). */
 	showQualityTag = $state<boolean>(PLAYBACK_DEFAULTS.showQualityTag);
+	/** quick-261024-vid1: the Now Playing MV layer master switch + its height cap. The NP
+	 *  quality menu and Settings → Playback write the SAME field (one setting, two surfaces). */
+	videoEnabled = $state<boolean>(PLAYBACK_DEFAULTS.videoEnabled);
+	videoQuality = $state<VideoQuality>(PLAYBACK_DEFAULTS.videoQuality);
 	/** quick-260919-1we (D-7): the docked Nowbar shows the currently-sung lyric line INSTEAD of the
 	 *  artist name. Off by default (PLAYBACK_DEFAULTS.nowbarLyrics) — it replaces information
 	 *  already on screen, so it is opt-in. */
@@ -448,6 +454,11 @@ class Settings {
 					typeof v.autoExpandOnPlay === 'boolean' ? v.autoExpandOnPlay : PLAYBACK_DEFAULTS.autoExpandOnPlay;
 				this.showQualityTag =
 					typeof v.showQualityTag === 'boolean' ? v.showQualityTag : PLAYBACK_DEFAULTS.showQualityTag;
+				this.videoEnabled =
+					typeof v.videoEnabled === 'boolean' ? v.videoEnabled : PLAYBACK_DEFAULTS.videoEnabled;
+				this.videoQuality = (VIDEO_QUALITIES as readonly number[]).includes(v.videoQuality as number)
+					? (v.videoQuality as VideoQuality)
+					: PLAYBACK_DEFAULTS.videoQuality;
 				this.nowbarLyrics =
 					typeof v.nowbarLyrics === 'boolean' ? v.nowbarLyrics : PLAYBACK_DEFAULTS.nowbarLyrics;
 				// --- home layout (w87) — every default reproduces today's home -----------
@@ -615,6 +626,8 @@ class Settings {
 					theme: this.theme,
 					autoExpandOnPlay: this.autoExpandOnPlay,
 					showQualityTag: this.showQualityTag,
+					videoEnabled: this.videoEnabled,
+					videoQuality: this.videoQuality,
 					nowbarLyrics: this.nowbarLyrics,
 					// --- home layout (w87) ---
 					homeSectionOrder: this.homeSectionOrder,
@@ -744,6 +757,8 @@ class Settings {
 		this.defaultSource = d.defaultSource;
 		this.autoExpandOnPlay = d.autoExpandOnPlay;
 		this.showQualityTag = d.showQualityTag;
+		this.videoEnabled = d.videoEnabled;
+		this.videoQuality = d.videoQuality;
 		this.nowbarLyrics = d.nowbarLyrics;
 		this.enabledSources = { ...d.enabledSources };
 		this.upnextPerContext = { ...DEFAULTS.upnext.perContext };
