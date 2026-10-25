@@ -51,29 +51,33 @@ function cacheEntry(body: unknown): Response {
  * full lyrics there). Runs the shared gated player resolve; any failure degrades to null
  * and the route answers its usual {}. Never throws.
  */
-async function captionOrDescription(videoId: string): Promise<{ text: string; attribution: string } | null> {
+async function captionOrDescription(
+	videoId: string
+): Promise<{ result: { text: string; attribution: string } | null; stage: string }> {
 	try {
 		const json = await callPlayerGated(videoId);
-		if (!isPlayable(json)) return null;
+		// 'gated' is TRANSIENT (the bot gate), not a verdict — the caller must not cache it.
+		if (!isPlayable(json)) return { result: null, stage: 'gated' };
 		const track = pickCaptionTrack(extractCaptionTracks(json));
 		if (track) {
 			try {
 				const res = await fetchMedia(track.baseUrl + '&fmt=json3', {});
 				if (res.ok) {
 					const lrc = captionsToLrc(await res.json());
-					if (lrc) return { text: lrc, attribution: 'YouTube captions' };
-				} else {
-					await res.body?.cancel().catch(() => {});
+					if (lrc) return { result: { text: lrc, attribution: 'YouTube captions' }, stage: 'ok-captions' };
+					return { result: null, stage: 'tt-sparse' };
 				}
+				await res.body?.cancel().catch(() => {});
+				return { result: null, stage: `tt-http-${res.status}` };
 			} catch {
-				// timedtext unreachable — the description below may still serve
+				return { result: null, stage: 'tt-throw' };
 			}
 		}
 		const description = extractDescription(json);
-		if (description.length >= 40) return { text: description, attribution: 'YouTube' };
-		return null;
+		if (description.length >= 40) return { result: { text: description, attribution: 'YouTube' }, stage: 'ok-desc' };
+		return { result: null, stage: 'no-tracks-desc-short' };
 	} catch {
-		return null;
+		return { result: null, stage: 'throw' };
 	}
 }
 
@@ -100,11 +104,15 @@ export const GET: RequestHandler = async ({ url, request }) => {
 		});
 		const { browseId } = findLyricsTab(nextJson);
 		if (!browseId) {
-			// No lyrics tab. quick-261024-lyr: before declaring a miss, try the
-			// caption/description fallback; its result (or the miss) caches the same way.
-			const result = (await captionOrDescription(videoId)) ?? {};
-			if (cache) await cache.put(cacheReq, cacheEntry(result));
-			return jsonPassthrough(result, origin, TTL);
+			// No lyrics tab. quick-261024-lyr: before declaring a miss, run the
+			// caption/description fallback. Its result caches like any answer; a GATED
+			// fallback (transient) answers {} WITHOUT caching so the next play retries.
+			const fb = await captionOrDescription(videoId);
+			const result = fb.result ?? {};
+			if (cache && fb.stage !== 'gated') await cache.put(cacheReq, cacheEntry(result));
+			const res = jsonPassthrough(result, origin, TTL);
+			res.headers.set('x-lyr-stage', fb.stage);
+			return res;
 		}
 
 		// Hop 2: browse(browseId) -> plain text + licensor attribution.
@@ -113,9 +121,18 @@ export const GET: RequestHandler = async ({ url, request }) => {
 			browseId
 		});
 		let result = extractLyrics(browseJson); // { text, attribution }
+		let stage = 'browse';
 		// quick-261024-lyr: an EMPTY browse text is the fallback's cue too (YouTube's
 		// lyrics source has been returning shells); only a real text short-circuits it.
-		if (!result.text?.trim()) result = (await captionOrDescription(videoId)) ?? result;
+		if (!result.text?.trim()) {
+			const fb = await captionOrDescription(videoId);
+			stage = fb.stage;
+			if (fb.result) result = fb.result;
+			if (cache && stage !== 'gated') await cache.put(cacheReq, cacheEntry(result));
+			const res = jsonPassthrough(result, origin, TTL);
+			res.headers.set('x-lyr-stage', stage);
+			return res;
+		}
 		if (cache) await cache.put(cacheReq, cacheEntry(result));
 		return jsonPassthrough(result, origin, TTL);
 	} catch {
