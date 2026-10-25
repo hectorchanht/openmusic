@@ -1138,6 +1138,15 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 				<div class="title" use:marquee in:fade={{ duration: xfadeMs }} out:fade={{ duration: xfadeMs }}>
 					<span class="marquee-inner">{player.current ? names.dnTitle(player.current.title, player.current.artist) : ''}</span>
 				</div>
+				{#if canVideo}
+					<!-- quick-261024-mv3: the MV toggle is an ICON in the title row (Hector's
+					     placement): its margin-left:auto parks it at the row's end — on mobile
+					     directly above the quality tag, on desktop immediately left of the
+					     volume control (the .np-vol auto margin yields via the ~ rule below). -->
+					<button class="mv-icon" class:on={videoOn} aria-pressed={videoOn} aria-label={t('nowplaying.watchVideo')} title={t('nowplaying.watchVideo')} onclick={() => (videoOn = !videoOn)} use:tapBounce>
+						<Clapperboard size={18} />
+					</button>
+				{/if}
 				{#if volDesktop}
 					<!-- Desktop volume: mute button + native range, mirroring the Nowbar's .np-vol
 					     (quick-260919-et3). Native input = keyboard/screen-reader support for free. -->
@@ -1179,16 +1188,6 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 			</div>
 		{/key}
 	</div>
-
-	{#if canVideo}
-		<!-- quick-261024-vid1: one-tap MV toggle. Lives under the meta block (the transport
-		     row stays exactly five wide by design); the stage's own X closes it too. -->
-		<div class="mv-row">
-			<button class="mv-toggle" class:on={videoOn} aria-pressed={videoOn} onclick={() => (videoOn = !videoOn)} use:tapBounce>
-				<Clapperboard size={14} /> {t('nowplaying.watchVideo')}
-			</button>
-		</div>
-	{/if}
 
 	{#if player.error}
 		<p class="np-error" role="alert">{tMaybeKey(player.error)}</p>
@@ -1474,9 +1473,14 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 	/* quick-261024-vid1: the video stage takes the cover box (black letterbox inside);
 	   the toggle pill sits centred under the meta block. */
 	.video-cover { background: #000; cursor: default; }
-	.mv-row { display: flex; justify-content: center; margin-top: 10px; }
-	.mv-toggle { display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; border-radius: 999px; border: 1px solid var(--color-border); background: transparent; color: var(--color-text); font-size: 13px; cursor: pointer; }
-	.mv-toggle.on { border-color: var(--color-accent, #e5484d); color: var(--color-accent, #e5484d); }
+	/* quick-261024-mv3: the title-row MV icon — same 34px round hit target as .np-volbtn.
+	   Its auto left margin takes the row's free space; when the desktop volume follows,
+	   the volume's own auto margin must yield or the free space splits between them. */
+	.mv-icon { flex: none; margin-left: auto; background: none; border: none; color: var(--color-text-muted); width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; cursor: pointer; transition: background 0.12s ease, color 0.12s ease, transform 0.12s ease; }
+	.mv-icon:hover { background: rgba(255, 255, 255, 0.1); color: var(--color-text); }
+	.mv-icon:active { transform: scale(0.92); }
+	.mv-icon.on { color: var(--color-accent, #e5484d); }
+	.title-row .mv-icon ~ .np-vol { margin-left: 0; }
 	/* NP-01 carousel: the rigid strip fills .cover and rests at translateX(0) (current cell visible).
 	   The commit-settle uses the cover-reflow personality (0.32s, same universal curve); coverSwipe
 	   overrides this to `none` while dragging (1:1 finger-follow), then restores it on release so the

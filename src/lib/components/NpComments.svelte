@@ -2,6 +2,7 @@
 	import { browser } from '$app/environment';
 	import { Capacitor } from '@capacitor/core';
 	import { settings } from '$lib/stores/settings.svelte';
+	import LoadingState from '$lib/components/LoadingState.svelte';
 	import { comments } from '$lib/stores/comments.svelte';
 	import { t } from '$lib/i18n';
 	import { tapBounce } from '$lib/actions/tapBounce';
@@ -237,7 +238,7 @@
 	{#if comments.unavailable}
 		<p class="empty">{t('comments.unavailable')}</p>
 	{:else if comments.loading}
-		<p class="empty">{t('comments.loading')}</p>
+		<LoadingState label={t('comments.loading')} rows={5} />
 	{:else if !comments.visible.length}
 		<p class="empty">{t('comments.empty')}</p>
 	{:else}

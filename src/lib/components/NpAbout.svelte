@@ -8,6 +8,7 @@
 	import { player } from '$lib/stores/player.svelte';
 	import { t } from '$lib/i18n';
 	import { fetchDescription, splitDescription, type DescriptionResult } from '$lib/services/description';
+	import LoadingState from '$lib/components/LoadingState.svelte';
 
 	let result = $state<DescriptionResult | null>(null);
 	let forId = $state<string | null>(null);
@@ -50,10 +51,11 @@
 
 <div class="about">
 	{#if !videoId || result === null}
-		<p class="muted">{t('about.loading')}</p>
+		<LoadingState label={t('about.loading')} lines={6} />
 	{:else if result.kind === 'error'}
 		<div class="err" role="alert">
 			<p>{t('about.error')}</p>
+			{#if result.detail}<p class="detail">{result.detail}</p>{/if}
 			<button onclick={() => attempt++}><RotateCcw size={14} /> {t('video.retry')}</button>
 		</div>
 	{:else if result.kind === 'empty'}
@@ -70,5 +72,6 @@
 	.about .muted { color: var(--color-text-muted); font-size: 13.5px; margin: 0; }
 	.about .err { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
 	.about .err p { margin: 0; font-size: 13.5px; color: var(--color-text); }
+	.about .err .detail { font-family: ui-monospace, monospace; font-size: 11px; color: var(--color-text-muted); }
 	.about .err button { display: inline-flex; align-items: center; gap: 5px; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--color-border); background: transparent; color: var(--color-text); font-size: 12.5px; cursor: pointer; }
 </style>

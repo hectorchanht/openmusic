@@ -181,6 +181,9 @@
 	{:else if relatedLoading}
 		<ul class="list" aria-label={t('nowplaying.loadingRelated')}>
 			<span class="vh">{t('nowplaying.loadingRelated')}</span>
+			<!-- quick-261024-load1: skeleton AND spinner (Hector) — the ring sits above the
+			     skeleton rows so the pane's loading reads the same as every other pane. -->
+			<li class="skel-spin" aria-hidden="true"><span class="row-spinner motion-always"></span></li>
 			{#each Array(8) as _, i (i)}
 				<li><span class="row skel" aria-hidden="true"><span class="r-title sk"></span><span class="r-artist sk"></span></span></li>
 			{/each}
@@ -223,6 +226,9 @@
 	   text stacks inside .r-meta. The shared `.row` (column) + its skeleton variant stay untouched. */
 	.row.rel-row { flex-direction: row; align-items: center; gap: 8px; }
 	.rel-row .r-meta { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+	.skel-spin { display: flex; justify-content: center; padding: 6px 0 2px; list-style: none; }
+	.skel-spin .row-spinner { display: inline-block; width: 18px; height: 18px; border: 2px solid var(--color-text-muted); border-top-color: transparent; border-radius: 50%; animation: spin 0.7s linear infinite; }
+	@keyframes spin { to { transform: rotate(360deg); } }
 	/* Related loading skeleton: placeholder rows mirror the real .row shape
 	   (stacked title + artist bars) so the list keeps its size/shape while fetching.
 	   Bars use the global `.sk` shimmer; reduce-motion handled there. */
