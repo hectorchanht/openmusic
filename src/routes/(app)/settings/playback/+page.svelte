@@ -6,7 +6,8 @@
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import SettingPicker from '$lib/components/SettingPicker.svelte';
 	import SettingHint from '$lib/components/SettingHint.svelte';
-	import type { UpnextMode, QueueContext } from '$lib/config/defaults';
+	import { PACK_CONTEXTS } from '$lib/config/defaults';
+	import type { UpnextMode, UpnextSettingKey } from '$lib/config/defaults';
 	import { SOURCES } from '$lib/sources/registry';
 	import type { SourceId } from '$lib/sources/types';
 	import { names } from '$lib/stores/names.svelte';
@@ -68,7 +69,7 @@
 	// quick-261024-sets (Hector 2026-10-24): the six chart-pack contexts join the list — pack
 	// pages install their pack unpinned now, so their sourcing is governed here like every
 	// other surface; the pack rows reuse the packs' own title keys.
-	const upnextContexts: { ctx: Exclude<QueueContext, null>; key: TranslationKey }[] = [
+	const upnextContexts: { ctx: UpnextSettingKey; key: TranslationKey }[] = [
 		{ ctx: 'liked', key: 'library.liked' },
 		{ ctx: 'search', key: 'settings.ctxSearch' },
 		{ ctx: 'downloads', key: 'library.downloads' },
@@ -77,15 +78,21 @@
 		{ ctx: 'artist', key: 'settings.ctxArtist' },
 		{ ctx: 'home-discovery', key: 'settings.ctxHomeDiscovery' },
 		{ ctx: 'history', key: 'history.heading' },
-		{ ctx: 'cantopop-2026', key: 'pack.title.cantopop' },
-		{ ctx: 'mandopop-2026', key: 'pack.title.mandopop' },
-		{ ctx: 'kpop-2026', key: 'pack.title.kpop' },
-		{ ctx: 'jpop-2026', key: 'pack.title.jpop' },
-		{ ctx: 'western-2026', key: 'pack.title.western' },
+		// quick-261024-sets4: ONE row for every country pack — the 'pack' family key.
+		{ ctx: 'pack', key: 'settings.ctxPack' },
 		{ ctx: 'songs-of-year', key: 'home.songsOfYear' }
 	];
-	function setUpnext(ctx: Exclude<QueueContext, null>, v: UpnextMode) {
-		settings.upnextPerContext = { ...settings.upnextPerContext, [ctx]: v };
+	function setUpnext(ctx: UpnextSettingKey, v: UpnextMode) {
+		if (ctx === 'pack') {
+			// quick-261024-sets4: writing the family key clears any per-pack leftovers, so the
+			// one pack value truly governs every country pack from this tap on.
+			const next = { ...settings.upnextPerContext };
+			for (const p of PACK_CONTEXTS) delete next[p];
+			next.pack = v;
+			settings.upnextPerContext = next;
+		} else {
+			settings.upnextPerContext = { ...settings.upnextPerContext, [ctx]: v };
+		}
 		settings.save();
 	}
 
@@ -313,7 +320,7 @@
 			<SettingPicker
 				label={`${t(c.key)} · ${t('settings.upnextSourcing')}`}
 				options={upnextOptions}
-				value={settings.effectiveUpnextMode(c.ctx)}
+				value={settings.upnextModeForKey(c.ctx)}
 				onpick={(v) => setUpnext(c.ctx, v)}
 				iconOnly
 			/>

@@ -679,6 +679,7 @@ const zhHans: Dict = {
 	"settings.upnextGenerated": "按曲风生成",
 	"settings.upnextSourcingDesc": "「同一清单」会继续播放你点的那首歌所属清单的其余歌曲；「按曲风生成」会以你点的那首歌为种子，从相似歌曲开始生成接下来的清单。专辑、歌手和排行榜精选页默认用「同一清单」，其他页面默认用「按曲风生成」。",
 	"settings.ctxSearch": "搜索",
+	"settings.ctxPack": "排行榜包（全部国家）",
 	"settings.ctxAlbum": "专辑",
 	"settings.ctxArtist": "歌手",
 	"settings.ctxHomeDiscovery": "首页",

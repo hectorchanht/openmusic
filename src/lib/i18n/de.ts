@@ -647,6 +647,7 @@ const de: Dict = {
 	"settings.upnextGenerated": "Genre-generated",
 	"settings.upnextSourcingDesc": "Same list keeps playing the rest of the list you tapped a song from. Genre-generated builds Up Next from that one song, starting with similar songs. Album, Artist and chart pack pages default to Same list; everywhere else generates.",
 	"settings.ctxSearch": "Search",
+	"settings.ctxPack": "Chart packs (all countries)",
 	"settings.ctxAlbum": "Album",
 	"settings.ctxArtist": "Artist",
 	"settings.ctxHomeDiscovery": "Home",

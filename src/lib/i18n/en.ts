@@ -373,6 +373,7 @@ const en = {
 	// Per-context labels — only the contexts without a reusable existing key. liked/playlists/
 	// downloads reuse library.*; history reuses history.heading.
 	"settings.ctxSearch": "Search",
+	"settings.ctxPack": "Chart packs (all countries)",
 	"settings.ctxAlbum": "Album",
 	"settings.ctxArtist": "Artist",
 	"settings.ctxHomeDiscovery": "Home",

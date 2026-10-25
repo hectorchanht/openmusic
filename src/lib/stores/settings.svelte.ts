@@ -13,9 +13,11 @@ import {
 	TRANSLATION_DEFAULTS,
 	PLAYBACK_DEFAULTS,
 	UPNEXT_DEFAULTS,
+	PACK_CONTEXTS,
 	HOME_DEFAULTS,
 	SYNC_DEFAULTS,
 	type UpnextMode,
+	type UpnextSettingKey,
 	type QueueContext,
 	type SyncItems
 } from '$lib/config/defaults';
@@ -171,7 +173,7 @@ class Settings {
 	 *  since quick-261024-sets) instead of
 	 *  the old bare `{}`, so a fresh install and a post-`resetPlayback()` install agree. WR-10:
 	 *  the literal still lives only in defaults.ts. */
-	upnextPerContext = $state<Partial<Record<Exclude<QueueContext, null>, UpnextMode>>>({
+	upnextPerContext = $state<Partial<Record<UpnextSettingKey, UpnextMode>>>({
 		...UPNEXT_DEFAULTS.perContext
 	});
 	/** Bio (Last.fm artist bio) target language. `'auto'` = follow appLang; `'off'` = untranslated
@@ -360,7 +362,7 @@ class Settings {
 				this.upnextPerContext = {
 					...UPNEXT_DEFAULTS.perContext,
 					...(v.upnextPerContext && typeof v.upnextPerContext === 'object' && !Array.isArray(v.upnextPerContext)
-						? (v.upnextPerContext as Partial<Record<Exclude<QueueContext, null>, UpnextMode>>)
+						? (v.upnextPerContext as Partial<Record<UpnextSettingKey, UpnextMode>>)
 						: {})
 				};
 				this.upnextMode =
@@ -759,7 +761,20 @@ class Settings {
 		// force-generate airtight (the 'remix' QueueContext carries no other behaviour).
 		if (ctx === 'remix') return 'generated';
 		if (!ctx) return this.upnextMode;
-		return this.upnextPerContext[ctx] ?? this.upnextMode;
+		// quick-261024-sets4: exact key wins; a country-pack context then falls back to the
+		// single 'pack' family key before the global mode.
+		return (
+			this.upnextPerContext[ctx] ??
+			((PACK_CONTEXTS as readonly string[]).includes(ctx) ? this.upnextPerContext.pack : undefined) ??
+			this.upnextMode
+		);
+	}
+
+	/** Display value for one Settings → Playback row (quick-261024-sets4): the 'pack' row
+	 *  shows the family resolution — what a tap on any country pack would do. */
+	upnextModeForKey(key: UpnextSettingKey): UpnextMode {
+		if (key === 'pack') return this.effectiveUpnextMode('cantopop-2026');
+		return this.effectiveUpnextMode(key);
 	}
 
 	/** Reset the Home layout settings (section order/hidden + tag/country selection + size +

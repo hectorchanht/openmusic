@@ -157,6 +157,13 @@ export const PLAYBACK_DEFAULTS = {
 // The types live HERE (not in a store) so both player.svelte.ts and settings.svelte.ts can
 // import them without a circular dependency — defaults.ts is already imported by both.
 export type UpnextMode = 'same-list' | 'generated';
+/** quick-261024-sets4 (Hector): the five country chart packs share ONE up-next setting —
+ *  "只需要加一個 pack that apply to all country". `PACK_CONTEXTS` is the family the single
+ *  'pack' key governs; a queue still carries its specific pack context, and
+ *  `effectiveUpnextMode` resolves exact key → 'pack' family key → global mode. */
+export const PACK_CONTEXTS = ['cantopop-2026', 'mandopop-2026', 'kpop-2026', 'jpop-2026', 'western-2026'] as const;
+/** A key in the per-context settings map: any queue context, plus the 'pack' family key. */
+export type UpnextSettingKey = Exclude<QueueContext, null> | 'pack';
 /** Which surface started the current queue. `null` = unknown origin → global default. */
 export type QueueContext =
 	| 'liked'
@@ -190,14 +197,13 @@ export const UPNEXT_DEFAULTS = {
 	/** Global default sourcing mode — roadmap-locked to 'generated'. */
 	mode: 'generated' as UpnextMode,
 	/**
-	 * Per-context overrides — ALBUM, ARTIST and the RANKED PACK pages (the five 2026 chart
-	 * packs + songs-of-year). They resolve to 'same-list' (curated, ORDERED collections —
-	 * users expect "play the rest of the album / this artist's list", and on a ranked pack
-	 * tapping #4 means the next song is #5); EVERY other context resolves to the global
-	 * `mode` ('generated'), so a tap anywhere else seeds Up-Next from the tapped song with
-	 * similar songs (quick-261024-sets: Hector's app-wide rule — "everywhere seed"; the
-	 * same-list set started as album/artist and quick-261024-sets3 adds the packs on his
-	 * explicit call: "song pack should default to same list too").
+	 * Per-context overrides — ALBUM, ARTIST, the PACK FAMILY and songs-of-year. They resolve
+	 * to 'same-list' (curated, ORDERED collections — users expect "play the rest of the
+	 * album / this artist's list", and on a ranked pack tapping #4 means the next song is
+	 * #5); EVERY other context resolves to the global `mode` ('generated'), so a tap
+	 * anywhere else seeds Up-Next from the tapped song with similar songs
+	 * (quick-261024-sets: Hector's app-wide rule — "everywhere seed"; sets3 pinned each pack
+	 * individually, sets4 collapses them into the single 'pack' family key on his call).
 	 *
 	 * History: `artist` was pinned, dropped by quick-260831-jtw (an artist tap treated as an
 	 * ordinary "play this song" tap), and is pinned AGAIN by quick-261024-sets on Hector's
@@ -213,7 +219,7 @@ export const UPNEXT_DEFAULTS = {
 	 * (track.getSimilar + a 20-track tail) that `setListQueue(all, 'album')` immediately discards
 	 * via the queueGen guard.
 	 */
-	perContext: { album: 'same-list', artist: 'same-list', 'cantopop-2026': 'same-list', 'mandopop-2026': 'same-list', 'kpop-2026': 'same-list', 'jpop-2026': 'same-list', 'western-2026': 'same-list', 'songs-of-year': 'same-list' } as Partial<Record<Exclude<QueueContext, null>, UpnextMode>>
+	perContext: { album: 'same-list', artist: 'same-list', pack: 'same-list', 'songs-of-year': 'same-list' } as Partial<Record<UpnextSettingKey, UpnextMode>>
 } as const;
 
 // ---- Home layout -----------------------------------------------------------------------
