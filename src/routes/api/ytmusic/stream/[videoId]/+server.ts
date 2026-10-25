@@ -63,7 +63,7 @@ const URL_ATTEMPTS = 3;
 // click", per the user report). Each retry below uses a FRESH visitorData (a new subrequest can
 // egress un-gated, same premise as the media-403 retry above), with a short escalating pause.
 const PLAYER_GATE_ATTEMPTS = 3; // total player calls per media attempt: cached token + 2 fresh
-const GATE_DELAY_MS = [250, 500]; // pause before gate retry 1 / 2
+const GATE_DELAY_MS = [250, 500]; // stagger before parallel gate retry 1 / 2 (quick-261024-ytr)
 
 const gateDelay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
@@ -238,16 +238,29 @@ async function callPlayer(videoId: string, visitorData: Promise<string | null>):
 /**
  * quick-261024-ytg — one player call, retried on a non-OK playability with a FRESH visitorData
  * each time (see PLAYER_GATE_ATTEMPTS). First call uses the cached token (the fast, usually-OK
- * path — a gated token costs one refresh, not a cold grab per play). Returns the LAST player
- * response seen, playable or not, so the caller can gate / diagnose on it.
+ * path — a gated token costs one refresh, not a cold grab per play). Returns a playable
+ * response when one is found, otherwise the LAST retry's response, so the caller can gate /
+ * diagnose on it.
+ *
+ * quick-261024-ytr — the fresh-token retries race in PARALLEL (staggered by GATE_DELAY_MS)
+ * instead of sequentially. The edge probe that night (scratch worker, 6 strategies x 24
+ * samples) proved no other InnerTube client survives the edge — ANDROID_VR / iOS player-OK
+ * but byte-wall at ~1.5 MB (GVS PoToken), the embedded/TV clients unusable — so VISIONOS
+ * stays the only client and the remaining lever is decorrelation + latency: parallel
+ * subrequests can egress differently, and the worst case costs max(delay + call) instead of
+ * the sequential sum. Once the first call has failed the full budget is spent either way;
+ * the first playable response wins.
  */
 async function callPlayerGated(videoId: string): Promise<unknown> {
-	let json = await callPlayer(videoId, getVisitorData());
-	for (let gate = 1; !isPlayable(json) && gate < PLAYER_GATE_ATTEMPTS; gate++) {
-		await gateDelay(GATE_DELAY_MS[gate - 1] ?? 500);
-		json = await callPlayer(videoId, getVisitorData(true));
-	}
-	return json;
+	const first = await callPlayer(videoId, getVisitorData());
+	if (isPlayable(first)) return first;
+	const retries = await Promise.all(
+		Array.from({ length: PLAYER_GATE_ATTEMPTS - 1 }, async (_, i) => {
+			await gateDelay(GATE_DELAY_MS[i] ?? 500);
+			return callPlayer(videoId, getVisitorData(true));
+		})
+	);
+	return retries.find((j) => isPlayable(j)) ?? retries[retries.length - 1] ?? first;
 }
 
 /** One googlevideo byte fetch with a HEADERS-only deadline (see MEDIA_HEAD_TIMEOUT_MS). RAW edge

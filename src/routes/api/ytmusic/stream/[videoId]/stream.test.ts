@@ -378,14 +378,19 @@ describe('GET /api/ytmusic/stream/:videoId — VISIONOS player → googlevideo b
 		expect((await res.arrayBuffer()).byteLength).toBe(0);
 	});
 
-	it('a first-call LOGIN_REQUIRED triggers exactly ONE visitorData refresh + player retry, then streams', async () => {
+	it('a first-call LOGIN_REQUIRED races BOTH fresh-token retries in parallel, then streams (quick-261024-ytr)', async () => {
 		const h = stubFetch([fixture.loginRequired, OK]);
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		const res = await streamGet(ev('vid123') as any);
 
 		expect(res.status).toBe(200);
-		expect(h.playerCalls()).toBe(2); // exactly one retry — no infinite loop
-		// A forced visitorData refresh (getVisitorData(true) → SEARCH_URL) sits BETWEEN the two player POSTs.
+		// ytr: once the cached-token call is gated, the remaining gate budget fires in
+		// parallel (was: sequential early-exit after ONE retry -> playerCalls 2). The stub
+		// clamps its script, so the second parallel call also sees OK; the first playable
+		// response wins and the stream proceeds.
+		expect(h.playerCalls()).toBe(3);
+		// A forced visitorData refresh (getVisitorData(true) → SEARCH_URL) sits BETWEEN the
+		// first player POST and the retry POSTs.
 		const firstPlayer = h.urls.indexOf(PLAYER_URL);
 		const secondPlayer = h.urls.indexOf(PLAYER_URL, firstPlayer + 1);
 		const refreshBetween = h.urls
