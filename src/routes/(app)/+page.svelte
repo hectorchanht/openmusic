@@ -1069,20 +1069,18 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 		}
 		player.play(track, { fresh: true, context: ctx });
 	}
-	// quick-260924-pgu: mirrors the album hero Play (quick-260919-alb / quick-260915-vb9) — `sameList`
-	// pins the same-list branch so the fresh-play tail does not regenerate over the install;
-	// setListQueue after the resolve anchors the now-real `current` into the shelf by
-	// uid-then-sameSongKey, so the remaining radio tiles are the Up Next. Toast gate copied from
-	// playStub(item) above (null = miss OR supersede; only a miss clears pendingTrack).
+	// quick-261024-sets (Hector 2026-10-24): a Your Radio tap now seeds Up Next from the tapped
+	// song ALONE. playStub already installs setQueue([resolved]) and plays it fresh, so WITHOUT
+	// the old quick-260924-pgu `sameList` pin (and without re-installing the shelf via
+	// setListQueue) the fresh-play tail regenerates the tail from that one song instead of
+	// concatenating the remaining radio tiles. Toast gate copied from playStub(item) above
+	// (null = miss OR supersede; only a miss clears pendingTrack).
 	async function playRadioTrack(track: Track) {
-		const tr = await player.playStub(track.artist, track.title, track.cover, 'home-discovery', {
-			sameList: true
-		});
+		const tr = await player.playStub(track.artist, track.title, track.cover, 'home-discovery');
 		if (!tr) {
 			if (player.pendingTrack == null) toast.show(t('home.unplayable'));
 			return;
 		}
-		player.setListQueue(radioShelf, 'home-discovery');
 	}
 	function openTrackMenu(track: Track) {
 		menuTrack = track;

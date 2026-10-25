@@ -51,17 +51,17 @@
 			});
 	});
 
-	// Mirrors the home's playRadioTrack (quick-260924-pgu): `sameList` pins the same-list branch so
-	// the fresh-play tail does not regenerate over the install; setListQueue after the resolve anchors
-	// the now-real `current` into the list by uid-then-sameSongKey, so the remaining rows are Up Next.
-	// null = miss OR supersede; only a miss clears pendingTrack, so only a miss toasts.
+	// Mirrors the home's playRadioTrack. quick-261024-sets (Hector 2026-10-24): no `sameList`
+	// pin and no setListQueue(pool) any more — playStub installs setQueue([resolved]) itself, so
+	// the fresh-play tail generates Up Next from the tapped song alone instead of concatenating
+	// the remaining radio rows. null = miss OR supersede; only a miss clears pendingTrack, so
+	// only a miss toasts.
 	async function play(tr: Track) {
-		const resolved = await player.playStub(tr.artist, tr.title, tr.cover, 'home-discovery', { sameList: true });
+		const resolved = await player.playStub(tr.artist, tr.title, tr.cover, 'home-discovery');
 		if (!resolved) {
 			if (player.pendingTrack == null) toast.show(t('home.unplayable'));
 			return;
 		}
-		player.setListQueue(tracks, 'home-discovery');
 	}
 </script>
 

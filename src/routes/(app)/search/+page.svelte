@@ -876,14 +876,16 @@
 					     exactly the app convention (right = queue, left = play next), which now lives in
 					     the component, so the page's own swipeQueue/swipeNext are gone. Ordering is
 					     untouched: `results` is already rankList-sorted by scoreMatch and the row neither
-					     reads nor re-sorts it, it only hands the same array to setListQueue. -->
+					     reads nor re-sorts it. quick-261024-sets: a tap no longer hands the
+					     results pool to setListQueue — play({context:'search'}) seeds Up Next from the
+					     tapped song itself (Hector 2026-10-24), like the home shelves. -->
 					<!-- quick-261010-sar: the artist-name rule, app-wide — the row's artist
 					     name is the SMART-resolved (auto-updating) one, not the raw source string. -->
 					<SongRow
 						track={t}
 						smartArtist
 						showAlbumTag={false}
-						onplay={() => { player.setListQueue(results, 'search'); player.play(t, { fresh: true }); }}
+						onplay={() => player.play(t, { fresh: true, context: 'search' })}
 						onrequestmenu={() => { menuTrack = t; menuOpen = true; }}
 					/>
 				</div>
@@ -930,7 +932,7 @@
 	open={pickerOpen}
 	overlayId="versionpicker-list"
 	onclose={() => (pickerOpen = false)}
-	onpick={(v) => { player.setListQueue(results, 'search'); player.play(v, { fresh: true }); }}
+	onpick={(v) => player.play(v, { fresh: true, context: 'search' })}
 />
 
 <style>

@@ -9,6 +9,7 @@
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import SettingRow from '$lib/components/SettingRow.svelte';
 	import SettingToggle from '$lib/components/SettingToggle.svelte';
+	import AppTextSizeSetting from '$lib/components/AppTextSizeSetting.svelte';
 	import SettingHint from '$lib/components/SettingHint.svelte';
 	import ConfirmModal from '$lib/components/ConfirmModal.svelte';
 	import { tapBounce } from '$lib/actions/tapBounce';
@@ -119,6 +120,10 @@
 		/>
 	</div>
 </section>
+
+<!-- quick-261024-sets: App text size, extracted from Settings → Appearance to sit directly
+     below App language (Hector 2026-10-24). Shared component — the only copy of the control. -->
+<AppTextSizeSetting />
 
 <ConfirmModal
 	open={resetOpen}
