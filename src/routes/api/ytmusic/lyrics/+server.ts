@@ -21,7 +21,14 @@ import {
 	BROWSE_URL,
 	WEB_REMIX_CONTEXT,
 	findLyricsTab,
-	extractLyrics
+	extractLyrics,
+	callPlayerGated,
+	fetchMedia,
+	isPlayable,
+	extractCaptionTracks,
+	pickCaptionTrack,
+	captionsToLrc,
+	extractDescription
 } from '$lib/proxy/ytmusic';
 
 const TTL = 86400; // 1 day — lyrics are stable (also caches a genuine no-lyrics {}).
@@ -35,6 +42,39 @@ function cacheEntry(body: unknown): Response {
 		status: 200,
 		headers: { 'content-type': 'application/json', 'Cache-Control': `public, max-age=${TTL}` }
 	});
+}
+
+/**
+ * quick-261024-lyr — the fallback for the (now usual) empty YTM lyrics tab: CAPTIONS first
+ * (a human caption track on an MV is very often the song's actual lyrics, and timedtext
+ * gives them TIMED, so the lyrics tab syncs), then the video DESCRIPTION (labels paste
+ * full lyrics there). Runs the shared gated player resolve; any failure degrades to null
+ * and the route answers its usual {}. Never throws.
+ */
+async function captionOrDescription(videoId: string): Promise<{ text: string; attribution: string } | null> {
+	try {
+		const json = await callPlayerGated(videoId);
+		if (!isPlayable(json)) return null;
+		const track = pickCaptionTrack(extractCaptionTracks(json));
+		if (track) {
+			try {
+				const res = await fetchMedia(track.baseUrl + '&fmt=json3', {});
+				if (res.ok) {
+					const lrc = captionsToLrc(await res.json());
+					if (lrc) return { text: lrc, attribution: 'YouTube captions' };
+				} else {
+					await res.body?.cancel().catch(() => {});
+				}
+			} catch {
+				// timedtext unreachable — the description below may still serve
+			}
+		}
+		const description = extractDescription(json);
+		if (description.length >= 40) return { text: description, attribution: 'YouTube' };
+		return null;
+	} catch {
+		return null;
+	}
 }
 
 export const GET: RequestHandler = async ({ url, request }) => {
@@ -60,10 +100,11 @@ export const GET: RequestHandler = async ({ url, request }) => {
 		});
 		const { browseId } = findLyricsTab(nextJson);
 		if (!browseId) {
-			// Genuine no-lyrics track — a real answer, cacheable (no wasted browse hop next time).
-			const empty = {};
-			if (cache) await cache.put(cacheReq, cacheEntry(empty));
-			return jsonPassthrough(empty, origin, TTL);
+			// No lyrics tab. quick-261024-lyr: before declaring a miss, try the
+			// caption/description fallback; its result (or the miss) caches the same way.
+			const result = (await captionOrDescription(videoId)) ?? {};
+			if (cache) await cache.put(cacheReq, cacheEntry(result));
+			return jsonPassthrough(result, origin, TTL);
 		}
 
 		// Hop 2: browse(browseId) -> plain text + licensor attribution.
@@ -71,7 +112,10 @@ export const GET: RequestHandler = async ({ url, request }) => {
 			context: WEB_REMIX_CONTEXT,
 			browseId
 		});
-		const result = extractLyrics(browseJson); // { text, attribution }
+		let result = extractLyrics(browseJson); // { text, attribution }
+		// quick-261024-lyr: an EMPTY browse text is the fallback's cue too (YouTube's
+		// lyrics source has been returning shells); only a real text short-circuits it.
+		if (!result.text?.trim()) result = (await captionOrDescription(videoId)) ?? result;
 		if (cache) await cache.put(cacheReq, cacheEntry(result));
 		return jsonPassthrough(result, origin, TTL);
 	} catch {
