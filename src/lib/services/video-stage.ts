@@ -15,6 +15,20 @@ export interface VideoStageError {
 	kind: VideoStageErrorKind;
 	/** Upstream playability reason on a gate (already header-sanitised by the route). */
 	reason?: string;
+	/** quick-261024-vid3: machine-readable detail for the overlay's small print (the
+	 *  picked mime, MediaSource presence, isTypeSupported probes) — a screenshot of the
+	 *  error must be enough to diagnose the device, no guessing round-trips. */
+	detail?: string;
+}
+
+/** quick-261024-vid3: why this environment can't MSE — probed live so the answer is the
+ *  DEVICE's, not a guess. `base` probes a baseline-profile string: if even that fails,
+ *  the WebView's MSE is effectively absent for mp4. */
+export function mseProbe(mime: string | null): string {
+	if (typeof MediaSource === 'undefined') return 'mediasource:absent';
+	const base = MediaSource.isTypeSupported('video/mp4; codecs="avc1.42E01E"');
+	const pick = mime ? MediaSource.isTypeSupported(mime) : false;
+	return `base:${base} pick:${pick} mime:${mime ?? 'none'}`;
 }
 
 const CHUNK_BYTES = 1024 * 1024;
@@ -83,7 +97,7 @@ export class VideoFeeder {
 		this.stopped = false;
 		this.ctrl = new AbortController();
 		if (typeof MediaSource === 'undefined') {
-			this.cb.onError({ kind: 'unsupported' });
+			this.cb.onError({ kind: 'unsupported', detail: mseProbe(null) });
 			return;
 		}
 		// First chunk doubles as the resolve: its headers carry the pick (mime/height) or
@@ -110,7 +124,7 @@ export class VideoFeeder {
 		this.mime = first.headers.get('x-ytmusic-video-mime');
 		const height = Number(first.headers.get('x-ytmusic-video-height'));
 		if (!this.mime || !MediaSource.isTypeSupported(this.mime)) {
-			this.cb.onError({ kind: 'unsupported' });
+			this.cb.onError({ kind: 'unsupported', detail: mseProbe(this.mime) });
 			return;
 		}
 		if (height > 0) this.cb.onMeta(height);

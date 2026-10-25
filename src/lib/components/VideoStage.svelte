@@ -21,22 +21,63 @@
 	let err = $state<VideoStageError | null>(null);
 	let height = $state(0);
 	let waiting = $state(false);
+	// quick-261024-vid3: 'direct' = the no-MSE fallback (the route URL as a plain file
+	// src) for WebViews whose MSE rejects the codec — Hector's APK hit exactly that.
+	let mode = $state<'mse' | 'direct'>('mse');
 	let qualityOpen = $state(false);
 	let scrubbing = $state(false);
 	let scrubValue = $state(0);
 	let feeder: VideoFeeder | null = null;
 	let runId = 0;
+	// quick-261024-vid3b: gate bursts run for tens of seconds — the stage auto-retries a
+	// gated resolve twice with backoff (mirrors NpAbout/about2) before the error shows,
+	// and a direct-mode media error gets one reload. Manual Retry resets both counters.
+	let gateRetries = 0;
+	let directRetries = 0;
+	let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
+	function clearRetry() {
+		if (retryTimer) {
+			clearTimeout(retryTimer);
+			retryTimer = null;
+		}
+	}
 
 	const pipOk = typeof document !== 'undefined' && !!document.pictureInPictureEnabled;
 	const shownTime = $derived(scrubbing ? scrubValue : player.currentTime);
 
+	function elementBufferedEnd(): number {
+		try {
+			const b = videoEl?.buffered;
+			return b && b.length > 0 ? b.end(b.length - 1) : 0;
+		} catch {
+			return 0;
+		}
+	}
+
+	/** Direct mode (vid3): no MSE — the element streams the route URL as a plain file
+	 *  (range requests make it seekable; the same sync loop drives it). */
+	function startDirect() {
+		feeder?.stop();
+		feeder = null;
+		const el = videoEl;
+		if (!el) return;
+		el.src = `/api/ytmusic/video/${encodeURIComponent(videoId)}?q=${settings.videoQuality}`;
+		el.load();
+	}
+
 	function startFeed() {
 		feeder?.stop();
+		clearRetry();
 		err = null;
 		height = 0;
 		const mine = ++runId;
 		const el = videoEl;
 		if (!el) return;
+		if (mode === 'direct') {
+			startDirect();
+			return;
+		}
 		feeder = new VideoFeeder(el, videoId, settings.videoQuality, {
 			onMeta: (h) => {
 				if (mine !== runId) return;
@@ -45,6 +86,23 @@
 			},
 			onError: (e) => {
 				if (mine !== runId) return;
+				// vid3: an MSE refusal is not the end — fall back to direct mode and only
+				// surface the error if THAT fails too (its 'error' event lands below).
+				if (e.kind === 'unsupported') {
+					mode = 'direct';
+					startDirect();
+					return;
+				}
+				// vid3b: a gate is transient by definition — retry quietly twice behind
+				// the loading spinner before asking the user to tap anything.
+				if (e.kind === 'gated' && gateRetries < 2) {
+					const delay = gateRetries === 0 ? 1500 : 4000;
+					gateRetries++;
+					retryTimer = setTimeout(() => {
+						if (mine === runId) startFeed();
+					}, delay);
+					return;
+				}
 				err = e;
 				if (e.kind === 'none') videoAvailability.mark(videoId, false);
 			}
@@ -56,8 +114,17 @@
 	$effect(() => {
 		void videoId;
 		void settings.videoQuality;
+		gateRetries = 0;
+		directRetries = 0;
 		if (videoEl) startFeed();
 	});
+
+	/** The error overlay's Retry: a fresh budget of auto-retries, then a fresh feed. */
+	function manualRetry() {
+		gateRetries = 0;
+		directRetries = 0;
+		startFeed();
+	}
 
 	// Mirror the master, 4×/s, via the pure syncDecision (quick-261024-vid2): NEVER seek
 	// into unbuffered time (the first live check froze exactly that way — a mid-song open
@@ -71,7 +138,7 @@
 			const d = syncDecision({
 				masterTime: player.currentTime,
 				videoTime: v.currentTime,
-				bufferedEnd: feeder?.bufferedEnd() ?? 0,
+				bufferedEnd: feeder ? feeder.bufferedEnd() : elementBufferedEnd(),
 				masterPlaying: player.playing
 			});
 			waiting = d.action === 'wait';
@@ -93,7 +160,10 @@
 		return () => clearInterval(tick);
 	});
 
-	onDestroy(() => feeder?.stop());
+	onDestroy(() => {
+		feeder?.stop();
+		clearRetry();
+	});
 
 	function pickQuality(q: VideoQuality) {
 		qualityOpen = false;
@@ -136,22 +206,46 @@
 
 <div class="vstage" bind:this={stageEl}>
 	<!-- svelte-ignore a11y_media_has_caption — an MV picture layer; the song's lyrics view is one tap away and captions do not exist for these streams -->
-	<video bind:this={videoEl} muted playsinline preload="auto"></video>
+	<video
+		bind:this={videoEl}
+		muted
+		playsinline
+		preload="auto"
+		onloadedmetadata={() => {
+			if (mode === 'direct') {
+				height = settings.videoQuality;
+				videoAvailability.mark(videoId, true);
+			}
+		}}
+		onerror={() => {
+			if (mode !== 'direct' || err) return;
+			// vid3b: one quiet reload (a gated 503 reaches the element as a media error)
+			// before the error surfaces.
+			if (directRetries < 1 && height === 0) {
+				directRetries++;
+				retryTimer = setTimeout(() => startFeed(), 2500);
+				return;
+			}
+			err = { kind: 'network', detail: `media error ${videoEl?.error?.code ?? '?'}` };
+		}}
+	></video>
 
 	{#if err}
 		<div class="v-err" role="alert">
 			<p>{errText(err)}</p>
+			{#if err.detail}<p class="v-detail">{err.detail}</p>{/if}
 			<div class="v-err-btns">
 				{#if err.kind !== 'none' && err.kind !== 'unsupported'}
-					<button onclick={startFeed}><RotateCcw size={14} /> {t('video.retry')}</button>
+					<button onclick={manualRetry}><RotateCcw size={14} /> {t('video.retry')}</button>
 				{/if}
 				<button onclick={onclose}><X size={14} /> {t('nowplaying.closeVideo')}</button>
 			</div>
 		</div>
 	{:else if height === 0}
-		<div class="v-loading" aria-hidden="true">{t('video.loading')}</div>
+		<!-- quick-261024-load1: spinner + label, the app-wide loading treatment. -->
+		<div class="v-loading" aria-hidden="true"><span class="v-ring motion-always"></span>{t('video.loading')}</div>
 	{:else if waiting}
-		<div class="v-waiting" aria-hidden="true">{t('video.loading')}</div>
+		<div class="v-waiting" aria-hidden="true"><span class="v-ring sm motion-always"></span>{t('video.loading')}</div>
 	{/if}
 
 	<div class="v-bar">
@@ -201,10 +295,14 @@
 	.vstage { position: absolute; inset: 0; background: #000; overflow: hidden; }
 	.vstage video { width: 100%; height: 100%; object-fit: contain; display: block; }
 	.vstage:fullscreen { border-radius: 0; }
-	.v-loading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #cfcfe0; font-size: 13px; background: rgba(0,0,0,0.35); }
-	.v-waiting { position: absolute; top: 10px; left: 10px; padding: 4px 10px; border-radius: 999px; color: #cfcfe0; font-size: 12px; background: rgba(0,0,0,0.55); }
+	.v-loading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 10px; color: #cfcfe0; font-size: 13px; background: rgba(0,0,0,0.35); }
+	.v-waiting { position: absolute; top: 10px; left: 10px; display: flex; align-items: center; gap: 7px; padding: 4px 10px; border-radius: 999px; color: #cfcfe0; font-size: 12px; background: rgba(0,0,0,0.55); }
+	.v-ring { flex: none; width: 18px; height: 18px; border: 2px solid rgba(255,255,255,0.8); border-top-color: transparent; border-radius: 50%; animation: vspin 0.7s linear infinite; }
+	.v-ring.sm { width: 12px; height: 12px; border-width: 1.5px; }
+	@keyframes vspin { to { transform: rotate(360deg); } }
 	.v-err { position: absolute; inset: 0; display: flex; flex-direction: column; gap: 10px; align-items: center; justify-content: center; text-align: center; padding: 16px; color: #f0eefc; background: rgba(8,6,18,0.82); font-size: 13px; }
 	.v-err p { margin: 0; max-width: 34ch; }
+	.v-err .v-detail { font-family: ui-monospace, monospace; font-size: 11px; opacity: 0.75; max-width: 90%; overflow-wrap: anywhere; }
 	.v-err-btns { display: flex; gap: 8px; }
 	.v-err-btns button { display: inline-flex; align-items: center; gap: 5px; padding: 6px 12px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.35); background: transparent; color: inherit; font-size: 12.5px; cursor: pointer; }
 	.v-bar { position: absolute; left: 0; right: 0; bottom: 0; display: flex; align-items: center; gap: 8px; padding: 8px 10px calc(8px + env(safe-area-inset-bottom, 0px)); background: linear-gradient(180deg, transparent, rgba(0,0,0,0.72) 38%); color: #fff; }

@@ -5,19 +5,33 @@ import { apiFetch } from './api-base';
 export type DescriptionResult =
 	| { kind: 'ok'; text: string }
 	| { kind: 'empty' }
-	| { kind: 'error' };
+	/** detail (quick-261024-about3): HTTP status + the gate header when the edge sent
+	 *  them, or the thrown error's name — the tab shows it in small print so a failure
+	 *  screenshot says WHICH failure it was (gate vs network vs CORS). */
+	| { kind: 'error'; detail?: string };
 
 /** Never throws: HTTP 503 (the gate) / a network failure is 'error' (the tab offers a
  *  retry); a 200 with an empty string is 'empty' (a definitive "no description"). */
+const TIMEOUT_MS = 15_000;
+
 export async function fetchDescription(videoId: string, signal?: AbortSignal): Promise<DescriptionResult> {
 	try {
-		const res = await apiFetch('/api/ytmusic/description/' + encodeURIComponent(videoId), { signal });
-		if (!res.ok) return { kind: 'error' };
+		// quick-261024-load1: a hung request must not leave the tab on its loading state
+		// forever (Hector hit exactly that) — compose the caller's signal with a 15s
+		// timeout where the platform supports it; older WebViews simply keep the caller's.
+		const own = typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(TIMEOUT_MS) : undefined;
+		const sig = signal && own && typeof AbortSignal.any === 'function' ? AbortSignal.any([signal, own]) : (signal ?? own);
+		const res = await apiFetch('/api/ytmusic/description/' + encodeURIComponent(videoId), { signal: sig });
+		if (!res.ok) {
+			const gate = res.headers.get('x-ytmusic-playability');
+			return { kind: 'error', detail: `http ${res.status}${gate ? ' · ' + gate : ''}` };
+		}
 		const data = (await res.json()) as { description?: unknown } | null;
 		const text = typeof data?.description === 'string' ? data.description.trim() : '';
 		return text ? { kind: 'ok', text } : { kind: 'empty' };
-	} catch {
-		return { kind: 'error' };
+	} catch (e) {
+		const name = e instanceof Error ? e.name : '';
+		return { kind: 'error', detail: name === 'TimeoutError' ? 'timeout 15s' : name || 'network' };
 	}
 }
 
