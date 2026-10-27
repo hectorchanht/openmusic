@@ -228,6 +228,7 @@ Remaining human UAT: real-device <audio> playback+seek + download-to-disk; deplo
 
 ### Roadmap Evolution
 
+- Phase 42 added: YouTube video + embed playback — Now Playing Video toggle for any song (YT search match), web embed fallback when the edge audio proxy fails (YouTube bot-gates Cloudflare egress per invocation, measured 2026-10-04)
 - Phase 41 added: Cut up-front home-page JavaScript for faster mobile LCP (target simulated mobile LCP < 4 s, FCP < 2.5 s; baseline 7.9–16.2 s after the 2026-10-02 PSI fixes)
 - Phase 40 added: Album download-all into an OpenMusic/<album> device folder (album-page button currently fails, hidden) + cover re-rank (QQ + iTunes highest, YT Music demoted) + cloud-shared cover pick auto-chosen for all users, like the lyric-offset store
 - Phase 39 added: Fresh chart homepage — Apple Music RSS / KKBOX / YouTube Charts shelves + genre shelves (client-side iTunes, edge Deezer), main Chart region + extra regions, old Deezer/Last.fm shelves hidden by default with a one-time switch for existing users; de-risked by spikes 011–012
