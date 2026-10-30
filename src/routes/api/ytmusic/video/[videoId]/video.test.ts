@@ -151,6 +151,19 @@ describe('GET /api/ytmusic/video/:videoId (quick-261024-vid1)', () => {
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		const res = await videoGet(ev('vid123', { range: 'bytes=0-1023' }) as any);
 		expect(res.status).toBe(503);
+		// quick-261029-vidgate: gated answers are no-store so a <video> element can
+		// never replay a cached 503 as a MediaError on the next attempt.
+		expect(res.headers.get('cache-control')).toBe('no-store');
 		expect(res.headers.get('x-ytmusic-playability')).toBe('LOGIN_REQUIRED');
+	});
+
+	it('quick-261029-vidgate: a gate that clears on a later resolve round still serves bytes', async () => {
+		stubEdgeCache();
+		// callPlayerGated burns up to 3 player calls per round; feed gated rounds first,
+		// then a playable one — the route must keep resolving instead of 503ing at once.
+		stubFetch([GATED_PLAYER, GATED_PLAYER, GATED_PLAYER, GATED_PLAYER, GATED_PLAYER, GATED_PLAYER, OK_PLAYER]);
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const res = await videoGet(ev('vid123', { range: 'bytes=0-1023' }) as any);
+		expect(res.status).toBe(206);
 	});
 });

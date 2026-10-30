@@ -547,8 +547,9 @@
 	.lyrics .tr.active { color: var(--color-text); text-shadow: 0 0 0.5px currentColor, 0 0 0.5px currentColor; }
 	.tr-hint { text-align: center; font-size: 0.6875rem; color: var(--color-primary); margin: 0 0 6px; }
 	.empty { color: var(--color-text-muted); font-size: 0.875rem; text-align: center; padding: 24px; }
-	/* quick-261024-load1: the fetching state is the shared LoadingState (skeleton +
-	   spinner) now — the old scoped .row-spinner (quick-261019-lyrspin) retired with it. */
+	/* quick-261029-xor1: the fetching state is the shared LoadingState — skeleton ONLY
+	   for lyrics (long text; spinner + skeleton together are banned, standing rule) —
+	   the old scoped .row-spinner (quick-261019-lyrspin) retired with load1. */
 	/* quick-260926-mis: quiet offset row. In normal flow above `.lyrics`, so it shifts every line by the
 	   same amount and anchorActiveLine (live rects) still lands exactly. Opaque --color-bg (what .np /
 	   .sheet paint) keeps it legible over lyrics scrolling beneath it. */

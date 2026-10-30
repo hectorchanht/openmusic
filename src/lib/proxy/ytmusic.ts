@@ -28,7 +28,11 @@ import {
 	PLAYER_URL,
 	PLAYER_UA,
 	playerBody,
-	isPlayable
+	isPlayable,
+	hasUsableMetadata,
+	extractDescription,
+	metadataPlayerBody,
+	METADATA_PLAYER_CLIENTS
 } from './ytmusic-innertube';
 
 // Re-export every pure primitive so existing importers ('$lib/proxy/ytmusic') need zero edits.
@@ -310,6 +314,56 @@ export async function callPlayerGated(videoId: string): Promise<unknown> {
 		})
 	);
 	return retries.find((j) => isPlayable(j)) ?? retries[retries.length - 1] ?? first;
+}
+
+export interface MetadataPlayerResult {
+	json: unknown;
+	/** True when `json` is a definitive metadata answer (see hasUsableMetadata). */
+	definitive: boolean;
+	/** Which client produced `json` ('VISIONOS' = the shared gated resolve). */
+	via: string;
+}
+
+/**
+ * quick-261029-meta1 — resolve a player response FOR METADATA ONLY (description /
+ * captions), robust to a per-PoP / per-video VISIONOS gate burst:
+ *   1. the shared gated VISIONOS resolve (callPlayerGated — fresh visitorData per
+ *      retry, staggered parallel);
+ *   2. alternate InnerTube clients (metadataPlayerBody) that need no streamable
+ *      format and are not the gate's usual target;
+ *   3. ONE more gated VISIONOS round after a beat (fresh visitorData again) — the
+ *      about2 decorrelation trick, now shared by every metadata caller.
+ * Returns definitive:false with the last response when nothing usable answered, so
+ * the caller can 503 with playability headers and MUST NOT cache it as a verdict.
+ */
+export async function callPlayerForMetadata(
+	videoId: string,
+	need: 'any' | 'description' = 'any'
+): Promise<MetadataPlayerResult> {
+	// 'description' callers must not settle for a captions-only answer: a client that
+	// returned tracks but no description has NOT proved the description is empty.
+	const usable = (j: unknown) =>
+		need === 'description'
+			? isPlayable(j) || extractDescription(j).length > 0
+			: hasUsableMetadata(j);
+	const first = await callPlayerGated(videoId);
+	if (usable(first)) return { json: first, definitive: true, via: 'VISIONOS' };
+	let last: unknown = first;
+	for (const client of METADATA_PLAYER_CLIENTS) {
+		try {
+			const json = await innerTubePost(PLAYER_URL, metadataPlayerBody(videoId, client), {
+				signal: AbortSignal.timeout(PLAYER_TIMEOUT_MS)
+			});
+			last = json;
+			if (usable(json)) return { json, definitive: true, via: client };
+		} catch {
+			// one dead client is not the answer — try the next
+		}
+	}
+	await gateDelay(600);
+	const retry = await callPlayerGated(videoId);
+	if (usable(retry)) return { json: retry, definitive: true, via: 'VISIONOS' };
+	return { json: retry ?? last, definitive: false, via: 'none' };
 }
 
 /** One googlevideo byte fetch with a HEADERS-only deadline (see MEDIA_HEAD_TIMEOUT_MS). RAW

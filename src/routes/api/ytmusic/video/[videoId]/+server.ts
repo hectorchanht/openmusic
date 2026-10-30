@@ -90,7 +90,14 @@ function pickHeaders(pick: VideoPickMeta, extra: Record<string, string> = {}): R
 export const GET: RequestHandler = async ({ params, request, url }) => {
 	const origin = request.headers.get('origin');
 	const videoId = (params.videoId ?? '').trim();
-	if (!videoId) return new Response('missing videoId', { status: 400, headers: corsHeaders(origin) });
+	// quick-261029-vidgate: every error answer carries Cache-Control: no-store — a
+	// transient 503 handed to a <video> element must never be cached by the element /
+	// browser and replayed as a stale MediaError on the next attempt.
+	if (!videoId)
+		return new Response('missing videoId', {
+			status: 400,
+			headers: { ...corsHeaders(origin), 'Cache-Control': 'no-store' }
+		});
 	const cap = parseCap(url.searchParams.get('q'));
 	const range = request.headers.get('range');
 	const upstreamHeaders: Record<string, string> = { Range: range ?? 'bytes=0-' };
@@ -123,8 +130,17 @@ export const GET: RequestHandler = async ({ params, request, url }) => {
 	for (let attempt = 0; !res && attempt < URL_ATTEMPTS; attempt++) {
 		const json = await callPlayerGated(videoId);
 		if (!isPlayable(json)) {
+			// quick-261029-vidgate: a gate burst is per-request / per-PoP and often clears
+			// in seconds — the old code returned 503 on the FIRST gated resolve (the
+			// attempt loop only retried media 403s). Retry the gated resolve itself
+			// (each callPlayerGated round already uses fresh visitorData) with a small
+			// backoff before answering 503.
+			if (attempt < URL_ATTEMPTS - 1) {
+				await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+				continue;
+			}
 			const info = playabilityInfo(json);
-			const headers: Record<string, string> = { ...corsHeaders(origin) };
+			const headers: Record<string, string> = { ...corsHeaders(origin), 'Cache-Control': 'no-store' };
 			if (info.status) headers['x-ytmusic-playability'] = info.status;
 			if (info.reason) headers['x-ytmusic-reason'] = info.reason;
 			return new Response('ytmusic video: player not OK', { status: 503, headers });
@@ -135,7 +151,7 @@ export const GET: RequestHandler = async ({ params, request, url }) => {
 			// picture for us" (audio-only upload / vp9-only). 404, distinctly from a gate 503.
 			return new Response('ytmusic video: no avc video format', {
 				status: 404,
-				headers: { ...corsHeaders(origin), 'x-ytmusic-video': 'none' }
+				headers: { ...corsHeaders(origin), 'x-ytmusic-video': 'none', 'Cache-Control': 'no-store' }
 			});
 		}
 		pick = found;
@@ -143,13 +159,20 @@ export const GET: RequestHandler = async ({ params, request, url }) => {
 		try {
 			res = await fetchMedia(found.url, upstreamHeaders);
 		} catch {
-			return new Response('ytmusic video: upstream error', { status: 503, headers: corsHeaders(origin) });
+			return new Response('ytmusic video: upstream error', {
+				status: 503,
+				headers: { ...corsHeaders(origin), 'Cache-Control': 'no-store' }
+			});
 		}
 		if (res.status !== 403) break;
 		await res.body?.cancel().catch(() => {});
 		res = null;
 	}
-	if (!res || !pick) return new Response('ytmusic video: upstream error', { status: 503, headers: corsHeaders(origin) });
+	if (!res || !pick)
+		return new Response('ytmusic video: upstream error', {
+			status: 503,
+			headers: { ...corsHeaders(origin), 'Cache-Control': 'no-store' }
+		});
 
 	const outHeaders: Record<string, string> = {
 		...corsHeaders(origin),
@@ -159,9 +182,10 @@ export const GET: RequestHandler = async ({ params, request, url }) => {
 	if (!res.ok) {
 		// Same posture as the audio route: upstream error bodies are dropped (length/body
 		// mismatch → edge 502 page), 502/504 map to 503 so our headers survive.
+		// quick-261029-vidgate: error answers are no-store (see the 400 above).
 		await res.body?.cancel().catch(() => {});
 		const status = res.status === 502 || res.status === 504 ? 503 : res.status;
-		return new Response(null, { status, headers: outHeaders });
+		return new Response(null, { status, headers: { ...outHeaders, 'Cache-Control': 'no-store' } });
 	}
 	const acceptRanges = res.headers.get('accept-ranges');
 	if (acceptRanges != null) outHeaders['Accept-Ranges'] = acceptRanges;

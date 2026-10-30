@@ -1,17 +1,23 @@
 // YouTube video DESCRIPTION route (quick-261024-about) — feeds the Now Playing "About" tab.
 //
-// GET /api/ytmusic/description/:videoId → { description } — the MV's description text from
-// the SAME gated VISIONOS player resolve the media routes use (shared callPlayerGated).
+// GET /api/ytmusic/description/:videoId → { description } — the MV's description text.
 // Hector's call: the description is a first-class citizen (its own tab, always shown),
 // not merely a lyrics fallback — though /api/ytmusic/lyrics still uses it as one.
 //
-// Cache: a definitive answer (playable player; description possibly empty) caches 7 days
-// per PoP. A GATED resolve answers 503 with NO cache write — transient, never a verdict
-// (the lyr2 lesson). CORS mirrors the sibling routes.
+// quick-261029-meta1: the resolve is callPlayerForMetadata(..., 'description') — the
+// gated VISIONOS resolve FIRST, then alternate InnerTube clients (description needs
+// no streamable format, so WEB/WEB_REMIX/ANDROID are valid metadata sources), then
+// one more gated round. The old sole-VISIONOS dependency 503'd the whole tab whenever
+// a PoP's gate was hot (Hector's layNDqkZQnQ, 2026-10-29 — healthy on other PoPs).
+//
+// Cache: a definitive answer (playable player; description possibly empty — or a
+// non-empty description from any client) caches 7 days per PoP. A GATED resolve
+// answers 503 with NO cache write and Cache-Control: no-store — transient, never a
+// verdict (the lyr2 lesson). CORS mirrors the sibling routes.
 import type { RequestHandler } from './$types';
 import { corsHeaders, corsPreflight } from '$lib/proxy/http';
 import { edgeCache, ownOriginCacheKey } from '$lib/proxy/edge-cache';
-import { callPlayerGated, isPlayable, extractDescription, playabilityInfo } from '$lib/proxy/ytmusic';
+import { callPlayerForMetadata, extractDescription, playabilityInfo } from '$lib/proxy/ytmusic';
 
 const TTL = 7 * 86400; // descriptions are stable
 
@@ -33,18 +39,13 @@ export const GET: RequestHandler = async ({ params, request, url }) => {
 		}
 	}
 
-	// quick-261024-about2: a tab open is a rare, user-initiated call — when the gate is
-	// hot, ONE extra resolve round after a beat doubles the decorrelation window for a
-	// few extra player calls (the first live check drew three gated answers in a row
-	// from a cold PoP before one landed). Streams could never afford this; a tab can.
-	let json = await callPlayerGated(videoId);
-	if (!isPlayable(json)) {
-		await new Promise((r) => setTimeout(r, 600));
-		json = await callPlayerGated(videoId);
-	}
-	if (!isPlayable(json)) {
+	// quick-261029-meta1 (was about2's extra gated round, now inside the shared
+	// resolver): VISIONOS gate rounds + alternate metadata clients + a final round.
+	const meta = await callPlayerForMetadata(videoId, 'description');
+	const json = meta.json;
+	if (!meta.definitive) {
 		const info = playabilityInfo(json);
-		const headers: Record<string, string> = { ...corsHeaders(origin) };
+		const headers: Record<string, string> = { ...corsHeaders(origin), 'Cache-Control': 'no-store' };
 		if (info.status) headers['x-ytmusic-playability'] = info.status;
 		if (info.reason) headers['x-ytmusic-reason'] = info.reason;
 		return new Response(JSON.stringify({}), { status: 503, headers: { ...headers, 'content-type': 'application/json' } });

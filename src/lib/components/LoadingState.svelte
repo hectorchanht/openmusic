@@ -1,11 +1,13 @@
 <script lang="ts">
-	// quick-261024-load1 — the ONE loading treatment for content panes (Hector: skeleton +
-	// spinner everywhere a pane is loading, never bare "Loading…" text or a blank area).
-	// The spinner is the app's established ring (TrackMenu / VersionPicker / NpLyrics
-	// .row-spinner recipe); the skeleton bars are the global `.sk` shimmer from app.css.
-	// `lines` = prose-shaped bars (About, Lyrics); `rows` = avatar+text list rows
-	// (Comments); neither = spinner only (overlays). `dark` recolours the ring for dark
-	// surfaces like the video stage.
+	// quick-261029-xor1 — STANDING RULE (Hector 2026-10-29, SUPERSEDES quick-261024-load1's
+	// "skeleton + spinner everywhere"): NEVER show a spinner and a skeleton together —
+	// exactly ONE loading indicator per loading area. Spinner ONLY for small elements
+	// (a button, a small control, a compact inline action); skeleton ONLY for long
+	// text / paragraphs / long content lists. So: `lines` (About, Lyrics) and `rows`
+	// (Comments) render the skeleton ALONE (the global `.sk` shimmer from app.css, no
+	// ring); neither = spinner ONLY (the app's established ring — TrackMenu /
+	// VersionPicker .row-spinner recipe — for overlays / compact states). `dark`
+	// recolours the ring for dark surfaces like the video stage.
 	let {
 		label,
 		lines = 0,
@@ -19,7 +21,9 @@
 </script>
 
 <div class="loadstate" class:dark aria-busy="true" aria-label={label}>
-	<span class="ring motion-always" aria-hidden="true"></span>
+	{#if rows === 0 && lines === 0}
+		<span class="ring motion-always" aria-hidden="true"></span>
+	{/if}
 	{#if rows > 0}
 		<div class="skrows" aria-hidden="true">
 			{#each Array(rows) as _, i (i)}

@@ -31,6 +31,67 @@ export function mseProbe(mime: string | null): string {
 	return `base:${base} pick:${pick} mime:${mime ?? 'none'}`;
 }
 
+export interface DirectProbeResult {
+	ok: boolean;
+	status: number;
+	kind: VideoStageErrorKind;
+	/** Playability reason on a 503 gate (route header, already sanitised server-side). */
+	reason?: string;
+	/** How many probe fetches ran (1 = first try). */
+	attempts: number;
+}
+
+/**
+ * quick-261029-vidgate — preflight for DIRECT mode. The old code handed the route URL
+ * blindly to the <video> element: a gated 503 (text/plain) as `src` surfaces only as
+ * MediaError code 4 (SRC_NOT_SUPPORTED), with the real reason lost and (thanks to the
+ * old height===0 guard) no retry once metadata had loaded. This probe fetches a 1 KB
+ * range first — the MSE feeder's first-chunk trick, minus MSE — retries a 503 gate
+ * with backoff and cache-busting `retry` params, and only an OK probe lets the caller
+ * set `src`. A 404 is definitive (no picture), everything else is 'network'.
+ * fetch/sleep are injectable for tests.
+ */
+export async function probeDirectVideo(
+	videoId: string,
+	cap: number,
+	deps: {
+		fetchFn?: typeof fetch;
+		sleep?: (ms: number) => Promise<void>;
+		retries?: number;
+	} = {}
+): Promise<DirectProbeResult> {
+	const fetchFn = deps.fetchFn ?? fetch;
+	const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+	const retries = deps.retries ?? 2;
+	const backoff = [1200, 3500];
+	let last: DirectProbeResult = { ok: false, status: 0, kind: 'network', attempts: 0 };
+	for (let attempt = 0; attempt <= retries; attempt++) {
+		if (attempt > 0) await sleep(backoff[attempt - 1] ?? 3500);
+		const bust = attempt > 0 ? `&retry=${attempt}` : '';
+		try {
+			const res = await fetchFn(
+				`/api/ytmusic/video/${encodeURIComponent(videoId)}?q=${cap}${bust}`,
+				{ headers: { Range: 'bytes=0-1023' } }
+			);
+			const reason = res.headers.get('x-ytmusic-reason') ?? undefined;
+			await res.body?.cancel().catch(() => {});
+			if (res.ok) return { ok: true, status: res.status, kind: 'none', attempts: attempt + 1 };
+			if (res.status === 404) return { ok: false, status: 404, kind: 'none', attempts: attempt + 1 };
+			last = {
+				ok: false,
+				status: res.status,
+				kind: res.status === 503 ? 'gated' : 'network',
+				reason,
+				attempts: attempt + 1
+			};
+			if (res.status !== 503) break; // only a gate is worth a quiet retry
+		} catch {
+			last = { ok: false, status: 0, kind: 'network', attempts: attempt + 1 };
+		}
+	}
+	return last;
+}
+
 const CHUNK_BYTES = 1024 * 1024;
 
 /**

@@ -22,9 +22,8 @@ import {
 	WEB_REMIX_CONTEXT,
 	findLyricsTab,
 	extractLyrics,
-	callPlayerGated,
+	callPlayerForMetadata,
 	fetchMedia,
-	isPlayable,
 	extractCaptionTracks,
 	pickCaptionTrack,
 	captionsToLrc,
@@ -55,9 +54,14 @@ async function captionOrDescription(
 	videoId: string
 ): Promise<{ result: { text: string; attribution: string } | null; stage: string }> {
 	try {
-		const json = await callPlayerGated(videoId);
+		// quick-261029-meta1: metadata resolve, not the media resolve — alternate
+		// InnerTube clients answer description/captions even when VISIONOS is gated
+		// (layNDqkZQnQ's lyrics ride its description: stage ok-desc). A non-definitive
+		// result is still reported as 'gated' below.
+		const meta = await callPlayerForMetadata(videoId);
+		const json = meta.json;
 		// 'gated' is TRANSIENT (the bot gate), not a verdict — the caller must not cache it.
-		if (!isPlayable(json)) return { result: null, stage: 'gated' };
+		if (!meta.definitive) return { result: null, stage: 'gated' };
 		const track = pickCaptionTrack(extractCaptionTracks(json));
 		if (track) {
 			try {

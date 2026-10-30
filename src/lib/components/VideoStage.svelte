@@ -11,7 +11,7 @@
 	import { settings } from '$lib/stores/settings.svelte';
 	import { VIDEO_QUALITIES, type VideoQuality } from '$lib/config/defaults';
 	import { t } from '$lib/i18n';
-	import { VideoFeeder, syncDecision, type VideoStageError } from '$lib/services/video-stage';
+	import { VideoFeeder, syncDecision, probeDirectVideo, type VideoStageError } from '$lib/services/video-stage';
 	import { videoAvailability } from '$lib/services/video-availability.svelte';
 
 	let { videoId, onclose }: { videoId: string; onclose: () => void } = $props();
@@ -56,13 +56,36 @@
 	}
 
 	/** Direct mode (vid3): no MSE — the element streams the route URL as a plain file
-	 *  (range requests make it seekable; the same sync loop drives it). */
-	function startDirect() {
+	 *  (range requests make it seekable; the same sync loop drives it).
+	 *  quick-261029-vidgate: the URL is PREFLIGHTED first (probeDirectVideo) — a gated
+	 *  503 handed blindly to the element as `src` surfaced only as "media error 4"
+	 *  with the real (bot-gate) reason lost. Only an OK probe sets `src`; a failed
+	 *  probe becomes the overlay error with its real kind/reason. Retried / recovered
+	 *  loads carry a cache-busting `retry` param so no cached error can replay. */
+	async function startDirect(mine: number) {
 		feeder?.stop();
 		feeder = null;
 		const el = videoEl;
 		if (!el) return;
-		el.src = `/api/ytmusic/video/${encodeURIComponent(videoId)}?q=${settings.videoQuality}`;
+		const probe = await probeDirectVideo(videoId, settings.videoQuality, { retries: 2 });
+		if (mine !== runId || videoEl !== el) return;
+		if (!probe.ok) {
+			if (probe.kind === 'none') {
+				err = { kind: 'none' };
+				videoAvailability.mark(videoId, false);
+			} else if (probe.kind === 'gated') {
+				err = {
+					kind: 'gated',
+					reason: probe.reason,
+					detail: `video route http 503 after ${probe.attempts} probe(s)`
+				};
+			} else {
+				err = { kind: 'network', detail: `video route http ${probe.status || 'error'}` };
+			}
+			return;
+		}
+		const bust = directRetries > 0 || probe.attempts > 1 ? `&retry=${directRetries + probe.attempts}` : '';
+		el.src = `/api/ytmusic/video/${encodeURIComponent(videoId)}?q=${settings.videoQuality}${bust}`;
 		el.load();
 	}
 
@@ -75,7 +98,7 @@
 		const el = videoEl;
 		if (!el) return;
 		if (mode === 'direct') {
-			startDirect();
+			void startDirect(mine);
 			return;
 		}
 		feeder = new VideoFeeder(el, videoId, settings.videoQuality, {
@@ -90,7 +113,7 @@
 				// surface the error if THAT fails too (its 'error' event lands below).
 				if (e.kind === 'unsupported') {
 					mode = 'direct';
-					startDirect();
+					void startDirect(mine);
 					return;
 				}
 				// vid3b: a gate is transient by definition — retry quietly twice behind
@@ -219,14 +242,34 @@
 		}}
 		onerror={() => {
 			if (mode !== 'direct' || err) return;
-			// vid3b: one quiet reload (a gated 503 reaches the element as a media error)
-			// before the error surfaces.
-			if (directRetries < 1 && height === 0) {
+			// quick-261029-vidgate (was vid3b): quiet reloads with backoff, up to 3 —
+			// the old `height === 0` guard meant a MID-STREAM error never retried at
+			// all (height is set on loadedmetadata in direct mode), so failures at
+			// 0:33 / 2:19 went straight to the overlay. height resets so the loading
+			// spinner (spinner ONLY, xor1) shows during the reload.
+			if (directRetries < 3) {
+				const delays = [1500, 3000, 5000];
+				const delay = delays[directRetries] ?? 5000;
 				directRetries++;
-				retryTimer = setTimeout(() => startFeed(), 2500);
+				height = 0;
+				retryTimer = setTimeout(() => startFeed(), delay);
 				return;
 			}
-			err = { kind: 'network', detail: `media error ${videoEl?.error?.code ?? '?'}` };
+			// Retries exhausted: classify with ONE probe so the overlay states the
+			// REAL reason (a gate says so, with its reason) instead of "media error 4"
+			// alone — the code survives only as small-print detail.
+			const code = videoEl?.error?.code ?? '?';
+			void (async () => {
+				const probe = await probeDirectVideo(videoId, settings.videoQuality, { retries: 0 });
+				if (err) return;
+				if (probe.kind === 'gated') {
+					err = { kind: 'gated', reason: probe.reason, detail: `media error ${code}` };
+				} else if (probe.kind === 'none' && probe.status === 404) {
+					err = { kind: 'none', detail: `media error ${code}` };
+				} else {
+					err = { kind: 'network', detail: `media error ${code}` };
+				}
+			})();
 		}}
 	></video>
 
@@ -242,7 +285,8 @@
 			</div>
 		</div>
 	{:else if height === 0}
-		<!-- quick-261024-load1: spinner + label, the app-wide loading treatment. -->
+		<!-- quick-261029-xor1: spinner ONLY here (a compact overlay control — no
+		     skeleton; spinner + skeleton together are banned, standing rule). -->
 		<div class="v-loading" aria-hidden="true"><span class="v-ring motion-always"></span>{t('video.loading')}</div>
 	{:else if waiting}
 		<div class="v-waiting" aria-hidden="true"><span class="v-ring sm motion-always"></span>{t('video.loading')}</div>

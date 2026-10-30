@@ -107,6 +107,50 @@ export function playerBody(videoId: string, visitorData: string | null) {
 	return { context: { client }, videoId, contentCheckOk: true, racyCheckOk: true };
 }
 
+/**
+ * quick-261029-meta1 — METADATA-ONLY alternate player clients. Description text and
+ * caption-track metadata do NOT need a streamable format, so clients that are useless
+ * for googlevideo bytes (WEB / WEB_REMIX / ANDROID — byte-walled or PoToken-gated for
+ * streaming) are perfectly good metadata sources. Hector's layNDqkZQnQ case proved the
+ * point: on a PoP where the VISIONOS player was bot-gated (LOGIN_REQUIRED), the SAME
+ * video's description/lyrics 503'd even though other clients could have answered.
+ * These bodies are used ONLY by callPlayerForMetadata — never for media bytes.
+ */
+export const METADATA_PLAYER_CLIENTS = ['WEB_REMIX', 'WEB', 'ANDROID'] as const;
+export type MetadataPlayerClient = (typeof METADATA_PLAYER_CLIENTS)[number];
+
+/** Build a metadata player body for an alternate client (see METADATA_PLAYER_CLIENTS). */
+export function metadataPlayerBody(videoId: string, client: MetadataPlayerClient) {
+	const base: Record<string, unknown> =
+		client === 'WEB_REMIX'
+			? { clientName: 'WEB_REMIX', clientVersion: WEB_REMIX_CONTEXT.client.clientVersion, hl: 'en', gl: 'US' }
+			: client === 'WEB'
+				? { clientName: 'WEB', clientVersion: '2.20240726.00.00', hl: 'en', gl: 'US' }
+				: {
+						clientName: 'ANDROID',
+						clientVersion: '19.44.38',
+						androidSdkVersion: 30,
+						deviceModel: 'Pixel 8',
+						hl: 'en',
+						gl: 'US'
+					};
+	return { context: { client: base }, videoId, contentCheckOk: true, racyCheckOk: true };
+}
+
+/**
+ * quick-261029-meta1 — a player response carries USABLE metadata when it is playable
+ * (a definitive answer, description possibly empty) OR it carries a non-empty
+ * description OR at least one caption track — even when its playability is gated,
+ * because the metadata fields ride in the same envelope a gate may still return.
+ */
+export function hasUsableMetadata(playerJson: unknown): boolean {
+	return (
+		isPlayable(playerJson) ||
+		extractDescription(playerJson).length > 0 ||
+		extractCaptionTracks(playerJson).length > 0
+	);
+}
+
 /** Pull the anonymous visitor token out of ANY InnerTube response envelope. One copy of the walk —
  *  the edge getVisitorData() and the native resolver both call it (quick-260915-3ng). */
 export function extractVisitorData(json: unknown): string | null {

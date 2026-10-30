@@ -72,12 +72,39 @@ describe('GET /api/ytmusic/description/:videoId (quick-261024-about)', () => {
 		expect(((await res.json()) as { description: string }).description).toBe('');
 	});
 
+	it('quick-261029-meta1: VISIONOS gated but an alternate client answers → 200 with its description', async () => {
+		stubEdgeCache();
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async (u: unknown, init?: RequestInit) => {
+				const s = String(u);
+				if (s === SEARCH_URL) return jsonRes({ responseContext: { visitorData: 'VD' } });
+				if (s === PLAYER_URL) {
+					const body = JSON.parse(String(init?.body ?? '{}')) as { context?: { client?: { clientName?: string } } };
+					if (body.context?.client?.clientName === 'VISIONOS')
+						return jsonRes({ playabilityStatus: { status: 'LOGIN_REQUIRED', reason: 'Sign in to confirm' } });
+					// Alternate metadata clients carry the description even while gated.
+					return jsonRes({
+						playabilityStatus: { status: 'LOGIN_REQUIRED', reason: 'Sign in to confirm' },
+						videoDetails: { shortDescription: DESC }
+					});
+				}
+				throw new Error('unexpected url: ' + s);
+			})
+		);
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const res = await descGet(ev('layNDqkZQnQ') as any);
+		expect(res.status).toBe(200);
+		expect(((await res.json()) as { description: string }).description).toBe(DESC);
+	});
+
 	it('a gated player is a 503 with diagnostics and is NOT cached', async () => {
 		const store = stubEdgeCache();
 		stubPlayer({ playabilityStatus: { status: 'LOGIN_REQUIRED', reason: 'Sign in to confirm' } });
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		const res = await descGet(ev('vid3') as any);
 		expect(res.status).toBe(503);
+		expect(res.headers.get('cache-control')).toBe('no-store');
 		expect(res.headers.get('x-ytmusic-playability')).toBe('LOGIN_REQUIRED');
 		expect([...store.keys()].filter((k) => k.includes('description'))).toHaveLength(0);
 	});
