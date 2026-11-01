@@ -210,12 +210,15 @@ type DownloadOpts = {
  */
 export async function downloadTrack(track: Track, opts?: DownloadOpts): Promise<DownloadResult> {
 	// quick-261031-dedup: the same song+rendition is already downloaded under ANOTHER source's
-	// uid — that record's blob already serves this song offline (downloadUidFor resolves
-	// playback to it), so a second fetch would only mint a duplicate row + blob + public file.
-	// Report 'saved' (the song IS downloaded) before any spinner bracket opens. audioFrom is
-	// exempt: it is an explicit donor REPLACE under this track's own identity (quick-260916-0d9).
-	if (!opts?.audioFrom && library.hasOtherDownload(track)) {
-		return 'saved';
+	// uid AND that record's file actually exists — it already serves this song offline
+	// (downloadUidFor resolves playback to it), so a second fetch would only mint a duplicate
+	// row + blob + public file. Report 'saved' (the song IS downloaded) before any spinner
+	// bracket opens. A record WITHOUT its blob (a failed download kept in the list) does NOT
+	// early-out — it falls through to a real fetch and repairs. audioFrom is exempt: it is an
+	// explicit donor REPLACE under this track's own identity (quick-260916-0d9).
+	if (!opts?.audioFrom) {
+		const other = library.otherDownloadOf(track);
+		if (other && (await blobStore.has(other.uid))) return 'saved';
 	}
 	// DL-STATE-01: bracket the per-uid spinner. beginDownload BEFORE the first await; endDownload in
 	// the `finally` so EVERY exit (saved / no-audio / failed / any throw) clears the spinner exactly once.

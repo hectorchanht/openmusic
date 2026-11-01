@@ -27,7 +27,7 @@ const mocks = vi.hoisted(() => ({
 		updateDownloadQuality: vi.fn((_uid: string, _q: unknown) => {}),
 		isDownloaded: vi.fn((_uid: string) => false),
 		// quick-261031-dedup: same song+rendition already downloaded under another uid.
-		hasOtherDownload: vi.fn((_t: unknown) => false),
+		otherDownloadOf: vi.fn((_t: unknown): Track | null => null),
 		// debug album-row-tick-before-file-done: a non-saved outcome marks the file-less entry.
 		markUnavailable: vi.fn((_uid: string) => {}),
 		clearUnavailable: vi.fn((_uid?: string) => {})
@@ -56,6 +56,8 @@ const mocks = vi.hoisted(() => ({
 	},
 	ensureTrackDetails: vi.fn(async (_t: Track, _s?: unknown, _q?: unknown) => _t),
 	put: vi.fn(async (_uid: string, _blob: Blob, _filename?: string, _opts?: { dir?: string }) => true),
+	// quick-261031-dedup: blob existence for the other-uid early-out.
+	hasBlob: vi.fn(async (_uid: string) => false),
 	saveBlobToDisk: vi.fn((_blob: Blob, _filename: string) => true),
 	// 36-03: the tag seam. Default = a no-op passthrough reporting success, so every PRE-EXISTING
 	// test above still asserts on the fetched blob's own identity/type.
@@ -89,7 +91,7 @@ vi.mock('$lib/stores/cover-version.svelte', () => ({ readCoverByUidOrName: mocks
 vi.mock('$lib/stores/settings.svelte', () => ({ settings: mocks.settings }));
 vi.mock('$lib/stores/names.svelte', () => ({ names: mocks.names }));
 vi.mock('$lib/services/catalog', () => ({ ensureTrackDetails: mocks.ensureTrackDetails }));
-vi.mock('$lib/services/blob-store', () => ({ blobStore: { put: mocks.put }, put: mocks.put }));
+vi.mock('$lib/services/blob-store', () => ({ blobStore: { put: mocks.put, has: mocks.hasBlob }, put: mocks.put }));
 vi.mock('$lib/services/download-save', () => ({ saveBlobToDisk: mocks.saveBlobToDisk }));
 // quick-260919-0mw: spread the REAL module so `albumTag` (a pure string helper the download seam
 // now calls) is present — only the codec entry point is stubbed.
@@ -164,7 +166,8 @@ beforeEach(() => {
 	mocks.library.addDownload.mockReset();
 	mocks.library.updateDownloadQuality.mockReset();
 	mocks.library.isDownloaded.mockReset().mockReturnValue(false);
-	mocks.library.hasOtherDownload.mockReset().mockReturnValue(false);
+	mocks.library.otherDownloadOf.mockReset().mockReturnValue(null);
+	mocks.hasBlob.mockReset().mockResolvedValue(false);
 	mocks.library.markUnavailable.mockReset();
 	mocks.library.clearUnavailable.mockReset();
 	// reset player as PLAIN writable data props (the isolation test swaps in throwing accessors).
@@ -203,8 +206,9 @@ afterEach(() => {
 });
 
 describe('downloadTrack — same song already downloaded under another uid (quick-261031-dedup)', () => {
-	it('returns "saved" immediately — no resolve, no fetch, no spinner bracket', async () => {
-		mocks.library.hasOtherDownload.mockReturnValue(true);
+	it('returns "saved" immediately when the other copy\'s file exists — no resolve, no fetch, no spinner bracket', async () => {
+		mocks.library.otherDownloadOf.mockReturnValue(mk({ uid: 'netease-1' }));
+		mocks.hasBlob.mockResolvedValue(true);
 		const f = stubFetch(new Blob(['audio']));
 		const res = await downloadTrack(mk({ uid: 'qq-9' }));
 		expect(res).toBe('saved');
@@ -213,8 +217,20 @@ describe('downloadTrack — same song already downloaded under another uid (quic
 		expect(mocks.library.beginDownload).not.toHaveBeenCalled();
 		expect(mocks.library.addDownload).not.toHaveBeenCalled();
 	});
+	it('a same-song record WITHOUT its file does not early-out — the download repairs it', async () => {
+		mocks.library.otherDownloadOf.mockReturnValue(mk({ uid: 'netease-1' }));
+		mocks.hasBlob.mockResolvedValue(false);
+		const resolved = mk({ uid: 'qq-9', audioUrl: 'https://cdn.example.com/song.flac', detailsLoaded: true });
+		mocks.ensureTrackDetails.mockResolvedValue(resolved);
+		const f = stubFetch(new Blob(['audio']));
+		const res = await downloadTrack(mk({ uid: 'qq-9', detailsLoaded: false }));
+		expect(res).toBe('saved');
+		expect(mocks.library.beginDownload).toHaveBeenCalled();
+		expect(f).toHaveBeenCalled();
+	});
 	it('audioFrom (an explicit donor replace) is exempt from the early-out', async () => {
-		mocks.library.hasOtherDownload.mockReturnValue(true);
+		mocks.library.otherDownloadOf.mockReturnValue(mk({ uid: 'netease-1' }));
+		mocks.hasBlob.mockResolvedValue(true);
 		mocks.library.isDownloaded.mockReturnValue(true);
 		const donor = mk({ uid: 'netease-1', audioUrl: 'https://cdn.example.com/donor.flac', detailsLoaded: true });
 		const f = stubFetch(new Blob(['audio']));
