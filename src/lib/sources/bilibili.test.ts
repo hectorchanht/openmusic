@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach} from 'vitest';
 import { bilibili} from './bilibili';
+import { bilibiliHealth} from '../services/bilibili-health';
 import type { Track} from './types';
 import searchFixture from './__fixtures__/bilibili.search.json';
 
@@ -40,8 +41,14 @@ duration: 270,
 };
 }
 
-beforeEach(() => vi.restoreAllMocks());
-afterEach(() => vi.restoreAllMocks());
+beforeEach(() => {
+vi.restoreAllMocks();
+bilibiliHealth.__reset(); // the gate is module-scope — never let a trip leak between tests
+});
+afterEach(() => {
+vi.restoreAllMocks();
+bilibiliHealth.__reset();
+});
 
 describe('bilibili.search (fixture-backed)', () => {
 it('maps signed-search rows into canonical Track[] keyed bilibili:${bvid}', async () => {
@@ -108,4 +115,39 @@ it('is search-only: enabledByDefault true, autoResolveEligible false', () => {
 expect(bilibili.enabledByDefault).toBe(true);
 expect(bilibili.autoResolveEligible).toBe(false);
 });
+});
+
+describe('bilibili health gate (bilibili-health wiring)', () => {
+	it('search short-circuits to [] without a fetch once the gate is tripped', async () => {
+		const fetchMock = mockJsonFetch(searchFixture);
+		vi.stubGlobal('fetch', fetchMock);
+		bilibiliHealth.recordFail();
+		bilibiliHealth.recordFail();
+		bilibiliHealth.recordFail();
+		expect(bilibiliHealth.isGated()).toBe(true);
+
+		const tracks = await bilibili.search('周杰伦 晴天', 1, ac.signal);
+
+		expect(tracks).toEqual([]);
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it('empty result[] searches are drys — 3 in a row trip the gate (route risk-control shape)', async () => {
+		const fetchMock = mockJsonFetch({ code: 0, data: { result: [] } });
+		vi.stubGlobal('fetch', fetchMock);
+		for (let i = 0; i < 3; i++) {
+			await expect(bilibili.search('nothing', 1, ac.signal)).resolves.toEqual([]);
+		}
+		expect(bilibiliHealth.isGated()).toBe(true);
+		await expect(bilibili.search('nothing', 1, ac.signal)).resolves.toEqual([]);
+		expect(fetchMock).toHaveBeenCalledTimes(3);
+	});
+
+	it('a {url:null} resolve refusal is NEUTRAL — never trips the gate', async () => {
+		vi.stubGlobal('fetch', mockJsonFetch({ url: null }));
+		for (let i = 0; i < 3; i++) {
+			await expect(bilibili.resolve(stubTrack(), ac.signal)).rejects.toThrow(/no playable audio/);
+		}
+		expect(bilibiliHealth.isGated()).toBe(false);
+	});
 });

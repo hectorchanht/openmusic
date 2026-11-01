@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { audius } from './audius';
 import type { Track } from './types';
 import { __resetDirectUrlCache } from '../services/direct-url-cache';
+import { audiusHealth } from '../services/audius-health';
 
 const ac = new AbortController();
 
@@ -33,10 +34,12 @@ beforeEach(() => {
 	// quick-261006-r2: the client-side direct-URL cache is module state — reset it so a cached
 	// resolve from one case cannot short-circuit another's stubbed /api/stream-url.
 	__resetDirectUrlCache();
+	audiusHealth.__reset(); // the gate is module-scope — never let a trip leak between tests
 });
 afterEach(() => {
 	vi.restoreAllMocks();
 	__resetDirectUrlCache();
+	audiusHealth.__reset();
 });
 
 describe('audius.search', () => {
@@ -152,5 +155,45 @@ describe('audius.resolve', () => {
 
 	it('THROWS when songid is missing', async () => {
 		await expect(audius.resolve(stubTrack({ songid: '' }), ac.signal)).rejects.toThrow(/songid/);
+	});
+});
+
+describe('audius health gate (audius-health wiring)', () => {
+	it('search short-circuits to [] without a fetch once the gate is tripped', async () => {
+		const fetchMock = mockFetchOnce({ data: [sampleRow] });
+		vi.stubGlobal('fetch', fetchMock);
+		audiusHealth.recordFail();
+		audiusHealth.recordFail();
+		audiusHealth.recordFail();
+		expect(audiusHealth.isGated()).toBe(true);
+
+		const tracks = await audius.search('radioactive', 1, ac.signal);
+
+		expect(tracks).toEqual([]);
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it('drift searches throw AND count toward the gate (3 trips it)', async () => {
+		vi.stubGlobal('fetch', mockFetchOnce({ nope: true }));
+		for (let i = 0; i < 3; i++) {
+			await expect(audius.search('x', 1, ac.signal)).rejects.toThrow(/contract-drift/);
+		}
+		expect(audiusHealth.isGated()).toBe(true);
+	});
+
+	it('a well-formed EMPTY data[] is a legit no-hit — recordOk, never counted', async () => {
+		vi.stubGlobal('fetch', mockFetchOnce({ data: [] }));
+		for (let i = 0; i < 3; i++) {
+			await expect(audius.search('周杰伦', 1, ac.signal)).resolves.toEqual([]);
+		}
+		expect(audiusHealth.isGated()).toBe(false);
+	});
+
+	it('page>1 stays a silent no-op — no fetch, no health record', async () => {
+		const fetchMock = mockFetchOnce({ data: [sampleRow] });
+		vi.stubGlobal('fetch', fetchMock);
+		await expect(audius.search('x', 2, ac.signal)).resolves.toEqual([]);
+		expect(fetchMock).not.toHaveBeenCalled();
+		expect(audiusHealth.isGated()).toBe(false);
 	});
 });

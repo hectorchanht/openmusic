@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { archive, archiveDownloadUrl } from './archive';
+import { archiveHealth } from '../services/archive-health';
 import type { Track } from './types';
 import searchFixture from './__fixtures__/archive.search.json';
 
@@ -40,8 +41,14 @@ function stubTrack(overrides: Partial<Track> = {}): Track {
 	};
 }
 
-beforeEach(() => vi.restoreAllMocks());
-afterEach(() => vi.restoreAllMocks());
+beforeEach(() => {
+	vi.restoreAllMocks();
+	archiveHealth.__reset(); // the gate is module-scope — never let a trip leak between tests
+});
+afterEach(() => {
+	vi.restoreAllMocks();
+	archiveHealth.__reset();
+});
 
 describe('archive.search (fixture-backed)', () => {
 	it('maps edge rows into canonical Track[] keyed archive:${identifier}/${file}', async () => {
@@ -114,5 +121,37 @@ describe('archive registry posture', () => {
 	it('is a legal-catalog source: enabledByDefault true, autoResolveEligible false', () => {
 		expect(archive.enabledByDefault).toBe(true);
 		expect(archive.autoResolveEligible).toBe(false);
+	});
+});
+
+describe('archive health gate (archive-health wiring)', () => {
+	it('search short-circuits to [] without a fetch once the gate is tripped', async () => {
+		const fetchMock = mockJsonFetch(searchFixture);
+		vi.stubGlobal('fetch', fetchMock);
+		archiveHealth.recordFail();
+		archiveHealth.recordFail();
+		archiveHealth.recordFail();
+		expect(archiveHealth.isGated()).toBe(true);
+
+		const tracks = await archive.search('beethoven moonlight', 1, ac.signal);
+
+		expect(tracks).toEqual([]);
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it('drift searches throw AND count toward the gate (3 trips it)', async () => {
+		vi.stubGlobal('fetch', mockJsonFetch({ nope: true }));
+		for (let i = 0; i < 3; i++) {
+			await expect(archive.search('x', 1, ac.signal)).rejects.toThrow(/contract-drift/);
+		}
+		expect(archiveHealth.isGated()).toBe(true);
+	});
+
+	it('a well-formed EMPTY rows[] is a legit no-hit — recordOk, never counted', async () => {
+		vi.stubGlobal('fetch', mockJsonFetch({ rows: [] }));
+		for (let i = 0; i < 3; i++) {
+			await expect(archive.search('周杰伦', 1, ac.signal)).resolves.toEqual([]);
+		}
+		expect(archiveHealth.isGated()).toBe(false);
 	});
 });

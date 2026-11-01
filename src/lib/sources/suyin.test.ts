@@ -1,6 +1,7 @@
 // quick-261020-suyin: unit tests for the 溯音 Kuwo adapter.
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { suyin, normalizeSuyinItems } from './suyin';
+import { suyinHealth } from '../services/suyin-health';
 import type { Track } from './types';
 
 const ac = new AbortController();
@@ -56,7 +57,11 @@ function stubTrack(overrides: Partial<Track> = {}): Track {
 	};
 }
 
+beforeEach(() => {
+	suyinHealth.__reset(); // the gate is module-scope — never let a trip leak between tests
+});
 afterEach(() => {
+	suyinHealth.__reset();
 	vi.unstubAllGlobals();
 });
 
@@ -121,5 +126,29 @@ describe('suyin.resolve', () => {
 		const out = await suyin.resolve(stubTrack(), ac.signal);
 		expect(out.audioUrl).toBeNull();
 		expect(out.detailsLoaded).toBe(false);
+	});
+});
+
+describe('suyin health gate (suyin-health wiring)', () => {
+	it('search short-circuits to [] without a fetch once the gate is tripped', async () => {
+		const fetchMock = mockJsonFetch(SEARCH_ONE);
+		vi.stubGlobal('fetch', fetchMock);
+		suyinHealth.recordFail();
+		suyinHealth.recordFail();
+		suyinHealth.recordFail();
+		expect(suyinHealth.isGated()).toBe(true);
+
+		const tracks = await suyin.search('夜曲', 1, ac.signal);
+
+		expect(tracks).toEqual([]);
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it('a data-less error envelope counts toward the gate but still returns []', async () => {
+		vi.stubGlobal('fetch', mockJsonFetch({ code: 0, message: 'err' }));
+		for (let i = 0; i < 3; i++) {
+			await expect(suyin.search('x', 1, ac.signal)).resolves.toEqual([]);
+		}
+		expect(suyinHealth.isGated()).toBe(true);
 	});
 });

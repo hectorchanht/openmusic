@@ -25,6 +25,7 @@
 import type { SourceAdapter, Track } from './types';
 import { makeUid } from './types';
 import { apiFetch } from '../services/api-base';
+import { suyinHealth } from '../services/suyin-health';
 import type { DefaultQuality } from '$lib/stores/settings.svelte';
 
 const OIAPI_BASE = 'https://oiapi.net/api/Kuwo';
@@ -104,18 +105,43 @@ export const suyin: SourceAdapter = {
 	enabledByDefault: true,
 
 	async search(keyword: string, page: number, signal: AbortSignal): Promise<Track[]> {
+		// HEALTH-GATE short-circuit (suyin-health, universal-gate rollout 2026-11-01):
+		// after a run of failures, skip the wasted call for a bounded window; the gate
+		// then auto-opens for one probe whose outcome re-decides. Never-throw here.
+		if (suyinHealth.isGated()) return [];
+
 		const requestLimit = Math.max(1, page || 1) * Math.max(1, 10);
 		// Direct-to-upstream: oiapi sends `Access-Control-Allow-Origin: *`, so no
 		// preflight and no /api hop (same 32-D-12 reasoning as tang).
 		const url =
 			`${OIAPI_BASE}?msg=${encodeURIComponent(keyword)}` +
 			`&n=${requestLimit}&br=${STREAM_BR}`;
-		const res = await apiFetch(url, { signal });
-		const json: unknown = await res.json();
+		// Fetch + parse in ONE try (the kuwoJson lesson) so every failure shape counts;
+		// a caller abort is a supersede, not an outage — rethrown uncounted.
+		let json: unknown;
+		try {
+			const res = await apiFetch(url, { signal });
+			json = await res.json();
+		} catch (err) {
+			if (!signal.aborted) suyinHealth.recordFail();
+			throw err;
+		}
 		// Contract-drift guard: a non-object body is genuine DRIFT, not a dry spell —
 		// throw so the fan-out records a typed per-source error (mirrors netease.ts).
 		if (!json || typeof json !== 'object') {
+			suyinHealth.recordFail();
 			throw new Error('suyin: contract-drift (expected object search body)');
+		}
+		// Health counting (suyin-health), WITHOUT changing the return contract: an
+		// object WITHOUT the `data` payload is an oiapi error envelope (e.g. code!==1) —
+		// counted as a failure, but the search still returns [] exactly as before (the
+		// envelope is also oiapi's shape for some no-hit answers, so throwing here would
+		// over-claim drift; the gate's threshold absorbs the ambiguity). A body WITH
+		// data is a live upstream, even if every row is filtered out below: recordOk.
+		if (!('data' in json) || (json as SuyinResponse).data == null) {
+			suyinHealth.recordFail();
+		} else {
+			suyinHealth.recordOk();
 		}
 		return normalizeSuyinItems(json)
 			.map((it, idx) => toTrack(it, keyword, idx))

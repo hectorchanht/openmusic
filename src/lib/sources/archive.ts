@@ -18,6 +18,7 @@ import type { SourceAdapter, Track } from './types';
 import { makeUid } from './types';
 import { inferQualityFromUrl } from '../services/lrc';
 import { apiFetch } from '../services/api-base';
+import { archiveHealth } from '../services/archive-health';
 import type { ArchiveRow } from '../proxy/archive';
 
 interface ArchiveSearchResponse {
@@ -45,16 +46,34 @@ export const archive: SourceAdapter = {
 	autoResolveEligible: false,
 
 	async search(keyword: string, page: number, signal: AbortSignal): Promise<Track[]> {
+		// HEALTH-GATE short-circuit (archive-health, universal-gate rollout 2026-11-01):
+		// after a run of HARD failures, skip the wasted call for a bounded window; the
+		// gate then auto-opens for one probe whose outcome re-decides. Never-throw here.
+		// Empty results are NEVER counted (see archive-health.ts — empty is a normal
+		// answer for this sparse catalogue, not an outage shape).
+		if (archiveHealth.isGated()) return [];
+
 		const pg = Math.max(1, page || 1);
 		const path = `/api/archive/search?keyword=${encodeURIComponent(keyword)}&page=${pg}`;
 
-		const res = await apiFetch(path, { signal });
-		const json = (await res.json()) as ArchiveSearchResponse | null;
+		// Fetch + parse in ONE try (the kuwoJson lesson) so every failure shape counts;
+		// a caller abort is a supersede, not an outage — rethrown uncounted.
+		let json: ArchiveSearchResponse | null;
+		try {
+			const res = await apiFetch(path, { signal });
+			json = (await res.json()) as ArchiveSearchResponse | null;
+		} catch (err) {
+			if (!signal.aborted) archiveHealth.recordFail();
+			throw err;
+		}
 
 		// Contract-drift guard: the route's anchor is { rows: [...] }.
 		if (!json || !Array.isArray(json.rows)) {
+			archiveHealth.recordFail();
 			throw new Error('archive: contract-drift (expected {rows:[]} search body)');
 		}
+		// A well-formed body is a live upstream — instant recovery (empty included).
+		archiveHealth.recordOk();
 
 		const tracks: Track[] = [];
 		json.rows.forEach((row, idx) => {

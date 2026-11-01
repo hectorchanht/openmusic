@@ -18,6 +18,7 @@ import type { SourceAdapter, Track } from './types';
 import { makeUid } from './types';
 import { inferQualityFromUrl } from '../services/lrc';
 import { apiFetch } from '../services/api-base';
+import { jamendoHealth } from '../services/jamendo-health';
 
 // Upstream `results[]` row shape — only the fields we read; all optional (untrusted JSON).
 interface JmResult {
@@ -47,20 +48,38 @@ export const jamendo: SourceAdapter = {
 	enabledByDefault: true,
 
 	async search(keyword: string, page: number, signal: AbortSignal): Promise<Track[]> {
+		// HEALTH-GATE short-circuit (jamendo-health, universal-gate rollout 2026-11-01):
+		// after a run of HARD failures, skip the wasted call for a bounded window; the
+		// gate then auto-opens for one probe whose outcome re-decides. Never-throw here.
+		// Empty results are NEVER counted (see jamendo-health.ts — empty is the normal
+		// answer for this catalogue on CN queries, not an outage shape).
+		if (jamendoHealth.isGated()) return [];
+
 		// Jamendo's v3 API paginates via `offset` not `page`. limit=20 matches our other adapters'
 		// "first page = 20 rows" idiom. The proxy fills client_id; we never send it from the
 		// client (defense-in-depth even though it's a public id).
 		const offset = Math.max(0, ((page || 1) - 1) * 20);
 		const path = `/api/jamendo/search?search=${encodeURIComponent(keyword)}&limit=20&offset=${offset}`;
 
-		const res = await apiFetch(path, { signal });
-		const json = (await res.json()) as JmResponse | null;
+		// Fetch + parse in ONE try (the kuwoJson lesson) so every failure shape counts;
+		// a caller abort is a supersede, not an outage — rethrown uncounted.
+		let json: JmResponse | null;
+		try {
+			const res = await apiFetch(path, { signal });
+			json = (await res.json()) as JmResponse | null;
+		} catch (err) {
+			if (!signal.aborted) jamendoHealth.recordFail();
+			throw err;
+		}
 
 		// Contract-drift guard: success envelope is `{ headers: { code: 0 }, results: [] }`.
 		// Anything else → throw so the fan-out records a typed per-source error.
 		if (!json || !json.headers || json.headers.code !== 0 || !Array.isArray(json.results)) {
+			jamendoHealth.recordFail();
 			throw new Error('jamendo: contract-drift (expected {headers:{code:0}, results:[]})');
 		}
+		// A well-formed body is a live upstream — instant recovery (empty included).
+		jamendoHealth.recordOk();
 
 		const tracks: Track[] = [];
 		json.results.forEach((it, idx) => {

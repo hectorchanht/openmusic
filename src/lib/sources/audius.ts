@@ -14,6 +14,7 @@ import type { SourceAdapter, Track } from './types';
 import { makeUid } from './types';
 import { inferQualityFromUrl } from '../services/lrc';
 import { apiFetch, apiUrl } from '../services/api-base';
+import { audiusHealth } from '../services/audius-health';
 import { fetchDirectStreamUrl } from '../services/stream-url';
 
 // Upstream `data[]` row shape — only the fields we read; all optional (untrusted JSON).
@@ -37,18 +38,37 @@ export const audius: SourceAdapter = {
 	enabledByDefault: true,
 
 	async search(keyword: string, page: number, signal: AbortSignal): Promise<Track[]> {
-		// Endpoint does not paginate (research A3) — page>1 is a no-op (no upstream call).
+		// Endpoint does not paginate (research A3) — page>1 is a no-op (no upstream call,
+		// and NO health record: nothing was asked of the upstream).
 		if ((page || 1) > 1) return [];
 
+		// HEALTH-GATE short-circuit (audius-health, universal-gate rollout 2026-11-01):
+		// after a run of HARD failures, skip the wasted call for a bounded window; the
+		// gate then auto-opens for one probe whose outcome re-decides. Never-throw here.
+		// Empty results are NEVER counted (see audius-health.ts — empty is the normal
+		// answer for this catalogue on CN queries, not an outage shape).
+		if (audiusHealth.isGated()) return [];
+
 		const path = '/api/audius/search?query=' + encodeURIComponent(keyword);
-		const res = await apiFetch(path, { signal });
-		const json = (await res.json()) as AudiusResponse | null;
+		// Fetch + parse in ONE try (the kuwoJson lesson) so every failure shape counts;
+		// a caller abort is a supersede, not an outage — rethrown uncounted.
+		let json: AudiusResponse | null;
+		try {
+			const res = await apiFetch(path, { signal });
+			json = (await res.json()) as AudiusResponse | null;
+		} catch (err) {
+			if (!signal.aborted) audiusHealth.recordFail();
+			throw err;
+		}
 
 		// Contract-drift guard: success envelope is `{ data: [] }`. Anything else → throw so
 		// the fan-out records a typed per-source error (mirrors jamendo's headers.code guard).
 		if (!json || !Array.isArray(json.data)) {
+			audiusHealth.recordFail();
 			throw new Error('audius: contract-drift (expected {data:[]})');
 		}
+		// A well-formed body is a live upstream — instant recovery (empty included).
+		audiusHealth.recordOk();
 
 		const tracks: Track[] = [];
 		json.data.forEach((it, idx) => {

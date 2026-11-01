@@ -27,6 +27,7 @@
 import type { SourceAdapter, Track} from './types';
 import { makeUid} from './types';
 import { apiFetch, apiUrl} from '../services/api-base';
+import { bilibiliHealth} from '../services/bilibili-health';
 
 // ---- Upstream JSON shapes (only fields we read; all optional — untrusted) ----------------
 
@@ -80,16 +81,36 @@ export const bilibili: SourceAdapter = {
 	autoResolveEligible: false,
 
 	async search(keyword: string, page: number, signal: AbortSignal): Promise<Track[]> {
+		// HEALTH-GATE short-circuit (bilibili-health, universal-gate rollout 2026-11-01):
+		// this source's known posture is edge risk-control (usually down), so the gate
+		// turns a per-search doomed WBI call into one probe per window — and a probe that
+		// gets through recordOk's the source back with no deploy. Never-throw on this path.
+		if (bilibiliHealth.isGated()) return [];
+
 		const pg = Math.max(1, page || 1);
 		const path = `/api/bilibili/search?keyword=${encodeURIComponent(keyword)}&page=${pg}&pagesize=20`;
 
-		const res = await apiFetch(path, { signal});
-		const json = (await res.json()) as BiSearchResponse | null;
+		// Fetch + parse in ONE try (the kuwoJson lesson) so every failure shape counts; a
+		// caller abort is a supersede, not an outage — rethrown uncounted.
+		let json: BiSearchResponse | null;
+		try {
+			const res = await apiFetch(path, { signal});
+			json = (await res.json()) as BiSearchResponse | null;
+		} catch (err) {
+			if (!signal.aborted) bilibiliHealth.recordFail();
+			throw err;
+		}
 
 		// Contract-drift guard: the anchor is { code: 0, data: { result: [...]}}.
 		if (!json || json.code!== 0 ||!json.data ||!Array.isArray(json.data.result)) {
+			bilibiliHealth.recordFail();
 			throw new Error('bilibili: contract-drift (expected {code:0, data:{result:[]}} search body)');
 		}
+		// DRY counting (bilibili-health): the search route converts an edge risk-control
+		// refusal into this exact well-formed EMPTY body, so an empty result[] is this
+		// source's outage shape — recordDry. Rows prove a live upstream — recordOk.
+		if (json.data.result.length === 0) bilibiliHealth.recordDry();
+		else bilibiliHealth.recordOk();
 
 		const tracks: Track[] = [];
 		json.data.result.forEach((it, idx) => {
@@ -118,13 +139,25 @@ export const bilibili: SourceAdapter = {
 	},
 
 	async resolve(track: Track, signal: AbortSignal): Promise<Track> {
+		// Deliberately NOT gated (the kuwo rule): a gated window never refuses a chosen
+		// track — but the outcome feeds the gate (bilibili-health). The resolve route
+		// always answers HTTP 200 JSON with {url:null} for gone / region-locked /
+		// risk-controlled alike, so a parsed refusal stays NEUTRAL (counts neither way);
+		// only a transport throw recordFails, and a served url recordOk.
+		let json: BiResolveResponse | null;
+		try {
+			const path = `/api/bilibili/resolve?bvid=${encodeURIComponent(track.songid)}`;
+			const res = await apiFetch(path, { signal});
+			json = (await res.json()) as BiResolveResponse | null;
+		} catch (err) {
+			if (!signal.aborted) bilibiliHealth.recordFail();
+			throw err;
+		}
 		const bvid = track.songid;
-		const path = `/api/bilibili/resolve?bvid=${encodeURIComponent(bvid)}`;
-		const res = await apiFetch(path, { signal});
-		const json = (await res.json()) as BiResolveResponse | null;
 		if (!json ||!json.url) {
 			throw new Error('bilibili: no playable audio stream (gone or region-locked)');
 		}
+		bilibiliHealth.recordOk();
 		// NOT json.url: the raw bilivideo CDN url 403s in <audio> (Referer gate).
 		// The stream route re-resolves server-side and injects the Referer.
 		// Pitfall 3: this URL is consumed directly by <audio>.src, so it MUST be
