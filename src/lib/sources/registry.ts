@@ -15,6 +15,7 @@ import { jamendo } from './jamendo';
 import { audius } from './audius';
 import { archive } from './archive';
 import { bilibili } from './bilibili';
+import { ccmixter } from './ccmixter';
 import { ytmusic } from './ytmusic';
 import { settings } from '$lib/stores/settings.svelte';
 
@@ -55,6 +56,9 @@ import { settings } from '$lib/stores/settings.svelte';
 // (autoResolveEligible: false), and ytmusic keeps the load-bearing LAST seat.
 // quick-261020-arch: archive sits with the other off-floor legal catalogs
 // (autoResolveEligible: false), just ahead of bilibili.
+// quick-261101-ccm: ccmixter joins the off-floor legal catalogs right after
+// archive (search-only CC remix/indie; autoResolveEligible: false), ahead of
+// bilibili; ytmusic keeps the load-bearing LAST seat.
 // quick-261020-suyin: suyin （溯音 Kuwo via oiapi.net) sits right after kuwo —
 // a second independent Kuwo pipe (browser-direct, CORS *).
 // quick-261020-gdnt: gdnetease (GD音乐台 Netease via music-api.gdstudio.xyz)
@@ -67,7 +71,7 @@ import { settings } from '$lib/stores/settings.svelte';
 // versions and suyin returns a DJ版 for the same query. Trying JOOX early in
 // the fallback walk means its authentic version wins over other pipes'
 // variant versions.
-export const SOURCES: Record<SourceId, SourceAdapter> = { qq, joox, netease, gdnetease, kuwo, suyin, kugou, migu, fivesing, jamendo, audius, archive, bilibili, ytmusic };
+export const SOURCES: Record<SourceId, SourceAdapter> = { qq, joox, netease, gdnetease, kuwo, suyin, kugou, migu, fivesing, jamendo, audius, archive, ccmixter, bilibili, ytmusic };
 
 /**
  * The enabled adapters for a search fan-out. Precedence (highest first):

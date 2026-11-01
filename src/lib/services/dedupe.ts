@@ -36,7 +36,7 @@ import { isDeviceUid } from '$lib/services/device-track';
 // title/album metadata is what the user sees. Identity is unaffected — it stays uid-based
 // (`makeUid`), and this rank never decides identity, only which of two same-song rows survives.
 // Cross-ref: the roadmap's pending "netease upstream health-gate" item already suspected this rank-4.
-const SOURCE_RANK: Record<SourceId, number> = { netease: 3, gdnetease: 3, qq: 4, kuwo: 2, suyin: 2, joox: 3, kugou: 1, migu: 1, fivesing: 0, jamendo: -1, audius: -1, archive: -1, bilibili: -1, ytmusic: -1 };
+const SOURCE_RANK: Record<SourceId, number> = { netease: 3, gdnetease: 3, qq: 4, kuwo: 2, suyin: 2, joox: 3, kugou: 1, migu: 1, fivesing: 0, jamendo: -1, audius: -1, archive: -1, ccmixter: -1, bilibili: -1, ytmusic: -1 };
 
 /** Higher = better. Reads qualityLabel/quality strings (often null pre-resolve). */
 function qualityRank(t: Track): number {

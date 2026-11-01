@@ -28,6 +28,7 @@ export type SourceId =
 	| 'audius'
 	| 'archive'
 	| 'bilibili'
+	| 'ccmixter'
 	| 'ytmusic';
 
 export interface Track {

@@ -24,6 +24,7 @@ const EXPECTED_KEYS: SourceId[] = [
 	'jamendo',
 	'audius',
 	'archive',
+	'ccmixter',
 	'bilibili',
 	'ytmusic'
 ];
@@ -39,6 +40,7 @@ describe('SOURCES registry (DATA-04 — single enumeration point)', () => {
 	// quick-261020-migu: migu inserted after kugou (mainstream, resolve-floor eligible).
 	// quick-261020-bili: bilibili sits just before ytmusic (search-only); ytmusic stays last.
 	// quick-261020-arch: archive sits just before bilibili (off-floor legal catalog).
+	// quick-261101-ccm: ccmixter sits right after archive (off-floor legal catalog).
 	// quick-261020-suyin: suyin (second Kuwo pipe) sits right after kuwo.
 	// quick-261020-gdnt: gdnetease (second Netease pipe) sits right after netease.
 	it('enumerates exactly qq,netease,kuwo,joox,kugou,migu,fivesing,jamendo,audius,archive,bilibili,ytmusic (qq-first floor; ytmusic last)', () => {
@@ -91,6 +93,7 @@ describe('getEnabledAdapters', () => {
 			jamendo: false,
 			audius: false,
 			archive: false,
+			ccmixter: false,
 			bilibili: false,
 			ytmusic: false
 		});
@@ -188,9 +191,17 @@ describe('isAutoResolveEligible (quick-260926-c69)', () => {
 		expect(SOURCES.archive.enabledByDefault).toBe(true);
 	});
 
+	// quick-261101-ccm: ccmixter is a legal-catalog source — searchable, off the floor.
+	it('ccmixter is off the auto-resolve floor (legal catalog)', () => {
+		expect(isAutoResolveEligible('ccmixter')).toBe(false);
+		expect(SOURCES.ccmixter.autoResolveEligible).toBe(false);
+		expect(SOURCES.ccmixter.enabledByDefault).toBe(true);
+		expect(SOURCES.ccmixter.label).toBe('CCMixter');
+	});
+
 	it('every other source is eligible (undefined flag = eligible)', () => {
 		for (const id of Object.keys(SOURCES) as SourceId[]) {
-			if (id !== 'ytmusic' && id !== 'bilibili' && id !== 'archive') {
+			if (id !== 'ytmusic' && id !== 'bilibili' && id !== 'archive' && id !== 'ccmixter') {
 				expect(isAutoResolveEligible(id)).toBe(true);
 			}
 		}
