@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { kugou } from './kugou';
+import { kugouHealth } from '../services/kugou-health';
+import { __resetGovernor } from '../services/api-base';
 import type { Track } from './types';
 import { settings } from '$lib/stores/settings.svelte';
 import searchFixture from './__fixtures__/kugou.search.json';
@@ -86,10 +88,14 @@ function stubTrack(overrides: Partial<Track> = {}): Track {
 let prevQuality: typeof settings.defaultQuality;
 beforeEach(() => {
 	vi.restoreAllMocks();
+	__resetGovernor(); // the apiFetch governor's breaker is module-scope too (ytmusic.test idiom)
+	kugouHealth.__reset(); // the gate is module-scope — never let a trip leak between tests
 	prevQuality = settings.defaultQuality;
 });
 afterEach(() => {
 	vi.restoreAllMocks();
+	__resetGovernor();
+	kugouHealth.__reset();
 	settings.defaultQuality = prevQuality;
 });
 
@@ -197,5 +203,41 @@ describe('kugou.resolve', () => {
 		const out = await kugou.resolve(t, ac.signal);
 		expect(out.lrc).toBe('[00:01.00]理想三旬\n');
 		expect(out.audioUrl).toBe(detailFixture.url);
+	});
+});
+
+describe('kugou health gate (kugou-health wiring)', () => {
+	it('search short-circuits to [] without a fetch once the gate is tripped', async () => {
+		const fetchMock = mockJsonFetch(searchFixture);
+		vi.stubGlobal('fetch', fetchMock);
+		kugouHealth.recordFail();
+		kugouHealth.recordFail();
+		kugouHealth.recordFail();
+		expect(kugouHealth.isGated()).toBe(true);
+
+		const tracks = await kugou.search('理想三旬', 1, ac.signal);
+
+		expect(tracks).toEqual([]);
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it('empty lists[] searches are drys — 3 in a row trip the gate (route outage shape)', async () => {
+		const fetchMock = mockJsonFetch({ status: 1, data: { lists: [] } });
+		vi.stubGlobal('fetch', fetchMock);
+		for (let i = 0; i < 3; i++) {
+			await expect(kugou.search('nothing', 1, ac.signal)).resolves.toEqual([]);
+		}
+		expect(kugouHealth.isGated()).toBe(true);
+		// The 4th search is short-circuited — no further fetch is issued.
+		await expect(kugou.search('nothing', 1, ac.signal)).resolves.toEqual([]);
+		expect(fetchMock).toHaveBeenCalledTimes(3);
+	});
+
+	it('a paid-song resolve ({url:null} on every rung) is a LIVE upstream — never trips', async () => {
+		vi.stubGlobal('fetch', mockResolveFetch({}, { lrc: null }).fn);
+		for (let i = 0; i < 3; i++) {
+			await expect(kugou.resolve(stubTrack(), ac.signal)).rejects.toThrow(/no playable url/);
+		}
+		expect(kugouHealth.isGated()).toBe(false);
 	});
 });

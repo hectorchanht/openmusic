@@ -1,6 +1,7 @@
 // quick-261020-gdnt: unit tests for the GD音乐台 Netease client adapter.
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { gdnetease } from './gdnetease';
+import { gdneteaseHealth } from '../services/gdnetease-health';
 import type { Track } from './types';
 
 const ac = new AbortController();
@@ -57,6 +58,7 @@ function stubTrack(overrides: Partial<Track> = {}): Track {
 
 afterEach(() => {
 	vi.unstubAllGlobals();
+	gdneteaseHealth.__reset(); // the gate is module-scope — never let a trip leak between tests
 });
 
 describe('gdnetease.search', () => {
@@ -131,5 +133,37 @@ describe('gdnetease.resolve', () => {
 		const out = await gdnetease.resolve(stubTrack({ lrcUrl: null }), ac.signal);
 		expect(out.audioUrl).toBeNull();
 		expect(out.detailsLoaded).toBe(false);
+	});
+});
+
+describe('gdnetease health gate (gdnetease-health wiring)', () => {
+	it('search short-circuits to [] without a fetch once the gate is tripped', async () => {
+		const fetchMock = mockJsonFetch(SEARCH);
+		vi.stubGlobal('fetch', fetchMock);
+		gdneteaseHealth.recordFail();
+		gdneteaseHealth.recordFail();
+		gdneteaseHealth.recordFail();
+		expect(gdneteaseHealth.isGated()).toBe(true);
+
+		const tracks = await gdnetease.search('屋顶', 1, ac.signal);
+
+		expect(tracks).toEqual([]);
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it('non-array searches throw AND count toward the gate (the mirrored-400 outage shape)', async () => {
+		vi.stubGlobal('fetch', mockJsonFetch({ error: 'upstream dead' }));
+		for (let i = 0; i < 3; i++) {
+			await expect(gdnetease.search('x', 1, ac.signal)).rejects.toThrow(/contract-drift/);
+		}
+		expect(gdneteaseHealth.isGated()).toBe(true);
+	});
+
+	it('a well-formed EMPTY array is a legit no-hit — recordOk, never a dry', async () => {
+		vi.stubGlobal('fetch', mockJsonFetch([]));
+		for (let i = 0; i < 3; i++) {
+			await expect(gdnetease.search('obscure', 1, ac.signal)).resolves.toEqual([]);
+		}
+		expect(gdneteaseHealth.isGated()).toBe(false);
 	});
 });

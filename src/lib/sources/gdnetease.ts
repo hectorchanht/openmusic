@@ -24,6 +24,7 @@
 import type { SourceAdapter, Track } from './types';
 import { makeUid } from './types';
 import { apiFetch, apiUrl } from '../services/api-base';
+import { gdneteaseHealth } from '../services/gdnetease-health';
 import { extractLrcFromBody } from './netease';
 import { settings, type DefaultQuality } from '$lib/stores/settings.svelte';
 
@@ -63,15 +64,34 @@ export const gdnetease: SourceAdapter = {
 	enabledByDefault: true,
 
 	async search(keyword: string, page: number, signal: AbortSignal): Promise<Track[]> {
+		// HEALTH-GATE short-circuit (gdnetease-health, universal-gate rollout 2026-11-01):
+		// after a run of failures, skip the wasted call for a bounded window; the gate then
+		// auto-opens for one probe whose outcome re-decides. Never-throw on this path.
+		if (gdneteaseHealth.isGated()) return [];
+
 		const requestLimit = Math.max(1, page || 1) * Math.max(1, 10);
 		const path = `/api/gdnetease/search?id=${encodeURIComponent(keyword)}&limit=${requestLimit}`;
-		const res = await apiFetch(path, { signal });
-		const json: unknown = await res.json();
+		// Fetch + parse in ONE try (the kuwoJson lesson) so every failure shape counts —
+		// this pipe's known outage (2026-10-20: upstream 400 on every endpoint, mirrored
+		// by the catch-all) surfaces as a non-array body or a parse throw, never as an
+		// empty array. A caller abort is a supersede, not an outage — rethrown uncounted.
+		let json: unknown;
+		try {
+			const res = await apiFetch(path, { signal });
+			json = await res.json();
+		} catch (err) {
+			if (!signal.aborted) gdneteaseHealth.recordFail();
+			throw err;
+		}
 		// Contract-drift guard: GD must return an array. Throw (not return []) so the
 		// fan-out records a typed per-source error (mirrors netease.ts).
 		if (!Array.isArray(json)) {
+			gdneteaseHealth.recordFail();
 			throw new Error('gdnetease: contract-drift (expected array search body)');
 		}
+		// A well-formed array is a live upstream — instant recovery. An EMPTY array counts
+		// too: it is a legit no-hit here, NOT a dry spell (see gdnetease-health.ts).
+		gdneteaseHealth.recordOk();
 		const tracks: Track[] = [];
 		(json as GdSearchItem[]).forEach((it, idx) => {
 			const songId = it.url_id || it.id;
@@ -110,16 +130,26 @@ export const gdnetease: SourceAdapter = {
 				`/api/gdnetease/url?id=${encodeURIComponent(track.songid)}` + (wantLossless ? '' : '&br=320');
 			try {
 				const res = await apiFetch(urlPath, { signal });
+				// The catch-all MIRRORS the upstream status, so a dead GD answers non-ok
+				// here (its 2026-10-20 outage was 400 on every endpoint) — count it inside
+				// the try (gdnetease-health), where the kuwoJson lesson says it belongs.
+				if (!res.ok) throw new Error(`gdnetease: HTTP ${res.status}`);
 				const body = (await res.json()) as GdUrlResponse;
 				if (body.url) {
+					// Deliberately NOT gated (the kuwo rule) — outcomes only: a served url
+					// is a live upstream, instant recovery.
+					gdneteaseHealth.recordOk();
 					track.audioUrl = body.url;
 					const q = qualityFromBr(body.br);
 					track.quality = q.quality;
 					track.qualityLabel = q.qualityLabel;
 				}
+				// A 200 body WITHOUT a url is a per-song miss — NEUTRAL, counts neither way.
 			} catch {
 				// Resolve failure → audioUrl stays null and cross-source fallback
-				// (SRC-FB-01) covers the song, like a QQ region-block.
+				// (SRC-FB-01) covers the song, like a QQ region-block. Counted (unless the
+				// caller aborted — a supersede is not an outage).
+				if (!signal.aborted) gdneteaseHealth.recordFail();
 			}
 			if (!track.lrc && track.lrcUrl) {
 				try {

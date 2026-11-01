@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { migu } from './migu';
+import { miguHealth } from '../services/migu-health';
+import { __resetGovernor } from '../services/api-base';
 import type { Track } from './types';
 import { settings } from '$lib/stores/settings.svelte';
 import searchFixture from './__fixtures__/migu.search.json';
@@ -75,10 +77,14 @@ function stubTrack(overrides: Partial<Track> = {}): Track {
 let prevQuality: typeof settings.defaultQuality;
 beforeEach(() => {
 	vi.restoreAllMocks();
+	__resetGovernor(); // the apiFetch governor's breaker is module-scope too (ytmusic.test idiom)
+	miguHealth.__reset(); // the gate is module-scope — never let a trip leak between tests
 	prevQuality = settings.defaultQuality;
 });
 afterEach(() => {
 	vi.restoreAllMocks();
+	__resetGovernor();
+	miguHealth.__reset();
 	settings.defaultQuality = prevQuality;
 });
 
@@ -178,5 +184,40 @@ describe('migu.resolve', () => {
 		const out = await migu.resolve(t, ac.signal);
 		expect(out.lrc).toBe('[00:01.00]晴天\n');
 		expect(out.audioUrl).toContain('freetyst');
+	});
+});
+
+describe('migu health gate (migu-health wiring)', () => {
+	it('search short-circuits to [] without a fetch once the gate is tripped', async () => {
+		const fetchMock = mockJsonFetch(searchFixture);
+		vi.stubGlobal('fetch', fetchMock);
+		miguHealth.recordFail();
+		miguHealth.recordFail();
+		miguHealth.recordFail();
+		expect(miguHealth.isGated()).toBe(true);
+
+		const tracks = await migu.search('晴天', 1, ac.signal);
+
+		expect(tracks).toEqual([]);
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it('empty result[] searches are drys — 3 in a row trip the gate (route outage shape)', async () => {
+		const fetchMock = mockJsonFetch({ songResultData: { result: [] } });
+		vi.stubGlobal('fetch', fetchMock);
+		for (let i = 0; i < 3; i++) {
+			await expect(migu.search('nothing', 1, ac.signal)).resolves.toEqual([]);
+		}
+		expect(miguHealth.isGated()).toBe(true);
+		await expect(migu.search('nothing', 1, ac.signal)).resolves.toEqual([]);
+		expect(fetchMock).toHaveBeenCalledTimes(3);
+	});
+
+	it('a region/VIP resolve refusal ({url:null} on every tone) is a LIVE upstream — never trips', async () => {
+		vi.stubGlobal('fetch', mockResolveFetch({}, { lrc: null }).fn);
+		for (let i = 0; i < 3; i++) {
+			await expect(migu.resolve(stubTrack(), ac.signal)).rejects.toThrow(/no playable url/);
+		}
+		expect(miguHealth.isGated()).toBe(false);
 	});
 });

@@ -29,6 +29,7 @@ import type { SourceAdapter, Track } from './types';
 import { makeUid } from './types';
 import { inferQualityFromUrl, type QualityInfo } from '../services/lrc';
 import { apiFetch } from '../services/api-base';
+import { kugouHealth } from '../services/kugou-health';
 import { pickByQualityPref, effectiveQuality } from './quality';
 import { settings, type DefaultQuality } from '$lib/stores/settings.svelte';
 
@@ -99,17 +100,37 @@ export const kugou: SourceAdapter = {
 	enabledByDefault: true,
 
 	async search(keyword: string, page: number, signal: AbortSignal): Promise<Track[]> {
+		// HEALTH-GATE short-circuit (kugou-health, universal-gate rollout 2026-11-01): after
+		// a run of failures/drys, skip the wasted call for a bounded window; the gate then
+		// auto-opens for one probe whose outcome re-decides. Never-throw on this path.
+		if (kugouHealth.isGated()) return [];
+
 		const pg = Math.max(1, page || 1);
 		const path = `/api/kugou/search?keyword=${encodeURIComponent(keyword)}&page=${pg}&pagesize=20`;
 
-		const res = await apiFetch(path, { signal });
-		const json = (await res.json()) as KgSearchResponse | null;
+		// Fetch + parse in ONE try (the kuwoJson lesson) so every failure shape counts; a
+		// caller abort is a supersede, not an outage — rethrown uncounted.
+		let json: KgSearchResponse | null;
+		try {
+			const res = await apiFetch(path, { signal });
+			json = (await res.json()) as KgSearchResponse | null;
+		} catch (err) {
+			if (!signal.aborted) kugouHealth.recordFail();
+			throw err;
+		}
 
 		// Contract-drift guard: song_search_v2's anchor is { status: 1, data: { lists: [] } }.
 		// Missing → throw so the fan-out records a typed per-source error (mirrors kuwo.ts).
 		if (!json || json.status !== 1 || !json.data || !Array.isArray(json.data.lists)) {
+			kugouHealth.recordFail();
 			throw new Error('kugou: contract-drift (expected {status:1, data:{lists:[]}} search body)');
 		}
+		// DRY counting (kugou-health): the search route converts an upstream outage into
+		// this exact well-formed EMPTY body, so an empty lists[] is this source's outage
+		// shape — recordDry. Rows (even if every row is later filtered for a missing hash)
+		// prove a live upstream — recordOk, instant recovery.
+		if (json.data.lists.length === 0) kugouHealth.recordDry();
+		else kugouHealth.recordOk();
 
 		const tracks: Track[] = [];
 		json.data.lists.forEach((it, idx) => {
@@ -166,11 +187,18 @@ export const kugou: SourceAdapter = {
 
 		const albumParam = track.kugouAlbumId ? `&album_id=${encodeURIComponent(track.kugouAlbumId)}` : '';
 		let resolved: KgUrlResponse | null = null;
+		// Health accounting (kugou-health), decided ONCE after the ladder: the url route
+		// always answers HTTP 200 JSON ({url:null} = a paid song's well-formed refusal), so
+		// any rung that PARSES proves the upstream answered. Deliberately NOT gated (the
+		// kuwo rule) — outcomes only.
+		let answered = false;
 		for (const rung of ordered) {
 			const path = `/api/kugou/url?hash=${encodeURIComponent(rung.hash)}${albumParam}`;
 			try {
 				const res = await apiFetch(path, { signal });
+				if (!res.ok) throw new Error(`kugou: HTTP ${res.status}`);
 				const j = (await res.json()) as KgUrlResponse | null;
+				if (j && typeof j === 'object') answered = true;
 				if (j && j.url) {
 					resolved = j;
 					break;
@@ -181,8 +209,13 @@ export const kugou: SourceAdapter = {
 			}
 		}
 		if (!resolved || !resolved.url) {
+			// A well-formed refusal (paid song) is a LIVE upstream → recordOk; only a ladder
+			// where EVERY rung failed at transport level is an outage → recordFail, once.
+			if (answered) kugouHealth.recordOk();
+			else kugouHealth.recordFail();
 			throw new Error('kugou: no playable url (paid or unavailable anonymously)');
 		}
+		kugouHealth.recordOk();
 
 		track.audioUrl = resolved.url;
 		if (!track.cover && resolved.cover) track.cover = resolved.cover;

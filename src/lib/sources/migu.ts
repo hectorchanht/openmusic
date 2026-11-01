@@ -31,6 +31,7 @@ import type { SourceAdapter, Track } from './types';
 import { makeUid } from './types';
 import { inferQualityFromUrl, type QualityInfo } from '../services/lrc';
 import { apiFetch } from '../services/api-base';
+import { miguHealth } from '../services/migu-health';
 import { effectiveQuality } from './quality';
 import { settings, type DefaultQuality } from '$lib/stores/settings.svelte';
 
@@ -143,16 +144,35 @@ export const migu: SourceAdapter = {
 	enabledByDefault: true,
 
 	async search(keyword: string, page: number, signal: AbortSignal): Promise<Track[]> {
+		// HEALTH-GATE short-circuit (migu-health, universal-gate rollout 2026-11-01): after
+		// a run of failures/drys, skip the wasted call for a bounded window; the gate then
+		// auto-opens for one probe whose outcome re-decides. Never-throw on this path.
+		if (miguHealth.isGated()) return [];
+
 		const pg = Math.max(1, page || 1);
 		const path = `/api/migu/search?keyword=${encodeURIComponent(keyword)}&page=${pg}&pagesize=20`;
 
-		const res = await apiFetch(path, { signal });
-		const json = (await res.json()) as MgSearchResponse | null;
+		// Fetch + parse in ONE try (the kuwoJson lesson) so every failure shape counts; a
+		// caller abort is a supersede, not an outage — rethrown uncounted.
+		let json: MgSearchResponse | null;
+		try {
+			const res = await apiFetch(path, { signal });
+			json = (await res.json()) as MgSearchResponse | null;
+		} catch (err) {
+			if (!signal.aborted) miguHealth.recordFail();
+			throw err;
+		}
 
 		// Contract-drift guard: the anchor is { songResultData: { result: [...] } }.
 		if (!json || !json.songResultData || !Array.isArray(json.songResultData.result)) {
+			miguHealth.recordFail();
 			throw new Error('migu: contract-drift (expected {songResultData:{result:[]}} search body)');
 		}
+		// DRY counting (migu-health): the search route converts an upstream outage into
+		// this exact well-formed EMPTY body, so an empty result[] is this source's outage
+		// shape — recordDry. Rows prove a live upstream — recordOk, instant recovery.
+		if (json.songResultData.result.length === 0) miguHealth.recordDry();
+		else miguHealth.recordOk();
 
 		const tracks: Track[] = [];
 		json.songResultData.result.forEach((it, idx) => {
@@ -203,6 +223,12 @@ export const migu: SourceAdapter = {
 		pushTone('PQ', '2');
 
 		let resolved: MgUrlResponse | null = null;
+		// Health accounting (migu-health), decided ONCE after the ladder: the url route
+		// always answers HTTP 200 JSON ({url:null} = every leg refused — commonly a
+		// PER-SONG or REGION refusal while search stays live), so any tone that PARSES
+		// proves the upstream answered. Deliberately NOT gated (the kuwo rule) — outcomes
+		// only.
+		let answered = false;
 		for (const { tone, rt } of tones) {
 			const path =
 				`/api/migu/url?contentId=${encodeURIComponent(contentId)}` +
@@ -210,7 +236,9 @@ export const migu: SourceAdapter = {
 				`&resourceType=${encodeURIComponent(rt)}&tone=${encodeURIComponent(tone)}`;
 			try {
 				const res = await apiFetch(path, { signal });
+				if (!res.ok) throw new Error(`migu: HTTP ${res.status}`);
 				const j = (await res.json()) as MgUrlResponse | null;
+				if (j && typeof j === 'object') answered = true;
 				if (j && j.url) {
 					resolved = j;
 					break;
@@ -221,8 +249,13 @@ export const migu: SourceAdapter = {
 			}
 		}
 		if (!resolved || !resolved.url) {
+			// A well-formed refusal (VIP / region) is a LIVE upstream → recordOk; only a
+			// ladder where EVERY tone failed at transport level is an outage → recordFail.
+			if (answered) miguHealth.recordOk();
+			else miguHealth.recordFail();
 			throw new Error('migu: no playable url (VIP or region-restricted)');
 		}
+		miguHealth.recordOk();
 
 		track.audioUrl = resolved.url;
 		const q = qualityForTone(resolved.tone, resolved.url);
