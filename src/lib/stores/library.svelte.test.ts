@@ -836,3 +836,51 @@ describe('library.downloadUidFor (quick-261008-dl1)', () => {
 		expect(library.downloadUidFor(mk({ uid: 'kuwo:9', artist: '周杰倫', title: '晴天 ' }))).toBe('qq:1');
 	});
 });
+
+// quick-261031-dlpersist: the discography Download-all run state — claim-once per artist,
+// progress writes land in the store (so a remounted page re-reads them), release frees the
+// artist for a fresh run. Plus quick-261031-dedup's otherDownloadOf.
+describe('library pack jobs (quick-261031-dlpersist)', () => {
+	beforeEach(() => {
+		library.packJobs = {};
+		library.downloads = [];
+		memStore.clear();
+	});
+
+	it('beginPackJob claims an artist once; progress + per-album writes land; endPackJob releases', () => {
+		expect(library.beginPackJob('農夫', 13)).toBe(true);
+		expect(library.beginPackJob('農夫', 13)).toBe(false); // re-click while running = no-op
+		expect(library.beginPackJob('陳奕迅', 3)).toBe(true); // another artist is independent
+		library.bumpPackProgress('農夫');
+		library.bumpPackProgress('農夫');
+		library.setPackAlbumProgress('農夫', '鏗鏘集|農夫||', { done: 4, total: 10 });
+		expect(library.packJobs['農夫'].done).toBe(2);
+		expect(library.packJobs['農夫'].total).toBe(13);
+		expect(library.packJobs['農夫'].albums['鏗鏘集|農夫||']).toEqual({ done: 4, total: 10 });
+		library.setPackAlbumProgress('農夫', '鏗鏘集|農夫||', null);
+		expect(library.packJobs['農夫'].albums['鏗鏘集|農夫||']).toBeUndefined();
+		library.endPackJob('農夫');
+		expect(library.packJobs['農夫']).toBeUndefined();
+		expect(library.beginPackJob('農夫', 13)).toBe(true); // claimable again after release
+	});
+
+	it('progress writes to an absent job are no-ops, never throws', () => {
+		expect(() => {
+			library.bumpPackProgress('nobody');
+			library.setPackAlbumProgress('nobody', 'k', { done: 1, total: 2 });
+			library.endPackJob('nobody');
+		}).not.toThrow();
+	});
+
+	it('otherDownloadOf finds the same song+rendition under a different uid only', () => {
+		library.downloads = [mk({ uid: 'netease-1' }), mk({ uid: 'qq-9', source: 'qq', title: '多远都要在一起 (Live)' })];
+		// same uid — not "other"
+		expect(library.otherDownloadOf(mk({ uid: 'netease-1' }))).toBeNull();
+		// same song, different uid — found
+		expect(library.otherDownloadOf(mk({ uid: 'kuwo-7', source: 'kuwo' }))?.uid).toBe('netease-1');
+		// different rendition (Live) is a different download — matches the Live record, not the studio one
+		expect(library.otherDownloadOf(mk({ uid: 'kuwo-8', source: 'kuwo', title: '多远都要在一起 (Live)' }))?.uid).toBe('qq-9');
+		// different song — null
+		expect(library.otherDownloadOf(mk({ uid: 'kuwo-9', source: 'kuwo', title: '光年之外' }))).toBeNull();
+	});
+});

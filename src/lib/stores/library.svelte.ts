@@ -494,6 +494,44 @@ class Library {
 		this.albumJobs = new Set(this.albumJobs).add(key);
 		return true;
 	}
+	/** quick-261031-dlpersist (Hector 2026-10-31): discography "Download all" runs, keyed by
+	 *  artist route name — the run's progress (albums done/total + per-album song progress)
+	 *  lives HERE, not on the albums page, for the same reason albumJobs does: the page
+	 *  unmounts when the user navigates away, and the indicator (the header "9/13" + the
+	 *  per-album bars) must still be there when they come back. The run itself is the page's
+	 *  async loop; its store writes keep landing after unmount, and a remount re-reads them.
+	 *  Transient like albumJobs — never persisted (a reload starts clean). The whole-run
+	 *  claim also makes a re-click after a page change a no-op, complementing the per-album
+	 *  beginAlbumJob claims inside the run. */
+	packJobs = $state<Record<string, { done: number; total: number; albums: Record<string, { done: number; total: number }> }>>({});
+	/** Claim a whole discography run for an artist. False when one is already running. */
+	beginPackJob(artist: string, total: number): boolean {
+		if (this.packJobs[artist]) return false;
+		this.packJobs = { ...this.packJobs, [artist]: { done: 0, total, albums: {} } };
+		return true;
+	}
+	/** Record one more finished album in a running pack job. Absent job = no-op. */
+	bumpPackProgress(artist: string) {
+		const job = this.packJobs[artist];
+		if (!job) return;
+		this.packJobs = { ...this.packJobs, [artist]: { ...job, done: job.done + 1 } };
+	}
+	/** Set (or clear, with null) one album's song progress inside a running pack job. */
+	setPackAlbumProgress(artist: string, key: string, prog: { done: number; total: number } | null) {
+		const job = this.packJobs[artist];
+		if (!job) return;
+		const albums = { ...job.albums };
+		if (prog) albums[key] = prog;
+		else delete albums[key];
+		this.packJobs = { ...this.packJobs, [artist]: { ...job, albums } };
+	}
+	/** Release a discography run (the page's loop calls this in its `finally`). */
+	endPackJob(artist: string) {
+		if (!this.packJobs[artist]) return;
+		const next = { ...this.packJobs };
+		delete next[artist];
+		this.packJobs = next;
+	}
 	/** Release an album job (run in the orchestrator's `finally`). Absent key is a no-op. */
 	endAlbumJob(key: string) {
 		if (!this.albumJobs.has(key)) return;
@@ -557,11 +595,13 @@ class Library {
 		this.downloads = [t, ...this.downloads];
 		this.save();
 	}
-	/** quick-261031-dedup: is this song+rendition already downloaded under a DIFFERENT uid
-	 *  (another source's copy)? downloadTrack's early-out reads this so the duplicate never
-	 *  fetches a second blob. Same-uid is isDownloaded's question, not this one's. */
-	hasOtherDownload(t: Track): boolean {
-		return this.downloads.some((d) => d.uid !== t.uid && isSameShelfSong(d, t));
+	/** quick-261031-dedup: the download record for this song+rendition under a DIFFERENT uid
+	 *  (another source's copy), or null. downloadTrack's early-out reads this — and checks
+	 *  the record's blob actually exists — so the duplicate never fetches a second file,
+	 *  while a record whose file is gone (a failed download kept in the list, DL-BUG-01)
+	 *  still repairs through a real fetch. Same-uid is isDownloaded's question. */
+	otherDownloadOf(t: Track): Track | null {
+		return this.downloads.find((d) => d.uid !== t.uid && isSameShelfSong(d, t)) ?? null;
 	}
 	/**
 	 * quick-261007-abq — "auto best quality": refresh a download record's quality

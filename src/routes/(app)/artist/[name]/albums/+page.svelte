@@ -85,11 +85,16 @@
 
 	// ---- pack actions state (quick-261023-discmerge) ----
 	let playing = $state(false);
-	let dlRunning = $state(false);
-	let dlDoneAlbums = $state(0);
-	let dlTotalAlbums = $state(0);
+	// quick-261031-dlpersist (Hector 2026-10-31): the Download-all run state lives in the
+	// LIBRARY store (library.packJobs[name]) — this page only MIRRORS it. It was component
+	// $state, so navigating away mid-run lost the header "9/13" counter and the per-album
+	// bars even though the downloads themselves kept going; a remount now re-reads the run.
+	const dlJob = $derived(library.packJobs[name] ?? null);
+	const dlRunning = $derived(dlJob !== null);
+	const dlDoneAlbums = $derived(dlJob?.done ?? 0);
+	const dlTotalAlbums = $derived(dlJob?.total ?? 0);
 	/** Per-album download progress, keyed by albumKeyOf. Absent = not started/finished. */
-	let dlProgress = $state<Record<string, { done: number; total: number }>>({});
+	const dlProgress = $derived<Record<string, { done: number; total: number }>>(dlJob?.albums ?? {});
 
 	// Same key shape as the album page (`${name}|${artist}|${dzid}|${mbid}`) so the
 	// library.beginAlbumJob claim dedupes across pages — a download started here is also
@@ -164,10 +169,10 @@
 		}
 		if (dlRunning || !shown.length) return;
 		const list = shown.slice(); // snapshot — a filter switch mid-run must not mutate the run
-		dlRunning = true;
-		dlDoneAlbums = 0;
-		dlTotalAlbums = list.length;
-		dlProgress = {};
+		// quick-261031-dlpersist: claim the whole run in the store — a re-click after a page
+		// change (when this component's old guard died with it) is a no-op while the run lives.
+		if (!library.beginPackJob(name, list.length)) return;
+		let doneCount = 0; // closure-local mirror for the completion toast; the store owns the display state
 		const artist = names.dnArtist(name);
 		globalToast.show(t('toast.downloading', { label: artist }));
 		try {
@@ -176,7 +181,8 @@
 				// Claim-once per album (library store): a second tap — here or on the album
 				// page — is a no-op while this album is in flight.
 				if (!library.beginAlbumJob(key)) {
-					dlDoneAlbums++;
+					doneCount++;
+					library.bumpPackProgress(name);
 					continue;
 				}
 				try {
@@ -195,25 +201,26 @@
 					await Promise.all(Array.from({ length: Math.min(4, stubs.length || 1) }, worker));
 					const resolved = out.filter((tr): tr is Track => tr !== null);
 					if (!resolved.length) continue; // nothing playable — skip, keep going
-					dlProgress[key] = { done: 0, total: resolved.length };
+					library.setPackAlbumProgress(name, key, { done: 0, total: resolved.length });
 					await downloadAlbumTracks(
 						resolved,
 						{ artist, album },
 						(n, total) => {
-							dlProgress[key] = { done: n, total };
+							library.setPackAlbumProgress(name, key, { done: n, total });
 						}
 					);
 				} catch {
 					// 40-D-06 (album granularity): a failed album never aborts the run.
 				} finally {
 					library.endAlbumJob(key);
-					delete dlProgress[key];
-					dlDoneAlbums++;
+					library.setPackAlbumProgress(name, key, null);
+					doneCount++;
+					library.bumpPackProgress(name);
 				}
 			}
-			globalToast.show(t('pack.downloadAllDone', { saved: dlDoneAlbums, total: dlTotalAlbums }));
+			globalToast.show(t('pack.downloadAllDone', { saved: doneCount, total: list.length }));
 		} finally {
-			dlRunning = false;
+			library.endPackJob(name);
 		}
 	}
 
