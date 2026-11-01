@@ -8,7 +8,7 @@ import { setCachedCover } from '$lib/services/cover-cache';
 import { hasHttpsScheme } from '$lib/services/url-safety';
 import { matchKey, versionedMatchKey } from '$lib/services/match-key';
 import { isDeviceUid } from '$lib/services/device-track';
-import { sameSongStrings, songKey } from '$lib/services/dedupe';
+import { dedupeShelfList, isSameShelfSong, sameSongStrings, songKey } from '$lib/services/dedupe';
 import { isChineseLine, warmScript } from '$lib/services/zh-convert';
 // quick-261023-syncmerge: tombstone helpers — the `deleted` set lives on the library blob
 // and rides the synced library key (merge-logic.ts owns the namespaces).
@@ -143,7 +143,46 @@ class Library {
 		} catch {
 			/* corrupt/unavailable — start empty */
 		}
+		this.healDupes(); // quick-261031-dedup: collapse same-song rows already persisted
 		this.warmFold(); // quick-260926-hze: after hydration, so it sees the saved favourites
+	}
+
+	/**
+	 * quick-261031-dedup (Hector 2026-10-31: songs duplicated in Library → Downloads): the lists
+	 * historically keyed adds on UID ONLY, so the same song saved from two sources (or merged in
+	 * from another device by the sync union, which also keys on uid) sat as two rows — two
+	 * Downloads rows, two blobs. Heal = dedupeShelfList on every list (one row per
+	 * song+rendition, best quality wins, device imports untouched); dropped download rows also
+	 * drop their blob (blobStore.del refuses device uids itself) and their unavailable marks.
+	 * Runs at load() and again when the t2s fold lands (warmFold) so Traditional/Simplified
+	 * twins that keyed differently on a cold dict still merge. One save() when anything changed.
+	 */
+	private healDupes() {
+		const liked = dedupeShelfList(this.liked);
+		const downloads = dedupeShelfList(this.downloads);
+		let playlistsChanged = false;
+		const playlists = this.playlists.map((p) => {
+			const tracks = dedupeShelfList(p.tracks);
+			if (tracks.length === p.tracks.length) return p;
+			playlistsChanged = true;
+			return { ...p, tracks };
+		});
+		const changed =
+			liked.length !== this.liked.length ||
+			downloads.length !== this.downloads.length ||
+			playlistsChanged;
+		if (!changed) return;
+		if (downloads.length !== this.downloads.length) {
+			const kept = new Set(downloads.map((t) => t.uid));
+			for (const t of this.downloads) {
+				if (!kept.has(t.uid)) void blobStore.del(t.uid);
+			}
+			this.unavailable = new Set([...this.unavailable].filter((uid) => kept.has(uid)));
+		}
+		this.liked = liked;
+		this.downloads = downloads;
+		this.playlists = playlists;
+		this.save();
 	}
 
 	private save() {
@@ -184,6 +223,10 @@ class Library {
 			this.liked = this.liked.filter((x) => x.uid !== t.uid);
 			// quick-261023-syncmerge: the unlike must survive the next cross-device merge.
 			this.tombstone([tombTrack(t.uid)]);
+		} else if (this.liked.some((x) => isSameShelfSong(x, t))) {
+			// quick-261031-dedup: the same song+rendition is already liked under another
+			// source's uid — it IS liked; a second row is the duplicate Hector reported.
+			// Deliberately NOT an unlike (the uid heart was off, the song heart is on).
 		} else {
 			this.liked = [t, ...this.liked];
 			this.untombstone([tombTrack(t.uid)]);
@@ -294,8 +337,10 @@ class Library {
 		return pl;
 	}
 	addToPlaylist(id: string, t: Track) {
+		// quick-261031-dedup: the per-playlist guard is song+rendition, not just uid — the same
+		// song from another source is already IN this playlist.
 		this.playlists = this.playlists.map((p) =>
-			p.id === id && !p.tracks.some((x) => x.uid === t.uid) ? { ...p, tracks: [...p.tracks, t] } : p
+			p.id === id && !p.tracks.some((x) => isSameShelfSong(x, t)) ? { ...p, tracks: [...p.tracks, t] } : p
 		);
 		// quick-261023-syncmerge: re-adding clears the tombstone (re-add wins).
 		if (t.uid) this.untombstone([tombTrack(t.uid)]);
@@ -377,6 +422,9 @@ class Library {
 		this.foldWarmed = true;
 		void warmScript('zh-Hans').then(() => {
 			this.foldRev++;
+			// quick-261031-dedup: keys fold properly only now — re-heal so Traditional/Simplified
+			// twin rows that survived the cold load() pass still collapse to one.
+			this.healDupes();
 		});
 	}
 
@@ -501,10 +549,19 @@ class Library {
 		return this.downloads.some((t) => t.uid === uid);
 	}
 	addDownload(t: Track) {
-		if (!this.isDownloaded(t.uid)) {
-			this.downloads = [t, ...this.downloads];
-			this.save();
-		}
+		if (this.isDownloaded(t.uid)) return;
+		// quick-261031-dedup: the same song+rendition already downloaded under another source's
+		// uid — that record (and its blob) IS this song's download; downloadTrack's own
+		// early-out normally catches this first, this is the guard for direct callers.
+		if (this.downloads.some((d) => isSameShelfSong(d, t))) return;
+		this.downloads = [t, ...this.downloads];
+		this.save();
+	}
+	/** quick-261031-dedup: is this song+rendition already downloaded under a DIFFERENT uid
+	 *  (another source's copy)? downloadTrack's early-out reads this so the duplicate never
+	 *  fetches a second blob. Same-uid is isDownloaded's question, not this one's. */
+	hasOtherDownload(t: Track): boolean {
+		return this.downloads.some((d) => d.uid !== t.uid && isSameShelfSong(d, t));
 	}
 	/**
 	 * quick-261007-abq — "auto best quality": refresh a download record's quality

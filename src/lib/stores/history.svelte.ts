@@ -10,6 +10,7 @@ import { browser } from '$app/environment';
 import type { Track } from '$lib/sources/types';
 import { library } from '$lib/stores/library.svelte';
 import { tombHistory } from '$lib/sync/merge-logic';
+import { dedupeShelfList, isSameShelfSong } from '$lib/services/dedupe';
 import {
 	HISTORY_KEY,
 	parseHistory,
@@ -32,11 +33,22 @@ class History {
 		} catch {
 			/* corrupt/unavailable — start empty */
 		}
+		// quick-261031-dedup: history is a shelf too — collapse same-song rows persisted by
+		// uid-only dedupe (the same song played from two sources sat twice).
+		const deduped = dedupeShelfList(this.entries);
+		if (deduped.length !== this.entries.length) {
+			this.entries = deduped;
+			this.save();
+		}
 	}
 
 	/** Record a played track: prepend (dedupe-by-uid → replay moves to top), cap, persist. */
 	record(track: Track) {
-		this.entries = recordEntry(this.entries, toEntry(track));
+		const entry = toEntry(track);
+		// quick-261031-dedup: a replay of the same song+rendition from ANOTHER source replaces
+		// the old row (it moves to the top as the new entry) instead of duplicating it.
+		const rest = this.entries.filter((x) => !isSameShelfSong(x, entry));
+		this.entries = recordEntry(rest, entry);
 		this.save();
 	}
 
