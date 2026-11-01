@@ -80,6 +80,12 @@ function toTrack(it: SuyinItem, keyword: string, idx: number): Track | null {
 	const songid = bareRid(it.rid);
 	if (!songid || !it.song) return null;
 	const audioUrl = https(it.url);
+	// quick-261101-ring1: carry the upstream `time` (seconds; number or numeric string)
+	// onto Track.duration. It was dropped, which blinded EVERY duration defence for this
+	// source — score-match's 試聽 preview penalty and song-variant's plausibility pools
+	// both treat unknown duration as un-penalizable, so suyin's 48s ringtone rows were
+	// indistinguishable from its full-length rows at selection time.
+	const rawTime = typeof it.time === 'number' ? it.time : typeof it.time === 'string' ? Number(it.time) : NaN;
 	return {
 		uid: makeUid('suyin', songid),
 		source: 'suyin',
@@ -88,6 +94,7 @@ function toTrack(it: SuyinItem, keyword: string, idx: number): Track | null {
 		artist: it.singer || '',
 		album: it.album || '',
 		cover: https(it.picture),
+		duration: Number.isFinite(rawTime) && rawTime > 0 ? Math.round(rawTime) : undefined,
 		audioUrl,
 		lrc: null,
 		lrcUrl: null,

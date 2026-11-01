@@ -9,8 +9,8 @@
 // exactly ONE source — keeping the per-source attempts cheap and isolating any source failure.
 
 import { searchAll, ensureTrackDetails } from '$lib/services/catalog';
-import { dedupeBest, sameSongKey } from '$lib/services/dedupe';
-import { findOfficial, isAcceptableSubstitute } from '$lib/services/song-variant';
+import { sameSongKey } from '$lib/services/dedupe';
+import { findOfficial, isAcceptableSubstitute, candidateTier } from '$lib/services/song-variant';
 import { getEnabledAdapters, onlySource, isAutoResolveEligible } from '$lib/sources/registry';
 import { isDeviceUid } from '$lib/services/device-track';
 import type { SourceId, Track } from '$lib/sources/types';
@@ -112,11 +112,19 @@ export async function tryFallback(
 	// isAcceptableSubstitute, findOfficial) still ensure authenticity; speed decides ties.
 	// Mark every raced source attempted upfront (CR-03: tried once per episode).
 	for (const src of order) attempted?.add(src);
-	return raceSources(order, (src, sig) => tryOneSource(src, query, failed, sig), signal);
+	const hit = await raceSources(order, (src, sig) => tryOneSource(src, query, failed, sig), signal);
+	return hit?.track ?? null;
+}
+
+/** One source's race result: the resolved track plus its candidate tier (song-variant). */
+export interface FallbackHit {
+	track: Track;
+	/** 0 = official, plausible-length pick; 1 = variant and/or implausibly short. */
+	tier: 0 | 1;
 }
 
 /**
- * Race N sources in parallel; resolve with the first valid (playable) result.
+ * Race N sources in parallel; resolve with the best valid (playable) result.
  * Losers are left to settle (their AbortSignal fires when the winner is picked).
  * Resolves null when every source fails or the outer signal aborts.
  *
@@ -128,31 +136,46 @@ export async function tryFallback(
  * then pick the highest-priority valid result. If none arrive in the window,
  * the first result wins. Adds at most 300ms in the contested case, zero in the
  * common case (only one source returns).
+ *
+ * quick-261101-ring1: race2's window only arbitrated SOURCE priority — it could not
+ * see candidate QUALITY. suyin answers in ONE direct fetch with the URL already
+ * attached, while a tier-1 source needs search + resolve through the edge proxies,
+ * so a suyin VARIANT (the 48s ringtone) routinely landed alone inside the 300ms
+ * window and won over clean studio cuts that were still in flight. Results now
+ * carry a candidate tier (song-variant.candidateTier): finish() prefers tier 0
+ * over tier 1 BEFORE source order, and a tier-1 first arrival arms the much longer
+ * DEGRADED window — a degraded hit is a last resort, so it waits for something
+ * better; a tier-0 arrival shortens a pending long window back to the fast one.
+ * All-sources-settled still finishes immediately, and the player's
+ * FALLBACK_BUDGET_MS watchdog caps the total either way.
  */
 const PRIORITY_WINDOW_MS = 300;
-function raceSources<T extends { audioUrl?: string }>(
+const DEGRADED_PRIORITY_WINDOW_MS = 2500;
+function raceSources(
 	sources: SourceId[],
-	tryFn: (src: SourceId, signal: AbortSignal) => Promise<T | null>,
+	tryFn: (src: SourceId, signal: AbortSignal) => Promise<FallbackHit | null>,
 	signal?: AbortSignal
-): Promise<T | null> {
+): Promise<FallbackHit | null> {
 	// Already aborted — do not launch anything.
 	if (signal?.aborted) return Promise.resolve(null);
 	return new Promise((resolve) => {
 		const ac = new AbortController();
 		let remaining = sources.length;
 		let done = false;
-		// Collect valid results keyed by source; pick highest-priority at the end.
-		const results = new Map<SourceId, T>();
+		// Collect valid results keyed by source; pick best (tier, then priority) at the end.
+		const results = new Map<SourceId, FallbackHit>();
 		const finish = () => {
 			if (done) return;
 			done = true;
 			ac.abort();
-			// Pick the valid result from the highest-priority source (earliest in order).
-			for (const src of sources) {
-				const r = results.get(src);
-				if (r && r.audioUrl) {
-					resolve(r);
-					return;
+			// Best tier first; within a tier, the highest-priority source (earliest in order).
+			for (const tier of [0, 1] as const) {
+				for (const src of sources) {
+					const r = results.get(src);
+					if (r && r.tier === tier && r.track.audioUrl) {
+						resolve(r);
+						return;
+					}
 				}
 			}
 			resolve(null);
@@ -166,17 +189,26 @@ function raceSources<T extends { audioUrl?: string }>(
 		};
 		signal?.addEventListener('abort', onAbort, { once: true });
 		let windowTimer: ReturnType<typeof setTimeout> | null = null;
+		let windowTier = Infinity;
+		// Arm (or shorten) the pick window for an arriving result's tier. A longer
+		// window already armed for a worse tier is replaced; an equal/better armed
+		// window is left alone.
+		const armWindow = (tier: 0 | 1) => {
+			if (tier >= windowTier) return;
+			if (windowTimer) clearTimeout(windowTimer);
+			windowTier = tier;
+			windowTimer = setTimeout(
+				finish,
+				tier === 0 ? PRIORITY_WINDOW_MS : DEGRADED_PRIORITY_WINDOW_MS
+			);
+		};
 		for (const src of sources) {
 			tryFn(src, ac.signal)
 				.then((result) => {
 					if (done) return;
-					if (result && result.audioUrl) {
+					if (result && result.track.audioUrl) {
 						results.set(src, result);
-						// First valid result: start the priority window. Higher-priority
-						// sources get a chance to return before we pick.
-						if (windowTimer === null) {
-							windowTimer = setTimeout(finish, PRIORITY_WINDOW_MS);
-						}
+						armWindow(result.tier);
 					}
 					if (--remaining === 0) {
 						if (windowTimer) clearTimeout(windowTimer);
@@ -195,13 +227,15 @@ function raceSources<T extends { audioUrl?: string }>(
 
 /**
  * One source's attempt: search → gate → resolve. Never throws (returns null on any failure).
+ * On success the hit carries its candidate tier so the race can arbitrate quality,
+ * not just speed (quick-261101-ring1).
  */
 async function tryOneSource(
 	src: SourceId,
 	query: string,
 	failed: Track,
 	signal: AbortSignal
-): Promise<Track | null> {
+): Promise<FallbackHit | null> {
 	try {
 		// quick-261021-fb1 (user): limit 1 was too aggressive — a source's top hit is often
 		// a Live/DJ/instrumental variant that findOfficial rejects, marking the source as
@@ -209,7 +243,13 @@ async function tryOneSource(
 		// findOfficial pick the right one. Parallel race keeps it fast.
 		const result = await searchAll(query, 8, onlySource(src), signal);
 		if (signal.aborted) return null;
-		const candidates = dedupeBest(result.interleaved, src);
+		// quick-261101-ring1: findOfficial gets the RAW per-source rows, NOT dedupeBest's
+		// collapse. dedupe's key() strips brackets, so dedupeBest had already collapsed
+		// this source's clean cut and its ringtone/live/剪輯 variants into ONE winner chosen
+		// by quality/first-order (every suyin row claims 320K) before the official/variant
+		// partition ever ran — the partition was arbitrating a pool of one. The sameSongKey
+		// predicate below is the identity gate, so uncollapsed rows are safe here.
+		const candidates = result.interleaved;
 		// WR-06: a fuzzy upstream search can return a DIFFERENT song; adopting candidates[0]
 		// unconditionally would silently auto-play the wrong track under the original's
 		// identity (successful failover is silent by design). Gate adoption on a normalized
@@ -221,15 +261,22 @@ async function tryOneSource(
 		// instrumental / karaoke / cover under the original's name. Live takes still pass.
 		// quick-261020-off1: findOfficial tries the OFFICIAL pool first — even among
 		// acceptable substitutes, the plain original outranks a live/remix/DJ variant.
+		// quick-261101-ring1: it also walks plausible lengths before short clips, with the
+		// failed track's own duration as the expectation when it carries one.
 		const stub = findOfficial(
 			candidates,
 			failed.title,
-			(c) => sameSongKey(c, failed) && isAcceptableSubstitute(failed.title, c.title)
+			(c) => sameSongKey(c, failed) && isAcceptableSubstitute(failed.title, c.title),
+			{ expectedSec: failed.duration }
 		);
 		if (!stub) return null;
 		const resolved = await ensureTrackDetails(stub, signal);
 		if (signal.aborted) return null;
-		return resolved.audioUrl ? resolved : null;
+		if (!resolved.audioUrl) return null;
+		return {
+			track: resolved,
+			tier: candidateTier(stub, failed.title, candidates, failed.duration)
+		};
 	} catch {
 		return null;
 	}

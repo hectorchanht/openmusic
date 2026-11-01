@@ -100,6 +100,10 @@ describe('suyin.search', () => {
 		expect(t.cover).toBe('https://img1.kuwo.cn/star/albumcover/800/s4s11/89/774616642.jpg');
 		expect(t.quality).toBe('320k');
 		expect(t.detailsLoaded).toBe(true);
+		// quick-261101-ring1: the upstream `time` (226 in this fixture) must land on
+		// Track.duration — without it every duration defence (score-match's 試聽 penalty,
+		// song-variant's plausibility pools) is blind for this source.
+		expect(t.duration).toBe(226);
 	});
 	it('skips rows without rid or title', async () => {
 		vi.stubGlobal('fetch', mockJsonFetch({ code: 1, data: [{ song: '', rid: 'MUSIC_1' }, { song: 'x' }] }));

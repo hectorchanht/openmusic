@@ -576,3 +576,31 @@ describe('scoreMatch — R&B version marker (quick-261006-lyr)', () => {
 		expect(scoreMatch(query, rb)).toBeGreaterThanOrEqual(scoreMatch(query, plain));
 	});
 });
+
+describe('scoreMatch — ringtone/junk-marker penalty (quick-261101-ring1)', () => {
+	// The 2026-11-01 incident: 偏偏喜歡你（48秒鈴聲版） scored IDENTICALLY to the studio cut —
+	// 鈴聲/環繞/片段 were not variant terms, and (before the suyin adapter carried durations)
+	// the sub-60s preview penalty had nothing to read. Both defences are pinned here.
+	it('ranks the clean studio cut above the 48s ringtone and the pseudo-surround cut', () => {
+		const query = { artist: '陳百強', title: '偏偏喜歡你' };
+		const clean = mk('qq', 'clean', '陳百強', { title: '偏偏喜歡你', duration: 212 });
+		const ringtone = mk('suyin', 'ring', '陳百強', { title: '偏偏喜歡你（48秒鈴聲版）', duration: 48 });
+		const surround = mk('suyin', 's3d', '陳百強', { title: '偏偏喜歡你 (3D環繞版)', duration: 208 });
+		expect(scoreMatch(query, clean)).toBeGreaterThan(scoreMatch(query, ringtone));
+		expect(scoreMatch(query, clean)).toBeGreaterThan(scoreMatch(query, surround));
+	});
+
+	it('the sub-60s preview penalty alone sinks a clean-TITLED clip below the full track', () => {
+		const query = { artist: '陳百強', title: '偏偏喜歡你' };
+		const full = mk('qq', 'full', '陳百強', { title: '偏偏喜歡你', duration: 212 });
+		const clip = mk('suyin', 'clip', '陳百強', { title: '偏偏喜歡你', duration: 48 });
+		expect(scoreMatch(query, full)).toBeGreaterThan(scoreMatch(query, clip));
+	});
+
+	it('does NOT penalize the ringtone when the query itself asked for 鈴聲', () => {
+		const query = { artist: '陳百強', title: '偏偏喜歡你 鈴聲' };
+		const ringtone = mk('suyin', 'ring', '陳百強', { title: '偏偏喜歡你（鈴聲版）' });
+		const clean = mk('qq', 'clean', '陳百強', { title: '偏偏喜歡你' });
+		expect(scoreMatch(query, ringtone)).toBeGreaterThanOrEqual(scoreMatch(query, clean));
+	});
+});

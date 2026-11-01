@@ -10,7 +10,7 @@ import { sleep } from '$lib/proxy/http';
 import { cached, evictCached, __clearSearchCache } from './ttl-cache';
 import { matchKey } from './match-key';
 import { scoreMatch } from './score-match';
-import { dedupeBest, sameSongKey } from './dedupe';
+import { sameSongKey } from './dedupe';
 import { findOfficial, isAcceptableSubstitute } from './song-variant';
 import { readResolveCache, registerServedResolve } from './resolve-cache-client';
 import { logAction } from '$lib/stores/actionLog.svelte';
@@ -235,7 +235,8 @@ function interleave(perSource: SettledSourceResult[]): Track[] {
  * RESOLVE-02 (POLICY.md / spikes 001+002+004): resolve a sourceless name-only stub (`{artist,title}`
  * — the shape Plan 26-03's Last.fm `track.getSimilar` Up-Next emits) to a playable Track by walking
  * the kuwo-FIRST source order ONE source at a time. For each source: a SINGLE-source `searchAll`
- * (`onlySource` prefs — never an all-enabled fan-out), `dedupeBest` the results, adopt only a
+ * (`onlySource` prefs — never an all-enabled fan-out), run `findOfficial` over the RAW results
+ * (quick-261101-ring1 — no dedupeBest collapse), adopt only a
  * candidate that is the SAME song via `sameSongKey` (WR-06 — a fuzzy upstream search can return a
  * different track), `ensureTrackDetails` it, and return the FIRST that yields a truthy `audioUrl`.
  * Never-throws (per-source failures are swallowed), AbortSignal-honoring (bails after every await),
@@ -292,7 +293,11 @@ export async function resolveNameStub(
 		try {
 			const result = await searchAll(query, 1, onlySource(src), sig);
 			if (sig.aborted) return null;
-			const candidates = dedupeBest(result.interleaved, src);
+			// quick-261101-ring1: RAW rows, not dedupeBest's collapse (same fix as fallback.ts):
+			// dedupe's bracket-stripping key collapsed a source's clean cut and its variants
+			// into one quality/first-order winner before the official partition could choose,
+			// so a name stub could resolve to a ringtone/clip its source also carries clean.
+			const candidates = result.interleaved;
 			// Same two gates as the cross-source failover (see fallback.ts): sameSongKey cannot tell a
 			// rendition apart because dedupe's key() strips bracketed suffixes, so an Up-Next name stub
 			// would otherwise resolve to the instrumental or a cover of the song it asked for.

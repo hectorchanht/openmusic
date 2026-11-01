@@ -1,7 +1,7 @@
 // SUBSTITUTION VARIANT GUARD — "is this candidate an acceptable stand-in for the song that failed?"
 // OFFICIAL SONG PRIORITIZER lives at the bottom (quick-261020-off1).
 
-import { variantTag } from '$lib/services/dedupe';
+import { variantTag, foldScript } from '$lib/services/dedupe';
 //
 // WHY (user report, debug `slow-cold-start-first-playing`): when a source truly cannot serve a track,
 // the player retries the SAME song on another source so playback never visibly stops. That is the
@@ -152,10 +152,18 @@ const VARIANT_KEYWORDS = [
 	'伴奏', '伴唱', '無人聲', '无人声', '去人聲', '去人声', '消音', '卡拉',
 	'翻唱', '現場', '现场', '演唱會', '演唱会', '純音樂', '纯音乐',
 	'DJ版', 'dj版', '加速版', '減速版', '减速版', '重製', '重制', '重錄', '重录',
+	// quick-261101-ring1: the junk-drawer markers the 2026-11-01 incident exposed — NONE of these
+	// were in any marker list, so `偏偏喜歡你(48秒鈴聲版)` classified as an OFFICIAL title and a
+	// 48-second ringtone was auto-played over the studio version. Ringtones / carrier clips
+	// （鈴聲/彩鈴）, excerpt + preview cuts （片段/試聽）, pseudo-surround re-encodes （環繞）,
+	// edits （剪輯）, pitch-shifted cuts （升調/降調） and bare 混音 are rendition markers wherever
+	// they appear in a title, bracketed or not.
+	'鈴聲', '铃声', '彩鈴', '彩铃', '片段', '試聽', '试听', '環繞', '环绕',
+	'剪輯', '剪辑', '混音', '升調', '升调', '降調', '降调',
 	// Latin (word-boundary)
 	'instrumental', 'karaoke', 'ktv', 'offvocal', 'off vocal', 'backing track',
 	'minus one', 'cover', 'live', 'acoustic', 'unplugged', 'remix', 'remaster',
-	'demo', 'dj mix', 'nightcore', 'sped up', 'slowed'
+	'demo', 'dj mix', 'nightcore', 'sped up', 'slowed', 'ringtone'
 ];
 
 function hasVariantKeyword(text: string): boolean {
@@ -172,24 +180,69 @@ function hasVariantKeyword(text: string): boolean {
 }
 
 /**
+ * The raw text of a title's FIRST bracketed qualifier — `偏偏喜歡你（48秒鈴聲版）` → `48秒鈴聲版`,
+ * `Song (Live)` → `Live` — or null when the title carries no (non-empty) bracketed segment.
+ * Same bracket family dedupe's key() strips. quick-261101-ring1: this is the primitive behind
+ * Hector's parenthetical rule — a bracketed qualifier IS a version claim, whether or not its
+ * text matches a known marker list (the incident's 鈴聲版 / 環繞版 / 中四版 matched none).
+ */
+export function bracketQualifier(title: string): string | null {
+	const m = (title || '').match(/[（(【\[]([^)）\]】]*)[)）\]】]/);
+	const text = (m?.[1] ?? '').trim();
+	return text ? text : null;
+}
+
+/** Qualifier equality key: script-folded, lowercased, punctuation/space-stripped. */
+function normQualifier(q: string): string {
+	return foldScript(q)
+		.toLowerCase()
+		.replace(/[^\p{L}\p{N}]+/gu, '');
+}
+
+/**
  * Is this title the OFFICIAL (plain original) version? True when it carries no variant
- * markers — neither dedupe's bracketed variantTag nor a bare variant keyword.
+ * markers — no bracketed qualifier of ANY kind (quick-261101-ring1: previously only a
+ * RECOGNIZED variantTag key disqualified, so `偏偏喜歡你(48秒鈴聲版)` — whose bracket text
+ * matches no known tag — counted as official), and no bare variant keyword.
  */
 export function isOfficialTitle(title: string): boolean {
-	if (variantTag(title)?.key) return false;
+	if (variantTag(title)) return false;
 	return !hasVariantKeyword(title);
 }
 
 /**
- * Split candidates into official (no variant markers) vs variants.
- * If the query title itself carries a variant marker, the user wants that variant —
- * return everything as official (no filtering).
+ * Split candidates into official (plain original) vs variants.
+ *
+ * quick-261101-ring1 — the partition is TARGET-AWARE (Hector's parenthetical rule):
+ * - Target carries a bracketed qualifier (`偏偏喜歡你（Live）` — the user deliberately picked
+ *   that version): candidates carrying the SAME qualifier are official FIRST, plain titles
+ *   are official second (an untagged take is still an acceptable stand-in), and every other
+ *   rendition is a variant. The chosen version is never demoted below a different one.
+ * - Target carries a bare variant keyword but no brackets (a typed search like
+ *   `給我一首歌的時間 伴奏`): the user wants that variant — return everything as official
+ *   (no filtering), as before.
+ * - Target is plain: only plain titles are official; ANY bracketed or keyword-marked
+ *   candidate is a variant, used only when no official matches.
  */
 export function partitionOfficial<T extends { title: string }>(
 	candidates: T[],
 	queryTitle: string
 ): { official: T[]; variants: T[] } {
-	// User asked for a variant — do not interfere.
+	const q = bracketQualifier(queryTitle);
+	if (q !== null) {
+		const want = normQualifier(q);
+		const matching: T[] = [];
+		const clean: T[] = [];
+		const variants: T[] = [];
+		for (const c of candidates) {
+			const cq = bracketQualifier(c.title);
+			if (cq !== null && normQualifier(cq) === want) matching.push(c);
+			else if (isOfficialTitle(c.title)) clean.push(c);
+			else variants.push(c);
+		}
+		return { official: [...matching, ...clean], variants };
+	}
+	// User asked for a variant (bare keyword) — do not interfere.
 	if (hasVariantKeyword(queryTitle)) return { official: candidates, variants: [] };
 	const official: T[] = [];
 	const variants: T[] = [];
@@ -200,33 +253,118 @@ export function partitionOfficial<T extends { title: string }>(
 	return { official, variants };
 }
 
+// --- DURATION PLAUSIBILITY (quick-261101-ring1) -------------------------------------------------
+// The second half of the incident: even had the ringtone been classified a variant, NOTHING in
+// the findOfficial path ever looked at DURATION — a 48s clip and a 212s studio cut were equals.
+// These helpers give the prioritizers a plausibility axis. Unknown duration (undefined / 0 —
+// the source did not report one) is NEVER implausible: a source that omits durations must not
+// be falsely demoted (the same D-03 philosophy as score-match's previewPenalty).
+
+/** A track strictly SHORTER than this is a clip （試聽/鈴聲/片段）, never a full song. */
+export const SHORT_TRACK_SEC = 60;
+
 /**
- * Find the first candidate matching `pred`, preferring official versions.
- * Tries the official pool first; only falls back to variants when no official matches.
+ * The expected full length for a candidate pool: the MEDIAN of the durations the pool
+ * actually reports (robust to the pool's own outliers — a pool of mostly-studio rows with
+ * one ringtone medians to the studio length). undefined when the pool reports nothing.
  */
-export function findOfficial<T extends { title: string }>(
-	candidates: T[],
-	queryTitle: string,
-	pred: (c: T) => boolean
-): T | undefined {
-	const { official, variants } = partitionOfficial(candidates, queryTitle);
-	return official.find(pred) ?? variants.find(pred);
+export function poolExpectedDuration(
+	candidates: readonly { duration?: number }[]
+): number | undefined {
+	const known = candidates
+		.map((c) => c.duration)
+		.filter((d): d is number => typeof d === 'number' && isFinite(d) && d > 0)
+		.sort((a, b) => a - b);
+	if (known.length === 0) return undefined;
+	const mid = Math.floor(known.length / 2);
+	return known.length % 2 === 1 ? known[mid] : (known[mid - 1] + known[mid]) / 2;
 }
 
 /**
- * Pick the highest-scoring candidate via `scoreFn`, preferring official versions.
- * Scores only the official pool when it is non-empty; the variant pool is scored
- * only when no official version exists. Within each pool, the standard stable-max
+ * Is this candidate implausibly short for the song? True when its KNOWN duration is either
+ * under SHORT_TRACK_SEC outright, or under HALF the expected length (the target track's own
+ * duration when the caller has one, else the pool median the caller computed).
+ */
+export function isImplausiblyShort(
+	c: { duration?: number },
+	expectedSec?: number
+): boolean {
+	const d = c.duration;
+	if (typeof d !== 'number' || !isFinite(d) || d <= 0) return false;
+	if (d < SHORT_TRACK_SEC) return true;
+	return expectedSec !== undefined && expectedSec > 0 && d < expectedSec * 0.5;
+}
+
+/**
+ * Pool order shared by findOfficial / pickOfficial (quick-261101-ring1):
+ * official-plausible → variant-plausible → official-short → variant-short.
+ * A full-length VARIANT outranks a SHORT official-titled clip: the clip is not the song at
+ * any title, while the variant at least is. Short candidates remain reachable — they are
+ * the last resort, never the first pick.
+ */
+function poolsInOrder<T extends { title: string; duration?: number }>(
+	candidates: T[],
+	queryTitle: string,
+	expectedSec?: number
+): T[][] {
+	const { official, variants } = partitionOfficial(candidates, queryTitle);
+	const expected = expectedSec ?? poolExpectedDuration(candidates);
+	const plausible = (pool: T[]) => pool.filter((c) => !isImplausiblyShort(c, expected));
+	const short = (pool: T[]) => pool.filter((c) => isImplausiblyShort(c, expected));
+	return [plausible(official), plausible(variants), short(official), short(variants)];
+}
+
+/**
+ * Playback-candidate tier for cross-source arbitration (quick-261101-ring1): 0 when the
+ * candidate is an official, plausible-length pick for the target title; 1 when it is a
+ * variant and/or implausibly short. fallback's race uses it so a fast degraded hit cannot
+ * beat a slower clean one merely by arriving first.
+ */
+export function candidateTier(
+	candidate: { title: string; duration?: number },
+	queryTitle: string,
+	pool: readonly { duration?: number }[],
+	expectedSec?: number
+): 0 | 1 {
+	const { official } = partitionOfficial([candidate], queryTitle);
+	if (official.length === 0) return 1;
+	const expected = expectedSec ?? poolExpectedDuration(pool);
+	return isImplausiblyShort(candidate, expected) ? 1 : 0;
+}
+
+/**
+ * Find the first candidate matching `pred`, walking the pools in priority order
+ * (official-plausible → variant-plausible → official-short → variant-short — see
+ * poolsInOrder). `opts.expectedSec` is the target track's own known duration when the
+ * caller has one; otherwise the pool median stands in.
+ */
+export function findOfficial<T extends { title: string; duration?: number }>(
+	candidates: T[],
+	queryTitle: string,
+	pred: (c: T) => boolean,
+	opts?: { expectedSec?: number }
+): T | undefined {
+	for (const pool of poolsInOrder(candidates, queryTitle, opts?.expectedSec)) {
+		const hit = pool.find(pred);
+		if (hit) return hit;
+	}
+	return undefined;
+}
+
+/**
+ * Pick the highest-scoring candidate via `scoreFn`, from the first non-empty pool in
+ * the same priority order findOfficial walks. Within the pool, the standard stable-max
  * applies (first wins ties).
  */
-export function pickOfficial<T extends { title: string }>(
+export function pickOfficial<T extends { title: string; duration?: number }>(
 	candidates: T[],
 	query: { artist: string; title: string },
-	scoreFn: (q: { artist: string; title: string }, c: T) => number
+	scoreFn: (q: { artist: string; title: string }, c: T) => number,
+	opts?: { expectedSec?: number }
 ): T | null {
-	const { official, variants } = partitionOfficial(candidates, query.title);
-	const pool = official.length > 0 ? official : variants;
-	if (pool.length === 0) return null;
+	const pools = poolsInOrder(candidates, query.title, opts?.expectedSec);
+	const pool = pools.find((p) => p.length > 0);
+	if (!pool) return null;
 	let best = pool[0];
 	let bestScore = scoreFn(query, best);
 	for (let i = 1; i < pool.length; i++) {

@@ -62,7 +62,29 @@ export const VARIANT_KEYWORDS: string[] = [
 	'現場版',
 	'重制',
 	'重製',
-	'remix版'
+	'remix版',
+	// quick-261101-ring1: the junk-drawer markers from the 2026-11-01 incident — a 48s 鈴聲版
+	// ringtone scored IDENTICALLY to the studio cut because none of these were variant terms
+	// anywhere (song-variant.ts gained the same set for its official partition). Ringtones /
+	// carrier clips （鈴聲/彩鈴）, excerpt + preview cuts （片段/試聽）, pseudo-surround
+	// re-encodes （環繞）, edits （剪輯）, bare 混音 and pitch-shifted cuts （升調/降調）.
+	'鈴聲',
+	'铃声',
+	'彩鈴',
+	'彩铃',
+	'片段',
+	'試聽',
+	'试听',
+	'環繞',
+	'环绕',
+	'剪輯',
+	'剪辑',
+	'混音',
+	'升調',
+	'升调',
+	'降調',
+	'降调',
+	'ringtone'
 ];
 
 // --- Tuning weights (named consts so the balance is explicit + editable) ---------------

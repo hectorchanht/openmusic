@@ -404,7 +404,12 @@ describe('resolveStub — English/romanized name rescue (quick-260925-wa7)', () 
 		const look = vi.spyOn(nameRescue, 'lookupChineseName');
 
 		expect((await resolveStub('周杰伦', '珊瑚海'))?.uid).toBe(weak.uid);
-		expect(search).toHaveBeenCalledTimes(1);
+		// quick-261101-ring1: the call count moves 1 → 2. （钢琴曲） is a bracketed rendition
+		// qualifier, which the parenthetical rule now classifies as a VARIANT (it previously
+		// counted as "official" because 钢琴曲 matched no known tag), so the tiered search
+		// widens past tier-1 exactly as designed for "tier-1 has no official version". The
+		// CONTRACT of this test is unchanged: the same weak hit is returned, no rescue fires.
+		expect(search).toHaveBeenCalledTimes(2);
 		expect(look).toHaveBeenCalledTimes(0);
 	});
 });

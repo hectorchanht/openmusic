@@ -1,5 +1,16 @@
 import { describe, it, expect } from 'vitest';
-import { variantTagsOf, isAcceptableSubstitute, partitionOfficial, findOfficial, pickOfficial } from './song-variant';
+import {
+	variantTagsOf,
+	isAcceptableSubstitute,
+	partitionOfficial,
+	findOfficial,
+	pickOfficial,
+	isOfficialTitle,
+	bracketQualifier,
+	poolExpectedDuration,
+	isImplausiblyShort,
+	candidateTier
+} from './song-variant';
 
 // The guard exists because sameSongKey CANNOT tell renditions apart: dedupe's key() strips bracketed
 // suffixes, so `告白氣球（純音樂版）` and `告白氣球` are the same key. Without this, a cross-source
@@ -193,5 +204,147 @@ describe('pickOfficial', () => {
 
 	it('returns null for an empty list', () => {
 		expect(pickOfficial([], { artist: 'a', title: 't' }, () => 1)).toBeNull();
+	});
+});
+
+// --- quick-261101-ring1: ringtone incident (Hector, 2026-11-01) --------------------------------
+// Playing 陳百強's 偏偏喜歡你 auto-adopted suyin's 偏偏喜歡你（48秒鈴聲版） — a 48-second
+// RINGTONE — over clean studio cuts from qq/joox/kuwo/kugou/migu. Three selection defects
+// compounded: (1) 鈴聲/彩鈴/環繞/片段 were in NO marker list, so the ringtone classified as an
+// OFFICIAL title; (2) ANY bracketed qualifier whose text matched no known tag counted as
+// official too; (3) the findOfficial path never looked at duration. These tests pin all three.
+
+describe('quick-261101-ring1 — junk markers + the parenthetical rule', () => {
+	it('a ringtone title is NOT official', () => {
+		expect(isOfficialTitle('偏偏喜歡你（48秒鈴聲版）')).toBe(false);
+		expect(isOfficialTitle('偏偏喜歡你(48秒铃声版)')).toBe(false);
+		expect(isOfficialTitle('偏偏喜歡你（彩鈴版）')).toBe(false);
+		expect(isOfficialTitle('Song (Ringtone)')).toBe(false);
+	});
+
+	it('pseudo-surround / school / edit qualifiers are NOT official — any bracket counts', () => {
+		expect(isOfficialTitle('偏偏喜歡你 (3D環繞版)')).toBe(false);
+		expect(isOfficialTitle('偏偏喜歡你 (中四版)')).toBe(false);
+		expect(isOfficialTitle('偏偏喜歡你 (剪輯版)')).toBe(false);
+		expect(isOfficialTitle('Song (Radio Edit)')).toBe(false);
+	});
+
+	it('a plain title stays official', () => {
+		expect(isOfficialTitle('偏偏喜歡你')).toBe(true);
+		expect(isOfficialTitle('Song')).toBe(true);
+	});
+
+	it('bracketQualifier reads the first bracketed segment only', () => {
+		expect(bracketQualifier('偏偏喜歡你（48秒鈴聲版）')).toBe('48秒鈴聲版');
+		expect(bracketQualifier('Song (Live) [Remaster]')).toBe('Live');
+		expect(bracketQualifier('偏偏喜歡你')).toBeNull();
+		expect(bracketQualifier('Song ()')).toBeNull();
+	});
+
+	it('partitionOfficial: for a plain target, every qualified sibling is a variant', () => {
+		const { official, variants } = partitionOfficial(
+			[
+				mk('偏偏喜歡你（48秒鈴聲版）'),
+				mk('偏偏喜歡你 (3D環繞版)'),
+				mk('偏偏喜歡你'),
+				mk('偏偏喜歡你 (原版伴奏)')
+			],
+			'偏偏喜歡你'
+		);
+		expect(official.map((t) => t.title)).toEqual(['偏偏喜歡你']);
+		expect(variants.map((t) => t.title)).toEqual([
+			'偏偏喜歡你（48秒鈴聲版）',
+			'偏偏喜歡你 (3D環繞版)',
+			'偏偏喜歡你 (原版伴奏)'
+		]);
+	});
+
+	// Hector's rule, second half: a deliberately-chosen qualified version must NOT be
+	// demoted — its matching-qualifier candidates lead the official pool, clean second.
+	it('partitionOfficial: a qualified target promotes its OWN qualifier first, clean second', () => {
+		const { official, variants } = partitionOfficial(
+			[mk('偏偏喜歡你'), mk('偏偏喜歡你 (伴奏)'), mk('偏偏喜歡你 (Live)')],
+			'偏偏喜歡你 (Live)'
+		);
+		expect(official.map((t) => t.title)).toEqual(['偏偏喜歡你 (Live)', '偏偏喜歡你']);
+		expect(variants.map((t) => t.title)).toEqual(['偏偏喜歡你 (伴奏)']);
+	});
+
+	it('findOfficial picks the clean cut over the ringtone in the incident pool shape', () => {
+		const pool = [
+			mk('偏偏喜歡你（48秒鈴聲版）'),
+			mk('偏偏喜歡你 (3D環繞版)'),
+			mk('偏偏喜歡你 (原版伴奏)'),
+			mk('偏偏喜歡你')
+		];
+		const found = findOfficial(pool, '偏偏喜歡你', () => true);
+		expect(found?.title).toBe('偏偏喜歡你');
+	});
+
+	it('findOfficial still returns the deliberately-chosen Live for a Live target', () => {
+		const pool = [mk('偏偏喜歡你'), mk('偏偏喜歡你 (Live)')];
+		const found = findOfficial(pool, '偏偏喜歡你 (Live)', () => true);
+		expect(found?.title).toBe('偏偏喜歡你 (Live)');
+	});
+});
+
+describe('quick-261101-ring1 — duration plausibility', () => {
+	const mkD = (title: string, duration?: number) => ({ title, artist: '陳百強', duration });
+
+	it('poolExpectedDuration medians the known durations, ignores unknowns', () => {
+		expect(poolExpectedDuration([mkD('a', 48), mkD('b', 212), mkD('c', 208), mkD('d', 380)])).toBe(210);
+		expect(poolExpectedDuration([mkD('a'), mkD('b')])).toBeUndefined();
+		expect(poolExpectedDuration([mkD('a', 200), mkD('b')])).toBe(200);
+	});
+
+	it('isImplausiblyShort: sub-60s always; under half the expectation relatively; unknown never', () => {
+		expect(isImplausiblyShort(mkD('a', 48))).toBe(true);
+		expect(isImplausiblyShort(mkD('a', 59))).toBe(true);
+		expect(isImplausiblyShort(mkD('a', 60))).toBe(false);
+		expect(isImplausiblyShort(mkD('a', 100), 212)).toBe(true); // < 50% of 212
+		expect(isImplausiblyShort(mkD('a', 120), 212)).toBe(false);
+		expect(isImplausiblyShort(mkD('a'))).toBe(false);
+		expect(isImplausiblyShort(mkD('a', 0))).toBe(false);
+	});
+
+	it('findOfficial: a full-length variant beats a SHORT clean-titled clip', () => {
+		const pool = [mkD('Song', 40), mkD('Song (Live)', 200)];
+		expect(findOfficial(pool, 'Song', () => true)?.title).toBe('Song (Live)');
+	});
+
+	it('findOfficial: the short clip is still reachable when it is the ONLY candidate', () => {
+		const pool = [mkD('偏偏喜歡你（48秒鈴聲版）', 48)];
+		expect(findOfficial(pool, '偏偏喜歡你', () => true)?.title).toBe('偏偏喜歡你（48秒鈴聲版）');
+	});
+
+	it('findOfficial: opts.expectedSec (the failed track duration) demotes a half-length cut', () => {
+		const pool = [mkD('Song', 100), mkD('Song', 300)];
+		// Same title twice (two sources' rows): the 100s row is < 50% of the expected 300.
+		expect(findOfficial(pool, 'Song', () => true, { expectedSec: 300 })?.duration).toBe(300);
+	});
+
+	it('findOfficial: the incident pool WITH durations — clean studio wins, ringtone last', () => {
+		const pool = [
+			mkD('偏偏喜歡你（48秒鈴聲版）', 48),
+			mkD('偏偏喜歡你 (3D環繞版)', 208),
+			mkD('偏偏喜歡你', 212)
+		];
+		expect(findOfficial(pool, '偏偏喜歡你', () => true)?.title).toBe('偏偏喜歡你');
+	});
+
+	it('pickOfficial: scores within the best pool only — a high-scored clip cannot jump pools', () => {
+		const pool = [mkD('Song', 40), mkD('Song (Live)', 200)];
+		const picked = pickOfficial(pool, { artist: 'a', title: 'Song' }, (_q, c) =>
+			c.duration === 40 ? 100 : 1
+		);
+		expect(picked?.title).toBe('Song (Live)');
+	});
+
+	it('candidateTier: clean+plausible = 0; variant or short = 1; chosen qualifier = 0', () => {
+		const pool = [mkD('偏偏喜歡你', 212), mkD('偏偏喜歡你（48秒鈴聲版）', 48)];
+		expect(candidateTier(mkD('偏偏喜歡你', 212), '偏偏喜歡你', pool)).toBe(0);
+		expect(candidateTier(mkD('偏偏喜歡你（48秒鈴聲版）', 48), '偏偏喜歡你', pool)).toBe(1);
+		expect(candidateTier(mkD('偏偏喜歡你 (Live)', 300), '偏偏喜歡你', pool)).toBe(1);
+		expect(candidateTier(mkD('偏偏喜歡你 (Live)', 300), '偏偏喜歡你 (Live)', pool)).toBe(0);
 	});
 });
