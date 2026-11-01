@@ -3,6 +3,7 @@ import { netease, extractLrcFromJson, extractLrcFromBody } from './netease';
 import type { Track } from './types';
 import fixture from './__fixtures__/netease.search.json';
 import { neteaseHealth, DRY_THRESHOLD } from '../services/netease-health';
+import { jbsouHealth } from '../services/jbsou-health';
 import { __resetGovernor } from '../services/api-base';
 import { __resetDirectUrlCache } from '../services/direct-url-cache';
 
@@ -22,6 +23,7 @@ beforeEach(() => {
 	// Reset the module-scope health gate + fetch governor so state never leaks across cases (a
 	// prior case that trips the gate would otherwise short-circuit a later search to []).
 	neteaseHealth.__reset();
+	jbsouHealth.__reset();
 	__resetGovernor();
 	// quick-261006-r2: the client-side direct-URL cache is module state too — a prior case's
 	// cached resolve would otherwise short-circuit a later case's stubbed /api/stream-url.
@@ -30,6 +32,7 @@ beforeEach(() => {
 afterEach(() => {
 	vi.restoreAllMocks();
 	neteaseHealth.__reset();
+	jbsouHealth.__reset();
 	__resetGovernor();
 	__resetDirectUrlCache();
 });
@@ -260,6 +263,77 @@ describe('netease.resolve', () => {
 
 			expect(out.audioUrl).toBe('/api/netease/url?id=509781655');
 			expect(out.proxyUrl).toBe('/api/netease/url?id=509781655');
+		});
+
+		// quick-261101-jbs: when the direct hop fails, the JBSou pipe is the LAST fallback
+		// before the proxy path — a rescued URL becomes audioUrl, and the proxy path stays
+		// on proxyUrl so the player's proxy step still has its fallback.
+		it('falls through to the JBSou pipe when the direct hop fails, keeping proxyUrl', async () => {
+			const JB = 'https://m801.music.126.net/20261101/deadbeef/song.mp3';
+			vi.stubGlobal(
+				'fetch',
+				vi.fn(async (input: RequestInfo | URL) => {
+					const u = String(input);
+					if (u.includes('/api/stream-url')) {
+						return new Response(JSON.stringify({ error: 'no redirect' }), {
+							status: 503,
+							headers: { 'content-type': 'application/json' }
+						});
+					}
+					if (u.includes('/api/jbsou/resolve')) {
+						return new Response(JSON.stringify({ url: JB }), {
+							status: 200,
+							headers: { 'content-type': 'application/json' }
+						});
+					}
+					return new Response('[00:01.00]x', { status: 200, headers: { 'content-type': 'text/plain' } });
+				})
+			);
+
+			const out = await netease.resolve(stubTrack(), ac.signal);
+
+			expect(out.audioUrl).toBe(JB);
+			expect(out.proxyUrl).toBe('/api/netease/url?id=509781655');
+			expect(out.detailsLoaded).toBe(true);
+		});
+
+		// A JBSou miss (200 {url:null}) must be invisible: the pre-JBSou behaviour stands.
+		it('keeps the proxy path when JBSou has no confident match either', async () => {
+			vi.stubGlobal(
+				'fetch',
+				vi.fn(async (input: RequestInfo | URL) => {
+					const u = String(input);
+					if (u.includes('/api/stream-url')) {
+						return new Response(JSON.stringify({ error: 'no redirect' }), {
+							status: 503,
+							headers: { 'content-type': 'application/json' }
+						});
+					}
+					if (u.includes('/api/jbsou/resolve')) {
+						return new Response(JSON.stringify({ url: null }), {
+							status: 200,
+							headers: { 'content-type': 'application/json' }
+						});
+					}
+					return new Response('[00:01.00]x', { status: 200, headers: { 'content-type': 'text/plain' } });
+				})
+			);
+
+			const out = await netease.resolve(stubTrack(), ac.signal);
+
+			expect(out.audioUrl).toBe('/api/netease/url?id=509781655');
+			expect(out.proxyUrl).toBe('/api/netease/url?id=509781655');
+		});
+
+		// The pipe is consulted ONLY on the failure path: a healthy direct hop must not
+		// spend a JBSou call (it is the slowest leg in the chain).
+		it('never calls JBSou when the direct hop succeeds', async () => {
+			const spy = stubRouted({ url: DIRECT });
+			vi.stubGlobal('fetch', spy);
+
+			await netease.resolve(stubTrack(), ac.signal);
+
+			expect(spy.mock.calls.some((c) => String(c[0]).includes('/api/jbsou/'))).toBe(false);
 		});
 
 		it('rejects a non-https direct URL and keeps the proxy path', async () => {

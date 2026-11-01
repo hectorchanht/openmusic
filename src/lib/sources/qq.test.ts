@@ -3,6 +3,7 @@ import { qq, isQqRateLimited, QqRateLimitedError } from './qq';
 import type { Track } from './types';
 import { settings } from '$lib/stores/settings.svelte';
 import { __resetGovernor } from '$lib/services/api-base';
+import { jbsouHealth } from '$lib/services/jbsou-health';
 import searchFixture from './__fixtures__/qq.search.json';
 import detailFixture from './__fixtures__/qq.detail.json';
 
@@ -34,9 +35,11 @@ function mockFetchQueue(steps: unknown[]) {
 
 beforeEach(() => {
 	vi.restoreAllMocks();
+	jbsouHealth.__reset();
 });
 afterEach(() => {
 	vi.restoreAllMocks();
+	jbsouHealth.__reset();
 	// apiFetch is REAL in these tests (it wraps the stubbed fetch), so a case that makes the fetch
 	// stub reject leaves failure counts in the shared circuit breaker. Reset so nothing leaks.
 	__resetGovernor();
@@ -452,5 +455,74 @@ describe('qq.resolve', () => {
 		const track = stubTrack({ qqId: '', songMid: '', songid: '' });
 		await expect(qq.resolve(track, ac.signal)).rejects.toThrow(/missing mid/);
 		expect(track.detailsLoaded).toBe(false);
+	});
+
+	// quick-261101-jbs: a detail body with EVERY play tier empty (the VIP/region-lock shape,
+	// quick-261006-kiri) gets ONE last resort — the JBSou pipe — before the throw.
+	describe('qq.resolve JBSou fallback (quick-261101-jbs)', () => {
+		const JB = 'https://isure6.stream.qqmusic.qq.com/F000JbsouRescue.m4a';
+		const noTiers = {
+			...detailFixture,
+			song_play_url_sq: undefined,
+			song_play_url_pq: undefined,
+			song_play_url_accom: undefined,
+			song_play_url_hq: undefined,
+			song_play_url_standard: undefined,
+			song_play_url_fq: undefined,
+			song_play_url: undefined
+		};
+
+		/** Routed stub: tang-shaped detail for the detail hops, JBSou JSON for the pipe. */
+		function stubRouted(jbsouBody: unknown) {
+			return vi.fn(async (input: RequestInfo | URL) => {
+				const u = String(input);
+				if (u.includes('/api/jbsou/resolve')) {
+					return new Response(JSON.stringify(jbsouBody), {
+						status: 200,
+						headers: { 'content-type': 'application/json' }
+					});
+				}
+				return new Response(JSON.stringify(noTiers), {
+					status: 200,
+					headers: { 'content-type': 'application/json' }
+				});
+			});
+		}
+
+		it('rescues a zero-tier detail via JBSou and completes the resolve', async () => {
+			settings.defaultQuality = 'lossless';
+			const spy = stubRouted({ url: JB });
+			vi.stubGlobal('fetch', spy);
+
+			const out = await qq.resolve(stubTrack(), ac.signal);
+
+			expect(out.audioUrl).toBe(JB);
+			expect(out.detailsLoaded).toBe(true);
+			// metadata still comes from the tang detail body — JBSou only supplies the URL
+			expect(out.lrc).toBe(detailFixture.song_lyric);
+			const jbCall = spy.mock.calls.find((c) => String(c[0]).includes('/api/jbsou/resolve'));
+			expect(jbCall).toBeDefined();
+			expect(String(jbCall?.[0])).toContain('type=qq');
+			expect(String(jbCall?.[0])).toContain('id=002Neh8l0RJHcS');
+		});
+
+		it('still throws (kiri contract) when JBSou has no match either', async () => {
+			settings.defaultQuality = 'lossless';
+			vi.stubGlobal('fetch', stubRouted({ url: null }));
+
+			const track = stubTrack();
+			await expect(qq.resolve(track, ac.signal)).rejects.toThrow(/no playable url/);
+			expect(track.detailsLoaded).toBe(false);
+		});
+
+		it('never calls JBSou when the ladder yields a tier (the healthy path is untouched)', async () => {
+			settings.defaultQuality = 'lossless';
+			const spy = mockFetchOnce(detailFixture);
+			vi.stubGlobal('fetch', spy);
+
+			await qq.resolve(stubTrack(), ac.signal);
+
+			expect(spy.mock.calls.some((c) => String(c[0]).includes('/api/jbsou/'))).toBe(false);
+		});
 	});
 });

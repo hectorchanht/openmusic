@@ -15,6 +15,7 @@ import { makeUid } from './types';
 import { inferQualityFromUrl } from '../services/lrc';
 import { apiUrl, apiFetch } from '../services/api-base';
 import { fetchDirectStreamUrl } from '../services/stream-url';
+import { fetchJbsouStreamUrl } from '../services/jbsou-fallback';
 import { neteaseHealth } from '../services/netease-health';
 
 // Netease search row shape from the Meting proxy (fields we read).
@@ -157,7 +158,16 @@ export const netease: SourceAdapter = {
 			// (cheap path — no extra hop). Any failure keeps the proxy path: the listener
 			// never sees the difference.
 			if (!track.audioUrl || track.audioUrl === proxy) {
-				track.audioUrl = (await fetchDirectStreamUrl('netease', track.songid, signal)) ?? proxy;
+				track.audioUrl =
+					(await fetchDirectStreamUrl('netease', track.songid, signal)) ??
+					// quick-261101-jbs: LAST fallback before the proxy path — JBSou, an independent
+					// resolve gateway over the same netease catalog (edge-side cookie + signed-link
+					// walk in /api/jbsou/resolve). Consulted ONLY here, when the Meting type=url hop
+					// yielded nothing — the qijieya dry-spell shape (search returns rows, resolve
+					// returns no playable URL). A JBSou miss keeps the proxy path exactly as before;
+					// the pipe is health-gated (jbsou-health) so a dead JBSou is skipped, not taxed.
+					(await fetchJbsouStreamUrl('netease', track, signal)) ??
+					proxy;
 			}
 			if (!track.lrcUrl) {
 				// Pitfall 3: lrcUrl is fetched as-is below — must be absolute on native too.
