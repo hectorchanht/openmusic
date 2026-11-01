@@ -249,3 +249,4 @@ android/app/src/main/assets/capacitor.config.json
 # Local-markdown issue tracker used by the engineering skills (docs/agents/issue-tracker.md).
 # Specs/tickets are working notes — local only, never committed.
 .scratch/
+.codegraph/

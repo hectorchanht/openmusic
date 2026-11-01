@@ -26,6 +26,8 @@ const mocks = vi.hoisted(() => ({
 		// quick-261007-abq: quality-metadata refresh after a replace download.
 		updateDownloadQuality: vi.fn((_uid: string, _q: unknown) => {}),
 		isDownloaded: vi.fn((_uid: string) => false),
+		// quick-261031-dedup: same song+rendition already downloaded under another uid.
+		hasOtherDownload: vi.fn((_t: unknown) => false),
 		// debug album-row-tick-before-file-done: a non-saved outcome marks the file-less entry.
 		markUnavailable: vi.fn((_uid: string) => {}),
 		clearUnavailable: vi.fn((_uid?: string) => {})
@@ -162,6 +164,7 @@ beforeEach(() => {
 	mocks.library.addDownload.mockReset();
 	mocks.library.updateDownloadQuality.mockReset();
 	mocks.library.isDownloaded.mockReset().mockReturnValue(false);
+	mocks.library.hasOtherDownload.mockReset().mockReturnValue(false);
 	mocks.library.markUnavailable.mockReset();
 	mocks.library.clearUnavailable.mockReset();
 	// reset player as PLAIN writable data props (the isolation test swaps in throwing accessors).
@@ -197,6 +200,29 @@ beforeEach(() => {
 afterEach(() => {
 	vi.unstubAllGlobals();
 	vi.clearAllMocks();
+});
+
+describe('downloadTrack — same song already downloaded under another uid (quick-261031-dedup)', () => {
+	it('returns "saved" immediately — no resolve, no fetch, no spinner bracket', async () => {
+		mocks.library.hasOtherDownload.mockReturnValue(true);
+		const f = stubFetch(new Blob(['audio']));
+		const res = await downloadTrack(mk({ uid: 'qq-9' }));
+		expect(res).toBe('saved');
+		expect(mocks.ensureTrackDetails).not.toHaveBeenCalled();
+		expect(f).not.toHaveBeenCalled();
+		expect(mocks.library.beginDownload).not.toHaveBeenCalled();
+		expect(mocks.library.addDownload).not.toHaveBeenCalled();
+	});
+	it('audioFrom (an explicit donor replace) is exempt from the early-out', async () => {
+		mocks.library.hasOtherDownload.mockReturnValue(true);
+		mocks.library.isDownloaded.mockReturnValue(true);
+		const donor = mk({ uid: 'netease-1', audioUrl: 'https://cdn.example.com/donor.flac', detailsLoaded: true });
+		const f = stubFetch(new Blob(['audio']));
+		const res = await downloadTrack(mk({ uid: 'qq-9', detailsLoaded: true }), { audioFrom: donor });
+		expect(res).toBe('saved');
+		expect(mocks.library.beginDownload).toHaveBeenCalled();
+		expect(f).toHaveBeenCalled();
+	});
 });
 
 describe('downloadTrack — happy path (non-current re-resolve → saved)', () => {

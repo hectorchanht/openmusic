@@ -209,6 +209,14 @@ type DownloadOpts = {
  * → 'failed' → the existing "kept in Library" degrade, the same as any other CDN refusal.
  */
 export async function downloadTrack(track: Track, opts?: DownloadOpts): Promise<DownloadResult> {
+	// quick-261031-dedup: the same song+rendition is already downloaded under ANOTHER source's
+	// uid — that record's blob already serves this song offline (downloadUidFor resolves
+	// playback to it), so a second fetch would only mint a duplicate row + blob + public file.
+	// Report 'saved' (the song IS downloaded) before any spinner bracket opens. audioFrom is
+	// exempt: it is an explicit donor REPLACE under this track's own identity (quick-260916-0d9).
+	if (!opts?.audioFrom && library.hasOtherDownload(track)) {
+		return 'saved';
+	}
 	// DL-STATE-01: bracket the per-uid spinner. beginDownload BEFORE the first await; endDownload in
 	// the `finally` so EVERY exit (saved / no-audio / failed / any throw) clears the spinner exactly once.
 	// Nested inside an album's outer bracket this is a refcount step (library.downloadDepth).

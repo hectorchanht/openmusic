@@ -4,6 +4,7 @@
 // same song surfaced by multiple sources collapses to one — the highest quality.
 import type { SourceId, Track } from '$lib/sources/types';
 import { t2sConvertLineSync, warmT2S } from '$lib/services/zh-convert';
+import { isDeviceUid } from '$lib/services/device-track';
 
 // Tie-break when quality is equal/unknown. Tune freely.
 // 5sing is UGC (covers / 伴奏 / 原创) — it should NEVER win a tie against a mainstream CN
@@ -359,6 +360,90 @@ export function collapseVariants(tracks: Track[]): Track[] {
 		}
 	}
 	return order.map((k) => winner.get(k)!).filter(Boolean);
+}
+
+/**
+ * quick-261031-dedup (Hector 2026-10-31: "every shelf should be dedup"): the RENDITION key of a
+ * title — the part that makes two same-song rows DIFFERENT recordings rather than duplicates.
+ * `variantTag` covers bracketed markers ("(Live)", "【Remix】"); this adds the common
+ * " - Live / - Remix" tail form variantTag cannot see. '' = the plain (studio) rendition.
+ * Deliberately narrow: only a trailing qualifier word counts, so "Live While We're Young"
+ * (a title that merely STARTS with the word) stays the plain rendition of itself.
+ */
+function versionKey(title: string): string {
+	const tag = variantTag(title);
+	if (tag) return (tag.key ?? tag.text).toLowerCase();
+	const m = (title || '').match(
+		/[-–—]\s*(live|remix|acoustic|demo|instrumental|inst|remaster(?:ed)?|cover|karaoke)\b/i
+	);
+	return m ? m[1].toLowerCase() : '';
+}
+
+/** The minimal shape shelf dedupe reads — satisfied by both Track and HistoryEntry. */
+export interface ShelfItem {
+	uid: string;
+	artist: string;
+	title: string;
+	source: SourceId;
+	quality?: string | null;
+	qualityLabel?: string | null;
+}
+
+/**
+ * quick-261031-dedup: "the same song on a shelf" — sameSongKey (script-folded, artist-alias
+ * aware) AND the same rendition (versionKey). dedupeBest's key() alone strips "(Live)" /
+ * "- Remix" markers, which is right for search/queue collapse but WRONG for a user's own
+ * lists: a downloaded Live cut and the studio cut are two recordings the user chose on
+ * purpose (the downloadUidFor / versionedMatchKey distinction, quick-261008-dl1), and a
+ * shelf dedupe must never merge them. Two DEVICE entries are the same only by uid — a
+ * device file is the user's own file and no catalog row may stand in for it (34-D-01).
+ */
+export function isSameShelfSong(a: ShelfItem, b: ShelfItem): boolean {
+	if (a.uid === b.uid) return true;
+	if (isDeviceUid(a.uid) || isDeviceUid(b.uid)) return false;
+	return (
+		sameSongKey(a as unknown as Track, b as unknown as Track) &&
+		versionKey(a.title) === versionKey(b.title)
+	);
+}
+
+/**
+ * quick-261031-dedup: collapse a user-owned shelf list (library liked / downloads /
+ * playlists, history, home shelves) to one row per song+rendition, keeping the
+ * best-quality copy (the private better() — same pick dedupeBest makes) at the FIRST
+ * occurrence's position, so a most-recent-first list stays most-recent-first. Pairs are
+ * only compared inside a titleKey bucket, so a whole shelf costs one key per row plus
+ * tiny in-bucket scans. Device entries pass through untouched except exact-uid repeats.
+ * Pure / never-throw / order-preserving.
+ */
+export function dedupeShelfList<T extends ShelfItem>(tracks: T[], preferred?: SourceId): T[] {
+	const out: T[] = [];
+	const buckets: string[] = []; // titleKey per out row ('' for device rows — never bucket-matched)
+	for (const t of tracks) {
+		if (isDeviceUid(t.uid)) {
+			if (!out.some((k) => k.uid === t.uid)) {
+				out.push(t);
+				buckets.push('');
+			}
+			continue;
+		}
+		const tk = titleKey(t.title);
+		let hit = -1;
+		for (let i = 0; i < out.length; i++) {
+			if (buckets[i] !== tk || isDeviceUid(out[i].uid)) continue;
+			if (isSameShelfSong(out[i], t)) {
+				hit = i;
+				break;
+			}
+		}
+		if (hit < 0) {
+			out.push(t);
+			buckets.push(tk);
+		} else if (better(out[hit] as unknown as Track, t as unknown as Track, preferred) === (t as unknown as Track)) {
+			out[hit] = t;
+		}
+	}
+	return out;
 }
 
 /**

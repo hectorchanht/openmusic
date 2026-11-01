@@ -136,9 +136,12 @@
 			.map((s, i) => (i === at && real ? real : nameStub(s.artist, s.title)))
 			.filter((tr): tr is Track => tr !== null);
 	}
+	// quick-261031-scope (Hector 2026-10-31): the pack's Play / Shuffle BUTTONS are scoped to
+	// the pack again — playStub gets { sameList: true }, so Up Next IS this pack (in order /
+	// shuffled) whatever the sourcing setting says. Row taps stay unpinned (sets stands).
 	async function playAll() {
 		if (!songs.length) return;
-		const first = await player.playStub(songs[0].artist, songs[0].title, undefined, 'songs-of-year');
+		const first = await player.playStub(songs[0].artist, songs[0].title, undefined, 'songs-of-year', { sameList: true });
 		if (first) player.setListQueue(packQueue(songs, 0, first), 'songs-of-year');
 		else if (player.pendingTrack == null) toast.show(t('home.unplayable'));
 	}
@@ -146,7 +149,7 @@
 		// Shuffle starts from a shuffled copy; the pack installs unpinned (quick-261024-sets).
 		const shuffled = shuffle(songs);
 		if (!shuffled.length) return;
-		const first = await player.playStub(shuffled[0].artist, shuffled[0].title, undefined, 'songs-of-year');
+		const first = await player.playStub(shuffled[0].artist, shuffled[0].title, undefined, 'songs-of-year', { sameList: true });
 		if (first) player.setListQueue(packQueue(shuffled, 0, first), 'songs-of-year');
 		else if (player.pendingTrack == null) toast.show(t('home.unplayable'));
 	}

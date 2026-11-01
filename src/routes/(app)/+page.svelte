@@ -8,6 +8,7 @@
 	import ShelfChevrons from '$lib/components/ShelfChevrons.svelte';
 	import SponsoredStrip from '$lib/components/SponsoredStrip.svelte';
 	import { buildDiversePicks } from '$lib/services/picks';
+	import { dedupeShelfList } from '$lib/services/dedupe';
 	import { buildRadio, reseedRadio } from '$lib/services/radio';
 	import type { QueueContext } from '$lib/config/defaults';
 	import {
@@ -244,12 +245,14 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 	}
 	function buildLibraryShelves(randomize: boolean) {
 		const cap = clampShelfSize(settings.homeShelfSize);
-		likedShelf = pickN(library.liked, cap, randomize);
-		downloadsShelf = pickN(library.downloads, cap, randomize);
+		// quick-261031-dedup: home library shelves draw from the deduped lists — one tile per
+		// song+rendition, same rule as the Library page shelves.
+		likedShelf = pickN(dedupeShelfList(library.liked), cap, randomize);
+		downloadsShelf = pickN(dedupeShelfList(library.downloads), cap, randomize);
 		// History entries carry the full track on `.track`; the latest are at the front.
 		// HistoryEntry IS the playable Track whitelist (audioUrl re-resolves on play()).
 		const historyTracks = playHistory.entries as unknown as Track[];
-		historyShelf = pickN(historyTracks, cap, randomize);
+		historyShelf = pickN(dedupeShelfList(historyTracks), cap, randomize);
 		// quick-260926-lw8 (was quick-260924-pgu's reshuffle of the tiles it already had): Randomize
 		// now draws a NEW session seed and rebuilds. Seeds already fetched this session are 6h-cached,
 		// so the cost is only the newly-sampled seed artists (still <= RADIO_SEEDS x 2), and the old
@@ -257,7 +260,7 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 		if (randomize) { reseedRadio(); rebuildRadio(); }
 		playlistShelves = library.playlists
 			.filter((p) => p.tracks.length > 0)
-			.map((p) => ({ id: p.id, name: p.name, tracks: pickN(p.tracks, cap, randomize) }));
+			.map((p) => ({ id: p.id, name: p.name, tracks: pickN(dedupeShelfList(p.tracks), cap, randomize) }));
 		// kmn: favourite artists — same shape as topArtists tiles (name only; cover backfills).
 		favArtistsShelf = pickN(library.favArtists, cap, randomize).map((n) => ({ name: n }));
 		// Schedule a cover backfill for the rendered fav-artist names (Deezer → iTunes chain,
@@ -304,14 +307,16 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 			const idx = new Map(src.map((t) => [t.uid, t]));
 			return (uids: string[] | undefined) => (uids ?? []).map((u) => idx.get(u)).filter(Boolean) as Track[];
 		};
-		likedShelf = byUidArr(library.liked)(c.liked);
-		downloadsShelf = byUidArr(library.downloads)(c.downloads);
+		// quick-261031-dedup: cached uid picks can still name both copies of a song (a cache
+		// written before the dedup) — the resolved shelves pass through dedupeShelfList too.
+		likedShelf = dedupeShelfList(byUidArr(library.liked)(c.liked));
+		downloadsShelf = dedupeShelfList(byUidArr(library.downloads)(c.downloads));
 		// HistoryEntry IS the playable Track whitelist (audioUrl re-resolves on play()).
 		const historyTracks = playHistory.entries as unknown as Track[];
-		historyShelf = byUidArr(historyTracks)(c.history);
+		historyShelf = dedupeShelfList(byUidArr(historyTracks)(c.history));
 		playlistShelves = library.playlists
 			.filter((p) => p.tracks.length > 0)
-			.map((p) => ({ id: p.id, name: p.name, tracks: byUidArr(p.tracks)(c.playlists?.[p.id]) }))
+			.map((p) => ({ id: p.id, name: p.name, tracks: dedupeShelfList(byUidArr(p.tracks)(c.playlists?.[p.id])) }))
 			// A playlist whose CACHED picks no longer resolve (e.g. all tracks removed) still
 			// renders nothing — let buildLibraryShelves repopulate it next Randomize. Drop empties
 			// so the shelf header doesn't render either.

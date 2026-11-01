@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeAll } from 'vitest';
-import { dedupeBest, groupVariants, collapseVariants, variantTag, sameSongKey, sameSongStrings, rankByArtistExactness } from './dedupe';
+import { dedupeBest, groupVariants, collapseVariants, variantTag, sameSongKey, sameSongStrings, rankByArtistExactness, dedupeShelfList, isSameShelfSong } from './dedupe';
 import { warmScript } from './zh-convert';
 import { makeUid, type SourceId, type Track } from '$lib/sources/types';
 
@@ -457,6 +457,43 @@ describe('rankByArtistExactness — hit songs prioritize artist-name exactness',
 	it('blank page artist proves nothing — everything stays in relevance order', () => {
 		const tracks = [mk('qq', 'q1', 'b', 'Kiri T'), mk('qq', 'q2', 'a', 'Hara Kiri')];
 		expect(artists(rankByArtistExactness(tracks, ''))).toEqual(['Kiri T', 'Hara Kiri']);
+	});
+});
+
+// quick-261031-dedup: shelf dedupe for user-owned lists (library / history / home shelves).
+describe('dedupeShelfList — one row per song+rendition (quick-261031-dedup)', () => {
+	it('collapses the same song downloaded from two sources, keeping the best quality at the first position', () => {
+		const tracks = [
+			mk('netease', 'n1', '多遠都要在一起', 'G.E.M.鄧紫棋', { qualityLabel: '128k' }),
+			mk('qq', 'q9', '光年之外', 'G.E.M.鄧紫棋'),
+			mk('qq', 'q1', '多遠都要在一起', 'G.E.M.鄧紫棋', { qualityLabel: 'FLAC' })
+		];
+		const out = dedupeShelfList(tracks);
+		expect(out.map((t) => t.uid)).toEqual(['qq:q1', 'qq:q9']);
+	});
+	it('keeps different renditions apart — a Live cut is not a duplicate of the studio cut', () => {
+		const tracks = [
+			mk('netease', 'n1', '晴天', '周杰倫'),
+			mk('qq', 'q1', '晴天 (Live)', '周杰倫'),
+			mk('kuwo', 'k1', '晴天 - Remix', '周杰倫')
+		];
+		expect(dedupeShelfList(tracks)).toHaveLength(3);
+		expect(isSameShelfSong(tracks[0], tracks[1])).toBe(false);
+	});
+	it('merges artist-alias copies (G.E.M. vs G.E.M.鄧紫棋) of the same song', () => {
+		const tracks = [mk('netease', 'n1', '多遠都要在一起', 'G.E.M.'), mk('qq', 'q1', '多遠都要在一起', 'G.E.M.鄧紫棋')];
+		expect(dedupeShelfList(tracks)).toHaveLength(1);
+	});
+	it('never merges a device import with a catalog row, and drops only exact-uid device repeats', () => {
+		const dev = { ...mk('kuwo', 'k1', '晴天', '周杰倫'), uid: 'device:42' };
+		const devDupe = { ...dev };
+		const cat = mk('qq', 'q1', '晴天', '周杰倫');
+		const out = dedupeShelfList([dev, cat, devDupe]);
+		expect(out.map((t) => t.uid)).toEqual(['device:42', 'qq:q1']);
+	});
+	it('drops an exact-uid repeat of a catalog row', () => {
+		const a = mk('qq', 'q1', '晴天', '周杰倫');
+		expect(dedupeShelfList([a, { ...a }])).toHaveLength(1);
 	});
 });
 
