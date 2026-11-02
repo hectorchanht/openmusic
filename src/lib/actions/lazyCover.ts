@@ -162,7 +162,10 @@ async function resolveCoverForRow(track: Track, onResolved: (uid: string, url: s
 				const itunes = await itunesSongCover(
 					track.artist ?? '',
 					track.title ?? '',
-					signal,
+					// quick-261101-chk: this chain carries no AbortSignal (resolveCoverForRow is
+					// fire-and-forget per row) — the param is optional and stays undefined; a bare
+					// `signal` identifier here was an out-of-scope name that threw at runtime.
+					undefined,
 					DISPLAY_ARTWORK_SIZE
 				);
 				if (hasHttpsScheme(itunes)) {

@@ -54,7 +54,10 @@ const TTL_ARTIST = 7 * 24 * 60 * 60 * 1000;
 
 /** quick-261020-batch4: single-homed — these mirrored the proxy's interfaces (drift-prone by
  *  admission). The canonical declarations live in $lib/proxy/deezer-cover; this module re-exports
- *  DeezerHit (imported by autocomplete + search page) and uses DeezerCover internally. */
+ *  DeezerHit (imported by autocomplete + search page) and uses DeezerCover internally.
+ *  quick-261101-chk: the re-export alone never brought the names into THIS module's scope —
+ *  the internal annotations below need the matching `import type` (svelte-check baseline fix). */
+import type { DeezerCover, DeezerHit } from '$lib/proxy/deezer-cover';
 export type { DeezerCover, DeezerHit } from '$lib/proxy/deezer-cover';
 
 /** Chart item shapes (mirror the /api/deezer/chart +server.ts reshape + lastfm Discovery* shapes). */

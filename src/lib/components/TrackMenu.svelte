@@ -145,8 +145,9 @@
 			// the current track (15 visible cells instead of 16). The gate is identical.
 			case 'playNext':
 				return nonCurrent;
-			case 'lyricsTiming':
-				return !!track && player.current?.uid === track.uid && !!readLyrics(player.current);
+			// quick-261101-chk: the 'lyricsTiming' case is gone with its catalog entry
+			// (quick-261021-menu7 removed it from MenuActionId / EDIT_META) — the case was
+			// unreachable, since trackMenuOrder is normalized to catalog ids at load.
 			// quick-261006-44u: the Comments / Related panes are NowPlaying tabs bound to the
 			// CURRENT track (the comments store + NowPlaying's load trigger are current-track
 			// scoped), so these shortcuts only make sense — and only appear — for it.

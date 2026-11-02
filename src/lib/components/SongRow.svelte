@@ -264,9 +264,10 @@ import { videoAvailability } from '$lib/services/video-availability.svelte';
 	// on `resolveByName` (which nameStub sets) precisely because the uid test cannot.
 	const gradientSeed = $derived(track.uid || `${track.artist} ${track.title}`);
 
-	// The shared three-rung row cover read (quick-260910-qwt + quick-260915-w4f rung 0): the user's
-	// PINNED cover, then this row's own lazyCover result, then a host-provided cover, then the
-	// shared reactive cache. A reactive READ, not a fetch — use:lazyCover below is the only network.
+	// The shared row cover read (quick-260910-qwt + quick-260915-w4f rung 0), in pickRowCover's
+	// canonical rung order: the user's PINNED cover → the host-provided cover (rung 2, the
+	// `cover` prop) → the shared reactive cache → this row's own lazyCover result. A reactive
+	// READ, not a fetch — use:lazyCover below is the only network.
 	let resolvedCover = $state<string | null>(null);
 	const art = $derived(
 		// quick-261006-o9u: rows paint at 36–56px — render the 200px variant of the cached
@@ -275,10 +276,14 @@ import { videoAvailability } from '$lib/services/video-availability.svelte';
 			pickRowCover(
 				// Phase 40 D-14: rung 0 is the CHOSEN cover — pin, then the crowd pick.
 				readChosenCover(track.uid, track.artist, track.title),
-				resolvedCover ?? undefined,
 				// `cover ?? track.cover` would let an explicit `null` fall THROUGH to track.cover, which
 				// is the opposite of what passing null means. Only an OMITTED prop defaults.
 				cover === undefined ? track.cover : cover,
+				resolvedCover ?? undefined,
+				// quick-261101-chk: the seeded rung stays empty here — SongRow has no seeded cover
+				// distinct from the `cover` prop above (CompactRow passes null the same way). The
+				// call previously passed only 4 arguments, shifting every later rung one slot up.
+				null,
 				readCoverByUidOrName(track.uid, track.artist, track.title)
 			),
 			ROW_COVER_PX
