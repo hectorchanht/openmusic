@@ -193,7 +193,9 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 
 	// Shared placeholder (cover-gradient.ts); the null case keeps its own fixed colour.
 	function fallbackCover(t: Track | null): string {
-		return t ? coverGradient(t.uid) : 'linear-gradient(145deg,#3a2d63,#1a1326)';
+		// quick-261102-t5k: the null case was a purple literal (#3a2d63 -> #1a1326) that ignored the
+		// theme; it is now the two surface tokens, so light/gold/sakura get their own neutral.
+		return t ? coverGradient(t.uid) : 'linear-gradient(145deg, var(--color-surface-2), var(--color-bg))';
 	}
 
 	// ---- progress / scrubber (plan 002) ----
@@ -958,6 +960,26 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 	}
 
 	/** Subnav item tap: switch tab; open to half from closed. Suppressed if it was a drag. */
+	// quick-261102-t5k: WAI-ARIA tabs keyboard contract for the phone tablist — one tab stop (roving
+	// tabindex on the selected tab), Left/Right step (mirrored under RTL), Home/End jump. Selecting on
+	// arrow ("automatic activation") matches a tap: selectTab also opens the sheet from closed.
+	// transport-keys already yields arrows to role="tab", so prev/next never double-fires here.
+	const TAB_ORDER: Tab[] = ['queue', 'lyrics', 'comments', 'related', 'about'];
+	function tabKey(e: KeyboardEvent) {
+		const list = TAB_ORDER.filter((x) => x !== 'about' || canAbout);
+		const i = list.indexOf(tab);
+		const rtl = getComputedStyle(e.currentTarget as HTMLElement).direction === 'rtl';
+		const step = e.key === 'ArrowRight' ? (rtl ? -1 : 1) : e.key === 'ArrowLeft' ? (rtl ? 1 : -1) : 0;
+		let next: Tab | null = null;
+		if (step) next = list[(i + step + list.length) % list.length];
+		else if (e.key === 'Home') next = list[0];
+		else if (e.key === 'End') next = list[list.length - 1];
+		if (!next) return;
+		e.preventDefault();
+		selectTab(next);
+		(e.currentTarget as HTMLElement).querySelector<HTMLElement>(`[data-tab="${next}"]`)?.focus();
+	}
+
 	function selectTab(next: Tab) {
 		if (subnavMoved) {
 			subnavMoved = false;
@@ -1374,14 +1396,14 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 		{:else}
 			<!-- quick-261102-s5t: tablist/tab + aria-selected — the selected tab used to be conveyed by
 			     the `.active` class alone, so a screen reader heard five identical icon buttons. -->
-			<div class="subnav" role="tablist" tabindex="-1"
+			<div class="subnav" role="tablist" tabindex="-1" onkeydown={tabKey}
 				onpointerdown={gripDown} onpointermove={gripMove} onpointerup={gripUp} onpointercancel={gripUp}>
-				<button role="tab" aria-selected={tab === 'queue'} data-tab="queue" aria-label={t('nowplaying.upNext')} title={t('nowplaying.upNext')} class:active={tab === 'queue'} onclick={() => selectTab('queue')} use:tapBounce><ListMusic size={20} /></button>
-				<button role="tab" aria-selected={tab === 'lyrics'} data-tab="lyrics" aria-label={t('nowplaying.lyrics')} title={t('nowplaying.lyrics')} class:active={tab === 'lyrics'} onclick={() => selectTab('lyrics')} use:tapBounce><MicVocal size={20} /></button>
-				<button role="tab" aria-selected={tab === 'comments'} data-tab="comments" aria-label={t('nowplaying.comments')} title={t('nowplaying.comments')} class:active={tab === 'comments'} onclick={() => selectTab('comments')} use:tapBounce><MessageCircle size={20} />{#if commentBadge}<span class="count">{commentBadge}</span>{/if}</button>
-				<button role="tab" aria-selected={tab === 'related'} data-tab="related" aria-label={t('nowplaying.related')} title={t('nowplaying.related')} class:active={tab === 'related'} onclick={() => selectTab('related')} use:tapBounce><Sparkles size={20} /></button>
+				<button role="tab" id="np-tab-queue" aria-selected={tab === 'queue'} tabindex={tab === 'queue' ? 0 : -1} data-tab="queue" aria-label={t('nowplaying.upNext')} title={t('nowplaying.upNext')} class:active={tab === 'queue'} onclick={() => selectTab('queue')} use:tapBounce><ListMusic size={20} /></button>
+				<button role="tab" id="np-tab-lyrics" aria-selected={tab === 'lyrics'} tabindex={tab === 'lyrics' ? 0 : -1} data-tab="lyrics" aria-label={t('nowplaying.lyrics')} title={t('nowplaying.lyrics')} class:active={tab === 'lyrics'} onclick={() => selectTab('lyrics')} use:tapBounce><MicVocal size={20} /></button>
+				<button role="tab" id="np-tab-comments" aria-selected={tab === 'comments'} tabindex={tab === 'comments' ? 0 : -1} data-tab="comments" aria-label={t('nowplaying.comments')} title={t('nowplaying.comments')} class:active={tab === 'comments'} onclick={() => selectTab('comments')} use:tapBounce><MessageCircle size={20} />{#if commentBadge}<span class="count">{commentBadge}</span>{/if}</button>
+				<button role="tab" id="np-tab-related" aria-selected={tab === 'related'} tabindex={tab === 'related' ? 0 : -1} data-tab="related" aria-label={t('nowplaying.related')} title={t('nowplaying.related')} class:active={tab === 'related'} onclick={() => selectTab('related')} use:tapBounce><Sparkles size={20} /></button>
 				{#if canAbout}
-					<button role="tab" aria-selected={tab === 'about'} data-tab="about" aria-label={t('nowplaying.about')} title={t('nowplaying.about')} class:active={tab === 'about'} onclick={() => selectTab('about')} use:tapBounce><Info size={20} /></button>
+					<button role="tab" id="np-tab-about" aria-selected={tab === 'about'} tabindex={tab === 'about' ? 0 : -1} data-tab="about" aria-label={t('nowplaying.about')} title={t('nowplaying.about')} class:active={tab === 'about'} onclick={() => selectTab('about')} use:tapBounce><Info size={20} /></button>
 				{/if}
 			</div>
 		{/if}
@@ -1434,7 +1456,7 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 				<div class="panel">{#if tab === 'comments'}{@render commentsPane()}{:else if tab === 'about' && canAbout}{@render aboutPane()}{:else}{@render relatedPane()}{/if}</div>
 			</div>
 		{:else}
-			<div class="panel">
+			<div class="panel" role="tabpanel" aria-labelledby={`np-tab-${tab}`}>
 				{#if tab === 'queue'}{@render upNextPane()}
 				{:else if tab === 'lyrics'}{@render lyricsPane()}
 				{:else if tab === 'comments'}{@render commentsPane()}
@@ -1546,7 +1568,7 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 	   The commit-settle uses the cover-reflow personality (0.32s, same universal curve); coverSwipe
 	   overrides this to `none` while dragging (1:1 finger-follow), then restores it on release so the
 	   committed neighbor / spring-back animates. will-change keeps the slide smooth. */
-	.cover-strip { position: absolute; inset: 0; will-change: transform; transition: transform 0.32s cubic-bezier(.22,1,.36,1); }
+	.cover-strip { position: absolute; inset: 0; transition: transform 0.32s cubic-bezier(.22,1,.36,1); }
 	/* Each cell is exactly one cover wide and flush against its neighbors: prev is pushed one cover
 	   width to the left (-100%), current fills the box (0), next is pushed one cover width to the
 	   right (100%). Adjacent covers touch with no gutter between them.
@@ -1618,7 +1640,7 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 	/* NP big title/artist use the dedicated --fs-np-* multipliers (separated from --fs-title /
 	   --fs-artist used by list pages). The base sizes diverge enough that one shared slider
 	   couldn't both raise the list rows AND keep NP balanced; two sliders solve it. */
-	.title { display: inline-block; max-width: 100%; vertical-align: bottom; background: var(--color-bg); color: var(--color-text); padding: 1px; border-radius: none; font-size: calc(1.5rem * var(--fs-np-title, 1)); font-weight: 800; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.title { display: inline-block; max-width: 100%; vertical-align: bottom; background: var(--color-bg); color: var(--color-text); padding: 1px; font-size: calc(1.5rem * var(--fs-np-title, 1)); font-weight: 800; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 	/* quick-261010-npvol: the title row — song name + desktop volume at the end, above the
 	   quality tag. .title keeps its marquee: flex:1 + min-width:0 lets it shrink inside the
 	   row so ellipsis/marquee keep measuring correctly (marquee re-measures on box-width
@@ -1641,11 +1663,12 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 	.np-volrange { -webkit-appearance: none; appearance: none; width: 90px; height: 4px; border-radius: 999px; background: color-mix(in srgb, var(--color-text-muted) 30%, transparent); cursor: pointer; } /* quick-261102-s5t: same muted-30% track as .scrubber; white 25% vanished on light */
 	.np-volrange::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 12px; height: 12px; border-radius: 50%; background: var(--color-text); cursor: pointer; }
 	.np-volrange::-moz-range-thumb { width: 12px; height: 12px; border: none; border-radius: 50%; background: var(--color-text); cursor: pointer; }
-	.artist { display: flex; width: 100%; justify-content: space-between; align-items: center; background: transparent; border: none; padding: 1px; border-radius: none; color: var(--color-text); font-size: calc(1rem * var(--fs-np-artist, 1)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.artist { display: flex; width: 100%; justify-content: space-between; align-items: center; background: transparent; border: none; padding: 1px; color: var(--color-text); font-size: calc(1rem * var(--fs-np-artist, 1)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 	/* quick-260625-pzs-01: per-artist tappable link inside the .artist row. Carries the underline +
 	   pointer the old single .artist button had; the inert separator is non-interactive. */
 	.artist-link { background: none; border: none; padding: 0; color: inherit; font: inherit; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
-	.artist-sep { color: var(--color-text-muted); text-decoration: none; cursor: default; }
+	/* quick-261102-t5k: the separator's literal spaces collapsed ("周杰倫·Jay Chou"), so the gap is padding. */
+	.artist-sep { color: var(--color-text-muted); text-decoration: none; cursor: default; padding-inline: 0.35em; }
 	/* quick-260831-k5y: small muted pill under the artist row. Sized off the NP artist scale so
 	   it tracks the appearance settings, and always smaller than the artist line it sits below. */
 	.quality-tag { display: inline-block; margin-top: 4px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--color-border); color: var(--color-text-muted); font-size: calc(0.7rem * var(--fs-np-artist, 1)); font-weight: 600; letter-spacing: 0.02em; line-height: 1.5; white-space: nowrap; }
@@ -1671,6 +1694,9 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 	/* quick-260910-tqw: the bottom margin glides with the .cover/.meta reflow (byte-identical
 	   0.32s curve) instead of hitching at t=0; see .np.reflow .transport above. */
 	.transport { display: flex; align-items: center; justify-content: space-between; margin: 0px 4px 0; transition: margin 0.32s cubic-bezier(.22,1,.36,1); }
+	/* quick-261102-t5k: on a wide sheet space-between spread the five controls across the whole row
+	   (~1700px between Heart and Download at 1440). Capped + centred; the scrubber stays full width. */
+	@media (min-width: 1024px) { .transport { max-width: 420px; margin-inline: auto; } }
 	.t { background: none; border: none; color: var(--color-text); cursor: pointer; opacity: 0.85; display: grid; place-items: center; }
 	/* quick-261102-s5t: the transport buttons had no box — the hit area was the bare glyph (Heart
 	   ~20px). 44px minimum; scoped to .transport so the sleep-timer pill (.t too) keeps its size. */
@@ -1693,13 +1719,12 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 	/* quick-261102-s5t: a white disc on the #f7f7fa light floor has ~1.07:1 edge contrast. The
 	   hero's job is "brightest-contrast thing on screen", so on light it inverts to a dark disc. */
 	:global(:root[data-theme='light']) .play { background: var(--color-text); color: var(--color-bg); }
-	.sheet { display: flex; flex-direction: column; flex: 1; min-height: 0; will-change: transform; user-select: none; -webkit-user-select: none; }
+	.sheet { display: flex; flex-direction: column; flex: 1; min-height: 0; user-select: none; -webkit-user-select: none; }
 	.sheet.full {
     /* position: absolute; */
     inset: 0;
     z-index: 5;
     background: var(--color-bg);
-    padding: -8px 0px env(safe-area-inset-bottom);
 		/* margin-top: 68px; */
 	}
 
@@ -1733,7 +1758,7 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 	.grip:active { cursor: grabbing; }
 	.handle { width: 44px; height: 5px; border-radius: 999px; background: var(--color-text-muted); opacity: 0.6; margin-top: 8px; }
 	.subnav { display: flex; justify-content: space-around; padding-bottom: 6px; touch-action: none; user-select: none; -webkit-user-select: none; }
-	.subnav button { position: relative; display: inline-flex; align-items: center; justify-content: center; background: none; border: none; color: var(--color-text-muted); font-size: 0.8125rem; min-height: 40px; padding: 8px 12px; cursor: pointer; border-bottom: 2px solid transparent; }
+	.subnav button { position: relative; display: inline-flex; align-items: center; justify-content: center; background: none; border: none; color: var(--color-text-muted); font-size: 0.8125rem; min-height: 44px; padding: 8px 12px; /* quick-261102-t5k: 40 -> 44 */ cursor: pointer; border-bottom: 2px solid transparent; }
 	.subnav button.active { color: var(--color-text); border-bottom-color: var(--color-primary); }
 	.subnav .count { position: absolute; top: 2px; inset-inline-end: 0; line-height: 1.2; padding: 1px 6px; border-radius: 999px; background: var(--color-surface); color: var(--color-text-muted); font-size: 0.6875rem; font-variant-numeric: tabular-nums; }
 	/* NP-02: contain over-scroll/bounce to the panel edges so half-open scroll never chains to
@@ -1749,6 +1774,9 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 	   does its own explicit `container.scrollTo(...)` (it never relies on anchoring), and the
 	   related tab doesn't auto-scroll, so disabling anchoring here is safe for all three tabs. */
 	.panel { flex: 1; overflow-y: auto; overscroll-behavior-y: contain; overflow-anchor: none; }
+	/* quick-261102-t5k: keyboard focus in --color-focus (>=3:1 on every theme) instead of the UA ring,
+	   across the overlay and the child panes (hence :global under the scoped .np). */
+	.np :global(:focus-visible) { outline: 2px solid var(--color-focus); outline-offset: 2px; }
 	/* quick-260919-np3: the row / lyric / skeleton rules that used to live here moved into
 	   NpUpNext.svelte, NpLyrics.svelte and NpRelated.svelte with the markup they style — Svelte
 	   scopes styles per component, so a rule cannot stay behind once its element leaves. `.panel`

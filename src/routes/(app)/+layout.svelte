@@ -2,7 +2,7 @@
 	import { onMount, tick, untrack, type Component } from 'svelte';
 	import { fly } from 'svelte/transition';
 	import { page } from '$app/state';
-	import { goto, afterNavigate } from '$app/navigation';
+	import { goto, afterNavigate, preloadCode } from '$app/navigation';
 	import { House, Search, Library, Settings, Heart, ListMusic, Download, Users, Clock, Radio } from '@lucide/svelte';
 	import { player, SKIP_REASON_KEY } from '$lib/stores/player.svelte';
 	import { library } from '$lib/stores/library.svelte';
@@ -199,6 +199,15 @@
 	onMount(() => {
 		library.load();
 		settings.load();
+
+		// quick-261102-libnav: data-sveltekit-preload-data="hover" only starts fetching a tab's
+		// route chunk on touchstart, so the FIRST tap on Library/Search waited on a network round
+		// trip before anything moved. Fetch the bottom-nav routes' code once the shell is idle.
+		const preloadTabs = () => {
+			for (const p of ['/', '/search', '/library']) void preloadCode(p).catch(() => {});
+		};
+		if ('requestIdleCallback' in window) requestIdleCallback(preloadTabs, { timeout: 3000 });
+		else setTimeout(preloadTabs, 1500);
 
 		// quick-261021-zh1 (user): backend matching ALWAYS normalizes to Simplified (zhs).
 		// Warm the T2S/S2T dicts at startup so foldScript() never hits the cold-dict

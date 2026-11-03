@@ -342,9 +342,19 @@
 		hapticTick();
 		listMenuOpen = false;
 	}
+	// quick-261102-libnav (library tab felt laggy to open): SvelteKit swaps the route only after
+	// the new page has mounted, so a 500-song Liked list mounted 500 SongRows (each with five
+	// actions, badges and a download control) before the tap visibly did anything. Mount the
+	// first screenful, then the rest on the next task — after the route has painted. Only the
+	// RENDER is capped; Play all / Shuffle / queue / edit still act on the full lists.
+	// setTimeout, not rAF: the Browser pane's rAF is frozen.
+	const FIRST_ROWS = 40;
+	let rowCap = $state(FIRST_ROWS);
 	onMount(() => {
 		library.load();
 		history.load();
+		const id = setTimeout(() => (rowCap = Infinity), 0);
+		return () => clearTimeout(id);
 	});
 
 	/**
@@ -435,7 +445,7 @@
 {#if tab === 'liked'}
 	{#if library.liked.length}
 		<ul class="list" class:editing={editMode}>
-			{#each likedList as track (track.uid)}
+			{#each likedList.slice(0, rowCap) as track (track.uid)}
 				<li class="row-line">
 					<div class="swipe-wrap">
 						<span class="reveal reveal-queue" aria-hidden="true"><ListEnd size={20} /></span>
@@ -481,7 +491,7 @@
 				</div>
 				{#if plList.length}
 					<ul class="list">
-						{#each plList as track (track.uid)}
+						{#each plList.slice(0, rowCap) as track (track.uid)}
 							<li class="row-line">
 								<div class="swipe-wrap">
 									<span class="reveal reveal-queue" aria-hidden="true"><ListEnd size={20} /></span>
@@ -507,7 +517,7 @@
 {:else if tab === 'downloads'}
 	{#if library.downloads.length}
 		<ul class="list">
-			{#each downloadsList as track (track.uid)}
+			{#each downloadsList.slice(0, rowCap) as track (track.uid)}
 				<li class="row-line">
 					<div class="swipe-wrap">
 						<span class="reveal reveal-queue" aria-hidden="true"><ListEnd size={20} /></span>
