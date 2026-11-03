@@ -101,6 +101,9 @@ vi.mock('$lib/services/audio-tags', async (orig) => ({
 }));
 vi.mock('$lib/services/media-artwork', () => ({ resolveArtworkDataUrl: mocks.resolveArtworkDataUrl }));
 vi.mock('$lib/stores/actionLog.svelte', () => ({ logAction: mocks.logAction }));
+// quick-261102-tvb: the user's lyric pins (services layer — the store's readLyrics reads through it).
+const pinned = vi.hoisted(() => ({ get: vi.fn((_uid: string): string | null => null) }));
+vi.mock('$lib/services/lyric-pins', () => ({ getPinnedLyrics: (uid: string) => pinned.get(uid), setPinnedLyrics: vi.fn(), removePinnedLyrics: vi.fn() }));
 vi.mock('$lib/analytics', () => ({ trackDownload: mocks.trackDownload }));
 // variants.ts stays REAL for versionsIncludingOwn (pure); only the lookup is stubbed.
 vi.mock('$lib/services/variants', async (orig) => ({
@@ -775,6 +778,15 @@ describe('downloadTrack — quick-260915-062 lyrics through the seam', () => {
 		resolved('[00:01.00]hi');
 		await downloadTrack(mk({ audioUrl: null, detailsLoaded: false }));
 		expect(fields().lyrics).toBe('[00:01.00]hi');
+	});
+
+	// quick-261102-tvb (DECISIONS.md §9) characterization: a pinned song downloads with the CHAIN lyrics.
+	it('characterization: a user-pinned LRC is ignored — the chain lyrics are written', async () => {
+		pinned.get.mockImplementation((uid) => (uid ? '[00:09.00]pin' : null));
+		resolved('[00:01.00]chain');
+		await downloadTrack(mk({ audioUrl: null, detailsLoaded: false }));
+		expect(fields().lyrics).toBe('[00:01.00]chain');
+		pinned.get.mockImplementation(() => null);
 	});
 
 	it('sends undefined — never an empty string — when the track has no lyrics', async () => {
