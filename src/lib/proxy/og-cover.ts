@@ -83,7 +83,7 @@ import {
 } from '$lib/proxy/safe-image-url';
 import { buildKuwoSearchUrl, mapSearch } from '$lib/proxy/kuwo';
 import { buildItunesSearchUrl, upgradeArtwork } from '$lib/services/itunes-cover';
-import { isChineseLine, t2sConvertLines } from '$lib/services/zh-convert';
+import { isChineseLine, s2tConvertLines, t2sConvertLines } from '$lib/services/zh-convert';
 import { norm } from '$lib/services/match-key';
 
 /** The closed set of card kinds /api/og understands. */
@@ -696,8 +696,9 @@ export async function resolveCoverTiered(
 	// unconverted form is also what parity requires. A hit additionally skips the dict load entirely.
 	// quick-261102-covgate: the identity pairs every tier validates against. The Last.fm tier
 	// searches the ORIGINAL pair, so it validates against that pair alone; the tiers below
-	// validate against the converted pair AND the original (a candidate may echo either
-	// script — see the gate header above ogTitleKey).
+	// validate against every script form of the request (a candidate may echo any of them —
+	// see the wants construction after the convert-first block, and the gate header above
+	// ogTitleKey).
 	const wantOriginal: OgIdentity = { artist, title };
 	if (type === 'song' && lastfmKey && !deadline.aborted) {
 		const lf = await lastfmTier(lastfmKey)(type, artist, title, deadline, [wantOriginal]);
@@ -740,10 +741,22 @@ export async function resolveCoverTiered(
 		}
 	}
 
-	const wants: readonly OgIdentity[] =
-		qArtist === artist && qTitle === title
-			? [wantOriginal]
-			: [{ artist: qArtist, title: qTitle }, wantOriginal];
+	// quick-261102-covgate — the wants list, widened BOTH script directions. The chain only ever
+	// SEARCHES with the t2s pair (the CN catalogs), but the global catalogs (iTunes/Deezer)
+	// often credit the OTHER script: a Simplified request whose wants stopped at the converted
+	// pair false-rejected the artist's own Traditional-credited rows (probed live 2026-11-02:
+	// Simplified 陈奕迅/孤勇者 requests gated out every non-kuwo tier). Identity exists in every
+	// script form, so validation accepts original + t2s + s2t, deduped — the SEARCH behaviour
+	// above is untouched, and a non-Chinese request never loads the s2t dict either.
+	const wantList: OgIdentity[] = [{ artist: qArtist, title: qTitle }];
+	if (qArtist !== artist || qTitle !== title) wantList.push(wantOriginal);
+	if (isChineseLine(artist) || isChineseLine(title)) {
+		const [tArtist, tTitle] = await s2tConvertLines([artist, title]);
+		if (!wantList.some((w) => w.artist === tArtist && w.title === tTitle)) {
+			wantList.push({ artist: tArtist, title: tTitle });
+		}
+	}
+	const wants: readonly OgIdentity[] = wantList;
 
 	for (const tier of [deezerTier, itunesTier, kuwoTier]) {
 		if (deadline.aborted) break;

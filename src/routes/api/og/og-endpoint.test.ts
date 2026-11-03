@@ -1419,6 +1419,18 @@ describe('og-cover — candidate identity gate (quick-261102-covgate)', () => {
 		expect(calls[0]).toContain('limit=5');
 	});
 
+	it('a Simplified request accepts a Traditional-credited iTunes row (s2t wants widening)', async () => {
+		// Probed live 2026-11-02: iTunes credits 陳奕迅 in Traditional. With wants limited to
+		// the Simplified pair, the artist's OWN row was gated out and only kuwo could ever win
+		// a Simplified CJK request. The widened wants accept either script's echo.
+		const it = JSON.stringify({
+			results: [{ trackName: '孤勇者', artistName: '陳奕迅', artworkUrl100: IT_ART_100 }]
+		});
+		stubTiers({ dz: DZ_MISS, it });
+		const out = await resolveCoverTiered('song', '陈奕迅', '孤勇者', fresh());
+		expect(out).toBe(IT_ART_600);
+	});
+
 	it('Last.fm: an autocorrect SUBSTITUTION (right title, wrong artist) is a miss, not a hit', async () => {
 		// 紅豆 is famously 王菲's song and 方大同's cover of it — exactly the substitution
 		// autocorrect=1 can hand back. Its art must not dress the other artist's card.
