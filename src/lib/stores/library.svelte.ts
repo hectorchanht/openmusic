@@ -6,7 +6,7 @@ import { trackLike } from '$lib/analytics';
 import { blobStore } from '$lib/services/blob-store';
 import { writeCoverBoth } from '$lib/stores/cover-version.svelte';
 import { hasHttpsScheme } from '$lib/services/url-safety';
-import { matchKey, versionedMatchKey, dedupeShelfList, isSameShelfSong, sameSongStrings, songKey } from '$lib/services/dedupe';
+import { matchKey, dedupeShelfList, isSameShelfSong, sameSongStrings, songKey } from '$lib/services/dedupe';
 import { isDeviceUid } from '$lib/services/device-track';
 import { isChineseLine, warmScript } from '$lib/services/zh-convert';
 // quick-261023-syncmerge: tombstone helpers — the `deleted` set lives on the library blob
@@ -636,7 +636,7 @@ class Library {
 	/**
 	 * quick-261008-dl1 — "the download file must be used to play all the time".
 	 * Resolve the download record for a track: exact uid first, then the same song
-	 * downloaded under another source's uid. Identity is versionedMatchKey (same VERSION —
+	 * downloaded under another source's uid. Identity is isSameShelfSong (same VERSION —
 	 * live/remix/acoustic stay distinct, so a live cut never plays the studio file).
 	 * Returns the record's uid (the blob-store key), or null when there is no downloaded
 	 * copy. Device imports are exact-uid only — their playback path is URI-based, not
@@ -646,11 +646,11 @@ class Library {
 		if (!track?.uid) return null;
 		if (this.isDownloaded(track.uid)) return track.uid;
 		if (isDeviceUid(track.uid)) return null;
-		const key = versionedMatchKey(track.artist ?? '', track.title ?? '');
-		if (!key || key === '|') return null;
-		const rec = this.downloads.find(
-			(d) => !isDeviceUid(d.uid) && versionedMatchKey(d.artist ?? '', d.title ?? '') === key
-		);
+		// quick-261102-trh (DECISIONS.md §11): THE rendition-aware identity (isSameShelfSong =
+		// script-folded, alias-aware sameSongKey + the same versionKey), the one addDownload and
+		// otherDownloadOf already use. versionedMatchKey never folded script, so a 繁/简 twin of a
+		// downloaded song was "not downloaded" here while addDownload called it a duplicate.
+		const rec = this.downloads.find((d) => !isDeviceUid(d.uid) && isSameShelfSong(d, track));
 		return rec ? rec.uid : null;
 	}
 	/**

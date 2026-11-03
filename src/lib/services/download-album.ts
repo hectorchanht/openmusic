@@ -67,7 +67,6 @@ import { names } from '$lib/stores/names.svelte';
 import { blobStore } from '$lib/services/blob-store';
 import { saveBlobToDisk } from '$lib/services/download-save';
 import { downloadFromDonor, downloadTrack, type StageGate } from '$lib/services/download-track';
-import { sameSongKey } from '$lib/services/dedupe';
 import { buildZip, type ZipEntry } from '$lib/services/zip-store';
 import {
 	albumDir,
@@ -165,7 +164,10 @@ export async function downloadAlbum(
 			// is refcounted, so the inner brackets nest inside this one.
 			library.beginDownload(tr.uid);
 			try {
-				const held = library.downloads.find((d) => d.uid === tr.uid || sameSongKey(d, tr));
+				// quick-261102-trh (DECISIONS.md §11): the library's rendition-aware answer (downloadUidFor),
+				// not a local sameSongKey match that let a live cut reuse the studio file.
+				const heldUid = library.downloadUidFor(tr);
+				const held = heldUid ? library.downloads.find((d) => d.uid === heldUid) : undefined;
 				if (held && (await blobStore.has(held.uid))) {
 					if (native) {
 						// "saved, not moved" when this resolves false or rejects: the file stays flat.

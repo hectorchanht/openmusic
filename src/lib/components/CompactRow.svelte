@@ -187,7 +187,7 @@ import { sizedCover, ROW_COVER_PX } from '$lib/services/cover-size';
 			</span>
 			<!-- DL-STATE-01: passive liked ♥ + downloaded ✓ indicators via the shared RowBadges (quick-260723
 				 rollout to all song rows). Non-interactive; like/download INITIATION stays in the ⋮ menu here. -->
-			{#if track}<RowBadges uid={track.uid} />{/if}
+			{#if track}<RowBadges uid={track.uid} {track} />{/if}
 		</button>
 		<button class="opt" aria-label={t('menu.options')} onclick={() => onrequestmenu?.()}>
 			<MoreVertical size={18} />

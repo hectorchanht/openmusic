@@ -19,13 +19,25 @@
 	import { library } from '$lib/stores/library.svelte';
 	import { downloadState } from '$lib/components/download-state';
 	import { t } from '$lib/i18n';
+	import type { Track } from '$lib/sources/types';
 
 	let {
 		uid,
 		size = 14,
 		hideLiked = false,
-		hideDownloaded = false
-	}: { uid: string; size?: number; hideLiked?: boolean; hideDownloaded?: boolean } = $props();
+		hideDownloaded = false,
+		track
+	}: {
+		uid: string;
+		size?: number;
+		hideLiked?: boolean;
+		hideDownloaded?: boolean;
+		// quick-261102-trh (DECISIONS.md §11): when the row passes its track, "downloaded" is the
+		// library's answer for THE SONG (library.downloadUidFor — a twin downloaded under another
+		// source's uid counts, exactly as the player's offline branch plays it), not this uid alone.
+		track?: Track;
+	} = $props();
+	const dlUid = $derived((track && library.downloadUidFor(track)) || uid);
 
 	// quick-260919-l9e (D-5): the suppression is gated at the $derived, NOT just in the markup — a
 	// badge the row will never draw must not hold a live library subscription either (D-7: these
@@ -42,9 +54,9 @@
 	const dl = $derived(
 		!hideDownloaded && !!uid
 			? downloadState({
-					downloading: library.downloading.has(uid),
-					downloaded: library.isDownloaded(uid),
-					unavailable: library.isUnavailable(uid)
+					downloading: library.downloading.has(dlUid),
+					downloaded: library.isDownloaded(dlUid),
+					unavailable: library.isUnavailable(dlUid)
 				})
 			: 'idle'
 	);

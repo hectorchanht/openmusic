@@ -288,7 +288,7 @@
 						<span class="r-artist">{names.dnArtist(track.artist)}</span>
 					</span>
 					<!-- quick-260723: passive liked/downloaded indicators on up-next rows. -->
-					<RowBadges uid={track.uid} />
+					<RowBadges uid={track.uid} {track} />
 				</button>
 				</span>
 				<button

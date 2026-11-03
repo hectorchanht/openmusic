@@ -815,12 +815,13 @@ describe('library.downloadUidFor (quick-261008-dl1)', () => {
 		expect(library.downloadUidFor(mk({ uid: 'kuwo:9', artist: '周杰倫', title: '晴天' }))).toBeNull();
 	});
 
-	// quick-261102-trh (DECISIONS.md §11) characterization: the record lookup keys on versionedMatchKey,
-	// which never folds script — a 繁/简 twin of a downloaded song is "not downloaded".
-	it('characterization: a 繁/简 twin does not resolve to the download', async () => {
+	// quick-261102-trh (DECISIONS.md §11): ONE rendition-aware identity (isSameShelfSong) — a 繁/简
+	// twin of a downloaded song IS downloaded (versionedMatchKey never folded script).
+	it('a 繁/简 twin resolves to the download (the same song, the same version)', async () => {
 		await warmScript('zh-Hans');
 		library.downloads = [mk({ uid: 'qq:1', artist: '周杰倫', title: '晴天' })];
-		expect(library.downloadUidFor(mk({ uid: 'kuwo:9', artist: '周杰伦', title: '晴天' }))).toBeNull();
+		expect(library.downloadUidFor(mk({ uid: 'kuwo:9', artist: '周杰伦', title: '晴天' }))).toBe('qq:1');
+		expect(library.downloadUidFor(mk({ uid: 'kuwo:9', artist: '周杰伦', title: '晴天 (Live)' }))).toBeNull();
 	});
 
 	it('returns null for a blank identity (never matches everything)', () => {

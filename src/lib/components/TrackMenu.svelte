@@ -1040,7 +1040,9 @@
 		// play path instead (the remix download fast-path, quick-261019-rmx), then build the
 		// station around it exactly like the network path below.
 		let played: Track | null;
-		if (library.isDownloaded(tr.uid)) {
+		// quick-261102-trh (DECISIONS.md §11): the library's answer for THE SONG — a twin downloaded
+		// under another uid plays offline too, so it skips the network gate like an exact-uid download.
+		if (library.downloadUidFor(tr) !== null) {
 			player.setQueue([tr], 'radio');
 			void player.play(tr, { fresh: true });
 			played = tr;
@@ -1594,7 +1596,7 @@
 	// already renders a graceful "not resolved" for a missing audioUrl. Open it with the
 	// track as-is.
 	function onDetailTap() {
-		if (track && library.isDownloaded(track.uid)) {
+		if (track && library.downloadUidFor(track) !== null) { // quick-261102-trh: song-level
 			doDetail(track);
 			return;
 		}
@@ -1620,7 +1622,7 @@
 	// downloads skip the gate and play the seed as-is through the normal play path; the fresh
 	// play then regenerates the up-next list exactly like the network path. That's it.
 	function onRemixTap() {
-		if (track && library.isDownloaded(track.uid)) {
+		if (track && library.downloadUidFor(track) !== null) { // quick-261102-trh: song-level
 			doRemix(track);
 			return;
 		}

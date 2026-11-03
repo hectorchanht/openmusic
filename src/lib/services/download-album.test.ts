@@ -1,3 +1,4 @@
+import { isSameShelfSong } from '$lib/services/dedupe';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Track } from '$lib/sources/types';
 import * as zipStore from './zip-store';
@@ -12,7 +13,11 @@ const mocks = vi.hoisted(() => ({
 		downloads: [] as Track[],
 		// debug album-row-tick-before-file-done: the album holds ONE outer bracket per song.
 		beginDownload: vi.fn((_uid: string) => {}),
-		endDownload: vi.fn((_uid: string) => {})
+		endDownload: vi.fn((_uid: string) => {}),
+		// quick-261102-trh: the album loop asks the library which record holds the song — the real
+		// rendition-aware identity, over the mocked downloads list.
+		downloadUidFor: (tr: Track): string | null =>
+			mocks.library.downloads.find((d) => d.uid === tr.uid || isSameShelfSong(d, tr))?.uid ?? null
 	},
 	names: {
 		dnArtist: (s: string) => s,

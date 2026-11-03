@@ -88,7 +88,10 @@ import { player } from '$lib/stores/player.svelte';
 	let localBusy = $state(false);
 
 	const uid = $derived(resolved?.uid ?? track?.uid ?? '');
-	const isDownloaded = $derived(!!uid && library.isDownloaded(uid));
+	// quick-261102-trh (DECISIONS.md §11): the library's answer for THE SONG (downloadUidFor — a twin
+	// downloaded under another source's uid counts, as the player's offline branch plays it).
+	const dlTrack = $derived(resolved ?? track ?? null);
+	const isDownloaded = $derived(!!uid && (library.isDownloaded(uid) || (!!dlTrack && library.downloadUidFor(dlTrack) !== null)));
 	const isDownloading = $derived(localBusy || (!!uid && library.downloading.has(uid)));
 	const isUnavailable = $derived(!!uid && library.isUnavailable(uid));
 	// quick-260919-v71: the render branches read THIS, not the three flags directly — the shared

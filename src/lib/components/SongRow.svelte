@@ -428,7 +428,7 @@ import { videoAvailability } from '$lib/services/video-availability.svelte';
 		<span class="r-sub" use:marquee><span class="marquee-inner">{sub}{#if albumTag}<span class="album-tag">{albumTag}</span>{/if}{#if mvTag}<span class="mv-tag">MV</span>{/if}</span></span>
 	</span>
 	<!-- D-5: the passive badge stands down for whichever state this row draws a live control for. -->
-	<RowBadges uid={actUid} hideLiked={acts.includes('like')} hideDownloaded={acts.includes('download')} />
+	<RowBadges uid={actUid} track={real ?? track} hideLiked={acts.includes('like')} hideDownloaded={acts.includes('download')} />
 	{#each acts as a (a)}
 		{#if a === 'like'}
 			<button
