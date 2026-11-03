@@ -75,46 +75,76 @@ export function marqueeState(scrollWidth: number, clientWidth: number): MarqueeS
 		: { on: false, dx: 0, durationMs: 0 };
 }
 
+// quick-261102-libnav (library tab felt laggy to open): every row used to own its observer and
+// run `measure()` alone — read scrollWidth, then write a class/style. Across a list that is
+// read/write/read/write…, so EACH read forced a fresh layout of the whole page: 2 labels × N rows
+// = 2N full layouts, O(N²) for a long Liked list, and the per-node ResizeObserver's initial
+// callback repeated the whole storm right after the rAF one. Now ONE shared ResizeObserver and
+// one rAF queue feed `flush()`, which reads every pending label first and writes after, so a
+// whole list costs one layout. The RO's initial observation IS the first measure (no rAF), and
+// the width gate still stops a running animation from restarting.
+function apply(node: HTMLElement, { on, dx, durationMs }: MarqueeState) {
+	if (on) {
+		node.style.setProperty('--marquee-dx', `${dx}px`);
+		node.style.setProperty('--marquee-dur', `${durationMs}ms`);
+		node.classList.add('marquee-on');
+	} else {
+		node.classList.remove('marquee-on');
+		node.style.removeProperty('--marquee-dx');
+		node.style.removeProperty('--marquee-dur');
+	}
+}
+
+/** Batch measure: all reads, then all writes — one forced layout for the whole set. */
+function flush(nodes: Iterable<HTMLElement>) {
+	const states: [HTMLElement, MarqueeState][] = [];
+	for (const n of nodes) if (n.isConnected) states.push([n, marqueeState(n.scrollWidth, n.clientWidth)]);
+	for (const [n, st] of states) apply(n, st);
+}
+
+const lastWidth = new WeakMap<HTMLElement, number>();
+let sharedRO: ResizeObserver | null = null;
+function ro(): ResizeObserver | null {
+	if (!sharedRO && typeof ResizeObserver !== 'undefined') {
+		sharedRO = new ResizeObserver((entries) => {
+			const changed: HTMLElement[] = [];
+			for (const e of entries) {
+				const n = e.target as HTMLElement;
+				const w = Math.round(e.contentRect.width);
+				if (w === lastWidth.get(n)) continue;
+				lastWidth.set(n, w);
+				changed.push(n);
+			}
+			flush(changed);
+		});
+	}
+	return sharedRO;
+}
+
+const pending = new Set<HTMLElement>();
+function schedule(node: HTMLElement) {
+	if (typeof requestAnimationFrame !== 'function') return flush([node]);
+	const first = pending.size === 0;
+	pending.add(node);
+	if (first)
+		requestAnimationFrame(() => {
+			const batch = [...pending];
+			pending.clear();
+			flush(batch);
+		});
+}
+
 export const marquee: Action<HTMLElement> = (node) => {
-	let resizeObs: ResizeObserver | null = null;
 	let mutationObs: MutationObserver | null = null;
-
-	function measure() {
-		const { on, dx, durationMs } = marqueeState(node.scrollWidth, node.clientWidth);
-		if (on) {
-			node.style.setProperty('--marquee-dx', `${dx}px`);
-			node.style.setProperty('--marquee-dur', `${durationMs}ms`);
-			node.classList.add('marquee-on');
-		} else {
-			node.classList.remove('marquee-on');
-			node.style.removeProperty('--marquee-dx');
-			node.style.removeProperty('--marquee-dur');
-		}
-	}
-
-	function remeasure() {
-		if (typeof requestAnimationFrame === 'function') requestAnimationFrame(measure);
-		else measure();
-	}
-
-	// Initial measure (after the current frame so layout/fonts have settled when possible).
-	remeasure();
 
 	// Re-measure on box-WIDTH change (container resize, orientation, font-size setting), but ONLY
 	// when the box width actually changed. Re-measuring on every observer callback (incl.
 	// sub-pixel/height churn while the animation runs) would remove+re-add .marquee-on and restart
 	// the animation → a visible twitch. The transform-based scroll animation changes no layout
-	// width, so it never trips this guard.
-	if (typeof ResizeObserver !== 'undefined') {
-		let lastWidth = -1;
-		resizeObs = new ResizeObserver((entries) => {
-			const w = Math.round(entries[0]?.contentRect?.width ?? node.clientWidth);
-			if (w === lastWidth) return;
-			lastWidth = w;
-			measure();
-		});
-		resizeObs.observe(node);
-	}
+	// width, so it never trips this guard. The observer's initial callback is the first measure.
+	const shared = ro();
+	if (shared) shared.observe(node);
+	else schedule(node);
 
 	// quick-260712-mkq: re-measure when the label's TEXT changes. names.dnTitle/dnArtist return
 	// the ORIGINAL name synchronously, then swap in the translated name ~200-800ms later (the
@@ -126,17 +156,18 @@ export const marquee: Action<HTMLElement> = (node) => {
 	// view width"). A MutationObserver on the text catches every content change. It only watches
 	// childList/characterData (NOT attributes), so measure()'s own class/style writes to `node`
 	// never re-trigger it (no loop); and a text swap is never mid-animation, so it cannot cause a
-	// restart twitch.
+	// restart twitch. quick-261102-libnav: it queues into the shared rAF batch, not its own frame.
 	if (typeof MutationObserver !== 'undefined') {
-		mutationObs = new MutationObserver(remeasure);
+		mutationObs = new MutationObserver(() => schedule(node));
 		mutationObs.observe(node, { childList: true, characterData: true, subtree: true });
 	}
 
 	return {
 		destroy() {
-			resizeObs?.disconnect();
+			sharedRO?.unobserve(node);
+			lastWidth.delete(node);
+			pending.delete(node);
 			mutationObs?.disconnect();
-			resizeObs = null;
 			mutationObs = null;
 			node.classList.remove('marquee-on');
 			node.style.removeProperty('--marquee-dx');
