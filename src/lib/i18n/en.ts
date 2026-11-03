@@ -17,6 +17,7 @@ const en = {
 
 	// --- common ---
 	"common.back": "Back",
+	"common.opensNewTab": "opens in a new tab",
 	"common.done": "Done",
 	"common.loading": "loading…",
 	"common.retry": "retry",

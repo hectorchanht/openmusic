@@ -731,10 +731,13 @@
 		<!-- debug download-state-lost-on-page-return: busy = the STORE's album job (survives leaving and
 		     coming back), shown with the same DownloadRing the rows use so "still downloading" reads the
 		     same everywhere. -->
+		<!-- quick-261103-hdn: aria-disabled, not disabled — a disabled button drops focus and its
+		     aria-busy is never announced. A tap while busy is already a no-op (library.beginAlbumJob is
+		     claim-once per album key). -->
 		<!-- quick-261102-w2q: the album download is a supporter perk again (quick-261023-bulklock), so
 		     non-supporters see the accent dot that marks it as one — before, it looked like a plain
 		     download and only revealed the lock after the tap. -->
-		<button class="act" aria-label={t('support.downloadAlbum')} title={t('support.downloadAlbum')} aria-busy={albumDownloading} disabled={albumDownloading} onclick={onDownloadTap} use:tapBounce>
+		<button class="act" aria-label={t('support.downloadAlbum')} title={t('support.downloadAlbum')} aria-busy={albumDownloading} aria-disabled={albumDownloading} onclick={onDownloadTap} use:tapBounce>
 			{#if albumDownloading}<DownloadRing><Download size={20} /></DownloadRing>{:else}<Download size={20} />{/if}
 			{#if !supporter}<span class="sup-dot" aria-hidden="true"></span>{/if}
 		</button>
@@ -878,7 +881,7 @@
 	/* MENU-03 / D-12: hover-capable devices only — avoids the held-finger latch on touch
 	   (use:tapBounce supplies the one-shot touch press feedback). */
 	@media (hover: hover) { .act:active { transform: scale(0.92); } }
-	.act:disabled { opacity: 0.4; cursor: default; }
+	.act:disabled, .act[aria-disabled='true'] { opacity: 0.4; cursor: default; }
 	.act.play { width: 56px; height: 56px; background: var(--color-primary); border-color: transparent; color: var(--color-on-primary); /* quick-261102-rrb */ }
 	/* donor-wall-ui 2026-10-14, restored quick-261102-w2q: accent dot, top corner = supporter perk. */
 	.sup-dot { position: absolute; top: 2px; inset-inline-end: 2px; width: 8px; height: 8px; border-radius: 50%; background: var(--color-primary); }

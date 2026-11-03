@@ -15,6 +15,7 @@ const it: Dict = {
 	"offline.body": "Questo richiede una connessione. I tuoi brani scaricati continuano a riprodursi.",
 	"offline.goToLibrary": "Vai alla Biblioteca",
 	"common.back": "Indietro",
+	"common.opensNewTab": "si apre in una nuova scheda",
 	"common.done": "Fatto",
 	"common.loading": "caricamento…",
 	"common.retry": "riprovare",

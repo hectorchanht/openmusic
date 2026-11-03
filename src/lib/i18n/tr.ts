@@ -15,6 +15,7 @@ const tr: Dict = {
 	"offline.body": "Bunun için bağlantı gerekir. İndirdiğin şarkılar yine de çalınır.",
 	"offline.goToLibrary": "Kütüphaneye git",
 	"common.back": "Geri",
+	"common.opensNewTab": "yeni sekmede açılır",
 	"common.done": "Tamam",
 	"common.loading": "yükleniyor…",
 	"common.retry": "yeniden dene",

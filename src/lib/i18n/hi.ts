@@ -15,6 +15,7 @@ const hi: Dict = {
 	"offline.body": "इसके लिए कनेक्शन चाहिए। आपके डाउनलोड किए गाने अब भी चलते हैं।",
 	"offline.goToLibrary": "पुस्तकालय पर जाएँ",
 	"common.back": "वापस",
+	"common.opensNewTab": "नए टैब में खुलता है",
 	"common.done": "पूर्ण",
 	"common.loading": "लोड हो रहा है...",
 	"common.retry": "पुनः प्रयास करें",

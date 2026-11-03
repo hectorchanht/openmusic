@@ -18,6 +18,7 @@ const zhHant: Dict = {
 
 	// --- common ---
 	"common.back": "返回",
+	"common.opensNewTab": "在新分頁中開啟",
 	"common.done": "完成",
 	"common.loading": "載入中…",
 	"common.retry": "重試",

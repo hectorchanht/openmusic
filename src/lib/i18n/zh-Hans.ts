@@ -18,6 +18,7 @@ const zhHans: Dict = {
 
 	// --- common ---
 	"common.back": "返回",
+	"common.opensNewTab": "在新标签页中打开",
 	"common.done": "完成",
 	"common.loading": "加载中…",
 	"common.retry": "重试",

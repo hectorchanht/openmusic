@@ -15,6 +15,7 @@ const ar: Dict = {
 	"offline.body": "يتطلب هذا اتصالاً. لا تزال أغانيك المُنزّلة تعمل.",
 	"offline.goToLibrary": "الذهاب إلى المكتبة",
 	"common.back": "العودة",
+	"common.opensNewTab": "يفتح في علامة تبويب جديدة",
 	"common.done": "تم",
 	"common.loading": "جاري التحميل…",
 	"common.retry": "أعد المحاولة",

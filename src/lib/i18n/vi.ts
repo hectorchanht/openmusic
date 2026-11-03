@@ -15,6 +15,7 @@ const vi: Dict = {
 	"offline.body": "Mục này cần kết nối. Các bài hát đã tải vẫn phát được.",
 	"offline.goToLibrary": "Đến Thư viện",
 	"common.back": "Quay lại",
+	"common.opensNewTab": "mở trong tab mới",
 	"common.done": "Xong",
 	"common.loading": "đang tải…",
 	"common.retry": "thử lại",

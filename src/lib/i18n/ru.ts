@@ -15,6 +15,7 @@ const ru: Dict = {
 	"offline.body": "Для этого нужна связь. Загруженные треки по-прежнему доступны.",
 	"offline.goToLibrary": "Перейти в библиотеку",
 	"common.back": "Назад",
+	"common.opensNewTab": "откроется в новой вкладке",
 	"common.done": "Готово",
 	"common.loading": "загрузка…",
 	"common.retry": "повторить попытку",

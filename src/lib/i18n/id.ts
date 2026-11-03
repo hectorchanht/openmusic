@@ -15,6 +15,7 @@ const id: Dict = {
 	"offline.body": "Ini memerlukan koneksi. Lagu yang sudah diunduh tetap dapat diputar.",
 	"offline.goToLibrary": "Buka Perpustakaan",
 	"common.back": "Kembali",
+	"common.opensNewTab": "terbuka di tab baru",
 	"common.done": "Selesai",
 	"common.loading": "memuat…",
 	"common.retry": "coba lagi",

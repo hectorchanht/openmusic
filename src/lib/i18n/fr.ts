@@ -15,6 +15,7 @@ const fr: Dict = {
 	"offline.body": "Ceci nécessite une connexion. Vos titres téléchargés restent lisibles.",
 	"offline.goToLibrary": "Aller à la Bibliothèque",
 	"common.back": "Retour",
+	"common.opensNewTab": "s’ouvre dans un nouvel onglet",
 	"common.done": "Terminé",
 	"common.loading": "chargement…",
 	"common.retry": "réessayer",

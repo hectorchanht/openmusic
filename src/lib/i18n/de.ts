@@ -15,6 +15,7 @@ const de: Dict = {
 	"offline.body": "Dies erfordert eine Verbindung. Deine heruntergeladenen Titel lassen sich weiterhin abspielen.",
 	"offline.goToLibrary": "Zur Bibliothek",
 	"common.back": "Zurück",
+	"common.opensNewTab": "öffnet in neuem Tab",
 	"common.done": "Fertig",
 	"common.loading": "Laden…",
 	"common.retry": "Versuchen Sie es erneut",

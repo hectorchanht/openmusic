@@ -35,6 +35,7 @@
 	import { pickLocaleName, mbArtist } from '$lib/services/musicbrainz';
 	import { mergeEnrichArtist } from '$lib/services/enrich-merge';
 	import { mapWithConcurrency } from '$lib/services/discovery';
+	import { lazyBg } from '$lib/actions/lazyBg';
 	import PageOg from '$lib/components/PageOg.svelte';
 	import type { PageData } from './$types';
 	import type { Track } from '$lib/sources/types';
@@ -523,11 +524,14 @@
 	     header below the name the user arrived with. -->
 	<h1>{names.dnArtist(displayName)}</h1>
 
-	<!-- kmn: action bar — Favourite / Play (random hit) / Share. quick-260926-vdp: round icon-only
+	<!-- quick-261103-hdn: the Favourite toggle keeps ONE accessible name and lets aria-pressed carry
+	     the state — a label that flipped to "Unfavourite" read as "Unfavourite, pressed" (a double
+	     negative). The visual title tooltip still names the next action.
+	     kmn: action bar — Favourite / Play (random hit) / Share. quick-260926-vdp: round icon-only
 	     buttons in the album-page action-bar visual language (34px circles, a 56px primary Play);
 	     the labels live in aria-label + title. -->
 	<div class="actions">
-		<button class="act" class:on={favArtist} aria-pressed={favArtist} aria-label={favArtist ? t('artist.unfavorite') : t('artist.favorite')} title={favArtist ? t('artist.unfavorite') : t('artist.favorite')} onclick={toggleFavourite} use:tapBounce>
+		<button class="act" class:on={favArtist} aria-pressed={favArtist} aria-label={t('artist.favorite')} title={favArtist ? t('artist.unfavorite') : t('artist.favorite')} onclick={toggleFavourite} use:tapBounce>
 			<Heart size={20} fill={favArtist ? 'currentColor' : 'none'} />
 		</button>
 		<button class="act play" aria-label={t('artist.playArtist')} title={t('artist.playArtist')} disabled={loading || !rankedSongs.length} onclick={playArtist} use:tapBounce>
@@ -554,7 +558,8 @@
 		</section>
 	{:else if enrich?.bio && enrich?.bioUrl && names.dnBio(enrich.bio) && names.dnBio(enrich.bio).length}
 		<section class="bio">
-			<h2><a class="" href={enrich.bioUrl} target="_blank" rel="noopener noreferrer">{t('lastfm.about')}<ChevronRight size={18} class="dir-flip" /></a></h2>
+			<h2><!-- quick-261103-hdn: target=_blank is announced, not a surprise (WCAG 3.2.5 advisory). -->
+				<a class="" href={enrich.bioUrl} target="_blank" rel="noopener noreferrer" aria-label={`${t('lastfm.about')} (${t('common.opensNewTab')})`}>{t('lastfm.about')}<ChevronRight size={18} class="dir-flip" /></a></h2>
 			<p>{names.dnBio(enrich.bio)}</p>
 		</section>
 	{/if}
@@ -598,9 +603,10 @@
 		</h2>
 		<div class="albumrow" use:dragScroll>
 			{#each shelfAlbums as al (al.mbid ?? al.id ?? al.name)}
-				<!-- quick-260926-hze: album title + artist follow the script lock -->
+				<!-- quick-260926-hze: album title + artist follow the script lock.
+				     quick-261103-hdn: use:lazyBg defers the cover URL until the tile nears view. -->
 				<button class="album" onclick={() => goto(names.lockUrl(albumHref(al, name)))} use:tapBounce>
-					<span class="al-cover" style:background-image={al.image ? `url(${al.image}), ${fallbackCoverSeed(al.name)}` : fallbackCoverSeed(al.name)}></span>
+					<span class="al-cover" use:lazyBg={{ image: al.image ? `url(${al.image}), ${fallbackCoverSeed(al.name)}` : fallbackCoverSeed(al.name), fallback: fallbackCoverSeed(al.name) }}></span>
 					<span class="al-name" use:marquee><span class="marquee-inner">{names.dnTitle(al.name)}</span></span>
 					<span class="al-count" use:marquee><span class="marquee-inner">
 						{#if typeLabelKey(al.type)}{t(typeLabelKey(al.type) as TranslationKey)}{:else}{t('artist.albumLabel')}{/if}{#if releaseYear(al.releaseDate)}{' · ' + releaseYear(al.releaseDate)}{/if}
@@ -682,8 +688,9 @@
 		<div class="albumrow" use:dragScroll>
 			{#each related as a (a.name)}
 				<button class="album" onclick={() => goto(names.artistHref(a.name))} use:tapBounce>
-					<!-- quick-261102-w2q: two layers like the album tiles — a dead avatar URL shows the gradient. -->
-					<span class="al-cover round" style:background-image={a.image ? `url(${a.image}), ${fallbackCoverSeed(a.name)}` : fallbackCoverSeed(a.name)}></span>
+					<!-- quick-261102-w2q: two layers like the album tiles — a dead avatar URL shows the gradient.
+				     quick-261103-hdn: use:lazyBg defers the URL until the tile nears view. -->
+					<span class="al-cover round" use:lazyBg={{ image: a.image ? `url(${a.image}), ${fallbackCoverSeed(a.name)}` : fallbackCoverSeed(a.name), fallback: fallbackCoverSeed(a.name) }}></span>
 					<span class="al-name center" use:marquee><span class="marquee-inner">{names.dnArtist(a.name)}</span></span>
 				</button>
 			{/each}
@@ -726,6 +733,9 @@
 	   through instead of a blank tile. No probe request needed to know whether art exists. */
 	/* quick-260831-qkx: the Albums heading is the link to the full discography. */
 	.albums-head a { display: flex; align-items: center; justify-content: start; width: fit-content; }
+	/* quick-261103-hdn: the heading links were ~26px tall; padding grows the hit area to 44px and the
+	   equal negative margin keeps the heading where it was. */
+	.albums-head a, .bio h2 a { padding-block: 9px; margin-block: -9px; }
 	.albumrow { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 4px; }
 	/* min-width:0 + max-width:130px lock the tile width even when a long artist/album name's
 	   intrinsic content-width would otherwise stretch it. flex-basis alone is a hint — the
@@ -735,7 +745,7 @@
 	   detects the overflow and bounce-scrolls the text (instead of a static ellipsis). Same
 	   pattern as home .album. */
 	.album { flex: 0 0 130px; min-width: 0; max-width: 130px; background: none; border: none; padding: 0; cursor: pointer; text-align: start; display: flex; flex-direction: column; gap: 4px; }
-	.al-cover { width: 130px; height: 130px; border-radius: 10px; background-size: cover; background-position: center; }
+	.al-cover { width: 130px; height: 130px; border-radius: 10px; /* rounded.tile */ background-size: cover; background-position: center; }
 	.al-cover.round { border-radius: 50%; }
 	.al-name { font-size: calc(0.75rem * var(--fs-title, 1)); font-weight: 600; color: var(--color-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 	.al-name.center { text-align: center; }

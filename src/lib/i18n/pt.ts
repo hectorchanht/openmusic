@@ -15,6 +15,7 @@ const pt: Dict = {
 	"offline.body": "Isto precisa de conexão. Suas músicas baixadas continuam tocando.",
 	"offline.goToLibrary": "Ir para a Biblioteca",
 	"common.back": "Voltar",
+	"common.opensNewTab": "abre numa nova aba",
 	"common.done": "Concluir",
 	"common.loading": "carregando…",
 	"common.retry": "tente novamente",

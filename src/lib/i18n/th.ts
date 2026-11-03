@@ -15,6 +15,7 @@ const th: Dict = {
 	"offline.body": "สิ่งนี้ต้องใช้การเชื่อมต่อ เพลงที่ดาวน์โหลดไว้ยังเล่นได้",
 	"offline.goToLibrary": "ไปที่ห้องสมุด",
 	"common.back": "กลับ",
+	"common.opensNewTab": "เปิดในแท็บใหม่",
 	"common.done": "เสร็จ",
 	"common.loading": "กำลังโหลด...",
 	"common.retry": "ลองอีกครั้ง",

@@ -34,9 +34,24 @@ typography:
     fontSize: "0.9rem"
     fontWeight: 400
     lineHeight: 1.5
+  body-lg:
+    fontFamily: "Inter, system-ui, -apple-system, sans-serif"
+    fontSize: "0.9375rem"
+    fontWeight: 400
+    lineHeight: 1.4
+  body-sm:
+    fontFamily: "Inter, system-ui, -apple-system, sans-serif"
+    fontSize: "0.8125rem"
+    fontWeight: 400
+    lineHeight: 1.5
   label:
     fontFamily: "Inter, system-ui, -apple-system, sans-serif"
     fontSize: "0.75rem"
+    fontWeight: 400
+    lineHeight: 1.3
+  caption:
+    fontFamily: "Inter, system-ui, -apple-system, sans-serif"
+    fontSize: "0.6875rem"
     fontWeight: 400
     lineHeight: 1.3
   micro:
@@ -46,6 +61,7 @@ typography:
 rounded:
   sm: "6px"
   row: "8px"
+  tile: "10px"
   md: "12px"
   sheet: "16px"
   lg: "18px"
@@ -181,7 +197,10 @@ Source colours (`--src-netease` #c20c0c, `--src-qq` #1db954, `--src-kuwo` #ffcb1
 - **Headline** (700, 1.4rem × `--fs-title`): page titles in `PageHeader` and the search page.
 - **Title** (600, 0.875rem × `--fs-title`, 1.3): list-row song titles. The Nowbar title is the same role at 700 and 0.8125rem.
 - **Body** (400, 0.9rem, 1.5): modal and confirm copy, setting descriptions.
+- **Body Large** (400, 0.9375rem): the search input, empty and offline state titles.
+- **Body Small** (400, 0.8125rem, 1.5): secondary copy, text pills and CTAs, bios, hints. The most used size in the app after Title.
 - **Label** (400, 0.75rem × `--fs-artist`, 1.3): artist sub-lines, chips, tooltips.
+- **Caption** (400, 0.6875rem × `--fs-artist` where it is an artist line): counts, album sub-labels, small metadata.
 - **Micro** (400, 0.625rem): tabbar labels under icons.
 
 ### Named Rules
@@ -213,7 +232,7 @@ The Nowbar uses a `blur(14px)` backdrop filter, and modals sit on a `rgba(0,0,0,
 
 ## Shapes
 
-There are two shape families. **Things you press are round**: pill inputs, pill chips, circular play buttons, circular icon buttons (`9999px`), and round artist avatars. **Things you read are gently squared**: song covers (6px in rows, 8px in the Nowbar), rows (8px), setting cards and sheet buttons (12px), modals (16px). Album and song art is never circular; only artists are.
+There are two shape families. **Things you press are round**: pill inputs, pill chips, circular play buttons, circular icon buttons (`9999px`), and round artist avatars. **Things you read are gently squared**: song covers (6px in rows, 8px in the Nowbar), rows (8px), shelf tiles and album covers (10px), setting cards and sheet buttons (12px), modals (16px). Album and song art is never circular; only artists are.
 
 ### Named Rules
 **The Round-Means-Press Rule.** If a shape is fully round, it can be tapped. Readable content never uses a pill or a circle, except artist avatars, which are round to tell people apart from records.
