@@ -1706,7 +1706,13 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 	   list-row footprint with an 18px glyph and a muted colour, none of which match this row. The
 	   override lives HERE (scoped under .t-dl, :global to cross the child's style scope) rather than
 	   in DownloadControl.svelte, because five list-row call sites depend on its current look. */
-	.t-dl { display: grid; place-items: center; padding: 0 6px; }
+	/* quick-261103-npcenter: NO horizontal padding and the same 44px box as a `.t` button. The
+	   transport is space-between, so the play button centres only when the two side pairs are
+	   equal width: heart+prev = 44+44, next+download must be 44+44 too. The old `padding: 0 6px`
+	   made this slot 56px, dragging play 6px left of the centred grip below it (Hector's
+	   screenshot 2026-11-03; the same asymmetry c366f48 fixed in 2026-10 and the s5t hit-area
+	   pass reintroduced). */
+	.t-dl { display: grid; place-items: center; min-width: 44px; min-height: 44px; }
 	.t-dl :global(.dc) { width: auto; height: auto; min-width: 44px; min-height: 44px; color: var(--color-text); opacity: 0.85; }
 	.t-dl :global(.dc svg) { width: 20px; height: 20px; }
 	.t-dl :global(button.dc:hover) { background: none; color: var(--color-text); }
