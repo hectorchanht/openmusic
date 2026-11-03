@@ -238,6 +238,17 @@
 	// Keyboard parity for the tappable lyric line (Enter/Space) — mirrors the cover's tapCoverKey
 	// and the grip's gripKey idiom, satisfying the a11y click-needs-keydown rule.
 	function seekToLineKey(e: KeyboardEvent, line: LyricLine) {
+		// quick-261102-t5k: Up/Down walk the lines (the group is ONE tab stop now, see `focusIdx`).
+		if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+			const ps = [...(lyricsEl?.querySelectorAll<HTMLElement>('p[data-i]') ?? [])];
+			const at = ps.indexOf(e.currentTarget as HTMLElement);
+			const to = ps[at + (e.key === 'ArrowDown' ? 1 : -1)];
+			if (to) {
+				e.preventDefault();
+				to.focus();
+			}
+			return;
+		}
 		if (e.key !== 'Enter' && e.key !== ' ') return;
 		e.preventDefault();
 		seekToLine(line);
@@ -470,6 +481,11 @@
 	// repaints in place. Positionally aligned, so `showTr`'s length gate and the `[i]` indexing in
 	// the template are unchanged.
 	const trLines = $derived(lockLyricLines(translated));
+	// quick-261102-t5k: every line was its own tab stop, so Tab had to cross the whole lyric to leave
+	// the pane. Roving tabindex: only the active line (or the first, before the song starts) is
+	// tabbable; Up/Down in seekToLineKey reach the rest. A line hidden by lyricsHideParenLines has no
+	// <p>, which only means no line is tabbable until the next visible one goes active.
+	const focusIdx = $derived(activeLine >= 0 ? activeLine : 0);
 </script>
 
 {#if lines.length}
@@ -513,7 +529,7 @@
 				<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 				<!-- svelte-ignore a11y_no_noninteractive_element_to_interactive_role -->
 				<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-				<p data-i={i} class:active={l.time === activeTime && activeTime >= 0} class:paren={l.fromParen} onclick={() => seekToLine(l)} onkeydown={(e) => seekToLineKey(e, l)} role="button" tabindex="0">
+				<p data-i={i} class:active={l.time === activeTime && activeTime >= 0} class:paren={l.fromParen} onclick={() => seekToLine(l)} onkeydown={(e) => seekToLineKey(e, l)} role="button" tabindex={i === focusIdx ? 0 : -1}>
 					{#if showTr && settings.translateMode === 'replace' && !hideTrForLine}
 						{trLines[i]}
 					{:else}
@@ -566,5 +582,5 @@
 	.sync .slider { flex-basis: 100%; margin: 2px 0 0; accent-color: var(--color-primary); touch-action: none; }
 	/* quick-260926-mzn: "Synced by listeners", inline beside the readout it qualifies. */
 	.sync .shared { font-size: 0.625rem; opacity: 0.7; }
-	.sync .close { min-width: 24px; min-height: 24px; padding: 2px 4px; border: none; display: inline-flex; align-items: center; }
+	.sync .close { min-width: 44px; min-height: 24px; /* quick-261102-t5k: 24 -> 44 wide, like its siblings */ padding: 2px 4px; border: none; display: inline-flex; align-items: center; }
 </style>
