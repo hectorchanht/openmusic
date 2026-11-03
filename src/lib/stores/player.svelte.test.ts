@@ -152,6 +152,7 @@ import { localEnrichment } from '$lib/services/local-tags';
 import type { LocalEnrichment } from '$lib/services/local-tags';
 import { deviceUid } from '$lib/services/device-track';
 import { tryFallback } from '$lib/services/fallback';
+import { apiPipelineBusyCount, __resetGovernor } from '$lib/services/api-base';
 import { blobStore } from '$lib/services/blob-store';
 import { downloadTrack } from '$lib/services/download-track';
 import { buildSimilarQueue } from '$lib/services/similar';
@@ -311,8 +312,6 @@ const Player_FAILURE_CAP = 5;
 const Player_SYSTEMIC_SKIP_CAP = 5;
 /** Mirror of Player.STALL_TIMEOUT_MS (private static = 15000) for the stall-watchdog tests. */
 const Player_STALL_TIMEOUT_MS = 15000;
-/** Mirror of Player.PREFETCH_PLAYBACK_DELAY_MS (private static = 5000) for the delayed-trigger test. */
-const Player_PREFETCH_PLAYBACK_DELAY_MS = 5000;
 /**
  * Mirror of Player.STRIKE_CAP (private static = 3 after 31-D-16 raised it from 2). NOTHING in the
  * compiler checks that this mirror agrees with the source — before 31-02 every strike suite hardcoded
@@ -1740,10 +1739,13 @@ describe('player.prefetchNext — pre-resolve next track for gapless-ish play', 
 		expect(player.queue[1].audioUrl).toBeNull();
 	});
 
-	// RELAX-PREFETCH: the delayed trigger — prefetch is NOT fired on play() entry; it arms off the
-	// timeupdate listener once the current src has actually played for ~PREFETCH_PLAYBACK_DELAY_MS,
-	// one-shot per loaded src. Drive the REAL timeupdate gate via the attached fake audio element.
-	it('does NOT prefetch before ~5s of playback; arms once at the threshold; does not re-fire for the same src', async () => {
+	// IDLE-PREFETCH (quick-261102-idle1, supersedes the RELAX-PREFETCH ~5s elapsed gate —
+	// user requirement 2026-11-02): the trigger is /api PIPELINE IDLENESS, not playback
+	// elapsed time. While a governed request is in flight the arm waits; the moment the
+	// pipeline drains, exactly one walk fires for the src — and never re-fires. Drives the
+	// REAL governor via importActual (this file's api-base mock replaces only apiFetch)
+	// with a hung global fetch standing in for a user search burst.
+	it('prefetch waits while the /api pipeline is busy, fires once when it drains, never re-fires for the same src', async () => {
 		const cur = mk('netease', '0', 'A', 'Now');
 		const next = stub('qq', '1', 'B', 'Next');
 		player.queue = [cur, next];
@@ -1752,27 +1754,46 @@ describe('player.prefetchNext — pre-resolve next track for gapless-ish play', 
 
 		const el = makeFakeAudio();
 		player.attach(el as unknown as HTMLAudioElement);
-		// A fresh src loads → re-arm the one-shot gate (mirrors play()'s initial-load arming point).
+		// A fresh src loads → re-arm the one-shot (mirrors play()'s initial-load arming point).
 		(player as unknown as { prefetchArmedForSrc: boolean }).prefetchArmedForSrc = false;
 
-		// Below the threshold: a timeupdate must NOT trigger a prefetch resolve.
-		el.currentTime = Player_PREFETCH_PLAYBACK_DELAY_MS / 1000 - 1; // 4s
+		// Occupy the REAL governor with one hung request (a user-initiated search's shape).
+		const { apiFetch: realApiFetch } = await vi.importActual<typeof import('$lib/services/api-base')>(
+			'$lib/services/api-base'
+		);
+		let releaseFetch!: (r: Response) => void;
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(
+				() =>
+					new Promise<Response>((res) => {
+						releaseFetch = res;
+					})
+			)
+		);
+		const hanging = realApiFetch('/api/qq/search?key=busy');
+		await flush();
+		expect(apiPipelineBusyCount()).toBe(1);
+
+		// The backstop arm lands while the pipeline is busy → NO walk yet.
 		el.fire('timeupdate');
 		await flush();
 		expect(mockEnsure).not.toHaveBeenCalled();
 
-		// Cross the threshold: exactly one prefetch resolve arms.
-		el.currentTime = Player_PREFETCH_PLAYBACK_DELAY_MS / 1000; // 5s
-		el.fire('timeupdate');
+		// Drain the pipeline → the idle arm fires exactly one walk for this src.
+		releaseFetch(new Response('{}', { status: 200 }));
+		await hanging;
 		await flush();
 		expect(mockEnsure).toHaveBeenCalledTimes(1);
 		expect(mockEnsure).toHaveBeenCalledWith(next, expect.any(AbortSignal));
 
-		// A LATER timeupdate past the threshold (same src) must NOT re-fire — one-shot per src.
-		el.currentTime = Player_PREFETCH_PLAYBACK_DELAY_MS / 1000 + 10; // 15s
+		// A later timeupdate for the SAME src must NOT re-fire — one-shot per src.
 		el.fire('timeupdate');
 		await flush();
 		expect(mockEnsure).toHaveBeenCalledTimes(1);
+
+		vi.unstubAllGlobals();
+		__resetGovernor();
 	});
 });
 
@@ -2181,7 +2202,7 @@ describe('player.prefetchNext — never-stop (timeout retry + walk-exhaustion gr
 // on every src-set was REMOVED — prefetch now runs ONLY via the timeupdate playback-elapsed gate (~5s
 // into REAL playback). A track that never starts (the failure case) therefore never triggers the
 // speculative probe/resolve walk that fed the api storm.
-describe('player prefetch — timeupdate-gated single walk (eager on-every-src fire removed)', () => {
+describe('player prefetch — idle-armed single walk (quick-261102-idle1)', () => {
 	let el: ReturnType<typeof makeFakeAudio>;
 	// Spy on the private prefetchNext so we can count walks regardless of what they resolve.
 	let prefetchSpy: ReturnType<typeof vi.spyOn>;
@@ -2220,52 +2241,179 @@ describe('player prefetch — timeupdate-gated single walk (eager on-every-src f
 	const armedForSrc = () =>
 		(player as unknown as { prefetchArmedForSrc: boolean }).prefetchArmedForSrc;
 
-	it('play() does NOT prefetch at src-set — the eager on-every-src walk was removed (failure case never probes)', async () => {
+	// quick-261102-idle1 (user requirement 2026-11-02) SUPERSEDES this describe's old contract
+	// ("no prefetch at src-set; one walk only after ~5s of playback" — the RELAX-PREFETCH gate).
+	// The new rule: play() arms at src-set and the walk fires as soon as the /api pipeline is
+	// idle — in this harness the pipeline is always idle (apiFetch is mocked at the catalog
+	// seam), so the walk lands within a flush of play(), with NO timeupdate and NO 5s wait.
+	it('play() arms at src-set — on an idle pipeline the walk fires immediately (no elapsed-playback wait)', async () => {
 		const cur = mk('netease', '0', 'A', 'Now');
 		const next = stub('qq', '1', 'B', 'Next');
 		player.queue = [cur, next];
-		// A non-fresh play (no regenerate/weave) isolates the src-set path. play() resolves `cur` itself.
-		mockEnsure.mockImplementation(async (t: Track) => {
-			if (t.uid === next.uid) return { ...next, detailsLoaded: true, audioUrl: 'https://cdn/next.mp3' };
-			return { ...t, detailsLoaded: true };
-		});
-
-		// currentTime stays 0 — NO timeupdate fired. With the eager fire removed, prefetch must NOT run:
-		// a track that never crosses the ~5s playback gate (incl. one that fails to start) does no walk.
-		await player.play(cur, { fresh: false });
-		await flush();
-
-		expect(prefetchSpy).not.toHaveBeenCalled();
-		expect(armedForSrc()).toBe(false); // still disarmed — the timeupdate gate has not fired
-		expect(el.currentTime).toBe(0);
-	});
-
-	it('the timeupdate gate fires exactly ONE walk once the src crosses the ~5s elapsed threshold', async () => {
-		const cur = mk('netease', '0', 'A', 'Now');
-		const next = stub('qq', '1', 'B', 'Next');
-		player.queue = [cur, next];
-		mockEnsure.mockImplementation(async (t: Track) => {
-			if (t.uid === next.uid) return { ...next, detailsLoaded: true, audioUrl: 'https://cdn/next.mp3' };
-			return { ...t, detailsLoaded: true };
-		});
+		mockEnsure.mockImplementation(async (t: Track) => ({
+			...t,
+			detailsLoaded: true,
+			audioUrl: `https://cdn/${t.songid}.mp3`
+		}));
 
 		await player.play(cur, { fresh: false });
 		await flush();
-		expect(prefetchSpy).not.toHaveBeenCalled(); // nothing eager
 
-		// Cross the 5s gate and fire timeupdate → the single prefetch walk arms + runs.
-		el.currentTime = Player_PREFETCH_PLAYBACK_DELAY_MS / 1000 + 1; // 6s
-		el.fire('timeupdate');
-		await flush();
 		expect(prefetchSpy).toHaveBeenCalledTimes(1);
 		expect(armedForSrc()).toBe(true);
-		expect(player.queue[1].audioUrl).toBe('https://cdn/next.mp3'); // immediate-next pre-resolved
+		expect(player.queue[1].audioUrl).toBe('https://cdn/1.mp3'); // immediate-next pre-resolved
+		expect(el.currentTime).toBe(0); // …with zero playback elapsed — idleness, not time, is the gate
+	});
 
-		// A second timeupdate for the SAME src is a no-op (prefetchArmedForSrc dedupe) — one walk per src.
+	it('one walk per src — repeated timeupdates after the arm never re-fire it', async () => {
+		const cur = mk('netease', '0', 'A', 'Now');
+		const next = stub('qq', '1', 'B', 'Next');
+		player.queue = [cur, next];
+		mockEnsure.mockImplementation(async (t: Track) => ({
+			...t,
+			detailsLoaded: true,
+			audioUrl: `https://cdn/${t.songid}.mp3`
+		}));
+
+		await player.play(cur, { fresh: false });
+		await flush();
+		expect(prefetchSpy).toHaveBeenCalledTimes(1);
+
+		// Further timeupdates for the SAME src are no-ops (the arm's one-shot is spent).
 		el.currentTime += 1;
 		el.fire('timeupdate');
 		await flush();
+		el.fire('timeupdate');
+		await flush();
 		expect(prefetchSpy).toHaveBeenCalledTimes(1);
+	});
+});
+
+// quick-261102-idle1 (Bug 3, user requirement 2026-11-02): the OUTCOMES the idle scheduling
+// exists for — a Next tap after a completed prefetch starts without re-resolving; a queue
+// edit that changes the next song discards the stale warm and prefetches the NEW next; a
+// downloaded next triggers no network prefetch at all; repeat-one arms nothing.
+describe('player prefetch — idle scheduling outcomes (quick-261102-idle1)', () => {
+	let el: ReturnType<typeof makeFakeAudio>;
+	let prefetchSpy: ReturnType<typeof vi.spyOn>;
+
+	beforeEach(() => {
+		(player.play as unknown as { mockRestore(): void }).mockRestore?.();
+		mockEnsure.mockReset();
+		player.current = null;
+		player.queue = [];
+		player.error = null;
+		player.loading = false;
+		player.repeatMode = 'off';
+		vi.stubGlobal('navigator', {
+			onLine: true,
+			mediaSession: { metadata: null, playbackState: 'none', setPositionState() {}, setActionHandler() {} }
+		});
+		vi.stubGlobal('MediaMetadata', FakeMediaMetadata);
+		vi.spyOn(library, 'isDownloaded').mockReturnValue(false);
+		vi.spyOn(library, 'adoptCover').mockImplementation(() => {});
+		el = makeFakeAudio();
+		player.attach(el as unknown as HTMLAudioElement);
+		prefetchSpy = vi.spyOn(
+			player as unknown as { prefetchNext(): Promise<void> },
+			'prefetchNext'
+		);
+		__resetGovernor();
+	});
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
+		player.repeatMode = 'off';
+	});
+
+	const ensureFor = (uid: string) =>
+		mockEnsure.mock.calls.filter((c) => (c[0] as Track).uid === uid).length;
+	const resolveAll = async (t: Track) => ({
+		...t,
+		detailsLoaded: true,
+		audioUrl: `https://cdn/${t.songid}.mp3`
+	});
+
+	it('a Next tap after a completed prefetch does NOT re-resolve the prefetched song', async () => {
+		const a = mk('netease', 'a', 'A', 'First');
+		const b = stub('qq', 'b', 'B', 'Second');
+		const c = stub('kuwo', 'c', 'C', 'Third');
+		player.queue = [a, b, c];
+		mockEnsure.mockImplementation(resolveAll);
+
+		await player.play(a, { fresh: false });
+		await flush();
+		expect(ensureFor(b.uid)).toBe(1); // the idle walk pre-resolved B
+		expect(player.queue[1].audioUrl).toBe('https://cdn/b.mp3');
+
+		player.next();
+		await flush();
+		expect(player.current?.uid).toBe(b.uid);
+		// play() hands ensureTrackDetails the PREFETCHED queue entry — already detailsLoaded
+		// with its URL — so the real catalog guard short-circuits it with zero network (the
+		// mock counts calls, so assert on the ARGUMENT: a cold re-resolve would receive the
+		// raw URL-less stub instead).
+		const bCalls = mockEnsure.mock.calls.filter((call) => (call[0] as Track).uid === b.uid);
+		expect(bCalls.length).toBe(2); // the walk's resolve + play()'s guarded hand-off
+		expect((bCalls[1][0] as Track).detailsLoaded).toBe(true);
+		expect((bCalls[1][0] as Track).audioUrl).toBe('https://cdn/b.mp3');
+	});
+
+	it('reorder changes the next song → the stale prefetch is discarded and the NEW next is prefetched', async () => {
+		const a = mk('netease', 'a', 'A', 'First');
+		const b = stub('qq', 'b', 'B', 'Second');
+		const c = stub('kuwo', 'c', 'C', 'Third');
+		const d = stub('joox', 'd', 'D', 'Fourth');
+		player.queue = [a, b, c, d];
+		mockEnsure.mockImplementation(resolveAll);
+
+		await player.play(a, { fresh: false });
+		await flush();
+		expect(ensureFor(b.uid)).toBe(1); // B was the prefetched next
+		el.fire('timeupdate'); // the current src has actually played (re-arm precondition)
+
+		// Drag D (index 3) to right after current (index 1) — D becomes the next song.
+		player.reorderQueue(3, 1);
+		await flush();
+
+		expect(player.queue[1].uid).toBe(d.uid);
+		expect(ensureFor(d.uid)).toBe(1); // the NEW next got prefetched
+		expect(player.queue[1].audioUrl).toBe('https://cdn/d.mp3');
+		expect(ensureFor(b.uid)).toBe(1); // B was not walked again — its stale warm is simply unused
+		expect(prefetchSpy).toHaveBeenCalledTimes(2); // one walk per next-song version
+	});
+
+	it('a DOWNLOADED next song triggers no network prefetch at all', async () => {
+		const a = mk('netease', 'a', 'A', 'First');
+		const next = stub('qq', 'b', 'B', 'Second');
+		player.queue = [a, next];
+		vi.spyOn(library, 'downloadUidFor').mockImplementation((t: Track) =>
+			t.uid === next.uid ? next.uid : null
+		);
+		mockEnsure.mockImplementation(resolveAll);
+
+		await player.play(a, { fresh: false });
+		await flush();
+
+		expect(prefetchSpy).toHaveBeenCalledTimes(1); // the walk ran…
+		expect(ensureFor(next.uid)).toBe(0); // …but never resolved the downloaded next
+		expect(player.queue[1].audioUrl).toBeNull(); // queue entry untouched — local blob serves it
+	});
+
+	it('repeat-one arms nothing — the next song IS the current song', async () => {
+		const a = mk('netease', 'a', 'A', 'First');
+		const b = stub('qq', 'b', 'B', 'Second');
+		player.queue = [a, b];
+		player.repeatMode = 'one';
+		mockEnsure.mockImplementation(resolveAll);
+
+		await player.play(a, { fresh: false });
+		await flush();
+		el.fire('timeupdate'); // the backstop must also refuse under repeat-one
+		await flush();
+
+		expect(prefetchSpy).not.toHaveBeenCalled();
+		expect(ensureFor(b.uid)).toBe(0);
 	});
 });
 

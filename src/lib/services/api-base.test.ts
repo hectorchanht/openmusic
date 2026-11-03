@@ -5,6 +5,8 @@ import {
 	MAX_CONCURRENT_REQUESTS,
 	CIRCUIT_FAILURE_THRESHOLD,
 	CIRCUIT_COOLDOWN_MS,
+	apiPipelineBusyCount,
+	onApiPipelineIdle,
 	__resetGovernor
 } from './api-base';
 import { netease } from '../sources/netease';
@@ -435,5 +437,71 @@ describe('apiFetch — priority lane (quick-261020-authprio)', () => {
 		expect(a.status).toBe(200);
 		expect(b.status).toBe(200);
 		expect(ok).toHaveBeenCalledTimes(2);
+	});
+});
+
+// quick-261102-idle1: the pipeline-idle seam the player's next-song prefetch schedules on —
+// "buffer ASAP when no other fetching is stalling". Busy = slots held + FIFO waiters; the
+// one-shot callback fires only when the count fully drains (or async-immediately when the
+// pipeline is already idle), and an unsubscribe cancels a pending callback.
+describe('apiFetch — pipeline idle seam (quick-261102-idle1)', () => {
+	const tick = () => new Promise((r) => setTimeout(r, 0));
+
+	it('busy count tracks in-flight governed requests; the idle callback fires once on drain', async () => {
+		vi.stubEnv('VITE_API_BASE', '');
+		let resolveFetch!: (r: Response) => void;
+		const spy = vi.fn(
+			(_input: RequestInfo | URL, _init?: RequestInit) =>
+				new Promise<Response>((res) => {
+					resolveFetch = res;
+				})
+		);
+		vi.stubGlobal('fetch', spy);
+
+		const p = apiFetch('/api/qq/search?key=x');
+		await tick();
+		expect(apiPipelineBusyCount()).toBe(1);
+
+		const idle = vi.fn();
+		onApiPipelineIdle(idle);
+		await tick();
+		expect(idle).not.toHaveBeenCalled(); // still busy — must wait for the drain
+
+		resolveFetch(new Response('{}', { status: 200 }));
+		await p;
+		await tick();
+		expect(apiPipelineBusyCount()).toBe(0);
+		expect(idle).toHaveBeenCalledTimes(1);
+	});
+
+	it('already-idle pipeline fires the callback asynchronously (never synchronously)', async () => {
+		const idle = vi.fn();
+		onApiPipelineIdle(idle);
+		expect(idle).not.toHaveBeenCalled(); // not sync — callers never re-enter mid-stack
+		await tick();
+		expect(idle).toHaveBeenCalledTimes(1);
+	});
+
+	it('an unsubscribed callback never fires', async () => {
+		vi.stubEnv('VITE_API_BASE', '');
+		let resolveFetch!: (r: Response) => void;
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(
+				(_input: RequestInfo | URL, _init?: RequestInit) =>
+					new Promise<Response>((res) => {
+						resolveFetch = res;
+					})
+			)
+		);
+		const p = apiFetch('/api/qq/search?key=y');
+		await tick();
+		const idle = vi.fn();
+		const off = onApiPipelineIdle(idle);
+		off();
+		resolveFetch(new Response('{}', { status: 200 }));
+		await p;
+		await tick();
+		expect(idle).not.toHaveBeenCalled();
 	});
 });

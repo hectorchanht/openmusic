@@ -28,6 +28,7 @@ import { watchAudioRouteLoss } from '$lib/services/audio-route';
 import type { AudioRouteWatcher } from '$lib/services/audio-route';
 import { preconnectForSource, noteAudioOrigin } from '$lib/services/preconnect';
 import { tryFallback } from '$lib/services/fallback';
+import { onApiPipelineIdle } from '$lib/services/api-base';
 import { reportDeadUrl } from '$lib/services/resolve-cache-client';
 import { reportDeadDirectUrl } from '$lib/services/direct-url-cache';
 import { buildDiversePicks } from '$lib/services/picks';
@@ -307,13 +308,15 @@ class Player {
 	 *  (error → reresolve → playing) while cutting a true synchronous loop off after a couple of turns,
 	 *  long before it can burn measurable CPU. */
 	private static RAPID_ERROR_CAP = 3;
-	/** RELAX-PREFETCH: how long the current track must have ACTUALLY been playing before the
-	 *  single-song lookahead prefetch arms. Prefetch is no longer fired on play() entry — it is
-	 *  hung off the timeupdate listener and fires once the current src crosses this elapsed-playback
-	 *  threshold. This keeps proxy resolves low-rate so endless playback never reads as a bot burst:
-	 *  a user who skips before ~5s of playback never triggers a prefetch (the next track resolves
-	 *  on-demand inside the next play()). */
-	private static PREFETCH_PLAYBACK_DELAY_MS = 5000;
+	/** IDLE-PREFETCH (quick-261102-idle1, user requirement 2026-11-02 — supersedes the
+	 *  RELAX-PREFETCH ~5s elapsed-playback gate): the single-song lookahead prefetch arms at
+	 *  play()'s src-set and fires the moment the governed /api pipeline (api-base governor:
+	 *  searches, resolves, covers in flight) is IDLE — "buffer the next song ASAP when no
+	 *  other fetching is stalling". If user-initiated fetching is in flight when the arm
+	 *  lands, the walk waits for the pipeline to DRAIN (onApiPipelineIdle) instead of piling
+	 *  on; if the pipeline is already idle it fires on the next microtask, so a Next tap
+	 *  lands on a resolved + byte-prebuffered track. One-shot per loaded src
+	 *  (prefetchArmedForSrc), re-validated on queue mutations (see revalidatePrefetchArm). */
 	/** PLAY-RESILIENCE: how many queue entries the forward-resolve-and-probe walk in prefetchNext may
 	 *  advance through in a single invocation. The walk starts at the immediate-next and steps past
 	 *  any candidate that rejects, resolves without an audioUrl, or fails the silent probe, until it
@@ -325,10 +328,20 @@ class Player {
 	 *  walk, but NOT marked permanently dead — a timeout can be a transient buffer stall). A hard
 	 *  `error` event marks it dead immediately regardless of the timer. */
 	private static PROBE_TIMEOUT_MS = 1500;
-	/** One-shot guard for the delayed prefetch trigger: set false the instant a NEW src is loaded
-	 *  (in play()), flipped true the first time the timeupdate gate fires prefetchNext for that src,
-	 *  so the prefetch arms AT MOST ONCE per loaded src. Plain field — internal, never reactive. */
+	/** One-shot guard for the idle prefetch trigger: set false the instant a NEW src is loaded
+	 *  (in play(), via resetPrefetchArm), flipped true when the idle arm fires prefetchNext for
+	 *  that src, so the prefetch walks AT MOST ONCE per loaded src. Plain field — internal,
+	 *  never reactive. */
 	private prefetchArmedForSrc = false;
+	/** IDLE-PREFETCH arm generation (quick-261102-idle1): bumped by every reset/re-arm, so an
+	 *  idle callback queued for an older src (or an older "next" after a queue mutation)
+	 *  discards itself instead of firing a stale walk. Plain field. */
+	private prefetchArmGen = 0;
+	/** True while an idle arm is subscribed and waiting for the pipeline to drain. Guards the
+	 *  timeupdate backstop from re-subscribing on every tick. Plain field. */
+	private prefetchArmPending = false;
+	/** Unsubscribe for the pending onApiPipelineIdle arm (null when none is waiting). */
+	private prefetchIdleUnsub: (() => void) | null = null;
 	/**
 	 * SINGLE AUDIO.SRC AUTHORITY + RE-DRIVE BRAKE (debug-song-click-lrc-flood-noplay). All roads that
 	 * attach a new stream go through driveSrc(), which is the ONE place `audio.src` is set for playback
@@ -1579,7 +1592,7 @@ class Player {
 	// on every churn cycle (the FLAC flood that helped freeze the app). This version is BOUNDED so it
 	// gives the bg-stall protection WITHOUT the flood: prebufferedUid is claimed BEFORE the fetch and set
 	// on BOTH success AND failure → a URL is fetched AT MOST ONCE per uid, never re-fetched; single
-	// in-flight (a newer next aborts the prior); fired ONLY from the ≥5s timeupdate prefetch gate, never
+	// in-flight (a newer next aborts the prior); fired ONLY from the idle-armed prefetch walk, never
 	// on churn. Purpose: a backgrounded/locked src-swap plays LOCAL bytes with NO network byte-load that
 	// could silently hang (the bg stall). The offline-download blob path (cachedBlobUrl) is separate.
 	private prebufferedUid: string | null = null;
@@ -2712,18 +2725,14 @@ class Player {
 				return;
 			}
 			this.currentTime = el.currentTime || 0;
-			// RELAX-PREFETCH: one-shot, per-src delayed prefetch trigger. Prefetch is NOT fired on
-			// play() entry (burst trigger) — it arms here once the CURRENT src has actually been
-			// playing for ~PREFETCH_PLAYBACK_DELAY_MS. prefetchArmedForSrc is reset to false the
-			// instant a new src loads (in play()), so this fires at most once per loaded src. A user
-			// who skips before the threshold never triggers a resolve. Best-effort, never blocks.
-			if (
-				!this.prefetchArmedForSrc &&
-				this.currentTime >= Player.PREFETCH_PLAYBACK_DELAY_MS / 1000
-			) {
-				this.prefetchArmedForSrc = true;
-				void this.prefetchNext();
-			}
+			// IDLE-PREFETCH backstop (quick-261102-idle1): play()'s src-set arms the idle
+			// prefetch itself; this timeupdate hook only re-arms when no arm exists — the
+			// restore()/resume paths that never ran play()'s arming points, or a repeat-one
+			// toggle-off mid-song (the arm refuses while repeat-one is on). armPrefetchWhenIdle
+			// self-guards (armed / pending / repeat / no-current), so the per-tick call is a
+			// no-op in the common case; the walk itself fires only when the /api pipeline is
+			// idle. Best-effort, never blocks.
+			if (!this.prefetchArmedForSrc && !this.prefetchArmPending) this.armPrefetchWhenIdle();
 			this.syncPosition(el);
 			// D-13/D-14: the first timeupdate since src-set is the "we are actually playing" signal —
 			// flip the flag + disarm the stall watchdog. This is what makes a mid-track buffer-dry
@@ -3293,7 +3302,10 @@ class Player {
 		if (opts.pin !== false) this.manualUids.add(t.uid); // explicit manual add — preserved across regen
 		this.spliceAfterCurrent(t);
 		if (!this.current) this.play(t);
-		else this.persist();
+		else {
+			this.persist();
+			this.revalidatePrefetchArm(); // quick-261102-idle1: the immediate next just changed
+		}
 	}
 
 	/**
@@ -3344,7 +3356,10 @@ class Player {
 		this.manualUids.add(t.uid); // explicit manual add — preserved across regen
 		if (!this.queue.some((x) => x.uid === t.uid)) this.queue = [...this.queue, t];
 		if (!this.current) this.play(t);
-		else this.persist();
+		else {
+			this.persist();
+			this.revalidatePrefetchArm(); // quick-261102-idle1: may have created a next where none was
+		}
 	}
 
 	/**
@@ -3371,6 +3386,7 @@ class Player {
 		this.manualUids.delete(uid);
 		this.queue = this.queue.filter((t) => t.uid !== uid);
 		this.persist();
+		this.revalidatePrefetchArm(); // quick-261102-idle1: the removed row may have been the next
 		return { track, index, wasManual, wasExcluded };
 	}
 
@@ -3487,6 +3503,66 @@ class Player {
 	}
 
 	/**
+	/**
+	 * IDLE-PREFETCH arm (quick-261102-idle1): subscribe ONCE to the /api pipeline draining,
+	 * then fire the single prefetch walk for the CURRENT src's next song. Called from play()'s
+	 * src-set points (stream + download-blob) and from the timeupdate backstop (restore /
+	 * resume / repeat-toggle paths play() did not arm). No-ops when: the walk already fired
+	 * for this src, an arm is already pending, repeat-one is on (next IS the current song —
+	 * nothing to warm), or there is no current track. The callback re-validates generation +
+	 * seed uid + repeat mode at fire time, so a superseded arm (newer src, queue mutation,
+	 * repeat toggled on while waiting) discards itself. Never throws.
+	 */
+	private armPrefetchWhenIdle(): void {
+		if (this.prefetchArmedForSrc || this.prefetchArmPending) return;
+		if (this.repeatMode === 'one') return; // next = same song — nothing to do
+		const seedUid = this.current?.uid;
+		if (!seedUid) return;
+		const gen = ++this.prefetchArmGen;
+		this.prefetchArmPending = true;
+		this.prefetchIdleUnsub = onApiPipelineIdle(() => {
+			this.prefetchArmPending = false;
+			this.prefetchIdleUnsub = null;
+			if (gen !== this.prefetchArmGen) return; // superseded arm — discard
+			if (this.current?.uid !== seedUid) return; // current moved on — discard
+			if (this.prefetchArmedForSrc) return; // already walked for this src
+			if (this.repeatMode === 'one') return; // toggled on while waiting
+			this.prefetchArmedForSrc = true;
+			void this.prefetchNext();
+		});
+	}
+
+	/**
+	 * Cancel any pending idle arm and re-arm the one-shot for a NEW src. Called at play()'s
+	 * two initial-load arming points (replacing the bare prefetchArmedForSrc = false they
+	 * used to do) so an idle-wait queued for the PREVIOUS src can never fire a walk keyed
+	 * to it. Does NOT abort an in-flight walk — prefetchNext's own seedUid guard discards
+	 * its result once current has changed.
+	 */
+	private resetPrefetchArm(): void {
+		this.prefetchArmGen++;
+		this.prefetchIdleUnsub?.();
+		this.prefetchIdleUnsub = null;
+		this.prefetchArmPending = false;
+		this.prefetchArmedForSrc = false;
+	}
+
+	/**
+	 * Queue mutations that can change WHO the next song is while playback is underway
+	 * (Up-Next drag-reorder — Bug 1's reorderQueue — playNext, addToQueue, removeFromQueue):
+	 * the armed/prefetched "next" may now be wrong. Abort an in-flight walk for the old
+	 * next (its write-back is uid-keyed and its prebuffer blob is consumed only by uid
+	 * match, so a landed stale warm could never be PLAYED for the wrong song — aborting
+	 * just stops wasting the bytes), reset the arm, and re-arm against the NEW immediate
+	 * next when the current src has actually been playing.
+	 */
+	private revalidatePrefetchArm(): void {
+		this.prefetchController?.abort();
+		this.resetPrefetchArm();
+		if (this.current && this.hasPlayedSinceSrc) this.armPrefetchWhenIdle();
+	}
+
+	/**
 	 * Pre-resolve the track next() WOULD pick next, so a later next()/track-end starts
 	 * instantly (the user-felt latency on advance is the per-source proxy round-trip inside
 	 * ensureTrackDetails, NOT byte buffering). Because ensureTrackDetails is idempotent (its
@@ -3494,8 +3570,8 @@ class Player {
 	 * track back into queue[i], pre-resolving the next entry means the later play() hits a
 	 * no-op resolve = instant start.
 	 *
-	 * Best-effort, fired as `void this.prefetchNext()` from the timeupdate playback-elapsed gate
-	 * (NOT on play() entry) — mirrors ensureAhead()/regenerate(): never blocks the current play(),
+	 * Best-effort, fired as `void this.prefetchNext()` from armPrefetchWhenIdle once the /api
+	 * pipeline is idle (quick-261102-idle1) — mirrors ensureAhead()/regenerate(): never blocks the current play(),
 	 * never throws. After details resolve, it also warms the next audio URL through a muted offscreen
 	 * Audio element and preloads the cover image, so the later main-audio src swap and cover repaint
 	 * can reuse browser cache when supported.
@@ -3566,6 +3642,16 @@ class Player {
 				if (candIdx >= this.queue.length) break; // ran off the end — growth is ensureAhead's job
 				const cand = this.queue[candIdx];
 				if (this.unplayableUids.has(cand.uid)) continue; // already known-dead — walk past it
+
+				// IDLE-PREFETCH (quick-261102-idle1): a DOWNLOADED candidate needs NO network
+				// prefetch at all — play() will serve its local blob. Count it landed (it is
+				// guaranteed playable) and depth-warm the entry after it, exactly like a
+				// probe-verified land; never resolve / probe / prebuffer it over the network.
+				if (library.downloadUidFor(cand)) {
+					landed = true;
+					void this.warmAfter(cand.uid, sig, seedUid);
+					return;
+				}
 
 				// Resolve (or short-circuit an already-complete candidate) to obtain an audioUrl.
 				let resolved: Track;
@@ -3777,8 +3863,8 @@ class Player {
 	 *
 	 * BOUNDED (the f7c2580 flood fix): prebufferedUid is claimed BEFORE the await and left set on BOTH a
 	 * 200-OK AND a failure/abort, so a dead or slow URL is fetched AT MOST ONCE per uid and NEVER re-
-	 * fetched on churn; single in-flight (a newer next aborts the prior); fired only from the ≥5s
-	 * timeupdate prefetch gate (prewarmNextAssets), never on the never-stop churn. Skipped for a
+	 * fetched on churn; single in-flight (a newer next aborts the prior); fired only from the
+	 * idle-armed prefetch walk (prewarmNextAssets), never on the never-stop churn. Skipped for a
 	 * downloaded track (offline blob serves it) and where fetch/URL are absent. Raw fetch of media bytes
 	 * (NOT apiFetch — media never routes through the /api governor). Never throws, never bumps playGen.
 	 *
@@ -3852,11 +3938,12 @@ class Player {
 	}
 
 	/**
-	 * Keep Up-Next topped up on play() entry. RELAX-PREFETCH: primeNext NO LONGER fires
-	 * prefetchNext — prefetch is driven solely by the timeupdate playback-elapsed gate (~5s into
-	 * actual playback), so a track that is set but skipped before then never triggers a resolve.
-	 * The four play() call sites (offline-blob / fresh+generated / fresh+same-list / auto-advance)
-	 * stay unchanged: they still ensureAhead() so next() always has somewhere to advance to.
+	 * Keep Up-Next topped up on play() entry. IDLE-PREFETCH (quick-261102-idle1): primeNext does
+	 * NOT fire prefetchNext — the walk is armed at play()'s src-set points and fires when the
+	 * /api pipeline is idle (armPrefetchWhenIdle), so it never competes with the resolve this
+	 * very play() is doing. The four play() call sites (offline-blob / fresh+generated /
+	 * fresh+same-list / auto-advance) stay unchanged: they still ensureAhead() so next() always
+	 * has somewhere to advance to.
 	 */
 	private async primeNext() {
 		await this.ensureAhead();
@@ -4181,9 +4268,9 @@ class Player {
 				// Initial-load arming point (D-13): a NEW src for this track. Reset the played
 				// flag + arm the stall watchdog so a silent no-audio start routes into failover.
 				this.hasPlayedSinceSrc = false;
-				// RELAX-PREFETCH: a NEW src — re-arm the one-shot delayed prefetch gate so the
-				// timeupdate listener fires prefetchNext ~5s into THIS track's playback.
-				this.prefetchArmedForSrc = false;
+				// IDLE-PREFETCH: a NEW src — cancel any idle arm queued for the previous src
+				// and re-arm the one-shot for THIS src (quick-261102-idle1).
+				this.resetPrefetchArm();
 				// Next-song-current-but-paused fix: a NEW src clears any prior autoplay-retry arm.
 				this.autoplayRetryArmed = false;
 				// A NEW src cancels any pending resume timer from the prior track and clears a stale
@@ -4194,16 +4281,16 @@ class Player {
 				this.armedUid = track.uid; // debug-share-card-play-dead-replay
 				this.audio.src = this.cachedBlobUrl;
 				this.armStall();
-				// quick-260627-huo (HUO-PREFETCH): EAGER one-shot prefetch of the immediate-next at
-				// src-set — independent of the ~5s timeupdate gate — so a SHORT track or a FAST skip
-				// still has its next song pre-resolved + probe-verified before it ends (gapless,
-				// non-stop advance). Fired AFTER the src is attached so prefetchNext's indexOf(current)
-				// sees the correct current track. Arming prefetchArmedForSrc=true makes the timeupdate
-				// gate (the long-track backstop) a no-op for this src — single walk per src (T-huo-03).
-				// Best-effort + fire-and-forget (gen-guarded by prefetch's own seedUid/abort); NOT
-				// gated on the `playing` event (memory: that froze iOS — reverted).
-				this.prefetchArmedForSrc = true;
-				void this.prefetchNext();
+				// quick-260627-huo (HUO-PREFETCH), re-scheduled by quick-261102-idle1: one-shot
+				// prefetch of the immediate-next at src-set — so a SHORT track or a FAST skip still
+				// has its next song pre-resolved + probe-verified before it ends (gapless, non-stop
+				// advance) — now fired through the IDLE arm: it runs the moment the /api pipeline
+				// drains instead of piling onto in-flight fetching. Fired AFTER the src is attached
+				// so prefetchNext's indexOf(current) sees the correct current track; single walk
+				// per src (T-huo-03) via the arm's one-shot. Best-effort + fire-and-forget
+				// (gen-guarded by prefetch's own seedUid/abort); NOT gated on the `playing`
+				// event (memory: that froze iOS — reverted) — the idle pipeline is the gate.
+				this.armPrefetchWhenIdle();
 				// D-06: a rejected play() is intentionally surfaced to the stall/failure path,
 				// not swallowed — if play() rejects (iOS gesture loss) and no `play` event
 				// follows, the armed watchdog above routes into runFallback. .catch only prevents
@@ -4426,9 +4513,9 @@ class Player {
 				// within ~15s) routes into failover.
 				this.hasPlayedSinceSrc = false;
 				this.stallRetried = false; // bg-lockscreen-stall-noskip: fresh src → fresh single-retry budget
-				// RELAX-PREFETCH: a NEW src — re-arm the one-shot delayed prefetch gate so the
-				// timeupdate listener fires prefetchNext ~5s into THIS track's playback.
-				this.prefetchArmedForSrc = false;
+				// IDLE-PREFETCH: a NEW src — cancel any idle arm queued for the previous src
+				// and re-arm the one-shot for THIS src (quick-261102-idle1).
+				this.resetPrefetchArm();
 				// Next-song-current-but-paused fix: a NEW src clears any prior autoplay-retry arm.
 				this.autoplayRetryArmed = false;
 				// A NEW src cancels any pending resume timer from the prior track and clears a stale
@@ -4441,13 +4528,15 @@ class Player {
 				// brake STOPS with a logged trigger and we bail this play() rather than re-driving again.
 				if (!this.driveSrc(resolved.uid, src, kind)) return;
 				this.armStall();
-				// RELAX-PREFETCH (debug-song-click-lrc-flood-noplay): prefetch is driven ONLY by the
-				// timeupdate playback-elapsed gate (~5s into REAL playback) — the eager on-every-src fire
-				// + silent probe walk (quick-260627-huo) was REMOVED as part of the single-authority
-				// simplification. A track that never starts (the failure case) thus never triggers the
-				// speculative probe/resolve churn that fed the storm; a track that actually plays still
-				// pre-warms its next for a gapless advance. prefetchArmedForSrc stays false (set above) so
-				// the timeupdate gate arms the single walk once this src crosses the elapsed threshold.
+				// IDLE-PREFETCH (quick-261102-idle1, superseding the RELAX-PREFETCH ~5s timeupdate
+				// gate AND the eager-fire removal of debug-song-click-lrc-flood-noplay): arm the
+				// one-shot prefetch HERE, at src-set — the walk fires the moment the governed /api
+				// pipeline is idle (immediately on a quiet pipeline; after drain when a search /
+				// cover / resolve burst is in flight), so the next song is resolved + byte-prebuffered
+				// ASAP without ever stalling user-initiated fetching or the just-started stream.
+				// A track that never starts is still safe: the walk is seedUid-guarded, and the
+				// failure path supersedes current (or retries it) before the walk can write back.
+				this.armPrefetchWhenIdle();
 				// D-06: a rejected play() is intentionally surfaced to the stall/failure path, not
 				// swallowed — if play() rejects (iOS gesture loss after the async resolve) and no
 				// `play` event follows, the armed watchdog above routes into runFallback. The .catch
@@ -5728,6 +5817,9 @@ class Player {
 		}
 		this.manualUids.add(moved.uid); // reordered = pinned manual
 		this.persist(); // WR-05: every queue mutation persists — a reload keeps the user's order
+		// IDLE-PREFETCH (quick-261102-idle1): a drag can change who plays next — drop any
+		// arm/walk keyed to the old next and re-arm against the new one.
+		this.revalidatePrefetchArm();
 	}
 
 	/** Seek to a fraction [0,1] of the track. */

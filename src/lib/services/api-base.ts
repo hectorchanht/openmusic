@@ -173,6 +173,58 @@ export function __resetGovernor(): void {
 	failureTimes.length = 0;
 	circuitOpenUntil = 0;
 	halfOpenProbeInFlight = false;
+	notifyApiIdle();
+}
+
+// ── Pipeline-idle seam (quick-261102-idle1) ──────────────────────────────────────────────────
+// The player schedules its next-song prefetch "ASAP when nothing else is stalling" (user
+// requirement 2026-11-02): the walk must not pile onto an in-flight search / cover / resolve
+// burst, but must fire the moment the pipeline drains. The governor already COUNTS the load
+// (slots held + FIFO waiters); this seam exposes that count and a one-shot drain notification
+// so schedulers re-check idleness instead of guessing with fixed timers. The priority lane
+// (auth) deliberately bypasses the slots and is NOT counted — it is brief and user-critical.
+
+/** Governed /api requests currently holding a concurrency slot or queued for one. */
+export function apiPipelineBusyCount(): number {
+	return active + waiters.length;
+}
+
+const idleCallbacks = new Set<() => void>();
+
+/**
+ * One-shot idle notification: `cb` fires the next time the governed pipeline fully drains
+ * (no slot held, no waiter queued). If the pipeline is ALREADY drained, `cb` fires on a
+ * microtask — delivery is always async so callers never re-enter synchronously from inside
+ * a fetch call stack. Returns an unsubscribe that cancels a pending notification.
+ */
+export function onApiPipelineIdle(cb: () => void): () => void {
+	if (active === 0 && waiters.length === 0) {
+		let live = true;
+		queueMicrotask(() => {
+			if (live) cb();
+		});
+		return () => {
+			live = false;
+		};
+	}
+	idleCallbacks.add(cb);
+	return () => {
+		idleCallbacks.delete(cb);
+	};
+}
+
+/** Fire every pending one-shot idle callback — called wherever the busy count may have hit 0. */
+function notifyApiIdle(): void {
+	if (active !== 0 || waiters.length !== 0 || idleCallbacks.size === 0) return;
+	const cbs = [...idleCallbacks];
+	idleCallbacks.clear();
+	for (const cb of cbs) {
+		try {
+			cb();
+		} catch {
+			/* a listener must never break the governor's release path */
+		}
+	}
 }
 
 /** Acquire one concurrency slot — resolves immediately if a slot is free, else queues FIFO. */
@@ -188,7 +240,10 @@ function acquireSlot(): Promise<void> {
 function releaseSlot(): void {
 	const next = waiters.shift();
 	if (next) next(); // slot ownership passes to the waiter — `active` stays the same
-	else active--;
+	else {
+		active--;
+		notifyApiIdle(); // the only place the busy count decreases — maybe just drained
+	}
 }
 
 function abortError(): DOMException {
