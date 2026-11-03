@@ -588,6 +588,22 @@ class Player {
 	 * chosen list with generated picks. Plain field — internal supersedence guard. */
 	private queueGen = 0;
 
+	/** quick-261103-upnext: the fresh generated play's INTENT — "this queue's tail must end
+	 * up generated" — recorded when the fresh branch takes the generated path, and cleared
+	 * when a regenerate installs or a new list/fresh play supersedes it. Before this,
+	 * regenerate ran ONLY inside the fresh tap, so a skip/advance that superseded the
+	 * in-flight build (WR-06) left the raw list tail in place forever — the
+	 * search-results-as-Up-Next bug Hector screenshotted 2026-11-03. A non-fresh landing
+	 * reads this flag to REPAIR the tail for the landed track; an unarmed queue (a splice
+	 * into an ongoing queue, an advance inside an installed generated tail) never repairs,
+	 * so queue shapes are otherwise untouched. Plain fields — internal tail bookkeeping. */
+	private pendingGeneratedTail = false;
+	/** The uid a regenerate() is currently building for (dedupe concurrent builds). */
+	private regenSeedUid: string | null = null;
+	/** Monotonic regenerate generation: a newer build supersedes an older in-flight one, so
+	 * a slow ladder for a skipped seed can never install over the current seed's tail. */
+	private regenGen = 0;
+
 	/**
 	 * Per-episode "already-attempted sources" set (CR-03). A fallback EPISODE is one logical song's
 	 * failover run, keyed by its normalized title+artist (`fallbackEpisodeKey`). Within an episode
@@ -3205,6 +3221,8 @@ class Player {
 		// pendingHistory — whichever of a setListQueue→setQueue delegate pair runs first wins.
 		this.pendingManual ??= this.captureManual();
 		this.queueGen++; // WR-06: an explicit queue supersedes any in-flight regenerate result
+		// quick-261103-upnext: a new explicit list voids the generated-tail bookkeeping.
+		this.pendingGeneratedTail = false;
 		// quick-260910-piz: seed + attach HERE, not in the album page — this is the single chokepoint
 		// every list surface installs through, so the tiles (which read `track.cover`) and the hero
 		// (which reads the attachment) can never disagree. A missing/non-https cover means "this list
@@ -3262,6 +3280,8 @@ class Player {
 			return;
 		}
 		this.queueGen++; // WR-06: an explicit queue supersedes any in-flight regenerate result
+		// quick-261103-upnext: same bookkeeping reset as setQueue (this is the anchored path).
+		this.pendingGeneratedTail = false;
 		// quick-260910-piz: the keys come from the ANCHORED queue, so the current track (possibly a
 		// different-source variant) is a member by song key. The anchored `current` object itself is
 		// NOT re-covered here — it already carries playStub's attached cover and `resolvedCover` was
@@ -4663,7 +4683,9 @@ class Player {
 		// (global default) regenerates the auto portion from genre-similar songs; 'same-list'
 		// keeps the snapshot the caller passed via setQueue (search results / liked list /
 		// etc.) and only tops it up on exhaust via ensureAhead (the snapshot still grows when
-		// it runs out — D-03). A non-fresh play (auto-advance/failover) never regenerates.
+		// it runs out — D-03). A non-fresh play (auto-advance/failover) never WEAVES, and it
+		// regenerates ONLY to repair a tail that was never generated for the landed track
+		// (quick-261103-upnext, see the else branch).
 		if (opts?.fresh) {
 			// D-10: a fresh user play starts a NEW listening session — clear the swipe-removed
 			// exclusion budget BEFORE regenerate so previously-removed songs are eligible again.
@@ -4687,11 +4709,16 @@ class Player {
 			// keep resolving through the user's per-context setting exactly as before.
 			if (!opts?.sameList && settings.effectiveUpnextMode(this.queueContext) === 'generated') {
 				// generated: regenerate (now history-aware) replaces only the tail after the seed.
-				void this.regenerate(resolved).then(() => this.primeNext());
+				// quick-261103-upnext: record the INTENT so a non-fresh landing can repair the
+				// tail if this build is superseded before it lands (see the else branch).
+				this.pendingGeneratedTail = true;
+				this.runRegenerate(resolved);
 			} else {
 				// same-list: setListQueue already installed [seed, ...list-remainder]; weave only
 				// PREPENDED history, so the remainder survives as the tail. On exhaust ensureAhead
-				// grows it (D-03).
+				// grows it (D-03). quick-261103-upnext: a same-list (or sameList) fresh play
+				// carries NO generated-tail intent — later advances keep the list as-is.
+				this.pendingGeneratedTail = false;
 				void this.primeNext();
 			}
 		} else {
@@ -4701,8 +4728,36 @@ class Player {
 			// a LATER fresh play.
 			this.pendingHistory = null;
 			this.pendingManual = null; // quick-260618-fiz (Fix 4): same one-shot discipline
-			void this.primeNext();
+			// quick-261103-upnext (Hector's bug, reproduced 2026-11-03): the fresh tap's
+			// regenerate is SLOW for obscure seeds (the similar ladder takes tens of seconds),
+			// and any skip/advance in between discards it via WR-06 — after which NOTHING ever
+			// rebuilt the tail, so Up Next stayed the raw search list forever (no upnext.source
+			// in the log at all). Repair it here: the fresh play recorded a generated-tail
+			// INTENT (pendingGeneratedTail) that no install has fulfilled yet, the context
+			// mode is still 'generated', and no build for THIS track is already in flight —
+			// so build the tail for the LANDED track. Unarmed queues (splices into an ongoing
+			// queue, advances inside an installed generated tail) never enter here.
+			if (
+				this.pendingGeneratedTail &&
+				settings.effectiveUpnextMode(this.queueContext) === 'generated' &&
+				this.regenSeedUid !== resolved.uid
+			) {
+				this.runRegenerate(resolved);
+			} else {
+				void this.primeNext();
+			}
 		}
+	}
+
+	/** quick-261103-upnext: the ONE regenerate launcher — marks the in-flight seed so a
+	 * second landing on the same track doesn't double-build, and primes the next track
+	 * only after the new tail lands (the fresh branch's original sequencing). */
+	private runRegenerate(seed: Track): void {
+		this.regenSeedUid = seed.uid;
+		void this.regenerate(seed).then(() => {
+			if (this.regenSeedUid === seed.uid) this.regenSeedUid = null;
+			this.primeNext();
+		});
 	}
 
 	/**
@@ -5108,7 +5163,9 @@ class Player {
 	/**
 	 * Rebuild the AUTO portion of Up-Next from songs similar to `seed`, preserving the
 	 * seed (current) + manual entries in their existing order. Best-effort: on any
-	 * failure the queue is left as-is. Only invoked on a fresh user-initiated play.
+	 * failure the queue is left as-is. Invoked on a fresh user-initiated play, and —
+	 * quick-261103-upnext — as a repair when a non-fresh landing finds no generated
+	 * tail for its track (see postPlayQueue).
 	 *
 	 * quick-260615-i9u (Feature B): history-aware. Keeps EVERYTHING in this.queue up to AND INCLUDING
 	 * the seed (the woven history prefix + prior current + seed) and replaces only the tail AFTER the
@@ -5120,6 +5177,10 @@ class Player {
 		// buildSimilarQueue is in flight (e.g. playAlbum installing the full album list),
 		// that explicit queue wins — this regenerate's result is stale and must be discarded.
 		const myQueueGen = this.queueGen;
+		// quick-261103-upnext: a newer regenerate (for a newer landed track) supersedes this
+		// one the same way — a slow build for a skipped seed must never install over the
+		// current seed's tail.
+		const myRegenGen = ++this.regenGen;
 		try {
 			// quick-260615-i9u: the HEAD is everything up to+including the seed (woven history + seed);
 			// only the tail after the seed is regenerated.
@@ -5141,17 +5202,20 @@ class Player {
 			// added locally for the safety-net branch below (never reported by buildSimilarQueue itself).
 			let via: 'similar' | 'radio' | 'artist' | 'lastresort' | 'empty' | 'diverse' = 'empty';
 			let tail = await buildSimilarQueue(seed, exclude, (v) => (via = v));
-			if (myQueueGen !== this.queueGen) return; // WR-06: superseded by an explicit setQueue()
+			if (myQueueGen !== this.queueGen || myRegenGen !== this.regenGen) return; // WR-06 / upnext: superseded
 			// 26-09 (Gap 2 / T-26-09-01): mirror ensureAhead's never-empty safety net. On EVERY fresh
 			// click-to-play regenerate ran with NO fallback — installing buildSimilarQueue's [] left a
 			// dead-end empty Up-Next. When every similar path is dry, fall back to diverse picks so a
 			// fresh play is never left with an empty Up-Next.
 			if (tail.length === 0) {
 				tail = await buildDiversePicks(8, exclude);
-				if (myQueueGen !== this.queueGen) return; // WR-06 re-checked after the SECOND await (T-26-09-02)
+				if (myQueueGen !== this.queueGen || myRegenGen !== this.regenGen) return; // re-checked after the SECOND await (T-26-09-02)
 				via = 'diverse';
 			}
 			this.queue = this.queueWithAnchor([...head, ...manualEntries, ...tail], seed);
+			// quick-261103-upnext: the generated-tail intent is fulfilled — later advances
+			// inside this tail must not repair/rebuild it.
+			this.pendingGeneratedTail = false;
 			// 26-09: log the formation source + count so the UAT "up-next is one track.getSimilar call,
 			// never empty" claim is verifiable on device (Settings → Activity log).
 			logAction('upnext.source', { via, count: tail.length });

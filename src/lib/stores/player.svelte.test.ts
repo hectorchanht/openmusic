@@ -1906,6 +1906,134 @@ describe('player.regenerate — never-empty safety net + upnext.source log (26-0
 	});
 });
 
+// quick-261103-upnext (Hector's bug, reproduced live 2026-11-03): with Search sourcing set to
+// Genre-generated, Up Next stayed the raw search list forever. The fresh tap's regenerate is
+// slow and any skip/advance discards it (WR-06); the landed track's play is NON-fresh, and
+// postPlayQueue never regenerated on a non-fresh play — so no tail was ever built (the live
+// log had no upnext.source at all). The repair: a non-fresh landing whose context mode is
+// 'generated' (and whose list is not sameList-pinned) rebuilds the tail for the LANDED track
+// when no generated tail exists for it.
+describe('player postPlayQueue — generated-tail repair on non-fresh landings (quick-261103-upnext)', () => {
+	const postPlayQueue = (t: Track, opts?: { fresh?: boolean; sameList?: boolean }) =>
+		(player as unknown as { postPlayQueue(t: Track, opts?: { fresh?: boolean; sameList?: boolean }): void })[
+			'postPlayQueue'
+		](t, opts);
+	const regenerateDirect = (seed: Track) =>
+		(player as unknown as { regenerate(seed: Track): Promise<void> })['regenerate'](seed);
+
+	it('the Hector sequence: fresh build superseded by a skip → the landing repairs the tail', async () => {
+		const tapped = mk('ytmusic', 'T0', 'Jason Chan', '車匙 - Car Key');
+		const landed = mk('kuwo', 'L1', '陳柏宇', '車匙');
+		const listRow3 = mk('joox', 'L3', '路人', '車匙');
+		const pick = mk('netease', 'P1', 'Similar Artist', 'Similar Song');
+		const stalePick = mk('qq', 'PS', 'Stale', 'Pick');
+		player.queue = [tapped, landed, listRow3];
+		player.current = tapped;
+		const d = deferred<Track[]>();
+		mockSimilar
+			.mockReset()
+			.mockReturnValueOnce(d.promise) // the tapped seed's build parks (the slow ladder)
+			.mockImplementation(async (_t, _ex, report) => {
+				report?.('similar');
+				return [pick];
+			});
+		mockPicks.mockReset();
+		mockLogAction.mockClear();
+
+		postPlayQueue(tapped, { fresh: true }); // arms the intent; build for the tapped seed in flight
+		player.current = landed;
+		postPlayQueue(landed, undefined); // the skip lands — non-fresh — repair fires for the LANDED track
+		await flush();
+
+		expect(mockSimilar).toHaveBeenCalledWith(landed, expect.any(Set), expect.any(Function));
+		expect(player.queue.map((t) => t.uid)).toEqual([tapped.uid, landed.uid, pick.uid]);
+		expect(mockLogAction).toHaveBeenCalledWith('upnext.source', { via: 'similar', count: 1 });
+
+		d.resolve([stalePick]); // the tapped seed's slow build finally returns — discarded (regenGen)
+		await flush();
+		expect(player.queue.map((t) => t.uid)).toEqual([tapped.uid, landed.uid, pick.uid]);
+	});
+
+	it('no repair once the generated tail has installed (advances inside it are untouched)', async () => {
+		const seed = mk('netease', '0', 'Adele', 'Hello');
+		const pick = mk('qq', 'S', 'Someone', 'Like You');
+		player.queue = [seed];
+		player.current = seed;
+		mockSimilar
+			.mockReset()
+			.mockImplementation(async (_t, _ex, report) => {
+				report?.('similar');
+				return [pick];
+			});
+		mockPicks.mockReset().mockResolvedValue([]);
+		mockLogAction.mockClear();
+
+		postPlayQueue(seed, { fresh: true }); // generated branch: builds + installs, intent fulfilled
+		await flush();
+		expect(player.queue.map((t) => t.uid)).toEqual([seed.uid, pick.uid]);
+		expect(mockLogAction).toHaveBeenCalledWith('upnext.source', { via: 'similar', count: 1 });
+		mockLogAction.mockClear();
+		// Dry pools for the advance phase: a wrongful repair would install an EMPTY tail
+		// (queue shrinks to [seed]) and log via:'diverse' — ensureAhead growth with dry
+		// pools appends nothing and logs nothing, so both signals separate the two paths.
+		mockSimilar.mockReset().mockResolvedValue([]);
+
+		postPlayQueue(seed, undefined); // non-fresh landing on the same track (retry/replay)
+		await flush();
+
+		expect(player.queue.map((t) => t.uid)).toEqual([seed.uid, pick.uid]);
+		expect(mockLogAction).not.toHaveBeenCalledWith('upnext.source', expect.anything());
+	});
+
+	it('a sameList fresh play PINS the list — a later advance does not regenerate over it', async () => {
+		const first = mk('qq', 'A1', 'Album Artist', 'Track One');
+		const second = mk('qq', 'A2', 'Album Artist', 'Track Two');
+		player.queue = [first, second];
+		player.current = first;
+		mockSimilar.mockReset().mockResolvedValue([]);
+		mockPicks.mockReset().mockResolvedValue([]);
+		mockLogAction.mockClear();
+
+		postPlayQueue(first, { fresh: true, sameList: true });
+		await flush();
+		postPlayQueue(second, undefined); // auto-advance inside the pinned list
+		await flush();
+
+		// The list survives verbatim and no regenerate ever logged a formation source
+		// (ensureAhead's dry top-up attempts change nothing and log nothing).
+		expect(player.queue.map((t) => t.uid)).toEqual([first.uid, second.uid]);
+		expect(mockLogAction).not.toHaveBeenCalledWith('upnext.source', expect.anything());
+	});
+
+	it('regenGen: a slow build for a skipped seed never installs over the newer seed’s tail', async () => {
+		const seed1 = mk('netease', '1', 'Old', 'Skipped');
+		const seed2 = mk('netease', '2', 'New', 'Landed');
+		const pickOld = mk('qq', 'PO', 'Old', 'Pick');
+		const pickNew = mk('qq', 'PN', 'New', 'Pick');
+		player.queue = [seed1, seed2];
+		player.current = seed2;
+		const d = deferred<Track[]>();
+		mockSimilar
+			.mockReset()
+			.mockReturnValueOnce(d.promise) // seed1's build parks
+			.mockImplementation(async (_t, _ex, report) => {
+				report?.('similar');
+				return [pickNew];
+			});
+		mockPicks.mockReset();
+
+		const p1 = regenerateDirect(seed1);
+		await regenerateDirect(seed2); // the newer build lands first
+		await flush();
+		expect(player.queue.map((t) => t.uid)).toEqual([seed1.uid, seed2.uid, pickNew.uid]);
+
+		d.resolve([pickOld]); // the stale build finally returns — must be discarded
+		await p1;
+		await flush();
+		expect(player.queue.map((t) => t.uid)).toEqual([seed1.uid, seed2.uid, pickNew.uid]);
+	});
+});
+
 // quick-260627-huo (HUO-RETRY): the user reported a genuinely-playable Next-up song being marked
 // non-playable (a dimmed ✗ row) because TWO quick transient upstream blips reached STRIKE_CAP. The fix
 // replaces "strike → promote to dead" with "strike → schedule a delayed fresh re-resolve → only
