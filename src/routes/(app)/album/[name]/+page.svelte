@@ -317,7 +317,7 @@
 		// resolved track, which makes play() skip cover resolution entirely.
 		const tr = await player.playStub(stub.artist, stub.title, heroImg, 'album');
 		if (tr === null) {
-			if (player.pendingTrack == null) globalToast.show(t('album.unplayable'));
+			if (player.pendingTrack == null) globalToast.show(t('home.unplayable'));
 			return;
 		}
 		// album-and-next-song-bug fix: playStub installs a one-track queue ([tr]) for the optimistic
@@ -347,7 +347,7 @@
 		swipeInFlight = new Set(swipeInFlight).add(key);
 		try {
 			const tr = await resolveStub(stub.artist, stub.title).catch(() => null);
-			if (!tr) { globalToast.show(t('album.unplayable')); return; }
+			if (!tr) { globalToast.show(t('home.unplayable')); return; }
 			player.addToQueue(tr);
 			globalToast.show(t('toast.addedToQueue'));
 			hapticTick();
@@ -363,7 +363,7 @@
 		swipeInFlight = new Set(swipeInFlight).add(key);
 		try {
 			const tr = await resolveStub(stub.artist, stub.title).catch(() => null);
-			if (!tr) { globalToast.show(t('album.unplayable')); return; }
+			if (!tr) { globalToast.show(t('home.unplayable')); return; }
 			player.playNext(tr);
 			globalToast.show(t('toast.playingNext'));
 			hapticTick();
@@ -422,7 +422,7 @@
 		try {
 			const tr = await resolveStub(stub.artist, stub.title).catch(() => null);
 			if (!menuOpen) return; // user dismissed during resolve — discard
-			if (!tr) { menuOpen = false; globalToast.show(t('album.unplayable')); return; }
+			if (!tr) { menuOpen = false; globalToast.show(t('home.unplayable')); return; }
 			menuTrack = tr;
 		} finally {
 			menuLoading = false;
@@ -504,7 +504,7 @@
 				sameList: true
 			});
 			if (!first) {
-				if (player.pendingTrack == null) globalToast.show(t('album.unplayable'));
+				if (player.pendingTrack == null) globalToast.show(t('home.unplayable'));
 				return;
 			}
 			// album-and-next-song-bug fix: `first` (player.current) was resolved by playStub's own
@@ -569,7 +569,7 @@
 		try {
 			const resolved = await resolveAll();
 			if (!resolved.length) {
-				globalToast.show(t('album.unplayable'));
+				globalToast.show(t('home.unplayable'));
 				return;
 			}
 			// 40-D-06: count up while running, then the real saved count (failed songs are skipped).
@@ -607,7 +607,7 @@
 		try {
 			const resolved = await resolveAll();
 			if (!resolved.length) {
-				globalToast.show(t('album.unplayable'));
+				globalToast.show(t('home.unplayable'));
 				return;
 			}
 			const allLiked = resolved.every((tr) => library.isLiked(tr.uid));
@@ -699,7 +699,7 @@
 		try {
 			const resolved = await resolveAll();
 			for (const tr of resolved) library.addToPlaylist(id, tr);
-			globalToast.show(resolved.length ? t('toast.addedToPlaylist') : t('album.unplayable'));
+			globalToast.show(resolved.length ? t('toast.addedToPlaylist') : t('home.unplayable'));
 		} finally {
 			busyAction = null;
 		}

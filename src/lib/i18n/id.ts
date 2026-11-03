@@ -665,7 +665,6 @@ const id: Dict = {
 	"album.loading": "Memuat album…",
 	"album.noTracks": "Tidak ada lagu yang ditemukan untuk \"{name}\".",
 	"album.openFromArtist": "Buka album ini dari halaman artis untuk melihat daftar lagunya.",
-	"album.unplayable": "Tidak dapat menemukan versi yang dapat dimainkan",
 
 	// --- Phase 17: up-next sourcing + deezer enrichment + queue clear ---
 	"settings.upnextSourcing": "Up-next sourcing",

@@ -665,7 +665,6 @@ const hi: Dict = {
 	"album.loading": "एल्बम लोड हो रहा है...",
 	"album.noTracks": "No tracks found for \"{name}\".",
 	"album.openFromArtist": "इस एल्बम की ट्रैकलिस्ट देखने के लिए इसे किसी कलाकार पृष्ठ से खोलें।",
-	"album.unplayable": "खेलने योग्य संस्करण नहीं मिल सका",
 
 	// --- Phase 17: up-next sourcing + deezer enrichment + queue clear ---
 	"settings.upnextSourcing": "Up-next sourcing",

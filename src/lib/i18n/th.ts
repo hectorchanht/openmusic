@@ -665,7 +665,6 @@ const th: Dict = {
 	"album.loading": "กำลังโหลดอัลบั้ม...",
 	"album.noTracks": "ไม่พบเพลงสำหรับ \"{name}\"",
 	"album.openFromArtist": "เปิดอัลบั้มนี้จากหน้าศิลปินเพื่อดูรายการเพลง",
-	"album.unplayable": "ไม่พบเวอร์ชันที่สามารถเล่นได้",
 
 	// --- Phase 17: up-next sourcing + deezer enrichment + queue clear ---
 	"settings.upnextSourcing": "Up-next sourcing",

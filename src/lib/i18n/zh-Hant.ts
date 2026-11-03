@@ -697,7 +697,6 @@ const zhHant: Dict = {
 	"album.loading": "載入專輯中…",
 	"album.noTracks": "找不到「{name}」的歌曲。",
 	"album.openFromArtist": "請從歌手頁面開啟此專輯以查看曲目清單。",
-	"album.unplayable": "找不到可播放的版本",
 
 	// --- Phase 17: up-next sourcing + deezer enrichment + queue clear ---
 	"settings.upnextSourcing": "接下來播放的來源",

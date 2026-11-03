@@ -665,7 +665,6 @@ const vi: Dict = {
 	"album.loading": "Đang tải anbom…",
 	"album.noTracks": "Không tìm thấy bản nhạc nào cho \"{name}\".",
 	"album.openFromArtist": "Mở album này từ trang nghệ sĩ để xem danh sách bài hát của nó.",
-	"album.unplayable": "Không tìm được phiên bản chơi được",
 
 	// --- Phase 17: up-next sourcing + deezer enrichment + queue clear ---
 	"settings.upnextSourcing": "Up-next sourcing",

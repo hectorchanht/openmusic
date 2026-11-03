@@ -665,7 +665,6 @@ const ru: Dict = {
 	"album.loading": "Загрузка альбома…",
 	"album.noTracks": "Треки \"{name}\" не найдены.",
 	"album.openFromArtist": "Откройте этот альбом на странице исполнителя, чтобы просмотреть его треклист.",
-	"album.unplayable": "Не удалось найти играбельную версию",
 
 	// --- Phase 17: up-next sourcing + deezer enrichment + queue clear ---
 	"settings.upnextSourcing": "Up-next sourcing",

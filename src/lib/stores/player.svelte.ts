@@ -4565,7 +4565,10 @@ class Player {
 			this.postPlayCover(resolved, myGen);
 			this.postPlayQueue(resolved, opts);
 		} catch (e) {
-			this.error = e instanceof Error ? e.message : String(e);
+			// quick-261102-ty6 (DECISIONS.md §13): the failure VOCABULARY is TranslationKeys — a raw
+			// exception message is untranslatable store→UI text. The cause goes to the Activity log.
+			logAction('play.throw', { uid: track.uid, msg: e instanceof Error ? e.message : String(e) });
+			this.error = 'toast.playbackStopped';
 		} finally {
 			this.loading = false;
 		}
@@ -5573,6 +5576,10 @@ class Player {
 			if (budgetExpired && !swap) {
 				this.recordSkip(failed.uid, 'timeout'); // quick-260926-l69
 				this.strikeUnplayable(failed.uid, 'timeout');
+				// quick-261102-ty6 (DECISIONS.md §13): an audible skip is ALWAYS named in the batched skip
+				// toast — this path skipped silently. Still deliberately outside failoverSkips (the walk was
+				// cut short: the remaining sources are unknown, not exhausted).
+				this.emitSkipNotice(failed, 'timeout');
 				void this.next();
 				return;
 			}

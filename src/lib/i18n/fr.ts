@@ -665,7 +665,6 @@ const fr: Dict = {
 	"album.loading": "Chargement de l'album…",
 	"album.noTracks": "Aucune piste trouvée pour \"{name}\".",
 	"album.openFromArtist": "Ouvrez cet album à partir d'une page d'artiste pour voir sa tracklist.",
-	"album.unplayable": "Impossible de trouver une version jouable",
 
 	// --- Phase 17: up-next sourcing + deezer enrichment + queue clear ---
 	"settings.upnextSourcing": "Up-next sourcing",

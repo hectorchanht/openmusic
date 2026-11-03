@@ -665,7 +665,6 @@ const ar: Dict = {
 	"album.loading": "جارٍ تحميل الألبوم…",
 	"album.noTracks": "لم يتم العثور على مسارات لـ \"{name}\".",
 	"album.openFromArtist": "افتح هذا الألبوم من صفحة فنان لرؤية قائمة الأغاني الخاصة به.",
-	"album.unplayable": "تعذر العثور على نسخة قابلة للتشغيل",
 
 	// --- Phase 17: up-next sourcing + deezer enrichment + queue clear ---
 	"settings.upnextSourcing": "Up-next sourcing",

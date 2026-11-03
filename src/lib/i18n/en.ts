@@ -758,7 +758,6 @@ const en = {
 	"album.loading": "Loading album…",
 	"album.noTracks": "No tracks found for \"{name}\".",
 	"album.openFromArtist": "Open this album from an artist page to see its tracklist.",
-	"album.unplayable": "Couldn't find a playable version",
 
 	// --- deezer enrichment sections (Phase 17, ENRICH-04 — Plan 04 consumers) ---
 	// Numeric counts render as a number + ONE unit key (never per-count strings).

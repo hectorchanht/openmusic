@@ -665,7 +665,6 @@ const tr: Dict = {
 	"album.loading": "Albüm yükleniyor…",
 	"album.noTracks": "\"{name}\" için parça bulunamadı.",
 	"album.openFromArtist": "Parça listesini görmek için bu albümü bir sanatçı sayfasından açın.",
-	"album.unplayable": "Oynanabilir bir sürüm bulunamadı",
 
 	// --- Phase 17: up-next sourcing + deezer enrichment + queue clear ---
 	"settings.upnextSourcing": "Up-next sourcing",
