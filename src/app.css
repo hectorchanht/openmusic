@@ -78,7 +78,7 @@
   --color-bg: #f7f7fa;
   --color-surface: #ffffff;
   --color-surface-2: #ececf2;
-  --color-border: #c5c5cf;
+  --color-border: #80808a; /* quick-261102-rrb: was #c5c5cf (~1.4:1 vs surface-2); #80808a is 3.32:1 vs #ececf2 (non-text 3:1) */
   --color-text: #1a1a22;
   --color-text-muted: #5a5a66;
 }
@@ -167,21 +167,22 @@ button, a, [role="button"] { -webkit-tap-highlight-color: transparent; }
 
 /* Global loading-skeleton placeholder. Add `.sk` to any element (sized to match the real
    content it stands in for) to render a greyish block with a left-to-right shimmer sweep.
-   Greys (0.11 base / 0.22 sweep) match the search-page skeleton — visible on the dark page
-   bg. quick-260809-mvz: the shimmer keeps sweeping under BOTH reduce-motion gates — it is the
+   quick-261102-rrb: greys are mixed from --color-text (11% base / 22% sweep) instead of fixed
+   white rgba, so the block shows on the light theme too (white-on-#ececf2 was invisible).
+   quick-260809-mvz: the shimmer keeps sweeping under BOTH reduce-motion gates — it is the
    "still loading" signal, and a frozen grey block is indistinguishable from content that simply
    failed to arrive. See the re-assert below the keyframe. */
 .sk {
 	position: relative;
 	overflow: hidden;
-	background: rgba(255, 255, 255, 0.11);
+	background: color-mix(in srgb, var(--color-text) 11%, transparent);
 	border-radius: 6px;
 }
 .sk::after {
 	content: '';
 	position: absolute;
 	inset: 0;
-	background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.22) 50%, transparent 100%);
+	background: linear-gradient(90deg, transparent 0%, color-mix(in srgb, var(--color-text) 22%, transparent) 50%, transparent 100%);
 	transform: translateX(-100%);
 	animation: sk-shimmer 1.1s ease-in-out infinite;
 }

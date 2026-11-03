@@ -806,16 +806,19 @@
 {/if}
 
 <!-- ONE skeleton-row definition shared by the D-01 first-load gate and the existing
-     load-more position (no second skeleton style). Reduce-motion handled by .skel CSS. -->
+     load-more position (no second skeleton style). quick-261102-rrb: blocks use the global .sk
+     (theme-safe greys + shimmer, reduce-motion re-asserted in app.css); the line spans are
+     .sk-line, not .bar — .bar collided with the search form's flex + margin-bottom and made
+     skeleton rows taller than real rows. -->
 {#snippet skeletonRows(count: number, label: string)}
 	<li class="skel-wrap" aria-label={label}>
 		<span class="vh">{label}</span>
 		{#each Array(count) as _, i (i)}
 			<span class="row skel" aria-hidden="true">
-				<span class="art motion-always"></span>
+				<span class="art sk"></span>
 				<span class="meta">
-					<span class="bar bar-title motion-always"></span>
-					<span class="bar bar-artist motion-always"></span>
+					<span class="sk sk-line sk-title"></span>
+					<span class="sk sk-line sk-artist"></span>
 				</span>
 			</span>
 		{/each}
@@ -950,6 +953,8 @@
 	}
 	/* User 2026-10-06 (audit): 40px -> 44px for minimum touch target. */
 	.bar input:focus { border-color: var(--color-primary); }
+	/* quick-261102-rrb: visible keyboard focus ring (outline:none above removed the default). */
+	.bar input:focus-visible { box-shadow: 0 0 0 2px var(--color-primary); }
 	/* quick-260711-sm7: clear (X) button — full input-height grid-centred (NO translateY, so the
 	   use:tapBounce scale keyframe can't displace it). Shown only when the input has text. */
 	.clear-input {
@@ -997,10 +1002,11 @@
 		display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;
 	}
 	.suggest-title { font-size: 0.75rem; font-weight: 700; color: var(--color-text-muted); letter-spacing: 0.02em; }
-	/* quick-261006-ico: icon-only clear-history — 40px ghost circle, Trash2. */
+	/* quick-261006-ico: icon-only clear-history — 44px ghost circle, Trash2.
+	   quick-261102-rrb: 40px -> 44px minimum touch target. */
 	.suggest-clear {
 		background: none; border: none; color: var(--color-text-muted);
-		cursor: pointer; width: 40px; height: 40px; padding: 0; border-radius: 50%;
+		cursor: pointer; width: 44px; height: 44px; padding: 0; border-radius: 50%;
 		display: inline-grid; place-items: center;
 	}
 	.suggest-clear:hover { background: var(--color-surface); }
@@ -1071,31 +1077,11 @@
 	.skel-wrap { display: flex; flex-direction: column; gap: 6px; list-style: none; }
 	/* Skeleton row mirrors .row sizing so placeholders line up with real rows. */
 	.skel { pointer-events: none; }
-	/* Lighter grey than --color-surface-2 so the placeholders are clearly visible on the dark
-	   page background during the (brief, dwell-floored) loading window. */
-	.skel .art { background: rgba(255, 255, 255, 0.11); }
 	.skel .meta { gap: 7px; }
-	.skel .bar { display: block; height: 11px; border-radius: 5px; background: rgba(255, 255, 255, 0.11); }
-	.skel .bar-title { width: 62%; height: 9px;}
-	.skel .bar-artist { width: 40%; height: 9px; }
-	.skel .art, .skel .bar {
-		position: relative; overflow: hidden;
-	}
-	.skel .art::after, .skel .bar::after {
-		content: ''; position: absolute; inset: 0;
-		background: linear-gradient(
-			90deg,
-			transparent 0%,
-			rgba(255, 255, 255, 0.22) 50%,
-			transparent 100%
-		);
-		transform: translateX(-100%);
-		animation: skel-shimmer 1.1s ease-in-out infinite;
-	}
-	@keyframes skel-shimmer {
-		100% { transform: translateX(100%); }
-	}
-	/* Disable shimmer for users who prefer reduced motion. */
+	/* quick-261102-rrb: sizing only — colour + shimmer come from the global .sk. */
+	.sk-line { display: block; height: 9px; border-radius: 5px; }
+	.sk-title { width: 62%; }
+	.sk-artist { width: 40%; }
 	/* Visually-hidden screen-reader cue for the skeleton container. */
 	.vh {
 		position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
