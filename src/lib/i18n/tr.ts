@@ -137,6 +137,8 @@ const tr: Dict = {
 	"settings.autoExpandDesc": "Her parça başladığında tam çalma ekranını açar.",
 	"settings.showQualityTag": "Çalınanlar ekranında kalite etiketini göster",
 	"settings.showQualityTagDesc": "Kaynak kalite bildirmediğinde gizlenir.",
+	"settings.showSourceTag": "Çalınanlar ekranında kaynak etiketini göster",
+	"settings.showSourceTagDesc": "Geçerli parçanın hangi kaynaktan çalındığını gösterir.",
 	"settings.nowbarLyrics": "Şarkı sözlerini mini oynatıcıda göster",
 	"settings.reduceMotion": "Hareketi azalt",
 	"settings.shareIncludeTitle": "Paylaşırken başlığı ekle",

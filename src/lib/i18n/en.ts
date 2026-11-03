@@ -169,6 +169,8 @@ const en = {
 	"settings.autoExpandDesc": "Opens the full now-playing screen every time a track starts.",
 	"settings.showQualityTag": "Show quality tag on now-playing",
 	"settings.showQualityTagDesc": "Hidden when the source reports no quality.",
+	"settings.showSourceTag": "Show source tag on now-playing",
+	"settings.showSourceTagDesc": "Shows which source the current track is playing from.",
 	"settings.nowbarLyrics": "Show lyrics in the mini player",
 	"settings.reduceMotion": "Reduce motion",
 	"settings.shareIncludeTitle": "Include title when sharing",

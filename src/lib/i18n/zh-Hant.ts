@@ -146,6 +146,8 @@ const zhHant: Dict = {
 	"settings.autoExpandDesc": "每次開始播放都會展開完整的播放畫面。",
 	"settings.showQualityTag": "在正在播放頁顯示音質標籤",
 	"settings.showQualityTagDesc": "來源未提供音質時不會顯示。",
+	"settings.showSourceTag": "在正在播放頁顯示來源標籤",
+	"settings.showSourceTagDesc": "顯示目前歌曲實際播放的來源。",
 	"settings.nowbarLyrics": "在迷你播放器中顯示歌詞",
 	"settings.reduceMotion": "減少動態效果",
 	"settings.shareIncludeTitle": "分享時附上標題",

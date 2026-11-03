@@ -137,6 +137,8 @@ const ru: Dict = {
 	"settings.autoExpandDesc": "Открывает полный экран воспроизведения при запуске каждого трека.",
 	"settings.showQualityTag": "Показывать тег качества на экране воспроизведения",
 	"settings.showQualityTagDesc": "Скрыт, если источник не сообщает качество.",
+	"settings.showSourceTag": "Показывать тег источника на экране воспроизведения",
+	"settings.showSourceTagDesc": "Показывает источник, с которого воспроизводится текущий трек.",
 	"settings.nowbarLyrics": "Показывать текст в мини-плеере",
 	"settings.reduceMotion": "Уменьшите движение",
 	"settings.shareIncludeTitle": "Добавлять название при отправке",

@@ -137,6 +137,8 @@ const fr: Dict = {
 	"settings.autoExpandDesc": "Ouvre l'écran de lecture complet à chaque nouveau morceau.",
 	"settings.showQualityTag": "Afficher l'étiquette de qualité sur la lecture en cours",
 	"settings.showQualityTagDesc": "Masqué lorsque la source n'indique aucune qualité.",
+	"settings.showSourceTag": "Afficher l'étiquette de source sur la lecture en cours",
+	"settings.showSourceTagDesc": "Indique la source depuis laquelle le titre actuel est lu.",
 	"settings.nowbarLyrics": "Afficher les paroles dans le mini-lecteur",
 	"settings.reduceMotion": "Réduire les mouvements",
 	"settings.shareIncludeTitle": "Inclure le titre lors du partage",

@@ -54,6 +54,9 @@
 	function toggleExpand(v: 'off' | 'on') { settings.autoExpandOnPlay = v === 'on'; settings.save(); }
 	// quick-260831-k5y: opt-in quality tag on the Now-Playing page.
 	function toggleQualityTag(v: 'off' | 'on') { settings.showQualityTag = v === 'on'; settings.save(); }
+	// quick-261102-srcpill: the Now-Playing source pill, rendered before the quality tag —
+	// ON by default; this is the opt-out, same off/on picker idiom as its neighbour.
+	function toggleSourceTag(v: 'off' | 'on') { settings.showSourceTag = v === 'on'; settings.save(); }
 	// quick-260919-1we (D-7): opt-in lyric line in the docked mini player.
 	function toggleNowbarLyrics(v: 'off' | 'on') { settings.nowbarLyrics = v === 'on'; settings.save(); }
 	// ii6: per-source enable/disable. Precedence in getEnabledAdapters: explicit prefs >
@@ -249,6 +252,39 @@
 	</span>
 {/snippet}
 
+<!-- showSourceTag (quick-261102-srcpill) — the same title line with just the quality
+     badge vs with the SOURCE badge added immediately BEFORE it, exactly as the pills
+     render on Now Playing. `JOOX` is a brand name, not chrome, so it needs no i18n key. -->
+{#snippet srcTagOff()}
+	<span class="mock-chrome" style:justify-content="center">
+		<span class="mock-row">
+			<span class="mock-tile" style:width="16px"></span>
+			<span class="mock-col">
+				<span class="mock-row">
+					<span class="mock-text">Stargazing</span>
+					<span class="mock-badge">FLAC</span>
+				</span>
+				<span class="mock-line dim" style:width="50%"></span>
+			</span>
+		</span>
+	</span>
+{/snippet}
+{#snippet srcTagOn()}
+	<span class="mock-chrome" style:justify-content="center">
+		<span class="mock-row">
+			<span class="mock-tile" style:width="16px"></span>
+			<span class="mock-col">
+				<span class="mock-row">
+					<span class="mock-text">Stargazing</span>
+					<span class="mock-badge">JOOX</span>
+					<span class="mock-badge">FLAC</span>
+				</span>
+				<span class="mock-line dim" style:width="50%"></span>
+			</span>
+		</span>
+	</span>
+{/snippet}
+
 <!-- nowbarLyrics — the mini bar showing the artist name vs showing a lyric line. The demo text
      is the same static fallback the Appearance demos use (Stargazing / Myles Smith), and the
      lyric is a generic stand-in rather than an invented lyric string, so nothing needs
@@ -301,6 +337,18 @@
 		]}
 		value={boolValue(settings.showQualityTag)}
 		onpick={toggleQualityTag}
+	/>
+
+	<h3 class="sub"><Music size={14} /> {t('settings.showSourceTag')}<SettingHint label={t('settings.showSourceTag')} text={t('settings.showSourceTagDesc')} /></h3>
+	<SettingPicker
+		variant="preview"
+		label={t('settings.showSourceTag')}
+		options={[
+			{ ...offOn[0], preview: srcTagOff },
+			{ ...offOn[1], preview: srcTagOn }
+		]}
+		value={boolValue(settings.showSourceTag)}
+		onpick={toggleSourceTag}
 	/>
 
 	<h3 class="sub"><Mic2 size={14} /> {t('settings.nowbarLyrics')}</h3>

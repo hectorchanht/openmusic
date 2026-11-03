@@ -137,6 +137,8 @@ const vi: Dict = {
 	"settings.autoExpandDesc": "Mở toàn màn hình đang phát mỗi khi bắt đầu một bài.",
 	"settings.showQualityTag": "Hiển thị thẻ chất lượng ở màn hình đang phát",
 	"settings.showQualityTagDesc": "Ẩn khi nguồn không báo chất lượng.",
+	"settings.showSourceTag": "Hiển thị thẻ nguồn ở màn hình đang phát",
+	"settings.showSourceTagDesc": "Hiển thị nguồn mà bài hát hiện tại đang phát từ đó.",
 	"settings.nowbarLyrics": "Hiển thị lời trong trình phát thu nhỏ",
 	"settings.reduceMotion": "Giảm chuyển động",
 	"settings.shareIncludeTitle": "Kèm tiêu đề khi chia sẻ",

@@ -137,6 +137,8 @@ const id: Dict = {
 	"settings.autoExpandDesc": "Membuka layar pemutaran penuh setiap kali lagu dimulai.",
 	"settings.showQualityTag": "Tampilkan tag kualitas di sedang diputar",
 	"settings.showQualityTagDesc": "Disembunyikan bila sumber tidak melaporkan kualitas.",
+	"settings.showSourceTag": "Tampilkan tag sumber di sedang diputar",
+	"settings.showSourceTagDesc": "Menampilkan sumber asal lagu yang sedang diputar.",
 	"settings.nowbarLyrics": "Tampilkan lirik di pemutar mini",
 	"settings.reduceMotion": "Kurangi gerakan",
 	"settings.shareIncludeTitle": "Sertakan judul saat berbagi",

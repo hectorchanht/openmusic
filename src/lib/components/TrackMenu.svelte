@@ -53,6 +53,9 @@
 	import SettingToggle from '$lib/components/SettingToggle.svelte';
 	import { downloadTrack, pickedFileAlreadyOnDisk } from '$lib/services/download-track';
 	import { downloadLabel } from '$lib/services/download-label';
+	// quick-261102-qtruth: the Detail sheet's quality merge + label read through the ONE
+	// shared derivation (services/display-quality) — the same one the Now-Playing pill uses.
+	import { trackQualityLabel, withDownloadQuality } from '$lib/services/display-quality';
 	// quick-260915-26g: the shared probe + the shared label formatter. TrackMenu cannot mount
 	// DownloadControl (its Check state is blob-backed and its rows are full-width text buttons, not
 	// 40x40 icons), so it consumes the same SERVICE instead — one implementation, two surfaces.
@@ -1328,7 +1331,10 @@
 	function doDetail(resolved: Track) {
 		const dlUid = library.downloadUidFor(resolved);
 		const q = dlUid ? library.qualityForDownload(dlUid) : null;
-		detailTrack = q ? { ...resolved, ...q } : resolved;
+		// quick-261102-qtruth: the merge itself is services/display-quality's
+		// withDownloadQuality now — shared with every other quality surface, not a
+		// menu-local spread, so the precedence can never drift between surfaces again.
+		detailTrack = withDownloadQuality(resolved, q);
 	}
 	// quick-261019-mau: a DOWNLOADED track's metadata is already known (the library row, plus
 	// the download quality doDetail merges in) — gated()'s network resolve is unnecessary, and
@@ -1848,7 +1854,7 @@
 			<dt>{t('menu.detailTitle')}</dt><dd>{names.dnTitle(detailTrack.title, detailTrack.artist)}</dd>
 			<dt>{t('menu.detailArtist')}</dt><dd>{names.dnArtist(detailTrack.artist)}</dd>
 			<dt>{t('menu.detailAlbum')}</dt><dd>{detailTrack.album ? names.dnTitle(detailTrack.album) : '—'}</dd>
-			<dt>{t('menu.detailQuality')}</dt><dd>{detailTrack.qualityLabel || detailTrack.quality || t('menu.detailUnknown')}</dd>
+			<dt>{t('menu.detailQuality')}</dt><dd>{trackQualityLabel(detailTrack) ?? t('menu.detailUnknown')}</dd>
 			<!-- quick-260919-3j1 (F2): the file this app actually holds — container + real size, read
 			     from the local bytes. ASYMMETRY WORTH RECORDING: this lane also works for an imported
 			     `device:` song, which the Downloaded row above does NOT render for (it sits inside

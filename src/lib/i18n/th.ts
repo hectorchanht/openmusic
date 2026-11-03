@@ -137,6 +137,8 @@ const th: Dict = {
 	"settings.autoExpandDesc": "เปิดหน้าจอกำลังเล่นแบบเต็มทุกครั้งที่เริ่มเพลง",
 	"settings.showQualityTag": "แสดงแท็กคุณภาพบนหน้ากำลังเล่น",
 	"settings.showQualityTagDesc": "ซ่อนเมื่อแหล่งที่มาไม่ได้ระบุคุณภาพ",
+	"settings.showSourceTag": "แสดงแท็กแหล่งที่มาบนหน้ากำลังเล่น",
+	"settings.showSourceTagDesc": "แสดงแหล่งที่มาของเพลงที่กำลังเล่นอยู่",
 	"settings.nowbarLyrics": "แสดงเนื้อเพลงในเครื่องเล่นขนาดเล็ก",
 	"settings.reduceMotion": "ลดการเคลื่อนไหว",
 	"settings.shareIncludeTitle": "แนบชื่อเพลงเมื่อแชร์",

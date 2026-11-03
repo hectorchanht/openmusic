@@ -137,6 +137,8 @@ const hi: Dict = {
 	"settings.autoExpandDesc": "हर ट्रैक शुरू होने पर पूरी नाउ-प्लेइंग स्क्रीन खोलता है।",
 	"settings.showQualityTag": "अभी चल रहे पर क्वालिटी टैग दिखाएँ",
 	"settings.showQualityTagDesc": "जब स्रोत गुणवत्ता नहीं बताता, तब छिपा रहता है।",
+	"settings.showSourceTag": "अभी चल रहे पर स्रोत टैग दिखाएँ",
+	"settings.showSourceTagDesc": "दिखाता है कि वर्तमान ट्रैक किस स्रोत से चल रहा है।",
 	"settings.nowbarLyrics": "मिनी प्लेयर में बोल दिखाएँ",
 	"settings.reduceMotion": "गति कम करें",
 	"settings.shareIncludeTitle": "साझा करते समय शीर्षक शामिल करें",

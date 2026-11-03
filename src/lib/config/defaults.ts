@@ -139,6 +139,11 @@ export const PLAYBACK_DEFAULTS = {
 	 *  Now-Playing page. Shown by default per quick-260925-vtg (the user's own exported settings
 	 *  adopted as the defaults); k5y's original "extra chrome" reasoning for OFF is superseded. */
 	showQualityTag: true,
+	/** quick-261102-srcpill (Hector 2026-11-02): show the current track's SOURCE pill
+	 *  (registry adapter label — JOOX, Netease（GD）, …) immediately before the quality
+	 *  tag on the Now-Playing page. ON by default: Hector asked for the pill to exist;
+	 *  this toggle is the opt-out, mirroring showQualityTag beside it. */
+	showSourceTag: true,
 	/** quick-261024-vid1: the Now Playing MV video layer (ytmusic tracks). ON by default —
 	 *  the layer is inert until the user taps Watch MV, so nobody pays its data cost by
 	 *  accident; the toggle exists so it can be banished entirely (rows stop tagging too). */

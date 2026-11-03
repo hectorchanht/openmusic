@@ -137,6 +137,8 @@ const it: Dict = {
 	"settings.autoExpandDesc": "Apre la schermata di riproduzione completa a ogni brano.",
 	"settings.showQualityTag": "Mostra l'etichetta di qualità in riproduzione",
 	"settings.showQualityTagDesc": "Nascosto quando la sorgente non indica la qualità.",
+	"settings.showSourceTag": "Mostra l'etichetta della sorgente in riproduzione",
+	"settings.showSourceTagDesc": "Mostra la sorgente da cui viene riprodotto il brano corrente.",
 	"settings.nowbarLyrics": "Mostra il testo nel mini player",
 	"settings.reduceMotion": "Ridurre il movimento",
 	"settings.shareIncludeTitle": "Includi il titolo quando condividi",

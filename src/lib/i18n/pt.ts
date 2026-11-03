@@ -137,6 +137,8 @@ const pt: Dict = {
 	"settings.autoExpandDesc": "Abre o ecrã de reprodução completo sempre que uma faixa começa.",
 	"settings.showQualityTag": "Mostrar etiqueta de qualidade em reprodução",
 	"settings.showQualityTagDesc": "Oculto quando a fonte não indica a qualidade.",
+	"settings.showSourceTag": "Mostrar etiqueta de fonte em reprodução",
+	"settings.showSourceTagDesc": "Mostra a fonte da faixa atual.",
 	"settings.nowbarLyrics": "Mostrar a letra no mini player",
 	"settings.reduceMotion": "Reduzir o movimento",
 	"settings.shareIncludeTitle": "Incluir o título ao compartilhar",

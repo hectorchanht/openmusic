@@ -137,6 +137,8 @@ const de: Dict = {
 	"settings.autoExpandDesc": "Öffnet bei jedem Titelstart den vollen Wiedergabebildschirm.",
 	"settings.showQualityTag": "Qualitäts-Tag im Now-Playing anzeigen",
 	"settings.showQualityTagDesc": "Ausgeblendet, wenn die Quelle keine Qualität meldet.",
+	"settings.showSourceTag": "Quellen-Tag im Now-Playing anzeigen",
+	"settings.showSourceTagDesc": "Zeigt, von welcher Quelle der aktuelle Titel abgespielt wird.",
 	"settings.nowbarLyrics": "Songtext im Mini-Player anzeigen",
 	"settings.reduceMotion": "Bewegung reduzieren",
 	"settings.shareIncludeTitle": "Titel beim Teilen einfügen",

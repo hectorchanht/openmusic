@@ -254,6 +254,10 @@ class Settings {
 	/** quick-260831-k5y: render the resolved track's quality tag on the Now-Playing page.
 	 *  Default lives in PLAYBACK_DEFAULTS.showQualityTag (ON since quick-260925-vtg). */
 	showQualityTag = $state<boolean>(PLAYBACK_DEFAULTS.showQualityTag);
+	/** quick-261102-srcpill: render the current track's source pill before the quality
+	 *  tag on the Now-Playing page. Default lives in PLAYBACK_DEFAULTS.showSourceTag
+	 *  (ON — the pill was requested; hiding it is the opt-out). */
+	showSourceTag = $state<boolean>(PLAYBACK_DEFAULTS.showSourceTag);
 	/** quick-261024-vid1: the Now Playing MV layer master switch + its height cap. The NP
 	 *  quality menu and Settings → Playback write the SAME field (one setting, two surfaces). */
 	videoEnabled = $state<boolean>(PLAYBACK_DEFAULTS.videoEnabled);
@@ -454,6 +458,8 @@ class Settings {
 					typeof v.autoExpandOnPlay === 'boolean' ? v.autoExpandOnPlay : PLAYBACK_DEFAULTS.autoExpandOnPlay;
 				this.showQualityTag =
 					typeof v.showQualityTag === 'boolean' ? v.showQualityTag : PLAYBACK_DEFAULTS.showQualityTag;
+				this.showSourceTag =
+					typeof v.showSourceTag === 'boolean' ? v.showSourceTag : PLAYBACK_DEFAULTS.showSourceTag;
 				this.videoEnabled =
 					typeof v.videoEnabled === 'boolean' ? v.videoEnabled : PLAYBACK_DEFAULTS.videoEnabled;
 				this.videoQuality = (VIDEO_QUALITIES as readonly number[]).includes(v.videoQuality as number)
@@ -626,6 +632,7 @@ class Settings {
 					theme: this.theme,
 					autoExpandOnPlay: this.autoExpandOnPlay,
 					showQualityTag: this.showQualityTag,
+					showSourceTag: this.showSourceTag,
 					videoEnabled: this.videoEnabled,
 					videoQuality: this.videoQuality,
 					nowbarLyrics: this.nowbarLyrics,
@@ -757,6 +764,7 @@ class Settings {
 		this.defaultSource = d.defaultSource;
 		this.autoExpandOnPlay = d.autoExpandOnPlay;
 		this.showQualityTag = d.showQualityTag;
+		this.showSourceTag = d.showSourceTag;
 		this.videoEnabled = d.videoEnabled;
 		this.videoQuality = d.videoQuality;
 		this.nowbarLyrics = d.nowbarLyrics;

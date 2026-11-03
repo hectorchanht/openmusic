@@ -137,6 +137,8 @@ const es: Dict = {
 	"settings.autoExpandDesc": "Abre la pantalla de reproducción completa al empezar cada pista.",
 	"settings.showQualityTag": "Mostrar la etiqueta de calidad en reproducción",
 	"settings.showQualityTagDesc": "Se oculta cuando la fuente no indica la calidad.",
+	"settings.showSourceTag": "Mostrar la etiqueta de fuente en reproducción",
+	"settings.showSourceTagDesc": "Muestra la fuente desde la que se reproduce la pista actual.",
 	"settings.nowbarLyrics": "Mostrar la letra en el minirreproductor",
 	"settings.reduceMotion": "Reducir el movimiento",
 	"settings.shareIncludeTitle": "Incluir el título al compartir",

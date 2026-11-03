@@ -137,6 +137,8 @@ const ar: Dict = {
 	"settings.autoExpandDesc": "يفتح شاشة التشغيل الكاملة مع بداية كل مقطع.",
 	"settings.showQualityTag": "إظهار وسم الجودة في شاشة التشغيل",
 	"settings.showQualityTagDesc": "يختفي عندما لا يذكر المصدر الجودة.",
+	"settings.showSourceTag": "إظهار وسم المصدر في شاشة التشغيل",
+	"settings.showSourceTagDesc": "يُظهر المصدر الذي يُشغَّل منه المسار الحالي.",
 	"settings.nowbarLyrics": "إظهار الكلمات في المشغّل المصغّر",
 	"settings.reduceMotion": "تقليل الحركة",
 	"settings.shareIncludeTitle": "تضمين العنوان عند المشاركة",

@@ -17,6 +17,10 @@
 	// Gap 4 (26-10): the LAZY on-demand cross-source variant fetch (26-08) fed to the per-row
 	// version picker — fired ONLY on a trigger tap, never on list render (T-26-10-02).
 	import { fetchVariants } from '$lib/services/variants';
+	// quick-261102-qtruth / quick-261102-srcpill: the quality + source tags derive through
+	// the ONE shared module (services/display-quality) so this page can never disagree
+	// with the Track detail sheet about the same playing track again.
+	import { displayQualityLabel, trackSourceLabel } from '$lib/services/display-quality';
 	import { enrichTrack } from '$lib/services/lastfm';
 	import { songShareUrl } from '$lib/services/share';
 	import { recallItunesId } from '$lib/services/itunes-cover';
@@ -458,8 +462,32 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 	// title/artist when settings.showQualityTag is on. `qualityLabel` is the source's own
 	// wording and wins; `quality` is the raw tier. Null for a stub that has not resolved yet
 	// AND for a source that reports no tier — both render nothing (never an empty pill).
-	// Same read order as TrackMenu.svelte:429 / VersionPicker.svelte:58.
-	const qualityTag = $derived(player.current?.qualityLabel || player.current?.quality || null);
+	// quick-261102-qtruth (Hector 2026-11-02): the read now goes through the shared
+	// displayQualityLabel WITH the download record consulted live — the old bare read of
+	// player.current's stamps could lie (320K) when the snapshot / stream-resolve stamp
+	// was stale relative to the file actually playing, while the Detail sheet, which
+	// merges the record, said LOSSLESS for the same track. Precedence (one place now,
+	// services/display-quality): download record > resolved stamps > stub claim. Reading
+	// library.downloads here also repaints the pill the moment a download lands or is
+	// replaced while this page is open — the same truth the Detail sheet would show.
+	const qualityTag = $derived.by(() => {
+		const cur = player.current;
+		if (!cur) return null;
+		const dlUid = library.downloadUidFor(cur);
+		return displayQualityLabel(cur, dlUid ? library.qualityForDownload(dlUid) : null);
+	});
+	// quick-261102-srcpill (Hector 2026-11-02): the SOURCE pill, rendered immediately
+	// before the quality pill. The label is the registry adapter's own — the same wording
+	// the Play-from-source sheet rows carry (VersionPicker.sourceLabel, zhLock included) —
+	// read off player.current, so after a cross-source fallback the pill names the source
+	// actually playing, not the one originally tapped. Shown unless settings.showSourceTag
+	// is off; the current track always has a source, so no empty-pill case exists.
+	const sourceTag = $derived.by(() => {
+		const cur = player.current;
+		if (!cur) return null;
+		const raw = trackSourceLabel(cur);
+		return raw ? names.zhLock(raw) : null;
+	});
 	// quick-261010-npurl: the share URL of the current track, built with the EXACT recipe the
 	// Share button copies (display-language names via names.dnTitle/dnArtist, the hero cover's
 	// token via coverToken inside songShareUrl, the identity carrier) — so the URL bar shows
@@ -1181,9 +1209,20 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 			<!-- quick-260831-k5y: opt-in quality tag. OUTSIDE the {#key} block on purpose — the value
 					lands asynchronously after ensureTrackDetails, so it repaints in place rather than
 					remounting with the title/artist crossfade. Renders nothing at all when the track has
-					no tag, so an unresolved stub leaves no empty box. -->
-			{#if settings.showQualityTag && qualityTag}
-				<div class="quality-tag">{qualityTag}</div>
+					no tag, so an unresolved stub leaves no empty box.
+					quick-261102-srcpill: the SOURCE pill sits immediately BEFORE the quality pill in
+					the same right-hand cluster (.np-tags) — one wrapper, so the pair keeps the exact
+					spot the lone quality tag held at the row's end on desktop AND mobile. Each pill
+					keeps its own toggle: settings.showSourceTag / settings.showQualityTag. -->
+			{#if (settings.showSourceTag && sourceTag) || (settings.showQualityTag && qualityTag)}
+				<div class="np-tags">
+					{#if settings.showSourceTag && sourceTag}
+						<div class="quality-tag source-tag">{sourceTag}</div>
+					{/if}
+					{#if settings.showQualityTag && qualityTag}
+						<div class="quality-tag">{qualityTag}</div>
+					{/if}
+				</div>
 			{/if}
 			</div>
 		{/key}
@@ -1586,6 +1625,10 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 	/* quick-260831-k5y: small muted pill under the artist row. Sized off the NP artist scale so
 	   it tracks the appearance settings, and always smaller than the artist line it sits below. */
 	.quality-tag { display: inline-block; margin-top: 4px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--color-border); color: var(--color-text-muted); font-size: calc(0.7rem * var(--fs-np-artist, 1)); font-weight: 600; letter-spacing: 0.02em; line-height: 1.5; white-space: nowrap; }
+	/* quick-261102-srcpill: the source+quality pill cluster at the artist row's end. The
+	   wrapper is the flex child the lone quality tag used to be (the row's space-between
+	   parks it right); inside, the source pill leads and the quality pill follows. */
+	.np-tags { display: flex; align-items: flex-start; gap: 6px; flex-shrink: 0; }
 	/* Marquee lives globally in app.css (transform-based .marquee-inner). The .title/.artist
 	   clips above + the use:marquee action + inner .marquee-inner span in the markup are the
 	   only per-file pieces — the global rule animates them. (gmy unified the drift.) */
