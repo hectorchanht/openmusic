@@ -565,7 +565,7 @@
 	.summary, .empty-block { background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: 12px; padding: 14px; margin: 12px 0; display: flex; flex-direction: column; gap: 6px; }
 	.summary strong { font-size: 0.9375rem; font-weight: 600; display: flex; gap: 6px; align-items: center; }
 	.summary .hint { font-size: 0.75rem; color: var(--color-text-muted); margin: 0; }
-	.summary .hint.removed { color: #ff7a90; }
+	.summary .hint.removed { color: var(--color-danger-text); }
 	.empty-block { align-items: center; text-align: center; color: var(--color-text-muted); }
 	.empty-block .hint { margin: 0; }
 
@@ -599,10 +599,10 @@
 	.txt { width: 100%; min-height: 44px; padding: 12px 14px; background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: 12px; color: var(--color-text); font-family: inherit; font-size: 0.875rem; }
 	.txt::placeholder { color: var(--color-text-muted); }
 	.txt:focus-visible { /* quick-261102-s0k: focus token, >=3:1 on every theme */ outline: 2px solid var(--color-focus); outline-offset: 2px; }
-	.txt[aria-invalid='true'] { border-color: #ff7a90; }
+	.txt[aria-invalid='true'] { border-color: var(--color-danger-text); }
 	/* A regex is code: in Inter, `\s` and `\5` are ambiguous. The only monospace in the phase. */
 	.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.8125rem; }
-	.hint.reject { color: #ff7a90; font-size: 0.75rem; margin: 6px 0 0; }
+	.hint.reject { color: var(--color-danger-text); font-size: 0.75rem; margin: 6px 0 0; }
 	.advanced.nested { margin: 12px 0 0; }
 	.lbl { display: flex; justify-content: space-between; font-size: 0.875rem; margin-bottom: 6px; }
 	input[type='range'] { width: 100%; accent-color: var(--color-primary); }

@@ -153,7 +153,7 @@ A dark, near-neutral cabinet lit by a single cool teal signal, with per-source b
 
 ### Semantic
 - **Alarm Coral** (`alarm-coral`): destructive confirm buttons only.
-- **Alarm Coral Text** (`alarm-coral-text`): inline error text, such as a Nowbar playback error.
+- **Alarm Coral Text** (`alarm-coral-text`, CSS token `--color-danger-text`): inline error text, such as a Nowbar playback error. Light theme overrides it to #c62a47 for 4.5:1.
 
 ### Source brand chips
 Source colours (`--src-netease` #c20c0c, `--src-qq` #1db954, `--src-kuwo` #ffcb1f, `--src-joox` #07827e, `--src-fivesing` #ff5959, `--src-jamendo` #ff7700) appear only as small source badges. JOOX is deliberately darkened so it never reads as the Tiffany accent.

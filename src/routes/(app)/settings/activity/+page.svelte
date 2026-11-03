@@ -145,7 +145,7 @@
 	.actions { display: flex; gap: 8px; margin: 8px 0 12px; }
 	.item { flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px; background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); padding: 12px; border-radius: 12px; font-size: 0.875rem; cursor: pointer; }
 	.item:hover { background: var(--color-surface); }
-	.item.danger { color: #ff7a90; }
+	.item.danger { color: var(--color-danger-text); }
 	.empty { color: var(--color-text-muted); font-size: 0.8125rem; text-align: center; margin: 32px 0; }
 	.log { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; max-height: calc(100dvh - var(--tabbar-h) - 180px); overflow: auto; background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: 12px; }
 	/* quick-261020-logscroll — rows size to their content (Hector: "make the log table x

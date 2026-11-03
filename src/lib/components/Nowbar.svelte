@@ -638,7 +638,7 @@
         text-overflow: ellipsis;
     }
     .err {
-        color: #ff7a90;
+        color: var(--color-danger-text);
     }
     .np-btn {
         background: var(--color-primary);

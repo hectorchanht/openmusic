@@ -9,6 +9,7 @@
 	import SponsoredStrip from '$lib/components/SponsoredStrip.svelte';
 	import { buildDiversePicks } from '$lib/services/picks';
 	import { dedupeShelfList } from '$lib/services/dedupe';
+	import { foldArtistName } from '$lib/sync/merge-logic';
 	import { buildRadio, reseedRadio } from '$lib/services/radio';
 	import type { QueueContext } from '$lib/config/defaults';
 	import {
@@ -325,9 +326,11 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 		// library bucket. An entry the user un-favourited between sessions is dropped. When the
 		// cache predates this feature (no `favArtists` key) seed from live library — non-destructive
 		// migration so existing users see their fav-artists immediately on first load.
-		const liveFav = new Set(library.favArtists.map((n) => n.trim().toLowerCase()));
+		// quick-261102-sjg: the library's own favourite key (foldArtistName), not a lowercase copy —
+		// a cached 周杰倫 no longer drops off the shelf once the library holds 周杰伦.
+		const liveFav = new Set(library.favArtists.map(foldArtistName));
 		const cachedNames = c.favArtists ?? null;
-		favArtistsShelf = (cachedNames !== null ? cachedNames.filter((n) => liveFav.has(n.trim().toLowerCase())) : library.favArtists)
+		favArtistsShelf = (cachedNames !== null ? cachedNames.filter((n) => liveFav.has(foldArtistName(n))) : library.favArtists)
 			.map((n) => ({ name: n }));
 		if (favArtistsShelf.length) {
 			void backfillArtistCovers(favArtistsShelf.map((a) => a.name), {
@@ -1244,7 +1247,12 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 				     child of the {#each}, not of the <button>. -->
 				{@const art = readChosenCover(track.uid, track.artist, track.title) ?? track.cover}
 				<button class="tile" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); menuTrack = track; menuOpen = true; }} oncontextmenu={(e) => { e.preventDefault(); (e.currentTarget as HTMLElement)?.blur(); menuTrack = track; menuOpen = true; }} onclick={() => { player.setQueue(fallbackSongs, 'home-discovery'); player.play(track, { fresh: true }); }}>
-					<div class="art" style:background-image={art ? `url(${art})` : fallbackCover(track.uid)}></div>
+					<!-- quick-261102-sfc: cover as a lazy <img> over the gradient (was a CSS url() background,
+					     which is never lazy and has no onerror — a dead URL left a blank tile and never reached
+					     hideOnError's dead-URL marking). Inserted before .q/.scrim so DOM paint order keeps the
+					     badge and scrim above it. -->
+					<div class="art" style:background-image={fallbackCover(track.uid)}></div>
+					{#if art}<img class="al-cover-img" src={art} loading="lazy" decoding="async" alt="" onerror={hideOnError} />{/if}
 					{#if track.qualityLabel || track.quality}<span class="q">{track.qualityLabel ?? track.quality}</span>{/if}
 					<div class="scrim"></div>
 					<div class="label">
@@ -1291,11 +1299,16 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
      segment encodeURIComponent-wrapped (T-23-08 — same-origin goto, no open redirect).
      quick-260927-1fx: use:tapBounce with no `only` — the button is a LEAF (label + chevron), so the
      whole row bouncing moves no other control under the finger (see tapBounce.ts quick-260919-l9e). -->
+<!-- quick-261102-sfc: the 18 shelf titles were bare buttons, so Home's outline had a single h2.
+     Wrapping in an <h3> (margin:0, one block child) gives screen readers real headings with zero
+     visual change — the button keeps its own type and margins. -->
 {#snippet titleNav(label: string, dest: string)}
-	<button class="subhead-nav" use:tapBounce aria-label={`${label}, ${t('home.seeAll')}`} onclick={() => goto(dest)}>
-		<span class="subhead-label">{label}</span>
-		<ChevronRight class="subhead-chev" size={18} />
-	</button>
+	<h3 class="subhead">
+		<button class="subhead-nav" use:tapBounce aria-label={`${label}, ${t('home.seeAll')}`} onclick={() => goto(dest)}>
+			<span class="subhead-label">{label}</span>
+			<ChevronRight class="subhead-chev" size={18} />
+		</button>
+	</h3>
 {/snippet}
 
 <!-- quick-260927-1fx: 39-D-33 (UI-SPEC §1.2) is SUPERSEDED — every chart shelf now has a see-all
@@ -1669,7 +1682,10 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 			{#snippet row(track: Track)}
 				{@const rowCover = libraryRowCover(track)}
 				<button class="tile" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openTrackMenu(track); }} oncontextmenu={(e) => { e.preventDefault(); (e.currentTarget as HTMLElement)?.blur(); openTrackMenu(track); }} onclick={() => playLibraryTrack(track, ctx)}>
-					<div class="art" use:lazyCover={{ track, onResolved: () => bumpCoverVersion() }} style:background-image={rowCover ? `url(${rowCover})` : fallbackCover(track.uid)}></div>
+					<!-- quick-261102-sfc: same lazy <img> + onerror as the pile row above — a CSS url()
+					     background was eager and a dead URL left a blank tile instead of the gradient. -->
+					<div class="art" use:lazyCover={{ track, onResolved: () => bumpCoverVersion() }} style:background-image={fallbackCover(track.uid)}></div>
+					{#if rowCover}<img class="al-cover-img" src={rowCover} loading="lazy" decoding="async" alt="" onerror={hideOnError} />{/if}
 					<div class="scrim"></div>
 					<div class="label">
 						<div class="t-title">{names.dnTitle(track.title, track.artist)}</div>
@@ -1774,12 +1790,17 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 <style>
 	.topnav { display: flex; align-items: center; justify-content: space-between; padding: 14px 0 10px; }
 	.brand { display: flex; align-items: center; gap: 8px; font-weight: 800; font-size: 1.35rem; }
-	.gear { background: none; border: none; color: var(--color-text); cursor: pointer; width: 38px; height: 38px; display: grid; place-items: center; border-radius: 50%; transition: opacity 0.15s ease; }
+	.gear { position: relative; background: none; border: none; color: var(--color-text); cursor: pointer; width: 38px; height: 38px; display: grid; place-items: center; border-radius: 50%; transition: opacity 0.15s ease; }
+	/* quick-261102-sfc: Android 48dp touch floor (PRODUCT.md: APK is first-class); hit box only,
+	   glyph/circle unchanged — the ::after belongs to the button for hit-testing. 38 + 2×5 = 48. */
+	.gear::after { content: ''; position: absolute; inset: -5px; }
 	.gear:hover { background: var(--color-surface-2); }
 	.searchpill {
 		width: 100%; text-align: left; background: var(--color-surface-2);
 		border: 1px solid var(--color-border); border-radius: 999px;
 		padding: 11px 16px; color: var(--color-text-muted); font-size: 0.8125rem;
+		/* quick-261102-sfc: Android 48dp touch floor (was ~37px tall from padding alone). */
+		min-height: 48px;
 		display: flex; align-items: center; gap: 8px; cursor: pointer; margin-bottom: 18px;
 		transition: opacity 0.15s ease;
 	}
@@ -1792,6 +1813,7 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 	   trails the title text directly (no margin-left:auto); the button stays full-width, so the tap
 	   target is unchanged, and .subhead-label still ellipsizes a long title with the chevron visible. */
 	/* 39-D-33 superseded by quick-260927-1fx: the static variant is gone. */
+	.subhead { margin: 0; }
 	.subhead-nav {
 		width: 100%;
 		display: flex;
@@ -1844,7 +1866,11 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 		width: 40px; height: 40px; padding: 0; border-radius: 50%; cursor: pointer;
 		display: inline-grid; place-items: center; transition: opacity 0.15s ease;
 		vertical-align: middle;
+		position: relative;
 	}
+	/* quick-261102-sfc: Android 48dp touch floor (PRODUCT.md: APK is first-class); hit box only,
+	   glyph/circle unchanged. 40 + 2×4 = 48. */
+	.more::after, .retry::after { content: ''; position: absolute; inset: -4px; }
 	.more:disabled { opacity: 0.55; cursor: default; }
 	/* :global(svg) — the svg is rendered by the Lucide component, same idiom as
 	   `.subhead-nav :global(.subhead-chev)` below. */
@@ -1906,7 +1932,9 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 	.artist-tile { position: static; aspect-ratio: auto; background: none; border-radius: 0; display: flex; flex-direction: column; align-items: center; gap: 6px; }
 	.artist-tile .art { position: relative; inset: auto; width: 100%; aspect-ratio: 1 / 1; border-radius: 50%; overflow: hidden; background-size: cover; background-position: center; background-color: var(--color-surface-2); }
 	.artist-name { width: 100%; min-width: 0; overflow: hidden; white-space: nowrap; text-align: center; font-size: calc(0.6875rem * var(--fs-title, 1)); font-weight: 600; color: var(--color-text); }
-	.error { color: #ff7a90; font-size: 0.875rem; }
+	/* quick-261102-sfc: theme token (dark ≈7.8:1, light #c62a47 ≈5.5:1) — the raw dark-theme coral
+	   was ~3:1 on the light theme. */
+	.error { color: var(--color-danger-text); font-size: 0.875rem; }
 
 	/* quick-260919-et3 (D-8): at desktop the fallback grid holds the TILE SIZE and lets the COUNT
 	   follow the window, instead of inflating three tiles to 600px each in a 1900px column.
