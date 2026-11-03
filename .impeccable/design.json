@@ -1,0 +1,315 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-02T00:00:00Z",
+  "title": "Design System: openmusic",
+  "extensions": {
+    "colorMeta": {
+      "tiffany-signal": {
+        "role": "primary",
+        "displayName": "Tiffany Signal",
+        "canonical": "#0abab5",
+        "tonalRamp": [
+          "#033634",
+          "#05514e",
+          "#076d69",
+          "#098a86",
+          "#0abab5",
+          "#4fd0cc",
+          "#94e3e0",
+          "#d6f5f4"
+        ]
+      },
+      "tiffany-signal-pressed": {
+        "role": "primary",
+        "displayName": "Tiffany Signal, pressed",
+        "canonical": "#09a49f"
+      },
+      "night-floor": {
+        "role": "neutral",
+        "displayName": "Night Floor",
+        "canonical": "#0b0b0f",
+        "tonalRamp": [
+          "#0b0b0f",
+          "#16161d",
+          "#1d1d27",
+          "#2a2a36",
+          "#4a4a58",
+          "#888888",
+          "#a0a0ad",
+          "#f4f4f6"
+        ]
+      },
+      "lifted-slate": {
+        "role": "neutral",
+        "displayName": "Lifted Slate",
+        "canonical": "#16161d"
+      },
+      "raised-slate": {
+        "role": "neutral",
+        "displayName": "Raised Slate",
+        "canonical": "#1d1d27"
+      },
+      "hairline-grey": {
+        "role": "neutral",
+        "displayName": "Hairline Grey",
+        "canonical": "#888888"
+      },
+      "chalk-text": {
+        "role": "neutral",
+        "displayName": "Chalk Text",
+        "canonical": "#f4f4f6"
+      },
+      "dusk-text": {
+        "role": "neutral",
+        "displayName": "Dusk Text",
+        "canonical": "#a0a0ad"
+      },
+      "alarm-coral": {
+        "role": "error",
+        "displayName": "Alarm Coral",
+        "canonical": "#ff5a76",
+        "tonalRamp": [
+          "#4d0f1a",
+          "#80192c",
+          "#b3233e",
+          "#e63554",
+          "#ff5a76",
+          "#ff8aa0",
+          "#ffbac7",
+          "#ffe8ec"
+        ]
+      },
+      "alarm-coral-text": {
+        "role": "error",
+        "displayName": "Alarm Coral Text",
+        "canonical": "#ff7a90"
+      },
+      "pure-white": {
+        "role": "neutral",
+        "displayName": "Pure White",
+        "canonical": "#ffffff"
+      },
+      "on-primary": {
+        "role": "primary",
+        "displayName": "On-Primary",
+        "canonical": "#0b0b0f"
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "Now Playing song title only; × --fs-np-title."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Page titles (PageHeader, search)."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "List-row song titles; × --fs-title."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Modal copy, setting descriptions."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Artist lines, chips, tooltips; × --fs-artist."
+      },
+      "micro": {
+        "displayName": "Micro",
+        "purpose": "Tabbar labels under icons."
+      }
+    },
+    "shadows": [
+      {
+        "name": "floating-sheet",
+        "value": "0 -10px 40px rgba(0,0,0,0.5)",
+        "purpose": "Confirm modals and bottom sheets."
+      },
+      {
+        "name": "tooltip",
+        "value": "0 8px 24px rgba(0,0,0,0.35)",
+        "purpose": "KeyTip shortcut bubble."
+      },
+      {
+        "name": "knob",
+        "value": "0 1px 4px rgba(0,0,0,0.4)",
+        "purpose": "Scrubber knob bead."
+      }
+    ],
+    "motion": [
+      {
+        "name": "dur-quick",
+        "value": "160ms",
+        "purpose": "Glyph morphs, opacity crossfades."
+      },
+      {
+        "name": "dur-base",
+        "value": "240ms",
+        "purpose": "Progress/knob catch-up, general."
+      },
+      {
+        "name": "dur-slow",
+        "value": "320ms",
+        "purpose": "Cover reflow, sheet-scale settle."
+      },
+      {
+        "name": "ease-out-quint",
+        "value": "cubic-bezier(0.22, 1, 0.36, 1)",
+        "purpose": "Fast no-overshoot settle."
+      },
+      {
+        "name": "ease-spring",
+        "value": "cubic-bezier(0.34, 1.56, 0.64, 1)",
+        "purpose": "Gentle overshoot for tactile snaps."
+      },
+      {
+        "name": "ease-standard",
+        "value": "cubic-bezier(0.4, 0, 0.2, 1)",
+        "purpose": "Symmetric state change."
+      },
+      {
+        "name": "tap-bounce",
+        "value": "scale 1 → 0.94 → 1 over 220ms ease",
+        "purpose": "One-shot press feedback on every pressable (use:tapBounce)."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "md",
+        "value": "640px"
+      },
+      {
+        "name": "lg",
+        "value": "1024px",
+        "purpose": "Tabbar becomes 88px left rail."
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Round Button",
+      "kind": "button",
+      "refersTo": "button-primary-round",
+      "description": "Accent circle for the main live action (Nowbar play, search submit).",
+      "html": "<button class=\"ds-btn-round\" aria-label=\"Play\"><svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"currentColor\"><path d=\"M8 5v14l11-7z\"/></svg></button>",
+      "css": ".ds-btn-round { width: 40px; height: 40px; border-radius: 50%; border: none; background: var(--color-primary, #0abab5); color: var(--color-on-primary, #0b0b0f); display: grid; place-items: center; cursor: pointer; transition: background 160ms cubic-bezier(0.22,1,0.36,1), transform 220ms cubic-bezier(0.34,1.56,0.64,1); } .ds-btn-round:hover { background: var(--color-primary-hover, #09a49f); } .ds-btn-round:active { transform: scale(0.94); } .ds-btn-round:focus-visible { outline: 2px solid var(--color-text, #f4f4f6); outline-offset: 2px; }"
+    },
+    {
+      "name": "Hero Play Button",
+      "kind": "button",
+      "refersTo": "button-play-hero",
+      "description": "Inverted white circle; only on Now Playing.",
+      "html": "<button class=\"ds-btn-hero\" aria-label=\"Play\"><svg width=\"28\" height=\"28\" viewBox=\"0 0 24 24\" fill=\"currentColor\"><path d=\"M8 5v14l11-7z\"/></svg></button>",
+      "css": ".ds-btn-hero { width: 62px; height: 62px; border-radius: 50%; border: none; background: #fff; color: #000; display: grid; place-items: center; cursor: pointer; transition: transform 220ms cubic-bezier(0.34,1.56,0.64,1); } .ds-btn-hero:active { transform: scale(0.94); } .ds-btn-hero:focus-visible { outline: 2px solid var(--color-primary, #0abab5); outline-offset: 3px; }"
+    },
+    {
+      "name": "Sheet Button",
+      "kind": "button",
+      "refersTo": "button-sheet",
+      "description": "Full-width 48px action in modals and sheets; danger variant filled coral.",
+      "html": "<div style=\"display:flex;gap:8px\"><button class=\"ds-btn-sheet\">Cancel</button><button class=\"ds-btn-sheet ds-danger\">Delete</button></div>",
+      "css": ".ds-btn-sheet { flex: 1; min-height: 48px; border-radius: 12px; border: 1px solid var(--color-border, #888); background: var(--color-surface, #16161d); color: var(--color-text, #f4f4f6); font-size: 0.95rem; font-weight: 600; cursor: pointer; transition: transform 220ms cubic-bezier(0.34,1.56,0.64,1); } .ds-btn-sheet:hover { background: var(--color-surface-2, #1d1d27); } .ds-btn-sheet:active { transform: scale(0.97); } .ds-btn-sheet:focus-visible { outline: 2px solid var(--color-primary, #0abab5); outline-offset: 2px; } .ds-btn-sheet.ds-danger { background: #ff5a76; border-color: #ff5a76; color: #fff; }"
+    },
+    {
+      "name": "Search Input",
+      "kind": "input",
+      "refersTo": "input-search",
+      "description": "44px pill on raised slate.",
+      "html": "<input class=\"ds-input-search\" placeholder=\"Search songs, artists, albums\" />",
+      "css": ".ds-input-search { width: 100%; height: 44px; padding: 12px 16px; border-radius: 999px; background: var(--color-surface-2, #1d1d27); border: 1px solid var(--color-border, #888); color: var(--color-text, #f4f4f6); font-size: 0.9375rem; outline: none; } .ds-input-search::placeholder { color: var(--color-text-muted, #a0a0ad); } .ds-input-search:focus-visible { border-color: var(--color-primary, #0abab5); }"
+    },
+    {
+      "name": "Tag Chip",
+      "kind": "chip",
+      "refersTo": "chip-tag",
+      "description": "Pill chip; selected state turns text and border to the accent.",
+      "html": "<div style=\"display:flex;gap:6px\"><button class=\"ds-chip\">Mandopop</button><button class=\"ds-chip ds-on\">Cantopop</button></div>",
+      "css": ".ds-chip { font-size: 0.75rem; line-height: 1; padding: 6px 10px; border-radius: 999px; background: var(--color-surface-2, #1d1d27); color: var(--color-text-muted, #a0a0ad); border: 1px solid var(--color-border, #888); cursor: pointer; transition: color 150ms ease, border-color 150ms ease; } .ds-chip:hover, .ds-chip.ds-on { color: var(--color-primary, #0abab5); border-color: var(--color-primary, #0abab5); } .ds-chip:focus-visible { outline: 2px solid var(--color-primary, #0abab5); outline-offset: 2px; }"
+    },
+    {
+      "name": "List Row",
+      "kind": "custom",
+      "refersTo": "list-row",
+      "description": "44px song row: 40px art, title, muted artist, trailing ⋮.",
+      "html": "<div class=\"ds-row\"><div class=\"ds-art\"></div><div class=\"ds-meta\"><div class=\"ds-t\">光年之外</div><div class=\"ds-s\">G.E.M. 邓紫棋</div></div><button class=\"ds-opt\" aria-label=\"More\"><svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"currentColor\"><circle cx=\"12\" cy=\"5\" r=\"2\"/><circle cx=\"12\" cy=\"12\" r=\"2\"/><circle cx=\"12\" cy=\"19\" r=\"2\"/></svg></button></div>",
+      "css": ".ds-row { display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 4px; border-radius: 8px; color: var(--color-text, #f4f4f6); transition: background 120ms ease; } .ds-row:hover { background: var(--color-surface, #16161d); } .ds-art { width: 40px; height: 40px; border-radius: 6px; flex: none; background: linear-gradient(135deg, #0abab5, #1d1d27); } .ds-meta { flex: 1; min-width: 0; } .ds-t { font-size: 0.875rem; font-weight: 600; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .ds-s { font-size: 0.75rem; line-height: 1.3; color: var(--color-text-muted, #a0a0ad); } .ds-opt { width: 44px; height: 44px; border-radius: 50%; border: none; background: none; color: var(--color-text-muted, #a0a0ad); display: grid; place-items: center; cursor: pointer; } .ds-opt:hover { background: var(--color-surface, #16161d); color: var(--color-text, #f4f4f6); } .ds-opt:focus-visible { outline: 2px solid var(--color-primary, #0abab5); }"
+    },
+    {
+      "name": "Scrubber",
+      "kind": "custom",
+      "description": "4px track, accent fill, knob that swells to 1.7× under a drag.",
+      "html": "<div class=\"ds-scrub\" style=\"--f:0.42\"><span class=\"ds-fill\"></span><span class=\"ds-knob\"></span></div>",
+      "css": ".ds-scrub { position: relative; height: 14px; display: flex; align-items: center; cursor: pointer; } .ds-scrub::before { content: ''; position: absolute; left: 0; right: 0; height: 4px; border-radius: 4px; background: var(--color-text-muted, #a0a0ad); opacity: 0.3; } .ds-fill { position: absolute; left: 0; height: 4px; border-radius: 4px; background: var(--color-primary, #0abab5); width: calc(var(--f) * 100%); } .ds-knob { position: absolute; left: calc(var(--f) * 100%); width: 12px; height: 12px; border-radius: 50%; background: var(--color-text, #f4f4f6); transform: translateX(-50%); box-shadow: 0 1px 4px rgba(0,0,0,0.4); transition: transform 160ms cubic-bezier(0.34,1.56,0.64,1); } .ds-scrub:hover .ds-knob, .ds-scrub:active .ds-knob { transform: translateX(-50%) scale(1.7); }"
+    },
+    {
+      "name": "Tabbar",
+      "kind": "nav",
+      "refersTo": "tabbar",
+      "description": "56px bottom nav, icon over micro label; becomes 88px rail at 1024px.",
+      "html": "<nav class=\"ds-tabbar\"><a class=\"ds-tab ds-active\"><svg width=\"22\" height=\"22\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><path d=\"M3 10l9-7 9 7v10a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z\"/></svg>Home</a><a class=\"ds-tab\"><svg width=\"22\" height=\"22\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><circle cx=\"11\" cy=\"11\" r=\"7\"/><path d=\"M21 21l-4.3-4.3\"/></svg>Search</a><a class=\"ds-tab\"><svg width=\"22\" height=\"22\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><path d=\"M4 4v16M9 4v16M14 4l6 16\"/></svg>Library</a></nav>",
+      "css": ".ds-tabbar { display: flex; height: 56px; background: var(--color-bg, #0b0b0f); border-top: 1px solid var(--color-border, #888); } .ds-tab { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 0.625rem; color: var(--color-text-muted, #a0a0ad); text-decoration: none; cursor: pointer; transition: color 150ms ease; } .ds-tab:hover, .ds-tab.ds-active { color: var(--color-text, #f4f4f6); } .ds-tab:focus-visible { outline: 2px solid var(--color-primary, #0abab5); outline-offset: -2px; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Pocket Jukebox",
+    "overview": "openmusic is a jukebox that fits in a thumb's reach: you drop a coin (a tap) and the record plays. The chrome is a dark cabinet, near-black and almost silent, so the only things that glow are the album art, the lyrics and one signal colour. At rest, every control is flat and quiet: thin hairline borders, tonal slate layers, no ornament. When you touch a control it responds physically, with a press-in bounce, a spring settle, or a scrub knob that swells under your finger. Restraint at rest and give under the thumb are the two halves of the same machine.",
+    "keyCharacteristics": [
+      "Near-black cabinet, one signal accent, covers and lyrics as the only light sources.",
+      "Flat at rest, tactile on touch: `tapBounce` press, spring settles, a swelling scrub knob.",
+      "Depth through tonal slate steps and 1px hairlines; shadows only on things that float.",
+      "Pills and circles for anything you press; gentle 6–12px corners for anything you read.",
+      "Everything scales: text via root `rem` × `--fs-app`, covers via `--cover-scale`, home grid via `--home-grid-cols`."
+    ],
+    "rules": [
+      {
+        "name": "The One Signal Rule",
+        "body": "Only one accent exists on a screen, and it always means \"live, on, or go\". Never use the accent for decoration, headings or illustration.",
+        "section": "colors"
+      },
+      {
+        "name": "The Role-Not-Hex Rule",
+        "body": "Components read `var(--color-primary)` and the surface tokens, never a literal colour. The user can repaint the cabinet at runtime, and a hard-coded hex is the one thing that won't follow.",
+        "section": "colors"
+      },
+      {
+        "name": "The rem-Only Rule",
+        "body": "Every `font-size` is in `rem`, multiplied by its `--fs-*` variable. A px font size ignores the user's text-size setting, so never add one.",
+        "section": "typography"
+      },
+      {
+        "name": "The Clipped-Title-Moves Rule",
+        "body": "A title too long for its box scrolls (`use:marquee`) instead of truncating into nothing. This motion carries information, so it survives reduce-motion.",
+        "section": "typography"
+      },
+      {
+        "name": "The Flat-Until-It-Floats Rule",
+        "body": "Surfaces on the page never cast shadows. Only something that sits above the page (a sheet, tooltip or knob) gets one.",
+        "section": "elevation"
+      },
+      {
+        "name": "The Round-Means-Press Rule",
+        "body": "If a shape is fully round, it can be tapped. Readable content never uses a pill or a circle, except artist avatars, which are round to tell people apart from records.",
+        "section": "shapes"
+      }
+    ],
+    "dos": [
+      "**Do** reference `var(--color-primary)` and the surface tokens. Accent and theme change at runtime.",
+      "**Do** put text and icons on a primary fill in `var(--color-on-primary)`, never a literal `#fff`.",
+      "**Do** keep 44px minimum hit targets on rows, icon buttons and inputs.",
+      "**Do** add `use:tapBounce` to every new pressable surface.",
+      "**Do** use the motion tokens: `--dur-quick` (160ms), `--dur-base` (240ms), `--dur-slow` (320ms), with `--ease-out-quint` for settles and `--ease-spring` for tactile snaps.",
+      "**Do** write font sizes in `rem` multiplied by the matching `--fs-*` variable.",
+      "**Do** gate hover styles behind `@media (hover: hover)` so touch never gets stuck hover states.",
+      "**Do** give every cover slot a gradient fallback (`coverGradient`). A missing cover must never show a broken image."
+    ],
+    "donts": [
+      "**Don't** use a second accent colour or use the accent decoratively. Source brand colours stay inside source badges.",
+      "**Don't** put shadows on page-level surfaces. Use a tonal step or a hairline.",
+      "**Don't** make album or song art circular. Round is for buttons, chips and artist avatars.",
+      "**Don't** write a px font size.",
+      "**Don't** let motion that carries information (marquee, skeleton shimmer, loading spinners) stop under reduce-motion. Everything else must stop."
+    ]
+  }
+}
