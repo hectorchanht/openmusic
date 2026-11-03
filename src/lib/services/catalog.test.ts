@@ -163,21 +163,19 @@ describe('searchAll (DATA-03 fan-out)', () => {
 		expect(interleaved.map((t) => t.uid)).toEqual(['netease:dup', 'netease:other']);
 	});
 
-	it('interleaves round-robin in registry order (qq→joox→netease→kuwo)', async () => {
+	it('interleaves round-robin in PLAYBACK_ORDER (joox→kuwo→qq→netease)', async () => {
 		vi.spyOn(SOURCES.netease, 'search').mockResolvedValue([mk('netease', 'n1'), mk('netease', 'n2')]);
 		vi.spyOn(SOURCES.qq, 'search').mockResolvedValue([mk('qq', 'q1')]);
 		vi.spyOn(SOURCES.kuwo, 'search').mockResolvedValue([mk('kuwo', 'k1')]);
 		vi.spyOn(SOURCES.joox, 'search').mockResolvedValue([mk('joox', 'j1')]);
 
-		// interleave inherits the registry order (Object.keys(SOURCES)). History: Phase-26
-		// qq-first; 2026-08-31 kuwo demoted (dead upstream); the registry literal has since
-		// settled at qq → joox → netease → … → kuwo among these four tested sources.
+		// interleave inherits Object.keys(SOURCES) = PLAYBACK_ORDER (quick-261102-sqn).
 		const { interleaved } = await searchAll('x', 1, ALL);
 		expect(interleaved.map((t) => t.uid)).toEqual([
-			'qq:q1',
 			'joox:j1',
-			'netease:n1',
 			'kuwo:k1',
+			'qq:q1',
+			'netease:n1',
 			'netease:n2'
 		]);
 	});
@@ -246,12 +244,12 @@ describe('searchAll (D-04 TTL cache)', () => {
 
 	it('does NOT cache a result whose caller signal was aborted before it settled', async () => {
 		const ac = new AbortController();
-		const n = vi.spyOn(SOURCES.netease, 'search').mockResolvedValue([mk('netease', 'n1')]);
-		vi.spyOn(SOURCES.qq, 'search').mockResolvedValue([]);
+		const q = vi.spyOn(SOURCES.qq, 'search').mockResolvedValue([mk('qq', 'q1')]);
+		vi.spyOn(SOURCES.kuwo, 'search').mockResolvedValue([]);
 		vi.spyOn(SOURCES.joox, 'search').mockResolvedValue([]);
-		// kuwo is last in the stagger (registry order qq → joox → netease → kuwo), so every
+		// netease is last in the stagger (PLAYBACK_ORDER joox → kuwo → qq → netease), so every
 		// other adapter has already run when it aborts.
-		vi.spyOn(SOURCES.kuwo, 'search')
+		vi.spyOn(SOURCES.netease, 'search')
 			.mockImplementationOnce(async () => {
 				ac.abort();
 				return [];
@@ -261,7 +259,7 @@ describe('searchAll (D-04 TTL cache)', () => {
 		await searchAll('abortkw', 1, ALL, ac.signal);
 		await searchAll('abortkw', 1, ALL);
 
-		expect(n).toHaveBeenCalledTimes(2);
+		expect(q).toHaveBeenCalledTimes(2);
 	});
 
 	it('still caches an all-ok result even when every source is empty', async () => {
@@ -375,13 +373,13 @@ describe('searchAll (D-06 progressive onPartial)', () => {
 		const { perSource, interleaved } = await searchAll('noop', 1, ALL);
 
 		expect(perSource.map((p) => p.source).sort()).toEqual(['joox', 'kuwo', 'netease', 'qq']);
-		// interleave stays registry-ordered (qq → joox → netease → kuwo among the tested
-		// four) regardless of settle order
+		// interleave stays PLAYBACK_ORDER (joox → kuwo → qq → netease among the tested four)
+		// regardless of settle order
 		expect(interleaved.map((t) => t.uid)).toEqual([
-			'qq:q1',
 			'joox:j1',
-			'netease:n1',
-			'kuwo:k1'
+			'kuwo:k1',
+			'qq:q1',
+			'netease:n1'
 		]);
 	});
 
@@ -436,21 +434,21 @@ describe('searchAllUncached inter-source stagger (GAPLESS-PREFETCH)', () => {
 
 			const done = searchAll('staggerkw', 1, ALL);
 			// Let the synchronous fan-out launch + adapter[0]'s 0ms sleep flush.
-			// Registry order among the tested four is qq → joox → netease → kuwo, so
-			// adapter[0]=qq, [1]=joox, [2]=netease, [3]=kuwo.
+			// PLAYBACK_ORDER among the tested four is joox → kuwo → qq → netease, so
+			// adapter[0]=joox, [1]=kuwo, [2]=qq, [3]=netease (quick-261102-sqn).
 			await vi.advanceTimersByTimeAsync(0);
-			expect(q).toHaveBeenCalledTimes(1);
-			// adapter[1] (joox) must still be waiting on its SEARCH_STAGGER_MS sleep.
-			expect(j).not.toHaveBeenCalled();
+			expect(j).toHaveBeenCalledTimes(1);
+			// adapter[1] (kuwo) must still be waiting on its SEARCH_STAGGER_MS sleep.
+			expect(k).not.toHaveBeenCalled();
 
 			await vi.advanceTimersByTimeAsync(SEARCH_STAGGER_MS);
-			expect(j).toHaveBeenCalledTimes(1);
-			// netease at 2x, kuwo at 3x — still pending until their windows pass.
-			expect(n).not.toHaveBeenCalled();
+			expect(k).toHaveBeenCalledTimes(1);
+			// qq at 2x, netease at 3x — still pending until their windows pass.
+			expect(q).not.toHaveBeenCalled();
 
 			await vi.advanceTimersByTimeAsync(SEARCH_STAGGER_MS * 2);
+			expect(q).toHaveBeenCalledTimes(1);
 			expect(n).toHaveBeenCalledTimes(1);
-			expect(k).toHaveBeenCalledTimes(1);
 
 			const { perSource, interleaved } = await done;
 			expect(perSource.map((p) => p.source).sort()).toEqual([
@@ -459,12 +457,12 @@ describe('searchAllUncached inter-source stagger (GAPLESS-PREFETCH)', () => {
 				'netease',
 				'qq'
 			]);
-			// final membership matches the un-staggered registry-ordered (qq-first) interleave
+			// final membership matches the un-staggered PLAYBACK_ORDER interleave
 			expect(interleaved.map((t) => t.uid)).toEqual([
-				'qq:q1',
 				'joox:j1',
-				'netease:n1',
-				'kuwo:k1'
+				'kuwo:k1',
+				'qq:q1',
+				'netease:n1'
 			]);
 		} finally {
 			vi.useRealTimers();
@@ -481,10 +479,10 @@ describe('searchAllUncached inter-source stagger (GAPLESS-PREFETCH)', () => {
 
 			const ac = new AbortController();
 			const done = searchAll('abortstagger', 1, ALL, ac.signal);
-			// adapter[0] (qq since the 2026-08-31 kuwo demotion) fires immediately; the rest are
-			// still in their sleep windows.
+			// adapter[0] (joox, PLAYBACK_ORDER) fires immediately; the rest are still in their
+			// sleep windows.
 			await vi.advanceTimersByTimeAsync(0);
-			expect(q).toHaveBeenCalledTimes(1);
+			expect(j).toHaveBeenCalledTimes(1);
 			expect(n).not.toHaveBeenCalled();
 
 			// Abort BEFORE the later windows elapse — they must be skipped.
@@ -494,7 +492,7 @@ describe('searchAllUncached inter-source stagger (GAPLESS-PREFETCH)', () => {
 
 			expect(n).not.toHaveBeenCalled();
 			expect(k).not.toHaveBeenCalled();
-			expect(j).not.toHaveBeenCalled();
+			expect(q).not.toHaveBeenCalled();
 		} finally {
 			vi.useRealTimers();
 		}
@@ -720,48 +718,49 @@ describe('resolveNameStub — registry-first single-source name resolution (RESO
 	// debug/upnext-diverse-fallback-kuwo-dead (2026-08-31): the floor head moved kuwo → qq
 	// (kuwo's upstream cert expired, every /api/kuwo/* 526s). The CONTRACT under test is unchanged:
 	// search the FIRST enabled source only, stop at the first hit, never fan out.
-	it('happy path: searches the FIRST source (qq) ONLY and returns a real playable Track', async () => {
+	// quick-261102-sqn: the walk is PLAYBACK_ORDER — joox first, then kuwo, kugou, qq, netease…
+	it('happy path: searches the FIRST source (joox) ONLY and returns a real playable Track', async () => {
 		stubAllEmpty();
-		const qqCand = mk('qq', 'q1', 1, { artist: 'Jay', title: 'Blue' });
-		const qqSearch = vi.spyOn(SOURCES.qq, 'search').mockResolvedValue([qqCand]);
-		// qq resolves playable WITH an lrc so the cross-source lyric fallback never fires (which
+		const jxCand = mk('joox', 'j1', 1, { artist: 'Jay', title: 'Blue' });
+		const jxSearch = vi.spyOn(SOURCES.joox, 'search').mockResolvedValue([jxCand]);
+		// joox resolves playable WITH an lrc so the cross-source lyric fallback never fires (which
 		// would otherwise search other sources and defeat the "first source only" assertion).
-		vi.spyOn(SOURCES.qq, 'resolve').mockResolvedValue({
-			...qqCand,
+		vi.spyOn(SOURCES.joox, 'resolve').mockResolvedValue({
+			...jxCand,
 			detailsLoaded: true,
-			audioUrl: 'https://cdn/qq.flac',
+			audioUrl: 'https://cdn/joox.flac',
 			lrc: '[00:01]x'
 		});
 
 		const out = await resolveNameStub('Jay', 'Blue');
 
-		expect(out?.uid).toBe('qq:q1');
-		expect(out?.source).toBe('qq');
-		expect(out?.audioUrl).toBe('https://cdn/qq.flac');
-		// SINGLE-SOURCE + stop-at-first-hit: qq searched exactly once; netease/kuwo never touched.
-		expect(qqSearch).toHaveBeenCalledOnce();
-		expect(SOURCES.netease.search).not.toHaveBeenCalled();
+		expect(out?.uid).toBe('joox:j1');
+		expect(out?.source).toBe('joox');
+		expect(out?.audioUrl).toBe('https://cdn/joox.flac');
+		// SINGLE-SOURCE + stop-at-first-hit: joox searched exactly once; nothing later touched.
+		expect(jxSearch).toHaveBeenCalledOnce();
 		expect(SOURCES.kuwo.search).not.toHaveBeenCalled();
+		expect(SOURCES.qq.search).not.toHaveBeenCalled();
 	});
 
-	it('advances to netease (single-source) when qq misses', async () => {
+	it('advances to kuwo (single-source) when joox misses', async () => {
 		stubAllEmpty();
-		vi.spyOn(SOURCES.qq, 'search').mockResolvedValue([]); // floor head dry
-		const neCand = mk('netease', 'n1', 1, { artist: 'Jay', title: 'Blue' });
-		const neSearch = vi.spyOn(SOURCES.netease, 'search').mockResolvedValue([neCand]);
-		vi.spyOn(SOURCES.netease, 'resolve').mockResolvedValue({
-			...neCand,
+		vi.spyOn(SOURCES.joox, 'search').mockResolvedValue([]); // floor head dry
+		const kwCand = mk('kuwo', 'k1', 1, { artist: 'Jay', title: 'Blue' });
+		const kwSearch = vi.spyOn(SOURCES.kuwo, 'search').mockResolvedValue([kwCand]);
+		vi.spyOn(SOURCES.kuwo, 'resolve').mockResolvedValue({
+			...kwCand,
 			detailsLoaded: true,
-			audioUrl: 'https://cdn/ne.mp3',
+			audioUrl: 'https://cdn/kw.mp3',
 			lrc: '[00:01]x'
 		});
 
 		const out = await resolveNameStub('Jay', 'Blue');
 
-		expect(out?.uid).toBe('netease:n1');
-		expect(neSearch).toHaveBeenCalledOnce();
-		// kuwo is AFTER netease in the registry order → never reached once netease hits.
-		expect(SOURCES.kuwo.search).not.toHaveBeenCalled();
+		expect(out?.uid).toBe('kuwo:k1');
+		expect(kwSearch).toHaveBeenCalledOnce();
+		// qq is AFTER kuwo in PLAYBACK_ORDER → never reached once kuwo hits.
+		expect(SOURCES.qq.search).not.toHaveBeenCalled();
 	});
 
 	it('returns null (never throws) when every source misses', async () => {
@@ -917,25 +916,25 @@ describe('ensureTrackDetails — crossSourceLyric is single-source (RESOLVE-02)'
 			audioUrl: 'https://cdn/joox.mp3',
 			lrc: null
 		});
-		// qq is FIRST in the walk (joox is the own source → skipped) and yields a matching candidate.
-		const qqCand = mk('qq', 'q9', 1, { artist: 'Jay', title: 'Rain' });
-		const qqSearch = vi.spyOn(SOURCES.qq, 'search').mockResolvedValue([qqCand]);
+		// kuwo is FIRST in the walk (PLAYBACK_ORDER; joox is the own source → skipped).
+		const kwCand = mk('kuwo', 'k9', 1, { artist: 'Jay', title: 'Rain' });
+		const kwSearch = vi.spyOn(SOURCES.kuwo, 'search').mockResolvedValue([kwCand]);
 		const neSearch = vi.spyOn(SOURCES.netease, 'search').mockResolvedValue([]);
-		const kuwoSearch = vi.spyOn(SOURCES.kuwo, 'search').mockResolvedValue([]);
-		const qqResolve = vi
-			.spyOn(SOURCES.qq, 'resolve')
-			.mockResolvedValue({ ...qqCand, detailsLoaded: true, audioUrl: 'https://cdn/qq.flac', lrc: '[00:02]cross' });
+		const qqSearch = vi.spyOn(SOURCES.qq, 'search').mockResolvedValue([]);
+		const kwResolve = vi
+			.spyOn(SOURCES.kuwo, 'resolve')
+			.mockResolvedValue({ ...kwCand, detailsLoaded: true, audioUrl: 'https://cdn/kw.flac', lrc: '[00:02]cross' });
 
 		const out = await ensureTrackDetails(primary);
 
 		expect(out.audioUrl).toBe('https://cdn/joox.mp3'); // primary audio preserved
 		expect(out.lrc).toBe('[00:02]cross'); // lyric copied from the single-source candidate
-		// SINGLE-source, stop-at-first: qq searched once; netease/kuwo never searched (no fan-out).
-		expect(qqSearch).toHaveBeenCalledOnce();
+		// SINGLE-source, stop-at-first: kuwo searched once; qq/netease never searched (no fan-out).
+		expect(kwSearch).toHaveBeenCalledOnce();
 		expect(neSearch).not.toHaveBeenCalled();
-		expect(kuwoSearch).not.toHaveBeenCalled();
+		expect(qqSearch).not.toHaveBeenCalled();
 		// bounded: at most ONE candidate resolved.
-		expect(qqResolve).toHaveBeenCalledOnce();
+		expect(kwResolve).toHaveBeenCalledOnce();
 	});
 });
 
@@ -1027,10 +1026,10 @@ describe('collectLyricCandidates — every source with an LRC (quick-260919-1we)
 
 	it('preserves REGISTRY order, not completion order (a parallel fan-out settles out of order)', async () => {
 		const search = silenceAllSearches();
-		// Deliberately invert completion order against registry order (qq, netease, kuwo — the
-		// post-2026-08-31 demotion): kuwo answers instantly, qq answers last. Positional Promise.all
-		// is what keeps the picker rows stable, not the order the network happened to reply in.
-		const delays: Partial<Record<SourceId, number>> = { qq: 30, netease: 15, kuwo: 0 };
+		// Deliberately invert completion order against PLAYBACK_ORDER (kuwo, qq, netease):
+		// netease answers instantly, kuwo answers last. Positional Promise.all is what keeps the
+		// picker rows stable, not the order the network happened to reply in.
+		const delays: Partial<Record<SourceId, number>> = { kuwo: 30, qq: 15, netease: 0 };
 		for (const id of ['qq', 'netease', 'kuwo'] as SourceId[]) {
 			search[id]!.mockImplementation(
 				async () =>
@@ -1043,7 +1042,7 @@ describe('collectLyricCandidates — every source with an LRC (quick-260919-1we)
 			);
 		}
 		const out = await collectLyricCandidates('Jay', 'Rain', new AbortController().signal);
-		expect(out.map((c) => c.source)).toEqual(['qq', 'netease', 'kuwo']);
+		expect(out.map((c) => c.source)).toEqual(['kuwo', 'qq', 'netease']);
 	});
 
 	it('never searches a LYRICLESS_SOURCES member', async () => {
@@ -1284,29 +1283,25 @@ describe('ensureTrackDetails — edge resolve cache (32-D-10 / 32-D-10b)', () =>
 	// song than the one the user picked. A MID entry is different in kind: switching a mid-less track
 	// onto qq IS the phase's purpose, and a matchKey collision is repaired by the retained POST bust.
 	describe('32-D-10: a mid hit is a shortcut PAST the qq search, not a finished resolve', () => {
-		it('rewrites a name-stub onto qq and completes it in ONE qq resolve, with NO lrcUnresolved', async () => {
+		// quick-261102-sqn (DECISIONS.md §5, product call 2026-11-03): the qq-only cache obeys
+		// PLAYBACK_ORDER — it never leads for a name stub (whose walk IS that order) nor for a row
+		// whose own source outranks qq. These replace 32-D-10's "rewrites a name-stub onto qq".
+		it('a name stub never reads the edge cache', async () => {
+			spyAllSources();
+			readResolveCache.mockResolvedValue(URL_HIT);
+			await ensureTrackDetails(nameStub());
+			expect(readResolveCache).not.toHaveBeenCalled();
+		});
+
+		it('a tapped joox/kuwo/kugou row is never re-pointed at qq', async () => {
 			const spies = spyAllSources();
-			spies.resolve.qq?.mockImplementation(async (t: Track) => qqComplete(t));
-			readResolveCache.mockResolvedValue(HIT);
-
-			const out = await ensureTrackDetails(nameStub());
-
-			expect(out.source).toBe('qq');
-			expect(out.songid).toBe(MID);
-			expect(out.uid).toBe(`qq:${MID}`);
-			expect(out.qqId).toBe(MID);
-			expect(out.songMid).toBe(MID);
-			expect(out.audioUrl).toBe('https://cdn.qq/flac.flac');
-			// A mid hit is a COMPLETE resolve — url AND lyrics AND duration in one call — so the
-			// 31-D-08 lyric re-resolve flag is not needed on this path and must NOT be set.
-			expect(out.lrc).toBe('[00:01]hi');
-			expect(out.duration).toBe(231);
-			expect(out.lrcUnresolved).toBeUndefined();
-			// The whole search walk is skipped — that is the saved call 32-D-10 exists for.
-			for (const id of Object.keys(SOURCES) as SourceId[]) {
-				expect(spies.search[id]).not.toHaveBeenCalled();
+			readResolveCache.mockResolvedValue(URL_HIT);
+			for (const src of ['joox', 'kuwo', 'kugou'] as SourceId[]) {
+				const out = await ensureTrackDetails(mk(src, 'x1', 1, { artist: 'Jay', title: 'Blue (Live)' }));
+				expect(out.source).toBe(src);
+				expect(spies.resolve[src]).toHaveBeenCalled();
 			}
-			expect(spies.resolve.qq).toHaveBeenCalledOnce();
+			expect(readResolveCache).not.toHaveBeenCalled();
 		});
 
 		it('rewrites a source-bearing MID-LESS track onto qq (the 31 equality gate is superseded)', async () => {
@@ -1680,7 +1675,7 @@ describe('ensureTrackDetails — edge resolve cache (32-D-10 / 32-D-10b)', () =>
 				ac.abort(); // superseded mid-lookup (a newer play bumped the generation)
 				return null;
 			});
-			const t = mk('kuwo', 'k1');
+			const t = mk('netease', 'k1');
 
 			const out = await ensureTrackDetails(t, ac.signal);
 
@@ -1693,7 +1688,7 @@ describe('ensureTrackDetails — edge resolve cache (32-D-10 / 32-D-10b)', () =>
 			const ac = new AbortController();
 			readResolveCache.mockResolvedValue(null);
 
-			await ensureTrackDetails(mk('kuwo', 'k1', 1, { artist: 'Jay', title: 'Blue' }), ac.signal);
+			await ensureTrackDetails(mk('netease', 'k1', 1, { artist: 'Jay', title: 'Blue' }), ac.signal);
 
 			expect(readResolveCache).toHaveBeenCalledTimes(1);
 			expect(readResolveCache).toHaveBeenCalledWith('Jay', 'Blue', ac.signal);
@@ -1726,7 +1721,7 @@ describe('ensureTrackDetails — edge resolve cache (32-D-10 / 32-D-10b)', () =>
 			readResolveCache.mockResolvedValue(HIT);
 
 			const out = await ensureTrackDetails(
-				mk('kuwo', 'k1', 1, { lrcUnresolved: true, lrc: '[00:01]hi' })
+				mk('netease', 'k1', 1, { lrcUnresolved: true, lrc: '[00:01]hi' })
 			);
 
 			expect(readResolveCache).toHaveBeenCalledTimes(1); // the bypass is scoped to a LYRIC re-resolve

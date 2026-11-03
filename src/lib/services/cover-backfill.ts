@@ -119,6 +119,7 @@ import { onlySource, SOURCES } from '$lib/sources/registry';
 import { createHealthGate } from '$lib/services/source-health';
 import { combinedSignal } from '$lib/services/abort-signal';
 import { foldScriptReady } from '$lib/services/zh-convert';
+import { COVER_ORDER, COVER_SKIP, COVER_RACE_TIERS, PRIORITY_WINDOW_MS } from '$lib/sources/source-order';
 import type { Track } from '$lib/sources/types';
 import { hasHttpsScheme } from './url-safety';
 
@@ -351,25 +352,24 @@ async function resolveTrackChain(
 		// All cover sources launch at once; the highest-priority valid cover wins.
 		// Priority (user 2026-10-21): iTunes / JOOX / Migu 》 rest.
 		// A 300ms priority window lets a slower accurate source beat a faster inaccurate one.
-		const PRIORITY_WINDOW_MS = 300;
 		const results = new Map<string, string>();
 
 		const tasks: Array<{ key: string; fn: () => Promise<string | null> }> = [
 			{ key: 'itunes', fn: () => tier(() => itunesSongCover(qArtist, qTitle, signal, DISPLAY_ARTWORK_SIZE)) },
 			{
-				key: 'joox-migu',
+				key: 'cn',
 				fn: async () => {
-					// CN tier, but prefer JOOX/Migu covers specifically (user: most accurate).
+					// CN tier, walked in the registry COVER_ORDER (user: JOOX/Migu most accurate).
 					const r = await searchAll(`${qArtist} ${qTitle}`, 3, { qq: false, ytmusic: false }, signal);
 					if (signal?.aborted) return null;
-					// quick-261021-cov5 (user): gdnetease + suyin seldom have good covers —
-					// exclude them from auto-resolve too, not just the picker.
-					const tracks = r.interleaved.filter((t) => t.source !== 'gdnetease' && t.source !== 'suyin');
-					// Prefer JOOX, then Migu, then dedupeBest's pick.
-					const joox = tracks.find((t) => t.source === 'joox' && t.cover);
-					if (joox?.cover) return joox.cover;
-					const migu = tracks.find((t) => t.source === 'migu' && t.cover);
-					if (migu?.cover) return migu.cover;
+					// quick-261021-cov5 (user): COVER_SKIP sources seldom have good covers —
+					// excluded from auto-resolve too, not just the picker.
+					const tracks = r.interleaved.filter((t) => !COVER_SKIP.includes(t.source));
+					// quick-261102-sqn: COVER_ORDER, then dedupeBest's pick (no local joox/migu literal).
+					for (const src of COVER_ORDER) {
+						const hit = tracks.find((t) => t.source === src && t.cover);
+						if (hit?.cover) return hit.cover;
+					}
 					return dedupeBest(tracks, settings.preferredSource)[0]?.cover ?? null;
 				}
 			},
@@ -378,7 +378,6 @@ async function resolveTrackChain(
 			{ key: 'ytmusic', fn: () => tier(() => ytmusicSongCover(qArtist, qTitle, signal)) },
 		];
 
-		const priorityOrder = ['itunes', 'joox-migu', 'qq', 'deezer', 'ytmusic'];
 
 		await new Promise<void>((resolve) => {
 			let remaining = tasks.length;
@@ -418,7 +417,7 @@ async function resolveTrackChain(
 
 		if (signal?.aborted) return null;
 		// Pick highest-priority valid cover.
-		for (const key of priorityOrder) {
+		for (const key of COVER_RACE_TIERS) { // quick-261102-sqn: the registry race table
 			const cover = results.get(key);
 			if (cover && hasHttpsScheme(cover)) return cover;
 		}

@@ -4,6 +4,7 @@
 // NO source is ever named here. All DOM/render calls (dom.searchStatus,
 // renderMiniSearchList, playFromList) are dropped — those are Phase 4.
 import { SOURCES, getEnabledAdapters, onlySource, isAutoResolveEligible } from '$lib/sources/registry';
+import { playbackRank } from '$lib/sources/source-order';
 import { makeUid, type SourceId, type Track, type SettledSourceResult } from '$lib/sources/types';
 import type { DefaultQuality } from '$lib/stores/settings.svelte';
 import { sleep } from '$lib/proxy/http';
@@ -240,7 +241,7 @@ function interleave(perSource: SettledSourceResult[]): Track[] {
 /**
  * RESOLVE-02 (POLICY.md / spikes 001+002+004): resolve a sourceless name-only stub (`{artist,title}`
  * — the shape Plan 26-03's Last.fm `track.getSimilar` Up-Next emits) to a playable Track by walking
- * the kuwo-FIRST source order ONE source at a time. For each source: a SINGLE-source `searchAll`
+ * the PLAYBACK_ORDER (quick-261102-sqn) ONE source at a time. For each source: a SINGLE-source `searchAll`
  * (`onlySource` prefs — never an all-enabled fan-out), rank the RAW results via `rankAcceptable`
  * (quick-261101-ring1 — no dedupeBest collapse), adopt only a
  * candidate that is the SAME song via `sameSongKey` (WR-06 — a fuzzy upstream search can return a
@@ -248,7 +249,7 @@ function interleave(perSource: SettledSourceResult[]): Track[] {
  * Never-throws (per-source failures are swallowed), AbortSignal-honoring (bails after every await),
  * and stops at the first playable hit — so ~all plays resolve in ONE kuwo call (the ~59→~3 floor).
  *
- * 32-D-01: this walk stays KUWO-FIRST on purpose. It is the FAILURE path, and qq SEARCH is the
+ * 32-D-01: this walk follows PLAYBACK_ORDER, not qq-first, on purpose. It is the FAILURE path, and qq SEARCH is the
  * flaky half of qq (0 rows intermittently under load, no throw), so leading with it here would make
  * the fallback less reliable. qq-first arrives on the paths that matter — dedupe rank (32-D-08) and
  * the edge mid cache (32-D-10) — never by reordering this walk.
@@ -262,7 +263,7 @@ export async function resolveNameStub(
 	const query = `${artist} ${title}`.trim();
 	if (!query) return null;
 	const sig = signal ?? new AbortController().signal;
-	// kuwo-first order inherited from the registry (RESOLVE-01 reorder) — no source named here.
+	// PLAYBACK_ORDER inherited from the registry (quick-261102-sqn) — no source named here.
 	// Plan 27-04 (YT-RESILIENCE-01): exclude sources flagged off the auto-resolve floor
 	// (autoResolveEligible === false → ytmusic) so an Up-Next name stub NEVER auto-resolves to a
 	// searchable-but-off-the-hot-path source. Registry-flag-driven — no source named here either.
@@ -463,7 +464,13 @@ async function resolveTrackDetails(
 	// condition moved — otherwise the Activity-log signal would silently change meaning.
 	const lyricBypass = Boolean(track.lrcUnresolved && !track.lrc);
 	const needsMidLookup = !hasQqMid && !lyricBypass;
-	const shouldReadCache = !lyricBypass && (!hasQqMid || tier === 'lossless');
+	// quick-261102-sqn (DECISIONS.md §5, product call 2026-11-03): the qq-only edge cache OBEYS
+	// PLAYBACK_ORDER. It may only lead for a track whose own source does not outrank qq — a
+	// joox/kuwo/kugou row the user tapped is resolved on its own source, never silently re-pointed
+	// at qq (that swap also turned a tapped "X (Live)" into qq's studio cut) — and never for a
+	// name stub, whose walk order is PLAYBACK_ORDER itself.
+	const cacheMayLead = playbackRank(track.source) <= playbackRank('qq') && !track.resolveByName;
+	const shouldReadCache = cacheMayLead && !lyricBypass && (!hasQqMid || tier === 'lossless');
 	if (needsMidLookup) {
 		// Research Open Question #2: nobody knows how often a qq mid is actually absent now that
 		// 32-D-08 promoted qq in dedupe. ONE log line per cold mid-less resolve turns that guess into
@@ -560,7 +567,7 @@ async function resolveTrackDetails(
 	// ─────────────────────────────────────────────────────────────────────────────────────────────
 
 	// RESOLVE-02: a lazy name-only stub (Plan 26-03's Up-Next) carries the `resolveByName` marker and
-	// no real source/songid. Resolve it kuwo-first through ONE source at a time via resolveNameStub —
+	// no real source/songid. Resolve it in PLAYBACK_ORDER through ONE source at a time via resolveNameStub —
 	// NEVER dispatch SOURCES[placeholder].resolve on it. On a null return (every source missed or the
 	// signal aborted) fall through by returning the unresolved stub: the caller (player.play) treats
 	// an audioUrl-less result as a failed resolve and routes to its existing error/fallback path
@@ -606,7 +613,7 @@ async function resolveTrackDetails(
 /**
  * quick-260629-nyl Task 3 + RESOLVE-02: best-effort cross-source lyric lookup for a track that
  * resolved with no lrc. Reworked from a single all-enabled `searchAll` fan-out to a SINGLE-SOURCE
- * kuwo-first WALK (POLICY.md): step through `getEnabledAdapters({})` order, SKIP the track's own
+ * PLAYBACK_ORDER WALK (quick-261102-sqn): step through `getEnabledAdapters({})` order, SKIP the track's own
  * source (already resolved lyric-less) and every `LYRICLESS_SOURCES` (no upstream lyrics), and for
  * each remaining source issue ONE single-source `searchAll` (`onlySource` prefs — never all 7). Per
  * step, pick the best name-matching candidate (`matchKey` identity + `scoreMatch` ranking, no
@@ -634,7 +641,7 @@ async function lyricWalk(
 		const query = `${artist} ${title}`.trim();
 		const wantKey = matchKey(artist, title);
 		const q = { artist, title };
-		// kuwo-first order inherited from the registry (RESOLVE-01) — one lyric-capable source per step.
+		// PLAYBACK_ORDER inherited from the registry (quick-261102-sqn) — one lyric-capable source per step.
 		const order = getEnabledAdapters({}).map((a) => a.id);
 		for (const src of order) {
 			if (signal.aborted) return null;

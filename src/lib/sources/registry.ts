@@ -18,6 +18,8 @@ import { bilibili } from './bilibili';
 import { ccmixter } from './ccmixter';
 import { ytmusic } from './ytmusic';
 import { settings } from '$lib/stores/settings.svelte';
+import { PLAYBACK_ORDER, TIER_1_SIZE } from './source-order';
+export { PLAYBACK_ORDER, COVER_ORDER, COVER_SKIP, COVER_RACE_TIERS, PRIORITY_WINDOW_MS, playbackRank } from './source-order';
 
 // Enumeration ORDER is load-bearing (D-08 / POLICY.md, spikes 001+004): getEnabledAdapters walks
 // SOURCES in this order, and fallbackOrder (fallback.ts) + resolveNameStub/crossSourceLyric
@@ -71,7 +73,15 @@ import { settings } from '$lib/stores/settings.svelte';
 // versions and suyin returns a DJ版 for the same query. Trying JOOX early in
 // the fallback walk means its authentic version wins over other pipes'
 // variant versions.
-export const SOURCES: Record<SourceId, SourceAdapter> = { qq, joox, netease, gdnetease, kuwo, suyin, kugou, migu, fivesing, jamendo, audius, archive, ccmixter, bilibili, ytmusic };
+// quick-261102-sqn (DECISIONS.md §5): the history above explains how the order evolved; the
+// ORDER ITSELF now lives in source-order.ts PLAYBACK_ORDER (product truth: joox, kuwo, kugou, qq,
+// netease, migu, suyin last). SOURCES is BUILT from that table, so object-key order — which every
+// getEnabledAdapters consumer (search fan-out, interleave, name-stub walk, lyric walk, fallback
+// base) inherits — can never drift from it.
+const ADAPTERS: Record<SourceId, SourceAdapter> = { qq, joox, netease, gdnetease, kuwo, suyin, kugou, migu, fivesing, jamendo, audius, archive, ccmixter, bilibili, ytmusic };
+export const SOURCES: Record<SourceId, SourceAdapter> = Object.fromEntries(
+	PLAYBACK_ORDER.map((id) => [id, ADAPTERS[id]])
+) as Record<SourceId, SourceAdapter>;
 
 /**
  * The enabled adapters for a search fan-out. Precedence (highest first):
@@ -112,14 +122,12 @@ export function onlySource(id: SourceId): Partial<Record<SourceId, boolean>> {
 }
 
 // --- SPEED TIERS (quick-261020-speed) ---------------------------------------------------------
-// Tier-1: the 5 sources that cover ~95% of plays (benchmark 2026-10-20, 20 songs):
-// kuwo (85% official, most authentic), qq (65%, primary), joox (50% + FLAC, now #2),
-// netease (60%), suyin (100% hit, fastest resolve at 2.9s).
-// Discovery and fallback search tier-1 first; only if no official version is found do they
-// expand to the full set. This cuts the typical search fan-out from 14 sources to 5
-// (~5s → ~2s) without losing coverage — the tail sources are for obscure/long-tail songs.
-
-export const TIER_1_SOURCES: readonly SourceId[] = ['qq', 'joox', 'kuwo', 'netease', 'suyin'] as const;
+// Discovery and fallback search tier-1 first; only if no official version is found do they expand
+// to the full set (~5s → ~2s). quick-261102-sqn: tier-1 is DERIVED — the first TIER_1_SIZE
+// auto-resolvable sources of PLAYBACK_ORDER (was a hand-kept qq/joox/kuwo/netease/suyin literal).
+export const TIER_1_SOURCES: readonly SourceId[] = PLAYBACK_ORDER.filter(
+	(id) => ADAPTERS[id].autoResolveEligible !== false
+).slice(0, TIER_1_SIZE);
 
 /**
  * A `prefs` object that enables ONLY the tier-1 sources.

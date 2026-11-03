@@ -11,22 +11,11 @@ import { makeUid, type SourceId } from './types';
 // request 526s. Holding the primary seat, it made similar.ts's single-source fallbacks return
 // empty for every track. qq takes the floor (proven working), netease is #2, kuwo stays in the
 // registry at #3 so restoring it is a one-literal move if the cert is renewed.
+// quick-261102-sqn (DECISIONS.md §5): SOURCES is built from PLAYBACK_ORDER (product truth).
 const EXPECTED_KEYS: SourceId[] = [
-	'qq',
-	'joox',
-	'netease',
-	'gdnetease',
-	'kuwo',
-	'suyin',
-	'kugou',
-	'migu',
-	'fivesing',
-	'jamendo',
-	'audius',
-	'archive',
-	'ccmixter',
-	'bilibili',
-	'ytmusic'
+	'joox', 'kuwo', 'kugou', 'qq', 'netease', 'gdnetease', 'migu',
+	'fivesing', 'jamendo', 'audius', 'suyin',
+	'archive', 'ccmixter', 'bilibili', 'ytmusic'
 ];
 
 describe('SOURCES registry (DATA-04 — single enumeration point)', () => {
@@ -43,7 +32,7 @@ describe('SOURCES registry (DATA-04 — single enumeration point)', () => {
 	// quick-261101-ccm: ccmixter sits right after archive (off-floor legal catalog).
 	// quick-261020-suyin: suyin (second Kuwo pipe) sits right after kuwo.
 	// quick-261020-gdnt: gdnetease (second Netease pipe) sits right after netease.
-	it('enumerates exactly qq,netease,kuwo,joox,kugou,migu,fivesing,jamendo,audius,archive,bilibili,ytmusic (qq-first floor; ytmusic last)', () => {
+	it('enumerates every source in PLAYBACK_ORDER (joox first, suyin last of the auto floor, ytmusic last)', () => {
 		expect(Object.keys(SOURCES)).toEqual(EXPECTED_KEYS);
 	});
 

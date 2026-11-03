@@ -30,11 +30,13 @@ vi.mock('$lib/sources/registry', () => {
 		// behaviour over the mocked SOURCES flags (like onlySource below), so the ytmusic-exclusion
 		// assertions still prove the flag is what keeps it off the failover floor.
 		isAutoResolveEligible: (id: string) => SOURCES[id].autoResolveEligible !== false,
+		// quick-261102-sqn: getEnabledAdapters returns PLAYBACK_ORDER (registry SOURCES is built
+		// from it) — mirrored here: joox → kuwo → qq → netease, ytmusic last.
 		getEnabledAdapters: vi.fn(() => [
+			{ id: 'joox' },
 			{ id: 'kuwo' },
 			{ id: 'qq' },
 			{ id: 'netease' },
-			{ id: 'joox' },
 			{ id: 'ytmusic' }
 		]),
 		// onlySource moved to the registry (it derives from SOURCES and is the counterpart to
@@ -79,13 +81,13 @@ function mk(source: SourceId, songid: string, artist: string, title: string, aud
 
 describe('fallbackOrder — attempted-source exclusion (CR-03)', () => {
 	it('drops the failed source', () => {
-		// fb2 pass-rate order (kuwo → joox → qq → netease) minus the failed source.
-		expect(fallbackOrder('netease')).toEqual(['kuwo', 'joox', 'qq']);
+		// PLAYBACK_ORDER (joox → kuwo → qq → netease) minus the failed source.
+		expect(fallbackOrder('netease')).toEqual(['joox', 'kuwo', 'qq']);
 	});
 
 	it('also drops every source in the attempted set', () => {
 		const attempted = new Set<SourceId>(['netease', 'qq']);
-		expect(fallbackOrder('netease', undefined, attempted)).toEqual(['kuwo', 'joox']);
+		expect(fallbackOrder('netease', undefined, attempted)).toEqual(['joox', 'kuwo']);
 	});
 
 	it('empties the order once all sources have been attempted (→ total failure upstream)', () => {
@@ -99,19 +101,18 @@ describe('fallbackOrder — attempted-source exclusion (CR-03)', () => {
 	});
 });
 
-describe('fallbackOrder — kuwo-first resolve floor (RESOLVE-01, POLICY.md)', () => {
-	it('defaults to kuwo FIRST when no preferred source is set', () => {
-		expect(fallbackOrder('netease', undefined, new Set())[0]).toBe('kuwo');
+describe('fallbackOrder — PLAYBACK_ORDER floor (quick-261102-sqn)', () => {
+	it('defaults to joox FIRST when no preferred source is set', () => {
+		expect(fallbackOrder('netease', undefined, new Set())[0]).toBe('joox');
 	});
 
 	it('walks joox → qq → netease after a kuwo failure with no preferred source', () => {
-		// kuwo just failed → dropped; the rest follow the fb2 pass-rate order (joox's tier 1
-		// outranks the tier-2 pair, whose registry order is preserved by the stable sort).
+		// kuwo just failed → dropped; the rest follow PLAYBACK_ORDER.
 		expect(fallbackOrder('kuwo', undefined, new Set())).toEqual(['joox', 'qq', 'netease']);
 	});
 
-	it('an explicit user preferred source still wins over the kuwo default', () => {
-		// preferred=qq is hoisted first even though kuwo is the registry floor.
+	it('an explicit user preferred source still wins over the floor', () => {
+		// preferred=qq is hoisted first even though joox leads PLAYBACK_ORDER.
 		expect(fallbackOrder('kuwo', 'qq', new Set())[0]).toBe('qq');
 	});
 });
@@ -125,8 +126,8 @@ describe('fallbackOrder — ytmusic off the hot path (27-04, YT-RESILIENCE-01)',
 	});
 
 	it('a FAILED ytmusic track still falls FORWARD to the unchanged mainstream floor', () => {
-		// ytmusic just failed → the fb2 floor (kuwo → joox → qq → netease), ytmusic itself absent.
-		expect(fallbackOrder('ytmusic')).toEqual(['kuwo', 'joox', 'qq', 'netease']);
+		// ytmusic just failed → the PLAYBACK_ORDER floor, ytmusic itself absent.
+		expect(fallbackOrder('ytmusic')).toEqual(['joox', 'kuwo', 'qq', 'netease']);
 	});
 
 	it('excludes ytmusic even with a preferred source set (flag beats enablement)', () => {

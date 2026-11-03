@@ -17,6 +17,7 @@ import {
 	isAutoAcceptableArtist
 } from '$lib/services/song-variant';
 import { getEnabledAdapters, onlySource, isAutoResolveEligible } from '$lib/sources/registry';
+import { PRIORITY_WINDOW_MS } from '$lib/sources/source-order';
 import { isDeviceUid } from '$lib/services/device-track';
 import type { SourceId, Track } from '$lib/sources/types';
 
@@ -25,14 +26,10 @@ import type { SourceId, Track } from '$lib/sources/types';
  * Drops the failed source AND every source in `attempted` (sources already tried for this logical
  * song — CR-03); surfaces `preferred` first when set. Pure — exported for testability.
  *
- * ORDER INHERITANCE (POLICY.md / spikes 001+004): the base order is `getEnabledAdapters({})` order,
- * which is the registry SOURCES literal order — now kuwo-first. quick-261021-fb2 then re-sorts that
- * base by measured findOfficial pass rate (see PASS_RATE_RANK below; the sort is stable, so registry
- * order survives inside a tier) — with no `preferred` set, failover walks the pass-rate floor
- * (tier 1: joox/kuwo/kugou, then tier 2: qq/netease/gdnetease/migu, then the rest). An explicit user
- * `settings.preferredSource`, threaded in as `preferred`, still wins (hoisted first) over the
- * ranked floor. This function names NO source in its ORDER logic — reorder the registry or the
- * rank table to change the floor.
+ * ORDER: `getEnabledAdapters({})` order = source-order.ts PLAYBACK_ORDER (quick-261102-sqn; it
+ * absorbed quick-261021-fb2's measured pass-rate ranking). An explicit user
+ * `settings.preferredSource`, threaded in as `preferred`, still wins (hoisted first). This function
+ * names NO source — change PLAYBACK_ORDER to change the floor.
  *
  * OFF-THE-HOT-PATH EXCLUSION (Plan 27-04, YT-RESILIENCE-01): a source flagged
  * `autoResolveEligible === false` (ytmusic — adversarial + IP-locked upstream, 27-CONTEXT) is NEVER
@@ -59,17 +56,9 @@ export function fallbackOrder(
 		// quick-260926-c69: predicate hoisted to registry.ts isAutoResolveEligible, behaviour identical.
 		(s) => s !== failed && !attempted?.has(s) && isAutoResolveEligible(s)
 	);
-	// quick-261021-fb2 (user): prioritize by measured findOfficial pass rate.
-	// Tier 1 (100%): joox, kuwo, kugou — most reliable for official studio versions.
-	// Tier 2 (67%): qq, netease, migu — have officials but predicate sometimes rejects (CJK bug).
-	// Tier 3 (0%): suyin — only returns variants, demoted to last.
-	// Measured 2026-10-21 via real proxy calls (see findOfficial-passrate.md).
-	const PASS_RATE_RANK: Record<string, number> = {
-		joox: 100, kuwo: 100, kugou: 100,
-		qq: 67, netease: 67, gdnetease: 67, migu: 67,
-		suyin: 0,
-	};
-	remaining.sort((a, b) => (PASS_RATE_RANK[b] ?? 50) - (PASS_RATE_RANK[a] ?? 50));
+	// quick-261102-sqn (DECISIONS.md §5): no local rank table — getEnabledAdapters already returns
+	// PLAYBACK_ORDER (registry SOURCES is built from it). The fb2 pass-rate ranking (joox/kuwo/kugou
+	// > qq/netease/gdnetease/migu > suyin) IS that table now, shared with every other walk.
 	if (preferred && remaining.includes(preferred)) {
 		return [preferred, ...remaining.filter((s) => s !== preferred)];
 	}
@@ -217,7 +206,6 @@ interface RaceOutcome {
  * All-sources-settled still finishes immediately, and the player's
  * FALLBACK_BUDGET_MS watchdog caps the total either way.
  */
-const PRIORITY_WINDOW_MS = 300;
 const DEGRADED_PRIORITY_WINDOW_MS = 2500;
 function raceSources(
 	sources: SourceId[],

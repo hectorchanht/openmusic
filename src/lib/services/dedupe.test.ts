@@ -234,7 +234,7 @@ describe('key() cross-script + bilingual identity (quick-260926-n0r)', () => {
 		const pair = [mk('joox', 'j1', trad, G), mk('qq', 'q1', simp, G)];
 		const out = dedupeBest(pair);
 		expect(out).toHaveLength(1);
-		expect(out[0].source).toBe('qq');
+		expect(out[0].source).toBe('joox'); // quick-261102-sqn: PLAYBACK_ORDER tie-break (joox first)
 		expect(groupVariants(pair).size).toBe(1);
 	});
 

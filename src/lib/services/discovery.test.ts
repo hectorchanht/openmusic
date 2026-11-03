@@ -747,7 +747,9 @@ describe('resolveStub — Traditional stub vs Simplified rows (debug album-zip-d
 			.spyOn(catalog, 'searchAll')
 			.mockResolvedValue(result([junk, mk('joox', 'f', '陳奕迅', { title: '富士山下' }), right, rightTrad]));
 
-		expect((await resolveStub('陳奕迅', '愚人快樂'))?.uid).toBe(right.uid);
+		// quick-261102-sqn: the same-song twin wins by PLAYBACK_ORDER (joox ahead of qq); the point
+		// is unchanged — never the junk 明年今日 row.
+		expect((await resolveStub('陳奕迅', '愚人快樂'))?.uid).toBe(rightTrad.uid);
 		expect(search).toHaveBeenCalledTimes(1);
 	});
 });

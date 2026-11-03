@@ -4,6 +4,7 @@
 // same song surfaced by multiple sources collapses to one — the highest quality.
 import type { SourceId, Track } from '$lib/sources/types';
 import { foldScript } from '$lib/services/zh-convert';
+import { playbackRank, COVER_ORDER } from '$lib/sources/source-order';
 import { isDeviceUid } from '$lib/services/device-track';
 import { splitArtists } from '$lib/util/artist-split';
 
@@ -37,7 +38,6 @@ import { splitArtists } from '$lib/util/artist-split';
 // title/album metadata is what the user sees. Identity is unaffected — it stays uid-based
 // (`makeUid`), and this rank never decides identity, only which of two same-song rows survives.
 // Cross-ref: the roadmap's pending "netease upstream health-gate" item already suspected this rank-4.
-const SOURCE_RANK: Record<SourceId, number> = { netease: 3, gdnetease: 3, qq: 4, kuwo: 2, suyin: 2, joox: 3, kugou: 1, migu: 1, fivesing: 0, jamendo: -1, audius: -1, archive: -1, ccmixter: -1, bilibili: -1, ytmusic: -1 };
 
 /** Higher = better. Reads qualityLabel/quality strings (often null pre-resolve). */
 function qualityRank(t: Track): number {
@@ -339,7 +339,9 @@ function better(a: Track, b: Track, preferred?: SourceId): Track {
 		if (a.source === preferred && b.source !== preferred) return a;
 		if (b.source === preferred && a.source !== preferred) return b;
 	}
-	return SOURCE_RANK[a.source] >= SOURCE_RANK[b.source] ? a : b;
+	// quick-261102-sqn (DECISIONS.md §5): the source tie-break is PLAYBACK_ORDER — the old local
+	// SOURCE_RANK (qq > joox > kuwo > kugou) contradicted the fallback ladder.
+	return playbackRank(a.source) >= playbackRank(b.source) ? a : b;
 }
 
 /**
@@ -629,15 +631,14 @@ export function dedupeBest(tracks: Track[], preferred?: SourceId): Track[] {
 	// Pick best cover from variants (JOOX > Migu > others).
 	// quick-261021-cov2: even if winner HAS a cover, prefer JOOX/Migu's — they are
 	// the most accurate. This fixes wrong covers on first load.
-	const COVER_PREF: SourceId[] = ['joox', 'migu', 'qq', 'netease', 'kuwo'];
 	for (const k of order) {
 		const w = winner.get(k);
 		if (!w) continue;
 		const vars = variants.get(k) || [];
 		// If winner is already from a preferred source, keep its cover.
-		const wRank = COVER_PREF.indexOf(w.source);
-		for (const src of COVER_PREF) {
-			if (wRank !== -1 && COVER_PREF.indexOf(src) >= wRank) break;
+		const wRank = COVER_ORDER.indexOf(w.source);
+		for (const src of COVER_ORDER) {
+			if (wRank !== -1 && COVER_ORDER.indexOf(src) >= wRank) break;
 			const v = vars.find((t) => t.source === src && t.cover);
 			if (v && v.cover !== w.cover) {
 				winner.set(k, { ...w, cover: v.cover });
