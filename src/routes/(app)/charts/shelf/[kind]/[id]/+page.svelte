@@ -99,7 +99,7 @@
 	// hero), exactly as the home shelf's coverOnPlay=false does.
 	async function play(it: DiscoveryTrack) {
 		const cover = kind === 'yt-trending' ? null : it.image;
-		const tr = await player.playStub(it.artist, it.title, cover, 'home-discovery');
+		const tr = await player.tapStub(it.artist, it.title, cover, 'home-discovery'); // quick-261103-tapsplice (Hector 2026-11-03): splice like a Related tap — queue + history survive
 		if (tr === null && player.pendingTrack == null) toast.show(t('home.unplayable'));
 	}
 

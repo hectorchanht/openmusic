@@ -51,19 +51,17 @@
 			});
 	});
 
-	// Mirrors the home's playRadioTrack. quick-261024-sets (Hector 2026-10-24): the radio pool
-	// installs UNPINNED (the quick-260924-pgu `sameList` pin is gone) — the 'home-discovery'
-	// Up-next sourcing setting decides: 'generated' (default) regenerates the tail from the
-	// tapped song instead of concatenating the remaining rows; a user's 'same-list' choice
-	// keeps the pool. null = miss OR supersede; only a miss clears pendingTrack, so only a
-	// miss toasts.
+	// Mirrors the home's playRadioTrack. quick-261103-tapsplice (Hector 2026-11-03): a row tap
+	// splices the resolved track into the listener's queue after current — played
+	// history and the existing tail survive, exactly like a Related tap; the pool no
+	// longer installs over the queue (supersedes the quick-261024-sets install).
+	// null = miss OR supersede; only a miss clears pendingTrack, so only a miss toasts.
 	async function play(tr: Track) {
-		const resolved = await player.playStub(tr.artist, tr.title, tr.cover, 'home-discovery');
+		const resolved = await player.tapStub(tr.artist, tr.title, tr.cover, 'home-discovery');
 		if (!resolved) {
 			if (player.pendingTrack == null) toast.show(t('home.unplayable'));
 			return;
 		}
-		player.setListQueue(tracks, 'home-discovery');
 	}
 </script>
 

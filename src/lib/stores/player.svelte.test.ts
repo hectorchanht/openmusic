@@ -589,6 +589,171 @@ describe('player.playStub — attached cover skips cover fetching (quick-260831-
 	});
 });
 
+// quick-261103-tapsplice (Hector 2026-11-03): a song tap ANYWHERE behaves like a Related
+// tap — stub surfaces resolve through spliceStub, whose handoff splices the resolved track
+// after current instead of installing a one-track queue. The queue — played history
+// included — must survive every one of these taps.
+describe('player.spliceStub — resolve + splice, queue and history survive (quick-261103-tapsplice)', () => {
+	beforeEach(() => {
+		(player.play as unknown as { mockRestore(): void }).mockRestore?.();
+		mockEnsure.mockReset().mockImplementation(async (t: Track) => t);
+		mockCoverResolve.mockReset().mockResolvedValue(null);
+		mockUidCover.mockReset().mockReturnValue(null);
+		player.attach(makeFakeAudio() as unknown as HTMLAudioElement);
+	});
+
+	it('splices the resolved track after current; history and tail are untouched', async () => {
+		const hist = mk('kuwo', 'H1', '王菲', '紅豆');
+		const cur = mk('joox', 'C1', '陳奕迅', '孤勇者');
+		const tail = mk('qq', 'T1', '周杰倫', '青花瓷');
+		const resolved = { ...mk('netease', 'R1', '林俊傑', '江南'), audioUrl: 'https://cdn/r1.mp3' };
+		player.queue = [hist, cur, tail];
+		player.current = cur;
+		mockResolve.mockResolvedValue(resolved);
+
+		const tr = await player.spliceStub('林俊傑', '江南');
+		await flush();
+
+		expect(tr?.uid).toBe(resolved.uid);
+		expect(player.queue.map((t) => t.uid)).toEqual([hist.uid, cur.uid, resolved.uid, tail.uid]);
+		expect(player.current?.uid).toBe(resolved.uid);
+		expect(player.pendingTrack).toBeNull();
+	});
+
+	it('a miss returns null, clears the overlay and leaves the queue alone', async () => {
+		const cur = mk('joox', 'C1', '陳奕迅', '孤勇者');
+		player.queue = [cur];
+		player.current = cur;
+		mockResolve.mockResolvedValue(null);
+
+		const tr = await player.spliceStub('不存在', '的歌');
+		await flush();
+
+		expect(tr).toBeNull();
+		expect(player.pendingTrack).toBeNull();
+		expect(player.loading).toBe(false);
+		expect(player.queue.map((t) => t.uid)).toEqual([cur.uid]);
+		expect(player.current?.uid).toBe(cur.uid);
+	});
+
+	it('resolving to the ALREADY-CURRENT track is a no-op success, not a miss', async () => {
+		const cur = { ...mk('joox', 'C1', '陳奕迅', '孤勇者'), audioUrl: 'https://cdn/c1.mp3' };
+		player.queue = [cur];
+		player.current = cur;
+		mockResolve.mockResolvedValue(cur);
+
+		const tr = await player.spliceStub('陳奕迅', '孤勇者');
+		await flush();
+
+		expect(tr?.uid).toBe(cur.uid);
+		expect(player.queue.map((t) => t.uid)).toEqual([cur.uid]);
+		expect(player.loading).toBe(false);
+	});
+
+	it('the caller cover wins on the spliced track (album art rule)', async () => {
+		const cur = mk('joox', 'C1', '陳奕迅', '孤勇者');
+		const resolved = { ...mk('kuwo', 'R2', '鄧紫棋', '光年之外'), cover: null, audioUrl: 'https://cdn/r2.mp3' };
+		player.queue = [cur];
+		player.current = cur;
+		mockResolve.mockResolvedValue(resolved);
+
+		await player.spliceStub('鄧紫棋', '光年之外', 'https://img/album.jpg');
+		await flush();
+
+		const spliced = player.queue.find((t) => t.uid === resolved.uid);
+		expect(spliced?.cover).toBe('https://img/album.jpg');
+	});
+});
+
+describe('player.tapPlay / tapStub — the settings.tapUpnext decider (quick-261103-tapsplice)', () => {
+	beforeEach(() => {
+		(player.play as unknown as { mockRestore(): void }).mockRestore?.();
+		mockEnsure.mockReset().mockImplementation(async (t: Track) => t);
+		mockCoverResolve.mockReset().mockResolvedValue(null);
+		mockUidCover.mockReset().mockReturnValue(null);
+		mockSimilar.mockReset().mockResolvedValue([]);
+		player.attach(makeFakeAudio() as unknown as HTMLAudioElement);
+	});
+	afterEach(() => {
+		settings.tapUpnext = 'preserve';
+	});
+
+	it('preserve (the default): tapPlay splices after current; history and tail untouched', async () => {
+		expect(settings.tapUpnext).toBe('preserve');
+		const hist = mk('kuwo', 'H1', '王菲', '紅豆');
+		const cur = mk('joox', 'C1', '陳奕迅', '孤勇者');
+		const tail = mk('qq', 'T1', '周杰倫', '青花瓷');
+		const tapped = { ...mk('netease', 'X1', '林俊傑', '江南'), audioUrl: 'https://cdn/x1.mp3' };
+		player.queue = [hist, cur, tail];
+		player.current = cur;
+
+		player.tapPlay(tapped);
+		await flush();
+
+		expect(player.queue.map((t) => t.uid)).toEqual([hist.uid, cur.uid, tapped.uid, tail.uid]);
+		expect(player.current?.uid).toBe(tapped.uid);
+		// (buildSimilarQueue may still fire from ensureAhead's append-only top-up when
+		// the queue runs short — that grows the END; the existing tail above is intact,
+		// which is what Preserve promises. Regeneration would have REPLACED it.)
+	});
+
+	it('generate: tapPlay rebuilds the tail from the tapped song and KEEPS the history', async () => {
+		settings.tapUpnext = 'generate';
+		const hist = mk('kuwo', 'H1', '王菲', '紅豆');
+		const cur = mk('joox', 'C1', '陳奕迅', '孤勇者');
+		const stale = mk('qq', 'T9', '周杰倫', '青花瓷');
+		const tapped = { ...mk('netease', 'X1', '林俊傑', '江南'), audioUrl: 'https://cdn/x1.mp3' };
+		const sim = mk('joox', 'S1', '林俊傑', '修煉愛情');
+		mockSimilar.mockResolvedValue([sim]);
+		player.queue = [hist, cur, stale];
+		player.current = cur;
+
+		player.tapPlay(tapped);
+		await flush();
+		await flush();
+
+		const uids = player.queue.map((t) => t.uid);
+		expect(player.current?.uid).toBe(tapped.uid);
+		expect(uids[0]).toBe(hist.uid); // history kept at the head
+		expect(uids).toContain(sim.uid); // tail generated from the tapped song
+		expect(uids).not.toContain(stale.uid); // the old tail was replaced
+	});
+
+	it('preserve: tapStub resolves then splices — the queue survives', async () => {
+		const cur = mk('joox', 'C1', '陳奕迅', '孤勇者');
+		const tail = mk('qq', 'T1', '周杰倫', '青花瓷');
+		const resolved = { ...mk('netease', 'R1', '林俊傑', '江南'), audioUrl: 'https://cdn/r1.mp3' };
+		player.queue = [cur, tail];
+		player.current = cur;
+		mockResolve.mockResolvedValue(resolved);
+
+		const tr = await player.tapStub('林俊傑', '江南', undefined, 'search');
+		await flush();
+
+		expect(tr?.uid).toBe(resolved.uid);
+		expect(player.queue.map((t) => t.uid)).toEqual([cur.uid, resolved.uid, tail.uid]);
+	});
+
+	it('generate: tapStub installs the resolved song and generates the tail around it', async () => {
+		settings.tapUpnext = 'generate';
+		const cur = mk('joox', 'C1', '陳奕迅', '孤勇者');
+		const resolved = { ...mk('netease', 'R1', '林俊傑', '江南'), audioUrl: 'https://cdn/r1.mp3' };
+		const sim = mk('joox', 'S1', '林俊傑', '修煉愛情');
+		mockSimilar.mockResolvedValue([sim]);
+		player.queue = [cur];
+		player.current = cur;
+		mockResolve.mockResolvedValue(resolved);
+
+		const tr = await player.tapStub('林俊傑', '江南', undefined, 'search');
+		await flush();
+		await flush();
+
+		expect(tr?.uid).toBe(resolved.uid);
+		expect(player.current?.uid).toBe(resolved.uid);
+		expect(player.queue.map((t) => t.uid)).toContain(sim.uid);
+	});
+});
+
 // quick-260910-piz: t2g attached the album cover for the ONE tapped song only, so the very next
 // advance had no match — `this.current = resolved` then committed the SOURCE's thumbnail and the
 // hero flipped — while the Up Next tiles (Gap 3: `resolvedCovers[uid] ?? track.cover`, no per-tile

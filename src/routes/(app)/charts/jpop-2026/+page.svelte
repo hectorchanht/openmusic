@@ -44,11 +44,11 @@
 	}
 
 	async function play(s: PackSong) {
-		const tr = await player.playStub(s.artist, s.title, undefined, 'jpop-2026');
-		// quick-261024-sets: install the pack UNPINNED — the Up-next sourcing setting for this context
-		// decides: 'generated' (default) regenerates the tail from this song, a user's
-		// 'same-list' choice keeps the pack. No sameList pin anywhere outside album/artist.
-		if (tr) player.setListQueue(packQueue(JPOP_2026), 'jpop-2026');
+		const tr = await player.tapStub(s.artist, s.title, undefined, 'jpop-2026');
+		// quick-261103-tapsplice (Hector 2026-11-03): a row tap is a song tap, not a list start — it splices
+		// into the listener's queue (played history kept), exactly like a Related tap.
+		// The pack installs only from the Play / Shuffle buttons. Supersedes the
+		// quick-261024-sets row-tap install.
 		if (tr === null && player.pendingTrack == null) toast.show(t('home.unplayable'));
 	}
 

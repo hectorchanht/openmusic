@@ -2289,7 +2289,7 @@
 	loading={versionsLoading}
 	overlayId="versionpicker-menu"
 	onclose={closeVersions}
-	onpick={(v) => { player.play(v, { fresh: true }); close(); }}
+	onpick={(v) => { player.tapPlay(v); close(); }} // quick-261103-tapsplice (Hector 2026-11-03): a version pick is a song tap — queue + history survive
 />
 
 <!-- quick-260919-1eh: the metadata editor. Mounted OUTSIDE the {#if open && track} menu block, like

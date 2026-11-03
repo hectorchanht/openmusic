@@ -229,12 +229,15 @@
 		void tab;
 		editMode = false;
 	});
-	function rowAction(track: Track, list: Track[], playlistId?: string) {
+	// quick-261103-tapsplice (Hector 2026-11-03): a row tap splices the song into the
+	// listener's queue after current — played history survives, exactly like a Related
+	// tap. The tab lists install only from the Play-all / Shuffle actions (playList).
+	function rowAction(track: Track, playlistId?: string) {
 		if (editMode) {
 			removeWithUndo(track, playlistId);
 			return;
 		}
-		playList(list, track);
+		player.tapPlay(track);
 	}
 	/**
 	 * quick-261102-libaudit: a bulk-edit tap removes at once (that IS edit mode), but a mis-tap
@@ -407,7 +410,9 @@
 	}
 	// Listen history: replay slice (audioUrl re-resolves on play), moved here from settings.
 	function playEntry(track: Track) {
-		playList(historyList, track);
+		// quick-261103-tapsplice: replaying a history row routes through the tap decider
+		// like every other song tap — the rest of the history list no longer installs.
+		player.tapPlay(track);
 	}
 	// The action row's Play — the tab IS the queue (quick-261031-scope): starts the tab from
 	// the top and Up Next is the rest of the tab, in order.
@@ -486,7 +491,7 @@
 							{track}
 							danger={editMode}
 							smartArtist
-							onplay={() => rowAction(track, likedList)}
+							onplay={() => rowAction(track)}
 							onrequestmenu={() => openMenu(track)}
 						/>
 					</div>
@@ -527,7 +532,7 @@
 										{track}
 										danger={editMode}
 							smartArtist
-										onplay={() => rowAction(track, plList, pl.id)}
+										onplay={() => rowAction(track, pl.id)}
 										onrequestmenu={() => openMenu(track)}
 									/>
 								</div>
@@ -554,7 +559,7 @@
 							{track}
 							danger={editMode}
 							smartArtist
-							onplay={() => rowAction(track, downloadsList)}
+							onplay={() => rowAction(track)}
 							onrequestmenu={() => openMenu(track)}
 						/>
 					</div>

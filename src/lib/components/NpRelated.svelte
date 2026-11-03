@@ -148,8 +148,11 @@
 	// nuked the queue, why pin:false, the D-03 already-current no-op guard and the double-play guard)
 	// lives on that method now — the share-arrival path is its second caller, so the composition
 	// belongs in the store. No toast/haptic — the row becoming the playing track IS the feedback.
+	// quick-261103-tapsplice: the tap now routes through player.tapPlay like every other song
+	// tap — under the default 'preserve' that IS spliceAndPlay; a user who picks 'generate'
+	// in Settings gets the tail rebuilt from the tapped song here too.
 	function relatedTapPlay(track: Track) {
-		player.spliceAndPlay(track);
+		player.tapPlay(track);
 	}
 </script>
 

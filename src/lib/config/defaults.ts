@@ -169,6 +169,12 @@ export const PLAYBACK_DEFAULTS = {
 // The types live HERE (not in a store) so both player.svelte.ts and settings.svelte.ts can
 // import them without a circular dependency — defaults.ts is already imported by both.
 export type UpnextMode = 'same-list' | 'generated';
+/** quick-261103-tapsplice (Hector 2026-11-03): what a casual song TAP does to the
+ * upcoming tail — 'preserve' splices the song into the existing queue (Related-tap
+ * behaviour), 'generate' rebuilds the tail from the tapped song. Played history is
+ * kept under BOTH; it is not part of this choice. Global, not per-context: a tap is
+ * the most frequent gesture in the app and must not need a context matrix. */
+export type TapUpnextMode = 'preserve' | 'generate';
 /** MV video-layer height caps (quick-261024-vid1) — the quality picker's whole domain. */
 export type VideoQuality = 720 | 480 | 360 | 240;
 export const VIDEO_QUALITIES: readonly VideoQuality[] = [720, 480, 360, 240];
@@ -234,7 +240,10 @@ export const UPNEXT_DEFAULTS = {
 	 * (track.getSimilar + a 20-track tail) that `setListQueue(all, 'album')` immediately discards
 	 * via the queueGen guard.
 	 */
-	perContext: { album: 'same-list', artist: 'same-list', pack: 'same-list', 'songs-of-year': 'same-list' } as Partial<Record<UpnextSettingKey, UpnextMode>>
+	perContext: { album: 'same-list', artist: 'same-list', pack: 'same-list', 'songs-of-year': 'same-list' } as Partial<Record<UpnextSettingKey, UpnextMode>>,
+	/** Casual song-tap behaviour (quick-261103-tapsplice, Hector 2026-11-03): 'preserve'
+	 * by his pick — a casual tap must never destroy a queue the user built. */
+	tap: 'preserve' as TapUpnextMode
 } as const;
 
 // ---- Home layout -----------------------------------------------------------------------

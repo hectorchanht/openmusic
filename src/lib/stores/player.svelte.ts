@@ -4001,7 +4001,7 @@ class Player {
 		title: string,
 		cover?: string | null,
 		context: QueueContext = null,
-		opts: { sameList?: boolean } = {}
+		opts: { sameList?: boolean; forceGenerated?: boolean } = {}
 	): Promise<Track | null> {
 		const key = songKey(artist, title); // quick-261102-sjg: the song identity, not a lowercase copy
 
@@ -4046,7 +4046,7 @@ class Player {
 			// A "play this whole LIST" button (the album hero Play) installs its list right after this
 			// call returns, so the fresh-play tail must KEEP that list instead of regenerating over it.
 			// A plain row tap passes nothing and keeps resolving through the user's per-context setting.
-			void this.play(tr, { fresh: true, sameList: opts.sameList });
+			void this.play(tr, { fresh: true, sameList: opts.sameList, forceGenerated: opts.forceGenerated });
 			return tr;
 		}
 
@@ -4055,6 +4055,102 @@ class Player {
 		this.pendingKey = '';
 		this.loading = false;
 		return null;
+	}
+
+	/**
+	 * quick-261103-tapsplice (Hector 2026-11-03): playStub's resolve discipline — the same
+	 * optimistic pending bar, same-song double-tap dedupe, same generation supersede — but
+	 * the handoff is `spliceAndPlay`, NOT setQueue + a fresh play. Hector's rule: a song tap
+	 * ANYWHERE behaves like a Related-list tap, so the listener's queue — including every
+	 * already-played row the Up-Next pane shows as history — survives the tap untouched.
+	 * playStub keeps its queue-installing handoff for the explicit list starters (album /
+	 * pack Play + Shuffle buttons, startAlbum), where replacing the queue IS the intent.
+	 *
+	 * Contract mirrors playStub's: the resolved Track on success (including the
+	 * already-current no-op, which is NOT a miss), null on a miss OR a supersede; the
+	 * caller owns its unplayable toast, shown only when pendingTrack has cleared.
+	 * Never throws.
+	 */
+	async spliceStub(
+		artist: string,
+		title: string,
+		cover?: string | null
+	): Promise<Track | null> {
+		const key = songKey(artist, title);
+		if (key === this.pendingKey && this.pendingTrack !== null) return null;
+		const gen = ++this.pendingGen;
+		this.pendingKey = key;
+		this.pendingTrack = { artist, title, cover: cover ?? null };
+		this.loading = true;
+		this.error = null;
+
+		let tr: Track | null = null;
+		try {
+			tr = await resolveStub(artist, title);
+		} catch {
+			tr = null; // resolveStub never throws, but stay defensive — never reject.
+		}
+		if (gen !== this.pendingGen) return null; // superseded — the newer tap owns the overlay
+
+		if (tr) {
+			this.pendingTrack = null;
+			this.pendingKey = '';
+			// The caller's cover wins over the source's inline art (playStub's t2g rule —
+			// e.g. every album row carries the album's art).
+			if (hasHttpsScheme(cover)) tr = { ...tr, cover };
+			if (!this.spliceAndPlay(tr)) {
+				// Already current (38-D-03 no-op): spliceAndPlay started nothing, so the
+				// loading flag this method raised has no play() to hand off to — clear it.
+				this.loading = false;
+			}
+			return tr;
+		}
+
+		// Genuine miss for the current generation — clear the overlay; caller toasts.
+		this.pendingTrack = null;
+		this.pendingKey = '';
+		this.loading = false;
+		return null;
+	}
+
+	/**
+	 * quick-261103-tapsplice (Hector 2026-11-03) — THE tap deciders. Every casual song
+	 * tap in the app (search, shelves, library, charts, Related, version picks…) routes
+	 * through these two, and `settings.tapUpnext` alone decides what the tap does to
+	 * the upcoming tail:
+	 *  - 'preserve' (default): splice — the song lands after current and plays; the
+	 *    queue, played history included, is untouched (Related-tap behaviour).
+	 *  - 'generate': a fresh play with forceGenerated — the upcoming tail rebuilds
+	 *    from the tapped song (TrackMenu Auto behaviour); played history still weaves
+	 *    back in and stays visible.
+	 * List starters (Play / Shuffle on a list, startAlbum, radio, remix) do NOT route
+	 * through here — they keep their own install semantics and per-context sourcing.
+	 */
+	tapPlay(t: Track): boolean {
+		if (settings.tapUpnext === 'generate') {
+			// A bare fresh play captures nothing by itself (capture lives in
+			// setQueue/setListQueue) — take the same captures here so the fresh play
+			// weaves played history in front and re-seats manual play-next picks after
+			// the seed, exactly like an installing tap. `??=` mirrors the installers.
+			this.pendingHistory ??= this.captureHistory();
+			this.pendingManual ??= this.captureManual();
+			void this.play(t, { fresh: true, forceGenerated: true });
+			return true;
+		}
+		return this.spliceAndPlay(t);
+	}
+
+	/** The stub twin of tapPlay: name-only rows resolve first, then the same decision. */
+	async tapStub(
+		artist: string,
+		title: string,
+		cover?: string | null,
+		context: QueueContext = null
+	): Promise<Track | null> {
+		if (settings.tapUpnext === 'generate') {
+			return this.playStub(artist, title, cover, context, { forceGenerated: true });
+		}
+		return this.spliceStub(artist, title, cover);
 	}
 
 	/**
@@ -4081,7 +4177,7 @@ class Player {
 	 */
 	async play(
 		track: Track,
-		opts?: { fresh?: boolean; fromFallback?: boolean; context?: QueueContext; sameList?: boolean }
+		opts?: { fresh?: boolean; fromFallback?: boolean; context?: QueueContext; sameList?: boolean; forceGenerated?: boolean }
 	) {
 		logAction('play', { uid: track.uid, source: track.source, fresh: !!opts?.fresh });
 		// quick-261008-audit: a user play is a NEW intent — a pending dry-grow retry belongs to the
@@ -4678,7 +4774,7 @@ class Player {
 	 * Only `fresh` is read — the parameter is typed to that one field so the shape of play()'s options
 	 * bag is not restated here.
 	 */
-	private postPlayQueue(resolved: Track, opts?: { fresh?: boolean; sameList?: boolean }): void {
+	private postPlayQueue(resolved: Track, opts?: { fresh?: boolean; sameList?: boolean; forceGenerated?: boolean }): void {
 		// Fresh play -> per-context sourcing branch (Phase 17, D-03/D-04). 'generated'
 		// (global default) regenerates the auto portion from genre-similar songs; 'same-list'
 		// keeps the snapshot the caller passed via setQueue (search results / liked list /
@@ -4707,7 +4803,10 @@ class Player {
 			// same-list branch — the list it just installed IS the Up-Next the user asked for, so the
 			// context's default 'generated' mode must not throw it away. Row taps pass nothing and
 			// keep resolving through the user's per-context setting exactly as before.
-			if (!opts?.sameList && settings.effectiveUpnextMode(this.queueContext) === 'generated') {
+			// quick-261103-tapsplice: `forceGenerated` is the tap setting's Generate mode —
+			// the user's global tap choice wins over the queue's born-context sourcing for
+			// THIS play (a same-list-born queue still regenerates its tail around a tap).
+			if (!opts?.sameList && (settings.effectiveUpnextMode(this.queueContext) === 'generated' || opts?.forceGenerated)) {
 				// generated: regenerate (now history-aware) replaces only the tail after the seed.
 				// quick-261103-upnext: record the INTENT so a non-fresh landing can repair the
 				// tail if this build is superseded before it lands (see the else branch).

@@ -47,6 +47,15 @@ describe('settings.effectiveUpnextMode (Phase 17 QUEUE-03)', () => {
 		expect(settings.effectiveUpnextMode(null)).toBe('generated');
 	});
 
+	// quick-261103-tapsplice (Hector 2026-11-03): the casual song-tap choice — global,
+	// defaults to 'preserve', and resetPlayback() restores it like its up-next siblings.
+	it("tapUpnext defaults to 'preserve' and resetPlayback() restores it", () => {
+		expect(UPNEXT_DEFAULTS.tap).toBe('preserve');
+		settings.tapUpnext = 'generate';
+		settings.resetPlayback();
+		expect(settings.tapUpnext).toBe('preserve');
+	});
+
 	it("effectiveUpnextMode('search') with no override returns 'generated'", () => {
 		expect(settings.effectiveUpnextMode('search')).toBe('generated');
 	});

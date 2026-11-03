@@ -203,7 +203,7 @@
 	//    never searched for it"; it no longer applies, because the content area now searches for
 	//    exactly the text the input shows, so the two are consistent rather than contradictory.
 	//    ORDERING (established by reading, not assumed): play FIRST, then `q = …; run()`. The IIFE
-	//    runs synchronously up to playStub's first await, so the stub lands in the now-bar in the
+	//    runs synchronously up to spliceStub's first await, so the stub lands in the now-bar in the
 	//    same tick as the click, and playback stops depending on run()'s early returns (`!kw`,
 	//    offline). Safe in either order — run() aborts only ac/moreAc/suggestAc, none of which is
 	//    threaded into playStub (whose 3rd arg is `cover`, not a signal), and it never touches
@@ -223,10 +223,11 @@
 			return;
 		}
 		if (s.kind === 'song') {
-			// Don't block the click handler on the resolve. playStub returns null for BOTH a miss
+			// Don't block the click handler on the resolve. spliceStub returns null for BOTH a miss
 			// AND a supersede, so gate the toast on pendingTrack (a supersede leaves it non-null).
+			// quick-261103-tapsplice: a suggestion tap is a song tap — it splices like a Related tap.
 			void (async () => {
-				const tr = await player.playStub(s.artist ?? '', s.title, undefined, 'search');
+				const tr = await player.tapStub(s.artist ?? '', s.title, undefined, 'search');
 				if (tr === null && player.pendingTrack == null) toast.show(t('home.unplayable'));
 			})();
 			// quick-260919-pbs: …and commit the search too. No teardown here — pickSuggestion's
@@ -952,17 +953,17 @@
 					     exactly the app convention (right = queue, left = play next), which now lives in
 					     the component, so the page's own swipeQueue/swipeNext are gone. Ordering is
 					     untouched: `results` is already rankList-sorted by scoreMatch and the row neither
-					     reads nor re-sorts it. quick-261024-sets: a tap no longer hands the
-					     results pool to setListQueue — installed UNPINNED (quick-261024-sets), so the
-					     'search' Up-next sourcing setting decides: generated (default) seeds Up Next
-					     from the tapped song; same-list keeps the remaining results. -->
+					     reads nor re-sorts it. quick-261103-tapsplice (Hector 2026-11-03): a tap routes
+					     through player.tapPlay — the settings.tapUpnext decider (Preserve splices it
+					     into the queue, history kept; Generate rebuilds the tail from it). The results
+					     pool no longer installs. Supersedes the quick-261024-sets fresh-play install. -->
 					<!-- quick-261010-sar: the artist-name rule, app-wide — the row's artist
 					     name is the SMART-resolved (auto-updating) one, not the raw source string. -->
 					<SongRow
 						track={t}
 						smartArtist
 						showAlbumTag={false}
-						onplay={() => { player.setListQueue(results, 'search'); player.play(t, { fresh: true }); }}
+						onplay={() => player.tapPlay(t)}
 						onrequestmenu={() => { menuTrack = t; menuOpen = true; }}
 					/>
 				</div>
@@ -1013,7 +1014,7 @@
 	open={pickerOpen}
 	overlayId="versionpicker-list"
 	onclose={() => (pickerOpen = false)}
-	onpick={(v) => { player.setListQueue(results, 'search'); player.play(v, { fresh: true }); }}
+	onpick={(v) => player.tapPlay(v)}
 />
 
 <style>

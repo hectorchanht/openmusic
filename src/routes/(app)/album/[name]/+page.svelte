@@ -300,30 +300,26 @@
 		})();
 	});
 
-	// Resolve-on-tap (D-05/D-03) — now OPTIMISTIC (FIX-A). Delegate to player.playStub so the
-	// now-bar locks the tapped {artist,title} with a loading indicator instantly (album stubs
-	// carry no cover), dedupes a same-song double-tap, and supersedes an in-flight resolve.
-	// playStub returns null for BOTH a miss AND a supersede; toast only on a genuine miss
+	// Resolve-on-tap (D-05/D-03) — OPTIMISTIC (FIX-A discipline, now via player.spliceStub):
+	// the now-bar locks the tapped {artist,title} with a loading indicator instantly (album
+	// stubs carry no cover), dedupes a same-song double-tap, and supersedes an in-flight
+	// resolve. Returns null for BOTH a miss AND a supersede; toast only on a genuine miss
 	// (pendingTrack cleared) — a supersede leaves pendingTrack on the newer song (no toast).
-	async function playStub(stub: AlbumStub, index: number) {
+	// quick-261103-tapsplice (Hector 2026-11-03): the resolved track now SPLICES into the
+	// listener's queue after current instead of installing the album around itself — a row
+	// tap behaves like a Related tap and played history survives. The album's own Play
+	// button (startAlbum) still installs the whole album. Supersedes the
+	// album-and-next-song install that used to follow the resolve here.
+	async function playRow(stub: AlbumStub) {
 		// quick-260831-t2g: hand the ALBUM cover to the player. Every track on an album shares the
 		// album's art, so resolving a cover per song was both wasted fetches and a source of
-		// inconsistency (siblings landing on different images). player.playStub attaches this to the
+		// inconsistency (siblings landing on different images). spliceStub attaches this to the
 		// resolved track, which makes play() skip cover resolution entirely.
-		const tr = await player.playStub(stub.artist, stub.title, heroImg, 'album');
+		const tr = await player.tapStub(stub.artist, stub.title, heroImg, 'album');
 		if (tr === null) {
 			if (player.pendingTrack == null) globalToast.show(t('home.unplayable'));
 			return;
 		}
-		// album-and-next-song-bug fix: playStub installs a one-track queue ([tr]) for the optimistic
-		// now-bar, so up-next would otherwise be GENERATED (or grown) rather than the album remainder,
-		// and next() could fail. Install the album AROUND the now-playing track so up-next IS the
-		// album's remaining tracks (and stays so under the "same-list" sourcing setting). setListQueue
-		// keeps `tr` (already current) as the member, so playback is not interrupted.
-		// quick-260919-alb: the list is albumQueue() STUBS, installed in the SAME TICK the tap starts
-		// playing — this used to await the ~10s resolveAll fan-out first, which left Up Next empty for
-		// up to ten seconds after the tap. Guard a stale tap: only install while `tr` is still current.
-		if (player.current?.uid === tr.uid) player.setListQueue(albumQueue(index, tr), 'album', heroImg);
 	}
 
 	// UX-04 / D-03/D-04: row swipe-actions. Album rows are {artist,title} STUBS, so — exactly like
@@ -786,7 +782,7 @@
 							persist={false}
 							resolve={() => resolveStub(track.artist, track.title).catch(() => null)}
 							resolved={resolvedRows[i] ?? null}
-							onplay={() => playStub(track, i)}
+							onplay={() => playRow(track)}
 							onrequestmenu={() => openMenu(track)}
 							swipe={{ onSwipeRight: () => swipeQueue(track), onSwipeLeft: () => swipeNext(track) }}
 						/>

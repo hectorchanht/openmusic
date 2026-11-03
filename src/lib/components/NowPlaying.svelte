@@ -1478,7 +1478,7 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 		loading={pickerLoading}
 		overlayId="versionpicker-page"
 		onclose={closeVersionPicker}
-		onpick={(v) => player.play(v, { fresh: true })}
+		onpick={(v) => player.tapPlay(v)}
 	/>
 </div>
 

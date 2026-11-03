@@ -18,6 +18,7 @@ import {
 	HOME_DEFAULTS,
 	SYNC_DEFAULTS,
 	type UpnextMode,
+	type TapUpnextMode,
 	type UpnextSettingKey,
 	type VideoQuality,
 	type QueueContext,
@@ -187,6 +188,11 @@ class Settings {
 	upnextPerContext = $state<Partial<Record<UpnextSettingKey, UpnextMode>>>({
 		...UPNEXT_DEFAULTS.perContext
 	});
+	/** Casual song-tap behaviour (quick-261103-tapsplice, Hector 2026-11-03): 'preserve'
+	 * (default) splices a tapped song into the current queue; 'generate' rebuilds the
+	 * upcoming tail from it. Played history is kept under both. Global — the per-context
+	 * sourcing above governs list plays (Play / Shuffle buttons), not taps. */
+	tapUpnext = $state<TapUpnextMode>(UPNEXT_DEFAULTS.tap);
 	/** Bio (Last.fm artist bio) target language. `'auto'` = follow appLang; `'off'` = untranslated
 	 * (the default since quick-260925-vtg); otherwise an explicit language (quick-260607-fnp;
 	 * supersedes the f4y note). */
@@ -388,6 +394,10 @@ class Settings {
 					v.upnextMode === 'same-list' || v.upnextMode === 'generated'
 						? v.upnextMode
 						: UPNEXT_DEFAULTS.mode;
+				this.tapUpnext =
+					v.tapUpnext === 'generate' || v.tapUpnext === 'preserve'
+						? v.tapUpnext
+						: UPNEXT_DEFAULTS.tap;
 				this.bioLang = (v.bioLang as 'auto' | LyricsLang) ?? TRANSLATION_DEFAULTS.bioLang;
 				// Appearance scales (fnp): clamp to safe bounds; absent → the defaults.ts values.
 				// quick-260920-kxz / T-kxz-01 (tampering): same clamp as every sibling scale. A
@@ -615,6 +625,7 @@ class Settings {
 					enabledSources: this.enabledSources,
 					upnextPerContext: this.upnextPerContext,
 					upnextMode: this.upnextMode,
+					tapUpnext: this.tapUpnext,
 					bioLang: this.bioLang,
 					fontScaleApp: this.fontScaleApp,
 					fontScaleTitle: this.fontScaleTitle,
@@ -786,6 +797,7 @@ class Settings {
 		this.enabledSources = { ...d.enabledSources };
 		this.upnextPerContext = { ...DEFAULTS.upnext.perContext };
 		this.upnextMode = DEFAULTS.upnext.mode;
+		this.tapUpnext = DEFAULTS.upnext.tap;
 		this.save();
 	}
 

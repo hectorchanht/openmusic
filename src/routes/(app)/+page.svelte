@@ -945,8 +945,11 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 	// at the NEWER song (no toast), a miss clears pendingTrack (toast). Cover-if-known is
 	// passed so the optimistic bar shows real art immediately when available.
 	// `cover` defaults to the tile's own art; Trending passes null (39-D-34, see ytTrendingBlock).
-	async function playStub(item: DiscoveryTrack, cover: string | null = item.image) {
-		const tr = await player.playStub(item.artist, item.title, cover, 'home-discovery');
+	// quick-261103-tapsplice (Hector 2026-11-03): a discovery-tile tap splices the resolved
+	// track into the listener's queue after current (spliceStub) — played history and the
+	// existing tail survive, exactly like a Related tap. Supersedes the playStub install.
+	async function playDiscovery(item: DiscoveryTrack, cover: string | null = item.image) {
+		const tr = await player.tapStub(item.artist, item.title, cover, 'home-discovery');
 		if (tr === null && player.pendingTrack == null) toast.show(t('home.unplayable'));
 	}
 
@@ -1066,37 +1069,35 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 	}
 
 	// Library-track row play (matches librarySongRow's comfortable behavior) + its menu open.
-	// quick-260831-sp9: pass the SHELF's queue context. These shelves deliberately do not install a
-	// queue — a simple tap should generate a fresh Up-Next — but without a context the player kept
-	// the previous play's one, so tapping a liked song after an album inherited 'album' →
-	// 'same-list' → no regenerate, and Up-Next still showed the album. Manual `Play next` /
-	// `Add to queue` entries survive because regenerate preserves them.
+	// quick-261103-tapsplice (Hector 2026-11-03): a shelf row tap splices the song into the
+	// listener's queue after current (spliceAndPlay) — played history and the existing tail
+	// survive, exactly like a Related tap. The ctx parameter is retained for the call
+	// sites' signature parity but is deliberately no longer applied: a splice carries the
+	// queue's own context (supersedes the quick-260831-sp9 fresh-play context pass and the
+	// quick-261024-sets radio install below).
 	function playLibraryTrack(track: Track, ctx: QueueContext) {
+		void ctx;
 		// quick-260924-pgu: a radio row is a lazy name stub. play() records history with the
 		// PRE-resolve object (player.svelte.ts `history.record(track)`), so a raw stub play would
 		// write a synthetic `similar-` uid into history whose replay cannot resolve (toEntry drops
-		// `resolveByName`). Keyed on the TRACK, not on ctx, so the rule reads "stubs play via
-		// playStub" wherever a stub shows up; real library tracks keep the direct fresh play.
+		// `resolveByName`). Keyed on the TRACK, not on ctx, so the rule reads "stubs resolve
+		// before they splice" wherever a stub shows up; real library tracks splice directly.
 		if (track.resolveByName) {
 			void playRadioTrack(track);
 			return;
 		}
-		player.play(track, { fresh: true, context: ctx });
+		player.tapPlay(track);
 	}
-	// quick-261024-sets (Hector 2026-10-24): the radio shelf installs UNPINNED — the old
-	// quick-260924-pgu `sameList` pin is gone, so the 'home-discovery' Up-next sourcing
-	// setting decides: 'generated' (default) regenerates the tail from the tapped song
-	// instead of concatenating the remaining radio tiles; a user's 'same-list' choice
-	// keeps the shelf. setListQueue after the resolve anchors the now-real `current` into
-	// the shelf by uid-then-sameSongKey. Toast gate copied from playStub(item) above
-	// (null = miss OR supersede; only a miss clears pendingTrack).
+	// quick-261103-tapsplice: the radio shelf no longer installs after a tap either — the
+	// resolved track splices into the listener's queue like every other song tap.
+	// Toast gate copied from playDiscovery(item) above (null = miss OR supersede; only a
+	// miss clears pendingTrack).
 	async function playRadioTrack(track: Track) {
-		const tr = await player.playStub(track.artist, track.title, track.cover, 'home-discovery');
+		const tr = await player.tapStub(track.artist, track.title, track.cover, 'home-discovery');
 		if (!tr) {
 			if (player.pendingTrack == null) toast.show(t('home.unplayable'));
 			return;
 		}
-		player.setListQueue(radioShelf, 'home-discovery');
 	}
 	function openTrackMenu(track: Track) {
 		menuTrack = track;
@@ -1259,7 +1260,7 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 				{@const art = readCoverByUidOrName(track.uid, track.artist, track.title) ?? track.cover}
 				<!-- quick-261102-syk: .tilewrap carries the sibling ⋮ (see tileMenuBtn). -->
 				<div class="tilewrap">
-				<button class="tile" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); menuTrack = track; menuOpen = true; }} oncontextmenu={(e) => { e.preventDefault(); (e.currentTarget as HTMLElement)?.blur(); menuTrack = track; menuOpen = true; }} onclick={() => { player.setQueue(fallbackSongs, 'home-discovery'); player.play(track, { fresh: true }); }}>
+				<button class="tile" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); menuTrack = track; menuOpen = true; }} oncontextmenu={(e) => { e.preventDefault(); (e.currentTarget as HTMLElement)?.blur(); menuTrack = track; menuOpen = true; }} onclick={() => player.tapPlay(track)}>
 					<!-- quick-261102-sfc: cover as a lazy <img> over the gradient (was a CSS url() background,
 					     which is never lazy and has no onerror — a dead URL left a blank tile and never reached
 					     hideOnError's dead-URL marking). Inserted before .q/.scrim so DOM paint order keeps the
@@ -1470,7 +1471,7 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 					subtitle={names.dnArtist(item.artist)}
 					cover={tileCover(item)}
 					seed={item.artist + item.title}
-					onplay={() => playStub(item, coverOnPlay ? item.image : null)}
+					onplay={() => playDiscovery(item, coverOnPlay ? item.image : null)}
 					onrequestmenu={() => tileMenu(item)}
 				/>
 			{/snippet}
@@ -1482,7 +1483,7 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 			{#snippet row(item: DiscoveryTrack)}
 				<!-- quick-261102-syk: .tilewrap carries the sibling ⋮ (see tileMenuBtn). -->
 				<div class="tilewrap">
-				<button class="tile" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); tileMenu(item); }} oncontextmenu={(e) => { e.preventDefault(); (e.currentTarget as HTMLElement)?.blur(); tileMenu(item); }} onclick={() => playStub(item, coverOnPlay ? item.image : null)}>
+				<button class="tile" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); tileMenu(item); }} oncontextmenu={(e) => { e.preventDefault(); (e.currentTarget as HTMLElement)?.blur(); tileMenu(item); }} onclick={() => playDiscovery(item, coverOnPlay ? item.image : null)}>
 					<div class="art" style:background-image={fallbackCover(item.artist + item.title)}></div>
 					{#if tileCover(item)}<img class="al-cover-img" src={tileCover(item)} loading="lazy" decoding="async" alt="" onerror={hideOnError} />{/if}
 					<div class="scrim"></div>
@@ -1502,7 +1503,7 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 				     reactive signal (NOT use:lazyCover, which needs a Track); no synthetic uid stub. -->
 				<!-- quick-261102-syk: .tilewrap carries the sibling ⋮ (see tileMenuBtn). -->
 				<div class="tilewrap">
-				<button class="album" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); tileMenu(item); }} oncontextmenu={(e) => { e.preventDefault(); (e.currentTarget as HTMLElement)?.blur(); tileMenu(item); }} onclick={() => playStub(item, coverOnPlay ? item.image : null)}>
+				<button class="album" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); tileMenu(item); }} oncontextmenu={(e) => { e.preventDefault(); (e.currentTarget as HTMLElement)?.blur(); tileMenu(item); }} onclick={() => playDiscovery(item, coverOnPlay ? item.image : null)}>
 					<span class="al-cover" style:background-image={fallbackCover(item.artist + item.title)}>
 						{#if tileCover(item)}<img class="al-cover-img" src={tileCover(item)} loading="lazy" decoding="async" alt="" onerror={hideOnError} />{/if}
 					</span>

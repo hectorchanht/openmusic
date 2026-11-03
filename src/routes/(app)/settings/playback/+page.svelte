@@ -1,13 +1,13 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
-	import { Music, Radio, Zap, Maximize2, BadgeCheck, Download, Sliders, ListMusic, SquareActivity, Mic2, RotateCcw, Clapperboard, MonitorPlay } from '@lucide/svelte';
+	import { Music, Radio, Zap, Maximize2, BadgeCheck, Download, Sliders, ListMusic, SquareActivity, Mic2, RotateCcw, Clapperboard, MonitorPlay, History } from '@lucide/svelte';
 	import { settings, type DefaultQuality, type DefaultSource } from '$lib/stores/settings.svelte';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import SettingPicker from '$lib/components/SettingPicker.svelte';
 	import SettingHint from '$lib/components/SettingHint.svelte';
 	import { PACK_CONTEXTS, VIDEO_QUALITIES } from '$lib/config/defaults';
-	import type { UpnextMode, UpnextSettingKey, VideoQuality } from '$lib/config/defaults';
+	import type { UpnextMode, TapUpnextMode, UpnextSettingKey, VideoQuality } from '$lib/config/defaults';
 	import { SOURCES } from '$lib/sources/registry';
 	import type { SourceId } from '$lib/sources/types';
 	import { names } from '$lib/stores/names.svelte';
@@ -118,6 +118,17 @@
 		{ v: 'same-list' as UpnextMode, label: t('settings.upnextSameList'), icon: ListMusic },
 		{ v: 'generated' as UpnextMode, label: t('settings.upnextGenerated'), icon: Radio }
 	]);
+	// quick-261103-tapsplice (Hector 2026-11-03): the casual song-tap choice — ONE global
+	// row above the per-context list-sourcing rows. Preserve = the tap splices into the
+	// queue; Generate = the tail rebuilds from the tapped song. History is kept under both.
+	const tapOptions = $derived([
+		{ v: 'preserve' as TapUpnextMode, label: t('settings.tapPreserve'), icon: History },
+		{ v: 'generate' as TapUpnextMode, label: t('settings.tapGenerate'), icon: Radio }
+	]);
+	function setTapUpnext(v: TapUpnextMode) {
+		settings.tapUpnext = v;
+		settings.save();
+	}
 	// quick-260919-ebi: Off/On captions for the three preview pickers below.
 	const offOn = $derived([
 		{ v: 'off' as const, label: t('settings.optOff') },
@@ -378,6 +389,20 @@
 	<!-- quick-261024-sets: visible explainer (Hector) — what the two modes DO and which
 	     surfaces default to which, so the rows below need no guessing. -->
 	<p class="upnext-desc">{t('settings.upnextSourcingDesc')}</p>
+
+	<!-- quick-261103-tapsplice: the tap choice governs casual song taps app-wide; the
+	     per-context rows below govern list plays (Play / Shuffle on a list). -->
+	<div class="upnext-row">
+		<span class="ctx-label">{t('settings.tapUpnext')}</span>
+		<SettingPicker
+			label={t('settings.tapUpnext')}
+			options={tapOptions}
+			value={settings.tapUpnext}
+			onpick={setTapUpnext}
+			iconOnly
+		/>
+	</div>
+	<p class="upnext-desc">{t('settings.tapUpnextDesc')}</p>
 
 	{#each upnextContexts as c (c.ctx)}
 		<div class="upnext-row">

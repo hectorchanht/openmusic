@@ -121,10 +121,10 @@
 	}
 
 	async function play(s: PackSong) {
-		const tr = await player.playStub(s.artist, s.title, undefined, 'songs-of-year');
-		// quick-261024-sets: install the pack UNPINNED — the Up-next sourcing setting for
-		// 'songs-of-year' decides between a generated tail (default) and the pack itself.
-		if (tr) player.setListQueue(packQueue(songs), 'songs-of-year');
+		const tr = await player.tapStub(s.artist, s.title, undefined, 'songs-of-year');
+		// quick-261103-tapsplice (Hector 2026-11-03): a row tap splices into the listener's queue
+		// (played history kept), exactly like a Related tap; the pack installs only
+		// from the Play / Shuffle buttons. Supersedes the quick-261024-sets row-tap install.
 		if (tr === null && player.pendingTrack == null) toast.show(t('home.unplayable'));
 	}
 

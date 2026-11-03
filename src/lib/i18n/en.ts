@@ -378,6 +378,10 @@ const en = {
 	"settings.upnextSameList": "Same list",
 	"settings.upnextGenerated": "Genre-generated",
 	"settings.upnextSourcingDesc": "Same list keeps playing the rest of the list you tapped a song from. Genre-generated builds Up Next from that one song, starting with similar songs. Album, Artist and chart pack pages default to Same list; everywhere else generates.",
+	"settings.tapUpnext": "When you tap a song",
+	"settings.tapPreserve": "Keep Up Next",
+	"settings.tapGenerate": "Generate from song",
+	"settings.tapUpnextDesc": "Keep Up Next plays the tapped song and leaves your queue — played songs included — untouched. Generate from song rebuilds what plays next from that song, like Autoplay in the track menu; your played songs are still kept. Applies to tapping a song anywhere; a list's own Play and Shuffle buttons are not affected.",
 	// Per-context labels — only the contexts without a reusable existing key. liked/playlists/
 	// downloads reuse library.*; history reuses history.heading.
 	"settings.ctxSearch": "Search",
