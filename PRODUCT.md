@@ -6,7 +6,7 @@
 
 web
 
-Mobile-first web app / installable PWA. The Android APK is the same SvelteKit SPA in a Capacitor shell; it does not adopt a native design language.
+Mobile-first web app / installable PWA, AND an Android APK. Both are first-class shipping targets. The APK is the same SvelteKit SPA in a Capacitor shell (Android WebView); it does not adopt a native design language, so the platform value stays `web`. Designs must still hold up inside the APK: system back gesture, edge-to-edge insets, lock-screen media controls, and Android's 48dp touch-target expectation.
 
 ## Users
 
