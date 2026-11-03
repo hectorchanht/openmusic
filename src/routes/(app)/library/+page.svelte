@@ -9,9 +9,10 @@
 	import { history } from '$lib/stores/history.svelte';
 	import { player } from '$lib/stores/player.svelte';
 	import { names } from '$lib/stores/names.svelte';
-	import { enrichArtist } from '$lib/services/lastfm';
-	import { deezerArtistCover } from '$lib/services/deezer';
-	import { mapWithConcurrency, shuffle } from '$lib/services/discovery';
+	import { shuffle } from '$lib/services/discovery';
+	import { backfillArtistCovers } from '$lib/services/cover-backfill';
+	import { bumpCoverVersion, readArtistCover } from '$lib/stores/cover-version.svelte';
+	import { coverGradient } from '$lib/services/cover-gradient';
 	import { t } from '$lib/i18n';
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { dragClose } from '$lib/actions/dragClose';
@@ -184,33 +185,18 @@
 			: t('history.heading')
 	);
 
-	// kyf: per-name lazy-loaded avatars for the fav-artists tab. Cached in a Map so a
-	// tab-flip re-render doesn't refire the network.
-	// User 2026-10-06 (audit): was a boolean one-shot — a newly-favorited artist after the
-	// first load never got a cover. Now a Set of loaded names; only unloaded names are fetched.
-	let favCovers = $state<Record<string, string | null>>({});
-	let favCoversLoaded = $state(new Set<string>());
-	async function loadFavCovers() {
-		const names = library.favArtists.filter((nm) => !favCoversLoaded.has(nm));
-		if (!names.length) return;
-		for (const nm of names) favCoversLoaded.add(nm);
-		const covered = await mapWithConcurrency(names, 4, async (nm) => {
-			const lf = await enrichArtist(nm).catch(() => null);
-			const img = lf?.lastfmArt ?? (await deezerArtistCover(nm).catch(() => null));
-			return [nm, img] as const;
-		});
-		const next = { ...favCovers };
-		for (const [nm, img] of covered) next[nm] = img;
-		favCovers = next;
-	}
+	// kyf: per-name lazy-loaded avatars for the fav-artists tab.
+	// quick-261102-libaudit: was a page-local Last.fm → Deezer loop into page $state, so every
+	// visit re-resolved every avatar and neither direction shared with the artist-cover cache.
+	// Now the shared path home's fav-artists shelf already uses: backfillArtistCovers skips
+	// cached names (a warm visit issues zero requests), writes the `artist:` cache layer, and
+	// the tiles read it reactively via readArtistCover — the gradient stays until a cover lands.
 	$effect(() => {
-		if (tab === 'fav-artists' && library.favArtists.length) void loadFavCovers();
+		if (tab !== 'fav-artists' || !library.favArtists.length) return;
+		const favs = [...library.favArtists];
+		untrack(() => void backfillArtistCovers(favs, { onResolved: () => bumpCoverVersion(), max: favs.length }));
 	});
 
-	function favArtistFallback(name: string): string {
-		const h = (name.split('').reduce((a, c) => a + c.charCodeAt(0), 0) * 47) % 360;
-		return `linear-gradient(145deg, hsl(${h} 55% 32%), hsl(${(h + 40) % 360} 55% 18%))`;
-	}
 	// COVER-02 D-14 lazy row covers + the shared pickRowCover read now live INSIDE SongRow
 	// (quick-260919-l9e), so the four track lists no longer keep a uid→url map here. Unchanged
 	// behaviour: a cover resolved on any other surface still paints on first render, no network.
@@ -245,12 +231,46 @@
 	});
 	function rowAction(track: Track, list: Track[], playlistId?: string) {
 		if (editMode) {
-			if (tab === 'liked') library.toggleLike(track);
-			else if (tab === 'downloads') library.removeDownload(track.uid);
-			else if (tab === 'playlists' && playlistId) library.removeFromPlaylist(playlistId, track.uid);
+			removeWithUndo(track, playlistId);
 			return;
 		}
 		playList(list, track);
+	}
+	/**
+	 * quick-261102-libaudit: a bulk-edit tap removes at once (that IS edit mode), but a mis-tap
+	 * must be recoverable — so every removal offers Undo, which puts the row back at its old
+	 * position (library.restoreAt). Downloads keep the file through the undo window: the row
+	 * goes now with deleteFile:false, and the blob is dropped only if the song is still gone
+	 * when the window closes (removeDownload is idempotent on the list). The timer is not tied
+	 * to this page — leaving mid-window must still clean the file up.
+	 */
+	const UNDO_MS = 5000;
+	function removeWithUndo(track: Track, playlistId?: string) {
+		let undo: () => void;
+		if (tab === 'liked') {
+			const i = library.liked.findIndex((x) => x.uid === track.uid);
+			library.toggleLike(track);
+			undo = () => library.restoreAt('liked', track, i);
+		} else if (tab === 'downloads') {
+			const i = library.downloads.findIndex((x) => x.uid === track.uid);
+			library.removeDownload(track.uid, { deleteFile: false });
+			setTimeout(() => {
+				if (!library.isDownloaded(track.uid)) library.removeDownload(track.uid);
+			}, UNDO_MS + 500);
+			undo = () => library.restoreAt('downloads', track, i);
+		} else if (tab === 'playlists' && playlistId) {
+			const i = library.playlists.find((p) => p.id === playlistId)?.tracks.findIndex((x) => x.uid === track.uid) ?? -1;
+			library.removeFromPlaylist(playlistId, track.uid);
+			undo = () => library.restoreAt({ playlist: playlistId }, track, i);
+		} else return;
+		toast.show(t('toast.removed'), { action: { label: t('toast.undo'), run: undo }, duration: UNDO_MS });
+	}
+	function removeFavArtist(name: string) {
+		library.toggleFavArtist(name);
+		toast.show(t('toast.removed'), {
+			action: { label: t('toast.undo'), run: () => library.toggleFavArtist(name) },
+			duration: UNDO_MS
+		});
 	}
 	/** A bulk-editable tab is one where the Edit button + per-row remove make sense. */
 	const editableTabHasContent = $derived(
@@ -314,17 +334,21 @@
 		listMenuOpen = false;
 		clearListOpen = false;
 	}
-	let deletePlaylistOpen = $state(false);
+	// quick-261102-libaudit: one confirm for BOTH delete paths. The edit-mode folder trash used
+	// to call library.deletePlaylist straight from a single tap — a whole playlist gone with no
+	// confirm, while the ⋯ sheet's delete asked first.
+	let deletePlaylistId = $state<string | null>(null);
+	const deletePlaylistName = $derived(library.playlists.find((p) => p.id === deletePlaylistId)?.name ?? '');
 	function deleteDetailPlaylist() {
-		if (!detailPlaylist) return;
-		deletePlaylistOpen = true;
+		if (detailPlaylist) deletePlaylistId = detailPlaylist.id;
 	}
 	function confirmDeletePlaylist() {
-		if (!detailPlaylist) return;
-		library.deletePlaylist(detailPlaylist.id);
-		detailPlaylistId = null; // the detail view's subject is gone — fall back to all playlists
+		if (!deletePlaylistId) return;
+		library.deletePlaylist(deletePlaylistId);
+		// the detail view's subject is gone — fall back to all playlists
+		if (deletePlaylistId === detailPlaylistId) detailPlaylistId = null;
 		listMenuOpen = false;
-		deletePlaylistOpen = false;
+		deletePlaylistId = null;
 	}
 	// quick-260915-vb9: whole-list queue actions. addToQueue/playNext each persist per call — fine
 	// at library sizes. ponytail: N persists, batch if a 1000-song list ever measures slow.
@@ -481,7 +505,7 @@
 				<div class="pl-head">
 					<h2>{pl.name} <span class="count">{plList.length}</span></h2>
 					{#if editMode}
-						<button class="del" aria-label={t('library.deletePlaylist')} onclick={() => library.deletePlaylist(pl.id)} use:tapBounce><Trash2 size={16} /></button>
+						<button class="del" aria-label={t('library.deletePlaylist')} onclick={() => (deletePlaylistId = pl.id)} use:tapBounce><Trash2 size={16} /></button>
 					{:else if plList.length}
 						<!-- quick-261031-scope: a folder's own Play is an action button on that playlist
 						     shelf — scoped (sameList) like the action row's Play, so the playlist itself
@@ -544,10 +568,10 @@
 		<div class="fav-grid">
 			{#each library.favArtists as name (name)}
 				<button class="fav-tile" class:edit-row={editMode} use:tapBounce onclick={() => {
-					if (editMode) library.toggleFavArtist(name);
+					if (editMode) removeFavArtist(name);
 					else goto(names.artistHref(name));
 				}}>
-					<span class="fav-avatar" style:background-image={favCovers[name] ? `url(${favCovers[name]})` : favArtistFallback(name)}></span>
+					<span class="fav-avatar" style:background-image={readArtistCover(name) ? `url(${readArtistCover(name)})` : coverGradient(name)}></span>
 					<span class="fav-name">{names.dnArtist(name)}</span>
 					{#if editMode}<span class="fav-trash"><Trash2 size={14} /></span>{/if}
 				</button>
@@ -584,7 +608,7 @@
 <!-- quick-260915-vb9: per-tab list sheet (⋯). Only applicable rows render — no dead entries. -->
 {#if listMenuOpen}
 	<button class="scrim" aria-label={t('menu.close')} onclick={() => (listMenuOpen = false)}></button>
-	<div class="sheet" transition:fly={{ y: 240, duration: 200 }} use:dragClose={{ onclose: () => (listMenuOpen = false) }} use:focusTrap>
+	<div class="sheet" role="dialog" aria-modal="true" aria-label={tabLabel} transition:fly={{ y: 240, duration: 200 }} use:dragClose={{ onclose: () => (listMenuOpen = false) }} use:focusTrap>
 		<div class="sheet-head">{tabLabel}</div>
 		{#if tabList.length}
 			<button class="mi" onclick={queueWholeList} use:tapBounce><ListEnd size={18} /> {t('menu.addToQueue')}</button>
@@ -603,21 +627,23 @@
 <TrackMenu track={menuTrack} open={menuOpen} onclose={() => (menuOpen = false)} />
 
 <!-- User 2026-10-06 (audit): in-app confirms replacing native confirm(). -->
+<!-- quick-261102-libaudit: title is the action, body the question — they were the same string,
+     so the modal (and a screen reader) said it twice. -->
 <ConfirmModal
 	open={clearListOpen}
-	title={t('library.clearListConfirm', { name: detailPlaylist?.name ?? tabLabel })}
+	title={t('library.clearList')}
 	body={t('library.clearListConfirm', { name: detailPlaylist?.name ?? tabLabel })}
 	confirmLabel={t('library.clearList')}
 	onconfirm={confirmClearList}
 	onclose={() => (clearListOpen = false)}
 />
 <ConfirmModal
-	open={deletePlaylistOpen}
-	title={t('library.deletePlaylistConfirm', { name: detailPlaylist?.name ?? '' })}
-	body={t('library.deletePlaylistConfirm', { name: detailPlaylist?.name ?? '' })}
+	open={deletePlaylistId !== null}
+	title={t('library.deletePlaylist')}
+	body={t('library.deletePlaylistConfirm', { name: deletePlaylistName })}
 	confirmLabel={t('library.deletePlaylist')}
 	onconfirm={confirmDeletePlaylist}
-	onclose={() => (deletePlaylistOpen = false)}
+	onclose={() => (deletePlaylistId = null)}
 />
 
 <style>
@@ -634,8 +660,8 @@
 	.actions { display: flex; gap: 8px; margin-bottom: 14px; }
 	.actions .edit-btn { flex: 1 1 0; min-width: 0; }
 	/* fav-artists tiles only — the track rows' copy of this is SongRow's `danger`. */
-	.edit-row { color: #ff7a90; }
-	.edit-row:hover { background: rgba(255, 122, 144, 0.08); }
+	.edit-row { color: var(--color-danger-text); }
+	.edit-row:hover { background: color-mix(in srgb, var(--color-danger-text) 8%, transparent); }
 	.tabs { display: flex; gap: 8px; margin-bottom: 14px; }
 	.tabs button { flex: 1; display: inline-flex; align-items: center; justify-content: center; background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text-muted); padding: 14px 0; border-radius: 999px; cursor: pointer; min-width: 0; }
 	/* User 2026-10-06 (audit): 10px -> 14px padding for 44px minimum touch target. */
@@ -676,7 +702,7 @@
 	.fav-tile:hover { background: var(--color-surface); }
 	.fav-avatar { width: 88px; height: 88px; border-radius: 50%; background-size: cover; background-position: center; }
 	.fav-name { font-size: 0.8125rem; font-weight: 600; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
-	.fav-tile.edit-row .fav-name { color: #ff7a90; }
+	.fav-tile.edit-row .fav-name { color: var(--color-danger-text); }
 	.fav-tile.edit-row .fav-avatar { filter: brightness(0.65); }
 	.fav-trash { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -60%); color: #fff; pointer-events: none; }
 	/* ---- quick-260915-vb9: per-tab list sheet (mirrors the album page's playlist picker) ---- */
@@ -685,6 +711,6 @@
 	.sheet-head { font-size: 0.8125rem; color: var(--color-text-muted); padding: 8px 10px; }
 	.mi { width: 100%; display: flex; align-items: center; gap: 12px; background: none; border: none; color: var(--color-text); font-size: 0.9375rem; padding: 12px; border-radius: 10px; cursor: pointer; text-align: left; }
 	.mi:hover { background: var(--color-surface); }
-	.mi.danger { color: #ff7a90; }
+	.mi.danger { color: var(--color-danger-text); }
 	.mi.close { color: var(--color-text-muted); }
 </style>

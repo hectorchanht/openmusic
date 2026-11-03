@@ -566,6 +566,7 @@ const vi: Dict = {
 	"toast.radioStarted": "Radio started",
 	"toast.sharedPlaying": "Đang phát bài hát được chia sẻ · hàng đợi của bạn được giữ nguyên",
 	"toast.removedFromQueue": "Đã xóa khỏi hàng đợi",
+	"toast.removed": "Đã xóa",
 	"toast.undo": "Hoàn tác",
 	"toast.preparingDownload": "Đang chuẩn bị tải xuống…",
 	"toast.downloading": "Đang tải xuống · {label}",

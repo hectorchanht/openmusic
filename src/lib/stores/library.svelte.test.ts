@@ -884,3 +884,47 @@ describe('library pack jobs (quick-261031-dlpersist)', () => {
 		expect(library.otherDownloadOf(mk({ uid: 'kuwo-9', source: 'kuwo', title: '光年之外' }))).toBeNull();
 	});
 });
+
+describe('quick-261102-libaudit restoreAt (edit-mode Undo)', () => {
+	beforeEach(() => {
+		library.liked = [];
+		library.downloads = [];
+		library.playlists = [];
+		library.deleted = [];
+		memStore.clear();
+		blobDel.mockClear();
+	});
+
+	it('puts an unliked track back at its old index and lifts its tombstone', () => {
+		const a = mk({ uid: 'netease-1', title: 'A' });
+		const b = mk({ uid: 'qq-2', source: 'qq', title: 'B' });
+		const c = mk({ uid: 'kuwo-3', source: 'kuwo', title: 'C' });
+		library.liked = [a, b, c];
+		library.toggleLike(b);
+		expect(library.liked.map((x) => x.uid)).toEqual(['netease-1', 'kuwo-3']);
+		library.restoreAt('liked', b, 1);
+		expect(library.liked.map((x) => x.uid)).toEqual(['netease-1', 'qq-2', 'kuwo-3']);
+		expect(library.deleted.some((k) => k.includes('qq-2'))).toBe(false);
+	});
+
+	it('restores into the named playlist only, and is a no-op when already back', () => {
+		const a = mk({ uid: 'netease-1', title: 'A' });
+		library.playlists = [
+			{ id: 'p1', name: 'one', tracks: [] },
+			{ id: 'p2', name: 'two', tracks: [] }
+		];
+		library.restoreAt({ playlist: 'p2' }, a, 5);
+		library.restoreAt({ playlist: 'p2' }, a, 0);
+		expect(library.playlists[0].tracks).toEqual([]);
+		expect(library.playlists[1].tracks.map((x) => x.uid)).toEqual(['netease-1']);
+	});
+
+	it('an undone download removal keeps its file (removal used deleteFile:false)', () => {
+		const a = mk({ uid: 'netease-1' });
+		library.downloads = [a];
+		library.removeDownload(a.uid, { deleteFile: false });
+		library.restoreAt('downloads', a, 0);
+		expect(library.isDownloaded(a.uid)).toBe(true);
+		expect(blobDel).not.toHaveBeenCalled();
+	});
+});

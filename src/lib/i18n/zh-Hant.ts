@@ -592,6 +592,7 @@ const zhHant: Dict = {
 	"toast.radioStarted": "電台已開始",
 	"toast.sharedPlaying": "正在播放分享的歌曲 · 待播清單保留不變",
 	"toast.removedFromQueue": "已從待播清單移除",
+	"toast.removed": "已移除",
 	"toast.undo": "復原",
 	"toast.preparingDownload": "正在準備下載…",
 	"toast.downloading": "正在下載 · {label}",

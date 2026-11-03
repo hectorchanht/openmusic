@@ -652,6 +652,7 @@ const en = {
 	// — it announces itself and reassures that the queue survived.
 	"toast.sharedPlaying": "Playing shared song · your queue is kept",
 	"toast.removedFromQueue": "Removed from queue",
+	"toast.removed": "Removed",
 	"toast.undo": "Undo",
 	"toast.preparingDownload": "Preparing download…",
 	"toast.downloading": "Downloading · {label}",

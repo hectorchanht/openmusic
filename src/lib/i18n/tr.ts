@@ -566,6 +566,7 @@ const tr: Dict = {
 	"toast.radioStarted": "Radio started",
 	"toast.sharedPlaying": "Paylaşılan şarkı çalıyor · sıran korundu",
 	"toast.removedFromQueue": "Sıradan kaldırıldı",
+	"toast.removed": "Kaldırıldı",
 	"toast.undo": "Geri al",
 	"toast.preparingDownload": "İndirmeye hazırlanıyor…",
 	"toast.downloading": "İndiriliyor · {label}",

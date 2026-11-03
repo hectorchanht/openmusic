@@ -566,6 +566,7 @@ const ar: Dict = {
 	"toast.radioStarted": "Radio started",
 	"toast.sharedPlaying": "يتم تشغيل الأغنية المشتركة · قائمة الانتظار محفوظة",
 	"toast.removedFromQueue": "تمت الإزالة من قائمة الانتظار",
+	"toast.removed": "تمت الإزالة",
 	"toast.undo": "تراجع",
 	"toast.preparingDownload": "جارٍ التحضير للتنزيل…",
 	"toast.downloading": "جارٍ التنزيل · {label}",

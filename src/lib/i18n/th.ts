@@ -566,6 +566,7 @@ const th: Dict = {
 	"toast.radioStarted": "Radio started",
 	"toast.sharedPlaying": "กำลังเล่นเพลงที่แชร์ · คิวของคุณยังอยู่",
 	"toast.removedFromQueue": "ลบออกจากคิวแล้ว",
+	"toast.removed": "ลบแล้ว",
 	"toast.undo": "เลิกทำ",
 	"toast.preparingDownload": "กำลังเตรียมการดาวน์โหลด...",
 	"toast.downloading": "กำลังดาวน์โหลด · {label}",

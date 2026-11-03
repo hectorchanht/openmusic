@@ -65,9 +65,9 @@
 		opacity: 0.5;
 		cursor: default;
 	}
-	/* The danger tint is the same #ff7a90 /settings/data already used for "Clear library". */
+	/* The danger tint is --color-danger-text (quick-261102-libaudit: was the #ff7a90 literal, 2.4:1 in light). */
 	.setting-row.danger {
-		color: #ff7a90;
+		color: var(--color-danger-text);
 	}
 	.txt {
 		flex: 1;
