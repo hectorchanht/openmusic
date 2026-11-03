@@ -11,7 +11,7 @@
 // Graceful degrade (D-03): null → caller shows unplayable / skips, never breaks the
 // surface or the player. catalog.ts / dedupe.ts are pure reuse — NOT modified here.
 import { searchAll } from '$lib/services/catalog';
-import { dedupeBest, normField, preferenceOrder, cjkTitleOf } from '$lib/services/dedupe';
+import { dedupeBest, normField, preferenceOrder, cjkTitleOf, trackQualityRank } from '$lib/services/dedupe';
 import { rankPool, partitionOfficial, isAutoAcceptable, isAutoAcceptableArtist } from '$lib/services/song-variant';
 import { tier1Only } from '$lib/sources/registry';
 import { scoreMatch } from '$lib/services/score-match';
@@ -19,6 +19,7 @@ import { foldScript, isChineseLine, ensureFoldReady, foldScriptReady } from '$li
 import { detectLang } from '$lib/i18n/detect';
 import { isStrongMatch, lookupChineseName, type ZhName } from '$lib/services/name-rescue';
 import { settings } from '$lib/stores/settings.svelte';
+import { logAction } from '$lib/stores/actionLog.svelte';
 import { isAutoResolveEligible } from '$lib/sources/registry';
 import type { Track } from '$lib/sources/types';
 
@@ -231,14 +232,25 @@ export async function resolveStub(artist: string, title: string): Promise<Track 
 			// is unambiguous (≥ 2 distinct sources, no tie). No name pairing is fetched — the
 			// wa7/cjk2 rescue below stays as the fallback for pools with no consensus. The
 			// artist-identity gate (quick-261102-cov1) is relaxed ONLY inside these fences:
-			// bilingual stub + title-only pool + title EXACTLY the CJK half (a qualifier/version
-			// tail fails the strict equality) + CJK credit + auto-resolve-eligible source
+			// bilingual stub + title-only pool + title matching the CJK half under the canonical
+			// fuzzy key (qualifier/version tails fold away — Hector: 歌名可以 fuzzy) + CJK credit
+			// + auto-resolve-eligible source
 			// (user-upload platforms are ineligible, so a stranger's upload can never vote).
 			if (detectLang(artist) === 'en') {
 				const trusted = await titleTrust(cjkTitle).catch(() => null);
-				if (trusted) return trusted;
+				// quick-261103-cjk4: lane telemetry — three Node-proven fixes in a row still seated
+				// ytmusic in a cold browser, and every post-mortem was guesswork for lack of this
+				// one line. The Activity log now records which lane a bilingual Latin stub took.
+				if (trusted) {
+					logAction('resolve.stub', { via: 'trust', source: trusted.source });
+					return trusted;
+				}
 				const rescued = await rescueLatin(artist, title).catch(() => null);
-				if (rescued) return rescued;
+				if (rescued) {
+					logAction('resolve.stub', { via: 'rescue', source: rescued.source });
+					return rescued;
+				}
+				logAction('resolve.stub', { via: 'none' });
 			}
 			const splitQuery = { artist, title: cjkTitle };
 			const split = await attempt(artist, cjkTitle);
@@ -270,12 +282,15 @@ export async function resolveStub(artist: string, title: string): Promise<Track 
 	}
 }
 
-/** quick-261103-cjk3: fold + case + whitespace only — see titleTrust for why normField is too lax here. */
-function strictTitleKey(s: string): string {
-	return foldScript(s || '')
-		.toLowerCase()
-		.replace(/\s+/g, ' ')
-		.trim();
+/**
+ * quick-261103-cjk3/cjk4: the title-trust title key is the app's canonical `normField` — fold +
+ * qualifier-tail stripping, so "車匙 (2016 Version)" counts as 車匙. cjk3 shipped a stricter
+ * fold/case/space-only key; Hector relaxed it the same day （歌名可以 fuzzy、更靈活）: with the
+ * consensus + CJK-credit + eligible-source fences carrying the identity, a version tail on the
+ * CONSENSUS artist's own row is that artist's song, not a substitution.
+ */
+function trustTitleKey(s: string): string {
+	return normField(s || '');
 }
 
 /**
@@ -285,14 +300,25 @@ function strictTitleKey(s: string): string {
  */
 async function titleTrust(cjkTitle: string): Promise<Track | null> {
 	await foldScriptReady(cjkTitle);
-	// STRICT title equality: script fold + case + whitespace ONLY. normField would also strip
-	// bracketed qualifier tails, so "車匙 (2016 Version)" would pass as "車匙" — a rendition the
-	// stub never named must not be trusted in; it stays the rescue's job (which gates on the
-	// rescued identity, versions included deliberately there).
-	const key = strictTitleKey(cjkTitle);
-	const consensus = (rows: Track[]): Track | null => {
+	// Title equality is the canonical fuzzy key (normField — see trustTitleKey): Hector ruled
+	// the title need not match strictly, qualifier/version tails fold away.
+	const key = trustTitleKey(cjkTitle);
+	// Adoption ranking (Hector 2026-11-03: resolver ranking follows SPEED and QUALITY, not a
+	// fixed source list): quality first (preferenceOrder's own first key), then MEASURED speed —
+	// a row whose source answered inside this resolve's fast tier-1 sweep beats an equal-quality
+	// row from a source that only showed up later — and only then the static preference order.
+	const adopt = (rows: Track[], fast: ReadonlySet<string>): Track | null => {
+		const ordered = preferenceOrder(rows, settings.preferredSource);
+		ordered.sort(
+			(a, b) =>
+				trackQualityRank(b) - trackQualityRank(a) ||
+				(fast.has(a.source) ? 0 : 1) - (fast.has(b.source) ? 0 : 1)
+		);
+		return ordered[0] ?? null;
+	};
+	const consensus = (rows: Track[], fast: ReadonlySet<string>): Track | null => {
 		const hits = rows.filter(
-			(t) => isAutoResolveEligible(t.source) && isChineseLine(t.artist) && strictTitleKey(t.title) === key
+			(t) => isAutoResolveEligible(t.source) && isChineseLine(t.artist) && trustTitleKey(t.title) === key
 		);
 		// Cross-source consensus (Hector's rule): group the exact-title rows by artist and count
 		// DISTINCT sources per artist — suyin resolves through kuwo's catalogue, so the two
@@ -317,10 +343,54 @@ async function titleTrust(cjkTitle: string): Promise<Track | null> {
 			}
 		}
 		if (!winner || ambiguous) return null;
-		return preferenceOrder(winner.rows, settings.preferredSource)[0] ?? null;
+		return adopt(winner.rows, fast);
 	};
 	const tier1 = await searchAll(cjkTitle, 1, tier1Only());
-	return consensus(tier1.interleaved) ?? consensus((await searchAll(cjkTitle, 1)).interleaved);
+	// Sources that ANSWERED the tier-1 sweep are this resolve's measured-fast set.
+	const fast = new Set<string>(tier1.perSource.filter((s) => s.status === 'ok').map((s) => s.source));
+	const fromTier1 = consensus(tier1.interleaved, fast);
+	if (fromTier1) return fromTier1;
+	const full = await searchAll(cjkTitle, 1);
+	const fromFull = consensus(full.interleaved, fast);
+	if (fromFull) return fromFull;
+	// quick-261103-cjk4 — VERIFY pass. Live 2026-11-03 (fresh-profile browser): the title-only
+	// pools DO carry the original (the app's own search shows 陳柏宇《車匙》 #1), yet a cold-mount
+	// resolve still seated the ytmusic row — at the app's busiest moment the governor/breaker
+	// starves the slower CN legs, so ONE pool snapshot can hold the original on a single source
+	// only and the ≥2-vote consensus never forms. Gather the second vote ACTIVELY instead of
+	// hoping one snapshot holds both: take the pool's leading exact-title artist (most distinct
+	// sources, then most rows — a cover leader is possible in a starved pool, which is exactly
+	// why the verifying row must come from a source that has NOT voted yet) and run ONE targeted
+	// artist+title search; an exact artist+title row on a NEW source completes the consensus.
+	// No new-source row → no trust (the rescue decides), never a single-source adoption.
+	const hits = full.interleaved.filter(
+		(t) => isAutoResolveEligible(t.source) && isChineseLine(t.artist) && trustTitleKey(t.title) === key
+	);
+	const byArtist = new Map<string, { rows: Track[]; votes: Set<string> }>();
+	for (const t of hits) {
+		const a = normField(t.artist);
+		const e = byArtist.get(a) ?? { rows: [], votes: new Set<string>() };
+		e.rows.push(t);
+		e.votes.add(t.source === 'suyin' ? 'kuwo' : t.source);
+		byArtist.set(a, e);
+	}
+	const leader = [...byArtist.entries()].sort(
+		(x, y) => y[1].votes.size - x[1].votes.size || y[1].rows.length - x[1].rows.length
+	)[0];
+	if (!leader) return null;
+	const [leaderKey, leaderEntry] = leader;
+	const leaderArtist = leaderEntry.rows[0].artist;
+	const verify = await searchAll(`${leaderArtist} ${cjkTitle}`, 1, tier1Only());
+	const confirming = verify.interleaved.find(
+		(t) =>
+			isAutoResolveEligible(t.source) &&
+			!leaderEntry.votes.has(t.source === 'suyin' ? 'kuwo' : t.source) &&
+			normField(t.artist) === leaderKey &&
+			trustTitleKey(t.title) === key
+	);
+	if (!confirming) return null;
+	// The confirming source just answered a targeted search — it counts as measured-fast too.
+	return adopt([...leaderEntry.rows, confirming], new Set<string>([...fast, confirming.source]));
 }
 
 /**

@@ -429,14 +429,14 @@ describe('resolveStub — bilingual title split (quick-261103-cjk)', () => {
 		expect(search.mock.calls[1][0]).toBe('車匙');
 	});
 
-	it('title-trust fences: ineligible-source + qualifier-title rows do NOT adopt → rescue runs', async () => {
+	it('title-trust fences: an ineligible upload never votes; one fuzzy version vote is not consensus → rescue runs', async () => {
 		const hit = qqRow();
 		const upload = mk('ytmusic', 'up1', 'oupatpat', { title: '車匙' });
 		const version = mk('qq', 'v2016', '陳柏宇', { title: '車匙 (2016 Version)' });
 		const search = vi
 			.spyOn(catalog, 'searchAll')
 			.mockResolvedValueOnce(result([ytm()])) // full attempt
-			.mockResolvedValueOnce(result([upload, version])) // trust tier-1 scan — both fenced out
+			.mockResolvedValueOnce(result([upload, version])) // trust tier-1: upload fenced, version = ONE vote
 			.mockResolvedValueOnce(result([])) // trust full scan
 			.mockResolvedValueOnce(result([hit])); // rescue re-search
 		const look = vi.spyOn(nameRescue, 'lookupChineseName').mockResolvedValue({ artist: '陳柏宇', title: '車匙' });
@@ -444,6 +444,37 @@ describe('resolveStub — bilingual title split (quick-261103-cjk)', () => {
 		expect((await resolveStub('Jason Chan', '車匙 - Car Key'))?.uid).toBe(hit.uid);
 		expect(look).toHaveBeenCalledTimes(1);
 		expect(search.mock.calls[1][0]).toBe('車匙');
+	});
+
+	it('title-trust adoption: measured speed breaks a quality tie ahead of the static source order', async () => {
+		const qqHit = qqRow();
+		const kuwoHit = mk('kuwo', 'car', '陳柏宇', { title: '車匙' });
+		// Same artist, same title, equal quality on qq + kuwo — but in THIS resolve only kuwo
+		// answered the fast tier-1 sweep, so the kuwo row is adopted (Hector: ranking by speed
+		// and quality, not a fixed source list).
+		const tier1Result: catalog.SearchResult = {
+			perSource: [{ source: 'kuwo', status: 'ok', tracks: [kuwoHit] }],
+			interleaved: [qqHit, kuwoHit]
+		};
+		vi.spyOn(catalog, 'searchAll')
+			.mockResolvedValueOnce(result([ytm()]))
+			.mockResolvedValueOnce(tier1Result);
+		const look = vi.spyOn(nameRescue, 'lookupChineseName');
+
+		expect((await resolveStub('Jason Chan', '車匙 - Car Key'))?.uid).toBe(kuwoHit.uid);
+		expect(look).toHaveBeenCalledTimes(0);
+	});
+
+	it('title-trust fuzzy titles: version-tail rows on two sources DO form the consensus', async () => {
+		const hit = mk('joox', 'car', '陳柏宇', { title: '車匙' });
+		const version = mk('qq', 'v2016', '陳柏宇', { title: '車匙 (2016 Version)' });
+		vi.spyOn(catalog, 'searchAll')
+			.mockResolvedValueOnce(result([ytm()]))
+			.mockResolvedValueOnce(result([version, hit])); // 陳柏宇 qq (version tail) + joox = 2 votes
+		const look = vi.spyOn(nameRescue, 'lookupChineseName');
+
+		expect((await resolveStub('Jason Chan', '車匙 - Car Key'))?.uid).toBe(hit.uid);
+		expect(look).toHaveBeenCalledTimes(0);
 	});
 
 	it('title-trust: consensus artist beats a single-source stranger with the same title', async () => {
@@ -465,12 +496,31 @@ describe('resolveStub — bilingual title split (quick-261103-cjk)', () => {
 			.mockResolvedValueOnce(result([ytm()]))
 			.mockResolvedValueOnce(result([qqRow()])) // trust tier-1: 陳柏宇 on qq only
 			.mockResolvedValueOnce(result([qqRow()])) // trust full: still one source
+			.mockResolvedValueOnce(result([qqRow()])) // cjk4 verify: same source again — NOT a second vote
 			.mockResolvedValueOnce(result([hit])); // rescue re-search
 		const look = vi.spyOn(nameRescue, 'lookupChineseName').mockResolvedValue({ artist: '陳柏宇', title: '車匙' });
 
 		expect((await resolveStub('Jason Chan', '車匙 - Car Key'))?.uid).toBe(hit.uid);
 		expect(look).toHaveBeenCalledTimes(1);
+		expect(search).toHaveBeenCalledTimes(5);
+		expect(search.mock.calls[3][0]).toBe('陳柏宇 車匙');
+	});
+
+	it('title-trust verify pass: a second source confirms the pool leader → adopted, no lookup', async () => {
+		const hit = mk('joox', 'car', '陳柏宇', { title: '車匙' });
+		const stranger = mk('qq', 'other', '幸運王子', { title: '車匙' });
+		const search = vi
+			.spyOn(catalog, 'searchAll')
+			.mockResolvedValueOnce(result([ytm()]))
+			.mockResolvedValueOnce(result([qqRow()])) // tier-1 pool: leader on one source only
+			.mockResolvedValueOnce(result([qqRow(), stranger])) // full pool: still no consensus
+			.mockResolvedValueOnce(result([hit])); // verify search: joox carries 陳柏宇《車匙》 too
+		const look = vi.spyOn(nameRescue, 'lookupChineseName');
+
+		expect((await resolveStub('Jason Chan', '車匙 - Car Key'))?.uid).toBe(hit.uid);
+		expect(look).toHaveBeenCalledTimes(0);
 		expect(search).toHaveBeenCalledTimes(4);
+		expect(search.mock.calls[3][0]).toBe('陳柏宇 車匙');
 	});
 
 	it('title-trust: two artists tied at two sources each → ambiguous, rescue decides', async () => {
@@ -486,12 +536,13 @@ describe('resolveStub — bilingual title split (quick-261103-cjk)', () => {
 			.mockResolvedValueOnce(result([ytm()]))
 			.mockResolvedValueOnce(result(tiePool()))
 			.mockResolvedValueOnce(result(tiePool()))
+			.mockResolvedValueOnce(result([])) // cjk4 verify: no NEW source confirms the leader
 			.mockResolvedValueOnce(result([hit]));
 		const look = vi.spyOn(nameRescue, 'lookupChineseName').mockResolvedValue({ artist: '陳柏宇', title: '車匙' });
 
 		expect((await resolveStub('Jason Chan', '車匙 - Car Key'))?.uid).toBe(hit.uid);
 		expect(look).toHaveBeenCalledTimes(1);
-		expect(search).toHaveBeenCalledTimes(4);
+		expect(search).toHaveBeenCalledTimes(5);
 	});
 
 	it('CJK artist: the split attempt alone resolves, no lookup spent', async () => {

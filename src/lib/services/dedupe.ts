@@ -45,7 +45,7 @@ import { splitArtists } from '$lib/util/artist-split';
 
 /** Higher = better. quick-261102-to0: THE ranker (sources/quality qualityRank) over the row's
  *  label + tier strings (often null pre-resolve). */
-function trackQualityRank(t: Track): number {
+export function trackQualityRank(t: Track): number {
 	return qualityRank(`${t.qualityLabel ?? ''} ${t.quality ?? ''}`);
 }
 
