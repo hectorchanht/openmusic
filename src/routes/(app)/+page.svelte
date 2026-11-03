@@ -3,7 +3,7 @@
 	import { SvelteSet } from 'svelte/reactivity';
 	import { goto } from '$app/navigation';
 	import { navigating } from '$app/state';
-	import { Search, Settings, RotateCw, ChevronRight } from '@lucide/svelte';
+	import { Search, Settings, RotateCw, ChevronRight, MoreVertical } from '@lucide/svelte';
 	import Logo from '$lib/components/Logo.svelte';
 	import ShelfChevrons from '$lib/components/ShelfChevrons.svelte';
 	import SponsoredStrip from '$lib/components/SponsoredStrip.svelte';
@@ -103,6 +103,8 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 	import CompactRow from '$lib/components/CompactRow.svelte';
 	import CompactPager from '$lib/components/CompactPager.svelte';
 	import HomeGridPager from '$lib/components/HomeGridPager.svelte';
+	// quick-261102-syk: the placeholder grid uses the same column/row maths as HomeGridPager.
+	import { gridColumns, gridRowsPerPage } from '$lib/components/shelf-scroll';
 	import PageOg from '$lib/components/PageOg.svelte';
 	import { toast } from '$lib/stores/toast.svelte';
 	import type { PageData } from './$types';
@@ -115,6 +117,9 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 
 	let menuTrack = $state<Track | null>(null);
 	let menuOpen = $state(false);
+	// quick-261102-syk: measured content width of a shelf placeholder (every placeholder shares the
+	// same width, so one variable is enough); 0 before first measure → gridColumns falls back to 3.
+	let phWidth = $state(0);
 
 	const PICK_COUNT = 9;
 	// w87: items-per-shelf is now the user setting (clampShelfSize(settings.homeShelfSize)),
@@ -1246,6 +1251,8 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 				<!-- quick-260915-w4f: a pin outranks the tile's inline cover. {@const} must be the immediate
 				     child of the {#each}, not of the <button>. -->
 				{@const art = readChosenCover(track.uid, track.artist, track.title) ?? track.cover}
+				<!-- quick-261102-syk: .tilewrap carries the sibling ⋮ (see tileMenuBtn). -->
+				<div class="tilewrap">
 				<button class="tile" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); menuTrack = track; menuOpen = true; }} oncontextmenu={(e) => { e.preventDefault(); (e.currentTarget as HTMLElement)?.blur(); menuTrack = track; menuOpen = true; }} onclick={() => { player.setQueue(fallbackSongs, 'home-discovery'); player.play(track, { fresh: true }); }}>
 					<!-- quick-261102-sfc: cover as a lazy <img> over the gradient (was a CSS url() background,
 					     which is never lazy and has no onerror — a dead URL left a blank tile and never reached
@@ -1260,6 +1267,8 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 						<div class="t-artist">{names.dnArtist(track.artist)}</div>
 					</div>
 				</button>
+				{@render tileMenuBtn(() => { menuTrack = track; menuOpen = true; })}
+				</div>
 			{/each}
 		</div>
 	{:else}
@@ -1302,6 +1311,14 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 <!-- quick-261102-sfc: the 18 shelf titles were bare buttons, so Home's outline had a single h2.
      Wrapping in an <h3> (margin:0, one block child) gives screen readers real headings with zero
      visual change — the button keeps its own type and margins. -->
+<!-- quick-261102-syk: pointer/keyboard ⋮ for grid + pile SONG tiles. The tiles are themselves
+     <button>s, so the ⋮ cannot nest inside them; it is an absolutely-positioned SIBLING inside a
+     .tilewrap wrapper. Mirrors CompactRow's .opt (same label + icon) and opens the same menu the
+     long-press / right-click already opens — long-press stays the touch gesture (MENU-03 / D-12). -->
+{#snippet tileMenuBtn(open: () => void)}
+	<button type="button" class="tilemenu" aria-label={t('menu.options')} title={t('menu.options')} onclick={open}><MoreVertical size={18} /></button>
+{/snippet}
+
 {#snippet titleNav(label: string, dest: string)}
 	<h3 class="subhead">
 		<button class="subhead-nav" use:tapBounce aria-label={`${label}, ${t('home.seeAll')}`} onclick={() => goto(dest)}>
@@ -1348,7 +1365,8 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
      so a slow Top songs never pops in above shelves that already landed. Heading bar + a body matched
      to the shelf's density; replaced in place by the real shelf, or removed when it settles empty. -->
 {#snippet shelfPlaceholder(density: HomeDensity, round = false)}
-	<div class="ph" aria-hidden="true">
+	<!-- quick-261102-syk: bind:clientWidth feeds the grid branch's column maths. -->
+	<div class="ph" aria-hidden="true" bind:clientWidth={phWidth}>
 		<div class="ph-head"><span class="sk ph-bar"></span></div>
 		{#if density === 'list'}
 			<div class="compact-skel-pager">
@@ -1356,8 +1374,10 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 				{@render compactSkeletonColumn()}
 			</div>
 		{:else if density === 'grid'}
-			<div class="grid">
-				{#each Array(9) as _, i (i)}<span class="sk ph-cell"></span>{/each}
+			{@const phCols = gridColumns(phWidth)}
+			<!-- quick-261102-syk: same cols × rows as the real HomeGridPager page, so no height jump. -->
+			<div class="grid ph-grid" style:--cols={phCols}>
+				{#each Array(phCols * gridRowsPerPage(phCols)) as _, i (i)}<span class="sk ph-cell"></span>{/each}
 			</div>
 		{:else}
 			<div class="albumrow">
@@ -1452,6 +1472,8 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 		     capped at 27 by both the slice here and the component (belt-and-braces). -->
 		<HomeGridPager items={items.slice(0, 27)} key={(item) => item.artist + ' ' + item.title}>
 			{#snippet row(item: DiscoveryTrack)}
+				<!-- quick-261102-syk: .tilewrap carries the sibling ⋮ (see tileMenuBtn). -->
+				<div class="tilewrap">
 				<button class="tile" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); tileMenu(item); }} oncontextmenu={(e) => { e.preventDefault(); (e.currentTarget as HTMLElement)?.blur(); tileMenu(item); }} onclick={() => playStub(item, coverOnPlay ? item.image : null)}>
 					<div class="art" style:background-image={fallbackCover(item.artist + item.title)}></div>
 					{#if tileCover(item)}<img class="al-cover-img" src={tileCover(item)} loading="lazy" decoding="async" alt="" onerror={hideOnError} />{/if}
@@ -1461,6 +1483,8 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 						<div class="t-artist">{names.dnArtist(item.artist)}</div>
 					</div>
 				</button>
+				{@render tileMenuBtn(() => tileMenu(item))}
+				</div>
 			{/snippet}
 		</HomeGridPager>
 	{:else}
@@ -1468,6 +1492,8 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 			{#each items as item (item.artist + ' ' + item.title)}
 				<!-- DiscoveryTrack carries NO uid → resolve-on-view is via scheduleBackfill + the global
 				     reactive signal (NOT use:lazyCover, which needs a Track); no synthetic uid stub. -->
+				<!-- quick-261102-syk: .tilewrap carries the sibling ⋮ (see tileMenuBtn). -->
+				<div class="tilewrap">
 				<button class="album" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); tileMenu(item); }} oncontextmenu={(e) => { e.preventDefault(); (e.currentTarget as HTMLElement)?.blur(); tileMenu(item); }} onclick={() => playStub(item, coverOnPlay ? item.image : null)}>
 					<span class="al-cover" style:background-image={fallbackCover(item.artist + item.title)}>
 						{#if tileCover(item)}<img class="al-cover-img" src={tileCover(item)} loading="lazy" decoding="async" alt="" onerror={hideOnError} />{/if}
@@ -1475,6 +1501,8 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 					<span class="al-name" use:marquee><span class="marquee-inner">{names.dnTitle(item.title, item.artist)}</span></span>
 					<span class="al-count" use:marquee><span class="marquee-inner">{names.dnArtist(item.artist)}</span></span>
 				</button>
+				{@render tileMenuBtn(() => tileMenu(item))}
+				</div>
 			{/each}
 		</div>
 		<ShelfChevrons />
@@ -1647,7 +1675,10 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 	<!-- quick-260615-hep: uid-first reactive read; lazyCover resolves-on-view (writes both cache layers
 	     internally) and bumps the global signal so this reactive rowCover recomputes + the <img> paints. -->
 	{@const rowCover = libraryRowCover(track)}
-	<button class="album" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); menuTrack = track; menuOpen = true; }} oncontextmenu={(e) => { e.preventDefault(); (e.currentTarget as HTMLElement)?.blur(); menuTrack = track; menuOpen = true; }} onclick={() => playLibraryTrack(track, ctx)}>>
+	<!-- quick-261102-syk: .tilewrap carries the sibling ⋮ (see tileMenuBtn); the stray second `>` that
+	     followed this button's opening tag (a literal text node in the flex column) is gone. -->
+	<div class="tilewrap">
+	<button class="album" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); menuTrack = track; menuOpen = true; }} oncontextmenu={(e) => { e.preventDefault(); (e.currentTarget as HTMLElement)?.blur(); menuTrack = track; menuOpen = true; }} onclick={() => playLibraryTrack(track, ctx)}>
 		<!-- psi-home-163mb-payload-lcp follow-up: gradient-only background; the lazy <img> paints the
 		     cover (a CSS url() background is never lazy, so every off-screen pile cover loaded eagerly). -->
 		<span class="al-cover" use:lazyCover={{ track, onResolved: () => bumpCoverVersion() }} style:background-image={fallbackCover(track.uid)}>
@@ -1656,6 +1687,8 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 		<span class="al-name" use:marquee><span class="marquee-inner">{names.dnTitle(track.title, track.artist)}</span></span>
 		<span class="al-count" use:marquee><span class="marquee-inner">{names.dnArtist(track.artist)}</span></span>
 	</button>
+	{@render tileMenuBtn(() => { menuTrack = track; menuOpen = true; })}
+	</div>
 {/snippet}
 
 <!-- A reusable list/pile/grid library track shelf (liked / downloads / history / playlists).
@@ -1681,6 +1714,8 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 		<HomeGridPager items={tracks.slice(0, 27)} key={(track) => track.uid}>
 			{#snippet row(track: Track)}
 				{@const rowCover = libraryRowCover(track)}
+				<!-- quick-261102-syk: .tilewrap carries the sibling ⋮ (see tileMenuBtn). -->
+				<div class="tilewrap">
 				<button class="tile" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openTrackMenu(track); }} oncontextmenu={(e) => { e.preventDefault(); (e.currentTarget as HTMLElement)?.blur(); openTrackMenu(track); }} onclick={() => playLibraryTrack(track, ctx)}>
 					<!-- quick-261102-sfc: same lazy <img> + onerror as the pile row above — a CSS url()
 					     background was eager and a dead URL left a blank tile instead of the gradient. -->
@@ -1692,6 +1727,8 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 						<div class="t-artist">{names.dnArtist(track.artist)}</div>
 					</div>
 				</button>
+				{@render tileMenuBtn(() => openTrackMenu(track))}
+				</div>
 			{/snippet}
 		</HomeGridPager>
 	{:else}
@@ -1901,6 +1938,8 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 	   any other value); the stored enum is unchanged. */
 	.section.compact .albumrow { gap: 8px; }
 	.section.compact .album { flex-basis: calc(96px * var(--cover-scale, 1)); max-width: calc(96px * var(--cover-scale, 1)); }
+	/* quick-261102-syk: compact basis for the song-tile wrapper (see .albumrow > .tilewrap below). */
+	.section.compact .albumrow > .tilewrap { flex-basis: calc(96px * var(--cover-scale, 1)); max-width: calc(96px * var(--cover-scale, 1)); }
 	.section.compact .al-cover { width: calc(96px * var(--cover-scale, 1)); height: calc(96px * var(--cover-scale, 1)); }
 	.section.compact .grid { gap: 8px; }
 	/* FIX-B: real cover (Last.fm or CAA) layered over the gradient span; onerror hides it
@@ -1926,7 +1965,8 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 	.label { position: absolute; left: 7px; right: 7px; bottom: 6px; text-align: left; }
 	.t-title { font-size: calc(0.6875rem * var(--fs-title, 1)); font-weight: 700; line-height: 1.2; color: #fff; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 	.t-artist { font-size: calc(0.625rem * var(--fs-artist, 1)); color: #d8d8de; margin-top: 2px; opacity: 0.85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-	.q { position: absolute; top: 6px; right: 6px; font-size: 0.5rem; font-weight: 700; padding: 2px 5px; border-radius: 4px; background: rgba(0,0,0,0.55); color: #fff; }
+	/* quick-261102-syk: top-LEFT — the top-right corner now belongs to the hover/focus ⋮ (.tilemenu). */
+	.q { position: absolute; top: 6px; left: 6px; font-size: 0.5rem; font-weight: 700; padding: 2px 5px; border-radius: 4px; background: rgba(0,0,0,0.55); color: #fff; }
 	/* quick-260618-goe: artist grid tile — round cover + centered name BELOW (no overlay/scrim),
 	   so it overrides the square aspect-ratio .tile shell with a flex-column layout. */
 	.artist-tile { position: static; aspect-ratio: auto; background: none; border-radius: 0; display: flex; flex-direction: column; align-items: center; gap: 6px; }
@@ -1945,6 +1985,36 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 	@media (min-width: 1024px) {
 		.grid { grid-template-columns: repeat(auto-fill, minmax(calc(150px * var(--cover-scale, 1)), 1fr)); }
 	}
+	/* quick-261102-syk: the grid placeholder mirrors HomeGridPager's `.page` column rule + GRID_GAP
+	   (10px), with --cols from gridColumns(phWidth), so a loaded shelf replaces it with the same
+	   column count, row count and tile size — no height jump. Placed after the 1024px .grid override
+	   and at (0,3,0) so it also beats `.section.compact .grid`. */
+	.ph .grid.ph-grid { grid-template-columns: repeat(var(--cols, 3), minmax(0, 1fr)); gap: 10px; }
+
+	/* quick-261102-syk: ⋮ on grid + pile SONG tiles (tileMenuBtn). The wrapper holds the tile and
+	   its sibling ⋮; in a grid cell it stretches to the minmax(0,1fr) column, so the tile button
+	   (inline-block by default) must fill it — aspect-ratio on .tile still sets the height. */
+	.tilewrap { position: relative; min-width: 0; }
+	.tilewrap > .tile { display: block; width: 100%; }
+	/* Pile: the wrapper is now .albumrow's flex child, so it takes the 130px basis .album had. */
+	.albumrow > .tilewrap { flex: 0 0 calc(130px * var(--cover-scale, 1)); max-width: calc(130px * var(--cover-scale, 1)); }
+	.tilewrap > .album { width: 100%; }
+	/* 44px hit, 32px dark circle so the glyph reads over any art. */
+	.tilemenu {
+		position: absolute; top: 2px; right: 2px; width: 44px; height: 44px;
+		display: grid; place-items: center; padding: 0; border: none; background: none;
+		color: #fff; cursor: pointer; opacity: 0; visibility: hidden;
+		transition: opacity 0.15s ease; z-index: 1;
+	}
+	.tilemenu::before { content: ''; position: absolute; width: 32px; height: 32px; border-radius: var(--radius-full); background: rgba(0, 0, 0, 0.62); }
+	.tilemenu :global(svg) { position: relative; }
+	/* Reveal on hover (pointer devices only) and on keyboard focus. visibility:hidden keeps the
+	   hidden ⋮ out of the tab order: Tab onto the tile button (:focus-visible → the wrapper's :has
+	   reveals the ⋮), the next Tab lands on the now-visible ⋮, which stays visible through its own
+	   :focus-visible. A touch tap never matches :focus-visible on a button, so touch-only devices
+	   never see it — long-press remains their route to the menu. */
+	@media (hover: hover) { .tilewrap:hover .tilemenu { opacity: 1; visibility: visible; } }
+	.tilewrap:has(:focus-visible) .tilemenu { opacity: 1; visibility: visible; }
 	/* quick-261010-soy3: Songs of the Year region hub cards. */
 	.soy-regions {
 		display: flex; gap: 12px; overflow-x: auto; padding: 4px 16px 16px;
