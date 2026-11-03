@@ -9,7 +9,30 @@ parallel implementation of an existing decision is a bug even if it currently ag
 Where surfaces disagree today, the "winner" named per domain is the product truth;
 converging to it is the only intended behaviour change.
 
-Line numbers are against local `main` at `87a43319` (which merged origin's
+## Status (2026-11-03) — converged vs still open
+
+Every domain has a characterization commit and a convergence commit on `unify-decisions`
+(quick tasks named per domain; suite 249 files / 5207 tests, svelte-check 0 errors). The permanent
+invariant suite is `src/lib/invariants.test.ts`.
+
+| § | Domain | Converged (decider) | Still open |
+|---|---|---|---|
+| 2 | Script | `zh-convert foldScript` + `ensureFoldReady`; `searchAll` folds the query to Simplified (one query, one cache entry) | — |
+| 1 | Identity | `dedupe.ts` preNorm/normField → `songKey` / `matchKey` (same halves); match-key.ts deleted | autocomplete suggestion dedupe left case-only (not song identity) |
+| 5 | Source priority | `sources/source-order.ts` PLAYBACK_ORDER / COVER_ORDER / COVER_RACE_TIERS / PRIORITY_WINDOW_MS; SOURCES built from PLAYBACK_ORDER; edge cache obeys the order | — |
+| 3 | Acceptance | `song-variant isAutoAcceptable` / `rankAutoCandidates`; `fallback.walkSource` shared by the name-stub walk; discovery, JBSou, resolve-edge on the same predicate; gated adapters → inconclusive | player FALLBACK_BUDGET_MS abort still skips fallback's inconclusive pass |
+| 4 | Ranking | `song-variant rankPool`; dedupeBest's group head = ranked head; one VARIANT_KEYWORDS; search + VersionPicker consume it; Deezer re-rank deleted | — |
+| 6 | Cover | `song-variant isCoverOf` on every rung (iTunes, Deezer song/artist, CN, QQ, YTM, album hero, /api/og); readers on `readCoverByUidOrName` order; writers on `writeCoverBoth` | /api/og requests from native media session / download embed / share carry display names as identity |
+| 8 | Display names | `names.dnTitle` / `dnArtist` on song pages, skip toast, sync modal, retag list, SongRow album, artist page surfaces | per-segment vs whole-string dnArtist can still differ for multi-artist credits |
+| 7 | Quality | `sources/quality qualityRank` / `wantedQualityRank`; display-quality merge everywhere incl. home tile + detail Source | blob swaps keep stream stamps on player.current; per-source label vocabulary unchanged |
+| 11 | Download | `library.downloadUidFor` on isSameShelfSong; rows, DownloadControl, TrackMenu fast paths, download-album ask it | TrackMenu blob probe + settings blob sweeps read blob-store directly; offline queue trusts the list |
+| 9 | Lyrics | `readLyrics` on download embed, Track Detail, retag sweep, player backfill + auto-embed | pins are uid-keyed (twin uid misses); "Use automatic" leaves the pin in the file; offset uid-keyed |
+| 10 | Queue | `upnext-scroll upNextWindowStart` (current always visible) | list sourcing still four install idioms — `player.startList` unbuilt |
+| 13 | Failure | budget-expiry skip named in the toast; play() error keyed; one `home.unplayable` key | timeouts don't count toward the systemic cap; batched toast has no names; exhaustion vs systemic share wording; list starts abort on track 0 |
+| 12 | Gestures | cancel / lost capture never commit (swipeAction, coverSwipe, dragClose, dragReorder, scrub, NpUpNext grip, RowActionsConfig); swipeAction commits at settle; swipeRemove deleted | NowPlaying grips; no sibling glide on NpUpNext/RowActionsConfig; VideoStage mid-drag seek; no shared createDragSession |
+| 14 | Settings | `$lib/motion` (reduce motion on every transition + JS scroll); adapters get the resolved tier; `isSourceEnabled` on QQ cover tiers; home tile honours showQualityTag | Nowbar lyric line ignores lyricsLang; lastfmSkip has no UI; NowPlaying/Nowbar keep local motion formulas |
+
+Line numbers below are against local `main` at `87a43319` (which merged origin's
 `ef301bd5` cov1 artist gate and `92ecd601`/`68d8d088` covgate OG identity gate).
 They will drift as convergence lands — each domain section is the inventory at audit
 time, not a live index.
