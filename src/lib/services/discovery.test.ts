@@ -429,6 +429,19 @@ describe('resolveStub — bilingual title split (quick-261103-cjk)', () => {
 		expect(search.mock.calls[1][0]).toBe('車匙');
 	});
 
+	it('the share-arrival shape: space-joined "車匙 Car Key" (dashes eaten by the route) still title-trusts', async () => {
+		const hit = mk('joox', 'car', '陳柏宇', { title: '車匙' });
+		const search = vi
+			.spyOn(catalog, 'searchAll')
+			.mockResolvedValueOnce(result([ytm()]))
+			.mockResolvedValueOnce(result([qqRow(), hit]));
+		const look = vi.spyOn(nameRescue, 'lookupChineseName');
+
+		expect((await resolveStub('Jason Chan', '車匙 Car Key'))?.uid).toBe(hit.uid);
+		expect(look).toHaveBeenCalledTimes(0);
+		expect(search.mock.calls[1][0]).toBe('車匙');
+	});
+
 	it('title-trust fences: an ineligible upload never votes; one fuzzy version vote is not consensus → rescue runs', async () => {
 		const hit = qqRow();
 		const upload = mk('ytmusic', 'up1', 'oupatpat', { title: '車匙' });

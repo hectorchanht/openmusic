@@ -53,7 +53,12 @@ const HAN = /\p{Script=Han}/u;
 const PRINTABLE_ASCII = /^[\x20-\x7e]+$/;
 // A leading Han run (inner spaces only BETWEEN Han chars), whitespace, then a Latin run starting
 // with a letter/digit. The Han and \s classes are disjoint, so this is linear on untrusted titles.
-const HAN_THEN_LATIN = /^\p{Script=Han}+(?:\s+\p{Script=Han}+)*\s+([a-z0-9][\x20-\x7e]*)$/u;
+// quick-261103-cjk5: the Latin run may start with a CAPITAL — YTM bilingual titles are Title
+// Case ("車匙 Car Key"), and the share route's decodePathSegment turns "車匙---Car-Key" into
+// exactly that space-joined shape. The lowercase-only class made cjkTitleOf return null for
+// every real share-link arrival, silently skipping the whole bilingual resolve (three Node-
+// proven fixes never fired in the browser because the probes used the dashed spelling).
+const HAN_THEN_LATIN = /^\p{Script=Han}+(?:\s+\p{Script=Han}+)*\s+([a-zA-Z0-9][\x20-\x7e]*)$/u;
 // quick-260927-2wt: split an artist key into maximal Han / non-Han runs. The two classes are
 // disjoint, so the scan is linear (no backtracking) on untrusted upstream artist strings.
 const SCRIPT_RUNS = /\p{Script=Han}+|[^\p{Script=Han}]+/gu;
@@ -111,27 +116,63 @@ function stripTranslation(title: string): string {
  * The qualifier guard is stripTranslation's: a Latin tail that names a RENDITION
  * (live / remix / part 2 …) is not a translation, so "玻璃 - Live" yields null and
  * keeps searching as-is.
+ *
+ * quick-261103-cjk5 (Hector: the splitter should be more versatile): the shape matrix is
+ * deliberately wide, because a false split costs one extra search while a missed split
+ * costs the whole bilingual resolve (the cjk5 root cause: the share route decodes
+ * "車匙---Car-Key" to the space-joined "車匙 Car Key", and the old ≥2-words / lowercase-only
+ * rules returned null for it). Covered, in order: dash-family separators with OPTIONAL
+ * surrounding spaces (script-pure sides only, so the hyphen inside "Car-Key" never
+ * splits), space-joined Han→Latin and Latin→Han down to a ONE-word Latin side, and
+ * concatenated script boundaries ("車匙Car Key", "CarKey車匙") where the Latin side is
+ * ≥2 words or one Capitalized word ≥3 letters. Every shape keeps the same guards: the
+ * non-Han side is printable ASCII with a letter and is NOT a qualifier tail.
  */
 export function cjkTitleOf(titleIn: string): string | null {
 	const s = (titleIn ?? '').trim();
 	if (!HAN.test(s)) return null;
-	// Dash-separated: split on the LAST " - "-style separator (spaces on both sides, so
-	// the hyphen inside "Car-Key" never splits). Either side may be the CJK half.
-	const seps = [...s.matchAll(/\s[-–—]\s/g)];
-	if (seps.length > 0) {
-		const last = seps[seps.length - 1];
-		const head = s.slice(0, last.index).trim();
-		const tail = s.slice(last.index + last[0].length).trim();
-		if (HAN.test(head) && PRINTABLE_ASCII.test(tail) && /[a-zA-Z]/.test(tail) && !isQualifierTail(tail)) return head;
-		if (HAN.test(tail) && PRINTABLE_ASCII.test(head) && /[a-zA-Z]/.test(head) && !isQualifierTail(head)) return tail;
+	const latinSideOk = (x: string): boolean =>
+		PRINTABLE_ASCII.test(x) && /[a-zA-Z]/.test(x) && !isQualifierTail(x);
+	// A space-joined Latin run reads as a translation at ≥2 words, or as ONE Capitalized
+	// (Title-Case) word; a lone lowercase word is the title's own styling, not a pair.
+	const latinRunOk = (x: string): boolean =>
+		latinSideOk(x) && (x.trim().split(/\s+/).length >= 2 || /^[A-Z]/.test(x.trim()));
+	// 1) Dash-family separator, spaces optional. Split on the LAST separator whose sides
+	// are script-pure (head all-Han / tail all-ASCII, or the mirror) — purity is what keeps
+	// "車匙 Car-Key" from splitting inside "Car-Key" (its head would contain Latin).
+	const seps = [...s.matchAll(/\s*[-–—]\s*/g)];
+	for (let i = seps.length - 1; i >= 0; i--) {
+		const m = seps[i];
+		const head = s.slice(0, m.index).trim();
+		const tail = s.slice(m.index + m[0].length).trim();
+		if (!head || !tail) continue;
+		if (!/[^\p{Script=Han}\s]/u.test(head) && HAN.test(head) && latinSideOk(tail)) return head;
+		if (!/[^\p{Script=Han}\s]/u.test(tail) && HAN.test(tail) && latinSideOk(head)) return tail;
 	}
-	// Space-separated "<Han> <Latin ≥2 words>": the Han run is the search title (the
-	// mirror of stripTranslation's rule 3, which keys identity on the Latin run).
+	// 2) Space-joined "<Han> <Latin>": the Han run is the search title (the mirror of
+	// stripTranslation's rule 3, which keys identity on the Latin run). The Latin side
+	// needs ≥2 words, or ONE Capitalized word — the share decode of "車匙 - Car" is
+	// "車匙 Car" (a Title-Case translation), while a lone lowercase word is the title's
+	// own styling ("我的 baby" is one title, not a translation pair).
 	const latin = HAN_THEN_LATIN.exec(s)?.[1];
-	if (latin && latin.trim().split(/\s+/).length >= 2 && !isQualifierTail(latin)) {
+	if (latin && latinRunOk(latin)) {
 		const han = s.slice(0, s.length - latin.length).trim();
 		if (han && han !== s) return han;
 	}
+	// 3) Space-joined mirror "<Latin ≥1 word> <Han>": the Han tail is the search title.
+	const mirror = /^([a-zA-Z0-9][\x20-\x7e]*?)\s+(\p{Script=Han}[\p{Script=Han}\s]*)$/u.exec(s);
+	if (mirror && latinRunOk(mirror[1])) return mirror[2].trim();
+	// 4) Concatenated script boundary, no separator at all: "車匙Car Key" / "CarKey車匙".
+	// The Latin side needs ≥2 words, or one Capitalized word of ≥3 letters ("CarKey") —
+	// a lowercase single glued word is part of the title's own styling, not a translation.
+	const gluedOk = (x: string): boolean =>
+		latinSideOk(x) && (x.trim().split(/\s+/).length >= 2 || /^[A-Z][a-zA-Z]{2,}$/.test(x.trim()));
+	const hanFirst = /^(\p{Script=Han}+)([a-zA-Z][\x20-\x7e]*)$/u.exec(s);
+	if (hanFirst && gluedOk(hanFirst[2])) return hanFirst[1];
+	// Mirror glue: the Latin head must END in a letter/digit (a space before the Han run is
+	// branch 3's shape, already handled above).
+	const latinFirst = /^([a-zA-Z0-9][\x20-\x7e]*[a-zA-Z0-9])(\p{Script=Han}[\p{Script=Han}\s]*)$/u.exec(s);
+	if (latinFirst && gluedOk(latinFirst[1])) return latinFirst[2].trim();
 	return null;
 }
 

@@ -502,6 +502,10 @@ describe('dedupeShelfList — one row per song+rendition (quick-261031-dedup)', 
 describe('cjkTitleOf / cjkSearchQuery — bilingual title split (quick-261103-cjk)', () => {
 	it('splits "<CJK> - <Latin>" on the CJK half', () => {
 		expect(cjkTitleOf('車匙 - Car Key')).toBe('車匙');
+		// quick-261103-cjk5: the SHARE-ARRIVAL shape — decodePathSegment eats the dashes, so the
+		// page hands resolveStub "車匙 Car Key" (space-joined, Title Case). This exact string
+		// returned null before the HAN_THEN_LATIN case fix and skipped the bilingual resolve.
+		expect(cjkTitleOf('車匙 Car Key')).toBe('車匙');
 		expect(cjkTitleOf('玻璃 - glass')).toBe('玻璃');
 	});
 	it('does not split on the hyphen inside the Latin half ("Car-Key")', () => {
@@ -512,6 +516,15 @@ describe('cjkTitleOf / cjkSearchQuery — bilingual title split (quick-261103-cj
 	});
 	it('splits the space-separated "<Han> <Latin ≥2 words>" shape', () => {
 		expect(cjkTitleOf('淺粉紅 pale pink')).toBe('淺粉紅');
+	});
+	it('cjk5 versatile shapes: dash without spaces, one-word Capitalized tails, mirrors, glued boundaries', () => {
+		expect(cjkTitleOf('車匙–Car Key')).toBe('車匙'); // en-dash, no surrounding spaces
+		expect(cjkTitleOf('車匙 Car')).toBe('車匙'); // one Capitalized word (share decode of "車匙 - Car")
+		expect(cjkTitleOf('Car Key 車匙')).toBe('車匙'); // space-joined mirror
+		expect(cjkTitleOf('Car 車匙')).toBe('車匙'); // mirror, one Capitalized word
+		expect(cjkTitleOf('車匙Car Key')).toBe('車匙'); // glued boundary, ≥2 Latin words
+		expect(cjkTitleOf('CarKey車匙')).toBe('車匙'); // glued mirror, one Capitalized word ≥3
+		expect(cjkTitleOf('車匙car key')).toBe('車匙'); // glued, lowercase but ≥2 words
 	});
 	it('never strips a rendition qualifier tail', () => {
 		expect(cjkTitleOf('玻璃 - Live')).toBeNull();
