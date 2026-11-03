@@ -269,6 +269,21 @@ describe('swipeRemove — unconditional settle (quick-261102-settle)', () => {
 		expect(m.style.opacity ?? '').toBe('');
 	});
 
+	// Hector's Related-repro shape on the remove surface (2026-11-02 18:27): past-threshold
+	// drag, release delivered ONLY to window (no node pointerup — the old limbo) → the remove
+	// MUST apply in the same turn, not wait for the mouse to re-enter the row.
+	it('past-threshold drag + release heard only on window REMOVES in the same turn', () => {
+		const onremove = vi.fn();
+		const m = mount({ onremove, threshold: 96 });
+		m.fire('pointerdown', peb(100, 50, 0));
+		m.fire('pointermove', peb(112, 52, 16)); // horizontal commit
+		m.fire('pointermove', peb(230, 54, 200)); // dx = 130 > threshold
+		expect(m.style.transform).toBe('translateX(130px)');
+		fakeWin.fire('pointerup', peb(430, 300, 240)); // released off-row — window only
+		expect(onremove).toHaveBeenCalledTimes(1);
+		expect(fakeWin.count('pointerup')).toBe(0); // safety net disarmed after the settle
+	});
+
 	it('window blur mid-drag settles (springs back, no remove)', () => {
 		const onremove = vi.fn();
 		const m = mount({ onremove, threshold: 96 });

@@ -322,6 +322,73 @@ describe('swipeAction — unconditional settle (quick-261102-settle)', () => {
 		expect(['', 'translateX(0)']).toContain(m.style.transform ?? '');
 	});
 
+	// Hector's exact Related-pane repro (2026-11-02 18:27): swipe RIGHT with the mouse on an
+	// NpRelated row, release with the mouse OUTSIDE the row — the old code neither applied the
+	// action nor snapped back (limbo until the mouse re-entered the row). Delivery shape: the
+	// node NEVER receives pointerup (no capture on that path), so the gesture can only end via
+	// the window safety net. Past threshold → the action MUST apply in the same turn.
+	it('RELATED REPRO: past-threshold swipe, release delivered only to window → action APPLIES + settles', () => {
+		const onSwipeRight = vi.fn();
+		const m = mount({ onSwipeRight, onSwipeLeft: vi.fn(), threshold: 96 });
+		m.fire('pointerdown', peb(100, 50, 0));
+		m.fire('pointermove', peb(112, 52, 16)); // horizontal commit
+		m.fire('pointermove', peb(230, 54, 200)); // dx = 130 > threshold — append-to-Up-Next distance
+		expect(m.style.transform).toBe('translateX(130px)');
+		// The release happens OFF the row: no node pointerup ever fires (the old limbo state).
+		fakeWin.fire('pointerup', peb(430, 300, 240));
+		expect(onSwipeRight).toHaveBeenCalledTimes(1); // append to Up Next applied, same turn
+		expect(['', 'translateX(0)']).toContain(m.style.transform ?? ''); // and the row settled home
+		expect(fakeWin.count('pointerup')).toBe(0); // safety net disarmed — nothing left pending
+		// Moving the mouse back into the row afterwards must be a no-op (nothing to "resolve").
+		m.fire('pointermove', peb(150, 50, 300));
+		expect(m.style.transform ?? '').toBe('');
+		expect(onSwipeRight).toHaveBeenCalledTimes(1);
+	});
+
+	// Direction-corrected twin (Hector 2026-11-02 18:29): on NpRelated rows the "append to
+	// Up Next" action is the LEFTWARD swipe — onSwipeLeft → relatedSwipeNext →
+	// player.playNext(track). Same limbo delivery shape (release heard only on window),
+	// negative dx past threshold → onSwipeLeft MUST apply in the same turn + settle.
+	it('RELATED REPRO (leftward, the playNext direction): release on window only → onSwipeLeft APPLIES + settles', () => {
+		const onSwipeLeft = vi.fn();
+		const m = mount({ onSwipeRight: vi.fn(), onSwipeLeft, threshold: 96 });
+		m.fire('pointerdown', peb(300, 50, 0));
+		m.fire('pointermove', peb(288, 52, 16)); // horizontal commit, leftward
+		m.fire('pointermove', peb(170, 54, 200)); // dx = -130, past threshold
+		expect(m.style.transform).toBe('translateX(-130px)');
+		fakeWin.fire('pointerup', peb(20, 300, 240)); // released off-row — window only
+		expect(onSwipeLeft).toHaveBeenCalledTimes(1); // playNext applied, same turn
+		expect(['', 'translateX(0)']).toContain(m.style.transform ?? '');
+		expect(fakeWin.count('pointerup')).toBe(0);
+	});
+
+	// The same repro with capture NEVER engaging at all (setPointerCapture unavailable on the
+	// node): the whole gesture is tracked + released through the window net only.
+	it('RELATED REPRO, no-capture variant: window-tracked swipe past threshold applies on outside release', () => {
+		const handlers = new Map<string, (e: PointerEvent) => void>();
+		const style: Record<string, string> = {};
+		const node = {
+			style,
+			// no setPointerCapture at all — the optional surface some engines/fakes present
+			addEventListener(type: string, cb: (e: PointerEvent) => void) {
+				handlers.set(type, cb);
+			},
+			removeEventListener(type: string) {
+				handlers.delete(type);
+			}
+		};
+		const onSwipeRight = vi.fn();
+		swipeAction(node as unknown as HTMLElement, { onSwipeRight, onSwipeLeft: vi.fn(), threshold: 96 });
+		const fire = (type: string, e: PointerEvent) => handlers.get(type)?.(e);
+		fire('pointerdown', peb(100, 50, 0));
+		fire('pointermove', peb(112, 52, 16)); // commit attempt — capture call is a no-op surface
+		fakeWin.fire('pointermove', peb(230, 54, 200)); // off-row travel heard on window only
+		expect(style.transform).toBe('translateX(130px)');
+		fakeWin.fire('pointerup', peb(430, 300, 240)); // released outside — window only
+		expect(onSwipeRight).toHaveBeenCalledTimes(1);
+		expect(['', 'translateX(0)']).toContain(style.transform ?? '');
+	});
+
 	it('window blur mid-drag settles the gesture (abandoned swipe = abandoned touch swipe)', () => {
 		const m = mount({ onSwipeRight: vi.fn(), onSwipeLeft: vi.fn(), threshold: 96 });
 		m.fire('pointerdown', peb(100, 50, 0));
