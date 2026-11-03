@@ -4,8 +4,7 @@ import {
 	variantTagsOf,
 	isAcceptableSubstitute,
 	partitionOfficial,
-	findOfficial,
-	pickOfficial,
+	rankPool,
 	isOfficialTitle,
 	bracketQualifier,
 	poolExpectedDuration,
@@ -14,6 +13,21 @@ import {
 	isAutoAcceptableArtist,
 	ALLOW_COVER_AS_AUTO_SUBSTITUTE
 } from './song-variant';
+
+// quick-261102-t7i: findOfficial / pickOfficial were folded into rankPool; these pin the same
+// behaviours through it (first acceptable row / best-scored row of the best pool).
+const findOfficial = <T extends { title: string; duration?: number }>(
+	c: T[],
+	title: string,
+	pred: (x: T) => boolean,
+	opts?: { expectedSec?: number }
+): T | undefined => rankPool(c.filter(pred), title, opts)[0];
+const pickOfficial = <T extends { title: string; duration?: number }>(
+	c: T[],
+	q: { artist: string; title: string },
+	scoreFn: (q: { artist: string; title: string }, x: T) => number,
+	opts?: { expectedSec?: number }
+): T | null => rankPool(c, q.title, { ...opts, score: (x) => scoreFn(q, x) })[0] ?? null;
 
 // The guard exists because sameSongKey CANNOT tell renditions apart: dedupe's key() strips bracketed
 // suffixes, so `告白氣球（純音樂版）` and `告白氣球` are the same key. Without this, a cross-source

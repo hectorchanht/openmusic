@@ -3,6 +3,7 @@
 
 import { variantTag, sameArtistCredit, sameSongStrings, sameSongByCredit } from '$lib/services/dedupe';
 import { foldScript } from '$lib/services/zh-convert';
+import { VARIANT_KEYWORDS, scoreMatch } from '$lib/services/score-match';
 //
 // WHY (user report, debug `slow-cold-start-first-playing`): when a source truly cannot serve a track,
 // the player retries the SAME song on another source so playback never visibly stops. That is the
@@ -148,24 +149,7 @@ export function isAcceptableSubstitute(originalTitle: string, candidateTitle: st
  * Covers the same ground as dedupe's variantTag plus bare keywords (DJ, 伴奏, …)
  * that variantTag's bracket-only scan would miss.
  */
-const VARIANT_KEYWORDS = [
-	// CJK
-	'伴奏', '伴唱', '無人聲', '无人声', '去人聲', '去人声', '消音', '卡拉',
-	'翻唱', '現場', '现场', '演唱會', '演唱会', '純音樂', '纯音乐',
-	'DJ版', 'dj版', '加速版', '減速版', '减速版', '重製', '重制', '重錄', '重录',
-	// quick-261101-ring1: the junk-drawer markers the 2026-11-01 incident exposed — NONE of these
-	// were in any marker list, so `偏偏喜歡你(48秒鈴聲版)` classified as an OFFICIAL title and a
-	// 48-second ringtone was auto-played over the studio version. Ringtones / carrier clips
-	// （鈴聲/彩鈴）, excerpt + preview cuts （片段/試聽）, pseudo-surround re-encodes （環繞）,
-	// edits （剪輯）, pitch-shifted cuts （升調/降調） and bare 混音 are rendition markers wherever
-	// they appear in a title, bracketed or not.
-	'鈴聲', '铃声', '彩鈴', '彩铃', '片段', '試聽', '试听', '環繞', '环绕',
-	'剪輯', '剪辑', '混音', '升調', '升调', '降調', '降调',
-	// Latin (word-boundary)
-	'instrumental', 'karaoke', 'ktv', 'offvocal', 'off vocal', 'backing track',
-	'minus one', 'cover', 'live', 'acoustic', 'unplugged', 'remix', 'remaster',
-	'demo', 'dj mix', 'nightcore', 'sped up', 'slowed', 'ringtone'
-];
+// quick-261102-t7i: the variant marker list is score-match's VARIANT_KEYWORDS (one list).
 
 function hasVariantKeyword(text: string): boolean {
 	const t = (text || '').toLowerCase();
@@ -297,7 +281,7 @@ export function isImplausiblyShort(
 }
 
 /**
- * Pool order shared by findOfficial / pickOfficial (quick-261101-ring1):
+ * Pool order behind rankPool (quick-261101-ring1):
  * official-plausible → variant-plausible → official-short → variant-short.
  * A full-length VARIANT outranks a SHORT official-titled clip: the clip is not the song at
  * any title, while the variant at least is. Short candidates remain reachable — they are
@@ -334,69 +318,31 @@ export function candidateTier(
 }
 
 /**
- * Every candidate matching `pred`, in the pools' priority order (official-plausible →
- * variant-plausible → official-short → variant-short — see poolsInOrder).
+ * quick-261102-t7i (DECISIONS.md §4) — THE pool ranker. Pools in priority order
+ * (official-plausible → variant-plausible → official-short → variant-short — see poolsInOrder),
+ * and within each pool by `opts.score` descending (stable: input order breaks ties; without a
+ * score, input order alone). Search results, auto-pick (discovery, the fallback/name-stub walk,
+ * JBSou, edge resolve) and the VersionPicker all consume this one order and may only truncate
+ * it — replacing rankAcceptable / findOfficial / pickOfficial, three views of the same pools that
+ * disagreed on within-pool order.
  *
- * quick-261102-exh1: the automatic chains (tryFallback, resolveNameStub) used to resolve
- * ONLY findOfficial's single pick per source. When that one resolve failed — a locked
- * tier map, a positional-id mismatch (joox `n`), a transient detail error — the source
- * counted as a full rejection even though its #2 acceptable row would have played: the
- * very rows a manual VersionPicker tap uses directly by id (user report 2026-11-02:
- * J.Sheon《別問很可怕》 skipped as unplayable while its JOOX rows played on tap).
- * Callers now walk this ranked list, resolving until one candidate yields a URL.
+ * quick-261102-exh1 (kept): the automatic chains walk this ranked list, resolving until one
+ * candidate yields a URL — a single failed resolve never burns a source whose #2 row would play.
  */
-export function rankAcceptable<T extends { title: string; duration?: number }>(
+export function rankPool<T extends { title: string; duration?: number }>(
 	candidates: T[],
 	queryTitle: string,
-	pred: (c: T) => boolean,
-	opts?: { expectedSec?: number }
+	opts?: { expectedSec?: number; score?: (c: T) => number }
 ): T[] {
-	const out: T[] = [];
-	for (const pool of poolsInOrder(candidates, queryTitle, opts?.expectedSec)) {
-		for (const c of pool) if (pred(c)) out.push(c);
-	}
-	return out;
-}
-
-/**
- * Find the first candidate matching `pred`, walking the pools in priority order
- * (official-plausible → variant-plausible → official-short → variant-short — see
- * poolsInOrder). `opts.expectedSec` is the target track's own known duration when the
- * caller has one; otherwise the pool median stands in.
- */
-export function findOfficial<T extends { title: string; duration?: number }>(
-	candidates: T[],
-	queryTitle: string,
-	pred: (c: T) => boolean,
-	opts?: { expectedSec?: number }
-): T | undefined {
-	return rankAcceptable(candidates, queryTitle, pred, opts)[0];
-}
-
-/**
- * Pick the highest-scoring candidate via `scoreFn`, from the first non-empty pool in
- * the same priority order findOfficial walks. Within the pool, the standard stable-max
- * applies (first wins ties).
- */
-export function pickOfficial<T extends { title: string; duration?: number }>(
-	candidates: T[],
-	query: { artist: string; title: string },
-	scoreFn: (q: { artist: string; title: string }, c: T) => number,
-	opts?: { expectedSec?: number }
-): T | null {
-	const pools = poolsInOrder(candidates, query.title, opts?.expectedSec);
-	const pool = pools.find((p) => p.length > 0);
-	if (!pool) return null;
-	let best = pool[0];
-	let bestScore = scoreFn(query, best);
-	for (let i = 1; i < pool.length; i++) {
-		const s = scoreFn(query, pool[i]);
-		if (s > bestScore) {
-			best = pool[i];
-			bestScore = s;
-		}
-	}
-	return best;
+	const pools = poolsInOrder(candidates, queryTitle, opts?.expectedSec);
+	const score = opts?.score;
+	if (!score) return pools.flat();
+	return pools.flatMap((pool) =>
+		pool
+			.map((c, i) => ({ c, i, s: score(c) }))
+			.sort((x, y) => y.s - x.s || x.i - y.i)
+			.map((x) => x.c)
+	);
 }
 
 // --- ARTIST-IDENTITY GATE (quick-261102-cov1) --------------------------------------------------
@@ -470,13 +416,16 @@ export function isAutoAcceptable(target: Named, cand: Named): boolean {
 	);
 }
 
-/** quick-261102-sy0: a pool's auto-acceptable rows in rankAcceptable order (official-plausible
- *  → variant-plausible → official-short → variant-short). The one ranked view every automatic
- *  path walks. */
+/** quick-261102-sy0: a pool's auto-acceptable rows in rankPool order (quick-261102-t7i: tiers,
+ *  then scoreMatch against the target). The one ranked view every automatic path walks. */
 export function rankAutoCandidates<T extends Named & { duration?: number }>(
 	pool: T[],
 	target: Named,
 	opts?: { expectedSec?: number }
 ): T[] {
-	return rankAcceptable(pool, target.title, (c) => isAutoAcceptable(target, c), opts);
+	return rankPool(
+		pool.filter((c) => isAutoAcceptable(target, c)),
+		target.title,
+		{ expectedSec: opts?.expectedSec, score: (c) => scoreMatch(target, c) }
+	);
 }

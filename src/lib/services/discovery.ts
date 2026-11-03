@@ -12,7 +12,7 @@
 // surface or the player. catalog.ts / dedupe.ts are pure reuse — NOT modified here.
 import { searchAll } from '$lib/services/catalog';
 import { dedupeBest, normField, preferenceOrder } from '$lib/services/dedupe';
-import { pickOfficial, partitionOfficial, isAutoAcceptable, isAutoAcceptableArtist } from '$lib/services/song-variant';
+import { rankPool, partitionOfficial, isAutoAcceptable, isAutoAcceptableArtist } from '$lib/services/song-variant';
 import { tier1Only } from '$lib/sources/registry';
 import { scoreMatch } from '$lib/services/score-match';
 import { isChineseLine, ensureFoldReady, foldScriptReady } from '$lib/services/zh-convert';
@@ -74,11 +74,15 @@ async function attempt(
 		// quick-260925-wa7: the name rescue ranks only the rows it would accept (see rescueLatin).
 		if (accept) candidates = candidates.filter(accept);
 		if (candidates.length === 0) return null;
-		// quick-261020-off1: pickOfficial ranks the OFFICIAL pool first. quick-261102-sy0: the
+		// quick-261020-off1: rankPool (quick-261102-t7i) ranks the OFFICIAL pool first. quick-261102-sy0: the
 		// tie-break order is preferenceOrder (quality → preferred source → PLAYBACK_ORDER) WITHOUT
 		// dedupeBest's collapse — that collapse merged 偏偏喜歡你 into its 320K 鈴聲 copy before
 		// the partition ran, so the 48-second ringtone was the only row left to pick.
-		return pickOfficial(preferenceOrder(candidates, settings.preferredSource), query, scoreMatch);
+		return (
+			rankPool(preferenceOrder(candidates, settings.preferredSource), title, {
+				score: (c) => scoreMatch(query, c)
+			})[0] ?? null
+		);
 	};
 	// quick-260926-c69: partition BEFORE dedupeBest. Its same-key collapse is decided by quality →
 	// settings.preferredSource → SOURCE_RANK, so a user-preferred ineligible source could otherwise

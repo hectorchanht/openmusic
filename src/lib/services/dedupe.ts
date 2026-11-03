@@ -5,6 +5,9 @@
 import type { SourceId, Track } from '$lib/sources/types';
 import { foldScript } from '$lib/services/zh-convert';
 import { playbackRank, COVER_ORDER } from '$lib/sources/source-order';
+// quick-261102-t7i: dedupe ↔ song-variant is a deliberate import cycle — both sides use the other
+// only inside function bodies (never at module evaluation), so either load order is safe.
+import { candidateTier } from '$lib/services/song-variant';
 import { isDeviceUid } from '$lib/services/device-track';
 import { splitArtists } from '$lib/util/artist-split';
 
@@ -645,27 +648,36 @@ export function rankByArtistExactness(tracks: Track[], artist: string, aliases: 
  */
 export function dedupeBest(tracks: Track[], preferred?: SourceId): Track[] {
 	const order: string[] = [];
-	const winner = new Map<string, Track>();
 	// quick-261021-cov2 (user): track all variants per key for best-cover picking.
 	// JOOX/Migu have the most accurate covers; prefer theirs during search so the
 	// list shows the right cover on first load (not just after Now Playing self-heal).
 	const variants = new Map<string, Track[]>();
+	const untitled = new Map<string, Track>();
 	for (const t of tracks) {
 		const k = key(t);
 		if (!k || k === '|') {
 			// untitled — keep as-is, unique by uid
 			order.push(t.uid);
-			winner.set(t.uid, t);
+			untitled.set(t.uid, t);
 			continue;
 		}
-		if (!winner.has(k)) {
+		if (!variants.has(k)) {
 			order.push(k);
-			winner.set(k, t);
 			variants.set(k, [t]);
-		} else {
-			variants.get(k)!.push(t);
-			winner.set(k, better(winner.get(k)!, t, preferred));
-		}
+		} else variants.get(k)!.push(t);
+	}
+	const winner = new Map<string, Track>(untitled);
+	for (const [k, vars] of variants) {
+		// quick-261102-t7i (DECISIONS.md §4): the group head is the RANKED head — a clean,
+		// plausible-length cut before any variant or clip (candidateTier against the plain title,
+		// the group's own median as the expected length), THEN quality/preference. The key drops
+		// brackets, so 偏偏喜歡你 and its 320K 偏偏喜歡你（鈴聲） share a group; picking by quality
+		// first is how the 48-second ringtone once represented the song.
+		const best = Math.min(...vars.map((t) => candidateTier(t, '', vars)));
+		winner.set(
+			k,
+			vars.filter((t) => candidateTier(t, '', vars) === best).reduce((w, t) => better(w, t, preferred))
+		);
 	}
 	// Pick best cover from variants (JOOX > Migu > others).
 	// quick-261021-cov2: even if winner HAS a cover, prefer JOOX/Migu's — they are

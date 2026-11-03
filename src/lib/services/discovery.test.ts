@@ -127,9 +127,9 @@ describe('resolveStub — scored best-match pick (LFSRC-03 / D-02)', () => {
 		// Two DISTINCT songs by the same artist, both matching the query equally well.
 		// Different titles → different dedupe keys → both survive. Equal score →
 		// the strict `s > bestScore` max keeps the EARLIER position → `first` wins.
-		// (Uses pickOfficial directly: resolveStub's dedupeBest would collapse identical
+		// (Uses rankPool directly: resolveStub's dedupeBest would collapse identical
 		// artist+title pairs, and unrelated songs now return null per quick-261020-wrong1.)
-		const { pickOfficial } = await import('$lib/services/song-variant');
+		const { rankPool } = await import('$lib/services/song-variant');
 		const { scoreMatch } = await import('$lib/services/score-match');
 		const first = mk('netease', 'first', '周杰伦', { title: '稻香' });
 		const second = mk('qq', 'second', '周杰伦', { title: '稻香 (DJ版)' });
@@ -137,7 +137,7 @@ describe('resolveStub — scored best-match pick (LFSRC-03 / D-02)', () => {
 		const a = mk('netease', 'a', '周杰伦', { title: '稻香' });
 		const b = mk('qq', 'b', '周杰伦', { title: '稻香' });
 		// Force equal scores by mocking scoreMatch to return the same for both.
-		const out = pickOfficial([a, b], { artist: '周杰伦', title: '稻香' }, () => 10);
+		const out = rankPool([a, b], '稻香', { score: () => 10 })[0];
 		expect(out?.uid).toBe(a.uid); // tie → first-wins (not last-wins)
 	});
 

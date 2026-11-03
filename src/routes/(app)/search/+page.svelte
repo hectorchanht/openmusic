@@ -4,7 +4,7 @@
 	import { searchAll } from '$lib/services/catalog';
 	import { prewarmTrack } from '$lib/services/prewarm';
 	import { dedupeBest, groupVariants } from '$lib/services/dedupe';
-	import { dedupeBestWithDeezer } from '$lib/services/dedupe-deezer';
+	import { rankPool } from '$lib/services/song-variant';
 	import { scoreMatch } from '$lib/services/score-match';
 	import { computeSetContext, tokenizeQuery } from '$lib/services/score-context';
 	// quick-260910-qwt: the shared row cover read (resolved → track.cover → the shared cache).
@@ -412,10 +412,13 @@
 	// useful) while the new short-title / artist-frequency boosts + the sub-60s 試聽 penalty are
 	// the dominant search-list signals. scoreMatch is deterministic, so equal scores keep
 	// dedupeBest's appearance order (the tie-break) — the sort is stable in practice.
+	// quick-261102-t7i (DECISIONS.md §4): THE pool ranker (song-variant rankPool) — official before
+	// variant, full length before clips, THEN scoreMatch with the set context — the same order the
+	// auto-pick and the VersionPicker consume. The page only truncates it.
 	function rankList(rows: Track[], query: string): Track[] {
 		const ctx = computeSetContext(rows, query);
 		const qObj = { artist: query, title: query };
-		return [...rows].sort((a, b) => scoreMatch(qObj, b, ctx) - scoreMatch(qObj, a, ctx));
+		return rankPool(rows, query, { score: (c) => scoreMatch(qObj, c, ctx) });
 	}
 
 	// 31-D-03 PRE-WARM (trigger 1 of the phase's two; trigger 2 is TrackMenu open). Speculatively
@@ -515,32 +518,17 @@
 			page = 1;
 			hasMore = results.length > 0;
 			persistSession(); // D-02: store the fresh set (overwrites the prior session)
-			// jip: Deezer-boosted re-rank AFTER first paint. Runs in background; the sync
-			// `dedupeBest` result is already on-screen, this just swaps in better picks for
-			// groups where >1 CN source returned the same song. Aborts on supersede.
-			void dedupeBestWithDeezer(interleaved, settings.preferredSource, ac.signal)
-				.then((boosted) => {
-					if (myAc.signal.aborted || kw !== q.trim()) return;
-					// SRCH-01/D-02: re-rank the Deezer-boosted set inside the supersede guard.
-					results = rankList(boosted, kw);
-					persistSession();
-				})
-				// The boost NEVER throws (dedupe-deezer.ts:87 — it returns the baseline on Deezer
-				// miss / abort / no key), so this only fires on a defect in the handler above.
-				// Swallowing it keeps the pre-warm below alive on the pre-boost ranking instead of
-				// losing it: an abort/reject/miss must still leave the search pre-warmed exactly once.
-				.catch(() => {})
-				// TERMINAL RANKING EVENT (31-D-03, quick-260809-cyk): nothing can reassign `results`
-				// for this query after this point, so this is the single place the settled top row is
-				// known. Same supersede guard as above — a query the user has already replaced must
-				// never pre-warm its stale top result.
-				.then(() => {
-					if (myAc.signal.aborted || kw !== q.trim()) return;
-					const top = results[0];
-					if (!top || top.uid === lastPrewarmedUid) return;
+			// quick-261102-t7i: the jip Deezer-boosted re-rank is GONE — a second ranker that swapped
+			// group winners after first paint. rankPool + dedupeBest's ranked group head decide once,
+			// so THIS settle is the TERMINAL RANKING EVENT (31-D-03, quick-260809-cyk): the single
+			// place the settled top row is known. Same supersede guard as above.
+			if (!myAc.signal.aborted && kw === q.trim()) {
+				const top = results[0];
+				if (top && top.uid !== lastPrewarmedUid) {
 					lastPrewarmedUid = top.uid;
 					prewarmTrack(top);
-				});
+				}
+			}
 		} catch (err) {
 			// WR-01: a superseded query (AbortError) must NOT clobber state.
 			if (err instanceof DOMException && err.name === 'AbortError') return;
@@ -947,7 +935,7 @@
 					<button
 						class="ver"
 						aria-label={verOpenLabel}
-						onclick={() => { pickerVersions = variantGroups[t.uid] ?? []; pickerOpen = true; }}
+						onclick={() => { pickerVersions = [t, ...(variantGroups[t.uid] ?? []).filter((v) => v.uid !== t.uid)]; pickerOpen = true; }}
 						use:tapBounce
 					>
 						<Layers size={18} />

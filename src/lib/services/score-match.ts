@@ -21,6 +21,10 @@
 // mistitle, not the song). Both are ctx-gated; the 2-arg resolveStub path is byte-identical.
 import { matchKey, titleKey } from '$lib/services/dedupe';
 import type { Track } from '$lib/sources/types';
+
+/** quick-261102-t7i: what scoreMatch reads off a candidate — any row with artist/title/duration
+ *  (a JBSou or edge QQ row ranks through the same function as a Track). */
+export type Scorable = Pick<Track, 'artist' | 'title'> & { duration?: number };
 import type { SetContext } from '$lib/services/score-context';
 
 /**
@@ -83,7 +87,34 @@ export const VARIANT_KEYWORDS: string[] = [
 	'升调',
 	'降調',
 	'降调',
-	'ringtone'
+	'ringtone',
+	// quick-261102-t7i (DECISIONS.md §4): ONE variant list. song-variant's official/variant
+	// partition kept a second, different list (these markers were missing here, so scoreMatch
+	// gave 消音/KTV/DJ版/remaster rows zero penalty while the partition demoted them); it now
+	// imports this one.
+	'伴唱',
+	'無人聲',
+	'无人声',
+	'去人聲',
+	'去人声',
+	'消音',
+	'卡拉',
+	'演唱會',
+	'演唱会',
+	'dj版',
+	'減速版',
+	'减速版',
+	'重錄',
+	'重录',
+	'ktv',
+	'offvocal',
+	'off vocal',
+	'backing track',
+	'minus one',
+	'unplugged',
+	'remaster',
+	'dj mix',
+	'nightcore'
 ];
 
 // --- Tuning weights (named consts so the balance is explicit + editable) ---------------
@@ -152,7 +183,7 @@ function tokens(component: string): string[] {
  * (artist / title) equality plus a small token-overlap term so a near-match beats an
  * unrelated one. Deterministic, never negative.
  */
-function similarity(query: { artist: string; title: string }, candidate: Track): number {
+function similarity(query: { artist: string; title: string }, candidate: Scorable): number {
 	// debug album-zip-duplicate-songs: fold BOTH sides Traditional→Simplified before keying. dedupeBest's
 	// key() has folded since quick-260926-n0r, so for a Traditional stub (MusicBrainz album rows) the
 	// merged group's survivor is the Simplified qq/netease row — which this script-blind compare scored
@@ -227,7 +258,7 @@ function kwHit(text: string, t: { kw: string; re: RegExp | null }): boolean {
  * suppresses the live-penalty for every candidate). Word-boundary match for latin (CR-01).
  * Paired keywords are de-duped so `live`⊂`live版` counts ONCE, not twice (CR-02). Non-negative.
  */
-function variantPenalty(query: { artist: string; title: string }, candidate: Track): number {
+function variantPenalty(query: { artist: string; title: string }, candidate: Scorable): number {
 	const title = (candidate.title || '').toLowerCase();
 	const qTitle = (query.title || '').toLowerCase(); // WR-02: query TITLE only, not artist
 
@@ -252,7 +283,7 @@ function variantPenalty(query: { artist: string; title: string }, candidate: Tra
  * (so a source that omits duration is never falsely down-ranked). A flat large subtraction so
  * no boost can lift a clip above a full track (PREVIEW_PENALTY is derived to dominate).
  */
-function previewPenalty(candidate: Track): number {
+function previewPenalty(candidate: Scorable): number {
 	const d = candidate.duration;
 	return typeof d === 'number' && d > 0 && d < SHORT_CLIP_SEC ? PREVIEW_PENALTY : 0;
 }
@@ -263,7 +294,7 @@ function previewPenalty(candidate: Track): number {
  * typed must not be punished). Graded SHORT_TITLE_BOOST_MAX..0 by absolute length delta.
  * Returns 0 when ctx is absent or queryLen is 0 (nothing to compare against).
  */
-function shortTitleBoost(candidate: Track, ctx: SetContext): number {
+function shortTitleBoost(candidate: Scorable, ctx: SetContext): number {
 	if (ctx.queryLen <= 0) return 0;
 	const titleLen = (candidate.title || '').trim().length;
 	const delta = Math.abs(titleLen - ctx.queryLen);
@@ -277,7 +308,7 @@ function shortTitleBoost(candidate: Track, ctx: SetContext): number {
  * (keyed artist-only, matching computeSetContext) appears under 2+ DISTINCT sources — i.e.
  * cross-source PRESENCE, never raw row count from a single source. Returns 0 otherwise.
  */
-function artistFrequencyBoost(candidate: Track, ctx: SetContext): number {
+function artistFrequencyBoost(candidate: Scorable, ctx: SetContext): number {
 	const sources = ctx.artistSources.get(matchKey(candidate.artist, ''));
 	return sources && sources.size >= 2 ? ARTIST_FREQ_BOOST : 0;
 }
@@ -291,7 +322,7 @@ function artistFrequencyBoost(candidate: Track, ctx: SetContext): number {
  */
 function isMislabeledLyricTitle(
 	query: { artist: string; title: string },
-	candidate: Track,
+	candidate: Scorable,
 	ctx: SetContext
 ): boolean {
 	if (!ctx.lyricMode || !ctx.lyricConsensus) return false;
@@ -305,7 +336,7 @@ function isMislabeledLyricTitle(
  * the lyric consensus — the song the lyric-matching upstreams agree on. 0 unless lyric mode is
  * on and a consensus was elected.
  */
-function lyricConsensusBoost(candidate: Track, ctx: SetContext): number {
+function lyricConsensusBoost(candidate: Scorable, ctx: SetContext): number {
 	if (!ctx.lyricMode || !ctx.lyricConsensus) return 0;
 	return titleKey(candidate.title) === ctx.lyricConsensus ? LYRIC_CONSENSUS_BOOST : 0;
 }
@@ -441,7 +472,7 @@ export function fuzzyArtistMatchesQuery(artist: string, queryTokens: string[]): 
  * only the search page's computeSetContext carries) so the 2-arg resolveStub / fallback
  * callers stay byte-identical, exactly like the other set-relative boosts.
  */
-function artistIntentBoost(candidate: Track, ctx: SetContext): number {
+function artistIntentBoost(candidate: Scorable, ctx: SetContext): number {
 	if (!ctx.queryTokens?.length) return 0;
 	return fuzzyArtistMatchesQuery(candidate.artist, ctx.queryTokens) ? ARTIST_INTENT_BOOST : 0;
 }
@@ -462,7 +493,7 @@ function artistIntentBoost(candidate: Track, ctx: SetContext): number {
  */
 export function scoreMatch(
 	query: { artist: string; title: string },
-	candidate: Track,
+	candidate: Scorable,
 	ctx?: SetContext
 ): number {
 	// LYRIC-03: the mistitle check needs the set-validated consensus, so it lives behind ctx.

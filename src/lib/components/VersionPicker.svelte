@@ -26,6 +26,8 @@
 	import { marquee } from '$lib/actions/marquee';
 	import { t } from '$lib/i18n';
 	import { collapseVariants, variantTag, type VersionTag } from '$lib/services/dedupe';
+	import { rankPool } from '$lib/services/song-variant';
+	import { scoreMatch } from '$lib/services/score-match';
 	// quick-261102-qtruth: the row quality label reads through the shared derivation
 	// (services/display-quality), like the Now-Playing pill and the Detail sheet.
 	import { trackQualityLabel, trackSourceLabel } from '$lib/services/display-quality';
@@ -38,7 +40,8 @@
 		onclose,
 		onpick,
 		loading = false,
-		overlayId = 'versionpicker'
+		overlayId = 'versionpicker',
+		target
 	}: {
 		versions: Track[];
 		open: boolean;
@@ -52,11 +55,22 @@
 		// its own balanced history entry instead of colliding on one shared key (which orphans a
 		// pushed history state → desyncs "history depth == overlay depth" → over-pops Back).
 		overlayId?: string;
+		// quick-261102-t7i: the song the sheet ranks against (defaults to versions[0]).
+		target?: { artist: string; title: string };
 	} = $props();
 
 	// Gap 5: collapse intra-source duplicates at render (cross-source variants are preserved as a
 	// real choice). Applied here so the search-page mount AND the 26-10 menu/up-next mounts are fixed.
-	const shown = $derived(collapseVariants(versions));
+	// quick-261102-t7i (DECISIONS.md §4): rows in THE pool ranker's order (song-variant rankPool —
+	// official before variant, full length before clips, then scoreMatch), relative to the row the
+	// sheet opened on (`target`, else versions[0]), so "Play from source" lists the auto-pick's
+	// choice first.
+	const shown = $derived.by(() => {
+		const rows = collapseVariants(versions);
+		const ref = target ?? versions[0];
+		if (!ref) return rows;
+		return rankPool(rows, ref.title, { score: (c) => scoreMatch(ref, c) });
+	});
 
 	// Quality label with a graceful fallback (many search stubs carry no quality pre-resolve).
 	function qualityLabel(v: Track): string {

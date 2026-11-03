@@ -164,6 +164,7 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 	// (non-reactive) supersedence guards — the house idiom (see player.svelte.ts playGen): a second
 	// open bumps the token + aborts the prior fetch so a stale in-flight result can never land.
 	let pickerVersions = $state<Track[]>([]);
+	let pickerTarget = $state<Track | null>(null); // quick-261102-t7i: the row the sheet ranks against
 	let pickerOpen = $state(false);
 	let pickerLoading = $state(false);
 	let versionGen = 0;
@@ -176,6 +177,7 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 		versionAc = ac;
 		// Open immediately with the spinner; the single fetchVariants fan-out runs behind the sheet.
 		pickerVersions = [];
+		pickerTarget = track;
 		pickerLoading = true;
 		pickerOpen = true;
 		const list = await fetchVariants(track, ac.signal);
@@ -1445,6 +1447,7 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 	     source's EXACT variant fresh (the user explicitly re-picked the source). -->
 	<VersionPicker
 		versions={pickerVersions}
+		target={pickerTarget ?? undefined}
 		open={pickerOpen}
 		loading={pickerLoading}
 		overlayId="versionpicker-page"
