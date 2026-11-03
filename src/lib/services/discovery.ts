@@ -11,7 +11,7 @@
 // Graceful degrade (D-03): null → caller shows unplayable / skips, never breaks the
 // surface or the player. catalog.ts / dedupe.ts are pure reuse — NOT modified here.
 import { searchAll } from '$lib/services/catalog';
-import { dedupeBest, normField, preferenceOrder } from '$lib/services/dedupe';
+import { dedupeBest, normField, preferenceOrder, cjkTitleOf } from '$lib/services/dedupe';
 import { rankPool, partitionOfficial, isAutoAcceptable, isAutoAcceptableArtist } from '$lib/services/song-variant';
 import { tier1Only } from '$lib/sources/registry';
 import { scoreMatch } from '$lib/services/score-match';
@@ -208,6 +208,33 @@ export async function resolveStub(artist: string, title: string): Promise<Track 
 		const query = { artist, title };
 		// quick-260926-c69 COMMON PATH — a strong eligible row: one searchAll, zero lookups.
 		if (bests.eligible && (await strongFolded(query, bests.eligible))) return bests.eligible;
+		// quick-261103-cjk (user report 2026-11-03): BILINGUAL TITLE SPLIT. A title like
+		// "車匙 - Car Key" (ytmusic / label spelling) is unfindable on the CN catalogs as
+		// written — live QQ probe: the full string AND "Jason Chan 車匙" return junk,
+		// "車匙" alone hits the original. So when the title has a CJK half and the full
+		// attempt produced no strong eligible row, ONE more attempt searches the CJK
+		// half alone (dedupe.cjkTitleOf). A Latin artist's CN rows are credited in
+		// Chinese (陳柏宇, not Jason Chan), so the split pool's artist gate rejects
+		// them all — that case bridges through the wa7 name rescue below, whose YTM
+		// pairing accepts the bilingual title itself as the English-side evidence and
+		// returns the Chinese credit to search with. Cost: zero on the common path
+		// (strong eligible returns above); a bilingual miss pays +1 attempt, plus the
+		// cached lookup when the artist is Latin.
+		const cjkTitle = cjkTitleOf(title);
+		if (cjkTitle) {
+			const splitQuery = { artist, title: cjkTitle };
+			const split = await attempt(artist, cjkTitle);
+			if (split.eligible && (await strongFolded(splitQuery, split.eligible))) return split.eligible;
+			if (detectLang(artist) === 'en') {
+				const rescued = await rescueLatin(artist, title).catch(() => null);
+				if (rescued) return rescued;
+			}
+			// Settle from the split pool only when it produced an ELIGIBLE row — an
+			// ineligible (ytmusic) split result must not pre-empt the full pool's own
+			// weak eligible row in the preferEligible fall-through below.
+			const settledSplit = await preferEligible(splitQuery, split);
+			if (settledSplit && isAutoResolveEligible(settledSplit.source)) return settledSplit;
+		}
 		// quick-260925-wa7 GATE A — Latin: NO kana/hangul/Han in either field ('en' is detectLang's
 		// "no CJK at all" verdict; isChineseLine alone would let JA/KO through).
 		const latin = detectLang(artist) === 'en' && detectLang(title) === 'en';

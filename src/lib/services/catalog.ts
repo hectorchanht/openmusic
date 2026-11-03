@@ -9,7 +9,7 @@ import { makeUid, type SourceId, type Track, type SettledSourceResult } from '$l
 import type { DefaultQuality } from '$lib/stores/settings.svelte';
 import { sleep } from '$lib/proxy/http';
 import { cached, evictCached, __clearSearchCache } from './ttl-cache';
-import { matchKey } from './dedupe';
+import { matchKey, cjkSearchQuery } from './dedupe';
 import { scoreMatch } from './score-match';
 import { walkSource } from './fallback';
 import { readResolveCache, registerServedResolve } from './resolve-cache-client';
@@ -298,12 +298,26 @@ export async function resolveNameStub(
 	// per-candidate continue-on-throw, same verdicts. This loop is the sequential exhaustive pass:
 	// every eligible source gets one genuine attempt, so a name stub is never called unplayable
 	// because a source merely errored.
-	for (const src of order) {
-		if (sig.aborted) return null;
-		const attempt = await walkSource(src, query, want, sig);
-		if (sig.aborted) return null;
-		if (attempt.hit) return attempt.hit.track;
-	}
+	const walkAll = async (q: string): Promise<Track | null> => {
+		for (const src of order) {
+			if (sig.aborted) return null;
+			const attempt = await walkSource(src, q, want, sig);
+			if (sig.aborted) return null;
+			if (attempt.hit) return attempt.hit.track;
+		}
+		return null;
+	};
+	const hit = await walkAll(query);
+	if (hit || sig.aborted) return hit;
+	// quick-261103-cjk (user report 2026-11-03): a bilingual title ("車匙 - Car Key") is
+	// unfindable on the CN catalogs under its full spelling (live QQ probe: full string
+	// → junk, CJK half alone → the original), so a total miss earns ONE more walk with
+	// the CJK-half search string (dedupe.cjkSearchQuery — CJK artist kept, Latin artist
+	// dropped). `want` is unchanged: the walker's gates still compare every candidate
+	// against the ORIGINAL stub, so the split pool can only adopt a row that is the
+	// same song by the same artist — never a stranger's same-title cover.
+	const splitQuery = cjkSearchQuery(artist, title);
+	if (splitQuery && splitQuery !== query) return walkAll(splitQuery);
 	return null;
 }
 

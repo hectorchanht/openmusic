@@ -9,6 +9,7 @@
 // exactly ONE source — keeping the per-source attempts cheap and isolating any source failure.
 
 import { searchAll, ensureTrackDetails } from '$lib/services/catalog';
+import { cjkSearchQuery } from '$lib/services/dedupe';
 import { rankAutoCandidates, candidateTier } from '$lib/services/song-variant';
 import { SOURCES, getEnabledAdapters, onlySource, isAutoResolveEligible } from '$lib/sources/registry';
 import { PRIORITY_WINDOW_MS } from '$lib/sources/source-order';
@@ -108,34 +109,51 @@ export async function tryFallback(
 	// the first to return a playable URL wins. Worst case drops from sum(latencies) to
 	// max(latency) — typically 3s instead of 10s+. The per-source gates (sameSongKey,
 	// isAcceptableSubstitute, rankAcceptable) still ensure authenticity; speed decides ties.
-	const race = await raceSources(order, (src, sig) => walkSource(src, query, failed, sig), signal);
-	// quick-261102-exh1: only GENUINELY tried sources join the attempted set (see the
-	// doc-block above). A source the race aborted mid-flight or whose search threw was
-	// never really tried — it stays eligible for this call's second pass AND for the
-	// caller's next episode if this call's winner later fails at the audio layer.
-	for (const src of order) {
-		const v = race.verdicts.get(src);
-		if (v && v !== 'inconclusive') attempted?.add(src);
-	}
-	if (race.hit) return race.hit.track;
-	// Superseded (a newer play owns the session) or cut off by the caller's budget
-	// watchdog — the caller discards this result either way; spend no second pass.
-	if (signal?.aborted) return null;
-	// EXHAUSTIVE SECOND PASS (quick-261102-exh1): every source the race left INCONCLUSIVE
-	// (its search threw, or it was still in flight when the race finished) gets ONE
-	// sequential attempt with the full candidate walk before this song may be called
-	// unplayable. "Not playable" from here on means every eligible source genuinely
-	// fetched its pool and had its best acceptable candidates resolved and refused —
-	// never merely that the race ran out of patience with a slower good source.
-	const sig = signal ?? new AbortController().signal;
-	for (const src of order) {
-		const v = race.verdicts.get(src);
-		if (v && v !== 'inconclusive') continue;
-		if (sig.aborted) return null;
-		const attempt = await walkSource(src, query, failed, sig);
-		if (attempt.verdict !== 'inconclusive') attempted?.add(src);
-		if (attempt.hit) return attempt.hit.track;
-	}
+	// quick-261103-cjk: one full race + exhaustive pass for ONE query string, extracted so
+	// the bilingual-split pass below reuses it verbatim. `attempted` marking is per-pass:
+	// a source genuinely tried under one query string is marked once, and the split pass
+	// re-tries the whole order because a different query is a genuinely different attempt.
+	const runPass = async (q: string): Promise<Track | null> => {
+		const race = await raceSources(order, (src, sig) => walkSource(src, q, failed, sig), signal);
+		// quick-261102-exh1: only GENUINELY tried sources join the attempted set (see the
+		// doc-block above). A source the race aborted mid-flight or whose search threw was
+		// never really tried — it stays eligible for this call's second pass AND for the
+		// caller's next episode if this call's winner later fails at the audio layer.
+		for (const src of order) {
+			const v = race.verdicts.get(src);
+			if (v && v !== 'inconclusive') attempted?.add(src);
+		}
+		if (race.hit) return race.hit.track;
+		// Superseded (a newer play owns the session) or cut off by the caller's budget
+		// watchdog — the caller discards this result either way; spend no second pass.
+		if (signal?.aborted) return null;
+		// EXHAUSTIVE SECOND PASS (quick-261102-exh1): every source the race left INCONCLUSIVE
+		// (its search threw, or it was still in flight when the race finished) gets ONE
+		// sequential attempt with the full candidate walk before this song may be called
+		// unplayable. "Not playable" from here on means every eligible source genuinely
+		// fetched its pool and had its best acceptable candidates resolved and refused —
+		// never merely that the race ran out of patience with a slower good source.
+		const sig = signal ?? new AbortController().signal;
+		for (const src of order) {
+			const v = race.verdicts.get(src);
+			if (v && v !== 'inconclusive') continue;
+			if (sig.aborted) return null;
+			const attempt = await walkSource(src, q, failed, sig);
+			if (attempt.verdict !== 'inconclusive') attempted?.add(src);
+			if (attempt.hit) return attempt.hit.track;
+		}
+		return null;
+	};
+	const hit = await runPass(query);
+	if (hit || signal?.aborted) return hit;
+	// quick-261103-cjk (user report 2026-11-03): a bilingual title ("車匙 - Car Key") is
+	// unfindable on the CN catalogs under its full spelling (live QQ probe: full string
+	// → junk, CJK half alone → the original), so a total miss earns ONE more pass with
+	// the CJK-half search string (dedupe.cjkSearchQuery). walkSource's gates still
+	// compare candidates against the FAILED track itself, so the split pool can only
+	// adopt the same song by the same artist — never a stranger's same-title cover.
+	const splitQuery = cjkSearchQuery(failed.artist, failed.title);
+	if (splitQuery && splitQuery !== query) return runPass(splitQuery);
 	return null;
 }
 

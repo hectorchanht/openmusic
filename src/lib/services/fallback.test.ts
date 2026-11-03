@@ -504,3 +504,43 @@ describe('tryFallback — artist-identity gate (quick-261102-cov1)', () => {
 		expect(out?.uid).toBe('kuwo:duet');
 	});
 });
+
+// quick-261103-cjk — bilingual title split: a failed track titled "車匙 - Car Key" is
+// unfindable on the CN catalogs under its full spelling (live QQ probe, 2026-11-03), so
+// after the full-query pass misses, tryFallback runs ONE more pass with the CJK-half
+// search string. The identity gates still compare against the failed track itself.
+describe('tryFallback — bilingual title split (quick-261103-cjk)', () => {
+	beforeEach(() => {
+		mockSearch.mockReset();
+		mockEnsure.mockReset();
+	});
+
+	it('full query dry everywhere → split query finds the same song on a CN source', async () => {
+		const cand = mk('qq', 'car', '陳柏宇', '車匙', 'https://cdn/car.mp3');
+		mockSearch.mockImplementation(async (q: string) =>
+			(q === '陳柏宇 車匙'
+				? { interleaved: [cand], perSource: [] }
+				: { interleaved: [], perSource: [] }) as never
+		);
+		mockEnsure.mockImplementation(async (t) => t);
+
+		const failed = mk('ytmusic', 'yt1', '陳柏宇', '車匙 - Car Key', null);
+		const out = await tryFallback(failed, undefined);
+
+		expect(out?.uid).toBe(cand.uid);
+		const queries = mockSearch.mock.calls.map((c) => c[0]);
+		expect(queries).toContain('陳柏宇 車匙 - Car Key');
+		expect(queries).toContain('陳柏宇 車匙');
+	});
+
+	it('a non-bilingual miss stays a single pass (no split query issued)', async () => {
+		mockSearch.mockResolvedValue({ interleaved: [], perSource: [] } as never);
+		const failed = mk('netease', '1', 'Artist', 'Song', null);
+
+		const out = await tryFallback(failed, undefined);
+
+		expect(out).toBeNull();
+		const queries = new Set(mockSearch.mock.calls.map((c) => c[0]));
+		expect(queries).toEqual(new Set(['Artist Song']));
+	});
+});

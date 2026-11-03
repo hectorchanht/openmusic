@@ -405,6 +405,65 @@ describe('resolveStub — English/romanized name rescue (quick-260925-wa7)', () 
 	});
 });
 
+// quick-261103-cjk — bilingual title split. A "車匙 - Car Key" stub is unfindable on the
+// CN catalogs under its full spelling (live QQ probe, 2026-11-03: full string → junk,
+// CJK half alone → the original), so with no strong eligible row the resolver retries
+// with the CJK half, and a Latin artist bridges via the wa7 name rescue.
+describe('resolveStub — bilingual title split (quick-261103-cjk)', () => {
+	const ytm = () => mk('ytmusic', 'yt1', 'Jason Chan', { title: '車匙 - Car Key' });
+	const qqRow = () => mk('qq', 'car', '陳柏宇', { title: '車匙' });
+
+	it('the reported song: ytmusic-only full attempt → name rescue finds the 陳柏宇 CN row', async () => {
+		const hit = qqRow();
+		const search = vi
+			.spyOn(catalog, 'searchAll')
+			.mockResolvedValueOnce(result([ytm()]))
+			.mockResolvedValueOnce(result([ytm()]))
+			.mockResolvedValueOnce(result([hit]));
+		const look = vi.spyOn(nameRescue, 'lookupChineseName').mockResolvedValue({ artist: '陳柏宇', title: '車匙' });
+
+		expect((await resolveStub('Jason Chan', '車匙 - Car Key'))?.uid).toBe(hit.uid);
+		expect(look).toHaveBeenCalledTimes(1);
+		expect(look).toHaveBeenCalledWith('Jason Chan', '車匙 - Car Key');
+		expect(search).toHaveBeenCalledTimes(3);
+		// The split attempt searched the CJK half alone.
+		expect(search.mock.calls[1][0]).toBe('Jason Chan 車匙');
+	});
+
+	it('CJK artist: the split attempt alone resolves, no lookup spent', async () => {
+		const hit = qqRow();
+		const search = vi
+			.spyOn(catalog, 'searchAll')
+			.mockResolvedValueOnce(result([]))
+			.mockResolvedValueOnce(result([]))
+			.mockResolvedValueOnce(result([hit]));
+		const look = vi.spyOn(nameRescue, 'lookupChineseName');
+
+		expect((await resolveStub('陳柏宇', '車匙 - Car Key'))?.uid).toBe(hit.uid);
+		expect(look).toHaveBeenCalledTimes(0);
+		expect(search).toHaveBeenCalledTimes(3);
+		expect(search.mock.calls[2][0]).toBe('陳柏宇 車匙');
+	});
+
+	it('strong eligible on the full attempt → returned as before, no split, no lookup', async () => {
+		const hit = mk('qq', 'full', '陳柏宇', { title: '車匙 - Car Key' });
+		const search = vi.spyOn(catalog, 'searchAll').mockResolvedValue(result([hit]));
+		const look = vi.spyOn(nameRescue, 'lookupChineseName');
+
+		expect((await resolveStub('陳柏宇', '車匙 - Car Key'))?.uid).toBe(hit.uid);
+		expect(search).toHaveBeenCalledTimes(1);
+		expect(look).toHaveBeenCalledTimes(0);
+	});
+
+	it('split + rescue both dry → the original ytmusic row still settles (never worse)', async () => {
+		const yt = ytm();
+		vi.spyOn(catalog, 'searchAll').mockResolvedValue(result([yt]));
+		vi.spyOn(nameRescue, 'lookupChineseName').mockResolvedValue(null);
+
+		expect((await resolveStub('Jason Chan', '車匙 - Car Key'))?.uid).toBe(yt.uid);
+	});
+});
+
 // quick-260926-c69 — eligible-first selection. resolveStub honours SourceAdapter.autoResolveEligible
 // (registry isAutoResolveEligible): a strong eligible (CN) row beats a ytmusic row; for a Latin query
 // with no strong eligible row the wa7 rescue runs FIRST to find one; a strong ytmusic row still beats

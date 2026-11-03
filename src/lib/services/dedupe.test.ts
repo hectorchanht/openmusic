@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeAll } from 'vitest';
-import { dedupeBest, groupVariants, collapseVariants, variantTag, sameSongKey, sameSongStrings, rankByArtistExactness, dedupeShelfList, isSameShelfSong } from './dedupe';
+import { dedupeBest, groupVariants, collapseVariants, variantTag, sameSongKey, sameSongStrings, rankByArtistExactness, dedupeShelfList, isSameShelfSong, cjkTitleOf, cjkSearchQuery } from './dedupe';
 import { warmScript } from './zh-convert';
 import { makeUid, type SourceId, type Track } from '$lib/sources/types';
 
@@ -494,6 +494,40 @@ describe('dedupeShelfList — one row per song+rendition (quick-261031-dedup)', 
 	it('drops an exact-uid repeat of a catalog row', () => {
 		const a = mk('qq', 'q1', '晴天', '周杰倫');
 		expect(dedupeShelfList([a, { ...a }])).toHaveLength(1);
+	});
+});
+
+// quick-261103-cjk: the CJK half of a bilingual title is the CN-catalog SEARCH string —
+// the full bilingual spelling is unfindable there (live QQ probe, 2026-11-03).
+describe('cjkTitleOf / cjkSearchQuery — bilingual title split (quick-261103-cjk)', () => {
+	it('splits "<CJK> - <Latin>" on the CJK half', () => {
+		expect(cjkTitleOf('車匙 - Car Key')).toBe('車匙');
+		expect(cjkTitleOf('玻璃 - glass')).toBe('玻璃');
+	});
+	it('does not split on the hyphen inside the Latin half ("Car-Key")', () => {
+		expect(cjkTitleOf('車匙 - Car-Key')).toBe('車匙');
+	});
+	it('splits "<Latin> - <CJK>" on the CJK half too', () => {
+		expect(cjkTitleOf('Car Key - 車匙')).toBe('車匙');
+	});
+	it('splits the space-separated "<Han> <Latin ≥2 words>" shape', () => {
+		expect(cjkTitleOf('淺粉紅 pale pink')).toBe('淺粉紅');
+	});
+	it('never strips a rendition qualifier tail', () => {
+		expect(cjkTitleOf('玻璃 - Live')).toBeNull();
+		expect(cjkTitleOf('玻璃 - remix')).toBeNull();
+		expect(cjkTitleOf('玻璃 - part 2')).toBeNull();
+	});
+	it('returns null for non-bilingual titles', () => {
+		expect(cjkTitleOf('車匙')).toBeNull();
+		expect(cjkTitleOf('Car Key')).toBeNull();
+		expect(cjkTitleOf('我的 baby')).toBeNull();
+		expect(cjkTitleOf('')).toBeNull();
+	});
+	it('search query keeps a CJK artist and drops a Latin one', () => {
+		expect(cjkSearchQuery('陳柏宇', '車匙 - Car Key')).toBe('陳柏宇 車匙');
+		expect(cjkSearchQuery('Jason Chan', '車匙 - Car Key')).toBe('車匙');
+		expect(cjkSearchQuery('Jason Chan', 'Car Key')).toBeNull();
 	});
 });
 

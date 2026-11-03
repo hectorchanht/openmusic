@@ -71,7 +71,9 @@ function isQualifierTail(tail: string): boolean {
 		.trim()
 		.split(/\s+/)
 		.every((w) => {
-			const x = w.replace(/\.$/, '');
+			// quick-261103-cjk: case-insensitive — identity callers pass preNorm-lowercased
+			// titles, but cjkTitleOf reads the RAW title ("玻璃 - Live" must not split).
+			const x = w.replace(/\.$/, '').toLowerCase();
 			return /^\d+$/.test(x) || QUALIFIER_WORDS.has(x);
 		});
 }
@@ -90,6 +92,61 @@ function stripTranslation(title: string): string {
 	const latin = HAN_THEN_LATIN.exec(s)?.[1];
 	if (latin && latin.trim().split(/\s+/).length >= 2 && !isQualifierTail(latin)) return latin;
 	return s;
+}
+
+/**
+ * quick-261103-cjk (user report 2026-11-03 — 陳柏宇《車匙 - Car Key》 played only via
+ * YouTube Music): the CJK half of a bilingual title, for SEARCHING the CN catalogs.
+ * Identity already keys a bilingual title on one half (stripTranslation above), but the
+ * CN search engines do not: probed live on QQ, "Jason Chan 車匙 - Car Key" and even
+ * "Jason Chan 車匙" return junk, while "車匙" alone hits 陳柏宇's original at #2 and
+ * "陳柏宇 車匙" hits it at #1. So a resolver that searches the full bilingual string
+ * finds NOTHING on qq/netease/kuwo/kugou/migu and the song appears to exist only on
+ * ytmusic. Returns the Han side of "<Han> - <Latin>", "<Latin> - <Han>" or
+ * "<Han> <Latin ≥2 words>", or null when the title is not bilingual in that shape.
+ * The qualifier guard is stripTranslation's: a Latin tail that names a RENDITION
+ * (live / remix / part 2 …) is not a translation, so "玻璃 - Live" yields null and
+ * keeps searching as-is.
+ */
+export function cjkTitleOf(titleIn: string): string | null {
+	const s = (titleIn ?? '').trim();
+	if (!HAN.test(s)) return null;
+	// Dash-separated: split on the LAST " - "-style separator (spaces on both sides, so
+	// the hyphen inside "Car-Key" never splits). Either side may be the CJK half.
+	const seps = [...s.matchAll(/\s[-–—]\s/g)];
+	if (seps.length > 0) {
+		const last = seps[seps.length - 1];
+		const head = s.slice(0, last.index).trim();
+		const tail = s.slice(last.index + last[0].length).trim();
+		if (HAN.test(head) && PRINTABLE_ASCII.test(tail) && /[a-zA-Z]/.test(tail) && !isQualifierTail(tail)) return head;
+		if (HAN.test(tail) && PRINTABLE_ASCII.test(head) && /[a-zA-Z]/.test(head) && !isQualifierTail(head)) return tail;
+	}
+	// Space-separated "<Han> <Latin ≥2 words>": the Han run is the search title (the
+	// mirror of stripTranslation's rule 3, which keys identity on the Latin run).
+	const latin = HAN_THEN_LATIN.exec(s)?.[1];
+	if (latin && latin.trim().split(/\s+/).length >= 2 && !isQualifierTail(latin)) {
+		const han = s.slice(0, s.length - latin.length).trim();
+		if (han && han !== s) return han;
+	}
+	return null;
+}
+
+/**
+ * quick-261103-cjk: the SEARCH STRING a resolver should use for a bilingual-titled
+ * song on the CN catalogs, or null when the title has no CJK half to split off.
+ * A CJK artist stays in the query ("陳柏宇 車匙" was the probe's exact #1 hit); a
+ * Latin artist is dropped — "Jason Chan 車匙" still missed on QQ, because the CN
+ * engines tokenize the Latin credit into junk, while the CJK title alone hit. The
+ * callers' identity gates still compare candidates against the ORIGINAL
+ * {artist, title}, so a title-only pool can only ever adopt a row the gates accept
+ * for the original stub (same title key + same artist credit) — never a stranger's
+ * same-title song.
+ */
+export function cjkSearchQuery(artistIn: string, titleIn: string): string | null {
+	const cjk = cjkTitleOf(titleIn);
+	if (!cjk) return null;
+	const artist = (artistIn ?? '').trim();
+	return HAN.test(artist) ? `${artist} ${cjk}` : cjk;
 }
 
 /**

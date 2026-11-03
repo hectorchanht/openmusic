@@ -769,6 +769,33 @@ describe('resolveNameStub — registry-first single-source name resolution (RESO
 		expect(out).toBeNull();
 	});
 
+	// quick-261103-cjk: a bilingual title is unfindable on the CN catalogs under its full
+	// spelling (live QQ probe, 2026-11-03), so a total miss earns ONE more walk with the
+	// CJK-half search string. searchAll folds keywords to Simplified, so the adapter sees
+	// "陈柏宇 车匙" on the split pass.
+	it('bilingual title: full walk dry → split walk (CJK half) resolves (quick-261103-cjk)', async () => {
+		stubAllEmpty();
+		const cand = mk('joox', 'car', 1, { artist: '陈柏宇', title: '车匙' });
+		const jxSearch = vi
+			.spyOn(SOURCES.joox, 'search')
+			.mockImplementation(async (kw: string) => (kw === '陈柏宇 车匙' ? [cand] : []));
+		vi.spyOn(SOURCES.joox, 'resolve').mockResolvedValue({
+			...cand,
+			detailsLoaded: true,
+			audioUrl: 'https://cdn/car.flac',
+			lrc: '[00:01]x'
+		});
+
+		const out = await resolveNameStub('陳柏宇', '車匙 - Car Key');
+
+		expect(out?.uid).toBe('joox:car');
+		expect(out?.audioUrl).toBe('https://cdn/car.flac');
+		// joox is the floor head: searched once per walk — full spelling first, split second.
+		expect(jxSearch).toHaveBeenCalledTimes(2);
+		expect(jxSearch.mock.calls[0][0]).toBe('陈柏宇 车匙 - Car Key');
+		expect(jxSearch.mock.calls[1][0]).toBe('陈柏宇 车匙');
+	});
+
 	it('returns null when the signal is already aborted (no search issued)', async () => {
 		stubAllEmpty();
 		const ac = new AbortController();
